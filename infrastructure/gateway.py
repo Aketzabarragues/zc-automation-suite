@@ -147,8 +147,8 @@ class TIAProcessGateway:
             "compile_plc", {"plc_name": plc_name}
         )
 
-    async def export_blocks_scl(self, plc_name: str, target_dir: str) -> str:
-        """Exporta los bloques de programa del PLC a archivos .scl en target_dir.
+    async def export_blocks_sd(self, plc_name: str, target_dir: str) -> str:
+        """Exporta los bloques de programa del PLC a archivos Simatic Source Documents (.s7dcl) en target_dir.
 
         Fail-Fast: target_dir debe ser una ruta absoluta. No se almacena en caché
         porque es una acción mutable que vuelca contenido a disco.
@@ -159,12 +159,12 @@ class TIAProcessGateway:
             )
 
         return await self._dispatch_worker(
-            "export_blocks_scl",
+            "export_blocks_sd",
             {"plc_name": plc_name, "target_dir": target_dir},
         )
 
-    async def export_udts_scl(self, plc_name: str, target_dir: str) -> str:
-        """Exporta los UDTs (User Data Types) del PLC a archivos .scl en target_dir.
+    async def export_udts_sd(self, plc_name: str, target_dir: str) -> str:
+        """Exporta los UDTs (User Data Types) del PLC a archivos Simatic Source Documents (.s7dcl) en target_dir.
 
         Fail-Fast: target_dir debe ser una ruta absoluta. No se almacena en caché.
         """
@@ -174,7 +174,7 @@ class TIAProcessGateway:
             )
 
         return await self._dispatch_worker(
-            "export_udts_scl",
+            "export_udts_sd",
             {"plc_name": plc_name, "target_dir": target_dir},
         )
 
@@ -212,13 +212,13 @@ class TIAProcessGateway:
         await self._dispatch_worker("close_project", {})
         self.clear_cache()
 
-    async def import_blocks_scl(
+    async def import_blocks_sd(
         self,
         plc_name: str,
         import_dir: str,
         target_folder: str | None = None,
     ) -> bool:
-        """Importa bloques de programa (.scl) desde el disco al PLC.
+        """Importa bloques de programa en formato Simatic Source Documents (.s7dcl) desde el disco al PLC.
 
         Fail-Fast: import_dir debe ser una ruta absoluta. La validación
         final de existencia del directorio la hace el worker antes de
@@ -231,7 +231,7 @@ class TIAProcessGateway:
             )
 
         return await self._dispatch_worker(
-            "import_blocks_scl",
+            "import_blocks_sd",
             {
                 "plc_name": plc_name,
                 "import_dir": import_dir,

@@ -1,10 +1,12 @@
 """Gestor de configuración dinámica.
 
-Mantiene el mapeo entre tipos de dispositivo del Excel y nombres reales
-de tablas dentro del PLC de TIA Portal. Esto evita **hardcodear** nombres
-como ``"000_Config_Dispositivos"`` en los casos de uso (criterio del ticket).
+Lee ``infrastructure/config.json`` y expone el mapeo entre tipos de
+dispositivo del Excel y nombres reales de tablas dentro del PLC de
+TIA Portal. Esto evita hardcodear nombres como ``"000_Config_Dispositivos"``
+en los casos de uso.
 
-⚠️ SCAFFOLDING — Portar la lógica real desde ``_legacy_reference/``.
+Restricción arquitectónica: este módulo es OFFLINE; no importa
+``siemens_tia_scripting``.
 """
 from __future__ import annotations
 
@@ -13,34 +15,45 @@ from pathlib import Path
 from typing import Any
 
 
-class ConfigManager:
-    """Stub. La implementación real debe portarse desde el repositorio legacy.
+_DEFAULT_GLOBAL_CONFIG_TABLE_NAME = "000_Config_Dispositivos"
 
-    Lee ``infrastructure/config.json`` y expone helpers tipados para
-    resolver nombres de tablas PLC sin acoplarlos al código de negocio.
-    """
+
+class ConfigManager:
+    """Carga ``infrastructure/config.json`` y expone el mapeo dinámico."""
 
     def __init__(
         self, config_path: str | Path = "infrastructure/config.json"
     ) -> None:
         self._config_path = Path(config_path)
-        self._config: dict[str, Any] = {}
-        if self._config_path.is_file():
-            try:
-                with self._config_path.open("r", encoding="utf-8") as fh:
-                    self._config = json.load(fh)
-            except (OSError, json.JSONDecodeError):
-                self._config = {}
+        self._config: dict[str, Any] = self._load_config()
+
+    def _load_config(self) -> dict[str, Any]:
+        """Carga el archivo JSON de configuración.
+
+        Raises:
+            FileNotFoundError: Si el archivo no existe.
+            json.JSONDecodeError: Si el contenido no es JSON válido.
+        """
+        if not self._config_path.is_file():
+            raise FileNotFoundError(
+                f"No se encontró el archivo de configuración: "
+                f"'{self._config_path}'"
+            )
+        with self._config_path.open("r", encoding="utf-8") as fh:
+            loaded: dict[str, Any] = json.load(fh)
+            return loaded
 
     def get_global_config_table_name(self) -> str:
         """Devuelve el nombre de la tabla de configuración global.
 
-        Raises:
-            NotImplementedError: Hasta que se porten los modelos reales
-                desde ``_legacy_reference/``.
+        Si la clave ``global_config_table_name`` no existe en el JSON,
+        retorna ``"000_Config_Dispositivos"`` como fallback defensivo
+        (mantiene compatibilidad con proyectos legacy que no tenían
+        el ``config.json`` explícito).
         """
-        raise NotImplementedError(
-            "ConfigManager.get_global_config_table_name es un stub. "
-            "Portar la lógica desde _legacy_reference/. "
-            f"Config path: {self._config_path}"
+        return str(
+            self._config.get(
+                "global_config_table_name",
+                _DEFAULT_GLOBAL_CONFIG_TABLE_NAME,
+            )
         )

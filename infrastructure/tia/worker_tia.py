@@ -150,13 +150,18 @@ def _cmd_compile_plc(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
     return bool(target_plc.compile_software())
 
 
-def _export_objects_scl(portal: Any, ts: Any, args: dict[str, Any]) -> str:
-    """Exporta una colección de objetos TIA (Bloques o UDTs) a archivos .scl.
+def _export_objects_sd(portal: Any, ts: Any, args: dict[str, Any]) -> str:
+    """Exporta una colección de objetos TIA (Bloques o UDTs) a archivos .s7dcl.
 
     Espera en args: plc_name, target_dir, collection_key
     ('program_blocks' | 'user_data_types'). `ts` se inyecta desde
     `_load_siemens_wrapper()` para acceder a los enumeradores nativos
     (ts.Enums.ExportFormats.SimaticSD, etc.).
+
+    Nota de formato: TIA Portal V21 emite archivos .s7dcl
+    (Simatic Source Documents) cuando se solicita ``export_format=SimaticSD``.
+    El sufijo ``.s7dcl`` es el canónico a partir de V17; el ``.scl``
+    histórico queda obsoleto en esta arquitectura.
     """
     project = _get_active_project(portal)
     plc_name: str = args.get("plc_name", "")
@@ -180,9 +185,9 @@ def _export_objects_scl(portal: Any, ts: Any, args: dict[str, Any]) -> str:
         # El wrapper nativo de Siemens soporta coerción desde strings hacia
         # sus enumeradores internos (TypeError previo: "export_format must
         # be an Enum or string"). Inyectamos el literal "SimaticSD" para
-        # forzar la exportación en formato fuente (.scl) sin depender del
-        # espacio de nombres ts.Enums.ExportFormats (no expuesto en este
-        # build). Manual V1.2.1, secciones 2.10.5 y 2.15.5.
+        # forzar la exportación en formato fuente SimaticSD (.s7dcl) sin
+        # depender del espacio de nombres ts.Enums.ExportFormats (no
+        # expuesto en este build). Manual V1.2.1, secciones 2.10.5 y 2.15.5.
         obj.export(
             target_directory_path=str(target_path),
             export_format="SimaticSD",
@@ -192,16 +197,16 @@ def _export_objects_scl(portal: Any, ts: Any, args: dict[str, Any]) -> str:
     return str(target_path)
 
 
-def _cmd_export_blocks_scl(portal: Any, ts: Any, args: dict[str, Any]) -> str:
-    """Exporta los bloques de programa del PLC como archivos fuente SimaticSD."""
+def _cmd_export_blocks_sd(portal: Any, ts: Any, args: dict[str, Any]) -> str:
+    """Exporta los bloques de programa del PLC como archivos Simatic Source Documents (.s7dcl)."""
     args = {**args, "collection_key": "program_blocks"}
-    return _export_objects_scl(portal, ts, args)
+    return _export_objects_sd(portal, ts, args)
 
 
-def _cmd_export_udts_scl(portal: Any, ts: Any, args: dict[str, Any]) -> str:
-    """Exporta los User Data Types (UDTs) del PLC como archivos fuente SimaticSD."""
+def _cmd_export_udts_sd(portal: Any, ts: Any, args: dict[str, Any]) -> str:
+    """Exporta los User Data Types (UDTs) del PLC como archivos Simatic Source Documents (.s7dcl)."""
     args = {**args, "collection_key": "user_data_types"}
-    return _export_objects_scl(portal, ts, args)
+    return _export_objects_sd(portal, ts, args)
 
 
 def _cmd_export_plc_tags_xml(portal: Any, ts: Any, args: dict[str, Any]) -> str:
@@ -234,12 +239,18 @@ def _cmd_export_plc_tags_xml(portal: Any, ts: Any, args: dict[str, Any]) -> str:
     return str(target_path)
 
 
-def _cmd_import_blocks_scl(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
-    """Importa bloques de programa (.scl) desde el disco al PLC (manual §2.2.23).
+def _cmd_import_blocks_sd(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
+    """Importa bloques de programa en formato Simatic Source Documents (.s7dcl) desde el disco al PLC (manual §2.2.23).
 
     TIA Portal asume que el directorio existe; si no, el CLR lanza una
     excepción grave. Por eso validamos con os.path.isdir() ANTES de invocar
     el método COM.
+
+    Nota: el nombre del comando refleja la convención actual (.s7dcl /
+    SimaticSD); internamente el wrapper sigue invocando
+    ``target_plc.import_blocks`` porque la API de Siemens mantiene
+    estable el nombre del método independientemente de la extensión
+    del archivo.
     """
     _ = ts
     project = _get_active_project(portal)
@@ -597,7 +608,7 @@ def _cmd_execute_transactional_batch(
 
 
 COMMAND_REGISTRY: dict[str, Callable[[Any, Any, dict[str, Any]], Any]] = {
-    # ── Ciclo de vida del proyecto ────────────────────────────────────────
+    # ── Ciclo de vida del proyecto ────────────────────────────────────
     "open_project": _cmd_open_project,
     "save_project": _cmd_save_project,
     "close_project": _cmd_close_project,
@@ -606,13 +617,13 @@ COMMAND_REGISTRY: dict[str, Callable[[Any, Any, dict[str, Any]], Any]] = {
     "list_blocks": _cmd_list_blocks,
     # ── Mutación / compilación ──────────────────────────────────────────
     "compile_plc": _cmd_compile_plc,
-    # ── Exportación masiva SimaticSD ─────────────────────────────────────
-    "export_blocks_scl": _cmd_export_blocks_scl,
-    "export_udts_scl": _cmd_export_udts_scl,
+    # ── Exportación masiva Simatic Source Documents (.s7dcl) ──────────
+    "export_blocks_sd": _cmd_export_blocks_sd,
+    "export_udts_sd": _cmd_export_udts_sd,
     # ── Exportación masiva SimaticML (XML) ───────────────────────────────
     "export_plc_tags_xml": _cmd_export_plc_tags_xml,
     # ── Importación masiva desde disco (cierre del ciclo I/O) ─────────────
-    "import_blocks_scl": _cmd_import_blocks_scl,
+    "import_blocks_sd": _cmd_import_blocks_sd,
     "import_plc_tags_xml": _cmd_import_plc_tags_xml,
     # ── Bloques granulares ──────────────────────────────────────────────
     "export_block": _cmd_export_block,

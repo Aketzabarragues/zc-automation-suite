@@ -27,6 +27,9 @@ from infrastructure.gateway import TIAProcessGateway
 from application.use_cases.sync_hardware_dimensions import (
     SyncHardwareDimensionsUseCase,
 )
+from application.use_cases.sync_hardware_instances import (
+    SyncHardwareInstancesUseCase,
+)
 
 
 def create_mcp_server(gateway: TIAProcessGateway) -> FastMCP:
@@ -117,28 +120,41 @@ def create_mcp_server(gateway: TIAProcessGateway) -> FastMCP:
             "Revise la ventana de inspección de TIA Portal para más detalles."
         )
 
-    # ── Exportación masiva SimaticSD ────────────────────────────────────
+    # ── Exportación masiva Simatic Source Documents (.s7dcl) ──────────
     @mcp.tool()
-    async def tia_export_blocks_scl(plc_name: str, target_dir: str) -> str:
-        """Exporta los bloques de programa del PLC como archivos .scl (SimaticSD).
+    async def tia_export_blocks_sd(plc_name: str, target_dir: str) -> str:
+        """Exporta los bloques de programa del PLC como archivos Simatic Source Documents (.s7dcl).
+
+        ⚠️ **Convención de formato**: el sistema trabaja exclusivamente en
+        formato ``.s7dcl`` (SimaticSD). El antiguo sufijo ``.scl`` ha quedado
+        obsoleto. El archivo se emite con la extensión nativa que TIA Portal
+        V21 produce al usar ``export_format=SimaticSD``.
 
         Args:
             plc_name:  Nombre exacto del PLC en el proyecto.
             target_dir: Ruta ABSOLUTA del directorio destino. Se crea si no existe.
         """
-        path = await gateway.export_blocks_scl(plc_name, target_dir)
-        return f"Bloques de '{plc_name}' exportados a '{path}' en formato SimaticSD."
+        path = await gateway.export_blocks_sd(plc_name, target_dir)
+        return (
+            f"Bloques de '{plc_name}' exportados a '{path}' en formato "
+            "Simatic Source Documents (.s7dcl)."
+        )
 
     @mcp.tool()
-    async def tia_export_udts_scl(plc_name: str, target_dir: str) -> str:
-        """Exporta los UDTs (User Data Types) del PLC como archivos .scl (SimaticSD).
+    async def tia_export_udts_sd(plc_name: str, target_dir: str) -> str:
+        """Exporta los UDTs (User Data Types) del PLC como archivos Simatic Source Documents (.s7dcl).
+
+        ⚠️ **Convención de formato**: ver ``tia_export_blocks_sd``.
 
         Args:
             plc_name:  Nombre exacto del PLC en el proyecto.
             target_dir: Ruta ABSOLUTA del directorio destino. Se crea si no existe.
         """
-        path = await gateway.export_udts_scl(plc_name, target_dir)
-        return f"UDTs de '{plc_name}' exportados a '{path}' en formato SimaticSD."
+        path = await gateway.export_udts_sd(plc_name, target_dir)
+        return (
+            f"UDTs de '{plc_name}' exportados a '{path}' en formato "
+            "Simatic Source Documents (.s7dcl)."
+        )
 
     # ── Exportación masiva SimaticML (XML) ──────────────────────────────
     @mcp.tool()
@@ -159,23 +175,25 @@ def create_mcp_server(gateway: TIAProcessGateway) -> FastMCP:
 
     # ── Importación masiva desde disco (cierre del ciclo I/O) ───────────
     @mcp.tool()
-    async def tia_import_blocks_scl(
+    async def tia_import_blocks_sd(
         plc_name: str,
         import_dir: str,
         target_folder: str | None = None,
     ) -> str:
-        """Importa bloques de programa (.scl) desde el disco al PLC.
+        """Importa bloques de programa en formato Simatic Source Documents (.s7dcl) desde el disco al PLC.
 
-        Cierra el ciclo I/O: junto con tia_export_blocks_scl, permite
-        migrar bloques entre proyectos o entornos.
+        ⚠️ **Convención de formato**: el sistema trabaja exclusivamente
+        con ``.s7dcl`` (SimaticSD). Carga el ciclo I/O: junto con
+        ``tia_export_blocks_sd``, permite migrar bloques entre proyectos
+        o entornos.
 
         Args:
             plc_name:      Nombre exacto del PLC destino.
-            import_dir:    Ruta ABSOLUTA del directorio con los archivos .scl
-                           (estructura exportada por tia_export_blocks_scl).
+            import_dir:    Ruta ABSOLUTA del directorio con los archivos .s7dcl
+                           (estructura exportada por tia_export_blocks_sd).
             target_folder: Carpeta destino dentro del PLC (opcional).
         """
-        result = await gateway.import_blocks_scl(
+        result = await gateway.import_blocks_sd(
             plc_name=plc_name,
             import_dir=import_dir,
             target_folder=target_folder,
@@ -183,7 +201,7 @@ def create_mcp_server(gateway: TIAProcessGateway) -> FastMCP:
         if result is True:
             return (
                 f"Bloques importados correctamente al PLC '{plc_name}' "
-                f"desde '{import_dir}'."
+                f"desde '{import_dir}' en formato .s7dcl."
             )
         return (
             f"La importación de bloques al PLC '{plc_name}' no reportó éxito "
@@ -446,6 +464,50 @@ def create_mcp_server(gateway: TIAProcessGateway) -> FastMCP:
         use_case = SyncHardwareDimensionsUseCase(gateway, config_manager)
         result = await use_case.execute(plc_name, excel_path)
         return result["message"]
+
+    @mcp.tool()
+    async def tia_sync_hardware_instances_from_excel(
+        plc_name: str, excel_path: str
+    ) -> str:
+        """Sincroniza las instancias de hardware del PLC declaradas en un Excel.
+
+        Procesa el Excel **offline**: lee los DTOs de cada hoja, exporta la
+        base actual del PLC (variables y bloques), clona y modifica los
+        nodos PlcTag XML y los archivos ``.s7dcl`` (inyecta llamadas entre
+        los marcadores ``// AUTO_GEN_START`` / ``// AUTO_GEN_END``) y, por
+        último, inyecta el resultado en el autómata mediante un lote
+        transaccional ``import_plc_tags_xml`` + ``import_blocks_sd``.
+
+        ⚠️ **Convención de formato**: el sistema procesa bloques
+        exclusivamente en formato Simatic Source Documents (``*.s7dcl`` /
+        SimaticSD). El antiguo sufijo ``.scl`` ya no es soportado.
+
+        Responsabilidad única: este caso de uso NO toca constantes N_MAX
+        (eso es ``tia_sync_hardware_dimensions_from_excel``); solo añade
+        instancias nuevas.
+
+        ⚠️ **IMPORTANTE** — Tras el éxito de esta operación, el caller DEBE
+        invocar ``tia_compile_plc`` para que TIA Portal asiente el modelo
+        de memoria del PLC y los bloques newly-injected queden disponibles
+        para su uso. Si la operación devolvió ``operations == 0`` (PLC ya
+        sincronizado), la compilación sigue siendo recomendable pero no
+        obligatoria.
+
+        Args:
+            plc_name:  Nombre exacto del PLC.
+            excel_path: Ruta absoluta al archivo Excel corporativo (.xlsx).
+                        Convención: cada hoja = un tipo de dispositivo
+                        (``DispED``, ``DispV``, ``Motores``, ``Valvulas``…);
+                        filas = instancias (columna ``nombre`` requerida).
+        """
+        use_case = SyncHardwareInstancesUseCase(gateway)
+        result = await use_case.execute(plc_name, excel_path)
+        # Refuerzo del recordatorio para el LLM: tras inyectar, compilar.
+        return (
+            f"{result['message']} "
+            "Recuerda invocar tia_compile_plc a continuación para asentar "
+            "el modelo de memoria del PLC."
+        )
 
     return mcp
 
