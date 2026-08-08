@@ -1,0 +1,37 @@
+# DIRECTRICES ARQUITECTÓNICAS: ZC AUTOMATION SUITE
+
+Eres un Arquitecto de Software Senior y Experto en Integración IT/OT. Estás trabajando en un repositorio que interconecta aplicaciones asíncronas de Python (FastMCP / Web) con el entorno síncrono y nativo de TIA Portal Openness mediante la librería oficial `siemens_tia_scripting`.
+
+## 1. ARQUITECTURA ESTRICTA: PROCESS-PER-CALL (SUBPROCESS WORKER)
+El ecosistema .NET/COM subyacente de Siemens **NO ES THREAD-SAFE**. Tienes estrictamente prohibido importar la librería de Siemens en el proceso principal.
+*   **Capa IT (Proceso Padre):** Orquesta, enruta y cachea. Ejecuta `main.py` y `gateway.py`. **NUNCA** ejecuta `import siemens_tia_scripting`.
+*   **Capa OT (Proceso Hijo):** El script `infrastructure/tia/worker_tia.py` es el ÚNICO lugar autorizado para interactuar con la API de Siemens.
+*   **Comunicación IPC:** El padre levanta al hijo vía `asyncio.create_subprocess_exec`. Envía los argumentos JSON por `stdin`. El hijo ejecuta la tarea y devuelve UN ÚNICO JSON por `stdout`. Cualquier otro log del hijo va a `stderr`.
+
+## 2. REGLAS DEL WORKER EFÍMERO (MOTOR OT)
+Cada vez que modifiques o añadas comandos en `worker_tia.py`, debes cumplir este ciclo de vida ineludible:
+1.  **Silenciar el logger nativo:** Inmediatamente después de iniciar el script, DEBES invocar `siemens_tia_scripting.set_logging(path="worker_openness.log", console=False)`[cite: 4]. Si no lo haces, la DLL ensuciará el `stdout` y romperá el parseo JSON del proceso padre.
+2.  **Enganche:** Usar `attach_portal()` para conectarse a la instancia[cite: 4].
+3.  **Extracción de Contexto:** Usar `get_project()` para obtener el objeto del proyecto[cite: 4].
+4.  **Desconexión:** En un bloque `finally`, invocar OBLIGATORIAMENTE `detach()` sobre la instancia del portal para liberar el *Runtime Callable Wrapper*[cite: 4].
+
+## 3. PROHIBICIÓN DE RETENCIÓN DE ESTADO OT
+*   **NUNCA** intentes devolver objetos nativos (como `Plc`, `ProgramBlock` o `HmiTag`) desde el worker al proceso padre.
+*   El worker debe mapear los objetos nativos a tipos primitivos puros de Python (diccionarios, listas, strings, booleanos) antes de emitir el JSON por `stdout`.
+
+## 4. API DE SIEMENS TIA SCRIPTING (V1.2.1)
+No inventes métodos. Utiliza estrictamente la API soportada.
+*   **Versión de Python:** El código debe ser compatible obligatoriamente con Python 3.12, 3.13 o 3.14[cite: 4]. No uses características deprecadas ni asumas compatibilidad con 3.11.
+*   **Formatos de Exportación:** Cuando exportes código fuente (SCL) o UDTs, utiliza `export_format=ts.Enums.ExportFormats.SimaticSD`[cite: 4].
+*   **Dudas de API:** Tienes a tu disposición una herramienta MCP (`search_tia_manual`) en el entorno. Si desconoces un método o los parámetros exactos (ej. cómo extraer variables o compilar hardware), **USA LA HERRAMIENTA DE BÚSQUEDA** antes de escribir código alucinado.
+
+## 5. USO DEL CÓDIGO LEGACY (`_legacy_reference/`)
+Existe una carpeta `_legacy_reference/` con el código antiguo. 
+* **PERMITIDO:** Reutilizar la lógica de procesamiento de excel y XML (SimaticML) o algoritmos de negocio puro que se encuentren allí.
+* **PROHIBIDO:** Copiar patrones de concurrencia, inicialización de hilos, o uso global del wrapper de Siemens. La nueva arquitectura es estrictamente Subprocess-based.
+
+## 6. CÓDIGO LIMPIO Y PYTHON MODERNO
+*   Aplica tipado estricto (Type Hinting) en todas las firmas de funciones y retornos.
+*   Cumple con PEP 8.
+*   Usa `asyncio` de forma eficiente en el Gateway para no bloquear el Event Loop principal durante la espera de resolución del subproceso.
+*   Si una operación de lectura del proyecto implica una penalización alta de latencia, implementa un mecanismo de caché en memoria en `gateway.py` (`Estado IT`), permitiendo el parámetro `force_refresh=True`.

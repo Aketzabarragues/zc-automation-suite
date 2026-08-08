@@ -1,0 +1,1 @@
+"""Capa de infraestructura para ZC Automation Suite."""

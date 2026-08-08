@@ -1,0 +1,1 @@
+"""Subpaquete TIA Portal Openness (Motor OT)."""
