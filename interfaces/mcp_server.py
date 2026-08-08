@@ -21,7 +21,12 @@ from typing import Any
 
 from fastmcp import FastMCP
 
+from infrastructure.config_manager import ConfigManager
 from infrastructure.gateway import TIAProcessGateway
+
+from application.use_cases.sync_hardware_dimensions import (
+    SyncHardwareDimensionsUseCase,
+)
 
 
 def create_mcp_server(gateway: TIAProcessGateway) -> FastMCP:
@@ -37,6 +42,10 @@ def create_mcp_server(gateway: TIAProcessGateway) -> FastMCP:
         lista para invocar `mcp.run(transport="stdio")`.
     """
     mcp = FastMCP("ZC Automation Suite")
+
+    # Inyección del ConfigManager. Ruta por defecto relativa al CWD;
+    # ajustar aquí si se desea apuntar a un config alternativo en tests.
+    config_manager = ConfigManager("infrastructure/config.json")
 
     # ── Ciclo de vida del proyecto ──────────────────────────────────────
     @mcp.tool()
@@ -402,55 +411,41 @@ def create_mcp_server(gateway: TIAProcessGateway) -> FastMCP:
     async def tia_execute_transactional_batch(
         operations: list[dict], undo_text: str = "Batch Operation"
     ) -> str:
-        """Ejecuta múltiples comandos de TIA Portal en una única transacción atómica con rollback.
+        """Ejecuta múltiples comandos de mutación de TIA Portal en una única transacción atómica con rollback.
 
-        Permite componer flujos complejos (p. ej. update_constant + compile,
-        importar varios DBs secuencialmente, etc.) garantizando que TODAS las
-        operaciones se apliquen o NINGUNA lo haga. Si cualquier comando del
-        lote falla, el motor OT invoca el rollback automático de TIA Portal,
-        restaurando el estado del proyecto previo al lote.
-
-        Cada paso emite su valor de retorno nativo (bool de compile_plc, ruta
-        de export_*, etc.) en la lista `details`, permitiendo que la capa de
-        presentación o el LLM inspeccionen el estado final de las operaciones
-        intermedias (no es una caja negra).
-
-        Importante:
-          - Los comandos prohibidos dentro de un lote son: open_project,
-            close_project, save_project, list_plcs y execute_transactional_batch.
-          - Dentro de la lista, el campo 'command' omite el prefijo 'tia_'
-            (uso interno del gateway).
+        NOTA: La compilación (compile_plc) está prohibida dentro de este lote y debe ejecutarse
+        como un paso independiente posterior a la transacción.
 
         Args:
-            operations: Lista de operaciones. Cada elemento es un dict con:
-                          - 'command': str (ej. "import_blocks_scl")
-                          - 'args':    dict (argumentos del comando)
-                        Ejemplo: [{"command": "import_blocks_scl",
-                                   "args": {"plc_name": "PLC1",
-                                            "import_dir": "C:/tmp"}}]
-            undo_text:  Texto para el historial de Undo de TIA Portal.
-
-        Returns:
-            Mensaje humano con el resumen del lote, incluyendo el número de
-            operaciones ejecutadas y el detalle de cada paso (paso, comando,
-            resultado individual).
+            operations: Lista de operaciones de mutación o importación. El 'command' interno omite el prefijo 'tia_'.
+                        Ejemplo: [{"command": "update_user_constant_value", "args": {"plc_name": "PLC1", "table_name": "TEST", "constant_name": "N_MAX", "new_value": 50}}]
+            undo_text: Texto para el historial de TIA Portal.
         """
-        result: dict[str, Any] = await gateway.execute_transactional_batch(
-            operations, undo_text
-        )
-        # Resumen legible para el LLM con el desglose devuelto por el motor OT.
-        # Serialización explícita (!r) para que tipos no triviales (None, False,
-        # listas) se impriman limpios y sean inequívocos.
-        summary_lines: list[str] = [
-            f"Transacción completada con éxito. "
-            f"{result['operations_executed']} comandos ejecutados.",
-            "Detalle por paso:",
-        ]
-        for step in result.get("details", []):
-            summary_lines.append(
-                f"  - Paso {step['step']}: {step['command']} -> {step['result']!r}"
-            )
-        return "\n".join(summary_lines)
+        result = await gateway.execute_transactional_batch(operations, undo_text)
+        return f"Transacción completada con éxito. {result['operations_executed']} comandos ejecutados."
+
+    # ── Caso de uso de alto nivel: sincronización Excel → TIA ────────────
+    @mcp.tool()
+    async def tia_sync_hardware_dimensions_from_excel(
+        plc_name: str, excel_path: str
+    ) -> str:
+        """Sincroniza las dimensiones de hardware (N_MAX) del PLC desde un Excel.
+
+        Orquesta la lectura offline del Excel, el cruce con el estado actual
+        de TIA Portal (exportado a XML), y aplica las diferencias bajo una
+        transacción atómica con rollback automático.
+
+        El parseo del Excel y del XML se ejecuta en hilos separados
+        (``asyncio.to_thread``) para no bloquear el Event Loop del servidor
+        MCP; la inyección en TIA Portal se delega al worker OT.
+
+        Args:
+            plc_name:  Nombre exacto del PLC en el proyecto TIA Portal.
+            excel_path: Ruta absoluta al archivo Excel corporativo (.xlsx).
+        """
+        use_case = SyncHardwareDimensionsUseCase(gateway, config_manager)
+        result = await use_case.execute(plc_name, excel_path)
+        return result["message"]
 
     return mcp
 

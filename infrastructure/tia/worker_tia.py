@@ -713,6 +713,11 @@ def main() -> None:
         portal = ts.attach_portal(
             portal_mode=ts.Enums.PortalMode.AnyUserInterface
         )
+        if portal is None:
+            raise RuntimeError(
+                "Fallo crítico: attach_portal retornó una referencia nula. "
+                "Asegúrate de que TIA Portal está abierto o implementa open_portal."
+            )
 
         # 5. Despacho al handler. La extracción del proyecto es responsabilidad
         #    del propio handler (vía _get_active_project) si lo requiere.

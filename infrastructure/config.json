@@ -1,0 +1,4 @@
+{
+  "_comment": "SCAFFOLDING - Portar config real desde _legacy_reference/. Por ahora solo contiene el mapeo mínimo que el caso de uso necesita para arrancar.",
+  "global_config_table_name": "000_Config_Dispositivos"
+}
