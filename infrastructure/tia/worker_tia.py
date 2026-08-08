@@ -496,11 +496,16 @@ def _cmd_execute_transactional_batch(
 ) -> dict[str, Any]:
     """Ejecuta múltiples comandos atómicos bajo una única transacción de TIA Portal.
 
-    Itera sobre el propio COMMAND_REGISTRY delegando en los handlers ya
-    testados, aislando todo el lote dentro de project.start_transaction() /
-    project.end_transaction(). Si cualquier handler levanta excepción, se
-    invoca end_transaction(rollback=True) para revertir TODA la cadena
-    y se propaga un RuntimeError con la operación que causó el aborto.
+    Actúa como ACUMULADOR DE RESULTADOS: captura el valor de retorno de cada
+    handler atómico y lo agrega a `details`, evitando el "sumidero de datos"
+    clásico donde el lote ejecuta operaciones pero la capa IT queda ciega
+    ante los resultados intermedios (p. ej. el booleano de compile_plc, la
+    ruta de export_blocks_scl, etc.).
+
+    Aísla la cadena bajo `project.start_transaction()` / `end_transaction()`
+    (manual §2.37.27 / §2.37.28). Si cualquier handler levanta excepción,
+    se invoca `end_transaction(rollback=True)` para revertir TODA la cadena
+    y se propaga un RuntimeError con el paso exacto que causó el aborto.
 
     Args:
         portal: Instancia del portal TIA (inyectada por el dispatcher).
@@ -511,13 +516,21 @@ def _cmd_execute_transactional_batch(
                   - undo_text:  str (opcional) -> texto del historial.
 
     Returns:
-        {"success": True, "operations_executed": int}
+        {
+            "success":             True,
+            "operations_executed": int,
+            "details": [
+                {"step": int, "command": str, "result": Any},
+                ...
+            ],
+        }
 
     Raises:
         ValueError: Si la lista está vacía, contiene un comando desconocido
                     o un comando prohibido dentro de un lote.
         RuntimeError: Si una operación falla; el mensaje identifica el
-                      índice y nombre del comando que rompió el lote.
+                      índice (basado en pasos YA acumulados + 1) y nombre
+                      del comando que rompió el lote.
     """
     _ = ts
     project = _get_active_project(portal)
@@ -527,11 +540,17 @@ def _cmd_execute_transactional_batch(
     if not operations:
         raise ValueError("La lista de operaciones está vacía.")
 
+    # Iniciar transacción nativa (manual §2.37.27).
     project.start_transaction(undo_text=undo_text, dialog_text=undo_text)
-    executed = 0
+
+    # Acumulador de resultados intermedios. Cada paso exitoso añade su
+    # retorno nativo (bool, str, list, dict, etc.) SIN coerción, para
+    # preservar la semántica exacta del wrapper de Siemens.
+    results_list: list[dict[str, Any]] = []
+
     cmd: str = ""
     try:
-        for op in operations:
+        for idx, op in enumerate(operations):
             cmd = op.get("command", "")
             cmd_args: dict[str, Any] = op.get("args", {})
 
@@ -543,23 +562,35 @@ def _cmd_execute_transactional_batch(
                     "transaccional."
                 )
 
-            # Ejecutar el handler atómico reinyectando portal y ts.
-            COMMAND_REGISTRY[cmd](portal, ts, cmd_args)
-            executed += 1
+            # Ejecutar el handler atómico reinyectando portal y ts,
+            # capturando su valor de retorno para inspección posterior.
+            step_result: Any = COMMAND_REGISTRY[cmd](portal, ts, cmd_args)
 
+            results_list.append(
+                {"step": idx + 1, "command": cmd, "result": step_result}
+            )
+
+        # Confirmar transacción si no hubo errores (manual §2.37.28).
         project.end_transaction(rollback=False)
-        return {"success": True, "operations_executed": executed}
+
+        return {
+            "success": True,
+            "operations_executed": len(operations),
+            "details": results_list,
+        }
 
     except Exception as e:
-        # Cualquier fallo (validación, COM, OS) aborta el lote y restaura
-        # el estado previo del proyecto. Silenciamos fallos secundarios
-        # del rollback para no enmascarar la causa raíz original.
+        # Reversión garantizada ante excepciones (manual §2.37.28).
+        # Silenciamos fallos secundarios del rollback para no enmascarar
+        # la causa raíz original.
         try:
             project.end_transaction(rollback=True)
         except Exception:
             pass
+        # len(results_list) marca el ÚLTIMO paso exitoso; el fallo ocurre
+        # en resultados_list + 1 (o en validación previa, donde len=0).
         raise RuntimeError(
-            f"Lote abortado en la operación {executed + 1} ('{cmd}'). "
+            f"Lote abortado en el paso {len(results_list) + 1} ('{cmd}'). "
             f"Rollback ejecutado. Motivo: {e}"
         )
 

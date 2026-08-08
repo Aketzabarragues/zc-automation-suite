@@ -421,6 +421,11 @@ def run_mcp_server() -> None:
         lote falla, el motor OT invoca el rollback automático de TIA Portal,
         restaurando el estado del proyecto previo al lote.
 
+        Cada paso emite su valor de retorno nativo (bool de compile_plc, ruta
+        de export_*, etc.) en la lista `details`, permitiendo que la capa de
+        presentación o el LLM inspeccionen el estado final de las operaciones
+        intermedias (no es una caja negra).
+
         Importante:
           - Los comandos prohibidos dentro de un lote son: open_project,
             close_project, save_project, list_plcs y execute_transactional_batch.
@@ -437,13 +442,24 @@ def run_mcp_server() -> None:
             undo_text:  Texto para el historial de Undo de TIA Portal.
 
         Returns:
-            Mensaje humano confirmando el número de comandos ejecutados.
+            Mensaje humano con el resumen del lote, incluyendo el número de
+            operaciones ejecutadas y el detalle de cada paso (paso, comando,
+            resultado individual).
         """
         result = await gateway.execute_transactional_batch(operations, undo_text)
-        return (
+        # Reconstruimos un resumen legible para el LLM con el desglose
+        # devuelto por el motor OT. Serialización explícita para garantizar
+        # que tipos no triviales (None, False, listas) se impriman limpios.
+        summary_lines: list[str] = [
             f"Transacción completada con éxito. "
-            f"{result['operations_executed']} comandos ejecutados."
-        )
+            f"{result['operations_executed']} comandos ejecutados.",
+            "Detalle por paso:",
+        ]
+        for step in result.get("details", []):
+            summary_lines.append(
+                f"  - Paso {step['step']}: {step['command']} -> {step['result']!r}"
+            )
+        return "\n".join(summary_lines)
 
     mcp.run(transport="stdio")
 
