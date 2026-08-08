@@ -376,3 +376,33 @@ class TIAProcessGateway:
                 "constant_name": constant_name,
             },
         )
+
+    async def execute_transactional_batch(
+        self, operations: list[dict[str, Any]], undo_text: str = "Batch Operation"
+    ) -> dict[str, Any]:
+        """Ejecuta un lote de comandos en una transacción atómica del motor OT.
+
+        Delega en el worker `_cmd_execute_transactional_batch`, que aísla
+        toda la cadena bajo `project.start_transaction()` / `end_transaction`
+        y aplica rollback automático si cualquier operación falla. Esto
+        garantiza atomicidad en el historial de TIA Portal (Undo) y elimina
+        estados intermedios inconsistentes.
+
+        Args:
+            operations: Lista de operaciones con la forma
+                        [{"command": str, "args": dict}, ...]. El nombre
+                        del comando omite el prefijo 'tia_' (uso interno).
+            undo_text:  Etiqueta visible en el historial de Undo de TIA Portal.
+
+        Returns:
+            dict[str, Any] con {"success": True, "operations_executed": int}.
+
+        Raises:
+            RuntimeError: Si la lista está vacía, contiene un comando
+                          desconocido o prohibido, o si cualquier operación
+                          interna falla (incluye rollback automático).
+        """
+        return await self._dispatch_worker(
+            "execute_transactional_batch",
+            {"operations": operations, "undo_text": undo_text},
+        )

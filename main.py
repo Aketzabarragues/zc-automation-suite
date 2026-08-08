@@ -409,6 +409,42 @@ def run_mcp_server() -> None:
             else f"No se pudo eliminar la constante '{constant_name}'."
         )
 
+    @mcp.tool()
+    async def tia_execute_transactional_batch(
+        operations: list[dict], undo_text: str = "Batch Operation"
+    ) -> str:
+        """Ejecuta múltiples comandos de TIA Portal en una única transacción atómica con rollback.
+
+        Permite componer flujos complejos (p. ej. update_constant + compile,
+        importar varios DBs secuencialmente, etc.) garantizando que TODAS las
+        operaciones se apliquen o NINGUNA lo haga. Si cualquier comando del
+        lote falla, el motor OT invoca el rollback automático de TIA Portal,
+        restaurando el estado del proyecto previo al lote.
+
+        Importante:
+          - Los comandos prohibidos dentro de un lote son: open_project,
+            close_project, save_project, list_plcs y execute_transactional_batch.
+          - Dentro de la lista, el campo 'command' omite el prefijo 'tia_'
+            (uso interno del gateway).
+
+        Args:
+            operations: Lista de operaciones. Cada elemento es un dict con:
+                          - 'command': str (ej. "import_blocks_scl")
+                          - 'args':    dict (argumentos del comando)
+                        Ejemplo: [{"command": "import_blocks_scl",
+                                   "args": {"plc_name": "PLC1",
+                                            "import_dir": "C:/tmp"}}]
+            undo_text:  Texto para el historial de Undo de TIA Portal.
+
+        Returns:
+            Mensaje humano confirmando el número de comandos ejecutados.
+        """
+        result = await gateway.execute_transactional_batch(operations, undo_text)
+        return (
+            f"Transacción completada con éxito. "
+            f"{result['operations_executed']} comandos ejecutados."
+        )
+
     mcp.run(transport="stdio")
 
 

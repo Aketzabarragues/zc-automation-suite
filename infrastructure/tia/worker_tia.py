@@ -124,7 +124,11 @@ def _cmd_list_blocks(portal: Any, ts: Any, args: dict[str, Any]) -> list[str]:
     _ = ts
     project = _get_active_project(portal)
     plc_name: str = args.get("plc_name", "")
-    folder_path: str | None = args.get("folder_path")
+    # Coerción defensiva (TIA Portal V21): aunque el manual define folder_path
+    # como Optional[str], el wrapper .NET rechaza valores None. Forzamos "" para
+    # que el binding del CLR acepte el parámetro y delegue al comportamiento
+    # nativo de "raíz del PLC".
+    folder_path: str = args.get("folder_path") or ""
 
     target_plc = _find_plc(project, plc_name)
     blocks = target_plc.get_program_blocks(folder_path=folder_path)
@@ -241,7 +245,9 @@ def _cmd_import_blocks_scl(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
     project = _get_active_project(portal)
     plc_name: str = args.get("plc_name", "")
     import_dir: str = args.get("import_dir", "")
-    target_folder: str | None = args.get("target_folder")
+    # Coerción defensiva (TIA Portal V21): el wrapper .NET no acepta None para
+    # target_folder_path aunque el manual lo declare Optional[str]. Forzamos "".
+    target_folder: str = args.get("target_folder") or ""
 
     if not import_dir:
         raise ValueError("Se requiere el argumento 'import_dir'.")
@@ -269,7 +275,9 @@ def _cmd_import_plc_tags_xml(portal: Any, ts: Any, args: dict[str, Any]) -> bool
     project = _get_active_project(portal)
     plc_name: str = args.get("plc_name", "")
     import_dir: str = args.get("import_dir", "")
-    target_folder: str | None = args.get("target_folder")
+    # Coerción defensiva (TIA Portal V21): el wrapper .NET no acepta None para
+    # target_folder_path aunque el manual lo declare Optional[str]. Forzamos "".
+    target_folder: str = args.get("target_folder") or ""
 
     if not import_dir:
         raise ValueError("Se requiere el argumento 'import_dir'.")
@@ -316,7 +324,9 @@ def _cmd_import_block(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
     project = _get_active_project(portal)
     plc_name: str = args.get("plc_name", "")
     import_dir: str = args.get("import_dir", "")
-    target_folder: str | None = args.get("target_folder")
+    # Coerción defensiva (TIA Portal V21): el wrapper .NET no acepta None para
+    # target_folder_path aunque el manual lo declare Optional[str]. Forzamos "".
+    target_folder: str = args.get("target_folder") or ""
     if not import_dir:
         raise ValueError("Se requiere el argumento 'import_dir'.")
     if not os.path.isdir(import_dir):
@@ -357,7 +367,9 @@ def _cmd_import_tag_table(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
     project = _get_active_project(portal)
     plc_name: str = args.get("plc_name", "")
     import_dir: str = args.get("import_dir", "")
-    target_folder: str | None = args.get("target_folder")
+    # Coerción defensiva (TIA Portal V21): el wrapper .NET no acepta None para
+    # target_folder_path aunque el manual lo declare Optional[str]. Forzamos "".
+    target_folder: str = args.get("target_folder") or ""
     if not import_dir:
         raise ValueError("Se requiere el argumento 'import_dir'.")
     if not os.path.isdir(import_dir):
@@ -454,6 +466,104 @@ def _cmd_delete_user_constant(portal: Any, ts: Any, args: dict[str, Any]) -> boo
     raise RuntimeError(f"Constante '{constant_name}' no encontrada en tabla '{table_name}'.")
 
 
+# ──────────────────────────────────────────────────────────────────────────
+# Lotes transaccionales: ejecutan N comandos atómicos bajo una ÚNICA
+# transacción de TIA Portal. Si una operación falla, las anteriores se
+# deshacen vía end_transaction(rollback=True). Esto garantiza atomicidad
+# en el historial del proyecto (Undo) y previene estados intermedios
+# inconsistentes.
+# ──────────────────────────────────────────────────────────────────────────
+
+# Comandos prohibidos dentro de un lote. Causarían:
+#   - open/close_project: destruirían el portal activo a mitad del lote.
+#   - save_project      : forzaría un commit parcial fuera de la transacción.
+#   - list_plcs         : no es una operación, es introspección.
+#   - execute_transactional_batch: anidamiento no soportado (podría
+#     balancear transacciones de forma incorrecta sobre el RCW del project).
+_TRANSACTION_FORBIDDEN_COMMANDS: frozenset[str] = frozenset(
+    {
+        "open_project",
+        "close_project",
+        "save_project",
+        "list_plcs",
+        "execute_transactional_batch",
+    }
+)
+
+
+def _cmd_execute_transactional_batch(
+    portal: Any, ts: Any, args: dict[str, Any]
+) -> dict[str, Any]:
+    """Ejecuta múltiples comandos atómicos bajo una única transacción de TIA Portal.
+
+    Itera sobre el propio COMMAND_REGISTRY delegando en los handlers ya
+    testados, aislando todo el lote dentro de project.start_transaction() /
+    project.end_transaction(). Si cualquier handler levanta excepción, se
+    invoca end_transaction(rollback=True) para revertir TODA la cadena
+    y se propaga un RuntimeError con la operación que causó el aborto.
+
+    Args:
+        portal: Instancia del portal TIA (inyectada por el dispatcher).
+        ts:     Módulo Siemens inyectado (no usado directamente aquí, pero
+                requerido por la firma uniforme del COMMAND_REGISTRY).
+        args:   Dict con:
+                  - operations: list[dict] -> [{"command": str, "args": dict}, ...]
+                  - undo_text:  str (opcional) -> texto del historial.
+
+    Returns:
+        {"success": True, "operations_executed": int}
+
+    Raises:
+        ValueError: Si la lista está vacía, contiene un comando desconocido
+                    o un comando prohibido dentro de un lote.
+        RuntimeError: Si una operación falla; el mensaje identifica el
+                      índice y nombre del comando que rompió el lote.
+    """
+    _ = ts
+    project = _get_active_project(portal)
+    undo_text: str = args.get("undo_text", "Operación por Lote")
+    operations: list[dict[str, Any]] = args.get("operations", [])
+
+    if not operations:
+        raise ValueError("La lista de operaciones está vacía.")
+
+    project.start_transaction(undo_text=undo_text, dialog_text=undo_text)
+    executed = 0
+    cmd: str = ""
+    try:
+        for op in operations:
+            cmd = op.get("command", "")
+            cmd_args: dict[str, Any] = op.get("args", {})
+
+            if cmd not in COMMAND_REGISTRY:
+                raise ValueError(f"Comando desconocido en lote: '{cmd}'")
+            if cmd in _TRANSACTION_FORBIDDEN_COMMANDS:
+                raise ValueError(
+                    f"El comando '{cmd}' está prohibido dentro de un lote "
+                    "transaccional."
+                )
+
+            # Ejecutar el handler atómico reinyectando portal y ts.
+            COMMAND_REGISTRY[cmd](portal, ts, cmd_args)
+            executed += 1
+
+        project.end_transaction(rollback=False)
+        return {"success": True, "operations_executed": executed}
+
+    except Exception as e:
+        # Cualquier fallo (validación, COM, OS) aborta el lote y restaura
+        # el estado previo del proyecto. Silenciamos fallos secundarios
+        # del rollback para no enmascarar la causa raíz original.
+        try:
+            project.end_transaction(rollback=True)
+        except Exception:
+            pass
+        raise RuntimeError(
+            f"Lote abortado en la operación {executed + 1} ('{cmd}'). "
+            f"Rollback ejecutado. Motivo: {e}"
+        )
+
+
 COMMAND_REGISTRY: dict[str, Callable[[Any, Any, dict[str, Any]], Any]] = {
     # ── Ciclo de vida del proyecto ────────────────────────────────────────
     "open_project": _cmd_open_project,
@@ -483,6 +593,8 @@ COMMAND_REGISTRY: dict[str, Callable[[Any, Any, dict[str, Any]], Any]] = {
     "update_user_constant_value": _cmd_update_user_constant_value,
     "update_user_constant_name": _cmd_update_user_constant_name,
     "delete_user_constant": _cmd_delete_user_constant,
+    # ── Lotes transaccionales (rollback automático) ────────────────────
+    "execute_transactional_batch": _cmd_execute_transactional_batch,
 }
 
 

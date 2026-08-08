@@ -1,0 +1,2289 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+infrastructure/
+  tia/
+    __init__.py
+    worker_tia.py
+  __init__.py
+  gateway.py
+tests/
+  smoke_test_worker.py
+.clinerules
+.gitignore
+build_exe.py
+LICENSE
+main.py
+README.md
+requirements.txt
+run_repomix.bat
+smoke_report.txt
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="infrastructure/tia/__init__.py">
+"""Subpaquete TIA Portal Openness (Motor OT)."""
+</file>
+
+<file path="infrastructure/tia/worker_tia.py">
+"""Motor OT efímero para interacción con TIA Portal Openness.
+
+Este script es ejecutado exclusivamente como un subproceso aislado por TIAProcessGateway.
+NACE -> CONECTA (COM) -> EJECUTA COMANDO -> EMITE JSON A STDOUT -> DESCONECTA -> MUERE.
+
+Reglas estricta de I/O:
+- STDIN:  Recibe un JSON con 'command' (str) y 'args' (dict).
+- STDOUT: Emite UNICAMENTE una línea JSON final con {'ok': True, 'result': ...} o {'ok': False, 'error': ...}.
+- STDERR: Reorientación de logs, trazas de excepción y advertencias C++/CLR.
+
+Inyección de dependencias:
+  Los handlers del COMMAND_REGISTRY reciben (portal, args). Cada handler que
+  necesite un proyecto abierto debe extraerlo con _get_active_project(portal),
+  que valida su existencia y centraliza el control de errores. Esto permite
+  comandos de ciclo de vida (open_project) que NO requieren proyecto previo.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+import traceback
+from pathlib import Path
+from typing import Any, Callable, NoReturn
+
+
+def _write_json_and_exit(payload: dict[str, Any], code: int) -> NoReturn:
+    """Escribe la respuesta estructurada en stdout y finaliza el proceso."""
+    sys.stdout.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    sys.stdout.flush()
+    sys.exit(code)
+
+
+def _get_active_project(portal: Any) -> Any:
+    """Extrae y valida el proyecto activo del portal.
+
+    Centraliza la lógica de extracción y validación del proyecto. Antes vivía
+    en main(); ahora cada handler que necesita proyecto lo invoca, lo que
+    permite comandos de ciclo de vida (open_project) que NO requieren
+    proyecto previo y produce errores semánticos limpios en los demás.
+    """
+    project = portal.get_project()
+    if not project:
+        raise RuntimeError(
+            "No hay ningún proyecto abierto en TIA Portal. "
+            "Ejecuta 'open_project' primero."
+        )
+    return project
+
+
+def _find_plc(project: Any, plc_name: str) -> Any:
+    """Resuelve el objeto Plc por nombre dentro del proyecto activo.
+
+    Helper centralizado para evitar duplicación en los handlers del dispatcher.
+    Levanta RuntimeError si no existe.
+    """
+    if not plc_name:
+        raise ValueError("Se requiere el argumento 'plc_name'.")
+
+    for plc in project.get_plcs():
+        if plc.get_name() == plc_name:
+            return plc
+
+    raise RuntimeError(
+        f"No se encontró ningún PLC con el nombre '{plc_name}' en el proyecto activo."
+    )
+
+
+def _ensure_target_dir(target_dir: str) -> Path:
+    """Valida que target_dir esté presente y devuelve la ruta resuelta."""
+    if not target_dir:
+        raise ValueError("Se requiere el argumento 'target_dir'.")
+    target_path = Path(target_dir)
+    target_path.mkdir(parents=True, exist_ok=True)
+    return target_path
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Handlers del dispatcher. Todos reciben (portal: Any, args: dict[str, Any]).
+# Cada handler que necesite proyecto abierto invoca _get_active_project().
+# ──────────────────────────────────────────────────────────────────────────
+
+def _cmd_open_project(portal: Any, ts: Any, args: dict[str, Any]) -> None:
+    """Abre un proyecto TIA Portal desde una ruta absoluta. Manual §2.4.3."""
+    _ = ts
+    project_file_path: str = args.get("project_file_path", "")
+    if not project_file_path:
+        raise ValueError("Se requiere el argumento 'project_file_path'.")
+    if not os.path.isfile(project_file_path):
+        raise RuntimeError(f"El archivo de proyecto no existe: '{project_file_path}'.")
+    portal.open_project(project_file_path=project_file_path)
+
+
+def _cmd_save_project(portal: Any, ts: Any, args: dict[str, Any]) -> None:
+    """Guarda los cambios pendientes del proyecto activo (manual §2.37.2)."""
+    _ = ts
+    project = _get_active_project(portal)
+    project.save()
+
+
+def _cmd_close_project(portal: Any, ts: Any, args: dict[str, Any]) -> None:
+    """Cierra el proyecto activo (manual §2.37.3).
+
+    ADVERTENCIA CRÍTICA: project.close() destruye permanentemente todos
+    los cambios no guardados del proyecto. El caller es responsable de
+    haber invocado save() antes si la persistencia era necesaria.
+    """
+    _ = ts
+    project = _get_active_project(portal)
+    project.close()
+
+
+def _cmd_list_plcs(portal: Any, ts: Any, args: dict[str, Any]) -> list[str]:
+    """Lista los nombres de los PLCs del proyecto activo."""
+    _ = ts
+    project = _get_active_project(portal)
+    plcs = project.get_plcs()
+    return [plc.get_name() for plc in plcs]
+
+
+def _cmd_list_blocks(portal: Any, ts: Any, args: dict[str, Any]) -> list[str]:
+    """Lista los nombres de los bloques de programa de un PLC específico."""
+    _ = ts
+    project = _get_active_project(portal)
+    plc_name: str = args.get("plc_name", "")
+    folder_path: str | None = args.get("folder_path")
+
+    target_plc = _find_plc(project, plc_name)
+    blocks = target_plc.get_program_blocks(folder_path=folder_path)
+    return [block.get_name() for block in blocks]
+
+
+def _cmd_compile_plc(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
+    """Compila el software del PLC y retorna el booleano nativo de Siemens.
+
+    Semántica documentada (API V1.2.1, sección 2.2.11):
+      - True  -> La compilación TIENE errores.
+      - False -> La compilación NO tiene errores (éxito).
+    La capa de presentación (MCP) traduce este valor a un mensaje humano.
+    """
+    _ = ts
+    project = _get_active_project(portal)
+    plc_name: str = args.get("plc_name", "")
+    target_plc = _find_plc(project, plc_name)
+    return bool(target_plc.compile_software())
+
+
+def _export_objects_scl(portal: Any, ts: Any, args: dict[str, Any]) -> str:
+    """Exporta una colección de objetos TIA (Bloques o UDTs) a archivos .scl.
+
+    Espera en args: plc_name, target_dir, collection_key
+    ('program_blocks' | 'user_data_types'). `ts` se inyecta desde
+    `_load_siemens_wrapper()` para acceder a los enumeradores nativos
+    (ts.Enums.ExportFormats.SimaticSD, etc.).
+    """
+    project = _get_active_project(portal)
+    plc_name: str = args.get("plc_name", "")
+    target_dir: str = args.get("target_dir", "")
+    collection_key: str = args.get("collection_key", "program_blocks")
+
+    target_plc = _find_plc(project, plc_name)
+    target_path = _ensure_target_dir(target_dir)
+
+    if collection_key == "program_blocks":
+        objects = target_plc.get_program_blocks()
+    elif collection_key == "user_data_types":
+        objects = target_plc.get_user_data_types()
+    else:
+        raise ValueError(
+            f"collection_key desconocido: '{collection_key}'. "
+            "Use 'program_blocks' o 'user_data_types'."
+        )
+
+    for obj in objects:
+        # El wrapper nativo de Siemens soporta coerción desde strings hacia
+        # sus enumeradores internos (TypeError previo: "export_format must
+        # be an Enum or string"). Inyectamos el literal "SimaticSD" para
+        # forzar la exportación en formato fuente (.scl) sin depender del
+        # espacio de nombres ts.Enums.ExportFormats (no expuesto en este
+        # build). Manual V1.2.1, secciones 2.10.5 y 2.15.5.
+        obj.export(
+            target_directory_path=str(target_path),
+            export_format="SimaticSD",
+            keep_folder_structure=True,
+        )
+
+    return str(target_path)
+
+
+def _cmd_export_blocks_scl(portal: Any, ts: Any, args: dict[str, Any]) -> str:
+    """Exporta los bloques de programa del PLC como archivos fuente SimaticSD."""
+    args = {**args, "collection_key": "program_blocks"}
+    return _export_objects_scl(portal, ts, args)
+
+
+def _cmd_export_udts_scl(portal: Any, ts: Any, args: dict[str, Any]) -> str:
+    """Exporta los User Data Types (UDTs) del PLC como archivos fuente SimaticSD."""
+    args = {**args, "collection_key": "user_data_types"}
+    return _export_objects_scl(portal, ts, args)
+
+
+def _cmd_export_plc_tags_xml(portal: Any, ts: Any, args: dict[str, Any]) -> str:
+    """Exporta las tablas de variables del PLC como XML SimaticML.
+
+    Itera sobre plc.get_plc_tag_tables() (manual §2.2.8) y exporta cada
+    tabla con export_format=SimaticML, export_options=WithDefaults y
+    keep_folder_structure=True (preserva jerarquía de grupos del PLC).
+    """
+    project = _get_active_project(portal)
+    plc_name: str = args.get("plc_name", "")
+    target_dir: str = args.get("target_dir", "")
+
+    target_plc = _find_plc(project, plc_name)
+    target_path = _ensure_target_dir(target_dir)
+
+    tag_tables = target_plc.get_plc_tag_tables()
+    for table in tag_tables:
+        # Mitigación defensiva: el wrapper nativo no expone ni
+        # ExportFormats ni ExportOptions en este build. Según la
+        # documentación oficial (manual V1.2.1, secciones 2.10.5 y 2.15.5),
+        # ambos parámetros son opcionales; al omitirlos, el wrapper C++
+        # subyacente aplica los defaults internos (SimaticML para el
+        # formato, None para las opciones).
+        table.export(
+            target_directory_path=str(target_path),
+            keep_folder_structure=True,
+        )
+
+    return str(target_path)
+
+
+def _cmd_import_blocks_scl(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
+    """Importa bloques de programa (.scl) desde el disco al PLC (manual §2.2.23).
+
+    TIA Portal asume que el directorio existe; si no, el CLR lanza una
+    excepción grave. Por eso validamos con os.path.isdir() ANTES de invocar
+    el método COM.
+    """
+    _ = ts
+    project = _get_active_project(portal)
+    plc_name: str = args.get("plc_name", "")
+    import_dir: str = args.get("import_dir", "")
+    target_folder: str | None = args.get("target_folder")
+
+    if not import_dir:
+        raise ValueError("Se requiere el argumento 'import_dir'.")
+
+    if not os.path.isdir(import_dir):
+        raise RuntimeError(
+            f"El directorio de importación no existe o no es accesible: '{import_dir}'."
+        )
+
+    target_plc = _find_plc(project, plc_name)
+    target_plc.import_blocks(
+        import_root_directory=import_dir,
+        target_folder_path=target_folder,
+    )
+    return True
+
+
+def _cmd_import_plc_tags_xml(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
+    """Importa tablas de variables (PLC tags) en formato XML al PLC (manual §2.2.24).
+
+    Validación previa con os.path.isdir() para evitar la excepción grave
+    del CLR cuando el directorio no existe.
+    """
+    _ = ts
+    project = _get_active_project(portal)
+    plc_name: str = args.get("plc_name", "")
+    import_dir: str = args.get("import_dir", "")
+    target_folder: str | None = args.get("target_folder")
+
+    if not import_dir:
+        raise ValueError("Se requiere el argumento 'import_dir'.")
+
+    if not os.path.isdir(import_dir):
+        raise RuntimeError(
+            f"El directorio de importación no existe o no es accesible: '{import_dir}'."
+        )
+
+    target_plc = _find_plc(project, plc_name)
+    target_plc.import_plc_tags(
+        import_root_directory=import_dir,
+        target_folder_path=target_folder,
+    )
+    return True
+
+
+def _cmd_export_block(portal: Any, ts: Any, args: dict[str, Any]) -> str:
+    """Exporta un único bloque de programa como SimaticSD (.scl). Manual §2.10.5."""
+    _ = ts
+    project = _get_active_project(portal)
+    plc_name: str = args.get("plc_name", "")
+    block_name: str = args.get("block_name", "")
+    target_dir: str = args.get("target_dir", "")
+    if not block_name:
+        raise ValueError("Se requiere el argumento 'block_name'.")
+    target_path = _ensure_target_dir(target_dir)
+    target_plc = _find_plc(project, plc_name)
+    blocks = target_plc.get_program_blocks()
+    for block in blocks:
+        if block.get_name() == block_name:
+            block.export(
+                target_directory_path=str(target_path),
+                export_format="SimaticSD",
+                keep_folder_structure=False,
+            )
+            return str(target_path)
+    raise RuntimeError(f"Bloque '{block_name}' no encontrado en PLC '{plc_name}'.")
+
+
+def _cmd_import_block(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
+    """Importa un único bloque (.scl) desde disco al PLC. Manual §2.2.23."""
+    _ = ts
+    project = _get_active_project(portal)
+    plc_name: str = args.get("plc_name", "")
+    import_dir: str = args.get("import_dir", "")
+    target_folder: str | None = args.get("target_folder")
+    if not import_dir:
+        raise ValueError("Se requiere el argumento 'import_dir'.")
+    if not os.path.isdir(import_dir):
+        raise RuntimeError(f"El directorio no existe: '{import_dir}'.")
+    target_plc = _find_plc(project, plc_name)
+    target_plc.import_blocks(
+        import_root_directory=import_dir,
+        target_folder_path=target_folder,
+    )
+    return True
+
+
+def _cmd_export_tag_table(portal: Any, ts: Any, args: dict[str, Any]) -> str:
+    """Exporta una única PlcTagTable como XML SimaticML. Manual §2.10.5 / §2.28.3."""
+    _ = ts
+    project = _get_active_project(portal)
+    plc_name: str = args.get("plc_name", "")
+    table_name: str = args.get("table_name", "")
+    target_dir: str = args.get("target_dir", "")
+    if not table_name:
+        raise ValueError("Se requiere el argumento 'table_name'.")
+    target_path = _ensure_target_dir(target_dir)
+    target_plc = _find_plc(project, plc_name)
+    tables = target_plc.get_plc_tag_tables()
+    for table in tables:
+        if table.get_name() == table_name:
+            table.export(
+                target_directory_path=str(target_path),
+                keep_folder_structure=False,
+            )
+            return str(target_path)
+    raise RuntimeError(f"Tabla '{table_name}' no encontrada en PLC '{plc_name}'.")
+
+
+def _cmd_import_tag_table(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
+    """Importa una única PlcTagTable (XML) desde disco al PLC. Manual §2.2.24."""
+    _ = ts
+    project = _get_active_project(portal)
+    plc_name: str = args.get("plc_name", "")
+    import_dir: str = args.get("import_dir", "")
+    target_folder: str | None = args.get("target_folder")
+    if not import_dir:
+        raise ValueError("Se requiere el argumento 'import_dir'.")
+    if not os.path.isdir(import_dir):
+        raise RuntimeError(f"El directorio no existe: '{import_dir}'.")
+    target_plc = _find_plc(project, plc_name)
+    target_plc.import_plc_tags(
+        import_root_directory=import_dir,
+        target_folder_path=target_folder,
+    )
+    return True
+
+
+def _cmd_get_user_constants(portal: Any, ts: Any, args: dict[str, Any]) -> dict[str, str]:
+    """Devuelve {value: name} de las PlcUserConstant de una tabla. Manual §2.28.5."""
+    _ = ts
+    project = _get_active_project(portal)
+    plc_name: str = args.get("plc_name", "")
+    table_name: str = args.get("table_name", "")
+    if not table_name:
+        raise ValueError("Se requiere el argumento 'table_name'.")
+    target_plc = _find_plc(project, plc_name)
+    tables = target_plc.get_plc_tag_tables()
+    table = next((t for t in tables if t.get_name() == table_name), None)
+    if table is None:
+        raise RuntimeError(f"Tabla '{table_name}' no encontrada en PLC '{plc_name}'.")
+    result: dict[str, str] = {}
+    for constant in table.get_user_constants():
+        raw_value = constant.get_property(name="Value")
+        try:
+            int_value = int(str(raw_value).strip())
+        except (TypeError, ValueError):
+            continue
+        name = constant.get_property(name="Name")
+        result[str(int_value)] = str(name)
+    return result
+
+
+def _cmd_update_user_constant_value(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
+    """Actualiza el valor de una PlcUserConstant. Manual §2.28."""
+    _ = ts
+    project = _get_active_project(portal)
+    plc_name: str = args.get("plc_name", "")
+    table_name: str = args.get("table_name", "")
+    constant_name: str = args.get("constant_name", "")
+    new_value: int = args.get("new_value", 0)
+    target_plc = _find_plc(project, plc_name)
+    tables = target_plc.get_plc_tag_tables()
+    table = next((t for t in tables if t.get_name() == table_name), None)
+    if table is None:
+        raise RuntimeError(f"Tabla '{table_name}' no encontrada.")
+    for constant in table.get_user_constants():
+        if constant.get_property(name="Name") == constant_name:
+            constant.set_property(name="Value", value=str(new_value))
+            return True
+    raise RuntimeError(f"Constante '{constant_name}' no encontrada en tabla '{table_name}'.")
+
+
+def _cmd_update_user_constant_name(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
+    """Renombra una PlcUserConstant. Manual §2.28."""
+    _ = ts
+    project = _get_active_project(portal)
+    plc_name: str = args.get("plc_name", "")
+    table_name: str = args.get("table_name", "")
+    current_name: str = args.get("current_name", "")
+    new_name: str = args.get("new_name", "")
+    target_plc = _find_plc(project, plc_name)
+    tables = target_plc.get_plc_tag_tables()
+    table = next((t for t in tables if t.get_name() == table_name), None)
+    if table is None:
+        raise RuntimeError(f"Tabla '{table_name}' no encontrada.")
+    for constant in table.get_user_constants():
+        if constant.get_property(name="Name") == current_name:
+            constant.set_property(name="Name", value=new_name)
+            return True
+    raise RuntimeError(f"Constante '{current_name}' no encontrada en tabla '{table_name}'.")
+
+
+def _cmd_delete_user_constant(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
+    """Borra una PlcUserConstant. Manual §2.34.4. snake_case: constant.delete()."""
+    _ = ts
+    project = _get_active_project(portal)
+    plc_name: str = args.get("plc_name", "")
+    table_name: str = args.get("table_name", "")
+    constant_name: str = args.get("constant_name", "")
+    target_plc = _find_plc(project, plc_name)
+    tables = target_plc.get_plc_tag_tables()
+    table = next((t for t in tables if t.get_name() == table_name), None)
+    if table is None:
+        raise RuntimeError(f"Tabla '{table_name}' no encontrada.")
+    for constant in table.get_user_constants():
+        if constant.get_property(name="Name") == constant_name:
+            constant.delete()
+            return True
+    raise RuntimeError(f"Constante '{constant_name}' no encontrada en tabla '{table_name}'.")
+
+
+COMMAND_REGISTRY: dict[str, Callable[[Any, Any, dict[str, Any]], Any]] = {
+    # ── Ciclo de vida del proyecto ────────────────────────────────────────
+    "open_project": _cmd_open_project,
+    "save_project": _cmd_save_project,
+    "close_project": _cmd_close_project,
+    # ── Inspección ──────────────────────────────────────────────────────
+    "list_plcs": _cmd_list_plcs,
+    "list_blocks": _cmd_list_blocks,
+    # ── Mutación / compilación ──────────────────────────────────────────
+    "compile_plc": _cmd_compile_plc,
+    # ── Exportación masiva SimaticSD ─────────────────────────────────────
+    "export_blocks_scl": _cmd_export_blocks_scl,
+    "export_udts_scl": _cmd_export_udts_scl,
+    # ── Exportación masiva SimaticML (XML) ───────────────────────────────
+    "export_plc_tags_xml": _cmd_export_plc_tags_xml,
+    # ── Importación masiva desde disco (cierre del ciclo I/O) ─────────────
+    "import_blocks_scl": _cmd_import_blocks_scl,
+    "import_plc_tags_xml": _cmd_import_plc_tags_xml,
+    # ── Bloques granulares ──────────────────────────────────────────────
+    "export_block": _cmd_export_block,
+    "import_block": _cmd_import_block,
+    # ── Tablas de variables granulares ──────────────────────────────────
+    "export_tag_table": _cmd_export_tag_table,
+    "import_tag_table": _cmd_import_tag_table,
+    # ── Constantes de usuario (N_MAX, dimensionamiento) ─────────────────
+    "get_user_constants": _cmd_get_user_constants,
+    "update_user_constant_value": _cmd_update_user_constant_value,
+    "update_user_constant_name": _cmd_update_user_constant_name,
+    "delete_user_constant": _cmd_delete_user_constant,
+}
+
+
+def _load_siemens_wrapper() -> Any:
+    """Carga nativa del wrapper de Siemens vía inyección en sys.path.
+
+    Mecanismo heredado del proyecto anterior, superior a importlib.util
+    para binarios .pyd con dependencias CLR/Pythonnet: en lugar de fabricar
+    un spec sintético, expone la ruta de _MEIPASS al loader nativo de
+    Python (`_imp`) para que la DLL se cargue por el camino estándar,
+    ejecutando correctamente su código de inicialización y registrando
+    submódulos como `ts.Enums`.
+
+    Modo producción (PyInstaller --onefile):
+      - Inyecta sys._MEIPASS en sys.path (prioridad).
+      - Añade la ruta a la variable de entorno PATH.
+      - En Windows 3.8+, registra la ruta vía os.add_dll_directory para
+        que las dependencias nativas sean localizables.
+
+    Modo desarrollo:
+      - El módulo ya está disponible vía el venv del usuario; se importa
+        directamente con la lógica estándar.
+
+    Retorna el módulo ya inicializado. Lanza ImportError si la DLL no
+    se encuentra o falla su carga.
+    """
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass is not None:
+        # Inyección prioritaria para el loader nativo.
+        if meipass not in sys.path:
+            sys.path.insert(0, meipass)
+
+        os.environ["PATH"] = meipass + os.pathsep + os.environ.get("PATH", "")
+        if hasattr(os, "add_dll_directory"):
+            os.add_dll_directory(meipass)
+
+        import siemens_tia_scripting as ts
+        return ts
+
+    # Modo desarrollo: import estándar del venv.
+    import siemens_tia_scripting as ts
+    return ts
+
+
+def main() -> None:
+    # 1. Carga dinámica tardía del wrapper nativo (Sección 1.7.1 V1.2.1).
+    try:
+        ts = _load_siemens_wrapper()
+    except (ImportError, FileNotFoundError) as e:
+        _write_json_and_exit(
+            {"ok": False, "error": f"Fallo al cargar 'siemens_tia_scripting': {e}"},
+            code=1,
+        )
+
+    # 2. Silenciado absoluto de la consola nativa C++.
+    ts.set_logging(path="worker_openness.log", console=False)
+
+    # 3. Lectura del payload de entrada.
+    try:
+        raw_stdin = sys.stdin.read().strip()
+        payload = json.loads(raw_stdin) if raw_stdin else {}
+    except Exception as e:
+        _write_json_and_exit(
+            {"ok": False, "error": f"Payload STDIN inválido (JSON malformado): {e}"},
+            code=1,
+        )
+
+    command = payload.get("command")
+    args = payload.get("args", {})
+
+    if not command or command not in COMMAND_REGISTRY:
+        _write_json_and_exit(
+            {"ok": False, "error": f"Comando no reconocido o ausente: '{command}'"},
+            code=1,
+        )
+
+    portal = None
+    try:
+        # 4. Enganche al portal. Usamos AnyUserInterface para que el filtro
+        #    de instancias COM acepte tanto TIA Portal con GUI activa como
+        #    instancias headless (manual V1.2.1 §2.4.2). De este modo el
+        #    proceso aislado puede reengancharse a la sesión ya abierta
+        #    por el usuario sin colisionar con su estado.
+        portal = ts.attach_portal(
+            portal_mode=ts.Enums.PortalMode.AnyUserInterface
+        )
+
+        # 5. Despacho al handler. La extracción del proyecto es responsabilidad
+        #    del propio handler (vía _get_active_project) si lo requiere.
+        handler = COMMAND_REGISTRY[command]
+        result = handler(portal, ts, args)
+
+        _write_json_and_exit({"ok": True, "result": result}, code=0)
+
+    except Exception as exc:
+        sys.stderr.write(f"[WORKER ERROR] {traceback.format_exc()}\n")
+        _write_json_and_exit(
+            {"ok": False, "error": f"{type(exc).__name__}: {exc}"},
+            code=1,
+        )
+    finally:
+        # 6. Liberación estricta de punteros RCW de .NET.
+        if portal is not None:
+            try:
+                portal.detach()
+            except Exception as e:
+                sys.stderr.write(f"[WORKER DETACH ERROR] {e}\n")
+
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="infrastructure/__init__.py">
+"""Capa de infraestructura para ZC Automation Suite."""
+</file>
+
+<file path="infrastructure/gateway.py">
+"""Orquestador de procesos IT de comunicación con TIA Portal.
+
+Garantiza la separación absoluta entre el proceso asíncrono principal (FastMCP)
+y el runtime síncrono de Siemens. Maneja la caché de memoria IT y la invocación
+de subprocess. Backend headless: sin UI propia.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import sys
+from pathlib import Path
+from typing import Any
+
+
+class TIAProcessGateway:
+    """Gateway asíncrono hacia el motor OT mediante subprocesos efímeros.
+
+    Resolución del subproceso:
+      - Modo desarrollo: sys.executable es python.exe; se lanza
+        'python -u main.py --worker' (main.py enruta al worker OT).
+      - Modo empaquetado (PyInstaller --onefile): sys.frozen es True;
+        sys.executable es zc_automation_suite.exe, que al recibir --worker
+        enruta internamente al worker OT. En este modo los scripts .py
+        NO existen físicamente (residen en el PYZ), por lo que NO se
+        referencian rutas a .py.
+    """
+
+    def __init__(self, timeout: float = 45.0) -> None:
+        self._cache: dict[str, Any] = {}
+        self._timeout = timeout
+
+    def _resolve_worker_exec_args(self) -> list[str]:
+        """Devuelve los argumentos para lanzar el subproceso worker.
+
+        La diferenciación frozen/dev se evalúa en cada llamada para
+        robustez ante tests que parcheen sys.frozen en runtime.
+        """
+        if getattr(sys, "frozen", False):
+            # Entorno de producción (PyInstaller --onefile):
+            # sys.executable ES el binario compilado.
+            return ["--worker"]
+
+        # Entorno de desarrollo: invocar main.py con el intérprete actual.
+        main_script = Path(__file__).parent.parent / "main.py"
+        return ["-u", str(main_script), "--worker"]
+
+    async def _dispatch_worker(
+        self, command: str, args: dict[str, Any] | None = None
+    ) -> Any:
+        """Lanza main.py (o el .exe congelado) con --worker y le envía el payload por STDIN."""
+        exec_args = self._resolve_worker_exec_args()
+
+        # Invocación: -u (unbuffered I/O) en desarrollo, solo --worker en frozen.
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable,
+            *exec_args,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+
+        payload_bytes = json.dumps({"command": command, "args": args or {}}).encode(
+            "utf-8"
+        )
+
+        try:
+            stdout_b, stderr_b = await asyncio.wait_for(
+                proc.communicate(input=payload_bytes),
+                timeout=self._timeout,
+            )
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            raise RuntimeError(
+                f"Timeout tras {self._timeout}s ejecutando el comando '{command}'. "
+                "El subproceso OT no respondió (posible diálogo modal activo en TIA Portal)."
+            )
+
+        stderr_text = stderr_b.decode("utf-8", errors="replace").strip()
+        stdout_text = stdout_b.decode("utf-8", errors="replace").strip()
+
+        if proc.returncode != 0 and not stdout_text:
+            raise RuntimeError(
+                f"El subproceso OT colapsó (exit code {proc.returncode}). Error: {stderr_text or 'Sin salida'}"
+            )
+
+        # Extraer la última línea válida parseable como JSON (filtro contra interferencias)
+        json_response = None
+        for line in reversed(stdout_text.splitlines()):
+            line_str = line.strip()
+            if line_str.startswith("{") and line_str.endswith("}"):
+                try:
+                    json_response = json.loads(line_str)
+                    break
+                except json.JSONDecodeError:
+                    continue
+
+        if json_response is None:
+            raise RuntimeError(
+                f"Respuesta inválida del worker OT. STDOUT: '{stdout_text}' | STDERR: '{stderr_text}'"
+            )
+
+        if not json_response.get("ok"):
+            raise RuntimeError(json_response.get("error", "Error interno en el worker OT."))
+
+        return json_response.get("result")
+
+    async def get_plcs(self, force_refresh: bool = False) -> list[str]:
+        """Obtiene los PLCs disponibles utilizando la caché de memoria IT."""
+        cache_key = "plcs"
+        if not force_refresh and cache_key in self._cache:
+            return self._cache[cache_key]
+
+        plcs = await self._dispatch_worker("list_plcs")
+        self._cache[cache_key] = plcs
+        return plcs
+
+    async def get_blocks(
+        self, plc_name: str, folder_path: str | None = None, force_refresh: bool = False
+    ) -> list[str]:
+        """Obtiene los bloques de programa de un PLC con caché dirigida."""
+        cache_key = f"blocks::{plc_name}::{folder_path or ''}"
+        if not force_refresh and cache_key in self._cache:
+            return self._cache[cache_key]
+
+        blocks = await self._dispatch_worker(
+            "list_blocks", {"plc_name": plc_name, "folder_path": folder_path}
+        )
+        self._cache[cache_key] = blocks
+        return blocks
+
+    def clear_cache(self) -> None:
+        """Limpia el estado IT almacenado en memoria."""
+        self._cache.clear()
+
+    async def compile_plc(self, plc_name: str) -> bool:
+        """Compila el software del PLC devolviendo el booleano nativo de Siemens.
+
+        Semántica documentada (TIA Scripting API V1.2.1, sección 2.2.11):
+          - True  -> La compilación tiene errores.
+          - False -> La compilación NO tiene errores (éxito).
+        La evaluación semántica para el usuario final ocurre en la capa MCP.
+        """
+        return await self._dispatch_worker(
+            "compile_plc", {"plc_name": plc_name}
+        )
+
+    async def export_blocks_scl(self, plc_name: str, target_dir: str) -> str:
+        """Exporta los bloques de programa del PLC a archivos .scl en target_dir.
+
+        Fail-Fast: target_dir debe ser una ruta absoluta. No se almacena en caché
+        porque es una acción mutable que vuelca contenido a disco.
+        """
+        if not Path(target_dir).is_absolute():
+            raise ValueError(
+                f"target_dir debe ser una ruta absoluta. Recibido: '{target_dir}'"
+            )
+
+        return await self._dispatch_worker(
+            "export_blocks_scl",
+            {"plc_name": plc_name, "target_dir": target_dir},
+        )
+
+    async def export_udts_scl(self, plc_name: str, target_dir: str) -> str:
+        """Exporta los UDTs (User Data Types) del PLC a archivos .scl en target_dir.
+
+        Fail-Fast: target_dir debe ser una ruta absoluta. No se almacena en caché.
+        """
+        if not Path(target_dir).is_absolute():
+            raise ValueError(
+                f"target_dir debe ser una ruta absoluta. Recibido: '{target_dir}'"
+            )
+
+        return await self._dispatch_worker(
+            "export_udts_scl",
+            {"plc_name": plc_name, "target_dir": target_dir},
+        )
+
+    async def export_plc_tags_xml(self, plc_name: str, target_dir: str) -> str:
+        """Exporta las tablas de variables (PLC tags) del PLC como XML SimaticML.
+
+        Fail-Fast: target_dir debe ser una ruta absoluta. No se almacena en caché
+        (acción mutable que vuelca archivos a disco).
+        """
+        if not Path(target_dir).is_absolute():
+            raise ValueError(
+                f"target_dir debe ser una ruta absoluta. Recibido: '{target_dir}'"
+            )
+
+        return await self._dispatch_worker(
+            "export_plc_tags_xml",
+            {"plc_name": plc_name, "target_dir": target_dir},
+        )
+
+    async def open_project(self, project_file_path: str) -> None:
+        """Abre un proyecto TIA Portal. Invalida caché del gateway (cambio de proyecto)."""
+        if not Path(project_file_path).is_absolute():
+            raise ValueError(
+                f"project_file_path debe ser absoluto. Recibido: '{project_file_path}'"
+            )
+        await self._dispatch_worker(
+            "open_project", {"project_file_path": project_file_path}
+        )
+        self.clear_cache()  # Cambio de proyecto invalida todo el estado IT cacheado.
+
+    async def save_project(self) -> None:
+        await self._dispatch_worker("save_project", {})
+
+    async def close_project(self) -> None:
+        await self._dispatch_worker("close_project", {})
+        self.clear_cache()
+
+    async def import_blocks_scl(
+        self,
+        plc_name: str,
+        import_dir: str,
+        target_folder: str | None = None,
+    ) -> bool:
+        """Importa bloques de programa (.scl) desde el disco al PLC.
+
+        Fail-Fast: import_dir debe ser una ruta absoluta. La validación
+        final de existencia del directorio la hace el worker antes de
+        invocar el método COM (TIA Portal lanza excepciones graves si el
+        directorio no existe; ver manual §2.2.23).
+        """
+        if not Path(import_dir).is_absolute():
+            raise ValueError(
+                f"import_dir debe ser una ruta absoluta. Recibido: '{import_dir}'"
+            )
+
+        return await self._dispatch_worker(
+            "import_blocks_scl",
+            {
+                "plc_name": plc_name,
+                "import_dir": import_dir,
+                "target_folder": target_folder,
+            },
+        )
+
+    async def import_plc_tags_xml(
+        self,
+        plc_name: str,
+        import_dir: str,
+        target_folder: str | None = None,
+    ) -> bool:
+        """Importa tablas de variables (PLC tags) en formato XML al PLC.
+
+        Fail-Fast: import_dir debe ser una ruta absoluta. La validación
+        final de existencia del directorio la hace el worker antes de
+        invocar el método COM (manual §2.2.24).
+        """
+        if not Path(import_dir).is_absolute():
+            raise ValueError(
+                f"import_dir debe ser una ruta absoluta. Recibido: '{import_dir}'"
+            )
+
+        return await self._dispatch_worker(
+            "import_plc_tags_xml",
+            {
+                "plc_name": plc_name,
+                "import_dir": import_dir,
+                "target_folder": target_folder,
+            },
+        )
+
+    async def export_block(
+        self, plc_name: str, block_name: str, target_dir: str
+    ) -> str:
+        """Exporta un único bloque como .scl. No cachea (operación mutable)."""
+        if not Path(target_dir).is_absolute():
+            raise ValueError(
+                f"target_dir debe ser absoluto. Recibido: '{target_dir}'"
+            )
+        return await self._dispatch_worker(
+            "export_block",
+            {"plc_name": plc_name, "block_name": block_name, "target_dir": target_dir},
+        )
+
+    async def import_block(
+        self, plc_name: str, import_dir: str, target_folder: str | None = None
+    ) -> bool:
+        """Importa un único bloque (.scl) al PLC."""
+        if not Path(import_dir).is_absolute():
+            raise ValueError(
+                f"import_dir debe ser absoluto. Recibido: '{import_dir}'"
+            )
+        return await self._dispatch_worker(
+            "import_block",
+            {
+                "plc_name": plc_name,
+                "import_dir": import_dir,
+                "target_folder": target_folder,
+            },
+        )
+
+    async def export_tag_table(
+        self, plc_name: str, table_name: str, target_dir: str
+    ) -> str:
+        """Exporta una única PlcTagTable como XML. No cachea."""
+        if not Path(target_dir).is_absolute():
+            raise ValueError(
+                f"target_dir debe ser absoluto. Recibido: '{target_dir}'"
+            )
+        return await self._dispatch_worker(
+            "export_tag_table",
+            {"plc_name": plc_name, "table_name": table_name, "target_dir": target_dir},
+        )
+
+    async def import_tag_table(
+        self, plc_name: str, import_dir: str, target_folder: str | None = None
+    ) -> bool:
+        """Importa una única PlcTagTable (XML) al PLC."""
+        if not Path(import_dir).is_absolute():
+            raise ValueError(
+                f"import_dir debe ser absoluto. Recibido: '{import_dir}'"
+            )
+        return await self._dispatch_worker(
+            "import_tag_table",
+            {
+                "plc_name": plc_name,
+                "import_dir": import_dir,
+                "target_folder": target_folder,
+            },
+        )
+
+    async def get_user_constants(
+        self, plc_name: str, table_name: str
+    ) -> dict[str, str]:
+        """Inspecciona PlcUserConstant de una tabla. Devuelve {value: name}."""
+        return await self._dispatch_worker(
+            "get_user_constants",
+            {"plc_name": plc_name, "table_name": table_name},
+        )
+
+    async def update_user_constant_value(
+        self, plc_name: str, table_name: str, constant_name: str, new_value: int
+    ) -> bool:
+        """Actualiza el valor de una PlcUserConstant. Invalida caché de bloques."""
+        result = await self._dispatch_worker(
+            "update_user_constant_value",
+            {
+                "plc_name": plc_name,
+                "table_name": table_name,
+                "constant_name": constant_name,
+                "new_value": new_value,
+            },
+        )
+        self.clear_cache()  # Cambio de N_MAX puede afectar dimensiones de DBs.
+        return result
+
+    async def update_user_constant_name(
+        self, plc_name: str, table_name: str, current_name: str, new_name: str
+    ) -> bool:
+        """Renombra una PlcUserConstant."""
+        return await self._dispatch_worker(
+            "update_user_constant_name",
+            {
+                "plc_name": plc_name,
+                "table_name": table_name,
+                "current_name": current_name,
+                "new_name": new_name,
+            },
+        )
+
+    async def delete_user_constant(
+        self, plc_name: str, table_name: str, constant_name: str
+    ) -> bool:
+        """Borra una PlcUserConstant."""
+        return await self._dispatch_worker(
+            "delete_user_constant",
+            {
+                "plc_name": plc_name,
+                "table_name": table_name,
+                "constant_name": constant_name,
+            },
+        )
+</file>
+
+<file path="tests/smoke_test_worker.py">
+"""Smoke-test harness para el catalogo de primitivas del worker OT.
+
+Ejecuta cada handler en COMMAND_REGISTRY contra un proyecto TIA Portal
+real. NO modifica archivos de produccion. Produce un reporte al final.
+
+Uso:
+    python tests/smoke_test_worker.py --plc <nombre_plc> --table <nombre_tabla>
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+WORKER_SCRIPT = Path(__file__).parent.parent / "main.py"
+TIMEOUT_PER_HANDLER = 180.0  # Incrementado para compilar_plc y exportaciones masivas
+PYTHON_EXEC = sys.executable
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--plc", default="PLC1", help="Nombre del PLC objetivo")
+parser.add_argument("--block", default=None, help="Nombre de un bloque existente (se auto-detecta)")
+parser.add_argument("--table", default="TagTable_1", help="Nombre de una PlcTagTable existente")
+args = parser.parse_args()
+
+PLC_NAME = args.plc
+TABLE_NAME = args.table
+
+
+def _invoke_worker(command: str, args_dict: dict | None = None) -> dict:
+    """Invoca el worker por subproceso y devuelve el JSON parseado."""
+    payload = {"command": command, "args": args_dict or {}}
+    payload_bytes = json.dumps(payload).encode("utf-8")
+
+    proc = subprocess.run(
+        [PYTHON_EXEC, "-u", str(WORKER_SCRIPT), "--worker"],
+        input=payload_bytes,
+        capture_output=True,
+        timeout=TIMEOUT_PER_HANDLER,
+    )
+
+    stdout = proc.stdout.decode("utf-8", errors="replace").strip()
+    stderr = proc.stderr.decode("utf-8", errors="replace").strip()
+
+    json_response = None
+    for line in reversed(stdout.splitlines()):
+        line = line.strip()
+        if line.startswith("{") and line.endswith("}"):
+            try:
+                json_response = json.loads(line)
+                break
+            except json.JSONDecodeError:
+                continue
+
+    return {
+        "exit_code": proc.returncode,
+        "stdout_raw": stdout,
+        "stderr_raw": stderr,
+        "json_response": json_response,
+    }
+
+
+def run_test(name: str, command: str, args_dict: dict | None = None,
+             validator=None) -> tuple:
+    """Ejecuta un test y devuelve (passed, message)."""
+    print(f"\n=== TEST: {name} ({command}) ===", flush=True)
+    start = time.monotonic()
+    try:
+        result = _invoke_worker(command, args_dict)
+    except subprocess.TimeoutExpired:
+        msg = f"TIMEOUT tras {TIMEOUT_PER_HANDLER}s"
+        print(msg, flush=True)
+        return False, msg
+    elapsed = time.monotonic() - start
+
+    jr = result["json_response"]
+    if jr is None:
+        msg = (
+            f"Sin JSON parseable. STDOUT: {result['stdout_raw'][:200]} | "
+            f"STDERR: {result['stderr_raw'][:200]}"
+        )
+        print(msg, flush=True)
+        return False, msg
+
+    if not isinstance(jr, dict):
+        msg = f"JSON no es dict: {type(jr)}"
+        print(msg, flush=True)
+        return False, msg
+
+    if "ok" not in jr:
+        msg = "JSON sin clave 'ok'"
+        print(msg, flush=True)
+        return False, msg
+
+    if validator:
+        passed, msg = validator(jr, result, elapsed)
+        print(f"{msg} [{elapsed:.2f}s]", flush=True)
+        return passed, f"{msg} [{elapsed:.2f}s]"
+
+    if jr["ok"] is True:
+        msg = f"ok=True, result={type(jr.get('result')).__name__} [{elapsed:.2f}s]"
+        print(msg, flush=True)
+        return True, msg
+
+    msg = f"ok=False, error={jr.get('error')}"
+    print(msg, flush=True)
+    return False, msg
+
+
+def validate_list_plcs(jr, result, elapsed):
+    if jr["ok"] is not True:
+        return False, f"ok=False: {jr.get('error')}"
+    if not isinstance(jr.get("result"), list):
+        return False, f"result no es list: {type(jr.get('result'))}"
+    if not all(isinstance(p, str) for p in jr["result"]):
+        return False, "algun elemento de result no es str"
+    return True, f"{len(jr['result'])} PLCs detectados: {jr['result']}"
+
+
+def validate_list_blocks(jr, result, elapsed):
+    if jr["ok"] is not True:
+        return False, f"ok=False: {jr.get('error')}"
+    if not isinstance(jr.get("result"), list):
+        return False, "result no es list"
+    return True, f"{len(jr['result'])} bloques"
+
+
+def validate_compile_plc(jr, result, elapsed):
+    if jr["ok"] is not True:
+        return False, f"ok=False: {jr.get('error')}"
+    if not isinstance(jr.get("result"), bool):
+        return False, f"result no es bool: {type(jr.get('result'))}"
+    semantica = "TIENE errores" if jr["result"] else "OK (sin errores)"
+    return True, f"compile_software()={jr['result']} -> {semantica}"
+
+
+def validate_export(jr, result, elapsed):
+    if jr["ok"] is not True:
+        return False, f"ok=False: {jr.get('error')}"
+    if not isinstance(jr.get("result"), str):
+        return False, "result no es str"
+    return True, f"Exportado a '{jr['result']}'"
+
+
+def validate_get_user_constants(jr, result, elapsed):
+    if jr["ok"] is not True:
+        return False, f"ok=False: {jr.get('error')}"
+    if not isinstance(jr.get("result"), dict):
+        return False, "result no es dict"
+    for k, v in jr["result"].items():
+        if not isinstance(k, str) or not isinstance(v, str):
+            return False, f"clave/valor no son str: {k!r}={v!r}"
+    return True, f"{len(jr['result'])} constantes"
+
+
+def validate_update_value(jr, result, elapsed):
+    if jr["ok"] is not True:
+        return False, f"ok=False: {jr.get('error')}"
+    if not isinstance(jr.get("result"), bool):
+        return False, "result no es bool"
+    return True, "update_user_constant_value retorno True"
+
+
+# ---------------------------------------------------------------------------
+# Suite de tests
+# ---------------------------------------------------------------------------
+
+results = []
+
+# SKIPs de seguridad (mutarian el proyecto o no hay primitivas complementarias)
+SKIPS_SEGURIDAD = [
+    ("open_project", "SKIPPED (requiere --project-path)"),
+    ("save_project", "SKIPPED (podria persistir estado)"),
+    ("close_project", "SKIPPED (cerraria el proyecto)"),
+    ("import_blocks_scl", "SKIPPED (mutaria el PLC)"),
+    ("import_plc_tags_xml", "SKIPPED (mutaria el PLC)"),
+    ("import_block", "SKIPPED (mutaria el PLC)"),
+    ("import_tag_table", "SKIPPED (mutaria el PLC)"),
+    ("update_user_constant_name", "SKIPPED (no hay create_user_constant)"),
+    ("delete_user_constant", "SKIPPED (no hay create_user_constant)"),
+]
+for name, reason in SKIPS_SEGURIDAD:
+    results.append((name, None, reason))
+
+# list_plcs
+passed, msg = run_test("list_plcs", "list_plcs", {}, validate_list_plcs)
+results.append(("list_plcs", passed, msg))
+
+# Auto-detectar PLCs disponibles
+jr_plcs = _invoke_worker("list_plcs", {}).get("json_response")
+plcs_disponibles = jr_plcs.get("result") if jr_plcs and jr_plcs.get("ok") else []
+
+if plcs_disponibles and PLC_NAME not in plcs_disponibles:
+    print(f"\nAVISO: PLC '{PLC_NAME}' no detectado. PLCs disponibles: {plcs_disponibles}")
+    print("   Re-ejecuta con --plc <nombre>")
+    sys.exit(1)
+
+# list_blocks
+passed, msg = run_test(
+    "list_blocks", "list_blocks", {"plc_name": PLC_NAME}, validate_list_blocks
+)
+results.append(("list_blocks", passed, msg))
+
+# Auto-detectar bloque
+jr_blocks = _invoke_worker("list_blocks", {"plc_name": PLC_NAME}).get("json_response")
+if jr_blocks and jr_blocks.get("ok") and jr_blocks.get("result"):
+    BLOCK_NAME = jr_blocks["result"][0]
+    print(f"\n-> Bloque auto-detectado en raiz: '{BLOCK_NAME}'", flush=True)
+else:
+    BLOCK_NAME = args.block
+    if not args.block:
+        BLOCK_NAME = None
+        print("\nAVISO: No se detectaron bloques en la raiz del PLC. "
+              "Los tests granulares seran SKIPPED.", flush=True)
+
+# compile_plc
+passed, msg = run_test(
+    "compile_plc", "compile_plc", {"plc_name": PLC_NAME}, validate_compile_plc
+)
+results.append(("compile_plc", passed, msg))
+
+# Exportaciones masivas
+with tempfile.TemporaryDirectory(prefix="zc_smoke_") as tmpdir:
+    for cmd in ["export_blocks_scl", "export_udts_scl", "export_plc_tags_xml"]:
+        passed, msg = run_test(
+            cmd, cmd, {"plc_name": PLC_NAME, "target_dir": tmpdir}, validate_export
+        )
+        results.append((cmd, passed, msg))
+
+# export_block (requiere BLOCK_NAME)
+if BLOCK_NAME:
+    with tempfile.TemporaryDirectory(prefix="zc_smoke_") as tmpdir:
+        passed, msg = run_test(
+            "export_block", "export_block",
+            {"plc_name": PLC_NAME, "block_name": BLOCK_NAME, "target_dir": tmpdir},
+            validate_export
+        )
+        results.append(("export_block", passed, msg))
+else:
+    results.append(("export_block", None, "SKIPPED (no hay bloque)"))
+
+# export_tag_table
+with tempfile.TemporaryDirectory(prefix="zc_smoke_") as tmpdir:
+    passed, msg = run_test(
+        "export_tag_table", "export_tag_table",
+        {"plc_name": PLC_NAME, "table_name": TABLE_NAME, "target_dir": tmpdir},
+        validate_export
+    )
+    results.append(("export_tag_table", passed, msg))
+
+# get_user_constants
+passed, msg = run_test(
+    "get_user_constants", "get_user_constants",
+    {"plc_name": PLC_NAME, "table_name": TABLE_NAME}, validate_get_user_constants
+)
+results.append(("get_user_constants", passed, msg))
+
+# update_user_constant_value (sobre constante existente + restaurar)
+jr_consts = _invoke_worker(
+    "get_user_constants", {"plc_name": PLC_NAME, "table_name": TABLE_NAME}
+).get("json_response")
+if jr_consts and jr_consts.get("ok") and jr_consts.get("result"):
+    primera_nombre = list(jr_consts["result"].values())[0]
+    primer_valor = int(list(jr_consts["result"].keys())[0])
+    passed, msg = run_test(
+        "update_user_constant_value", "update_user_constant_value",
+        {
+            "plc_name": PLC_NAME,
+            "table_name": TABLE_NAME,
+            "constant_name": primera_nombre,
+            "new_value": primer_valor + 1,
+        },
+        validate_update_value
+    )
+    results.append(("update_user_constant_value", passed, msg))
+    # Restaurar valor original
+    _invoke_worker("update_user_constant_value", {
+        "plc_name": PLC_NAME,
+        "table_name": TABLE_NAME,
+        "constant_name": primera_nombre,
+        "new_value": primer_valor,
+    })
+else:
+    results.append(("update_user_constant_value", None, "SKIPPED (no hay constantes)"))
+
+
+# ---------------------------------------------------------------------------
+# Reporte final
+# ---------------------------------------------------------------------------
+
+print("\n" + "=" * 70)
+print("REPORTE FINAL - Smoke-Test Worker OT contra TIA Portal V21")
+print("=" * 70)
+
+ejecutados = [(n, p, m) for n, p, m in results if p is not None]
+skipped = [(n, p, m) for n, p, m in results if p is None]
+pasados = [n for n, p, m in ejecutados if p]
+fallados = [(n, m) for n, p, m in ejecutados if not p]
+
+print(f"\nTotales: {len(results)} handlers")
+print(f"  OK  Ejecutados y pasados: {len(pasados)}")
+print(f"  ERR Ejecutados y fallados: {len(fallados)}")
+print(f"  SKP SKIPPED (seguridad / falta handler): {len(skipped)}")
+
+if fallados:
+    print("\n--- FALLOS ---")
+    for n, m in fallados:
+        print(f"  {n}: {m}")
+
+if pasados:
+    print("\n--- ÉXITOS ---")
+    for n in pasados:
+        print(f"  {n}")
+
+print("\nSKIPPED:")
+for n, p, m in skipped:
+    print(f"  {n}: {m}")
+
+sys.exit(0 if not fallados else 1)
+</file>
+
+<file path=".clinerules">
+# DIRECTRICES ARQUITECTÓNICAS: ZC AUTOMATION SUITE
+
+Eres un Arquitecto de Software Senior y Experto en Integración IT/OT. Estás trabajando en un repositorio que interconecta aplicaciones asíncronas de Python (FastMCP / Web) con el entorno síncrono y nativo de TIA Portal Openness mediante la librería oficial `siemens_tia_scripting`.
+
+## 1. ARQUITECTURA ESTRICTA: PROCESS-PER-CALL (SUBPROCESS WORKER)
+El ecosistema .NET/COM subyacente de Siemens **NO ES THREAD-SAFE**. Tienes estrictamente prohibido importar la librería de Siemens en el proceso principal.
+*   **Capa IT (Proceso Padre):** Orquesta, enruta y cachea. Ejecuta `main.py` y `gateway.py`. **NUNCA** ejecuta `import siemens_tia_scripting`.
+*   **Capa OT (Proceso Hijo):** El script `infrastructure/tia/worker_tia.py` es el ÚNICO lugar autorizado para interactuar con la API de Siemens.
+*   **Comunicación IPC:** El padre levanta al hijo vía `asyncio.create_subprocess_exec`. Envía los argumentos JSON por `stdin`. El hijo ejecuta la tarea y devuelve UN ÚNICO JSON por `stdout`. Cualquier otro log del hijo va a `stderr`.
+
+## 2. REGLAS DEL WORKER EFÍMERO (MOTOR OT)
+Cada vez que modifiques o añadas comandos en `worker_tia.py`, debes cumplir este ciclo de vida ineludible:
+1.  **Silenciar el logger nativo:** Inmediatamente después de iniciar el script, DEBES invocar `siemens_tia_scripting.set_logging(path="worker_openness.log", console=False)`[cite: 4]. Si no lo haces, la DLL ensuciará el `stdout` y romperá el parseo JSON del proceso padre.
+2.  **Enganche:** Usar `attach_portal()` para conectarse a la instancia[cite: 4].
+3.  **Extracción de Contexto:** Usar `get_project()` para obtener el objeto del proyecto[cite: 4].
+4.  **Desconexión:** En un bloque `finally`, invocar OBLIGATORIAMENTE `detach()` sobre la instancia del portal para liberar el *Runtime Callable Wrapper*[cite: 4].
+
+## 3. PROHIBICIÓN DE RETENCIÓN DE ESTADO OT
+*   **NUNCA** intentes devolver objetos nativos (como `Plc`, `ProgramBlock` o `HmiTag`) desde el worker al proceso padre.
+*   El worker debe mapear los objetos nativos a tipos primitivos puros de Python (diccionarios, listas, strings, booleanos) antes de emitir el JSON por `stdout`.
+
+## 4. API DE SIEMENS TIA SCRIPTING (V1.2.1)
+No inventes métodos. Utiliza estrictamente la API soportada.
+*   **Versión de Python:** El código debe ser compatible obligatoriamente con Python 3.12, 3.13 o 3.14[cite: 4]. No uses características deprecadas ni asumas compatibilidad con 3.11.
+*   **Formatos de Exportación:** Cuando exportes código fuente (SCL) o UDTs, utiliza `export_format=ts.Enums.ExportFormats.SimaticSD`[cite: 4].
+*   **Dudas de API:** Tienes a tu disposición una herramienta MCP (`search_tia_manual`) en el entorno. Si desconoces un método o los parámetros exactos (ej. cómo extraer variables o compilar hardware), **USA LA HERRAMIENTA DE BÚSQUEDA** antes de escribir código alucinado.
+
+## 5. USO DEL CÓDIGO LEGACY (`_legacy_reference/`)
+Existe una carpeta `_legacy_reference/` con el código antiguo. 
+* **PERMITIDO:** Reutilizar la lógica de procesamiento de excel y XML (SimaticML) o algoritmos de negocio puro que se encuentren allí.
+* **PROHIBIDO:** Copiar patrones de concurrencia, inicialización de hilos, o uso global del wrapper de Siemens. La nueva arquitectura es estrictamente Subprocess-based.
+
+## 6. CÓDIGO LIMPIO Y PYTHON MODERNO
+*   Aplica tipado estricto (Type Hinting) en todas las firmas de funciones y retornos.
+*   Cumple con PEP 8.
+*   Usa `asyncio` de forma eficiente en el Gateway para no bloquear el Event Loop principal durante la espera de resolución del subproceso.
+*   Si una operación de lectura del proyecto implica una penalización alta de latencia, implementa un mecanismo de caché en memoria en `gateway.py` (`Estado IT`), permitiendo el parámetro `force_refresh=True`.
+</file>
+
+<file path=".gitignore">
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[codz]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+#   Usually these files are written by a python script from a template
+#   before PyInstaller builds the exe, so as to inject date/other infos into it.
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py.cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+.pybuilder/
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+#   For a library or package, you might want to ignore these files since the code is
+#   intended to run in multiple environments; otherwise, check them in:
+# .python-version
+
+# pipenv
+#   According to pypa/pipenv#598, it is recommended to include Pipfile.lock in version control.
+#   However, in case of collaboration, if having platform-specific dependencies or dependencies
+#   having no cross-platform support, pipenv may install dependencies that don't work, or not
+#   install all needed dependencies.
+# Pipfile.lock
+
+# UV
+#   Similar to Pipfile.lock, it is generally recommended to include uv.lock in version control.
+#   This is especially recommended for binary packages to ensure reproducibility, and is more
+#   commonly ignored for libraries.
+# uv.lock
+
+# poetry
+#   Similar to Pipfile.lock, it is generally recommended to include poetry.lock in version control.
+#   This is especially recommended for binary packages to ensure reproducibility, and is more
+#   commonly ignored for libraries.
+#   https://python-poetry.org/docs/basic-usage/#commit-your-poetrylock-file-to-version-control
+# poetry.lock
+# poetry.toml
+
+# pdm
+#   Similar to Pipfile.lock, it is generally recommended to include pdm.lock in version control.
+#   pdm recommends including project-wide configuration in pdm.toml, but excluding .pdm-python.
+#   https://pdm-project.org/en/latest/usage/project/#working-with-version-control
+# pdm.lock
+# pdm.toml
+.pdm-python
+.pdm-build/
+
+# pixi
+#   Similar to Pipfile.lock, it is generally recommended to include pixi.lock in version control.
+# pixi.lock
+#   Pixi creates a virtual environment in the .pixi directory, just like venv module creates one
+#   in the .venv directory. It is recommended not to include this directory in version control.
+.pixi
+
+# PEP 582; used by e.g. github.com/David-OConnor/pyflow and github.com/pdm-project/pdm
+__pypackages__/
+
+# Celery stuff
+celerybeat-schedule
+celerybeat.pid
+
+# Redis
+*.rdb
+*.aof
+*.pid
+
+# RabbitMQ
+mnesia/
+rabbitmq/
+rabbitmq-data/
+
+# ActiveMQ
+activemq-data/
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.envrc
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# PyCharm
+#   JetBrains specific template is maintained in a separate JetBrains.gitignore that can
+#   be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
+#   and can be added to the global gitignore or merged into this file.  For a more nuclear
+#   option (not recommended) you can uncomment the following to ignore the entire idea folder.
+# .idea/
+
+# Abstra
+#   Abstra is an AI-powered process automation framework.
+#   Ignore directories containing user credentials, local state, and settings.
+#   Learn more at https://abstra.io/docs
+.abstra/
+
+# Visual Studio Code
+#   Visual Studio Code specific template is maintained in a separate VisualStudioCode.gitignore 
+#   that can be found at https://github.com/github/gitignore/blob/main/Global/VisualStudioCode.gitignore
+#   and can be added to the global gitignore or merged into this file. However, if you prefer, 
+#   you could uncomment the following to ignore the entire vscode folder
+# .vscode/
+# Temporary file for partial code execution
+tempCodeRunnerFile.py
+
+# Ruff stuff:
+.ruff_cache/
+
+# PyPI configuration file
+.pypirc
+
+# Marimo
+marimo/_static/
+marimo/_lsp/
+__marimo__/
+
+# Streamlit
+.streamlit/secrets.toml
+</file>
+
+<file path="build_exe.py">
+"""Orquestador de PyInstaller para zc-automation-suite (Fat Binary).
+
+Compila main.py en dist/zc_automation_suite.exe incluyendo el binario nativo
+de Siemens (siemens_tia_scripting.pyd) resuelto dinámicamente desde el
+intérprete Python actual (3.12 / 3.13 / 3.14).
+
+Restricciones aplicadas:
+  - Cero Código Sucio: el .pyd nunca se copia al directorio de trabajo; se
+    stagea en un directorio temporal creado con tempfile.mkdtemp().
+  - Carga dinámica oficial: el worker resuelve el .pyd desde sys._MEIPASS
+    siguiendo la Sección 1.7.1 del manual TIA Scripting V1.2.1.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+ROOT = Path(__file__).parent
+PYD_CANONICAL_NAME = "siemens_tia_scripting.pyd"
+EXE_NAME = "zc_automation_suite"
+
+
+def ensure_pyinstaller() -> None:
+    """Falla rápido con mensaje accionable si PyInstaller no está disponible."""
+    if importlib.util.find_spec("PyInstaller") is None:
+        raise RuntimeError(
+            "PyInstaller no está instalado en el intérprete actual. "
+            "Ejecuta: pip install pyinstaller"
+        )
+
+
+def resolve_pyd_source() -> Path:
+    """Localiza el .pyd de Siemens instalado en el venv actual."""
+    spec = importlib.util.find_spec("siemens_tia_scripting")
+    if spec is None or not spec.origin:
+        raise FileNotFoundError(
+            "No se pudo resolver 'siemens_tia_scripting' en el intérprete actual. "
+            "¿Está instalado el wheel oficial?"
+        )
+    pyd_path = Path(spec.origin)
+    if not pyd_path.is_file():
+        raise FileNotFoundError(f"El binario resuelto no existe en disco: {pyd_path}")
+    return pyd_path
+
+
+def stage_pyd_with_canonical_name(pyd_source: Path) -> tuple[Path, Path]:
+    """Copia el .pyd a un staging dir temporal con nombre canónico.
+
+    PyInstaller --add-data conserva el nombre del archivo origen. Si el .pyd
+    tiene ABI tag (ej. cp314-win_amd64), lo renombramos a 'siemens_tia_scripting.pyd'
+    para que el worker lo encuentre bajo el nombre canónico dentro de _MEIPASS.
+
+    Retorna (staging_dir, staged_pyd_path). El staging dir debe ser ignorado
+    por el control de versiones (.gitignore cubre /temp_* y _legacy_reference).
+    """
+    staging_dir = Path(tempfile.mkdtemp(prefix="zc_tia_pyd_"))
+    staged_pyd = staging_dir / PYD_CANONICAL_NAME
+    shutil.copy2(pyd_source, staged_pyd)
+    return staging_dir, staged_pyd
+
+
+def build(staged_pyd: Path) -> int:
+    """Invoca PyInstaller con los flags requeridos por el ticket."""
+    # Separador de rutas nativo del SO: ';' en Windows, ':' en Unix.
+    add_data = f"{staged_pyd}{os.pathsep}."
+
+    cmd = [
+        sys.executable,
+        "-m",
+        "PyInstaller",
+        "--clean",
+        "--onefile",
+        "--name", EXE_NAME,
+        "--add-data", add_data,
+        str(ROOT / "main.py"),
+    ]
+    print("[BUILD] Ejecutando:", " ".join(cmd))
+    result = subprocess.run(cmd, cwd=ROOT)
+    return result.returncode
+
+
+def main() -> int:
+    staging_dir: Path | None = None
+    try:
+        ensure_pyinstaller()
+        pyd_source = resolve_pyd_source()
+        print(f"[BUILD] PYD origen:    {pyd_source}")
+
+        staging_dir, staged_pyd = stage_pyd_with_canonical_name(pyd_source)
+        print(f"[BUILD] PYD staged:    {staged_pyd}")
+        print(f"[BUILD] Staging dir:   {staging_dir} (temporal, fuera del repo)")
+
+        rc = build(staged_pyd)
+
+        if rc == 0:
+            artifact = ROOT / "dist" / f"{EXE_NAME}.exe"
+            print(f"\n[BUILD] OK -> {artifact}")
+        else:
+            print(f"\n[BUILD] FALLÓ con exit code {rc}", file=sys.stderr)
+        return rc
+
+    except (FileNotFoundError, RuntimeError) as e:
+        print(f"[BUILD] ERROR: {e}", file=sys.stderr)
+        return 1
+    finally:
+        if staging_dir is not None and staging_dir.exists():
+            shutil.rmtree(staging_dir, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+</file>
+
+<file path="LICENSE">
+MIT License
+
+Copyright (c) 2026 Aketzabarragues
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+</file>
+
+<file path="main.py">
+"""Fat Binary Entrypoint - ZC Automation Suite (Headless Backend).
+
+Este módulo actúa exclusivamente como enrutador CLI:
+  - --worker : Ejecuta el worker OT efímero (proceso aislado).
+  - --mcp    : Levanta el servidor FastMCP sobre STDIO (modo por defecto).
+  - Sin flags : Alias de --mcp (compatibilidad).
+
+Cero UI: no hay TUI ni bucles interactivos en este repositorio. La
+presentación es responsabilidad del cliente MCP/LLM que consume las tools.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from typing import NoReturn
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="zc_automation_suite",
+        description="ZC Automation Suite CLI / Server Engine (headless).",
+    )
+    parser.add_argument(
+        "--mcp",
+        action="store_true",
+        help="Arranca la aplicación en modo Servidor FastMCP (STDIO). Es el modo por defecto.",
+    )
+    parser.add_argument(
+        "--worker",
+        action="store_true",
+        help="Ejecuta la entrada directa al worker efímero de TIA Portal.",
+    )
+    return parser.parse_args()
+
+
+def run_worker_mode() -> NoReturn:
+    """Redirige la ejecución directa al Worker OT efímero."""
+    from infrastructure.tia.worker_tia import main as worker_main
+
+    worker_main()
+    sys.exit(0)
+
+
+def run_mcp_server() -> None:
+    """Inicia el servidor FastMCP exponiendo las tools de TIA Portal."""
+    try:
+        from fastmcp import FastMCP
+    except ImportError:
+        print(
+            "ERROR: 'fastmcp' no está instalado en este entorno. "
+            "Instálalo con 'pip install fastmcp'.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    from infrastructure.gateway import TIAProcessGateway
+
+    gateway = TIAProcessGateway()
+    mcp = FastMCP("ZC Automation Suite")
+
+    @mcp.tool()
+    async def tia_open_project(project_file_path: str) -> str:
+        """Abre un proyecto de TIA Portal desde una ruta absoluta.
+
+        Si ya hay un proyecto abierto, TIA Portal cerrará la sesión activa
+        antes de abrir el nuevo proyecto (comportamiento del portal).
+
+        Args:
+            project_file_path: Ruta absoluta al archivo .apxx del proyecto.
+        """
+        await gateway.open_project(project_file_path)
+        return f"Proyecto abierto correctamente: '{project_file_path}'."
+
+    @mcp.tool()
+    async def tia_save_project() -> str:
+        """Guarda los cambios pendientes del proyecto activo en TIA Portal."""
+        await gateway.save_project()
+        return "Proyecto guardado correctamente."
+
+    @mcp.tool()
+    async def tia_close_project() -> str:
+        """Cierra el proyecto activo en TIA Portal.
+
+        ADVERTENCIA CRÍTICA: project.close() destruye permanentemente todos
+        los cambios no guardados (manual V1.2.1, sección 2.37.3). Asegúrate
+        de invocar tia_save_project() antes si deseas conservar los cambios.
+        """
+        await gateway.close_project()
+        return "Proyecto cerrado. Los cambios no guardados se han perdido."
+
+    @mcp.tool()
+    async def tia_list_plcs(force_refresh: bool = False) -> list[str]:
+        """Lista los nombres de los PLCs presentes en el proyecto activo."""
+        return await gateway.get_plcs(force_refresh=force_refresh)
+
+    @mcp.tool()
+    async def tia_list_blocks(
+        plc_name: str, folder_path: str | None = None, force_refresh: bool = False
+    ) -> list[str]:
+        """Lista los bloques de programa pertenecientes a un PLC."""
+        return await gateway.get_blocks(
+            plc_name=plc_name, folder_path=folder_path, force_refresh=force_refresh
+        )
+
+    @mcp.tool()
+    async def tia_compile_plc(plc_name: str) -> str:
+        """Compila el software del PLC en TIA Portal.
+
+        Args:
+            plc_name: Nombre exacto del PLC.
+
+        Returns:
+            Mensaje humano describiendo el resultado. La compilación puede
+            tardar varios minutos en proyectos grandes.
+
+        Semántica del booleano nativo (API V1.2.1 §2.2.11):
+          - False -> compilación exitosa (sin errores).
+          - True  -> la compilación TIENE errores.
+        """
+        has_errors = await gateway.compile_plc(plc_name)
+        if has_errors is False:
+            return f"Compilación del PLC '{plc_name}' exitosa (sin errores)."
+        return (
+            f"Compilación del PLC '{plc_name}' completada con errores. "
+            "Revise la ventana de inspección de TIA Portal para más detalles."
+        )
+
+    @mcp.tool()
+    async def tia_export_blocks_scl(plc_name: str, target_dir: str) -> str:
+        """Exporta los bloques de programa del PLC como archivos .scl (SimaticSD).
+
+        Args:
+            plc_name:  Nombre exacto del PLC en el proyecto.
+            target_dir: Ruta ABSOLUTA del directorio destino. Se crea si no existe.
+        """
+        path = await gateway.export_blocks_scl(plc_name, target_dir)
+        return f"Bloques de '{plc_name}' exportados a '{path}' en formato SimaticSD."
+
+    @mcp.tool()
+    async def tia_export_udts_scl(plc_name: str, target_dir: str) -> str:
+        """Exporta los UDTs (User Data Types) del PLC como archivos .scl (SimaticSD).
+
+        Args:
+            plc_name:  Nombre exacto del PLC en el proyecto.
+            target_dir: Ruta ABSOLUTA del directorio destino. Se crea si no existe.
+        """
+        path = await gateway.export_udts_scl(plc_name, target_dir)
+        return f"UDTs de '{plc_name}' exportados a '{path}' en formato SimaticSD."
+
+    @mcp.tool()
+    async def tia_export_plc_tags_xml(plc_name: str, target_dir: str) -> str:
+        """Exporta las tablas de variables (PLC tags) del PLC como XML (SimaticML).
+
+        Args:
+            plc_name:  Nombre exacto del PLC en el proyecto.
+            target_dir: Ruta ABSOLUTA del directorio destino. Se crea si no existe.
+                       La jerarquía de carpetas de las tablas se preserva
+                       (keep_folder_structure=True).
+        """
+        path = await gateway.export_plc_tags_xml(plc_name, target_dir)
+        return (
+            f"Tablas de variables de '{plc_name}' exportadas a '{path}' "
+            "en formato SimaticML (XML)."
+        )
+
+    @mcp.tool()
+    async def tia_import_blocks_scl(
+        plc_name: str,
+        import_dir: str,
+        target_folder: str | None = None,
+    ) -> str:
+        """Importa bloques de programa (.scl) desde el disco al PLC.
+
+        Cierra el ciclo I/O: junto con tia_export_blocks_scl, permite
+        migrar bloques entre proyectos o entornos.
+
+        Args:
+            plc_name:      Nombre exacto del PLC destino.
+            import_dir:    Ruta ABSOLUTA del directorio con los archivos .scl
+                           (estructura exportada por tia_export_blocks_scl).
+            target_folder: Carpeta destino dentro del PLC (opcional).
+        """
+        result = await gateway.import_blocks_scl(
+            plc_name=plc_name,
+            import_dir=import_dir,
+            target_folder=target_folder,
+        )
+        if result is True:
+            return (
+                f"Bloques importados correctamente al PLC '{plc_name}' "
+                f"desde '{import_dir}'."
+            )
+        return (
+            f"La importación de bloques al PLC '{plc_name}' no reportó éxito "
+            "explícito. Revise TIA Portal para más detalles."
+        )
+
+    @mcp.tool()
+    async def tia_import_plc_tags_xml(
+        plc_name: str,
+        import_dir: str,
+        target_folder: str | None = None,
+    ) -> str:
+        """Importa tablas de variables (PLC tags) en formato XML al PLC.
+
+        Cierra el ciclo I/O: junto con tia_export_plc_tags_xml, permite
+        migrar tablas de variables entre proyectos.
+
+        Args:
+            plc_name:      Nombre exacto del PLC destino.
+            import_dir:    Ruta ABSOLUTA del directorio con los archivos XML.
+            target_folder: Carpeta destino dentro del PLC (opcional).
+        """
+        result = await gateway.import_plc_tags_xml(
+            plc_name=plc_name,
+            import_dir=import_dir,
+            target_folder=target_folder,
+        )
+        if result is True:
+            return (
+                f"Tablas de variables importadas correctamente al PLC '{plc_name}' "
+                f"desde '{import_dir}'."
+            )
+        return (
+            f"La importación de tablas de variables al PLC '{plc_name}' no "
+            "reportó éxito explícito. Revise TIA Portal para más detalles."
+        )
+
+    @mcp.tool()
+    async def tia_export_block(plc_name: str, block_name: str, target_dir: str) -> str:
+        """Exporta un único bloque de programa del PLC como archivo .scl (SimaticSD).
+
+        Args:
+            plc_name:   Nombre exacto del PLC.
+            block_name: Nombre exacto del bloque (ej. "DB2000_ED").
+            target_dir: Ruta ABSOLUTA del directorio destino. Se crea si no existe.
+
+        Returns:
+            Mensaje confirmando la exportación.
+
+        Raises:
+            ValueError: Si target_dir no es una ruta absoluta.
+            RuntimeError: Si el bloque no existe en el PLC.
+        """
+        path = await gateway.export_block(plc_name, block_name, target_dir)
+        return f"Bloque '{block_name}' de '{plc_name}' exportado a '{path}'."
+
+    @mcp.tool()
+    async def tia_import_block(
+        plc_name: str, import_dir: str, target_folder: str | None = None
+    ) -> str:
+        """Importa un único bloque de programa (.scl) desde disco al PLC.
+
+        Args:
+            plc_name:      Nombre exacto del PLC destino.
+            import_dir:    Ruta ABSOLUTA del directorio con el .scl del bloque.
+            target_folder: Carpeta destino dentro del PLC (opcional).
+        """
+        result = await gateway.import_block(
+            plc_name=plc_name,
+            import_dir=import_dir,
+            target_folder=target_folder,
+        )
+        return (
+            f"Bloque importado correctamente al PLC '{plc_name}' desde '{import_dir}'."
+            if result is True
+            else f"La importación del bloque al PLC '{plc_name}' no reportó éxito explícito."
+        )
+
+    @mcp.tool()
+    async def tia_export_tag_table(
+        plc_name: str, table_name: str, target_dir: str
+    ) -> str:
+        """Exporta una única PlcTagTable del PLC como XML (SimaticML).
+
+        Args:
+            plc_name:   Nombre exacto del PLC.
+            table_name: Nombre exacto de la tabla (ej. "2000_Disp_ED").
+            target_dir: Ruta ABSOLUTA del directorio destino.
+        """
+        path = await gateway.export_tag_table(plc_name, table_name, target_dir)
+        return f"Tabla '{table_name}' de '{plc_name}' exportada a '{path}'."
+
+    @mcp.tool()
+    async def tia_import_tag_table(
+        plc_name: str, import_dir: str, target_folder: str | None = None
+    ) -> str:
+        """Importa una única PlcTagTable (XML) desde disco al PLC.
+
+        Args:
+            plc_name:      Nombre exacto del PLC destino.
+            import_dir:    Ruta ABSOLUTA del directorio con los archivos XML.
+            target_folder: Carpeta destino dentro del PLC (opcional).
+        """
+        result = await gateway.import_tag_table(
+            plc_name=plc_name,
+            import_dir=import_dir,
+            target_folder=target_folder,
+        )
+        return (
+            f"Tabla importada correctamente al PLC '{plc_name}' desde '{import_dir}'."
+            if result is True
+            else f"La importación de la tabla al PLC '{plc_name}' no reportó éxito explícito."
+        )
+
+    @mcp.tool()
+    async def tia_get_user_constants(
+        plc_name: str, table_name: str
+    ) -> dict[str, str]:
+        """Inspecciona las PlcUserConstant de una tabla de variables.
+
+        Devuelve un mapeo {valor: nombre} donde valor es la representación
+        entera del N_MAX u otra constante de dimensionamiento del PLC.
+
+        Args:
+            plc_name:   Nombre exacto del PLC.
+            table_name: Nombre exacto de la tabla de variables.
+
+        Returns:
+            dict[str, str] con pares {valor_int: nombre_constante}.
+        """
+        return await gateway.get_user_constants(plc_name, table_name)
+
+    @mcp.tool()
+    async def tia_update_user_constant_value(
+        plc_name: str,
+        table_name: str,
+        constant_name: str,
+        new_value: int,
+    ) -> str:
+        """Actualiza el valor de una PlcUserConstant (típicamente N_MAX).
+
+        IMPORTANTE: Tras modificar N_MAX, es responsabilidad del caller
+        invocar `tia_compile_plc` para que TIA Portal recalcule las
+        dimensiones de los DataBlocks afectados. Esta tool no compila
+        automáticamente para evitar efectos colaterales no intencionales.
+
+        Args:
+            plc_name:      Nombre exacto del PLC.
+            table_name:    Nombre exacto de la tabla.
+            constant_name: Nombre exacto de la constante (case-sensitive).
+            new_value:     Nuevo valor entero.
+        """
+        result = await gateway.update_user_constant_value(
+            plc_name=plc_name,
+            table_name=table_name,
+            constant_name=constant_name,
+            new_value=new_value,
+        )
+        return (
+            f"Constante '{constant_name}' actualizada a {new_value} en '{table_name}'."
+            if result is True
+            else f"No se pudo actualizar la constante '{constant_name}'."
+        )
+
+    @mcp.tool()
+    async def tia_update_user_constant_name(
+        plc_name: str,
+        table_name: str,
+        current_name: str,
+        new_name: str,
+    ) -> str:
+        """Renombra una PlcUserConstant sin modificar su valor.
+
+        Args:
+            plc_name:     Nombre exacto del PLC.
+            table_name:   Nombre exacto de la tabla.
+            current_name: Nombre actual de la constante.
+            new_name:     Nuevo nombre deseado.
+        """
+        result = await gateway.update_user_constant_name(
+            plc_name=plc_name,
+            table_name=table_name,
+            current_name=current_name,
+            new_name=new_name,
+        )
+        return (
+            f"Constante renombrada de '{current_name}' a '{new_name}' en '{table_name}'."
+            if result is True
+            else f"No se pudo renombrar la constante '{current_name}'."
+        )
+
+    @mcp.tool()
+    async def tia_delete_user_constant(
+        plc_name: str,
+        table_name: str,
+        constant_name: str,
+    ) -> str:
+        """Borra una PlcUserConstant de la tabla de variables.
+
+        ADVERTENCIA: la eliminación es destructiva. Tras borrar, los
+        DataBlocks que referenciaban esta constante pueden quedar
+        inconsistentes hasta una recompilación.
+
+        Args:
+            plc_name:      Nombre exacto del PLC.
+            table_name:    Nombre exacto de la tabla.
+            constant_name: Nombre exacto de la constante a eliminar.
+        """
+        result = await gateway.delete_user_constant(
+            plc_name=plc_name,
+            table_name=table_name,
+            constant_name=constant_name,
+        )
+        return (
+            f"Constante '{constant_name}' eliminada de '{table_name}'."
+            if result is True
+            else f"No se pudo eliminar la constante '{constant_name}'."
+        )
+
+    mcp.run(transport="stdio")
+
+
+def main() -> None:
+    args = parse_args()
+
+    if args.worker:
+        run_worker_mode()
+    else:
+        # Por defecto (sin flags o con --mcp) -> servidor MCP.
+        run_mcp_server()
+
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="requirements.txt">
+fastmcp>=0.1.0
+mcp>=1.0.0
+pyinstaller>=6.0.0
+</file>
+
+<file path="run_repomix.bat">
+@echo off
+echo =========================================
+echo       Generando Repomix...
+echo =========================================
+npx repomix
+echo.
+echo =========================================
+echo       Proceso Finalizado.
+echo =========================================
+pause
+</file>
+
+<file path="smoke_report.txt">
+=== TEST: list_plcs (list_plcs) ===
+3 PLCs detectados: ['PLC_PST', 'PLC_TMZ', 'PLC_GNR'] [1.81s]
+
+=== TEST: list_blocks (list_blocks) ===
+ok=False: TypeError: get_program_blocks() argument 1 must be str, not None [1.49s]
+
+AVISO: No se detectaron bloques en la raiz del PLC. Los tests granulares seran SKIPPED.
+
+=== TEST: compile_plc (compile_plc) ===
+</file>
+
+<file path="README.md">
+# ZC Automation Suite
+
+Herramienta de integración IT/OT para la automatización e inspección de proyectos en **Siemens TIA Portal Openness** utilizando el SDK de **TIA Scripting Python (SIOS 109742322)**.
+
+## Arquitectura del Sistema
+
+El proyecto está diseñado bajo el patrón **Process-per-Call (Subprocess Worker)** para aislar de forma estricta los punteros COM / .NET RCW no thread-safe de la ejecución asíncrona de Python:
+
+- **Capa IT (`main.py`, `infrastructure/gateway.py`):** Servidor asíncrono (`asyncio`) y FastMCP. Backend headless puro: no incluye TUI ni UI interactiva. Gestiona el estado y la caché IT. NUNCA importa `siemens_tia_scripting`.
+- **Capa OT (`infrastructure/tia/worker_tia.py`):** Subproceso efímero de ejecución síncrona. Realiza `attach_portal()`, opera sobre TIA Portal, emite un único payload JSON a `stdout` y ejecuta `detach()` antes de morir.
+
+## Requisitos de Entorno
+
+- **Sistema Operativo:** Windows 10 / 11 / Server.
+- **Python:** 3.12.x, 3.13.x o 3.14.x (Arquitectura 64-bit).
+- **Siemens TIA Portal:** V15.1 en adelante (con Openness instalado y el usuario asignado al grupo *Siemens TIA Openness*).
+- **Librería TIA Scripting:** Archivo `.whl` oficial instalado (`pip install siemens_tia_scripting-*.whl`).
+
+## Modos de Ejecución
+
+### 1. Modo Servidor FastMCP (STDIO) — Por defecto
+Ejecución estándar por defecto:
+```cmd
+python main.py
+```
+
+Este es el modo **headless**: el binario levanta el servidor FastMCP
+sobre STDIO y queda a la espera de tools invocadas por el cliente
+LLM/MCP. **No hay UI interactiva** en este repositorio.
+
+### 2. Modo Servidor FastMCP (STDIO) — Explícito
+Para conectar con clientes MCP / LLM (ej. Cline, Claude Desktop):
+
+```cmd
+python main.py --mcp
+```
+
+### 3. Modo Worker OT (Subproceso Aislado)
+Invocado internamente por el gateway (requiere payload JSON en STDIN):
+
+```cmd
+echo {"command": "list_plcs", "args": {}} | python main.py --worker
+```
+</file>
+
+</files>
