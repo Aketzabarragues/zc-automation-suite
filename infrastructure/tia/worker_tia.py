@@ -487,6 +487,7 @@ _TRANSACTION_FORBIDDEN_COMMANDS: frozenset[str] = frozenset(
         "save_project",
         "list_plcs",
         "execute_transactional_batch",
+        "compile_plc"
     }
 )
 
