@@ -9,13 +9,18 @@ Reglas arquitectónicas:
   - Recibe UNA instancia Singleton de ``TIAProcessGateway`` por DI.
   - Toda la lógica de Diff pertenece a la capa de Aplicación (Casos
     de Uso), nunca al router HTTP ni al frontend.
+  - El endpoint ``/state/dispositivos`` es estrictamente IT: NUNCA
+    invoca al ``TIAProcessGateway`` ni a la DLL de Siemens. Lee
+    exclusivamente del ``AppState`` Singleton.
 """
 from __future__ import annotations
 
+import dataclasses
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
+
 
 # Permitir imports desde el raíz del repo cuando se ejecuta vía
 # ``uvicorn interfaces.web_server.main:app``.
@@ -34,11 +39,21 @@ from application.use_cases.sync_dispositivos_dimensions import (
 from application.use_cases.sync_dispositivos_instances import (
     SyncDispositivosInstancesUseCase,
 )
+from core.alimentacion.models.dispositivos import (
+    DispED,
+    DispEA,
+    DispSA,
+    DispV,
+    DispM,
+    DispM_VF,
+)
 from infrastructure.alimentacion.parsers.alimentacion_excel_parser import (
     AlimentacionExcelParser,
 )
 from infrastructure.config_manager import ConfigManager
 from infrastructure.gateway import TIAProcessGateway
+
+
 
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -177,13 +192,18 @@ def _register_routes(
     # ── Carga maestra del Excel ────────────────────────────────────
     @app.post("/api/v1/excel/upload")
     async def excel_upload(file: UploadFile = File(...)) -> dict[str, Any]:
-        """Recibe un .xlsx, lo parsea con AlimentacionExcelParser y
-        popula el AppState (Singleton) con las listas tipadas.
+        """Recibe un .xlsx, lo parsea con ``AlimentacionExcelParser`` y
+        popula el ``AppState`` (Singleton) con las listas tipadas.
+
+        Notifica cada paso al ``LogBuffer`` para que la SPA refleje
+        el progreso en tiempo real sin acoplamiento al transporte.
 
         Returns:
-            Resumen de cantidades por tipo, p.ej. ``{"DispED": 15, ...}``.
+            Resumen con ``summary`` (cantidades por tipo),
+            ``dimensiones`` (named ranges num_disp_*) y
+            ``total_dispositivos``.
         """
-        # Guardar temporalmente el .xlsx recibido (el parser necesita ruta).
+        # 1. Persistir el .xlsx temporalmente (el parser necesita ruta).
         suffix = Path(file.filename or "upload.xlsx").suffix or ".xlsx"
         with tempfile.NamedTemporaryFile(
             delete=False, suffix=suffix, prefix="zcupload_"
@@ -192,53 +212,72 @@ def _register_routes(
             tmp.write(content)
             tmp_path = Path(tmp.name)
 
-        log.info(f"Excel recibido: {file.filename} ({len(content)} bytes)")
+        log.info(
+            f"📥 Recibiendo Excel: '{file.filename}' ({len(content)} bytes)"
+        )
         try:
+            log.info("🔍 Parseando estructura del Excel...")
             parser = AlimentacionExcelParser()
             state = get_app_state()
 
-            # 1) Extraer dispositivos tipados.
+            # 2) Extraer DTOs tipados del Excel.
             dispositivos_por_tipo = parser.extraer_dtos(tmp_path)
 
-            # Resetear y popular el AppState con el resultado del Excel.
-            state.reset()
-            for tipo, dispositivos in dispositivos_por_tipo.items():
-                target_list = getattr(state, f"dispositivos_{tipo.lower()}", None)
-                if target_list is not None:
-                    target_list.extend(dispositivos)
+            # 3) Asignación DIRECTA y explícita al AppState (más legible
+            #    y robusto que getattr + extend). Usamos ``cast`` porque
+            #    el parser expone ``list[Dispositivo]`` (Protocol) y
+            #    Python es estricto con la varianza de ``list``.
+            state.dispositivos_ed = cast(
+                list[DispED], dispositivos_por_tipo.get("DispED", [])
+            )
+            state.dispositivos_ea = cast(
+                list[DispEA], dispositivos_por_tipo.get("DispEA", [])
+            )
+            state.dispositivos_sa = cast(
+                list[DispSA], dispositivos_por_tipo.get("DispSA", [])
+            )
+            state.dispositivos_v = cast(
+                list[DispV], dispositivos_por_tipo.get("DispV", [])
+            )
+            state.dispositivos_m = cast(
+                list[DispM], dispositivos_por_tipo.get("DispM", [])
+            )
+            state.dispositivos_m_vf = cast(
+                list[DispM_VF], dispositivos_por_tipo.get("DispM_VF", [])
+            )
 
-            # 2) Extraer dimensiones tipadas.
+
+            # 4) Extraer y asignar dimensiones.
             dimensiones = parser.extraer_dimensiones(tmp_path)
             state.dimensiones = dimensiones
 
-            # Resumen de cantidades para mostrar en la SPA.
+            # 5) Auditoría del resultado.
             summary = {
-                tipo: len(列表)
-                for tipo, 列表 in dispositivos_por_tipo.items()
+                tipo: len(lista)
+                for tipo, lista in dispositivos_por_tipo.items()
             }
+            total_hw = sum(summary.values())
+            log.success(
+                f"✅ Carga maestra completada: {total_hw} dispositivos "
+                f"extraídos ({len(summary)} tipos)."
+            )
+            for tipo, qty in summary.items():
+                log.info(f"   • {tipo}: {qty} elementos")
         except Exception as exc:
-            log.error(f"excel_upload failed: {exc}")
+            log.error(f"❌ Fallo crítico al parsear el Excel: {exc}")
             raise HTTPException(
                 status_code=400, detail=f"excel_upload failed: {exc}"
             ) from exc
         finally:
             tmp_path.unlink(missing_ok=True)
 
-        log.success(
-            f"Excel cargado: {sum(summary.values())} dispositivos en "
-            f"{len(summary)} tipos"
-        )
         return {
+            "ok": True,
             "summary": summary,
-            "dimensiones": {
-                "num_disp_ed": dimensiones.num_disp_ed,
-                "num_disp_ea": dimensiones.num_disp_ea,
-                "num_disp_sa": dimensiones.num_disp_sa,
-                "num_disp_v": dimensiones.num_disp_v,
-                "num_disp_m": dimensiones.num_disp_m,
-                "num_disp_m_vf": dimensiones.num_disp_m_vf,
-            },
+            "total_dispositivos": sum(summary.values()),
+            "dimensiones": dataclasses.asdict(dimensiones),
         }
+
 
     # ── Pre-Flight: generar prevision SIN mutar el PLC ─────────────
     @app.post("/api/v1/sync/preview")
@@ -288,6 +327,45 @@ def _register_routes(
             ) from exc
         log.success(f"Transaccion completada: {result.get('operations')} ops")
         return result
+
+    # ── Inspector de Memoria (volcado del AppState SIN tocar TIA) ──
+    @app.get("/api/v1/state/dispositivos")
+    async def state_dispositivos() -> dict[str, Any]:
+        """Vuelca el ``AppState`` Singleton a JSON para el Inspector IT.
+
+        Este endpoint es estrictamente IT (no invoca al
+        ``TIAProcessGateway`` ni a la DLL de Siemens). Permite a la
+        SPA renderizar el "Inspector de Memoria" y auditar los DTOs
+        extraídos del Excel sin necesidad de tener TIA Portal abierto.
+
+        Nota de serialización: usamos ``dataclasses.asdict()`` (NO
+        ``d.__dict__``) para garantizar la conversión correcta de
+        cualquier campo con tipos anidados o propiedades calculadas
+        en el futuro. ``asdict`` es el contrato oficial de la stdlib
+        para volcar dataclasses a tipos primitivos JSON-serializables.
+
+        Returns:
+            Estructura JSON con:
+              * ``ok``: ``True`` siempre (este endpoint nunca falla).
+              * ``dimensiones``: ``dataclasses.asdict(dimensiones)``
+                con todos los ``num_disp_*``.
+              * ``dispositivos``: mapeo ``tipo -> [asdict(dto)]`` para
+                los 6 tipos (ED, EA, SA, V, M, MVF).
+        """
+        state = get_app_state()
+        return {
+            "ok": True,
+            "dimensiones": dataclasses.asdict(state.dimensiones),
+            "dispositivos": {
+                "DispED": [dataclasses.asdict(d) for d in state.dispositivos_ed],
+                "DispEA": [dataclasses.asdict(d) for d in state.dispositivos_ea],
+                "DispSA": [dataclasses.asdict(d) for d in state.dispositivos_sa],
+                "DispV": [dataclasses.asdict(d) for d in state.dispositivos_v],
+                "DispM": [dataclasses.asdict(d) for d in state.dispositivos_m],
+                "DispM_VF": [dataclasses.asdict(d) for d in state.dispositivos_m_vf],
+            },
+        }
+
 
     # ── Log buffer (polling desde la SPA) ──────────────────────────
     @app.get("/api/v1/logs")
