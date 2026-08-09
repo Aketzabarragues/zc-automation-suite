@@ -4,13 +4,20 @@ Este módulo actúa exclusivamente como enrutador CLI (Composition Root).
 Su única responsabilidad es cablear las dependencias y delegar la
 ejecución hacia:
   - --worker : El motor OT efímero (capa de infraestructura).
-  - (default): Las capas de presentación IT (interfaces/mcp_server.py).
-  - --mcp    : Alias explícito de la capa MCP (compatibilidad).
+  - --mcp    : El servidor FastMCP (capa de presentación agéntica).
+  - --web    : El servidor FastAPI/Uvicorn (capa de presentación web).
+  - (default): --mcp por compatibilidad.
 
-Cero UI propia: no hay TUI ni bucles interactivos. Toda la presentación
-es responsabilidad de los adaptadores de `interfaces/`.
+Composition Root (REGLA DE ORO):
+  - ``TIAProcessGateway`` se instancia UNA SOLA VEZ por proceso.
+  - Esa única instancia se inyecta en cascada hacia
+    ``create_mcp_server(gateway)`` y ``create_app(gateway)``.
+  - Prohibido crear múltiples gateways en el mismo proceso (cada uno
+    lanzaría su propio worker OT efímero, multiplicando la presión
+    sobre el RCW de TIA Portal).
+
+Cero UI propia: no hay TUI ni bucles interactivos.
 """
-
 from __future__ import annotations
 
 import argparse
@@ -27,12 +34,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--mcp",
         action="store_true",
-        help="Arranca la aplicación en modo Servidor FastMCP (STDIO). Es el modo por defecto.",
+        help="Arranca la aplicación en modo Servidor FastMCP (STDIO).",
     )
     parser.add_argument(
         "--worker",
         action="store_true",
         help="Ejecuta la entrada directa al worker efímero de TIA Portal.",
+    )
+    parser.add_argument(
+        "--web",
+        nargs="?",
+        const="127.0.0.1:8000",
+        default=None,
+        metavar="HOST:PORT",
+        help=(
+            "Arranca el servidor web FastAPI (default 127.0.0.1:8000). "
+            "Ejemplo: --web 0.0.0.0:5000"
+        ),
     )
     return parser.parse_args()
 
@@ -55,14 +73,36 @@ def run_mcp_mode() -> None:
     run_mcp_stdio()
 
 
+def run_web_mode(host_port: str) -> None:
+    """Delega en la capa de presentación web FastAPI (interfaces/web_server/).
+
+    Args:
+        host_port: Cadena ``"host:port"`` parseable por ``uvicorn.run``.
+    """
+    # Importación tardía por la misma razón que en ``run_mcp_mode``.
+    import uvicorn
+
+    from interfaces.web_server.main import app
+
+    host, _, port = host_port.partition(":")
+    uvicorn.run(
+        app,
+        host=host or "127.0.0.1",
+        port=int(port) if port else 8000,
+    )
+
+
 def main() -> None:
     args = parse_args()
 
     if args.worker:
         run_worker_mode()
-    else:
-        # Por defecto (sin flags o con --mcp) -> capa de presentación MCP.
-        run_mcp_mode()
+        return
+    if args.web is not None:
+        run_web_mode(args.web)
+        return
+    # Por defecto (sin flags o con --mcp) -> capa de presentación MCP.
+    run_mcp_mode()
 
 
 if __name__ == "__main__":

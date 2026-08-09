@@ -82,7 +82,12 @@ def _ensure_target_dir(target_dir: str) -> Path:
 # ──────────────────────────────────────────────────────────────────────────
 
 def _cmd_open_project(portal: Any, ts: Any, args: dict[str, Any]) -> None:
-    """Abre un proyecto TIA Portal desde una ruta absoluta. Manual §2.4.3."""
+    """Abre un proyecto TIA Portal desde una ruta absoluta. Manual §2.4.3.
+
+    PRECONDICIÓN: el portal ya está conectado (vía ``attach_portal`` o
+    ``open_new_portal``). Para abrir proyecto desde cero (cold start),
+    usar ``open_new_portal``.
+    """
     _ = ts
     project_file_path: str = args.get("project_file_path", "")
     if not project_file_path:
@@ -90,6 +95,63 @@ def _cmd_open_project(portal: Any, ts: Any, args: dict[str, Any]) -> None:
     if not os.path.isfile(project_file_path):
         raise RuntimeError(f"El archivo de proyecto no existe: '{project_file_path}'.")
     portal.open_project(project_file_path=project_file_path)
+
+
+def _cmd_attach_portal(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
+    """Hot-attach a una instancia YA EJECUTÁNDOSE de TIA Portal.
+
+    Usa ``ts.attach_portal(portal_mode=...)`` (Manual V1.2.1 §2.4.2).
+    Escenario típico: el operario ya tiene TIA Portal abierto; el
+    gateway se acopla a esa instancia sin abrir un proceso nuevo.
+
+    Returns:
+        ``True`` si el acople fue exitoso (``portal`` no es ``None``).
+    """
+    _ = portal  # se ignora: attach reemplaza la instancia
+    _ = args  # sin args adicionales (el modo AnyUserInterface es implícito)
+    new_portal = ts.attach_portal(
+        portal_mode=ts.Enums.PortalMode.AnyUserInterface
+    )
+    if new_portal is None:
+        raise RuntimeError(
+            "Fallo crítico: attach_portal retornó None. "
+            "¿Está TIA Portal abierto? ¿El usuario pertenece al grupo Openness?"
+        )
+    return True
+
+
+def _cmd_open_new_portal(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
+    """Cold start: lanza una instancia NUEVA de TIA Portal y abre proyecto.
+
+    Sigue el Manual V1.2.1 §2.4.1:
+      1. ``ts.open_portal(portal_mode=...)`` → instancia del portal.
+      2. ``portal.open_project(project_file_path=...)`` → abre proyecto.
+
+    Args:
+        project_file_path: Ruta absoluta al .apxx.
+
+    Returns:
+        ``True`` si el portal nuevo se creó con éxito.
+    """
+    project_file_path: str = args.get("project_file_path", "")
+    if not project_file_path:
+        raise ValueError(
+            "open_new_portal requiere el argumento 'project_file_path'."
+        )
+    if not os.path.isfile(project_file_path):
+        raise RuntimeError(
+            f"El archivo de proyecto no existe: '{project_file_path}'."
+        )
+    _ = portal  # se ignora: open_portal reemplaza la instancia
+    new_portal = ts.open_portal(
+        portal_mode=ts.Enums.PortalMode.AnyUserInterface
+    )
+    if new_portal is None:
+        raise RuntimeError(
+            "Fallo crítico: open_portal retornó None."
+        )
+    new_portal.open_project(project_file_path=project_file_path)
+    return True
 
 
 def _cmd_save_project(portal: Any, ts: Any, args: dict[str, Any]) -> None:
@@ -458,6 +520,52 @@ def _cmd_update_user_constant_name(portal: Any, ts: Any, args: dict[str, Any]) -
     raise RuntimeError(f"Constante '{current_name}' no encontrada en tabla '{table_name}'.")
 
 
+def _cmd_rename_plc_tag(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
+    """Renombra un PlcTag en TIA Portal preservando referencias cruzadas.
+
+    Motor Diff híbrido (Fase 5): cuando el ``uid`` coincide pero
+    ``plc_tag`` cambia, NO modificamos el XML (eso perdería las
+    referencias en el programa SCL). En su lugar, usamos COM:
+      1. ``table.get_plc_tags()`` itera todos los PlcTags de la tabla.
+      2. Buscamos el tag cuyo ``Name`` coincide con ``old_name``.
+      3. Leemos ``tag.get_property("Name")`` (verificación defensiva).
+      4. ``tag.set_property("Name", new_name)``.
+
+    Args:
+        plc_name:   Nombre del PLC destino.
+        old_name:   Nombre actual del PlcTag en TIA Portal.
+        new_name:   Nuevo nombre a asignar (preserva referencias cruzadas).
+
+    Returns:
+        ``True`` si el rename fue exitoso.
+    """
+    _ = ts
+    plc_name: str = args.get("plc_name", "")
+    old_name: str = args.get("old_name", "")
+    new_name: str = args.get("new_name", "")
+    if not (plc_name and old_name and new_name):
+        raise ValueError(
+            "rename_plc_tag requiere 'plc_name', 'old_name' y 'new_name'."
+        )
+
+    project = _get_active_project(portal)
+    target_plc = _find_plc(project, plc_name)
+
+    # Recorremos TODAS las PlcTagTables buscando el PlcTag por old_name.
+    # El uid no es nativo en TIA → el rename se identifica por Name
+    # actual (que es el plc_tag histórico que el motor IT conoce).
+    for table in target_plc.get_plc_tag_tables():
+        for tag in table.get_plc_tags():
+            current = tag.get_property("Name")
+            if current == old_name:
+                tag.set_property("Name", new_name)
+                return True
+
+    raise RuntimeError(
+        f"No se encontró PlcTag con Name='{old_name}' en PLC '{plc_name}'."
+    )
+
+
 def _cmd_delete_user_constant(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
     """Borra una PlcUserConstant. Manual §2.34.4. snake_case: constant.delete()."""
     _ = ts
@@ -608,15 +716,19 @@ def _cmd_execute_transactional_batch(
 
 
 COMMAND_REGISTRY: dict[str, Callable[[Any, Any, dict[str, Any]], Any]] = {
-    # ── Ciclo de vida del proyecto ────────────────────────────────────
+    # ── Ciclo de vida del proyecto ──────────────────────────────
+    "attach_portal": _cmd_attach_portal,
+    "open_new_portal": _cmd_open_new_portal,
     "open_project": _cmd_open_project,
     "save_project": _cmd_save_project,
     "close_project": _cmd_close_project,
-    # ── Inspección ──────────────────────────────────────────────────────
+    # ── Inspección ─────────────────────────────────────────────
     "list_plcs": _cmd_list_plcs,
     "list_blocks": _cmd_list_blocks,
-    # ── Mutación / compilación ──────────────────────────────────────────
+    # ── Mutación / compilación ────────────────────────────────────
     "compile_plc": _cmd_compile_plc,
+    # ── Rename COM (motor diff híbrido) ────────────────────────────
+    "rename_plc_tag": _cmd_rename_plc_tag,
     # ── Exportación masiva Simatic Source Documents (.s7dcl) ──────────
     "export_blocks_sd": _cmd_export_blocks_sd,
     "export_udts_sd": _cmd_export_udts_sd,

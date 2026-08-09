@@ -194,6 +194,41 @@ class TIAProcessGateway:
             {"plc_name": plc_name, "target_dir": target_dir},
         )
 
+    async def attach_portal(self) -> bool:
+        """Hot-attach a una instancia YA EJECUTÁNDOSE de TIA Portal.
+
+        Escenario típico: el operario ya tiene TIA Portal abierto; el
+        gateway se acopla a esa instancia vía ``ts.attach_portal()``
+        (Manual V1.2.1 §2.4.2). No abre proyecto — solo establece la
+        conexión COM.
+
+        Returns:
+            ``True`` si el acople fue exitoso.
+        """
+        return await self._dispatch_worker("attach_portal")
+
+    async def open_new_portal(self, project_file_path: str) -> bool:
+        """Cold start: lanza TIA Portal NUEVO y abre un proyecto.
+
+        Sigue el Manual V1.2.1 §2.4.1:
+          1. ``ts.open_portal()`` → instancia nueva del portal.
+          2. ``portal.open_project(project_file_path)`` → abre proyecto.
+
+        Args:
+            project_file_path: Ruta absoluta al archivo ``.apxx``.
+
+        Returns:
+            ``True`` si la operación fue exitosa.
+        """
+        if not Path(project_file_path).is_absolute():
+            raise ValueError(
+                f"project_file_path debe ser absoluto. Recibido: '{project_file_path}'"
+            )
+        return await self._dispatch_worker(
+            "open_new_portal",
+            {"project_file_path": project_file_path},
+        )
+
     async def open_project(self, project_file_path: str) -> None:
         """Abre un proyecto TIA Portal. Invalida caché del gateway (cambio de proyecto)."""
         if not Path(project_file_path).is_absolute():

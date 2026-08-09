@@ -13,7 +13,6 @@ Principios arquitectónicos:
     rutas de export, etc.) a mensajes humanos ocurre AQUÍ, no en la capa
     de infraestructura.
 """
-
 from __future__ import annotations
 
 import sys
@@ -24,11 +23,11 @@ from fastmcp import FastMCP
 from infrastructure.config_manager import ConfigManager
 from infrastructure.gateway import TIAProcessGateway
 
-from application.use_cases.sync_hardware_dimensions import (
-    SyncHardwareDimensionsUseCase,
+from application.use_cases.sync_dispositivos_dimensions import (
+    SyncDispositivosDimensionsUseCase,
 )
-from application.use_cases.sync_hardware_instances import (
-    SyncHardwareInstancesUseCase,
+from application.use_cases.sync_dispositivos_instances import (
+    SyncDispositivosInstancesUseCase,
 )
 
 
@@ -46,17 +45,34 @@ def create_mcp_server(gateway: TIAProcessGateway) -> FastMCP:
     """
     mcp = FastMCP("ZC Automation Suite")
 
-    # Inyección del ConfigManager. Ruta por defecto relativa al CWD;
-    # ajustar aquí si se desea apuntar a un config alternativo en tests.
     config_manager = ConfigManager("infrastructure/config.json")
 
-    # ── Ciclo de vida del proyecto ──────────────────────────────────────
+    @mcp.tool()
+    async def tia_attach_portal() -> str:
+        """Hot-attach a una instancia YA EJECUTÁNDOSE de TIA Portal."""
+        ok = await gateway.attach_portal()
+        return "Portal acoplado." if ok else "Fallo el acople."
+
+    @mcp.tool()
+    async def tia_open_new_portal(project_file_path: str) -> str:
+        """Cold start: lanza TIA Portal NUEVO y abre un proyecto.
+
+        Args:
+            project_file_path: Ruta absoluta al archivo ``.apxx``.
+        """
+        ok = await gateway.open_new_portal(project_file_path)
+        return (
+            f"Portal nuevo abierto con proyecto '{project_file_path}'."
+            if ok
+            else "Fallo."
+        )
+
     @mcp.tool()
     async def tia_open_project(project_file_path: str) -> str:
         """Abre un proyecto de TIA Portal desde una ruta absoluta.
 
-        Si ya hay un proyecto abierto, TIA Portal cerrará la sesión activa
-        antes de abrir el nuevo proyecto (comportamiento del portal).
+        PRECONDICIÓN: portal ya conectado (``tia_attach_portal`` o
+        ``tia_open_new_portal``).
 
         Args:
             project_file_path: Ruta absoluta al archivo .apxx del proyecto.
@@ -74,14 +90,12 @@ def create_mcp_server(gateway: TIAProcessGateway) -> FastMCP:
     async def tia_close_project() -> str:
         """Cierra el proyecto activo en TIA Portal.
 
-        ADVERTENCIA CRÍTICA: project.close() destruye permanentemente todos
-        los cambios no guardados (manual V1.2.1, sección 2.37.3). Asegúrate
-        de invocar tia_save_project() antes si deseas conservar los cambios.
+        ADVERTENCIA: project.close() destruye permanentemente todos los
+        cambios no guardados (manual V1.2.1 §2.37.3).
         """
         await gateway.close_project()
         return "Proyecto cerrado. Los cambios no guardados se han perdido."
 
-    # ── Inspección ──────────────────────────────────────────────────────
     @mcp.tool()
     async def tia_list_plcs(force_refresh: bool = False) -> list[str]:
         """Lista los nombres de los PLCs presentes en el proyecto activo."""
@@ -89,123 +103,70 @@ def create_mcp_server(gateway: TIAProcessGateway) -> FastMCP:
 
     @mcp.tool()
     async def tia_list_blocks(
-        plc_name: str, folder_path: str | None = None, force_refresh: bool = False
+        plc_name: str,
+        folder_path: str | None = None,
+        force_refresh: bool = False,
     ) -> list[str]:
         """Lista los bloques de programa pertenecientes a un PLC."""
         return await gateway.get_blocks(
-            plc_name=plc_name, folder_path=folder_path, force_refresh=force_refresh
+            plc_name=plc_name,
+            folder_path=folder_path,
+            force_refresh=force_refresh,
         )
 
-    # ── Mutación / compilación ──────────────────────────────────────────
     @mcp.tool()
     async def tia_compile_plc(plc_name: str) -> str:
         """Compila el software del PLC en TIA Portal.
 
-        Args:
-            plc_name: Nombre exacto del PLC.
-
-        Returns:
-            Mensaje humano describiendo el resultado. La compilación puede
-            tardar varios minutos en proyectos grandes.
-
         Semántica del booleano nativo (API V1.2.1 §2.2.11):
-          - False -> compilación exitosa (sin errores).
-          - True  -> la compilación TIENE errores.
+          - False -> compilación exitosa.
+          - True  -> compilación con errores.
         """
         has_errors = await gateway.compile_plc(plc_name)
         if has_errors is False:
-            return f"Compilación del PLC '{plc_name}' exitosa (sin errores)."
+            return f"Compilación del PLC '{plc_name}' exitosa."
         return (
-            f"Compilación del PLC '{plc_name}' completada con errores. "
-            "Revise la ventana de inspección de TIA Portal para más detalles."
+            f"Compilación del PLC '{plc_name}' con errores. "
+            "Revise TIA Portal."
         )
 
-    # ── Exportación masiva Simatic Source Documents (.s7dcl) ──────────
     @mcp.tool()
     async def tia_export_blocks_sd(plc_name: str, target_dir: str) -> str:
-        """Exporta los bloques de programa del PLC como archivos Simatic Source Documents (.s7dcl).
+        """Exporta los bloques como archivos Simatic Source Documents (.s7dcl).
 
-        ⚠️ **Convención de formato**: el sistema trabaja exclusivamente en
-        formato ``.s7dcl`` (SimaticSD). El antiguo sufijo ``.scl`` ha quedado
-        obsoleto. El archivo se emite con la extensión nativa que TIA Portal
-        V21 produce al usar ``export_format=SimaticSD``.
-
-        Args:
-            plc_name:  Nombre exacto del PLC en el proyecto.
-            target_dir: Ruta ABSOLUTA del directorio destino. Se crea si no existe.
+        El sistema trabaja exclusivamente con ``.s7dcl`` (SimaticSD).
         """
         path = await gateway.export_blocks_sd(plc_name, target_dir)
-        return (
-            f"Bloques de '{plc_name}' exportados a '{path}' en formato "
-            "Simatic Source Documents (.s7dcl)."
-        )
+        return f"Bloques exportados a '{path}' en formato .s7dcl."
 
     @mcp.tool()
     async def tia_export_udts_sd(plc_name: str, target_dir: str) -> str:
-        """Exporta los UDTs (User Data Types) del PLC como archivos Simatic Source Documents (.s7dcl).
-
-        ⚠️ **Convención de formato**: ver ``tia_export_blocks_sd``.
-
-        Args:
-            plc_name:  Nombre exacto del PLC en el proyecto.
-            target_dir: Ruta ABSOLUTA del directorio destino. Se crea si no existe.
-        """
+        """Exporta los UDTs como archivos Simatic Source Documents (.s7dcl)."""
         path = await gateway.export_udts_sd(plc_name, target_dir)
-        return (
-            f"UDTs de '{plc_name}' exportados a '{path}' en formato "
-            "Simatic Source Documents (.s7dcl)."
-        )
+        return f"UDTs exportados a '{path}' en formato .s7dcl."
 
-    # ── Exportación masiva SimaticML (XML) ──────────────────────────────
     @mcp.tool()
     async def tia_export_plc_tags_xml(plc_name: str, target_dir: str) -> str:
-        """Exporta las tablas de variables (PLC tags) del PLC como XML (SimaticML).
-
-        Args:
-            plc_name:  Nombre exacto del PLC en el proyecto.
-            target_dir: Ruta ABSOLUTA del directorio destino. Se crea si no existe.
-                       La jerarquía de carpetas de las tablas se preserva
-                       (keep_folder_structure=True).
-        """
+        """Exporta las tablas de variables (PLC tags) como XML (SimaticML)."""
         path = await gateway.export_plc_tags_xml(plc_name, target_dir)
-        return (
-            f"Tablas de variables de '{plc_name}' exportadas a '{path}' "
-            "en formato SimaticML (XML)."
-        )
+        return f"Tablas exportadas a '{path}' en formato SimaticML (XML)."
 
-    # ── Importación masiva desde disco (cierre del ciclo I/O) ───────────
     @mcp.tool()
     async def tia_import_blocks_sd(
         plc_name: str,
         import_dir: str,
         target_folder: str | None = None,
     ) -> str:
-        """Importa bloques de programa en formato Simatic Source Documents (.s7dcl) desde el disco al PLC.
-
-        ⚠️ **Convención de formato**: el sistema trabaja exclusivamente
-        con ``.s7dcl`` (SimaticSD). Carga el ciclo I/O: junto con
-        ``tia_export_blocks_sd``, permite migrar bloques entre proyectos
-        o entornos.
-
-        Args:
-            plc_name:      Nombre exacto del PLC destino.
-            import_dir:    Ruta ABSOLUTA del directorio con los archivos .s7dcl
-                           (estructura exportada por tia_export_blocks_sd).
-            target_folder: Carpeta destino dentro del PLC (opcional).
-        """
+        """Importa bloques ``.s7dcl`` desde disco al PLC."""
         result = await gateway.import_blocks_sd(
             plc_name=plc_name,
             import_dir=import_dir,
             target_folder=target_folder,
         )
-        if result is True:
-            return (
-                f"Bloques importados correctamente al PLC '{plc_name}' "
-                f"desde '{import_dir}' en formato .s7dcl."
-            )
         return (
-            f"La importación de bloques al PLC '{plc_name}' no reportó éxito "
-            "explícito. Revise TIA Portal para más detalles."
+            "Bloques importados correctamente."
+            if result
+            else "Falló la importación."
         )
 
     @mcp.tool()
@@ -214,127 +175,75 @@ def create_mcp_server(gateway: TIAProcessGateway) -> FastMCP:
         import_dir: str,
         target_folder: str | None = None,
     ) -> str:
-        """Importa tablas de variables (PLC tags) en formato XML al PLC.
-
-        Cierra el ciclo I/O: junto con tia_export_plc_tags_xml, permite
-        migrar tablas de variables entre proyectos.
-
-        Args:
-            plc_name:      Nombre exacto del PLC destino.
-            import_dir:    Ruta ABSOLUTA del directorio con los archivos XML.
-            target_folder: Carpeta destino dentro del PLC (opcional).
-        """
+        """Importa tablas de variables (XML) desde disco al PLC."""
         result = await gateway.import_plc_tags_xml(
             plc_name=plc_name,
             import_dir=import_dir,
             target_folder=target_folder,
         )
-        if result is True:
-            return (
-                f"Tablas de variables importadas correctamente al PLC '{plc_name}' "
-                f"desde '{import_dir}'."
-            )
         return (
-            f"La importación de tablas de variables al PLC '{plc_name}' no "
-            "reportó éxito explícito. Revise TIA Portal para más detalles."
+            "Tablas importadas correctamente."
+            if result
+            else "Falló la importación."
         )
 
-    # ── Bloques granulares ──────────────────────────────────────────────
     @mcp.tool()
-    async def tia_export_block(plc_name: str, block_name: str, target_dir: str) -> str:
-        """Exporta un único bloque de programa del PLC como archivo .scl (SimaticSD).
-
-        Args:
-            plc_name:   Nombre exacto del PLC.
-            block_name: Nombre exacto del bloque (ej. "DB2000_ED").
-            target_dir: Ruta ABSOLUTA del directorio destino. Se crea si no existe.
-
-        Returns:
-            Mensaje confirmando la exportación.
-
-        Raises:
-            ValueError: Si target_dir no es una ruta absoluta.
-            RuntimeError: Si el bloque no existe en el PLC.
-        """
+    async def tia_export_block(
+        plc_name: str, block_name: str, target_dir: str
+    ) -> str:
+        """Exporta un único bloque como .s7dcl."""
         path = await gateway.export_block(plc_name, block_name, target_dir)
-        return f"Bloque '{block_name}' de '{plc_name}' exportado a '{path}'."
+        return f"Bloque '{block_name}' exportado a '{path}'."
 
     @mcp.tool()
     async def tia_import_block(
-        plc_name: str, import_dir: str, target_folder: str | None = None
+        plc_name: str,
+        import_dir: str,
+        target_folder: str | None = None,
     ) -> str:
-        """Importa un único bloque de programa (.scl) desde disco al PLC.
-
-        Args:
-            plc_name:      Nombre exacto del PLC destino.
-            import_dir:    Ruta ABSOLUTA del directorio con el .scl del bloque.
-            target_folder: Carpeta destino dentro del PLC (opcional).
-        """
+        """Importa un único bloque ``.s7dcl`` desde disco al PLC."""
         result = await gateway.import_block(
             plc_name=plc_name,
             import_dir=import_dir,
             target_folder=target_folder,
         )
         return (
-            f"Bloque importado correctamente al PLC '{plc_name}' desde '{import_dir}'."
-            if result is True
-            else f"La importación del bloque al PLC '{plc_name}' no reportó éxito explícito."
+            "Bloque importado correctamente."
+            if result
+            else "Falló la importación."
         )
 
-    # ── Tablas de variables granulares ──────────────────────────────────
     @mcp.tool()
     async def tia_export_tag_table(
         plc_name: str, table_name: str, target_dir: str
     ) -> str:
-        """Exporta una única PlcTagTable del PLC como XML (SimaticML).
-
-        Args:
-            plc_name:   Nombre exacto del PLC.
-            table_name: Nombre exacto de la tabla (ej. "2000_Disp_ED").
-            target_dir: Ruta ABSOLUTA del directorio destino.
-        """
+        """Exporta una única PlcTagTable como XML (SimaticML)."""
         path = await gateway.export_tag_table(plc_name, table_name, target_dir)
-        return f"Tabla '{table_name}' de '{plc_name}' exportada a '{path}'."
+        return f"Tabla '{table_name}' exportada a '{path}'."
 
     @mcp.tool()
     async def tia_import_tag_table(
-        plc_name: str, import_dir: str, target_folder: str | None = None
+        plc_name: str,
+        import_dir: str,
+        target_folder: str | None = None,
     ) -> str:
-        """Importa una única PlcTagTable (XML) desde disco al PLC.
-
-        Args:
-            plc_name:      Nombre exacto del PLC destino.
-            import_dir:    Ruta ABSOLUTA del directorio con los archivos XML.
-            target_folder: Carpeta destino dentro del PLC (opcional).
-        """
+        """Importa una única PlcTagTable (XML) desde disco al PLC."""
         result = await gateway.import_tag_table(
             plc_name=plc_name,
             import_dir=import_dir,
             target_folder=target_folder,
         )
         return (
-            f"Tabla importada correctamente al PLC '{plc_name}' desde '{import_dir}'."
-            if result is True
-            else f"La importación de la tabla al PLC '{plc_name}' no reportó éxito explícito."
+            "Tabla importada correctamente."
+            if result
+            else "Falló la importación."
         )
 
-    # ── Constantes de usuario (N_MAX, dimensionamiento) ─────────────────
     @mcp.tool()
     async def tia_get_user_constants(
         plc_name: str, table_name: str
     ) -> dict[str, str]:
-        """Inspecciona las PlcUserConstant de una tabla de variables.
-
-        Devuelve un mapeo {valor: nombre} donde valor es la representación
-        entera del N_MAX u otra constante de dimensionamiento del PLC.
-
-        Args:
-            plc_name:   Nombre exacto del PLC.
-            table_name: Nombre exacto de la tabla de variables.
-
-        Returns:
-            dict[str, str] con pares {valor_int: nombre_constante}.
-        """
+        """Inspecciona PlcUserConstant. Devuelve ``{valor_int: nombre}``."""
         return await gateway.get_user_constants(plc_name, table_name)
 
     @mcp.tool()
@@ -346,16 +255,8 @@ def create_mcp_server(gateway: TIAProcessGateway) -> FastMCP:
     ) -> str:
         """Actualiza el valor de una PlcUserConstant (típicamente N_MAX).
 
-        IMPORTANTE: Tras modificar N_MAX, es responsabilidad del caller
-        invocar `tia_compile_plc` para que TIA Portal recalcule las
-        dimensiones de los DataBlocks afectados. Esta tool no compila
-        automáticamente para evitar efectos colaterales no intencionales.
-
-        Args:
-            plc_name:      Nombre exacto del PLC.
-            table_name:    Nombre exacto de la tabla.
-            constant_name: Nombre exacto de la constante (case-sensitive).
-            new_value:     Nuevo valor entero.
+        Tras modificar N_MAX, el caller DEBE invocar ``tia_compile_plc``
+        para que TIA Portal recalcule las dimensiones de los DataBlocks.
         """
         result = await gateway.update_user_constant_value(
             plc_name=plc_name,
@@ -363,11 +264,7 @@ def create_mcp_server(gateway: TIAProcessGateway) -> FastMCP:
             constant_name=constant_name,
             new_value=new_value,
         )
-        return (
-            f"Constante '{constant_name}' actualizada a {new_value} en '{table_name}'."
-            if result is True
-            else f"No se pudo actualizar la constante '{constant_name}'."
-        )
+        return "Constante actualizada." if result else "Falló la actualización."
 
     @mcp.tool()
     async def tia_update_user_constant_name(
@@ -376,25 +273,14 @@ def create_mcp_server(gateway: TIAProcessGateway) -> FastMCP:
         current_name: str,
         new_name: str,
     ) -> str:
-        """Renombra una PlcUserConstant sin modificar su valor.
-
-        Args:
-            plc_name:     Nombre exacto del PLC.
-            table_name:   Nombre exacto de la tabla.
-            current_name: Nombre actual de la constante.
-            new_name:     Nuevo nombre deseado.
-        """
+        """Renombra una PlcUserConstant sin modificar su valor."""
         result = await gateway.update_user_constant_name(
             plc_name=plc_name,
             table_name=table_name,
             current_name=current_name,
             new_name=new_name,
         )
-        return (
-            f"Constante renombrada de '{current_name}' a '{new_name}' en '{table_name}'."
-            if result is True
-            else f"No se pudo renombrar la constante '{current_name}'."
-        )
+        return "Constante renombrada." if result else "Falló el renombrado."
 
     @mcp.tool()
     async def tia_delete_user_constant(
@@ -402,107 +288,73 @@ def create_mcp_server(gateway: TIAProcessGateway) -> FastMCP:
         table_name: str,
         constant_name: str,
     ) -> str:
-        """Borra una PlcUserConstant de la tabla de variables.
-
-        ADVERTENCIA: la eliminación es destructiva. Tras borrar, los
-        DataBlocks que referenciaban esta constante pueden quedar
-        inconsistentes hasta una recompilación.
-
-        Args:
-            plc_name:      Nombre exacto del PLC.
-            table_name:    Nombre exacto de la tabla.
-            constant_name: Nombre exacto de la constante a eliminar.
-        """
+        """Borra una PlcUserConstant de la tabla de variables."""
         result = await gateway.delete_user_constant(
             plc_name=plc_name,
             table_name=table_name,
             constant_name=constant_name,
         )
-        return (
-            f"Constante '{constant_name}' eliminada de '{table_name}'."
-            if result is True
-            else f"No se pudo eliminar la constante '{constant_name}'."
-        )
+        return "Constante eliminada." if result else "Falló la eliminación."
 
-    # ── Lotes transaccionales (rollback automático) ────────────────────
     @mcp.tool()
     async def tia_execute_transactional_batch(
         operations: list[dict], undo_text: str = "Batch Operation"
     ) -> str:
-        """Ejecuta múltiples comandos de mutación de TIA Portal en una única transacción atómica con rollback.
+        """Ejecuta múltiples comandos bajo una transacción atómica con rollback.
 
-        NOTA: La compilación (compile_plc) está prohibida dentro de este lote y debe ejecutarse
-        como un paso independiente posterior a la transacción.
-
-        Args:
-            operations: Lista de operaciones de mutación o importación. El 'command' interno omite el prefijo 'tia_'.
-                        Ejemplo: [{"command": "update_user_constant_value", "args": {"plc_name": "PLC1", "table_name": "TEST", "constant_name": "N_MAX", "new_value": 50}}]
-            undo_text: Texto para el historial de TIA Portal.
+        NOTA: ``compile_plc`` está prohibido dentro del lote.
         """
         result = await gateway.execute_transactional_batch(operations, undo_text)
-        return f"Transacción completada con éxito. {result['operations_executed']} comandos ejecutados."
+        return (
+            f"Transacción completada: {result['operations_executed']} "
+            "comandos ejecutados."
+        )
 
-    # ── Caso de uso de alto nivel: sincronización Excel → TIA ────────────
     @mcp.tool()
-    async def tia_sync_hardware_dimensions_from_excel(
-        plc_name: str, excel_path: str
+    async def tia_sync_dispositivos_dimensions_from_excel(
+        excel_path: str,
     ) -> str:
-        """Sincroniza las dimensiones de hardware (N_MAX) del PLC desde un Excel.
+        """Sincroniza dimensiones (N_MAX) desde un Excel al AppState global.
 
-        Orquesta la lectura offline del Excel, el cruce con el estado actual
-        de TIA Portal (exportado a XML), y aplica las diferencias bajo una
-        transacción atómica con rollback automático.
-
-        El parseo del Excel y del XML se ejecuta en hilos separados
-        (``asyncio.to_thread``) para no bloquear el Event Loop del servidor
-        MCP; la inyección en TIA Portal se delega al worker OT.
+        Lee el Excel corporativo y actualiza el ``AppState.dimensiones``.
+        La inyección real contra TIA Portal ocurre en el siguiente paso
+        (sincronización de instancias).
 
         Args:
-            plc_name:  Nombre exacto del PLC en el proyecto TIA Portal.
             excel_path: Ruta absoluta al archivo Excel corporativo (.xlsx).
         """
-        use_case = SyncHardwareDimensionsUseCase(gateway, config_manager)
-        result = await use_case.execute(plc_name, excel_path)
+        _ = config_manager  # reservado para futuro (cross-validation)
+        use_case = SyncDispositivosDimensionsUseCase()
+        result = await use_case.execute(excel_path)
         return result["message"]
 
     @mcp.tool()
-    async def tia_sync_hardware_instances_from_excel(
+    async def tia_sync_dispositivos_instances_from_excel(
         plc_name: str, excel_path: str
     ) -> str:
-        """Sincroniza las instancias de hardware del PLC declaradas en un Excel.
+        """Sincroniza instancias de dispositivos (PlcTag + .s7dcl) desde un Excel.
 
-        Procesa el Excel **offline**: lee los DTOs de cada hoja, exporta la
-        base actual del PLC (variables y bloques), clona y modifica los
-        nodos PlcTag XML y los archivos ``.s7dcl`` (inyecta llamadas entre
-        los marcadores ``// AUTO_GEN_START`` / ``// AUTO_GEN_END``) y, por
-        último, inyecta el resultado en el autómata mediante un lote
-        transaccional ``import_plc_tags_xml`` + ``import_blocks_sd``.
+        Procesa el Excel offline: lee los DTOs, exporta la base del PLC,
+        clona/modifica nodos PlcTag XML y archivos ``.s7dcl`` (inyecta
+        llamadas entre marcadores ``// AUTO_GEN_*``), e inyecta el
+        resultado mediante un lote transaccional con motor Diff
+        híbrido (XML para adds/drops, COM para renames).
 
-        ⚠️ **Convención de formato**: el sistema procesa bloques
-        exclusivamente en formato Simatic Source Documents (``*.s7dcl`` /
-        SimaticSD). El antiguo sufijo ``.scl`` ya no es soportado.
-
-        Responsabilidad única: este caso de uso NO toca constantes N_MAX
-        (eso es ``tia_sync_hardware_dimensions_from_excel``); solo añade
+        Responsabilidad única: NO toca constantes N_MAX (eso es
+        ``tia_sync_dispositivos_dimensions_from_excel``); solo añade
         instancias nuevas.
 
-        ⚠️ **IMPORTANTE** — Tras el éxito de esta operación, el caller DEBE
-        invocar ``tia_compile_plc`` para que TIA Portal asiente el modelo
-        de memoria del PLC y los bloques newly-injected queden disponibles
-        para su uso. Si la operación devolvió ``operations == 0`` (PLC ya
-        sincronizado), la compilación sigue siendo recomendable pero no
-        obligatoria.
+        Tras el éxito, el caller DEBE invocar ``tia_compile_plc`` para
+        asentar el modelo de memoria del PLC.
 
         Args:
             plc_name:  Nombre exacto del PLC.
-            excel_path: Ruta absoluta al archivo Excel corporativo (.xlsx).
-                        Convención: cada hoja = un tipo de dispositivo
-                        (``DispED``, ``DispV``, ``Motores``, ``Valvulas``…);
+            excel_path: Ruta absoluta al Excel. Convención: cada hoja =
+                        un tipo de dispositivo (``DispED``, ``DispV``, ...);
                         filas = instancias (columna ``nombre`` requerida).
         """
-        use_case = SyncHardwareInstancesUseCase(gateway)
+        use_case = SyncDispositivosInstancesUseCase(gateway)
         result = await use_case.execute(plc_name, excel_path)
-        # Refuerzo del recordatorio para el LLM: tras inyectar, compilar.
         return (
             f"{result['message']} "
             "Recuerda invocar tia_compile_plc a continuación para asentar "
