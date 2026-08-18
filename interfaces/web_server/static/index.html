@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ZC Automation Suite</title>
+    <title>ZC Automation Suite - SPA</title>
     <!--
       Tailwind CSS se sirve LOCALMENTE desde el artefacto compilado
       ``/static/styles.css``. Esto garantiza que la SPA funcione en
@@ -13,9 +13,9 @@
           ./tailwindcss-extra -i interfaces/web_server/static/src/input.css \
                               -o interfaces/web_server/static/styles.css --minify
     -->
-    <link href="/styles.css" rel="stylesheet" />
+    <link rel="stylesheet" href="/styles.css">
 </head>
-<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col overflow-y-scroll">
+<body class="bg-surface text-ink min-h-screen flex flex-col overflow-y-scroll">
     <div id="app" class="flex flex-1 flex-col overflow-hidden"></div>
     <script type="module" src="/js/main.js"></script>
 </body>

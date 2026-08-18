@@ -7,9 +7,9 @@
  *   * Selector de PLC destino.
  *   * Botones de conexión a TIA Portal (Hot-Attach / Cold-Start).
  *
- * Toda la lógica de orquestación (fetch, validaciones, side effects
- * sobre el store) vive aquí para que el resto de componentes
- * permanezcan "tontos".
+ * Tema: Industrial Claro. Usa SOLO tokens semánticos
+ * (`bg-surface*`, `border-line*`, `text-ink*`, `bg-accent`,
+ * `text-accent`). No se admiten colores literales (slate-X, cyan-X).
  */
 import { ref } from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js";
 import { store, pushLog } from "../store.js";
@@ -45,7 +45,6 @@ export default {
                 }
             } finally {
                 store.busy = false;
-                // Reset para permitir re-subir el mismo archivo.
                 if (fileInput.value) fileInput.value.value = "";
             }
         }
@@ -116,26 +115,26 @@ export default {
         };
     },
     template: /* html */ `
-        <aside class="w-80 flex-shrink-0 bg-slate-800 border-r border-slate-700 flex flex-col p-5 overflow-y-auto">
-            <h1 class="text-xl font-bold text-cyan-400 mb-1">🌾 ZC Automation</h1>
-            <p class="text-xs text-slate-400 mb-6">Subdominio Alimentación</p>
+        <aside class="w-80 flex-shrink-0 bg-surface-raised border-r border-line flex flex-col p-5 overflow-y-auto">
+            <h1 class="text-xl font-bold text-accent mb-1">🌾 ZC Automation</h1>
+            <p class="text-xs text-ink-muted mb-6">Subdominio Alimentación</p>
 
             <!-- Navegación SPA -->
             <section class="mb-6">
-                <label class="block text-xs font-semibold text-slate-300 uppercase mb-2">Navegación</label>
+                <label class="block text-xs font-semibold text-ink-muted uppercase mb-2">Navegación</label>
                 <div class="flex flex-col gap-1.5">
                     <button @click="store.currentView = 'memory'"
                         :class="['text-left text-xs px-3 py-2 rounded border',
                                  store.currentView === 'memory'
-                                     ? 'bg-cyan-700 border-cyan-500 text-white font-semibold'
-                                     : 'bg-slate-700 border-slate-600 hover:bg-slate-600 text-slate-200']">
+                                     ? 'bg-accent border-accent text-ink-inverse font-semibold'
+                                     : 'bg-surface-sunken border-line hover:bg-surface-sunken text-ink']">
                         📊 Inspector de Memoria
                     </button>
                     <button @click="store.currentView = 'sync'"
                         :class="['text-left text-xs px-3 py-2 rounded border',
                                  store.currentView === 'sync'
-                                     ? 'bg-cyan-700 border-cyan-500 text-white font-semibold'
-                                     : 'bg-slate-700 border-slate-600 hover:bg-slate-600 text-slate-200']">
+                                     ? 'bg-accent border-accent text-ink-inverse font-semibold'
+                                     : 'bg-surface-sunken border-line hover:bg-surface-sunken text-ink']">
                         ⚡ Sincronización TIA
                     </button>
                 </div>
@@ -143,15 +142,17 @@ export default {
 
             <!-- 1. Maestro Excel -->
             <section class="mb-6">
-                <label class="block text-xs font-semibold text-slate-300 uppercase mb-2">1. Maestro Excel</label>
+                <label class="block text-xs font-semibold text-ink-muted uppercase mb-2">1. Maestro Excel</label>
                 <input ref="fileInput" type="file" accept=".xlsx"
                     @change="handleExcel" :disabled="store.busy"
-                    class="block w-full text-xs text-slate-300 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:bg-slate-700 file:text-slate-200 hover:file:bg-slate-600" />
-                <div v-if="store.uploadSummary" class="mt-2 text-xs text-slate-400">
-                    <div class="text-green-400 mb-1">✅ Excel cargado</div>
+                    class="block w-full text-xs text-ink
+                           file:mr-2 file:py-1 file:px-2 file:rounded file:border-0
+                           file:bg-surface-sunken file:text-ink hover:file:bg-surface-sunken" />
+                <div v-if="store.uploadSummary" class="mt-2 text-xs text-ink-muted">
+                    <div class="text-accent mb-1">✅ Excel cargado</div>
                     <ul class="space-y-0.5 pl-2">
                         <li v-for="(qty, tipo) in store.uploadSummary" :key="tipo">
-                            <span class="font-mono text-cyan-300">{{ tipo }}</span>:
+                            <span class="font-mono text-accent">{{ tipo }}</span>:
                             <span class="font-semibold">{{ qty }}</span>
                         </li>
                     </ul>
@@ -160,29 +161,29 @@ export default {
 
             <!-- 2. PLC destino -->
             <section class="mb-6">
-                <label class="block text-xs font-semibold text-slate-300 uppercase mb-2">2. PLC destino</label>
+                <label class="block text-xs font-semibold text-ink-muted uppercase mb-2">2. PLC destino</label>
                 <select v-model="store.selectedPlc"
                     :disabled="store.plcs.length === 0 || store.busy"
-                    class="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-sm disabled:opacity-50">
+                    class="w-full bg-surface-sunken border border-line rounded px-2 py-1.5 text-sm text-ink disabled:opacity-50">
                     <option value="">-- Selecciona un PLC --</option>
                     <option v-for="p in store.plcs" :key="p" :value="p">{{ p }}</option>
                 </select>
                 <button @click="handleRefreshPlcs" :disabled="store.busy"
-                    class="mt-2 text-xs px-2 py-1 bg-slate-700 hover:bg-slate-600 border border-slate-600 rounded disabled:opacity-50">
+                    class="mt-2 text-xs px-2 py-1 bg-surface-sunken hover:bg-surface-sunken border border-line rounded text-ink disabled:opacity-50">
                     Refrescar lista
                 </button>
             </section>
 
             <!-- 3. Conexión TIA Portal -->
             <section class="mb-6">
-                <label class="block text-xs font-semibold text-slate-300 uppercase mb-2">3. Conexión TIA Portal</label>
+                <label class="block text-xs font-semibold text-ink-muted uppercase mb-2">3. Conexión TIA Portal</label>
                 <div class="flex flex-col gap-2">
                     <button @click="handleAttach" :disabled="store.busy"
-                        class="text-xs px-3 py-1.5 bg-cyan-700 hover:bg-cyan-600 disabled:opacity-50 rounded">
+                        class="text-xs px-3 py-1.5 bg-accent hover:bg-accent-hover disabled:opacity-50 rounded text-ink-inverse">
                         🔌 Hot-Attach
                     </button>
                     <button @click="handleOpenNew" :disabled="store.busy"
-                        class="text-xs px-3 py-1.5 bg-cyan-700 hover:bg-cyan-600 disabled:opacity-50 rounded">
+                        class="text-xs px-3 py-1.5 bg-accent hover:bg-accent-hover disabled:opacity-50 rounded text-ink-inverse">
                         🚀 Cold Start
                     </button>
                 </div>

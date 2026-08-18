@@ -5,7 +5,25 @@
  * sobre ``store.logs``. Se mantiene FUERA del bloque ``v-if`` de
  * la vista principal para que los logs sigan visibles al cambiar
  * entre Memory / Sync.
+ *
+ * Tema: Industrial Claro. Sustituye las clases absolutas oscuras
+ * por tokens semánticos (`bg-surface-raised`, `bg-surface-sunken`,
+ * `border-line`, `text-ink`, `text-ink-muted`) y eleva los tonos
+ * de los niveles de log para garantizar contraste sobre fondo
+ * claro:
+ *
+ *     info     → text-ink
+ *     success  → text-green-600 font-bold
+ *     warning  → text-amber-600 font-bold
+ *     error    → text-red-600   font-bold
+ *
+ * LIFO puro en la capa de presentación: ``store.logs`` sigue
+ * siendo append-only (FIFO) para conservar el contrato con
+ * ``store.js``; aquí lo invertimos con ``[...store.logs].reverse()``
+ * para que el mensaje más reciente aparezca ARRIBA sin tocar el
+ * almacén original.
  */
+import { computed } from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js";
 import { store } from "../store.js";
 import { apiClearLogs } from "../api.js";
 
@@ -16,33 +34,41 @@ export default {
             await apiClearLogs();
             store.logs = [];
         }
-        return { store, clearLogs };
+
+        /**
+         * Vista invertida (LIFO) sin mutar ``store.logs``. Cada
+         * dep reactiva (cambio de ``store.logs``) recomputa
+         * automáticamente el array.
+         */
+        const reversedLogs = computed(() => [...store.logs].reverse());
+
+        return { store, clearLogs, reversedLogs };
     },
     template: /* html */ `
-        <footer class="h-44 bg-black border-t border-slate-700 flex flex-col">
-            <header class="flex justify-between items-center px-4 py-1 bg-slate-900 border-b border-slate-700">
-                <h3 class="text-xs font-bold text-slate-400 uppercase">Consola de Trazabilidad</h3>
+        <footer class="h-44 bg-surface-raised border-t border-line flex flex-col">
+            <header class="flex justify-between items-center px-4 py-1 bg-surface-sunken border-b border-line">
+                <h3 class="text-xs font-bold text-ink-muted uppercase">Consola de Trazabilidad</h3>
                 <div class="flex gap-2 items-center">
-                    <span class="text-xs text-slate-500">({{ store.logs.length }} msgs)</span>
+                    <span class="text-xs text-ink-muted">({{ store.logs.length }} msgs)</span>
                     <button @click="clearLogs"
-                        class="text-xs px-2 py-0.5 bg-slate-700 hover:bg-slate-600 rounded">
+                        class="text-xs px-2 py-0.5 bg-surface-raised border border-line hover:bg-surface-sunken text-ink rounded">
                         🧹 Limpiar
                     </button>
                 </div>
             </header>
             <div class="flex-1 overflow-y-auto px-4 py-2 text-xs font-mono leading-snug">
-                <div v-if="store.logs.length === 0" class="text-slate-600 italic">
+                <div v-if="reversedLogs.length === 0" class="text-ink-muted italic">
                     Esperando eventos...
                 </div>
-                <div v-for="msg in store.logs" :key="msg.timestamp"
+                <div v-for="msg in reversedLogs" :key="msg.timestamp"
                     :class="{
-                        'text-slate-200': msg.level === 'info' || !msg.level,
-                        'text-green-400 font-medium': msg.level === 'success',
-                        'text-yellow-300': msg.level === 'warning',
-                        'text-red-400 font-medium': msg.level === 'error',
+                        'text-ink': msg.level === 'info' || !msg.level,
+                        'text-green-600 font-bold': msg.level === 'success',
+                        'text-amber-600 font-bold': msg.level === 'warning',
+                        'text-red-600 font-bold': msg.level === 'error',
                     }"
                     class="py-0.5">
-                    <span class="text-slate-600">[{{ msg.timestamp }}]</span>
+                    <span class="text-ink-muted">[{{ msg.timestamp }}]</span>
                     <span class="ml-2">{{ msg.message }}</span>
                 </div>
             </div>
