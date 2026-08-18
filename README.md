@@ -1057,7 +1057,7 @@ Resumen de las directrices en `.clinerules`:
 
 ---
 
-## 📜 Licencia
+## � Licencia
 
 Este proyecto está licenciado bajo la **MIT License**. Ver el archivo [LICENSE](LICENSE) para los detalles completos.
 

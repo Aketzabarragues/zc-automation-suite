@@ -76,13 +76,22 @@ def run_mcp_mode() -> None:
 def run_web_mode(host_port: str) -> None:
     """Delega en la capa de presentación web FastAPI (interfaces/web_server/).
 
+    Composition Root de la capa web (``interfaces/web_server/app.py``):
+    ``create_app(gateway)`` recibe la única instancia de
+    ``TIAProcessGateway`` y la ensambla con los routers. Aquí
+    instanciamos el gateway UNA SOLA VEZ por proceso.
+
     Args:
         host_port: Cadena ``"host:port"`` parseable por ``uvicorn.run``.
     """
     # Importación tardía por la misma razón que en ``run_mcp_mode``.
     import uvicorn
 
-    from interfaces.web_server.main import app
+    from interfaces.web_server.app import create_app
+    from infrastructure.gateway import TIAProcessGateway
+
+    gateway = TIAProcessGateway()
+    app = create_app(gateway)
 
     host, _, port = host_port.partition(":")
     uvicorn.run(

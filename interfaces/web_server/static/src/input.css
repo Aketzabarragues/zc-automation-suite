@@ -1,0 +1,12 @@
+@import "tailwindcss";
+@plugin "daisyui";
+
+/* Escanear el HTML base y todos los componentes ESM */
+@source "../index.html";
+@source "../js/**/*.js";
+
+/* Ajuste del tema oscuro base para mantener fidelidad visual */
+@theme {
+  --color-slate-800: #1e293b;
+  --color-slate-900: #0f172a;
+}

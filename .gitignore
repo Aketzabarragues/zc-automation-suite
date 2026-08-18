@@ -221,3 +221,4 @@ __marimo__/
 _legacy_reference/
 temp_*/
 .build_cache/
+tailwindcss-extra.exe
