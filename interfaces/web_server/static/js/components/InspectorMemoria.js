@@ -1,10 +1,11 @@
 /**
  * Componente InspectorMemoria.
  *
- * Renderiza UNA SOLA TABLA REACTIVA alimentada por
- * ``activeDevices = computed(...)``. Esto elimina el bug histórico
- * que producían 6 wrappers ``v-for ... v-show`` apilados, cada uno
- * con su propio scroll y compitiendo por el ``flex-1``.
+ * Renderiza UNA SOLA TABLA REACTIVA con TODAS las columnas del
+ * dataclass activo (DispED / DispEA / DispSA / DispV / DispM /
+ * DispM_VF). Pensado como dump de Cache: el operario ve, fila por
+ * fila, el contenido íntegro de la AppState sin tener que
+ * descargar el JSON.
  *
  * Tema: Industrial Claro. Solo tokens semánticos
  * (`bg-surface-raised`, `bg-surface-sunken`, `text-ink`,
@@ -20,25 +21,118 @@ const DEVICE_TABS = [
     { key: "DispED",   label: "ED — Entradas Digitales" },
     { key: "DispEA",   label: "EA — Entradas Analógicas" },
     { key: "DispSA",   label: "SA — Salidas Analógicas" },
-    { key: "DispV",    label: "V — Variables" },
+    { key: "DispV",    label: "V — Valvulas" },
     { key: "DispM",    label: "M — Motores" },
     { key: "DispM_VF", label: "MVF — Motores VFD" },
 ];
 
-const ADDRESS_FIELDS = {
-    DispED:   ["e_byte", "e_bit"],
-    DispEA:   ["e_byte"],
-    DispSA:   ["e_byte"],
-    DispV:    ["s_byte", "s_bit"],
-    DispM:    ["s_byte", "s_bit"],
-    DispM_VF: ["s_byte", "s_bit"],
+const MODEL_COLUMNS = {
+    DispED: [
+        "uid", "numero", "plc_tag", "plc_comentario", "descripcion",
+        "tag", "fat",
+        "e_byte", "e_bit",
+        "gr_alarma", "cuadro", "observaciones",
+        "plc_tipo", "plc_index",
+        "hmi_index", "hmi_texto",
+        "comentario_db",
+    ],
+    DispEA: [
+        "uid", "numero", "plc_tag", "plc_comentario", "descripcion",
+        "tag", "fat",
+        "e_byte",
+        "unidades", "rii", "rsi",
+        "gr_alarma", "cuadro", "observaciones",
+        "plc_tipo", "plc_index",
+        "hmi_index", "hmi_texto",
+        "comentario_db",
+    ],
+    DispSA: [
+        "uid", "numero", "plc_tag", "plc_comentario", "descripcion",
+        "tag", "fat",
+        "e_byte",
+        "unidades", "rii", "rsi",
+        "gr_alarma", "cuadro", "observaciones",
+        "plc_tipo", "plc_index",
+        "hmi_index", "hmi_texto",
+        "comentario_db",
+    ],
+    DispV: [
+        "uid", "numero", "plc_tag", "plc_comentario", "descripcion",
+        "tag", "fat",
+        "s_byte", "s_bit",
+        "rr_byte", "rr_bit",
+        "rt_byte", "rt_bit",
+        "gr_alarma", "cuadro", "observaciones",
+        "plc_tipo", "plc_index",
+        "hmi_index", "hmi_texto",
+        "comentario_db",
+    ],
+    DispM: [
+        "uid", "numero", "plc_tag", "plc_comentario", "descripcion",
+        "tag", "fat",
+        "s_byte", "s_bit",
+        "rt_byte", "rt_bit",
+        "rm_byte", "rm_bit",
+        "gr_alarma", "cuadro", "observaciones",
+        "plc_tipo", "plc_index",
+        "hmi_index", "hmi_texto",
+        "comentario_db",
+    ],
+    DispM_VF: [
+        "uid", "numero", "plc_tag", "plc_comentario", "descripcion",
+        "tag", "fat",
+        "s_byte", "s_bit",
+        "rt_byte", "rt_bit",
+        "rm_byte", "rm_bit",
+        "sa_byte",
+        "gr_alarma", "cuadro", "observaciones",
+        "plc_tipo", "plc_index",
+        "hmi_index", "hmi_texto",
+        "comentario_db",
+    ],
 };
+
+const COL_LABELS = {
+    uid: "UID",
+    numero: "Número",
+    plc_tag: "PLC Tag",
+    plc_comentario: "Comentario PLC",
+    descripcion: "Descripción",
+    tag: "TAG",
+    fat: "FAT",
+    e_byte: "E.Byte",
+    e_bit: "E.Bit",
+    s_byte: "S.Byte",
+    s_bit: "S.Bit",
+    rr_byte: "RR.Byte",
+    rr_bit: "RR.Bit",
+    rt_byte: "RT.Byte",
+    rt_bit: "RT.Bit",
+    rm_byte: "RM.Byte",
+    rm_bit: "RM.Bit",
+    sa_byte: "SA.Byte",
+    unidades: "Unidades",
+    rii: "RII",
+    rsi: "RSI",
+    gr_alarma: "Gr.Alarma",
+    cuadro: "Cuadro",
+    observaciones: "Observaciones",
+    plc_tipo: "PLC.Tipo",
+    plc_index: "PLC.Index",
+    hmi_index: "Hmi.Index",
+    hmi_texto: "Hmi.Texto",
+    comentario_db: "ComentarioDB",
+};
+
+const MONO_COLS = new Set(["uid", "plc_tag", "plc_comentario"]);
 
 export default {
     name: "InspectorMemoria",
     emits: ["refresh"],
     setup() {
         const activeTab = ref(store.activeTab);
+
+        const columns = computed(() => MODEL_COLUMNS[activeTab.value] || []);
 
         const activeDevices = computed(() => {
             if (!store.memoryState || !store.memoryState.dispositivos) return [];
@@ -49,26 +143,27 @@ export default {
             () => (store.memoryState && store.memoryState.dimensiones) || null
         );
 
-        function formatAddress(d) {
-            if (!d) return "";
-            const fields = ADDRESS_FIELDS[activeTab.value] || [];
-            return fields
-                .map((p) => (d[p] !== undefined ? d[p] : ""))
-                .join(".");
-        }
-
         const hasMemory = computed(
             () => !!(store.memoryState && store.memoryState.dispositivos)
         );
+
+        function displayValue(value) {
+            if (value === null || value === undefined) return "—";
+            if (typeof value === "string" && value.trim() === "") return "—";
+            return String(value);
+        }
 
         return {
             store,
             tabs: DEVICE_TABS,
             activeTab,
+            columns,
             activeDevices,
             dimensiones,
             hasMemory,
-            formatAddress,
+            displayValue,
+            COL_LABELS,
+            MONO_COLS, // <-- CORRECCIÓN: Exportado a la vista
         };
     },
     template: /* html */ `
@@ -78,7 +173,7 @@ export default {
                 <div>
                     <h2 class="text-lg font-bold text-ink">📊 Inspector de Memoria</h2>
                     <p class="text-xs text-ink-muted mt-0.5">
-                        DTOs extraídos del Excel (AppState) — no requiere TIA Portal.
+                        Dump completo de la cache (AppState) — todas las columnas del dataclass activo.
                     </p>
                 </div>
                 <button @click="$emit('refresh')" :disabled="store.busy"
@@ -96,7 +191,7 @@ export default {
                 </div>
             </div>
 
-            <!-- Tabs por tipo de dispositivo (anchura reservada) -->
+            <!-- Tabs por tipo de dispositivo -->
             <div v-if="hasMemory" class="flex border-b border-line bg-surface-sunken overflow-x-auto">
                 <button v-for="t in tabs" :key="t.key"
                     @click="activeTab = t.key"
@@ -109,30 +204,31 @@ export default {
                 </button>
             </div>
 
-            <!-- ★ TABLA ÚNICA REACTIVA ★ -->
+            <!-- ★ TABLA ÚNICA REACTIVA: dump de TODAS las columnas del dataclass activo ★ -->
             <div class="flex-1 overflow-auto table-scroll-x mt-2">
                 <table v-if="hasMemory" class="w-full text-xs">
                     <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
                         <tr>
-                            <th class="px-3 py-2 text-left text-ink-muted">UID</th>
-                            <th class="px-3 py-2 text-left text-ink-muted">PLC Tag</th>
-                            <th class="px-3 py-2 text-left text-ink-muted">Descripción</th>
-                            <th class="px-3 py-2 text-left text-ink-muted">Dirección</th>
-                            <th class="px-3 py-2 text-right text-ink-muted">Número</th>
+                            <th v-for="col in columns" :key="col"
+                                class="px-3 py-2 text-left text-ink-muted whitespace-nowrap">
+                                {{ COL_LABELS[col] || col }}
+                            </th>
                         </tr>
                     </thead>
                     <tbody>
-                        <tr v-for="d in activeDevices" :key="(d.uid || 'no-uid') + '-' + d.numero"
+                        <tr v-for="d in activeDevices"
+                            :key="(d.uid || 'no-uid') + '-' + d.numero"
                             class="border-b border-line">
-                            <td class="px-3 py-1.5 font-mono text-accent">{{ d.uid }}</td>
-                            <td class="px-3 py-1.5 font-mono text-ink">{{ d.plc_tag }}</td>
-                            <td class="px-3 py-1.5 text-ink-muted">{{ d.descripcion }}</td>
-                            <td class="px-3 py-1.5 font-mono text-ink">{{ formatAddress(d) }}</td>
-                            <td class="px-3 py-1.5 text-right font-semibold text-ink">{{ d.numero }}</td>
+                            <td v-for="col in columns" :key="col"
+                                class="px-3 py-1.5 align-top text-ink whitespace-nowrap"
+                                :class="MONO_COLS.has(col) ? 'font-mono' : ''">
+                                {{ displayValue(d[col]) }}
+                            </td>
                         </tr>
                         <tr v-if="activeDevices.length === 0">
-                            <td colspan="5" class="px-3 py-6 text-center text-ink-muted italic">
-                                Sin dispositivos de este tipo. Sube un Excel para popular el AppState.
+                            <td :colspan="columns.length || 5"
+                                class="px-3 py-6 text-center text-ink-muted italic">
+                                ⚠️ La pestaña "{{ activeTab }}" no contiene dispositivos. Si el Excel fue cargado, verifique que la tabla exista y no esté vacía.
                             </td>
                         </tr>
                     </tbody>

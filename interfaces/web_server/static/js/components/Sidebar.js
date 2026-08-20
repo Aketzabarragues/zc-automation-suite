@@ -116,10 +116,10 @@ export default {
     },
     template: /* html */ `
         <aside class="w-80 flex-shrink-0 bg-surface-raised border-r border-line flex flex-col p-5 overflow-y-auto">
-            <h1 class="text-xl font-bold text-accent mb-1">🌾 ZC Automation</h1>
-            <p class="text-xs text-ink-muted mb-6">Subdominio Alimentación</p>
+            <h1 class="text-xl font-bold text-accent mb-1">ZC Automation Suite</h1>
+            <p class="text-xs text-ink-muted mb-6">Area Alimentación</p>
 
-            <!-- Navegación SPA -->
+            <!-- Navegación -->
             <section class="mb-6">
                 <label class="block text-xs font-semibold text-ink-muted uppercase mb-2">Navegación</label>
                 <div class="flex flex-col gap-1.5">

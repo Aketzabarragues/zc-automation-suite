@@ -55,12 +55,36 @@ def main() -> int:
             print(f"  FAIL: falta token {token}")
             rc = 1
 
-    print("\n--- Verificacion ConsolaLogs.js (INTACTO) ---")
+    print("\n--- Verificacion ConsolaLogs.js (tokens semanticos + LIFO) ---")
     cl = (BASE / "js/components/ConsolaLogs.js").read_text(encoding="utf-8")
-    if "bg-black" in cl and "bg-slate-900" in cl and "text-slate-200" in cl:
-        print("  OK: footer con bg-black + bg-slate-900 + text-slate-200")
+    # Tras el refactor, ConsolaLogs usa tokens semánticos del Tema
+    # Industrial Claro (no bg-black / bg-slate-900). Eso lo deja
+    # en el mismo idioma visual que el resto de la SPA.
+    for token in ("bg-surface-raised", "bg-surface-sunken", "border-line",
+                  "text-ink", "text-ink-muted"):
+        if token not in cl:
+            print(f"  FAIL: ConsolaLogs no usa el token {token}")
+            rc = 1
+        else:
+            print(f"  OK: ConsolaLogs usa {token}")
+    # LIFO puro: usa reversedLogs en el v-for y NO muta store.logs.
+    if "reversedLogs" in cl and "reverse()" in cl:
+        print("  OK: LIFO implementado con reversedLogs (no toca store.logs)")
     else:
-        print("  FAIL: ConsolaLogs.js parece haberse modificado")
+        print("  FAIL: ConsolaLogs.js no implementa reversedLogs")
+        rc = 1
+    # Tonos oscuros para los niveles de log (sobre fondo claro).
+    for color in ("text-green-600", "text-amber-600", "text-red-600"):
+        if color not in cl:
+            print(f"  FAIL: falta tono {color} en el mapeo de niveles")
+            rc = 1
+        else:
+            print(f"  OK: nivel {color} presente")
+    # v-for debe iterar sobre reversedLogs, no sobre store.logs.
+    if 'v-for="msg in reversedLogs"' in cl:
+        print("  OK: v-for itera sobre reversedLogs")
+    else:
+        print("  FAIL: v-for no apunta a reversedLogs")
         rc = 1
 
     print("\n--- Verificacion index.html (clases semanticas) ---")
