@@ -3,12 +3,14 @@
  *
  * Responsabilidades:
  *   * Importar ``createApp`` del build ESM de Vue 3.
- *   * Registrar los 5 componentes del paquete ``components/``
- *     (incluido el nuevo ``Welcome``).
+ *   * Registrar los 5 componentes:
+ *     - Cross-cutting: Welcome, ConsolaLogs.
+ *     - Del área Alimentación: AlimentacionSidebar, DefinicionProgramacion,
+ *       Dispositivos.
  *   * Enrutar entre la pantalla de bienvenida (``Welcome``) y el
- *     layout de área (``Sidebar`` + ``<main>`` + ``ConsolaLogs``)
- *     según ``store.topLevelView``.
- *   * Conectar el evento ``refresh`` del Inspector de Memoria a
+ *     layout de área (sidebar + main + ConsolaLogs) según
+ *     ``store.topLevelView``.
+ *   * Conectar el evento ``refresh`` de Definición programación a
  *     ``apiFetchMemory``.
  *   * Lanzar el polling de logs (1 s) en background (solo dentro
  *     del área: en welcome no se necesita).
@@ -27,23 +29,23 @@ import { createApp } from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js"
 import { store, goToArea } from "./store.js";
 import { apiFetchLogs, apiFetchMemory } from "./api.js";
 import Welcome from "./components/Welcome.js";
-import Sidebar from "./components/Sidebar.js";
-import InspectorMemoria from "./components/InspectorMemoria.js";
-import SincronizacionTia from "./components/SincronizacionTia.js";
 import ConsolaLogs from "./components/ConsolaLogs.js";
+import AlimentacionSidebar from "./components/areas/alimentacion/Sidebar.js";
+import DefinicionProgramacion from "./components/areas/alimentacion/DefinicionProgramacion.js";
+import Dispositivos from "./components/areas/alimentacion/Dispositivos.js";
 
 /** Componente raíz: enrutador top-level (welcome) + layout de área. */
 const App = {
     components: {
         Welcome,
-        Sidebar,
-        InspectorMemoria,
-        SincronizacionTia,
         ConsolaLogs,
+        AlimentacionSidebar,
+        DefinicionProgramacion,
+        Dispositivos,
     },
     setup() {
         /**
-         * Llamado por el Inspector de Memoria al pulsar "Refrescar".
+         * Llamado por Definición programación al pulsar "Refrescar".
          * Mantenemos la lógica de la API en ``main.js`` (no en el
          * componente) para preservar el principio de "componente
          * tonto" y poder mockear la API en tests.
@@ -72,10 +74,10 @@ const App = {
         <div class="flex flex-col flex-1 min-h-0">
             <Welcome v-if="store.topLevelView === 'welcome'" @select="onAreaSelected" />
             <div v-else class="flex flex-1 overflow-hidden min-w-0">
-                <Sidebar />
+                <AlimentacionSidebar />
                 <main class="flex-1 min-w-0 flex flex-col p-5 overflow-y-scroll">
-                    <InspectorMemoria v-if="store.currentView === 'memory'" @refresh="refreshMemory" />
-                    <SincronizacionTia v-else />
+                    <DefinicionProgramacion v-if="store.currentView === 'def'" @refresh="refreshMemory" />
+                    <Dispositivos v-else />
                 </main>
             </div>
             <ConsolaLogs v-if="store.topLevelView === 'area'" />

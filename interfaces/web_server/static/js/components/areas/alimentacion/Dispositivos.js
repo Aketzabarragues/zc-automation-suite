@@ -1,8 +1,8 @@
 /**
- * Componente SincronizacionTia.
+ * Componente Dispositivos.
  *
  * Vista de Pre-Flight con dos secciones:
- *   1. **Cards de N_MAX** (arriba, estilo Inspector de Memoria):
+ *   1. **Cards de N_MAX** (arriba, estilo Definición programación):
  *      muestran las 6 PlcUserConstant de la tabla
  *      ``000_Config_Dispositivos`` con su valor actual en TIA
  *      y el valor deseado del Excel. Solo dos estados posibles:
@@ -21,10 +21,14 @@
  * sin_cambios y un botón de "Aplicar Cambios en TIA Portal".
  *
  * Tema: Industrial Claro. Solo tokens semánticos del theme.
+ *
+ * IMPORTANTE sobre templates Vue: el compilador en runtime de
+ * `vue.esm-browser.prod.js` NO acepta string literals multi-línea
+ * dentro de arrays de `:class`. Cada literal va en una sola línea.
  */
 import { computed, ref } from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js";
-import { store, pushLog } from "../store.js";
-import { apiGeneratePreview, apiCommit } from "../api.js";
+import { store, pushLog } from "../../../store.js";
+import { apiGeneratePreview, apiCommit } from "../../../api.js";
 
 const DEVICE_TABS = [
     { key: "ed",    label: "ED — Entradas Digitales" },
@@ -43,8 +47,8 @@ const STATUS_META = {
 };
 
 // Mapeo de nombre canónico de la N_MAX en TIA → key del
-// ``DimensionesDispositivos``. Mantiene la misma estética que el
-// Inspector de Memoria (``num_disp_ed``, ``num_disp_ea``, …).
+// ``DimensionesDispositivos``. Mantiene la misma estética que
+// ``DefinicionProgramacion`` (``num_disp_ed``, ``num_disp_ea``, …).
 const NMAX_LABEL = {
     "N_MAX_DISP_ED":   "num_disp_ed",
     "N_MAX_DISP_EA":   "num_disp_ea",
@@ -55,7 +59,7 @@ const NMAX_LABEL = {
 };
 
 export default {
-    name: "SincronizacionTia",
+    name: "Dispositivos",
     setup() {
         const activeTab = ref(DEVICE_TABS[0].key);
 
@@ -77,7 +81,7 @@ export default {
             };
         });
 
-        // N_MAX como cards (estilo Inspector de Memoria).
+        // N_MAX como cards (estética compartida con DefinicionProgramacion).
         const nmaxCards = computed(() => {
             if (!hasPreview.value) return [];
             return store.previewData.nmax?.todos || [];
@@ -193,7 +197,7 @@ export default {
         <section class="flex-1 flex flex-col overflow-hidden">
             <header class="flex justify-between items-center mb-4">
                 <div>
-                    <h2 class="text-lg font-bold text-ink">📋 Previsión de Cambios</h2>
+                    <h2 class="text-lg font-bold text-ink">⚡ Dispositivos</h2>
                     <p v-if="hasPreview" class="text-xs text-ink-muted mt-0.5">
                         {{ summary.total }} dispositivos analizados —
                         <span class="text-accent">{{ summary.agregados }} a agregar</span> ·
@@ -209,7 +213,7 @@ export default {
                 </button>
             </header>
 
-            <!-- ★ CARDS DE N_MAX (misma estética que Inspector de Memoria) ★ -->
+            <!-- ★ CARDS DE N_MAX (misma estética que Definición programación) ★ -->
             <div v-if="hasPreview && nmaxCards.length > 0"
                 class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 mb-4">
                 <div v-for="card in nmaxCards" :key="card.name"
@@ -288,7 +292,7 @@ export default {
                 </table>
                 <div v-else class="flex-1 flex items-center justify-center bg-surface-raised border border-dashed border-line rounded p-10 text-center text-ink-muted">
                     <div>
-                        <div class="text-5xl mb-3 opacity-40">📋</div>
+                        <div class="text-5xl mb-3 opacity-40">⚡</div>
                         <p class="mb-2">Sin prevision generada.</p>
                         <p class="text-xs">Pulsa <strong class="text-accent">"🔍 Generar Previsión"</strong> para ver el diff completo.</p>
                     </div>

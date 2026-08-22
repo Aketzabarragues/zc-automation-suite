@@ -21,20 +21,21 @@ export const store = reactive({
      *   ``'welcome'`` → pantalla de selección de área (sin sidebar).
      *   ``'area'``    → dentro de un área (sidebar + main + logs).
      *
-     * Se mantiene SEPARADO de ``currentView`` (que sigue siendo la
-     * sub-vista interna ``'sync' | 'memory'``) para no romper los
-     * botones de navegación del Sidebar ni el ``v-if`` de
-     * ``InspectorMemoria``.
+     * Se mantiene SEPARADO de ``currentView`` (que es la sub-vista
+     * interna del área) para no acoplar el routing de alto nivel
+     * con el de las vistas de cada área.
      */
     topLevelView: "welcome",
 
     /**
-     * Sub-vista DENTRO del área (``'sync' | 'memory'``). Decide qué
-     * componente se muestra en ``<main>``. Sin cambios respecto a la
-     * versión original de la SPA: los botones del Sidebar lo siguen
-     * modificando directamente.
+     * Sub-vista DENTRO del área activa. Decide qué componente se
+     * muestra en ``<main>``. Valores:
+     *   ``'def'``  → ``<DefinicionProgramacion>`` (antes "Inspector de Memoria").
+     *   ``'disp'`` → ``<Dispositivos>`` (antes "Sincronización TIA").
+     *
+     * Los botones del Sidebar lo modifican directamente.
      */
-    currentView: "sync",
+    currentView: "disp",
 
     /** Área seleccionada por el usuario (``'alimentacion'``). ``null`` en welcome. */
     selectedArea: null,
@@ -92,7 +93,7 @@ export function goToWelcome() {
 export function goToArea(key) {
     if (!key) return;
     store.selectedArea = key;
-    store.currentView = "sync";   // siempre arrancar en sync al entrar.
+    store.currentView = "disp";   // siempre arrancar en "Dispositivos" al entrar.
     // Reset suave del estado operativo de la SPA.
     store.plcs = [];
     store.selectedPlc = "";
