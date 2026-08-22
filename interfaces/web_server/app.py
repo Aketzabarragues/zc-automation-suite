@@ -17,6 +17,7 @@ Estructura final:
     ├── dependencies.py         (inyectores)
     ├── routers/
     │   ├── __init__.py
+    │   ├── areas.py            /api/v1/areas
     │   ├── excel.py            /api/v1/excel/...
     │   ├── portal.py           /api/v1/portal/... + /api/v1/plcs
     │   ├── sync.py             /api/v1/sync/...
@@ -28,12 +29,14 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
+from starlette.responses import FileResponse
+from starlette.staticfiles import StaticFiles as _BaseStaticFiles
 
 from application.log_buffer import LogBuffer, get_log_buffer
 from application.state import get_app_state
 from infrastructure.gateway import TIAProcessGateway
 from interfaces.web_server.routers import (
+    areas_router,
     diagnostics_router,
     excel_router,
     portal_router,
@@ -42,6 +45,30 @@ from interfaces.web_server.routers import (
 
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+
+class NoCacheStaticFiles(_BaseStaticFiles):
+    """Sirve estáticos con ``Cache-Control: no-store``.
+
+    Razón: durante el desarrollo de la SPA (cambios frecuentes en
+    ``js/*.js`` y ``styles.css``), el navegador tiende a cachear
+    agresivamente los módulos ESM. Si el usuario edita un ``.js``
+    y refresca, el navegador puede mezclar una versión cacheada
+    antigua de un módulo con la nueva de otro, provocando errores
+    ``does not provide an export named 'X'`` que sólo se arreglan
+    con un hard-refresh (Ctrl+Shift+R).
+
+    Con ``no-store`` el navegador siempre pide al servidor y la
+    SPA siempre está sincronizada con el código del disco. En
+    producción este comportamiento sigue siendo aceptable: la SPA
+    es pequeña (~50 KB de JS) y la app se sirve en OT/IT donde la
+    latencia no es el cuello de botella.
+    """
+
+    def file_response(self, *args, **kwargs) -> FileResponse:  # type: ignore[override]
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
 
 def create_app(gateway: TIAProcessGateway) -> FastAPI:
@@ -70,6 +97,7 @@ def create_app(gateway: TIAProcessGateway) -> FastAPI:
     app.include_router(portal_router)
     app.include_router(sync_router)
     app.include_router(diagnostics_router)
+    app.include_router(areas_router)
 
     # ── 3. Hook de compatibilidad: ``app.state.logger`` puede
     # ser substituida por otra instancia (ej. en tests). Esta
@@ -80,7 +108,7 @@ def create_app(gateway: TIAProcessGateway) -> FastAPI:
     if STATIC_DIR.exists():
         app.mount(
             "/",
-            StaticFiles(directory=str(STATIC_DIR), html=True),
+            NoCacheStaticFiles(directory=str(STATIC_DIR), html=True),
             name="static",
         )
 

@@ -2,6 +2,7 @@
  * Componente Sidebar (panel lateral).
  *
  * Concentra:
+ *   * Cabecera con botón "← Volver al inicio" + título + área activa.
  *   * Botones de navegación SPA (Memory / Sync).
  *   * Selector de archivo .xlsx.
  *   * Selector de PLC destino.
@@ -11,8 +12,8 @@
  * (`bg-surface*`, `border-line*`, `text-ink*`, `bg-accent`,
  * `text-accent`). No se admiten colores literales (slate-X, cyan-X).
  */
-import { ref } from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js";
-import { store, pushLog } from "../store.js";
+import { computed, ref } from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js";
+import { store, pushLog, goToWelcome } from "../store.js";
 import {
     apiUploadExcel,
     apiFetchPlcs,
@@ -25,6 +26,19 @@ export default {
     name: "Sidebar",
     setup() {
         const fileInput = ref(null);
+
+        /**
+         * Etiqueta del área actualmente seleccionada, derivada del
+         * catálogo. Si no hay área o no se encuentra en el catálogo,
+         * se muestra un placeholder neutro.
+         */
+        const areaLabel = computed(() => {
+            if (!store.selectedArea) return "—";
+            const a = store.availableAreas.find(
+                (x) => x.key === store.selectedArea
+            );
+            return a ? a.label : store.selectedArea;
+        });
 
         /** Subir el .xlsx y refrescar memoria si fue OK. */
         async function handleExcel(ev) {
@@ -107,17 +121,30 @@ export default {
 
         return {
             store,
+            areaLabel,
             fileInput,
             handleExcel,
             handleRefreshPlcs,
             handleAttach,
             handleOpenNew,
+            goToWelcome,
         };
     },
     template: /* html */ `
         <aside class="w-80 flex-shrink-0 bg-surface-raised border-r border-line flex flex-col p-5 overflow-y-auto">
-            <h1 class="text-xl font-bold text-accent mb-1">ZC Automation Suite</h1>
-            <p class="text-xs text-ink-muted mb-6">Area Alimentación</p>
+            <!-- Cabecera: volver + título + área activa -->
+            <div class="mb-6">
+                <button @click="goToWelcome"
+                    class="text-xs text-ink-muted hover:text-accent
+                           flex items-center gap-1 mb-2"
+                    data-testid="sidebar-back">
+                    ← Volver al inicio
+                </button>
+                <h1 class="text-xl font-bold text-accent leading-tight">ZC Automation Suite</h1>
+                <p class="text-xs text-ink-muted mt-0.5">
+                    Área activa: <span class="font-semibold text-ink">{{ areaLabel }}</span>
+                </p>
+            </div>
 
             <!-- Navegación -->
             <section class="mb-6">

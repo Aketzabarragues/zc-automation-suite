@@ -14,6 +14,28 @@
                               -o interfaces/web_server/static/styles.css --minify
     -->
     <link rel="stylesheet" href="/styles.css">
+    <script>
+        // Diagnóstico en pantalla: si Vue falla al montar, pintamos
+        // el error arriba para no obligar al usuario a abrir DevTools.
+        (function () {
+            function show(msg, src, line, col, err) {
+                var el = document.getElementById("boot-error");
+                if (!el) {
+                    el = document.createElement("pre");
+                    el.id = "boot-error";
+                    el.style.cssText = "position:fixed;top:0;left:0;right:0;background:#fee;color:#900;font-family:monospace;padding:12px;z-index:99999;white-space:pre-wrap;border-bottom:2px solid #900;font-size:12px;margin:0;";
+                    (document.body || document.documentElement).appendChild(el);
+                }
+                el.textContent += "[JS] " + msg + (src ? "  en " + src + ":" + line + ":" + col : "") + (err && err.stack ? "\n" + err.stack.split("\n").slice(0, 3).join("\n") : "") + "\n\n";
+            }
+            window.addEventListener("error", function (e) {
+                show(e.message || "Error", e.filename, e.lineno, e.colno, e.error);
+            });
+            window.addEventListener("unhandledrejection", function (e) {
+                show("Promise rechazada: " + (e.reason && e.reason.message ? e.reason.message : e.reason));
+            });
+        })();
+    </script>
 </head>
 <body class="bg-surface text-ink min-h-screen flex flex-col overflow-y-scroll">
     <div id="app" class="flex flex-1 flex-col overflow-hidden"></div>

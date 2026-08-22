@@ -6,12 +6,14 @@ global: todas las dependencias se reciben vía ``fastapi.Depends``.
 """
 from __future__ import annotations
 
+from .areas import router as areas_router
 from .diagnostics import router as diagnostics_router
 from .excel import router as excel_router
 from .portal import router as portal_router
 from .sync import router as sync_router
 
 __all__ = [
+    "areas_router",
     "diagnostics_router",
     "excel_router",
     "portal_router",

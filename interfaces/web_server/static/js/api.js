@@ -39,6 +39,13 @@ export function apiUploadExcel(file) {
     return _request("POST", "/api/v1/excel/upload", fd);
 }
 
+/**
+ * Devuelve el catálogo de áreas configuradas en el backend.
+ * Cada elemento: ``{ key, label, description, icon, available }``.
+ * Alimenta la pantalla de bienvenida.
+ */
+export const apiFetchAreas = () => _request("GET", "/api/v1/areas");
+
 /** Devuelve la lista de PLCs del TIA Portal conectado. */
 export const apiFetchPlcs = () => _request("GET", "/api/v1/plcs");
 
