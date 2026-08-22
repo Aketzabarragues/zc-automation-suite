@@ -3,11 +3,12 @@
  *
  * Vista de Pre-Flight con dos secciones:
  *   1. **Cards de N_MAX** (arriba, estilo Definición programación):
- *      muestran las 6 PlcUserConstant de la tabla
+ *      muestran las PlcUserConstant de la tabla
  *      ``000_Config_Dispositivos`` con su valor actual en TIA
  *      y el valor deseado del Excel. Solo dos estados posibles:
  *      ``actualizar`` (X → Y) o ``sin_cambios``.
- *   2. **Tabs por tipo de dispositivo** (ED/EA/SA/V/M/MVF) con la
+ *   2. **Tabs por tipo de dispositivo** (ED/EA/SA/V/M/MVF por
+ *      defecto; los 6 que vienen del ``config.json``) con la
  *      lista COMPLETA de PlcTag (no solo los que cambian) ordenada
  *      por ``numero`` ascendente.
  *
@@ -22,6 +23,13 @@
  *
  * Tema: Industrial Claro. Solo tokens semánticos del theme.
  *
+ * **Migrado a data-driven**: los tabs y los labels de N_MAX
+ * vienen de ``store.catalog`` (cargado al arrancar desde
+ * ``GET /api/v1/catalog``). Añadir un nuevo ``hw_type`` o
+ * ``N_MAX`` al ``config.json`` se refleja en esta vista sin
+ * tocar JS. Si el catálogo aún no se ha cargado, se cae a
+ * fallbacks ``[]`` (modo degradado, ver ``setup()``).
+ *
  * IMPORTANTE sobre templates Vue: el compilador en runtime de
  * `vue.esm-browser.prod.js` NO acepta string literals multi-línea
  * dentro de arrays de `:class`. Cada literal va en una sola línea.
@@ -30,15 +38,6 @@ import { computed, ref } from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod
 import { store, pushLog } from "../../../store.js";
 import { apiGeneratePreview, apiCommit } from "../../../api.js";
 
-const DEVICE_TABS = [
-    { key: "ed",    label: "ED — Entradas Digitales" },
-    { key: "ea",    label: "EA — Entradas Analógicas" },
-    { key: "sa",    label: "SA — Salidas Analógicas" },
-    { key: "v",     label: "V — Válvulas" },
-    { key: "m",     label: "M — Motores" },
-    { key: "m_vf",  label: "MVF — Motores VFD" },
-];
-
 const STATUS_META = {
     agregar:      { label: "➕ AGREGAR",     cls: "action-add" },
     renombrar:    { label: "✏️ RENOMBRAR",  cls: "action-rename" },
@@ -46,22 +45,54 @@ const STATUS_META = {
     sin_cambios:  { label: "✓ OK",          cls: "action-ok" },
 };
 
-// Mapeo de nombre canónico de la N_MAX en TIA → key del
-// ``DimensionesDispositivos``. Mantiene la misma estética que
-// ``DefinicionProgramacion`` (``num_disp_ed``, ``num_disp_ea``, …).
-const NMAX_LABEL = {
-    "N_MAX_DISP_ED":   "num_disp_ed",
-    "N_MAX_DISP_EA":   "num_disp_ea",
-    "N_MAX_DISP_SA":   "num_disp_sa",
-    "N_MAX_DISP_V":    "num_disp_v",
-    "N_MAX_DISP_M":    "num_disp_m",
-    "N_MAX_DISP_M_VF": "num_m_vf",
-};
-
 export default {
     name: "Dispositivos",
     setup() {
-        const activeTab = ref(DEVICE_TABS[0].key);
+        /**
+         * Tabs data-driven desde el catalog del backend.
+         * Si el catalog aún no se ha cargado (p.ej. SPA arrancando
+         * con un backend no disponible), ``tabs`` es ``[]`` y la
+         * vista se queda vacía (modo degradado).
+         */
+        const tabs = computed(() => {
+            const c = store.catalog;
+            if (!c || !Array.isArray(c.device_tabs)) return [];
+            return c.device_tabs.map((t) => ({
+                key: t.hw_type,
+                canonical: t.canonical,
+                label: t.label,
+            }));
+        });
+
+        /**
+         * Map ``canonical → label`` (p.ej. ``"DispED" → "ED"``)
+         * derivado del catalog. Lo usa el filtro de filas para
+         * saber qué ``type`` matchear en ``previewData.todos``.
+         */
+        const typeKeyByCanonical = computed(() => {
+            const m = {};
+            for (const t of tabs.value) m[t.canonical] = t.key;
+            return m;
+        });
+
+        /**
+         * Map ``N_MAX name → label`` (p.ej. ``"N_MAX_DISP_ED" →
+         * "num_disp_ed"``) derivado del catalog. Lo usa la card
+         * de N_MAX para mostrar el nombre humano. Si el catalog
+         * no tiene el entry, fallback al ``name`` crudo.
+         */
+        const nmaxLabel = computed(() => {
+            const m = {};
+            const c = store.catalog;
+            if (c && Array.isArray(c.nmax)) {
+                for (const e of c.nmax) m[e.name] = e.label;
+            }
+            return m;
+        });
+
+        const activeTab = ref(
+            tabs.value.length > 0 ? tabs.value[0].key : ""
+        );
 
         const hasPreview = computed(
             () => !!store.previewData && Array.isArray(store.previewData.todos)
@@ -97,6 +128,9 @@ export default {
         });
 
         // Filas de la pestaña activa de devices.
+        // El backend emite ``row.type`` con el ``hw_type`` corto
+        // (``"ed"``, ``"ea"``, ...), por eso filtramos por el
+        // ``key`` de la tab (NO por el ``canonical``).
         const activeRows = computed(() => {
             if (!hasPreview.value) return [];
             return (store.previewData.todos || [])
@@ -110,7 +144,7 @@ export default {
 
         // Contador por pestaña de devices.
         const tabCounts = computed(() => {
-            const counts = Object.fromEntries(DEVICE_TABS.map((t) => [t.key, 0]));
+            const counts = Object.fromEntries(tabs.value.map((t) => [t.key, 0]));
             if (!hasPreview.value) return counts;
             for (const r of store.previewData.todos || []) {
                 if (counts[r.type] !== undefined) counts[r.type] += 1;
@@ -179,9 +213,9 @@ export default {
 
         return {
             store,
-            tabs: DEVICE_TABS,
+            tabs,
             statusMeta: STATUS_META,
-            nmaxLabel: NMAX_LABEL,
+            nmaxLabel,
             hasPreview,
             summary,
             nmaxCards,

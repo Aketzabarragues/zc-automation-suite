@@ -1,6 +1,6 @@
 {
   "_comment": "Configuración multi-departamento. Cada departamento encapsula su jerarquía TIA y sus tipos de dispositivo. Para añadir un nuevo departamento, duplicar el bloque 'alimentacion' bajo 'departments' y ajustar los valores. Si en el futuro se añaden más departamentos, el ConfigManager acepta el parámetro 'department' para resolver el bloque correcto.",
-  "_todo_legacy_types": "Los tipos legacy (sd/m_sina/tq/tq_ae/productos) viven en el PLC real dentro de 2000_Dispositivos/ pero NO se configuran aquí. Se activarán cuando se necesite soporte explícito.",
+  "_todo_legacy_types": "Los tipos legacy (sd/m_sina/tq/tq_ae/productos) viven en el PLC real dentro de 2000_Dispositivos/ pero NO se configuran aquí. Se activarán cuando se necesite soporte explícito. Sus entradas viven en 'pending_dispositivos' y los N_MAX asociados en 'pending_nmax' (ver abajo).",
   "departments": {
     "alimentacion": {
       "_comment_folders": "Jerarquía TIA del departamento de alimentación: la tabla N_MAX ('000_Config_Dispositivos') vive en tia_folders.nmax (000_Sistema); las 6 tablas de dispositivos viven en tia_folders.dispositivos (2000_Dispositivos). El sync unificado parsea SOLO esos 7 XMLs del árbol exportado por export_plc_tags_xml; el resto (003_Procesos/*, 000_Traza_*, 2000_Disp_SD, etc.) se ignora.",
@@ -9,6 +9,64 @@
         "proceso":      "003_Procesos",
         "dispositivos": "2000_Dispositivos",
         "nmax":         "000_Sistema"
+      },
+      "n_max_catalog": [
+        {
+          "name":              "N_MAX_DISP_ED",
+          "excel_named_range": "Num_Disp_ED",
+          "hw_type":           "ed",
+          "plc_tag_table":     "2000_Disp_ED",
+          "comment":           "Numero max. entrada digital"
+        },
+        {
+          "name":              "N_MAX_DISP_EA",
+          "excel_named_range": "Num_Disp_EA",
+          "hw_type":           "ea",
+          "plc_tag_table":     "2000_Disp_EA",
+          "comment":           "Numero max. entradas analogicas"
+        },
+        {
+          "name":              "N_MAX_DISP_SA",
+          "excel_named_range": "Num_Disp_SA",
+          "hw_type":           "sa",
+          "plc_tag_table":     "2000_Disp_SA",
+          "comment":           "Numero max. salidas analogicas"
+        },
+        {
+          "name":              "N_MAX_DISP_V",
+          "excel_named_range": "Num_Disp_V",
+          "hw_type":           "v",
+          "plc_tag_table":     "2000_Disp_V",
+          "comment":           "Numero max. valvulas"
+        },
+        {
+          "name":              "N_MAX_DISP_M",
+          "excel_named_range": "Num_Disp_M",
+          "hw_type":           "m",
+          "plc_tag_table":     "2000_Disp_M",
+          "comment":           "Numero max. motores"
+        },
+        {
+          "name":              "N_MAX_DISP_M_VF",
+          "excel_named_range": "Num_Disp_M_VF",
+          "hw_type":           "m_vf",
+          "plc_tag_table":     "2000_Disp_M_VF",
+          "comment":           "Numero max. motores con variador"
+        }
+      ],
+      "pending_nmax": [
+        "N_MAX_DISP_AGRUP", "N_MAX_DISP_FF", "N_MAX_DISP_FF_SEC",
+        "N_MAX_DISP_M_SINA", "N_MAX_DISP_MEDIA", "N_MAX_DISP_MEDIA_VOLUMEN",
+        "N_MAX_DISP_PID", "N_MAX_DISP_SD", "N_MAX_DISP_TOT",
+        "N_MAX_DISP_TQ", "N_MAX_DISP_TQ_AE", "N_MAX_DISP_VD",
+        "N_MAX_DISP_TOF", "N_MAX_DISP_TON", "N_MAX_DISP_TONR",
+        "N_MAX_DISP_TP"
+      ],
+      "pending_dispositivos": {
+        "sd":     { "db_name": "DB2002_SD",     "db_array_name": "SD",     "tag_table": "2000_Disp_SD" },
+        "m_sina": { "db_name": "DB2017_M_SINA", "db_array_name": "M_SINA", "tag_table": "2000_Disp_M_SINA" },
+        "tq":     { "db_name": "DB2018_TQ",     "db_array_name": "TQ",     "tag_table": "2000_Disp_TQ" },
+        "tq_ae":  { "db_name": "DB2019_TQ_AE",  "db_array_name": "TQ_AE",  "tag_table": "2000_Disp_TQ_AE" }
       },
       "Dispositivos": {
         "ed": {

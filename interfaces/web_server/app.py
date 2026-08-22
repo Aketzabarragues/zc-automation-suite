@@ -37,6 +37,7 @@ from application.state import get_app_state
 from infrastructure.gateway import TIAProcessGateway
 from interfaces.web_server.routers import (
     areas_router,
+    catalog_router,
     diagnostics_router,
     excel_router,
     portal_router,
@@ -98,6 +99,7 @@ def create_app(gateway: TIAProcessGateway) -> FastAPI:
     app.include_router(sync_router)
     app.include_router(diagnostics_router)
     app.include_router(areas_router)
+    app.include_router(catalog_router)
 
     # ── 3. Hook de compatibilidad: ``app.state.logger`` puede
     # ser substituida por otra instancia (ej. en tests). Esta

@@ -30,10 +30,14 @@ export const store = reactive({
     /**
      * Sub-vista DENTRO del área activa. Decide qué componente se
      * muestra en ``<main>``. Valores:
-     *   ``'def'``  → ``<DefinicionProgramacion>`` (antes "Inspector de Memoria").
-     *   ``'disp'`` → ``<Dispositivos>`` (antes "Sincronización TIA").
+     *   ``'landing'`` → ``<AreaLanding>`` (pantalla de aterrizaje con
+     *                   tarjetas de las dos sub-vistas).
+     *   ``'def'``     → ``<DefinicionProgramacion>`` (antes "Inspector de Memoria").
+     *   ``'disp'``    → ``<Dispositivos>`` (antes "Sincronización TIA").
      *
-     * Los botones del Sidebar lo modifican directamente.
+     * El Sidebar y el AreaLanding NO lo modifican directamente:
+     * pasan por ``goToSubview(key)`` para mantener la mutación
+     * centralizada.
      */
     currentView: "disp",
 
@@ -67,12 +71,40 @@ export const store = reactive({
      */
     previewData: null,
 
-    /** Tab activa del Inspector (``'DispED' | 'DispEA' | ...``). */
-    activeTab: "DispED",
+    /**
+     * Catálogo de presentación cargado al arrancar desde
+     * ``GET /api/v1/catalog``. Contiene:
+     *   - ``device_tabs``   ``[{hw_type, canonical, label}, ...]``
+     *   - ``nmax``          ``[{name, label}, ...]``
+     *   - ``model_columns`` ``{canonical: [field_name, ...], ...}``
+     *   - ``col_labels``    ``{col_name: "Label humano", ...}``
+     *   - ``mono_cols``     ``[col_name, ...]``
+     *
+     * Es la **fuente única de verdad** del frontend: añadir un
+     * nuevo tipo de dispositivo o N_MAX al ``config.json`` se
+     * refleja automáticamente sin tocar JS.
+     */
+    catalog: null,
+
+    /** Tab activa del Inspector (canonical: ``'DispED' | 'DispEA' | ...``). */
+    activeTab: "",
 
     /** Flag de operación en curso (deshabilita botones). */
     busy: false,
 });
+
+/**
+ * Forma esperada de ``store.catalog`` cuando está poblado.
+ * Documentado para IDEs (no se usa en runtime, los JS leen
+ * ``store.catalog.X`` directamente con fallback defensivo).
+ *
+ * @typedef {Object} CatalogView
+ * @property {Array<{hw_type: string, canonical: string, label: string}>} device_tabs
+ * @property {Array<{name: string, label: string}>} nmax
+ * @property {Object<string, string[]>} model_columns
+ * @property {Object<string, string>} col_labels
+ * @property {string[]} mono_cols
+ */
 
 /**
  * Helpers de routing. Encapsulan la transición ``welcome`` ↔ ``area``
@@ -93,13 +125,30 @@ export function goToWelcome() {
 export function goToArea(key) {
     if (!key) return;
     store.selectedArea = key;
-    store.currentView = "disp";   // siempre arrancar en "Dispositivos" al entrar.
+    store.currentView = "landing";   // arrancar siempre en el landing del área.
     // Reset suave del estado operativo de la SPA.
     store.plcs = [];
     store.selectedPlc = "";
     store.uploadSummary = null;
     store.previewData = null;
     store.topLevelView = "area";
+}
+
+/**
+ * Cambia la sub-vista dentro del área activa. Centraliza la mutación
+ * de ``store.currentView`` para que ningún componente lo toque
+ * directamente. Llamado por:
+ *   - AreaLanding (click en una tarjeta).
+ *   - Sidebar (botones "Inicio del área" / "Definición programación"
+ *     / "Dispositivos").
+ *
+ * Keys válidas: ``'landing' | 'def' | 'disp'``. Si se pasa una key
+ * inválida, se ignora silenciosamente.
+ */
+export function goToSubview(key) {
+    const valid = ["landing", "def", "disp"];
+    if (!valid.includes(key)) return;
+    store.currentView = key;
 }
 
 /**
@@ -112,6 +161,49 @@ export function selectedAreaLabel() {
     if (!store.selectedArea) return "";
     const a = store.availableAreas.find((x) => x.key === store.selectedArea);
     return a ? a.label : store.selectedArea;
+}
+
+/**
+ * Carga el catálogo de presentación desde el backend
+ * (``GET /api/v1/catalog``) y lo guarda en ``store.catalog``.
+ *
+ * Llamado al arrancar la SPA (en ``main.js``) y opcionalmente
+ * desde un botón "Refrescar catálogo" si se quiere permitir
+ * recargar sin recargar la página.
+ *
+ * Si el backend responde con error, ``store.catalog`` queda
+ * ``null`` y los componentes que dependen de él (los 2
+ * que muestran pestañas/tablas) caen a sus fallbacks
+ * defensivos (``[]`` / ``{}``). El error se loggea pero NO se
+ * lanza: la SPA sigue funcionando en modo degradado.
+ */
+export async function loadCatalog() {
+    const { apiFetchCatalog } = await import("./api.js");
+    try {
+        const r = await apiFetchCatalog();
+        if (r.ok && r.data && r.data.ok && r.data.catalog) {
+            store.catalog = r.data.catalog;
+            // Si ``activeTab`` aún no está inicializado y el
+            // catálogo tiene device_tabs, fijar el primero.
+            if (!store.activeTab && Array.isArray(r.data.catalog.device_tabs)) {
+                const first = r.data.catalog.device_tabs[0];
+                if (first && first.canonical) {
+                    store.activeTab = first.canonical;
+                }
+            }
+        } else {
+            pushLog(
+                "⚠️ No se pudo cargar el catálogo. La SPA funcionará " +
+                "en modo degradado (sin pestañas dinámicas).",
+                "warning"
+            );
+        }
+    } catch (e) {
+        pushLog(
+            "⚠️ Error cargando catálogo: " + String(e),
+            "warning"
+        );
+    }
 }
 
 /**

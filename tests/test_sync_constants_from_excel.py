@@ -114,6 +114,19 @@ def mock_config_manager() -> MagicMock:
     cm.get_tia_folder_nmax = MagicMock(return_value="000_Sistema")
     cm.get_tia_folder_dispositivos = MagicMock(return_value="2000_Dispositivos")
     cm.list_hw_types = MagicMock(return_value=["ed", "v"])
+    # Nuevo getter data-driven (Plan: Base extensible): alias del
+    # ``list_hw_types`` legacy. El código nuevo lo usa; el alias
+    # legacy se conserva una release.
+    cm.list_hw_types_active = MagicMock(return_value=["ed", "v"])
+    cm.list_nmax_active = MagicMock(
+        return_value=[
+            "N_MAX_DISP_ED", "N_MAX_DISP_EA", "N_MAX_DISP_SA",
+            "N_MAX_DISP_V", "N_MAX_DISP_M", "N_MAX_DISP_M_VF",
+        ]
+    )
+    cm.get_app_state_attr_for = MagicMock(
+        side_effect=lambda hw: f"dispositivos_{hw}"
+    )
     cm.get_tag_table_name = MagicMock(
         side_effect=lambda hw: {"ed": "2000_Disp_ED", "v": "2000_Disp_V"}.get(hw)
     )

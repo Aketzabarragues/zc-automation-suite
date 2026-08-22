@@ -6,7 +6,8 @@
  *      de esta vista).
  *   2. Inspector de Memoria: tabla reactiva con todas las columnas
  *      del dataclass activo (DispED / DispEA / DispSA / DispV /
- *      DispM / DispM_VF) + cards de N_MAX.
+ *      DispM / DispM_VF — el conjunto se carga del ``config.json``
+ *      vía ``/api/v1/catalog``) + cards de N_MAX.
  *
  * Pensado como dump de Cache: el operario ve, fila por fila, el
  * contenido íntegro de la AppState sin tener que descargar el JSON.
@@ -15,6 +16,10 @@
  * (`bg-surface-raised`, `bg-surface-sunken`, `text-ink`,
  * `text-ink-muted`, `text-accent`, `border-line`).
  *
+ * **Migrado a data-driven**: las pestañas, las columnas y los
+ * labels vienen de ``store.catalog``. Añadir un nuevo tipo de
+ * dispositivo al ``config.json`` se refleja aquí sin tocar JS.
+ *
  * @event refresh  El componente padre debe llamar a la API que
  *                 recarga ``store.memoryState``.
  *
@@ -22,127 +27,74 @@
  * `vue.esm-browser.prod.js` NO acepta string literals multi-línea
  * dentro de arrays de `:class`. Cada literal va en una sola línea.
  */
-import { computed, ref } from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js";
+import { computed, ref, watch } from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js";
 import { store, pushLog } from "../../../store.js";
 import { apiUploadExcel, apiFetchMemory } from "../../../api.js";
-
-const DEVICE_TABS = [
-    { key: "DispED",   label: "ED — Entradas Digitales" },
-    { key: "DispEA",   label: "EA — Entradas Analógicas" },
-    { key: "DispSA",   label: "SA — Salidas Analógicas" },
-    { key: "DispV",    label: "V — Valvulas" },
-    { key: "DispM",    label: "M — Motores" },
-    { key: "DispM_VF", label: "MVF — Motores VFD" },
-];
-
-const MODEL_COLUMNS = {
-    DispED: [
-        "uid", "numero", "plc_tag", "plc_comentario", "descripcion",
-        "tag", "fat",
-        "e_byte", "e_bit",
-        "gr_alarma", "cuadro", "observaciones",
-        "plc_tipo", "plc_index",
-        "hmi_index", "hmi_texto",
-        "comentario_db",
-    ],
-    DispEA: [
-        "uid", "numero", "plc_tag", "plc_comentario", "descripcion",
-        "tag", "fat",
-        "e_byte",
-        "unidades", "rii", "rsi",
-        "gr_alarma", "cuadro", "observaciones",
-        "plc_tipo", "plc_index",
-        "hmi_index", "hmi_texto",
-        "comentario_db",
-    ],
-    DispSA: [
-        "uid", "numero", "plc_tag", "plc_comentario", "descripcion",
-        "tag", "fat",
-        "e_byte",
-        "unidades", "rii", "rsi",
-        "gr_alarma", "cuadro", "observaciones",
-        "plc_tipo", "plc_index",
-        "hmi_index", "hmi_texto",
-        "comentario_db",
-    ],
-    DispV: [
-        "uid", "numero", "plc_tag", "plc_comentario", "descripcion",
-        "tag", "fat",
-        "s_byte", "s_bit",
-        "rr_byte", "rr_bit",
-        "rt_byte", "rt_bit",
-        "gr_alarma", "cuadro", "observaciones",
-        "plc_tipo", "plc_index",
-        "hmi_index", "hmi_texto",
-        "comentario_db",
-    ],
-    DispM: [
-        "uid", "numero", "plc_tag", "plc_comentario", "descripcion",
-        "tag", "fat",
-        "s_byte", "s_bit",
-        "rt_byte", "rt_bit",
-        "rm_byte", "rm_bit",
-        "gr_alarma", "cuadro", "observaciones",
-        "plc_tipo", "plc_index",
-        "hmi_index", "hmi_texto",
-        "comentario_db",
-    ],
-    DispM_VF: [
-        "uid", "numero", "plc_tag", "plc_comentario", "descripcion",
-        "tag", "fat",
-        "s_byte", "s_bit",
-        "rt_byte", "rt_bit",
-        "rm_byte", "rm_bit",
-        "sa_byte",
-        "gr_alarma", "cuadro", "observaciones",
-        "plc_tipo", "plc_index",
-        "hmi_index", "hmi_texto",
-        "comentario_db",
-    ],
-};
-
-const COL_LABELS = {
-    uid: "UID",
-    numero: "Número",
-    plc_tag: "PLC Tag",
-    plc_comentario: "Comentario PLC",
-    descripcion: "Descripción",
-    tag: "TAG",
-    fat: "FAT",
-    e_byte: "E.Byte",
-    e_bit: "E.Bit",
-    s_byte: "S.Byte",
-    s_bit: "S.Bit",
-    rr_byte: "RR.Byte",
-    rr_bit: "RR.Bit",
-    rt_byte: "RT.Byte",
-    rt_bit: "RT.Bit",
-    rm_byte: "RM.Byte",
-    rm_bit: "RM.Bit",
-    sa_byte: "SA.Byte",
-    unidades: "Unidades",
-    rii: "RII",
-    rsi: "RSI",
-    gr_alarma: "Gr.Alarma",
-    cuadro: "Cuadro",
-    observaciones: "Observaciones",
-    plc_tipo: "PLC.Tipo",
-    plc_index: "PLC.Index",
-    hmi_index: "Hmi.Index",
-    hmi_texto: "Hmi.Texto",
-    comentario_db: "ComentarioDB",
-};
-
-const MONO_COLS = new Set(["uid", "plc_tag", "plc_comentario"]);
 
 export default {
     name: "DefinicionProgramacion",
     emits: ["refresh"],
     setup() {
         const fileInput = ref(null);
-        const activeTab = ref(store.activeTab);
 
-        const columns = computed(() => MODEL_COLUMNS[activeTab.value] || []);
+        /**
+         * Tabs data-driven desde el catalog del backend.
+         * Mantiene la forma legacy ``{key, label}`` para no
+         * tocar el template más de lo necesario.
+         */
+        const tabs = computed(() => {
+            const c = store.catalog;
+            if (!c || !Array.isArray(c.device_tabs)) return [];
+            return c.device_tabs.map((t) => ({
+                key: t.canonical,
+                label: t.label,
+            }));
+        });
+
+        /**
+         * Map ``canonical → [field_name, ...]`` derivado del
+         * catalog. El backend (``get_columns_for``) ya filtra
+         * los campos ``cfg_*`` (SCL), así que coincide con lo
+         * que la UI legacy mostraba.
+         */
+        const modelColumns = computed(() => {
+            const c = store.catalog;
+            if (!c || !c.model_columns) return {};
+            return c.model_columns;
+        });
+
+        /**
+         * Etiquetas de columna y columnas monospace desde el
+         * catalog. Si el catalog no las trae, fallback a ``{}``
+         * y ``new Set()`` respectivamente (modo degradado).
+         */
+        const colLabels = computed(() => {
+            const c = store.catalog;
+            return (c && c.col_labels) || {};
+        });
+
+        const monoCols = computed(() => {
+            const c = store.catalog;
+            return new Set((c && c.mono_cols) || []);
+        });
+
+        const activeTab = ref(store.activeTab || (tabs.value[0]?.key ?? ""));
+
+        // Si el catalog se carga tarde (después de que el componente
+        // ya montó), ``activeTab`` puede estar ``""``. Reaccionar:
+        watch(
+            () => tabs.value[0]?.key,
+            (firstKey) => {
+                if (!activeTab.value && firstKey) {
+                    activeTab.value = firstKey;
+                }
+            },
+            { immediate: true }
+        );
+
+        const columns = computed(
+            () => modelColumns.value[activeTab.value] || []
+        );
 
         const activeDevices = computed(() => {
             if (!store.memoryState || !store.memoryState.dispositivos) return [];
@@ -197,7 +149,7 @@ export default {
         return {
             store,
             fileInput,
-            tabs: DEVICE_TABS,
+            tabs,
             activeTab,
             columns,
             activeDevices,
@@ -205,8 +157,8 @@ export default {
             hasMemory,
             displayValue,
             handleExcel,
-            COL_LABELS,
-            MONO_COLS,
+            colLabels,
+            monoCols,
         };
     },
     template: /* html */ `
@@ -269,7 +221,7 @@ export default {
                         <tr>
                             <th v-for="col in columns" :key="col"
                                 class="px-3 py-2 text-left text-ink-muted whitespace-nowrap">
-                                {{ COL_LABELS[col] || col }}
+                                {{ colLabels[col] || col }}
                             </th>
                         </tr>
                     </thead>
@@ -279,7 +231,7 @@ export default {
                             class="border-b border-line">
                             <td v-for="col in columns" :key="col"
                                 class="px-3 py-1.5 align-top text-ink whitespace-nowrap"
-                                :class="MONO_COLS.has(col) ? 'font-mono' : ''">
+                                :class="monoCols.has(col) ? 'font-mono' : ''">
                                 {{ displayValue(d[col]) }}
                             </td>
                         </tr>

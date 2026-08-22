@@ -2,10 +2,11 @@
 
 Lee el libro Excel del departamento de alimentación apuntando a las
 **Tablas Nombradas** (``ListObjects``) declaradas explícitamente en
-``_EXCEL_TARGETS``. Para cada tabla realiza una extracción
-determinista fila a fila usando los **nombres de columna literales**
-del código legacy (con mayúsculas y puntos), sin normalización
-tipográfica ni heurísticas por ``dataclasses.fields``.
+``_EXCEL_TARGETS`` (módulo) o, si se inyecta un ``ConfigManager``, en
+su ``excel_target`` por ``hw_type``. Para cada tabla realiza una
+extracción determinista fila a fila usando los **nombres de columna
+literales** del código legacy (con mayúsculas y puntos), sin
+normalización tipográfica ni heurísticas por ``dataclasses.fields``.
 
 Pipeline por tabla:
 
@@ -43,6 +44,7 @@ from core.alimentacion.models.dispositivos import (
     DispV,
     Dispositivo,
 )
+from infrastructure.config_manager import ConfigManager
 from infrastructure.parsers.excel_parser import ExcelParser
 
 
@@ -67,6 +69,12 @@ _module_logger.propagate = False
 #   * nombre de la ``ListObject`` (Tabla_*)
 # Cualquier desviación del operario (ej. ``ED`` en vez de ``DISP_ED``)
 # se resuelve en ``_EXCEL_TARGETS`` actualizando la entrada.
+#
+# ESTOS VALORES SON LOS **DEFAULTS LEGACY**. Si el parser se
+# construye con un ``ConfigManager``, el dict de instancia
+# ``self._excel_targets`` se reescribe desde
+# ``ConfigManager.get_excel_target_for(hw_type)`` para soportar
+# overrides del config y futuros hw_types (sd/m_sina/tq/tq_ae).
 _EXCEL_TARGETS: dict[str, dict[str, str]] = {
     "DispED":   {"sheet": "DISP_ED",   "table": "Tabla_Disp_ED"},
     "DispEA":   {"sheet": "DISP_EA",   "table": "Tabla_Disp_EA"},
@@ -74,6 +82,26 @@ _EXCEL_TARGETS: dict[str, dict[str, str]] = {
     "DispV":    {"sheet": "DISP_V",    "table": "Tabla_Disp_V"},
     "DispM":    {"sheet": "DISP_M",    "table": "Tabla_Disp_M"},
     "DispM_VF": {"sheet": "DISP_M_VF", "table": "Tabla_Disp_M_VF"},
+}
+
+
+# Mapa por defecto de named ranges N_MAX / num_disp_* → atributo
+# legacy. Se usa como fallback cuando el parser se construye sin
+# ``ConfigManager`` (modo histórico) o cuando
+# ``_extract_dimensiones`` se llama sin ``named_range_map``.
+_DEFAULT_NAMED_RANGE_MAP: dict[str, str] = {
+    "N_MAX_DISP_ED":   "num_disp_ed",
+    "N_MAX_DISP_EA":   "num_disp_ea",
+    "N_MAX_DISP_SA":   "num_disp_sa",
+    "N_MAX_DISP_V":    "num_disp_v",
+    "N_MAX_DISP_M":    "num_disp_m",
+    "N_MAX_DISP_M_VF": "num_disp_m_vf",
+    "num_disp_ed":     "num_disp_ed",
+    "num_disp_ea":     "num_disp_ea",
+    "num_disp_sa":     "num_disp_sa",
+    "num_disp_v":      "num_disp_v",
+    "num_disp_m":      "num_disp_m",
+    "num_disp_m_vf":   "num_disp_m_vf",
 }
 
 
@@ -220,25 +248,113 @@ class AlimentacionExcelParser:
     (``extraer_dimensiones``) y abre su propio ``load_workbook`` para
     localizar las ``ListObjects`` en ``extraer_dtos``.
 
-    Sólo procesa las tablas declaradas en ``_EXCEL_TARGETS``. Las
-    filas sin ``UID`` ni ``Numero`` se descartan silenciosamente
-    (criterio de unicidad del PlcTag en TIA Portal).
+    Sólo procesa las tablas declaradas en ``_EXCEL_TARGETS`` (o en
+    el override del ``ConfigManager`` si se inyecta uno). Las filas
+    sin ``UID`` ni ``Numero`` se descartan silenciosamente (criterio
+    de unicidad del PlcTag en TIA Portal).
+
+    Args:
+        config_manager: ``ConfigManager`` opcional. Si se pasa, el
+            parser consulta ``get_excel_target_for(hw_type)`` y
+            ``get_nmax_entry(name)`` para soportar overrides del
+            config y futuros hw_types (sd/m_sina/tq/tq_ae) sin tocar
+            código. Si es ``None`` (default), se instancia un
+            ``ConfigManager`` por defecto apuntando al JSON del repo
+            para garantizar la ruta data-driven; como fallback
+            defensivo (p.ej. tests que parchean ``cwd``), se usa
+            ``_EXCEL_TARGETS`` y ``_DEFAULT_NAMED_RANGE_MAP``.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        config_manager: ConfigManager | None = None,
+    ) -> None:
         # Composición: usamos el parser genérico SOLO para dimensiones.
         self._generic_parser = ExcelParser()
+        # Config: si no se inyecta, instanciamos el default apuntando
+        # al JSON del repo. Esto garantiza que ``_build_named_range_map``
+        # SIEMPRE produce las claves ``Num_Disp_*`` correctas (el
+        # default estático NO las incluye: ver R1 del plan).
+        if config_manager is None:
+            try:
+                self._config_manager = ConfigManager()
+            except FileNotFoundError:
+                # Fallback defensivo (p.ej. tests con cwd temporal):
+                # el parser sigue funcionando con los defaults legacy,
+                # pero las hojas con nombres ``Num_Disp_*`` no se
+                # mapearán a ``num_disp_*`` (quedan en ``extras``).
+                self._config_manager = None
+        else:
+            self._config_manager = config_manager
         # Buffer de logs opcional (DI tolerante).
         try:
             self._log = get_log_buffer()
         except Exception:  # pragma: no cover - defensivo
             self._log = None
+        # Resoluciones data-driven.
+        self._excel_targets: dict[str, dict[str, str]] = (
+            self._build_excel_targets()
+        )
+        self._named_range_map: dict[str, str] = (
+            self._build_named_range_map()
+        )
+
+    # ── Resolución de maps desde ConfigManager (o defaults) ───────────
+
+    def _build_excel_targets(self) -> dict[str, dict[str, str]]:
+        """Devuelve ``{canonica: {sheet, table}}`` desde config o defaults.
+
+        Si hay ``ConfigManager``, itera ``list_hw_types_active()`` y
+        llama ``get_excel_target_for(hw)`` para cada uno. Si no,
+        retorna una copia de ``_EXCEL_TARGETS``.
+        """
+        if self._config_manager is None:
+            return dict(_EXCEL_TARGETS)
+        targets: dict[str, dict[str, str]] = {}
+        for hw in self._config_manager.list_hw_types_active():
+            t = self._config_manager.get_excel_target_for(hw)
+            if t is None:
+                continue
+            canonica = t.get("canonical", "")
+            if canonica:
+                targets[canonica] = {
+                    "sheet": t.get("sheet", ""),
+                    "table": t.get("table", ""),
+                }
+        # Si el ConfigManager no devolvió nada (caso patológico),
+        # caemos a los defaults.
+        return targets or dict(_EXCEL_TARGETS)
+
+    def _build_named_range_map(self) -> dict[str, str]:
+        """Devuelve ``{nombre_nmax: nombre_attr_legacy}`` para extraer_dimensiones.
+
+        Si hay ``ConfigManager``, itera ``list_nmax_active()`` y
+        resuelve ``hw_type`` → ``num_disp_<hw>``. Si no, usa
+        ``_DEFAULT_NAMED_RANGE_MAP``.
+        """
+        if self._config_manager is None:
+            return dict(_DEFAULT_NAMED_RANGE_MAP)
+        mapping: dict[str, str] = {}
+        for nmax_name in self._config_manager.list_nmax_active():
+            entry = self._config_manager.get_nmax_entry(nmax_name) or {}
+            hw = entry.get("hw_type", "")
+            if not hw:
+                continue
+            attr = f"num_disp_{hw}"
+            mapping[nmax_name] = attr
+            # Aceptamos también la forma legacy (``Num_Disp_X``).
+            excel_nr = entry.get("excel_named_range", "")
+            if excel_nr:
+                mapping[excel_nr] = attr
+            # Y la forma minúscula ``num_disp_x``.
+            mapping[attr] = attr
+        return mapping
 
     # ── DTOs por tabla ──────────────────────────────────────────────────
     def extraer_dtos(
         self, excel_path: str | Path
     ) -> dict[str, list[Dispositivo]]:
-        """Lee cada ``ListObject`` declarada en ``_EXCEL_TARGETS``.
+        """Lee cada ``ListObject`` declarada en ``_excel_targets``.
 
         Returns:
             ``dict[str, list[Dispositivo]]``. Las claves son los
@@ -263,7 +379,7 @@ class AlimentacionExcelParser:
         )
         try:
             result: dict[str, list[Dispositivo]] = {}
-            for canonica, cfg in _EXCEL_TARGETS.items():
+            for canonica, cfg in self._excel_targets.items():
                 sheet_name: str = cfg["sheet"]
                 table_name: str = cfg["table"]
                 devices = self._extract_table(
@@ -585,7 +701,9 @@ class AlimentacionExcelParser:
 
         Returns:
             ``DimensionesDispositivos`` con los 6 contadores. Si un
-            campo no existe en el Excel, queda en ``0``.
+            campo no existe en el Excel, queda en ``0``. Los N_MAX
+            adicionales del ``n_max_catalog`` que el Excel defina
+            como named range acaban en ``DimensionesDispositivos.extras``.
         """
         path = Path(excel_path)
         if not path.is_file():
@@ -597,13 +715,20 @@ class AlimentacionExcelParser:
             filename=str(path), read_only=True, data_only=True
         )
         try:
-            return self._extract_dimensiones(workbook)
+            return self._extract_dimensiones(workbook, self._named_range_map)
         finally:
             workbook.close()
 
     @staticmethod
-    def _extract_dimensiones(workbook: Any) -> DimensionesDispositivos:
-        """Lee ``wb.defined_names`` y popula ``DimensionesDispositivos``."""
+    def _extract_dimensiones(
+        workbook: Any,
+        named_range_map: dict[str, str] | None = None,
+    ) -> DimensionesDispositivos:
+        """Lee ``wb.defined_names`` y popula ``DimensionesDispositivos``.
+
+        ``named_range_map`` se construye desde el ``ConfigManager`` o,
+        si es ``None``, se usa ``_DEFAULT_NAMED_RANGE_MAP`` (los 6 legacy).
+        """
         defined_names = getattr(workbook, "defined_names", None)
         if defined_names is None:
             return DimensionesDispositivos()
@@ -614,35 +739,36 @@ class AlimentacionExcelParser:
             else []
         )
 
-        attr_map: dict[str, str] = {
-            "Num_Disp_ED":   "num_disp_ed",
-            "Num_Disp_EA":   "num_disp_ea",
-            "Num_Disp_SA":   "num_disp_sa",
-            "Num_Disp_V":    "num_disp_v",
-            "Num_Disp_M":    "num_disp_m",
-            "Num_Disp_M_VF": "num_disp_m_vf",
-            "num_disp_ed":   "num_disp_ed",
-            "num_disp_ea":   "num_disp_ea",
-            "num_disp_sa":   "num_disp_sa",
-            "num_disp_v":    "num_disp_v",
-            "num_disp_m":    "num_disp_m",
-            "num_disp_m_vf": "num_disp_m_vf",
-        }
+        # Mapa por defecto (6 legacy) si no se inyecta uno data-driven.
+        if named_range_map is None:
+            named_range_map = _DEFAULT_NAMED_RANGE_MAP
 
         result: dict[str, int] = {}
+        extras: dict[str, int] = {}
         for name, definition in items:
             if not isinstance(name, str):
                 continue
-            attr = attr_map.get(name)
-            if attr is None:
-                continue
-            value = _safe_int(_resolve_value(definition, workbook))
-            result[attr] = value
+            attr = named_range_map.get(name)
+            if attr is not None:
+                value = _safe_int(_resolve_value(definition, workbook))
+                result[attr] = value
+            else:
+                # Si el named range no es de los legacy, intentar leerlo
+                # como N_MAX directo (data-driven): p.ej. un Excel que
+                # defina ``N_MAX_DISP_FF`` → acaba en ``extras``.
+                if name.startswith("N_MAX_DISP_") or name.startswith("Num_Disp_"):
+                    v = _safe_int(_resolve_value(definition, workbook))
+                    if v:
+                        extras[name] = v
 
-        return (
-            DimensionesDispositivos(**result)
-            if result else DimensionesDispositivos()
-        )
+        if result:
+            kwargs = dict(result)
+            if extras:
+                kwargs["extras"] = extras
+            return DimensionesDispositivos(**kwargs)
+        if extras:
+            return DimensionesDispositivos(extras=extras)
+        return DimensionesDispositivos()
 
     # ── Auditoría / Trazabilidad ────────────────────────────────────────
     def _emit(self, level: str, message: str) -> None:

@@ -59,6 +59,15 @@ export const apiOpenNewPortal = (projectFilePath) =>
 /** Vuelca el ``AppState`` (IT-only) para alimentar el Inspector. */
 export const apiFetchMemory = () => _request("GET", "/api/v1/state/dispositivos");
 
+/**
+ * Devuelve el catálogo de presentación: device_tabs, nmax,
+ * model_columns, col_labels, mono_cols. La SPA lo cachea en
+ * ``store.catalog`` al arrancar; cualquier nuevo tipo de
+ * dispositivo o N_MAX añadido al ``config.json`` aparece sin
+ * tocar JS.
+ */
+export const apiFetchCatalog = () => _request("GET", "/api/v1/catalog");
+
 /** Pide a TIA Portal una Pre-Flight (Diff) sin tocar el PLC. */
 export const apiGeneratePreview = (plcName) =>
     _request("POST", "/api/v1/sync/preview", { plc_name: plcName });

@@ -2,6 +2,10 @@
 
 FIX CRITICO: el matching entre PlcUserConstant del PLC y dispositivos del
 AppState debe hacerse POR TABLA, no globalmente.
+
+Modelo **data-driven** (Plan: Base extensible para tablas de
+dispositivos y N_MAX): el mapeo ``hw_type ↔ atributo AppState`` ya no
+está hardcoded en este módulo; se consulta al ``ConfigManager``.
 """
 from __future__ import annotations
 
@@ -21,21 +25,17 @@ _logger = logging.getLogger(f"{__name__}.SyncDispositivosInstancesUseCase")
 
 
 class SyncDispositivosInstancesUseCase:
-    """Caso de Uso: sincroniza instancias del subdominio alimentacion."""
+    """Caso de Uso: sincroniza instancias del subdominio alimentacion.
+
+    El mapeo ``hw_type ↔ atributo AppState`` se obtiene del
+    ``ConfigManager`` (vía ``get_app_state_attr_for(hw)``). Los 6
+    legacy (``ed/ea/sa/v/m/m_vf``) siguen funcionando idéntico.
+    """
 
     _BUILD_CACHE_DIRNAME = ".build_cache"
     _BASE_SUBDIR = "base"
     _READY_SUBDIR = "ready_to_import"
     _TAG_TABLES_SUBDIR = "tags"
-
-    _HW_TYPE_ATTRS: dict[str, str] = {
-        "ed":    "dispositivos_ed",
-        "ea":    "dispositivos_ea",
-        "sa":    "dispositivos_sa",
-        "v":     "dispositivos_v",
-        "m":     "dispositivos_m",
-        "m_vf":  "dispositivos_m_vf",
-    }
 
     def __init__(
         self,
@@ -316,16 +316,22 @@ class SyncDispositivosInstancesUseCase:
         # El parser ya devuelve `{nombre: valor}` (key estable =
         # nombre, evita colisiones por valor repetido entre N_MAX).
 
-        # 2. Estado deseado desde AppState.dimensiones.
+        # 2. Estado deseado desde AppState.dimensiones (data-driven).
+        # Itera ``ConfigManager.list_nmax_active()`` y, para cada
+        # nombre, lee el valor del wrapper. Los 6 legacy
+        # (``N_MAX_DISP_ED/EA/SA/V/M/M_VF``) salen por las propiedades
+        # ``num_disp_*``; el resto (futuro) saldría por ``extras`` o
+        # ``d.values[name]``.
         d = self._state.dimensiones
-        desired: dict[str, int] = {
-            "N_MAX_DISP_ED":   int(getattr(d, "num_disp_ed",   0) or 0),
-            "N_MAX_DISP_EA":   int(getattr(d, "num_disp_ea",   0) or 0),
-            "N_MAX_DISP_SA":   int(getattr(d, "num_disp_sa",   0) or 0),
-            "N_MAX_DISP_V":    int(getattr(d, "num_disp_v",    0) or 0),
-            "N_MAX_DISP_M":    int(getattr(d, "num_disp_m",    0) or 0),
-            "N_MAX_DISP_M_VF": int(getattr(d, "num_disp_m_vf", 0) or 0),
-        }
+        desired: dict[str, int] = {}
+        for nmax_name in self._config.list_nmax_active():
+            v = d.get(nmax_name)
+            if v is None:
+                # Si el catálogo activo incluye un N_MAX que el wrapper
+                # no tiene (caso ``extras`` ausente), asumimos 0 para
+                # forzar ``actualizar`` con valor 0 en la preflight.
+                v = 0
+            desired[nmax_name] = int(v)
 
         # 3. Diff unificado: las N_MAX siempre existen en ambos lados.
         # Si por algún motivo faltara alguna (TIA sin SA), el valor
@@ -450,10 +456,21 @@ class SyncDispositivosInstancesUseCase:
         return all_added, all_removed, _renamed
 
     def _build_desired_state_from_app(self) -> dict[str, dict[str, str]]:
+        """Construye ``{tag_table: {uid: plc_tag}}`` desde el ``AppState``.
+
+        Itera ``ConfigManager.list_hw_types_active()`` (data-driven)
+        y usa ``get_app_state_attr_for(hw)`` para acceder a la lista
+        de dispositivos del estado. Los 6 legacy funcionan idéntico
+        porque las convenciones del config (``dispositivos_<hw>``)
+        coinciden con los nombres de los atributos.
+        """
         result: dict[str, dict[str, str]] = {}
-        for hw_type, attr_name in self._HW_TYPE_ATTRS.items():
+        for hw_type in self._config.list_hw_types_active():
             tag_table = self._config.get_tag_table_name(hw_type)
             if tag_table is None:
+                continue
+            attr_name = self._config.get_app_state_attr_for(hw_type)
+            if attr_name is None:
                 continue
             devices = getattr(self._state, attr_name, [])
             table_dict: dict[str, str] = {}

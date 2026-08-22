@@ -1,29 +1,112 @@
-# --- Python (cache de bytecode) ---
+# =========================================================
+# Repomix ignore patterns
+# Objetivo: incluir SOLO el codigo fuente esencial del
+# proyecto (application, core, infrastructure, interfaces,
+# scripts, main, config raiz, docs clave) y dejar
+# fuera TODO lo que es cache, build, vendored, binarios,
+# logs, temporales, entornos y codigo legacy.
+# =========================================================
+
+# --- VCS metadata ---------------------------------------
+.git/
+.gitignore
+.gitattributes
+.github/
+
+# --- Python: bytecode y cache ----------------------------
 __pycache__/
+**/__pycache__/
 *.py[cod]
+*.pyo
 *$py.class
 
-# --- Build / Distribución (PyInstaller) ---
+# --- Test / QA caches ------------------------------------
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyre/
+.pytype/
+.hypothesis/
+htmlcov/
+.coverage
+.coverage.*
+*.cover
+*.py.cover
+coverage.xml
+.tox/
+.nox/
+
+# --- Build / Distribucion (PyInstaller) ------------------
 build/
 dist/
+.build/
 *.spec
+*.manifest
 *.pyd
-*.exe
-repomix-output.xml
+*.egg-info/
+*.whl
 
-# --- Logs y temporales ---
+# --- Vendored binaries / ejecutables ---------------------
+*.exe
+*.dll
+*.lib
+*.so
+tailwindcss-extra.exe
+lib/siemens_tia_scripting-*.whl
+
+# --- Project-specific caches (TIA Portal XML) ------------
+.build_cache/
+.scratch/
+
+# --- Logs y temporales -----------------------------------
 *.log
 *.tmp
 *.bak
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
 Logs/
 app_debug.log
-.build/
 
-# --- Documentación interna (no relevante para AI) ---
+# --- Entornos y secretos ---------------------------------
+.env
+.env.*
+!.env.example
+.envrc
+.venv/
+venv/
+env/
+ENV/
+__pypackages__/
+
+# --- IDE / Editor ----------------------------------------
+.vscode/
+.idea/
+.spyderproject
+.spyproject
+.ropeproject
+*.iml
+.cache/
+
+# --- Salida de Repomix (no anidarse) ---------------------
+repomix-output.xml
+repomix-output*.xml
+
+# --- Documentacion interna -------------------------------
 docs/
 
-# --- Vendored binaries (no son código fuente) ---
-lib/siemens_tia_scripting-*.whl
+# --- Codigo legacy / referencia --------------------------
+_legacy_reference/
 
-# --- Codigo legacy
-_legacy_reference
+# --- Tests (excluidos del reporte principal de AI) -------
+tests/
+
+# --- Compilados / artefactos varios ----------------------
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+*.rar

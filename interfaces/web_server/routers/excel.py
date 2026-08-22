@@ -3,29 +3,33 @@
 Carga el ``AlimentacionExcelParser`` y popula el ``AppState``
 Singleton. Toda la lógica de ficheros temporales y validación de
 errores vivirá aquí; los routers no importan nada de Siemens.
+
+Migrado a data-driven: en vez de hardcodear los 6 tipos legacy,
+se itera ``ConfigManager.list_hw_types_active()`` y se usa
+``get_app_state_attr_for(hw)`` + ``get_excel_target_for(hw)``
+para resolver el nombre del atributo del AppState y la clave
+canónica del Excel por cada hw_type. Cuando mañana se active
+un 7º tipo en el config (``sd``, ``m_sina``, ``tq``, ``tq_ae``),
+este endpoint lo recoge sin cambios.
 """
 from __future__ import annotations
 
-import dataclasses
 import tempfile
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from application.log_buffer import LogBuffer
 from application.state import AppState
-from core.alimentacion.models.dispositivos import (
-    DispEA,
-    DispED,
-    DispM,
-    DispM_VF,
-    DispSA,
-    DispV,
-)
-from interfaces.web_server.dependencies import get_app_state, get_logger
 from infrastructure.alimentacion.parsers.alimentacion_excel_parser import (
     AlimentacionExcelParser,
+)
+from infrastructure.config_manager import ConfigManager
+from interfaces.web_server.dependencies import (
+    get_app_state,
+    get_config_manager,
+    get_logger,
 )
 
 
@@ -37,8 +41,17 @@ async def upload_excel(
     file: UploadFile = File(...),
     state: AppState = Depends(get_app_state),
     logger: LogBuffer = Depends(get_logger),
+    config_manager: ConfigManager = Depends(get_config_manager),
 ) -> dict[str, Any]:
-    """Recibe un .xlsx, lo parsea y popula el ``AppState``."""
+    """Recibe un .xlsx, lo parsea y popula el ``AppState``.
+
+    Data-driven: itera ``cm.list_hw_types_active()`` y, para cada
+    tipo, escribe la lista parseada en el atributo del AppState
+    correspondiente (``state.dispositivos_<hw>`` legacy o, para
+    tipos nuevos, ``state.set_devices(hw, devices)``). El
+    backend ya tiene CM inyectado en ``app.state``; este router
+    no hace ninguna llamada a TIA Portal.
+    """
     suffix = Path(file.filename or "upload.xlsx").suffix or ".xlsx"
     with tempfile.NamedTemporaryFile(
         delete=False, suffix=suffix, prefix="zcupload_"
@@ -52,28 +65,24 @@ async def upload_excel(
     )
     try:
         logger.info("🔍 Parseando estructura del Excel...")
-        parser = AlimentacionExcelParser()
-
+        # Inyectamos el CM al parser para que use la ruta data-driven
+        # (override de ``_EXCEL_TARGETS`` si el config define
+        # ``excel_target`` por hw_type).
+        parser = AlimentacionExcelParser(config_manager=config_manager)
         dispositivos_por_tipo = parser.extraer_dtos(tmp_path)
 
-        state.dispositivos_ed = cast(
-            list[DispED], dispositivos_por_tipo.get("DispED", [])
-        )
-        state.dispositivos_ea = cast(
-            list[DispEA], dispositivos_por_tipo.get("DispEA", [])
-        )
-        state.dispositivos_sa = cast(
-            list[DispSA], dispositivos_por_tipo.get("DispSA", [])
-        )
-        state.dispositivos_v = cast(
-            list[DispV], dispositivos_por_tipo.get("DispV", [])
-        )
-        state.dispositivos_m = cast(
-            list[DispM], dispositivos_por_tipo.get("DispM", [])
-        )
-        state.dispositivos_m_vf = cast(
-            list[DispM_VF], dispositivos_por_tipo.get("DispM_VF", [])
-        )
+        # Volcado data-driven: por cada hw_type activo, resolver su
+        # atributo del AppState (legacy o dinámico) y la clave
+        # canónica del Excel, y asignar la lista (o ``[]``).
+        for hw in config_manager.list_hw_types_active():
+            target = config_manager.get_excel_target_for(hw)
+            attr = config_manager.get_app_state_attr_for(hw)
+            if target is None or attr is None:
+                continue
+            canonica = target.get("canonical", "")
+            if not canonica:
+                continue
+            setattr(state, attr, dispositivos_por_tipo.get(canonica, []))
 
         dimensiones = parser.extraer_dimensiones(tmp_path)
         state.dimensiones = dimensiones
@@ -101,7 +110,11 @@ async def upload_excel(
         "ok": True,
         "summary": summary,
         "total_dispositivos": sum(summary.values()),
-        "dimensiones": dataclasses.asdict(dimensiones),
+        # ``to_api_dict()`` en vez de ``dataclasses.asdict``: oculta
+        # el campo ``extras`` (interno / futuro) de la respuesta al
+        # cliente del upload. Mismo shape que ``dataclasses.asdict``
+        # salvo por la ausencia de ``extras``.
+        "dimensiones": dimensiones.to_api_dict(),
     }
 
 

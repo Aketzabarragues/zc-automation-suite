@@ -8,6 +8,10 @@ Orquestador de ALTO NIVEL que combina:
     metodos preview() y execute()).
 
 Estrategia de lectura del PLC: EXPORT -> PARSE -> DIFF
+
+Modelo **data-driven** (Plan: Base extensible para tablas de
+dispositivos y N_MAX): el mapeo ``hw_type ↔ atributo AppState`` ya no
+está hardcoded en este módulo; se consulta al ``ConfigManager``.
 """
 from __future__ import annotations
 
@@ -27,17 +31,6 @@ from infrastructure.xml.tag_table_parser import SimaticMLTagParser
 _logger: logging.Logger = logging.getLogger(
     f"{__name__}.SyncConstantsFromExcelUseCase"
 )
-
-
-# Mapeo de hw_type a atributo de AppState.
-_APP_STATE_ATTRS: dict[str, str] = {
-    "ed":    "dispositivos_ed",
-    "ea":    "dispositivos_ea",
-    "sa":    "dispositivos_sa",
-    "v":     "dispositivos_v",
-    "m":     "dispositivos_m",
-    "m_vf":  "dispositivos_m_vf",
-}
 
 
 class SyncConstantsFromExcelUseCase:
@@ -141,13 +134,13 @@ class SyncConstantsFromExcelUseCase:
         # ``DimensionesDispositivos`` es un dataclass frozen; su
         # ``__bool__`` por defecto es siempre True, por lo que
         # ``not d`` nunca se cumple. Comprobamos explícitamente
-        # que los 6 contadores estén a 0 (estado recién inicializado).
+        # que todos los N_MAX del catálogo estén a 0 (estado recién
+        # inicializado). ``ConfigManager.list_nmax_active()`` siempre
+        # devuelve al menos los 6 legacy (fallback defensivo) incluso
+        # si el JSON no incluye ``n_max_catalog``.
+        nmax_names = self._config.list_nmax_active()
         dimensiones_empty = all(
-            getattr(d, f, 0) == 0
-            for f in (
-                "num_disp_ed", "num_disp_ea", "num_disp_sa",
-                "num_disp_v", "num_disp_m", "num_disp_m_vf",
-            )
+            int(d.get(n) or 0) == 0 for n in nmax_names
         )
         if not self._state.all_devices() and dimensiones_empty:
             warnings.append(
@@ -266,16 +259,21 @@ class SyncConstantsFromExcelUseCase:
             _logger.debug(f"[{plc_name}] Carpeta temporal limpiada.")
 
     def _build_nmax_desired_from_appstate(self) -> dict[str, int]:
-        """Construye el desired_state de N_MAX desde AppState.dimensiones."""
+        """Construye el desired_state de N_MAX desde AppState.dimensiones.
+
+        Itera ``ConfigManager.list_nmax_active()`` (data-driven) y, para
+        cada nombre, lee el valor del wrapper. Los 6 legacy funcionan
+        idéntico (``d.get("N_MAX_DISP_ED")`` resuelve a la propiedad
+        ``num_disp_ed``).
+        """
         d = self._state.dimensiones
-        return {
-            "N_MAX_DISP_ED":   int(getattr(d, "num_disp_ed",   0) or 0),
-            "N_MAX_DISP_EA":   int(getattr(d, "num_disp_ea",   0) or 0),
-            "N_MAX_DISP_SA":   int(getattr(d, "num_disp_sa",   0) or 0),
-            "N_MAX_DISP_V":    int(getattr(d, "num_disp_v",    0) or 0),
-            "N_MAX_DISP_M":    int(getattr(d, "num_disp_m",    0) or 0),
-            "N_MAX_DISP_M_VF": int(getattr(d, "num_disp_m_vf", 0) or 0),
-        }
+        desired: dict[str, int] = {}
+        for nmax_name in self._config.list_nmax_active():
+            v = d.get(nmax_name)
+            if v is None:
+                v = 0
+            desired[nmax_name] = int(v)
+        return desired
 
     def _build_device_states_from_appstate(
         self,
@@ -288,9 +286,16 @@ class SyncConstantsFromExcelUseCase:
 
         Razon: el PLC exporta ``<Value>{numero}</Value>`` en cada
         PlcUserConstant. Si idx+1 != numero, el diff falla.
+
+        Itera ``ConfigManager.list_hw_types_active()`` (data-driven);
+        los 6 legacy funcionan idéntico porque el config usa la
+        convención ``dispositivos_<hw>``.
         """
         states_by_type: dict[str, dict[str, dict[str, Any]]] = {}
-        for hw_type, attr_name in _APP_STATE_ATTRS.items():
+        for hw_type in self._config.list_hw_types_active():
+            attr_name = self._config.get_app_state_attr_for(hw_type)
+            if attr_name is None:
+                continue
             devices = getattr(self._state, attr_name, [])
             if not devices:
                 continue

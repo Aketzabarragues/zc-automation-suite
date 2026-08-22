@@ -3,13 +3,15 @@
  *
  * Responsabilidades:
  *   * Importar ``createApp`` del build ESM de Vue 3.
- *   * Registrar los 5 componentes:
+ *   * Registrar los 6 componentes:
  *     - Cross-cutting: Welcome, ConsolaLogs.
- *     - Del área Alimentación: AlimentacionSidebar, DefinicionProgramacion,
- *       Dispositivos.
+ *     - Del área Alimentación: AlimentacionSidebar, AreaLanding,
+ *       DefinicionProgramacion, Dispositivos.
  *   * Enrutar entre la pantalla de bienvenida (``Welcome``) y el
  *     layout de área (sidebar + main + ConsolaLogs) según
  *     ``store.topLevelView``.
+ *   * Dentro del área, enrutar entre landing / def / disp según
+ *     ``store.currentView``.
  *   * Conectar el evento ``refresh`` de Definición programación a
  *     ``apiFetchMemory``.
  *   * Lanzar el polling de logs (1 s) en background (solo dentro
@@ -26,11 +28,12 @@
  * ejemplo.
  */
 import { createApp } from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js";
-import { store, goToArea } from "./store.js";
+import { store, goToArea, goToSubview, loadCatalog } from "./store.js";
 import { apiFetchLogs, apiFetchMemory } from "./api.js";
 import Welcome from "./components/Welcome.js";
 import ConsolaLogs from "./components/ConsolaLogs.js";
 import AlimentacionSidebar from "./components/areas/alimentacion/Sidebar.js";
+import AreaLanding from "./components/areas/alimentacion/AreaLanding.js";
 import DefinicionProgramacion from "./components/areas/alimentacion/DefinicionProgramacion.js";
 import Dispositivos from "./components/areas/alimentacion/Dispositivos.js";
 
@@ -40,6 +43,7 @@ const App = {
         Welcome,
         ConsolaLogs,
         AlimentacionSidebar,
+        AreaLanding,
         DefinicionProgramacion,
         Dispositivos,
     },
@@ -68,7 +72,14 @@ const App = {
         function onAreaSelected(key) {
             goToArea(key);
         }
-        return { store, refreshMemory, onAreaSelected };
+        /**
+         * Manejador del ``select`` emitido por ``AreaLanding``.
+         * Cambia la sub-vista dentro del área activa.
+         */
+        function onSubviewSelected(key) {
+            goToSubview(key);
+        }
+        return { store, refreshMemory, onAreaSelected, onSubviewSelected };
     },
     template: /* html */ `
         <div class="flex flex-col flex-1 min-h-0">
@@ -76,7 +87,8 @@ const App = {
             <div v-else class="flex flex-1 overflow-hidden min-w-0">
                 <AlimentacionSidebar />
                 <main class="flex-1 min-w-0 flex flex-col p-5 overflow-y-scroll">
-                    <DefinicionProgramacion v-if="store.currentView === 'def'" @refresh="refreshMemory" />
+                    <AreaLanding v-if="store.currentView === 'landing'" @select="onSubviewSelected" />
+                    <DefinicionProgramacion v-else-if="store.currentView === 'def'" @refresh="refreshMemory" />
                     <Dispositivos v-else />
                 </main>
             </div>
@@ -86,6 +98,14 @@ const App = {
 };
 
 createApp(App).mount("#app");
+
+/* ── Carga inicial del catálogo de presentación ──────────────────
+ * Llamamos a ``loadCatalog`` antes del primer render para que
+ * los componentes que dependen de ``store.catalog`` (los 2
+ * que muestran pestañas/tablas) tengan datos al pintarse.
+ * Si el catalog falla (backend caído), los componentes caen
+ * a fallbacks ``[]``/``{}`` y la SPA sigue funcionando. */
+loadCatalog();
 
 /* ── Polling de logs (1 s, IT-only, sin tocar la DLL de TIA) ─────
  * Mantenemos la consola sincronizada con el backend sin necesidad

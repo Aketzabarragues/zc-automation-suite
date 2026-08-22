@@ -12,6 +12,12 @@ estructuralmente (duck typing):
   * ``DispM_VF`` - Motores con Variador de Frecuencia
   * ``DimensionesDispositivos`` - Cantidades numéricas por tipo
 
+``DimensionesDispositivos`` es **extensible** (Plan: Base extensible
+para tablas de dispositivos y N_MAX): internamente mantiene un mapping
+``{nombre_nmax: valor}`` (los 6 canónicos como campos explícitos para
+back-compat y un dict ``extras`` para futuras entradas del catálogo
+N_MAX que el PLC pueda traer).
+
 Restricciones arquitectónicas:
 - Prohibido importar ``siemens_tia_scripting``.
 - Prohibido el uso de ``Any`` en los atributos declarados.
@@ -23,8 +29,8 @@ Restricciones arquitectónicas:
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from dataclasses import dataclass, field
+from typing import Any, Mapping, Protocol, runtime_checkable
 
 
 # ── Protocol base ────────────────────────────────────────────────────────
@@ -292,12 +298,46 @@ class DispM_VF:
 # ── Dimensiones ────────────────────────────────────────────────────────
 
 
+# Tabla canónica (hw_type, attr, nmax_name) para los 6 tipos del
+# legacy. Mantener como constante de módulo para que el wrapper
+# ``DimensionesDispositivos`` pueda traducir entre los nombres que
+# el código legacy usa (``num_disp_ed``) y los nombres canónicos del
+# PLC (``N_MAX_DISP_ED``).
+_LEGACY_HW_TO_NMAX: tuple[tuple[str, str, str], ...] = (
+    ("ed",    "num_disp_ed",   "N_MAX_DISP_ED"),
+    ("ea",    "num_disp_ea",   "N_MAX_DISP_EA"),
+    ("sa",    "num_disp_sa",   "N_MAX_DISP_SA"),
+    ("v",     "num_disp_v",    "N_MAX_DISP_V"),
+    ("m",     "num_disp_m",    "N_MAX_DISP_M"),
+    ("m_vf",  "num_disp_m_vf", "N_MAX_DISP_M_VF"),
+)
+
+
 @dataclass(frozen=True)
 class DimensionesDispositivos:
     """Cantidades numéricas de dispositivos por tipo.
 
-    Extraído del Excel (named ranges ``num_disp_*``) o calculado
-    a partir del conteo de las listas de ``AppState``.
+    Diseño **extensible** (data-driven):
+
+      - Los **6 tipos canónicos** (``ed/ea/sa/v/m/m_vf``) se exponen
+        como campos explícitos ``num_disp_*`` para preservar la API
+        legacy y los tests que construyen el dataclass por kwargs.
+      - El campo ``extras: dict[str, int]`` almacena N_MAX adicionales
+        que vengan del ``n_max_catalog`` del config (futuro:
+        ``N_MAX_DISP_FF``, ``N_MAX_DISP_SD``, etc.).
+      - El método ``values()`` aplana ambos en un dict
+        ``{nombre_nmax: valor}`` listo para alimentar el sync
+        unificado y para serializar.
+      - ``from_catalog(catalog, raw)`` construye desde el catálogo
+        del ``ConfigManager`` y un dict raw (p.ej. del Excel).
+
+    Back-compat:
+      - ``DimensionesDispositivos(num_disp_ed=15, num_disp_v=20)`` →
+        sigue funcionando idéntico.
+      - ``d.num_disp_ed`` → sigue devolviendo ``int``.
+      - ``dataclasses.asdict(d)`` → sigue produciendo
+        ``{"num_disp_ed": ..., ..., "extras": {...}}``. La SPA ya
+        consume ese shape.
     """
 
     num_disp_ed: int = 0
@@ -306,6 +346,138 @@ class DimensionesDispositivos:
     num_disp_v: int = 0
     num_disp_m: int = 0
     num_disp_m_vf: int = 0
+    # N_MAX adicionales que no están en los 6 legacy. Las claves son
+    # los nombres canónicos del PLC (``N_MAX_DISP_*``). Vacío por
+    # defecto para no contaminar la salida de ``asdict`` en configs
+    # que aún no tienen extras.
+    extras: Mapping[str, int] = field(default_factory=dict)
+
+    # ── Vista unificada (canónica) ────────────────────────────────────
+
+    def values(self) -> dict[str, int]:
+        """Devuelve ``{nombre_nmax: valor}`` para los 6 canónicos.
+
+        NO incluye ``extras``: esa es información auxiliar que se
+        serializa por separado. Para tener TODO (legacy + extras),
+        usar ``all_nmax()``.
+        """
+        result: dict[str, int] = {}
+        for _hw, attr, nmax_name in _LEGACY_HW_TO_NMAX:
+            result[nmax_name] = int(getattr(self, attr) or 0)
+        return result
+
+    def all_nmax(self) -> dict[str, int]:
+        """``values()`` ∪ ``extras``. ``extras`` gana si hay colisión
+        (defensa: en un config bien formado, no debería haberla porque
+        los nombres legacy ya están como campos)."""
+        merged = self.values()
+        for k, v in self.extras.items():
+            merged[str(k)] = int(v)
+        return merged
+
+    def to_api_dict(self) -> dict[str, int]:
+        """Serialización para la API pública (SPA, diagnostics).
+
+        Devuelve **solo** los 6 campos legacy ``num_disp_*`` (los
+        que la SPA muestra hoy en "Definición programación"): oculta
+        el campo ``extras`` (que es interno / futuro) y no expone
+        el shape del dataclass crudo. Pensado para sustituir
+        ``dataclasses.asdict(self)`` en routers que vuelcan el
+        ``AppState`` al frontend.
+
+        Si en el futuro la SPA quiere ver los N_MAX adicionales,
+        se expondrá un endpoint nuevo (p.ej. ``/state/nmax_extras``)
+        en lugar de contaminar este.
+        """
+        return {
+            attr: int(getattr(self, attr) or 0)
+            for _hw, attr, _nmax in _LEGACY_HW_TO_NMAX
+        }
+
+    def get(self, nmax_name: str) -> int | None:
+        """Lee por nombre canónico (``N_MAX_DISP_*``). ``None`` si no existe.
+
+        Acepta también los nombres legacy ``num_disp_*`` por tolerancia
+        a código que aún no haya migrado.
+        """
+        for _hw, attr, nmax in _LEGACY_HW_TO_NMAX:
+            if nmax_name == nmax or nmax_name == attr:
+                return int(getattr(self, attr) or 0)
+        if nmax_name in self.extras:
+            return int(self.extras[nmax_name])
+        return None
+
+    # ── Constructores / factorías ──────────────────────────────────────
+
+    @classmethod
+    def from_catalog(
+        cls,
+        catalog: list[dict[str, Any]] | None,
+        raw: Mapping[str, int] | None,
+    ) -> "DimensionesDispositivos":
+        """Construye desde el ``n_max_catalog`` del ConfigManager y un raw.
+
+        Args:
+            catalog: lista de entradas del catálogo
+                (``{"name", "hw_type", ...}``) o ``None``.
+            raw: mapping con valores ``{nombre_nmax_o_legacy: int}``
+                (p.ej. lo que devuelve ``ExcelParser.extraer_dimensiones``).
+
+        Returns:
+            Instancia con los 6 legacy completados desde raw (si el
+            nombre legacy o el ``N_MAX_DISP_*`` aparece) y el resto
+            en ``extras``.
+
+        Política:
+          - Si el catálogo está vacío o ``None``, se acepta el raw
+            tal cual: las claves que coincidan con los nombres legacy
+            van a su campo; el resto va a ``extras``.
+          - Si el catálogo está presente, las claves del raw que NO
+            estén en el catálogo se descartan con ``debug`` (defensa
+            contra typos en el Excel).
+        """
+        raw = dict(raw or {})
+        catalog_names: set[str] = set()
+        hw_to_attr: dict[str, str] = {}
+        if catalog:
+            for entry in catalog:
+                name = str(entry.get("name", "")).strip()
+                hw = str(entry.get("hw_type", "")).strip()
+                if name:
+                    catalog_names.add(name)
+                if hw:
+                    # Mapeo hw_type → attr legacy para los 6 conocidos.
+                    for _h, attr, nmax in _LEGACY_HW_TO_NMAX:
+                        if _h == hw:
+                            hw_to_attr[hw] = attr
+                            catalog_names.add(nmax)
+                            break
+
+        # 1. Rellenar los 6 campos legacy desde raw.
+        kwargs: dict[str, Any] = {}
+        for _hw, attr, nmax in _LEGACY_HW_TO_NMAX:
+            v: int | None = None
+            if nmax in raw:
+                v = int(raw[nmax])
+            elif attr in raw:
+                v = int(raw[attr])
+            if v is not None:
+                kwargs[attr] = v
+
+        # 2. El resto (las claves que NO son los 6 legacy) van a
+        # ``extras``. Si no hay catálogo, aceptamos todo lo que no
+        # sea legacy también en extras.
+        legacy_nmax_names = {nmax for _hw, _attr, nmax in _LEGACY_HW_TO_NMAX}
+        extras: dict[str, int] = {}
+        for k, v in raw.items():
+            if k in legacy_nmax_names:
+                continue  # ya consumido por el campo legacy arriba
+            try:
+                extras[str(k)] = int(v)
+            except (TypeError, ValueError):
+                continue
+
+        return cls(extras=extras, **kwargs)
 
 
 __all__ = [

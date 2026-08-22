@@ -20,7 +20,7 @@
  * dentro de arrays de `:class`. Cada literal va en una sola línea.
  */
 import { computed } from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js";
-import { store, pushLog, goToWelcome } from "../../../store.js";
+import { store, pushLog, goToWelcome, goToSubview } from "../../../store.js";
 import { apiFetchPlcs } from "../../../api.js";
 
 export default {
@@ -65,6 +65,7 @@ export default {
             areaLabel,
             handleRefreshPlcs,
             goToWelcome,
+            goToSubview,
         };
     },
     template: /* html */ `
@@ -101,12 +102,17 @@ export default {
             <section class="mb-6">
                 <label class="block text-xs font-semibold text-ink-muted uppercase mb-2">Navegación</label>
                 <div class="flex flex-col gap-1.5">
-                    <button @click="store.currentView = 'def'"
+                    <button @click="goToSubview('landing')"
+                        :class="['text-left text-xs px-3 py-2 rounded border',
+                                 store.currentView === 'landing' ? 'bg-accent border-accent text-ink-inverse font-semibold' : 'bg-surface-sunken border-line hover:bg-surface-sunken text-ink']">
+                        🏠 Inicio del área
+                    </button>
+                    <button @click="goToSubview('def')"
                         :class="['text-left text-xs px-3 py-2 rounded border',
                                  store.currentView === 'def' ? 'bg-accent border-accent text-ink-inverse font-semibold' : 'bg-surface-sunken border-line hover:bg-surface-sunken text-ink']">
                         📊 Definición programación
                     </button>
-                    <button @click="store.currentView = 'disp'"
+                    <button @click="goToSubview('disp')"
                         :class="['text-left text-xs px-3 py-2 rounded border',
                                  store.currentView === 'disp' ? 'bg-accent border-accent text-ink-inverse font-semibold' : 'bg-surface-sunken border-line hover:bg-surface-sunken text-ink']">
                         ⚡ Dispositivos
