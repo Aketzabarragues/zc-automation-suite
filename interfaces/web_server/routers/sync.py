@@ -2,7 +2,7 @@
 
 Endpoints de Pre-Flight (preview sin tocar TIA) y Commit
 (transaccional contra el PLC). NO instancia gateways: vienen
-inyectados vía ``Depends``.
+inyectados vÃ­a ``Depends``.
 """
 from __future__ import annotations
 
@@ -18,10 +18,12 @@ from application.use_cases.sync_dispositivos_instances import (
 )
 from interfaces.web_server.dependencies import (
     get_app_state,
+    get_config_manager,
+    get_gateway,
     get_logger,
 )
+from infrastructure.config_manager import ConfigManager
 from infrastructure.gateway import TIAProcessGateway
-from interfaces.web_server.dependencies import get_gateway
 
 
 router = APIRouter(prefix="/api/v1/sync", tags=["Sync"])
@@ -39,9 +41,14 @@ class InstancesCommitRequest(BaseModel):
 def _build_use_case(
     state: AppState,
     gateway: TIAProcessGateway,
+    config_manager: ConfigManager,
 ) -> SyncDispositivosInstancesUseCase:
     """Construye el caso de uso con las dependencias inyectadas."""
-    return SyncDispositivosInstancesUseCase(gateway=gateway, state=state)
+    return SyncDispositivosInstancesUseCase(
+        gateway=gateway,
+        config_manager=config_manager,
+        state=state,
+    )
 
 
 @router.post("/preview")
@@ -49,10 +56,11 @@ async def sync_preview(
     req: InstancesPreviewRequest,
     state: AppState = Depends(get_app_state),
     gateway: TIAProcessGateway = Depends(get_gateway),
+    config_manager: ConfigManager = Depends(get_config_manager),
     logger: LogBuffer = Depends(get_logger),
 ) -> dict[str, Any]:
     """Lee XML actual + AppState y devuelve el Diff sin tocar TIA."""
-    use_case = _build_use_case(state, gateway)
+    use_case = _build_use_case(state, gateway, config_manager)
     logger.info(f"Generando prevision para PLC '{req.plc_name}'...")
     try:
         prevision = await use_case.generar_prevision(req.plc_name)
@@ -76,10 +84,11 @@ async def sync_commit(
     req: InstancesCommitRequest,
     state: AppState = Depends(get_app_state),
     gateway: TIAProcessGateway = Depends(get_gateway),
+    config_manager: ConfigManager = Depends(get_config_manager),
     logger: LogBuffer = Depends(get_logger),
 ) -> dict[str, Any]:
     """Aplica la prevision al PLC dentro de un lote transaccional."""
-    use_case = _build_use_case(state, gateway)
+    use_case = _build_use_case(state, gateway, config_manager)
     logger.info(
         f"Aplicando prevision al PLC '{req.plc_name}' "
         f"({len(req.prevision.get('agregados', []))} adds, "

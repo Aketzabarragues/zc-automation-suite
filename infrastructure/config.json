@@ -1,4 +1,53 @@
 {
-  "_comment": "SCAFFOLDING - Portar config real desde _legacy_reference/. Por ahora solo contiene el mapeo mínimo que el caso de uso necesita para arrancar.",
-  "global_config_table_name": "000_Config_Dispositivos"
+  "_comment": "Configuración multi-departamento. Cada departamento encapsula su jerarquía TIA y sus tipos de dispositivo. Para añadir un nuevo departamento, duplicar el bloque 'alimentacion' bajo 'departments' y ajustar los valores. Si en el futuro se añaden más departamentos, el ConfigManager acepta el parámetro 'department' para resolver el bloque correcto.",
+  "_todo_legacy_types": "Los tipos legacy (sd/m_sina/tq/tq_ae/productos) viven en el PLC real dentro de 2000_Dispositivos/ pero NO se configuran aquí. Se activarán cuando se necesite soporte explícito.",
+  "departments": {
+    "alimentacion": {
+      "_comment_folders": "Jerarquía TIA del departamento de alimentación: la tabla N_MAX ('000_Config_Dispositivos') vive en tia_folders.nmax (000_Sistema); las 6 tablas de dispositivos viven en tia_folders.dispositivos (2000_Dispositivos). El sync unificado parsea SOLO esos 7 XMLs del árbol exportado por export_plc_tags_xml; el resto (003_Procesos/*, 000_Traza_*, 2000_Disp_SD, etc.) se ignora.",
+      "global_config_table_name": "000_Config_Dispositivos",
+      "tia_folders": {
+        "proceso":      "003_Procesos",
+        "dispositivos": "2000_Dispositivos",
+        "nmax":         "000_Sistema"
+      },
+      "Dispositivos": {
+        "ed": {
+          "db_name":       "DB2000_ED",
+          "db_array_name": "ED",
+          "tag_table":     "2000_Disp_ED",
+          "config_table":  "000_Config_Dispositivos"
+        },
+        "ea": {
+          "db_name":       "DB2001_EA",
+          "db_array_name": "EA",
+          "tag_table":     "2000_Disp_EA",
+          "config_table":  "000_Config_Dispositivos"
+        },
+        "sa": {
+          "db_name":       "DB2006_SA",
+          "db_array_name": "SA",
+          "tag_table":     "2000_Disp_SA",
+          "config_table":  "000_Config_Dispositivos"
+        },
+        "v": {
+          "db_name":       "DB2010_V",
+          "db_array_name": "V",
+          "tag_table":     "2000_Disp_V",
+          "config_table":  "000_Config_Dispositivos"
+        },
+        "m": {
+          "db_name":       "DB2015_M",
+          "db_array_name": "M",
+          "tag_table":     "2000_Disp_M",
+          "config_table":  "000_Config_Dispositivos"
+        },
+        "m_vf": {
+          "db_name":       "DB2016_M_VF",
+          "db_array_name": "M_VF",
+          "tag_table":     "2000_Disp_M_VF",
+          "config_table":  "000_Config_Dispositivos"
+        }
+      }
+    }
+  }
 }

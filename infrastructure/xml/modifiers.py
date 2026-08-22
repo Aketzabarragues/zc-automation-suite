@@ -1,4 +1,4 @@
-"""Modificadores XML para PlcTagTable (SimaticML).
+﻿"""Modificadores XML para PlcTagTable (SimaticML).
 
 Clases que clonan nodos ``<SW.Tags.PlcTag>`` de una plantilla, actualizan
 las etiquetas de nombre/direccion iterando sobre los dispositivos
@@ -206,7 +206,40 @@ class TagTableModifier(XMLModifier):
             )
         return out
 
-    # Internos
+    def read_user_constants_with_uids(self) -> dict[str, str]:
+        """Itera PlcUserConstant del XML y devuelve ``{value_str: plc_tag}``.
+
+        Diferencia clave con ``read_tags_with_uids``:
+          - PlcUserConstant tiene ``<Value>`` (slot numǸrico) y ``<Name>`` (plc_tag).
+          - PlcTag tiene ``<Name>`` y ``<Comment>`` (uid textual).
+
+        PlcUserConstant es el tipo que almacena N_MAX y los dispositivos
+        PlcTag son las variables de instancia. Para el diff de constantes
+        usamos el ``<Value>`` (que coincide con ``numero`` del Excel).
+
+        Returns:
+            ``dict[str, str]`` con pares ``{value_str: plc_tag}`` (uno por
+            PlcUserConstant). Solo incluye constantes casteables a int.
+        """
+        result: dict[str, str] = {}
+        _USER_CONST_TAG = "{*}SW.Tags.PlcUserConstant"
+        for const in self._root.findall(f".//{_USER_CONST_TAG}"):
+            # FIX: usar ``.//`` (recursivo) porque <Name> y <Value> estǭn
+            # dentro de <AttributeList>, no como hijos directos.
+            name_el = const.find(f".//{_NAME_TAG}")
+            value_el = const.find(f".//{{*}}Value")
+            if name_el is None or value_el is None:
+                continue
+            name = (name_el.text or "").strip()
+            value = (value_el.text or "").strip()
+            if not name or not value:
+                continue
+            try:
+                int(value)
+            except ValueError:
+                continue
+            result[value] = name
+        return result
     def _existing_names(self) -> set[str]:
         """Devuelve el conjunto de nombres ``{*}Name`` ya presentes."""
         result: set[str] = set()

@@ -1,17 +1,25 @@
-"""Application Layer - Sincronizar Dimensiones de Dispositivos.
+"""Application Layer - Sincronizar Dimensiones y DTOs de Dispositivos.
 
-Caso de uso: sincroniza el número de dispositivos (N_MAX por tipo)
-entre un Excel corporativo y el ``AppState`` global.
+Caso de uso: sincroniza el número de dispositivos (N_MAX por tipo) Y
+los DTOs de las ListObjects entre un Excel corporativo y el ``AppState``
+global.
 
-Flujo:
-  1. Lee el Excel vía ``AlimentacionExcelParser.extraer_dimensiones`` →
-     ``DimensionesDispositivos`` (tipado fuerte).
-  2. Actualiza ``AppState.dimensiones`` con el valor leído.
-  3. Devuelve un resumen del estado.
+Flujo (orden deliberado para evitar workbooks simultáneos sobre el
+mismo ``.xlsx``):
+  1. Lee los DTOs vía ``AlimentacionExcelParser.extraer_dtos`` (abre
+     el workbook con ``read_only=False`` para localizar las
+     ``ListObjects``; lo cierra en ``finally``).
+  2. Actualiza ``AppState.dispositivos_*`` (las 6 listas por tipo) y
+     resetea cualquier contenido previo.
+  3. Lee las dimensiones vía ``AlimentacionExcelParser.extraer_dimensiones``
+     (vuelve a abrir el workbook en ``read_only=True``).
+  4. Actualiza ``AppState.dimensiones`` con el valor leído.
+  5. Devuelve un resumen del estado.
 
-El Caso de Uso de "injection" posterior (``sync_dispositivos_instances``)
-es el que finalmente traduce los conteos del ``AppState`` en PlcTags
-reales en TIA Portal.
+Este caso de uso es el "cargador maestro" del AppState desde el
+Excel; el caso de uso de inyección posterior
+(``sync_dispositivos_instances``) es el que finalmente traduce los
+DTOs del ``AppState`` en PlcTags reales en TIA Portal.
 
 Restricciones:
   - Esta capa NO importa ``siemens_tia_scripting`` directamente.
@@ -19,6 +27,7 @@ Restricciones:
 """
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
 from typing import Any
 
@@ -28,10 +37,27 @@ from infrastructure.alimentacion.parsers.alimentacion_excel_parser import (
 )
 
 
-class SyncDispositivosDimensionsUseCase:
-    """Caso de Uso: sincroniza N_MAX (conteos) del subdominio alimentación.
+# Mapeo explícito atributo AppState ← clave canónica devuelta por
+# ``AlimentacionExcelParser.extraer_dtos``. Mantener sincronizado con
+# ``_EXCEL_TARGETS`` del parser.
+_DTOS_TARGETS: dict[str, str] = {
+    "dispositivos_ed":    "DispED",
+    "dispositivos_ea":    "DispEA",
+    "dispositivos_sa":    "DispSA",
+    "dispositivos_v":     "DispV",
+    "dispositivos_m":     "DispM",
+    "dispositivos_m_vf":  "DispM_VF",
+}
 
-    Lee el Excel corporativo y actualiza el ``AppState.dimensiones``.
+
+class SyncDispositivosDimensionsUseCase:
+    """Caso de Uso: sincroniza N_MAX + DTOs del subdominio alimentación.
+
+    Lee el Excel corporativo y actualiza **tanto** ``AppState.dimensiones``
+    como las 6 listas de ``AppState.dispositivos_*``. Este era el bug
+    principal del flujo MCP: la versión anterior solo cargaba
+    dimensiones, por lo que el preview (``tia_preview_sync_from_excel``)
+    veía listas vacías y generaba 0 cambios aun con Excel cargado.
     """
 
     def __init__(
@@ -44,36 +70,53 @@ class SyncDispositivosDimensionsUseCase:
         self._state = state if state is not None else get_app_state()
 
     async def execute(self, excel_path: str) -> dict[str, Any]:
-        """Lee el Excel y actualiza ``AppState.dimensiones``.
+        """Lee el Excel y actualiza ``AppState`` (dimensiones + DTOs).
 
         Args:
             excel_path: Ruta absoluta al archivo Excel corporativo (.xlsx).
 
         Returns:
-            dict ``{success, message, dimensiones: {campo: valor}}``.
+            dict ``{success, message, dimensiones, dispositivos}``.
+
+        Raises:
+            FileNotFoundError: Si el archivo no existe.
         """
         if not Path(excel_path).is_file():
             raise FileNotFoundError(
                 f"El archivo Excel no existe: {excel_path}"
             )
 
-        # 1) Parsear el Excel (lectura CPU-bound: delegamos a quien
-        #    invoque este caso de uso en ``asyncio.to_thread`` si va
-        #    por el adaptador MCP).
-        dimensiones = self._excel_parser.extraer_dimensiones(excel_path)
+        # 1) DTOs PRIMERO. ``extraer_dtos`` abre el workbook con
+        #    ``read_only=False`` (necesario para localizar las
+        #    ``ListObjects``) y lo cierra en ``finally``. El orden
+        #    está unificado con el router web
+        #    ``/api/v1/excel/upload`` para evitar abrir dos
+        #    workbooks simultáneos sobre el mismo ``.xlsx``.
+        dispositivos_por_tipo = self._excel_parser.extraer_dtos(excel_path)
+        for attr_name, canonica in _DTOS_TARGETS.items():
+            setattr(
+                self._state,
+                attr_name,
+                list(dispositivos_por_tipo.get(canonica, [])),
+            )
 
-        # 2) Actualizar el AppState global.
+        # 2) Dimensiones DESPUÉS. ``extraer_dimensiones`` re-abre el
+        #    workbook (``read_only=True``) para resolver los named
+        #    ranges ``N_MAX_*`` / ``Num_Disp_*``.
+        dimensiones = self._excel_parser.extraer_dimensiones(excel_path)
         self._state.dimensiones = dimensiones
 
+        total_dtos = sum(len(v) for v in dispositivos_por_tipo.values())
+        summary_dtos = {
+            canonica: len(lista)
+            for canonica, lista in dispositivos_por_tipo.items()
+        }
         return {
             "success": True,
-            "message": "Dimensiones de dispositivos actualizadas en AppState.",
-            "dimensiones": {
-                "num_disp_ed": dimensiones.num_disp_ed,
-                "num_disp_ea": dimensiones.num_disp_ea,
-                "num_disp_sa": dimensiones.num_disp_sa,
-                "num_disp_v": dimensiones.num_disp_v,
-                "num_disp_m": dimensiones.num_disp_m,
-                "num_disp_m_vf": dimensiones.num_disp_m_vf,
-            },
+            "message": (
+                f"Excel cargado: {total_dtos} dispositivos en "
+                f"{len(summary_dtos)} tipos + dimensiones en AppState."
+            ),
+            "dimensiones": dataclasses.asdict(dimensiones),
+            "dispositivos": summary_dtos,
         }

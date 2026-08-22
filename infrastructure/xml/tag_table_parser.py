@@ -15,7 +15,13 @@ from pathlib import Path
 
 
 class SimaticMLTagParser:
-    """Lee un .xml SimaticML y devuelve ``{valor_int: nombre_constante}``.
+    """Lee un .xml SimaticML y devuelve ``{nombre_constante: valor_int}``.
+
+    **Usa el nombre como clave** (no el valor) para evitar colisiones:
+    si dos PlcUserConstant tienen el mismo valor entero (p.ej. dos
+    N_MAX con value=25), la versión anterior basada en ``{valor:
+    nombre}`` perdería una entrada al iterar el dict. Aquí el nombre
+    es el identificador estable y siempre único dentro de la tabla.
 
     Ignora entradas cuyo valor no sea casteable a ``int`` (constantes
     Real, String, Bool, etc.).
@@ -26,15 +32,17 @@ class SimaticMLTagParser:
     _VALUE_TAG = "{*}Value"
 
     @staticmethod
-    def parse_user_constants(xml_file_path: str | Path) -> dict[str, str]:
-        """Lee un .xml SimaticML y devuelve ``{valor_int: nombre_constante}``.
+    def parse_user_constants(xml_file_path: str | Path) -> dict[str, int]:
+        """Lee un .xml SimaticML y devuelve ``{nombre: valor_int}``.
 
         Args:
             xml_file_path: Ruta al archivo .xml exportado por
                 ``TIAProcessGateway.export_tag_table``.
 
         Returns:
-            ``dict[str, str]`` con pares ``{valor_int_str: nombre}``.
+            ``dict[str, int]`` con pares ``{nombre: valor}``. El valor
+            es SIEMPRE un entero (las constantes no enteras se
+            descartan).
 
         Raises:
             FileNotFoundError: Si el archivo no existe.
@@ -50,14 +58,24 @@ class SimaticMLTagParser:
         return SimaticMLTagParser._extract_constants(root)
 
     @classmethod
-    def _extract_constants(cls, root: ET.Element) -> dict[str, str]:
-        """Itera todos los nodos ``PlcUserConstant`` del árbol (recursivo)."""
-        result: dict[str, str] = {}
+    def _extract_constants(cls, root: ET.Element) -> dict[str, int]:
+        """Itera todos los nodos ``PlcUserConstant`` del árbol (recursivo).
+
+        Retorna ``{nombre: valor_int}``. Si dos PlcUserConstant tienen
+        el mismo nombre (no debería pasar en TIA, pero por si acaso),
+        gana la última ocurrencia.
+        """
+        result: dict[str, int] = {}
         # ``ET.iter`` NO soporta el wildcard ``{*}`` (limitación Python 3.x).
         # Usamos ``findall(".//{*}...")`` que sí acepta la sintaxis wildcard.
         for constant in root.findall(f".//{cls._CONSTANT_TAG}"):
-            name_el = constant.find(cls._NAME_TAG)
-            value_el = constant.find(cls._VALUE_TAG)
+            # FIX: usar ``.//`` (recursivo) porque ``<Name>`` y ``<Value>``
+            # están dentro de ``<AttributeList>``, NO como hijos directos
+            # de ``<PlcUserConstant>``. Esto es coherente con el fix
+            # análogo en ``TagTableModifier.read_user_constants_with_uids``
+            # (ver ``infrastructure/xml/modifiers.py``).
+            name_el = constant.find(f".//{cls._NAME_TAG}")
+            value_el = constant.find(f".//{cls._VALUE_TAG}")
             if name_el is None or value_el is None:
                 continue
             name_text = (name_el.text or "").strip()
@@ -69,5 +87,5 @@ class SimaticMLTagParser:
             except ValueError:
                 # Constantes Real / String / Bool: se descartan.
                 continue
-            result[str(int_value)] = name_text
+            result[name_text] = int_value
         return result

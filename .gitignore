@@ -221,4 +221,5 @@ __marimo__/
 _legacy_reference/
 temp_*/
 .build_cache/
+.scratch/
 tailwindcss-extra.exe

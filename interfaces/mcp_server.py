@@ -15,20 +15,24 @@ Principios arquitectónicos:
 """
 from __future__ import annotations
 
+import json
 import sys
 from typing import Any
 
 from fastmcp import FastMCP
 
-from infrastructure.config_manager import ConfigManager
-from infrastructure.gateway import TIAProcessGateway
-
+from application.state import get_app_state
+from application.use_cases.sync_constants_from_excel import (
+    SyncConstantsFromExcelUseCase,
+)
 from application.use_cases.sync_dispositivos_dimensions import (
     SyncDispositivosDimensionsUseCase,
 )
 from application.use_cases.sync_dispositivos_instances import (
     SyncDispositivosInstancesUseCase,
 )
+from infrastructure.config_manager import ConfigManager
+from infrastructure.gateway import TIAProcessGateway
 
 
 def create_mcp_server(gateway: TIAProcessGateway) -> FastMCP:
@@ -323,7 +327,6 @@ def create_mcp_server(gateway: TIAProcessGateway) -> FastMCP:
         Args:
             excel_path: Ruta absoluta al archivo Excel corporativo (.xlsx).
         """
-        _ = config_manager  # reservado para futuro (cross-validation)
         use_case = SyncDispositivosDimensionsUseCase()
         result = await use_case.execute(excel_path)
         return result["message"]
@@ -359,6 +362,67 @@ def create_mcp_server(gateway: TIAProcessGateway) -> FastMCP:
             f"{result['message']} "
             "Recuerda invocar tia_compile_plc a continuación para asentar "
             "el modelo de memoria del PLC."
+        )
+
+    # ── NUEVAS: pre-flight + apply con el orquestador unificado ───────
+
+    @mcp.tool()
+    async def tia_preview_sync_from_excel(
+        plc_name: str,
+    ) -> str:
+        """PREVIEW: calcula diff entre Excel (AppState) y PLC. NO toca TIA.
+
+        Lee el estado actual del PLC, lo compara con el Excel que debe
+        estar cargado en ``AppState`` (vía ``tia_sync_dispositivos_dimensions_from_excel``),
+        y devuelve las operaciones que se aplicarían si el operario
+        confirma con ``tia_sync_constants_from_excel``.
+
+        Args:
+            plc_name: Nombre exacto del PLC destino.
+
+        Returns:
+            JSON con ``summary``, ``nmax_ops``, ``device_diffs`` y ``warnings``.
+        """
+        use_case = SyncConstantsFromExcelUseCase(
+            gateway=gateway,
+            config_manager=config_manager,
+            app_state=get_app_state(),
+        )
+        result = await use_case.preview(plc_name)
+        # Serializar el dict completo a JSON para que el LLM lo consuma.
+        return json.dumps(result, ensure_ascii=False, indent=2)
+
+    @mcp.tool()
+    async def tia_sync_constants_from_excel(
+        plc_name: str,
+    ) -> str:
+        """APPLY: sincroniza constantes del PLC con el Excel (AppState).
+
+        PRECONDICIÓN: el Excel debe haber sido cargado previamente
+        mediante ``tia_sync_dispositivos_dimensions_from_excel``.
+
+        Calcula el diff y lo aplica en una transacción COM unificada
+        (N_MAX update_value + dispositivos rename). Tras el éxito,
+        invalida la caché del Gateway.
+
+        Args:
+            plc_name: Nombre exacto del PLC destino.
+
+        Returns:
+            Resumen legible de las operaciones aplicadas.
+        """
+        use_case = SyncConstantsFromExcelUseCase(
+            gateway=gateway,
+            config_manager=config_manager,
+            app_state=get_app_state(),
+        )
+        result = await use_case.execute(plc_name)
+        return (
+            f"✅ Sync unificado ejecutado en '{plc_name}': "
+            f"{result.get('summary', {}).get('n_max_updates', 0)} N_MAX updates + "
+            f"{result.get('summary', {}).get('device_renames', 0)} device renames. "
+            f"Caché invalidada. "
+            f"Warnings: {len(result.get('warnings', []))}."
         )
 
     return mcp

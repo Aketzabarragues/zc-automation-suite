@@ -59,6 +59,11 @@ def create_app(gateway: TIAProcessGateway) -> FastAPI:
     app.state.gateway = gateway
     app.state.app_state = get_app_state()
     app.state.logger = get_log_buffer()
+    # ``ConfigManager`` se construye aquí (Composition Root) y se
+    # expone a los routers que lo necesiten (ej. ``sync.py`` que
+    # lo pasa a ``SyncDispositivosInstancesUseCase``).
+    from infrastructure.config_manager import ConfigManager
+    app.state.config_manager = ConfigManager("infrastructure/config.json")
 
     # ── 2. Registro de routers (Clean Architecture) ────────────────
     app.include_router(excel_router)

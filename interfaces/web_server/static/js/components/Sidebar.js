@@ -143,7 +143,7 @@ export default {
             <!-- 1. Maestro Excel -->
             <section class="mb-6">
                 <label class="block text-xs font-semibold text-ink-muted uppercase mb-2">1. Maestro Excel</label>
-                <input ref="fileInput" type="file" accept=".xlsx"
+                <input ref="fileInput" type="file" accept=".xlsm"
                     @change="handleExcel" :disabled="store.busy"
                     class="block w-full text-xs text-ink
                            file:mr-2 file:py-1 file:px-2 file:rounded file:border-0

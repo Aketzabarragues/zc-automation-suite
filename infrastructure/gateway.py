@@ -441,3 +441,56 @@ class TIAProcessGateway:
             "execute_transactional_batch",
             {"operations": operations, "undo_text": undo_text},
         )
+
+    async def execute_unified_sync(
+        self,
+        plc_name: str,
+        nmax_ops: list[dict[str, Any]],
+        device_renames: list[dict[str, Any]],
+        device_offline_changes: list[dict[str, Any]],
+        undo_text: str = "Sync Constants Unified",
+    ) -> dict[str, Any]:
+        """Ejecuta el flujo unificado de sync de constantes en UNA transacción COM.
+
+        Este método es el entry-point del worker OT para el caso de uso
+        ``SyncConstantsUnifiedUseCase``. Orquesta los 7 pasos del flujo
+        unificado:
+
+            1. ``project.start_transaction()``
+            2. ONLINE: ``update_user_constant_value`` para N_MAX.
+            3. ONLINE: ``update_user_constant_name`` para dispositivos.
+            4. ONLINE: ``export_tag_table`` para preparar XML offline.
+            5. OFFLINE: crear/eliminar PlcTagTable + añadir constantes.
+            6. ONLINE: ``import_plc_tags_xml`` para reintegrar XMLs.
+            7. CIERRE: ``end_transaction`` (commit o rollback).
+
+        Si algo falla, el worker ejecuta el rollback COM + restaura los
+        backups offline (rollback atómico real).
+
+        Args:
+            plc_name: Nombre del PLC destino.
+            nmax_ops: operaciones ``update_user_constant_value`` ya
+                pre-calculadas por ``CalculateConstantsDiffUseCase.calculate_nmax_diff``.
+            device_renames: operaciones ``update_user_constant_name`` ya
+                pre-calculadas por ``CalculateConstantsDiffUseCase.calculate_device_rename_diff``.
+            device_offline_changes: lista de cambios offline con schema:
+                ``{"action": "create"|"delete"|"add_constants",
+                "table_name": str, "constants": list[dict]}``.
+            undo_text: etiqueta visible en el historial de Undo de TIA.
+
+        Returns:
+            ``dict[str, Any]`` con el resultado del worker:
+            ``{"success": bool, "operations_executed": int, "details": [...]}``.
+        """
+        if not plc_name:
+            raise ValueError("Se requiere el argumento 'plc_name'.")
+        return await self._dispatch_worker(
+            "execute_unified_sync",
+            {
+                "plc_name": plc_name,
+                "nmax_ops": nmax_ops,
+                "device_renames": device_renames,
+                "device_offline_changes": device_offline_changes,
+                "undo_text": undo_text,
+            },
+        )

@@ -1084,3 +1084,601 @@ Para mantener la coherencia arquitectónica:
 - Logs del worker (`worker_openness.log`).
 - Payload JSON exacto que disparó el problema.
 - Versión de TIA Portal y Python.
+## ðŸ”„ Flujo Unificado de Constantes (N_MAX + Dispositivos)
+
+> **AÃ±adido en esta versiÃ³n.** MigraciÃ³n del flujo legacy anti-histÃ©resis a la
+> arquitectura process-per-call. ReplicaciÃ³n moderna de los modificadores XML
+> offline (`tabla_injector.py`, `tag_modifier.py`) del proyecto legacy.
+
+### Â¿Por quÃ© un flujo unificado?
+
+TIA Portal Openness tiene un **bug de HistÃ©resis de CompilaciÃ³n**: si las
+constantes N_MAX cambian DESPUÃ‰S de importar la PlcTagTable, la compilaciÃ³n
+no recalcula las dimensiones de los DBs. El legacy resolviÃ³ este problema
+inyectando los valores directamente en el archivo XML antes de importar.
+
+El nuevo flujo mantiene esa estrategia y la extiende para soportar:
+- **Cambio de VALOR** (N_MAX): `update_user_constant_value` por COM dentro de transacciÃ³n.
+- **Cambio de NOMBRE** (Dispositivos): `update_user_constant_name` por COM (preserva el valor).
+- **Crear / Eliminar PlcTagTable enteras** (caso excepcional): offline con `PlcTagTableManager`.
+
+### Flujo end-to-end (7 pasos en UNA transacciÃ³n COM)
+
+```
+1. project.start_transaction(undo_text, dialog_text)
+2. ONLINE: update_user_constant_value (N_MAX)
+3. ONLINE: update_user_constant_name (Dispositivos)
+4. ONLINE: export_tag_table â†’ XML temporal
+5. OFFLINE: crear/eliminar PlcTagTable + aÃ±adir PlcUserConstant nuevas
+6. ONLINE: import_plc_tags_xml â†’ reintegrar XMLs modificados
+7. CIERRE: end_transaction(rollback=False) o rollback completo
+```
+
+Si el rollback ocurre, el worker restaura los **backups offline** de los
+XMLs modificados, garantizando atomicidad REAL (no solo in-memory del COM).
+
+### Componentes nuevos
+
+#### `infrastructure/xml/tabla_injector.py` â€” `TagTableValueInjector`
+Replica moderna del `TablaVariablesInjector` legacy. En lugar de regex frÃ¡gil
+sobre texto plano, usa `xml.etree.ElementTree` con wildcard `{*}` (inmune a
+cambios de versiÃ³n del esquema SimaticML). API:
+
+```python
+TagTableValueInjector.inject_into_build(ruta_build, constants)
+TagTableValueInjector.inject_into_file(xml_path, constants)
+```
+
+#### `infrastructure/xml/user_constants_modifier.py` â€” `UserConstantsModifier`
+Replica moderna del `TagTableModifier.add_user_constant` legacy. Construye la
+estructura canÃ³nica completa de Siemens (`AttributeList` + `MultilingualText`
+anidado, cada uno con su propio ID hexadecimal monotÃ³nicamente creciente).
+API:
+
+```python
+modifier = UserConstantsModifier(xml_path)
+modifier.add_user_constant(name="V_VA_101", value=1, comment="...")
+modifier.save()
+```
+
+#### `infrastructure/xml/plc_tag_table_manager.py` â€” `PlcTagTableManager`
+Crea PlcTagTable nuevas (estructura canÃ³nica vacÃ­a lista para importar) y
+marca tablas existentes para eliminaciÃ³n por COM. API:
+
+```python
+mgr = PlcTagTableManager()
+new_path = mgr.create_empty_table("2000_Disp_ED", target_dir)
+mgr.mark_for_deletion("2000_Disp_OLD")
+```
+
+#### `application/use_cases/diff_constants.py` â€” 2 mÃ©todos de diff
+- `CalculateConstantsDiffUseCase.calculate_nmax_diff(...)`: por **nombre** (key estable).
+- `CalculateConstantsDiffUseCase.calculate_device_rename_diff(...)`: por **valor** (UID estable).
+
+#### `application/use_cases/sync_constants_unified.py` â€” `SyncConstantsUnifiedUseCase`
+Orquestador puro. Llama a `gateway.execute_unified_sync()` con los 3 paquetes:
+- `nmax_ops` â†’ `update_user_constant_value`.
+- `device_renames` â†’ `update_user_constant_name` (preservando valor).
+- `device_offline_changes` â†’ `create`, `delete`, `add_constants` (offline).
+
+#### `infrastructure/tia/worker_tia.py` â€” comando `_cmd_execute_unified_sync`
+Implementa los 7 pasos del flujo dentro de UNA transacciÃ³n COM. Registrado
+en `COMMAND_REGISTRY` como `execute_unified_sync`.
+
+#### `infrastructure/gateway.py` â€” mÃ©todo `execute_unified_sync()`
+Wrapper asÃ­ncrono que delega al worker.
+
+### Ejemplo de uso (alto nivel)
+
+```python
+from infrastructure.gateway import TIAProcessGateway
+from application.use_cases.sync_constants_unified import SyncConstantsUnifiedUseCase
+
+gateway = TIAProcessGateway()
+use_case = SyncConstantsUnifiedUseCase(gateway)
+
+# Estado actual del PLC (N_MAX + dispositivos) â€” vÃ­a gateway.get_user_constants()
+nmax_current = {"25": "N_MAX_DISP_ED"}
+device_states = {
+    "2000_Disp_ED": {
+        "current": {"1": "V_001"},
+        "desired": {"V_VA_101": 1},
+    },
+}
+
+result = await use_case.execute(
+    plc_name="PLC1_Alimentacion",
+    nmax_current_state=nmax_current,
+    nmax_desired_state={"N_MAX_DISP_ED": 30},
+    device_renames_by_table=device_states,
+    device_offline_changes=[
+        # {"action": "create", "table_name": "2000_Disp_V"},
+        # {"action": "delete", "table_name": "2000_OLD"},
+        # {"action": "add_constants", "table_name": "2000_Disp_ED",
+        #  "constants": [{"name": "V_NEW", "value": 99, "comment": "..."}]},
+    ],
+)
+```
+
+---
+
+## ðŸ§ª Tests Unitarios (nuevo)
+
+Carpeta `tests/` con tests **OFFLINE** (no requieren TIA Portal).
+
+| Archivo | Cubre |
+|---|---|
+| `tests/test_tabla_injector.py` | `TagTableValueInjector` â€” modificaciÃ³n de `<Value>`, idempotencia. |
+| `tests/test_user_constants_modifier.py` | `UserConstantsModifier` â€” estructura canÃ³nica, IDs incrementales. |
+| `tests/test_diff_constants.py` | `CalculateConstantsDiffUseCase` â€” diff N_MAX vs diff dispositivos. |
+
+### EjecuciÃ³n
+
+```cmd
+:: Desde la raÃ­z del repo
+pip install pytest
+python -m pytest tests/ -v
+```
+
+### Cobertura
+
+- **TagTableValueInjector**: 6 tests (modificaciÃ³n, idempotencia, omisiÃ³n de constantes inexistentes, mÃºltiples constantes, dir no existente, inyecciÃ³n directa en archivo).
+- **UserConstantsModifier**: 5 tests (estructura canÃ³nica completa, idempotencia, IDs incrementales, sin comment, validaciÃ³n de nombre vacÃ­o).
+- **CalculateConstantsDiffUseCase**: 9 tests (no cambios, cambio de valor N_MAX, ignore de constantes inexistentes, no cambios en dispositivos, rename detectado, valor preservado, valor nuevo ignorado, valor preservado explÃ­citamente, valor cambiado sin rename).
+
+---
+
+## ðŸ†• Changelog de esta versiÃ³n
+
+### Nuevos archivos
+
+| Archivo | LÃ­neas | PropÃ³sito |
+|---|---|---|
+| `infrastructure/xml/tabla_injector.py` | ~175 | Inyector offline de `<Value>` (replica moderna del legacy). |
+| `infrastructure/xml/user_constants_modifier.py` | ~200 | AÃ±ade PlcUserConstant con estructura canÃ³nica (replica del legacy). |
+| `infrastructure/xml/plc_tag_table_manager.py` | ~175 | Crea/elimina PlcTagTable enteras (offline). |
+| `application/use_cases/sync_constants_unified.py` | ~140 | Orquestador puro del flujo unificado. |
+| `tests/test_tabla_injector.py` | ~140 | Tests del injector. |
+| `tests/test_user_constants_modifier.py` | ~110 | Tests del modifier. |
+| `tests/test_diff_constants.py` | ~120 | Tests del diff de constantes. |
+
+### Archivos modificados
+
+| Archivo | Cambio |
+|---|---|
+| `application/use_cases/diff_constants.py` | Refactor: 2 mÃ©todos de diff (`calculate_nmax_diff` + `calculate_device_rename_diff`). |
+| `infrastructure/gateway.py` | Nuevo mÃ©todo `execute_unified_sync()`. |
+| `infrastructure/tia/worker_tia.py` | Nuevo handler `_cmd_execute_unified_sync` registrado en COMMAND_REGISTRY. |
+
+### Decisiones de diseÃ±o clave
+
+1. **Dos tipos de diff**: `calculate_nmax_diff` (por nombre) y `calculate_device_rename_diff` (por valor). Mezclarlos lleva a errores sutiles.
+2. **Workaround de "HistÃ©resis" preservado**: aunque la transacciÃ³n COM cubre los cambios, se mantiene la pre-inyecciÃ³n XML disponible como utility offline (`TagTableValueInjector`).
+3. **TransacciÃ³n unificada con rollback offline manual**: el worker mantiene snapshots de los XMLs antes de modificarlos; si el rollback COM se ejecuta, restaura los snapshots para atomicidad real.
+4. **Wildcard XPath `{*}`**: todos los modificadores XML usan esta sintaxis para ser inmunes a cambios de versiÃ³n del esquema SimaticML de Siemens.
+
+
+## âš™ï¸ ConfiguraciÃ³n DinÃ¡mica
+
+`infrastructure/config.json` define el mapeo entre tipos lÃ³gicos del dominio y nombres reales de tablas PLC, DBs y carpetas en TIA Portal.
+
+### Estructura completa
+
+```json
+{
+  "_comment": "Configuración multi-departamento. Cada departamento encapsula su jerarquía TIA y sus tipos de dispositivo. Para añadir un nuevo departamento, duplicar el bloque 'alimentacion' bajo 'departments' y ajustar los valores. Si en el futuro se añaden más departamentos, el ConfigManager acepta el parámetro 'department' para resolver el bloque correcto.",
+  "_todo_legacy_types": "Los tipos legacy (sd/m_sina/tq/tq_ae/productos) viven en el PLC real dentro de 2000_Dispositivos/ pero NO se configuran aquí. Se activarán cuando se necesite soporte explícito.",
+  "departments": {
+    "alimentacion": {
+      "_comment_folders": "Jerarquía TIA del departamento de alimentación: la tabla N_MAX ('000_Config_Dispositivos') vive en tia_folders.nmax (000_Sistema); las 6 tablas de dispositivos viven en tia_folders.dispositivos (2000_Dispositivos). El sync unificado parsea SOLO esos 7 XMLs del árbol exportado por export_plc_tags_xml; el resto (003_Procesos/*, 000_Traza_*, 2000_Disp_SD, etc.) se ignora.",
+      "global_config_table_name": "000_Config_Dispositivos",
+      "tia_folders": {
+        "proceso":      "003_Procesos",
+        "dispositivos": "2000_Dispositivos",
+        "nmax":         "000_Sistema"
+      },
+      "Dispositivos": {
+        "ed":    {"db_name": "DB2000_ED",    "db_array_name": "ED",    "tag_table": "2000_Disp_ED",    "config_table": "000_Config_Dispositivos"},
+        "ea":    {"db_name": "DB2001_EA",    "db_array_name": "EA",    "tag_table": "2000_Disp_EA",    "config_table": "000_Config_Dispositivos"},
+        "sa":    {"db_name": "DB2006_SA",    "db_array_name": "SA",    "tag_table": "2000_Disp_SA",    "config_table": "000_Config_Dispositivos"},
+        "v":     {"db_name": "DB2010_V",     "db_array_name": "V",     "tag_table": "2000_Disp_V",     "config_table": "000_Config_Dispositivos"},
+        "m":     {"db_name": "DB2015_M",     "db_array_name": "M",     "tag_table": "2000_Disp_M",     "config_table": "000_Config_Dispositivos"},
+        "m_vf":  {"db_name": "DB2016_M_VF",  "db_array_name": "M_VF", "tag_table": "2000_Disp_M_VF",  "config_table": "000_Config_Dispositivos"}
+      }
+    }
+  }
+}
+```
+
+### Multi-departamento (forward-compatible)
+
+La estructura está envuelta en `departments.<nombre>` para que en el
+futuro se añadan más departamentos sin colisionar con el bloque
+`alimentacion`. Para añadir uno nuevo:
+
+1. Duplicar el bloque `alimentacion` bajo `departments` con el
+   nombre del nuevo departamento.
+2. Ajustar `global_config_table_name`, `tia_folders` y
+   `Dispositivos` según la realidad del PLC.
+3. Instanciar el ConfigManager apuntando al nuevo departamento:
+   ```python
+   cm = ConfigManager("infrastructure/config.json", department="envasado")
+   ```
+
+### Jerarquía TIA esperada
+
+```
+<PLC>/
+├── Tabla de variables estándar.xml                  (ignorada por el sync)
+├── 000_Sistema/
+│   └── 000_Config_Dispositivos.xml                 ← N_MAX (1 archivo)
+│       (N_MAX_DISP_ED, N_MAX_DISP_EA, ...)
+├── 003_Procesos/                                    (ignorada por el sync)
+│   ├── 50100_CPR.xml
+│   └── 500_CIP1/...
+└── 2000_Dispositivos/                              ← Dispositivos (6 archivos)
+    ├── 2000_Disp_ED.xml
+    ├── 2000_Disp_EA.xml
+    ├── 2000_Disp_SA.xml
+    ├── 2000_Disp_V.xml
+    ├── 2000_Disp_M.xml
+    └── 2000_Disp_M_VF.xml
+    # También pueden existir tablas legacy (2000_Disp_SD, 2000_Disp_TQ, ...);
+    # se ignoran porque no están en `Dispositivos.*.tag_table`.
+```
+
+El sync unificado (`tia_preview_sync_from_excel` /
+`tia_sync_constants_from_excel`) hace **un solo** `export_plc_tags_xml`
+bulk con la jerarquía preservada y parsea **únicamente los 7 XMLs**
+de las carpetas `tia_folders.nmax` + `tia_folders.dispositivos` que
+corresponden a `global_config_table_name` y a los
+`Dispositivos.*.tag_table` configurados. El resto del árbol se ignora.
+
+### Claves soportadas (dentro de `departments.<departamento>`)
+
+| Clave | Tipo | Descripción |
+|---|---|---|
+| `global_config_table_name` | `str` | Nombre de la tabla PLC con las PlcUserConstant N_MAX. |
+| `tia_folders.proceso` | `str` | Carpeta TIA que contiene los bloques del proceso (N_MAX). |
+| `tia_folders.dispositivos` | `str` | Carpeta TIA que contiene las tablas de dispositivos. |
+| `tia_folders.nmax` | `str` | Carpeta TIA donde reside la tabla `000_Config_Dispositivos` (constantes N_MAX). Default: `000_Sistema`. |
+| `Dispositivos.<key>.db_name` | `str` | Nombre del DB asociado al tipo (ej. `DB2000_ED`). |
+| `Dispositivos.<key>.db_array_name` | `str` | Nombre del array dentro del DB (ej. `ED`). |
+| `Dispositivos.<key>.tag_table` | `str` | Nombre de la PlcTagTable del tipo (ej. `2000_Disp_ED`). |
+| `Dispositivos.<key>.config_table` | `str` | Nombre de la PlcTagTable donde residen las N_MAX (típicamente `000_Config_Dispositivos`). |
+
+### API de `ConfigManager`
+
+```python
+class ConfigManager:
+    def __init__(config_path: str | Path, department: str = "alimentacion")
+        # Resuelve el sub-bloque del departamento bajo config.departments.
+
+    def get_global_config_table_name() -> str
+        # "000_Config_Dispositivos"
+
+    def get_dispositivo_config(key: str) -> DispositivoTIAConfig | None
+        # None si el tipo no existe (forward-compatible)
+        # Alias deprecado: get_hardware_config(key) -> mismo retorno.
+
+    def get_tag_table_name(key: str) -> str | None
+    def get_db_name(key: str) -> str | None
+    def get_db_array_name(key: str) -> str | None
+
+    def list_keys() -> list[str]
+        # ["ed", "ea", "sa", "v", "m", "m_vf"]
+        # Alias deprecado: list_hw_types() -> mismo retorno.
+
+    def get_tia_folder_proceso() -> str
+        # "003_Procesos"
+
+    def get_tia_folder_dispositivos() -> str
+        # "2000_Dispositivos"
+
+    def get_tia_folder_nmax() -> str
+        # "000_Sistema"
+```
+
+### Tipos de dispositivo soportados (departamento `alimentacion`)
+
+| key | DB | Tag Table | Descripción |
+|---|---|---|---|
+| `ed` | `DB2000_ED` | `2000_Disp_ED` | Entradas Digitales |
+| `ea` | `DB2001_EA` | `2000_Disp_EA` | Entradas Analógicas |
+| `sa` | `DB2006_SA` | `2000_Disp_SA` | Salidas Analógicas |
+| `v` | `DB2010_V` | `2000_Disp_V` | Válvulas |
+| `m` | `DB2015_M` | `2000_Disp_M` | Motores |
+| `m_vf` | `DB2016_M_VF` | `2000_Disp_M_VF` | Motores con Variador de Frecuencia |
+
+### Tipos legacy pendientes (TODO forward-compatible)
+
+Estos tipos aparecen en el log del escaneo TIA del proyecto legacy
+(`_legacy_reference/ZC_ALM_TOOLS/dist/.build/tia_wrapper_native.log`) pero
+**NO** están configurados explícitamente en `config.json`. Si se necesitan
+en el futuro, basta con añadirlos al bloque `Dispositivos` del
+departamento activo:
+
+| key (legacy) | Tag Table legacy | DB (estimado) |
+|---|---|---|
+| `sd` | `2000_Disp_SD` | `DB2002_SD` (estimado) |
+| `m_sina` | `2000_Disp_M_SINA` | `DB2717_INST_M_SINA` |
+| `tq` | `2000_Disp_TQ` | `DB2040_TQ` (estimado) |
+| `tq_ae` | `2000_Disp_TQ_AE` | (estimado) |
+| `productos` | `000_Productos` | (N/A — es tabla de productos) |
+
+**Nota**: estos tipos no están operativos en el nuevo repo. La política de
+fallback del `ConfigManager` retorna `None` silenciosamente cuando un tipo
+no está configurado, por lo que añadir nuevos tipos al JSON no rompe el
+código existente.
+
+### Fallbacks defensivos
+
+- `global_config_table_name` ausente → retorna `"000_Config_Dispositivos"`.
+- Bloque `departments` ausente → defaults en todos los getters.
+- Sección `Dispositivos` ausente → `list_keys()` retorna `[]`.
+- Sección `tia_folders` ausente → defaults a `"003_Procesos"`, `"2000_Dispositivos"` y `"000_Sistema"`.
+- `tia_folders.nmax` ausente → default `"000_Sistema"`.
+- Departamento solicitado no existe → fallback al primer departamento disponible (con warning).
+- `key` no existe → `None` + `logger.warning` (NO raise).
+- Campos parciales en un tipo → valores vacíos (`""`).
+
+### Extensibilidad
+
+#### Añadir un nuevo tipo de dispositivo
+
+1. Añadir la entrada en el bloque `Dispositivos` del `config.json`.
+2. Definir el modelo en `core/alimentacion/models/dispositivos.py`.
+3. Mapear la hoja Excel → modelo en `infrastructure/alimentacion/parsers/`.
+4. El `ConfigManager` lo expone automáticamente sin tocar código.
+
+#### Añadir un nuevo departamento
+
+1. Duplicar el bloque `alimentacion` bajo `departments` con el nombre
+   del nuevo departamento (`"envasado"`, `"paletizado"`, etc.).
+2. Ajustar `global_config_table_name`, `tia_folders` y `Dispositivos`
+   según la realidad del PLC.
+3. Instanciar el ConfigManager apuntando al nuevo departamento:
+   ```python
+   cm = ConfigManager("infrastructure/config.json", department="envasado")
+   ```
+
+**El caso de uso NUNCA debe hardcodear nombres de tabla** (legacy usaba
+hardcodes como `"000_Config_Dispositivos"` que se han eliminado en el nuevo
+repositorio).
+
+---
+
+
+## ðŸ”„ Flujo de SincronizaciÃ³n con PatrÃ³n Preview / Apply
+
+> **AÃ±adido en esta versiÃ³n.** Orquestador de alto nivel que combina
+> Excel + TIA Portal en una transacciÃ³n COM unificada con pre-flight.
+
+### Â¿Por quÃ© este flujo?
+
+El nuevo flujo resuelve 3 problemas detectados en el legacy:
+
+1. **HistÃ©resis de CompilaciÃ³n**: el legacy inyectaba N_MAX en el XML antes
+   de importar (anti-histÃ©resis). El nuevo repo lo hace en una transacciÃ³n
+   COM unificada con rollback completo.
+2. **Dos naturalezas de constantes**: N_MAX (cambio de VALOR) vs dispositivos
+   (cambio de NOMBRE preservando VALOR). Antes eran casos separados.
+3. **Falta de pre-flight**: el legacy tenÃ­a `generar_prevision()` pero solo
+   para dispositivos. Ahora hay un patrÃ³n preview/apply unificado.
+
+### Componentes del flujo
+
+```
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚ STEP 1: Operario carga Excel (tool existente)                  â”‚
+â”‚   MCP: tia_sync_dispositivos_dimensions_from_excel             â”‚
+â”‚   â””â”€ AlimentacionExcelParser â†’ AppState (Singleton)            â”‚
+â”‚      â€¢ AppState.dimensiones = DimensionesDispositivos(...)       â”‚
+â”‚      â€¢ AppState.dispositivos_ed/ea/sa/v/m/m_vf = [...]         â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+                              â”‚
+                              â–¼
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚ STEP 2 (NUEVO): Operario pide PREVIEW (solo lee, NO toca TIA)  â”‚
+â”‚   MCP: tia_preview_sync_from_excel(plc_name)                  â”‚
+â”‚                                                                 â”‚
+â”‚   Internamente:                                                  â”‚
+â”‚   1. Verifica AppState no vacÃ­o (warning si vacÃ­o)              â”‚
+â”‚   2. Lee PLC actual vÃ­a gateway.get_user_constants()            â”‚
+â”‚      â€¢ N_MAX: gateway.get_user_constants(plc, "000_Config_Dispositivos") â”‚
+â”‚      â€¢ Dispositivos: gateway.get_user_constants(plc, "2000_Disp_X")     â”‚
+â”‚   3. Calcula diff puro (sin tocar TIA)                         â”‚
+â”‚      â€¢ calculate_nmax_diff(): detecta cambios de VALOR           â”‚
+â”‚      â€¢ calculate_device_rename_diff(): detecta cambios de NOMBREâ”‚
+â”‚   4. Devuelve:                                                   â”‚
+â”‚      {                                                           â”‚
+â”‚        "summary": {                                              â”‚
+â”‚          "n_max_updates": int,                                   â”‚
+â”‚          "device_renames": int,                                 â”‚
+â”‚          "total_ops": int,                                       â”‚
+â”‚          "has_changes": bool                                     â”‚
+â”‚        },                                                        â”‚
+â”‚        "nmax_ops": [...],                                       â”‚
+â”‚        "device_diffs": {"ed": [...], "v": [...]},              â”‚
+â”‚        "warnings": [...]                                        â”‚
+â”‚      }                                                           â”‚
+â”‚                                                                 â”‚
+â”‚   Output al LLM: "Hay 3 N_MAX updates y 2 device renames.        â”‚
+â”‚                    Â¿Confirmas aplicarlos?"                        â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+                              â”‚
+                              â–¼
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚ STEP 3: Operario confirma y aplica (NUEVO)                      â”‚
+â”‚   MCP: tia_sync_constants_from_excel(plc_name)                â”‚
+â”‚                                                                 â”‚
+â”‚   Internamente:                                                  â”‚
+â”‚   1. Verifica AppState no vacÃ­o                                 â”‚
+â”‚   2. Lee PLC actual (igual que preview)                         â”‚
+â”‚   3. Calcula diff (mismo helper compartido)                    â”‚
+â”‚   4. Ejecuta transacciÃ³n COM unificada:                        â”‚
+â”‚      project.start_transaction()                                â”‚
+â”‚      N Ã— update_user_constant_value (N_MAX)                     â”‚
+â”‚      M Ã— update_user_constant_name (dispositivos)               â”‚
+â”‚      [opcional] export â†’ modify XML â†’ import (offline)         â”‚
+â”‚      project.end_transaction(rollback=False/True)              â”‚
+â”‚   5. Invalidar cachÃ© del gateway (clear_cache())               â”‚
+â”‚                                                                 â”‚
+â”‚   Output al LLM: "âœ… Sync ejecutado: 3 N_MAX updates + 2 renames"â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+```
+
+### Componentes del flujo en el cÃ³digo
+
+| Archivo | Rol |
+|---|---|
+| `application/use_cases/sync_constants_from_excel.py` â­ | **Orquestador de alto nivel** (preview + apply). Inyecta `AppState`, lee PLC, llama al orquestador unificado. |
+| `application/use_cases/sync_constants_unified.py` | Orquestador de **bajo nivel** con 2 mÃ©todos (`preview()` + `execute()`) que comparten `_compute_operations()`. |
+| `application/use_cases/diff_constants.py` | Motor puro de diffs (`calculate_nmax_diff`, `calculate_device_rename_diff`). |
+| `application/state.py` | **`AppState` Singleton** con 6 listas de dispositivos + `dimensiones`. |
+| `infrastructure/config_manager.py` | Resuelve `hw_type â†’ tag_table` desde `config.json`. |
+| `infrastructure/gateway.py` | Wrapper async del subprocess worker. Tiene `clear_cache()` para invalidar cachÃ© IT tras sync. |
+
+### API pÃºblica
+
+```python
+# Uso de alto nivel (lo que usan las MCP tools):
+use_case = SyncConstantsFromExcelUseCase(
+    gateway=gateway,
+    config_manager=config_manager,
+    app_state=get_app_state(),   # Singleton con Excel cargado
+)
+
+# PREVIEW: solo calcula, no toca TIA.
+preview_result = await use_case.preview(plc_name="PLC1_Alimentacion")
+# preview_result["summary"]["has_changes"] == True/False
+# preview_result["nmax_ops"]       # lista de ops pendientes
+# preview_result["device_diffs"]   # {hw_type: [ops]}
+
+# APPLY: calcula + transacciÃ³n COM unificada + clear_cache().
+apply_result = await use_case.execute(plc_name="PLC1_Alimentacion")
+```
+
+### Decisiones arquitectÃ³nicas clave
+
+1. **DI explÃ­cita**: el orquestador recibe `gateway`, `config_manager` y
+   `app_state` por constructor. NO usa Singleton/global.
+2. **PatrÃ³n preview/apply**: ambos mÃ©todos comparten `_compute_operations()`,
+   garantizando que la preview y el apply producen exactamente el mismo diff.
+3. **Sin re-parsear Excel**: el `AppState` debe estar cargado al menos una
+   vez (vÃ­a `tia_sync_dispositivos_dimensions_from_excel`). El orquestador
+   NO re-lee el Excel para mantener paridad con el preview.
+4. **ValidaciÃ³n previa**: si el `AppState` estÃ¡ vacÃ­o, `preview()` retorna
+   warnings pero `execute()` tambiÃ©n puede continuar (operarÃ¡ con diff vacÃ­o).
+
+### MCP Tools expuestas (NUEVAS)
+
+| Tool | Tipo | CuÃ¡ndo usarla |
+|---|---|---|
+| `tia_preview_sync_from_excel(plc_name)` | Preview | DespuÃ©s de cargar el Excel, antes de confirmar. Devuelve JSON con el diff. |
+| `tia_sync_constants_from_excel(plc_name)` | Apply | Tras confirmar el preview. Ejecuta la transacciÃ³n. |
+
+---
+
+
+## ðŸ”„ Flujo de SincronizaciÃ³n â€” Estrategia EXPORT â†’ PARSE â†’ DIFF
+
+> **AÃ±adido en esta versiÃ³n.** El orquestador exporta cada PlcTagTable
+> a una carpeta temporal vÃ­a COM y la parsea con ``SimaticMLTagParser``.
+> **NO** se hace la lectura directamente desde el runtime COM en vivo.
+
+### Â¿Por quÃ© export â†’ parse en lugar de COM directo?
+
+El mÃ©todo ``gateway.get_user_constants()`` (que llama a COM en vivo)
+puede NO devolver el estado correcto de las tablas si:
+- TIA Portal tiene cambios en disco que aÃºn no estÃ¡n commiteados al runtime COM.
+- La cachÃ© del wrapper de Siemens difiere del estado en disco.
+- Hay tablas que TIA no expone correctamente por COM pero sÃ­ exporta a XML.
+
+La estrategia **export â†’ parse** garantiza que el diff se hace contra
+**el mismo XML que TIA efectivamente commitea al re-importar**, que es
+la fuente de verdad definitiva.
+
+### Flujo detallado
+
+```
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚ STEP 1: Operario carga Excel (tool existente)                  â”‚
+â”‚   MCP: tia_sync_dispositivos_dimensions_from_excel             â”‚
+â”‚   â””â”€ AlimentacionExcelParser â†’ AppState (Singleton)            â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+                              â”‚
+                              â–¼
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚ STEP 2 (NUEVO): Operario pide PREVIEW                          â”‚
+â”‚   MCP: tia_preview_sync_from_excel(plc_name)                  â”‚
+â”‚                                                                 â”‚
+â”‚   SyncConstantsFromExcelUseCase.preview() ejecuta:              â”‚
+â”‚   1. Crea carpeta temporal:                                    â”‚
+â”‚      temp_dir = tempfile.mkdtemp(prefix="zc_sync_<plc>_")      â”‚
+â”‚   2. Exporta 7 PlcTagTable vÃ­a COM:                            â”‚
+â”‚      gateway.export_tag_table("PLC1", "000_Config_Dispositivos", temp_dir)
+â”‚      gateway.export_tag_table("PLC1", "2000_Disp_ED",           temp_dir)
+â”‚      gateway.export_tag_table("PLC1", "2000_Disp_EA",           temp_dir)
+â”‚      gateway.export_tag_table("PLC1", "2000_Disp_SA",           temp_dir)
+â”‚      gateway.export_tag_table("PLC1", "2000_Disp_V",            temp_dir)
+â”‚      gateway.export_tag_table("PLC1", "2000_Disp_M",            temp_dir)
+â”‚      gateway.export_tag_table("PLC1", "2000_Disp_M_VF",         temp_dir)
+â”‚   3. Parsea cada XML exportado:                                â”‚
+â”‚      SimaticMLTagParser.parse_user_constants(temp_dir/X.xml)    â”‚
+â”‚      â†’ {valor_int_str: nombre}                                â”‚
+â”‚   4. Construye current_state con el formato esperado.          â”‚
+â”‚   5. finally: shutil.rmtree(temp_dir)                         â”‚
+â”‚   6. Calcula diff (preview = no aplica)                       â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+                              â”‚
+                              â–¼
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚ STEP 3: Operario confirma y aplica                            â”‚
+â”‚   MCP: tia_sync_constants_from_excel(plc_name)                â”‚
+â”‚   â””â”€ Igual que preview, pero ejecuta transacciÃ³n COM +        â”‚
+â”‚      clear_cache() tras Ã©xito.                                â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+```
+
+### 7 round-trips COM por sync completo
+
+El orquestador hace 7 llamadas a ``gateway.export_tag_table()``:
+- **1 para N_MAX**: ``000_Config_Dispositivos``.
+- **6 para dispositivos**: ``2000_Disp_ED``, ``2000_Disp_EA``, ``2000_Disp_SA``,
+  ``2000_Disp_V``, ``2000_Disp_M``, ``2000_Disp_M_VF``.
+
+Cada exportaciÃ³n genera un archivo ``.xml`` en la carpeta temporal. **NO
+se hace ninguna llamada directa a ``get_user_constants()``**.
+
+### Carpeta temporal: ciclo de vida
+
+```
+Creada en:    tempfile.mkdtemp(prefix="zc_sync_<plc_name>_")
+Usada en:     gateway.export_tag_table() (escritura de XML)
+              SimaticMLTagParser.parse_user_constants() (lectura de XML)
+Limpiada en:  finally: shutil.rmtree(temp_dir, ignore_errors=True)
+```
+
+Si la exportaciÃ³n o el parseo fallan, **la carpeta temporal se limpia
+igualmente** (gracias al bloque ``finally``).
+
+### Ventajas vs. COM directo
+
+| Aspecto | COM directo | Export â†’ Parse |
+|---|---|---|
+| **Fuente de verdad** | Estado en vivo del runtime COM | XML commiteado por TIA en disco |
+| **Consistencia con apply** | Puede diferir del import final | Garantiza paridad exacta |
+| **Rendimiento** | 7 round-trips COM (~50-200ms cada uno) | Igual (7 round-trips COM) |
+| **Manejo de errores** | ExcepciÃ³n del COM | Se loggea + continÃºa con la siguiente tabla |
+
+### MCP Tools expuestas (NUEVAS)
+
+| Tool | Tipo | CuÃ¡ndo usarla |
+|---|---|---|
+| `tia_preview_sync_from_excel(plc_name)` | Preview | DespuÃ©s de cargar el Excel, antes de confirmar. Devuelve JSON con el diff. |
+| `tia_sync_constants_from_excel(plc_name)` | Apply | Tras confirmar el preview. Ejecuta la transacciÃ³n. |
+
+---
+
+
