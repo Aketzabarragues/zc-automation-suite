@@ -528,8 +528,8 @@ def _cmd_rename_plc_tag(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
     referencias en el programa SCL). En su lugar, usamos COM:
       1. ``table.get_plc_tags()`` itera todos los PlcTags de la tabla.
       2. Buscamos el tag cuyo ``Name`` coincide con ``old_name``.
-      3. Leemos ``tag.get_property("Name")`` (verificaciÃ³n defensiva).
-      4. ``tag.set_property("Name", new_name)``.
+      3. Leemos ``tag.get_property(name="Name")`` (verificaciÃ³n defensiva).
+      4. ``tag.set_property(name="Name", value=new_name)``.
 
     Args:
         plc_name:   Nombre del PLC destino.
@@ -552,13 +552,21 @@ def _cmd_rename_plc_tag(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
     target_plc = _find_plc(project, plc_name)
 
     # Recorremos TODAS las PlcTagTables buscando el PlcTag por old_name.
-    # El uid no es nativo en TIA â†’ el rename se identifica por Name
-    # actual (que es el plc_tag histÃ³rico que el motor IT conoce).
+    # El uid no es nativo en TIA → el rename se identifica por Name
+    # actual (que es el plc_tag histórico que el motor IT conoce).
+    #
+    # NOTA: ``tag.get_property`` y ``tag.set_property`` SOLO aceptan
+    # keyword arguments en este wrapper de Siemens Openness (Pythonnet).
+    # Llamadas posicionales como ``tag.get_property("Name")`` lanzan
+    # ``TypeError: get_property() takes no positional arguments``.
+    # Por consistencia con el resto de handlers del worker
+    # (``_cmd_get_user_constants``, ``_cmd_update_user_constant_value``
+    # y ``_cmd_update_user_constant_name``), usamos siempre keyword args.
     for table in target_plc.get_plc_tag_tables():
         for tag in table.get_plc_tags():
-            current = tag.get_property("Name")
+            current = tag.get_property(name="Name")
             if current == old_name:
-                tag.set_property("Name", new_name)
+                tag.set_property(name="Name", value=new_name)
                 return True
 
     raise RuntimeError(
