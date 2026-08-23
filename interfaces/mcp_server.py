@@ -21,16 +21,10 @@ from typing import Any
 
 from fastmcp import FastMCP
 
+from application.areas.alimentacion.use_cases.sync_disp_alimentacion import (
+    SyncDispAlimentacionUseCase,
+)
 from application.state import get_app_state
-from application.use_cases.sync_constants_from_excel import (
-    SyncConstantsFromExcelUseCase,
-)
-from application.use_cases.sync_dispositivos_dimensions import (
-    SyncDispositivosDimensionsUseCase,
-)
-from application.use_cases.sync_dispositivos_instances import (
-    SyncDispositivosInstancesUseCase,
-)
 from infrastructure.config_manager import ConfigManager
 from infrastructure.gateway import TIAProcessGateway
 
@@ -314,115 +308,71 @@ def create_mcp_server(gateway: TIAProcessGateway) -> FastMCP:
             "comandos ejecutados."
         )
 
-    @mcp.tool()
-    async def tia_sync_dispositivos_dimensions_from_excel(
-        excel_path: str,
-    ) -> str:
-        """Sincroniza dimensiones (N_MAX) desde un Excel al AppState global.
-
-        Lee el Excel corporativo y actualiza el ``AppState.dimensiones``.
-        La inyección real contra TIA Portal ocurre en el siguiente paso
-        (sincronización de instancias).
-
-        Args:
-            excel_path: Ruta absoluta al archivo Excel corporativo (.xlsx).
-        """
-        use_case = SyncDispositivosDimensionsUseCase()
-        result = await use_case.execute(excel_path)
-        return result["message"]
+    # ── SyncDispAlimentacionUseCase: preview + apply de dispositivos ─
 
     @mcp.tool()
-    async def tia_sync_dispositivos_instances_from_excel(
-        plc_name: str, excel_path: str
-    ) -> str:
-        """Sincroniza instancias de dispositivos (PlcTag + .s7dcl) desde un Excel.
+    async def tia_preview_disp_sync(plc_name: str) -> str:
+        """PREVIEW: calcula el diff de dispositivos entre AppState y PLC. NO toca TIA.
 
-        Procesa el Excel offline: lee los DTOs, exporta la base del PLC,
-        clona/modifica nodos PlcTag XML y archivos ``.s7dcl`` (inyecta
-        llamadas entre marcadores ``// AUTO_GEN_*``), e inyecta el
-        resultado mediante un lote transaccional con motor Diff
-        híbrido (XML para adds/drops, COM para renames).
+        Caso de uso único del área de alimentación. Por ahora solo cubre
+        N_MAX online; cuando crezca, este mismo método cubrirá device
+        renames e instance sync.
 
-        Responsabilidad única: NO toca constantes N_MAX (eso es
-        ``tia_sync_dispositivos_dimensions_from_excel``); solo añade
-        instancias nuevas.
-
-        Tras el éxito, el caller DEBE invocar ``tia_compile_plc`` para
-        asentar el modelo de memoria del PLC.
-
-        Args:
-            plc_name:  Nombre exacto del PLC.
-            excel_path: Ruta absoluta al Excel. Convención: cada hoja =
-                        un tipo de dispositivo (``DispED``, ``DispV``, ...);
-                        filas = instancias (columna ``nombre`` requerida).
-        """
-        use_case = SyncDispositivosInstancesUseCase(gateway)
-        result = await use_case.execute(plc_name, excel_path)
-        return (
-            f"{result['message']} "
-            "Recuerda invocar tia_compile_plc a continuación para asentar "
-            "el modelo de memoria del PLC."
-        )
-
-    # ── NUEVAS: pre-flight + apply con el orquestador unificado ───────
-
-    @mcp.tool()
-    async def tia_preview_sync_from_excel(
-        plc_name: str,
-    ) -> str:
-        """PREVIEW: calcula diff entre Excel (AppState) y PLC. NO toca TIA.
-
-        Lee el estado actual del PLC, lo compara con el Excel que debe
-        estar cargado en ``AppState`` (vía ``tia_sync_dispositivos_dimensions_from_excel``),
-        y devuelve las operaciones que se aplicarían si el operario
-        confirma con ``tia_sync_constants_from_excel``.
+        Lee el estado actual del PLC (export bulk + parse selectivo del
+        único XML ``000_Sistema/000_Config_Dispositivos.xml``) y lo
+        compara con ``AppState.dimensiones`` (cargado previamente vía
+        ``POST /api/v1/excel/upload``).
 
         Args:
             plc_name: Nombre exacto del PLC destino.
 
         Returns:
-            JSON con ``summary``, ``nmax_ops``, ``device_diffs`` y ``warnings``.
+            JSON con ``summary``, ``current``, ``desired``, ``ops`` y ``warnings``.
         """
-        use_case = SyncConstantsFromExcelUseCase(
+        use_case = SyncDispAlimentacionUseCase(
             gateway=gateway,
             config_manager=config_manager,
             app_state=get_app_state(),
         )
-        result = await use_case.preview(plc_name)
-        # Serializar el dict completo a JSON para que el LLM lo consuma.
+        result = await use_case.preview_disp(plc_name)
         return json.dumps(result, ensure_ascii=False, indent=2)
 
     @mcp.tool()
-    async def tia_sync_constants_from_excel(
-        plc_name: str,
-    ) -> str:
-        """APPLY: sincroniza constantes del PLC con el Excel (AppState).
+    async def tia_apply_disp_sync(plc_name: str) -> str:
+        """APPLY: aplica el diff de dispositivos en UNA transacción COM única.
 
-        PRECONDICIÓN: el Excel debe haber sido cargado previamente
-        mediante ``tia_sync_dispositivos_dimensions_from_excel``.
+        PRECONDICIÓN: el Excel debe estar cargado en ``AppState`` (vía
+        ``POST /api/v1/excel/upload``) y se recomienda haber ejecutado
+        ``tia_preview_disp_sync`` para revisar el diff antes.
 
-        Calcula el diff y lo aplica en una transacción COM unificada
-        (N_MAX update_value + dispositivos rename). Tras el éxito,
-        invalida la caché del Gateway.
+        El use case construye la lista de operaciones ``update_user_constant_value``
+        y delega en ``gateway.execute_transactional_batch`` — el worker
+        abre ``start_transaction``, itera las ops online y cierra con
+        ``end_transaction`` (con rollback atómico si algo falla). Tras
+        el éxito, invalida la caché del gateway.
 
         Args:
             plc_name: Nombre exacto del PLC destino.
 
         Returns:
-            Resumen legible de las operaciones aplicadas.
+            Resumen legible de las operaciones aplicadas. Tras el éxito,
+            el caller DEBE invocar ``tia_compile_plc`` para asentar las
+            nuevas dimensiones de los DataBlocks.
         """
-        use_case = SyncConstantsFromExcelUseCase(
+        use_case = SyncDispAlimentacionUseCase(
             gateway=gateway,
             config_manager=config_manager,
             app_state=get_app_state(),
         )
-        result = await use_case.execute(plc_name)
+        result = await use_case.apply_disp(plc_name)
+        n_updates = result.get("summary", {}).get("n_max_updates", 0)
+        warnings_count = len(result.get("warnings", []))
         return (
-            f"✅ Sync unificado ejecutado en '{plc_name}': "
-            f"{result.get('summary', {}).get('n_max_updates', 0)} N_MAX updates + "
-            f"{result.get('summary', {}).get('device_renames', 0)} device renames. "
-            f"Caché invalidada. "
-            f"Warnings: {len(result.get('warnings', []))}."
+            f"✅ SyncDispAlimentacion ejecutado en '{plc_name}': "
+            f"{n_updates} N_MAX updates en una transacción. "
+            f"Caché invalidada. Warnings: {warnings_count}. "
+            "Recuerda invocar tia_compile_plc para asentar el modelo "
+            "de memoria del PLC."
         )
 
     return mcp
