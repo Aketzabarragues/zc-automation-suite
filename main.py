@@ -21,8 +21,25 @@ Cero UI propia: no hay TUI ni bucles interactivos.
 from __future__ import annotations
 
 import argparse
+import io
 import sys
 from typing import NoReturn
+
+# Forzar UTF-8 en stdout/stderr/stdin para evitar errores
+# de codificacion cuando TIA Portal (via Pythonnet)
+# devuelve strings con caracteres españoles (Latin-1)
+# que el wrapper intenta convertir a UTF-8. Esto se hereda
+# al proceso del worker (subproceso de main.py).
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+        sys.stderr.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+        sys.stdin.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+    except (AttributeError, Exception):
+        # Fallback para Python <3.7 o si falla.
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+        sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="replace")
 
 
 def parse_args() -> argparse.Namespace:
