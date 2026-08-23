@@ -66,6 +66,12 @@ async def main(plc_name: str, dry_run: bool) -> int:
     gateway = TIAProcessGateway(timeout=120.0)
 
     # 1. Leer estado actual.
+    # 1. Leer estado actual.
+    #
+    # El worker devuelve `{value_str: name}`. La key es el UID
+    # (int como string, ej. "1", "2") y el value es el plc_tag
+    # (el "Name" de la PlcUserConstant). Asi que tenemos que buscar
+    # el nombre en los VALUES, no en las keys.
     print(f"[1/3] Leyendo estado actual de '{TABLE_NAME}'...")
     try:
         before = await gateway.get_user_constants(plc_name, TABLE_NAME)
@@ -73,21 +79,38 @@ async def main(plc_name: str, dry_run: bool) -> int:
         print(f"  \u274c Error leyendo la tabla: {exc}")
         return 1
     print(f"  {len(before)} PlcUserConstants en la tabla.")
-    if OLD_NAME in before:
-        print(f"  \u2713 '{OLD_NAME}' ESTA en la tabla (valor={before[OLD_NAME]}).")
+
+    # Imprimir las primeras 10 para que el operario vea qué hay.
+    sample = list(before.items())[:10]
+    print(f"  Primeras {len(sample)} constantes (value -> name):")
+    for value, name in sample:
+        print(f"    [{value!r:>6}] -> {name!r}")
+    if len(before) > len(sample):
+        print(f"    ... y {len(before) - len(sample)} mas.")
+
+    # Buscar el OLD_NAME en los VALUES (los names).
+    before_uid = next(
+        (uid for uid, name in before.items() if name == OLD_NAME),
+        None,
+    )
+    before_new_uid = next(
+        (uid for uid, name in before.items() if name == NEW_NAME),
+        None,
+    )
+    if before_uid is not None:
+        print(f"  \u2713 '{OLD_NAME}' ESTA en la tabla (UID={before_uid}).")
     else:
         print(f"  \u26a0\ufe0f  '{OLD_NAME}' NO esta en la tabla.")
-        if NEW_NAME in before:
-            print(f"     (pero '{NEW_NAME}' SI esta, con valor={before[NEW_NAME]}).")
+        if before_new_uid is not None:
+            print(f"     (pero '{NEW_NAME}' SI esta, UID={before_new_uid}).")
             print("     El rename anterior ya estubo aplicado. Aborta para evitar duplicar.")
         else:
             print("     Ni el nombre viejo ni el nuevo estan. Algo no encaja.")
         return 1
-    if NEW_NAME in before:
-        print(f"  \u26a0\ufe0f  '{NEW_NAME}' YA esta en la tabla (valor={before[NEW_NAME]}).")
+    if before_new_uid is not None:
+        print(f"  \u26a0\ufe0f  '{NEW_NAME}' YA esta en la tabla (UID={before_new_uid}).")
         print("     Ya fue renombrado en un test anterior. Aborta para evitar duplicar.")
         return 1
-
     # 2. Aplicar (o solo reportar en dry-run).
     if dry_run:
         print()
@@ -114,6 +137,9 @@ async def main(plc_name: str, dry_run: bool) -> int:
         return 1
 
     # 3. Verificar.
+    #
+    # Recordar: el worker devuelve `{value: name}`. Hay que buscar
+    # por nombre en los values.
     print()
     print("[3/3] Verificando cambio (releyendo la tabla)...")
     try:
@@ -121,9 +147,17 @@ async def main(plc_name: str, dry_run: bool) -> int:
     except RuntimeError as exc:
         print(f"  \u274c Error releyendo: {exc}")
         return 1
-    if NEW_NAME in after:
-        print(f"  \u2705 '{NEW_NAME}' AHORA existe (valor={after[NEW_NAME]}).")
-        if OLD_NAME in after:
+    after_uid = next(
+        (uid for uid, name in after.items() if name == NEW_NAME),
+        None,
+    )
+    after_old_uid = next(
+        (uid for uid, name in after.items() if name == OLD_NAME),
+        None,
+    )
+    if after_uid is not None:
+        print(f"  \u2705 '{NEW_NAME}' AHORA existe (UID={after_uid}).")
+        if after_old_uid is not None:
             print(f"  \u26a0\ufe0f  '{OLD_NAME}' SIGUE existiendo (inesperado).")
             return 1
         else:
