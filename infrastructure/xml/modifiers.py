@@ -31,8 +31,10 @@ from core.alimentacion.models.dispositivos import Dispositivo
 # Wildcards XPath. ``{*}`` = cualquier namespace; evita acoplarse a la
 # version concreta del esquema (p. ej. ``http://www.siemens.com/...``).
 _PLC_TAG = "{*}SW.Tags.PlcTag"
+_PLC_USER_CONSTANT = "{*}SW.Tags.PlcUserConstant"
 _NAME_TAG = "{*}Name"
 _COMMENT_TAG = "{*}Comment"
+_VALUE_TAG = "{*}Value"
 # Etiquetas de direccion/defensa: probamos varias conocidas para
 # cubrir distintas versiones del esquema.
 _ADDRESS_TAGS: tuple[str, ...] = (
@@ -297,3 +299,144 @@ class TagTableModifier(XMLModifier):
                 if child is target:
                     return parent
         return None
+
+    # =================================================================
+    # PlcUserConstant: add/remove para N_MAX y devices
+    # =================================================================
+    #
+    # Los devices y N_MAX viven como PlcUserConstant en las tag tables
+    # (p. ej. 2000_Disp_ED, 000_Config_Dispositivos). El esquema es:
+    #   <SW.Tags.PlcUserConstant ID="...">
+    #     <AttributeList>
+    #       <Name>...</Name>           (plc_tag)
+    #       <DataTypeName>Int</DataTypeName>
+    #       <Value>5</Value>           (uid / dimension)
+    #     </AttributeList>
+    #   </SW.Tags.PlcUserConstant>
+    #
+    # A diferencia de PlcTag (que usa Comment para el uid), PlcUserConstant
+    # tiene Value para el uid y Name para el plc_tag. Los siguientes
+    # metodos son el equivalente PlcUserConstant de add_tags_by_table /
+    # remove_tags / _find_template_tag.
+
+    def _find_template_user_constant(self) -> ET.Element | None:
+        """Devuelve el primer ``{*}SW.Tags.PlcUserConstant`` como plantilla."""
+        tags = self._root.findall(f".//{_PLC_USER_CONSTANT}")
+        return tags[0] if tags else None
+
+    def _existing_user_constant_names(self) -> set[str]:
+        """Devuelve el conjunto de ``{*}Name`` ya presentes en PlcUserConstants."""
+        result: set[str] = set()
+        for const in self._root.findall(f".//{_PLC_USER_CONSTANT}"):
+            name_el = const.find(f".//{_NAME_TAG}")
+            if name_el is not None and name_el.text:
+                result.add(name_el.text.strip())
+        return result
+
+    def add_user_constants_by_table(
+        self,
+        table_name: str,
+        dispositivos: list[dict[str, str]],
+    ) -> int:
+        """Anade PlcUserConstants a la tabla (PlcTagTable) cuyo stem coincide con ``table_name``.
+
+        Cada dict debe contener ``plc_tag`` (el Name) y ``uid`` (el Value).
+        ``comment`` es opcional (default: vacio).
+
+        Returns:
+            Numero de PlcUserConstants anadidos.
+        """
+        if self._path.stem != table_name:
+            return 0
+        template = self._find_template_user_constant()
+        if template is None:
+            return 0
+        existing_names = self._existing_user_constant_names()
+        added = 0
+        for dto in dispositivos:
+            name = dto.get("plc_tag", "").strip()
+            if not name or name in existing_names:
+                continue
+            value_str = dto.get("uid", "").strip()
+            comment = dto.get("comment", "").strip()
+            new_const = self._copy_element(template)
+            name_el = new_const.find(f".//{_NAME_TAG}")
+            if name_el is not None:
+                name_el.text = name
+            value_el = new_const.find(f".//{_VALUE_TAG}")
+            if value_el is not None:
+                value_el.text = value_str
+            if comment:
+                self._inject_multilingual_comment(new_const, comment)
+            self._append_after_last_user_constant(new_const)
+            existing_names.add(name)
+            added += 1
+        if added > 0:
+            self._modified = True
+        return added
+
+    def remove_user_constants(self, uids_to_remove: set[str]) -> int:
+        """Elimina PlcUserConstants cuyo ``Value`` esta en ``uids_to_remove``.
+
+        Returns:
+            Numero de PlcUserConstants eliminados.
+        """
+        if not uids_to_remove:
+            return 0
+        removed = 0
+        for const in list(self._root.findall(f".//{_PLC_USER_CONSTANT}")):
+            value_el = const.find(f".//{_VALUE_TAG}")
+            if value_el is None or value_el.text is None:
+                continue
+            if value_el.text.strip() not in uids_to_remove:
+                continue
+            parent = self._find_parent_of(const)
+            if parent is not None:
+                parent.remove(const)
+                removed += 1
+        if removed > 0:
+            self._modified = True
+        return removed
+
+    @staticmethod
+    def _copy_element(elem: ET.Element) -> ET.Element:
+        """Devuelve una copia profunda de un Element."""
+        from copy import deepcopy
+        return deepcopy(elem)
+
+    def _inject_multilingual_comment(
+        self, const: ET.Element, text: str
+    ) -> None:
+        """Inyecta la estructura canonica Siemens MultilingualText como Comment."""
+        comment_local_name = _COMMENT_TAG.split("}", 1)[-1]
+        comment_el = const.find(comment_local_name)
+        if comment_el is None:
+            comment_el = ET.SubElement(const, comment_local_name)
+        for child in list(comment_el):
+            comment_el.remove(child)
+        mlt = ET.SubElement(
+            comment_el,
+            "MultiLanguageText",
+            {"Lang": "es-ES", "CompositionName": "Comment"},
+        )
+        mlt_ol = ET.SubElement(mlt, "ObjectList")
+        mlti = ET.SubElement(
+            mlt_ol,
+            "MultilingualTextItem",
+            {"CompositionName": "Items"},
+        )
+        mlti_al = ET.SubElement(mlti, "AttributeList")
+        ET.SubElement(mlti_al, "Culture").text = "es-ES"
+        ET.SubElement(mlti_al, "Text").text = text
+
+    def _append_after_last_user_constant(self, new_const: ET.Element) -> None:
+        """Inserta ``new_const`` tras el ultimo PlcUserConstant hermano si existe."""
+        consts = self._root.findall(f".//{_PLC_USER_CONSTANT}")
+        last = consts[-1] if consts else None
+        if last is not None and last is not new_const:
+            parent = self._find_parent_of(last)
+            if parent is not None:
+                idx = list(parent).index(last)
+                parent.insert(idx + 1, new_const)
+                return
+        self._root.append(new_const)

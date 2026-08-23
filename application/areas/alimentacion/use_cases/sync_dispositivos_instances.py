@@ -270,17 +270,33 @@ class SyncDispositivosInstancesUseCase:
         operations: list[dict[str, Any]] = []
 
         # =====================================================================
-        # === RENOMBRADO de devices (PlcUserConstants)                    ===
+        # === OFFLINE: import_plc_tags_xml para add/remove de devices     ===
+        # ===                                                              ===
+        # === TagTableModifier (infrastructure/xml/modifiers.py) ya ha   ===
+        # === modificado los XMLs en tags_ready/ arriba (en _compute_diff) ===
+        # === anyadiendo los nuevos PlcUserConstants y eliminando los que  ===
+        # === no estan en el Excel. Aqui emitimos UN SOLO comando de       ===
+        # === import que re-ingresa TODOS los XMLs modificados en TIA.   ===
+        # === El worker abre la transaccion, importa, y cierra.          ===
+        # =====================================================================
+        if added or removed:
+            operations.append({
+                "command": "import_plc_tags_xml",
+                "args": {
+                    "plc_name": plc_name,
+                    "import_dir": str(tags_ready),
+                    "target_folder": "",
+                },
+            })
+
+        # =====================================================================
+        # === ONLINE: update_user_constant_name (renombrado de devices)  ===
         # ===                                                              ===
         # === Las variables del Excel (plc_tag) se persisten como         ===
         # === PlcUserConstants en las tag tables 2000_Disp_*. El rename   ===
         # === se hace con update_user_constant_name (no rename_plc_tag,  ===
         # === que opera sobre PlcTag y falla con "No se encontro        ===
         # === PlcTag con Name=..." en este caso).                          ===
-        # ===                                                              ===
-        # === add/remove (import_plc_tags_xml) sigue comentado porque     ===
-        # === requiere modificar el XML offline, validar, e importar, lo  ===
-        # === cual entramos en otra release.                               ===
         # =====================================================================
         for uid_with_table, (old, new) in renamed.items():
             # uid_with_table es "table_key:uid_str" (p.ej. "2000_Disp_ED:5").
@@ -531,8 +547,11 @@ class SyncDispositivosInstancesUseCase:
                 {"plc_tag": desired[uid], "uid": uid}
                 for uid in table_added
             ]
-            modifier.add_tags_by_table(stem, dtos_for_table)
-            modifier.remove_tags(set(table_removed))
+            # PlcUserConstant (devices + N_MAX), no PlcTag. Ver
+            # ``TagTableModifier.add_user_constants_by_table`` y
+            # ``remove_user_constants`` (PlcUserConstant por Value).
+            modifier.add_user_constants_by_table(stem, dtos_for_table)
+            modifier.remove_user_constants(set(table_removed))
             if modifier.was_modified():
                 modifier.save(tags_ready / xml_path.name)
         all_added = [uid for adds in _added.values() for uid in adds]

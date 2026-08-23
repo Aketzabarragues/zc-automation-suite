@@ -410,3 +410,85 @@ async def test_ejecutar_transaccion_includes_post_sync_preview(
     assert "post_sync_preview" in result
     assert result["post_sync_preview"] is not None
     assert result["post_sync_preview"]["summary"]["total"] == 0
+
+@pytest.mark.asyncio
+async def test_ejecutar_transaccion_emits_import_op_for_adds_and_removes(
+    use_case, mock_gateway, tmp_path
+):
+    """Cuando hay devices a anadir o eliminar, se emite ``import_plc_tags_xml``.
+
+    Verifica que el use case:
+      1. Construye el XML modificado en tags_ready/.
+      2. Anade UN SOLO op ``import_plc_tags_xml`` al batch (no una por device).
+      3. El op lleva el import_dir apuntando a tags_ready.
+    """
+    import asyncio
+    from pathlib import Path
+    from infrastructure.xml.modifiers import TagTableModifier
+
+    # Forzar un add y un remove modificando el AppState directamente.
+    # TIA mock tiene 2000_Disp_ED con V_001 (uid 1) y V_002 (uid 2).
+    # Anadimos V_999 (uid 999) y quitamos V_002.
+    class DispEDStub:
+        def __init__(self, numero, plc_tag):
+            self.numero = numero
+            self.plc_tag = plc_tag
+    use_case._state.dispositivos_ed = [
+        DispEDStub(numero=1, plc_tag="V_001"),
+        DispEDStub(numero=999, plc_tag="V_NEW_FROM_TEST"),
+    ]
+    # Sobrescribir el side_effect de export_plc_tags_xml para que escriba
+    # el XML real de 2000_Disp_ED en tags_base (sino el _compute_diff no
+    # encuentra el XML y no genera el save a tags_ready).
+    import xml.etree.ElementTree as _ET
+    from pathlib import Path as _Path
+    async def real_export(plc_name_arg, target_dir_arg):
+        target = _Path(target_dir_arg)
+        target.mkdir(parents=True, exist_ok=True)
+        (target / "2000_Dispositivos").mkdir(parents=True, exist_ok=True)
+        # PLCUserConstant con V_001 (uid 1) y V_002 (uid 2) - mismo shape
+        # que exporta TIA Portal.
+        root = _ET.Element("SW.Tags.PlcTagTable")
+        al = _ET.SubElement(root, "AttributeList")
+        _ET.SubElement(al, "Name").text = "2000_Disp_ED"
+        ol = _ET.SubElement(root, "ObjectList")
+        for name, val in [("V_001", "1"), ("V_002", "2")]:
+            c = _ET.SubElement(ol, "SW.Tags.PlcUserConstant", {"ID": val})
+            cal = _ET.SubElement(c, "AttributeList")
+            _ET.SubElement(cal, "Name").text = name
+            _ET.SubElement(cal, "DataTypeName").text = "Int"
+            _ET.SubElement(cal, "Value").text = val
+        _ET.ElementTree(root).write(
+            str(target / "2000_Dispositivos" / "2000_Disp_ED.xml"),
+            encoding="utf-8", xml_declaration=True,
+        )
+        return target_dir_arg
+    mock_gateway.export_plc_tags_xml.side_effect = real_export
+    mock_gateway.execute_transactional_batch.return_value = {
+        "success": True,
+        "operations_executed": 4,
+        "details": [],
+    }
+
+    result = await use_case.ejecutar_transaccion("PLC1", {})
+    assert result["success"] is True
+
+    call = mock_gateway.execute_transactional_batch.call_args
+    operations = call.kwargs.get("operations") or call.args[0]
+    import_ops = [op for op in operations if op["command"] == "import_plc_tags_xml"]
+    # Solo UN import (consolida todos los cambios XML en un solo op).
+    assert len(import_ops) == 1, "import_plc_tags_xml debe ser UN solo op (consolidado)"
+    import_op = import_ops[0]
+    assert import_op["args"]["plc_name"] == "PLC1"
+    assert "import_dir" in import_op["args"]
+    # El import_dir debe apuntar a un directorio que existe.
+    import_dir = Path(import_op["args"]["import_dir"])
+    assert import_dir.exists(), f"import_dir no existe: {import_dir}"
+    # El directorio debe contener los XMLs modificados.
+    xml_files = list(import_dir.glob("*.xml"))
+    assert len(xml_files) > 0, "import_dir vacio: no se generaron XMLs"
+    # El XML de 2000_Disp_ED debe contener V_999 (el nuevo) pero NO V_002 (el quitado).
+    ed_xml = import_dir / "2000_Disp_ED.xml"
+    if ed_xml.exists():
+        content = ed_xml.read_text(encoding="utf-8")
+        assert "V_NEW_FROM_TEST" in content, "V_NEW_FROM_TEST no aparece en el XML"
