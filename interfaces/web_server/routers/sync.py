@@ -1,10 +1,12 @@
-"""Router Sync: ``/api/v1/sync/disp/...``.
+"""Router Sync: ``/api/v1/sync/...``.
 
-Endpoints de pre-flight (preview sin tocar TIA) y commit (transaccional
-contra el PLC) del caso de uso unificado del área de alimentación
-(``SyncDispAlimentacionUseCase``). En esta release solo cubre N_MAX
-online; cuando crezca, los endpoints ``/disp/preview`` y ``/disp/apply``
-extenderán su semántica sin breaking change.
+Endpoints de Pre-Flight (preview sin tocar TIA) y Commit
+(transaccional contra el PLC) del caso de uso unificado del
+área de alimentación. En esta release, ``/sync/preview`` y
+``/sync/commit`` invocan ``SyncDispositivosInstancesUseCase``, que
+realiza el sync COMPLETO de N_MAX + devices en una sola transacción
+COM. Los endpoints ``/sync/disp/*`` (N_MAX-only) se conservan como
+atajo para cuando el operario solo quiera tocar N_MAX.
 
 NO instancia gateways: vienen inyectados vía ``Depends``.
 """
@@ -17,6 +19,9 @@ from pydantic import BaseModel
 
 from application.areas.alimentacion.use_cases.sync_disp_alimentacion import (
     SyncDispAlimentacionUseCase,
+)
+from application.areas.alimentacion.use_cases.sync_dispositivos_instances import (
+    SyncDispositivosInstancesUseCase,
 )
 from application.log_buffer import LogBuffer
 from application.state import AppState
@@ -33,22 +38,106 @@ from interfaces.web_server.dependencies import (
 router = APIRouter(prefix="/api/v1/sync", tags=["Sync"])
 
 
+class InstancesPreviewRequest(BaseModel):
+    plc_name: str
+
+
+class InstancesCommitRequest(BaseModel):
+    plc_name: str
+    prevision: dict[str, Any]
+
+
 class DispSyncRequest(BaseModel):
     plc_name: str
 
 
-def _build_use_case(
-    state: AppState,
-    gateway: TIAProcessGateway,
-    config_manager: ConfigManager,
-) -> SyncDispAlimentacionUseCase:
-    """Construye el caso de uso con las dependencias inyectadas."""
-    return SyncDispAlimentacionUseCase(
-        gateway=gateway,
-        config_manager=config_manager,
-        app_state=state,
-    )
+# ── Sync completo: N_MAX + devices (RESTAURADO en esta release) ─────
 
+@router.post("/preview")
+async def sync_preview(
+    req: InstancesPreviewRequest,
+    state: AppState = Depends(get_app_state),
+    gateway: TIAProcessGateway = Depends(get_gateway),
+    config_manager: ConfigManager = Depends(get_config_manager),
+    logger: LogBuffer = Depends(get_logger),
+) -> dict[str, Any]:
+    """PREVIEW completo: N_MAX + devices. NO toca TIA.
+
+    Calcula el diff entre el Excel (AppState) y el PLC. Devuelve el
+    shape legacy que la SPA espera: ``agregados``, ``eliminados``,
+    ``renombrados``, ``todos``, ``nmax`` y ``summary``.
+    """
+    use_case = SyncDispositivosInstancesUseCase(
+        gateway=gateway, config_manager=config_manager, state=state
+    )
+    logger.info(
+        f"[sync/preview] Generando preview completo (N_MAX + devices) "
+        f"para PLC '{req.plc_name}'..."
+    )
+    try:
+        prevision = await use_case.generar_prevision(req.plc_name)
+    except Exception as exc:
+        logger.error(f"generar_prevision failed: {exc}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"generar_prevision failed: {exc}",
+        ) from exc
+    logger.success(
+        f"[sync/preview] Preview lista: "
+        f"{prevision.get('summary', {}).get('agregados', 0)} adds, "
+        f"{prevision.get('summary', {}).get('eliminados', 0)} removes, "
+        f"{prevision.get('summary', {}).get('renombrados', 0)} renames, "
+        f"{prevision.get('nmax', {}).get('summary', {}).get('actualizar', 0)} N_MAX updates."
+    )
+    return prevision
+
+
+@router.post("/commit")
+async def sync_commit(
+    req: InstancesCommitRequest,
+    state: AppState = Depends(get_app_state),
+    gateway: TIAProcessGateway = Depends(get_gateway),
+    config_manager: ConfigManager = Depends(get_config_manager),
+    logger: LogBuffer = Depends(get_logger),
+) -> dict[str, Any]:
+    """APPLY completo: N_MAX + devices en UNA transacción COM única.
+
+    El use case ``SyncDispositivosInstancesUseCase.ejecutar_transaccion``
+    recalcula el diff desde el AppState (NO usa la ``prevision`` del
+    body para evitar race conditions) y lo aplica en una sola
+    transacción que incluye:
+      - ``import_plc_tags_xml`` (devices add/remove, offline).
+      - ``rename_plc_tag`` (devices rename, COM online).
+      - ``update_user_constant_value`` (N_MAX, COM online).
+
+    El worker abre ``start_transaction``, itera las ops y cierra con
+    ``end_transaction`` (rollback atómico si algo falla).
+    """
+    use_case = SyncDispositivosInstancesUseCase(
+        gateway=gateway, config_manager=config_manager, state=state
+    )
+    logger.info(
+        f"[sync/commit] Aplicando transacción completa "
+        f"(N_MAX + devices) al PLC '{req.plc_name}'..."
+    )
+    try:
+        result = await use_case.ejecutar_transaccion(
+            req.plc_name, req.prevision
+        )
+    except Exception as exc:
+        logger.error(f"ejecutar_transaccion failed: {exc}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"ejecutar_transaccion failed: {exc}",
+        ) from exc
+    logger.success(
+        f"[sync/commit] Transacción completada: {result.get('operations')} ops. "
+        "Recordar invocar tia_compile_plc para asentar el modelo de memoria."
+    )
+    return result
+
+
+# ── Sync N_MAX-only (atajo) ──────────────────────────────────────────
 
 @router.post("/disp/preview")
 async def disp_preview(
@@ -58,14 +147,16 @@ async def disp_preview(
     config_manager: ConfigManager = Depends(get_config_manager),
     logger: LogBuffer = Depends(get_logger),
 ) -> dict[str, Any]:
-    """Calcula el diff de dispositivos (N_MAX) entre AppState y PLC.
+    """Calcula el diff de N_MAX entre AppState y PLC. NO toca TIA.
 
-    NO toca TIA Portal. Devuelve ``summary``, ``current``, ``desired``,
-    ``ops`` y ``warnings`` con el formato de ``SyncDispAlimentacionUseCase.preview_disp``.
+    Atajo: cuando el operario solo quiere tocar N_MAX sin pasar por
+    devices. Usa ``SyncDispAlimentacionUseCase``.
     """
-    use_case = _build_use_case(state, gateway, config_manager)
+    use_case = SyncDispAlimentacionUseCase(
+        gateway=gateway, config_manager=config_manager, app_state=state
+    )
     logger.info(
-        f"[disp/preview] Generando preview para PLC '{req.plc_name}'..."
+        f"[disp/preview] Generando preview N_MAX-only para PLC '{req.plc_name}'..."
     )
     try:
         result = await use_case.preview_disp(req.plc_name)
@@ -90,16 +181,15 @@ async def disp_apply(
     config_manager: ConfigManager = Depends(get_config_manager),
     logger: LogBuffer = Depends(get_logger),
 ) -> dict[str, Any]:
-    """Aplica el diff de dispositivos (N_MAX) en UNA transacción COM única.
+    """Aplica el diff de N_MAX en UNA transacción COM única.
 
-    El use case construye la lista de operaciones ``update_user_constant_value``
-    y delega en ``gateway.execute_transactional_batch``; el worker abre
-    la transacción, itera las ops online y cierra con rollback
-    atómico si algo falla.
+    Atajo N_MAX-only (vía ``SyncDispAlimentacionUseCase``).
     """
-    use_case = _build_use_case(state, gateway, config_manager)
+    use_case = SyncDispAlimentacionUseCase(
+        gateway=gateway, config_manager=config_manager, app_state=state
+    )
     logger.info(
-        f"[disp/apply] Aplicando diff al PLC '{req.plc_name}'..."
+        f"[disp/apply] Aplicando diff N_MAX al PLC '{req.plc_name}'..."
     )
     try:
         result = await use_case.apply_disp(req.plc_name)
@@ -111,70 +201,10 @@ async def disp_apply(
         ) from exc
     n_ops = result.get("operations_executed", 0)
     logger.success(
-        f"[disp/apply] Transacción completada: {n_ops} ops ejecutadas. "
-        "Recordar invocar tia_compile_plc para asentar el modelo de memoria."
+        f"[disp/apply] Transacción N_MAX completada: {n_ops} ops. "
+        "Recordar invocar tia_compile_plc."
     )
     return result
-
-
-# ── ALIASES de backward-compat ────────────────────────────────────────
-# El refactor a ``/sync/disp/...`` (release actual) rompe URLs legacy
-# ``/sync/preview`` y ``/sync/commit`` que la SPA o scripts externos
-# pueden seguir invocando. Estos aliases son wrappers 1-1 sobre los
-# endpoints canónicos; se conservarán dos releases más y se
-# eliminarán con un warning de deprecation cuando se confirme que
-# nadie los usa. NO añadir lógica de negocio aquí: delegar.
-
-
-@router.post("/preview")
-async def sync_preview_alias(
-    req: DispSyncRequest,
-    state: AppState = Depends(get_app_state),
-    gateway: TIAProcessGateway = Depends(get_gateway),
-    config_manager: ConfigManager = Depends(get_config_manager),
-    logger: LogBuffer = Depends(get_logger),
-) -> dict[str, Any]:
-    """DEPRECATED alias de ``/sync/disp/preview``. Conservar 2 releases."""
-    logger.warning(
-        "[DEPRECATION] POST /api/v1/sync/preview llamado. "
-        "Migrar a POST /api/v1/sync/disp/preview."
-    )
-    return await disp_preview(
-        req=req,
-        state=state,
-        gateway=gateway,
-        config_manager=config_manager,
-        logger=logger,
-    )
-
-
-@router.post("/commit")
-async def sync_commit_alias(
-    req: DispSyncRequest,
-    state: AppState = Depends(get_app_state),
-    gateway: TIAProcessGateway = Depends(get_gateway),
-    config_manager: ConfigManager = Depends(get_config_manager),
-    logger: LogBuffer = Depends(get_logger),
-) -> dict[str, Any]:
-    """DEPRECATED alias de ``/sync/disp/apply``. Conservar 2 releases.
-
-    NOTA: el endpoint legacy aceptaba un body con ``prevision`` (dict)
-    que se IGNORABA. El nuevo use case recalcula el diff desde el estado
-    actual del AppState, por lo que el alias solo reenvía ``plc_name``.
-    Si necesitas el comportamiento viejo (basado en ``prevision`` cached),
-    no hay backward-compat posible: rediseña el flujo.
-    """
-    logger.warning(
-        "[DEPRECATION] POST /api/v1/sync/commit llamado. "
-        "Migrar a POST /api/v1/sync/disp/apply."
-    )
-    return await disp_apply(
-        req=req,
-        state=state,
-        gateway=gateway,
-        config_manager=config_manager,
-        logger=logger,
-    )
 
 
 __all__ = ["router"]

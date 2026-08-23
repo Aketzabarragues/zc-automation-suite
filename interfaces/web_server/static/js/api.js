@@ -68,13 +68,13 @@ export const apiFetchMemory = () => _request("GET", "/api/v1/state/dispositivos"
  */
 export const apiFetchCatalog = () => _request("GET", "/api/v1/catalog");
 
-/** Pide a TIA Portal una Pre-Flight (Diff) de N_MAX sin tocar el PLC. */
+/** Pide a TIA Portal una Pre-Flight (Diff) completa: N_MAX + devices. NO toca TIA. */
 export const apiGeneratePreview = (plcName) =>
-    _request("POST", "/api/v1/sync/disp/preview", { plc_name: plcName });
+    _request("POST", "/api/v1/sync/preview", { plc_name: plcName });
 
-/** Aplica el Diff de N_MAX al PLC (transacción única). */
-export const apiCommit = (plcName, _prevision) =>
-    _request("POST", "/api/v1/sync/disp/apply", { plc_name: plcName });
+/** Aplica el Diff completo (N_MAX + devices) en UNA transacción COM única. */
+export const apiCommit = (plcName, prevision) =>
+    _request("POST", "/api/v1/sync/commit", { plc_name: plcName, prevision });
 
 /** Snapshot de logs para pintar la consola. */
 export const apiFetchLogs = () => _request("GET", "/api/v1/logs");
