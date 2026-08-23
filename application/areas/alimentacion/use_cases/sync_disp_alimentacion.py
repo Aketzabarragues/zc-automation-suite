@@ -96,6 +96,7 @@ class SyncDispAlimentacionUseCase:
             ``dict`` con la forma::
 
                 {
+                    # --- Campos NUEVOS (release actual) ---
                     "plc_name": str,
                     "success": True,
                     "preview": True,
@@ -103,8 +104,39 @@ class SyncDispAlimentacionUseCase:
                     "current":  {"N_MAX_DISP_ED": 25, ...},
                     "desired":  {"N_MAX_DISP_ED": 30, ...},
                     "ops":      [{"command": ..., "args": ...}, ...],
-                    "summary":  {"n_max_updates": int, "total_ops": int},
+                    "summary":  {  # mezcla de nuevos + legacy
+                        "n_max_updates": int,
+                        "total_ops": int,
+                        "agregados": 0,        # legacy SPA
+                        "renombrados": 0,      # legacy SPA
+                        "eliminados": 0,       # legacy SPA
+                        "sin_cambios": int,    # legacy SPA
+                    },
                     "warnings": list[str],
+
+                    # --- Campos LEGACY (compat con la SPA de alimentacion) ---
+                    # En esta release todos los counters de devices están a 0;
+                    # cuando crezca el use case con device renames / instance
+                    # sync, estos campos se rellenarán con la forma legacy.
+                    "agregados":   list,   # siempre [] en esta release
+                    "eliminados":  list,   # siempre [] en esta release
+                    "renombrados": list,   # siempre [] en esta release
+                    "todos":       list,   # siempre [] en esta release
+                    "nmax": {
+                        "current": {"N_MAX_DISP_ED": 10, ...},
+                        "desired": {"N_MAX_DISP_ED": 15, ...},
+                        "todos":   [
+                            {"name": "N_MAX_DISP_ED",
+                             "actual": 10, "nuevo": 15,
+                             "status": "actualizar" | "sin_cambios"},
+                            ...
+                        ],
+                        "summary": {
+                            "actualizar":  int,
+                            "sin_cambios": int,
+                            "total":       int,
+                        },
+                    },
                 }
         """
         warnings = self._check_app_state()
@@ -115,20 +147,15 @@ class SyncDispAlimentacionUseCase:
         warnings.extend(current_warnings)
         desired = self._build_nmax_desired()
         ops = self._compute_nmax_ops(plc_name, current, desired)
-        return {
-            "plc_name": plc_name,
-            "success": True,
-            "preview": True,
-            "has_changes": bool(ops),
-            "current": current,
-            "desired": desired,
-            "ops": ops,
-            "summary": {
-                "n_max_updates": len(ops),
-                "total_ops": len(ops),
-            },
-            "warnings": warnings,
-        }
+        nmax_block = self._build_nmax_block(current, desired)
+        return self._build_preview_response(
+            plc_name=plc_name,
+            current=current,
+            desired=desired,
+            ops=ops,
+            nmax_block=nmax_block,
+            warnings=warnings,
+        )
 
     async def apply_disp(self, plc_name: str) -> dict[str, Any]:
         """Aplica el diff de N_MAX en UNA transacción COM única.
@@ -224,6 +251,112 @@ class SyncDispAlimentacionUseCase:
         }
 
     # ── Helpers privados compartidos (preview_disp + apply_disp) ──────
+
+    def _build_nmax_block(
+        self,
+        current: dict[str, int],
+        desired: dict[str, int],
+    ) -> dict[str, Any]:
+        """Construye el bloque ``nmax`` legacy con ``{current, desired, todos, summary}``.
+
+        Shape compatible con la SPA de alimentacion (Dispositivos.js):
+          - ``todos``: lista de ``{name, actual, nuevo, status}`` con
+            ``status ∈ {"actualizar", "sin_cambios"}``.
+          - ``summary``: contadores ``{actualizar, sin_cambios, total}``.
+
+        Una N_MAX se considera ``"sin_cambios"`` si el valor en TIA
+        coincide con el deseado (incluye el caso ``None`` → 0 cuando
+        la N_MAX no existe en TIA y el desired es 0).
+        """
+        todos: list[dict[str, Any]] = []
+        for name in desired.keys():
+            cur_val = current.get(name)
+            des_val = desired[name]
+            if cur_val is not None and cur_val == des_val:
+                status = "sin_cambios"
+            else:
+                status = "actualizar"
+            todos.append({
+                "name": name,
+                "actual": cur_val,
+                "nuevo": des_val,
+                "status": status,
+            })
+        n_actualizar = sum(1 for r in todos if r["status"] == "actualizar")
+        n_sin_cambios = sum(1 for r in todos if r["status"] == "sin_cambios")
+        return {
+            "current": dict(current),
+            "desired": dict(desired),
+            "todos": todos,
+            "summary": {
+                "actualizar": n_actualizar,
+                "sin_cambios": n_sin_cambios,
+                "total": len(todos),
+            },
+        }
+
+    def _build_preview_response(
+        self,
+        plc_name: str,
+        current: dict[str, int],
+        desired: dict[str, int],
+        ops: list[dict[str, Any]],
+        nmax_block: dict[str, Any],
+        warnings: list[str],
+    ) -> dict[str, Any]:
+        """Empaqueta la respuesta de ``preview_disp`` con shape nueva + legacy.
+
+        Mantiene AMBAS shapes en la misma respuesta:
+          - **Nueva** (``ops``, ``current``, ``desired``, ``summary.n_max_updates``):
+            contrato limpio del use case. Consumidores nuevos (tests,
+            scripts, MCP) usan estos campos.
+          - **Legacy** (``agregados``, ``eliminados``, ``renombrados``,
+            ``todos``, ``nmax``, ``summary.{agregados,renombrados,
+            eliminados,sin_cambios,total}``): la SPA de alimentacion
+            (Dispositivos.js) lee esta shape. En esta release los
+            contadores de devices están a 0 (no aplica a N_MAX); se
+            rellenarán cuando crezca el use case con device renames.
+
+        Ambos coexisten sin colisión: los campos nuevos viven en
+        ``ops`` / ``summary.n_max_updates`` y los legacy en
+        ``agregados`` / ``nmax`` / ``summary.agregados``. El ``summary``
+        raíz es un MERGE de ambos para que ambas partes lo lean del
+        mismo sitio.
+        """
+        n_sin_cambios = nmax_block["summary"]["sin_cambios"]
+        return {
+            # --- Campos nuevos ---
+            "plc_name": plc_name,
+            "success": True,
+            "preview": True,
+            "has_changes": bool(ops),
+            "current": current,
+            "desired": desired,
+            "ops": ops,
+
+            # --- Campos legacy (SPA compatibility) ---
+            "agregados": [],
+            "eliminados": [],
+            "renombrados": [],
+            "todos": [],
+            "nmax": nmax_block,
+
+            # --- Summary mergeado (nuevo + legacy) ---
+            "summary": {
+                # Nuevos
+                "n_max_updates": len(ops),
+                "total_ops": len(ops),
+                "has_changes": bool(ops),
+                # Legacy
+                "agregados": 0,
+                "renombrados": 0,
+                "eliminados": 0,
+                "sin_cambios": n_sin_cambios,
+                "total": nmax_block["summary"]["total"],
+            },
+
+            "warnings": warnings,
+        }
 
     def _check_app_state(self) -> list[str]:
         """Devuelve warnings si ``AppState.dimensiones`` está vacío.
@@ -342,7 +475,8 @@ class SyncDispAlimentacionUseCase:
     def _empty_preview(
         self, plc_name: str, warnings: list[str]
     ) -> dict[str, Any]:
-        """Shape de preview cuando AppState está vacío."""
+        """Shape de preview cuando AppState está vacío (merge nuevo + legacy)."""
+        nmax_block = self._build_nmax_block({}, {})
         return {
             "plc_name": plc_name,
             "success": True,
@@ -351,7 +485,21 @@ class SyncDispAlimentacionUseCase:
             "current": {},
             "desired": {},
             "ops": [],
-            "summary": {"n_max_updates": 0, "total_ops": 0},
+            "agregados": [],
+            "eliminados": [],
+            "renombrados": [],
+            "todos": [],
+            "nmax": nmax_block,
+            "summary": {
+                "n_max_updates": 0,
+                "total_ops": 0,
+                "has_changes": False,
+                "agregados": 0,
+                "renombrados": 0,
+                "eliminados": 0,
+                "sin_cambios": nmax_block["summary"]["sin_cambios"],
+                "total": nmax_block["summary"]["total"],
+            },
             "warnings": warnings,
         }
 

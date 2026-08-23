@@ -509,3 +509,109 @@ def test_compute_nmax_ops_delegates_to_pure_motor(
     ops = use_case._compute_nmax_ops("PLC1", current, desired)
     assert len(ops) == 2
     assert all(op["command"] == "update_user_constant_value" for op in ops)
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Tests de la shape legacy (compatibilidad con la SPA de alimentacion)
+# ────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_preview_disp_returns_legacy_spa_fields(
+    use_case, mock_gateway
+):
+    """El preview debe incluir los campos legacy que lee la SPA.
+
+    La SPA de alimentacion (Dispositivos.js) lee:
+      - ``agregados`` / ``eliminados`` / ``renombrados`` / ``todos`` (listas).
+      - ``nmax.todos`` (lista con ``{name, actual, nuevo, status}``).
+      - ``nmax.summary`` (``{actualizar, sin_cambios, total}``).
+      - ``summary`` mezclado (``agregados``, ``renombrados``, ``eliminados``,
+        ``sin_cambios``, ``total`` + ``n_max_updates``, ``total_ops``).
+    """
+    result = await use_case.preview_disp("PLC1")
+    # Listas legacy (vacías en esta release porque N_MAX no las usa).
+    assert result["agregados"] == []
+    assert result["eliminados"] == []
+    assert result["renombrados"] == []
+    assert result["todos"] == []
+    # Bloque nmax con todos los campos legacy.
+    assert "nmax" in result
+    assert "current" in result["nmax"]
+    assert "desired" in result["nmax"]
+    assert "todos" in result["nmax"]
+    assert "summary" in result["nmax"]
+    # Todos los items de nmax.todos tienen la forma correcta.
+    for item in result["nmax"]["todos"]:
+        assert set(item.keys()) == {"name", "actual", "nuevo", "status"}
+        assert item["status"] in ("actualizar", "sin_cambios")
+    # nmax.summary tiene los 3 contadores.
+    assert set(result["nmax"]["summary"].keys()) == {
+        "actualizar", "sin_cambios", "total"
+    }
+    # Summary mergeado: nuevos + legacy.
+    s = result["summary"]
+    # Nuevos
+    assert "n_max_updates" in s
+    assert "total_ops" in s
+    assert "has_changes" in s
+    # Legacy
+    assert s["agregados"] == 0
+    assert s["renombrados"] == 0
+    assert s["eliminados"] == 0
+    assert "sin_cambios" in s
+    assert "total" in s
+
+
+@pytest.mark.asyncio
+async def test_preview_disp_nmax_todos_have_correct_status(
+    use_case, mock_gateway
+):
+    """Las N_MAX con valor actual == deseado deben tener ``status=sin_cambios``."""
+    result = await use_case.preview_disp("PLC1")
+    # El fixture TIA mock tiene N_MAX_DISP_ED=10 y N_MAX_DISP_V=12.
+    # El fixture AppState tiene N_MAX_DISP_ED=15, N_MAX_DISP_V=15.
+    # => ambas son "actualizar". Las demás N_MAX (EA/SA/M/M_VF=0 en TIA
+    # y 20/10/10/5 en desired) también son "actualizar".
+    n_actualizar = sum(
+        1 for r in result["nmax"]["todos"]
+        if r["status"] == "actualizar"
+    )
+    n_sin_cambios = sum(
+        1 for r in result["nmax"]["todos"]
+        if r["status"] == "sin_cambios"
+    )
+    assert n_actualizar == result["nmax"]["summary"]["actualizar"]
+    assert n_sin_cambios == result["nmax"]["summary"]["sin_cambios"]
+    assert n_actualizar + n_sin_cambios == result["nmax"]["summary"]["total"]
+
+
+@pytest.mark.asyncio
+async def test_preview_disp_empty_app_state_returns_legacy_shape(
+    mock_gateway, mock_config_manager, empty_app_state
+):
+    """Aunque AppState esté vacío, la SPA debe ver todos los campos
+    legacy (con valores neutros: ``agregados=[]``, ``nmax.todos=[]``)."""
+    uc = SyncDispAlimentacionUseCase(
+        gateway=mock_gateway,
+        config_manager=mock_config_manager,
+        app_state=empty_app_state,
+    )
+    result = await uc.preview_disp("PLC1")
+    assert result["has_changes"] is False
+    assert result["agregados"] == []
+    assert result["eliminados"] == []
+    assert result["renombrados"] == []
+    assert result["todos"] == []
+    assert "nmax" in result
+    # nmax.todos puede tener 6 entradas (las 6 N_MAX del catálogo con
+    # status "actualizar" porque desired=0 y current={}).
+    assert "nmax" in result
+    assert "summary" in result["nmax"]
+    # Summary mergeado presente.
+    s = result["summary"]
+    assert s["n_max_updates"] == 0
+    assert s["agregados"] == 0
+    assert s["renombrados"] == 0
+    assert s["eliminados"] == 0
+
