@@ -495,3 +495,85 @@ async def test_ejecutar_transaccion_emits_import_op_for_adds_and_removes(
     assert ed_xml.exists(), f"XML no encontrado en {ed_xml}"
     ed_content = ed_xml.read_text(encoding="utf-8")
     assert "V_NEW_FROM_TEST" in ed_content, "V_NEW_FROM_TEST no aparece en el XML"
+
+@pytest.mark.asyncio
+async def test_ejecutar_transaccion_compiles_plc_after_commit(
+    use_case, mock_gateway
+):
+    """Despues del commit, el use case llama a ``compile_plc`` (fuera de transaccion).
+
+    La compilacion no puede ir dentro de la transaccion: si falla,
+    el PLC ya esta modificado (commit ya aplicado). Llamarla despues
+    permite reportar el error sin revertir el sync.
+    """
+    mock_gateway.execute_transactional_batch.return_value = {
+        "success": True,
+        "operations_executed": 3,
+        "details": [],
+    }
+    # compile_plc retorna True si HAY errores (semantica Siemens).
+    # Para el caso feliz, retornamos False.
+    mock_gateway.compile_plc = AsyncMock(return_value=False)
+
+    result = await use_case.ejecutar_transaccion("PLC1", {})
+    assert result["success"] is True
+    # El use case debe haber llamado a compile_plc UNA vez con el plc_name.
+    mock_gateway.compile_plc.assert_called_once_with("PLC1")
+    # El resultado incluye compile_ok=True (sin errores).
+    assert result["compile_ok"] is True
+    assert result["compile_error"] is None
+
+
+@pytest.mark.asyncio
+async def test_ejecutar_transaccion_handles_compile_errors_gracefully(
+    use_case, mock_gateway
+):
+    """Si la compilacion falla (TIA reporta errores), el resultado lo refleja.
+
+    El commit YA fue aplicado. La compilacion falla (p. ej. N_MAX cambio
+    dimensiones de DBs). El use case devuelve ``compile_ok=False`` con
+    un mensaje de error, pero el ``success=True`` porque el commit
+    fue exitoso.
+    """
+    mock_gateway.execute_transactional_batch.return_value = {
+        "success": True,
+        "operations_executed": 3,
+        "details": [],
+    }
+    # compile_plc retorna True si HAY errores.
+    mock_gateway.compile_plc = AsyncMock(return_value=True)
+
+    result = await use_case.ejecutar_transaccion("PLC1", {})
+    assert result["success"] is True
+    # Pero compile_ok=False porque TIA reporto errores.
+    assert result["compile_ok"] is False
+    assert result["compile_error"] is not None
+    # El mensaje menciona TIA y/o DBs.
+    assert "TIA" in result["compile_error"] or "DBs" in result["compile_error"]
+
+
+@pytest.mark.asyncio
+async def test_ejecutar_transaccion_handles_compile_exception_gracefully(
+    use_case, mock_gateway
+):
+    """Si ``compile_plc`` lanza una excepcion, no fallamos el resultado.
+
+    El commit ya fue aplicado. Reportamos el error de compilacion pero
+    no abortamos: el operario puede ver el problema en TIA Portal
+    directamente.
+    """
+    mock_gateway.execute_transactional_batch.return_value = {
+        "success": True,
+        "operations_executed": 3,
+        "details": [],
+    }
+    mock_gateway.compile_plc = AsyncMock(
+        side_effect=RuntimeError("TIA Openness timeout")
+    )
+
+    result = await use_case.ejecutar_transaccion("PLC1", {})
+    # El commit fue exitoso, asi que success=True.
+    assert result["success"] is True
+    # Pero compile_ok=False y compile_error tiene la excepcion.
+    assert result["compile_ok"] is False
+    assert "TIA Openness timeout" in result["compile_error"]

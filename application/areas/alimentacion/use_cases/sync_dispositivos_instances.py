@@ -269,16 +269,18 @@ class SyncDispositivosInstancesUseCase:
         # ── Construir la lista de operaciones para la transacción única ──
         operations: list[dict[str, Any]] = []
 
-        # =====================================================================
-        # === OFFLINE: import_plc_tags_xml para add/remove de devices     ===
-        # ===                                                              ===
-        # === TagTableModifier (infrastructure/xml/modifiers.py) ya ha   ===
-        # === modificado los XMLs en tags_ready/ arriba (en _compute_diff) ===
-        # === anyadiendo los nuevos PlcUserConstants y eliminando los que  ===
-        # === no estan en el Excel. Aqui emitimos UN SOLO comando de       ===
-        # === import que re-ingresa TODOS los XMLs modificados en TIA.   ===
-        # === El worker abre la transaccion, importa, y cierra.          ===
-        # =====================================================================
+        # OFFLINE: import_plc_tags_xml para add/remove de devices.
+        # TagTableModifier (infrastructure/xml/modifiers.py) ya ha
+        # modificado los XMLs en tags_ready/ arriba (en _compute_diff)
+        # anyadiendo los nuevos PlcUserConstants y eliminando los que
+        # no estan en el Excel. Aqui emitimos UN SOLO comando de import
+        # que re-ingresa TODOS los XMLs modificados en TIA. El worker
+        # abre la transaccion, importa, y cierra.
+        #
+        # CRITICO: el XML se guarda en tags_ready/<tia_folder>/<xml>
+        # (preservando la estructura de carpetas TIA) para que el
+        # wrapper import_plc_tags pueda hacer merge con las tablas
+        # existentes. Ver _resolve_tia_folder.
         if added or removed:
             operations.append({
                 "command": "import_plc_tags_xml",
@@ -297,7 +299,6 @@ class SyncDispositivosInstancesUseCase:
         # === se hace con update_user_constant_name (no rename_plc_tag,  ===
         # === que opera sobre PlcTag y falla con "No se encontro        ===
         # === PlcTag con Name=..." en este caso).                          ===
-        # =====================================================================
         for uid_with_table, (old, new) in renamed.items():
             # uid_with_table es "table_key:uid_str" (p.ej. "2000_Disp_ED:5").
             # Extraemos el table_key para usarlo como ``table_name``.
@@ -312,7 +313,7 @@ class SyncDispositivosInstancesUseCase:
                 },
             })
 
-        # ONLINE: update_user_constant_value (N_MAX). Siempre activo.
+        # ONLINE: update_user_constant_value (N_MAX).
         nmax_ops = self._compute_nmax_ops_for_apply(plc_name, tags_base)
         operations.extend(nmax_ops)
 
@@ -345,12 +346,49 @@ class SyncDispositivosInstancesUseCase:
                 f"[{plc_name}] Post-sync preview fallo (commit ya aplicado): {exc}"
             )
             post_sync_preview = None
+
+        # POST-COMMIT: compilacion del PLC.
+        # NO va dentro de la transaccion del worker porque:
+        # 1. La transaccion ya hizo end_transaction(rollback=False);
+        #    el PLC ya esta modificado.
+        # 2. La compilacion puede fallar (p. ej. N_MAX cambia dimensiones
+        #    de DBs que las referencian) y eso NO debe revertir el sync
+        #    (los cambios del Excel ya estan en el PLC).
+        # 3. Semantica Siemens: compile_software() retorna True si HAY
+        #    errores, False si NO hay errores. Invertimos para que
+        #    ``compile_ok`` sea True en el caso feliz.
+        compile_ok = True
+        compile_error = None
+        try:
+            has_errors = await self._gateway.compile_plc(plc_name)
+            compile_ok = not has_errors
+            if not compile_ok:
+                compile_error = (
+                    "TIA reporta errores de compilacion. Revisa el "
+                    "proyecto en TIA Portal: los DBs pueden haber "
+                    "quedado con tamano inconsistente tras el resize "
+                    "de N_MAX."
+                )
+                _logger.warning(
+                    f"[{plc_name}] Compilacion con errores (commit ya aplicado)."
+                )
+            else:
+                _logger.info(f"[{plc_name}] Compilacion OK.")
+        except Exception as exc:
+            compile_ok = False
+            compile_error = f"Excepcion durante la compilacion: {exc}"
+            _logger.warning(
+                f"[{plc_name}] Compilacion fallo (commit ya aplicado): {exc}"
+            )
+
         return {
             "success": True,
             "message": f"Inyeccion completada. Detalles: {result['details']}",
             "operations": result["operations_executed"],
             "n_max_updates": len(nmax_ops),
             "post_sync_preview": post_sync_preview,
+            "compile_ok": compile_ok,
+            "compile_error": compile_error,
         }
 
     async def execute(self, plc_name: str) -> dict[str, Any]:
