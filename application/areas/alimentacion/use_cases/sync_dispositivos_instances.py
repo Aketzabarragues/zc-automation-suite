@@ -266,34 +266,33 @@ class SyncDispositivosInstancesUseCase:
             self._compute_diff, tags_base, desired_state_per_table, tags_ready
         )
 
-        # ── Construir la lista de operaciones para la transacci\u00f3n \u00fanica ──
+        # ── Construir la lista de operaciones para la transacción única ──
         operations: list[dict[str, Any]] = []
 
-        # 1) OFFLINE: import_plc_tags_xml (si hay a\u00f1adidos o eliminados).
-        if added or removed:
-            operations.append({
-                "command": "import_plc_tags_xml",
-                "args": {
-                    "plc_name": plc_name,
-                    "import_dir": str(tags_ready),
-                    "target_folder": "",
-                },
-            })
+        # =====================================================================
+        # === TEMPORAL: devices desactivados hasta resolver el bug del     ===
+        # === rename_plc_tag. El worker falla con "No se encontró PlcTag  ===
+        # === con Name=... en PLC ..." porque en TIA estos devices son     ===
+        # === PlcUserConstants (en tag tables 2000_Disp_*), NO PlcTags.    ===
+        # === rename_plc_tag opera sobre PlcTags, no PlcUserConstants.     ===
+        # === Probable fix futuro: usar update_user_constant_name en vez   ===
+        # === de rename_plc_tag, o unificar el rename.                    ===
+        # === Por ahora, comentamos la llamada al helper pero el código   ===
+        # === del helper (_build_device_operations) se conserva intacto.   ===
+        # =====================================================================
+        # device_ops = self._build_device_operations(
+        #     plc_name=plc_name,
+        #     added=added,
+        #     removed=removed,
+        #     renamed=renamed,
+        #     tags_ready=tags_ready,
+        # )
+        # operations.extend(device_ops)
+        # =====================================================================
+        # === FIN TEMPORAL                                                  ===
+        # =====================================================================
 
-        # 2) ONLINE: rename_plc_tag (devices renombrados).
-        for _uid_with_table, (old, new) in renamed.items():
-            operations.append({
-                "command": "rename_plc_tag",
-                "args": {
-                    "plc_name": plc_name,
-                    "old_name": old,
-                    "new_name": new,
-                },
-            })
-
-        # 3) ONLINE: update_user_constant_value (N_MAX, NUEVO en esta
-        #    release). Se calcula desde AppState.dimensiones y el TIA
-        #    ya exportado a tags_base (mismo export que usa devices).
+        # ONLINE: update_user_constant_value (N_MAX). Siempre activo.
         nmax_ops = self._compute_nmax_ops_for_apply(plc_name, tags_base)
         operations.extend(nmax_ops)
 
@@ -307,7 +306,7 @@ class SyncDispositivosInstancesUseCase:
 
         result = await self._gateway.execute_transactional_batch(
             operations,
-            undo_text="Sincronizar Dispositivos + N_MAX",
+            undo_text="Sincronizar N_MAX (devices temporalmente desactivados)",
         )
         return {
             "success": True,

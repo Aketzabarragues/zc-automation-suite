@@ -337,8 +337,8 @@ async def test_ejecutar_transaccion_single_batch_with_nmax_and_devices(
         assert op["args"]["table_name"] == "000_Config_Dispositivos"
     # El undo_text menciona el \u00e1mbito.
     undo_text = call.kwargs.get("undo_text") or call.args[1]
-    assert "Dispositivos" in undo_text
     assert "N_MAX" in undo_text
+    assert "devices" in undo_text  # marcador bypass
     # El resultado incluye el conteo de N_MAX updates.
     assert "n_max_updates" in result
 
