@@ -199,8 +199,31 @@ export default {
                     store.previewData
                 );
                 if (r.ok) {
-                    pushLog("Transacción aplicada OK", "success");
-                    store.previewData = null;
+                    // Tras un commit exitoso, el backend ya re-corre el
+                    // preview y lo devuelve en `post_sync_preview`. Lo usamos
+                    // para refrescar la vista directamente: si el sync fue
+                    // completo, este preview mostrara 0 cambios (todo en sync).
+                    // Si por algun motivo no viene (raro), hacemos fallback a
+                    // llamar al endpoint de preview manualmente.
+                    if (r.data && r.data.post_sync_preview) {
+                        store.previewData = r.data.post_sync_preview;
+                        pushLog(
+                            "Transacción aplicada OK. Vista refrescada con estado post-sync.",
+                            "success"
+                        );
+                    } else {
+                        // Fallback: re-llamar al preview endpoint.
+                        const rp = await apiGeneratePreview(
+                            store.selectedPlc
+                        );
+                        if (rp.ok) {
+                            store.previewData = rp.data;
+                        }
+                        pushLog(
+                            "Transacción aplicada OK. Preview refrescado (fallback).",
+                            "success"
+                        );
+                    }
                 } else {
                     alert(
                         "Error aplicando: " + (r.data.detail || r.status)
