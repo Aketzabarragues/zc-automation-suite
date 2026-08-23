@@ -17,12 +17,31 @@ InyecciÃ³n de dependencias:
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import sys
 import traceback
 from pathlib import Path
 from typing import Any, Callable, NoReturn
+
+# Forzar UTF-8 en los streams del worker.
+# El worker es un subproceso de TIAProcessGateway (vía
+# asyncio.create_subprocess_exec en Windows con CreateProcess).
+# La reconfigure de main.py NO se hereda al subproceso, así que
+# lo hacemos también aquí. Sin esto, Pythonnet intenta convertir
+# strings de TIA Portal (Latin-1) a Python UTF-8 y revienta con
+# "utf-8 codec can't decode byte 0xe1 in position N".
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+        sys.stderr.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+        sys.stdin.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+    except (AttributeError, Exception):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+        sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="replace")
+
 
 
 def _write_json_and_exit(payload: dict[str, Any], code: int) -> NoReturn:

@@ -52,6 +52,17 @@ class TIAProcessGateway:
         """Lanza main.py (o el .exe congelado) con --worker y le envía el payload por STDIN."""
         exec_args = self._resolve_worker_exec_args()
 
+        # Forzar encoding UTF-8 en el subproceso (heredado del
+        # padre). Sin esto, en Windows el worker arranca con
+        # cp1252 y Pythonnet revienta al convertir strings de
+        # TIA Portal (Latin-1) a Python UTF-8.
+        import os as _os
+        worker_env = {
+            **_os.environ,
+            "PYTHONIOENCODING": "utf-8",
+            "PYTHONUTF8": "1",
+        }
+
         # Invocación: -u (unbuffered I/O) en desarrollo, solo --worker en frozen.
         proc = await asyncio.create_subprocess_exec(
             sys.executable,
@@ -59,6 +70,7 @@ class TIAProcessGateway:
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=worker_env,
         )
 
         payload_bytes = json.dumps({"command": command, "args": args or {}}).encode(
