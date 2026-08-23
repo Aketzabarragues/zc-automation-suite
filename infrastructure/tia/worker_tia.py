@@ -78,12 +78,44 @@ def _find_plc(project: Any, plc_name: str) -> Any:
         raise ValueError("Se requiere el argumento 'plc_name'.")
 
     for plc in project.get_plcs():
-        if plc.get_name() == plc_name:
+        if _safe_get_plc_name(plc) == plc_name:
             return plc
 
     raise RuntimeError(
         f"No se encontrÃ³ ningÃºn PLC con el nombre '{plc_name}' en el proyecto activo."
     )
+
+
+def _safe_get_plc_name(plc) -> str | None:
+    """Lee el nombre de un Plc tolerando errores de encoding.
+
+    Algunos PLCs / tablas del proyecto tienen nombres con
+    caracteres no-ASCII (Latin-1, p.ej. acentos). Pythonnet
+    intenta convertir el .Name a Python str y revienta con
+    UnicodeDecodeError. Como nosotros solo necesitamos comparar
+    contra nombres ASCII, devolvemos None en ese caso (la
+    comparaciÃ³n fallarÃ¡ y se tratarÃ¡ como "no es la que
+    buscamos").
+    """
+    try:
+        return plc.get_name()
+    except UnicodeDecodeError:
+        return None
+
+
+def _safe_get_table_name(table) -> str | None:
+    """Lee el nombre de una PlcTagTable tolerando errores de encoding.
+
+    Ver ``_safe_get_plc_name``. Algunas PlcTagTables del proyecto
+    tienen nombres con caracteres no-ASCII (Latin-1) que hacen
+    fallar la conversiÃ³n a Python str via Pythonnet. Como
+    nuestra tabla objetivo siempre tiene nombre ASCII, saltamos
+    cualquier tabla que no se pueda decodificar.
+    """
+    try:
+        return table.get_name()
+    except UnicodeDecodeError:
+        return None
 
 
 def _ensure_target_dir(target_dir: str) -> Path:
@@ -484,7 +516,7 @@ def _cmd_get_user_constants(portal: Any, ts: Any, args: dict[str, Any]) -> dict[
         raise ValueError("Se requiere el argumento 'table_name'.")
     target_plc = _find_plc(project, plc_name)
     tables = target_plc.get_plc_tag_tables()
-    table = next((t for t in tables if t.get_name() == table_name), None)
+    table = next((t for t in tables if _safe_get_table_name(t) == table_name), None)
     if table is None:
         raise RuntimeError(f"Tabla '{table_name}' no encontrada en PLC '{plc_name}'.")
     result: dict[str, str] = {}
@@ -509,7 +541,22 @@ def _cmd_update_user_constant_value(portal: Any, ts: Any, args: dict[str, Any]) 
     new_value: int = args.get("new_value", 0)
     target_plc = _find_plc(project, plc_name)
     tables = target_plc.get_plc_tag_tables()
-    table = next((t for t in tables if t.get_name() == table_name), None)
+    # FIX UTF-8: algunas PlcTagTables del PLC tienen nombres con
+    # caracteres no-ASCII (latin-1, p.ej. 'Dispositivos' o
+    # 'Configuracion'). Al iterar, Pythonnet intenta convertir
+    # cada .get_name() a Python str y revienta con UnicodeDecodeError.
+    # Como nuestra tabla objetivo tiene nombre ASCII
+    # ('000_Config_Dispositivos'), podemos saltarnos las tablas
+    # que fallen al decodificar su nombre; no son la nuestra.
+    def _safe_get_name(t):
+        try:
+            return t.get_name()
+        except UnicodeDecodeError:
+            return None
+    table = next(
+        (t for t in tables if _safe_get_name(t) == table_name),
+        None,
+    )
     if table is None:
         raise RuntimeError(f"Tabla '{table_name}' no encontrada.")
     for constant in table.get_user_constants():
@@ -529,7 +576,7 @@ def _cmd_update_user_constant_name(portal: Any, ts: Any, args: dict[str, Any]) -
     new_name: str = args.get("new_name", "")
     target_plc = _find_plc(project, plc_name)
     tables = target_plc.get_plc_tag_tables()
-    table = next((t for t in tables if t.get_name() == table_name), None)
+    table = next((t for t in tables if _safe_get_table_name(t) == table_name), None)
     if table is None:
         raise RuntimeError(f"Tabla '{table_name}' no encontrada.")
     for constant in table.get_user_constants():
@@ -602,7 +649,7 @@ def _cmd_delete_user_constant(portal: Any, ts: Any, args: dict[str, Any]) -> boo
     constant_name: str = args.get("constant_name", "")
     target_plc = _find_plc(project, plc_name)
     tables = target_plc.get_plc_tag_tables()
-    table = next((t for t in tables if t.get_name() == table_name), None)
+    table = next((t for t in tables if _safe_get_table_name(t) == table_name), None)
     if table is None:
         raise RuntimeError(f"Tabla '{table_name}' no encontrada.")
     for constant in table.get_user_constants():
