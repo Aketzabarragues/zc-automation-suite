@@ -115,7 +115,13 @@ class TIAProcessGateway:
             )
 
         if not json_response.get("ok"):
-            raise RuntimeError(json_response.get("error", "Error interno en el worker OT."))
+            # Incluir stderr del worker para diagnóstico (traceback
+            # completo, mensajes de Pythonnet, etc.). Sin esto,
+            # solo vemos el error resumido.
+            err = json_response.get("error", "Error interno en el worker OT.")
+            if stderr_text:
+                raise RuntimeError(f"{err} | STDERR: {stderr_text[:2000]}")
+            raise RuntimeError(err)
 
         return json_response.get("result")
 
