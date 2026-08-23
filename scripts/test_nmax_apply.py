@@ -62,18 +62,21 @@ async def main(plc_name: str) -> int:
     state = get_app_state()
 
     # 2. Settear dimensiones de test (todos a 99) en AppState.
-    #    Esto garantiza que el diff de N_MAX detecta cambios
-    #    respecto a los valores actuales del PLC (que son 5).
-    d = state.dimensiones
-    d.num_disp_ed = 99
-    d.num_disp_ea = 99
-    d.num_disp_sa = 99
-    d.num_disp_v = 99
-    d.num_disp_m = 99
-    d.num_disp_m_vf = 99
+    #    ``DimensionesDispositivos`` es frozen=True, así que no se
+    #    puede mutar; construimos una instancia nueva y la
+    #    reemplazamos vía ``object.__setattr__`` (que bypassea el
+    #    frozen). Esto garantiza que el diff de N_MAX detecta
+    #    cambios respecto a los valores actuales del PLC (que son 5).
+    from core.alimentacion.models.dispositivos import DimensionesDispositivos
+    new_dims = DimensionesDispositivos(
+        num_disp_ed=99, num_disp_ea=99, num_disp_sa=99,
+        num_disp_v=99, num_disp_m=99, num_disp_m_vf=99,
+    )
+    object.__setattr__(state, "dimensiones", new_dims)
     print(f"Desired N_MAX (en AppState):")
-    print(f"  ED={d.num_disp_ed}, EA={d.num_disp_ea}, SA={d.num_disp_sa}, "
-          f"V={d.num_disp_v}, M={d.num_disp_m}, M_VF={d.num_disp_m_vf}")
+    print(f"  ED={new_dims.num_disp_ed}, EA={new_dims.num_disp_ea}, "
+          f"SA={new_dims.num_disp_sa}, V={new_dims.num_disp_v}, "
+          f"M={new_dims.num_disp_m}, M_VF={new_dims.num_disp_m_vf}")
     print()
 
     # 3. Construir el use case y ejecutar.
