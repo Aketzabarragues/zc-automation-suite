@@ -515,8 +515,8 @@ class SyncDispositivosInstancesUseCase:
             base_state_per_table,
         )
 
-    @staticmethod
     def _compute_diff(
+        self,
         tags_base: Path,
         desired_state_per_table: dict[str, dict[str, str]],
         tags_ready: Path,
@@ -526,10 +526,8 @@ class SyncDispositivosInstancesUseCase:
         Devuelve la lista plana de a\u00f1adidos, eliminados y renombrados
         (los renombrados con prefijo ``table_key:uid``).
         """
-        _added, _removed, _renamed, _ = (
-            SyncDispositivosInstancesUseCase._compute_diff_readonly(
-                tags_base, desired_state_per_table
-            )
+        _added, _removed, _renamed, _ = self._compute_diff_readonly(
+            tags_base, desired_state_per_table
         )
         for table_key, desired in desired_state_per_table.items():
             xml_path = tags_base / f"{table_key}.xml"
@@ -553,10 +551,39 @@ class SyncDispositivosInstancesUseCase:
             modifier.add_user_constants_by_table(stem, dtos_for_table)
             modifier.remove_user_constants(set(table_removed))
             if modifier.was_modified():
-                modifier.save(tags_ready / xml_path.name)
+                # CRITICO: preservar la estructura de carpetas TIA al
+                # guardar el XML. TIA usa la ruta del archivo para
+                # saber en que carpeta del PLC va la tabla. Si lo
+                # aplana, TIA interpreta que es una tabla nueva en el
+                # root y falla con "la tabla de variables ya existe"
+                # porque hay otra con el mismo nombre en su carpeta
+                # original (p. ej. 2000_Dispositivos/).
+                tia_folder = self._resolve_tia_folder(table_key)
+                target_dir = tags_ready / tia_folder
+                target_dir.mkdir(parents=True, exist_ok=True)
+                modifier.save(target_dir / xml_path.name)
         all_added = [uid for adds in _added.values() for uid in adds]
         all_removed = [uid for rems in _removed.values() for uid in rems]
         return all_added, all_removed, _renamed
+
+    def _resolve_tia_folder(self, table_key: str) -> str:
+        """Resuelve la carpeta TIA donde debe guardarse el XML de ``table_key``.
+
+        El wrapper ``import_plc_tags`` usa la ruta del archivo XML para
+        determinar en que carpeta del PLC se importa la tabla. Si la
+        ruta no coincide con la carpeta original, TIA interpreta que
+        es una tabla nueva y falla con "la tabla ya existe".
+
+        Returns:
+            Nombre de la carpeta TIA (de ``config.json: tia_folders``)
+            correspondiente a esta tabla.
+        """
+        nmax_table = self._config.get_global_config_table_name()
+        if table_key == nmax_table:
+            # Tabla N_MAX (000_Config_Dispositivos) -> carpeta 000_Sistema.
+            return self._config.get_tia_folder_nmax()
+        # Tablas de devices (2000_Disp_*) -> carpeta 2000_Dispositivos.
+        return self._config.get_tia_folder_dispositivos()
 
     def _build_desired_state_from_app(self) -> dict[str, dict[str, str]]:
         """Construye ``{tag_table: {uid: plc_tag}}`` desde el ``AppState``.

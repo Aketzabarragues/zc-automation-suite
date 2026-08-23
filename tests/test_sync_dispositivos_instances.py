@@ -484,11 +484,14 @@ async def test_ejecutar_transaccion_emits_import_op_for_adds_and_removes(
     # El import_dir debe apuntar a un directorio que existe.
     import_dir = Path(import_op["args"]["import_dir"])
     assert import_dir.exists(), f"import_dir no existe: {import_dir}"
-    # El directorio debe contener los XMLs modificados.
-    xml_files = list(import_dir.glob("*.xml"))
+    # El directorio debe contener los XMLs modificados. La estructura
+    # preserva la carpeta TIA (2000_Dispositivos/) para que el wrapper
+    # import_plc_tags pueda hacer merge con las tablas existentes.
+    xml_files = list(import_dir.rglob("*.xml"))
     assert len(xml_files) > 0, "import_dir vacio: no se generaron XMLs"
-    # El XML de 2000_Disp_ED debe contener V_999 (el nuevo) pero NO V_002 (el quitado).
-    ed_xml = import_dir / "2000_Disp_ED.xml"
-    if ed_xml.exists():
-        content = ed_xml.read_text(encoding="utf-8")
-        assert "V_NEW_FROM_TEST" in content, "V_NEW_FROM_TEST no aparece en el XML"
+    # El XML de 2000_Disp_ED debe estar en 2000_Dispositivos/ y
+    # contener V_999 (el nuevo) pero NO V_002 (el quitado).
+    ed_xml = import_dir / "2000_Dispositivos" / "2000_Disp_ED.xml"
+    assert ed_xml.exists(), f"XML no encontrado en {ed_xml}"
+    ed_content = ed_xml.read_text(encoding="utf-8")
+    assert "V_NEW_FROM_TEST" in ed_content, "V_NEW_FROM_TEST no aparece en el XML"
