@@ -171,8 +171,12 @@ def app_state_with_full_data() -> AppState:
             cfg_grupo_alarma="", comentario_db="",
         ),
     ]
+    # V_OLD -> V_VA_101 (TIA mock tiene V_OLD; aqui queremos V_VA_101).
+    # Usamos un stub porque no hay una clase DispV en el modelo.
     state.dispositivos_v = [
-        # numero=1, plc_tag="V_VA_101" (TIA tiene V_OLD) -> rename.
+        type("DispVStub", (), {
+            "numero": 1, "plc_tag": "V_VA_101", "uid": "V_001"
+        })(),
     ]
     return state
 
@@ -294,6 +298,8 @@ async def test_ejecutar_transaccion_empty_no_batch(
             cfg_grupo_alarma="", comentario_db="",
         ),
     ]
+    # Note: el test es `test_ejecutar_transaccion_empty_no_batch`,
+    # asi que dejamos dispositivos_v vacio (sin renames).
     use_case._state.dispositivos_v = []
     result = await use_case.ejecutar_transaccion("PLC1", {})
     assert result["success"] is True
@@ -302,20 +308,22 @@ async def test_ejecutar_transaccion_empty_no_batch(
 
 
 @pytest.mark.asyncio
+@pytest.mark.asyncio
 async def test_ejecutar_transaccion_single_batch_with_nmax_and_devices(
     use_case, mock_gateway
 ):
-    """Si hay N_MAX + devices, se invocan TODAS en UNA sola transacci\u00f3n.
+    """Si hay N_MAX + device renames, se invocan TODAS en UNA sola transaccion.
 
     Verifica que ``execute_transactional_batch`` se llama UNA vez con
     la lista de ops que incluye:
       - ``update_user_constant_value`` para N_MAX.
-      - (eventualmente) ``rename_plc_tag`` para devices renombrados.
-      - (eventualmente) ``import_plc_tags_xml`` para add/remove.
+      - ``update_user_constant_name`` para devices renombrados
+        (NO ``rename_plc_tag`` que opera sobre PlcTag, no PlcUserConstant).
 
-    En este test solo verificamos que:
-      1. La transacci\u00f3n se llama UNA vez.
-      2. Incluye al menos UNA op ``update_user_constant_value`` (N_MAX).
+    En esta release:
+      1. La transaccion se llama UNA vez.
+      2. Incluye ops ``update_user_constant_value`` (N_MAX).
+      3. Incluye ops ``update_user_constant_name`` (devices renombrados).
     """
     mock_gateway.execute_transactional_batch.return_value = {
         "success": True,
@@ -324,21 +332,31 @@ async def test_ejecutar_transaccion_single_batch_with_nmax_and_devices(
     }
     result = await use_case.ejecutar_transaccion("PLC1", {})
     assert result["success"] is True
-    # 1 sola llamada a la transacci\u00f3n.
+    # 1 sola llamada a la transaccion.
     mock_gateway.execute_transactional_batch.assert_called_once()
-    # La lista de ops incluye update_user_constant_value (N_MAX).
     call = mock_gateway.execute_transactional_batch.call_args
     operations = call.kwargs.get("operations") or call.args[0]
+    # 1) Verificar ops de N_MAX.
     nmax_ops = [op for op in operations if op["command"] == "update_user_constant_value"]
     assert len(nmax_ops) > 0
-    # Todas las N_MAX ops tienen plc_name=PLC1 y table_name correcto.
     for op in nmax_ops:
         assert op["args"]["plc_name"] == "PLC1"
         assert op["args"]["table_name"] == "000_Config_Dispositivos"
-    # El undo_text menciona el \u00e1mbito.
+    # 2) Verificar ops de device renames (update_user_constant_name).
+    rename_ops = [op for op in operations if op["command"] == "update_user_constant_name"]
+    assert len(rename_ops) > 0
+    for op in rename_ops:
+        assert op["args"]["plc_name"] == "PLC1"
+        assert "table_name" in op["args"]
+        assert "current_name" in op["args"]
+        assert "new_name" in op["args"]
+    # 3) NO debe haber rename_plc_tag (es el bug que corregimos).
+    legacy_renames = [op for op in operations if op["command"] == "rename_plc_tag"]
+    assert len(legacy_renames) == 0, "rename_plc_tag no debe usarse; los devices son PlcUserConstants."
+    # El undo_text menciona el ambito.
     undo_text = call.kwargs.get("undo_text") or call.args[1]
     assert "N_MAX" in undo_text
-    assert "devices" in undo_text  # marcador bypass
+    assert "Dispositivos" in undo_text
     # El resultado incluye el conteo de N_MAX updates.
     assert "n_max_updates" in result
 

@@ -270,27 +270,31 @@ class SyncDispositivosInstancesUseCase:
         operations: list[dict[str, Any]] = []
 
         # =====================================================================
-        # === TEMPORAL: devices desactivados hasta resolver el bug del     ===
-        # === rename_plc_tag. El worker falla con "No se encontró PlcTag  ===
-        # === con Name=... en PLC ..." porque en TIA estos devices son     ===
-        # === PlcUserConstants (en tag tables 2000_Disp_*), NO PlcTags.    ===
-        # === rename_plc_tag opera sobre PlcTags, no PlcUserConstants.     ===
-        # === Probable fix futuro: usar update_user_constant_name en vez   ===
-        # === de rename_plc_tag, o unificar el rename.                    ===
-        # === Por ahora, comentamos la llamada al helper pero el código   ===
-        # === del helper (_build_device_operations) se conserva intacto.   ===
+        # === RENOMBRADO de devices (PlcUserConstants)                    ===
+        # ===                                                              ===
+        # === Las variables del Excel (plc_tag) se persisten como         ===
+        # === PlcUserConstants en las tag tables 2000_Disp_*. El rename   ===
+        # === se hace con update_user_constant_name (no rename_plc_tag,  ===
+        # === que opera sobre PlcTag y falla con "No se encontro        ===
+        # === PlcTag con Name=..." en este caso).                          ===
+        # ===                                                              ===
+        # === add/remove (import_plc_tags_xml) sigue comentado porque     ===
+        # === requiere modificar el XML offline, validar, e importar, lo  ===
+        # === cual entramos en otra release.                               ===
         # =====================================================================
-        # device_ops = self._build_device_operations(
-        #     plc_name=plc_name,
-        #     added=added,
-        #     removed=removed,
-        #     renamed=renamed,
-        #     tags_ready=tags_ready,
-        # )
-        # operations.extend(device_ops)
-        # =====================================================================
-        # === FIN TEMPORAL                                                  ===
-        # =====================================================================
+        for uid_with_table, (old, new) in renamed.items():
+            # uid_with_table es "table_key:uid_str" (p.ej. "2000_Disp_ED:5").
+            # Extraemos el table_key para usarlo como ``table_name``.
+            table_key, _, _ = uid_with_table.partition(":")
+            operations.append({
+                "command": "update_user_constant_name",
+                "args": {
+                    "plc_name": plc_name,
+                    "table_name": table_key,
+                    "current_name": old,
+                    "new_name": new,
+                },
+            })
 
         # ONLINE: update_user_constant_value (N_MAX). Siempre activo.
         nmax_ops = self._compute_nmax_ops_for_apply(plc_name, tags_base)
@@ -306,7 +310,7 @@ class SyncDispositivosInstancesUseCase:
 
         result = await self._gateway.execute_transactional_batch(
             operations,
-            undo_text="Sincronizar N_MAX (devices temporalmente desactivados)",
+            undo_text="Sincronizar N_MAX + Dispositivos",
         )
         return {
             "success": True,
