@@ -369,3 +369,44 @@ async def test_ejecutar_transaccion_propagates_errors(use_case, mock_gateway):
     )
     with pytest.raises(RuntimeError, match="Worker rollback"):
         await use_case.ejecutar_transaccion("PLC1", {})
+
+@pytest.mark.asyncio
+async def test_ejecutar_transaccion_includes_post_sync_preview(
+    use_case, mock_gateway, monkeypatch
+):
+    """Despues del commit, ejecutar_transaccion re-corre generar_prevision.
+
+    Esto permite que la SPA muestre el estado "todo en sync" sin
+    tener que pedir el preview de nuevo.
+    """
+    # Mock the gateway batch to succeed.
+    mock_gateway.execute_transactional_batch.return_value = {
+        "success": True,
+        "operations_executed": 3,
+        "details": [],
+    }
+
+    # Mock generar_prevision (called twice: once for the result of
+    # the first call in ejecutar_transaccion). We make it return a
+    # known shape so we can verify it ends up in the response.
+    async def fake_prevision(self, plc_name_arg):
+        return {
+            "agregados": [],
+            "eliminados": [],
+            "renombrados": [],
+            "todos": [],
+            "nmax": {"current": {}, "desired": {}, "todos": [], "summary": {"actualizar": 0, "sin_cambios": 0, "total": 0}},
+            "summary": {"agregados": 0, "eliminados": 0, "renombrados": 0, "sin_cambios": 0, "total": 0},
+        }
+    monkeypatch.setattr(
+        "application.areas.alimentacion.use_cases.sync_dispositivos_instances."
+        "SyncDispositivosInstancesUseCase.generar_prevision",
+        fake_prevision,
+    )
+
+    result = await use_case.ejecutar_transaccion("PLC1", {})
+    assert result["success"] is True
+    # El resultado incluye el post_sync_preview con el shape esperado.
+    assert "post_sync_preview" in result
+    assert result["post_sync_preview"] is not None
+    assert result["post_sync_preview"]["summary"]["total"] == 0

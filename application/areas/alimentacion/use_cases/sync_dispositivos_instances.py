@@ -301,22 +301,40 @@ class SyncDispositivosInstancesUseCase:
         operations.extend(nmax_ops)
 
         if not operations:
+            # El PLC ya esta en sync: devolvemos tambien el preview para que
+            # la SPA muestre el estado "todo en orden" sin pedirlo de nuevo.
+            post_sync_preview = await self.generar_prevision(plc_name)
             return {
                 "success": True,
                 "message": "Sin cambios: el PLC ya coincide con el AppState.",
                 "added": [], "removed": [], "renombrados": [],
                 "operations": 0,
+                "n_max_updates": 0,
+                "post_sync_preview": post_sync_preview,
             }
 
         result = await self._gateway.execute_transactional_batch(
             operations,
             undo_text="Sincronizar N_MAX + Dispositivos",
         )
+        # Despues de end_transaction (sin rollback), re-ejecutamos el
+        # preview para que la SPA vea el estado "todo en sync" sin
+        # tener que pedirlo de nuevo. Si falla (p.ej. TIA en estado
+        # raro), loggeamos warning pero NO fallamos el commit: el
+        # apply ya fue exitoso.
+        try:
+            post_sync_preview = await self.generar_prevision(plc_name)
+        except Exception as exc:
+            _logger.warning(
+                f"[{plc_name}] Post-sync preview fallo (commit ya aplicado): {exc}"
+            )
+            post_sync_preview = None
         return {
             "success": True,
             "message": f"Inyeccion completada. Detalles: {result['details']}",
             "operations": result["operations_executed"],
             "n_max_updates": len(nmax_ops),
+            "post_sync_preview": post_sync_preview,
         }
 
     async def execute(self, plc_name: str) -> dict[str, Any]:
