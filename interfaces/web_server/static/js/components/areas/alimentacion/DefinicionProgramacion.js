@@ -2,7 +2,7 @@
  * Componente DefinicionProgramacion.
  *
  * Vista que combina:
- *   1. Carga del maestro Excel (antes en el Sidebar, ahora al inicio
+ *   1. Carga excel (antes en el Sidebar, ahora al inicio
  *      de esta vista).
  *   2. Inspector de Memoria: tabla reactiva con todas las columnas
  *      del dataclass activo (DispED / DispEA / DispSA / DispV /
@@ -164,20 +164,14 @@ export default {
     template: /* html */ `
         <section class="flex-1 flex flex-col overflow-hidden">
 
-            <!-- ★ Carga del Excel (movida del Sidebar al inicio de esta vista) ★ -->
+            <!-- ★ Carga excel (movida del Sidebar al inicio de esta vista) ★ -->
             <section class="mb-4 bg-surface-raised border border-line rounded p-4">
-                <label class="block text-xs font-semibold text-ink-muted uppercase mb-2">1. Maestro Excel</label>
+                <label class="block text-xs font-semibold text-ink-muted uppercase mb-2">Carga excel</label>
                 <input ref="fileInput" type="file" accept=".xlsm"
                     @change="handleExcel" :disabled="store.busy"
                     class="block w-full text-xs text-ink file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:bg-surface-sunken file:text-ink hover:file:bg-surface-sunken" />
                 <div v-if="store.uploadSummary" class="mt-2 text-xs text-ink-muted">
-                    <div class="text-accent mb-1">✅ Excel cargado</div>
-                    <ul class="space-y-0.5 pl-2">
-                        <li v-for="(qty, tipo) in store.uploadSummary" :key="tipo">
-                            <span class="font-mono text-accent">{{ tipo }}</span>:
-                            <span class="font-semibold">{{ qty }}</span>
-                        </li>
-                    </ul>
+                    <div class="text-accent">✅ Excel cargado</div>
                 </div>
             </section>
 
