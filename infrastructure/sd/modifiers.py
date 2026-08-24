@@ -18,15 +18,11 @@ Convención de campos cfg_*:
   - ``cfg_* := TRUE;``           → habilitación booleana
   - ``cfg_* := 5;``               → asignación entera
   - ``cfg_* := DB_xxx.YYY;``      → referencia a otro bloque
-  - Cada dispositivo del dominio tiene hasta 16 campos ``cfg_*``
-    (ver ``core.alimentacion.models.dispositivos``).
 """
 from __future__ import annotations
 
 import re
 from pathlib import Path
-
-from core.alimentacion.models.dispositivos import Dispositivo
 
 
 _MARKER_START = "// AUTO_GEN_START"
@@ -146,43 +142,9 @@ class SDModifier:
 
         return False
 
-    # ── Backwards-compatible: insert_calls (legacy) ──────────────────
-    def insert_calls(self, call_names: list[str]) -> bool:
-        """(LEGACY) Inserta llamadas ``Name();`` entre marcadores.
-
-        Conservado por compatibilidad con código previo que asume este
-        patrón. El motor de dispositivos moderno usa
-        ``update_or_insert_assignment`` (basado en LHS := ...;).
-        """
-        if (
-            _MARKER_START not in self._content
-            or _MARKER_END not in self._content
-        ):
-            return False
-
-        existing_names: set[str] = set(re.findall(
-            r"^\s*(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\)\s*;\s*$",
-            self._content, re.MULTILINE
-        ))
-        new_calls = [
-            name for name in call_names
-            if isinstance(name, str) and name.strip() and name.strip() not in existing_names
-        ]
-        if not new_calls:
-            return False
-
-        rendered_calls = "\n".join(f"  {name}();" for name in new_calls)
-        patched, _ = _MARKERS_PATTERN.subn(
-            lambda m: f"{_MARKER_START}\n{rendered_calls}\n{_MARKER_END}",
-            self._content, count=1
-        )
-        self._content = patched
-        self._modified = True
-        return True
-
     def was_modified(self) -> bool:
-        """Devuelve ``True`` si ``update_or_insert_assignment`` o
-        ``insert_calls`` modificaron el contenido en memoria."""
+        """Devuelve ``True`` si ``update_or_insert_assignment`` modificó
+        el contenido en memoria."""
         return self._modified
 
     def save(self, output_path: str | Path) -> None:
@@ -192,95 +154,4 @@ class SDModifier:
         out.write_text(self._content, encoding="utf-8")
 
 
-def collect_cfg_assignments(
-    dispositivos_por_tipo: dict[str, list[Dispositivo]],
-) -> list[tuple[str, str]]:
-    """Genera ``[(lhs, full_line)]`` para TODOS los ``cfg_*`` de TODOS
-    los dispositivos del subdominio.
-
-    Convención de generación del LHS:
-      - Se construye como ``"<table>.<index>.<cfg_field>"``
-        (ej. ``"DB2000_ED.ED[1].Config_Habilitar"``).
-    Convención del valor:
-      - Si el ``cfg_*`` del dispositivo está vacío → se omite.
-      - Si tiene valor → ``"<LHS> := <valor>;"``.
-
-    Returns:
-        Lista ``[(lhs_reference, full_assignment_line), ...]``.
-    """
-    result: list[tuple[str, str]] = []
-    for tipo, dispositivos in dispositivos_por_tipo.items():
-        for idx, disp in enumerate(dispositivos, start=1):
-            plc_tag = str(getattr(disp, "plc_tag", "")).strip()
-            if not plc_tag:
-                continue
-            # Construir LHS base: ``"<table>.<idx>.Config_<field>"``
-            table = _to_table_name(tipo)
-            for cfg_field in _iter_cfg_fields(disp):
-                value = getattr(disp, cfg_field, "")
-                if not value:
-                    continue
-                lhs = (
-                    f"{table}."
-                    f"{_index_token(plc_tag, idx)}."
-                    f"{_cfg_to_lhs_suffix(cfg_field)}"
-                )
-                line = f"{lhs} := {value};"
-                result.append((lhs, line))
-    return result
-
-
-# ── Helpers privados ──────────────────────────────────────────────────────
-
-
-_TYPE_TO_TABLE_PREFIX: dict[str, str] = {
-    "DispED": "DB2000_ED",
-    "DispEA": "DB2000_EA",
-    "DispSA": "DB2000_SA",
-    "DispV": "DB2000_V",
-    "DispM": "DB2000_M",
-    "DispM_VF": "DB2000_MVF",
-}
-
-
-def _to_table_name(tipo: str) -> str:
-    """Convierte ``DispED`` → ``DB2000_ED``. Fallback: tipoそのまま."""
-    return _TYPE_TO_TABLE_PREFIX.get(tipo, tipo)
-
-
-def _index_token(plc_tag: str, idx: int) -> str:
-    """Heurística de índice: usa el último segmento del plc_tag
-    si es numérico; si no, devuelve ``ED[idx]``."""
-    parts = plc_tag.split("_")
-    if parts and parts[-1].isdigit():
-        return parts[-1]
-    return f"ED[{idx}]"
-
-
-def _cfg_to_lhs_suffix(cfg_field: str) -> str:
-    """``cfg_habilitar`` → ``Config_Habilitar`` (camel-case)."""
-    parts = cfg_field.split("_")
-    return "Config_" + "_".join(p.capitalize() for p in parts[1:])
-
-
-def _iter_cfg_fields(disp: Dispositivo) -> list[str]:
-    """Devuelve la lista de campos ``cfg_*`` del dispositivo.
-
-    En runtime siempre recibimos dataclasses concretos (DispED, DispEA,
-    etc.), nunca instancias del Protocol. El ``# type: ignore`` silencia
-    el warning de varianza de ``dataclasses.fields()`` que requiere un
-    ``DataclassInstance`` o ``type[DataclassInstance]`` estricto.
-    """
-    import dataclasses  # type: ignore[import-untyped]
-
-    return [
-        f.name
-        for f in dataclasses.fields(disp)  # type: ignore[arg-type]
-        if f.name.startswith("cfg_")
-    ]
-
-
-__all__ = [
-    "SDModifier",
-    "collect_cfg_assignments",
-]
+__all__ = ["SDModifier"]

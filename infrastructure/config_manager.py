@@ -129,7 +129,6 @@ class ConfigManager:
         ``get_nmax_for_hw_type(hw)``, ``list_nmax_pending()``.
       - **Configuración por tipo de dispositivo**:
         ``get_dispositivo_config(key)`` → ``DispositivoTIAConfig | None``.
-        Alias deprecado ``get_hardware_config`` (conservado una release).
       - **Getters específicos** (None si el tipo no existe):
         ``get_tag_table_name(key)``, ``get_db_name(key)``,
         ``get_db_array_name(key)``.
@@ -138,7 +137,7 @@ class ConfigManager:
         ``get_excel_target_for(hw)`` (→ ``{sheet, table, canonical}``).
       - **Carpetas TIA**: ``get_tia_folder_proceso()``,
         ``get_tia_folder_dispositivos()``, ``get_tia_folder_nmax()``.
-      - **Listado**: ``list_keys()`` (alias deprecado ``list_hw_types``),
+      - **Listado**: ``list_keys()``,
         ``list_hw_types_active()`` (recomendado),
         ``list_hw_types_pending()``.
 
@@ -146,9 +145,6 @@ class ConfigManager:
     por defecto (configurable globalmente) o ``None`` en getters de
     tipo específico, con un ``logger.warning`` (NO raise).
     """
-
-    # Aliases para mantener back-compat una release.
-    HardwareTIAConfig = DispositivoTIAConfig  # type: ignore[assignment]
 
     def __init__(
         self,
@@ -378,12 +374,6 @@ class ConfigManager:
             return nmax_for_hw
         return f"N_MAX_{key.upper()}"
 
-    # Alias deprecado (back-compat una release).
-    def get_hardware_config(self, key: str) -> DispositivoTIAConfig | None:
-        """**DEPRECADO** — usa ``get_dispositivo_config``. Conservado
-        una release por compat con código externo."""
-        return self.get_dispositivo_config(key)
-
     def get_tag_table_name(self, key: str) -> str | None:
         """Devuelve el nombre de la PlcTagTable del dispositivo o None."""
         cfg = self.get_dispositivo_config(key)
@@ -409,11 +399,6 @@ class ConfigManager:
         """
         dispositivos = self._department_config.get("Dispositivos", {})
         return list(dispositivos.keys())
-
-    # Alias deprecado (back-compat una release).
-    def list_hw_types(self) -> list[str]:
-        """**DEPRECADO** — usa ``list_keys``. Conservado una release."""
-        return self.list_keys()
 
     def list_hw_types_active(self) -> list[str]:
         """Sinónimo semántico de ``list_keys``. Recomendado para código nuevo."""

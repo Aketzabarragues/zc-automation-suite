@@ -51,8 +51,21 @@ _DEFAULT_COMPOSITION = "UserConstants"
 
 
 def _local(tag: str) -> str:
-    """Devuelve el nombre local de un tag (sin namespace)."""
-    return tag.split("}", 1)[-1] if "}" in tag else tag
+    """Devuelve el nombre local de un tag (sin namespace ni prefijo Siemens).
+
+    Soporta dos formatos:
+    - Clark notation: ``{http://...}PlcTagTable`` -> ``PlcTagTable``.
+    - Prefijo Siemens: ``SW.Tags.PlcTagTable`` -> ``PlcTagTable``.
+
+    El formato de export de TIA Portal V1.2.1 NO incluye declaracion
+    ``xmlns``; los tags usan el prefijo ``SW.Tags.`` directamente. Ver
+    ``_legacy_reference/ZC_ALM_TOOLS/infrastructure/xml/tag_modifier.py:25-27``.
+    """
+    if "}" in tag:
+        return tag.split("}", 1)[-1]
+    if tag.startswith("SW.Tags."):
+        return tag[len("SW.Tags."):]
+    return tag
 
 
 class UserConstantsModifier:

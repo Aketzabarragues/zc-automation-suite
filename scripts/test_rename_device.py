@@ -3,9 +3,7 @@
 Cambia el nombre de la constante ``ED_001`` en la tabla
 ``2000_Disp_ED`` a ``ED_DESDE_SCRIPT`` usando
 ``gateway.update_user_constant_name`` (el comando del worker
-para PlcUserConstants; NO ``rename_plc_tag`` que opera sobre
-PlcTag y falla con "No se encontr\u00f3 PlcTag con Name=..." en
-nuestro caso de uso real).
+para PlcUserConstants).
 
 Uso:
     python scripts/test_rename_device.py ZC_PLC_STD

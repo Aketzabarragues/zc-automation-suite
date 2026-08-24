@@ -296,9 +296,7 @@ class SyncDispositivosInstancesUseCase:
         # ===                                                              ===
         # === Las variables del Excel (plc_tag) se persisten como         ===
         # === PlcUserConstants en las tag tables 2000_Disp_*. El rename   ===
-        # === se hace con update_user_constant_name (no rename_plc_tag,  ===
-        # === que opera sobre PlcTag y falla con "No se encontro        ===
-        # === PlcTag con Name=..." en este caso).                          ===
+        # === se hace con update_user_constant_name.                       ===
         for uid_with_table, (old, new) in renamed.items():
             # uid_with_table es "table_key:uid_str" (p.ej. "2000_Disp_ED:5").
             # Extraemos el table_key para usarlo como ``table_name``.

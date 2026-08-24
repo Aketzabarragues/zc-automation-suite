@@ -9,8 +9,6 @@ fixture en un directorio temporal y verifican que el ConfigManager:
   - Retorna None silencioso + warning cuando un tipo no existe.
   - Mantiene fallbacks defensivos si faltan claves.
   - Lista correctamente los keys configurados.
-  - Mantiene los aliases deprecados (``get_hardware_config``,
-    ``list_hw_types``, ``HardwareTIAConfig``) por una release.
 """
 from __future__ import annotations
 
@@ -218,18 +216,6 @@ def test_get_dispositivo_config_unknown_logs_warning(
     )
 
 
-def test_alias_get_hardware_config(cm: ConfigManager) -> None:
-    """El alias deprecado ``get_hardware_config`` sigue funcionando."""
-    cfg = cm.get_hardware_config("ed")
-    assert cfg is not None
-    assert cfg.tag_table == "2000_Disp_ED"
-
-
-def test_alias_hardware_tia_config_class(cm: ConfigManager) -> None:
-    """El alias de clase ``HardwareTIAConfig`` apunta a ``DispositivoTIAConfig``."""
-    assert ConfigManager.HardwareTIAConfig is DispositivoTIAConfig
-
-
 # ────────────────────────────────────────────────────────────────────────
 # Tests de getters específicos
 # ────────────────────────────────────────────────────────────────────────
@@ -260,11 +246,6 @@ def test_list_keys(cm: ConfigManager) -> None:
     """``list_keys`` retorna los 6 tipos configurados."""
     keys = cm.list_keys()
     assert sorted(keys) == ["ea", "ed", "m", "m_vf", "sa", "v"]
-
-
-def test_alias_list_hw_types(cm: ConfigManager) -> None:
-    """El alias deprecado ``list_hw_types`` sigue funcionando."""
-    assert sorted(cm.list_hw_types()) == ["ea", "ed", "m", "m_vf", "sa", "v"]
 
 
 # ────────────────────────────────────────────────────────────────────────

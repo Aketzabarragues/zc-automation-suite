@@ -250,8 +250,6 @@ def _default_label_for_nmax(name: str) -> str:
 
 
 __all__ = [
-    "COLUMN_LABELS",
-    "MONO_COLUMNS",
     "build_catalog",
     "build_device_tabs",
     "build_nmax_view",

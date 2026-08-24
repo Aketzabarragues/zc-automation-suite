@@ -317,8 +317,7 @@ async def test_ejecutar_transaccion_single_batch_with_nmax_and_devices(
     Verifica que ``execute_transactional_batch`` se llama UNA vez con
     la lista de ops que incluye:
       - ``update_user_constant_value`` para N_MAX.
-      - ``update_user_constant_name`` para devices renombrados
-        (NO ``rename_plc_tag`` que opera sobre PlcTag, no PlcUserConstant).
+      - ``update_user_constant_name`` para devices renombrados.
 
     En esta release:
       1. La transaccion se llama UNA vez.
@@ -350,9 +349,9 @@ async def test_ejecutar_transaccion_single_batch_with_nmax_and_devices(
         assert "table_name" in op["args"]
         assert "current_name" in op["args"]
         assert "new_name" in op["args"]
-    # 3) NO debe haber rename_plc_tag (es el bug que corregimos).
-    legacy_renames = [op for op in operations if op["command"] == "rename_plc_tag"]
-    assert len(legacy_renames) == 0, "rename_plc_tag no debe usarse; los devices son PlcUserConstants."
+    # 3) No debe haber comandos de rename de PlcTag (el sync trabaja con PlcUserConstants).
+    legacy_renames = [op for op in operations if op["command"] not in {"update_user_constant_value", "update_user_constant_name", "import_plc_tags_xml"}]
+    assert len(legacy_renames) == 0, f"Comandos inesperados en la transaccion: {legacy_renames}"
     # El undo_text menciona el ambito.
     undo_text = call.kwargs.get("undo_text") or call.args[1]
     assert "N_MAX" in undo_text

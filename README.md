@@ -785,7 +785,7 @@ class SyncHardwareDimensionsUseCase:
    - Bloques .s7dcl → `.build_cache/base/blocks/` (vía `gateway.export_blocks_sd`).
 3. Modifica las plantillas offline (CPU-bound en `asyncio.to_thread`):
    - `TagTableModifier.add_tags(dtos)` → `.build_cache/ready_to_import/tags/`.
-   - `SDModifier.insert_calls(collect_call_names(dtos))` → `.build_cache/ready_to_import/blocks/`.
+   - `SDModifier.update_or_insert_assignment(lhs, line)` → `.build_cache/ready_to_import/blocks/`.
 4. Construye payload: `[{"command": "import_plc_tags_xml", ...}, {"command": "import_blocks_sd", ...}]`.
 5. Ejecuta lote transaccional vía `gateway.execute_transactional_batch(...)`.
 
@@ -1087,8 +1087,8 @@ Para mantener la coherencia arquitectónica:
 ## ðŸ”„ Flujo Unificado de Constantes (N_MAX + Dispositivos)
 
 > **AÃ±adido en esta versiÃ³n.** MigraciÃ³n del flujo legacy anti-histÃ©resis a la
-> arquitectura process-per-call. ReplicaciÃ³n moderna de los modificadores XML
-> offline (`tabla_injector.py`, `tag_modifier.py`) del proyecto legacy.
+> arquitectura process-per-call. Replicación moderna de los modificadores XML
+> offline (`tag_modifier.py`) del proyecto legacy.
 
 ### Â¿Por quÃ© un flujo unificado?
 
@@ -1119,15 +1119,10 @@ XMLs modificados, garantizando atomicidad REAL (no solo in-memory del COM).
 
 ### Componentes nuevos
 
-#### `infrastructure/xml/tabla_injector.py` â€” `TagTableValueInjector`
-Replica moderna del `TablaVariablesInjector` legacy. En lugar de regex frÃ¡gil
-sobre texto plano, usa `xml.etree.ElementTree` con wildcard `{*}` (inmune a
-cambios de versiÃ³n del esquema SimaticML). API:
-
-```python
-TagTableValueInjector.inject_into_build(ruta_build, constants)
-TagTableValueInjector.inject_into_file(xml_path, constants)
-```
+> **Nota (release 2026-08):** El inyector offline `TagTableValueInjector` (`tabla_injector.py`)
+> se eliminÃ³ de la release actual. Su funcionalidad (inyectar N_MAX en XML antes de
+> importar) no era invocada por ningÃºn use case de la nueva arquitectura. Se conserva
+> como referencia histÃ³rica en `_legacy_reference/ZC_ALM_TOOLS/`.
 
 #### `infrastructure/xml/user_constants_modifier.py` â€” `UserConstantsModifier`
 Replica moderna del `TagTableModifier.add_user_constant` legacy. Construye la
@@ -1208,7 +1203,7 @@ Carpeta `tests/` con tests **OFFLINE** (no requieren TIA Portal).
 
 | Archivo | Cubre |
 |---|---|
-| `tests/test_tabla_injector.py` | `TagTableValueInjector` â€” modificaciÃ³n de `<Value>`, idempotencia. |
+| *(eliminado en release 2026-08)* `tests/test_tabla_injector.py` | `TagTableValueInjector` (ya no existe; su test fue removido junto al módulo). |
 | `tests/test_user_constants_modifier.py` | `UserConstantsModifier` â€” estructura canÃ³nica, IDs incrementales. |
 | `tests/test_diff_constants.py` | `CalculateConstantsDiffUseCase` â€” diff N_MAX vs diff dispositivos. |
 
@@ -1222,7 +1217,7 @@ python -m pytest tests/ -v
 
 ### Cobertura
 
-- **TagTableValueInjector**: 6 tests (modificaciÃ³n, idempotencia, omisiÃ³n de constantes inexistentes, mÃºltiples constantes, dir no existente, inyecciÃ³n directa en archivo).
+- *(eliminado en release 2026-08)* **TagTableValueInjector**: 6 tests.
 - **UserConstantsModifier**: 5 tests (estructura canÃ³nica completa, idempotencia, IDs incrementales, sin comment, validaciÃ³n de nombre vacÃ­o).
 - **CalculateConstantsDiffUseCase**: 9 tests (no cambios, cambio de valor N_MAX, ignore de constantes inexistentes, no cambios en dispositivos, rename detectado, valor preservado, valor nuevo ignorado, valor preservado explÃ­citamente, valor cambiado sin rename).
 
@@ -1234,11 +1229,9 @@ python -m pytest tests/ -v
 
 | Archivo | LÃ­neas | PropÃ³sito |
 |---|---|---|
-| `infrastructure/xml/tabla_injector.py` | ~175 | Inyector offline de `<Value>` (replica moderna del legacy). |
 | `infrastructure/xml/user_constants_modifier.py` | ~200 | AÃ±ade PlcUserConstant con estructura canÃ³nica (replica del legacy). |
 | `infrastructure/xml/plc_tag_table_manager.py` | ~175 | Crea/elimina PlcTagTable enteras (offline). |
 | `application/use_cases/sync_constants_unified.py` | ~140 | Orquestador puro del flujo unificado. |
-| `tests/test_tabla_injector.py` | ~140 | Tests del injector. |
 | `tests/test_user_constants_modifier.py` | ~110 | Tests del modifier. |
 | `tests/test_diff_constants.py` | ~120 | Tests del diff de constantes. |
 
@@ -1247,13 +1240,11 @@ python -m pytest tests/ -v
 | Archivo | Cambio |
 |---|---|
 | `application/use_cases/diff_constants.py` | Refactor: 2 mÃ©todos de diff (`calculate_nmax_diff` + `calculate_device_rename_diff`). |
-| `infrastructure/gateway.py` | Nuevo mÃ©todo `execute_unified_sync()`. |
-| `infrastructure/tia/worker_tia.py` | Nuevo handler `_cmd_execute_unified_sync` registrado en COMMAND_REGISTRY. |
 
 ### Decisiones de diseÃ±o clave
 
 1. **Dos tipos de diff**: `calculate_nmax_diff` (por nombre) y `calculate_device_rename_diff` (por valor). Mezclarlos lleva a errores sutiles.
-2. **Workaround de "HistÃ©resis" preservado**: aunque la transacciÃ³n COM cubre los cambios, se mantiene la pre-inyecciÃ³n XML disponible como utility offline (`TagTableValueInjector`).
+2. **Workaround de "Histéresis" eliminado** (release 2026-08): la pre-inyección XML offline de N_MAX (`TagTableValueInjector`) se removió. La arquitectura actual confía solo en la transacción COM; si en el futuro se reactiva el workaround, se rescata de `_legacy_reference/`.
 3. **TransacciÃ³n unificada con rollback offline manual**: el worker mantiene snapshots de los XMLs antes de modificarlos; si el rollback COM se ejecuta, restaura los snapshots para atomicidad real.
 4. **Wildcard XPath `{*}`**: todos los modificadores XML usan esta sintaxis para ser inmunes a cambios de versiÃ³n del esquema SimaticML de Siemens.
 

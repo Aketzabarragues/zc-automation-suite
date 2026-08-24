@@ -207,11 +207,4 @@ def get_app_state() -> AppState:
     return _state
 
 
-def reset_app_state() -> None:
-    """Reinicia el Singleton (útil para tests)."""
-    global _state
-    with _state_lock:
-        _state = None
-
-
-__all__ = ["AppState", "get_app_state", "reset_app_state"]
+__all__ = ["AppState", "get_app_state"]

@@ -49,9 +49,9 @@ def test_add_user_constant_creates_canonical_structure(empty_table: Path) -> Non
     new_content = empty_table.read_text(encoding="utf-8")
     # Estructura canónica: <SW.Tags.PlcUserConstant>.
     assert "<SW.Tags.PlcUserConstant" in new_content
-    assert '<CompositionName="UserConstants"' in new_content
-    # ID hexadecimal mayúscula.
-    assert 'ID="1"' in new_content
+    assert 'CompositionName="UserConstants"' in new_content
+    # ID hexadecimal mayúscula (primer ID disponible; empieza en 0 si no hay otros).
+    assert 'ID="0"' in new_content
     # Atributos básicos.
     assert "<Name>V_VA_101</Name>" in new_content
     assert "<DataTypeName>Int</DataTypeName>" in new_content

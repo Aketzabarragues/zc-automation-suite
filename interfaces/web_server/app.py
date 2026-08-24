@@ -32,7 +32,7 @@ from fastapi import FastAPI
 from starlette.responses import FileResponse
 from starlette.staticfiles import StaticFiles as _BaseStaticFiles
 
-from application.log_buffer import LogBuffer, get_log_buffer
+from application.log_buffer import get_log_buffer
 from application.state import get_app_state
 from infrastructure.gateway import TIAProcessGateway
 from interfaces.web_server.routers import (
@@ -100,11 +100,6 @@ def create_app(gateway: TIAProcessGateway) -> FastAPI:
     app.include_router(diagnostics_router)
     app.include_router(areas_router)
     app.include_router(catalog_router)
-
-    # ── 3. Hook de compatibilidad: ``app.state.logger`` puede
-    # ser substituida por otra instancia (ej. en tests). Esta
-    # constante evita que olviden reasignar ``Logger``.
-    _ = LogBuffer  # noqa: F841 (referencia explícita para lint)
 
     # ── 4. SPA estática (Vue 3) ─────────────────────────────────────
     if STATIC_DIR.exists():
