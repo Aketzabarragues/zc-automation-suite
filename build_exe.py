@@ -100,6 +100,16 @@ PROJECT_DATA_FILES: list[tuple[str, str]] = [
     ("infrastructure/config.json", "infrastructure"),
 ]
 
+# Icono embebido en el .exe (lo que se ve en el Explorador de Windows,
+# en Alt+Tab, en el .lnk si se crea un acceso directo, etc.).
+# PyInstaller solo acepta .ico multi-resolución (16/32/48/64/128/256).
+# Por defecto usamos el mismo ``launcher/icon.ico`` que se bundlea
+# como data file para la bandeja en runtime, pero puedes cambiarlo
+# apuntando ``EXE_ICON`` a otro .ico sin tocar el resto del script.
+# Si el fichero no existe, ``run_pyinstaller()`` falla con mensaje
+# accionable (``ejecuta launcher/make_icon.py`` o coloca tu icono).
+EXE_ICON: Path = ROOT / "launcher" / "icon.ico"
+
 # Plantilla del .spec auto-generado. Usa placeholders ``{...}`` que
 # se sustituyen en ``write_generated_spec_file()`` con rutas reales.
 SPEC_TEMPLATE = dedent(
@@ -204,7 +214,7 @@ SPEC_TEMPLATE = dedent(
         runtime_tmpdir=None,
         console=False,  # WINDOWED: entry = main_tray.py, no abre consola
         disable_windowed_traceback=False,
-        icon=None,  # icono del .exe = None; el icono de bandeja es runtime
+        icon={exe_icon_py!r},  # ruta absoluta al .ico (ver build_exe.EXE_ICON)
         target_arch=None,
         codesign_identity=None,
         entitlements_file=None,
@@ -405,6 +415,7 @@ def write_generated_spec_file(
         project_datas_py=_py_repr_project_datas(PROJECT_DATA_FILES),
         entry_script_py=ENTRY_SCRIPT,
         exe_name_py=EXE_NAME,
+        exe_icon_py=_py_repr_path(EXE_ICON),
     )
 
     spec_path.write_text(content, encoding="utf-8")
@@ -430,7 +441,21 @@ def run_pyinstaller(spec_path: Path) -> int:
     Pasa ``--clean`` para purgar el cache de PyInstaller entre
     builds (evita arrastrar artefactos de configuraciones
     anteriores).
+
+    Pre-condición: ``EXE_ICON`` debe existir en disco (es un .ico
+    multi-resolución). Si falta, se aborta con mensaje accionable.
     """
+    if not EXE_ICON.is_file():
+        print(
+            f"[ERROR] No se encontró el icono del .exe: {EXE_ICON}\n"
+            f"        Opciones:\n"
+            f"          - Coloca tu .ico en {EXE_ICON} (multi-resolución 16/32/48/64/128/256).\n"
+            f"          - O ejecuta: python launcher/make_icon.py  (genera un placeholder).\n"
+            f"          - O cambia la constante EXE_ICON en build_exe.py.",
+            file=sys.stderr,
+        )
+        return 1
+
     cmd = [
         sys.executable,
         "-m",

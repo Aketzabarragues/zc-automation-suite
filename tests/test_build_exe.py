@@ -357,3 +357,51 @@ def test_write_generated_spec_with_empty_dll_xml(tmp_path: Path) -> None:
     assert "for _xml in []:" in content
     # El spec sigue siendo Python válido
     compile(content, str(spec_path), "exec")
+
+
+# ── EXE_ICON ─────────────────────────────────────────────────────
+
+
+def test_exe_icon_path_points_to_existing_file() -> None:
+    """``EXE_ICON`` debe apuntar a un .ico real (multi-resolución).
+
+    Si falla, ejecutar ``python launcher/make_icon.py`` o colocar
+    un .ico válido en la ruta esperada.
+    """
+    icon = build_exe.EXE_ICON
+    assert icon.is_file(), (
+        f"EXE_ICON apunta a {icon} que no existe. "
+        f"Ejecuta: python launcher/make_icon.py"
+    )
+    # El .ico debe tener al menos 1 KB (los iconos placeholder son ~18 KB).
+    assert icon.stat().st_size > 1024, (
+        f"EXE_ICON parece demasiado pequeño: {icon.stat().st_size} bytes"
+    )
+
+
+def test_write_generated_spec_contains_exe_icon(tmp_path: Path) -> None:
+    """El .spec generado referencia la ruta del icono (no ``icon=None``)."""
+    vendor_dir = tmp_path / "vendor"
+    vendor_dir.mkdir()
+    (vendor_dir / "siemens_tia_scripting.pyd").write_text("pyd")
+
+    spec_path = build_exe.write_generated_spec_file(
+        staging_root=tmp_path,
+        vendor_dir=vendor_dir,
+        dlls=[],
+        xmls=[],
+    )
+    content = spec_path.read_text(encoding="utf-8")
+
+    # El spec debe contener ``icon=r"..."`` apuntando a EXE_ICON.
+    # No debe ser ``icon=None`` (eso era el comportamiento previo).
+    assert "icon=None" not in content, (
+        "El spec aún tiene icon=None; build_exe.py no inyecta la "
+        "constante EXE_ICON correctamente."
+    )
+    # La ruta del icono (con backslashes escapados en el raw string)
+    # debe aparecer en el spec.
+    icon_backslashes = str(build_exe.EXE_ICON).replace("\\", "\\\\")
+    assert icon_backslashes in content, (
+        f"La ruta {build_exe.EXE_ICON} no aparece en el spec"
+    )
