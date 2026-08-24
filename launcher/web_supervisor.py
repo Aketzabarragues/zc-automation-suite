@@ -22,6 +22,7 @@ Notas sobre el worker OT:
 from __future__ import annotations
 
 import logging
+import sys
 import threading
 import traceback
 
@@ -144,6 +145,12 @@ class WebServiceSupervisor:
             access_log=False,  # Evita duplicar info en el log file.
         )
         self._server = uvicorn.Server(config)
+
+        # Reconfigurar loggers de uvicorn JUSTO después de que su
+        # ``Config.__init__`` los haya poblado (ver docstring de
+        # ``_reconfigure_uvicorn_loggers``).
+        _reconfigure_uvicorn_loggers()
+
         self._healthy.set()
         self.log.info("Web server arrancando en http://%s:%d", self.host, self.port)
         try:
@@ -153,4 +160,52 @@ class WebServiceSupervisor:
             self._server = None
 
 
-__all__ = ["WebServiceSupervisor"]
+__all__ = ["WebServiceSupervisor", "_reconfigure_uvicorn_loggers"]
+
+
+def _reconfigure_uvicorn_loggers() -> None:
+    """Quita los ``StreamHandler`` de los loggers de uvicorn y los
+    deja propagar al root.
+
+    Uvicorn, en ``uvicorn.Config.__init__``, configura sus loggers
+    (``uvicorn``, ``uvicorn.error``, ``uvicorn.access``) con un
+    dictConfig por defecto que añade un ``StreamHandler`` (apuntando
+    a ``sys.stderr`` en el momento de la instanciación) a cada uno.
+    En modo frozen/windowed, ``main_tray._setup_logging_redirect()``
+    ha redirigido ``sys.stderr`` al logger ``zc_tray`` a nivel
+    ``ERROR``, así que las ``INFO`` de uvicorn se recapturan como
+    ``ERROR`` y aparecen en el log con el tag equivocado:
+
+        [ERROR] zc_tray: INFO:     Started server process [28752]
+
+    El fix: eliminar TODOS los ``StreamHandler`` de los loggers de
+    uvicorn (cualquier stream al que escriban acabaría siendo
+    capturado por el redirect de ``main_tray``) y forzar
+    ``propagate=True``. El root (``zc_tray``) ya tiene un
+    ``FileHandler`` con el formato consistente
+    (``"%(asctime)s [%(levelname)s] %(name)s: %(message)s"``), y
+    el nivel del ``LogRecord`` se preserva al propagar — un
+    ``INFO`` se loguea como ``[INFO]`` y un ``ERROR`` como
+    ``[ERROR]``.
+
+    Esta función está expuesta a nivel de módulo (con prefijo ``_``
+    para marcar "uso interno") para que sea testeable sin necesidad
+    de instanciar ``uvicorn.Config`` en el test.
+    """
+    import logging
+
+    for _uv_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        _uv_logger = logging.getLogger(_uv_name)
+        # Eliminar SOLO los ``StreamHandler`` exactos (no subclases
+        # como ``FileHandler``, que sí queremos preservar si alguien
+        # los añadió explícitamente). ``type(h) is StreamHandler``
+        # excluye ``FileHandler`` y otras subclases. Razón: uvicorn
+        # usa ``StreamHandler(sys.stderr)`` puro por defecto, y ese
+        # stream está siendo capturado por el redirect de
+        # ``main_tray``, así que cualquier write acabaría
+        # re-clasificándose como ``ERROR``.
+        _uv_logger.handlers = [
+            h for h in _uv_logger.handlers
+            if type(h) is not logging.StreamHandler
+        ]
+        _uv_logger.propagate = True

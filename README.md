@@ -102,12 +102,47 @@ python test_web_server.py
 
 ### 4. Modo Ejecutable Empaquetado (PyInstaller)
 
+Genera un `dist\zc_automation_suite.exe` standalone (~46 MB) con la
+bandeja + web supervisor + binarios nativos de Siemens embebidos
+(`.pyd` + 10 `.dll` + `log4net.xml`):
+
 ```cmd
 python build_exe.py
-:: Genera dist\zc_automation_suite.exe con el .pyd de Siemens embebido
-:: Ejecución idéntica al modo FastMCP:
-dist\zc_automation_suite.exe
+:: → dist\zc_automation_suite.exe
 ```
+
+**UX del `.exe`** (doble-clic):
+
+- Aparece icono en la bandeja del sistema (sin ventana de consola).
+- Click-derecho → menú: `Iniciar web` / `Parar web` / `Abrir panel web` / `Estado` / `Salir`.
+- `Iniciar web` arranca el servidor FastAPI en `http://127.0.0.1:8000`.
+- `Abrir panel web` abre el navegador en esa URL.
+
+**Modo `--worker` (uso interno, no invocable manualmente por operarios)**:
+
+El gateway re-invoca el mismo `.exe` con `--worker` para aislar
+cada comando OT en un subproceso efímero (patrón process-per-call).
+`main_tray.py` despacha este flag internamente antes de iniciar la
+bandeja, así que el `.exe` cumple **dos roles** con un único binario.
+Para depurar manualmente:
+
+```cmd
+echo {"command":"list_plcs","args":{}} | dist\zc_automation_suite.exe --worker
+```
+
+**Restricciones del build** (heredadas del legacy y de la
+arquitectura):
+
+- El `.pyd` y TODAS las `.dll` se stagean en un `tempfile.mkdtemp()`,
+  NUNCA en la raíz del repo. Cero Código Sucio: tras el build no
+  queda ningún `.pyd`/`.dll`/`.xml` en el working tree.
+- El `.spec` se auto-genera en el mismo tempdir y se borra tras
+  el build. No es un archivo tracked.
+- UPX excluido para `*.dll` y `*.pyd` (UPX corrompe los
+  ensamblados .NET nativos de Siemens).
+- Modo FastMCP STDIO (`--mcp`) **no se incluye** en el `.exe` —
+  queda como modo dev (`python main.py`). El `.exe` es para la UX
+  de operario (bandeja + web), no para clientes LLM.
 
 ---
 

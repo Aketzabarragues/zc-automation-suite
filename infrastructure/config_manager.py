@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -151,6 +152,22 @@ class ConfigManager:
         config_path: str | Path = "infrastructure/config.json",
         department: str = _DEFAULT_DEPARTMENT,
     ) -> None:
+        # ── Resolución frozen-aware ───────────────────────────────────
+        # En modo empaquetado (PyInstaller --onefile), el CWD del
+        # proceso es la carpeta desde la que el operario ejecuta el
+        # .exe (típicamente ``%USERPROFILE%\Desktop``), NO el repo.
+        # El ``config.json`` bundleado vive en ``sys._MEIPASS``. Si
+        # lo encontramos allí, lo preferimos sobre cualquier ruta
+        # relativa a CWD: así el .exe es "copy & run" sin requerir
+        # un ``config.json`` adyacente. En modo dev, este bloque es
+        # no-op (sys.frozen es False).
+        if getattr(sys, "frozen", False):
+            meipass = getattr(sys, "_MEIPASS", None)
+            if meipass:
+                frozen_cfg = Path(meipass) / "infrastructure" / "config.json"
+                if frozen_cfg.is_file():
+                    config_path = frozen_cfg
+
         self._config_path = Path(config_path)
         self._department = department
         self._full_config: dict[str, Any] = self._load_config()

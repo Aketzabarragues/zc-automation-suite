@@ -48,9 +48,17 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     handlers=[
         logging.FileHandler(LOG_FILE, encoding="utf-8"),
-        # En dev (python.exe) también a stdout. Con pythonw.exe no
-        # hay stdout, asi que se ignora silenciosamente.
-        logging.StreamHandler(sys.stdout),
+        # En dev (python.exe) también a stdout. En modo windowed
+        # (PyInstaller ``console=False``) ``sys.stdout`` es ``None``;
+        # crear un ``StreamHandler(None)`` provoca un ``AttributeError``
+        # en cada ``emit()`` porque ``None.write`` no existe. Se filtra
+        # explícitamente para que el .exe windowed solo escriba al
+        # log file (``%LocalAppData%\zc-automation-suite\logs\zc_tray.log``).
+        *(
+            [logging.StreamHandler(sys.stdout)]
+            if sys.stdout is not None
+            else []
+        ),
     ],
 )
 log = logging.getLogger("zc_tray")
@@ -91,6 +99,30 @@ def _setup_logging_redirect() -> None:
         sys.stdout = _StreamToLogger(log, logging.INFO)  # type: ignore[assignment]
         sys.stderr = _StreamToLogger(log, logging.ERROR)  # type: ignore[assignment]
 
+        # Reconfigurar loggers de uvicorn: por defecto añaden un
+        # ``StreamHandler(sys.stderr)`` a sus loggers (``uvicorn``,
+        # ``uvicorn.error``, ``uvicorn.access``). Como acabamos de
+        # redirigir ``sys.stderr`` al logger ``zc_tray`` a nivel
+        # ``ERROR``, las ``INFO`` de uvicorn se recapturan como
+        # ``ERROR`` y aparecen en el log con el tag equivocado
+        # (ej. ``[ERROR] zc_tray: INFO:     Started server process``).
+        # Solución: quitar los handlers de uvicorn y dejar que
+        # propaguen al root (``zc_tray``), que ya tiene el
+        # ``FileHandler`` con el formato consistente. Así, un INFO
+        # de uvicorn se loguea como ``[INFO] uvicorn: ...``.
+        for _uv_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+            _uv_logger = logging.getLogger(_uv_name)
+            # Filtrar solo los StreamHandler a stderr capturable.
+            # Otros handlers (p.ej. FileHandler propios) se preservan.
+            _uv_logger.handlers = [
+                h for h in _uv_logger.handlers
+                if not (
+                    isinstance(h, logging.StreamHandler)
+                    and getattr(h, "stream", None) in (None, sys.__stderr__)
+                )
+            ]
+            _uv_logger.propagate = True
+
 
 def _resolve_icon_path() -> Path | None:
     """Resuelve la ruta del .ico.
@@ -118,22 +150,55 @@ def _read_env_int(name: str, default: int) -> int:
 
 
 def main() -> int:
+    # ── Dispatch --worker (subprocess OT) ANTES de cualquier setup ───
+    # Cuando el .exe frozen se lanza con `--worker`, el gateway
+    # (``infrastructure/gateway.py``) nos está invocando como
+    # subproceso efímero para ejecutar una tarea contra TIA Portal.
+    # En ese caso saltamos TODA la inicialización de la bandeja
+    # (logging a fichero, pystray, supervisor, etc.) y delegamos
+    # directamente en el motor OT. El worker tiene su propio setup
+    # de logging/UTF-8 en ``worker_tia.py``.
+    if "--worker" in sys.argv[1:]:
+        from infrastructure.tia.worker_tia import main as worker_main
+
+        worker_main()
+        return 0
+
     # Forzar UTF-8 (mismo patrón que main.py / worker_tia.py).
+    # IMPORTANTE: en modo frozen/windowed (``console=False`` en el .spec
+    # de PyInstaller), ``sys.stdout`` / ``stderr`` / ``stdin`` son ``None``
+    # porque no hay consola asignada. El bloque ``try`` falla con
+    # ``AttributeError`` (``NoneType.reconfigure``); el ``except`` no debe
+    # entonces intentar ``sys.stdout.buffer`` (que también es ``None``)
+    # o vuelve a romper. Se filtra por ``None`` antes de cada reconfigure
+    # y, si nada es reconfigurable, ``_setup_logging_redirect()`` más
+    # abajo redirige la salida al log file (``%LocalAppData%\...\zc_tray.log``).
     if sys.platform == "win32":
-        try:
-            sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
-            sys.stderr.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
-            sys.stdin.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
-        except (AttributeError, Exception):
-            sys.stdout = io.TextIOWrapper(  # type: ignore[assignment]
-                sys.stdout.buffer, encoding="utf-8", errors="replace"
-            )
-            sys.stderr = io.TextIOWrapper(  # type: ignore[assignment]
-                sys.stderr.buffer, encoding="utf-8", errors="replace"
-            )
-            sys.stdin = io.TextIOWrapper(  # type: ignore[assignment]
-                sys.stdin.buffer, encoding="utf-8", errors="replace"
-            )
+        for _stream_name in ("stdout", "stderr", "stdin"):
+            _stream = getattr(sys, _stream_name, None)
+            if _stream is None:
+                # Modo windowed: el stream no existe. _setup_logging_redirect
+                # se encargará de la salida. No hacemos nada.
+                continue
+            try:
+                _stream.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+            except (AttributeError, Exception):
+                # Stream sin ``reconfigure`` (Python <3.7). Intentamos
+                # reconstruir el TextIOWrapper, pero solo si tiene ``buffer``.
+                try:
+                    setattr(
+                        sys,
+                        _stream_name,
+                        io.TextIOWrapper(  # type: ignore[arg-type]
+                            _stream.buffer,  # type: ignore[attr-defined]
+                            encoding="utf-8",
+                            errors="replace",
+                        ),
+                    )
+                except (AttributeError, Exception):
+                    # Sin buffer tampoco (p.ej. stream cerrado). Seguimos
+                    # sin UTF-8 forzado en este stream concreto.
+                    pass
 
     _setup_logging_redirect()
     log.info("=" * 60)
