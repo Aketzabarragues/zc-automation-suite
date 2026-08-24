@@ -2,4 +2,4 @@
 echo =========================================
 echo       Arrancando aplicacion...
 echo =========================================
-pythonw main_tray.py
+python main_tray.py
