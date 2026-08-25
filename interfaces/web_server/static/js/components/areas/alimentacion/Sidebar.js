@@ -21,7 +21,7 @@
  */
 import { computed } from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js";
 import { store, pushLog, goToWelcome, goToSubview } from "../../../store.js";
-import { apiFetchPlcs, apiAplicarComentariosDisp } from "../../../api.js";
+import { apiFetchPlcs } from "../../../api.js";
 import ProgressIndicator from "../../ProgressIndicator.js";
 
 export default {
@@ -62,39 +62,10 @@ export default {
             }
         }
 
-        /**
-         * TEMP-DEBUG: botón temporal para probar el endpoint
-         * /api/v1/alimentacion/aplicar-comentarios-disp.
-         * ELIMINAR cuando se haya validado el flujo end-to-end con TIA.
-         */
-        async function handleDebugAplicarComentarios() {
-            if (!store.selectedPlc) {
-                pushLog("Selecciona un PLC primero.", "warning");
-                return;
-            }
-            store.busy = true;
-            try {
-                const r = await apiAplicarComentariosDisp(store.selectedPlc);
-                if (r.ok && r.data && r.data.success) {
-                    pushLog(
-                        `[DEBUG] Comentarios aplicados: ${r.data.operations_executed} ops. ` +
-                        `Work dir: ${r.data.work_dir || "(n/a)"}`,
-                        "success"
-                    );
-                } else {
-                    const detail = (r.data && (r.data.detail || JSON.stringify(r.data))) || "Error";
-                    pushLog(`[DEBUG] Fallo: ${detail}`, "error");
-                }
-            } finally {
-                store.busy = false;
-            }
-        }
-
         return {
             store,
             areaLabel,
             handleRefreshPlcs,
-            handleDebugAplicarComentarios,
             goToWelcome,
             goToSubview,
         };
@@ -149,21 +120,6 @@ export default {
                         ⚡ Dispositivos
                     </button>
                 </div>
-            </section>
-
-            <!-- TEMP-DEBUG: botón de prueba del endpoint de comentarios. -->
-            <!-- Eliminar este bloque y la función handleDebugAplicarComentarios -->
-            <!-- cuando se valide el flujo end-to-end con TIA. -->
-            <section class="mb-6">
-                <label class="block text-xs font-semibold text-amber-600 uppercase mb-2">DEBUG (temporal)</label>
-                <button @click="handleDebugAplicarComentarios" :disabled="store.busy || !store.selectedPlc"
-                    class="w-full text-left text-xs px-3 py-2 rounded border bg-amber-50 border-amber-400 text-amber-900 hover:bg-amber-100 disabled:opacity-50 font-semibold"
-                    data-testid="sidebar-debug-aplicar-comentarios-disp">
-                    🧪 Aplicar comentarios (debug)
-                </button>
-                <p class="text-[10px] text-ink-muted mt-1 leading-tight">
-                    Llama al endpoint nuevo. Revisa la consola para ver el work_dir.
-                </p>
             </section>
 
             <!-- Indicador de progreso (fijo en la parte inferior del sidebar) -->

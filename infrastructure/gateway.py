@@ -533,7 +533,4 @@ class TIAProcessGateway:
             operations, undo_text=undo_text
         )
         self.clear_cache()
-        # TEMP-DEBUG: devolvemos la ruta del work_dir para que el operario
-        # pueda inspeccionarla desde el sidebar. Quitar al revertir el boton.
-        result["work_dir"] = str(work_dir)
         return result
