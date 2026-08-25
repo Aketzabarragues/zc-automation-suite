@@ -35,3 +35,24 @@ Existe una carpeta `_legacy_reference/` con el código antiguo.
 *   Cumple con PEP 8.
 *   Usa `asyncio` de forma eficiente en el Gateway para no bloquear el Event Loop principal durante la espera de resolución del subproceso.
 *   Si una operación de lectura del proyecto implica una penalización alta de latencia, implementa un mecanismo de caché en memoria en `gateway.py` (`Estado IT`), permitiendo el parámetro `force_refresh=True`.
+
+## 7. PROGRESS TRACKING (panel SPA en sidebar)
+*   Toda operación de >500 ms DEBE emitir progreso a `application/progress_buffer.py:ProgressTracker`.
+*   El use case recibe el tracker por constructor (`progress: ProgressTracker | None = None`); si no se inyecta, usa el Singleton global.
+*   Stage order = orden de ejecución real. NO agrupar ops atómicas en un solo stage.
+*   El stage `open_transaction` del commit es OPAQUE (transacción COM atómica en el worker, no desglosable). Label honesto: "puede tardar 1-3 min".
+*   Tests mockean el `ProgressTracker` directamente, NO el endpoint.
+*   Frontend: `ProgressIndicator.js` (panel fijo en sidebar) lee de `store.progress` (espejo reactivo). Polling 500 ms **INCONDICIONAL** (sin guard de estado) para evitar chicken-and-egg.
+
+## 8. SINGLE-TENANT
+*   La app es single-tenant (ver WARNING en `application/state.py`).
+*   `ProgressTracker`, `LogBuffer`, `AppState` son Singletons. Si llega un nuevo `begin()` con uno activo, OVERWRITE + warning al `LogBuffer`.
+*   NUNCA persistas estado entre reinicios. Cache IT solo en memoria (`gateway._cache`).
+
+## 9. CSS / FRONTEND BUILD
+*   Tras añadir clases nuevas en cualquier `.js` de `static/js/`, SIEMPRE recompilar:
+    `tailwindcss-extra.exe -i interfaces/web_server/static/src/input.css -o interfaces/web_server/static/styles.css --minify`
+*   Tailwind v4 escanea `static/js/**/*.js` (templates Vue son template strings).
+*   NO añadir CDN, NO daisyUI, NO `import` de CSS externo.
+*   Tema: tokens semánticos `bg-surface*`, `text-ink*`, `bg-accent`, `border-line`.
+*   PROHIBIDO string literals multi-línea dentro de arrays de `:class` (compilador runtime de Vue no los acepta).
