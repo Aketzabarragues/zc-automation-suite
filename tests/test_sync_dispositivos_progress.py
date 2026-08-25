@@ -21,6 +21,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from unittest.mock import AsyncMock
 
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
@@ -122,12 +123,12 @@ def test_generar_prevision_emits_4_stages(
     assert snap.active is False
 
 
-def test_ejecutar_transaccion_emits_6_stages(
+def test_ejecutar_transaccion_emits_7_stages(
     fresh_tracker: ProgressTracker,
     minimal_config: ConfigManager,
     tmp_path: Path,
 ) -> None:
-    """``ejecutar_transaccion`` emite 6 stages."""
+    """``ejecutar_transaccion`` emite 7 stages (incluye ``apply_comentarios_disp``)."""
     gateway = MagicMock(spec=TIAProcessGateway)
     async def fake_export(plc_name: str, target_dir: str) -> str:
         Path(target_dir).mkdir(parents=True, exist_ok=True)
@@ -171,7 +172,7 @@ def test_ejecutar_transaccion_emits_6_stages(
         pass
 
     snap = fresh_tracker.snapshot()
-    assert snap.total == 6
+    assert snap.total == 7
     assert snap.operation == "commit"
 
 
@@ -237,3 +238,70 @@ def test_ejecutar_transaccion_finish_false_on_batch_failure(
     )
     assert open_tx is not None
     assert open_tx["status"] == "error" or open_tx["status"] == "done"
+
+
+# ─── apply_comentarios_disp (stage 7 del orquestador) ─────────────────
+
+
+@pytest.mark.asyncio
+async def test_apply_comentarios_disp_fallo_no_revienta_el_commit(
+    fresh_tracker: ProgressTracker,
+    minimal_config: ConfigManager,
+    tmp_path: Path,
+) -> None:
+    """Si la fase de comentarios falla, el commit global sigue siendo exitoso
+    (N_MAX+devices ya aplicados). El operario puede reintentar via el
+    endpoint dedicado. Verifica el comportamiento best-effort del stage 7.
+    """
+    gateway = MagicMock(spec=TIAProcessGateway)
+    async def fake_export(plc_name, target_dir):
+        Path(target_dir).mkdir(parents=True, exist_ok=True)
+        return target_dir
+    gateway.export_plc_tags_xml = fake_export  # type: ignore[method-assign]
+    async def fake_batch(operations, undo_text=""):
+        return {"success": True, "operations_executed": len(operations), "details": []}
+    gateway.execute_transactional_batch = fake_batch  # type: ignore[method-assign]
+    async def fake_compile(plc_name):
+        return False
+    gateway.compile_plc = fake_compile  # type: ignore[method-assign]
+    # El batch de comentarios falla (TIA en estado raro).
+    async def fake_comments_batch(
+        plc_name, dispositivos_slot_maps, target_folder,
+        db_names, db_array_names, undo_text="",
+    ):
+        raise RuntimeError("TIA no responde")
+    gateway.update_disp_instance_comments_batch = fake_comments_batch  # type: ignore[method-assign]
+
+    use_case = SyncDispositivosInstancesUseCase(
+        gateway=gateway,
+        config_manager=minimal_config,
+        state=AppState(),
+        progress=fresh_tracker,
+        build_cache_dir=tmp_path / ".build_cache",
+    )
+    use_case._compute_diff = MagicMock(return_value=({}, {}, {}))  # type: ignore[method-assign]
+    # Forzamos al menos 1 op para entrar en la rama normal.
+    use_case._compute_nmax_ops_for_apply = MagicMock(  # type: ignore[method-assign]
+        return_value=[{
+            "command": "update_user_constant_value",
+            "args": {"plc_name": "PLC_TEST", "table_name": "t",
+                     "constant_name": "N_MAX_DISP_ED", "new_value": 10},
+        }]
+    )
+    use_case._build_desired_state_from_app = MagicMock(return_value={})  # type: ignore[method-assign]
+    use_case.generar_prevision = AsyncMock(  # type: ignore[method-assign]
+        return_value={"agregados": [], "eliminados": [], "renombrados": [],
+                      "todos": [], "nmax": {}, "summary": {}}
+    )
+
+    result = await use_case.ejecutar_transaccion("PLC_TEST", {})
+
+    # El commit global es exitoso aunque los comentarios fallen.
+    assert result["success"] is True
+    assert result["compile_ok"] is True
+    # El bloque comments_sync reporta el error sin propagarlo.
+    assert result["comments_sync"]["applied"] is False
+    assert result["comments_sync"]["operations_executed"] == 0
+    assert "TIA no responde" in result["comments_sync"]["error"]
+    # El tracker termina en success (no error).
+    assert fresh_tracker.snapshot().active is False

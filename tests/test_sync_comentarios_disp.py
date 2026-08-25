@@ -219,25 +219,5 @@ def test_preview_warning_si_app_state_vacio(
     assert any("AppState" in w for w in result["warnings"])
 
 
-# ── _build_slot_map_for_hw ─────────────────────────────────────────────
-
-
-def test_build_slot_map_ignora_numero_cero_o_duplicado(
-    use_case: DispComentariosSyncUseCase,
-) -> None:
-    """Devices con numero==0 o duplicados se ignoran (warning en logs)."""
-    state = MagicMock()
-    state.all_devices.return_value = [_FakeDevice(1, "X")]
-    state.get_devices.return_value = [
-        _FakeDevice(0, "ignorar"),  # numero=0 → ignorar
-        _FakeDevice(1, "OK"),
-        _FakeDevice(1, "duplicado"),  # numero=1 repetido → ignorar
-        _FakeDevice(2, "OK2"),
-    ]
-    use_case._state = state
-    slot_map = use_case._build_slot_map_for_hw("ed")
-    assert slot_map[0] == "NO USAR"
-    assert slot_map[1] == "OK"
-    assert slot_map[2] == "OK2"
-    assert 0 not in {k for k in slot_map if slot_map[k].startswith("ignorar")}
-    assert "duplicado" not in slot_map.values()
+# ── La lógica de _build_slot_map_for_hw vive ahora en slot_map_builder. ──
+# Ver tests/test_slot_map_builder.py.

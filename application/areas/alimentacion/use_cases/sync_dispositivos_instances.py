@@ -316,8 +316,15 @@ class SyncDispositivosInstancesUseCase:
                 back-compat con la SPA.
         """
         # ── Progress tracking (overlay SPA) ────────────────────────
-        # 6 stages: export_tags → compute_diff → prepare_xml →
-        # open_transaction (opaco, COM atomico) → post_preview → compile_plc.
+        # 7 stages: export_tags → compute_diff → prepare_xml →
+        # open_transaction (opaco, COM atomico) → post_preview →
+        # compile_plc → apply_comentarios_disp (best-effort).
+        # El ultimo stage (comentarios por instancia) se ejecuta
+        # DESPUES de la compilacion, que es cuando los DBs ya estan
+        # redimensionados y podemos escribir los S7_MLC. Si falla,
+        # el commit global se considera exitoso (el sync N_MAX+devices
+        # ya esta aplicado); los comentarios quedan pendientes para
+        # una llamada manual al endpoint de comentarios.
         self._progress.begin(
             operation="commit",
             label=f"Aplicando cambios en {plc_name}",
@@ -328,6 +335,7 @@ class SyncDispositivosInstancesUseCase:
                 "open_transaction",
                 "post_preview",
                 "compile_plc",
+                "apply_comentarios_disp",
             ],
         )
         try:
@@ -414,6 +422,12 @@ class SyncDispositivosInstancesUseCase:
                 self._progress.finish_stage("open_transaction", "Sin cambios (no-op)")
                 self._progress.finish_stage("post_preview")
                 self._progress.finish_stage("compile_plc", "Saltado (no-op)")
+                # Aun con N_MAX sin cambios, intentamos aplicar comentarios
+                # (puede que el usuario solo haya editado la columna
+                # comentario_db del Excel sin tocar N_MAX).
+                comments_result = await self._run_apply_comentarios(
+                    plc_name
+                )
                 self._progress.finish(success=True)
                 post_sync_preview = await self.generar_prevision(plc_name)
                 return {
@@ -423,6 +437,7 @@ class SyncDispositivosInstancesUseCase:
                     "operations": 0,
                     "n_max_updates": 0,
                     "post_sync_preview": post_sync_preview,
+                    "comments_sync": comments_result,
                 }
 
             self._progress.start_stage(
@@ -491,6 +506,16 @@ class SyncDispositivosInstancesUseCase:
                 "Compilacion OK" if compile_ok else "Compilacion con errores",
             )
 
+            # ── POST-COMMIT: comentarios por instancia en los 6 DBs de disp. ──
+            # Se ejecuta DESPUES de la compilacion, que es cuando los DBs ya
+            # estan redimensionados y podemos escribir los S7_MLC con
+            # confianza. Best-effort: si falla (p. ej. TIA en estado raro),
+            # el commit global sigue siendo exitoso (N_MAX+devices ya aplicado);
+            # el operario puede reintentar el endpoint de comentarios.
+            comments_result = await self._run_apply_comentarios(
+                plc_name
+            )
+
             self._progress.finish(success=True)
             return {
                 "success": True,
@@ -500,6 +525,7 @@ class SyncDispositivosInstancesUseCase:
                 "post_sync_preview": post_sync_preview,
                 "compile_ok": compile_ok,
                 "compile_error": compile_error,
+                "comments_sync": comments_result,
             }
         except Exception as exc:
             # Cualquier fallo (export, diff, build ops, transaccion COM,
@@ -513,6 +539,74 @@ class SyncDispositivosInstancesUseCase:
         """Helper: generar previsi\u00f3n + ejecutar transacci\u00f3n en una llamada."""
         prevision = await self.generar_prevision(plc_name)
         return await self.ejecutar_transaccion(plc_name, prevision)
+
+    async def _run_apply_comentarios(self, plc_name: str) -> dict[str, Any]:
+        """Aplica los comentarios por instancia a los 6 DBs de dispositivos.
+
+        Se ejecuta DESPUES de ``compile_plc`` dentro de ``ejecutar_transaccion``.
+        Best-effort: si falla, el commit global sigue siendo exitoso
+        (N_MAX + devices ya estan aplicados); el operario puede reintentar
+        via POST /api/v1/alimentacion/aplicar-comentarios-disp.
+
+        Returns:
+            ``dict`` con shape::
+
+                {
+                    "applied":       bool,
+                    "operations_executed": int,
+                    "warnings":      list[str],
+                    "error":         str | None,  # solo si fallo
+                }
+        """
+        self._progress.start_stage(
+            "apply_comentarios_disp",
+            "Aplicando comentarios por instancia a los 6 DBs...",
+        )
+        try:
+            from application.areas.alimentacion.slot_map_builder import (
+                build_slot_maps,
+            )
+            slot_maps, db_names, db_array_names, build_warnings = build_slot_maps(
+                self._state, self._config
+            )
+            warnings = list(build_warnings)
+            target_folder = self._config.get_tia_folder_dispositivos()
+            undo_text = f"Sync comentarios dispositivos ({plc_name})"
+            result = await self._gateway.update_disp_instance_comments_batch(
+                plc_name=plc_name,
+                dispositivos_slot_maps=slot_maps,
+                target_folder=target_folder,
+                db_names=db_names,
+                db_array_names=db_array_names,
+                undo_text=undo_text,
+            )
+            applied = True
+            ops = int(result.get("operations_executed", 0))
+            self._progress.finish_stage(
+                "apply_comentarios_disp",
+                f"{ops} ops aplicadas OK",
+            )
+            return {
+                "applied": applied,
+                "operations_executed": ops,
+                "warnings": warnings,
+                "error": None,
+            }
+        except Exception as exc:
+            err_msg = f"{type(exc).__name__}: {exc}"
+            _logger.warning(
+                f"[{plc_name}] apply_comentarios_disp fallo (commit ya aplicado): {err_msg}"
+            )
+            self._progress.finish_stage(
+                "apply_comentarios_disp",
+                f"Fallo: {err_msg}",
+            )
+            return {
+                "applied": False,
+                "operations_executed": 0,
+                "warnings": [],
+                "error": err_msg,
+            }
 
     # ──────────────────────────────────────────────────────────────────
     # N_MAX: diff y ops (NUEVO en esta release)
@@ -767,12 +861,6 @@ class SyncDispositivosInstancesUseCase:
                 result[tag_table] = table_dict
         return result
 
-
-
-    async def execute(self, plc_name: str) -> dict[str, Any]:
-        """Helper: generar previsi\u00f3n + ejecutar transacci\u00f3n en una llamada."""
-        prevision = await self.generar_prevision(plc_name)
-        return await self.ejecutar_transaccion(plc_name, prevision)
 
     # ──────────────────────────────────────────────────────────────────
     # N_MAX: diff y ops (NUEVO en esta release)

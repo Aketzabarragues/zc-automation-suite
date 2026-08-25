@@ -21,6 +21,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from application.areas.alimentacion.slot_map_builder import build_slot_maps
 from application.progress_buffer import ProgressTracker, get_progress_tracker
 from application.state import AppState
 from infrastructure.config_manager import ConfigManager
@@ -57,7 +58,8 @@ class DispComentariosSyncUseCase:
     # ── API pública ──────────────────────────────────────────────────────
 
     async def apply_comentarios_disp(self, plc_name: str) -> dict[str, Any]:
-        """Aplica los comentarios por instancia a los 6 DBs en 1 transacción TIA.
+        """Aplica los comentarios por instancia a los 6 DBs de dispositivos
+        en UNA sola transacción TIA con rollback atómico.
 
         Si ``AppState`` está vacío, NO toca TIA: warning accionable + return.
         Si la transacción falla, ``progress.finish(success=False)`` y propaga.
@@ -84,67 +86,9 @@ class DispComentariosSyncUseCase:
             stages=["read_state", "build_slot_maps", "open_transaction", "done"],
         )
         try:
-            warnings: list[str] = self._check_app_state()
-            if warnings:
-                self._progress.finish(success=True)
-                return {
-                    "plc_name": plc_name,
-                    "success": True,
-                    "applied": True,
-                    "operations_executed": 0,
-                    "summary": {"disp_dbs_updated": 0, "total_ops": 0},
-                    "details": [],
-                    "warnings": warnings,
-                }
-
-            self._progress.start_stage("read_state", "Validando AppState...")
-            self._progress.finish_stage("read_state", "AppState OK")
-
-            self._progress.start_stage("build_slot_maps", "Construyendo slot_maps...")
-            slot_maps, db_names, db_array_names, build_warnings = (
-                self._build_all_slot_maps()
-            )
-            warnings.extend(build_warnings)
-            self._progress.finish_stage(
-                "build_slot_maps",
-                f"{len(slot_maps)} tipos de dispositivo preparados",
-            )
-
-            target_folder = self._config.get_tia_folder_dispositivos()
-            undo_text = f"Sync comentarios dispositivos ({plc_name})"
-
-            # Etiqueta honesta: opaca, cubre la transacción COM (1-3 min).
-            self._progress.start_stage(
-                "open_transaction",
-                f"Aplicando {len(slot_maps)} comentarios a TIA — puede tardar 1-3 min",
-            )
-            result = await self._gateway.update_disp_instance_comments_batch(
-                plc_name=plc_name,
-                dispositivos_slot_maps=slot_maps,
-                target_folder=target_folder,
-                db_names=db_names,
-                db_array_names=db_array_names,
-                undo_text=undo_text,
-            )
-            ops_executed = result.get("operations_executed", 0)
-            self._progress.finish_stage(
-                "open_transaction",
-                f"{ops_executed} ops aplicadas OK",
-            )
-
+            result = await self._run_apply(plc_name)
             self._progress.finish(success=True)
-            return {
-                "plc_name": plc_name,
-                "success": True,
-                "applied": True,
-                "operations_executed": ops_executed,
-                "summary": {
-                    "disp_dbs_updated": ops_executed,
-                    "total_ops": ops_executed,
-                },
-                "details": result.get("details", []),
-                "warnings": warnings,
-            }
+            return result
         except Exception as exc:
             self._progress.finish(success=False, error=str(exc))
             raise
@@ -175,9 +119,10 @@ class DispComentariosSyncUseCase:
 
             self._progress.start_stage("read_state")
             self._progress.finish_stage("read_state")
-
             self._progress.start_stage("build_slot_maps")
-            slot_maps, _, _, build_warnings = self._build_all_slot_maps()
+            slot_maps, _, _, build_warnings = build_slot_maps(
+                self._state, self._config
+            )
             warnings.extend(build_warnings)
             self._progress.finish_stage("build_slot_maps")
 
@@ -200,14 +145,80 @@ class DispComentariosSyncUseCase:
             self._progress.finish(success=False, error=str(exc))
             raise
 
-    # ── Helpers privados ────────────────────────────────────────────────
+    # ── Internals ────────────────────────────────────────────────────────
+
+    async def _run_apply(self, plc_name: str) -> dict[str, Any]:
+        """Lógica de apply: check + build + batch transaccional. Emite progress."""
+        self._progress.start_stage("read_state", "Validando AppState...")
+        warnings: list[str] = self._check_app_state()
+        if warnings:
+            self._progress.finish_stage("read_state")
+            self._progress.finish_stage("build_slot_maps")
+            self._progress.finish_stage("open_transaction", "Sin cambios (no-op)")
+            self._progress.finish_stage("done", "Saltado (AppState vacio)")
+            return {
+                "plc_name": plc_name,
+                "success": True,
+                "applied": True,
+                "operations_executed": 0,
+                "summary": {"disp_dbs_updated": 0, "total_ops": 0},
+                "details": [],
+                "warnings": warnings,
+            }
+        self._progress.finish_stage("read_state", "AppState OK")
+
+        self._progress.start_stage("build_slot_maps", "Construyendo slot_maps...")
+        slot_maps, db_names, db_array_names, build_warnings = build_slot_maps(
+            self._state, self._config
+        )
+        warnings.extend(build_warnings)
+        self._progress.finish_stage(
+            "build_slot_maps",
+            f"{len(slot_maps)} tipos de dispositivo preparados",
+        )
+
+        target_folder = self._config.get_tia_folder_dispositivos()
+        undo_text = f"Sync comentarios dispositivos ({plc_name})"
+
+        # Etiqueta honesta: opaca, cubre la transacción COM (1-3 min).
+        self._progress.start_stage(
+            "open_transaction",
+            f"Aplicando {len(slot_maps)} comentarios a TIA — puede tardar 1-3 min",
+        )
+        result = await self._gateway.update_disp_instance_comments_batch(
+            plc_name=plc_name,
+            dispositivos_slot_maps=slot_maps,
+            target_folder=target_folder,
+            db_names=db_names,
+            db_array_names=db_array_names,
+            undo_text=undo_text,
+        )
+        ops_executed = result.get("operations_executed", 0)
+        self._progress.finish_stage(
+            "open_transaction",
+            f"{ops_executed} ops aplicadas OK",
+        )
+        self._progress.finish_stage("done", f"{ops_executed} ops")
+
+        return {
+            "plc_name": plc_name,
+            "success": True,
+            "applied": True,
+            "operations_executed": ops_executed,
+            "summary": {
+                "disp_dbs_updated": ops_executed,
+                "total_ops": ops_executed,
+            },
+            "details": result.get("details", []),
+            "warnings": warnings,
+        }
 
     def _check_app_state(self) -> list[str]:
         """Devuelve warning si AppState no tiene dispositivos cargados.
 
         Política: si NO hay ningún dispositivo en ningún tipo, asumimos
         que el operario aún no cargó el Excel. NO abortamos: devolvemos
-        un warning accionable y dejamos que el caller decida.
+        un warning accionable y dejamos que el caller decida qué hacer.
         """
         if not self._state.all_devices():
             return [
@@ -215,52 +226,3 @@ class DispComentariosSyncUseCase:
                 "POST /api/v1/excel/upload."
             ]
         return []
-
-    def _build_all_slot_maps(
-        self,
-    ) -> tuple[dict[str, dict[int, str]], dict[str, str], dict[str, str], list[str]]:
-        """Construye los slot_maps para todos los tipos activos.
-
-        Returns:
-            Tupla ``(slot_maps, db_names, db_array_names, warnings)``.
-        """
-        slot_maps: dict[str, dict[int, str]] = {}
-        db_names: dict[str, str] = {}
-        db_array_names: dict[str, str] = {}
-        warnings: list[str] = []
-
-        for hw_type in self._config.list_hw_types_active():
-            cfg = self._config.get_dispositivo_config(hw_type)
-            if cfg is None:
-                warnings.append(
-                    f"Tipo de dispositivo '{hw_type}' sin config TIA; se omite."
-                )
-                continue
-            db_names[hw_type] = cfg.db_name
-            db_array_names[hw_type] = cfg.db_array_name
-            slot_maps[hw_type] = self._build_slot_map_for_hw(hw_type)
-        return slot_maps, db_names, db_array_names, warnings
-
-    def _build_slot_map_for_hw(self, hw_type: str) -> dict[int, str]:
-        """Slot map para un tipo: ``{0: 'NO USAR', i: comentario_db para cada device con numero==i}``.
-
-        El campo de la dataclass se llama ``comentario_db`` (snake_case
-        en Python, columna Excel ``ComentarioDB``). Devices con
-        ``numero <= 0`` o duplicados se ignoran (warning en ``preview``,
-        silencioso en ``apply`` — el caller ya recibe warnings).
-        """
-        slot_map: dict[int, str] = {0: "NO USAR"}
-        seen: set[int] = set()
-        for device in self._state.get_devices(hw_type):
-            numero = int(getattr(device, "numero", 0) or 0)
-            if numero <= 0:
-                continue
-            if numero in seen:
-                _logger.warning(
-                    f"[{hw_type}] numero={numero} duplicado; se ignora el segundo."
-                )
-                continue
-            seen.add(numero)
-            comentario_db = str(getattr(device, "comentario_db", "") or "")
-            slot_map[numero] = comentario_db
-        return slot_map
