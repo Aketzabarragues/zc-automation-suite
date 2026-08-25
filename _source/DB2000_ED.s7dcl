@@ -46,4 +46,34 @@ DATA_BLOCK DB2000_ED
         Agrup[0].AlgunaAlarma := FALSE;
         Agrup[0].NuevaAlarma := FALSE;
 
+        { S7_MLC := "MLC_xW48e"; }
+        "ED"[1] := ();
+        { S7_MLC := "MLC_8YfGn"; }
+        "ED"[2] := ();
+        { S7_MLC := "MLC_sQG4"; }
+        "ED"[3] := ();
+        { S7_MLC := "MLC_LYaZ"; }
+        "ED"[4] := ();
+        { S7_MLC := "MLC_Nuqqa"; }
+        "ED"[5] := ();
+        { S7_MLC := "MLC_PmVq7"; }
+        "ED"[6] := ();
+        { S7_MLC := "MLC_7erT"; }
+        "ED"[7] := ();
+        { S7_MLC := "MLC_HCuvT"; }
+        "ED"[8] := ();
+        { S7_MLC := "MLC_SL6Eh"; }
+        "ED"[9] := ();
+        { S7_MLC := "MLC_yGYkr"; }
+        "ED"[10] := ();
+        { S7_MLC := "MLC_Wsx"; }
+        "ED"[11] := ();
+        { S7_MLC := "MLC_ghJpZ"; }
+        "ED"[12] := ();
+        { S7_MLC := "MLC_2t3"; }
+        "ED"[13] := ();
+        { S7_MLC := "MLC_fzk"; }
+        "ED"[14] := ();
+        { S7_MLC := "MLC_WiH"; }
+        "ED"[15] := ();
 END_DATA_BLOCK

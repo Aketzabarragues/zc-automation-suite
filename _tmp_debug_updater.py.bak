@@ -1,0 +1,42 @@
+"""Debug del updater: ver qué pasa con el .s7res."""
+import sys
+import tempfile
+from pathlib import Path
+
+sys.path.insert(0, '.')
+
+from infrastructure.alimentacion.sd.disp_comment_updater import DispCommentUpdater
+
+
+S7DCL = '''DATA_BLOCK DB2000_ED
+    VAR
+        "ED" : Array[0..10] of _.UDT_ZC_DISP_ED;
+    END_VAR
+
+        "ED"[0].Estado_AutoMan := FALSE;
+        "ED"[0] := ();
+
+END_DATA_BLOCK
+'''
+S7RES = '''MultiLingualTexts:
+  - id: MLC_block_cmt
+    es-ES: Bloque de datos ED
+'''
+
+tmp = Path(tempfile.mkdtemp())
+dcl = tmp / 'DB2000_ED.s7dcl'
+res = tmp / 'DB2000_ED.s7res'
+dcl.write_text(S7DCL, encoding='utf-8')
+res.write_text(S7RES, encoding='utf-8-sig')
+
+up = DispCommentUpdater(dcl, res, slot_map={0: 'NO USAR', 1: ''}, db_array_name='ED')
+result = up.update()
+up.save()
+print('result.inserted:', result.inserted)
+print('result.reused:', result.reused)
+print('result.no_usar_mlc:', result.no_usar_mlc)
+print()
+print('=== .s7dcl final ===')
+print(dcl.read_text(encoding='utf-8'))
+print('=== .s7res final ===')
+print(res.read_text(encoding='utf-8-sig'))

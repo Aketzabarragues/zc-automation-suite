@@ -1,0 +1,119 @@
+"""Verificación end-to-end del fix usando los archivos reales de _source/.
+
+Replica el escenario que Aketza tuvo: export desde TIA con 16 MLCs en
+el .s7res (cabecera + slot 0 + slots 1-15), ejecuta el updater con
+slot_map que incluye los 16 slots, y verifica que TODOS los MLCs
+referenciados en el .s7dcl (incluidos los de cabecera) siguen
+presentes en el .s7res al final.
+"""
+import sys
+import shutil
+import tempfile
+from pathlib import Path
+
+sys.path.insert(0, ".")
+
+from infrastructure.alimentacion.sd.disp_comment_updater import DispCommentUpdater
+
+
+SRC_DIR = Path("_source")
+src_dcl = SRC_DIR / "DB2000_ED.s7dcl"
+src_res = SRC_DIR / "DB2000_ED.s7res"
+
+# Sanity check: el archivo fuente tiene 16 entradas MLC.
+src_res_text = src_res.read_text(encoding="utf-8-sig")
+src_count = src_res_text.count("- id: MLC_")
+print(f"MLCs en source .s7res: {src_count}")
+assert src_count == 16, f"Esperaba 16 MLCs, encontré {src_count}"
+
+# Contar MLCs en el .s7dcl.
+src_dcl_text = src_dcl.read_text(encoding="utf-8")
+src_dcl_mlcs = set()
+import re
+src_dcl_mlcs.update(re.findall(
+    r'S7_(?:BlockComment|BlockTitle|MLC)\s*:=\s*"(MLC_[A-Za-z0-9_]+)"',
+    src_dcl_text,
+))
+print(f"MLCs referenciados en source .s7dcl: {len(src_dcl_mlcs)}")
+print(f"  Cabecera/array: {sorted(m for m in src_dcl_mlcs if not m.endswith(('3vw', 'xW48e', '8YfGn', 'sQG4', 'LYaZ', 'Nuqqa', 'PmVq7', '7erT', 'HCuvT', 'SL6Eh', 'yGYkr', 'Wsx', 'ghJpZ', '2t3', 'fzk', 'WiH')))}")
+print(f"  Slots: {sorted(m for m in src_dcl_mlcs if m.endswith(('3vw', 'xW48e', '8YfGn', 'sQG4', 'LYaZ', 'Nuqqa', 'PmVq7', '7erT', 'HCuvT', 'SL6Eh', 'yGYkr', 'Wsx', 'ghJpZ', '2t3', 'fzk', 'WiH')))}")
+
+# Crear work_dir temporal y copiar los archivos.
+work_dir = Path(tempfile.mkdtemp(prefix="verify_fix_"))
+test_dcl = work_dir / "DB2000_ED.s7dcl"
+test_res = work_dir / "DB2000_ED.s7res"
+shutil.copy(src_dcl, test_dcl)
+shutil.copy(src_res, test_res)
+
+# Construir slot_map basado en lo que Aketza tenía.
+# Slots 0-15 con sus comentarios según el .s7res:
+slot_map = {0: "NO USAR"}
+slot_comments = {
+    1: "ED02 ZONA 1 ARMARIO PRINCIPAL",
+    2: ".", 3: ".", 4: ".", 5: ".", 6: ".", 7: ".", 8: ".", 9: ".",
+    10: ".", 11: ".", 12: ".", 13: ".", 14: ".", 15: ".",
+}
+slot_map.update(slot_comments)
+print(f"slot_map: {slot_map}")
+
+# Ejecutar el updater.
+updater = DispCommentUpdater(
+    s7dcl_path=test_dcl,
+    s7res_path=test_res,
+    slot_map=slot_map,
+    db_array_name="ED",
+)
+result = updater.update()
+updater.save()
+print(f"modified: {updater.was_modified()}")
+print(f"total_mlcs_in_res: {result.total_mlcs_in_res}")
+
+# Verificar el .s7res final.
+final_res = test_res.read_text(encoding="utf-8-sig")
+final_count = final_res.count("- id: MLC_")
+print(f"MLCs en .s7res final: {final_count}")
+print()
+print("MLCs presentes en .s7res final:")
+mlcs_final = re.findall(r"-\s*id:\s*(MLC_\S+)", final_res)
+for mlc in mlcs_final:
+    print(f"  {mlc}")
+
+# Cuenta esperada: 19 (16 originales + 3 de cabecera que TIA omitió en el export
+# y que el updater añade con texto "." para mantener el balance).
+assert final_count == 19, f"Esperaba 19 MLCs, hay {final_count}"
+
+# Verificación CRÍTICA de coherencia entre .s7dcl y .s7res (TIA exige que coincidan).
+final_dcl_text = test_dcl.read_text(encoding="utf-8")
+final_dcl_mlcs = set(re.findall(
+    r'S7_(?:BlockComment|BlockTitle|MLC)\s*:=\s*"(MLC_[A-Za-z0-9_]+)"',
+    final_dcl_text,
+))
+final_res_mlcs = set(re.findall(r"-\s*id:\s*(MLC_\S+)", final_res))
+print()
+print(f"MLCs en .s7dcl: {len(final_dcl_mlcs)}")
+print(f"MLCs en .s7res: {len(final_res_mlcs)}")
+print(f"COINCIDEN: {final_dcl_mlcs == final_res_mlcs}")
+if final_dcl_mlcs != final_res_mlcs:
+    print(f"  Solo en .s7dcl: {final_dcl_mlcs - final_res_mlcs}")
+    print(f"  Solo en .s7res: {final_res_mlcs - final_dcl_mlcs}")
+assert final_dcl_mlcs == final_res_mlcs, "DESBALANCE de MLCs entre .s7dcl y .s7res"
+
+# Verificar que los MLCs de cabecera añadidos tienen texto "." (convención TIA).
+assert "id: MLC_32c" in final_res
+assert "id: MLC_wT" in final_res
+assert "id: MLC_3Vz" in final_res
+# Verificar textos "." en sus líneas siguientes.
+for mlc_id in ("MLC_32c", "MLC_wT", "MLC_3Vz"):
+    lines = final_res.splitlines()
+    for i, line in enumerate(lines):
+        if line.strip() == f"- id: {mlc_id}":
+            assert "es-ES: ." in lines[i + 1], f"Texto de {mlc_id} debería ser '.'"
+            break
+    else:
+        raise AssertionError(f"No se encontró la entrada de {mlc_id} en el .s7res final")
+
+print()
+print("FIX VERIFICADO:")
+print("  - 19 MLCs en .s7res (= 16 originales + 3 de cabecera añadidos).")
+print("  - Counts de MLCs en .s7dcl y .s7res COINCIDEN (TIA acepta el reimport).")
+print("  - MLCs de cabecera añadidos con texto '.' (convencion TIA).")

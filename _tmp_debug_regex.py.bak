@@ -1,0 +1,54 @@
+"""Debug temporal para entender por qué fallan los tests del updater."""
+import re
+import sys
+from pathlib import Path
+
+sys.path.insert(0, '.')
+
+from infrastructure.alimentacion.sd.disp_comment_updater import (
+    _MLC_BLOCK_RE, _ASSIGNMENT_RE, _MLC_INNER_RE,
+)
+
+S7DCL = '''DATA_BLOCK DB2000_ED
+    VAR
+        "ED" : Array[0..10] of _.UDT_ZC_DISP_ED;
+    END_VAR
+
+        "ED"[0].Estado_AutoMan := FALSE;
+        { S7_MLC := "MLC_old0" }
+        "ED"[0] := ();
+
+END_DATA_BLOCK
+'''
+
+print('--- Asignaciones encontradas ---')
+for m in _ASSIGNMENT_RE.finditer(S7DCL):
+    print(f'  array={m.group("array")!r} idx={m.group("idx")!r}')
+
+print()
+print('--- Bloques MLC en S7DCL completo ---')
+for m in _MLC_BLOCK_RE.finditer(S7DCL):
+    print(f'  block: {m.group(0)!r}')
+    print(f'  body: {m.group("body")!r}')
+
+print()
+# Buscar asignación slot 0
+match = None
+for m in _ASSIGNMENT_RE.finditer(S7DCL):
+    if m.group('array') == 'ED' and int(m.group('idx')) == 0:
+        match = m
+        break
+
+if match:
+    print(f'--- Antes de ED[0] := (); ---')
+    prefix = S7DCL[:match.start()]
+    print(f'prefix repr: {prefix!r}')
+    lines_before = prefix.splitlines()[-12:]
+    joined = '\n'.join(lines_before)
+    print(f'joined repr: {joined!r}')
+    print()
+    for blk in _MLC_BLOCK_RE.finditer(joined):
+        print(f'  block: {blk.group(0)!r}')
+        inner = _MLC_INNER_RE.search(blk.group('body'))
+        if inner:
+            print(f'    INNER MLC={inner.group("mlc")!r}')

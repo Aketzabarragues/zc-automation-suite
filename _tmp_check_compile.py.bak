@@ -1,0 +1,12 @@
+"""Verifica que worker_tia.py compila sin ejecutarlo (no requiere siemens_tia_scripting)."""
+import sys
+from pathlib import Path
+
+src = Path("infrastructure/tia/worker_tia.py").read_text(encoding="utf-8-sig")
+try:
+    compile(src, "worker_tia.py", "exec")
+    print("OK: worker_tia.py compila correctamente.")
+    print(f"Total lineas: {len(src.splitlines())}")
+except SyntaxError as e:
+    print(f"SYNTAX ERROR: {e}")
+    sys.exit(1)
