@@ -21,9 +21,6 @@ from typing import Any
 
 from fastmcp import FastMCP
 
-from application.areas.alimentacion.use_cases.sync_disp_alimentacion import (
-    SyncDispAlimentacionUseCase,
-)
 from application.state import get_app_state
 from infrastructure.config_manager import ConfigManager
 from infrastructure.gateway import TIAProcessGateway
@@ -306,73 +303,6 @@ def create_mcp_server(gateway: TIAProcessGateway) -> FastMCP:
         return (
             f"Transacción completada: {result['operations_executed']} "
             "comandos ejecutados."
-        )
-
-    # ── SyncDispAlimentacionUseCase: preview + apply de dispositivos ─
-
-    @mcp.tool()
-    async def tia_preview_disp_sync(plc_name: str) -> str:
-        """PREVIEW: calcula el diff de dispositivos entre AppState y PLC. NO toca TIA.
-
-        Caso de uso único del área de alimentación. Por ahora solo cubre
-        N_MAX online; cuando crezca, este mismo método cubrirá device
-        renames e instance sync.
-
-        Lee el estado actual del PLC (export bulk + parse selectivo del
-        único XML ``000_Sistema/000_Config_Dispositivos.xml``) y lo
-        compara con ``AppState.dimensiones`` (cargado previamente vía
-        ``POST /api/v1/excel/upload``).
-
-        Args:
-            plc_name: Nombre exacto del PLC destino.
-
-        Returns:
-            JSON con ``summary``, ``current``, ``desired``, ``ops`` y ``warnings``.
-        """
-        use_case = SyncDispAlimentacionUseCase(
-            gateway=gateway,
-            config_manager=config_manager,
-            app_state=get_app_state(),
-        )
-        result = await use_case.preview_disp(plc_name)
-        return json.dumps(result, ensure_ascii=False, indent=2)
-
-    @mcp.tool()
-    async def tia_apply_disp_sync(plc_name: str) -> str:
-        """APPLY: aplica el diff de dispositivos en UNA transacción COM única.
-
-        PRECONDICIÓN: el Excel debe estar cargado en ``AppState`` (vía
-        ``POST /api/v1/excel/upload``) y se recomienda haber ejecutado
-        ``tia_preview_disp_sync`` para revisar el diff antes.
-
-        El use case construye la lista de operaciones ``update_user_constant_value``
-        y delega en ``gateway.execute_transactional_batch`` — el worker
-        abre ``start_transaction``, itera las ops online y cierra con
-        ``end_transaction`` (con rollback atómico si algo falla). Tras
-        el éxito, invalida la caché del gateway.
-
-        Args:
-            plc_name: Nombre exacto del PLC destino.
-
-        Returns:
-            Resumen legible de las operaciones aplicadas. Tras el éxito,
-            el caller DEBE invocar ``tia_compile_plc`` para asentar las
-            nuevas dimensiones de los DataBlocks.
-        """
-        use_case = SyncDispAlimentacionUseCase(
-            gateway=gateway,
-            config_manager=config_manager,
-            app_state=get_app_state(),
-        )
-        result = await use_case.apply_disp(plc_name)
-        n_updates = result.get("summary", {}).get("n_max_updates", 0)
-        warnings_count = len(result.get("warnings", []))
-        return (
-            f"✅ SyncDispAlimentacion ejecutado en '{plc_name}': "
-            f"{n_updates} N_MAX updates en una transacción. "
-            f"Caché invalidada. Warnings: {warnings_count}. "
-            "Recuerda invocar tia_compile_plc para asentar el modelo "
-            "de memoria del PLC."
         )
 
     return mcp

@@ -2,11 +2,9 @@
 
 Endpoints de Pre-Flight (preview sin tocar TIA) y Commit
 (transaccional contra el PLC) del caso de uso unificado del
-área de alimentación. En esta release, ``/sync/preview`` y
-``/sync/commit`` invocan ``SyncDispositivosInstancesUseCase``, que
-realiza el sync COMPLETO de N_MAX + devices en una sola transacción
-COM. Los endpoints ``/sync/disp/*`` (N_MAX-only) se conservan como
-atajo para cuando el operario solo quiera tocar N_MAX.
+área de alimentación. ``/sync/preview`` y ``/sync/commit``
+invocan ``SyncDispositivosInstancesUseCase``, que realiza el
+sync COMPLETO de N_MAX + devices en una sola transacción COM.
 
 NO instancia gateways: vienen inyectados vía ``Depends``.
 """
@@ -17,9 +15,6 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from application.areas.alimentacion.use_cases.sync_disp_alimentacion import (
-    SyncDispAlimentacionUseCase,
-)
 from application.areas.alimentacion.use_cases.sync_dispositivos_instances import (
     SyncDispositivosInstancesUseCase,
 )
@@ -47,11 +42,7 @@ class InstancesCommitRequest(BaseModel):
     prevision: dict[str, Any]
 
 
-class DispSyncRequest(BaseModel):
-    plc_name: str
-
-
-# ── Sync completo: N_MAX + devices (RESTAURADO en esta release) ─────
+# ── Sync completo: N_MAX + devices ──────────────────────────────────────
 
 @router.post("/preview")
 async def sync_preview(
@@ -133,76 +124,6 @@ async def sync_commit(
     logger.success(
         f"[sync/commit] Transacción completada: {result.get('operations')} ops. "
         "Recordar invocar tia_compile_plc para asentar el modelo de memoria."
-    )
-    return result
-
-
-# ── Sync N_MAX-only (atajo) ──────────────────────────────────────────
-
-@router.post("/disp/preview")
-async def disp_preview(
-    req: DispSyncRequest,
-    state: AppState = Depends(get_app_state),
-    gateway: TIAProcessGateway = Depends(get_gateway),
-    config_manager: ConfigManager = Depends(get_config_manager),
-    logger: LogBuffer = Depends(get_logger),
-) -> dict[str, Any]:
-    """Calcula el diff de N_MAX entre AppState y PLC. NO toca TIA.
-
-    Atajo: cuando el operario solo quiere tocar N_MAX sin pasar por
-    devices. Usa ``SyncDispAlimentacionUseCase``.
-    """
-    use_case = SyncDispAlimentacionUseCase(
-        gateway=gateway, config_manager=config_manager, app_state=state
-    )
-    logger.info(
-        f"[disp/preview] Generando preview N_MAX-only para PLC '{req.plc_name}'..."
-    )
-    try:
-        result = await use_case.preview_disp(req.plc_name)
-    except Exception as exc:
-        logger.error(f"preview_disp failed: {exc}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"preview_disp failed: {exc}",
-        ) from exc
-    n_ops = result.get("summary", {}).get("total_ops", 0)
-    logger.success(
-        f"[disp/preview] Preview lista: {n_ops} ops pendientes."
-    )
-    return result
-
-
-@router.post("/disp/apply")
-async def disp_apply(
-    req: DispSyncRequest,
-    state: AppState = Depends(get_app_state),
-    gateway: TIAProcessGateway = Depends(get_gateway),
-    config_manager: ConfigManager = Depends(get_config_manager),
-    logger: LogBuffer = Depends(get_logger),
-) -> dict[str, Any]:
-    """Aplica el diff de N_MAX en UNA transacción COM única.
-
-    Atajo N_MAX-only (vía ``SyncDispAlimentacionUseCase``).
-    """
-    use_case = SyncDispAlimentacionUseCase(
-        gateway=gateway, config_manager=config_manager, app_state=state
-    )
-    logger.info(
-        f"[disp/apply] Aplicando diff N_MAX al PLC '{req.plc_name}'..."
-    )
-    try:
-        result = await use_case.apply_disp(req.plc_name)
-    except Exception as exc:
-        logger.error(f"apply_disp failed: {exc}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"apply_disp failed: {exc}",
-        ) from exc
-    n_ops = result.get("operations_executed", 0)
-    logger.success(
-        f"[disp/apply] Transacción N_MAX completada: {n_ops} ops. "
-        "Recordar invocar tia_compile_plc."
     )
     return result
 

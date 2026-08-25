@@ -219,6 +219,7 @@ __marimo__/
 
 # Custom exclusions
 _legacy_reference/
+_trash_backup/
 temp_*/
 .build_cache/
 .scratch/
