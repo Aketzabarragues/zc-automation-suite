@@ -22,9 +22,11 @@
 import { computed } from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js";
 import { store, pushLog, goToWelcome, goToSubview } from "../../../store.js";
 import { apiFetchPlcs } from "../../../api.js";
+import ProgressIndicator from "../../ProgressIndicator.js";
 
 export default {
     name: "AlimentacionSidebar",
+    components: { ProgressIndicator },
     setup() {
         /**
          * Etiqueta del área actualmente seleccionada, derivada del
@@ -119,6 +121,9 @@ export default {
                     </button>
                 </div>
             </section>
+
+            <!-- Indicador de progreso (fijo en la parte inferior del sidebar) -->
+            <ProgressIndicator />
         </aside>
     `,
 };

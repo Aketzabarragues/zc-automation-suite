@@ -33,6 +33,7 @@ from starlette.responses import FileResponse
 from starlette.staticfiles import StaticFiles as _BaseStaticFiles
 
 from application.log_buffer import get_log_buffer
+from application.progress_buffer import get_progress_tracker
 from application.state import get_app_state
 from infrastructure.gateway import TIAProcessGateway
 from interfaces.web_server.routers import (
@@ -87,6 +88,11 @@ def create_app(gateway: TIAProcessGateway) -> FastAPI:
     app.state.gateway = gateway
     app.state.app_state = get_app_state()
     app.state.logger = get_log_buffer()
+    # ``ProgressTracker`` Singleton: espejo del patrón de ``logger``.
+    # Lo inyectamos en ``app.state`` para que los routers que lo
+    # necesiten (excel, portal, diagnostics, sync) lo obtengan vía
+    # ``Depends``. Los use cases lo reciben por constructor.
+    app.state.progress_tracker = get_progress_tracker()
     # ``ConfigManager`` se construye aquí (Composition Root) y se
     # expone a los routers que lo necesiten (ej. ``sync.py`` que
     # lo pasa a ``SyncDispositivosInstancesUseCase``).

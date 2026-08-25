@@ -20,6 +20,7 @@ from __future__ import annotations
 from fastapi import Request
 
 from application.log_buffer import LogBuffer
+from application.progress_buffer import ProgressTracker
 from application.state import AppState
 from infrastructure.config_manager import ConfigManager
 from infrastructure.gateway import TIAProcessGateway
@@ -40,6 +41,17 @@ def get_logger(request: Request) -> LogBuffer:
     return request.app.state.logger
 
 
+def get_progress_tracker(request: Request) -> ProgressTracker:
+    """Devuelve el ``ProgressTracker`` Singleton compartido por toda la app.
+
+    Mismo patrón que ``get_logger``: se inyecta en ``app.state`` por el
+    Composition Root y los routers la recuperan vía ``Depends``. Los use
+    cases la reciben directamente por constructor (no necesitan el
+    request de FastAPI).
+    """
+    return request.app.state.progress_tracker
+
+
 def get_config_manager(request: Request) -> ConfigManager:
     """Devuelve el ``ConfigManager`` inyectado en ``app.state``.
 
@@ -57,5 +69,6 @@ __all__ = [
     "get_gateway",
     "get_app_state",
     "get_logger",
+    "get_progress_tracker",
     "get_config_manager",
 ]

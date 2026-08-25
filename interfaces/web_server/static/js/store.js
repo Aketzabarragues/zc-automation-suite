@@ -91,6 +91,34 @@ export const store = reactive({
 
     /** Flag de operación en curso (deshabilita botones). */
     busy: false,
+
+    /**
+     * Estado del progress overlay (espejo reactivo del
+     * ``ProgressTracker`` backend). Actualizado por el polling
+     * cada 500 ms en ``main.js`` mientras hay una operación activa
+     * o un resultado terminal pendiente de leer.
+     *
+     * Estructura espejo del ``ProgressSnapshot`` del backend
+     * (``application/progress_buffer.py``).
+     *
+     * ``active=false`` + ``stages=[]`` → overlay oculto (idle).
+     * ``active=true`` → overlay visible con stages en progreso.
+     * ``active=false`` + ``error`` no nulo → overlay rojo 5s.
+     * ``active=false`` + ``stages`` no vacíos (sin error) → overlay
+     *   verde "Completado" 3s, luego auto-clear.
+     */
+    progress: {
+        active: false,
+        operation: null,
+        label: null,
+        current: 0,
+        total: 0,
+        percent: 0,
+        stages: [],
+        started_at: null,
+        finished_at: null,
+        error: null,
+    },
 });
 
 /**

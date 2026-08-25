@@ -81,3 +81,26 @@ export const apiFetchLogs = () => _request("GET", "/api/v1/logs");
 
 /** Vacía el buffer de logs (botón "Limpiar"). */
 export const apiClearLogs = () => _request("POST", "/api/v1/logs/clear");
+
+/**
+ * Snapshot del ``ProgressTracker`` backend.
+ *
+ * Devuelve la forma ``{ ok, progress: { active, operation, label, current,
+ * total, percent, stages, started_at, finished_at, error } }``.
+ *
+ * Llamado por el polling 500 ms en ``main.js``. NO escribe al backend
+ * (la SPA es solo observadora; el backend emite los cambios cuando
+ * los use cases avanzan).
+ */
+export const apiFetchProgress = () =>
+    _request("GET", "/api/v1/progress/current");
+
+/**
+ * Resetea el ``ProgressTracker`` backend al estado vacío.
+ *
+ * Disparado por el frontend tras el auto-close del overlay
+ * (3-5 s tras éxito) o cuando el operario pulsa "Cerrar" en
+ * estados terminales. Idempotente.
+ */
+export const apiClearProgress = () =>
+    _request("POST", "/api/v1/progress/clear");

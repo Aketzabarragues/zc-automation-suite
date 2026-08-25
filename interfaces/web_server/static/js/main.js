@@ -29,9 +29,10 @@
  */
 import { createApp } from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js";
 import { store, goToArea, goToSubview, loadCatalog } from "./store.js";
-import { apiFetchLogs, apiFetchMemory } from "./api.js";
+import { apiFetchLogs, apiFetchMemory, apiFetchProgress } from "./api.js";
 import Welcome from "./components/Welcome.js";
 import ConsolaLogs from "./components/ConsolaLogs.js";
+import ProgressIndicator from "./components/ProgressIndicator.js";
 import AlimentacionSidebar from "./components/areas/alimentacion/Sidebar.js";
 import AreaLanding from "./components/areas/alimentacion/AreaLanding.js";
 import DefinicionProgramacion from "./components/areas/alimentacion/DefinicionProgramacion.js";
@@ -42,6 +43,7 @@ const App = {
     components: {
         Welcome,
         ConsolaLogs,
+        ProgressIndicator,
         AlimentacionSidebar,
         AreaLanding,
         DefinicionProgramacion,
@@ -119,3 +121,24 @@ setInterval(async () => {
         store.logs = r.data.logs;
     }
 }, 1000);
+
+/* ── Polling de progreso (500 ms, panel fijo en el sidebar) ─
+ * Se ejecuta SIEMPRE que el operario esté en un área (sin guard
+ * de estado). Coste idle: 2 req/s (trivial). Esto evita el bug
+ * chicken-and-egg donde el guard espera a ver algo que solo puede
+ * detectar el propio polling. */
+let _progressTickCount = 0;
+setInterval(async () => {
+    if (store.topLevelView !== "area") return;
+    _progressTickCount += 1;
+    if (_progressTickCount <= 4) {
+        console.log("[zc-progress] tick", _progressTickCount);
+    }
+    const r = await apiFetchProgress();
+    if (r.ok && r.data && r.data.ok && r.data.progress) {
+        // Solo actualizamos si el snapshot tiene algo distinto al actual.
+        // (El endpoint siempre devuelve 200 con el estado actual, que
+        // puede ser el "idle" vacío si no hay operación en curso.)
+        store.progress = r.data.progress;
+    }
+}, 500);

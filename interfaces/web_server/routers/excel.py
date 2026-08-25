@@ -21,6 +21,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from application.log_buffer import LogBuffer
+from application.progress_buffer import ProgressTracker
 from application.state import AppState
 from infrastructure.alimentacion.parsers.alimentacion_excel_parser import (
     AlimentacionExcelParser,
@@ -30,6 +31,7 @@ from interfaces.web_server.dependencies import (
     get_app_state,
     get_config_manager,
     get_logger,
+    get_progress_tracker,
 )
 
 
@@ -42,6 +44,7 @@ async def upload_excel(
     state: AppState = Depends(get_app_state),
     logger: LogBuffer = Depends(get_logger),
     config_manager: ConfigManager = Depends(get_config_manager),
+    progress: ProgressTracker = Depends(get_progress_tracker),
 ) -> dict[str, Any]:
     """Recibe un .xlsx, lo parsea y popula el ``AppState``.
 
@@ -53,58 +56,86 @@ async def upload_excel(
     no hace ninguna llamada a TIA Portal.
     """
     suffix = Path(file.filename or "upload.xlsx").suffix or ".xlsx"
-    with tempfile.NamedTemporaryFile(
-        delete=False, suffix=suffix, prefix="zcupload_"
-    ) as tmp:
-        content = await file.read()
-        tmp.write(content)
-        tmp_path = Path(tmp.name)
-
-    logger.info(
-        f"📥 Recibiendo Excel: '{file.filename}' ({len(content)} bytes)"
+    # ── Progress tracking (overlay SPA) ────────────────
+    # 3 stages: recibir_archivo → parsear_excel → volcar_appstate.
+    progress.begin(
+        operation="upload_excel",
+        label=f"Cargando Excel: {file.filename or 'upload.xlsx'}",
+        stages=["recibir_archivo", "parsear_excel", "volcar_appstate"],
     )
     try:
-        logger.info("🔍 Parseando estructura del Excel...")
-        # Inyectamos el CM al parser para que use la ruta data-driven
-        # (override de ``_EXCEL_TARGETS`` si el config define
-        # ``excel_target`` por hw_type).
-        parser = AlimentacionExcelParser(config_manager=config_manager)
-        dispositivos_por_tipo = parser.extraer_dtos(tmp_path)
-
-        # Volcado data-driven: por cada hw_type activo, resolver su
-        # atributo del AppState (legacy o dinámico) y la clave
-        # canónica del Excel, y asignar la lista (o ``[]``).
-        for hw in config_manager.list_hw_types_active():
-            target = config_manager.get_excel_target_for(hw)
-            attr = config_manager.get_app_state_attr_for(hw)
-            if target is None or attr is None:
-                continue
-            canonica = target.get("canonical", "")
-            if not canonica:
-                continue
-            setattr(state, attr, dispositivos_por_tipo.get(canonica, []))
-
-        dimensiones = parser.extraer_dimensiones(tmp_path)
-        state.dimensiones = dimensiones
-
-        summary = {
-            tipo: len(lista)
-            for tipo, lista in dispositivos_por_tipo.items()
-        }
-        total_hw = sum(summary.values())
-        logger.success(
-            f"✅ Carga maestra completada: {total_hw} dispositivos "
-            f"extraídos ({len(summary)} tipos)."
+        progress.start_stage("recibir_archivo")
+        with tempfile.NamedTemporaryFile(
+            delete=False, suffix=suffix, prefix="zcupload_"
+        ) as tmp:
+            content = await file.read()
+            tmp.write(content)
+            tmp_path = Path(tmp.name)
+        progress.finish_stage(
+            "recibir_archivo", f"{len(content)} bytes recibidos"
         )
-        for tipo, qty in summary.items():
-            logger.info(f"   • {tipo}: {qty} elementos")
+
+        logger.info(
+            f"📥 Recibiendo Excel: '{file.filename}' ({len(content)} bytes)"
+        )
+        try:
+            progress.start_stage("parsear_excel")
+            logger.info("🔍 Parseando estructura del Excel...")
+            # Inyectamos el CM al parser para que use la ruta data-driven
+            # (override de ``_EXCEL_TARGETS`` si el config define
+            # ``excel_target`` por hw_type).
+            parser = AlimentacionExcelParser(config_manager=config_manager)
+            dispositivos_por_tipo = parser.extraer_dtos(tmp_path)
+            progress.finish_stage(
+                "parsear_excel",
+                f"{sum(len(v) for v in dispositivos_por_tipo.values())} dispositivos parseados",
+            )
+
+            progress.start_stage("volcar_appstate")
+            # Volcado data-driven: por cada hw_type activo, resolver su
+            # atributo del AppState (legacy o dinámico) y la clave
+            # canónica del Excel, y asignar la lista (o ``[]``).
+            for hw in config_manager.list_hw_types_active():
+                target = config_manager.get_excel_target_for(hw)
+                attr = config_manager.get_app_state_attr_for(hw)
+                if target is None or attr is None:
+                    continue
+                canonica = target.get("canonical", "")
+                if not canonica:
+                    continue
+                setattr(state, attr, dispositivos_por_tipo.get(canonica, []))
+
+            dimensiones = parser.extraer_dimensiones(tmp_path)
+            state.dimensiones = dimensiones
+            progress.finish_stage("volcar_appstate", "Estado actualizado")
+
+            summary = {
+                tipo: len(lista)
+                for tipo, lista in dispositivos_por_tipo.items()
+            }
+            total_hw = sum(summary.values())
+            logger.success(
+                f"✅ Carga maestra completada: {total_hw} dispositivos "
+                f"extraídos ({len(summary)} tipos)."
+            )
+            for tipo, qty in summary.items():
+                logger.info(f"   • {tipo}: {qty} elementos")
+            progress.finish(success=True)
+        except Exception as exc:
+            progress.finish(success=False, error=str(exc))
+            logger.error(f"❌ Fallo crítico al parsear el Excel: {exc}")
+            raise HTTPException(
+                status_code=400, detail=f"excel_upload failed: {exc}"
+            ) from exc
+        finally:
+            tmp_path.unlink(missing_ok=True)
+    except HTTPException:
+        # Ya manejado arriba; asegurar que progress se cierre en error.
+        progress.finish(success=False)
+        raise
     except Exception as exc:
-        logger.error(f"❌ Fallo crítico al parsear el Excel: {exc}")
-        raise HTTPException(
-            status_code=400, detail=f"excel_upload failed: {exc}"
-        ) from exc
-    finally:
-        tmp_path.unlink(missing_ok=True)
+        progress.finish(success=False, error=str(exc))
+        raise
 
     return {
         "ok": True,

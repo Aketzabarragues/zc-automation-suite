@@ -57,6 +57,7 @@ from typing import Any
 from application.areas.alimentacion.use_cases.diff_constants import (
     CalculateConstantsDiffUseCase,
 )
+from application.progress_buffer import ProgressTracker, get_progress_tracker
 from application.state import AppState
 from infrastructure.config_manager import ConfigManager
 from infrastructure.gateway import TIAProcessGateway
@@ -69,7 +70,14 @@ _logger: logging.Logger = logging.getLogger(
 
 
 class SyncDispAlimentacionUseCase:
-    """Caso de uso unificado del área de alimentación (TIA Portal sync)."""
+    """Caso de uso unificado del área de alimentación (TIA Portal sync).
+
+    **Progress tracking (overlay SPA)**: si se inyecta un
+    ``ProgressTracker`` vía constructor, los métodos públicos emiten
+    ``begin/start_stage/finish_stage/finish`` para que el operario
+    pueda ver el avance. Si no se inyecta, se usa el Singleton
+    global (back-compat con tests legacy que no lo pasan).
+    """
 
     _TEMP_PREFIX = "zc_nmax_"
 
@@ -78,10 +86,14 @@ class SyncDispAlimentacionUseCase:
         gateway: TIAProcessGateway,
         config_manager: ConfigManager,
         app_state: AppState,
+        progress: ProgressTracker | None = None,
     ) -> None:
         self._gateway = gateway
         self._config = config_manager
         self._state = app_state
+        self._progress: ProgressTracker = (
+            progress if progress is not None else get_progress_tracker()
+        )
 
     # ── API pública ────────────────────────────────────────────────────
 
@@ -139,23 +151,42 @@ class SyncDispAlimentacionUseCase:
                     },
                 }
         """
-        warnings = self._check_app_state()
-        if warnings:
-            return self._empty_preview(plc_name, warnings)
-
-        current, current_warnings = await self._read_nmax_current(plc_name)
-        warnings.extend(current_warnings)
-        desired = self._build_nmax_desired()
-        ops = self._compute_nmax_ops(plc_name, current, desired)
-        nmax_block = self._build_nmax_block(current, desired)
-        return self._build_preview_response(
-            plc_name=plc_name,
-            current=current,
-            desired=desired,
-            ops=ops,
-            nmax_block=nmax_block,
-            warnings=warnings,
+        # ── Progress tracking (overlay SPA) ────────────────
+        # 3 stages: read_nmax_current → build_nmax_desired → compute_ops.
+        self._progress.begin(
+            operation="preview_nmax",
+            label=f"Generando preview N_MAX para {plc_name}",
+            stages=["read_nmax_current", "build_nmax_desired", "compute_ops"],
         )
+        try:
+            warnings = self._check_app_state()
+            if warnings:
+                self._progress.finish(success=True)
+                return self._empty_preview(plc_name, warnings)
+
+            self._progress.start_stage("read_nmax_current", "Leyendo N_MAX actuales del PLC...")
+            current, current_warnings = await self._read_nmax_current(plc_name)
+            warnings.extend(current_warnings)
+            self._progress.finish_stage("read_nmax_current", "Lectura OK")
+            self._progress.start_stage("build_nmax_desired")
+            desired = self._build_nmax_desired()
+            self._progress.finish_stage("build_nmax_desired")
+            self._progress.start_stage("compute_ops")
+            ops = self._compute_nmax_ops(plc_name, current, desired)
+            self._progress.finish_stage("compute_ops", f"{len(ops)} operaciones calculadas")
+            nmax_block = self._build_nmax_block(current, desired)
+            self._progress.finish(success=True)
+            return self._build_preview_response(
+                plc_name=plc_name,
+                current=current,
+                desired=desired,
+                ops=ops,
+                nmax_block=nmax_block,
+                warnings=warnings,
+            )
+        except Exception as exc:
+            self._progress.finish(success=False, error=str(exc))
+            raise
 
     async def apply_disp(self, plc_name: str) -> dict[str, Any]:
         """Aplica el diff de N_MAX en UNA transacción COM única.
@@ -178,77 +209,109 @@ class SyncDispAlimentacionUseCase:
                     "warnings": list[str],
                 }
         """
-        warnings = self._check_app_state()
-        if warnings:
-            # Mismo short-circuit que preview_disp: no se invoca el
-            # gateway si no hay desired.
-            return {
-                "plc_name": plc_name,
-                "success": True,
-                "applied": True,
-                "operations_executed": 0,
-                "summary": {"n_max_updates": 0, "total_ops": 0},
-                "details": [],
-                "warnings": warnings,
-            }
-
-        current, current_warnings = await self._read_nmax_current(plc_name)
-        warnings.extend(current_warnings)
-        desired = self._build_nmax_desired()
-        ops = self._compute_nmax_ops(plc_name, current, desired)
-
-        if not ops:
-            _logger.info(
-                f"[{plc_name}] apply_disp: diff vacío, no se toca TIA."
-            )
-            return {
-                "plc_name": plc_name,
-                "success": True,
-                "applied": True,
-                "operations_executed": 0,
-                "summary": {"n_max_updates": 0, "total_ops": 0},
-                "details": [],
-                "warnings": warnings,
-            }
-
-        config_table = self._config.get_global_config_table_name()
-        operations = [
-            {
-                "command": "update_user_constant_value",
-                "args": {
+        # ── Progress tracking (overlay SPA) ────────────────
+        # 4 stages: read_nmax_current → build_nmax_desired → compute_ops → open_transaction.
+        self._progress.begin(
+            operation="apply_nmax",
+            label=f"Aplicando N_MAX en {plc_name}",
+            stages=[
+                "read_nmax_current",
+                "build_nmax_desired",
+                "compute_ops",
+                "open_transaction",
+            ],
+        )
+        try:
+            warnings = self._check_app_state()
+            if warnings:
+                self._progress.finish(success=True)
+                return {
                     "plc_name": plc_name,
-                    "table_name": config_table,
-                    "constant_name": op["args"]["constant_name"],
-                    "new_value": op["args"]["new_value"],
+                    "success": True,
+                    "applied": True,
+                    "operations_executed": 0,
+                    "summary": {"n_max_updates": 0, "total_ops": 0},
+                    "details": [],
+                    "warnings": warnings,
+                }
+
+            self._progress.start_stage("read_nmax_current", "Leyendo N_MAX actuales del PLC...")
+            current, current_warnings = await self._read_nmax_current(plc_name)
+            warnings.extend(current_warnings)
+            self._progress.finish_stage("read_nmax_current", "Lectura OK")
+            self._progress.start_stage("build_nmax_desired")
+            desired = self._build_nmax_desired()
+            self._progress.finish_stage("build_nmax_desired")
+            self._progress.start_stage("compute_ops")
+            ops = self._compute_nmax_ops(plc_name, current, desired)
+            self._progress.finish_stage("compute_ops", f"{len(ops)} operaciones calculadas")
+
+            if not ops:
+                _logger.info(
+                    f"[{plc_name}] apply_disp: diff vacío, no se toca TIA."
+                )
+                self._progress.finish_stage("open_transaction", "Sin cambios (no-op)")
+                self._progress.finish(success=True)
+                return {
+                    "plc_name": plc_name,
+                    "success": True,
+                    "applied": True,
+                    "operations_executed": 0,
+                    "summary": {"n_max_updates": 0, "total_ops": 0},
+                    "details": [],
+                    "warnings": warnings,
+                }
+
+            config_table = self._config.get_global_config_table_name()
+            operations = [
+                {
+                    "command": "update_user_constant_value",
+                    "args": {
+                        "plc_name": plc_name,
+                        "table_name": config_table,
+                        "constant_name": op["args"]["constant_name"],
+                        "new_value": op["args"]["new_value"],
+                    },
+                }
+                for op in ops
+            ]
+            undo_text = f"SyncDispAlimentacion ({plc_name})"
+
+            _logger.info(
+                f"[{plc_name}] apply_disp: {len(ops)} update_user_constant_value "
+                f"en una sola transacción. undo_text={undo_text!r}."
+            )
+
+            self._progress.start_stage(
+                "open_transaction",
+                f"Aplicando {len(ops)} N_MAX en TIA Portal...",
+            )
+            result = await self._gateway.execute_transactional_batch(
+                operations,
+                undo_text=undo_text,
+            )
+            self._progress.finish_stage(
+                "open_transaction",
+                f"{result['operations_executed']} ops aplicadas OK",
+            )
+            self._gateway.clear_cache()
+
+            self._progress.finish(success=True)
+            return {
+                "plc_name": plc_name,
+                "success": True,
+                "applied": True,
+                "operations_executed": result["operations_executed"],
+                "summary": {
+                    "n_max_updates": len(ops),
+                    "total_ops": len(ops),
                 },
+                "details": result.get("details", []),
+                "warnings": warnings,
             }
-            for op in ops
-        ]
-        undo_text = f"SyncDispAlimentacion ({plc_name})"
-
-        _logger.info(
-            f"[{plc_name}] apply_disp: {len(ops)} update_user_constant_value "
-            f"en una sola transacción. undo_text={undo_text!r}."
-        )
-
-        result = await self._gateway.execute_transactional_batch(
-            operations,
-            undo_text=undo_text,
-        )
-        self._gateway.clear_cache()
-
-        return {
-            "plc_name": plc_name,
-            "success": True,
-            "applied": True,
-            "operations_executed": result["operations_executed"],
-            "summary": {
-                "n_max_updates": len(ops),
-                "total_ops": len(ops),
-            },
-            "details": result.get("details", []),
-            "warnings": warnings,
-        }
+        except Exception as exc:
+            self._progress.finish(success=False, error=str(exc))
+            raise
 
     # ── Helpers privados compartidos (preview_disp + apply_disp) ──────
 
