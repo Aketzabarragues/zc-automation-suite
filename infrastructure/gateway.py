@@ -459,3 +459,78 @@ class TIAProcessGateway:
             "execute_transactional_batch",
             {"operations": operations, "undo_text": undo_text},
         )
+
+    async def update_disp_instance_comments_batch(
+        self,
+        plc_name: str,
+        dispositivos_slot_maps: dict[str, dict[int, str]],
+        target_folder: str,
+        db_names: dict[str, str],
+        db_array_names: dict[str, str],
+        build_cache_dir: Path | None = None,
+        undo_text: str = "Sync comentarios dispositivos",
+    ) -> dict[str, Any]:
+        """Aplica los comentarios por instancia a los 6 DBs de dispositivos
+        en una sola transacción TIA con rollback atómico.
+
+        Misma convención que ``SyncDispositivosInstancesUseCase``:
+        el directorio de trabajo es ``<build_cache>/comments/`` (con
+        ``build_cache = Path(os.getcwd()) / ".build_cache"`` por defecto).
+        El directorio se conserva tras la operación (igual que ``base/tags/``
+        y ``ready_to_import/tags/`` del sync de devices) para permitir
+        inspección manual y diff con ``git diff``.
+
+        Args:
+            plc_name: nombre del PLC en TIA.
+            dispositivos_slot_maps: ``{hw_type: {slot: texto}}`` con
+                ``slot_map[0] == "NO USAR"`` siempre. Tipos activos:
+                ``"ed", "ea", "sa", "v", "m", "m_vf"``.
+            target_folder: carpeta destino del import dentro del proyecto
+                TIA (resuelta por ``ConfigManager.get_tia_folder_dispositivos()``).
+            db_names: ``{hw_type: db_name}`` ya resuelto por ConfigManager.
+            db_array_names: ``{hw_type: db_array_name}`` ya resuelto por ConfigManager.
+            build_cache_dir: ruta al directorio ``.build_cache``. Si es
+                None, se usa ``Path(os.getcwd()) / ".build_cache"``.
+            undo_text: etiqueta del historial Undo de TIA Portal.
+
+        Returns:
+            Dict con shape de ``execute_transactional_batch``:
+            ``{"success": True, "operations_executed": int, "details": [...],
+               "work_dir": str}``.
+
+        Raises:
+            ValueError: si algún ``slot_map[0] != "NO USAR"`` o si falta info.
+        """
+        if not dispositivos_slot_maps:
+            raise ValueError("dispositivos_slot_maps está vacío.")
+
+        import os
+
+        if build_cache_dir is None:
+            build_cache_dir = Path(os.getcwd()) / ".build_cache"
+        work_dir = Path(build_cache_dir) / "comments"
+        work_dir.mkdir(parents=True, exist_ok=True)
+
+        operations: list[dict[str, Any]] = []
+        for hw_type, slot_map in dispositivos_slot_maps.items():
+            if 0 not in slot_map or slot_map[0] != "NO USAR":
+                raise ValueError(
+                    f"slot_map[{hw_type!r}][0] debe ser 'NO USAR' "
+                    f"(got {slot_map.get(0)!r})."
+                )
+            operations.append({
+                "command": f"update_disp_comments_db_{hw_type}",
+                "args": {
+                    "plc_name":      plc_name,
+                    "db_name":       db_names.get(hw_type, ""),
+                    "db_array_name": db_array_names.get(hw_type, ""),
+                    "slot_map":      {str(k): v for k, v in slot_map.items()},
+                    "work_dir":      str(work_dir),
+                    "target_folder": target_folder,
+                },
+            })
+        result = await self.execute_transactional_batch(
+            operations, undo_text=undo_text
+        )
+        self.clear_cache()
+        return result

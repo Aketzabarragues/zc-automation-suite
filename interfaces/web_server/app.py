@@ -37,6 +37,7 @@ from application.progress_buffer import get_progress_tracker
 from application.state import get_app_state
 from infrastructure.gateway import TIAProcessGateway
 from interfaces.web_server.routers import (
+    alimentacion_router,
     areas_router,
     catalog_router,
     diagnostics_router,
@@ -103,6 +104,7 @@ def create_app(gateway: TIAProcessGateway) -> FastAPI:
     app.include_router(excel_router)
     app.include_router(portal_router)
     app.include_router(sync_router)
+    app.include_router(alimentacion_router)
     app.include_router(diagnostics_router)
     app.include_router(areas_router)
     app.include_router(catalog_router)

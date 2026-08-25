@@ -32,7 +32,11 @@ from typing import Any, Callable, NoReturn
 # lo hacemos también aquí. Sin esto, Pythonnet intenta convertir
 # strings de TIA Portal (Latin-1) a Python UTF-8 y revienta con
 # "utf-8 codec can't decode byte 0xe1 in position N".
-if sys.platform == "win32":
+# Reconfiguración de I/O a UTF-8. Vive aquí (no a nivel de módulo) para no
+# romper a quien importe este módulo (p. ej. tests que usan capture de pytest).
+def _reconfigure_stdio_utf8() -> None:
+    if sys.platform != "win32":
+        return
     try:
         sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
         sys.stderr.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
@@ -463,7 +467,96 @@ def _cmd_import_block(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
     return True
 
 
-def _cmd_export_tag_table(portal: Any, ts: Any, args: dict[str, Any]) -> str:
+# ─── Comentarios por instancia en DBs de dispositivos ─────────────────────
+# Reusan ``export_block`` / ``import_block`` para hacer export/import selectivo,
+# y aplican el updater offline ``DispCommentUpdater`` sobre los archivos
+# ``.s7dcl``/``.s7res``. El handler es atómico (sin ``start_transaction``
+# propio); vive dentro de la transacción que abrió ``execute_transactional_batch``.
+#
+# Args esperados (todos vienen del use case, que resolvió el config):
+#   plc_name:      nombre del PLC en TIA.
+#   db_name:       nombre del DB (ej. "DB2000_ED"), ya resuelto.
+#   db_array_name: nombre del array dentro del DB (ej. "ED"), ya resuelto.
+#   slot_map:      {slot: texto_comentario} con slot_map[0] == "NO USAR".
+#   work_dir:      directorio temporal de export.
+#   target_folder: carpeta destino del import dentro del proyecto TIA
+#                  (resuelta por ConfigManager.get_tia_folder_dispositivos()).
+def _make_cmd_update_disp_comments_db(hw_type: str) -> Any:
+    """Factory que genera un handler atómico para el DB de ``hw_type``.
+
+    El ``hw_type`` se queda capturado en el closure para etiquetar el
+    retorno y poder trazarlo en logs / historial de TIA.
+    """
+    def _cmd(portal: Any, ts: Any, args: dict[str, Any]) -> dict[str, Any]:
+        plc_name: str = args.get("plc_name", "")
+        db_name: str = args.get("db_name", "")
+        db_array_name: str = args.get("db_array_name", "")
+        slot_map: dict[str, str] = args.get("slot_map", {})
+        work_dir: str = args.get("work_dir", "")
+        target_folder: str = args.get("target_folder", "")
+
+        if not (plc_name and db_name and db_array_name and work_dir and target_folder):
+            raise ValueError(
+                f"update_disp_comments_db_{hw_type}: args incompletos. "
+                f"Recibido: plc_name={plc_name!r} db_name={db_name!r} "
+                f"db_array_name={db_array_name!r} work_dir={work_dir!r} "
+                f"target_folder={target_folder!r}"
+            )
+
+        # Coerción: slot_map llega con keys str (JSON); el updater quiere int.
+        slot_map_int: dict[int, str] = {int(k): v for k, v in slot_map.items()}
+
+        # Import local para evitar cargar el módulo en el import-time del
+        # worker (rompería el offline-first del worker).
+        from infrastructure.alimentacion.sd.disp_comment_updater import (
+            DispCommentUpdater,
+        )
+
+        s7dcl_path = os.path.join(work_dir, f"{db_name}.s7dcl")
+        s7res_path = os.path.join(work_dir, f"{db_name}.s7res")
+
+        # 1. EXPORT SELECTIVO (reusa ``export_block`` existente).
+        COMMAND_REGISTRY["export_block"](portal, ts, {
+            "plc_name":   plc_name,
+            "block_name": db_name,
+            "target_dir": work_dir,
+        })
+
+        # 2. Updater offline.
+        updater = DispCommentUpdater(
+            s7dcl_path=s7dcl_path,
+            s7res_path=s7res_path,
+            slot_map=slot_map_int,
+            db_array_name=db_array_name,
+        )
+        result = updater.update()
+        updater.save()
+
+        # 3. IMPORT SELECTIVO (reusa ``import_block`` existente) — solo si
+        #    el updater modificó algo, para no ensuciar el historial Undo.
+        if updater.was_modified():
+            COMMAND_REGISTRY["import_block"](portal, ts, {
+                "plc_name":      plc_name,
+                "import_dir":    work_dir,
+                "target_folder": target_folder,
+            })
+
+        return {
+            "hw_type":           hw_type,
+            "db_name":           db_name,
+            "modified":          updater.was_modified(),
+            "disp_comment_result": {
+                "reused":            result.reused,
+                "inserted":          result.inserted,
+                "no_usar_mlc":       result.no_usar_mlc,
+                "total_mlcs_in_res": result.total_mlcs_in_res,
+            },
+        }
+
+    return _cmd
+
+
+# ─── COMMAND_REGISTRY ──────────────────────────────────────────────────────
     """Exporta una Ãºnica PlcTagTable como XML SimaticML. Manual Â§2.10.5 / Â§2.28.3."""
     _ = ts
     project = _get_active_project(portal)
@@ -476,6 +569,28 @@ def _cmd_export_tag_table(portal: Any, ts: Any, args: dict[str, Any]) -> str:
     target_plc = _find_plc(project, plc_name)
     tables = target_plc.get_plc_tag_tables()
     for table in tables:
+        if table.get_name() == table_name:
+            table.export(
+                target_directory_path=str(target_path),
+                keep_folder_structure=False,
+            )
+            return str(target_path)
+    raise RuntimeError(f"Tabla '{table_name}' no encontrada en PLC '{plc_name}'.")
+
+
+def _cmd_export_tag_table(portal: Any, ts: Any, args: dict[str, Any]) -> str:
+    """Exporta una única PlcTagTable como XML SimaticML. Manual §2.10.5 / §2.28.3."""
+    _ = ts
+    project = _get_active_project(portal)
+    plc_name: str = args.get("plc_name", "")
+    table_name: str = args.get("table_name", "")
+    target_dir: str = args.get("target_dir", "")
+    if not table_name:
+        raise ValueError("Se requiere el argumento 'table_name'.")
+    target_path = _ensure_target_dir(target_dir)
+    target_plc = _find_plc(project, plc_name)
+    tag_tables = target_plc.get_plc_tag_tables()
+    for table in tag_tables:
         if table.get_name() == table_name:
             table.export(
                 target_directory_path=str(target_path),
@@ -766,6 +881,13 @@ COMMAND_REGISTRY: dict[str, Callable[[Any, Any, dict[str, Any]], Any]] = {
     "update_user_constant_value": _cmd_update_user_constant_value,
     "update_user_constant_name": _cmd_update_user_constant_name,
     "delete_user_constant": _cmd_delete_user_constant,
+    # ── Comentarios por instancia en DBs de dispositivos ──────────────
+    "update_disp_comments_db_ed":   _make_cmd_update_disp_comments_db("ed"),
+    "update_disp_comments_db_ea":   _make_cmd_update_disp_comments_db("ea"),
+    "update_disp_comments_db_sa":   _make_cmd_update_disp_comments_db("sa"),
+    "update_disp_comments_db_v":    _make_cmd_update_disp_comments_db("v"),
+    "update_disp_comments_db_m":    _make_cmd_update_disp_comments_db("m"),
+    "update_disp_comments_db_m_vf": _make_cmd_update_disp_comments_db("m_vf"),
     # â”€â”€ Lotes transaccionales (rollback automÃ¡tico) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     "execute_transactional_batch": _cmd_execute_transactional_batch,
 }
