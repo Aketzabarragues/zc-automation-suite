@@ -104,3 +104,14 @@ export const apiFetchProgress = () =>
  */
 export const apiClearProgress = () =>
     _request("POST", "/api/v1/progress/clear");
+
+/**
+ * TEMP-DEBUG: aplica los comentarios por instancia a los 6 DBs de
+ * dispositivos. Devuelve el shape del use case + el work_dir donde
+ * se han exportado los .s7dcl/.s7res (para inspección manual).
+ * ELIMINAR cuando el botón de debug se retire del sidebar.
+ */
+export const apiAplicarComentariosDisp = (plcName) =>
+    _request("POST", "/api/v1/alimentacion/aplicar-comentarios-disp", {
+        plc_name: plcName,
+    });
