@@ -5,7 +5,7 @@ Eres un Arquitecto de Software Senior y Experto en Integración IT/OT. Estás tr
 ## 1. ARQUITECTURA ESTRICTA: PROCESS-PER-CALL (SUBPROCESS WORKER)
 El ecosistema .NET/COM subyacente de Siemens **NO ES THREAD-SAFE**. Tienes estrictamente prohibido importar la librería de Siemens en el proceso principal.
 *   **Capa IT (Proceso Padre):** Orquesta, enruta y cachea. Ejecuta `main.py` y `gateway.py`. **NUNCA** ejecuta `import siemens_tia_scripting`.
-*   **Capa OT (Proceso Hijo):** El script `infrastructure/tia/worker_tia.py` es el ÚNICO lugar autorizado para interactuar con la API de Siemens.
+*   **Capa OT (Proceso Hijo):** El script `core/infrastructure/tia/worker_tia.py` es el ÚNICO lugar autorizado para interactuar con la API de Siemens. Aloja los **comandos genéricos** del motor OT (~20 handlers). Las **áreas** (Bounded Contexts en `areas/<area>/infrastructure/tia/extra_commands.py`) aportan **comandos adicionales transaccionales** al `COMMAND_REGISTRY` mediante `AreaSpec.contributes_tia_commands`. Dichos handlers corren DENTRO del proceso del worker bajo la misma transacción atómica, pero NO importan `siemens_tia_scripting` directamente. El worker los descubre al arrancar vía `core.infrastructure.tia.command_loader.load_extra_commands(COMMAND_REGISTRY)`.
 *   **Comunicación IPC:** El padre levanta al hijo vía `asyncio.create_subprocess_exec`. Envía los argumentos JSON por `stdin`. El hijo ejecuta la tarea y devuelve UN ÚNICO JSON por `stdout`. Cualquier otro log del hijo va a `stderr`.
 
 ## 2. REGLAS DEL WORKER EFÍMERO (MOTOR OT)

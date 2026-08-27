@@ -467,95 +467,6 @@ def _cmd_import_block(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
     return True
 
 
-# ─── Comentarios por instancia en DBs de dispositivos ─────────────────────
-# Reusan ``export_block`` / ``import_block`` para hacer export/import selectivo,
-# y aplican el updater offline ``DispCommentUpdater`` sobre los archivos
-# ``.s7dcl``/``.s7res``. El handler es atómico (sin ``start_transaction``
-# propio); vive dentro de la transacción que abrió ``execute_transactional_batch``.
-#
-# Args esperados (todos vienen del use case, que resolvió el config):
-#   plc_name:      nombre del PLC en TIA.
-#   db_name:       nombre del DB (ej. "DB2000_ED"), ya resuelto.
-#   db_array_name: nombre del array dentro del DB (ej. "ED"), ya resuelto.
-#   slot_map:      {slot: texto_comentario} con slot_map[0] == "NO USAR".
-#   work_dir:      directorio temporal de export.
-#   target_folder: carpeta destino del import dentro del proyecto TIA
-#                  (resuelta por ConfigManager.get_tia_folder_dispositivos()).
-def _make_cmd_update_disp_comments_db(hw_type: str) -> Any:
-    """Factory que genera un handler atómico para el DB de ``hw_type``.
-
-    El ``hw_type`` se queda capturado en el closure para etiquetar el
-    retorno y poder trazarlo en logs / historial de TIA.
-    """
-    def _cmd(portal: Any, ts: Any, args: dict[str, Any]) -> dict[str, Any]:
-        plc_name: str = args.get("plc_name", "")
-        db_name: str = args.get("db_name", "")
-        db_array_name: str = args.get("db_array_name", "")
-        slot_map: dict[str, str] = args.get("slot_map", {})
-        work_dir: str = args.get("work_dir", "")
-        target_folder: str = args.get("target_folder", "")
-
-        if not (plc_name and db_name and db_array_name and work_dir and target_folder):
-            raise ValueError(
-                f"update_disp_comments_db_{hw_type}: args incompletos. "
-                f"Recibido: plc_name={plc_name!r} db_name={db_name!r} "
-                f"db_array_name={db_array_name!r} work_dir={work_dir!r} "
-                f"target_folder={target_folder!r}"
-            )
-
-        # Coerción: slot_map llega con keys str (JSON); el updater quiere int.
-        slot_map_int: dict[int, str] = {int(k): v for k, v in slot_map.items()}
-
-        # Import local para evitar cargar el módulo en el import-time del
-        # worker (rompería el offline-first del worker).
-        from infrastructure.alimentacion.sd.disp_comment_updater import (
-            DispCommentUpdater,
-        )
-
-        s7dcl_path = os.path.join(work_dir, f"{db_name}.s7dcl")
-        s7res_path = os.path.join(work_dir, f"{db_name}.s7res")
-
-        # 1. EXPORT SELECTIVO (reusa ``export_block`` existente).
-        COMMAND_REGISTRY["export_block"](portal, ts, {
-            "plc_name":   plc_name,
-            "block_name": db_name,
-            "target_dir": work_dir,
-        })
-
-        # 2. Updater offline.
-        updater = DispCommentUpdater(
-            s7dcl_path=s7dcl_path,
-            s7res_path=s7res_path,
-            slot_map=slot_map_int,
-            db_array_name=db_array_name,
-        )
-        result = updater.update()
-        updater.save()
-
-        # 3. IMPORT SELECTIVO (reusa ``import_block`` existente) — solo si
-        #    el updater modificó algo, para no ensuciar el historial Undo.
-        if updater.was_modified():
-            COMMAND_REGISTRY["import_block"](portal, ts, {
-                "plc_name":      plc_name,
-                "import_dir":    work_dir,
-                "target_folder": target_folder,
-            })
-
-        return {
-            "hw_type":           hw_type,
-            "db_name":           db_name,
-            "modified":          updater.was_modified(),
-            "disp_comment_result": {
-                "reused":            result.reused,
-                "inserted":          result.inserted,
-                "no_usar_mlc":       result.no_usar_mlc,
-                "total_mlcs_in_res": result.total_mlcs_in_res,
-            },
-        }
-
-    return _cmd
-
-
 # ─── COMMAND_REGISTRY ──────────────────────────────────────────────────────
     """Exporta una Ãºnica PlcTagTable como XML SimaticML. Manual Â§2.10.5 / Â§2.28.3."""
     _ = ts
@@ -881,16 +792,32 @@ COMMAND_REGISTRY: dict[str, Callable[[Any, Any, dict[str, Any]], Any]] = {
     "update_user_constant_value": _cmd_update_user_constant_value,
     "update_user_constant_name": _cmd_update_user_constant_name,
     "delete_user_constant": _cmd_delete_user_constant,
-    # ── Comentarios por instancia en DBs de dispositivos ──────────────
-    "update_disp_comments_db_ed":   _make_cmd_update_disp_comments_db("ed"),
-    "update_disp_comments_db_ea":   _make_cmd_update_disp_comments_db("ea"),
-    "update_disp_comments_db_sa":   _make_cmd_update_disp_comments_db("sa"),
-    "update_disp_comments_db_v":    _make_cmd_update_disp_comments_db("v"),
-    "update_disp_comments_db_m":    _make_cmd_update_disp_comments_db("m"),
-    "update_disp_comments_db_m_vf": _make_cmd_update_disp_comments_db("m_vf"),
     # â”€â”€ Lotes transaccionales (rollback automÃ¡tico) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     "execute_transactional_batch": _cmd_execute_transactional_batch,
 }
+
+
+# ─── Punto de extensión: comandos aportados por las áreas ────────────────
+# Las áreas (Bounded Contexts) registradas en ``areas/*/`` aportan
+# comandos transaccionales adicionales al ``COMMAND_REGISTRY`` mediante
+# ``AreaSpec.contributes_tia_commands``. Dichos handlers corren
+# DENTRO del proceso del worker, bajo la misma transacción atómica
+# que cualquier otro comando del lote, pero NO importan
+# ``siemens_tia_scripting`` directamente (cumplen la regla
+# ``.clinerules`` §1: el worker es el único proceso que importa la DLL).
+#
+# Esta llamada se ejecuta una sola vez al import del módulo. Como
+# Python cachea los imports, está OK que se invoque varias veces
+# (los handlers se machacan por nombre, no se duplican).
+#
+# Importación al final del módulo para evitar ciclo con ``AreaRegistry``:
+#   worker_tia → command_loader → AreaRegistry → areas.<area>
+#     → extra_commands → (lazy) worker_tia
+# Cuando este bloque se ejecuta, ``COMMAND_REGISTRY`` ya está
+# completamente definido, por lo que las áreas pueden mutarlo in-place.
+from core.infrastructure.tia.command_loader import load_extra_commands
+
+load_extra_commands(COMMAND_REGISTRY)
 
 
 

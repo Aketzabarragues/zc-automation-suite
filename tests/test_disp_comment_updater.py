@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from infrastructure.alimentacion.sd.disp_comment_updater import DispCommentUpdater
+from areas.alimentacion.infrastructure.sd.disp_comment_updater import DispCommentUpdater
 
 
 # ── Fixtures: contenido de .s7dcl / .s7res ──────────────────────────────

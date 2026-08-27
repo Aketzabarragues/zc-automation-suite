@@ -32,13 +32,23 @@ def test_alimentacion_area_is_registered() -> None:
 
 
 def test_alimentacion_spec_has_expected_hooks() -> None:
-    """La ``AreaSpec`` de alimentación tiene los hooks esperados tras PR 2 + 4.
+    """La ``AreaSpec`` de alimentación tiene los hooks esperados tras PR 2 + 3 + 4.
 
     PR 2 implementó ``contributes_state_extensions``,
     ``contributes_config_defaults`` y ``contributes_catalog``.
+    PR 3 implementó ``contributes_tia_commands`` (los 6 handlers
+    ``update_disp_comments_db_*`` aportados al ``COMMAND_REGISTRY``
+    del worker OT desde ``infrastructure/tia/extra_commands.py``).
     PR 4 implementó ``contributes_routers`` (3 routers web movidos
     desde el shell a ``areas/alimentacion/interfaces/web/`` y
     descubiertos vía ``AreaRegistry.for_each("contributes_routers", app=app)``).
+
+    Pendiente: PR 5 (``contributes_frontend_manifest``) y PR 6
+    (``contributes_mcp_tools``) corren en paralelo con PR 3. Este
+    test se actualiza en cada PR individual cuando el propio PR
+    añade el hook correspondiente para no romper la suite de
+    tests del PR en cuestión. El PR de consolidación finalizará
+    la cobertura cuando los 3 PRs estén mergeados.
     """
     spec = AreaRegistry.discover().get("alimentacion")
     assert spec is not None
@@ -49,10 +59,11 @@ def test_alimentacion_spec_has_expected_hooks() -> None:
     assert spec.contributes_state_extensions is not None
     assert spec.contributes_config_defaults is not None
     assert spec.contributes_catalog is not None
+    # Implementado en PR 3
+    assert spec.contributes_tia_commands is not None
     # Implementado en PR 4
     assert spec.contributes_routers is not None
-    # Pendientes (None hasta PR 3/5/6)
-    assert spec.contributes_tia_commands is None
+    # Pendientes (None hasta PR 5/6) — ver nota del docstring.
     assert spec.contributes_mcp_tools is None
     assert spec.contributes_frontend_manifest is None
 

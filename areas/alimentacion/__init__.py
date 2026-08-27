@@ -1,6 +1,6 @@
 """Bounded Context: Alimentación.
 
-Paquete autocontenido que aporta al core, en este PR 2 + 4:
+Paquete autocontenido que aporta al core, en este PR 3:
   - Modelos de dominio (Dispositivo, DispED/EA/SA/V/M/M_VF,
     DimensionesDispositivos) en ``domain/models/dispositivos.py``.
   - Catálogo de presentación del área (``build_catalog``) en
@@ -9,19 +9,19 @@ Paquete autocontenido que aporta al core, en este PR 2 + 4:
     ``application/use_cases/``.
   - Parser de Excel corporativo en
     ``infrastructure/parsers/alimentacion_excel_parser.py``.
+  - Modificadores SimaticML offline de comentarios por instancia y
+    registro de MLCs en ``infrastructure/sd/``.
+  - 6 comandos transaccionales adicionales al ``COMMAND_REGISTRY``
+    del worker OT (``update_disp_comments_db_*``) aportados vía
+    ``infrastructure/tia/extra_commands.register``. Cableados a
+    ``AREA_SPEC.contributes_tia_commands`` y descubiertos al
+    arrancar el worker por ``core.infrastructure.tia.command_loader``.
   - Back-compat de las 6 properties legacy en ``AppState`` vía
-    ``application/state_extensions.install`` (reemplaza al parche
-    de transición de PR 1).
+    ``application/state_extensions.install``.
   - Defaults defensivos del ``ConfigManager`` vía
-    ``infrastructure/config_defaults.install`` (N_MAX legacy,
-    tabla global, carpetas TIA), aplicados solo al bloque
-    ``departments["alimentacion"]`` y solo si faltan en el JSON.
-  - **PR 4** — 3 routers FastAPI (``alimentacion``, ``sync``,
-    ``excel``) en ``interfaces/web/``, montados por el shell web
-    vía ``AreaRegistry.for_each("contributes_routers", app=app)``.
+    ``infrastructure/config_defaults.install``.
 
-En PR 3, 5, 6 este módulo añadirá a la ``AREA_SPEC``:
-  - ``contributes_tia_commands``     (PR 3, ``infrastructure/tia/extra_commands.py``)
+En PR 5 y PR 6 este módulo añadirá a la ``AREA_SPEC``:
   - ``contributes_frontend_manifest``(PR 5, ``frontend/manifest.js``)
   - ``contributes_mcp_tools``       (PR 6, ``interfaces/mcp/tools.py``)
 
@@ -37,6 +37,9 @@ from areas.alimentacion.domain.catalog import build_catalog as build_alim_catalo
 from areas.alimentacion.infrastructure.config_defaults import (
     install as install_defaults,
 )
+from areas.alimentacion.infrastructure.tia.extra_commands import (
+    register as register_tia,
+)
 from areas.alimentacion.interfaces.web import register_routers
 from core.application.area_registry import AreaSpec
 
@@ -50,16 +53,16 @@ AREA_SPEC = AreaSpec(
     contributes_state_extensions=install_state,
     contributes_config_defaults=install_defaults,
     contributes_catalog=build_alim_catalog,
-    # ── Implementado en PR 4 ──────────────────────────────────────
+    # ── Implementado en PR 3 ──────────────────────────────────────
+    contributes_tia_commands=register_tia,
+    # ── Implementado en PR 4 (no se modifica en PR 3) ──────────────
     contributes_routers=register_routers,
-    # ── Pendientes (None hasta PR 3/5/6) ──────────────────────────
-    # PR 3: contributes_tia_commands = register_tia (extra_commands.py)
+    # ── Pendientes (None hasta PR 5/6) ────────────────────────────
     # PR 5: contributes_frontend_manifest = build_manifest (frontend/manifest.js)
     # PR 6: contributes_mcp_tools = register_mcp (interfaces/mcp/tools.py)
-    contributes_tia_commands=None,
     contributes_mcp_tools=None,
     contributes_frontend_manifest=None,
 )
 
 
-__all__ = ["AREA_SPEC"]
+__all__ = ["AREA_SPEC", "register_tia"]

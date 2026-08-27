@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
-from infrastructure.alimentacion.sd.disp_mlc_registry import DispMLCRegistry
+from areas.alimentacion.infrastructure.sd.disp_mlc_registry import DispMLCRegistry
 
 
 # ── next_mlc_id ──────────────────────────────────────────────────────────
@@ -115,10 +115,10 @@ def test_runtime_error_si_no_hay_ids_disponibles() -> None:
     # sufijo. Así el primer ID generado será siempre el mismo, y los
     # siguientes colisionarán.
     with patch(
-        "infrastructure.alimentacion.sd.disp_mlc_registry.random.randint",
+        "areas.alimentacion.infrastructure.sd.disp_mlc_registry.random.randint",
         return_value=3,
     ), patch(
-        "infrastructure.alimentacion.sd.disp_mlc_registry.random.choices",
+        "areas.alimentacion.infrastructure.sd.disp_mlc_registry.random.choices",
         return_value=list("aaa"),
     ):
         # Genera el primero (lo registra).
