@@ -332,7 +332,8 @@ class SyncDispositivosInstancesUseCase:
                 "export_tags",
                 "compute_diff",
                 "prepare_xml",
-                "open_transaction",
+                "open_transaction_devices",
+                "open_transaction_online",
                 "post_preview",
                 "compile_plc",
                 "apply_comentarios_disp",
@@ -364,23 +365,27 @@ class SyncDispositivosInstancesUseCase:
 
             self._progress.start_stage("prepare_xml")
 
-            # ── Construir la lista de operaciones para la transacción única ──
-            operations: list[dict[str, Any]] = []
+            # ── Construir DOS listas: devices (offline XML) y renames+N_MAX (online) ──
+            #
+            # Antes todo iba en un único ``operations`` y se ejecutaba
+            # en una sola transacción. El problema: si una op de la
+            # lista falla (p. ej. un ``update_user_constant_value``
+            # con un valor fuera de rango para el tipo del constant
+            # en TIA), la transacción queda corrupta y el commit final
+            # falla con ``OpennessAccessException: Commit of a
+            # Transaction is not allowed after an exception is
+            # thrown``. Resultado: ni devices ni N_MAX se aplican.
+            #
+            # Dividir en dos transacciones aísla los fallos. Devices
+            # se commitea primero (offline, normalmente estable);
+            # renames + N_MAX van en su propia transacción y, si
+            # falla, devices ya está aplicado.
+            devices_ops: list[dict[str, Any]] = []
+            online_ops: list[dict[str, Any]] = []
 
             # OFFLINE: import_plc_tags_xml para add/remove de devices.
-            # TagTableModifier (infrastructure/xml/modifiers.py) ya ha
-            # modificado los XMLs en tags_ready/ arriba (en _compute_diff)
-            # anyadiendo los nuevos PlcUserConstants y eliminando los que
-            # no estan en el Excel. Aqui emitimos UN SOLO comando de import
-            # que re-ingresa TODOS los XMLs modificados en TIA. El worker
-            # abre la transaccion, importa, y cierra.
-            #
-            # CRITICO: el XML se guarda en tags_ready/<tia_folder>/<xml>
-            # (preservando la estructura de carpetas TIA) para que el
-            # wrapper import_plc_tags pueda hacer merge con las tablas
-            # existentes. Ver _resolve_tia_folder.
             if added or removed:
-                operations.append({
+                devices_ops.append({
                     "command": "import_plc_tags_xml",
                     "args": {
                         "plc_name": plc_name,
@@ -389,17 +394,10 @@ class SyncDispositivosInstancesUseCase:
                     },
                 })
 
-            # =====================================================================
-            # === ONLINE: update_user_constant_name (renombrado de devices)  ===
-            # ===                                                              ===
-            # === Las variables del Excel (plc_tag) se persisten como         ===
-            # === PlcUserConstants en las tag tables 2000_Disp_*. El rename   ===
-            # se hace con update_user_constant_name.                       ===
+            # ONLINE: update_user_constant_name (renombrado de devices).
             for uid_with_table, (old, new) in renamed.items():
-                # uid_with_table es "table_key:uid_str" (p.ej. "2000_Disp_ED:5").
-                # Extraemos el table_key para usarlo como ``table_name``.
                 table_key, _, _ = uid_with_table.partition(":")
-                operations.append({
+                online_ops.append({
                     "command": "update_user_constant_name",
                     "args": {
                         "plc_name": plc_name,
@@ -411,20 +409,23 @@ class SyncDispositivosInstancesUseCase:
 
             # ONLINE: update_user_constant_value (N_MAX).
             nmax_ops = self._compute_nmax_ops_for_apply(plc_name, tags_base)
-            operations.extend(nmax_ops)
+            online_ops.extend(nmax_ops)
             self._progress.finish_stage(
-                "prepare_xml", f"{len(operations)} operaciones encoladas"
+                "prepare_xml",
+                f"{len(devices_ops)} devices + {len(online_ops)} online",
             )
 
-            if not operations:
-                # El PLC ya esta en sync: devolvemos tambien el preview para que
-                # la SPA muestre el estado "todo en orden" sin pedirlo de nuevo.
-                self._progress.finish_stage("open_transaction", "Sin cambios (no-op)")
+            total_ops = len(devices_ops) + len(online_ops)
+
+            if total_ops == 0:
+                self._progress.finish_stage(
+                    "open_transaction_devices", "Sin cambios (no-op)"
+                )
+                self._progress.finish_stage(
+                    "open_transaction_online", "Sin cambios (no-op)"
+                )
                 self._progress.finish_stage("post_preview")
                 self._progress.finish_stage("compile_plc", "Saltado (no-op)")
-                # Aun con N_MAX sin cambios, intentamos aplicar comentarios
-                # (puede que el usuario solo haya editado la columna
-                # comentario_db del Excel sin tocar N_MAX).
                 comments_result = await self._run_apply_comentarios(
                     plc_name
                 )
@@ -440,18 +441,43 @@ class SyncDispositivosInstancesUseCase:
                     "comments_sync": comments_result,
                 }
 
-            self._progress.start_stage(
-                "open_transaction",
-                f"Ejecutando {len(operations)} ops en TIA Portal (puede tardar 1-3 min)...",
-            )
-            result = await self._gateway.execute_transactional_batch(
-                operations,
-                undo_text="Sincronizar N_MAX + Dispositivos",
-            )
-            self._progress.finish_stage(
-                "open_transaction",
-                f"{result['operations_executed']} ops aplicadas OK",
-            )
+            # ── Transacción 1: devices (offline XML) ─────────────────
+            if devices_ops:
+                self._progress.start_stage(
+                    "open_transaction_devices",
+                    f"Aplicando {len(devices_ops)} ops de devices (XML) en TIA Portal...",
+                )
+                devices_result = await self._gateway.execute_transactional_batch(
+                    devices_ops,
+                    undo_text="Sync dispositivos (XML)",
+                )
+                self._progress.finish_stage(
+                    "open_transaction_devices",
+                    f"{devices_result['operations_executed']} ops OK",
+                )
+            else:
+                self._progress.finish_stage(
+                    "open_transaction_devices", "Sin devices (no-op)"
+                )
+
+            # ── Transacción 2: renames + N_MAX (online) ────────────
+            if online_ops:
+                self._progress.start_stage(
+                    "open_transaction_online",
+                    f"Aplicando {len(online_ops)} ops online (renames + N_MAX)...",
+                )
+                online_result = await self._gateway.execute_transactional_batch(
+                    online_ops,
+                    undo_text="Sync N_MAX + renames",
+                )
+                self._progress.finish_stage(
+                    "open_transaction_online",
+                    f"{online_result['operations_executed']} ops OK",
+                )
+            else:
+                self._progress.finish_stage(
+                    "open_transaction_online", "Sin ops online (no-op)"
+                )
             # Despues de end_transaction (sin rollback), re-ejecutamos el
             # preview para que la SPA vea el estado "todo en sync" sin
             # tener que pedirlo de nuevo. Si falla (p.ej. TIA en estado

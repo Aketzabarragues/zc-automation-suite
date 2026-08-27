@@ -108,8 +108,10 @@ async def sync_commit(
         gateway=gateway, config_manager=config_manager, state=state
     )
     logger.info(
-        f"[sync/commit] Aplicando transacción completa "
-        f"(N_MAX + devices) al PLC '{req.plc_name}'..."
+        f"[sync/commit] Aplicando sync al PLC '{req.plc_name}' "
+        f"(N_MAX + devices). Internamente se divide en 2 transacciones: "
+        f"1) devices (offline XML), 2) renames + N_MAX (online). "
+        f"Ver logs internos del use case para el progreso por stage."
     )
     try:
         result = await use_case.ejecutar_transaccion(
