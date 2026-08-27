@@ -29,7 +29,7 @@ from typing import Any
 # parcheen ``sys.frozen`` no se ven afectados — el valor de la
 # env var se evalúa por instancia, en el ``__init__`` del gateway.
 DEFAULT_GATEWAY_TIMEOUT: float = float(
-    os.environ.get("ZC_GATEWAY_TIMEOUT", "180.0")
+    os.environ.get("ZC_GATEWAY_TIMEOUT", "300.0")
 )
 
 
