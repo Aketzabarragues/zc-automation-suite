@@ -1,112 +1,32 @@
 # =========================================================
 # Repomix ignore patterns
-# Objetivo: incluir SOLO el codigo fuente esencial del
-# proyecto (application, core, infrastructure, interfaces,
-# scripts, main, config raiz, docs clave) y dejar
-# fuera TODO lo que es cache, build, vendored, binarios,
-# logs, temporales, entornos y codigo legacy.
+#
+# Repomix ya respeta .gitignore por defecto y excluye el
+# contenido de los binarios (lista sus paths en la seccion
+# de estructura, pero no empaqueta su contenido). Este
+# archivo solo anade lo que NO cubre .gitignore y que es
+# especifico del pack para AI:
+#
+#   - tests/                  decision de proyecto
+#   - _source/                volcados TIA (.s7dcl/.s7res)
+#   - *.bak                   backups accidentales en raiz
+#   - *.pyd                   binarios .NET nativos de Siemens
+#   - repomix-output*.xml     auto-excluir la propia salida
 # =========================================================
 
-# --- VCS metadata ---------------------------------------
-.git/
-.gitignore
-.gitattributes
-.github/
-
-# --- Python: bytecode y cache ----------------------------
-__pycache__/
-**/__pycache__/
-*.py[cod]
-*.pyo
-*$py.class
-
-# --- Test / QA caches ------------------------------------
-.pytest_cache/
-.ruff_cache/
-.mypy_cache/
-.pyre/
-.pytype/
-.hypothesis/
-htmlcov/
-.coverage
-.coverage.*
-*.cover
-*.py.cover
-coverage.xml
-.tox/
-.nox/
-
-# --- Build / Distribucion (PyInstaller) ------------------
-build/
-dist/
-.build/
-*.spec
-*.manifest
-*.pyd
-*.egg-info/
-*.whl
-
-# --- Vendored binaries / ejecutables ---------------------
-*.exe
-*.dll
-*.lib
-*.so
-tailwindcss-extra.exe
-lib/siemens_tia_scripting-*.whl
-
-# --- Project-specific caches (TIA Portal XML) ------------
-.build_cache/
-.scratch/
-
-# --- Logs y temporales -----------------------------------
-*.log
-*.tmp
-*.bak
-*.swp
-*.swo
-*~
-.DS_Store
-Thumbs.db
-Logs/
-app_debug.log
-
-# --- Entornos y secretos ---------------------------------
-.env
-.env.*
-!.env.example
-.envrc
-.venv/
-venv/
-env/
-ENV/
-__pypackages__/
-
-# --- IDE / Editor ----------------------------------------
-.vscode/
-.idea/
-.spyderproject
-.spyproject
-.ropeproject
-*.iml
-.cache/
-
-# --- Salida de Repomix (no anidarse) ---------------------
-repomix-output.xml
-repomix-output*.xml
-
-# --- Documentacion interna -------------------------------
-docs/
-
-# --- Codigo legacy / referencia --------------------------
-_legacy_reference/
-
-# --- Tests (excluidos del reporte principal de AI) -------
+# Tests: se ejecutan con pytest, no aportan al pack de AI
 tests/
 
-# --- Compilados / artefactos varios ----------------------
-*.zip
-*.tar
-*.tar.gz
-*.tgz
-*.7z
-*.rar
+# Volcados exportados de TIA Portal (fuentes S7, no son
+# codigo del proyecto). Tambien deberian ir al .gitignore.
+_source/
+
+# Backups accidentales en raiz (scripts de debug viejos)
+*.bak
+
+# Binarios .NET nativos de Siemens (se stagean en tempdir
+# durante el build, nunca deben acabar en el repo)
+*.pyd
+
+# Auto-excluir la salida del propio repomix
+repomix-output*.xml
