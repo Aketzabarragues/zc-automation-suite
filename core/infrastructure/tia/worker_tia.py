@@ -755,8 +755,19 @@ def _cmd_execute_transactional_batch(
             pass
         # len(results_list) marca el ÃšLTIMO paso exitoso; el fallo ocurre
         # en resultados_list + 1 (o en validaciÃ³n previa, donde len=0).
+        #
+        # Incluimos los ``args`` de la op que fallÃ³ (truncados a 500
+        # chars) para diagnÃ³stico. Sin esto, el operario ve
+        # ``Lote abortado en el paso 72 ('update_user_constant_value')``
+        # pero no sabe quÃ© ``N_MAX`` ni quÃ© valor es el problemÃ¡tico.
+        import json as _json
+        try:
+            args_str = _json.dumps(cmd_args, ensure_ascii=False, default=str)[:500]
+        except Exception:
+            args_str = repr(cmd_args)[:500]
         raise RuntimeError(
             f"Lote abortado en el paso {len(results_list) + 1} ('{cmd}'). "
+            f"Args: {args_str}. "
             f"Rollback ejecutado. Motivo: {e}"
         )
 
