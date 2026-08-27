@@ -176,7 +176,10 @@ def test_project_data_files_use_directory_destinations() -> None:
     """
     from pathlib import PurePosixPath
 
-    assert len(build_exe.PROJECT_DATA_FILES) == 3
+    # 4 entradas (tras PR 7: SPA estática + frontend del área + icono
+    # + config.json). Si en el futuro se añade un 5º bundle (p. ej.
+    # ``areas/envasado/frontend``), actualizar este contador.
+    assert len(build_exe.PROJECT_DATA_FILES) == 4
 
     # Aserciones explícitas para que el bug no se cuele de nuevo.
     assert ("launcher/icon.ico", "launcher") in build_exe.PROJECT_DATA_FILES
@@ -184,6 +187,12 @@ def test_project_data_files_use_directory_destinations() -> None:
     assert (
         "interfaces/web_server/static",
         "interfaces/web_server/static",
+    ) in build_exe.PROJECT_DATA_FILES
+    # PR 7: el frontend del área de alimentación se bundlea bajo la
+    # ruta estática del shell, no bajo ``_MEIPASS/areas/``.
+    assert (
+        "areas/alimentacion/frontend",
+        "interfaces/web_server/static/areas/alimentacion",
     ) in build_exe.PROJECT_DATA_FILES
 
     # Regla general: si el source es un FICHERO (no directorio), el

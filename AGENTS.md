@@ -10,25 +10,46 @@
 
 ## Arquitectura: cómo añadir una nueva feature
 
+> El layout del repositorio sigue **Bounded Contexts** (PR 0-7 del
+> plan de reorganización). `core/` contiene TODO lo transversal sin
+> saber de áreas; cada `areas/<area>/` es un paquete autocontenido
+> que se autodescribe vía `AreaSpec`. Antes de añadir una feature
+> dentro de un área, lee **"Cómo añadir una nueva área"** más abajo.
+
 ### 1. Nueva operación contra TIA Portal
-1. Edita `infrastructure/tia/worker_tia.py`: añade handler con firma
-   `(portal, ts, args) -> Any` y regístralo en `COMMAND_REGISTRY`.
+1. Decide si la operación es **genérica** (la usan todas las áreas
+   futuras) o **específica del área**:
+   - **Genérica:** edita `core/infrastructure/tia/worker_tia.py`,
+     añade handler con firma `(portal, ts, args) -> Any` y regístralo
+     en `COMMAND_REGISTRY`.
+   - **Específica de un área:** edita
+     `areas/<area>/infrastructure/tia/extra_commands.py`, implementa
+     el handler y regístralo en la función `register(registry)`. El
+     command loader del worker (`load_extra_commands`) lo descubre
+     automáticamente al arrancar (ver `.clinerules` §1).
 2. Si es transaccional, respeta el ciclo `start_transaction` /
    `end_transaction` (rollback atómico con `end_transaction(rollback=True)`).
 3. Mapea objetos nativos (.NET) a primitivos Python antes de emitir JSON
    (ver `.clinerules` §3).
 4. El gateway expone un método async que delega al worker vía
    `self._dispatch_worker("nombre_comando", args)`.
-5. El use case orquesta, llama al gateway, y emite progress.
+5. El use case (en `core/application/use_cases/` si es genérico o en
+   `areas/<area>/application/use_cases/` si es del área) orquesta,
+   llama al gateway, y emite progress.
 6. El router FastAPI expone el endpoint con `Depends(get_gateway)`.
+   Los routers genéricos viven en `core/interfaces/web_server/routers/`;
+   los del área en `areas/<area>/interfaces/web/`.
 7. Tests: mockea el gateway con `MagicMock(spec=TIAProcessGateway)`,
    nunca el worker directamente.
 
 ### 2. Nuevo endpoint REST
-1. Añade el handler en `interfaces/web_server/routers/<area>.py` con
-   un `APIRouter`.
-2. Registra el router en `interfaces/web_server/app.py::create_app`
-   (orden alfabético entre los existentes).
+1. Añade el handler en el router correspondiente:
+   - Genérico: `core/interfaces/web_server/routers/<area>.py` con
+     un `APIRouter`.
+   - Del área: `areas/<area>/interfaces/web/<router>.py` y declara
+     `register_routers(app)` en el `__init__.py` del paquete.
+2. El shell FastAPI (`core/interfaces/web_server/app.py::create_app`)
+  Descubre los routers del área vía `AreaRegistry.for_each("contributes_routers", app=app)`.
 3. Inyecta dependencias vía `Depends(get_gateway | get_app_state |
    get_logger | get_progress_tracker)`. NUNCA importes globales
    directamente en el router.
@@ -39,33 +60,86 @@
    mismo patrón que `tests/test_areas_endpoint.py`.
 
 ### 3. Nueva vista en la SPA
-1. Crea `interfaces/web_server/static/js/components/<area>/<Vista>.js`
-   con Vue 3 ESM. Exporta un `default { name, setup, template }`.
+1. Crea `areas/<area>/frontend/components/<Vista>.js` con Vue 3 ESM.
+   Exporta un `default { name, setup, template }`. NO añadas
+   componentes en `interfaces/web_server/static/js/components/areas/`
+   (esa carpeta ya no existe tras PR 7).
 2. El template es un `template: /* html */ \`...\`` (template string).
 3. PROHIBIDO: string literals multi-línea dentro de arrays de `:class`.
    Cada literal va en una sola línea. Salto de línea entre clases OK.
 4. Estado reactivo en `store.js` (singleton `reactive` global).
 5. Fetch en `api.js` (función pura, devuelve `{ ok, status, data }`).
-6. Registra el componente en `main.js` (App.components) y móntalo
-   en el template raíz.
+6. Registra el componente en `areas/<area>/frontend/manifest.js` (un
+   `build()` que devuelve `{ components, routes, sidebar, landing, loaders }`).
+   El shell SPA (`interfaces/web_server/static/js/main.js`) lo carga
+   dinámicamente vía `area-loader.js` al entrar al área.
 7. Estilos: solo tokens semánticos del tema. Tras añadir clases,
-   **recompila Tailwind** (ver `.clinerules` §9).
+   **recompila Tailwind** (ver `.clinerules` §9). El config ya
+   incluye `./areas/**/frontend/**/*.js` en `content`, así que las
+   nuevas clases se detectan automáticamente.
 
-### 4. Nuevo campo / tipo de dispositivo (data-driven)
-1. `core/alimentacion/catalog.py`: añade dataclass.
-2. `infrastructure/config_manager.py`: añade mapeo `hw_type` → tabla PLC.
-3. `infrastructure/parsers/excel_parser.py`: añade parser.
+### 4. Nuevo campo / tipo de dispositivo (data-driven, en el área)
+1. `areas/alimentacion/domain/catalog.py`: añade dataclass.
+2. `core/infrastructure/config_manager.py`: añade mapeo `hw_type` → tabla PLC.
+3. `core/infrastructure/parsers/excel_parser.py`: añade parser base
+   (si es genérico) o `areas/alimentacion/infrastructure/parsers/`
+   (si es específico del área).
 4. El `GET /api/v1/catalog` lo recoge automáticamente (data-driven).
 5. NO tocar nada en la SPA: aparece solo en el sidebar/tabs.
 
 ### 5. Nuevo comando MCP (FastMCP)
-1. Edita `interfaces/mcp_server.py`: añade `@mcp.tool()` decorador.
+1. Decide si el tool es **genérico** o **del área**:
+   - **Genérico:** edita `core/interfaces/mcp_server.py`, añade
+     `@mcp.tool()` decorador en el closure del shell.
+   - **Del área:** edita `areas/<area>/interfaces/mcp/tools.py`,
+     implementa `register(mcp)` y dentro declara los `@mcp.tool()`.
+     El shell MCP descubre los tools del área vía
+     `AreaRegistry.for_each("contributes_mcp_tools", mcp=mcp)`.
 2. El handler debe ser async, recibir argumentos tipados, llamar al
    use case correspondiente y devolver dict.
 3. La descripción del tool es el contrato con el LLM. Sé claro y
    específico (parámetros, retorno, errores esperados).
-4. Test: el MCP server no tiene tests automatizados. QA manual con
-   cliente MCP real (Cline, Claude Desktop).
+4. Las tools del área **NO replican lógica de negocio**: delegan en
+   los mismos use cases que los routers web.
+5. Test: tests automatizados con `MagicMock` cubriendo cada tool.
+   QA manual con cliente MCP real (Cline, Claude Desktop).
+
+### 6. Cómo añadir una nueva área
+1. Crear `areas/<area_id>/` con `__init__.py` que defina
+   `AREA_SPEC = AreaSpec(...)` (dataclass frozen en
+   `core/application/area_registry.py`).
+2. Si el área tiene modelos de dominio: `areas/<area>/domain/`.
+3. Si tiene casos de uso: `areas/<area>/application/use_cases/`.
+4. Si tiene adaptadores (parsers, modificadores, etc.):
+   `areas/<area>/infrastructure/`.
+5. Si tiene comandos TIA transaccionales:
+   `areas/<area>/infrastructure/tia/extra_commands.py` con
+   `register(registry)`.
+6. Si tiene routers FastAPI: `areas/<area>/interfaces/web/` con
+   `register_routers(app)` en el `__init__.py` del paquete.
+7. Si tiene tools MCP: `areas/<area>/interfaces/mcp/tools.py` con
+   `register(mcp)`.
+8. Si tiene UI: `areas/<area>/frontend/components/` +
+   `areas/<area>/frontend/manifest.js` (un `build()` que devuelve
+   `{ components, routes, sidebar, landing, loaders }`).
+9. Añadir el bloque en `infrastructure/config.json` bajo
+   `departments.<area_id>`.
+10. Tests: `tests/test_area_<area_id>_*.py` siguiendo el patrón
+    existente (mockear gateway con `MagicMock(spec=TIAProcessGateway)`).
+
+Convenciones:
+- Las áreas **NO importan** `siemens_tia_scripting` directamente
+  (regla `.clinerules` §1). Solo aportan `Callable` que el worker
+  invocará en su proceso. Los handlers extra pueden usar comandos
+  genéricos del registry (`COMMAND_REGISTRY["export_block"](...)`)
+  para participar de transacciones atómicas con ellos.
+- El worker OT se mantiene 100% genérico; las áreas aportan comandos
+  vía `AreaSpec.contributes_tia_commands` (el command loader los
+  descubre al arrancar).
+- El shell SPA NO importa componentes de áreas directamente. Todo
+  se carga vía `area-loader.js` + manifest.
+- `store.areaManifest` guarda el manifest del área activa.
+  `store.currentView` se valida contra `store.areaManifest.routes`.
 
 ---
 
@@ -98,16 +172,33 @@ internamente desde `ejecutar_transaccion` (no pisar el tracker del
 commit).
 
 ### Tests
-- **Backend:** `pytest tests/` corre TODOS los tests. 138 tests
-  actualmente (119 legacy + 19 nuevos de progress). Deben pasar
+- **Backend:** `pytest tests/` corre TODOS los tests. 233 tests
+  actualmente (acumulado de los 138 originales + los tests nuevos
+  de PR 0-6: AppState genérico, AreaRegistry, command loader,
+  manifest endpoint, MCP shell + 4 tools del área). Deben pasar
   todos antes de commit.
 - **Naming:** `tests/test_<modulo>.py`. Mismo nombre que el archivo
-  que prueban.
+  que prueban. Para áreas, `tests/test_area_<area>_<feature>.py`.
 - **Mockear gateway** con `MagicMock(spec=TIAProcessGateway)`.
   Para ProgressTracker, instanciar uno limpio (`ProgressTracker()`)
   y pasarlo al use case (no mockear el tracker).
 - **Frontend:** sin tests automatizados (SPA ESM sin build step).
   QA manual con `?demo=1` y servidor de pruebas.
+
+### Command loader del worker OT
+- `core/infrastructure/tia/worker_tia.py` solo contiene comandos
+  **genéricos** (open/close/save/list_plcs/list_blocks/compile_plc/
+  export_*/import_*/user_constants/transactional_batch).
+- Las áreas aportan comandos adicionales vía
+  `areas/<area>/infrastructure/tia/extra_commands.py::register(registry)`.
+  El `load_extra_commands()` del command loader los descubre
+  automáticamente al arrancar el worker (ver `.clinerules` §1).
+- **CRÍTICO:** los handlers extra NO importan `siemens_tia_scripting`
+  directamente. Reciben `(portal, ts, args)` del worker y operan
+  sobre el `portal` ya inicializado en su proceso.
+- **Sí pueden** usar comandos genéricos del registry
+  (`COMMAND_REGISTRY["export_block"](...)`) para participar de
+  transacciones atómicas con ellos.
 
 ### Build / Empaquetado
 - **PyInstaller:** `python build_exe.py` → `dist/zc_automation_suite.exe`.
@@ -161,7 +252,7 @@ commit).
 | Servidor dev (web) | `python main.py --web 127.0.0.1:8000` |
 | Servidor dev (MCP) | `python main.py --mcp` |
 | Launcher bandeja | `python main_tray.py` (o `run_tray.bat`) |
-| Recompilar CSS | `tailwindcss-extra.exe -i interfaces/web_server/static/src/input.css -o interfaces/web_server/static/styles.css --minify` |
+| Recompilar CSS | `tailwindcss-extra.exe -i interfaces/web_server/static/src/input.css -o interfaces/web_server/static/styles.css --minify` (también `run_tailwind.bat` si existe) |
 | Build .exe | `python build_exe.py` |
 | Test E2E manual | abrir `http://127.0.0.1:8000/` (demo: `?demo=1`) |
 

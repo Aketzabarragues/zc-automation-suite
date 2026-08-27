@@ -90,12 +90,19 @@ ENTRY_SCRIPT = "main_tray.py"  # entry del .exe (UX: bandeja + web supervisor)
 # - ``static/`` → directorio, mapping a sí mismo (entero).
 #   El código hace ``Path(__file__).parent / "static"`` y debe
 #   encontrar la SPA en ``_MEIPASS\interfaces\web_server\static\``.
+# - ``areas/alimentacion/frontend/`` → directorio, mapping a la
+#   ruta que el ``area-loader.js`` espera en runtime:
+#   ``_MEIPASS\interfaces\web_server\static\areas\alimentacion\``.
+#   Añadido en PR 7 (estaba en PR 5 pero no se había añadido al
+#   bundle del .exe; el código en runtime lo busca en la ruta
+#   estática del shell, no bajo ``_MEIPASS/areas/``).
 # - ``icon.ico`` → fichero suelto, mapping a su carpeta padre.
 #   El código hace ``_MEIPASS\launcher\icon.ico``.
 # - ``config.json`` → fichero suelto, mapping a su carpeta padre.
 #   El código hace ``_MEIPASS\infrastructure\config.json``.
 PROJECT_DATA_FILES: list[tuple[str, str]] = [
     ("interfaces/web_server/static", "interfaces/web_server/static"),
+    ("areas/alimentacion/frontend", "interfaces/web_server/static/areas/alimentacion"),
     ("launcher/icon.ico", "launcher"),
     ("infrastructure/config.json", "infrastructure"),
 ]
