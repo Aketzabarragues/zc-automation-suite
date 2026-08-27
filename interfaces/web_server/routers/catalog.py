@@ -4,7 +4,7 @@ Endpoint de sólo lectura que expone el **catálogo de presentación**
 que consume la SPA para renderizar las pestañas de dispositivo y
 las cards de N_MAX, evitando hardcoding en JS.
 
-Lo que se expone (ver ``core.alimentacion.catalog.build_catalog``):
+Lo que se expone (ver ``areas.alimentacion.domain.catalog.build_catalog``):
 
   - ``device_tabs``     ``[{hw_type, canonical, label}, ...]``
   - ``nmax``            ``[{name, label}, ...]``
@@ -23,7 +23,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends
 
-from core.alimentacion.catalog import build_catalog
+from areas.alimentacion.domain.catalog import build_catalog
 from core.infrastructure.config_manager import ConfigManager
 from interfaces.web_server.dependencies import get_config_manager
 

@@ -11,7 +11,7 @@ Restricción arquitectónica: estos modelos son ESTRICTAMENTE PUROS.
 - Sin uso de ``Any`` en los atributos declarados.
 """
 
-from core.alimentacion.models.dispositivos import (
+from areas.alimentacion.domain.models.dispositivos import (
     DimensionesDispositivos,
     DispEA,
     DispED,

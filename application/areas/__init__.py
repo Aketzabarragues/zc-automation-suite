@@ -1,19 +1,21 @@
 """Subdominios del área (agrupación por departamento).
 
-Los casos de uso de cada área viven en ``application/areas/<area>/use_cases/``.
-Por ejemplo:
+Tras PR 2, este paquete queda como **shim de back-compat** para los
+símbolos ``AreaInfo`` y ``ListAreasUseCase`` que originalmente vivían
+en ``application.areas.catalog``. La implementación se ha movido a
+``core.application.area_registry`` (donde reside el ``AreaSpec`` y
+el ``AreaRegistry`` que la origina).
 
-  - application/areas/alimentacion/use_cases/sync_disp_alimentacion.py
-  - application/areas/alimentacion/use_cases/diff_constants.py
+Las áreas concretas ahora viven en ``areas/<area>/`` siguiendo el
+layout de Bounded Contexts:
 
-Catálogo de áreas (genérico, departamento-agnóstico)
------------------------------------------------------------
-Las clases ``AreaInfo`` y ``ListAreasUseCase`` se re-exportan desde
-``application.areas.catalog`` para mantener la compatibilidad con el
-contrato público (tests, otros módulos) que importaban
-``from application.areas import AreaInfo, ListAreasUseCase`` cuando
-``application.areas`` era un módulo y no un paquete.
+  - areas/alimentacion/      (dominio, application, infrastructure)
+  - areas/<futura>/          (idem)
+
+Los tests y código existente pueden seguir importando
+``from application.areas import AreaInfo, ListAreasUseCase`` sin
+modificación; el shim re-exporta desde el core.
 """
-from application.areas.catalog import AreaInfo, ListAreasUseCase
+from core.application.area_registry import AreaInfo, ListAreasUseCase
 
 __all__ = ["AreaInfo", "ListAreasUseCase"]

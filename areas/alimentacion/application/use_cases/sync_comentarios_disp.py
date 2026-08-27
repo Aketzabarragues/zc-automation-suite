@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from application.areas.alimentacion.slot_map_builder import build_slot_maps
+from areas.alimentacion.application.slot_map_builder import build_slot_maps
 from core.application.progress_buffer import ProgressTracker, get_progress_tracker
 from core.application.state import AppState
 from core.infrastructure.config_manager import ConfigManager

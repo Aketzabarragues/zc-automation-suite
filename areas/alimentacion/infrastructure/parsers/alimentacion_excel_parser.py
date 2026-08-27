@@ -33,8 +33,7 @@ from openpyxl import load_workbook
 from openpyxl.utils.cell import range_boundaries
 from openpyxl.worksheet.worksheet import Worksheet
 
-from core.application.log_buffer import get_log_buffer
-from core.alimentacion.models.dispositivos import (
+from areas.alimentacion.domain.models.dispositivos import (
     DimensionesDispositivos,
     DispEA,
     DispED,
@@ -44,6 +43,7 @@ from core.alimentacion.models.dispositivos import (
     DispV,
     Dispositivo,
 )
+from core.application.log_buffer import get_log_buffer
 from core.infrastructure.config_manager import ConfigManager
 from core.infrastructure.parsers.excel_parser import ExcelParser
 

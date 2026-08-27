@@ -26,7 +26,7 @@ from __future__ import annotations
 import dataclasses
 from typing import Any
 
-from core.alimentacion.models.dispositivos import (
+from areas.alimentacion.domain.models.dispositivos import (
     DispEA,
     DispED,
     DispM,

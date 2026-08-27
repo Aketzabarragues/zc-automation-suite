@@ -15,7 +15,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from application.areas.alimentacion.use_cases.sync_comentarios_disp import (
+from areas.alimentacion.application.use_cases.sync_comentarios_disp import (
     DispComentariosSyncUseCase,
 )
 from core.application.log_buffer import LogBuffer

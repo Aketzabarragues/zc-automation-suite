@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from application.areas.alimentacion.slot_map_builder import (
+from areas.alimentacion.application.slot_map_builder import (
     build_slot_map_for_hw,
     build_slot_maps,
 )

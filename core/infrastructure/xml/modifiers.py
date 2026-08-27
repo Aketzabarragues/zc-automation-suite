@@ -25,7 +25,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, cast
 
-from core.alimentacion.models.dispositivos import Dispositivo
+from areas.alimentacion.domain.models.dispositivos import Dispositivo
 
 
 # Wildcards XPath. ``{*}`` = cualquier namespace; evita acoplarse a la

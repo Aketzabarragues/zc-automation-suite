@@ -6,7 +6,7 @@ Tests PUROS (sin TIA): validan los dos métodos de diff:
 """
 from __future__ import annotations
 
-from application.areas.alimentacion.use_cases.diff_constants import (
+from areas.alimentacion.application.use_cases.diff_constants import (
     CalculateConstantsDiffUseCase,
 )
 

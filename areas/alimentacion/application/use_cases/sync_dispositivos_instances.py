@@ -37,7 +37,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from application.areas.alimentacion.use_cases.diff_constants import (
+from areas.alimentacion.application.use_cases.diff_constants import (
     CalculateConstantsDiffUseCase,
 )
 from core.application.progress_buffer import ProgressTracker, get_progress_tracker
@@ -563,7 +563,7 @@ class SyncDispositivosInstancesUseCase:
             "Aplicando comentarios por instancia a los 6 DBs...",
         )
         try:
-            from application.areas.alimentacion.slot_map_builder import (
+            from areas.alimentacion.application.slot_map_builder import (
                 build_slot_maps,
             )
             slot_maps, db_names, db_array_names, build_warnings = build_slot_maps(

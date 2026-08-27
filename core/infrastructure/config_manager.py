@@ -252,24 +252,23 @@ class ConfigManager:
         return indexed
 
     def apply_defaults(self, dept_cfg: dict[str, Any] | None = None) -> None:
-        """Hook PR 1: delega en las áreas registradas para rellenar
+        """Hook PR 1+2: delega en las áreas registradas para rellenar
         claves ausentes en la sub-config del departamento activo.
 
         Recorre ``AreaRegistry.discover().all()`` y, para cada
         ``AreaSpec`` con ``contributes_config_defaults`` no nulo, la
-        invoca pasando ``dept_cfg`` (o, si no se pasa, el bloque del
-        departamento activo). El callable del área muta ``dept_cfg``
-        in-place para añadir las claves que falten.
+        invoca pasando ``(dept_cfg, dept_id)``. El callable del área
+        muta ``dept_cfg`` in-place para añadir las claves que falten.
+
+        Detección de firma (PR 2): los ``contributes_config_defaults``
+        se invocan con la firma nueva ``(dept_cfg, dept_id)``. Por
+        back-compat, si un callable solo acepta ``(dept_cfg)``
+        (p. ej. tests internos que mockean el ``AreaSpec``), se
+        llama sin ``dept_id`` usando ``inspect.signature``.
 
         Tras invocar todos los callbacks, **re-indexa** los caches
         internos (``_nmax_by_name`` / ``_nmax_by_hw``) por si el
         callback del área añadió entradas a ``n_max_catalog``.
-
-        Antes de PR 2, no hay áreas registradas: el método es un
-        no-op silencioso. Una vez que el área "alimentación" aporte
-        su ``contributes_config_defaults``, este hook rellenará por
-        ejemplo ``n_max_catalog`` con los 6 N_MAX legacy si la clave
-        no está en el JSON.
 
         Args:
             dept_cfg: Sub-bloque del departamento a rellenar. Si es
@@ -278,7 +277,7 @@ class ConfigManager:
         if dept_cfg is None:
             dept_cfg = self._department_config
         # Import perezoso para evitar ciclo: core.infrastructure importa
-        # core.application solo aquí. PR 2 eliminará este comentario.
+        # core.application solo aquí.
         try:
             from core.application.area_registry import AreaRegistry
         except ImportError:
@@ -286,12 +285,21 @@ class ConfigManager:
                 "AreaRegistry no disponible; apply_defaults es no-op."
             )
             return
+        # Detección de firma una sola vez: si la spec pide solo
+        # ``dept_cfg``, no le pasamos ``dept_id`` (back-compat).
+        import inspect
+
         for spec in AreaRegistry.discover().all():
             fn = getattr(spec, "contributes_config_defaults", None)
             if fn is None:
                 continue
             try:
-                fn(dept_cfg=dept_cfg)
+                sig = inspect.signature(fn)
+                if "dept_id" in sig.parameters:
+                    fn(dept_cfg=dept_cfg, dept_id=self._department)
+                else:
+                    # Back-compat: callable legacy que solo conoce dept_cfg.
+                    fn(dept_cfg=dept_cfg)
             except Exception as exc:  # noqa: BLE001
                 _logger.warning(
                     "apply_defaults: %s.contributes_config_defaults "

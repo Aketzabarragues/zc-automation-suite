@@ -15,11 +15,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from application.areas.alimentacion.use_cases.sync_dispositivos_instances import (
+from areas.alimentacion.application.use_cases.sync_dispositivos_instances import (
     SyncDispositivosInstancesUseCase,
 )
 from core.application.state import AppState
-from core.alimentacion.models.dispositivos import (
+from areas.alimentacion.domain.models.dispositivos import (
     DispED,
     DimensionesDispositivos,
 )
@@ -398,7 +398,7 @@ async def test_ejecutar_transaccion_includes_post_sync_preview(
             "summary": {"agregados": 0, "eliminados": 0, "renombrados": 0, "sin_cambios": 0, "total": 0},
         }
     monkeypatch.setattr(
-        "application.areas.alimentacion.use_cases.sync_dispositivos_instances."
+        "areas.alimentacion.application.use_cases.sync_dispositivos_instances."
         "SyncDispositivosInstancesUseCase.generar_prevision",
         fake_prevision,
     )

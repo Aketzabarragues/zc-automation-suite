@@ -20,12 +20,12 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
+from areas.alimentacion.infrastructure.parsers.alimentacion_excel_parser import (
+    AlimentacionExcelParser,
+)
 from core.application.log_buffer import LogBuffer
 from core.application.progress_buffer import ProgressTracker
 from core.application.state import AppState
-from infrastructure.alimentacion.parsers.alimentacion_excel_parser import (
-    AlimentacionExcelParser,
-)
 from core.infrastructure.config_manager import ConfigManager
 from interfaces.web_server.dependencies import (
     get_app_state,

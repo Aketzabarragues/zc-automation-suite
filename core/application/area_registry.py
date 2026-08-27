@@ -9,16 +9,26 @@ roots (web `app.py`, MCP `mcp_server.py`, TIA worker, etc.) para
 descubrir dinámicamente routers, tools, comandos y componentes
 aportados por las áreas.
 
-Estado: PR 0. Solo discovery vacío (no hay áreas aún). Las
-contribuciones se cablean en PR 1+ según el plan.
+Tras PR 2 este módulo también expone el caso de uso
+``ListAreasUseCase`` (y su DTO ``AreaInfo``) que se usaba en
+``application/areas/catalog.py``. Se mantiene en este mismo archivo
+para evitar tener dos módulos conceptualmente juntos: el registry
+de áreas (``AreaSpec`` / ``AreaRegistry``) y la presentación del
+catálogo de áreas al frontend (``ListAreasUseCase``).
 """
 from __future__ import annotations
 
 import importlib
+import logging
 import pkgutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
+
+if TYPE_CHECKING:
+    from core.infrastructure.config_manager import ConfigManager
+
+_logger = logging.getLogger(f"{__name__}.AreaRegistry")
 
 
 # ── AreaSpec: contrato de área ─────────────────────────────────────────
@@ -171,4 +181,156 @@ class AreaRegistry:
             fn(**kwargs)
 
 
-__all__ = ["AreaSpec", "AreaRegistry"]
+# ── ListAreasUseCase + AreaInfo (antes en application/areas/catalog.py) ──
+# Tras PR 2 el caso de uso del catálogo de áreas vive aquí, junto al
+# ``AreaRegistry`` que lo origina. La antigua ruta
+# ``application.areas.catalog`` queda como shim de back-compat que
+# re-exporta estos símbolos.
+#
+# Diseño:
+#   - ``ListAreasUseCase`` es **puro** (sin I/O): opera sobre el JSON
+#     cacheado en memoria por ``ConfigManager``.
+#   - Si el ``ConfigManager`` está cacheando, este use case no relee
+#     disco en cada llamada.
+#   - ``available`` se calcula a partir del bloque ``Dispositivos`` del
+#     departamento: si tiene al menos una entrada, el departamento es
+#     "accesible"; si no, queda como "Próximamente" en la welcome.
+#
+# Las constantes de icono/label/description por clave viven aquí (no en
+# ``config.json``) para no requerir migración de configs antiguos. Si
+# en el futuro se quiere flexibilidad total, se puede añadir un bloque
+# opcional ``display: {label, icon, description}`` al JSON y leerlo con
+# ``get``.
+
+
+# ── Defaults por clave ───────────────────────────────────────────────
+# Cuando un departamento no declara ``display`` en el JSON, se usan
+# estos valores por defecto. Mantenerlos en Python (no en JSON) evita
+# tocar configs de instalaciones existentes.
+_AREA_DEFAULTS: dict[str, dict[str, str]] = {
+    "alimentacion": {
+        "label":       "Área Alimentación",
+        "icon":        "🍞",
+        "description": "Dispositivos, sincronización e inspección de PLCs del área de alimentación.",
+    },
+}
+
+
+def _humanize(key: str) -> str:
+    """Capitaliza una clave (``"alimentacion"`` → ``"Alimentacion"``).
+
+    Si existe un default específico, se usa el label de
+    ``_AREA_DEFAULTS`` que ya incluye tildes/ortografía.
+    """
+    if not key:
+        return ""
+    return key[0].upper() + key[1:].replace("_", " ")
+
+
+@dataclass(frozen=True)
+class AreaInfo:
+    """Vista pública de un departamento para la SPA.
+
+    Attributes:
+        key:         Identificador (``"alimentacion"``). Estable: NO
+                     se renombra nunca (es la clave del config).
+        label:       Texto humano-legible mostrado en la tarjeta.
+        description: Resumen de una línea. Vacío si no hay.
+        icon:        Glifo/emoji representativo.
+        available:   ``True`` si el departamento tiene un bloque
+                     ``Dispositivos`` con al menos una entrada.
+    """
+
+    key: str
+    label: str
+    description: str
+    icon: str
+    available: bool
+
+
+class ListAreasUseCase:
+    """Caso de Uso: lista las áreas configuradas en ``config.json``.
+
+    Args:
+        config_manager: Instancia de ``ConfigManager``. Se mantiene
+                        una referencia; **no se re-instancia**.
+    """
+
+    def __init__(self, config_manager: "ConfigManager") -> None:
+        self._config_manager = config_manager
+
+    def execute(self) -> list[AreaInfo]:
+        """Devuelve la lista de ``AreaInfo`` configuradas.
+
+        Returns:
+            Lista de áreas en el orden de aparición del JSON. Lista
+            vacía si el JSON no tiene bloque ``departments`` o si el
+            bloque está vacío.
+
+        Notas:
+            - NO muta el config.
+            - NO lanza excepciones: ante cualquier inconsistencia del
+              JSON, se loggea warning y se omite la entrada.
+        """
+        full_config = self._config_manager._full_config  # noqa: SLF001 (uso interno documentado)
+        departments = full_config.get("departments")
+        if not isinstance(departments, dict) or not departments:
+            _logger.info(
+                "No hay bloque 'departments' en config.json. "
+                "Se devuelve lista vacía de áreas."
+            )
+            return []
+
+        areas: list[AreaInfo] = []
+        for key, dept_cfg in departments.items():
+            if not isinstance(key, str) or not isinstance(dept_cfg, dict):
+                _logger.warning(
+                    f"Departamento mal formado en config.json "
+                    f"(key={key!r}, type={type(dept_cfg).__name__}). "
+                    f"Se omite."
+                )
+                continue
+
+            # Defaults por clave + override opcional vía display en el JSON.
+            defaults = _AREA_DEFAULTS.get(key, {})
+            display = dept_cfg.get("display") if isinstance(
+                dept_cfg.get("display"), dict
+            ) else {}
+
+            label = (
+                display.get("label")
+                or defaults.get("label")
+                or f"Área {_humanize(key)}"
+            )
+            icon = (
+                display.get("icon")
+                or defaults.get("icon")
+                or "📁"
+            )
+            description = (
+                display.get("description")
+                or defaults.get("description")
+                or ""
+            )
+
+            # available: el bloque Dispositivos existe y tiene >=1 entrada.
+            dispositivos = dept_cfg.get("Dispositivos")
+            available = bool(
+                isinstance(dispositivos, dict) and len(dispositivos) > 0
+            )
+
+            areas.append(
+                AreaInfo(
+                    key=key,
+                    label=label,
+                    description=description,
+                    icon=icon,
+                    available=available,
+                )
+            )
+
+        _logger.info(f"ListAreasUseCase: {len(areas)} área(s) encontrada(s).")
+        return areas
+
+
+__all__ = ["AreaSpec", "AreaRegistry", "AreaInfo", "ListAreasUseCase"]

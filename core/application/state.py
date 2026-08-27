@@ -4,143 +4,58 @@ WARNING: Arquitectura Single-Tenant. Este estado asume un único usuario
 departamental concurrente. Si en el futuro se requiere multi-tenancy,
 hay que sustituir este singleton por un contexto por-sesión/usuario.
 
-Modelo **genérico** (Plan: Bounded Contexts — PR 1):
-
+Diseño extensible:
   - ``AppState`` es TRANSVERSAL: no sabe de áreas concretas. Su
     única responsabilidad es mantener un ``_dispositivos:
     dict[str, list[Any]]`` indexado por ``hw_type``.
-  - El área "alimentación" aporta las propiedades tipadas
-    (``dispositivos_ed/ea/...``) y los modelos (``DispED``, etc.,
-    ``DimensionesDispositivos``) vía ``AreaSpec.contributes_state_extensions``
-    en PR 2.
+  - Las áreas pueden aportar PROPIEDADES ADICIONALES (back-compat
+    legacy) vía ``AreaSpec.contributes_state_extensions``. El área
+    "alimentación" instala ``dispositivos_ed/ea/sa/v/m/m_vf`` como
+    properties de sugar que delegan a ``get_devices`` /
+    ``set_devices``.
   - La API pública es **data-driven**: ``get_devices``,
     ``set_devices``, ``list_hw_types``, ``all_devices``, ``reset``,
     ``__iter__``, ``__contains__``.
 
-> **Parche de transición (PR 1, marcado con TODO(PR2))**
-> Para no romper ni la SPA ni los tests que aún hacen
-> ``state.dispositivos_ed = [...]`` o ``state.dispositivos_ed``,
-> este módulo expone las 6 properties legacy como un parche
-> temporal. PR 2 moverá estas properties a
-> ``areas/alimentacion/application/state_extensions.py`` y las
-> instalará vía ``contributes_state_extensions``.
-> Una vez PR 2 esté mergeado, este bloque de ``__getattribute__`` /
-> ``__setattr__`` se borrará.
+Tras PR 2, ``get_app_state()`` itera el ``AreaRegistry`` y, para cada
+spec con ``contributes_state_extensions``, invoca el callable pasando
+la instancia Singleton. Esto reemplaza al parche de transición de PR 1.
 """
-
 from __future__ import annotations
 
 from threading import Lock
 from typing import Any, Iterator
 
-# ``DimensionesDispositivos`` se mantiene importado por ahora para no
-# romper la SPA, los routers ni los tests que usan
-# ``state.dimensiones`` o lo instancian directamente. PR 2 moverá el
-# modelo a ``areas/alimentacion/domain/models/dispositivos.py`` y este
-# import apuntará allí (o desaparecerá si ``AppState`` deja de tener
-# una ``dimensiones`` propia y se aporta vía state_extensions).
-# TODO(PR2): mover a ``areas/alimentacion/domain/models/``.
-from core.alimentacion.models.dispositivos import (  # noqa: F401  (PR2 will relocate)
-    DimensionesDispositivos,
-)
-
-
-# ── Lista canónica de los 6 atributos legacy de alimentación ──────────
-# (PARCHE DE TRANSICIÓN: ver TODO(PR2) arriba)
-_LEGACY_ATTRS: tuple[tuple[str, str], ...] = (
-    ("ed",   "dispositivos_ed"),
-    ("ea",   "dispositivos_ea"),
-    ("sa",   "dispositivos_sa"),
-    ("v",    "dispositivos_v"),
-    ("m",    "dispositivos_m"),
-    ("m_vf", "dispositivos_m_vf"),
-)
-
-_LEGACY_ATTR_NAMES: frozenset[str] = frozenset(
-    attr for _hw, attr in _LEGACY_ATTRS
-)
-
-
-def _hw_for_legacy_attr(attr_name: str) -> str | None:
-    """Devuelve el hw_type legacy para un nombre de atributo, o ``None``."""
-    for hw, attr in _LEGACY_ATTRS:
-        if attr == attr_name:
-            return hw
-    return None
-
-
-def name_to_hw(attr_name: str) -> str:
-    """``"dispositivos_ed"`` → ``"ed"``. Helper para ``__getattribute__``."""
-    for hw, attr in _LEGACY_ATTRS:
-        if attr == attr_name:
-            return hw
-    raise KeyError(attr_name)
-
 
 class AppState:
     """Estado global genérico (data-driven) — no ligado a alimentación.
 
-    Mantiene las listas de dispositivos indexadas por ``hw_type`` y
-    (en este PR, vía parche de transición) expone las 6 properties
-    legacy ``dispositivos_ed/ea/sa/v/m/m_vf`` para back-compat. Se
+    Mantiene las listas de dispositivos indexadas por ``hw_type`` y se
     expone vía ``get_app_state()`` (Singleton thread-safe).
 
     Las listas son mutables para admitir actualizaciones del operario,
     pero los dispositivos individuales son ``frozen=True`` (no se
     pueden mutar tras su creación; para "modificar" un dispositivo
     se crea uno nuevo y se sustituye en la lista).
+
+    Attributes:
+        dimensiones: Placeholder (Any) con default ``None``. Mantenido
+            por back-compat con la SPA, los routers (``excel.py`` y
+            ``diagnostics.py``) y los tests que aún leen/escriben
+            ``state.dimensiones``. La tipificación correcta de
+            ``DimensionesDispositivos`` (que ahora vive en el área
+            de alimentación) se resolverá en un refactor futuro.
+            TODO(PR2.5): tipar correctamente dimensiones una vez se
+            decida dónde vive definitivamente.
     """
 
     def __init__(self) -> None:
-        # ── Storage genérico (data-driven) ────────────────────────────
-        # ``_dispositivos`` es la fuente de verdad extensible. Las 6
-        # properties ``dispositivos_*`` (parche de transición) se
-        # mantienen sincronizadas con este dict vía ``__setattr__`` y
-        # ``__getattribute__``.
+        # Storage genérico (data-driven): única fuente de verdad.
         self._dispositivos: dict[str, list[Any]] = {}
-        # ── Dimensiones (cantidades) ────────────────────────────────────
-        # Mantenido en este PR por back-compat con la SPA, routers y
-        # tests que leen ``state.dimensiones``. PR 2 lo moverá al área.
-        # TODO(PR2): sustituir por un mecanismo del área.
-        self.dimensiones: DimensionesDispositivos = DimensionesDispositivos()
-
-    # ── Parche de transición: 6 atributos legacy de alimentación ──────
-    # TODO(PR2): eliminar este bloque. Las properties pasarán a
-    # aportarse vía ``AreaSpec.contributes_state_extensions``.
-
-    def __getattribute__(self, name: str) -> Any:
-        """Sirve ``dispositivos_ed/ea/sa/v/m/m_vf`` desde ``_dispositivos``.
-
-        Mantiene la API legacy: ``state.dispositivos_ed`` devuelve la
-        lista de dispositivos de tipo ``"ed"`` (tipada en type-checkers
-        pero la runtime ve ``list[Any]``). El área tipará las listas en
-        PR 2 vía ``state_extensions.install``.
-        """
-        # Evita recursión infinita: ``_dispositivos`` se accede por el
-        # camino normal de ``object.__getattribute__``.
-        if name in _LEGACY_ATTR_NAMES:
-            disp = object.__getattribute__(self, "_dispositivos")
-            hw = _hw_for_legacy_attr(name)
-            return disp.get(hw, []) if hw is not None else []
-        return object.__getattribute__(self, name)
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        """Sincroniza ``dispositivos_ed = ...`` con ``_dispositivos["ed"]``.
-
-        Si ``name`` es uno de los 6 legacy attrs, actualiza también
-        el dict. Si es ``_dispositivos`` o ``dimensiones``, se guarda
-        tal cual.
-        """
-        if name in _LEGACY_ATTR_NAMES:
-            disp = object.__getattribute__(self, "_dispositivos")
-            hw = _hw_for_legacy_attr(name)
-            if hw is not None:
-                disp[hw] = value
-            # No usamos ``object.__setattr__`` aquí: el resto de la
-            # clase no expone esos nombres como atributos (viven solo
-            # en el dict). Si lo hiciéramos, duplicaríamos la lista.
-            return
-        object.__setattr__(self, name, value)
+        # Placeholder de back-compat (ver docstring de clase).
+        # TODO(PR2.5): tipar correctamente dimensiones una vez se decida
+        # dónde vive definitivamente.
+        self.dimensiones: Any = None
 
     # ── API data-driven (público, no ligado a alimentación) ────────────
 
@@ -161,9 +76,10 @@ class AppState:
     ) -> None:
         """Sustituye la lista de dispositivos de ``hw_type``.
 
-        Para los 6 tipos legacy, las properties
-        ``state.dispositivos_<hw>`` se actualizan automáticamente
-        (vía ``__getattribute__``) para devolver esta misma lista.
+        Para los 6 tipos del área de alimentación, las properties
+        ``state.dispositivos_<hw>`` (aportadas vía
+        ``contributes_state_extensions``) se actualizan
+        automáticamente para devolver esta misma lista.
         """
         self._dispositivos[hw_type] = list(devices)
 
@@ -204,16 +120,32 @@ _state_lock: Lock = Lock()
 def get_app_state() -> AppState:
     """Devuelve la instancia Singleton de ``AppState`` (thread-safe).
 
-    En PR 2, tras crear el Singleton, se invocará
-    ``AreaRegistry.discover().for_each("contributes_state_extensions", app_state=_state)``
-    para instalar el parche de transición desde el área de alimentación
-    (reemplazando las 6 properties legacy de este módulo).
+    Tras crear el Singleton, invoca el ``contributes_state_extensions``
+    de cada área registrada (p. ej. ``areas.alimentacion.application.
+    state_extensions.install``) para que el área pueda aportar
+    properties legacy sobre la CLASE ``AppState`` (no la instancia),
+    con efecto en todas las instancias presentes y futuras.
+
+    Las properties se instalan en la **clase** (con
+    ``setattr(AppState, attr, property(...))``) para que se propaguen
+    al Singleton global y a cualquier instancia futura. Por tanto, este
+    hook se ejecuta **una sola vez** por proceso: instalarlo en cada
+    llamada a ``get_app_state()`` sería redundante y gastaría un
+    ``setattr`` por acceso.
     """
     global _state
     if _state is None:
         with _state_lock:
             if _state is None:
                 _state = AppState()
+                # Aportar las properties legacy de las áreas registradas.
+                # El área de alimentación pega las 6 properties
+                # ``dispositivos_ed/ea/...`` sobre la CLASE ``AppState``
+                # (no sobre ``_state``) usando ``setattr(AppState, ...)``.
+                from core.application.area_registry import AreaRegistry
+                for spec in AreaRegistry.discover().all():
+                    if spec.contributes_state_extensions is not None:
+                        spec.contributes_state_extensions(_state)
     return _state
 
 

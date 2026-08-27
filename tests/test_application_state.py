@@ -1,14 +1,16 @@
-"""Tests del ``AppState`` genérico (Plan: Bounded Contexts — PR 1).
+"""Tests del ``AppState`` genérico (Plan: Bounded Contexts — PR 1+2).
 
 Cubre la API data-driven del Singleton:
   - ``get_devices`` / ``set_devices`` / ``reset``.
   - ``list_hw_types`` / ``all_devices`` / ``__iter__`` / ``__contains__``.
-  - ``dimensiones`` (atributo preservado por back-compat).
+  - ``dimensiones`` (placeholder de back-compat, ``Any = None``).
   - Single-tenant: ``get_app_state()`` retorna SIEMPRE la misma instancia.
 
-NO cubre el parche de transición de las 6 properties legacy
-(``dispositivos_ed/ea/sa/v/m/m_vf``) — eso vive en otros tests
-(``test_sync_*``, ``test_disp_*``) y se quitará en PR 2.
+Tras PR 2, las 6 properties legacy (``dispositivos_ed/ea/sa/v/m/m_vf``)
+vienen aportadas por ``areas.alimentacion.application.state_extensions``;
+este módulo las prueba invocando ``install`` explícitamente (el
+Singleton las activa perezosamente, pero las ``AppState`` "frescas"
+de los tests también las necesitan para validar back-compat).
 
 Tests OFFLINE puros (sin gateway, sin TIA).
 """
@@ -19,6 +21,30 @@ from typing import Any
 import pytest
 
 from core.application.state import AppState, get_app_state
+
+
+# ── Activación de las properties legacy para los tests ────────────────
+# Las 6 properties ``dispositivos_*`` se añaden a la CLASE ``AppState``
+# al importarse el ``__init__`` del área (vía ``get_app_state()``) o
+# cuando algún test las solicita. Importamos el módulo del área
+# explícitamente: su ``__init__`` registra la ``AREA_SPEC`` y las
+# properties quedan disponibles al instanciar ``AppState()`` aquí.
+from areas.alimentacion.application.state_extensions import (  # noqa: E402, F401
+    install as _install_legacy_state_props,
+)
+
+
+@pytest.fixture(autouse=True)
+def _ensure_legacy_state_props_installed() -> None:
+    """Pega las 6 properties legacy a ``AppState`` antes de cada test.
+
+    El área de alimentación las instala en ``get_app_state()`` (vía
+    ``AreaSpec.contributes_state_extensions``). En estos tests instanciamos
+    ``AppState()`` directamente sin pasar por el Singleton, así que las
+    añadimos explícitamente. El ``install`` es idempotente: solo
+    re-asigna el ``property`` a la clase.
+    """
+    _install_legacy_state_props(None)
 
 
 @pytest.fixture
@@ -108,18 +134,25 @@ def test_contains_checks_hw_type_membership(
 
 
 # ────────────────────────────────────────────────────────────────────────
-# dimensiones (back-compat)
+# dimensiones (back-compat — placeholder)
 # ────────────────────────────────────────────────────────────────────────
 
 
 def test_dimensiones_present_by_default(fresh_state: AppState) -> None:
-    """``dimensiones`` está instanciada por defecto (atributo back-compat).
+    """``dimensiones`` existe como placeholder (atributo back-compat).
 
-    Se preserva en PR 1 para no romper la SPA / routers / tests que
-    leen ``state.dimensiones``. PR 2 lo moverá al área.
+    Tras PR 2, ``dimensiones`` ya no es un ``DimensionesDispositivos``
+    instanciado por defecto: el ``AppState`` genérico no sabe de
+    áreas, y el modelo vive en ``areas.alimentacion.domain.models``.
+    El atributo se mantiene como ``Any = None`` para no romper la SPA
+    (``DefinicionProgramacion.js`` lee ``store.memoryState.dimensiones``),
+    los routers (``excel.py`` setea, ``diagnostics.py`` lee) y los
+    tests que aún construyen ``DimensionesDispositivos(...)`` y lo
+    asignan manualmente. La tipificación se resolverá en un refactor
+    futuro (TODO(PR2.5)).
     """
     assert hasattr(fresh_state, "dimensiones")
-    assert fresh_state.dimensiones is not None
+    assert fresh_state.dimensiones is None
 
 
 # ────────────────────────────────────────────────────────────────────────

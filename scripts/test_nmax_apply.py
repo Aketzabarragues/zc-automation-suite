@@ -44,7 +44,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 
 from core.application.state import get_app_state
-from application.areas.alimentacion.use_cases.sync_dispositivos_instances import (
+from areas.alimentacion.application.use_cases.sync_dispositivos_instances import (
     SyncDispositivosInstancesUseCase,
 )
 from core.infrastructure.config_manager import ConfigManager
@@ -67,7 +67,7 @@ async def main(plc_name: str) -> int:
     #    reemplazamos vía ``object.__setattr__`` (que bypassea el
     #    frozen). Esto garantiza que el diff de N_MAX detecta
     #    cambios respecto a los valores actuales del PLC (que son 5).
-    from core.alimentacion.models.dispositivos import DimensionesDispositivos
+    from areas.alimentacion.domain.models.dispositivos import DimensionesDispositivos
     new_dims = DimensionesDispositivos(
         num_disp_ed=99, num_disp_ea=99, num_disp_sa=99,
         num_disp_v=99, num_disp_m=99, num_disp_m_vf=99,

@@ -422,20 +422,38 @@ def test_n_max_catalog_missing_returns_empty(tmp_path: Path) -> None:
 
 def test_apply_defaults_no_op_when_no_areas_registered(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Si no hay áreas en ``AreaRegistry``, ``apply_defaults`` es no-op.
 
-    El hook PR 1 delega en las áreas registradas; antes de PR 2 (que
-    crea ``areas/alimentacion/``), el registry está vacío, así que
-    ``apply_defaults`` no muta el config. Esto es lo que permite que
-    un config mínimo siga funcionando sin warnings nuevos.
+    El hook delega en las áreas registradas. Mockeamos el ``AreaRegistry``
+    para que retorne una lista vacía y verificamos que ``apply_defaults``
+    no muta el config. Esto es lo que permite que un config mínimo
+    siga funcionando sin warnings nuevos cuando aún no hay áreas
+    registradas (p. ej. en un proyecto in-progress).
+
+    Antes de PR 2, el registry estaba vacío por defecto (no había
+    áreas). Tras PR 2, el área "alimentación" se autoregistra y aporta
+    sus defaults; este test verifica el comportamiento defensivo de
+    ``apply_defaults`` cuando se enmascara el registry.
     """
     path = tmp_path / "minimal.json"
     path.write_text(json.dumps(_FULL_CONFIG), encoding="utf-8")
     cm = ConfigManager(config_path=path)
+
+    # Mock del AreaRegistry para que devuelva una lista vacía de specs
+    # (simula "no hay áreas registradas" — back-compat con PR 1).
+    import core.application.area_registry as ar_mod
+    fake_registry = MagicMock()
+    fake_registry.all.return_value = []
+    monkeypatch.setattr(
+        ar_mod.AreaRegistry, "discover",
+        classmethod(lambda cls: fake_registry),
+    )
+
     # Snapshot del estado actual (idéntico al JSON).
     pre_keys = sorted(cm.list_nmax_active())
-    cm.apply_defaults()  # no-op
+    cm.apply_defaults()  # no-op (registry vacío)
     post_keys = sorted(cm.list_nmax_active())
     assert pre_keys == post_keys
 

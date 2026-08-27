@@ -33,7 +33,7 @@ from core.application.progress_buffer import (  # noqa: E402
     get_progress_tracker,
 )
 from core.application.state import AppState  # noqa: E402
-from application.areas.alimentacion.use_cases.sync_dispositivos_instances import (  # noqa: E402
+from areas.alimentacion.application.use_cases.sync_dispositivos_instances import (  # noqa: E402
     SyncDispositivosInstancesUseCase,
 )
 from core.infrastructure.config_manager import ConfigManager  # noqa: E402
