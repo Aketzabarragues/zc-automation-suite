@@ -9,9 +9,28 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
+
+
+# Timeout por defecto del subproceso OT (segundos).
+#
+# Una ``execute_transactional_batch`` contra un PLC real puede
+# implicar 50-100 operaciones dentro de ``start_transaction`` /
+# ``end_transaction``. Con PLCs reales esto puede tardar 1-3 minutos
+# (ver `.clinerules` §1: el stage ``open_transaction`` es OPAQUE y
+# cubre la transacción COM). El default histórico era 45s, que se
+# quedaba corto y forzaba timeouts en operaciones grandes.
+#
+# Operario en producción: ajustar con la variable de entorno
+# ``ZC_GATEWAY_TIMEOUT`` (segundos) sin recompilar. Tests que
+# parcheen ``sys.frozen`` no se ven afectados — el valor de la
+# env var se evalúa por instancia, en el ``__init__`` del gateway.
+DEFAULT_GATEWAY_TIMEOUT: float = float(
+    os.environ.get("ZC_GATEWAY_TIMEOUT", "180.0")
+)
 
 
 class TIAProcessGateway:
@@ -27,9 +46,18 @@ class TIAProcessGateway:
         referencian rutas a .py.
     """
 
-    def __init__(self, timeout: float = 45.0) -> None:
+    def __init__(self, timeout: float | None = None) -> None:
+        """Inicializa el gateway IT.
+
+        Args:
+            timeout: Timeout (segundos) del subproceso OT. Si es
+                ``None`` (default), usa ``DEFAULT_GATEWAY_TIMEOUT``
+                (180s, configurable vía ``ZC_GATEWAY_TIMEOUT``). Pasarlo
+                explícito tiene prioridad sobre la env var (útil para
+                tests con mocks que necesitan un timeout corto).
+        """
         self._cache: dict[str, Any] = {}
-        self._timeout = timeout
+        self._timeout = timeout if timeout is not None else DEFAULT_GATEWAY_TIMEOUT
 
     def _resolve_worker_exec_args(self) -> list[str]:
         """Devuelve los argumentos para lanzar el subproceso worker.

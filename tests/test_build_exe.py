@@ -188,11 +188,17 @@ def test_project_data_files_use_directory_destinations() -> None:
         "interfaces/web_server/static",
         "interfaces/web_server/static",
     ) in build_exe.PROJECT_DATA_FILES
-    # PR 7: el frontend del área de alimentación se bundlea bajo la
-    # ruta estática del shell, no bajo ``_MEIPASS/areas/``.
+    # PR 7 + fix(.exe): el frontend del área de alimentación se
+    # bundlea bajo la ruta estática del shell, **preservando el
+    # segmento ``frontend/``** porque el manifest del área expone
+    # loaders con prefijo
+    # ``/static/areas/alimentacion/frontend/components/<X>.js``.
+    # Si bundleamos quitando ``frontend/`` (destino
+    # ``.../alimentacion``), el .exe falla con
+    # "Failed to fetch dynamically imported module" en runtime.
     assert (
         "areas/alimentacion/frontend",
-        "interfaces/web_server/static/areas/alimentacion",
+        "interfaces/web_server/static/areas/alimentacion/frontend",
     ) in build_exe.PROJECT_DATA_FILES
 
     # Regla general: si el source es un FICHERO (no directorio), el
