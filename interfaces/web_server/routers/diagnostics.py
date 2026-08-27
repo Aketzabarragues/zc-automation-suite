@@ -82,7 +82,17 @@ async def state_dispositivos(
 
     return {
         "ok": True,
-        "dimensiones": state.dimensiones.to_api_dict(),
+        # ``state.dimensiones`` es ``None`` por default (PR 2 lo dejó
+        # como placeholder de back-compat; se popula tras un upload
+        # de Excel). Si el operario abre la SPA sin haber subido
+        # Excel, devolveríamos un 500 con ``'NoneType' has no
+        # attribute 'to_api_dict'``. Devolvemos ``{}`` como modo
+        # degradado: la SPA trata ``dimensiones`` como opcional.
+        "dimensiones": (
+            state.dimensiones.to_api_dict()
+            if state.dimensiones is not None
+            else {}
+        ),
         "dispositivos": dispositivos_payload,
     }
 
