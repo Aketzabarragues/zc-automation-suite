@@ -123,12 +123,13 @@ def test_generar_prevision_emits_4_stages(
     assert snap.active is False
 
 
-def test_ejecutar_transaccion_emits_7_stages(
+def test_ejecutar_transaccion_emits_8_stages(
     fresh_tracker: ProgressTracker,
     minimal_config: ConfigManager,
     tmp_path: Path,
 ) -> None:
-    """``ejecutar_transaccion`` emite 7 stages (incluye ``apply_comentarios_disp``)."""
+    """``ejecutar_transaccion`` emite 8 stages (incluye las 2 transacciones:
+    ``open_transaction_devices`` y ``open_transaction_online``)."""
     gateway = MagicMock(spec=TIAProcessGateway)
     async def fake_export(plc_name: str, target_dir: str) -> str:
         Path(target_dir).mkdir(parents=True, exist_ok=True)
@@ -172,7 +173,7 @@ def test_ejecutar_transaccion_emits_7_stages(
         pass
 
     snap = fresh_tracker.snapshot()
-    assert snap.total == 7
+    assert snap.total == 8
     assert snap.operation == "commit"
 
 
@@ -181,14 +182,20 @@ def test_ejecutar_transaccion_finish_false_on_batch_failure(
     minimal_config: ConfigManager,
     tmp_path: Path,
 ) -> None:
-    """Si ``execute_transactional_batch`` falla, ``progress.finish(success=False)``
-    se llama antes del ``raise``."""
+    """Si la 2ª transacción (``open_transaction_online``) falla, ``progress.finish(success=False)``
+    se llama antes del ``raise``.
+
+    Tras la división devices/online, ``_compute_diff`` retorna
+    dicts vacíos, así que ``devices_ops`` queda vacía. La 1ª
+    transacción (devices) se skipea (no-op). La 2ª (online) tiene
+    las 5 N_MAX updates y es la que falla en este test.
+    """
     gateway = MagicMock(spec=TIAProcessGateway)
     async def fake_export(plc_name: str, target_dir: str) -> str:
         Path(target_dir).mkdir(parents=True, exist_ok=True)
         return target_dir
     gateway.export_plc_tags_xml = fake_export  # type: ignore[method-assign]
-    # execute_transactional_batch FALLA
+    # execute_transactional_batch FALLA (la 2ª transacción, devices está vacía)
     async def fake_batch(operations, undo_text=""):
         raise RuntimeError("Lote abortado en el paso 1")
     gateway.execute_transactional_batch = fake_batch  # type: ignore[method-assign]
@@ -203,15 +210,12 @@ def test_ejecutar_transaccion_finish_false_on_batch_failure(
     use_case._compute_diff = MagicMock(  # type: ignore[method-assign]
         return_value=({}, {}, {})
     )
-    use_case._compute_nmax_ops_for_apply = MagicMock(  # type: ignore[method-assign]
-        return_value=[]
-    )
     use_case._build_desired_state_from_app = MagicMock(  # type: ignore[method-assign]
         return_value={}
     )
 
-    # Forzar que operations tenga UNA op para que NO caiga en el
-    # camino "if not operations" (early return sin tocar la transacción).
+    # Forzar que online_ops tenga UNA op para que NO caiga en el
+    # camino "if total_ops == 0" (early return sin tocar la transacción).
     use_case._compute_nmax_ops_for_apply = MagicMock(  # type: ignore[method-assign]
         return_value=[{
             "command": "update_user_constant_value",
@@ -231,9 +235,9 @@ def test_ejecutar_transaccion_finish_false_on_batch_failure(
     assert snap.active is False
     assert snap.error is not None
     assert "Lote abortado" in snap.error
-    # El último stage en running (open_transaction) debe estar en error.
+    # El stage que falla es ``open_transaction_online`` (2ª transacción).
     open_tx = next(
-        (s for s in snap.stages if s["id"] == "open_transaction"),
+        (s for s in snap.stages if s["id"] == "open_transaction_online"),
         None,
     )
     assert open_tx is not None
