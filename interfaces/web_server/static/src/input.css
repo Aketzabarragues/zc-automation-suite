@@ -23,9 +23,15 @@
 /* ── Paths de escaneo de clases ────────────────────────────────────────
  * Es esencial incluir `static/js//.js`: las plantillas Vue viven
  * como template strings dentro de los componentes ESM, por lo que
- * Tailwind NO las detecta si sólo escanea HTML. */
+ * Tailwind NO las detecta si sólo escanea HTML.
+ *
+ * Tras el PR 5 (bounded contexts), los componentes del área
+ * ``alimentacion`` están en ``areas/alimentacion/frontend/``;
+ * los incluimos para que Tailwind no purgue sus clases. Las
+ * áreas nuevas se recogen automáticamente por el glob. */
 @source "../index.html";
 @source "../js/**/*.js";
+@source "../../../../../areas/**/frontend/**/*.js";
 
 /* ── Tokens semánticos del tema ──────────────────────────────────────── */
 @theme {

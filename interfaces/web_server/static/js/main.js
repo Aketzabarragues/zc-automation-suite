@@ -3,40 +3,28 @@
  *
  * Responsabilidades:
  *   * Importar ``createApp`` del build ESM de Vue 3.
- *   * Registrar los 6 componentes:
- *     - Cross-cutting: Welcome, ConsolaLogs.
- *     - Del área Alimentación: AlimentacionSidebar, AreaLanding,
- *       DefinicionProgramacion, Dispositivos.
- *   * Enrutar entre la pantalla de bienvenida (``Welcome``) y el
- *     layout de área (sidebar + main + ConsolaLogs) según
- *     ``store.topLevelView``.
- *   * Dentro del área, enrutar entre landing / def / disp según
- *     ``store.currentView``.
+ *   * Registrar los 3 componentes cross-cutting: Welcome, ConsolaLogs,
+ *     ProgressIndicator.
+ *   * Enrutar entre welcome y el layout de área según ``store.topLevelView``.
+ *   * Dentro del área, enrutar entre sub-vistas según ``store.currentView``
+ *     (validado contra ``store.areaManifest.components.views``).
  *   * Conectar el evento ``refresh`` de Definición programación a
  *     ``apiFetchMemory``.
- *   * Lanzar el polling de logs (1 s) en background (solo dentro
- *     del área: en welcome no se necesita).
+ *   * Cargar dinámicamente los componentes del área seleccionada vía
+ *     ``area-loader.js`` (sin imports hardcoded de las áreas).
+ *   * Lanzar el polling de logs (1 s) y de progreso (500 ms).
  *   * Montar la app en ``#app``.
  *
- * NO hay build step: el navegador carga los módulos directamente
- * desde la red (CDN) o desde ``/js/`` servido por FastAPI.
- *
- * IMPORTANTE sobre los templates: el compilador de templates en
- * runtime de Vue 3 (``vue.esm-browser.prod.js``) NO acepta string
- * literals multi-línea dentro de arrays de ``:class``. Cada literal
- * debe ir en una sola línea. Ver ``components/Welcome.js`` para el
- * ejemplo.
+ * NO hay build step: el navegador carga los módulos directamente desde
+ * la red (CDN) o desde ``/js/`` servido por FastAPI.
  */
-import { createApp } from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js";
+import { createApp, computed } from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js";
 import { store, goToArea, goToSubview, loadCatalog } from "./store.js";
 import { apiFetchLogs, apiFetchMemory, apiFetchProgress } from "./api.js";
+import { mountArea } from "./area-loader.js";
 import Welcome from "./components/Welcome.js";
 import ConsolaLogs from "./components/ConsolaLogs.js";
 import ProgressIndicator from "./components/ProgressIndicator.js";
-import AlimentacionSidebar from "./components/areas/alimentacion/Sidebar.js";
-import AreaLanding from "./components/areas/alimentacion/AreaLanding.js";
-import DefinicionProgramacion from "./components/areas/alimentacion/DefinicionProgramacion.js";
-import Dispositivos from "./components/areas/alimentacion/Dispositivos.js";
 
 /** Componente raíz: enrutador top-level (welcome) + layout de área. */
 const App = {
@@ -44,10 +32,6 @@ const App = {
         Welcome,
         ConsolaLogs,
         ProgressIndicator,
-        AlimentacionSidebar,
-        AreaLanding,
-        DefinicionProgramacion,
-        Dispositivos,
     },
     setup() {
         /**
@@ -70,9 +54,16 @@ const App = {
         /**
          * Manejador del ``select`` emitido por ``Welcome``. El
          * ``Welcome`` ya validó que el área está ``available``.
+         *
+         * ``goToArea`` es async: carga el manifest del área (en
+         * ``store.js``) y luego ``mountArea`` registra los
+         * componentes del área en esta instancia de app. Si el
+         * manifest viene vacío (endpoint backend no implementado
+         * todavía), la SPA funciona en modo degradado.
          */
-        function onAreaSelected(key) {
-            goToArea(key);
+        async function onAreaSelected(key) {
+            await goToArea(key);
+            await mountArea(_app, key);
         }
         /**
          * Manejador del ``select`` emitido por ``AreaLanding``.
@@ -81,17 +72,80 @@ const App = {
         function onSubviewSelected(key) {
             goToSubview(key);
         }
-        return { store, refreshMemory, onAreaSelected, onSubviewSelected };
+        /**
+         * Nombre del componente de sidebar del área activa, leído del
+         * manifest. ``null`` mientras no hay manifest (welcome o
+         * área no soportada por el backend). Lo usa
+         * ``<component :is="sidebarComponent" />`` para resolver el
+         * componente registrado por ``mountArea``.
+         */
+        const sidebarComponent = computed(() => {
+            const m = store.areaManifest;
+            if (!m || !m.components) return null;
+            return m.components.sidebar || null;
+        });
+        /**
+         * Nombre del componente de la sub-vista activa (``'landing'
+         * | 'def' | 'disp'`` para alimentación), leído del manifest.
+         * Si la key de ``store.currentView`` no está en el manifest
+         * (área sin esa sub-vista), devuelve ``null`` y la vista no
+         * se renderiza.
+         */
+        const currentViewComponent = computed(() => {
+            const m = store.areaManifest;
+            if (!m || !m.components || !m.components.views) return null;
+            return m.components.views[store.currentView] || null;
+        });
+        /**
+         * Flag derivado: estamos en un área cuyo manifest no se pudo
+         * cargar (endpoint no existe, loaders vacíos o red caída). Lo
+         * usa el template para mostrar un mensaje claro en lugar de
+         * un sidebar/main vacío.
+         */
+        const areaManifestEmpty = computed(() => {
+            return (
+                store.topLevelView === "area" &&
+                !!store.selectedArea &&
+                (!store.areaManifest ||
+                    !store.areaManifest.loaders ||
+                    Object.keys(store.areaManifest.loaders || {}).length === 0)
+            );
+        });
+        return {
+            store,
+            refreshMemory,
+            onAreaSelected,
+            onSubviewSelected,
+            sidebarComponent,
+            currentViewComponent,
+            areaManifestEmpty,
+        };
     },
     template: /* html */ `
         <div class="flex flex-col flex-1 min-h-0">
             <Welcome v-if="store.topLevelView === 'welcome'" @select="onAreaSelected" />
             <div v-else class="flex flex-1 overflow-hidden min-w-0">
-                <AlimentacionSidebar />
+                <component v-if="sidebarComponent" :is="sidebarComponent" />
                 <main class="flex-1 min-w-0 flex flex-col p-5 overflow-y-scroll">
-                    <AreaLanding v-if="store.currentView === 'landing'" @select="onSubviewSelected" />
-                    <DefinicionProgramacion v-else-if="store.currentView === 'def'" @refresh="refreshMemory" />
-                    <Dispositivos v-else />
+                    <div v-if="areaManifestEmpty"
+                        class="flex-1 flex items-center justify-center bg-surface-raised border border-dashed border-line rounded p-10 text-center text-ink-muted">
+                        <div>
+                            <div class="text-5xl mb-3 opacity-40">⚠️</div>
+                            <p class="mb-2 font-semibold text-ink">Área no soportada en el frontend</p>
+                            <p class="text-xs">
+                                El backend no ha publicado el manifest de
+                                <strong class="text-accent">{{ store.selectedArea }}</strong>.
+                                Verifica que el endpoint
+                                <code>GET /api/v1/areas/{{ store.selectedArea }}/manifest</code>
+                                esté disponible y devuelva los
+                                <code>loaders</code> correctos.
+                            </p>
+                        </div>
+                    </div>
+                    <component v-else-if="currentViewComponent"
+                        :is="currentViewComponent"
+                        @select="onSubviewSelected"
+                        @refresh="refreshMemory" />
                 </main>
             </div>
             <ConsolaLogs v-if="store.topLevelView === 'area'" />
@@ -99,21 +153,14 @@ const App = {
     `,
 };
 
-createApp(App).mount("#app");
+const _app = createApp(App);
+_app.component("Welcome", Welcome);
+_app.component("ConsolaLogs", ConsolaLogs);
+_app.component("ProgressIndicator", ProgressIndicator);
+_app.mount("#app");
 
-/* ── Carga inicial del catálogo de presentación ──────────────────
- * Llamamos a ``loadCatalog`` antes del primer render para que
- * los componentes que dependen de ``store.catalog`` (los 2
- * que muestran pestañas/tablas) tengan datos al pintarse.
- * Si el catalog falla (backend caído), los componentes caen
- * a fallbacks ``[]``/``{}`` y la SPA sigue funcionando. */
 loadCatalog();
 
-/* ── Polling de logs (1 s, IT-only, sin tocar la DLL de TIA) ─────
- * Mantenemos la consola sincronizada con el backend sin necesidad
- * de WebSockets: GET /api/v1/logs es snapshot puro. Se activa solo
- * cuando el usuario está dentro de un área (en welcome no hay
- * actividad que reflejar). */
 setInterval(async () => {
     if (store.topLevelView !== "area") return;
     const r = await apiFetchLogs();
@@ -122,11 +169,6 @@ setInterval(async () => {
     }
 }, 1000);
 
-/* ── Polling de progreso (500 ms, panel fijo en el sidebar) ─
- * Se ejecuta SIEMPRE que el operario esté en un área (sin guard
- * de estado). Coste idle: 2 req/s (trivial). Esto evita el bug
- * chicken-and-egg donde el guard espera a ver algo que solo puede
- * detectar el propio polling. */
 let _progressTickCount = 0;
 setInterval(async () => {
     if (store.topLevelView !== "area") return;
@@ -136,9 +178,6 @@ setInterval(async () => {
     }
     const r = await apiFetchProgress();
     if (r.ok && r.data && r.data.ok && r.data.progress) {
-        // Solo actualizamos si el snapshot tiene algo distinto al actual.
-        // (El endpoint siempre devuelve 200 con el estado actual, que
-        // puede ser el "idle" vacío si no hay operación en curso.)
         store.progress = r.data.progress;
     }
 }, 500);

@@ -119,6 +119,34 @@ export const store = reactive({
         finished_at: null,
         error: null,
     },
+
+    /**
+     * Manifest del área activa, cargado por
+     * ``core/interfaces/web_server/static/js/area-loader.js``.
+     *
+     * Shape esperado (alineado con
+     * ``areas/alimentacion/frontend/manifest.js`` y con el
+     * endpoint ``GET /api/v1/areas/<id>/manifest`` del backend):
+     *
+     *   {
+     *     id, label, icon,
+     *     components: {
+     *       sidebar: "<ComponentName>",
+     *       landing: "<ComponentName>",
+     *       views:    { "<key>": "<ComponentName>", ... },
+     *     },
+     *     loaders: {
+     *       "<ComponentName>": () => import("<url>"),
+     *       ...
+     *     },
+     *   }
+     *
+     * ``null`` antes de seleccionar un área. Si el endpoint
+     * ``/manifest`` no está implementado (PR 4 del backend aún no
+     * lo ha añadido) o falla, ``goToArea`` lo deja ``null`` y la
+     * SPA funciona en modo degradado (mensaje claro en el main).
+     */
+    areaManifest: null,
 });
 
 /**
@@ -150,7 +178,30 @@ export function goToWelcome() {
     // "último área visitada" si se decide en una iteración futura.
 }
 
-export function goToArea(key) {
+/**
+ * Cambia el área activa. Resuelve el manifest del backend (vía
+ * ``area-loader.loadArea``), lo guarda en ``store.areaManifest`` y
+ * transiciona a la vista de área (``topLevelView = 'area'``).
+ *
+ * Si el endpoint ``GET /api/v1/areas/<id>/manifest`` no existe
+ * todavía (PR 4 del backend aún no lo ha añadido) o responde con
+ * error, ``loadArea`` cae al manifest vacío (``loaders: {}``).
+ * En ese caso la SPA queda en modo degradado: ``topLevelView``
+ * pasa a ``'area'``, ``areaManifest`` queda ``null``, y el
+ * template raíz muestra un mensaje "Área no soportada en el
+ * frontend" en lugar de los componentes. El área sigue siendo
+ * navegable (volver a welcome con el botón "←" del sidebar) y
+ * ningún componente crashea.
+ *
+ * La **transición de estado** (reset suave de plcs / selectedPlc /
+ * uploadSummary / previewData) se hace antes de la carga del
+ * manifest para que la UI no parpadee con datos del área anterior.
+ *
+ * Async porque depende de un fetch al backend. El handler del
+ * shell (``main.js::onAreaSelected``) hace ``await`` y encadena
+ * ``mountArea`` después de este resolve.
+ */
+export async function goToArea(key) {
     if (!key) return;
     store.selectedArea = key;
     store.currentView = "landing";   // arrancar siempre en el landing del área.
@@ -159,6 +210,19 @@ export function goToArea(key) {
     store.selectedPlc = "";
     store.uploadSummary = null;
     store.previewData = null;
+    // Cargar el manifest del área antes de cambiar ``topLevelView``.
+    // Si falla, log warning y continuar (modo degradado).
+    try {
+        const { loadArea } = await import("./area-loader.js");
+        const manifest = await loadArea(key);
+        // Si el manifest viene con un id distinto al que pedimos
+        // (p. ej. fallback genérico del backend), respetamos lo
+        // que diga el manifest.
+        store.areaManifest = manifest && manifest.id ? manifest : null;
+    } catch (e) {
+        console.warn(`[store] no se pudo cargar el manifest de "${key}":`, e);
+        store.areaManifest = null;
+    }
     store.topLevelView = "area";
 }
 
@@ -170,12 +234,18 @@ export function goToArea(key) {
  *   - Sidebar (botones "Inicio del área" / "Definición programación"
  *     / "Dispositivos").
  *
- * Keys válidas: ``'landing' | 'def' | 'disp'``. Si se pasa una key
- * inválida, se ignora silenciosamente.
+ * La lista de keys válidas YA NO está hardcoded: se valida contra
+ * ``store.areaManifest?.components?.views``. Si la key no está en el
+ * manifest del área activa (área distinta, manifest aún no cargado
+ * o key incorrecta), se ignora silenciosamente. Esto permite que
+ * un área nueva traiga sus propias sub-vistas sin tocar este
+ * helper.
  */
 export function goToSubview(key) {
-    const valid = ["landing", "def", "disp"];
-    if (!valid.includes(key)) return;
+    const views = (store.areaManifest && store.areaManifest.components
+                   && store.areaManifest.components.views) || null;
+    if (!views || typeof views !== "object") return;
+    if (!Object.prototype.hasOwnProperty.call(views, key)) return;
     store.currentView = key;
 }
 

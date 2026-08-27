@@ -12,12 +12,21 @@
  * strings dentro de los ``.js``. Sin los paths correctos, las
  * clases (``bg-cyan-700``, ``flex-shrink-0``...) se purgarían y
  * la UI quedaría sin estilos.
+ *
+ * Tras el PR 5 (bounded contexts), los componentes del área
+ * ``alimentacion`` se han movido a
+ * ``areas/alimentacion/frontend/components/``. Hay que incluirlos
+ * en ``content`` para que Tailwind no purgue las clases que usan
+ * sus templates. Cuando llegue un área nueva (``envasado``, etc.),
+ * el glob ``./areas/**/frontend/**/*.js`` la recoge automáticamente
+ * sin tocar este config.
  */
 /** @type {import('tailwindcss').Config} */
 module.exports = {
     content: [
         "./interfaces/web_server/static/index.html",
         "./interfaces/web_server/static/js/**/*.js",
+        "./areas/**/frontend/**/*.js",
     ],
     theme: {
         extend: {

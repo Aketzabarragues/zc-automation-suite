@@ -34,6 +34,7 @@ from areas.alimentacion.application.state_extensions import (
     install as install_state,
 )
 from areas.alimentacion.domain.catalog import build_catalog as build_alim_catalog
+from areas.alimentacion.frontend.manifest import build as build_manifest
 from areas.alimentacion.infrastructure.config_defaults import (
     install as install_defaults,
 )
@@ -55,14 +56,18 @@ AREA_SPEC = AreaSpec(
     contributes_catalog=build_alim_catalog,
     # ── Implementado en PR 3 ──────────────────────────────────────
     contributes_tia_commands=register_tia,
-    # ── Implementado en PR 4 (no se modifica en PR 3) ──────────────
+    # ── Implementado en PR 4 ──────────────────────────────────────
     contributes_routers=register_routers,
-    # ── Pendientes (None hasta PR 5/6) ────────────────────────────
-    # PR 5: contributes_frontend_manifest = build_manifest (frontend/manifest.js)
+    # ── Implementado en PR 5 (frontend-spa) ────────────────────────
+    # Manifest del área para la SPA. Espejo Python de ``manifest.js``
+    # (mismo shape, pero con URLs strings en ``loaders`` en vez de
+    # ``() => import(...)``). El backend lo serializa a JSON desde el
+    # endpoint ``GET /api/v1/areas/<id>/manifest``.
+    contributes_frontend_manifest=build_manifest,
+    # ── Pendiente (None hasta PR 6) ───────────────────────────────
     # PR 6: contributes_mcp_tools = register_mcp (interfaces/mcp/tools.py)
     contributes_mcp_tools=None,
-    contributes_frontend_manifest=None,
 )
 
 
-__all__ = ["AREA_SPEC", "register_tia"]
+__all__ = ["AREA_SPEC", "register_tia", "build_manifest"]
