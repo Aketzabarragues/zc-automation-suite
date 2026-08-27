@@ -83,9 +83,23 @@ class TIAProcessGateway:
         return ["-u", str(main_script), "--worker"]
 
     async def _dispatch_worker(
-        self, command: str, args: dict[str, Any] | None = None
+        self,
+        command: str,
+        args: dict[str, Any] | None = None,
+        timeout_override: float | None = None,
     ) -> Any:
-        """Lanza main.py (o el .exe congelado) con --worker y le envía el payload por STDIN."""
+        """Lanza main.py (o el .exe congelado) con --worker y le envía el payload por STDIN.
+
+        Args:
+            command: Nombre del comando del COMMAND_REGISTRY del worker.
+            args: Argumentos JSON-serializables para el comando.
+            timeout_override: Si se pasa, se usa este timeout en lugar
+                de ``self._timeout`` (útil para operaciones bulk como
+                ``execute_transactional_batch`` que necesitan un timeout
+                proporcional al número de operaciones). ``None``
+                usa el default del gateway.
+        """
+        timeout = timeout_override if timeout_override is not None else self._timeout
         exec_args = self._resolve_worker_exec_args()
 
         # Forzar encoding UTF-8 en el subproceso (heredado del
@@ -116,13 +130,13 @@ class TIAProcessGateway:
         try:
             stdout_b, stderr_b = await asyncio.wait_for(
                 proc.communicate(input=payload_bytes),
-                timeout=self._timeout,
+                timeout=timeout,
             )
         except asyncio.TimeoutError:
             proc.kill()
             await proc.wait()
             raise RuntimeError(
-                f"Timeout tras {self._timeout}s ejecutando el comando '{command}'. "
+                f"Timeout tras {timeout}s ejecutando el comando '{command}'. "
                 "El subproceso OT no respondió (posible diálogo modal activo en TIA Portal)."
             )
 
@@ -490,10 +504,25 @@ class TIAProcessGateway:
             RuntimeError: Si la lista está vacía, contiene un comando
                           desconocido o prohibido, o si cualquier operación
                           interna falla (incluye rollback automático).
+
+        Timeout dinámico:
+            El stage ``open_transaction`` del worker cubre la transacción
+            COM completa. Con 50-100 ops en un PLC real puede tardar
+            1-3 min; con 200+ ops, hasta 7-10 min. Aplicamos la fórmula
+            ``max(default, num_ops × 5s)`` para cubrirnos las espaldas
+            sin pasarnos: 5s por op es ~10× el tiempo medio observado
+            en PLCs reales, así que tenemos margen sin pagar timeouts
+            absurdos en operaciones pequeñas. El default
+            (``DEFAULT_GATEWAY_TIMEOUT``) actúa como suelo: una sola op
+            no baja del default.
         """
+        per_op_seconds = 5.0
+        n_ops = max(1, len(operations))
+        dynamic_timeout = max(self._timeout, per_op_seconds * n_ops)
         return await self._dispatch_worker(
             "execute_transactional_batch",
             {"operations": operations, "undo_text": undo_text},
+            timeout_override=dynamic_timeout,
         )
 
     async def update_disp_instance_comments_batch(
