@@ -100,9 +100,18 @@ ENTRY_SCRIPT = "main_tray.py"  # entry del .exe (UX: bandeja + web supervisor)
 #   El código hace ``_MEIPASS\launcher\icon.ico``.
 # - ``config.json`` → fichero suelto, mapping a su carpeta padre.
 #   El código hace ``_MEIPASS\infrastructure\config.json``.
+#
+# IMPORTANTE sobre ``areas/alimentacion/frontend``: el destino en el
+# bundle DEBE preservar el segmento ``frontend/`` porque el manifest
+# del área expone loaders con prefijo ``/static/areas/alimentacion/
+# frontend/components/<X>.js`` (ver ``areas/alimentacion/frontend/
+# manifest.py::_STATIC_PREFIX``). Si bundleamos quitando ``frontend/``
+# (destino ``.../alimentacion``), la URL pide un segmento ``frontend/``
+# que no existe en el bundle y el navegador falla con
+# ``Failed to fetch dynamically imported module``.
 PROJECT_DATA_FILES: list[tuple[str, str]] = [
     ("interfaces/web_server/static", "interfaces/web_server/static"),
-    ("areas/alimentacion/frontend", "interfaces/web_server/static/areas/alimentacion"),
+    ("areas/alimentacion/frontend", "interfaces/web_server/static/areas/alimentacion/frontend"),
     ("launcher/icon.ico", "launcher"),
     ("infrastructure/config.json", "infrastructure"),
 ]
@@ -119,6 +128,73 @@ EXE_ICON: Path = ROOT / "launcher" / "icon.ico"
 
 # Plantilla del .spec auto-generado. Usa placeholders ``{...}`` que
 # se sustituyen en ``write_generated_spec_file()`` con rutas reales.
+# Módulos de las áreas (Bounded Contexts) que PyInstaller NO detecta
+# estáticamente porque ``core/application/area_registry.py`` los importa
+# dinámicamente con ``importlib.import_module("areas.<area>")``. Sin
+# declararlos aquí, el .exe no incluye los ``.py`` de las áreas, y al
+# entrar al área de alimentación desde la SPA el backend no encuentra
+# los use cases, los routers del área ni el command loader del worker.
+#
+# Convención: cualquier módulo nuevo bajo ``areas/<area>/<sub>/`` debe
+# añadirse a esta lista. Una alternativa más DRY sería iterar las
+# carpetas en runtime, pero PyInstaller analiza el .spec antes de
+# ejecutar nada, así que tiene que ser estática. Cuando se añada un
+# segundo área (envasado, etc.), basta con añadir sus módulos aquí.
+HIDDEN_IMPORTS_AREAS: list[str] = [
+    # ── Raíz de áreas (necesario para AreaRegistry.discover()) ──
+    "areas",
+    # ── Área de alimentación ──
+    "areas.alimentacion",
+    # Domain (modelos + catálogo de presentación)
+    "areas.alimentacion.domain",
+    "areas.alimentacion.domain.models",
+    # Application (use cases + state extensions)
+    "areas.alimentacion.application",
+    "areas.alimentacion.application.slot_map_builder",
+    "areas.alimentacion.application.state_extensions",
+    "areas.alimentacion.application.use_cases",
+    "areas.alimentacion.application.use_cases.diff_constants",
+    "areas.alimentacion.application.use_cases.sync_comentarios_disp",
+    "areas.alimentacion.application.use_cases.sync_dispositivos_instances",
+    # Infrastructure (parsers, sd, tia, config_defaults)
+    "areas.alimentacion.infrastructure",
+    "areas.alimentacion.infrastructure.config_defaults",
+    "areas.alimentacion.infrastructure.parsers",
+    "areas.alimentacion.infrastructure.parsers.alimentacion_excel_parser",
+    "areas.alimentacion.infrastructure.sd",
+    "areas.alimentacion.infrastructure.sd.disp_comment_updater",
+    "areas.alimentacion.infrastructure.sd.disp_mlc_registry",
+    "areas.alimentacion.infrastructure.tia",
+    "areas.alimentacion.infrastructure.tia.extra_commands",
+    # Interfaces (web routers + MCP tools)
+    "areas.alimentacion.interfaces",
+    "areas.alimentacion.interfaces.web",
+    "areas.alimentacion.interfaces.web.alimentacion",
+    "areas.alimentacion.interfaces.web.sync",
+    "areas.alimentacion.interfaces.web.excel",
+    "areas.alimentacion.interfaces.mcp",
+    "areas.alimentacion.interfaces.mcp.tools",
+    # Frontend (manifest Python, espejo del manifest.js)
+    "areas.alimentacion.frontend",
+    "areas.alimentacion.frontend.manifest",
+]
+
+
+def _py_repr_hiddenimports(modules: list[str]) -> str:
+    """Formatea una lista de strings como un literal Python multi-línea.
+
+    Devuelve algo como::
+
+        'areas',
+        'areas.alimentacion',
+        ...
+
+    Se usa para inyectar en el ``hiddenimports`` del SPEC_TEMPLATE
+    generado por build_exe.py.
+    """
+    return ",\n            ".join(f"'{m}'" for m in modules)
+
+
 SPEC_TEMPLATE = dedent(
     '''\
     # -*- mode: python ; coding: utf-8 -*-
@@ -181,6 +257,14 @@ SPEC_TEMPLATE = dedent(
             'asyncio', 'asyncio.windows_utils',
             # ── Webbrowser (launcher/tray_app: "Abrir panel web") ──
             'webbrowser',
+            # ── Bounded Contexts (áreas) ──
+            # Importados dinámicamente por ``AreaRegistry.discover()``,
+            # que PyInstaller no detecta en su análisis estático. Si
+            # no los declaramos aquí, el .exe no incluye los ``.py``
+            # de las áreas y al entrar al área de alimentación desde
+            # la SPA el backend no encuentra use cases, routers ni
+            # command loaders. Ver ``HIDDEN_IMPORTS_AREAS`` arriba.
+            {hiddenimports_areas_py}
         ],
         excludes=[
             # MCP/FastMCP NO entran en el .exe (es dev-only);
@@ -420,6 +504,7 @@ def write_generated_spec_file(
         dll_list_py=_py_repr_path_list(dlls_in_vendor),
         xml_list_py=_py_repr_path_list(xmls_in_vendor),
         project_datas_py=_py_repr_project_datas(PROJECT_DATA_FILES),
+        hiddenimports_areas_py=_py_repr_hiddenimports(HIDDEN_IMPORTS_AREAS),
         entry_script_py=ENTRY_SCRIPT,
         exe_name_py=EXE_NAME,
         exe_icon_py=_py_repr_path(EXE_ICON),
