@@ -4,6 +4,18 @@ Define la capa de presentación agéntica. Expone las herramientas de TIA Portal
 a clientes LLM (Claude, GPT, etc.) consumiendo el `TIAProcessGateway` mediante
 inyección de dependencias.
 
+Tras PR 6 este módulo es un **shell**:
+  - Registra las ~22 tools genéricas del gateway (wrappers directos).
+  - Mantiene un dict privado ``_deps`` con las dependencias que las
+    tools del área necesitan (``gateway``, ``config_manager``,
+    ``app_state``, ``logger``) y lo expone vía ``get_mcp_deps()``.
+  - Agrega, al final, las tools que cada ``AreaSpec`` aporta vía
+    ``AreaRegistry.discover().for_each("contributes_mcp_tools", mcp=mcp)``.
+
+Las tools del área NO replican lógica de negocio: delegan en los mismos
+use cases que los routers FastAPI del área. Si cambia un flujo, cambia
+en un único sitio (simetría Web ↔ MCP deliberada).
+
 Principios arquitectónicos:
   - El Gateway se inyecta vía `create_mcp_server(gateway)`, permitiendo
     mockearlo en tests unitarios sin lanzar procesos de Siemens.
@@ -21,9 +33,36 @@ from typing import Any
 
 from fastmcp import FastMCP
 
+from core.application.log_buffer import get_log_buffer
 from core.application.state import get_app_state
 from core.infrastructure.config_manager import ConfigManager
 from core.infrastructure.gateway import TIAProcessGateway
+
+# ── Composition Root ligero ────────────────────────────────────────────
+# Las tools MCP de las áreas (``areas/*/interfaces/mcp/tools.py``)
+# necesitan un gateway + config_manager + app_state + log_buffer. Para
+# no reinventar la rueda en cada área, este shell mantiene un dict
+# ``_deps`` poblado por ``create_mcp_server`` y expuesto vía
+# ``get_mcp_deps()``. Es un Singleton a nivel de proceso (suficiente:
+# MCP solo tiene un cliente por proceso).
+_deps: dict[str, Any] = {}
+
+
+def get_mcp_deps() -> dict[str, Any]:
+    """Devuelve el dict de dependencias que las tools del área consumen.
+
+    Inyectado por ``create_mcp_server`` antes de registrar las tools.
+    Si se invoca antes de ``create_mcp_server`` (p. ej. en tests que
+    no llaman al shell), devuelve el dict vacío: las tools del área
+    deben fallar rápido si las deps no están pobladas.
+
+    Claves que se garantizan (cuando el shell arrancó):
+      - ``gateway``        : TIAProcessGateway inyectado en el shell.
+      - ``config_manager`` : ConfigManager apuntando al JSON del repo.
+      - ``app_state``      : Singleton AppState (con state_extensions).
+      - ``logger``         : LogBuffer singleton.
+    """
+    return _deps
 
 
 def create_mcp_server(gateway: TIAProcessGateway) -> FastMCP:
@@ -35,12 +74,25 @@ def create_mcp_server(gateway: TIAProcessGateway) -> FastMCP:
                   construcción del gateway (facilita mocks en tests).
 
     Returns:
-        Instancia `FastMCP` con todas las herramientas registradas,
-        lista para invocar `mcp.run(transport="stdio")`.
+        Instancia `FastMCP` con todas las herramientas registradas
+        (genéricas + aportadas por las áreas), lista para invocar
+        ``mcp.run(transport="stdio")``.
     """
+    global _deps
+
     mcp = FastMCP("ZC Automation Suite")
 
-    config_manager = ConfigManager("infrastructure/config.json")
+    # Popula el Composition Root ligero que consumirán las tools del
+    # área. Antes (pre-PR6) el ``ConfigManager`` y el ``AppState`` se
+    # creaban como locales y se perdían al salir del closure; ahora
+    # quedan cacheados a nivel de módulo y son accesibles vía
+    # ``get_mcp_deps()``.
+    _deps = {
+        "gateway": gateway,
+        "config_manager": ConfigManager("infrastructure/config.json"),
+        "app_state": get_app_state(),
+        "logger": get_log_buffer(),
+    }
 
     @mcp.tool()
     async def tia_attach_portal() -> str:
@@ -304,6 +356,12 @@ def create_mcp_server(gateway: TIAProcessGateway) -> FastMCP:
             f"Transacción completada: {result['operations_executed']} "
             "comandos ejecutados."
         )
+
+    # Tools aportadas por las áreas registradas (paridad con endpoints web).
+    # Cada ``AreaSpec`` con ``contributes_mcp_tools`` añade sus tools
+    # específicas al shell. Si no hay áreas, no se añade nada.
+    from core.application.area_registry import AreaRegistry
+    AreaRegistry.discover().for_each("contributes_mcp_tools", mcp=mcp)
 
     return mcp
 

@@ -32,7 +32,7 @@ def test_alimentacion_area_is_registered() -> None:
 
 
 def test_alimentacion_spec_has_expected_hooks() -> None:
-    """La ``AreaSpec`` de alimentación tiene los hooks esperados tras PR 2 + 3 + 4.
+    """La ``AreaSpec`` de alimentación tiene los hooks esperados tras PR 2..6.
 
     PR 2 implementó ``contributes_state_extensions``,
     ``contributes_config_defaults`` y ``contributes_catalog``.
@@ -42,13 +42,15 @@ def test_alimentacion_spec_has_expected_hooks() -> None:
     PR 4 implementó ``contributes_routers`` (3 routers web movidos
     desde el shell a ``areas/alimentacion/interfaces/web/`` y
     descubiertos vía ``AreaRegistry.for_each("contributes_routers", app=app)``).
+    PR 5 implementó ``contributes_frontend_manifest`` (manifest del
+    área para la SPA).
+    PR 6 implementó ``contributes_mcp_tools`` (4 tools MCP que dan
+    paridad con los endpoints web del área: sync preview/commit,
+    aplicar comentarios, upload excel).
 
-    Pendiente: PR 5 (``contributes_frontend_manifest``) y PR 6
-    (``contributes_mcp_tools``) corren en paralelo con PR 3. Este
-    test se actualiza en cada PR individual cuando el propio PR
-    añade el hook correspondiente para no romper la suite de
-    tests del PR en cuestión. El PR de consolidación finalizará
-    la cobertura cuando los 3 PRs estén mergeados.
+    Este test se actualiza por PR: cada vez que un PR añade un hook
+    nuevo, lo promovemos de ``is None`` a ``is not None``. Cuando
+    los 7 hooks estén implementados, el bloque final desaparece.
     """
     spec = AreaRegistry.discover().get("alimentacion")
     assert spec is not None
@@ -63,9 +65,10 @@ def test_alimentacion_spec_has_expected_hooks() -> None:
     assert spec.contributes_tia_commands is not None
     # Implementado en PR 4
     assert spec.contributes_routers is not None
-    # Pendientes (None hasta PR 5/6) — ver nota del docstring.
-    assert spec.contributes_mcp_tools is None
-    assert spec.contributes_frontend_manifest is None
+    # Implementado en PR 5
+    assert spec.contributes_frontend_manifest is not None
+    # Implementado en PR 6
+    assert spec.contributes_mcp_tools is not None
 
 
 # ── state_extensions.install: pega las 6 properties a la CLASE ────────

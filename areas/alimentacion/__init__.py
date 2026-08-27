@@ -1,6 +1,6 @@
 """Bounded Context: Alimentación.
 
-Paquete autocontenido que aporta al core, en este PR 3:
+Paquete autocontenido que aporta al core:
   - Modelos de dominio (Dispositivo, DispED/EA/SA/V/M/M_VF,
     DimensionesDispositivos) en ``domain/models/dispositivos.py``.
   - Catálogo de presentación del área (``build_catalog``) en
@@ -16,17 +16,22 @@ Paquete autocontenido que aporta al core, en este PR 3:
     ``infrastructure/tia/extra_commands.register``. Cableados a
     ``AREA_SPEC.contributes_tia_commands`` y descubiertos al
     arrancar el worker por ``core.infrastructure.tia.command_loader``.
+  - 3 routers web en ``interfaces/web/`` (alimentacion, sync, excel)
+    cableados a ``contributes_routers``.
+  - 4 tools MCP en ``interfaces/mcp/tools.py`` (sync preview/commit,
+    aplicar comentarios, upload excel) cableadas a
+    ``contributes_mcp_tools``. Dan paridad con los endpoints web:
+    LLM y SPA ejecutan los mismos flujos contra los mismos use cases.
+  - Manifest del área para la SPA en ``frontend/manifest.js`` y
+    su espejo Python ``frontend/manifest.py`` (URLs strings) en
+    ``contributes_frontend_manifest``.
   - Back-compat de las 6 properties legacy en ``AppState`` vía
     ``application/state_extensions.install``.
   - Defaults defensivos del ``ConfigManager`` vía
     ``infrastructure/config_defaults.install``.
 
-En PR 5 y PR 6 este módulo añadirá a la ``AREA_SPEC``:
-  - ``contributes_frontend_manifest``(PR 5, ``frontend/manifest.js``)
-  - ``contributes_mcp_tools``       (PR 6, ``interfaces/mcp/tools.py``)
-
-Hasta entonces, esos ``contributes_*`` quedan como ``None``: el
-área no aporta esos puntos y el core no intenta invocarlos.
+Los 7 ``contributes_*`` quedan cableados en la ``AREA_SPEC`` definida
+abajo: el área aporta TODOS los extension points disponibles hoy.
 """
 from __future__ import annotations
 
@@ -41,6 +46,7 @@ from areas.alimentacion.infrastructure.config_defaults import (
 from areas.alimentacion.infrastructure.tia.extra_commands import (
     register as register_tia,
 )
+from areas.alimentacion.interfaces.mcp.tools import register as register_mcp
 from areas.alimentacion.interfaces.web import register_routers
 from core.application.area_registry import AreaSpec
 
@@ -64,10 +70,12 @@ AREA_SPEC = AreaSpec(
     # ``() => import(...)``). El backend lo serializa a JSON desde el
     # endpoint ``GET /api/v1/areas/<id>/manifest``.
     contributes_frontend_manifest=build_manifest,
-    # ── Pendiente (None hasta PR 6) ───────────────────────────────
-    # PR 6: contributes_mcp_tools = register_mcp (interfaces/mcp/tools.py)
-    contributes_mcp_tools=None,
+    # ── Implementado en PR 6 (backend-api) ────────────────────────
+    # 4 tools MCP que dan paridad con los endpoints web del área.
+    # Las tools delegan en los mismos use cases que los routers:
+    # si cambia un flujo, cambia en un único sitio.
+    contributes_mcp_tools=register_mcp,
 )
 
 
-__all__ = ["AREA_SPEC", "register_tia", "build_manifest"]
+__all__ = ["AREA_SPEC", "register_tia", "register_mcp", "build_manifest"]

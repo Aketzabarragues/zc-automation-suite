@@ -81,11 +81,16 @@ def run_worker_mode() -> NoReturn:
 
 
 def run_mcp_mode() -> None:
-    """Delega en la capa de presentación MCP (interfaces/mcp_server.py)."""
+    """Delega en la capa de presentación MCP (core/interfaces/mcp_server.py).
+
+    Tras PR 6 el shell MCP vive en ``core/interfaces/mcp_server.py`` y
+    agrega tools del gateway + tools aportadas por las áreas vía
+    ``AreaRegistry.discover().for_each("contributes_mcp_tools", ...)``.
+    """
     # Importación tardía: minimiza el tiempo de arranque cuando solo se
     # necesita el modo --worker y pospone la carga de fastmcp hasta que
     # el usuario realmente invoca la herramienta IT.
-    from interfaces.mcp_server import run_mcp_stdio
+    from core.interfaces.mcp_server import run_mcp_stdio
 
     run_mcp_stdio()
 
