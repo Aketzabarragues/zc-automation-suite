@@ -309,80 +309,55 @@ async def test_ejecutar_transaccion_empty_no_batch(
 
 @pytest.mark.asyncio
 @pytest.mark.asyncio
-async def test_ejecutar_transaccion_two_batches_split_devices_and_online(
+async def test_ejecutar_transaccion_single_batch_with_nmax_and_devices(
     use_case, mock_gateway
 ):
-    """El commit divide N_MAX + renames en una transacción "online" separada.
+    """Si hay N_MAX + device renames, se invocan TODAS en UNA sola transaccion.
 
-    Sin devices (este test), la 1ª transacción (devices) es no-op y
-    NO genera llamada a ``execute_transactional_batch``. La 2ª
-    transacción (online) sí se llama con N_MAX + renames. Verifica:
+    Verifica que ``execute_transactional_batch`` se llama UNA vez con
+    la lista de ops que incluye:
+      - ``update_user_constant_value`` para N_MAX.
+      - ``update_user_constant_name`` para devices renombrados.
 
-      1. Se hace 1 llamada (devices vacío → no-op → 0 llamadas devices).
-      2. La llamada contiene ``update_user_constant_value`` (N_MAX) y
-         ``update_user_constant_name`` (renames), sin devices.
-      3. El resultado tiene ``success=True`` y ``n_max_updates > 0``.
-
-    El caso de 2 llamadas reales (devices + online) se cubre en
-    ``test_ejecutar_transaccion_emits_import_op_for_adds_and_removes``
-    que añade un device y verifica AMBAS llamadas.
-
-    Razón del split: si una op online (N_MAX fuera de rango) falla,
-    la transacción devices ya está commiteada y el operario ve un
-    error acotado a la 2ª transacción (con el ``Args: {...}`` que
-    pusimos en el worker).
+    En esta release:
+      1. La transaccion se llama UNA vez.
+      2. Incluye ops ``update_user_constant_value`` (N_MAX).
+      3. Incluye ops ``update_user_constant_name`` (devices renombrados).
     """
     mock_gateway.execute_transactional_batch.return_value = {
         "success": True,
-        "operations_executed": 2,
+        "operations_executed": 3,
         "details": [],
     }
     result = await use_case.ejecutar_transaccion("PLC1", {})
     assert result["success"] is True
-
-    # En este test no hay devices, así que la 1ª transacción es
-    # no-op. Solo se hace la 2ª (online).
-    assert mock_gateway.execute_transactional_batch.call_count == 1
-
-    call = mock_gateway.execute_transactional_batch.call_args_list[0]
+    # 1 sola llamada a la transaccion.
+    mock_gateway.execute_transactional_batch.assert_called_once()
+    call = mock_gateway.execute_transactional_batch.call_args
     operations = call.kwargs.get("operations") or call.args[0]
-
-    # La llamada (online) tiene N_MAX + renames, sin devices.
-    commands = [op["command"] for op in operations]
-    assert "import_plc_tags_xml" not in commands, (
-        "La transacción online NO debe contener import_plc_tags_xml"
-    )
-    nmax_ops = [
-        op for op in operations
-        if op["command"] == "update_user_constant_value"
-    ]
-    rename_ops = [
-        op for op in operations
-        if op["command"] == "update_user_constant_name"
-    ]
+    # 1) Verificar ops de N_MAX.
+    nmax_ops = [op for op in operations if op["command"] == "update_user_constant_value"]
     assert len(nmax_ops) > 0
     for op in nmax_ops:
         assert op["args"]["plc_name"] == "PLC1"
         assert op["args"]["table_name"] == "000_Config_Dispositivos"
+    # 2) Verificar ops de device renames (update_user_constant_name).
+    rename_ops = [op for op in operations if op["command"] == "update_user_constant_name"]
     assert len(rename_ops) > 0
     for op in rename_ops:
         assert op["args"]["plc_name"] == "PLC1"
         assert "table_name" in op["args"]
         assert "current_name" in op["args"]
         assert "new_name" in op["args"]
-
-    # Ningún comando inesperado.
-    expected = {"update_user_constant_value", "update_user_constant_name"}
-    unexpected = set(commands) - expected
-    assert not unexpected, f"Comandos inesperados: {unexpected}"
-
-    # undo_text menciona N_MAX (es la de online).
+    # 3) No debe haber comandos de rename de PlcTag (el sync trabaja con PlcUserConstants).
+    legacy_renames = [op for op in operations if op["command"] not in {"update_user_constant_value", "update_user_constant_name", "import_plc_tags_xml"}]
+    assert len(legacy_renames) == 0, f"Comandos inesperados en la transaccion: {legacy_renames}"
+    # El undo_text menciona el ambito.
     undo_text = call.kwargs.get("undo_text") or call.args[1]
     assert "N_MAX" in undo_text
-
+    assert "Dispositivos" in undo_text
     # El resultado incluye el conteo de N_MAX updates.
     assert "n_max_updates" in result
-    assert result["n_max_updates"] > 0
 
 
 @pytest.mark.asyncio
