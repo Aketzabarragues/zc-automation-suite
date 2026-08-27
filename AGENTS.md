@@ -184,6 +184,30 @@ commit).
 
 ---
 
+## Agentes Mavis disponibles
+
+Para tareas en este repo, el root session (mavis) puede delegar a
+4 agentes especializados definidos en `C:/Users/ABH/.minimax/agents/`.
+El orquestador decide el routing leyendo la `description:` de cada
+agente; **tú solo describes la tarea en lenguaje natural** y mavis
+elige al especialista adecuado. No hace falta invocar `/mavis-team`
+ni cargar skills manualmente: el routing es automático.
+
+| Tarea | Agente |
+|---|---|
+| Cambios en TIA worker, modificadores XML/SD, parsers Excel, gateway OT | `tia-ot-worker` |
+| Routers FastAPI, use cases, `app.py`, dependencias, tools MCP | `backend-api` |
+| Componentes Vue, store, api.js, tema, recompilar Tailwind | `frontend-spa` |
+| `build_exe.py`, launcher, tests pytest, `.bat` | `build-and-tests` |
+
+Tareas que cruzan varios scopes las orquesta mavis y delega sub-piezas
+en paralelo. Para investigación pura (sin cambios) está `explore`
+(built-in); para verificación independiente, `verifier` (built-in).
+El skill `mavis-team` solo aplica si pides explícitamente `/mavis-team`
+o `/team`.
+
+---
+
 ## Contacto / dudas
 
 - **Reglas críticas:** `.clinerules` (leer siempre primero).
