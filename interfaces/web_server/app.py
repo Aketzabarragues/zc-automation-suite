@@ -30,6 +30,7 @@ y ya NO se importan directamente aquí.
 """
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -55,9 +56,24 @@ STATIC_DIR = Path(__file__).parent / "static"
 # y manifest). El ``manifest.py`` de cada área apunta a ``/static/areas/<area>/...``
 # con prefijo ``/static/areas/<area>/frontend/``; el mount de abajo sirve
 # exactamente ese árbol bajo ``/static/areas/``.
-# ``Path(__file__).parent.parent.parent`` = raíz del repo
-# (app.py está en ``interfaces/web_server/app.py``).
-AREAS_STATIC_DIR = Path(__file__).parent.parent.parent / "areas"
+#
+# La ruta cambia entre desarrollo y .exe (frozen):
+#   * **Desarrollo**: ``Path(__file__).parent.parent.parent / "areas"``
+#     apunta a ``<raíz>/areas/`` (donde están los ``.js`` del área).
+#   * **Frozen** (PyInstaller --onefile): los archivos del frontend del
+#     área están bundleados en ``sys._MEIPASS/interfaces/web_server/
+#     static/areas/alimentacion/`` (ver ``build_exe.py::PROJECT_DATA_FILES``).
+#     Por tanto, en el .exe, ``AREAS_STATIC_DIR`` debe ser
+#     ``STATIC_DIR / "areas"`` (que coincide con la ruta del bundle).
+# Si no se hace este cambio, en el .exe el mount serviría un directorio
+# inexistente y los ``import()`` de la SPA fallarían con
+# ``Failed to fetch dynamically imported module``.
+if getattr(sys, "frozen", False):
+    AREAS_STATIC_DIR = STATIC_DIR / "areas"
+else:
+    # ``Path(__file__).parent.parent.parent`` = raíz del repo
+    # (app.py está en ``interfaces/web_server/app.py``).
+    AREAS_STATIC_DIR = Path(__file__).parent.parent.parent / "areas"
 
 
 class NoCacheStaticFiles(_BaseStaticFiles):
