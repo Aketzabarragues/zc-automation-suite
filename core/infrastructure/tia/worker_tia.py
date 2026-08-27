@@ -131,62 +131,6 @@ def _ensure_target_dir(target_dir: str) -> Path:
     return target_path
 
 
-# ── Mapeo DataTypeName (TIA Portal) → tipo Python nativo ────────────────
-# TIA Portal V21 es estricto con los tipos en set_property: pasar
-# un str cuando el DataTypeName es numérico (Int, DInt, ...) lanza
-# una excepción interna del wrapper .NET que corrompe la transacción
-# y TIA acaba rechazando el commit final con
-# "OpennessAccessException: CommitOnDispose ... project data corruption".
-#
-# Mapeamos cada DataTypeName de PLC a su tipo Python nativo y
-# validamos la conversión ANTES de invocar set_property. Si la
-# conversión falla, lanzamos ValueError claro (la tx hace rollback
-# limpio vía end_transaction(rollback=True), sin "project data
-# corruption"). Esto convierte un fallo opaco en uno diagnosticable.
-_PLC_INT_TYPES: frozenset[str] = frozenset({
-    "Int", "DInt", "LInt",
-    "SInt", "USInt", "UInt", "UDInt", "ULInt",
-    "Byte", "Word", "DWord", "LWord",
-})
-_PLC_FLOAT_TYPES: frozenset[str] = frozenset({"Real", "LReal"})
-_PLC_BOOL_TYPES: frozenset[str] = frozenset({"Bool"})
-_PLC_STRING_TYPES: frozenset[str] = frozenset({"String", "WString", "Char", "WChar"})
-
-
-def _coerce_value_for_plc_type(new_value: Any, data_type: str) -> Any:
-    """Convierte new_value al tipo Python nativo que espera TIA.
-
-    Args:
-        new_value: Valor entrante desde el use case (típicamente int).
-        data_type: DataTypeName declarado por la PlcUserConstant en TIA.
-
-    Returns:
-        El valor coercionado al tipo Python apropiado (int, float, bool, str).
-
-    Raises:
-        ValueError: Si el valor no se puede convertir al tipo declarado
-                    (mensaje accionable con el tipo y el valor recibido).
-    """
-    dt = (data_type or "").strip()
-    try:
-        if dt in _PLC_INT_TYPES:
-            return int(new_value)
-        if dt in _PLC_FLOAT_TYPES:
-            return float(new_value)
-        if dt in _PLC_BOOL_TYPES:
-            return bool(new_value)
-        if dt in _PLC_STRING_TYPES:
-            return str(new_value)
-        # Tipo desconocido o custom de TIA: fallback conservador a str
-        # (compatibilidad con tipos definidos por el usuario).
-        return str(new_value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(
-            f"N_MAX con tipo {dt!r} rechaza el valor {new_value!r}: "
-            f"{type(exc).__name__}: {exc}"
-        ) from exc
-
-
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Handlers del dispatcher. Todos reciben (portal: Any, args: dict[str, Any]).
 # Cada handler que necesite proyecto abierto invoca _get_active_project().
@@ -643,16 +587,7 @@ def _cmd_update_user_constant_value(portal: Any, ts: Any, args: dict[str, Any]) 
         raise RuntimeError(f"Tabla '{table_name}' no encontrada.")
     for constant in table.get_user_constants():
         if constant.get_property(name="Name") == constant_name:
-            # FIX: TIA Portal V21 es estricto con los tipos en set_property.
-            # Pasar str cuando el DataTypeName es numérico corrompe la tx con
-            # "OpennessAccessException: CommitOnDispose ... project data
-            # corruption". Mapeamos el DataTypeName al tipo Python nativo
-            # y validamos la conversión ANTES de invocar set_property. Si
-            # falla, lanzamos ValueError claro (la tx hace rollback limpio
-            # vía end_transaction(rollback=True), no "project data corruption").
-            data_type = str(constant.get_property(name="DataTypeName") or "")
-            typed_value = _coerce_value_for_plc_type(new_value, data_type)
-            constant.set_property(name="Value", value=typed_value)
+            constant.set_property(name="Value", value=str(new_value))
             return True
     raise RuntimeError(f"Constante '{constant_name}' no encontrada en tabla '{table_name}'.")
 
