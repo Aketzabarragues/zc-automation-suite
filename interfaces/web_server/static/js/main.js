@@ -18,10 +18,10 @@
  * NO hay build step: el navegador carga los módulos directamente desde
  * la red (CDN) o desde ``/js/`` servido por FastAPI.
  */
-import { createApp, computed } from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js";
+import { createApp, computed, nextTick } from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js";
 import { store, goToArea, goToSubview, loadCatalog } from "./store.js";
 import { apiFetchLogs, apiFetchMemory, apiFetchProgress } from "./api.js";
-import { mountArea } from "./area-loader.js";
+import { loadArea, mountArea } from "./area-loader.js";
 import Welcome from "./components/Welcome.js";
 import ConsolaLogs from "./components/ConsolaLogs.js";
 import ProgressIndicator from "./components/ProgressIndicator.js";
@@ -55,15 +55,52 @@ const App = {
          * Manejador del ``select`` emitido por ``Welcome``. El
          * ``Welcome`` ya validó que el área está ``available``.
          *
-         * ``goToArea`` es async: carga el manifest del área (en
-         * ``store.js``) y luego ``mountArea`` registra los
-         * componentes del área en esta instancia de app. Si el
-         * manifest viene vacío (endpoint backend no implementado
-         * todavía), la SPA funciona en modo degradado.
+         * Orden crítico para evitar una carrera con Vue 3:
+         *   1. Cargar el manifest del área (sin tocar ``topLevelView``).
+         *   2. Registrar los componentes del área en la app con
+         *      ``mountArea(_app, key)``. Esto es NO-reactivo: Vue no
+         *      se entera de que hay componentes nuevos hasta el
+         *      próximo re-render.
+         *   3. Asignar el manifest a ``store.areaManifest`` y poner
+         *      ``topLevelView = "area"``. AHORA Vue re-renderiza el
+         *      shell, y los componentes ya están registrados.
+         *
+         * Si invertimos el orden (transicionar primero, montar
+         * después), Vue re-renderiza con ``topLevelView === "area"``
+         * PERO los componentes del área aún no están en el registry
+         * de la app, así que ``<component :is="sidebarComponent" />``
+         * no resuelve nada y la SPA queda en blanco (el bug que
+         * rompió la demo al introducir el area-loader).
+         *
+         * Si el manifest viene vacío (loaders: {}), la SPA
+         * transiciona igualmente a la vista de área pero muestra
+         * el mensaje de "Área no soportada en el frontend" (modo
+         * degradado), gracias al flag ``areaManifestEmpty``.
          */
         async function onAreaSelected(key) {
-            await goToArea(key);
+            if (!key) return;
+            // Reset suave del estado operativo de la SPA, igual
+            // que ``store.goToArea`` haría, pero sin tocar todavía
+            // ``topLevelView`` ni ``areaManifest``.
+            store.selectedArea = key;
+            store.currentView = "landing";
+            store.plcs = [];
+            store.selectedPlc = "";
+            store.uploadSummary = null;
+            store.previewData = null;
+            // 1. Cargar el manifest.
+            const manifest = await loadArea(key);
+            // 2. Registrar componentes del área en la app.
+            //    Si loaders está vacío, mountArea no hace nada.
             await mountArea(_app, key);
+            // 3. Transicionar a la vista de área (dispara re-render
+            //    con TODO ya listo: manifest + componentes).
+            store.areaManifest = manifest && manifest.id ? manifest : null;
+            store.topLevelView = "area";
+            // ``nextTick`` no es estrictamente necesario pero es
+            // defensivo: garantiza que el re-render ya se hizo
+            // antes de que el usuario pueda interactuar.
+            await nextTick();
         }
         /**
          * Manejador del ``select`` emitido por ``AreaLanding``.
