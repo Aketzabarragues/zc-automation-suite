@@ -32,7 +32,14 @@ def test_alimentacion_area_is_registered() -> None:
 
 
 def test_alimentacion_spec_has_expected_hooks() -> None:
-    """La ``AreaSpec`` de alimentación tiene los 3 hooks implementados en PR 2."""
+    """La ``AreaSpec`` de alimentación tiene los hooks esperados tras PR 2 + 4.
+
+    PR 2 implementó ``contributes_state_extensions``,
+    ``contributes_config_defaults`` y ``contributes_catalog``.
+    PR 4 implementó ``contributes_routers`` (3 routers web movidos
+    desde el shell a ``areas/alimentacion/interfaces/web/`` y
+    descubiertos vía ``AreaRegistry.for_each("contributes_routers", app=app)``).
+    """
     spec = AreaRegistry.discover().get("alimentacion")
     assert spec is not None
     assert spec.id == "alimentacion"
@@ -42,8 +49,9 @@ def test_alimentacion_spec_has_expected_hooks() -> None:
     assert spec.contributes_state_extensions is not None
     assert spec.contributes_config_defaults is not None
     assert spec.contributes_catalog is not None
-    # Pendientes (None hasta PR 3/4/5/6)
-    assert spec.contributes_routers is None
+    # Implementado en PR 4
+    assert spec.contributes_routers is not None
+    # Pendientes (None hasta PR 3/5/6)
     assert spec.contributes_tia_commands is None
     assert spec.contributes_mcp_tools is None
     assert spec.contributes_frontend_manifest is None

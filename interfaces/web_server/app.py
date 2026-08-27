@@ -18,11 +18,15 @@ Estructura final:
     ├── routers/
     │   ├── __init__.py
     │   ├── areas.py            /api/v1/areas
-    │   ├── excel.py            /api/v1/excel/...
+    │   ├── catalog.py          /api/v1/catalog
     │   ├── portal.py           /api/v1/portal/... + /api/v1/plcs
-    │   ├── sync.py             /api/v1/sync/...
     │   └── diagnostics.py      /api/v1/logs + /api/v1/state/...
     └── static/                 (SPA Vue 3 servida en /)
+
+Los routers específicos de cada Bounded Context (alimentación:
+``/api/v1/alimentacion/*``, ``/api/v1/sync/*``, ``/api/v1/excel/*``)
+se descubren dinámicamente vía ``AreaRegistry.for_each("contributes_routers", app=app)``
+y ya NO se importan directamente aquí.
 """
 from __future__ import annotations
 
@@ -32,18 +36,16 @@ from fastapi import FastAPI
 from starlette.responses import FileResponse
 from starlette.staticfiles import StaticFiles as _BaseStaticFiles
 
+from core.application.area_registry import AreaRegistry
 from core.application.log_buffer import get_log_buffer
 from core.application.progress_buffer import get_progress_tracker
 from core.application.state import get_app_state
 from core.infrastructure.gateway import TIAProcessGateway
 from interfaces.web_server.routers import (
-    alimentacion_router,
     areas_router,
     catalog_router,
     diagnostics_router,
-    excel_router,
     portal_router,
-    sync_router,
 )
 
 
@@ -100,14 +102,21 @@ def create_app(gateway: TIAProcessGateway) -> FastAPI:
     from core.infrastructure.config_manager import ConfigManager
     app.state.config_manager = ConfigManager("infrastructure/config.json")
 
-    # ── 2. Registro de routers (Clean Architecture) ────────────────
-    app.include_router(excel_router)
-    app.include_router(portal_router)
-    app.include_router(sync_router)
-    app.include_router(alimentacion_router)
-    app.include_router(diagnostics_router)
+    # ── 2. Routers comunes del core (orden estable, alfabético) ───
+    # Estos routers son GENÉRICOS: no saben de áreas, viven en el
+    # shell web. Las áreas aportan los suyos vía ``AreaRegistry``.
     app.include_router(areas_router)
     app.include_router(catalog_router)
+    app.include_router(diagnostics_router)
+    app.include_router(portal_router)
+
+    # ── 3. Routers aportados por las áreas (Bounded Contexts) ─────
+    # Descubre cada ``AreaSpec`` registrada y, si declara
+    # ``contributes_routers``, invoca su ``register_routers(app)``.
+    # Así añadir un área nueva = crear paquete + AreaSpec, sin tocar
+    # este archivo. El área "alimentación" monta aquí los routers
+    # ``/api/v1/alimentacion/*``, ``/api/v1/sync/*``, ``/api/v1/excel/*``.
+    AreaRegistry.discover().for_each("contributes_routers", app=app)
 
     # ── 4. SPA estática (Vue 3) ─────────────────────────────────────
     if STATIC_DIR.exists():

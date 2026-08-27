@@ -1,6 +1,6 @@
 """Bounded Context: Alimentación.
 
-Paquete autocontenido que aporta al core, en este PR 2:
+Paquete autocontenido que aporta al core, en este PR 2 + 4:
   - Modelos de dominio (Dispositivo, DispED/EA/SA/V/M/M_VF,
     DimensionesDispositivos) en ``domain/models/dispositivos.py``.
   - Catálogo de presentación del área (``build_catalog``) en
@@ -16,10 +16,12 @@ Paquete autocontenido que aporta al core, en este PR 2:
     ``infrastructure/config_defaults.install`` (N_MAX legacy,
     tabla global, carpetas TIA), aplicados solo al bloque
     ``departments["alimentacion"]`` y solo si faltan en el JSON.
+  - **PR 4** — 3 routers FastAPI (``alimentacion``, ``sync``,
+    ``excel``) en ``interfaces/web/``, montados por el shell web
+    vía ``AreaRegistry.for_each("contributes_routers", app=app)``.
 
-En PR 3, 4, 5, 6 este módulo añadirá a la ``AREA_SPEC``:
+En PR 3, 5, 6 este módulo añadirá a la ``AREA_SPEC``:
   - ``contributes_tia_commands``     (PR 3, ``infrastructure/tia/extra_commands.py``)
-  - ``contributes_routers``          (PR 4, ``interfaces/web/``)
   - ``contributes_frontend_manifest``(PR 5, ``frontend/manifest.js``)
   - ``contributes_mcp_tools``       (PR 6, ``interfaces/mcp/tools.py``)
 
@@ -35,6 +37,7 @@ from areas.alimentacion.domain.catalog import build_catalog as build_alim_catalo
 from areas.alimentacion.infrastructure.config_defaults import (
     install as install_defaults,
 )
+from areas.alimentacion.interfaces.web import register_routers
 from core.application.area_registry import AreaSpec
 
 
@@ -47,12 +50,12 @@ AREA_SPEC = AreaSpec(
     contributes_state_extensions=install_state,
     contributes_config_defaults=install_defaults,
     contributes_catalog=build_alim_catalog,
-    # ── Pendientes (None hasta PR 3/4/5/6) ────────────────────────
+    # ── Implementado en PR 4 ──────────────────────────────────────
+    contributes_routers=register_routers,
+    # ── Pendientes (None hasta PR 3/5/6) ──────────────────────────
     # PR 3: contributes_tia_commands = register_tia (extra_commands.py)
-    # PR 4: contributes_routers = register_routers (interfaces/web/)
     # PR 5: contributes_frontend_manifest = build_manifest (frontend/manifest.js)
     # PR 6: contributes_mcp_tools = register_mcp (interfaces/mcp/tools.py)
-    contributes_routers=None,
     contributes_tia_commands=None,
     contributes_mcp_tools=None,
     contributes_frontend_manifest=None,
