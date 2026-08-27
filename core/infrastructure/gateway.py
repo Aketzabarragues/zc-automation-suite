@@ -43,7 +43,15 @@ class TIAProcessGateway:
             return ["--worker"]
 
         # Entorno de desarrollo: invocar main.py con el intérprete actual.
-        main_script = Path(__file__).parent.parent / "main.py"
+        # ``main.py`` vive en la RAÍZ del repo, no dentro de ``core/``.
+        # Este módulo está en ``core/infrastructure/gateway.py``:
+        #   Path(__file__).parent            = core/infrastructure/
+        #   Path(__file__).parent.parent      = core/
+        #   Path(__file__).parent.parent.parent = <raíz>
+        # (Antes de PR 1, el módulo estaba en ``infrastructure/gateway.py``
+        # y bastaba con un solo ``..``. Tras PR 1 se movió un nivel más
+        # abajo, hay que subir un nivel adicional.)
+        main_script = Path(__file__).parent.parent.parent / "main.py"
         return ["-u", str(main_script), "--worker"]
 
     async def _dispatch_worker(
