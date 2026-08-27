@@ -38,7 +38,7 @@ from __future__ import annotations
 # este prefijo. Cambiar este valor implica cambiar también el
 # router de static files del backend y el ``app.mount`` que lo
 # registra.
-_STATIC_PREFIX = "/static/areas/alimentacion"
+_STATIC_PREFIX = "/static/areas/alimentacion/frontend"
 
 
 def build() -> dict:

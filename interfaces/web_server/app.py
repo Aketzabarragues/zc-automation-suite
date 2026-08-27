@@ -42,6 +42,7 @@ from core.application.progress_buffer import get_progress_tracker
 from core.application.state import get_app_state
 from core.infrastructure.gateway import TIAProcessGateway
 from interfaces.web_server.routers import (
+    area_manifests_router,
     areas_router,
     catalog_router,
     diagnostics_router,
@@ -50,6 +51,13 @@ from interfaces.web_server.routers import (
 
 
 STATIC_DIR = Path(__file__).parent / "static"
+# Directorio donde viven los frontends de las áreas (componentes Vue 3
+# y manifest). El ``manifest.py`` de cada área apunta a ``/static/areas/<area>/...``
+# con prefijo ``/static/areas/<area>/frontend/``; el mount de abajo sirve
+# exactamente ese árbol bajo ``/static/areas/``.
+# ``Path(__file__).parent.parent.parent`` = raíz del repo
+# (app.py está en ``interfaces/web_server/app.py``).
+AREAS_STATIC_DIR = Path(__file__).parent.parent.parent / "areas"
 
 
 class NoCacheStaticFiles(_BaseStaticFiles):
@@ -105,6 +113,7 @@ def create_app(gateway: TIAProcessGateway) -> FastAPI:
     # ── 2. Routers comunes del core (orden estable, alfabético) ───
     # Estos routers son GENÉRICOS: no saben de áreas, viven en el
     # shell web. Las áreas aportan los suyos vía ``AreaRegistry``.
+    app.include_router(area_manifests_router)
     app.include_router(areas_router)
     app.include_router(catalog_router)
     app.include_router(diagnostics_router)
@@ -118,7 +127,20 @@ def create_app(gateway: TIAProcessGateway) -> FastAPI:
     # ``/api/v1/alimentacion/*``, ``/api/v1/sync/*``, ``/api/v1/excel/*``.
     AreaRegistry.discover().for_each("contributes_routers", app=app)
 
-    # ── 4. SPA estática (Vue 3) ─────────────────────────────────────
+    # ── 4. Estáticos de las áreas ────────────────────────────────────
+    # IMPORTANTE: este mount va ANTES del catch-all de la SPA. Si va
+    # después, el ``app.mount("/", ...)`` captura todo y el manifest
+    # queda shadowed. Starlette procesa los mounts en orden de
+    # inserción: el último gana, pero el catch-all ``/`` siempre
+    # captura si no hay match más específico antes.
+    if AREAS_STATIC_DIR.exists():
+        app.mount(
+            "/static/areas",
+            NoCacheStaticFiles(directory=str(AREAS_STATIC_DIR), html=False),
+            name="areas-static",
+        )
+
+    # ── 5. SPA estática (Vue 3) ─────────────────────────────────────
     if STATIC_DIR.exists():
         app.mount(
             "/",

@@ -12,12 +12,14 @@ global: todas las dependencias se reciben vía ``fastapi.Depends``.
 """
 from __future__ import annotations
 
+from .area_manifests import router as area_manifests_router
 from .areas import router as areas_router
 from .catalog import router as catalog_router
 from .diagnostics import router as diagnostics_router
 from .portal import router as portal_router
 
 __all__ = [
+    "area_manifests_router",
     "areas_router",
     "catalog_router",
     "diagnostics_router",

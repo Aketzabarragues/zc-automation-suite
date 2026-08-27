@@ -139,7 +139,24 @@ export async function mountArea(app, areaId) {
     const modules = await Promise.all(
         loaderEntries.map(([, loader]) => {
             try {
-                return Promise.resolve(loader());
+                // El backend (``areas/<area>/frontend/manifest.py``)
+                // serializa los loaders como **strings** (URLs absolutas)
+                // porque las funciones JS no son JSON-serializables. La
+                // SPA los convierte aquí en ``() => import(url)``. Si
+                // en el futuro algún área aporta loaders ya como
+                // funciones (p. ej. vía una build step que inline el
+                // manifest), se respeta tal cual.
+                if (typeof loader === "string") {
+                    return import(/* @vite-ignore */ loader);
+                }
+                if (typeof loader === "function") {
+                    return Promise.resolve(loader());
+                }
+                console.error(
+                    `[area-loader] loader de tipo desconocido (${typeof loader}). ` +
+                    `Se esperaba string (URL) o function.`
+                );
+                return Promise.resolve(null);
             } catch (e) {
                 console.error(`[area-loader] loader lanzó error:`, e);
                 return Promise.resolve(null);
