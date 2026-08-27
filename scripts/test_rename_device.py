@@ -41,7 +41,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 
-from infrastructure.gateway import TIAProcessGateway
+from core.infrastructure.gateway import TIAProcessGateway
 
 
 # Constantes del test (ajustables via CLI en el futuro).

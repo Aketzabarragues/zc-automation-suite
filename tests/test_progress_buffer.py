@@ -14,7 +14,7 @@ Cubre:
 """
 from __future__ import annotations
 
-from application.progress_buffer import (
+from core.application.progress_buffer import (
     ProgressTracker,
     STAGE_DONE,
     STAGE_ERROR,

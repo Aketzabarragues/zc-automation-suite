@@ -24,7 +24,7 @@ from typing import Any
 from fastapi import APIRouter, Depends
 
 from core.alimentacion.catalog import build_catalog
-from infrastructure.config_manager import ConfigManager
+from core.infrastructure.config_manager import ConfigManager
 from interfaces.web_server.dependencies import get_config_manager
 
 

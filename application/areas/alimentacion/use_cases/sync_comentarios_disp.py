@@ -22,10 +22,10 @@ import logging
 from typing import Any
 
 from application.areas.alimentacion.slot_map_builder import build_slot_maps
-from application.progress_buffer import ProgressTracker, get_progress_tracker
-from application.state import AppState
-from infrastructure.config_manager import ConfigManager
-from infrastructure.gateway import TIAProcessGateway
+from core.application.progress_buffer import ProgressTracker, get_progress_tracker
+from core.application.state import AppState
+from core.infrastructure.config_manager import ConfigManager
+from core.infrastructure.gateway import TIAProcessGateway
 
 
 _logger = logging.getLogger(f"{__name__}.DispComentariosSyncUseCase")

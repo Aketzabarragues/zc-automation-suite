@@ -18,10 +18,10 @@ from pydantic import BaseModel
 from application.areas.alimentacion.use_cases.sync_dispositivos_instances import (
     SyncDispositivosInstancesUseCase,
 )
-from application.log_buffer import LogBuffer
-from application.state import AppState
-from infrastructure.config_manager import ConfigManager
-from infrastructure.gateway import TIAProcessGateway
+from core.application.log_buffer import LogBuffer
+from core.application.state import AppState
+from core.infrastructure.config_manager import ConfigManager
+from core.infrastructure.gateway import TIAProcessGateway
 from interfaces.web_server.dependencies import (
     get_app_state,
     get_config_manager,

@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from infrastructure.gateway import TIAProcessGateway
+from core.infrastructure.gateway import TIAProcessGateway
 
 
 @pytest.fixture

@@ -32,10 +32,10 @@ from fastapi import FastAPI
 from starlette.responses import FileResponse
 from starlette.staticfiles import StaticFiles as _BaseStaticFiles
 
-from application.log_buffer import get_log_buffer
-from application.progress_buffer import get_progress_tracker
-from application.state import get_app_state
-from infrastructure.gateway import TIAProcessGateway
+from core.application.log_buffer import get_log_buffer
+from core.application.progress_buffer import get_progress_tracker
+from core.application.state import get_app_state
+from core.infrastructure.gateway import TIAProcessGateway
 from interfaces.web_server.routers import (
     alimentacion_router,
     areas_router,
@@ -97,7 +97,7 @@ def create_app(gateway: TIAProcessGateway) -> FastAPI:
     # ``ConfigManager`` se construye aquí (Composition Root) y se
     # expone a los routers que lo necesiten (ej. ``sync.py`` que
     # lo pasa a ``SyncDispositivosInstancesUseCase``).
-    from infrastructure.config_manager import ConfigManager
+    from core.infrastructure.config_manager import ConfigManager
     app.state.config_manager = ConfigManager("infrastructure/config.json")
 
     # ── 2. Registro de routers (Clean Architecture) ────────────────

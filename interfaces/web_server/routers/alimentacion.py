@@ -18,11 +18,11 @@ from pydantic import BaseModel
 from application.areas.alimentacion.use_cases.sync_comentarios_disp import (
     DispComentariosSyncUseCase,
 )
-from application.log_buffer import LogBuffer
-from application.progress_buffer import ProgressTracker
-from application.state import AppState
-from infrastructure.config_manager import ConfigManager
-from infrastructure.gateway import TIAProcessGateway
+from core.application.log_buffer import LogBuffer
+from core.application.progress_buffer import ProgressTracker
+from core.application.state import AppState
+from core.infrastructure.config_manager import ConfigManager
+from core.infrastructure.gateway import TIAProcessGateway
 from interfaces.web_server.dependencies import (
     get_app_state,
     get_config_manager,

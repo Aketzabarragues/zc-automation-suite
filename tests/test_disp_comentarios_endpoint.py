@@ -10,8 +10,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
-from application.progress_buffer import ProgressTracker
-from infrastructure.gateway import TIAProcessGateway
+from core.application.progress_buffer import ProgressTracker
+from core.infrastructure.gateway import TIAProcessGateway
 from interfaces.web_server.app import create_app
 
 

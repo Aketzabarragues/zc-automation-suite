@@ -18,7 +18,7 @@ from unittest.mock import MagicMock
 import pytest
 
 # Cargar worker_tia sin ejecutar su ``main()`` (que requiere siemens_tia_scripting).
-worker_tia = importlib.import_module("infrastructure.tia.worker_tia")
+worker_tia = importlib.import_module("core.infrastructure.tia.worker_tia")
 COMMAND_REGISTRY: dict = worker_tia.COMMAND_REGISTRY
 
 

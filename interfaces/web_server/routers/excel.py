@@ -20,13 +20,13 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
-from application.log_buffer import LogBuffer
-from application.progress_buffer import ProgressTracker
-from application.state import AppState
+from core.application.log_buffer import LogBuffer
+from core.application.progress_buffer import ProgressTracker
+from core.application.state import AppState
 from infrastructure.alimentacion.parsers.alimentacion_excel_parser import (
     AlimentacionExcelParser,
 )
-from infrastructure.config_manager import ConfigManager
+from core.infrastructure.config_manager import ConfigManager
 from interfaces.web_server.dependencies import (
     get_app_state,
     get_config_manager,

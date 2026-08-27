@@ -22,8 +22,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from application.areas import AreaInfo, ListAreasUseCase
-from infrastructure.config_manager import ConfigManager
-from infrastructure.gateway import TIAProcessGateway
+from core.infrastructure.config_manager import ConfigManager
+from core.infrastructure.gateway import TIAProcessGateway
 from interfaces.web_server.app import create_app
 
 

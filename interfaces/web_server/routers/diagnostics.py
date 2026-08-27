@@ -18,18 +18,18 @@ from typing import Any
 
 from fastapi import APIRouter, Depends
 
-from application.log_buffer import LogBuffer
-from application.progress_buffer import ProgressTracker
-from application.state import AppState
-from infrastructure.config_manager import ConfigManager
+from core.application.log_buffer import LogBuffer
+from core.application.progress_buffer import ProgressTracker
+from core.application.state import AppState
+from core.infrastructure.config_manager import ConfigManager
 from interfaces.web_server.dependencies import (
     get_app_state,
     get_config_manager,
     get_logger,
     get_progress_tracker,
 )
-from application.log_buffer import get_log_buffer
-from application.progress_buffer import get_progress_tracker as _get_progress_singleton
+from core.application.log_buffer import get_log_buffer
+from core.application.progress_buffer import get_progress_tracker as _get_progress_singleton
 
 
 router = APIRouter(prefix="/api/v1", tags=["Diagnostics"])

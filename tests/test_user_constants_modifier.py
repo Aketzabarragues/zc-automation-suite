@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from infrastructure.xml.user_constants_modifier import UserConstantsModifier
+from core.infrastructure.xml.user_constants_modifier import UserConstantsModifier
 
 
 _EMPTY_TABLE_XML = """<?xml version="1.0" encoding="utf-8"?>

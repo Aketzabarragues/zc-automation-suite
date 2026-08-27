@@ -13,7 +13,7 @@ import pytest
 from application.areas.alimentacion.use_cases.sync_comentarios_disp import (
     DispComentariosSyncUseCase,
 )
-from application.progress_buffer import ProgressTracker
+from core.application.progress_buffer import ProgressTracker
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────

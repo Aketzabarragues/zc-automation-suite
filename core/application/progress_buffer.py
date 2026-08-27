@@ -156,7 +156,7 @@ class ProgressTracker:
                 # Overwrite: avisamos al LogBuffer (importación perezosa
                 # para evitar ciclo).
                 try:
-                    from application.log_buffer import get_log_buffer
+                    from core.application.log_buffer import get_log_buffer
                     get_log_buffer().warning(
                         f"ProgressTracker: '{self._operation}' en curso fue "
                         f"reemplazado por '{operation}'."

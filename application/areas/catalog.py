@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from infrastructure.config_manager import ConfigManager
+    from core.infrastructure.config_manager import ConfigManager
 
 
 _logger = logging.getLogger(f"{__name__}.ListAreasUseCase")

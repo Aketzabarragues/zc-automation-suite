@@ -26,18 +26,18 @@ from unittest.mock import AsyncMock
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
-from application.progress_buffer import (  # noqa: E402
+from core.application.progress_buffer import (  # noqa: E402
     ProgressTracker,
     STAGE_DONE,
     STAGE_RUNNING,
     get_progress_tracker,
 )
-from application.state import AppState  # noqa: E402
+from core.application.state import AppState  # noqa: E402
 from application.areas.alimentacion.use_cases.sync_dispositivos_instances import (  # noqa: E402
     SyncDispositivosInstancesUseCase,
 )
-from infrastructure.config_manager import ConfigManager  # noqa: E402
-from infrastructure.gateway import TIAProcessGateway  # noqa: E402
+from core.infrastructure.config_manager import ConfigManager  # noqa: E402
+from core.infrastructure.gateway import TIAProcessGateway  # noqa: E402
 
 
 @pytest.fixture

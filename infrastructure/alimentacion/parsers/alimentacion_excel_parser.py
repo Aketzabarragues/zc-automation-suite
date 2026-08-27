@@ -33,7 +33,7 @@ from openpyxl import load_workbook
 from openpyxl.utils.cell import range_boundaries
 from openpyxl.worksheet.worksheet import Worksheet
 
-from application.log_buffer import get_log_buffer
+from core.application.log_buffer import get_log_buffer
 from core.alimentacion.models.dispositivos import (
     DimensionesDispositivos,
     DispEA,
@@ -44,8 +44,8 @@ from core.alimentacion.models.dispositivos import (
     DispV,
     Dispositivo,
 )
-from infrastructure.config_manager import ConfigManager
-from infrastructure.parsers.excel_parser import ExcelParser
+from core.infrastructure.config_manager import ConfigManager
+from core.infrastructure.parsers.excel_parser import ExcelParser
 
 
 # Logger adicional a ``LogBuffer`` para entornos donde el buffer aún

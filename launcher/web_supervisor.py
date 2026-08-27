@@ -132,7 +132,7 @@ class WebServiceSupervisor:
         # Importación tardía: respeta el orden de inicialización de
         # pystray (algunos backends de pystray requieren que el main
         # thread sea el del icono).
-        from infrastructure.gateway import TIAProcessGateway
+        from core.infrastructure.gateway import TIAProcessGateway
         from interfaces.web_server.app import create_app
 
         gateway = TIAProcessGateway()

@@ -43,12 +43,12 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 
-from application.state import get_app_state
+from core.application.state import get_app_state
 from application.areas.alimentacion.use_cases.sync_dispositivos_instances import (
     SyncDispositivosInstancesUseCase,
 )
-from infrastructure.config_manager import ConfigManager
-from infrastructure.gateway import TIAProcessGateway
+from core.infrastructure.config_manager import ConfigManager
+from core.infrastructure.gateway import TIAProcessGateway
 
 
 async def main(plc_name: str) -> int:

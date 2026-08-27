@@ -18,7 +18,7 @@ import pytest
 from application.areas.alimentacion.use_cases.sync_dispositivos_instances import (
     SyncDispositivosInstancesUseCase,
 )
-from application.state import AppState
+from core.application.state import AppState
 from core.alimentacion.models.dispositivos import (
     DispED,
     DimensionesDispositivos,
@@ -423,7 +423,7 @@ async def test_ejecutar_transaccion_emits_import_op_for_adds_and_removes(
     """
     import asyncio
     from pathlib import Path
-    from infrastructure.xml.modifiers import TagTableModifier
+    from core.infrastructure.xml.modifiers import TagTableModifier
 
     # Forzar un add y un remove modificando el AppState directamente.
     # TIA mock tiene 2000_Disp_ED con V_001 (uid 1) y V_002 (uid 2).

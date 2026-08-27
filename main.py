@@ -74,7 +74,7 @@ def parse_args() -> argparse.Namespace:
 
 def run_worker_mode() -> NoReturn:
     """Redirige la ejecución directa al Worker OT efímero (capa infraestructura)."""
-    from infrastructure.tia.worker_tia import main as worker_main
+    from core.infrastructure.tia.worker_tia import main as worker_main
 
     worker_main()
     sys.exit(0)
@@ -105,7 +105,7 @@ def run_web_mode(host_port: str) -> None:
     import uvicorn
 
     from interfaces.web_server.app import create_app
-    from infrastructure.gateway import TIAProcessGateway
+    from core.infrastructure.gateway import TIAProcessGateway
 
     gateway = TIAProcessGateway()
     app = create_app(gateway)

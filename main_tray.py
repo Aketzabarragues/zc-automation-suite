@@ -159,7 +159,7 @@ def main() -> int:
     # directamente en el motor OT. El worker tiene su propio setup
     # de logging/UTF-8 en ``worker_tia.py``.
     if "--worker" in sys.argv[1:]:
-        from infrastructure.tia.worker_tia import main as worker_main
+        from core.infrastructure.tia.worker_tia import main as worker_main
 
         worker_main()
         return 0

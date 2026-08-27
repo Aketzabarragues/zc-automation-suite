@@ -35,7 +35,7 @@ from core.alimentacion.models.dispositivos import (
     DispV,
     Dispositivo,
 )
-from infrastructure.config_manager import ConfigManager
+from core.infrastructure.config_manager import ConfigManager
 
 
 # ── Mapping canónica → clase Python ────────────────────────────────────

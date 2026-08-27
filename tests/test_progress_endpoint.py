@@ -23,11 +23,11 @@ from fastapi.testclient import TestClient
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
-from application.progress_buffer import (  # noqa: E402
+from core.application.progress_buffer import (  # noqa: E402
     ProgressTracker,
     get_progress_tracker,
 )
-from infrastructure.gateway import TIAProcessGateway  # noqa: E402
+from core.infrastructure.gateway import TIAProcessGateway  # noqa: E402
 from interfaces.web_server.app import create_app  # noqa: E402
 
 

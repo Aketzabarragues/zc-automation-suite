@@ -19,11 +19,11 @@ from __future__ import annotations
 
 from fastapi import Request
 
-from application.log_buffer import LogBuffer
-from application.progress_buffer import ProgressTracker
-from application.state import AppState
-from infrastructure.config_manager import ConfigManager
-from infrastructure.gateway import TIAProcessGateway
+from core.application.log_buffer import LogBuffer
+from core.application.progress_buffer import ProgressTracker
+from core.application.state import AppState
+from core.infrastructure.config_manager import ConfigManager
+from core.infrastructure.gateway import TIAProcessGateway
 
 
 def get_gateway(request: Request) -> TIAProcessGateway:

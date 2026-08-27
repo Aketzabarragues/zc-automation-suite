@@ -15,10 +15,12 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
-from infrastructure.config_manager import (
+from core.infrastructure.config_manager import (
     ConfigManager,
     DispositivoTIAConfig,
 )
@@ -305,7 +307,13 @@ def test_get_tia_folder_dispositivos_canonical_key(tmp_path: Path) -> None:
 
 
 def test_fallback_when_global_config_table_missing(tmp_path: Path) -> None:
-    """Si falta ``global_config_table_name``, retorna default."""
+    """Si falta ``global_config_table_name``, retorna ``""`` (genérico, PR 1).
+
+    Antes de PR 1, retornaba ``"000_Config_Dispositivos"`` (default
+    hardcoded de alimentación). Ahora es genérico: el área
+    "alimentación" aporta su default vía
+    ``contributes_config_defaults`` (cableado en PR 2).
+    """
     minimal = {
         "departments": {
             "alimentacion": {"Dispositivos": {}},
@@ -314,10 +322,7 @@ def test_fallback_when_global_config_table_missing(tmp_path: Path) -> None:
     minimal_path = tmp_path / "minimal.json"
     minimal_path.write_text(json.dumps(minimal), encoding="utf-8")
     cm_minimal = ConfigManager(config_path=minimal_path)
-    assert (
-        cm_minimal.get_global_config_table_name()
-        == "000_Config_Dispositivos"
-    )
+    assert cm_minimal.get_global_config_table_name() == ""
 
 
 def test_fallback_when_dispositivos_section_missing(tmp_path: Path) -> None:
@@ -330,23 +335,34 @@ def test_fallback_when_dispositivos_section_missing(tmp_path: Path) -> None:
 
 
 def test_fallback_when_tia_folders_missing(tmp_path: Path) -> None:
-    """Si falta ``tia_folders``, retorna defaults."""
+    """Si falta ``tia_folders``, retorna strings vacíos (genérico, PR 1).
+
+    Antes de PR 1, retornaba ``"003_Procesos"`` / ``"2000_Dispositivos"`` /
+    ``"000_Sistema"`` (defaults de alimentación). Ahora retorna ``""``.
+    El área "alimentación" aporta los suyos vía
+    ``contributes_config_defaults`` (cableado en PR 2).
+    """
     minimal = {"departments": {"alimentacion": {"Dispositivos": {}}}}
     minimal_path = tmp_path / "minimal.json"
     minimal_path.write_text(json.dumps(minimal), encoding="utf-8")
     cm_minimal = ConfigManager(config_path=minimal_path)
-    assert cm_minimal.get_tia_folder_proceso() == "003_Procesos"
-    assert cm_minimal.get_tia_folder_dispositivos() == "2000_Dispositivos"
-    assert cm_minimal.get_tia_folder_nmax() == "000_Sistema"
+    assert cm_minimal.get_tia_folder_proceso() == ""
+    assert cm_minimal.get_tia_folder_dispositivos() == ""
+    assert cm_minimal.get_tia_folder_nmax() == ""
 
 
 def test_fallback_when_departments_block_missing(tmp_path: Path) -> None:
-    """Si falta el bloque ``departments``, los getters usan defaults."""
+    """Si falta el bloque ``departments``, los getters usan defaults vacíos.
+
+    Antes de PR 1, los getters usaban defaults de alimentación hardcoded
+    (``"000_Config_Dispositivos"``, ``"2000_Dispositivos"``). Ahora son
+    genéricos: retornan ``""`` (PR 1).
+    """
     minimal_path = tmp_path / "no_depts.json"
     minimal_path.write_text("{}", encoding="utf-8")
     cm_minimal = ConfigManager(config_path=minimal_path)
-    assert cm_minimal.get_global_config_table_name() == "000_Config_Dispositivos"
-    assert cm_minimal.get_tia_folder_dispositivos() == "2000_Dispositivos"
+    assert cm_minimal.get_global_config_table_name() == ""
+    assert cm_minimal.get_tia_folder_dispositivos() == ""
     assert cm_minimal.list_keys() == []
 
 
@@ -373,3 +389,141 @@ def test_dispositivo_config_partial_fields(tmp_path: Path) -> None:
     assert cfg.db_array_name == ""  # default a string vacío
     assert cfg.tag_table == ""
     assert cfg.config_table == ""
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Tests del hook apply_defaults y de la genericidad (PR 1)
+# ────────────────────────────────────────────────────────────────────────
+
+
+def test_n_max_catalog_missing_returns_empty(tmp_path: Path) -> None:
+    """Sin ``n_max_catalog`` en el JSON, ``list_nmax_active()`` retorna ``[]``.
+
+    Antes de PR 1, retornaba los 6 N_MAX legacy hardcoded
+    (``N_MAX_DISP_ED/EA/SA/V/M/M_VF``). PR 1 los quita: ahora es
+    genérico (``[]``). El área "alimentación" los aporta vía
+    ``contributes_config_defaults`` (cableado en PR 2).
+    """
+    cfg = {
+        "departments": {
+            "alimentacion": {
+                "global_config_table_name": "000_Config_Dispositivos",
+                "tia_folders": {"nmax": "000_Sistema"},
+                "Dispositivos": {"ed": {"db_name": "DB2000_ED"}},
+            },
+        },
+    }
+    path = tmp_path / "no_nmax.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    cm = ConfigManager(config_path=path)
+    assert cm.list_nmax_active() == []
+    assert cm.get_nmax_for_hw_type("ed") is None
+
+
+def test_apply_defaults_no_op_when_no_areas_registered(
+    tmp_path: Path,
+) -> None:
+    """Si no hay áreas en ``AreaRegistry``, ``apply_defaults`` es no-op.
+
+    El hook PR 1 delega en las áreas registradas; antes de PR 2 (que
+    crea ``areas/alimentacion/``), el registry está vacío, así que
+    ``apply_defaults`` no muta el config. Esto es lo que permite que
+    un config mínimo siga funcionando sin warnings nuevos.
+    """
+    path = tmp_path / "minimal.json"
+    path.write_text(json.dumps(_FULL_CONFIG), encoding="utf-8")
+    cm = ConfigManager(config_path=path)
+    # Snapshot del estado actual (idéntico al JSON).
+    pre_keys = sorted(cm.list_nmax_active())
+    cm.apply_defaults()  # no-op
+    post_keys = sorted(cm.list_nmax_active())
+    assert pre_keys == post_keys
+
+
+def test_apply_defaults_invokes_area_callback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``apply_defaults`` invoca ``contributes_config_defaults`` de cada
+    ``AreaSpec`` registrada, pasándole el ``dept_cfg`` mutable.
+
+    Mockeamos ``AreaRegistry.discover()`` para devolver una spec con
+    un callback espía. Verificamos que el callback se llama con el
+    ``dept_cfg`` del departamento activo, y que si el callback muta
+    el dict, el cambio se refleja en el ``ConfigManager``.
+    """
+    path = tmp_path / "minimal.json"
+    path.write_text(json.dumps(_FULL_CONFIG), encoding="utf-8")
+    cm = ConfigManager(config_path=path)
+
+    # Mock del callback del área.
+    mock_callback = MagicMock()
+    def fake_defaults(dept_cfg: dict[str, Any]) -> None:
+        # Simula que el área "alimentación" añade el catálogo N_MAX
+        # legacy si no está presente.
+        dept_cfg.setdefault(
+            "n_max_catalog",
+            [{"name": "N_MAX_DISP_ED", "hw_type": "ed"}],
+        )
+    mock_callback.side_effect = fake_defaults
+
+    fake_spec = MagicMock()
+    fake_spec.id = "alimentacion"
+    fake_spec.contributes_config_defaults = mock_callback
+    fake_registry = MagicMock()
+    fake_registry.all.return_value = [fake_spec]
+
+    # Monkeypatch del AreaRegistry.discover (clase method).
+    import core.application.area_registry as ar_mod
+    monkeypatch.setattr(ar_mod.AreaRegistry, "discover", classmethod(lambda cls: fake_registry))
+
+    cm.apply_defaults()
+    mock_callback.assert_called_once()
+    # El kwarg dept_cfg debe ser el department_config mutable.
+    call_kwargs = mock_callback.call_args.kwargs
+    assert "dept_cfg" in call_kwargs
+    assert call_kwargs["dept_cfg"] is cm._department_config  # noqa: SLF001
+
+
+def test_apply_defaults_adds_missing_keys_via_callback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Si el callback del área añade claves ausentes, ``list_nmax_active``
+    las refleja (data-driven: el área aporta su catálogo por defecto).
+    """
+    # Config SIN n_max_catalog.
+    cfg = {
+        "departments": {
+            "alimentacion": {
+                "Dispositivos": {"ed": {"db_name": "DB_ED"}},
+            },
+        },
+    }
+    path = tmp_path / "no_nmax.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    cm = ConfigManager(config_path=path)
+    assert cm.list_nmax_active() == []
+
+    # Mock que añade los 6 N_MAX legacy (lo que el área alimentación
+    # hará realmente en PR 2).
+    def fake_defaults(dept_cfg: dict[str, Any]) -> None:
+        if "n_max_catalog" not in dept_cfg:
+            dept_cfg["n_max_catalog"] = [
+                {"name": f"N_MAX_DISP_{hw.upper()}", "hw_type": hw}
+                for hw in ("ed", "ea", "sa", "v", "m", "m_vf")
+            ]
+    fake_spec = MagicMock()
+    fake_spec.id = "alimentacion"
+    fake_spec.contributes_config_defaults = fake_defaults
+    fake_registry = MagicMock()
+    fake_registry.all.return_value = [fake_spec]
+
+    import core.application.area_registry as ar_mod
+    monkeypatch.setattr(ar_mod.AreaRegistry, "discover", classmethod(lambda cls: fake_registry))
+
+    cm.apply_defaults()
+    # Ahora el catálogo se ha poblado (6 entradas como antes de PR 1).
+    assert len(cm.list_nmax_active()) == 6
+    assert "N_MAX_DISP_ED" in cm.list_nmax_active()
+    assert "N_MAX_DISP_M_VF" in cm.list_nmax_active()

@@ -21,9 +21,9 @@ from typing import Any
 
 from fastmcp import FastMCP
 
-from application.state import get_app_state
-from infrastructure.config_manager import ConfigManager
-from infrastructure.gateway import TIAProcessGateway
+from core.application.state import get_app_state
+from core.infrastructure.config_manager import ConfigManager
+from core.infrastructure.gateway import TIAProcessGateway
 
 
 def create_mcp_server(gateway: TIAProcessGateway) -> FastMCP:

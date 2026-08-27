@@ -10,9 +10,9 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from application.log_buffer import LogBuffer
-from application.progress_buffer import ProgressTracker
-from infrastructure.gateway import TIAProcessGateway
+from core.application.log_buffer import LogBuffer
+from core.application.progress_buffer import ProgressTracker
+from core.infrastructure.gateway import TIAProcessGateway
 from interfaces.web_server.dependencies import (
     get_gateway,
     get_logger,

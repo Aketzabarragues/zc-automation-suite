@@ -14,8 +14,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from application.state import AppState
-from infrastructure.config_manager import ConfigManager
+from core.application.state import AppState
+from core.infrastructure.config_manager import ConfigManager
 
 
 _logger = logging.getLogger(__name__)

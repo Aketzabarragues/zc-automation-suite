@@ -1,4 +1,4 @@
-"""Gestor de configuración multi-departamento.
+"""Gestor de configuración multi-departamento (genérico).
 
 Lee ``infrastructure/config.json`` y expone el mapeo entre tipos de
 dispositivo del departamento activo y nombres reales de tablas / DBs /
@@ -6,45 +6,29 @@ carpetas dentro del PLC de TIA Portal. Esto evita hardcodear nombres
 como ``"000_Config_Dispositivos"`` o ``"2000_Disp_ED"`` en los casos
 de uso.
 
+Este módulo es **genérico** (Plan: Bounded Contexts — PR 1):
+
+  - NO tiene defaults hardcoded de un área concreta (alimentación).
+  - Si una clave no existe en el JSON: warning + fallback genérico
+    (``""`` o ``[]`` según el caso).
+  - Las áreas aportan sus defaults específicos vía
+    ``AreaSpec.contributes_config_defaults`` (cableado en PR 2).
+
 Estructura del ``config.json``:
 
     {
       "departments": {
-        "alimentacion": {
-          "global_config_table_name": "000_Config_Dispositivos",
-          "tia_folders": {
-            "proceso":      "003_Procesos",
-            "dispositivos": "2000_Dispositivos",
-            "nmax":         "000_Sistema"
-          },
-          "n_max_catalog": [
-            { "name": "N_MAX_DISP_ED", "excel_named_range": "Num_Disp_ED",
-              "hw_type": "ed", "plc_tag_table": "2000_Disp_ED", "comment": "..." },
-            ...
-          ],
-          "pending_nmax":        [ "N_MAX_DISP_FF", ... ],
-          "pending_dispositivos":{ "sd": {...}, ... },
-          "Dispositivos": {
-            "<key>": {
-              "db_name":       "DB...",
-              "db_array_name": "...",
-              "tag_table":     "2000_Disp_...",
-              "config_table":  "000_Config_Dispositivos"
-            },
-            ...
-          }
+        "<area_id>": {
+          "global_config_table_name": "...",
+          "tia_folders": { "proceso": "...", "dispositivos": "...", "nmax": "..." },
+          "n_max_catalog":       [ { "name": "N_MAX_...", "hw_type": "..." }, ... ],
+          "pending_nmax":        [ "N_MAX_...", ... ],
+          "pending_dispositivos":{ "<hw>": {...}, ... },
+          "Dispositivos":        { "<key>": { "db_name": "..." }, ... }
         },
         ...
       }
     }
-
-Tipos de dispositivo del departamento ``alimentacion`` configurados
-actualmente: ``ed``, ``ea``, ``sa``, ``v``, ``m``, ``m_vf``.
-
-Tipos legacy pendientes de portar explícitamente (documentados pero
-NO configurados, viven en ``pending_dispositivos``):
-``sd``, ``m_sina``, ``tq``, ``tq_ae`` (los N_MAX asociados viven en
-``pending_nmax``).
 
 Restricción arquitectónica: este módulo es OFFLINE; no importa
 ``siemens_tia_scripting``.
@@ -62,24 +46,16 @@ from typing import Any
 _logger: logging.Logger = logging.getLogger(f"{__name__}.ConfigManager")
 
 
-# ── Defaults defensivos (compatibilidad con configs mínimos) ────────
-_DEFAULT_DEPARTMENT = "alimentacion"
-_DEFAULT_GLOBAL_CONFIG_TABLE_NAME = "000_Config_Dispositivos"
-_DEFAULT_TIA_FOLDER_PROCESO = "003_Procesos"
-_DEFAULT_TIA_FOLDER_DISPOSITIVOS = "2000_Dispositivos"
-_DEFAULT_TIA_FOLDER_NMAX = "000_Sistema"
-
-# Catálogo de N_MAX por defecto (se usa cuando el JSON no incluye
-# ``n_max_catalog``). Mantiene back-compat 1 release con configs
-# mínimos que aún no migraron a la versión con ``n_max_catalog``.
-_DEFAULT_NMAX_CATALOG: list[dict[str, str]] = [
-    {"name": "N_MAX_DISP_ED",   "excel_named_range": "Num_Disp_ED",   "hw_type": "ed"},
-    {"name": "N_MAX_DISP_EA",   "excel_named_range": "Num_Disp_EA",   "hw_type": "ea"},
-    {"name": "N_MAX_DISP_SA",   "excel_named_range": "Num_Disp_SA",   "hw_type": "sa"},
-    {"name": "N_MAX_DISP_V",    "excel_named_range": "Num_Disp_V",    "hw_type": "v"},
-    {"name": "N_MAX_DISP_M",    "excel_named_range": "Num_Disp_M",    "hw_type": "m"},
-    {"name": "N_MAX_DISP_M_VF", "excel_named_range": "Num_Disp_M_VF", "hw_type": "m_vf"},
-]
+# ── Fallbacks genéricos (PR 1: ya no hay defaults de alimentación) ─────
+# Antes de PR 1, este módulo exponía ``_DEFAULT_DEPARTMENT =
+# "alimentacion"`` y ``_DEFAULT_NMAX_CATALOG`` con los 6 N_MAX legacy.
+# Ahora esos defaults se aportan por el área "alimentación" vía
+# ``contributes_config_defaults`` (PR 2). Si en el JSON no está la
+# clave, el getter retorna un valor vacío y loggea un warning.
+_DEFAULT_GLOBAL_CONFIG_TABLE_NAME = ""        # antes "000_Config_Dispositivos"
+_DEFAULT_TIA_FOLDER_PROCESO = ""              # antes "003_Procesos"
+_DEFAULT_TIA_FOLDER_DISPOSITIVOS = ""         # antes "2000_Dispositivos"
+_DEFAULT_TIA_FOLDER_NMAX = ""                 # antes "000_Sistema"
 
 
 @dataclass(frozen=True)
@@ -93,8 +69,7 @@ class DispositivoTIAConfig:
         tag_table:        Nombre de la PlcTagTable del dispositivo
                           (ej. ``"2000_Disp_ED"``).
         config_table:     Nombre de la PlcTagTable donde residen las
-                          PlcUserConstant N_MAX (típicamente
-                          ``"000_Config_Dispositivos"``).
+                          PlcUserConstant N_MAX.
         config_constant:  Nombre de la PlcUserConstant N_MAX de este
                           tipo (ej. ``"N_MAX_DISP_ED"``). Heredado del
                           legacy ``HardwareTIAConfig.config_constant``;
@@ -116,11 +91,12 @@ class ConfigManager:
 
     Args:
         config_path: Ruta al archivo JSON de configuración.
-        department:  Nombre del departamento a resolver. Por defecto
-                     ``"alimentacion"``. Debe existir como clave bajo
-                     ``departments`` en el JSON; si no, se loggea un
-                     warning y se retorna el primer departamento
-                     disponible (forward-compatible).
+        department:  Nombre del departamento a resolver. Si es ``""`` o
+                     el departamento no existe, se usa el primer
+                     departamento disponible (forward-compatible con
+                     configs multi-área incompletas). Antes de PR 1
+                     el default era ``"alimentacion"``; ahora es
+                     cadena vacía → primer departamento disponible.
 
     API:
       - **Tabla global N_MAX**: ``get_global_config_table_name()``.
@@ -141,16 +117,20 @@ class ConfigManager:
       - **Listado**: ``list_keys()``,
         ``list_hw_types_active()`` (recomendado),
         ``list_hw_types_pending()``.
+      - **Defaults por área (PR 1)**: ``apply_defaults(dept_cfg)`` —
+        delega en las áreas registradas para rellenar claves
+        ausentes. Es no-op si no hay áreas registradas (caso actual
+        antes de PR 2).
 
     Política de fallback: si una clave no existe, se retorna el valor
-    por defecto (configurable globalmente) o ``None`` en getters de
-    tipo específico, con un ``logger.warning`` (NO raise).
+    por defecto (cadena vacía o ``[]``) con un ``logger.warning``
+    (NO raise).
     """
 
     def __init__(
         self,
         config_path: str | Path = "infrastructure/config.json",
-        department: str = _DEFAULT_DEPARTMENT,
+        department: str = "",
     ) -> None:
         # ── Resolución frozen-aware ───────────────────────────────────
         # En modo empaquetado (PyInstaller --onefile), el CWD del
@@ -204,47 +184,57 @@ class ConfigManager:
     def _resolve_department(self) -> dict[str, Any]:
         """Resuelve la sub-config del departamento activo.
 
-        Si el departamento solicitado no existe, se loggea un warning
-        y se retorna el primer departamento disponible (forward-
-        compatible con configs multi-departamento incompletas).
+        Si el departamento solicitado no existe (o es ``""``), se
+        loggea un warning y se retorna el primer departamento
+        disponible (forward-compatible con configs multi-departamento
+        incompletas). Si no hay departamentos, retorna ``{}``.
         """
         departments = self._full_config.get("departments", {})
         if not departments:
             _logger.warning(
                 "El config no tiene bloque 'departments'. "
-                "Se retorna {} (todos los getters usarán defaults)."
+                "Se retorna {} (todos los getters usarán defaults vacíos)."
             )
             return {}
 
-        if self._department in departments:
+        if self._department and self._department in departments:
             return departments[self._department]
 
         first = next(iter(departments.keys()))
-        _logger.warning(
-            f"Departamento '{self._department}' no encontrado en "
-            f"config.json. Departamentos disponibles: "
-            f"{list(departments.keys())}. Se usa '{first}' como fallback."
-        )
+        if not self._department:
+            _logger.info(
+                f"No se especificó departamento; se usa el primero "
+                f"disponible: '{first}'."
+            )
+        else:
+            _logger.warning(
+                f"Departamento '{self._department}' no encontrado en "
+                f"config.json. Departamentos disponibles: "
+                f"{list(departments.keys())}. Se usa '{first}' como fallback."
+            )
         self._department = first
         return departments[first]
 
     def _index_nmax_catalog(self) -> dict[str, dict[str, str]]:
-        """Indexa ``n_max_catalog`` por ``name``. Aplica fallback defensivo.
+        """Indexa ``n_max_catalog`` por ``name``.
 
-        Si la clave ``n_max_catalog`` no existe en el JSON (configs
-        mínimos aún no migrados), se usa ``_DEFAULT_NMAX_CATALOG`` y
-        se loggea un warning una sola vez por instancia.
+        Si la clave ``n_max_catalog`` no existe en el JSON, retorna
+        ``{}`` (genérico, vacío) y se loggea un warning una sola vez
+        por instancia. Antes de PR 1, retornaba los 6 N_MAX legacy
+        como fallback defensivo; ese comportamiento pasa al área
+        "alimentación" vía ``contributes_config_defaults`` (PR 2).
         """
         raw = self._department_config.get("n_max_catalog")
         if raw is None:
             if not self._warned_missing_catalog:
                 _logger.warning(
-                    "Bloque 'n_max_catalog' ausente en config.json; se "
-                    "usa el catálogo por defecto (6 N_MAX legacy). "
-                    "Migrar el config cuando sea posible."
+                    "Bloque 'n_max_catalog' ausente en config.json; "
+                    "el catálogo queda vacío (genérico). El área "
+                    "activa puede aportar defaults vía "
+                    "contributes_config_defaults (PR 2)."
                 )
                 self._warned_missing_catalog = True
-            raw = _DEFAULT_NMAX_CATALOG
+            raw = []
         indexed: dict[str, dict[str, str]] = {}
         for entry in raw:
             if not isinstance(entry, dict):
@@ -261,6 +251,65 @@ class ConfigManager:
             }
         return indexed
 
+    def apply_defaults(self, dept_cfg: dict[str, Any] | None = None) -> None:
+        """Hook PR 1: delega en las áreas registradas para rellenar
+        claves ausentes en la sub-config del departamento activo.
+
+        Recorre ``AreaRegistry.discover().all()`` y, para cada
+        ``AreaSpec`` con ``contributes_config_defaults`` no nulo, la
+        invoca pasando ``dept_cfg`` (o, si no se pasa, el bloque del
+        departamento activo). El callable del área muta ``dept_cfg``
+        in-place para añadir las claves que falten.
+
+        Tras invocar todos los callbacks, **re-indexa** los caches
+        internos (``_nmax_by_name`` / ``_nmax_by_hw``) por si el
+        callback del área añadió entradas a ``n_max_catalog``.
+
+        Antes de PR 2, no hay áreas registradas: el método es un
+        no-op silencioso. Una vez que el área "alimentación" aporte
+        su ``contributes_config_defaults``, este hook rellenará por
+        ejemplo ``n_max_catalog`` con los 6 N_MAX legacy si la clave
+        no está en el JSON.
+
+        Args:
+            dept_cfg: Sub-bloque del departamento a rellenar. Si es
+                      ``None``, se usa ``self._department_config``.
+        """
+        if dept_cfg is None:
+            dept_cfg = self._department_config
+        # Import perezoso para evitar ciclo: core.infrastructure importa
+        # core.application solo aquí. PR 2 eliminará este comentario.
+        try:
+            from core.application.area_registry import AreaRegistry
+        except ImportError:
+            _logger.debug(
+                "AreaRegistry no disponible; apply_defaults es no-op."
+            )
+            return
+        for spec in AreaRegistry.discover().all():
+            fn = getattr(spec, "contributes_config_defaults", None)
+            if fn is None:
+                continue
+            try:
+                fn(dept_cfg=dept_cfg)
+            except Exception as exc:  # noqa: BLE001
+                _logger.warning(
+                    "apply_defaults: %s.contributes_config_defaults "
+                    "falló: %s",
+                    spec.id, exc,
+                )
+        # Re-indexar caches por si el callback del área añadió entradas
+        # (p. ej. ``n_max_catalog`` con los 6 N_MAX legacy). Permitimos
+        # que la advertencia por "catálogo ausente" se emita de nuevo
+        # la próxima vez, ya que ahora la clave SÍ existe.
+        self._warned_missing_catalog = False
+        self._nmax_by_name = self._index_nmax_catalog()
+        self._nmax_by_hw = {
+            entry["hw_type"]: entry
+            for entry in self._nmax_by_name.values()
+            if entry.get("hw_type")
+        }
+
     # ── Departamento activo ─────────────────────────────────────────────
 
     @property
@@ -274,8 +323,8 @@ class ConfigManager:
         """Devuelve el nombre de la tabla de configuración global (N_MAX).
 
         Si la clave ``global_config_table_name`` no existe en el bloque
-        del departamento, retorna ``"000_Config_Dispositivos"`` como
-        fallback defensivo.
+        del departamento, retorna ``""`` (genérico). El área puede
+        aportar su valor por defecto vía ``contributes_config_defaults``.
         """
         return str(
             self._department_config.get(
@@ -290,9 +339,8 @@ class ConfigManager:
         """Lista los nombres (``"N_MAX_DISP_ED"``…) del catálogo activo.
 
         El orden es el de declaración en ``n_max_catalog`` del config.
-        Si el bloque no existe, se usa el catálogo legacy (6 entradas,
-        mismo orden histórico: ``ED, EA, SA, V, M, M_VF``) preservando
-        el contrato de orden de los tests.
+        Vacío si la clave no existe (genérico) o si el catálogo está
+        vacío.
         """
         return list(self._nmax_by_name.keys())
 
@@ -307,12 +355,7 @@ class ConfigManager:
         return dict(entry) if entry is not None else None
 
     def get_excel_named_range_for_nmax(self, name: str) -> str | None:
-        """Devuelve el named range del Excel que alimenta ``name`` o ``None``.
-
-        Útil para que ``AlimentacionExcelParser`` o el caso de uso de
-        carga de dimensiones sepa qué celda leer del Excel corporativo
-        para una N_MAX concreta.
-        """
+        """Devuelve el named range del Excel que alimenta ``name`` o ``None``."""
         entry = self._nmax_by_name.get(name)
         if entry is None:
             return None
@@ -320,10 +363,7 @@ class ConfigManager:
         return v or None
 
     def get_nmax_for_hw_type(self, hw_type: str) -> str | None:
-        """Devuelve el nombre N_MAX asociado a ``hw_type`` o ``None``.
-
-        Recorrido inverso de ``n_max_catalog`` (hw_type → name).
-        """
+        """Devuelve el nombre N_MAX asociado a ``hw_type`` o ``None``."""
         entry = self._nmax_by_hw.get(hw_type)
         return entry["name"] if entry else None
 
@@ -407,13 +447,7 @@ class ConfigManager:
         return cfg.db_array_name if cfg else None
 
     def list_keys(self) -> list[str]:
-        """Lista los tipos de dispositivo configurados en el departamento activo.
-
-        Returns:
-            Lista de claves del bloque ``Dispositivos`` del config
-            (ej. ``["ed", "ea", "sa", "v", "m", "m_vf"]``). Vacía si
-            la sección no existe.
-        """
+        """Lista los tipos de dispositivo configurados en el departamento activo."""
         dispositivos = self._department_config.get("Dispositivos", {})
         return list(dispositivos.keys())
 
@@ -458,7 +492,7 @@ class ConfigManager:
         - Override explícito: ``d["excel_target"] = {sheet, table, canonical}``.
         - Convensión: sheet ``f"DISP_{hw_type.upper()}"``, table
           ``f"Tabla_Disp_{hw_type.upper()}"``, canonical
-          ``f"Disp{hw_type.replace('_', '').upper().replace('V', 'V')}"``
+          ``f"Disp{hw_type.replace('_', '').upper().replace('V', 'V')}``
           (mantiene ``DispED``, ``DispM_VF`` → ``DispM_VF``).
 
         Devuelve ``None`` si ``hw_type`` no está configurado.
@@ -482,26 +516,20 @@ class ConfigManager:
     # ── Carpetas TIA ────────────────────────────────────────────────────
 
     def get_tia_folder_proceso(self) -> str:
-        """Ruta de la carpeta de proceso en TIA (default: ``"003_Procesos"``)."""
+        """Ruta de la carpeta de proceso en TIA (default: ``""``)."""
         folders = self._department_config.get("tia_folders", {})
         return str(folders.get("proceso", _DEFAULT_TIA_FOLDER_PROCESO))
 
     def get_tia_folder_dispositivos(self) -> str:
-        """Ruta de la carpeta de dispositivos en TIA (default: ``"2000_Dispositivos"``)."""
+        """Ruta de la carpeta de dispositivos en TIA (default: ``""``)."""
         folders = self._department_config.get("tia_folders", {})
         return str(folders.get("dispositivos", _DEFAULT_TIA_FOLDER_DISPOSITIVOS))
 
     def get_tia_folder_nmax(self) -> str:
         """Ruta de la carpeta TIA donde reside la tabla de N_MAX.
 
-        Por defecto ``"000_Sistema"``: la tabla
-        ``000_Config_Dispositivos`` (constantes N_MAX) vive dentro de
-        esa carpeta según la jerarquía confirmada en el PLC real
-        (ver ``.build_cache/base/tags/000_Sistema/``).
-
-        El sync unificado compone la ruta final del XML como
-        ``f"{get_tia_folder_nmax()}/{get_global_config_table_name()}.xml"``
-        → ``000_Sistema/000_Config_Dispositivos.xml``.
+        Por defecto ``""`` (genérico). Si el área aporta su carpeta
+        N_MAX vía ``contributes_config_defaults`` (PR 2), se respeta.
         """
         folders = self._department_config.get("tia_folders", {})
         return str(folders.get("nmax", _DEFAULT_TIA_FOLDER_NMAX))
