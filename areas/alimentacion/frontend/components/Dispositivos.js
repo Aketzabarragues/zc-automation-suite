@@ -35,8 +35,9 @@
  * dentro de arrays de `:class`. Cada literal va en una sola línea.
  */
 import { computed, ref } from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js";
-import { store, pushLog } from "../../../../js/store.js";
-import { apiGeneratePreview, apiCommit } from "../../../../js/api.js";
+// Imports absolutos: ver nota en ``Sidebar.js``.
+import { store, pushLog } from "/js/store.js";
+import { apiGeneratePreview, apiCommit } from "/js/api.js";
 
 const STATUS_META = {
     agregar:      { label: "➕ AGREGAR",     cls: "action-add" },

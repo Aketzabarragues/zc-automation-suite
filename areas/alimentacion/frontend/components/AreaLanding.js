@@ -18,7 +18,9 @@
  *                (``main.js``) llama a ``goToSubview(key)``.
  */
 import { computed } from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js";
-import { store } from "../../../../js/store.js";
+// Import absoluto: ver nota en ``Sidebar.js``. Los cross-cutting
+// están en ``/js/``, no se mueven.
+import { store } from "/js/store.js";
 
 /**
  * Sub-vistas disponibles en el área Alimentación. Si en el futuro

@@ -20,9 +20,16 @@
  * dentro de arrays de `:class`. Cada literal va en una sola línea.
  */
 import { computed } from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js";
-import { store, pushLog, goToWelcome, goToSubview } from "../../../../js/store.js";
-import { apiFetchPlcs } from "../../../../js/api.js";
-import ProgressIndicator from "../../../../js/components/ProgressIndicator.js";
+// Imports absolutos. Los componentes del área se sirven bajo
+// ``/static/areas/alimentacion/frontend/components/`` (path
+// servido por el FastAPI shell), pero los cross-cutting
+// (``store.js``, ``api.js``, ``ProgressIndicator``) viven en
+// ``/js/`` y NO se mueven. Un import relativo ``../../../../js/X.js``
+// se resolvería contra la URL del módulo y daría
+// ``/static/js/X.js`` (404). Usar absolutos evita el problema.
+import { store, pushLog, goToWelcome, goToSubview } from "/js/store.js";
+import { apiFetchPlcs } from "/js/api.js";
+import ProgressIndicator from "/js/components/ProgressIndicator.js";
 
 export default {
     name: "AlimentacionSidebar",
