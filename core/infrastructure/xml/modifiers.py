@@ -353,6 +353,11 @@ class TagTableModifier(XMLModifier):
             return 0
         existing_names = self._existing_user_constant_names()
         added = 0
+        # max_id se actualiza despues de CADA add, para que el siguiente
+        # nuevo constant empiece DESPUES de los IDs ya asignados. Sin
+        # esto, dos adds consecutivos comparten los mismos IDs y TIA V21
+        # rechaza el import con "Duplicate Simatic ML ID".
+        max_id = self._max_id_in_doc()
         for dto in dispositivos:
             name = dto.get("plc_tag", "").strip()
             if not name or name in existing_names:
@@ -360,6 +365,15 @@ class TagTableModifier(XMLModifier):
             value_str = dto.get("uid", "").strip()
             comment = dto.get("comment", "").strip()
             new_const = self._copy_element(template)
+            # CRITICO: renumerar TODOS los IDs del subtree del nuevo
+            # constant. Si no, los nuevos elementos tienen los mismos
+            # IDs que el template (p.ej. "1", "2", "3"...) y TIA V21
+            # rechaza el import con "Duplicate Simatic ML ID".
+            ids_in_subtree = sum(
+                1 for sub in new_const.iter() if "ID" in sub.attrib
+            )
+            self._renumber_ids(new_const, start=max_id + 1)
+            max_id += ids_in_subtree
             name_el = new_const.find(f".//{_NAME_TAG}")
             if name_el is not None:
                 name_el.text = name
@@ -374,6 +388,51 @@ class TagTableModifier(XMLModifier):
         if added > 0:
             self._modified = True
         return added
+
+    def _max_id_in_doc(self) -> int:
+        """Devuelve el maximo ID numerico usado en el documento.
+
+        Recorre todos los elementos y devuelve el maximo valor del
+        atributo ``ID`` que sea convertible a int. Si no hay IDs
+        numericos, devuelve -1.
+
+        IMPORTANTE: Siemens exporta los IDs en hexadecimal MAYUSCULA sin
+        prefijo (``"0"``, ``"1"``, ``"A"``, ``"FF"``...). Usar
+        ``int(id_str, 0)`` es un BUG porque solo acepta hex con prefijo
+        ``0x``; los IDs ``"A"``/``"B"``/``"C"`` se ignoran y el calculo
+        se queda corto, colisionando con los nuevos constants.
+        """
+        max_id = -1
+        for elem in self._root.iter():
+            id_str = elem.get("ID", "")
+            if not id_str:
+                continue
+            try:
+                # Siemens siempre emite hex mayuscula sin prefijo.
+                # ``int(x, 16)`` acepta tanto ``"0"`` (decimal==hex==0) como
+                # ``"A"``/``"FF"``. Si el esquema cambiase a decimal/otro,
+                # el ``except`` lo descartaria silenciosamente.
+                id_int = int(id_str, 16)
+                if id_int > max_id:
+                    max_id = id_int
+            except (ValueError, TypeError):
+                continue
+        return max_id
+
+    @staticmethod
+    def _renumber_ids(elem: ET.Element, start: int) -> None:
+        """Renumera todos los atributos ``ID`` del subtree de ``elem``.
+
+        Asigna IDs correlativos empezando en ``start`` (start, start+1,
+        start+2, ...) en orden de documento. Esto evita colisiones
+        con los IDs existentes cuando se inserta un nuevo constant
+        clonado del template.
+        """
+        next_id = start
+        for sub in elem.iter():
+            if "ID" in sub.attrib:
+                sub.set("ID", f"{next_id:x}".upper())  # hex mayusculas (formato Siemens)
+                next_id += 1
 
     def remove_user_constants(self, uids_to_remove: set[str]) -> int:
         """Elimina PlcUserConstants cuyo ``Value`` esta en ``uids_to_remove``.
