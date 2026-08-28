@@ -319,9 +319,6 @@ class SyncDispositivosInstancesUseCase:
         self,
         plc_name: str,
         prevision: dict[str, Any],
-        enable_nmax: bool = True,
-        enable_renames: bool = True,
-        enable_devices: bool = True,
     ) -> dict[str, Any]:
         """Ejecuta el diff completo (N_MAX + devices) en UNA transacci\u00f3n \u00fanica.
 
@@ -347,11 +344,6 @@ class SyncDispositivosInstancesUseCase:
                 directamente (se recalcula desde el AppState para
                 evitar race conditions); se conserva en la firma por
                 back-compat con la SPA.
-            enable_nmax: si False, omite la fase N_MAX (bypass para
-                acotar el error durante el diagnostico). Default True.
-            enable_renames: si False, omite la fase renames. Default True.
-            enable_devices: si False, omite la fase devices (export+edit+
-                import). Default True.
         """
         # ── Progress tracking (overlay SPA) ────────────────────────
         # 7 stages fijos que reflejan las operaciones reales del flujo
@@ -508,31 +500,10 @@ class SyncDispositivosInstancesUseCase:
                 shutil.rmtree(work_dir, ignore_errors=True)
             work_dir.mkdir(parents=True, exist_ok=True)
 
-            # Bypass progresivo para acotar el error durante el
-            # diagnostico en PLC real. Controlado por parametros del
-            # use case (que vienen del body del endpoint REST, o se
-            # pasan directamente en tests). Si una fase falla y la
-            # otra no, sabemos donde esta el problema.
-            #   enable_nmax=False    → solo renames + devices
-            #   enable_renames=False → solo N_MAX + devices
-            #   enable_devices=False → solo N_MAX + renames
-            # (sin parametros, default: todas activas = True).
-            bypass_summary = []
-            if not enable_nmax:
-                bypass_summary.append("N_MAX")
-            if not enable_renames:
-                bypass_summary.append("renames")
-            if not enable_devices:
-                bypass_summary.append("devices")
-            if bypass_summary:
-                _logger.warning(
-                    f"[{plc_name}] Bypass activo: fases omitidas = {bypass_summary}. "
-                    f"Solo se aplican: "
-                    f"{'N_MAX ' if enable_nmax else ''}"
-                    f"{'renames ' if enable_renames else ''}"
-                    f"{'devices' if enable_devices else ''}".rstrip()
-                )
-
+            # Aplicar N_MAX + renames + devices en UNA sola transaccion TIA.
+            # Las 3 fases son siempre activas (sin bypass): es un sync atomico
+            # por diseno. Si falla una fase, el batch wrapper hace rollback
+            # atomico de las 3 y la transaccion queda como si nada.
             self._progress.start_stage(
                 "open_transaction",
                 f"Aplicando {len(nmax_ops)} N_MAX + {len(rename_ops)} renames "
@@ -546,9 +517,6 @@ class SyncDispositivosInstancesUseCase:
                 device_changes=device_changes,
                 work_dir=str(work_dir),
                 undo_text="Sincronizar N_MAX + Dispositivos",
-                enable_nmax=enable_nmax,
-                enable_renames=enable_renames,
-                enable_devices=enable_devices,
             )
             self._progress.finish_stage(
                 "open_transaction",

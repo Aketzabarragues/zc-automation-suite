@@ -547,9 +547,6 @@ class TIAProcessGateway:
         device_changes: list[dict[str, Any]],
         work_dir: str,
         undo_text: str = "Sync dispositivos (N_MAX + devices)",
-        enable_nmax: bool = True,
-        enable_renames: bool = True,
-        enable_devices: bool = True,
     ) -> dict[str, Any]:
         """Commit atomico N_MAX + renames + devices en UNA sola transaccion TIA.
 
@@ -579,12 +576,6 @@ class TIAProcessGateway:
             work_dir: ruta absoluta del directorio donde el worker escribe
                 los XML exportados/modificados.
             undo_text: texto del historial Undo de TIA.
-            enable_nmax: si False, omite la fase N_MAX (bypass para
-                diagnostico).
-            enable_renames: si False, omite la fase renames.
-            enable_devices: si False, omite la fase devices (export+edit+
-                import). El op retorna success=True con details marcando
-                ``[SKIPPED]`` para trazabilidad.
 
         Returns:
             Dict con shape de ``execute_transactional_batch``:
@@ -597,14 +588,10 @@ class TIAProcessGateway:
 
         # Estimacion de ops para el timeout dinamico: N_MAX + renames +
         # 3 ops por cada device_change (export + edit + import).
-        # Si una fase esta bypassed, no suma al timeout.
         estimated_ops = 2  # start + end transaction
-        if enable_nmax:
-            estimated_ops += len(nmax_ops)
-        if enable_renames:
-            estimated_ops += len(rename_ops)
-        if enable_devices:
-            estimated_ops += 3 * len(device_changes)
+        estimated_ops += len(nmax_ops)
+        estimated_ops += len(rename_ops)
+        estimated_ops += 3 * len(device_changes)
         per_op_seconds = 5.0
         dynamic_timeout = max(self._timeout, per_op_seconds * estimated_ops)
 
@@ -620,9 +607,6 @@ class TIAProcessGateway:
                         "nmax_ops": list(nmax_ops),
                         "rename_ops": list(rename_ops),
                         "device_changes": list(device_changes),
-                        "enable_nmax": enable_nmax,
-                        "enable_renames": enable_renames,
-                        "enable_devices": enable_devices,
                     },
                 }],
                 "undo_text": undo_text,

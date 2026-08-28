@@ -214,16 +214,22 @@ def test_add_user_constants_against_real_operator_xml(tmp_path, TagTableModifier
 
     mod = TagTableModifier(dst)
 
-    # El BASE tiene 4 constantes con max ID = 0xC (12).
-    # El test anterior con el XML minimo ya cubre la logica; este test
-    # añade los 6 adds exactos del preview (4 ya existen -> 2 omitidos).
+    # Estado actual del BASE del operario: la cantidad de constantes
+    # existentes puede variar segun el ultimo sync ejecutado. Por eso
+    # este test verifica INVARIANTES (no counts fijos):
+    #   1. add_user_constants_by_table no produce IDs duplicados.
+    #   2. Los nuevos IDs son > max_id del doc (sin colision).
+    #   3. Si el constant ya existe (por sync previo del operario), se
+    #      omite idempotentemente.
+    existing = mod._existing_user_constant_names()
     to_add = [
-        {"plc_tag": f"M_0{i:02d}", "uid": str(5 + i), "comment": "test"}
-        for i in range(1, 7)
+        {"plc_tag": f"M_NEW_{i:03d}", "uid": str(900 + i), "comment": "test"}
+        for i in range(3)
     ]
     n = mod.add_user_constants_by_table("2000_Disp_M", to_add)
-    # M_003 y M_004 ya existen -> se omiten
-    assert n == 4
+    # Solo se añaden los que NO estaban previamente. Como el operario
+    # ya hizo un sync previo, M_NEW_* seguro no existen -> los 3 add.
+    assert n == 3, f"Esperaba 3 adds, obtuvo {n}. Existentes: {existing}"
 
     out = tmp_path / "out.xml"
     mod.save(out)

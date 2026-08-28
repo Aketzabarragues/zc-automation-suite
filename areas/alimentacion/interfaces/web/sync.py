@@ -40,14 +40,6 @@ class InstancesPreviewRequest(BaseModel):
 class InstancesCommitRequest(BaseModel):
     plc_name: str
     prevision: dict[str, Any]
-    # Bypass progresivo de fases (acotar el error durante el
-    # diagnostico en PLC real). Default True (todo activo). Si el
-    # operario quiere ejecutar solo una fase, envia el body con los
-    # flags en False. Ejemplo: solo N_MAX -> enable_renames=False,
-    # enable_devices=False.
-    enable_nmax: bool = True
-    enable_renames: bool = True
-    enable_devices: bool = True
 
 
 # ── Sync completo: N_MAX + devices ──────────────────────────────────────
@@ -122,9 +114,6 @@ async def sync_commit(
     try:
         result = await use_case.ejecutar_transaccion(
             req.plc_name, req.prevision,
-            enable_nmax=req.enable_nmax,
-            enable_renames=req.enable_renames,
-            enable_devices=req.enable_devices,
         )
     except Exception as exc:
         logger.error(f"ejecutar_transaccion failed: {exc}")
