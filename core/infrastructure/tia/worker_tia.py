@@ -908,7 +908,18 @@ def main() -> None:
         )
 
     # 2. Silenciado absoluto de la consola nativa C++.
-    ts.set_logging(path="worker_openness.log", console=False)
+    # El path de log es ABSOLUTO para que el operario siempre lo
+    # encuentre junto al .exe (o, en dev, junto a main.py). El fallback
+    # al CWD se hace si el path absoluto falla (permisos, etc.).
+    import sys as _sys
+    from pathlib import Path as _Path
+    _exe_dir = _Path(getattr(_sys, "frozen", False) and _sys.executable or __file__).parent
+    _log_path = _exe_dir / "worker_openness.log"
+    try:
+        ts.set_logging(path=str(_log_path), console=False)
+    except Exception:
+        # Fallback: path relativo al CWD (comportamiento original).
+        ts.set_logging(path="worker_openness.log", console=False)
 
     # 3. Lectura del payload de entrada.
     try:
