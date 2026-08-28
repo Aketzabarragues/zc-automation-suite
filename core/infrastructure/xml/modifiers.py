@@ -499,3 +499,43 @@ class TagTableModifier(XMLModifier):
                 parent.insert(idx + 1, new_const)
                 return
         self._root.append(new_const)
+
+    # =================================================================
+    # PlcTagTable root ID: regeneracion para evitar "Create... exists"
+    # =================================================================
+    #
+    # TIA Portal exporta siempre la PlcTagTable raiz con ``ID="0"``
+    # (placeholder generico, no el ID real en el proyecto). Al
+    # re-importar el XML, TIA V21 ve ese ID="0" e intenta CREAR una
+    # tabla nueva en lugar de actualizar la existente, fallando con:
+    #     "Cannot create the 'SW.Tags.PlcTagTable' object with
+    #      Simatic ML ID '0' at line number 4 ... An attempt was made
+    #      to create an object that already exists."
+    #
+    # Solucion: regenerar el ID de la PlcTagTable raiz a un valor
+    # unico MUY ALTO (``max_id + 0x10000``) que no choque con ningun
+    # ID del proyecto TIA. TIA V21 detecta que ese ID no existe en
+    # el proyecto, importa la tabla, y luego reconcilia por nombre
+    # (mecanismo estandar de PlcTagTableComposition.Import). El
+    # resultado: UPDATE de la tabla existente, no CREATE.
+
+    _ROOT_ID_OFFSET = 0x10000  # 65536, holgura para evitar colision
+
+    def regenerate_root_table_id(self) -> str | None:
+        """Regenera el ID de la PlcTagTable raiz a un valor unico alto.
+
+        Returns:
+            El nuevo ID en formato Siemens (hex mayuscula), o ``None``
+            si no hay PlcTagTable en el documento.
+        """
+        _PLC_TAG_TABLE = "{*}SW.Tags.PlcTagTable"
+        table = self._root.find(f".//{_PLC_TAG_TABLE}")
+        if table is None:
+            return None
+        max_id = self._max_id_in_doc()
+        new_id_int = max_id + self._ROOT_ID_OFFSET
+        new_id = f"{new_id_int:X}"  # hex mayuscula, formato Siemens
+        old_id = table.get("ID")
+        table.set("ID", new_id)
+        self._modified = True
+        return new_id

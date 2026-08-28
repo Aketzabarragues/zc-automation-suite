@@ -254,3 +254,115 @@ def test_renumber_ids_increments_correctly(TagTableModifier):
     assert elem.get("ID") == "A"
     assert elem.find("Y").get("ID") == "B"
     assert elem.find("Y").find("Z").get("ID") == "C"
+
+
+def test_regenerate_root_table_id_assigns_unique_high_id(TagTableModifier, tmp_path):
+    """regenerate_root_table_id cambia el ID="0" de la PlcTagTable a uno alto.
+
+    Caso del operario: TIA V21 exporta con ID="0" y al re-importar intenta
+    CREAR (no UPDATE) la tabla, fallando con "Cannot create the object...
+    already exists". El fix asigna un ID unico alto (max+0x10000) para que
+    TIA vea que no existe y haga UPDATE.
+    """
+    xml = '''<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <SW.Tags.PlcTagTable ID="0">
+    <AttributeList><Name>2000_Disp_M</Name></AttributeList>
+    <ObjectList>
+      <SW.Tags.PlcUserConstant ID="1">
+        <AttributeList><DataTypeName>Int</DataTypeName><Name>A</Name><Value>1</Value></AttributeList>
+      </SW.Tags.PlcUserConstant>
+      <SW.Tags.PlcUserConstant ID="4">
+        <AttributeList><DataTypeName>Int</DataTypeName><Name>B</Name><Value>2</Value></AttributeList>
+      </SW.Tags.PlcUserConstant>
+      <SW.Tags.PlcUserConstant ID="A">
+        <AttributeList><DataTypeName>Int</DataTypeName><Name>C</Name><Value>3</Value></AttributeList>
+      </SW.Tags.PlcUserConstant>
+    </ObjectList>
+  </SW.Tags.PlcTagTable>
+</Document>
+'''
+    src = tmp_path / "test.xml"
+    src.write_text(xml, encoding="utf-8")
+    mod = TagTableModifier(src)
+
+    # Antes: tabla con ID="0", max en doc = 0xA
+    table = mod._root.find(".//{*}SW.Tags.PlcTagTable")
+    assert table.get("ID") == "0"
+    assert mod._max_id_in_doc() == 0xA
+
+    # Accion
+    new_id = mod.regenerate_root_table_id()
+    assert new_id is not None
+    # Debe ser max(0xA) + 0x10000 = 0x1000A
+    assert new_id == "1000A", f"Esperaba '1000A', obtuvo '{new_id}'"
+    # La tabla ahora tiene el nuevo ID
+    assert table.get("ID") == "1000A"
+    # El metodo marco el modifier como modificado
+    assert mod.was_modified()
+
+
+def test_regenerate_root_table_id_no_collision_with_existing(tmp_path, TagTableModifier):
+    """El nuevo ID debe ser MAYOR que cualquier ID existente en el doc."""
+    xml = '''<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <SW.Tags.PlcTagTable ID="0">
+    <ObjectList>
+      <SW.Tags.PlcUserConstant ID="1"><AttributeList><Name>A</Name></AttributeList></SW.Tags.PlcUserConstant>
+      <SW.Tags.PlcUserConstant ID="FF"><AttributeList><Name>B</Name></AttributeList></SW.Tags.PlcUserConstant>
+      <SW.Tags.PlcUserConstant ID="1234"><AttributeList><Name>C</Name></AttributeList></SW.Tags.PlcUserConstant>
+    </ObjectList>
+  </SW.Tags.PlcTagTable>
+</Document>
+'''
+    src = tmp_path / "test.xml"
+    src.write_text(xml, encoding="utf-8")
+    mod = TagTableModifier(src)
+    new_id = mod.regenerate_root_table_id()
+
+    # max en doc = 0x1234 = 4660
+    # new = 4660 + 65536 = 70196 = 0x11224
+    expected = f"{0x1234 + 0x10000:X}"
+    assert new_id == expected, f"Esperaba '{expected}', obtuvo '{new_id}'"
+
+    # Verificar que el nuevo ID no choca con ninguno existente
+    all_ids = [e.get("ID") for e in mod._root.iter() if "ID" in e.attrib]
+    assert all_ids.count(new_id) == 1, (
+        f"ID regenerado '{new_id}' aparece más de una vez en el documento"
+    )
+
+
+def test_regenerate_root_table_id_returns_none_if_no_table(TagTableModifier, tmp_path):
+    """Si no hay PlcTagTable, devuelve None (no rompe)."""
+    xml = (
+        '<Document>'
+        '<Other ID="1"/>'
+        '</Document>'
+    )
+    src = tmp_path / "test.xml"
+    src.write_text(xml, encoding="utf-8")
+    mod = TagTableModifier(src)
+    assert mod.regenerate_root_table_id() is None
+
+
+@pytest.mark.skipif(
+    not _OPERATOR_XML.exists(),
+    reason="Requiere _source/.build_cache/base/tags/2000_Disp_M.xml (XML real del operario)",
+)
+def test_regenerate_root_table_id_against_real_operator_xml(TagTableModifier, tmp_path):
+    """E2E con XML real: regenera el ID de la PlcTagTable del operario."""
+    dst = tmp_path / "2000_Disp_M.xml"
+    dst.write_bytes(_OPERATOR_XML.read_bytes())
+    mod = TagTableModifier(dst)
+
+    table = mod._root.find(".//{*}SW.Tags.PlcTagTable")
+    assert table is not None
+    assert table.get("ID") == "0", "Esperaba ID='0' del export de TIA"
+
+    new_id = mod.regenerate_root_table_id()
+    assert new_id is not None
+    # Verificar formato Siemens: hex mayuscula
+    int(new_id, 16)
+    # Y que es > cualquier ID existente (max real = 0xC = 12)
+    assert int(new_id, 16) > 12
+    assert table.get("ID") == new_id

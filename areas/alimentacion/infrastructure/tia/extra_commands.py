@@ -392,6 +392,12 @@ def make_cmd_commit_devices_sync() -> Callable[..., Any]:
                     table_name, adds
                 )
                 removed_count = modifier.remove_user_constants(removes)
+                # CRITICO: regenerar el ID de la PlcTagTable raiz. TIA
+                # exporta con ID="0" (placeholder), y al re-importar
+                # V21 intenta CREAR en vez de actualizar, fallando con
+                # "Cannot create... already exists". Asignamos un ID
+                # unico alto (max+0x10000) para forzar la ruta de UPDATE.
+                new_table_id = modifier.regenerate_root_table_id()
                 if modifier.was_modified():
                     modifier.save(xml_path)
                 _record(
@@ -400,6 +406,7 @@ def make_cmd_commit_devices_sync() -> Callable[..., Any]:
                         "added": added_count,
                         "removed": removed_count,
                         "modified": modifier.was_modified(),
+                        "new_table_id": new_table_id,
                     },
                 )
 
