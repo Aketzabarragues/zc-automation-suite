@@ -608,22 +608,16 @@ async def test_ejecutar_transaccion_handles_compile_exception_gracefully(
 
 
 @pytest.mark.asyncio
-async def test_ejecutar_transaccion_passes_bypass_flags_from_env(
-    use_case, mock_gateway, monkeypatch
+async def test_ejecutar_transaccion_passes_bypass_flags_as_kwargs(
+    use_case, mock_gateway
 ):
-    """Las env vars ZC_SYNC_* se leen en el use case y se pasan al gateway.
+    """Los flags de bypass se pasan como kwargs del use case.
 
-    Esto permite al operario acotar el sync por fase SIN recompilar:
-      set ZC_SYNC_RENAMES=0 → solo N_MAX
-      set ZC_SYNC_DEVICES=0  → N_MAX + renames
-    Verificamos el camino inverso: el use case lee las env vars y
-    propaga los flags correctos al gateway.
+    Esto permite al operario acotar el sync por fase SIN recompilar
+    ni tocar env vars: los flags vienen en el body del endpoint
+    ``POST /api/v1/sync/commit`` (ver ``InstancesCommitRequest`` en
+    areas/alimentacion/interfaces/web/sync.py).
     """
-    import os
-    # Forzamos que SOLO N_MAX este activo (renames y devices bypassed).
-    monkeypatch.setenv("ZC_SYNC_NMAX", "1")
-    monkeypatch.setenv("ZC_SYNC_RENAMES", "0")
-    monkeypatch.setenv("ZC_SYNC_DEVICES", "0")
     # Necesitamos al menos 1 N_MAX op para que el batch no haga early-return.
     use_case._state.dimensiones = DimensionesDispositivos(
         num_disp_ed=15, num_disp_ea=0, num_disp_sa=0,
@@ -632,7 +626,12 @@ async def test_ejecutar_transaccion_passes_bypass_flags_from_env(
     mock_gateway.commit_devices_sync = AsyncMock(
         return_value={"success": True, "operations_executed": 1, "details": []}
     )
-    await use_case.ejecutar_transaccion("PLC1", {})
+    await use_case.ejecutar_transaccion(
+        "PLC1", {},
+        enable_nmax=True,
+        enable_renames=False,
+        enable_devices=False,
+    )
     mock_gateway.commit_devices_sync.assert_called_once()
     call = mock_gateway.commit_devices_sync.call_args
     assert call.kwargs.get("enable_nmax") is True
@@ -642,12 +641,9 @@ async def test_ejecutar_transaccion_passes_bypass_flags_from_env(
 
 @pytest.mark.asyncio
 async def test_ejecutar_transaccion_bypass_flags_default_true(
-    use_case, mock_gateway, monkeypatch
+    use_case, mock_gateway
 ):
-    """Sin env vars (o con valores invalidos), todos los flags son True."""
-    import os
-    for v in ("ZC_SYNC_NMAX", "ZC_SYNC_RENAMES", "ZC_SYNC_DEVICES"):
-        monkeypatch.delenv(v, raising=False)
+    """Sin pasar los flags (defaults), todos son True."""
     use_case._state.dimensiones = DimensionesDispositivos(
         num_disp_ed=15, num_disp_ea=0, num_disp_sa=0,
         num_disp_v=10, num_disp_m=0, num_disp_m_vf=0,
@@ -663,22 +659,18 @@ async def test_ejecutar_transaccion_bypass_flags_default_true(
 
 
 @pytest.mark.asyncio
-async def test_ejecutar_transaccion_bypass_env_various_truthy_values(
-    use_case, mock_gateway, monkeypatch
+async def test_ejecutar_transaccion_bypass_flags_independent(
+    use_case, mock_gateway
 ):
-    """Acepta varios formatos: 1/true/yes/on (True) y 0/false/no/off (False)."""
-    import os
+    """Cada flag es independiente. Podemos activar/desactivar cualquiera."""
     test_cases = [
-        (("1", "0", "true"), (True, False, True)),
-        (("false", "yes", "off"), (False, True, False)),
-        (("on", "no", "1"), (True, False, True)),
-        (("", "1", "1"), (True, True, True)),  # vacio = default
-        (("invalid", "1", "1"), (True, True, True)),  # invalido = default
+        (True, False, False),   # solo N_MAX
+        (True, True, False),    # N_MAX + renames (sin devices)
+        (False, True, True),    # renames + devices (sin N_MAX)
+        (True, True, True),     # todo
+        (False, False, False),  # nada (no-op, batch no se invoca)
     ]
-    for nmax_env, expected in test_cases:
-        monkeypatch.setenv("ZC_SYNC_NMAX", nmax_env[0])
-        monkeypatch.setenv("ZC_SYNC_RENAMES", nmax_env[1])
-        monkeypatch.setenv("ZC_SYNC_DEVICES", nmax_env[2])
+    for en, er, ed in test_cases:
         use_case._state.dimensiones = DimensionesDispositivos(
             num_disp_ed=15, num_disp_ea=0, num_disp_sa=0,
             num_disp_v=10, num_disp_m=0, num_disp_m_vf=0,
@@ -686,11 +678,14 @@ async def test_ejecutar_transaccion_bypass_env_various_truthy_values(
         mock_gateway.commit_devices_sync = AsyncMock(
             return_value={"success": True, "operations_executed": 1, "details": []}
         )
-        await use_case.ejecutar_transaccion("PLC1", {})
-        call = mock_gateway.commit_devices_sync.call_args
-        assert call.kwargs.get("enable_nmax") == expected[0], (
-            f"env=({nmax_env!r}) expected enable_nmax={expected[0]}, "
-            f"got {call.kwargs.get('enable_nmax')}"
+        await use_case.ejecutar_transaccion(
+            "PLC1", {},
+            enable_nmax=en, enable_renames=er, enable_devices=ed,
         )
-        assert call.kwargs.get("enable_renames") == expected[1]
-        assert call.kwargs.get("enable_devices") == expected[2]
+        call = mock_gateway.commit_devices_sync.call_args
+        assert call.kwargs.get("enable_nmax") == en
+        assert call.kwargs.get("enable_renames") == er
+        assert call.kwargs.get("enable_devices") == ed, (
+            f"flags=({en},{er},{ed}): expected enable_devices={ed}, "
+            f"got {call.kwargs.get('enable_devices')}"
+        )

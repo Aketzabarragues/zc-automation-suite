@@ -65,28 +65,6 @@ _logger = logging.getLogger(
 )
 
 
-def _env_bool(name: str, default: bool) -> bool:
-    """Lee una variable de entorno como bool.
-
-    Acepta ``1``, ``true``, ``yes``, ``on`` (case-insensitive) como True.
-    Acepta ``0``, ``false``, ``no``, ``off`` como False.
-    Cualquier otro valor o variable ausente devuelve ``default``.
-
-    Usado por el bypass progresivo del sync dispositivos
-    (ZC_SYNC_NMAX / ZC_SYNC_RENAMES / ZC_SYNC_DEVICES).
-    """
-    import os
-    raw = os.environ.get(name)
-    if raw is None or raw == "":
-        return default
-    lowered = raw.strip().lower()
-    if lowered in ("1", "true", "yes", "on", "si", "sí"):
-        return True
-    if lowered in ("0", "false", "no", "off"):
-        return False
-    return default
-
-
 class SyncDispositivosInstancesUseCase:
     """Caso de Uso: sincroniza N_MAX + instancias del subdominio alimentacion.
 
@@ -339,7 +317,12 @@ class SyncDispositivosInstancesUseCase:
             raise
 
     async def ejecutar_transaccion(
-        self, plc_name: str, prevision: dict[str, Any]
+        self,
+        plc_name: str,
+        prevision: dict[str, Any],
+        enable_nmax: bool = True,
+        enable_renames: bool = True,
+        enable_devices: bool = True,
     ) -> dict[str, Any]:
         """Ejecuta el diff completo (N_MAX + devices) en UNA transacci\u00f3n \u00fanica.
 
@@ -365,6 +348,11 @@ class SyncDispositivosInstancesUseCase:
                 directamente (se recalcula desde el AppState para
                 evitar race conditions); se conserva en la firma por
                 back-compat con la SPA.
+            enable_nmax: si False, omite la fase N_MAX (bypass para
+                acotar el error durante el diagnostico). Default True.
+            enable_renames: si False, omite la fase renames. Default True.
+            enable_devices: si False, omite la fase devices (export+edit+
+                import). Default True.
         """
         # ── Progress tracking (overlay SPA) ────────────────────────
         # 7 stages fijos que reflejan las operaciones reales del flujo
@@ -515,16 +503,14 @@ class SyncDispositivosInstancesUseCase:
             work_dir.mkdir(parents=True, exist_ok=True)
 
             # Bypass progresivo para acotar el error durante el
-            # diagnostico en PLC real. Si una fase falla y la otra no,
-            # sabemos donde esta el problema. El operario controla el
-            # bypass con variables de entorno (sin recompilar):
-            #   set ZC_SYNC_RENAMES=0 → solo N_MAX
-            #   set ZC_SYNC_DEVICES=0 → N_MAX + renames
-            #   (sin env vars, o con todas a 1: flujo completo)
-            # Default: todas activas (True).
-            enable_nmax = _env_bool("ZC_SYNC_NMAX", True)
-            enable_renames = _env_bool("ZC_SYNC_RENAMES", True)
-            enable_devices = _env_bool("ZC_SYNC_DEVICES", True)
+            # diagnostico en PLC real. Controlado por parametros del
+            # use case (que vienen del body del endpoint REST, o se
+            # pasan directamente en tests). Si una fase falla y la
+            # otra no, sabemos donde esta el problema.
+            #   enable_nmax=False    → solo renames + devices
+            #   enable_renames=False → solo N_MAX + devices
+            #   enable_devices=False → solo N_MAX + renames
+            # (sin parametros, default: todas activas = True).
             bypass_summary = []
             if not enable_nmax:
                 bypass_summary.append("N_MAX")
