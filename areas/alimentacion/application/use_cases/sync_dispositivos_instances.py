@@ -380,7 +380,11 @@ class SyncDispositivosInstancesUseCase:
             # el diff (defensivo: cualquier fallo previo puede haber
             # dejado ``tags_base/`` con contenido parcial).
             if tags_base.exists():
-                shutil.rmtree(tags_base)
+                # ignore_errors=True: si un archivo esta bloqueado por
+                # otro proceso (TIA Portal tiene un .xml abierto,
+                # antivirus, etc.), seguimos sin abortar. El worker
+                # exporta los XMLs frescos y sobrescribe lo necesario.
+                shutil.rmtree(tags_base, ignore_errors=True)
             tags_base.mkdir(parents=True, exist_ok=True)
             self._progress.start_stage(
                 "export_tags", "Exportando 7 tablas del PLC (selectivo)..."
@@ -498,7 +502,10 @@ class SyncDispositivosInstancesUseCase:
                 self._build_cache / self._COMMIT_SUBDIR / self._TAG_TABLES_SUBDIR
             )
             if work_dir.exists():
-                shutil.rmtree(work_dir)
+                # ignore_errors=True: ver comentario arriba. El worker
+                # exporta los XMLs de las 7 tablas en work_dir/ y los
+                # re-importa; un cleanup parcial no rompe el flujo.
+                shutil.rmtree(work_dir, ignore_errors=True)
             work_dir.mkdir(parents=True, exist_ok=True)
 
             # Bypass progresivo para acotar el error durante el
