@@ -605,3 +605,92 @@ async def test_ejecutar_transaccion_handles_compile_exception_gracefully(
     # Pero compile_ok=False y compile_error tiene la excepcion.
     assert result["compile_ok"] is False
     assert "TIA Openness timeout" in result["compile_error"]
+
+
+@pytest.mark.asyncio
+async def test_ejecutar_transaccion_passes_bypass_flags_from_env(
+    use_case, mock_gateway, monkeypatch
+):
+    """Las env vars ZC_SYNC_* se leen en el use case y se pasan al gateway.
+
+    Esto permite al operario acotar el sync por fase SIN recompilar:
+      set ZC_SYNC_RENAMES=0 → solo N_MAX
+      set ZC_SYNC_DEVICES=0  → N_MAX + renames
+    Verificamos el camino inverso: el use case lee las env vars y
+    propaga los flags correctos al gateway.
+    """
+    import os
+    # Forzamos que SOLO N_MAX este activo (renames y devices bypassed).
+    monkeypatch.setenv("ZC_SYNC_NMAX", "1")
+    monkeypatch.setenv("ZC_SYNC_RENAMES", "0")
+    monkeypatch.setenv("ZC_SYNC_DEVICES", "0")
+    # Necesitamos al menos 1 N_MAX op para que el batch no haga early-return.
+    use_case._state.dimensiones = DimensionesDispositivos(
+        num_disp_ed=15, num_disp_ea=0, num_disp_sa=0,
+        num_disp_v=10, num_disp_m=0, num_disp_m_vf=0,
+    )
+    mock_gateway.commit_devices_sync = AsyncMock(
+        return_value={"success": True, "operations_executed": 1, "details": []}
+    )
+    await use_case.ejecutar_transaccion("PLC1", {})
+    mock_gateway.commit_devices_sync.assert_called_once()
+    call = mock_gateway.commit_devices_sync.call_args
+    assert call.kwargs.get("enable_nmax") is True
+    assert call.kwargs.get("enable_renames") is False
+    assert call.kwargs.get("enable_devices") is False
+
+
+@pytest.mark.asyncio
+async def test_ejecutar_transaccion_bypass_flags_default_true(
+    use_case, mock_gateway, monkeypatch
+):
+    """Sin env vars (o con valores invalidos), todos los flags son True."""
+    import os
+    for v in ("ZC_SYNC_NMAX", "ZC_SYNC_RENAMES", "ZC_SYNC_DEVICES"):
+        monkeypatch.delenv(v, raising=False)
+    use_case._state.dimensiones = DimensionesDispositivos(
+        num_disp_ed=15, num_disp_ea=0, num_disp_sa=0,
+        num_disp_v=10, num_disp_m=0, num_disp_m_vf=0,
+    )
+    mock_gateway.commit_devices_sync = AsyncMock(
+        return_value={"success": True, "operations_executed": 1, "details": []}
+    )
+    await use_case.ejecutar_transaccion("PLC1", {})
+    call = mock_gateway.commit_devices_sync.call_args
+    assert call.kwargs.get("enable_nmax") is True
+    assert call.kwargs.get("enable_renames") is True
+    assert call.kwargs.get("enable_devices") is True
+
+
+@pytest.mark.asyncio
+async def test_ejecutar_transaccion_bypass_env_various_truthy_values(
+    use_case, mock_gateway, monkeypatch
+):
+    """Acepta varios formatos: 1/true/yes/on (True) y 0/false/no/off (False)."""
+    import os
+    test_cases = [
+        (("1", "0", "true"), (True, False, True)),
+        (("false", "yes", "off"), (False, True, False)),
+        (("on", "no", "1"), (True, False, True)),
+        (("", "1", "1"), (True, True, True)),  # vacio = default
+        (("invalid", "1", "1"), (True, True, True)),  # invalido = default
+    ]
+    for nmax_env, expected in test_cases:
+        monkeypatch.setenv("ZC_SYNC_NMAX", nmax_env[0])
+        monkeypatch.setenv("ZC_SYNC_RENAMES", nmax_env[1])
+        monkeypatch.setenv("ZC_SYNC_DEVICES", nmax_env[2])
+        use_case._state.dimensiones = DimensionesDispositivos(
+            num_disp_ed=15, num_disp_ea=0, num_disp_sa=0,
+            num_disp_v=10, num_disp_m=0, num_disp_m_vf=0,
+        )
+        mock_gateway.commit_devices_sync = AsyncMock(
+            return_value={"success": True, "operations_executed": 1, "details": []}
+        )
+        await use_case.ejecutar_transaccion("PLC1", {})
+        call = mock_gateway.commit_devices_sync.call_args
+        assert call.kwargs.get("enable_nmax") == expected[0], (
+            f"env=({nmax_env!r}) expected enable_nmax={expected[0]}, "
+            f"got {call.kwargs.get('enable_nmax')}"
+        )
+        assert call.kwargs.get("enable_renames") == expected[1]
+        assert call.kwargs.get("enable_devices") == expected[2]

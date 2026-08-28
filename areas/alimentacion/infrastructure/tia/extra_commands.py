@@ -195,11 +195,24 @@ def make_cmd_commit_devices_sync() -> Callable[..., Any]:
         nmax_ops: list[dict[str, Any]] = args.get("nmax_ops") or []
         rename_ops: list[dict[str, Any]] = args.get("rename_ops") or []
         device_changes: list[dict[str, Any]] = args.get("device_changes") or []
+        # Flags de bypass para acotar el error durante el diagnostico en
+        # PLC real. Default True (todo activo). El use case los controla
+        # via variables de entorno ZC_SYNC_NMAX / ZC_SYNC_RENAMES /
+        # ZC_SYNC_DEVICES (ver areas/.../sync_dispositivos_instances.py).
+        # Si un flag es False, su fase se OMITE (no se ejecuta). El op
+        # sigue bajo UNA sola transaccion del wrapper del batch.
+        enable_nmax: bool = bool(args.get("enable_nmax", True))
+        enable_renames: bool = bool(args.get("enable_renames", True))
+        enable_devices: bool = bool(args.get("enable_devices", True))
 
         if not plc_name:
             raise ValueError("Se requiere el argumento 'plc_name'.")
         if not work_dir:
             raise ValueError("Se requiere el argumento 'work_dir'.")
+        # Bypass explicito via args vacios: si el caller envia listas
+        # vacias para una fase, eso es lo que se ejecuta (no un flag
+        # False). Distinguimos: flag False = "omite la fase por bypass";
+        # lista vacia = "no hay cambios que aplicar en esta fase".
 
         # Import lazy del core del worker (sigue el mismo patrón que
         # los otros handlers de este módulo: evita el ciclo
@@ -248,40 +261,84 @@ def make_cmd_commit_devices_sync() -> Callable[..., Any]:
         # cadena (N_MAX + renames + devices) lo gestiona el wrapper.
         try:
             # 1. N_MAX online (dentro de la tx del wrapper).
-            for nmax_op in nmax_ops:
-                op_label = (
-                    f"update_user_constant_value("
-                    f"{nmax_op.get('constant_name')})"
-                )
-                r = _cmd_update_user_constant_value(
-                    portal, ts, {
-                        "plc_name": plc_name,
-                        "table_name": nmax_op["table_name"],
-                        "constant_name": nmax_op["constant_name"],
-                        "new_value": nmax_op["new_value"],
-                    }
-                )
-                _record("update_user_constant_value", r)
+            if enable_nmax:
+                for nmax_op in nmax_ops:
+                    op_label = (
+                        f"update_user_constant_value("
+                        f"{nmax_op.get('constant_name')})"
+                    )
+                    r = _cmd_update_user_constant_value(
+                        portal, ts, {
+                            "plc_name": plc_name,
+                            "table_name": nmax_op["table_name"],
+                            "constant_name": nmax_op["constant_name"],
+                            "new_value": nmax_op["new_value"],
+                        }
+                    )
+                    _record("update_user_constant_value", r)
+            else:
+                # Bypass activo: omitir N_MAX. Si hay ops calculadas
+                # (porque el preview ya las detecto), las reportamos en
+                # el log via results_list para que el operario sepa
+                # que se omitieron.
+                for nmax_op in nmax_ops:
+                    _record("update_user_constant_value[SKIPPED]", {
+                        "table_name": nmax_op.get("table_name"),
+                        "constant_name": nmax_op.get("constant_name"),
+                        "new_value": nmax_op.get("new_value"),
+                    })
 
             # 2. Renames online.
-            for rename_op in rename_ops:
-                op_label = (
-                    f"update_user_constant_name("
-                    f"{rename_op.get('table_name')}:"
-                    f"{rename_op.get('current_name')}->"
-                    f"{rename_op.get('new_name')})"
-                )
-                r = _cmd_update_user_constant_name(
-                    portal, ts, {
-                        "plc_name": plc_name,
-                        "table_name": rename_op["table_name"],
-                        "current_name": rename_op["current_name"],
-                        "new_name": rename_op["new_name"],
-                    }
-                )
-                _record("update_user_constant_name", r)
+            if enable_renames:
+                for rename_op in rename_ops:
+                    op_label = (
+                        f"update_user_constant_name("
+                        f"{rename_op.get('table_name')}:"
+                        f"{rename_op.get('current_name')}->"
+                        f"{rename_op.get('new_name')})"
+                    )
+                    r = _cmd_update_user_constant_name(
+                        portal, ts, {
+                            "plc_name": plc_name,
+                            "table_name": rename_op["table_name"],
+                            "current_name": rename_op["current_name"],
+                            "new_name": rename_op["new_name"],
+                        }
+                    )
+                    _record("update_user_constant_name", r)
+            else:
+                for rename_op in rename_ops:
+                    _record("update_user_constant_name[SKIPPED]", {
+                        "table_name": rename_op.get("table_name"),
+                        "current_name": rename_op.get("current_name"),
+                        "new_name": rename_op.get("new_name"),
+                    })
 
             # 3. Devices: export + edit + import por cada tabla.
+            if not enable_devices:
+                # Bypass activo: omitir devices. Reportamos las tablas
+                # que se habrian modificado para que el operario vea
+                # el alcance del bypass.
+                for dev_change in device_changes:
+                    _record(
+                        f"devices_table[SKIPPED]",
+                        {
+                            "table_name": dev_change.get("table_name"),
+                            "tia_folder": dev_change.get("tia_folder"),
+                            "adds": dev_change.get("adds") or [],
+                            "removes": dev_change.get("removes") or [],
+                        },
+                    )
+                # Importante: aunque la fase devices esta bypassed, el
+                # op sigue retornando success=True con results_list
+                # poblado. El lote entero del batch wrapper hace commit
+                # (rollback=False) si no hubo excepciones previas.
+                return {
+                    "success": True,
+                    "operations_executed": step_idx,
+                    "details": results_list,
+                }
+
             for dev_change in device_changes:
                 table_name: str = dev_change["table_name"]
                 tia_folder: str = dev_change.get("tia_folder", "")

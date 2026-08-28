@@ -144,7 +144,8 @@ def test_ejecutar_transaccion_emits_7_stages(
     gateway.execute_transactional_batch = fake_batch  # type: ignore[method-assign]
     # commit_devices_sync (nuevo op compuesto): reusamos fake_batch como stub.
     async def fake_commit(
-        plc_name, nmax_ops, rename_ops, device_changes, work_dir, undo_text="",
+        plc_name, nmax_ops, rename_ops, device_changes, work_dir,
+        undo_text="", **kwargs,
     ):
         return {
             "success": True,
@@ -213,7 +214,8 @@ def test_ejecutar_transaccion_finish_false_on_batch_failure(
     # commit_devices_sync: simulamos el mismo error para que el use case
     # propague la excepcion y el tracker termine en error.
     async def fake_commit(
-        plc_name, nmax_ops, rename_ops, device_changes, work_dir, undo_text="",
+        plc_name, nmax_ops, rename_ops, device_changes, work_dir,
+        undo_text="", **kwargs,
     ):
         raise RuntimeError("commit_devices_sync abortado en el paso 1")
     gateway.commit_devices_sync = fake_commit  # type: ignore[method-assign]
@@ -289,7 +291,8 @@ async def test_apply_comentarios_disp_fallo_no_revienta_el_commit(
     # commit_devices_sync: stub OK (la idea del test es que el commit
     # global sea exitoso aunque fallen los comentarios).
     async def fake_commit(
-        plc_name, nmax_ops, rename_ops, device_changes, work_dir, undo_text="",
+        plc_name, nmax_ops, rename_ops, device_changes, work_dir,
+        undo_text="", **kwargs,
     ):
         return {
             "success": True,

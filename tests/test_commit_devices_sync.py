@@ -160,3 +160,95 @@ def test_commit_devices_sync_propagates_exception_to_wrapper(
         )
     # El op NO cerro la tx (deja que el wrapper lo haga).
     project.end_transaction.assert_not_called()
+
+
+
+
+def test_commit_devices_sync_bypass_devices_returns_skipped(tmp_path: Path) -> None:
+    """Con enable_devices=False, el op retorna success=True con details
+    marcados como ``[SKIPPED]``. Verifica que ``end_transaction`` NO se
+    llama (la tx la gestiona el batch wrapper, no el op).
+    """
+    portal = MagicMock()
+    project = MagicMock()
+    plc = MagicMock()
+    project.get_plcs.return_value = [plc]
+    plc.get_name.return_value = "PLC_X"
+    plc.get_plc_tag_tables.return_value = []
+    plc.import_plc_tags = MagicMock(return_value=True)
+    portal.get_project.return_value = project
+    project.start_transaction = MagicMock()
+    project.end_transaction = MagicMock()
+
+    handler = extra_commands.make_cmd_commit_devices_sync()
+    result = handler(
+        portal=portal, ts=MagicMock(),
+        args={
+            "plc_name": "PLC_X",
+            "work_dir": str(tmp_path),
+            "nmax_ops": [],
+            "rename_ops": [],
+            "device_changes": [
+                {
+                    "table_name": "2000_Disp_ED",
+                    "tia_folder": "2000_Dispositivos",
+                    "adds": [{"plc_tag": "V_X", "uid": "99"}],
+                    "removes": [],
+                },
+            ],
+            "enable_nmax": True,
+            "enable_renames": True,
+            "enable_devices": False,
+        },
+    )
+    assert result["success"] is True
+    # El detail del device debe estar marcado como SKIPPED.
+    details = result["details"]
+    assert len(details) == 1
+    assert "SKIPPED" in details[0]["command"]
+    assert details[0]["result"]["table_name"] == "2000_Disp_ED"
+    # La tx NO se cierra aqui (la gestiona el batch wrapper).
+    project.end_transaction.assert_not_called()
+
+
+def test_commit_devices_sync_bypass_skipped_records_for_nmax_and_renames(
+    tmp_path: Path,
+) -> None:
+    """Con todos los flags en False, los details muestran SKIPPED para
+    cada op que se habria aplicado. Sin accexiones a TIA.
+    """
+    portal = MagicMock()
+    project = MagicMock()
+    plc = MagicMock()
+    project.get_plcs.return_value = [plc]
+    plc.get_name.return_value = "PLC_X"
+    plc.get_plc_tag_tables.return_value = []
+    plc.import_plc_tags = MagicMock(return_value=True)
+    portal.get_project.return_value = project
+    project.start_transaction = MagicMock()
+    project.end_transaction = MagicMock()
+
+    handler = extra_commands.make_cmd_commit_devices_sync()
+    result = handler(
+        portal=portal, ts=MagicMock(),
+        args={
+            "plc_name": "PLC_X",
+            "work_dir": str(tmp_path),
+            "nmax_ops": [
+                {"table_name": "T_N", "constant_name": "N1", "new_value": 1},
+                {"table_name": "T_N", "constant_name": "N2", "new_value": 2},
+            ],
+            "rename_ops": [
+                {"table_name": "T_R", "current_name": "A", "new_name": "B"},
+            ],
+            "device_changes": [],
+            "enable_nmax": False,
+            "enable_renames": False,
+            "enable_devices": False,
+        },
+    )
+    assert result["success"] is True
+    # 2 N_MAX skipped + 1 rename skipped = 3 entries.
+    details = result["details"]
+    assert len(details) == 3
+    assert all("SKIPPED" in d["command"] for d in details)

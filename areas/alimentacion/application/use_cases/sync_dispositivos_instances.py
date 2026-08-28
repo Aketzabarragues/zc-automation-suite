@@ -65,6 +65,28 @@ _logger = logging.getLogger(
 )
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    """Lee una variable de entorno como bool.
+
+    Acepta ``1``, ``true``, ``yes``, ``on`` (case-insensitive) como True.
+    Acepta ``0``, ``false``, ``no``, ``off`` como False.
+    Cualquier otro valor o variable ausente devuelve ``default``.
+
+    Usado por el bypass progresivo del sync dispositivos
+    (ZC_SYNC_NMAX / ZC_SYNC_RENAMES / ZC_SYNC_DEVICES).
+    """
+    import os
+    raw = os.environ.get(name)
+    if raw is None or raw == "":
+        return default
+    lowered = raw.strip().lower()
+    if lowered in ("1", "true", "yes", "on", "si", "sí"):
+        return True
+    if lowered in ("0", "false", "no", "off"):
+        return False
+    return default
+
+
 class SyncDispositivosInstancesUseCase:
     """Caso de Uso: sincroniza N_MAX + instancias del subdominio alimentacion.
 
@@ -492,6 +514,33 @@ class SyncDispositivosInstancesUseCase:
                 shutil.rmtree(work_dir)
             work_dir.mkdir(parents=True, exist_ok=True)
 
+            # Bypass progresivo para acotar el error durante el
+            # diagnostico en PLC real. Si una fase falla y la otra no,
+            # sabemos donde esta el problema. El operario controla el
+            # bypass con variables de entorno (sin recompilar):
+            #   set ZC_SYNC_RENAMES=0 → solo N_MAX
+            #   set ZC_SYNC_DEVICES=0 → N_MAX + renames
+            #   (sin env vars, o con todas a 1: flujo completo)
+            # Default: todas activas (True).
+            enable_nmax = _env_bool("ZC_SYNC_NMAX", True)
+            enable_renames = _env_bool("ZC_SYNC_RENAMES", True)
+            enable_devices = _env_bool("ZC_SYNC_DEVICES", True)
+            bypass_summary = []
+            if not enable_nmax:
+                bypass_summary.append("N_MAX")
+            if not enable_renames:
+                bypass_summary.append("renames")
+            if not enable_devices:
+                bypass_summary.append("devices")
+            if bypass_summary:
+                _logger.warning(
+                    f"[{plc_name}] Bypass activo: fases omitidas = {bypass_summary}. "
+                    f"Solo se aplican: "
+                    f"{'N_MAX ' if enable_nmax else ''}"
+                    f"{'renames ' if enable_renames else ''}"
+                    f"{'devices' if enable_devices else ''}".rstrip()
+                )
+
             self._progress.start_stage(
                 "open_transaction",
                 f"Aplicando {len(nmax_ops)} N_MAX + {len(rename_ops)} renames "
@@ -505,6 +554,9 @@ class SyncDispositivosInstancesUseCase:
                 device_changes=device_changes,
                 work_dir=str(work_dir),
                 undo_text="Sincronizar N_MAX + Dispositivos",
+                enable_nmax=enable_nmax,
+                enable_renames=enable_renames,
+                enable_devices=enable_devices,
             )
             self._progress.finish_stage(
                 "open_transaction",
