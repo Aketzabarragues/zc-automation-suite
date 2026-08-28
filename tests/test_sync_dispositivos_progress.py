@@ -77,7 +77,9 @@ def test_generar_prevision_emits_4_stages(
     → compute_nmax → build_response."""
     gateway = MagicMock(spec=TIAProcessGateway)
     # El gateway.export_plc_tags_xml crea el directorio. Lo simulamos.
-    async def fake_export(plc_name: str, target_dir: str) -> str:
+    async def fake_export(
+        plc_name: str, target_dir: str, table_names=None
+    ) -> str:
         Path(target_dir).mkdir(parents=True, exist_ok=True)
         return target_dir
 
@@ -130,7 +132,9 @@ def test_ejecutar_transaccion_emits_7_stages(
 ) -> None:
     """``ejecutar_transaccion`` emite 7 stages (incluye ``apply_comentarios_disp``)."""
     gateway = MagicMock(spec=TIAProcessGateway)
-    async def fake_export(plc_name: str, target_dir: str) -> str:
+    async def fake_export(
+        plc_name: str, target_dir: str, table_names=None
+    ) -> str:
         Path(target_dir).mkdir(parents=True, exist_ok=True)
         return target_dir
     gateway.export_plc_tags_xml = fake_export  # type: ignore[method-assign]
@@ -138,6 +142,18 @@ def test_ejecutar_transaccion_emits_7_stages(
     async def fake_batch(operations, undo_text=""):
         return {"success": True, "operations_executed": len(operations), "details": []}
     gateway.execute_transactional_batch = fake_batch  # type: ignore[method-assign]
+    # commit_devices_sync (nuevo op compuesto): reusamos fake_batch como stub.
+    async def fake_commit(
+        plc_name, nmax_ops, rename_ops, device_changes, work_dir, undo_text="",
+    ):
+        return {
+            "success": True,
+            "operations_executed": (
+                len(nmax_ops) + len(rename_ops) + 3 * len(device_changes)
+            ),
+            "details": [],
+        }
+    gateway.commit_devices_sync = fake_commit  # type: ignore[method-assign]
     # compile_plc retorna False (sin errores)
     async def fake_compile(plc_name: str) -> bool:
         return False
@@ -184,7 +200,9 @@ def test_ejecutar_transaccion_finish_false_on_batch_failure(
     """Si ``execute_transactional_batch`` falla, ``progress.finish(success=False)``
     se llama antes del ``raise``."""
     gateway = MagicMock(spec=TIAProcessGateway)
-    async def fake_export(plc_name: str, target_dir: str) -> str:
+    async def fake_export(
+        plc_name: str, target_dir: str, table_names=None
+    ) -> str:
         Path(target_dir).mkdir(parents=True, exist_ok=True)
         return target_dir
     gateway.export_plc_tags_xml = fake_export  # type: ignore[method-assign]
@@ -192,6 +210,13 @@ def test_ejecutar_transaccion_finish_false_on_batch_failure(
     async def fake_batch(operations, undo_text=""):
         raise RuntimeError("Lote abortado en el paso 1")
     gateway.execute_transactional_batch = fake_batch  # type: ignore[method-assign]
+    # commit_devices_sync: simulamos el mismo error para que el use case
+    # propague la excepcion y el tracker termine en error.
+    async def fake_commit(
+        plc_name, nmax_ops, rename_ops, device_changes, work_dir, undo_text="",
+    ):
+        raise RuntimeError("commit_devices_sync abortado en el paso 1")
+    gateway.commit_devices_sync = fake_commit  # type: ignore[method-assign]
 
     use_case = SyncDispositivosInstancesUseCase(
         gateway=gateway,
@@ -224,13 +249,13 @@ def test_ejecutar_transaccion_finish_false_on_batch_failure(
         }]
     )
 
-    with pytest.raises(RuntimeError, match="Lote abortado"):
+    with pytest.raises(RuntimeError, match="commit_devices_sync abortado"):
         asyncio.run(use_case.ejecutar_transaccion("PLC_TEST", {}))
 
     snap = fresh_tracker.snapshot()
     assert snap.active is False
     assert snap.error is not None
-    assert "Lote abortado" in snap.error
+    assert "commit_devices_sync abortado" in snap.error
     # El último stage en running (open_transaction) debe estar en error.
     open_tx = next(
         (s for s in snap.stages if s["id"] == "open_transaction"),
@@ -254,13 +279,26 @@ async def test_apply_comentarios_disp_fallo_no_revienta_el_commit(
     endpoint dedicado. Verifica el comportamiento best-effort del stage 7.
     """
     gateway = MagicMock(spec=TIAProcessGateway)
-    async def fake_export(plc_name, target_dir):
+    async def fake_export(plc_name, target_dir, table_names=None):
         Path(target_dir).mkdir(parents=True, exist_ok=True)
         return target_dir
     gateway.export_plc_tags_xml = fake_export  # type: ignore[method-assign]
     async def fake_batch(operations, undo_text=""):
         return {"success": True, "operations_executed": len(operations), "details": []}
     gateway.execute_transactional_batch = fake_batch  # type: ignore[method-assign]
+    # commit_devices_sync: stub OK (la idea del test es que el commit
+    # global sea exitoso aunque fallen los comentarios).
+    async def fake_commit(
+        plc_name, nmax_ops, rename_ops, device_changes, work_dir, undo_text="",
+    ):
+        return {
+            "success": True,
+            "operations_executed": (
+                len(nmax_ops) + len(rename_ops) + 3 * len(device_changes)
+            ),
+            "details": [],
+        }
+    gateway.commit_devices_sync = fake_commit  # type: ignore[method-assign]
     async def fake_compile(plc_name):
         return False
     gateway.compile_plc = fake_compile  # type: ignore[method-assign]

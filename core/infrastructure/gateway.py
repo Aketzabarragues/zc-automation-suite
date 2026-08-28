@@ -246,21 +246,35 @@ class TIAProcessGateway:
             {"plc_name": plc_name, "target_dir": target_dir},
         )
 
-    async def export_plc_tags_xml(self, plc_name: str, target_dir: str) -> str:
+    async def export_plc_tags_xml(
+        self,
+        plc_name: str,
+        target_dir: str,
+        table_names: list[str] | None = None,
+    ) -> str:
         """Exporta las tablas de variables (PLC tags) del PLC como XML SimaticML.
 
         Fail-Fast: target_dir debe ser una ruta absoluta. No se almacena en caché
         (acción mutable que vuelca archivos a disco).
+
+        Args:
+            plc_name: nombre del PLC destino.
+            target_dir: ruta absoluta del directorio donde escribir los XML.
+            table_names: si se pasa, SOLO se exportan las tablas cuyos
+                nombres esten en esta lista. Si es ``None`` (default), se
+                exportan TODAS las tablas del PLC (back-compat con el
+                comportamiento previo).
         """
         if not Path(target_dir).is_absolute():
             raise ValueError(
                 f"target_dir debe ser una ruta absoluta. Recibido: '{target_dir}'"
             )
 
-        return await self._dispatch_worker(
-            "export_plc_tags_xml",
-            {"plc_name": plc_name, "target_dir": target_dir},
-        )
+        args: dict[str, Any] = {"plc_name": plc_name, "target_dir": target_dir}
+        if table_names is not None:
+            args["table_names"] = list(table_names)
+
+        return await self._dispatch_worker("export_plc_tags_xml", args)
 
     async def attach_portal(self) -> bool:
         """Hot-attach a una instancia YA EJECUTÁNDOSE de TIA Portal.
@@ -522,6 +536,80 @@ class TIAProcessGateway:
         return await self._dispatch_worker(
             "execute_transactional_batch",
             {"operations": operations, "undo_text": undo_text},
+            timeout_override=dynamic_timeout,
+        )
+
+    async def commit_devices_sync(
+        self,
+        plc_name: str,
+        nmax_ops: list[dict[str, Any]],
+        rename_ops: list[dict[str, Any]],
+        device_changes: list[dict[str, Any]],
+        work_dir: str,
+        undo_text: str = "Sync dispositivos (N_MAX + devices)",
+    ) -> dict[str, Any]:
+        """Commit atomico N_MAX + renames + devices en UNA sola transaccion TIA.
+
+        Wrapper sobre ``execute_transactional_batch`` que emite UN SOLO op
+        (``commit_devices_sync``) el cual, dentro del worker, abre una
+        unica ``start_transaction`` y aplica:
+
+          1. N_MAX online (``update_user_constant_value`` por cada uno).
+          2. Renames online (``update_user_constant_name`` por cada uno).
+          3. Devices: por cada tabla con adds o removes, export selectivo
+             → edit XML offline (con ``TagTableModifier``) → import selectivo.
+
+        Si CUALQUIER paso falla, el worker ejecuta
+        ``end_transaction(rollback=True)`` y la excepcion se propaga al
+        caller. El ``timeout_override`` se calcula como en
+        ``execute_transactional_batch`` para cubrir el peor caso de
+        N_MAX + renames + devices en un PLC grande.
+
+        Args:
+            plc_name: nombre del PLC destino en TIA.
+            nmax_ops: lista de ``{table_name, constant_name, new_value}``
+                (online).
+            rename_ops: lista de ``{table_name, current_name, new_name}``
+                (online).
+            device_changes: lista de ``{table_name, tia_folder, adds,
+                removes}`` (offline, solo tablas con adds o removes).
+            work_dir: ruta absoluta del directorio donde el worker escribe
+                los XML exportados/modificados.
+            undo_text: texto del historial Undo de TIA.
+
+        Returns:
+            Dict con shape de ``execute_transactional_batch``:
+            ``{"success": True, "operations_executed": int, "details": [...]}``.
+        """
+        if not Path(work_dir).is_absolute():
+            raise ValueError(
+                f"work_dir debe ser una ruta absoluta. Recibido: '{work_dir}'"
+            )
+
+        # Estimacion de ops para el timeout dinamico: N_MAX + renames +
+        # 3 ops por cada device_change (export + edit + import).
+        estimated_ops = (
+            len(nmax_ops) + len(rename_ops) + 3 * len(device_changes) + 2
+        )
+        per_op_seconds = 5.0
+        dynamic_timeout = max(self._timeout, per_op_seconds * estimated_ops)
+
+        return await self._dispatch_worker(
+            "execute_transactional_batch",
+            {
+                "operations": [{
+                    "command": "commit_devices_sync",
+                    "args": {
+                        "plc_name": plc_name,
+                        "undo_text": undo_text,
+                        "work_dir": work_dir,
+                        "nmax_ops": list(nmax_ops),
+                        "rename_ops": list(rename_ops),
+                        "device_changes": list(device_changes),
+                    },
+                }],
+                "undo_text": undo_text,
+            },
             timeout_override=dynamic_timeout,
         )
 

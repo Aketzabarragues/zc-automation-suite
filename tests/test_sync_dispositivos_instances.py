@@ -87,7 +87,9 @@ def _write_bulk_export_tree(
 def mock_gateway() -> AsyncMock:
     gw = AsyncMock()
 
-    async def fake_export(plc_name: str, target_dir: str) -> str:
+    async def fake_export(
+        plc_name: str, target_dir: str, table_names=None
+    ) -> str:
         # TIA con:
         #   N_MAX: N_MAX_DISP_ED=10, N_MAX_DISP_V=12.
         #   Devices: 2000_Disp_ED con value=1 -> "V_001" y value=2 -> "V_002".
@@ -107,6 +109,17 @@ def mock_gateway() -> AsyncMock:
 
     gw.export_plc_tags_xml = AsyncMock(side_effect=fake_export)
     gw.execute_transactional_batch = AsyncMock(
+        return_value={
+            "success": True,
+            "operations_executed": 0,
+            "details": [],
+        }
+    )
+    # Nuevo op compuesto del worker (release 2026-08-28).
+    # Por defecto devuelve success=True con operations_executed=0
+    # para que los tests que no lo configuran explicitamente no fallen
+    # en asserts sobre el conteo.
+    gw.commit_devices_sync = AsyncMock(
         return_value={
             "success": True,
             "operations_executed": 0,
@@ -299,12 +312,17 @@ async def test_ejecutar_transaccion_empty_no_batch(
         ),
     ]
     # Note: el test es `test_ejecutar_transaccion_empty_no_batch`,
-    # asi que dejamos dispositivos_v vacio (sin renames).
-    use_case._state.dispositivos_v = []
+    # asi que dejamos dispositivos_v con el mismo device que TIA mock
+    # (V_OLD) para que NO haya diff y el batch no se invoque.
+    use_case._state.dispositivos_v = [
+        type("DispVStub", (), {
+            "numero": 1, "plc_tag": "V_OLD", "uid": "V_001"
+        })(),
+    ]
     result = await use_case.ejecutar_transaccion("PLC1", {})
     assert result["success"] is True
     assert result["operations"] == 0
-    mock_gateway.execute_transactional_batch.assert_not_called()
+    mock_gateway.commit_devices_sync.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -312,58 +330,66 @@ async def test_ejecutar_transaccion_empty_no_batch(
 async def test_ejecutar_transaccion_single_batch_with_nmax_and_devices(
     use_case, mock_gateway
 ):
-    """Si hay N_MAX + device renames, se invocan TODAS en UNA sola transaccion.
+    """Si hay N_MAX + device renames, se invoca ``commit_devices_sync`` UNA vez.
 
-    Verifica que ``execute_transactional_batch`` se llama UNA vez con
-    la lista de ops que incluye:
-      - ``update_user_constant_value`` para N_MAX.
-      - ``update_user_constant_name`` para devices renombrados.
+    Verifica que ``commit_devices_sync`` se llama UNA vez con el
+    payload completo:
+      - ``nmax_ops`` (lista de ``{table_name, constant_name, new_value}``).
+      - ``rename_ops`` (lista de ``{table_name, current_name, new_name}``).
 
-    En esta release:
-      1. La transaccion se llama UNA vez.
-      2. Incluye ops ``update_user_constant_value`` (N_MAX).
-      3. Incluye ops ``update_user_constant_name`` (devices renombrados).
+    En esta release (2026-08-28): todo el flujo (N_MAX + renames +
+    devices) corre bajo UNA sola transaccion TIA via el op compuesto
+    ``commit_devices_sync`` del worker.
     """
-    mock_gateway.execute_transactional_batch.return_value = {
+    mock_gateway.commit_devices_sync.return_value = {
         "success": True,
         "operations_executed": 3,
         "details": [],
     }
     result = await use_case.ejecutar_transaccion("PLC1", {})
     assert result["success"] is True
-    # 1 sola llamada a la transaccion.
-    mock_gateway.execute_transactional_batch.assert_called_once()
-    call = mock_gateway.execute_transactional_batch.call_args
-    operations = call.kwargs.get("operations") or call.args[0]
-    # 1) Verificar ops de N_MAX.
-    nmax_ops = [op for op in operations if op["command"] == "update_user_constant_value"]
-    assert len(nmax_ops) > 0
+    # 1 sola llamada al commit compuesto.
+    mock_gateway.commit_devices_sync.assert_called_once()
+    call = mock_gateway.commit_devices_sync.call_args
+    # El op compuesto recibe: plc_name, nmax_ops, rename_ops,
+    # device_changes, work_dir, undo_text.
+    assert call.kwargs.get("plc_name") == "PLC1" or call.args[0] == "PLC1"
+    nmax_ops = call.kwargs.get("nmax_ops")
+    rename_ops = call.kwargs.get("rename_ops")
+    device_changes = call.kwargs.get("device_changes")
+    work_dir = call.kwargs.get("work_dir")
+    undo_text = call.kwargs.get("undo_text")
+    # 1) N_MAX: hay al menos 1 op de N_MAX.
+    assert nmax_ops is not None and len(nmax_ops) > 0
     for op in nmax_ops:
-        assert op["args"]["plc_name"] == "PLC1"
-        assert op["args"]["table_name"] == "000_Config_Dispositivos"
-    # 2) Verificar ops de device renames (update_user_constant_name).
-    rename_ops = [op for op in operations if op["command"] == "update_user_constant_name"]
-    assert len(rename_ops) > 0
+        assert op["table_name"] == "000_Config_Dispositivos"
+        assert "constant_name" in op
+        assert "new_value" in op
+    # 2) Renames: hay al menos 1 op de rename.
+    assert rename_ops is not None and len(rename_ops) > 0
     for op in rename_ops:
-        assert op["args"]["plc_name"] == "PLC1"
-        assert "table_name" in op["args"]
-        assert "current_name" in op["args"]
-        assert "new_name" in op["args"]
-    # 3) No debe haber comandos de rename de PlcTag (el sync trabaja con PlcUserConstants).
-    legacy_renames = [op for op in operations if op["command"] not in {"update_user_constant_value", "update_user_constant_name", "import_plc_tags_xml"}]
-    assert len(legacy_renames) == 0, f"Comandos inesperados en la transaccion: {legacy_renames}"
-    # El undo_text menciona el ambito.
-    undo_text = call.kwargs.get("undo_text") or call.args[1]
+        assert "table_name" in op
+        assert "current_name" in op
+        assert "new_name" in op
+    # 3) device_changes es una lista (puede estar vacia si no hay adds/removes).
+    assert isinstance(device_changes, list)
+    # 4) work_dir existe y es ruta absoluta.
+    assert work_dir is not None
+    assert Path(work_dir).is_absolute()
+    # 5) undo_text menciona el ambito.
+    assert undo_text is not None
     assert "N_MAX" in undo_text
     assert "Dispositivos" in undo_text
     # El resultado incluye el conteo de N_MAX updates.
     assert "n_max_updates" in result
+    # Y el conteo coincide con el numero de ops enviadas.
+    assert result["n_max_updates"] == len(nmax_ops)
 
 
 @pytest.mark.asyncio
 async def test_ejecutar_transaccion_propagates_errors(use_case, mock_gateway):
-    """Si la transacci\u00f3n falla, el error se propaga al caller."""
-    mock_gateway.execute_transactional_batch.side_effect = RuntimeError(
+    """Si el commit falla, el error se propaga al caller."""
+    mock_gateway.commit_devices_sync.side_effect = RuntimeError(
         "Worker rollback"
     )
     with pytest.raises(RuntimeError, match="Worker rollback"):
@@ -378,8 +404,8 @@ async def test_ejecutar_transaccion_includes_post_sync_preview(
     Esto permite que la SPA muestre el estado "todo en sync" sin
     tener que pedir el preview de nuevo.
     """
-    # Mock the gateway batch to succeed.
-    mock_gateway.execute_transactional_batch.return_value = {
+    # Mock the gateway commit to succeed.
+    mock_gateway.commit_devices_sync.return_value = {
         "success": True,
         "operations_executed": 3,
         "details": [],
@@ -411,20 +437,24 @@ async def test_ejecutar_transaccion_includes_post_sync_preview(
     assert result["post_sync_preview"]["summary"]["total"] == 0
 
 @pytest.mark.asyncio
-async def test_ejecutar_transaccion_emits_import_op_for_adds_and_removes(
+async def test_ejecutar_transaccion_emits_device_changes_for_adds_and_removes(
     use_case, mock_gateway, tmp_path
 ):
-    """Cuando hay devices a anadir o eliminar, se emite ``import_plc_tags_xml``.
+    """Cuando hay devices a anadir o eliminar, ``commit_devices_sync``
+    recibe ``device_changes`` con la tabla correspondiente.
+
+    En el nuevo flujo (release 2026-08-28) el import XML ya NO es un op
+    separado en el batch: el worker lo hace DENTRO de
+    ``commit_devices_sync`` (por cada ``device_change``: export selectivo
+    + edit XML + import selectivo).
 
     Verifica que el use case:
-      1. Construye el XML modificado en tags_ready/.
-      2. Anade UN SOLO op ``import_plc_tags_xml`` al batch (no una por device).
-      3. El op lleva el import_dir apuntando a tags_ready.
+      1. Detecta el add (uid 999) y el remove (uid 2) en
+         ``_compute_diff_readonly``.
+      2. Construye ``device_changes`` con un solo entry para
+         ``2000_Disp_ED`` que incluye los adds y removes.
+      3. Pasa ``device_changes`` a ``commit_devices_sync``.
     """
-    import asyncio
-    from pathlib import Path
-    from core.infrastructure.xml.modifiers import TagTableModifier
-
     # Forzar un add y un remove modificando el AppState directamente.
     # TIA mock tiene 2000_Disp_ED con V_001 (uid 1) y V_002 (uid 2).
     # Anadimos V_999 (uid 999) y quitamos V_002.
@@ -436,17 +466,15 @@ async def test_ejecutar_transaccion_emits_import_op_for_adds_and_removes(
         DispEDStub(numero=1, plc_tag="V_001"),
         DispEDStub(numero=999, plc_tag="V_NEW_FROM_TEST"),
     ]
-    # Sobrescribir el side_effect de export_plc_tags_xml para que escriba
-    # el XML real de 2000_Disp_ED en tags_base (sino el _compute_diff no
-    # encuentra el XML y no genera el save a tags_ready).
+    # Sobrescribir el side_effect de export_plc_tags_xml para que
+    # escriba el XML real de 2000_Disp_ED en tags_base (sino
+    # _compute_diff_readonly no encuentra el XML).
     import xml.etree.ElementTree as _ET
     from pathlib import Path as _Path
-    async def real_export(plc_name_arg, target_dir_arg):
+    async def real_export(plc_name_arg, target_dir_arg, table_names=None):
         target = _Path(target_dir_arg)
         target.mkdir(parents=True, exist_ok=True)
         (target / "2000_Dispositivos").mkdir(parents=True, exist_ok=True)
-        # PLCUserConstant con V_001 (uid 1) y V_002 (uid 2) - mismo shape
-        # que exporta TIA Portal.
         root = _ET.Element("SW.Tags.PlcTagTable")
         al = _ET.SubElement(root, "AttributeList")
         _ET.SubElement(al, "Name").text = "2000_Disp_ED"
@@ -463,7 +491,7 @@ async def test_ejecutar_transaccion_emits_import_op_for_adds_and_removes(
         )
         return target_dir_arg
     mock_gateway.export_plc_tags_xml.side_effect = real_export
-    mock_gateway.execute_transactional_batch.return_value = {
+    mock_gateway.commit_devices_sync.return_value = {
         "success": True,
         "operations_executed": 4,
         "details": [],
@@ -472,28 +500,29 @@ async def test_ejecutar_transaccion_emits_import_op_for_adds_and_removes(
     result = await use_case.ejecutar_transaccion("PLC1", {})
     assert result["success"] is True
 
-    call = mock_gateway.execute_transactional_batch.call_args
-    operations = call.kwargs.get("operations") or call.args[0]
-    import_ops = [op for op in operations if op["command"] == "import_plc_tags_xml"]
-    # Solo UN import (consolida todos los cambios XML en un solo op).
-    assert len(import_ops) == 1, "import_plc_tags_xml debe ser UN solo op (consolidado)"
-    import_op = import_ops[0]
-    assert import_op["args"]["plc_name"] == "PLC1"
-    assert "import_dir" in import_op["args"]
-    # El import_dir debe apuntar a un directorio que existe.
-    import_dir = Path(import_op["args"]["import_dir"])
-    assert import_dir.exists(), f"import_dir no existe: {import_dir}"
-    # El directorio debe contener los XMLs modificados. La estructura
-    # preserva la carpeta TIA (2000_Dispositivos/) para que el wrapper
-    # import_plc_tags pueda hacer merge con las tablas existentes.
-    xml_files = list(import_dir.rglob("*.xml"))
-    assert len(xml_files) > 0, "import_dir vacio: no se generaron XMLs"
-    # El XML de 2000_Disp_ED debe estar en 2000_Dispositivos/ y
-    # contener V_999 (el nuevo) pero NO V_002 (el quitado).
-    ed_xml = import_dir / "2000_Dispositivos" / "2000_Disp_ED.xml"
-    assert ed_xml.exists(), f"XML no encontrado en {ed_xml}"
-    ed_content = ed_xml.read_text(encoding="utf-8")
-    assert "V_NEW_FROM_TEST" in ed_content, "V_NEW_FROM_TEST no aparece en el XML"
+    # El use case debe haber llamado a commit_devices_sync UNA vez con
+    # device_changes conteniendo 2000_Disp_ED.
+    mock_gateway.commit_devices_sync.assert_called_once()
+    call = mock_gateway.commit_devices_sync.call_args
+    device_changes = call.kwargs.get("device_changes")
+    assert device_changes is not None
+    # Buscamos el entry de 2000_Disp_ED especificamente (puede haber
+    # otros para tablas que el mock no escribio en ``real_export``,
+    # p.ej. 2000_Disp_V que aparece como add porque su XML no existe
+    # en ``tags_base/``).
+    ed_changes = [c for c in device_changes if c["table_name"] == "2000_Disp_ED"]
+    assert len(ed_changes) == 1, (
+        f"device_changes debe incluir 2000_Disp_ED (got: {device_changes})"
+    )
+    change = ed_changes[0]
+    assert change["tia_folder"] == "2000_Dispositivos"
+    # Adds: V_999 con uid 999.
+    adds = change["adds"]
+    assert len(adds) == 1
+    assert adds[0]["uid"] == "999"
+    assert adds[0]["plc_tag"] == "V_NEW_FROM_TEST"
+    # Removes: uid 2 (V_002).
+    assert "2" in change["removes"]
 
 @pytest.mark.asyncio
 async def test_ejecutar_transaccion_compiles_plc_after_commit(
@@ -505,7 +534,7 @@ async def test_ejecutar_transaccion_compiles_plc_after_commit(
     el PLC ya esta modificado (commit ya aplicado). Llamarla despues
     permite reportar el error sin revertir el sync.
     """
-    mock_gateway.execute_transactional_batch.return_value = {
+    mock_gateway.commit_devices_sync.return_value = {
         "success": True,
         "operations_executed": 3,
         "details": [],
@@ -534,7 +563,7 @@ async def test_ejecutar_transaccion_handles_compile_errors_gracefully(
     un mensaje de error, pero el ``success=True`` porque el commit
     fue exitoso.
     """
-    mock_gateway.execute_transactional_batch.return_value = {
+    mock_gateway.commit_devices_sync.return_value = {
         "success": True,
         "operations_executed": 3,
         "details": [],
@@ -561,7 +590,7 @@ async def test_ejecutar_transaccion_handles_compile_exception_gracefully(
     no abortamos: el operario puede ver el problema en TIA Portal
     directamente.
     """
-    mock_gateway.execute_transactional_batch.return_value = {
+    mock_gateway.commit_devices_sync.return_value = {
         "success": True,
         "operations_executed": 3,
         "details": [],

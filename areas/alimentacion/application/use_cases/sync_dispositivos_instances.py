@@ -13,10 +13,22 @@ El flujo de ``generar_prevision`` calcula:
      Emite operaciones ``update_user_constant_name`` (online rename)
      y, si hay add/remove, ``import_plc_tags_xml`` (offline XML).
 
-El flujo de ``ejecutar_transaccion`` empaqueta TODAS las operaciones
-(online + offline) en una sola llamada a
-``gateway.execute_transactional_batch``, que el worker ejecuta bajo
-``start_transaction`` / ``end_transaction`` con rollback at\u00f3mico.
+El flujo de ``ejecutar_transaccion`` calcula en el IT process los
+``nmax_ops``, ``rename_ops`` y ``device_changes`` (este último solo si
+hay adds o removes) y los pasa a ``gateway.commit_devices_sync``, que
+ejecuta DENTRO DEL WORKER una única ``start_transaction`` con el orden
+estricto del operario:
+  1. N_MAX online (``update_user_constant_value`` por cada uno).
+  2. Renames online (``update_user_constant_name`` por cada uno).
+  3. Por cada ``device_change``: export selectivo + ``TagTableModifier``
+     (add/remove) + import selectivo.
+  4. ``end_transaction(rollback=False)``.
+
+Si cualquier paso falla, el worker hace ``end_transaction(rollback=True)``
+y propaga el error. La fase offline (edit XML) corre DENTRO del worker
+para garantizar una sola transacción TIA (no dos). El módulo
+``TagTableModifier`` es Python puro (no importa ``siemens_tia_scripting``),
+así que no rompe ``.clinerules §1``.
 
 Shape del preview (back-compat con la SPA):
   - ``agregados`` / ``eliminados`` / ``renombrados`` (listas de devices).
@@ -34,6 +46,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -68,6 +81,7 @@ class SyncDispositivosInstancesUseCase:
     _BUILD_CACHE_DIRNAME = ".build_cache"
     _BASE_SUBDIR = "base"
     _READY_SUBDIR = "ready_to_import"
+    _COMMIT_SUBDIR = "commit"
     _TAG_TABLES_SUBDIR = "tags"
 
     def __init__(
@@ -142,7 +156,12 @@ class SyncDispositivosInstancesUseCase:
                 self._progress.start_stage(
                 "export_tags", "Iniciando export bulk de tags del PLC..."
             )
-            await self._gateway.export_plc_tags_xml(plc_name, str(tags_base))
+            # Export SELECTIVO: solo las 7 tablas que el sync toca
+            # (6 devices + 1 N_MAX). Deriva de ConfigManager (data-driven).
+            selective_tables = self._selective_table_names()
+            await self._gateway.export_plc_tags_xml(
+                plc_name, str(tags_base), table_names=selective_tables,
+            )
             if _track:
                 self._progress.finish_stage("export_tags", "Export OK")
 
@@ -302,11 +321,21 @@ class SyncDispositivosInstancesUseCase:
     ) -> dict[str, Any]:
         """Ejecuta el diff completo (N_MAX + devices) en UNA transacci\u00f3n \u00fanica.
 
-        Empaqueta TODAS las operaciones online (N_MAX + device renames)
-        y offline (device add/remove via XML) en una sola lista que
-        ``gateway.execute_transactional_batch`` ejecuta bajo una
-        \u00fanica ``start_transaction`` / ``end_transaction`` con rollback
-        at\u00f3mico.
+        Flujo (especificacion del operario, plan 2026-08-28):
+          1. Export selectivo de las 7 tablas a ``tags_base/`` (IT process).
+          2. ``_compute_diff_readonly`` para detectar adds/removes/renames
+             (IT process, sin tocar XMLs).
+          3. Construir ``nmax_ops``, ``rename_ops`` y ``device_changes``
+             (IT process).
+          4. ``gateway.commit_devices_sync`` (worker):
+             a. ``project.start_transaction``.
+             b. N_MAX online.
+             c. Renames online.
+             d. Por cada ``device_change``: export selectivo +
+                ``TagTableModifier`` (add/remove) + import selectivo.
+             e. ``project.end_transaction(rollback=False)``.
+          5. Post-commit: preview, compile, comentarios (best-effort,
+             fuera de la tx).
 
         Args:
             plc_name: Nombre del PLC destino.
@@ -316,15 +345,10 @@ class SyncDispositivosInstancesUseCase:
                 back-compat con la SPA.
         """
         # ── Progress tracking (overlay SPA) ────────────────────────
-        # 7 stages: export_tags → compute_diff → prepare_xml →
-        # open_transaction (opaco, COM atomico) → post_preview →
-        # compile_plc → apply_comentarios_disp (best-effort).
-        # El ultimo stage (comentarios por instancia) se ejecuta
-        # DESPUES de la compilacion, que es cuando los DBs ya estan
-        # redimensionados y podemos escribir los S7_MLC. Si falla,
-        # el commit global se considera exitoso (el sync N_MAX+devices
-        # ya esta aplicado); los comentarios quedan pendientes para
-        # una llamada manual al endpoint de comentarios.
+        # 7 stages fijos que reflejan las operaciones reales del flujo
+        # (IT process + batch + post-commit). Cada uno se emite solo si
+        # tiene sentido (e.g. ``compile_plc`` se marca "Saltado" si
+        # no hay nada que commitear).
         self._progress.begin(
             operation="commit",
             label=f"Aplicando cambios en {plc_name}",
@@ -339,92 +363,109 @@ class SyncDispositivosInstancesUseCase:
             ],
         )
         try:
+            # ── Stage 1: export selectivo ──────────────────────────
             tags_base = (
                 self._build_cache / self._BASE_SUBDIR / self._TAG_TABLES_SUBDIR
             )
-            tags_ready = (
-                self._build_cache / self._READY_SUBDIR / self._TAG_TABLES_SUBDIR
-            )
-            tags_ready.mkdir(parents=True, exist_ok=True)
+            # Limpiar para evitar XMLs de runs anteriores que ensucien
+            # el diff (defensivo: cualquier fallo previo puede haber
+            # dejado ``tags_base/`` con contenido parcial).
+            if tags_base.exists():
+                shutil.rmtree(tags_base)
+            tags_base.mkdir(parents=True, exist_ok=True)
             self._progress.start_stage(
-                "export_tags", "Exportando tags del PLC..."
+                "export_tags", "Exportando 7 tablas del PLC (selectivo)..."
             )
-            await self._gateway.export_plc_tags_xml(plc_name, str(tags_base))
-            self._progress.finish_stage("export_tags", "Export OK")
+            selective_tables = self._selective_table_names()
+            await self._gateway.export_plc_tags_xml(
+                plc_name, str(tags_base), table_names=selective_tables,
+            )
+            self._progress.finish_stage(
+                "export_tags", f"Export OK ({len(selective_tables)} tablas)"
+            )
 
+            # ── Stage 2: compute diff (read-only) ──────────────────
             self._progress.start_stage("compute_diff")
             desired_state_per_table = self._build_desired_state_from_app()
-            added, removed, renamed = await asyncio.to_thread(
-                self._compute_diff, tags_base, desired_state_per_table, tags_ready
+            added_per_table, removed_per_table, renamed, _ = await asyncio.to_thread(
+                self._compute_diff_readonly, tags_base, desired_state_per_table,
             )
+            total_adds = sum(len(v) for v in added_per_table.values())
+            total_removes = sum(len(v) for v in removed_per_table.values())
             self._progress.finish_stage(
                 "compute_diff",
-                f"{len(added)} adds, {len(removed)} removes, {len(renamed)} renames",
+                f"{total_adds} adds, {total_removes} removes, "
+                f"{len(renamed)} renames",
             )
 
+            # ── Stage 3: prepare (construir ops) ───────────────────
             self._progress.start_stage("prepare_xml")
 
-            # ── Construir la lista de operaciones para la transacción única ──
-            operations: list[dict[str, Any]] = []
+            # N_MAX: lista de ops online. ``calculate_nmax_diff`` retorna
+            # shape ``{command, args}``; aplanamos a ``{table_name,
+            # constant_name, new_value}`` que es lo que espera
+            # ``commit_devices_sync``.
+            nmax_ops_raw = self._compute_nmax_ops_for_apply(
+                plc_name, tags_base
+            )
+            nmax_ops: list[dict[str, Any]] = [
+                op["args"] for op in nmax_ops_raw
+            ]
 
-            # OFFLINE: import_plc_tags_xml para add/remove de devices.
-            # TagTableModifier (infrastructure/xml/modifiers.py) ya ha
-            # modificado los XMLs en tags_ready/ arriba (en _compute_diff)
-            # anyadiendo los nuevos PlcUserConstants y eliminando los que
-            # no estan en el Excel. Aqui emitimos UN SOLO comando de import
-            # que re-ingresa TODOS los XMLs modificados en TIA. El worker
-            # abre la transaccion, importa, y cierra.
-            #
-            # CRITICO: el XML se guarda en tags_ready/<tia_folder>/<xml>
-            # (preservando la estructura de carpetas TIA) para que el
-            # wrapper import_plc_tags pueda hacer merge con las tablas
-            # existentes. Ver _resolve_tia_folder.
-            if added or removed:
-                operations.append({
-                    "command": "import_plc_tags_xml",
-                    "args": {
-                        "plc_name": plc_name,
-                        "import_dir": str(tags_ready),
-                        "target_folder": "",
-                    },
-                })
-
-            # =====================================================================
-            # === ONLINE: update_user_constant_name (renombrado de devices)  ===
-            # ===                                                              ===
-            # === Las variables del Excel (plc_tag) se persisten como         ===
-            # === PlcUserConstants en las tag tables 2000_Disp_*. El rename   ===
-            # se hace con update_user_constant_name.                       ===
+            # Renames: lista de ops online (una por rename).
+            rename_ops: list[dict[str, Any]] = []
             for uid_with_table, (old, new) in renamed.items():
-                # uid_with_table es "table_key:uid_str" (p.ej. "2000_Disp_ED:5").
+                # uid_with_table es "table_key:uid_str".
                 # Extraemos el table_key para usarlo como ``table_name``.
                 table_key, _, _ = uid_with_table.partition(":")
-                operations.append({
-                    "command": "update_user_constant_name",
-                    "args": {
-                        "plc_name": plc_name,
-                        "table_name": table_key,
-                        "current_name": old,
-                        "new_name": new,
-                    },
+                rename_ops.append({
+                    "table_name": table_key,
+                    "current_name": old,
+                    "new_name": new,
                 })
 
-            # ONLINE: update_user_constant_value (N_MAX).
-            nmax_ops = self._compute_nmax_ops_for_apply(plc_name, tags_base)
-            operations.extend(nmax_ops)
+            # device_changes: solo tablas con adds o removes. Si no hay
+            # adds ni removes, el bloque devices se salta entero (mas
+            # rapido y menos superficie de error).
+            device_changes: list[dict[str, Any]] = []
+            all_table_keys = set(added_per_table.keys()) | set(
+                removed_per_table.keys()
+            )
+            for table_key in all_table_keys:
+                adds = added_per_table.get(table_key, [])
+                removes = removed_per_table.get(table_key, [])
+                if not adds and not removes:
+                    continue
+                tia_folder = self._resolve_tia_folder(table_key)
+                desired_table = desired_state_per_table.get(table_key, {})
+                device_changes.append({
+                    "table_name": table_key,
+                    "tia_folder": tia_folder,
+                    "adds": [
+                        {"plc_tag": desired_table[uid], "uid": uid}
+                        for uid in adds
+                    ],
+                    "removes": list(removes),
+                })
+
             self._progress.finish_stage(
-                "prepare_xml", f"{len(operations)} operaciones encoladas"
+                "prepare_xml",
+                f"{len(nmax_ops)} N_MAX, {len(rename_ops)} renames, "
+                f"{len(device_changes)} device tables",
             )
 
-            if not operations:
-                # El PLC ya esta en sync: devolvemos tambien el preview para que
-                # la SPA muestre el estado "todo en orden" sin pedirlo de nuevo.
-                self._progress.finish_stage("open_transaction", "Sin cambios (no-op)")
+            # ── Early return: nada que commitear ──────────────────
+            if not (nmax_ops or rename_ops or device_changes):
+                self._progress.finish_stage(
+                    "open_transaction", "Sin cambios (no-op)"
+                )
                 self._progress.finish_stage("post_preview")
-                self._progress.finish_stage("compile_plc", "Saltado (no-op)")
-                # Aun con N_MAX sin cambios, intentamos aplicar comentarios
+                self._progress.finish_stage(
+                    "compile_plc", "Saltado (no-op)"
+                )
+                # Aun sin cambios, intentamos aplicar comentarios
                 # (puede que el usuario solo haya editado la columna
-                # comentario_db del Excel sin tocar N_MAX).
+                # comentario_db del Excel sin tocar N_MAX ni devices).
                 comments_result = await self._run_apply_comentarios(
                     plc_name
                 )
@@ -440,44 +481,68 @@ class SyncDispositivosInstancesUseCase:
                     "comments_sync": comments_result,
                 }
 
+            # ── Stage 4: open_transaction (la unica tx TIA) ────────
+            # ``work_dir`` es donde el worker escribe los XML exportados
+            # y modificados. Lo limpiamos para que ``commit_devices_sync``
+            # arranque de cero (evita XMLs stale de un run previo).
+            work_dir = (
+                self._build_cache / self._COMMIT_SUBDIR / self._TAG_TABLES_SUBDIR
+            )
+            if work_dir.exists():
+                shutil.rmtree(work_dir)
+            work_dir.mkdir(parents=True, exist_ok=True)
+
             self._progress.start_stage(
                 "open_transaction",
-                f"Ejecutando {len(operations)} ops en TIA Portal (puede tardar 1-3 min)...",
+                f"Aplicando {len(nmax_ops)} N_MAX + {len(rename_ops)} renames "
+                f"+ {len(device_changes)} device tables en TIA Portal "
+                f"(puede tardar 1-3 min)...",
             )
-            result = await self._gateway.execute_transactional_batch(
-                operations,
+            result = await self._gateway.commit_devices_sync(
+                plc_name=plc_name,
+                nmax_ops=nmax_ops,
+                rename_ops=rename_ops,
+                device_changes=device_changes,
+                work_dir=str(work_dir),
                 undo_text="Sincronizar N_MAX + Dispositivos",
             )
             self._progress.finish_stage(
                 "open_transaction",
                 f"{result['operations_executed']} ops aplicadas OK",
             )
+
+            # ── Stage 5: post-sync preview ────────────────────────
             # Despues de end_transaction (sin rollback), re-ejecutamos el
             # preview para que la SPA vea el estado "todo en sync" sin
             # tener que pedirlo de nuevo. Si falla (p.ej. TIA en estado
             # raro), loggeamos warning pero NO fallamos el commit: el
             # apply ya fue exitoso.
-            self._progress.start_stage("post_preview", "Generando vista post-sync...")
+            self._progress.start_stage(
+                "post_preview", "Generando vista post-sync..."
+            )
             try:
                 post_sync_preview = await self.generar_prevision(plc_name)
             except Exception as exc:
                 _logger.warning(
-                    f"[{plc_name}] Post-sync preview fallo (commit ya aplicado): {exc}"
+                    f"[{plc_name}] Post-sync preview fallo "
+                    f"(commit ya aplicado): {exc}"
                 )
                 post_sync_preview = None
             self._progress.finish_stage("post_preview")
 
-            # POST-COMMIT: compilacion del PLC.
+            # ── Stage 6: post-commit compile (fuera de la tx) ─────
             # NO va dentro de la transaccion del worker porque:
             # 1. La transaccion ya hizo end_transaction(rollback=False);
             #    el PLC ya esta modificado.
-            # 2. La compilacion puede fallar (p. ej. N_MAX cambia dimensiones
+            # 2. La compilacion puede fallar (p.ej. N_MAX cambia dimensiones
             #    de DBs que las referencian) y eso NO debe revertir el sync
             #    (los cambios del Excel ya estan en el PLC).
             # 3. Semantica Siemens: compile_software() retorna True si HAY
             #    errores, False si NO hay errores. Invertimos para que
             #    ``compile_ok`` sea True en el caso feliz.
-            self._progress.start_stage("compile_plc", "Compilando software del PLC...")
+            self._progress.start_stage(
+                "compile_plc", "Compilando software del PLC..."
+            )
             compile_ok = True
             compile_error = None
             try:
@@ -491,7 +556,8 @@ class SyncDispositivosInstancesUseCase:
                         "de N_MAX."
                     )
                     _logger.warning(
-                        f"[{plc_name}] Compilacion con errores (commit ya aplicado)."
+                        f"[{plc_name}] Compilacion con errores "
+                        f"(commit ya aplicado)."
                     )
                 else:
                     _logger.info(f"[{plc_name}] Compilacion OK.")
@@ -506,12 +572,13 @@ class SyncDispositivosInstancesUseCase:
                 "Compilacion OK" if compile_ok else "Compilacion con errores",
             )
 
-            # ── POST-COMMIT: comentarios por instancia en los 6 DBs de disp. ──
-            # Se ejecuta DESPUES de la compilacion, que es cuando los DBs ya
-            # estan redimensionados y podemos escribir los S7_MLC con
-            # confianza. Best-effort: si falla (p. ej. TIA en estado raro),
-            # el commit global sigue siendo exitoso (N_MAX+devices ya aplicado);
-            # el operario puede reintentar el endpoint de comentarios.
+            # ── Stage 7: apply comentarios (Tx 2, fuera de la tx ppal) ──
+            # Se ejecuta DESPUES de la compilacion, que es cuando los DBs
+            # ya estan redimensionados y podemos escribir los S7_MLC con
+            # confianza. Best-effort: si falla (p.ej. TIA en estado raro),
+            # el commit global sigue siendo exitoso (N_MAX+devices ya
+            # aplicado); el operario puede reintentar el endpoint de
+            # comentarios.
             comments_result = await self._run_apply_comentarios(
                 plc_name
             )
@@ -835,6 +902,22 @@ class SyncDispositivosInstancesUseCase:
         # Tablas de devices (2000_Disp_*) -> carpeta 2000_Dispositivos.
         return self._config.get_tia_folder_dispositivos()
 
+    def _selective_table_names(self) -> list[str]:
+        """Lista las tablas que el sync dispositivos toca (data-driven)."""
+
+        seen: set[str] = set()
+        result: list[str] = []
+        for hw_type in self._config.list_hw_types_active():
+            tag_table = self._config.get_tag_table_name(hw_type)
+            if tag_table and tag_table not in seen:
+                seen.add(tag_table)
+                result.append(tag_table)
+        nmax_table = self._config.get_global_config_table_name()
+        if nmax_table and nmax_table not in seen:
+            seen.add(nmax_table)
+            result.append(nmax_table)
+        return result
+
     def _build_desired_state_from_app(self) -> dict[str, dict[str, str]]:
         """Construye ``{tag_table: {uid: plc_tag}}`` desde el ``AppState``.
 
@@ -1088,6 +1171,22 @@ class SyncDispositivosInstancesUseCase:
             return self._config.get_tia_folder_nmax()
         # Tablas de devices (2000_Disp_*) -> carpeta 2000_Dispositivos.
         return self._config.get_tia_folder_dispositivos()
+
+    def _selective_table_names(self) -> list[str]:
+        """Lista las tablas que el sync dispositivos toca (data-driven)."""
+
+        seen: set[str] = set()
+        result: list[str] = []
+        for hw_type in self._config.list_hw_types_active():
+            tag_table = self._config.get_tag_table_name(hw_type)
+            if tag_table and tag_table not in seen:
+                seen.add(tag_table)
+                result.append(tag_table)
+        nmax_table = self._config.get_global_config_table_name()
+        if nmax_table and nmax_table not in seen:
+            seen.add(nmax_table)
+            result.append(nmax_table)
+        return result
 
     def _build_desired_state_from_app(self) -> dict[str, dict[str, str]]:
         """Construye ``{tag_table: {uid: plc_tag}}`` desde el ``AppState``.
