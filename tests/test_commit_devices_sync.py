@@ -80,8 +80,16 @@ def test_commit_devices_sync_missing_required_args(tmp_path: Path) -> None:
         )
 
 
-def test_commit_devices_sync_calls_start_transaction_once(tmp_path: Path) -> None:
-    """El handler abre UNA sola start_transaction (atomicidad)."""
+def test_commit_devices_sync_does_not_open_transaction(tmp_path: Path) -> None:
+    """El op NO abre su propia ``start_transaction`` ni llama a
+    ``end_transaction``.
+
+    Razon: el batch wrapper (``_cmd_execute_transactional_batch``) ya
+    abrio la transaccion. Si este op abriera otra, TIA Portal V21
+    rechaza con ``OpennessAccessException: Multiple instances of
+    ExclusiveAccess is not supported`` (bug 2026-08-28). El rollback
+    del lote lo gestiona el wrapper.
+    """
     portal = MagicMock()
     project = MagicMock()
     plc = MagicMock()
@@ -102,12 +110,21 @@ def test_commit_devices_sync_calls_start_transaction_once(tmp_path: Path) -> Non
             "nmax_ops": [], "rename_ops": [], "device_changes": [],
         },
     )
-    project.start_transaction.assert_called_once()
-    project.end_transaction.assert_called_once_with(rollback=False)
+    # Ningun start_transaction ni end_transaction en el op.
+    project.start_transaction.assert_not_called()
+    project.end_transaction.assert_not_called()
 
 
-def test_commit_devices_sync_rolls_back_on_runtime_error(tmp_path: Path) -> None:
-    """Si algo falla en medio de la tx, se hace end_transaction(rollback=True)."""
+def test_commit_devices_sync_propagates_exception_to_wrapper(
+    tmp_path: Path,
+) -> None:
+    """Si algo falla, el op PROPAGA la excepcion. El batch wrapper
+    es el que hace ``end_transaction(rollback=True)``.
+
+    Verifica que el op NO cierra la tx por su cuenta (deja la tx
+    abierta en estado fallido para que el wrapper la cierre con
+    rollback=True).
+    """
     portal = MagicMock()
     project = MagicMock()
     plc = MagicMock()
@@ -115,19 +132,31 @@ def test_commit_devices_sync_rolls_back_on_runtime_error(tmp_path: Path) -> None
     plc.get_plc_tag_tables.return_value = []
     project.get_plcs.return_value = [plc]
     portal.get_project.return_value = project
-    project.start_transaction = MagicMock(
-        side_effect=RuntimeError("Boom START")
-    )
+    # Forzamos fallo: el primer N_MAX buscara "000_Config_Dispositivos"
+    # en plc.get_plc_tag_tables() (que devuelve []), y fallara.
+    project.start_transaction = MagicMock()
     project.end_transaction = MagicMock()
 
     handler = extra_commands.make_cmd_commit_devices_sync()
-    with pytest.raises(RuntimeError, match="commit_devices_sync abortado"):
+    with pytest.raises(
+        RuntimeError,
+        match="Excepcion propagada al batch wrapper",
+    ):
         handler(
             portal=portal, ts=MagicMock(),
             args={
                 "plc_name": "PLC_X",
                 "work_dir": str(tmp_path),
-                "nmax_ops": [], "rename_ops": [], "device_changes": [],
+                "nmax_ops": [
+                    {
+                        "table_name": "000_Config_Dispositivos",
+                        "constant_name": "N1",
+                        "new_value": 1,
+                    },
+                ],
+                "rename_ops": [],
+                "device_changes": [],
             },
         )
-    project.end_transaction.assert_called_once_with(rollback=True)
+    # El op NO cerro la tx (deja que el wrapper lo haga).
+    project.end_transaction.assert_not_called()

@@ -146,13 +146,28 @@ def make_cmd_commit_devices_sync() -> Callable[..., Any]:
     Reusa los handlers atómicos del core del worker
     (``update_user_constant_value``, ``update_user_constant_name``) y
     los métodos nativos de PlcTagTable (``table.export``,
-    ``target_plc.import_plc_tags``) bajo una única
-    ``start_transaction`` / ``end_transaction``.
+    ``target_plc.import_plc_tags``) bajo una ÚNICA transacción.
 
-    El edit XML offline (paso 4c) corre dentro del worker usando
+    **Importante**: este op NO abre su propia ``start_transaction``.
+    Se ejecuta DENTRO de la transacción que abrió el batch wrapper
+    (``_cmd_execute_transactional_batch`` en ``worker_tia``). El
+    wrapper es el responsable del ``start_transaction`` y del
+    ``end_transaction(rollback=False/True)``. Si este op abriera su
+    propia transacción, TIA Portal V21 rechazaría con
+    ``OpennessAccessException: Multiple instances of ExclusiveAccess
+    is not supported`` (bug detectado en 2026-08-28 durante validación
+    en PLC real).
+
+    El edit XML offline (paso 3c) corre dentro del worker usando
     ``TagTableModifier`` (Python puro, no importa
     ``siemens_tia_scripting``). Moverlo aquí respeta ``.clinerules`` §1
     (el worker sigue siendo el único proceso que importa la DLL).
+
+    Si el op propaga una excepción, el batch wrapper hace
+    ``end_transaction(rollback=True)`` y revierte N_MAX + renames +
+    devices ya aplicados. Los XMLs editados en ``work_dir`` quedan en
+    disco (write-only, no se pueden rollbackear desde TIA) y se
+    sobrescriben en el siguiente run.
 
     Args del op:
       - ``plc_name`` (str, requerido).
@@ -207,8 +222,7 @@ def make_cmd_commit_devices_sync() -> Callable[..., Any]:
         work_path.mkdir(parents=True, exist_ok=True)
 
         # Acumulador de resultados: cada paso anade su retorno nativo
-        # para inspeccion posterior. Mismo patron que
-        # ``execute_transactional_batch``.
+        # para inspeccion posterior.
         results_list: list[dict[str, Any]] = []
         step_idx = 0
         op_label = ""
@@ -220,13 +234,20 @@ def make_cmd_commit_devices_sync() -> Callable[..., Any]:
                 {"step": step_idx, "command": op_name, "result": result}
             )
 
+        # NOTA ARQUITECTONICA IMPORTANTE:
+        # Este op NO abre su propia ``start_transaction``. Se ejecuta
+        # DENTRO de la transaccion que abrio el batch wrapper
+        # (``_cmd_execute_transactional_batch`` en el worker). El
+        # wrapper es el responsable de:
+        #   1. ``project.start_transaction`` al inicio del lote.
+        #   2. ``project.end_transaction(rollback=False/True)`` al final.
+        # Si abrieramos OTRA transaccion aqui, TIA Portal V21
+        # rechazaria con ``OpennessAccessException: Multiple
+        # instances of ExclusiveAccess is not supported`` (bug
+        # detectado en 2026-08-28). El rollback completo de toda la
+        # cadena (N_MAX + renames + devices) lo gestiona el wrapper.
         try:
-            # 1. Iniciar transaccion.
-            project.start_transaction(
-                undo_text=undo_text, dialog_text=undo_text
-            )
-
-            # 2. N_MAX online.
+            # 1. N_MAX online (dentro de la tx del wrapper).
             for nmax_op in nmax_ops:
                 op_label = (
                     f"update_user_constant_value("
@@ -242,7 +263,7 @@ def make_cmd_commit_devices_sync() -> Callable[..., Any]:
                 )
                 _record("update_user_constant_value", r)
 
-            # 3. Renames online.
+            # 2. Renames online.
             for rename_op in rename_ops:
                 op_label = (
                     f"update_user_constant_name("
@@ -260,14 +281,14 @@ def make_cmd_commit_devices_sync() -> Callable[..., Any]:
                 )
                 _record("update_user_constant_name", r)
 
-            # 4. Devices: export + edit + import por cada tabla.
+            # 3. Devices: export + edit + import por cada tabla.
             for dev_change in device_changes:
                 table_name: str = dev_change["table_name"]
                 tia_folder: str = dev_change.get("tia_folder", "")
                 adds: list[dict[str, str]] = dev_change.get("adds") or []
                 removes: set[str] = set(dev_change.get("removes") or [])
 
-                # 4a. Buscar la tabla.
+                # 3a. Buscar la tabla.
                 tables = target_plc.get_plc_tag_tables()
                 table = next(
                     (
@@ -281,7 +302,7 @@ def make_cmd_commit_devices_sync() -> Callable[..., Any]:
                         f"Tabla '{table_name}' no encontrada en PLC '{plc_name}'."
                     )
 
-                # 4b. Export selectivo (incluye la estructura de carpetas TIA).
+                # 3b. Export selectivo (incluye la estructura de carpetas TIA).
                 op_label = f"export_plc_tags_xml({table_name})"
                 table.export(
                     target_directory_path=str(work_path),
@@ -292,7 +313,7 @@ def make_cmd_commit_devices_sync() -> Callable[..., Any]:
                     str(work_path),
                 )
 
-                # 4c. Edit XML offline (dentro del worker). El export
+                # 3c. Edit XML offline (dentro del worker). El export
                 # escribio ``work_dir/<tia_folder>/<table_name>.xml``;
                 # modificamos in-place.
                 xml_path = work_path / tia_folder / f"{table_name}.xml"
@@ -325,7 +346,7 @@ def make_cmd_commit_devices_sync() -> Callable[..., Any]:
                     },
                 )
 
-                # 4d. Import selectivo.
+                # 3d. Import selectivo.
                 op_label = f"import_plc_tags_xml({table_name})"
                 target_plc.import_plc_tags(
                     import_root_directory=str(work_path),
@@ -336,9 +357,6 @@ def make_cmd_commit_devices_sync() -> Callable[..., Any]:
                     True,
                 )
 
-            # 5. Cerrar transaccion (commit).
-            project.end_transaction(rollback=False)
-
             return {
                 "success": True,
                 "operations_executed": step_idx,
@@ -346,12 +364,9 @@ def make_cmd_commit_devices_sync() -> Callable[..., Any]:
             }
 
         except Exception as e:
-            # Rollback garantizado.
-            try:
-                project.end_transaction(rollback=True)
-            except Exception:
-                pass
-            # Truncar args del op que fallo para no inundar el log.
+            # No llamamos a ``end_transaction`` aqui: lo gestiona el
+            # batch wrapper. Solo propagamos la excepcion anadida con
+            # info del paso que fallo para que el log sea diagnostico.
             import json as _json
             try:
                 args_str = _json.dumps(
@@ -363,9 +378,10 @@ def make_cmd_commit_devices_sync() -> Callable[..., Any]:
                 args_str = repr(op_label)[:500]
             raise RuntimeError(
                 f"commit_devices_sync abortado en el paso {step_idx + 1} "
-                f"('{op_label}'). Rollback ejecutado. Motivo: {e}. "
+                f"('{op_label}'). Excepcion propagada al batch wrapper "
+                f"(que hara rollback del lote). Motivo: {e}. "
                 f"Contexto: {args_str}"
-            )
+            ) from e
 
     return _cmd
 
