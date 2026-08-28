@@ -411,10 +411,21 @@ def make_cmd_commit_devices_sync() -> Callable[..., Any]:
                 )
 
                 # 3d. Import selectivo.
+                #
+                # En V21, pasar ``target_folder_path=tia_folder`` con
+                # ``ID="0"`` en la PlcTagTable hace que TIA intente CREAR
+                # (no actualizar) la tabla. Soluciones aplicadas:
+                #  1. ``regenerate_root_table_id`` cambia el ID="0" a uno
+                #     unico alto (ver 3c).
+                #  2. Pasamos ``target_folder_path=""`` (en vez del nombre
+                #     de carpeta) para que TIA reconcilie POR NOMBRE
+                #     en lugar de por ruta. Es la estrategia del legacy
+                #     (``import_plc_tags_xml`` original) que en V20/V21
+                #     funciona mejor que pasar la carpeta explícita.
                 op_label = f"import_plc_tags_xml({table_name})"
                 target_plc.import_plc_tags(
                     import_root_directory=str(work_path),
-                    target_folder_path=tia_folder,
+                    target_folder_path="",
                 )
                 _record(
                     f"import_plc_tags_xml[{table_name}]",
