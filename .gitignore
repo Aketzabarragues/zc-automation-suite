@@ -230,3 +230,5 @@ _source/
 _plan/
 # Stubs de siemens_tia_scripting (defensivo; build_exe los resuelve dinamicamente)
 *.pyd
+# Cuarentena temporal con archivos movidos para borrado manual por el operario
+_trash_temp/
