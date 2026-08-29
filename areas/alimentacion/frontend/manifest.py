@@ -82,6 +82,7 @@ def build() -> dict:
                 "landing": "AreaLanding",
                 "def":     "DefinicionProgramacion",
                 "disp":    "Dispositivos",
+                "cache":   "BloquesCacheView",
             },
         },
         "loaders": {
@@ -89,6 +90,7 @@ def build() -> dict:
             "AreaLanding":            f"{_STATIC_PREFIX}/components/AreaLanding.js",
             "DefinicionProgramacion": f"{_STATIC_PREFIX}/components/DefinicionProgramacion.js",
             "Dispositivos":           f"{_STATIC_PREFIX}/components/Dispositivos.js",
+            "BloquesCacheView":       f"{_STATIC_PREFIX}/components/BloquesCacheView.js",
         },
     }
 

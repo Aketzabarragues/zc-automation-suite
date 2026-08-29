@@ -1,0 +1,429 @@
+/**
+ * Componente BloquesCacheView.
+ *
+ * Vista que muestra el snapshot cacheado de la estructura del PLC
+ * activo (bloques, tag tables y UDTs). El snapshot lo emite el
+ * endpoint ``GET /api/v1/plcs/<plc>/blocks`` y se guarda en
+ * ``store.plcBlocksCache``. Esta vista es **solo lectura**: no
+ * modifica el PLC, no hace diff, no propone cambios. Es la forma
+ * que tiene el operario de inspeccionar el proyecto TIA sin abrir
+ * el portal.
+ *
+ * Estructura:
+ *   1. Cabecera con título, PLC activo y ``scanned_at``.
+ *   2. Botón "↻ Refrescar" (POST /blocks/refresh) arriba a la derecha.
+ *      Muestra un spinner textual mientras la operación está en
+ *      vuelo. El progreso "real" (etapas del scan) lo sigue
+ *      pintando el ``ProgressIndicator`` del sidebar (la
+ *      ``refrescar`` reusa la misma task que el ``@change`` del
+ *      desplegable PLC).
+ *   3. Strip de 3 pestañas con contador:
+ *        - Bloques   (DB/FB/FC/OB/...) desde ``snapshot.blocks``.
+ *        - Variables (tag tables) desde ``snapshot.tag_tables``.
+ *        - UDT       desde ``snapshot.udts`` (puede venir vacío
+ *                    si el backend aún no expone este campo; ver
+ *                    PR paralelo de tia-ot-worker).
+ *   4. Tabla con las filas de la pestaña activa.
+ *   5. Aviso ámbar si el snapshot tiene > 5 minutos.
+ *
+ * Tema: Industrial Claro. Solo tokens semánticos
+ * (``bg-surface*``, ``border-line*``, ``text-ink*``, ``bg-accent``,
+ * ``text-amber-*``).
+ *
+ * IMPORTANTE sobre templates Vue: el compilador en runtime de
+ * `vue.esm-browser.prod.js` NO acepta string literals multi-línea
+ * dentro de arrays de `:class`. Cada literal va en una sola línea.
+ */
+import {
+    computed,
+    ref,
+    onMounted,
+    watch,
+} from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js";
+// Imports absolutos: ver nota en ``Sidebar.js``. Los cross-cutting
+// (``store.js``, ``api.js``) viven en ``/js/``, no se mueven.
+import {
+    store,
+    pushLog,
+    loadPlcBlocksCache,
+    refreshPlcBlocksCache,
+} from "/js/store.js";
+
+/** Umbral de "stale" del cache local (5 min, mismo TTL que el backend). */
+const STALE_AFTER_MS = 5 * 60 * 1000;
+
+export default {
+    name: "BloquesCacheView",
+    setup() {
+        /** Pestaña activa. Una de ``"bloques" | "variables" | "udt"``. */
+        const activeTab = ref("bloques");
+
+        /** True mientras el botón "Refrescar" está esperando respuesta. */
+        const isRefreshing = ref(false);
+
+        /** Snapshot cacheado del PLC activo (o ``null`` si aún no hay). */
+        const cache = computed(() => store.plcBlocksCache);
+
+        /** Listas normalizadas del snapshot (arrays vacíos si falta el campo). */
+        const blocks = computed(() =>
+            cache.value && Array.isArray(cache.value.blocks)
+                ? cache.value.blocks
+                : []
+        );
+        const variables = computed(() =>
+            cache.value && Array.isArray(cache.value.tag_tables)
+                ? cache.value.tag_tables
+                : []
+        );
+        const udts = computed(() =>
+            cache.value && Array.isArray(cache.value.udts)
+                ? cache.value.udts
+                : []
+        );
+
+        /** Conteos para los badges de las pestañas. */
+        const blocksCount = computed(() => blocks.value.length);
+        const variablesCount = computed(() => variables.value.length);
+        const udtsCount = computed(() => udts.value.length);
+
+        /** Timestamp del último scan (string ISO) o ``null``. */
+        const scannedAt = computed(() =>
+            cache.value && cache.value.scanned_at
+                ? cache.value.scanned_at
+                : null
+        );
+
+        /**
+         * Nombre del PLC del snapshot. Si el cache no lo trae
+         * explícitamente, cae al PLC activo del store (que es el
+         * argumento del último fetch).
+         */
+        const plcName = computed(() => {
+            if (cache.value && cache.value.plc_name) return cache.value.plc_name;
+            return store.selectedPlc || "";
+        });
+
+        /** True si hay un snapshot cargado (no null). */
+        const hasCache = computed(() => !!cache.value);
+
+        /**
+         * "Stale" = el snapshot tiene más de 5 minutos. El backend
+         * tiene su propio TTL; aquí avisamos al operario para que
+         * sepa que lo que ve es antiguo.
+         */
+        const isStale = computed(() => {
+            if (!scannedAt.value) return false;
+            const t = Date.parse(scannedAt.value);
+            if (Number.isNaN(t)) return false;
+            return Date.now() - t > STALE_AFTER_MS;
+        });
+
+        /** Filas a pintar en la pestaña activa. */
+        const activeRows = computed(() => {
+            if (activeTab.value === "bloques") return blocks.value;
+            if (activeTab.value === "variables") return variables.value;
+            if (activeTab.value === "udt") return udts.value;
+            return [];
+        });
+
+        /**
+         * Helper: muestra el número de bloque. Soporta tanto la
+         * clave del backend (``number``) como el alias español
+         * (``numero``) por si llegan campos renombrados en
+         * snapshots parciales.
+         */
+        function displayNumber(value) {
+            if (value === null || value === undefined || value === "") return "—";
+            return String(value);
+        }
+
+        /**
+         * Helper: nombre del bloque / variable / UDT. Acepta
+         * ``name`` o ``nombre``.
+         */
+        function displayName(item) {
+            if (!item) return "—";
+            return item.name || item.nombre || "—";
+        }
+
+        /**
+         * Helper: tipo del bloque (DB / FB / FC / OB / UDT / ...).
+         * Acepta ``type``, ``tipo`` o ``block_type``.
+         */
+        function displayType(item) {
+            if (!item) return "—";
+            return item.type || item.tipo || item.block_type || "—";
+        }
+
+        /**
+         * Helper: ruta jerárquica dentro del proyecto TIA
+         * (p.ej. ``"PLC_1/Program blocks/DBs"``). Acepta
+         * ``path``, ``ruta`` o ``container_path``.
+         */
+        function displayPath(item) {
+            if (!item) return "—";
+            return item.path || item.ruta || item.container_path || "—";
+        }
+
+        /**
+         * Click en "↻ Refrescar". Dispara el re-scan contra TIA
+         * Portal y, cuando vuelve, actualiza ``store.plcBlocksCache``
+         * con la snapshot nueva. El feedback visual de "la operación
+         * está corriendo" lo da el ``ProgressIndicator`` del
+         * sidebar (la task "Cache de bloques de <plc>" es la misma
+         * que dispara el ``@change`` del desplegable PLC).
+         *
+         * El flag local ``isRefreshing`` solo deshabilita el botón
+         * para evitar doble-click; NO es la fuente de verdad del
+         * progreso (eso es el ProgressTracker backend).
+         */
+        async function handleRefresh() {
+            if (!store.selectedPlc || isRefreshing.value) return;
+            isRefreshing.value = true;
+            try {
+                await refreshPlcBlocksCache(store.selectedPlc);
+                pushLog(
+                    `Cache de ${store.selectedPlc} refrescado`,
+                    "success"
+                );
+            } catch (e) {
+                pushLog(
+                    `Error refrescando cache: ${
+                        e && e.message ? e.message : String(e)
+                    }`,
+                    "warning"
+                );
+            } finally {
+                isRefreshing.value = false;
+            }
+        }
+
+        /**
+         * Al montar: si hay un PLC seleccionado y el cache no
+         * coincide con él (o está vacío), dispara el fetch. La
+         * carga también la hace el Sidebar en el ``@change`` del
+         * desplegable PLC; esto es la red de seguridad para el
+         * caso "el usuario abre esta vista directamente" o "el
+         * cache se quedó con un PLC anterior".
+         */
+        onMounted(() => {
+            const current = store.selectedPlc;
+            const cached = store.plcBlocksCache;
+            if (current && (!cached || cached.plc_name !== current)) {
+                loadPlcBlocksCache(current);
+            }
+        });
+
+        /**
+         * Reactividad in-view: si el operario cambia el PLC del
+         * desplegable mientras está viendo esta vista, recargamos
+         * el cache para el PLC nuevo (sin esperar al próximo
+         * mount).
+         */
+        watch(
+            () => store.selectedPlc,
+            (newPlc) => {
+                if (newPlc) {
+                    loadPlcBlocksCache(newPlc);
+                }
+            }
+        );
+
+        return {
+            store,
+            activeTab,
+            isRefreshing,
+            hasCache,
+            blocks,
+            variables,
+            udts,
+            blocksCount,
+            variablesCount,
+            udtsCount,
+            scannedAt,
+            plcName,
+            isStale,
+            activeRows,
+            displayNumber,
+            displayName,
+            displayType,
+            displayPath,
+            handleRefresh,
+        };
+    },
+    template: /* html */ `
+        <section class="flex-1 flex flex-col overflow-hidden">
+
+            <header class="flex justify-between items-start mb-4">
+                <div>
+                    <h2 class="text-lg font-bold text-ink">📦 Cache de bloques</h2>
+                    <p class="text-xs text-ink-muted mt-0.5">
+                        <template v-if="store.selectedPlc">
+                            PLC activo:
+                            <span class="font-semibold text-ink">{{ plcName }}</span>
+                            <template v-if="scannedAt">
+                                · Escaneado:
+                                <span class="font-mono">{{ scannedAt }}</span>
+                            </template>
+                        </template>
+                        <template v-else>
+                            Selecciona un PLC en el panel lateral para empezar.
+                        </template>
+                    </p>
+                </div>
+                <button @click="handleRefresh"
+                    :disabled="!store.selectedPlc || isRefreshing"
+                    class="px-4 py-2 bg-accent hover:bg-accent-hover disabled:opacity-50 rounded text-sm font-medium text-ink-inverse whitespace-nowrap">
+                    <span v-if="isRefreshing">⏳ Refrescando…</span>
+                    <span v-else>↻ Refrescar</span>
+                </button>
+            </header>
+
+            <!-- Aviso ámbar: cache "stale" (> 5 min) -->
+            <div v-if="isStale" class="mb-3 px-3 py-2 bg-amber-100 border border-amber-300 rounded text-xs text-amber-800">
+                ⚠️ El cache tiene más de 5 minutos. Pulsa <strong>"↻ Refrescar"</strong> para re-escanear el PLC.
+            </div>
+
+            <!-- Strip de pestañas con contador -->
+            <div v-if="hasCache" class="flex border-b border-line bg-surface-sunken overflow-x-auto">
+                <button @click="activeTab = 'bloques'"
+                    :class="['tab-btn px-4 py-2 text-xs font-medium border-r border-line whitespace-nowrap',
+                             activeTab === 'bloques' ? 'active' : 'bg-surface-raised text-ink-muted hover:bg-surface-sunken']">
+                    Bloques
+                    <span class="ml-1 text-[10px] opacity-70">({{ blocksCount }})</span>
+                </button>
+                <button @click="activeTab = 'variables'"
+                    :class="['tab-btn px-4 py-2 text-xs font-medium border-r border-line whitespace-nowrap',
+                             activeTab === 'variables' ? 'active' : 'bg-surface-raised text-ink-muted hover:bg-surface-sunken']">
+                    Variables
+                    <span class="ml-1 text-[10px] opacity-70">({{ variablesCount }})</span>
+                </button>
+                <button @click="activeTab = 'udt'"
+                    :class="['tab-btn px-4 py-2 text-xs font-medium border-r border-line whitespace-nowrap',
+                             activeTab === 'udt' ? 'active' : 'bg-surface-raised text-ink-muted hover:bg-surface-sunken']">
+                    UDT
+                    <span class="ml-1 text-[10px] opacity-70">({{ udtsCount }})</span>
+                </button>
+            </div>
+
+            <!-- Cuerpo: tabla de la pestaña activa o empty state global -->
+            <div class="flex-1 overflow-auto table-scroll-x mt-2">
+
+                <!-- Bloques -->
+                <table v-if="hasCache && activeTab === 'bloques'" class="w-full text-xs">
+                    <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
+                        <tr>
+                            <th class="px-3 py-2 text-left text-ink-muted">Nombre</th>
+                            <th class="px-3 py-2 text-left text-ink-muted">Tipo</th>
+                            <th class="px-3 py-2 text-left text-ink-muted">Número</th>
+                            <th class="px-3 py-2 text-left text-ink-muted">Ruta</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="b in blocks"
+                            :key="(b.path || '') + '/' + (b.name || '') + '/' + (b.number ?? b.numero ?? '')"
+                            class="border-b border-line">
+                            <td class="px-3 py-1.5 font-mono text-ink whitespace-nowrap">
+                                {{ displayName(b) }}
+                            </td>
+                            <td class="px-3 py-1.5 text-ink-muted whitespace-nowrap">
+                                {{ displayType(b) }}
+                            </td>
+                            <td class="px-3 py-1.5 font-mono text-ink whitespace-nowrap">
+                                {{ displayNumber(b.number ?? b.numero) }}
+                            </td>
+                            <td class="px-3 py-1.5 font-mono text-ink-muted">
+                                {{ displayPath(b) }}
+                            </td>
+                        </tr>
+                        <tr v-if="blocks.length === 0">
+                            <td colspan="4" class="px-3 py-6 text-center text-ink-muted italic">
+                                ⚠️ No hay bloques cacheados. Pulsa "↻ Refrescar" para escanear.
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <!-- Variables (tag tables) -->
+                <table v-else-if="hasCache && activeTab === 'variables'" class="w-full text-xs">
+                    <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
+                        <tr>
+                            <th class="px-3 py-2 text-left text-ink-muted">Nombre</th>
+                            <th class="px-3 py-2 text-left text-ink-muted">Ruta</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="v in variables"
+                            :key="(v.path || '') + '/' + (v.name || '')"
+                            class="border-b border-line">
+                            <td class="px-3 py-1.5 font-mono text-ink whitespace-nowrap">
+                                {{ displayName(v) }}
+                            </td>
+                            <td class="px-3 py-1.5 font-mono text-ink-muted">
+                                {{ displayPath(v) }}
+                            </td>
+                        </tr>
+                        <tr v-if="variables.length === 0">
+                            <td colspan="2" class="px-3 py-6 text-center text-ink-muted italic">
+                                ⚠️ No hay variables (tag tables) cacheadas. Pulsa "↻ Refrescar".
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <!-- UDT (puede venir vacío si el backend aún no expone este campo) -->
+                <table v-else-if="hasCache && activeTab === 'udt'" class="w-full text-xs">
+                    <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
+                        <tr>
+                            <th class="px-3 py-2 text-left text-ink-muted">Nombre</th>
+                            <th class="px-3 py-2 text-left text-ink-muted">Tipo</th>
+                            <th class="px-3 py-2 text-left text-ink-muted">Número</th>
+                            <th class="px-3 py-2 text-left text-ink-muted">Ruta</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="u in udts"
+                            :key="(u.path || '') + '/' + (u.name || '') + '/' + (u.number ?? u.numero ?? '')"
+                            class="border-b border-line">
+                            <td class="px-3 py-1.5 font-mono text-ink whitespace-nowrap">
+                                {{ displayName(u) }}
+                            </td>
+                            <td class="px-3 py-1.5 text-ink-muted whitespace-nowrap">
+                                {{ displayType(u) }}
+                            </td>
+                            <td class="px-3 py-1.5 font-mono text-ink whitespace-nowrap">
+                                {{ displayNumber(u.number ?? u.numero) }}
+                            </td>
+                            <td class="px-3 py-1.5 font-mono text-ink-muted">
+                                {{ displayPath(u) }}
+                            </td>
+                        </tr>
+                        <tr v-if="udts.length === 0">
+                            <td colspan="4" class="px-3 py-6 text-center text-ink-muted italic">
+                                ⚠️ No hay UDTs cacheados. Si el backend ya expone este campo, pulsa "↻ Refrescar".
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <!-- Empty state global: no hay PLC seleccionado o el cache está vacío -->
+                <div v-else class="flex-1 flex items-center justify-center bg-surface-raised border border-dashed border-line rounded p-10 text-center text-ink-muted">
+                    <div>
+                        <div class="text-5xl mb-3 opacity-40">📦</div>
+                        <p v-if="!store.selectedPlc" class="mb-2">
+                            Selecciona un PLC en el panel lateral.
+                        </p>
+                        <p v-else class="mb-2">
+                            El cache de bloques está vacío.
+                        </p>
+                        <p class="text-xs">
+                            Pulsa <strong class="text-accent">"↻ Refrescar"</strong> para escanear el PLC.
+                        </p>
+                    </div>
+                </div>
+
+            </div>
+
+        </section>
+    `,
+};

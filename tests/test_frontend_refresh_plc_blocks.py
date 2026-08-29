@@ -50,21 +50,26 @@ def test_api_js_exposes_block_cache_endpoints() -> None:
 
 
 def test_store_js_exposes_refresh_helper_only() -> None:
-    """``store.js`` solo expone el helper ``refreshPlcBlocks`` (thin wrapper).
+    """``store.js`` expone ``refreshPlcBlocks`` (thin wrapper del progreso).
 
-    El estado del cache y el feedback de la operación viven en el
-    backend (``ProgressTracker``), no en el store. Verificamos
-    explícitamente que NO reintroducimos el badge legacy con su
-    estado local (``plcBlocksCache``, ``scanningPlc``, ``cacheSummary``).
+    Tras añadir la vista ``BloquesCacheView``, el store re-introduce
+    el slot ``plcBlocksCache`` (datos) y los helpers
+    ``loadPlcBlocksCache`` / ``refreshPlcBlocksCache``. PERO el
+    feedback de la operación larga sigue siendo 100% backend
+    (``ProgressTracker``): no reintroducimos el badge legacy con su
+    estado local (``scanningPlc``, ``lastScanError``, ``cacheSummary``).
     """
     text = _read(STORE_JS)
-    # Helper exportado.
+    # Helper principal de progreso.
     assert "export async function refreshPlcBlocks" in text
-    # NO hay estado local del cache de bloques en el store.
-    assert "plcBlocksCache:" not in text
+    # Slot de datos para la nueva vista (NO es feedback de progreso).
+    assert "plcBlocksCache:" in text
+    # Helpers de carga/refresh de la nueva vista.
+    assert "loadPlcBlocksCache" in text
+    assert "refreshPlcBlocksCache" in text
+    # NO reintroducimos el badge legacy con su estado efímero.
     assert "scanningPlc:" not in text
     assert "lastScanError:" not in text
-    # NO hay helpers del badge legacy.
     assert "export function cacheSummary" not in text
     assert "cacheSummary()" not in text
 

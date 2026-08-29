@@ -27,7 +27,7 @@ import { computed } from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js";
 // ``/js/`` y NO se mueven. Un import relativo ``../../../../js/X.js``
 // se resolvería contra la URL del módulo y daría
 // ``/static/js/X.js`` (404). Usar absolutos evita el problema.
-import { store, pushLog, goToWelcome, goToSubview, refreshPlcBlocks } from "/js/store.js";
+import { store, pushLog, goToWelcome, goToSubview, refreshPlcBlocks, loadPlcBlocksCache } from "/js/store.js";
 import { apiFetchPlcs } from "/js/api.js";
 import ProgressIndicator from "/js/components/ProgressIndicator.js";
 
@@ -78,9 +78,17 @@ export default {
          * ``ProgressIndicator`` (anclado al fondo del sidebar)
          * muestra automáticamente gracias al polling 500 ms de
          * ``main.js``. No añadimos ningún widget nuevo en la SPA.
+         *
+         * Tras el scan, también pre-cargamos el snapshot en
+         * ``store.plcBlocksCache`` para que la vista
+         * ``BloquesCacheView`` lo tenga listo en cuanto el
+         * operario navegue a ella (no tiene que esperar a su
+         * ``onMounted``). La vista, además, recarga reactivamente
+         * si el PLC cambia mientras está abierta.
          */
         async function onPlcSelected() {
             await refreshPlcBlocks(store.selectedPlc);
+            await loadPlcBlocksCache(store.selectedPlc);
         }
 
         return {
@@ -135,6 +143,11 @@ export default {
                         :class="['text-left text-xs px-3 py-2 rounded border',
                                  store.currentView === 'def' ? 'bg-accent border-accent text-ink-inverse font-semibold' : 'bg-surface-sunken border-line hover:bg-surface-sunken text-ink']">
                         📊 Definición programación
+                    </button>
+                    <button @click="goToSubview('cache')"
+                        :class="['text-left text-xs px-3 py-2 rounded border',
+                                 store.currentView === 'cache' ? 'bg-accent border-accent text-ink-inverse font-semibold' : 'bg-surface-sunken border-line hover:bg-surface-sunken text-ink']">
+                        📦 Cache de bloques
                     </button>
                     <button @click="goToSubview('disp')"
                         :class="['text-left text-xs px-3 py-2 rounded border',

@@ -42,6 +42,7 @@ const _comps = {
     "AreaLanding":             () => import("./components/AreaLanding.js"),
     "DefinicionProgramacion":  () => import("./components/DefinicionProgramacion.js"),
     "Dispositivos":            () => import("./components/Dispositivos.js"),
+    "BloquesCacheView":        () => import("./components/BloquesCacheView.js"),
 };
 
 export function build() {
@@ -56,6 +57,7 @@ export function build() {
                 "landing": "AreaLanding",
                 "def":     "DefinicionProgramacion",
                 "disp":    "Dispositivos",
+                "cache":   "BloquesCacheView",
             },
         },
         loaders: _comps,

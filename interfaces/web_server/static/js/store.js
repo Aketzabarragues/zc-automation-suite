@@ -121,6 +121,35 @@ export const store = reactive({
     },
 
     /**
+     * Snapshot cacheado de la estructura del PLC activo
+     * (bloques + tag tables + UDTs). Alimentado por los helpers
+     * ``loadPlcBlocksCache`` / ``refreshPlcBlocksCache`` desde
+     * los endpoints ``GET / POST /api/v1/plcs/<plc>/blocks[/refresh]``.
+     *
+     * Estructura (defensiva: cualquier campo puede faltar):
+     *   {
+     *     plc_name:   string,
+     *     blocks:     Array<{ name, type, number, path, ... }>,
+     *     tag_tables: Array<{ name, path, ... }>,
+     *     udts:       Array<{ name, type, number, path, ... }>,
+     *     scanned_at: string (ISO timestamp),
+     *   }
+     *
+     * La vista ``BloquesCacheView`` lo consume en modo solo
+     * lectura: 3 pestañas (Bloques / Variables / UDT) y un
+     * botón "Refrescar" que dispara el helper de refresh.
+     *
+     * ``null`` antes del primer fetch o cuando el operario
+     * deselecciona el PLC.
+     *
+     * El progreso de la operación larga (escaneo contra TIA)
+     * NO vive aquí: lo emite el ``ProgressTracker`` backend
+     * y lo pinta el ``ProgressIndicator`` del sidebar. Esta
+     * slot es **solo datos**.
+     */
+    plcBlocksCache: null,
+
+    /**
      * Manifest del área activa, cargado por
      * ``core/interfaces/web_server/static/js/area-loader.js``.
      *
@@ -354,6 +383,113 @@ export async function refreshPlcBlocks(plcName, { force = false } = {}) {
         // Si r.ok, el ProgressTracker del backend ya emitió los
         // eventos. El ProgressIndicator los recoge sin que el store
         // tenga que recordar nada.
+    } catch (e) {
+        pushLog(
+            `Cache ${plcName}: error — ${String(e && e.message ? e.message : e)}`,
+            "warning"
+        );
+    }
+}
+
+/**
+ * Aplica la respuesta del endpoint de bloques al slot
+ * ``store.plcBlocksCache``. Helper privado: normaliza los
+ * nombres de campos (``snapshot`` envoltorio o datos directos) y
+ * rellena con arrays vacíos cualquier campo que falte, para que
+ * la vista ``BloquesCacheView`` no tenga que hacer defensiva
+ * extra en cada ``computed``.
+ *
+ * Si la respuesta está vacía o malformada, deja el cache como
+ * está (mejor no pisar un snapshot válido que ya teníamos con
+ * un ``null`` accidental).
+ */
+function _applyBlocksSnapshot(plcName, payload) {
+    if (!plcName || !payload || typeof payload !== "object") return;
+    const snap = (payload.snapshot && typeof payload.snapshot === "object")
+        ? payload.snapshot
+        : payload;
+    if (!snap || typeof snap !== "object") return;
+    store.plcBlocksCache = {
+        plc_name: snap.plc_name || plcName,
+        blocks: Array.isArray(snap.blocks) ? snap.blocks : [],
+        tag_tables: Array.isArray(snap.tag_tables) ? snap.tag_tables : [],
+        // ``udts`` puede no estar si el backend aún no lo expone
+        // (PR paralelo de tia-ot-worker); la vista lo trata como
+        // lista vacía.
+        udts: Array.isArray(snap.udts) ? snap.udts : [],
+        scanned_at: snap.scanned_at || new Date().toISOString(),
+    };
+}
+
+/**
+ * Carga (o recarga) el snapshot cacheado de bloques del PLC en
+ * ``store.plcBlocksCache`` desde el endpoint ``GET``.
+ *
+ * Diferencia con ``refreshPlcBlocks``:
+ *   * ``refreshPlcBlocks`` es el wrapper "thin" que solo dispara
+ *     el scan y deja que el ``ProgressTracker`` haga el feedback.
+ *     NO toca ``store.plcBlocksCache``.
+ *   * ``loadPlcBlocksCache`` es la versión "data": trae el
+ *     snapshot actual y lo guarda en el store para que la vista
+ *     ``BloquesCacheView`` lo pinte.
+ *
+ * Los dos se llaman en el ``@change`` del desplegable PLC del
+ * Sidebar (``refreshPlcBlocks`` para el progreso,
+ * ``loadPlcBlocksCache`` para los datos) y de nuevo al refrescar
+ * manualmente desde la vista. La doble llamada es deliberada: la
+ * segunda al ``GET`` suele ser cache-hit en el backend.
+ *
+ * ``plcName`` vacío → vacía el cache (operario deseleccionó).
+ */
+export async function loadPlcBlocksCache(plcName) {
+    if (!plcName) {
+        store.plcBlocksCache = null;
+        return;
+    }
+    const { apiScanPlcBlocks } = await import("./api.js");
+    try {
+        const r = await apiScanPlcBlocks(plcName);
+        if (r.ok) {
+            _applyBlocksSnapshot(plcName, r.data);
+        } else {
+            const msg =
+                (r.data && (r.data.detail || r.data.error)) ||
+                `HTTP ${r.status}`;
+            pushLog(`Cache ${plcName}: ${msg}`, "warning");
+        }
+    } catch (e) {
+        pushLog(
+            `Cache ${plcName}: error — ${String(e && e.message ? e.message : e)}`,
+            "warning"
+        );
+    }
+}
+
+/**
+ * Fuerza el re-scan del PLC y guarda el snapshot resultante en
+ * ``store.plcBlocksCache``. Es la versión "fresca" de
+ * ``loadPlcBlocksCache``: llama al ``POST /blocks/refresh`` en
+ * lugar del ``GET /blocks``, así invalida la cache del backend.
+ *
+ * Es el handler del botón "↻ Refrescar" de la vista
+ * ``BloquesCacheView``. El progreso "scaneando..." lo sigue
+ * mostrando el ``ProgressIndicator`` del sidebar (la task
+ * "Cache de bloques de <plc>" es la misma que dispara el
+ * ``@change`` del desplegable PLC).
+ */
+export async function refreshPlcBlocksCache(plcName) {
+    if (!plcName) return;
+    const { apiRefreshPlcBlocks } = await import("./api.js");
+    try {
+        const r = await apiRefreshPlcBlocks(plcName);
+        if (r.ok) {
+            _applyBlocksSnapshot(plcName, r.data);
+        } else {
+            const msg =
+                (r.data && (r.data.detail || r.data.error)) ||
+                `HTTP ${r.status}`;
+            pushLog(`Cache ${plcName}: ${msg}`, "warning");
+        }
     } catch (e) {
         pushLog(
             `Cache ${plcName}: error — ${String(e && e.message ? e.message : e)}`,
