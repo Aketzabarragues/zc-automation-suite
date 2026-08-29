@@ -232,3 +232,5 @@ _plan/
 *.pyd
 # Cuarentena temporal con archivos movidos para borrado manual por el operario
 _trash_temp/
+# Artefactos del runtime de Mavis (plans de mavis-team, logs de orquestacion, etc.)
+.minimax/
