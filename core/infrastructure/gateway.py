@@ -14,6 +14,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from core.models import BloqueCache, BloquePLC
+
 
 # Timeout por defecto del subproceso OT (segundos).
 #
@@ -57,6 +59,13 @@ class TIAProcessGateway:
                 tests con mocks que necesitan un timeout corto).
         """
         self._cache: dict[str, Any] = {}
+        # Cache IT especializada de bloques + tag tables escaneados.
+        # Separada de ``self._cache`` (que guarda lecturas ligeras como
+        # ``list_plcs``) porque su ciclo de vida es distinto: los
+        # bloques cambian con mucha menos frecuencia y se reconstruyen
+        # con ``scan_plc_blocks``. Se invalida en open/close_project
+        # via ``_clear_bloques_cache``.
+        self._bloques_cache: dict[str, "BloqueCache"] = {}
         self._timeout = timeout if timeout is not None else DEFAULT_GATEWAY_TIMEOUT
 
     def _resolve_worker_exec_args(self) -> list[str]:
@@ -199,9 +208,99 @@ class TIAProcessGateway:
         self._cache[cache_key] = blocks
         return blocks
 
+    async def scan_plc_blocks(
+        self, plc_name: str, force_refresh: bool = False
+    ) -> BloqueCache:
+        """Escanea recursivamente TODOS los bloques y tag tables de un PLC.
+
+        Devuelve un ``BloqueCache`` reconstruido a partir del payload
+        primitivo del worker. Cachea en ``self._bloques_cache`` (separado
+        de ``self._cache`` por su ciclo de vida distinto: el scan es
+        pesado, la lista plana de bloques es ligera).
+
+        Args:
+            plc_name: nombre del PLC a escanear.
+            force_refresh: si ``True``, ignora el cache y reescanea.
+
+        Returns:
+            ``BloqueCache`` con ``blocks`` y ``tag_tables`` indexados por
+            ``BloquePLC.normalize_name``.
+        """
+        if not force_refresh and plc_name in self._bloques_cache:
+            return self._bloques_cache[plc_name]
+
+        result = await self._dispatch_worker(
+            "scan_blocks", {"plc_name": plc_name}
+        )
+        if not isinstance(result, dict):
+            raise RuntimeError(
+                f"Respuesta inesperada del worker para 'scan_blocks': {type(result).__name__}"
+            )
+
+        blocks_raw = result.get("blocks", []) or []
+        tag_tables_raw = result.get("tag_tables", []) or []
+        blocks: dict[str, BloquePLC] = {
+            BloquePLC.normalize_name(b["nombre"]): BloquePLC(
+                nombre=b["nombre"],
+                numero=int(b.get("numero", 0)),
+                tipo=str(b.get("tipo", "OTHER")),
+                ruta=str(b.get("ruta", "")),
+            )
+            for b in blocks_raw
+            if b.get("nombre")
+        }
+        tag_tables: dict[str, BloquePLC] = {
+            BloquePLC.normalize_name(t["nombre"]): BloquePLC(
+                nombre=t["nombre"],
+                numero=int(t.get("numero", 0)),
+                tipo=str(t.get("tipo", "OTHER")),
+                ruta=str(t.get("ruta", "")),
+            )
+            for t in tag_tables_raw
+            if t.get("nombre")
+        }
+        # Reconstruimos ``scanned_at`` desde el payload si esta presente
+        # (formato ISO-8601). Si no, usamos ``now(UTC)`` como fallback
+        # defensivo (no deberia pasar, pero el contrato lo permite).
+        scanned_at_raw = result.get("scanned_at")
+        if isinstance(scanned_at_raw, str):
+            try:
+                from datetime import datetime as _dt
+                scanned_at = _dt.fromisoformat(scanned_at_raw)
+            except ValueError:
+                from datetime import datetime as _dt, timezone as _tz
+                scanned_at = _dt.now(_tz.utc)
+        else:
+            from datetime import datetime as _dt, timezone as _tz
+            scanned_at = _dt.now(_tz.utc)
+
+        cache = BloqueCache(
+            blocks=blocks,
+            tag_tables=tag_tables,
+            plc_name=plc_name,
+            scanned_at=scanned_at,
+        )
+        self._bloques_cache[plc_name] = cache
+        return cache
+
+    def _clear_bloques_cache(self, plc_name: str | None = None) -> None:
+        """Invalida el cache de bloques de un PLC o todos.
+
+        Llamado en ``open_project`` y ``close_project`` para reflejar
+        cambios de proyecto. Tambien desde ``clear_cache`` (que ya
+        vacia todo el estado IT).
+        """
+        if plc_name is None:
+            self._bloques_cache.clear()
+            return
+        self._bloques_cache.pop(plc_name, None)
+
     def clear_cache(self) -> None:
         """Limpia el estado IT almacenado en memoria."""
         self._cache.clear()
+        # Tambien vaciamos el cache especializado de bloques; un
+        # ``clear_cache`` global indica "estado del proyecto invalido".
+        self._bloques_cache.clear()
 
     async def compile_plc(self, plc_name: str) -> bool:
         """Compila el software del PLC devolviendo el booleano nativo de Siemens.
@@ -321,6 +420,11 @@ class TIAProcessGateway:
             "open_project", {"project_file_path": project_file_path}
         )
         self.clear_cache()  # Cambio de proyecto invalida todo el estado IT cacheado.
+        # ``clear_cache`` ya vacia ``self._bloques_cache``; llamada
+        # explicita por simetria con la operacion (defensiva ante
+        # futuros cambios de ``clear_cache`` que omitan caches
+        # especializados).
+        self._clear_bloques_cache()
 
     async def save_project(self) -> None:
         await self._dispatch_worker("save_project", {})
@@ -328,6 +432,7 @@ class TIAProcessGateway:
     async def close_project(self) -> None:
         await self._dispatch_worker("close_project", {})
         self.clear_cache()
+        self._clear_bloques_cache()
 
     async def import_blocks_sd(
         self,

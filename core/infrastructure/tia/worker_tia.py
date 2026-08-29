@@ -19,11 +19,16 @@ from __future__ import annotations
 
 import io
 import json
+import logging
 import os
+import re
 import sys
 import traceback
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, NoReturn
+
+from core.models.bloque_plc import BloquePLC
 
 # Forzar UTF-8 en los streams del worker.
 # El worker es un subproceso de TIAProcessGateway (vía
@@ -45,6 +50,9 @@ def _reconfigure_stdio_utf8() -> None:
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
         sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="replace")
+
+
+_logger = logging.getLogger(__name__)
 
 
 
@@ -487,6 +495,186 @@ def _cmd_import_block(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
     return True
 
 
+def _safe_get_block_name(block) -> str | None:
+    """Lee el nombre de un bloque tolerando UnicodeDecodeError.
+
+    Algunos bloques del PLC tienen nombres con caracteres no-ASCII
+    (Latin-1) que hacen fallar la conversion a Python str via Pythonnet.
+    Como nosotros solo necesitamos nombres ASCII para nuestros caches,
+    devolvemos ``None`` y dejamos que el caller descarte el bloque
+    silenciosamente (el worker loguea a debug).
+    """
+    try:
+        if hasattr(block, "get_name"):
+            return block.get_name()
+        if hasattr(block, "Name"):
+            return block.Name
+    except UnicodeDecodeError:
+        return None
+    except Exception:
+        return None
+    return None
+
+
+def _safe_get_block_path(block) -> str:
+    """Lee la ruta jerarquica de un bloque tolerando COM exceptions.
+
+    El escaner silenció COM exceptions menores al leer la ruta de un
+    bloque (legacy ``scanner.py`` lineas 156-169): TIA Portal las
+    detecta y envenena la transaccion si esto ocurre DENTRO del
+    ``with transaccion()``. Como ahora el escaneo se hace fuera de
+    cualquier transaccion activa, solo logueamos a debug y devolvemos
+    ``""`` para que el bloque siga siendo cacheado con su nombre.
+    """
+    try:
+        if hasattr(block, "get_path"):
+            return str(block.get_path())
+        if hasattr(block, "Path"):
+            return str(block.Path)
+    except Exception as e:
+        _logger.debug(
+            "No se pudo obtener la ruta del bloque '%s' (estado temporal): %s",
+            getattr(block, "get_name", lambda: getattr(block, "Name", "?"))()
+            if not isinstance(
+                getattr(block, "get_name", lambda: getattr(block, "Name", "?")), bytes
+            )
+            else "?",
+            e,
+        )
+        return ""
+    return ""
+
+
+def _scan_block_group_recursive(group_or_blocks: Any) -> list[dict[str, Any]]:
+    """Recorre recursivamente un grupo o coleccion de bloques y devuelve DTOs.
+
+    Estrategia (espejo del legacy ``scanner._scan_group_recursive``):
+      1. Extrae la lista plana de bloques via ``get_blocks()`` (preferred)
+         o ``.Blocks`` (fallback). Si ninguno, intenta ``__iter__``.
+      2. Procesa cada bloque: nombre, ruta, derivar tipo y numero.
+      3. Extrae sub-grupos via ``get_groups()`` / ``.Groups`` y recurre.
+
+    Returns:
+        Lista de ``dict`` con shape ``BloquePLC.to_dict()``.
+        Bloques con nombre inaccesible (UnicodeDecodeError) se omiten
+        silenciosamente (logueados a debug).
+    """
+    blocks_iter: list[Any] = []
+    try:
+        if hasattr(group_or_blocks, "get_blocks"):
+            blocks_iter = list(group_or_blocks.get_blocks() or [])
+        elif hasattr(group_or_blocks, "Blocks"):
+            blocks_iter = list(group_or_blocks.Blocks or [])
+        elif hasattr(group_or_blocks, "__iter__"):
+            blocks_iter = list(group_or_blocks)
+    except Exception as e:
+        _logger.warning("No se pudieron obtener bloques del grupo: %s", e)
+        blocks_iter = []
+
+    out: list[dict[str, Any]] = []
+    for block in blocks_iter:
+        nombre = _safe_get_block_name(block)
+        if not nombre:
+            _logger.debug("Bloque sin nombre legible: omitido.")
+            continue
+        ruta = _safe_get_block_path(block)
+        tipo = BloquePLC.detect_tipo(nombre)
+        match = re.match(r"^(DB|FB|FC|OB|UDT)(\d+)", nombre, re.IGNORECASE)
+        numero = int(match.group(2)) if match else 0
+        out.append(
+            BloquePLC(
+                nombre=str(nombre),
+                numero=numero,
+                tipo=tipo,
+                ruta=ruta,
+            ).to_dict()
+        )
+
+    groups: list[Any] = []
+    try:
+        if hasattr(group_or_blocks, "get_groups"):
+            groups = list(group_or_blocks.get_groups() or [])
+        elif hasattr(group_or_blocks, "Groups"):
+            groups = list(group_or_blocks.Groups or [])
+    except Exception as e:
+        _logger.warning("No se pudieron obtener subgrupos: %s", e)
+        groups = []
+
+    for sub in groups:
+        out.extend(_scan_block_group_recursive(sub))
+
+    return out
+
+
+def _cmd_scan_blocks(portal: Any, ts: Any, args: dict[str, Any]) -> dict[str, Any]:
+    """Escanea recursivamente TODOS los bloques y tag tables de un PLC.
+
+    Devuelve un dict primitivo serializable (lista de bloques + lista de
+    tablas + timestamp ISO 8601 + nombre del PLC). El IT reconstruye
+    ``BloqueCache`` a partir de este payload.
+
+    Args:
+        portal: instancia del portal TIA (inyectada por el dispatcher).
+        ts: modulo Siemens (no usado directamente aqui).
+        args: dict con ``plc_name`` (str, requerido).
+
+    Returns:
+        ``{
+            "plc_name":   str,
+            "blocks":     [ {nombre, numero, tipo, ruta}, ... ],
+            "tag_tables": [ {nombre, numero, tipo, ruta}, ... ],
+            "scanned_at": str (ISO 8601 UTC),
+        }``
+
+    Raises:
+        ValueError: si ``plc_name`` falta o esta vacio.
+        RuntimeError: si no hay proyecto activo o el PLC no existe.
+    """
+    _ = ts
+    plc_name: str = args.get("plc_name", "")
+    if not plc_name:
+        raise ValueError("Se requiere el argumento 'plc_name'.")
+
+    project = _get_active_project(portal)
+    target_plc = _find_plc(project, plc_name)
+
+    # Bloques: recorrido recursivo (espejo del legacy scanner).
+    program_blocks = target_plc.get_program_blocks()
+    blocks_list = _scan_block_group_recursive(program_blocks)
+
+    # Tag tables: llamada SIN folder_path para que TIA recorra todo el
+    # arbol recursivamente (Manual V1.2.1 §2.2.8).
+    tag_tables_objs: list[Any] = []
+    try:
+        tag_tables_objs = list(target_plc.get_plc_tag_tables() or [])
+    except Exception as e:
+        _logger.warning(
+            "No se pudieron listar PlcTagTables del PLC '%s': %s", plc_name, e
+        )
+
+    tag_tables_list: list[dict[str, Any]] = []
+    for table in tag_tables_objs:
+        nombre = _safe_get_table_name(table)
+        if not nombre:
+            continue
+        ruta = _safe_get_block_path(table)
+        tag_tables_list.append(
+            BloquePLC(
+                nombre=str(nombre),
+                numero=0,
+                tipo="OTHER",
+                ruta=ruta,
+            ).to_dict()
+        )
+
+    return {
+        "plc_name": plc_name,
+        "blocks": blocks_list,
+        "tag_tables": tag_tables_list,
+        "scanned_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 # ─── COMMAND_REGISTRY ──────────────────────────────────────────────────────
     """Exporta una Ãºnica PlcTagTable como XML SimaticML. Manual Â§2.10.5 / Â§2.28.3."""
     _ = ts
@@ -802,6 +990,7 @@ COMMAND_REGISTRY: dict[str, Callable[[Any, Any, dict[str, Any]], Any]] = {
     # â”€â”€ InspecciÃ³n â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     "list_plcs": _cmd_list_plcs,
     "list_blocks": _cmd_list_blocks,
+    "scan_blocks": _cmd_scan_blocks,
     # â”€â”€ MutaciÃ³n / compilaciÃ³n â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     "compile_plc": _cmd_compile_plc,
     # â”€â”€ ExportaciÃ³n masiva Simatic Source Documents (.s7dcl) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
