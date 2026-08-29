@@ -27,7 +27,7 @@ import { computed } from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js";
 // ``/js/`` y NO se mueven. Un import relativo ``../../../../js/X.js``
 // se resolvería contra la URL del módulo y daría
 // ``/static/js/X.js`` (404). Usar absolutos evita el problema.
-import { store, pushLog, goToWelcome, goToSubview } from "/js/store.js";
+import { store, pushLog, goToWelcome, goToSubview, refreshPlcBlocks, cacheSummary } from "/js/store.js";
 import { apiFetchPlcs } from "/js/api.js";
 import ProgressIndicator from "/js/components/ProgressIndicator.js";
 
@@ -69,10 +69,24 @@ export default {
             }
         }
 
+        /**
+         * Handler del ``@change`` del ``<select>`` de PLC. Dispara
+         * el scan de bloques+tag_tables del PLC recién elegido
+         * (o limpia el cache si el operario vuelve a la opción
+         * vacía). La promesa se ignora a propósito: la UI se
+         * re-renderiza por reactividad de ``store.plcBlocksCache``
+         * y ``store.scanningPlc`` cuando el scan termina.
+         */
+        async function onPlcSelected() {
+            await refreshPlcBlocks(store.selectedPlc);
+        }
+
         return {
             store,
             areaLabel,
             handleRefreshPlcs,
+            onPlcSelected,
+            cacheSummary,
             goToWelcome,
             goToSubview,
         };
@@ -95,7 +109,7 @@ export default {
             <!-- Selección PLC -->
             <section class="mb-6">
                 <label class="block text-xs font-semibold text-ink-muted uppercase mb-2">Selección PLC</label>
-                <select v-model="store.selectedPlc"
+                <select v-model="store.selectedPlc" @change="onPlcSelected"
                     :disabled="store.plcs.length === 0 || store.busy"
                     class="w-full bg-surface-sunken border border-line rounded px-2 py-1.5 text-sm text-ink disabled:opacity-50">
                     <option value="">-- Selecciona un PLC --</option>
@@ -105,6 +119,32 @@ export default {
                     class="mt-2 text-xs px-2 py-1 bg-surface-sunken hover:bg-surface-sunken border border-line rounded text-ink disabled:opacity-50">
                     Refrescar lista
                 </button>
+
+                <!-- Badge "Cache: N bloques · M tablas". Inline fijo
+                     debajo del botón "Refrescar lista" — no es un
+                     overlay ni un modal. Solo se muestra si hay
+                     cache, scan en curso o error. -->
+                <div v-if="cacheSummary.blocks > 0 || cacheSummary.tables > 0 || cacheSummary.scanning || cacheSummary.error"
+                    data-testid="plc-blocks-cache-badge"
+                    :data-stale="cacheSummary.isStale ? 'true' : 'false'"
+                    :class="['mt-2 px-2 py-1.5 rounded border text-[11px] flex items-center justify-between gap-2',
+                             cacheSummary.error ? 'border-red-600 text-red-600' :
+                             cacheSummary.scanning ? 'border-line text-ink-muted' :
+                             cacheSummary.isStale ? 'border-amber-600 text-amber-600' :
+                             'border-line text-ink-muted bg-surface-sunken']">
+                    <span class="font-mono min-w-0 truncate">
+                        <template v-if="cacheSummary.scanning">⏳ Cache: escaneando…</template>
+                        <template v-else-if="cacheSummary.error">⚠ Cache: error</template>
+                        <template v-else>Cache: {{ cacheSummary.blocks }} bloques · {{ cacheSummary.tables }} tablas
+                            <span class="text-ink-muted">({{ cacheSummary.ageSeconds }}s)</span>
+                        </template>
+                    </span>
+                    <button v-if="!cacheSummary.scanning && !cacheSummary.error && cacheSummary.blocks > 0"
+                        @click="refreshPlcBlocks(store.selectedPlc, { force: true })"
+                        class="text-ink-muted hover:text-accent flex-shrink-0"
+                        title="Forzar re-scan"
+                        data-testid="plc-blocks-cache-refresh">↻</button>
+                </div>
             </section>
 
             <!-- Navegación entre vistas del área -->

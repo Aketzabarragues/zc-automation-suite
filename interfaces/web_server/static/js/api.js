@@ -104,3 +104,37 @@ export const apiFetchProgress = () =>
  */
 export const apiClearProgress = () =>
     _request("POST", "/api/v1/progress/clear");
+
+/**
+ * Devuelve el snapshot de bloques+tag_tables cacheado del PLC.
+ * Endpoint: GET /api/v1/plcs/{plc_name}/blocks
+ *
+ * El backend puede responder 404 mientras el router no está
+ * desplegado; el SPA lo trata como "cache miss" y permite
+ * reintento (ver ``store.refreshPlcBlocks``).
+ *
+ * Devuelve la forma ``{ ok, status, data }`` estándar. En éxito
+ * ``data`` suele traer ``{ ok, snapshot }`` donde ``snapshot`` es
+ * ``{ plc_name, blocks, tag_tables, scanned_at, from_cache }``.
+ */
+export function apiScanPlcBlocks(plcName) {
+    return _request(
+        "GET",
+        `/api/v1/plcs/${encodeURIComponent(plcName)}/blocks`
+    );
+}
+
+/**
+ * Fuerza re-scan del PLC (ignora caché del backend).
+ * Endpoint: POST /api/v1/plcs/{plc_name}/blocks/refresh
+ *
+ * Usado por el botón ↻ del badge en el Sidebar para que el
+ * operario pueda invalidar manualmente sin esperar al TTL de
+ * 5 minutos del cache local.
+ */
+export function apiRefreshPlcBlocks(plcName) {
+    return _request(
+        "POST",
+        `/api/v1/plcs/${encodeURIComponent(plcName)}/blocks/refresh`
+    );
+}
