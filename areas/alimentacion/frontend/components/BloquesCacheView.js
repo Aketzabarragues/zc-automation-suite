@@ -127,6 +127,69 @@ export default {
         });
 
         /**
+         * Bloques agrupados por tipo (OB / DB / FC / FB / OTHER)
+         * y, dentro de cada grupo, ordenados por nombre (case- y
+         * espacio-insensitive, locale-aware). Se usa solo en la
+         * pestaña "Bloques" para que el operario vea primero todos
+         * los OBs, luego todos los DBs, etc. — mucho más fácil de
+         * navegar que una tabla plana con 200 filas mezcladas.
+         *
+         * Orden de los grupos: convención Siemens de mayor a menor
+         * relevancia operativa (OB = main routines, DB = datos,
+         * FB = bloques con estado, FC = funciones puras, UDT =
+         * tipos, OTHER = fallback). Si en el futuro aparece un tipo
+         * nuevo, cae al final en ``OTHER``.
+         */
+        const _TIPO_ORDER = ["OB", "DB", "FB", "FC", "UDT", "OTHER"];
+
+        const groupedBlocks = computed(() => {
+            const list = Array.isArray(blocks.value) ? blocks.value : [];
+            const buckets = new Map();
+            for (const b of list) {
+                if (!b) continue;
+                const tipo = String(
+                    b.tipo || b.type || "OTHER"
+                ).toUpperCase() || "OTHER";
+                if (!buckets.has(tipo)) buckets.set(tipo, []);
+                buckets.get(tipo).push(b);
+            }
+            // Orden estable dentro de cada grupo: por nombre, con
+            // fallback al path para que el orden sea 100% determinista
+            // cuando dos bloques comparten nombre.
+            for (const arr of buckets.values()) {
+                arr.sort((a, b) => {
+                    const an = String(
+                        a && (a.nombre || a.name) || ""
+                    );
+                    const bn = String(
+                        b && (b.nombre || b.name) || ""
+                    );
+                    const cmp = an.localeCompare(bn, undefined, {
+                        sensitivity: "base",
+                        numeric: true,
+                    });
+                    if (cmp !== 0) return cmp;
+                    // Desempate determinista por path.
+                    return String(a && a.path || "").localeCompare(
+                        String(b && b.path || "")
+                    );
+                });
+            }
+            // Proyectar a la lista final con el orden predefinido
+            // de tipos, y al final cualquier tipo inesperado.
+            const out = [];
+            for (const tipo of _TIPO_ORDER) {
+                const arr = buckets.get(tipo);
+                if (arr && arr.length > 0) out.push({ tipo, bloques: arr });
+            }
+            for (const [tipo, arr] of buckets) {
+                if (_TIPO_ORDER.includes(tipo)) continue;
+                if (arr && arr.length > 0) out.push({ tipo, bloques: arr });
+            }
+            return out;
+        });
+
+        /**
          * Helper: muestra el número de bloque. Soporta tanto la
          * clave del backend (``number``) como el alias español
          * (``numero``) por si llegan campos renombrados en
@@ -244,6 +307,7 @@ export default {
             plcName,
             isStale,
             activeRows,
+            groupedBlocks,
             displayNumber,
             displayName,
             displayType,
@@ -309,7 +373,7 @@ export default {
             <!-- Cuerpo: tabla de la pestaña activa o empty state global -->
             <div class="flex-1 overflow-auto table-scroll-x mt-2">
 
-                <!-- Bloques -->
+                <!-- Bloques (agrupados por tipo, ordenados por nombre dentro del grupo) -->
                 <table v-if="hasCache && activeTab === 'bloques'" class="w-full text-xs">
                     <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
                         <tr>
@@ -320,23 +384,37 @@ export default {
                         </tr>
                     </thead>
                     <tbody>
-                        <tr v-for="b in blocks"
-                            :key="(b.path || '') + '/' + (b.name || '') + '/' + (b.number ?? b.numero ?? '')"
-                            class="border-b border-line">
-                            <td class="px-3 py-1.5 font-mono text-ink whitespace-nowrap">
-                                {{ displayName(b) }}
-                            </td>
-                            <td class="px-3 py-1.5 text-ink-muted whitespace-nowrap">
-                                {{ displayType(b) }}
-                            </td>
-                            <td class="px-3 py-1.5 font-mono text-ink whitespace-nowrap">
-                                {{ displayNumber(b.number ?? b.numero) }}
-                            </td>
-                            <td class="px-3 py-1.5 font-mono text-ink-muted">
-                                {{ displayPath(b) }}
-                            </td>
-                        </tr>
-                        <tr v-if="blocks.length === 0">
+                        <!-- Cabecera de grupo: "DB (5)", "FB (3)", etc. -->
+                        <template v-for="group in groupedBlocks" :key="group.tipo">
+                            <tr class="bg-surface-sunken border-y border-line">
+                                <td colspan="4"
+                                    class="px-3 py-1 text-[11px] font-semibold text-ink-muted uppercase tracking-wide">
+                                    <span class="inline-block min-w-[3rem] font-mono">{{ group.tipo }}</span>
+                                    <span class="ml-2 text-ink-muted normal-case font-normal">
+                                        {{ group.bloques.length }}
+                                        {{ group.bloques.length === 1 ? "bloque" : "bloques" }}
+                                    </span>
+                                </td>
+                            </tr>
+                            <tr v-for="b in group.bloques"
+                                :key="(b.path || '') + '/' + (b.name || b.nombre || '') + '/' + (b.number ?? b.numero ?? '')"
+                                class="border-b border-line bg-surface-raised">
+                                <td class="px-3 py-1.5 font-mono text-ink whitespace-nowrap pl-6">
+                                    {{ displayName(b) }}
+                                </td>
+                                <td class="px-3 py-1.5 text-ink-muted whitespace-nowrap font-mono">
+                                    {{ displayType(b) }}
+                                </td>
+                                <td class="px-3 py-1.5 font-mono text-ink whitespace-nowrap">
+                                    {{ displayNumber(b.number ?? b.numero) }}
+                                </td>
+                                <td class="px-3 py-1.5 font-mono text-ink-muted">
+                                    {{ displayPath(b) }}
+                                </td>
+                            </tr>
+                        </template>
+                        <!-- Empty state: ni un solo bloque cacheado -->
+                        <tr v-if="groupedBlocks.length === 0">
                             <td colspan="4" class="px-3 py-6 text-center text-ink-muted italic">
                                 ⚠️ No hay bloques cacheados. Pulsa "↻ Refrescar" para escanear.
                             </td>

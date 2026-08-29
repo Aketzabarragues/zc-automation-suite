@@ -164,3 +164,34 @@ def test_styles_css_regenerated() -> None:
         f"styles.css demasiado pequeño ({size} bytes); "
         "recompilar Tailwind antes de commit"
     )
+
+
+def test_bloques_cache_view_groups_by_tipo_and_sorts_by_name() -> None:
+    """La pestaña ``Bloques`` agrupa por tipo (OB/DB/FB/FC/OTHER)
+    y, dentro de cada grupo, ordena por nombre (case- y
+    espacio-insensitive, locale-aware).
+
+    El operario lo pidió explícitamente: "agrupar por tipo y
+    ordenar por nombre". El contrato textual:
+      - Existe un ``computed`` ``groupedBlocks`` que devuelve
+        ``[{tipo, bloques: [...]}``]``.
+      - El tipo de orden (_TIPO_ORDER) prioriza OB, DB, FB, FC, UDT
+        y ``OTHER`` como fallback.
+      - El template renderiza una fila de cabecera por grupo con
+        ``colspan=4`` y luego las filas de bloques indentedas
+        (``pl-6``) bajo esa cabecera.
+    """
+    text = _read(BLOQUES_CACHE_VIEW_JS)
+    assert "groupedBlocks" in text, "Falta el computed groupedBlocks"
+    assert "_TIPO_ORDER" in text, "Falta la constante _TIPO_ORDER"
+    # El grupo OB / DB / FB / FC / OTHER (UDT vive en su propia
+    # pestaña, no debería aparecer aquí).
+    for tipo in ("OB", "DB", "FB", "FC", "OTHER"):
+        assert f'"{tipo}"' in text, f"Falta el tipo {tipo} en _TIPO_ORDER"
+    # El template renderiza group headers con colspan y pl-6 para
+    # indentar los items dentro del grupo.
+    assert "colspan" in text, "Falta colspan en el header de grupo"
+    assert "pl-6" in text, "Falta la indentación pl-6 de los items"
+    # El sort usa localeCompare para el orden humano.
+    assert "localeCompare" in text, "Falta el localeCompare para ordenar"
+    assert "sensitivity" in text, "Falta sensitivity: 'base' en el sort"
