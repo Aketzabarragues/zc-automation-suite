@@ -224,3 +224,9 @@ temp_*/
 .build_cache/
 .scratch/
 tailwindcss-extra.exe
+# Volcados del operario (builds, logs, XMLs reales de TIA del PLC de produccion)
+_source/
+# Outputs de planes (defensivo)
+_plan/
+# Stubs de siemens_tia_scripting (defensivo; build_exe los resuelve dinamicamente)
+*.pyd
