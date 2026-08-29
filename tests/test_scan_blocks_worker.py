@@ -50,12 +50,25 @@ def _make_table(name: str, path: str = "0_Sistema\\") -> MagicMock:
     return t
 
 
-def _make_portal(blocks, tag_tables) -> MagicMock:
-    """Arma el portal mockeado: ``get_project().get_plcs()[0]`` resuelve."""
+def _make_portal(blocks, tag_tables, user_data_types=None) -> MagicMock:
+    """Arma el portal mockeado: ``get_project().get_plcs()[0]`` resuelve.
+
+    Args:
+        blocks: lista de mocks de bloques (DB/FB/FC/OB) o grupo raiz.
+        tag_tables: lista de mocks de PlcTagTable.
+        user_data_types: lista de mocks de UDTs (o grupo raiz). Si es
+            ``None``, ``plc.get_user_data_types()`` queda como
+            ``MagicMock`` auto-creado (compatible con tests que no
+            esperan UDTs en su payload: el walker recursivo produce
+            ``[]`` porque MagicMock no tiene ``get_blocks`` que
+            devuelva datos).
+    """
     plc = MagicMock()
     plc.get_name.return_value = "PLC_1"
     plc.get_program_blocks.return_value = blocks
     plc.get_plc_tag_tables.return_value = tag_tables
+    if user_data_types is not None:
+        plc.get_user_data_types.return_value = user_data_types
 
     project = MagicMock()
     project.get_plcs.return_value = [plc]
@@ -71,7 +84,7 @@ def _make_portal(blocks, tag_tables) -> MagicMock:
 
 
 def test_cmd_scan_blocks_returns_correct_shape() -> None:
-    """El payload tiene exactamente 4 keys y los tipos correctos."""
+    """El payload tiene exactamente 5 keys y los tipos correctos."""
     blocks = [
         _make_block("DB1_SYS", "0_Sistema\\DB1_SYS"),
         _make_block("FB_Main", "0_Sistema\\FB_Main"),
@@ -93,12 +106,21 @@ def test_cmd_scan_blocks_returns_correct_shape() -> None:
         _make_table("Default_tag_table", "0_Sistema\\Default_tag_table"),
         _make_table("IO_tags", "0_Sistema\\IO_tags"),
     ]
+    # UDTs en este test: ninguno (los UDTs viven en su propia coleccion
+    # ``get_user_data_types()``; aqui el default es MagicMock sin valor
+    # explicito y basta con que NO lance para que ``udts=[]``).
     portal = _make_portal(root_group, tables)
 
     result = _cmd_scan_blocks(portal, ts=None, args={"plc_name": "PLC_1"})
 
     assert isinstance(result, dict)
-    assert set(result.keys()) == {"plc_name", "blocks", "tag_tables", "scanned_at"}
+    assert set(result.keys()) == {
+        "plc_name",
+        "blocks",
+        "tag_tables",
+        "udts",
+        "scanned_at",
+    }
     assert result["plc_name"] == "PLC_1"
     # 4 bloques: DB1_SYS, FB_Main, FC10, OB1.
     assert isinstance(result["blocks"], list)
@@ -107,6 +129,8 @@ def test_cmd_scan_blocks_returns_correct_shape() -> None:
         assert set(b.keys()) == {"nombre", "numero", "tipo", "ruta"}
     # 2 tablas.
     assert len(result["tag_tables"]) == 2
+    # UDTs: 0 (no mockeamos get_user_data_types en este test).
+    assert result["udts"] == []
     # ISO 8601 parseable.
     assert isinstance(result["scanned_at"], str)
     # Acepta formatos con offset (+00:00) o con Z.
@@ -242,11 +266,123 @@ def test_cmd_scan_blocks_unknown_plc_raises() -> None:
 
 
 def test_cmd_scan_blocks_empty_program_blocks_yields_empty_list() -> None:
-    """PLC sin bloques → ``blocks=[]`` (no falla)."""
+    """PLC sin bloques ni tablas ni UDTs → las 3 listas son ``[]`` (no falla)."""
     portal = _make_portal([], [])
     result = _cmd_scan_blocks(portal, ts=None, args={"plc_name": "PLC_1"})
     assert result["blocks"] == []
     assert result["tag_tables"] == []
+    assert result["udts"] == []
+
+
+# ────────────────────────────────────────────────────────────────────────
+# UDTs (tercera categoria, escaneados via ``get_user_data_types()``)
+# ────────────────────────────────────────────────────────────────────────
+
+
+def test_cmd_scan_blocks_returns_udts_third_list() -> None:
+    """``get_user_data_types()`` con 1-2 UDTs → aparecen en ``result['udts']``.
+
+    La coleccion vive en su propio slot, separada de ``blocks`` y
+    ``tag_tables``; cada entrada respeta el shape ``BloquePLC.to_dict()``.
+    """
+    # Un UDT suelto + un grupo que contiene un UDT anidado.
+    udt_root = MagicMock()
+    udt_root.get_blocks.return_value = [
+        _make_block("UDT1_Dispositivo", "Tipos\\UDT1_Dispositivo"),
+    ]
+    nested_udt_group = MagicMock()
+    nested_udt_group.get_blocks.return_value = [
+        _make_block("UDT2_Config", "Tipos\\Sub\\UDT2_Config"),
+    ]
+    nested_udt_group.get_groups.return_value = []
+    udt_root.get_groups.return_value = [nested_udt_group]
+
+    portal = _make_portal(blocks=[], tag_tables=[], user_data_types=udt_root)
+
+    result = _cmd_scan_blocks(portal, ts=None, args={"plc_name": "PLC_1"})
+
+    assert "udts" in result
+    assert isinstance(result["udts"], list)
+    assert len(result["udts"]) == 2
+    for u in result["udts"]:
+        assert set(u.keys()) == {"nombre", "numero", "tipo", "ruta"}
+
+    by_name = {u["nombre"]: u for u in result["udts"]}
+    # El primero proviene del root group, el segundo del sub-grupo.
+    assert by_name["UDT1_Dispositivo"]["tipo"] == "UDT"
+    assert by_name["UDT1_Dispositivo"]["numero"] == 1
+    assert by_name["UDT1_Dispositivo"]["ruta"] == "Tipos\\UDT1_Dispositivo"
+    assert by_name["UDT2_Config"]["tipo"] == "UDT"
+    assert by_name["UDT2_Config"]["numero"] == 2
+    assert by_name["UDT2_Config"]["ruta"] == "Tipos\\Sub\\UDT2_Config"
+    # La categoria blocks/tag_tables queda vacia en este test.
+    assert result["blocks"] == []
+    assert result["tag_tables"] == []
+
+
+def test_cmd_scan_blocks_handles_user_data_types_failure() -> None:
+    """``get_user_data_types()`` que lanza → scan OK, ``udts=[]``."""
+    plc = MagicMock()
+    plc.get_name.return_value = "PLC_1"
+    plc.get_program_blocks.return_value = [_make_block("DB1_SYS", "p1")]
+    plc.get_plc_tag_tables.return_value = [
+        _make_table("Default_tag_table", "p2"),
+    ]
+    plc.get_user_data_types.side_effect = RuntimeError(
+        "Coleccion no expuesta en este build"
+    )
+
+    project = MagicMock()
+    project.get_plcs.return_value = [plc]
+    portal = MagicMock()
+    portal.get_project.return_value = project
+
+    result = _cmd_scan_blocks(portal, ts=None, args={"plc_name": "PLC_1"})
+
+    # Scan sigue devolviendo los 2 slots historicos intactos.
+    assert len(result["blocks"]) == 1
+    assert result["blocks"][0]["nombre"] == "DB1_SYS"
+    assert len(result["tag_tables"]) == 1
+    assert result["tag_tables"][0]["nombre"] == "Default_tag_table"
+    # Y la nueva coleccion degrada a vacia sin reventar el handler.
+    assert result["udts"] == []
+
+
+def test_cmd_scan_blocks_separates_udts_from_blocks() -> None:
+    """Invariante: un DB nunca aparece en ``udts`` y un UDT nunca en ``blocks``.
+
+    Aunque TIA internamente los UDTs podrian colgar del mismo arbol de
+    bloques, en nuestro cache viven en colecciones separadas. Esto es
+    critico para que la SPA pueda pintarlos en tabs distintos.
+    """
+    # 1 DB en get_program_blocks (root + grupo anidado).
+    db_group = MagicMock()
+    db_group.get_blocks.return_value = [_make_block("DB1_SYS", "DBs\\DB1_SYS")]
+    db_group.get_groups.return_value = []
+
+    # 1 UDT en get_user_data_types (root + grupo anidado).
+    udt_group = MagicMock()
+    udt_group.get_blocks.return_value = [
+        _make_block("UDT5_Tipo", "Tipos\\UDT5_Tipo"),
+    ]
+    udt_group.get_groups.return_value = []
+
+    portal = _make_portal(
+        blocks=db_group, tag_tables=[], user_data_types=udt_group
+    )
+
+    result = _cmd_scan_blocks(portal, ts=None, args={"plc_name": "PLC_1"})
+
+    block_names = {b["nombre"] for b in result["blocks"]}
+    udt_names = {u["nombre"] for u in result["udts"]}
+
+    # Invariante: cada nombre vive EXACTAMENTE en una coleccion.
+    assert block_names == {"DB1_SYS"}
+    assert udt_names == {"UDT5_Tipo"}
+    assert block_names.isdisjoint(udt_names)
+    # Y la clasificacion de tipo es coherente con el slot.
+    assert result["blocks"][0]["tipo"] == "DB"
+    assert result["udts"][0]["tipo"] == "UDT"
 
 
 # ────────────────────────────────────────────────────────────────────────

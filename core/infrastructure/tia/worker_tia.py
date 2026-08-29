@@ -607,11 +607,11 @@ def _scan_block_group_recursive(group_or_blocks: Any) -> list[dict[str, Any]]:
 
 
 def _cmd_scan_blocks(portal: Any, ts: Any, args: dict[str, Any]) -> dict[str, Any]:
-    """Escanea recursivamente TODOS los bloques y tag tables de un PLC.
+    """Escanea recursivamente TODOS los bloques, tag tables y UDTs de un PLC.
 
     Devuelve un dict primitivo serializable (lista de bloques + lista de
-    tablas + timestamp ISO 8601 + nombre del PLC). El IT reconstruye
-    ``BloqueCache`` a partir de este payload.
+    tablas + lista de UDTs + timestamp ISO 8601 + nombre del PLC). El IT
+    reconstruye ``BloqueCache`` a partir de este payload.
 
     Args:
         portal: instancia del portal TIA (inyectada por el dispatcher).
@@ -623,6 +623,7 @@ def _cmd_scan_blocks(portal: Any, ts: Any, args: dict[str, Any]) -> dict[str, An
             "plc_name":   str,
             "blocks":     [ {nombre, numero, tipo, ruta}, ... ],
             "tag_tables": [ {nombre, numero, tipo, ruta}, ... ],
+            "udts":       [ {nombre, numero, tipo, ruta}, ... ],
             "scanned_at": str (ISO 8601 UTC),
         }``
 
@@ -667,10 +668,31 @@ def _cmd_scan_blocks(portal: Any, ts: Any, args: dict[str, Any]) -> dict[str, An
             ).to_dict()
         )
 
+    # UDTs (User Data Types): coleccion distinta de program_blocks.
+    # Manual V1.2.1 §2.2.9: ``plc.get_user_data_types()`` devuelve la
+    # raiz del arbol de UDTs (puede ser un grupo/carpeta anidada, asi
+    # que reaprovechamos el walker recursivo). Es defensivo: si TIA no
+    # expone el metodo (builds antiguos, proyecto vacio) o lanza una
+    # excepcion, devolvemos ``udts=[]`` y dejamos que blocks/tag_tables
+    # sigan devolviendo su contenido. El operario ve un tab UDTs vacio
+    # en la SPA en vez de un error de scan completo.
+    udts_list: list[dict[str, Any]] = []
+    try:
+        user_data_types = target_plc.get_user_data_types()
+        udts_list = _scan_block_group_recursive(user_data_types)
+    except Exception as e:
+        _logger.warning(
+            "No se pudieron listar User Data Types del PLC '%s': %s",
+            plc_name,
+            e,
+        )
+        udts_list = []
+
     return {
         "plc_name": plc_name,
         "blocks": blocks_list,
         "tag_tables": tag_tables_list,
+        "udts": udts_list,
         "scanned_at": datetime.now(timezone.utc).isoformat(),
     }
 

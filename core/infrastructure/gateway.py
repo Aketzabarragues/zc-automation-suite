@@ -211,7 +211,7 @@ class TIAProcessGateway:
     async def scan_plc_blocks(
         self, plc_name: str, force_refresh: bool = False
     ) -> BloqueCache:
-        """Escanea recursivamente TODOS los bloques y tag tables de un PLC.
+        """Escanea recursivamente TODOS los bloques, tag tables y UDTs de un PLC.
 
         Devuelve un ``BloqueCache`` reconstruido a partir del payload
         primitivo del worker. Cachea en ``self._bloques_cache`` (separado
@@ -223,8 +223,10 @@ class TIAProcessGateway:
             force_refresh: si ``True``, ignora el cache y reescanea.
 
         Returns:
-            ``BloqueCache`` con ``blocks`` y ``tag_tables`` indexados por
-            ``BloquePLC.normalize_name``.
+            ``BloqueCache`` con ``blocks``, ``tag_tables`` y ``udts``
+            indexados por ``BloquePLC.normalize_name``. Los UDTs viven
+            en su propio slot (``udts``) y nunca se mezclan con
+            ``blocks`` (invariante del DTO).
         """
         if not force_refresh and plc_name in self._bloques_cache:
             return self._bloques_cache[plc_name]
@@ -239,6 +241,7 @@ class TIAProcessGateway:
 
         blocks_raw = result.get("blocks", []) or []
         tag_tables_raw = result.get("tag_tables", []) or []
+        udts_raw = result.get("udts", []) or []
         blocks: dict[str, BloquePLC] = {
             BloquePLC.normalize_name(b["nombre"]): BloquePLC(
                 nombre=b["nombre"],
@@ -259,6 +262,16 @@ class TIAProcessGateway:
             for t in tag_tables_raw
             if t.get("nombre")
         }
+        udts: dict[str, BloquePLC] = {
+            BloquePLC.normalize_name(u["nombre"]): BloquePLC(
+                nombre=u["nombre"],
+                numero=int(u.get("numero", 0)),
+                tipo=str(u.get("tipo", "OTHER")),
+                ruta=str(u.get("ruta", "")),
+            )
+            for u in udts_raw
+            if u.get("nombre")
+        }
         # Reconstruimos ``scanned_at`` desde el payload si esta presente
         # (formato ISO-8601). Si no, usamos ``now(UTC)`` como fallback
         # defensivo (no deberia pasar, pero el contrato lo permite).
@@ -277,6 +290,7 @@ class TIAProcessGateway:
         cache = BloqueCache(
             blocks=blocks,
             tag_tables=tag_tables,
+            udts=udts,
             plc_name=plc_name,
             scanned_at=scanned_at,
         )

@@ -6,6 +6,7 @@ Validan el contrato de la API publica:
   - ``on_plc_change`` invalida el PLC viejo si difiere del nuevo.
   - Concurrencia: ``asyncio.Lock`` serializa ``put`` paralelos.
   - Logging: la invalidacion emite un ``INFO`` con el PLC afectado.
+  - ``BloqueCache.udts`` (tercer slot, UDTs) por defecto es ``{}``.
 
 Como el manager tiene estado a nivel de CLASE (ClassVar), cada test
 hace ``BloqueCacheManager.clear()`` en su ``finally`` para no contaminar
@@ -25,14 +26,42 @@ from core.models import BloqueCache, BloquePLC
 
 
 def _make_cache(plc: str) -> BloqueCache:
-    """Helper: cache con 1 bloque + 1 tag table."""
+    """Helper: cache con 1 bloque + 1 tag table + 1 UDT."""
     b = BloquePLC(nombre="DB1", numero=1, tipo="DB", ruta="")
     t = BloquePLC(nombre="Default_tag_table", numero=0, tipo="OTHER", ruta="")
+    u = BloquePLC(nombre="UDT1_Tipo", numero=1, tipo="UDT", ruta="")
     return BloqueCache(
         blocks={BloquePLC.normalize_name(b.nombre): b},
         tag_tables={BloquePLC.normalize_name(t.nombre): t},
+        udts={BloquePLC.normalize_name(u.nombre): u},
         plc_name=plc,
     )
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Default factory de ``BloqueCache.udts``
+# ────────────────────────────────────────────────────────────────────────
+
+
+def test_bloque_cache_udts_defaults_to_empty_dict() -> None:
+    """``BloqueCache()`` sin argumentos → ``udts == {}``.
+
+    Invariante del DTO: el slot de UDTs existe desde el inicio para
+    que la SPA pueda iterarlo sin guard, y por defecto esta vacio
+    (compatible con caches antiguos que no escaneaban UDTs).
+    """
+    cache = BloqueCache()
+    assert cache.udts == {}
+    assert isinstance(cache.udts, dict)
+    # El resto de slots sigue con sus defaults historicos.
+    assert cache.blocks == {}
+    assert cache.tag_tables == {}
+    assert cache.plc_name == ""
+
+
+# ────────────────────────────────────────────────────────────────────────
+# get / put
+# ────────────────────────────────────────────────────────────────────────
 
 
 @pytest_asyncio.fixture(autouse=True)
