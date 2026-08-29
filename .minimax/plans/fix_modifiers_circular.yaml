@@ -1,0 +1,204 @@
+﻿version: 1
+plan:
+  name: "Resolver circular import en core/infrastructure/xml/modifiers.py via Protocol local"
+  max_concurrency: 1
+  max_consecutive_failures: 2
+  max_cycles: 5
+  auto_reject_retries: 1
+  verifier_config:
+    default_verifiers: [verifier]
+    audit_sample_rate: 0.0
+tasks:
+  - id: fix-modifiers-circular
+    title: "Implementar Protocol local en modifiers.py y eliminar workaround del test"
+    prompt: |
+      Tarea: resolver el import circular entre core/ y areas/ en modifiers.py
+      sin mover Dispositivo a core/ y eliminando el workaround del test.
+
+      ## Estado del repo
+      - HEAD: dfd1521 (limpieza previa del 2026-08-29, sin cambios sin commitear)
+      - Tests actuales: 254 (pytest tests/ -v) = 252 ok + 2 skip
+      - Los 2 skip son los tests E2E contra _source/ que requieren el XML real
+        del operario; ya estaban skip antes de este PR, no arreglarlos aqui.
+
+      ## Archivos a modificar (SOLO estos 2)
+
+      ### 1) core/infrastructure/xml/modifiers.py
+      - Linea 28: `from areas.alimentacion.domain.models.dispositivos import Dispositivo`
+        ELIMINAR ese import. Es la causa del ciclo:
+          areas.alimentacion.application.use_cases.sync_dispositivos_instances
+          -> core.infrastructure.xml.modifiers
+          -> areas.alimentacion.domain.models.dispositivos
+      - Anadir `Protocol, runtime_checkable` al import de typing (linea 26).
+      - Definir un Protocol local al inicio del modulo, justo despues de los
+        wildcards XPath (~linea 45) y antes de la clase XMLModifier:
+            @runtime_checkable
+            class _DispositivoLike(Protocol):
+                plc_tag: str
+                uid: str
+                descripcion: str
+        Solo esos 3 atributos: el modifier solo los usa (lineas 111, 114, 115).
+      - Cambiar la firma de `add_tags(self, dispositivos: list[Dispositivo])`
+        (linea 95) a `add_tags(self, dispositivos: list[_DispositivoLike])`.
+      - Dentro del loop de add_tags, validar el tipo al inicio:
+            for dispositivo in dispositivos:
+                if not isinstance(dispositivo, _DispositivoLike):
+                    raise TypeError(
+                        f"Se esperaba _DispositivoLike, recibio {type(dispositivo).__name__}"
+                    )
+                name = str(dispositivo.plc_tag).strip()
+                ...
+        Puedes simplificar los getattr() defensivos a acceso directo porque
+        el isinstance ya garantiza el contrato. Si prefieres mantener
+        getattr por robustez, vale, pero el isinstance es OBLIGATORIO.
+      - Actualizar el docstring de `add_tags` para reflejar que acepta
+        cualquier objeto que cumpla el Protocol `_DispositivoLike`.
+      - Verificar que NINGUN otro metodo del archivo usa `Dispositivo`
+        (usa grep para confirmar; add_tags_by_table y add_user_constants_by_table
+        ya trabajan con list[dict[str, str]], no requieren cambio).
+
+      ### 2) tests/test_modifier_id_renumbering.py
+      - ELIMINAR el workaround de lineas 31-46: la funcion `_load_modifier()`,
+        la fixture `TagTableModifier` (lineas 49-51) y los imports asociados:
+        - Linea 18: `import importlib.util`
+        - Linea 19: `import sys`
+        - Linea 23: `from types import ModuleType`
+      - Reemplazar por un import directo y limpio al inicio del archivo,
+        despues de los imports estandar, antes del primer test:
+            from core.infrastructure.xml.modifiers import TagTableModifier
+      - Quitar la fixture `TagTableModifier` (lineas 49-51). Ya no se necesita.
+      - Actualizar las firmas de los tests que recibian la fixture:
+          test_max_id_in_doc_handles_hex_without_prefix(TagTableModifier)
+          -> test_max_id_in_doc_handles_hex_without_prefix(tmp_path)
+            (y `mod = TagTableModifier(f.name)` sigue igual dentro)
+          test_renumber_ids_increments_correctly(TagTableModifier)
+          -> test_renumber_ids_increments_correctly()
+            (TagTableModifier._renumber_ids se llama como static method)
+          test_regenerate_root_table_id_assigns_unique_high_id(TagTableModifier, tmp_path)
+          -> test_regenerate_root_table_id_assigns_unique_high_id(tmp_path)
+          test_regenerate_root_table_id_no_collision_with_existing(tmp_path, TagTableModifier)
+          -> test_regenerate_root_table_id_no_collision_with_existing(tmp_path)
+          test_regenerate_root_table_id_returns_none_if_no_table(TagTableModifier, tmp_path)
+          -> test_regenerate_root_table_id_returns_none_if_no_table(tmp_path)
+          test_regenerate_root_table_id_against_real_operator_xml(TagTableModifier, tmp_path)
+          -> test_regenerate_root_table_id_against_real_operator_xml(tmp_path)
+        (test_add_user_constants_no_duplicate_ids ya usaba tmp_path ademas de
+        la fixture; quitala del param list tambien.)
+
+      ## Restricciones (CRITICAS)
+      - NO mover Dispositivo a core/ (rompe la separacion por areas).
+      - NO tocar areas/ (regla .clinerules seccion 1).
+      - NO anadir dependencias nuevas. Usar solo stdlib `typing.Protocol`.
+      - NO tocar nada fuera de estos 2 archivos. Ni config.json, ni AGENTS.md,
+        ni _source/, ni nada mas.
+
+      ## Validacion
+      1. `cd "D:/Zeus Control/Proyectos/GitHub/zc-automation-suite"`
+      2. `python -m pytest tests/ -v` -> debe reportar
+         "254 passed, 2 skipped" (o "252 passed, 2 skipped" si el conteo
+         se desglosa asi; el TOTAL collected debe ser 254).
+         Cualquier fallo NUEVO es regresion y bloquea el commit.
+      3. Verificar que `import core.infrastructure.xml.modifiers` ya no
+         arrastra areas/:
+            python -c "import core.infrastructure.xml.modifiers; print('OK')"
+         -> debe imprimir OK sin ImportError.
+      4. Verificar con grep que modifiers.py no tiene imports de areas/:
+            git show HEAD:core/infrastructure/xml/modifiers.py |
+              Select-String -Pattern "from areas\."
+         -> debe devolver 0 lineas.
+
+      ## Commit
+      Mensaje EXACTO (conventional commit, una sola linea, sin trailers):
+        fix(core): resolver circular import en modifiers via Protocol local
+
+      NO anadir cuerpo extra, NO co-authored-by, NO trailers.
+      Confirma con `git log -1 --pretty=%s` que el mensaje es correcto.
+
+      ## Reporte al orquestador
+      En tu respuesta final, incluye:
+      - Hash del commit (`git rev-parse --short HEAD`).
+      - Output de `git diff HEAD~1 --stat` (debe tocar SOLO los 2 archivos).
+      - Linea final de pytest (resumen passed/skipped/failed).
+      - Confirmacion de que `import core.infrastructure.xml.modifiers` no
+        dispara la cadena de imports de areas/ (output del python -c).
+    assigned_to: tia-ot-worker
+    verified_by: verifier
+    verify_prompt: |
+      Verifica de forma INDEPENDIENTE el commit que afirma haber resuelto
+      el circular import. NO confies en el resumen del productor: ejecuta
+      los comandos tu mismo y reporta evidencia cruda.
+
+      ## Repo y commit
+      - Repo: D:/Zeus Control/Proyectos/GitHub/zc-automation-suite
+      - HEAD esperado: nuevo commit sobre dfd1521
+      - Mensaje EXACTO esperado: `fix(core): resolver circular import en modifiers via Protocol local`
+
+      ## Checks obligatorios (todos deben pasar para PASS)
+
+      1. Mensaje de commit exacto:
+         cd "D:/Zeus Control/Proyectos/GitHub/zc-automation-suite"
+         git log -1 --pretty=%s
+         -> debe ser EXACTAMENTE la linea indicada (sin trailers, sin
+         co-authored-by, sin cuerpo extra). Si hay cualquier desviacion, FAIL.
+
+      2. Diffstat restringido a los 2 archivos:
+         git diff HEAD~1 --stat
+         -> debe tocar SOLO:
+            core/infrastructure/xml/modifiers.py
+            tests/test_modifier_id_renumbering.py
+         Si toca cualquier otro archivo (incluido areas/ o _source/), FAIL.
+
+      3. Import circular eliminado en modifiers.py:
+         git show HEAD:core/infrastructure/xml/modifiers.py |
+           Select-String -Pattern "from areas\."
+         -> debe devolver 0 lineas.
+         Ademas:
+         python -c "import core.infrastructure.xml.modifiers; print('OK')"
+         -> debe imprimir OK sin ImportError.
+
+      4. Workaround del test eliminado:
+         git show HEAD:tests/test_modifier_id_renumbering.py |
+           Select-String -Pattern "importlib\.util|sys\.modules\[|spec_from_file_location"
+         -> debe devolver 0 lineas.
+         Ademas debe existir un import directo:
+         git show HEAD:tests/test_modifier_id_renumbering.py |
+           Select-String -Pattern "from core.infrastructure.xml.modifiers"
+         -> debe devolver al menos 1 linea.
+
+      5. Protocol local presente y completo:
+         git show HEAD:core/infrastructure/xml/modifiers.py |
+           Select-String -Pattern "class _DispositivoLike"
+         -> al menos 1 linea.
+         El cuerpo del Protocol debe declarar `plc_tag`, `uid` y
+         `descripcion` (puedes verificarlo con un Select-String que mire
+         esas 3 cadenas dentro del bloque de la clase).
+
+      6. Validacion de tipos en add_tags:
+         git show HEAD:core/infrastructure/xml/modifiers.py |
+           Select-String -Pattern "isinstance\(dispositivo, _DispositivoLike\)"
+         -> al menos 1 linea (TypeError si llega un objeto que no cumple
+         el Protocol).
+
+      7. Suite completa de tests:
+         python -m pytest tests/ -v
+         -> debe reportar EXACTAMENTE 254 tests collected y 252 passed +
+         2 skipped (los 2 skip son los tests E2E contra el XML real del
+         operario cuando _source/.build_cache/... no existe; ese skip
+         es legitimo y previo). Si collected != 254, si passed != 252,
+         o si hay cualquier failed, FAIL.
+
+      8. Regresion en el path original del ciclo:
+         python -c "from areas.alimentacion.application.use_cases.sync_dispositivos_instances import SyncDispositivosInstancesUseCase; print('OK')"
+         -> debe imprimir OK sin ImportError. Si falla, FAIL.
+
+      ## Veredicto
+      - PASS: los 8 checks pasan con evidencia listada.
+      - FAIL: cualquier check falla. Lista exactamente cual, que输出的
+        output observaste, y por que es un FAIL.
+      - PARTIAL: solo si el entorno no permite correr pytest (p.ej. falta
+        el venv o algun modulo). Indica QUE check quedo sin verificar
+        y POR QUE.
+
+      NO modifiques archivos del proyecto. NO arregles el problema si lo
+      encuentras: solo reporta.
+    max_retries: 2
