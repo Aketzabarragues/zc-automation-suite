@@ -5,6 +5,11 @@ async ``scan_plc_blocks`` se sustituye por ``AsyncMock`` (ver
 ``.clinerules``: nunca mockear el worker directamente). Cada test
 prepara la respuesta del ``AsyncMock`` con un ``BloqueCache``
 equivalente para que la lógica del use case lo procese.
+
+El ``ProgressTracker`` también va mockeado con ``MagicMock`` para
+verificar que el use case emite los eventos ``begin`` /
+``start_stage`` / ``finish_stage`` / ``finish`` que el
+``ProgressIndicator`` del sidebar consume vía polling.
 """
 from __future__ import annotations
 
@@ -15,6 +20,7 @@ import pytest
 from areas.alimentacion.application.use_cases.scan_plc_blocks import (
     ScanPlcBlocksUseCase,
 )
+from core.application.progress_buffer import ProgressTracker
 from core.infrastructure.gateway import TIAProcessGateway
 from core.models import BloqueCache, BloquePLC
 
@@ -47,8 +53,20 @@ def gateway() -> TIAProcessGateway:
 
 
 @pytest.fixture
-def use_case(gateway: TIAProcessGateway) -> ScanPlcBlocksUseCase:
-    return ScanPlcBlocksUseCase(gateway)
+def progress() -> ProgressTracker:
+    """``ProgressTracker`` mockeado. Solo inspeccionamos las llamadas,
+    no necesitamos threading ni snapshot real (eso lo cubren los
+    tests de ``test_progress_endpoint.py`` / ``test_progress_buffer.py``).
+    """
+    return MagicMock(spec=ProgressTracker)
+
+
+@pytest.fixture
+def use_case(
+    gateway: TIAProcessGateway,
+    progress: ProgressTracker,
+) -> ScanPlcBlocksUseCase:
+    return ScanPlcBlocksUseCase(gateway, progress=progress)
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -92,6 +110,94 @@ async def test_ensure_cache_force_refresh_bypasses_local(
     assert gateway.scan_plc_blocks.await_count == 2
     # Y se propaga al gateway.
     gateway.scan_plc_blocks.assert_any_await("PLC_X", force_refresh=True)
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Emisión de progreso al ProgressTracker
+# ────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_ensure_cache_emits_progress_events_on_real_scan(
+    use_case: ScanPlcBlocksUseCase,
+    progress: ProgressTracker,
+) -> None:
+    """Primer ``ensure_cache`` (cache miss) emite begin/start/finish/finish
+    al ``ProgressTracker`` con un stage ``scan_blocks``.
+    """
+    await use_case.ensure_cache("PLC_X")
+
+    progress.begin.assert_called_once()
+    call_args = progress.begin.call_args
+    assert call_args.args[0] == "scan_plc_blocks::PLC_X"
+    assert call_args.args[1] == "Cache de bloques de 'PLC_X'"
+    assert list(call_args.args[2]) == ["scan_blocks"]
+
+    progress.start_stage.assert_called_once_with(
+        "scan_blocks", detail="Consultando TIA Portal…"
+    )
+    progress.finish_stage.assert_called_once()
+    finish_args = progress.finish_stage.call_args
+    assert finish_args.args[0] == "scan_blocks"
+    # El detail reporta el conteo: 2 bloques · 1 tabla (del _make_response).
+    assert finish_args.kwargs.get("detail") == "2 bloques · 1 tablas"
+    progress.finish.assert_called_once_with(success=True)
+
+
+@pytest.mark.asyncio
+async def test_ensure_cache_does_not_emit_progress_on_cache_hit(
+    use_case: ScanPlcBlocksUseCase,
+    progress: ProgressTracker,
+) -> None:
+    """Segundo ``ensure_cache`` del mismo PLC dentro del TTL → NO
+    reemite progreso (sería un flash sin trabajo real en el panel).
+    """
+    await use_case.ensure_cache("PLC_X")
+    progress.reset_mock()  # limpiar el primer scan
+    await use_case.ensure_cache("PLC_X")  # hit local, sin re-scan
+
+    progress.begin.assert_not_called()
+    progress.start_stage.assert_not_called()
+    progress.finish_stage.assert_not_called()
+    progress.finish.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_ensure_cache_emits_progress_on_force_refresh(
+    use_case: ScanPlcBlocksUseCase,
+    progress: ProgressTracker,
+) -> None:
+    """``force_refresh=True`` siempre emite progreso aunque haya cache local."""
+    await use_case.ensure_cache("PLC_X")
+    progress.reset_mock()
+    await use_case.ensure_cache("PLC_X", force_refresh=True)
+
+    progress.begin.assert_called_once()
+    progress.finish.assert_called_once_with(success=True)
+
+
+@pytest.mark.asyncio
+async def test_ensure_cache_emits_error_progress_on_gateway_failure(
+    use_case: ScanPlcBlocksUseCase,
+    gateway: TIAProcessGateway,
+    progress: ProgressTracker,
+) -> None:
+    """Si el gateway lanza, el use case emite ``error_stage`` y
+    ``finish(success=False)`` y re-lanza la excepción original.
+    """
+    gateway.scan_plc_blocks = AsyncMock(
+        side_effect=RuntimeError("TIA Portal desconectado")
+    )
+    with pytest.raises(RuntimeError, match="TIA Portal desconectado"):
+        await use_case.ensure_cache("PLC_X")
+
+    progress.begin.assert_called_once()
+    progress.error_stage.assert_called_once()
+    progress.finish.assert_called_once()
+    assert progress.finish.call_args.kwargs.get("success") is False
+    assert progress.finish.call_args.kwargs.get("error", "").startswith(
+        "RuntimeError: TIA Portal desconectado"
+    )
 
 
 # ────────────────────────────────────────────────────────────────────────

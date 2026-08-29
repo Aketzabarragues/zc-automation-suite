@@ -91,10 +91,12 @@ def make_client():
         # Monkey-patch del constructor del use case en el módulo del
         # router. Usamos ``setattr`` sobre el módulo importado para
         # que el handler ``get_plc_blocks`` vea el fake.
+        # Aceptamos (gateway, progress) — el segundo argumento lo
+        # inyecta FastAPI vía Depends(get_progress_tracker).
         from areas.alimentacion.interfaces.web import plc_blocks as rb
 
         fake_uc = _make_fake_use_case(fake_cache)
-        rb._build_use_case = lambda g: fake_uc  # noqa: ARG005
+        rb._build_use_case = lambda g, p: fake_uc  # noqa: ARG005
 
         return TestClient(app)
 
@@ -176,7 +178,7 @@ def test_post_refresh_bypasses_cache(make_client) -> None:
 
     # El use case se invocó exactamente una vez con force_refresh=True.
     from areas.alimentacion.interfaces.web import plc_blocks as rb
-    fake_uc = rb._build_use_case(None)  # el fake que metimos en make_client
+    fake_uc = rb._build_use_case(None, None)  # el fake que metimos en make_client
     fake_uc.ensure_cache.assert_awaited_once_with("PLC_X", force_refresh=True)
 
 
@@ -203,7 +205,7 @@ def test_router_mounted_via_area_registry() -> None:
     fake_cache = _make_fake_cache("PLC_Y", scanned_at=recent)
     fake_uc = _make_fake_use_case(fake_cache)
     original_builder = rb2._build_use_case
-    rb2._build_use_case = lambda g: fake_uc  # noqa: ARG005
+    rb2._build_use_case = lambda g, p: fake_uc  # noqa: ARG005
     try:
         gw = MagicMock(spec=TIAProcessGateway)
         app = create_app(gateway=gw)

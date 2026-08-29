@@ -147,34 +147,6 @@ export const store = reactive({
      * SPA funciona en modo degradado (mensaje claro en el main).
      */
     areaManifest: null,
-
-    /**
-     * Snapshot de bloques + tag_tables del PLC seleccionado, devuelto
-     * por ``GET /api/v1/plcs/{plc_name}/blocks``. Lo consume el
-     * ``AlimentacionSidebar`` para mostrar el badge
-     * "Cache: N bloques · M tablas".
-     *
-     * Shape (alineado con el snapshot que devolverá el backend):
-     *   ``{ plc_name, blocks, tag_tables, scanned_at, from_cache }``
-     *
-     * ``null`` si todavía no se ha escaneado el PLC o si el backend
-     * respondió 404 (cache miss). El estado se considera neutro
-     * (sin error) y permite reintento.
-     */
-    plcBlocksCache: null,
-
-    /**
-     * ``true`` mientras un scan de bloques del PLC está en vuelo.
-     * Lo consume ``cacheSummary()`` para alimentar el badge.
-     */
-    scanningPlc: false,
-
-    /**
-     * Mensaje de error del último scan de bloques (legible por
-     * humanos). ``null`` en idle / éxito / cache miss. Lo limpia
-     * el siguiente scan.
-     */
-    lastScanError: null,
 });
 
 /**
@@ -348,165 +320,46 @@ export function pushLog(message, level = "info") {
 }
 
 /**
- * TTL (ms) del cache local de bloques. Tras este tiempo el
- * siguiente ``refreshPlcBlocks`` re-consulta al backend aunque
- * el PLC y el snapshot no hayan cambiado.
- */
-const PLC_BLOCKS_CACHE_TTL_MS = 5 * 60 * 1000;
-
-/**
- * Refresca el snapshot de bloques del PLC activo.
+ * Dispara el scan de bloques del PLC en el backend. Es un **thin
+ * wrapper** sobre ``apiScanPlcBlocks`` / ``apiRefreshPlcBlocks``: NO
+ * mantiene estado local en el store.
+ *
+ * La única fuente de verdad del feedback de la operación es el
+ * ``ProgressTracker`` backend (mismo Singleton que ya usan
+ * ``/sync/preview``, ``/sync/commit`` y el upload de Excel). El
+ * ``ProgressIndicator`` del sidebar (anclado al fondo, polling 500 ms
+ * desde ``main.js``) lo muestra automáticamente como un task más.
  *
  * Comportamiento:
- *   * Si ``plcName`` está vacío (operario deselecciona el PLC),
- *     limpia ``plcBlocksCache`` / ``lastScanError`` y sale.
- *   * Si ya hay cache para ESTE PLC con ``scanned_at`` < TTL y
- *     ``force=false``, sale sin re-consultar al backend.
- *   * Si ``force=true`` (botón ↻) o el cache es de otro PLC o es
- *     más viejo que el TTL, llama a ``apiScanPlcBlocks`` (o
- *     ``apiRefreshPlcBlocks`` si ``force=true``) y actualiza el
- *     estado del store.
- *   * Trata 404 como cache miss neutro (no error, permite
- *     reintento) para tolerar el gap mientras el backend aún no
- *     expone el endpoint.
- *   * Loggea vía ``pushLog`` tanto en éxito como en error.
- *
- * No lanza excepciones: cualquier error de red o de parseo
- * queda reflejado en ``store.lastScanError`` y en la consola.
+ *   * ``plcName`` vacío → no hace nada (operario deseleccionó el PLC).
+ *   * ``force=false`` (default) → llama a ``GET /blocks``. El backend
+ *     decide si re-escanear o servir desde su cache (mismo TTL 5 min).
+ *   * ``force=true`` → llama a ``POST /blocks/refresh`` (fuerza re-scan).
+ *   * Loggea vía ``pushLog`` en éxito y error (los warnings de
+ *     timeline caen en la ConsolaLogs).
  */
 export async function refreshPlcBlocks(plcName, { force = false } = {}) {
-    if (!plcName) {
-        store.plcBlocksCache = null;
-        store.lastScanError = null;
-        store.scanningPlc = false;
-        return;
-    }
-
-    // Decidir si hay que re-consultar. Cache local: mismo PLC y
-    // scanned_at dentro del TTL. Si es OTRO PLC, descartamos el
-    // cache (no tiene sentido mostrar un badge del PLC anterior).
-    const cache = store.plcBlocksCache;
-    let needsFetch = force || !cache || cache.plc_name !== plcName;
-    if (!needsFetch && cache.scanned_at) {
-        const ageMs = Date.now() - new Date(cache.scanned_at).getTime();
-        if (Number.isFinite(ageMs) && ageMs > PLC_BLOCKS_CACHE_TTL_MS) {
-            needsFetch = true;
-        }
-    }
-    if (!needsFetch) return;
-
-    store.scanningPlc = true;
-    store.lastScanError = null;
+    if (!plcName) return;
+    const { apiScanPlcBlocks, apiRefreshPlcBlocks } = await import("./api.js");
     try {
-        const { apiScanPlcBlocks, apiRefreshPlcBlocks } = await import("./api.js");
         const r = force
             ? await apiRefreshPlcBlocks(plcName)
             : await apiScanPlcBlocks(plcName);
-        if (r.ok && r.data) {
-            // El backend puede envolver el snapshot en ``{ ok, snapshot }``
-            // o devolverlo plano; aceptamos ambas formas.
-            const snap = (r.data.snapshot && typeof r.data.snapshot === "object")
-                ? r.data.snapshot
-                : r.data;
-            const hasShape = snap && (
-                Array.isArray(snap.blocks) || Array.isArray(snap.tag_tables) || snap.plc_name
-            );
-            if (hasShape) {
-                store.plcBlocksCache = {
-                    plc_name: snap.plc_name || plcName,
-                    blocks: Array.isArray(snap.blocks) ? snap.blocks : [],
-                    tag_tables: Array.isArray(snap.tag_tables) ? snap.tag_tables : [],
-                    scanned_at: snap.scanned_at || new Date().toISOString(),
-                    from_cache: !!snap.from_cache,
-                };
-                pushLog(
-                    `Cache de ${plcName}: ` +
-                    `${store.plcBlocksCache.blocks.length} bloques, ` +
-                    `${store.plcBlocksCache.tag_tables.length} tablas.`,
-                    "info"
-                );
-            } else {
-                store.lastScanError =
-                    (r.data && (r.data.error || r.data.detail)) ||
-                    "Respuesta inesperada del backend";
-                pushLog(`Cache ${plcName}: ${store.lastScanError}`, "warning");
-            }
-        } else if (r.status === 404) {
-            // Cache miss: lo tratamos como estado neutro, sin error,
-            // para tolerar el gap mientras el router no está
-            // desplegado. Permite reintento.
-            store.plcBlocksCache = null;
-            store.lastScanError = null;
-            pushLog(
-                `Cache ${plcName}: sin snapshot todavía (404). ` +
-                "Se reintentará al forzar refresh.",
-                "info"
-            );
-        } else {
+        if (!r.ok) {
             const msg =
                 (r.data && (r.data.detail || r.data.error)) ||
                 `HTTP ${r.status}`;
-            store.lastScanError = msg;
-            pushLog(`Cache ${plcName}: error — ${msg}`, "warning");
+            pushLog(`Cache ${plcName}: ${msg}`, "warning");
         }
+        // Si r.ok, el ProgressTracker del backend ya emitió los
+        // eventos. El ProgressIndicator los recoge sin que el store
+        // tenga que recordar nada.
     } catch (e) {
-        store.lastScanError = String(e && e.message ? e.message : e);
-        pushLog(`Cache ${plcName}: error — ${store.lastScanError}`, "warning");
-    } finally {
-        store.scanningPlc = false;
+        pushLog(
+            `Cache ${plcName}: error — ${String(e && e.message ? e.message : e)}`,
+            "warning"
+        );
     }
-}
-
-/**
- * Resumen derivado del cache para alimentar el badge del Sidebar.
- *
- * Devuelve SIEMPRE un objeto con la misma forma, así el template
- * puede leer todas las claves sin checks defensivos:
- *   ``{ blocks, tables, ageSeconds, isStale, scanning, error }``
- *
- * Semántica:
- *   * ``scanning=true`` durante un scan en vuelo.
- *   * ``error`` no nulo si el último scan falló Y no hay cache
- *     (con cache previo, el badge sigue mostrando el cache y el
- *     error se sobreescribirá al reintentar).
- *   * ``isStale=true`` si el cache tiene más de ``PLC_BLOCKS_CACHE_TTL_MS``.
- */
-export function cacheSummary() {
-    const cache = store.plcBlocksCache;
-    const scanning = !!store.scanningPlc;
-    const err = store.lastScanError;
-    if (scanning) {
-        return {
-            blocks: 0,
-            tables: 0,
-            ageSeconds: 0,
-            isStale: false,
-            scanning: true,
-            error: null,
-        };
-    }
-    if (!cache) {
-        return {
-            blocks: 0,
-            tables: 0,
-            ageSeconds: 0,
-            isStale: false,
-            scanning: false,
-            error: err,
-        };
-    }
-    const ageMs = cache.scanned_at
-        ? Date.now() - new Date(cache.scanned_at).getTime()
-        : 0;
-    const ageSeconds = Math.max(0, Math.floor((ageMs || 0) / 1000));
-    return {
-        blocks: Array.isArray(cache.blocks) ? cache.blocks.length : 0,
-        tables: Array.isArray(cache.tag_tables) ? cache.tag_tables.length : 0,
-        ageSeconds,
-        isStale: ageSeconds * 1000 > PLC_BLOCKS_CACHE_TTL_MS,
-        scanning: false,
-        error: err,
-    };
 }
 
 export default store;

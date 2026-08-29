@@ -21,8 +21,13 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 
 from core.application.log_buffer import LogBuffer
+from core.application.progress_buffer import ProgressTracker
 from core.infrastructure.gateway import TIAProcessGateway
-from interfaces.web_server.dependencies import get_gateway, get_logger
+from interfaces.web_server.dependencies import (
+    get_gateway,
+    get_logger,
+    get_progress_tracker,
+)
 
 
 router = APIRouter(prefix="/api/v1/plcs", tags=["PlcBlocks"])
@@ -36,8 +41,11 @@ router = APIRouter(prefix="/api/v1/plcs", tags=["PlcBlocks"])
 _CACHE_FRESH_SECONDS: float = 5.0 * 60.0  # 5 minutos
 
 
-def _build_use_case(gateway: TIAProcessGateway) -> Any:
-    """Construye el use case con el gateway inyectado por ``Depends``.
+def _build_use_case(
+    gateway: TIAProcessGateway,
+    progress: ProgressTracker,
+) -> Any:
+    """Construye el use case con el gateway y el ProgressTracker inyectados.
 
     Import perezoso: si el módulo del use case todavía no existe en
     esta rama (p. ej. en una rama aislada antes del merge con la
@@ -49,7 +57,7 @@ def _build_use_case(gateway: TIAProcessGateway) -> Any:
         ScanPlcBlocksUseCase,
     )
 
-    return ScanPlcBlocksUseCase(gateway)
+    return ScanPlcBlocksUseCase(gateway, progress=progress)
 
 
 def _is_cache_fresh(scanned_at: datetime) -> bool:
@@ -79,6 +87,7 @@ async def get_plc_blocks(
     plc_name: str,
     gateway: TIAProcessGateway = Depends(get_gateway),
     logger: LogBuffer = Depends(get_logger),
+    progress: ProgressTracker = Depends(get_progress_tracker),
 ) -> dict[str, Any]:
     """Devuelve el snapshot cacheado de bloques + tag_tables del PLC.
 
@@ -88,10 +97,13 @@ async def get_plc_blocks(
 
     El use case decide si el snapshot se reutiliza o se re-escanea
     (umbral interno del propio use case); aquí solo reportamos el
-    resultado a la SPA vía ``from_cache``.
+    resultado a la SPA vía ``from_cache``. El scan se refleja en el
+    ``ProgressTracker`` (mismo Singleton que el resto de operaciones
+    largas) para que el ``ProgressIndicator`` del sidebar lo muestre
+    como un task más, sin widgets nuevos.
     """
     _validate_plc_name(plc_name)
-    use_case = _build_use_case(gateway)
+    use_case = _build_use_case(gateway, progress)
     logger.info(
         f"[plc_blocks/GET] Solicitando snapshot de bloques para '{plc_name}'..."
     )
@@ -117,6 +129,7 @@ async def refresh_plc_blocks(
     plc_name: str,
     gateway: TIAProcessGateway = Depends(get_gateway),
     logger: LogBuffer = Depends(get_logger),
+    progress: ProgressTracker = Depends(get_progress_tracker),
 ) -> dict[str, Any]:
     """Fuerza un re-scan del PLC, ignorando la caché existente.
 
@@ -124,7 +137,7 @@ async def refresh_plc_blocks(
     del re-scan, no una lectura de caché).
     """
     _validate_plc_name(plc_name)
-    use_case = _build_use_case(gateway)
+    use_case = _build_use_case(gateway, progress)
     logger.info(
         f"[plc_blocks/REFRESH] Forzando re-scan de bloques para '{plc_name}'..."
     )

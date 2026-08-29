@@ -7,8 +7,8 @@ este test verifica la **forma textual** del wiring: que los
 símbolos públicos esperados aparezcan en los archivos correctos.
 
 Es un contract check barato. Si en el futuro se añade infra JS,
-se puede sustituir por tests unitarios de verdad sobre los
-helpers ``refreshPlcBlocks`` y ``cacheSummary``.
+se puede sustituir por tests unitarios de verdad sobre el helper
+``refreshPlcBlocks``.
 
 Marcado con ``@pytest.mark.frontend_smoke`` para permitir
 filtrado (``pytest -m frontend_smoke``).
@@ -49,32 +49,46 @@ def test_api_js_exposes_block_cache_endpoints() -> None:
     assert "/api/v1/plcs/" in text  # mismo namespace que el resto de endpoints PLC
 
 
-def test_store_js_exposes_cache_state_and_helpers() -> None:
-    """``store.js`` añade estado y helpers del cache de bloques."""
+def test_store_js_exposes_refresh_helper_only() -> None:
+    """``store.js`` solo expone el helper ``refreshPlcBlocks`` (thin wrapper).
+
+    El estado del cache y el feedback de la operación viven en el
+    backend (``ProgressTracker``), no en el store. Verificamos
+    explícitamente que NO reintroducimos el badge legacy con su
+    estado local (``plcBlocksCache``, ``scanningPlc``, ``cacheSummary``).
+    """
     text = _read(STORE_JS)
-    # Estado reactivo nuevo.
-    assert "plcBlocksCache" in text
-    assert "scanningPlc" in text
-    assert "lastScanError" in text
-    # Helpers exportados.
+    # Helper exportado.
     assert "export async function refreshPlcBlocks" in text
-    assert "export function cacheSummary" in text
+    # NO hay estado local del cache de bloques en el store.
+    assert "plcBlocksCache:" not in text
+    assert "scanningPlc:" not in text
+    assert "lastScanError:" not in text
+    # NO hay helpers del badge legacy.
+    assert "export function cacheSummary" not in text
+    assert "cacheSummary()" not in text
 
 
-def test_sidebar_wires_change_handler_and_badge() -> None:
-    """``Sidebar.js`` une el ``@change`` del select con el badge."""
+def test_sidebar_wires_change_handler_to_progress_indicator() -> None:
+    """``Sidebar.js`` une el ``@change`` del select con ``refreshPlcBlocks``.
+
+    El feedback se ve en el ``ProgressIndicator`` (que ya está
+    anclado al fondo del sidebar), no en un badge propio. Por
+    eso este test verifica que NO reintroducimos el badge custom
+    con su botón ↻.
+    """
     text = _read(SIDEBAR_JS)
-    # Wiring del select → scan.
+    # Wiring del select → scan via el helper del store.
     assert "@change=\"onPlcSelected\"" in text
-    # Helper importado y expuesto al template.
     assert "refreshPlcBlocks" in text
-    assert "cacheSummary" in text
-    # Texto del badge (asegura que el componente pinta el resumen).
-    assert "Cache:" in text
-    assert "bloques" in text
-    assert "tablas" in text
-    # El botón ↻ debe llamar con force=true.
-    assert "{ force: true }" in text
+    # El ProgressIndicator del sidebar sigue montado (donde aparece
+    # el task de "Cache de bloques de <plc>").
+    assert "<ProgressIndicator" in text
+    # NO reintroducimos el badge custom ni el ↻ propio.
+    assert "plc-blocks-cache-badge" not in text
+    assert "plc-blocks-cache-refresh" not in text
+    assert "Forzar re-scan" not in text
+    assert "Escaneando" not in text
 
 
 def test_styles_css_is_nonempty_after_recompile() -> None:
