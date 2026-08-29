@@ -15,40 +15,15 @@ duplicados en el documento resultante.
 """
 from __future__ import annotations
 
-import importlib.util
-import sys
 import xml.etree.ElementTree as ET
-from copy import deepcopy
 from pathlib import Path
-from types import ModuleType
 
 import pytest
 
+from core.infrastructure.xml.modifiers import TagTableModifier
+
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _OPERATOR_XML = _REPO_ROOT / "_source" / ".build_cache" / "base" / "tags" / "2000_Dispositivos" / "2000_Disp_M.xml"
-
-
-def _load_modifier() -> ModuleType:
-    """Carga ``core.infrastructure.xml.modifiers`` evitando el circular import.
-
-    ``modifiers.py`` importa ``from areas.alimentacion.domain.models.dispositivos
-    import Dispositivo`` en su cabecera, lo que dispara toda la cadena de
-    imports del paquete areas y vuelve a ``modifiers`` antes de que termine
-    de cargarse. Para evitarlo, cargamos el modulo como un script suelto
-    via ``importlib.util.spec_from_file_location``.
-    """
-    mod_path = _REPO_ROOT / "core" / "infrastructure" / "xml" / "modifiers.py"
-    spec = importlib.util.spec_from_file_location("_modifiers_isolated", mod_path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-@pytest.fixture(scope="module")
-def TagTableModifier():
-    return _load_modifier().TagTableModifier
 
 
 _PLC_USER_CONSTANT = "{*}SW.Tags.PlcUserConstant"
@@ -64,7 +39,7 @@ def _constants(root: ET.Element) -> list[ET.Element]:
     return root.findall(f".//{_PLC_USER_CONSTANT}")
 
 
-def test_max_id_in_doc_handles_hex_without_prefix(TagTableModifier):
+def test_max_id_in_doc_handles_hex_without_prefix(tmp_path):
     """El bug original: int('A', 0) falla. Ahora int('A', 16) funciona."""
     # XML minimo con IDs hexadecimales SIN prefijo 0x (formato Siemens).
     xml = (
@@ -95,7 +70,7 @@ def test_max_id_in_doc_handles_hex_without_prefix(TagTableModifier):
         Path(f.name).unlink(missing_ok=True)
 
 
-def test_add_user_constants_no_duplicate_ids(tmp_path, TagTableModifier):
+def test_add_user_constants_no_duplicate_ids(tmp_path):
     """Caso real del operario: 4 constantes con IDs A,B,C, se anaden 4 mas.
 
     ANTES del fix: max_id=9 (ignoraba A,B,C) -> nuevos colisionaban.
@@ -201,7 +176,7 @@ def test_add_user_constants_no_duplicate_ids(tmp_path, TagTableModifier):
     not _OPERATOR_XML.exists(),
     reason="Requiere _source/.build_cache/base/tags/2000_Disp_M.xml (XML real del operario)",
 )
-def test_add_user_constants_against_real_operator_xml(tmp_path, TagTableModifier):
+def test_add_user_constants_against_real_operator_xml(tmp_path):
     """Test E2E con el XML REAL de 2000_Disp_M del operario.
 
     Esto reproduce EXACTAMENTE el escenario que causo el error
@@ -243,7 +218,7 @@ def test_add_user_constants_against_real_operator_xml(tmp_path, TagTableModifier
     )
 
 
-def test_renumber_ids_increments_correctly(TagTableModifier):
+def test_renumber_ids_increments_correctly():
     """_renumber_ids asigna IDs correlativos en hex mayusculas."""
     # Elemento con IDs existentes 1, 2, 3. Usamos un wrapper Document porque
     # ET.fromstring devuelve el root, que en este caso es <Document> (sin ID).
@@ -262,7 +237,7 @@ def test_renumber_ids_increments_correctly(TagTableModifier):
     assert elem.find("Y").find("Z").get("ID") == "C"
 
 
-def test_regenerate_root_table_id_assigns_unique_high_id(TagTableModifier, tmp_path):
+def test_regenerate_root_table_id_assigns_unique_high_id(tmp_path):
     """regenerate_root_table_id cambia el ID="0" de la PlcTagTable a uno alto.
 
     Caso del operario: TIA V21 exporta con ID="0" y al re-importar intenta
@@ -308,7 +283,7 @@ def test_regenerate_root_table_id_assigns_unique_high_id(TagTableModifier, tmp_p
     assert mod.was_modified()
 
 
-def test_regenerate_root_table_id_no_collision_with_existing(tmp_path, TagTableModifier):
+def test_regenerate_root_table_id_no_collision_with_existing(tmp_path):
     """El nuevo ID debe ser MAYOR que cualquier ID existente en el doc."""
     xml = '''<?xml version="1.0" encoding="utf-8"?>
 <Document>
@@ -338,7 +313,7 @@ def test_regenerate_root_table_id_no_collision_with_existing(tmp_path, TagTableM
     )
 
 
-def test_regenerate_root_table_id_returns_none_if_no_table(TagTableModifier, tmp_path):
+def test_regenerate_root_table_id_returns_none_if_no_table(tmp_path):
     """Si no hay PlcTagTable, devuelve None (no rompe)."""
     xml = (
         '<Document>'
@@ -355,7 +330,7 @@ def test_regenerate_root_table_id_returns_none_if_no_table(TagTableModifier, tmp
     not _OPERATOR_XML.exists(),
     reason="Requiere _source/.build_cache/base/tags/2000_Disp_M.xml (XML real del operario)",
 )
-def test_regenerate_root_table_id_against_real_operator_xml(TagTableModifier, tmp_path):
+def test_regenerate_root_table_id_against_real_operator_xml(tmp_path):
     """E2E con XML real: regenera el ID de la PlcTagTable del operario."""
     dst = tmp_path / "2000_Disp_M.xml"
     dst.write_bytes(_OPERATOR_XML.read_bytes())

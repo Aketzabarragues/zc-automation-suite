@@ -23,9 +23,7 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, cast
-
-from areas.alimentacion.domain.models.dispositivos import Dispositivo
+from typing import Any, Protocol, cast, runtime_checkable
 
 
 # Wildcards XPath. ``{*}`` = cualquier namespace; evita acoplarse a la
@@ -42,6 +40,20 @@ _ADDRESS_TAGS: tuple[str, ...] = (
     "{*}LogicalAddress",
     "{*}MemoryArea",
 )
+
+
+@runtime_checkable
+class _DispositivoLike(Protocol):
+    """Contrato minimo que modifiers.py necesita de un dispositivo.
+
+    Solo declaramos los 3 atributos que add_tags() realmente consume.
+    NO importamos Dispositivo desde areas/ para no introducir un
+    import circular (ver .clinerules §1: core/ no debe importar de
+    areas/).
+    """
+    plc_tag: str
+    uid: str
+    descripcion: str
 
 
 def _get_text(elem: ET.Element | None) -> str:
@@ -92,11 +104,14 @@ class TagTableModifier(XMLModifier):
       - ``Comment`` <-- ``dispositivo.uid`` (mapeo IT para diff)
     """
 
-    def add_tags(self, dispositivos: list[Dispositivo]) -> int:
+    def add_tags(self, dispositivos: list[_DispositivoLike]) -> int:
         """Anade PlcTag instances desde una lista de objetos del dominio.
 
-        Cada DTO debe implementar el Protocol ``Dispositivo``
-        (atributos ``plc_tag`` y ``uid``).
+        Cada DTO debe cumplir el Protocol ``_DispositivoLike`` definido
+        en este modulo: atributos ``plc_tag`` (str), ``uid`` (str) y
+        ``descripcion`` (str). Esto desacopla ``core/infrastructure/xml``
+        del modelo de dominio de ``areas/`` y elimina el import circular
+        que existia cuando se importaba ``Dispositivo`` directamente.
 
         Returns:
             Numero de PlcTag realmente anadidos (idempotente).
@@ -108,11 +123,15 @@ class TagTableModifier(XMLModifier):
         existing_names = self._existing_names()
         added = 0
         for dispositivo in dispositivos:
-            name = str(getattr(dispositivo, "plc_tag", "")).strip()
+            if not isinstance(dispositivo, _DispositivoLike):
+                raise TypeError(
+                    f"Se esperaba _DispositivoLike, recibio {type(dispositivo).__name__}"
+                )
+            name = str(dispositivo.plc_tag).strip()
             if not name or name in existing_names:
                 continue
-            uid = str(getattr(dispositivo, "uid", "")).strip()
-            address = str(getattr(dispositivo, "descripcion", "")).strip()
+            uid = str(dispositivo.uid).strip()
+            address = str(dispositivo.descripcion).strip()
             new_tag = deepcopy(template)
             self._update_tag_fields(new_tag, name=name, comment=uid, address=address)
             self._append_after_last_tag(new_tag)
