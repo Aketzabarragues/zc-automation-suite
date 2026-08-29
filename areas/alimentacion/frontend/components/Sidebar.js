@@ -81,12 +81,24 @@ export default {
             await refreshPlcBlocks(store.selectedPlc);
         }
 
+        /**
+         * ``cacheSummary()`` (de ``store.js``) es una función pura
+         * que devuelve un objeto; el template la consume como
+         * ``cacheSummary.blocks``, ``cacheSummary.scanning`` etc.
+         * Si la expusiéramos como función cruda, esas propiedades
+         * serían ``undefined`` y el ``v-if`` del badge jamás se
+         * activaría. La envolvemos en ``computed`` para que Vue
+         * la reevalúe reactivamente cuando cambien
+         * ``store.plcBlocksCache`` o ``store.scanningPlc``.
+         */
+        const cacheSummaryView = computed(() => cacheSummary());
+
         return {
             store,
             areaLabel,
             handleRefreshPlcs,
             onPlcSelected,
-            cacheSummary,
+            cacheSummary: cacheSummaryView,
             goToWelcome,
             goToSubview,
         };
