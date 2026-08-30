@@ -234,3 +234,10 @@ _plan/
 _trash_temp/
 # Artefactos del runtime de Mavis (plans de mavis-team, logs de orquestacion, etc.)
 .minimax/
+# Logs generados por el worker OT y el tray launcher en runtime
+*.log
+# Stubs temporales de los smoke scripts (los crea el editor al guardar)
+*.tmp
+*.tmp2
+# Archivo de mensaje auxiliar usado en commits (se borra tras usar)
+.commit-msg.txt

@@ -19,7 +19,7 @@ from typing import Any
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
-from application.areas import ListAreasUseCase
+from core.application.area_registry import ListAreasUseCase
 
 
 router = APIRouter(prefix="/api/v1", tags=["Areas"])

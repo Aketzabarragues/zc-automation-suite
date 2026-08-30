@@ -111,7 +111,12 @@
 2. Si el área tiene modelos de dominio: `areas/<area>/domain/`.
 3. Si tiene casos de uso: `areas/<area>/application/use_cases/`.
 4. Si tiene adaptadores (parsers, modificadores, etc.):
-   `areas/<area>/infrastructure/`.
+   `areas/<area>/infrastructure/`. Los **modificadores SimaticML/SD**
+   son específicos de cada área y viven aquí (NO en `core/`), por
+   ejemplo `areas/<area>/infrastructure/xml/modifiers.py` (TagTableModifier,
+   SimaticMLTagParser) y `areas/<area>/infrastructure/sd/` (modificadores
+   de `.s7dcl`). `core/` solo aporta el gateway y los parsers base
+   genéricos (p. ej. `core/infrastructure/parsers/excel_parser.py`).
 5. Si tiene comandos TIA transaccionales:
    `areas/<area>/infrastructure/tia/extra_commands.py` con
    `register(registry)`.

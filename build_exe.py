@@ -156,7 +156,7 @@ HIDDEN_IMPORTS_AREAS: list[str] = [
     "areas.alimentacion.application.use_cases.diff_constants",
     "areas.alimentacion.application.use_cases.sync_comentarios_disp",
     "areas.alimentacion.application.use_cases.sync_dispositivos_instances",
-    # Infrastructure (parsers, sd, tia, config_defaults)
+    # Infrastructure (parsers, sd, xml, tia, config_defaults)
     "areas.alimentacion.infrastructure",
     "areas.alimentacion.infrastructure.config_defaults",
     "areas.alimentacion.infrastructure.parsers",
@@ -164,6 +164,9 @@ HIDDEN_IMPORTS_AREAS: list[str] = [
     "areas.alimentacion.infrastructure.sd",
     "areas.alimentacion.infrastructure.sd.disp_comment_updater",
     "areas.alimentacion.infrastructure.sd.disp_mlc_registry",
+    "areas.alimentacion.infrastructure.xml",
+    "areas.alimentacion.infrastructure.xml.modifiers",
+    "areas.alimentacion.infrastructure.xml.tag_table_parser",
     "areas.alimentacion.infrastructure.tia",
     "areas.alimentacion.infrastructure.tia.extra_commands",
     # Interfaces (web routers + MCP tools)

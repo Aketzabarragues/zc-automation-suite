@@ -215,7 +215,7 @@ def make_cmd_commit_devices_sync() -> Callable[..., Any]:
             _cmd_update_user_constant_name,
             _safe_get_table_name,
         )
-        from core.infrastructure.xml.modifiers import TagTableModifier
+        from areas.alimentacion.infrastructure.xml.modifiers import TagTableModifier
 
         project = worker_tia._get_active_project(portal)
         target_plc = worker_tia._find_plc(project, plc_name)

@@ -21,7 +21,7 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
-from application.areas import AreaInfo, ListAreasUseCase
+from core.application.area_registry import AreaInfo, ListAreasUseCase
 from core.infrastructure.config_manager import ConfigManager
 from core.infrastructure.gateway import TIAProcessGateway
 from interfaces.web_server.app import create_app

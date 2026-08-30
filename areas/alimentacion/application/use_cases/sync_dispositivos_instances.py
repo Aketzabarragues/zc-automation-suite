@@ -57,7 +57,7 @@ from core.application.progress_buffer import ProgressTracker, get_progress_track
 from core.application.state import AppState, get_app_state
 from core.infrastructure.config_manager import ConfigManager
 from core.infrastructure.gateway import TIAProcessGateway
-from core.infrastructure.xml.modifiers import TagTableModifier
+from areas.alimentacion.infrastructure.xml.modifiers import TagTableModifier
 
 
 _logger = logging.getLogger(
@@ -725,7 +725,7 @@ class SyncDispositivosInstancesUseCase:
           - ``actualizar``  : el valor cambia X \u2192 Y.
           - ``sin_cambios`` : el valor coincide.
         """
-        from core.infrastructure.xml.tag_table_parser import SimaticMLTagParser
+        from areas.alimentacion.infrastructure.xml.tag_table_parser import SimaticMLTagParser
 
         nmax_folder = self._config.get_tia_folder_nmax()
         nmax_table = self._config.get_global_config_table_name()
