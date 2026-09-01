@@ -112,6 +112,43 @@ def _safe_float(val: Any, default: float = 0.0) -> float:
         return default
 
 
+def _safe_num_lista(value: Any) -> int | str:
+    """None/NaN/vacío → 0. Numérico → int. Texto no numérico → str.
+
+    Helper **específico** de los parsers de parámetros (Fase 2 y 3
+    del plan ``_plan/04_excel_cache_phased_plan.md``). La columna
+    ``Num.Lista`` del Excel corporativo puede contener **dos clases
+    de valores**:
+
+        * Valores numéricos (``0``, ``1``, ``2``, …) que el operario
+          usa como índice de selección en una lista HMI.
+        * Texto literal (``"N/A"``, ``"TODOS"``, …) que el operario
+          usa como marcador semántico (sin lista asociada, todos
+          los items, etc.).
+
+    Reglas:
+        * ``None`` / ``""`` / ``"nan"`` / ``"None"`` / ``"null"`` /
+          whitespace puro → ``0`` (interpretado como "sin lista").
+        * ``int`` / ``float`` / ``str`` numérico (``"5"``,
+          ``"5.0"``) → ``int`` (truncado, no redondeado).
+        * Cualquier otro texto (``"N/A"``, ``"TODOS"``, …) se
+          preserva literal como ``str``.
+
+    Diferencia con ``_safe_int``: ``_safe_int`` cae a ``0`` para
+    texto no numérico, lo cual sería destructivo para los
+    marcadores semánticos del operario. Aquí se preserva el texto
+    para que el DTO ``ParamRealPLC.num_lista: int | str`` refleje
+    fielmente el Excel.
+    """
+    cleaned = _safe_str(value)
+    if not cleaned:
+        return 0
+    try:
+        return int(float(cleaned))
+    except (ValueError, TypeError):
+        return cleaned
+
+
 # ── Extracción de ListObjects (Tablas Nombradas) ─────────────────────────
 
 
@@ -200,5 +237,6 @@ __all__ = [
     "_safe_str",
     "_safe_int",
     "_safe_float",
+    "_safe_num_lista",
     "extract_list_object_rows",
 ]

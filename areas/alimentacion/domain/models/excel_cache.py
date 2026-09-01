@@ -143,4 +143,75 @@ class ProcesoPLC:
         return max(0, (self.alarmas // 16) - 1)
 
 
-__all__ = ["ProcesoPLC"]
+# ── Fase 2: Parámetros Reales ────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class ParamRealPLC:
+    """DTO de un parámetro real del PLC (hoja ``P_REAL`` → ``Tabla_PReal``).
+
+    Un **parámetro real** es una variable ``REAL`` (32 bits, IEEE 754)
+    que el PLC expone al HMI y que el operario puede ajustar en
+    runtime (típicamente un setpoint, un límite o un factor de
+    escalado). Se agrupa en un DB por proceso:
+
+        * ``DB{num_db}_{codigo}_PREAL`` (uno por proceso, contiene
+          varios ``ParamRealPLC`` consecutivos).
+
+    Diferencia con ``ProcesoPLC``: ``ParamRealPLC`` **NO** tiene
+    properties derivadas (``db_*_numero``, ``db_*_nombre``). La
+    razón es que cada ``ParamRealPLC`` tiene ya su ``num_db``
+    explícito en el Excel (no se infiere de un ``uid``), así que la
+    lógica de derivación de nombres de DB vive en el caller
+    (``ProcesoPLC`` agrupa los ``ParamRealPLC`` y conoce su
+    ``num_db`` raíz). Esta separación se documenta explícitamente
+    en el plan §6.3.
+
+    Campos:
+        * ``uid``: identificador único **str** (``'PR_1_001'``, etc.).
+          A diferencia de ``ProcesoPLC.uid`` (int), el UID de los
+          parámetros es str porque así lo emite el corporativo.
+        * ``numero``: nº lógico del parámetro dentro del proceso
+          (``"001"``, ``"002"``, …) tal como aparece en el Excel.
+        * ``proceso``: nombre del proceso al que pertenece
+          (referencia lógica a ``ProcesoPLC.nombre``).
+        * ``codigo``: código corto del proceso, reutilizado para
+          componer el nombre del DB.
+        * ``num_db``: nº del DB donde se mapea este parámetro
+          (``int``). Provisto por el Excel; el parser lo lee con
+          ``_safe_int``.
+        * ``producto``: nombre del producto / línea donde se
+          consume el parámetro.
+        * ``tipo``: clasificación funcional (``"Setpoint"``,
+          ``"Limite"``, …).
+        * ``descripcion``: descripción legible para el operario.
+        * ``comentario_db``: comentario que se vuelca como
+          PlcComment del DB (no del tag).
+        * ``visibilidad``: flag que indica si el parámetro es
+          visible en el HMI (``"Si"`` / ``"No"``).
+        * ``num_lista``: índice de la lista HMI donde el operario
+          puede elegir valores predefinidos. **CRÍTICO**: este
+          campo es ``int | str`` (no solo ``int``). Valores como
+          ``"N/A"`` o ``"TODOS"`` son marcadores semánticos que el
+          operario usa para listas de selección; el helper
+          ``_safe_num_lista`` los preserva literalmente. Ver plan
+          §6.4 y §2.2.
+        * ``txt_lista``: texto libre asociado a ``num_lista``
+          (etiqueta visible en el HMI, o descripción de la lista).
+    """
+
+    uid: str
+    numero: str
+    proceso: str
+    codigo: str
+    num_db: int
+    producto: str
+    tipo: str
+    descripcion: str
+    comentario_db: str
+    visibilidad: str
+    num_lista: int | str
+    txt_lista: str
+
+
+__all__ = ["ProcesoPLC", "ParamRealPLC"]

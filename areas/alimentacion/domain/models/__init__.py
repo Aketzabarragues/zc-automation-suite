@@ -11,11 +11,11 @@ Restricción arquitectónica: estos modelos son ESTRICTAMENTE PUROS.
 - Sin imports de openpyxl u otras librerías de infraestructura.
 - Sin uso de ``Any`` en los atributos declarados.
 
-Nota de fase (Fase 1 del plan): ``ProcesoPLC`` se re-exporta desde
-``excel_cache``. ``dispositivos.py`` se BORRARÁ en Fase 5.5 — sus
-DTOs se consolidarán entonces en ``excel_cache.py`` (Fase 5.1 del
-plan). Hasta entonces, los re-exports de ``dispositivos.py`` se
-conservan intactos.
+Nota de fase (Fases 1-2 del plan): ``ProcesoPLC`` y ``ParamRealPLC``
+se re-exportan desde ``excel_cache``. ``dispositivos.py`` se BORRARÁ
+en Fase 5.5 — sus DTOs se consolidarán entonces en ``excel_cache.py``
+(Fase 5.1 del plan). Hasta entonces, los re-exports de
+``dispositivos.py`` se conservan intactos.
 """
 
 from areas.alimentacion.domain.models.dispositivos import (
@@ -28,7 +28,7 @@ from areas.alimentacion.domain.models.dispositivos import (
     DispV,
     Dispositivo,
 )
-from areas.alimentacion.domain.models.excel_cache import ProcesoPLC
+from areas.alimentacion.domain.models.excel_cache import ParamRealPLC, ProcesoPLC
 
 __all__ = [
     # Protocol y dimensiones
@@ -41,6 +41,7 @@ __all__ = [
     "DispV",
     "DispM",
     "DispM_VF",
-    # DTOs del Excel (Fase 1 del plan; Fases 2-4 y 5 amplían)
+    # DTOs del Excel (Fases 1-2 del plan; Fases 3-4 y 5 amplían)
     "ProcesoPLC",
+    "ParamRealPLC",
 ]
