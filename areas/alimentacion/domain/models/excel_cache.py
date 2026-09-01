@@ -4,8 +4,10 @@ Este archivo agrupa, **en fases** (ver plan
 ``_plan/04_excel_cache_phased_plan.md``), las dataclasses ``frozen=True``
 que representan las entidades del Excel que el PLC consume:
 
-    * **Fase 1**: ``ProcesoPLC`` (este commit).
-    * **Fases 2-4**: ``ParamRealPLC``, ``ParamIntPLC``, ``AlarmaPLC``.
+    * **Fase 1**: ``ProcesoPLC``.
+    * **Fase 2**: ``ParamRealPLC``.
+    * **Fase 3**: ``ParamIntPLC`` (este commit).
+    * **Fase 4**: ``AlarmaPLC``.
     * **Fase 5**: consolidación de los 6 DTOs de dispositivos
       (``DispED/EA/SA/V/M/M_VF``) + ``DimensionesDispositivos`` +
       ``ExcelCache`` (DTO raíz con los 10 dominios del Excel +
@@ -214,4 +216,88 @@ class ParamRealPLC:
     txt_lista: str
 
 
-__all__ = ["ProcesoPLC", "ParamRealPLC"]
+# ── Fase 3: Parámetros Enteros ────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class ParamIntPLC:
+    """DTO de un parámetro entero del PLC (hoja ``P_INT`` → ``Tabla_PInt``).
+
+    Un **parámetro entero** es una variable ``DINT``/``INT`` (32/16 bits)
+    que el PLC expone al HMI y que el operario puede ajustar en
+    runtime (típicamente un contador, un índice o un factor de
+    escalado discreto). Se agrupa en un DB por proceso:
+
+        * ``DB{num_db}_{codigo}_PINT`` (uno por proceso, contiene
+          varios ``ParamIntPLC`` consecutivos).
+
+    Shape idéntico a ``ParamRealPLC`` (12 campos, mismos nombres,
+    mismos defaults), pero **tipo distinto en Python** (R4 del plan,
+    resuelto por el operario el 2026-09-01): ``ParamIntPLC`` y
+    ``ParamRealPLC`` son nominalmente dos dataclasses separadas.
+    ``isinstance(ParamIntPLC(...), ParamRealPLC) == False``.
+
+    Razón de la separación (R4): si en el futuro se quiere añadir
+    ``rango_min``/``rango_max`` solo a ``ParamRealPLC`` (derivados
+    de ``DispEA.RII``/``DispEA.RSI``), se hace sin tocar
+    ``ParamIntPLC``. Mantener los DTOs como tipos nominales
+    distintos en Python garantiza que ``isinstance`` los trate por
+    separado y que extender uno no obligue a extender el otro
+    aunque hoy coincidan en campos.
+
+    Diferencia con ``ProcesoPLC``: ``ParamIntPLC`` **NO** tiene
+    properties derivadas (igual que ``ParamRealPLC``). La razón es
+    la misma: cada ``ParamIntPLC`` tiene ya su ``num_db`` explícito
+    en el Excel (no se infiere de un ``uid``), así que la lógica de
+    derivación de nombres de DB vive en el caller
+    (``ProcesoPLC`` agrupa los ``ParamIntPLC`` y conoce su
+    ``num_db`` raíz).
+
+    Campos:
+        * ``uid``: identificador único **str** (``'PI_1_001'``, etc.).
+          A diferencia de ``ProcesoPLC.uid`` (int), el UID de los
+          parámetros es str porque así lo emite el corporativo.
+        * ``numero``: nº lógico del parámetro dentro del proceso
+          (``"001"``, ``"002"``, …) tal como aparece en el Excel.
+        * ``proceso``: nombre del proceso al que pertenece
+          (referencia lógica a ``ProcesoPLC.nombre``).
+        * ``codigo``: código corto del proceso, reutilizado para
+          componer el nombre del DB.
+        * ``num_db``: nº del DB donde se mapea este parámetro
+          (``int``). Provisto por el Excel; el parser lo lee con
+          ``_safe_int``.
+        * ``producto``: nombre del producto / línea donde se
+          consume el parámetro.
+        * ``tipo``: clasificación funcional (``"Contador"``,
+          ``"Indice"``, …).
+        * ``descripcion``: descripción legible para el operario.
+        * ``comentario_db``: comentario que se vuelca como
+          PlcComment del DB (no del tag).
+        * ``visibilidad``: flag que indica si el parámetro es
+          visible en el HMI (``"Si"`` / ``"No"``).
+        * ``num_lista``: índice de la lista HMI donde el operario
+          puede elegir valores predefinidos. **CRÍTICO**: este
+          campo es ``int | str`` (no solo ``int``). Valores como
+          ``"N/A"`` o ``"TODOS"`` son marcadores semánticos que el
+          operario usa para listas de selección; el helper
+          ``_safe_num_lista`` los preserva literalmente. Mismo
+          contrato que ``ParamRealPLC.num_lista``.
+        * ``txt_lista``: texto libre asociado a ``num_lista``
+          (etiqueta visible en el HMI, o descripción de la lista).
+    """
+
+    uid: str
+    numero: str
+    proceso: str
+    codigo: str
+    num_db: int
+    producto: str
+    tipo: str
+    descripcion: str
+    comentario_db: str
+    visibilidad: str
+    num_lista: int | str
+    txt_lista: str
+
+
+__all__ = ["ProcesoPLC", "ParamRealPLC", "ParamIntPLC"]
