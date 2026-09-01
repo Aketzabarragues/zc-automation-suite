@@ -9,15 +9,19 @@
  * Estructura del template (de arriba abajo):
  *   1. Carga excel (input + resumen).
  *   2. Cabecera con título y botón "Refrescar Memoria".
- *   3. N_MAX cards (siempre visibles — info transversal).
- *   4. ``<main-tabs>`` (Dispositivos | Software) con badges de
+ *   3. ``<main-tabs>`` (Dispositivos | Software) con badges de
  *      conteo. Componente reutilizable, vive en MainTabs.js.
- *   5. Panel activo: ``<dispositivos-panel>`` o ``<software-panel>``
+ *   4. Panel activo: ``<dispositivos-panel>`` o ``<software-panel>``
  *      según ``store.activeMainTab``.
  *
- * La lógica de sub-tabs y tablas se mudó a:
- *   - ``DispositivosPanel.js`` (sub-tabs ED|EA|SA|V|M|MVF + tabla
- *     reactiva del dataclass activo).
+ * Las N_MAX cards (dimensiones) vivían aquí como info transversal,
+ * pero el operario las pidió DENTRO del tab Dispositivos (porque
+ * describen tamaños de arrays de dispositivos: N_MAX_DISP_ED, etc.).
+ * Ahora viven en ``DispositivosPanel.js``.
+ *
+ * La lógica de sub-tabs y tablas vive en:
+ *   - ``DispositivosPanel.js`` (sub-tabs ED|EA|SA|V|M|MVF + N_MAX cards
+ *     + tabla reactiva del dataclass activo).
  *   - ``SoftwarePanel.js`` (sub-tabs Procesos|PInt|PReal|Alarmas
  *     + 4 tablas; reemplaza los ``<details>`` plegables).
  *
@@ -43,14 +47,6 @@ export default {
     emits: ["refresh"],
     setup() {
         const fileInput = ref(null);
-
-        /**
-         * N_MAX cards (dimensiones) — info transversal, siempre
-         * visible aunque el operario cambie de tab principal.
-         */
-        const dimensiones = computed(
-            () => (store.memoryState && store.memoryState.dimensiones) || null
-        );
 
         /**
          * Conteos para los badges de los 2 tabs principales.
@@ -133,7 +129,6 @@ export default {
         return {
             store,
             fileInput,
-            dimensiones,
             mainTabsData,
             handleExcel,
         };
@@ -164,15 +159,6 @@ export default {
                     🔄 Refrescar Memoria
                 </button>
             </header>
-
-            <!-- Tarjeta de Dimensiones (N_MAX) — siempre visible -->
-            <div v-if="dimensiones" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 mb-4">
-                <div v-for="(value, key) in dimensiones" :key="key"
-                    class="bg-surface-raised border border-line rounded p-3">
-                    <div class="text-[10px] uppercase text-ink-muted">{{ key }}</div>
-                    <div class="text-xl font-bold text-accent">{{ value }}</div>
-                </div>
-            </div>
 
             <!-- ★ Tabs principales (NUEVO) ★ -->
             <main-tabs :tabs="mainTabsData" />

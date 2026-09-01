@@ -3,10 +3,17 @@
  *
  * Panel que se muestra cuando ``store.activeMainTab === 'dispositivos'``.
  * Contiene:
- *   1. Sub-tabs data-driven (ED|EA|SA|V|M|MVF) generadas desde
+ *   1. N_MAX cards (dimensiones) — info transversal del Excel.
+ *      Vivían en el shell DefinicionProgramacion; se mudaron AQUÍ
+ *      por feedback del operario: describen tamaños de arrays de
+ *      dispositivos (N_MAX_DISP_ED, etc.) y solo tienen sentido
+ *      dentro del contexto de dispositivos.
+ *   2. Sub-tabs data-driven (ED|EA|SA|V|M|MVF) generadas desde
  *      ``store.catalog.device_tabs``.
- *   2. La tabla reactiva con todas las columnas del dataclass
- *      activo (``modelColumns[activeSubTab]``).
+ *   3. La tabla reactiva con todas las columnas del dataclass
+ *      activo (``modelColumns[activeSubTab]``), dentro de un
+ *      contenedor ``bg-surface-raised border border-line rounded``
+ *      para coherencia visual con ``SoftwarePanel.js``.
  *
  * Replica 1:1 el bloque que antes vivía en ``DefinicionProgramacion.js``
  * (líneas 96-103, 229-268). La refactorización es solo estructural:
@@ -100,6 +107,18 @@ export default {
         );
 
         /**
+         * N_MAX cards (dimensiones) — info transversal del Excel.
+         * Antes vivían en el shell ``DefinicionProgramacion``; se
+         * mudaron AQUÍ (dentro del tab Dispositivos) por feedback del
+         * operario: el bloque de "dimensiones" describe tamaños de
+         * arrays de dispositivos (N_MAX_DISP_ED, etc.) y solo tiene
+         * sentido dentro del contexto de dispositivos.
+         */
+        const dimensiones = computed(
+            () => (store.memoryState && store.memoryState.dimensiones) || null
+        );
+
+        /**
          * Conteo de dispositivos por sub-tab (DispED, DispEA, ...).
          * Encapsula el acceso a ``store.memoryState.dispositivos`` para
          * que el template no toque ``store`` directamente (lo cual es
@@ -134,6 +153,7 @@ export default {
             columns,
             activeDevices,
             hasMemory,
+            dimensiones,
             displayValue,
             colLabels,
             monoCols,
@@ -142,6 +162,17 @@ export default {
     },
     template: /* html */ `
         <div class="flex-1 flex flex-col overflow-hidden">
+
+            <!-- Tarjeta de Dimensiones (N_MAX) — info transversal del Excel.
+                 Vivía en el shell DefinicionProgramacion; se movió AQUÍ
+                 (dentro del tab Dispositivos) por feedback del operario. -->
+            <div v-if="dimensiones" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 mb-3">
+                <div v-for="(value, key) in dimensiones" :key="key"
+                    class="bg-surface-raised border border-line rounded p-3">
+                    <div class="text-[10px] uppercase text-ink-muted">{{ key }}</div>
+                    <div class="text-xl font-bold text-accent">{{ value }}</div>
+                </div>
+            </div>
 
             <!-- Sub-tabs por tipo de dispositivo (ED|EA|SA|V|M|MVF) -->
             <div v-if="hasMemory" class="flex border-b border-line bg-surface-sunken overflow-x-auto">
@@ -154,8 +185,10 @@ export default {
                 </button>
             </div>
 
-            <!-- Tabla reactiva: dump de TODAS las columnas del dataclass activo -->
-            <div class="flex-1 overflow-auto table-scroll-x mt-2">
+            <!-- Tabla reactiva: dump de TODAS las columnas del dataclass activo.
+                 Contenedor estandarizado con SoftwarePanel: bg-surface-raised
+                 + border + rounded para coherencia visual entre ambos tabs. -->
+            <div class="flex-1 overflow-auto table-scroll-x mt-2 bg-surface-raised border border-line rounded">
                 <table v-if="hasMemory" class="w-full text-xs">
                     <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
                         <tr>
@@ -183,7 +216,7 @@ export default {
                         </tr>
                     </tbody>
                 </table>
-                <div v-else class="flex-1 flex items-center justify-center bg-surface-raised border border-dashed border-line rounded mt-2 p-10 text-center text-ink-muted">
+                <div v-else class="flex-1 flex items-center justify-center p-10 text-center text-ink-muted">
                     <div>
                         <div class="text-5xl mb-3 opacity-40">📊</div>
                         <p class="mb-2">El Inspector de Memoria está vacío.</p>
