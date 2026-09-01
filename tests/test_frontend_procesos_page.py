@@ -319,6 +319,82 @@ def test_area_landing_has_procesos_option() -> None:
     )
 
 
+def test_db_names_computed_from_uid_not_from_dto_properties() -> None:
+    """Regression test: el sub-caption con los nombres de los 3 DBs
+    del proceso (PREAL / PINT / ALM) se computa en línea a partir
+    de ``uid`` siguiendo la convención del DTO ``ProcesoPLC``, NO
+    leyendo las properties ``db_preal_nombre`` / ``db_pint_nombre``
+    / ``db_alm_nombre``.
+
+    Razón técnica: esas properties son ``@property`` Python del
+    DTO. El backend serializa con ``dataclasses.asdict`` (o
+    equivalente), que solo emite los campos declarados, NO las
+    properties. El JSON que recibe la SPA trae ``uid`` y
+    ``codigo`` pero NO ``db_preal_nombre``. Si el template las
+    usa, los 3 huecos aparecen vacíos ("UID 1100 · DBs: , , ").
+
+    Convención (verificada en
+    ``areas/alimentacion/domain/models/excel_cache.py``):
+       * DB PREAL: 3000 + uid
+       * DB PINT:  3000 + uid + 1
+       * DB ALM:   5000 + uid
+       * Formato:  DB{numero}_{codigo}_SUFIJO
+
+    Mismo patrón que ``ProcesosPanel.js`` (líneas del template que
+    pintan ``DB{{ 3000 + p.uid }}`` y ``DB{{ 5000 + p.uid }}``).
+    """
+    import re
+
+    text = _read(PROCESOS_JS)
+    # Extraer solo el cuerpo del template (lo que hay entre los
+    # delimitadores `` ` `` del ``template: /* html */ `...` ,``).
+    # El docstring del componente SÍ puede mencionar los nombres
+    # de las properties (es texto explicativo, no código que
+    # ejecuta), así que el check se scopea al template body.
+    pattern = re.compile(
+        r"template:\s*/\*\s*html\s*\*/\s*`(.*?)`\s*,",
+        re.DOTALL,
+    )
+    match = pattern.search(text)
+    assert match is not None, (
+        "No se encontró el template del componente Procesos.js"
+    )
+    template_body = match.group(1)
+
+    # POSITIVO: el template computa los 3 DBs desde ``uid`` con
+    # la fórmula correcta.
+    assert "3000 + selectedProc.uid" in template_body, (
+        "Falta el cálculo del DB PREAL (3000 + uid) en el template"
+    )
+    assert "3000 + selectedProc.uid + 1" in template_body, (
+        "Falta el cálculo del DB PINT (3000 + uid + 1) en el template"
+    )
+    assert "5000 + selectedProc.uid" in template_body, (
+        "Falta el cálculo del DB ALM (5000 + uid) en el template"
+    )
+    # El template usa ``codigo`` para componer el nombre simbólico
+    # (formato DB{num}_{codigo}_SUFIJO).
+    assert "selectedProc.codigo" in template_body, (
+        "Falta el uso de selectedProc.codigo para componer "
+        "el nombre simbólico del DB"
+    )
+    # NEGATIVO: el template NO debe leer las properties del DTO
+    # (que no sobreviven al roundtrip JSON).
+    assert "db_preal_nombre" not in template_body, (
+        "El template lee db_preal_nombre (property @property "
+        "del DTO) que no sobrevive al roundtrip JSON. Usar el "
+        "cálculo en línea con 3000 + uid."
+    )
+    assert "db_pint_nombre" not in template_body, (
+        "El template lee db_pint_nombre (property @property "
+        "del DTO) que no sobrevive al roundtrip JSON."
+    )
+    assert "db_alm_nombre" not in template_body, (
+        "El template lee db_alm_nombre (property @property "
+        "del DTO) que no sobrevive al roundtrip JSON."
+    )
+
+
 def test_no_backticks_in_template_bodies() -> None:
     """Regression test: ningún componente Vue 3 del área puede tener
     backticks literales (`` ` ``) dentro del cuerpo de su template

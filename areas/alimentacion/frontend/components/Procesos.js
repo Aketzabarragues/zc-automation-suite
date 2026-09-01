@@ -157,18 +157,27 @@ export default {
                         {{ p.codigo }} — {{ p.nombre }}
                     </option>
                 </select>
-                <!-- Sub-caption con UID y los 3 nombres simbólicos de
-                     DB del proceso. Usa las properties derivadas del
-                     DTO ProcesoPLC (db_preal_nombre, etc.). Si
-                     el backend aún no las expone, los nombres
-                     aparecen vacíos y la UI no rompe. -->
+                <!-- Sub-caption con UID y los 3 nombres simbólicos
+                     de DB del proceso. Los computamos en línea
+                     desde el uid siguiendo la convención del DTO
+                     (verificada en
+                     areas/alimentacion/domain/models/excel_cache.py):
+                       DB PREAL = 3000 + uid
+                       DB PINT  = 3000 + uid + 1
+                       DB ALM   = 5000 + uid
+                     Importante: las properties @property del DTO
+                     NO sobreviven al roundtrip JSON (el backend
+                     serializa con dataclasses.asdict, que solo
+                     emite los campos declarados). Por eso
+                     calculamos en línea en lugar de leerlas. Mismo
+                     patrón que ProcesosPanel.js. -->
                 <p v-if="selectedProc"
                    class="mt-2 text-xs text-ink-muted">
                     UID <span class="font-mono">{{ selectedProc.uid }}</span>
                     · DBs:
-                    <span class="font-mono">{{ selectedProc.db_preal_nombre }}</span>,
-                    <span class="font-mono">{{ selectedProc.db_pint_nombre }}</span>,
-                    <span class="font-mono">{{ selectedProc.db_alm_nombre }}</span>
+                    <span class="font-mono">DB{{ 3000 + selectedProc.uid }}_{{ selectedProc.codigo }}_PREAL</span>,
+                    <span class="font-mono">DB{{ 3000 + selectedProc.uid + 1 }}_{{ selectedProc.codigo }}_PINT</span>,
+                    <span class="font-mono">DB{{ 5000 + selectedProc.uid }}_{{ selectedProc.codigo }}_ALM</span>
                 </p>
             </div>
 
