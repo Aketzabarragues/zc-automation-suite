@@ -36,29 +36,20 @@ from pathlib import Path
 
 
 # ── Configuración de logging ANTES de cualquier import "pesado" ────
-# Prioridad de localizacion del log (operario puede forzar con env var):
-#   1. ``ZC_LOG_DIR`` (override explicito).
-#   2. Modo frozen (.exe): junto al ejecutable (``<exe_dir>/logs/``).
-#      Asi el operario tiene todos los artefactos (.exe, .build_cache,
-#      logs/) en la misma carpeta.
-#   3. Modo dev (``python main_tray.py``): junto al CWD (``./logs/``).
-#   4. Fallback legacy: ``%LocalAppData%\zc-automation-suite\logs\``
-#      (solo si las opciones anteriores no se pueden crear, p.ej. permisos).
-if getattr(sys, "frozen", False):
-    DEFAULT_LOG_DIR = Path(sys.executable).parent / "logs"
-else:
-    DEFAULT_LOG_DIR = Path.cwd() / "logs"
-LOG_DIR = Path(os.environ.get("ZC_LOG_DIR", DEFAULT_LOG_DIR))
-try:
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-except OSError:
-    # Fallback al AppData legacy si no podemos escribir en la ruta
-    # por defecto (permisos, etc.). El operario lo encontrara en
-    # la ruta clasica de Windows.
-    LOG_DIR = (
-        Path.home() / "AppData" / "Local" / "zc-automation-suite" / "logs"
-    )
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
+# La lógica de dónde van los logs vive en
+# ``core.application.log_paths.resolve_log_dir`` (modulo compartido con
+# ``worker_tia.py``). Aquí solo la invocamos y construimos el nombre
+# del fichero (``zc_tray.log``). El worker usa la misma función para
+# ``worker_openness.log``, así ambos acaban en la misma carpeta con
+# el mismo override por env var (``ZC_LOG_DIR``) y el mismo fallback
+# a ``%LocalAppData%\zc-automation-suite\logs\`` si el path por
+# defecto no se puede crear.
+# Importante: la función se importa AQUÍ (no arriba) porque la
+# config de logging debe quedar lista ANTES de cargar modulos pesados.
+
+from core.application.log_paths import resolve_log_dir  # noqa: E402
+
+LOG_DIR = resolve_log_dir()
 LOG_FILE = LOG_DIR / "zc_tray.log"
 
 logging.basicConfig(

@@ -1125,13 +1125,15 @@ def main() -> None:
         )
 
     # 2. Silenciado absoluto de la consola nativa C++.
-    # El path de log es ABSOLUTO para que el operario siempre lo
-    # encuentre junto al .exe (o, en dev, junto a main.py). El fallback
-    # al CWD se hace si el path absoluto falla (permisos, etc.).
-    import sys as _sys
-    from pathlib import Path as _Path
-    _exe_dir = _Path(getattr(_sys, "frozen", False) and _sys.executable or __file__).parent
-    _log_path = _exe_dir / "worker_openness.log"
+    # Ruta del log: misma logica que ``zc_tray.log`` (ver
+    # ``main_tray.py``), para que ambos acaben en la misma
+    # carpeta (``<exe_dir>/logs/`` en produccion, ``<cwd>/logs/``
+    # en dev) con el mismo override por env var y el mismo
+    # fallback a AppData. El fallback al CWD que se ve mas abajo
+    # es un ultimo recurso si ``set_logging`` rechaza el path
+    # absoluto (caso muy raro, p.ej. permiso denegado de Siemens).
+    from core.application.log_paths import resolve_log_dir
+    _log_path = resolve_log_dir() / "worker_openness.log"
     try:
         ts.set_logging(path=str(_log_path), console=False)
     except Exception:
