@@ -157,13 +157,18 @@ export default {
                         {{ p.codigo }} — {{ p.nombre }}
                     </option>
                 </select>
-                <!-- Sub-caption con UID y los 3 nombres simbólicos
+                <!-- Sub-caption con UID y los 2 nombres simbólicos
                      de DB del proceso. Los computamos en línea
                      desde el uid siguiendo la convención del DTO
                      (verificada en
                      areas/alimentacion/domain/models/excel_cache.py):
-                       DB PREAL = 3000 + uid
-                       DB PINT  = 3000 + uid + 1
+                       DB PARAM = 3000 + uid  (DB unificado de
+                                               parámetros: PReal y
+                                               PInt del mismo
+                                               proceso comparten el
+                                               mismo Num.DB en el
+                                               Excel real; el DB
+                                               PINT no existe)
                        DB ALM   = 5000 + uid
                      Importante: las properties @property del DTO
                      NO sobreviven al roundtrip JSON (el backend
@@ -175,8 +180,7 @@ export default {
                    class="mt-2 text-xs text-ink-muted">
                     UID <span class="font-mono">{{ selectedProc.uid }}</span>
                     · DBs:
-                    <span class="font-mono">DB{{ 3000 + selectedProc.uid }}_{{ selectedProc.codigo }}_PREAL</span>,
-                    <span class="font-mono">DB{{ 3000 + selectedProc.uid + 1 }}_{{ selectedProc.codigo }}_PINT</span>,
+                    <span class="font-mono">DB{{ 3000 + selectedProc.uid }}_{{ selectedProc.codigo }}_PARAM</span>,
                     <span class="font-mono">DB{{ 5000 + selectedProc.uid }}_{{ selectedProc.codigo }}_ALM</span>
                 </p>
             </div>

@@ -320,9 +320,9 @@ def test_area_landing_has_procesos_option() -> None:
 
 
 def test_db_names_computed_from_uid_not_from_dto_properties() -> None:
-    """Regression test: el sub-caption con los nombres de los 3 DBs
-    del proceso (PREAL / PINT / ALM) se computa en línea a partir
-    de ``uid`` siguiendo la convención del DTO ``ProcesoPLC``, NO
+    """Regression test: el sub-caption con los nombres de los 2 DBs
+    del proceso (PARAM / ALM) se computa en línea a partir de
+    ``uid`` siguiendo la convención del DTO ``ProcesoPLC``, NO
     leyendo las properties ``db_preal_nombre`` / ``db_pint_nombre``
     / ``db_alm_nombre``.
 
@@ -331,12 +331,14 @@ def test_db_names_computed_from_uid_not_from_dto_properties() -> None:
     equivalente), que solo emite los campos declarados, NO las
     properties. El JSON que recibe la SPA trae ``uid`` y
     ``codigo`` pero NO ``db_preal_nombre``. Si el template las
-    usa, los 3 huecos aparecen vacíos ("UID 1100 · DBs: , , ").
+    usa, los huecos aparecen vacíos ("UID 1100 · DBs: , ").
 
     Convención (verificada en
     ``areas/alimentacion/domain/models/excel_cache.py``):
-       * DB PREAL: 3000 + uid
-       * DB PINT:  3000 + uid + 1
+       * DB PARAM: 3000 + uid   (DB unificado de parámetros:
+                                 PReal y PInt del mismo proceso
+                                 comparten el mismo Num.DB en el
+                                 Excel real; el DB PINT no existe)
        * DB ALM:   5000 + uid
        * Formato:  DB{numero}_{codigo}_SUFIJO
 
@@ -361,13 +363,10 @@ def test_db_names_computed_from_uid_not_from_dto_properties() -> None:
     )
     template_body = match.group(1)
 
-    # POSITIVO: el template computa los 3 DBs desde ``uid`` con
+    # POSITIVO: el template computa los 2 DBs desde ``uid`` con
     # la fórmula correcta.
     assert "3000 + selectedProc.uid" in template_body, (
-        "Falta el cálculo del DB PREAL (3000 + uid) en el template"
-    )
-    assert "3000 + selectedProc.uid + 1" in template_body, (
-        "Falta el cálculo del DB PINT (3000 + uid + 1) en el template"
+        "Falta el cálculo del DB PARAM (3000 + uid) en el template"
     )
     assert "5000 + selectedProc.uid" in template_body, (
         "Falta el cálculo del DB ALM (5000 + uid) en el template"
