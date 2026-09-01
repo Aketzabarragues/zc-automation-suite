@@ -14,6 +14,7 @@ cambios.
 from __future__ import annotations
 
 import dataclasses
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends
@@ -30,6 +31,59 @@ from interfaces.web_server.dependencies import (
 )
 from core.application.log_buffer import get_log_buffer
 from core.application.progress_buffer import get_progress_tracker as _get_progress_singleton
+
+
+_logger = logging.getLogger(__name__)
+
+
+def _extract_software_from_cache(state: AppState) -> dict[str, Any]:
+    """Extrae los 4 dominios de software + el flag del ``state.excel_cache``.
+
+    Helper introducido en Fase 6 del plan canónico
+    (``_plan/04_excel_cache_phased_plan.md``) para añadir los 4
+    nuevos campos (``procesos``, ``parametros_int``,
+    ``parametros_real``, ``alarmas``) y el flag
+    ``software_parsers_implemented`` al response de
+    ``GET /api/v1/state/dispositivos`` sin contaminar la función del
+    endpoint.
+
+    Política defensiva:
+      * Si ``state.excel_cache`` es ``None`` (operario aún no ha
+        subido Excel) → los 4 arrays quedan ``[]`` y el flag
+        ``false``. La SPA renderiza el banner ámbar.
+      * Si el cache tiene los campos pero alguno falla al
+        serializar (defensa contra schema drift), se loggea
+        WARNING y se devuelve lo que se haya podido extraer.
+
+    Returns:
+        Dict con las 5 keys (``procesos``, ``parametros_int``,
+        ``parametros_real``, ``alarmas``,
+        ``software_parsers_implemented``) listas para ``**`` en el
+        response del endpoint.
+    """
+    empty: dict[str, Any] = {
+        "procesos": [],
+        "parametros_int": [],
+        "parametros_real": [],
+        "alarmas": [],
+        "software_parsers_implemented": False,
+    }
+    cache = getattr(state, "excel_cache", None)
+    if cache is None:
+        return empty
+    try:
+        return {
+            "procesos": [dataclasses.asdict(p) for p in cache.procesos],
+            "parametros_int": [dataclasses.asdict(p) for p in cache.parametros_int],
+            "parametros_real": [dataclasses.asdict(p) for p in cache.parametros_real],
+            "alarmas": [dataclasses.asdict(a) for a in cache.alarmas],
+            "software_parsers_implemented": bool(
+                getattr(cache, "software_parsers_implemented", False)
+            ),
+        }
+    except Exception as exc:  # defensivo: schema drift del cache
+        _logger.warning("Error extrayendo software del cache: %s", exc)
+        return empty
 
 
 router = APIRouter(prefix="/api/v1", tags=["Diagnostics"])
@@ -94,6 +148,17 @@ async def state_dispositivos(
             else {}
         ),
         "dispositivos": dispositivos_payload,
+        # ── Fase 6: 4 dominios de software + flag ──────────────────────
+        # El flag ``software_parsers_implemented`` permite a la SPA
+        # funcionar en modo degradado (banner ámbar) si el backend
+        # aún no trae los 4 campos nuevos (caso back-compat con un
+        # backend anterior a Fase 5/6 del plan canónico).
+        # Si ``state.excel_cache`` es ``None`` (operario aún no ha
+        # subido Excel), los 4 arrays quedan ``[]`` y el flag
+        # ``false``. Defensivo: usamos ``getattr`` porque
+        # ``excel_cache`` es un placeholder ``Any`` declarado en
+        # ``AppState`` (ver ``core/application/state.py``).
+        ** _extract_software_from_cache(state),
     }
 
 

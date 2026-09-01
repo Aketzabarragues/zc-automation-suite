@@ -62,6 +62,26 @@ export const store = reactive({
     /**
      * Estado del ``AppState`` volcado por la API
      * ``GET /api/v1/state/dispositivos``.
+     *
+     * Shape (estable):
+     *   {
+     *     ok: true,
+     *     dimensiones: { num_disp_ed: int, ... },
+     *     dispositivos: { "DispED": [...], ... },
+     *     // Nuevos (Fase 6): 4 dominios de software.
+     *     // Cada uno es [] si el operario no ha subido Excel.
+     *     procesos:             Array<ProcesoPLC>,
+     *     parametros_int:       Array<ParamIntPLC>,
+     *     parametros_real:      Array<ParamRealPLC>,
+     *     alarmas:              Array<AlarmaPLC>,
+     *     // Flag: si es false, la SPA pinta banner "Datos de software pendientes".
+     *     software_parsers_implemented: boolean,
+     *   }
+     *
+     * El flag ``software_parsers_implemented`` permite a la SPA
+     * funcionar en modo degradado (banner ámbar) si el backend aún
+     * no trae los 4 nuevos campos (caso back-compat con una versión
+     * anterior a Fase 6 del plan canónico).
      */
     memoryState: null,
 

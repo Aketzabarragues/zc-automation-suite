@@ -110,6 +110,28 @@ export default {
             () => !!(store.memoryState && store.memoryState.dispositivos)
         );
 
+        // ── Fase 6: 4 dominios de software (Procesos / PInt / PReal / Alarmas)
+        // Leen desde ``store.memoryState`` (volcado por el endpoint
+        // ``GET /api/v1/state/dispositivos``). Defensivos: si el
+        // operario aún no ha subido Excel o el backend aún no expone
+        // los 4 campos nuevos (modo degradado), todos devuelven ``[]``.
+        const softwareImplemented = computed(
+            () => !!(store.memoryState
+                     && store.memoryState.software_parsers_implemented)
+        );
+        const procesos = computed(
+            () => (store.memoryState && store.memoryState.procesos) || []
+        );
+        const parametrosInt = computed(
+            () => (store.memoryState && store.memoryState.parametros_int) || []
+        );
+        const parametrosReal = computed(
+            () => (store.memoryState && store.memoryState.parametros_real) || []
+        );
+        const alarmas = computed(
+            () => (store.memoryState && store.memoryState.alarmas) || []
+        );
+
         /**
          * Sube el .xlsm al backend. Si OK, refresca la memoria
          * automáticamente (para que las cards de N_MAX y la tabla
@@ -156,6 +178,12 @@ export default {
             activeDevices,
             dimensiones,
             hasMemory,
+            // Fase 6: 4 dominios de software + flag
+            softwareImplemented,
+            procesos,
+            parametrosInt,
+            parametrosReal,
+            alarmas,
             displayValue,
             handleExcel,
             colLabels,
@@ -246,6 +274,163 @@ export default {
                     </div>
                 </div>
             </div>
+
+            <!-- ★ Fase 6: 4 secciones de software (Procesos / PInt / PReal / Alarmas) ★
+                 Se renderizan debajo de la tabla de dispositivos, ANTES del
+                 "Inspector vacío" (que solo aparece si !hasMemory, así que
+                 en la práctica estas secciones SIEMPRE se ven junto a la
+                 tabla, nunca con el mensaje de "Inspector vacío").
+
+                 Cada <details> es colapsable: por defecto solo se ve el
+                 summary con el conteo de elementos. Al expandir, se ve la
+                 tabla compacta con las columnas más relevantes del DTO
+                 (uid, codigo, nombre, etc.).
+
+                 Tema: tokens semánticos del "Industrial Claro" (AGENTS.md).
+                 PROHIBIDO literales multi-línea dentro de arrays :class
+                 (cada clase va en una sola línea). -->
+            <section v-if="hasMemory" class="mt-4 space-y-2">
+                <!-- Banner ámbar: visible si el flag software_parsers_implemented
+                     es false (modo degradado: backend aún no expone los 4
+                     campos nuevos o Excel sin hojas de software). -->
+                <div v-if="!softwareImplemented"
+                     class="bg-amber-100 border-l-4 border-amber-500 text-amber-900 p-3 rounded text-xs">
+                    ⚠️ Datos de software pendientes. Sube un Excel con hojas
+                    CONFIGURACION / P_REAL / P_INT / ALARMAS para verlos aquí.
+                </div>
+
+                <!-- Procesos -->
+                <details v-if="procesos.length > 0" class="bg-surface-raised border border-line rounded">
+                    <summary class="px-4 py-2 cursor-pointer text-sm font-medium text-ink">
+                        Procesos ({{ procesos.length }})
+                    </summary>
+                    <div class="overflow-auto table-scroll-x p-2">
+                        <table class="w-full text-xs">
+                            <thead class="bg-surface-sunken text-[10px] uppercase">
+                                <tr>
+                                    <th class="px-2 py-1 text-left text-ink-muted">UID</th>
+                                    <th class="px-2 py-1 text-left text-ink-muted">Código</th>
+                                    <th class="px-2 py-1 text-left text-ink-muted">Nombre</th>
+                                    <th class="px-2 py-1 text-left text-ink-muted">PReal</th>
+                                    <th class="px-2 py-1 text-left text-ink-muted">PInt</th>
+                                    <th class="px-2 py-1 text-left text-ink-muted">Alarmas</th>
+                                    <th class="px-2 py-1 text-left text-ink-muted">DB PREAL</th>
+                                    <th class="px-2 py-1 text-left text-ink-muted">DB ALM</th>
+                                    <th class="px-2 py-1 text-left text-ink-muted">ALM HMI</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="p in procesos" :key="p.uid" class="border-b border-line">
+                                    <td class="px-2 py-1 font-mono">{{ p.uid }}</td>
+                                    <td class="px-2 py-1 font-mono">{{ p.codigo }}</td>
+                                    <td class="px-2 py-1">{{ p.nombre }}</td>
+                                    <td class="px-2 py-1">{{ p.preal }}</td>
+                                    <td class="px-2 py-1">{{ p.pint }}</td>
+                                    <td class="px-2 py-1">{{ p.alarmas }}</td>
+                                    <td class="px-2 py-1 font-mono">DB{{ 3000 + p.uid }}</td>
+                                    <td class="px-2 py-1 font-mono">DB{{ 5000 + p.uid }}</td>
+                                    <td class="px-2 py-1">{{ Math.max(0, Math.floor(p.alarmas / 16) - 1) }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </details>
+
+                <!-- Parametros Int -->
+                <details v-if="parametrosInt.length > 0" class="bg-surface-raised border border-line rounded">
+                    <summary class="px-4 py-2 cursor-pointer text-sm font-medium text-ink">
+                        Parámetros Enteros ({{ parametrosInt.length }})
+                    </summary>
+                    <div class="overflow-auto table-scroll-x p-2">
+                        <table class="w-full text-xs">
+                            <thead class="bg-surface-sunken text-[10px] uppercase">
+                                <tr>
+                                    <th class="px-2 py-1 text-left text-ink-muted">UID</th>
+                                    <th class="px-2 py-1 text-left text-ink-muted">Nº</th>
+                                    <th class="px-2 py-1 text-left text-ink-muted">Código</th>
+                                    <th class="px-2 py-1 text-left text-ink-muted">Num.DB</th>
+                                    <th class="px-2 py-1 text-left text-ink-muted">Num.Lista</th>
+                                    <th class="px-2 py-1 text-left text-ink-muted">Txt.Lista</th>
+                                    <th class="px-2 py-1 text-left text-ink-muted">Descripción</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="p in parametrosInt" :key="p.uid" class="border-b border-line">
+                                    <td class="px-2 py-1 font-mono">{{ p.uid }}</td>
+                                    <td class="px-2 py-1 font-mono">{{ p.numero }}</td>
+                                    <td class="px-2 py-1 font-mono">{{ p.codigo }}</td>
+                                    <td class="px-2 py-1 font-mono">{{ p.num_db }}</td>
+                                    <td class="px-2 py-1 font-mono">{{ p.num_lista }}</td>
+                                    <td class="px-2 py-1">{{ p.txt_lista }}</td>
+                                    <td class="px-2 py-1">{{ p.descripcion }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </details>
+
+                <!-- Parametros Real -->
+                <details v-if="parametrosReal.length > 0" class="bg-surface-raised border border-line rounded">
+                    <summary class="px-4 py-2 cursor-pointer text-sm font-medium text-ink">
+                        Parámetros Reales ({{ parametrosReal.length }})
+                    </summary>
+                    <div class="overflow-auto table-scroll-x p-2">
+                        <table class="w-full text-xs">
+                            <thead class="bg-surface-sunken text-[10px] uppercase">
+                                <tr>
+                                    <th class="px-2 py-1 text-left text-ink-muted">UID</th>
+                                    <th class="px-2 py-1 text-left text-ink-muted">Nº</th>
+                                    <th class="px-2 py-1 text-left text-ink-muted">Código</th>
+                                    <th class="px-2 py-1 text-left text-ink-muted">Num.DB</th>
+                                    <th class="px-2 py-1 text-left text-ink-muted">Num.Lista</th>
+                                    <th class="px-2 py-1 text-left text-ink-muted">Txt.Lista</th>
+                                    <th class="px-2 py-1 text-left text-ink-muted">Descripción</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="p in parametrosReal" :key="p.uid" class="border-b border-line">
+                                    <td class="px-2 py-1 font-mono">{{ p.uid }}</td>
+                                    <td class="px-2 py-1 font-mono">{{ p.numero }}</td>
+                                    <td class="px-2 py-1 font-mono">{{ p.codigo }}</td>
+                                    <td class="px-2 py-1 font-mono">{{ p.num_db }}</td>
+                                    <td class="px-2 py-1 font-mono">{{ p.num_lista }}</td>
+                                    <td class="px-2 py-1">{{ p.txt_lista }}</td>
+                                    <td class="px-2 py-1">{{ p.descripcion }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </details>
+
+                <!-- Alarmas -->
+                <details v-if="alarmas.length > 0" class="bg-surface-raised border border-line rounded">
+                    <summary class="px-4 py-2 cursor-pointer text-sm font-medium text-ink">
+                        Alarmas ({{ alarmas.length }})
+                    </summary>
+                    <div class="overflow-auto table-scroll-x p-2">
+                        <table class="w-full text-xs">
+                            <thead class="bg-surface-sunken text-[10px] uppercase">
+                                <tr>
+                                    <th class="px-2 py-1 text-left text-ink-muted">UID</th>
+                                    <th class="px-2 py-1 text-left text-ink-muted">Nº</th>
+                                    <th class="px-2 py-1 text-left text-ink-muted">Proceso</th>
+                                    <th class="px-2 py-1 text-left text-ink-muted">Num.DB</th>
+                                    <th class="px-2 py-1 text-left text-ink-muted">Descripción</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="a in alarmas" :key="a.uid" class="border-b border-line">
+                                    <td class="px-2 py-1 font-mono">{{ a.uid }}</td>
+                                    <td class="px-2 py-1 font-mono">{{ a.numero }}</td>
+                                    <td class="px-2 py-1">{{ a.proceso }}</td>
+                                    <td class="px-2 py-1 font-mono">{{ a.num_db }}</td>
+                                    <td class="px-2 py-1">{{ a.descripcion }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </details>
+            </section>
 
         </section>
     `,
