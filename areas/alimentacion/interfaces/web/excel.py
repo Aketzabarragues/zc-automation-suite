@@ -133,12 +133,19 @@ async def upload_excel(
                 devices_tuple = cache.dispositivos.get(hw, ())
                 summary[canonica] = len(devices_tuple)
             total_hw = sum(summary.values())
+            # Counts de software (R-7 2026-09-01: el DTO solo expone
+            # los datos del Excel, los counts se leen directamente de
+            # ``cache``).
+            n_procesos = len(cache.procesos)
+            n_preal = len(cache.parametros_real)
+            n_pint = len(cache.parametros_int)
+            n_alarmas = len(cache.alarmas)
             logger.success(
                 f"✅ Carga maestra completada: {total_hw} dispositivos "
-                f"extraídos ({len(summary)} tipos)."
+                f"({len(summary)} tipos), {n_procesos} procesos, "
+                f"{n_preal} parámetros reales, {n_pint} parámetros enteros, "
+                f"{n_alarmas} alarmas."
             )
-            for tipo, qty in summary.items():
-                logger.info(f"   • {tipo}: {qty} elementos")
             progress.finish(success=True)
         except Exception as exc:
             progress.finish(success=False, error=str(exc))
