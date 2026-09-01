@@ -279,16 +279,14 @@ export default {
             </template>
 
             <!-- "Inspector vacío" idéntico al de DispositivosPanel.
-                 Solo se ve si NO hay Excel cargado (o el Excel no
-                 tiene ninguna de las 4 hojas de software). Coherencia
-                 visual: sin datos, mismo cuadro centrado con emoji. -->
-            <div v-else class="flex-1 flex items-center justify-center bg-surface-raised border border-dashed border-line rounded mt-2 p-10 text-center text-ink-muted">
+                 Mismo copy, mismo emoji, mismas clases: el operario
+                 pidió simetría total entre los 2 tabs (no copy
+                 adaptado al dominio, no emoji distinto). -->
+            <div v-else class="flex-1 flex items-center justify-center p-10 text-center text-ink-muted">
                 <div>
-                    <div class="text-5xl mb-3 opacity-40">⚙️</div>
-                    <p class="mb-2">El Inspector de Software está vacío.</p>
-                    <p class="text-xs">Sube un Excel con las hojas de software
-                        (CONFIGURACION / P_REAL / P_INT / ALARMAS) y pulsa
-                        <strong class="text-accent">"Refrescar Memoria"</strong>.</p>
+                    <div class="text-5xl mb-3 opacity-40">📊</div>
+                    <p class="mb-2">El Inspector de Memoria está vacío.</p>
+                    <p class="text-xs">Sube un Excel y pulsa <strong class="text-accent">"Refrescar Memoria"</strong>.</p>
                 </div>
             </div>
 
