@@ -6,8 +6,8 @@ que representan las entidades del Excel que el PLC consume:
 
     * **Fase 1**: ``ProcesoPLC``.
     * **Fase 2**: ``ParamRealPLC``.
-    * **Fase 3**: ``ParamIntPLC`` (este commit).
-    * **Fase 4**: ``AlarmaPLC``.
+    * **Fase 3**: ``ParamIntPLC``.
+    * **Fase 4**: ``AlarmaPLC`` (este commit).
     * **Fase 5**: consolidación de los 6 DTOs de dispositivos
       (``DispED/EA/SA/V/M/M_VF``) + ``DimensionesDispositivos`` +
       ``ExcelCache`` (DTO raíz con los 10 dominios del Excel +
@@ -300,4 +300,76 @@ class ParamIntPLC:
     txt_lista: str
 
 
-__all__ = ["ProcesoPLC", "ParamRealPLC", "ParamIntPLC"]
+# ── Fase 4: Alarmas ───────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class AlarmaPLC:
+    """DTO de una alarma del PLC (hoja ``ALARMAS`` → ``Tabla_Alarmas``).
+
+    Una **alarma** es un bit de un DB de alarmas (``DB{num_db}``) que
+    el HMI monitoriza para señalizar un evento. Las alarmas se
+    agrupan en un DB por proceso:
+
+        * ``DB{num_db}_{proceso_codigo}_ALM`` (uno por proceso,
+          contiene varios ``AlarmaPLC`` consecutivos en una
+          ``ARRAY[0..N] OF BOOL`` o similar).
+
+    Diferencia con ``ParamRealPLC`` / ``ParamIntPLC``: ``AlarmaPLC``
+    es **más simple** (7 campos, sin ``Visibilidad``/``Producto``/
+    ``Tipo``/``num_lista``/``txt_lista``). La razón es histórica: el
+    legacy TUI (``_legacy_reference/ZC_ALM_TOOLS/core/models/
+    software.py``) define ``Alarma`` con solo 6 columnas en la
+    ``ListObject`` (``UID``, ``Numero``, ``Proceso``, ``Num.DB``,
+    ``Descripcion``, ``ComentarioDB``); ``Visibilidad`` no existe en
+    esta tabla.
+
+    Diferencia con ``ProcesoPLC``: ``AlarmaPLC`` **NO** tiene
+    properties derivadas (``db_*_numero``, ``db_*_nombre``) — igual
+    que ``ParamRealPLC`` y ``ParamIntPLC``. La razón es la misma:
+    cada ``AlarmaPLC`` tiene ya su ``num_db`` explícito en el Excel
+    (no se infiere de un ``uid``), así que la lógica de derivación
+    de nombres de DB vive en el caller (``ProcesoPLC`` agrupa las
+    ``AlarmaPLC`` y conoce su ``num_db`` raíz).
+
+    Esta dataclass forma parte del cache del Excel (ver Fase 5 del
+    plan) y es la **implementación de referencia** que los 6 mini
+    parsers de dispositivos (Fase 5.3) imitarán en estructura
+    (1:1 respecto a ``PRealParser``/``PIntParser`` pero con menos
+    campos y DTO específico).
+
+    Campos:
+        * ``uid``: identificador único **str** (``'AL_1_001'``, etc.).
+          A diferencia de ``ProcesoPLC.uid`` (int), el UID de las
+          alarmas es str porque así lo emite el corporativo.
+        * ``numero``: nº lógico de la alarma dentro del proceso
+          (``"001"``, ``"002"``, …) tal como aparece en el Excel.
+        * ``proceso``: nombre del proceso al que pertenece la alarma
+          (referencia lógica a ``ProcesoPLC.nombre``).
+        * ``num_db``: nº del DB de alarmas donde se mapea este bit
+          (``int``). Provisto por el Excel; el parser lo lee con
+          ``_safe_int``. Coherente con
+          ``ProcesoPLC.db_alm_numero = 5000 + uid``.
+        * ``descripcion``: descripción legible de la alarma (visible
+          en el HMI cuando se activa).
+        * ``comentario_db``: comentario que se vuelca como
+          ``PlcComment`` del DB de alarmas (no del bit individual).
+
+    R-F4.1 (defensa contra schema drift): si el Excel del
+    corporativo incluye en el futuro una columna ``Visibilidad`` en
+    ``Tabla_Alarmas``, el parser la **ignora silenciosamente** (no
+    la recoge, no rompe la carga). El DTO ``AlarmaPLC`` NO tiene
+    atributo ``visibilidad`` por diseño — esta es una invariante
+    contractual que el test ``test_sin_visibilidad_en_dto`` y
+    ``test_columna_visibilidad_en_excel_se_ignora`` verifican.
+    """
+
+    uid: str
+    numero: str
+    proceso: str
+    num_db: int
+    descripcion: str
+    comentario_db: str
+
+
+__all__ = ["ProcesoPLC", "ParamRealPLC", "ParamIntPLC", "AlarmaPLC"]
