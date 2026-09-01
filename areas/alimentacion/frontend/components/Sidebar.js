@@ -7,7 +7,7 @@
  *      conoce), desplegable de PLCs, y botón "Buscar PLCs" (consulta TIA
  *      Portal vía Openness y rellena el dropdown en una sola acción).
  *   3. Navegación entre vistas: "Inicio del área" / "Definición programación"
- *      / "Cache de bloques" / "Dispositivos".
+ *      / "Cache de bloques" / "Dispositivos" / "Procesos".
  *
  * Ya NO contiene:
  *   - "1. Maestro Excel" (movido al inicio de la vista "Definición programación").
@@ -178,6 +178,11 @@ export default {
                         :class="['text-left text-xs px-3 py-2 rounded border',
                                  store.currentView === 'disp' ? 'bg-accent border-accent text-ink-inverse font-semibold' : 'bg-surface-sunken border-line hover:bg-surface-sunken text-ink']">
                         ⚡ Dispositivos
+                    </button>
+                    <button @click="goToSubview('proc')"
+                        :class="['text-left text-xs px-3 py-2 rounded border',
+                                 store.currentView === 'proc' ? 'bg-accent border-accent text-ink-inverse font-semibold' : 'bg-surface-sunken border-line hover:bg-surface-sunken text-ink']">
+                        ⚙️ Procesos
                     </button>
                 </div>
             </section>

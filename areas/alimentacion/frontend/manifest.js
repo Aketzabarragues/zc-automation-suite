@@ -24,6 +24,11 @@
  *       "DefinicionProgramacion": () => import("./components/DefinicionProgramacion.js"),
  *       "Dispositivos":           () => import("./components/Dispositivos.js"),
  *       "BloquesCacheView":       () => import("./components/BloquesCacheView.js"),
+ *       // Sub-vista de primer nivel "Procesos" (Fase 6.A del plan
+ *       // canónico — paso 1: UI sin lógica). Distinta del
+ *       // sub-componente ``ProcesosPanel`` (tabs dentro de
+ *       // Definición programación). Ambas coexisten.
+ *       "Procesos":               () => import("./components/Procesos.js"),
  *       // Sub-componentes de "Definición programación" (refactor
  *       // tabs principales, ver DefinicionProgramacion.js):
  *       "MainTabs":               () => import("./components/MainTabs.js"),
@@ -35,7 +40,7 @@
  * Los nombres de los loaders son las keys que la SPA usa al hacer
  * ``app.component(name, def)``. Coinciden con el ``name:`` declarado
  * por cada componente Vue 3 (Sidebar → ``"AlimentacionSidebar"``,
- * AreaLanding → ``"AreaLanding"`` ...).
+ * AreaLanding → ``"AreaLanding"`` ..., Procesos → ``"Procesos"``).
  *
  * Si se añade un componente nuevo al área:
  *   1. Crear el .js en ``./components/`` con un ``name:`` único.
@@ -49,6 +54,12 @@ const _comps = {
     "DefinicionProgramacion":  () => import("./components/DefinicionProgramacion.js"),
     "Dispositivos":            () => import("./components/Dispositivos.js"),
     "BloquesCacheView":        () => import("./components/BloquesCacheView.js"),
+    // Sub-vista de primer nivel "Procesos" (Fase 6.A — UI sin lógica).
+    // Distinta del sub-componente ``ProcesosPanel``: esta es accesible
+    // desde el Sidebar y la welcome (``key: "proc"``), mientras que
+    // ``ProcesosPanel`` solo se monta dentro del tab "Procesos" de
+    // ``DefinicionProgramacion``. Ambas coexisten en el área.
+    "Procesos":                () => import("./components/Procesos.js"),
     // Sub-componentes del rediseño de "Definición programación"
     // (tabs principales Dispositivos | Software). Se registran
     // como componentes globales para que ``DefinicionProgramacion``
@@ -72,6 +83,7 @@ export function build() {
                 "def":     "DefinicionProgramacion",
                 "disp":    "Dispositivos",
                 "cache":   "BloquesCacheView",
+                "proc":    "Procesos",
             },
         },
         loaders: _comps,

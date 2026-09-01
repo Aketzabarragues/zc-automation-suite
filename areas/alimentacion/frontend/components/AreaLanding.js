@@ -14,8 +14,9 @@
  * dentro de arrays de `:class`. Cada literal va en una sola línea.
  *
  * @event select  Emite la ``key`` de la sub-vista elegida
- *                (``'def'`` o ``'disp'``). El componente padre
- *                (``main.js``) llama a ``goToSubview(key)``.
+ *                (``'def'`` | ``'disp'`` | ``'cache'`` | ``'proc'``).
+ *                El componente padre (``main.js``) llama a
+ *                ``goToSubview(key)``.
  */
 import { computed } from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js";
 // Import absoluto: ver nota en ``Sidebar.js``. Los cross-cutting
@@ -27,10 +28,10 @@ import { store } from "/js/store.js";
  * llega una segunda área con sub-vistas distintas, este componente
  * será específico de Alimentación o se parametrizará.
  *
- * Las 3 keys (``def``, ``disp``, ``cache``) coinciden con las
- * declaradas en ``manifest.js`` (``views`` del área) y en
- * ``store.areaManifest.components.views`` que el backend
- * publica en ``GET /api/v1/areas/alimentacion/manifest``.
+ * Las 4 keys (``def``, ``disp``, ``cache``, ``proc``) coinciden
+ * con las declaradas en ``manifest.js`` (``views`` del área) y en
+ * ``store.areaManifest.components.views`` que el backend publica
+ * en ``GET /api/v1/areas/alimentacion/manifest``.
  */
 const SUBVIEW_OPTIONS = [
     {
@@ -50,6 +51,12 @@ const SUBVIEW_OPTIONS = [
         icon: "🗃️",
         label: "Cache de bloques",
         description: "Volcado de bloques del PLC (DBs, FCs, UDTs) cacheado en memoria.",
+    },
+    {
+        key: "proc",
+        icon: "⚙️",
+        label: "Procesos",
+        description: "Genera procesos en TIA Portal (crear / actualizar comentarios).",
     },
 ];
 
@@ -110,8 +117,12 @@ export default {
                 <p class="mt-1 text-sm text-ink-muted">¿Qué quieres hacer?</p>
             </div>
 
-            <!-- Grid de 3 tarjetas (una por sub-vista) -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 w-full max-w-4xl"
+            <!-- Grid de 4 tarjetas (una por sub-vista). En xl se
+                 amplía a 4 columnas para acomodar la nueva tarjeta
+                 "Procesos" sin apretar el layout de lg (que
+                 mantiene 3 columnas para no encoger las tarjetas
+                 existentes). -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 w-full max-w-4xl"
                  data-testid="area-landing-grid">
                 <button v-for="opt in options" :key="opt.key"
                     @click="handleSelect(opt.key)"

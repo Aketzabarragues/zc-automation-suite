@@ -97,6 +97,23 @@ def build() -> "AreaFrontendManifest":
       - ``ProcesosPanel``:      panel de la pestaña "Procesos"
                                 (sub-tabs Procesos|PInt|PReal|Alarmas
                                 + 4 tablas).
+
+    Sub-vistas de primer nivel (registradas TANTO en ``loaders``
+    COMO en ``views``):
+      - ``AreaLanding`` ("landing"): pantalla de aterrizaje del
+        área.
+      - ``DefinicionProgramacion`` ("def"): maestro Excel + AppState
+        del PLC (tabs Dispositivos | Procesos).
+      - ``Dispositivos`` ("disp"): previsualización y aplicación de
+        cambios en TIA Portal.
+      - ``BloquesCacheView`` ("cache"): snapshot cacheado de
+        bloques/tag tables/UDTs del PLC.
+      - ``Procesos`` ("proc"): nueva sub-vista de primer nivel
+        (Fase 6.A — UI sin lógica backend). Selector de proceso + 2
+        cards placeholder. Distinta de ``ProcesosPanel``: esta es
+        accesible desde el Sidebar y la welcome, mientras que
+        ``ProcesosPanel`` solo se monta dentro del tab "Procesos"
+        de ``DefinicionProgramacion``.
     """
     from core.application.area_registry import AreaFrontendManifest
 
@@ -112,6 +129,7 @@ def build() -> "AreaFrontendManifest":
                 "def":     "DefinicionProgramacion",
                 "disp":    "Dispositivos",
                 "cache":   "BloquesCacheView",
+                "proc":    "Procesos",
             },
         },
         "loaders": {
@@ -120,6 +138,14 @@ def build() -> "AreaFrontendManifest":
             "DefinicionProgramacion": f"{_STATIC_PREFIX}/components/DefinicionProgramacion.js",
             "Dispositivos":           f"{_STATIC_PREFIX}/components/Dispositivos.js",
             "BloquesCacheView":       f"{_STATIC_PREFIX}/components/BloquesCacheView.js",
+            # Sub-vista de primer nivel "Procesos" (Fase 6.A del plan
+            # canónico — paso 1: UI sin lógica). Distinta del
+            # sub-componente ``ProcesosPanel`` (tabs dentro de
+            # Definición programación). Ambas coexisten; el operario
+            # accede a esta desde el Sidebar y la welcome (``key:
+            # "proc"``) y a la otra solo dentro del tab "Procesos"
+            # de Definición.
+            "Procesos":               f"{_STATIC_PREFIX}/components/Procesos.js",
             # Sub-componentes internos del rediseño Opción A
             # (tabs principales Dispositivos | Software). Se
             # registran como loaders pero NO como sub-vistas del
