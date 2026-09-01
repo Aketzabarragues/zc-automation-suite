@@ -149,9 +149,6 @@ export default {
                             <th class="px-3 py-2 text-left text-ink-muted">PReal</th>
                             <th class="px-3 py-2 text-left text-ink-muted">PInt</th>
                             <th class="px-3 py-2 text-left text-ink-muted">Alarmas</th>
-                            <th class="px-3 py-2 text-left text-ink-muted">DB PREAL</th>
-                            <th class="px-3 py-2 text-left text-ink-muted">DB ALM</th>
-                            <th class="px-3 py-2 text-left text-ink-muted">ALM HMI</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -162,12 +159,9 @@ export default {
                             <td class="px-3 py-1.5">{{ p.preal }}</td>
                             <td class="px-3 py-1.5">{{ p.pint }}</td>
                             <td class="px-3 py-1.5">{{ p.alarmas }}</td>
-                            <td class="px-3 py-1.5 font-mono">DB{{ 3000 + p.uid }}</td>
-                            <td class="px-3 py-1.5 font-mono">DB{{ 5000 + p.uid }}</td>
-                            <td class="px-3 py-1.5">{{ Math.max(0, Math.floor(p.alarmas / 16) - 1) }}</td>
                         </tr>
                         <tr v-if="procesos.length === 0">
-                            <td colspan="9" class="px-3 py-6 text-center text-ink-muted italic">
+                            <td colspan="6" class="px-3 py-6 text-center text-ink-muted italic">
                                 ⚠️ Sin procesos definidos.
                             </td>
                         </tr>
