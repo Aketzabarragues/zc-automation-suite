@@ -105,54 +105,54 @@ export default {
     template: /* html */ `
         <div class="flex-1 flex flex-col overflow-hidden">
 
-            <!-- Bloque principal: solo visible si hay Excel cargado
-                 con datos de software (hasMemory). Coherencia con
-                 DispositivosPanel: si NO hay Excel, se muestra el
-                 "Inspector vacío" idéntico al del otro tab. -->
-            <template v-if="hasMemory">
+            <!-- Banner ámbar: visible si el flag software_parsers_implemented
+                 es false (modo degradado: backend aún no expone los 4
+                 campos nuevos o Excel sin hojas de software). Solo
+                 si hay Excel cargado. -->
+            <div v-if="hasMemory && !softwareImplemented"
+                 class="mb-3 bg-amber-100 border-l-4 border-amber-500 text-amber-900 p-3 rounded text-xs">
+                ⚠️ Datos de software pendientes. Sube un Excel con hojas
+                CONFIGURACION / P_REAL / P_INT / ALARMAS para verlos aquí.
+            </div>
 
-                <!-- Banner ámbar: visible si el flag software_parsers_implemented
-                     es false (modo degradado: backend aún no expone los 4
-                     campos nuevos o Excel sin hojas de software). -->
-                <div v-if="!softwareImplemented"
-                     class="mb-3 bg-amber-100 border-l-4 border-amber-500 text-amber-900 p-3 rounded text-xs">
-                    ⚠️ Datos de software pendientes. Sube un Excel con hojas
-                    CONFIGURACION / P_REAL / P_INT / ALARMAS para verlos aquí.
-                </div>
+            <!-- Sub-tabs de software (Procesos | PInt | PReal | Alarmas).
+                 Solo si hay Excel cargado. -->
+            <div v-if="hasMemory" class="flex border-b border-line bg-surface-sunken overflow-x-auto">
+                <button @click="activeSoftwareTab = 'procesos'"
+                    :class="['tab-btn px-4 py-2 text-xs font-medium border-r border-line whitespace-nowrap',
+                             activeSoftwareTab === 'procesos' ? 'active' : 'bg-surface-raised text-ink-muted hover:bg-surface-sunken']">
+                    Procesos
+                    <span class="ml-1 text-[10px] opacity-70">({{ procesos.length }})</span>
+                </button>
+                <button @click="activeSoftwareTab = 'parametros_int'"
+                    :class="['tab-btn px-4 py-2 text-xs font-medium border-r border-line whitespace-nowrap',
+                             activeSoftwareTab === 'parametros_int' ? 'active' : 'bg-surface-raised text-ink-muted hover:bg-surface-sunken']">
+                    Parámetros Enteros
+                    <span class="ml-1 text-[10px] opacity-70">({{ parametrosInt.length }})</span>
+                </button>
+                <button @click="activeSoftwareTab = 'parametros_real'"
+                    :class="['tab-btn px-4 py-2 text-xs font-medium border-r border-line whitespace-nowrap',
+                             activeSoftwareTab === 'parametros_real' ? 'active' : 'bg-surface-raised text-ink-muted hover:bg-surface-sunken']">
+                    Parámetros Reales
+                    <span class="ml-1 text-[10px] opacity-70">({{ parametrosReal.length }})</span>
+                </button>
+                <button @click="activeSoftwareTab = 'alarmas'"
+                    :class="['tab-btn px-4 py-2 text-xs font-medium border-r border-line whitespace-nowrap',
+                             activeSoftwareTab === 'alarmas' ? 'active' : 'bg-surface-raised text-ink-muted hover:bg-surface-sunken']">
+                    Alarmas
+                    <span class="ml-1 text-[10px] opacity-70">({{ alarmas.length }})</span>
+                </button>
+            </div>
 
-                <!-- Sub-tabs de software (Procesos | PInt | PReal | Alarmas) -->
-                <div class="flex border-b border-line bg-surface-sunken overflow-x-auto">
-                    <button @click="activeSoftwareTab = 'procesos'"
-                        :class="['tab-btn px-4 py-2 text-xs font-medium border-r border-line whitespace-nowrap',
-                                 activeSoftwareTab === 'procesos' ? 'active' : 'bg-surface-raised text-ink-muted hover:bg-surface-sunken']">
-                        Procesos
-                        <span class="ml-1 text-[10px] opacity-70">({{ procesos.length }})</span>
-                    </button>
-                    <button @click="activeSoftwareTab = 'parametros_int'"
-                        :class="['tab-btn px-4 py-2 text-xs font-medium border-r border-line whitespace-nowrap',
-                                 activeSoftwareTab === 'parametros_int' ? 'active' : 'bg-surface-raised text-ink-muted hover:bg-surface-sunken']">
-                        Parámetros Enteros
-                        <span class="ml-1 text-[10px] opacity-70">({{ parametrosInt.length }})</span>
-                    </button>
-                    <button @click="activeSoftwareTab = 'parametros_real'"
-                        :class="['tab-btn px-4 py-2 text-xs font-medium border-r border-line whitespace-nowrap',
-                                 activeSoftwareTab === 'parametros_real' ? 'active' : 'bg-surface-raised text-ink-muted hover:bg-surface-sunken']">
-                        Parámetros Reales
-                        <span class="ml-1 text-[10px] opacity-70">({{ parametrosReal.length }})</span>
-                    </button>
-                    <button @click="activeSoftwareTab = 'alarmas'"
-                        :class="['tab-btn px-4 py-2 text-xs font-medium border-r border-line whitespace-nowrap',
-                                 activeSoftwareTab === 'alarmas' ? 'active' : 'bg-surface-raised text-ink-muted hover:bg-surface-sunken']">
-                        Alarmas
-                        <span class="ml-1 text-[10px] opacity-70">({{ alarmas.length }})</span>
-                    </button>
-                </div>
-
-                <!-- Tabla del sub-tab activo -->
-                <div class="flex-1 overflow-auto table-scroll-x mt-2 bg-surface-raised border border-line rounded">
+            <!-- Contenedor SIEMPRE presente (estructura idéntica a
+                 DispositivosPanel). Dentro: si hay Excel, la tabla
+                 del sub-tab activo; si NO hay Excel, el "Inspector
+                 vacío" centrado heredando el background del
+                 contenedor. -->
+            <div class="flex-1 overflow-auto table-scroll-x mt-2 bg-surface-raised border border-line rounded">
 
                 <!-- Procesos -->
-                <table v-if="activeSoftwareTab === 'procesos'" class="w-full text-xs">
+                <table v-if="hasMemory && activeSoftwareTab === 'procesos'" class="w-full text-xs">
                     <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
                         <tr>
                             <th class="px-3 py-2 text-left text-ink-muted">UID</th>
@@ -187,7 +187,7 @@ export default {
                 </table>
 
                 <!-- Parámetros Enteros -->
-                <table v-else-if="activeSoftwareTab === 'parametros_int'" class="w-full text-xs">
+                <table v-else-if="hasMemory && activeSoftwareTab === 'parametros_int'" class="w-full text-xs">
                     <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
                         <tr>
                             <th class="px-3 py-2 text-left text-ink-muted">UID</th>
@@ -218,7 +218,7 @@ export default {
                 </table>
 
                 <!-- Parámetros Reales -->
-                <table v-else-if="activeSoftwareTab === 'parametros_real'" class="w-full text-xs">
+                <table v-else-if="hasMemory && activeSoftwareTab === 'parametros_real'" class="w-full text-xs">
                     <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
                         <tr>
                             <th class="px-3 py-2 text-left text-ink-muted">UID</th>
@@ -249,7 +249,7 @@ export default {
                 </table>
 
                 <!-- Alarmas -->
-                <table v-else-if="activeSoftwareTab === 'alarmas'" class="w-full text-xs">
+                <table v-else-if="hasMemory && activeSoftwareTab === 'alarmas'" class="w-full text-xs">
                     <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
                         <tr>
                             <th class="px-3 py-2 text-left text-ink-muted">UID</th>
@@ -275,19 +275,17 @@ export default {
                     </tbody>
                 </table>
 
+                <!-- "Inspector vacío" idéntico al de DispositivosPanel.
+                     Mismo copy, mismo emoji, mismas clases: hereda
+                     el background del contenedor padre. -->
+                <div v-else class="flex-1 flex items-center justify-center p-10 text-center text-ink-muted">
+                    <div>
+                        <div class="text-5xl mb-3 opacity-40">📊</div>
+                        <p class="mb-2">El Inspector de Memoria está vacío.</p>
+                        <p class="text-xs">Sube un Excel y pulsa <strong class="text-accent">"Refrescar Memoria"</strong>.</p>
+                    </div>
                 </div>
-            </template>
 
-            <!-- "Inspector vacío" idéntico al de DispositivosPanel.
-                 Mismo copy, mismo emoji, mismas clases: el operario
-                 pidió simetría total entre los 2 tabs (no copy
-                 adaptado al dominio, no emoji distinto). -->
-            <div v-else class="flex-1 flex items-center justify-center p-10 text-center text-ink-muted">
-                <div>
-                    <div class="text-5xl mb-3 opacity-40">📊</div>
-                    <p class="mb-2">El Inspector de Memoria está vacío.</p>
-                    <p class="text-xs">Sube un Excel y pulsa <strong class="text-accent">"Refrescar Memoria"</strong>.</p>
-                </div>
             </div>
 
         </div>

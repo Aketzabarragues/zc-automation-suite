@@ -330,10 +330,19 @@ def test_banner_amber_visible_si_no_software_implemented() -> None:
     assert "Datos de software pendientes" in text, (
         "Falta el texto del banner"
     )
-    # El bloque usa v-if (render condicional).
-    assert 'v-if="!softwareImplemented"' in text, (
-        "Falta el v-if='!softwareImplemented' que muestra el banner"
-    )
+    # El bloque usa v-if con la negación de softwareImplemented.
+    # Acepta tanto la forma simple `!softwareImplemented` como la
+    # compuesta `hasMemory && !softwareImplemented` (esta segunda
+    # apareció tras el rediseño: el banner solo se muestra si
+    # TAMBIÉN hay Excel cargado, porque si no hay Excel se ve el
+    # "Inspector vacío" común a los 2 tabs).
+    assert (
+        '!softwareImplemented' in text
+        and (
+            'v-if="!softwareImplemented"' in text
+            or 'v-if="hasMemory && !softwareImplemented"' in text
+        )
+    ), "Falta el v-if de !softwareImplemented (con o sin && hasMemory) que muestra el banner"
 
 
 def test_definicion_programacion_tiene_4_secciones_software() -> None:
