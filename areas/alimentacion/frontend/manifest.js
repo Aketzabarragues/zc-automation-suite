@@ -28,7 +28,7 @@
  *       // tabs principales, ver DefinicionProgramacion.js):
  *       "MainTabs":               () => import("./components/MainTabs.js"),
  *       "DispositivosPanel":      () => import("./components/DispositivosPanel.js"),
- *       "SoftwarePanel":          () => import("./components/SoftwarePanel.js"),
+ *       "ProcesosPanel":          () => import("./components/ProcesosPanel.js"),
  *     },
  *   }
  *
@@ -53,10 +53,10 @@ const _comps = {
     // (tabs principales Dispositivos | Software). Se registran
     // como componentes globales para que ``DefinicionProgramacion``
     // los monte en su template (``<main-tabs>``, ``<dispositivos-panel>``,
-    // ``<software-panel>``).
+    // ``<procesos-panel>``).
     "MainTabs":                () => import("./components/MainTabs.js"),
     "DispositivosPanel":       () => import("./components/DispositivosPanel.js"),
-    "SoftwarePanel":           () => import("./components/SoftwarePanel.js"),
+    "ProcesosPanel":           () => import("./components/ProcesosPanel.js"),
 };
 
 export function build() {

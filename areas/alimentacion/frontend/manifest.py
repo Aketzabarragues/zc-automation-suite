@@ -16,10 +16,10 @@ El dict ``loaders`` registra TANTO las sub-vistas del sidebar
 (``AlimentacionSidebar``, ``AreaLanding``, ``DefinicionProgramacion``,
 ``Dispositivos``, ``BloquesCacheView``) como los **sub-componentes
 internos** que una sub-vista compone (``MainTabs``,
-``DispositivosPanel``, ``SoftwarePanel``). Sin estos últimos, la
+``DispositivosPanel``, ``ProcesosPanel``). Sin estos últimos, la
 SPA falla en runtime con ``Failed to resolve component`` en
 cuanto el operario navega a "Definición programación", porque el
-``<main-tabs>`` / ``<dispositivos-panel>`` / ``<software-panel>``
+``<main-tabs>`` / ``<dispositivos-panel>`` / ``<procesos-panel>``
 del template no se ha registrado con ``app.component(...)``.
 
 Si en el futuro se añade un área nueva:
@@ -83,18 +83,18 @@ def build() -> "AreaFrontendManifest":
       3. Si es una sub-vista nueva (entrada en el Sidebar), añadir
          su key al dict ``_views``. Si es un sub-componente interno
          de una sub-vista (como ``MainTabs``/``DispositivosPanel``/
-         ``SoftwarePanel`` dentro de ``DefinicionProgramacion``),
+         ``ProcesosPanel`` dentro de ``DefinicionProgramacion``),
          **NO** se añade a ``_views``; basta con registrar el
          loader.
 
     Sub-componentes internos actuales (registrados en ``loaders``
     pero NO en ``views``):
       - ``MainTabs``:           strip de los 2 tabs principales
-                                (Dispositivos | Software) de
+                                (Dispositivos | Procesos) de
                                 ``DefinicionProgramacion``.
       - ``DispositivosPanel``:  panel de la pestaña "Dispositivos"
                                 (sub-tabs ED|EA|SA|V|M|MVF + tabla).
-      - ``SoftwarePanel``:      panel de la pestaña "Software"
+      - ``ProcesosPanel``:      panel de la pestaña "Procesos"
                                 (sub-tabs Procesos|PInt|PReal|Alarmas
                                 + 4 tablas).
     """
@@ -126,7 +126,7 @@ def build() -> "AreaFrontendManifest":
             # Sidebar: solo ``DefinicionProgramacion`` los usa.
             "MainTabs":               f"{_STATIC_PREFIX}/components/MainTabs.js",
             "DispositivosPanel":      f"{_STATIC_PREFIX}/components/DispositivosPanel.js",
-            "SoftwarePanel":          f"{_STATIC_PREFIX}/components/SoftwarePanel.js",
+            "ProcesosPanel":          f"{_STATIC_PREFIX}/components/ProcesosPanel.js",
         },
     }
     return _manifest

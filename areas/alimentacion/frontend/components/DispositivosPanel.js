@@ -13,7 +13,7 @@
  *   3. La tabla reactiva con todas las columnas del dataclass
  *      activo (``modelColumns[activeSubTab]``), dentro de un
  *      contenedor ``bg-surface-raised border border-line rounded``
- *      para coherencia visual con ``SoftwarePanel.js``.
+ *      para coherencia visual con ``ProcesosPanel.js``.
  *
  * Replica 1:1 el bloque que antes vivía en ``DefinicionProgramacion.js``
  * (líneas 96-103, 229-268). La refactorización es solo estructural:
@@ -203,7 +203,7 @@ export default {
             </div>
 
             <!-- Tabla reactiva: dump de TODAS las columnas del dataclass activo.
-                 Contenedor estandarizado con SoftwarePanel: bg-surface-raised
+                 Contenedor estandarizado con ProcesosPanel: bg-surface-raised
                  + border + rounded para coherencia visual entre ambos tabs. -->
             <div class="flex-1 overflow-auto table-scroll-x mt-2 bg-surface-raised border border-line rounded">
                 <table v-if="hasMemory" class="w-full text-xs">

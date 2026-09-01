@@ -1,8 +1,8 @@
 /**
- * Componente SoftwarePanel.
+ * Componente ProcesosPanel.
  *
- * Panel que se muestra cuando ``store.activeMainTab === 'software'``.
- * Contiene los 4 dominios de software del proyecto (Fase 6) en
+ * Panel que se muestra cuando ``store.activeMainTab === 'procesos'``.
+ * Contiene los 4 dominios del Excel corporativo (Fase 6) en
  * sub-tabs, con la misma estética que ``DispositivosPanel``:
  *
  *   - Procesos             → ``store.memoryState.procesos``
@@ -37,7 +37,7 @@ import { computed, ref } from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod
 import { store } from "/js/store.js";
 
 export default {
-    name: "SoftwarePanel",
+    name: "ProcesosPanel",
     setup() {
         // 4 dominios de software. Defensivos: si el operario aún
         // no ha subido Excel o el backend aún no expone los 4

@@ -9,9 +9,9 @@
  * Estructura del template (de arriba abajo):
  *   1. Carga excel (input + resumen).
  *   2. Cabecera con título y botón "Refrescar Memoria".
- *   3. ``<main-tabs>`` (Dispositivos | Software) con badges de
+ *   3. ``<main-tabs>`` (Dispositivos | Procesos) con badges de
  *      conteo. Componente reutilizable, vive en MainTabs.js.
- *   4. Panel activo: ``<dispositivos-panel>`` o ``<software-panel>``
+ *   4. Panel activo: ``<dispositivos-panel>`` o ``<procesos-panel>``
  *      según ``store.activeMainTab``.
  *
  * Las N_MAX cards (dimensiones) vivían aquí como info transversal,
@@ -22,7 +22,7 @@
  * La lógica de sub-tabs y tablas vive en:
  *   - ``DispositivosPanel.js`` (sub-tabs ED|EA|SA|V|M|MVF + N_MAX cards
  *     + tabla reactiva del dataclass activo).
- *   - ``SoftwarePanel.js`` (sub-tabs Procesos|PInt|PReal|Alarmas
+ *   - ``ProcesosPanel.js`` (sub-tabs Procesos|PInt|PReal|Alarmas
  *     + 4 tablas; reemplaza los ``<details>`` plegables).
  *
  * @event refresh  El componente padre debe llamar a la API que
@@ -62,7 +62,7 @@ export default {
             );
         });
 
-        const softwareCount = computed(() => {
+        const procesosCount = computed(() => {
             const ms = store.memoryState;
             if (!ms) return 0;
             const n = (Array.isArray(ms.procesos) ? ms.procesos.length : 0)
@@ -86,10 +86,10 @@ export default {
                 badge: dispositivosCount.value,
             },
             {
-                key: "software",
-                label: "Software",
+                key: "procesos",
+                label: "Procesos",
                 icon: "⚙️",
-                badge: softwareCount.value,
+                badge: procesosCount.value,
             },
         ]);
 
@@ -166,7 +166,7 @@ export default {
             <!-- ★ Panel activo según store.activeMainTab ★ -->
             <div class="flex-1 mt-2 flex flex-col overflow-hidden">
                 <dispositivos-panel v-if="store.activeMainTab === 'dispositivos'" />
-                <software-panel v-else />
+                <procesos-panel v-else />
             </div>
 
         </section>

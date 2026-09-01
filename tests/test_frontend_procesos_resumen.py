@@ -1,4 +1,4 @@
-"""Smoke test del wiring SPA ↔ secciones de software (Fase 6).
+"""Smoke test del wiring SPA ↔ secciones de Procesos (Fase 6).
 
 La SPA es Vue 3 ESM sin build step y sin infra de tests JS
 (Jest/Vitest no están en el repo). En lugar de importar los
@@ -6,7 +6,8 @@ La SPA es Vue 3 ESM sin build step y sin infra de tests JS
 este test verifica la **forma textual** del wiring: que los
 símbolos públicos esperados aparezcan en los archivos correctos
 (``store.js`` documenta el shape nuevo,
-``DefinicionProgramacion.js`` renderiza 4 secciones + banner ámbar,
+``DefinicionProgramacion.js`` renderiza el tab Procesos,
+``ProcesosPanel.js`` declara las 4 secciones,
 ``diagnostics.py`` expone el response con los 4 campos nuevos).
 
 Es un contract check barato. Si en el futuro se añade infra JS,
@@ -66,13 +67,13 @@ DEFINICION_PROGRAMACION_JS = (
 # sub-componente para dar simetría visual con ``DispositivosPanel``.
 # Los contract checks textuales que verifican banner + 4 secciones
 # apuntan aquí, no a ``DefinicionProgramacion.js``.
-SOFTWARE_PANEL_JS = (
+PROCESOS_PANEL_JS = (
     REPO_ROOT
     / "areas"
     / "alimentacion"
     / "frontend"
     / "components"
-    / "SoftwarePanel.js"
+    / "ProcesosPanel.js"
 )
 DIAGNOSTICS_PY = (
     REPO_ROOT
@@ -317,7 +318,7 @@ def test_banner_amber_eliminado_para_simetria_con_dispositivos() -> None:
     Contract check textual: verifica que el banner NO está en el
     archivo (clases ámbar, computed softwareImplemented, copy).
     """
-    text = _read(SOFTWARE_PANEL_JS)
+    text = _read(PROCESOS_PANEL_JS)
     # Las clases del banner ámbar ya no deben estar.
     assert "bg-amber-100" not in text, (
         "El banner ámbar (bg-amber-100) debería estar eliminado"
@@ -341,7 +342,7 @@ def test_definicion_programacion_tiene_4_secciones_software() -> None:
     (Procesos / PInt / PReal / Alarmas), una por dominio.
 
     Tras el rediseño Opción A, las 4 secciones ya NO son
-    ``<details>`` plegables: el sub-componente ``SoftwarePanel``
+    ``<details>`` plegables: el sub-componente ``ProcesosPanel``
     las renderiza como **4 ``<table>`` con ``v-if``** (uno por
     sub-tab, mutuamente excluyentes con ``v-else-if``) más 4
     ``<tr>`` de "fila vacía" (``v-if="<dominio>.length === 0"``).
@@ -354,7 +355,7 @@ def test_definicion_programacion_tiene_4_secciones_software() -> None:
     listas, cards, etc.) basta con adaptar las aserciones
     mecánicas; el espíritu "4 secciones, una por DTO" se mantiene.
     """
-    text = _read(SOFTWARE_PANEL_JS)
+    text = _read(PROCESOS_PANEL_JS)
     # 4 ``<table>`` (uno por dominio), cada uno con la clase firma
     # ``class="w-full text-xs"``. El test cuenta aperturas que
     # contengan esa clase exacta; los ``v-else-if`` también abren

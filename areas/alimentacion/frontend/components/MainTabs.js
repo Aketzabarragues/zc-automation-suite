@@ -5,8 +5,8 @@
  * "Definición programación":
  *   - ``dispositivos`` → sub-tabs ED|EA|SA|V|M|MVF + tabla
  *     (renderizadas por ``DispositivosPanel``).
- *   - ``software``     → sub-tabs Procesos|PInt|PReal|Alarmas +
- *     4 tablas (renderizadas por ``SoftwarePanel``).
+ *   - ``procesos``     → sub-tabs Procesos|PInt|PReal|Alarmas +
+ *     4 tablas (renderizadas por ``ProcesosPanel``).
  *
  * La selección activa se guarda en ``store.activeMainTab`` (campo
  * global, mutable desde aquí). El componente raíz ``DefinicionProgramacion``
@@ -57,7 +57,7 @@ export default {
          * Cambia el tab principal vía ``goToMainTab`` (mismo
          * patrón que ``goToSubview`` para ``store.currentView``):
          * helper centraliza la mutación y valida que la key sea
-         * ``'dispositivos'`` o ``'software'``. No hay @emit porque
+         * ``'dispositivos'`` o ``'procesos'``. No hay @emit porque
          * ``DefinicionProgramacion`` lee ``store.activeMainTab``
          * reactivamente.
          */

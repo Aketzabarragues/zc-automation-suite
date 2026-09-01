@@ -111,13 +111,13 @@ export const store = reactive({
 
     /**
      * Tab PRINCIPAL activo en la vista "Definición programación".
-     * Decide si se muestra ``<DispositivosPanel>`` o ``<SoftwarePanel>``.
+     * Decide si se muestra ``<DispositivosPanel>`` o ``<ProcesosPanel>``.
      *
      * Valores:
      *   ``'dispositivos'`` → tabla de dispositivos (sub-tabs
      *                         ED|EA|SA|V|M|MVF). Default.
-     *   ``'software'``     → dump de Procesos / PInt / PReal / Alarmas
-     *                         (sub-tabs software).
+     *   ``'procesos'``     → dump de Procesos / PInt / PReal / Alarmas
+     *                         (sub-tabs del ProcesosPanel).
      *
      * Lo muta ``MainTabs`` al hacer click en uno de los dos botones
      * del strip. Centralizado aquí para que ``DefinicionProgramacion``
@@ -330,7 +330,7 @@ export function goToSubview(key) {
  * correspondiente.
  */
 export function goToMainTab(key) {
-    if (key !== "dispositivos" && key !== "software") return;
+    if (key !== "dispositivos" && key !== "procesos") return;
     store.activeMainTab = key;
 }
 
