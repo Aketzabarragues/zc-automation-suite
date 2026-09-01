@@ -215,6 +215,24 @@ class ConfigManager:
         self._department = first
         return departments[first]
 
+    def get_departments_config(self) -> dict[str, dict[str, Any]]:
+        """Devuelve el bloque ``departments`` completo del config.
+
+        Counterpart público de ``_resolve_department`` (que solo
+        devuelve la sub-config del departamento activo). Usado por
+        ``ListAreasUseCase`` para iterar TODOS los departamentos
+        declarados, no solo el activo.
+
+        Returns:
+            Dict ``{dept_id: dept_subconfig}`` con todos los
+            departamentos. Vacío si el config no tiene bloque
+            ``departments``. Nunca retorna ``None``.
+        """
+        departments = self._full_config.get("departments", {})
+        if not isinstance(departments, dict):
+            return {}
+        return departments
+
     def _index_nmax_catalog(self) -> dict[str, dict[str, str]]:
         """Indexa ``n_max_catalog`` por ``name``.
 

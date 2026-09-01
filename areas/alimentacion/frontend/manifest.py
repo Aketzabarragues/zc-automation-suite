@@ -41,10 +41,11 @@ from __future__ import annotations
 _STATIC_PREFIX = "/static/areas/alimentacion/frontend"
 
 
-def build() -> dict:
+def build() -> "AreaFrontendManifest":
     """Devuelve el manifest del área "alimentacion" serializable.
 
-    Shape:
+    Shape (ver ``AreaFrontendManifest`` en
+    ``core/application/area_registry.py`` para el TypedDict):
         {
             "id":     "alimentacion",
             "label":  "Alimentación",
@@ -71,7 +72,9 @@ def build() -> dict:
          de ``manifest.js`` (espejo JS).
       3. Si es una sub-vista nueva, añadir su key al dict ``_views``.
     """
-    return {
+    from core.application.area_registry import AreaFrontendManifest
+
+    _manifest: AreaFrontendManifest = {
         "id": "alimentacion",
         "label": "Alimentación",
         "icon": "🍞",
@@ -93,6 +96,7 @@ def build() -> dict:
             "BloquesCacheView":       f"{_STATIC_PREFIX}/components/BloquesCacheView.js",
         },
     }
+    return _manifest
 
 
 __all__ = ["build"]

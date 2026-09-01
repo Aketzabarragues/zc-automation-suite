@@ -23,12 +23,52 @@ import logging
 import pkgutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, TypedDict
 
 if TYPE_CHECKING:
     from core.infrastructure.config_manager import ConfigManager
 
 _logger = logging.getLogger(f"{__name__}.AreaRegistry")
+
+
+# ── Shape del manifest de frontend (contrato cross-language) ────────────
+# Las áreas exponen su UI a la SPA via un dict JSON. El shell SPA
+# (``core/interfaces/web_server/static/js/area-loader.js``) consume
+# este dict por nombre de campo. TypedDict documenta el contrato
+# para los autores Python de áreas nuevas; en runtime sigue siendo
+# un ``dict`` estándar, así que la interop con JS no cambia.
+
+
+class AreaFrontendComponents(TypedDict, total=False):
+    """Composición de componentes Vue 3 del área.
+
+    Attributes:
+        sidebar: Nombre del componente del sidebar (entry-point del área).
+        landing: Nombre del componente de bienvenida.
+        views:   Dict ``{route_key: component_name}`` para sub-vistas
+                 del área. La SPA enrutará cada key a su componente.
+    """
+
+    sidebar: str
+    landing: str
+    views: dict[str, str]
+
+
+class AreaFrontendManifest(TypedDict, total=False):
+    """Manifest que un ``contributes_frontend_manifest`` debe devolver.
+
+    Serializado a JSON por el endpoint del backend y consumido por la
+    SPA. Todas las claves son opcionales (``total=False``) para no
+    romper áreas que aún no aportan sidebar o views, pero la SPA
+    asumirá que ``id``, ``label``, ``icon`` y ``loaders`` existen
+    para renderizar el área.
+    """
+
+    id: str
+    label: str
+    icon: str
+    components: AreaFrontendComponents
+    loaders: dict[str, str]
 
 
 # ── AreaSpec: contrato de área ─────────────────────────────────────────
@@ -58,7 +98,8 @@ class AreaSpec:
             Firma: ``(mcp: FastMCP) -> None``. Registra ``@mcp.tool()``
             para tools específicas del área.
         contributes_frontend_manifest:
-            Firma: ``() -> dict``. Devuelve el manifest del área para la SPA.
+            Firma: ``() -> AreaFrontendManifest``. Devuelve el manifest
+            del área para la SPA (ver shape en ``AreaFrontendManifest``).
         contributes_state_extensions:
             Firma: ``(app_state: AppState) -> None``. Patchea properties
             de back-compat sobre la clase `AppState`.
@@ -78,7 +119,7 @@ class AreaSpec:
     contributes_routers: Callable[[Any], None] | None = None
     contributes_tia_commands: Callable[[dict], None] | None = None
     contributes_mcp_tools: Callable[[Any], None] | None = None
-    contributes_frontend_manifest: Callable[[], dict] | None = None
+    contributes_frontend_manifest: Callable[[], "AreaFrontendManifest"] | None = None
     contributes_state_extensions: Callable[[Any], None] | None = None
     contributes_config_defaults: Callable[[dict], None] | None = None
     contributes_catalog: Callable[[Any], dict] | None = None
@@ -272,15 +313,18 @@ class ListAreasUseCase:
             - NO lanza excepciones: ante cualquier inconsistencia del
               JSON, se loggea warning y se omite la entrada.
         """
-        full_config = self._config_manager._full_config  # noqa: SLF001 (uso interno documentado)
-        departments = full_config.get("departments")
-        if not isinstance(departments, dict) or not departments:
+        departments = self._config_manager.get_departments_config()
+        if not departments:
             _logger.info(
                 "No hay bloque 'departments' en config.json. "
                 "Se devuelve lista vacía de áreas."
             )
             return []
 
+        # Se consulta una sola vez por ejecución; el cache es caliente
+        # porque ``create_app()`` ya llamó a ``AreaRegistry.discover()``
+        # al construir el shell.
+        registry = AreaRegistry.discover()
         areas: list[AreaInfo] = []
         for key, dept_cfg in departments.items():
             if not isinstance(key, str) or not isinstance(dept_cfg, dict):
@@ -291,7 +335,12 @@ class ListAreasUseCase:
                 )
                 continue
 
-            # Defaults por clave + override opcional vía display en el JSON.
+            # Cadena de fallback para label/icon/description:
+            #   1. Override en el bloque ``display`` del config.json.
+            #   2. ``AreaSpec`` registrado para esta clave (label, icon).
+            #   3. ``_AREA_DEFAULTS[key]`` (description + legacy).
+            #   4. Fallback genérico (humanizado, 📁, "").
+            spec = registry.get(key)
             defaults = _AREA_DEFAULTS.get(key, {})
             display = dept_cfg.get("display") if isinstance(
                 dept_cfg.get("display"), dict
@@ -299,11 +348,13 @@ class ListAreasUseCase:
 
             label = (
                 display.get("label")
+                or (spec.label if spec is not None else None)
                 or defaults.get("label")
                 or f"Área {_humanize(key)}"
             )
             icon = (
                 display.get("icon")
+                or (spec.icon if spec is not None else None)
                 or defaults.get("icon")
                 or "📁"
             )

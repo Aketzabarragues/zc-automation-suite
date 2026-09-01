@@ -237,11 +237,22 @@ def main() -> int:
     log.info("Esperando que el operario elija Iniciar web desde el menu.")
 
     # Bloquear main thread con pystray.
+    # El hook ``on_before_exit`` se dispara desde el menú "Salir" ANTES
+    # de detener el icono, para que la bandeja y el web server se
+    # cierren en el orden correcto (web primero, icono después). Si
+    # ``run_tray`` levanta antes de que el operario clique Salir, el
+    # hook no se habrá llamado y el ``web.stop`` posterior actúa como
+    # red de seguridad.
     try:
         from launcher.tray_app import run_tray
 
         icon_path = _resolve_icon_path()
-        run_tray(web, icon_path, log)
+        run_tray(
+            web,
+            icon_path,
+            log,
+            on_before_exit=lambda: web.stop(timeout=5.0),
+        )
     except Exception as exc:  # noqa: BLE001
         log.error("El icono de bandeja falló: %s\n%s", exc, traceback.format_exc())
         log.info(

@@ -86,8 +86,21 @@ def run_tray(
     web: "WebServiceSupervisor",
     icon_path: Path | None,
     log: logging.Logger,
+    on_before_exit: Callable[[], None] | None = None,
 ) -> None:
-    """Ejecuta el icono de bandeja (bloqueante hasta 'Salir')."""
+    """Ejecuta el icono de bandeja (bloqueante hasta 'Salir').
+
+    Args:
+        web: Supervisor del web server FastAPI/uvicorn.
+        icon_path: Ruta al .ico (o ``None`` para usar placeholder).
+        log: Logger del launcher.
+        on_before_exit: Hook opcional invocado por ``on_exit`` ANTES de
+            detener el icono de bandeja. Pensado para que el composition
+            root (``main_tray.py``) cierre limpiamente sus recursos
+            (e.g. parar el web server) sin que el módulo de la bandeja
+            tenga que conocerlos. Si lanza, se loggea y se continúa
+            (no debe bloquear la salida del icono).
+    """
     from pystray import Icon, Menu, MenuItem
 
     icon_img = _load_icon_image(icon_path, log)
@@ -135,6 +148,16 @@ def run_tray(
 
     def on_exit(icon_obj, _item) -> None:
         log.info("Menu -> Salir solicitado por el operario.")
+        if on_before_exit is not None:
+            try:
+                on_before_exit()
+            except Exception as exc:  # noqa: BLE001
+                # El hook no debe bloquear la salida del icono.
+                # Loggeamos y continuamos con el stop del pystray.
+                log.error(
+                    "on_before_exit lanzo excepcion; continuando con stop: %s",
+                    exc,
+                )
         icon_obj.stop()
 
     def web_text() -> str:
