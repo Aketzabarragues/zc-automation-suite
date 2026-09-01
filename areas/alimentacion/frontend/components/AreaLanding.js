@@ -26,6 +26,11 @@ import { store } from "/js/store.js";
  * Sub-vistas disponibles en el área Alimentación. Si en el futuro
  * llega una segunda área con sub-vistas distintas, este componente
  * será específico de Alimentación o se parametrizará.
+ *
+ * Las 3 keys (``def``, ``disp``, ``cache``) coinciden con las
+ * declaradas en ``manifest.js`` (``views`` del área) y en
+ * ``store.areaManifest.components.views`` que el backend
+ * publica en ``GET /api/v1/areas/alimentacion/manifest``.
  */
 const SUBVIEW_OPTIONS = [
     {
@@ -39,6 +44,12 @@ const SUBVIEW_OPTIONS = [
         icon: "⚡",
         label: "Dispositivos",
         description: "Previsualiza y aplica cambios en TIA Portal.",
+    },
+    {
+        key: "cache",
+        icon: "🗃️",
+        label: "Cache de bloques",
+        description: "Volcado de bloques del PLC (DBs, FCs, UDTs) cacheado en memoria.",
     },
 ];
 
@@ -99,8 +110,8 @@ export default {
                 <p class="mt-1 text-sm text-ink-muted">¿Qué quieres hacer?</p>
             </div>
 
-            <!-- Grid de 2 tarjetas (una por sub-vista) -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full max-w-4xl"
+            <!-- Grid de 3 tarjetas (una por sub-vista) -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 w-full max-w-4xl"
                  data-testid="area-landing-grid">
                 <button v-for="opt in options" :key="opt.key"
                     @click="handleSelect(opt.key)"
