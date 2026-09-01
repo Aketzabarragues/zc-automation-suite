@@ -1,8 +1,8 @@
 """Tests del parser ``ProcesosParser``.
 
 Cubre la extracción de ``Tabla_Procesos`` (hoja ``CONFIGURACION``) y
-las properties derivadas del DTO ``ProcesoPLC``
-(``db_preal_numero``, ``db_alm_numero``, ``alm_hmi``).
+la fidelidad de los 8 campos del DTO ``ProcesoPLC`` con el Excel
+corporativo.
 
 Convenciones:
     * Excel sintético construido en ``tmp_path`` con ``Table`` real
@@ -173,37 +173,43 @@ def test_tabla_inexistente_devuelve_lista_vacia(tmp_path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("uid", "alarmas", "expected_db_preal", "expected_db_alm", "expected_alm_hmi"),
+    ("uid", "nombre", "codigo", "preal", "index_preal",
+     "pint", "index_pint", "alarmas"),
     [
-        # (uid, alarmas, db_preal, db_alm, alm_hmi)
-        # Fórmula legacy preservada: ``alm_hmi = max(0, alarmas // 16 - 1)``.
-        # Esto significa que el salto de la palabra 0 a la palabra 1
-        # ocurre a las 32 alarmas, NO a las 17. La fórmula no es
-        # ``(alarmas - 1) // 16`` sino ``alarmas // 16 - 1``: la
-        # palabra 0 cubre alarmas 1..32 (32 bits), la palabra 1 cubre
-        # 33..64, etc. El ``- 1`` ajusta el índice base-0.
-        (0, 0, 3000, 5000, 0),  # uid=0, sin alarmas
-        (1, 1, 3001, 5001, 0),  # 1 alarma → entra en palabra 0
-        (1, 16, 3001, 5001, 0),  # 16 alarmas → todavía palabra 0
-        (1, 17, 3001, 5001, 0),  # 17 alarmas → todavía palabra 0
-        (1, 31, 3001, 5001, 0),  # 31 alarmas → todavía palabra 0
-        (1, 32, 3001, 5001, 1),  # 32 alarmas → saltan a palabra 1
-        (1, 100, 3001, 5001, 5),  # 100 alarmas → palabra 5
+        # (uid, nombre, codigo, preal, index_preal, pint, index_pint, alarmas)
+        # Cubre casos borde: uid=0, sin alarmas, alarmas altas. La
+        # verificación es de fidelidad campo-a-campo contra el Excel
+        # sintético (no se derivan nombres de DB en el DTO).
+        (0, "Sin alarmas", "PR0", 0, 0, 0, 0, 0),    # uid=0, sin alarmas
+        (1, "Una alarma",  "PR1", 5, 0, 2, 0, 1),    # caso típico
+        (1, "Borde 16",    "PR2", 5, 0, 2, 0, 16),   # 16 alarmas
+        (1, "Borde 17",    "PR3", 5, 0, 2, 0, 17),   # 17 alarmas
+        (1, "Borde 32",    "PR4", 5, 0, 2, 0, 32),   # 32 alarmas
+        (1, "Cien alarm",  "PR5", 5, 0, 2, 0, 100),  # alarmas grandes
     ],
 )
-def test_properties_derived(
+def test_proceso_plc_8_campos_del_excel(
     tmp_path,
     uid: int,
+    nombre: str,
+    codigo: str,
+    preal: int,
+    index_preal: int,
+    pint: int,
+    index_pint: int,
     alarmas: int,
-    expected_db_preal: int,
-    expected_db_alm: int,
-    expected_alm_hmi: int,
 ) -> None:
-    """Verifica las properties derivadas con casos borde de ``alarmas``."""
+    """El DTO ``ProcesoPLC`` expone los 8 campos del Excel sin propiedades derivadas.
+
+    Garantiza fidelidad campo-a-campo entre la fila de la tabla
+    ``Tabla_Procesos`` y el DTO. Los nombres de DB y otros valores
+    derivados NO viven en el DTO: se computan en el consumidor
+    (frontend o backend futuro).
+    """
     xlsx_path = _save_xlsx_with_procesos_table(
         tmp_path,
         rows=[
-            [uid, "P", "PR", 0, 0, 0, 0, alarmas],
+            [uid, nombre, codigo, preal, index_preal, pint, index_pint, alarmas],
         ],
     )
     wb = _load(xlsx_path)
@@ -212,16 +218,15 @@ def test_properties_derived(
     assert len(result) == 1
     p = result[0]
 
-    assert p.db_preal_numero == expected_db_preal
-    assert p.db_alm_numero == expected_db_alm
-    assert p.alm_hmi == expected_alm_hmi
-
-    # Sanity de los nombres de DB: deben construirse a partir de codigo.
-    assert p.db_preal_nombre == f"DB{expected_db_preal}_PR_PREAL"
-    assert p.db_alm_nombre == f"DB{expected_db_alm}_PR_ALM"
-    # db_pint_numero: 3000 + uid + 1
-    assert p.db_pint_numero == 3000 + uid + 1
-    assert p.db_pint_nombre == f"DB{3000 + uid + 1}_PR_PINT"
+    # 8 campos del Excel, leídos en el mismo orden que la tabla.
+    assert p.uid == uid
+    assert p.nombre == nombre
+    assert p.codigo == codigo
+    assert p.preal == preal
+    assert p.index_preal == index_preal
+    assert p.pint == pint
+    assert p.index_pint == index_pint
+    assert p.alarmas == alarmas
 
 
 def test_fila_sin_uid_se_descarta(tmp_path) -> None:

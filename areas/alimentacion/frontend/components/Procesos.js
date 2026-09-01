@@ -13,10 +13,14 @@
  *      ``store.memoryState.procesos`` está vacío.
  *   3. Selector de proceso (``<select>`` con
  *      ``store.memoryState.procesos``). Cada item muestra
- *      ``codigo`` y ``nombre``. Sub-caption con UID y los 3 nombres
- *      simbólicos de DB (``db_preal_nombre``, ``db_pint_nombre``,
- *      ``db_alm_nombre``) — properties derivadas del DTO
- *      ``ProcesoPLC`` (``areas/alimentacion/domain/models/excel_cache.py``).
+ *      ``codigo`` y ``nombre``. Sub-caption con UID y los 2 nombres
+ *      simbólicos de DB del proceso: el DB de parámetros (PARAM,
+ *      ``DB{3000+uid}_{codigo}_PARAM``) y el DB de alarmas (ALM,
+ *      ``DB{5000+uid}_{codigo}_ALM``). Los nombres de DB se computan
+ *      en línea en el template a partir de ``uid`` y ``codigo`` —
+ *      el DTO ``ProcesoPLC`` expone los 8 campos crudos del Excel y
+ *      ya no trae properties derivadas
+ *      (``areas/alimentacion/domain/models/excel_cache.py``).
  *   4. 2 cards placeholder ("Crear proceso completo" /
  *      "Actualizar comentarios de DB") deshabilitadas hasta que el
  *      operario seleccione un proceso. ``@click`` que hace

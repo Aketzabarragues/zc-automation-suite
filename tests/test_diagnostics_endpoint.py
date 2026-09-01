@@ -158,7 +158,7 @@ def test_state_dispositivos_devuelve_software_despues_de_upload(
     )
     parametros_int = (
         ParamIntPLC(uid="PI_1_001", numero="001", proceso="Proceso 1",
-                    codigo="PR1", num_db=3001, producto="prod",
+                    codigo="PR1", num_db=3000, producto="prod",
                     tipo="tipo", descripcion="desc PI",
                     comentario_db="", visibilidad="Si",
                     num_lista=0, txt_lista=""),
@@ -202,7 +202,7 @@ def test_state_dispositivos_devuelve_software_despues_de_upload(
     # Parametros Int.
     assert len(body["parametros_int"]) == 1
     assert body["parametros_int"][0]["uid"] == "PI_1_001"
-    assert body["parametros_int"][0]["num_db"] == 3001
+    assert body["parametros_int"][0]["num_db"] == 3000
     assert body["parametros_int"][0]["descripcion"] == "desc PI"
 
     # Parametros Real.

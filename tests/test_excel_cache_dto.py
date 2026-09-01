@@ -369,29 +369,6 @@ def test_software_dtos_coexist_in_excel_cache() -> None:
                      num_lista=0, txt_lista="T")
     al = AlarmaPLC(uid="AL_1_001", numero="001", proceso="P1",
                    num_db=5001, descripcion="d", comentario_db="c")
-    # Propiedades siguen funcionando en ``ProcesoPLC``.
-    assert p.db_preal_numero == 3001
-    assert p.db_alm_numero == 5001
-    assert p.alm_hmi == 0  # sin alarmas
     # ``num_lista`` acepta ``int|str``.
     assert pr.num_lista == 1
     assert pi.num_lista == 0
-
-
-def test_proceso_plc_alm_hmi_cases() -> None:
-    """``ProcesoPLC.alm_hmi`` cubre los casos borde según la fórmula.
-
-    Fórmula: ``max(0, alarmas // 16 - 1)``.
-        * ``alarmas = 0``  → ``max(0, -1) = 0`` (sin alarmas).
-        * ``alarmas = 1``  → ``max(0, -1) = 0`` (palabra 0).
-        * ``alarmas = 16`` → ``max(0, 0) = 0`` (palabra 0).
-        * ``alarmas = 17`` → ``max(0, 0) = 0`` (palabra 0).
-        * ``alarmas = 32`` → ``max(0, 1) = 1`` (palabra 1).
-        * ``alarmas = 100`` → ``max(0, 5) = 5`` (palabra 5).
-    """
-    assert ProcesoPLC(uid=1, nombre="P", codigo="C", alarmas=0).alm_hmi == 0
-    assert ProcesoPLC(uid=1, nombre="P", codigo="C", alarmas=1).alm_hmi == 0
-    assert ProcesoPLC(uid=1, nombre="P", codigo="C", alarmas=16).alm_hmi == 0
-    assert ProcesoPLC(uid=1, nombre="P", codigo="C", alarmas=17).alm_hmi == 0
-    assert ProcesoPLC(uid=1, nombre="P", codigo="C", alarmas=32).alm_hmi == 1
-    assert ProcesoPLC(uid=1, nombre="P", codigo="C", alarmas=100).alm_hmi == 5

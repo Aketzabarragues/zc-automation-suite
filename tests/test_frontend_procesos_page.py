@@ -326,12 +326,22 @@ def test_db_names_computed_from_uid_not_from_dto_properties() -> None:
     leyendo las properties ``db_preal_nombre`` / ``db_pint_nombre``
     / ``db_alm_nombre``.
 
-    Razón técnica: esas properties son ``@property`` Python del
-    DTO. El backend serializa con ``dataclasses.asdict`` (o
-    equivalente), que solo emite los campos declarados, NO las
-    properties. El JSON que recibe la SPA trae ``uid`` y
-    ``codigo`` pero NO ``db_preal_nombre``. Si el template las
-    usa, los huecos aparecen vacíos ("UID 1100 · DBs: , ").
+    Estado actual (Fase 2/3 del plan de limpieza de DTOs): las
+    properties ``db_preal_nombre``, ``db_pint_nombre`` y
+    ``db_alm_nombre`` **ya no existen** en el DTO ``ProcesoPLC``
+    (fueron eliminadas el 2026-09-01). Por lo tanto, las
+    aserciones negativas de este test (``"db_preal_nombre" not in
+    template_body``) son ahora **tautológicas**: ningún template
+    puede referenciar un nombre que ya no existe en el código.
+
+    Este test se conserva como **salvaguarda contra
+    reintroducción accidental**: si alguien añade de nuevo una
+    property con alguno de esos nombres en el DTO y luego la usa
+    en el template, este test lo detectará. El comportamiento
+    esperado del template no cambia: sigue computando los nombres
+    de DB con ``3000 + selectedProc.uid`` y ``5000 +
+    selectedProc.uid`` y componiendo el nombre simbólico con
+    ``selectedProc.codigo``.
 
     Convención (verificada en
     ``areas/alimentacion/domain/models/excel_cache.py``):
@@ -377,20 +387,24 @@ def test_db_names_computed_from_uid_not_from_dto_properties() -> None:
         "Falta el uso de selectedProc.codigo para componer "
         "el nombre simbólico del DB"
     )
-    # NEGATIVO: el template NO debe leer las properties del DTO
-    # (que no sobreviven al roundtrip JSON).
+    # NEGATIVO (salvaguarda contra reintroducción): el template
+    # NO debe leer las properties ``db_*_nombre`` del DTO. Tras
+    # la Fase 2/3 ya no existen en el DTO, así que esta
+    # aserción es tautológica; se conserva como detector de
+    # regresión si alguien las reintroduce y las usa en el
+    # template.
     assert "db_preal_nombre" not in template_body, (
-        "El template lee db_preal_nombre (property @property "
-        "del DTO) que no sobrevive al roundtrip JSON. Usar el "
-        "cálculo en línea con 3000 + uid."
+        "El template lee db_preal_nombre (property eliminada "
+        "del DTO en Fase 2/3). Usar el cálculo en línea con "
+        "3000 + uid."
     )
     assert "db_pint_nombre" not in template_body, (
-        "El template lee db_pint_nombre (property @property "
-        "del DTO) que no sobrevive al roundtrip JSON."
+        "El template lee db_pint_nombre (property eliminada "
+        "del DTO en Fase 2/3)."
     )
     assert "db_alm_nombre" not in template_body, (
-        "El template lee db_alm_nombre (property @property "
-        "del DTO) que no sobrevive al roundtrip JSON."
+        "El template lee db_alm_nombre (property eliminada "
+        "del DTO en Fase 2/3)."
     )
 
 

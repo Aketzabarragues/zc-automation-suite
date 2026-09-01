@@ -500,11 +500,7 @@ class ProcesoPLC:
 
     Un **proceso** es la unidad organizativa del Excel: agrupa un
     conjunto de parámetros reales, parámetros enteros y alarmas que
-    se generan juntos en el PLC. Cada proceso tiene 3 DBs asociados:
-
-        * ``DB{db_preal_numero}_{codigo}_PREAL`` — parámetros reales.
-        * ``DB{db_pint_numero}_{codigo}_PINT``  — parámetros enteros.
-        * ``DB{db_alm_numero}_{codigo}_ALM``    — alarmas.
+    se generan juntos en el PLC.
 
     Campos (todos enteros/str con defaults tolerantes a celdas
     vacías del Excel):
@@ -514,20 +510,12 @@ class ProcesoPLC:
         * ``preal`` / ``index_preal``: nº de parámetros reales y su
           offset dentro del DB PREAL.
         * ``pint`` / ``index_pint``: análogo para parámetros enteros.
-        * ``alarmas``: nº de alarmas del proceso. Se usa para
-          calcular ``alm_hmi`` (nº de palabra HMI necesaria para
-          mostrarlas en el panel).
+        * ``alarmas``: nº de alarmas del proceso.
 
-    Properties (derivadas, no almacenadas — coherentes con el legacy
-    TUI ``_legacy_reference/ZC_ALM_TOOLS/core/models/software.py``):
-        * ``db_preal_numero``: ``3000 + uid``.
-        * ``db_pint_numero``:  ``3000 + uid + 1``.
-        * ``db_alm_numero``:   ``5000 + uid``.
-        * ``db_preal_nombre`` / ``db_pint_nombre`` / ``db_alm_nombre``:
-          strings ``"DB{numero}_{codigo}_SUFIJO"``.
-        * ``alm_hmi``: ``max(0, alarmas // 16 - 1)``. Nº de palabra
-          HMI de 16 bits en la que se muestra el bit-array de
-          alarmas del proceso (0 si no hay alarmas).
+    Este DTO contiene exclusivamente los 8 campos del Excel
+    corporativo. Los nombres de DB y otros valores derivados se
+    computan en el consumidor (frontend para mostrar, backend futuro
+    para generar XML).
 
     Esta dataclass forma parte del cache del Excel (ver Fase 5 del
     plan) y es consumida por los flujos de generación de procesos
@@ -542,60 +530,6 @@ class ProcesoPLC:
     pint: int = 0
     index_pint: int = 0
     alarmas: int = 0
-
-    # ── Properties: nº de DB ──────────────────────────────────────────
-    @property
-    def db_preal_numero(self) -> int:
-        """Número del DB de parámetros reales: ``3000 + uid``."""
-        return 3000 + self.uid
-
-    @property
-    def db_pint_numero(self) -> int:
-        """Número del DB de parámetros enteros: ``3000 + uid + 1``.
-
-        Se conserva aunque el plan no lo destaque explícitamente
-        porque el legacy ya lo usaba (ver ``db_pint_numero`` en
-        ``_legacy_reference/ZC_ALM_TOOLS/core/models/software.py``).
-        """
-        return 3000 + self.uid + 1
-
-    @property
-    def db_alm_numero(self) -> int:
-        """Número del DB de alarmas: ``5000 + uid``."""
-        return 5000 + self.uid
-
-    # ── Properties: nombre simbólico del DB ───────────────────────────
-    @property
-    def db_preal_nombre(self) -> str:
-        """Nombre simbólico del DB de parámetros reales."""
-        return f"DB{self.db_preal_numero}_{self.codigo}_PREAL"
-
-    @property
-    def db_pint_nombre(self) -> str:
-        """Nombre simbólico del DB de parámetros enteros."""
-        return f"DB{self.db_pint_numero}_{self.codigo}_PINT"
-
-    @property
-    def db_alm_nombre(self) -> str:
-        """Nombre simbólico del DB de alarmas."""
-        return f"DB{self.db_alm_numero}_{self.codigo}_ALM"
-
-    # ── Properties: nº de palabra HMI para alarmas ────────────────────
-    @property
-    def alm_hmi(self) -> int:
-        """Índice de la palabra HMI de 16 bits donde se mapean las alarmas.
-
-        Regla legacy (preservada): ``max(0, alarmas // 16 - 1)``.
-
-        Casos borde:
-            * ``alarmas = 0``  → ``0`` (sin alarmas, sin palabra HMI).
-            * ``alarmas = 1``  → ``0`` (entra en la palabra 0).
-            * ``alarmas = 16`` → ``0`` (siguen entrando en la palabra 0).
-            * ``alarmas = 17`` → ``1`` (saltan a la palabra 1).
-            * ``alarmas = 32`` → ``1``.
-            * ``alarmas = 100`` → ``5``.
-        """
-        return max(0, (self.alarmas // 16) - 1)
 
 
 # ── Fase 2: Parámetros Reales ────────────────────────────────────────────
@@ -801,8 +735,10 @@ class AlarmaPLC:
           (referencia lógica a ``ProcesoPLC.nombre``).
         * ``num_db``: nº del DB de alarmas donde se mapea este bit
           (``int``). Provisto por el Excel; el parser lo lee con
-          ``_safe_int``. Coherente con
-          ``ProcesoPLC.db_alm_numero = 5000 + uid``.
+          ``_safe_int``. El DB de alarmas de un proceso se nombra
+          ``DB{num_db}_{proceso.codigo}_ALM`` donde ``num_db`` viene
+          del campo ``num_db`` de cada fila de la tabla ``Alarmas``
+          del Excel.
         * ``descripcion``: descripción legible de la alarma (visible
           en el HMI cuando se activa).
         * ``comentario_db``: comentario que se vuelca como
