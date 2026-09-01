@@ -63,6 +63,28 @@ export default {
         );
 
         /**
+         * ``true`` solo cuando hay Excel cargado Y al menos uno de los
+         * 4 dominios de software tiene datos. Es la condición para
+         * mostrar las tablas (en lugar del "Inspector vacío" idéntico
+         * al de ``DispositivosPanel``). Coherencia visual entre los
+         * 2 tabs: sin Excel → mismo cuadro vacío con emoji.
+         *
+         * NO confundir con ``softwareImplemented``: ese flag es del
+         * backend y vale ``false`` también cuando el Excel existe pero
+         * no tiene las 4 hojas de software (caso "Excel de solo
+         * dispositivos" o backend antiguo). En ese caso, este
+         * ``hasMemory`` vale ``true`` y se muestra el banner ámbar
+         * con la indicación de qué hojas faltan.
+         */
+        const hasMemory = computed(
+            () => !!(store.memoryState
+                     && (procesos.value.length > 0
+                         || parametrosInt.value.length > 0
+                         || parametrosReal.value.length > 0
+                         || alarmas.value.length > 0))
+        );
+
+        /**
          * Sub-tab activo. Una de
          * ``'procesos' | 'parametros_int' | 'parametros_real' | 'alarmas'``.
          * Default: ``'procesos'`` (suele ser la lista más corta y
@@ -76,51 +98,58 @@ export default {
             parametrosInt,
             parametrosReal,
             alarmas,
+            hasMemory,
             activeSoftwareTab,
         };
     },
     template: /* html */ `
         <div class="flex-1 flex flex-col overflow-hidden">
 
-            <!-- Banner ámbar: visible si el flag software_parsers_implemented
-                 es false (modo degradado: backend aún no expone los 4
-                 campos nuevos o Excel sin hojas de software). -->
-            <div v-if="!softwareImplemented"
-                 class="mb-3 bg-amber-100 border-l-4 border-amber-500 text-amber-900 p-3 rounded text-xs">
-                ⚠️ Datos de software pendientes. Sube un Excel con hojas
-                CONFIGURACION / P_REAL / P_INT / ALARMAS para verlos aquí.
-            </div>
+            <!-- Bloque principal: solo visible si hay Excel cargado
+                 con datos de software (hasMemory). Coherencia con
+                 DispositivosPanel: si NO hay Excel, se muestra el
+                 "Inspector vacío" idéntico al del otro tab. -->
+            <template v-if="hasMemory">
 
-            <!-- Sub-tabs de software (Procesos | PInt | PReal | Alarmas) -->
-            <div class="flex border-b border-line bg-surface-sunken overflow-x-auto">
-                <button @click="activeSoftwareTab = 'procesos'"
-                    :class="['tab-btn px-4 py-2 text-xs font-medium border-r border-line whitespace-nowrap',
-                             activeSoftwareTab === 'procesos' ? 'active' : 'bg-surface-raised text-ink-muted hover:bg-surface-sunken']">
-                    Procesos
-                    <span class="ml-1 text-[10px] opacity-70">({{ procesos.length }})</span>
-                </button>
-                <button @click="activeSoftwareTab = 'parametros_int'"
-                    :class="['tab-btn px-4 py-2 text-xs font-medium border-r border-line whitespace-nowrap',
-                             activeSoftwareTab === 'parametros_int' ? 'active' : 'bg-surface-raised text-ink-muted hover:bg-surface-sunken']">
-                    Parámetros Enteros
-                    <span class="ml-1 text-[10px] opacity-70">({{ parametrosInt.length }})</span>
-                </button>
-                <button @click="activeSoftwareTab = 'parametros_real'"
-                    :class="['tab-btn px-4 py-2 text-xs font-medium border-r border-line whitespace-nowrap',
-                             activeSoftwareTab === 'parametros_real' ? 'active' : 'bg-surface-raised text-ink-muted hover:bg-surface-sunken']">
-                    Parámetros Reales
-                    <span class="ml-1 text-[10px] opacity-70">({{ parametrosReal.length }})</span>
-                </button>
-                <button @click="activeSoftwareTab = 'alarmas'"
-                    :class="['tab-btn px-4 py-2 text-xs font-medium border-r border-line whitespace-nowrap',
-                             activeSoftwareTab === 'alarmas' ? 'active' : 'bg-surface-raised text-ink-muted hover:bg-surface-sunken']">
-                    Alarmas
-                    <span class="ml-1 text-[10px] opacity-70">({{ alarmas.length }})</span>
-                </button>
-            </div>
+                <!-- Banner ámbar: visible si el flag software_parsers_implemented
+                     es false (modo degradado: backend aún no expone los 4
+                     campos nuevos o Excel sin hojas de software). -->
+                <div v-if="!softwareImplemented"
+                     class="mb-3 bg-amber-100 border-l-4 border-amber-500 text-amber-900 p-3 rounded text-xs">
+                    ⚠️ Datos de software pendientes. Sube un Excel con hojas
+                    CONFIGURACION / P_REAL / P_INT / ALARMAS para verlos aquí.
+                </div>
 
-            <!-- Tabla del sub-tab activo -->
-            <div class="flex-1 overflow-auto table-scroll-x mt-2 bg-surface-raised border border-line rounded">
+                <!-- Sub-tabs de software (Procesos | PInt | PReal | Alarmas) -->
+                <div class="flex border-b border-line bg-surface-sunken overflow-x-auto">
+                    <button @click="activeSoftwareTab = 'procesos'"
+                        :class="['tab-btn px-4 py-2 text-xs font-medium border-r border-line whitespace-nowrap',
+                                 activeSoftwareTab === 'procesos' ? 'active' : 'bg-surface-raised text-ink-muted hover:bg-surface-sunken']">
+                        Procesos
+                        <span class="ml-1 text-[10px] opacity-70">({{ procesos.length }})</span>
+                    </button>
+                    <button @click="activeSoftwareTab = 'parametros_int'"
+                        :class="['tab-btn px-4 py-2 text-xs font-medium border-r border-line whitespace-nowrap',
+                                 activeSoftwareTab === 'parametros_int' ? 'active' : 'bg-surface-raised text-ink-muted hover:bg-surface-sunken']">
+                        Parámetros Enteros
+                        <span class="ml-1 text-[10px] opacity-70">({{ parametrosInt.length }})</span>
+                    </button>
+                    <button @click="activeSoftwareTab = 'parametros_real'"
+                        :class="['tab-btn px-4 py-2 text-xs font-medium border-r border-line whitespace-nowrap',
+                                 activeSoftwareTab === 'parametros_real' ? 'active' : 'bg-surface-raised text-ink-muted hover:bg-surface-sunken']">
+                        Parámetros Reales
+                        <span class="ml-1 text-[10px] opacity-70">({{ parametrosReal.length }})</span>
+                    </button>
+                    <button @click="activeSoftwareTab = 'alarmas'"
+                        :class="['tab-btn px-4 py-2 text-xs font-medium border-r border-line whitespace-nowrap',
+                                 activeSoftwareTab === 'alarmas' ? 'active' : 'bg-surface-raised text-ink-muted hover:bg-surface-sunken']">
+                        Alarmas
+                        <span class="ml-1 text-[10px] opacity-70">({{ alarmas.length }})</span>
+                    </button>
+                </div>
+
+                <!-- Tabla del sub-tab activo -->
+                <div class="flex-1 overflow-auto table-scroll-x mt-2 bg-surface-raised border border-line rounded">
 
                 <!-- Procesos -->
                 <table v-if="activeSoftwareTab === 'procesos'" class="w-full text-xs">
@@ -246,6 +275,21 @@ export default {
                     </tbody>
                 </table>
 
+                </div>
+            </template>
+
+            <!-- "Inspector vacío" idéntico al de DispositivosPanel.
+                 Solo se ve si NO hay Excel cargado (o el Excel no
+                 tiene ninguna de las 4 hojas de software). Coherencia
+                 visual: sin datos, mismo cuadro centrado con emoji. -->
+            <div v-else class="flex-1 flex items-center justify-center bg-surface-raised border border-dashed border-line rounded mt-2 p-10 text-center text-ink-muted">
+                <div>
+                    <div class="text-5xl mb-3 opacity-40">⚙️</div>
+                    <p class="mb-2">El Inspector de Software está vacío.</p>
+                    <p class="text-xs">Sube un Excel con las hojas de software
+                        (CONFIGURACION / P_REAL / P_INT / ALARMAS) y pulsa
+                        <strong class="text-accent">"Refrescar Memoria"</strong>.</p>
+                </div>
             </div>
 
         </div>
