@@ -49,6 +49,16 @@ export const apiFetchAreas = () => _request("GET", "/api/v1/areas");
 /** Devuelve la lista de PLCs del TIA Portal conectado. */
 export const apiFetchPlcs = () => _request("GET", "/api/v1/plcs");
 
+/**
+ * Devuelve las propiedades básicas del proyecto TIA activo
+ * (al menos ``name``; opcionalmente ``path``, ``author``,
+ * ``creation_time``, ``last_modified``, ``last_modified_by``,
+ * ``version``). Mismo contrato de error que ``apiFetchPlcs``:
+ * si TIA no está conectado, devuelve ``{ok: false, error: ...}``.
+ */
+export const apiFetchProjectInfo = () =>
+    _request("GET", "/api/v1/portal/project-info");
+
 /** Dispara el hot-attach contra una instancia abierta de TIA Portal. */
 export const apiAttachPortal = () => _request("POST", "/api/v1/portal/attach");
 

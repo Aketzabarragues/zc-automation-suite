@@ -56,6 +56,18 @@ export const store = reactive({
     /** Nombre del PLC seleccionado en el desplegable. */
     selectedPlc: "",
 
+    /**
+     * Propiedades básicas del proyecto TIA activo, devueltas por
+     * ``GET /api/v1/portal/project-info``. ``null`` antes de pulsar
+     * "Buscar PLCs" por primera vez. Tras un fetch OK tiene al menos
+     * ``{ name: "..." }``; el resto de campos es opcional.
+     *
+     * El Sidebar del área Alimentación lo muestra como caption encima
+     * del desplegable de PLCs para que el operario verifique a qué
+     * proyecto está enganchado antes de tocar nada.
+     */
+    projectInfo: null,
+
     /** Resumen devuelto por ``POST /api/v1/excel/upload``. */
     uploadSummary: null,
 
@@ -273,6 +285,7 @@ export async function goToArea(key) {
     // Reset suave del estado operativo de la SPA.
     store.plcs = [];
     store.selectedPlc = "";
+    store.projectInfo = null;
     store.uploadSummary = null;
     store.previewData = null;
     // Cargar el manifest del área antes de cambiar ``topLevelView``.

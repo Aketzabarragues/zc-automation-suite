@@ -3,14 +3,18 @@
  *
  * Estructura (de arriba a abajo):
  *   1. Cabecera: "← Volver al inicio" + título "ZC Automation Suite" + área activa.
- *   2. Selección PLC (renombrado de "PLC destino"; solo el label cambia).
- *   3. Navegación entre vistas: "Definición programación" / "Dispositivos".
+ *   2. Selección PLC: caption con el nombre del proyecto TIA activo (si se
+ *      conoce), desplegable de PLCs, y botón "Buscar PLCs" (consulta TIA
+ *      Portal vía Openness y rellena el dropdown en una sola acción).
+ *   3. Navegación entre vistas: "Inicio del área" / "Definición programación"
+ *      / "Cache de bloques" / "Dispositivos".
  *
  * Ya NO contiene:
  *   - "1. Maestro Excel" (movido al inicio de la vista "Definición programación").
  *   - "3. Conexión TIA Portal" (Hot-Attach / Cold-Start). El usuario lanza
- *     TIA Portal manualmente fuera de la app; el botón "Refrescar lista"
- *     de "Selección PLC" basta para poblar el dropdown.
+ *     TIA Portal manualmente fuera de la app; el botón "Buscar PLCs" de
+ *     "Selección PLC" basta para poblar el dropdown Y leer el nombre del
+ *     proyecto, todo en una sola acción.
  *
  * Tema: Industrial Claro. Solo tokens semánticos
  * (`bg-surface*`, `border-line*`, `text-ink*`, `bg-accent`, `text-accent`).
@@ -28,7 +32,7 @@ import { computed } from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js";
 // se resolvería contra la URL del módulo y daría
 // ``/static/js/X.js`` (404). Usar absolutos evita el problema.
 import { store, pushLog, goToWelcome, goToSubview, refreshPlcBlocks, loadPlcBlocksCache } from "/js/store.js";
-import { apiFetchPlcs } from "/js/api.js";
+import { apiFetchPlcs, apiFetchProjectInfo } from "/js/api.js";
 import ProgressIndicator from "/js/components/ProgressIndicator.js";
 
 export default {
@@ -49,20 +53,32 @@ export default {
         });
 
         /**
-         * Refresca el desplegable de PLCs contra TIA Portal.
-         * Si no hay TIA Portal abierto, el endpoint responde
-         * `{ok: false, error: "TIA Portal no conectado..."}` y se
-         * loggea un warning. La UI queda con la lista vacía.
+         * Refresca el desplegable de PLCs Y carga el nombre del proyecto
+         * TIA conectado. Las dos llamadas se hacen en paralelo (mismo
+         * click del operario) para minimizar la latencia visible. Si TIA
+         * no está conectado, ambos endpoints devuelven
+         * ``{ok: false, error: "..."}`` y el sidebar queda en estado
+         * degradado: lista vacía, sin caption de proyecto.
          */
         async function handleRefreshPlcs() {
             store.busy = true;
             try {
-                const r = await apiFetchPlcs();
-                if (r.ok && r.data && r.data.plcs) {
-                    store.plcs = r.data.plcs;
-                } else if (r.data && r.data.ok === false) {
-                    pushLog(r.data.error || "TIA Portal no conectado", "warning");
+                const [plcsResp, infoResp] = await Promise.all([
+                    apiFetchPlcs(),
+                    apiFetchProjectInfo(),
+                ]);
+
+                if (plcsResp.ok && plcsResp.data && plcsResp.data.plcs) {
+                    store.plcs = plcsResp.data.plcs;
+                } else if (plcsResp.data && plcsResp.data.ok === false) {
+                    pushLog(plcsResp.data.error || "TIA Portal no conectado", "warning");
                     store.plcs = [];
+                }
+
+                if (infoResp.ok && infoResp.data && infoResp.data.project_info) {
+                    store.projectInfo = infoResp.data.project_info;
+                } else if (infoResp.data && infoResp.data.ok === false) {
+                    store.projectInfo = null;
                 }
             } finally {
                 store.busy = false;
@@ -118,6 +134,14 @@ export default {
             <!-- Selección PLC -->
             <section class="mb-6">
                 <label class="block text-xs font-semibold text-ink-muted uppercase mb-2">Selección PLC</label>
+                <!-- Caption del proyecto TIA activo. Solo aparece después de
+                     pulsar "Buscar PLCs" y si el backend devolvió un nombre. -->
+                <p v-if="store.projectInfo && store.projectInfo.name"
+                   class="text-xs text-ink-muted mb-1.5 font-mono truncate"
+                   :title="store.projectInfo.name"
+                   data-testid="sidebar-project-name">
+                    Proyecto: {{ store.projectInfo.name }}
+                </p>
                 <select v-model="store.selectedPlc" @change="onPlcSelected"
                     :disabled="store.plcs.length === 0 || store.busy"
                     class="w-full bg-surface-sunken border border-line rounded px-2 py-1.5 text-sm text-ink disabled:opacity-50">
@@ -125,8 +149,9 @@ export default {
                     <option v-for="p in store.plcs" :key="p" :value="p">{{ p }}</option>
                 </select>
                 <button @click="handleRefreshPlcs" :disabled="store.busy"
-                    class="mt-2 text-xs px-2 py-1 bg-surface-sunken hover:bg-surface-sunken border border-line rounded text-ink disabled:opacity-50">
-                    Refrescar lista
+                    class="mt-2 text-xs px-2 py-1 bg-surface-sunken hover:bg-surface-sunken border border-line rounded text-ink disabled:opacity-50"
+                    data-testid="sidebar-refresh-plcs">
+                    Buscar PLCs
                 </button>
             </section>
 

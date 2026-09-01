@@ -49,6 +49,14 @@ def test_api_js_exposes_block_cache_endpoints() -> None:
     assert "/api/v1/plcs/" in text  # mismo namespace que el resto de endpoints PLC
 
 
+def test_api_js_exposes_project_info_endpoint() -> None:
+    """``api.js`` declara ``apiFetchProjectInfo`` apuntando al endpoint nuevo."""
+    text = _read(API_JS)
+    assert "export const apiFetchProjectInfo" in text
+    # URL correcta del endpoint nuevo.
+    assert "/api/v1/portal/project-info" in text
+
+
 def test_store_js_exposes_refresh_helper_only() -> None:
     """``store.js`` expone ``refreshPlcBlocks`` (thin wrapper del progreso).
 
@@ -94,6 +102,59 @@ def test_sidebar_wires_change_handler_to_progress_indicator() -> None:
     assert "plc-blocks-cache-refresh" not in text
     assert "Forzar re-scan" not in text
     assert "Escaneando" not in text
+
+
+def test_sidebar_button_text_is_buscar_plcs() -> None:
+    """El botón del sidebar del área Alimentación dice ``Buscar PLCs``.
+
+    Reemplaza el antiguo ``Refrescar lista`` (rename aprobado en
+    el plan canónico). Verifica AMBOS lados: el texto nuevo
+    está presente, el viejo NO (defensivo contra un rename
+    parcial o un revert accidental).
+    """
+    text = _read(SIDEBAR_JS)
+    assert "Buscar PLCs" in text, (
+        "El botón del Sidebar del área Alimentación debe decir 'Buscar PLCs'. "
+        "Si quieres otra variante, edita Sidebar.js y este test juntos."
+    )
+    assert "Refrescar lista" not in text, (
+        "Texto legacy 'Refrescar lista' encontrado en Sidebar.js. "
+        "Debe estar completamente sustituido por 'Buscar PLCs'."
+    )
+
+
+def test_sidebar_calls_api_fetch_project_info() -> None:
+    """``handleRefreshPlcs`` invoca ``apiFetchProjectInfo`` en paralelo
+    con ``apiFetchPlcs`` (mismo click del operario)."""
+    text = _read(SIDEBAR_JS)
+    # Importa la nueva función.
+    assert "apiFetchProjectInfo" in text
+    # La usa dentro del handler (no solo el import).
+    assert "apiFetchProjectInfo()" in text
+    # Y la combina en paralelo con apiFetchPlcs.
+    assert "Promise.all" in text
+
+
+def test_sidebar_renders_project_name_caption() -> None:
+    """El template del sidebar pinta el caption ``Proyecto: <name>`` solo
+    si ``store.projectInfo.name`` está disponible."""
+    text = _read(SIDEBAR_JS)
+    # data-testid para anclar el smoke test.
+    assert "sidebar-project-name" in text
+    # Texto visible esperado.
+    assert "Proyecto:" in text
+    # Guard v-if para no mostrar nada si aún no hay info.
+    assert "store.projectInfo" in text
+    assert "store.projectInfo.name" in text
+
+
+def test_store_js_exposes_project_info_slot() -> None:
+    """``store.js`` declara el slot ``projectInfo: null`` (estado base)."""
+    text = _read(STORE_JS)
+    assert "projectInfo:" in text, (
+        "store.js debe declarar el slot projectInfo. Sin él, el sidebar "
+        "no puede saber a qué proyecto TIA está conectado."
+    )
 
 
 def test_styles_css_is_nonempty_after_recompile() -> None:

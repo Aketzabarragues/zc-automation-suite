@@ -127,4 +127,41 @@ async def listar_plcs(
     return {"ok": True, "plcs": plcs}
 
 
+@router.get("/portal/project-info")
+async def get_project_info(
+    gateway: TIAProcessGateway = Depends(get_gateway),
+    logger: LogBuffer = Depends(get_logger),
+) -> dict[str, Any]:
+    """Devuelve el nombre y propiedades básicas del proyecto TIA activo.
+
+    Mismo contrato de error que ``/plcs``: si TIA Portal no está
+    conectado, devuelve ``{"ok": false, "error": "..."}`` con HTTP 200
+    (no 500) para que la SPA degrade limpiamente.
+
+    NOTA: este endpoint NO usa ``ProgressTracker``. La operación
+    (``get_property("Name")`` sobre el proyecto) es prácticamente
+    instantánea (<50 ms) y el Sidebar la lanza en ``Promise.all`` con
+    ``/api/v1/plcs``. Si emitiéramos nuestro propio ``progress.begin()``
+    concurrente con el de ``/plcs``, el tracker mostraría
+    "reemplazado por" y el operario vería parpadeo en el
+    ``ProgressIndicator``. La política del proyecto es: el tracker
+    solo cubre operaciones largas, y el feedback de esta llamada
+    es suficiente con el ``logger.info`` final.
+    """
+    try:
+        info = await gateway.get_project_info(force_refresh=True)
+    except Exception as exc:
+        logger.error(f"get_project_info failed: {exc}")
+        return {
+            "ok": False,
+            "error": (
+                "TIA Portal no conectado. "
+                "Haga Attach u Open New primero."
+            ),
+            "detail": str(exc),
+        }
+    logger.info(f"Proyecto TIA: {info.get('name', '(sin nombre)')}")
+    return {"ok": True, "project_info": info}
+
+
 __all__ = ["router"]

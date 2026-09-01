@@ -194,6 +194,32 @@ class TIAProcessGateway:
         self._cache[cache_key] = plcs
         return plcs
 
+    async def get_project_info(self, force_refresh: bool = False) -> dict[str, Any]:
+        """Devuelve propiedades básicas del proyecto TIA activo (con caché IT).
+
+        Caché en ``self._cache["project_info"]`` con la misma política que
+        ``get_plcs`` (lectura ligera, ``force_refresh=True`` la ignora). Se
+        invalida junto con el resto en ``clear_cache()`` (que ya limpia
+        ``self._cache`` entero y se invoca en ``open_project`` /
+        ``close_project``).
+
+        Args:
+            force_refresh: Si es ``True``, ignora la caché y relee de TIA.
+
+        Returns:
+            ``dict`` con al menos ``name``; opcionalmente ``path``,
+            ``author``, ``creation_time``, ``last_modified``,
+            ``last_modified_by`` y ``version`` (omitidas si no están
+            disponibles en el proyecto activo o si su lectura lanza).
+        """
+        cache_key = "project_info"
+        if not force_refresh and cache_key in self._cache:
+            return self._cache[cache_key]
+
+        info = await self._dispatch_worker("get_project_info")
+        self._cache[cache_key] = info
+        return info
+
     async def get_blocks(
         self, plc_name: str, folder_path: str | None = None, force_refresh: bool = False
     ) -> list[str]:

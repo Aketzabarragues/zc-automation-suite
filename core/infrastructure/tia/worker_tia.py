@@ -244,6 +244,62 @@ def _cmd_list_plcs(portal: Any, ts: Any, args: dict[str, Any]) -> list[str]:
     return [plc.get_name() for plc in plcs]
 
 
+def _cmd_get_project_info(portal: Any, ts: Any, args: dict[str, Any]) -> dict[str, Any]:
+    """Devuelve propiedades básicas del proyecto TIA activo como primitivos.
+
+    Lee un set acotado de propiedades del proyecto que son útiles para
+    que la SPA muestre al operario a qué proyecto está enganchado. NO
+    devuelve objetos nativos TIA (siempre primitivos, por AGENTS.md §Datos).
+
+    Si una propiedad lanza al leerla (p. ej. PermissionDenied o
+    EncodingError), se omite del payload en lugar de tumbar el handler:
+    la SPA recibe un dict parcial y renderiza solo lo disponible.
+
+    Args:
+        portal: Instancia de TIA Portal ya enganchada.
+        ts: Módulo ``siemens_tia_scripting`` (no se usa directamente;
+            el handler opera sobre el ``portal`` ya inicializado).
+        args: Argumentos del comando (no se usan; no se requiere
+            configuración del caller).
+
+    Returns:
+        ``dict`` con al menos la key ``name``. Opcionalmente también
+        ``path``, ``author``, ``creation_time``, ``last_modified``,
+        ``last_modified_by`` y ``version``, omitidas si no están
+        disponibles o si su lectura lanza. Los datetimes .NET se
+        serializan como strings ISO 8601.
+    """
+    _ = ts
+    project = _get_active_project(portal)
+
+    def _safe_get(name: str) -> Any:
+        try:
+            return project.get_property(name=name)
+        except Exception:
+            return None
+
+    result: dict[str, Any] = {"name": _safe_get("Name")}
+
+    # Propiedades opcionales. Si una no está activa o falla, se omite.
+    for prop_name, out_key in (
+        ("Path", "path"),
+        ("Author", "author"),
+        ("CreationTime", "creation_time"),
+        ("LastModified", "last_modified"),
+        ("LastModifiedBy", "last_modified_by"),
+        ("Version", "version"),
+    ):
+        value = _safe_get(prop_name)
+        if value is None:
+            continue
+        # Normalizar a primitivo: datetime/DateTime .NET → ISO 8601 string.
+        if hasattr(value, "isoformat"):
+            value = value.isoformat()
+        result[out_key] = value
+
+    return result
+
+
 def _cmd_list_blocks(portal: Any, ts: Any, args: dict[str, Any]) -> list[str]:
     """Lista los nombres de los bloques de programa de un PLC especÃ­fico."""
     _ = ts
@@ -1017,6 +1073,7 @@ COMMAND_REGISTRY: dict[str, Callable[[Any, Any, dict[str, Any]], Any]] = {
     "close_project": _cmd_close_project,
     # â”€â”€ InspecciÃ³n â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     "list_plcs": _cmd_list_plcs,
+    "get_project_info": _cmd_get_project_info,
     "list_blocks": _cmd_list_blocks,
     "scan_blocks": _cmd_scan_blocks,
     # â”€â”€ MutaciÃ³n / compilaciÃ³n â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

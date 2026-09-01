@@ -101,6 +101,29 @@ def test_shell_progress_current_is_mounted(client: TestClient) -> None:
     assert "progress" in body
 
 
+def test_shell_project_info_endpoint_is_mounted(client: TestClient) -> None:
+    """``GET /api/v1/portal/project-info`` está montado (router común).
+
+    El endpoint siempre responde 200 (200 con ``ok=true`` o 200 con
+    ``ok=false``); lo crítico es que NO devuelva 404 (lo que probaría
+    que el router no se montó tras un refactor del shell). El fixture
+    ``mock_gateway`` es un ``MagicMock`` pelado: si el endpoint está
+    montado, FastAPI lo invoca y llegamos al bloque ``try/except`` del
+    router, que degrada a ``{"ok": false, "error": "..."}``. Si NO
+    estuviera montado, sería 404 (la SPA captura los GET no manejados).
+    """
+    resp = client.get("/api/v1/portal/project-info")
+    assert resp.status_code != 404, (
+        "El endpoint /api/v1/portal/project-info debería estar montado. "
+        "Si esto falla, el shell probablemente no descubrió el router portal."
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    # El endpoint degrada limpiamente cuando el mock no sabe responder.
+    assert "ok" in body
+    assert body["ok"] in (True, False)
+
+
 # ── PR 4: routers del área de alimentación, descubiertos vía registry ─
 
 
