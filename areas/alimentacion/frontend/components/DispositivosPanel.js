@@ -103,7 +103,24 @@ export default {
         });
 
         const hasMemory = computed(
-            () => !!(store.memoryState && store.memoryState.dispositivos)
+            () => {
+                // ``hasMemory`` distingue 2 estados visuales:
+                //   1. ``store.memoryState === null``: operario no ha
+                //      hecho nunca un fetch (estado "virgen"). Se
+                //      muestra el "Inspector vacío" centrado.
+                //   2. ``store.memoryState`` es un objeto (incluso con
+                //      dicts vacios, p.ej. tras "Refrescar" sin
+                //      Excel): se muestran las tablas. Cada tabla
+                //      pinta su propio mensaje "La pestaña X no
+                //      contiene dispositivos" si su lista esta
+                //      vacia (eso lo hace el ``<tr v-if="...">``).
+                // El operario quiere que tras "Refrescar" se vean
+                // las tablas (no el "Inspector vacío"), asi que
+                // hasMemory es true en cuanto hay memoryState
+                // (incluso si no trae datos).
+                return store.memoryState !== null
+                    && store.memoryState !== undefined;
+            }
         );
 
         /**

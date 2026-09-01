@@ -63,11 +63,22 @@ export default {
          * tabs: sin Excel → mismo cuadro centrado con emoji.
          */
         const hasMemory = computed(
-            () => !!(store.memoryState
-                     && (procesos.value.length > 0
-                         || parametrosInt.value.length > 0
-                         || parametrosReal.value.length > 0
-                         || alarmas.value.length > 0))
+            () => {
+                // ``hasMemory`` distingue 2 estados visuales (mismo
+                // patron que ``DispositivosPanel`` para coherencia
+                // total entre los 2 tabs):
+                //   1. ``store.memoryState === null``: operario no ha
+                //      hecho nunca un fetch (estado "virgen"). Se
+                //      muestra el "Inspector vacío" centrado.
+                //   2. ``store.memoryState`` es un objeto (incluso con
+                //      arrays vacios, p.ej. tras "Refrescar" sin
+                //      Excel): se muestran las tablas. Cada tabla
+                //      pinta su propio mensaje "Sin X definidos" si
+                //      su lista esta vacia (eso lo hace el
+                //      ``<tr v-if="...">``).
+                return store.memoryState !== null
+                    && store.memoryState !== undefined;
+            }
         );
 
         /**
