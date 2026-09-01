@@ -10,12 +10,14 @@
  *   - Parámetros Reales    → ``store.memoryState.parametros_real``
  *   - Alarmas              → ``store.memoryState.alarmas``
  *
- * Sin "Inspector vacío" ni banner ámbar: el operario pidió
- * consistencia total con ``DispositivosPanel``. Cuando no hay datos
- * (Excel sin cargar, refrescar memoria sin Excel, o Excel sin
- * las 4 hojas de software), las 4 tablas se muestran igualmente
- * con su mensaje "Sin X definidos" en cada una, idéntico al
- * "La pestaña X no contiene dispositivos" de Dispositivos.
+ * Sin banner ámbar. El "Inspector vacío" idéntico al de
+ * ``DispositivosPanel`` (mismo emoji, mismo copy, mismas
+ * clases) se muestra cuando ``!hasMemory``: no hay Excel
+ * cargado, o los 4 dominios de software están vacíos (caso del
+ * "Refrescar Memoria" sin Excel o Excel de solo dispositivos).
+ * Estructura idéntica a ``DispositivosPanel``: sub-tabs y
+ * "Inspector vacío" protegidos por el mismo ``v-if="hasMemory"``
+ * del computed, tablas con ``v-if="hasMemory && activeSoftwareTab"``.
  *
  * Reemplaza los 4 ``<details>`` que tenía ``DefinicionProgramacion``
  * (líneas 292-433). Misma forma de tabla, mismas columnas; solo
@@ -54,6 +56,21 @@ export default {
         );
 
         /**
+         * ``true`` solo cuando hay Excel cargado Y al menos uno de los
+         * 4 dominios de software tiene datos. Es la condición que
+         * alterna entre las 4 tablas y el "Inspector vacío" idéntico
+         * al de ``DispositivosPanel``. Coherencia total entre los 2
+         * tabs: sin Excel → mismo cuadro centrado con emoji.
+         */
+        const hasMemory = computed(
+            () => !!(store.memoryState
+                     && (procesos.value.length > 0
+                         || parametrosInt.value.length > 0
+                         || parametrosReal.value.length > 0
+                         || alarmas.value.length > 0))
+        );
+
+        /**
          * Sub-tab activo. Una de
          * ``'procesos' | 'parametros_int' | 'parametros_real' | 'alarmas'``.
          * Default: ``'procesos'`` (suele ser la lista más corta y
@@ -66,6 +83,7 @@ export default {
             parametrosInt,
             parametrosReal,
             alarmas,
+            hasMemory,
             activeSoftwareTab,
         };
     },
@@ -73,13 +91,10 @@ export default {
         <div class="flex-1 flex flex-col overflow-hidden">
 
             <!-- Sub-tabs de software (Procesos | PInt | PReal | Alarmas).
-                 Siempre visibles: el operario quiere consistencia
-                 con DispositivosPanel, que muestra las tablas (con
-                 su mensaje "Sin X definidos" si la lista esta
-                 vacia) incluso cuando no hay Excel cargado. No
-                 hay "Inspector vacio" ni banner ambar: el feedback
-                 se reduce a las tablas y sus mensajes. -->
-            <div class="flex border-b border-line bg-surface-sunken overflow-x-auto">
+                 Solo visibles si hay datos (mismo patron que
+                 DispositivosPanel, que oculta los sub-tabs cuando
+                 !hasMemory). -->
+            <div v-if="hasMemory" class="flex border-b border-line bg-surface-sunken overflow-x-auto">
                 <button @click="activeSoftwareTab = 'procesos'"
                     :class="['tab-btn px-4 py-2 text-xs font-medium border-r border-line whitespace-nowrap',
                              activeSoftwareTab === 'procesos' ? 'active' : 'bg-surface-raised text-ink-muted hover:bg-surface-sunken']">
@@ -114,7 +129,7 @@ export default {
             <div class="flex-1 overflow-auto table-scroll-x mt-2 bg-surface-raised border border-line rounded">
 
                 <!-- Procesos -->
-                <table v-if="activeSoftwareTab === 'procesos'" class="w-full text-xs">
+                <table v-if="hasMemory && activeSoftwareTab === 'procesos'" class="w-full text-xs">
                     <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
                         <tr>
                             <th class="px-3 py-2 text-left text-ink-muted">UID</th>
@@ -149,7 +164,7 @@ export default {
                 </table>
 
                 <!-- Parámetros Enteros -->
-                <table v-else-if="activeSoftwareTab === 'parametros_int'" class="w-full text-xs">
+                <table v-else-if="hasMemory && activeSoftwareTab === 'parametros_int'" class="w-full text-xs">
                     <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
                         <tr>
                             <th class="px-3 py-2 text-left text-ink-muted">UID</th>
@@ -180,7 +195,7 @@ export default {
                 </table>
 
                 <!-- Parámetros Reales -->
-                <table v-else-if="activeSoftwareTab === 'parametros_real'" class="w-full text-xs">
+                <table v-else-if="hasMemory && activeSoftwareTab === 'parametros_real'" class="w-full text-xs">
                     <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
                         <tr>
                             <th class="px-3 py-2 text-left text-ink-muted">UID</th>
@@ -211,7 +226,7 @@ export default {
                 </table>
 
                 <!-- Alarmas -->
-                <table v-else-if="activeSoftwareTab === 'alarmas'" class="w-full text-xs">
+                <table v-else-if="hasMemory && activeSoftwareTab === 'alarmas'" class="w-full text-xs">
                     <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
                         <tr>
                             <th class="px-3 py-2 text-left text-ink-muted">UID</th>
@@ -236,6 +251,18 @@ export default {
                         </tr>
                     </tbody>
                 </table>
+
+                <!-- "Inspector vacío" idéntico al de DispositivosPanel:
+                     mismo copy, mismo emoji, mismas clases (heredadas
+                     del contenedor padre). Se muestra cuando !hasMemory
+                     (no hay Excel cargado o ningún dominio tiene datos). -->
+                <div v-else class="flex-1 flex items-center justify-center p-10 text-center text-ink-muted">
+                    <div>
+                        <div class="text-5xl mb-3 opacity-40">📊</div>
+                        <p class="mb-2">El Inspector de Memoria está vacío.</p>
+                        <p class="text-xs">Sube un Excel y pulsa <strong class="text-accent">"Refrescar Memoria"</strong>.</p>
+                    </div>
+                </div>
 
             </div>
 
