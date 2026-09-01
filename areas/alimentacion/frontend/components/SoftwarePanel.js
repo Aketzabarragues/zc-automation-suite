@@ -10,10 +10,12 @@
  *   - Parámetros Reales    → ``store.memoryState.parametros_real``
  *   - Alarmas              → ``store.memoryState.alarmas``
  *
- * Si el flag ``software_parsers_implemented`` es ``false`` (modo
- * degradado: backend aún no expone los 4 campos o Excel sin hojas
- * de software), pinta arriba un banner ámbar con la indicación al
- * operario.
+ * Sin "Inspector vacío" ni banner ámbar: el operario pidió
+ * consistencia total con ``DispositivosPanel``. Cuando no hay datos
+ * (Excel sin cargar, refrescar memoria sin Excel, o Excel sin
+ * las 4 hojas de software), las 4 tablas se muestran igualmente
+ * con su mensaje "Sin X definidos" en cada una, idéntico al
+ * "La pestaña X no contiene dispositivos" de Dispositivos.
  *
  * Reemplaza los 4 ``<details>`` que tenía ``DefinicionProgramacion``
  * (líneas 292-433). Misma forma de tabla, mismas columnas; solo
@@ -35,17 +37,6 @@ import { store } from "/js/store.js";
 export default {
     name: "SoftwarePanel",
     setup() {
-        /**
-         * Flag del backend: ``true`` si los 4 parsers de software
-         * están integrados. Si es ``false`` (versión antigua del
-         * backend o Excel sin las 4 hojas de software) mostramos
-         * banner ámbar.
-         */
-        const softwareImplemented = computed(
-            () => !!(store.memoryState
-                     && store.memoryState.software_parsers_implemented)
-        );
-
         // 4 dominios de software. Defensivos: si el operario aún
         // no ha subido Excel o el backend aún no expone los 4
         // campos nuevos, todos devuelven ``[]``.
@@ -63,28 +54,6 @@ export default {
         );
 
         /**
-         * ``true`` solo cuando hay Excel cargado Y al menos uno de los
-         * 4 dominios de software tiene datos. Es la condición para
-         * mostrar las tablas (en lugar del "Inspector vacío" idéntico
-         * al de ``DispositivosPanel``). Coherencia visual entre los
-         * 2 tabs: sin Excel → mismo cuadro vacío con emoji.
-         *
-         * NO confundir con ``softwareImplemented``: ese flag es del
-         * backend y vale ``false`` también cuando el Excel existe pero
-         * no tiene las 4 hojas de software (caso "Excel de solo
-         * dispositivos" o backend antiguo). En ese caso, este
-         * ``hasMemory`` vale ``true`` y se muestra el banner ámbar
-         * con la indicación de qué hojas faltan.
-         */
-        const hasMemory = computed(
-            () => !!(store.memoryState
-                     && (procesos.value.length > 0
-                         || parametrosInt.value.length > 0
-                         || parametrosReal.value.length > 0
-                         || alarmas.value.length > 0))
-        );
-
-        /**
          * Sub-tab activo. Una de
          * ``'procesos' | 'parametros_int' | 'parametros_real' | 'alarmas'``.
          * Default: ``'procesos'`` (suele ser la lista más corta y
@@ -93,31 +62,24 @@ export default {
         const activeSoftwareTab = ref("procesos");
 
         return {
-            softwareImplemented,
             procesos,
             parametrosInt,
             parametrosReal,
             alarmas,
-            hasMemory,
             activeSoftwareTab,
         };
     },
     template: /* html */ `
         <div class="flex-1 flex flex-col overflow-hidden">
 
-            <!-- Banner ámbar: visible si el flag software_parsers_implemented
-                 es false (modo degradado: backend aún no expone los 4
-                 campos nuevos o Excel sin hojas de software). Solo
-                 si hay Excel cargado. -->
-            <div v-if="hasMemory && !softwareImplemented"
-                 class="mb-3 bg-amber-100 border-l-4 border-amber-500 text-amber-900 p-3 rounded text-xs">
-                ⚠️ Datos de software pendientes. Sube un Excel con hojas
-                CONFIGURACION / P_REAL / P_INT / ALARMAS para verlos aquí.
-            </div>
-
             <!-- Sub-tabs de software (Procesos | PInt | PReal | Alarmas).
-                 Solo si hay Excel cargado. -->
-            <div v-if="hasMemory" class="flex border-b border-line bg-surface-sunken overflow-x-auto">
+                 Siempre visibles: el operario quiere consistencia
+                 con DispositivosPanel, que muestra las tablas (con
+                 su mensaje "Sin X definidos" si la lista esta
+                 vacia) incluso cuando no hay Excel cargado. No
+                 hay "Inspector vacio" ni banner ambar: el feedback
+                 se reduce a las tablas y sus mensajes. -->
+            <div class="flex border-b border-line bg-surface-sunken overflow-x-auto">
                 <button @click="activeSoftwareTab = 'procesos'"
                     :class="['tab-btn px-4 py-2 text-xs font-medium border-r border-line whitespace-nowrap',
                              activeSoftwareTab === 'procesos' ? 'active' : 'bg-surface-raised text-ink-muted hover:bg-surface-sunken']">
@@ -152,7 +114,7 @@ export default {
             <div class="flex-1 overflow-auto table-scroll-x mt-2 bg-surface-raised border border-line rounded">
 
                 <!-- Procesos -->
-                <table v-if="hasMemory && activeSoftwareTab === 'procesos'" class="w-full text-xs">
+                <table v-if="activeSoftwareTab === 'procesos'" class="w-full text-xs">
                     <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
                         <tr>
                             <th class="px-3 py-2 text-left text-ink-muted">UID</th>
@@ -187,7 +149,7 @@ export default {
                 </table>
 
                 <!-- Parámetros Enteros -->
-                <table v-else-if="hasMemory && activeSoftwareTab === 'parametros_int'" class="w-full text-xs">
+                <table v-else-if="activeSoftwareTab === 'parametros_int'" class="w-full text-xs">
                     <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
                         <tr>
                             <th class="px-3 py-2 text-left text-ink-muted">UID</th>
@@ -218,7 +180,7 @@ export default {
                 </table>
 
                 <!-- Parámetros Reales -->
-                <table v-else-if="hasMemory && activeSoftwareTab === 'parametros_real'" class="w-full text-xs">
+                <table v-else-if="activeSoftwareTab === 'parametros_real'" class="w-full text-xs">
                     <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
                         <tr>
                             <th class="px-3 py-2 text-left text-ink-muted">UID</th>
@@ -249,7 +211,7 @@ export default {
                 </table>
 
                 <!-- Alarmas -->
-                <table v-else-if="hasMemory && activeSoftwareTab === 'alarmas'" class="w-full text-xs">
+                <table v-else-if="activeSoftwareTab === 'alarmas'" class="w-full text-xs">
                     <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
                         <tr>
                             <th class="px-3 py-2 text-left text-ink-muted">UID</th>
@@ -274,17 +236,6 @@ export default {
                         </tr>
                     </tbody>
                 </table>
-
-                <!-- "Inspector vacío" idéntico al de DispositivosPanel.
-                     Mismo copy, mismo emoji, mismas clases: hereda
-                     el background del contenedor padre. -->
-                <div v-else class="flex-1 flex items-center justify-center p-10 text-center text-ink-muted">
-                    <div>
-                        <div class="text-5xl mb-3 opacity-40">📊</div>
-                        <p class="mb-2">El Inspector de Memoria está vacío.</p>
-                        <p class="text-xs">Sube un Excel y pulsa <strong class="text-accent">"Refrescar Memoria"</strong>.</p>
-                    </div>
-                </div>
 
             </div>
 

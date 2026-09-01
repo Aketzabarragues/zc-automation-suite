@@ -299,50 +299,41 @@ def test_software_parsers_implemented_false_sin_upload(
     assert body["alarmas"] == []
 
 
-def test_banner_amber_visible_si_no_software_implemented() -> None:
-    """El panel de software tiene el banner ámbar condicionado a
-    ``!softwareImplemented``.
+def test_banner_amber_eliminado_para_simetria_con_dispositivos() -> None:
+    """El panel de software NO tiene banner ámbar: el operario pidió
+    eliminarlo por consistencia visual con ``DispositivosPanel``.
 
-    Tras el rediseño Opción A (tabs principales), el banner ya
-    NO vive en ``DefinicionProgramacion.js``: se movió a
-    ``SoftwarePanel.js``, que es donde se renderiza si
-    ``!softwareImplemented``. Este contract check verifica que el
-    banner sigue existiendo y sigue condicionado al mismo flag
-    (la lógica no cambia, solo la ubicación).
+    Cuando no hay datos, ambos tabs deben mostrar el mismo
+    patrón: las tablas con su mensaje "Sin X definidos" / "La
+    pestaña X no contiene dispositivos" en cada fila. No hay
+    "Inspector vacío" ni banner ámbar: la única indicación de
+    "datos faltantes" son los mensajes de las propias tablas.
 
-    Contract check textual (no se ejecuta Vue; se verifica que las
-    clases y el bloque del banner están en el archivo y se
-    condiciona al computed ``softwareImplemented``).
+    El banner ámbar existía como indicación visual para el caso
+    ``software_parsers_implemented === false`` (backend degradado
+    o Excel sin las 4 hojas de software). El operario lo eliminó
+    para que ambos tabs respondan igual a la ausencia de datos.
+
+    Contract check textual: verifica que el banner NO está en el
+    archivo (clases ámbar, computed softwareImplemented, copy).
     """
     text = _read(SOFTWARE_PANEL_JS)
-    # Clases del banner ámbar (clases estándar de Tailwind).
-    assert "bg-amber-100" in text, (
-        "Falta la clase bg-amber-100 del banner ámbar"
+    # Las clases del banner ámbar ya no deben estar.
+    assert "bg-amber-100" not in text, (
+        "El banner ámbar (bg-amber-100) debería estar eliminado"
     )
-    assert "border-amber-500" in text, (
-        "Falta border-amber-500 del banner ámbar"
+    assert "border-amber-500" not in text, (
+        "El banner ámbar (border-amber-500) debería estar eliminado"
     )
-    # El bloque está condicionado al flag (computed `softwareImplemented`).
-    assert "softwareImplemented" in text, (
-        "Falta el computed softwareImplemented en el setup"
+    # El computed softwareImplemented ya no debe existir (huérfano
+    # tras la eliminación del banner).
+    assert "softwareImplemented" not in text, (
+        "El computed softwareImplemented debería estar eliminado (ya no se usa)"
     )
-    # Texto humano-legible del banner.
-    assert "Datos de software pendientes" in text, (
-        "Falta el texto del banner"
+    # El copy del banner ya no debe estar.
+    assert "Datos de software pendientes" not in text, (
+        "El texto del banner ámbar debería estar eliminado"
     )
-    # El bloque usa v-if con la negación de softwareImplemented.
-    # Acepta tanto la forma simple `!softwareImplemented` como la
-    # compuesta `hasMemory && !softwareImplemented` (esta segunda
-    # apareció tras el rediseño: el banner solo se muestra si
-    # TAMBIÉN hay Excel cargado, porque si no hay Excel se ve el
-    # "Inspector vacío" común a los 2 tabs).
-    assert (
-        '!softwareImplemented' in text
-        and (
-            'v-if="!softwareImplemented"' in text
-            or 'v-if="hasMemory && !softwareImplemented"' in text
-        )
-    ), "Falta el v-if de !softwareImplemented (con o sin && hasMemory) que muestra el banner"
 
 
 def test_definicion_programacion_tiene_4_secciones_software() -> None:
