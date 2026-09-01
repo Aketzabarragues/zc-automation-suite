@@ -100,6 +100,25 @@ export default {
         );
 
         /**
+         * Conteo de dispositivos por sub-tab (DispED, DispEA, ...).
+         * Encapsula el acceso a ``store.memoryState.dispositivos`` para
+         * que el template no toque ``store`` directamente (lo cual es
+         * inalcanzable desde el template en Vue 3 con template compiler
+         * en runtime: las variables importadas a nivel de módulo NO se
+         * exponen automáticamente al template; solo lo retornado del
+         * setup()).
+         */
+        const deviceCountsByTab = computed(() => {
+            const out = {};
+            const disp = store.memoryState && store.memoryState.dispositivos;
+            if (!disp || typeof disp !== "object") return out;
+            for (const [key, lst] of Object.entries(disp)) {
+                out[key] = Array.isArray(lst) ? lst.length : 0;
+            }
+            return out;
+        });
+
+        /**
          * Helper: formatea un valor de celda para mostrar ``—``
          * en vez de ``null/undefined/vacío`` (UX limpia).
          */
@@ -118,6 +137,7 @@ export default {
             displayValue,
             colLabels,
             monoCols,
+            deviceCountsByTab,
         };
     },
     template: /* html */ `
@@ -130,7 +150,7 @@ export default {
                     :class="['tab-btn px-4 py-2 text-xs font-medium border-r border-line whitespace-nowrap',
                              activeSubTab === t.key ? 'active' : 'bg-surface-raised text-ink-muted hover:bg-surface-sunken']">
                     {{ t.label }}
-                    <span class="ml-1 text-[10px] opacity-70">({{ (store.memoryState.dispositivos[t.key] || []).length }})</span>
+                    <span class="ml-1 text-[10px] opacity-70">({{ deviceCountsByTab[t.key] || 0 }})</span>
                 </button>
             </div>
 
