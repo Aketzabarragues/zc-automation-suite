@@ -1,7 +1,7 @@
 ﻿"""Modificadores XML para PlcTagTable (SimaticML).
 
-Clases que clonan nodos ``<SW.Tags.PlcTag>`` de una plantilla, actualizan
-las etiquetas de nombre/direccion iterando sobre los dispositivos
+Clases que clonan nodos ``<SW.Tags.PlcUserConstant>`` de una plantilla,
+actualizan las etiquetas de nombre/valor iterando sobre los dispositivos
 y guardan el resultado para importacion posterior via
 ``import_plc_tags_xml``.
 
@@ -14,53 +14,24 @@ introducida en Python 3.8 para ser inmunes a cambios de version del
 esquema SimaticML de Siemens.
 
 Convencion de mapeo UID (via IT):
-    TIA Portal PlcTag no tiene campo nativo "UID". El motor diff IT/OT
-    almacena el ``uid`` del Excel en el atributo ``Comment`` del
-    PlcTag, mientras que ``Name`` corresponde a ``plc_tag``.
+    TIA Portal PlcUserConstant tiene dos slots clave: ``Name`` (que
+    contiene el ``plc_tag``) y ``Value`` (que contiene el ``uid`` del
+    Excel o el valor N_MAX). El motor diff IT/OT se apoya en esa
+    separacion natural; no hay hackeos de campos compartidos.
 """
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
-from copy import deepcopy
 from pathlib import Path
-from typing import Any, Protocol, cast, runtime_checkable
+from typing import Any, cast
 
 
 # Wildcards XPath. ``{*}`` = cualquier namespace; evita acoplarse a la
 # version concreta del esquema (p. ej. ``http://www.siemens.com/...``).
-_PLC_TAG = "{*}SW.Tags.PlcTag"
 _PLC_USER_CONSTANT = "{*}SW.Tags.PlcUserConstant"
 _NAME_TAG = "{*}Name"
 _COMMENT_TAG = "{*}Comment"
 _VALUE_TAG = "{*}Value"
-# Etiquetas de direccion/defensa: probamos varias conocidas para
-# cubrir distintas versiones del esquema.
-_ADDRESS_TAGS: tuple[str, ...] = (
-    "{*}Address",
-    "{*}LogicalAddress",
-    "{*}MemoryArea",
-)
-
-
-@runtime_checkable
-class _DispositivoLike(Protocol):
-    """Contrato minimo que modifiers.py necesita de un dispositivo.
-
-    Solo declaramos los 3 atributos que add_tags() realmente consume.
-    NO importamos Dispositivo desde areas/ para no introducir un
-    import circular (ver .clinerules §1: core/ no debe importar de
-    areas/).
-    """
-    plc_tag: str
-    uid: str
-    descripcion: str
-
-
-def _get_text(elem: ET.Element | None) -> str:
-    """Devuelve ``elem.text`` stripped o ``""`` si elem es None / sin texto."""
-    if elem is None:
-        return ""
-    return (elem.text or "").strip()
 
 
 class XMLModifier:
@@ -104,129 +75,6 @@ class TagTableModifier(XMLModifier):
       - ``Comment`` <-- ``dispositivo.uid`` (mapeo IT para diff)
     """
 
-    def add_tags(self, dispositivos: list[_DispositivoLike]) -> int:
-        """Anade PlcTag instances desde una lista de objetos del dominio.
-
-        Cada DTO debe cumplir el Protocol ``_DispositivoLike`` definido
-        en este modulo: atributos ``plc_tag`` (str), ``uid`` (str) y
-        ``descripcion`` (str). Esto desacopla ``core/infrastructure/xml``
-        del modelo de dominio de ``areas/`` y elimina el import circular
-        que existia cuando se importaba ``Dispositivo`` directamente.
-
-        Returns:
-            Numero de PlcTag realmente anadidos (idempotente).
-        """
-        template = self._find_template_tag()
-        if template is None:
-            return 0
-
-        existing_names = self._existing_names()
-        added = 0
-        for dispositivo in dispositivos:
-            if not isinstance(dispositivo, _DispositivoLike):
-                raise TypeError(
-                    f"Se esperaba _DispositivoLike, recibio {type(dispositivo).__name__}"
-                )
-            name = str(dispositivo.plc_tag).strip()
-            if not name or name in existing_names:
-                continue
-            uid = str(dispositivo.uid).strip()
-            address = str(dispositivo.descripcion).strip()
-            new_tag = deepcopy(template)
-            self._update_tag_fields(new_tag, name=name, comment=uid, address=address)
-            self._append_after_last_tag(new_tag)
-            existing_names.add(name)
-            added += 1
-        if added > 0:
-            self._modified = True
-        return added
-
-    def add_tags_by_table(
-        self,
-        table_name: str,
-        dispositivos: list[dict[str, str]],
-    ) -> int:
-        """Anade PlcTags a la tabla cuyo stem XML coincide con ``table_name``.
-
-        Cada dict debe contener al menos ``plc_tag`` y ``uid``. Es un
-        atajo para el motor diff que trabaja con ``{uid: plc_tag}``.
-        """
-        if self._path.stem != table_name:
-            return 0
-        template = self._find_template_tag()
-        if template is None:
-            return 0
-        existing_names = self._existing_names()
-        added = 0
-        for dto in dispositivos:
-            name = dto.get("plc_tag", "").strip()
-            if not name or name in existing_names:
-                continue
-            uid = dto.get("uid", "").strip()
-            new_tag = deepcopy(template)
-            self._update_tag_fields(new_tag, name=name, comment=uid, address="")
-            self._append_after_last_tag(new_tag)
-            existing_names.add(name)
-            added += 1
-        if added > 0:
-            self._modified = True
-        return added
-
-    # Eliminacion por uid (motor diff hibrido)
-    def remove_tags(self, uids_to_remove: set[str]) -> int:
-        """Elimina PlcTag cuyo ``Comment`` contiene un uid del set.
-
-        TIA Portal PlcTag no tiene campo nativo UID. Por convencion IT
-        (ver docstring del modulo), el ``uid`` se almacena en el atributo
-        ``Comment``. Si un PlcTag tiene un uid que matchea cualquiera de
-        ``uids_to_remove``, se elimina del arbol DOM.
-
-        Returns:
-            Numero de PlcTag eliminados (idempotente).
-        """
-        if not uids_to_remove:
-            return 0
-        removed = 0
-        # ``ET.iter(tag)`` NO soporta wildcard ``{*}``; usamos ``findall``.
-        # Hacemos list() porque vamos a mutar el arbol dentro del loop.
-        for tag in list(self._root.findall(f".//{_PLC_TAG}")):
-            comment = _get_text(tag.find(_COMMENT_TAG))
-            if not comment:
-                continue
-            # El uid puede estar embebido en un Comment mas largo.
-            # Usamos match por igualdad exacta primero (caso comun).
-            if comment in uids_to_remove:
-                parent = self._find_parent_of(tag)
-                if parent is not None:
-                    parent.remove(tag)
-                    removed += 1
-        if removed > 0:
-            self._modified = True
-        return removed
-
-    def read_tags_with_uids(self) -> list[dict[str, str]]:
-        """Itera los PlcTags del XML y emite ``[{name, comment, uid}]``.
-
-        ``uid`` se extrae del campo ``Comment`` (convencion IT).
-        ``name`` corresponde a ``Name`` (= ``plc_tag`` en TIA).
-
-        Returns:
-            Lista de dicts ``{name, comment, uid}`` (uno por PlcTag).
-        """
-        out: list[dict[str, str]] = []
-        # ``ET.iter(tag)`` NO soporta wildcard ``{*}``; usamos ``findall``.
-        for tag in self._root.findall(f".//{_PLC_TAG}"):
-            name = _get_text(tag.find(_NAME_TAG))
-            comment = _get_text(tag.find(_COMMENT_TAG))
-            out.append(
-                {
-                    "name": name,
-                    "comment": comment,
-                    "uid": comment,
-                }
-            )
-        return out
-
     def read_user_constants_with_uids(self) -> dict[str, str]:
         """Itera PlcUserConstant del XML y devuelve ``{value_str: plc_tag}``.
 
@@ -261,54 +109,6 @@ class TagTableModifier(XMLModifier):
                 continue
             result[value] = name
         return result
-    def _existing_names(self) -> set[str]:
-        """Devuelve el conjunto de nombres ``{*}Name`` ya presentes."""
-        result: set[str] = set()
-        for tag in self._root.findall(f".//{_PLC_TAG}"):
-            txt = _get_text(tag.find(_NAME_TAG))
-            if txt:
-                result.add(txt)
-        return result
-
-    def _find_template_tag(self) -> ET.Element | None:
-        """Devuelve el primer nodo ``{*}SW.Tags.PlcTag`` como plantilla."""
-        tags = self._root.findall(f".//{_PLC_TAG}")
-        return tags[0] if tags else None
-
-    @staticmethod
-    def _update_tag_fields(
-        tag: ET.Element,
-        name: str,
-        comment: str,
-        address: str,
-    ) -> None:
-        """Actualiza ``{*}Name``, ``{*}Comment`` y un tag de direccion."""
-        name_el = tag.find(_NAME_TAG)
-        if name_el is not None:
-            name_el.text = name
-        comment_el = tag.find(_COMMENT_TAG)
-        if comment_el is not None:
-            comment_el.text = comment
-        if not address:
-            return
-        for addr_tag in _ADDRESS_TAGS:
-            addr_el = tag.find(addr_tag)
-            if addr_el is not None:
-                addr_el.text = address
-                return
-
-    def _append_after_last_tag(self, new_tag: ET.Element) -> None:
-        """Inserta ``new_tag`` tras el ultimo PlcTag hermano si existe."""
-        tags = self._root.findall(f".//{_PLC_TAG}")
-        last_tag = tags[-1] if tags else None
-        if last_tag is not None and last_tag is not new_tag:
-            parent = self._find_parent_of(last_tag)
-            if parent is not None:
-                idx = list(parent).index(last_tag)
-                parent.insert(idx + 1, new_tag)
-                return
-        self._root.append(new_tag)
-
     def _find_parent_of(
         self, target: ET.Element
     ) -> ET.Element | None:
@@ -333,10 +133,11 @@ class TagTableModifier(XMLModifier):
     #     </AttributeList>
     #   </SW.Tags.PlcUserConstant>
     #
-    # A diferencia de PlcTag (que usa Comment para el uid), PlcUserConstant
-    # tiene Value para el uid y Name para el plc_tag. Los siguientes
-    # metodos son el equivalente PlcUserConstant de add_tags_by_table /
-    # remove_tags / _find_template_tag.
+    # A diferencia de PlcTag (que usaba Comment para el uid), PlcUserConstant
+    # tiene Value para el uid y Name para el plc_tag. Este es el unico
+    # modelo vigente: el codigo PlcTag-era (add_tags / add_tags_by_table /
+    # remove_tags / read_tags_with_uids) fue eliminado por obsolescencia
+    # tras el cambio a PlcUserConstant para devices y N_MAX.
 
     def _find_template_user_constant(self) -> ET.Element | None:
         """Devuelve el primer ``{*}SW.Tags.PlcUserConstant`` como plantilla."""

@@ -882,7 +882,13 @@ _TRANSACTION_FORBIDDEN_COMMANDS: frozenset[str] = frozenset(
         "save_project",
         "list_plcs",
         "execute_transactional_batch",
-        "compile_plc"
+        "compile_plc",
+        # Comandos del ciclo de vida de la instancia TIA: gestionan su
+        # propia conexión con el portal. No pueden ejecutarse DENTRO de
+        # una transacción de proyecto (romperían el RCW / no tendría
+        # sentido enlazarlos con operaciones de proyecto).
+        "attach_portal",
+        "open_new_portal",
     }
 )
 
@@ -1153,19 +1159,26 @@ def main() -> None:
 
     portal = None
     try:
-        # 4. Enganche al portal. Usamos AnyUserInterface para que el filtro
-        #    de instancias COM acepte tanto TIA Portal con GUI activa como
-        #    instancias headless (manual V1.2.1 Â§2.4.2). De este modo el
-        #    proceso aislado puede reengancharse a la sesiÃ³n ya abierta
-        #    por el usuario sin colisionar con su estado.
-        portal = ts.attach_portal(
-            portal_mode=ts.Enums.PortalMode.AnyUserInterface
-        )
-        if portal is None:
-            raise RuntimeError(
-                "Fallo crÃ­tico: attach_portal retornÃ³ una referencia nula. "
-                "AsegÃºrate de que TIA Portal estÃ¡ abierto o implementa open_portal."
+        # 4. Enganche al portal. Los comandos del ciclo de vida de la
+        #    instancia TIA (attach_portal, open_new_portal) gestionan
+        #    su propia conexiÃ³n: NO hacemos attach previo porque
+        #    romperÃ­a precisamente el caso cold-start (open_new_portal
+        #    sobre una instancia aÃºn no lanzada) y serÃ­a redundante
+        #    para attach_portal (el handler rehace el attach).
+        if command not in ("attach_portal", "open_new_portal"):
+            # Usamos AnyUserInterface para que el filtro de instancias
+            # COM acepte tanto TIA Portal con GUI activa como
+            # instancias headless (manual V1.2.1 Â§2.4.2). De este modo
+            # el proceso aislado puede reengancharse a la sesiÃ³n ya
+            # abierta por el usuario sin colisionar con su estado.
+            portal = ts.attach_portal(
+                portal_mode=ts.Enums.PortalMode.AnyUserInterface
             )
+            if portal is None:
+                raise RuntimeError(
+                    "Fallo crÃ­tico: attach_portal retornÃ³ una referencia nula. "
+                    "AsegÃºrate de que TIA Portal estÃ¡ abierto."
+                )
 
         # 5. Despacho al handler. La extracciÃ³n del proyecto es responsabilidad
         #    del propio handler (vÃ­a _get_active_project) si lo requiere.

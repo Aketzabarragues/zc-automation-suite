@@ -76,11 +76,11 @@ class DispED:
     descripcion: str
     uid: str
     # ── Atributos específicos ────────────────────────────────────────
-    tag: int = 0
-    fat: int = 0
+    tag: str = ""
+    fat: str = ""
     e_byte: int = 0
     e_bit: int = 0
-    gr_alarma: str = ""
+    gr_alarma: int = 0
     cuadro: str = ""
     observaciones: str = ""
     plc_tipo: str = ""
@@ -110,13 +110,13 @@ class DispEA:
     descripcion: str
     uid: str
     # ── Atributos específicos ────────────────────────────────────────
-    tag: int = 0
-    fat: int = 0
+    tag: str = ""
+    fat: str = ""
     e_byte: int = 0
     unidades: str = ""
     rii: float = 0.0  # rango inferior de escalado
     rsi: float = 0.0  # rango superior de escalado
-    gr_alarma: str = ""
+    gr_alarma: int = 0
     cuadro: str = ""
     observaciones: str = ""
     plc_tipo: str = ""
@@ -147,13 +147,13 @@ class DispSA:
     descripcion: str
     uid: str
     # ── Atributos específicos (idénticos a DispEA) ──────────────────
-    tag: int = 0
-    fat: int = 0
+    tag: str = ""
+    fat: str = ""
     e_byte: int = 0
     unidades: str = ""
     rii: float = 0.0
     rsi: float = 0.0
-    gr_alarma: str = ""
+    gr_alarma: int = 0
     cuadro: str = ""
     observaciones: str = ""
     plc_tipo: str = ""
@@ -180,15 +180,15 @@ class DispV:
     descripcion: str
     uid: str
     # ── Atributos específicos ────────────────────────────────────────
-    tag: int = 0
-    fat: int = 0
+    tag: str = ""
+    fat: str = ""
     s_byte: int = 0
     s_bit: int = 0
     rr_byte: int = 0
     rr_bit: int = 0
     rt_byte: int = 0
     rt_bit: int = 0
-    gr_alarma: str = ""
+    gr_alarma: int = 0
     cuadro: str = ""
     observaciones: str = ""
     plc_tipo: str = ""
@@ -220,15 +220,15 @@ class DispM:
     descripcion: str
     uid: str
     # ── Atributos específicos ────────────────────────────────────────
-    tag: int = 0
-    fat: int = 0
+    tag: str = ""
+    fat: str = ""
     s_byte: int = 0
     s_bit: int = 0
     rt_byte: int = 0
     rt_bit: int = 0
     rm_byte: int = 0
     rm_bit: int = 0
-    gr_alarma: str = ""
+    gr_alarma: int = 0
     cuadro: str = ""
     observaciones: str = ""
     plc_tipo: str = ""
@@ -264,15 +264,15 @@ class DispM_VF:
     descripcion: str
     uid: str
     # ── Atributos heredados de DispM ───────────────────────────────
-    tag: int = 0
-    fat: int = 0
+    tag: str = ""
+    fat: str = ""
     s_byte: int = 0
     s_bit: int = 0
     rt_byte: int = 0
     rt_bit: int = 0
     rm_byte: int = 0
     rm_bit: int = 0
-    gr_alarma: str = ""
+    gr_alarma: int = 0
     cuadro: str = ""
     observaciones: str = ""
     plc_tipo: str = ""
