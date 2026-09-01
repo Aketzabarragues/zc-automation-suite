@@ -59,6 +59,21 @@ DEFINICION_PROGRAMACION_JS = (
     / "components"
     / "DefinicionProgramacion.js"
 )
+# Espejo del panel donde, tras el rediseño Opción A (tabs principales),
+# vive realmente el banner ámbar y las 4 secciones de software
+# (Procesos / PInt / PReal / Alarmas). Antes vivían inline en
+# ``DefinicionProgramacion.js``; el refactor los movió a este
+# sub-componente para dar simetría visual con ``DispositivosPanel``.
+# Los contract checks textuales que verifican banner + 4 secciones
+# apuntan aquí, no a ``DefinicionProgramacion.js``.
+SOFTWARE_PANEL_JS = (
+    REPO_ROOT
+    / "areas"
+    / "alimentacion"
+    / "frontend"
+    / "components"
+    / "SoftwarePanel.js"
+)
 DIAGNOSTICS_PY = (
     REPO_ROOT
     / "interfaces"
@@ -285,14 +300,21 @@ def test_software_parsers_implemented_false_sin_upload(
 
 
 def test_banner_amber_visible_si_no_software_implemented() -> None:
-    """El template de ``DefinicionProgramacion.js`` tiene el banner ámbar
-    condicionado a ``!softwareImplemented``.
+    """El panel de software tiene el banner ámbar condicionado a
+    ``!softwareImplemented``.
+
+    Tras el rediseño Opción A (tabs principales), el banner ya
+    NO vive en ``DefinicionProgramacion.js``: se movió a
+    ``SoftwarePanel.js``, que es donde se renderiza si
+    ``!softwareImplemented``. Este contract check verifica que el
+    banner sigue existiendo y sigue condicionado al mismo flag
+    (la lógica no cambia, solo la ubicación).
 
     Contract check textual (no se ejecuta Vue; se verifica que las
     clases y el bloque del banner están en el archivo y se
     condiciona al computed ``softwareImplemented``).
     """
-    text = _read(DEFINICION_PROGRAMACION_JS)
+    text = _read(SOFTWARE_PANEL_JS)
     # Clases del banner ámbar (clases estándar de Tailwind).
     assert "bg-amber-100" in text, (
         "Falta la clase bg-amber-100 del banner ámbar"
@@ -315,27 +337,47 @@ def test_banner_amber_visible_si_no_software_implemented() -> None:
 
 
 def test_definicion_programacion_tiene_4_secciones_software() -> None:
-    """El template declara 4 ``<details>`` colapsables (Procesos / PInt / PReal / Alarmas).
+    """El panel de software declara 4 secciones de datos
+    (Procesos / PInt / PReal / Alarmas), una por dominio.
 
-    Cada ``<details>`` tiene un ``<summary>`` con el conteo y
-    envuelve una tabla compacta con las columnas del DTO.
+    Tras el rediseño Opción A, las 4 secciones ya NO son
+    ``<details>`` plegables: el sub-componente ``SoftwarePanel``
+    las renderiza como **4 ``<table>`` con ``v-if``** (uno por
+    sub-tab, mutuamente excluyentes con ``v-else-if``) más 4
+    ``<tr>`` de "fila vacía" (``v-if="<dominio>.length === 0"``).
+    Esto le da simetría visual con ``DispositivosPanel`` (que
+    también es tabla + sub-tab).
+
+    El contrato que verifica este test es: el panel expone los 4
+    dominios de software, no la forma concreta ``<details>`` vs
+    ``<table>``. Si en el futuro se cambia el layout (p. ej. a
+    listas, cards, etc.) basta con adaptar las aserciones
+    mecánicas; el espíritu "4 secciones, una por DTO" se mantiene.
     """
-    text = _read(DEFINICION_PROGRAMACION_JS)
-    # 4 ``<details>`` (uno por dominio de software) — contado solo
-    # los que tienen atributos (``<details v-if=...``) para no
-    # confundir con menciones en comentarios del propio archivo.
-    details_open = text.count("<details v-if=")
-    assert details_open == 4, (
-        f"Esperaba 4 <details v-if=...>, encontré {details_open}"
+    text = _read(SOFTWARE_PANEL_JS)
+    # 4 ``<table>`` (uno por dominio), cada uno con la clase firma
+    # ``class="w-full text-xs"``. El test cuenta aperturas que
+    # contengan esa clase exacta; los ``v-else-if`` también abren
+    # un ``<table>`` (es la forma del template encadenado en Vue 3).
+    # Patrón usado: ``<table v-if=... class="w-full text-xs">`` o
+    # ``<table v-else-if=... class="w-full text-xs">``.
+    table_open = text.count('class="w-full text-xs"')
+    assert table_open == 4, (
+        f"Esperaba 4 <table> con class='w-full text-xs', encontré {table_open}"
     )
-    # 4 ``</details>`` de cierre.
-    assert text.count("</details>") == 4, (
-        f"Esperaba 4 </details>, encontré {text.count('</details>')}"
+    # 4 ``</table>`` de cierre.
+    assert text.count("</table>") == 4, (
+        f"Esperaba 4 </table>, encontré {text.count('</table>')}"
     )
-    # 4 ``<summary>`` con los conteos.
-    assert text.count("<summary") == 4
-    assert text.count("</summary>") == 4
-    # Los 4 computed properties existen en el setup.
+    # 4 referencias a los nombres de dominio en los v-if de "fila vacía"
+    # (uno por tabla). Patrón: ``v-if="<dominio>.length === 0"``.
+    for domain in ("procesos", "parametrosInt", "parametrosReal", "alarmas"):
+        assert f"v-if=\"{domain}.length === 0\"" in text, (
+            f"Falta la fila vacía v-if='{domain}.length === 0' "
+            f"para el dominio {domain}"
+        )
+    # Los 4 computed properties existen en el setup (siguen
+    # siendo la fuente de datos de las tablas).
     for ref in ("procesos", "parametrosInt", "parametrosReal", "alarmas"):
         assert f"const {ref} = computed" in text, (
             f"Falta el computed {ref} en el setup"

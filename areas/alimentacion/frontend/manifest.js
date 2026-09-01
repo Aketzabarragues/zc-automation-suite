@@ -4,7 +4,7 @@
  * El shell ``core/interfaces/web_server/static/js/main.js`` carga este
  * módulo al entrar al área "alimentacion" (vía
  * ``core/interfaces/web_server/static/js/area-loader.js``) y monta los
- * 4 componentes Vue 3 que exporta por nombre. Ningún componente se
+ * 8 componentes Vue 3 que exporta por nombre. Ningún componente se
  * importa estáticamente desde el shell SPA: la SPA es multi-área sin
  * build step.
  *
@@ -23,6 +23,12 @@
  *       "AreaLanding":            () => import("./components/AreaLanding.js"),
  *       "DefinicionProgramacion": () => import("./components/DefinicionProgramacion.js"),
  *       "Dispositivos":           () => import("./components/Dispositivos.js"),
+ *       "BloquesCacheView":       () => import("./components/BloquesCacheView.js"),
+ *       // Sub-componentes de "Definición programación" (refactor
+ *       // tabs principales, ver DefinicionProgramacion.js):
+ *       "MainTabs":               () => import("./components/MainTabs.js"),
+ *       "DispositivosPanel":      () => import("./components/DispositivosPanel.js"),
+ *       "SoftwarePanel":          () => import("./components/SoftwarePanel.js"),
  *     },
  *   }
  *
@@ -43,6 +49,14 @@ const _comps = {
     "DefinicionProgramacion":  () => import("./components/DefinicionProgramacion.js"),
     "Dispositivos":            () => import("./components/Dispositivos.js"),
     "BloquesCacheView":        () => import("./components/BloquesCacheView.js"),
+    // Sub-componentes del rediseño de "Definición programación"
+    // (tabs principales Dispositivos | Software). Se registran
+    // como componentes globales para que ``DefinicionProgramacion``
+    // los monte en su template (``<main-tabs>``, ``<dispositivos-panel>``,
+    // ``<software-panel>``).
+    "MainTabs":                () => import("./components/MainTabs.js"),
+    "DispositivosPanel":       () => import("./components/DispositivosPanel.js"),
+    "SoftwarePanel":           () => import("./components/SoftwarePanel.js"),
 };
 
 export function build() {

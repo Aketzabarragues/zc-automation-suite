@@ -12,6 +12,16 @@ La SPA los ``import()`` directamente como módulos ESM. El prefijo
 ``StaticFiles`` que apunta a ``STATIC_DIR / "areas"``; ver
 ``core/interfaces/web_server/app.py``).
 
+El dict ``loaders`` registra TANTO las sub-vistas del sidebar
+(``AlimentacionSidebar``, ``AreaLanding``, ``DefinicionProgramacion``,
+``Dispositivos``, ``BloquesCacheView``) como los **sub-componentes
+internos** que una sub-vista compone (``MainTabs``,
+``DispositivosPanel``, ``SoftwarePanel``). Sin estos últimos, la
+SPA falla en runtime con ``Failed to resolve component`` en
+cuanto el operario navega a "Definición programación", porque el
+``<main-tabs>`` / ``<dispositivos-panel>`` / ``<software-panel>``
+del template no se ha registrado con ``app.component(...)``.
+
 Si en el futuro se añade un área nueva:
   1. Crear ``areas/<nueva>/frontend/components/`` con los .js de
      Vue 3 del área (cada uno con un ``name:`` único).
@@ -70,7 +80,23 @@ def build() -> "AreaFrontendManifest":
       1. Crear el .js con un ``name:`` único.
       2. Añadirlo al dict ``_loaders`` aquí Y al objeto ``_comps``
          de ``manifest.js`` (espejo JS).
-      3. Si es una sub-vista nueva, añadir su key al dict ``_views``.
+      3. Si es una sub-vista nueva (entrada en el Sidebar), añadir
+         su key al dict ``_views``. Si es un sub-componente interno
+         de una sub-vista (como ``MainTabs``/``DispositivosPanel``/
+         ``SoftwarePanel`` dentro de ``DefinicionProgramacion``),
+         **NO** se añade a ``_views``; basta con registrar el
+         loader.
+
+    Sub-componentes internos actuales (registrados en ``loaders``
+    pero NO en ``views``):
+      - ``MainTabs``:           strip de los 2 tabs principales
+                                (Dispositivos | Software) de
+                                ``DefinicionProgramacion``.
+      - ``DispositivosPanel``:  panel de la pestaña "Dispositivos"
+                                (sub-tabs ED|EA|SA|V|M|MVF + tabla).
+      - ``SoftwarePanel``:      panel de la pestaña "Software"
+                                (sub-tabs Procesos|PInt|PReal|Alarmas
+                                + 4 tablas).
     """
     from core.application.area_registry import AreaFrontendManifest
 
@@ -94,6 +120,13 @@ def build() -> "AreaFrontendManifest":
             "DefinicionProgramacion": f"{_STATIC_PREFIX}/components/DefinicionProgramacion.js",
             "Dispositivos":           f"{_STATIC_PREFIX}/components/Dispositivos.js",
             "BloquesCacheView":       f"{_STATIC_PREFIX}/components/BloquesCacheView.js",
+            # Sub-componentes internos del rediseño Opción A
+            # (tabs principales Dispositivos | Software). Se
+            # registran como loaders pero NO como sub-vistas del
+            # Sidebar: solo ``DefinicionProgramacion`` los usa.
+            "MainTabs":               f"{_STATIC_PREFIX}/components/MainTabs.js",
+            "DispositivosPanel":      f"{_STATIC_PREFIX}/components/DispositivosPanel.js",
+            "SoftwarePanel":          f"{_STATIC_PREFIX}/components/SoftwarePanel.js",
         },
     }
     return _manifest

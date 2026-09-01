@@ -1,0 +1,177 @@
+/**
+ * Componente DispositivosPanel.
+ *
+ * Panel que se muestra cuando ``store.activeMainTab === 'dispositivos'``.
+ * Contiene:
+ *   1. Sub-tabs data-driven (ED|EA|SA|V|M|MVF) generadas desde
+ *      ``store.catalog.device_tabs``.
+ *   2. La tabla reactiva con todas las columnas del dataclass
+ *      activo (``modelColumns[activeSubTab]``).
+ *
+ * Replica 1:1 el bloque que antes vivía en ``DefinicionProgramacion.js``
+ * (líneas 96-103, 229-268). La refactorización es solo estructural:
+ * la lógica (catalog, columnas, monospace, ``displayValue``) se
+ * conserva idéntica.
+ *
+ * Si ``store.memoryState`` está vacío (operario aún no ha subido
+ * Excel), pinta el mensaje "Inspector de Memoria está vacío" en
+ * lugar de la tabla.
+ *
+ * Tema: Industrial Claro. Solo tokens semánticos
+ * (``bg-surface*``, ``border-line*``, ``text-ink*``, ``text-accent``).
+ *
+ * IMPORTANTE sobre templates Vue: el compilador en runtime de
+ * `vue.esm-browser.prod.js` NO acepta string literals multi-línea
+ * dentro de arrays de `:class`. Cada literal va en una sola línea.
+ */
+import { computed, ref, watch } from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js";
+import { store } from "/js/store.js";
+
+export default {
+    name: "DispositivosPanel",
+    setup() {
+        /**
+         * Sub-tabs data-driven desde el catalog del backend.
+         * Mantiene la forma ``{key, label}`` que ya consumía el
+         * template original.
+         */
+        const tabs = computed(() => {
+            const c = store.catalog;
+            if (!c || !Array.isArray(c.device_tabs)) return [];
+            return c.device_tabs.map((t) => ({
+                key: t.canonical,
+                label: t.label,
+            }));
+        });
+
+        /**
+         * ``canonical → [field_name, ...]`` derivado del catalog.
+         * El backend (``get_columns_for``) ya filtra los campos
+         * ``cfg_*`` (SCL), así que coincide con lo que la UI
+         * legacy mostraba.
+         */
+        const modelColumns = computed(() => {
+            const c = store.catalog;
+            if (!c || !c.model_columns) return {};
+            return c.model_columns;
+        });
+
+        /**
+         * Etiquetas de columna y columnas monospace desde el
+         * catalog. Si el catalog no las trae, fallback a ``{}``
+         * y ``new Set()`` respectivamente (modo degradado).
+         */
+        const colLabels = computed(() => {
+            const c = store.catalog;
+            return (c && c.col_labels) || {};
+        });
+
+        const monoCols = computed(() => {
+            const c = store.catalog;
+            return new Set((c && c.mono_cols) || []);
+        });
+
+        const activeSubTab = ref(store.activeTab || (tabs.value[0] && tabs.value[0].key) || "");
+
+        // Si el catalog se carga tarde (después de que el
+        // componente ya montó), ``activeSubTab`` puede estar ``""``.
+        // Reaccionar y fijar al primer tab disponible.
+        watch(
+            () => tabs.value[0] && tabs.value[0].key,
+            (firstKey) => {
+                if (!activeSubTab.value && firstKey) {
+                    activeSubTab.value = firstKey;
+                }
+            },
+            { immediate: true }
+        );
+
+        const columns = computed(
+            () => modelColumns.value[activeSubTab.value] || []
+        );
+
+        const activeDevices = computed(() => {
+            if (!store.memoryState || !store.memoryState.dispositivos) return [];
+            return store.memoryState.dispositivos[activeSubTab.value] || [];
+        });
+
+        const hasMemory = computed(
+            () => !!(store.memoryState && store.memoryState.dispositivos)
+        );
+
+        /**
+         * Helper: formatea un valor de celda para mostrar ``—``
+         * en vez de ``null/undefined/vacío`` (UX limpia).
+         */
+        function displayValue(value) {
+            if (value === null || value === undefined) return "—";
+            if (typeof value === "string" && value.trim() === "") return "—";
+            return String(value);
+        }
+
+        return {
+            tabs,
+            activeSubTab,
+            columns,
+            activeDevices,
+            hasMemory,
+            displayValue,
+            colLabels,
+            monoCols,
+        };
+    },
+    template: /* html */ `
+        <div class="flex-1 flex flex-col overflow-hidden">
+
+            <!-- Sub-tabs por tipo de dispositivo (ED|EA|SA|V|M|MVF) -->
+            <div v-if="hasMemory" class="flex border-b border-line bg-surface-sunken overflow-x-auto">
+                <button v-for="t in tabs" :key="t.key"
+                    @click="activeSubTab = t.key"
+                    :class="['tab-btn px-4 py-2 text-xs font-medium border-r border-line whitespace-nowrap',
+                             activeSubTab === t.key ? 'active' : 'bg-surface-raised text-ink-muted hover:bg-surface-sunken']">
+                    {{ t.label }}
+                    <span class="ml-1 text-[10px] opacity-70">({{ (store.memoryState.dispositivos[t.key] || []).length }})</span>
+                </button>
+            </div>
+
+            <!-- Tabla reactiva: dump de TODAS las columnas del dataclass activo -->
+            <div class="flex-1 overflow-auto table-scroll-x mt-2">
+                <table v-if="hasMemory" class="w-full text-xs">
+                    <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
+                        <tr>
+                            <th v-for="col in columns" :key="col"
+                                class="px-3 py-2 text-left text-ink-muted whitespace-nowrap">
+                                {{ colLabels[col] || col }}
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="d in activeDevices"
+                            :key="(d.uid || 'no-uid') + '-' + d.numero"
+                            class="border-b border-line">
+                            <td v-for="col in columns" :key="col"
+                                class="px-3 py-1.5 align-top text-ink whitespace-nowrap"
+                                :class="monoCols.has(col) ? 'font-mono' : ''">
+                                {{ displayValue(d[col]) }}
+                            </td>
+                        </tr>
+                        <tr v-if="activeDevices.length === 0">
+                            <td :colspan="columns.length || 5"
+                                class="px-3 py-6 text-center text-ink-muted italic">
+                                ⚠️ La pestaña "{{ activeSubTab }}" no contiene dispositivos. Si el Excel fue cargado, verifique que la tabla exista y no esté vacía.
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+                <div v-else class="flex-1 flex items-center justify-center bg-surface-raised border border-dashed border-line rounded mt-2 p-10 text-center text-ink-muted">
+                    <div>
+                        <div class="text-5xl mb-3 opacity-40">📊</div>
+                        <p class="mb-2">El Inspector de Memoria está vacío.</p>
+                        <p class="text-xs">Sube un Excel y pulsa <strong class="text-accent">"Refrescar Memoria"</strong>.</p>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    `,
+};

@@ -109,6 +109,22 @@ export const store = reactive({
     /** Tab activa del Inspector (canonical: ``'DispED' | 'DispEA' | ...``). */
     activeTab: "",
 
+    /**
+     * Tab PRINCIPAL activo en la vista "Definición programación".
+     * Decide si se muestra ``<DispositivosPanel>`` o ``<SoftwarePanel>``.
+     *
+     * Valores:
+     *   ``'dispositivos'`` → tabla de dispositivos (sub-tabs
+     *                         ED|EA|SA|V|M|MVF). Default.
+     *   ``'software'``     → dump de Procesos / PInt / PReal / Alarmas
+     *                         (sub-tabs software).
+     *
+     * Lo muta ``MainTabs`` al hacer click en uno de los dos botones
+     * del strip. Centralizado aquí para que ``DefinicionProgramacion``
+     * pueda decidir el panel a pintar leyendo este único flag.
+     */
+    activeMainTab: "dispositivos",
+
     /** Flag de operación en curso (deshabilita botones). */
     busy: false,
 
@@ -296,6 +312,26 @@ export function goToSubview(key) {
     if (!views || typeof views !== "object") return;
     if (!Object.prototype.hasOwnProperty.call(views, key)) return;
     store.currentView = key;
+}
+
+/**
+ * Cambia el tab principal de la vista "Definición programación".
+ * Encapsula la mutación de ``store.activeMainTab`` para que ningún
+ * componente lo toque directamente (mismo patrón que ``goToSubview``
+ * para ``store.currentView``).
+ *
+ * Si ``key`` no es uno de los dos valores conocidos (``'dispositivos'``
+ * o ``'software'``), se ignora silenciosamente. Esto evita que un
+ * input corrupto (typo, valor antiguo tras un rename) deje la SPA
+ * en estado inconsistente.
+ *
+ * Llamado por ``MainTabs`` al hacer click. ``DefinicionProgramacion``
+ * lee ``store.activeMainTab`` reactivamente y pinta el panel
+ * correspondiente.
+ */
+export function goToMainTab(key) {
+    if (key !== "dispositivos" && key !== "software") return;
+    store.activeMainTab = key;
 }
 
 /**
