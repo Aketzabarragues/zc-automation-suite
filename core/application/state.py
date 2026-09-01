@@ -47,6 +47,15 @@ class AppState:
             de alimentación) se resolverá en un refactor futuro.
             TODO(PR2.5): tipar correctamente dimensiones una vez se
             decida dónde vive definitivamente.
+        excel_cache: Placeholder (Any) con default ``None``. Cache IT
+            del Excel (``ExcelCache``) que vive en
+            ``areas/alimentacion/domain/models/excel_cache.py``. Se
+            mantiene como ``Any`` para no importar el área desde
+            ``core/``. Lo puebla el endpoint
+            ``POST /api/v1/excel/upload`` tras un load exitoso.
+        excel_path: Ruta absoluta del Excel actualmente cacheado,
+            o ``None`` si todavía no se ha cargado ninguno. Sirve
+            para la invalidación por mtime sin re-leer el cache.
     """
 
     def __init__(self) -> None:
@@ -56,6 +65,12 @@ class AppState:
         # TODO(PR2.5): tipar correctamente dimensiones una vez se decida
         # dónde vive definitivamente.
         self.dimensiones: Any = None
+        # Cache IT del Excel (Fase 5 del plan). Anotado ``Any`` para
+        # no importar el área desde ``core/``.
+        self.excel_cache: Any = None
+        # Path absoluto del Excel actualmente cacheado. ``None`` si
+        # todavía no se ha cargado ninguno.
+        self.excel_path: str | None = None
 
     # ── API data-driven (público, no ligado a alimentación) ────────────
 

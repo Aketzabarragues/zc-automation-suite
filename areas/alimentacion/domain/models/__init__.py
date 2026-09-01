@@ -19,7 +19,8 @@ Hasta entonces, los re-exports de ``dispositivos.py`` se conservan
 intactos.
 """
 
-from areas.alimentacion.domain.models.dispositivos import (
+from areas.alimentacion.domain.models.excel_cache import (
+    AlarmaPLC,
     DimensionesDispositivos,
     DispEA,
     DispED,
@@ -28,9 +29,7 @@ from areas.alimentacion.domain.models.dispositivos import (
     DispSA,
     DispV,
     Dispositivo,
-)
-from areas.alimentacion.domain.models.excel_cache import (
-    AlarmaPLC,
+    ExcelCache,
     ParamIntPLC,
     ParamRealPLC,
     ProcesoPLC,
@@ -52,4 +51,6 @@ __all__ = [
     "ParamRealPLC",
     "ParamIntPLC",
     "AlarmaPLC",
+    # DTO raíz del cache del Excel (Fase 5)
+    "ExcelCache",
 ]

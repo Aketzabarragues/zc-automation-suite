@@ -19,7 +19,7 @@ from areas.alimentacion.application.use_cases.sync_dispositivos_instances import
     SyncDispositivosInstancesUseCase,
 )
 from core.application.state import AppState
-from areas.alimentacion.domain.models.dispositivos import (
+from areas.alimentacion.domain.models.excel_cache import (
     DispED,
     DimensionesDispositivos,
 )

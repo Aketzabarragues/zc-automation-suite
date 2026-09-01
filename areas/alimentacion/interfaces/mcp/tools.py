@@ -162,6 +162,10 @@ def register(mcp: "FastMCP") -> None:
         ``POST /api/v1/excel/upload`` pero el path viene del LLM,
         no de un multipart upload.
 
+        Flujo (Fase 5 del plan ``_plan/04_excel_cache_phased_plan.md``):
+        usa ``ExcelLoader`` (sync, abre el workbook UNA vez) +
+        ``ExcelCacheManager`` (Singleton IT del cache).
+
         Args:
             file_path: Ruta absoluta al archivo ``.xlsx``.
 
@@ -172,46 +176,50 @@ def register(mcp: "FastMCP") -> None:
             - FileNotFoundError si la ruta no existe.
             - ValueError si el Excel no tiene la estructura esperada.
         """
-        from areas.alimentacion.infrastructure.parsers.alimentacion_excel_parser import (
-            AlimentacionExcelParser,
-        )
+        import asyncio
+
+        from areas.alimentacion.infrastructure.cache import ExcelCacheManager
+        from areas.alimentacion.infrastructure.loaders import ExcelLoader
 
         path = Path(file_path)
         if not path.is_file():
             raise FileNotFoundError(f"Excel no encontrado: {file_path}")
 
-        parser = AlimentacionExcelParser(config_manager=deps["config_manager"])
-        dispositivos_por_tipo = parser.extraer_dtos(path)
-        dimensiones = parser.extraer_dimensiones(path)
-
-        # Volcado data-driven (mismo path que el router web).
-        # Itera los hw_types activos y, para cada uno, resuelve su
-        # atributo del AppState y su clave canónica del Excel. Si el
-        # hw_type no tiene target o attr, se ignora silenciosamente.
         state = deps["app_state"]
         cm = deps["config_manager"]
+
+        # El loader es sync (abre el workbook con openpyxl). Lo
+        # envolvemos en ``asyncio.to_thread`` para no bloquear el
+        # event loop del MCP server (D3 del plan).
+        loader = ExcelLoader(config_manager=cm)
+        cache = await asyncio.to_thread(loader.load, path)
+        await ExcelCacheManager.put(cache)
+
+        # Back-compat con la SPA y los routers actuales: poblar
+        # ``state.dispositivos_<hw>`` desde ``cache.dispositivos``.
+        for hw, devices_tuple in cache.dispositivos.items():
+            state.set_devices(hw, list(devices_tuple))
+        state.dimensiones = cache.n_max
+        state.excel_cache = cache
+        state.excel_path = cache.excel_path
+
+        # ``summary`` con la shape legacy: ``{tipo_canonica: count}``.
+        summary: dict[str, int] = {}
         for hw in cm.list_hw_types_active():
             target = cm.get_excel_target_for(hw)
-            attr = cm.get_app_state_attr_for(hw)
-            if target is None or attr is None:
+            if target is None:
                 continue
             canonica = target.get("canonical", "")
             if not canonica:
                 continue
-            setattr(state, attr, dispositivos_por_tipo.get(canonica, []))
-
-        state.dimensiones = dimensiones
+            devices_tuple = cache.dispositivos.get(hw, ())
+            summary[canonica] = len(devices_tuple)
 
         return {
             "ok": True,
-            "summary": {
-                tipo: len(lista)
-                for tipo, lista in dispositivos_por_tipo.items()
-            },
-            "total_dispositivos": sum(
-                len(v) for v in dispositivos_por_tipo.values()
-            ),
-            "dimensiones": dimensiones.to_api_dict(),
+            "summary": summary,
+            "total_dispositivos": sum(summary.values()),
+            "dimensiones": cache.n_max.to_api_dict(),
         }
 
 

@@ -12,7 +12,7 @@ Restricción arquitectónica: este paquete es ESTRICTAMENTE PURO.
 - Prohibido el uso de ``Any`` en los modelos de dominio declarados.
 - Prohibido depender de librerías de infraestructura (openpyxl, etc.).
 """
-from areas.alimentacion.domain.models.dispositivos import (
+from areas.alimentacion.domain.models.excel_cache import (
     DimensionesDispositivos,
     DispEA,
     DispED,
