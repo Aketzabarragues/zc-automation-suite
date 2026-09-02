@@ -121,6 +121,15 @@ async def get_plc_blocks(
     payload = cache.to_dict()
     payload["ok"] = True
     payload["from_cache"] = _is_cache_fresh(cache.scanned_at)
+    # Log de cierre con el resumen: nº de bloques y tablas del
+    # snapshot. Igual que el log "184 ops" del sync de procesos.
+    # El operario pidió el 2026-09-02 que el log indique
+    # "al finalizar diga que está completado y haga el resumen".
+    logger.info(
+        f"[plc_blocks/GET] Snapshot completado: {len(cache.blocks)} "
+        f"bloques, {len(cache.tag_tables)} tablas "
+        f"(from_cache={payload['from_cache']})"
+    )
     return payload
 
 
@@ -154,7 +163,11 @@ async def refresh_plc_blocks(
 
     payload = cache.to_dict()
     payload["ok"] = True
-    payload["from_cache"] = False
+    payload["from_cache"] = False  # siempre fresh tras refresh
+    logger.info(
+        f"[plc_blocks/REFRESH] Re-scan completado: {len(cache.blocks)} "
+        f"bloques, {len(cache.tag_tables)} tablas"
+    )
     return payload
 
 

@@ -546,7 +546,7 @@ export default {
 
             <!-- Tabla de diff -->
             <div v-if="preview && preview.precondiciones_ok"
-                 class="flex-1 overflow-auto table-scroll-x mt-2">
+                 class="flex-1 bg-surface-raised border border-line rounded overflow-auto table-scroll-x mt-2">
                 <table class="w-full text-xs">
                     <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
                         <tr>
