@@ -438,7 +438,7 @@ export default {
                         data-testid="proc-sync-generate-preview"
                         class="px-4 py-2 bg-accent hover:bg-accent-hover disabled:opacity-50 rounded text-sm font-medium text-ink-inverse">
                         <span v-if="isWorking">⏳ Generando…</span>
-                        <span v-else>↻ Generar preview</span>
+                        <span v-else>🔍 Generar Previsión</span>
                     </button>
                 </div>
             </header>
@@ -503,7 +503,7 @@ export default {
                 <button @click="activeTab = 'PReal'"
                     :class="['tab-btn px-4 py-2 text-xs font-medium border-r border-line whitespace-nowrap',
                              activeTab === 'PReal' ? 'active' : 'bg-surface-raised text-ink-muted hover:bg-surface-sunken']">
-                    PReal
+                    Parámetros reales
                     <span v-if="tabBadge('PReal') > 0"
                           class="ml-1 text-[10px] px-1.5 py-0.5 rounded-full bg-accent text-ink-inverse">
                         {{ tabBadge('PReal') }}
@@ -512,7 +512,7 @@ export default {
                 <button @click="activeTab = 'PInt'"
                     :class="['tab-btn px-4 py-2 text-xs font-medium border-r border-line whitespace-nowrap',
                              activeTab === 'PInt' ? 'active' : 'bg-surface-raised text-ink-muted hover:bg-surface-sunken']">
-                    PInt
+                    Parámetros Enteros
                     <span v-if="tabBadge('PInt') > 0"
                           class="ml-1 text-[10px] px-1.5 py-0.5 rounded-full bg-accent text-ink-inverse">
                         {{ tabBadge('PInt') }}
@@ -535,10 +535,10 @@ export default {
                 <table class="w-full text-xs">
                     <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
                         <tr>
-                            <th class="px-3 py-2 text-left text-ink-muted w-16">Slot</th>
-                            <th class="px-3 py-2 text-left text-ink-muted">Valor actual (es-ES)</th>
-                            <th class="px-3 py-2 text-left text-ink-muted">Valor deseado (Excel)</th>
-                            <th class="px-3 py-2 text-left text-ink-muted w-28">Acción</th>
+                            <th class="px-3 py-2 text-left text-ink-muted w-14">#</th>
+                            <th class="px-3 py-2 text-left text-ink-muted">Actual (TIA)</th>
+                            <th class="px-3 py-2 text-left text-ink-muted">Deseado (Excel)</th>
+                            <th class="px-3 py-2 text-left text-ink-muted w-28">Estado</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -589,8 +589,9 @@ export default {
             <div v-else-if="!preview"
                  class="flex-1 flex items-center justify-center bg-surface-raised border border-line rounded">
                 <div class="text-center text-ink-muted text-sm">
-                    <p class="mb-2">⚠️ Aún no se ha generado el preview.</p>
-                    <p class="text-xs">Pulsa "↻ Generar preview" para calcular el diff.</p>
+                    <div class="text-5xl mb-3 opacity-40">⚡</div>
+                    <p class="mb-2">Sin prevision generada.</p>
+                    <p class="text-xs">Pulsa <strong class="text-accent">"🔍 Generar Previsión"</strong> para ver el diff completo.</p>
                 </div>
             </div>
 
