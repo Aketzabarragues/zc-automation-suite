@@ -141,9 +141,23 @@ class ProgressTracker:
     ) -> None:
         """Inicia una nueva operación.
 
-        Si ya hay una activa, la reemplaza y emite un warning al
-        ``LogBuffer`` (best-effort: si el logger no está disponible
-        aún, simplemente no loggea — el tracker no debe fallar por eso).
+        Si ya hay una activa, emite un warning al ``LogBuffer``
+        (best-effort: si el logger no está disponible aún,
+        simplemente no loggea — el tracker no debe fallar por eso).
+        Excepción: si la nueva operación es **idéntica** a la actual
+        (mismo ``operation`` + mismos ``stages``), NO se emite el
+        warning — es claramente un reintento del mismo caller
+        (p. ej. el operario pinchó el botón dos veces, o el SPA
+        disparó el endpoint por auto-refresh mientras el primero
+        estaba en vuelo). El warning se mantiene cuando:
+
+          * la operación es **distinta** (conflicto real, p. ej.
+            un escaneo y un preview compitiendo por el mismo
+            tracker), o
+          * la operación es la misma pero los ``stages`` son
+            diferentes (alguien cambió la spec sin querer — un
+            ``generar_prevision`` con 4 stages reemplazando a uno
+            con 5).
 
         Args:
             operation: Tag canónico (``"preview"``, ``"commit"``,
@@ -153,17 +167,32 @@ class ProgressTracker:
         """
         with self._lock:
             if self._active:
-                # Overwrite: avisamos al LogBuffer (importación perezosa
-                # para evitar ciclo).
-                try:
-                    from core.application.log_buffer import get_log_buffer
-                    get_log_buffer().warning(
-                        f"ProgressTracker: '{self._operation}' en curso fue "
-                        f"reemplazado por '{operation}'."
-                    )
-                except Exception:
-                    # Nunca rompemos el tracker por un fallo de logging.
-                    pass
+                # ¿Es un reintento idéntico? (mismo operation + mismos
+                # stages). En ese caso NO warning — es el mismo
+                # caller re-ejecutando, no un conflicto.
+                same_operation = self._operation == operation
+                same_stages = self._stage_order == list(stages)
+                if not (same_operation and same_stages):
+                    try:
+                        from core.application.log_buffer import get_log_buffer
+                        if not same_operation:
+                            get_log_buffer().warning(
+                                f"ProgressTracker: '{self._operation}' en curso fue "
+                                f"reemplazado por '{operation}'."
+                            )
+                        else:
+                            # Mismo operation pero stages distintos:
+                            # escenario anómalo (alguien cambió la
+                            # spec). Warning más específico.
+                            get_log_buffer().warning(
+                                f"ProgressTracker: '{self._operation}' en curso fue "
+                                f"reiniciado con stages distintos "
+                                f"(antes={self._stage_order}, ahora={list(stages)})."
+                            )
+                    except Exception:
+                        # Nunca rompemos el tracker por un fallo de
+                        # logging.
+                        pass
             self._active = True
             self._operation = operation
             self._label = label

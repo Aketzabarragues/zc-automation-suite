@@ -230,3 +230,95 @@ def test_concurrent_begin_does_not_corrupt() -> None:
         assert "id" in s
         assert "status" in s
         assert s["status"] in {"pending", "running", "done", "error"}
+
+
+# ── Reintento idéntico (misma operation + mismos stages) ────────────
+
+
+def test_begin_identical_retry_silently_replaces(monkeypatch) -> None:
+    """Si el operario pincha dos veces el mismo botón (mismo
+    operation + mismos stages), el segundo ``begin()`` reemplaza
+    al primero SILENCIOSAMENTE: no se emite el warning "X en
+    curso fue reemplazado por X" en el ``LogBuffer`` (sería
+    ruido: es el mismo caller re-ejecutando, no un conflicto).
+
+    Caso real visto en producción: el operario disparó dos veces
+    el escaneo de bloques del PLC (15:18:52, 15:19:00, 15:19:20)
+    y el log mostraba::
+
+      ProgressTracker: 'scan_plc_blocks::ZC_PLC_STD' en curso
+      fue reemplazado por 'scan_plc_blocks::ZC_PLC_STD'.
+
+    ...que confundía porque parecía un bug cuando era solo un
+    reintento legítimo.
+    """
+    from core.application import progress_buffer
+
+    # Reset al estado inicial del singleton para que el test
+    # sea determinista (otros tests ya pasaron por ``begin()``).
+    tracker = progress_buffer.ProgressTracker()
+    monkeypatch.setattr(progress_buffer, "_tracker", tracker)
+
+    # Mock del LogBuffer: capturamos los warnings que pasan por él.
+    captured: list[str] = []
+    from core.application.log_buffer import LogBuffer
+
+    fake_buffer = LogBuffer(maxlen=100)
+    # ``get_log_buffer`` retorna el singleton del módulo
+    # (``_buffer`` global). Lo parcheamos para inyectar nuestro
+    # buffer capturador.
+    monkeypatch.setattr(
+        "core.application.log_buffer.get_log_buffer",
+        lambda: fake_buffer,
+    )
+
+    stages = ["scan_blocks"]
+    # Primer begin: arranca la operación.
+    tracker.begin("scan_plc_blocks::ZC_PLC_STD", "Escaneando", stages)
+    assert len(fake_buffer.snapshot()) == 0, "El primer begin no debe avisar."
+
+    # Segundo begin IDÉNTICO (mismo operation + mismos stages):
+    # es un reintento legítimo, NO debe avisar.
+    tracker.begin("scan_plc_blocks::ZC_PLC_STD", "Escaneando", stages)
+    assert len(fake_buffer.snapshot()) == 0, (
+        "El reintento idéntico no debe avisar (es el mismo caller). "
+        f"Warnings capturados: {list(fake_buffer.snapshot())}"
+    )
+
+    # Tercer begin con OTRO operation: aquí SÍ debe avisar.
+    tracker.begin("preview", "Generando preview", ["check_state"])
+    snap = fake_buffer.snapshot()
+    assert len(snap) == 1, (
+        f"Begin con operation distinta debe avisar. Warnings: {snap}"
+    )
+    msg = snap[-1]["message"]
+    assert "scan_plc_blocks::ZC_PLC_STD" in msg
+    assert "preview" in msg
+
+
+def test_begin_same_operation_different_stages_warns(monkeypatch) -> None:
+    """Misma operation pero ``stages`` distintos: warning más
+    específico (alguien cambió la spec sin querer).
+    """
+    from core.application import progress_buffer
+    from core.application.log_buffer import LogBuffer
+
+    tracker = progress_buffer.ProgressTracker()
+    monkeypatch.setattr(progress_buffer, "_tracker", tracker)
+    fake_buffer = LogBuffer(maxlen=100)
+    monkeypatch.setattr(
+        "core.application.log_buffer.get_log_buffer",
+        lambda: fake_buffer,
+    )
+
+    tracker.begin("preview", "Preview v1", ["a", "b", "c"])
+    # Mismo operation, pero ahora 5 stages en vez de 3.
+    tracker.begin("preview", "Preview v2", ["a", "b", "c", "d", "e"])
+    snap = fake_buffer.snapshot()
+    assert len(snap) == 1, (
+        f"Debe avisar (stages distintos). Warnings: {snap}"
+    )
+    msg = snap[-1]["message"]  # LogBuffer entries son dicts.
+    assert "stages distintos" in msg
+    assert "['a', 'b', 'c']" in msg
+    assert "['a', 'b', 'c', 'd', 'e']" in msg
