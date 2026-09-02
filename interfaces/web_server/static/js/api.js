@@ -121,7 +121,7 @@ export const apiClearProgress = () =>
  *
  * El backend puede responder 404 mientras el router no está
  * desplegado; el SPA lo trata como "cache miss" y permite
- * reintento (ver ``store.refreshPlcBlocks``).
+ * reintento (ver ``store.loadAndApplyPlcBlocks``).
  *
  * Devuelve la forma ``{ ok, status, data }`` estándar. En éxito
  * ``data`` suele traer ``{ ok, snapshot }`` donde ``snapshot`` es

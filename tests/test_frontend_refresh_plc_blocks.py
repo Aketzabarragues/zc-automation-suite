@@ -57,24 +57,32 @@ def test_api_js_exposes_project_info_endpoint() -> None:
     assert "/api/v1/portal/project-info" in text
 
 
-def test_store_js_exposes_refresh_helper_only() -> None:
-    """``store.js`` expone ``refreshPlcBlocks`` (thin wrapper del progreso).
+def test_store_js_exposes_unified_helper() -> None:
+    """``store.js`` expone ``loadAndApplyPlcBlocks`` (helper unificado).
 
-    Tras añadir la vista ``BloquesCacheView``, el store re-introduce
-    el slot ``plcBlocksCache`` (datos) y los helpers
-    ``loadPlcBlocksCache`` / ``refreshPlcBlocksCache``. PERO el
-    feedback de la operación larga sigue siendo 100% backend
-    (``ProgressTracker``): no reintroducimos el badge legacy con su
-    estado local (``scanningPlc``, ``lastScanError``, ``cacheSummary``).
+    El refactor funde los antiguos ``refreshPlcBlocks`` (thin
+    wrapper del progreso), ``loadPlcBlocksCache`` (versión datos) y
+    ``refreshPlcBlocksCache`` (versión forzada) en una sola
+    función con ``{ force = false }``. Mismo contrato observable
+    (slot ``plcBlocksCache``, feedback del ``ProgressTracker``
+    backend) y un solo round-trip HTTP por cambio de PLC.
+
+    PERO el feedback de la operación larga sigue siendo 100%
+    backend (``ProgressTracker``): no reintroducimos el badge
+    legacy con su estado local (``scanningPlc``, ``lastScanError``,
+    ``cacheSummary``).
     """
     text = _read(STORE_JS)
-    # Helper principal de progreso.
-    assert "export async function refreshPlcBlocks" in text
-    # Slot de datos para la nueva vista (NO es feedback de progreso).
+    # Helper unificado presente.
+    assert "export async function loadAndApplyPlcBlocks" in text
+    # Helpers legacy eliminados (asserts negativos: la API antigua
+    # ya no existe).
+    assert "export async function refreshPlcBlocks" not in text
+    assert "export async function loadPlcBlocksCache" not in text
+    assert "export async function refreshPlcBlocksCache" not in text
+    # Slot de datos para la vista ``BloquesCacheView`` (NO es
+    # feedback de progreso; lo escribe el helper unificado).
     assert "plcBlocksCache:" in text
-    # Helpers de carga/refresh de la nueva vista.
-    assert "loadPlcBlocksCache" in text
-    assert "refreshPlcBlocksCache" in text
     # NO reintroducimos el badge legacy con su estado efímero.
     assert "scanningPlc:" not in text
     assert "lastScanError:" not in text
@@ -83,17 +91,21 @@ def test_store_js_exposes_refresh_helper_only() -> None:
 
 
 def test_sidebar_wires_change_handler_to_progress_indicator() -> None:
-    """``Sidebar.js`` une el ``@change`` del select con ``refreshPlcBlocks``.
+    """``Sidebar.js`` une el ``@change`` del select con ``loadAndApplyPlcBlocks``.
 
     El feedback se ve en el ``ProgressIndicator`` (que ya está
     anclado al fondo del sidebar), no en un badge propio. Por
     eso este test verifica que NO reintroducimos el badge custom
-    con su botón ↻.
+    con su botón ↻. Tras el refactor unificado, ``onPlcSelected``
+    hace UNA sola llamada al helper del store.
     """
     text = _read(SIDEBAR_JS)
-    # Wiring del select → scan via el helper del store.
+    # Wiring del select → scan via el helper unificado del store.
     assert "@change=\"onPlcSelected\"" in text
-    assert "refreshPlcBlocks" in text
+    assert "loadAndApplyPlcBlocks" in text
+    # El handler ya no encadena dos llamadas (refactor: una sola).
+    assert "refreshPlcBlocks" not in text
+    assert "loadPlcBlocksCache" not in text
     # El ProgressIndicator del sidebar sigue montado (donde aparece
     # el task de "Cache de bloques de <plc>").
     assert "<ProgressIndicator" in text

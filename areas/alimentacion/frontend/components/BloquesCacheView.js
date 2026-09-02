@@ -45,8 +45,7 @@ import {
 import {
     store,
     pushLog,
-    loadPlcBlocksCache,
-    refreshPlcBlocksCache,
+    loadAndApplyPlcBlocks,
 } from "/js/store.js";
 
 /** Umbral de "stale" del cache local (5 min, mismo TTL que el backend). */
@@ -244,7 +243,7 @@ export default {
             if (!store.selectedPlc || isRefreshing.value) return;
             isRefreshing.value = true;
             try {
-                await refreshPlcBlocksCache(store.selectedPlc);
+                await loadAndApplyPlcBlocks(store.selectedPlc, { force: true });
                 pushLog(
                     `Cache de ${store.selectedPlc} refrescado`,
                     "success"
@@ -273,7 +272,7 @@ export default {
             const current = store.selectedPlc;
             const cached = store.plcBlocksCache;
             if (current && (!cached || cached.plc_name !== current)) {
-                loadPlcBlocksCache(current);
+                loadAndApplyPlcBlocks(current);
             }
         });
 
@@ -287,7 +286,7 @@ export default {
             () => store.selectedPlc,
             (newPlc) => {
                 if (newPlc) {
-                    loadPlcBlocksCache(newPlc);
+                    loadAndApplyPlcBlocks(newPlc);
                 }
             }
         );

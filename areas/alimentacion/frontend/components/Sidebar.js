@@ -31,7 +31,7 @@ import { computed } from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js";
 // ``/js/`` y NO se mueven. Un import relativo ``../../../../js/X.js``
 // se resolvería contra la URL del módulo y daría
 // ``/static/js/X.js`` (404). Usar absolutos evita el problema.
-import { store, pushLog, goToWelcome, goToSubview, refreshPlcBlocks, loadPlcBlocksCache } from "/js/store.js";
+import { store, pushLog, goToWelcome, goToSubview, loadAndApplyPlcBlocks } from "/js/store.js";
 import { apiFetchPlcs, apiFetchProjectInfo } from "/js/api.js";
 import ProgressIndicator from "/js/components/ProgressIndicator.js";
 
@@ -86,25 +86,24 @@ export default {
         }
 
         /**
-         * Handler del ``@change`` del ``<select>`` de PLC. Dispara
-         * el scan de bloques+tag_tables del PLC recién elegido
-         * vía el endpoint ``GET /api/v1/plcs/<plc>/blocks``. La
-         * promesa se ignora: el feedback de la operación larga
-         * llega por el ``ProgressTracker`` backend, que el
-         * ``ProgressIndicator`` (anclado al fondo del sidebar)
-         * muestra automáticamente gracias al polling 500 ms de
-         * ``main.js``. No añadimos ningún widget nuevo en la SPA.
-         *
-         * Tras el scan, también pre-cargamos el snapshot en
-         * ``store.plcBlocksCache`` para que la vista
+         * Handler del ``@change`` del ``<select>`` de PLC. Una
+         * sola llamada a ``loadAndApplyPlcBlocks`` dispara el
+         * scan de bloques+tag_tables del PLC recién elegido
+         * (``GET /api/v1/plcs/<plc>/blocks``) y deja el snapshot
+         * en ``store.plcBlocksCache`` para que la vista
          * ``BloquesCacheView`` lo tenga listo en cuanto el
          * operario navegue a ella (no tiene que esperar a su
          * ``onMounted``). La vista, además, recarga reactivamente
          * si el PLC cambia mientras está abierta.
+         *
+         * La promesa se ignora: el feedback de la operación larga
+         * llega por el ``ProgressTracker`` backend, que el
+         * ``ProgressIndicator`` (anclado al fondo del sidebar)
+         * muestra automáticamente gracias al polling 500 ms de
+         * ``main.js``. No añadimos ningún widget nuevo en la SPA.
          */
         async function onPlcSelected() {
-            await refreshPlcBlocks(store.selectedPlc);
-            await loadPlcBlocksCache(store.selectedPlc);
+            await loadAndApplyPlcBlocks(store.selectedPlc);
         }
 
         return {

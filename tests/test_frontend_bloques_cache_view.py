@@ -134,15 +134,23 @@ def test_sidebar_has_cache_nav_button() -> None:
 
 
 def test_store_has_plc_blocks_cache() -> None:
-    """``store.js`` re-introduce ``plcBlocksCache`` + los dos helpers
-    de carga/refresh para la nueva vista.
+    """``store.js`` expone ``plcBlocksCache`` + el helper unificado
+    ``loadAndApplyPlcBlocks`` para la vista.
+
+    Tras el refactor, los antiguos ``loadPlcBlocksCache`` y
+    ``refreshPlcBlocksCache`` se funden en
+    ``loadAndApplyPlcBlocks(plcName, { force = false })``. La
+    vista usa el helper unificado con ``{ force: true }`` en el
+    botón "↻ Refrescar" y sin ``force`` (cache-hit) en el resto.
     """
     text = _read(STORE_JS)
     # Slot de datos en el ``reactive({...})``.
     assert "plcBlocksCache:" in text
-    # Helpers exportados.
-    assert "export async function loadPlcBlocksCache" in text
-    assert "export async function refreshPlcBlocksCache" in text
+    # Helper unificado exportado.
+    assert "export async function loadAndApplyPlcBlocks" in text
+    # Helpers legacy eliminados.
+    assert "export async function loadPlcBlocksCache" not in text
+    assert "export async function refreshPlcBlocksCache" not in text
 
 
 def test_styles_css_regenerated() -> None:
