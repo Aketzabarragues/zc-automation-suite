@@ -120,23 +120,34 @@ class SyncProcesosComentariosUseCase:
                   "warnings": list[str],
                 }
         """
-        self._progress.begin(
-            operation="preview_procesos_comentarios",
-            label=f"Generando preview comentarios proceso {proc_uid}",
-            stages=[
-                "check_state", "check_blocks", "build_slot_maps",
-                "compute_nmax", "export_and_diff", "done",
-            ],
-        )
+        # Solo emitir progress si NO hay ya una operación activa.
+        # Si el operario disparó un escaneo de bloques (o un
+        # ``generar_prevision`` anterior) que aún está en curso,
+        # nuestro ``begin()`` lo sobrescribiría y los ``start_stage``
+        # podrían fallar (``ValueError`` si el stage no está en
+        # los declarados en el ``begin()`` del otro caller).
+        # Patrón análogo a ``sync_dispositivos_instances``.
+        _track = not self._progress.active
+        if _track:
+            self._progress.begin(
+                operation="preview_procesos_comentarios",
+                label=f"Generando preview comentarios proceso {proc_uid}",
+                stages=[
+                    "check_state", "check_blocks", "build_slot_maps",
+                    "compute_nmax", "export_and_diff", "done",
+                ],
+            )
         try:
             # check_state: validar que excel_cache no esté vacío.
-            self._progress.start_stage("check_state", "Validando AppState...")
+            if _track:
+                self._progress.start_stage("check_state", "Validando AppState...")
             if self._state.excel_cache is None:
-                self._progress.finish_stage("check_state", "Excel no cargado")
-                self._progress.finish_stage("check_blocks")
-                self._progress.finish_stage("build_slot_maps")
-                self._progress.start_stage("done", "Sin Excel cargado")
-                self._progress.finish_stage("done", "Sin Excel cargado")
+                if _track:
+                    self._progress.finish_stage("check_state", "Excel no cargado")
+                    self._progress.finish_stage("check_blocks")
+                    self._progress.finish_stage("build_slot_maps")
+                    self._progress.start_stage("done", "Sin Excel cargado")
+                    self._progress.finish_stage("done", "Sin Excel cargado")
                 return {
                     "proc_uid": proc_uid,
                     "precondiciones_ok": False,
@@ -149,7 +160,8 @@ class SyncProcesosComentariosUseCase:
                                 "eliminados": 0, "sin_cambios": 0},
                     "warnings": [],
                 }
-            self._progress.finish_stage("check_state", "AppState OK")
+            if _track:
+                self._progress.finish_stage("check_state", "AppState OK")
 
             # check_blocks: cache de bloques del PLC.
             # Distinguimos 2 casos de "sin cache":
@@ -161,13 +173,15 @@ class SyncProcesosComentariosUseCase:
             #      fue escaneado pero el proyecto no tiene bloques.
             #      Esto es un estado válido pero improbable; lo
             #      tratamos como missing_blocks.
-            self._progress.start_stage("check_blocks", "Verificando bloques TIA...")
+            if _track:
+                self._progress.start_stage("check_blocks", "Verificando bloques TIA...")
             if self._bloques_cache is None:
-                self._progress.finish_stage(
-                    "check_blocks", "Cache de bloques no disponible"
-                )
-                self._progress.start_stage("done", "Sin cache de bloques")
-                self._progress.finish_stage("done", "Sin cache de bloques")
+                if _track:
+                    self._progress.finish_stage(
+                        "check_blocks", "Cache de bloques no disponible"
+                    )
+                    self._progress.start_stage("done", "Sin cache de bloques")
+                    self._progress.finish_stage("done", "Sin cache de bloques")
                 return {
                     "proc_uid": proc_uid,
                     "precondiciones_ok": False,
@@ -182,21 +196,24 @@ class SyncProcesosComentariosUseCase:
                     "warnings": [],
                 }
             bloques = self._bloques_cache
-            self._progress.finish_stage(
-                "check_blocks",
-                f"{len(bloques.blocks)} bloques, {len(bloques.tag_tables)} tablas"
-            )
+            if _track:
+                self._progress.finish_stage(
+                    "check_blocks",
+                    f"{len(bloques.blocks)} bloques, {len(bloques.tag_tables)} tablas"
+                )
 
             # build_slot_maps: cruzar Excel + BloqueCache.
-            self._progress.start_stage("build_slot_maps", "Cruzando Excel ↔ bloques...")
+            if _track:
+                self._progress.start_stage("build_slot_maps", "Cruzando Excel ↔ bloques...")
             try:
                 slot_map = build_proceso_slot_maps(
                     self._state, self._config, proc_uid, bloques
                 )
             except RuntimeError as exc:
-                self._progress.finish_stage("build_slot_maps", f"Error: {exc}")
-                self._progress.start_stage("done", "Abortado")
-                self._progress.finish_stage("done", "Abortado")
+                if _track:
+                    self._progress.finish_stage("build_slot_maps", f"Error: {exc}")
+                    self._progress.start_stage("done", "Abortado")
+                    self._progress.finish_stage("done", "Abortado")
                 return {
                     "proc_uid": proc_uid,
                     "precondiciones_ok": False,
@@ -206,39 +223,41 @@ class SyncProcesosComentariosUseCase:
                                 "eliminados": 0, "sin_cambios": 0},
                     "warnings": [],
                 }
-            self._progress.finish_stage(
-                "build_slot_maps",
-                f"PReal={len(slot_map.preal)} PInt={len(slot_map.pint)} "
-                f"ALM={len(slot_map.alm)}",
-            )
+            if _track:
+                self._progress.finish_stage(
+                    "build_slot_maps",
+                    f"PReal={len(slot_map.preal)} PInt={len(slot_map.pint)} "
+                    f"ALM={len(slot_map.alm)}",
+                )
 
             # compute_nmax: cards SOLO VISUALES con los N_MAX
-            # (``50100_N_MAX_PREAL``, etc.) del proceso. Compara
+            # del proceso (``<uid>_N_MAX_<suffix>``). Compara
             # el desired (de las listas del Excel) contra el
             # current (PlcUserConstant de TIA exportada de la
-            # tabla ``000_Config_Dispositivos``). Si el
-            # departamento no tiene ``procesos.n_max_suffixes`` o
-            # el export falla, emite un bloque con ``current={}``
-            # y status ``"sin_cambios"`` para no romper la SPA.
-            self._progress.start_stage("compute_nmax", "Leyendo N_MAX...")
+            # tabla del proceso, ``<uid>_<codigo>``, en
+            # ``003_Procesos/``).
+            if _track:
+                self._progress.start_stage("compute_nmax", "Leyendo N_MAX...")
             nmax_block = await self._compute_nmax_diff(slot_map)
             nmax_summary = nmax_block.get("summary", {})
-            self._progress.finish_stage(
-                "compute_nmax",
-                f"{nmax_summary.get('actualizar', 0)} actualizar, "
-                f"{nmax_summary.get('sin_cambios', 0)} sin cambios",
-            )
+            if _track:
+                self._progress.finish_stage(
+                    "compute_nmax",
+                    f"{nmax_summary.get('actualizar', 0)} actualizar, "
+                    f"{nmax_summary.get('sin_cambios', 0)} sin cambios",
+                )
 
             # done: precondiciones ok?
             if slot_map.missing_blocks:
-                self._progress.start_stage(
-                    "done",
-                    f"Faltan {len(slot_map.missing_blocks)} bloques",
-                )
-                self._progress.finish_stage(
-                    "done",
-                    f"Faltan {len(slot_map.missing_blocks)} bloques",
-                )
+                if _track:
+                    self._progress.start_stage(
+                        "done",
+                        f"Faltan {len(slot_map.missing_blocks)} bloques",
+                    )
+                    self._progress.finish_stage(
+                        "done",
+                        f"Faltan {len(slot_map.missing_blocks)} bloques",
+                    )
                 return {
                     "proc_uid": proc_uid,
                     "proc_codigo": slot_map.db_param_name.split("_")[1]
@@ -266,10 +285,11 @@ class SyncProcesosComentariosUseCase:
             #     principal, no de los satélites).
             #   - comparamos desired (Excel) con current (TIA) por
             #     slot. action ∈ {sin_cambios, renombrar, agregar}.
-            self._progress.start_stage(
-                "export_and_diff",
-                "Exportando 3 DBs y comparando con Excel...",
-            )
+            if _track:
+                self._progress.start_stage(
+                    "export_and_diff",
+                    "Exportando 3 DBs y comparando con Excel...",
+                )
             try:
                 current_preal, current_pint, current_alm = (
                     await self._export_and_read_current(slot_map)
@@ -285,58 +305,64 @@ class SyncProcesosComentariosUseCase:
                     f"export_and_diff falló: {exc}. Devolviendo "
                     f"current=None para todos los slots."
                 )
-                self._progress.finish_stage(
-                    "export_and_diff",
-                    f"Error exportando: {exc}",
-                )
+                if _track:
+                    self._progress.finish_stage(
+                        "export_and_diff",
+                        f"Error exportando: {exc}",
+                    )
                 current_preal = current_pint = current_alm = None
-                self._progress.start_stage(
-                    "done",
-                    f"Preview con current=None (export falló)",
-                )
-                self._progress.finish_stage(
-                    "done",
-                    f"Preview con current=None (export falló)",
-                )
-                return self._compose_response(
+                if _track:
+                    self._progress.start_stage(
+                        "done",
+                        f"Preview con current=None (export falló)",
+                    )
+                    self._progress.finish_stage(
+                        "done",
+                        f"Preview con current=None (export falló)",
+                    )
+                response = self._compose_response(
                     proc_uid, slot_map,
                     preal_current=None, pint_current=None, alm_current=None,
                     nmax_block=nmax_block,
                     extra_warnings=[f"Export falló: {exc}. current=None."],
                 )
+                if _track:
+                    self._progress.finish(success=True)
+                return response
 
             arrays = self._compose_arrays(
                 slot_map, current_preal, current_pint, current_alm
             )
             summary = self._compute_summary(arrays)
-            self._progress.finish_stage(
-                "export_and_diff",
-                f"{summary['renombrados']} renombrar, "
-                f"{summary['agregados']} agregar, "
-                f"{summary['sin_cambios']} sin cambios",
-            )
+            if _track:
+                self._progress.finish_stage(
+                    "export_and_diff",
+                    f"{summary['renombrados']} renombrar, "
+                    f"{summary['agregados']} agregar, "
+                    f"{summary['sin_cambios']} sin cambios",
+                )
 
-            self._progress.start_stage(
-                "done",
-                f"{summary['total']} slots: "
-                f"{summary['renombrados']} renombrar, "
-                f"{summary['agregados']} agregar, "
-                f"{summary['sin_cambios']} sin cambios",
-            )
-            self._progress.finish_stage(
-                "done",
-                f"{summary['total']} slots: "
-                f"{summary['renombrados']} renombrar, "
-                f"{summary['agregados']} agregar, "
-                f"{summary['sin_cambios']} sin cambios",
-            )
-            # Cierra el tracker (``active=False``) para que la SPA
-            # muestre el estado "completado" en lugar de "En curso"
-            # indefinidamente. ``finish_stage("done")`` solo marca
-            # el último stage como DONE, pero el ``ProgressTracker``
-            # sigue en ``active=True`` hasta que se llame a
-            # ``finish(success=True)``.
-            self._progress.finish(success=True)
+                self._progress.start_stage(
+                    "done",
+                    f"{summary['total']} slots: "
+                    f"{summary['renombrados']} renombrar, "
+                    f"{summary['agregados']} agregar, "
+                    f"{summary['sin_cambios']} sin cambios",
+                )
+                self._progress.finish_stage(
+                    "done",
+                    f"{summary['total']} slots: "
+                    f"{summary['renombrados']} renombrar, "
+                    f"{summary['agregados']} agregar, "
+                    f"{summary['sin_cambios']} sin cambios",
+                )
+                # Cierra el tracker (``active=False``) para que la SPA
+                # muestre el estado "completado" en lugar de "En curso"
+                # indefinidamente. ``finish_stage("done")`` solo marca
+                # el último stage como DONE, pero el ``ProgressTracker``
+                # sigue en ``active=True`` hasta que se llame a
+                # ``finish(success=True)``.
+                self._progress.finish(success=True)
             return self._compose_response(
                 proc_uid, slot_map,
                 preal_current=current_preal,
@@ -345,7 +371,8 @@ class SyncProcesosComentariosUseCase:
                 nmax_block=nmax_block,
             )
         except Exception as exc:
-            self._progress.finish(success=False, error=str(exc))
+            if _track:
+                self._progress.finish(success=False, error=str(exc))
             raise
 
     async def ejecutar_transaccion(
@@ -365,44 +392,56 @@ class SyncProcesosComentariosUseCase:
         usa la ``prevision`` del body) para evitar race conditions
         con cambios de Excel entre el preview y el commit.
         """
-        self._progress.begin(
-            operation="commit_procesos_comentarios",
-            label=f"Aplicando comentarios proceso {proc_uid}",
-            stages=[
-                "check_state", "check_blocks", "build_slot_maps",
-                "open_transaction", "done",
-            ],
-        )
+        # Solo emitir progress si NO hay ya una operación activa.
+        # Patrón análogo a ``sync_dispositivos_instances`` y a
+        # ``generar_prevision`` de este mismo módulo.
+        _track = not self._progress.active
+        if _track:
+            self._progress.begin(
+                operation="commit_procesos_comentarios",
+                label=f"Aplicando comentarios proceso {proc_uid}",
+                stages=[
+                    "check_state", "check_blocks", "build_slot_maps",
+                    "open_transaction", "done",
+                ],
+            )
         try:
             # check_state.
-            self._progress.start_stage("check_state", "Validando AppState...")
+            if _track:
+                self._progress.start_stage("check_state", "Validando AppState...")
             if self._state.excel_cache is None:
-                self._progress.finish_stage("check_state", "Excel no cargado")
+                if _track:
+                    self._progress.finish_stage("check_state", "Excel no cargado")
                 raise RuntimeError(
                     "AppState.excel_cache está vacío. Cargue el Excel con "
                     "POST /api/v1/excel/upload."
                 )
-            self._progress.finish_stage("check_state", "AppState OK")
+            if _track:
+                self._progress.finish_stage("check_state", "AppState OK")
 
             # check_blocks.
-            self._progress.start_stage("check_blocks", "Verificando bloques TIA...")
+            if _track:
+                self._progress.start_stage("check_blocks", "Verificando bloques TIA...")
             if self._bloques_cache is None:
-                self._progress.finish_stage(
-                    "check_blocks", "Cache de bloques no disponible"
-                )
+                if _track:
+                    self._progress.finish_stage(
+                        "check_blocks", "Cache de bloques no disponible"
+                    )
                 raise RuntimeError(
                     "Cache de bloques del PLC no disponible. "
                     "Selecciona el PLC en el sidebar y espera al "
                     "escaneo de bloques (1-3 min en PLCs grandes)."
                 )
             bloques = self._bloques_cache
-            self._progress.finish_stage(
-                "check_blocks",
-                f"{len(bloques.blocks)} bloques, {len(bloques.tag_tables)} tablas"
-            )
+            if _track:
+                self._progress.finish_stage(
+                    "check_blocks",
+                    f"{len(bloques.blocks)} bloques, {len(bloques.tag_tables)} tablas"
+                )
 
             # build_slot_maps: recalcular desde AppState (NO usar prevision).
-            self._progress.start_stage("build_slot_maps", "Recalculando diff...")
+            if _track:
+                self._progress.start_stage("build_slot_maps", "Recalculando diff...")
             slot_map = build_proceso_slot_maps(
                 self._state, self._config, proc_uid, bloques
             )
@@ -410,11 +449,12 @@ class SyncProcesosComentariosUseCase:
                 raise RuntimeError(
                     f"Faltan bloques en el PLC: {slot_map.missing_blocks}"
                 )
-            self._progress.finish_stage(
-                "build_slot_maps",
-                f"PReal={len(slot_map.preal)} PInt={len(slot_map.pint)} "
-                f"ALM={len(slot_map.alm)}",
-            )
+            if _track:
+                self._progress.finish_stage(
+                    "build_slot_maps",
+                    f"PReal={len(slot_map.preal)} PInt={len(slot_map.pint)} "
+                    f"ALM={len(slot_map.alm)}",
+                )
 
             # Necesitamos el plc_name. En el flujo, viene del front
             # en la prevision dict (lo emite el preview del
@@ -470,25 +510,27 @@ class SyncProcesosComentariosUseCase:
                 },
             ]
 
-            self._progress.start_stage(
-                "open_transaction",
-                "Aplicando 3 comentarios a TIA — puede tardar 1-3 min",
-            )
+            if _track:
+                self._progress.start_stage(
+                    "open_transaction",
+                    "Aplicando 3 comentarios a TIA — puede tardar 1-3 min",
+                )
             result = await self._gateway.execute_transactional_batch(
                 operations=operations,
                 undo_text=undo_text,
             )
             ops_executed = result.get("operations_executed", 0)
-            self._progress.finish_stage(
-                "open_transaction",
-                f"{ops_executed} ops aplicadas OK",
-            )
-            self._progress.start_stage("done", f"{ops_executed} ops")
-            self._progress.finish_stage("done", f"{ops_executed} ops")
-            # Cierra el tracker (``active=False``) para que la SPA
-            # muestre el estado "completado" en lugar de "En curso"
-            # indefinidamente.
-            self._progress.finish(success=True)
+            if _track:
+                self._progress.finish_stage(
+                    "open_transaction",
+                    f"{ops_executed} ops aplicadas OK",
+                )
+                self._progress.start_stage("done", f"{ops_executed} ops")
+                self._progress.finish_stage("done", f"{ops_executed} ops")
+                # Cierra el tracker (``active=False``) para que la SPA
+                # muestre el estado "completado" en lugar de "En curso"
+                # indefinidamente.
+                self._progress.finish(success=True)
 
             return {
                 "proc_uid": proc_uid,
@@ -500,7 +542,8 @@ class SyncProcesosComentariosUseCase:
                 "warnings": slot_map.warnings,
             }
         except Exception as exc:
-            self._progress.finish(success=False, error=str(exc))
+            if _track:
+                self._progress.finish(success=False, error=str(exc))
             raise
 
     # ── Internals ────────────────────────────────────────────────────────

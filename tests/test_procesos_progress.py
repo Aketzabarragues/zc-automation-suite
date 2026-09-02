@@ -588,3 +588,79 @@ def test_generar_prevision_nmax_block_con_sufijos_usa_gateway(tmp_path) -> None:
     gateway.export_plc_tags_xml.assert_called_once()
     call_kwargs = gateway.export_plc_tags_xml.call_args.kwargs
     assert call_kwargs["table_names"] == ["100_CPR"]
+
+
+def test_generar_prevision_no_pisa_tracker_con_otra_operacion_activa(
+    tmp_path,
+) -> None:
+    """Si el ``ProgressTracker`` está activo con otra operación
+    (p. ej. un escaneo de bloques ``scan_plc_blocks::ZC_PLC_STD``),
+    el ``generar_prevision`` NO debe hacer ``begin()`` ni emitir
+    stages propios (que fallarían con ``ValueError`` porque el
+    stage_id no está declarado en el ``begin()`` del otro caller).
+    Patrón análogo a ``sync_dispositivos_instances``.
+    """
+    import asyncio
+    from core.application.progress_buffer import ProgressTracker
+    from core.infrastructure.gateway import TIAProcessGateway
+    from core.models.bloque_cache import BloqueCache
+    from core.models.bloque_plc import BloquePLC
+    from unittest.mock import AsyncMock, MagicMock
+
+    # Tracker YA activo con otra operación.
+    tracker = ProgressTracker()
+    tracker.begin(
+        operation="scan_plc_blocks::ZC_PLC_STD",
+        label="Escaneando bloques del PLC",
+        stages=["scan_blocks"],
+    )
+    tracker.start_stage("scan_blocks", "Leyendo .ap*")
+    assert tracker.active is True
+
+    # El use case se construye con este tracker (que ya está activo).
+    proc = MagicMock(uid=100, nombre="Compacto", codigo="CPR")
+    ec = MagicMock()
+    ec.procesos = [proc]
+    ec.parametros_real = [
+        MagicMock(uid="PR_1", codigo="CPR", num_db=53100,
+                  comentario_db="PR 1")
+    ]
+    ec.parametros_int = []
+    ec.alarmas = []
+    state = MagicMock(excel_cache=ec)
+    bloques = BloqueCache(
+        blocks={
+            BloquePLC.normalize_name("DB53100_CPR_PARAM"):
+                BloquePLC(nombre="DB53100_CPR_PARAM", numero=0,
+                          tipo="DB", ruta=""),
+        },
+        tag_tables={},
+        plc_name="PLC_X",
+    )
+
+    gateway = MagicMock(spec=TIAProcessGateway)
+    gateway.export_block = AsyncMock()
+    gateway.export_plc_tags_xml = AsyncMock()
+    config = MagicMock()
+    config.get_proc_nmax_suffixes = MagicMock(return_value={})
+    config.get_tia_folder_nmax = MagicMock(return_value="000_Sistema")
+    config.get_global_config_table_name = MagicMock(
+        return_value="000_Config_Dispositivos"
+    )
+
+    use_case = SyncProcesosComentariosUseCase(
+        gateway=gateway,
+        config_manager=config,
+        app_state=state,
+        progress=tracker,
+        bloques_cache=bloques,
+        build_cache_dir=tmp_path,
+    )
+    asyncio.run(use_case.generar_prevision(100))
+
+    # La operación activa sigue siendo la del escaneo (``scan_blocks``).
+    # Si el ``generar_prevision`` hubiera hecho ``begin()`` o emitido
+    # ``start_stage("done")``, esto habría fallado con ``ValueError``.
+    snap = tracker.snapshot()
+    assert snap.operation == "scan_plc_blocks::ZC_PLC_STD"
+    assert snap.stages[0]["id"] == "scan_blocks"
