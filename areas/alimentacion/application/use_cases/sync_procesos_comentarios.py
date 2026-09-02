@@ -474,6 +474,61 @@ class SyncProcesosComentariosUseCase:
                 f"({plc_name})"
             )
 
+            # Slots a "eliminar" (en TIA pero no en el Excel). Para
+            # detectarlos, re-leemos el ``current`` de TIA con la
+            # misma rutina que el preview. Si el re-export falla (TIA
+            # no responde), seguimos solo con los slots del Excel
+            # (modo degradado: el operario verá solo "renombrar /
+            # agregar", no "eliminar", pero el apply no aborta).
+            preal_to_delete: dict[int, str] = {}
+            pint_to_delete: dict[int, str] = {}
+            alm_to_delete: dict[int, str] = {}
+            try:
+                current_preal, current_pint, current_alm = (
+                    await self._export_and_read_current(slot_map)
+                )
+                if current_preal:
+                    for slot in sorted(
+                        set(current_preal.keys()) - set(slot_map.preal.keys())
+                    ):
+                        text = current_preal[slot]
+                        if text:  # solo si hay algo que "borrar"
+                            preal_to_delete[slot] = "."
+                if current_pint:
+                    for slot in sorted(
+                        set(current_pint.keys()) - set(slot_map.pint.keys())
+                    ):
+                        text = current_pint[slot]
+                        if text:
+                            pint_to_delete[slot] = "."
+                if current_alm:
+                    for slot in sorted(
+                        set(current_alm.keys()) - set(slot_map.alm.keys())
+                    ):
+                        text = current_alm[slot]
+                        if text:
+                            alm_to_delete[slot] = "."
+            except Exception as exc:
+                _logger.warning(
+                    f"ejecutar_transaccion: re-lectura de TIA para "
+                    f"detectar 'eliminar' falló: {exc}. El apply solo "
+                    f"aplicará los slots del Excel (sin 'eliminar')."
+                )
+
+            # Mezcla los slot_maps: Excel + "eliminar" (reset a ".").
+            preal_apply = {
+                **{str(k): v for k, v in slot_map.preal.items()},
+                **{str(k): v for k, v in preal_to_delete.items()},
+            }
+            pint_apply = {
+                **{str(k): v for k, v in slot_map.pint.items()},
+                **{str(k): v for k, v in pint_to_delete.items()},
+            }
+            alm_apply = {
+                **{str(k): v for k, v in slot_map.alm.items()},
+                **{str(k): v for k, v in alm_to_delete.items()},
+            }
+
             operations: list[dict[str, Any]] = [
                 {
                     "command": "update_proc_comments_db_preal",
@@ -481,7 +536,7 @@ class SyncProcesosComentariosUseCase:
                         "plc_name": plc_name,
                         "db_name": slot_map.db_param_name,
                         "array_name": "PReal",
-                        "slot_map": {str(k): v for k, v in slot_map.preal.items()},
+                        "slot_map": preal_apply,
                         "work_dir": str(work_dir),
                         "target_folder": target_folder,
                     },
@@ -492,7 +547,7 @@ class SyncProcesosComentariosUseCase:
                         "plc_name": plc_name,
                         "db_name": slot_map.db_param_name,
                         "array_name": "PInt",
-                        "slot_map": {str(k): v for k, v in slot_map.pint.items()},
+                        "slot_map": pint_apply,
                         "work_dir": str(work_dir),
                         "target_folder": target_folder,
                     },
@@ -503,7 +558,7 @@ class SyncProcesosComentariosUseCase:
                         "plc_name": plc_name,
                         "db_name": slot_map.db_alm_name,
                         "array_name": "ALM",
-                        "slot_map": {str(k): v for k, v in slot_map.alm.items()},
+                        "slot_map": alm_apply,
                         "work_dir": str(work_dir),
                         "target_folder": target_folder,
                     },
@@ -583,35 +638,32 @@ class SyncProcesosComentariosUseCase:
         """Compone el dict ``arrays`` con los 3 arrays del proceso.
 
         Para cada slot, generamos una entrada ``{current, desired,
-        action}`` con ``action ∈ {"sin_cambios", "renombrar", "agregar"}``.
+        action}`` con ``action ∈ {"sin_cambios", "renombrar",
+        "agregar", "eliminar"}``.
 
-        - Si se pasan los mapas ``preal_current`` / ``pint_current``
-          / ``alm_current`` (devueltos por
-          ``ProcesoCommentUpdater.read_current_comments``), el
-          ``current`` es el ``es-ES`` real de TIA y ``action`` se
-          computa como:
-            - ``"agregar"`` si el slot no existe en TIA o ``current
-              is None`` (esto último es raro, indica que el MLC no
-              se encontró en el ``.s7res``; lo tratamos como
-              "agregar" para que el apply lo cree).
-            - ``"renombrar"`` si ``current != desired``.
-            - ``"sin_cambios"`` si ``current == desired``.
-        - Si los mapas son ``None`` (preview rápido sin export, o
-          export falló), ``current`` se emite como ``None`` y
-          ``action`` se infiere del desired:
-            - ``"agregar"`` si ``desired == "."`` (convención TIA
-              "sin comentario" → sería un slot vacío).
-            - ``"renombrar"`` en otro caso.
+        Slots del Excel (``slot_map_dict``):
+          - Si se pasan los mapas ``*_current`` (devueltos por
+            ``ProcesoCommentUpdater.read_current_comments``), el
+            ``current`` es el ``es-ES`` real de TIA y ``action``:
+              - ``"agregar"`` si el slot no existe en TIA (``current
+                is None``) → el apply lo creará.
+              - ``"renombrar"`` si ``current != desired``.
+              - ``"sin_cambios"`` si ``current == desired``.
+          - Si los mapas son ``None`` (export degradado), ``action``
+            se infiere del desired (``"."`` → "agregar", otro →
+            "renombrar").
 
-        Los labels de ``action`` están alineados con el sync de
-        instancias de dispositivos (``sync_dispositivos_instances``)
-        para que la SPA reuse la misma ``STATUS_META``. En este
-        flujo de procesos NO se computa ``"eliminar"`` (no borramos
-        slots, solo actualizamos comentarios); el summary lo
-        incluye siempre a 0 por simetría.
+        Slots de TIA NO en el Excel (``current_dict \ slot_map_dict``):
+          - Caso "eliminar". El slot existe en TIA con un comentario
+            histórico pero el operario no lo tiene en su Excel
+            (p. ej.Compactado de 60 slots donde el Excel solo trae
+            los 20 que el operario quiere gestionar). El apply
+            resetea el comentario a ``"."`` (convención TIA "sin
+            comentario"). Si el current es ``""`` (ya vacío),
+            ``action = "sin_cambios"`` para no molestar al operario.
 
-        La SPA muestra el diff con colores por acción (sin_cambios
-        = gris, renombrar = ámbar, agregar = verde).
+        Los labels están alineados con ``sync_dispositivos_instances``
+        para que la SPA reuse la misma ``STATUS_META``.
         """
         arrays: dict[str, Any] = {}
         for arr_name, slot_map_dict, db_name, satellites, current_dict in (
@@ -623,21 +675,17 @@ class SyncProcesosComentariosUseCase:
              [], alm_current),
         ):
             slot_map_serialized: dict[str, Any] = {}
+            # Slots del Excel: comparar desired vs current.
             for slot, desired in slot_map_dict.items():
                 if current_dict is not None:
-                    # Diff real: comparamos desired vs current.
                     current = current_dict.get(slot)
                     if current is None:
-                        # Slot no existe en TIA o MLC no encontrado.
-                        # El apply lo creará.
                         action = "agregar"
                     elif current == desired:
                         action = "sin_cambios"
                     else:
                         action = "renombrar"
                 else:
-                    # Sin export: precondiciones OK pero sin datos
-                    # de TIA. Asumimos renombrar/agregar según desired.
                     current = None
                     action = "agregar" if desired == "." else "renombrar"
                 slot_map_serialized[str(slot)] = {
@@ -645,11 +693,30 @@ class SyncProcesosComentariosUseCase:
                     "desired": desired,
                     "action": action,
                 }
+            # Slots de TIA NO en el Excel: "eliminar".
+            if current_dict is not None:
+                excel_slots = set(slot_map_dict.keys())
+                tia_slots = set(current_dict.keys())
+                to_remove = sorted(tia_slots - excel_slots)
+                for slot in to_remove:
+                    current = current_dict[slot]
+                    if current is None or current == "":
+                        # Slot vacío en TIA, no hay nada que borrar.
+                        # Lo reportamos como "sin_cambios" para no
+                        # contaminar la UI con falsos positivos.
+                        action = "sin_cambios"
+                    else:
+                        action = "eliminar"
+                    slot_map_serialized[str(slot)] = {
+                        "current": current,
+                        "desired": None,  # no está en el Excel
+                        "action": action,
+                    }
             arrays[arr_name] = {
                 "db_name": db_name,
                 "array_name": arr_name,
                 "satellite_arrays": satellites,
-                "current_count": len(slot_map_dict),
+                "current_count": len(current_dict) if current_dict is not None else 0,
                 "desired_count": len(slot_map_dict),
                 "slot_map": slot_map_serialized,
             }
@@ -663,9 +730,8 @@ class SyncProcesosComentariosUseCase:
         - ``agregados``: nº de slots con ``action == "agregar"``.
         - ``renombrados``: nº de slots con ``action == "renombrar"``.
         - ``eliminados``: nº de slots con ``action == "eliminar"``.
-          En este flujo siempre vale ``0`` (no borramos slots del
-          array, solo actualizamos comentarios). Se incluye por
-          simetría con la SPA que consume ambos resumenes.
+          Slots que están en TIA pero no en el Excel; el apply los
+          resetea a ``"."`` (convención TIA "sin comentario").
         - ``sin_cambios``: nº de slots con ``action == "sin_cambios"``.
         - ``total``: suma de los 4 anteriores.
         """
@@ -919,14 +985,27 @@ class SyncProcesosComentariosUseCase:
             s7res_path=work_dir / f"{slot_map.db_alm_name}.s7res",
             slot_map={},
         )
+        # Slots a leer: los del Excel + los que tienen asignación
+        # en el ``.s7dcl`` (slots de TIA no en el Excel → "eliminar"
+        # en el preview). Si el ``.s7dcl`` no existe, ``find_array_slots``
+        # devuelve set() y solo se leen los del Excel (modo degradado).
+        preal_slots = (
+            set(slot_map.preal.keys()) | updater_param.find_array_slots("PReal")
+        )
+        pint_slots = (
+            set(slot_map.pint.keys()) | updater_param.find_array_slots("PInt")
+        )
+        alm_slots = (
+            set(slot_map.alm.keys()) | updater_alm.find_array_slots("ALM")
+        )
         current_preal = updater_param.read_current_comments(
-            list(slot_map.preal.keys()), "PReal"
+            sorted(preal_slots), "PReal"
         )
         current_pint = updater_param.read_current_comments(
-            list(slot_map.pint.keys()), "PInt"
+            sorted(pint_slots), "PInt"
         )
         current_alm = updater_alm.read_current_comments(
-            list(slot_map.alm.keys()), "ALM"
+            sorted(alm_slots), "ALM"
         )
         return current_preal, current_pint, current_alm
 

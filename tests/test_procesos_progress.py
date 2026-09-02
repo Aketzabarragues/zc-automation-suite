@@ -664,3 +664,167 @@ def test_generar_prevision_no_pisa_tracker_con_otra_operacion_activa(
     snap = tracker.snapshot()
     assert snap.operation == "scan_plc_blocks::ZC_PLC_STD"
     assert snap.stages[0]["id"] == "scan_blocks"
+
+
+def test_generar_prevision_slots_tia_no_excel_aparecen_como_eliminar(
+    tmp_path,
+) -> None:
+    """Slots que están en TIA pero NO en el Excel del proceso
+    aparecen en la tabla del preview con ``action="eliminar"`` y
+    ``desired=None``. Caso real: el DB tiene 60 slots, el Excel
+    solo trae 20 → el operario ve los 40 restantes listados como
+    "ELIMINAR" (análogo a dispositivos).
+    """
+    import asyncio
+    from core.application.progress_buffer import ProgressTracker
+    from core.infrastructure.gateway import TIAProcessGateway
+    from core.models.bloque_cache import BloqueCache
+    from core.models.bloque_plc import BloquePLC
+    from unittest.mock import AsyncMock, MagicMock
+
+    db_param = "DB53100_CPR_PARAM"
+    db_alm = "DB55100_CPR_ALM"
+    # El Excel solo tiene 2 PReal.
+    proc = MagicMock(uid=100, nombre="Compacto", codigo="CPR")
+    ec = MagicMock()
+    ec.procesos = [proc]
+    ec.parametros_real = [
+        MagicMock(uid="PR_1", codigo="CPR", num_db=53100,
+                  comentario_db="PR 1"),
+        MagicMock(uid="PR_2", codigo="CPR", num_db=53100,
+                  comentario_db="PR 2"),
+    ]
+    ec.parametros_int = []
+    ec.alarmas = []  # El test solo cubre PReal.
+    state = MagicMock(excel_cache=ec)
+    bloques = BloqueCache(
+        blocks={
+            BloquePLC.normalize_name(db_param):
+                BloquePLC(nombre=db_param, numero=0, tipo="DB", ruta=""),
+            # El test no cubre alarmas, pero el builder necesita que
+            # el DB de alarmas exista en el cache. Con ``ec.alarmas=[]``
+            # cae al fallback ``DB<proc.uid>_CPR_ALM`` (``DB100_CPR_ALM``).
+            BloquePLC.normalize_name("DB100_CPR_ALM"):
+                BloquePLC(nombre="DB100_CPR_ALM", numero=0, tipo="DB", ruta=""),
+        },
+        tag_tables={
+            BloquePLC.normalize_name("100_CPR"):
+                BloquePLC(nombre="100_CPR", numero=0, tipo="TAG_TABLE",
+                          ruta=""),
+        },
+        plc_name="PLC_X",
+    )
+
+    # TIA tiene 5 PReal: slot 1 y 2 (los del Excel) + slot 3, 4, 5
+    # (NO en el Excel → "eliminar"). El slot 6 también existe pero
+    # con comentario vacío ("" → "sin_cambios", no molestar).
+    fake_current_preal = {
+        1: "TIA_PR_1", 2: "TIA_PR_2",
+        3: "TIA_PR_3", 4: "TIA_PR_4", 5: "TIA_PR_5",
+        6: "",
+    }
+
+    # Escribimos los .s7dcl/.s7res en el work_dir para que el
+    # ``read_current_comments`` los pueda leer.
+    work_dir = tmp_path / "procesos" / "preview"
+    work_dir.mkdir(parents=True)
+    s7dcl = (
+        'DATA_BLOCK "DB53100_CPR_PARAM"\n'
+        '    VAR RETAIN\n'
+        '        { S7_MLC := "MLC_RU" }\n'
+        '        PReal : Array[1.._."50100_N_MAX_PREAL"] of _.UDT_ZC_PREAL;\n'
+        '    END_VAR\n'
+        '\n'
+        '        { S7_MLC := "MLC_PR_001" }\n'
+        '        PReal[1] := ();\n'
+        '        { S7_MLC := "MLC_PR_002" }\n'
+        '        PReal[2] := ();\n'
+        '        { S7_MLC := "MLC_PR_003" }\n'
+        '        PReal[3] := ();\n'
+        '        { S7_MLC := "MLC_PR_004" }\n'
+        '        PReal[4] := ();\n'
+        '        { S7_MLC := "MLC_PR_005" }\n'
+        '        PReal[5] := ();\n'
+        '        { S7_MLC := "MLC_PR_006" }\n'
+        '        PReal[6] := ();\n'
+    )
+    s7res = (
+        "MultiLingualTexts:\n"
+        "  - id: MLC_PR_001\n"
+        "    es-ES: TIA_PR_1\n"
+        "  - id: MLC_PR_002\n"
+        "    es-ES: TIA_PR_2\n"
+        "  - id: MLC_PR_003\n"
+        "    es-ES: TIA_PR_3\n"
+        "  - id: MLC_PR_004\n"
+        "    es-ES: TIA_PR_4\n"
+        "  - id: MLC_PR_005\n"
+        "    es-ES: TIA_PR_5\n"
+        "  - id: MLC_PR_006\n"
+        "    es-ES: ''\n"
+    )
+    (work_dir / f"{db_param}.s7dcl").write_text(s7dcl, encoding="utf-8")
+    (work_dir / f"{db_param}.s7res").write_text(s7res, encoding="utf-8-sig")
+    # El DB ALM no tiene alarmas del Excel. Como ``ec.alarmas=[]``,
+    # el builder hace fallback a ``db_alm_name = "DB<proc.uid>_CPR_ALM"``
+    # (``DB100_CPR_ALM``). El use case lo lee igualmente en
+    # ``_export_and_read_current``; lo pre-escribimos vacío para que
+    # el read no falle.
+    db_alm_resolved = "DB100_CPR_ALM"
+    (work_dir / f"{db_alm_resolved}.s7dcl").write_text(
+        f'DATA_BLOCK "{db_alm_resolved}"\n    END_DATA_BLOCK\n',
+        encoding="utf-8",
+    )
+    (work_dir / f"{db_alm_resolved}.s7res").write_text(
+        "MultiLingualTexts:\n", encoding="utf-8-sig"
+    )
+
+    gateway = MagicMock(spec=TIAProcessGateway)
+
+    async def fake_export_block(plc_name, block_name, target_dir):
+        # El mock "exporta" los archivos que ya escribimos arriba.
+        return target_dir
+
+    gateway.export_block = AsyncMock(side_effect=fake_export_block)
+    gateway.export_plc_tags_xml = AsyncMock()
+
+    config = MagicMock()
+    config.get_proc_nmax_suffixes = MagicMock(return_value={})
+    config.get_tia_folder_nmax = MagicMock(return_value="000_Sistema")
+    config.get_global_config_table_name = MagicMock(
+        return_value="000_Config_Dispositivos"
+    )
+    config.get_tia_folder_proceso = MagicMock(return_value="003_Procesos")
+
+    tracker = ProgressTracker()
+    use_case = SyncProcesosComentariosUseCase(
+        gateway=gateway,
+        config_manager=config,
+        app_state=state,
+        progress=tracker,
+        bloques_cache=bloques,
+        build_cache_dir=tmp_path,
+    )
+    result = asyncio.run(use_case.generar_prevision(100))
+
+    preal = result["arrays"]["PReal"]["slot_map"]
+    # Slots 1 y 2: del Excel, se comparan contra current.
+    assert preal["1"]["action"] in ("renombrar", "sin_cambios")
+    assert preal["1"]["current"] == "TIA_PR_1"
+    assert preal["1"]["desired"] == "PR 1"
+    assert preal["2"]["action"] in ("renombrar", "sin_cambios")
+    # Slots 3, 4, 5: "eliminar" (en TIA, no en Excel, current con texto).
+    for slot in (3, 4, 5):
+        assert preal[str(slot)]["action"] == "eliminar", (
+            f"slot {slot} esperaba 'eliminar', recibí "
+            f"{preal[str(slot)]['action']!r}"
+        )
+        assert preal[str(slot)]["current"] == f"TIA_PR_{slot}"
+        assert preal[str(slot)]["desired"] is None
+    # Slot 6: en TIA con current="" → "sin_cambios" (no molestar).
+    assert preal["6"]["action"] == "sin_cambios"
+
+    # El summary cuenta los eliminados.
+    summary = result["summary"]
+    assert summary["eliminados"] == 3  # slots 3, 4, 5
+    assert summary["total"] == 6  # 2 del Excel + 3 eliminar + 1 sin_cambios

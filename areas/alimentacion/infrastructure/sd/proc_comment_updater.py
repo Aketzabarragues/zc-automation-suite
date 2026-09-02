@@ -529,6 +529,28 @@ class ProcesoCommentUpdater:
                 last_mlc = inner.group("mlc")
         return last_mlc
 
+    def find_array_slots(self, array_name: str) -> set[int]:
+        """Devuelve el set de slots 1-based que tienen asignación de
+        MLC en el ``.s7dcl`` para el array dado.
+
+        Útil para detectar slots "huérfanos" del Excel: el operario
+        tiene en su Excel un subconjunto de los slots que existen
+        en TIA. Los slots que están en TIA (tienen asignación)
+        pero no en el Excel se marcan como ``"eliminar"`` en el
+        preview (análogo al sync de dispositivos).
+        """
+        result: set[int] = set()
+        for match in _ASSIGNMENT_RE.finditer(self._s7dcl):
+            arr = match.group("array")
+            if arr == array_name:
+                try:
+                    slot = int(match.group("idx"))
+                except (TypeError, ValueError):
+                    continue
+                if slot >= 1:
+                    result.add(slot)
+        return result
+
     def _find_assignment(
         self, array_name: str, slot: int
     ) -> re.Match[str] | None:
