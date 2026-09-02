@@ -149,7 +149,7 @@ def test_procesos_uses_memory_state_procesos() -> None:
 def test_procesos_has_two_placeholder_cards() -> None:
     """El template tiene 2 cards: 1 placeholder con ``@click="alert(...)"``
     ("Crear proceso completo", aún sin lógica) y 1 funcional con
-    ``@click="openSyncView"`` ("Actualizar comentarios de DB", que
+    ``@click="openSyncView"`` ("Sync comentarios de DB", que
     navega a la sub-vista ``proc_sync``). El copy debe ser literal
     (es lo que verá el operario).
     """
@@ -166,22 +166,22 @@ def test_procesos_has_two_placeholder_cards() -> None:
     assert "Crear proceso completo" in text, (
         "Falta el label 'Crear proceso completo' en una de las cards"
     )
-    assert "Actualizar comentarios de DB" in text, (
-        "Falta el label 'Actualizar comentarios de DB' en una de las cards"
+    assert "Sync comentarios de DB" in text, (
+        "Falta el label 'Sync comentarios de DB' en una de las cards"
     )
     # El TODO solo está en el card de "Crear proceso completo".
     assert "TODO: Crear proceso completo" in text, (
         "Falta el alert placeholder 'TODO: Crear proceso completo'"
     )
     # Y NO debe estar en el card de comentarios (que ya tiene lógica).
-    assert "TODO: Actualizar comentarios de DB" not in text, (
-        "El card 'Actualizar comentarios de DB' ya no debe ser un "
+    assert "TODO: Sync comentarios de DB" not in text, (
+        "El card 'Sync comentarios de DB' ya no debe ser un "
         "placeholder alert — debe llamar a openSyncView."
     )
 
 
 def test_procesos_card_llama_open_sync_view() -> None:
-    """El card 'Actualizar comentarios de DB' llama a ``openSyncView``
+    """El card 'Sync comentarios de DB' llama a ``openSyncView``
     (NO a ``alert``) y la función está definida en el setup del
     componente. El handler NO cambia ``store.currentView`` — el
     sync view se renderiza inline (no es una sub-vista separada).
@@ -246,7 +246,7 @@ def test_procesos_renderiza_sync_view_inline() -> None:
 
 
 def test_procesos_card_comentarios_deshabilitado_sin_plc() -> None:
-    """El card 'Actualizar comentarios de DB' se deshabilita si NO hay
+    """El card 'Sync comentarios de DB' se deshabilita si NO hay
     cache de bloques del PLC (computed ``canOpenSync``) y muestra un
     tooltip accionable."""
     text = _read(PROCESOS_JS)
@@ -257,7 +257,7 @@ def test_procesos_card_comentarios_deshabilitado_sin_plc() -> None:
     # El card usa :disabled="!canOpenSync" (no :disabled="!canAct"
     # como el otro card).
     assert ':disabled="!canOpenSync"' in text, (
-        "El card 'Actualizar comentarios de DB' debe deshabilitarse "
+        "El card 'Sync comentarios de DB' debe deshabilitarse "
         "con :disabled='!canOpenSync'"
     )
     # El tooltip menciona la acción manual esperada del operario.
@@ -476,50 +476,19 @@ def test_area_landing_has_procesos_option() -> None:
     )
 
 
-def test_db_names_computed_from_uid_not_from_dto_properties() -> None:
-    """Regression test: el sub-caption con los nombres de los 2 DBs
-    del proceso (PARAM / ALM) se computa en línea a partir de
-    ``uid`` siguiendo la convención del DTO ``ProcesoPLC``, NO
-    leyendo las properties ``db_preal_nombre`` / ``db_pint_nombre``
-    / ``db_alm_nombre``.
-
-    Estado actual (Fase 2/3 del plan de limpieza de DTOs): las
-    properties ``db_preal_nombre``, ``db_pint_nombre`` y
-    ``db_alm_nombre`` **ya no existen** en el DTO ``ProcesoPLC``
-    (fueron eliminadas el 2026-09-01). Por lo tanto, las
-    aserciones negativas de este test (``"db_preal_nombre" not in
-    template_body``) son ahora **tautológicas**: ningún template
-    puede referenciar un nombre que ya no existe en el código.
-
-    Este test se conserva como **salvaguarda contra
-    reintroducción accidental**: si alguien añade de nuevo una
-    property con alguno de esos nombres en el DTO y luego la usa
-    en el template, este test lo detectará. El comportamiento
-    esperado del template no cambia: sigue computando los nombres
-    de DB con ``3000 + selectedProc.uid`` y ``5000 +
-    selectedProc.uid`` y componiendo el nombre simbólico con
-    ``selectedProc.codigo``.
-
-    Convención (verificada en
-    ``areas/alimentacion/domain/models/excel_cache.py``):
-       * DB PARAM: 3000 + uid   (DB unificado de parámetros:
-                                 PReal y PInt del mismo proceso
-                                 comparten el mismo Num.DB en el
-                                 Excel real; el DB PINT no existe)
-       * DB ALM:   5000 + uid
-       * Formato:  DB{numero}_{codigo}_SUFIJO
-
-    Mismo patrón que ``ProcesosPanel.js`` (líneas del template que
-    pintan ``DB{{ 3000 + p.uid }}`` y ``DB{{ 5000 + p.uid }}``).
+def test_db_names_block_legacy_eliminado() -> None:
+    """El sub-caption con los nombres de los 2 DBs del proceso
+    (formato ``UID X · DBs: DB{3000+uid}_CPR_PARAM,
+    DB{5000+uid}_CPR_ALM``) se ELIMINÓ el 2026-09-02 por
+    feedback del operario: era legacy, el UID ya viene en el
+    selector y los nombres de DB los computa el use case
+    internamente. Este test verifica que el bloque NO se
+    reintroduce por accidente.
     """
     import re
 
     text = _read(PROCESOS_JS)
-    # Extraer solo el cuerpo del template (lo que hay entre los
-    # delimitadores `` ` `` del ``template: /* html */ `...` ,``).
-    # El docstring del componente SÍ puede mencionar los nombres
-    # de las properties (es texto explicativo, no código que
-    # ejecuta), así que el check se scopea al template body.
+    # Extraer solo el cuerpo del template.
     pattern = re.compile(
         r"template:\s*/\*\s*html\s*\*/\s*`(.*?)`\s*,",
         re.DOTALL,
@@ -530,38 +499,31 @@ def test_db_names_computed_from_uid_not_from_dto_properties() -> None:
     )
     template_body = match.group(1)
 
-    # POSITIVO: el template computa los 2 DBs desde ``uid`` con
-    # la fórmula correcta.
-    assert "3000 + selectedProc.uid" in template_body, (
-        "Falta el cálculo del DB PARAM (3000 + uid) en el template"
+    # El bloque legacy NO debe estar en el template.
+    assert "3000 + selectedProc.uid" not in template_body, (
+        "El bloque legacy 'UID X · DBs: DB{3000+uid}_..._PARAM' "
+        "se reintrodujo en el template. Elimínalo: el operario "
+        "lo marcó como legacy el 2026-09-02."
     )
-    assert "5000 + selectedProc.uid" in template_body, (
-        "Falta el cálculo del DB ALM (5000 + uid) en el template"
+    assert "5000 + selectedProc.uid" not in template_body, (
+        "El bloque legacy 'UID X · DBs: DB{5000+uid}_..._ALM' "
+        "se reintrodujo en el template. Elimínalo: el operario "
+        "lo marcó como legacy el 2026-09-02."
     )
-    # El template usa ``codigo`` para componer el nombre simbólico
-    # (formato DB{num}_{codigo}_SUFIJO).
-    assert "selectedProc.codigo" in template_body, (
-        "Falta el uso de selectedProc.codigo para componer "
-        "el nombre simbólico del DB"
+    # Y tampoco debe aparecer el sub-caption con "DBs:" (era el
+    # contenedor del bloque legacy).
+    assert ">DBs:</span>" not in template_body, (
+        "El contenedor 'DBs:' del bloque legacy se reintrodujo."
     )
-    # NEGATIVO (salvaguarda contra reintroducción): el template
-    # NO debe leer las properties ``db_*_nombre`` del DTO. Tras
-    # la Fase 2/3 ya no existen en el DTO, así que esta
-    # aserción es tautológica; se conserva como detector de
-    # regresión si alguien las reintroduce y las usa en el
-    # template.
+    # Salvaguarda contra reintroducción de las properties del DTO.
     assert "db_preal_nombre" not in template_body, (
-        "El template lee db_preal_nombre (property eliminada "
-        "del DTO en Fase 2/3). Usar el cálculo en línea con "
-        "3000 + uid."
+        "Property 'db_preal_nombre' reintroducida y usada en template."
     )
     assert "db_pint_nombre" not in template_body, (
-        "El template lee db_pint_nombre (property eliminada "
-        "del DTO en Fase 2/3)."
+        "Property 'db_pint_nombre' reintroducida y usada en template."
     )
     assert "db_alm_nombre" not in template_body, (
-        "El template lee db_alm_nombre (property eliminada "
-        "del DTO en Fase 2/3)."
+        "Property 'db_alm_nombre' reintroducida y usada en template."
     )
 
 
@@ -653,3 +615,5 @@ def test_componentes_js_no_tienen_duplicados_de_setup() -> None:
         "Errores de sintaxis JS en componentes del frontend:\n"
         + "\n".join(f"  - {name}: {msg}" for name, msg in errors)
     )
+
+

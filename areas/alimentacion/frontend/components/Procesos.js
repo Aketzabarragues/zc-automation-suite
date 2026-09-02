@@ -13,11 +13,13 @@
  *      ``store.memoryState.procesos`` está vacío.
  *   3. Selector de proceso (``<select>`` con
  *      ``store.memoryState.procesos``). Cada item muestra
- *      ``codigo`` y ``nombre``. Sub-caption con UID y los 2 nombres
- *      simbólicos de DB del proceso.
+ *      ``codigo`` y ``nombre``. (Antes se mostraba también un
+ *      sub-caption con UID + nombres simbólicos de DB; eliminado
+ *      por ser legacy — el UID ya viene en el selector y los
+ *      nombres de DB los computa el use case internamente).
  *   4. 2 cards de acción:
  *        - "Crear proceso completo" (placeholder, alert TODO).
- *        - "Actualizar comentarios de DB" (funcional, expande la
+ *        - "Sync comentarios de DB" (funcional, expande la
  *          vista ``<procesos-sync-view>`` INLINE debajo de las
  *          cards, sin cambiar ``store.currentView``).
  *
@@ -33,7 +35,7 @@
  *     reactivamente con el nuevo proc_uid).
  *   - El sync view se comunica con Procesos.js por eventos Vue:
  *     ``@close="showSyncView = false"`` cuando el operario pulsa
- *     "← Volver" dentro de la vista inline.
+ *     el botón "Cerrar" de la cabecera del sync view (que emite
  *   - No llama a ``api.js`` ni a ningún endpoint: la UI es
  *     completamente pasiva, se alimenta de ``store.memoryState``.
  *   - Reactividad in-view: si el operario sube un Excel y refresca
@@ -72,9 +74,9 @@ export default {
          * Flag que controla si la vista de sync (``<procesos-sync-view>``)
          * se renderiza inline debajo de las cards. ``false`` por
          * defecto — se pone a ``true`` al pulsar la card
-         * "Actualizar comentarios de DB". El operario la cierra con
-         * el botón "← Volver" del propio sync view (que emite
-         * ``close`` y nosotros ponemos el flag a ``false``).
+         * "Sync comentarios de DB". El operario la cierra con
+         * el botón "Cerrar" de la cabecera del propio sync view
+         * (que emite ``close`` y nosotros ponemos el flag a ``false``).
          *
          * Razón del cambio desde el diseño original: tener el sync
          * view como sub-vista separada (``store.currentView =
@@ -131,7 +133,7 @@ export default {
         const canAct = computed(() => selectedProc.value !== null);
 
         /**
-         * Habilita SOLO la card "Actualizar comentarios de DB".
+         * Habilita SOLO la card "Sync comentarios de DB".
          * Necesita, además del proceso seleccionado, que el Excel
          * esté cargado Y que la cache de bloques del PLC activo
          * tenga al menos un bloque (es decir, que el operario haya
@@ -169,7 +171,7 @@ export default {
         });
 
         /**
-         * Handler de la card "Actualizar comentarios de DB". Activa el
+         * Handler de la card "Sync comentarios de DB". Activa el
          * flag local ``showSyncView`` para que se renderice inline
          * la vista ``<procesos-sync-view>`` debajo de las cards.
          *
@@ -185,7 +187,7 @@ export default {
         /**
          * Handler del evento ``close`` que emite
          * ``<procesos-sync-view>`` cuando el operario pulsa
-         * "← Volver". Colapsa la vista inline.
+         * "Cerrar". Colapsa la vista inline.
          */
         function closeSyncView() {
             showSyncView.value = false;
@@ -246,32 +248,11 @@ export default {
                         {{ p.codigo }} — {{ p.nombre }}
                     </option>
                 </select>
-                <!-- Sub-caption con UID y los 2 nombres simbólicos
-                     de DB del proceso. Los computamos en línea
-                     desde el uid siguiendo la convención del DTO
-                     (verificada en
-                     areas/alimentacion/domain/models/excel_cache.py):
-                       DB PARAM = 3000 + uid  (DB unificado de
-                                               parámetros: PReal y
-                                               PInt del mismo
-                                               proceso comparten el
-                                               mismo Num.DB en el
-                                               Excel real; el DB
-                                               PINT no existe)
-                       DB ALM   = 5000 + uid
-                     Importante: las properties @property del DTO
-                     NO sobreviven al roundtrip JSON (el backend
-                     serializa con dataclasses.asdict, que solo
-                     emite los campos declarados). Por eso
-                     calculamos en línea en lugar de leerlas. Mismo
-                     patrón que ProcesosPanel.js. -->
-                <p v-if="selectedProc"
-                   class="mt-2 text-xs text-ink-muted">
-                    UID <span class="font-mono">{{ selectedProc.uid }}</span>
-                    · DBs:
-                    <span class="font-mono">DB{{ 3000 + selectedProc.uid }}_{{ selectedProc.codigo }}_PARAM</span>,
-                    <span class="font-mono">DB{{ 5000 + selectedProc.uid }}_{{ selectedProc.codigo }}_ALM</span>
-                </p>
+                <!-- Bloque legacy "UID X · DBs: DB3100_CPR_PARAM, DB5100_CPR_ALM"
+                     eliminado: la información ya la muestra el selector de
+                     procesos (uid + codigo) y los nombres de DB los computa
+                     el use case internamente. No aportan valor al operario. -->
+
             </div>
 
             <!-- 2 cards: ¿Qué quieres hacer? -->
@@ -296,7 +277,7 @@ export default {
                             data-testid="procesos-card-comments"
                             class="bg-surface border-2 border-line rounded-xl p-4 text-left flex flex-col items-start transition hover:border-accent hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-line disabled:hover:shadow-none">
                         <span class="text-3xl mb-2" aria-hidden="true">💬</span>
-                        <span class="text-sm font-semibold text-ink">Actualizar comentarios de DB</span>
+                        <span class="text-sm font-semibold text-ink">Sync comentarios de DB</span>
                         <span class="text-xs text-ink-muted mt-1">
                             Sincroniza los comentarios de los DBs existentes.
                         </span>
@@ -310,7 +291,7 @@ export default {
                  el operario puede cambiar de proceso sin perder
                  el contexto. El sync view recibe el proc_uid del
                  selector y emite 'close' cuando el operario
-                 pulsa "← Volver" dentro de él. -->
+                 pulsa "Cerrar" dentro de él. -->
             <div v-if="showSyncView && selectedProc"
                  class="mt-4 bg-surface-raised border border-line rounded p-4"
                  data-testid="procesos-sync-inline-host">

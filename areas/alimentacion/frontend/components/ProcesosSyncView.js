@@ -14,12 +14,12 @@
  *      (lista los bloques ausentes en el PLC).
  *   4. 3 tabs (PReal, PInt, Alarmas) con badge del nº de cambios
  *      (renombrados + agregados + eliminados).
- *   5. Tabla con columnas: Slot | Valor actual | Valor deseado
- *      (Excel) | Acción. Colores por acción.
- *   6. Botón "↻ Generar preview" (top-right).
+ *   5. Tabla con columnas: # | Actual (TIA) | Deseado (Excel)
+ *      | Estado. Colores por acción.
+ *   6. Botón "🔍 Generar Previsión" (top-right).
  *   7. Botón "✓ Aplicar" (bottom). Deshabilitado si no hay preview
  *      o si el summary es 0 ops.
- *   8. Botón "← Volver" que emite el evento ``close`` (el padre
+ *   8. Botón "Cerrar" que emite el evento ``close`` (el padre
  *      ``Procesos.js`` lo usa para colapsar la vista inline).
  *
  * Modo de uso (inline, NO standalone):
@@ -256,7 +256,7 @@ export default {
         });
 
         /**
-         * Click en "↻ Generar preview".
+         * Click en "🔍 Generar Previsión".
          */
         async function handleGeneratePreview() {
             if (isWorking.value) return;
@@ -343,12 +343,12 @@ export default {
         }
 
         /**
-         * Botón "← Volver" — emite el evento ``close`` para que el
-         * padre (``Procesos.js``) colapse la vista inline. NO
+         * Cerrar el sync view inline: emite el evento ``close`` para
+         * que el padre (``Procesos.js``) colapse la vista. NO
          * cambiamos ``store.currentView`` porque la SPA sigue en
          * "proc"; el sync view es solo un panel hijo.
          */
-        function handleBack() {
+        function handleClose() {
             emit("close");
         }
 
@@ -407,7 +407,7 @@ export default {
             statusMeta: STATUS_META,
             handleGeneratePreview,
             handleApply,
-            handleBack,
+            handleClose,
         };
     },
     template: /* html */ `
@@ -426,12 +426,27 @@ export default {
                     <p v-else class="text-xs text-amber-700 mt-0.5">
                         Selecciona un proceso en la vista "Procesos" primero.
                     </p>
+                    <!-- Resumen del preview (estilo Dispositivos.js):
+                         solo aparece cuando hay preview generado Y las
+                         precondiciones están OK. Suma los 3 arrays
+                         (PReal + PInt + ALM). -->
+                    <p v-if="preview && preview.precondiciones_ok"
+                       class="text-xs text-ink-muted mt-0.5">
+                        <span class="text-ink-muted">{{ totalOps }} slots analizados —</span>
+                        <span class="text-amber-700">{{ preview.summary.renombrados }} a renombrar</span>
+                        ·
+                        <span class="text-accent">{{ preview.summary.agregados }} a agregar</span>
+                        ·
+                        <span class="text-red-700">{{ preview.summary.eliminados }} a eliminar</span>
+                        ·
+                        <span class="text-ink-muted">{{ preview.summary.sin_cambios }} sin cambios</span>
+                    </p>
                 </div>
                 <div class="flex gap-2">
-                    <button @click="handleBack"
-                        data-testid="proc-sync-back"
+                    <button @click="handleClose"
+                        data-testid="proc-sync-close"
                         class="px-3 py-2 bg-surface border border-line rounded text-xs font-medium text-ink-muted hover:bg-surface-sunken">
-                        ← Volver
+                        Cerrar
                     </button>
                     <button @click="handleGeneratePreview"
                         :disabled="procUid == null || isWorking"
