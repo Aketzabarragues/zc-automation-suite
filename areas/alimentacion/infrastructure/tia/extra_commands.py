@@ -408,6 +408,143 @@ def make_cmd_commit_devices_sync() -> Callable[..., Any]:
     return _cmd
 
 
+# ── Comandos de procesos (sync comentarios por slot) ──────────────────
+#
+# Tipos de array soportados en los DBs PARAM/ALM de procesos.
+# Mantener en sync con la convención de los .s7dcl exportados por
+# TIA y con los nombres hardcoded en el builder de slot_maps
+# (``areas/alimentacion/application/proc_slot_map_builder.py``).
+EXTRA_PROC_KINDS: tuple[str, ...] = (
+    "preal",
+    "pint",
+    "alm",
+)
+
+# Mapeo de satélites por kind (mismo número de slots que el array
+# principal, mismo MLC-distinto-mismo-texto).
+# - preal → PReal[] con 2 satélites (Bool Vis y Real ValorAnterior
+#           dentro de Aux).
+# - pint  → PInt[] con 2 satélites (Int Vis y Int ValorAnterior
+#           dentro de Aux).
+# - alm   → ALM[] sin satélites (array principal único en DB_ALM).
+_PROC_SATELLITES: dict[str, frozenset[str]] = {
+    "preal": frozenset({"PReal_Vis", "Aux.PReal_ValorAnterior"}),
+    "pint":  frozenset({"PInt_Vis",  "Aux.PInt_ValorAnterior"}),
+    "alm":   frozenset(),
+}
+
+
+def make_cmd_update_proc_comments_db(kind: str) -> Callable[..., Any]:
+    """Factory que genera un handler atómico para el array ``kind`` de proceso.
+
+    El ``kind`` se queda capturado en el closure para etiquetar el
+    retorno y poder trazarlo en logs / historial de TIA.
+
+    El handler:
+      1. Exporta selectivamente el DB objetivo (``export_block``).
+      2. Aplica el updater offline ``ProcesoCommentUpdater`` sobre
+         los ``.s7dcl`` / ``.s7res`` exportados, con propagación a
+         satélites del mismo slot.
+      3. Si hubo cambios, re-importa el bloque al proyecto
+         (``import_block``).
+
+    Vive dentro de la transacción que abrió
+    ``execute_transactional_batch`` en el lote (no abre transacción
+    propia); es atómico respecto al lote.
+    """
+    if kind not in _PROC_SATELLITES:
+        raise ValueError(
+            f"make_cmd_update_proc_comments_db: kind '{kind}' no soportado. "
+            f"Esperado uno de {list(_PROC_SATELLITES)}."
+        )
+    satellites = _PROC_SATELLITES[kind]
+
+    def _cmd(portal: Any, ts: Any, args: dict[str, Any]) -> dict[str, Any]:
+        plc_name: str = args.get("plc_name", "")
+        db_name: str = args.get("db_name", "")
+        array_name: str = args.get("array_name", "")
+        slot_map: dict[str, str] = args.get("slot_map", {})
+        work_dir: str = args.get("work_dir", "")
+        target_folder: str = args.get("target_folder", "")
+
+        if not (
+            plc_name and db_name and array_name and work_dir and target_folder
+        ):
+            raise ValueError(
+                f"update_proc_comments_db_{kind}: args incompletos. "
+                f"Recibido: plc_name={plc_name!r} db_name={db_name!r} "
+                f"array_name={array_name!r} work_dir={work_dir!r} "
+                f"target_folder={target_folder!r}"
+            )
+
+        # Coerción: slot_map llega con keys str (JSON); el updater quiere int.
+        slot_map_int: dict[int, str] = {
+            int(k): v for k, v in slot_map.items() if int(k) >= 1
+        }
+
+        # Import local: solo se carga cuando el handler se invoca
+        # (cumple "offline-first" del worker, igual que los
+        # handlers de disp). Apunta al nuevo paquete SD.
+        from areas.alimentacion.infrastructure.sd.proc_comment_updater import (
+            ProcesoCommentUpdater,
+        )
+        from areas.alimentacion.infrastructure.sd.mlc_registry import MLCRegistry
+
+        s7dcl_path = os.path.join(work_dir, f"{db_name}.s7dcl")
+        s7res_path = os.path.join(work_dir, f"{db_name}.s7res")
+
+        # Import lazy del worker para evitar el ciclo
+        # ``worker_tia → command_loader → AreaRegistry → areas.<area>
+        # → extra_commands → (lazy) worker_tia``.
+        from core.infrastructure.tia import worker_tia
+        core_registry = worker_tia.COMMAND_REGISTRY
+
+        # 1. EXPORT SELECTIVO (reusa ``export_block`` del core).
+        core_registry["export_block"](portal, ts, {
+            "plc_name":   plc_name,
+            "block_name": db_name,
+            "target_dir": work_dir,
+        })
+
+        # 2. Updater offline (con propagación a satélites).
+        updater = ProcesoCommentUpdater(
+            s7dcl_path=s7dcl_path,
+            s7res_path=s7res_path,
+            slot_map=slot_map_int,
+            array_name=array_name,
+            satellite_arrays=set(satellites),
+            registry=MLCRegistry(),
+        )
+        result = updater.update()
+        updater.save()
+
+        # 3. IMPORT SELECTIVO (reusa ``import_block`` del core) — solo
+        #    si el updater modificó algo, para no ensuciar el
+        #    historial Undo.
+        if updater.was_modified():
+            core_registry["import_block"](portal, ts, {
+                "plc_name":      plc_name,
+                "import_dir":    work_dir,
+                "target_folder": target_folder,
+            })
+
+        return {
+            "kind":      kind,
+            "db_name":   db_name,
+            "array_name": array_name,
+            "modified":  updater.was_modified(),
+            "proc_comment_result": {
+                "reused":              result.reused,
+                "inserted":            result.inserted,
+                "satellite_reused":    result.satellite_reused,
+                "satellite_inserted":  result.satellite_inserted,
+                "total_mlcs_in_res":   result.total_mlcs_in_res,
+            },
+        }
+
+    return _cmd
+
+
 def register(registry: dict[str, Callable[..., Any]]) -> None:
     """Aporta los comandos del área alimentación al ``COMMAND_REGISTRY``.
 
@@ -416,6 +553,9 @@ def register(registry: dict[str, Callable[..., Any]]) -> None:
         offline + import por hw_type.
       - ``commit_devices_sync``: op compuesto N_MAX + renames + devices
         en una sola ``start_transaction``.
+      - ``update_proc_comments_db_<kind>`` (×3: preal, pint, alm):
+        SD source comments offline + import por array de proceso,
+        con propagación a satélites del mismo slot.
 
     Muta ``registry`` in-place. Es seguro llamarla varias veces (los
     handlers se machacan por nombre, no se duplican).
@@ -424,12 +564,18 @@ def register(registry: dict[str, Callable[..., Any]]) -> None:
         registry[f"update_disp_comments_db_{hw}"] = (
             make_cmd_update_disp_comments_db(hw)
         )
+    for kind in EXTRA_PROC_KINDS:
+        registry[f"update_proc_comments_db_{kind}"] = (
+            make_cmd_update_proc_comments_db(kind)
+        )
     registry["commit_devices_sync"] = make_cmd_commit_devices_sync()
 
 
 __all__ = [
     "EXTRA_HW_TYPES",
+    "EXTRA_PROC_KINDS",
     "make_cmd_update_disp_comments_db",
+    "make_cmd_update_proc_comments_db",
     "make_cmd_commit_devices_sync",
     "register",
 ]

@@ -323,6 +323,31 @@ class TIAProcessGateway:
         self._bloques_cache[plc_name] = cache
         return cache
 
+    def get_bloques_cache(self, plc_name: str) -> "BloqueCache | None":
+        """Devuelve el ``BloqueCache`` cacheado para ``plc_name`` o
+        ``None`` si no se ha escaneado todavía.
+
+        Importante: este método es **lectura pura**. NO triggerea un
+        scan contra TIA (eso es responsabilidad de
+        ``scan_plc_blocks``). Si el PLC no ha sido escaneado, el
+        método devuelve ``None`` para que el caller pueda distinguir
+        entre "cache vacía porque se acaba de invalidar" y "cache
+        vacía porque el operario no ha escaneado este PLC".
+
+        Uso típico: routers que necesitan validar precondiciones
+        (e.g. "existen los DBs X, Y, Z en el PLC?") sin coste de
+        red. Si el cache es ``None``, el router puede o bien
+        devolver un 409 con mensaje accionable, o bien delegar en
+        ``scan_plc_blocks`` para poblarlo (con coste de latencia).
+
+        Si ``plc_name`` es vacío (``""``), devuelve ``None``
+        directamente: no tiene sentido buscar en el cache un PLC
+        sin nombre.
+        """
+        if not plc_name:
+            return None
+        return self._bloques_cache.get(plc_name)
+
     def _clear_bloques_cache(self, plc_name: str | None = None) -> None:
         """Invalida el cache de bloques de un PLC o todos.
 

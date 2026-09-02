@@ -124,6 +124,17 @@ def build() -> "AreaFrontendManifest":
         "components": {
             "sidebar": "AlimentacionSidebar",
             "landing": "AreaLanding",
+            # NOTA: ``ProcesosSyncView`` NO aparece en ``views`` porque
+            # se renderiza INLINE dentro de ``Procesos.js`` (como
+            # panel hijo) en vez de como sub-vista top-level. El
+            # loader del componente sí está declarado abajo para
+            # que el shell SPA lo registre con ``app.component(...)``
+            # y ``Procesos.js`` lo pueda usar como
+            # ``<procesos-sync-view :proc-uid="...">`` dentro de su
+            # template. Mantenerlo fuera de ``views`` evita que el
+            # operario acceda al sync view por una URL/spa-route
+            # perdida (ya no tiene sentido sin el proceso del
+            # selector).
             "views": {
                 "landing": "AreaLanding",
                 "def":     "DefinicionProgramacion",
@@ -146,6 +157,12 @@ def build() -> "AreaFrontendManifest":
             # "proc"``) y a la otra solo dentro del tab "Procesos"
             # de Definición.
             "Procesos":               f"{_STATIC_PREFIX}/components/Procesos.js",
+            # ``ProcesosSyncView``: renderizado INLINE dentro de
+            # ``Procesos.js`` (no como sub-vista top-level). El
+            # shell SPA necesita el loader para registrar el
+            # componente y que ``<procesos-sync-view>`` funcione
+            # como etiqueta en el template del padre.
+            "ProcesosSyncView":       f"{_STATIC_PREFIX}/components/ProcesosSyncView.js",
             # Sub-componentes internos del rediseño Opción A
             # (tabs principales Dispositivos | Software). Se
             # registran como loaders pero NO como sub-vistas del

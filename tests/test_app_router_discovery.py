@@ -216,15 +216,17 @@ def test_area_register_routers_uses_registry_dispatch() -> None:
 
     # El callable debe ser invocable con un objeto que tenga
     # ``include_router`` (como ``FastAPI``). Mockeamos un app fake
-    # para verificar que registra exactamente 4 routers
-    # (alimentacion, excel, plc_blocks, sync — en orden alfabético).
+    # para verificar que registra exactamente 5 routers
+    # (alimentacion, excel, plc_blocks, procesos_sync, sync — en
+    # orden alfabético). El 5º (procesos_sync) se añadió en el
+    # ticket de "Sync comentarios DB de procesos".
     fake_app = MagicMock()
     fake_app.include_router = MagicMock()
 
     spec.contributes_routers(fake_app)
 
-    # Exactamente 4 routers del área.
-    assert fake_app.include_router.call_count == 4
+    # Exactamente 5 routers del área.
+    assert fake_app.include_router.call_count == 5
     # Cada llamada recibe un APIRouter de FastAPI (no None, no un mock).
     for call in fake_app.include_router.call_args_list:
         router_arg = call.args[0]

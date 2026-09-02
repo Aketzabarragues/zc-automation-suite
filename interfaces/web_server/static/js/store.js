@@ -198,6 +198,31 @@ export const store = reactive({
     plcBlocksCache: null,
 
     /**
+     * Estado del flujo "Sync comentarios DB de procesos".
+     * Consumido por ``ProcesosSyncView.js`` y escrito por los
+     * handlers de Procesos.js (openSyncView) y los botones de la
+     * propia vista (generar preview / aplicar).
+     *
+     * Shape:
+     *   - ``preview``: ``null`` o el dict devuelto por
+     *     ``apiProcesosSyncPreview`` (con ``arrays``, ``summary``,
+     *     ``missing_blocks``, etc.).
+     *   - ``applying``: ``true`` mientras hay una operación larga
+     *     en vuelo (preview o commit). El ``ProgressIndicator``
+     *     del sidebar lee su propio tracker, así que este flag es
+     *     solo para deshabilitar botones.
+     *   - ``error``: ``null`` o mensaje de error accionable.
+     *   - ``lastAppliedAt``: ``null`` o ISO timestamp del último
+     *     commit exitoso.
+     */
+    procesosSync: {
+        preview: null,
+        applying: false,
+        error: null,
+        lastAppliedAt: null,
+    },
+
+    /**
      * Manifest del área activa, cargado por
      * ``core/interfaces/web_server/static/js/area-loader.js``.
      *

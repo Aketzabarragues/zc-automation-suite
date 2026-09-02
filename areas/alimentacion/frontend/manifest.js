@@ -60,6 +60,9 @@ const _comps = {
     // ``ProcesosPanel`` solo se monta dentro del tab "Procesos" de
     // ``DefinicionProgramacion``. Ambas coexisten en el área.
     "Procesos":                () => import("./components/Procesos.js"),
+    // Sub-vista "Sync comentarios de DB" (preview + diff + apply).
+    // Accesible desde la card de Procesos.js (key: "proc_sync").
+    "ProcesosSyncView":        () => import("./components/ProcesosSyncView.js"),
     // Sub-componentes del rediseño de "Definición programación"
     // (tabs principales Dispositivos | Software). Se registran
     // como componentes globales para que ``DefinicionProgramacion``
@@ -78,6 +81,17 @@ export function build() {
         components: {
             sidebar: "AlimentacionSidebar",
             landing: "AreaLanding",
+            // NOTA: ``ProcesosSyncView`` NO aparece en ``views`` porque
+            // se renderiza INLINE dentro de ``Procesos.js`` (como
+            // panel hijo) en vez de como sub-vista top-level. El
+            // loader del componente sí está declarado arriba para
+            // que el shell SPA lo registre con ``app.component(...)``
+            // y ``Procesos.js`` lo pueda usar como
+            // ``<procesos-sync-view :proc-uid="...">`` dentro de su
+            // template. Mantenerlo fuera de ``views`` evita que el
+            // operario acceda al sync view por una URL/spa-route
+            // perdida (ya no tiene sentido sin el proceso del
+            // selector).
             views: {
                 "landing": "AreaLanding",
                 "def":     "DefinicionProgramacion",

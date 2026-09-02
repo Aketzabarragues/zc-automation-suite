@@ -71,6 +71,14 @@ AREA_LANDING_JS = (
     / "components"
     / "AreaLanding.js"
 )
+API_JS = (
+    REPO_ROOT
+    / "interfaces"
+    / "web_server"
+    / "static"
+    / "js"
+    / "api.js"
+)
 
 
 pytestmark = pytest.mark.frontend_smoke
@@ -139,16 +147,19 @@ def test_procesos_uses_memory_state_procesos() -> None:
 
 
 def test_procesos_has_two_placeholder_cards() -> None:
-    """El template tiene exactamente 2 cards placeholder con
-    ``@click="alert(...)"`` — uno para "Crear proceso completo" y
-    otro para "Actualizar comentarios de DB". El copy debe ser
-    literal (es lo que verá el operario).
+    """El template tiene 2 cards: 1 placeholder con ``@click="alert(...)"``
+    ("Crear proceso completo", aún sin lógica) y 1 funcional con
+    ``@click="openSyncView"`` ("Actualizar comentarios de DB", que
+    navega a la sub-vista ``proc_sync``). El copy debe ser literal
+    (es lo que verá el operario).
     """
     text = _read(PROCESOS_JS)
-    # 2 botones con ``@click="alert(...)"`` (uno por acción).
+    # 1 alert restante (solo para "Crear proceso completo" que aún
+    # no tiene lógica en este ticket). El segundo card ya tiene
+    # openSyncView (test_procesos_card_llama_open_sync_view).
     alert_clicks = text.count('@click="alert(')
-    assert alert_clicks == 2, (
-        f"Esperaba 2 @click='alert(...)' (uno por card), "
+    assert alert_clicks == 1, (
+        f"Esperaba 1 @click='alert(...)' (card 'Crear proceso'), "
         f"encontré {alert_clicks}"
     )
     # Copy literal de los 2 labels de las cards.
@@ -158,13 +169,159 @@ def test_procesos_has_two_placeholder_cards() -> None:
     assert "Actualizar comentarios de DB" in text, (
         "Falta el label 'Actualizar comentarios de DB' en una de las cards"
     )
-    # Los TODOs son explícitos (contrato con el operario: las cards
-    # son placeholders, la lógica real viene en una segunda fase).
+    # El TODO solo está en el card de "Crear proceso completo".
     assert "TODO: Crear proceso completo" in text, (
         "Falta el alert placeholder 'TODO: Crear proceso completo'"
     )
-    assert "TODO: Actualizar comentarios de DB" in text, (
-        "Falta el alert placeholder 'TODO: Actualizar comentarios de DB'"
+    # Y NO debe estar en el card de comentarios (que ya tiene lógica).
+    assert "TODO: Actualizar comentarios de DB" not in text, (
+        "El card 'Actualizar comentarios de DB' ya no debe ser un "
+        "placeholder alert — debe llamar a openSyncView."
+    )
+
+
+def test_procesos_card_llama_open_sync_view() -> None:
+    """El card 'Actualizar comentarios de DB' llama a ``openSyncView``
+    (NO a ``alert``) y la función está definida en el setup del
+    componente. El handler NO cambia ``store.currentView`` — el
+    sync view se renderiza inline (no es una sub-vista separada).
+    """
+    text = _read(PROCESOS_JS)
+    # El @click del card de comentarios llama a openSyncView.
+    assert '@click="openSyncView"' in text, (
+        "El card de comentarios debe usar @click='openSyncView', "
+        "no alert(...)"
+    )
+    # La función openSyncView está definida en el setup.
+    assert "function openSyncView" in text, (
+        "Falta la definición de openSyncView() en el setup del componente"
+    )
+    # CRÍTICO: openSyncView NO cambia store.currentView. Renderiza
+    # el sync view inline (panel hijo), no como sub-vista separada.
+    # Esto evita que el operario pierda el contexto del selector
+    # de proceso (regresión reportada el 2026-09-02 por el operario).
+    assert 'store.currentView = "proc_sync"' not in text, (
+        "openSyncView NO debe setear store.currentView = 'proc_sync' "
+        "(sería una sub-vista separada y haría perder el contexto "
+        "del selector de proceso al operario)"
+    )
+    assert "showSyncView.value = true" in text, (
+        "openSyncView debe setear showSyncView.value = true "
+        "(ref local que renderiza el sync view inline)"
+    )
+
+
+def test_procesos_renderiza_sync_view_inline() -> None:
+    """El componente Procesos.js monta ``<procesos-sync-view>`` como
+    panel hijo INLINE (no como sub-vista separada). Esto preserva el
+    contexto del selector de proceso cuando el operario revisa el
+    diff o aplica cambios."""
+    text = _read(PROCESOS_JS)
+    # El componente ProcesosSyncView se monta dentro del template.
+    assert "<procesos-sync-view" in text, (
+        "Falta el tag <procesos-sync-view> en el template de Procesos.js"
+    )
+    # Se le pasa el procUid del selector (prop) y se escucha el
+    # evento close para colapsar el panel.
+    assert 'proc-uid="selectedProcUid"' in text, (
+        "Falta el binding :proc-uid del componente inline "
+        "(debe pasar el procUid seleccionado)"
+    )
+    assert '@close="closeSyncView"' in text, (
+        "Falta el listener @close para colapsar el panel"
+    )
+    # El panel está envuelto en un v-if para que se renderice
+    # condicionalmente.
+    assert 'v-if="showSyncView' in text, (
+        "Falta el v-if que muestra/oculta el panel inline"
+    )
+    # Hay un data-testid estable para tests E2E.
+    assert 'data-testid="procesos-sync-inline-host"' in text, (
+        "Falta el data-testid del host del panel inline"
+    )
+    # closeSyncView está definido en el setup.
+    assert "function closeSyncView" in text, (
+        "Falta la definición de closeSyncView() en el setup"
+    )
+
+
+def test_procesos_card_comentarios_deshabilitado_sin_plc() -> None:
+    """El card 'Actualizar comentarios de DB' se deshabilita si NO hay
+    cache de bloques del PLC (computed ``canOpenSync``) y muestra un
+    tooltip accionable."""
+    text = _read(PROCESOS_JS)
+    # El computed ``canOpenSync`` está en el setup.
+    assert "const canOpenSync = computed" in text, (
+        "Falta el computed 'canOpenSync' en el setup"
+    )
+    # El card usa :disabled="!canOpenSync" (no :disabled="!canAct"
+    # como el otro card).
+    assert ':disabled="!canOpenSync"' in text, (
+        "El card 'Actualizar comentarios de DB' debe deshabilitarse "
+        "con :disabled='!canOpenSync'"
+    )
+    # El tooltip menciona la acción manual esperada del operario.
+    assert "Selecciona un PLC en el sidebar" in text, (
+        "Falta el tooltip accionable sobre seleccionar un PLC en el sidebar"
+    )
+
+
+def test_manifest_loader_procesos_sync_sin_view_top_level() -> None:
+    """``ProcesosSyncView`` se carga como loader pero NO aparece en
+    el map ``views`` (es un panel inline de ``Procesos.js``, no una
+    sub-vista top-level del Sidebar). El shell SPA lo necesita
+    registrado para que ``<procesos-sync-view>`` funcione como
+    etiqueta dentro del template de Procesos.js.
+
+    Espejo JS y Python sincronizados.
+    """
+    js_text = _read(MANIFEST_JS)
+    py_text = _read(MANIFEST_PY)
+    # JS: el loader existe.
+    assert '"ProcesosSyncView":' in js_text, (
+        'Falta el loader "ProcesosSyncView" en _comps de manifest.js'
+    )
+    assert 'import("./components/ProcesosSyncView.js")' in js_text, (
+        "Falta el import('./components/ProcesosSyncView.js') en manifest.js"
+    )
+    # JS: NO está en views (porque es inline, no top-level).
+    assert '"proc_sync":' not in js_text, (
+        '"proc_sync" no debe estar en views de manifest.js '
+        "(ProcesosSyncView se renderiza inline, no como sub-vista)"
+    )
+    # Python: mismo shape. (El loader es un f-string con
+    # ``_STATIC_PREFIX`` + el path del componente.)
+    assert '"ProcesosSyncView":' in py_text, (
+        'Falta el loader "ProcesosSyncView" en manifest.py'
+    )
+    assert "ProcesosSyncView.js" in py_text, (
+        "Falta el path del componente ProcesosSyncView en manifest.py"
+    )
+    # Python: NO está en views.
+    assert '"proc_sync":' not in py_text, (
+        '"proc_sync" no debe estar en views de manifest.py'
+    )
+
+
+def test_api_js_exporta_procesos_sync() -> None:
+    """El módulo ``api.js`` exporta ``apiProcesosSyncPreview`` y
+    ``apiProcesosSyncCommit`` que apuntan a los endpoints del
+    router ``procesos_sync.py``."""
+    text = _read(API_JS)
+    # Export de la función preview.
+    assert "export function apiProcesosSyncPreview" in text, (
+        "Falta el export de apiProcesosSyncPreview en api.js"
+    )
+    # Export de la función commit.
+    assert "export function apiProcesosSyncCommit" in text, (
+        "Falta el export de apiProcesosSyncCommit en api.js"
+    )
+    # Las URLs correctas.
+    assert "/api/v1/procesos/sync/preview" in text, (
+        "apiProcesosSyncPreview debe apuntar a /api/v1/procesos/sync/preview"
+    )
+    assert "/api/v1/procesos/sync/commit" in text, (
+        "apiProcesosSyncCommit debe apuntar a /api/v1/procesos/sync/commit"
     )
 
 
@@ -454,4 +611,45 @@ def test_no_backticks_in_template_bodies() -> None:
         f"(rompen el template literal de JS): {offenders}. "
         f"Reemplazar por comillas simples o dobles en los "
         f"comentarios HTML del template."
+    )
+
+
+def test_componentes_js_no_tienen_duplicados_de_setup() -> None:
+    """Regression test: ningún componente Vue 3 del área puede tener
+    declaraciones duplicadas dentro de su ``setup()`` (e.g. dos
+    ``const activeTab = ref(...)`` consecutivos por un edit parcial
+    mal aplicado).
+
+    Síntoma: ``SyntaxError: Identifier 'X' has already been declared``
+    al cargar el componente desde el navegador. Los tests pytest
+    no cogen este tipo de error porque solo leen texto, no
+    parsean JS.
+
+    Estrategia: parseamos los .js con ``node --check`` (modo
+    syntax-only, sin ejecutar) y fallamos si node reporta un
+    error de sintaxis. Esto es defensivo: cualquier SyntaxError
+    en un .js del frontend rompe la SPA entera.
+    """
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node no está en PATH; saltando syntax check de .js")
+
+    components_dir = REPO_ROOT / "areas" / "alimentacion" / "frontend" / "components"
+    errors: list[tuple[str, str]] = []
+    for js_file in sorted(components_dir.glob("*.js")):
+        result = subprocess.run(
+            [node, "--check", str(js_file)],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            # ``--check`` solo escribe en stderr si hay error.
+            err_msg = (result.stderr or result.stdout or "").strip()
+            errors.append((js_file.name, err_msg))
+    assert not errors, (
+        "Errores de sintaxis JS en componentes del frontend:\n"
+        + "\n".join(f"  - {name}: {msg}" for name, msg in errors)
     )

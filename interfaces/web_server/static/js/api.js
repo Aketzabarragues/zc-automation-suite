@@ -148,3 +148,50 @@ export function apiRefreshPlcBlocks(plcName) {
         `/api/v1/plcs/${encodeURIComponent(plcName)}/blocks/refresh`
     );
 }
+
+/**
+ * Pide al backend un preview del diff de comentarios de DBs de
+ * un proceso (PReal + PInt + ALM) sin tocar TIA.
+ * Endpoint: POST /api/v1/procesos/sync/preview
+ *
+ * Devuelve el shape esperado por ``ProcesosSyncView``: incluye
+ * ``precondiciones_ok``, ``missing_blocks``, ``arrays`` (PReal,
+ * PInt, ALM con sus slot_maps y summaries) y un ``summary`` global.
+ *
+ * @param {number} procUid - uid del ProcesoPLC seleccionado.
+ * @param {string} [plcName] - nombre del PLC activo (opcional, solo
+ *                             para logging del backend).
+ * @returns {Promise<{ok, status, data}>}
+ */
+export function apiProcesosSyncPreview(procUid, plcName) {
+    return _request(
+        "POST",
+        "/api/v1/procesos/sync/preview",
+        { proc_uid: procUid, plc_name: plcName || "" }
+    );
+}
+
+/**
+ * Aplica el diff de comentarios de DBs de un proceso en UNA sola
+ * transacción TIA atómica (con rollback si algo falla).
+ * Endpoint: POST /api/v1/procesos/sync/commit
+ *
+ * El backend recalcula el diff desde el AppState (NO usa la
+ * ``prevision`` del body para evitar race conditions con cambios
+ * de Excel entre el preview y el commit). El ``plc_name`` es
+ * obligatorio.
+ *
+ * @param {number} procUid - uid del ProcesoPLC seleccionado.
+ * @param {string} plcName - nombre del PLC activo.
+ * @param {object} prevision - dict con el preview previo (el
+ *                            backend lo re-calcula; el cliente
+ *                            puede pasar el mismo que recibió).
+ * @returns {Promise<{ok, status, data}>}
+ */
+export function apiProcesosSyncCommit(procUid, plcName, prevision) {
+    return _request(
+        "POST",
+        "/api/v1/procesos/sync/commit",
+        { proc_uid: procUid, plc_name: plcName, prevision: prevision || {} }
+    );
+}

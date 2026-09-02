@@ -53,7 +53,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from areas.alimentacion.infrastructure.sd.disp_mlc_registry import DispMLCRegistry
+from areas.alimentacion.infrastructure.sd.mlc_registry import MLCRegistry as DispMLCRegistry
 
 
 _logger: logging.Logger = logging.getLogger(f"{__name__}.DispCommentUpdater")

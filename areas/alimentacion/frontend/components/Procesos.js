@@ -14,23 +14,26 @@
  *   3. Selector de proceso (``<select>`` con
  *      ``store.memoryState.procesos``). Cada item muestra
  *      ``codigo`` y ``nombre``. Sub-caption con UID y los 2 nombres
- *      simbólicos de DB del proceso: el DB de parámetros (PARAM,
- *      ``DB{3000+uid}_{codigo}_PARAM``) y el DB de alarmas (ALM,
- *      ``DB{5000+uid}_{codigo}_ALM``). Los nombres de DB se computan
- *      en línea en el template a partir de ``uid`` y ``codigo`` —
- *      el DTO ``ProcesoPLC`` expone los 8 campos crudos del Excel y
- *      ya no trae properties derivadas
- *      (``areas/alimentacion/domain/models/excel_cache.py``).
- *   4. 2 cards placeholder ("Crear proceso completo" /
- *      "Actualizar comentarios de DB") deshabilitadas hasta que el
- *      operario seleccione un proceso. ``@click`` que hace
- *      ``alert("TODO: …")`` — la lógica real vendrá en una segunda
- *      fase, cuando se decida el diseño UX de cada acción.
+ *      simbólicos de DB del proceso.
+ *   4. 2 cards de acción:
+ *        - "Crear proceso completo" (placeholder, alert TODO).
+ *        - "Actualizar comentarios de DB" (funcional, expande la
+ *          vista ``<procesos-sync-view>`` INLINE debajo de las
+ *          cards, sin cambiar ``store.currentView``).
  *
  * Decisiones de diseño:
- *   - Estado local: ``selectedProcUid`` como ``ref``. No se mete en
- *     ``store.js`` — se resetea al desmontar el componente (al
- *     navegar a otra sub-vista).
+ *   - Estado local: ``selectedProcUid`` y ``showSyncView`` como
+ *     ``ref``. No se meten en ``store.js`` — se resetean al
+ *     desmontar el componente.
+ *   - El sync view se renderiza inline (no como sub-vista separada)
+ *     para que el operario mantenga el contexto del selector de
+ *     proceso visible mientras revisa el diff / aplica cambios. Si
+ *     quiere cambiar de proceso, puede hacerlo desde el mismo
+ *     selector sin perder la vista de sync (que se re-renderiza
+ *     reactivamente con el nuevo proc_uid).
+ *   - El sync view se comunica con Procesos.js por eventos Vue:
+ *     ``@close="showSyncView = false"`` cuando el operario pulsa
+ *     "← Volver" dentro de la vista inline.
  *   - No llama a ``api.js`` ni a ningún endpoint: la UI es
  *     completamente pasiva, se alimenta de ``store.memoryState``.
  *   - Reactividad in-view: si el operario sube un Excel y refresca
@@ -64,6 +67,22 @@ export default {
          * activo por valor sin comparaciones profundas.
          */
         const selectedProcUid = ref(null);
+
+        /**
+         * Flag que controla si la vista de sync (``<procesos-sync-view>``)
+         * se renderiza inline debajo de las cards. ``false`` por
+         * defecto — se pone a ``true`` al pulsar la card
+         * "Actualizar comentarios de DB". El operario la cierra con
+         * el botón "← Volver" del propio sync view (que emite
+         * ``close`` y nosotros ponemos el flag a ``false``).
+         *
+         * Razón del cambio desde el diseño original: tener el sync
+         * view como sub-vista separada (``store.currentView =
+         * "proc_sync"``) hacía perder el contexto del selector de
+         * proceso. Renderizarlo inline mantiene la coherencia
+         * visual y permite cambiar de proceso sin "volver atrás".
+         */
+        const showSyncView = ref(false);
 
         /**
          * Lista de procesos del Excel cacheado. Defensivo: si el
@@ -111,13 +130,79 @@ export default {
          */
         const canAct = computed(() => selectedProc.value !== null);
 
+        /**
+         * Habilita SOLO la card "Actualizar comentarios de DB".
+         * Necesita, además del proceso seleccionado, que el Excel
+         * esté cargado Y que la cache de bloques del PLC activo
+         * tenga al menos un bloque (es decir, que el operario haya
+         * seleccionado un PLC en el sidebar y se haya completado
+         * el escaneo).
+         */
+        const plcBlocksCache = computed(
+            () => store.plcBlocksCache || null
+        );
+        const canOpenSync = computed(() => {
+            if (!canAct.value) return false;
+            if (!hasExcel.value) return false;
+            const cache = plcBlocksCache.value;
+            if (!cache) return false;
+            if (!Array.isArray(cache.blocks)) return false;
+            return cache.blocks.length > 0;
+        });
+
+        /**
+         * Tooltip HTML estándar que explica por qué la card está
+         * deshabilitada. Mensaje accionable según el motivo.
+         */
+        const syncCardTooltip = computed(() => {
+            if (!hasExcel.value) {
+                return "Carga primero el Excel y pulsa 'Refrescar Memoria' en 'Definición programación'.";
+            }
+            if (!canAct.value) {
+                return "Selecciona un proceso de la lista.";
+            }
+            const cache = plcBlocksCache.value;
+            if (!cache || !Array.isArray(cache.blocks) || cache.blocks.length === 0) {
+                return "Selecciona un PLC en el sidebar y espera al escaneo de bloques.";
+            }
+            return "";
+        });
+
+        /**
+         * Handler de la card "Actualizar comentarios de DB". Activa el
+         * flag local ``showSyncView`` para que se renderice inline
+         * la vista ``<procesos-sync-view>`` debajo de las cards.
+         *
+         * NO cambiamos ``store.currentView`` — seguimos en la misma
+         * vista "proc", solo expandimos un panel hijo. Esto es
+         * intencional: queremos que el selector de proceso siga
+         * visible mientras el operario revisa el diff.
+         */
+        function openSyncView() {
+            showSyncView.value = true;
+        }
+
+        /**
+         * Handler del evento ``close`` que emite
+         * ``<procesos-sync-view>`` cuando el operario pulsa
+         * "← Volver". Colapsa la vista inline.
+         */
+        function closeSyncView() {
+            showSyncView.value = false;
+        }
+
         return {
             procesos,
             hasExcel,
             hasProcesos,
             selectedProcUid,
             selectedProc,
+            showSyncView,
             canAct,
+            canOpenSync,
+            syncCardTooltip,
+            openSyncView,
+            closeSyncView,
         };
     },
     template: /* html */ `
@@ -189,10 +274,7 @@ export default {
                 </p>
             </div>
 
-            <!-- 2 cards: ¿Qué quieres hacer?
-                 Cards placeholder. El @click muestra un alert
-                 informativo. La lógica real (use case + endpoint +
-                 progress tracker) vendrá en una segunda fase. -->
+            <!-- 2 cards: ¿Qué quieres hacer? -->
             <div class="bg-surface-raised border border-line rounded p-4">
                 <h3 class="text-sm font-semibold text-ink mb-3">¿Qué quieres hacer?</h3>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -208,8 +290,9 @@ export default {
                         </span>
                     </button>
 
-                    <button @click="alert('TODO: Actualizar comentarios de DB')"
-                            :disabled="!canAct"
+                    <button @click="openSyncView"
+                            :disabled="!canOpenSync"
+                            :title="syncCardTooltip"
                             data-testid="procesos-card-comments"
                             class="bg-surface border-2 border-line rounded-xl p-4 text-left flex flex-col items-start transition hover:border-accent hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-line disabled:hover:shadow-none">
                         <span class="text-3xl mb-2" aria-hidden="true">💬</span>
@@ -220,6 +303,21 @@ export default {
                     </button>
 
                 </div>
+            </div>
+
+            <!-- Vista de sync renderizada INLINE debajo de las cards.
+                 El selector de proceso sigue visible arriba, así
+                 el operario puede cambiar de proceso sin perder
+                 el contexto. El sync view recibe el proc_uid del
+                 selector y emite 'close' cuando el operario
+                 pulsa "← Volver" dentro de él. -->
+            <div v-if="showSyncView && selectedProc"
+                 class="mt-4 bg-surface-raised border border-line rounded p-4"
+                 data-testid="procesos-sync-inline-host">
+                <procesos-sync-view
+                    :proc-uid="selectedProcUid"
+                    @close="closeSyncView">
+                </procesos-sync-view>
             </div>
 
         </section>
