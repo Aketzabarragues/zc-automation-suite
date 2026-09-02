@@ -582,7 +582,9 @@ def test_generar_prevision_nmax_block_con_sufijos_usa_gateway(tmp_path) -> None:
     # marcan como ``actualizar`` (current=None vs desired).
     assert nmax["summary"]["actualizar"] == 3
     assert nmax["summary"]["sin_cambios"] == 0
-    # El gateway fue llamado con la tabla N_MAX.
+    # El gateway fue llamado con la tabla del proceso
+    # (``<uid>_<codigo>``, p. ej. ``100_CPR``), no con la tabla
+    # ``000_Config_Dispositivos`` de dispositivos.
     gateway.export_plc_tags_xml.assert_called_once()
     call_kwargs = gateway.export_plc_tags_xml.call_args.kwargs
-    assert call_kwargs["table_names"] == ["000_Config_Dispositivos"]
+    assert call_kwargs["table_names"] == ["100_CPR"]

@@ -330,6 +330,13 @@ class SyncProcesosComentariosUseCase:
                 f"{summary['agregados']} agregar, "
                 f"{summary['sin_cambios']} sin cambios",
             )
+            # Cierra el tracker (``active=False``) para que la SPA
+            # muestre el estado "completado" en lugar de "En curso"
+            # indefinidamente. ``finish_stage("done")`` solo marca
+            # el último stage como DONE, pero el ``ProgressTracker``
+            # sigue en ``active=True`` hasta que se llame a
+            # ``finish(success=True)``.
+            self._progress.finish(success=True)
             return self._compose_response(
                 proc_uid, slot_map,
                 preal_current=current_preal,
@@ -478,6 +485,10 @@ class SyncProcesosComentariosUseCase:
             )
             self._progress.start_stage("done", f"{ops_executed} ops")
             self._progress.finish_stage("done", f"{ops_executed} ops")
+            # Cierra el tracker (``active=False``) para que la SPA
+            # muestre el estado "completado" en lugar de "En curso"
+            # indefinidamente.
+            self._progress.finish(success=True)
 
             return {
                 "proc_uid": proc_uid,
@@ -679,13 +690,23 @@ class SyncProcesosComentariosUseCase:
     ) -> dict[str, Any]:
         """Lee los N_MAX del proceso (cards SOLO VISUALES).
 
+        Convencion del operario (2026-09-02):
+          - Las PlcUserConstant N_MAX de un proceso viven en la
+            **tabla del proceso** (``<uid>_<codigo>``, p. ej.
+            ``100_CPR``), en la carpeta TIA ``003_Procesos/``. NO
+            en la tabla ``000_Config_Dispositivos`` (esa es para
+            los N_MAX de dispositivos).
+          - El nombre completo de cada PlcUserConstant es
+            ``f"{proc.uid}_N_MAX_{suffix}"`` (p. ej.
+            ``100_N_MAX_PREAL``), con el sufijo del config.
+
         Compara el desired (de ``ProcesoSlotMap.nmax``,
         ``len()`` de las listas filtradas del Excel) contra el
-        current (exportando la tabla ``000_Config_Dispositivos`` de
-        TIA y parseando con ``SimaticMLTagParser.parse_user_constants``).
-        Mismo shape que el ``nmax_block`` de Dispositivos
-        (``sync_dispositivos_instances._extract_nmax_diff``):
+        current (exportando la tabla del proceso con
+        ``gateway.export_plc_tags_xml`` y parseando con
+        ``SimaticMLTagParser.parse_user_constants``).
 
+        Mismo shape que el ``nmax_block`` de Dispositivos:
         ``{"current", "desired", "todos", "summary"}``.
 
         Si el config no aporta ``procesos.n_max_suffixes``
@@ -694,8 +715,8 @@ class SyncProcesosComentariosUseCase:
         sin_cambios: 0, total: 0}``. La SPA no renderiza las cards
         en ese caso.
 
-        Si el export de la tabla falla, NO aborta el preview: emite
-        un warning y devuelve un bloque con ``current={}`` y
+        Si el export falla, NO aborta el preview: emite un warning
+        y devuelve un bloque con ``current={}`` y
         ``status="sin_cambios"`` para todos los kinds. La SPA
         mostrará las cards con current=desconocido (gris) en lugar
         de romper la vista.
@@ -722,25 +743,36 @@ class SyncProcesosComentariosUseCase:
                 },
             }
 
-        # 1. Estado actual en TIA (export de la tabla N_MAX).
-        nmax_folder = self._config.get_tia_folder_nmax()
-        nmax_table = self._config.get_global_config_table_name()
-        nmax_dir = self._build_work_dir(suffix="preview") / nmax_folder
-        nmax_dir.mkdir(parents=True, exist_ok=True)
-        nmax_xml = nmax_dir / f"{nmax_table}.xml"
+        # 1. Estado actual en TIA. Las N_MAX del proceso viven en
+        # la tabla del proceso (``<uid>_<codigo>``, p. ej. ``100_CPR``)
+        # en la carpeta TIA ``003_Procesos/``. NO en la tabla
+        # ``000_Config_Dispositivos`` de dispositivos.
+        # ``target_dir`` SIN subcarpeta: el worker, con
+        # ``keep_folder_structure=True``, crea la jerarquía del PLC
+        # (``target_dir/003_Procesos/100_CPR.xml``).
+        target_dir = self._build_work_dir(suffix="preview")
+        target_dir.mkdir(parents=True, exist_ok=True)
+        table_name = slot_map.table_name  # p. ej. "100_CPR"
 
         current: dict[str, int] = {}
         try:
             await self._gateway.export_plc_tags_xml(
                 self._bloques_cache.plc_name,  # type: ignore[union-attr]
-                str(nmax_dir),
-                table_names=[nmax_table],
+                str(target_dir),
+                table_names=[table_name],
             )
-            if nmax_xml.is_file():
-                current = SimaticMLTagParser.parse_user_constants(nmax_xml)
+            # El worker puede haber escrito el XML en
+            # ``<target_dir>/<grupo>/<table>.xml`` o directamente en
+            # ``<target_dir>/<table>.xml`` según el group structure
+            # del PLC. Buscamos en cualquier subdirectorio para
+            # ser tolerantes.
+            matches = list(target_dir.rglob(f"{table_name}.xml"))
+            if matches:
+                current = SimaticMLTagParser.parse_user_constants(matches[0])
             else:
                 _logger.warning(
-                    f"[N_MAX procesos] XML esperado no encontrado: {nmax_xml}"
+                    f"[N_MAX procesos] XML esperado no encontrado en "
+                    f"{target_dir} para tabla {table_name}."
                 )
         except Exception as exc:
             _logger.warning(
