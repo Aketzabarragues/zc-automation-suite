@@ -266,10 +266,12 @@ def test_generar_prevision_diff_real_con_archivos_tia(tmp_path) -> None:
     from core.models.bloque_plc import BloquePLC
     from unittest.mock import AsyncMock
 
-    # 1. Preparar los archivos .s7dcl/.s7res en work_dir como si
-    # vinieran de TIA.
-    work_dir = tmp_path / "preview_test"
-    work_dir.mkdir()
+    # 1. Preparar los archivos .s7dcl/.s7res en el work_dir que
+    # construirá el use case como si vinieran de TIA. El caso de uso
+    # los monta en ``<build_cache>/procesos/preview/``, por lo que
+    # pre-escribimos directamente ahí.
+    work_dir = tmp_path / "procesos" / "preview"
+    work_dir.mkdir(parents=True)
     db_param = "DB53100_CPR_PARAM"
     db_alm = "DB55100_CPR_ALM"
 
@@ -359,7 +361,9 @@ def test_generar_prevision_diff_real_con_archivos_tia(tmp_path) -> None:
     )
 
     # 5. Use case con work_dir en tmp_path (el preview escribe aquí).
-    # Para que _build_work_dir use nuestro tmp_path, hacemos monkey-patch.
+    # Inyectamos tmp_path como build_cache_dir: el caso de uso monta
+    # ``<build_cache>/procesos/<suffix>`` por debajo, por lo que el
+    # preview acabará escribiendo en ``tmp_path/procesos/preview``.
     config = MagicMock(spec=ConfigManager)
     tracker = ProgressTracker()
     use_case = SyncProcesosComentariosUseCase(
@@ -368,11 +372,17 @@ def test_generar_prevision_diff_real_con_archivos_tia(tmp_path) -> None:
         app_state=state,
         progress=tracker,
         bloques_cache=bloques,
+        build_cache_dir=tmp_path,
     )
-    # Override the _build_work_dir to use our tmp_path.
-    use_case._build_work_dir = lambda suffix="commit": work_dir
 
     result = asyncio.run(use_case.generar_prevision(100))
+
+    # El preview debe haber escrito los exports en
+    # ``<build_cache>/procesos/preview/`` (no en ``work_dir`` directo).
+    expected_work_dir = tmp_path / "procesos" / "preview"
+    assert expected_work_dir.is_dir(), (
+        f"El preview no creó su work_dir: {expected_work_dir}"
+    )
 
     # 6. Verificar el diff.
     assert result["precondiciones_ok"] is True

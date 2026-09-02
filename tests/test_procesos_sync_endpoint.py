@@ -5,6 +5,7 @@ no instanciamos gateways; los mocks se inyectan vía ``Depends``.
 """
 from __future__ import annotations
 
+import os
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -264,13 +265,19 @@ def test_endpoint_commit_invoca_gateway_con_target_folder_y_undo(
         "update_proc_comments_db_alm",
     ]
     # target_folder y work_dir vienen del config. El work_dir del
-    # commit se llama ``procesos_commit`` (distinto del
-    # ``procesos_preview`` que usa el preview) para que el operario
-    # no confunda archivos exportados durante un preview con
+    # commit sigue el patrón ``<build_cache>/procesos/commit/``
+    # (análogo a ``SyncDispositivosInstancesUseCase``: ``<build_cache>/
+    # base/tags/`` y ``<build_cache>/commit/tags/``). El preview usa
+    # ``<build_cache>/procesos/preview/`` separado, para que el
+    # operario no confunda archivos exportados durante un preview con
     # archivos a reimportar en el commit.
     for op in operations:
         assert op["args"]["target_folder"] == "003_Procesos"
-        assert op["args"]["work_dir"].endswith("procesos_commit")
+        # ``os.sep`` para tolerar backslash en Windows y slash en
+        # Linux/macOS.
+        assert op["args"]["work_dir"].endswith(
+            f"procesos{os.sep}commit"
+        ), op["args"]["work_dir"]
     # Undo text menciona el codigo "CPR" y el PLC.
     assert "CPR" in call_args["undo_text"]
     assert "PLC_X" in call_args["undo_text"]

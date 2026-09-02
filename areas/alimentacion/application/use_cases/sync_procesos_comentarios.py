@@ -52,7 +52,16 @@ class SyncProcesosComentariosUseCase:
                        el caso de uso asume que la cache está vacía
                        y devuelve ``missing_blocks`` poblado para
                        los 3 nombres esperados.
+        build_cache_dir: directorio base del work_dir del worker OT
+                       (default: ``<cwd>/.build_cache``). Permite a
+                       los tests inyectar ``tmp_path`` directamente
+                       en lugar de monkey-patching ``_build_work_dir``.
     """
+
+    _BUILD_CACHE_DIRNAME = ".build_cache"
+    _PROC_SUBDIR = "procesos"
+    _COMMIT_SUBDIR = "commit"
+    _PREVIEW_SUBDIR = "preview"
 
     def __init__(
         self,
@@ -61,6 +70,7 @@ class SyncProcesosComentariosUseCase:
         app_state: AppState,
         progress: ProgressTracker | None = None,
         bloques_cache: BloqueCache | None = None,
+        build_cache_dir: Path | None = None,
     ) -> None:
         self._gateway = gateway
         self._config = config_manager
@@ -69,6 +79,11 @@ class SyncProcesosComentariosUseCase:
             progress if progress is not None else get_progress_tracker()
         )
         self._bloques_cache: BloqueCache | None = bloques_cache
+        self._build_cache: Path = (
+            build_cache_dir
+            if build_cache_dir is not None
+            else Path(os.getcwd()) / self._BUILD_CACHE_DIRNAME
+        )
 
     # ── API pública ──────────────────────────────────────────────────────
 
@@ -457,20 +472,24 @@ class SyncProcesosComentariosUseCase:
         """Construye el directorio de trabajo del worker.
 
         Patrón análogo a ``SyncDispositivosInstancesUseCase``:
-        ``<build_cache>/procesos_{suffix}/``. El directorio se
+        ``<build_cache>/procesos/<suffix>/``. El directorio se
         conserva tras la operación para permitir inspección manual
         y ``git diff``.
 
         Args:
             suffix: ``"commit"`` (default) usa el directorio
-                ``procesos_comments/`` que el handler de import_block
+                ``procesos/commit/`` que el handler de import_block
                 lee después del export + updater. ``"preview"`` usa
-                ``procesos_preview/`` separado para que el operario
+                ``procesos/preview/`` separado para que el operario
                 pueda inspeccionar los exports del preview sin
                 mezclarlos con los del apply.
         """
-        build_cache = Path(os.getcwd()) / ".build_cache"
-        work_dir = build_cache / f"procesos_{suffix}"
+        subdir = (
+            self._COMMIT_SUBDIR if suffix == "commit"
+            else self._PREVIEW_SUBDIR if suffix == "preview"
+            else suffix
+        )
+        work_dir = self._build_cache / self._PROC_SUBDIR / subdir
         work_dir.mkdir(parents=True, exist_ok=True)
         return work_dir
 
