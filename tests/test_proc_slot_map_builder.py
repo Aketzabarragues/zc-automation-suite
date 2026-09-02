@@ -130,6 +130,41 @@ def test_comentario_vacio_se_mapea_a_punto() -> None:
     assert result.preal[2] == "OK"
 
 
+def test_comentario_con_comillas_envolventes_se_limpian() -> None:
+    """Si el operario pega el comentario del Excel con comillas
+    envolventes por error (p. ej. ``'COMPACTO - FIJOS - '``), el
+    builder las quita. Si no, el diff diría "renombrar" siempre
+    que el desired (Excel) tenga comillas y el current (TIA) no
+    — un falso positivo. Caso real visto en producción.
+    """
+    proc = MagicMock(uid=1, nombre="Compacto", codigo="CPR")
+    parametros_real = [
+        # Slot 1: el operario pegó el comentario con comillas simples.
+        MagicMock(uid="PR_1", codigo="CPR", num_db=53100,
+                  comentario_db="'COMPACTO - FIJOS - '"),
+        # Slot 2: el operario lo pegó con comillas dobles.
+        MagicMock(uid="PR_2", codigo="CPR", num_db=53100,
+                  comentario_db='"COMPACTO - FIJOS - X"'),
+    ]
+    alarmas = [
+        MagicMock(uid="AL_1", proceso="Compacto", num_db=55100,
+                  comentario_db="AL 1")
+    ]
+    excel_cache = _make_excel_cache(
+        procesos=[proc], parametros_real=parametros_real, alarmas=alarmas
+    )
+    state = MagicMock(excel_cache=excel_cache)
+    bloques = _make_bloque_cache(
+        ["DB53100_CPR_PARAM", "DB55100_CPR_ALM"],
+        tag_tables=["1_CPR"],
+    )
+
+    result = build_proceso_slot_maps(state, MagicMock(), 1, bloques)
+    # Ambos comentarios vienen SIN comillas envolventes.
+    assert result.preal[1] == "COMPACTO - FIJOS -"
+    assert result.preal[2] == "COMPACTO - FIJOS - X"
+
+
 def test_proceso_no_en_excel_lanza_runtime_error() -> None:
     """``proc_uid`` no está en ``excel_cache.procesos`` → RuntimeError."""
     excel_cache = _make_excel_cache(procesos=[])

@@ -381,6 +381,20 @@ class ProcesoCommentUpdater:
         Esta función es la inversa de ``_upsert_s7res_entry`` y se
         usa para leer el estado actual de TIA (sin modificar nada)
         durante la fase de preview / diff.
+
+        Nota sobre comillas envolventes:
+          TIA Portal exporta algunos comentarios entre comillas
+          literales en el ``.s7res`` (caso típico: texto con
+          espacios al final, comillas internas, o caracteres que
+          YAML considera "no seguros"). Por ejemplo, un comentario
+          ``COMPACTO - FIJOS - `` (con espacio al final) se
+          exporta como ``es-ES: 'COMPACTO - FIJOS - '``. Si el
+          parser las preservara, el operario vería comillas
+          literales en la UI del diff. Las quitamos
+          conservadoramente solo si el texto capturado empieza Y
+          termina con la MISMA comilla (simples o dobles); un texto
+          que legitimamente contiene una sola comilla al inicio o
+          al final se queda tal cual.
         """
         result: dict[str, str] = {}
         # Regex: cada entrada es un bloque ``- id: MLC_X\n    es-ES: ...``.
@@ -401,7 +415,8 @@ class ProcesoCommentUpdater:
                 # para que el caller lo distinga de "no existe".
                 result[mlc_id] = ""
             else:
-                result[mlc_id] = es_match.group(1)
+                raw = es_match.group(1)
+                result[mlc_id] = strip_enclosing_quotes(raw)
         return result
 
     def read_current_comments(
@@ -667,11 +682,40 @@ class ProcesoCommentUpdater:
 # ── Helpers de módulo ───────────────────────────────────────────────────
 
 
+def strip_enclosing_quotes(text: str) -> str:
+    """Quita comillas envolventes si el texto empieza Y termina con la misma.
+
+    TIA Portal exporta algunos comentarios entre comillas literales
+    en el ``.s7res`` (espacios al final, comillas internas, etc.). Y
+    el operario a veces pega textos del Excel con comillas envolventes
+    por error. Esta función los limpia de forma conservadora: solo
+    actúa si la primera Y la última posición son la MISMA comilla
+    (simples o dobles). Un texto con una sola comilla al inicio o al
+    final se queda tal cual.
+
+    Además hace ``.strip()`` por si TIA deja espacios colgando
+    después de la comilla de cierre (caso raro pero visto en
+    exports reales).
+    """
+    if len(text) < 2:
+        return text.strip()
+    first = text[0]
+    last = text[-1]
+    if first == last and first in ("'", '"'):
+        return text[1:-1].strip()
+    return text.strip()
+
+
 def _sanitize_comment_text(text: str | None, slot: int) -> str:
     """Limpia el texto del comentario: trim, colapsa saltos, escapa, trunca."""
     if text is None:
         text = ""
     s = text.strip()
+    # Si el operario pega el comentario del Excel con comillas
+    # envolventes por error (p. ej. ``'COMPACTO - FIJOS - '``), las
+    # quitamos antes de colapsar whitespace. Esto evita que el
+    # apply escriba comillas literales en el ``.s7res``.
+    s = strip_enclosing_quotes(s)
     s = re.sub(r"\s+", " ", s)
     if not s:
         s = _EMPTY_TEXT
@@ -689,4 +733,8 @@ def _escape_s7res_text(text: str) -> str:
     return text.replace('"', '""')
 
 
-__all__ = ["ProcesoCommentResult", "ProcesoCommentUpdater"]
+__all__ = [
+    "ProcesoCommentResult",
+    "ProcesoCommentUpdater",
+    "strip_enclosing_quotes",
+]

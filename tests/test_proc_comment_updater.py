@@ -25,6 +25,7 @@ from areas.alimentacion.infrastructure.sd.mlc_registry import MLCRegistry
 from areas.alimentacion.infrastructure.sd.proc_comment_updater import (
     ProcesoCommentResult,
     ProcesoCommentUpdater,
+    strip_enclosing_quotes,
 )
 
 
@@ -439,3 +440,110 @@ def test_construye_registry_con_mlcs_existentes(
     # El MLC del slot 1 (MLC_PR_001) se respeta, no se genera uno nuevo.
     assert result.reused[1] == "MLC_PR_001"
     assert 1 not in result.inserted
+
+
+# ── Comillas envolventes (TIA exporta a veces con '…' alrededor) ────────
+
+
+class TestStripEnclosingQuotes:
+    """Cubre el helper ``strip_enclosing_quotes`` (público).
+
+    Se llama desde:
+      * ``ProcesoCommentUpdater._build_mlc_text_map`` al leer el
+        ``.s7res`` (lado TIA).
+      * ``_sanitize_comment_text`` al escribir (apply).
+      * ``proc_slot_map_builder._build_slot_map`` al leer el Excel
+        (lado desired).
+
+    La función es conservadora: solo actúa si el texto empieza Y
+    termina con la MISMA comilla (simples o dobles).
+    """
+
+    def test_empty_string_devuelve_empty(self):
+        assert strip_enclosing_quotes("") == ""
+
+    def test_single_char_se_queda_igual(self):
+        # Una sola comilla no es "envolvente" por longitud < 2.
+        assert strip_enclosing_quotes("'") == "'"
+
+    def test_sin_comillas_se_queda_igual(self):
+        assert strip_enclosing_quotes("COMPACTO - FIJOS") == "COMPACTO - FIJOS"
+
+    def test_comillas_simples_envolventes_se_quitan(self):
+        # Caso típico que ve el operario: TIA exporta
+        # ``es-ES: 'COMPACTO - FIJOS - '`` (con espacio al final).
+        assert (
+            strip_enclosing_quotes("'COMPACTO - FIJOS - '")
+            == "COMPACTO - FIJOS -"
+        )
+
+    def test_comillas_dobles_envolventes_se_quitan(self):
+        assert (
+            strip_enclosing_quotes('"COMPACTO - FIJOS - "')
+            == "COMPACTO - FIJOS -"
+        )
+
+    def test_comillas_no_balanceadas_se_quedan_igual(self):
+        # Una sola comilla al inicio o al final NO se quita (puede
+        # ser parte legítima del texto).
+        assert strip_enclosing_quotes("'hola") == "'hola"
+        assert strip_enclosing_quotes("hola'") == "hola'"
+
+    def test_comillas_mixtas_no_se_quitan(self):
+        # Empieza con ' y termina con " (o viceversa) → no es
+        # "envolvente balanceada", se queda igual.
+        assert strip_enclosing_quotes("'hola\"") == "'hola\""
+
+    def test_espacios_dentro_de_comillas_se_stripean(self):
+        # TIA a veces deja espacios colgando DENTRO de las comillas
+        # (p. ej. ``'COMPACTO - ' `` con espacio tras el último
+        # carácter). El helper los quita tras extraer el contenido.
+        assert (
+            strip_enclosing_quotes("'COMPACTO '")
+            == "COMPACTO"
+        )
+
+    def test_texto_con_comilla_interna_al_final_se_conserva(self):
+        # El texto contiene una comilla simple legítima en su
+        # interior. NO debe quitarla.
+        assert (
+            strip_enclosing_quotes("Bomba de 6'' pulgada")
+            == "Bomba de 6'' pulgada"
+        )
+
+
+class TestReadCurrentCommentsStripsEnclosingQuotes:
+    """Verifica que ``ProcesoCommentUpdater.read_current_comments``
+    quita comillas envolventes que TIA pone al exportar el ``.s7res``.
+
+    Caso real visto por el operario: la UI mostraba
+    ``'COMPACTO - FIJOS - '`` (con comillas) como ``current`` en
+    lugar de ``COMPACTO - FIJOS -``. Eso provocaba que el diff
+    reportara "renombrar" cuando en realidad el desired (Excel) y
+    el current (TIA) eran el mismo texto.
+    """
+
+    def test_quita_comillas_simples_del_s7res(
+        self, tmp_path, synthetic_block
+    ):
+        # Partimos del bloque sintético estándar (que tiene slots
+        # 1..30 con el MLC correspondiente), pero sobrescribimos el
+        # ``.s7res`` con un comentario ENTRE comillas simples en
+        # el slot 1 (caso TIA real visto en producción).
+        dcl, res = synthetic_block
+        new_s7res = (
+            "MultiLingualTexts:\n"
+            "  - id: MLC_PR_001\n"
+            "    es-ES: 'COMPACTO - FIJOS - '\n"
+        )
+        res.write_text(new_s7res, encoding="utf-8-sig")
+        updater = ProcesoCommentUpdater(
+            s7dcl_path=dcl,
+            s7res_path=res,
+            slot_map={},
+        )
+        # El ``current`` del slot 1 viene SIN comillas envolventes.
+        result = updater.read_current_comments([1], "PReal")
+        assert result[1] == "COMPACTO - FIJOS -", (
+            f"esperaba 'COMPACTO - FIJOS -', recibí {result[1]!r}"
+        )

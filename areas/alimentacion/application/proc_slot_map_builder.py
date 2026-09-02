@@ -26,6 +26,9 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
+from areas.alimentacion.infrastructure.sd.proc_comment_updater import (
+    strip_enclosing_quotes,
+)
 from core.application.state import AppState
 from core.infrastructure.config_manager import ConfigManager
 from core.models.bloque_cache import BloqueCache
@@ -135,6 +138,14 @@ def _build_slot_map(
     slot_map: dict[int, str] = {}
     for i, p in enumerate(filtered):
         comentario = str(getattr(p, "comentario_db", "") or "")
+        # Si el operario pega el comentario del Excel con comillas
+        # envolventes por error (p. ej. ``'COMPACTO - FIJOS - '``),
+        # las quitamos aquí. Si no, el diff diría "renombrar" siempre
+        # que el desired (Excel) tenga comillas y el current (TIA)
+        # no — un falso positivo. La misma limpieza se hace en el
+        # lado TIA (``ProcesoCommentUpdater._build_mlc_text_map``)
+        # y en el apply (``_sanitize_comment_text``).
+        comentario = strip_enclosing_quotes(comentario)
         if not comentario.strip():
             _logger.warning(
                 f"Parámetro sin comentario_db (Excel vacío); "
