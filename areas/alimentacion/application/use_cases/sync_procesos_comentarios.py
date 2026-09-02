@@ -250,6 +250,20 @@ class SyncProcesosComentariosUseCase:
             # done: precondiciones ok?
             if slot_map.missing_blocks:
                 if _track:
+                    # Saltamos ``export_and_diff`` (no hay nada que
+                    # comparar: el proceso no existe en el PLC). Lo
+                    # marcamos como DONE con un detalle explicativo
+                    # para que el contador del progress bar avance
+                    # de 4/6 a 5/6 y no quede pillado.
+                    self._progress.start_stage(
+                        "export_and_diff",
+                        "Saltado (precondiciones no cumplidas)",
+                    )
+                    self._progress.finish_stage(
+                        "export_and_diff",
+                        f"Saltado: {len(slot_map.missing_blocks)} "
+                        f"bloques ausentes en el PLC",
+                    )
                     self._progress.start_stage(
                         "done",
                         f"Faltan {len(slot_map.missing_blocks)} bloques",
@@ -258,6 +272,11 @@ class SyncProcesosComentariosUseCase:
                         "done",
                         f"Faltan {len(slot_map.missing_blocks)} bloques",
                     )
+                    # Cierra el tracker (``active=False``) para que
+                    # la SPA muestre el estado "completado" y no
+                    # "En curso" indefinidamente (bug que el operario
+                    # reportó el 2026-09-02).
+                    self._progress.finish(success=True)
                 return {
                     "proc_uid": proc_uid,
                     "proc_codigo": slot_map.db_param_name.split("_")[1]

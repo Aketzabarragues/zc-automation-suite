@@ -828,3 +828,105 @@ def test_generar_prevision_slots_tia_no_excel_aparecen_como_eliminar(
     summary = result["summary"]
     assert summary["eliminados"] == 3  # slots 3, 4, 5
     assert summary["total"] == 6  # 2 del Excel + 3 eliminar + 1 sin_cambios
+
+
+def test_generar_prevision_closes_tracker_when_missing_blocks(tmp_path) -> None:
+    """Cuando el proceso no existe en el PLC (``missing_blocks``
+    poblado), el use case debe cerrar el ``ProgressTracker``
+    (``active=False``) para que la SPA no muestre "En curso"
+    indefinidamente. Antes del fix, la rama de ``missing_blocks``
+    saltaba directamente al stage "done" sin pasar por
+    "export_and_diff" ni llamar a ``finish(success=True)``.
+    Caso real reportado por el operario el 2026-09-02: el
+    progress bar se quedaba en 5/6 con el stage 5 (export_and_diff)
+    en PENDING.
+    """
+    from core.application.progress_buffer import (
+        ProgressTracker,
+        STAGE_DONE,
+    )
+    from core.infrastructure.gateway import TIAProcessGateway
+    from core.models.bloque_cache import BloqueCache
+    from core.models.bloque_plc import BloquePLC
+    from unittest.mock import MagicMock
+
+    # Tracker LIMPIO (no activo). El use case va a ser el dueño
+    # del tracker durante toda la operación.
+    tracker = ProgressTracker()
+    assert tracker.active is False
+
+    # El proceso 1 NO existe en el PLC: el BloqueCache solo tiene
+    # bloques del proceso 100, no del 1. ``build_proceso_slot_maps``
+    # lo detectará y poblará ``missing_blocks``.
+    proc = MagicMock(uid=1, nombre="Genérico", codigo="GNR")
+    ec = MagicMock()
+    ec.procesos = [proc]
+    ec.parametros_real = [
+        MagicMock(uid="PR_1", codigo="GNR", num_db=3001,
+                  comentario_db="X")
+    ]
+    ec.parametros_int = []
+    ec.alarmas = [
+        MagicMock(uid="AL_1", proceso="Genérico", num_db=5001,
+                  comentario_db="Y")
+    ]
+    state = MagicMock(excel_cache=ec)
+    # BloqueCache del proceso 100 (NO del 1 que estamos consultando).
+    bloques = BloqueCache(
+        blocks={
+            BloquePLC.normalize_name("DB53100_CPR_PARAM"):
+                BloquePLC(nombre="DB53100_CPR_PARAM", numero=0,
+                          tipo="DB", ruta=""),
+        },
+        tag_tables={
+            BloquePLC.normalize_name("100_CPR"):
+                BloquePLC(nombre="100_CPR", numero=0, tipo="TAG_TABLE",
+                          ruta=""),
+        },
+        plc_name="PLC_X",
+    )
+
+    gateway = MagicMock(spec=TIAProcessGateway)
+    config = MagicMock()
+    config.get_proc_nmax_suffixes = MagicMock(return_value={})
+    config.get_tia_folder_nmax = MagicMock(return_value="000_Sistema")
+    config.get_global_config_table_name = MagicMock(
+        return_value="000_Config_Dispositivos"
+    )
+
+    use_case = SyncProcesosComentariosUseCase(
+        gateway=gateway,
+        config_manager=config,
+        app_state=state,
+        progress=tracker,
+        bloques_cache=bloques,
+        build_cache_dir=tmp_path,
+    )
+    import asyncio
+    result = asyncio.run(use_case.generar_prevision(1))
+
+    # El use case retornó con precondiciones_ok=False.
+    assert result["precondiciones_ok"] is False
+    assert len(result["missing_blocks"]) == 3  # DB_PARAM + DB_ALM + tabla
+
+    # El tracker se cerró (``active=False``). Antes del fix, esto
+    # era True y la SPA mostraba "En curso" indefinidamente.
+    assert tracker.active is False, (
+        "El tracker no se cerró tras missing_blocks; la SPA se queda "
+        f"en 'En curso'. Snapshot: {tracker.snapshot()}"
+    )
+    # Los 6 stages están en DONE (incluido ``export_and_diff``
+    # marcado como "Saltado").
+    snap = tracker.snapshot()
+    assert len(snap.stages) == 6, f"Stages: {snap.stages}"
+    assert all(s["status"] == STAGE_DONE for s in snap.stages), (
+        f"Todos los stages deben estar en DONE. Actual: "
+        f"{[(s['id'], s['status']) for s in snap.stages]}"
+    )
+    # El stage ``export_and_diff`` está marcado como saltado.
+    export_stage = next(
+        s for s in snap.stages if s["id"] == "export_and_diff"
+    )
+    assert "Saltado" in (export_stage["detail"] or ""), (
+        f"export_and_diff debe tener detail 'Saltado...': {export_stage}"
+    )
