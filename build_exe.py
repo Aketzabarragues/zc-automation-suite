@@ -46,6 +46,13 @@ import tempfile
 from pathlib import Path
 from textwrap import dedent
 
+try:
+    import psutil  # type: ignore[import-not-found]
+    _HAS_PSUTIL = True
+except ImportError:
+    psutil = None  # type: ignore[assignment]
+    _HAS_PSUTIL = False
+
 
 # ── Forzar UTF-8 en stdout/stderr (mismo patrón que main.py / worker_tia.py) ─
 # Sin esto, Windows imprime por cp1252 y revienta con caracteres
@@ -528,6 +535,164 @@ def clean_build_dirs() -> None:
             shutil.rmtree(path, ignore_errors=True)
 
 
+# ── Detección de procesos bloqueantes (Windows-friendly) ────────────
+# Patrones de nombre de proceso que pueden tener locks sobre los
+# assets de Siemens (``.pyd``/``.dll``/``.xml``) o sobre el ``.exe``
+# de la build anterior en ``dist/``. Si PyInstaller intenta leer o
+# escribir uno de esos archivos mientras están en uso, Windows le
+# niega el acceso con ``PermissionError: [Errno 13]`` y el build cae
+# con un mensaje críptico (``PermissionError`` dentro de
+# ``zipfile.writestr``). Detectamos esto ANTES de empezar y
+# avisamos al operario con un mensaje accionable.
+_BLOCKING_PROCESS_PATTERNS: list[str] = [
+    # El launcher de la app, corriendo en la bandeja.
+    "zc_automation_suite",
+    # Otra instancia de PyInstaller (p. ej. en CI concurrente).
+    "pyinstaller",
+]
+
+
+def _find_blocking_processes() -> list[dict]:
+    """Devuelve la lista de procesos que pueden bloquear el build.
+
+    Usa ``psutil`` si está disponible; si no, cae al comando nativo
+    ``tasklist`` de Windows. Devuelve una lista de dicts con
+    ``name``, ``pid`` y ``exe``.
+    """
+    found: list[dict] = []
+    if _HAS_PSUTIL:
+        for proc in psutil.process_iter(["name", "pid", "exe"]):
+            try:
+                name = (proc.info.get("name") or "").lower()
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+            if not name:
+                continue
+            for pat in _BLOCKING_PROCESS_PATTERNS:
+                if pat in name:
+                    found.append({
+                        "name": name,
+                        "pid": proc.info.get("pid"),
+                        "exe": proc.info.get("exe"),
+                    })
+                    break
+        return found
+
+    # Fallback: tasklist /CSV. Solo se ejecuta en Windows.
+    if sys.platform != "win32":
+        return found
+    try:
+        out = subprocess.run(
+            ["tasklist", "/FO", "CSV", "/NH"],
+            capture_output=True, text=True, check=False, timeout=10,
+        )
+    except (subprocess.SubprocessError, FileNotFoundError):
+        return found
+    for line in out.stdout.splitlines():
+        # Formato CSV: "Image Name","PID","Session Name","Session#","Mem Usage"
+        parts = [p.strip().strip('"') for p in line.split(",")]
+        if len(parts) < 2:
+            continue
+        name_lc = parts[0].lower()
+        for pat in _BLOCKING_PROCESS_PATTERNS:
+            if pat in name_lc:
+                try:
+                    found.append({
+                        "name": name_lc,
+                        "pid": int(parts[1]),
+                        "exe": None,
+                    })
+                except ValueError:
+                    pass
+                break
+    return found
+
+
+def check_blocking_processes(force_kill: bool = False) -> bool:
+    """Detecta procesos bloqueantes. Si los hay:
+
+      * ``force_kill=False`` (default): imprime los PIDs y aborta
+        con ``sys.exit(1)``. Mensaje accionable.
+      * ``force_kill=True``: los mata con ``Stop-Process -Force`` (o
+        ``taskkill /F``) y continúa. Útil para builds desatendidos
+        o para limpieza tras un crash.
+
+    Returns:
+        True si no había procesos bloqueantes (o si se mataron
+        con ``force_kill=True``). False si había y se abortó.
+    """
+    procs = _find_blocking_processes()
+    if not procs:
+        return True
+    print(
+        "[ERROR] Hay procesos que pueden bloquear el build (tienen\n"
+        "        locks sobre los assets de Siemens o el .exe de\n"
+        "        builds anteriores en dist/):",
+        file=sys.stderr,
+    )
+    for p in procs:
+        print(f"  - {p['name']} (pid {p['pid']})", file=sys.stderr)
+    if not force_kill:
+        print(
+            "\n        Soluciones:\n"
+            "          1. Cierra el icono de la bandeja del launcher.\n"
+            "          2. Vuelve a ejecutar build_exe.py con --force-kill\n"
+            "             para que mate los procesos automáticamente.\n"
+            "          3. Si el proceso es otro pyinstaller (p. ej. CI),\n"
+            "             espera a que termine o cancélalo a mano.",
+            file=sys.stderr,
+        )
+        return False
+    # force_kill=True: los matamos.
+    print("[KILL] Matando procesos bloqueantes (--force-kill)...")
+    for p in procs:
+        pid = p["pid"]
+        if not pid:
+            continue
+        if sys.platform == "win32":
+            # ``taskkill /F /PID <pid>`` funciona siempre, incluso
+            # sin psutil. Si está psutil, usamos Process.kill() que
+            # en Windows es equivalente.
+            if _HAS_PSUTIL:
+                try:
+                    psutil.Process(pid).kill()
+                    print(f"  [KILL] {p['name']} (pid {pid}) OK")
+                    continue
+                except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
+                    print(f"  [WARN] psutil falló con {p['name']} (pid {pid}): "
+                          f"{e}; intento con taskkill")
+            subprocess.run(
+                ["taskkill", "/F", "/PID", str(pid)],
+                capture_output=True, check=False,
+            )
+            print(f"  [KILL] {p['name']} (pid {pid}) taskkill enviado")
+    # Pequeña pausa para que Windows libere los locks.
+    import time
+    time.sleep(1.0)
+    return True
+
+
+def clean_pyinstaller_cache() -> None:
+    """Limpia el caché de PyInstaller (``%LOCALAPPDATA%\\pyinstaller``).
+
+    PyInstaller deja artefactos en este directorio entre builds. Si
+    uno de ellos está lockeado por un proceso zombie, el siguiente
+    build falla con ``PermissionError`` al intentar escribir
+    ``base_library.zip``. La limpieza fuerza que PyInstaller
+    regenere todo desde cero.
+    """
+    cache = Path(tempfile.gettempdir()).parent / "pyinstaller"
+    if cache.is_dir():
+        print(f"[CLEAN] Borrando caché de PyInstaller: {cache}")
+        shutil.rmtree(cache, ignore_errors=True)
+    # También el workpath local de PyInstaller.
+    local = ROOT / "build"
+    if local.is_dir():
+        print(f"[CLEAN] Borrando build/ local: {local}")
+        shutil.rmtree(local, ignore_errors=True)
+
+
+# ── Etapa 3: invocar PyInstaller ──────────────────────────────────
 def run_pyinstaller(spec_path: Path) -> int:
     """Invoca PyInstaller con el ``.spec`` generado.
 
@@ -536,6 +701,14 @@ def run_pyinstaller(spec_path: Path) -> int:
     Pasa ``--clean`` para purgar el cache de PyInstaller entre
     builds (evita arrastrar artefactos de configuraciones
     anteriores).
+
+    Si falla con ``PermissionError`` (exit code 1 + ``PermissionError``
+    en el output), el build anterior dejó un lock en el caché de
+    PyInstaller (``%LOCALAPPDATA%\\pyinstaller``) o un proceso
+    tiene un lock sobre los assets. Limpiamos el caché, matamos
+    los procesos bloqueantes si los hay, y reintentamos UNA vez.
+    Esto evita el ciclo "fallo → limpio a mano → reintento" que
+    sufre el operario en cada build con el launcher abierto.
 
     Pre-condición: ``EXE_ICON`` debe existir en disco (es un .ico
     multi-resolución). Si falta, se aborta con mensaje accionable.
@@ -558,9 +731,32 @@ def run_pyinstaller(spec_path: Path) -> int:
         "--clean",
         str(spec_path),
     ]
-    print("[BUILD] Ejecutando:", " ".join(cmd))
-    result = subprocess.run(cmd, cwd=ROOT, check=False)
-    return result.returncode
+
+    def _run_once(label: str) -> tuple[int, str]:
+        print(f"[BUILD] Ejecutando ({label}):", " ".join(cmd))
+        result = subprocess.run(
+            cmd, cwd=ROOT, check=False, capture_output=True, text=True,
+        )
+        return result.returncode, (result.stdout or "") + (result.stderr or "")
+
+    exit_code, output = _run_once("1/2")
+    if exit_code != 0 and "PermissionError" in output:
+        print(
+            "[WARN] PyInstaller falló con PermissionError. Probable\n"
+            "       lock de un proceso sobre los assets o sobre el\n"
+            "       caché de PyInstaller. Limpio el caché, mato\n"
+            "       procesos bloqueantes si los hay, y reintento.",
+            file=sys.stderr,
+        )
+        clean_pyinstaller_cache()
+        check_blocking_processes(force_kill=True)
+        exit_code, output = _run_once("2/2")
+
+    if output:
+        # Imprime el output de la build completa. Si falló, el
+        # operario ve el traceback de PyInstaller en la consola.
+        print(output, end="")
+    return exit_code
 
 
 # ── Etapa 4: report ───────────────────────────────────────────────
@@ -588,10 +784,36 @@ def report_artifact(exit_code: int) -> int:
 
 
 # ── Orquestación ──────────────────────────────────────────────────
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     print("=" * 60)
     print(f"{EXE_NAME} - PyInstaller Build Script")
     print("=" * 60)
+
+    # Parseo de flags ligeros. Evitamos ``argparse`` para mantener
+    # el script zero-deps (excepto PyInstaller y los hooks).
+    force_kill = False
+    for arg in (argv if argv is not None else sys.argv[1:]):
+        if arg in ("--force-kill", "--kill"):
+            force_kill = True
+        elif arg in ("-h", "--help"):
+            print(
+                "Uso: python build_exe.py [--force-kill]\n"
+                "\n"
+                "  --force-kill   Mata automáticamente procesos que puedan\n"
+                "                 bloquear el build (instancia previa del\n"
+                "                 launcher, otro pyinstaller, etc.) y\n"
+                "                 reintenta la build limpiando el caché."
+            )
+            return 0
+
+    if force_kill:
+        print("[OK] --force-kill activado: se matarán procesos bloqueantes automáticamente.")
+
+    # Detección temprana de procesos que pueden bloquear el build
+    # (lanza mensaje accionable si los hay; con --force-kill los
+    # mata y continúa).
+    if not check_blocking_processes(force_kill=force_kill):
+        return 1
 
     check_python_version()
     try:
@@ -629,4 +851,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))
