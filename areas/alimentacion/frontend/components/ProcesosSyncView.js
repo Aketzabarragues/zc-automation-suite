@@ -415,7 +415,7 @@ export default {
 
             <header class="flex justify-between items-start mb-4">
                 <div>
-                    <h2 class="text-lg font-bold text-ink">💬 Sync comentarios de DB</h2>
+                    <h2 class="text-lg font-bold text-ink">💬 Actualizar comentarios de DB</h2>
                     <p v-if="selectedProc"
                        class="text-xs text-ink-muted mt-0.5">
                         Proceso
@@ -629,3 +629,4 @@ export default {
         </section>
     `,
 };
+

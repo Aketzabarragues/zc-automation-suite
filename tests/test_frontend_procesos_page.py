@@ -149,7 +149,7 @@ def test_procesos_uses_memory_state_procesos() -> None:
 def test_procesos_has_two_placeholder_cards() -> None:
     """El template tiene 2 cards: 1 placeholder con ``@click="alert(...)"``
     ("Crear proceso completo", aún sin lógica) y 1 funcional con
-    ``@click="openSyncView"`` ("Sync comentarios de DB", que
+    ``@click="openSyncView"`` ("Actualizar comentarios de DB", que
     navega a la sub-vista ``proc_sync``). El copy debe ser literal
     (es lo que verá el operario).
     """
@@ -166,22 +166,22 @@ def test_procesos_has_two_placeholder_cards() -> None:
     assert "Crear proceso completo" in text, (
         "Falta el label 'Crear proceso completo' en una de las cards"
     )
-    assert "Sync comentarios de DB" in text, (
-        "Falta el label 'Sync comentarios de DB' en una de las cards"
+    assert "Actualizar comentarios de DB" in text, (
+        "Falta el label 'Actualizar comentarios de DB' en una de las cards"
     )
     # El TODO solo está en el card de "Crear proceso completo".
     assert "TODO: Crear proceso completo" in text, (
         "Falta el alert placeholder 'TODO: Crear proceso completo'"
     )
     # Y NO debe estar en el card de comentarios (que ya tiene lógica).
-    assert "TODO: Sync comentarios de DB" not in text, (
-        "El card 'Sync comentarios de DB' ya no debe ser un "
+    assert "TODO: Actualizar comentarios de DB" not in text, (
+        "El card 'Actualizar comentarios de DB' ya no debe ser un "
         "placeholder alert — debe llamar a openSyncView."
     )
 
 
 def test_procesos_card_llama_open_sync_view() -> None:
-    """El card 'Sync comentarios de DB' llama a ``openSyncView``
+    """El card 'Actualizar comentarios de DB' llama a ``openSyncView``
     (NO a ``alert``) y la función está definida en el setup del
     componente. El handler NO cambia ``store.currentView`` — el
     sync view se renderiza inline (no es una sub-vista separada).
@@ -246,7 +246,7 @@ def test_procesos_renderiza_sync_view_inline() -> None:
 
 
 def test_procesos_card_comentarios_deshabilitado_sin_plc() -> None:
-    """El card 'Sync comentarios de DB' se deshabilita si NO hay
+    """El card 'Actualizar comentarios de DB' se deshabilita si NO hay
     cache de bloques del PLC (computed ``canOpenSync``) y muestra un
     tooltip accionable."""
     text = _read(PROCESOS_JS)
@@ -257,7 +257,7 @@ def test_procesos_card_comentarios_deshabilitado_sin_plc() -> None:
     # El card usa :disabled="!canOpenSync" (no :disabled="!canAct"
     # como el otro card).
     assert ':disabled="!canOpenSync"' in text, (
-        "El card 'Sync comentarios de DB' debe deshabilitarse "
+        "El card 'Actualizar comentarios de DB' debe deshabilitarse "
         "con :disabled='!canOpenSync'"
     )
     # El tooltip menciona la acción manual esperada del operario.
@@ -615,5 +615,6 @@ def test_componentes_js_no_tienen_duplicados_de_setup() -> None:
         "Errores de sintaxis JS en componentes del frontend:\n"
         + "\n".join(f"  - {name}: {msg}" for name, msg in errors)
     )
+
 
 

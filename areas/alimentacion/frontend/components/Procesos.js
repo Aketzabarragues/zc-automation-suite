@@ -19,7 +19,7 @@
  *      nombres de DB los computa el use case internamente).
  *   4. 2 cards de acción:
  *        - "Crear proceso completo" (placeholder, alert TODO).
- *        - "Sync comentarios de DB" (funcional, expande la
+ *        - "Actualizar comentarios de DB" (funcional, expande la
  *          vista ``<procesos-sync-view>`` INLINE debajo de las
  *          cards, sin cambiar ``store.currentView``).
  *
@@ -74,7 +74,7 @@ export default {
          * Flag que controla si la vista de sync (``<procesos-sync-view>``)
          * se renderiza inline debajo de las cards. ``false`` por
          * defecto — se pone a ``true`` al pulsar la card
-         * "Sync comentarios de DB". El operario la cierra con
+         * "Actualizar comentarios de DB". El operario la cierra con
          * el botón "Cerrar" de la cabecera del propio sync view
          * (que emite ``close`` y nosotros ponemos el flag a ``false``).
          *
@@ -133,7 +133,7 @@ export default {
         const canAct = computed(() => selectedProc.value !== null);
 
         /**
-         * Habilita SOLO la card "Sync comentarios de DB".
+         * Habilita SOLO la card "Actualizar comentarios de DB".
          * Necesita, además del proceso seleccionado, que el Excel
          * esté cargado Y que la cache de bloques del PLC activo
          * tenga al menos un bloque (es decir, que el operario haya
@@ -171,7 +171,7 @@ export default {
         });
 
         /**
-         * Handler de la card "Sync comentarios de DB". Activa el
+         * Handler de la card "Actualizar comentarios de DB". Activa el
          * flag local ``showSyncView`` para que se renderice inline
          * la vista ``<procesos-sync-view>`` debajo de las cards.
          *
@@ -277,7 +277,7 @@ export default {
                             data-testid="procesos-card-comments"
                             class="bg-surface border-2 border-line rounded-xl p-4 text-left flex flex-col items-start transition hover:border-accent hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-line disabled:hover:shadow-none">
                         <span class="text-3xl mb-2" aria-hidden="true">💬</span>
-                        <span class="text-sm font-semibold text-ink">Sync comentarios de DB</span>
+                        <span class="text-sm font-semibold text-ink">Actualizar comentarios de DB</span>
                         <span class="text-xs text-ink-muted mt-1">
                             Sincroniza los comentarios de los DBs existentes.
                         </span>
@@ -304,3 +304,4 @@ export default {
         </section>
     `,
 };
+
