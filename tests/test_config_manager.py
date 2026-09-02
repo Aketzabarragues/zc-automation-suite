@@ -78,6 +78,13 @@ _FULL_CONFIG = {
                     "config_table":  "000_Config_Dispositivos",
                 },
             },
+            "procesos": {
+                "n_max_suffixes": {
+                    "preal": "PREAL",
+                    "pint":  "PINT",
+                    "alm":   "ALM",
+                },
+            },
         },
     },
 }
@@ -267,6 +274,20 @@ def test_get_tia_folder_dispositivos(cm: ConfigManager) -> None:
 def test_get_tia_folder_nmax(cm: ConfigManager) -> None:
     """``get_tia_folder_nmax`` retorna la carpeta N_MAX del config."""
     assert cm.get_tia_folder_nmax() == "000_Sistema"
+
+
+def test_get_proc_nmax_suffixes(cm: ConfigManager) -> None:
+    """``get_proc_nmax_suffixes`` retorna el dict de sufijos del config.
+
+    El nombre completo de la PlcUserConstant se computa en el caller
+    como ``f"{proc.uid}_N_MAX_{suffix}"`` con cada sufijo de este dict.
+    """
+    suffixes = cm.get_proc_nmax_suffixes()
+    assert suffixes == {
+        "preal": "PREAL",
+        "pint":  "PINT",
+        "alm":   "ALM",
+    }
 
 
 def test_get_tia_folder_nmax_explicit(tmp_path: Path) -> None:

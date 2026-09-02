@@ -14,6 +14,7 @@ from areas.alimentacion.application.proc_slot_map_builder import (
     ProcesoSlotMap,
     build_proceso_slot_maps,
 )
+from core.infrastructure.config_manager import ConfigManager
 from core.models.bloque_cache import BloqueCache
 from core.models.bloque_plc import BloquePLC
 
@@ -260,3 +261,114 @@ def test_fallback_num_db_cuando_lista_vacia() -> None:
     # Hubo al menos un warning por el fallback.
     assert any("fallback" in w.lower() or "no hay filas" in w.lower()
                for w in result.warnings)
+
+
+# ── N_MAX deseados (solo visual, no se aplican en el commit) ────────────
+
+
+def _config_with_nmax(suffixes: dict[str, str] | None) -> ConfigManager:
+    """Mock de ConfigManager con ``get_proc_nmax_suffixes`` parametrizable."""
+    config = MagicMock(spec=ConfigManager)
+    config.get_proc_nmax_suffixes = MagicMock(return_value=suffixes or {})
+    return config
+
+
+def test_nmax_deseados_se_computan_desde_listas_del_excel() -> None:
+    """``ProcesoSlotMap.nmax`` = ``len()`` de las listas filtradas
+    por proceso del Excel. ``nmax_names`` = nombres completos con
+    el sufijo del config (``f"{proc.uid}_N_MAX_{suffix}"``).
+    """
+    proc = MagicMock(uid=100, nombre="Compacto", codigo="CPR")
+    # 8 PReal, 3 PInt, 1 ALM.
+    parametros_real = [
+        MagicMock(uid=f"PR_{i}", codigo="CPR", num_db=53100,
+                  comentario_db=f"PR {i}") for i in range(1, 9)
+    ]
+    parametros_int = [
+        MagicMock(uid=f"PI_{i}", codigo="CPR", num_db=53100,
+                  comentario_db=f"PI {i}") for i in range(1, 4)
+    ]
+    alarmas = [
+        MagicMock(uid="AL_1", proceso="Compacto", num_db=55100,
+                  comentario_db="AL 1")
+    ]
+    excel_cache = _make_excel_cache(
+        procesos=[proc], parametros_real=parametros_real,
+        parametros_int=parametros_int, alarmas=alarmas,
+    )
+    state = MagicMock(excel_cache=excel_cache)
+    config = _config_with_nmax(
+        {"preal": "PREAL", "pint": "PINT", "alm": "ALM"}
+    )
+    bloques = _make_bloque_cache(
+        ["DB53100_CPR_PARAM", "DB55100_CPR_ALM"],
+        tag_tables=["100_CPR"],
+    )
+
+    result = build_proceso_slot_maps(state, config, 100, bloques)
+    assert result.nmax == {"preal": 8, "pint": 3, "alm": 1}
+    assert result.nmax_names == {
+        "preal": "100_N_MAX_PREAL",
+        "pint":  "100_N_MAX_PINT",
+        "alm":   "100_N_MAX_ALM",
+    }
+
+
+def test_nmax_sin_sufijos_en_config_no_se_computa() -> None:
+    """Si el config retorna ``{}`` para ``get_proc_nmax_suffixes``,
+    el builder no computa ``nmax`` ni ``nmax_names``.
+    """
+    proc = MagicMock(uid=100, nombre="Compacto", codigo="CPR")
+    parametros_real = [
+        MagicMock(uid="PR_1", codigo="CPR", num_db=53100,
+                  comentario_db="PR 1")
+    ]
+    alarmas = [
+        MagicMock(uid="AL_1", proceso="Compacto", num_db=55100,
+                  comentario_db="AL 1")
+    ]
+    excel_cache = _make_excel_cache(
+        procesos=[proc], parametros_real=parametros_real, alarmas=alarmas,
+    )
+    state = MagicMock(excel_cache=excel_cache)
+    config = _config_with_nmax({})  # sin sufijos
+    bloques = _make_bloque_cache(
+        ["DB53100_CPR_PARAM", "DB55100_CPR_ALM"],
+        tag_tables=["100_CPR"],
+    )
+
+    result = build_proceso_slot_maps(state, config, 100, bloques)
+    assert result.nmax == {}
+    assert result.nmax_names == {}
+
+
+def test_nmax_sufijos_se_pasan_a_traves_del_config_manager() -> None:
+    """El builder NO hardcodea sufijos: los lee del config."""
+    proc = MagicMock(uid=42, nombre="Largo", codigo="LAR")
+    parametros_real = [
+        MagicMock(uid="PR_1", codigo="LAR", num_db=54000,
+                  comentario_db="X")
+    ]
+    alarmas = [
+        MagicMock(uid="AL_1", proceso="Largo", num_db=56000,
+                  comentario_db="AL 1")
+    ]
+    excel_cache = _make_excel_cache(
+        procesos=[proc], parametros_real=parametros_real,
+        alarmas=alarmas,
+    )
+    state = MagicMock(excel_cache=excel_cache)
+    config = _config_with_nmax(
+        {"preal": "REAL", "pint": "INT", "alm": "ALARMS"}
+    )
+    bloques = _make_bloque_cache(
+        ["DB54000_LAR_PARAM", "DB56000_LAR_ALM"],
+        tag_tables=["42_LAR"],
+    )
+
+    result = build_proceso_slot_maps(state, config, 42, bloques)
+    assert result.nmax_names == {
+        "preal": "42_N_MAX_REAL",
+        "pint":  "42_N_MAX_INT",
+        "alm":   "42_N_MAX_ALARMS",
+    }

@@ -187,6 +187,46 @@ export default {
         }
 
         /**
+         * N_MAX cards (estética compartida con ``Dispositivos.js``).
+         * Una card por cada N_MAX del proceso (PReal, PInt, ALM).
+         * Vacío si el config no aporta ``procesos.n_max_suffixes``
+         * o si el backend aún no computó el bloque.
+         */
+        const nmaxCards = computed(() => {
+            const p = preview.value;
+            if (!p || !p.nmax) return [];
+            return p.nmax.todos || [];
+        });
+
+        const nmaxSummary = computed(() => {
+            const p = preview.value;
+            if (!p || !p.nmax) {
+                return { actualizar: 0, sin_cambios: 0, total: 0 };
+            }
+            return p.nmax.summary || {
+                actualizar: 0, sin_cambios: 0, total: 0,
+            };
+        });
+
+        /**
+         * Label legible para mostrar en la card de N_MAX. La
+         * constante PlcUserConstant de TIA se llama
+         * ``100_N_MAX_PREAL`` (kind + uid del proceso); al
+         * operario le interesa ver el sufijo humano
+         * (``N_MAX_PREAL``) o un alias más amigable.
+         */
+        const NMAX_LABELS = {
+            preal: "N_MAX PReal",
+            pint:  "N_MAX PInt",
+            alm:   "N_MAX Alarmas",
+        };
+        function nmaxLabel(card) {
+            if (!card) return "";
+            if (NMAX_LABELS[card.kind]) return NMAX_LABELS[card.kind];
+            return card.name || card.kind || "";
+        }
+
+        /**
          * Total ops (suma de los 3 arrays).
          */
         const totalOps = computed(() => {
@@ -355,6 +395,9 @@ export default {
             preview,
             activeRows,
             tabBadge,
+            nmaxCards,
+            nmaxSummary,
+            nmaxLabel,
             totalOps,
             plcName,
             canApply,
@@ -424,6 +467,33 @@ export default {
                 </div>
                 <div class="font-mono text-ink">
                     Tabla de variables: <span class="font-semibold">{{ preview.table_name }}</span>
+                </div>
+            </div>
+
+            <!-- N_MAX cards (estética compartida con Dispositivos.js) -->
+            <div v-if="nmaxCards.length > 0"
+                 class="grid grid-cols-1 md:grid-cols-3 gap-2 mb-3"
+                 data-testid="proc-sync-nmax-cards">
+                <div v-for="card in nmaxCards" :key="card.name"
+                    :data-testid="'proc-sync-nmax-' + card.kind"
+                    class="bg-surface-raised border border-line rounded p-3">
+                    <div class="text-[10px] uppercase text-ink-muted">
+                        {{ nmaxLabel(card) }}
+                    </div>
+                    <div class="text-xl font-bold">
+                        <template v-if="card.status === 'actualizar'">
+                            <span class="inline-flex items-baseline gap-1.5">
+                                <span v-if="card.actual !== null && card.actual !== undefined"
+                                    class="text-accent">{{ card.actual }}</span>
+                                <span v-else class="text-ink-muted">?</span>
+                                <span class="text-ink-muted">→</span>
+                                <span class="text-amber-700">{{ card.nuevo }}</span>
+                            </span>
+                        </template>
+                        <template v-else>
+                            <span class="text-accent">{{ card.nuevo }}</span>
+                        </template>
+                    </div>
                 </div>
             </div>
 

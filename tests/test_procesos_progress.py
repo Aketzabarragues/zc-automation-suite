@@ -125,11 +125,13 @@ def test_generar_prevision_done_stage_closes_correctly() -> None:
 
     assert result["precondiciones_ok"] is True
     snap = tracker.snapshot()
-    # Los 5 stages (check_state, check_blocks, build_slot_maps,
-    # export_and_diff, done) deben estar en DONE. El
+    # Los 6 stages (check_state, check_blocks, build_slot_maps,
+    # compute_nmax, export_and_diff, done) deben estar en DONE. El
     # export_and_diff cae en la rama de error (current=None)
     # porque el mock del gateway no escribe los .s7dcl/.s7res.
-    assert len(snap.stages) == 5
+    # ``compute_nmax`` también cae en su rama degradada (current={})
+    # porque el mock no escribe la tabla N_MAX.
+    assert len(snap.stages) == 6
     assert all(s["status"] == STAGE_DONE for s in snap.stages), (
         f"Todos los stages deben estar en DONE. Actual: "
         f"{[(s['id'], s['status']) for s in snap.stages]}"
@@ -145,8 +147,8 @@ def test_generar_prevision_done_stage_closes_correctly() -> None:
     assert export_stage["status"] == STAGE_DONE
     assert "Error" in (export_stage["detail"] or "") or \
            "Preview" in (export_stage["detail"] or "")
-    # El contador de progreso debe ser 5/5.
-    assert snap.current == 5
+    # El contador de progreso debe ser 6/6.
+    assert snap.current == 6
     assert snap.percent == 100
 
 
@@ -410,3 +412,177 @@ def test_generar_prevision_diff_real_con_archivos_tia(tmp_path) -> None:
     assert alm["1"]["current"] == "TIA_AL_1"
     assert alm["1"]["desired"] == "AL_NUEVO"
     assert alm["1"]["action"] == "renombrar"
+
+
+def test_generar_prevision_incluye_nmax_block_en_response(tmp_path) -> None:
+    """El preview siempre emite ``nmax`` en el response (incluso si
+    el config no aporta sufijos, en cuyo caso el bloque viene con
+    ``todos=[]``). Las cards SOLO VISUALES las consume la SPA; el
+    apply actual NO las usa.
+    """
+    import asyncio
+    from core.application.progress_buffer import ProgressTracker
+    from core.infrastructure.gateway import TIAProcessGateway
+    from core.models.bloque_cache import BloqueCache
+    from core.models.bloque_plc import BloquePLC
+    from unittest.mock import AsyncMock, MagicMock
+
+    proc = MagicMock(uid=100, nombre="Compacto", codigo="CPR")
+    ec = MagicMock()
+    ec.procesos = [proc]
+    ec.parametros_real = [
+        MagicMock(uid=f"PR_{i}", codigo="CPR", num_db=53100,
+                  comentario_db=f"PR {i}") for i in range(1, 6)
+    ]
+    ec.parametros_int = []
+    ec.alarmas = [
+        MagicMock(uid="AL_1", proceso="Compacto", num_db=55100,
+                  comentario_db="AL 1")
+    ]
+    state = MagicMock(excel_cache=ec)
+    bloques = BloqueCache(
+        blocks={
+            BloquePLC.normalize_name("DB53100_CPR_PARAM"):
+                BloquePLC(nombre="DB53100_CPR_PARAM", numero=0,
+                          tipo="DB", ruta=""),
+            BloquePLC.normalize_name("DB55100_CPR_ALM"):
+                BloquePLC(nombre="DB55100_CPR_ALM", numero=0,
+                          tipo="DB", ruta=""),
+        },
+        tag_tables={
+            BloquePLC.normalize_name("100_CPR"):
+                BloquePLC(nombre="100_CPR", numero=0, tipo="TAG_TABLE",
+                          ruta=""),
+        },
+        plc_name="PLC_X",
+    )
+
+    gateway = MagicMock(spec=TIAProcessGateway)
+    # ``export_block`` y ``export_plc_tags_xml`` no escriben nada;
+    # caen en la rama degradada (current=None / current={}).
+    gateway.export_block = AsyncMock()
+    gateway.export_plc_tags_xml = AsyncMock()
+
+    config = MagicMock()
+    # El config retorna {} (sin sufijos); el builder no computa nmax.
+    config.get_proc_nmax_suffixes = MagicMock(return_value={})
+    # ``get_tia_folder_nmax`` y ``get_global_config_table_name`` se
+    # usan dentro de ``_compute_nmax_diff``, pero como ``nmax_names``
+    # está vacío, el método retorna early sin tocar el gateway.
+    config.get_tia_folder_nmax = MagicMock(return_value="000_Sistema")
+    config.get_global_config_table_name = MagicMock(
+        return_value="000_Config_Dispositivos"
+    )
+
+    tracker = ProgressTracker()
+    use_case = SyncProcesosComentariosUseCase(
+        gateway=gateway,
+        config_manager=config,
+        app_state=state,
+        progress=tracker,
+        bloques_cache=bloques,
+        build_cache_dir=tmp_path,
+    )
+    result = asyncio.run(use_case.generar_prevision(100))
+    # El bloque ``nmax`` está presente en el response (puede ser
+    # vacío si no hay config, pero debe existir).
+    assert "nmax" in result
+    assert result["nmax"]["todos"] == []
+    assert result["nmax"]["summary"] == {
+        "actualizar": 0, "sin_cambios": 0, "total": 0,
+    }
+    # El stage ``compute_nmax`` se ejecutó.
+    snap = tracker.snapshot()
+    nmax_stage = next(
+        s for s in snap.stages if s["id"] == "compute_nmax"
+    )
+    assert nmax_stage["status"] == "done"
+
+
+def test_generar_prevision_nmax_block_con_sufijos_usa_gateway(tmp_path) -> None:
+    """Con sufijos en el config, el use case llama
+    ``gateway.export_plc_tags_xml`` para la tabla N_MAX y emite
+    un bloque con ``todos`` no vacío.
+    """
+    import asyncio
+    from core.application.progress_buffer import ProgressTracker
+    from core.infrastructure.gateway import TIAProcessGateway
+    from core.models.bloque_cache import BloqueCache
+    from core.models.bloque_plc import BloquePLC
+    from unittest.mock import AsyncMock, MagicMock
+
+    proc = MagicMock(uid=100, nombre="Compacto", codigo="CPR")
+    ec = MagicMock()
+    ec.procesos = [proc]
+    ec.parametros_real = [
+        MagicMock(uid="PR_1", codigo="CPR", num_db=53100,
+                  comentario_db="PR 1")
+    ]
+    ec.parametros_int = []
+    ec.alarmas = [
+        MagicMock(uid="AL_1", proceso="Compacto", num_db=55100,
+                  comentario_db="AL 1")
+    ]
+    state = MagicMock(excel_cache=ec)
+    bloques = BloqueCache(
+        blocks={
+            BloquePLC.normalize_name("DB53100_CPR_PARAM"):
+                BloquePLC(nombre="DB53100_CPR_PARAM", numero=0,
+                          tipo="DB", ruta=""),
+            BloquePLC.normalize_name("DB55100_CPR_ALM"):
+                BloquePLC(nombre="DB55100_CPR_ALM", numero=0,
+                          tipo="DB", ruta=""),
+        },
+        tag_tables={
+            BloquePLC.normalize_name("100_CPR"):
+                BloquePLC(nombre="100_CPR", numero=0, tipo="TAG_TABLE",
+                          ruta=""),
+        },
+        plc_name="PLC_X",
+    )
+
+    gateway = MagicMock(spec=TIAProcessGateway)
+    gateway.export_block = AsyncMock()
+    # El export de la tabla N_MAX no escribe nada → ``current={}``,
+    # todos los N_MAX se marcan como ``actualizar`` (current=None).
+    gateway.export_plc_tags_xml = AsyncMock()
+
+    config = MagicMock()
+    config.get_proc_nmax_suffixes = MagicMock(
+        return_value={"preal": "PREAL", "pint": "PINT", "alm": "ALM"}
+    )
+    config.get_tia_folder_nmax = MagicMock(return_value="000_Sistema")
+    config.get_global_config_table_name = MagicMock(
+        return_value="000_Config_Dispositivos"
+    )
+
+    tracker = ProgressTracker()
+    use_case = SyncProcesosComentariosUseCase(
+        gateway=gateway,
+        config_manager=config,
+        app_state=state,
+        progress=tracker,
+        bloques_cache=bloques,
+        build_cache_dir=tmp_path,
+    )
+    result = asyncio.run(use_case.generar_prevision(100))
+
+    # El bloque ``nmax`` tiene 3 entries (PReal, PInt, ALM).
+    nmax = result["nmax"]
+    assert nmax["summary"]["total"] == 3
+    assert len(nmax["todos"]) == 3
+    kinds = {r["kind"] for r in nmax["todos"]}
+    assert kinds == {"preal", "pint", "alm"}
+    # Los nombres siguen la convención ``f"{uid}_N_MAX_{suffix}"``.
+    names = {r["name"] for r in nmax["todos"]}
+    assert names == {
+        "100_N_MAX_PREAL", "100_N_MAX_PINT", "100_N_MAX_ALM",
+    }
+    # Como ``current={}`` (export degradado), todos los N_MAX se
+    # marcan como ``actualizar`` (current=None vs desired).
+    assert nmax["summary"]["actualizar"] == 3
+    assert nmax["summary"]["sin_cambios"] == 0
+    # El gateway fue llamado con la tabla N_MAX.
+    gateway.export_plc_tags_xml.assert_called_once()
+    call_kwargs = gateway.export_plc_tags_xml.call_args.kwargs
+    assert call_kwargs["table_names"] == ["000_Config_Dispositivos"]

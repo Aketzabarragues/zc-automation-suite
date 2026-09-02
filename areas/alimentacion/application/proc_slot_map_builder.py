@@ -62,6 +62,19 @@ class ProcesoSlotMap:
                      (``"DB<num_db>_<codigo>_ALM"``).
         table_name: nombre canónico de la tabla de variables
                     (``"<uid>_<codigo>"``).
+        nmax: ``{kind: desired_int}`` con los valores DESEADOS de
+              las PlcUserConstant N_MAX del proceso, donde
+              ``kind ∈ {"preal", "pint", "alm"}``. Cada valor es el
+              ``len()`` de la lista filtrada por proceso del Excel
+              (``len(excel.parametros_real where codigo == proc.codigo)``
+              para ``preal``, etc.). El nombre COMPLETO de la
+              PlcUserConstant se computa en el use case como
+              ``f"{proc.uid}_N_MAX_{suffix}"`` con el sufijo del
+              config. Vacío si el departamento no define
+              ``procesos.n_max_suffixes``.
+        nmax_names: ``{kind: full_name}`` con los nombres completos
+                    ya computados (``"100_N_MAX_PREAL"``, etc.). Vacío
+                    si el config no aporta sufijos.
         missing_blocks: lista de mensajes describiendo los bloques
                         ausentes en el ``BloqueCache``. Vacía si
                         todo está presente.
@@ -76,6 +89,8 @@ class ProcesoSlotMap:
     db_param_name: str = ""
     db_alm_name: str = ""
     table_name: str = ""
+    nmax: dict[str, int] = field(default_factory=dict)
+    nmax_names: dict[str, str] = field(default_factory=dict)
     missing_blocks: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
@@ -267,6 +282,21 @@ def build_proceso_slot_maps(
         warnings=warnings,
     )
 
+    # N_MAX deseados (solo visual, no se aplican en el commit actual).
+    # Cada N_MAX se computa como el nº de filas del Excel para este
+    # proceso, y el nombre completo de la PlcUserConstant se deriva
+    # del uid del proceso + el sufijo del config
+    # (``f"{proc.uid}_N_MAX_{suffix}"``).
+    suffixes = config_manager.get_proc_nmax_suffixes()
+    nmax_desired: dict[str, int] = {}
+    nmax_names: dict[str, str] = {}
+    if suffixes:
+        nmax_desired["preal"] = len(preal)
+        nmax_desired["pint"] = len(pint)
+        nmax_desired["alm"] = len(alm)
+        for kind, suffix in suffixes.items():
+            nmax_names[kind] = f"{proc_uid}_N_MAX_{suffix}"
+
     return ProcesoSlotMap(
         preal=preal,
         pint=pint,
@@ -274,6 +304,8 @@ def build_proceso_slot_maps(
         db_param_name=db_param_name,
         db_alm_name=db_alm_name,
         table_name=table_name,
+        nmax=nmax_desired,
+        nmax_names=nmax_names,
         missing_blocks=missing_blocks,
         warnings=warnings,
     )

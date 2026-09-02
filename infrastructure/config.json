@@ -105,6 +105,14 @@
           "tag_table":     "2000_Disp_M_VF",
           "config_table":  "000_Config_Dispositivos"
         }
+      },
+      "procesos": {
+        "_comment_nmax": "Sufijos de las PlcUserConstant N_MAX de los arrays de proceso. El nombre completo se computa como ``f\"{proc.uid}_N_MAX_{suffix}\"`` (p. ej. ``100_N_MAX_PREAL`` para el proceso uid=100 y array PReal). Las 3 constantes viven en la misma tabla ``000_Config_Dispositivos`` que usan los N_MAX de devices, en el folder ``tia_folders.nmax`` (``000_Sistema``). Se exponen como cards SOLO VISUALES en el preview de procesos (el apply actual NO las modifica; ver plan del sync de procesos).",
+        "n_max_suffixes": {
+          "preal": "PREAL",
+          "pint":  "PINT",
+          "alm":   "ALM"
+        }
       }
     }
   }

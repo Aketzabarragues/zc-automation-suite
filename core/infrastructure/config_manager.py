@@ -560,6 +560,33 @@ class ConfigManager:
         folders = self._department_config.get("tia_folders", {})
         return str(folders.get("nmax", _DEFAULT_TIA_FOLDER_NMAX))
 
+    def get_proc_nmax_suffixes(self) -> dict[str, str]:
+        """Sufijos de las PlcUserConstant N_MAX de los arrays de proceso.
+
+        Devuelve ``{kind: suffix}`` con ``kind ∈ {"preal", "pint",
+        "alm"}`` y ``suffix`` el sufijo que va tras ``_N_MAX_`` en
+        el nombre completo. Por ejemplo, con el config del
+        departamento ``alimentacion``::
+
+            {"preal": "PREAL", "pint": "PINT", "alm": "ALM"}
+
+        El nombre completo de la PlcUserConstant se computa como::
+
+            f"{proc.uid}_N_MAX_{suffix}"
+
+        (``"100_N_MAX_PREAL"`` para el proceso uid=100 y array
+        PReal). Las 3 constantes viven en la misma tabla
+        ``000_Config_Dispositivos`` que usan los N_MAX de devices.
+
+        Si el departamento no define ``procesos.n_max_suffixes``,
+        devuelve un dict vacío. El caller debe tratar eso como
+        "este departamento no soporta N_MAX de procesos" y
+        omitir las cards / el stage ``compute_nmax`` del preview.
+        """
+        procs_block = self._department_config.get("procesos", {}) or {}
+        suffixes = procs_block.get("n_max_suffixes", {}) or {}
+        return {str(k): str(v) for k, v in suffixes.items()}
+
 
 # ── Helpers puros (a nivel de módulo) ───────────────────────────────
 

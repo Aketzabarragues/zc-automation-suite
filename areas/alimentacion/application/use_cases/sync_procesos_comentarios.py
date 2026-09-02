@@ -14,7 +14,11 @@ Restricciones arquitectónicas:
 
 Stages de progress (alineado con ``.clinerules`` §7):
   - ``generar_prevision``: ``["check_state", "check_blocks",
-     "build_slot_maps", "done"]``.
+     "build_slot_maps", "compute_nmax", "export_and_diff", "done"]``.
+     ``compute_nmax`` se ejecuta entre ``build_slot_maps`` y
+     ``export_and_diff`` y emite las cards de N_MAX del proceso
+     (PReal / PInt / ALM). Es **solo visual** (no se aplica en
+     el commit actual).
   - ``ejecutar_transaccion``: ``["check_state", "check_blocks",
      "build_slot_maps", "open_transaction", "done"]``.
 """
@@ -121,7 +125,7 @@ class SyncProcesosComentariosUseCase:
             label=f"Generando preview comentarios proceso {proc_uid}",
             stages=[
                 "check_state", "check_blocks", "build_slot_maps",
-                "export_and_diff", "done",
+                "compute_nmax", "export_and_diff", "done",
             ],
         )
         try:
@@ -208,6 +212,23 @@ class SyncProcesosComentariosUseCase:
                 f"ALM={len(slot_map.alm)}",
             )
 
+            # compute_nmax: cards SOLO VISUALES con los N_MAX
+            # (``50100_N_MAX_PREAL``, etc.) del proceso. Compara
+            # el desired (de las listas del Excel) contra el
+            # current (PlcUserConstant de TIA exportada de la
+            # tabla ``000_Config_Dispositivos``). Si el
+            # departamento no tiene ``procesos.n_max_suffixes`` o
+            # el export falla, emite un bloque con ``current={}``
+            # y status ``"sin_cambios"`` para no romper la SPA.
+            self._progress.start_stage("compute_nmax", "Leyendo N_MAX...")
+            nmax_block = await self._compute_nmax_diff(slot_map)
+            nmax_summary = nmax_block.get("summary", {})
+            self._progress.finish_stage(
+                "compute_nmax",
+                f"{nmax_summary.get('actualizar', 0)} actualizar, "
+                f"{nmax_summary.get('sin_cambios', 0)} sin cambios",
+            )
+
             # done: precondiciones ok?
             if slot_map.missing_blocks:
                 self._progress.start_stage(
@@ -280,6 +301,7 @@ class SyncProcesosComentariosUseCase:
                 return self._compose_response(
                     proc_uid, slot_map,
                     preal_current=None, pint_current=None, alm_current=None,
+                    nmax_block=nmax_block,
                     extra_warnings=[f"Export falló: {exc}. current=None."],
                 )
 
@@ -313,6 +335,7 @@ class SyncProcesosComentariosUseCase:
                 preal_current=current_preal,
                 pint_current=current_pint,
                 alm_current=current_alm,
+                nmax_block=nmax_block,
             )
         except Exception as exc:
             self._progress.finish(success=False, error=str(exc))
@@ -624,6 +647,7 @@ class SyncProcesosComentariosUseCase:
         preal_current: "dict[int, str | None] | None" = None,
         pint_current: "dict[int, str | None] | None" = None,
         alm_current: "dict[int, str | None] | None" = None,
+        nmax_block: "dict[str, Any] | None" = None,
         extra_warnings: "list[str] | None" = None,
     ) -> dict[str, Any]:
         """Compone la respuesta del preview con el diff y los nombres
@@ -646,7 +670,115 @@ class SyncProcesosComentariosUseCase:
             "table_name": slot_map.table_name,
             "arrays": arrays,
             "summary": summary,
+            "nmax": nmax_block or {},
             "warnings": warnings,
+        }
+
+    async def _compute_nmax_diff(
+        self, slot_map: ProcesoSlotMap
+    ) -> dict[str, Any]:
+        """Lee los N_MAX del proceso (cards SOLO VISUALES).
+
+        Compara el desired (de ``ProcesoSlotMap.nmax``,
+        ``len()`` de las listas filtradas del Excel) contra el
+        current (exportando la tabla ``000_Config_Dispositivos`` de
+        TIA y parseando con ``SimaticMLTagParser.parse_user_constants``).
+        Mismo shape que el ``nmax_block`` de Dispositivos
+        (``sync_dispositivos_instances._extract_nmax_diff``):
+
+        ``{"current", "desired", "todos", "summary"}``.
+
+        Si el config no aporta ``procesos.n_max_suffixes``
+        (departamento sin soporte de N_MAX de procesos), devuelve
+        un bloque con ``todos=[]`` y ``summary={actualizar: 0,
+        sin_cambios: 0, total: 0}``. La SPA no renderiza las cards
+        en ese caso.
+
+        Si el export de la tabla falla, NO aborta el preview: emite
+        un warning y devuelve un bloque con ``current={}`` y
+        ``status="sin_cambios"`` para todos los kinds. La SPA
+        mostrará las cards con current=desconocido (gris) en lugar
+        de romper la vista.
+
+        Raises:
+            nada: cualquier excepción se loggea como warning y se
+            devuelve un bloque degradado.
+        """
+        from areas.alimentacion.infrastructure.xml.tag_table_parser import (
+            SimaticMLTagParser,
+        )
+
+        nmax_names = slot_map.nmax_names
+        nmax_desired = slot_map.nmax
+
+        # Sin config: el departamento no soporta N_MAX de procesos.
+        if not nmax_names or not nmax_desired:
+            return {
+                "current": {},
+                "desired": {},
+                "todos": [],
+                "summary": {
+                    "actualizar": 0, "sin_cambios": 0, "total": 0,
+                },
+            }
+
+        # 1. Estado actual en TIA (export de la tabla N_MAX).
+        nmax_folder = self._config.get_tia_folder_nmax()
+        nmax_table = self._config.get_global_config_table_name()
+        nmax_dir = self._build_work_dir(suffix="preview") / nmax_folder
+        nmax_dir.mkdir(parents=True, exist_ok=True)
+        nmax_xml = nmax_dir / f"{nmax_table}.xml"
+
+        current: dict[str, int] = {}
+        try:
+            await self._gateway.export_plc_tags_xml(
+                self._bloques_cache.plc_name,  # type: ignore[union-attr]
+                str(nmax_dir),
+                table_names=[nmax_table],
+            )
+            if nmax_xml.is_file():
+                current = SimaticMLTagParser.parse_user_constants(nmax_xml)
+            else:
+                _logger.warning(
+                    f"[N_MAX procesos] XML esperado no encontrado: {nmax_xml}"
+                )
+        except Exception as exc:
+            _logger.warning(
+                f"[N_MAX procesos] export/parse falló: {exc}. "
+                f"Devolviendo current={{}} para no romper la SPA."
+            )
+            current = {}
+
+        # 2. Diff unificado: los N_MAX del proceso siempre existen
+        # en TIA (son PlcUserConstant con cardinalidad fija por
+        # proyecto), así que solo hay ``actualizar`` o ``sin_cambios``.
+        todos: list[dict[str, Any]] = []
+        for kind, name in nmax_names.items():
+            cur_val = current.get(name)
+            des_val = nmax_desired.get(kind, 0)
+            if cur_val is not None and int(cur_val) == int(des_val):
+                status = "sin_cambios"
+            else:
+                status = "actualizar"
+            todos.append({
+                "kind": kind,
+                "name": name,
+                "actual": cur_val,
+                "nuevo": des_val,
+                "status": status,
+            })
+
+        return {
+            "current": {nmax_names[k]: v for k, v in current.items()
+                        if k in nmax_names},
+            "desired": {nmax_names[k]: nmax_desired[k] for k in nmax_names
+                        if k in nmax_desired},
+            "todos": todos,
+            "summary": {
+                "actualizar": sum(1 for r in todos if r["status"] == "actualizar"),
+                "sin_cambios": sum(1 for r in todos if r["status"] == "sin_cambios"),
+                "total": len(todos),
+            },
         }
 
     async def _export_and_read_current(
@@ -673,10 +805,6 @@ class SyncProcesosComentariosUseCase:
         from areas.alimentacion.infrastructure.sd.proc_comment_updater import (
             ProcesoCommentUpdater,
         )
-        # Work_dir separado del del commit: el preview es
-        # idempotente (no modifica nada en TIA), así que reutilizar
-        # el mismo dir que el commit podría confundir al operario
-        # que abra los archivos después.
         work_dir = self._build_work_dir(suffix="preview")
         plc_name = (
             self._bloques_cache.plc_name
