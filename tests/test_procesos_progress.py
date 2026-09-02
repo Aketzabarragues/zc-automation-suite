@@ -387,23 +387,26 @@ def test_generar_prevision_diff_real_con_archivos_tia(tmp_path) -> None:
     # 6. Verificar el diff.
     assert result["precondiciones_ok"] is True
     summary = result["summary"]
-    # Esperado: 1 update (PR[1]), 1 equal (PR[2]), 1 update (AL[1]).
-    # No hay new (todos los slots existen en TIA).
-    assert summary["total_ops"] == 3
-    assert summary["to_update"] == 2
-    assert summary["to_equal"] == 1
-    assert summary["to_insert"] == 0
+    # Esperado: 2 renombrar (PR[1], AL[1]) y 1 sin_cambios (PR[2]).
+    # No hay agregar (todos los slots existen en TIA).
+    # ``eliminados`` siempre vale 0 en este flujo (no borramos slots
+    # de arrays, solo actualizamos comentarios).
+    assert summary["total"] == 3
+    assert summary["renombrados"] == 2
+    assert summary["sin_cambios"] == 1
+    assert summary["agregados"] == 0
+    assert summary["eliminados"] == 0
 
     # Verificar el detalle por slot.
     preal = result["arrays"]["PReal"]["slot_map"]
     assert preal["1"]["current"] == "TIA_PR_1"
     assert preal["1"]["desired"] == "X"
-    assert preal["1"]["action"] == "update"
+    assert preal["1"]["action"] == "renombrar"
     assert preal["2"]["current"] == "TIA_PR_2"
     assert preal["2"]["desired"] == "TIA_PR_2"
-    assert preal["2"]["action"] == "equal"
+    assert preal["2"]["action"] == "sin_cambios"
 
     alm = result["arrays"]["ALM"]["slot_map"]
     assert alm["1"]["current"] == "TIA_AL_1"
     assert alm["1"]["desired"] == "AL_NUEVO"
-    assert alm["1"]["action"] == "update"
+    assert alm["1"]["action"] == "renombrar"

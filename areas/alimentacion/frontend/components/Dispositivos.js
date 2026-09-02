@@ -38,13 +38,7 @@ import { computed, ref } from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod
 // Imports absolutos: ver nota en ``Sidebar.js``.
 import { store, pushLog } from "/js/store.js";
 import { apiGeneratePreview, apiCommit } from "/js/api.js";
-
-const STATUS_META = {
-    agregar:      { label: "➕ AGREGAR",     cls: "action-add" },
-    renombrar:    { label: "✏️ RENOMBRAR",  cls: "action-rename" },
-    eliminar:     { label: "🗑️ ELIMINAR",   cls: "action-remove" },
-    sin_cambios:  { label: "✓ OK",          cls: "action-ok" },
-};
+import { STATUS_META } from "./disp_status.js";
 
 export default {
     name: "Dispositivos",

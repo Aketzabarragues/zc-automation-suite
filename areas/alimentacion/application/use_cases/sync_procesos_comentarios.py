@@ -107,10 +107,11 @@ class SyncProcesosComentariosUseCase:
                     "ALM":   {...},
                   },
                   "summary": {
-                    "total_ops":  int,
-                    "to_update":  int,
-                    "to_insert":  int,
-                    "to_prune":   int,
+                    "total":       int,
+                    "agregados":   int,
+                    "renombrados": int,
+                    "eliminados":  int,
+                    "sin_cambios": int,
                   },
                   "warnings": list[str],
                 }
@@ -140,8 +141,8 @@ class SyncProcesosComentariosUseCase:
                         "POST /api/v1/excel/upload."
                     ],
                     "arrays": {},
-                    "summary": {"total_ops": 0, "to_update": 0,
-                                "to_insert": 0, "to_prune": 0},
+                    "summary": {"total": 0, "agregados": 0, "renombrados": 0,
+                                "eliminados": 0, "sin_cambios": 0},
                     "warnings": [],
                 }
             self._progress.finish_stage("check_state", "AppState OK")
@@ -172,8 +173,8 @@ class SyncProcesosComentariosUseCase:
                         "escaneo de bloques (1-3 min en PLCs grandes)."
                     ],
                     "arrays": {},
-                    "summary": {"total_ops": 0, "to_update": 0,
-                                "to_insert": 0, "to_prune": 0},
+                    "summary": {"total": 0, "agregados": 0, "renombrados": 0,
+                                "eliminados": 0, "sin_cambios": 0},
                     "warnings": [],
                 }
             bloques = self._bloques_cache
@@ -197,8 +198,8 @@ class SyncProcesosComentariosUseCase:
                     "precondiciones_ok": False,
                     "missing_blocks": [str(exc)],
                     "arrays": {},
-                    "summary": {"total_ops": 0, "to_update": 0,
-                                "to_insert": 0, "to_prune": 0},
+                    "summary": {"total": 0, "agregados": 0, "renombrados": 0,
+                                "eliminados": 0, "sin_cambios": 0},
                     "warnings": [],
                 }
             self._progress.finish_stage(
@@ -227,14 +228,14 @@ class SyncProcesosComentariosUseCase:
                     "db_alm_name": slot_map.db_alm_name,
                     "table_name": slot_map.table_name,
                     "arrays": {},
-                    "summary": {"total_ops": 0, "to_update": 0,
-                                "to_insert": 0, "to_prune": 0},
+                    "summary": {"total": 0, "agregados": 0, "renombrados": 0,
+                                "eliminados": 0, "sin_cambios": 0},
                     "warnings": slot_map.warnings,
                 }
 
             # Precondiciones OK: exportar los 3 DBs y comparar con
             # el Excel para producir un diff real. Sin este stage
-            # el "total_ops" sería fake (= nº de slots del Excel),
+            # el "total" sería fake (= nº de slots del Excel),
             # no el nº de cambios que se aplicarían. Con este
             # stage:
             #   - exportamos DB_PARAM y DB_ALM (1-3 min en PLCs
@@ -243,7 +244,7 @@ class SyncProcesosComentariosUseCase:
             #     ``es-ES`` actual de cada slot (solo del array
             #     principal, no de los satélites).
             #   - comparamos desired (Excel) con current (TIA) por
-            #     slot. action ∈ {equal, update, new}.
+            #     slot. action ∈ {sin_cambios, renombrar, agregar}.
             self._progress.start_stage(
                 "export_and_diff",
                 "Exportando 3 DBs y comparando con Excel...",
@@ -288,22 +289,24 @@ class SyncProcesosComentariosUseCase:
             summary = self._compute_summary(arrays)
             self._progress.finish_stage(
                 "export_and_diff",
-                f"{summary['to_update']} updates, "
-                f"{summary['to_insert']} nuevos, "
-                f"{summary['total_ops'] - summary['to_update'] - summary['to_insert']} iguales",
+                f"{summary['renombrados']} renombrar, "
+                f"{summary['agregados']} agregar, "
+                f"{summary['sin_cambios']} sin cambios",
             )
 
             self._progress.start_stage(
                 "done",
-                f"{summary['total_ops']} slots, "
-                f"{summary['to_update']} updates, "
-                f"{summary['to_insert']} nuevos",
+                f"{summary['total']} slots: "
+                f"{summary['renombrados']} renombrar, "
+                f"{summary['agregados']} agregar, "
+                f"{summary['sin_cambios']} sin cambios",
             )
             self._progress.finish_stage(
                 "done",
-                f"{summary['total_ops']} slots, "
-                f"{summary['to_update']} updates, "
-                f"{summary['to_insert']} nuevos",
+                f"{summary['total']} slots: "
+                f"{summary['renombrados']} renombrar, "
+                f"{summary['agregados']} agregar, "
+                f"{summary['sin_cambios']} sin cambios",
             )
             return self._compose_response(
                 proc_uid, slot_map,
@@ -503,28 +506,35 @@ class SyncProcesosComentariosUseCase:
         """Compone el dict ``arrays`` con los 3 arrays del proceso.
 
         Para cada slot, generamos una entrada ``{current, desired,
-        action}`` con ``action ∈ {"equal", "update", "new"}``.
+        action}`` con ``action ∈ {"sin_cambios", "renombrar", "agregar"}``.
 
         - Si se pasan los mapas ``preal_current`` / ``pint_current``
           / ``alm_current`` (devueltos por
           ``ProcesoCommentUpdater.read_current_comments``), el
           ``current`` es el ``es-ES`` real de TIA y ``action`` se
           computa como:
-            - ``"new"`` si el slot no existe en TIA o ``current is None``
-              (esto último es raro, indica que el MLC no se encontró
-              en el ``.s7res``; lo tratamos como "nuevo" para que
-              el apply lo cree).
-            - ``"update"`` si ``current != desired``.
-            - ``"equal"`` si ``current == desired``.
+            - ``"agregar"`` si el slot no existe en TIA o ``current
+              is None`` (esto último es raro, indica que el MLC no
+              se encontró en el ``.s7res``; lo tratamos como
+              "agregar" para que el apply lo cree).
+            - ``"renombrar"`` si ``current != desired``.
+            - ``"sin_cambios"`` si ``current == desired``.
         - Si los mapas son ``None`` (preview rápido sin export, o
           export falló), ``current`` se emite como ``None`` y
           ``action`` se infiere del desired:
-            - ``"new"`` si ``desired == "."`` (convención TIA "sin
-              comentario" → sería un slot vacío).
-            - ``"update"`` en otro caso.
+            - ``"agregar"`` si ``desired == "."`` (convención TIA
+              "sin comentario" → sería un slot vacío).
+            - ``"renombrar"`` en otro caso.
 
-        La SPA muestra el diff con colores por acción (igual =
-        gris, actualizar = ámbar, nuevo = verde).
+        Los labels de ``action`` están alineados con el sync de
+        instancias de dispositivos (``sync_dispositivos_instances``)
+        para que la SPA reuse la misma ``STATUS_META``. En este
+        flujo de procesos NO se computa ``"eliminar"`` (no borramos
+        slots, solo actualizamos comentarios); el summary lo
+        incluye siempre a 0 por simetría.
+
+        La SPA muestra el diff con colores por acción (sin_cambios
+        = gris, renombrar = ámbar, agregar = verde).
         """
         arrays: dict[str, Any] = {}
         for arr_name, slot_map_dict, db_name, satellites, current_dict in (
@@ -542,17 +552,17 @@ class SyncProcesosComentariosUseCase:
                     current = current_dict.get(slot)
                     if current is None:
                         # Slot no existe en TIA o MLC no encontrado.
-                        # El apply lo creará (insert).
-                        action = "new"
+                        # El apply lo creará.
+                        action = "agregar"
                     elif current == desired:
-                        action = "equal"
+                        action = "sin_cambios"
                     else:
-                        action = "update"
+                        action = "renombrar"
                 else:
                     # Sin export: precondiciones OK pero sin datos
-                    # de TIA. Asumimos update/new según desired.
+                    # de TIA. Asumimos renombrar/agregar según desired.
                     current = None
-                    action = "new" if desired == "." else "update"
+                    action = "agregar" if desired == "." else "renombrar"
                 slot_map_serialized[str(slot)] = {
                     "current": current,
                     "desired": desired,
@@ -569,30 +579,42 @@ class SyncProcesosComentariosUseCase:
         return arrays
 
     def _compute_summary(self, arrays: dict[str, Any]) -> dict[str, int]:
-        """Suma el total de slots y cuenta por tipo de acción."""
+        """Suma el total de slots y cuenta por tipo de acción.
+
+        Shape del dict (alineado con ``sync_dispositivos_instances``):
+
+        - ``agregados``: nº de slots con ``action == "agregar"``.
+        - ``renombrados``: nº de slots con ``action == "renombrar"``.
+        - ``eliminados``: nº de slots con ``action == "eliminar"``.
+          En este flujo siempre vale ``0`` (no borramos slots del
+          array, solo actualizamos comentarios). Se incluye por
+          simetría con la SPA que consume ambos resumenes.
+        - ``sin_cambios``: nº de slots con ``action == "sin_cambios"``.
+        - ``total``: suma de los 4 anteriores.
+        """
         total = 0
-        to_update = 0
-        to_insert = 0
-        to_prune = 0
-        to_equal = 0
+        agregados = 0
+        renombrados = 0
+        eliminados = 0
+        sin_cambios = 0
         for arr in arrays.values():
             for entry in arr.get("slot_map", {}).values():
                 total += 1
                 action = entry.get("action")
-                if action == "update":
-                    to_update += 1
-                elif action == "new":
-                    to_insert += 1
-                elif action == "prune":
-                    to_prune += 1
-                elif action == "equal":
-                    to_equal += 1
+                if action == "agregar":
+                    agregados += 1
+                elif action == "renombrar":
+                    renombrados += 1
+                elif action == "eliminar":
+                    eliminados += 1
+                elif action == "sin_cambios":
+                    sin_cambios += 1
         return {
-            "total_ops": total,
-            "to_update": to_update,
-            "to_insert": to_insert,
-            "to_prune": to_prune,
-            "to_equal": to_equal,
+            "total": total,
+            "agregados": agregados,
+            "renombrados": renombrados,
+            "eliminados": eliminados,
+            "sin_cambios": sin_cambios,
         }
 
     def _compose_response(

@@ -13,7 +13,7 @@
  *   3. Banner ámbar si el preview tiene ``precondiciones_ok=false``
  *      (lista los bloques ausentes en el PLC).
  *   4. 3 tabs (PReal, PInt, Alarmas) con badge del nº de cambios
- *      (to_update + to_insert).
+ *      (renombrados + agregados + eliminados).
  *   5. Tabla con columnas: Slot | Valor actual | Valor deseado
  *      (Excel) | Acción. Colores por acción.
  *   6. Botón "↻ Generar preview" (top-right).
@@ -51,6 +51,12 @@ import {
     apiProcesosSyncPreview,
     apiProcesosSyncCommit,
 } from "/js/api.js";
+// ``STATUS_META`` es la misma constante que usa ``Dispositivos.js``:
+// fuente única de verdad para los labels de las acciones del diff
+// (➕ AGREGAR, ✏️ RENOMBRAR, 🗑️ ELIMINAR, ✓ OK). Mantener un solo
+// origen evita que el operario vea mensajes distintos en las dos
+// vistas de sync.
+import { STATUS_META } from "./disp_status.js";
 
 export default {
     name: "ProcesosSyncView",
@@ -131,10 +137,14 @@ export default {
          * Filas de la pestaña activa (formato uniforme para la
          * tabla). Para cada slot del array, devuelve:
          *   { slot, current, desired, action }
-         * ``current`` viene del preview (puede ser ``null`` porque
-         * el preview no consulta TIA; el backend lo deja así por
-         * ahora). ``desired`` es el comentario del Excel. ``action``
-         * es ``"equal" | "update" | "new"``.
+         * ``current`` viene del preview exportando los DBs de TIA
+         * (puede ser ``null`` si el export falló o si el slot no
+         * existe en el ``.s7dcl``/``.s7res``). ``desired`` es el
+         * comentario del Excel. ``action`` está alineado con el
+         * sync de dispositivos:
+         *   - ``"agregar"`` (slot nuevo en TIA)
+         *   - ``"renombrar"`` (slot existente, comentario distinto)
+         *   - ``"sin_cambios"`` (slot existente, mismo comentario)
          */
         const activeRows = computed(() => {
             const p = preview.value;
@@ -158,14 +168,22 @@ export default {
         });
 
         /**
-         * Badge count para cada tab: ``to_update + to_insert``.
+         * Badge count para cada tab: nº de slots que CAMBIAN
+         * (renombrar + agregar + eliminar). ``sin_cambios`` no
+         * cuenta porque ya está al día. Mismo criterio que
+         * ``Dispositivos.js``: si solo hay ``sin_cambios`` el badge
+         * es 0 y la SPA muestra "No hay cambios" en el footer.
          */
         function tabBadge(tabName) {
             const p = preview.value;
             if (!p || !p.arrays || !p.arrays[tabName]) return 0;
             const s = p.arrays[tabName].summary;
             if (!s) return 0;
-            return (s.to_update || 0) + (s.to_insert || 0) + (s.to_prune || 0);
+            return (
+                (s.renombrados || 0)
+                + (s.agregados || 0)
+                + (s.eliminados || 0)
+            );
         }
 
         /**
@@ -174,7 +192,7 @@ export default {
         const totalOps = computed(() => {
             const p = preview.value;
             if (!p || !p.summary) return 0;
-            return p.summary.total_ops || 0;
+            return p.summary.total || 0;
         });
 
         /**
@@ -215,7 +233,7 @@ export default {
                     store.procesosSync.preview = r.data;
                     if (r.data && r.data.precondiciones_ok) {
                         pushLog(
-                            `Preview comentarios proceso ${props.procUid}: ${r.data.summary && r.data.summary.total_ops} ops`,
+                            `Preview comentarios proceso ${props.procUid}: ${r.data.summary && r.data.summary.total} slots`,
                             "success"
                         );
                     } else {
@@ -343,6 +361,7 @@ export default {
             flowError,
             precondError,
             isWorking,
+            statusMeta: STATUS_META,
             handleGeneratePreview,
             handleApply,
             handleBack,
@@ -467,17 +486,22 @@ export default {
                             <td class="px-3 py-1.5 font-mono text-ink">
                                 {{ row.desired }}
                             </td>
-                            <td class="px-3 py-1.5 whitespace-nowrap">
-                                <span v-if="row.action === 'update'"
-                                      class="text-amber-600 font-semibold">
-                                    actualizar
-                                </span>
-                                <span v-else-if="row.action === 'new'"
+                            <td class="px-3 py-1.5 whitespace-nowrap"
+                                :class="statusMeta[row.action]?.cls">
+                                <span v-if="row.action === 'agregar'"
                                       class="text-green-600 font-semibold">
-                                    nuevo
+                                    {{ statusMeta.agregar.label }}
+                                </span>
+                                <span v-else-if="row.action === 'renombrar'"
+                                      class="text-amber-600 font-semibold">
+                                    {{ statusMeta.renombrar.label }}
+                                </span>
+                                <span v-else-if="row.action === 'eliminar'"
+                                      class="text-red-700 font-semibold">
+                                    {{ statusMeta.eliminar.label }}
                                 </span>
                                 <span v-else class="text-ink-muted italic">
-                                    igual
+                                    {{ statusMeta.sin_cambios.label }}
                                 </span>
                             </td>
                         </tr>
