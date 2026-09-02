@@ -103,7 +103,10 @@ class SyncProcesosComentariosUseCase:
         self._progress.begin(
             operation="preview_procesos_comentarios",
             label=f"Generando preview comentarios proceso {proc_uid}",
-            stages=["check_state", "check_blocks", "build_slot_maps", "done"],
+            stages=[
+                "check_state", "check_blocks", "build_slot_maps",
+                "export_and_diff", "done",
+            ],
         )
         try:
             # check_state: validar que excel_cache no esté vacío.
@@ -112,6 +115,7 @@ class SyncProcesosComentariosUseCase:
                 self._progress.finish_stage("check_state", "Excel no cargado")
                 self._progress.finish_stage("check_blocks")
                 self._progress.finish_stage("build_slot_maps")
+                self._progress.start_stage("done", "Sin Excel cargado")
                 self._progress.finish_stage("done", "Sin Excel cargado")
                 return {
                     "proc_uid": proc_uid,
@@ -142,6 +146,7 @@ class SyncProcesosComentariosUseCase:
                 self._progress.finish_stage(
                     "check_blocks", "Cache de bloques no disponible"
                 )
+                self._progress.start_stage("done", "Sin cache de bloques")
                 self._progress.finish_stage("done", "Sin cache de bloques")
                 return {
                     "proc_uid": proc_uid,
@@ -170,6 +175,7 @@ class SyncProcesosComentariosUseCase:
                 )
             except RuntimeError as exc:
                 self._progress.finish_stage("build_slot_maps", f"Error: {exc}")
+                self._progress.start_stage("done", "Abortado")
                 self._progress.finish_stage("done", "Abortado")
                 return {
                     "proc_uid": proc_uid,
@@ -188,6 +194,10 @@ class SyncProcesosComentariosUseCase:
 
             # done: precondiciones ok?
             if slot_map.missing_blocks:
+                self._progress.start_stage(
+                    "done",
+                    f"Faltan {len(slot_map.missing_blocks)} bloques",
+                )
                 self._progress.finish_stage(
                     "done",
                     f"Faltan {len(slot_map.missing_blocks)} bloques",
@@ -207,25 +217,85 @@ class SyncProcesosComentariosUseCase:
                     "warnings": slot_map.warnings,
                 }
 
-            # Precondiciones OK: componer respuesta con el diff.
-            arrays = self._compose_arrays(slot_map)
+            # Precondiciones OK: exportar los 3 DBs y comparar con
+            # el Excel para producir un diff real. Sin este stage
+            # el "total_ops" sería fake (= nº de slots del Excel),
+            # no el nº de cambios que se aplicarían. Con este
+            # stage:
+            #   - exportamos DB_PARAM y DB_ALM (1-3 min en PLCs
+            #     grandes) a un work_dir.
+            #   - leemos los .s7res resultantes y extraemos el
+            #     ``es-ES`` actual de cada slot (solo del array
+            #     principal, no de los satélites).
+            #   - comparamos desired (Excel) con current (TIA) por
+            #     slot. action ∈ {equal, update, new}.
+            self._progress.start_stage(
+                "export_and_diff",
+                "Exportando 3 DBs y comparando con Excel...",
+            )
+            try:
+                current_preal, current_pint, current_alm = (
+                    await self._export_and_read_current(slot_map)
+                )
+            except Exception as exc:
+                # Si el export falla (TIA no responde, permisos,
+                # etc.), NO abortamos el preview: devolvemos un diff
+                # con ``current=None`` para todos los slots y un
+                # warning. El operario ve que algo falló en el
+                # backend pero el preview sigue siendo útil (al
+                # menos sabe qué slots quiere actualizar).
+                _logger.warning(
+                    f"export_and_diff falló: {exc}. Devolviendo "
+                    f"current=None para todos los slots."
+                )
+                self._progress.finish_stage(
+                    "export_and_diff",
+                    f"Error exportando: {exc}",
+                )
+                current_preal = current_pint = current_alm = None
+                self._progress.start_stage(
+                    "done",
+                    f"Preview con current=None (export falló)",
+                )
+                self._progress.finish_stage(
+                    "done",
+                    f"Preview con current=None (export falló)",
+                )
+                return self._compose_response(
+                    proc_uid, slot_map,
+                    preal_current=None, pint_current=None, alm_current=None,
+                    extra_warnings=[f"Export falló: {exc}. current=None."],
+                )
+
+            arrays = self._compose_arrays(
+                slot_map, current_preal, current_pint, current_alm
+            )
             summary = self._compute_summary(arrays)
             self._progress.finish_stage(
-                "done",
-                f"{summary['total_ops']} ops",
+                "export_and_diff",
+                f"{summary['to_update']} updates, "
+                f"{summary['to_insert']} nuevos, "
+                f"{summary['total_ops'] - summary['to_update'] - summary['to_insert']} iguales",
             )
-            return {
-                "proc_uid": proc_uid,
-                "proc_codigo": _extract_codigo(slot_map.db_param_name),
-                "precondiciones_ok": True,
-                "missing_blocks": [],
-                "db_param_name": slot_map.db_param_name,
-                "db_alm_name": slot_map.db_alm_name,
-                "table_name": slot_map.table_name,
-                "arrays": arrays,
-                "summary": summary,
-                "warnings": slot_map.warnings,
-            }
+
+            self._progress.start_stage(
+                "done",
+                f"{summary['total_ops']} slots, "
+                f"{summary['to_update']} updates, "
+                f"{summary['to_insert']} nuevos",
+            )
+            self._progress.finish_stage(
+                "done",
+                f"{summary['total_ops']} slots, "
+                f"{summary['to_update']} updates, "
+                f"{summary['to_insert']} nuevos",
+            )
+            return self._compose_response(
+                proc_uid, slot_map,
+                preal_current=current_preal,
+                pint_current=current_pint,
+                alm_current=current_alm,
+            )
         except Exception as exc:
             self._progress.finish(success=False, error=str(exc))
             raise
@@ -292,7 +362,11 @@ class SyncProcesosComentariosUseCase:
                 raise RuntimeError(
                     f"Faltan bloques en el PLC: {slot_map.missing_blocks}"
                 )
-            self._progress.finish_stage("build_slot_maps", "OK")
+            self._progress.finish_stage(
+                "build_slot_maps",
+                f"PReal={len(slot_map.preal)} PInt={len(slot_map.pint)} "
+                f"ALM={len(slot_map.alm)}",
+            )
 
             # Necesitamos el plc_name. En el flujo, viene del front
             # en la prevision dict (lo emite el preview del
@@ -361,6 +435,7 @@ class SyncProcesosComentariosUseCase:
                 "open_transaction",
                 f"{ops_executed} ops aplicadas OK",
             )
+            self._progress.start_stage("done", f"{ops_executed} ops")
             self._progress.finish_stage("done", f"{ops_executed} ops")
 
             return {
@@ -378,46 +453,89 @@ class SyncProcesosComentariosUseCase:
 
     # ── Internals ────────────────────────────────────────────────────────
 
-    def _build_work_dir(self) -> Path:
+    def _build_work_dir(self, suffix: str = "commit") -> Path:
         """Construye el directorio de trabajo del worker.
 
         Patrón análogo a ``SyncDispositivosInstancesUseCase``:
-        ``<build_cache>/procesos_comments/``. El directorio se
+        ``<build_cache>/procesos_{suffix}/``. El directorio se
         conserva tras la operación para permitir inspección manual
         y ``git diff``.
+
+        Args:
+            suffix: ``"commit"`` (default) usa el directorio
+                ``procesos_comments/`` que el handler de import_block
+                lee después del export + updater. ``"preview"`` usa
+                ``procesos_preview/`` separado para que el operario
+                pueda inspeccionar los exports del preview sin
+                mezclarlos con los del apply.
         """
         build_cache = Path(os.getcwd()) / ".build_cache"
-        work_dir = build_cache / "procesos_comments"
+        work_dir = build_cache / f"procesos_{suffix}"
         work_dir.mkdir(parents=True, exist_ok=True)
         return work_dir
 
-    def _compose_arrays(self, slot_map: ProcesoSlotMap) -> dict[str, Any]:
+    def _compose_arrays(
+        self,
+        slot_map: ProcesoSlotMap,
+        preal_current: "dict[int, str | None] | None" = None,
+        pint_current: "dict[int, str | None] | None" = None,
+        alm_current: "dict[int, str | None] | None" = None,
+    ) -> dict[str, Any]:
         """Compone el dict ``arrays`` con los 3 arrays del proceso.
 
         Para cada slot, generamos una entrada ``{current, desired,
-        action}`` con ``action ∈ {"equal", "update", "new"}``. El
-        preview NO conoce el ``current`` real del TIA (eso requeriría
-        exportar el bloque), así que se emite ``current=None`` para
-        todos. La SPA muestra el diff por desired ≠ "."
+        action}`` con ``action ∈ {"equal", "update", "new"}``.
+
+        - Si se pasan los mapas ``preal_current`` / ``pint_current``
+          / ``alm_current`` (devueltos por
+          ``ProcesoCommentUpdater.read_current_comments``), el
+          ``current`` es el ``es-ES`` real de TIA y ``action`` se
+          computa como:
+            - ``"new"`` si el slot no existe en TIA o ``current is None``
+              (esto último es raro, indica que el MLC no se encontró
+              en el ``.s7res``; lo tratamos como "nuevo" para que
+              el apply lo cree).
+            - ``"update"`` si ``current != desired``.
+            - ``"equal"`` si ``current == desired``.
+        - Si los mapas son ``None`` (preview rápido sin export, o
+          export falló), ``current`` se emite como ``None`` y
+          ``action`` se infiere del desired:
+            - ``"new"`` si ``desired == "."`` (convención TIA "sin
+              comentario" → sería un slot vacío).
+            - ``"update"`` en otro caso.
+
+        La SPA muestra el diff con colores por acción (igual =
+        gris, actualizar = ámbar, nuevo = verde).
         """
         arrays: dict[str, Any] = {}
-        for arr_name, slot_map_dict, db_name, satellites in (
+        for arr_name, slot_map_dict, db_name, satellites, current_dict in (
             ("PReal", slot_map.preal, slot_map.db_param_name,
-             ["PReal_Vis", "Aux.PReal_ValorAnterior"]),
+             ["PReal_Vis", "Aux.PReal_ValorAnterior"], preal_current),
             ("PInt",  slot_map.pint,  slot_map.db_param_name,
-             ["PInt_Vis",  "Aux.PInt_ValorAnterior"]),
-            ("ALM",   slot_map.alm,   slot_map.db_alm_name, []),
+             ["PInt_Vis",  "Aux.PInt_ValorAnterior"], pint_current),
+            ("ALM",   slot_map.alm,   slot_map.db_alm_name,
+             [], alm_current),
         ):
             slot_map_serialized: dict[str, Any] = {}
             for slot, desired in slot_map_dict.items():
-                # El preview no consulta el TIA → current siempre
-                # es None. La SPA entiende esto como "no sé el
-                # actual; muestro el deseado y dejo al operario
-                # decidir". Una segunda iteración puede exportar el
-                # .s7res y rellenar el current real.
-                action = "new" if desired == "." else "update"
+                if current_dict is not None:
+                    # Diff real: comparamos desired vs current.
+                    current = current_dict.get(slot)
+                    if current is None:
+                        # Slot no existe en TIA o MLC no encontrado.
+                        # El apply lo creará (insert).
+                        action = "new"
+                    elif current == desired:
+                        action = "equal"
+                    else:
+                        action = "update"
+                else:
+                    # Sin export: precondiciones OK pero sin datos
+                    # de TIA. Asumimos update/new según desired.
+                    current = None
+                    action = "new" if desired == "." else "update"
                 slot_map_serialized[str(slot)] = {
-                    "current": None,
+                    "current": current,
                     "desired": desired,
                     "action": action,
                 }
@@ -432,11 +550,12 @@ class SyncProcesosComentariosUseCase:
         return arrays
 
     def _compute_summary(self, arrays: dict[str, Any]) -> dict[str, int]:
-        """Suma el total de ops y cuenta por tipo de acción."""
+        """Suma el total de slots y cuenta por tipo de acción."""
         total = 0
         to_update = 0
         to_insert = 0
         to_prune = 0
+        to_equal = 0
         for arr in arrays.values():
             for entry in arr.get("slot_map", {}).values():
                 total += 1
@@ -447,12 +566,125 @@ class SyncProcesosComentariosUseCase:
                     to_insert += 1
                 elif action == "prune":
                     to_prune += 1
+                elif action == "equal":
+                    to_equal += 1
         return {
             "total_ops": total,
             "to_update": to_update,
             "to_insert": to_insert,
             "to_prune": to_prune,
+            "to_equal": to_equal,
         }
+
+    def _compose_response(
+        self,
+        proc_uid: int,
+        slot_map: ProcesoSlotMap,
+        preal_current: "dict[int, str | None] | None" = None,
+        pint_current: "dict[int, str | None] | None" = None,
+        alm_current: "dict[int, str | None] | None" = None,
+        extra_warnings: "list[str] | None" = None,
+    ) -> dict[str, Any]:
+        """Compone la respuesta del preview con el diff y los nombres
+        TIA resueltos. Usado por la rama de éxito y la de error
+        del export (donde ``current`` puede ser ``None``)."""
+        arrays = self._compose_arrays(
+            slot_map, preal_current, pint_current, alm_current
+        )
+        summary = self._compute_summary(arrays)
+        warnings = list(slot_map.warnings)
+        if extra_warnings:
+            warnings.extend(extra_warnings)
+        return {
+            "proc_uid": proc_uid,
+            "proc_codigo": _extract_codigo(slot_map.db_param_name),
+            "precondiciones_ok": True,
+            "missing_blocks": [],
+            "db_param_name": slot_map.db_param_name,
+            "db_alm_name": slot_map.db_alm_name,
+            "table_name": slot_map.table_name,
+            "arrays": arrays,
+            "summary": summary,
+            "warnings": warnings,
+        }
+
+    async def _export_and_read_current(
+        self, slot_map: ProcesoSlotMap
+    ) -> "tuple[dict[int, str | None], dict[int, str | None], dict[int, str | None]]":
+        """Exporta los 2 DBs del proceso a un work_dir temporal y
+        lee los ``es-ES`` actuales de cada slot de los 3 arrays
+        principales (PReal, PInt, ALM).
+
+        Stages internos:
+          1. Exporta ``DB_PARAM`` y ``DB_ALM`` a
+             ``<build_cache>/procesos_preview/``. Esto puede
+             tardar 1-3 min en PLCs grandes.
+          2. Crea un ``ProcesoCommentUpdater`` por DB (sin
+             ``slot_map``, solo para usar ``read_current_comments``)
+             y consulta el ``es-ES`` actual de cada slot.
+          3. Devuelve los 3 mapas ``{slot: current_text | None}``.
+
+        Raises:
+            Exception: cualquier fallo del export se propaga al
+            caller, que decide si abortar el preview o devolver
+            un diff con ``current=None``.
+        """
+        from areas.alimentacion.infrastructure.sd.proc_comment_updater import (
+            ProcesoCommentUpdater,
+        )
+        # Work_dir separado del del commit: el preview es
+        # idempotente (no modifica nada en TIA), así que reutilizar
+        # el mismo dir que el commit podría confundir al operario
+        # que abra los archivos después.
+        work_dir = self._build_work_dir(suffix="preview")
+        plc_name = (
+            self._bloques_cache.plc_name
+            if self._bloques_cache is not None
+            else ""
+        )
+        if not plc_name:
+            raise RuntimeError(
+                "BloqueCache sin plc_name; no se puede exportar."
+            )
+
+        # 1. Exportar los 2 DBs (en paralelo sería ideal pero
+        # ``export_block`` no es thread-safe a nivel del wrapper .NET;
+        # los hacemos secuenciales).
+        await self._gateway.export_block(
+            plc_name=plc_name,
+            block_name=slot_map.db_param_name,
+            target_dir=str(work_dir),
+        )
+        await self._gateway.export_block(
+            plc_name=plc_name,
+            block_name=slot_map.db_alm_name,
+            target_dir=str(work_dir),
+        )
+
+        # 2. Leer los comentarios actuales de cada array. Creamos 2
+        # updaters en modo solo-lectura (sin slot_map y sin array_name
+        # de instancia, porque cada read_current_comments recibe su
+        # propio array_name por parámetro).
+        updater_param = ProcesoCommentUpdater(
+            s7dcl_path=work_dir / f"{slot_map.db_param_name}.s7dcl",
+            s7res_path=work_dir / f"{slot_map.db_param_name}.s7res",
+            slot_map={},
+        )
+        updater_alm = ProcesoCommentUpdater(
+            s7dcl_path=work_dir / f"{slot_map.db_alm_name}.s7dcl",
+            s7res_path=work_dir / f"{slot_map.db_alm_name}.s7res",
+            slot_map={},
+        )
+        current_preal = updater_param.read_current_comments(
+            list(slot_map.preal.keys()), "PReal"
+        )
+        current_pint = updater_param.read_current_comments(
+            list(slot_map.pint.keys()), "PInt"
+        )
+        current_alm = updater_alm.read_current_comments(
+            list(slot_map.alm.keys()), "ALM"
+        )
+        return current_preal, current_pint, current_alm
 
 
 # ── Helpers de módulo ───────────────────────────────────────────────────

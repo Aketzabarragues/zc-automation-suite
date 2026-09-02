@@ -263,10 +263,14 @@ def test_endpoint_commit_invoca_gateway_con_target_folder_y_undo(
         "update_proc_comments_db_pint",
         "update_proc_comments_db_alm",
     ]
-    # target_folder y work_dir vienen del config.
+    # target_folder y work_dir vienen del config. El work_dir del
+    # commit se llama ``procesos_commit`` (distinto del
+    # ``procesos_preview`` que usa el preview) para que el operario
+    # no confunda archivos exportados durante un preview con
+    # archivos a reimportar en el commit.
     for op in operations:
         assert op["args"]["target_folder"] == "003_Procesos"
-        assert op["args"]["work_dir"].endswith("procesos_comments")
+        assert op["args"]["work_dir"].endswith("procesos_commit")
     # Undo text menciona el codigo "CPR" y el PLC.
     assert "CPR" in call_args["undo_text"]
     assert "PLC_X" in call_args["undo_text"]

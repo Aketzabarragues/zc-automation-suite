@@ -195,9 +195,9 @@ class ProcesoCommentUpdater:
                   ``.s7res`` reservados.
 
     Raises:
-        ValueError: si ``slot_map`` contiene el slot 0 (los arrays
-                    de procesos empiezan en 1) o si ``array_name``
-                    está vacío.
+        ValueError: si ``update()`` se llama con ``array_name`` vacío
+                    (es obligatorio en modo escritura; no en modo
+                    lectura vía ``read_current_comments``).
         FileNotFoundError: si los archivos no existen.
     """
 
@@ -206,7 +206,7 @@ class ProcesoCommentUpdater:
         s7dcl_path: str | Path,
         s7res_path: str | Path,
         slot_map: dict[int, str],
-        array_name: str,
+        array_name: str = "",
         satellite_arrays: set[str] | None = None,
         registry: MLCRegistry | None = None,
     ) -> None:
@@ -218,9 +218,12 @@ class ProcesoCommentUpdater:
         if not self._s7res_path.is_file():
             raise FileNotFoundError(f"No se encontró .s7res: '{self._s7res_path}'")
 
-        if not array_name or not array_name.strip():
-            raise ValueError("array_name es obligatorio y no puede estar vacío.")
-        self._array_name: str = array_name.strip()
+        # ``array_name`` es opcional en construcción: solo es obligatorio
+        # cuando se llama a ``update()`` (modo escritura). ``read_current_comments``
+        # recibe el nombre del array por parámetro en cada llamada, así que
+        # un updater de solo-lectura (p. ej. usado en el preview de
+        # procesos) puede construirse con ``array_name=""``.
+        self._array_name: str = (array_name or "").strip()
 
         # Filtrar el slot 0 (no aplica a procesos). Si está, se ignora
         # silenciosamente con warning (defensivo: podría venir de un
@@ -269,6 +272,11 @@ class ProcesoCommentUpdater:
           3. Restaurar MLCs huérfanos referenciados por el .s7dcl.
           4. Equilibrar el .s7res (conservar solo MLCs referenciados).
         """
+        if not self._array_name:
+            raise ValueError(
+                "array_name es obligatorio para update() (no para "
+                "read_current_comments)."
+            )
         reused: dict[int, str] = {}
         inserted: dict[int, str] = {}
         satellite_reused: dict[int, str] = {}
@@ -360,6 +368,91 @@ class ProcesoCommentUpdater:
     def _extract_existing_mlcs(self) -> set[str]:
         """Lee el ``.s7res`` y devuelve el set de IDs ``MLC_*`` presentes."""
         return set(re.findall(r"^\s*-\s*id:\s*(MLC_\S+)\s*$", self._s7res, re.MULTILINE))
+
+    def _build_mlc_text_map(self) -> dict[str, str]:
+        """Devuelve ``{MLC_id: es-ES_text}`` con todas las entradas
+        del ``.s7res``.
+
+        Cada entrada es un bloque YAML como::
+
+            - id: MLC_xxx
+              es-ES: <texto>
+
+        Esta función es la inversa de ``_upsert_s7res_entry`` y se
+        usa para leer el estado actual de TIA (sin modificar nada)
+        durante la fase de preview / diff.
+        """
+        result: dict[str, str] = {}
+        # Regex: cada entrada es un bloque ``- id: MLC_X\n    es-ES: ...``.
+        # El grupo ``inner`` captura las líneas indentadas que siguen
+        # al ``- id:`` hasta el siguiente ``- id:`` o fin de bloque.
+        pattern = re.compile(
+            r"(?xm)^(?P<indent>\s*-\s*id:\s*(?P<mlc>\S+)\s*\n)"
+            r"(?P<inner>(?:\s+[^\n]*\n)*?)"
+            r"(?=\s*-\s*id:|\s*MultiLingualTexts:|\Z)"
+        )
+        for m in pattern.finditer(self._s7res):
+            mlc_id = m.group("mlc")
+            inner = m.group("inner")
+            es_match = re.search(r"es-ES:\s*([^\n]*)", inner)
+            if es_match is None:
+                # MLC sin es-ES (raro pero posible si TIA exportó
+                # un comentario vacío). Lo guardamos como string vacío
+                # para que el caller lo distinga de "no existe".
+                result[mlc_id] = ""
+            else:
+                result[mlc_id] = es_match.group(1)
+        return result
+
+    def read_current_comments(
+        self, slot_indices: "list[int] | tuple[int, ...]", array_name: str
+    ) -> "dict[int, str | None]":
+        """Lee el ``es-ES`` actual de los slots dados del array.
+
+        Esta función es la inversa de ``update()`` en modo lectura:
+        no modifica ningún archivo, solo consulta el ``.s7res`` y
+        devuelve el texto actual para cada slot.
+
+        Args:
+            slot_indices: Lista de slots 1-based cuyo ``es-ES`` se
+                quiere leer.
+            array_name: Nombre del array principal en el DB
+                (``"PReal"``, ``"PInt"``, ``"ALM"``). Las entradas del
+                array principal son las que se exponen al operario
+                en la vista de diff; los satélites son "copias" del
+                mismo texto y NO entran en la comparación (se
+                propagan automáticamente al aplicar cambios, ver
+                ``update()``).
+
+        Returns:
+            ``{slot: es-ES_text}`` o ``{slot: None}`` si el slot no
+            existe en el ``.s7dcl`` o no tiene MLC adyacente.
+            ``es-ES_text`` puede ser ``""`` si el MLC existe pero
+            tiene el texto vacío en el ``.s7res`` (caso TIA "sin
+            comentario").
+
+        Notas:
+            No falla si el archivo no existe: en ese caso, devuelve
+            ``{slot: None}`` para todos. El caller decide si abortar
+            o marcar la vista como "sin datos de TIA".
+        """
+        # Si el .s7res no existe (p. ej. el export falló), devolvemos
+        # None para todos los slots.
+        if not self._s7res_path.is_file():
+            return {slot: None for slot in slot_indices}
+        mlc_to_text = self._build_mlc_text_map()
+        result: dict[int, str | None] = {}
+        for slot in slot_indices:
+            mlc = self._find_assignment_mlc(array_name, slot)
+            if mlc is None:
+                result[slot] = None
+            else:
+                # Si el MLC existe en el .s7dcl pero no en el .s7res,
+                # devolvemos string vacío (caso TIA degenerado; el
+                # updater lo trataría como "." en la próxima
+                # aplicación).
+                result[slot] = mlc_to_text.get(mlc, "")
+        return result
 
     def _extract_all_mlcs_from_s7dcl(self) -> set[str]:
         """Extrae TODOS los MLCs referenciados en el ``.s7dcl``.
