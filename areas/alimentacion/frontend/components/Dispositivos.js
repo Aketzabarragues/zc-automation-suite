@@ -370,18 +370,27 @@ export default {
                     </div>
                 </div>
                 </div><!-- /Área de scroll (cierre del wrapper interior de la card 2) -->
-            </div><!-- /card 2 (N_MAX + tabs + tabla) -->
 
-            <button id="btn-commit" @click="ejecutarCommit"
-                :disabled="!hasPreview || (summary.agregados + summary.renombrados + summary.eliminados + nmaxSummary.actualizar === 0) || store.busy"
-                data-testid="dispositivos-aplicar"
-                class="mt-4 px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
-                ✅ Aplicar Cambios en TIA Portal
-                <span v-if="hasPreview" class="text-xs font-normal text-ink-muted">
-                    ({{ summary.agregados + summary.renombrados + summary.eliminados +
-                       nmaxSummary.actualizar }} cambios)
-                </span>
-            </button>
+                <!-- Botón "Aplicar Cambios en TIA Portal" — acción
+                     destructiva/commit. Mismo lenguaje pill que el
+                     resto de botones (text-accent, bg-surface-sunken,
+                     border border-line) pero un escalón más prominente
+                     (w-full py-2.5 text-sm, contenido centrado) porque
+                     es la acción terminal del flujo. Vive dentro de la
+                     card 2, debajo del área de scroll, para que el
+                     operario tenga todo el contexto del diff y el
+                     confirm en el mismo bloque visual. -->
+                <button id="btn-commit" @click="ejecutarCommit"
+                    :disabled="!hasPreview || (summary.agregados + summary.renombrados + summary.eliminados + nmaxSummary.actualizar === 0) || store.busy"
+                    data-testid="dispositivos-aplicar"
+                    class="mt-3 w-full py-2.5 text-accent font-semibold text-sm bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
+                    ✅ Aplicar Cambios en TIA Portal
+                    <span v-if="hasPreview" class="text-xs font-normal text-ink-muted">
+                        ({{ summary.agregados + summary.renombrados + summary.eliminados +
+                           nmaxSummary.actualizar }} cambios)
+                    </span>
+                </button>
+            </div><!-- /card 2 (N_MAX + tabs + tabla + botón) -->
         </section>
     `,
 };
