@@ -324,7 +324,7 @@ export default {
                  rediseño "Modern Corporate" — el topbar ya muestra
                  la sub-vista activa y la selección de PLC vive
                  también en el topbar. -->
-            <header v-if="store.selectedPlc" class="flex justify-between items-start mb-4">
+            <div v-if="store.selectedPlc" class="mb-4 bg-surface-raised border border-line rounded p-4 flex justify-between items-center" data-testid="bloques-cache-card-info">
                 <p class="text-xs text-ink-muted">
                     PLC activo:
                     <span class="font-semibold text-ink">{{ plcName }}</span>
@@ -341,8 +341,8 @@ export default {
                     <span v-else>↻</span>
                     Actualizar
                 </button>
-            </header>
-            <div v-else class="flex justify-end mb-4">
+            </div>
+            <div v-else class="mb-4 bg-surface-raised border border-line rounded p-4 flex justify-end" data-testid="bloques-cache-card-info">
                 <button @click="handleRefresh"
                     :disabled="!store.selectedPlc || isRefreshing"
                     data-testid="bloques-cache-actualizar"
@@ -354,7 +354,7 @@ export default {
             </div>
 
             <!-- Aviso ámbar: cache "stale" (> 5 min) -->
-            <div v-if="isStale" class="mb-3 px-3 py-2 bg-amber-100 border border-amber-300 rounded text-xs text-amber-800">
+            <div v-if="isStale" class="mb-4 px-3 py-2 bg-amber-100 border border-amber-300 rounded text-xs text-amber-800">
                 ⚠️ El cache tiene más de 5 minutos. Pulsa <strong>"↻ Actualizar"</strong> para re-escanear el PLC.
             </div>
 
@@ -381,7 +381,8 @@ export default {
             </div>
 
             <!-- Cuerpo: tabla de la pestaña activa o empty state global -->
-            <div class="flex-1 overflow-auto table-scroll-x mt-2">
+            <div class="flex-1 bg-surface-raised border border-line rounded p-4 overflow-auto table-scroll-x mb-4"
+                 data-testid="bloques-cache-card-tabla">
 
                 <!-- Bloques (agrupados por tipo, ordenados por nombre dentro del grupo) -->
                 <table v-if="hasCache && activeTab === 'bloques'" class="w-full text-xs">

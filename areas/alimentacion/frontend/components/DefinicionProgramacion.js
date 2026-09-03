@@ -48,8 +48,14 @@ import { apiUploadExcel, apiFetchMemory } from "/js/api.js";
 export default {
     name: "DefinicionProgramacion",
     emits: ["refresh"],
-    setup() {
+    setup(_, { emit }) {
         const fileInput = ref(null);
+        // Cache del último File subido, para que el botón
+        // "🔄 Actualizar" pueda re-leerlo sin re-prompting.
+        // Es state LOCAL del componente: si el operario recarga la
+        // SPA o navega fuera y vuelve, se pierde (y el botón
+        // cae al fallback `emit("refresh")` legacy).
+        const lastExcelFile = ref(null);
 
         /**
          * Conteos para los badges de los 2 tabs principales.
@@ -116,6 +122,7 @@ export default {
                 if (r.ok) {
                     store.uploadSummary = r.data.summary || {};
                     pushLog("✅ Excel cargado en AppState", "success");
+                    lastExcelFile.value = file;
                     const mem = await apiFetchMemory();
                     if (mem.ok && mem.data && mem.data.ok) {
                         store.memoryState = mem.data;
@@ -129,11 +136,45 @@ export default {
             }
         }
 
+        /**
+         * Re-lee el último Excel cacheado en `lastExcelFile` sin
+         * pedirle al operario que re-seleccione el archivo del disco.
+         * Si no hay archivo cacheado (p.ej. acaba de arrancar la SPA),
+         * cae al comportamiento legacy: pide al padre que dispare
+         * `apiFetchMemory` vía `main.js` (escuchando el evento
+         * "refresh").
+         */
+        async function handleActualizar() {
+            if (lastExcelFile.value) {
+                const file = lastExcelFile.value;
+                store.busy = true;
+                try {
+                    const r = await apiUploadExcel(file);
+                    if (r.ok) {
+                        store.uploadSummary = r.data.summary || {};
+                        pushLog("🔄 Excel recargado: " + file.name, "success");
+                        const mem = await apiFetchMemory();
+                        if (mem.ok && mem.data && mem.data.ok) {
+                            store.memoryState = mem.data;
+                        }
+                    } else {
+                        alert("Error recargando Excel: " + (r.data.detail || r.status));
+                    }
+                } finally {
+                    store.busy = false;
+                }
+            } else {
+                emit("refresh");
+            }
+        }
+
         return {
             store,
             fileInput,
             mainTabsData,
             handleExcel,
+            lastExcelFile,
+            handleActualizar,
         };
     },
     template: /* html */ `
@@ -151,7 +192,7 @@ export default {
                     <input ref="fileInput" type="file" accept=".xlsm"
                         @change="handleExcel" :disabled="store.busy"
                         class="flex-1 text-xs text-ink file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:bg-surface-sunken file:text-ink hover:file:bg-surface-sunken" />
-                    <button @click="$emit('refresh')" :disabled="store.busy"
+                    <button @click="handleActualizar" :disabled="store.busy"
                         data-testid="def-programacion-actualizar"
                         class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
                         🔄 Actualizar
@@ -160,16 +201,20 @@ export default {
                 <div v-if="store.uploadSummary" class="mt-2 text-xs text-ink-muted">
                     <div class="text-accent">✅ Excel cargado</div>
                 </div>
+                <div v-if="lastExcelFile" class="mt-2 text-xs text-ink-muted">
+                    <div class="text-ink-muted">📎 Último archivo: <span class="font-mono text-ink">{{ lastExcelFile.name }}</span></div>
+                </div>
             </section>
 
             <!-- ★ Tabs principales (NUEVO) ★ -->
             <main-tabs :tabs="mainTabsData" />
 
             <!-- ★ Panel activo según store.activeMainTab ★ -->
-            <div class="flex-1 mt-2 flex flex-col overflow-hidden">
+            <section class="flex-1 mt-2 mb-4 bg-surface-raised border border-line rounded p-4 flex flex-col overflow-hidden"
+                     data-testid="def-programacion-card-tablas">
                 <dispositivos-panel v-if="store.activeMainTab === 'dispositivos'" />
                 <procesos-panel v-else />
-            </div>
+            </section>
 
         </section>
     `,

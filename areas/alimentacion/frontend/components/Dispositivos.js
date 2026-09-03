@@ -251,7 +251,8 @@ export default {
                  "Generar Previsión". El título "⚡ Dispositivos" se
                  eliminó tras el rediseño "Modern Corporate" — el
                  topbar ya muestra la sub-vista activa. -->
-            <header class="flex justify-between items-center mb-4">
+            <div class="mb-4 bg-surface-raised border border-line rounded p-4 flex justify-between items-center"
+                 data-testid="dispositivos-card-info">
                 <p v-if="hasPreview" class="text-xs text-ink-muted">
                     {{ summary.total }} dispositivos analizados —
                     <span class="text-accent">{{ summary.agregados }} a agregar</span> ·
@@ -266,7 +267,7 @@ export default {
                     class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
                     🔍 Generar Previsión
                 </button>
-            </header>
+            </div>
 
             <!-- ★ CARDS DE N_MAX (misma estética que Definición programación) ★ -->
             <div v-if="hasPreview && nmaxCards.length > 0"
@@ -304,7 +305,8 @@ export default {
             </div>
 
             <!-- Tabla única con TODOS los dispositivos del tipo activo -->
-            <div class="flex-1 bg-surface-raised border border-line rounded overflow-auto table-scroll-x mt-2">
+            <div class="flex-1 bg-surface-raised border border-line rounded p-4 overflow-auto table-scroll-x mb-4"
+                 data-testid="dispositivos-card-tabla">
                 <table v-if="hasPreview" class="w-full text-xs">
                     <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
                         <tr>
@@ -345,7 +347,7 @@ export default {
                         </tr>
                     </tbody>
                 </table>
-                <div v-else class="flex-1 flex items-center justify-center bg-surface-raised border border-dashed border-line rounded p-10 text-center text-ink-muted">
+                <div v-else class="flex items-center justify-center bg-surface-raised border border-dashed border-line rounded p-10 text-center text-ink-muted">
                     <div>
                         <div class="text-5xl mb-3 opacity-40">⚡</div>
                         <p class="mb-2">Sin prevision generada.</p>
