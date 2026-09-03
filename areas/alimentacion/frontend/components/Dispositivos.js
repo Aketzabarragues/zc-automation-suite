@@ -375,7 +375,7 @@ export default {
             <button id="btn-commit" @click="ejecutarCommit"
                 :disabled="!hasPreview || (summary.agregados + summary.renombrados + summary.eliminados + nmaxSummary.actualizar === 0) || store.busy"
                 data-testid="dispositivos-aplicar"
-                class="mt-4 w-full py-3 text-accent font-bold text-sm bg-surface-raised border-2 border-accent hover:border-accent-bright hover:shadow-lg rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
+                class="mt-4 px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
                 ✅ Aplicar Cambios en TIA Portal
                 <span v-if="hasPreview" class="text-xs font-normal text-ink-muted">
                     ({{ summary.agregados + summary.renombrados + summary.eliminados +
