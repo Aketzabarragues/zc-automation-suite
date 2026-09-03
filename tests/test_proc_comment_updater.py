@@ -1,4 +1,4 @@
-"""Tests del ``ProcesoCommentUpdater``.
+"""Tests del ``ProcCommentUpdater``.
 
 Cubre el updater offline análogo a ``DispCommentUpdater`` pero
 parametrizado por ``array_name`` + ``satellite_arrays`` (sin slot 0
@@ -23,8 +23,8 @@ import pytest
 
 from areas.alimentacion.infrastructure.sd.mlc_registry import MLCRegistry
 from areas.alimentacion.infrastructure.sd.proc_comment_updater import (
-    ProcesoCommentResult,
-    ProcesoCommentUpdater,
+    ProcCommentResult,
+    ProcCommentUpdater,
     strip_enclosing_quotes,
 )
 
@@ -121,7 +121,7 @@ def test_slot_unico_inserta_mlc_y_actualiza_es_es(
 ) -> None:
     """slot_map = {1: "nuevo"} → updater respeta MLC existente, actualiza es-ES."""
     dcl, res = synthetic_block
-    updater = ProcesoCommentUpdater(
+    updater = ProcCommentUpdater(
         s7dcl_path=dcl,
         s7res_path=res,
         slot_map={1: "nuevo_PR_1"},
@@ -131,7 +131,7 @@ def test_slot_unico_inserta_mlc_y_actualiza_es_es(
     )
     result = updater.update()
     updater.save()
-    assert isinstance(result, ProcesoCommentResult)
+    assert isinstance(result, ProcCommentResult)
     assert updater.was_modified() is True
     # Slot 1: MLC reutilizado (MLC_PR_001 ya estaba).
     assert result.reused[1] == "MLC_PR_001"
@@ -151,7 +151,7 @@ def test_slot_map_mas_corto_que_el_array(
 ) -> None:
     """slot_map = {1, 2, 3} → solo esos 3 se actualizan, resto intacto."""
     dcl, res = synthetic_block
-    updater = ProcesoCommentUpdater(
+    updater = ProcCommentUpdater(
         s7dcl_path=dcl,
         s7res_path=res,
         slot_map={1: "x1", 2: "x2", 3: "x3"},
@@ -177,7 +177,7 @@ def test_slot_map_vacio_no_modifica(
 ) -> None:
     """slot_map = {} → was_modified() False, ningún cambio."""
     dcl, res = synthetic_block
-    updater = ProcesoCommentUpdater(
+    updater = ProcCommentUpdater(
         s7dcl_path=dcl,
         s7res_path=res,
         slot_map={},
@@ -195,7 +195,7 @@ def test_idempotencia_doble_apply(
     """Aplicar el mismo slot_map 2 veces → 2ª was_modified() False, sin cambios."""
     dcl, res = synthetic_block
     # Primera pasada.
-    updater1 = ProcesoCommentUpdater(
+    updater1 = ProcCommentUpdater(
         s7dcl_path=dcl,
         s7res_path=res,
         slot_map={1: "nuevo_PR_1", 2: "nuevo_PR_2"},
@@ -207,7 +207,7 @@ def test_idempotencia_doble_apply(
     updater1.save()
     assert updater1.was_modified() is True
     # Segunda pasada con los MISMOS textos.
-    updater2 = ProcesoCommentUpdater(
+    updater2 = ProcCommentUpdater(
         s7dcl_path=dcl,
         s7res_path=res,
         slot_map={1: "nuevo_PR_1", 2: "nuevo_PR_2"},
@@ -225,7 +225,7 @@ def test_propagacion_a_satelites_mismo_slot(
     """slot_map = {5: "nuevo"} → PReal_Vis[5] y Aux.PReal_ValorAnterior[5]
     también actualizan su es-ES con el mismo texto (MLCs distintos)."""
     dcl, res = synthetic_block
-    updater = ProcesoCommentUpdater(
+    updater = ProcCommentUpdater(
         s7dcl_path=dcl,
         s7res_path=res,
         slot_map={5: "COMPARTIDO_5"},
@@ -279,7 +279,7 @@ def test_sin_satelites_para_alm(
     res = tmp_path / "DB55100_TEST_ALM.s7res"
     dcl.write_text(dcl_text, encoding="utf-8")
     res.write_text(res_text, encoding="utf-8-sig")
-    updater = ProcesoCommentUpdater(
+    updater = ProcCommentUpdater(
         s7dcl_path=dcl,
         s7res_path=res,
         slot_map={1: "alarma_1_nueva", 2: "alarma_2_nueva"},
@@ -308,7 +308,7 @@ def test_encoding_utf8_sin_bom_s7dcl_utf8_sig_s7res(
     dcl.write_text(_build_synthetic_s7dcl(5), encoding="utf-8")
     res.write_text(_build_synthetic_s7res(5), encoding="utf-8-sig")
 
-    updater = ProcesoCommentUpdater(
+    updater = ProcCommentUpdater(
         s7dcl_path=dcl,
         s7res_path=res,
         slot_map={1: "x1"},
@@ -333,7 +333,7 @@ def test_truncado_texto_a_254_chars(
     """Texto > 254 chars se trunca con warning."""
     dcl, res = synthetic_block
     long_text = "x" * 300
-    updater = ProcesoCommentUpdater(
+    updater = ProcCommentUpdater(
         s7dcl_path=dcl,
         s7res_path=res,
         slot_map={1: long_text},
@@ -360,7 +360,7 @@ def test_slot_map_mayor_que_array_inserta_nuevos_slots(
     dcl.write_text(_build_synthetic_s7dcl(5), encoding="utf-8")
     res.write_text(_build_synthetic_s7res(5), encoding="utf-8-sig")
 
-    updater = ProcesoCommentUpdater(
+    updater = ProcCommentUpdater(
         s7dcl_path=dcl,
         s7res_path=res,
         slot_map={1: "x1", 6: "x6", 7: "x7"},  # 6 y 7 no existen en el DB
@@ -387,7 +387,7 @@ def test_slot_0_se_ignora(
 ) -> None:
     """slot_map con slot 0 se ignora silenciosamente (los arrays de proceso empiezan en 1)."""
     dcl, res = synthetic_block
-    updater = ProcesoCommentUpdater(
+    updater = ProcCommentUpdater(
         s7dcl_path=dcl,
         s7res_path=res,
         slot_map={0: "NO USAR", 1: "slot_1_nuevo"},
@@ -408,7 +408,7 @@ def test_comentario_vacio_se_mapea_a_punto(
 ) -> None:
     """comentario_db vacío → es-ES = '.' (convención TIA 'sin comentario')."""
     dcl, res = synthetic_block
-    updater = ProcesoCommentUpdater(
+    updater = ProcCommentUpdater(
         s7dcl_path=dcl,
         s7res_path=res,
         slot_map={1: ""},
@@ -428,7 +428,7 @@ def test_construye_registry_con_mlcs_existentes(
 ) -> None:
     """Si el .s7res tiene MLCs pre-existentes, el updater los respeta."""
     dcl, res = synthetic_block
-    updater = ProcesoCommentUpdater(
+    updater = ProcCommentUpdater(
         s7dcl_path=dcl,
         s7res_path=res,
         slot_map={1: "nuevo_PR_1"},
@@ -449,7 +449,7 @@ class TestStripEnclosingQuotes:
     """Cubre el helper ``strip_enclosing_quotes`` (público).
 
     Se llama desde:
-      * ``ProcesoCommentUpdater._build_mlc_text_map`` al leer el
+      * ``ProcCommentUpdater._build_mlc_text_map`` al leer el
         ``.s7res`` (lado TIA).
       * ``_sanitize_comment_text`` al escribir (apply).
       * ``proc_slot_map_builder._build_slot_map`` al leer el Excel
@@ -513,7 +513,7 @@ class TestStripEnclosingQuotes:
 
 
 class TestReadCurrentCommentsStripsEnclosingQuotes:
-    """Verifica que ``ProcesoCommentUpdater.read_current_comments``
+    """Verifica que ``ProcCommentUpdater.read_current_comments``
     quita comillas envolventes que TIA pone al exportar el ``.s7res``.
 
     Caso real visto por el operario: la UI mostraba
@@ -537,7 +537,7 @@ class TestReadCurrentCommentsStripsEnclosingQuotes:
             "    es-ES: 'COMPACTO - FIJOS - '\n"
         )
         res.write_text(new_s7res, encoding="utf-8-sig")
-        updater = ProcesoCommentUpdater(
+        updater = ProcCommentUpdater(
             s7dcl_path=dcl,
             s7res_path=res,
             slot_map={},

@@ -3,7 +3,7 @@
 Endpoints de Pre-Flight (preview sin tocar TIA) y Commit
 (transaccional contra el PLC) del caso de uso unificado del
 área de alimentación. ``/sync/preview`` y ``/sync/commit``
-invocan ``SyncDispositivosInstancesUseCase``, que realiza el
+invocan ``DispSyncInstancesUseCase``, que realiza el
 sync COMPLETO de N_MAX + devices en una sola transacción COM.
 
 NO instancia gateways: vienen inyectados vía ``Depends``.
@@ -15,8 +15,8 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from areas.alimentacion.application.use_cases.sync_dispositivos_instances import (
-    SyncDispositivosInstancesUseCase,
+from areas.alimentacion.application.use_cases.disp_sync_instances import (
+    DispSyncInstancesUseCase,
 )
 from core.application.log_buffer import LogBuffer
 from core.application.state import AppState
@@ -58,7 +58,7 @@ async def sync_preview(
     shape legacy que la SPA espera: ``agregados``, ``eliminados``,
     ``renombrados``, ``todos``, ``nmax`` y ``summary``.
     """
-    use_case = SyncDispositivosInstancesUseCase(
+    use_case = DispSyncInstancesUseCase(
         gateway=gateway, config_manager=config_manager, state=state
     )
     logger.info(
@@ -92,7 +92,7 @@ async def sync_commit(
 ) -> dict[str, Any]:
     """APPLY completo: N_MAX + devices en UNA transacción COM única.
 
-    El use case ``SyncDispositivosInstancesUseCase.ejecutar_transaccion``
+    El use case ``DispSyncInstancesUseCase.ejecutar_transaccion``
     recalcula el diff desde el AppState (NO usa la ``prevision`` del
     body para evitar race conditions) y lo aplica en una sola
     transacción que incluye:
@@ -103,7 +103,7 @@ async def sync_commit(
     El worker abre ``start_transaction``, itera las ops y cierra con
     ``end_transaction`` (rollback atómico si algo falla).
     """
-    use_case = SyncDispositivosInstancesUseCase(
+    use_case = DispSyncInstancesUseCase(
         gateway=gateway, config_manager=config_manager, state=state
     )
     logger.info(

@@ -1,4 +1,4 @@
-"""Tests de ``build_proceso_slot_maps`` (Track B capa app).
+"""Tests de ``proc_build_slot_maps`` (Track B capa app).
 
 Cubre el cruce Excel ↔ BloqueCache para los 3 arrays por proceso
 (PReal, PInt, ALM). Verifica precondiciones, fallback de ``num_db``,
@@ -11,8 +11,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from areas.alimentacion.application.proc_slot_map_builder import (
-    ProcesoSlotMap,
-    build_proceso_slot_maps,
+    ProcSlotMap,
+    proc_build_slot_maps,
 )
 from core.infrastructure.config_manager import ConfigManager
 from core.models.bloque_cache import BloqueCache
@@ -87,8 +87,8 @@ def test_caso_normal_30_preal_60_pint_32_alm() -> None:
         tag_tables=["1_CPR"],
     )
 
-    result = build_proceso_slot_maps(state, config, 1, bloques)
-    assert isinstance(result, ProcesoSlotMap)
+    result = proc_build_slot_maps(state, config, 1, bloques)
+    assert isinstance(result, ProcSlotMap)
     assert result.missing_blocks == []
     assert result.db_param_name == "DB53100_CPR_PARAM"
     assert result.db_alm_name == "DB55100_CPR_ALM"
@@ -126,7 +126,7 @@ def test_comentario_vacio_se_mapea_a_punto() -> None:
         tag_tables=["1_CPR"],
     )
 
-    result = build_proceso_slot_maps(state, MagicMock(), 1, bloques)
+    result = proc_build_slot_maps(state, MagicMock(), 1, bloques)
     assert result.preal[1] == "."
     assert result.preal[2] == "OK"
 
@@ -160,7 +160,7 @@ def test_comentario_con_comillas_envolventes_se_limpian() -> None:
         tag_tables=["1_CPR"],
     )
 
-    result = build_proceso_slot_maps(state, MagicMock(), 1, bloques)
+    result = proc_build_slot_maps(state, MagicMock(), 1, bloques)
     # Ambos comentarios vienen SIN comillas envolventes.
     assert result.preal[1] == "COMPACTO - FIJOS -"
     assert result.preal[2] == "COMPACTO - FIJOS - X"
@@ -173,7 +173,7 @@ def test_proceso_no_en_excel_lanza_runtime_error() -> None:
     bloques = BloqueCache()
 
     with pytest.raises(RuntimeError, match="no está en el Excel"):
-        build_proceso_slot_maps(state, MagicMock(), 999, bloques)
+        proc_build_slot_maps(state, MagicMock(), 999, bloques)
 
 
 def test_bloque_ausente_en_bloque_cache_devuelve_missing() -> None:
@@ -192,7 +192,7 @@ def test_bloque_ausente_en_bloque_cache_devuelve_missing() -> None:
     state = MagicMock(excel_cache=excel_cache)
     bloques = BloqueCache()  # vacío → faltan los 3 bloques
 
-    result = build_proceso_slot_maps(state, MagicMock(), 1, bloques)
+    result = proc_build_slot_maps(state, MagicMock(), 1, bloques)
     assert len(result.missing_blocks) == 3
     # Los 3 dicts de slot_map están vacíos.
     assert result.preal == {}
@@ -218,7 +218,7 @@ def test_tres_bloques_ausentes_missing_tiene_3_entradas() -> None:
     state = MagicMock(excel_cache=excel_cache)
     bloques = BloqueCache()
 
-    result = build_proceso_slot_maps(state, MagicMock(), 1, bloques)
+    result = proc_build_slot_maps(state, MagicMock(), 1, bloques)
     assert len(result.missing_blocks) == 3
     # Los 3 mensajes mencionan los nombres esperados.
     joined = " ".join(result.missing_blocks)
@@ -232,7 +232,7 @@ def test_excel_vacio_lanza_runtime_error() -> None:
     state = MagicMock(excel_cache=None)
     bloques = BloqueCache()
     with pytest.raises(RuntimeError, match="excel_cache está vacío"):
-        build_proceso_slot_maps(state, MagicMock(), 1, bloques)
+        proc_build_slot_maps(state, MagicMock(), 1, bloques)
 
 
 def test_fallback_num_db_cuando_lista_vacia() -> None:
@@ -255,7 +255,7 @@ def test_fallback_num_db_cuando_lista_vacia() -> None:
         ["DB123_CPR_PARAM", "DB99_CPR_ALM"],  # DB_PARAM con num_db=123 (fallback)
         tag_tables=["123_CPR"],
     )
-    result = build_proceso_slot_maps(state, MagicMock(), 123, bloques)
+    result = proc_build_slot_maps(state, MagicMock(), 123, bloques)
     # num_db_param cayó al fallback proc.uid=123.
     assert result.db_param_name == "DB123_CPR_PARAM"
     # Hubo al menos un warning por el fallback.
@@ -274,7 +274,7 @@ def _config_with_nmax(suffixes: dict[str, str] | None) -> ConfigManager:
 
 
 def test_nmax_deseados_se_computan_desde_listas_del_excel() -> None:
-    """``ProcesoSlotMap.nmax`` = ``len()`` de las listas filtradas
+    """``ProcSlotMap.nmax`` = ``len()`` de las listas filtradas
     por proceso del Excel. ``nmax_names`` = nombres completos con
     el sufijo del config (``f"{proc.uid}_N_MAX_{suffix}"``).
     """
@@ -305,7 +305,7 @@ def test_nmax_deseados_se_computan_desde_listas_del_excel() -> None:
         tag_tables=["100_CPR"],
     )
 
-    result = build_proceso_slot_maps(state, config, 100, bloques)
+    result = proc_build_slot_maps(state, config, 100, bloques)
     assert result.nmax == {"preal": 8, "pint": 3, "alm": 1}
     assert result.nmax_names == {
         "preal": "100_N_MAX_PREAL",
@@ -337,7 +337,7 @@ def test_nmax_sin_sufijos_en_config_no_se_computa() -> None:
         tag_tables=["100_CPR"],
     )
 
-    result = build_proceso_slot_maps(state, config, 100, bloques)
+    result = proc_build_slot_maps(state, config, 100, bloques)
     assert result.nmax == {}
     assert result.nmax_names == {}
 
@@ -366,7 +366,7 @@ def test_nmax_sufijos_se_pasan_a_traves_del_config_manager() -> None:
         tag_tables=["42_LAR"],
     )
 
-    result = build_proceso_slot_maps(state, config, 42, bloques)
+    result = proc_build_slot_maps(state, config, 42, bloques)
     assert result.nmax_names == {
         "preal": "42_N_MAX_REAL",
         "pint":  "42_N_MAX_INT",

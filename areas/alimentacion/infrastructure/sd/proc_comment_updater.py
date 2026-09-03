@@ -66,7 +66,7 @@ Uso típico
 
 ::
 
-    updater = ProcesoCommentUpdater(
+    updater = ProcCommentUpdater(
         s7dcl_path=Path("DB53100_CPR_PARAM.s7dcl"),
         s7res_path=Path("DB53100_CPR_PARAM.s7res"),
         slot_map={1: "Bomba 1", 2: "Bomba 2", 3: "Bomba 3"},
@@ -94,7 +94,7 @@ from typing import Iterable
 from areas.alimentacion.infrastructure.sd.mlc_registry import MLCRegistry
 
 
-_logger: logging.Logger = logging.getLogger(f"{__name__}.ProcesoCommentUpdater")
+_logger: logging.Logger = logging.getLogger(f"{__name__}.ProcCommentUpdater")
 
 # Tamaño máximo permitido para un comentario (límite práctico S7_MLC).
 _MAX_COMMENT_LEN: int = 254
@@ -107,7 +107,7 @@ _EMPTY_TEXT: str = "."
 
 
 @dataclass(frozen=True)
-class ProcesoCommentResult:
+class ProcCommentResult:
     """Resumen de la actualización de un bloque de proceso.
 
     Attributes:
@@ -174,7 +174,7 @@ _MLC_INNER_RE = re.compile(
 # ── Entry point ─────────────────────────────────────────────────────────
 
 
-class ProcesoCommentUpdater:
+class ProcCommentUpdater:
     """Actualiza los comentarios por instancia de un DB de proceso.
 
     Attributes:
@@ -233,7 +233,7 @@ class ProcesoCommentUpdater:
         }
         if 0 in slot_map:
             _logger.warning(
-                f"ProcesoCommentUpdater: slot_map contiene slot 0, "
+                f"ProcCommentUpdater: slot_map contiene slot 0, "
                 f"se ignora (los arrays de procesos empiezan en 1)."
             )
         self._slot_map: dict[int, str] = filtered
@@ -257,12 +257,12 @@ class ProcesoCommentUpdater:
             # el caller olvidó hacerlo).
             registry.reserve(self._extract_existing_mlcs())
             self._registry = registry
-        self._result: ProcesoCommentResult | None = None
+        self._result: ProcCommentResult | None = None
 
     # ── API pública ────────────────────────────────────────────────────
 
-    def update(self) -> ProcesoCommentResult:
-        """Orquesta la actualización. Retorna ``ProcesoCommentResult``.
+    def update(self) -> ProcCommentResult:
+        """Orquesta la actualización. Retorna ``ProcCommentResult``.
 
         Algoritmo:
           1. Para cada slot del slot_map, localizar el MLC existente
@@ -338,7 +338,7 @@ class ProcesoCommentUpdater:
         self._prune_s7res(referenced)
 
         total_mlcs = self._count_s7res_entries()
-        self._result = ProcesoCommentResult(
+        self._result = ProcCommentResult(
             reused=reused,
             inserted=inserted,
             satellite_reused=satellite_reused,
@@ -694,7 +694,7 @@ class ProcesoCommentUpdater:
             self._s7res = new
             self._modified = True
             _logger.debug(
-                f"ProcesoCommentUpdater: {removed} entradas MLC huérfanas eliminadas."
+                f"ProcCommentUpdater: {removed} entradas MLC huérfanas eliminadas."
             )
 
     def _count_s7res_entries(self) -> int:
@@ -756,7 +756,7 @@ def _escape_s7res_text(text: str) -> str:
 
 
 __all__ = [
-    "ProcesoCommentResult",
-    "ProcesoCommentUpdater",
+    "ProcCommentResult",
+    "ProcCommentUpdater",
     "strip_enclosing_quotes",
 ]

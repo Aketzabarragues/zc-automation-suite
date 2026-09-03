@@ -122,7 +122,7 @@ def create_app(gateway: TIAProcessGateway) -> FastAPI:
     app.state.progress_tracker = get_progress_tracker()
     # ``ConfigManager`` se construye aquí (Composition Root) y se
     # expone a los routers que lo necesiten (ej. ``sync.py`` que
-    # lo pasa a ``SyncDispositivosInstancesUseCase``).
+    # lo pasa a ``DispSyncInstancesUseCase``).
     from core.infrastructure.config_manager import ConfigManager
     app.state.config_manager = ConfigManager("infrastructure/config.json")
 

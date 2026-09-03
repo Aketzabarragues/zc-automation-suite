@@ -1,4 +1,4 @@
-"""Tests para ``SyncDispositivosInstancesUseCase``.
+"""Tests para ``DispSyncInstancesUseCase``.
 
 Verifica que el use case restaurado (sync completo N_MAX + devices)
 funciona end-to-end:
@@ -15,8 +15,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from areas.alimentacion.application.use_cases.sync_dispositivos_instances import (
-    SyncDispositivosInstancesUseCase,
+from areas.alimentacion.application.use_cases.disp_sync_instances import (
+    DispSyncInstancesUseCase,
 )
 from core.application.state import AppState
 from areas.alimentacion.domain.models.excel_cache import (
@@ -200,8 +200,8 @@ def use_case(
     mock_config_manager: MagicMock,
     app_state_with_full_data: AppState,
     tmp_path: Path,
-) -> SyncDispositivosInstancesUseCase:
-    return SyncDispositivosInstancesUseCase(
+) -> DispSyncInstancesUseCase:
+    return DispSyncInstancesUseCase(
         gateway=mock_gateway,
         config_manager=mock_config_manager,
         state=app_state_with_full_data,
@@ -424,8 +424,8 @@ async def test_ejecutar_transaccion_includes_post_sync_preview(
             "summary": {"agregados": 0, "eliminados": 0, "renombrados": 0, "sin_cambios": 0, "total": 0},
         }
     monkeypatch.setattr(
-        "areas.alimentacion.application.use_cases.sync_dispositivos_instances."
-        "SyncDispositivosInstancesUseCase.generar_prevision",
+        "areas.alimentacion.application.use_cases.disp_sync_instances."
+        "DispSyncInstancesUseCase.generar_prevision",
         fake_prevision,
     )
 

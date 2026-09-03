@@ -215,7 +215,7 @@ def make_cmd_commit_devices_sync() -> Callable[..., Any]:
             _cmd_update_user_constant_name,
             _safe_get_table_name,
         )
-        from areas.alimentacion.infrastructure.xml.modifiers import TagTableModifier
+        from areas.alimentacion.infrastructure.xml.disp_tag_table_modifier import TagTableModifier
 
         project = worker_tia._get_active_project(portal)
         target_plc = worker_tia._find_plc(project, plc_name)
@@ -442,7 +442,7 @@ def make_cmd_update_proc_comments_db(kind: str) -> Callable[..., Any]:
 
     El handler:
       1. Exporta selectivamente el DB objetivo (``export_block``).
-      2. Aplica el updater offline ``ProcesoCommentUpdater`` sobre
+      2. Aplica el updater offline ``ProcCommentUpdater`` sobre
          los ``.s7dcl`` / ``.s7res`` exportados, con propagación a
          satélites del mismo slot.
       3. Si hubo cambios, re-importa el bloque al proyecto
@@ -486,7 +486,7 @@ def make_cmd_update_proc_comments_db(kind: str) -> Callable[..., Any]:
         # (cumple "offline-first" del worker, igual que los
         # handlers de disp). Apunta al nuevo paquete SD.
         from areas.alimentacion.infrastructure.sd.proc_comment_updater import (
-            ProcesoCommentUpdater,
+            ProcCommentUpdater,
         )
         from areas.alimentacion.infrastructure.sd.mlc_registry import MLCRegistry
 
@@ -507,7 +507,7 @@ def make_cmd_update_proc_comments_db(kind: str) -> Callable[..., Any]:
         })
 
         # 2. Updater offline (con propagación a satélites).
-        updater = ProcesoCommentUpdater(
+        updater = ProcCommentUpdater(
             s7dcl_path=s7dcl_path,
             s7res_path=s7res_path,
             slot_map=slot_map_int,

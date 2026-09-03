@@ -75,7 +75,7 @@ def test_register_anhade_las_3_keys_de_procesos() -> None:
 
 
 def test_handler_preal_invoca_export_updater_import() -> None:
-    """Handler de PReal: ``export_block`` → ``ProcesoCommentUpdater.update()
+    """Handler de PReal: ``export_block`` → ``ProcCommentUpdater.update()
     + save()`` → ``import_block`` (en ese orden, con los args correctos)."""
     COMMAND_REGISTRY = worker_tia.COMMAND_REGISTRY
     with tempfile.TemporaryDirectory() as td:
@@ -101,7 +101,7 @@ def test_handler_preal_invoca_export_updater_import() -> None:
         try:
             with patch(
                 "areas.alimentacion.infrastructure.sd.proc_comment_updater."
-                "ProcesoCommentUpdater",
+                "ProcCommentUpdater",
                 return_value=mock_updater,
             ):
                 handler = extra_commands.make_cmd_update_proc_comments_db("preal")
@@ -134,7 +134,7 @@ def test_handler_preal_invoca_export_updater_import() -> None:
         assert exp_args["plc_name"] == "PLC_X"
         assert exp_args["block_name"] == "DB_TEST"
         assert exp_args["target_dir"] == str(work_dir)
-        # 2) ProcesoCommentUpdater construido con array_name correcto.
+        # 2) ProcCommentUpdater construido con array_name correcto.
         assert mock_updater.update.called
         assert mock_updater.save.called
         # 3) import_block llamado (porque was_modified() == True).
@@ -172,7 +172,7 @@ def test_handler_no_invoca_import_si_no_modified() -> None:
         try:
             with patch(
                 "areas.alimentacion.infrastructure.sd.proc_comment_updater."
-                "ProcesoCommentUpdater",
+                "ProcCommentUpdater",
                 return_value=mock_updater,
             ):
                 handler = extra_commands.make_cmd_update_proc_comments_db("alm")

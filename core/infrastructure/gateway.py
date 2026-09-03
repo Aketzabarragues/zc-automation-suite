@@ -797,7 +797,7 @@ class TIAProcessGateway:
         """Aplica los comentarios por instancia a los 6 DBs de dispositivos
         en una sola transacción TIA con rollback atómico.
 
-        Misma convención que ``SyncDispositivosInstancesUseCase``:
+        Misma convención que ``DispSyncInstancesUseCase``:
         el directorio de trabajo es ``<build_cache>/comments/`` (con
         ``build_cache = Path(os.getcwd()) / ".build_cache"`` por defecto).
         El directorio se conserva tras la operación (igual que ``base/tags/``

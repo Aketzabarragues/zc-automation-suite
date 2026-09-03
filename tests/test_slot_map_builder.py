@@ -1,4 +1,4 @@
-"""Tests de ``slot_map_builder``.
+"""Tests de ``disp_slot_map_builder``.
 
 Cubre la logica de mapeo de AppState (comentario_db) a slot_maps
 que se envia a TIA, con la config de DBs del ConfigManager.
@@ -9,9 +9,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from areas.alimentacion.application.slot_map_builder import (
-    build_slot_map_for_hw,
-    build_slot_maps,
+from areas.alimentacion.application.disp_slot_map_builder import (
+    disp_build_slot_map_for_hw,
+    disp_build_slot_maps,
 )
 
 
@@ -45,16 +45,16 @@ def config_manager() -> MagicMock:
     return cm
 
 
-# ── build_slot_map_for_hw ─────────────────────────────────────────────
+# ── disp_build_slot_map_for_hw ─────────────────────────────────────────────
 
 
-def test_build_slot_map_for_hw_slot_0_siempre_no_usar(app_state: MagicMock) -> None:
+def test_disp_build_slot_map_for_hw_slot_0_siempre_no_usar(app_state: MagicMock) -> None:
     """El slot 0 siempre esta con texto 'NO USAR'."""
-    slot_map = build_slot_map_for_hw(app_state, "ed")
+    slot_map = disp_build_slot_map_for_hw(app_state, "ed")
     assert slot_map[0] == "NO USAR"
 
 
-def test_build_slot_map_for_hw_ignora_numero_cero_o_duplicado(
+def test_disp_build_slot_map_for_hw_ignora_numero_cero_o_duplicado(
     app_state: MagicMock,
 ) -> None:
     """Devices con numero==0 o duplicados se ignoran (warning en logs)."""
@@ -67,7 +67,7 @@ def test_build_slot_map_for_hw_ignora_numero_cero_o_duplicado(
             _FakeDevice(2, "OK2"),
         ]
     }
-    slot_map = build_slot_map_for_hw(app_state, "ed")
+    slot_map = disp_build_slot_map_for_hw(app_state, "ed")
     assert slot_map[0] == "NO USAR"
     assert slot_map[1] == "OK"
     assert slot_map[2] == "OK2"
@@ -75,24 +75,24 @@ def test_build_slot_map_for_hw_ignora_numero_cero_o_duplicado(
     assert "duplicado" not in slot_map.values()
 
 
-def test_build_slot_map_for_hw_vacio_retorna_solo_slot_0(
+def test_disp_build_slot_map_for_hw_vacio_retorna_solo_slot_0(
     app_state: MagicMock,
 ) -> None:
     """Si no hay devices, el slot map solo tiene el slot 0."""
     global devices_by_hw
     devices_by_hw = {"ed": []}
-    slot_map = build_slot_map_for_hw(app_state, "ed")
+    slot_map = disp_build_slot_map_for_hw(app_state, "ed")
     assert slot_map == {0: "NO USAR"}
 
 
-# ── build_slot_maps ────────────────────────────────────────────────────
+# ── disp_build_slot_maps ────────────────────────────────────────────────────
 
 
-def test_build_slot_maps_retorna_los_4_dicts(app_state: MagicMock, config_manager: MagicMock) -> None:
+def test_disp_build_slot_maps_retorna_los_4_dicts(app_state: MagicMock, config_manager: MagicMock) -> None:
     """Retorna tupla (slot_maps, db_names, db_array_names, warnings)."""
     global devices_by_hw
     devices_by_hw = {"ed": [_FakeDevice(1, "Bomba 1")]}
-    slot_maps, db_names, db_array_names, warnings = build_slot_maps(
+    slot_maps, db_names, db_array_names, warnings = disp_build_slot_maps(
         app_state, config_manager
     )
     assert len(slot_maps) == 6
@@ -101,7 +101,7 @@ def test_build_slot_maps_retorna_los_4_dicts(app_state: MagicMock, config_manage
     assert warnings == []
 
 
-def test_build_slot_maps_warning_si_tipo_sin_config(
+def test_disp_build_slot_maps_warning_si_tipo_sin_config(
     app_state: MagicMock, config_manager: MagicMock
 ) -> None:
     """Un hw_type sin config TIA se omite y se reporta como warning."""
@@ -114,7 +114,7 @@ def test_build_slot_maps_warning_si_tipo_sin_config(
     global devices_by_hw
     devices_by_hw = {"ed": [_FakeDevice(1, "X")]}
 
-    slot_maps, db_names, db_array_names, warnings = build_slot_maps(
+    slot_maps, db_names, db_array_names, warnings = disp_build_slot_maps(
         app_state, config_manager
     )
     # 'ed' presente, 'fantasma' omitido.
@@ -126,7 +126,7 @@ def test_build_slot_maps_warning_si_tipo_sin_config(
     assert any("fantasma" in w for w in warnings)
 
 
-def test_build_slot_maps_no_hay_gap_entre_slot_y_numero(
+def test_disp_build_slot_maps_no_hay_gap_entre_slot_y_numero(
     app_state: MagicMock, config_manager: MagicMock
 ) -> None:
     """El slot map es denso en slot_map[i] == comentario_db del device
@@ -134,7 +134,7 @@ def test_build_slot_maps_no_hay_gap_entre_slot_y_numero(
     """
     global devices_by_hw
     devices_by_hw = {"ed": [_FakeDevice(5, "Bomba 5")]}
-    slot_maps, _, _, _ = build_slot_maps(app_state, config_manager)
+    slot_maps, _, _, _ = disp_build_slot_maps(app_state, config_manager)
     # Solo hay slot 0 y slot 5. No hay slot 1, 2, 3, 4.
     assert 0 in slot_maps["ed"]
     assert 5 in slot_maps["ed"]

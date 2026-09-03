@@ -59,7 +59,7 @@ def get_config_manager(request: Request) -> ConfigManager:
     (``interfaces/web_server/app.py::create_app``) y se comparte
     con todos los routers que lo necesiten (típicamente los que
     invocan casos de uso que requieren mapeo
-    ``hw_type → tag_table``, como ``SyncDispositivosInstancesUseCase``
+    ``hw_type → tag_table``, como ``DispSyncInstancesUseCase``
     o ``SyncConstantsFromExcelUseCase``).
     """
     return request.app.state.config_manager

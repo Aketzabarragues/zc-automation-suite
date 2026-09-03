@@ -40,8 +40,8 @@ from areas.alimentacion.domain.models.excel_cache import (
     Dispositivo,
     ExcelCache,
 )
-from areas.alimentacion.infrastructure.parsers.alarmas import AlarmasParser
-from areas.alimentacion.infrastructure.parsers.dimensiones import (
+from areas.alimentacion.infrastructure.parsers.proc_alarmas import AlarmasParser
+from areas.alimentacion.infrastructure.parsers.disp_dimensiones import (
     DimensionesParser,
 )
 from areas.alimentacion.infrastructure.parsers.disp_ed import DispEDParser
@@ -50,9 +50,9 @@ from areas.alimentacion.infrastructure.parsers.disp_m import DispMParser
 from areas.alimentacion.infrastructure.parsers.disp_m_vf import DispM_VFParser
 from areas.alimentacion.infrastructure.parsers.disp_sa import DispSAParser
 from areas.alimentacion.infrastructure.parsers.disp_v import DispVParser
-from areas.alimentacion.infrastructure.parsers.pint import PIntParser
-from areas.alimentacion.infrastructure.parsers.preal import PRealParser
-from areas.alimentacion.infrastructure.parsers.procesos import ProcesosParser
+from areas.alimentacion.infrastructure.parsers.proc_pint import PIntParser
+from areas.alimentacion.infrastructure.parsers.proc_preal import PRealParser
+from areas.alimentacion.infrastructure.parsers.proc_procesos import ProcesosParser
 from core.infrastructure.config_manager import ConfigManager
 
 

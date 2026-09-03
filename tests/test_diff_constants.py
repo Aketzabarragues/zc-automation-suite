@@ -1,4 +1,4 @@
-"""Tests para ``CalculateConstantsDiffUseCase``.
+"""Tests para ``DispCalculateConstantsDiffUseCase``.
 
 Tests PUROS (sin TIA): validan los dos métodos de diff:
   - ``calculate_nmax_diff``: por nombre (key estable).
@@ -6,8 +6,8 @@ Tests PUROS (sin TIA): validan los dos métodos de diff:
 """
 from __future__ import annotations
 
-from areas.alimentacion.application.use_cases.diff_constants import (
-    CalculateConstantsDiffUseCase,
+from areas.alimentacion.application.use_cases.disp_diff_constants import (
+    DispCalculateConstantsDiffUseCase,
 )
 
 
@@ -21,7 +21,7 @@ def test_nmax_diff_no_changes_returns_empty() -> None:
     current = {"N_MAX_DISP_ED": 25, "N_MAX_DISP_EA": 10}
     desired = {"N_MAX_DISP_ED": 25, "N_MAX_DISP_EA": 10}
 
-    operations = CalculateConstantsDiffUseCase.calculate_nmax_diff(
+    operations = DispCalculateConstantsDiffUseCase.calculate_nmax_diff(
         plc_name="PLC1",
         config_table_name="000_Config_Dispositivos",
         current_state=current,
@@ -35,7 +35,7 @@ def test_nmax_diff_detects_value_change() -> None:
     current = {"N_MAX_DISP_ED": 25, "N_MAX_DISP_EA": 10}
     desired = {"N_MAX_DISP_ED": 30, "N_MAX_DISP_EA": 10}
 
-    operations = CalculateConstantsDiffUseCase.calculate_nmax_diff(
+    operations = DispCalculateConstantsDiffUseCase.calculate_nmax_diff(
         plc_name="PLC1",
         config_table_name="000_Config_Dispositivos",
         current_state=current,
@@ -53,7 +53,7 @@ def test_nmax_diff_ignores_constants_not_in_tia() -> None:
     current = {"N_MAX_DISP_ED": 25}
     desired = {"N_MAX_DISP_ED": 25, "N_MAX_INVENTADO": 50}
 
-    operations = CalculateConstantsDiffUseCase.calculate_nmax_diff(
+    operations = DispCalculateConstantsDiffUseCase.calculate_nmax_diff(
         plc_name="PLC1",
         config_table_name="000_Config_Dispositivos",
         current_state=current,
@@ -72,7 +72,7 @@ def test_device_diff_no_changes_returns_empty() -> None:
     current = {"1": "V_VA_101", "2": "V_VA_102"}
     desired = {"V_VA_101": 1, "V_VA_102": 2}
 
-    operations = CalculateConstantsDiffUseCase.calculate_device_rename_diff(
+    operations = DispCalculateConstantsDiffUseCase.calculate_device_rename_diff(
         plc_name="PLC1",
         config_table_name="2000_Disp_ED",
         current_state=current,
@@ -86,7 +86,7 @@ def test_device_diff_detects_name_change() -> None:
     current = {"1": "V_001", "2": "V_002"}
     desired = {"V_VA_101": 1, "V_VA_102": 2}
 
-    operations = CalculateConstantsDiffUseCase.calculate_device_rename_diff(
+    operations = DispCalculateConstantsDiffUseCase.calculate_device_rename_diff(
         plc_name="PLC1",
         config_table_name="2000_Disp_ED",
         current_state=current,
@@ -110,7 +110,7 @@ def test_device_diff_ignores_value_not_in_tia() -> None:
     current = {"1": "V_001"}
     desired = {"V_VA_101": 1, "V_VA_999": 99}
 
-    operations = CalculateConstantsDiffUseCase.calculate_device_rename_diff(
+    operations = DispCalculateConstantsDiffUseCase.calculate_device_rename_diff(
         plc_name="PLC1",
         config_table_name="2000_Disp_ED",
         current_state=current,
@@ -125,7 +125,7 @@ def test_device_diff_preserves_value() -> None:
     current = {"42": "OldName"}
     desired = {"NewName": 42}
 
-    operations = CalculateConstantsDiffUseCase.calculate_device_rename_diff(
+    operations = DispCalculateConstantsDiffUseCase.calculate_device_rename_diff(
         plc_name="PLC1",
         config_table_name="2000_Disp_ED",
         current_state=current,
@@ -148,7 +148,7 @@ def test_device_diff_value_change_does_not_emit_rename() -> None:
     current = {"1": "Dispositivo_X"}
     desired = {"Dispositivo_X": 99}  # valor cambió pero nombre es igual
 
-    operations = CalculateConstantsDiffUseCase.calculate_device_rename_diff(
+    operations = DispCalculateConstantsDiffUseCase.calculate_device_rename_diff(
         plc_name="PLC1",
         config_table_name="2000_Disp_ED",
         current_state=current,

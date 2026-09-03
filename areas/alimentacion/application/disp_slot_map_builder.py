@@ -6,7 +6,7 @@ mapping ``{hw_type: {slot: texto}}`` que el gateway envía a TIA.
 
 Reutilizado por:
   - ``DispComentariosSyncUseCase`` (endpoint ``/aplicar-comentarios-disp``).
-  - ``SyncDispositivosInstancesUseCase.ejecutar_transaccion`` (best-effort
+  - ``DispSyncInstancesUseCase.ejecutar_transaccion`` (best-effort
     post-compile, nuevo stage 7).
 """
 from __future__ import annotations
@@ -21,7 +21,7 @@ from core.infrastructure.config_manager import ConfigManager
 _logger = logging.getLogger(__name__)
 
 
-def build_slot_maps(
+def disp_build_slot_maps(
     app_state: AppState,
     config_manager: ConfigManager,
 ) -> tuple[dict[str, dict[int, str]], dict[str, str], dict[str, str], list[str]]:
@@ -50,11 +50,11 @@ def build_slot_maps(
             continue
         db_names[hw_type] = cfg.db_name
         db_array_names[hw_type] = cfg.db_array_name
-        slot_maps[hw_type] = build_slot_map_for_hw(app_state, hw_type)
+        slot_maps[hw_type] = disp_build_slot_map_for_hw(app_state, hw_type)
     return slot_maps, db_names, db_array_names, warnings
 
 
-def build_slot_map_for_hw(app_state: AppState, hw_type: str) -> dict[int, str]:
+def disp_build_slot_map_for_hw(app_state: AppState, hw_type: str) -> dict[int, str]:
     """Slot map para un tipo: ``{0: 'NO USAR', i: comentario_db para cada device con numero==i}``.
 
     Devices con ``numero <= 0`` o duplicados se ignoran (warning en logs).

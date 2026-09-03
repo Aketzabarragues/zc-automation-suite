@@ -6,7 +6,7 @@ configuración TIA y la cache de bloques del PLC para producir el
 mapping ``{slot: texto}`` por array (PReal, PInt, ALM) que el
 caso de uso envía al worker.
 
-Es el hermano "procesos" de ``slot_map_builder.py`` (que cubre los
+Es el hermano "procesos" de ``disp_slot_map_builder.py`` (que cubre los
 6 DBs de dispositivos ED/EA/SA/V/M/M_VF con slot 0 fijo
 "NO USAR"). Las diferencias son:
   - **Sin slot 0.** Los arrays de proceso empiezan en 1.
@@ -44,7 +44,7 @@ _EMPTY_TEXT: str = "."
 
 
 @dataclass(frozen=True)
-class ProcesoSlotMap:
+class ProcSlotMap:
     """Slot maps y metadatos TIA para un proceso.
 
     Attributes:
@@ -158,7 +158,7 @@ def _build_slot_map(
         # las quitamos aquí. Si no, el diff diría "renombrar" siempre
         # que el desired (Excel) tenga comillas y el current (TIA)
         # no — un falso positivo. La misma limpieza se hace en el
-        # lado TIA (``ProcesoCommentUpdater._build_mlc_text_map``)
+        # lado TIA (``ProcCommentUpdater._build_mlc_text_map``)
         # y en el apply (``_sanitize_comment_text``).
         comentario = strip_enclosing_quotes(comentario)
         if not comentario.strip():
@@ -174,12 +174,12 @@ def _build_slot_map(
 # ── API pública ──────────────────────────────────────────────────────────
 
 
-def build_proceso_slot_maps(
+def proc_build_slot_maps(
     app_state: AppState,
     config_manager: ConfigManager,
     proc_uid: int,
     bloques_cache: BloqueCache,
-) -> ProcesoSlotMap:
+) -> ProcSlotMap:
     """Cruza Excel + BloqueCache + config para producir los slot maps.
 
     Raises:
@@ -253,7 +253,7 @@ def build_proceso_slot_maps(
     if missing_blocks:
         # NO abortamos: devolvemos el slot map con missing_blocks
         # poblado y los 3 dicts vacíos. La SPA pinta el aviso.
-        return ProcesoSlotMap(
+        return ProcSlotMap(
             preal={}, pint={}, alm={},
             db_param_name=db_param_name,
             db_alm_name=db_alm_name,
@@ -297,7 +297,7 @@ def build_proceso_slot_maps(
         for kind, suffix in suffixes.items():
             nmax_names[kind] = f"{proc_uid}_N_MAX_{suffix}"
 
-    return ProcesoSlotMap(
+    return ProcSlotMap(
         preal=preal,
         pint=pint,
         alm=alm,
@@ -311,4 +311,4 @@ def build_proceso_slot_maps(
     )
 
 
-__all__ = ["ProcesoSlotMap", "build_proceso_slot_maps"]
+__all__ = ["ProcSlotMap", "proc_build_slot_maps"]

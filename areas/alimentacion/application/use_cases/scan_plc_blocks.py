@@ -78,7 +78,7 @@ class ScanPlcBlocksUseCase:
     ) -> None:
         self._gateway = gateway
         # ``ProgressTracker`` opcional; si no se inyecta, usamos el
-        # Singleton (mismo patrón que ``SyncDispositivosInstancesUseCase``).
+        # Singleton (mismo patrón que ``DispSyncInstancesUseCase``).
         self._progress = progress if progress is not None else get_progress_tracker()
         # Cache local por plc_name. Independiente del cache del gateway
         # (``_bloques_cache``): este vive en el caso de uso y permite

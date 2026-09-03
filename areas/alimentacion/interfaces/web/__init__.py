@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from areas.alimentacion.interfaces.web.alimentacion import (
+from areas.alimentacion.interfaces.web.disp_comentarios import (
     router as alimentacion_router,
 )
 from areas.alimentacion.interfaces.web.excel import (
@@ -30,10 +30,10 @@ from areas.alimentacion.interfaces.web.excel import (
 from areas.alimentacion.interfaces.web.plc_blocks import (
     router as plc_blocks_router,
 )
-from areas.alimentacion.interfaces.web.procesos_sync import (
+from areas.alimentacion.interfaces.web.proc_sync import (
     router as procesos_router,
 )
-from areas.alimentacion.interfaces.web.sync import (
+from areas.alimentacion.interfaces.web.disp_sync import (
     router as sync_router,
 )
 

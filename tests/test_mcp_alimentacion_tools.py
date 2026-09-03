@@ -1,8 +1,8 @@
 """Tests de las tools MCP del área de alimentación (PR 6).
 
 Cubre las 4 tools que dan paridad con los endpoints web del área:
-  - tia_sync_disp_preview      → SyncDispositivosInstancesUseCase.generar_prevision
-  - tia_sync_disp_commit       → SyncDispositivosInstancesUseCase.ejecutar_transaccion
+  - tia_sync_disp_preview      → DispSyncInstancesUseCase.generar_prevision
+  - tia_sync_disp_commit       → DispSyncInstancesUseCase.ejecutar_transaccion
   - tia_apply_disp_comentarios → DispComentariosSyncUseCase.apply_comentarios_disp
   - tia_upload_excel           → AlimentacionExcelParser + volcado data-driven
 
@@ -239,7 +239,7 @@ def test_tia_sync_disp_preview_invokes_generar_prevision(
     expected = {"agregados": [], "eliminados": [], "summary": {}}
     with patch(
         "areas.alimentacion.application.use_cases."
-        "sync_dispositivos_instances.SyncDispositivosInstancesUseCase"
+        "disp_sync_instances.DispSyncInstancesUseCase"
     ) as UCCls:
         uc = MagicMock()
         uc.generar_prevision = AsyncMock(return_value=expected)
@@ -264,7 +264,7 @@ def test_tia_sync_disp_commit_invokes_ejecutar_transaccion(
     expected = {"plc_name": "PLC_PRUEBAS", "operations": 3}
     with patch(
         "areas.alimentacion.application.use_cases."
-        "sync_dispositivos_instances.SyncDispositivosInstancesUseCase"
+        "disp_sync_instances.DispSyncInstancesUseCase"
     ) as UCCls:
         uc = MagicMock()
         uc.ejecutar_transaccion = AsyncMock(return_value=expected)
@@ -298,7 +298,7 @@ def test_tia_apply_disp_comentarios_invokes_apply_comentarios_disp(
     }
     with patch(
         "areas.alimentacion.application.use_cases."
-        "sync_comentarios_disp.DispComentariosSyncUseCase"
+        "disp_sync_comentarios.DispComentariosSyncUseCase"
     ) as UCCls:
         uc = MagicMock()
         uc.apply_comentarios_disp = AsyncMock(return_value=expected)

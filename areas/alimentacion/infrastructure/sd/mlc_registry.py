@@ -22,17 +22,6 @@ con:
 No persiste estado en disco: la "fuente de verdad" entre runs es el
 propio ``.s7res`` (lo que está escrito en él); este registro es solo
 un seguro en memoria para evitar colisiones dentro de UN update.
-
-Historia y back-compat
-----------------------
-Este módulo es un **refactor** del antiguo ``DispMLCRegistry``
-(ahora alias deprecado en ``disp_mlc_registry.py``). La razón del
-refactor es que la misma clase se reusa tanto para los
-``DispCommentUpdater`` (DBs de dispositivos) como para los nuevos
-``ProcesoCommentUpdater`` (DBs de procesos), y el nombre ``DispMLC``
-ya no representa el alcance. La API pública es 100% idéntica a la
-anterior, por lo que todos los tests legacy
-(``test_disp_mlc_registry.py``) siguen pasando sin cambios.
 """
 from __future__ import annotations
 
@@ -132,12 +121,4 @@ class MLCRegistry:
         return len(self._used)
 
 
-# Back-compat alias: la clase fue renombrada de ``DispMLCRegistry`` a
-# ``MLCRegistry`` (ver docstring del módulo), pero mantenemos el alias
-# para no romper imports legacy (``disp_comment_updater.py``,
-# ``test_disp_mlc_registry.py``, etc.). Se reexporta también desde
-# ``disp_mlc_registry.py`` para conservar la ruta de import previa.
-DispMLCRegistry = MLCRegistry
-
-
-__all__ = ["MLCRegistry", "DispMLCRegistry"]
+__all__ = ["MLCRegistry"]

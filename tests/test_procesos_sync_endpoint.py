@@ -234,11 +234,11 @@ def test_endpoint_commit_invoca_gateway_con_target_folder_y_undo(
     # del constructor, pero el router no lo inyecta por ahora).
     # Truco: parchear el módulo del use case para que use nuestro
     # cache.
-    from areas.alimentacion.application.use_cases import sync_procesos_comentarios
-    original_init = sync_procesos_comentarios.SyncProcesosComentariosUseCase.__init__
+    from areas.alimentacion.application.use_cases import proc_sync_comentarios
+    original_init = proc_sync_comentarios.ProcSyncComentariosUseCase.__init__
     def patched_init(self, gateway, config_manager, app_state, progress=None, bloques_cache=None):
         original_init(self, gateway, config_manager, app_state, progress=progress, bloques_cache=bloques)
-    sync_procesos_comentarios.SyncProcesosComentariosUseCase.__init__ = patched_init
+    proc_sync_comentarios.ProcSyncComentariosUseCase.__init__ = patched_init
     try:
         resp = client.post(
             "/api/v1/procesos/sync/commit",
@@ -249,7 +249,7 @@ def test_endpoint_commit_invoca_gateway_con_target_folder_y_undo(
             },
         )
     finally:
-        sync_procesos_comentarios.SyncProcesosComentariosUseCase.__init__ = original_init
+        proc_sync_comentarios.ProcSyncComentariosUseCase.__init__ = original_init
 
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -266,7 +266,7 @@ def test_endpoint_commit_invoca_gateway_con_target_folder_y_undo(
     ]
     # target_folder y work_dir vienen del config. El work_dir del
     # commit sigue el patrón ``<build_cache>/procesos/commit/``
-    # (análogo a ``SyncDispositivosInstancesUseCase``: ``<build_cache>/
+    # (análogo a ``DispSyncInstancesUseCase``: ``<build_cache>/
     # base/tags/`` y ``<build_cache>/commit/tags/``). El preview usa
     # ``<build_cache>/procesos/preview/`` separado, para que el
     # operario no confunda archivos exportados durante un preview con
