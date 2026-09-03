@@ -241,3 +241,19 @@ _trash_temp/
 *.tmp2
 # Archivo de mensaje auxiliar usado en commits (se borra tras usar)
 .commit-msg.txt
+# Output files temporales de operaciones git / recompilacion tailwind
+push_*.txt
+mg_*.txt
+co_*.txt
+tw_*.txt
+# Directorio de logs del worker OT y el tray launcher en runtime
+logs/
+# Copias de seguridad que crean ciertos editores (Notepad++/VS Code) y
+# clientes de sync (Nextcloud) al detectar modificaciones externas. Se
+# nombran con el sufijo " (conflicted copy YYYY-MM-DD HHMMSS).ext"
+# y saturan el `git status` sin aportar nada.
+**/* (conflicted copy *).*
+# Backups de tests creados durante la recuperacion tras un sync
+# destructivo de Nextcloud. pytest.ini ya los excluye del discovery
+# con `collect_ignore_glob`; aqui los ocultamos tambien del status.
+tests/_test_*.py
