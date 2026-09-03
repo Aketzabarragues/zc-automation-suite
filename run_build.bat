@@ -1,7 +1,4 @@
 @echo off
-echo =========================================
-echo       Generando exe...
-echo =========================================
 python build_exe.py
 set BUILD_RC=%ERRORLEVEL%
 echo.
