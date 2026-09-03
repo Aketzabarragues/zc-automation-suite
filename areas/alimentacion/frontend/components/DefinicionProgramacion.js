@@ -82,6 +82,21 @@ export default {
         });
 
         /**
+         * ``true`` solo cuando hay Excel cargado (AppState no nulo).
+         * Mismo patron que ``DispositivosPanel`` y ``ProcesosPanel``
+         * para coherencia total: cuando NO hay datos, los tabs
+         * ``<main-tabs>`` se ocultan (no tiene sentido navegar entre
+         * Dispositivos/Procesos si ambos mostrarian el mismo empty
+         * state) y solo se ve el "La cache del excel esta vacia"
+         * del panel activo. Cuando hay datos, los tabs aparecen
+         * y el operario puede alternar entre las dos sub-vistas.
+         */
+        const hasMemory = computed(
+            () => store.memoryState !== null
+                && store.memoryState !== undefined
+        );
+
+        /**
          * Datos que se pasan al ``<main-tabs>``. Se computan
          * aquí (no en MainTabs) para que los conteos reflejen
          * ``store.memoryState`` sin acoplar MainTabs al shape
@@ -171,6 +186,7 @@ export default {
         return {
             store,
             fileInput,
+            hasMemory,
             mainTabsData,
             handleExcel,
             lastExcelFile,
@@ -210,10 +226,18 @@ export default {
                  tanto el strip Dispositivos|Procesos como el panel
                  reactivo de la pestaña activa). El operario pidió que
                  TODA la información de la tabla viviera dentro de un
-                 único card, así que el strip sube al card. ★ -->
+                 único card, así que el strip sube al card.
+
+                 El strip <main-tabs> se oculta cuando !hasMemory
+                 (mismo patron que los sub-tabs de DispositivosPanel/
+                 ProcesosPanel y los tabs de BloquesCacheView): sin
+                 datos cargados no tiene sentido mostrar navegacion
+                 entre sub-vistas, solo el empty state del panel
+                 activo. Cuando el operario carga un Excel, los tabs
+                 aparecen y puede alternar Dispositivos/Procesos. ★ -->
             <section class="flex-1 mt-2 mb-4 bg-surface-raised border border-line rounded p-4 flex flex-col overflow-hidden"
                      data-testid="def-programacion-card-tablas">
-                <main-tabs :tabs="mainTabsData" />
+                <main-tabs v-if="hasMemory" :tabs="mainTabsData" />
                 <div class="flex-1 mt-3 flex flex-col overflow-hidden">
                     <dispositivos-panel v-if="store.activeMainTab === 'dispositivos'" />
                     <procesos-panel v-else />
