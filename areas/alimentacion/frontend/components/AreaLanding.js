@@ -1,9 +1,14 @@
 /**
  * Componente AreaLanding — pantalla de aterrizaje del área Alimentación.
  *
- * Se muestra cuando ``store.currentView === 'landing'``. Ofrece dos
- * tarjetas (una por sub-vista del área) para que el usuario elija
- * dónde quiere entrar. Replica el patrón visual del Welcome global.
+ * Se muestra cuando ``store.currentView === 'landing'``. Presenta
+ * las sub-vistas del área como una **lista vertical** de filas
+ * horizontales (icono | contenido | "Abrir →"), inspirada en el
+ * demo de Gemini ``_source/modo_lista.html``. El formato lista
+ * escala mejor que el grid anterior cuando el operario trabaja
+ * en monitores anchos (más espacio horizontal por item, sin
+ * truncamientos de descripción) y la CTA "Abrir →" queda siempre
+ * visible a la derecha.
  *
  * Tema: Industrial Claro. Solo tokens semánticos
  * (``bg-surface*``, ``border-line*``, ``text-ink*``, ``bg-accent``,
@@ -18,7 +23,7 @@
  *                El componente padre (``main.js``) llama a
  *                ``goToSubview(key)``.
  */
-import { computed } from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js";
+import { computed } from "/js/vendor/vue.esm-browser.prod.js";
 // Import absoluto: ver nota en ``Sidebar.js``. Los cross-cutting
 // están en ``/js/``, no se mueven.
 import { store } from "/js/store.js";
@@ -49,7 +54,7 @@ const SUBVIEW_OPTIONS = [
     {
         key: "cache",
         icon: "🗃️",
-        label: "Cache de bloques",
+        label: "Cache del PLC",
         description: "Volcado de bloques del PLC (DBs, FCs, UDTs) cacheado en memoria.",
     },
     {
@@ -78,7 +83,10 @@ export default {
 
         /**
          * Icono del área activa, derivado del catálogo. Fallback al
-         * emoji genérico de "carpeta" si no se encuentra.
+         * emoji genérico de "carpeta" (📁) si el catálogo no trae
+         * uno. Se usa en el badge del encabezado para dar identidad
+         * visual al área aunque no tenga icono propio (consistente
+         * con el demo de ``modo_lista.html``).
          */
         const areaIcon = computed(() => {
             if (!store.selectedArea) return "📁";
@@ -89,7 +97,7 @@ export default {
         });
 
         /**
-         * Click en una tarjeta. Emite la ``key`` al padre; el padre
+         * Click en una fila. Emite la ``key`` al padre; el padre
          * se encarga de llamar a ``goToSubview``.
          */
         function handleSelect(key) {
@@ -106,33 +114,41 @@ export default {
         };
     },
     template: /* html */ `
-        <section class="flex-1 flex flex-col items-center justify-center bg-surface text-ink p-8 overflow-y-auto">
+        <section class="flex-1 flex flex-col items-center bg-surface text-ink pt-10 pb-8 px-8 overflow-y-auto">
 
-            <!-- Encabezado del área (leído del catálogo) -->
-            <div class="mb-10 flex flex-col items-center">
-                <div class="w-24 h-24 rounded-2xl bg-accent text-ink-inverse flex items-center justify-center text-4xl font-bold tracking-widest shadow-md select-none">
-                    {{ areaIcon }}
+            <!-- Encabezado del área: badge de icono + título + subtítulo.
+                 El badge usa el icono del catálogo (con fallback a 📁)
+                 sobre fondo accent para dar identidad visual al área. -->
+            <div class="mb-6 text-center">
+                <div class="w-12 h-12 bg-accent rounded-xl mx-auto mb-3 flex items-center justify-center shadow-sm border border-shell-border select-none">
+                    <span class="text-xl text-ink-inverse" aria-hidden="true">{{ areaIcon }}</span>
                 </div>
-                <h1 class="mt-4 text-3xl font-bold text-ink">{{ areaLabel }}</h1>
-                <p class="mt-1 text-sm text-ink-muted">¿Qué quieres hacer?</p>
+                <h1 class="text-2xl font-bold text-ink tracking-tight">{{ areaLabel }}</h1>
+                <p class="text-sm text-ink-muted mt-1 font-normal">¿Qué quieres hacer?</p>
             </div>
 
-            <!-- Grid de 4 tarjetas (una por sub-vista). En xl se
-                 amplía a 4 columnas para acomodar la nueva tarjeta
-                 "Procesos" sin apretar el layout de lg (que
-                 mantiene 3 columnas para no encoger las tarjetas
-                 existentes). -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 w-full max-w-4xl"
-                 data-testid="area-landing-grid">
+            <!-- Lista vertical de acciones (modo lista). Cada fila es
+                 un botón horizontal: icono (cuadrado sunken) | contenido
+                 (título + descripción) | CTA "Abrir →" (pill accent).
+                 max-w-3xl (~48rem) limita el ancho para legibilidad en
+                 monitores grandes; en móvil ocupa todo el ancho. -->
+            <div class="flex flex-col gap-2 w-full max-w-3xl"
+                 data-testid="area-landing-list">
                 <button v-for="opt in options" :key="opt.key"
                     @click="handleSelect(opt.key)"
                     :data-area-key="opt.key"
                     :aria-label="'Acceder a ' + opt.label"
-                    class="bg-surface-raised border-2 border-line hover:border-accent hover:shadow-md rounded-xl p-6 text-left flex flex-col items-start transition shadow-sm">
-                    <span class="text-3xl mb-2" aria-hidden="true">{{ opt.icon }}</span>
-                    <span class="text-lg font-semibold text-ink">{{ opt.label }}</span>
-                    <span class="text-xs text-ink-muted mt-1">{{ opt.description }}</span>
-                    <span class="text-accent text-sm mt-3 font-semibold">Abrir →</span>
+                    class="bg-surface-raised border border-line rounded-lg p-3 text-left hover:border-accent hover:shadow-lg transition-all duration-200 group flex items-center gap-4 focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
+                    <div class="w-10 h-10 bg-surface-sunken rounded-lg flex items-center justify-center text-xl shrink-0 group-hover:bg-accent-subtle group-hover:scale-105 transition-all border border-line shadow-sm">
+                        <span aria-hidden="true">{{ opt.icon }}</span>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <h3 class="text-base font-semibold text-ink mb-0.5 leading-snug">{{ opt.label }}</h3>
+                        <p class="text-xs text-ink-muted leading-snug truncate">{{ opt.description }}</p>
+                    </div>
+                    <div class="shrink-0 px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken group-hover:bg-accent-subtle rounded-md transition-colors border border-line flex items-center gap-1.5">
+                        Abrir <span class="text-base leading-none transition-transform group-hover:translate-x-1" aria-hidden="true">→</span>
+                    </div>
                 </button>
             </div>
 

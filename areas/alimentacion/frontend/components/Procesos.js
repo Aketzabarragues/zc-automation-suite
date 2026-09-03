@@ -52,7 +52,7 @@
  * (Los ``class="..."`` estáticos partidos en varias líneas SÍ se
  * permiten — es CSS normal, no class binding dinámico.)
  */
-import { computed, ref } from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js";
+import { computed, ref } from "/js/vendor/vue.esm-browser.prod.js";
 // Imports absolutos: ver nota en ``Sidebar.js``. Los cross-cutting
 // (``store.js``) viven en ``/js/``, no se mueven.
 import { store } from "/js/store.js";
@@ -158,7 +158,7 @@ export default {
          */
         const syncCardTooltip = computed(() => {
             if (!hasExcel.value) {
-                return "Carga primero el Excel y pulsa 'Refrescar Memoria' en 'Definición programación'.";
+                return "Carga primero el Excel y pulsa 'Actualizar' en 'Definición programación'.";
             }
             if (!canAct.value) {
                 return "Selecciona un proceso de la lista.";
@@ -210,13 +210,10 @@ export default {
     template: /* html */ `
         <section class="flex-1 flex flex-col overflow-hidden">
 
-            <!-- Cabecera: icono + título + descripción corta -->
-            <header class="mb-4">
-                <h2 class="text-lg font-bold text-ink">⚙️ Procesos</h2>
-                <p class="text-xs text-ink-muted mt-0.5">
-                    Generación y mantenimiento de procesos en TIA Portal.
-                </p>
-            </header>
+            <!-- Cabecera eliminada tras el rediseño "Modern Corporate":
+                 el topbar ya muestra la sub-vista activa y no hace
+                 falta repetir el icono + título + descripción dentro
+                 del contenido. -->
 
             <!-- Banner ámbar: cubre los 2 casos "no operable" del flujo.
                  Aparece cuando NO hay Excel cargado O cuando el
@@ -225,7 +222,7 @@ export default {
                  class="mb-4 px-3 py-2 bg-amber-100 border border-amber-300 rounded text-xs text-amber-800">
                 <span v-if="!hasExcel">
                     ⚠️ No hay Excel cargado. Sube un Excel y pulsa
-                    <strong class="text-accent">"Refrescar Memoria"</strong>
+                    <strong class="text-accent">"Actualizar"</strong>
                     en "Definición programación".
                 </span>
                 <span v-else>
@@ -240,7 +237,8 @@ export default {
                 </label>
                 <select v-model="selectedProcUid"
                         :disabled="!hasProcesos"
-                        class="w-full bg-surface-sunken border border-line rounded px-2 py-1.5 text-sm text-ink disabled:opacity-50">
+                        data-testid="procesos-select"
+                        class="w-full bg-white border border-line text-accent font-bold text-sm rounded focus:border-accent-bright focus:outline-none px-3 py-1.5 font-mono disabled:opacity-50 cursor-pointer">
                     <option :value="null" disabled>
                         {{ hasProcesos ? "Selecciona un proceso…" : "No hay procesos cargados" }}
                     </option>
@@ -275,10 +273,10 @@ export default {
                             :disabled="!canOpenSync"
                             :title="syncCardTooltip"
                             data-testid="procesos-card-comments"
-                            class="bg-surface border-2 border-line rounded-xl p-4 text-left flex flex-col items-start transition hover:border-accent hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-line disabled:hover:shadow-none">
-                        <span class="text-3xl mb-2" aria-hidden="true">💬</span>
-                        <span class="text-sm font-semibold text-ink">Actualizar comentarios de DB</span>
-                        <span class="text-xs text-ink-muted mt-1">
+                            class="bg-surface-raised border border-line rounded-lg p-3 text-left flex flex-col items-start transition hover:border-accent hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-line disabled:hover:shadow-none focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
+                        <span class="text-2xl mb-1" aria-hidden="true">💬</span>
+                        <span class="text-sm font-semibold text-ink leading-snug">Actualizar comentarios de DB</span>
+                        <span class="text-xs text-ink-muted mt-0.5 leading-snug">
                             Sincroniza los comentarios de los DBs existentes.
                         </span>
                     </button>

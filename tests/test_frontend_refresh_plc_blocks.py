@@ -30,6 +30,32 @@ SIDEBAR_JS = (
     / "components"
     / "Sidebar.js"
 )
+# Tras el rediseño "Modern Corporate" v1, el chrome del shell
+# (selección PLC + ProgressIndicator dark + back) se extrajo al
+# componente genérico ``ShellSidebar`` en ``/js/components/``. En
+# la v2, la selección PLC migró al nuevo ``ShellTopbar``
+# cross-cutting; el ``ShellSidebar`` solo conserva nav +
+# ProgressIndicator dark + back. Los tests apuntan al
+# ``ShellTopbar`` para verificar el wiring de la selección PLC
+# (que es lo que sigue siendo responsabilidad de la topbar).
+SHELL_SIDEBAR_JS = (
+    REPO_ROOT
+    / "interfaces"
+    / "web_server"
+    / "static"
+    / "js"
+    / "components"
+    / "ShellSidebar.js"
+)
+SHELL_TOPBAR_JS = (
+    REPO_ROOT
+    / "interfaces"
+    / "web_server"
+    / "static"
+    / "js"
+    / "components"
+    / "ShellTopbar.js"
+)
 STYLES_CSS = REPO_ROOT / "interfaces" / "web_server" / "static" / "styles.css"
 
 
@@ -91,24 +117,35 @@ def test_store_js_exposes_unified_helper() -> None:
 
 
 def test_sidebar_wires_change_handler_to_progress_indicator() -> None:
-    """``Sidebar.js`` une el ``@change`` del select con ``loadAndApplyPlcBlocks``.
+    """El sidebar (ahora ``ShellTopbar`` en v2) une el ``@change``
+    del select con ``loadAndApplyPlcBlocks``.
 
-    El feedback se ve en el ``ProgressIndicator`` (que ya está
-    anclado al fondo del sidebar), no en un badge propio. Por
-    eso este test verifica que NO reintroducimos el badge custom
-    con su botón ↻. Tras el refactor unificado, ``onPlcSelected``
-    hace UNA sola llamada al helper del store.
+    El feedback de la operación larga se ve en el
+    ``ProgressIndicator``, pero ese vive en el ``ShellSidebar``
+    (no en el topbar) porque debe ir anclado sobre fondo navy.
+    El topbar solo monta el select + botón. Por eso este test
+    verifica que el topbar NO contiene ``<ProgressIndicator``
+    ni el variant ``dark`` (asertos negativos para detectar
+    una migración accidental del progress de vuelta al topbar).
+
+    NOTA: tras la v2 del rediseño "Modern Corporate", la
+    selección PLC y el wiring del ``@change`` viven en
+    ``ShellTopbar`` (genérico y cross-cutting), no en el
+    ``Sidebar.js`` del área ni en el ``ShellSidebar``.
     """
-    text = _read(SIDEBAR_JS)
+    text = _read(SHELL_TOPBAR_JS)
     # Wiring del select → scan via el helper unificado del store.
     assert "@change=\"onPlcSelected\"" in text
     assert "loadAndApplyPlcBlocks" in text
     # El handler ya no encadena dos llamadas (refactor: una sola).
     assert "refreshPlcBlocks" not in text
     assert "loadPlcBlocksCache" not in text
-    # El ProgressIndicator del sidebar sigue montado (donde aparece
-    # el task de "Cache de bloques de <plc>").
-    assert "<ProgressIndicator" in text
+    # El topbar NO monta el ProgressIndicator: ese vive en el
+    # ShellSidebar (variant dark sobre fondo navy). Si el topbar
+    # lo trajera, el visual quedaría raro y rompería la
+    # separación de responsabilidades.
+    assert "<ProgressIndicator" not in text
+    assert "dark" not in text
     # NO reintroducimos el badge custom ni el ↻ propio.
     assert "plc-blocks-cache-badge" not in text
     assert "plc-blocks-cache-refresh" not in text
@@ -117,28 +154,33 @@ def test_sidebar_wires_change_handler_to_progress_indicator() -> None:
 
 
 def test_sidebar_button_text_is_buscar_plcs() -> None:
-    """El botón del sidebar del área Alimentación dice ``Buscar PLCs``.
+    """El botón del shell (ahora ``ShellTopbar``) dice ``Buscar PLCs``.
 
     Reemplaza el antiguo ``Refrescar lista`` (rename aprobado en
     el plan canónico). Verifica AMBOS lados: el texto nuevo
     está presente, el viejo NO (defensivo contra un rename
     parcial o un revert accidental).
+
+    NOTA: tras la v2 del rediseño "Modern Corporate", este
+    botón vive en el ``ShellTopbar`` genérico, no en el
+    ``ShellSidebar`` ni en el ``Sidebar.js`` del área.
     """
-    text = _read(SIDEBAR_JS)
+    text = _read(SHELL_TOPBAR_JS)
     assert "Buscar PLCs" in text, (
-        "El botón del Sidebar del área Alimentación debe decir 'Buscar PLCs'. "
-        "Si quieres otra variante, edita Sidebar.js y este test juntos."
+        "El botón del ShellTopbar debe decir 'Buscar PLCs'. "
+        "Si quieres otra variante, edita ShellTopbar.js y este test juntos."
     )
     assert "Refrescar lista" not in text, (
-        "Texto legacy 'Refrescar lista' encontrado en Sidebar.js. "
+        "Texto legacy 'Refrescar lista' encontrado en ShellTopbar.js. "
         "Debe estar completamente sustituido por 'Buscar PLCs'."
     )
 
 
 def test_sidebar_calls_api_fetch_project_info() -> None:
-    """``handleRefreshPlcs`` invoca ``apiFetchProjectInfo`` en paralelo
-    con ``apiFetchPlcs`` (mismo click del operario)."""
-    text = _read(SIDEBAR_JS)
+    """``handleRefreshPlcs`` (ahora en ``ShellTopbar``) invoca
+    ``apiFetchProjectInfo`` en paralelo con ``apiFetchPlcs``
+    (mismo click del operario)."""
+    text = _read(SHELL_TOPBAR_JS)
     # Importa la nueva función.
     assert "apiFetchProjectInfo" in text
     # La usa dentro del handler (no solo el import).
@@ -148,13 +190,14 @@ def test_sidebar_calls_api_fetch_project_info() -> None:
 
 
 def test_sidebar_renders_project_name_caption() -> None:
-    """El template del sidebar pinta el caption ``Proyecto: <name>`` solo
-    si ``store.projectInfo.name`` está disponible."""
-    text = _read(SIDEBAR_JS)
+    """El template del ``ShellTopbar`` pinta el caption del
+    nombre del proyecto solo si ``store.projectInfo.name``
+    está disponible. El contrato es el data-testid
+    (``topbar-project-name``) + el guard del v-if.
+    """
+    text = _read(SHELL_TOPBAR_JS)
     # data-testid para anclar el smoke test.
-    assert "sidebar-project-name" in text
-    # Texto visible esperado.
-    assert "Proyecto:" in text
+    assert "topbar-project-name" in text
     # Guard v-if para no mostrar nada si aún no hay info.
     assert "store.projectInfo" in text
     assert "store.projectInfo.name" in text

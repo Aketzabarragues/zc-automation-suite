@@ -45,7 +45,7 @@ import {
     computed,
     ref,
     watch,
-} from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js";
+} from "/js/vendor/vue.esm-browser.prod.js";
 import { store, pushLog } from "/js/store.js";
 import {
     apiProcesosSyncPreview,
@@ -445,15 +445,17 @@ export default {
                 <div class="flex gap-2">
                     <button @click="handleClose"
                         data-testid="proc-sync-close"
-                        class="px-3 py-2 bg-surface border border-line rounded text-xs font-medium text-ink-muted hover:bg-surface-sunken">
+                        class="px-3 py-1.5 text-ink-muted font-semibold text-xs bg-surface-sunken hover:bg-surface rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
                         Cerrar
                     </button>
                     <button @click="handleGeneratePreview"
                         :disabled="procUid == null || isWorking"
                         data-testid="proc-sync-generate-preview"
-                        class="px-4 py-2 bg-accent hover:bg-accent-hover disabled:opacity-50 rounded text-sm font-medium text-ink-inverse">
-                        <span v-if="isWorking">⏳ Generando…</span>
-                        <span v-else>🔍 Generar Previsión</span>
+                        class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
+                        <span v-if="isWorking" class="animate-spin">🔍</span>
+                        <span v-else>🔍</span>
+                        <span v-if="isWorking">Generando…</span>
+                        <span v-else>Generar Previsión</span>
                     </button>
                 </div>
             </header>
@@ -621,7 +623,7 @@ export default {
                     :disabled="!canApply"
                     :title="!plcName ? 'Selecciona un PLC en el sidebar primero' : (totalOps === 0 ? 'No hay cambios que aplicar' : '')"
                     data-testid="proc-sync-apply"
-                    class="px-6 py-2 bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm font-medium text-ink-inverse">
+                    class="px-4 py-2 text-accent font-bold text-sm bg-surface-raised border-2 border-accent hover:border-accent-bright hover:shadow-lg rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
                     <span v-if="isWorking">⏳ Aplicando…</span>
                     <span v-else>✓ Aplicar al PLC</span>
                 </button>

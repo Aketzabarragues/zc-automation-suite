@@ -250,8 +250,8 @@ class AreaRegistry:
 # tocar configs de instalaciones existentes.
 _AREA_DEFAULTS: dict[str, dict[str, str]] = {
     "alimentacion": {
-        "label":       "Área Alimentación",
-        "icon":        "🍞",
+        "label":       "Área de alimentación",
+        "icon":        "",
         "description": "Dispositivos, sincronización e inspección de PLCs del área de alimentación.",
     },
 }

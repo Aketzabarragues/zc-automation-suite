@@ -39,7 +39,7 @@ import {
     ref,
     onMounted,
     watch,
-} from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js";
+} from "/js/vendor/vue.esm-browser.prod.js";
 // Imports absolutos: ver nota en ``Sidebar.js``. Los cross-cutting
 // (``store.js``, ``api.js``) viven en ``/js/``, no se mueven.
 import {
@@ -317,34 +317,45 @@ export default {
     template: /* html */ `
         <section class="flex-1 flex flex-col overflow-hidden">
 
-            <header class="flex justify-between items-start mb-4">
-                <div>
-                    <h2 class="text-lg font-bold text-ink">📦 Cache de bloques</h2>
-                    <p class="text-xs text-ink-muted mt-0.5">
-                        <template v-if="store.selectedPlc">
-                            PLC activo:
-                            <span class="font-semibold text-ink">{{ plcName }}</span>
-                            <template v-if="scannedAt">
-                                · Escaneado:
-                                <span class="font-mono">{{ scannedAt }}</span>
-                            </template>
-                        </template>
-                        <template v-else>
-                            Selecciona un PLC en el panel lateral para empezar.
-                        </template>
-                    </p>
-                </div>
+            <!-- Cabecera mínima: solo info contextual del PLC activo
+                 (scanned_at) y botón de refresh renombrado a
+                 "Actualizar". El título "Cache de bloques" y el hint
+                 "Selecciona un PLC..." se eliminaron tras el
+                 rediseño "Modern Corporate" — el topbar ya muestra
+                 la sub-vista activa y la selección de PLC vive
+                 también en el topbar. -->
+            <header v-if="store.selectedPlc" class="flex justify-between items-start mb-4">
+                <p class="text-xs text-ink-muted">
+                    PLC activo:
+                    <span class="font-semibold text-ink">{{ plcName }}</span>
+                    <template v-if="scannedAt">
+                        · Escaneado:
+                        <span class="font-mono">{{ scannedAt }}</span>
+                    </template>
+                </p>
                 <button @click="handleRefresh"
                     :disabled="!store.selectedPlc || isRefreshing"
-                    class="px-4 py-2 bg-accent hover:bg-accent-hover disabled:opacity-50 rounded text-sm font-medium text-ink-inverse whitespace-nowrap">
-                    <span v-if="isRefreshing">⏳ Refrescando…</span>
-                    <span v-else>↻ Refrescar</span>
+                    data-testid="bloques-cache-actualizar"
+                    class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
+                    <span v-if="isRefreshing" class="animate-spin">↻</span>
+                    <span v-else>↻</span>
+                    Actualizar
                 </button>
             </header>
+            <div v-else class="flex justify-end mb-4">
+                <button @click="handleRefresh"
+                    :disabled="!store.selectedPlc || isRefreshing"
+                    data-testid="bloques-cache-actualizar"
+                    class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
+                    <span v-if="isRefreshing" class="animate-spin">↻</span>
+                    <span v-else>↻</span>
+                    Actualizar
+                </button>
+            </div>
 
             <!-- Aviso ámbar: cache "stale" (> 5 min) -->
             <div v-if="isStale" class="mb-3 px-3 py-2 bg-amber-100 border border-amber-300 rounded text-xs text-amber-800">
-                ⚠️ El cache tiene más de 5 minutos. Pulsa <strong>"↻ Refrescar"</strong> para re-escanear el PLC.
+                ⚠️ El cache tiene más de 5 minutos. Pulsa <strong>"↻ Actualizar"</strong> para re-escanear el PLC.
             </div>
 
             <!-- Strip de pestañas con contador -->
@@ -415,7 +426,7 @@ export default {
                         <!-- Empty state: ni un solo bloque cacheado -->
                         <tr v-if="groupedBlocks.length === 0">
                             <td colspan="4" class="px-3 py-6 text-center text-ink-muted italic">
-                                ⚠️ No hay bloques cacheados. Pulsa "↻ Refrescar" para escanear.
+                                ⚠️ No hay bloques cacheados. Pulsa "↻ Actualizar" para escanear.
                             </td>
                         </tr>
                     </tbody>
@@ -442,7 +453,7 @@ export default {
                         </tr>
                         <tr v-if="variables.length === 0">
                             <td colspan="2" class="px-3 py-6 text-center text-ink-muted italic">
-                                ⚠️ No hay variables (tag tables) cacheadas. Pulsa "↻ Refrescar".
+                                ⚠️ No hay variables (tag tables) cacheadas. Pulsa "↻ Actualizar".
                             </td>
                         </tr>
                     </tbody>
@@ -477,7 +488,7 @@ export default {
                         </tr>
                         <tr v-if="udts.length === 0">
                             <td colspan="4" class="px-3 py-6 text-center text-ink-muted italic">
-                                ⚠️ No hay UDTs cacheados. Si el backend ya expone este campo, pulsa "↻ Refrescar".
+                                ⚠️ No hay UDTs cacheados. Si el backend ya expone este campo, pulsa "↻ Actualizar".
                             </td>
                         </tr>
                     </tbody>
@@ -488,13 +499,13 @@ export default {
                     <div>
                         <div class="text-5xl mb-3 opacity-40">📦</div>
                         <p v-if="!store.selectedPlc" class="mb-2">
-                            Selecciona un PLC en el panel lateral.
+                            Selecciona un PLC en el topbar.
                         </p>
                         <p v-else class="mb-2">
                             El cache de bloques está vacío.
                         </p>
                         <p class="text-xs">
-                            Pulsa <strong class="text-accent">"↻ Refrescar"</strong> para escanear el PLC.
+                            Pulsa <strong class="text-accent">"↻ Actualizar"</strong> para escanear el PLC.
                         </p>
                     </div>
                 </div>

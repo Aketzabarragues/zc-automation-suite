@@ -94,10 +94,13 @@ def test_bloques_cache_view_has_refresh_button() -> None:
 
     El operario lo usa para forzar un re-scan del PLC sin esperar
     al TTL de 5 min del cache backend. Lo identificamos por su
-    label (acepta tanto el glifo ↻ como la palabra "Refrescar").
+    label ("Actualizar") y el glifo ↻ que precede al texto.
+    Tras el rediseño "Modern Corporate" se renombró de "Refrescar"
+    a "Actualizar" para alinear con el botón homónimo de la vista
+    "Definición programación".
     """
     text = _read(BLOQUES_CACHE_VIEW_JS)
-    assert "Refrescar" in text
+    assert "Actualizar" in text
     assert "↻" in text
     # El handler está cableado al click del botón.
     assert "@click=\"handleRefresh\"" in text
@@ -125,12 +128,31 @@ def test_manifest_includes_cache_view() -> None:
 
 
 def test_sidebar_has_cache_nav_button() -> None:
-    """El Sidebar tiene un botón que navega a la vista ``cache``."""
+    """El Sidebar expone una entrada de navegación a la vista ``cache``
+    con el label humano-legible "Cache del PLC".
+
+    Tras el rediseño "Modern Corporate" (PR), el Sidebar del
+    área es un wrapper fino sobre ``ShellSidebar``. Las
+    entradas viven en ``NAV_ITEMS`` y se enrutan vía el evento
+    ``navigate`` que el wrapper mapea a ``goToSubview`` (un
+    único punto de routing). Aquí validamos el **contrato** (la
+    entry existe con su key y label) en lugar de la
+    implementación (el call literal ``goToSubview('cache')``,
+    que ya no aparece en el wrapper).
+    """
     text = _read(SIDEBAR_JS)
-    # El botón llama a ``goToSubview('cache')``.
-    assert "goToSubview('cache')" in text
-    # Y referencia la etiqueta humano-legible que verá el operario.
-    assert "Cache de bloques" in text
+    # El wrapper mapea el evento ``navigate`` del ShellSidebar a
+    # ``goToSubview`` (un único punto de routing por área).
+    assert '@navigate="goToSubview"' in text, (
+        "El Sidebar del área debe enrutar @navigate → goToSubview "
+        "para que el ShellSidebar genérico pueda delegar el routing"
+    )
+    # La entry para cache está en NAV_ITEMS con key canónica.
+    assert 'key: "cache"' in text, (
+        'Falta la entry { key: "cache", ... } en NAV_ITEMS del Sidebar'
+    )
+    # Y la etiqueta humano-legible que verá el operario.
+    assert "Cache del PLC" in text
 
 
 def test_store_has_plc_blocks_cache() -> None:

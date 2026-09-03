@@ -7,11 +7,14 @@
  * rediseño de tabs principales acordado con el operario.
  *
  * Estructura del template (de arriba abajo):
- *   1. Carga excel (input + resumen).
- *   2. Cabecera con título y botón "Refrescar Memoria".
- *   3. ``<main-tabs>`` (Dispositivos | Procesos) con badges de
+ *   1. Carga excel + botón "Actualizar" (unificados en el mismo
+ *      card tras el rediseño "Modern Corporate"). El título de
+ *      la vista ya vive en el topbar, así que el botón se mueve
+ *      aquí para que el operario tenga todo el flujo de subida
+ *      de Excel + refresh en un único bloque visible.
+ *   2. ``<main-tabs>`` (Dispositivos | Procesos) con badges de
  *      conteo. Componente reutilizable, vive en MainTabs.js.
- *   4. Panel activo: ``<dispositivos-panel>`` o ``<procesos-panel>``
+ *   3. Panel activo: ``<dispositivos-panel>`` o ``<procesos-panel>``
  *      según ``store.activeMainTab``.
  *
  * Las N_MAX cards (dimensiones) vivían aquí como info transversal,
@@ -37,7 +40,7 @@
  * `vue.esm-browser.prod.js` NO acepta string literals multi-línea
  * dentro de arrays de `:class`. Cada literal va en una sola línea.
  */
-import { computed, ref } from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js";
+import { computed, ref } from "/js/vendor/vue.esm-browser.prod.js";
 // Imports absolutos: ver nota en ``Sidebar.js``.
 import { store, pushLog } from "/js/store.js";
 import { apiUploadExcel, apiFetchMemory } from "/js/api.js";
@@ -97,7 +100,7 @@ export default {
          * Sube el .xlsm al backend. Si OK, refresca la memoria
          * automáticamente (para que las cards de N_MAX y la tabla
          * se rellenen sin que el usuario tenga que pulsar
-         * "Refrescar").
+         * "Actualizar").
          *
          * Antes vivía en el Sidebar.js; se mudó aquí porque el
          * flujo natural del usuario es: subir Excel → ver
@@ -136,29 +139,28 @@ export default {
     template: /* html */ `
         <section class="flex-1 flex flex-col overflow-hidden">
 
-            <!-- ★ Carga excel (movida del Sidebar al inicio de esta vista) ★ -->
+            <!-- ★ Carga excel + botón "Actualizar" (unificados en
+                 el mismo card tras el rediseño "Modern Corporate": el
+                 título de la vista ya vive en el topbar, así que
+                 movemos el botón al card para que el operario
+                 tenga todo el flujo de subida de Excel + refresh
+                 en un único bloque visible). ★ -->
             <section class="mb-4 bg-surface-raised border border-line rounded p-4">
                 <label class="block text-xs font-semibold text-ink-muted uppercase mb-2">Carga excel</label>
-                <input ref="fileInput" type="file" accept=".xlsm"
-                    @change="handleExcel" :disabled="store.busy"
-                    class="block w-full text-xs text-ink file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:bg-surface-sunken file:text-ink hover:file:bg-surface-sunken" />
+                <div class="flex items-center gap-3">
+                    <input ref="fileInput" type="file" accept=".xlsm"
+                        @change="handleExcel" :disabled="store.busy"
+                        class="flex-1 text-xs text-ink file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:bg-surface-sunken file:text-ink hover:file:bg-surface-sunken" />
+                    <button @click="$emit('refresh')" :disabled="store.busy"
+                        data-testid="def-programacion-actualizar"
+                        class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
+                        🔄 Actualizar
+                    </button>
+                </div>
                 <div v-if="store.uploadSummary" class="mt-2 text-xs text-ink-muted">
                     <div class="text-accent">✅ Excel cargado</div>
                 </div>
             </section>
-
-            <header class="flex justify-between items-center mb-4">
-                <div>
-                    <h2 class="text-lg font-bold text-ink">📊 Definición programación</h2>
-                    <p class="text-xs text-ink-muted mt-0.5">
-                        Dump completo de la cache (AppState) — todas las columnas del dataclass activo.
-                    </p>
-                </div>
-                <button @click="$emit('refresh')" :disabled="store.busy"
-                    class="px-4 py-2 bg-accent hover:bg-accent-hover disabled:opacity-50 rounded text-sm font-medium text-ink-inverse">
-                    🔄 Refrescar Memoria
-                </button>
-            </header>
 
             <!-- ★ Tabs principales (NUEVO) ★ -->
             <main-tabs :tabs="mainTabsData" />

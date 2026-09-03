@@ -55,7 +55,7 @@ def test_alimentacion_spec_has_expected_hooks() -> None:
     spec = AreaRegistry.discover().get("alimentacion")
     assert spec is not None
     assert spec.id == "alimentacion"
-    assert spec.label == "Alimentación"
+    assert spec.label == "Área de alimentación"
     assert spec.config_block == "alimentacion"
     # Implementados en PR 2
     assert spec.contributes_state_extensions is not None

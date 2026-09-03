@@ -76,8 +76,8 @@ const _comps = {
 export function build() {
     return {
         id: "alimentacion",
-        label: "Alimentación",
-        icon: "🍞",
+        label: "Área de alimentación",
+        icon: "",
         components: {
             sidebar: "AlimentacionSidebar",
             landing: "AreaLanding",

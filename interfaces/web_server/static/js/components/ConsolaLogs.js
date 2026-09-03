@@ -23,7 +23,7 @@
  * para que el mensaje más reciente aparezca ARRIBA sin tocar el
  * almacén original.
  */
-import { computed } from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js";
+import { computed } from "/js/vendor/vue.esm-browser.prod.js";
 import { store } from "../store.js";
 import { apiClearLogs } from "../api.js";
 
@@ -45,13 +45,14 @@ export default {
         return { store, clearLogs, reversedLogs };
     },
     template: /* html */ `
-        <footer class="h-44 bg-surface-raised border-t border-line flex flex-col">
+        <footer class="h-36 bg-surface-raised border-t border-line flex flex-col">
             <header class="flex justify-between items-center px-4 py-1 bg-surface-sunken border-b border-line">
-                <h3 class="text-xs font-bold text-ink-muted uppercase">Consola de Trazabilidad</h3>
+                <h3 class="text-xs font-bold text-accent uppercase tracking-wider">Consola de Trazabilidad</h3>
                 <div class="flex gap-2 items-center">
                     <span class="text-xs text-ink-muted">({{ store.logs.length }} msgs)</span>
                     <button @click="clearLogs"
-                        class="text-xs px-2 py-0.5 bg-surface-raised border border-line hover:bg-surface-sunken text-ink rounded">
+                        data-testid="consola-limpiar"
+                        class="px-3 py-1.5 text-ink-muted font-semibold text-xs bg-surface-sunken hover:bg-surface rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
                         🧹 Limpiar
                     </button>
                 </div>
