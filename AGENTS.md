@@ -235,6 +235,34 @@ commit).
   operaciones largas. Va anclado al final del `AlimentacionSidebar`
   (`mt-auto`).
 
+### Vue 3 sin build step — acceso a `store` desde templates
+- **Problema:** si un componente hace
+  `import { store } from "/js/store.js"` y NO retorna `store` desde
+  el `setup()`, el template ve `store` como `undefined` y lanza
+  `TypeError: Cannot read properties of undefined (reading
+  'memoryState')` (o cualquier propiedad análoga).
+- **Causa raíz:** Vue 3 con template compiler en runtime (sin build
+  step) NO expone los `import` a nivel de módulo al scope del
+  template. El template solo tiene acceso a lo que el `setup()`
+  retorna explícitamente; el resto del módulo es invisible para él.
+- **Solución:** encapsular el acceso a `store` en un `computed` y
+  retornarlo del `setup()`. Ejemplo:
+
+  ```javascript
+  const data = computed(() => store.memoryState?.datos || null);
+  return { data };
+  // Template: <p>{{ data }}</p>
+  ```
+
+- **Caso real:** commit `19c8266` — `DispositivosPanel` intentaba
+  acceder a `store.memoryState` directamente desde el template y
+  reventaba con `Cannot read properties of undefined`. Lo arreglamos
+  con `deviceCountsByTab`, un `computed` que lee
+  `store.memoryState.dispositivos` y lo expone al template vía el
+  objeto retornado por `setup()`. Regla general: cualquier cosa del
+  módulo (`store`, helpers, refs importadas) que el template deba
+  leer debe salir del `setup()`.
+
 ### Tema "Industrial Claro"
 - Superficies: `bg-surface` (gris muy claro) / `bg-surface-raised`
   (blanco) / `bg-surface-sunken` (input/secondary).
