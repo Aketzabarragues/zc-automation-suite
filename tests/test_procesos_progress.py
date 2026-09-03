@@ -598,7 +598,7 @@ def test_generar_prevision_no_pisa_tracker_con_otra_operacion_activa(
     el ``generar_prevision`` NO debe hacer ``begin()`` ni emitir
     stages propios (que fallarían con ``ValueError`` porque el
     stage_id no está declarado en el ``begin()`` del otro caller).
-    Patrón análogo a ``sync_dispositivos_instances``.
+    Patrón análogo a ``disp_sync_instances``.
     """
     import asyncio
     from core.application.progress_buffer import ProgressTracker

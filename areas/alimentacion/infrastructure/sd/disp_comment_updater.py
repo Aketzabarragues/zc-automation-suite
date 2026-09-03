@@ -3,7 +3,7 @@
 Modifica un par de archivos ``.s7dcl`` + ``.s7res`` exportados por
 TIA Portal para escribir el comentario de cada instancia de un array
 de UDTs en un DB de dispositivo. Replica el patrón OFFLINE de
-``infrastructure/sd/modifiers.py`` (sin imports de
+``infrastructure/xml/disp_tag_table_modifier.py`` (sin imports de
 ``siemens_tia_scripting``, solo ``pathlib``, ``re``, ``dataclasses``).
 
 Convención de archivos

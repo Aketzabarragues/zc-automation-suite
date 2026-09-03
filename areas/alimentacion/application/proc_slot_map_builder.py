@@ -6,7 +6,7 @@ configuración TIA y la cache de bloques del PLC para producir el
 mapping ``{slot: texto}`` por array (PReal, PInt, ALM) que el
 caso de uso envía al worker.
 
-Es el hermano "procesos" de ``slot_map_builder.py`` (que cubre los
+Es el hermano "procesos" de ``disp_slot_map_builder.py`` (que cubre los
 6 DBs de dispositivos ED/EA/SA/V/M/M_VF con slot 0 fijo
 "NO USAR"). Las diferencias son:
   - **Sin slot 0.** Los arrays de proceso empiezan en 1.

@@ -2,7 +2,8 @@
 
 Mockea el gateway con ``AsyncMock``. La ``AppState`` y ``ConfigManager``
 se sustituyen por ``MagicMock`` simples. Sigue el patrón de
-``tests/test_sync_dispositivos_instances.py``.
+``tests/test_sync_dispositivos_instances.py`` (módulo
+``disp_sync_instances``).
 """
 from __future__ import annotations
 

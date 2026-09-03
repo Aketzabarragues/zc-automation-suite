@@ -1,4 +1,4 @@
-"""Tests de ``slot_map_builder``.
+"""Tests de ``disp_slot_map_builder``.
 
 Cubre la logica de mapeo de AppState (comentario_db) a slot_maps
 que se envia a TIA, con la config de DBs del ConfigManager.

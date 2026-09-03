@@ -73,7 +73,7 @@ class SimaticMLTagParser:
             # están dentro de ``<AttributeList>``, NO como hijos directos
             # de ``<PlcUserConstant>``. Esto es coherente con el fix
             # análogo en ``TagTableModifier.read_user_constants_with_uids``
-            # (ver ``infrastructure/xml/modifiers.py``).
+            # (ver ``infrastructure/xml/disp_tag_table_modifier.py``).
             name_el = constant.find(f".//{cls._NAME_TAG}")
             value_el = constant.find(f".//{cls._VALUE_TAG}")
             if name_el is None or value_el is None:

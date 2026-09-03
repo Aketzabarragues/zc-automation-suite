@@ -464,11 +464,11 @@ Placeholders para los modelos del dominio. La mayoría de modelos del proyecto a
 Paquete autocontenido que **se autodescribe** con un `AreaSpec` en su `__init__.py`. Aporta los 7 extension points disponibles hoy:
 
 - **Modelos de dominio** en `domain/models/dispositivos.py` (Dispositivo, DispED/EA/SA/V/M/M_VF, DimensionesDispositivos).
-- **Catálogo de presentación** en `domain/catalog.py::build_catalog` (consumido por `GET /api/v1/catalog`).
+- **Catálogo de presentación** en `domain/disp_catalog.py::build_catalog` (consumido por `GET /api/v1/catalog`).
 - **Casos de uso de sync** en `application/use_cases/`:
   - `disp_diff_constants.py::DispCalculateConstantsDiffUseCase` (motor puro de diffs N_MAX y renombres).
   - `disp_sync_instances.py::DispSyncInstancesUseCase` (sync completo N_MAX + devices, preview/apply en una sola transacción COM).
-  - `sync_comentarios_disp.py::DispComentariosSyncUseCase` (aplicar comentarios por instancia).
+  - `disp_sync_comentarios.py::DispComentariosSyncUseCase` (aplicar comentarios por instancia).
 - **Parser Excel corporativo** en `infrastructure/parsers/alimentacion_excel_parser.py` (compone `ExcelParser` y devuelve `dict[str, list[IHardwareDevice]]` tipado).
 - **Modificadores SD offline** en `infrastructure/sd/` (comentarios por instancia + registro MLC).
 - **Comandos transaccionales extra al COMMAND_REGISTRY** en `infrastructure/tia/extra_commands.py`:
@@ -477,7 +477,7 @@ Paquete autocontenido que **se autodescribe** con un `AreaSpec` en su `__init__.
 - **3 routers web** en `interfaces/web/` (`alimentacion`, `sync`, `excel`) cableados a `contributes_routers`.
 - **4 tools MCP** en `interfaces/mcp/tools.py` (preview/commit, aplicar comentarios, upload excel) cableadas a `contributes_mcp_tools`.
 - **Manifest del área para la SPA** en `frontend/manifest.js` (shape JS) y `frontend/manifest.py` (espejo Python, URLs strings).
-- **Back-compat de las 6 properties legacy en AppState** vía `application/state_extensions.install`.
+- **Back-compat de las 6 properties legacy en AppState** vía `application/disp_state_extensions.install`.
 - **Defaults defensivos del ConfigManager** vía `infrastructure/config_defaults.install`.
 
 ### 📁 `launcher/` — Bandeja del sistema (modo dev)

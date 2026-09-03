@@ -4,7 +4,7 @@ Paquete autocontenido que aporta al core:
   - Modelos de dominio (Dispositivo, DispED/EA/SA/V/M/M_VF,
     DimensionesDispositivos) en ``domain/models/dispositivos.py``.
   - Catálogo de presentación del área (``build_catalog``) en
-    ``domain/catalog.py``, consumido por ``GET /api/v1/catalog``.
+    ``domain/disp_catalog.py``, consumido por ``GET /api/v1/catalog``.
   - Casos de uso de sync de dispositivos y comentarios en
     ``application/use_cases/``.
   - Parser de Excel corporativo en
@@ -26,7 +26,7 @@ Paquete autocontenido que aporta al core:
     su espejo Python ``frontend/manifest.py`` (URLs strings) en
     ``contributes_frontend_manifest``.
   - Back-compat de las 6 properties legacy en ``AppState`` vía
-    ``application/state_extensions.install``.
+    ``application/disp_state_extensions.install``.
   - Defaults defensivos del ``ConfigManager`` vía
     ``infrastructure/config_defaults.install``.
 
