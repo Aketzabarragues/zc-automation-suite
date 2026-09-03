@@ -562,7 +562,7 @@ export default {
                         <tr v-for="row in activeRows"
                             :key="activeTab + '-' + row.slot"
                             :data-testid="'proc-sync-row-' + activeTab + '-' + row.slot"
-                            class="border-b border-line bg-surface-raised">
+                            class="border-b border-line">
                             <td class="px-3 py-1.5 font-mono text-ink whitespace-nowrap">
                                 {{ row.slot }}
                             </td>
@@ -602,10 +602,13 @@ export default {
                 </table>
             </div>
 
-            <!-- Empty state: sin preview todavía -->
+            <!-- Empty state: sin preview todavía. Mismo lenguaje que
+                 el "Inspector vacío" de DispositivosPanel/ProcesosPanel:
+                 las clases "p-10 text-center text-ink-muted" se aplican
+                 dentro del card style heredado. -->
             <div v-else-if="!preview"
-                 class="flex-1 flex items-center justify-center bg-surface-raised border border-line rounded">
-                <div class="text-center text-ink-muted text-sm">
+                 class="flex-1 flex items-center justify-center p-10 text-center text-ink-muted bg-surface-raised border border-line rounded">
+                <div>
                     <div class="text-5xl mb-3 opacity-40">⚡</div>
                     <p class="mb-2">Sin prevision generada.</p>
                     <p class="text-xs">Pulsa <strong class="text-accent">"🔍 Generar Previsión"</strong> para ver el diff completo.</p>

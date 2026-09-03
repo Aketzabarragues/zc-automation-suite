@@ -315,8 +315,12 @@ export default {
                 </div>
 
                 <!-- Área de scroll: contiene la tabla única de devices
-                     o el empty-state "Sin prevision generada". -->
-                <div class="flex-1 overflow-auto table-scroll-x">
+                     o el empty-state "Sin prevision generada". Mismo
+                     lenguaje de card que DispositivosPanel/ProcesosPanel:
+                     la clase "bg-surface-raised border border-line rounded"
+                     define el área scrollable de la tabla (sub-card
+                     dentro de la card 2). -->
+                <div class="flex-1 overflow-auto table-scroll-x mt-2 bg-surface-raised border border-line rounded">
                 <table v-if="hasPreview" class="w-full text-xs">
                     <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
                         <tr>
@@ -342,10 +346,10 @@ export default {
                                         'text-ink-muted'">
                                 {{ row.nuevo || '—' }}
                             </td>
-                            <td class="px-3 py-1.5 text-xs font-bold"
-                                :class="row.status === 'agregar' ? 'text-accent' :
-                                        row.status === 'renombrar' ? 'text-amber-700' :
-                                        row.status === 'eliminar' ? 'text-red-700' :
+                            <td class="px-3 py-1.5 text-xs whitespace-nowrap"
+                                :class="row.status === 'agregar' ? 'text-accent font-semibold' :
+                                        row.status === 'renombrar' ? 'text-amber-700 font-semibold' :
+                                        row.status === 'eliminar' ? 'text-red-700 font-semibold' :
                                         'text-ink-muted'">
                                 {{ statusMeta[row.status]?.label || row.status }}
                             </td>
@@ -357,7 +361,7 @@ export default {
                         </tr>
                     </tbody>
                 </table>
-                <div v-else class="flex items-center justify-center bg-surface-raised border border-dashed border-line rounded p-10 text-center text-ink-muted">
+                <div v-else class="flex-1 flex items-center justify-center p-10 text-center text-ink-muted">
                     <div>
                         <div class="text-5xl mb-3 opacity-40">⚡</div>
                         <p class="mb-2">Sin prevision generada.</p>

@@ -390,8 +390,12 @@ export default {
                     </button>
                 </div>
 
-                <!-- Área de scroll: contiene las 3 tablas y el empty-state -->
-                <div class="flex-1 overflow-auto table-scroll-x">
+                <!-- Área de scroll: contiene las 3 tablas y el empty-state.
+                     Mismo lenguaje de card que DispositivosPanel/ProcesosPanel:
+                     la clase "bg-surface-raised border border-line rounded"
+                     define el área scrollable de la tabla (sub-card dentro
+                     de la card 2). -->
+                <div class="flex-1 overflow-auto table-scroll-x mt-2 bg-surface-raised border border-line rounded">
 
                 <!-- Bloques (agrupados por tipo, ordenados por nombre dentro del grupo) -->
                 <table v-if="hasCache && activeTab === 'bloques'" class="w-full text-xs">
@@ -418,7 +422,7 @@ export default {
                             </tr>
                             <tr v-for="b in group.bloques"
                                 :key="(b.path || '') + '/' + (b.name || b.nombre || '') + '/' + (b.number ?? b.numero ?? '')"
-                                class="border-b border-line bg-surface-raised">
+                                class="border-b border-line">
                                 <td class="px-3 py-1.5 font-mono text-ink whitespace-nowrap pl-6">
                                     {{ displayName(b) }}
                                 </td>
