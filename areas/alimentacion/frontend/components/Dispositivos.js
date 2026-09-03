@@ -269,44 +269,54 @@ export default {
                 </button>
             </div>
 
-            <!-- ★ CARDS DE N_MAX (misma estética que Definición programación) ★ -->
-            <div v-if="hasPreview && nmaxCards.length > 0"
-                class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 mb-4">
-                <div v-for="card in nmaxCards" :key="card.name"
-                    class="bg-surface-raised border border-line rounded p-3">
-                    <div class="text-[10px] uppercase text-ink-muted">
-                        {{ nmaxLabel[card.name] || card.name }}
-                    </div>
-                    <div class="text-xl font-bold">
-                        <template v-if="card.status === 'actualizar'">
-                            <span class="inline-flex items-baseline gap-1.5">
-                                <span v-if="card.actual !== null && card.actual !== undefined"
-                                    class="text-accent">{{ card.actual }}</span>
-                                <span class="text-ink-muted">→</span>
-                                <span class="text-amber-700">{{ card.nuevo }}</span>
-                            </span>
-                        </template>
-                        <template v-else>
-                            <span class="text-accent">{{ card.nuevo }}</span>
-                        </template>
+            <!-- ★ Segundo card: engloba N_MAX + strip de tabs + tabla.
+                 El operario pidió que TODA la información viviera dentro
+                 de un único card; antes las N_MAX y los tabs vivían
+                 sueltos. Se renderiza siempre: si no hay prevision, el
+                 empty-state "Sin prevision generada" actúa de
+                 placeholder (UX ya validada en la iteración anterior). ★ -->
+            <div class="flex-1 bg-surface-raised border border-line rounded p-4 mb-4 flex flex-col overflow-hidden"
+                 data-testid="dispositivos-card-tabla">
+
+                <!-- N_MAX (estética de sub-cards: bg-surface-raised sobre
+                     la card padre, separados por la rejilla de gap-2) -->
+                <div v-if="hasPreview && nmaxCards.length > 0"
+                    class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 mb-3">
+                    <div v-for="card in nmaxCards" :key="card.name"
+                        class="bg-surface-raised border border-line rounded p-3">
+                        <div class="text-[10px] uppercase text-ink-muted">
+                            {{ nmaxLabel[card.name] || card.name }}
+                        </div>
+                        <div class="text-xl font-bold">
+                            <template v-if="card.status === 'actualizar'">
+                                <span class="inline-flex items-baseline gap-1.5">
+                                    <span v-if="card.actual !== null && card.actual !== undefined"
+                                        class="text-accent">{{ card.actual }}</span>
+                                    <span class="text-ink-muted">→</span>
+                                    <span class="text-amber-700">{{ card.nuevo }}</span>
+                                </span>
+                            </template>
+                            <template v-else>
+                                <span class="text-accent">{{ card.nuevo }}</span>
+                            </template>
+                        </div>
                     </div>
                 </div>
-            </div>
 
-            <!-- Tabs por tipo de dispositivo -->
-            <div v-if="hasPreview" class="flex border-b border-line bg-surface-sunken overflow-x-auto">
-                <button v-for="t in tabs" :key="t.key"
-                    @click="activeTab = t.key"
-                    :class="['tab-btn px-4 py-2 text-xs font-medium border-r border-line whitespace-nowrap',
-                             activeTab === t.key ? 'active' : 'bg-surface-raised text-ink-muted hover:bg-surface-sunken']">
-                    {{ t.label }}
-                    <span class="ml-1 text-[10px] opacity-70">({{ tabCounts[t.key] }})</span>
-                </button>
-            </div>
+                <!-- Tabs por tipo de dispositivo (ED|EA|SA|V|M|MVF) -->
+                <div v-if="hasPreview" class="flex border-b border-line bg-surface-sunken overflow-x-auto mb-3">
+                    <button v-for="t in tabs" :key="t.key"
+                        @click="activeTab = t.key"
+                        :class="['tab-btn px-4 py-2 text-xs font-medium border-r border-line whitespace-nowrap',
+                                 activeTab === t.key ? 'active' : 'bg-surface-raised text-ink-muted hover:bg-surface-sunken']">
+                        {{ t.label }}
+                        <span class="ml-1 text-[10px] opacity-70">({{ tabCounts[t.key] }})</span>
+                    </button>
+                </div>
 
-            <!-- Tabla única con TODOS los dispositivos del tipo activo -->
-            <div class="flex-1 bg-surface-raised border border-line rounded p-4 overflow-auto table-scroll-x mb-4"
-                 data-testid="dispositivos-card-tabla">
+                <!-- Área de scroll: contiene la tabla única de devices
+                     o el empty-state "Sin prevision generada". -->
+                <div class="flex-1 overflow-auto table-scroll-x">
                 <table v-if="hasPreview" class="w-full text-xs">
                     <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
                         <tr>
@@ -354,7 +364,8 @@ export default {
                         <p class="text-xs">Pulsa <strong class="text-accent">"🔍 Generar Previsión"</strong> para ver el diff completo.</p>
                     </div>
                 </div>
-            </div>
+                </div><!-- /Área de scroll (cierre del wrapper interior de la card 2) -->
+            </div><!-- /card 2 (N_MAX + tabs + tabla) -->
 
             <button id="btn-commit" @click="ejecutarCommit"
                 :disabled="!hasPreview || (summary.agregados + summary.renombrados + summary.eliminados + nmaxSummary.actualizar === 0) || store.busy"

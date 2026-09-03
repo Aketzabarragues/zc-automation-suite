@@ -358,31 +358,40 @@ export default {
                 ⚠️ El cache tiene más de 5 minutos. Pulsa <strong>"↻ Actualizar"</strong> para re-escanear el PLC.
             </div>
 
-            <!-- Strip de pestañas con contador -->
-            <div v-if="hasCache" class="flex border-b border-line bg-surface-sunken overflow-x-auto">
-                <button @click="activeTab = 'bloques'"
-                    :class="['tab-btn px-4 py-2 text-xs font-medium border-r border-line whitespace-nowrap',
-                             activeTab === 'bloques' ? 'active' : 'bg-surface-raised text-ink-muted hover:bg-surface-sunken']">
-                    Bloques
-                    <span class="ml-1 text-[10px] opacity-70">({{ blocksCount }})</span>
-                </button>
-                <button @click="activeTab = 'variables'"
-                    :class="['tab-btn px-4 py-2 text-xs font-medium border-r border-line whitespace-nowrap',
-                             activeTab === 'variables' ? 'active' : 'bg-surface-raised text-ink-muted hover:bg-surface-sunken']">
-                    Variables
-                    <span class="ml-1 text-[10px] opacity-70">({{ variablesCount }})</span>
-                </button>
-                <button @click="activeTab = 'udt'"
-                    :class="['tab-btn px-4 py-2 text-xs font-medium border-r border-line whitespace-nowrap',
-                             activeTab === 'udt' ? 'active' : 'bg-surface-raised text-ink-muted hover:bg-surface-sunken']">
-                    UDT
-                    <span class="ml-1 text-[10px] opacity-70">({{ udtsCount }})</span>
-                </button>
-            </div>
-
-            <!-- Cuerpo: tabla de la pestaña activa o empty state global -->
-            <div class="flex-1 bg-surface-raised border border-line rounded p-4 overflow-auto table-scroll-x mb-4"
+            <!-- Segundo card: engloba el strip de pestañas + la tabla
+                 de la pestaña activa. El operario pidió que TODA la
+                 información de la tabla viviera dentro de un único
+                 card, así que el strip sube al card. Se renderiza
+                 siempre: si no hay cache, el empty-state "Selecciona
+                 un PLC" actúa de placeholder (mismo patrón que
+                 Dispositivos con su "Sin prevision generada"). -->
+            <div class="flex-1 bg-surface-raised border border-line rounded p-4 mb-4 flex flex-col overflow-hidden"
                  data-testid="bloques-cache-card-tabla">
+
+                <!-- Strip de pestañas con contador -->
+                <div class="flex border-b border-line bg-surface-sunken overflow-x-auto mb-3">
+                    <button @click="activeTab = 'bloques'"
+                        :class="['tab-btn px-4 py-2 text-xs font-medium border-r border-line whitespace-nowrap',
+                                 activeTab === 'bloques' ? 'active' : 'bg-surface-raised text-ink-muted hover:bg-surface-sunken']">
+                        Bloques
+                        <span class="ml-1 text-[10px] opacity-70">({{ blocksCount }})</span>
+                    </button>
+                    <button @click="activeTab = 'variables'"
+                        :class="['tab-btn px-4 py-2 text-xs font-medium border-r border-line whitespace-nowrap',
+                                 activeTab === 'variables' ? 'active' : 'bg-surface-raised text-ink-muted hover:bg-surface-sunken']">
+                        Variables
+                        <span class="ml-1 text-[10px] opacity-70">({{ variablesCount }})</span>
+                    </button>
+                    <button @click="activeTab = 'udt'"
+                        :class="['tab-btn px-4 py-2 text-xs font-medium border-r border-line whitespace-nowrap',
+                                 activeTab === 'udt' ? 'active' : 'bg-surface-raised text-ink-muted hover:bg-surface-sunken']">
+                        UDT
+                        <span class="ml-1 text-[10px] opacity-70">({{ udtsCount }})</span>
+                    </button>
+                </div>
+
+                <!-- Área de scroll: contiene las 3 tablas y el empty-state -->
+                <div class="flex-1 overflow-auto table-scroll-x">
 
                 <!-- Bloques (agrupados por tipo, ordenados por nombre dentro del grupo) -->
                 <table v-if="hasCache && activeTab === 'bloques'" class="w-full text-xs">
@@ -511,7 +520,9 @@ export default {
                     </div>
                 </div>
 
-            </div>
+                </div><!-- /Área de scroll (cierre del wrapper interior de la card 2) -->
+
+            </div><!-- /card 2 (strip + tabla) -->
 
         </section>
     `,

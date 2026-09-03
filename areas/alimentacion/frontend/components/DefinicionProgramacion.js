@@ -206,14 +206,18 @@ export default {
                 </div>
             </section>
 
-            <!-- ★ Tabs principales (NUEVO) ★ -->
-            <main-tabs :tabs="mainTabsData" />
-
-            <!-- ★ Panel activo según store.activeMainTab ★ -->
+            <!-- ★ Tabs principales + Panel activo (segundo card: engloba
+                 tanto el strip Dispositivos|Procesos como el panel
+                 reactivo de la pestaña activa). El operario pidió que
+                 TODA la información de la tabla viviera dentro de un
+                 único card, así que el strip sube al card. ★ -->
             <section class="flex-1 mt-2 mb-4 bg-surface-raised border border-line rounded p-4 flex flex-col overflow-hidden"
                      data-testid="def-programacion-card-tablas">
-                <dispositivos-panel v-if="store.activeMainTab === 'dispositivos'" />
-                <procesos-panel v-else />
+                <main-tabs :tabs="mainTabsData" />
+                <div class="flex-1 mt-3 flex flex-col overflow-hidden">
+                    <dispositivos-panel v-if="store.activeMainTab === 'dispositivos'" />
+                    <procesos-panel v-else />
+                </div>
             </section>
 
         </section>
