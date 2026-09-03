@@ -58,8 +58,8 @@ def build() -> "AreaFrontendManifest":
     ``core/application/area_registry.py`` para el TypedDict):
         {
             "id":     "alimentacion",
-            "label":  "Alimentación",
-            "icon":   "🍞",
+            "label":  "Área de alimentación",
+            "icon":   "",
             "components": {
                 "sidebar": "<ComponentName>",
                 "landing": "<ComponentName>",
@@ -119,8 +119,8 @@ def build() -> "AreaFrontendManifest":
 
     _manifest: AreaFrontendManifest = {
         "id": "alimentacion",
-        "label": "Alimentación",
-        "icon": "🍞",
+        "label": "Área de alimentación",
+        "icon": "",
         "components": {
             "sidebar": "AlimentacionSidebar",
             "landing": "AreaLanding",

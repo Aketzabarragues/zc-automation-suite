@@ -3,8 +3,8 @@
  *
  * Responsabilidades:
  *   * Importar ``createApp`` del build ESM de Vue 3.
- *   * Registrar los 3 componentes cross-cutting: Welcome, ConsolaLogs,
- *     ProgressIndicator.
+ *   * Registrar los 4 componentes cross-cutting: Welcome, ConsolaLogs,
+ *     ProgressIndicator, ShellTopbar.
  *   * Enrutar entre welcome y el layout de área según ``store.topLevelView``.
  *   * Dentro del área, enrutar entre sub-vistas según ``store.currentView``
  *     (validado contra ``store.areaManifest.components.views``).
@@ -18,13 +18,14 @@
  * NO hay build step: el navegador carga los módulos directamente desde
  * la red (CDN) o desde ``/js/`` servido por FastAPI.
  */
-import { createApp, computed, nextTick } from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js";
+import { createApp, computed, nextTick } from "/js/vendor/vue.esm-browser.prod.js";
 import { store, goToArea, goToSubview, loadCatalog } from "./store.js";
 import { apiFetchLogs, apiFetchMemory, apiFetchProgress } from "./api.js";
 import { loadArea, mountArea } from "./area-loader.js";
 import Welcome from "./components/Welcome.js";
 import ConsolaLogs from "./components/ConsolaLogs.js";
 import ProgressIndicator from "./components/ProgressIndicator.js";
+import ShellTopbar from "./components/ShellTopbar.js";
 
 /** Componente raíz: enrutador top-level (welcome) + layout de área. */
 const App = {
@@ -32,6 +33,7 @@ const App = {
         Welcome,
         ConsolaLogs,
         ProgressIndicator,
+        ShellTopbar,
     },
     setup() {
         /**
@@ -148,6 +150,22 @@ const App = {
                     Object.keys(store.areaManifest.loaders || {}).length === 0)
             );
         });
+        /**
+         * ``{ key, label, icon }`` del área activa para alimentar
+         * el breadcrumb del ``ShellTopbar``. Resuelve primero
+         * contra ``store.availableAreas``; si no encuentra
+         * coincidencia (catálogo aún no cargado o área
+         * desconocida), cae a un objeto degradado con la key
+         * cruda y un emoji genérico de carpeta. Garantiza que
+         * ``ShellTopbar`` siempre reciba un objeto con la
+         * estructura esperada.
+         */
+        const topbarArea = computed(() => {
+            if (!store.selectedArea) return { key: "", label: "—", icon: "📁" };
+            const a = store.availableAreas.find((x) => x.key === store.selectedArea);
+            if (a) return a;
+            return { key: store.selectedArea, label: store.selectedArea, icon: "📁" };
+        });
         return {
             store,
             refreshMemory,
@@ -156,36 +174,48 @@ const App = {
             sidebarComponent,
             currentViewComponent,
             areaManifestEmpty,
+            topbarArea,
         };
     },
     template: /* html */ `
         <div class="flex flex-col flex-1 min-h-0">
             <Welcome v-if="store.topLevelView === 'welcome'" @select="onAreaSelected" />
             <div v-else class="flex flex-1 overflow-hidden min-w-0">
+                <!-- 1. Sidebar slim: full-height, columna izquierda fija -->
                 <component v-if="sidebarComponent" :is="sidebarComponent" />
-                <main class="flex-1 min-w-0 flex flex-col p-5 overflow-y-scroll">
-                    <div v-if="areaManifestEmpty"
-                        class="flex-1 flex items-center justify-center bg-surface-raised border border-dashed border-line rounded p-10 text-center text-ink-muted">
-                        <div>
-                            <div class="text-5xl mb-3 opacity-40">⚠️</div>
-                            <p class="mb-2 font-semibold text-ink">Área no soportada en el frontend</p>
-                            <p class="text-xs">
-                                El backend no ha publicado el manifest de
-                                <strong class="text-accent">{{ store.selectedArea }}</strong>.
-                                Verifica que el endpoint
-                                <code>GET /api/v1/areas/{{ store.selectedArea }}/manifest</code>
-                                esté disponible y devuelva los
-                                <code>loaders</code> correctos.
-                            </p>
+
+                <!-- 2. Columna derecha: topbar + main + consola.
+                     La clase ml-72 reserva el ancho del ShellSidebar
+                     (que ahora es position: fixed) para que el
+                     contenido no se solape con el shell oscuro. -->
+                <div class="flex-1 flex flex-col min-w-0 ml-72">
+                    <ShellTopbar :area="topbarArea" />
+
+                    <main class="flex-1 min-w-0 flex flex-col p-5 overflow-y-auto">
+                        <div v-if="areaManifestEmpty"
+                             class="flex-1 flex items-center justify-center bg-surface-raised border border-dashed border-line rounded p-10 text-center text-ink-muted">
+                            <div>
+                                <div class="text-5xl mb-3 opacity-40">⚠️</div>
+                                <p class="mb-2 font-semibold text-ink">Área no soportada en el frontend</p>
+                                <p class="text-xs">
+                                    El backend no ha publicado el manifest de
+                                    <strong class="text-accent">{{ store.selectedArea }}</strong>.
+                                    Verifica que el endpoint
+                                    <code>GET /api/v1/areas/{{ store.selectedArea }}/manifest</code>
+                                    esté disponible y devuelva los
+                                    <code>loaders</code> correctos.
+                                </p>
+                            </div>
                         </div>
-                    </div>
-                    <component v-else-if="currentViewComponent"
-                        :is="currentViewComponent"
-                        @select="onSubviewSelected"
-                        @refresh="refreshMemory" />
-                </main>
+                        <component v-else-if="currentViewComponent"
+                            :is="currentViewComponent"
+                            @select="onSubviewSelected"
+                            @refresh="refreshMemory" />
+                    </main>
+
+                    <ConsolaLogs v-if="store.topLevelView === 'area'" />
+                </div>
             </div>
-            <ConsolaLogs v-if="store.topLevelView === 'area'" />
         </div>
     `,
 };
@@ -194,6 +224,7 @@ const _app = createApp(App);
 _app.component("Welcome", Welcome);
 _app.component("ConsolaLogs", ConsolaLogs);
 _app.component("ProgressIndicator", ProgressIndicator);
+_app.component("ShellTopbar", ShellTopbar);
 _app.mount("#app");
 
 loadCatalog();

@@ -34,7 +34,7 @@
  * `vue.esm-browser.prod.js` NO acepta string literals multi-línea
  * dentro de arrays de `:class`. Cada literal va en una sola línea.
  */
-import { computed, ref } from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js";
+import { computed, ref } from "/js/vendor/vue.esm-browser.prod.js";
 // Imports absolutos: ver nota en ``Sidebar.js``.
 import { store, pushLog } from "/js/store.js";
 import { apiGeneratePreview, apiCommit } from "/js/api.js";
@@ -247,20 +247,23 @@ export default {
     },
     template: /* html */ `
         <section class="flex-1 flex flex-col overflow-hidden">
+            <!-- Cabecera mínima: solo el resumen de cambios + botón
+                 "Generar Previsión". El título "⚡ Dispositivos" se
+                 eliminó tras el rediseño "Modern Corporate" — el
+                 topbar ya muestra la sub-vista activa. -->
             <header class="flex justify-between items-center mb-4">
-                <div>
-                    <h2 class="text-lg font-bold text-ink">⚡ Dispositivos</h2>
-                    <p v-if="hasPreview" class="text-xs text-ink-muted mt-0.5">
-                        {{ summary.total }} dispositivos analizados —
-                        <span class="text-accent">{{ summary.agregados }} a agregar</span> ·
-                        <span class="text-amber-700">{{ summary.renombrados }} a renombrar</span> ·
-                        <span class="text-red-700">{{ summary.eliminados }} a eliminar</span> ·
-                        <span class="text-ink-muted">{{ summary.sin_cambios }} sin cambios</span>
-                    </p>
-                </div>
+                <p v-if="hasPreview" class="text-xs text-ink-muted">
+                    {{ summary.total }} dispositivos analizados —
+                    <span class="text-accent">{{ summary.agregados }} a agregar</span> ·
+                    <span class="text-amber-700">{{ summary.renombrados }} a renombrar</span> ·
+                    <span class="text-red-700">{{ summary.eliminados }} a eliminar</span> ·
+                    <span class="text-ink-muted">{{ summary.sin_cambios }} sin cambios</span>
+                </p>
+                <span v-else></span>
                 <button @click="generarPreview"
                     :disabled="!store.selectedPlc || store.busy"
-                    class="px-4 py-2 bg-accent hover:bg-accent-hover disabled:opacity-50 rounded text-sm font-medium text-ink-inverse">
+                    data-testid="dispositivos-generar-prevision"
+                    class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
                     🔍 Generar Previsión
                 </button>
             </header>
@@ -353,9 +356,10 @@ export default {
 
             <button id="btn-commit" @click="ejecutarCommit"
                 :disabled="!hasPreview || (summary.agregados + summary.renombrados + summary.eliminados + nmaxSummary.actualizar === 0) || store.busy"
-                class="mt-4 w-full py-3 bg-accent hover:bg-accent-hover disabled:opacity-50 rounded-lg text-base font-bold text-ink-inverse">
+                data-testid="dispositivos-aplicar"
+                class="mt-4 w-full py-3 text-accent font-bold text-sm bg-surface-raised border-2 border-accent hover:border-accent-bright hover:shadow-lg rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
                 ✅ Aplicar Cambios en TIA Portal
-                <span v-if="hasPreview" class="ml-2 text-xs font-normal">
+                <span v-if="hasPreview" class="text-xs font-normal text-ink-muted">
                     ({{ summary.agregados + summary.renombrados + summary.eliminados +
                        nmaxSummary.actualizar }} cambios)
                 </span>

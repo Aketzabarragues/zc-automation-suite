@@ -34,7 +34,7 @@
  * `vue.esm-browser.prod.js` NO acepta string literals multi-línea
  * dentro de arrays de `:class`. Cada literal va en una sola línea.
  */
-import { computed } from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js";
+import { computed } from "/js/vendor/vue.esm-browser.prod.js";
 import { store, goToMainTab } from "/js/store.js";
 
 export default {

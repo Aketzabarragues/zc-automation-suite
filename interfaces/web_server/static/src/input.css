@@ -53,4 +53,18 @@
   --color-accent:          rgb(0 52 102);
   --color-accent-hover:    rgb(0 40 79);
   --color-accent-subtle:   rgb(230 237 245);
+
+  /* Capa "shell" (sidebar/topbar corporativos sobre fondo navy).
+     `shell*` describe la superficie oscura; `on-shell*` es el
+     texto/íconos sobre esa superficie. Se mantienen como tokens
+     semánticos para que cualquier chrome nuevo herede el estilo. */
+  --color-shell:           #00205B;                  /* navy Zeus Control */
+  --color-shell-deep:      #001540;                  /* 1 tono más oscuro: separadores internos, inputs */
+  --color-on-shell:        #ffffff;                  /* texto principal sobre shell */
+  --color-on-shell-muted:  #93b5e3;                  /* texto secundario sobre shell (azul claro) */
+  --color-on-shell-faint:  #5a7fbb;                  /* captions, hints, labels de sección */
+  --color-shell-hover:     rgb(255 255 255 / 0.05);  /* hover de items de nav */
+  --color-shell-active:    rgb(255 255 255 / 0.10);  /* item activo (sutil) */
+  --color-shell-border:    #001540;                  /* línea 1px separadora interna */
+  --color-accent-bright:   #4d8fd1;                  /* azul claro para el border-l activo (contrasta con navy) */
 }

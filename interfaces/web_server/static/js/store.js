@@ -9,7 +9,7 @@
  * vive dentro del proxy de ``reactive`` y se accede siempre a través
  * de la referencia ``store``.
  */
-import { reactive } from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js";
+import { reactive } from "/js/vendor/vue.esm-browser.prod.js";
 
 export const store = reactive({
     /**

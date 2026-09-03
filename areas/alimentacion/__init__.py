@@ -53,8 +53,8 @@ from core.application.area_registry import AreaSpec
 
 AREA_SPEC = AreaSpec(
     id="alimentacion",
-    label="Alimentación",
-    icon="🍞",
+    label="Área de alimentación",
+    icon="",
     config_block="alimentacion",
     # ── Implementados en PR 2 ──────────────────────────────────────
     contributes_state_extensions=install_state,

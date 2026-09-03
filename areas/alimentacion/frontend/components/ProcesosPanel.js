@@ -33,7 +33,7 @@
  * `vue.esm-browser.prod.js` NO acepta string literals multi-línea
  * dentro de arrays de `:class`. Cada literal va en una sola línea.
  */
-import { computed, ref } from "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js";
+import { computed, ref } from "/js/vendor/vue.esm-browser.prod.js";
 import { store } from "/js/store.js";
 
 export default {
@@ -265,7 +265,7 @@ export default {
                     <div>
                         <div class="text-5xl mb-3 opacity-40">📊</div>
                         <p class="mb-2">El Inspector de Memoria está vacío.</p>
-                        <p class="text-xs">Sube un Excel y pulsa <strong class="text-accent">"Refrescar Memoria"</strong>.</p>
+                        <p class="text-xs">Sube un Excel y pulsa <strong class="text-accent">"Actualizar"</strong>.</p>
                     </div>
                 </div>
 

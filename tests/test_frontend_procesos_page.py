@@ -419,15 +419,29 @@ def test_manifest_includes_procesos_view() -> None:
 
 
 def test_sidebar_has_procesos_nav_button() -> None:
-    """El Sidebar tiene un 5º botón que navega a la vista ``proc``
-    con el label "Procesos" y el icono ⚙️. Va después del botón
-    "Dispositivos" (orden de los 5 botones:
+    """El Sidebar tiene la 5ª entry en ``NAV_ITEMS`` que navega a
+    la vista ``proc`` con el label "Procesos" y el icono ⚙️. Va
+    DESPUÉS de la entry de ``disp`` (orden de la consigna:
     Inicio → Definición → Cache → Dispositivos → Procesos).
+
+    Tras el rediseño "Modern Corporate" (PR), el Sidebar del
+    área es un wrapper fino sobre ``ShellSidebar`` y las
+    entradas viven en ``NAV_ITEMS``. Aquí validamos el
+    **contrato** (la entry existe con los campos correctos y
+    está en el orden esperado) en lugar de la implementación
+    (calls literales ``goToSubview('proc')`` que ya no están
+    inline en el wrapper).
     """
     text = _read(SIDEBAR_JS)
-    # El botón llama a ``goToSubview('proc')``.
-    assert "goToSubview('proc')" in text, (
-        "Falta el goToSubview('proc') en el Sidebar"
+    # El wrapper mapea el evento ``navigate`` del ShellSidebar a
+    # ``goToSubview`` (un único punto de routing por área).
+    assert '@navigate="goToSubview"' in text, (
+        "El Sidebar del área debe enrutar @navigate → goToSubview "
+        "para que el ShellSidebar genérico pueda delegar el routing"
+    )
+    # La entry para proc está en NAV_ITEMS con key canónica.
+    assert 'key: "proc"' in text, (
+        'Falta la entry { key: "proc", ... } en NAV_ITEMS del Sidebar'
     )
     # Etiqueta humano-legible que verá el operario.
     assert "Procesos" in text, (
@@ -435,22 +449,24 @@ def test_sidebar_has_procesos_nav_button() -> None:
     )
     # Icono de la nueva entrada (⚙️, engranaje).
     assert "⚙️" in text, (
-        "Falta el icono ⚙️ en el botón del Sidebar"
+        "Falta el icono ⚙️ en la entry del Sidebar"
     )
-    # El botón de Procesos va DESPUÉS del de Dispositivos (orden
-    # de la consigna: 5º botón al final).
-    disp_pos = text.find("goToSubview('disp')")
-    proc_pos = text.find("goToSubview('proc')")
+    # La entry de Procesos va DESPUÉS de la de Dispositivos (orden
+    # de la consigna: 5ª entry al final).
+    disp_pos = text.find('key: "disp"')
+    proc_pos = text.find('key: "proc"')
     assert 0 <= disp_pos < proc_pos, (
-        "El botón 'proc' debe ir DESPUÉS del botón 'disp' en el Sidebar"
+        "La entry 'proc' debe ir DESPUÉS de la entry 'disp' en NAV_ITEMS"
     )
 
 
 def test_area_landing_has_procesos_option() -> None:
     """El ``AreaLanding.js`` tiene la 4ª entry en ``SUBVIEW_OPTIONS``
-    con ``key: "proc"``, icono ⚙️ y label "Procesos". El grid
-    también pasa a ``xl:grid-cols-4`` para acomodar la nueva tarjeta
-    sin apretar el layout de ``lg``.
+    con ``key: "proc"``, icono ⚙️ y label "Procesos". El layout
+    es la "lista vertical" (modo lista) introducida tras el demo
+    de Gemini ``_source/modo_lista.html``: el contenedor exterior
+    es ``flex flex-col`` con ``max-w-3xl`` y cada item es un
+    botón horizontal.
     """
     text = _read(AREA_LANDING_JS)
     # La entry en SUBVIEW_OPTIONS.
@@ -464,15 +480,19 @@ def test_area_landing_has_procesos_option() -> None:
     assert "Procesos" in text, (
         'Falta el label "Procesos" en la nueva entry de SUBVIEW_OPTIONS'
     )
-    # Grid actualizado a ``xl:grid-cols-4`` (mantiene 3 cols en
-    # ``lg`` para no apretar el layout existente).
-    assert "xl:grid-cols-4" in text, (
-        "Falta xl:grid-cols-4 en el grid de la welcome "
-        "(debería ampliarse a 4 columnas en pantallas anchas)"
+    # Layout "modo lista": contenedor flex-col con max-w-3xl y
+    # ``data-testid="area-landing-list"`` para anclar el smoke test.
+    # El grid anterior (``xl:grid-cols-4``) se eliminó porque la
+    # lista vertical escala mejor en monitores anchos.
+    assert "flex flex-col" in text, (
+        "El contenedor de la lista debe ser flex-col (modo lista)"
     )
-    assert "lg:grid-cols-3" in text, (
-        "lg:grid-cols-3 debe mantenerse (3 columnas en lg, "
-        "4 solo en xl para no apretar el layout)"
+    assert "max-w-3xl" in text, (
+        "El contenedor de la lista debe tener max-w-3xl para "
+        "limitar el ancho en monitores anchos"
+    )
+    assert 'data-testid="area-landing-list"' in text, (
+        'Falta el data-testid="area-landing-list" en el contenedor'
     )
 
 
