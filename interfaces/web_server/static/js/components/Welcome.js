@@ -4,7 +4,7 @@
  * Se muestra a pantalla completa cuando `store.topLevelView === 'welcome'`.
  * Pinta:
  *   * Logo corporativo gigante encapsulado en blanco.
- *   * Título "ZC Automation Suite" + subtítulo.
+ *   * Título "Zeus Control" + subtítulo.
  *   * Grid de tarjetas blancas dinámicas (V1), una por cada área devuelta por `GET /api/v1/areas`.
  *   * Estados de carga, error (con reintento) y vacío adaptados al tema oscuro.
  *
@@ -77,7 +77,7 @@ export default {
                         <img src="Logos Zeus Control.png" alt="Zeus Control" class="h-28 md:h-36 object-contain" onerror="this.src='/static/Logos Zeus Control.png'">
                     </div>
 
-                    <h1 class="text-4xl md:text-5xl font-bold mb-4 tracking-tight text-white">ZC Automation Suite</h1>
+                    <h1 class="text-4xl md:text-5xl font-bold mb-4 tracking-tight text-white">Zeus Control</h1>
                     <p class="text-on-shell-muted text-lg max-w-2xl mx-auto mb-2 font-light">Plataforma de Ingeniería, Sincronización y Generación de Código TIA Portal.</p>
 
                     <div class="flex items-center justify-center gap-4 mt-8 opacity-80">
