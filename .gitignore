@@ -242,10 +242,9 @@ _trash_temp/
 # Archivo de mensaje auxiliar usado en commits (se borra tras usar)
 .commit-msg.txt
 # Output files temporales de operaciones git / recompilacion tailwind
-push_*.txt
-mg_*.txt
-co_*.txt
-tw_*.txt
+# (cualquier archivo redirect de Start-Process con sufijo _out.txt / _err.txt)
+*_out.txt
+*_err.txt
 # Directorio de logs del worker OT y el tray launcher en runtime
 logs/
 # Copias de seguridad que crean ciertos editores (Notepad++/VS Code) y
