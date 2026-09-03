@@ -332,6 +332,7 @@ export default {
                     </thead>
                     <tbody>
                         <tr v-for="row in activeRows" :key="row.type + '-' + row.uid"
+                            class="border-b border-line"
                             :class="statusMeta[row.status]?.cls">
                             <td class="px-3 py-1.5 font-mono text-xs text-ink-muted">
                                 {{ row.numero }}
