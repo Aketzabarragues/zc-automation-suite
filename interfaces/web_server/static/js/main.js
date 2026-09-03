@@ -238,13 +238,8 @@ setInterval(async () => {
     }
 }, 1000);
 
-let _progressTickCount = 0;
 setInterval(async () => {
     if (store.topLevelView !== "area") return;
-    _progressTickCount += 1;
-    if (_progressTickCount <= 4) {
-        console.log("[zc-progress] tick", _progressTickCount);
-    }
     const r = await apiFetchProgress();
     if (r.ok && r.data && r.data.ok && r.data.progress) {
         store.progress = r.data.progress;
