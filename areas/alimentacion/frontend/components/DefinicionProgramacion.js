@@ -50,12 +50,10 @@ export default {
     emits: ["refresh"],
     setup(_, { emit }) {
         const fileInput = ref(null);
-        // Cache del último File subido, para que el botón
-        // "🔄 Actualizar" pueda re-leerlo sin re-prompting.
-        // Es state LOCAL del componente: si el operario recarga la
-        // SPA o navega fuera y vuelve, se pierde (y el botón
-        // cae al fallback `emit("refresh")` legacy).
-        const lastExcelFile = ref(null);
+        // El cache del último File subido vive en el store
+        // (``store.lastExcelFile``) para que persista entre
+        // sub-vistas del área. Antes era un ``ref`` local y se
+        // perdía al navegar a otra sub-vista.
 
         /**
          * Conteos para los badges de los 2 tabs principales.
@@ -137,7 +135,7 @@ export default {
                 if (r.ok) {
                     store.uploadSummary = r.data.summary || {};
                     pushLog("✅ Excel cargado en AppState", "success");
-                    lastExcelFile.value = file;
+                    store.lastExcelFile = file;
                     const mem = await apiFetchMemory();
                     if (mem.ok && mem.data && mem.data.ok) {
                         store.memoryState = mem.data;
@@ -152,16 +150,19 @@ export default {
         }
 
         /**
-         * Re-lee el último Excel cacheado en `lastExcelFile` sin
+         * Re-lee el último Excel cacheado en `store.lastExcelFile` sin
          * pedirle al operario que re-seleccione el archivo del disco.
-         * Si no hay archivo cacheado (p.ej. acaba de arrancar la SPA),
-         * cae al comportamiento legacy: pide al padre que dispare
+         * El cache vive en el store, así que sobrevive a navegaciones
+         * entre sub-vistas del área. Si no hay archivo cacheado
+         * (p.ej. acaba de arrancar la SPA o el operario cambió de
+         * área, lo que resetea `store.lastExcelFile`), cae al
+         * comportamiento legacy: pide al padre que dispare
          * `apiFetchMemory` vía `main.js` (escuchando el evento
          * "refresh").
          */
         async function handleActualizar() {
-            if (lastExcelFile.value) {
-                const file = lastExcelFile.value;
+            if (store.lastExcelFile) {
+                const file = store.lastExcelFile;
                 store.busy = true;
                 try {
                     const r = await apiUploadExcel(file);
@@ -189,7 +190,6 @@ export default {
             hasMemory,
             mainTabsData,
             handleExcel,
-            lastExcelFile,
             handleActualizar,
         };
     },
@@ -217,8 +217,8 @@ export default {
                 <div v-if="store.uploadSummary" class="mt-2 text-xs text-ink-muted">
                     <div class="text-accent">✅ Excel cargado</div>
                 </div>
-                <div v-if="lastExcelFile" class="mt-2 text-xs text-ink-muted">
-                    <div class="text-ink-muted">📎 Último archivo: <span class="font-mono text-ink">{{ lastExcelFile.name }}</span></div>
+                <div v-if="store.lastExcelFile" class="mt-2 text-xs text-ink-muted">
+                    <div class="text-ink-muted">📎 Último archivo: <span class="font-mono text-ink">{{ store.lastExcelFile.name }}</span></div>
                 </div>
             </section>
 

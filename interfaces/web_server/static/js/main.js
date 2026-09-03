@@ -89,6 +89,7 @@ const App = {
             store.plcs = [];
             store.selectedPlc = "";
             store.uploadSummary = null;
+            store.lastExcelFile = null;
             store.previewData = null;
             // 1. Cargar el manifest.
             const manifest = await loadArea(key);

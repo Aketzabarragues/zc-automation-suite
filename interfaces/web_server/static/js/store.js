@@ -72,6 +72,25 @@ export const store = reactive({
     uploadSummary: null,
 
     /**
+     * Referencia al último ``File`` Excel subido por el operario.
+     * Vive en el store (no como ``ref`` local del componente) para
+     * que el caption "📎 Último archivo: ..." y el botón "🔄
+     * Actualizar" de ``DefinicionProgramacion.js`` mantengan el
+     * contexto cuando el operario navega a otra sub-vista del área
+     * y vuelve. Se resetea al cambiar de área (ver ``goToArea`` y
+     * el reset equivalente en ``main.js::onAreaSelected``), igual
+     * que ``uploadSummary``.
+     *
+     * NO sobrevive a un F5: un ``File`` no se puede serializar a
+     * ``localStorage`` sin perderlo. Si tras un F5 el operario
+     * quiere re-leer el archivo, debe volver a seleccionarlo del
+     * picker; mientras tanto, el botón "🔄 Actualizar" cae al
+     * fallback ``emit("refresh")`` (refresco de memoria sin
+     * re-upload).
+     */
+    lastExcelFile: null,
+
+    /**
      * Estado del ``AppState`` volcado por la API
      * ``GET /api/v1/state/dispositivos``.
      *
@@ -312,6 +331,7 @@ export async function goToArea(key) {
     store.selectedPlc = "";
     store.projectInfo = null;
     store.uploadSummary = null;
+    store.lastExcelFile = null;
     store.previewData = null;
     // Cargar el manifest del área antes de cambiar ``topLevelView``.
     // Si falla, log warning y continuar (modo degradado).
