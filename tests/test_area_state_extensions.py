@@ -93,7 +93,7 @@ def test_install_attaches_six_properties_to_class(fresh_state: AppState) -> None
     posterior). Verificamos también que la ``property`` retornada es
     un ``property`` descriptor (no un valor estático).
     """
-    from areas.alimentacion.application.state_extensions import install
+    from areas.alimentacion.application.disp_state_extensions import install
 
     install(fresh_state)
     for attr in (
@@ -111,7 +111,7 @@ def test_install_makes_getter_delegate_to_get_devices(
     fresh_state: AppState,
 ) -> None:
     """``state.dispositivos_<hw>`` lee de ``get_devices(hw)``."""
-    from areas.alimentacion.application.state_extensions import install
+    from areas.alimentacion.application.disp_state_extensions import install
 
     install(fresh_state)
     fresh_state.set_devices("ed", [{"uid": "ED_001"}, {"uid": "ED_002"}])
@@ -124,7 +124,7 @@ def test_install_makes_setter_delegate_to_set_devices(
     fresh_state: AppState,
 ) -> None:
     """``state.dispositivos_<hw> = [...]`` actualiza ``get_devices(hw)``."""
-    from areas.alimentacion.application.state_extensions import install
+    from areas.alimentacion.application.disp_state_extensions import install
 
     install(fresh_state)
     fresh_state.dispositivos_ea = [{"uid": "EA_001"}]
@@ -139,7 +139,7 @@ def test_install_returns_empty_list_for_unset_hw(
     fresh_state: AppState,
 ) -> None:
     """Las 6 properties retornan ``[]`` si el hw aún no se asignó."""
-    from areas.alimentacion.application.state_extensions import install
+    from areas.alimentacion.application.disp_state_extensions import install
 
     install(fresh_state)
     assert fresh_state.dispositivos_ed == []
@@ -161,7 +161,7 @@ def test_install_propagates_to_existing_and_future_instances() -> None:
     ``install()``, una nueva instancia ve las properties y comparte
     estado con otra instancia vía el ``_dispositivos`` interno.
     """
-    from areas.alimentacion.application.state_extensions import install
+    from areas.alimentacion.application.disp_state_extensions import install
 
     # Forzar install (idempotente: solo re-asigna ``property``).
     install(AppState())

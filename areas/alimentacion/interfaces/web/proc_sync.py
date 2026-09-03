@@ -6,7 +6,7 @@ sincronización de comentarios de DBs de procesos
 (PReal + PInt + ALM).
 
 ``/sync/preview`` y ``/sync/commit`` invocan
-``SyncProcesosComentariosUseCase``, que realiza el sync de los 3
+``ProcSyncComentariosUseCase``, que realiza el sync de los 3
 arrays en una sola transacción COM.
 
 NO instancia gateways: vienen inyectados vía ``Depends``.
@@ -18,9 +18,9 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from areas.alimentacion.application.proc_slot_map_builder import build_proceso_slot_maps
-from areas.alimentacion.application.use_cases.sync_procesos_comentarios import (
-    SyncProcesosComentariosUseCase,
+from areas.alimentacion.application.proc_slot_map_builder import proc_build_slot_maps
+from areas.alimentacion.application.use_cases.proc_sync_comentarios import (
+    ProcSyncComentariosUseCase,
 )
 from core.application.log_buffer import LogBuffer
 from core.application.progress_buffer import ProgressTracker
@@ -81,7 +81,7 @@ async def sync_preview(
     bloques_cache = (
         gateway.get_bloques_cache(plc_name) if plc_name else None
     )
-    use_case = SyncProcesosComentariosUseCase(
+    use_case = ProcSyncComentariosUseCase(
         gateway=gateway,
         config_manager=config_manager,
         app_state=state,
@@ -121,7 +121,7 @@ async def sync_commit(
 ) -> dict[str, Any]:
     """APPLY: 3 arrays (PReal + PInt + ALM) en UNA transacción COM única.
 
-    El use case ``SyncProcesosComentariosUseCase.ejecutar_transaccion``
+    El use case ``ProcSyncComentariosUseCase.ejecutar_transaccion``
     recalcula el diff desde el AppState (NO usa la ``prevision`` del
     body para evitar race conditions con cambios de Excel) y lo
     aplica en una sola transacción que envía 3 sub-ops al worker
@@ -134,7 +134,7 @@ async def sync_commit(
         if req.plc_name
         else None
     )
-    use_case = SyncProcesosComentariosUseCase(
+    use_case = ProcSyncComentariosUseCase(
         gateway=gateway,
         config_manager=config_manager,
         app_state=state,

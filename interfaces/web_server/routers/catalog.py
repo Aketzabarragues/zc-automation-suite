@@ -13,7 +13,7 @@ paridad con el resto de extension points (``contributes_routers``,
 catálogo sin tocar este shell.
 
 Hoy el área de alimentación (ver
-``areas.alimentacion.domain.catalog.build_catalog``) aporta estas
+``areas.alimentacion.domain.disp_catalog.build_catalog``) aporta estas
 claves:
 
   - ``device_tabs``     ``[{hw_type, canonical, label}, ...]``

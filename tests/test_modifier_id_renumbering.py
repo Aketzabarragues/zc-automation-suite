@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from areas.alimentacion.infrastructure.xml.modifiers import TagTableModifier
+from areas.alimentacion.infrastructure.xml.disp_tag_table_modifier import TagTableModifier
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _OPERATOR_XML = _REPO_ROOT / "_source" / ".build_cache" / "base" / "tags" / "2000_Dispositivos" / "2000_Disp_M.xml"

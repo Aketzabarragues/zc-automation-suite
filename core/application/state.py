@@ -137,7 +137,7 @@ def get_app_state() -> AppState:
 
     Tras crear el Singleton, invoca el ``contributes_state_extensions``
     de cada área registrada (p. ej. ``areas.alimentacion.application.
-    state_extensions.install``) para que el área pueda aportar
+    disp_state_extensions.install``) para que el área pueda aportar
     properties legacy sobre la CLASE ``AppState`` (no la instancia),
     con efecto en todas las instancias presentes y futuras.
 

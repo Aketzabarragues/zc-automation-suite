@@ -13,6 +13,6 @@ Comandos expuestos:
   - ``POST /api/v1/portal/attach``     → gateway.attach_portal()
   - ``POST /api/v1/portal/open-new``   → gateway.open_new_portal(project_file_path)
   - ``POST /api/v1/dispositivos/dimensions`` → SyncDispositivosDimensionsUseCase
-  - ``POST /api/v1/dispositivos/instances``   → SyncDispositivosInstancesUseCase
+  - ``POST /api/v1/dispositivos/instances``   → DispSyncInstancesUseCase
   - ``GET  /``                         → UI HTML simple (formulario)
 """

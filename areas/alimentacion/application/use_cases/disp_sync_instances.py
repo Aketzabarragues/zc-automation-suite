@@ -50,22 +50,22 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from areas.alimentacion.application.use_cases.diff_constants import (
-    CalculateConstantsDiffUseCase,
+from areas.alimentacion.application.use_cases.disp_diff_constants import (
+    DispCalculateConstantsDiffUseCase,
 )
 from core.application.progress_buffer import ProgressTracker, get_progress_tracker
 from core.application.state import AppState, get_app_state
 from core.infrastructure.config_manager import ConfigManager
 from core.infrastructure.gateway import TIAProcessGateway
-from areas.alimentacion.infrastructure.xml.modifiers import TagTableModifier
+from areas.alimentacion.infrastructure.xml.disp_tag_table_modifier import TagTableModifier
 
 
 _logger = logging.getLogger(
-    f"{__name__}.SyncDispositivosInstancesUseCase"
+    f"{__name__}.DispSyncInstancesUseCase"
 )
 
 
-class SyncDispositivosInstancesUseCase:
+class DispSyncInstancesUseCase:
     """Caso de Uso: sincroniza N_MAX + instancias del subdominio alimentacion.
 
     El mapeo ``hw_type \u2194 atributo AppState`` se obtiene del
@@ -642,10 +642,10 @@ class SyncDispositivosInstancesUseCase:
             "Aplicando comentarios por instancia a los 6 DBs...",
         )
         try:
-            from areas.alimentacion.application.slot_map_builder import (
-                build_slot_maps,
+            from areas.alimentacion.application.disp_slot_map_builder import (
+                disp_build_slot_maps,
             )
-            slot_maps, db_names, db_array_names, build_warnings = build_slot_maps(
+            slot_maps, db_names, db_array_names, build_warnings = disp_build_slot_maps(
                 self._state, self._config
             )
             warnings = list(build_warnings)
@@ -697,7 +697,7 @@ class SyncDispositivosInstancesUseCase:
         """Calcula las ops ``update_user_constant_value`` para N_MAX.
 
         Reutiliza ``_extract_nmax_diff`` para leer TIA + AppState, y
-        ``CalculateConstantsDiffUseCase.calculate_nmax_diff`` para
+        ``DispCalculateConstantsDiffUseCase.calculate_nmax_diff`` para
         emitir las ops. Se ejecuta en el hilo del caller (no
         necesita ``asyncio.to_thread`` porque no hay I/O).
         """
@@ -706,7 +706,7 @@ class SyncDispositivosInstancesUseCase:
         current = nmax_block["current"]
         desired = nmax_block["desired"]
         nmax_table = self._config.get_global_config_table_name()
-        return CalculateConstantsDiffUseCase.calculate_nmax_diff(
+        return DispCalculateConstantsDiffUseCase.calculate_nmax_diff(
             plc_name=plc_name,
             config_table_name=nmax_table,
             current_state=current,
@@ -725,7 +725,7 @@ class SyncDispositivosInstancesUseCase:
           - ``actualizar``  : el valor cambia X \u2192 Y.
           - ``sin_cambios`` : el valor coincide.
         """
-        from areas.alimentacion.infrastructure.xml.tag_table_parser import SimaticMLTagParser
+        from areas.alimentacion.infrastructure.xml.disp_tag_table_parser import SimaticMLTagParser
 
         nmax_folder = self._config.get_tia_folder_nmax()
         nmax_table = self._config.get_global_config_table_name()
@@ -907,4 +907,4 @@ class SyncDispositivosInstancesUseCase:
         return result
 
 
-__all__ = ["SyncDispositivosInstancesUseCase"]
+__all__ = ["DispSyncInstancesUseCase"]

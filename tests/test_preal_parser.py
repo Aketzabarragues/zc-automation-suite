@@ -22,7 +22,7 @@ from areas.alimentacion.domain.models.excel_cache import ParamRealPLC
 from areas.alimentacion.infrastructure.parsers._xlsx_helpers import (
     _safe_num_lista,
 )
-from areas.alimentacion.infrastructure.parsers.preal import PRealParser
+from areas.alimentacion.infrastructure.parsers.proc_preal import PRealParser
 
 
 # ── Helpers de construcción de Excels sintéticos ────────────────────────

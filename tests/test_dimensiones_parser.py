@@ -19,7 +19,7 @@ from openpyxl import Workbook
 from openpyxl.workbook.defined_name import DefinedName
 
 from areas.alimentacion.domain.models.excel_cache import DimensionesDispositivos
-from areas.alimentacion.infrastructure.parsers.dimensiones import DimensionesParser
+from areas.alimentacion.infrastructure.parsers.disp_dimensiones import DimensionesParser
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────

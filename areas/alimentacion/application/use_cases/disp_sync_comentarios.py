@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from areas.alimentacion.application.slot_map_builder import build_slot_maps
+from areas.alimentacion.application.disp_slot_map_builder import disp_build_slot_maps
 from core.application.progress_buffer import ProgressTracker, get_progress_tracker
 from core.application.state import AppState
 from core.infrastructure.config_manager import ConfigManager
@@ -120,7 +120,7 @@ class DispComentariosSyncUseCase:
             self._progress.start_stage("read_state")
             self._progress.finish_stage("read_state")
             self._progress.start_stage("build_slot_maps")
-            slot_maps, _, _, build_warnings = build_slot_maps(
+            slot_maps, _, _, build_warnings = disp_build_slot_maps(
                 self._state, self._config
             )
             warnings.extend(build_warnings)
@@ -168,7 +168,7 @@ class DispComentariosSyncUseCase:
         self._progress.finish_stage("read_state", "AppState OK")
 
         self._progress.start_stage("build_slot_maps", "Construyendo slot_maps...")
-        slot_maps, db_names, db_array_names, build_warnings = build_slot_maps(
+        slot_maps, db_names, db_array_names, build_warnings = disp_build_slot_maps(
             self._state, self._config
         )
         warnings.extend(build_warnings)

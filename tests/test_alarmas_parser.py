@@ -23,7 +23,7 @@ from openpyxl import Workbook
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
 from areas.alimentacion.domain.models.excel_cache import AlarmaPLC
-from areas.alimentacion.infrastructure.parsers.alarmas import AlarmasParser
+from areas.alimentacion.infrastructure.parsers.proc_alarmas import AlarmasParser
 
 
 # ── Helpers de construcción de Excels sintéticos ────────────────────────

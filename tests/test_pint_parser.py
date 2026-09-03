@@ -22,7 +22,7 @@ from areas.alimentacion.domain.models.excel_cache import (
     ParamIntPLC,
     ParamRealPLC,
 )
-from areas.alimentacion.infrastructure.parsers.pint import PIntParser
+from areas.alimentacion.infrastructure.parsers.proc_pint import PIntParser
 
 
 # ── Helpers de construcción de Excels sintéticos ────────────────────────

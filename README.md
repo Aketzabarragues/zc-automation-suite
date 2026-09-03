@@ -466,8 +466,8 @@ Paquete autocontenido que **se autodescribe** con un `AreaSpec` en su `__init__.
 - **Modelos de dominio** en `domain/models/dispositivos.py` (Dispositivo, DispED/EA/SA/V/M/M_VF, DimensionesDispositivos).
 - **Catálogo de presentación** en `domain/catalog.py::build_catalog` (consumido por `GET /api/v1/catalog`).
 - **Casos de uso de sync** en `application/use_cases/`:
-  - `diff_constants.py::CalculateConstantsDiffUseCase` (motor puro de diffs N_MAX y renombres).
-  - `sync_dispositivos_instances.py::SyncDispositivosInstancesUseCase` (sync completo N_MAX + devices, preview/apply en una sola transacción COM).
+  - `disp_diff_constants.py::DispCalculateConstantsDiffUseCase` (motor puro de diffs N_MAX y renombres).
+  - `disp_sync_instances.py::DispSyncInstancesUseCase` (sync completo N_MAX + devices, preview/apply en una sola transacción COM).
   - `sync_comentarios_disp.py::DispComentariosSyncUseCase` (aplicar comentarios por instancia).
 - **Parser Excel corporativo** en `infrastructure/parsers/alimentacion_excel_parser.py` (compone `ExcelParser` y devuelve `dict[str, list[IHardwareDevice]]` tipado).
 - **Modificadores SD offline** en `infrastructure/sd/` (comentarios por instancia + registro MLC).
@@ -546,15 +546,15 @@ else:
 from core.infrastructure.gateway import TIAProcessGateway
 from core.infrastructure.config_manager import ConfigManager
 from core.application.state import get_app_state
-from areas.alimentacion.application.use_cases.sync_dispositivos_instances import (
-    SyncDispositivosInstancesUseCase,
+from areas.alimentacion.application.use_cases.disp_sync_instances import (
+    DispSyncInstancesUseCase,
 )
 
 gateway = TIAProcessGateway()
 config = ConfigManager("infrastructure/config.json")
 state = get_app_state()  # Singleton con Excel ya cargado
 
-use_case = SyncDispositivosInstancesUseCase(
+use_case = DispSyncInstancesUseCase(
     gateway=gateway, config_manager=config, state=state,
 )
 

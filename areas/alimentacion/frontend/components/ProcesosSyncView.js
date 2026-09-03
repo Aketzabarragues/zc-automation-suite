@@ -56,7 +56,7 @@ import {
 // (➕ AGREGAR, ✏️ RENOMBRAR, 🗑️ ELIMINAR, ✓ OK). Mantener un solo
 // origen evita que el operario vea mensajes distintos en las dos
 // vistas de sync.
-import { STATUS_META } from "./disp_status.js";
+import { STATUS_META } from "../lib/disp_status.js";
 
 export default {
     name: "ProcesosSyncView",

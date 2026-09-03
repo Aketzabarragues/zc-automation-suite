@@ -19,7 +19,7 @@ Historia
 --------
 Originalmente este módulo contenía la implementación completa de
 ``DispMLCRegistry``. Tras la introducción de
-``ProcesoCommentUpdater`` (que también necesita un registro de MLCs
+``ProcCommentUpdater`` (que también necesita un registro de MLCs
 para los DBs de procesos PReal / PInt / ALM), se decidió unificar
 la implementación en ``MLCRegistry`` (nombre neutral al área) y
 dejar este archivo como shim.

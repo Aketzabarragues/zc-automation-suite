@@ -38,7 +38,7 @@ import { computed, ref } from "/js/vendor/vue.esm-browser.prod.js";
 // Imports absolutos: ver nota en ``Sidebar.js``.
 import { store, pushLog } from "/js/store.js";
 import { apiGeneratePreview, apiCommit } from "/js/api.js";
-import { STATUS_META } from "./disp_status.js";
+import { STATUS_META } from "../lib/disp_status.js";
 
 export default {
     name: "Dispositivos",

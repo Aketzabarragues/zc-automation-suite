@@ -35,10 +35,10 @@ abajo: el área aporta TODOS los extension points disponibles hoy.
 """
 from __future__ import annotations
 
-from areas.alimentacion.application.state_extensions import (
+from areas.alimentacion.application.disp_state_extensions import (
     install as install_state,
 )
-from areas.alimentacion.domain.catalog import build_catalog as build_alim_catalog
+from areas.alimentacion.domain.disp_catalog import build_catalog as build_alim_catalog
 from areas.alimentacion.frontend.manifest import build as build_manifest
 from areas.alimentacion.infrastructure.config_defaults import (
     install as install_defaults,

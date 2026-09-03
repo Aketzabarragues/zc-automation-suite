@@ -35,7 +35,7 @@ from __future__ import annotations
 from typing import Any
 
 
-class CalculateConstantsDiffUseCase:
+class DispCalculateConstantsDiffUseCase:
     """Motor puro de diffs para PlcUserConstant (N_MAX y Dispositivos)."""
 
     # ──────────────────────────────────────────────────────────────────
@@ -174,4 +174,4 @@ class CalculateConstantsDiffUseCase:
         return operations
 
 
-__all__ = ["CalculateConstantsDiffUseCase"]
+__all__ = ["DispCalculateConstantsDiffUseCase"]

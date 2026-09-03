@@ -5,7 +5,7 @@ COMMAND_REGISTRY del worker (via ``load_extra_commands`` del area
 alimentacion), que tiene la firma esperada, y que falla rapido ante
 argumentos invalidos. La logica de N_MAX + renames + devices se cubre
 indirectamente via los tests del use case
-(test_sync_dispositivos_instances.py) que mockean el gateway.
+(test_sync_disp_instances.py) que mockean el gateway.
 
 Los tests de deep-integration con el portal mock son fragiles (MagicMock
 + closure + nested function lookup) y se omiten a favor de los tests

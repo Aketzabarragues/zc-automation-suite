@@ -30,8 +30,8 @@ from pathlib import Path
 from typing import Any
 
 from areas.alimentacion.application.proc_slot_map_builder import (
-    ProcesoSlotMap,
-    build_proceso_slot_maps,
+    ProcSlotMap,
+    proc_build_slot_maps,
 )
 from core.application.progress_buffer import ProgressTracker, get_progress_tracker
 from core.application.state import AppState
@@ -40,10 +40,10 @@ from core.infrastructure.gateway import TIAProcessGateway
 from core.models.bloque_cache import BloqueCache
 
 
-_logger = logging.getLogger(f"{__name__}.SyncProcesosComentariosUseCase")
+_logger = logging.getLogger(f"{__name__}.ProcSyncComentariosUseCase")
 
 
-class SyncProcesosComentariosUseCase:
+class ProcSyncComentariosUseCase:
     """Caso de uso: sincronizar comentarios de los 3 arrays de un proceso.
 
     Attributes:
@@ -206,7 +206,7 @@ class SyncProcesosComentariosUseCase:
             if _track:
                 self._progress.start_stage("build_slot_maps", "Cruzando Excel ↔ bloques...")
             try:
-                slot_map = build_proceso_slot_maps(
+                slot_map = proc_build_slot_maps(
                     self._state, self._config, proc_uid, bloques
                 )
             except RuntimeError as exc:
@@ -461,7 +461,7 @@ class SyncProcesosComentariosUseCase:
             # build_slot_maps: recalcular desde AppState (NO usar prevision).
             if _track:
                 self._progress.start_stage("build_slot_maps", "Recalculando diff...")
-            slot_map = build_proceso_slot_maps(
+            slot_map = proc_build_slot_maps(
                 self._state, self._config, proc_uid, bloques
             )
             if slot_map.missing_blocks:
@@ -625,7 +625,7 @@ class SyncProcesosComentariosUseCase:
     def _build_work_dir(self, suffix: str = "commit") -> Path:
         """Construye el directorio de trabajo del worker.
 
-        Patrón análogo a ``SyncDispositivosInstancesUseCase``:
+        Patrón análogo a ``DispSyncInstancesUseCase``:
         ``<build_cache>/procesos/<suffix>/``. El directorio se
         conserva tras la operación para permitir inspección manual
         y ``git diff``.
@@ -649,7 +649,7 @@ class SyncProcesosComentariosUseCase:
 
     def _compose_arrays(
         self,
-        slot_map: ProcesoSlotMap,
+        slot_map: ProcSlotMap,
         preal_current: "dict[int, str | None] | None" = None,
         pint_current: "dict[int, str | None] | None" = None,
         alm_current: "dict[int, str | None] | None" = None,
@@ -662,7 +662,7 @@ class SyncProcesosComentariosUseCase:
 
         Slots del Excel (``slot_map_dict``):
           - Si se pasan los mapas ``*_current`` (devueltos por
-            ``ProcesoCommentUpdater.read_current_comments``), el
+            ``ProcCommentUpdater.read_current_comments``), el
             ``current`` es el ``es-ES`` real de TIA y ``action``:
               - ``"agregar"`` si el slot no existe en TIA (``current
                 is None``) → el apply lo creará.
@@ -782,7 +782,7 @@ class SyncProcesosComentariosUseCase:
     def _compose_response(
         self,
         proc_uid: int,
-        slot_map: ProcesoSlotMap,
+        slot_map: ProcSlotMap,
         preal_current: "dict[int, str | None] | None" = None,
         pint_current: "dict[int, str | None] | None" = None,
         alm_current: "dict[int, str | None] | None" = None,
@@ -814,7 +814,7 @@ class SyncProcesosComentariosUseCase:
         }
 
     async def _compute_nmax_diff(
-        self, slot_map: ProcesoSlotMap
+        self, slot_map: ProcSlotMap
     ) -> dict[str, Any]:
         """Lee los N_MAX del proceso (cards SOLO VISUALES).
 
@@ -828,7 +828,7 @@ class SyncProcesosComentariosUseCase:
             ``f"{proc.uid}_N_MAX_{suffix}"`` (p. ej.
             ``100_N_MAX_PREAL``), con el sufijo del config.
 
-        Compara el desired (de ``ProcesoSlotMap.nmax``,
+        Compara el desired (de ``ProcSlotMap.nmax``,
         ``len()`` de las listas filtradas del Excel) contra el
         current (exportando la tabla del proceso con
         ``gateway.export_plc_tags_xml`` y parseando con
@@ -853,7 +853,7 @@ class SyncProcesosComentariosUseCase:
             nada: cualquier excepción se loggea como warning y se
             devuelve un bloque degradado.
         """
-        from areas.alimentacion.infrastructure.xml.tag_table_parser import (
+        from areas.alimentacion.infrastructure.xml.disp_tag_table_parser import (
             SimaticMLTagParser,
         )
 
@@ -942,7 +942,7 @@ class SyncProcesosComentariosUseCase:
         }
 
     async def _export_and_read_current(
-        self, slot_map: ProcesoSlotMap
+        self, slot_map: ProcSlotMap
     ) -> "tuple[dict[int, str | None], dict[int, str | None], dict[int, str | None]]":
         """Exporta los 2 DBs del proceso a un work_dir temporal y
         lee los ``es-ES`` actuales de cada slot de los 3 arrays
@@ -952,7 +952,7 @@ class SyncProcesosComentariosUseCase:
           1. Exporta ``DB_PARAM`` y ``DB_ALM`` a
              ``<build_cache>/procesos_preview/``. Esto puede
              tardar 1-3 min en PLCs grandes.
-          2. Crea un ``ProcesoCommentUpdater`` por DB (sin
+          2. Crea un ``ProcCommentUpdater`` por DB (sin
              ``slot_map``, solo para usar ``read_current_comments``)
              y consulta el ``es-ES`` actual de cada slot.
           3. Devuelve los 3 mapas ``{slot: current_text | None}``.
@@ -963,7 +963,7 @@ class SyncProcesosComentariosUseCase:
             un diff con ``current=None``.
         """
         from areas.alimentacion.infrastructure.sd.proc_comment_updater import (
-            ProcesoCommentUpdater,
+            ProcCommentUpdater,
         )
         work_dir = self._build_work_dir(suffix="preview")
         plc_name = (
@@ -994,12 +994,12 @@ class SyncProcesosComentariosUseCase:
         # updaters en modo solo-lectura (sin slot_map y sin array_name
         # de instancia, porque cada read_current_comments recibe su
         # propio array_name por parámetro).
-        updater_param = ProcesoCommentUpdater(
+        updater_param = ProcCommentUpdater(
             s7dcl_path=work_dir / f"{slot_map.db_param_name}.s7dcl",
             s7res_path=work_dir / f"{slot_map.db_param_name}.s7res",
             slot_map={},
         )
-        updater_alm = ProcesoCommentUpdater(
+        updater_alm = ProcCommentUpdater(
             s7dcl_path=work_dir / f"{slot_map.db_alm_name}.s7dcl",
             s7res_path=work_dir / f"{slot_map.db_alm_name}.s7res",
             slot_map={},
@@ -1041,4 +1041,4 @@ def _extract_codigo(db_param_name: str) -> str:
     return ""
 
 
-__all__ = ["SyncProcesosComentariosUseCase"]
+__all__ = ["ProcSyncComentariosUseCase"]

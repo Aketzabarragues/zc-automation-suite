@@ -61,11 +61,11 @@ def register(mcp: "FastMCP") -> None:
             - FileNotFoundError si no se puede exportar el árbol de
               tags del PLC.
         """
-        from areas.alimentacion.application.use_cases.sync_dispositivos_instances import (
-            SyncDispositivosInstancesUseCase,
+        from areas.alimentacion.application.use_cases.disp_sync_instances import (
+            DispSyncInstancesUseCase,
         )
 
-        uc = SyncDispositivosInstancesUseCase(
+        uc = DispSyncInstancesUseCase(
             gateway=deps["gateway"],
             config_manager=deps["config_manager"],
             state=deps["app_state"],
@@ -103,11 +103,11 @@ def register(mcp: "FastMCP") -> None:
         Errores:
             - RuntimeError si TIA no está conectado o la transacción falla.
         """
-        from areas.alimentacion.application.use_cases.sync_dispositivos_instances import (
-            SyncDispositivosInstancesUseCase,
+        from areas.alimentacion.application.use_cases.disp_sync_instances import (
+            DispSyncInstancesUseCase,
         )
 
-        uc = SyncDispositivosInstancesUseCase(
+        uc = DispSyncInstancesUseCase(
             gateway=deps["gateway"],
             config_manager=deps["config_manager"],
             state=deps["app_state"],
@@ -139,7 +139,7 @@ def register(mcp: "FastMCP") -> None:
         Errores:
             - RuntimeError si AppState vacío o TIA no conectado.
         """
-        from areas.alimentacion.application.use_cases.sync_comentarios_disp import (
+        from areas.alimentacion.application.use_cases.disp_sync_comentarios import (
             DispComentariosSyncUseCase,
         )
         from core.application.progress_buffer import get_progress_tracker

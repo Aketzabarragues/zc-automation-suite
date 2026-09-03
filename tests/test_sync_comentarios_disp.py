@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from areas.alimentacion.application.use_cases.sync_comentarios_disp import (
+from areas.alimentacion.application.use_cases.disp_sync_comentarios import (
     DispComentariosSyncUseCase,
 )
 from core.application.progress_buffer import ProgressTracker
@@ -219,5 +219,5 @@ def test_preview_warning_si_app_state_vacio(
     assert any("AppState" in w for w in result["warnings"])
 
 
-# ── La lógica de _build_slot_map_for_hw vive ahora en slot_map_builder. ──
+# ── La lógica de disp_build_slot_map_for_hw vive ahora en disp_slot_map_builder. ──
 # Ver tests/test_slot_map_builder.py.

@@ -33,8 +33,8 @@ from core.application.progress_buffer import (  # noqa: E402
     get_progress_tracker,
 )
 from core.application.state import AppState  # noqa: E402
-from areas.alimentacion.application.use_cases.sync_dispositivos_instances import (  # noqa: E402
-    SyncDispositivosInstancesUseCase,
+from areas.alimentacion.application.use_cases.disp_sync_instances import (  # noqa: E402
+    DispSyncInstancesUseCase,
 )
 from core.infrastructure.config_manager import ConfigManager  # noqa: E402
 from core.infrastructure.gateway import TIAProcessGateway  # noqa: E402
@@ -85,7 +85,7 @@ def test_generar_prevision_emits_4_stages(
 
     gateway.export_plc_tags_xml = fake_export  # type: ignore[method-assign]
 
-    use_case = SyncDispositivosInstancesUseCase(
+    use_case = DispSyncInstancesUseCase(
         gateway=gateway,
         config_manager=minimal_config,
         state=AppState(),
@@ -160,7 +160,7 @@ def test_ejecutar_transaccion_emits_7_stages(
         return False
     gateway.compile_plc = fake_compile  # type: ignore[method-assign]
 
-    use_case = SyncDispositivosInstancesUseCase(
+    use_case = DispSyncInstancesUseCase(
         gateway=gateway,
         config_manager=minimal_config,
         state=AppState(),
@@ -220,7 +220,7 @@ def test_ejecutar_transaccion_finish_false_on_batch_failure(
         raise RuntimeError("commit_devices_sync abortado en el paso 1")
     gateway.commit_devices_sync = fake_commit  # type: ignore[method-assign]
 
-    use_case = SyncDispositivosInstancesUseCase(
+    use_case = DispSyncInstancesUseCase(
         gateway=gateway,
         config_manager=minimal_config,
         state=AppState(),
@@ -313,7 +313,7 @@ async def test_apply_comentarios_disp_fallo_no_revienta_el_commit(
         raise RuntimeError("TIA no responde")
     gateway.update_disp_instance_comments_batch = fake_comments_batch  # type: ignore[method-assign]
 
-    use_case = SyncDispositivosInstancesUseCase(
+    use_case = DispSyncInstancesUseCase(
         gateway=gateway,
         config_manager=minimal_config,
         state=AppState(),

@@ -29,7 +29,7 @@ Este módulo es un **refactor** del antiguo ``DispMLCRegistry``
 (ahora alias deprecado en ``disp_mlc_registry.py``). La razón del
 refactor es que la misma clase se reusa tanto para los
 ``DispCommentUpdater`` (DBs de dispositivos) como para los nuevos
-``ProcesoCommentUpdater`` (DBs de procesos), y el nombre ``DispMLC``
+``ProcCommentUpdater`` (DBs de procesos), y el nombre ``DispMLC``
 ya no representa el alcance. La API pública es 100% idéntica a la
 anterior, por lo que todos los tests legacy
 (``test_disp_mlc_registry.py``) siguen pasando sin cambios.

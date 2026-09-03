@@ -17,7 +17,7 @@ from openpyxl import Workbook
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
 from areas.alimentacion.domain.models.excel_cache import ProcesoPLC
-from areas.alimentacion.infrastructure.parsers.procesos import ProcesosParser
+from areas.alimentacion.infrastructure.parsers.proc_procesos import ProcesosParser
 
 
 # ── Helpers de construcción de Excels sintéticos ────────────────────────

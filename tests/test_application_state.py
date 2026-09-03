@@ -7,7 +7,7 @@ Cubre la API data-driven del Singleton:
   - Single-tenant: ``get_app_state()`` retorna SIEMPRE la misma instancia.
 
 Tras PR 2, las 6 properties legacy (``dispositivos_ed/ea/sa/v/m/m_vf``)
-vienen aportadas por ``areas.alimentacion.application.state_extensions``;
+vienen aportadas por ``areas.alimentacion.application.disp_state_extensions``;
 este módulo las prueba invocando ``install`` explícitamente (el
 Singleton las activa perezosamente, pero las ``AppState`` "frescas"
 de los tests también las necesitan para validar back-compat).
@@ -29,7 +29,7 @@ from core.application.state import AppState, get_app_state
 # cuando algún test las solicita. Importamos el módulo del área
 # explícitamente: su ``__init__`` registra la ``AREA_SPEC`` y las
 # properties quedan disponibles al instanciar ``AppState()`` aquí.
-from areas.alimentacion.application.state_extensions import (  # noqa: E402, F401
+from areas.alimentacion.application.disp_state_extensions import (  # noqa: E402, F401
     install as _install_legacy_state_props,
 )
 

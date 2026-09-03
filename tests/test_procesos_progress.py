@@ -38,8 +38,8 @@ from core.infrastructure.config_manager import ConfigManager  # noqa: E402
 from core.infrastructure.gateway import TIAProcessGateway  # noqa: E402
 from core.models.bloque_cache import BloqueCache  # noqa: E402
 from core.models.bloque_plc import BloquePLC  # noqa: E402
-from areas.alimentacion.application.use_cases.sync_procesos_comentarios import (  # noqa: E402
-    SyncProcesosComentariosUseCase,
+from areas.alimentacion.application.use_cases.proc_sync_comentarios import (  # noqa: E402
+    ProcSyncComentariosUseCase,
 )
 
 
@@ -112,7 +112,7 @@ def test_generar_prevision_done_stage_closes_correctly() -> None:
     tracker = ProgressTracker()
     gateway = MagicMock(spec=TIAProcessGateway)
     config = MagicMock(spec=ConfigManager)
-    use_case = SyncProcesosComentariosUseCase(
+    use_case = ProcSyncComentariosUseCase(
         gateway=gateway,
         config_manager=config,
         app_state=_make_state(_make_excel_cache()),
@@ -158,7 +158,7 @@ def test_generar_prevision_done_closes_when_missing_blocks() -> None:
     tracker = ProgressTracker()
     gateway = MagicMock(spec=TIAProcessGateway)
     config = MagicMock(spec=ConfigManager)
-    use_case = SyncProcesosComentariosUseCase(
+    use_case = ProcSyncComentariosUseCase(
         gateway=gateway,
         config_manager=config,
         app_state=_make_state(_make_excel_cache()),
@@ -183,7 +183,7 @@ def test_generar_prevision_done_closes_when_cache_is_none() -> None:
     tracker = ProgressTracker()
     gateway = MagicMock(spec=TIAProcessGateway)
     config = MagicMock(spec=ConfigManager)
-    use_case = SyncProcesosComentariosUseCase(
+    use_case = ProcSyncComentariosUseCase(
         gateway=gateway,
         config_manager=config,
         app_state=_make_state(_make_excel_cache()),
@@ -216,7 +216,7 @@ def test_ejecutar_transaccion_done_stage_closes_correctly() -> None:
     )
     config = MagicMock(spec=ConfigManager)
     config.get_tia_folder_proceso.return_value = "003_Procesos"
-    use_case = SyncProcesosComentariosUseCase(
+    use_case = ProcSyncComentariosUseCase(
         gateway=gateway,
         config_manager=config,
         app_state=_make_state(_make_excel_cache()),
@@ -251,7 +251,7 @@ def test_generar_prevision_diff_real_con_archivos_tia(tmp_path) -> None:
     archivos .s7dcl/.s7res REALES en disco. El mock del gateway
     escribe los archivos en lugar de llamar a TIA (simula lo que
     haría export_block), y el use case los lee con
-    ProcesoCommentUpdater.read_current_comments.
+    ProcCommentUpdater.read_current_comments.
 
     Escenario:
       - DB_PARAM con PReal[1..2] y ALM[1] (en DB_ALM).
@@ -368,7 +368,7 @@ def test_generar_prevision_diff_real_con_archivos_tia(tmp_path) -> None:
     # preview acabará escribiendo en ``tmp_path/procesos/preview``.
     config = MagicMock(spec=ConfigManager)
     tracker = ProgressTracker()
-    use_case = SyncProcesosComentariosUseCase(
+    use_case = ProcSyncComentariosUseCase(
         gateway=gateway,
         config_manager=config,
         app_state=state,
@@ -475,7 +475,7 @@ def test_generar_prevision_incluye_nmax_block_en_response(tmp_path) -> None:
     )
 
     tracker = ProgressTracker()
-    use_case = SyncProcesosComentariosUseCase(
+    use_case = ProcSyncComentariosUseCase(
         gateway=gateway,
         config_manager=config,
         app_state=state,
@@ -557,7 +557,7 @@ def test_generar_prevision_nmax_block_con_sufijos_usa_gateway(tmp_path) -> None:
     )
 
     tracker = ProgressTracker()
-    use_case = SyncProcesosComentariosUseCase(
+    use_case = ProcSyncComentariosUseCase(
         gateway=gateway,
         config_manager=config,
         app_state=state,
@@ -648,7 +648,7 @@ def test_generar_prevision_no_pisa_tracker_con_otra_operacion_activa(
         return_value="000_Config_Dispositivos"
     )
 
-    use_case = SyncProcesosComentariosUseCase(
+    use_case = ProcSyncComentariosUseCase(
         gateway=gateway,
         config_manager=config,
         app_state=state,
@@ -797,7 +797,7 @@ def test_generar_prevision_slots_tia_no_excel_aparecen_como_eliminar(
     config.get_tia_folder_proceso = MagicMock(return_value="003_Procesos")
 
     tracker = ProgressTracker()
-    use_case = SyncProcesosComentariosUseCase(
+    use_case = ProcSyncComentariosUseCase(
         gateway=gateway,
         config_manager=config,
         app_state=state,
@@ -856,7 +856,7 @@ def test_generar_prevision_closes_tracker_when_missing_blocks(tmp_path) -> None:
     assert tracker.active is False
 
     # El proceso 1 NO existe en el PLC: el BloqueCache solo tiene
-    # bloques del proceso 100, no del 1. ``build_proceso_slot_maps``
+    # bloques del proceso 100, no del 1. ``proc_build_slot_maps``
     # lo detectará y poblará ``missing_blocks``.
     proc = MagicMock(uid=1, nombre="Genérico", codigo="GNR")
     ec = MagicMock()
@@ -894,7 +894,7 @@ def test_generar_prevision_closes_tracker_when_missing_blocks(tmp_path) -> None:
         return_value="000_Config_Dispositivos"
     )
 
-    use_case = SyncProcesosComentariosUseCase(
+    use_case = ProcSyncComentariosUseCase(
         gateway=gateway,
         config_manager=config,
         app_state=state,
