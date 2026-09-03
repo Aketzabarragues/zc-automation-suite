@@ -62,9 +62,9 @@ export const store = reactive({
      * "Buscar PLCs" por primera vez. Tras un fetch OK tiene al menos
      * ``{ name: "..." }``; el resto de campos es opcional.
      *
-     * El Sidebar del área Alimentación lo muestra como caption encima
-     * del desplegable de PLCs para que el operario verifique a qué
-     * proyecto está enganchado antes de tocar nada.
+     * El ShellTopbar lo muestra como caption encima del desplegable
+     * de PLCs para que el operario verifique a qué proyecto está
+     * enganchado antes de tocar nada.
      */
     projectInfo: null,
 
