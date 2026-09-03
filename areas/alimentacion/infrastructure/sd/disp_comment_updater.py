@@ -53,7 +53,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from areas.alimentacion.infrastructure.sd.mlc_registry import MLCRegistry as DispMLCRegistry
+from areas.alimentacion.infrastructure.sd.mlc_registry import MLCRegistry
 
 
 _logger: logging.Logger = logging.getLogger(f"{__name__}.DispCommentUpdater")
@@ -174,7 +174,7 @@ class DispCommentUpdater:
 
         # Estado mutable.
         self._modified: bool = False
-        self._registry: DispMLCRegistry = self._build_registry()
+        self._registry: MLCRegistry = self._build_registry()
         self._result: DispCommentResult | None = None
 
     # ── API pública ────────────────────────────────────────────────────
@@ -270,10 +270,10 @@ class DispCommentUpdater:
 
     # ── Internals: registry ─────────────────────────────────────────────
 
-    def _build_registry(self) -> DispMLCRegistry:
+    def _build_registry(self) -> MLCRegistry:
         """Inicializa el registry con todos los MLCs presentes en el ``.s7res``."""
         existing = self._extract_existing_mlcs()
-        return DispMLCRegistry(used_ids=existing)
+        return MLCRegistry(used_ids=existing)
 
     def _extract_existing_mlcs(self) -> set[str]:
         """Lee el ``.s7res`` y devuelve el set de IDs ``MLC_*`` presentes."""

@@ -10,9 +10,10 @@ Tras PR 2, esta capa contiene:
     que el área aporta para configs legacy (N_MAX, carpetas TIA,
     tabla global).
 
-Los modificadores SD (``disp_comment_updater``, ``disp_mlc_registry``)
-siguen en ``infrastructure/alimentacion/sd/`` y se migrarán a esta
-carpeta en PR 3 junto con el refactor del ``worker_tia.py``.
+Los modificadores SD (``disp_comment_updater``, ``proc_comment_updater``,
+``mlc_registry``) siguen en ``infrastructure/alimentacion/sd/`` y se
+migrarán a esta carpeta en PR 3 junto con el refactor del
+``worker_tia.py``.
 
 Restricción arquitectónica: este paquete es OFFLINE; no importa
 ``siemens_tia_scripting``.

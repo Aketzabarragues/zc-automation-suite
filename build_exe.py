@@ -177,7 +177,7 @@ HIDDEN_IMPORTS_AREAS: list[str] = [
     "areas.alimentacion.infrastructure.parsers.proc_procesos",
     "areas.alimentacion.infrastructure.sd",
     "areas.alimentacion.infrastructure.sd.disp_comment_updater",
-    "areas.alimentacion.infrastructure.sd.disp_mlc_registry",
+    "areas.alimentacion.infrastructure.sd.mlc_registry",
     "areas.alimentacion.infrastructure.xml",
     "areas.alimentacion.infrastructure.xml.disp_tag_table_modifier",
     "areas.alimentacion.infrastructure.xml.disp_tag_table_parser",
