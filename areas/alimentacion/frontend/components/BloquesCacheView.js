@@ -368,8 +368,12 @@ export default {
             <div class="flex-1 bg-surface-raised border border-line rounded p-4 mb-4 flex flex-col overflow-hidden"
                  data-testid="bloques-cache-card-tabla">
 
-                <!-- Strip de pestañas con contador -->
-                <div class="flex border-b border-line bg-surface-sunken overflow-x-auto mb-3">
+                <!-- Strip de pestañas con contador. Se oculta cuando no
+                     hay cache para que el empty-state "El cache de bloques
+                     está vacío" ocupe todo el card 2 sin tabs sueltos
+                     sin sentido. Cuando hay cache, los tabs aparecen
+                     arriba de la tabla. -->
+                <div v-if="hasCache" class="flex border-b border-line bg-surface-sunken overflow-x-auto mb-3">
                     <button @click="activeTab = 'bloques'"
                         :class="['tab-btn px-4 py-2 text-xs font-medium border-r border-line whitespace-nowrap',
                                  activeTab === 'bloques' ? 'active' : 'bg-surface-raised text-ink-muted hover:bg-surface-sunken']">

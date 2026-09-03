@@ -615,20 +615,27 @@ export default {
                 </div>
             </div>
 
-            <!-- Botón Aplicar (footer) -->
-            <div v-if="preview && preview.precondiciones_ok"
-                 class="mt-3 flex justify-end items-center gap-3">
-                <span v-if="store.procesosSync.lastAppliedAt"
-                      class="text-xs text-green-600">
-                    ✓ Aplicado: {{ store.procesosSync.lastAppliedAt }}
-                </span>
+            <!-- Botón Aplicar (footer). Mismo formato pill prominente
+                 que el "✅ Aplicar Cambios en TIA Portal" de Dispositivos:
+                 w-full py-3 text-sm, contenido centrado, color y border
+                 del lenguaje unificado. El span "✓ Aplicado: ..." con
+                 el timestamp del último commit se mueve a su propia
+                 línea arriba del botón (justify-end) para no chocar
+                 con el ancho completo del botón. -->
+            <div v-if="preview && preview.precondiciones_ok" class="mt-3">
+                <div v-if="store.procesosSync.lastAppliedAt"
+                     class="flex justify-end items-center gap-3 mb-2">
+                    <span class="text-xs text-green-600">
+                        ✓ Aplicado: {{ store.procesosSync.lastAppliedAt }}
+                    </span>
+                </div>
                 <button @click="handleApply"
                     :disabled="!canApply"
                     :title="!plcName ? 'Selecciona un PLC en el sidebar primero' : (totalOps === 0 ? 'No hay cambios que aplicar' : '')"
                     data-testid="proc-sync-apply"
-                    class="px-4 py-2 text-accent font-bold text-sm bg-surface-raised border-2 border-accent hover:border-accent-bright hover:shadow-lg rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
+                    class="w-full py-3 text-accent font-semibold text-sm bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
                     <span v-if="isWorking">⏳ Aplicando…</span>
-                    <span v-else>✓ Aplicar al PLC</span>
+                    <span v-else>✅ Aplicar al PLC</span>
                 </button>
             </div>
         </section>

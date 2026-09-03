@@ -236,7 +236,7 @@ export default {
                 <div v-else class="flex-1 flex items-center justify-center p-10 text-center text-ink-muted">
                     <div>
                         <div class="text-5xl mb-3 opacity-40">📊</div>
-                        <p class="mb-2">El Inspector de Memoria está vacío.</p>
+                        <p class="mb-2">La cache del excel está vacía.</p>
                         <p class="text-xs">Sube un Excel y pulsa <strong class="text-accent">"Actualizar"</strong>.</p>
                     </div>
                 </div>
