@@ -1,40 +1,46 @@
 """Router Excel: ``/api/v1/excel/...``.
 
-Carga el ``ExcelLoader`` + ``ExcelCacheManager`` y popula el
-``AppState`` Singleton. Toda la lógica de ficheros temporales y
-validación de errores vivirá aquí; los routers no importan nada
-de Siemens.
+Handler ``POST /api/v1/excel/upload`` puro: recibe el ``.xlsx``,
+lo escribe a un tempfile, delega en ``UploadExcelUseCase`` y
+devuelve su response. **No contiene lógica de negocio** (parse,
+cache, volcado al ``AppState``, summary) — eso vive en el use
+case (``areas/alimentacion/application/use_cases/upload_excel.py``)
+y se testea de forma aislada en
+``tests/test_upload_excel_use_case.py``.
 
 Migrado a data-driven: en vez de hardcodear los 6 tipos legacy,
 se itera ``ConfigManager.list_hw_types_active()`` y se usa
-``get_app_state_attr_for(hw)`` + ``get_excel_target_for(hw)``
-para resolver el nombre del atributo del AppState y la clave
-canónica del Excel por cada hw_type. Cuando mañana se active
-un 7º tipo en el config (``sd``, ``m_sina``, ``tq``, ``tq_ae``),
-este endpoint lo recoge sin cambios.
+``get_excel_target_for(hw)`` para resolver la clave canónica del
+Excel por cada hw_type. Cuando mañana se active un 7º tipo en el
+config (``sd``, ``m_sina``, ``tq``, ``tq_ae``), este endpoint lo
+recoge sin cambios (delegando en el use case, que también es
+data-driven).
 
-Flujo (Fase 5 del plan ``_plan/04_excel_cache_phased_plan.md``):
-  1. Recibe el .xlsx (multipart upload).
-  2. ``asyncio.to_thread(loader.load, tmp_path)`` — abre el workbook
-     UNA vez y construye el ``ExcelCache`` (no bloquea el event loop).
-  3. ``ExcelCacheManager.put(cache)`` — cachea para coroutines que
-     esperen con ``wait_for_first_load``.
-  4. ``state.excel_cache = cache`` + ``state.excel_path = path``.
-  5. Back-compat con la SPA: puebla ``state.dispositivos_<hw>`` y
-     ``state.dimensiones`` desde el cache (los routers y la SPA
-     actuales siguen leyéndolos de ahí).
+Flujo:
+  1. Recibe el ``UploadFile`` (multipart).
+  2. ``progress.begin(operation="upload_excel", ..., stages=[...])``.
+  3. Escribe el contenido a un ``tempfile.NamedTemporaryFile``
+     (``zcupload_*.xlsx``).
+  4. ``UploadExcelUseCase.execute(tmp_path)`` — parsea, cachea,
+     vuelca al ``AppState`` y construye el summary.
+  5. ``progress.finish(success=True)`` y devuelve el response del
+     use case. En error, ``progress.finish(success=False)`` y
+     propaga el ``HTTPException`` que ya emite el use case.
+  6. ``finally: tmp_path.unlink(missing_ok=True)`` — limpieza
+     defensiva del tempfile.
 """
 from __future__ import annotations
 
-import asyncio
 import tempfile
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, UploadFile
 
+from areas.alimentacion.application.use_cases.upload_excel import (
+    UploadExcelUseCase,
+)
 from areas.alimentacion.infrastructure.cache import ExcelCacheManager
-from areas.alimentacion.infrastructure.loaders import ExcelLoader
 from core.application.log_buffer import LogBuffer
 from core.application.progress_buffer import ProgressTracker
 from core.application.state import AppState
@@ -58,121 +64,59 @@ async def upload_excel(
     config_manager: ConfigManager = Depends(get_config_manager),
     progress: ProgressTracker = Depends(get_progress_tracker),
 ) -> dict[str, Any]:
-    """Recibe un .xlsx, lo parsea y popula el ``AppState``.
+    """Recibe un .xlsx y delega en ``UploadExcelUseCase``.
 
-    Data-driven: itera ``cm.list_hw_types_active()`` y, para cada
-    tipo, escribe la lista parseada en el atributo del AppState
-    correspondiente (``state.dispositivos_<hw>`` legacy o, para
-    tipos nuevos, ``state.set_devices(hw, devices)``). El
-    backend ya tiene CM inyectado en ``app.state``; este router
-    no hace ninguna llamada a TIA Portal.
+    La orquestación HTTP es la única responsabilidad del handler:
+    extraer el archivo de la request, persistirlo a un tempfile
+    temporal, abrir el ``ProgressTracker``, invocar el use case y
+    devolver su response. La lógica de parseo, cache y volcado al
+    ``AppState`` vive en el use case (testeable sin FastAPI).
     """
-    suffix = Path(file.filename or "upload.xlsx").suffix or ".xlsx"
+    filename = file.filename or "upload.xlsx"
+    suffix = Path(filename).suffix or ".xlsx"
     # ── Progress tracking (overlay SPA) ────────────────
-    # 3 stages: recibir_archivo → parsear_excel → volcar_appstate.
+    # 2 stages: parsear_excel → volcar_appstate. El use case
+    # emite start_stage/finish_stage sobre los IDs que
+    # declaramos aquí. El handler abre y cierra la operación.
     progress.begin(
         operation="upload_excel",
-        label=f"Cargando Excel: {file.filename or 'upload.xlsx'}",
-        stages=["recibir_archivo", "parsear_excel", "volcar_appstate"],
+        label=f"Cargando Excel: {filename}",
+        stages=["parsear_excel", "volcar_appstate"],
     )
+    tmp_path: Path | None = None
     try:
-        progress.start_stage("recibir_archivo")
         with tempfile.NamedTemporaryFile(
             delete=False, suffix=suffix, prefix="zcupload_"
         ) as tmp:
             content = await file.read()
             tmp.write(content)
             tmp_path = Path(tmp.name)
-        progress.finish_stage(
-            "recibir_archivo", f"{len(content)} bytes recibidos"
-        )
-
         logger.info(
-            f"📥 Recibiendo Excel: '{file.filename}' ({len(content)} bytes)"
+            f"📥 Recibiendo Excel: '{filename}' ({len(content)} bytes)"
         )
-        try:
-            progress.start_stage("parsear_excel")
-            logger.info("🔍 Parseando estructura del Excel...")
-            # El loader es sync (abre el workbook con openpyxl). Lo
-            # envolvemos en ``asyncio.to_thread`` para no bloquear el
-            # event loop del FastAPI (D3 del plan).
-            loader = ExcelLoader(config_manager=config_manager)
-            cache = await asyncio.to_thread(loader.load, tmp_path)
-            await ExcelCacheManager.put(cache)
-            progress.finish_stage(
-                "parsear_excel",
-                f"{sum(len(v) for v in cache.dispositivos.values())} "
-                f"dispositivos parseados",
-            )
 
-            progress.start_stage("volcar_appstate")
-            # Back-compat con la SPA: poblar ``state.dispositivos_<hw>``
-            # desde ``cache.dispositivos`` (las 6 listas como listas
-            # mutables; la SPA sigue esperando ``list``, no ``tuple``).
-            for hw, devices_tuple in cache.dispositivos.items():
-                state.set_devices(hw, list(devices_tuple))
-            state.dimensiones = cache.n_max
-            # El cache vive en el área de alimentación, pero AppState
-            # lo expone como placeholder ``Any`` (ver ``state.py``).
-            state.excel_cache = cache
-            state.excel_path = cache.excel_path
-            progress.finish_stage("volcar_appstate", "Estado actualizado")
-
-            # ``summary`` con la shape legacy: ``{tipo_canonica: count}``.
-            # Como el cache no expone directamente las claves canónicas
-            # (``DispED``...), derivamos el summary a partir de los
-            # ``hw_type`` de ``config_manager``.
-            summary: dict[str, int] = {}
-            for hw in config_manager.list_hw_types_active():
-                target = config_manager.get_excel_target_for(hw)
-                if target is None:
-                    continue
-                canonica = target.get("canonical", "")
-                if not canonica:
-                    continue
-                devices_tuple = cache.dispositivos.get(hw, ())
-                summary[canonica] = len(devices_tuple)
-            total_hw = sum(summary.values())
-            # Counts de software (R-7 2026-09-01: el DTO solo expone
-            # los datos del Excel, los counts se leen directamente de
-            # ``cache``).
-            n_procesos = len(cache.procesos)
-            n_preal = len(cache.parametros_real)
-            n_pint = len(cache.parametros_int)
-            n_alarmas = len(cache.alarmas)
-            logger.success(
-                f"✅ Carga maestra completada: {total_hw} dispositivos "
-                f"({len(summary)} tipos), {n_procesos} procesos, "
-                f"{n_preal} parámetros reales, {n_pint} parámetros enteros, "
-                f"{n_alarmas} alarmas."
-            )
-            progress.finish(success=True)
-        except Exception as exc:
-            progress.finish(success=False, error=str(exc))
-            logger.error(f"❌ Fallo crítico al parsear el Excel: {exc}")
-            raise HTTPException(
-                status_code=400, detail=f"excel_upload failed: {exc}"
-            ) from exc
-        finally:
-            tmp_path.unlink(missing_ok=True)
-    except HTTPException:
-        # Ya manejado arriba; asegurar que progress se cierre en error.
-        progress.finish(success=False)
-        raise
+        use_case = UploadExcelUseCase(
+            excel_cache_manager=ExcelCacheManager,
+            config_manager=config_manager,
+            app_state=state,
+            progress_tracker=progress,
+            log=logger,
+        )
+        result = await use_case.execute(tmp_path)
+        progress.finish(success=True)
+        return result
     except Exception as exc:
-        progress.finish(success=False, error=str(exc))
+        # El use case ya llamó ``progress.finish(success=False)``
+        # y ``logger.error(...)`` y emitió ``HTTPException(400)``.
+        # Aquí solo aseguramos que el tracker quede cerrado en
+        # cualquier otro fallo (p. ej. error al escribir el
+        # tempfile o al construir el use case).
+        if progress.active:
+            progress.finish(success=False, error=str(exc))
         raise
-
-    return {
-        "ok": True,
-        "summary": summary,
-        "total_dispositivos": sum(summary.values()),
-        # ``to_api_dict()`` en vez de ``dataclasses.asdict``: oculta
-        # el campo ``extras`` (interno / futuro) de la respuesta al
-        # cliente del upload. Mismo shape que ``dataclasses.asdict``
-        # salvo por la ausencia de ``extras``.
-        "dimensiones": cache.n_max.to_api_dict(),
-    }
+    finally:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
 
 
 __all__ = ["router"]
