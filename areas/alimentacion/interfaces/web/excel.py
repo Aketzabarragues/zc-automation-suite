@@ -92,7 +92,7 @@ async def upload_excel(
             tmp.write(content)
             tmp_path = Path(tmp.name)
         logger.info(
-            f"📥 Recibiendo Excel: '{filename}' ({len(content)} bytes)"
+            f"[excel/upload] Recibiendo archivo '{filename}' ({len(content)} bytes)."
         )
 
         use_case = UploadExcelUseCase(

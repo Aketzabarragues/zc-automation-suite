@@ -40,6 +40,7 @@ async def portal_attach(
         stages=["attach"],
     )
     progress.start_stage("attach", "Adjuntando a instancia de TIA Portal...")
+    logger.info("[portal/attach] Adjuntando a TIA Portal.")
     try:
         ok = await gateway.attach_portal()
         progress.finish_stage("attach", "Attach OK" if ok else "Falló")
@@ -47,13 +48,11 @@ async def portal_attach(
     except Exception as exc:
         progress.finish_stage("attach", f"Error: {exc}")
         progress.finish(success=False, error=str(exc))
-        logger.error(f"attach_portal failed: {exc}")
+        logger.error(f"[portal/attach] Fallo al adjuntar a TIA Portal: {exc}")
         raise HTTPException(
             status_code=500, detail=f"attach_portal failed: {exc}"
         ) from exc
-    logger.success(
-        "Hot-attach a TIA Portal OK" if ok else "attach_portal falló"
-    )
+    logger.success("[portal/attach] Adjuntado a TIA Portal.")
     return {"ok": ok}
 
 
@@ -71,6 +70,7 @@ async def portal_open_new(
         stages=["open"],
     )
     progress.start_stage("open", f"Abrir {req.project_file_path}...")
+    logger.info(f"[portal/open] Abriendo proyecto {req.project_file_path}.")
     try:
         ok = await gateway.open_new_portal(req.project_file_path)
         progress.finish_stage("open", "Open OK" if ok else "Falló")
@@ -78,14 +78,11 @@ async def portal_open_new(
     except Exception as exc:
         progress.finish_stage("open", f"Error: {exc}")
         progress.finish(success=False, error=str(exc))
-        logger.error(f"open_new_portal failed: {exc}")
+        logger.error(f"[portal/open] Fallo al abrir proyecto: {exc}")
         raise HTTPException(
             status_code=500, detail=f"open_new_portal failed: {exc}"
         ) from exc
-    logger.success(
-        f"Cold start OK con proyecto '{req.project_file_path}'"
-        if ok else "open_new_portal falló"
-    )
+    logger.success(f"[portal/open] Proyecto abierto: {req.project_file_path}.")
     return {"ok": ok}
 
 
@@ -107,6 +104,7 @@ async def listar_plcs(
         stages=["list"],
     )
     progress.start_stage("list", "Pidiendo lista de PLCs a TIA Portal...")
+    logger.info("[portal/plcs] Listando PLCs de TIA Portal.")
     try:
         plcs = await gateway.get_plcs(force_refresh=True)
         progress.finish_stage("list", f"{len(plcs)} PLCs")
@@ -114,7 +112,7 @@ async def listar_plcs(
     except Exception as exc:
         progress.finish_stage("list", f"Error: {exc}")
         progress.finish(success=False, error=str(exc))
-        logger.error(f"get_plcs failed: {exc}")
+        logger.error(f"[portal/plcs] Fallo al listar PLCs: {exc}")
         return {
             "ok": False,
             "error": (
@@ -123,7 +121,7 @@ async def listar_plcs(
             ),
             "detail": str(exc),
         }
-    logger.info(f"PLC listados: {len(plcs)}")
+    logger.success(f"[portal/plcs] Listados {len(plcs)} PLCs.")
     return {"ok": True, "plcs": plcs}
 
 
@@ -148,10 +146,11 @@ async def get_project_info(
     solo cubre operaciones largas, y el feedback de esta llamada
     es suficiente con el ``logger.info`` final.
     """
+    logger.info("[portal/project] Consultando información del proyecto.")
     try:
         info = await gateway.get_project_info(force_refresh=True)
     except Exception as exc:
-        logger.error(f"get_project_info failed: {exc}")
+        logger.error(f"[portal/project] Fallo al consultar el proyecto: {exc}")
         return {
             "ok": False,
             "error": (
@@ -160,7 +159,7 @@ async def get_project_info(
             ),
             "detail": str(exc),
         }
-    logger.info(f"Proyecto TIA: {info.get('name', '(sin nombre)')}")
+    logger.success(f"[portal/project] Proyecto: {info.get('name', '(sin nombre)')}.")
     return {"ok": True, "project_info": info}
 
 

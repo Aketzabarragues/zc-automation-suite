@@ -167,7 +167,7 @@ class UploadExcelUseCase:
         except Exception as exc:
             self._progress.finish(success=False, error=str(exc))
             self._log.error(
-                f"❌ Fallo crítico al parsear el Excel: {exc}"
+                f"[excel/parse] Fallo al parsear el Excel: {exc}"
             )
             raise HTTPException(
                 status_code=400, detail=f"excel_upload failed: {exc}"
@@ -194,7 +194,7 @@ class UploadExcelUseCase:
         n_pint = len(cache.parametros_int)
         n_alarmas = len(cache.alarmas)
         self._log.success(
-            f"✅ Carga maestra completada: {sum(summary.values())} "
+            f"[excel/load] Carga maestra: {sum(summary.values())} "
             f"dispositivos ({len(summary)} tipos), {n_procesos} "
             f"procesos, {n_preal} parámetros reales, {n_pint} "
             f"parámetros enteros, {n_alarmas} alarmas."

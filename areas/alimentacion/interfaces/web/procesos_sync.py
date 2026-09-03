@@ -89,21 +89,20 @@ async def sync_preview(
         bloques_cache=bloques_cache,
     )
     logger.info(
-        f"[procesos/sync/preview] Generando preview para proceso "
-        f"uid={req.proc_uid}..."
+        f"[procesos/preview] Calculando preview para proceso uid={req.proc_uid}."
     )
     try:
         prevision = await use_case.generar_prevision(req.proc_uid)
     except Exception as exc:
-        logger.error(f"generar_prevision failed: {exc}")
+        logger.error(f"[procesos/preview] Fallo al calcular preview: {exc}")
         raise HTTPException(
             status_code=500,
             detail=f"generar_prevision failed: {exc}",
         ) from exc
     logger.success(
-        f"[procesos/sync/preview] Preview lista: "
+        f"[procesos/preview] Preview: "
         f"precondiciones_ok={prevision.get('precondiciones_ok')}, "
-        f"missing={len(prevision.get('missing_blocks', []))} bloques."
+        f"{len(prevision.get('missing_blocks', []))} bloques faltantes."
     )
     return prevision
 
@@ -143,8 +142,8 @@ async def sync_commit(
         bloques_cache=bloques_cache,
     )
     logger.info(
-        f"[procesos/sync/commit] Aplicando transacción para proceso "
-        f"uid={req.proc_uid} al PLC '{req.plc_name}'..."
+        f"[procesos/commit] Aplicando transacción para proceso "
+        f"uid={req.proc_uid} en PLC '{req.plc_name}'."
     )
     # Inyectamos plc_name en la prevision para que el use case
     # lo extraiga (la prevision del cliente puede no traerlo).
@@ -155,15 +154,14 @@ async def sync_commit(
             req.proc_uid, prevision_with_plc
         )
     except Exception as exc:
-        logger.error(f"ejecutar_transaccion failed: {exc}")
+        logger.error(f"[procesos/commit] Fallo al aplicar transacción: {exc}")
         raise HTTPException(
             status_code=500,
             detail=f"ejecutar_transaccion failed: {exc}",
         ) from exc
     logger.success(
-        f"[procesos/sync/commit] Transacción completada: "
-        f"{result.get('operations_executed', 0)} ops. "
-        "Recordar invocar tia_compile_plc para asentar el modelo de memoria."
+        f"[procesos/commit] Transacción aplicada: "
+        f"{result.get('operations_executed', 0)} operaciones."
     )
     return result
 

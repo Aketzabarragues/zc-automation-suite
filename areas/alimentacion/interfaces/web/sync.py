@@ -62,23 +62,22 @@ async def sync_preview(
         gateway=gateway, config_manager=config_manager, state=state
     )
     logger.info(
-        f"[sync/preview] Generando preview completo (N_MAX + devices) "
-        f"para PLC '{req.plc_name}'..."
+        f"[sync/preview] Calculando preview completo para PLC '{req.plc_name}'."
     )
     try:
         prevision = await use_case.generar_prevision(req.plc_name)
     except Exception as exc:
-        logger.error(f"generar_prevision failed: {exc}")
+        logger.error(f"[sync/preview] Fallo al calcular preview: {exc}")
         raise HTTPException(
             status_code=500,
             detail=f"generar_prevision failed: {exc}",
         ) from exc
     logger.success(
-        f"[sync/preview] Preview lista: "
-        f"{prevision.get('summary', {}).get('agregados', 0)} adds, "
-        f"{prevision.get('summary', {}).get('eliminados', 0)} removes, "
-        f"{prevision.get('summary', {}).get('renombrados', 0)} renames, "
-        f"{prevision.get('nmax', {}).get('summary', {}).get('actualizar', 0)} N_MAX updates."
+        f"[sync/preview] Preview: "
+        f"{prevision.get('summary', {}).get('agregados', 0)} altas, "
+        f"{prevision.get('summary', {}).get('eliminados', 0)} bajas, "
+        f"{prevision.get('summary', {}).get('renombrados', 0)} renombres, "
+        f"{prevision.get('nmax', {}).get('summary', {}).get('actualizar', 0)} N_MAX."
     )
     return prevision
 
@@ -108,22 +107,20 @@ async def sync_commit(
         gateway=gateway, config_manager=config_manager, state=state
     )
     logger.info(
-        f"[sync/commit] Aplicando transacción completa "
-        f"(N_MAX + devices) al PLC '{req.plc_name}'..."
+        f"[sync/commit] Aplicando transacción al PLC '{req.plc_name}'."
     )
     try:
         result = await use_case.ejecutar_transaccion(
             req.plc_name, req.prevision,
         )
     except Exception as exc:
-        logger.error(f"ejecutar_transaccion failed: {exc}")
+        logger.error(f"[sync/commit] Fallo al aplicar transacción: {exc}")
         raise HTTPException(
             status_code=500,
             detail=f"ejecutar_transaccion failed: {exc}",
         ) from exc
     logger.success(
-        f"[sync/commit] Transacción completada: {result.get('operations')} ops. "
-        "Recordar invocar tia_compile_plc para asentar el modelo de memoria."
+        f"[sync/commit] Transacción aplicada: {result.get('operations')} operaciones."
     )
     return result
 

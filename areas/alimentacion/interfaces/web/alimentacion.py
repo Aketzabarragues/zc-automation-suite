@@ -66,20 +66,22 @@ async def aplicar_comentarios_disp(
         progress=progress,
     )
     logger.info(
-        f"[alimentacion/aplicar-comentarios-disp] Aplicando comentarios "
-        f"por instancia al PLC '{req.plc_name}'..."
+        f"[alimentacion/comentarios] Aplicando comentarios por instancia "
+        f"al PLC '{req.plc_name}'."
     )
     try:
         result = await use_case.apply_comentarios_disp(req.plc_name)
     except Exception as exc:
-        logger.error(f"apply_comentarios_disp failed: {exc}")
+        logger.error(
+            f"[alimentacion/comentarios] Fallo al aplicar comentarios: {exc}"
+        )
         raise HTTPException(
             status_code=500,
             detail=f"apply_comentarios_disp failed: {exc}",
         ) from exc
     logger.success(
-        f"[alimentacion/aplicar-comentarios-disp] OK: "
-        f"{result.get('operations_executed', 0)} ops aplicadas."
+        f"[alimentacion/comentarios] Aplicadas "
+        f"{result.get('operations_executed', 0)} operaciones."
     )
     return result
 

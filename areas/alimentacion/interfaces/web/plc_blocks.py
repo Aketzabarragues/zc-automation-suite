@@ -105,14 +105,14 @@ async def get_plc_blocks(
     _validate_plc_name(plc_name)
     use_case = _build_use_case(gateway, progress)
     logger.info(
-        f"[plc_blocks/GET] Solicitando snapshot de bloques para '{plc_name}'..."
+        f"[plc_blocks/get] Solicitando snapshot de bloques para '{plc_name}'."
     )
     try:
         cache = await use_case.ensure_cache(plc_name)
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error(f"get_plc_blocks({plc_name}) failed: {exc}")
+        logger.error(f"[plc_blocks/get] Fallo al obtener snapshot: {exc}")
         raise HTTPException(
             status_code=502,
             detail=f"scan_plc_blocks failed: {exc}",
@@ -122,13 +122,12 @@ async def get_plc_blocks(
     payload["ok"] = True
     payload["from_cache"] = _is_cache_fresh(cache.scanned_at)
     # Log de cierre con el resumen: nº de bloques y tablas del
-    # snapshot. Igual que el log "184 ops" del sync de procesos.
-    # El operario pidió el 2026-09-02 que el log indique
-    # "al finalizar diga que está completado y haga el resumen".
-    logger.info(
-        f"[plc_blocks/GET] Snapshot completado: {len(cache.blocks)} "
-        f"bloques, {len(cache.tag_tables)} tablas "
-        f"(from_cache={payload['from_cache']})"
+    # snapshot. La coletilla "(caché)" indica al operario que NO
+    # se ha re-escaneado TIA: el snapshot venía de la memoria IT.
+    cache_suffix = " (caché)" if payload["from_cache"] else ""
+    logger.success(
+        f"[plc_blocks/get] Snapshot: {len(cache.blocks)} "
+        f"bloques, {len(cache.tag_tables)} tablas{cache_suffix}."
     )
     return payload
 
@@ -148,14 +147,14 @@ async def refresh_plc_blocks(
     _validate_plc_name(plc_name)
     use_case = _build_use_case(gateway, progress)
     logger.info(
-        f"[plc_blocks/REFRESH] Forzando re-scan de bloques para '{plc_name}'..."
+        f"[plc_blocks/refresh] Re-escaneando bloques para '{plc_name}'."
     )
     try:
         cache = await use_case.ensure_cache(plc_name, force_refresh=True)
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error(f"refresh_plc_blocks({plc_name}) failed: {exc}")
+        logger.error(f"[plc_blocks/refresh] Fallo al re-escanear: {exc}")
         raise HTTPException(
             status_code=502,
             detail=f"scan_plc_blocks refresh failed: {exc}",
@@ -164,9 +163,9 @@ async def refresh_plc_blocks(
     payload = cache.to_dict()
     payload["ok"] = True
     payload["from_cache"] = False  # siempre fresh tras refresh
-    logger.info(
-        f"[plc_blocks/REFRESH] Re-scan completado: {len(cache.blocks)} "
-        f"bloques, {len(cache.tag_tables)} tablas"
+    logger.success(
+        f"[plc_blocks/refresh] Re-escaneo completado: {len(cache.blocks)} "
+        f"bloques, {len(cache.tag_tables)} tablas."
     )
     return payload
 
