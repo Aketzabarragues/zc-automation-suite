@@ -26,9 +26,19 @@ async function _request(method, url, body) {
     try {
         const resp = await fetch(url, opts);
         const data = await resp.json().catch(() => ({}));
-        return { ok: resp.ok, status: resp.status, data };
+        // Extraer el header ``X-Error-Type`` que los routers del
+        // backend emiten cuando falla la conexion con TIA Portal
+        // (ver ``TIAConnectionError`` en
+        // ``core/infrastructure/gateway.py``). Lo exponemos en el
+        // shape de retorno para que los componentes puedan
+        // distinguir "TIA no responde" de cualquier otro error
+        // y resetear el state del PLC en consecuencia. ``null`` si
+        // el backend no envia el header (caso normal en respuestas
+        // exitosas o errores de logica).
+        const errorType = resp.headers.get("X-Error-Type") || null;
+        return { ok: resp.ok, status: resp.status, data, errorType };
     } catch (e) {
-        return { ok: false, status: 0, data: { detail: String(e) } };
+        return { ok: false, status: 0, data: { detail: String(e) }, errorType: null };
     }
 }
 

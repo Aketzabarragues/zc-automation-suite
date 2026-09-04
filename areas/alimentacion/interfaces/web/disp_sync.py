@@ -21,7 +21,7 @@ from areas.alimentacion.application.use_cases.disp_sync_instances import (
 from core.application.log_buffer import LogBuffer
 from core.application.state import AppState
 from core.infrastructure.config_manager import ConfigManager
-from core.infrastructure.gateway import TIAProcessGateway
+from core.infrastructure.gateway import TIAConnectionError, TIAProcessGateway
 from interfaces.web_server.dependencies import (
     get_app_state,
     get_config_manager,
@@ -66,6 +66,16 @@ async def sync_preview(
     )
     try:
         prevision = await use_case.generar_prevision(req.plc_name)
+    except TIAConnectionError as exc:
+        logger.error(f"[sync/preview] TIA Portal no responde: {exc}")
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"TIA Portal no responde: {exc}. "
+                "Reconecta el portal y vuelve a seleccionar el PLC."
+            ),
+            headers={"X-Error-Type": "TIAConnectionError"},
+        ) from exc
     except Exception as exc:
         logger.error(f"[sync/preview] Fallo al calcular preview: {exc}")
         raise HTTPException(
@@ -113,6 +123,16 @@ async def sync_commit(
         result = await use_case.ejecutar_transaccion(
             req.plc_name, req.prevision,
         )
+    except TIAConnectionError as exc:
+        logger.error(f"[sync/commit] TIA Portal no responde: {exc}")
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"TIA Portal no responde: {exc}. "
+                "Reconecta el portal y vuelve a seleccionar el PLC."
+            ),
+            headers={"X-Error-Type": "TIAConnectionError"},
+        ) from exc
     except Exception as exc:
         logger.error(f"[sync/commit] Fallo al aplicar transacción: {exc}")
         raise HTTPException(

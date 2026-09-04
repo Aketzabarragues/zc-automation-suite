@@ -48,7 +48,7 @@
  * línea. Salto de línea entre elementos del array OK.
  */
 import { computed } from "/js/vendor/vue.esm-browser.prod.js";
-import { store, pushLog, loadAndApplyPlcBlocks } from "/js/store.js";
+import { store, pushLog, loadAndApplyPlcBlocks, resetPlcState } from "/js/store.js";
 import { apiFetchPlcs, apiFetchProjectInfo } from "/js/api.js";
 
 /**
@@ -119,7 +119,25 @@ export default {
                     apiFetchProjectInfo(),
                 ]);
 
-                if (plcsResp.ok && plcsResp.data && plcsResp.data.plcs) {
+                // Deteccion centralizada de TIA no responde: si
+                // CUALQUIERA de los dos endpoints del shell reporta
+                // ``X-Error-Type: TIAConnectionError``, reseteamos el
+                // state del PLC y dejamos la barra en estado
+                // degradado. Asi el operario ve el mensaje claro
+                // "Reconecta el portal" sin tener que tirar de cada
+                // sub-flujo (preview, commit, scan de bloques) para
+                // descubrir que TIA cerro.
+                const tiaDown =
+                    (plcsResp && plcsResp.errorType === "TIAConnectionError") ||
+                    (infoResp && infoResp.errorType === "TIAConnectionError");
+
+                if (tiaDown) {
+                    pushLog(
+                        "TIA Portal no responde. Reconecta y vuelve a seleccionar el PLC.",
+                        "error"
+                    );
+                    resetPlcState();
+                } else if (plcsResp.ok && plcsResp.data && plcsResp.data.plcs) {
                     store.plcs = plcsResp.data.plcs;
                 } else if (plcsResp.data && plcsResp.data.ok === false) {
                     pushLog(plcsResp.data.error || "TIA Portal no conectado", "warning");

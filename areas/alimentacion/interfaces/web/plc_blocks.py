@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from core.application.log_buffer import LogBuffer
 from core.application.progress_buffer import ProgressTracker
-from core.infrastructure.gateway import TIAProcessGateway
+from core.infrastructure.gateway import TIAConnectionError, TIAProcessGateway
 from interfaces.web_server.dependencies import (
     get_gateway,
     get_logger,
@@ -111,6 +111,16 @@ async def get_plc_blocks(
         cache = await use_case.ensure_cache(plc_name)
     except HTTPException:
         raise
+    except TIAConnectionError as exc:
+        logger.error(f"[plc_blocks/get] TIA Portal no responde: {exc}")
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"TIA Portal no responde: {exc}. "
+                "Reconecta el portal y vuelve a seleccionar el PLC."
+            ),
+            headers={"X-Error-Type": "TIAConnectionError"},
+        ) from exc
     except Exception as exc:
         logger.error(f"[plc_blocks/get] Fallo al obtener snapshot: {exc}")
         raise HTTPException(
@@ -153,6 +163,16 @@ async def refresh_plc_blocks(
         cache = await use_case.ensure_cache(plc_name, force_refresh=True)
     except HTTPException:
         raise
+    except TIAConnectionError as exc:
+        logger.error(f"[plc_blocks/refresh] TIA Portal no responde: {exc}")
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"TIA Portal no responde: {exc}. "
+                "Reconecta el portal y vuelve a seleccionar el PLC."
+            ),
+            headers={"X-Error-Type": "TIAConnectionError"},
+        ) from exc
     except Exception as exc:
         logger.error(f"[plc_blocks/refresh] Fallo al re-escanear: {exc}")
         raise HTTPException(

@@ -35,7 +35,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from areas.alimentacion.application.use_cases.upload_excel import (
     UploadExcelUseCase,

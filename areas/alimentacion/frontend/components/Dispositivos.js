@@ -36,7 +36,7 @@
  */
 import { computed, ref } from "/js/vendor/vue.esm-browser.prod.js";
 // Imports absolutos: ver nota en ``Sidebar.js``.
-import { store, pushLog } from "/js/store.js";
+import { store, pushLog, resetPlcState } from "/js/store.js";
 import { apiGeneratePreview, apiCommit } from "/js/api.js";
 import { STATUS_META } from "../lib/disp_status.js";
 
@@ -155,6 +155,15 @@ export default {
                 if (r.ok) {
                     store.previewData = r.data;
                     pushLog("Previsión generada OK", "success");
+                } else if (r.errorType === "TIAConnectionError") {
+                    // TIA Portal no responde: el backend ya invalido
+                    // su cache; limpiamos el state del PLC en el SPA
+                    // para evitar trabajar con datos stale.
+                    pushLog(
+                        "TIA Portal no responde. Reconecta y vuelve a seleccionar el PLC.",
+                        "error"
+                    );
+                    resetPlcState();
                 } else {
                     alert(
                         "Error generando prevision: " +
@@ -213,12 +222,30 @@ export default {
                         );
                         if (rp.ok) {
                             store.previewData = rp.data;
+                        } else if (rp.errorType === "TIAConnectionError") {
+                            // TIA Portal cerro durante el commit. El
+                            // backend ya invalido su cache; limpiamos
+                            // el state del SPA para evitar operar con
+                            // datos stale.
+                            pushLog(
+                                "TIA Portal no responde. Reconecta y vuelve a seleccionar el PLC.",
+                                "error"
+                            );
+                            resetPlcState();
                         }
                         pushLog(
                             "Transacción aplicada OK. Preview refrescado (fallback).",
                             "success"
                         );
                     }
+                } else if (r.errorType === "TIAConnectionError") {
+                    // TIA Portal no responde. Limpiamos el state del
+                    // PLC en el SPA (backend ya invalido su cache).
+                    pushLog(
+                        "TIA Portal no responde. Reconecta y vuelve a seleccionar el PLC.",
+                        "error"
+                    );
+                    resetPlcState();
                 } else {
                     alert(
                         "Error aplicando: " + (r.data.detail || r.status)
