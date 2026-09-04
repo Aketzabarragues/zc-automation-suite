@@ -121,7 +121,9 @@ class DispSyncInstancesUseCase:
         back-compat con tests legacy que monkey-patchean este método.
 
         Steps:
-          1. Export bulk del PLC al directorio ``.build_cache/base/tags/``.
+          1. Export bulk del PLC al directorio
+             ``.build_cache/alimentacion/dispositivos/exports/`` (vía
+             ``build_cache(root=self._build_cache).dispositivos.exports``).
           2. Calcula el diff de devices (instancias) con
              ``_compute_diff_readonly`` sobre los 6 XMLs
              ``2000_Disp_*``.
