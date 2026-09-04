@@ -325,3 +325,171 @@ def test_component_js_is_not_empty_and_is_js_not_python() -> None:
     assert not text.lstrip().startswith("#"), (
         "El archivo no debe empezar con '#' (eso es un comentario Python)."
     )
+
+
+# ── Regresion: ShellTopbar.js template compila sin tags falsos en
+#    comentarios HTML (bug del 2026-09-04 tras PR 5b) ────────────────
+
+
+SHELLTOPBAR_JS = (
+    REPO_ROOT
+    / "interfaces"
+    / "web_server"
+    / "static"
+    / "js"
+    / "components"
+    / "ShellTopbar.js"
+)
+
+
+def _extract_template_string(js_text: str) -> str:
+    """Extrae el contenido del template string de un componente Vue 3.
+
+    Busca el primer ``template: /* html */ ` ... `,`` y devuelve el
+    cuerpo. Si no lo encuentra, devuelve string vacio.
+    """
+    marker = "template:"
+    start = js_text.find(marker)
+    if start == -1:
+        return ""
+    # El template es un template literal (` ... `). Buscamos el backtick
+    # de apertura tras la palabra ``template:``.
+    open_quote = js_text.find("`", start)
+    if open_quote == -1:
+        return ""
+    close_quote = js_text.find("`,", open_quote + 1)
+    if close_quote == -1:
+        return ""
+    return js_text[open_quote + 1 : close_quote]
+
+
+def test_shelltopbar_template_has_no_tags_inside_html_comments() -> None:
+    """Regresion: tras PR 5b, el comentario HTML de la linea 228 del
+    template del ``ShellTopbar.js`` contenia ``<TiaConnectionIndicator>``
+    entre comillas, y el parser de Vue 3 runtime (``vue.esm-browser.prod.js``)
+    lo interpretaba como un tag, lanzando
+    ``TypeError: "<header>... is not a function"`` al renderizar la SPA.
+
+    Regla: dentro de un comentario HTML (``<!-- ... -->``) NO debe
+    haber tags Vue (``<NombreComponente>`` o ``<etiqueta-html>``).
+    Si necesitas referenciar un componente en un comentario, usa
+    backticks sin las ``<>`` (e.g. `` `TiaConnectionIndicator` ``).
+    """
+    text = _read(SHELLTOPBAR_JS)
+    template_str = _extract_template_string(text)
+    assert template_str, (
+        "ShellTopbar.js no tiene un template string extraible; "
+        "estructura inesperada del componente."
+    )
+
+    # Buscamos tags dentro de comentarios HTML.
+    # Regex: <!-- ... <Tag> ... --> donde Tag empieza por mayuscula
+    # (convención Vue para componentes) o es un tag HTML conocido.
+    import re
+    pattern = re.compile(
+        r"<!--[^>]*?<[A-Z][A-Za-z0-9]+[^>]*?-->",  # <-- comentario con <Componente>
+        re.DOTALL,
+    )
+    matches = pattern.findall(template_str)
+    assert not matches, (
+        f"ShellTopbar.js tiene tags Vue dentro de comentarios HTML, "
+        f"lo que rompe el parser de Vue 3 runtime. Comentarios "
+        f"ofensivos: {matches}. Usa backticks sin <> (e.g. "
+        f"`TiaConnectionIndicator`) para referenciar componentes "
+        f"dentro de comentarios HTML."
+    )
+
+    # Misma regla para tags HTML que podrian confundir al parser.
+    html_pattern = re.compile(
+        r"<!--[^>]*?</?[a-z][a-z0-9-]+[^>]*?-->",
+        re.DOTALL,
+    )
+    html_matches = html_pattern.findall(template_str)
+    # Filtramos los tags que NO estan dentro del comentario (falsos
+    # positivos del regex si el match es en el body del template).
+    # Para ser conservador, fallamos si hay CUALQUIER tag HTML dentro
+    # de un comentario, porque raramente se justifica.
+    bad_html = [m for m in html_matches if "<" in m and ">" in m]
+    assert not bad_html, (
+        f"ShellTopbar.js tiene tags HTML dentro de comentarios: "
+        f"{bad_html}. Si necesitas referenciar un tag, escapalo o "
+        f"usa otra forma de documentar."
+    )
+
+
+def test_shelltopbar_template_compiles_with_vue_if_available() -> None:
+    """Si el compilador de Vue 3 (vue.esm-browser.prod.js) esta
+    disponible en el repo, intentamos compilar el template del
+    ShellTopbar para detectar errores que ``node --check`` no
+    atrapa (tags mal cerrados, atributos invalidos, etc.).
+
+    Si Vue no esta disponible, el test se skipea (no falla).
+    """
+    text = _read(SHELLTOPBAR_JS)
+    template_str = _extract_template_string(text)
+    assert template_str, "Template string no encontrado."
+
+    vue_path = (
+        REPO_ROOT
+        / "interfaces"
+        / "web_server"
+        / "static"
+        / "js"
+        / "vendor"
+        / "vue.esm-browser.prod.js"
+    )
+    if not vue_path.exists():
+        pytest.skip(
+            f"vue.esm-browser.prod.js no encontrado en {vue_path.parent}"
+        )
+
+    # Compilamos el template con un subproceso Node para no contaminar
+    # el proceso de pytest. Es un test costoso (~1s) pero robusto.
+    # En Windows, los paths absolutos no funcionan como URL en
+    # ``import`` de ESM, asi que usamos ``pathToFileURL``.
+    import json as _json
+    vue_url = "file:///" + str(vue_path).replace("\\", "/").lstrip("/")
+    script = (
+        "import { pathToFileURL } from 'node:url';\n"
+        "const vueUrl = " + _json.dumps(vue_url) + ";\n"
+        "const vue = await import(vueUrl);\n"
+        "const tpl = " + _json.dumps(template_str) + ";\n"
+        "try { vue.compile(tpl); process.stdout.write('OK'); } "
+        + "catch (e) { process.stdout.write('ERR:' + e.message); "
+        + "process.exit(2); }\n"
+    )
+    try:
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except FileNotFoundError:
+        pytest.skip("node no disponible")
+    except subprocess.TimeoutExpired:
+        pytest.fail("Compilacion de Vue 3 del template tardo demasiado")
+
+    if result.returncode != 0 or not result.stdout.startswith("OK"):
+        # El compilador de Vue 3 (vue.esm-browser.prod.js) requiere
+        # un entorno de navegador (con ``document`` global). Si
+        # falla por entorno (no por el template), skipeamos en
+        # lugar de romper la suite. El test de regex de arriba
+        # protege contra el bug especifico de tags-en-comentarios.
+        err_text = (result.stdout or "") + (result.stderr or "")
+        env_indicators = (
+            "document is not defined",
+            "window is not defined",
+            "navigator is not defined",
+            "location is not defined",
+        )
+        if any(ind in err_text for ind in env_indicators):
+            pytest.skip(
+                f"vue.esm-browser.prod.js no carga en este entorno "
+                f"(falta DOM global). El test de regex ya cubre el "
+                f"bug de tags en comentarios HTML. Detalle: {err_text[:200]}"
+            )
+        pytest.fail(
+            f"ShellTopbar.js template NO compila con Vue 3:\n"
+            f"stdout: {result.stdout}\nstderr: {result.stderr}"
+        )
