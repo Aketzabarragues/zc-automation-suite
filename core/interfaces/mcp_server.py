@@ -89,7 +89,7 @@ def create_mcp_server(gateway: TIAProcessGateway) -> FastMCP:
     # ``get_mcp_deps()``.
     _deps = {
         "gateway": gateway,
-        "config_manager": ConfigManager("infrastructure/config.json"),
+        "config_manager": ConfigManager(),
         "app_state": get_app_state(),
         "logger": get_log_buffer(),
     }

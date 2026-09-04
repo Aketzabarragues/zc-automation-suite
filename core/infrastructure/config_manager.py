@@ -129,24 +129,24 @@ class ConfigManager:
 
     def __init__(
         self,
-        config_path: str | Path = "infrastructure/config.json",
+        config_path: str | Path | None = None,
         department: str = "",
     ) -> None:
-        # ── Resolución frozen-aware ───────────────────────────────────
-        # En modo empaquetado (PyInstaller --onefile), el CWD del
-        # proceso es la carpeta desde la que el operario ejecuta el
-        # .exe (típicamente ``%USERPROFILE%\Desktop``), NO el repo.
-        # El ``config.json`` bundleado vive en ``sys._MEIPASS``. Si
-        # lo encontramos allí, lo preferimos sobre cualquier ruta
-        # relativa a CWD: así el .exe es "copy & run" sin requerir
-        # un ``config.json`` adyacente. En modo dev, este bloque es
-        # no-op (sys.frozen es False).
-        if getattr(sys, "frozen", False):
-            meipass = getattr(sys, "_MEIPASS", None)
-            if meipass:
-                frozen_cfg = Path(meipass) / "infrastructure" / "config.json"
-                if frozen_cfg.is_file():
-                    config_path = frozen_cfg
+        # ── Resolución de la ruta del config ────────────────────────────
+        # Si el caller no pasa ``config_path`` (o pasa ``None``),
+        # delegamos en ``resolve_config_path`` que:
+        #   1. Respeta ``$ZC_CONFIG_DIR`` si está definido.
+        #   2. En frozen: usa ``<exe_dir>/config/config.json``,
+        #      copiando el bundleado de ``_MEIPASS`` en la primera
+        #      ejecución. El operario puede editarlo sin recompilar.
+        #   3. En dev: usa ``<cwd>/infrastructure/config.json`` (repo).
+        #   4. Fallback readonly al bundleado si no se puede escribir
+        #      la ruta del usuario (CD-ROM, red readonly).
+        # Si el caller pasa ``config_path`` explícito, eso gana
+        # (compat 100% con tests, app.py, mcp_server.py).
+        if config_path is None:
+            from core.infrastructure.config_paths import resolve_config_path
+            config_path = resolve_config_path()
 
         self._config_path = Path(config_path)
         self._department = department

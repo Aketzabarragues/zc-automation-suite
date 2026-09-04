@@ -239,6 +239,23 @@ commit).
   en curso o artefactos históricos que el operario quiere
   consultar).
 
+### Path del config.json del usuario
+- Patrón "template bundleado + copia writable al lado del .exe":
+  `ConfigManager()` sin argumentos delega en
+  `core/infrastructure/config_paths.py:resolve_config_path()`.
+- Resolución: `$ZC_CONFIG_DIR/config.json` (override) →
+  frozen: `<exe_dir>/config/config.json` (se copia del bundleado en
+  primera ejecución) → dev: `<cwd>/infrastructure/config.json` (el
+  del repo, sin copia) → fallback readonly al bundleado si no se
+  puede escribir la ruta del usuario.
+- Política: **el usuario gana siempre**. NO sobreescribimos un
+  `config.json` existente. El operario borra el archivo a mano si
+  quiere resetear al bundleado (primera ejecución = siguiente
+  arranque copia el bundleado de nuevo).
+- Compat: callers que pasan `config_path=` explícito (todos los
+  tests, `app.py`, `mcp_server.py`) siguen funcionando idéntico. El
+  resolver solo actúa cuando no se pasa path (o se pasa `None`).
+
 ### Convenciones frontend (Vue 3 ESM)
 - **Sin build step:** el navegador carga módulos ESM directamente
   desde `/js/`. No usar `import.meta`, no usar TypeScript.

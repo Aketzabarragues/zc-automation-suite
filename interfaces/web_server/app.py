@@ -122,9 +122,12 @@ def create_app(gateway: TIAProcessGateway) -> FastAPI:
     app.state.progress_tracker = get_progress_tracker()
     # ``ConfigManager`` se construye aquí (Composition Root) y se
     # expone a los routers que lo necesiten (ej. ``sync.py`` que
-    # lo pasa a ``DispSyncInstancesUseCase``).
+    # lo pasa a ``DispSyncInstancesUseCase``). Sin ``config_path``
+    # explícito: usa ``resolve_config_path`` (frozen: copia el
+    # bundleado a ``<exe_dir>/config/`` en primera ejecución; dev:
+    # usa el del repo).
     from core.infrastructure.config_manager import ConfigManager
-    app.state.config_manager = ConfigManager("infrastructure/config.json")
+    app.state.config_manager = ConfigManager()
 
     # ── 2. Routers comunes del core (orden estable, alfabético) ───
     # Estos routers son GENÉRICOS: no saben de áreas, viven en el

@@ -403,8 +403,25 @@ from core.infrastructure.gateway import TIAProcessGateway
 
 Lee `infrastructure/config.json` y expone el mapeo entre tipos de dispositivo del Excel y nombres reales de tablas en TIA Portal. Soporta multi-departamento (`department="alimentacion"`). API: `get_global_config_table_name()`, `get_dispositivo_config(key)`, `get_tag_table_name(key)`, `get_db_name(key)`, `get_db_array_name(key)`, `list_keys()`, `get_tia_folder_proceso()`, `get_tia_folder_dispositivos()`, `get_tia_folder_nmax()`.
 
+**Resolución del path** (vía `core/infrastructure/config_paths.py:resolve_config_path()` cuando se llama sin `config_path`):
+- `$ZC_CONFIG_DIR/config.json` si está definido.
+- **Frozen** (`.exe`): `<exe_dir>/config/config.json`. Si no existe, se copia del bundleado en primera ejecución (el operario puede editarlo sin recompilar).
+- **Dev** (`python main_tray.py`): `<cwd>/infrastructure/config.json` (el del repo, sin copia).
+- Fallback readonly al bundleado si no se puede escribir (CD-ROM, red readonly).
+
+Política: **el usuario gana siempre**. NO se sobreescribe un `config.json` existente. Para resetear, borrar el archivo y reiniciar.
+
 ```python
 from core.infrastructure.config_manager import ConfigManager
+
+# Modo típico (dev o frozen con auto-copia):
+config = ConfigManager()  # usa resolve_config_path()
+
+# Explícito (compat 100% con código legacy y tests):
+config = ConfigManager("infrastructure/config.json")
+
+# Multi-departamento:
+config = ConfigManager(department="alimentacion")
 ```
 
 #### `core/infrastructure/parsers/excel_parser.py` — *Parser Excel genérico*
