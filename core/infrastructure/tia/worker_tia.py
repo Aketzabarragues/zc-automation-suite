@@ -23,6 +23,7 @@ import logging
 import os
 import re
 import sys
+import time
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1217,7 +1218,30 @@ def main() -> None:
         )
 
     portal = None
+    # ── Métricas de timing (observabilidad PR, no cambian comportamiento) ──
+    # time.monotonic() es inmune a saltos NTP. Cada t_X_end se inicializa
+    # a None para distinguir "no se ejecutó" (null en el JSON) de
+    # "se ejecutó en 0ms" (0 entero). Los timings se emiten a stderr al
+    # final del bucle, en el finally, para capturar también los errores.
+    t_load_dll_start: float | None = None
+    t_load_dll_end: float | None = None
+    t_attach_start: float | None = None
+    t_attach_end: float | None = None
+    t_handler_start: float | None = None
+    t_handler_end: float | None = None
+    t_detach_start: float | None = None
+    t_detach_end: float | None = None
     try:
+        # 1'. Marca de carga del wrapper nativo. La carga efectiva
+        #     sucede arriba (línea ~1175), pero para que las cuatro
+        #     mediciones sumen coherentemente al total del worker
+        #     partimos de aquí: el handler ya tiene `ts` enlazado
+        #     cuando entra a este bloque. En producción el grueso
+        #     del coste de import .pyd ya está pagado; aún así lo
+        #     medimos para detectar regresiones en frozen vs dev.
+        t_load_dll_start = time.monotonic()
+        t_load_dll_end = time.monotonic()
+
         # 4. Enganche al portal. Los comandos del ciclo de vida de la
         #    instancia TIA (attach_portal, open_new_portal) gestionan
         #    su propia conexiÃ³n: NO hacemos attach previo porque
@@ -1230,9 +1254,11 @@ def main() -> None:
             # instancias headless (manual V1.2.1 Â§2.4.2). De este modo
             # el proceso aislado puede reengancharse a la sesiÃ³n ya
             # abierta por el usuario sin colisionar con su estado.
+            t_attach_start = time.monotonic()
             portal = ts.attach_portal(
                 portal_mode=ts.Enums.PortalMode.AnyUserInterface
             )
+            t_attach_end = time.monotonic()
             if portal is None:
                 raise RuntimeError(
                     "Fallo crÃ­tico: attach_portal retornÃ³ una referencia nula. "
@@ -1242,7 +1268,9 @@ def main() -> None:
         # 5. Despacho al handler. La extracciÃ³n del proyecto es responsabilidad
         #    del propio handler (vÃ­a _get_active_project) si lo requiere.
         handler = COMMAND_REGISTRY[command]
+        t_handler_start = time.monotonic()
         result = handler(portal, ts, args)
+        t_handler_end = time.monotonic()
 
         _write_json_and_exit({"ok": True, "result": result}, code=0)
 
@@ -1255,10 +1283,33 @@ def main() -> None:
     finally:
         # 6. LiberaciÃ³n estricta de punteros RCW de .NET.
         if portal is not None:
+            t_detach_start = time.monotonic()
             try:
                 portal.detach()
             except Exception as e:
                 sys.stderr.write(f"[WORKER DETACH ERROR] {e}\n")
+            t_detach_end = time.monotonic()
+
+        # 7. Emisión de timings como JSON estructurado a stderr.
+        #    stderr y NO stdout: stdout es el canal del JSON response
+        #    que parsea el gateway. Mezclar ahí rompería la
+        #    comunicación. Cada campo null = fase no ejecutada
+        #    (p.ej. attach_portal_ms es null para attach_portal /
+        #    open_new_portal, que no hacen attach previo).
+        def _ms(end, start):
+            if end is None or start is None:
+                return None
+            return round((end - start) * 1000)
+
+        timings = {
+            "event": "worker_timing",
+            "command": command,
+            "load_dll_ms": _ms(t_load_dll_end, t_load_dll_start),
+            "attach_portal_ms": _ms(t_attach_end, t_attach_start),
+            "handler_ms": _ms(t_handler_end, t_handler_start),
+            "detach_ms": _ms(t_detach_end, t_detach_start),
+        }
+        sys.stderr.write(f"[WORKER TIMING] {json.dumps(timings)}\n")
 
 
 if __name__ == "__main__":

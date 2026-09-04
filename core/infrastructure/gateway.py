@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -113,6 +114,14 @@ class TIAProcessGateway:
         # via ``_clear_bloques_cache``.
         self._bloques_cache: dict[str, "BloqueCache"] = {}
         self._timeout = timeout if timeout is not None else DEFAULT_GATEWAY_TIMEOUT
+        # Metricas de timing acumuladas por comando (PR de observabilidad).
+        # Cada vez que _dispatch_worker termina, acumula el
+        # dispatch_total_ms (ciclo end-to-end del subproceso) en la
+        # lista del comando. La lectura publica se hace con
+        # get_metrics() para no exponer el estado interno. Thread-safety:
+        # solo se accede desde el event loop de asyncio (single-thread
+        # dentro del proceso IT), por lo que no se anaden locks.
+        self._metrics: dict[str, list[float]] = {}
 
     def _resolve_worker_exec_args(self) -> list[str]:
         """Devuelve los argumentos para lanzar el subproceso worker.
@@ -154,100 +163,160 @@ class TIAProcessGateway:
                 proporcional al número de operaciones). ``None``
                 usa el default del gateway.
         """
-        timeout = timeout_override if timeout_override is not None else self._timeout
-        exec_args = self._resolve_worker_exec_args()
-
-        # Forzar encoding UTF-8 en el subproceso (heredado del
-        # padre). Sin esto, en Windows el worker arranca con
-        # cp1252 y Pythonnet revienta al convertir strings de
-        # TIA Portal (Latin-1) a Python UTF-8.
-        import os as _os
-        worker_env = {
-            **_os.environ,
-            "PYTHONIOENCODING": "utf-8",
-            "PYTHONUTF8": "1",
-        }
-
-        # Invocación: -u (unbuffered I/O) en desarrollo, solo --worker en frozen.
-        proc = await asyncio.create_subprocess_exec(
-            sys.executable,
-            *exec_args,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=worker_env,
-        )
-
-        payload_bytes = json.dumps({"command": command, "args": args or {}}).encode(
-            "utf-8"
-        )
-
+        # Metricas de timing (observabilidad). Mide el ciclo
+        # end-to-end: create_subprocess_exec + envio de payload +
+        # proc.communicate() + parsing de respuesta. time.monotonic()
+        # es inmune a saltos NTP. Se acumula y se loguea en el
+        # `finally` para capturar tambien errores y timeouts.
+        t_dispatch_start = time.monotonic()
+        _result: Any = None
         try:
-            stdout_b, stderr_b = await asyncio.wait_for(
-                proc.communicate(input=payload_bytes),
-                timeout=timeout,
+            timeout = timeout_override if timeout_override is not None else self._timeout
+            exec_args = self._resolve_worker_exec_args()
+    
+            # Forzar encoding UTF-8 en el subproceso (heredado del
+            # padre). Sin esto, en Windows el worker arranca con
+            # cp1252 y Pythonnet revienta al convertir strings de
+            # TIA Portal (Latin-1) a Python UTF-8.
+            import os as _os
+            worker_env = {
+                **_os.environ,
+                "PYTHONIOENCODING": "utf-8",
+                "PYTHONUTF8": "1",
+            }
+    
+            # Invocación: -u (unbuffered I/O) en desarrollo, solo --worker en frozen.
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable,
+                *exec_args,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=worker_env,
             )
-        except asyncio.TimeoutError:
-            proc.kill()
-            await proc.wait()
-            raise RuntimeError(
-                f"Timeout tras {timeout}s ejecutando el comando '{command}'. "
-                "El subproceso OT no respondió (posible diálogo modal activo en TIA Portal)."
+    
+            payload_bytes = json.dumps({"command": command, "args": args or {}}).encode(
+                "utf-8"
             )
-
-        stderr_text = stderr_b.decode("utf-8", errors="replace").strip()
-        stdout_text = stdout_b.decode("utf-8", errors="replace").strip()
-
-        if proc.returncode != 0 and not stdout_text:
-            raise RuntimeError(
-                f"El subproceso OT colapsó (exit code {proc.returncode}). Error: {stderr_text or 'Sin salida'}"
-            )
-
-        # Extraer la última línea válida parseable como JSON (filtro contra interferencias)
-        json_response = None
-        for line in reversed(stdout_text.splitlines()):
-            line_str = line.strip()
-            if line_str.startswith("{") and line_str.endswith("}"):
-                try:
-                    json_response = json.loads(line_str)
-                    break
-                except json.JSONDecodeError:
-                    continue
-
-        if json_response is None:
-            raise RuntimeError(
-                f"Respuesta inválida del worker OT. STDOUT: '{stdout_text}' | STDERR: '{stderr_text}'"
-            )
-
-        if not json_response.get("ok"):
-            # Incluir stderr del worker para diagnóstico (traceback
-            # completo, mensajes de Pythonnet, etc.). Sin esto,
-            # solo vemos el error resumido.
-            err = json_response.get("error", "Error interno en el worker OT.")
-            if stderr_text:
-                full_msg = f"{err} | STDERR: {stderr_text[:2000]}"
-            else:
-                full_msg = err
-
-            if _is_tia_connection_error(str(err)):
-                # El worker no puede adjuntar al portal. La cache
-                # puede tener datos stale de un escaneo anterior;
-                # invalidar para forzar al operario a re-seleccionar
-                # el PLC tras reconectar.
-                self._clear_bloques_cache()
-                self._cache.clear()
-                _logger = logging.getLogger(__name__)
-                _logger.warning(
-                    "TIA Portal no responde (%s); cache invalidada. "
-                    "El frontend deberia resetear store.selectedPlc y "
-                    "store.plcBlocksCache tras este error.",
-                    err,
+    
+            try:
+                stdout_b, stderr_b = await asyncio.wait_for(
+                    proc.communicate(input=payload_bytes),
+                    timeout=timeout,
                 )
-                raise TIAConnectionError(full_msg)
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                raise RuntimeError(
+                    f"Timeout tras {timeout}s ejecutando el comando '{command}'. "
+                    "El subproceso OT no respondió (posible diálogo modal activo en TIA Portal)."
+                )
+    
+            stderr_text = stderr_b.decode("utf-8", errors="replace").strip()
+            stdout_text = stdout_b.decode("utf-8", errors="replace").strip()
+    
+            if proc.returncode != 0 and not stdout_text:
+                raise RuntimeError(
+                    f"El subproceso OT colapsó (exit code {proc.returncode}). Error: {stderr_text or 'Sin salida'}"
+                )
+    
+            # Extraer la última línea válida parseable como JSON (filtro contra interferencias)
+            json_response = None
+            for line in reversed(stdout_text.splitlines()):
+                line_str = line.strip()
+                if line_str.startswith("{") and line_str.endswith("}"):
+                    try:
+                        json_response = json.loads(line_str)
+                        break
+                    except json.JSONDecodeError:
+                        continue
+    
+            if json_response is None:
+                raise RuntimeError(
+                    f"Respuesta inválida del worker OT. STDOUT: '{stdout_text}' | STDERR: '{stderr_text}'"
+                )
+    
+            if not json_response.get("ok"):
+                # Incluir stderr del worker para diagnóstico (traceback
+                # completo, mensajes de Pythonnet, etc.). Sin esto,
+                # solo vemos el error resumido.
+                err = json_response.get("error", "Error interno en el worker OT.")
+                if stderr_text:
+                    full_msg = f"{err} | STDERR: {stderr_text[:2000]}"
+                else:
+                    full_msg = err
+    
+                if _is_tia_connection_error(str(err)):
+                    # El worker no puede adjuntar al portal. La cache
+                    # puede tener datos stale de un escaneo anterior;
+                    # invalidar para forzar al operario a re-seleccionar
+                    # el PLC tras reconectar.
+                    self._clear_bloques_cache()
+                    self._cache.clear()
+                    _logger = logging.getLogger(__name__)
+                    _logger.warning(
+                        "TIA Portal no responde (%s); cache invalidada. "
+                        "El frontend deberia resetear store.selectedPlc y "
+                        "store.plcBlocksCache tras este error.",
+                        err,
+                    )
+                    raise TIAConnectionError(full_msg)
+    
+                raise RuntimeError(full_msg)
+    
+            _result = json_response.get("result")
+        finally:
+            # Metricas de timing: ciclo end-to-end del subproceso.
+            # time.monotonic() es inmune a saltos NTP. Se ejecuta
+            # SIEMPRE (incluso en TimeoutError o RuntimeError) para
+            # que el operario pueda diagnosticar latencias y cuellos
+            # de botella reales, no solo los caminos felices.
+            _t_dispatch_end = time.monotonic()
+            _dispatch_ms = (_t_dispatch_end - t_dispatch_start) * 1000
+            self._metrics.setdefault(command, []).append(_dispatch_ms)
+            sys.stderr.write(
+                f"[GATEWAY TIMING] command={command!r} dispatch_total_ms={round(_dispatch_ms)}\n"
+            )
 
-            raise RuntimeError(full_msg)
+        # Retorno fuera del try/finally: el `return` dentro de un
+        # `finally` es un anti-patron (suprime excepciones en vuelo).
+        # sys.exc_info() devuelve (None, None, None) si NO hay
+        # excepcion en vuelo; la clase de la excepcion si la hay.
+        # Si hay excepcion, dejamos que se propague sin retornar.
+        if sys.exc_info()[0] is None:
+            return _result
 
-        return json_response.get("result")
+    def get_metrics(self) -> dict[str, dict[str, float | int]]:
+        """Devuelve estadisticas de timing acumuladas por comando.
+
+        Para cada comando ejecutado por _dispatch_worker, devuelve:
+          - count: numero de veces invocado.
+          - min_ms: tiempo minimo observado (entero, ms).
+          - max_ms: tiempo maximo observado (entero, ms).
+          - avg_ms: tiempo medio (entero, ms, redondeado).
+
+        El dict es una COPIA del estado interno: mutar el retorno NO
+        afecta a self._metrics. Caso de uso principal: exponer
+        las stats en un endpoint de diagnostico o en un comando
+        MCP para que el operario pueda confirmar la hipotesis de
+        que ts.attach_portal() es la operacion dominante del
+        worker OT (audit 1.3, _plan/10).
+
+        El gateway mantiene las metricas por instancia (cada
+        TIAProcessGateway tiene su propio dict). Tests que
+        crean gateways frescos parten de un dict vacio; en
+        produccion las metricas se acumulan durante toda la vida
+        del proceso IT.
+        """
+        return {
+            cmd: {
+                "count": len(times),
+                "min_ms": round(min(times)),
+                "max_ms": round(max(times)),
+                "avg_ms": round(sum(times) / len(times)),
+            }
+            for cmd, times in self._metrics.items()
+        }
 
     async def get_plcs(self, force_refresh: bool = False) -> list[str]:
         """Obtiene los PLCs disponibles utilizando la caché de memoria IT."""
