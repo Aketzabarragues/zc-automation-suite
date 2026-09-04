@@ -45,7 +45,6 @@ from core.application.log_buffer import LogBuffer
 from core.application.progress_buffer import ProgressTracker
 from core.application.state import AppState
 from core.infrastructure.config_manager import ConfigManager
-from core.infrastructure.gateway import TIAConnectionError
 from interfaces.web_server.dependencies import (
     get_app_state,
     get_config_manager,
@@ -106,21 +105,6 @@ async def upload_excel(
         result = await use_case.execute(tmp_path)
         progress.finish(success=True)
         return result
-    except TIAConnectionError as exc:
-        # Defensivo: ``UploadExcelUseCase`` no toca el gateway, pero
-        # si en una iteración futura añade alguna llamada, queremos
-        # que la respuesta sea 503 con ``X-Error-Type`` por
-        # coherencia con el resto de routers del área.
-        if progress.active:
-            progress.finish(success=False, error=str(exc))
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                f"TIA Portal no responde: {exc}. "
-                "Reconecta el portal y vuelve a seleccionar el PLC."
-            ),
-            headers={"X-Error-Type": "TIAConnectionError"},
-        ) from exc
     except Exception as exc:
         # El use case ya llamó ``progress.finish(success=False)``
         # y ``logger.error(...)`` y emitió ``HTTPException(400)``.
