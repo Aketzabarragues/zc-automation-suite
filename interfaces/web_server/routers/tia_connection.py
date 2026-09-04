@@ -13,8 +13,15 @@ Shape del GET (ver design doc ``_plan/12_worker_persistent_design.md`` §4.1)::
       "project": {"name": str, "path": str, "version": str} | null,
       "plcs": [str, ...],
       "last_ping_ok_unix": float | null,
-      "last_error": str | null
+      "last_error": str | null,
+      "project_changed": bool
     }
+
+    ``project_changed`` (PR 7) es un flag one-shot: ``True`` solo
+    en el primer poll tras detectar que el operario abrio un
+    proyecto distinto en TIA Portal sin pasar por la app. El
+    gateway lo resetea a ``False`` en el mismo read para que la
+    SPA no re-notifique el mismo cambio en cada polling.
 
 Las dependencias se inyectan via ``Depends`` (Clean Architecture en
 routers; ver ``interfaces/web_server/dependencies.py``). NO se
@@ -50,7 +57,7 @@ async def get_tia_connection(
 
     Returns:
         ``dict`` con ``state``, ``project``, ``plcs``,
-        ``last_ping_ok_unix`` y ``last_error``.
+        ``last_ping_ok_unix``, ``last_error`` y ``project_changed``.
     """
     # ``_connection_state`` solo existe si el gateway fue construido
     # con ``persistent=True``. En modo 1-shot (MCP, tests legacy)
@@ -59,6 +66,17 @@ async def get_tia_connection(
     project_path = getattr(gateway, "_project_path", None)
     last_ping_ok = getattr(gateway, "_last_ping_ok", None)
     last_error = getattr(gateway, "_last_error", None)
+    # ``project_changed`` (PR 7) es un flag one-shot: ``True`` solo
+    # en el primer poll tras detectar que el operario abrio un
+    # proyecto distinto en TIA Portal sin pasar por la app. Despues
+    # se resetea a ``False`` para no notificar el mismo cambio en
+    # cada polling del frontend. ``getattr`` defensivo: si la app
+    # corre con un build anterior a PR 7, el atributo no existe y
+    # el default ``False`` evita que la SPA reciba un campo
+    # ``null`` inesperado.
+    project_changed = bool(
+        getattr(gateway, "consume_project_changed", lambda: False)()
+    )
 
     # Solo si estamos "connected" intentamos enriquecer con proyecto
     # y PLCs. En otros estados la cache del gateway puede estar stale
@@ -90,6 +108,7 @@ async def get_tia_connection(
         "plcs": plcs,
         "last_ping_ok_unix": last_ping_ok,
         "last_error": last_error,
+        "project_changed": project_changed,
     }
 
 

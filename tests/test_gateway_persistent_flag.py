@@ -154,6 +154,12 @@ async def test_dispatch_worker_persistent_raises_not_implemented() -> None:
     gateway._dispatch_ephemeral_worker = AsyncMock(
         return_value={"ok": True, "result": "ephemeral_should_not_run"}
     )
+    # PR 7 anade ``_detect_project_change`` antes de enviar el
+    # payload. Lo mockeamos como no-op para que este test se
+    # concentre en la delegacion persistente, no en la deteccion
+    # de cambio de proyecto (cubierta por
+    # ``test_persistent_worker_project_change.py``).
+    gateway._detect_project_change = AsyncMock(return_value=False)
 
     result = await gateway._dispatch_worker("any_command", args={"k": "v"})
 
@@ -182,6 +188,8 @@ async def test_dispatch_worker_persistent_does_not_call_ephemeral() -> None:
     gateway._dispatch_ephemeral_worker = AsyncMock(
         return_value={"ok": True, "result": "should_not_run"}
     )
+    # PR 7: ver test anterior.
+    gateway._detect_project_change = AsyncMock(return_value=False)
 
     await gateway._dispatch_worker("any_command", args={})
 
@@ -283,6 +291,12 @@ async def test_start_persistent_worker_is_placeholder() -> None:
 
     sentinel = {"ok": True, "pid": 12345}
     gateway._send_to_persistent_worker = AsyncMock(return_value=sentinel)
+    # PR 7: ``_start_persistent_worker`` invoca ``_detect_project_change``
+    # al final para detectar el proyecto inicial. Lo mockeamos como
+    # no-op para que este test verifique solo el ping inicial y el
+    # estado ``connected`` (la deteccion de cambio se prueba en
+    # ``test_persistent_worker_project_change.py``).
+    gateway._detect_project_change = AsyncMock(return_value=False)
 
     with patch(
         "core.infrastructure.gateway.asyncio.create_subprocess_exec",

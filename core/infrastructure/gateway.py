@@ -167,6 +167,13 @@ class TIAProcessGateway:
             # o el primer comando hará lazy start en PR 3).
             self._connection_state: str = "disconnected"
             self._project_path: str | None = None  # para detectar cambios (PR 7)
+            # Flag one-shot que el frontend consume via ``/tia/connection``
+            # (PR 7). Se pone a ``True`` cuando ``_detect_project_change``
+            # detecta que el operario abrio un proyecto distinto en TIA
+            # sin pasar por la app. ``consume_project_changed()`` lo lee
+            # y lo resetea para que el siguiente poll no vuelva a
+            # notificar el mismo cambio.
+            self._project_changed: bool = False
             self._last_ping_ok: float | None = None
             self._last_error: str | None = None
 
@@ -238,6 +245,22 @@ class TIAProcessGateway:
             # matching por ID, asyncio.Lock para serializar. El lock
             # protege TODO el ciclo (envío + espera de respuesta) para
             # que 2 requests concurrentes no se pisen en el stream.
+            #
+            # Deteccion de cambio de proyecto (PR 7): ANTES de enviar
+            # el comando, preguntamos al worker por el ``get_project_info``
+            # y comparamos con el path cacheado en ``self._project_path``.
+            # Si difiere, invalidamos caches y marcamos
+            # ``self._project_changed = True`` para que el snapshot de
+            # ``/tia/connection`` lo exponga al frontend. Se excluyen
+            # ``get_project_info`` (seria redundante: el resultado ES la
+            # fuente de la verdad) y ``ping`` (chequeo de salud, no
+            # opera sobre proyecto). La deteccion ocurre AQUI y NO en
+            # el heartbeat (design doc §3.5: "antes de cada transaccion
+            # de lectura pesada") para que un cambio silencioso de
+            # proyecto coincida con una operacion del operario y el
+            # siguiente poll del frontend muestre el estado actualizado.
+            if command not in ("get_project_info", "ping"):
+                await self._detect_project_change()
             async with self._worker_lock:
                 return await self._send_to_persistent_worker(
                     command, args, timeout_override
@@ -389,6 +412,104 @@ class TIAProcessGateway:
         if sys.exc_info()[0] is None:
             return _result
 
+    async def _detect_project_change(self) -> bool:
+        """Compara el proyecto activo en TIA con el ultimo conocido.
+
+        Si difiere, marca el flag ``_project_changed = True`` (que el
+        frontend consume via ``/tia/connection``) e invalida las
+        caches (``_cache`` y ``_bloques_cache``) porque un cambio de
+        proyecto implica que el estado IT anterior es stale.
+
+        Estrategia (design doc §3.5): consulta ``get_project_info`` al
+        worker y compara el campo ``path`` con ``self._project_path``.
+
+        Robustez:
+          - Si el gateway no es persistente, retorna ``False`` sin
+            hacer nada (no hay worker al que preguntar; la deteccion
+            aplica solo al modo web).
+          - Si la llamada a ``_send_to_persistent_worker`` falla
+            (TIA cerrado, timeout, excepcion COM/RPC), retorna
+            ``False`` sin crashear. La deteccion de desconexion la
+            hace el heartbeat; este metodo SOLO se ocupa de cambios
+            de proyecto cuando el worker esta vivo.
+          - Si el resultado no es un dict (caso patologico), se trata
+            como ``path=None`` y se compara igual.
+
+        Returns:
+            ``True`` si se detecto un cambio de proyecto (y por tanto
+            se invalidaron caches); ``False`` en caso contrario
+            (mismo proyecto, error de comunicacion, o modo 1-shot).
+        """
+        if not self._persistent:
+            return False
+
+        try:
+            async with self._worker_lock:
+                info = await asyncio.wait_for(
+                    self._send_to_persistent_worker(
+                        "get_project_info", {}, timeout_override=10.0
+                    ),
+                    timeout=10.0,
+                )
+        except Exception:
+            # Worker no responde, TIA cerrado, timeout, COM/RPC, etc.
+            # El heartbeat marcara ``disconnected`` si persiste. Aqui
+            # solo nos ocupa el cambio de proyecto; si no podemos
+            # preguntar, no marcamos nada y dejamos que el siguiente
+            # comando reintente.
+            return False
+
+        current_path = info.get("path") if isinstance(info, dict) else None
+
+        if current_path != self._project_path:
+            # Cambio detectado (o primera deteccion tras arranque:
+            # ``_project_path`` empezaba en ``None``). Invalidamos
+            # caches: un proyecto distinto implica un PLC distinto,
+            # bloques distintos, tags distintos, etc. Lo que teniamos
+            # cacheado ya no es valido.
+            self._project_path = current_path
+            self._project_changed = True
+            # ``clear_cache`` ya invalida ``_bloques_cache``; llamamos
+            # tambien ``_clear_bloques_cache`` explicitamente por si
+            # el operario anade mas caches en el futuro y quiere ver
+            # un punto de invalidadcion claro. Envuelto en try/except
+            # defensivo: la deteccion de cambio NO debe fallar si
+            # limpiar la cache lanza (e.g. un futuro cache que requiera
+            # I/O).
+            try:
+                self.clear_cache()
+            except Exception:
+                pass
+            try:
+                self._clear_bloques_cache()
+            except Exception:
+                pass
+            return True
+
+        return False
+
+    def consume_project_changed(self) -> bool:
+        """Lee y resetea el flag ``_project_changed`` (one-shot).
+
+        Pensado para que el endpoint ``GET /tia/connection`` (PR 5a)
+        exponga al frontend ``project_changed=true`` UNA SOLA VEZ
+        por cambio real. Tras un read, el flag vuelve a ``False``
+        hasta el siguiente cambio.
+
+        Returns:
+            ``True`` si hay un cambio de proyecto pendiente de
+            notificar al frontend; ``False`` en caso contrario.
+        """
+        changed = bool(getattr(self, "_project_changed", False))
+        # Reset atomico: si otro caller marco el flag entre el getattr
+        # y el set, NO lo pisamos (el False solo se aplica si estaba
+        # a True). En la practica no hay concurrencia dentro del
+        # proceso IT (single-thread asyncio), pero la lectura es
+        # defensiva.
+        if changed:
+            self._project_changed = False
+        return changed
+
     def _resolve_persistent_worker_exec_args(self) -> list[str]:
         """Args extra para lanzar el subproceso del worker en modo persistente.
 
@@ -538,6 +659,19 @@ class TIAProcessGateway:
         # loop evita una rafaga inicial ping+heartbeat simultaneos.
         if self._heartbeat_task is None or self._heartbeat_task.done():
             self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+
+        # Deteccion del proyecto inicial (PR 7): si el operario ya
+        # abrio un proyecto en TIA Portal antes de lanzar la app, este
+        # es el primer momento en que podemos preguntar por el path
+        # sin penalizar al operario con una operacion extra. Si hay
+        # un proyecto activo, ``_project_path`` se popula y
+        # ``_project_changed`` queda a ``False`` (no es un cambio,
+        # es el estado inicial). Si TIA no tiene proyecto, ambos
+        # quedan ``None`` y se detectara en el siguiente comando.
+        #
+        # NO se hace bajo el lock: ``_detect_project_change`` adquiere
+        # su propio ``async with self._worker_lock`` internamente.
+        await self._detect_project_change()
 
     async def _heartbeat_loop(self) -> None:
         """Heartbeat continuo: ping al worker cada ``ZC_WORKER_HEARTBEAT_SECONDS`` (default 5s).

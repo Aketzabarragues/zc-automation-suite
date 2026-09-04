@@ -108,6 +108,7 @@ def test_get_connection_connected_devuelve_shape_completo(
         "plcs",
         "last_ping_ok_unix",
         "last_error",
+        "project_changed",
     }
     assert body["state"] == "connected"
     assert body["project"] == {
@@ -270,3 +271,48 @@ def test_get_connection_get_project_info_falla_degrada_a_vacio(
     # El router intento enriquecer y la excepcion se absorbio.
     mock_gateway.get_project_info.assert_awaited_once()
     mock_gateway.get_plcs.assert_awaited_once()
+
+
+# ── Test 7 (regresion PR 7): GET /connection expone ``project_changed`` ─
+
+
+def test_get_connection_expone_project_changed_consumiendo_flag(
+    client: TestClient, mock_gateway: MagicMock
+) -> None:
+    """GET /connection expone ``project_changed`` y consume el flag (one-shot).
+
+    PR 7 anade el flag ``_project_changed`` al gateway: ``True`` tras
+    detectar un cambio de proyecto en TIA, ``False`` despues de un
+    ``consume_project_changed()``. El router lo lee y lo expone en la
+    respuesta para que la SPA notifique al operario UNA SOLA VEZ por
+    cambio real.
+
+    Verificamos:
+      - La respuesta incluye el campo ``project_changed``.
+      - Cuando el flag esta a ``True`` en el gateway, la respuesta
+        lo refleja (``True``) y el flag se resetea (``False``) tras
+        el read (semantica one-shot).
+      - El siguiente GET devuelve ``project_changed=False`` (el
+        cambio ya fue notificado).
+    """
+    # El gateway expone un flag ``project_changed`` que el operario
+    # acaba de cambiar en TIA. ``consume_project_changed`` lo lee
+    # y resetea (mockspec=False para que ``getattr`` no se queje).
+    mock_gateway.consume_project_changed = MagicMock(
+        side_effect=[True, False]
+    )
+    mock_gateway._connection_state = "disconnected"  # no enriquecer
+
+    resp1 = client.get("/api/v1/tia/connection")
+    assert resp1.status_code == 200
+    body1 = resp1.json()
+    assert body1["project_changed"] is True
+    # ``consume_project_changed`` se llamo (read-and-reset).
+    assert mock_gateway.consume_project_changed.call_count == 1
+
+    # Segundo GET: el flag ya esta consumido, debe ser ``False``.
+    resp2 = client.get("/api/v1/tia/connection")
+    assert resp2.status_code == 200
+    body2 = resp2.json()
+    assert body2["project_changed"] is False
+    assert mock_gateway.consume_project_changed.call_count == 2
