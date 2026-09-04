@@ -856,18 +856,27 @@ class TIAProcessGateway:
         target_folder: str,
         db_names: dict[str, str],
         db_array_names: dict[str, str],
+        *,
+        area_id: str = "alimentacion",
+        contexto: str = "dispositivos",
+        subestado: str = "exports",
         build_cache_dir: Path | None = None,
         undo_text: str = "Sync comentarios dispositivos",
     ) -> dict[str, Any]:
         """Aplica los comentarios por instancia a los 6 DBs de dispositivos
         en una sola transacción TIA con rollback atómico.
 
-        Misma convención que ``DispSyncInstancesUseCase``:
-        el directorio de trabajo es
-        ``<build_cache>/alimentacion/dispositivos/exports/``
+        Misma convención que ``DispSyncInstancesUseCase``: el directorio
+        de trabajo es ``<build_cache>/<area_id>/<contexto>/<subestado>/``
         (con ``build_cache = Path(os.getcwd()) / ".build_cache"`` por
         defecto). El directorio se conserva tras la operación para
         permitir inspección manual y diff con ``git diff``.
+
+        Los parámetros ``area_id``, ``contexto`` y ``subestado`` son
+        parametrizables (keyword-only) para que un 2º área pueda
+        reutilizar este método apuntando a su propio workdir sin que
+        el gateway tenga que saber qué áreas existen. Por defecto
+        apuntan al flujo canónico de alimentación/dispositivos/exports/.
 
         Args:
             plc_name: nombre del PLC en TIA.
@@ -878,6 +887,12 @@ class TIAProcessGateway:
                 TIA (resuelta por ``ConfigManager.get_tia_folder_dispositivos()``).
             db_names: ``{hw_type: db_name}`` ya resuelto por ConfigManager.
             db_array_names: ``{hw_type: db_array_name}`` ya resuelto por ConfigManager.
+            area_id: id del área para resolver el workdir
+                (default ``"alimentacion"``).
+            contexto: contexto de dominio dentro del área
+                (default ``"dispositivos"``).
+            subestado: subestado del ``ContextCache``
+                (default ``"exports"``; otros: ``"modified"``, ``"preview"``).
             build_cache_dir: ruta al directorio ``.build_cache``. Si es
                 None, se usa ``Path(os.getcwd()) / ".build_cache"``.
             undo_text: etiqueta del historial Undo de TIA Portal.
@@ -893,15 +908,13 @@ class TIAProcessGateway:
         if not dispositivos_slot_maps:
             raise ValueError("dispositivos_slot_maps está vacío.")
 
-        # Workdir de export para los 6 DBs de dispositivos. Mismo
-        # path f\u00edsico que ``DispSyncInstancesUseCase``:
-        # ``<build_cache>/alimentacion/dispositivos/exports/``. El
-        # gateway vive en ``core/`` (no debe importar \u00e1reas), as\u00ed
-        # que construimos el path manualmente en lugar de usar
-        # ``AlimentacionAreaCache.dispositivos.exports``.
-        area_id = "alimentacion"
+        # Workdir de export para los 6 DBs. El gateway vive en
+        # ``core/`` (no debe importar áreas), así que construimos el
+        # path directamente desde los parámetros, sin pasar por
+        # ``AlimentacionAreaCache``. Por defecto, apunta al flujo
+        # canónico de alimentación/dispositivos/exports/.
         root = Path(build_cache_dir) if build_cache_dir is not None else Path(os.getcwd()) / ".build_cache"
-        work_dir = BuildCache(area_id=area_id, root=root).area.root / "dispositivos" / "exports"
+        work_dir = BuildCache(area_id=area_id, root=root).area.root / contexto / subestado
         work_dir.mkdir(parents=True, exist_ok=True)
 
         operations: list[dict[str, Any]] = []

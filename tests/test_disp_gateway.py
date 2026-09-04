@@ -197,3 +197,48 @@ def test_work_dir_se_conserva_entre_ejecuciones(
         )
     # El directorio sigue existiendo tras 2 ejecuciones.
     assert (cache / "alimentacion" / "dispositivos" / "exports").exists()
+
+
+def test_work_dir_parametrizable_por_area_y_contexto(
+    gateway: TIAProcessGateway, tmp_path: Path,
+) -> None:
+    """Los params ``area_id``/``contexto``/``subestado`` permiten reutilizar
+    el método para un 2º área sin tocar el gateway (que vive en ``core/``
+    y no debe saber de áreas).
+
+    Por defecto apuntan a ``alimentacion/dispositivos/exports/``. Si se
+    pasan otros valores, el workdir se construye desde esos params
+    respetando la jerarquía ``<root>/<area_id>/<contexto>/<subestado>/``.
+    """
+    import asyncio
+
+    # Caso 1: defaults -> alimentacion/dispositivos/exports/.
+    asyncio.run(
+        gateway.update_disp_instance_comments_batch(
+            plc_name="PLC_X",
+            dispositivos_slot_maps={"ed": {0: "NO USAR", 1: "X"}},
+            target_folder="2000_Dispositivos",
+            db_names={"ed": "DB2000_ED"},
+            db_array_names={"ed": "ED"},
+            build_cache_dir=tmp_path,
+        )
+    )
+    assert (tmp_path / "alimentacion" / "dispositivos" / "exports").exists()
+
+    # Caso 2: 2º área hipotética con contexto propio. El gateway
+    # construye el path sin saber qué es "trazabilidad" — solo aplica
+    # la jerarquía parametrizada.
+    asyncio.run(
+        gateway.update_disp_instance_comments_batch(
+            plc_name="PLC_Y",
+            dispositivos_slot_maps={"ed": {0: "NO USAR", 1: "Y"}},
+            target_folder="9000_Lotes",
+            db_names={"ed": "DB9000_LOTES"},
+            db_array_names={"ed": "LOTES"},
+            area_id="trazabilidad",
+            contexto="lotes",
+            subestado="exports",
+            build_cache_dir=tmp_path,
+        )
+    )
+    assert (tmp_path / "trazabilidad" / "lotes" / "exports").exists()
