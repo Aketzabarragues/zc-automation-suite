@@ -33,10 +33,12 @@ from areas.alimentacion.application.proc_slot_map_builder import (
     ProcSlotMap,
     proc_build_slot_maps,
 )
+from areas.alimentacion.infrastructure.build_cache import build_cache
 from core.application.progress_buffer import ProgressTracker, get_progress_tracker
 from core.application.state import AppState
 from core.infrastructure.config_manager import ConfigManager
 from core.infrastructure.gateway import TIAProcessGateway
+from core.infrastructure.tia.export_paths import SdPair, XmlTarget
 from core.models.bloque_cache import BloqueCache
 
 
@@ -62,11 +64,6 @@ class ProcSyncComentariosUseCase:
                        en lugar de monkey-patching ``_build_work_dir``.
     """
 
-    _BUILD_CACHE_DIRNAME = ".build_cache"
-    _PROC_SUBDIR = "procesos"
-    _COMMIT_SUBDIR = "commit"
-    _PREVIEW_SUBDIR = "preview"
-
     def __init__(
         self,
         gateway: TIAProcessGateway,
@@ -83,10 +80,14 @@ class ProcSyncComentariosUseCase:
             progress if progress is not None else get_progress_tracker()
         )
         self._bloques_cache: BloqueCache | None = bloques_cache
+        # ``build_cache_dir`` es la RA\u00cdZ del ``BuildCache`` del \u00e1rea
+        # (no un workdir concreto). Por convenci\u00f3n, ``<cwd>/.build_cache``.
+        # Tests legacy siguen pasando ``tmp_path`` o ``tmp_path /
+        # ".build_cache"`` aqu\u00ed; ambos funcionan.
         self._build_cache: Path = (
             build_cache_dir
             if build_cache_dir is not None
-            else Path(os.getcwd()) / self._BUILD_CACHE_DIRNAME
+            else Path(os.getcwd()) / ".build_cache"
         )
 
     # ── API pública ──────────────────────────────────────────────────────
@@ -486,7 +487,12 @@ class ProcSyncComentariosUseCase:
                 )
 
             # open_transaction: componer las 3 ops y enviar al gateway.
-            work_dir = self._build_work_dir()
+            # Limpiamos el workdir antes del apply para que no queden
+            # residuos de runs anteriores (cierra la asimetría con
+            # ``DispSyncInstancesUseCase`` que ya lo hacía).
+            proc_ctx = build_cache(root=self._build_cache).procesos
+            proc_ctx.clean()
+            work_dir = proc_ctx.exports
             target_folder = self._config.get_tia_folder_proceso()
             undo_text = (
                 f"Sync comentarios proceso {slot_map.db_param_name.split('_')[1] if '_' in slot_map.db_param_name else proc_uid} "
@@ -621,31 +627,6 @@ class ProcSyncComentariosUseCase:
             raise
 
     # ── Internals ────────────────────────────────────────────────────────
-
-    def _build_work_dir(self, suffix: str = "commit") -> Path:
-        """Construye el directorio de trabajo del worker.
-
-        Patrón análogo a ``DispSyncInstancesUseCase``:
-        ``<build_cache>/procesos/<suffix>/``. El directorio se
-        conserva tras la operación para permitir inspección manual
-        y ``git diff``.
-
-        Args:
-            suffix: ``"commit"`` (default) usa el directorio
-                ``procesos/commit/`` que el handler de import_block
-                lee después del export + updater. ``"preview"`` usa
-                ``procesos/preview/`` separado para que el operario
-                pueda inspeccionar los exports del preview sin
-                mezclarlos con los del apply.
-        """
-        subdir = (
-            self._COMMIT_SUBDIR if suffix == "commit"
-            else self._PREVIEW_SUBDIR if suffix == "preview"
-            else suffix
-        )
-        work_dir = self._build_cache / self._PROC_SUBDIR / subdir
-        work_dir.mkdir(parents=True, exist_ok=True)
-        return work_dir
 
     def _compose_arrays(
         self,
@@ -878,7 +859,7 @@ class ProcSyncComentariosUseCase:
         # ``target_dir`` SIN subcarpeta: el worker, con
         # ``keep_folder_structure=True``, crea la jerarquía del PLC
         # (``target_dir/003_Procesos/100_CPR.xml``).
-        target_dir = self._build_work_dir(suffix="preview")
+        target_dir = build_cache(root=self._build_cache).procesos.preview
         target_dir.mkdir(parents=True, exist_ok=True)
         table_name = slot_map.table_name  # p. ej. "100_CPR"
 
@@ -892,12 +873,12 @@ class ProcSyncComentariosUseCase:
             # El worker puede haber escrito el XML en
             # ``<target_dir>/<grupo>/<table>.xml`` o directamente en
             # ``<target_dir>/<table>.xml`` según el group structure
-            # del PLC. Buscamos en cualquier subdirectorio para
-            # ser tolerantes.
-            matches = list(target_dir.rglob(f"{table_name}.xml"))
-            if matches:
-                current = SimaticMLTagParser.parse_user_constants(matches[0])
-            else:
+            # del PLC. ``XmlTarget`` resuelve la ruta con fallback
+            # rglob integrado.
+            try:
+                xml_path = XmlTarget(target_dir, table_name).path
+                current = SimaticMLTagParser.parse_user_constants(xml_path)
+            except FileNotFoundError:
                 _logger.warning(
                     f"[N_MAX procesos] XML esperado no encontrado en "
                     f"{target_dir} para tabla {table_name}."
@@ -965,7 +946,7 @@ class ProcSyncComentariosUseCase:
         from areas.alimentacion.infrastructure.sd.proc_comment_updater import (
             ProcCommentUpdater,
         )
-        work_dir = self._build_work_dir(suffix="preview")
+        work_dir = build_cache(root=self._build_cache).procesos.preview
         plc_name = (
             self._bloques_cache.plc_name
             if self._bloques_cache is not None
@@ -995,13 +976,13 @@ class ProcSyncComentariosUseCase:
         # de instancia, porque cada read_current_comments recibe su
         # propio array_name por parámetro).
         updater_param = ProcCommentUpdater(
-            s7dcl_path=work_dir / f"{slot_map.db_param_name}.s7dcl",
-            s7res_path=work_dir / f"{slot_map.db_param_name}.s7res",
+            s7dcl_path=SdPair(work_dir, slot_map.db_param_name).dcl,
+            s7res_path=SdPair(work_dir, slot_map.db_param_name).res,
             slot_map={},
         )
         updater_alm = ProcCommentUpdater(
-            s7dcl_path=work_dir / f"{slot_map.db_alm_name}.s7dcl",
-            s7res_path=work_dir / f"{slot_map.db_alm_name}.s7res",
+            s7dcl_path=SdPair(work_dir, slot_map.db_alm_name).dcl,
+            s7res_path=SdPair(work_dir, slot_map.db_alm_name).res,
             slot_map={},
         )
         # Slots a leer: los del Excel + los que tienen asignación

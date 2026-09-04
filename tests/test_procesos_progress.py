@@ -270,9 +270,9 @@ def test_generar_prevision_diff_real_con_archivos_tia(tmp_path) -> None:
 
     # 1. Preparar los archivos .s7dcl/.s7res en el work_dir que
     # construirá el use case como si vinieran de TIA. El caso de uso
-    # los monta en ``<build_cache>/procesos/preview/``, por lo que
-    # pre-escribimos directamente ahí.
-    work_dir = tmp_path / "procesos" / "preview"
+    # los monta en ``<build_cache>/alimentacion/procesos/preview/``
+    # (vía ``BuildCache``), por lo que pre-escribimos directamente ahí.
+    work_dir = tmp_path / "alimentacion" / "procesos" / "preview"
     work_dir.mkdir(parents=True)
     db_param = "DB53100_CPR_PARAM"
     db_alm = "DB55100_CPR_ALM"
@@ -380,8 +380,8 @@ def test_generar_prevision_diff_real_con_archivos_tia(tmp_path) -> None:
     result = asyncio.run(use_case.generar_prevision(100))
 
     # El preview debe haber escrito los exports en
-    # ``<build_cache>/procesos/preview/`` (no en ``work_dir`` directo).
-    expected_work_dir = tmp_path / "procesos" / "preview"
+    # ``<build_cache>/alimentacion/procesos/preview/``.
+    expected_work_dir = tmp_path / "alimentacion" / "procesos" / "preview"
     assert expected_work_dir.is_dir(), (
         f"El preview no creó su work_dir: {expected_work_dir}"
     )
@@ -726,7 +726,7 @@ def test_generar_prevision_slots_tia_no_excel_aparecen_como_eliminar(
 
     # Escribimos los .s7dcl/.s7res en el work_dir para que el
     # ``read_current_comments`` los pueda leer.
-    work_dir = tmp_path / "procesos" / "preview"
+    work_dir = tmp_path / "alimentacion" / "procesos" / "preview"
     work_dir.mkdir(parents=True)
     s7dcl = (
         'DATA_BLOCK "DB53100_CPR_PARAM"\n'

@@ -265,18 +265,17 @@ def test_endpoint_commit_invoca_gateway_con_target_folder_y_undo(
         "update_proc_comments_db_alm",
     ]
     # target_folder y work_dir vienen del config. El work_dir del
-    # commit sigue el patrón ``<build_cache>/procesos/commit/``
-    # (análogo a ``DispSyncInstancesUseCase``: ``<build_cache>/
-    # base/tags/`` y ``<build_cache>/commit/tags/``). El preview usa
-    # ``<build_cache>/procesos/preview/`` separado, para que el
-    # operario no confunda archivos exportados durante un preview con
-    # archivos a reimportar en el commit.
+    # commit sigue el patrón ``<build_cache>/alimentacion/procesos/exports/``
+    # (jerarquía canónica de ``BuildCache``: ``<area_id>/<contexto>/<subestado>``).
+    # El preview usa ``<build_cache>/alimentacion/procesos/preview/``
+    # separado, para que el operario no confunda archivos exportados
+    # durante un preview con archivos a reimportar en el commit.
     for op in operations:
         assert op["args"]["target_folder"] == "003_Procesos"
         # ``os.sep`` para tolerar backslash en Windows y slash en
         # Linux/macOS.
         assert op["args"]["work_dir"].endswith(
-            f"procesos{os.sep}commit"
+            f"alimentacion{os.sep}procesos{os.sep}exports"
         ), op["args"]["work_dir"]
     # Undo text menciona el codigo "CPR" y el PLC.
     assert "CPR" in call_args["undo_text"]
