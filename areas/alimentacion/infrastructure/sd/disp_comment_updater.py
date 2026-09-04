@@ -54,16 +54,15 @@ from pathlib import Path
 from typing import Any
 
 from areas.alimentacion.infrastructure.sd.mlc_registry import MLCRegistry
+from core.infrastructure.tia.export_paths import (
+    EMPTY_TEXT,
+    MAX_COMMENT_LEN,
+    SD_ENCODING,
+    SD_RES_ENCODING,
+)
 
 
 _logger: logging.Logger = logging.getLogger(f"{__name__}.DispCommentUpdater")
-
-# Tamaño máximo permitido para un comentario (límite práctico S7_MLC).
-# Truncamos silenciosamente con warning si se supera.
-_MAX_COMMENT_LEN: int = 254
-
-# Texto que se escribe cuando ``plc_comentario`` está vacío.
-_EMPTY_TEXT: str = "."
 
 # Texto fijo para el slot 0 (siempre "NO USAR" según decisión de diseño).
 _NO_USAR_TEXT: str = "NO USAR"
@@ -88,12 +87,6 @@ class DispCommentResult:
     inserted: dict[int, str]
     no_usar_mlc: str
     total_mlcs_in_res: int
-
-
-# ── Codificación ────────────────────────────────────────────────────────
-
-_S7DCL_ENCODING: str = "utf-8"          # sin BOM
-_S7RES_ENCODING: str = "utf-8-sig"      # con BOM (lo genera TIA al exportar)
 
 
 # ── Regex de parsing ────────────────────────────────────────────────────
@@ -169,8 +162,8 @@ class DispCommentUpdater:
         self._slot_map: dict[int, str] = dict(slot_map)
 
         # Carga en memoria.
-        self._s7dcl: str = self._s7dcl_path.read_text(encoding=_S7DCL_ENCODING)
-        self._s7res: str = self._s7res_path.read_text(encoding=_S7RES_ENCODING)
+        self._s7dcl: str = self._s7dcl_path.read_text(encoding=SD_ENCODING)
+        self._s7res: str = self._s7res_path.read_text(encoding=SD_RES_ENCODING)
 
         # Estado mutable.
         self._modified: bool = False
@@ -265,8 +258,8 @@ class DispCommentUpdater:
         out_res = Path(output_s7res_path) if output_s7res_path else self._s7res_path
         out_dcl.parent.mkdir(parents=True, exist_ok=True)
         out_res.parent.mkdir(parents=True, exist_ok=True)
-        out_dcl.write_text(self._s7dcl, encoding=_S7DCL_ENCODING)
-        out_res.write_text(self._s7res, encoding=_S7RES_ENCODING)
+        out_dcl.write_text(self._s7dcl, encoding=SD_ENCODING)
+        out_res.write_text(self._s7res, encoding=SD_RES_ENCODING)
 
     # ── Internals: registry ─────────────────────────────────────────────
 
@@ -532,14 +525,14 @@ class DispCommentUpdater:
         s = re.sub(r"\s+", " ", s)
         # Vacío → ".".
         if not s:
-            s = _EMPTY_TEXT
+            s = EMPTY_TEXT
         # Truncar si excede el máximo.
-        if len(s) > _MAX_COMMENT_LEN:
+        if len(s) > MAX_COMMENT_LEN:
             _logger.warning(
                 f"Comentario del slot {slot} truncado de {len(s)} a "
-                f"{_MAX_COMMENT_LEN} chars."
+                f"{MAX_COMMENT_LEN} chars."
             )
-            s = s[:_MAX_COMMENT_LEN]
+            s = s[:MAX_COMMENT_LEN]
         return s
 
     @staticmethod

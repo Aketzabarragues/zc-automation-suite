@@ -31,16 +31,12 @@ from areas.alimentacion.infrastructure.sd.proc_comment_updater import (
 )
 from core.application.state import AppState
 from core.infrastructure.config_manager import ConfigManager
+from core.infrastructure.tia.export_paths import EMPTY_TEXT
 from core.models.bloque_cache import BloqueCache
 from core.models.bloque_plc import BloquePLC
 
 
 _logger = logging.getLogger(__name__)
-
-
-# Texto que se escribe cuando ``comentario_db`` está vacío (convención
-# TIA "sin comentario"; ver ``DispCommentUpdater._EMPTY_TEXT``).
-_EMPTY_TEXT: str = "."
 
 
 @dataclass(frozen=True)
@@ -166,7 +162,7 @@ def _build_slot_map(
                 f"Parámetro sin comentario_db (Excel vacío); "
                 f"se mapea a '.' (índice {i + 1})."
             )
-            comentario = _EMPTY_TEXT
+            comentario = EMPTY_TEXT
         slot_map[i + 1] = comentario
     return slot_map
 
