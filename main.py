@@ -69,6 +69,16 @@ def parse_args() -> argparse.Namespace:
             "Ejemplo: --web 0.0.0.0:5000"
         ),
     )
+    parser.add_argument(
+        "--worker-persistent",
+        action="store_true",
+        help=(
+            "(interno) Arranca el worker OT en modo persistente (loop). "
+            "Lo invoca TIAProcessGateway(persistent=True) en modo web. "
+            "El loop real se implementa en PR 3; por ahora es un "
+            "NotImplementedError explicito."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -112,7 +122,17 @@ def run_web_mode(host_port: str) -> None:
     from interfaces.web_server.app import create_app
     from core.infrastructure.gateway import TIAProcessGateway
 
-    gateway = TIAProcessGateway()
+    # Modo web: el gateway se construye con ``persistent=True`` para
+    # que en PR 3+ el worker OT corra como subproceso vivo durante
+    # toda la sesión (1 attach al inicio, N comandos por el mismo
+    # attach). En este PR (PR 2) el flag solo añade infraestructura
+    # en el gateway; ``_dispatch_worker`` detecta el flag y lanza
+    # ``NotImplementedError`` con la referencia al plan. El cambio
+    # es seguro: ``persistent=False`` (default) preserva el
+    # comportamiento 1-shot actual, y ``persistent=True`` no rompe
+    # nada en este PR (el dispatch falla de forma explícita si se
+    # intenta usar, sin pisar el modo 1-shot del MCP).
+    gateway = TIAProcessGateway(persistent=True)
     app = create_app(gateway)
 
     host, _, port = host_port.partition(":")
@@ -126,6 +146,16 @@ def run_web_mode(host_port: str) -> None:
 def main() -> None:
     args = parse_args()
 
+    if args.worker_persistent:
+        # Modo persistente del worker (PR 2/3): el subproceso entra
+        # en ``main_persistent_loop()`` (placeholder en este PR; loop
+        # real en PR 3). El flag CLI existe para que el gateway en
+        # modo web pueda invocar ``main.py --worker-persistent`` sin
+        # que ``argparse`` rechace el argumento.
+        from core.infrastructure.tia.worker_tia import main_persistent_loop
+
+        main_persistent_loop()
+        sys.exit(0)
     if args.worker:
         run_worker_mode()
         return

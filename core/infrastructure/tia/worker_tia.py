@@ -1201,8 +1201,48 @@ def _load_siemens_wrapper() -> Any:
     import siemens_tia_scripting as ts
     return ts
 
+def main_persistent_loop() -> None:
+    """Loop principal del worker OT persistente (placeholder - implementacion completa en PR 3).
+
+    Esta funcion DEBE ser invocada cuando el subproceso recibe
+    ``--worker-persistent`` (modo web, gateway con persistent=True).
+    La implementacion completa del loop (lectura de stdin, dispatch
+    del comando, escritura de respuesta con id matching) viene en
+    PR 3 del refactor (_plan/13_persistent_worker_impl.md, seccion
+    PR 3, y _plan/12_worker_persistent_design.md, seccion 3.2).
+
+    Por ahora lanzamos ``NotImplementedError`` explicito: un caller
+    que active el flag en este PR recibira un mensaje accionable
+    en lugar de un fallo silencioso o un comportamiento 1-shot
+    disfrazado de persistente. El primer chequeo (``if
+    "--worker-persistent" in sys.argv`` en ``main()``) ya enrutara
+    a esta funcion; si llegamos aqui sin que el caller haya
+    configurado algo, el NotImplementedError deja claro que el
+    comportamiento todavia no esta cableado.
+
+    Raises:
+        NotImplementedError: siempre, en este PR. PR 3 reemplaza
+            el cuerpo por el loop real (sin levantar la excepcion).
+    """
+    raise NotImplementedError(
+        "main_persistent_loop se implementa en PR 3. "
+        "Plan: _plan/13_persistent_worker_impl.md (seccion PR 3)."
+    )
+
 
 def main() -> None:
+    # -- Dispatch del modo persistente (PR 2/3) --
+    # Si el subproceso se invoca con --worker-persistent (modo web,
+    # gateway con persistent=True), entramos en el loop persistente:
+    # 1 attach al inicio + N comandos por stdin/stdout. La implementacion
+    # completa del loop viene en PR 3 del refactor
+    # (_plan/13_persistent_worker_impl.md); por ahora es un
+    # NotImplementedError con la referencia al plan para que un caller
+    # que active el flag por error reciba un mensaje accionable.
+    if "--worker-persistent" in sys.argv:
+        main_persistent_loop()
+        return
+
     # 1. Carga dinÃ¡mica tardÃ­a del wrapper nativo (SecciÃ³n 1.7.1 V1.2.1).
     try:
         ts = _load_siemens_wrapper()

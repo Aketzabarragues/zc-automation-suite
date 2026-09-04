@@ -159,6 +159,26 @@ def _read_env_int(name: str, default: int) -> int:
 
 
 def main() -> int:
+    # ── Dispatch --worker-persistent (subprocess OT persistente) ANTES de --worker ─
+    # El flag ``--worker-persistent`` lo usa TIAProcessGateway cuando
+    # se construye con ``persistent=True`` (modo web, PR 3+). El
+    # subproceso del worker debe entrar en ``main_persistent_loop()``
+    # (loop de N comandos por stdin/stdout con 1 attach al inicio).
+    # En este PR (PR 2) el loop es un ``NotImplementedError`` con
+    # la referencia al plan; en PR 3 será el loop real.
+    #
+    # Importante: comprobar ``--worker-persistent`` ANTES que
+    # ``--worker`` porque en argparse la cadena ``--worker-persistent``
+    # NO es igual a ``--worker`` (sigue siendo una cadena distinta),
+    # pero queremos ser explícitos sobre la precedencia: si el
+    # binario frozen se invoca con ``--worker-persistent`` (modo web),
+    # ese es el dispatch correcto, no el 1-shot.
+    if "--worker-persistent" in sys.argv[1:]:
+        from core.infrastructure.tia.worker_tia import main_persistent_loop
+
+        main_persistent_loop()
+        return 0
+
     # ── Dispatch --worker (subprocess OT) ANTES de cualquier setup ───
     # Cuando el .exe frozen se lanza con `--worker`, el gateway
     # (``infrastructure/gateway.py``) nos está invocando como

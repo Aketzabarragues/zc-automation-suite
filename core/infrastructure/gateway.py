@@ -95,7 +95,11 @@ class TIAProcessGateway:
         referencian rutas a .py.
     """
 
-    def __init__(self, timeout: float | None = None) -> None:
+    def __init__(
+        self,
+        timeout: float | None = None,
+        persistent: bool = False,
+    ) -> None:
         """Inicializa el gateway IT.
 
         Args:
@@ -104,7 +108,22 @@ class TIAProcessGateway:
                 (180s, configurable vía ``ZC_GATEWAY_TIMEOUT``). Pasarlo
                 explícito tiene prioridad sobre la env var (útil para
                 tests con mocks que necesitan un timeout corto).
+            persistent: Si es ``True``, el gateway se prepara para usar
+                un worker OT persistente (un único subproceso vivo
+                durante toda la sesión, un attach al inicio, N comandos
+                por el mismo attach). En este PR el flag solo añade
+                la infraestructura (campos de estado, lock, dispatcher);
+                el comportamiento persistente real se implementa en
+                PR 3 (``_plan/13_persistent_worker_impl.md``). Si es
+                ``False`` (default), mantiene el comportamiento 1-shot
+                actual: 1 subproceso por llamada a ``_dispatch_worker``.
         """
+        self._persistent = persistent
+        # Atributo público de solo-lectura. Útil para que el código de
+        # composición (``main.py``, ``main_tray.py``) y los tests
+        # consulten el modo sin tocar el atributo privado.
+        # El setter NO se expone: el flag se decide en el composition
+        # root y es inmutable durante la vida del gateway.
         self._cache: dict[str, Any] = {}
         # Cache IT especializada de bloques + tag tables escaneados.
         # Separada de ``self._cache`` (que guarda lecturas ligeras como
@@ -122,6 +141,45 @@ class TIAProcessGateway:
         # solo se accede desde el event loop de asyncio (single-thread
         # dentro del proceso IT), por lo que no se anaden locks.
         self._metrics: dict[str, list[float]] = {}
+
+        if persistent:
+            # Estado del worker OT persistente (modo web).
+            # Inicializado AHORA pero el comportamiento real (subproceso
+            # vivo, lock de envío, reader task, heartbeat) se implementa
+            # en PR 3 del refactor. Ver ``_plan/12_worker_persistent_design.md``
+            # §3.1 y ``_plan/13_persistent_worker_impl.md`` (PR 2/3).
+            #
+            # Por ahora, los campos están inicializados a sus valores
+            # neutros (``None``/``{}``) para que la propiedad ``persistent``
+            # y los tests del flag (PR 2) puedan inspeccionarlos sin
+            # necesidad de tener un subproceso vivo. ``_dispatch_worker``
+            # detecta el flag y lanza ``NotImplementedError`` (ver
+            # abajo) — el dispatch real persistente no existe todavía.
+            self._worker_proc: asyncio.subprocess.Process | None = None
+            self._worker_lock = asyncio.Lock()
+            self._next_request_id: int = 0
+            self._pending_responses: dict[int, asyncio.Future[Any]] = {}
+            self._reader_task: asyncio.Task[None] | None = None
+            self._heartbeat_task: asyncio.Task[None] | None = None
+            # Estados posibles: "disconnected" | "connecting" |
+            # "connected" | "error". El estado inicial es
+            # "disconnected" (aún no hay worker arrancado; ``connect``
+            # o el primer comando hará lazy start en PR 3).
+            self._connection_state: str = "disconnected"
+            self._project_path: str | None = None  # para detectar cambios (PR 7)
+            self._last_ping_ok: float | None = None
+            self._last_error: str | None = None
+
+    @property
+    def persistent(self) -> bool:
+        """Modo del gateway: ``True`` para worker persistente (modo web).
+
+        Solo-lectura: el flag lo decide el composition root al construir
+        el gateway y es inmutable durante su vida. Acceso público
+        estable (los tests y los componentes de UI pueden consultarlo
+        sin tocar ``_persistent``).
+        """
+        return self._persistent
 
     def _resolve_worker_exec_args(self) -> list[str]:
         """Devuelve los argumentos para lanzar el subproceso worker.
@@ -152,7 +210,54 @@ class TIAProcessGateway:
         args: dict[str, Any] | None = None,
         timeout_override: float | None = None,
     ) -> Any:
+        """Dispatcher genérico hacia el worker OT según el modo del gateway.
+
+        Si ``self._persistent`` es ``True`` delega en la implementación
+        del worker persistente (PR 3+). Si es ``False`` (default), delega
+        en ``_dispatch_ephemeral_worker`` (comportamiento 1-shot actual:
+        1 subproceso por llamada).
+
+        En este PR (PR 2) el caso persistente todavía no está
+        implementado: el dispatcher detecta el flag y lanza
+        ``NotImplementedError`` con la referencia al plan. La
+        implementación real del loop (request-response con IDs,
+        asyncio.Lock, reader task) viene en PR 3.
+
+        Args:
+            command: Nombre del comando del COMMAND_REGISTRY del worker.
+            args: Argumentos JSON-serializables para el comando.
+            timeout_override: Si se pasa, se usa este timeout en lugar
+                de ``self._timeout`` (útil para operaciones bulk como
+                ``execute_transactional_batch`` que necesitan un timeout
+                proporcional al número de operaciones). ``None``
+                usa el default del gateway.
+        """
+        if self._persistent:
+            # Implementación real del worker persistente (subproceso
+            # vivo, lock, request IDs, reader task) viene en PR 3 del
+            # refactor. Por ahora lanzamos NotImplementedError explícito
+            # para que un caller que active el flag por error reciba un
+            # mensaje accionable en lugar de un fallo silencioso o un
+            # comportamiento 1-shot disfrazado de persistente.
+            raise NotImplementedError(
+                "Worker persistente aún no implementado (PR 3). "
+                "Por ahora usa persistent=False. "
+                "Plan: _plan/13_persistent_worker_impl.md (sección PR 3)."
+            )
+        return await self._dispatch_ephemeral_worker(command, args, timeout_override)
+
+    async def _dispatch_ephemeral_worker(
+        self,
+        command: str,
+        args: dict[str, Any] | None = None,
+        timeout_override: float | None = None,
+    ) -> Any:
         """Lanza main.py (o el .exe congelado) con --worker y le envía el payload por STDIN.
+
+        Modo 1-shot: 1 subproceso por llamada. Es el comportamiento
+        histórico del gateway, preservado intacto en este PR; el
+        wrapper ``_dispatch_worker`` lo invoca cuando
+        ``self._persistent`` es ``False``.
 
         Args:
             command: Nombre del comando del COMMAND_REGISTRY del worker.
@@ -173,7 +278,7 @@ class TIAProcessGateway:
         try:
             timeout = timeout_override if timeout_override is not None else self._timeout
             exec_args = self._resolve_worker_exec_args()
-    
+
             # Forzar encoding UTF-8 en el subproceso (heredado del
             # padre). Sin esto, en Windows el worker arranca con
             # cp1252 y Pythonnet revienta al convertir strings de
@@ -184,7 +289,7 @@ class TIAProcessGateway:
                 "PYTHONIOENCODING": "utf-8",
                 "PYTHONUTF8": "1",
             }
-    
+
             # Invocación: -u (unbuffered I/O) en desarrollo, solo --worker en frozen.
             proc = await asyncio.create_subprocess_exec(
                 sys.executable,
@@ -194,11 +299,11 @@ class TIAProcessGateway:
                 stderr=asyncio.subprocess.PIPE,
                 env=worker_env,
             )
-    
+
             payload_bytes = json.dumps({"command": command, "args": args or {}}).encode(
                 "utf-8"
             )
-    
+
             try:
                 stdout_b, stderr_b = await asyncio.wait_for(
                     proc.communicate(input=payload_bytes),
@@ -211,15 +316,15 @@ class TIAProcessGateway:
                     f"Timeout tras {timeout}s ejecutando el comando '{command}'. "
                     "El subproceso OT no respondió (posible diálogo modal activo en TIA Portal)."
                 )
-    
+
             stderr_text = stderr_b.decode("utf-8", errors="replace").strip()
             stdout_text = stdout_b.decode("utf-8", errors="replace").strip()
-    
+
             if proc.returncode != 0 and not stdout_text:
                 raise RuntimeError(
                     f"El subproceso OT colapsó (exit code {proc.returncode}). Error: {stderr_text or 'Sin salida'}"
                 )
-    
+
             # Extraer la última línea válida parseable como JSON (filtro contra interferencias)
             json_response = None
             for line in reversed(stdout_text.splitlines()):
@@ -230,12 +335,12 @@ class TIAProcessGateway:
                         break
                     except json.JSONDecodeError:
                         continue
-    
+
             if json_response is None:
                 raise RuntimeError(
                     f"Respuesta inválida del worker OT. STDOUT: '{stdout_text}' | STDERR: '{stderr_text}'"
                 )
-    
+
             if not json_response.get("ok"):
                 # Incluir stderr del worker para diagnóstico (traceback
                 # completo, mensajes de Pythonnet, etc.). Sin esto,
@@ -245,7 +350,7 @@ class TIAProcessGateway:
                     full_msg = f"{err} | STDERR: {stderr_text[:2000]}"
                 else:
                     full_msg = err
-    
+
                 if _is_tia_connection_error(str(err)):
                     # El worker no puede adjuntar al portal. La cache
                     # puede tener datos stale de un escaneo anterior;
@@ -261,9 +366,9 @@ class TIAProcessGateway:
                         err,
                     )
                     raise TIAConnectionError(full_msg)
-    
+
                 raise RuntimeError(full_msg)
-    
+
             _result = json_response.get("result")
         finally:
             # Metricas de timing: ciclo end-to-end del subproceso.
@@ -285,6 +390,41 @@ class TIAProcessGateway:
         # Si hay excepcion, dejamos que se propague sin retornar.
         if sys.exc_info()[0] is None:
             return _result
+
+    def _resolve_persistent_worker_exec_args(self) -> list[str]:
+        """Args extra para lanzar el subproceso del worker en modo persistente.
+
+        El gateway en modo persistente invoca ``sys.executable`` con
+        ``_resolve_worker_exec_args()`` (resuelve ``main.py`` en dev /
+        el .exe en frozen) seguido de estos args extra. En este PR
+        (PR 2) los args son un único flag ``--worker-persistent``;
+        el entry point de ``worker_tia.main()`` lo detecta y enruta
+        a ``main_persistent_loop()`` (placeholder en este PR, loop
+        real en PR 3).
+
+        Importante: el ``--worker-persistent`` debe ser EXACTAMENTE
+        este string (lo busca ``worker_tia.main()`` con
+        ``"--worker-persistent" in sys.argv``). Cualquier variante
+        (``--persistent``, ``-p``, etc.) NO será detectada y el
+        worker caerá al modo 1-shot.
+        """
+        return ["--worker-persistent"]
+
+    async def _start_persistent_worker(self) -> None:
+        """Lazy start del worker OT persistente (placeholder — implementación completa en PR 3).
+
+        Esta función se invocará desde ``_send_to_persistent_worker``
+        cuando el gateway detecte que el subproceso no está vivo
+        (PR 3). Por ahora, lanzar el subproceso y cablear el reader
+        task y el heartbeat es la tarea del siguiente PR. Aquí
+        dejamos el NotImplementedError para que un caller que intente
+        arrancar el worker en este PR reciba un error explícito
+        en lugar de un fallo silencioso.
+        """
+        raise NotImplementedError(
+            "_start_persistent_worker se implementa en PR 3. "
+            "Plan: _plan/13_persistent_worker_impl.md (sección PR 3)."
+        )
 
     def get_metrics(self) -> dict[str, dict[str, float | int]]:
         """Devuelve estadisticas de timing acumuladas por comando.
