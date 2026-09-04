@@ -525,6 +525,147 @@ class TIAProcessGateway:
                 f"Worker no respondio al ping inicial: {exc}"
             )
 
+        # Heartbeat continuo: PR 4 del refactor del worker persistente
+        # (``_plan/12_worker_persistent_design.md`` §3.4). Solo se inicia
+        # si el ping inicial tuvo exito (no queremos un heartbeat
+        # zombi sobre un worker que no responde). El lock NO se coge
+        # aqui: ``_heartbeat_loop`` adquiere su propio ``async with``
+        # internamente para no anidar locks ni competir con
+        # ``_dispatch_worker`` (el heartbeat debe correr incluso
+        # cuando hay comandos en vuelo: si el lock estuviera cogido
+        # por un comando largo, el heartbeat se pausaria y perderiamos
+        # la deteccion de caidas). El ``asyncio.sleep`` al inicio del
+        # loop evita una rafaga inicial ping+heartbeat simultaneos.
+        if self._heartbeat_task is None or self._heartbeat_task.done():
+            self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+
+    async def _heartbeat_loop(self) -> None:
+        """Heartbeat continuo: ping al worker cada ``ZC_WORKER_HEARTBEAT_SECONDS`` (default 5s).
+
+        Mantiene ``_connection_state`` actualizado segun el resultado
+        del ultimo ping:
+
+          - 0 fallos consecutivos: ``"connected"`` (sano).
+          - 1-2 fallos consecutivos: ``"connecting"`` (transitorio, el
+            proximo tick reintentara).
+          - 3 fallos consecutivos: ``"disconnected"`` (el worker esta
+            muerto o TIA Portal cayo; se necesitara reconexion manual
+            del operario en PR 6).
+
+        Robustez:
+
+          - **No crashea** si el ping falla por timeout, ``RuntimeError``,
+            ``TIAConnectionError`` o cualquier otra excepcion. Solo
+            incrementa el contador de fallos y actualiza ``_last_error``.
+          - **Si el subproceso muere** (``_worker_proc.returncode is not None``)
+            marca ``"disconnected"`` inmediatamente sin esperar al
+            proximo tick: respuesta del design doc §3.4.
+          - **Si ``_worker_proc`` es None** (gateway desconectado
+            externamente), sale del loop limpiamente. La task termina
+            y queda disponible para un re-lanzamiento.
+          - **Cogemos ``self._worker_lock``** alrededor del ping: la
+            serializacion contra ``_dispatch_worker`` es necesaria para
+            no corromper el stream stdin/stdout. Esto significa que
+            comandos largos (p.ej. ``compile_plc`` de 8s) retrasan al
+            heartbeat, pero NO lo pausan: el lock se libera entre
+            comandos, y el ``async with`` solo bloquea la rafaga
+            concurrente. Si un comando tarda mas de
+            ``ZC_WORKER_HEARTBEAT_SECONDS``, el siguiente tick del
+            heartbeat esperara al lock; esto es aceptable porque
+            cualquier ping seria lanzado en paralelo seria serializado
+            de todas formas.
+
+        Cancelacion:
+
+          La task se cancela externamente (no hay ``__aexit__`` en
+          esta version; PR 6 introducira ``disconnect()`` que la
+          cancela). Al recibir ``CancelledError``, simplemente
+          retornamos: ``_heartbeat_task.done()`` sera ``True`` y un
+          futuro ``_start_persistent_worker`` lanzara uno nuevo.
+        """
+        interval = float(os.environ.get("ZC_WORKER_HEARTBEAT_SECONDS", "5.0"))
+        consecutive_failures = 0
+
+        try:
+            while True:
+                # ``asyncio.sleep`` cede el control al event loop, lo
+                # que permite a ``_dispatch_worker`` adquirir el lock
+                # entre ticks. Si el proc muere durante el sleep, lo
+                # detectamos al despertar.
+                await asyncio.sleep(interval)
+
+                # Salida limpia si el gateway fue desconectado
+                # externamente (PR 6 pondra ``_worker_proc = None``).
+                if self._worker_proc is None:
+                    return
+
+                # Deteccion inmediata de muerte del subproceso (sin
+                # esperar al ping): si ``returncode`` ya esta fijado,
+                # el worker murio y el ping fallaria igualmente.
+                if self._worker_proc.returncode is not None:
+                    self._connection_state = "disconnected"
+                    self._last_error = (
+                        f"Worker subproceso termino con codigo "
+                        f"{self._worker_proc.returncode}"
+                    )
+                    consecutive_failures = 3  # corte directo a disconnected
+                    continue
+
+                # Ping bajo el lock para serializar contra
+                # ``_dispatch_worker``. ``timeout_override=10.0``
+                # porque el ping debe ser una operacion ligera
+                # (``portal.get_process_id()``); si tarda mas de 10s
+                # algo va muy mal.
+                try:
+                    async with self._worker_lock:
+                        result = await asyncio.wait_for(
+                            self._send_to_persistent_worker(
+                                "ping", args={}, timeout_override=10.0
+                            ),
+                            timeout=10.0,
+                        )
+                    if result and isinstance(result, dict) and result.get("ok"):
+                        self._connection_state = "connected"
+                        self._last_ping_ok = time.monotonic()
+                        self._last_error = None
+                        consecutive_failures = 0
+                    else:
+                        # El worker respondio pero ``ok=False``: TIA
+                        # probablemente cayo (get_process_id fallo).
+                        consecutive_failures += 1
+                        self._last_error = (
+                            (result or {}).get("error")
+                            if isinstance(result, dict)
+                            else f"Ping retorno payload inesperado: {result!r}"
+                        ) or "Ping retorno sin ok"
+                        self._connection_state = (
+                            "disconnected"
+                            if consecutive_failures >= 3
+                            else "connecting"
+                        )
+                except asyncio.CancelledError:
+                    # Cancelacion externa (gateway apagandose): salimos
+                    # sin propagar la excepcion (es un cierre limpio).
+                    return
+                except Exception as exc:
+                    # Cualquier fallo (TimeoutError, RuntimeError,
+                    # TIAConnectionError, EOF en stdin, ...) cuenta
+                    # como un fallo. NO propagamos: la idea es que el
+                    # heartbeat NUNCA muera por si solo; si hay
+                    # problemas, los acumula y eventualmente marca
+                    # ``"disconnected"``.
+                    consecutive_failures += 1
+                    self._last_error = f"{type(exc).__name__}: {exc}"
+                    self._connection_state = (
+                        "disconnected"
+                        if consecutive_failures >= 3
+                        else "connecting"
+                    )
+        except asyncio.CancelledError:
+            # Doble catch: por si la cancelacion llega entre el
+            # ``asyncio.sleep`` y el cuerpo del loop.
+            return
+
     async def _read_worker_stdout_forever(self) -> None:
         """Lee stdout del worker linea por linea y resuelve futures por ID.
 
