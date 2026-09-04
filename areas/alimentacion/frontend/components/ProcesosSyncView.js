@@ -46,7 +46,7 @@ import {
     ref,
     watch,
 } from "/js/vendor/vue.esm-browser.prod.js";
-import { store, pushLog } from "/js/store.js";
+import { store, pushLog, resetPlcState } from "/js/store.js";
 import {
     apiProcesosSyncPreview,
     apiProcesosSyncCommit,
@@ -282,6 +282,15 @@ export default {
                             "warning"
                         );
                     }
+                } else if (r && r.errorType === "TIAConnectionError") {
+                    // TIA Portal no responde. El backend ya invalido
+                    // su cache; limpiamos el state del PLC en el SPA
+                    // para evitar trabajar con datos stale.
+                    pushLog(
+                        "TIA Portal no responde. Reconecta y vuelve a seleccionar el PLC.",
+                        "error"
+                    );
+                    resetPlcState();
                 } else {
                     const detail = (r && r.data && r.data.detail) ||
                                     "Error generando preview";
@@ -327,6 +336,15 @@ export default {
                     // limpiamos para forzar al operario a
                     // regenerarlo si quiere ver el nuevo estado.
                     store.procesosSync.preview = null;
+                } else if (r && r.errorType === "TIAConnectionError") {
+                    // TIA Portal cerro durante el commit. Limpiamos
+                    // el state del PLC en el SPA (backend ya invalido
+                    // su cache).
+                    pushLog(
+                        "TIA Portal no responde. Reconecta y vuelve a seleccionar el PLC.",
+                        "error"
+                    );
+                    resetPlcState();
                 } else {
                     const detail = (r && r.data && r.data.detail) ||
                                     "Error aplicando comentarios";

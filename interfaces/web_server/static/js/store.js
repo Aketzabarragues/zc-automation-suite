@@ -504,6 +504,15 @@ export async function loadAndApplyPlcBlocks(plcName, { force = false } = {}) {
             : await apiScanPlcBlocks(plcName);
         if (r.ok) {
             _applyBlocksSnapshot(plcName, r.data);
+        } else if (r.errorType === "TIAConnectionError") {
+            // TIA Portal no responde. El backend ya invalido su
+            // cache; el frontend debe hacer lo propio para que
+            // la SPA no siga trabajando con datos stale.
+            pushLog(
+                `TIA Portal no responde. Reconecta y vuelve a seleccionar el PLC.`,
+                "error"
+            );
+            resetPlcState();
         } else {
             const msg =
                 (r.data && (r.data.detail || r.data.error)) ||
@@ -546,6 +555,47 @@ function _applyBlocksSnapshot(plcName, payload) {
         udts: Array.isArray(snap.udts) ? snap.udts : [],
         scanned_at: snap.scanned_at || new Date().toISOString(),
     };
+}
+
+/**
+ * Resetea TODO el state del SPA relacionado con la selección y
+ * cache de PLCs.
+ *
+ * Pensado para llamarse cuando el backend reporta un error de
+ * conexion con TIA Portal (``X-Error-Type: TIAConnectionError``
+ * en la respuesta HTTP, lanzado por la excepcion
+ * ``TIAConnectionError`` en ``core/infrastructure/gateway.py``).
+ * En ese caso la cache del gateway puede tener datos stale de
+ * un escaneo anterior y el frontend debe volver al estado
+ * "esperando reconexion" para forzar al operario a re-seleccionar
+ * el PLC tras reconectar TIA.
+ *
+ * Slots que se resetean:
+ *   - ``selectedPlc``        → ``""`` (dropdown a "Selecciona un PLC").
+ *   - ``plcBlocksCache``     → ``null`` (sin snapshot de bloques).
+ *   - ``plcs``               → ``[]`` (lista de PLCs disponibles).
+ *   - ``previewData``        → ``null`` (preview de dispositivos N_MAX+devices).
+ *   - ``procesosSync.preview``     → ``null`` (preview de comentarios de procesos).
+ *   - ``procesosSync.applying``    → ``false`` (sin operación en vuelo).
+ *   - ``procesosSync.error``       → mensaje accionable para el operario.
+ *   - ``procesosSync.lastAppliedAt`` → ``null`` (ultimo commit perdido).
+ *
+ * NO se toca ``store.projectInfo`` (se reintentara en el siguiente
+ * "Buscar PLCs") ni ``store.uploadSummary`` / ``store.lastExcelFile``
+ * (datos del Excel son independientes de TIA). El Excel sigue siendo
+ * la fuente maestra; el operario puede re-disparar el sync tras
+ * reconectar.
+ */
+export function resetPlcState() {
+    store.selectedPlc = "";
+    store.plcBlocksCache = null;
+    store.plcs = [];
+    store.previewData = null;
+    store.procesosSync.preview = null;
+    store.procesosSync.applying = false;
+    store.procesosSync.lastAppliedAt = null;
+    store.procesosSync.error =
+        "TIA Portal no responde. Reconecta el portal y vuelve a seleccionar el PLC.";
 }
 
 export default store;
