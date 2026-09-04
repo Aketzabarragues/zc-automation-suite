@@ -46,17 +46,18 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import shutil
 from pathlib import Path
 from typing import Any
 
 from areas.alimentacion.application.use_cases.disp_diff_constants import (
     DispCalculateConstantsDiffUseCase,
 )
+from areas.alimentacion.infrastructure.build_cache import build_cache
 from core.application.progress_buffer import ProgressTracker, get_progress_tracker
 from core.application.state import AppState, get_app_state
 from core.infrastructure.config_manager import ConfigManager
 from core.infrastructure.gateway import TIAProcessGateway
+from core.infrastructure.tia.export_paths import XmlTarget
 from areas.alimentacion.infrastructure.xml.disp_tag_table_modifier import TagTableModifier
 
 
@@ -78,11 +79,6 @@ class DispSyncInstancesUseCase:
       - ``execute(plc_name)`` \u2192 helper que encadena ambos.
     """
 
-    _BUILD_CACHE_DIRNAME = ".build_cache"
-    _BASE_SUBDIR = "base"
-    _COMMIT_SUBDIR = "commit"
-    _TAG_TABLES_SUBDIR = "tags"
-
     def __init__(
         self,
         gateway: TIAProcessGateway,
@@ -94,8 +90,12 @@ class DispSyncInstancesUseCase:
         self._gateway = gateway
         self._config = config_manager
         self._state = state if state is not None else get_app_state()
+        # ``build_cache_dir`` es ahora la RA\u00cdZ del ``BuildCache`` del
+        # \u00e1rea (no un workdir concreto). Por convenci\u00f3n, apunta a
+        # ``<cwd>/.build_cache``. Tests legacy siguen pasando ``tmp_path``
+        # o ``tmp_path / ".build_cache"`` aqu\u00ed; ambos funcionan.
         self._build_cache = build_cache_dir or (
-            Path(os.getcwd()) / self._BUILD_CACHE_DIRNAME
+            Path(os.getcwd()) / ".build_cache"
         )
         # ``ProgressTracker`` opcional. Si no se inyecta, usamos el
         # Singleton global (Composition Root de ``main.py``). Tests
@@ -147,9 +147,9 @@ class DispSyncInstancesUseCase:
                 ],
             )
         try:
-            tags_base = (
-                self._build_cache / self._BASE_SUBDIR / self._TAG_TABLES_SUBDIR
-            )
+            # Workdir de export para el diff read-only. Por convenci\u00f3n
+            # de la app, vive en ``.build_cache/alimentacion/dispositivos/exports/``.
+            tags_base = build_cache(root=self._build_cache).dispositivos.exports
             tags_base.mkdir(parents=True, exist_ok=True)
             if _track:
                 self._progress.start_stage(
@@ -365,18 +365,14 @@ class DispSyncInstancesUseCase:
         )
         try:
             # ── Stage 1: export selectivo ──────────────────────────
-            tags_base = (
-                self._build_cache / self._BASE_SUBDIR / self._TAG_TABLES_SUBDIR
-            )
-            # Limpiar para evitar XMLs de runs anteriores que ensucien
-            # el diff (defensivo: cualquier fallo previo puede haber
+            # Workdir de export para el diff. Mismo que en ``generar_prevision``:
+            # ``.build_cache/alimentacion/dispositivos/exports/``. Lo limpiamos
+            # con ``ctx.clean()`` para evitar XMLs de runs anteriores que
+            # ensucien el diff (defensivo: cualquier fallo previo puede haber
             # dejado ``tags_base/`` con contenido parcial).
-            if tags_base.exists():
-                # ignore_errors=True: si un archivo esta bloqueado por
-                # otro proceso (TIA Portal tiene un .xml abierto,
-                # antivirus, etc.), seguimos sin abortar. El worker
-                # exporta los XMLs frescos y sobrescribe lo necesario.
-                shutil.rmtree(tags_base, ignore_errors=True)
+            disp_ctx = build_cache(root=self._build_cache).dispositivos
+            disp_ctx.clean()
+            tags_base = disp_ctx.exports
             tags_base.mkdir(parents=True, exist_ok=True)
             self._progress.start_stage(
                 "export_tags", "Exportando 7 tablas del PLC (selectivo)..."
@@ -488,17 +484,14 @@ class DispSyncInstancesUseCase:
 
             # ── Stage 4: open_transaction (la unica tx TIA) ────────
             # ``work_dir`` es donde el worker escribe los XML exportados
-            # y modificados. Lo limpiamos para que ``commit_devices_sync``
-            # arranque de cero (evita XMLs stale de un run previo).
-            work_dir = (
-                self._build_cache / self._COMMIT_SUBDIR / self._TAG_TABLES_SUBDIR
-            )
-            if work_dir.exists():
-                # ignore_errors=True: ver comentario arriba. El worker
-                # exporta los XMLs de las 7 tablas en work_dir/ y los
-                # re-importa; un cleanup parcial no rompe el flujo.
-                shutil.rmtree(work_dir, ignore_errors=True)
-            work_dir.mkdir(parents=True, exist_ok=True)
+            # y modificados. En la convención nueva, es el mismo path
+            # f\u00edsico que ``tags_base`` (``exports/``): el worker
+            # hace export+modify+import en el mismo dir, dentro de la tx
+            # TIA. Lo limpiamos de nuevo con ``ctx.clean()`` (idempotente)
+            # para que ``commit_devices_sync`` arranque de cero (defensivo
+            # ante XMLs stale de un run previo abortado).
+            work_dir = disp_ctx.exports
+            disp_ctx.clean()
 
             # Aplicar N_MAX + renames + devices en UNA sola transaccion TIA.
             # Las 3 fases son siempre activas (sin bypass): es un sync atomico
@@ -800,13 +793,13 @@ class DispSyncInstancesUseCase:
         """Calcula el diff de devices en modo read-only (no modifica XML)."""
         base_state_per_table: dict[str, dict[str, str]] = {}
         for table_key in desired_state_per_table.keys():
-            xml_path = tags_base / f"{table_key}.xml"
-            if not xml_path.is_file():
-                matches = list(tags_base.glob(f"**/{table_key}.xml"))
-                if matches:
-                    xml_path = matches[0]
-                else:
-                    continue
+            # ``XmlTarget`` resuelve la ruta con fallback rglob integrado
+            # (TIA a veces exporta con ``keep_folder_structure`` y crea
+            # subdirs como ``Tags/``; el helper lo absorbe).
+            try:
+                xml_path = XmlTarget(tags_base, table_key).path
+            except FileNotFoundError:
+                continue
             modifier = TagTableModifier(xml_path)
             table_constants: dict[str, str] = {}
             for value_str, plc_tag in (
