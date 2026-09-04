@@ -11,13 +11,19 @@ API pública (gemela de ``MCPServiceSupervisor``):
   - ``restart_count``       → contador de reinicios (para el menú "Estado").
 
 Notas sobre el worker OT:
-  - El worker OT (process-per-call) lo sigue lanzando el gateway
-    existente (``TIAProcessGateway._dispatch_worker``) por cada comando.
-    Esta capa NO lanza workers persistentes: respetar el patrón
-    process-per-call del manual V1.2.1 es innegociable.
-  - "El worker se reinicia solo si muere" ya lo cumple el gateway: cada
-    llamada crea un subproceso nuevo. Esta capa solo asegura que el
-    **proceso web** (el que aloja el gateway) esté vivo.
+  - El modo web usa **worker persistente** (1 attach por sesión, N
+    comandos por el mismo attach). Ver design doc
+    ``_plan/12_worker_persistent_design.md`` §1.3 y §2.1. Por eso
+    instanciamos ``TIAProcessGateway(persistent=True)`` aquí — es el
+    flujo principal del operario (bandeja) y es donde se materializa
+    el ahorro del 90% del overhead de attach.
+  - El modo MCP (launcher separado) sigue siendo process-per-call:
+    ``persistent=False`` (default). Compatibilidad 100% con los tests
+    del MCP, sin cambios observables.
+  - "El worker se reinicia solo si muere" lo cumple el gateway en
+    modo persistente mediante su propio lazy start. Esta capa solo
+    asegura que el **proceso web** (el que aloja el gateway) esté
+    vivo.
 """
 from __future__ import annotations
 
@@ -135,7 +141,7 @@ class WebServiceSupervisor:
         from core.infrastructure.gateway import TIAProcessGateway
         from interfaces.web_server.app import create_app
 
-        gateway = TIAProcessGateway()
+        gateway = TIAProcessGateway(persistent=True)
         app = create_app(gateway)
         config = uvicorn.Config(
             app,

@@ -18,6 +18,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 import sys
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -147,3 +148,53 @@ def test_is_alive_false_before_start(port, tmp_path) -> None:
     s = WebServiceSupervisor(host="127.0.0.1", port=port)
     s.log = logging.getLogger(f"test_web_init_{port}")
     assert not s.is_alive()
+
+
+def test_serve_once_wires_persistent_true(monkeypatch) -> None:
+    """Regresión: la bandeja (flujo principal del operario) debe
+    instanciar el gateway con ``persistent=True``.
+
+    Sin este flag, el ahorro del 90% del overhead de attach que
+    motiva el refactor del worker persistente (PR 2+) no se
+    materializa en el flujo de la bandeja. Si alguien revierte el
+    flag pensando que es un cambio cosmético, este test falla y
+    documenta el porqué.
+    """
+    captured: dict = {}
+
+    class _FakeGateway:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+            # Atributos mínimos que _serve_once puede leer después.
+            self.persistent = kwargs.get("persistent", False)
+            self._cache = {}
+            self._bloques_cache = {}
+            self._dispatch_worker = AsyncMock()
+
+    fake_app = MagicMock(name="fake_app")
+    fake_server = MagicMock(name="fake_server")
+    fake_server.run = MagicMock(return_value=None)
+    fake_server.should_exit = False
+
+    # Monkey-patch del gateway (importación tardía dentro de _serve_once).
+    monkeypatch.setattr(
+        "core.infrastructure.gateway.TIAProcessGateway",
+        _FakeGateway,
+    )
+    # Monkey-patch de create_app y de uvicorn para no bindear un puerto real.
+    monkeypatch.setattr(
+        "interfaces.web_server.app.create_app",
+        lambda gateway: fake_app,
+    )
+    monkeypatch.setattr("uvicorn.Config", lambda *a, **kw: MagicMock())
+    monkeypatch.setattr("uvicorn.Server", lambda config: fake_server)
+
+    s = WebServiceSupervisor(host="127.0.0.1", port=19999)
+    s._serve_once()
+
+    assert captured.get("persistent") is True, (
+        f"web_supervisor debe pasar persistent=True al gateway; "
+        f"kwargs capturados: {captured}. Sin este flag, la bandeja "
+        f"sigue pagando el attach 35-50 veces por sesion (ver "
+        f"_plan/12_worker_persistent_design.md §1.3)."
+    )
