@@ -245,6 +245,31 @@ def _cmd_list_plcs(portal: Any, ts: Any, args: dict[str, Any]) -> list[str]:
     return [plc.get_name() for plc in plcs]
 
 
+def _cmd_ping(portal: Any, ts: Any, args: dict[str, Any]) -> dict[str, Any]:
+    """Verifica si la conexión con TIA Portal sigue activa.
+
+    Implementación: ``portal.get_process_id()`` (sección 2.5.1 del
+    manual de Siemens). Si retorna un PID, ``ok=True`` con el PID.
+    Si lanza excepción COM/RPC (TIA cerrado), ``ok=False``.
+
+    Primitiva del heartbeat (PR 4) y de la reconexión manual (PR 6)
+    del design doc del worker persistente
+    (``_plan/12_worker_persistent_design.md`` §3.3).
+
+    Returns:
+        ``{"ok": True, "pid": <int>}`` si el portal responde.
+        ``{"ok": False, "error": "..."}`` si no responde o no hay portal.
+    """
+    _ = ts
+    if portal is None:
+        return {"ok": False, "error": "No hay portal attached"}
+    try:
+        pid = portal.get_process_id()
+        return {"ok": True, "pid": int(pid)}
+    except Exception as exc:
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
 def _cmd_get_project_info(portal: Any, ts: Any, args: dict[str, Any]) -> dict[str, Any]:
     """Devuelve propiedades básicas del proyecto TIA activo como primitivos.
 
@@ -1100,6 +1125,11 @@ COMMAND_REGISTRY: dict[str, Callable[[Any, Any, dict[str, Any]], Any]] = {
     "delete_user_constant": _cmd_delete_user_constant,
     # â”€â”€ Lotes transaccionales (rollback automÃ¡tico) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     "execute_transactional_batch": _cmd_execute_transactional_batch,
+    # â”€â”€ Health check (PR 1 worker persistente) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # Primitiva del heartbeat (PR 4) y de la reconexiÃ³n manual (PR 6).
+    # NO requiere proyecto abierto: detecta si el portal TIA sigue vivo
+    # via ``portal.get_process_id()``.
+    "ping": _cmd_ping,
     # â”€â”€ Ops atomicos de las areas (registrados via load_extra_commands
     # al arrancar el worker): ``update_disp_comments_db_<hw>`` y
     # ``commit_devices_sync``. Ver ``core.infrastructure.tia.command_loader``.

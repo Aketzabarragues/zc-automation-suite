@@ -318,6 +318,26 @@ class TIAProcessGateway:
             for cmd, times in self._metrics.items()
         }
 
+    async def ping(self) -> dict[str, Any]:
+        """Health check del worker OT. Retorna ``{ok, pid?, error?}``.
+
+        Primitiva del heartbeat (PR 4) y de la reconexión manual (PR 6)
+        del design doc del worker persistente
+        (``_plan/12_worker_persistent_design.md`` §3.3).
+
+        Es un wrapper sin caché: cada llamada paga el ciclo end-to-end
+        del subproceso (incluso si el portal ya está attached) porque
+        el caso de uso es detectar caídas del proceso TIA, no lecturas
+        ligeras. El gateway acumula el timing en ``_metrics["ping"]``
+        igual que cualquier otro comando.
+
+        Returns:
+            ``{"ok": True, "pid": <int>}`` si TIA Portal responde.
+            ``{"ok": False, "error": "..."}`` si no hay portal o el
+            proceso TIA está cerrado (excepción COM/RPC).
+        """
+        return await self._dispatch_worker("ping", args={})
+
     async def get_plcs(self, force_refresh: bool = False) -> list[str]:
         """Obtiene los PLCs disponibles utilizando la caché de memoria IT."""
         cache_key = "plcs"
