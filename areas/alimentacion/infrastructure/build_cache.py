@@ -34,6 +34,7 @@ from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
 
+from areas.alimentacion._area_id import AREA_ID
 from core.infrastructure.build_cache import (
     AreaCache as _CoreAreaCache,
 )
@@ -43,13 +44,10 @@ from core.infrastructure.build_cache import (
 )
 
 
-# Identificador del \u00e1rea. Hardcoded aqu\u00ed (no importamos de
-# ``areas.alimentacion.__init__`` para evitar circular import: el
-# ``__init__`` del paquete importa muchos subm\u00f3dulos, y este
-# m\u00f3dulo es uno de los primeros consumidores). Debe coincidir con
-# ``AREA_SPEC.id`` y con la constante ``AREA_ID`` re-exportada desde
-# ``__init__.py``.
-_AREA_ID: str = "alimentacion"
+# Identificador del \u00e1rea. Importado de ``_area_id`` (m\u00f3dulo
+# minimal sin imports del paquete, evita circular import). Debe
+# coincidir con ``AREA_SPEC.id`` y con la constante ``AREA_ID``
+# re-exportada desde ``__init__.py``.
 
 
 @dataclass(frozen=True)
@@ -90,7 +88,7 @@ def build_cache(root: Path | None = None) -> AlimentacionAreaCache:
         listos para usar.
     """
     bc = BuildCache(
-        area_id=_AREA_ID,
+        area_id=AREA_ID,
         root=root if root is not None else Path(os.getcwd()) / ".build_cache",
     )
     return AlimentacionAreaCache(area_id=bc.area_id, root=bc.area.root)

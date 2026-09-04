@@ -51,11 +51,12 @@ from areas.alimentacion.interfaces.web import register_routers
 from core.application.area_registry import AreaSpec
 
 
-# Identificador canónico del área. Debe coincidir con ``AREA_SPEC.id``.
-# Reutilizado por ``infrastructure/build_cache.py`` (BuildCache parametrizado
-# por area_id) y por cualquier otro módulo del área que necesite el id sin
+# Identificador canónico del área. Re-exportado desde ``_area_id.py``
+# (módulo minimal sin imports, evita circular import). Coincide con
+# ``AREA_SPEC.id`` y es reutilizado por submódulos del área
+# (``infrastructure/build_cache.py``, etc.) que necesitan el id sin
 # importar ``AREA_SPEC`` (que arrastra la cadena de imports del registry).
-AREA_ID: str = "alimentacion"
+from areas.alimentacion._area_id import AREA_ID  # noqa: E402,F401
 
 
 AREA_SPEC = AreaSpec(
