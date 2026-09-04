@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import sys
 from pathlib import Path
@@ -33,6 +34,50 @@ from core.models import BloqueCache, BloquePLC
 DEFAULT_GATEWAY_TIMEOUT: float = float(
     os.environ.get("ZC_GATEWAY_TIMEOUT", "300.0")
 )
+
+
+class TIAConnectionError(RuntimeError):
+    """TIA Portal no responde o no se puede adjuntar.
+
+    Se lanza desde ``_dispatch_worker`` cuando el worker subprocess
+    reporta un error que matchea con un patrón conocido de
+    "TIA no disponible" (portal cerrado, versión no encontrada,
+    sin proyecto abierto, etc.). Implica que la cache del gateway
+    puede contener datos stale de una sesión anterior y debe
+    limpiarse.
+
+    Hereda de ``RuntimeError`` para compatibilidad con call sites
+    existentes que capturan ``RuntimeError``.
+    """
+
+
+# Patrones de error que indican que TIA Portal no está disponible
+# o el proyecto está cerrado. Matching case-sensitive por substring
+# contra el mensaje reportado por el worker OT.
+#
+# Falsos positivos son aceptables (mejor limpiar cache innecesariamente
+# que mantener datos stale); falsos negativos harían que el bug persista.
+_CONNECTION_ERROR_PATTERNS: tuple[str, ...] = (
+    "No matching TIA Portal version",   # el del log típico
+    "no project is open",
+    "TIA Portal is not running",
+    "Cannot attach",
+    "ExclusiveAccess",
+    "OpennessAccessException",          # catch-all por si el .NET wrapper añade prefijos
+)
+
+
+def _is_tia_connection_error(message: str) -> bool:
+    """True si el mensaje indica que TIA Portal no está disponible.
+
+    Matching case-sensitive por substring contra
+    ``_CONNECTION_ERROR_PATTERNS``. Falsos positivos son aceptables
+    (mejor limpiar cache innecesariamente que mantener datos stale);
+    falsos negativos harían que el bug persista.
+    """
+    if not message:
+        return False
+    return any(p in message for p in _CONNECTION_ERROR_PATTERNS)
 
 
 class TIAProcessGateway:
@@ -179,8 +224,27 @@ class TIAProcessGateway:
             # solo vemos el error resumido.
             err = json_response.get("error", "Error interno en el worker OT.")
             if stderr_text:
-                raise RuntimeError(f"{err} | STDERR: {stderr_text[:2000]}")
-            raise RuntimeError(err)
+                full_msg = f"{err} | STDERR: {stderr_text[:2000]}"
+            else:
+                full_msg = err
+
+            if _is_tia_connection_error(str(err)):
+                # El worker no puede adjuntar al portal. La cache
+                # puede tener datos stale de un escaneo anterior;
+                # invalidar para forzar al operario a re-seleccionar
+                # el PLC tras reconectar.
+                self._clear_bloques_cache()
+                self._cache.clear()
+                _logger = logging.getLogger(__name__)
+                _logger.warning(
+                    "TIA Portal no responde (%s); cache invalidada. "
+                    "El frontend deberia resetear store.selectedPlc y "
+                    "store.plcBlocksCache tras este error.",
+                    err,
+                )
+                raise TIAConnectionError(full_msg)
+
+            raise RuntimeError(full_msg)
 
         return json_response.get("result")
 
