@@ -48,8 +48,9 @@
  * línea. Salto de línea entre elementos del array OK.
  */
 import { computed } from "/js/vendor/vue.esm-browser.prod.js";
-import { store, pushLog, loadAndApplyPlcBlocks, resetPlcState } from "/js/store.js";
+import { store, pushLog, loadAndApplyPlcBlocks, resetPlcState, connectTia } from "/js/store.js";
 import { apiFetchPlcs, apiFetchProjectInfo } from "/js/api.js";
+import TiaConnectionIndicator from "./TiaConnectionIndicator.js";
 
 /**
  * Mapping de ``store.currentView`` → etiqueta humano-legible para
@@ -69,6 +70,9 @@ const VIEW_LABELS = {
 
 export default {
     name: "ShellTopbar",
+    components: {
+        TiaConnectionIndicator,
+    },
     props: {
         /** ``{ key, label, icon }`` del área activa. Requerido
          *  para construir el breadcrumb (etiqueta del área). Si
@@ -171,12 +175,28 @@ export default {
             await loadAndApplyPlcBlocks(store.selectedPlc);
         }
 
+        /**
+         * Handler del evento ``"connect"`` emitido por el
+         * ``TiaConnectionIndicator`` cuando el operario pulsa
+         * el círculo en estado ``disconnected`` o ``error``.
+         * Delega en ``connectTia()`` (helper del store) que
+         * setea ``state="connecting"`` y dispara
+         * ``POST /api/v1/tia/connect``. La promesa se ignora
+         * porque el feedback de la operación larga llega por
+         * el propio indicador (color pulsante → verde) y por
+         * los logs que ``connectTia`` empuja a ``ConsolaLogs``.
+         */
+        async function handleConnect() {
+            await connectTia();
+        }
+
         return {
             store,
             areaLabel,
             currentViewLabel,
             handleRefreshPlcs,
             onPlcSelected,
+            handleConnect,
         };
     },
     template: /* html */ `
@@ -202,12 +222,19 @@ export default {
                  v2.1: el círculo animado de status (busy/ok/
                  idle) que tenía v2 se ha eliminado por
                  feedback del operario ("no hace falta ver los
-                 colores en azul, verde, etc."). Si en una
-                 iteración posterior quiere recuperar una pista
-                 visual mínima, se puede añadir un text-[10px]
-                 al lado del label que diga "Conectado" /
-                 "Buscando…". -->
+                 colores en azul, verde, etc.").
+
+                 PR 5b: a la izquierda del bloque PLC se monta
+                 el ``<TiaConnectionIndicator>``, un circulo
+                 independiente que muestra el estado del
+                 WORKER TIA PERSISTENTE (no del scan de PLCs).
+                 Lee reactivamente ``store.tiaConnection``
+                 y se actualiza solo con el polling 2s de
+                 ``main.js``. Clickable para reconectar cuando
+                 el estado es disconnected/error; en otros
+                 estados el click es no-op. -->
             <div class="flex items-center gap-2">
+                <TiaConnectionIndicator @connect="handleConnect" />
                 <label class="text-[10px] font-bold text-ink-muted uppercase tracking-widest">PLC:</label>
                 <p v-if="store.projectInfo && store.projectInfo.name"
                    class="text-[11px] font-mono text-ink-muted truncate max-w-[200px]"

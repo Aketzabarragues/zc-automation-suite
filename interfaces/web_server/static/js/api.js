@@ -198,6 +198,48 @@ export function apiProcesosSyncPreview(procUid, plcName) {
  *                            puede pasar el mismo que recibió).
  * @returns {Promise<{ok, status, data}>}
  */
+
+/**
+ * Devuelve el snapshot del estado de conexión del worker TIA
+ * persistente (PR 5a / §4.1 del design doc).
+ *
+ * Shape (alineado con ``GET /api/v1/tia/connection`` del backend):
+ *   {
+ *     state:               "connected" | "connecting" | "disconnected" | "error",
+ *     project:             { name, path, version } | null,
+ *     plcs:                string[],
+ *     last_ping_ok_unix:   number | null,
+ *     last_error:          string | null,
+ *   }
+ *
+ * Llamado por el polling 2s en ``main.js`` y por el
+ * ``TiaConnectionIndicator`` (reactivo, vía store). NO escribe
+ * al backend: es solo lectura.
+ */
+export const apiFetchTiaConnection = () =>
+    _request("GET", "/api/v1/tia/connection");
+
+/**
+ * Fuerza la reconexión del worker TIA persistente.
+ * Endpoint: POST /api/v1/tia/connect (PR 5a / §4.1 del design doc).
+ *
+ * En éxito el backend devuelve el nuevo snapshot (con
+ * ``state === "connected"`` y el proyecto recién attached). En
+ * fallo devuelve ``{ok: false, state: "error", error: "..."}``
+ * y el frontend lo refleja en el store y en el log.
+ */
+export const apiConnectTia = () => _request("POST", "/api/v1/tia/connect");
+
+/**
+ * Desconexión explícita del worker TIA persistente.
+ * Endpoint: POST /api/v1/tia/disconnect (PR 5a / §4.1 del design doc).
+ *
+ * Tras un 200, el snapshot del backend pasa a ``state ===
+ * "disconnected"`` y el indicador del topbar se vuelve gris.
+ */
+export const apiDisconnectTia = () =>
+    _request("POST", "/api/v1/tia/disconnect");
+
 export function apiProcesosSyncCommit(procUid, plcName, prevision) {
     return _request(
         "POST",

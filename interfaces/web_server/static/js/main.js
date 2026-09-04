@@ -19,7 +19,7 @@
  * la red (CDN) o desde ``/js/`` servido por FastAPI.
  */
 import { createApp, computed, nextTick } from "/js/vendor/vue.esm-browser.prod.js";
-import { store, goToArea, goToSubview, loadCatalog } from "./store.js";
+import { store, goToArea, goToSubview, loadCatalog, refreshTiaConnection } from "./store.js";
 import { apiFetchLogs, apiFetchMemory, apiFetchProgress } from "./api.js";
 import { loadArea, mountArea } from "./area-loader.js";
 import Welcome from "./components/Welcome.js";
@@ -245,3 +245,24 @@ setInterval(async () => {
         store.progress = r.data.progress;
     }
 }, 500);
+
+/**
+ * Polling del estado de conexión del worker TIA persistente
+ * (PR 5b / §4.3 del design doc). 2 segundos es suficiente para
+ * que el operario perciba la transición de color del indicador
+ * sin sobrecargar el backend (el heartbeat interno del worker
+ * ya es 5s; el polling del frontend es más frecuente porque
+ * reacciona a reconexiones manuales).
+ *
+ * INCONDICIONAL (sin guard de ``topLevelView``) por dos
+ * motivos:
+ *   1. El indicador del topbar también se ve en la pantalla
+ *      de welcome (es parte del chrome cross-cutting).
+ *   2. ``refreshTiaConnection`` es liviano: 1 GET sin
+ *      side-effects. El coste de ejecutarlo siempre es trivial.
+ *      (Mismo razonamiento que el polling de progreso: 2 req/s
+ *      idle es despreciable para FastAPI.)
+ */
+setInterval(() => {
+    store.refreshTiaConnection?.();
+}, 2000);
