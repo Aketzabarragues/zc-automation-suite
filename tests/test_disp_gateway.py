@@ -152,12 +152,12 @@ def test_llama_clear_cache_en_exito(gateway: TIAProcessGateway) -> None:
 def test_work_dir_usa_build_cache(
     gateway: TIAProcessGateway, tmp_path: Path,
 ) -> None:
-    """El work_dir es ``<build_cache>/alimentacion/dispositivos/comments/``.
+    """El work_dir es ``<build_cache>/alimentacion/dispositivos/exports/``.
 
-    Legacy: este metodo viene de antes de la normalizacion de rutas
-    (PR 8); conserva el subdir ``comments/`` (no encaja con
-    ``exports/modified/preview``). Tests assertan el path canonico
-    via ``BuildCache``.
+    Mismo path can\u00f3nico que ``DispSyncInstancesUseCase`` (que escribe
+    en ``exports/`` para su flujo de N_MAX + devices). Unificar el
+    subdir permite que ``ContextCache.clean()`` aplique a ambos
+    flujos de dispositivos desde un \u00fanico punto.
     """
     import asyncio
     from pathlib import Path
@@ -173,7 +173,7 @@ def test_work_dir_usa_build_cache(
         )
     )
     # El directorio existe tras la llamada (se preserva entre llamadas).
-    expected = tmp_path / ".build_cache" / "alimentacion" / "dispositivos" / "comments"
+    expected = tmp_path / ".build_cache" / "alimentacion" / "dispositivos" / "exports"
     assert expected.exists()
 
 
@@ -196,4 +196,4 @@ def test_work_dir_se_conserva_entre_ejecuciones(
             )
         )
     # El directorio sigue existiendo tras 2 ejecuciones.
-    assert (cache / "alimentacion" / "dispositivos" / "comments").exists()
+    assert (cache / "alimentacion" / "dispositivos" / "exports").exists()

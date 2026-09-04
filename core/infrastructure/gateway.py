@@ -863,11 +863,11 @@ class TIAProcessGateway:
         en una sola transacción TIA con rollback atómico.
 
         Misma convención que ``DispSyncInstancesUseCase``:
-        el directorio de trabajo es ``<build_cache>/comments/`` (con
-        ``build_cache = Path(os.getcwd()) / ".build_cache"`` por defecto).
-        El directorio se conserva tras la operación (igual que ``base/tags/``
-        y ``ready_to_import/tags/`` del sync de devices) para permitir
-        inspección manual y diff con ``git diff``.
+        el directorio de trabajo es
+        ``<build_cache>/alimentacion/dispositivos/exports/``
+        (con ``build_cache = Path(os.getcwd()) / ".build_cache"`` por
+        defecto). El directorio se conserva tras la operación para
+        permitir inspección manual y diff con ``git diff``.
 
         Args:
             plc_name: nombre del PLC en TIA.
@@ -893,23 +893,15 @@ class TIAProcessGateway:
         if not dispositivos_slot_maps:
             raise ValueError("dispositivos_slot_maps está vacío.")
 
-        # Resolvemos el workdir legacy ``comments/`` desde ``BuildCache``
-        # (no hardcodeamos el literal aquí). El ``area_id`` y el
-        # contexto ``dispositivos`` están acoplados a ``alimentacion``
-        # porque este método solo se invoca desde el flujo de
-        # dispositivos de esa área (ver
-        # ``update_disp_comments_db_<hw>`` en
-        # ``areas/alimentacion/infrastructure/tia/extra_commands.py``).
-        # Si en el futuro otro área necesita este flujo, parametrizamos
-        # desde el caller.
-        #
-        # ``AreaCache`` (base) no tiene ``.dispositivos``: esa propiedad
-        # la aporta ``AlimentacionAreaCache`` en el paquete del área.
-        # Como el gateway está en ``core/`` (no debe importar áreas),
-        # construimos el path manualmente: ``<root>/<area_id>/dispositivos/comments``.
+        # Workdir de export para los 6 DBs de dispositivos. Mismo
+        # path f\u00edsico que ``DispSyncInstancesUseCase``:
+        # ``<build_cache>/alimentacion/dispositivos/exports/``. El
+        # gateway vive en ``core/`` (no debe importar \u00e1reas), as\u00ed
+        # que construimos el path manualmente en lugar de usar
+        # ``AlimentacionAreaCache.dispositivos.exports``.
         area_id = "alimentacion"
         root = Path(build_cache_dir) if build_cache_dir is not None else Path(os.getcwd()) / ".build_cache"
-        work_dir = BuildCache(area_id=area_id, root=root).area.root / "dispositivos" / "comments"
+        work_dir = BuildCache(area_id=area_id, root=root).area.root / "dispositivos" / "exports"
         work_dir.mkdir(parents=True, exist_ok=True)
 
         operations: list[dict[str, Any]] = []

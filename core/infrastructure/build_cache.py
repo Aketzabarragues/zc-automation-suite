@@ -39,10 +39,6 @@ Reglas de arquitectura
 Decisiones diferidas
 --------------------
 
-* ``comments/`` del ``update_disp_instance_comments_batch`` (legacy,
-  gateway.py:833) no encaja con ``exports/modified/preview``; se
-  aborda en Tarea 2.4 con un ``@cached_property`` específico.
-
 * Migración de ``BuildCache(area_id=AREA_ID)`` a DI en el
   composition root (main.py, app.py, mcp_server.py): NO en este
   plan. La construcción con 1 argumento es trivial; se hace
@@ -139,27 +135,6 @@ class ContextCache:
     def preview(self) -> Path:
         """Dry-runs, N_MAX preview, diffs. NO se borra en ``clean()``."""
         return self.root / "preview"
-
-    @cached_property
-    def comments(self) -> Path:
-        """Workdir legacy del flujo ``update_disp_instance_comments_batch``.
-
-        El gateway ``TIAProcessGateway.update_disp_instance_comments_batch``
-        constru\u00eda ``<build_cache>/comments/`` como workdir para los
-        6 DBs de dispositivos (ED/EA/SA/V/M/M_VF). Este caso NO encaja
-        con la convenci\u00f3n ``exports/modified/preview`` (es un flujo
-        anterior a la normalizaci\u00f3n) pero se conserva el nombre por
-        back-compat con el handler del worker OT
-        (``update_disp_comments_db_<hw>``), que recibe ``work_dir`` como
-        argumento y lo usa para escribir el ``.s7dcl``/``.s7res``
-        modificado.
-
-        Si en el futuro este flujo se unifica con
-        ``DispSyncInstancesUseCase`` (que ahora usa ``exports/``), se
-        puede eliminar esta propiedad sin tocar el handler del worker
-        (es un cambio interno al gateway).
-        """
-        return self.root / "comments"
 
     def clean(self) -> None:
         """Borra y recrea ``exports/`` y ``modified/``.
