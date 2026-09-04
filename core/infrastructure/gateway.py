@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from core.infrastructure.build_cache import BuildCache
 from core.models import BloqueCache, BloquePLC
 
 
@@ -892,11 +893,23 @@ class TIAProcessGateway:
         if not dispositivos_slot_maps:
             raise ValueError("dispositivos_slot_maps está vacío.")
 
-        import os
-
-        if build_cache_dir is None:
-            build_cache_dir = Path(os.getcwd()) / ".build_cache"
-        work_dir = Path(build_cache_dir) / "comments"
+        # Resolvemos el workdir legacy ``comments/`` desde ``BuildCache``
+        # (no hardcodeamos el literal aquí). El ``area_id`` y el
+        # contexto ``dispositivos`` están acoplados a ``alimentacion``
+        # porque este método solo se invoca desde el flujo de
+        # dispositivos de esa área (ver
+        # ``update_disp_comments_db_<hw>`` en
+        # ``areas/alimentacion/infrastructure/tia/extra_commands.py``).
+        # Si en el futuro otro área necesita este flujo, parametrizamos
+        # desde el caller.
+        #
+        # ``AreaCache`` (base) no tiene ``.dispositivos``: esa propiedad
+        # la aporta ``AlimentacionAreaCache`` en el paquete del área.
+        # Como el gateway está en ``core/`` (no debe importar áreas),
+        # construimos el path manualmente: ``<root>/<area_id>/dispositivos/comments``.
+        area_id = "alimentacion"
+        root = Path(build_cache_dir) if build_cache_dir is not None else Path(os.getcwd()) / ".build_cache"
+        work_dir = BuildCache(area_id=area_id, root=root).area.root / "dispositivos" / "comments"
         work_dir.mkdir(parents=True, exist_ok=True)
 
         operations: list[dict[str, Any]] = []

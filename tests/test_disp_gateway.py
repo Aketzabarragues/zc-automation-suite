@@ -152,7 +152,13 @@ def test_llama_clear_cache_en_exito(gateway: TIAProcessGateway) -> None:
 def test_work_dir_usa_build_cache(
     gateway: TIAProcessGateway, tmp_path: Path,
 ) -> None:
-    """El work_dir es ``<build_cache>/comments/`` (mismo patrón que ``base/tags/``)."""
+    """El work_dir es ``<build_cache>/alimentacion/dispositivos/comments/``.
+
+    Legacy: este metodo viene de antes de la normalizacion de rutas
+    (PR 8); conserva el subdir ``comments/`` (no encaja con
+    ``exports/modified/preview``). Tests assertan el path canonico
+    via ``BuildCache``.
+    """
     import asyncio
     from pathlib import Path
 
@@ -167,7 +173,7 @@ def test_work_dir_usa_build_cache(
         )
     )
     # El directorio existe tras la llamada (se preserva entre llamadas).
-    expected = tmp_path / ".build_cache" / "comments"
+    expected = tmp_path / ".build_cache" / "alimentacion" / "dispositivos" / "comments"
     assert expected.exists()
 
 
@@ -190,4 +196,4 @@ def test_work_dir_se_conserva_entre_ejecuciones(
             )
         )
     # El directorio sigue existiendo tras 2 ejecuciones.
-    assert (cache / "comments").exists()
+    assert (cache / "alimentacion" / "dispositivos" / "comments").exists()
