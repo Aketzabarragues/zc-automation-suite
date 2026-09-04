@@ -1201,33 +1201,230 @@ def _load_siemens_wrapper() -> Any:
     import siemens_tia_scripting as ts
     return ts
 
-def main_persistent_loop() -> None:
-    """Loop principal del worker OT persistente (placeholder - implementacion completa en PR 3).
+def _is_com_disconnect(exc: BaseException) -> bool:
+    """Heuristica que detecta excepciones tipicas de desconexion COM/RPC.
 
-    Esta funcion DEBE ser invocada cuando el subproceso recibe
-    ``--worker-persistent`` (modo web, gateway con persistent=True).
-    La implementacion completa del loop (lectura de stdin, dispatch
-    del comando, escritura de respuesta con id matching) viene en
-    PR 3 del refactor (_plan/13_persistent_worker_impl.md, seccion
-    PR 3, y _plan/12_worker_persistent_design.md, seccion 3.2).
+    La deteccion exacta del tipo de error que .NET lanza cuando TIA
+    Portal se cierra mid-flight es fragil (depende de la build del
+    wrapper, de si el subproceso se murio o solo el RCW quedo en
+    estado invalido, etc.). Esta heuristica mira tres senales:
 
-    Por ahora lanzamos ``NotImplementedError`` explicito: un caller
-    que active el flag en este PR recibira un mensaje accionable
-    en lugar de un fallo silencioso o un comportamiento 1-shot
-    disfrazado de persistente. El primer chequeo (``if
-    "--worker-persistent" in sys.argv`` en ``main()``) ya enrutara
-    a esta funcion; si llegamos aqui sin que el caller haya
-    configurado algo, el NotImplementedError deja claro que el
-    comportamiento todavia no esta cableado.
+    1. El nombre de la clase de la excepcion contiene ``"COM"`` o
+       ``"RPC"`` (cubre ``COMException``, ``RPCException``,
+       ``System.Runtime.InteropServices.COMException``,
+       ``OSError`` con errno tipo RPC, etc.).
+    2. El objeto tiene un atributo ``hresult`` (los COMException de
+       .NET lo exponen; los Python ``OSError`` con WSAECONNRESET
+       no, pero las excepciones que envuelven HRESULT si).
 
-    Raises:
-        NotImplementedError: siempre, en este PR. PR 3 reemplaza
-            el cuerpo por el loop real (sin levantar la excepcion).
+    Falsos positivos son aceptables (mejor re-attachar de mas que
+    de menos). Falsos negativos harian que el loop siguiera usando
+    un ``portal`` invalido y los handlers fallaran con errores
+    crípticos; con esta heuristica esos casos caen al re-attach.
+
+    Args:
+        exc: Excepcion capturada durante la ejecucion de un handler.
+
+    Returns:
+        ``True`` si la excepcion sugiere que el portal TIA se
+        desconecto; ``False`` en caso contrario.
     """
-    raise NotImplementedError(
-        "main_persistent_loop se implementa en PR 3. "
-        "Plan: _plan/13_persistent_worker_impl.md (seccion PR 3)."
-    )
+    name = type(exc).__name__
+    if "COM" in name or "RPC" in name:
+        return True
+    if hasattr(exc, "hresult"):
+        return True
+    return False
+
+
+def main_persistent_loop() -> None:
+    """Loop principal del worker OT persistente (PR 3 del refactor).
+
+    Esta funcion se invoca cuando el subproceso recibe
+    ``--worker-persistent`` (modo web, gateway con
+    ``persistent=True``). Lee comandos JSON de stdin linea por
+    linea, los despacha al ``COMMAND_REGISTRY`` y escribe la
+    respuesta con el mismo ``id`` a stdout. Mantiene UN attach
+    al portal durante toda la vida del proceso: los comandos
+    sucesivos reutilizan el mismo portal attached, evitando el
+    coste de ``ts.attach_portal()`` (~5s reales por attach, ver
+    ``_plan/12_worker_persistent_design.md`` §1.2).
+
+    Contrato del protocolo (ver §2.5 del design doc):
+
+      - Entrada (``stdin``): una linea JSON por comando, con la
+        forma ``{"id": int, "command": str, "args": dict}``. El
+        ``id`` es obligatorio y se usa para matchear la respuesta.
+      - Salida (``stdout``): una linea JSON por respuesta, con la
+        forma ``{"id": int, "ok": bool, "result": any}`` o
+        ``{"id": int, "ok": false, "error": str}``. SIEMPRE con
+        ``id`` para que el reader del gateway pueda matchear.
+      - Comando ``exit``: sale del loop limpiamente (cleanup
+        con ``portal.detach()``). El subproceso termina con
+        ``returncode = 0``.
+      - Stdin cerrado (EOF): sale del loop. Mismo cleanup.
+      - Excepcion parseando JSON o leyendo stdin: escribe a
+        ``stderr`` y sale del loop (el subproceso muere). El
+        gateway detecta EOF en stdout y marca el estado como
+        ``disconnected``.
+
+    Re-attach defensivo:
+
+      - Antes de ejecutar un comando, si ``portal is None``, intenta
+        re-attachar (``ts.attach_portal(AnyUserInterface)``). Si
+        tambien falla, devuelve ``{ok: false, error: ...}`` sin
+        tocar el loop (el gateway recibe el error y reintenta o
+        desconecta).
+      - Durante la ejecucion de un handler, si la excepcion parece
+        COM/RPC (``_is_com_disconnect``), marca ``portal = None``
+        para que el siguiente comando fuerce re-attach.
+
+    Comandos especiales (sin re-attach):
+
+      - ``attach_portal`` y ``open_new_portal`` gestionan su propia
+        conexion con TIA (re-asignan el RCW del portal). El re-attach
+        defensivo basado en ``get_process_id()`` NO se ejecuta
+        antes de estos comandos (romperia el caso cold-start). El
+        siguiente comando que use el portal hara el re-attach si
+        hace falta.
+
+    Notas de I/O:
+
+      - ``stdout`` se vacia con ``flush()`` despues de CADA respuesta.
+        Sin esto, el gateway (que lee en una task asyncio paralela)
+        podria quedarse esperando un buffer que nunca llega.
+      - ``stderr`` se usa para logs y trazas de errores de loop. El
+        gateway NO lee stderr en el modo persistente (lo deja
+        fluir al stderr del proceso IT).
+    """
+    # 1. Carga del wrapper nativo (mismo patron que main() en path 1-shot).
+    try:
+        ts = _load_siemens_wrapper()
+    except (ImportError, FileNotFoundError) as e:
+        _write_json_and_exit(
+            {"ok": False, "error": f"Fallo al cargar 'siemens_tia_scripting': {e}"},
+            code=1,
+        )
+        return  # _write_json_and_exit es NoReturn, pero el type checker lo agradece
+
+    # 2. Attach inicial. Si falla, devolvemos error y morimos (el
+    #    gateway lo detectara via ping timeout o EOF en stdout).
+    portal = None
+    try:
+        portal = ts.attach_portal(
+            portal_mode=ts.Enums.PortalMode.WithGraphicalUserInterface
+        )
+        if portal is None:
+            _write_json_and_exit(
+                {"ok": False, "error": "attach_portal retorno None"},
+                code=1,
+            )
+            return
+    except Exception as exc:
+        _write_json_and_exit(
+            {"ok": False, "error": f"Initial attach failed: {exc}"},
+            code=1,
+        )
+        return
+
+    # 3. Helpers locales (definen ``portal`` via ``nonlocal``).
+    def _try_reattach() -> bool:
+        """Re-attacha el portal TIA si hace falta. Retorna ``True`` si queda vivo."""
+        nonlocal portal
+        # Si el portal ya esta vivo (``get_process_id`` no lanza), nada que hacer.
+        if portal is not None:
+            try:
+                portal.get_process_id()
+                return True
+            except Exception:
+                portal = None
+        try:
+            portal = ts.attach_portal(
+                portal_mode=ts.Enums.PortalMode.AnyUserInterface
+            )
+        except Exception:
+            portal = None
+            return False
+        return portal is not None
+
+    # 4. Loop principal. Lee lineas de stdin hasta EOF o ``exit``.
+    while True:
+        try:
+            line = sys.stdin.readline()
+            if not line:
+                # stdin cerrado -> el proceso IT cerro el pipe. Salida limpia.
+                break
+            stripped = line.strip()
+            if not stripped:
+                # Linea vacia (raro pero tolerante): seguimos leyendo.
+                continue
+            payload = json.loads(stripped)
+            request_id = payload.get("id", 0)
+            command = payload.get("command", "")
+            args = payload.get("args", {}) or {}
+
+            # Comando de control del protocolo.
+            if command == "exit":
+                break
+
+            # Re-attach defensivo para todos los comandos EXCEPTO los
+            # de ciclo de vida (que gestionan su propia conexion).
+            if command not in ("attach_portal", "open_new_portal"):
+                if portal is None and not _try_reattach():
+                    response: dict[str, Any] = {
+                        "id": request_id,
+                        "ok": False,
+                        "error": "Portal no disponible y re-attach fallo",
+                    }
+                    sys.stdout.write(json.dumps(response) + "\n")
+                    sys.stdout.flush()
+                    continue
+
+            # Despacho al handler del registry.
+            try:
+                handler = COMMAND_REGISTRY.get(command)
+                if handler is None:
+                    raise ValueError(f"Comando desconocido: {command!r}")
+                result = handler(portal, ts, args)
+                response = {"id": request_id, "ok": True, "result": result}
+            except Exception as exc:
+                # Si la excepcion parece COM/RPC, marcamos el portal
+                # como None para que el siguiente comando fuerce
+                # re-attach. Si es un error de aplicacion (e.g.
+                # ValueError por args invalidos), dejamos el portal
+                # vivo.
+                if _is_com_disconnect(exc):
+                    portal = None
+                response = {
+                    "id": request_id,
+                    "ok": False,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+
+            # Respuesta SIEMPRE con ``id`` para que el reader del
+            # gateway pueda matchear. SIEMPRE con flush() para
+            # desbloquear la task de lectura.
+            sys.stdout.write(json.dumps(response, ensure_ascii=False) + "\n")
+            sys.stdout.flush()
+        except Exception as exc:
+            # Error parseando JSON o leyendo stdin. Logueamos a
+            # stderr y salimos del loop: el subproceso muere, el
+            # gateway detecta EOF y marca el estado como
+            # ``disconnected``. Operario debe reiniciar.
+            sys.stderr.write(
+                f"[WORKER LOOP ERROR] {type(exc).__name__}: {exc}\n"
+            )
+            sys.stderr.flush()
+            break
+
+    # 5. Cleanup best-effort. Si detach() falla (portal ya caido),
+    #    no pasa nada: el OS reapa el subproceso y el gateway
+    #    detecta el cambio de estado.
+    if portal is not None:
+        try:
+            portal.detach()
+        except Exception:
+            pass
 
 
 def main() -> None:

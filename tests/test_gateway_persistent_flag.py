@@ -132,34 +132,62 @@ def test_persistent_false_does_not_initialize_state_fields() -> None:
 
 @pytest.mark.asyncio
 async def test_dispatch_worker_persistent_raises_not_implemented() -> None:
-    """``_dispatch_worker`` con ``persistent=True`` lanza ``NotImplementedError`` (PR 2).
+    """``_dispatch_worker`` con ``persistent=True`` delega en el path persistente (PR 3).
 
-    El mensaje DEBE mencionar "PR 3" para que un caller que active el
-    flag por error reciba una referencia accionable al plan, no un
-    fallo silencioso o un comportamiento 1-shot disfrazado de
-    persistente.
+    En PR 2 este test verificaba el placeholder ``NotImplementedError``.
+    En PR 3 el placeholder se sustituye por la implementación real
+    (ver ``_plan/12_worker_persistent_design.md`` §3.1): el dispatcher
+    adquiere ``self._worker_lock`` y delega en
+    ``_send_to_persistent_worker``, que serializa los requests contra
+    el subproceso único del worker OT persistente.
+
+    El test verifica:
+      - La llamada retorna el resultado de ``_send_to_persistent_worker``.
+      - ``_send_to_persistent_worker`` se invoca con los argumentos
+        correctos (``command``, ``args``, ``timeout_override=None``).
+      - ``_dispatch_ephemeral_worker`` NO se invoca (no se cae al
+        path 1-shot).
     """
     gateway = TIAProcessGateway(persistent=True)
-    with pytest.raises(NotImplementedError, match="PR 3"):
-        await gateway._dispatch_worker("any_command", args={})
+    sentinel = {"ok": True, "result": "persistent_send_result"}
+    gateway._send_to_persistent_worker = AsyncMock(return_value=sentinel)
+    gateway._dispatch_ephemeral_worker = AsyncMock(
+        return_value={"ok": True, "result": "ephemeral_should_not_run"}
+    )
+
+    result = await gateway._dispatch_worker("any_command", args={"k": "v"})
+
+    assert result is sentinel
+    gateway._send_to_persistent_worker.assert_awaited_once_with(
+        "any_command", {"k": "v"}, None
+    )
+    gateway._dispatch_ephemeral_worker.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_dispatch_worker_persistent_does_not_call_ephemeral() -> None:
-    """``_dispatch_worker`` con ``persistent=True`` NO cae al path 1-shot.
+    """``_dispatch_worker`` con ``persistent=True`` NO cae al path 1-shot (PR 3).
 
     Si el dispatcher se cayera al ``else`` cuando ``persistent=True``
     (p. ej. por un bug en el switch), la llamada a
     ``_dispatch_ephemeral_worker`` intentaría lanzar un subproceso
-    real. Verificamos que el placeholder cortocircuita ANTES y que
-    ``_dispatch_ephemeral_worker`` no se invoca.
+    real. Verificamos que el path persistente delega en
+    ``_send_to_persistent_worker`` (PR 3) y que
+    ``_dispatch_ephemeral_worker`` NO se invoca.
     """
     gateway = TIAProcessGateway(persistent=True)
+    gateway._send_to_persistent_worker = AsyncMock(
+        return_value={"ok": True, "result": "persistent"}
+    )
     gateway._dispatch_ephemeral_worker = AsyncMock(
         return_value={"ok": True, "result": "should_not_run"}
     )
-    with pytest.raises(NotImplementedError, match="PR 3"):
-        await gateway._dispatch_worker("any_command", args={})
+
+    await gateway._dispatch_worker("any_command", args={})
+
+    gateway._send_to_persistent_worker.assert_awaited_once_with(
+        "any_command", {}, None
+    )
     gateway._dispatch_ephemeral_worker.assert_not_awaited()
 
 
@@ -223,14 +251,53 @@ def test_resolve_persistent_worker_exec_args_returns_flag() -> None:
 
 @pytest.mark.asyncio
 async def test_start_persistent_worker_is_placeholder() -> None:
-    """``_start_persistent_worker()`` lanza ``NotImplementedError`` con mención a PR 3.
+    """``_start_persistent_worker()`` lanza el subproceso y verifica el ping inicial (PR 3).
 
-    La implementación real (lanzar el subproceso con
-    ``--worker-persistent``, iniciar el reader task, enviar el ping
-    inicial) viene en PR 3. Mientras tanto, este placeholder
-    garantiza que un caller que intente arrancar el worker en este
-    PR reciba un error explícito.
+    En PR 2 este test verificaba el placeholder ``NotImplementedError``.
+    En PR 3 la implementación real (ver §3.1 del design doc):
+      1. Marca ``_connection_state = "connecting"``.
+      2. Lanza el subproceso con ``--worker-persistent`` (via
+         ``asyncio.create_subprocess_exec``).
+      3. Inicia el ``_reader_task``.
+      4. Envia un ping inicial; si falla, lanza ``TIAConnectionError``
+         y marca ``_connection_state = "error"``.
+
+    En este test mockeamos ``_send_to_persistent_worker`` (que es
+    quien ejecuta el ping) para que devuelva ``{ok: True, pid: 12345}``
+    sin lanzar otro subproceso. Mockeamos tambien
+    ``asyncio.create_subprocess_exec`` para evitar el subproceso real
+    (que necesitaria TIA Portal attached).
+
+    Verificaciones:
+      - Tras el exito, ``_connection_state == "connected"``.
+      - ``_worker_proc`` no es None (el subproceso mockeado quedo
+        registrado).
+      - ``_reader_task`` no es None (el task se creo).
     """
+    from unittest.mock import AsyncMock, MagicMock, patch
+
     gateway = TIAProcessGateway(persistent=True)
-    with pytest.raises(NotImplementedError, match="PR 3"):
+
+    fake_proc = MagicMock(name="FakeSubprocess")
+    fake_proc.returncode = None  # vivo
+
+    sentinel = {"ok": True, "pid": 12345}
+    gateway._send_to_persistent_worker = AsyncMock(return_value=sentinel)
+
+    with patch(
+        "core.infrastructure.gateway.asyncio.create_subprocess_exec",
+        new=AsyncMock(return_value=fake_proc),
+    ):
         await gateway._start_persistent_worker()
+
+    # El ping inicial retorno ok -> el estado pasa a "connected".
+    assert gateway._connection_state == "connected"
+    assert gateway._worker_proc is fake_proc
+    assert gateway._reader_task is not None
+    # El ping se ejecuto con timeout_override=15.0 (smoke test del contrato).
+    gateway._send_to_persistent_worker.assert_awaited_once()
+    call = gateway._send_to_persistent_worker.await_args
+    assert call.args[0] == "ping"
+    assert call.kwargs.get("timeout_override") == 15.0 or (
+        len(call.args) >= 3 and call.args[2] == 15.0
+    )
