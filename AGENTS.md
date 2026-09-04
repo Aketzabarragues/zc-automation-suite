@@ -223,6 +223,22 @@ commit).
 - **Cachear** lecturas pesadas (PLCs, bloques, user constants) en
   `gateway._cache` con `force_refresh=True` para bypass explícito.
 
+### Paths de export/modificación (workdirs)
+- Los workdirs de export/modificación siguen la convención:
+  `.build_cache/<área>/<contexto>/{exports,modified,preview}`.
+  `BuildCache` en `core/infrastructure/build_cache.py` es el punto
+  de entrada (parametrizado por `area_id`); `SdPair` y `XmlTarget`
+  en `core/infrastructure/tia/export_paths.py` resuelven paths de
+  archivos individuales.
+- Es convención de la app, NO config del proyecto. No hay
+  `ZC_BUILD_CACHE_DIR` todavía (YAGNI; ver
+  `_plan/08_routes_standardization.md` §5). Si lo necesitas, replica
+  el patrón de `log_paths.py` (ZC_LOG_DIR).
+- `ContextCache.clean()` borra y recrea `exports/` y `modified/`
+  antes del apply; `preview/` NO se toca (puede contener dry-runs
+  en curso o artefactos históricos que el operario quiere
+  consultar).
+
 ### Convenciones frontend (Vue 3 ESM)
 - **Sin build step:** el navegador carga módulos ESM directamente
   desde `/js/`. No usar `import.meta`, no usar TypeScript.

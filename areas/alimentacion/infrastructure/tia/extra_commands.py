@@ -30,8 +30,10 @@ solo cuando el handler se ejecuta, no al import del módulo).
 """
 from __future__ import annotations
 
-import os
+from pathlib import Path
 from typing import Any, Callable
+
+from core.infrastructure.tia.export_paths import SdPair
 
 
 # Tipos de dispositivo soportados por los DBs de array. Mantener en
@@ -89,8 +91,8 @@ def make_cmd_update_disp_comments_db(hw_type: str) -> Callable[..., Any]:
             DispCommentUpdater,
         )
 
-        s7dcl_path = os.path.join(work_dir, f"{db_name}.s7dcl")
-        s7res_path = os.path.join(work_dir, f"{db_name}.s7res")
+        s7dcl_path = SdPair(Path(work_dir), db_name).dcl
+        s7res_path = SdPair(Path(work_dir), db_name).res
 
         # Import lazy del worker para evitar el ciclo
         # ``worker_tia → command_loader → AreaRegistry → areas.<area> →
@@ -221,7 +223,6 @@ def make_cmd_commit_devices_sync() -> Callable[..., Any]:
         target_plc = worker_tia._find_plc(project, plc_name)
         # Asegurar que work_dir existe (defensivo: el caller ya
         # deberia haberlo creado, pero si no, lo creamos).
-        from pathlib import Path
         work_path = Path(work_dir)
         work_path.mkdir(parents=True, exist_ok=True)
 
@@ -490,8 +491,8 @@ def make_cmd_update_proc_comments_db(kind: str) -> Callable[..., Any]:
         )
         from areas.alimentacion.infrastructure.sd.mlc_registry import MLCRegistry
 
-        s7dcl_path = os.path.join(work_dir, f"{db_name}.s7dcl")
-        s7res_path = os.path.join(work_dir, f"{db_name}.s7res")
+        s7dcl_path = SdPair(Path(work_dir), db_name).dcl
+        s7res_path = SdPair(Path(work_dir), db_name).res
 
         # Import lazy del worker para evitar el ciclo
         # ``worker_tia → command_loader → AreaRegistry → areas.<area>
