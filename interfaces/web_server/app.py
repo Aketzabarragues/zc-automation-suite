@@ -48,6 +48,7 @@ from interfaces.web_server.routers import (
     catalog_router,
     diagnostics_router,
     portal_router,
+    tia_connection_router,
 )
 
 
@@ -137,6 +138,11 @@ def create_app(gateway: TIAProcessGateway) -> FastAPI:
     app.include_router(catalog_router)
     app.include_router(diagnostics_router)
     app.include_router(portal_router)
+    # PR 5a: estado del worker OT persistente. La SPA hace polling
+    # cada 2s contra ``GET /tia/connection`` y lanza ``POST
+    # /tia/connect`` / ``POST /tia/disconnect`` al pulsar el
+    # indicador del topbar. Logica reconnect/disconnect en PR 6.
+    app.include_router(tia_connection_router)
 
     # ── 3. Routers aportados por las áreas (Bounded Contexts) ─────
     # Descubre cada ``AreaSpec`` registrada y, si declara

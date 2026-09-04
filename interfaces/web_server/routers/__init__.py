@@ -17,6 +17,7 @@ from .areas import router as areas_router
 from .catalog import router as catalog_router
 from .diagnostics import router as diagnostics_router
 from .portal import router as portal_router
+from .tia_connection import router as tia_connection_router
 
 __all__ = [
     "area_manifests_router",
@@ -24,4 +25,5 @@ __all__ = [
     "catalog_router",
     "diagnostics_router",
     "portal_router",
+    "tia_connection_router",
 ]
