@@ -44,12 +44,6 @@ from core.infrastructure.build_cache import (
 )
 
 
-# Identificador del \u00e1rea. Importado de ``_area_id`` (m\u00f3dulo
-# minimal sin imports del paquete, evita circular import). Debe
-# coincidir con ``AREA_SPEC.id`` y con la constante ``AREA_ID``
-# re-exportada desde ``__init__.py``.
-
-
 @dataclass(frozen=True)
 class AlimentacionAreaCache(_CoreAreaCache):
     """``AreaCache`` del área alimentación con sus contextos.
