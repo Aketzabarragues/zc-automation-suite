@@ -871,6 +871,231 @@ class TIAProcessGateway:
             # en el reader es no-op (future.done() == True).
             self._pending_responses.pop(request_id, None)
 
+    async def _kill_persistent_worker(self) -> None:
+        """Mata el subproceso del worker y cancela las tasks asociadas.
+
+        Helper centralizado de cleanup para que ``reconnect()``,
+        ``disconnect()`` y un futuro shutdown de la app lo usen
+        identico. Robusto a llamadas repetidas (idempotente): si el
+        worker ya esta muerto, los tasks cancelados o los futures
+        ya resueltos, no hace nada.
+
+        Orden de operaciones (importa):
+
+          1. Cancela ``_reader_task`` (la unica task que consume stdout
+             y resuelve futures por ``id``). Si NO se cancela, puede
+             quedarse en un ``await`` infinito.
+          2. Cancela ``_heartbeat_task``. Esta task se beneficia de la
+             cancelacion (sale via ``CancelledError``) y, ademas, si
+             la cancelamos despues de poner ``_worker_proc = None``,
+             el ``if self._worker_proc is None: return`` ya corto-
+             circuita el loop. Cualquier orden funciona; el
+             elegido es seguro.
+          3. Mata el subproceso con SIGTERM (``terminate()``) y, si
+             no responde en 2s, SIGKILL (``kill()``). El timeout
+             es defensivo: en Windows, ``terminate()`` ya es
+             forzoso (``TerminateProcess``), pero en Linux un
+             subproceso que esta bloqueado en un ``attach_portal``
+             COM no responde a SIGTERM y necesitamos SIGKILL.
+          4. Resuelve los futures pendientes con ``RuntimeError`` para
+             que los callers en vuelo (p.ej. ``_send_to_persistent_worker``
+             esperando una respuesta) no se queden colgados
+             indefinidamente. La excepcion es la misma semantica que
+             el timeout del ``asyncio.wait_for``: un error de
+             comunicacion con el worker.
+          5. Resetea ``_next_request_id`` a 0 para que el proximo
+             worker empiece con IDs limpios. Defensivo: los IDs son
+             locales al proceso, no hay riesgo de colision, pero
+             deja el estado consistente con un gateway recien
+             construido.
+
+        Side effects:
+          - ``self._reader_task = None``.
+          - ``self._heartbeat_task = None``.
+          - ``self._worker_proc = None``.
+          - ``self._pending_responses`` vacio.
+          - ``self._next_request_id = 0``.
+
+        NO modifica ``self._connection_state``: eso es responsabilidad
+        del caller (``reconnect()`` lo pone a ``"connecting"`` o
+        ``"error"``; ``disconnect()`` lo pone a ``"disconnected"``).
+        Asi el helper es reusable y la politica de estado vive en
+        la API publica, no en el helper.
+        """
+        # 1. Cancela el reader_task (consume stdout y resuelve futures).
+        if self._reader_task is not None and not self._reader_task.done():
+            self._reader_task.cancel()
+            try:
+                await self._reader_task
+            except (asyncio.CancelledError, Exception):
+                # ``CancelledError`` es el caso normal; cualquier otra
+                # excepcion tambien se absorbe (cleanup best-effort:
+                # el reader ya no es util, el proc va a morir).
+                pass
+        self._reader_task = None
+
+        # 2. Cancela el heartbeat_task. El loop ya tiene
+        # ``except asyncio.CancelledError: return`` que cierra limpio.
+        if self._heartbeat_task is not None and not self._heartbeat_task.done():
+            self._heartbeat_task.cancel()
+            try:
+                await self._heartbeat_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        self._heartbeat_task = None
+
+        # 3. Mata el subproceso. ``returncode is None`` significa que
+        # esta vivo; si ya tiene ``returncode`` fijado, el proc ya
+        # murio y no hay que hacer nada.
+        if self._worker_proc is not None and self._worker_proc.returncode is None:
+            try:
+                self._worker_proc.terminate()
+                try:
+                    # Esperamos hasta 2s. Si el proc no responde a
+                    # SIGTERM (caso Linux + attach_portal bloqueado),
+                    # escalamos a SIGKILL.
+                    await asyncio.wait_for(
+                        self._worker_proc.wait(), timeout=2.0
+                    )
+                except asyncio.TimeoutError:
+                    self._worker_proc.kill()
+                    await self._worker_proc.wait()
+            except Exception:
+                # best-effort: cualquier fallo en el shutdown del proc
+                # (BrokenPipeError, ProcessLookupError, etc.) se
+                # ignora. Lo que importa es que el gateway quede en
+                # estado consistente para una nueva conexion.
+                pass
+        self._worker_proc = None
+
+        # 4. Resuelve los futures pendientes con RuntimeError. Esto
+        # desbloquea a cualquier ``_send_to_persistent_worker`` en vuelo
+        # que estuviera esperando respuesta: en lugar de quedarse
+        # colgado hasta el timeout (default 180s), recibe una
+        # excepcion inmediata y puede relanzar / manejar.
+        for fut in self._pending_responses.values():
+            if not fut.done():
+                fut.set_exception(RuntimeError("Worker desconectado"))
+        self._pending_responses.clear()
+
+        # 5. Reset del contador de IDs para que el proximo worker
+        # empiece limpio. No afecta a la correccion (los IDs son
+        # locales al proceso IT), solo a la consistencia del estado.
+        self._next_request_id = 0
+
+    async def reconnect(self) -> None:
+        """Mata el worker actual (si esta vivo) y arranca uno nuevo.
+
+        API publica del boton "Reconectar" del topbar. Es la respuesta
+        del gateway al operario cuando TIA Portal se cerro y se volvio
+        a abrir, o cuando el worker se cayo por cualquier motivo (OOM,
+        excepcion no capturada, etc.). El gateway:
+
+          1. Mata el worker viejo y sus tasks (reader + heartbeat)
+             via ``_kill_persistent_worker()``. Esto cierra el
+             attach actual y libera los recursos.
+          2. Marca el estado como ``"connecting"`` mientras se hace
+             el nuevo attach.
+          3. Lanza un worker nuevo con ``_start_persistent_worker()``,
+             que ya hace el ping inicial y transiciona a
+             ``"connected"`` o ``"error"``.
+
+        Si el nuevo attach falla, lanza ``TIAConnectionError`` con un
+        mensaje legible. El operario ve el circulo del topbar cambiar
+        a rojo y el error en ``ConsolaLogs``. El estado queda en
+        ``"error"`` con ``_last_error`` poblado para el siguiente
+        ``GET /tia/connection``.
+
+        Raises:
+            TIAConnectionError: si el gateway no es persistente
+                (``persistent=False``) o si el nuevo attach falla.
+        """
+        if not self._persistent:
+            # Defensivo: el modo 1-shot (MCP) no tiene worker
+            # persistente que matar. Si el operario llega aqui desde
+            # el topbar, es un bug del frontend o un caller que
+            # asume ``persistent=True``. Mejor un error claro que
+            # un comportamiento silencioso.
+            raise TIAConnectionError(
+                "reconnect() solo aplica a gateway.persistent=True"
+            )
+
+        # 1. Mata el worker viejo. Idempotente: si no hay worker
+        # vivo, no hace nada. Esto limpia reader/heartbeat/proc y
+        # los futures pendientes.
+        await self._kill_persistent_worker()
+
+        # 2. Marca "connecting" ANTES de arrancar para que el
+        # ``GET /tia/connection`` refleje el estado intermedio.
+        # ``_start_persistent_worker`` lo actualizara a
+        # ``"connected"`` (exito) o mantendra la transicion a
+        # ``"error"`` que ya hace el propio ``_start_persistent_worker``.
+        self._connection_state = "connecting"
+
+        # 3. Arranca un worker nuevo. Si el attach inicial falla,
+        # se lanza TIAConnectionError con detalle. Relanzamos
+        # SIEMPRE como TIAConnectionError con el prefijo "Reconnect
+        # fallo:" para que el router ``/api/v1/tia/connect`` reciba
+        # un mensaje uniforme y pueda traducirlo a un error
+        # legible para la SPA (contrato del PR 6: cualquier fallo
+        # de reconexion lleva este prefijo).
+        try:
+            await self._start_persistent_worker()
+        except Exception as exc:
+            # Cubrimos TIAConnectionError, asyncio.TimeoutError,
+            # BrokenPipeError, OSError al crear el subproceso, etc.
+            # ``_start_persistent_worker`` ya actualizo ``_last_error``
+            # con el detalle en su propio ``except``; lo re-asignamos
+            # aqui solo si NO lo hizo el subproceso, para que
+            # ``GET /tia/connection`` tenga un mensaje util.
+            self._connection_state = "error"
+            if not self._last_error:
+                self._last_error = f"{type(exc).__name__}: {exc}"
+            raise TIAConnectionError(
+                f"Reconnect fallo: {exc}"
+            ) from exc
+
+    async def disconnect(self) -> None:
+        """Desconecta explicitamente. Mata el worker y marca estado ``"disconnected"``.
+
+        API publica del boton "Desconectar" del topbar. A diferencia
+        de ``reconnect()``, NO intenta re-arrancar el worker: el
+        gateway queda en estado ``"disconnected"`` hasta que el
+        operario llame a ``reconnect()`` o hasta que un comando
+        futuro dispare el lazy start (el primer
+        ``_send_to_persistent_worker`` con proc muerto hara lazy
+        start automatico si el estado lo permite).
+
+        Tras ``disconnect()``, el estado es:
+
+          - ``_connection_state = "disconnected"``.
+          - ``_last_error = None`` (limpiamos errores transitorios).
+          - ``_worker_proc = None``, ``_reader_task = None``,
+            ``_heartbeat_task = None``, ``_pending_responses = {}``,
+            ``_next_request_id = 0`` (via ``_kill_persistent_worker``).
+
+        Raises:
+            TIAConnectionError: si el gateway no es persistente.
+        """
+        if not self._persistent:
+            raise TIAConnectionError(
+                "disconnect() solo aplica a gateway.persistent=True"
+            )
+
+        # Marcamos el estado PRIMERO para que el ``GET /tia/connection``
+        # siguiente lo vea, incluso si el kill tarda un poco. Limpiar
+        # ``_last_error`` evita que el operario vea un error stale
+        # de un fallo anterior.
+        self._connection_state = "disconnected"
+        self._last_error = None
+
+        # Mata el worker, las tasks y limpia los futures. El
+        # heartbeat task ya en vuelo sale limpio via
+        # ``CancelledError`` (ver ``_heartbeat_loop``); el
+        # ``_worker_proc = None`` tambien haria que el siguiente
+        # tick salga via el ``if self._worker_proc is None: return``.
+        await self._kill_persistent_worker()
+
     def get_metrics(self) -> dict[str, dict[str, float | int]]:
         """Devuelve estadisticas de timing acumuladas por comando.
 
