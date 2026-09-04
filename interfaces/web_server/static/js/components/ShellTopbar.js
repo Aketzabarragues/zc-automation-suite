@@ -225,12 +225,12 @@ export default {
                  colores en azul, verde, etc.").
 
                  PR 5b: a la izquierda del bloque PLC se monta
-                 el indicador `TiaConnectionIndicator` (circulo
+                 el indicador ``TiaConnectionIndicator`` (circulo
                  independiente que muestra el estado del
                  WORKER TIA PERSISTENTE, no del scan de PLCs).
-                 Lee reactivamente `store.tiaConnection`
+                 Lee reactivamente ``store.tiaConnection``
                  y se actualiza solo con el polling 2s de
-                 `main.js`. Clickable para reconectar cuando
+                 ``main.js``. Clickable para reconectar cuando
                  el estado es disconnected/error; en otros
                  estados el click es no-op. -->
             <div class="flex items-center gap-2">

@@ -417,6 +417,58 @@ def test_shelltopbar_template_has_no_tags_inside_html_comments() -> None:
     )
 
 
+def test_shelltopbar_template_backticks_are_even() -> None:
+    r"""Regresion (2º bug tras PR 5b, 2026-09-04): el comentario HTML
+    de la linea 228 usaba backticks simples (`TiaConnectionIndicator`)
+    para resaltar el nombre del componente. ESOS BACKTICKS CIERRAN
+    EL TEMPLATE LITERAL de JavaScript que envuelve el template, y
+    el parser del navegador lanzaba::
+
+        SyntaxError: Unexpected identifier 'TiaConnectionIndicator'
+            en http://127.0.0.1:8000/js/components/ShellTopbar.js:228:32
+
+    Regla: dentro de un template literal de JavaScript (entre
+    ``template: ` `` y `` `,``) los backticks cuentan como apertura
+    o cierre de string. Los comentarios HTML ``<!-- ... -->`` no
+    son comentarios para JavaScript: el parser JS ve los backticks
+    sueltos.
+
+    Defensa: en comentarios HTML dentro de templates Vue 3 ESM,
+    usa DOBLES BACKTICKS (estilo RST, `` `texto` ``) para resaltar
+    ``code``. Los dobles backticks son texto literal, no cierran
+    el template string.
+
+    Este test verifica que el numero de backticks dentro del
+    template es PAR (o 0). Si es impar, el template se cierra
+    prematuramente en algun punto.
+    """
+    text = _read(SHELLTOPBAR_JS)
+    template_str = _extract_template_string(text)
+    assert template_str, (
+        "ShellTopbar.js no tiene un template string extraible; "
+        "estructura inesperada del componente."
+    )
+
+    # Backticks escapados (\`) NO cuentan como apertura/cierre.
+    # Procesamos: primero eliminamos los escapados, luego contamos.
+    import re
+    # Reemplazar \` por un placeholder que no es backtick.
+    cleaned = re.sub(r"\\`", "X", template_str)
+    backtick_count = cleaned.count("`")
+    assert backtick_count % 2 == 0, (
+        f"ShellTopbar.js template tiene {backtick_count} backticks "
+        f"(impar). Eso significa que hay backticks sueltos dentro "
+        f"del template literal (probablemente en un comentario "
+        f"HTML) que cierran prematuramente el string. Ejemplo "
+        f"ofensivo: usar `NombreComponente` (backticks simples) "
+        f"en un comentario HTML. Usa DOBLES backticks (estilo RST, "
+        f"``Nombre``) o ninguno. Esto causa el error::\n"
+        f"    SyntaxError: Unexpected identifier 'X'\n"
+        f"        en ShellTopbar.js:228\n"
+        f"al renderizar la SPA en el navegador."
+    )
+
+
 def test_shelltopbar_template_compiles_with_vue_if_available() -> None:
     """Si el compilador de Vue 3 (vue.esm-browser.prod.js) esta
     disponible en el repo, intentamos compilar el template del
