@@ -31,6 +31,7 @@ y ya NO se importan directamente aquí.
 from __future__ import annotations
 
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -101,6 +102,48 @@ class NoCacheStaticFiles(_BaseStaticFiles):
         return response
 
 
+@asynccontextmanager
+async def _tia_lifespan(app: FastAPI):
+    """Lifespan que llama a ``gateway.disconnect()`` al shutdown
+    para que el worker persistente NO quede zombi (ver auditoría X2).
+
+    Sin este handler, pulsar "Detener web" desde el tray deja el
+    subproceso del worker vivo (~200 MB con ``siemens_tia_scripting.pyd``
+    cargado) hasta que se cierre TIA o se mate el proceso manualmente.
+
+    Solo aplica a gateways persistentes (modo web). Modo 1-shot
+    (MCP) usa gateways ``persistent=False`` y ``disconnect()``
+    lanzaría ``TIAConnectionError``; lo saltamos con un guard.
+
+    Cubre el path canónico: ``python main.py --web`` y
+    ``WebServiceSupervisor._serve_once`` (el supervisor también
+    tiene su propia red de seguridad en el ``finally``).
+    """
+    yield
+    # Post-shutdown: lo capturamos con getattr defensivo por si
+    # el lifespan se evalúa en un test que construye la app sin
+    # pasar por ``create_app`` (raro, pero los routers de las
+    # áreas también instancian ``FastAPI`` directamente en algunos
+    # tests).
+    gateway = getattr(app.state, "gateway", None)
+    if gateway is None:
+        return
+    # ``persistent`` es una ``@property`` de ``TIAProcessGateway``;
+    # en mocks ``spec=TIAProcessGateway`` también existe. En cualquier
+    # otro caso (test con MagicMock sin spec), lo leemos defensivo.
+    if not getattr(gateway, "persistent", False):
+        return
+    try:
+        await gateway.disconnect()
+    except Exception as exc:  # noqa: BLE001
+        # No enmascarar el motivo original del shutdown. Logueamos
+        # y dejamos que uvicorn termine.
+        import logging
+        logging.getLogger(__name__).warning(
+            "gateway.disconnect() en lifespan fallo: %s", exc
+        )
+
+
 def create_app(gateway: TIAProcessGateway) -> FastAPI:
     """Crea la aplicación FastAPI con Composition Root explícito.
 
@@ -109,7 +152,10 @@ def create_app(gateway: TIAProcessGateway) -> FastAPI:
             por el Composition Root externo, **NO** se re-instancia
             aquí para no duplicar el RCW de TIA Portal).
     """
-    app = FastAPI(title="ZC Automation Suite - Web Server")
+    app = FastAPI(
+        title="ZC Automation Suite - Web Server",
+        lifespan=_tia_lifespan,
+    )
 
     # ── 1. Inyección de estado (Composition Root → app.state) ─────
     # Todos los routers leen estas dependencias vía ``Depends``.

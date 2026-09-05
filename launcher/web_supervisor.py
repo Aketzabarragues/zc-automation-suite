@@ -144,6 +144,16 @@ class WebServiceSupervisor:
 
         gateway = TIAProcessGateway(persistent=True)
         app = create_app(gateway)
+        # Guardamos la referencia al gateway en self para que el
+        # ``finally`` de abajo pueda llamar a ``disconnect()`` como
+        # red de seguridad (auditoría X2). El lifespan de FastAPI
+        # YA hace esto al shutdown normal, pero si uvicorn crashea
+        # antes de ejecutar el lifespan cleanup, o si la app se
+        # destruye por una excepción en startup, esta red cubre el
+        # caso y evita que el subproceso del worker persistente
+        # quede zombi (~200 MB con ``siemens_tia_scripting.pyd``
+        # cargado).
+        self._gateway = gateway
 
         # Compatibilidad con modo windowed (pythonw.exe / frozen).
         # uvicorn asume ``sys.stdout.isatty()`` en su formatter de
@@ -171,6 +181,35 @@ class WebServiceSupervisor:
         try:
             self._server.run()
         finally:
+            # Red de seguridad X2: si el lifespan de FastAPI no
+            # llamó a ``gateway.disconnect()`` (e.g. uvicorn crashea
+            # antes del lifespan cleanup), lo llamamos aquí. Envuelto
+            # en try/except para no enmascarar el motivo original
+            # del shutdown. ``disconnect()`` es idempotente (ver
+            # ``_kill_persistent_worker``), así que en el path
+            # normal donde el lifespan YA llamó, esta segunda
+            # llamada es un no-op.
+            gateway = getattr(self, "_gateway", None)
+            if (
+                gateway is not None
+                and getattr(gateway, "persistent", False)
+                and callable(getattr(gateway, "disconnect", None))
+            ):
+                try:
+                    # ``_serve_once`` es sync (``self._server.run()``
+                    # es bloqueante y uvicorn crea y destruye su
+                    # propio loop internamente). Cuando llegamos al
+                    # ``finally`` en el path canónico NO hay loop
+                    # corriendo, asi que ``asyncio.run()`` es seguro.
+                    # Si por algun motivo hubiera loop vivo, el
+                    # ``except`` de abajo absorbe el
+                    # ``RuntimeError`` y no enmascaramos el shutdown.
+                    import asyncio
+                    asyncio.run(gateway.disconnect())
+                except Exception as exc:  # noqa: BLE001
+                    self.log.warning(
+                        "gateway.disconnect() en supervisor fallo: %s", exc
+                    )
             self._healthy.clear()
             self._server = None
 
