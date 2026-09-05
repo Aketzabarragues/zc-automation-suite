@@ -27,6 +27,7 @@ Notas sobre el worker OT:
 """
 from __future__ import annotations
 
+import io
 import logging
 import sys
 import threading
@@ -143,13 +144,21 @@ class WebServiceSupervisor:
 
         gateway = TIAProcessGateway(persistent=True)
         app = create_app(gateway)
-        config = uvicorn.Config(
-            app,
-            host=self.host,
-            port=self.port,
-            log_level="info",
-            access_log=False,  # Evita duplicar info en el log file.
-        )
+
+        # Compatibilidad con modo windowed (pythonw.exe / frozen).
+        # uvicorn asume ``sys.stdout.isatty()`` en su formatter de
+        # colores; si sys.stdout es ``None`` (modo windowed), crashea
+        # con ``AttributeError: 'NoneType' object has no attribute
+        # 'isatty'`` durante ``uvicorn.Config.__init__``. Ver
+        # docstring de ``_patch_stdio_for_uvicorn`` mas abajo.
+        with _patch_stdio_for_uvicorn():
+            config = uvicorn.Config(
+                app,
+                host=self.host,
+                port=self.port,
+                log_level="info",
+                access_log=False,  # Evita duplicar info en el log file.
+            )
         self._server = uvicorn.Server(config)
 
         # Reconfigurar loggers de uvicorn JUSTO después de que su
@@ -166,7 +175,47 @@ class WebServiceSupervisor:
             self._server = None
 
 
-__all__ = ["WebServiceSupervisor", "_reconfigure_uvicorn_loggers"]
+__all__ = ["WebServiceSupervisor", "_reconfigure_uvicorn_loggers", "_patch_stdio_for_uvicorn"]
+
+
+import contextlib
+
+
+@contextlib.contextmanager
+def _patch_stdio_for_uvicorn() -> object:
+    """Context manager que reemplaza ``sys.stdout`` / ``sys.stderr`` por
+    buffers descartables (``io.StringIO``) si son ``None``, y los
+    restaura al salir.
+
+    Por que es necesario: ``uvicorn.Config.__init__`` invoca su
+    formatter por defecto, que llama ``sys.stdout.isatty()`` para
+    decidir si usar colores ANSI. En modo windowed (``pythonw.exe`` o
+    frozen sin consola), ``sys.stdout`` es ``None`` y uvicorn crashea
+    con::
+
+        AttributeError: 'NoneType' object has no attribute 'isatty'
+
+    Esto era el bug que hacia que el web server fallara 5 veces
+    consecutivas al arrancar desde el menu "Iniciar web" del tray
+    (visto en ``_source/zc_tray.log`` el 2026-09-05 con el
+    ``[ERROR] zc_tray.web: Web server crasheó (restart #5)``).
+
+    Redirigir a ``io.StringIO()`` evita el crash. NO afecta a los logs
+    reales, que van al root logger (``zc_tray``) via
+    ``_reconfigure_uvicorn_loggers`` justo despues de
+    ``uvicorn.Config.__init__``. Los writes a esos buffers
+    descartables se pierden, que es lo que queremos: en modo
+    windowed NO hay consola donde escribir.
+    """
+    saved_stdout, saved_stderr = sys.stdout, sys.stderr
+    try:
+        if sys.stdout is None:
+            sys.stdout = io.StringIO()
+        if sys.stderr is None:
+            sys.stderr = io.StringIO()
+        yield
+    finally:
+        sys.stdout, sys.stderr = saved_stdout, saved_stderr
 
 
 def _reconfigure_uvicorn_loggers() -> None:
