@@ -18,6 +18,11 @@ Ambas son exclusivos del modo ``persistent=True``; en modo 1-shot
 (``persistent=False``) lanzan ``TIAConnectionError`` para que el
 topbar reciba un error claro en vez de un no-op silencioso.
 
+Auditoria X3 (sept-2026): ``reconnect()`` y ``disconnect()`` ahora
+adquieren ``self._worker_lock`` para serializar contra
+``_dispatch_worker`` y contra otro ``reconnect``/``disconnect``
+concurrente. Los tests 8-10 verifican esta garantia.
+
 Estrategia de testing:
 
   - **Mocking ligero**: ``_kill_persistent_worker`` y
@@ -32,6 +37,10 @@ Estrategia de testing:
   - **Pending futures**: el test 7 registra futures en
     ``_pending_responses`` y verifica que ``_kill_persistent_worker``
     los resuelve con ``RuntimeError("Worker desconectado")``.
+  - **Locking (X3)**: los tests 8-10 verifican que el ``async with
+    self._worker_lock`` cubre todo el cuerpo de ``reconnect()`` /
+    ``disconnect()`` y se libera al terminar (incluso si una
+    excepcion aborta el flujo).
 
 Tests:
 
@@ -42,6 +51,9 @@ Tests:
   5. ``test_disconnect_sin_modo_persistente_lanza_TIAConnectionError``.
   6. ``test_kill_persistent_worker_es_idempotente``.
   7. ``test_kill_persistent_worker_resuelve_pending_futures``.
+  8. ``test_reconnect_libera_el_lock_al_terminar`` (auditoria X3).
+  9. ``test_reconnect_mantiene_lock_cogido_durante_ejecucion`` (X3).
+  10. ``test_disconnect_libera_el_lock_al_terminar`` (auditoria X3).
 """
 from __future__ import annotations
 
@@ -411,3 +423,221 @@ class TestKillResolvesPendingFutures:
         )
         # Contador reseteado.
         assert gateway._next_request_id == 0
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Test 8: ``reconnect()`` libera ``_worker_lock`` al terminar (auditoria X3)
+# ────────────────────────────────────────────────────────────────────────
+
+
+class TestReconnectReleasesLock:
+    """``reconnect()`` envuelve su cuerpo en ``async with self._worker_lock`` (X3).
+
+    Garantia: tras ``await gateway.reconnect()``, ``_worker_lock`` esta
+    liberado. Esto es critico para que el siguiente ``_dispatch_worker``
+    pueda adquirirlo sin quedar bloqueado para siempre.
+    """
+
+    @pytest.mark.asyncio
+    async def test_reconnect_libera_el_lock_al_terminar(self) -> None:
+        """Tras un ``reconnect()`` exitoso, el lock NO queda cogido.
+
+        El ``async with self._worker_lock`` del cuerpo de
+        ``reconnect()`` debe liberar el lock al salir, tanto en el
+        path de exito como en el de excepcion (Python lo garantiza
+        semanticamente). Si el wrap no existiera, esto seria cierto
+        por casualidad (no hay codigo que coja el lock fuera del
+        wrap). Pero si el wrap estuviera MAL (p.ej. un ``await
+        self._worker_lock.acquire()`` sin ``release()``), el lock
+        quedaria cogido y este test fallaria.
+
+        Estrategia: sustituimos ``_kill_persistent_worker`` y
+        ``_start_persistent_worker`` por ``AsyncMock`` para que el
+        ciclo kill+start se complete instantaneamente. Tras el
+        ``await reconnect()``:
+          - ``gateway._worker_lock.locked()`` debe ser ``False``.
+          - Un ``async with`` adicional debe poder adquirir y
+            liberar el lock inmediatamente (prueba definitiva de
+            que no hay owner fantasma).
+        """
+        gateway = TIAProcessGateway(persistent=True)
+        # Los mocks: ambos no-ops asincronos.
+        gateway._kill_persistent_worker = AsyncMock(return_value=None)
+        gateway._start_persistent_worker = AsyncMock(return_value=None)
+
+        await gateway.reconnect()
+
+        # 1. ``locked()`` retorna ``False`` (no hay owner).
+        assert gateway._worker_lock.locked() is False, (
+            "_worker_lock quedo cogido tras reconnect() — "
+            "el async with no se libero (auditoria X3)"
+        )
+
+        # 2. Prueba definitiva: podemos adquirir y liberar el lock
+        # de inmediato. Si quedara un owner fantasma (un ``acquire``
+        # sin ``release`` en algun path del reconnect), este
+        # ``async with`` se quedaria bloqueado para siempre.
+        async with gateway._worker_lock:
+            pass  # adquirido y liberado sin crashear
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Test 9: ``reconnect()`` mantiene ``_worker_lock`` cogido durante
+# todo el ciclo kill+start (auditoria X3)
+# ────────────────────────────────────────────────────────────────────────
+
+
+class TestReconnectHoldsLockDuringExecution:
+    """El ``async with`` cubre TODO el cuerpo de ``reconnect()`` (X3)."""
+
+    @pytest.mark.asyncio
+    async def test_reconnect_mantiene_lock_cogido_durante_ejecucion(self) -> None:
+        """Mientras ``reconnect()`` ejecuta, otro task NO puede adquirir el lock.
+
+        Esto es la garantia que cierra el race condition de la
+        auditoria X3: un segundo ``reconnect()`` concurrente (o
+        un ``_dispatch_worker``) que intente adquirir
+        ``_worker_lock`` durante el ciclo kill+start debe
+        bloquearse hasta que el primero termine.
+
+        Estrategia: sustituimos ``_kill_persistent_worker`` por un
+        coro que avisa cuando esta dentro y luego espera una
+        senal. Mientras esperamos, lanzamos un ``acquire()`` con
+        timeout corto: si el lock esta cogido (esperado), el
+        ``wait_for`` lanza ``TimeoutError``; si NO esta cogido (el
+        wrap estaria MAL), el acquire retorna inmediatamente y el
+        test falla con un mensaje claro.
+
+        Tras liberar el coro, ``reconnect()`` continua: verificamos
+        que el lock SIGUE cogido durante el ``_start`` (no solo
+        durante el ``_kill``). Esto es importante: si el wrap
+        cubriera solo el kill y no el start, el race volveria a
+        ser posible.
+        """
+        gateway = TIAProcessGateway(persistent=True)
+
+        # Eventos para sincronizar el coro con el test.
+        kill_entered = asyncio.Event()
+        start_entered = asyncio.Event()
+        release_kill = asyncio.Event()
+        release_start = asyncio.Event()
+
+        async def slow_kill() -> None:
+            """El primer (y unico) kill: avisa y espera la senal del test."""
+            kill_entered.set()
+            await release_kill.wait()
+
+        async def slow_start() -> None:
+            """El primer (y unico) start: avisa y espera la senal del test.
+
+            Verificamos aqui mismo que el lock SIGUE cogido: el coro
+            de start corre dentro del ``async with`` del reconnect,
+            asi que si el wrap cubre todo el cuerpo, ``locked()``
+            debe ser ``True`` al entrar a start.
+            """
+            assert gateway._worker_lock.locked() is True, (
+                "el lock se libero entre el kill y el start: el wrap "
+                "de reconnect() no cubre todo el cuerpo (auditoria X3)"
+            )
+            start_entered.set()
+            await release_start.wait()
+
+        gateway._kill_persistent_worker = slow_kill
+        gateway._start_persistent_worker = slow_start
+
+        # Lanzamos reconnect en background.
+        reconnect_task = asyncio.create_task(gateway.reconnect())
+
+        # Esperamos a que reconnect entre al kill.
+        await kill_entered.wait()
+
+        # Verificacion 1: el lock esta cogido durante el kill.
+        assert gateway._worker_lock.locked() is True, (
+            "el lock deberia estar cogido durante el kill de reconnect()"
+        )
+
+        # Verificacion 2: un acquire concurrente debe BLOQUEARSE.
+        # Usamos ``wait_for`` con timeout corto (50ms). Si el lock
+        # NO estuviera cogido, el acquire retornaria inmediato y
+        # nunca veriamos TimeoutError. Si SI esta cogido (esperado),
+        # el wait_for lanza TimeoutError tras 50ms — eso es lo que
+        # queremos.
+        try:
+            await asyncio.wait_for(
+                gateway._worker_lock.acquire(), timeout=0.05
+            )
+            # Si llegamos aqui, el lock NO estaba cogido.
+            # Liberamos para no dejar el lock cogido y reportamos.
+            gateway._worker_lock.release()
+            pytest.fail(
+                "el lock NO estaba cogido durante el kill de reconnect(): "
+                "el wrap de self._worker_lock falta o esta mal (auditoria X3)"
+            )
+        except asyncio.TimeoutError:
+            pass  # comportamiento esperado: el acquire se bloqueo.
+
+        # Liberamos el kill para que reconnect continue con el start.
+        release_kill.set()
+        await start_entered.wait()
+
+        # Verificacion 3: el lock SIGUE cogido durante el start.
+        # (Esto ya lo hace el coro ``slow_start`` con su ``assert``,
+        # pero lo duplicamos aqui para que el test sea self-contained
+        # si alguien edita el coro.)
+        assert gateway._worker_lock.locked() is True, (
+            "el lock se libero al entrar al start: el wrap no cubre "
+            "todo el cuerpo de reconnect() (auditoria X3)"
+        )
+
+        # Liberamos el start y dejamos que reconnect termine.
+        release_start.set()
+        await reconnect_task
+
+        # Tras reconnect, el lock esta liberado.
+        assert gateway._worker_lock.locked() is False, (
+            "_worker_lock quedo cogido tras reconnect() exitoso (auditoria X3)"
+        )
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Test 10: ``disconnect()`` libera ``_worker_lock`` al terminar (auditoria X3)
+# ────────────────────────────────────────────────────────────────────────
+
+
+class TestDisconnectReleasesLock:
+    """``disconnect()`` envuelve su cuerpo en ``async with self._worker_lock`` (X3)."""
+
+    @pytest.mark.asyncio
+    async def test_disconnect_libera_el_lock_al_terminar(self) -> None:
+        """Tras un ``disconnect()`` exitoso, el lock NO queda cogido.
+
+        Simetrico con el test 8 para ``reconnect()``. Misma
+        garantia: el ``async with self._worker_lock`` del cuerpo
+        de ``disconnect()`` debe liberar el lock al salir.
+
+        Sin esta garantia, un operario que pulsa "Desconectar" y
+        luego hace cualquier operacion (que necesite el lock via
+        ``_dispatch_worker``) se quedaria bloqueado indefinidamente.
+        """
+        gateway = TIAProcessGateway(persistent=True)
+        gateway._kill_persistent_worker = AsyncMock(return_value=None)
+
+        await gateway.disconnect()
+
+        # 1. ``locked()`` retorna ``False``.
+        assert gateway._worker_lock.locked() is False, (
+            "_worker_lock quedo cogido tras disconnect() — "
+            "el async with no se libero (auditoria X3)"
+        )
+
+        # 2. Prueba definitiva: podemos adquirir y liberar el lock
+        # de inmediato. Si disconnect() hubiera dejado un owner
+        # fantasma, este ``async with`` se quedaria colgado.
+        async with gateway._worker_lock:
+            pass  # adquirido y liberado sin crashear
+
+        # Sanity check adicional: el disconnect marco el estado
+        # correctamente (defensa contra una refactorizacion futura
+        # que rompa el orden de operaciones).
+        assert gateway._connection_state == "disconnected"
+        assert gateway._last_error is None

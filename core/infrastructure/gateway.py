@@ -1163,6 +1163,21 @@ class TIAProcessGateway:
         ``"error"`` con ``_last_error`` poblado para el siguiente
         ``GET /tia/connection``.
 
+        Locking (auditoria X3, sept-2026): el ciclo kill+start se
+        ejecuta bajo ``self._worker_lock`` para serializar contra
+        ``_dispatch_worker`` (que ya coge el lock para cada comando)
+        y contra otro ``reconnect``/``disconnect`` concurrente. Sin
+        el lock, dos reconnects concurrentes (doble-click del
+        operario en "Reconectar", o el polling del frontend que
+        coincide con una reconexion manual) pueden dejar procs
+        huerfanos: el segundo reconnect asigna ``_worker_proc`` y
+        gana, el primero queda como zombie con su RCW .NET cargado.
+        ``_start_persistent_worker`` y ``_kill_persistent_worker``
+        NO cogen el lock internamente (esperan que el caller ya
+        lo tenga; ver comentario en ``_start_persistent_worker``),
+        asi que este ``async with`` cumple la pre-condicion y
+        serializa correctamente.
+
         Raises:
             TIAConnectionError: si el gateway no es persistente
                 (``persistent=False``) o si el nuevo attach falla.
@@ -1177,40 +1192,46 @@ class TIAProcessGateway:
                 "reconnect() solo aplica a gateway.persistent=True"
             )
 
-        # 1. Mata el worker viejo. Idempotente: si no hay worker
-        # vivo, no hace nada. Esto limpia reader/heartbeat/proc y
-        # los futures pendientes.
-        await self._kill_persistent_worker()
+        # Adquirimos ``self._worker_lock`` para serializar el ciclo
+        # kill+start contra ``_dispatch_worker`` y contra otro
+        # ``reconnect``/``disconnect`` concurrente. Ver el parrafo
+        # "Locking" del docstring arriba para el rationale completo
+        # (auditoria X3, sept-2026).
+        async with self._worker_lock:
+            # 1. Mata el worker viejo. Idempotente: si no hay worker
+            # vivo, no hace nada. Esto limpia reader/heartbeat/proc y
+            # los futures pendientes.
+            await self._kill_persistent_worker()
 
-        # 2. Marca "connecting" ANTES de arrancar para que el
-        # ``GET /tia/connection`` refleje el estado intermedio.
-        # ``_start_persistent_worker`` lo actualizara a
-        # ``"connected"`` (exito) o mantendra la transicion a
-        # ``"error"`` que ya hace el propio ``_start_persistent_worker``.
-        self._connection_state = "connecting"
+            # 2. Marca "connecting" ANTES de arrancar para que el
+            # ``GET /tia/connection`` refleje el estado intermedio.
+            # ``_start_persistent_worker`` lo actualizara a
+            # ``"connected"`` (exito) o mantendra la transicion a
+            # ``"error"`` que ya hace el propio ``_start_persistent_worker``.
+            self._connection_state = "connecting"
 
-        # 3. Arranca un worker nuevo. Si el attach inicial falla,
-        # se lanza TIAConnectionError con detalle. Relanzamos
-        # SIEMPRE como TIAConnectionError con el prefijo "Reconnect
-        # fallo:" para que el router ``/api/v1/tia/connect`` reciba
-        # un mensaje uniforme y pueda traducirlo a un error
-        # legible para la SPA (contrato del PR 6: cualquier fallo
-        # de reconexion lleva este prefijo).
-        try:
-            await self._start_persistent_worker()
-        except Exception as exc:
-            # Cubrimos TIAConnectionError, asyncio.TimeoutError,
-            # BrokenPipeError, OSError al crear el subproceso, etc.
-            # ``_start_persistent_worker`` ya actualizo ``_last_error``
-            # con el detalle en su propio ``except``; lo re-asignamos
-            # aqui solo si NO lo hizo el subproceso, para que
-            # ``GET /tia/connection`` tenga un mensaje util.
-            self._connection_state = "error"
-            if not self._last_error:
-                self._last_error = f"{type(exc).__name__}: {exc}"
-            raise TIAConnectionError(
-                f"Reconnect fallo: {exc}"
-            ) from exc
+            # 3. Arranca un worker nuevo. Si el attach inicial falla,
+            # se lanza TIAConnectionError con detalle. Relanzamos
+            # SIEMPRE como TIAConnectionError con el prefijo "Reconnect
+            # fallo:" para que el router ``/api/v1/tia/connect`` reciba
+            # un mensaje uniforme y pueda traducirlo a un error
+            # legible para la SPA (contrato del PR 6: cualquier fallo
+            # de reconexion lleva este prefijo).
+            try:
+                await self._start_persistent_worker()
+            except Exception as exc:
+                # Cubrimos TIAConnectionError, asyncio.TimeoutError,
+                # BrokenPipeError, OSError al crear el subproceso, etc.
+                # ``_start_persistent_worker`` ya actualizo ``_last_error``
+                # con el detalle en su propio ``except``; lo re-asignamos
+                # aqui solo si NO lo hizo el subproceso, para que
+                # ``GET /tia/connection`` tenga un mensaje util.
+                self._connection_state = "error"
+                if not self._last_error:
+                    self._last_error = f"{type(exc).__name__}: {exc}"
+                raise TIAConnectionError(
+                    f"Reconnect fallo: {exc}"
+                ) from exc
 
     async def disconnect(self) -> None:
         """Desconecta explicitamente. Mata el worker y marca estado ``"disconnected"``.
@@ -1231,6 +1252,17 @@ class TIAProcessGateway:
             ``_heartbeat_task = None``, ``_pending_responses = {}``,
             ``_next_request_id = 0`` (via ``_kill_persistent_worker``).
 
+        Locking (auditoria X3, sept-2026): el ciclo set-state + kill
+        se ejecuta bajo ``self._worker_lock`` por la misma razon que
+        ``reconnect()``: serializa contra ``_dispatch_worker`` y
+        contra otro ``reconnect``/``disconnect`` concurrente. Sin
+        el lock, dos disconnects concurrentes (doble-click del
+        operario en "Desconectar") pueden dejar el estado
+        inconsistente: el primero ya puso ``_worker_proc = None``
+        pero el segundo podria intentar ``terminate()`` sobre un
+        proc que el primero esta terminando de cerrar, generando
+        un zombie con un PID ya reasignado por el SO.
+
         Raises:
             TIAConnectionError: si el gateway no es persistente.
         """
@@ -1239,19 +1271,25 @@ class TIAProcessGateway:
                 "disconnect() solo aplica a gateway.persistent=True"
             )
 
-        # Marcamos el estado PRIMERO para que el ``GET /tia/connection``
-        # siguiente lo vea, incluso si el kill tarda un poco. Limpiar
-        # ``_last_error`` evita que el operario vea un error stale
-        # de un fallo anterior.
-        self._connection_state = "disconnected"
-        self._last_error = None
+        # Adquirimos ``self._worker_lock`` para serializar el kill
+        # contra ``_dispatch_worker`` y contra otro
+        # ``reconnect``/``disconnect`` concurrente. Ver el parrafo
+        # "Locking" del docstring arriba para el rationale completo
+        # (auditoria X3, sept-2026).
+        async with self._worker_lock:
+            # Marcamos el estado PRIMERO para que el ``GET /tia/connection``
+            # siguiente lo vea, incluso si el kill tarda un poco. Limpiar
+            # ``_last_error`` evita que el operario vea un error stale
+            # de un fallo anterior.
+            self._connection_state = "disconnected"
+            self._last_error = None
 
-        # Mata el worker, las tasks y limpia los futures. El
-        # heartbeat task ya en vuelo sale limpio via
-        # ``CancelledError`` (ver ``_heartbeat_loop``); el
-        # ``_worker_proc = None`` tambien haria que el siguiente
-        # tick salga via el ``if self._worker_proc is None: return``.
-        await self._kill_persistent_worker()
+            # Mata el worker, las tasks y limpia los futures. El
+            # heartbeat task ya en vuelo sale limpio via
+            # ``CancelledError`` (ver ``_heartbeat_loop``); el
+            # ``_worker_proc = None`` tambien haria que el siguiente
+            # tick salga via el ``if self._worker_proc is None: return``.
+            await self._kill_persistent_worker()
 
     def get_metrics(self) -> dict[str, dict[str, float | int]]:
         """Devuelve estadisticas de timing acumuladas por comando.
