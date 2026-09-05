@@ -840,4 +840,26 @@ export async function disconnectTia() {
     return r;
 }
 
+/**
+ * Regresion (2026-09-05): ``main.js`` y otros callers hacen
+ * ``store.refreshTiaConnection?.()`` / ``store.connectTia?.()`` /
+ * ``store.disconnectTia?.()``. Asumen que el ``store`` expone los
+ * helpers como metodos (mismo patron que el resto del codigo
+ * reactivo). Si NO se asignan, el ``?.()`` los skipea
+ * silenciosamente y la SPA queda SIN polling de TIA, sin
+ * reconexion manual desde el topbar, etc.
+ *
+ * Las funciones ``refreshTiaConnection``, ``connectTia`` y
+ * ``disconnectTia`` se exportan como funciones independientes (arriba)
+ * para que el codigo de los componentes las importe y use
+ * directamente (``import { connectTia } from "./store.js"``). Pero
+ * ademas las EXPONEMOS en el ``store`` para los callers que las
+ * invocan reactivamente (``store.refreshTiaConnection?.()``).
+ */
+Object.assign(store, {
+    refreshTiaConnection,
+    connectTia,
+    disconnectTia,
+});
+
 export default store;
