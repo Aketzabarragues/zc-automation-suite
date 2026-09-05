@@ -38,6 +38,41 @@ DEFAULT_GATEWAY_TIMEOUT: float = float(
 )
 
 
+def _get_worker_stderr_logger() -> logging.Logger:
+    """Logger que escribe a ``worker_openness.log`` en la misma carpeta
+    que ``zc_tray.log``.
+
+    Por que existe: el subproceso del worker persistente escribe
+    sus errores y trazas a ``sys.stderr.write(...)`` directamente
+    (no usa el logger nativo de Siemens ni ``logging`` de Python).
+    Si nadie lee ese stderr, los mensajes se pierden en el buffer
+    del subproceso y el operario no puede diagnosticar fallos.
+
+    El gateway lee stderr del subproceso (``_read_worker_stderr_forever``)
+    y lo loguea aqui. El archivo vive en la misma ruta que
+    ``zc_tray.log`` (``<exe_dir>/logs/`` en produccion, ``<cwd>/logs/``
+    en dev) gracias a ``resolve_log_dir()``.
+
+    El logger es un singleton (inicializacion lazy): si ya tiene
+    handlers, los reusamos para no duplicar FileHandlers en cada
+    llamada. ``propagate=False`` evita que los mensajes se dupliquen
+    en el root logger.
+    """
+    log = logging.getLogger("zc.worker_stderr")
+    if log.handlers:
+        return log
+    from core.application.log_paths import resolve_log_dir
+    log_path = resolve_log_dir() / "worker_openness.log"
+    handler = logging.FileHandler(log_path, encoding="utf-8")
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+    )
+    log.addHandler(handler)
+    log.setLevel(logging.INFO)
+    log.propagate = False
+    return log
+
+
 class TIAConnectionError(RuntimeError):
     """TIA Portal no responde o no se puede adjuntar.
 
@@ -160,6 +195,14 @@ class TIAProcessGateway:
             self._next_request_id: int = 0
             self._pending_responses: dict[int, asyncio.Future[Any]] = {}
             self._reader_task: asyncio.Task[None] | None = None
+            # ``_stderr_task`` consume el stream stderr del subproceso
+            # worker y lo loguea a ``worker_openness.log``. Se lanza
+            # junto con ``_reader_task`` y se cancela en
+            # ``_kill_persistent_worker``. Existe desde PR 8.1
+            # (sept-2026): antes, los ``sys.stderr.write`` del worker
+            # se perdian en el buffer del subproceso sin que nadie los
+            # leyera.
+            self._stderr_task: asyncio.Task[None] | None = None
             self._heartbeat_task: asyncio.Task[None] | None = None
             # Estados posibles: "disconnected" | "connecting" |
             # "connected" | "error". El estado inicial es
@@ -623,6 +666,14 @@ class TIAProcessGateway:
         # por timeout y marca el estado como ``disconnected``. El
         # siguiente comando hara lazy start de nuevo.
         self._reader_task = asyncio.create_task(self._read_worker_stdout_forever())
+        # El stderr_task consume stderr y lo loguea a
+        # ``worker_openness.log``. Es fire-and-forget: si falla o
+        # termina, no afecta a la logica del reader_task ni al
+        # protocolo request-response. Por eso no se trackea su
+        # estado para reintentos; si el archivo no se puede abrir,
+        # el helper ``_get_worker_stderr_logger`` ya loguea un
+        # warning al root logger de zc_tray.
+        self._stderr_task = asyncio.create_task(self._read_worker_stderr_forever())
 
         # Ping inicial con timeout corto (15s): si TIA no esta
         # abierto o el worker muere al attach, queremos enterarnos
@@ -891,6 +942,54 @@ class TIAProcessGateway:
             # (p.ej. el caller ya hizo timeout y se fue). El reader
             # sigue procesando los siguientes.
 
+    async def _read_worker_stderr_forever(self) -> None:
+        """Lee stderr del worker y lo loguea a ``worker_openness.log``.
+
+        El subproceso del worker escribe sus errores a
+        ``sys.stderr.write(...)`` directamente (no usa ``logging`` ni el
+        logger nativo de Siemens para todo). Si nadie los captura,
+        los mensajes se pierden en el buffer del subproceso.
+
+        Esta task se lanza junto con ``_read_worker_stdout_forever``
+        en ``_start_persistent_worker`` y se cancela en
+        ``_kill_persistent_worker``.
+
+        Comportamiento:
+          - Lee lineas de ``proc.stderr`` hasta EOF.
+          - Decodifica cada linea con ``errors="replace"`` (defensivo:
+            el subproceso es Windows con cp1252 por defecto, y puede
+            emitir bytes que no son UTF-8 validos).
+          - Loguea al logger ``zc.worker_stderr`` que escribe a
+            ``worker_openness.log`` (misma carpeta que ``zc_tray.log``,
+            via ``resolve_log_dir()``).
+          - Si la task falla (stream roto, etc.), sale silenciosamente.
+            El ``_reader_task`` sigue procesando stdout normalmente.
+        """
+        proc = self._worker_proc
+        if proc is None or proc.stderr is None:
+            return
+        log = _get_worker_stderr_logger()
+        while True:
+            try:
+                line = await proc.stderr.readline()
+            except Exception:
+                # Stream roto. Salimos silenciosamente.
+                break
+            if not line:
+                # EOF: el worker cerro stderr. Salimos.
+                break
+            try:
+                text = line.decode("utf-8", errors="replace").rstrip("\r\n")
+            except Exception:
+                # Fallback extremo: representamos los bytes brutos.
+                text = repr(line)
+            try:
+                log.info(text)
+            except Exception:
+                # Si el logger falla (p.ej. archivo cerrado por rotacion),
+                # no rompemos la task. La proxima linea reintentara.
+                break
+
     async def _send_to_persistent_worker(
         self,
         command: str,
@@ -1090,6 +1189,18 @@ class TIAProcessGateway:
                 # el reader ya no es util, el proc va a morir).
                 pass
         self._reader_task = None
+
+        # 1b. Cancela el stderr_task (loguea stderr a worker_openness.log).
+        # Se cancela en el mismo punto que el reader para que la limpieza
+        # del subproceso sea atomica. Si la task ya termino (EOF, error),
+        # el ``if`` lo skipea.
+        if self._stderr_task is not None and not self._stderr_task.done():
+            self._stderr_task.cancel()
+            try:
+                await self._stderr_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        self._stderr_task = None
 
         # 2. Cancela el heartbeat_task. El loop ya tiene
         # ``except asyncio.CancelledError: return`` que cierra limpio.
