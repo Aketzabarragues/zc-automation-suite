@@ -42,34 +42,8 @@ from core.infrastructure.gateway import TIAProcessGateway
 from interfaces.web_server.app import create_app
 
 
-# ── Fixtures ─────────────────────────────────────────────────────────
-
-
-@pytest.fixture
-def mock_gateway() -> MagicMock:
-    """Gateway ``MagicMock(spec=TIAProcessGateway)`` con defaults neutros.
-
-    Los tests especificos sobreescriben lo que necesiten. Los metodos
-    que el router invoca (``get_project_info``, ``get_plcs``,
-    ``reconnect``, ``disconnect``) se anaden caso por caso.
-    """
-    g = MagicMock(spec=TIAProcessGateway)
-    # Defaults sensatos: estado inicial ``disconnected`` y atributos
-    # del worker persistente presentes. Asi el router nunca ve
-    # ``AttributeError`` al hacer ``getattr``.
-    g._connection_state = "disconnected"
-    g._project_path = None
-    g._last_ping_ok = None
-    g._last_error = None
-    return g
-
-
-@pytest.fixture
-def client(mock_gateway: MagicMock) -> TestClient:
-    """TestClient con la app FastAPI montada y el gateway mockeado."""
-    app = create_app(gateway=mock_gateway)
-    app.state.progress_tracker = ProgressTracker()
-    return TestClient(app)
+# Las fixtures ``mock_gateway`` y ``client`` viven en
+# ``tests/conftest.py`` (compartidas con ``test_worker_status.py``).
 
 
 # ── Test 1: GET /connection con state=connected → shape completo ────
@@ -88,6 +62,7 @@ def test_get_connection_connected_devuelve_shape_completo(
     mock_gateway._project_path = r"C:\ws\proj\proj.ap17"
     mock_gateway._last_ping_ok = 1234.5
     mock_gateway._last_error = None
+    mock_gateway.is_worker_alive = MagicMock(return_value=True)
     mock_gateway.get_project_info = AsyncMock(
         return_value={
             "name": "MiProyecto",
@@ -109,6 +84,7 @@ def test_get_connection_connected_devuelve_shape_completo(
         "last_ping_ok_unix",
         "last_error",
         "project_changed",
+        "worker_alive",
     }
     assert body["state"] == "connected"
     assert body["project"] == {
@@ -119,6 +95,7 @@ def test_get_connection_connected_devuelve_shape_completo(
     assert body["plcs"] == ["PLC1", "PLC2"]
     assert body["last_ping_ok_unix"] == 1234.5
     assert body["last_error"] is None
+    assert body["worker_alive"] is True
 
     # El router consulta project_info y plcs porque el state es "connected"
     mock_gateway.get_project_info.assert_awaited_once()

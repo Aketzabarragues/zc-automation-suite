@@ -529,6 +529,29 @@ class TIAProcessGateway:
         """
         return ["--worker-persistent"]
 
+    def is_worker_alive(self) -> bool:
+        """True si el subproceso del worker persistente esta vivo.
+
+        Estado "vivo" = el subproceso fue lanzado (``_worker_proc is
+        not None``) y aun no ha terminado (``returncode is None``).
+
+        Distinto de ``_connection_state`` (que refleja el attach a
+        TIA Portal): el worker puede estar VIVO pero DESCONECTADO
+        de TIA (e.g. 3 fallos del heartbeat). El ``WorkerStatusIndicator``
+        del topbar usa este flag para que el operario vea de un
+        vistazo si el subproceso del worker esta en marcha, sin
+        confundirlo con el attach a TIA.
+
+        Para gateways en modo 1-shot (MCP, tests legacy), retorna
+        ``False`` siempre: no hay worker persistente.
+        """
+        if not getattr(self, "_persistent", False):
+            return False
+        proc = getattr(self, "_worker_proc", None)
+        if proc is None:
+            return False
+        return proc.returncode is None
+
     async def _start_persistent_worker(self) -> None:
         """Lanza el subproceso worker OT en modo persistente (lazy start).
 

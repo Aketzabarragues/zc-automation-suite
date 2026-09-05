@@ -77,6 +77,16 @@ async def get_tia_connection(
     project_changed = bool(
         getattr(gateway, "consume_project_changed", lambda: False)()
     )
+    # ``worker_alive`` (post-PR 6, sept-2026) indica si el subproceso
+    # del worker persistente esta vivo, INDEPENDIENTEMENTE de si el
+    # attach a TIA Portal tuvo exito. Ortogonal a ``state`` (que
+    # refleja el attach). El ``WorkerStatusIndicator`` del topbar
+    # lo lee reactivamente. ``getattr`` defensivo: si la app corre
+    # con un build anterior, retorna ``False`` y el indicador se
+    # queda gris (estado "no podemos saber" — aceptable).
+    worker_alive = bool(
+        getattr(gateway, "is_worker_alive", lambda: False)()
+    )
 
     # Solo si estamos "connected" intentamos enriquecer con proyecto
     # y PLCs. En otros estados la cache del gateway puede estar stale
@@ -109,6 +119,7 @@ async def get_tia_connection(
         "last_ping_ok_unix": last_ping_ok,
         "last_error": last_error,
         "project_changed": project_changed,
+        "worker_alive": worker_alive,
     }
 
 

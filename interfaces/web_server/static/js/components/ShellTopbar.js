@@ -51,6 +51,7 @@ import { computed } from "/js/vendor/vue.esm-browser.prod.js";
 import { store, pushLog, loadAndApplyPlcBlocks, resetPlcState, connectTia } from "/js/store.js";
 import { apiFetchPlcs, apiFetchProjectInfo } from "/js/api.js";
 import TiaConnectionIndicator from "./TiaConnectionIndicator.js";
+import WorkerStatusIndicator from "./WorkerStatusIndicator.js";
 
 /**
  * Mapping de ``store.currentView`` → etiqueta humano-legible para
@@ -72,6 +73,7 @@ export default {
     name: "ShellTopbar",
     components: {
         TiaConnectionIndicator,
+        WorkerStatusIndicator,
     },
     props: {
         /** ``{ key, label, icon }`` del área activa. Requerido
@@ -234,6 +236,7 @@ export default {
                  el estado es disconnected/error; en otros
                  estados el click es no-op. -->
             <div class="flex items-center gap-2">
+                <WorkerStatusIndicator />
                 <TiaConnectionIndicator @connect="handleConnect" />
                 <label class="text-[10px] font-bold text-ink-muted uppercase tracking-widest">PLC:</label>
                 <p v-if="store.projectInfo && store.projectInfo.name"

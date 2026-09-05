@@ -275,6 +275,13 @@ export const store = reactive({
         plcs: [],
         last_ping_ok_unix: null,
         last_error: null,
+        // ``worker_alive`` (sept-2026): ``true`` si el subproceso
+        // del worker persistente esta vivo, INDEPENDIENTEMENTE
+        // del estado de attach a TIA (``state``). Ortogonal:
+        // el worker puede estar vivo pero desconectado (3
+        // fallos del heartbeat) o vivo y conectado. El
+        // ``WorkerStatusIndicator`` del topbar lee este flag.
+        worker_alive: false,
     },
 
     /**
