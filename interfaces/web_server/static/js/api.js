@@ -23,6 +23,17 @@ async function _request(method, url, body) {
         opts.headers["Content-Type"] = "application/json";
         opts.body = JSON.stringify(body);
     }
+    // Timeout defensivo (sept-2026): sin esto, si el servidor cuelga
+    // (worker persistente bloqueado, deadlock del lock, etc.) el
+    // navegador espera indefinidamente y el boton se queda pillado
+    // con ``store.busy = true`` para siempre. 30s es conservador:
+    // el heartbeat del worker es 5s y el ping inicial puede tardar
+    // 15s; 30s cubre holgadamente sin disparar el watchdog del
+    // operario por nada.
+    const timeoutMs = 30000;
+    const timeoutController = new AbortController();
+    const timer = setTimeout(() => timeoutController.abort(), timeoutMs);
+    opts.signal = timeoutController.signal;
     try {
         const resp = await fetch(url, opts);
         const data = await resp.json().catch(() => ({}));
@@ -38,7 +49,21 @@ async function _request(method, url, body) {
         const errorType = resp.headers.get("X-Error-Type") || null;
         return { ok: resp.ok, status: resp.status, data, errorType };
     } catch (e) {
-        return { ok: false, status: 0, data: { detail: String(e) }, errorType: null };
+        // Distinguimos timeout de otros errores para que el caller
+        // pueda mostrar un mensaje accionable.
+        const isTimeout = e && e.name === "AbortError";
+        return {
+            ok: false,
+            status: 0,
+            data: {
+                detail: String(e),
+                timeout: isTimeout,
+                timeoutMs: isTimeout ? timeoutMs : null,
+            },
+            errorType: null,
+        };
+    } finally {
+        clearTimeout(timer);
     }
 }
 
