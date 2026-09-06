@@ -145,13 +145,23 @@ class TestHeartbeatConnectedState:
         ``{"ok": True, "pid": 123}`` consistentemente. Tras 3 ticks
         verificamos que el contador de fallos esta a 0 y el estado es
         ``"connected"``.
+
+        Cambio sept-2026 round 3 (fix de auditoría profunda del
+        worker): el estado inicial es ``"connected"``, NO
+        ``"idle"``. Antes el heartbeat transicionaba
+        automáticamente ``idle → connected`` en el primer ping
+        exitoso, lo que era una fuga del modelo antiguo donde
+        el primer ping después del startup servía como
+        ready-check. En el state machine refactorizado, esa
+        transición es EXPLÍCITA vía ``connect()`` (que ya hace
+        el attach real). El heartbeat solo mantiene el estado
+        existente; no lo "promociona" de ``idle`` a ``connected``
+        implícitamente. Ver ``test_ping_no_sobrescribe_idle_con_connected``
+        para el guard de la transición optimista de ``disconnect()``.
         """
         gateway = TIAProcessGateway(persistent=True)
         gateway._worker_proc = _build_alive_proc()
-        # Forzamos el estado inicial a "idle" para verificar
-        # que el heartbeat lo transiciona a "connected" tras el primer
-        # tick exitoso.
-        gateway._connection_state = "idle"
+        gateway._connection_state = "connected"
 
         pings = await _run_heartbeat_for_n_pings(
             gateway, n=3, ping_response={"ok": True, "pid": 123}
@@ -164,6 +174,42 @@ class TestHeartbeatConnectedState:
         assert gateway._last_error is None
         assert gateway._last_ping_ok is not None
         assert isinstance(gateway._last_ping_ok, float)
+
+    @pytest.mark.asyncio
+    async def test_ping_no_sobrescribe_idle_con_connected(self) -> None:
+        """Sept-2026 round 3 (fix de auditoría): si el gateway se
+        marcó a ``"idle"`` optimistamente (típicamente por
+        ``disconnect()`` durante un ping en vuelo), el heartbeat NO
+        debe sobrescribir ese ``"idle"`` con ``"connected"`` cuando
+        el ping llega ok.
+
+        Sin este guard, el operario vería ``state="connected"`` en
+        el frontend después de un disconnect que se quedó bloqueado
+        detrás de un ping, anulando la transición optimista de
+        ``disconnect()``.
+        """
+        gateway = TIAProcessGateway(persistent=True)
+        gateway._worker_proc = _build_alive_proc()
+        # ``disconnect()`` optimista ya marcó "idle" (mientras el
+        # lock estaba retentenido por el ping en vuelo).
+        gateway._connection_state = "idle"
+
+        pings = await _run_heartbeat_for_n_pings(
+            gateway, n=3, ping_response={"ok": True, "pid": 123}
+        )
+
+        # El heartbeat corrió 3 ticks, pero NO debe sobrescribir
+        # "idle" con "connected" (la transición idle → connected
+        # ahora es EXPLICITA vía connect()).
+        assert pings >= 3, f"se esperaban >=3 pings, got {pings}"
+        assert gateway._connection_state == "idle", (
+            f"el heartbeat debe respetar la transicion optimista a "
+            f"'idle'; got {gateway._connection_state!r}"
+        )
+        # Aunque el state sigue "idle", el ping sí actualizó
+        # _last_ping_ok (el worker ESTA vivo).
+        assert gateway._last_ping_ok is not None
+        assert gateway._last_error is None
 
 
 # ────────────────────────────────────────────────────────────────────────

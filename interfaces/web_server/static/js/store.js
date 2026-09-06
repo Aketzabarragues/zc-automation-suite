@@ -926,21 +926,38 @@ export async function connectTia() {
  * independiente del path de error del snapshot.
  */
 export async function disconnectTia() {
-    const { apiDisconnectTia } = await import("./api.js");
-    const r = await apiDisconnectTia();
-    _applyTiaSnapshot(r);
-    // Limpieza post-detach de los slots del PLC. Se ejecuta
-    // tambien en error path: si la respuesta no es OK, dejamos
-    // los slots como estaban (preferible un "stale" visible a
-    // un "vacio" confuso si el detach fallo). Por eso el guard
-    // ``r && r.ok``.
-    if (r && r.ok) {
-        store.plcs = [];
-        store.selectedPlc = "";
-        store.plcBlocksCache = null;
-        store.projectInfo = null;
+    // Guard de idempotencia (sept-2026 round 3, fix de auditoría):
+    // ``store.busy`` ya se setea en ``handleRefreshPlcs`` y otros
+    // handlers del topbar. Sin este guard, un doble-click rápido
+    // en "Desconectar" mandaba 2 POSTs en paralelo, y el segundo
+    // se quedaba en cola detrás del primero en el ``_worker_lock``
+    // del backend, viendo ``state="connected"`` durante segundos.
+    // El botón del topbar usa ``:disabled="store.busy"`` para
+    // bloquear visualmente, pero un programático / teclado rápido
+    // puede saltarse el disabled. Aquí blindamos la lógica.
+    if (store.busy) {
+        return { ok: false, busy: true, state: store.tiaConnection?.state };
     }
-    return r;
+    store.busy = true;
+    try {
+        const { apiDisconnectTia } = await import("./api.js");
+        const r = await apiDisconnectTia();
+        _applyTiaSnapshot(r);
+        // Limpieza post-detach de los slots del PLC. Se ejecuta
+        // tambien en error path: si la respuesta no es OK, dejamos
+        // los slots como estaban (preferible un "stale" visible a
+        // un "vacio" confuso si el detach fallo). Por eso el guard
+        // ``r && r.ok``.
+        if (r && r.ok) {
+            store.plcs = [];
+            store.selectedPlc = "";
+            store.plcBlocksCache = null;
+            store.projectInfo = null;
+        }
+        return r;
+    } finally {
+        store.busy = false;
+    }
 }
 
 /**

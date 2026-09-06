@@ -274,3 +274,83 @@ async def test_reconnect_es_disconnect_mas_connect() -> None:
     assert gateway._project_path is None
     # Heartbeat reiniciado.
     assert gateway._heartbeat_task is not None
+
+
+@pytest.mark.asyncio
+async def test_disconnect_bajo_lock_contention_actualiza_estado_optimistamente() -> None:
+    """Sept-2026 round 3 (fix de auditoría profunda del worker).
+
+    Caso real (logs/zc_tray.log 12:11:41/12:11:44): el
+    ``_worker_lock`` se retentiene por un comando en vuelo
+    (``get_plcs``/``get_project_info`` con
+    ``ZC_GATEWAY_TIMEOUT=300s``, o un ``compile_plc`` largo).
+    ``disconnect()`` se queda bloqueado en el
+    ``async with self._worker_lock`` durante segundos. Mientras
+    tanto, el frontend ve ``state="connected"`` y el operario
+    pulsa "Desconectar" de nuevo, generando un segundo disconnect
+    que también ve ``state="connected"``.
+
+    El fix: la transición a ``"idle"`` ocurre ANTES del lock
+    (transición optimista), de forma que el siguiente
+    ``GET /tia/connection`` la vea inmediatamente. El cleanup
+    (heartbeat cancel, detach_portal, cache clear) sigue dentro
+    del lock, pero el operario ya tiene feedback correcto.
+
+    Este test simula el escenario: un holder retiene el lock
+    durante 0.5s mientras se llama a ``disconnect()``. Verifica
+    que el state pasa a ``"idle"`` INMEDIATAMENTE (antes de
+    que el lock se libere).
+    """
+    gateway = TIAProcessGateway(persistent=True)
+    gateway._connection_state = "connected"
+    gateway._worker_proc = _build_alive_proc()
+    reader = MagicMock(name="Reader")
+    reader.done.return_value = False
+    gateway._reader_task = reader
+    # _send_to_persistent_worker con respuesta que tarda 0.5s
+    # (simula un detach lento por red/IO).
+    async def slow_detach(command, args, timeout_override):  # noqa: ARG001
+        await asyncio.sleep(0.5)
+        if command == "detach_portal":
+            return {"detached": True}
+        return {}
+    gateway._send_to_persistent_worker = slow_detach
+    # Heartbeat task "vivo" para que disconnect() intente cancelarlo.
+    async def heartbeat_forever():
+        try:
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            return
+    gateway._heartbeat_task = asyncio.create_task(heartbeat_forever())
+
+    # 1. Adquirimos el lock manualmente (simula un comando en vuelo
+    #    que retiene el lock durante 0.3s).
+    await gateway._worker_lock.acquire()
+    try:
+        # 2. Llamamos a disconnect() en una task. No debe completar
+        #    inmediatamente porque el lock está retentenido.
+        disconnect_task = asyncio.create_task(gateway.disconnect())
+        # 3. Damos tiempo a que la corrutina schedule y ejecute la
+        #    transición optimista (que es síncrona, antes del lock).
+        await asyncio.sleep(0.05)
+        # 4. Verificamos: aunque el lock está retentenido, el estado
+        #    YA pasó a "idle" (transición optimista). Esto es lo que
+        #    el operario ve en el polling de /tia/connection.
+        assert gateway._connection_state == "idle", (
+            f"estado deberia ser 'idle' (transicion optimista); "
+            f"got {gateway._connection_state!r}. Bug del audit "
+            f"2026-09-06 (logs/zc_tray.log 12:11:41) NO esta fixeado."
+        )
+        assert gateway._last_portal_pid is None
+        assert gateway._project_path is None
+    finally:
+        # 5. Liberamos el lock; el disconnect puede completar.
+        gateway._worker_lock.release()
+    # 6. Esperamos al disconnect completo.
+    await asyncio.wait_for(disconnect_task, timeout=2.0)
+    # 7. El estado sigue siendo "idle" (no se revertió).
+    assert gateway._connection_state == "idle"
+    # 8. El cache se limpió (cleanup dentro del lock).
+    assert gateway._cache == {}
+    # 9. El heartbeat task fue cancelado.
+    assert gateway._heartbeat_task is None or gateway._heartbeat_task.done()

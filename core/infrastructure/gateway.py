@@ -831,9 +831,10 @@ class TIAProcessGateway:
           - 0 fallos consecutivos: ``"connected"`` (sano).
           - 1-2 fallos consecutivos: ``"connecting"`` (transitorio, el
             proximo tick reintentara).
-          - 3 fallos consecutivos: ``"disconnected"`` (el worker esta
-            muerto o TIA Portal cayo; se necesitara reconexion manual
-            del operario en PR 6).
+          - 3 fallos consecutivos: ``"idle"`` (sept-2026 round 3; el
+            ``"disconnected"`` anterior se eliminó del state machine
+            en el refactor y la rama residual del catch genérico se
+            unificó a ``"idle"`` por consistencia).
 
         Robustez:
 
@@ -913,7 +914,16 @@ class TIAProcessGateway:
                             timeout=10.0,
                         )
                     if result and isinstance(result, dict) and result.get("ok"):
-                        self._connection_state = "connected"
+                        # Guard (sept-2026 round 3, fix de auditoría):
+                        # si el gateway se marcó a ``"idle"`` o
+                        # ``"error"`` optimistamente (e.g. desde
+                        # ``disconnect()`` mientras el ping estaba en
+                        # vuelo), NO pisar a ``"connected"``. Esto
+                        # evita que un ping lento sobrescriba una
+                        # transición de estado intencional del
+                        # operario.
+                        if self._connection_state not in ("idle", "error"):
+                            self._connection_state = "connected"
                         self._last_ping_ok = time.monotonic()
                         self._last_error = None
                         consecutive_failures = 0
@@ -926,13 +936,15 @@ class TIAProcessGateway:
                             if isinstance(result, dict)
                             else f"Ping retorno payload inesperado: {result!r}"
                         ) or "Ping retorno sin ok"
-                        self._connection_state = (
-                            # 3 fallos consecutivos: "idle" (sept-2026).
-                            # El operario puede reintentar connect().
-                            "idle"
-                            if consecutive_failures >= 3
-                            else "connecting"
-                        )
+                        # Idem: respetar transiciones optimistas.
+                        if self._connection_state not in ("idle", "error"):
+                            self._connection_state = (
+                                # 3 fallos consecutivos: "idle" (sept-2026).
+                                # El operario puede reintentar connect().
+                                "idle"
+                                if consecutive_failures >= 3
+                                else "connecting"
+                            )
                 except asyncio.CancelledError:
                     # Cancelacion externa (gateway apagandose): salimos
                     # sin propagar la excepcion (es un cierre limpio).
@@ -941,16 +953,25 @@ class TIAProcessGateway:
                     # Cualquier fallo (TimeoutError, RuntimeError,
                     # TIAConnectionError, EOF en stdin, ...) cuenta
                     # como un fallo. NO propagamos: la idea es que el
-                    # heartbeat NUNCA muera por si solo; si hay
-                    # problemas, los acumula y eventualmente marca
-                    # ``"disconnected"``.
+                    # heartbeat NUNCA muera por si solo.
+                    #
+                    # Cambio sept-2026 round 3 (fix de auditoría):
+                    # el estado ``"disconnected"`` ya no existe en el
+                    # state machine (se eliminó en el refactor). 3
+                    # excepciones consecutivas transicionan a
+                    # ``"idle"`` directamente, consistente con el
+                    # path de ok=False y con el resto del state
+                    # machine. Antes este path producía
+                    # ``"disconnected"`` que el frontend no sabe
+                    # manejar.
                     consecutive_failures += 1
                     self._last_error = f"{type(exc).__name__}: {exc}"
-                    self._connection_state = (
-                        "disconnected"
-                        if consecutive_failures >= 3
-                        else "connecting"
-                    )
+                    if self._connection_state not in ("idle", "error"):
+                        self._connection_state = (
+                            "idle"
+                            if consecutive_failures >= 3
+                            else "connecting"
+                        )
         except asyncio.CancelledError:
             # Doble catch: por si la cancelacion llega entre el
             # ``asyncio.sleep`` y el cuerpo del loop.
@@ -1504,22 +1525,63 @@ class TIAProcessGateway:
             self.is_worker_alive(),
         )
 
-        async with self._worker_lock:
-            # Marcamos "idle" (sept-2026) PRIMERO para que el
-            # ``GET /tia/connection`` siguiente lo vea, incluso si
-            # el detach tarda un poco. Limpiar ``_last_error``
-            # evita que el operario vea un error stale de un fallo
-            # anterior. (El antiguo "disconnected" ya no existe en
-            # el state machine refactorizado.)
-            self._connection_state = "idle"
-            self._last_error = None
-            _log.info("gateway.disconnect: state=idle (subproceso sigue vivo)")
+        # Transición OPTIMISTA a ``"idle"`` ANTES del lock (sept-2026
+        # round 3, fix de auditoría profunda del worker).
+        #
+        # Caso real (audit, 12:11:41/12:11:44 en logs/zc_tray.log):
+        # el ``_worker_lock`` podía ser retentenido por un comando
+        # en vuelo (``get_plcs``/``get_project_info`` con
+        # ``ZC_GATEWAY_TIMEOUT=300s``, o un ``compile_plc`` largo).
+        # El ``disconnect()`` se quedaba bloqueado en el
+        # ``async with self._worker_lock`` durante segundos o minutos.
+        # Mientras tanto, el frontend veía ``state="connected"``
+        # aunque el disconnect estuviera en cola, y el operario
+        # pulsaba "Desconectar" de nuevo (doble disconnect, ambos
+        # viendo ``state="connected"``).
+        #
+        # Ahora: la transición a ``"idle"`` se hace ANTES del lock,
+        # de forma que el siguiente ``GET /tia/connection`` la vea
+        # inmediatamente, aunque el cleanup tarde. El heartbeat tiene
+        # un guard (línea 916) para no pisar ``"idle"`` con
+        # ``"connected"`` durante esta ventana.
+        #
+        # Riesgo: si el ``detach_portal`` falla (worker ya muerto,
+        # reader muerto, etc.), el estado queda en ``"idle"`` pero el
+        # portal puede seguir attached en el worker. Esto es
+        # aceptable porque: (a) el cleanup ya era best-effort
+        # (línea 1556-1566 absorbe excepciones), (b) el operario
+        # puede reintentar y el heartbeat lo detectaría.
+        self._connection_state = "idle"
+        self._last_error = None
+        # Reset del path: el siguiente connect puede abrir un
+        # proyecto distinto. Se hace aquí (fuera del lock) para
+        # que el frontend lo vea inmediatamente, no cuando el
+        # cleanup termine.
+        self._project_path = None
+        self._project_changed = False
+        # El PID del portal deja de ser válido. (El detach puede
+        # aún no haberse enviado, pero la transición optimista ya
+        # tiene sentido: el portal YA no es accesible para el
+        # gateway desde este momento.)
+        self._last_portal_pid = None
+        _log.info(
+            "gateway.disconnect: state=idle (transicion optimista, "
+            "cleanup en background)"
+        )
 
+        async with self._worker_lock:
             # Cancela el heartbeat task si esta corriendo. El loop
             # ya tiene ``except asyncio.CancelledError: return`` que
             # cierra limpio. NO tocamos ``_heartbeat_task`` aqui:
             # eso lo hara el lock cleanup abajo o un futuro
             # ``connect()`` (chequea ``done()`` antes de re-lanzar).
+            #
+            # IMPORTANTE: si la cancelación tarda (heartbeat
+            # esperando al lock con un ping en vuelo, hasta 10s),
+            # el estado YA está en ``"idle"`` (transición
+            # optimista de arriba), así que el frontend ve feedback
+            # inmediato. El guard del heartbeat (línea 916) evita
+            # que un ping tardío pise el ``"idle"``.
             if (
                 self._heartbeat_task is not None
                 and not self._heartbeat_task.done()
@@ -1527,8 +1589,19 @@ class TIAProcessGateway:
                 self._heartbeat_task.cancel()
                 try:
                     await self._heartbeat_task
-                except (asyncio.CancelledError, Exception):
+                except asyncio.CancelledError:
                     pass
+                except Exception as exc:
+                    # Logueamos el warning: una excepción no
+                    # esperada en el cancel puede indicar un bug
+                    # del heartbeat (antes se absorbía
+                    # silenciosamente, perdiendo diagnóstico).
+                    _log.warning(
+                        "gateway.disconnect: heartbeat task no se "
+                        "cancelo limpiamente: %s: %s",
+                        type(exc).__name__,
+                        exc,
+                    )
             self._heartbeat_task = None
 
             # Envia detach_portal al worker. Usa el bypass de
@@ -1537,10 +1610,10 @@ class TIAProcessGateway:
             # aqui, asi que la llamada es directa.
             #
             # Si el worker no esta vivo o el reader murio, NO
-            # podemos enviar. Es best-effort: marcamos idle y
-            # limpiamos caches de todos modos. El operario vera
-            # un disconnect "limpio" aunque por dentro no hayamos
-            # llegado al worker.
+            # podemos enviar. Es best-effort: el estado ya está
+            # en ``"idle"`` (transición optimista), así que el
+            # frontend muestra feedback correcto. Aquí solo
+            # intentamos hacer el detach limpio por el portal.
             try:
                 if (
                     self._worker_proc is not None
@@ -1557,11 +1630,11 @@ class TIAProcessGateway:
                 # No propagamos: disconnect() es la operacion
                 # inversa de connect() y debe ser robusto a fallos
                 # del worker. El estado del gateway refleja "idle"
-                # de todos modos.
-                _logger = logging.getLogger(__name__)
-                _logger.warning(
-                    "disconnect(): detach_portal fallo (%s); "
-                    "marcando idle igualmente.",
+                # de todos modos (transición optimista de arriba).
+                _log.warning(
+                    "disconnect(): detach_portal fallo (%s: %s); "
+                    "el estado ya esta en idle, cleanup best-effort.",
+                    type(exc).__name__,
                     exc,
                 )
 
@@ -1573,18 +1646,6 @@ class TIAProcessGateway:
                 self._clear_bloques_cache()
             except Exception:
                 pass
-            # Reset del path: el siguiente connect puede abrir un
-            # proyecto distinto.
-            self._project_path = None
-            self._project_changed = False
-            # El PID del portal deja de ser valido: el portal se
-            # libero en el detach_portal (o no estamos attached si
-            # el worker no respondio). El router dejara de exponerlo.
-            self._last_portal_pid = None
-
-            # Estado final: idle. El worker sigue vivo (si lo
-            # estaba); solo el portal attached se libero.
-            self._connection_state = "idle"
 
     async def reconnect(self) -> None:
         """Equivalente a ``disconnect()`` seguido de ``connect()``.
@@ -1767,12 +1828,23 @@ class TIAProcessGateway:
         return await self._dispatch_worker("ping", args={})
 
     async def get_plcs(self, force_refresh: bool = False) -> list[str]:
-        """Obtiene los PLCs disponibles utilizando la caché de memoria IT."""
+        """Obtiene los PLCs disponibles utilizando la caché de memoria IT.
+
+        ``timeout_override=10.0`` (sept-2026 round 3, fix de
+        auditoría): el polling del frontend hace ``GET /tia/connection``
+        cada 2s, y este método se invoca desde el router para
+        enriquecer la respuesta. Sin el override, el default es
+        ``ZC_GATEWAY_TIMEOUT=300s``, lo que permitía que un comando
+        lento retentuviera el ``_worker_lock`` durante minutos y
+        bloqueara el ``disconnect()`` (causa raíz del bug del doble
+        disconnect en producción, audit 2026-09-06). 10s es más que
+        suficiente para un ``list_plcs`` en condiciones normales.
+        """
         cache_key = "plcs"
         if not force_refresh and cache_key in self._cache:
             return self._cache[cache_key]
 
-        plcs = await self._dispatch_worker("list_plcs")
+        plcs = await self._dispatch_worker("list_plcs", timeout_override=10.0)
         self._cache[cache_key] = plcs
         return plcs
 
@@ -1784,6 +1856,12 @@ class TIAProcessGateway:
         invalida junto con el resto en ``clear_cache()`` (que ya limpia
         ``self._cache`` entero y se invoca en ``open_project`` /
         ``close_project``).
+
+        ``timeout_override=10.0`` (sept-2026 round 3, fix de
+        auditoría): ver ``get_plcs()``. Sin este override, un
+        ``get_project_info`` lento podía retentener el
+        ``_worker_lock`` durante minutos y bloquear el
+        ``disconnect()``.
 
         Args:
             force_refresh: Si es ``True``, ignora la caché y relee de TIA.
@@ -1798,7 +1876,7 @@ class TIAProcessGateway:
         if not force_refresh and cache_key in self._cache:
             return self._cache[cache_key]
 
-        info = await self._dispatch_worker("get_project_info")
+        info = await self._dispatch_worker("get_project_info", timeout_override=10.0)
         self._cache[cache_key] = info
         return info
 

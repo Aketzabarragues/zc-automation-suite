@@ -535,11 +535,19 @@ def test_disconnect_tia_delegates_to_apply_tia_snapshot() -> None:
     ``_applyTiaSnapshot(r)``. Es el unico helper que lo hace sin
     guard de estado previo (el de connect guarda el ``prevState``
     para el path de error; el de disconnect no lo necesita porque
-    el helper hace su propia deteccion de transicion)."""
+    el helper hace su propia deteccion de transicion).
+
+    Sept-2026 round 3 (fix de auditoría): la ventana de búsqueda
+    se amplio a 1500 chars (antes 500) porque la función ganó un
+    ``store.busy`` guard al inicio (idempotencia anti doble-click),
+    que mueve la delegación a ``_applyTiaSnapshot`` más allá de los
+    500 chars. La ventana de 1500 sigue cubriendo la rama de éxito
+    completa.
+    """
     text = _read(STORE_JS)
     start = text.find("export async function disconnectTia")
     assert start != -1
-    body = text[start:start + 500]
+    body = text[start:start + 1500]
     assert "_applyTiaSnapshot" in body, (
         "disconnectTia debe delegar en _applyTiaSnapshot. Aunque "
         "el backend en este endpoint no expone worker_alive ni "
