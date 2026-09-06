@@ -975,3 +975,308 @@ class TestHandleAttachReturnsNone:
         assert "attach_portal retorno None" in attach_response["error"]
         assert "TIA Portal" in attach_response["error"]
         assert "Openness" in attach_response["error"]
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Tests del fix A2 (audit de robustez, sept-2026).
+#
+# Cubre el helper ``_drain_pending_responses`` del gateway y la
+# rama ``finally`` del reader ``_read_worker_stdout_forever`` que
+# ahora resuelve los futures en vuelo con ``RuntimeError`` cuando
+# el reader sale por EOF o stream roto.
+#
+# Caso de uso real: el operario envia un comando lento, el worker
+# muere a mitad de la operacion (EOF en stdout). Antes (pre-A2) el
+# future se quedaba colgado hasta el timeout (180s). Ahora se
+# resuelve inmediatamente y el caller recibe ``RuntimeError``
+# sin pagar el timeout entero.
+# ────────────────────────────────────────────────────────────────────────
+
+
+class TestDrainPendingResponses:
+    """El helper ``_drain_pending_responses`` resuelve futures con ``RuntimeError``."""
+
+    @pytest.mark.asyncio
+    async def test_drain_resuelve_future_pendiente_con_runtimeerror(self) -> None:
+        """Un future registrado en ``_pending_responses`` se resuelve con ``RuntimeError`` al drenar.
+
+        Pre-A2 el reader NO llamaba al drain; el future quedaba
+        colgado hasta que el ``asyncio.wait_for`` del caller
+        disparaba ``asyncio.TimeoutError`` despues de 180s.
+        Post-A2 el reader invoca ``_drain_pending_responses`` en
+        su ``finally``, y el caller recibe ``RuntimeError`` al
+        instante.
+        """
+        gateway = TIAProcessGateway(persistent=True)
+
+        # Registramos un future pendiente (id=42) simulando un
+        # comando en vuelo que aun no recibio respuesta.
+        loop = asyncio.get_event_loop()
+        fut = loop.create_future()
+        gateway._pending_responses[42] = fut
+
+        # El future esta pendiente y el dict tiene la entrada.
+        assert not fut.done()
+        assert 42 in gateway._pending_responses
+
+        # El drain resuelve con RuntimeError.
+        gateway._drain_pending_responses("Worker desconectado durante lectura")
+
+        # El future ahora tiene la excepcion (no un resultado).
+        assert fut.done()
+        with pytest.raises(RuntimeError, match="Worker desconectado durante lectura"):
+            fut.result()
+        # El dict se vacio.
+        assert 42 not in gateway._pending_responses
+        assert gateway._pending_responses == {}
+
+    @pytest.mark.asyncio
+    async def test_drain_idempotente_con_dict_vacio(self) -> None:
+        """Drenar con dict vacio es no-op (no falla)."""
+        gateway = TIAProcessGateway(persistent=True)
+        assert gateway._pending_responses == {}
+        # No debe lanzar.
+        gateway._drain_pending_responses("cualquier motivo")
+        assert gateway._pending_responses == {}
+
+    @pytest.mark.asyncio
+    async def test_drain_no_pisa_future_ya_resuelto(self) -> None:
+        """Si un future ya esta done (lector lo resolvio antes de salir), NO se sobreescribe."""
+        gateway = TIAProcessGateway(persistent=True)
+        loop = asyncio.get_event_loop()
+        fut = loop.create_future()
+        fut.set_result({"id": 99, "ok": True, "result": "ya_resuelto"})
+        gateway._pending_responses[99] = fut
+
+        gateway._drain_pending_responses("motivo X")
+
+        # El resultado previo (NO la excepcion) se preserva.
+        assert fut.result() == {"id": 99, "ok": True, "result": "ya_resuelto"}
+
+
+class TestReaderResolvesPendingOnEof:
+    """El reader task resuelve los futures en vuelo cuando sale por EOF (fix A2)."""
+
+    @pytest.mark.asyncio
+    async def test_eof_en_stdout_resuelve_futures_pendientes(self) -> None:
+        """Si el reader sale por EOF, los futures en ``_pending_responses`` se resuelven con ``RuntimeError``.
+
+        Caso end-to-end del fix A2. Mockeamos el stdout para que
+        devuelva EOF inmediato, registramos un future pendiente
+        en el gateway, y verificamos que tras correr el reader
+        el future se resuelve con ``RuntimeError`` y el dict se
+        vacia.
+
+        Antes (pre-A2) el future quedaba ``pending`` y el
+        ``asyncio.wait_for`` del caller tenia que esperar al
+        timeout entero. Ahora (sept-2026) se resuelve al
+        instante gracias al ``finally`` del reader que invoca
+        ``_drain_pending_responses``.
+        """
+        gateway = TIAProcessGateway(persistent=True)
+
+        # Stream que devuelve EOF permanente (b'' en el primer readline).
+        class _EofStream:
+            async def readline(self) -> bytes:
+                return b""
+
+        fake_proc = MagicMock(name="FakeSubprocess")
+        fake_proc.stdout = _EofStream()
+        fake_proc.returncode = None
+        gateway._worker_proc = fake_proc
+
+        # Registramos un future pendiente (simula un comando en vuelo).
+        loop = asyncio.get_event_loop()
+        fut = loop.create_future()
+        gateway._pending_responses[99] = fut
+        assert not fut.done()
+
+        # Corremos el reader. Como el stream es EOF inmediato,
+        # sale del loop, ejecuta el ``finally`` y drena.
+        await asyncio.wait_for(
+            gateway._read_worker_stdout_forever(),
+            timeout=1.0,
+        )
+
+        # Verificaciones post-EOF:
+        # 1. El future se resolvio con RuntimeError (no pending).
+        assert fut.done()
+        with pytest.raises(RuntimeError, match="Worker desconectado durante lectura"):
+            fut.result()
+        # 2. El dict se vacio.
+        assert 99 not in gateway._pending_responses
+        assert gateway._pending_responses == {}
+
+    @pytest.mark.asyncio
+    async def test_eof_con_multiples_futures_pendientes(self) -> None:
+        """Multiples futures en vuelo al EOF → todos se resuelven con RuntimeError."""
+        gateway = TIAProcessGateway(persistent=True)
+
+        class _EofStream:
+            async def readline(self) -> bytes:
+                return b""
+
+        fake_proc = MagicMock(name="FakeSubprocess")
+        fake_proc.stdout = _EofStream()
+        fake_proc.returncode = None
+        gateway._worker_proc = fake_proc
+
+        loop = asyncio.get_event_loop()
+        futs = {i: loop.create_future() for i in (1, 2, 3)}
+        for k, v in futs.items():
+            gateway._pending_responses[k] = v
+
+        await asyncio.wait_for(
+            gateway._read_worker_stdout_forever(),
+            timeout=1.0,
+        )
+
+        # Todos los futures tienen la misma excepcion (mismo motivo).
+        for k, fut in futs.items():
+            assert fut.done()
+            with pytest.raises(RuntimeError, match="Worker desconectado durante lectura"):
+                fut.result()
+        assert gateway._pending_responses == {}
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Tests del fix A7 (audit de robustez, sept-2026).
+#
+# Cubre el cambio en ``_handle_detach`` del worker: cuando
+# ``portal.detach()`` lanza (RCW stale, TIA ya cerrada, etc.) el
+# handler ahora emite un WARNING con la excepcion (antes era un
+# ``pass`` silencioso que engañaba al operario).
+# ────────────────────────────────────────────────────────────────────────
+
+
+class TestHandleDetachBestEffortLog:
+    """``_handle_detach`` loguea WARNING si ``portal.detach()`` lanza (fix A7)."""
+
+    def test_detach_con_rcw_stale_emite_warning(
+        self, caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Si ``portal.detach()`` lanza, se loguea WARNING con la excepcion.
+
+        Caso real (audit A7, sept-2026): el operario tenia
+        TIA cerrado de forma abrupta, los RCW quedan stale y
+        ``portal.detach()`` lanza ``COMError`` o similar. Antes
+        (pre-A7) el handler absorbia con ``pass`` silencioso y
+        el frontend veia "Desconectado" en verde sin que el
+        operario supiera POR QUE. Ahora (sept-2026) dejamos
+        rastro en los logs: un WARNING con
+        ``"detach_portal best-effort fallo: <Tipo>: <msg>"``.
+
+        El ``return`` sigue siendo ``{"detached": True}`` (el
+        best-effort sigue siendo el contrato) pero el log
+        permite al operario correlacionar el evento con TIA
+        cerrandose o dialogos colgados.
+        """
+        import logging
+        ts = _build_fake_ts()
+        fake_portal = ts.attach_portal.return_value
+        fake_portal.get_process_id.return_value = 12345
+
+        # Forzamos que detach() lance: caso real de RCW stale.
+        fake_portal.detach.side_effect = RuntimeError("RCW stale")
+
+        # attach_portal (id=1) + detach_portal (id=2).
+        payload = (
+            json.dumps(
+                {
+                    "id": 1,
+                    "command": "attach_portal",
+                    "args": {"mode": "WithGraphicalUserInterface"},
+                }
+            )
+            + "\n"
+            + json.dumps({"id": 2, "command": "detach_portal", "args": {}})
+            + "\n"
+        )
+        stdin = io.StringIO(payload)
+        stdout = _CapturingStdout()
+
+        original_stdin, original_stdout = sys.stdin, sys.stdout
+        try:
+            sys.stdin = stdin
+            sys.stdout = stdout
+            with caplog.at_level(
+                logging.WARNING, logger="core.infrastructure.tia.worker_tia"
+            ):
+                with patch.object(worker_tia, "_load_siemens_wrapper", return_value=ts):
+                    worker_tia.main_persistent_loop()
+        finally:
+            sys.stdin = original_stdin
+            sys.stdout = original_stdout
+
+        # 1. La respuesta del detach sigue siendo ``{"detached": true}``
+        # (best-effort contract preservado).
+        lines = stdout.get_lines()
+        detach_response = next(
+            (json.loads(l) for l in lines if json.loads(l).get("id") == 2),
+            None,
+        )
+        assert detach_response is not None
+        assert detach_response["ok"] is True
+        assert detach_response["result"] == {"detached": True}
+
+        # 2. El WARNING con la excepcion se emitio.
+        warnings = [
+            r for r in caplog.records
+            if r.levelno == logging.WARNING
+            and "detach_portal best-effort fallo" in r.getMessage()
+        ]
+        assert len(warnings) == 1, (
+            f"se esperaba 1 WARNING, got {len(warnings)}: "
+            f"{[r.getMessage() for r in caplog.records]}"
+        )
+        msg = warnings[0].getMessage()
+        assert "RuntimeError" in msg
+        assert "RCW stale" in msg
+
+    def test_detach_exitoso_no_emite_warning(
+        self, caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Si ``portal.detach()`` NO lanza, NO se emite WARNING (caso feliz)."""
+        import logging
+        ts = _build_fake_ts()
+        fake_portal = ts.attach_portal.return_value
+        fake_portal.get_process_id.return_value = 12345
+        # detach NO lanza (default MagicMock).
+
+        payload = (
+            json.dumps(
+                {
+                    "id": 1,
+                    "command": "attach_portal",
+                    "args": {"mode": "WithGraphicalUserInterface"},
+                }
+            )
+            + "\n"
+            + json.dumps({"id": 2, "command": "detach_portal", "args": {}})
+            + "\n"
+        )
+        stdin = io.StringIO(payload)
+        stdout = _CapturingStdout()
+
+        original_stdin, original_stdout = sys.stdin, sys.stdout
+        try:
+            sys.stdin = stdin
+            sys.stdout = stdout
+            with caplog.at_level(
+                logging.WARNING, logger="core.infrastructure.tia.worker_tia"
+            ):
+                with patch.object(worker_tia, "_load_siemens_wrapper", return_value=ts):
+                    worker_tia.main_persistent_loop()
+        finally:
+            sys.stdin = original_stdin
+            sys.stdout = original_stdout
+
+        # Sin WARNINGs de detach_portal.
+        warnings = [
+            r for r in caplog.records
+            if r.levelno == logging.WARNING
+            and "detach_portal best-effort fallo" in r.getMessage()
+        ]
+        assert len(warnings) == 0, (
+            f"NO se esperaba WARNING, got: {[r.getMessage() for r in warnings]}"
+        )

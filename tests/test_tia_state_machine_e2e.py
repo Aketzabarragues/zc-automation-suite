@@ -132,8 +132,14 @@ async def test_ciclo_idle_connected_idle_completo() -> None:
     assert gateway._heartbeat_task is None
 
     # 5. Comando del registry falla en idle.
+    # Cambio sept-2026 (fix A8): ``list_plcs`` esta ahora en la
+    # whitelist de comandos que se aceptan con state != "connected"
+    # (el polling del frontend lo necesita). Usamos ``compile_plc``
+    # en su lugar: ese SI requiere state="connected" para ejecutarse
+    # (no es un comando de control del state machine ni una lectura
+    # ligera).
     with pytest.raises(TIAConnectionError, match="Conectar primero"):
-        await gateway._dispatch_worker("list_plcs")
+        await gateway._dispatch_worker("compile_plc")
 
 
 @pytest.mark.asyncio
@@ -175,6 +181,11 @@ async def test_dispatch_rechaza_comandos_cuando_state_no_es_connected() -> None:
     Verifica que la validacion de estado en ``_dispatch_worker``
     (sept-2026) rechaza comandos con ``TIAConnectionError`` claro
     cuando el estado no es connected.
+
+    Cambio sept-2026 (fix A8): ``list_plcs`` esta ahora en la
+    whitelist de comandos que se aceptan con state != "connected"
+    (el polling del frontend lo necesita desde el primer GET). Usamos
+    ``compile_plc`` en su lugar: ese SI requiere state="connected".
     """
     for state in ("idle", "connecting", "error", "disconnected"):
         gateway = TIAProcessGateway(persistent=True)
@@ -183,7 +194,7 @@ async def test_dispatch_rechaza_comandos_cuando_state_no_es_connected() -> None:
             return_value={"ok": True, "result": "should_not_run"}
         )
         with pytest.raises(TIAConnectionError, match="Conectar primero"):
-            await gateway._dispatch_worker("list_plcs")
+            await gateway._dispatch_worker("compile_plc")
 
 
 @pytest.mark.asyncio

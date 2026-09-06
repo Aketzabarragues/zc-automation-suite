@@ -488,3 +488,177 @@ class TestWorkerMainTiming:
         # Pero attach sí terminó, y detach también.
         assert timing_lines[0]["attach_portal_ms"] is not None
         assert timing_lines[0]["detach_ms"] is not None
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Tests del fix A3 (audit de robustez, sept-2026).
+#
+# Cubre las metricas de timing en el path persistente de
+# ``_send_to_persistent_worker``. Antes (pre-A3) solo el path
+# 1-shot (``_dispatch_ephemeral_worker``) media el ciclo; el
+# path persistente (el principal en produccion desde PR 6) NO
+# tenia observabilidad. Con A3, ``_send_to_persistent_worker``
+# acumula en ``self._metrics[command]`` y loguea a stderr con
+# prefijo ``[PERSISTENT WORKER TIMING]``.
+# ────────────────────────────────────────────────────────────────────────
+
+
+def _extract_persistent_timing_kv(stderr_text: str) -> list[dict]:
+    """Devuelve los payloads ``key=value`` de las lineas ``[PERSISTENT WORKER TIMING]``."""
+    import re
+
+    out: list[dict] = []
+    for line in stderr_text.splitlines():
+        line = line.strip()
+        if not line.startswith("[PERSISTENT WORKER TIMING]"):
+            continue
+        payload = line[len("[PERSISTENT WORKER TIMING]"):].strip()
+        # Formato: command='X' dispatch_total_ms=N
+        m = re.match(r"command='([^']*)'\s+dispatch_total_ms=(-?\d+)", payload)
+        assert m, f"unexpected persistent timing line: {payload!r}"
+        out.append({"command": m.group(1), "dispatch_total_ms": int(m.group(2))})
+    return out
+
+
+class TestSendToPersistentWorkerTiming:
+    """``_send_to_persistent_worker`` mide y acumula el timing (fix A3)."""
+
+    @pytest.mark.asyncio
+    async def test_send_to_persistent_worker_acumula_metrica_en_exito(self) -> None:
+        """Tras 1 dispatch exitoso en el path persistente, ``_metrics`` tiene 1 entrada."""
+        gateway = TIAProcessGateway(persistent=True, timeout=2.0)
+
+        # Mockeamos el proc con stdout que emite una respuesta OK.
+        response_line = (
+            json.dumps({"id": 0, "ok": True, "result": "ready_idle"}) + "\n"
+        ).encode("utf-8")
+
+        # Para el primer dispatch (ready_idle) y el segundo (list_plcs)
+        # necesitamos respuestas distintas.
+        responses_iter = iter([response_line, b""])
+
+        class _FakeStream:
+            async def readline(self) -> bytes:
+                return next(responses_iter, b"")
+
+        class _FakeStdin:
+            def __init__(self) -> None:
+                self.written: list[bytes] = []
+
+            def write(self, data: bytes) -> None:
+                self.written.append(data)
+
+            async def drain(self) -> None:
+                pass
+
+        fake_proc = MagicMock(name="FakeSubprocess")
+        fake_proc.stdin = _FakeStdin()
+        fake_proc.stdout = _FakeStream()
+        fake_proc.returncode = None
+        gateway._worker_proc = fake_proc
+
+        # Reader mock que vive lo suficiente para resolver el future.
+        async def _fake_reader() -> None:
+            await asyncio.sleep(60)
+
+        gateway._reader_task = asyncio.create_task(_fake_reader())
+        try:
+            stderr_capture = io.StringIO()
+            with patch("sys.stderr", stderr_capture):
+                # Pre-poblamos el ready_future como si ready_idle ya hubiera llegado.
+                # En su lugar, vamos a parchear _send para que simule una respuesta inmediata.
+                # El test A3 se centra en el path persistente ya en estado "connected".
+                gateway._connection_state = "connected"
+                # El reader_task sigue siendo valido, pero no resuelve
+                # nuestro future; usamos un patch mas directo.
+                # Patcheamos asyncio.wait_for en el modulo del gateway
+                # para que resuelva el future al instante con un OK.
+                real_wait_for = asyncio.wait_for
+
+                async def _patched_wait_for(awaitable, *args, **kwargs):  # noqa: ARG001
+                    # Solo resolvemos el future; el resto del flujo
+                    # sigue igual.
+                    if isinstance(awaitable, asyncio.Future):
+                        awaitable.set_result(
+                            {"id": 1, "ok": True, "result": ["PLC1"]}
+                        )
+                        return awaitable.result()
+                    return await real_wait_for(awaitable, *args, **kwargs)
+
+                with patch(
+                    "core.infrastructure.gateway.asyncio.wait_for",
+                    side_effect=_patched_wait_for,
+                ):
+                    result = await gateway._send_to_persistent_worker(
+                        "list_plcs", args={}, timeout_override=2.0
+                    )
+            assert result == ["PLC1"]
+            assert "list_plcs" in gateway._metrics
+            assert len(gateway._metrics["list_plcs"]) == 1
+            # El timing debe ser >= 0 y < 2s (test wall-clock).
+            ms = gateway._metrics["list_plcs"][0]
+            assert 0 <= ms < 2000
+
+            # El log a stderr tiene el prefijo y el formato esperado.
+            timing_lines = _extract_persistent_timing_kv(stderr_capture.getvalue())
+            assert len(timing_lines) == 1
+            assert timing_lines[0]["command"] == "list_plcs"
+        finally:
+            gateway._reader_task.cancel()
+            try:
+                await gateway._reader_task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+    @pytest.mark.asyncio
+    async def test_send_to_persistent_worker_loguea_timing_en_stderr(self) -> None:
+        """El formato del log es ``[PERSISTENT WORKER TIMING] command=... dispatch_total_ms=...``."""
+        gateway = TIAProcessGateway(persistent=True, timeout=2.0)
+        gateway._connection_state = "connected"
+
+        class _FakeStdin:
+            def write(self, data: bytes) -> None:
+                pass
+
+            async def drain(self) -> None:
+                pass
+
+        fake_proc = MagicMock(name="FakeSubprocess")
+        fake_proc.stdin = _FakeStdin()
+        fake_proc.stdout = MagicMock()
+        fake_proc.returncode = None
+        gateway._worker_proc = fake_proc
+
+        async def _fake_reader() -> None:
+            await asyncio.sleep(60)
+
+        gateway._reader_task = asyncio.create_task(_fake_reader())
+        try:
+            stderr_capture = io.StringIO()
+            with patch("sys.stderr", stderr_capture):
+
+                async def _patched_wait_for(awaitable, *args, **kwargs):  # noqa: ARG001
+                    if isinstance(awaitable, asyncio.Future):
+                        awaitable.set_result(
+                            {"id": 1, "ok": True, "result": []}
+                        )
+                        return awaitable.result()
+                    return await asyncio.wait_for(awaitable, *args, **kwargs)
+
+                with patch(
+                    "core.infrastructure.gateway.asyncio.wait_for",
+                    side_effect=_patched_wait_for,
+                ):
+                    await gateway._send_to_persistent_worker(
+                        "list_plcs", args={}, timeout_override=2.0
+                    )
+
+            raw = stderr_capture.getvalue()
+            assert "[PERSISTENT WORKER TIMING] command='list_plcs'" in raw
+            assert "dispatch_total_ms=" in raw
+        finally:
+            gateway._reader_task.cancel()
+            try:
+                await gateway._reader_task
+            except (asyncio.CancelledError, Exception):
+                pass

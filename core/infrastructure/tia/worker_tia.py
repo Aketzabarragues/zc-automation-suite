@@ -1372,6 +1372,55 @@ def main_persistent_loop() -> None:
         ``portal.get_process_id()`` lanza (el RCW quedo invalido
         tras un cierre de TIA o un glitch COM). NO se invoca para
         cold-start; eso lo hace ``_handle_attach``.
+
+        Limitacion conocida (audit A9, sept-2026) — carrera con
+        ``disconnect()`` del gateway:
+
+        El codepath que invoca ``_try_reattach`` (linea 1567, el
+        ``except`` que captura excepciones de ``get_process_id``)
+        NO distingue entre dos escenarios muy distintos:
+
+          a) **TIA se cerro sola** (crash, dialogo modal mato el
+             proceso, etc.) → el re-attach defensivo es
+             CORRECTO: re-animamos el portal y el siguiente
+             comando del operario funciona.
+          b) **El operario pulso "Desconectar"** → la intencion
+             es que NO haya portal attached. Si el heartbeat del
+             gateway esta en vuelo (``portal.get_process_id()``
+             se invoca desde alli en ``_cmd_ping``) y TIA responde
+             lento justo en ese momento, el reader puede
+             interpretar el timeout como COM-disconnect y
+             disparar este ``_try_reattach``, REVIVIENDO un
+             portal que el operario intento matar.
+
+        El re-attach NO discrimina entre los dos casos. Es
+        defensivo contra (a), pero puede causar (b). En la
+        practica, (b) es raro y de bajo impacto (el operario
+        ve "Conectado" en el topbar cuando deberia ver
+        "Desconectado", pero basta un re-disconnect o un
+        reconectar para arreglar el estado). Aceptamos la
+        limitacion porque la alternativa (introducir un flag
+        ``_user_wants_disconnect`` sincronizado via un comando
+        ``mark_disconnecting`` antes del detach) es
+        significativamente mas compleja y anade un round-trip
+        extra al ciclo disconnect.
+
+        Si en el futuro se quiere cerrar la carrera, los
+        anclajes son:
+
+          1. Anadir un flag ``_disconnect_pending: bool`` al
+             estado del worker.
+          2. ``_handle_detach`` lo pone a ``True`` antes de
+             hacer el detach.
+          3. ``_try_reattach`` lo consulta y retorna ``False``
+             si esta a ``True`` (no re-attaches).
+          4. ``_handle_detach`` lo limpia a ``False`` tras el
+             detach exitoso (o lo deja a ``True`` si el detach
+             fallo, para que el siguiente attach explicito del
+             gateway lo confirme).
+
+        No se implementa en sept-2026 por YAGNI: el problema
+        es raro y el workaround (re-disconnect) es aceptable.
         """
         nonlocal portal
         if portal is not None:
@@ -1483,17 +1532,37 @@ def main_persistent_loop() -> None:
         Returns:
             ``{"detached": true}`` si habia portal y se detacho.
             ``{"detached": false}`` si ya estabamos en idle.
+
+        Cambio sept-2026 (fix A7 del audit de robustez): si
+        ``portal.detach()`` lanza (TIA ya cerrada, RCW stale, etc.),
+        antes el handler absorbia el error con ``pass`` y devolvia
+        ``{"detached": True}`` igualmente. Esto es engañoso: el
+        gateway pensaba que el detach fue OK; el frontend mostraba
+        "Desconectado" en verde. Ahora (sept-2026) dejamos un
+        WARNING con la excepcion para que el operario vea en los
+        logs POR QUE el detach fue problematico. El return sigue
+        siendo ``{"detached": True}`` porque el best-effort sigue
+        siendo el contrato (el siguiente ``attach_portal`` creara
+        un RCW nuevo); pero dejamos rastro para diagnostico.
         """
         nonlocal portal
         if portal is None:
             return {"detached": False}
         try:
             portal.detach()
-        except Exception:
+        except Exception as exc:
             # TIA ya cerrada, RCW stale, etc. No propagamos: el
             # objetivo del detach es liberar el RCW; si ya esta
             # muerto, el siguiente attach_portal creara uno nuevo.
-            pass
+            # Pero dejamos rastro (A7): el operario ve "WARNING
+            # detach_portal best-effort fallo: ..." en los logs y
+            # puede correlacionarlo con un TIA que se cerro de
+            # forma abrupta, dialogos modales colgados, etc.
+            _logger.warning(
+                "detach_portal best-effort fallo: %s: %s",
+                type(exc).__name__,
+                exc,
+            )
         portal = None
         return {"detached": True}
 

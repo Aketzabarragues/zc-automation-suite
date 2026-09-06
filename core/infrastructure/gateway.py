@@ -113,7 +113,7 @@ class TIAProcessGateway:
         Args:
             timeout: Timeout (segundos) del subproceso OT. Si es
                 ``None`` (default), usa ``DEFAULT_GATEWAY_TIMEOUT``
-                (180s, configurable vía ``ZC_GATEWAY_TIMEOUT``). Pasarlo
+                (300s, configurable vía ``ZC_GATEWAY_TIMEOUT``). Pasarlo
                 explícito tiene prioridad sobre la env var (útil para
                 tests con mocks que necesitan un timeout corto).
             persistent: Si es ``True``, el gateway se prepara para usar
@@ -208,6 +208,25 @@ class TIAProcessGateway:
             # ``ts.get_process_id()``).
             self._last_portal_pid: int | None = None
 
+    # Timeouts operacionales (audit A5, sept-2026). Constantes
+    # para punto único de cambio y para que ``os.environ.get(...)``
+    # con override siga siendo legible. Antes (pre-A5) los magic
+    # numbers 60.0 / 10.0 / 180.0 estaban dispersos por el modulo
+    # (ready_idle, heartbeat ping, dispatch default), lo que
+    # obligaba a buscar en 5+ sitios para ajustar un timeout. Con
+    # este bloque, un cambio del operario se hace tocando 1 linea.
+    # Las constantes son atributos de clase (no de instancia) para
+    # que ``getattr(self, "...", default)`` funcione incluso en
+    # gateways construidos antes de este PR (back-compat con
+    # tests legacy que podrian no haberlas leido).
+    READY_IDLE_TIMEOUT_S: float = 60.0
+    HEARTBEAT_PING_TIMEOUT_S: float = 10.0
+    DEFAULT_DISPATCH_TIMEOUT_S: float = 180.0
+    ATTACH_PORTAL_TIMEOUT_S: float = 60.0
+    DETACH_PORTAL_TIMEOUT_S: float = 10.0
+    GET_PROJECT_INFO_TIMEOUT_S: float = 10.0
+    GET_PLCS_TIMEOUT_S: float = 10.0
+
     @property
     def persistent(self) -> bool:
         """Modo del gateway: ``True`` para worker persistente (modo web).
@@ -287,17 +306,31 @@ class TIAProcessGateway:
             #
             # Validacion de estado: ``attach_portal``, ``detach_portal``
             # y ``ping`` se permiten siempre (son los comandos que
-            # controlan/transicionan el state machine). El resto de
-            # comandos del registry requieren state="connected"; si
-            # el gateway esta en idle/connecting/error, lanzamos
+            # controlan/transicionan el state machine). ``list_plcs``
+            # y ``get_project_info`` se permiten tambien (lecturas
+            # ligeras que el polling del frontend hace desde el
+            # primer GET /tia/connection, ANTES de que el operario
+            # haya pulsado "Conectar"). El resto de comandos del
+            # registry requieren state="connected"; si el gateway
+            # esta en idle/connecting/error, lanzamos
             # ``TIAConnectionError`` con mensaje claro para que el
             # frontend muestre el circulo gris y el operario sepa
             # que debe conectar primero.
+            #
+            # Cambio sept-2026 (fix A8 del audit de robustez): se
+            # anade ``list_plcs`` a la whitelist. Antes (pre-A8) el
+            # polling de ``get_plcs`` fallaba con un error confuso
+            # si el state estaba en transitorio (e.g. el operario
+            # acaba de arrancar la app y todavia no ha pulsado
+            # "Conectar"). Anadirlo permite que la SPA muestre la
+            # lista de PLCs en cuanto el worker este vivo, sin
+            # esperar al connect.
             if command not in (
                 "attach_portal",
                 "detach_portal",
                 "ping",
                 "get_project_info",
+                "list_plcs",
             ) and self._connection_state != "connected":
                 raise TIAConnectionError(
                     "Worker no conectado a TIA Portal. Conectar primero."
@@ -488,9 +521,11 @@ class TIAProcessGateway:
             async with self._worker_lock:
                 info = await asyncio.wait_for(
                     self._send_to_persistent_worker(
-                        "get_project_info", {}, timeout_override=10.0
+                        "get_project_info",
+                        {},
+                        timeout_override=self.GET_PROJECT_INFO_TIMEOUT_S,
                     ),
-                    timeout=10.0,
+                    timeout=self.GET_PROJECT_INFO_TIMEOUT_S,
                 )
         except Exception:
             # Worker no responde, TIA cerrado, timeout, COM/RPC, etc.
@@ -749,11 +784,20 @@ class TIAProcessGateway:
         # estado es ``"idle"`` (NO ``"connected"`` como en el round
         # anterior). El attach se hace bajo demanda via ``connect()``,
         # que transiciona idle -> connecting -> connected.
-        loop = asyncio.get_event_loop()
+        # ``asyncio.get_event_loop()`` esta deprecado desde
+        # Python 3.10 cuando se invoca fuera de un event loop
+        # corriendo. En este gateway SIEMPRE estamos dentro de un
+        # loop (uvicorn lo arranca al ejecutar ``main.py --web``),
+        # asi que ``asyncio.get_running_loop()`` es la API moderna
+        # y la firma es identica (``loop.create_future()``).
+        # Cambio sept-2026 (fix B7 del audit de robustez).
+        loop = asyncio.get_running_loop()
         ready_future: asyncio.Future[dict[str, Any]] = loop.create_future()
         self._pending_responses[0] = ready_future
         try:
-            ready_payload = await asyncio.wait_for(ready_future, timeout=60.0)
+            ready_payload = await asyncio.wait_for(
+                ready_future, timeout=self.READY_IDLE_TIMEOUT_S
+            )
             if not ready_payload.get("ok"):
                 # El worker reporto ready_idle con error. Caso raro:
                 # el wrapper fallo al cargar pero el subproceso sigue
@@ -902,17 +946,19 @@ class TIAProcessGateway:
                     continue
 
                 # Ping bajo el lock para serializar contra
-                # ``_dispatch_worker``. ``timeout_override=10.0``
-                # porque el ping debe ser una operacion ligera
-                # (``portal.get_process_id()``); si tarda mas de 10s
-                # algo va muy mal.
+                # ``_dispatch_worker``. ``timeout_override=HEARTBEAT_PING_TIMEOUT_S``
+                # (audit A5, sept-2026) porque el ping debe ser una
+                # operacion ligera (``portal.get_process_id()``); si
+                # tarda mas de 10s algo va muy mal.
                 try:
                     async with self._worker_lock:
                         result = await asyncio.wait_for(
                             self._send_to_persistent_worker(
-                                "ping", args={}, timeout_override=10.0
+                                "ping",
+                                args={},
+                                timeout_override=self.HEARTBEAT_PING_TIMEOUT_S,
                             ),
-                            timeout=10.0,
+                            timeout=self.HEARTBEAT_PING_TIMEOUT_S,
                         )
                     if result and isinstance(result, dict) and result.get("ok"):
                         # Guard (sept-2026 round 3, fix de auditoría):
@@ -978,6 +1024,47 @@ class TIAProcessGateway:
             # ``asyncio.sleep`` y el cuerpo del loop.
             return
 
+    def _drain_pending_responses(self, reason: str) -> None:
+        """Resuelve los futures pendientes con ``RuntimeError`` y vacia el dict.
+
+        Helper centralizado (sept-2026, fix A2 del audit de
+        robustez) usado en dos puntos del ciclo de vida del worker
+        persistente:
+
+          - ``_read_worker_stdout_forever``: al final del reader
+            (EOF o stream roto), los futures registrados para
+            commands en vuelo quedan sin resolver y el caller
+            espera hasta el timeout (default 180s). Este helper
+            los resuelve inmediatamente con ``RuntimeError(reason)``
+            para que el handler ``_send_to_persistent_worker``
+            reciba la excepcion al instante y pueda relanzar
+            ``_start_persistent_worker`` o reportar el error al
+            frontend sin un "cuelgue" de N segundos.
+
+          - ``_kill_persistent_worker``: tras matar el subproceso
+            (shutdown, reconnect, etc.) por la misma razon. Antes
+            la logica vivia inline en ``_kill_persistent_worker``;
+            se ha extraido a este helper para reusar la misma
+            semantica en el reader.
+
+        Args:
+            reason: mensaje que se propagara al caller como
+                ``RuntimeError(reason)``. Pensado para diagnosti-
+                co: indica al operario POR QUE se cazo la
+                respuesta (EOF, stream roto, kill explicito, etc.).
+
+        Side effects:
+          - Resuelve cada future no-done de ``_pending_responses``
+            con ``fut.set_exception(RuntimeError(reason))``.
+          - Vacia ``self._pending_responses``.
+
+        Idempotente: si el dict ya esta vacio, no hace nada.
+        """
+        for fut in self._pending_responses.values():
+            if not fut.done():
+                fut.set_exception(RuntimeError(reason))
+        self._pending_responses.clear()
+
     async def _read_worker_stdout_forever(self) -> None:
         """Lee stdout del worker linea por linea y resuelve futures por ID.
 
@@ -989,10 +1076,17 @@ class TIAProcessGateway:
         future correspondiente.
 
         Cierre limpio:
-          - EOF en stdout (``b''``): el worker murio. Salimos del
-            loop. Los futures pendientes NO se resuelven: el caller
-            (``_send_to_persistent_worker``) los detecta por timeout
-            y marca el estado como ``disconnected``.
+          - EOF en stdout (``b''``): el worker cerro stdout.
+            Antes (pre-A2) los futures pendientes se quedaban
+            colgados hasta el timeout (180s). Ahora (sept-2026
+            round 6) invocamos ``_drain_pending_responses`` para
+            resolverlos con ``RuntimeError`` al instante; el
+            handler ``_send_to_persistent_worker`` recibe la
+            excepcion y puede reintentar via lazy start sin
+            pagar el timeout entero.
+          - Stream roto (excepcion en ``readline()``): idem,
+            ``_drain_pending_responses`` se invoca en el ``except``
+            para no dejar futures zombies.
           - Linea no parseable como JSON: la saltamos (sigue siendo
             defensivo: si el worker escribe otra cosa a stdout por
             error, no rompemos el reader).
@@ -1004,69 +1098,87 @@ class TIAProcessGateway:
         proc = self._worker_proc
         if proc is None or proc.stdout is None:
             return
-        while True:
-            try:
-                line = await proc.stdout.readline()
-            except Exception:
-                # Stream roto: salimos y dejamos que los timeouts
-                # en ``_send_to_persistent_worker`` manejen la
-                # limpieza.
-                break
-            if not line:
-                # EOF: el worker cerro stdout. Salimos.
-                break
-            try:
-                response = json.loads(line.decode("utf-8").strip())
-            except Exception:
-                # Linea no parseable. NO logueamos como ERROR: en
-                # modo persistente, el stdout del worker se mezcla
-                # con los logs de Siemens (que no son JSON). Ver
-                # `_start_persistent_worker` que lanza el worker
-                # con `stdout=asyncio.subprocess.PIPE`. El reader
-                # filtra y descarta; solo logueamos en DEBUG (no
-                # ERROR) y con un filtro para no spammear con
-                # lineas claramente de Siemens (timestamps).
-                line_str = line.decode("utf-8", errors="replace")
-                # Filtro heuristico: lineas de log de Siemens
-                # empiezan con un timestamp ISO. Si la linea NO
-                # parece un log de Siemens (e.g. comando JSON
-                # malformado), si la logueamos como WARNING.
-                stripped = line_str.strip()
-                if not (
-                    len(stripped) > 11
-                    and stripped[0].isdigit()
-                    and stripped[4] == "-"
-                    and stripped[7] == "-"
-                ):
-                    # No es un log de Siemens: probablemente es un
-                    # comando JSON malformado del worker (bug del
-                    # worker). WARNING, no ERROR.
-                    _log.warning(
-                        "[GATEWAY READER] linea no parseable "
-                        "(no es log de Siemens): %r",
-                        line_str[:200],
-                    )
-                # En cualquier caso, seguimos leyendo.
-                continue
-            if not isinstance(response, dict):
-                continue
-            request_id = response.get("id")
-            if request_id is None:
-                continue
-            future = self._pending_responses.get(request_id)
-            if future is not None and not future.done():
-                future.set_result(response)
-            # Pop defensivo: el reader limpia el dict al resolver el
-            # future para evitar memory leaks si el caller ya hizo
-            # timeout y su ``finally`` no corrio (caso extremo:
-            # ``_send_to_persistent_worker`` cancelado por una
-            # excepcion externa). ``_send_to_persistent_worker``
-            # tambien hace pop en su ``finally``; el segundo pop es
-            # no-op (idempotente) gracias a ``pop(..., None)``.
-            self._pending_responses.pop(request_id, None)
-            # Si no habia future pendiente para este id, lo descartamos
-            # (p.ej. el caller ya hizo timeout y se fue). El reader
-            # sigue procesando los siguientes.
+        try:
+            while True:
+                try:
+                    line = await proc.stdout.readline()
+                except Exception:
+                    # Stream roto: salimos y dejamos que los timeouts
+                    # en ``_send_to_persistent_worker`` manejen la
+                    # limpieza.
+                    break
+                if not line:
+                    # EOF: el worker cerro stdout. Salimos.
+                    break
+                try:
+                    response = json.loads(line.decode("utf-8").strip())
+                except Exception:
+                    # Linea no parseable. NO logueamos como ERROR: en
+                    # modo persistente, el stdout del worker se mezcla
+                    # con los logs de Siemens (que no son JSON). Ver
+                    # `_start_persistent_worker` que lanza el worker
+                    # con `stdout=asyncio.subprocess.PIPE`. El reader
+                    # filtra y descarta; solo logueamos en DEBUG (no
+                    # ERROR) y con un filtro para no spammear con
+                    # lineas claramente de Siemens (timestamps).
+                    line_str = line.decode("utf-8", errors="replace")
+                    # Filtro heuristico: lineas de log de Siemens
+                    # empiezan con un timestamp ISO. Si la linea NO
+                    # parece un log de Siemens (e.g. comando JSON
+                    # malformado), si la logueamos como WARNING.
+                    stripped = line_str.strip()
+                    if not (
+                        len(stripped) > 11
+                        and stripped[0].isdigit()
+                        and stripped[4] == "-"
+                        and stripped[7] == "-"
+                    ):
+                        # No es un log de Siemens: probablemente es un
+                        # comando JSON malformado del worker (bug del
+                        # worker). WARNING, no ERROR.
+                        _log.warning(
+                            "[GATEWAY READER] linea no parseable "
+                            "(no es log de Siemens): %r",
+                            line_str[:200],
+                        )
+                    # En cualquier caso, seguimos leyendo.
+                    continue
+                if not isinstance(response, dict):
+                    continue
+                request_id = response.get("id")
+                if request_id is None:
+                    continue
+                future = self._pending_responses.get(request_id)
+                if future is not None and not future.done():
+                    future.set_result(response)
+                # Pop defensivo: el reader limpia el dict al resolver el
+                # future para evitar memory leaks si el caller ya hizo
+                # timeout y su ``finally`` no corrio (caso extremo:
+                # ``_send_to_persistent_worker`` cancelado por una
+                # excepcion externa). ``_send_to_persistent_worker``
+                # tambien hace pop en su ``finally``; el segundo pop es
+                # no-op (idempotente) gracias a ``pop(..., None)``.
+                self._pending_responses.pop(request_id, None)
+                # Si no habia future pendiente para este id, lo descartamos
+                # (p.ej. el caller ya hizo timeout y se fue). El reader
+                # sigue procesando los siguientes.
+        finally:
+            # A2 (sept-2026, audit de robustez): al salir del loop
+            # (EOF, stream roto, o cualquier excepcion inesperada),
+            # los futures que quedaron registrados en
+            # ``_pending_responses`` se resuelven con ``RuntimeError``
+            # para que el handler ``_send_to_persistent_worker`` en
+            # vuelo reciba la excepcion inmediatamente en vez de
+            # quedarse colgado hasta ``ZC_GATEWAY_TIMEOUT``
+            # (default 180s). Ver ``_drain_pending_responses`` para
+            # el detalle.
+            #
+            # No-op si el dict ya esta vacio (caso normal: el reader
+            # proceso todas las respuestas y el dict se vacio en los
+            # pops de arriba).
+            self._drain_pending_responses(
+                "Worker desconectado durante lectura"
+            )
 
     async def _send_to_persistent_worker(
         self,
@@ -1113,106 +1225,154 @@ class TIAProcessGateway:
             RuntimeError: si la respuesta es ``ok=False`` (error
                 de aplicacion, no de conexion), si el reader
                 falla, o si el timeout expira.
-        """
-        # Lazy start: si el proc no existe o ya murio, lo relanzamos.
-        if self._worker_proc is None or self._worker_proc.returncode is not None:
-            await self._start_persistent_worker()
 
-        # El reader_task es quien resuelve futures. Si murio (e.g.
-        # EOF inesperado), NO podemos recibir respuestas. Marcamos
-        # disconnected y fallamos rapido en vez de esperar al timeout.
-        if self._reader_task is None or self._reader_task.done():
+        Metricas (sept-2026, fix A3 del audit de robustez): el ciclo
+        end-to-end se mide con ``time.monotonic()`` (inmune a saltos
+        NTP) y se acumula en ``self._metrics[command]`` y se loguea
+        a stderr con prefijo ``[PERSISTENT WORKER TIMING]``. Antes
+        (pre-A3) el path persistente NO tenia esta observabilidad:
+        solo el path 1-shot de ``_dispatch_ephemeral_worker`` se
+        media. Sin esto, era imposible diagnosticar latencias del
+        worker persistente (que es el path principal en produccion
+        desde PR 6). Misma semantica que
+        ``_dispatch_ephemeral_worker`` (ver ``test_timing_metrics``).
+        """
+        # Timing: marcar el inicio del ciclo end-to-end ANTES del
+        # lazy start. Asi cubrimos incluso el caso en que el
+        # ``_start_persistent_worker`` interno tarda (wrapper .NET
+        # pesado). El finally SIEMPRE corre (exito, timeout,
+        # BrokenPipe, TIAConnectionError) para no perder el timing
+        # de errores.
+        t_dispatch_start = time.monotonic()
+        _result: Any = None
+        try:
+            # Lazy start: si el proc no existe o ya murio, lo relanzamos.
+            if self._worker_proc is None or self._worker_proc.returncode is not None:
+                await self._start_persistent_worker()
+
             # El reader_task es quien resuelve futures. Si murio (e.g.
             # EOF inesperado), NO podemos recibir respuestas. Marcamos
-            # "error" (no "idle", porque un reader muerto es un fallo
-            # grave del worker, no una desconexion limpia del portal).
-            self._connection_state = "error"
-            raise RuntimeError(
-                "Reader task del worker persistente no esta vivo. "
-                "El subproceso probablemente murio."
-            )
+            # disconnected y fallamos rapido en vez de esperar al timeout.
+            if self._reader_task is None or self._reader_task.done():
+                # El reader_task es quien resuelve futures. Si murio (e.g.
+                # EOF inesperado), NO podemos recibir respuestas. Marcamos
+                # "error" (no "idle", porque un reader muerto es un fallo
+                # grave del worker, no una desconexion limpia del portal).
+                self._connection_state = "error"
+                raise RuntimeError(
+                    "Reader task del worker persistente no esta vivo. "
+                    "El subproceso probablemente murio."
+                )
 
-        request_id = self._next_request_id
-        self._next_request_id += 1
-        payload = json.dumps(
-            {"id": request_id, "command": command, "args": args or {}}
-        ).encode("utf-8")
+            request_id = self._next_request_id
+            self._next_request_id += 1
+            payload = json.dumps(
+                {"id": request_id, "command": command, "args": args or {}}
+            ).encode("utf-8")
 
-        loop = asyncio.get_event_loop()
-        future: asyncio.Future[dict[str, Any]] = loop.create_future()
-        self._pending_responses[request_id] = future
+            # ``asyncio.get_event_loop()`` esta deprecado desde
+            # Python 3.10 fuera de un event loop corriendo. El gateway
+            # SIEMPRE corre dentro de un loop (uvicorn lo levanta);
+            # usamos la API moderna ``asyncio.get_running_loop()``.
+            # Cambio sept-2026 (fix B7 del audit de robustez).
+            loop = asyncio.get_running_loop()
+            future: asyncio.Future[dict[str, Any]] = loop.create_future()
+            self._pending_responses[request_id] = future
 
-        # En el ``finally`` SIEMPRE quitamos el future del dict
-        # (haya habido exito, timeout o excepcion) para no leakear
-        # memoria: si el worker responde tarde (despues del timeout)
-        # y el future sigue en el dict, el reader_task lo resuelve
-        # pero nadie lo consume.
-        try:
-            assert self._worker_proc.stdin is not None
-            self._worker_proc.stdin.write(payload + b"\n")
-            await self._worker_proc.stdin.drain()
+            # En el ``finally`` SIEMPRE quitamos el future del dict
+            # (haya habido exito, timeout o excepcion) para no leakear
+            # memoria: si el worker responde tarde (despues del timeout)
+            # y el future sigue en el dict, el reader_task lo resuelve
+            # pero nadie lo consume.
+            try:
+                assert self._worker_proc.stdin is not None
+                self._worker_proc.stdin.write(payload + b"\n")
+                await self._worker_proc.stdin.drain()
 
-            timeout = (
-                timeout_override if timeout_override is not None else self._timeout
-            )
-            response = await asyncio.wait_for(future, timeout=timeout)
+                timeout = (
+                    timeout_override if timeout_override is not None else self._timeout
+                )
+                response = await asyncio.wait_for(future, timeout=timeout)
 
-            if not response.get("ok"):
-                err = response.get("error", "Error interno en el worker OT.")
-                if _is_tia_connection_error(str(err)):
-                    # Patron de error de conexion conocido. Marcamos
-                    # "idle" (sept-2026): TIA no responde, el worker
-                    # sigue vivo, el operario puede reintentar connect().
-                    # La cache IT se invalida para evitar datos stale
-                    # de un attach anterior.
-                    self._connection_state = "idle"
-                    self._clear_bloques_cache()
-                    self._cache.clear()
-                    _logger = logging.getLogger(__name__)
-                    _logger.warning(
-                        "Worker persistente: error de conexion TIA (%s); "
-                        "cache invalidada.",
-                        err,
-                    )
-                    raise TIAConnectionError(str(err))
-                raise RuntimeError(str(err))
+                if not response.get("ok"):
+                    err = response.get("error", "Error interno en el worker OT.")
+                    if _is_tia_connection_error(str(err)):
+                        # Patron de error de conexion conocido. Marcamos
+                        # "idle" (sept-2026): TIA no responde, el worker
+                        # sigue vivo, el operario puede reintentar connect().
+                        # La cache IT se invalida para evitar datos stale
+                        # de un attach anterior.
+                        self._connection_state = "idle"
+                        self._clear_bloques_cache()
+                        self._cache.clear()
+                        _logger = logging.getLogger(__name__)
+                        _logger.warning(
+                            "Worker persistente: error de conexion TIA (%s); "
+                            "cache invalidada.",
+                            err,
+                        )
+                        raise TIAConnectionError(str(err))
+                    raise RuntimeError(str(err))
 
-            return response.get("result")
-        except asyncio.TimeoutError as exc:
-            # El worker no respondio al comando en el timeout. En el
-            # state machine sept-2026 marcamos "idle" (no "error"):
-            # puede ser un comando lento puntual, no un fallo del
-            # worker. El operario puede reintentar.
-            self._connection_state = "idle"
-            self._last_error = (
-                f"Worker no respondio en {timeout}s (comando: {command!r})"
-            )
-            raise RuntimeError(self._last_error) from exc
-        except TIAConnectionError:
-            # Ya tenemos el estado actualizado; re-propagar.
-            raise
-        except RuntimeError:
-            # Error de aplicacion del worker. NO marcamos disconnected
-            # (puede ser un ValueError transitorio del handler). Solo
-            # dejamos que el caller lo maneje.
-            raise
-        except Exception as exc:
-            # Cualquier otra excepcion (e.g. BrokenPipeError si el
-            # worker muere durante el write) marca "error" (sept-2026):
-            # es un fallo grave (I/O con el worker), no una
-            # desconexion limpia. Se traduce a RuntimeError para que
-            # el caller no vea el tipo nativo de asyncio.
-            self._connection_state = "error"
-            self._last_error = f"{type(exc).__name__}: {exc}"
-            raise RuntimeError(
-                f"Error de I/O con el worker persistente "
-                f"({type(exc).__name__}): {exc}"
-            ) from exc
+                _result = response.get("result")
+            except asyncio.TimeoutError as exc:
+                # El worker no respondio al comando en el timeout. En el
+                # state machine sept-2026 marcamos "idle" (no "error"):
+                # puede ser un comando lento puntual, no un fallo del
+                # worker. El operario puede reintentar.
+                self._connection_state = "idle"
+                self._last_error = (
+                    f"Worker no respondio en {timeout}s (comando: {command!r})"
+                )
+                raise RuntimeError(self._last_error) from exc
+            except TIAConnectionError:
+                # Ya tenemos el estado actualizado; re-propagar.
+                raise
+            except RuntimeError:
+                # Error de aplicacion del worker. NO marcamos disconnected
+                # (puede ser un ValueError transitorio del handler). Solo
+                # dejamos que el caller lo maneje.
+                raise
+            except Exception as exc:
+                # Cualquier otra excepcion (e.g. BrokenPipeError si el
+                # worker muere durante el write) marca "error" (sept-2026):
+                # es un fallo grave (I/O con el worker), no una
+                # desconexion limpia. Se traduce a RuntimeError para que
+                # el caller no vea el tipo nativo de asyncio.
+                self._connection_state = "error"
+                self._last_error = f"{type(exc).__name__}: {exc}"
+                raise RuntimeError(
+                    f"Error de I/O con el worker persistente "
+                    f"({type(exc).__name__}): {exc}"
+                ) from exc
+            finally:
+                # Quitar el future del dict SIEMPRE. Si el reader_task
+                # lo resuelve tarde (despues del timeout), el set_result
+                # en el reader es no-op (future.done() == True).
+                self._pending_responses.pop(request_id, None)
         finally:
-            # Quitar el future del dict SIEMPRE. Si el reader_task
-            # lo resuelve tarde (despues del timeout), el set_result
-            # en el reader es no-op (future.done() == True).
-            self._pending_responses.pop(request_id, None)
+            # Metricas de timing (sept-2026, fix A3 del audit de
+            # robustez): el ciclo end-to-end del path persistente
+            # (lazy start + I/O + wait_for) se mide y se acumula en
+            # ``self._metrics[command]`` para que ``get_metrics()``
+            # lo exponga, y se loguea a stderr con prefijo
+            # ``[PERSISTENT WORKER TIMING]`` (mismo formato que el
+            # path 1-shot ``_dispatch_ephemeral_worker`` usa, con
+            # prefijo ``[GATEWAY TIMING]``). El prefijo distinto
+            # permite grep diferenciado en logs de produccion.
+            _t_dispatch_end = time.monotonic()
+            _dispatch_ms = (_t_dispatch_end - t_dispatch_start) * 1000
+            self._metrics.setdefault(command, []).append(_dispatch_ms)
+            sys.stderr.write(
+                f"[PERSISTENT WORKER TIMING] command={command!r} "
+                f"dispatch_total_ms={round(_dispatch_ms)}\n"
+            )
+
+        # Retorno fuera del try/finally: el `return` dentro de un
+        # `finally` es un anti-patron (suprime excepciones en vuelo).
+        # Misma convencion que ``_dispatch_ephemeral_worker``.
+        if sys.exc_info()[0] is None:
+            return _result
 
     async def _kill_persistent_worker(self) -> None:
         """Mata el subproceso del worker y cancela las tasks asociadas.
@@ -1323,10 +1483,13 @@ class TIAProcessGateway:
         # que estuviera esperando respuesta: en lugar de quedarse
         # colgado hasta el timeout (default 180s), recibe una
         # excepcion inmediata y puede relanzar / manejar.
-        for fut in self._pending_responses.values():
-            if not fut.done():
-                fut.set_exception(RuntimeError("Worker desconectado"))
-        self._pending_responses.clear()
+        #
+        # Cambio sept-2026 (fix A2 del audit de robustez): la logica
+        # vivia inline aqui; ahora delega en ``_drain_pending_responses``
+        # para compartir la misma semantica que el reader (mismo
+        # mensaje, misma firma) y evitar drift entre los dos puntos
+        # de cleanup.
+        self._drain_pending_responses("Worker desconectado")
 
         # 5. Reset del contador de IDs para que el proximo worker
         # empiece limpio. No afecta a la correccion (los IDs son
@@ -1418,7 +1581,7 @@ class TIAProcessGateway:
                 result = await self._send_to_persistent_worker(
                     "attach_portal",
                     args={"mode": "WithGraphicalUserInterface"},
-                    timeout_override=60.0,
+                    timeout_override=self.ATTACH_PORTAL_TIMEOUT_S,
                 )
             except Exception as exc:
                 _log.error(
@@ -1673,7 +1836,7 @@ class TIAProcessGateway:
                     await self._send_to_persistent_worker(
                         "detach_portal",
                         args={},
-                        timeout_override=10.0,
+                        timeout_override=self.DETACH_PORTAL_TIMEOUT_S,
                     )
             except Exception as exc:
                 # No propagamos: disconnect() es la operacion
@@ -1753,7 +1916,7 @@ class TIAProcessGateway:
                     await self._send_to_persistent_worker(
                         "detach_portal",
                         args={},
-                        timeout_override=10.0,
+                        timeout_override=self.DETACH_PORTAL_TIMEOUT_S,
                     )
             except Exception:
                 # Best-effort: si el detach falla, el connect
@@ -1789,7 +1952,7 @@ class TIAProcessGateway:
                 result = await self._send_to_persistent_worker(
                     "attach_portal",
                     args={"mode": "WithGraphicalUserInterface"},
-                    timeout_override=60.0,
+                    timeout_override=self.ATTACH_PORTAL_TIMEOUT_S,
                 )
             except Exception as exc:
                 self._connection_state = "error"
@@ -1893,7 +2056,9 @@ class TIAProcessGateway:
         if not force_refresh and cache_key in self._cache:
             return self._cache[cache_key]
 
-        plcs = await self._dispatch_worker("list_plcs", timeout_override=10.0)
+        plcs = await self._dispatch_worker(
+            "list_plcs", timeout_override=self.GET_PLCS_TIMEOUT_S
+        )
         self._cache[cache_key] = plcs
         return plcs
 
@@ -1925,7 +2090,9 @@ class TIAProcessGateway:
         if not force_refresh and cache_key in self._cache:
             return self._cache[cache_key]
 
-        info = await self._dispatch_worker("get_project_info", timeout_override=10.0)
+        info = await self._dispatch_worker(
+            "get_project_info", timeout_override=self.GET_PROJECT_INFO_TIMEOUT_S
+        )
         self._cache[cache_key] = info
         return info
 
@@ -2349,8 +2516,18 @@ class TIAProcessGateway:
     async def update_user_constant_name(
         self, plc_name: str, table_name: str, current_name: str, new_name: str
     ) -> bool:
-        """Renombra una PlcUserConstant."""
-        return await self._dispatch_worker(
+        """Renombra una PlcUserConstant. Invalida caché IT tras el rename.
+
+        Cambio sept-2026 (fix A4 del audit de robustez): antes el
+        rename exitoso NO invalidaba ``_cache`` ni ``_bloques_cache``,
+        por lo que el siguiente ``get_user_constants`` podia devolver
+        la lista stale (sin el nombre nuevo). Mismo patron que
+        ``update_user_constant_value``: un rename puede afectar a
+        celdas de DBs (e.g. el comentario de un slot ahora
+        referencia el nombre nuevo) y por tanto invalida toda la
+        cache IT del PLC.
+        """
+        result = await self._dispatch_worker(
             "update_user_constant_name",
             {
                 "plc_name": plc_name,
@@ -2359,12 +2536,20 @@ class TIAProcessGateway:
                 "new_name": new_name,
             },
         )
+        self.clear_cache()  # A4: rename afecta referencias en comentarios/Dbs.
+        return result
 
     async def delete_user_constant(
         self, plc_name: str, table_name: str, constant_name: str
     ) -> bool:
-        """Borra una PlcUserConstant."""
-        return await self._dispatch_worker(
+        """Borra una PlcUserConstant. Invalida caché IT tras el borrado.
+
+        Cambio sept-2026 (fix A4 del audit de robustez): antes el
+        delete exitoso NO invalidaba caches, por lo que el operario
+        veia el nombre borrado todavia en ``get_user_constants``.
+        Mismo patron que ``update_user_constant_value``/``..._name``.
+        """
+        result = await self._dispatch_worker(
             "delete_user_constant",
             {
                 "plc_name": plc_name,
@@ -2372,6 +2557,8 @@ class TIAProcessGateway:
                 "constant_name": constant_name,
             },
         )
+        self.clear_cache()  # A4: delete invalida la lista de constantes.
+        return result
 
     async def execute_transactional_batch(
         self, operations: list[dict[str, Any]], undo_text: str = "Batch Operation"
