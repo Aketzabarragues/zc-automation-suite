@@ -1484,8 +1484,11 @@ class TIAProcessGateway:
 
         El gateway:
 
-          1. Marca el estado como ``"disconnected"`` (transitorio
-             mientras se hace el detach).
+          1. Marca el estado como ``"idle"`` (sept-2026 round 3;
+             transición optimista ANTES del lock, ver docstring
+             principal arriba). Anteriormente la docstring decía
+             ``"disconnected"``, pero ese estado se eliminó del
+             state machine en el refactor.
           2. Cancela el heartbeat task (en connected no tiene
              sentido, solo gastaria round-trips contra un portal
              muerto).

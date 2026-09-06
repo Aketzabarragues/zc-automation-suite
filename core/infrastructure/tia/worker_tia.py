@@ -161,27 +161,16 @@ def _cmd_open_project(portal: Any, ts: Any, args: dict[str, Any]) -> None:
     portal.open_project(project_file_path=project_file_path)
 
 
-def _cmd_attach_portal(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
-    """Hot-attach a una instancia YA EJECUTÃNDOSE de TIA Portal.
-
-    Usa ``ts.attach_portal(portal_mode=...)`` (Manual V1.2.1 Â§2.4.2).
-    Escenario tÃ­pico: el operario ya tiene TIA Portal abierto; el
-    gateway se acopla a esa instancia sin abrir un proceso nuevo.
-
-    Returns:
-        ``True`` si el acople fue exitoso (``portal`` no es ``None``).
-    """
-    _ = portal  # se ignora: attach reemplaza la instancia
-    _ = args  # sin args adicionales (el modo AnyUserInterface es implÃ­cito)
-    new_portal = ts.attach_portal(
-        portal_mode=ts.Enums.PortalMode.AnyUserInterface
-    )
-    if new_portal is None:
-        raise RuntimeError(
-            "Fallo crÃ­tico: attach_portal retornÃ³ None. "
-            "Â¿EstÃ¡ TIA Portal abierto? Â¿El usuario pertenece al grupo Openness?"
-        )
-    return True
+# NOTA (sept-2026 round 3, fix de auditoría profunda del worker):
+# El handler ``_cmd_attach_portal`` se eliminó de este archivo porque
+# era código muerto en producción: el loop persistente
+# ``main_persistent_loop`` dispatcha ``attach_portal`` INLINE
+# (worker_tia.py:~1532) ANTES de consultar el ``COMMAND_REGISTRY``,
+# usando ``_handle_attach`` (~1406). El handler del registry no podía
+# mutar la variable local ``portal`` (las funciones no reasignan
+# scope del llamante), así que su ``return True`` era inútil.
+# El path 1-shot (``main()``) tampoco lo invocaba: hace su propio
+# attach inline (worker_tia.py:~1733). Eliminado el 2026-09-06.
 
 
 def _cmd_open_new_portal(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
@@ -780,25 +769,26 @@ def _cmd_scan_blocks(portal: Any, ts: Any, args: dict[str, Any]) -> dict[str, An
 
 
 # ─── COMMAND_REGISTRY ──────────────────────────────────────────────────────
-    """Exporta una Ãºnica PlcTagTable como XML SimaticML. Manual Â§2.10.5 / Â§2.28.3."""
-    _ = ts
-    project = _get_active_project(portal)
-    plc_name: str = args.get("plc_name", "")
-    table_name: str = args.get("table_name", "")
-    target_dir: str = args.get("target_dir", "")
-    if not table_name:
-        raise ValueError("Se requiere el argumento 'table_name'.")
-    target_path = _ensure_target_dir(target_dir)
-    target_plc = _find_plc(project, plc_name)
-    tables = target_plc.get_plc_tag_tables()
-    for table in tables:
-        if table.get_name() == table_name:
-            table.export(
-                target_directory_path=str(target_path),
-                keep_folder_structure=False,
-            )
-            return str(target_path)
-    raise RuntimeError(f"Tabla '{table_name}' no encontrada en PLC '{plc_name}'.")
+# NOTA (sept-2026 round 3, fix de auditoría profunda del worker):
+# ``attach_portal`` y ``detach_portal`` son comandos del STATE MACHINE
+# del worker persistente, NO comandos del registry. El loop
+# ``main_persistent_loop`` los dispatcha INLINE (worker_tia.py:~1532)
+# ANTES de consultar el ``COMMAND_REGISTRY``, porque necesitan mutar
+# la variable local ``portal`` (las funciones no pueden reasignar
+# variables del scope del llamante). Ver el inline handler
+# ``_handle_attach`` (~1406) y ``_handle_detach`` (~1482).
+#
+# Históricamente, ``attach_portal`` SÍ estaba en el registry (como
+# ``_cmd_attach_portal``), pero su firma ``(portal, ts, args) -> bool``
+# no podía reasignar ``portal``, así que el attach real nunca
+# surtía efecto. Era código muerto en producción (solo lo invocaba
+# el path 1-shot de ``main()``, que también hace su propio attach
+# inline y no lo usaba). Eliminado del registry en sept-2026.
+#
+# Si alguien en el futuro refactoriza el loop persistente y mueve
+# el dispatch al registry, el ``_handle_attach`` INLINE ya
+# documenta el contrato (mutación de ``portal``) y se debe
+# respetar.
 
 
 def _cmd_export_tag_table(portal: Any, ts: Any, args: dict[str, Any]) -> str:
@@ -1091,8 +1081,11 @@ def _cmd_execute_transactional_batch(
 
 
 COMMAND_REGISTRY: dict[str, Callable[[Any, Any, dict[str, Any]], Any]] = {
-    # â”€â”€ Ciclo de vida del proyecto â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    "attach_portal": _cmd_attach_portal,
+    # ── Ciclo de vida del proyecto ────────────────────────────────────────
+    # NOTA: ``attach_portal`` NO está en el registry. Es un comando
+    # del state machine del worker persistente, gestionado INLINE
+    # por ``_handle_attach`` (ver ``main_persistent_loop``).
+    # Ver comentario en COMMAND_REGISTRY preamble (~línea 770).
     "open_new_portal": _cmd_open_new_portal,
     "open_project": _cmd_open_project,
     "save_project": _cmd_save_project,
