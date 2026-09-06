@@ -508,7 +508,7 @@ export default {
                  (canConnect / canDisconnect / canSelectPlc /
                  canSearchPlcs) refleja el state machine y
                  store.busy. ★ -->
-            <div class="mb-4 bg-surface-raised border border-line rounded p-4 space-y-3"
+            <div class="mb-4 bg-surface-raised border border-line rounded p-4 space-y-5"
                  data-testid="bloques-cache-card-info">
 
                 <!-- Zona A: grid 2 columnas (estado | controles) -->
@@ -581,8 +581,10 @@ export default {
                     </div>
                 </div>
 
-                <!-- Divisor entre zonas A y B -->
-                <div class="border-t border-line"></div>
+                <!-- Divisor entre zonas A y B (con padding vertical
+                     para que el border no quede "pegado" al contenido
+                     de las dos zonas). -->
+                <div class="py-2 border-t border-line"></div>
 
                 <!-- Zona B: PLC activo + boton "↻ Actualizar" -->
                 <div>
