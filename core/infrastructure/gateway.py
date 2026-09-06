@@ -584,6 +584,54 @@ class TIAProcessGateway:
             return False
         return proc.returncode is None
 
+    async def start(self) -> None:
+        """Arranca el worker OT persistente y espera al "ready_idle" signal.
+
+        API publica (sept-2026, post-auditoria). Pensada para que el
+        ``WebServiceSupervisor`` (modo web) la invoque ANTES de
+        ``uvicorn.run``, de forma que cuando la web empiece a aceptar
+        requests el worker ya este vivo y con estado ``"idle"``.
+
+        Esto elimina el race condition del flujo anterior: el primer
+        comando del frontend (e.g. ``GET /tia/connection``) disparaba
+        el lazy start via ``_send_to_persistent_worker``, que enviaba
+        un ``ping`` con timeout 15s. Si el attach a TIA Portal tardaba
+        mas de 15s (e.g. dialog de seguridad, primera carga del
+        wrapper .NET), el ping moria antes de que el worker estuviera
+        listo para leer stdin. El frontend quedaba en
+        ``state="error"`` durante 15s aunque TIA estuviera bien.
+
+        Con este metodo:
+          - El supervisor (o ``main.py --web``) llama a ``await
+            gateway.start()`` antes de ``uvicorn.run``.
+          - El gateway lanza el subproceso worker, espera al "ready"
+            signal (id=0) con timeout 60s, y solo entonces retorna.
+          - Si el ready llega OK, ``_connection_state = "idle"``.
+          - Si falla, lanza ``TIAConnectionError`` con mensaje claro.
+          - La web arranca con el worker ya en estado consistente.
+
+        Modo 1-shot (``persistent=False``): no-op. El gateway se usa
+        tal cual en el flujo MCP, sin worker persistente.
+
+        Raises:
+            TIAConnectionError: si el worker no emite "ready" en 60s
+                (TIA Portal con dialog de seguridad, attach muy lento,
+                bug en ``main_persistent_loop``) o si la creacion del
+                subproceso falla.
+
+        Nota: este metodo se restauro en sept-2026 tras un refactor
+        intermedio que lo habia borrado accidentalmente. El
+        ``WebServiceSupervisor._serve_once`` y ``main.py::_run_web_mode_async``
+        ya lo invocan; sin el, el primer ``GET /tia/connection`` del
+        frontend encuentra ``is_worker_alive() == False`` y el
+        ``WorkerStatusIndicator`` se queda gris aunque el subproceso
+        este vivo (el lazy start de ``_start_persistent_worker`` se
+        dispara tarde, en el primer comando).
+        """
+        if not self._persistent:
+            return  # modo 1-shot: no hay worker persistente que arrancar
+        await self._start_persistent_worker()
+
     async def _start_persistent_worker(self) -> None:
         """Lanza el subproceso worker OT en modo persistente (lazy start).
 
