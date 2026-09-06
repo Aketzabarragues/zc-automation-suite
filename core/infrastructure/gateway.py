@@ -298,10 +298,25 @@ class TIAProcessGateway:
                 "ping",
                 "get_project_info",
             ) and self._connection_state != "connected":
+                _log.warning(
+                    "DIAG: _dispatch_worker(%s): state=%s != 'connected', "
+                    "lanzando TIAConnectionError",
+                    command, self._connection_state,
+                )
                 raise TIAConnectionError(
                     "Worker no conectado a TIA Portal. Conectar primero."
                 )
+            _log.info(
+                "DIAG: _dispatch_worker(%s): state=connected, "
+                "esperando lock (locked=%s)...",
+                command, self._worker_lock.locked(),
+            )
             async with self._worker_lock:
+                _log.info(
+                    "DIAG: _dispatch_worker(%s): lock adquirido, "
+                    "llamando _send_to_persistent_worker",
+                    command,
+                )
                 return await self._send_to_persistent_worker(
                     command, args, timeout_override
                 )
@@ -1093,12 +1108,28 @@ class TIAProcessGateway:
         """
         # Lazy start: si el proc no existe o ya murio, lo relanzamos.
         if self._worker_proc is None or self._worker_proc.returncode is not None:
+            _log.warning(
+                "DIAG: _send_to_persistent_worker(%s): lazy start "
+                "(proc=%s, returncode=%s)",
+                command,
+                self._worker_proc,
+                self._worker_proc.returncode if self._worker_proc else None,
+            )
             await self._start_persistent_worker()
 
         # El reader_task es quien resuelve futures. Si murio (e.g.
         # EOF inesperado), NO podemos recibir respuestas. Marcamos
         # disconnected y fallamos rapido en vez de esperar al timeout.
         if self._reader_task is None or self._reader_task.done():
+            _log.warning(
+                "DIAG: _send_to_persistent_worker(%s): reader_task "
+                "MURIO (reader_task=%s, done=%s). proc alive=%s",
+                command,
+                self._reader_task,
+                self._reader_task.done() if self._reader_task else None,
+                self._worker_proc.returncode is None
+                if self._worker_proc else False,
+            )
             # El reader_task es quien resuelve futures. Si murio (e.g.
             # EOF inesperado), NO podemos recibir respuestas. Marcamos
             # "error" (no "idle", porque un reader muerto es un fallo
@@ -1108,6 +1139,13 @@ class TIAProcessGateway:
                 "Reader task del worker persistente no esta vivo. "
                 "El subproceso probablemente murio."
             )
+        _log.info(
+            "DIAG: _send_to_persistent_worker(%s): paso checks. "
+            "proc alive=%s, reader alive=%s. Escribiendo a stdin...",
+            command,
+            self._worker_proc.returncode is None,
+            not self._reader_task.done(),
+        )
 
         request_id = self._next_request_id
         self._next_request_id += 1
@@ -1127,12 +1165,29 @@ class TIAProcessGateway:
         try:
             assert self._worker_proc.stdin is not None
             self._worker_proc.stdin.write(payload + b"\n")
+            _log.info(
+                "DIAG: _send_to_persistent_worker(%s): escrito a stdin, "
+                "esperando drain...",
+                command,
+            )
             await self._worker_proc.stdin.drain()
+            _log.info(
+                "DIAG: _send_to_persistent_worker(%s): drain completo. "
+                "Esperando respuesta (timeout=%.1fs)...",
+                command,
+                timeout_override if timeout_override is not None else self._timeout,
+            )
 
             timeout = (
                 timeout_override if timeout_override is not None else self._timeout
             )
             response = await asyncio.wait_for(future, timeout=timeout)
+            _log.info(
+                "DIAG: _send_to_persistent_worker(%s): respuesta "
+                "RECIBIDA: %s",
+                command,
+                str(response)[:200],
+            )
 
             if not response.get("ok"):
                 err = response.get("error", "Error interno en el worker OT.")
@@ -1156,6 +1211,15 @@ class TIAProcessGateway:
 
             return response.get("result")
         except asyncio.TimeoutError as exc:
+            _log.warning(
+                "DIAG: _send_to_persistent_worker(%s): TIMEOUT después "
+                "de %.1fs. Reader_task alive=%s, proc alive=%s",
+                command,
+                timeout,
+                not self._reader_task.done() if self._reader_task else False,
+                self._worker_proc.returncode is None
+                if self._worker_proc else False,
+            )
             # El worker no respondio al comando en el timeout. En el
             # state machine sept-2026 marcamos "idle" (no "error"):
             # puede ser un comando lento puntual, no un fallo del
