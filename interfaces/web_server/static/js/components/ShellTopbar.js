@@ -330,8 +330,8 @@ export default {
                    6. Boton "Buscar PLCs" — visible SOLO si
                       state == "connected".
 
-                 Layout inline con ``flex items-center gap-2``;
-                 el espaciado lo controla ``gap``. -->
+                 Layout inline con 'flex items-center gap-2';
+                 el espaciado lo controla 'gap'. -->
             <div class="flex items-center gap-2">
                 <WorkerStatusIndicator />
                 <TiaConnectionIndicator @connect="handleConnect" />

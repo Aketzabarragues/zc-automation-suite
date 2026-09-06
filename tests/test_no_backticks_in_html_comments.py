@@ -34,8 +34,18 @@ JS_DIR = REPO_ROOT / "interfaces" / "web_server" / "static" / "js"
 # Patrones:
 # - Comentario HTML: <!-- ... -->
 # - Buscamos backticks dentro.
+# ANTES (defectuoso, sept-2026): <!--[^>]*?`[^>]*?-->
+#   El [^>]*? antes del ` falla cuando hay un `>` en el contenido
+#   del comentario (e.g. `store.plcs.length > 0` en ShellTopbar.js v2.2),
+#   porque el `[^>]` excluye `>` y el regex se para antes de llegar al
+#   backtick. Resultado: el test pasaba con archivos que tenian
+#   backticks en comentarios HTML (bug del navegador silencioso).
+# AHORA (sept-2026, post-fix): <!--[^`]*?`.*?-->
+#   El [^`]*? matchea cualquier cosa que no sea un backtick, no
+#   importa si hay `>` en medio. Asi el regex matchea correctamente
+#   comentarios con `>` arbitrarios.
 COMMENT_WITH_BACKTICK = re.compile(
-    r"<!--[^>]*?`[^>]*?-->",
+    r"<!--[^`]*?`.*?-->",
     re.DOTALL,
 )
 # Template literal Vue 3: `template: (opcional /* html */) ` ... `,`
