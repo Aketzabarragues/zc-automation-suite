@@ -805,12 +805,17 @@ class TIAProcessGateway:
                 # esperar al ping): si ``returncode`` ya esta fijado,
                 # el worker murio y el ping fallaria igualmente.
                 if self._worker_proc.returncode is not None:
-                    self._connection_state = "disconnected"
+                    # El subproceso worker murio. En el state machine
+                    # sept-2026 (idle/connecting/connected/error), un
+                    # worker muerto se representa como "idle" (subproceso
+                    # no attached). El operario puede reintentar connect()
+                    # y el gateway hara lazy start de un nuevo worker.
+                    self._connection_state = "idle"
                     self._last_error = (
                         f"Worker subproceso termino con codigo "
                         f"{self._worker_proc.returncode}"
                     )
-                    consecutive_failures = 3  # corte directo a disconnected
+                    consecutive_failures = 3  # corte directo a idle
                     continue
 
                 # Ping bajo el lock para serializar contra
@@ -841,7 +846,9 @@ class TIAProcessGateway:
                             else f"Ping retorno payload inesperado: {result!r}"
                         ) or "Ping retorno sin ok"
                         self._connection_state = (
-                            "disconnected"
+                            # 3 fallos consecutivos: "idle" (sept-2026).
+                            # El operario puede reintentar connect().
+                            "idle"
                             if consecutive_failures >= 3
                             else "connecting"
                         )
@@ -958,7 +965,7 @@ class TIAProcessGateway:
           5. Si la respuesta es ``{ok: False, error: ...}``, decide
              entre ``RuntimeError`` y ``TIAConnectionError`` segun el
              patron del error (ver §3.1 del design doc: errores de
-             conexion marcan ``_connection_state = "disconnected"``).
+             conexion marcan ``_connection_state = "idle"``).
           6. Si timeout, marca el estado como ``"disconnected"`` y
              lanza ``RuntimeError`` con mensaje accionable.
 
@@ -990,7 +997,11 @@ class TIAProcessGateway:
         # EOF inesperado), NO podemos recibir respuestas. Marcamos
         # disconnected y fallamos rapido en vez de esperar al timeout.
         if self._reader_task is None or self._reader_task.done():
-            self._connection_state = "disconnected"
+            # El reader_task es quien resuelve futures. Si murio (e.g.
+            # EOF inesperado), NO podemos recibir respuestas. Marcamos
+            # "error" (no "idle", porque un reader muerto es un fallo
+            # grave del worker, no una desconexion limpia del portal).
+            self._connection_state = "error"
             raise RuntimeError(
                 "Reader task del worker persistente no esta vivo. "
                 "El subproceso probablemente murio."
@@ -1025,11 +1036,11 @@ class TIAProcessGateway:
                 err = response.get("error", "Error interno en el worker OT.")
                 if _is_tia_connection_error(str(err)):
                     # Patron de error de conexion conocido. Marcamos
-                    # disconnected para que el frontend muestre el
-                    # circulo gris y el operario sepa que TIA no
-                    # responde. La cache IT se invalida para evitar
-                    # datos stale de un attach anterior.
-                    self._connection_state = "disconnected"
+                    # "idle" (sept-2026): TIA no responde, el worker
+                    # sigue vivo, el operario puede reintentar connect().
+                    # La cache IT se invalida para evitar datos stale
+                    # de un attach anterior.
+                    self._connection_state = "idle"
                     self._clear_bloques_cache()
                     self._cache.clear()
                     _logger = logging.getLogger(__name__)
@@ -1043,7 +1054,11 @@ class TIAProcessGateway:
 
             return response.get("result")
         except asyncio.TimeoutError as exc:
-            self._connection_state = "disconnected"
+            # El worker no respondio al comando en el timeout. En el
+            # state machine sept-2026 marcamos "idle" (no "error"):
+            # puede ser un comando lento puntual, no un fallo del
+            # worker. El operario puede reintentar.
+            self._connection_state = "idle"
             self._last_error = (
                 f"Worker no respondio en {timeout}s (comando: {command!r})"
             )
@@ -1058,10 +1073,11 @@ class TIAProcessGateway:
             raise
         except Exception as exc:
             # Cualquier otra excepcion (e.g. BrokenPipeError si el
-            # worker muere durante el write) marca disconnected y se
-            # traduce a RuntimeError para que el caller no vea el
-            # tipo nativo de asyncio.
-            self._connection_state = "disconnected"
+            # worker muere durante el write) marca "error" (sept-2026):
+            # es un fallo grave (I/O con el worker), no una
+            # desconexion limpia. Se traduce a RuntimeError para que
+            # el caller no vea el tipo nativo de asyncio.
+            self._connection_state = "error"
             self._last_error = f"{type(exc).__name__}: {exc}"
             raise RuntimeError(
                 f"Error de I/O con el worker persistente "
@@ -1385,12 +1401,13 @@ class TIAProcessGateway:
             )
 
         async with self._worker_lock:
-            # Marcamos disconnected PRIMERO para que el
+            # Marcamos "idle" (sept-2026) PRIMERO para que el
             # ``GET /tia/connection`` siguiente lo vea, incluso si
             # el detach tarda un poco. Limpiar ``_last_error``
             # evita que el operario vea un error stale de un fallo
-            # anterior.
-            self._connection_state = "disconnected"
+            # anterior. (El antiguo "disconnected" ya no existe en
+            # el state machine refactorizado.)
+            self._connection_state = "idle"
             self._last_error = None
 
             # Cancela el heartbeat task si esta corriendo. El loop
@@ -1496,7 +1513,10 @@ class TIAProcessGateway:
         async with self._worker_lock:
             # 1. Disconnect: detach + cache clear + heartbeat cancel.
             #    El subproceso worker sigue vivo.
-            self._connection_state = "disconnected"
+            #    (El antiguo "disconnected" ya no existe en el state
+            #    machine refactorizado; usamos "idle" como transicion
+            #    antes de connect() en el mismo lock.)
+            self._connection_state = "idle"
             self._last_error = None
             if (
                 self._heartbeat_task is not None

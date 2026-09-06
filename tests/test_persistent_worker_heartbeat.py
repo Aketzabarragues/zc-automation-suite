@@ -148,10 +148,10 @@ class TestHeartbeatConnectedState:
         """
         gateway = TIAProcessGateway(persistent=True)
         gateway._worker_proc = _build_alive_proc()
-        # Forzamos el estado inicial a "disconnected" para verificar
+        # Forzamos el estado inicial a "idle" para verificar
         # que el heartbeat lo transiciona a "connected" tras el primer
         # tick exitoso.
-        gateway._connection_state = "disconnected"
+        gateway._connection_state = "idle"
 
         pings = await _run_heartbeat_for_n_pings(
             gateway, n=3, ping_response={"ok": True, "pid": 123}
@@ -208,20 +208,20 @@ class TestHeartbeatTransientFailure:
 
 
 # ────────────────────────────────────────────────────────────────────────
-# Test 3: 3 fallos consecutivos → ``"disconnected"``
+# Test 3: 3 fallos consecutivos → ``"idle"`` (sept-2026)
 # ────────────────────────────────────────────────────────────────────────
 
 
 class TestHeartbeatDisconnectedState:
-    """3 fallos consecutivos → ``"disconnected"`` (umbral del design doc §3.4)."""
+    """3 fallos consecutivos → ``"idle"`` (sept-2026; umbral del design doc §3.4)."""
 
     @pytest.mark.asyncio
-    async def test_3_fallos_consecutivos_estado_disconnected(self) -> None:
-        """Tras 3 pings fallidos consecutivos, el estado es ``"disconnected"``.
+    async def test_3_fallos_consecutivos_estado_idle(self) -> None:
+        """Tras 3 pings fallidos consecutivos, el estado es ``"idle"``.
 
         Verifica que el contador ``consecutive_failures`` interno del
         loop se acumula correctamente y dispara la transicion a
-        ``"disconnected"`` en el tercer tick. Tambien verifica que
+        ``"idle"`` en el tercer tick. Tambien verifica que
         el estado ``"connecting"`` se observo en el tick 2 (test
         indirecto de que el umbral es exactamente 3, no 2).
         """
@@ -264,9 +264,9 @@ class TestHeartbeatDisconnectedState:
             f"se esperaban 3 pings, got {len(observed_states)}: "
             f"{observed_states!r}"
         )
-        # Estado final: disconnected.
-        assert gateway._connection_state == "disconnected", (
-            f"se esperaba 'disconnected' tras 3 fallos, "
+        # Estado final: "idle" (sept-2026; el antiguo "disconnected" ya no existe).
+        assert gateway._connection_state == "idle", (
+            f"se esperaba 'idle' tras 3 fallos, "
             f"got {gateway._connection_state!r}"
         )
         # El error del worker quedo registrado.
@@ -340,16 +340,16 @@ class TestHeartbeatIntervalConfig:
 
 
 # ────────────────────────────────────────────────────────────────────────
-# Test 5 (defensivo): subproceso muerto → ``"disconnected"`` sin ping
+# Test 5 (defensivo): subproceso muerto → ``"idle"`` sin ping (sept-2026)
 # ────────────────────────────────────────────────────────────────────────
 
 
 class TestHeartbeatDeadWorker:
-    """Si el subproceso muere, el heartbeat marca ``"disconnected"`` sin enviar ping."""
+    """Si el subproceso muere, el heartbeat marca ``"idle"`` sin enviar ping (sept-2026)."""
 
     @pytest.mark.asyncio
-    async def test_subproceso_muerto_marca_disconnected_sin_ping(self) -> None:
-        """``_worker_proc.returncode != None`` → disconnected, sin invocar al ping.
+    async def test_subproceso_muerto_marca_idle_sin_ping(self) -> None:
+        """``_worker_proc.returncode != None`` → idle, sin invocar al ping.
 
         Caso real: el subproceso worker crashea (OOM, excepcion no
         capturada, TIA cerrada de golpe). El heartbeat debe detectarlo
@@ -396,9 +396,9 @@ class TestHeartbeatDeadWorker:
             except (asyncio.CancelledError, Exception):
                 pass
 
-        # El estado paso a disconnected.
-        assert gateway._connection_state == "disconnected", (
-            f"se esperaba 'disconnected' al detectar muerte del worker, "
+        # El estado paso a "idle" (sept-2026; el antiguo "disconnected" ya no existe).
+        assert gateway._connection_state == "idle", (
+            f"se esperaba 'idle' al detectar muerte del worker, "
             f"got {gateway._connection_state!r}"
         )
         # El codigo de salida aparece en el mensaje de error.

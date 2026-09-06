@@ -274,7 +274,8 @@ class TestSendTimeout:
 
         Mockeamos el reader para que NO resuelva el future, y usamos
         un timeout muy corto (0.1s) para que el test sea rapido.
-        Verificamos que el estado pasa a ``disconnected`` y que se
+        Verificamos que el estado pasa a ``"idle"`` (sept-2026,
+        el antiguo ``"disconnected"`` ya no existe) y que se
         lanza ``RuntimeError`` mencionando el timeout.
         """
         gateway = TIAProcessGateway(persistent=True)
@@ -303,8 +304,9 @@ class TestSendTimeout:
                 "slow_op", args={}, timeout_override=0.1
             )
 
-        # El estado pasa a disconnected tras el timeout.
-        assert gateway._connection_state == "disconnected"
+        # El estado pasa a "idle" tras el timeout (sept-2026; el
+        # antiguo "disconnected" ya no existe en el state machine).
+        assert gateway._connection_state == "idle"
         # El mensaje incluye el comando y el timeout.
         msg = str(exc_info.value)
         assert "slow_op" in msg
