@@ -582,31 +582,35 @@ export default {
                 </div>
 
                 <!-- Divisor entre zonas A y B (con padding vertical
-                     para que el border no quede "pegado" al contenido
-                     de las dos zonas). -->
-                <div class="py-2 border-t border-line"></div>
+                     amplio para que el border no quede "pegado" al
+                     contenido de las dos zonas adyacentes). -->
+                <div class="py-4 border-t border-line"></div>
 
-                <!-- Zona B: PLC activo + boton "↻ Actualizar" -->
+                <!-- Zona B: PLC activo + boton "↻ Actualizar".
+                     PLC info en 2 lineas separadas:
+                       - Linea 1: nombre del PLC (principal).
+                       - Linea 2: timestamp del escaneado.
+                     El boton "↻ Actualizar" se queda a la derecha
+                     (centrado verticalmente respecto a las 2 lineas). -->
                 <div>
                     <h4 class="text-[10px] font-bold text-ink-muted uppercase tracking-widest mb-2">
                         PLC activo
                     </h4>
                     <div class="flex justify-between items-center gap-3">
-                        <p class="text-xs text-ink-muted">
-                            <template v-if="store.selectedPlc">
+                        <div v-if="store.selectedPlc" class="space-y-1">
+                            <p class="text-xs">
                                 <span class="text-ink-muted">PLC:</span>
                                 <span class="font-mono font-semibold text-ink ml-1">{{ plcName }}</span>
-                                <template v-if="scannedAt">
-                                    <span class="text-line-strong mx-2" aria-hidden="true">·</span>
-                                    <span class="text-ink-muted">Escaneado:</span>
-                                    <span class="font-mono ml-1">{{ scannedAt }}</span>
-                                </template>
-                            </template>
-                            <template v-else>
-                                Sin PLC seleccionado. Pulsa
-                                <strong class="text-accent">"🔍 Buscar PLCs"</strong>
-                                para listar los PLCs del proyecto TIA conectado.
-                            </template>
+                            </p>
+                            <p v-if="scannedAt" class="text-xs">
+                                <span class="text-ink-muted">Escaneado:</span>
+                                <span class="font-mono ml-1">{{ scannedAt }}</span>
+                            </p>
+                        </div>
+                        <p v-else class="text-xs text-ink-muted">
+                            Sin PLC seleccionado. Pulsa
+                            <strong class="text-accent">"🔍 Buscar PLCs"</strong>
+                            para listar los PLCs del proyecto TIA conectado.
                         </p>
                         <button @click="handleRefresh"
                             :disabled="!store.selectedPlc || isRefreshing"
