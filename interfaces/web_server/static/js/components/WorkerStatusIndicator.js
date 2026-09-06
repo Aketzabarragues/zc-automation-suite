@@ -63,7 +63,7 @@ export default {
     template: /* html */ `
         <span
             :title="tooltip"
-            :class="['w-2 h-2 rounded-full inline-block', colorClass, 'transition-colors']"
+            :class="['w-3 h-3 rounded-full inline-block', colorClass, 'transition-colors']"
             :aria-label="alive ? 'Worker OT en marcha' : 'Worker OT detenido'"
             data-testid="worker-status-indicator">
         </span>

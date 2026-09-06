@@ -81,18 +81,23 @@ def test_store_has_tia_connection_slot() -> None:
         )
 
 
-def test_store_tia_connection_initial_state_is_disconnected() -> None:
+def test_store_tia_connection_initial_state_is_idle() -> None:
     """El estado inicial de ``tiaConnection.state`` debe ser
-    ``"disconnected"`` (mismo valor que la respuesta por defecto
-    del endpoint ``GET /api/v1/tia/connection``)."""
+    ``"idle"`` (state machine sept-2026: el worker persistente
+    arranca en idle, subproceso vivo SIN portal attached, y el
+    operario decide cuando pulsar "Conectar" del topbar para
+    pedir el attach). Es el mismo valor que el backend expone
+    en ``GET /api/v1/tia/connection`` antes del primer attach."""
     text = _read(STORE_JS)
     start = text.find("tiaConnection: {")
     assert start != -1
-    body = text[start:start + 200]
-    assert 'state: "disconnected"' in body, (
-        "tiaConnection.state debe inicializarse a 'disconnected' "
-        "(mismo valor que devuelve el backend antes del primer "
-        "attach del worker)."
+    # Aumentamos el rango a 500 chars para cubrir el comentario
+    # doc del slot (sept-2026, mas extenso que el original).
+    body = text[start:start + 500]
+    assert 'state: "idle"' in body, (
+        "tiaConnection.state debe inicializarse a 'idle' "
+        "(state machine sept-2026: worker persistente arranca "
+        "en idle, sin attach a TIA Portal)."
     )
 
 
@@ -472,19 +477,21 @@ def test_apply_tia_snapshot_rejects_non_ok_response() -> None:
 
 def test_apply_tia_snapshot_validates_state_field() -> None:
     """``_applyTiaSnapshot(r)`` debe validar que ``r.data.state`` sea
-    uno de los 4 valores estables (``connected`` / ``connecting`` /
-    ``disconnected`` / ``error``). Si no lo es, descarta el
-    snapshot (mismo patron que tenia el ``refreshTiaConnection``
-    original antes del refactor, ahora centralizado en el helper)."""
+    uno de los 4 valores estables del state machine sept-2026
+    (``connected`` / ``connecting`` / ``idle`` / ``error``). Si
+    no lo es, descarta el snapshot (mismo patron que tenia el
+    ``refreshTiaConnection`` original antes del refactor, ahora
+    centralizado en el helper). El antiguo ``disconnected`` ya
+    NO se acepta (el backend no lo emite nunca)."""
     text = _read(STORE_JS)
     start = text.find("function _applyTiaSnapshot")
     assert start != -1
     body = text[start:start + 1500]
-    for s in ("connected", "connecting", "disconnected", "error"):
+    for s in ("connected", "connecting", "idle", "error"):
         assert s in body, (
             f"_applyTiaSnapshot debe aceptar el state {s!r} "
             f"(validacion contra los 4 valores estables del "
-            f"design doc §4.3)."
+            f"state machine sept-2026)."
         )
 
 
@@ -538,6 +545,63 @@ def test_disconnect_tia_delegates_to_apply_tia_snapshot() -> None:
         "el backend en este endpoint no expone worker_alive ni "
         "project_changed (solo state y error), el helper tolera "
         "que falten y los pone a false (no rompe)."
+    )
+
+
+# ── v2.2 (sept-2026): disconnectTia limpia los slots del PLC ────────
+#
+# Hallazgo: tras el refactor del state machine, "Desconectar"
+# deja el worker en idle (subproceso vivo, sin portal attached).
+# Sin limpieza de los slots del PLC, el topbar seguiria
+# mostrando la lista de PLCs del attach anterior y el caption
+# del proyecto viejo, dando la falsa sensacion de "sigo
+# conectado". El operario ve el circulo gris del
+# TiaConnectionIndicator pero el <select> sigue lleno de PLCs
+# stale.
+#
+# Fix: disconnectTia() vacia plcs, selectedPlc, plcBlocksCache
+# y projectInfo cuando la respuesta del backend es OK.
+
+
+def test_disconnect_clears_plc_state() -> None:
+    """``disconnectTia()`` debe limpiar los slots del PLC
+    (``plcs``, ``selectedPlc``, ``plcBlocksCache``,
+    ``projectInfo``) tras un detach OK. Sin esta limpieza, el
+    topbar mostraria PLCs stale y un caption de proyecto
+    antiguo tras un "Conectar / Desconectar" rapido."""
+    text = _read(STORE_JS)
+    start = text.find("export async function disconnectTia")
+    assert start != -1
+    # Cogemos un tramo generoso que cubra el helper entero
+    # (incluida la limpieza post-detach).
+    body = text[start:start + 1500]
+    for slot, val in (
+        ('store.plcs = []',          "plcs (lista)"),
+        ('store.selectedPlc = ""',   "selectedPlc (dropdown)"),
+        ('store.plcBlocksCache = null', "plcBlocksCache (snapshot bloques)"),
+        ('store.projectInfo = null', "projectInfo (caption proyecto)"),
+    ):
+        assert slot in body, (
+            f"disconnectTia debe resetear {val} tras un detach OK "
+            f"(asignacion esperada: '{slot}'). Sin esta limpieza, "
+            f"el topbar mostraria datos stale del attach anterior."
+        )
+
+
+def test_disconnect_clears_plc_state_only_on_ok_response() -> None:
+    """``disconnectTia()`` solo debe limpiar los slots del PLC
+    si la respuesta del backend es OK (``r && r.ok``). Si el
+    detach fallo, preferimos dejar los slots como estaban
+    (un "stale" visible es mejor que un "vacio" confuso cuando
+    el operario no sabe si el detach se hizo o no)."""
+    text = _read(STORE_JS)
+    start = text.find("export async function disconnectTia")
+    assert start != -1
+    body = text[start:start + 1500]
+    assert "r && r.ok" in body or "r.ok" in body, (
+        "disconnectTia debe guardar la limpieza del PLC detras "
+        "de un check 'r && r.ok' (o equivalente) para no "
+        "pisar slots en error path."
     )
 
 
