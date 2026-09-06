@@ -184,6 +184,20 @@ class TIAProcessGateway:
             self._project_changed: bool = False
             self._last_ping_ok: float | None = None
             self._last_error: str | None = None
+            # PID del portal TIA Portal al que estamos attached. Lo setea
+            # ``connect()`` tras un ``attach_portal`` exitoso (el worker
+            # devuelve ``{"pid": <int>}``) y lo limpia ``disconnect()``
+            # (transicion a ``"idle"``). ``None`` en cualquier estado
+            # distinto de ``"connected"`` (idle, connecting, error,
+            # disconnected). El router ``/tia/connection`` lo expone
+            # en la respuesta cuando ``state == "connected"`` para que
+            # la SPA muestre el PID al operario (util para diagnostico
+            # desde Task Manager: "tengo 3 zombie? mira sus PIDs"). No
+            # es el PID del subproceso worker (eso seria ``pid`` del
+            # ``_worker_proc``); es el PID de TIA Portal en si. Ver
+            # ``worker_tia.attach_portal`` (comando OT que devuelve
+            # ``ts.get_process_id()``).
+            self._last_portal_pid: int | None = None
 
     @property
     def persistent(self) -> bool:
@@ -1282,6 +1296,14 @@ class TIAProcessGateway:
             self._connection_state = "connected"
             self._last_ping_ok = time.monotonic()
             self._last_error = None
+            # Cachear el PID del portal TIA Portal (lo devuelve el
+            # worker en ``attach_portal``). Si la respuesta no trae
+            # ``pid`` (worker con un build que no lo expone aun), se
+            # queda en ``None`` y el router lo mostrara como ``null``.
+            # ``disconnect()`` lo limpia a ``None``.
+            self._last_portal_pid = (
+                int(result["pid"]) if isinstance(result.get("pid"), int) else None
+            )
 
             # Heartbeat solo se inicia si state == connected. Si ya
             # hay uno corriendo (re-connect rapido), no se duplica.
@@ -1433,6 +1455,10 @@ class TIAProcessGateway:
             # proyecto distinto.
             self._project_path = None
             self._project_changed = False
+            # El PID del portal deja de ser valido: el portal se
+            # libero en el detach_portal (o no estamos attached si
+            # el worker no respondio). El router dejara de exponerlo.
+            self._last_portal_pid = None
 
             # Estado final: idle. El worker sigue vivo (si lo
             # estaba); solo el portal attached se libero.

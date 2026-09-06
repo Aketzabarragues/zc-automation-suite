@@ -3,18 +3,21 @@
 Tres endpoints:
 
   GET  /api/v1/tia/connection  -> estado actual del worker persistente.
-  POST /api/v1/tia/connect     -> fuerza reconexion (PR 6 implementa la logica).
-  POST /api/v1/tia/disconnect  -> desconecta (PR 6 implementa la logica).
+  POST /api/v1/tia/connect     -> fuerza el attach al portal TIA.
+  POST /api/v1/tia/disconnect  -> hace el detach del portal TIA.
 
-Shape del GET (ver design doc ``_plan/12_worker_persistent_design.md`` §4.1)::
+Shape del GET (ver design doc ``_plan/12_worker_persistent_design.md`` §4.1 +
+extension sept-2026 para ``pid`` del portal)::
 
     {
-      "state": "connected" | "connecting" | "disconnected" | "error",
+      "state": "idle" | "connecting" | "connected" | "disconnected" | "error",
       "project": {"name": str, "path": str, "version": str} | null,
       "plcs": [str, ...],
       "last_ping_ok_unix": float | null,
       "last_error": str | null,
-      "project_changed": bool
+      "project_changed": bool,
+      "worker_alive": bool,
+      "pid": int | null
     }
 
     ``project_changed`` (PR 7) es un flag one-shot: ``True`` solo
@@ -23,13 +26,35 @@ Shape del GET (ver design doc ``_plan/12_worker_persistent_design.md`` §4.1)::
     gateway lo resetea a ``False`` en el mismo read para que la
     SPA no re-notifique el mismo cambio en cada polling.
 
+    ``worker_alive`` (sept-2026) es ortogonal a ``state``:
+    indica si el subproceso del worker esta vivo, INDEPENDIENTEMENTE
+    de si el attach a TIA tuvo exito.
+
+    ``pid`` (sept-2026) es el PID del PROCESO TIA Portal al que
+    estamos attached. Solo se expone cuando ``state == "connected"``
+    (fuera de ese estado seria confuso: el portal no esta attached
+    y el PID no significa nada). Lo setea ``gateway.connect()`` tras
+    un ``attach_portal`` exitoso y lo limpia ``gateway.disconnect()``.
+    Util para diagnostico: si el operario tiene 3 zombies en Task
+    Manager, el PID le dice cual cerrar.
+
 Las dependencias se inyectan via ``Depends`` (Clean Architecture en
 routers; ver ``interfaces/web_server/dependencies.py``). NO se
 importan globales: el gateway llega por ``get_gateway`` y se recupera
 de ``request.app.state.gateway``.
 
-PR 5a del refactor del worker OT persistente. Plan:
-``_plan/13_persistent_worker_impl.md``.
+Historial:
+  - PR 5a (jul-2026): router inicial con 3 endpoints.
+  - PR 6 (jul-2026): logica ``reconnect()`` / ``disconnect()`` en el
+    gateway; el router los invoca via try/except NotImplementedError
+    mientras se estabilizaba la logica persistente.
+  - Commit sept-2026 (state machine refactor): el worker arranca en
+    ``"idle"`` (sin attach); el operario decide cuando conectar via
+    boton en el topbar. El router ahora delega en ``gateway.connect()``
+    (no ``reconnect()``) y ``gateway.disconnect()`` (sin matar el
+    subproceso). El try/except NotImplementedError se elimina (PR 6 ya
+    esta en main; la rama legacy es codigo muerto). El PID del portal
+    se anade a la respuesta para diagnostico.
 """
 from __future__ import annotations
 
@@ -57,7 +82,9 @@ async def get_tia_connection(
 
     Returns:
         ``dict`` con ``state``, ``project``, ``plcs``,
-        ``last_ping_ok_unix``, ``last_error`` y ``project_changed``.
+        ``last_ping_ok_unix``, ``last_error``, ``project_changed``,
+        ``worker_alive`` y ``pid`` (este ultimo solo si
+        ``state == "connected"``).
     """
     # ``_connection_state`` solo existe si el gateway fue construido
     # con ``persistent=True``. En modo 1-shot (MCP, tests legacy)
@@ -77,8 +104,8 @@ async def get_tia_connection(
     project_changed = bool(
         getattr(gateway, "consume_project_changed", lambda: False)()
     )
-    # ``worker_alive`` (post-PR 6, sept-2026) indica si el subproceso
-    # del worker persistente esta vivo, INDEPENDIENTEMENTE de si el
+    # ``worker_alive`` (sept-2026) indica si el subproceso del
+    # worker persistente esta vivo, INDEPENDIENTEMENTE de si el
     # attach a TIA Portal tuvo exito. Ortogonal a ``state`` (que
     # refleja el attach). El ``WorkerStatusIndicator`` del topbar
     # lo lee reactivamente. ``getattr`` defensivo: si la app corre
@@ -87,6 +114,20 @@ async def get_tia_connection(
     worker_alive = bool(
         getattr(gateway, "is_worker_alive", lambda: False)()
     )
+    # ``pid`` del portal TIA Portal (sept-2026). Solo se expone
+    # cuando el gateway esta ``"connected"``; en otros estados el
+    # portal attached no existe y el PID careceria de sentido. Lo
+    # setea ``gateway.connect()`` tras un ``attach_portal`` exitoso
+    # (a partir de la respuesta ``{"pid": <int>}`` del worker OT)
+    # y lo limpia ``gateway.disconnect()``. ``getattr`` defensivo:
+    # si la app corre con un build anterior, retorna ``None`` y el
+    # frontend ve ``pid: null`` (no rompe la SPA, simplemente no
+    # muestra el PID).
+    pid: int | None = None
+    if state == "connected":
+        raw_pid = getattr(gateway, "_last_portal_pid", None)
+        if isinstance(raw_pid, int):
+            pid = raw_pid
 
     # Solo si estamos "connected" intentamos enriquecer con proyecto
     # y PLCs. En otros estados la cache del gateway puede estar stale
@@ -120,6 +161,7 @@ async def get_tia_connection(
         "last_error": last_error,
         "project_changed": project_changed,
         "worker_alive": worker_alive,
+        "pid": pid,
     }
 
 
@@ -127,39 +169,51 @@ async def get_tia_connection(
 async def post_tia_connect(
     gateway: TIAProcessGateway = Depends(get_gateway),
 ) -> dict:
-    """Fuerza reconexion del worker OT persistente.
+    """Envia el attach al portal TIA Portal y transiciona a ``"connected"``.
 
-    Delega en ``gateway.reconnect()`` (PR 6 implementa la logica).
-    Mientras tanto, si el metodo no existe todavia o lanza
-    ``NotImplementedError``, devolvemos un error claro al frontend
-    en vez de propagar la excepcion (que daria un HTTP 500 inutil).
+    Delega en ``gateway.connect()`` (sept-2026, state machine
+    refactor). El worker persistente ya esta vivo (estado ``"idle"``
+    desde el startup); este endpoint es el equivalente asincrono del
+    boton "Conectar" del topbar. La SPA lo invoca cuando el operario
+    decide conectar a TIA Portal.
+
+    ``connect()`` es idempotente: si ya estamos connected, retorna
+    ``TIAConnectionError`` (el frontend deberia chequear el state
+    antes de llamar para evitar errores redundantes). El router NO
+    filtra ese caso: la SPA es quien decide cuando llamar.
 
     Returns:
-        ``{"ok": true, "state": <state>}`` si reconnect fue OK.
-        ``{"ok": false, "state": ..., "error": "..."}`` en caso
-        contrario.
+        ``{"ok": true, "state": "connected", "pid": <int>}`` si el
+        attach tuvo exito (el ``pid`` es el PID del proceso TIA
+        Portal al que acabamos de attach, util para Task Manager).
+        ``{"ok": true, "state": "connected", "pid": null}`` si el
+        worker no devolvio PID (build antiguo, error parcial).
+        ``{"ok": false, "state": "error", "error": "..."}`` si
+        falla (portal cerrado, ya conectado, worker muerto, etc.).
     """
     try:
-        await gateway.reconnect()
-    except NotImplementedError:
-        # PR 6 anade ``reconnect()``; mientras tanto el frontend recibe
-        # un error legible en vez de un 500.
-        return {
-            "ok": False,
-            "state": "disconnected",
-            "error": "reconnect() pendiente (PR 6)",
-        }
+        await gateway.connect()
     except Exception as exc:
+        # ``connect()`` solo aplica a gateway.persistent=True. En
+        # modo 1-shot (MCP, tests legacy) lanza ``TIAConnectionError``
+        # y el frontend recibe un error legible en vez de un 500.
         return {
             "ok": False,
             "state": "error",
             "error": f"{type(exc).__name__}: {exc}",
         }
-    # Si reconnect() tuvo exito, el gateway actualiza su state.
-    # Si no existe (gateway 1-shot), cae al default ``"connected"``.
+    # Si ``connect()`` tuvo exito, el gateway actualizo su state a
+    # ``"connected"`` y cacheo el ``_last_portal_pid`` en el camino.
+    # Si la app corre con un build anterior (atributo no existe), el
+    # ``getattr`` defensivo retorna ``None`` y el frontend ve
+    # ``pid: null`` (no rompe la SPA).
+    state = getattr(gateway, "_connection_state", "connected")
+    raw_pid = getattr(gateway, "_last_portal_pid", None)
+    pid: int | None = raw_pid if isinstance(raw_pid, int) else None
     return {
         "ok": True,
-        "state": getattr(gateway, "_connection_state", "connected"),
+        "state": state,
+        "pid": pid,
     }
 
 
@@ -167,32 +221,35 @@ async def post_tia_connect(
 async def post_tia_disconnect(
     gateway: TIAProcessGateway = Depends(get_gateway),
 ) -> dict:
-    """Desconecta explicitamente el worker OT persistente.
+    """Envia el detach del portal TIA Portal y transiciona a ``"idle"``.
 
-    Delega en ``gateway.disconnect()`` (PR 6 implementa la logica).
-    Misma politica de errores que ``/connect``: ``NotImplementedError``
-    se traduce a una respuesta legible en vez de un 500.
+    Delega en ``gateway.disconnect()`` (sept-2026, state machine
+    refactor). A diferencia del round anterior, este metodo NO mata
+    el subproceso worker: el worker sigue vivo en estado ``"idle"``,
+    listo para un futuro ``connect()`` sin pagar el coste de un nuevo
+    subproceso (~200 MB con ``siemens_tia_scripting.pyd`` cargado).
+
+    El equivalente asincrono del boton "Desconectar" del topbar.
 
     Returns:
-        ``{"ok": true, "state": "disconnected"}`` si disconnect fue OK.
-        ``{"ok": false, "state": ..., "error": "..."}`` en caso
-        contrario.
+        ``{"ok": true, "state": "idle"}`` si el detach tuvo exito.
+        ``{"ok": false, "state": "error", "error": "..."}`` si
+        falla (e.g. ``disconnect()`` solo aplica a gateway persistente
+        y el modo 1-shot lanzaria ``TIAConnectionError``; el frontend
+        lo vera como un error legible en vez de un 500).
     """
     try:
         await gateway.disconnect()
-    except NotImplementedError:
-        return {
-            "ok": False,
-            "state": "disconnected",
-            "error": "disconnect() pendiente (PR 6)",
-        }
     except Exception as exc:
         return {
             "ok": False,
             "state": "error",
             "error": f"{type(exc).__name__}: {exc}",
         }
-    return {"ok": True, "state": "disconnected"}
+    # ``disconnect()`` siempre transiciona a ``"idle"`` al final (incluso
+    # si el detach_portal fallo: el estado del gateway refleja "idle"
+    # de todos modos). Ver ``gateway.disconnect()`` para el detalle.
+    return {"ok": True, "state": "idle"}
 
 
 __all__ = ["router"]
