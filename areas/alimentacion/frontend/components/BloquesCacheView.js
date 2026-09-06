@@ -487,106 +487,134 @@ export default {
     template: /* html */ `
         <section class="flex-1 flex flex-col overflow-hidden">
 
-            <!-- ★ Card 1 (v3.0 sept-2026): estado del sistema +
-                 controles de PLC. Migrado desde la ShellTopbar.
-                 La topbar ahora solo pinta el PLC activo en
-                 texto; este card absorbe todo lo demas.
+            <!-- ★ Card 1 (v3.0 sept-2026, layout dashboard v3.1):
+                 estado del sistema + controles de PLC. Migrado
+                 desde la ShellTopbar. Layout en 2 zonas
+                 estructuradas con headers (mas "profesional"
+                 que el flex column plano de v3.0):
 
-                 Layout de 3 filas dentro de un flex column:
-                   1. Estado textual (worker + TIA + proyecto).
-                   2. Controles (Conectar / Desconectar / select
-                      PLC sin label / Buscar PLCs).
-                   3. PLC activo + escaneado + boton "↻ Actualizar"
-                      (lo que ya estaba).
+                   Zona A (grid 2 cols, md+):
+                     - Estado del sistema (header + lista con
+                       bullet de color por estado).
+                     - Controles (header + grid 2x2: Conectar |
+                       Desconectar | select PLC full-width |
+                       Buscar PLCs full-width).
+                   ───────  border-t divider  ───────
+                   Zona B (full width):
+                     - PLC activo (header + caption + boton
+                       "↻ Actualizar" a la derecha).
 
                  Los botones se muestran SIEMPRE; la habilitacion
                  (canConnect / canDisconnect / canSelectPlc /
                  canSearchPlcs) refleja el state machine y
                  store.busy. ★ -->
-            <div class="mb-4 bg-surface-raised border border-line rounded p-4 flex flex-col gap-3"
+            <div class="mb-4 bg-surface-raised border border-line rounded p-4 space-y-3"
                  data-testid="bloques-cache-card-info">
 
-                <!-- Fila 1: estado textual del worker + TIA + proyecto -->
-                <div class="flex items-center gap-3 text-xs flex-wrap">
-                    <span class="text-ink-muted">
-                        Worker:
-                        <span :class="workerAlive ? 'text-green-600 font-semibold' : 'text-red-700 font-semibold'">
-                            {{ workerAlive ? 'vivo' : 'muerto' }}
-                        </span>
-                    </span>
-                    <span class="text-line-strong" aria-hidden="true">·</span>
-                    <span class="text-ink-muted">
-                        TIA:
-                        <span :class="tiaStateClass">{{ tiaStateText }}</span>
-                    </span>
-                    <template v-if="tiaProjectName">
-                        <span class="text-line-strong" aria-hidden="true">·</span>
-                        <span class="text-ink-muted">
-                            Proyecto: <span class="font-mono text-ink">{{ tiaProjectName }}</span>
-                        </span>
-                    </template>
+                <!-- Zona A: grid 2 columnas (estado | controles) -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3">
+
+                    <!-- Col 1: Estado del sistema -->
+                    <div>
+                        <h4 class="text-[10px] font-bold text-ink-muted uppercase tracking-widest mb-2">
+                            Estado del sistema
+                        </h4>
+                        <ul class="space-y-1 text-xs">
+                            <li class="flex items-center gap-2">
+                                <span :class="workerAlive ? 'text-green-600' : 'text-red-700'">●</span>
+                                <span class="text-ink-muted">Worker:</span>
+                                <span :class="workerAlive ? 'text-green-600 font-semibold' : 'text-red-700 font-semibold'">
+                                    {{ workerAlive ? 'vivo' : 'muerto' }}
+                                </span>
+                            </li>
+                            <li class="flex items-center gap-2">
+                                <span :class="tiaStateClass">●</span>
+                                <span class="text-ink-muted">TIA:</span>
+                                <span :class="tiaStateClass">{{ tiaStateText }}</span>
+                            </li>
+                            <li v-if="tiaProjectName" class="flex items-center gap-2">
+                                <span class="text-ink-muted">●</span>
+                                <span class="text-ink-muted">Proyecto:</span>
+                                <span class="font-mono text-ink">{{ tiaProjectName }}</span>
+                            </li>
+                        </ul>
+                    </div>
+
+                    <!-- Col 2: Controles -->
+                    <div>
+                        <h4 class="text-[10px] font-bold text-ink-muted uppercase tracking-widest mb-2">
+                            Controles
+                        </h4>
+                        <div class="grid grid-cols-2 gap-2">
+                            <button @click="handleConnect"
+                                :disabled="!canConnect"
+                                data-testid="bloques-cache-connect-tia"
+                                class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
+                                <span>🔌</span>
+                                Conectar
+                            </button>
+
+                            <button @click="handleDisconnect"
+                                :disabled="!canDisconnect"
+                                data-testid="bloques-cache-disconnect-tia"
+                                class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
+                                <span>⏏</span>
+                                Desconectar
+                            </button>
+
+                            <select v-model="store.selectedPlc" @change="onPlcSelected"
+                                :disabled="!canSelectPlc"
+                                data-testid="bloques-cache-plc-select"
+                                class="col-span-2 bg-white border border-line text-accent font-bold text-sm rounded focus:border-accent-bright focus:outline-none px-3 py-1.5 font-mono disabled:opacity-50 cursor-pointer">
+                                <option value="">-- Selecciona un PLC --</option>
+                                <option v-for="p in store.plcs" :key="p" :value="p">{{ p }}</option>
+                            </select>
+
+                            <button @click="handleRefreshPlcs"
+                                :disabled="!canSearchPlcs"
+                                data-testid="bloques-cache-refresh-plcs"
+                                class="col-span-2 px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
+                                <span>🔍</span>
+                                Buscar PLCs
+                            </button>
+                        </div>
+                    </div>
                 </div>
 
-                <!-- Fila 2: controles (siempre visibles, :disabled segun estado) -->
-                <div class="flex items-center gap-2 flex-wrap">
-                    <button @click="handleConnect"
-                        :disabled="!canConnect"
-                        data-testid="bloques-cache-connect-tia"
-                        class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
-                        <span>🔌</span>
-                        Conectar
-                    </button>
+                <!-- Divisor entre zonas A y B -->
+                <div class="border-t border-line"></div>
 
-                    <button @click="handleDisconnect"
-                        :disabled="!canDisconnect"
-                        data-testid="bloques-cache-disconnect-tia"
-                        class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
-                        <span>⏏</span>
-                        Desconectar
-                    </button>
-
-                    <select v-model="store.selectedPlc" @change="onPlcSelected"
-                        :disabled="!canSelectPlc"
-                        data-testid="bloques-cache-plc-select"
-                        class="bg-white border border-line text-accent font-bold text-sm rounded focus:border-accent-bright focus:outline-none px-3 py-1.5 font-mono disabled:opacity-50 cursor-pointer">
-                        <option value="">-- Selecciona un PLC --</option>
-                        <option v-for="p in store.plcs" :key="p" :value="p">{{ p }}</option>
-                    </select>
-
-                    <button @click="handleRefreshPlcs"
-                        :disabled="!canSearchPlcs"
-                        data-testid="bloques-cache-refresh-plcs"
-                        class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
-                        <span>🔍</span>
-                        Buscar PLCs
-                    </button>
-                </div>
-
-                <!-- Fila 3: PLC activo + escaneado + boton "↻ Actualizar" -->
-                <div class="flex justify-between items-center gap-3">
-                    <p class="text-xs text-ink-muted">
-                        <template v-if="store.selectedPlc">
-                            PLC activo:
-                            <span class="font-semibold text-ink">{{ plcName }}</span>
-                            <template v-if="scannedAt">
-                                · Escaneado:
-                                <span class="font-mono">{{ scannedAt }}</span>
+                <!-- Zona B: PLC activo + boton "↻ Actualizar" -->
+                <div>
+                    <h4 class="text-[10px] font-bold text-ink-muted uppercase tracking-widest mb-2">
+                        PLC activo
+                    </h4>
+                    <div class="flex justify-between items-center gap-3">
+                        <p class="text-xs text-ink-muted">
+                            <template v-if="store.selectedPlc">
+                                <span class="text-ink-muted">PLC:</span>
+                                <span class="font-mono font-semibold text-ink ml-1">{{ plcName }}</span>
+                                <template v-if="scannedAt">
+                                    <span class="text-line-strong mx-2" aria-hidden="true">·</span>
+                                    <span class="text-ink-muted">Escaneado:</span>
+                                    <span class="font-mono ml-1">{{ scannedAt }}</span>
+                                </template>
                             </template>
-                        </template>
-                        <template v-else>
-                            Sin PLC seleccionado. Pulsa
-                            <strong class="text-accent">"🔍 Buscar PLCs"</strong>
-                            para listar los PLCs del proyecto TIA conectado.
-                        </template>
-                    </p>
-                    <button @click="handleRefresh"
-                        :disabled="!store.selectedPlc || isRefreshing"
-                        data-testid="bloques-cache-actualizar"
-                        class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
-                        <span v-if="isRefreshing" class="animate-spin">↻</span>
-                        <span v-else>↻</span>
-                        Actualizar
-                    </button>
+                            <template v-else>
+                                Sin PLC seleccionado. Pulsa
+                                <strong class="text-accent">"🔍 Buscar PLCs"</strong>
+                                para listar los PLCs del proyecto TIA conectado.
+                            </template>
+                        </p>
+                        <button @click="handleRefresh"
+                            :disabled="!store.selectedPlc || isRefreshing"
+                            data-testid="bloques-cache-actualizar"
+                            class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
+                            <span v-if="isRefreshing" class="animate-spin">↻</span>
+                            <span v-else>↻</span>
+                            Actualizar
+                        </button>
+                    </div>
                 </div>
             </div>
             </div>
