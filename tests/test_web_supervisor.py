@@ -170,6 +170,14 @@ def test_serve_once_wires_persistent_true(monkeypatch) -> None:
             self._cache = {}
             self._bloques_cache = {}
             self._dispatch_worker = AsyncMock()
+            # ``b82f9d6`` anadio ``asyncio.run(gateway.start())`` al
+            # inicio de ``_serve_once`` y, en el exito, lee
+            # ``gateway._connection_state`` y ``gateway.is_worker_alive()``
+            # para el log. Sin esto el fake no llega a la aserción
+            # principal (``captured.get("persistent") is True``).
+            self.start = AsyncMock()
+            self._connection_state = "idle"
+            self.is_worker_alive = MagicMock(return_value=True)
 
     fake_app = MagicMock(name="fake_app")
     fake_server = MagicMock(name="fake_server")

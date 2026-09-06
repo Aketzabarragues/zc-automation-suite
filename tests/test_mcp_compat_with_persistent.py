@@ -267,6 +267,13 @@ def test_persistent_true_init_does_not_break_ephemeral_init() -> None:
     un smoke test del init del estado persistente y sirve de
     contrapunto al resto del archivo (que verifica que el modo
     1-shot NO se inicializa).
+
+    Cambio sept-2026 (state machine refactor): el estado inicial
+    del gateway persistente es ``"idle"`` (subproceso logico
+    todavia no arrancado, pero wrapper pronto), NO
+    ``"disconnected"``. ``"disconnected"`` queda reservado para
+    "subproceso muerto o matado" (kill explicito, returncode !=
+    None, etc.).
     """
     gateway = TIAProcessGateway(persistent=True)
     assert gateway.persistent is True
@@ -276,4 +283,4 @@ def test_persistent_true_init_does_not_break_ephemeral_init() -> None:
     assert gateway._pending_responses == {}
     assert gateway._reader_task is None
     assert gateway._heartbeat_task is None
-    assert gateway._connection_state == "disconnected"
+    assert gateway._connection_state == "idle"

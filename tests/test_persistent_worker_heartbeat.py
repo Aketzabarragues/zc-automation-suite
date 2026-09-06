@@ -145,13 +145,23 @@ class TestHeartbeatConnectedState:
         ``{"ok": True, "pid": 123}`` consistentemente. Tras 3 ticks
         verificamos que el contador de fallos esta a 0 y el estado es
         ``"connected"``.
+
+        Cambio sept-2026 round 3 (fix de auditoría profunda del
+        worker): el estado inicial es ``"connected"``, NO
+        ``"idle"``. Antes el heartbeat transicionaba
+        automáticamente ``idle → connected`` en el primer ping
+        exitoso, lo que era una fuga del modelo antiguo donde
+        el primer ping después del startup servía como
+        ready-check. En el state machine refactorizado, esa
+        transición es EXPLÍCITA vía ``connect()`` (que ya hace
+        el attach real). El heartbeat solo mantiene el estado
+        existente; no lo "promociona" de ``idle`` a ``connected``
+        implícitamente. Ver ``test_ping_no_sobrescribe_idle_con_connected``
+        para el guard de la transición optimista de ``disconnect()``.
         """
         gateway = TIAProcessGateway(persistent=True)
         gateway._worker_proc = _build_alive_proc()
-        # Forzamos el estado inicial a "disconnected" para verificar
-        # que el heartbeat lo transiciona a "connected" tras el primer
-        # tick exitoso.
-        gateway._connection_state = "disconnected"
+        gateway._connection_state = "connected"
 
         pings = await _run_heartbeat_for_n_pings(
             gateway, n=3, ping_response={"ok": True, "pid": 123}
@@ -164,6 +174,42 @@ class TestHeartbeatConnectedState:
         assert gateway._last_error is None
         assert gateway._last_ping_ok is not None
         assert isinstance(gateway._last_ping_ok, float)
+
+    @pytest.mark.asyncio
+    async def test_ping_no_sobrescribe_idle_con_connected(self) -> None:
+        """Sept-2026 round 3 (fix de auditoría): si el gateway se
+        marcó a ``"idle"`` optimistamente (típicamente por
+        ``disconnect()`` durante un ping en vuelo), el heartbeat NO
+        debe sobrescribir ese ``"idle"`` con ``"connected"`` cuando
+        el ping llega ok.
+
+        Sin este guard, el operario vería ``state="connected"`` en
+        el frontend después de un disconnect que se quedó bloqueado
+        detrás de un ping, anulando la transición optimista de
+        ``disconnect()``.
+        """
+        gateway = TIAProcessGateway(persistent=True)
+        gateway._worker_proc = _build_alive_proc()
+        # ``disconnect()`` optimista ya marcó "idle" (mientras el
+        # lock estaba retentenido por el ping en vuelo).
+        gateway._connection_state = "idle"
+
+        pings = await _run_heartbeat_for_n_pings(
+            gateway, n=3, ping_response={"ok": True, "pid": 123}
+        )
+
+        # El heartbeat corrió 3 ticks, pero NO debe sobrescribir
+        # "idle" con "connected" (la transición idle → connected
+        # ahora es EXPLICITA vía connect()).
+        assert pings >= 3, f"se esperaban >=3 pings, got {pings}"
+        assert gateway._connection_state == "idle", (
+            f"el heartbeat debe respetar la transicion optimista a "
+            f"'idle'; got {gateway._connection_state!r}"
+        )
+        # Aunque el state sigue "idle", el ping sí actualizó
+        # _last_ping_ok (el worker ESTA vivo).
+        assert gateway._last_ping_ok is not None
+        assert gateway._last_error is None
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -208,20 +254,20 @@ class TestHeartbeatTransientFailure:
 
 
 # ────────────────────────────────────────────────────────────────────────
-# Test 3: 3 fallos consecutivos → ``"disconnected"``
+# Test 3: 3 fallos consecutivos → ``"idle"`` (sept-2026)
 # ────────────────────────────────────────────────────────────────────────
 
 
 class TestHeartbeatDisconnectedState:
-    """3 fallos consecutivos → ``"disconnected"`` (umbral del design doc §3.4)."""
+    """3 fallos consecutivos → ``"idle"`` (sept-2026; umbral del design doc §3.4)."""
 
     @pytest.mark.asyncio
-    async def test_3_fallos_consecutivos_estado_disconnected(self) -> None:
-        """Tras 3 pings fallidos consecutivos, el estado es ``"disconnected"``.
+    async def test_3_fallos_consecutivos_estado_idle(self) -> None:
+        """Tras 3 pings fallidos consecutivos, el estado es ``"idle"``.
 
         Verifica que el contador ``consecutive_failures`` interno del
         loop se acumula correctamente y dispara la transicion a
-        ``"disconnected"`` en el tercer tick. Tambien verifica que
+        ``"idle"`` en el tercer tick. Tambien verifica que
         el estado ``"connecting"`` se observo en el tick 2 (test
         indirecto de que el umbral es exactamente 3, no 2).
         """
@@ -264,9 +310,9 @@ class TestHeartbeatDisconnectedState:
             f"se esperaban 3 pings, got {len(observed_states)}: "
             f"{observed_states!r}"
         )
-        # Estado final: disconnected.
-        assert gateway._connection_state == "disconnected", (
-            f"se esperaba 'disconnected' tras 3 fallos, "
+        # Estado final: "idle" (sept-2026; el antiguo "disconnected" ya no existe).
+        assert gateway._connection_state == "idle", (
+            f"se esperaba 'idle' tras 3 fallos, "
             f"got {gateway._connection_state!r}"
         )
         # El error del worker quedo registrado.
@@ -340,16 +386,16 @@ class TestHeartbeatIntervalConfig:
 
 
 # ────────────────────────────────────────────────────────────────────────
-# Test 5 (defensivo): subproceso muerto → ``"disconnected"`` sin ping
+# Test 5 (defensivo): subproceso muerto → ``"idle"`` sin ping (sept-2026)
 # ────────────────────────────────────────────────────────────────────────
 
 
 class TestHeartbeatDeadWorker:
-    """Si el subproceso muere, el heartbeat marca ``"disconnected"`` sin enviar ping."""
+    """Si el subproceso muere, el heartbeat marca ``"idle"`` sin enviar ping (sept-2026)."""
 
     @pytest.mark.asyncio
-    async def test_subproceso_muerto_marca_disconnected_sin_ping(self) -> None:
-        """``_worker_proc.returncode != None`` → disconnected, sin invocar al ping.
+    async def test_subproceso_muerto_marca_idle_sin_ping(self) -> None:
+        """``_worker_proc.returncode != None`` → idle, sin invocar al ping.
 
         Caso real: el subproceso worker crashea (OOM, excepcion no
         capturada, TIA cerrada de golpe). El heartbeat debe detectarlo
@@ -396,9 +442,9 @@ class TestHeartbeatDeadWorker:
             except (asyncio.CancelledError, Exception):
                 pass
 
-        # El estado paso a disconnected.
-        assert gateway._connection_state == "disconnected", (
-            f"se esperaba 'disconnected' al detectar muerte del worker, "
+        # El estado paso a "idle" (sept-2026; el antiguo "disconnected" ya no existe).
+        assert gateway._connection_state == "idle", (
+            f"se esperaba 'idle' al detectar muerte del worker, "
             f"got {gateway._connection_state!r}"
         )
         # El codigo de salida aparece en el mensaje de error.
@@ -457,3 +503,64 @@ class TestHeartbeatNoneProc:
         # NO se intento hacer ping: el check de ``None`` ocurre antes
         # del ``_send_to_persistent_worker``.
         gateway._send_to_persistent_worker.assert_not_called()
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Test 7 (sept-2026, state machine refactor): el heartbeat SOLO se inicia
+# cuando el gateway esta en ``state="connected"``. En idle (sin portal
+# attached), el ``get_process_id`` no tiene sentido y solo gastaria
+# round-trips contra el worker.
+# ────────────────────────────────────────────────────────────────────────
+
+
+class TestHeartbeatOnlyRunsWhenConnected:
+    """El heartbeat NO se inicia mientras el gateway esta en ``"idle"``."""
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_no_se_inicia_si_state_es_idle(self) -> None:
+        """Tras ``_start_persistent_worker`` (que lleva a ``"idle"``), el heartbeat NO arranca.
+
+        Caso sept-2026 (state machine refactor): antes, el heartbeat
+        se iniciaba al final de ``_start_persistent_worker`` (que
+        transicionaba a ``"connected"`` tras un attach inicial).
+        Ahora, el worker arranca en ``"idle"`` y el heartbeat solo
+        se inicia cuando ``connect()`` transiciona a
+        ``"connected"``. Esto evita pings ``get_process_id`` contra
+        un worker que no tiene portal attached (TCA en error).
+        """
+        import json
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        gateway = TIAProcessGateway(persistent=True)
+
+        # Fake stdout emite "ready_idle" (sept-2026) y luego EOF.
+        ready_line = (
+            json.dumps({"id": 0, "ok": True, "result": "ready_idle"}) + "\n"
+        ).encode("utf-8")
+        stdout_iter = iter([ready_line, b""])
+
+        class _FakeStream:
+            async def readline(self):
+                return next(stdout_iter, b"")
+
+        fake_proc = MagicMock(name="FakeSubprocess")
+        fake_proc.returncode = None
+        fake_proc.stdin = MagicMock()
+        fake_proc.stdout = _FakeStream()
+        # _detect_project_change es best-effort; mockeamos para que
+        # no lea del fake stdout.
+        gateway._detect_project_change = AsyncMock(return_value=False)
+
+        with patch(
+            "core.infrastructure.gateway.asyncio.create_subprocess_exec",
+            new=AsyncMock(return_value=fake_proc),
+        ):
+            await gateway._start_persistent_worker()
+
+        # Estado idle tras ready_idle.
+        assert gateway._connection_state == "idle"
+        # Heartbeat NO se inicio: el gateway esta en idle, no en connected.
+        assert gateway._heartbeat_task is None, (
+            "el heartbeat NO debe arrancar en state='idle'; solo en "
+            "state='connected' (sept-2026 state machine refactor)"
+        )

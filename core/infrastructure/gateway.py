@@ -20,6 +20,14 @@ from core.infrastructure.build_cache import BuildCache
 from core.models import BloqueCache, BloquePLC
 
 
+# Logger de la capa de infraestructura. Los logs de start/connect/
+# disconnect/kill aparecen en el root logger (zc_tray) cuando se
+# ejecuta via main_tray.py, gracias a que main_tray configura un
+# FileHandler en el root logger con nivel INFO. Trazabilidad del
+# ciclo de vida del subproceso worker persistente (sept-2026).
+_log = logging.getLogger(__name__)
+
+
 # Timeout por defecto del subproceso OT (segundos).
 #
 # Una ``execute_transactional_batch`` contra un PLC real puede
@@ -161,11 +169,20 @@ class TIAProcessGateway:
             self._pending_responses: dict[int, asyncio.Future[Any]] = {}
             self._reader_task: asyncio.Task[None] | None = None
             self._heartbeat_task: asyncio.Task[None] | None = None
-            # Estados posibles: "disconnected" | "connecting" |
-            # "connected" | "error". El estado inicial es
-            # "disconnected" (aún no hay worker arrancado; ``connect``
-            # o el primer comando hará lazy start en PR 3).
-            self._connection_state: str = "disconnected"
+            self._detect_project_change_task: asyncio.Task[None] | None = None
+            # Estados posibles: "idle" | "connecting" | "connected" |
+            # "disconnected" | "error".
+            #
+            # Cambio sept-2026 (state machine refactor): el estado
+            # inicial es ``"idle"`` (NO ``"disconnected"`` como en el
+            # round anterior). El worker arranca siempre; el estado
+            # ``"idle"`` indica "subproceso vivo, wrapper cargado,
+            # pero SIN portal attached todavia". El operario decide
+            # cuando conectar via ``connect()`` (que transiciona a
+            # "connecting" -> "connected"). ``"disconnected"`` queda
+            # reservado para "subproceso muerto o matado" (kill
+            # explicito, returncode != None, etc.).
+            self._connection_state: str = "idle"
             self._project_path: str | None = None  # para detectar cambios (PR 7)
             # Flag one-shot que el frontend consume via ``/tia/connection``
             # (PR 7). Se pone a ``True`` cuando ``_detect_project_change``
@@ -176,6 +193,20 @@ class TIAProcessGateway:
             self._project_changed: bool = False
             self._last_ping_ok: float | None = None
             self._last_error: str | None = None
+            # PID del portal TIA Portal al que estamos attached. Lo setea
+            # ``connect()`` tras un ``attach_portal`` exitoso (el worker
+            # devuelve ``{"pid": <int>}``) y lo limpia ``disconnect()``
+            # (transicion a ``"idle"``). ``None`` en cualquier estado
+            # distinto de ``"connected"`` (idle, connecting, error,
+            # disconnected). El router ``/tia/connection`` lo expone
+            # en la respuesta cuando ``state == "connected"`` para que
+            # la SPA muestre el PID al operario (util para diagnostico
+            # desde Task Manager: "tengo 3 zombie? mira sus PIDs"). No
+            # es el PID del subproceso worker (eso seria ``pid`` del
+            # ``_worker_proc``); es el PID de TIA Portal en si. Ver
+            # ``worker_tia.attach_portal`` (comando OT que devuelve
+            # ``ts.get_process_id()``).
+            self._last_portal_pid: int | None = None
 
     @property
     def persistent(self) -> bool:
@@ -246,21 +277,31 @@ class TIAProcessGateway:
             # protege TODO el ciclo (envío + espera de respuesta) para
             # que 2 requests concurrentes no se pisen en el stream.
             #
-            # Deteccion de cambio de proyecto (PR 7): ANTES de enviar
-            # el comando, preguntamos al worker por el ``get_project_info``
-            # y comparamos con el path cacheado en ``self._project_path``.
-            # Si difiere, invalidamos caches y marcamos
-            # ``self._project_changed = True`` para que el snapshot de
-            # ``/tia/connection`` lo exponga al frontend. Se excluyen
-            # ``get_project_info`` (seria redundante: el resultado ES la
-            # fuente de la verdad) y ``ping`` (chequeo de salud, no
-            # opera sobre proyecto). La deteccion ocurre AQUI y NO en
-            # el heartbeat (design doc §3.5: "antes de cada transaccion
-            # de lectura pesada") para que un cambio silencioso de
-            # proyecto coincida con una operacion del operario y el
-            # siguiente poll del frontend muestre el estado actualizado.
-            if command not in ("get_project_info", "ping"):
-                await self._detect_project_change()
+            # Cambio sept-2026 (state machine refactor): la deteccion
+            # de cambio de proyecto (PR 7) YA NO se hace aqui en cada
+            # dispatch. Se hace en ``connect()`` (cuando se transiciona
+            # a connected) y en ``reconnect()``. La justificacion es
+            # de state machine: un comando del registry solo se envia
+            # si el gateway esta en state="connected", y el chequeo
+            # de proyecto ahi es redundante con el de connect.
+            #
+            # Validacion de estado: ``attach_portal``, ``detach_portal``
+            # y ``ping`` se permiten siempre (son los comandos que
+            # controlan/transicionan el state machine). El resto de
+            # comandos del registry requieren state="connected"; si
+            # el gateway esta en idle/connecting/error, lanzamos
+            # ``TIAConnectionError`` con mensaje claro para que el
+            # frontend muestre el circulo gris y el operario sepa
+            # que debe conectar primero.
+            if command not in (
+                "attach_portal",
+                "detach_portal",
+                "ping",
+                "get_project_info",
+            ) and self._connection_state != "connected":
+                raise TIAConnectionError(
+                    "Worker no conectado a TIA Portal. Conectar primero."
+                )
             async with self._worker_lock:
                 return await self._send_to_persistent_worker(
                     command, args, timeout_override
@@ -552,6 +593,70 @@ class TIAProcessGateway:
             return False
         return proc.returncode is None
 
+    async def start(self) -> None:
+        """Arranca el worker OT persistente y espera al "ready_idle" signal.
+
+        API publica (sept-2026, post-auditoria). Pensada para que el
+        ``WebServiceSupervisor`` (modo web) la invoque ANTES de
+        ``uvicorn.run``, de forma que cuando la web empiece a aceptar
+        requests el worker ya este vivo y con estado ``"idle"``.
+
+        Esto elimina el race condition del flujo anterior: el primer
+        comando del frontend (e.g. ``GET /tia/connection``) disparaba
+        el lazy start via ``_send_to_persistent_worker``, que enviaba
+        un ``ping`` con timeout 15s. Si el attach a TIA Portal tardaba
+        mas de 15s (e.g. dialog de seguridad, primera carga del
+        wrapper .NET), el ping moria antes de que el worker estuviera
+        listo para leer stdin. El frontend quedaba en
+        ``state="error"`` durante 15s aunque TIA estuviera bien.
+
+        Con este metodo:
+          - El supervisor (o ``main.py --web``) llama a ``await
+            gateway.start()`` antes de ``uvicorn.run``.
+          - El gateway lanza el subproceso worker, espera al "ready"
+            signal (id=0) con timeout 60s, y solo entonces retorna.
+          - Si el ready llega OK, ``_connection_state = "idle"``.
+          - Si falla, lanza ``TIAConnectionError`` con mensaje claro.
+          - La web arranca con el worker ya en estado consistente.
+
+        Modo 1-shot (``persistent=False``): no-op. El gateway se usa
+        tal cual en el flujo MCP, sin worker persistente.
+
+        Raises:
+            TIAConnectionError: si el worker no emite "ready" en 60s
+                (TIA Portal con dialog de seguridad, attach muy lento,
+                bug en ``main_persistent_loop``) o si la creacion del
+                subproceso falla.
+
+        Nota: este metodo se restauro en sept-2026 tras un refactor
+        intermedio que lo habia borrado accidentalmente. El
+        ``WebServiceSupervisor._serve_once`` y ``main.py::_run_web_mode_async``
+        ya lo invocan; sin el, el primer ``GET /tia/connection`` del
+        frontend encuentra ``is_worker_alive() == False`` y el
+        ``WorkerStatusIndicator`` se queda gris aunque el subproceso
+        este vivo (el lazy start de ``_start_persistent_worker`` se
+        dispara tarde, en el primer comando).
+        """
+        if not self._persistent:
+            _log.info("gateway.start(): no-op (persistent=False, modo 1-shot)")
+            return  # modo 1-shot: no hay worker persistente que arrancar
+        _log.info("gateway.start(): arrancando worker persistente (persistent=True)")
+        try:
+            await self._start_persistent_worker()
+            _log.info(
+                "gateway.start(): worker persistente arrancado OK "
+                "(state=%r, worker_alive=%s)",
+                self._connection_state,
+                self.is_worker_alive(),
+            )
+        except Exception as exc:
+            _log.error(
+                "gateway.start(): FALLO al arrancar worker: %s: %s",
+                type(exc).__name__,
+                exc,
+            )
+            raise
+
     async def _start_persistent_worker(self) -> None:
         """Lanza el subproceso worker OT en modo persistente (lazy start).
 
@@ -583,6 +688,10 @@ class TIAProcessGateway:
             ``self._last_ping_ok`` / ``self._last_error``.
         """
         if self._worker_proc is not None and self._worker_proc.returncode is None:
+            _log.info(
+                "_start_persistent_worker: no-op (subproceso ya vivo, pid=%d)",
+                self._worker_proc.pid,
+            )
             return  # ya esta corriendo, no-op
 
         self._connection_state = "connecting"
@@ -617,6 +726,11 @@ class TIAProcessGateway:
             env=worker_env,
         )
         self._worker_proc = proc
+        _log.info(
+            "_start_persistent_worker: subproceso LANZADO (pid=%d, args=%s)",
+            proc.pid,
+            launch_args,
+        )
         # El reader_task es la unica task que consume stdout. Si
         # termina (EOF, excepcion), los futures pendientes se quedan
         # sin resolver; ``_send_to_persistent_worker`` los detecta
@@ -624,64 +738,59 @@ class TIAProcessGateway:
         # siguiente comando hara lazy start de nuevo.
         self._reader_task = asyncio.create_task(self._read_worker_stdout_forever())
 
-        # Ping inicial con timeout corto (15s): si TIA no esta
-        # abierto o el worker muere al attach, queremos enterarnos
-        # rapido. El lock NO se coge aqui: el gateway es el unico
-        # caller de _start_persistent_worker y se llama desde dentro
-        # de un lock ya adquirido en ``_dispatch_worker``.
+        # Espera al "ready_idle" signal del worker (id=0, sept-2026).
+        # Pre-condicion: el caller YA adquirio ``self._worker_lock``
+        # (o esta en un path donde no hay lock, como ``start()``).
+        # Aqui no se vuelve a coger (seria deadlock). El ready_idle
+        # signal es interno: registramos un future con id=0 en
+        # ``_pending_responses`` y esperamos con timeout 60s.
+        #
+        # Cambio sept-2026 (state machine): tras el ready_idle el
+        # estado es ``"idle"`` (NO ``"connected"`` como en el round
+        # anterior). El attach se hace bajo demanda via ``connect()``,
+        # que transiciona idle -> connecting -> connected.
+        loop = asyncio.get_event_loop()
+        ready_future: asyncio.Future[dict[str, Any]] = loop.create_future()
+        self._pending_responses[0] = ready_future
         try:
-            result = await asyncio.wait_for(
-                self._send_to_persistent_worker(
-                    "ping", args={}, timeout_override=15.0
-                ),
-                timeout=15.0,
-            )
-            if isinstance(result, dict) and result.get("ok"):
-                self._connection_state = "connected"
-                self._last_ping_ok = time.monotonic()
-                self._last_error = None
-            else:
-                # El worker respondio pero reporto error (p.ej. TIA
-                # cerrado, get_process_id fallo). El estado
-                # ``connecting`` se mantiene: el siguiente ping
-                # (heartbeat en PR 4) reintentara. NO matamos el
-                # worker todavia.
-                self._connection_state = "connecting"
-                self._last_error = (
-                    f"Initial ping reporto error: {result.get('error')!r}"
-                    if isinstance(result, dict)
-                    else f"Initial ping retorno payload inesperado: {result!r}"
+            ready_payload = await asyncio.wait_for(ready_future, timeout=60.0)
+            if not ready_payload.get("ok"):
+                # El worker reporto ready_idle con error. Caso raro:
+                # el wrapper fallo al cargar pero el subproceso sigue
+                # vivo (e.g. error de importacion del wrapper).
+                self._connection_state = "error"
+                self._last_error = ready_payload.get("error", "Worker no reporto ready_idle")
+                raise TIAConnectionError(
+                    f"Worker ready_idle reporto error: {self._last_error}"
                 )
-                raise TIAConnectionError(self._last_error)
-        except asyncio.TimeoutError as exc:
+            # Estado inicial: ``idle`` (NO connected). El operario
+            # debe llamar ``connect()`` para transicionar a connected.
+            self._connection_state = "idle"
+            self._last_ping_ok = time.monotonic()
+            self._last_error = None
+        except asyncio.TimeoutError:
+            # El worker arranco (subproceso vivo) pero no emitio el
+            # "ready_idle" en 60s. Posibles causas: carga del wrapper
+            # .NET muy lenta (caso raro; ~1-2s tipicamente), o bug en
+            # ``main_persistent_loop``.
             self._connection_state = "error"
-            self._last_error = f"Initial ping timeout: {exc}"
-            raise TIAConnectionError(
-                f"Worker no respondio al ping inicial en 15s: {exc}"
+            self._last_error = (
+                "Worker arranco pero no emitio 'ready_idle' en 60s. "
+                "Posible causa: carga del wrapper .NET muy lenta o "
+                "bug en main_persistent_loop."
             )
-        except TIAConnectionError:
-            # Re-propagar tal cual (ya tenemos el mensaje).
-            raise
-        except Exception as exc:
-            self._connection_state = "error"
-            self._last_error = f"{type(exc).__name__}: {exc}"
-            raise TIAConnectionError(
-                f"Worker no respondio al ping inicial: {exc}"
-            )
+            raise TIAConnectionError(self._last_error)
+        finally:
+            # Quitar el future del dict SIEMPRE. Doble seguridad con
+            # el pop en el reader:889 (idempotente).
+            self._pending_responses.pop(0, None)
 
-        # Heartbeat continuo: PR 4 del refactor del worker persistente
-        # (``_plan/12_worker_persistent_design.md`` §3.4). Solo se inicia
-        # si el ping inicial tuvo exito (no queremos un heartbeat
-        # zombi sobre un worker que no responde). El lock NO se coge
-        # aqui: ``_heartbeat_loop`` adquiere su propio ``async with``
-        # internamente para no anidar locks ni competir con
-        # ``_dispatch_worker`` (el heartbeat debe correr incluso
-        # cuando hay comandos en vuelo: si el lock estuviera cogido
-        # por un comando largo, el heartbeat se pausaria y perderiamos
-        # la deteccion de caidas). El ``asyncio.sleep`` al inicio del
-        # loop evita una rafaga inicial ping+heartbeat simultaneos.
-        if self._heartbeat_task is None or self._heartbeat_task.done():
-            self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+        # NO se inicia el heartbeat aqui. Cambio sept-2026 (state
+        # machine): el heartbeat solo corre cuando hay portal
+        # attached (state="connected"). En idle (sin portal) el
+        # ``get_process_id`` no tiene sentido y solo gastaria
+        # round-trips contra el worker. El inicio se hace desde
+        # ``connect()`` cuando transiciona a connected.
 
         # Deteccion del proyecto inicial (PR 7): si el operario ya
         # abrio un proyecto en TIA Portal antes de lanzar la app, este
@@ -692,9 +801,27 @@ class TIAProcessGateway:
         # es el estado inicial). Si TIA no tiene proyecto, ambos
         # quedan ``None`` y se detectara en el siguiente comando.
         #
+        # Cambio sept-2026 (state machine): la deteccion ya NO se
+        # hace en cada dispatch (rompia el contrato del state
+        # machine: un comando del registry requiere state=connected
+        # y este check seria redundante). Se hace aqui en el
+        # startup del worker, en ``connect()`` y al ``reconnect()``.
+        # Si TIA no tiene proyecto attached todavia (idle), este
+        # check se difiere al primer ``connect()``.
+        #
         # NO se hace bajo el lock: ``_detect_project_change`` adquiere
         # su propio ``async with self._worker_lock`` internamente.
-        await self._detect_project_change()
+        if self._reader_task is not None and not self._reader_task.done():
+            # Solo si el reader sigue vivo (en el path del test con
+            # fake stdout que devuelve EOF inmediato, el reader ya
+            # murio y detectar proyecto fallaria con BrokenPipeError).
+            # En produccion el reader vive indefinidamente.
+            try:
+                await self._detect_project_change()
+            except Exception:
+                # Best-effort: si falla (e.g. TIA sin proyecto),
+                # no es bloqueante. El primer connect() lo reintentara.
+                pass
 
     async def _heartbeat_loop(self) -> None:
         """Heartbeat continuo: ping al worker cada ``ZC_WORKER_HEARTBEAT_SECONDS`` (default 5s).
@@ -705,9 +832,10 @@ class TIAProcessGateway:
           - 0 fallos consecutivos: ``"connected"`` (sano).
           - 1-2 fallos consecutivos: ``"connecting"`` (transitorio, el
             proximo tick reintentara).
-          - 3 fallos consecutivos: ``"disconnected"`` (el worker esta
-            muerto o TIA Portal cayo; se necesitara reconexion manual
-            del operario en PR 6).
+          - 3 fallos consecutivos: ``"idle"`` (sept-2026 round 3; el
+            ``"disconnected"`` anterior se eliminó del state machine
+            en el refactor y la rama residual del catch genérico se
+            unificó a ``"idle"`` por consistencia).
 
         Robustez:
 
@@ -760,12 +888,17 @@ class TIAProcessGateway:
                 # esperar al ping): si ``returncode`` ya esta fijado,
                 # el worker murio y el ping fallaria igualmente.
                 if self._worker_proc.returncode is not None:
-                    self._connection_state = "disconnected"
+                    # El subproceso worker murio. En el state machine
+                    # sept-2026 (idle/connecting/connected/error), un
+                    # worker muerto se representa como "idle" (subproceso
+                    # no attached). El operario puede reintentar connect()
+                    # y el gateway hara lazy start de un nuevo worker.
+                    self._connection_state = "idle"
                     self._last_error = (
                         f"Worker subproceso termino con codigo "
                         f"{self._worker_proc.returncode}"
                     )
-                    consecutive_failures = 3  # corte directo a disconnected
+                    consecutive_failures = 3  # corte directo a idle
                     continue
 
                 # Ping bajo el lock para serializar contra
@@ -782,7 +915,16 @@ class TIAProcessGateway:
                             timeout=10.0,
                         )
                     if result and isinstance(result, dict) and result.get("ok"):
-                        self._connection_state = "connected"
+                        # Guard (sept-2026 round 3, fix de auditoría):
+                        # si el gateway se marcó a ``"idle"`` o
+                        # ``"error"`` optimistamente (e.g. desde
+                        # ``disconnect()`` mientras el ping estaba en
+                        # vuelo), NO pisar a ``"connected"``. Esto
+                        # evita que un ping lento sobrescriba una
+                        # transición de estado intencional del
+                        # operario.
+                        if self._connection_state not in ("idle", "error"):
+                            self._connection_state = "connected"
                         self._last_ping_ok = time.monotonic()
                         self._last_error = None
                         consecutive_failures = 0
@@ -795,11 +937,15 @@ class TIAProcessGateway:
                             if isinstance(result, dict)
                             else f"Ping retorno payload inesperado: {result!r}"
                         ) or "Ping retorno sin ok"
-                        self._connection_state = (
-                            "disconnected"
-                            if consecutive_failures >= 3
-                            else "connecting"
-                        )
+                        # Idem: respetar transiciones optimistas.
+                        if self._connection_state not in ("idle", "error"):
+                            self._connection_state = (
+                                # 3 fallos consecutivos: "idle" (sept-2026).
+                                # El operario puede reintentar connect().
+                                "idle"
+                                if consecutive_failures >= 3
+                                else "connecting"
+                            )
                 except asyncio.CancelledError:
                     # Cancelacion externa (gateway apagandose): salimos
                     # sin propagar la excepcion (es un cierre limpio).
@@ -808,16 +954,25 @@ class TIAProcessGateway:
                     # Cualquier fallo (TimeoutError, RuntimeError,
                     # TIAConnectionError, EOF en stdin, ...) cuenta
                     # como un fallo. NO propagamos: la idea es que el
-                    # heartbeat NUNCA muera por si solo; si hay
-                    # problemas, los acumula y eventualmente marca
-                    # ``"disconnected"``.
+                    # heartbeat NUNCA muera por si solo.
+                    #
+                    # Cambio sept-2026 round 3 (fix de auditoría):
+                    # el estado ``"disconnected"`` ya no existe en el
+                    # state machine (se eliminó en el refactor). 3
+                    # excepciones consecutivas transicionan a
+                    # ``"idle"`` directamente, consistente con el
+                    # path de ok=False y con el resto del state
+                    # machine. Antes este path producía
+                    # ``"disconnected"`` que el frontend no sabe
+                    # manejar.
                     consecutive_failures += 1
                     self._last_error = f"{type(exc).__name__}: {exc}"
-                    self._connection_state = (
-                        "disconnected"
-                        if consecutive_failures >= 3
-                        else "connecting"
-                    )
+                    if self._connection_state not in ("idle", "error"):
+                        self._connection_state = (
+                            "idle"
+                            if consecutive_failures >= 3
+                            else "connecting"
+                        )
         except asyncio.CancelledError:
             # Doble catch: por si la cancelacion llega entre el
             # ``asyncio.sleep`` y el cuerpo del loop.
@@ -863,13 +1018,35 @@ class TIAProcessGateway:
             try:
                 response = json.loads(line.decode("utf-8").strip())
             except Exception:
-                # Linea no parseable. Logueamos a stderr pero no
-                # rompemos el reader (el worker podria estar
-                # emitiendo basura; el match por id es defensivo).
-                sys.stderr.write(
-                    f"[GATEWAY READER] linea no parseable: {line!r}\n"
-                )
-                sys.stderr.flush()
+                # Linea no parseable. NO logueamos como ERROR: en
+                # modo persistente, el stdout del worker se mezcla
+                # con los logs de Siemens (que no son JSON). Ver
+                # `_start_persistent_worker` que lanza el worker
+                # con `stdout=asyncio.subprocess.PIPE`. El reader
+                # filtra y descarta; solo logueamos en DEBUG (no
+                # ERROR) y con un filtro para no spammear con
+                # lineas claramente de Siemens (timestamps).
+                line_str = line.decode("utf-8", errors="replace")
+                # Filtro heuristico: lineas de log de Siemens
+                # empiezan con un timestamp ISO. Si la linea NO
+                # parece un log de Siemens (e.g. comando JSON
+                # malformado), si la logueamos como WARNING.
+                stripped = line_str.strip()
+                if not (
+                    len(stripped) > 11
+                    and stripped[0].isdigit()
+                    and stripped[4] == "-"
+                    and stripped[7] == "-"
+                ):
+                    # No es un log de Siemens: probablemente es un
+                    # comando JSON malformado del worker (bug del
+                    # worker). WARNING, no ERROR.
+                    _log.warning(
+                        "[GATEWAY READER] linea no parseable "
+                        "(no es log de Siemens): %r",
+                        line_str[:200],
+                    )
+                # En cualquier caso, seguimos leyendo.
                 continue
             if not isinstance(response, dict):
                 continue
@@ -913,7 +1090,7 @@ class TIAProcessGateway:
           5. Si la respuesta es ``{ok: False, error: ...}``, decide
              entre ``RuntimeError`` y ``TIAConnectionError`` segun el
              patron del error (ver §3.1 del design doc: errores de
-             conexion marcan ``_connection_state = "disconnected"``).
+             conexion marcan ``_connection_state = "idle"``).
           6. Si timeout, marca el estado como ``"disconnected"`` y
              lanza ``RuntimeError`` con mensaje accionable.
 
@@ -945,7 +1122,11 @@ class TIAProcessGateway:
         # EOF inesperado), NO podemos recibir respuestas. Marcamos
         # disconnected y fallamos rapido en vez de esperar al timeout.
         if self._reader_task is None or self._reader_task.done():
-            self._connection_state = "disconnected"
+            # El reader_task es quien resuelve futures. Si murio (e.g.
+            # EOF inesperado), NO podemos recibir respuestas. Marcamos
+            # "error" (no "idle", porque un reader muerto es un fallo
+            # grave del worker, no una desconexion limpia del portal).
+            self._connection_state = "error"
             raise RuntimeError(
                 "Reader task del worker persistente no esta vivo. "
                 "El subproceso probablemente murio."
@@ -980,11 +1161,11 @@ class TIAProcessGateway:
                 err = response.get("error", "Error interno en el worker OT.")
                 if _is_tia_connection_error(str(err)):
                     # Patron de error de conexion conocido. Marcamos
-                    # disconnected para que el frontend muestre el
-                    # circulo gris y el operario sepa que TIA no
-                    # responde. La cache IT se invalida para evitar
-                    # datos stale de un attach anterior.
-                    self._connection_state = "disconnected"
+                    # "idle" (sept-2026): TIA no responde, el worker
+                    # sigue vivo, el operario puede reintentar connect().
+                    # La cache IT se invalida para evitar datos stale
+                    # de un attach anterior.
+                    self._connection_state = "idle"
                     self._clear_bloques_cache()
                     self._cache.clear()
                     _logger = logging.getLogger(__name__)
@@ -998,7 +1179,11 @@ class TIAProcessGateway:
 
             return response.get("result")
         except asyncio.TimeoutError as exc:
-            self._connection_state = "disconnected"
+            # El worker no respondio al comando en el timeout. En el
+            # state machine sept-2026 marcamos "idle" (no "error"):
+            # puede ser un comando lento puntual, no un fallo del
+            # worker. El operario puede reintentar.
+            self._connection_state = "idle"
             self._last_error = (
                 f"Worker no respondio en {timeout}s (comando: {command!r})"
             )
@@ -1013,10 +1198,11 @@ class TIAProcessGateway:
             raise
         except Exception as exc:
             # Cualquier otra excepcion (e.g. BrokenPipeError si el
-            # worker muere durante el write) marca disconnected y se
-            # traduce a RuntimeError para que el caller no vea el
-            # tipo nativo de asyncio.
-            self._connection_state = "disconnected"
+            # worker muere durante el write) marca "error" (sept-2026):
+            # es un fallo grave (I/O con el worker), no una
+            # desconexion limpia. Se traduce a RuntimeError para que
+            # el caller no vea el tipo nativo de asyncio.
+            self._connection_state = "error"
             self._last_error = f"{type(exc).__name__}: {exc}"
             raise RuntimeError(
                 f"Error de I/O con el worker persistente "
@@ -1036,6 +1222,12 @@ class TIAProcessGateway:
         identico. Robusto a llamadas repetidas (idempotente): si el
         worker ya esta muerto, los tasks cancelados o los futures
         ya resueltos, no hace nada.
+
+        _log.info(
+            "_kill_persistent_worker: matando subproceso (proc=%s, returncode=%s)",
+            getattr(self._worker_proc, "pid", None) if self._worker_proc else None,
+            getattr(self._worker_proc, "returncode", None) if self._worker_proc else None,
+        )
 
         Orden de operaciones (importa):
 
@@ -1124,6 +1316,7 @@ class TIAProcessGateway:
                 # estado consistente para una nueva conexion.
                 pass
         self._worker_proc = None
+        _log.info("_kill_persistent_worker: subproceso MATADO (self._worker_proc=None)")
 
         # 4. Resuelve los futures pendientes con RuntimeError. Esto
         # desbloquea a cualquier ``_send_to_persistent_worker`` en vuelo
@@ -1140,96 +1333,232 @@ class TIAProcessGateway:
         # locales al proceso IT), solo a la consistencia del estado.
         self._next_request_id = 0
 
-    async def reconnect(self) -> None:
-        """Mata el worker actual (si esta vivo) y arranca uno nuevo.
+    async def connect(self) -> None:
+        """Envia ``attach_portal`` al worker vivo y transiciona a ``"connected"``.
 
-        API publica del boton "Reconectar" del topbar. Es la respuesta
-        del gateway al operario cuando TIA Portal se cerro y se volvio
-        a abrir, o cuando el worker se cayo por cualquier motivo (OOM,
-        excepcion no capturada, etc.). El gateway:
+        API publica del boton "Conectar" del topbar (sept-2026,
+        state machine refactor). El worker persistente esta vivo
+        desde el startup (estado ``"idle"``); el operario decide
+        cuando conectar via este metodo. El gateway:
 
-          1. Mata el worker viejo y sus tasks (reader + heartbeat)
-             via ``_kill_persistent_worker()``. Esto cierra el
-             attach actual y libera los recursos.
-          2. Marca el estado como ``"connecting"`` mientras se hace
-             el nuevo attach.
-          3. Lanza un worker nuevo con ``_start_persistent_worker()``,
-             que ya hace el ping inicial y transiciona a
-             ``"connected"`` o ``"error"``.
+          1. Marca el estado como ``"connecting"`` para que el
+             frontend muestre el circulo amarillo.
+          2. Envia el comando ``attach_portal`` al worker (que
+             internamente hace ``ts.attach_portal(...)`` y devuelve
+             el PID).
+          3. Si OK, transiciona a ``"connected"`` e inicia el
+             heartbeat.
+          4. Si falla, transiciona a ``"error"`` y lanza
+             ``TIAConnectionError``.
 
-        Si el nuevo attach falla, lanza ``TIAConnectionError`` con un
-        mensaje legible. El operario ve el circulo del topbar cambiar
-        a rojo y el error en ``ConsolaLogs``. El estado queda en
-        ``"error"`` con ``_last_error`` poblado para el siguiente
-        ``GET /tia/connection``.
+        Tras ``connect()`` exitoso, el estado es:
+          - ``_connection_state = "connected"``.
+          - Heartbeat task arrancado (monitorea ``get_process_id``).
+          - ``_last_ping_ok`` actualizado al momento del connect.
+          - ``_last_error = None``.
+
+        Locking (auditoria X3, sept-2026): el ciclo set-state +
+        send se ejecuta bajo ``self._worker_lock`` para serializar
+        contra ``_dispatch_worker`` y contra otro ``connect``/
+        ``disconnect`` concurrente. Sin el lock, dos connects
+        concurrentes (doble-click del operario) pueden pisar el
+        estado: el primero pone ``"connecting"``, el segundo ve
+        ``"idle"`` (race) y reintenta, dejando al worker con dos
+        attaches colgando.
 
         Raises:
             TIAConnectionError: si el gateway no es persistente
-                (``persistent=False``) o si el nuevo attach falla.
+                (``persistent=False``), si el worker no responde, o
+                si el attach inicial falla.
         """
         if not self._persistent:
-            # Defensivo: el modo 1-shot (MCP) no tiene worker
-            # persistente que matar. Si el operario llega aqui desde
-            # el topbar, es un bug del frontend o un caller que
-            # asume ``persistent=True``. Mejor un error claro que
-            # un comportamiento silencioso.
             raise TIAConnectionError(
-                "reconnect() solo aplica a gateway.persistent=True"
+                "connect() solo aplica a gateway.persistent=True"
             )
 
-        # 1. Mata el worker viejo. Idempotente: si no hay worker
-        # vivo, no hace nada. Esto limpia reader/heartbeat/proc y
-        # los futures pendientes.
-        await self._kill_persistent_worker()
-
-        # 2. Marca "connecting" ANTES de arrancar para que el
-        # ``GET /tia/connection`` refleje el estado intermedio.
-        # ``_start_persistent_worker`` lo actualizara a
-        # ``"connected"`` (exito) o mantendra la transicion a
-        # ``"error"`` que ya hace el propio ``_start_persistent_worker``.
-        self._connection_state = "connecting"
-
-        # 3. Arranca un worker nuevo. Si el attach inicial falla,
-        # se lanza TIAConnectionError con detalle. Relanzamos
-        # SIEMPRE como TIAConnectionError con el prefijo "Reconnect
-        # fallo:" para que el router ``/api/v1/tia/connect`` reciba
-        # un mensaje uniforme y pueda traducirlo a un error
-        # legible para la SPA (contrato del PR 6: cualquier fallo
-        # de reconexion lleva este prefijo).
-        try:
-            await self._start_persistent_worker()
-        except Exception as exc:
-            # Cubrimos TIAConnectionError, asyncio.TimeoutError,
-            # BrokenPipeError, OSError al crear el subproceso, etc.
-            # ``_start_persistent_worker`` ya actualizo ``_last_error``
-            # con el detalle en su propio ``except``; lo re-asignamos
-            # aqui solo si NO lo hizo el subproceso, para que
-            # ``GET /tia/connection`` tenga un mensaje util.
-            self._connection_state = "error"
-            if not self._last_error:
-                self._last_error = f"{type(exc).__name__}: {exc}"
+        # Idempotencia: si ya estamos connected, no re-attacheamos.
+        # Caso real: doble-click del operario en "Conectar", o el
+        # frontend reintenta tras un timeout de UI. Lanzar un error
+        # claro es preferible a un attach redundante (que dejaria
+        # el RCW anterior colgando en el worker).
+        if self._connection_state == "connected":
             raise TIAConnectionError(
-                f"Reconnect fallo: {exc}"
-            ) from exc
+                "Worker ya esta conectado a TIA Portal."
+            )
+
+        async with self._worker_lock:
+            # Doble check bajo el lock: otro connect concurrente
+            # pudo haber transicionado a connected entre el check
+            # de arriba y la adquisicion del lock. Si pasa,
+            # salimos limpio (idempotente).
+            if self._connection_state == "connected":
+                return  # no-op, ya estaba conectado
+
+            # Limpiar last_error al inicio: si el operario reintenta
+            # connect tras un error anterior, el siguiente
+            # GET /tia/connection no debe mostrar el error viejo.
+            self._last_error = None
+            self._connection_state = "connecting"
+
+            # Lazy start del subproceso worker si no esta vivo.
+            # Esto cubre el caso ``start()`` no invocado (e.g. el
+            # gateway se construyo pero nadie llamo a ``start()``
+            # antes que el operario pulsara "Conectar").
+            if (
+                self._worker_proc is None
+                or self._worker_proc.returncode is not None
+            ):
+                await self._start_persistent_worker()
+
+            # Enviar el comando attach_portal al worker. Usa
+            # ``_dispatch_worker`` con bypass de validacion de estado
+            # (el attach_portal esta en la lista de comandos siempre
+            # permitidos). El lock ya esta cogido aqui.
+            try:
+                result = await self._send_to_persistent_worker(
+                    "attach_portal",
+                    args={"mode": "WithGraphicalUserInterface"},
+                    timeout_override=60.0,
+                )
+            except Exception as exc:
+                _log.error(
+                    "gateway.connect: attach_portal fallo (excepcion): "
+                    "%s: %s",
+                    type(exc).__name__,
+                    exc,
+                )
+                self._connection_state = "error"
+                if not self._last_error:
+                    self._last_error = f"{type(exc).__name__}: {exc}"
+                raise TIAConnectionError(
+                    f"Connect fallo: {exc}"
+                ) from exc
+
+            # Validar la respuesta: el worker devuelve
+            # ``{"pid": <int>}`` o ``{"error": "..."}``.
+            if not isinstance(result, dict) or "error" in result:
+                err_msg = (
+                    result.get("error", "attach_portal retorno inesperado")
+                    if isinstance(result, dict)
+                    else f"attach_portal retorno no-dict: {result!r}"
+                )
+                self._connection_state = "error"
+                self._last_error = err_msg
+                raise TIAConnectionError(f"Connect fallo: {err_msg}")
+
+            # Transicion a connected e inicio del heartbeat.
+            self._connection_state = "connected"
+            self._last_ping_ok = time.monotonic()
+            _log.info(
+                "gateway.connect: attach_portal OK (pid=%r, state=connected)",
+                result.get("pid") if isinstance(result, dict) else None,
+            )
+            self._last_error = None
+            # Cachear el PID del portal TIA Portal (lo devuelve el
+            # worker en ``attach_portal``). Si la respuesta no trae
+            # ``pid`` (worker con un build que no lo expone aun), se
+            # queda en ``None`` y el router lo mostrara como ``null``.
+            # ``disconnect()`` lo limpia a ``None``.
+            self._last_portal_pid = (
+                int(result["pid"]) if isinstance(result.get("pid"), int) else None
+            )
+
+            # Heartbeat solo se inicia si state == connected. Si ya
+            # hay uno corriendo (re-connect rapido), no se duplica.
+            if (
+                self._heartbeat_task is None
+                or self._heartbeat_task.done()
+            ):
+                self._heartbeat_task = asyncio.create_task(
+                    self._heartbeat_loop()
+                )
+
+            # Deteccion del proyecto tras el attach (sept-2026).
+            # Si el operario ya abrio un proyecto en TIA Portal antes
+            # de pulsar "Conectar", este es el momento de preguntar
+            # por el path y popular ``_project_path``. Si difiere del
+            # ultimo conocido, marca ``_project_changed`` y limpia
+            # caches (cambio de proyecto = datos stale).
+            #
+            # Cambio sept-2026 round 4 (fix del audit del operario
+            # Aketza, log 2026-09-06 15:32:30,000): el
+            # ``_detect_project_change`` se hace fire-and-forget en
+            # background en vez de awaited dentro del lock. El
+            # comando ``get_project_info`` puede tardar varios
+            # segundos si TIA esta cargando el proyecto o tiene un
+            # dialogo modal (caso real observado: 5+ segundos). Si
+            # lo hicieramos awaited, el ``_worker_lock`` se
+            # retendria durante todo ese tiempo, bloqueando el
+            # primer ping del heartbeat y el primer "Buscar PLCs"
+            # del operario (que venia a 5s del connect, justo
+            # cuando el lock se liberaba). El fire-and-forget
+            # resuelve esto: connect() retorna al frontend
+            # inmediatamente, y la deteccion de proyecto se hace
+            # en paralelo con el resto del flujo.
+            self._detect_project_change_task = (
+                asyncio.create_task(self._safe_detect_project_change())
+            )
+
+    async def _safe_detect_project_change(self) -> None:
+        """Wrapper best-effort de ``_detect_project_change`` para
+        fire-and-forget desde ``connect()``.
+
+        Captura todas las excepciones (TIA cerrado, timeout, COM
+        disconnect) para que la task no genere "Task exception was
+        never retrieved" en el event loop. Si falla, no se hace
+        nada: la siguiente operacion del operario reintentara
+        (via ``_detect_project_change`` o el heartbeat que
+        tambien detecta cambios implicitos).
+        """
+        try:
+            await self._detect_project_change()
+        except Exception as exc:  # noqa: BLE001
+            _log.debug(
+                "_safe_detect_project_change: fallo (best-effort): %s: %s",
+                type(exc).__name__, exc,
+            )
 
     async def disconnect(self) -> None:
-        """Desconecta explicitamente. Mata el worker y marca estado ``"disconnected"``.
+        """Envia ``detach_portal`` al worker vivo y transiciona a ``"idle"``.
 
-        API publica del boton "Desconectar" del topbar. A diferencia
-        de ``reconnect()``, NO intenta re-arrancar el worker: el
-        gateway queda en estado ``"disconnected"`` hasta que el
-        operario llame a ``reconnect()`` o hasta que un comando
-        futuro dispare el lazy start (el primer
-        ``_send_to_persistent_worker`` con proc muerto hara lazy
-        start automatico si el estado lo permite).
+        API publica del boton "Desconectar" del topbar (sept-2026,
+        state machine refactor). A diferencia del round anterior,
+        este metodo NO mata el subproceso worker: el worker sigue
+        vivo en estado ``"idle"``, listo para un futuro ``connect()``
+        sin pagar el coste de un nuevo subproceso (~200 MB con
+        ``siemens_tia_scripting.pyd`` cargado).
+
+        El gateway:
+
+          1. Marca el estado como ``"idle"`` (sept-2026 round 3;
+             transición optimista ANTES del lock, ver docstring
+             principal arriba). Anteriormente la docstring decía
+             ``"disconnected"``, pero ese estado se eliminó del
+             state machine en el refactor.
+          2. Cancela el heartbeat task (en connected no tiene
+             sentido, solo gastaria round-trips contra un portal
+             muerto).
+          3. Envia ``detach_portal`` al worker. El worker hace
+             ``portal.detach()`` best-effort y queda en idle.
+          4. Limpia caches (``_cache``, ``_bloques_cache``) y
+             resetea ``_project_path = None`` (cambio de
+             proyecto implicito: el siguiente connect puede abrir
+             un proyecto distinto).
 
         Tras ``disconnect()``, el estado es:
-
-          - ``_connection_state = "disconnected"``.
+          - ``_connection_state = "idle"``.
           - ``_last_error = None`` (limpiamos errores transitorios).
-          - ``_worker_proc = None``, ``_reader_task = None``,
-            ``_heartbeat_task = None``, ``_pending_responses = {}``,
-            ``_next_request_id = 0`` (via ``_kill_persistent_worker``).
+          - ``_project_path = None``.
+          - ``_project_changed = False``.
+          - ``_cache`` y ``_bloques_cache`` vacios.
+          - Heartbeat task cancelado.
+          - ``_worker_proc``, ``_reader_task``, ``_pending_responses``,
+            ``_next_request_id``: intactos (el worker sigue vivo).
+
+        Locking (auditoria X3, sept-2026): el ciclo se ejecuta bajo
+        ``self._worker_lock`` para serializar contra
+        ``_dispatch_worker`` y contra otro ``connect``/``disconnect``
+        concurrente.
 
         Raises:
             TIAConnectionError: si el gateway no es persistente.
@@ -1239,19 +1568,261 @@ class TIAProcessGateway:
                 "disconnect() solo aplica a gateway.persistent=True"
             )
 
-        # Marcamos el estado PRIMERO para que el ``GET /tia/connection``
-        # siguiente lo vea, incluso si el kill tarda un poco. Limpiar
-        # ``_last_error`` evita que el operario vea un error stale
-        # de un fallo anterior.
-        self._connection_state = "disconnected"
-        self._last_error = None
+        _log.info(
+            "gateway.disconnect: llamado (state=%r, worker_alive=%s)",
+            getattr(self, "_connection_state", None),
+            self.is_worker_alive(),
+        )
 
-        # Mata el worker, las tasks y limpia los futures. El
-        # heartbeat task ya en vuelo sale limpio via
-        # ``CancelledError`` (ver ``_heartbeat_loop``); el
-        # ``_worker_proc = None`` tambien haria que el siguiente
-        # tick salga via el ``if self._worker_proc is None: return``.
-        await self._kill_persistent_worker()
+        # Transición OPTIMISTA a ``"idle"`` ANTES del lock (sept-2026
+        # round 3, fix de auditoría profunda del worker).
+        #
+        # Caso real (audit, 12:11:41/12:11:44 en logs/zc_tray.log):
+        # el ``_worker_lock`` podía ser retentenido por un comando
+        # en vuelo (``get_plcs``/``get_project_info`` con
+        # ``ZC_GATEWAY_TIMEOUT=300s``, o un ``compile_plc`` largo).
+        # El ``disconnect()`` se quedaba bloqueado en el
+        # ``async with self._worker_lock`` durante segundos o minutos.
+        # Mientras tanto, el frontend veía ``state="connected"``
+        # aunque el disconnect estuviera en cola, y el operario
+        # pulsaba "Desconectar" de nuevo (doble disconnect, ambos
+        # viendo ``state="connected"``).
+        #
+        # Ahora: la transición a ``"idle"`` se hace ANTES del lock,
+        # de forma que el siguiente ``GET /tia/connection`` la vea
+        # inmediatamente, aunque el cleanup tarde. El heartbeat tiene
+        # un guard (línea 916) para no pisar ``"idle"`` con
+        # ``"connected"`` durante esta ventana.
+        #
+        # Riesgo: si el ``detach_portal`` falla (worker ya muerto,
+        # reader muerto, etc.), el estado queda en ``"idle"`` pero el
+        # portal puede seguir attached en el worker. Esto es
+        # aceptable porque: (a) el cleanup ya era best-effort
+        # (línea 1556-1566 absorbe excepciones), (b) el operario
+        # puede reintentar y el heartbeat lo detectaría.
+        self._connection_state = "idle"
+        self._last_error = None
+        # Reset del path: el siguiente connect puede abrir un
+        # proyecto distinto. Se hace aquí (fuera del lock) para
+        # que el frontend lo vea inmediatamente, no cuando el
+        # cleanup termine.
+        self._project_path = None
+        self._project_changed = False
+        # El PID del portal deja de ser válido. (El detach puede
+        # aún no haberse enviado, pero la transición optimista ya
+        # tiene sentido: el portal YA no es accesible para el
+        # gateway desde este momento.)
+        self._last_portal_pid = None
+        _log.info(
+            "gateway.disconnect: state=idle (transicion optimista, "
+            "cleanup en background)"
+        )
+
+        async with self._worker_lock:
+            # Cancela el heartbeat task si esta corriendo. El loop
+            # ya tiene ``except asyncio.CancelledError: return`` que
+            # cierra limpio. NO tocamos ``_heartbeat_task`` aqui:
+            # eso lo hara el lock cleanup abajo o un futuro
+            # ``connect()`` (chequea ``done()`` antes de re-lanzar).
+            #
+            # IMPORTANTE: si la cancelación tarda (heartbeat
+            # esperando al lock con un ping en vuelo, hasta 10s),
+            # el estado YA está en ``"idle"`` (transición
+            # optimista de arriba), así que el frontend ve feedback
+            # inmediato. El guard del heartbeat (línea 916) evita
+            # que un ping tardío pise el ``"idle"``.
+            if (
+                self._heartbeat_task is not None
+                and not self._heartbeat_task.done()
+            ):
+                self._heartbeat_task.cancel()
+                try:
+                    await self._heartbeat_task
+                except asyncio.CancelledError:
+                    pass
+                except Exception as exc:
+                    # Logueamos el warning: una excepción no
+                    # esperada en el cancel puede indicar un bug
+                    # del heartbeat (antes se absorbía
+                    # silenciosamente, perdiendo diagnóstico).
+                    _log.warning(
+                        "gateway.disconnect: heartbeat task no se "
+                        "cancelo limpiamente: %s: %s",
+                        type(exc).__name__,
+                        exc,
+                    )
+            self._heartbeat_task = None
+
+            # Envia detach_portal al worker. Usa el bypass de
+            # validacion de estado (detach esta en la lista de
+            # comandos siempre permitidos). El lock ya esta cogido
+            # aqui, asi que la llamada es directa.
+            #
+            # Si el worker no esta vivo o el reader murio, NO
+            # podemos enviar. Es best-effort: el estado ya está
+            # en ``"idle"`` (transición optimista), así que el
+            # frontend muestra feedback correcto. Aquí solo
+            # intentamos hacer el detach limpio por el portal.
+            try:
+                if (
+                    self._worker_proc is not None
+                    and self._worker_proc.returncode is None
+                    and self._reader_task is not None
+                    and not self._reader_task.done()
+                ):
+                    await self._send_to_persistent_worker(
+                        "detach_portal",
+                        args={},
+                        timeout_override=10.0,
+                    )
+            except Exception as exc:
+                # No propagamos: disconnect() es la operacion
+                # inversa de connect() y debe ser robusto a fallos
+                # del worker. El estado del gateway refleja "idle"
+                # de todos modos (transición optimista de arriba).
+                _log.warning(
+                    "disconnect(): detach_portal fallo (%s: %s); "
+                    "el estado ya esta en idle, cleanup best-effort.",
+                    type(exc).__name__,
+                    exc,
+                )
+
+            # Limpiar caches: cambio de estado del portal invalida
+            # todo lo cacheado (los PLCs/bloques pueden ser
+            # distintos tras un nuevo connect).
+            self._cache.clear()
+            try:
+                self._clear_bloques_cache()
+            except Exception:
+                pass
+
+    async def reconnect(self) -> None:
+        """Equivalente a ``disconnect()`` seguido de ``connect()``.
+
+        API publica de compatibilidad (sept-2026, state machine
+        refactor). Antes este metodo mataba el worker y lo
+        relanzaba; ahora es un wrapper de ``disconnect()`` +
+        ``connect()`` con lock unico que cubre todo el ciclo para
+        serializar contra ``_dispatch_worker`` y contra otro
+        ``reconnect``/``disconnect`` concurrente (auditoria X3).
+
+        Si el connect falla, el gateway queda en estado ``"error"``
+        con ``_last_error`` poblado, listo para que el frontend
+        muestre el circulo rojo y el operario sepa que el
+        reconectar no funciono.
+
+        Raises:
+            TIAConnectionError: si el gateway no es persistente
+                (``persistent=False``) o si el connect falla.
+        """
+        if not self._persistent:
+            raise TIAConnectionError(
+                "reconnect() solo aplica a gateway.persistent=True"
+            )
+
+        # Adquirimos ``self._worker_lock`` para serializar el ciclo
+        # disconnect+connect contra ``_dispatch_worker`` y contra
+        # otro ``reconnect``/``disconnect`` concurrente. Ver
+        # ``disconnect()`` y ``connect()`` para el detalle de cada
+        # fase; aqui solo orquestamos.
+        async with self._worker_lock:
+            # 1. Disconnect: detach + cache clear + heartbeat cancel.
+            #    El subproceso worker sigue vivo.
+            #    (El antiguo "disconnected" ya no existe en el state
+            #    machine refactorizado; usamos "idle" como transicion
+            #    antes de connect() en el mismo lock.)
+            self._connection_state = "idle"
+            self._last_error = None
+            if (
+                self._heartbeat_task is not None
+                and not self._heartbeat_task.done()
+            ):
+                self._heartbeat_task.cancel()
+                try:
+                    await self._heartbeat_task
+                except (asyncio.CancelledError, Exception):
+                    pass
+            self._heartbeat_task = None
+            try:
+                if (
+                    self._worker_proc is not None
+                    and self._worker_proc.returncode is None
+                    and self._reader_task is not None
+                    and not self._reader_task.done()
+                ):
+                    await self._send_to_persistent_worker(
+                        "detach_portal",
+                        args={},
+                        timeout_override=10.0,
+                    )
+            except Exception:
+                # Best-effort: si el detach falla, el connect
+                # siguiente sobrescribira el portal attached de
+                # todos modos.
+                pass
+            self._cache.clear()
+            try:
+                self._clear_bloques_cache()
+            except Exception:
+                pass
+            self._project_path = None
+            self._project_changed = False
+
+            # 2. Connect: attach + heartbeat start + project detect.
+            #    Lazy start del subproceso si no esta vivo.
+            self._connection_state = "connecting"
+            if (
+                self._worker_proc is None
+                or self._worker_proc.returncode is not None
+            ):
+                try:
+                    await self._start_persistent_worker()
+                except Exception as exc:
+                    self._connection_state = "error"
+                    if not self._last_error:
+                        self._last_error = f"{type(exc).__name__}: {exc}"
+                    raise TIAConnectionError(
+                        f"Reconnect fallo: {exc}"
+                    ) from exc
+
+            try:
+                result = await self._send_to_persistent_worker(
+                    "attach_portal",
+                    args={"mode": "WithGraphicalUserInterface"},
+                    timeout_override=60.0,
+                )
+            except Exception as exc:
+                self._connection_state = "error"
+                if not self._last_error:
+                    self._last_error = f"{type(exc).__name__}: {exc}"
+                raise TIAConnectionError(
+                    f"Reconnect fallo: {exc}"
+                ) from exc
+
+            if not isinstance(result, dict) or "error" in result:
+                err_msg = (
+                    result.get("error", "attach_portal retorno inesperado")
+                    if isinstance(result, dict)
+                    else f"attach_portal retorno no-dict: {result!r}"
+                )
+                self._connection_state = "error"
+                self._last_error = err_msg
+                raise TIAConnectionError(f"Reconnect fallo: {err_msg}")
+
+            self._connection_state = "connected"
+            self._last_ping_ok = time.monotonic()
+            self._last_error = None
+            if (
+                self._heartbeat_task is None
+                or self._heartbeat_task.done()
+            ):
+                self._heartbeat_task = asyncio.create_task(
+                    self._heartbeat_loop()
+                )
+            try:
+                await self._detect_project_change()
+            except Exception:
+                pass
 
     def get_metrics(self) -> dict[str, dict[str, float | int]]:
         """Devuelve estadisticas de timing acumuladas por comando.
@@ -1306,12 +1877,23 @@ class TIAProcessGateway:
         return await self._dispatch_worker("ping", args={})
 
     async def get_plcs(self, force_refresh: bool = False) -> list[str]:
-        """Obtiene los PLCs disponibles utilizando la caché de memoria IT."""
+        """Obtiene los PLCs disponibles utilizando la caché de memoria IT.
+
+        ``timeout_override=10.0`` (sept-2026 round 3, fix de
+        auditoría): el polling del frontend hace ``GET /tia/connection``
+        cada 2s, y este método se invoca desde el router para
+        enriquecer la respuesta. Sin el override, el default es
+        ``ZC_GATEWAY_TIMEOUT=300s``, lo que permitía que un comando
+        lento retentuviera el ``_worker_lock`` durante minutos y
+        bloqueara el ``disconnect()`` (causa raíz del bug del doble
+        disconnect en producción, audit 2026-09-06). 10s es más que
+        suficiente para un ``list_plcs`` en condiciones normales.
+        """
         cache_key = "plcs"
         if not force_refresh and cache_key in self._cache:
             return self._cache[cache_key]
 
-        plcs = await self._dispatch_worker("list_plcs")
+        plcs = await self._dispatch_worker("list_plcs", timeout_override=10.0)
         self._cache[cache_key] = plcs
         return plcs
 
@@ -1323,6 +1905,12 @@ class TIAProcessGateway:
         invalida junto con el resto en ``clear_cache()`` (que ya limpia
         ``self._cache`` entero y se invoca en ``open_project`` /
         ``close_project``).
+
+        ``timeout_override=10.0`` (sept-2026 round 3, fix de
+        auditoría): ver ``get_plcs()``. Sin este override, un
+        ``get_project_info`` lento podía retentener el
+        ``_worker_lock`` durante minutos y bloquear el
+        ``disconnect()``.
 
         Args:
             force_refresh: Si es ``True``, ignora la caché y relee de TIA.
@@ -1337,7 +1925,7 @@ class TIAProcessGateway:
         if not force_refresh and cache_key in self._cache:
             return self._cache[cache_key]
 
-        info = await self._dispatch_worker("get_project_info")
+        info = await self._dispatch_worker("get_project_info", timeout_override=10.0)
         self._cache[cache_key] = info
         return info
 

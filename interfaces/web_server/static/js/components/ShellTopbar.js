@@ -1,36 +1,40 @@
 /**
  * Componente ShellTopbar — barra superior cross-cutting del shell
- * corporativo (v2.1).
+ * corporativo (v2.2).
  *
  * Tras la v2 del rediseño "Modern Corporate", la selección de PLC
  * y el indicador de proyecto migran del sidebar a una barra
  * superior pegada al borde de la columna derecha (entre la
  * cabecera del shell y el área de contenido). En la v2.1 se ha
- * aligerado el visual:
+ * aligerado el visual y en la v2.2 (sept-2026) se reorganiza el
+ * bloque derecho para acomodar el state machine del worker
+ * persistente:
  *
- *   * Altura reducida de ``h-16`` (64 px) a ``h-14`` (56 px).
+ *   * Altura reducida de ``h-16`` (64 px) a ``h-14`` (56 px) (v2.1).
  *   * Eliminado el círculo animado de status (busy/ok/idle)
- *     que tenía la v2 — feedback explícito del operario: "no
- *     hace falta ver los colores en azul, verde, etc."
+ *     que tenía la v2 (v2.1).
  *   * Eliminado el marco ``bg-surface-sunken border rounded-lg``
- *     que envolvía el bloque PLC. Ahora es un layout inline
- *     con solo ``flex items-center gap-2``; el espaciado se
- *     controla con ``gap`` y cada elemento lleva su propio
- *     styling.
- *   * Botón "Buscar PLCs" rediseñado como CTA más prominente
- *     (texto más grande, padding horizontal mayor, ``shadow-md``
- *     para dar peso visual).
+ *     que envolvía el bloque PLC. Layout inline con solo
+ *     ``flex items-center gap-2`` (v2.1).
+ *   * **v2.2:** el bloque derecho ahora se organiza como
+ *     ``[Worker indicator] [TIA Portal indicator]
+ *      [Conectar|Desconectar] [PLC: list] [Buscar PLCs]``.
+ *     Antes de sept-2026, el operario solo podia "reconectar"
+ *     haciendo click en el circulo de TIA. Ahora el worker
+ *     arranca en estado ``idle`` (subproceso vivo sin portal
+ *     attached) y hace falta un botón explícito "Conectar" para
+ *     pedir el attach. La barra refleja el estado actual con:
+ *       - "Conectar" visible si ``state in {idle, error}``.
+ *       - "Desconectar" visible si ``state in {connecting, connected}``.
+ *       - Lista de PLCs visible SOLO si ``state == "connected"``
+ *         y hay PLCs en ``store.plcs``.
+ *       - "Buscar PLCs" visible SOLO si ``state == "connected"``
+ *         (sin attach no hay PLCs que listar).
  *
- * Funcionalidad intacta respecto a v2:
- *
- *   * Pinta el breadcrumb del área (`<Área> · <Sub-vista>`) con
- *     tokens claros (`text-ink-muted` para el área, `text-accent`
- *     bold para la sub-vista).
- *   * Concentra el bloque PLC: caption con el nombre del proyecto
- *     TIA, desplegable y botón "Buscar PLCs".
+ * Funcionalidad intacta respecto a v2.1:
+ *   * Pinta el breadcrumb del área (`<Área> · <Sub-vista>`).
  *   * Sigue leyendo de `store.selectedPlc`, `store.plcs`,
- *     `store.busy`, `store.projectInfo` y `store.currentView`,
- *     para no introducir nuevos slots en el store.
+ *     `store.busy`, `store.projectInfo` y `store.currentView`.
  *
  * Es cross-cutting: vive en `/js/components/` y se monta en
  * `main.js` (el shell raíz) una sola vez. Las áreas NO lo
@@ -40,7 +44,7 @@
  * el botón CTA, `border-line` para el separador inferior y los
  * bordes del select. Sin hex hardcoded. El feedback largo
  * (ProgressIndicator) sigue viviendo en el ShellSidebar; este
- * componente es SOLO datos/breadcrumb/selección PLC.
+ * componente es SOLO datos/breadcrumb/selección PLC/connect.
  *
  * IMPORTANTE sobre templates Vue: el compilador en runtime de
  * `vue.esm-browser.prod.js` NO acepta string literals multi-línea
@@ -48,7 +52,14 @@
  * línea. Salto de línea entre elementos del array OK.
  */
 import { computed } from "/js/vendor/vue.esm-browser.prod.js";
-import { store, pushLog, loadAndApplyPlcBlocks, resetPlcState, connectTia } from "/js/store.js";
+import {
+    store,
+    pushLog,
+    loadAndApplyPlcBlocks,
+    resetPlcState,
+    connectTia,
+    disconnectTia,
+} from "/js/store.js";
 import { apiFetchPlcs, apiFetchProjectInfo } from "/js/api.js";
 import TiaConnectionIndicator from "./TiaConnectionIndicator.js";
 import WorkerStatusIndicator from "./WorkerStatusIndicator.js";
@@ -101,6 +112,66 @@ export default {
          */
         const currentViewLabel = computed(() => {
             return VIEW_LABELS[store.currentView] || "—";
+        });
+
+        /**
+         * State reactivo del worker TIA persistente, derivado de
+         * ``store.tiaConnection.state``. Refleja el state
+         * machine sept-2026 (``idle | connecting | connected |
+         * error``). Lo exponemos al template como variable plana
+         * (regla Vue 3 sin build step) para no acceder a
+         * ``store.tiaConnection`` directamente en el template.
+         */
+        const tiaState = computed(() => {
+            return (store.tiaConnection && store.tiaConnection.state) || "idle";
+        });
+
+        /**
+         * Flag derivado: el worker está conectado a TIA Portal
+         * (``state === "connected"``). Es la condición para
+         * mostrar la lista de PLCs y el botón "Buscar PLCs".
+         * ``false`` en cualquier otro estado (idle / connecting /
+         * error) para evitar que el operario vea PLCs stale o
+         * intente refrescar sin tener portal attached.
+         */
+        const isTiaConnected = computed(() => tiaState.value === "connected");
+
+        /**
+         * Flag derivado: el botón "Conectar" debe mostrarse.
+         * Visible cuando ``state in {idle, error}`` (operario
+         * puede pedir un attach a TIA). Oculto en ``connecting``
+         * (ya hay un attach en curso, el botón seria no-op
+         * visualmente y podria confundir) y en ``connected``
+         * (ahi mostramos "Desconectar" en su lugar).
+         */
+        const showConnectButton = computed(() => {
+            return tiaState.value === "idle" || tiaState.value === "error";
+        });
+
+        /**
+         * Flag derivado: el botón "Desconectar" debe mostrarse.
+         * Visible cuando ``state in {connecting, connected}``.
+         * En ``connecting`` permite al operario abortar un attach
+         * si tarda demasiado (el backend maneja el detach
+         * idempotente). En ``connected`` es el camino normal
+         * para "soltar" TIA sin matar el worker persistente.
+         */
+        const showDisconnectButton = computed(() => {
+            return tiaState.value === "connecting" || tiaState.value === "connected";
+        });
+
+        /**
+         * Flag derivado: la lista de PLCs (``<select>`` +
+         * caption del proyecto) debe ser visible. SOLO si el
+         * worker está conectado a TIA y hay PLCs detectados.
+         * Antes de sept-2026, el ``<select>`` se mostraba
+         * siempre (con lista vacía si TIA no estaba conectado);
+         * ahora lo ocultamos para no confundir al operario con
+         * una lista de PLCs que ya no aplica tras un detach.
+         */
+        const showPlcList = computed(() => {
+            return isTiaConnected.value && Array.isArray(store.plcs)
+                && store.plcs.length > 0;
         });
 
         /**
@@ -178,11 +249,12 @@ export default {
         }
 
         /**
-         * Handler del evento ``"connect"`` emitido por el
-         * ``TiaConnectionIndicator`` cuando el operario pulsa
-         * el círculo en estado ``disconnected`` o ``error``.
-         * Delega en ``connectTia()`` (helper del store) que
-         * setea ``state="connecting"`` y dispara
+         * Handler del botón "Conectar" del topbar (v2.2). El
+         * operario lo pulsa cuando el worker está en estado
+         * ``idle`` (recien arrancado o tras un "Desconectar"
+         * previo) o ``error`` (attach anterior falló). Delega
+         * en ``connectTia()`` (helper del store) que setea
+         * ``state="connecting"`` y dispara
          * ``POST /api/v1/tia/connect``. La promesa se ignora
          * porque el feedback de la operación larga llega por
          * el propio indicador (color pulsante → verde) y por
@@ -192,13 +264,34 @@ export default {
             await connectTia();
         }
 
+        /**
+         * Handler del botón "Desconectar" del topbar (v2.2).
+         * Complementario a ``handleConnect``: pide al worker
+         * persistente que haga ``detach_portal`` (NO destructivo:
+         * el subproceso worker sigue vivo, solo pierde la
+         * referencia al portal TIA). El helper ``disconnectTia``
+         * del store se encarga del POST y, tras exito, limpia
+         * los slots del PLC (``plcs``, ``selectedPlc``,
+         * ``plcBlocksCache``, ``projectInfo``) para que el
+         * topbar no muestre datos stale.
+         */
+        async function handleDisconnect() {
+            await disconnectTia();
+        }
+
         return {
             store,
             areaLabel,
             currentViewLabel,
+            tiaState,
+            isTiaConnected,
+            showConnectButton,
+            showDisconnectButton,
+            showPlcList,
             handleRefreshPlcs,
             onPlcSelected,
             handleConnect,
+            handleDisconnect,
         };
     },
     template: /* html */ `
@@ -215,44 +308,76 @@ export default {
                 <span class="text-accent font-bold uppercase tracking-widest">{{ currentViewLabel }}</span>
             </nav>
 
-            <!-- Derecha: bloque PLC inline (sin marco sunken,
-                 v2.1). Solo el label "PLC:" + caption del
-                 proyecto + select + botón. El espaciado se
-                 controla con gap, no con un contenedor con
-                 background y border.
+            <!-- Derecha (v2.2): bloque reorganizado para el state
+                 machine del worker persistente.
 
-                 v2.1: el círculo animado de status (busy/ok/
-                 idle) que tenía v2 se ha eliminado por
-                 feedback del operario ("no hace falta ver los
-                 colores en azul, verde, etc.").
+                 Orden de izquierda a derecha:
+                   1. WorkerStatusIndicator (verde=worker vivo,
+                      gris=muerto). Ortogonal al estado de attach.
+                   2. TiaConnectionIndicator (verde=connected,
+                      ambar pulsante=connecting, gris=idle,
+                      rojo=error). Clickable para pedir "Conectar"
+                      cuando esta en idle/error.
+                   3. Boton "Conectar" (v2.2) — visible SOLO si
+                      state in {idle, error}. Dispara handleConnect.
+                   4. Boton "Desconectar" (v2.2) — visible SOLO si
+                      state in {connecting, connected}. Dispara
+                      handleDisconnect, que limpia los slots del
+                      PLC tras el detach OK.
+                   5. Lista de PLCs (label + caption del proyecto
+                      + select) — visible SOLO si state == "connected"
+                      y store.plcs.length > 0.
+                   6. Boton "Buscar PLCs" — visible SOLO si
+                      state == "connected".
 
-                 PR 5b: a la izquierda del bloque PLC se monta
-                 el indicador 'TiaConnectionIndicator' (circulo
-                 independiente que muestra el estado del
-                 WORKER TIA PERSISTENTE, no del scan de PLCs).
-                 Lee reactivamente 'store.tiaConnection'
-                 y se actualiza solo con el polling 2s de
-                 'main.js'. Clickable para reconectar cuando
-                 el estado es disconnected/error; en otros
-                 estados el click es no-op. -->
+                 Layout inline con 'flex items-center gap-2';
+                 el espaciado lo controla 'gap'. -->
             <div class="flex items-center gap-2">
                 <WorkerStatusIndicator />
                 <TiaConnectionIndicator @connect="handleConnect" />
-                <label class="text-[10px] font-bold text-ink-muted uppercase tracking-widest">PLC:</label>
-                <p v-if="store.projectInfo && store.projectInfo.name"
-                   class="text-[11px] font-mono text-ink-muted truncate max-w-[200px]"
-                   :title="store.projectInfo.name"
-                   data-testid="topbar-project-name">
-                    {{ store.projectInfo.name }}
-                </p>
-                <select v-model="store.selectedPlc" @change="onPlcSelected"
-                        :disabled="store.plcs.length === 0 || store.busy"
-                        data-testid="topbar-plc-select"
-                        class="bg-white border border-line text-accent font-bold text-sm rounded focus:border-accent-bright focus:outline-none px-3 py-1.5 font-mono disabled:opacity-50 cursor-pointer">
-                    <option value="">-- Selecciona un PLC --</option>
-                    <option v-for="p in store.plcs" :key="p" :value="p">{{ p }}</option>
-                </select>
-                <button @click="handleRefreshPlcs" :disabled="store.busy"
+
+                <button v-if="showConnectButton"
+                        type="button"
+                        @click="handleConnect"
+                        :disabled="store.busy"
+                        data-testid="topbar-connect-tia"
+                        class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
+                    <span>🔌</span>
+                    Conectar
+                </button>
+
+                <button v-if="showDisconnectButton"
+                        type="button"
+                        @click="handleDisconnect"
+                        :disabled="store.busy"
+                        data-testid="topbar-disconnect-tia"
+                        class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
+                    <span v-if="store.busy" class="animate-spin">↻</span>
+                    <span v-else>⏏</span>
+                    {{ store.busy ? 'Desconectando...' : 'Desconectar' }}
+                </button>
+
+                <template v-if="showPlcList">
+                    <label class="text-[10px] font-bold text-ink-muted uppercase tracking-widest">PLC:</label>
+                    <p v-if="store.projectInfo && store.projectInfo.name"
+                       class="text-[11px] font-mono text-ink-muted truncate max-w-[200px]"
+                       :title="store.projectInfo.name"
+                       data-testid="topbar-project-name">
+                        {{ store.projectInfo.name }}
+                    </p>
+                    <select v-model="store.selectedPlc" @change="onPlcSelected"
+                            :disabled="store.busy"
+                            data-testid="topbar-plc-select"
+                            class="bg-white border border-line text-accent font-bold text-sm rounded focus:border-accent-bright focus:outline-none px-3 py-1.5 font-mono disabled:opacity-50 cursor-pointer">
+                        <option value="">-- Selecciona un PLC --</option>
+                        <option v-for="p in store.plcs" :key="p" :value="p">{{ p }}</option>
+                    </select>
+                </template>
+
+                <button v-if="isTiaConnected"
+                        type="button"
+                        @click="handleRefreshPlcs"
+                        :disabled="store.busy"
                         data-testid="topbar-refresh-plcs"
                         class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
                     <span v-if="store.busy" class="animate-spin">↻</span>

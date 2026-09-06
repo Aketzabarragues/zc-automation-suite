@@ -21,6 +21,7 @@ Cero UI propia: no hay TUI ni bucles interactivos.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import io
 import sys
 from typing import NoReturn
@@ -133,14 +134,45 @@ def run_web_mode(host_port: str) -> None:
     # nada en este PR (el dispatch falla de forma explícita si se
     # intenta usar, sin pisar el modo 1-shot del MCP).
     gateway = TIAProcessGateway(persistent=True)
-    app = create_app(gateway)
 
     host, _, port = host_port.partition(":")
-    uvicorn.run(
-        app,
-        host=host or "127.0.0.1",
-        port=int(port) if port else 8000,
-    )
+    # Red de seguridad X2: aunque el lifespan de FastAPI YA llama a
+    # ``gateway.disconnect()`` al shutdown (ver ``app.py::_tia_lifespan``),
+    # ``uvicorn.run`` es sync y bloqueante: si crashea antes de
+    # ejecutar el lifespan cleanup, el subproceso del worker
+    # persistente quedaría zombi (~200 MB con ``siemens_tia_scripting.pyd``
+    # cargado) hasta que se cierre TIA o se mate manualmente. Por eso
+    # delegamos en la versión async y envolvemos en try/finally.
+    asyncio.run(_run_web_mode_async(gateway, host or "127.0.0.1", int(port) if port else 8000))
+
+
+async def _run_web_mode_async(
+    gateway: TIAProcessGateway, host: str, port: int
+) -> None:
+    """Implementación async de ``run_web_mode`` con cleanup garantizado.
+
+    Separada de ``run_web_mode`` para poder envolver el ``uvicorn.Server.serve``
+    en un ``try/finally`` que llame a ``gateway.disconnect()`` al
+    terminar (red de seguridad X2). El lifespan de FastAPI ya cubre
+    el caso normal; este finally cubre el crash pre-lifespan.
+    """
+    import uvicorn
+
+    from interfaces.web_server.app import create_app
+
+    app = create_app(gateway)
+    config = uvicorn.Config(app, host=host, port=port)
+    server = uvicorn.Server(config)
+    try:
+        await server.serve()
+    finally:
+        try:
+            await gateway.disconnect()
+        except Exception as exc:  # noqa: BLE001
+            import logging
+            logging.getLogger(__name__).warning(
+                "gateway.disconnect() en main fallo: %s", exc
+            )
 
 
 def main() -> None:

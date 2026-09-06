@@ -247,15 +247,26 @@ export const store = reactive({
      * ``GET /api/v1/tia/connection`` que el backend mantiene en
      * ``TIAProcessGateway._connection_state``.
      *
-     * Shape (estable, alineado con el backend):
+     * Shape (estable, alineado con el backend, sept-2026
+     * state machine):
      *   {
      *     state:              "connected" | "connecting"
-     *                        | "disconnected" | "error",
+     *                        | "idle" | "error",
      *     project:            { name, path, version } | null,
      *     plcs:               string[],
      *     last_ping_ok_unix:  number | null,
      *     last_error:         string | null,
      *   }
+     *
+     * ``idle`` (sept-2026) sustituye al antiguo ``disconnected``:
+     * el worker arranca en idle (subproceso vivo, SIN portal
+     * attached) y el operario decide cuándo pulsar "Conectar"
+     * del topbar para transicionar a ``connecting`` ->
+     * ``connected``. La respuesta del backend al
+     * ``GET /api/v1/tia/connection`` refleja esta misma
+     * maquina de estados; el ``_applyTiaSnapshot`` valida el
+     * ``state`` contra los 4 valores estables y descarta
+     * silenciosamente cualquier otro.
      *
      * El polling cada 2 s (en ``main.js``) llama a
      * ``refreshTiaConnection()``, que actualiza este slot vía
@@ -264,13 +275,17 @@ export const store = reactive({
      *
      * El ``TiaConnectionIndicator`` del ``ShellTopbar`` lee
      * ``store.tiaConnection.state`` reactivamente y renderiza el
-     * color del círculo (verde/gris/amarillo/rojo). El click en
+     * color del círculo (verde/ámbar/gris/rojo). El click en
      * el círculo emite ``"connect"`` cuando el estado es
-     * ``disconnected`` o ``error``, y el handler del topbar llama
+     * ``idle`` o ``error``, y el handler del topbar llama
      * a ``connectTia()``.
      */
     tiaConnection: {
-        state: "disconnected",
+        // Estado inicial: "idle" (worker persistente recien
+        // arrancado, subproceso vivo sin portal attached). El
+        // primer tick del polling (2s) lo confirmara con el
+        // GET al backend.
+        state: "idle",
         project: null,
         plcs: [],
         last_ping_ok_unix: null,
@@ -278,10 +293,20 @@ export const store = reactive({
         // ``worker_alive`` (sept-2026): ``true`` si el subproceso
         // del worker persistente esta vivo, INDEPENDIENTEMENTE
         // del estado de attach a TIA (``state``). Ortogonal:
-        // el worker puede estar vivo pero desconectado (3
-        // fallos del heartbeat) o vivo y conectado. El
+        // el worker puede estar vivo pero en idle (subproceso
+        // vivo, sin portal attached) o vivo y conectado. El
         // ``WorkerStatusIndicator`` del topbar lee este flag.
         worker_alive: false,
+        // ``project_changed`` (sept-2026, fix audit X1): ``true``
+        // si el operario cambio de proyecto en TIA Portal desde el
+        // ultimo attach del worker persistente. Es un flag one-shot
+        // que el backend expone en ``GET /tia/connection`` (lo lee
+        // de ``gateway.consume_project_changed()`` y lo resetea).
+        // El frontend lo guarda aqui para que ``WorkerStatusIndicator``
+        // u otros componentes puedan mostrar un aviso "el proyecto
+        // TIA ha cambiado". Si el backend NO incluye el campo
+        // (modo 1-shot / MCP), queda ``false`` (sin aviso).
+        project_changed: false,
     },
 
     /**
@@ -648,25 +673,18 @@ export function resetPlcState() {
  * ``store.tiaConnection``.
  *
  * Reglas:
- *   * Solo actualiza si la respuesta es OK y trae un ``state``
- *     válido. En caso contrario, deja el slot como está
- *     (mantenemos el último estado conocido, preferible a un
- *     parpadeo ``connected`` → ``error`` → ``connected`` en cada
- *     timeout de la red).
- *   * Detecta cambios de estado y loguea en ``ConsolaLogs`` via
- *     ``pushLog`` con el formato definido en §4.4 del design doc:
- *       - ``connected``    → "[TIA] Conectado a "X" (TIA vY, N PLCs)."
- *       - ``disconnected`` → "[TIA] Desconectado. Pulsa el circulo
- *                                  para reconectar."
- *       - ``error``        → "[TIA] Error: <mensaje>"
- *   * No loguea transiciones a ``connecting`` (es estado
- *     transitorio durante el POST /tia/connect; aparecería
- *     duplicado al loguear el connected/error posterior).
- *   * Usa ``Object.assign(store.tiaConnection, r.data)`` para
- *     preservar la reactividad de los campos anidados (``project``,
- *     ``plcs``) — un re-asignacion completa
- *     (``store.tiaConnection = r.data``) también funciona pero
- *     rompe las refs que otros computed puedan tener.
+ *   * Delega SIEMPRE en ``_applyTiaSnapshot(r)`` (helper privado
+ *     declarado debajo) para que la logica de merge sea identica
+ *     a la de ``connectTia`` y ``disconnectTia`` (DRY, fix
+ *     audit X1 / sept-2026).
+ *   * Si la respuesta no es OK o el snapshot no tiene un ``state``
+ *     valido, ``_applyTiaSnapshot`` lo descarta silenciosamente y
+ *     el slot conserva el ultimo estado conocido (preferible a
+ *     un parpadeo ``connected`` → ``error`` → ``connected`` en
+ *     cada timeout de la red).
+ *   * La deteccion de transiciones de estado y el logueo en
+ *     ``ConsolaLogs`` se hace dentro de ``_applyTiaSnapshot``
+ *     (formato §4.4 del design doc).
  *
  * Idempotente y segura para llamarse en bucle (polling 2s).
  * Devuelve la respuesta cruda por si el caller quiere
@@ -675,45 +693,24 @@ export function resetPlcState() {
 export async function refreshTiaConnection() {
     const { apiFetchTiaConnection } = await import("./api.js");
     const r = await apiFetchTiaConnection();
-    if (!r || !r.ok || !r.data || typeof r.data !== "object") return r;
-    const newState = r.data.state;
-    if (
-        newState !== "connected" &&
-        newState !== "connecting" &&
-        newState !== "disconnected" &&
-        newState !== "error"
-    ) {
-        // Snapshot malformado: lo descartamos silenciosamente para
-        // no romper el polling. El siguiente tick (2s) lo reintenta.
-        return r;
-    }
-    const prevState = store.tiaConnection && store.tiaConnection.state;
-    // Merge defensivo: conservamos los slots no presentes en
-    // la respuesta (p.ej. ``last_ping_ok_unix`` puede faltar en
-    // respuestas sintéticas de tests) y machacamos el resto.
-    Object.assign(store.tiaConnection, {
-        state: newState,
-        project:
-            r.data.project !== undefined ? r.data.project : null,
-        plcs: Array.isArray(r.data.plcs) ? r.data.plcs : [],
-        last_ping_ok_unix:
-            r.data.last_ping_ok_unix !== undefined
-                ? r.data.last_ping_ok_unix
-                : null,
-        last_error:
-            r.data.last_error !== undefined ? r.data.last_error : null,
-    });
-    if (prevState !== newState) {
-        _logTiaStateTransition(prevState, newState, r.data);
-    }
+    _applyTiaSnapshot(r);
     return r;
 }
 
 /**
  * Helper privado: loguea una transición de estado del worker
  * TIA persistente en la ``ConsolaLogs``. Usado por
- * ``refreshTiaConnection`` y ``connectTia`` para mantener el
- * formato consistente (PR 5b / §4.4 del design doc).
+ * ``_applyTiaSnapshot`` (y por tanto por ``refreshTiaConnection``,
+ * ``connectTia`` y ``disconnectTia``) para mantener el formato
+ * consistente (PR 5b / §4.4 del design doc).
+ *
+ * Tras el refactor de state machine (sept-2026), el antiguo
+ * ``disconnected`` se reemplaza por ``idle``: el worker arranca
+ * en idle (subproceso vivo, sin portal attached). Mantenemos el
+ * mismo mensaje "Desconectado" para que la ``ConsolaLogs`` no
+ * cambie de wording (el operario percibe la misma transición
+ * "ya no estoy en TIA Portal"); el copy del topbar (botón
+ * "Conectar") se actualiza por su cuenta en ShellTopbar.
  */
 function _logTiaStateTransition(prevState, newState, snapshot) {
     if (newState === "connected") {
@@ -730,9 +727,13 @@ function _logTiaStateTransition(prevState, newState, snapshot) {
         } else {
             pushLog("[TIA] Conectado.");
         }
-    } else if (newState === "disconnected") {
+    } else if (newState === "idle") {
+        // Tras pulsar "Desconectar" el worker pasa a idle
+        // (subproceso vivo, sin portal). El operario entiende
+        // "Desconectado" como "ya no estoy en TIA Portal" sin
+        // entrar en el detalle del state machine.
         pushLog(
-            "[TIA] Desconectado. Pulsa el circulo para reconectar."
+            "[TIA] Desconectado. Pulsa 'Conectar' en el topbar para volver a abrir un portal."
         );
     } else if (newState === "error") {
         const err =
@@ -740,6 +741,87 @@ function _logTiaStateTransition(prevState, newState, snapshot) {
         pushLog(`[TIA] Error: ${err}`, "error");
     }
     // "connecting" se ignora: es estado transitorio.
+}
+
+/**
+ * Helper privado: aplica un snapshot de ``GET /api/v1/tia/connection``
+ * (o de ``POST /tia/{connect,disconnect}``) al slot
+ * ``store.tiaConnection`` de forma consistente entre los 3 helpers
+ * de la SPA. Encapsula el ``Object.assign`` con defaults defensivos
+ * para que ``refresh``, ``connect`` y ``disconnect`` no dupliquen
+ * el mismo bloque de 12 lineas (DRY, fix audit X1 / sept-2026).
+ *
+ * Reglas:
+ *   * Valida ``r.data.state`` contra los 4 valores estables del
+ *     state machine sept-2026 (``connected`` / ``connecting`` /
+ *     ``idle`` / ``error``). Si el ``state`` falta o es
+ *     desconocido, retorna ``false`` SIN tocar el store (mantenemos
+ *     el ultimo estado conocido para evitar parpadeo en cada
+ *     timeout de la red). El siguiente tick del polling (2s)
+ *     reintenta. El antiguo ``disconnected`` ya NO se acepta
+ *     (el backend no lo emite nunca; el frontend no lo espera).
+ *   * Hace ``Object.assign(store.tiaConnection, {...})`` con los 7
+ *     campos estables del snapshot, con defaults sensatos si el
+ *     backend los omite (compat con respuestas sinteticas de tests
+ *     y con el modo 1-shot / MCP que solo expone ``state`` y
+ *     ``error``):
+ *       - ``state``             → validado arriba (4 valores).
+ *       - ``project``           → ``null`` (snapshot sin proyecto).
+ *       - ``plcs``              → ``[]`` (sin PLCs detectados).
+ *       - ``last_ping_ok_unix`` → ``null`` (nunca llego un ping OK).
+ *       - ``last_error``        → ``null``.
+ *       - ``worker_alive``      → ``false`` (modo 1-shot / MCP).
+ *       - ``project_changed``   → ``false`` (sin cambio pendiente).
+ *   * Usa ``Object.assign`` (no reasignacion completa
+ *     ``store.tiaConnection = r.data``) para preservar la
+ *     reactividad de los campos anidados (``project``, ``plcs``):
+ *     si reasignamos, cualquier ``computed`` que tuviese una ref
+ *     al objeto antiguo deja de actualizarse.
+ *   * Detecta si el ``state`` cambió respecto al valor previo y
+ *     delega el logueo en ``_logTiaStateTransition`` (no loguea
+ *     transiciones a ``connecting`` por ser estado transitorio).
+ *
+ * Devuelve ``true`` si aplicó el snapshot, ``false`` si lo descartó
+ * (respuesta no OK, ``r.data`` malformado o ``state`` invalido).
+ * Los callers normalmente ignoran el retorno.
+ */
+function _applyTiaSnapshot(r) {
+    if (!r || !r.ok || !r.data || typeof r.data !== "object") return false;
+    const newState = r.data.state;
+    if (
+        newState !== "connected" &&
+        newState !== "connecting" &&
+        newState !== "idle" &&
+        newState !== "error"
+    ) {
+        // Snapshot malformado: lo descartamos silenciosamente para
+        // no romper el polling. El siguiente tick (2s) lo reintenta.
+        return false;
+    }
+    const prevState = store.tiaConnection && store.tiaConnection.state;
+    // Merge defensivo: conservamos los slots no presentes en la
+    // respuesta (p.ej. ``worker_alive`` y ``project_changed`` pueden
+    // faltar en respuestas sinteticas de tests o en el modo 1-shot
+    // del backend, que solo expone ``state`` y ``error``) y
+    // machacamos el resto.
+    Object.assign(store.tiaConnection, {
+        state: newState,
+        project:
+            r.data.project !== undefined ? r.data.project : null,
+        plcs: Array.isArray(r.data.plcs) ? r.data.plcs : [],
+        last_ping_ok_unix:
+            r.data.last_ping_ok_unix !== undefined
+                ? r.data.last_ping_ok_unix
+                : null,
+        last_error:
+            r.data.last_error !== undefined ? r.data.last_error : null,
+        worker_alive: r.data.worker_alive === true,
+        project_changed: r.data.project_changed === true,
+    });
+    if (prevState !== newState) {
+        _logTiaStateTransition(prevState, newState, r.data);
+    }
+    return true;
 }
 
 /**
@@ -752,9 +834,12 @@ function _logTiaStateTransition(prevState, newState, snapshot) {
  *      (feedback visual antes de que llegue la respuesta del
  *      backend, que puede tardar 5-30s en un cold-attach).
  *   2. Llama a ``POST /api/v1/tia/connect``.
- *   3. Si la respuesta es OK y trae snapshot, lo aplica al store
- *      y loguea la transición. Si falla, deja el estado en
- *      ``"error"`` con el mensaje del backend.
+ *   3. Si la respuesta es OK, delega en ``_applyTiaSnapshot(r)``
+ *      para mergear el snapshot (incluidos ``worker_alive`` y
+ *      ``project_changed``, que el backend expone en su respuesta).
+ *      Si falla, deja el estado en ``"error"`` con el mensaje
+ *      del backend (la respuesta de error NO trae snapshot, solo
+ *      ``{ok: false, data: {error: ...}}``).
  *
  * Devuelve la respuesta cruda del endpoint. El handler del
  * ShellTopbar la ignora (el componente se re-renderiza solo
@@ -769,24 +854,18 @@ export async function connectTia() {
         last_error: null,
     };
     const r = await apiConnectTia();
-    if (r && r.ok && r.data && typeof r.data === "object") {
-        const newState = r.data.state || "connected";
-        Object.assign(store.tiaConnection, {
-            state: newState,
-            project:
-                r.data.project !== undefined ? r.data.project : null,
-            plcs: Array.isArray(r.data.plcs) ? r.data.plcs : [],
-            last_ping_ok_unix:
-                r.data.last_ping_ok_unix !== undefined
-                    ? r.data.last_ping_ok_unix
-                    : null,
-            last_error:
-                r.data.last_error !== undefined ? r.data.last_error : null,
-        });
-        if (prevState !== newState) {
-            _logTiaStateTransition(prevState, newState, r.data);
-        }
-    } else if (r && !r.ok) {
+    if (r && r.ok) {
+        // ``_applyTiaSnapshot`` valida ``r.data.state`` y los 7
+        // campos del snapshot. Si la respuesta es OK pero el
+        // snapshot esta malformado, retorna ``false`` SIN tocar
+        // el store: preferimos mantener el "connecting" optimista
+        // a pisar con datos corruptos. El proximo tick del
+        // polling (2s) reintentara con un GET fresco.
+        _applyTiaSnapshot(r);
+    } else if (r) {
+        // Error path: la respuesta trae ``{ok: false, data: {error,
+        // detail}}`` (o similar). Forzamos ``state='error'`` y
+        // propagamos el mensaje al ``last_error`` del store.
         const err =
             (r.data && (r.data.error || r.data.detail)) ||
             `HTTP ${r.status || "?"}`;
@@ -806,38 +885,79 @@ export async function connectTia() {
 
 /**
  * Desconexión explícita del worker TIA persistente.
- * PR 5b / §4.3 del design doc.
+ * PR 5b / §4.3 del design doc + refactor state machine sept-2026.
  *
- * Llamado por el operario desde el menú de contexto del
- * indicador (TODO: PR futuro). De momento expuesto en la API
- * para que esté listo cuando se monte el menú.
+ * Llamado por el operario al pulsar el botón "Desconectar" del
+ * ``ShellTopbar`` (visible cuando ``state in {connecting, connected}``).
  *
  * Idéntico patrón a ``connectTia`` pero contra
- * ``POST /api/v1/tia/disconnect``.
+ * ``POST /api/v1/tia/disconnect``: si la respuesta es OK,
+ * delega en ``_applyTiaSnapshot`` para mergear el snapshot
+ * (incluidos ``worker_alive`` y ``project_changed`` si vienen).
+ * Si el backend no los incluye (modo 1-shot, error response
+ * parcial, etc.), el helper pone los defaults sensatos
+ * (``false`` para ambos) sin romper.
+ *
+ * Tras el éxito del detach (sept-2026, refactor state machine),
+ * limpia tambien los slots del SPA relacionados con la selección
+ * y cache de PLCs:
+ *   - ``plcs``            → ``[]`` (lista de PLCs, ya no aplica).
+ *   - ``selectedPlc``     → ``""`` (dropdown a "Selecciona un PLC").
+ *   - ``plcBlocksCache``  → ``null`` (snapshot de bloques stale).
+ *   - ``projectInfo``     → ``null`` (caption del proyecto arriba).
+ *
+ * Sin esta limpieza, tras un "Conectar / Desconectar" rápido, el
+ * topbar seguiría mostrando la lista de PLCs del attach anterior
+ * y el caption del proyecto viejo, dando la falsa sensación de
+ * que sigue conectado. El operario vería el círculo gris del
+ * ``TiaConnectionIndicator`` pero el ``<select>`` con PLCs
+ * "viejos" y el nombre del proyecto anterior en el caption.
+ *
+ * NO tocamos ``previewData`` ni ``procesosSync`` (slots de sync
+ * de dispositivos / comentarios de procesos: son ortogonales al
+ * attach a TIA Portal; el operario puede querer ver el último
+ * preview tras un detach temporal). Si el operario quiere
+ * limpieza total, ya tiene el botón "Limpiar" del sync.
+ *
+ * La limpieza se hace SIEMPRE que la respuesta del backend sea
+ * OK (i.e. el detach funciono), aunque el ``_applyTiaSnapshot``
+ * no haya aceptado el ``state`` (p.ej. respuesta sintetica de
+ * test sin ``state`` valido). Asi el reset del PLC es
+ * independiente del path de error del snapshot.
  */
 export async function disconnectTia() {
-    const { apiDisconnectTia } = await import("./api.js");
-    const prevState = store.tiaConnection && store.tiaConnection.state;
-    const r = await apiDisconnectTia();
-    if (r && r.ok && r.data && typeof r.data === "object") {
-        const newState = r.data.state || "disconnected";
-        Object.assign(store.tiaConnection, {
-            state: newState,
-            project:
-                r.data.project !== undefined ? r.data.project : null,
-            plcs: Array.isArray(r.data.plcs) ? r.data.plcs : [],
-            last_ping_ok_unix:
-                r.data.last_ping_ok_unix !== undefined
-                    ? r.data.last_ping_ok_unix
-                    : null,
-            last_error:
-                r.data.last_error !== undefined ? r.data.last_error : null,
-        });
-        if (prevState !== newState) {
-            _logTiaStateTransition(prevState, newState, r.data);
-        }
+    // Guard de idempotencia (sept-2026 round 3, fix de auditoría):
+    // ``store.busy`` ya se setea en ``handleRefreshPlcs`` y otros
+    // handlers del topbar. Sin este guard, un doble-click rápido
+    // en "Desconectar" mandaba 2 POSTs en paralelo, y el segundo
+    // se quedaba en cola detrás del primero en el ``_worker_lock``
+    // del backend, viendo ``state="connected"`` durante segundos.
+    // El botón del topbar usa ``:disabled="store.busy"`` para
+    // bloquear visualmente, pero un programático / teclado rápido
+    // puede saltarse el disabled. Aquí blindamos la lógica.
+    if (store.busy) {
+        return { ok: false, busy: true, state: store.tiaConnection?.state };
     }
-    return r;
+    store.busy = true;
+    try {
+        const { apiDisconnectTia } = await import("./api.js");
+        const r = await apiDisconnectTia();
+        _applyTiaSnapshot(r);
+        // Limpieza post-detach de los slots del PLC. Se ejecuta
+        // tambien en error path: si la respuesta no es OK, dejamos
+        // los slots como estaban (preferible un "stale" visible a
+        // un "vacio" confuso si el detach fallo). Por eso el guard
+        // ``r && r.ok``.
+        if (r && r.ok) {
+            store.plcs = [];
+            store.selectedPlc = "";
+            store.plcBlocksCache = null;
+            store.projectInfo = null;
+        }
+        return r;
+    } finally {
+        store.busy = false;
+    }
 }
 
 /**

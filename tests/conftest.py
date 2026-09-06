@@ -26,7 +26,7 @@ def mock_gateway() -> MagicMock:
 
     Los tests especificos sobreescriben lo que necesiten. Los metodos
     que el router invoca (``get_project_info``, ``get_plcs``,
-    ``reconnect``, ``disconnect``) se anaden caso por caso.
+    ``connect``, ``disconnect``) se anaden caso por caso.
     """
     g = MagicMock(spec=TIAProcessGateway)
     # Defaults sensatos: estado inicial ``disconnected`` y atributos
@@ -36,6 +36,7 @@ def mock_gateway() -> MagicMock:
     g._project_path = None
     g._last_ping_ok = None
     g._last_error = None
+    g._last_portal_pid = None
     return g
 
 

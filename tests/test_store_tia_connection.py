@@ -81,18 +81,23 @@ def test_store_has_tia_connection_slot() -> None:
         )
 
 
-def test_store_tia_connection_initial_state_is_disconnected() -> None:
+def test_store_tia_connection_initial_state_is_idle() -> None:
     """El estado inicial de ``tiaConnection.state`` debe ser
-    ``"disconnected"`` (mismo valor que la respuesta por defecto
-    del endpoint ``GET /api/v1/tia/connection``)."""
+    ``"idle"`` (state machine sept-2026: el worker persistente
+    arranca en idle, subproceso vivo SIN portal attached, y el
+    operario decide cuando pulsar "Conectar" del topbar para
+    pedir el attach). Es el mismo valor que el backend expone
+    en ``GET /api/v1/tia/connection`` antes del primer attach."""
     text = _read(STORE_JS)
     start = text.find("tiaConnection: {")
     assert start != -1
-    body = text[start:start + 200]
-    assert 'state: "disconnected"' in body, (
-        "tiaConnection.state debe inicializarse a 'disconnected' "
-        "(mismo valor que devuelve el backend antes del primer "
-        "attach del worker)."
+    # Aumentamos el rango a 500 chars para cubrir el comentario
+    # doc del slot (sept-2026, mas extenso que el original).
+    body = text[start:start + 500]
+    assert 'state: "idle"' in body, (
+        "tiaConnection.state debe inicializarse a 'idle' "
+        "(state machine sept-2026: worker persistente arranca "
+        "en idle, sin attach a TIA Portal)."
     )
 
 
@@ -131,19 +136,27 @@ def test_store_exports_disconnect_tia() -> None:
 
 def test_refresh_tia_connection_calls_api_fetch_tia_connection() -> None:
     """``refreshTiaConnection()`` debe llamar a
-    ``apiFetchTiaConnection()`` (vía import dinámico de api.js)."""
+    ``apiFetchTiaConnection()`` (vía import dinámico de api.js) y
+    delegar en ``_applyTiaSnapshot`` para mergear el snapshot
+    (DRY, fix audit X1 / sept-2026)."""
     text = _read(STORE_JS)
     start = text.find("export async function refreshTiaConnection")
     assert start != -1
-    body = text[start:start + 1500]
+    body = text[start:start + 500]
     assert "apiFetchTiaConnection" in body, (
         "refreshTiaConnection debe llamar a apiFetchTiaConnection() "
         "para traer el snapshot del backend."
     )
-    assert "Object.assign" in body, (
-        "refreshTiaConnection debe usar Object.assign sobre "
-        "store.tiaConnection (no reasignar la referencia completa, "
-        "para preservar la reactividad de los campos anidados)."
+    assert "_applyTiaSnapshot" in body, (
+        "refreshTiaConnection debe delegar en _applyTiaSnapshot "
+        "(helper privado declarado en el mismo archivo) para mergear "
+        "el snapshot en store.tiaConnection. El bloque de Object.assign "
+        "de 12 lineas que antes se duplicaba en refresh/connect/disconnect "
+        "ahora vive SOLO en _applyTiaSnapshot (DRY, fix audit X1). "
+        "Es la llamada transitiva a Object.assign dentro del helper "
+        "lo que preserva la reactividad de los campos anidados "
+        "(project, plcs): reasignar store.tiaConnection = r.data "
+        "romperia las refs de los computed que ya lo tenian cacheado."
     )
 
 
@@ -236,6 +249,367 @@ def test_connect_tia_handles_error_response() -> None:
     assert "last_error" in body, (
         "connectTia debe propagar el last_error del backend en el "
         "store para que el TiaConnectionIndicator lo muestre en el tooltip."
+    )
+
+
+# ── store.js: fix audit X1 (sept-2026) — propagacion de worker_alive
+#        y project_changed al store desde la respuesta del backend ──
+#
+# Hallazgo X1: el ``Object.assign`` de los 3 helpers (refresh, connect,
+# disconnect) solo copiaba 5 campos (state, project, plcs,
+# last_ping_ok_unix, last_error). Los campos ``worker_alive`` y
+# ``project_changed`` que el backend SI expone en la respuesta de
+# ``GET /api/v1/tia/connection`` (sept-2026) NUNCA llegaban al store,
+# asi que el ``WorkerStatusIndicator`` del topbar siempre veia
+# ``worker_alive=false`` (circulo gris aunque el worker estuviera vivo).
+#
+# Fix: nuevo helper privado ``_applyTiaSnapshot(r)`` que los 3 callers
+# invocan, con los 7 campos del snapshot. Los tests de esta seccion
+# verifican el contrato textual del fix.
+
+
+def test_store_tia_connection_includes_project_changed_in_initial_state() -> None:
+    """El slot ``tiaConnection`` debe inicializar ``project_changed``
+    a ``false`` (igual que ``worker_alive``). Antes del fix audit X1
+    el slot ni siquiera estaba declarado, asi que cualquier intento
+    de leerlo retornaba ``undefined`` (y el componente
+    ``WorkerStatusIndicator`` que lo consultase reventaba con
+    ``Cannot read properties of undefined``)."""
+    import re
+    text = _read(STORE_JS)
+    start = text.find("tiaConnection: {")
+    assert start != -1
+    # El slot tiene 2 comentarios de 6-10 lineas cada uno
+    # (worker_alive y project_changed). Cogemos 2000 chars para
+    # cubrir holgadamente los comentarios y los 2 campos.
+    body = text[start:start + 2000]
+    # Buscamos la declaracion EXACTA del campo (con ``: false``)
+    # en una linea, no en un comentario.
+    match = re.search(r"^\s*project_changed\s*:\s*false\s*,?\s*$",
+                      body, re.MULTILINE)
+    assert match, (
+        "El slot tiaConnection debe inicializar "
+        "'project_changed: false' (igual que 'worker_alive'). "
+        "Sin esta declaracion en el initial state, el "
+        "WorkerStatusIndicator (u otros componentes) leeria "
+        "'undefined' y no podria mostrar el aviso de proyecto "
+        "cambiado que el backend intenta comunicar."
+    )
+
+
+def test_store_tia_connection_includes_worker_alive_in_initial_state() -> None:
+    """Regresion explicita: el slot ``tiaConnection`` debe
+    inicializar ``worker_alive`` a ``false`` (comprobado tambien por
+    el test_store_has_tia_connection_slot de manera implicita via
+    el rango de 600 chars; aqui lo anclamos de forma especifica
+    con regex para evitar falsos positivos en comentarios)."""
+    import re
+    text = _read(STORE_JS)
+    start = text.find("tiaConnection: {")
+    assert start != -1
+    body = text[start:start + 2000]
+    # Buscamos la declaracion EXACTA del campo (con ``: false``)
+    # en una linea, no en un comentario. Patron linea-sucia.
+    match = re.search(r"^\s*worker_alive\s*:\s*false\s*,?\s*$",
+                      body, re.MULTILINE)
+    assert match, (
+        "El slot tiaConnection debe inicializar "
+        "'worker_alive: false' (mismo patron que el resto de "
+        "campos del slot)."
+    )
+
+
+def test_apply_tia_snapshot_helper_is_declared() -> None:
+    """El archivo ``store.js`` debe declarar un helper privado
+    ``_applyTiaSnapshot(r)`` que centralice el ``Object.assign`` del
+    snapshot (DRY, fix audit X1). Sin él, los 3 helpers de la SPA
+    (refresh, connect, disconnect) seguirian duplicando el mismo
+    bloque de 12 lineas y los campos ``worker_alive`` /
+    ``project_changed`` seguirian sin propagarse al store."""
+    text = _read(STORE_JS)
+    assert "function _applyTiaSnapshot" in text, (
+        "store.js debe declarar el helper privado _applyTiaSnapshot "
+        "que aplica el snapshot de GET /tia/connection al store. "
+        "Es el punto de entrada unico para que los 3 helpers "
+        "propaguen worker_alive y project_changed."
+    )
+
+
+def test_apply_tia_snapshot_propagates_worker_alive() -> None:
+    """El helper ``_applyTiaSnapshot`` debe incluir ``worker_alive``
+    en su ``Object.assign`` para que el flag del backend llegue al
+    store (y de ahi al ``WorkerStatusIndicator`` del topbar).
+
+    Antes del fix audit X1, el ``Object.assign`` original NO tenia
+    este campo, asi que el indicador veia siempre ``false``
+    (circulo gris aunque el worker estuviera vivo)."""
+    text = _read(STORE_JS)
+    start = text.find("function _applyTiaSnapshot")
+    assert start != -1, (
+        "store.js debe declarar _applyTiaSnapshot (ver "
+        "test_apply_tia_snapshot_helper_is_declared)."
+    )
+    # El cuerpo del helper es de ~50 lineas. Cogemos 1500 chars
+    # para cubrir el Object.assign + el if de _logTiaStateTransition.
+    body = text[start:start + 1500]
+    assert "worker_alive" in body, (
+        "_applyTiaSnapshot debe propagar el campo 'worker_alive' de "
+        "r.data al store. Sin esto, el WorkerStatusIndicator del "
+        "topbar queda siempre en 'false' (circulo gris)."
+    )
+    # El Object.assign es la unica via legal para preservar la
+    # reactividad de los campos anidados. Verificamos que worker_alive
+    # se asigna DENTRO de un Object.assign sobre store.tiaConnection.
+    # Patron: ``worker_alive: r.data.worker_alive === true`` (o
+    # equivalente con validacion).
+    assert (
+        "Object.assign(store.tiaConnection" in body
+        and "worker_alive" in body
+    ), (
+        "_applyTiaSnapshot debe copiar worker_alive desde r.data al "
+        "store.tiaConnection via Object.assign (no reasignacion "
+        "completa, para preservar la reactividad)."
+    )
+
+
+def test_apply_tia_snapshot_propagates_project_changed() -> None:
+    """El helper ``_applyTiaSnapshot`` debe incluir ``project_changed``
+    en su ``Object.assign`` para que el flag one-shot del backend
+    (que indica que el operario cambio de proyecto en TIA) llegue
+    al store. Antes del fix audit X1, el slot no existia siquiera
+    en el initial state del store, asi que leerlo retornaba
+    ``undefined``."""
+    text = _read(STORE_JS)
+    start = text.find("function _applyTiaSnapshot")
+    assert start != -1
+    body = text[start:start + 1500]
+    assert "project_changed" in body, (
+        "_applyTiaSnapshot debe propagar el campo 'project_changed' "
+        "de r.data al store. Sin esto, el frontend no puede mostrar "
+        "el aviso 'el proyecto TIA ha cambiado' que el backend "
+        "intenta comunicar al operario tras un cambio de proyecto "
+        "en TIA Portal."
+    )
+
+
+def test_apply_tia_snapshot_defaults_missing_worker_alive_to_false() -> None:
+    """Si el backend NO incluye ``worker_alive`` en la respuesta
+    (modo 1-shot / MCP / respuestas sinteticas de tests, donde solo
+    expone ``state`` y ``error``), ``_applyTiaSnapshot`` debe
+    dejar ``store.tiaConnection.worker_alive`` en ``false``.
+
+    Esto se valida textualmente buscando el patron
+    ``worker_alive: r.data.worker_alive === true`` (o equivalente
+    con coercion explicita a booleano). Si la asignacion fuese
+    ``worker_alive: r.data.worker_alive`` (sin coercion), un
+    valor ``undefined`` del backend dejaria el campo en ``undefined``
+    y el ``WorkerStatusIndicator`` (que lee
+    ``Boolean(tc && tc.worker_alive)``) lo pintaria gris de
+    todas formas, pero queremos ser explicitos sobre el default."""
+    text = _read(STORE_JS)
+    start = text.find("function _applyTiaSnapshot")
+    assert start != -1
+    body = text[start:start + 1500]
+    # Patron esperado: coercion explicita a ``true``. Aceptamos
+    # ``=== true`` o ``!!r.data.worker_alive`` como equivalentes.
+    # NO aceptamos asignacion directa sin coercion
+    # (``worker_alive: r.data.worker_alive``) porque eso dejaria
+    # ``undefined`` si el backend omitiese el campo.
+    has_explicit_bool = (
+        "r.data.worker_alive === true" in body
+        or "Boolean(r.data.worker_alive)" in body
+        or "!!r.data.worker_alive" in body
+    )
+    assert has_explicit_bool, (
+        "_applyTiaSnapshot debe coercionar worker_alive a booleano "
+        "explicito (e.g. 'r.data.worker_alive === true'). Si el "
+        "backend omite el campo (modo 1-shot), el store debe "
+        "quedar en 'false' (no 'undefined'), para que "
+        "WorkerStatusIndicator pinte gris de forma consistente."
+    )
+
+
+def test_apply_tia_snapshot_defaults_missing_project_changed_to_false() -> None:
+    """Si el backend NO incluye ``project_changed`` en la respuesta,
+    ``_applyTiaSnapshot`` debe dejar el campo en ``false`` (no
+    ``undefined``). Mismo motivo que el test anterior: el slot se
+    inicializa a ``false`` y debe CONSERVAR ese valor si el backend
+    lo omite, no degradarse a ``undefined``."""
+    text = _read(STORE_JS)
+    start = text.find("function _applyTiaSnapshot")
+    assert start != -1
+    body = text[start:start + 1500]
+    has_explicit_bool = (
+        "r.data.project_changed === true" in body
+        or "Boolean(r.data.project_changed)" in body
+        or "!!r.data.project_changed" in body
+    )
+    assert has_explicit_bool, (
+        "_applyTiaSnapshot debe coercionar project_changed a "
+        "booleano explicito. Si el backend omite el campo, el "
+        "store debe quedar en 'false' (no 'undefined')."
+    )
+
+
+def test_apply_tia_snapshot_rejects_non_ok_response() -> None:
+    """``_applyTiaSnapshot(r)`` debe retornar ``false`` SIN tocar
+    el store si ``r.ok`` es falsy o si ``r.data`` no es un objeto.
+    Asi, ``disconnectTia`` (que delega siempre en el helper) no
+    pisa el store con una respuesta de error que solo trae
+    ``{error: "..."}``."""
+    text = _read(STORE_JS)
+    start = text.find("function _applyTiaSnapshot")
+    assert start != -1
+    body = text[start:start + 1500]
+    # El helper debe hacer un early-return en la primera linea (o
+    # casi) si la respuesta no es OK. Patron esperado:
+    # ``if (!r || !r.ok || !r.data || typeof r.data !== "object") return false;``
+    assert "!r.ok" in body, (
+        "_applyTiaSnapshot debe chequear r.ok y retornar false "
+        "para respuestas no-OK (e.g. {ok: false, data: {error: ...}})."
+    )
+    assert "return false" in body, (
+        "_applyTiaSnapshot debe retornar false (no undefined) para "
+        "que los callers puedan distinguir 'snapshot aplicado' de "
+        "'snapshot descartado'."
+    )
+
+
+def test_apply_tia_snapshot_validates_state_field() -> None:
+    """``_applyTiaSnapshot(r)`` debe validar que ``r.data.state`` sea
+    uno de los 4 valores estables del state machine sept-2026
+    (``connected`` / ``connecting`` / ``idle`` / ``error``). Si
+    no lo es, descarta el snapshot (mismo patron que tenia el
+    ``refreshTiaConnection`` original antes del refactor, ahora
+    centralizado en el helper). El antiguo ``disconnected`` ya
+    NO se acepta (el backend no lo emite nunca)."""
+    text = _read(STORE_JS)
+    start = text.find("function _applyTiaSnapshot")
+    assert start != -1
+    body = text[start:start + 1500]
+    for s in ("connected", "connecting", "idle", "error"):
+        assert s in body, (
+            f"_applyTiaSnapshot debe aceptar el state {s!r} "
+            f"(validacion contra los 4 valores estables del "
+            f"state machine sept-2026)."
+        )
+
+
+def test_refresh_tia_connection_delegates_to_apply_tia_snapshot() -> None:
+    """``refreshTiaConnection()`` debe delegar SIEMPRE en
+    ``_applyTiaSnapshot(r)`` (no reimplementar el ``Object.assign``
+    inline). Es el contrato DRY que el fix audit X1 introduce:
+    el bloque de 12 lineas que antes se copiaba en los 3 helpers
+    ahora vive SOLO en el helper."""
+    text = _read(STORE_JS)
+    start = text.find("export async function refreshTiaConnection")
+    assert start != -1
+    body = text[start:start + 500]
+    assert "_applyTiaSnapshot" in body, (
+        "refreshTiaConnection debe delegar en _applyTiaSnapshot. "
+        "Sin esto, el campo worker_alive/project_changed no llega "
+        "al store desde el polling cada 2s (caso de uso principal "
+        "del bug X1)."
+    )
+
+
+def test_connect_tia_delegates_to_apply_tia_snapshot() -> None:
+    """``connectTia()`` debe delegar en ``_applyTiaSnapshot(r)``
+    en la rama de exito (respuesta OK). Asi, cuando el worker
+    arranca correctamente y el backend devuelve el snapshot con
+    ``worker_alive=true``, el store se actualiza."""
+    text = _read(STORE_JS)
+    start = text.find("export async function connectTia")
+    assert start != -1
+    body = text[start:start + 1500]
+    assert "_applyTiaSnapshot" in body, (
+        "connectTia debe delegar en _applyTiaSnapshot en su "
+        "rama de exito (respuesta OK). Asi, el snapshot que el "
+        "backend devuelve tras el cold-attach (incluidos "
+        "worker_alive y project_changed) llega al store."
+    )
+
+
+def test_disconnect_tia_delegates_to_apply_tia_snapshot() -> None:
+    """``disconnectTia()`` debe delegar SIEMPRE en
+    ``_applyTiaSnapshot(r)``. Es el unico helper que lo hace sin
+    guard de estado previo (el de connect guarda el ``prevState``
+    para el path de error; el de disconnect no lo necesita porque
+    el helper hace su propia deteccion de transicion).
+
+    Sept-2026 round 3 (fix de auditoría): la ventana de búsqueda
+    se amplio a 1500 chars (antes 500) porque la función ganó un
+    ``store.busy`` guard al inicio (idempotencia anti doble-click),
+    que mueve la delegación a ``_applyTiaSnapshot`` más allá de los
+    500 chars. La ventana de 1500 sigue cubriendo la rama de éxito
+    completa.
+    """
+    text = _read(STORE_JS)
+    start = text.find("export async function disconnectTia")
+    assert start != -1
+    body = text[start:start + 1500]
+    assert "_applyTiaSnapshot" in body, (
+        "disconnectTia debe delegar en _applyTiaSnapshot. Aunque "
+        "el backend en este endpoint no expone worker_alive ni "
+        "project_changed (solo state y error), el helper tolera "
+        "que falten y los pone a false (no rompe)."
+    )
+
+
+# ── v2.2 (sept-2026): disconnectTia limpia los slots del PLC ────────
+#
+# Hallazgo: tras el refactor del state machine, "Desconectar"
+# deja el worker en idle (subproceso vivo, sin portal attached).
+# Sin limpieza de los slots del PLC, el topbar seguiria
+# mostrando la lista de PLCs del attach anterior y el caption
+# del proyecto viejo, dando la falsa sensacion de "sigo
+# conectado". El operario ve el circulo gris del
+# TiaConnectionIndicator pero el <select> sigue lleno de PLCs
+# stale.
+#
+# Fix: disconnectTia() vacia plcs, selectedPlc, plcBlocksCache
+# y projectInfo cuando la respuesta del backend es OK.
+
+
+def test_disconnect_clears_plc_state() -> None:
+    """``disconnectTia()`` debe limpiar los slots del PLC
+    (``plcs``, ``selectedPlc``, ``plcBlocksCache``,
+    ``projectInfo``) tras un detach OK. Sin esta limpieza, el
+    topbar mostraria PLCs stale y un caption de proyecto
+    antiguo tras un "Conectar / Desconectar" rapido."""
+    text = _read(STORE_JS)
+    start = text.find("export async function disconnectTia")
+    assert start != -1
+    # Cogemos un tramo generoso que cubra el helper entero
+    # (incluida la limpieza post-detach).
+    body = text[start:start + 1500]
+    for slot, val in (
+        ('store.plcs = []',          "plcs (lista)"),
+        ('store.selectedPlc = ""',   "selectedPlc (dropdown)"),
+        ('store.plcBlocksCache = null', "plcBlocksCache (snapshot bloques)"),
+        ('store.projectInfo = null', "projectInfo (caption proyecto)"),
+    ):
+        assert slot in body, (
+            f"disconnectTia debe resetear {val} tras un detach OK "
+            f"(asignacion esperada: '{slot}'). Sin esta limpieza, "
+            f"el topbar mostraria datos stale del attach anterior."
+        )
+
+
+def test_disconnect_clears_plc_state_only_on_ok_response() -> None:
+    """``disconnectTia()`` solo debe limpiar los slots del PLC
+    si la respuesta del backend es OK (``r && r.ok``). Si el
+    detach fallo, preferimos dejar los slots como estaban
+    (un "stale" visible es mejor que un "vacio" confuso cuando
+    el operario no sabe si el detach se hizo o no)."""
+    text = _read(STORE_JS)
+    start = text.find("export async function disconnectTia")
+    assert start != -1
+    body = text[start:start + 1500]
+    assert "r && r.ok" in body or "r.ok" in body, (
+        "disconnectTia debe guardar la limpieza del PLC detras "
+        "de un check 'r && r.ok' (o equivalente) para no "
+        "pisar slots en error path."
     )
 
 

@@ -82,7 +82,9 @@ def test_persistent_true_initializes_state_fields() -> None:
     - ``_pending_responses``: ``{}`` (sin futures pendientes).
     - ``_reader_task``: None (el task se crea en PR 3).
     - ``_heartbeat_task``: None (el task se crea en PR 4).
-    - ``_connection_state``: ``"disconnected"`` (estado inicial).
+    - ``_connection_state``: ``"idle"`` (estado inicial sept-2026,
+      subproceso logico todavia no arrancado, pero wrapper pronto;
+      ``"disconnected"`` queda reservado para proc muerto).
     - ``_project_path``: None (para detectar cambios en PR 7).
     - ``_last_ping_ok``: None (último ping exitoso).
     - ``_last_error``: None (último error).
@@ -95,7 +97,7 @@ def test_persistent_true_initializes_state_fields() -> None:
     assert gateway._pending_responses == {}
     assert gateway._reader_task is None
     assert gateway._heartbeat_task is None
-    assert gateway._connection_state == "disconnected"
+    assert gateway._connection_state == "idle"
     assert gateway._project_path is None
     assert gateway._last_ping_ok is None
     assert gateway._last_error is None
@@ -134,39 +136,32 @@ def test_persistent_false_does_not_initialize_state_fields() -> None:
 async def test_dispatch_worker_persistent_raises_not_implemented() -> None:
     """``_dispatch_worker`` con ``persistent=True`` delega en el path persistente (PR 3).
 
-    En PR 2 este test verificaba el placeholder ``NotImplementedError``.
-    En PR 3 el placeholder se sustituye por la implementación real
-    (ver ``_plan/12_worker_persistent_design.md`` §3.1): el dispatcher
-    adquiere ``self._worker_lock`` y delega en
-    ``_send_to_persistent_worker``, que serializa los requests contra
-    el subproceso único del worker OT persistente.
-
-    El test verifica:
-      - La llamada retorna el resultado de ``_send_to_persistent_worker``.
-      - ``_send_to_persistent_worker`` se invoca con los argumentos
-        correctos (``command``, ``args``, ``timeout_override=None``).
-      - ``_dispatch_ephemeral_worker`` NO se invoca (no se cae al
-        path 1-shot).
+    Cambio sept-2026 (state machine refactor): el dispatcher YA NO
+    delega libremente — primero valida que el comando sea
+    ``attach_portal``/``detach_portal``/``ping``/``get_project_info``
+    o que el estado sea ``"connected"``. Como el gateway arranca
+    en ``"idle"``, un comando cualquiera (e.g. ``any_command``)
+    rechaza con ``TIAConnectionError`` claro. Este test verifica
+    ese rechazo (que ES la API del state machine).
     """
+    from core.infrastructure.gateway import TIAConnectionError
     gateway = TIAProcessGateway(persistent=True)
-    sentinel = {"ok": True, "result": "persistent_send_result"}
-    gateway._send_to_persistent_worker = AsyncMock(return_value=sentinel)
+    # Estado inicial: ``"idle"`` (sept-2026, no se ha hecho connect).
+    gateway._connection_state = "idle"
+    gateway._send_to_persistent_worker = AsyncMock(
+        return_value={"ok": True, "result": "should_not_run"}
+    )
     gateway._dispatch_ephemeral_worker = AsyncMock(
         return_value={"ok": True, "result": "ephemeral_should_not_run"}
     )
-    # PR 7 anade ``_detect_project_change`` antes de enviar el
-    # payload. Lo mockeamos como no-op para que este test se
-    # concentre en la delegacion persistente, no en la deteccion
-    # de cambio de proyecto (cubierta por
-    # ``test_persistent_worker_project_change.py``).
-    gateway._detect_project_change = AsyncMock(return_value=False)
 
-    result = await gateway._dispatch_worker("any_command", args={"k": "v"})
+    # ``any_command`` no esta en la lista de permitidos y el estado
+    # es ``"idle"``: el dispatcher rechaza con ``TIAConnectionError``.
+    with pytest.raises(TIAConnectionError, match="Conectar primero"):
+        await gateway._dispatch_worker("any_command", args={"k": "v"})
 
-    assert result is sentinel
-    gateway._send_to_persistent_worker.assert_awaited_once_with(
-        "any_command", {"k": "v"}, None
-    )
+    # Ninguno de los metodos se invoco (el rechazo es temprano).
+    gateway._send_to_persistent_worker.assert_not_awaited()
     gateway._dispatch_ephemeral_worker.assert_not_awaited()
 
 
@@ -175,24 +170,28 @@ async def test_dispatch_worker_persistent_does_not_call_ephemeral() -> None:
     """``_dispatch_worker`` con ``persistent=True`` NO cae al path 1-shot (PR 3).
 
     Si el dispatcher se cayera al ``else`` cuando ``persistent=True``
-    (p. ej. por un bug en el switch), la llamada a
-    ``_dispatch_ephemeral_worker`` intentaría lanzar un subproceso
+    (p.ej. por un bug en el switch), la llamada a
+    ``_dispatch_ephemeral_worker`` intentaria lanzar un subproceso
     real. Verificamos que el path persistente delega en
     ``_send_to_persistent_worker`` (PR 3) y que
     ``_dispatch_ephemeral_worker`` NO se invoca.
+
+    Cambio sept-2026 (state machine refactor): el dispatcher valida
+    estado antes de delegar. Aqui ponemos el gateway en
+    ``"connected"`` (simulando un connect exitoso) para verificar
+    la delegacion.
     """
     gateway = TIAProcessGateway(persistent=True)
-    gateway._send_to_persistent_worker = AsyncMock(
-        return_value={"ok": True, "result": "persistent"}
-    )
+    gateway._connection_state = "connected"  # simular connect exitoso
+    sentinel = {"ok": True, "result": "persistent"}
+    gateway._send_to_persistent_worker = AsyncMock(return_value=sentinel)
     gateway._dispatch_ephemeral_worker = AsyncMock(
         return_value={"ok": True, "result": "should_not_run"}
     )
-    # PR 7: ver test anterior.
-    gateway._detect_project_change = AsyncMock(return_value=False)
 
-    await gateway._dispatch_worker("any_command", args={})
+    result = await gateway._dispatch_worker("any_command", args={})
 
+    assert result is sentinel
     gateway._send_to_persistent_worker.assert_awaited_once_with(
         "any_command", {}, None
     )
@@ -259,44 +258,38 @@ def test_resolve_persistent_worker_exec_args_returns_flag() -> None:
 
 @pytest.mark.asyncio
 async def test_start_persistent_worker_is_placeholder() -> None:
-    """``_start_persistent_worker()`` lanza el subproceso y verifica el ping inicial (PR 3).
+    """``_start_persistent_worker()`` lanza el subproceso y espera al ready_idle (sept-2026).
 
-    En PR 2 este test verificaba el placeholder ``NotImplementedError``.
-    En PR 3 la implementación real (ver §3.1 del design doc):
-      1. Marca ``_connection_state = "connecting"``.
-      2. Lanza el subproceso con ``--worker-persistent`` (via
-         ``asyncio.create_subprocess_exec``).
-      3. Inicia el ``_reader_task``.
-      4. Envia un ping inicial; si falla, lanza ``TIAConnectionError``
-         y marca ``_connection_state = "error"``.
-
-    En este test mockeamos ``_send_to_persistent_worker`` (que es
-    quien ejecuta el ping) para que devuelva ``{ok: True, pid: 12345}``
-    sin lanzar otro subproceso. Mockeamos tambien
-    ``asyncio.create_subprocess_exec`` para evitar el subproceso real
-    (que necesitaria TIA Portal attached).
+    Cambio sept-2026 (state machine refactor): el worker ya NO hace
+    attach al inicio, solo emite ``ready_idle``. El gateway
+    transiciona a ``"idle"`` (no ``"connected"``).
 
     Verificaciones:
-      - Tras el exito, ``_connection_state == "connected"``.
-      - ``_worker_proc`` no es None (el subproceso mockeado quedo
-        registrado).
-      - ``_reader_task`` no es None (el task se creo).
+      - Tras el ready_idle, ``_connection_state == "idle"``.
+      - ``_worker_proc`` no es None.
+      - ``_reader_task`` no es None.
     """
+    import json
     from unittest.mock import AsyncMock, MagicMock, patch
 
     gateway = TIAProcessGateway(persistent=True)
 
     fake_proc = MagicMock(name="FakeSubprocess")
     fake_proc.returncode = None  # vivo
+    fake_proc.stdin = MagicMock()
+    # stdout: emite el "ready_idle" (id=0) y luego EOF. El reader_task
+    # leera el ready_idle, resolvera el future en
+    # ``_pending_responses[0]`` y saldra del loop.
+    ready_line = (
+        json.dumps({"id": 0, "ok": True, "result": "ready_idle"}) + "\n"
+    ).encode("utf-8")
+    stdout_iter = iter([ready_line, b""])
 
-    sentinel = {"ok": True, "pid": 12345}
-    gateway._send_to_persistent_worker = AsyncMock(return_value=sentinel)
-    # PR 7: ``_start_persistent_worker`` invoca ``_detect_project_change``
-    # al final para detectar el proyecto inicial. Lo mockeamos como
-    # no-op para que este test verifique solo el ping inicial y el
-    # estado ``connected`` (la deteccion de cambio se prueba en
-    # ``test_persistent_worker_project_change.py``).
-    gateway._detect_project_change = AsyncMock(return_value=False)
+    class _FakeStream:
+        async def readline(self):
+            return next(stdout_iter, b"")
+
+    fake_proc.stdout = _FakeStream()
 
     with patch(
         "core.infrastructure.gateway.asyncio.create_subprocess_exec",
@@ -304,14 +297,9 @@ async def test_start_persistent_worker_is_placeholder() -> None:
     ):
         await gateway._start_persistent_worker()
 
-    # El ping inicial retorno ok -> el estado pasa a "connected".
-    assert gateway._connection_state == "connected"
+    # El ready_idle retorno ok -> el estado pasa a "idle"
+    # (NO "connected"; el connect via attach_portal es lo que
+    # transiciona a connected, sept-2026).
+    assert gateway._connection_state == "idle"
     assert gateway._worker_proc is fake_proc
     assert gateway._reader_task is not None
-    # El ping se ejecuto con timeout_override=15.0 (smoke test del contrato).
-    gateway._send_to_persistent_worker.assert_awaited_once()
-    call = gateway._send_to_persistent_worker.await_args
-    assert call.args[0] == "ping"
-    assert call.kwargs.get("timeout_override") == 15.0 or (
-        len(call.args) >= 3 and call.args[2] == 15.0
-    )

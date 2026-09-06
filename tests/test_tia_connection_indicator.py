@@ -166,13 +166,19 @@ def test_color_class_connecting_uses_amber_500_with_pulse() -> None:
     )
 
 
-def test_color_class_disconnected_uses_gray_400() -> None:
-    """``state === 'disconnected'`` → ``bg-gray-400``."""
+def test_color_class_idle_uses_gray_400() -> None:
+    """``state === 'idle'`` → ``bg-gray-400`` (gris neutro,
+    sin attach a TIA pero con worker persistente vivo).
+
+    Tras el refactor del state machine (sept-2026), el estado
+    "idle" reemplaza al antiguo "disconnected": el worker
+    arranca en idle (subproceso vivo, sin portal attached) y el
+    operario decide cuando pulsar "Conectar" del topbar."""
     body = _extract_color_class_logic(_read(COMPONENT_JS))
-    assert '"disconnected":' in body
+    assert '"idle":' in body, "Falta el case 'idle' en colorClass."
     assert 'return "bg-gray-400"' in body, (
-        "El case 'disconnected' debe devolver 'bg-gray-400' "
-        "(gris neutro, estado idle)."
+        "El case 'idle' debe devolver 'bg-gray-400' "
+        "(gris neutro, sin attach a TIA)."
     )
 
 
@@ -229,16 +235,21 @@ def test_tooltip_shows_error_message_in_error_state() -> None:
 # ── handleClick segun state ──────────────────────────────────────────
 
 
-def test_handle_click_emits_connect_when_disconnected() -> None:
+def test_handle_click_emits_connect_when_idle() -> None:
     """``handleClick`` debe emitir ``"connect"`` cuando el estado
-    es ``disconnected`` o ``error``. En otros estados, no debe
-    emitir nada (no-op)."""
+    es ``idle`` o ``error``. En otros estados, no debe
+    emitir nada (no-op).
+
+    Tras el refactor del state machine (sept-2026), el estado
+    accionable es "idle" (antes era "disconnected"): el worker
+    arranca en idle y el operario decide cuando conectar."""
     text = _read(COMPONENT_JS)
     start = text.find("function handleClick()")
     assert start != -1, "handleClick no encontrado en TiaConnectionIndicator.js"
     body = text[start:start + 400]
-    assert '"disconnected"' in body, (
-        "handleClick debe comprobar state === 'disconnected'."
+    assert '"idle"' in body, (
+        "handleClick debe comprobar state === 'idle' (estado "
+        "accionable por defecto tras el state machine sept-2026)."
     )
     assert '"error"' in body, (
         "handleClick debe comprobar state === 'error' (también "
@@ -261,6 +272,91 @@ def test_component_exposes_data_testid_for_QA() -> None:
     assert 'data-testid="tia-connection-indicator"' in text, (
         "El botón debe llevar data-testid='tia-connection-indicator' "
         "para facilitar QA y tests E2E."
+    )
+
+
+# ── v2.2 (sept-2026): state "idle" + tamaño consistente w-3 h-3 ──────
+
+
+def test_color_class_has_exactly_four_branches() -> None:
+    """El switch de ``colorClass`` tiene exactamente 4 ramas
+    (state machine sept-2026): ``idle`` / ``connecting`` /
+    ``connected`` / ``error``. El antiguo ``disconnected`` ya
+    NO aparece (el backend no lo emite nunca; el frontend no
+    lo espera). Verifica que NO se ha colado un 5to case o
+    que no se ha olvidado alguno de los 4 estables."""
+    body = _extract_color_class_logic(_read(COMPONENT_JS))
+    # Buscamos SOLO los ``case "X":`` (no los returns, que
+    # pueden aparecer en default y son ambiguos). Patron
+    # canonico Vue: ``case "X":`` entrecomillado.
+    import re
+    cases = re.findall(r'case\s+"([a-z]+)":', body)
+    # ``cases`` puede incluir el case de un switch anidado (no
+    # deberia haberlo en este componente, pero por si acaso).
+    # Filtramos a los 4 estados estables esperados.
+    expected = {"connected", "connecting", "idle", "error"}
+    found = set(cases)
+    # Solo nos interesa que los 4 esperados esten presentes.
+    missing = expected - found
+    assert not missing, (
+        f"colorClass switch debe tener 4 ramas "
+        f"(idle/connecting/connected/error). Faltan: {missing}. "
+        f"Encontrados: {found}."
+    )
+    # Y que el "disconnected" NO esté (eliminado en sept-2026).
+    assert "disconnected" not in found, (
+        "colorClass no debe tener un case 'disconnected' "
+        "(eliminado en el refactor sept-2026; usar 'idle' en "
+        "su lugar)."
+    )
+
+
+def test_tooltip_shows_idle_message_in_idle_state() -> None:
+    """Cuando ``state === 'idle'``, el tooltip debe invitar al
+    operario a pulsar el botón "Conectar" del topbar (no el
+    círculo, como en el antiguo "disconnected")."""
+    text = _read(COMPONENT_JS)
+    start = text.find("const tooltip = computed(() => {")
+    assert start != -1
+    body = text[start:start + 1000]
+    assert 'state.value === "idle"' in body, (
+        "El tooltip debe tener una rama explícita para state "
+        "=== 'idle' (state machine sept-2026)."
+    )
+    # El mensaje debe mencionar el botón "Conectar" (no "el
+    # circulo", como decía la versión pre-sept-2026 con
+    # "disconnected"). El copy se actualizó al botón
+    # explícito.
+    assert "Conectar" in body, (
+        "El tooltip del estado 'idle' debe mencionar el botón "
+        "'Conectar' del topbar."
+    )
+
+
+def test_indicator_button_uses_w3_h3_for_size_consistency() -> None:
+    """Tras sept-2026, el ``TiaConnectionIndicator`` usa
+    ``w-3 h-3`` (12 px) — el mismo tamaño que el
+    ``WorkerStatusIndicator`` (operario pidió consistencia
+    visual). Verifica que el template declara ``w-3 h-3`` y
+    NO el antiguo ``w-2 h-2`` (8 px)."""
+    text = _read(COMPONENT_JS)
+    # Aislamos el template string.
+    start = text.find("template:")
+    assert start != -1
+    template_block = text[start:]
+    end = template_block.find("`,")
+    assert end != -1
+    template_str = template_block[:end]
+    assert "w-3 h-3" in template_str, (
+        "El template del TiaConnectionIndicator debe usar "
+        "'w-3 h-3' (12 px) para consistencia visual con el "
+        "WorkerStatusIndicator (mismo tamaño en sept-2026)."
+    )
+    # El antiguo w-2 h-2 no debe estar presente.
+    assert "w-2 h-2" not in template_str, (
+        "El template NO debe usar 'w-2 h-2' (eliminado en "
+        "sept-2026 al alinear el tamaño con el "
+        "WorkerStatusIndicator)."
     )
 
 

@@ -1,47 +1,56 @@
-"""Tests de ``reconnect()`` y ``disconnect()`` del gateway OT persistente (PR 6).
+"""Tests de ``connect()``, ``disconnect()`` y ``reconnect()`` del gateway OT persistente.
 
-Cubre la reconexion manual definida en
-``_plan/12_worker_persistent_design.md`` §2.7 y el boton del topbar
-implementado en PR 5b (``TiaConnectionIndicator.js``). El operario
-puede forzar la reconexion cuando TIA Portal se cerro y volvio a
-abrir, o cuando el worker se cayo por cualquier motivo.
+Cubre el state machine ``idle``/``connecting``/``connected``/``error``
+definido en ``_plan/12_worker_persistent_design.md`` §2.7 y el refactor
+sept-2026 documentado en ``_plan/14_post_worker_persistent_audit.md``
+(seccion "Refactor state machine").
 
-API publica anadida en este PR:
+API publica del gateway en modo persistente:
 
-  - ``gateway.reconnect()``: mata el worker actual y arranca uno
-    nuevo. Si el attach falla, lanza ``TIAConnectionError`` y marca
-    ``_connection_state = "error"``.
-  - ``gateway.disconnect()``: marca ``_connection_state = "disconnected"``
-    y mata el worker. NO relanza.
+  - ``gateway.connect()``: envia ``attach_portal`` al worker vivo,
+    transiciona ``idle`` -> ``connecting`` -> ``connected`` (o
+    ``error``). Inicia el heartbeat.
+  - ``gateway.disconnect()``: envia ``detach_portal`` al worker vivo,
+    transiciona ``connected`` -> ``idle``. Limpia caches, cancela el
+    heartbeat. NO mata el subproceso.
+  - ``gateway.reconnect()``: ``disconnect()`` + ``connect()`` bajo el
+    mismo lock. Compatibilidad con el boton "Reconectar" del topbar.
 
-Ambas son exclusivos del modo ``persistent=True``; en modo 1-shot
+Las tres son exclusivos del modo ``persistent=True``; en modo 1-shot
 (``persistent=False``) lanzan ``TIAConnectionError`` para que el
 topbar reciba un error claro en vez de un no-op silencioso.
 
+Auditoria X3 (sept-2026): ``connect()``, ``disconnect()`` y
+``reconnect()`` ahora adquieren ``self._worker_lock`` para serializar
+contra ``_dispatch_worker`` y contra otra llamada concurrente.
+
 Estrategia de testing:
 
-  - **Mocking ligero**: ``_kill_persistent_worker`` y
-    ``_start_persistent_worker`` se sustituyen por ``AsyncMock``
-    para que los tests de ``reconnect()`` / ``disconnect()`` no
-    levanten subprocesos reales. Los tests de ``_kill_persistent_worker``
-    usan ``MagicMock`` para ``_worker_proc`` y ``_reader_task`` /
-    ``_heartbeat_task`` (los paths internos son best-effort y se
-    ejercitan parcialmente).
-  - **Idempotencia**: el test 6 llama a ``_kill_persistent_worker``
-    dos veces consecutivas. La segunda debe ser un no-op limpio.
-  - **Pending futures**: el test 7 registra futures en
-    ``_pending_responses`` y verifica que ``_kill_persistent_worker``
-    los resuelve con ``RuntimeError("Worker desconectado")``.
+  - **Mocking ligero**: ``_send_to_persistent_worker`` se sustituye
+    por ``AsyncMock`` que retorna lo que el ``attach_portal``/
+    ``detach_portal`` del worker devolveria (``{"pid": <int>}`` o
+    ``{"detached": true}``). Asi no necesitamos un subproceso real.
+  - **Idempotencia**: el test de ``_kill_persistent_worker`` lo
+    llama dos veces consecutivas; la segunda debe ser un no-op
+    limpio.
+  - **Locking (X3)**: los tests verifican que el ``async with
+    self._worker_lock`` cubre todo el cuerpo de ``connect()`` /
+    ``disconnect()`` y se libera al terminar.
 
 Tests:
 
-  1. ``test_reconnect_kills_old_worker_and_starts_new_one``: orden de helpers.
-  2. ``test_reconnect_sin_modo_persistente_lanza_TIAConnectionError``.
-  3. ``test_reconnect_con_attach_fallido_marca_error_y_relanza``.
-  4. ``test_disconnect_marca_disconnected_y_llama_kill``.
-  5. ``test_disconnect_sin_modo_persistente_lanza_TIAConnectionError``.
-  6. ``test_kill_persistent_worker_es_idempotente``.
-  7. ``test_kill_persistent_worker_resuelve_pending_futures``.
+  1. ``test_connect_envia_attach_portal_y_transiciona_a_connected``.
+  2. ``test_connect_sin_modo_persistente_lanza_TIAConnectionError``.
+  3. ``test_connect_con_attach_fallido_marca_error_y_relanza``.
+  4. ``test_connect_rechaza_si_ya_conectado``: idempotencia.
+  5. ``test_disconnect_envia_detach_portal_y_limpia_caches``.
+  6. ``test_disconnect_sin_modo_persistente_lanza_TIAConnectionError``.
+  7. ``test_disconnect_es_idempotente_en_idle``.
+  8. ``test_reconnect_es_disconnect_mas_connect``.
+  9. ``test_kill_persistent_worker_es_idempotente``.
+  10. ``test_kill_persistent_worker_resuelve_pending_futures``.
+  11. ``test_connect_libera_el_lock_al_terminar`` (auditoria X3).
+  12. ``test_disconnect_libera_el_lock_al_terminar`` (auditoria X3).
 """
 from __future__ import annotations
 
@@ -58,199 +67,226 @@ from core.infrastructure.gateway import TIAConnectionError, TIAProcessGateway
 # ────────────────────────────────────────────────────────────────────────
 
 
-def _build_finished_proc() -> MagicMock:
-    """Crea un mock de ``_worker_proc`` ya terminado (``returncode != None``).
+def _build_alive_proc() -> MagicMock:
+    """Crea un mock de ``_worker_proc`` con ``returncode=None`` (vivo)."""
+    proc = MagicMock(name="FakeAliveWorkerProc")
+    proc.returncode = None
+    proc.stdin = MagicMock()
+    proc.stdout = MagicMock()
+    return proc
 
-    Util para tests donde queremos verificar que ``_kill_persistent_worker``
-    no intenta hacer ``terminate()`` sobre un proc que ya murio: el
-    check ``if self._worker_proc is not None and self._worker_proc.returncode
-    is None`` se salta y el codigo va directo a ``self._worker_proc = None``.
-    """
+
+def _build_finished_proc() -> MagicMock:
+    """Crea un mock de ``_worker_proc`` ya terminado (``returncode != None``)."""
     proc = MagicMock(name="FinishedWorkerProc")
-    proc.returncode = 0  # ya termino
+    proc.returncode = 0
     return proc
 
 
 # ────────────────────────────────────────────────────────────────────────
-# Test 1: ``reconnect()`` mata el worker viejo y arranca uno nuevo
+# Test 1: ``connect()`` envia ``attach_portal`` y transiciona a connected
 # ────────────────────────────────────────────────────────────────────────
 
 
-class TestReconnectKillsAndRestarts:
-    """``reconnect()`` invoca ``_kill_persistent_worker`` y luego ``_start_persistent_worker``."""
+class TestConnectSendsAttach:
+    """``connect()`` envia ``attach_portal`` y transiciona a ``"connected"``."""
 
     @pytest.mark.asyncio
-    async def test_reconnect_kills_old_worker_and_starts_new_one(self) -> None:
-        """``reconnect()`` mata el worker viejo ANTES de arrancar el nuevo.
+    async def test_connect_envia_attach_portal_y_transiciona_a_connected(self) -> None:
+        """``connect()`` envia ``attach_portal`` con ``WithGraphicalUserInterface``.
 
-        Estrategia: sustituimos ``_kill_persistent_worker`` y
-        ``_start_persistent_worker`` por ``AsyncMock`` para no
-        levantar subprocesos reales. Verificamos que ambos se llaman
-        y que ``_kill_persistent_worker`` se invoca ANTES de
-        ``_start_persistent_worker`` (orden del design doc §2.7).
-
-        Si el orden se invirtiera (arrancar antes de matar), el
-        nuevo worker intentaria attach a un TIA Portal que el
-        worker viejo aun tiene agarrado, y el ``attach_portal`` con
-        ExclusiveAccess fallaria. Por eso el orden importa.
+        El worker responde ``{"pid": <int>}`` y el gateway transiciona
+        a ``state="connected"`` e inicia el heartbeat. Verificamos:
+          - ``_send_to_persistent_worker`` se invoca UNA vez con
+            ``("attach_portal", {"mode": "WithGraphicalUserInterface"}, ...)``.
+          - El estado pasa de ``"idle"`` (o ``"disconnected"``) a ``"connecting"`` y luego ``"connected"``.
+          - El heartbeat_task se crea.
         """
         gateway = TIAProcessGateway(persistent=True)
-        # Estado inicial coherente con un gateway que estaba conectado.
-        gateway._connection_state = "connected"
-        gateway._worker_proc = _build_finished_proc()  # para que el cleanup no se queje
+        gateway._connection_state = "idle"  # estado tras start() / ready_idle
+        gateway._worker_proc = _build_alive_proc()  # ya arranco
+        # Reader vivo para que _send_to_persistent_worker funcione.
+        reader = MagicMock(name="Reader")
+        reader.done.return_value = False
+        gateway._reader_task = reader
 
-        # ``AsyncMock`` para no levantar subproceso real.
-        call_order: list[str] = []
+        # Mockeamos _send_to_persistent_worker para que retorne
+        # ``{"pid": 4242}`` (lo que devolveria el worker tras un
+        # attach exitoso).
+        async def fake_send(command, args, timeout_override):  # noqa: ARG001
+            if command == "attach_portal":
+                return {"pid": 4242}
+            return {}
+        gateway._send_to_persistent_worker = fake_send
+        # _detect_project_change puede ser AsyncMock (no-op).
+        gateway._detect_project_change = AsyncMock(return_value=False)
 
-        async def fake_kill() -> None:
-            call_order.append("kill")
+        await gateway.connect()
 
-        async def fake_start() -> None:
-            call_order.append("start")
-            # Simulamos exito: el estado pasa a "connected" como haria
-            # el ``_start_persistent_worker`` real tras el ping inicial.
-            gateway._connection_state = "connected"
-
-        gateway._kill_persistent_worker = fake_kill
-        gateway._start_persistent_worker = fake_start
-
-        await gateway.reconnect()
-
-        # Ambos se llamaron y en el orden correcto.
-        assert call_order == ["kill", "start"], (
-            f"se esperaba ['kill', 'start'], got {call_order!r}"
-        )
+        # Estado final: connected.
+        assert gateway._connection_state == "connected"
+        # Heartbeat arrancado.
+        assert gateway._heartbeat_task is not None
+        # _last_ping_ok actualizado.
+        assert gateway._last_ping_ok is not None
+        # _last_error limpio.
+        assert gateway._last_error is None
 
 
 # ────────────────────────────────────────────────────────────────────────
-# Test 2: ``reconnect()`` en modo 1-shot lanza ``TIAConnectionError``
+# Test 2: ``connect()`` en modo 1-shot lanza ``TIAConnectionError``
 # ────────────────────────────────────────────────────────────────────────
 
 
-class TestReconnectRequiresPersistent:
-    """``reconnect()`` en modo 1-shot no aplica: lanza ``TIAConnectionError``."""
+class TestConnectRequiresPersistent:
+    """``connect()`` en modo 1-shot no aplica: lanza ``TIAConnectionError``."""
 
     @pytest.mark.asyncio
-    async def test_reconnect_sin_modo_persistente_lanza_TIAConnectionError(self) -> None:
-        """Gateway ``persistent=False`` + ``reconnect()`` → ``TIAConnectionError`` legible.
-
-        El modo 1-shot (MCP) no tiene worker persistente que matar;
-        matar y rearrancar seria incorrecto (romperia la semantica
-        1-shot de MCP). El error deja claro que la operacion solo
-        aplica al modo persistente para que el operario no piense
-        que es un bug transitorio.
-        """
+    async def test_connect_sin_modo_persistente_lanza_TIAConnectionError(self) -> None:
+        """Gateway ``persistent=False`` + ``connect()`` → ``TIAConnectionError`` legible."""
         gateway = TIAProcessGateway(persistent=False)
         with pytest.raises(TIAConnectionError, match="solo aplica a gateway.persistent=True"):
-            await gateway.reconnect()
+            await gateway.connect()
 
 
 # ────────────────────────────────────────────────────────────────────────
-# Test 3: ``reconnect()`` con attach fallido marca ``error`` y relanza
+# Test 3: ``connect()`` con attach fallido marca ``error`` y relanza
 # ────────────────────────────────────────────────────────────────────────
 
 
-class TestReconnectOnAttachFailure:
-    """Si el nuevo attach falla, ``reconnect()`` marca ``error`` y lanza ``TIAConnectionError``."""
+class TestConnectOnAttachFailure:
+    """Si el ``attach_portal`` falla, ``connect()`` marca ``error`` y lanza."""
 
     @pytest.mark.asyncio
-    async def test_reconnect_con_attach_fallido_marca_error_y_relanza(self) -> None:
-        """``_start_persistent_worker`` que lanza → estado ``error`` + ``TIAConnectionError``.
-
-        Caso real: TIA Portal cerrado, portales com occupados, el
-        attach inicial del nuevo worker falla. El operario pulsa
-        "Reconectar" y el gateway le devuelve un error legible
-        (no un 500). El circulo del topbar pasa a rojo (state
-        ``error``) y ``ConsolaLogs`` muestra el detalle.
-
-        Verificamos:
-          - Se lanza ``TIAConnectionError``.
-          - El mensaje contiene ``"Reconnect fallo"`` (contrato del
-            PR; el router lo usa para decidir el body de respuesta).
-          - ``_connection_state == "error"``.
-          - ``_last_error`` queda registrado (para el siguiente
-            ``GET /tia/connection``).
-        """
+    async def test_connect_con_attach_fallido_marca_error_y_relanza(self) -> None:
+        """Worker responde ``{"error": "..."}`` → estado ``"error"`` + ``TIAConnectionError``."""
         gateway = TIAProcessGateway(persistent=True)
-        gateway._connection_state = "disconnected"  # estado previo cualquiera
-        gateway._last_error = None
+        gateway._connection_state = "idle"
+        gateway._worker_proc = _build_alive_proc()
+        reader = MagicMock(name="Reader")
+        reader.done.return_value = False
+        gateway._reader_task = reader
 
-        # ``_kill`` no-op, ``_start`` que falla como si TIA estuviera cerrado.
-        async def fake_kill() -> None:
-            pass
+        async def fake_send_attach_fails(command, args, timeout_override):  # noqa: ARG001
+            if command == "attach_portal":
+                return {"error": "No matching TIA Portal version"}
+            return {}
+        gateway._send_to_persistent_worker = fake_send_attach_fails
 
-        async def fake_start_raises() -> None:
-            # Simulamos un fallo realista: ``TIAConnectionError`` es
-            # lo que ``_start_persistent_worker`` lanza cuando el
-            # ping inicial falla (ver ``_start_persistent_worker`` en
-            # ``gateway.py``).
-            raise TIAConnectionError("attach_portal: No matching TIA Portal version")
+        with pytest.raises(TIAConnectionError, match="Connect fallo") as exc_info:
+            await gateway.connect()
 
-        gateway._kill_persistent_worker = fake_kill
-        gateway._start_persistent_worker = fake_start_raises
-
-        with pytest.raises(TIAConnectionError, match="Reconnect fallo") as exc_info:
-            await gateway.reconnect()
-
-        # El estado queda en "error" para que el topbar muestre el
-        # circulo rojo.
-        assert gateway._connection_state == "error", (
-            f"se esperaba 'error' tras reconexion fallida, "
-            f"got {gateway._connection_state!r}"
-        )
-        # El mensaje incluye el detalle del fallo original.
+        assert gateway._connection_state == "error"
         assert "No matching TIA Portal version" in str(exc_info.value)
-        # ``_last_error`` queda registrado para el siguiente poll.
         assert gateway._last_error is not None
+        # Heartbeat NO se inicia en error.
+        assert gateway._heartbeat_task is None
 
 
 # ────────────────────────────────────────────────────────────────────────
-# Test 4: ``disconnect()`` marca ``disconnected`` y mata el worker
+# Test 4: ``connect()`` rechaza si ya esta conectado
 # ────────────────────────────────────────────────────────────────────────
 
 
-class TestDisconnectMarksDisconnected:
-    """``disconnect()`` marca el estado y mata el worker."""
+class TestConnectRejectsWhenAlreadyConnected:
+    """``connect()`` idempotente: si ya esta connected, NO re-attacha."""
 
     @pytest.mark.asyncio
-    async def test_disconnect_marca_disconnected_y_llama_kill(self) -> None:
-        """``disconnect()`` setea ``_connection_state='disconnected'`` y llama a ``_kill_persistent_worker``.
+    async def test_connect_rechaza_si_ya_conectado(self) -> None:
+        """Gateway en ``"connected"`` + ``connect()`` → ``TIAConnectionError`` claro.
 
-        Verificamos que el estado se actualiza ANTES de matar el
-        worker (importante: el ``GET /tia/connection`` que el
-        frontend hace cada 500ms durante el kill puede ver el
-        estado transitorio ``"disconnected"``).
-
-        Tambien verificamos que ``_last_error`` se limpia: tras
-        un ``disconnect()`` explicito, el operario no deberia ver
-        errores stale de un fallo anterior en el circulo del topbar.
+        El operario que hace doble-click en "Conectar" o que pulsa
+        "Conectar" cuando ya esta conectado NO debe disparar un
+        attach redundante. El gateway rechaza con error claro.
         """
         gateway = TIAProcessGateway(persistent=True)
-        gateway._connection_state = "error"  # veniamos de un fallo
-        gateway._last_error = "alguna TIAConnectionError anterior"
+        gateway._connection_state = "connected"  # ya estaba conectado
+        gateway._worker_proc = _build_alive_proc()
+        reader = MagicMock(name="Reader")
+        reader.done.return_value = False
+        gateway._reader_task = reader
 
-        kill_called = False
+        # Si por error se llamara a attach_portal, el mock lo detectaria.
+        async def fake_send_should_not_run(command, args, timeout_override):  # noqa: ARG001
+            pytest.fail(
+                f"connect() en estado 'connected' NO debe enviar "
+                f"comandos, pero _send_to_persistent_worker recibio "
+                f"command={command!r}"
+            )
+        gateway._send_to_persistent_worker = fake_send_should_not_run
 
-        async def fake_kill() -> None:
-            nonlocal kill_called
-            kill_called = True
+        with pytest.raises(TIAConnectionError) as exc_info:
+            await gateway.connect()
+        # El mensaje menciona que ya esta conectado.
+        assert "ya" in str(exc_info.value).lower() or "conectado" in str(exc_info.value).lower()
 
-        gateway._kill_persistent_worker = fake_kill
+        # El estado sigue siendo connected (no se transiciono a error).
+        assert gateway._connection_state == "connected"
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Test 5: ``disconnect()`` envia ``detach_portal`` y limpia caches
+# ────────────────────────────────────────────────────────────────────────
+
+
+class TestDisconnectSendsDetach:
+    """``disconnect()`` envia ``detach_portal`` y limpia caches."""
+
+    @pytest.mark.asyncio
+    async def test_disconnect_envia_detach_portal_y_limpia_caches(self) -> None:
+        """Gateway en connected + ``disconnect()`` → idle, caches vacios, heartbeat cancelado.
+
+        Caso real: el operario pulsa "Desconectar" tras usar la app.
+        El worker sigue vivo (subproceso intacto, ~200 MB) pero el
+        portal attached se libera. La cache se invalida porque el
+        siguiente connect puede abrir un proyecto distinto.
+        """
+        gateway = TIAProcessGateway(persistent=True)
+        gateway._connection_state = "connected"
+        gateway._worker_proc = _build_alive_proc()
+        reader = MagicMock(name="Reader")
+        reader.done.return_value = False
+        gateway._reader_task = reader
+        # Caches con datos stale para verificar la limpieza.
+        gateway._cache = {"plcs": ["PLC1"], "project_info": {"name": "X"}}
+        gateway._project_path = r"C:\ws\proyectoA\proyectoA.ap17"
+        gateway._project_changed = True
+        # Heartbeat task "vivo" (mock).
+        heartbeat = MagicMock(name="HeartbeatTask")
+        heartbeat.done.return_value = False
+        gateway._heartbeat_task = heartbeat
+
+        # Mockeamos _send_to_persistent_worker para capturar el detach.
+        sent_commands: list[tuple[str, dict]] = []
+
+        async def fake_send(command, args, timeout_override):  # noqa: ARG001
+            sent_commands.append((command, args))
+            if command == "detach_portal":
+                return {"detached": True}
+            return {}
+        gateway._send_to_persistent_worker = fake_send
 
         await gateway.disconnect()
 
-        # Estado actualizado.
-        assert gateway._connection_state == "disconnected", (
-            f"se esperaba 'disconnected', got {gateway._connection_state!r}"
-        )
-        # ``_last_error`` se limpio (no queremos errores stale).
+        # detach_portal se envio.
+        assert ("detach_portal", {}) in sent_commands
+        # Estado final: idle.
+        assert gateway._connection_state == "idle"
+        # Caches limpios.
+        assert gateway._cache == {}
+        assert gateway._bloques_cache == {}
+        # Project path reseteado.
+        assert gateway._project_path is None
+        assert gateway._project_changed is False
+        # _last_error limpio.
         assert gateway._last_error is None
-        # ``_kill_persistent_worker`` se invoco.
-        assert kill_called, "se esperaba que _kill_persistent_worker fuera llamado"
+        # Heartbeat cancelado.
+        assert gateway._heartbeat_task is None
+        heartbeat.cancel.assert_called_once()
 
 
 # ────────────────────────────────────────────────────────────────────────
-# Test 5: ``disconnect()`` en modo 1-shot lanza ``TIAConnectionError``
+# Test 6: ``disconnect()`` en modo 1-shot lanza ``TIAConnectionError``
 # ────────────────────────────────────────────────────────────────────────
 
 
@@ -259,20 +295,110 @@ class TestDisconnectRequiresPersistent:
 
     @pytest.mark.asyncio
     async def test_disconnect_sin_modo_persistente_lanza_TIAConnectionError(self) -> None:
-        """Gateway ``persistent=False`` + ``disconnect()`` → ``TIAConnectionError`` legible.
-
-        Simetrico con el test 2: ambos metodos publicos del worker
-        persistente estan gatekept por el flag. Si el operario
-        llega aqui desde el topbar con un gateway 1-shot (MCP),
-        recibe un error claro en vez de un AttributeError confuso.
-        """
+        """Gateway ``persistent=False`` + ``disconnect()`` → ``TIAConnectionError`` legible."""
         gateway = TIAProcessGateway(persistent=False)
         with pytest.raises(TIAConnectionError, match="solo aplica a gateway.persistent=True"):
             await gateway.disconnect()
 
 
 # ────────────────────────────────────────────────────────────────────────
-# Test 6: ``_kill_persistent_worker()`` es idempotente
+# Test 7: ``disconnect()`` es idempotente en idle
+# ────────────────────────────────────────────────────────────────────────
+
+
+class TestDisconnectIdempotent:
+    """``disconnect()`` en idle es no-op (no falla, no envia nada)."""
+
+    @pytest.mark.asyncio
+    async def test_disconnect_es_idempotente_en_idle(self) -> None:
+        """Gateway en idle + ``disconnect()`` → idle, sin enviar nada.
+
+        Caso real: doble-click en "Desconectar" cuando ya estamos en
+        idle. El gateway debe ser tolerante: el detach_portal se
+        envia (best-effort), pero si el worker no responde, no es
+        bloqueante. El estado se mantiene en ``"idle"``.
+        """
+        gateway = TIAProcessGateway(persistent=True)
+        gateway._connection_state = "idle"  # ya estaba idle
+        gateway._worker_proc = _build_alive_proc()
+        reader = MagicMock(name="Reader")
+        reader.done.return_value = False
+        gateway._reader_task = reader
+
+        sent_commands: list[str] = []
+
+        async def fake_send(command, args, timeout_override):  # noqa: ARG001
+            sent_commands.append(command)
+            return {"detached": False}  # worker en idle, detach no-op
+        gateway._send_to_persistent_worker = fake_send
+
+        # No debe lanzar.
+        await gateway.disconnect()
+
+        # detach_portal se envio (best-effort, no-op en worker).
+        assert "detach_portal" in sent_commands
+        # Estado sigue en idle.
+        assert gateway._connection_state == "idle"
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Test 8: ``reconnect()`` = ``disconnect()`` + ``connect()``
+# ────────────────────────────────────────────────────────────────────────
+
+
+class TestReconnectIsDisconnectPlusConnect:
+    """``reconnect()`` ejecuta detach + attach bajo el mismo lock."""
+
+    @pytest.mark.asyncio
+    async def test_reconnect_es_disconnect_mas_connect(self) -> None:
+        """``reconnect()`` envia ``detach_portal`` y luego ``attach_portal``.
+
+        Verifica el orden: primero detach (caches limpias, heartbeat
+        cancelado), luego attach (estado connected, heartbeat
+        reiniciado). Bajo el mismo ``_worker_lock`` para serializar
+        contra otras llamadas concurrentes.
+        """
+        gateway = TIAProcessGateway(persistent=True)
+        gateway._connection_state = "connected"
+        gateway._worker_proc = _build_alive_proc()
+        reader = MagicMock(name="Reader")
+        reader.done.return_value = False
+        gateway._reader_task = reader
+        gateway._cache = {"plcs": ["PLC1"]}
+        gateway._project_path = r"C:\ws\proyectoA\proyectoA.ap17"
+        heartbeat = MagicMock(name="HeartbeatTask")
+        heartbeat.done.return_value = False
+        gateway._heartbeat_task = heartbeat
+
+        sent_commands: list[str] = []
+
+        async def fake_send(command, args, timeout_override):  # noqa: ARG001
+            sent_commands.append(command)
+            if command == "detach_portal":
+                return {"detached": True}
+            if command == "attach_portal":
+                return {"pid": 5555}
+            return {}
+        gateway._send_to_persistent_worker = fake_send
+        gateway._detect_project_change = AsyncMock(return_value=False)
+
+        await gateway.reconnect()
+
+        # Orden: detach_portal primero, luego attach_portal.
+        assert sent_commands == ["detach_portal", "attach_portal"], (
+            f"se esperaba ['detach_portal', 'attach_portal'], got {sent_commands!r}"
+        )
+        # Estado final: connected.
+        assert gateway._connection_state == "connected"
+        # Caches limpios tras el disconnect.
+        assert gateway._cache == {}
+        assert gateway._project_path is None
+        # Heartbeat reiniciado.
+        assert gateway._heartbeat_task is not None
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Test 9: ``_kill_persistent_worker()`` es idempotente
 # ────────────────────────────────────────────────────────────────────────
 
 
@@ -281,35 +407,22 @@ class TestKillIsIdempotent:
 
     @pytest.mark.asyncio
     async def test_kill_persistent_worker_es_idempotente(self) -> None:
-        """Llamar ``_kill_persistent_worker()`` 2 veces seguidas no crashea.
-
-        Caso real: ``reconnect()`` lo llama una vez; el
-        ``_start_persistent_worker`` que viene justo despues
-        podria fallar y un futuro cleanup del app shutdown lo
-        llamaria otra vez. La idempotencia es un requisito
-        defensivo: si por lo que sea se invoca dos veces, la
-        segunda debe ser un no-op limpio.
-
-        Mockeamos ``_worker_proc`` y los tasks con ``MagicMock``
-        para verificar que ``cancel()`` y ``terminate()`` NO se
-        invocan en la segunda llamada (todo ya esta a ``None``).
-        """
+        """Llamar ``_kill_persistent_worker()`` 2 veces seguidas no crashea."""
         gateway = TIAProcessGateway(persistent=True)
 
-        # Estado inicial: un worker "vivo" simulado.
         proc = MagicMock(name="LiveWorkerProc")
-        proc.returncode = None  # vivo
+        proc.returncode = None
         reader = MagicMock(name="LiveReaderTask")
-        reader.done.return_value = True  # ya terminado (no cancelable)
+        reader.done.return_value = True
         heartbeat = MagicMock(name="LiveHeartbeatTask")
-        heartbeat.done.return_value = True  # idem
+        heartbeat.done.return_value = True
 
         gateway._worker_proc = proc
         gateway._reader_task = reader
         gateway._heartbeat_task = heartbeat
-        gateway._next_request_id = 42  # algun valor no-cero
+        gateway._next_request_id = 42
         loop = asyncio.get_event_loop()
-        gateway._pending_responses[7] = loop.create_future()  # un future pendiente
+        gateway._pending_responses[7] = loop.create_future()
 
         # Primera llamada: debe limpiarlo todo.
         await gateway._kill_persistent_worker()
@@ -319,46 +432,25 @@ class TestKillIsIdempotent:
         assert gateway._pending_responses == {}
         assert gateway._next_request_id == 0
 
-        # Capturamos el call count de la primera llamada (el proc
-        # mock SI recibio ``terminate()`` al matarlo). El test
-        # verifica que la SEGUNDA llamada no anade mas invocaciones
-        # (estado ya limpio, no-op).
         terminate_after_first = proc.terminate.call_count
         cancel_reader_after_first = reader.cancel.call_count
         cancel_heartbeat_after_first = heartbeat.cancel.call_count
 
-        # Segunda llamada: no debe crashear. Tampoco debe invocar
-        # ``cancel()`` ni ``terminate()`` (los ``if`` lo evitan al
-        # ver ``self._worker_proc is None`` y ``task.done() == True``).
+        # Segunda llamada: no debe crashear.
         await gateway._kill_persistent_worker()
 
-        # El estado sigue consistente.
         assert gateway._worker_proc is None
         assert gateway._reader_task is None
         assert gateway._heartbeat_task is None
         assert gateway._pending_responses == {}
 
-        # Los call counts no cambiaron: la segunda llamada fue
-        # completamente un no-op (el helper es idempotente de verdad,
-        # no solo "no crashea").
-        assert proc.terminate.call_count == terminate_after_first, (
-            f"terminate() se llamo {proc.terminate.call_count - terminate_after_first} "
-            f"veces extra en la 2a llamada; se esperaba 0"
-        )
-        assert reader.cancel.call_count == cancel_reader_after_first, (
-            f"reader.cancel() se llamo "
-            f"{reader.cancel.call_count - cancel_reader_after_first} "
-            f"veces extra en la 2a llamada; se esperaba 0"
-        )
-        assert heartbeat.cancel.call_count == cancel_heartbeat_after_first, (
-            f"heartbeat.cancel() se llamo "
-            f"{heartbeat.cancel.call_count - cancel_heartbeat_after_first} "
-            f"veces extra en la 2a llamada; se esperaba 0"
-        )
+        assert proc.terminate.call_count == terminate_after_first
+        assert reader.cancel.call_count == cancel_reader_after_first
+        assert heartbeat.cancel.call_count == cancel_heartbeat_after_first
 
 
 # ────────────────────────────────────────────────────────────────────────
-# Test 7: ``_kill_persistent_worker()`` resuelve los pending futures
+# Test 10: ``_kill_persistent_worker()`` resuelve los pending futures
 # ────────────────────────────────────────────────────────────────────────
 
 
@@ -367,26 +459,8 @@ class TestKillResolvesPendingFutures:
 
     @pytest.mark.asyncio
     async def test_kill_persistent_worker_resuelve_pending_futures(self) -> None:
-        """Los futures en ``_pending_responses`` reciben ``RuntimeError('Worker desconectado')``.
-
-        Caso real: el operario pulsa "Desconectar" mientras hay un
-        comando en vuelo (p.ej. un ``get_plcs`` largo). El
-        ``_send_to_persistent_worker`` que esta esperando respuesta
-        se queda colgado indefinidamente si nadie resuelve su
-        future. ``_kill_persistent_worker`` resuelve todos los
-        futures pendientes con ``RuntimeError`` para que el
-        ``asyncio.wait_for`` de ``_send_to_persistent_worker`` los
-        vea como una excepcion (mismo contrato que un timeout) y
-        se pueda manejar arriba.
-
-        Verificamos:
-          - Los futures quedaron con excepcion ``RuntimeError``.
-          - El mensaje contiene ``"Worker desconectado"``.
-          - ``_pending_responses`` se vacio.
-          - ``_next_request_id`` se reseteo a 0.
-        """
+        """Los futures en ``_pending_responses`` reciben ``RuntimeError('Worker desconectado')``."""
         gateway = TIAProcessGateway(persistent=True)
-        # Setup: 2 futures pendientes, contador de IDs no-cero.
         loop = asyncio.get_event_loop()
         fut_1 = loop.create_future()
         fut_2 = loop.create_future()
@@ -396,18 +470,82 @@ class TestKillResolvesPendingFutures:
 
         await gateway._kill_persistent_worker()
 
-        # Ambos futures quedaron con RuntimeError.
-        assert fut_1.done(), "fut_1 deberia estar terminado"
-        assert fut_2.done(), "fut_2 deberia estar terminado"
+        assert fut_1.done()
+        assert fut_2.done()
         with pytest.raises(RuntimeError, match="Worker desconectado"):
             fut_1.result()
         with pytest.raises(RuntimeError, match="Worker desconectado"):
             fut_2.result()
-
-        # El dict se vacio.
-        assert gateway._pending_responses == {}, (
-            f"se esperaba _pending_responses vacio, "
-            f"got {gateway._pending_responses!r}"
-        )
-        # Contador reseteado.
+        assert gateway._pending_responses == {}
         assert gateway._next_request_id == 0
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Test 11: ``connect()`` libera ``_worker_lock`` al terminar (X3)
+# ────────────────────────────────────────────────────────────────────────
+
+
+class TestConnectReleasesLock:
+    """``connect()`` envuelve su cuerpo en ``async with self._worker_lock`` (X3)."""
+
+    @pytest.mark.asyncio
+    async def test_connect_libera_el_lock_al_terminar(self) -> None:
+        """Tras un ``connect()`` exitoso, el lock NO queda cogido."""
+        gateway = TIAProcessGateway(persistent=True)
+        gateway._connection_state = "idle"
+        gateway._worker_proc = _build_alive_proc()
+        reader = MagicMock(name="Reader")
+        reader.done.return_value = False
+        gateway._reader_task = reader
+
+        async def fake_send(command, args, timeout_override):  # noqa: ARG001
+            return {"pid": 1}
+        gateway._send_to_persistent_worker = fake_send
+        gateway._detect_project_change = AsyncMock(return_value=False)
+
+        await gateway.connect()
+
+        # 1. ``locked()`` retorna ``False``.
+        assert gateway._worker_lock.locked() is False, (
+            "_worker_lock quedo cogido tras connect() — "
+            "el async with no se libero (auditoria X3)"
+        )
+        # 2. Prueba definitiva: podemos adquirir y liberar el lock
+        # de inmediato.
+        async with gateway._worker_lock:
+            pass
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Test 12: ``disconnect()`` libera ``_worker_lock`` al terminar (X3)
+# ────────────────────────────────────────────────────────────────────────
+
+
+class TestDisconnectReleasesLock:
+    """``disconnect()`` envuelve su cuerpo en ``async with self._worker_lock`` (X3)."""
+
+    @pytest.mark.asyncio
+    async def test_disconnect_libera_el_lock_al_terminar(self) -> None:
+        """Tras un ``disconnect()`` exitoso, el lock NO queda cogido."""
+        gateway = TIAProcessGateway(persistent=True)
+        gateway._connection_state = "connected"
+        gateway._worker_proc = _build_alive_proc()
+        reader = MagicMock(name="Reader")
+        reader.done.return_value = False
+        gateway._reader_task = reader
+
+        async def fake_send(command, args, timeout_override):  # noqa: ARG001
+            return {"detached": True}
+        gateway._send_to_persistent_worker = fake_send
+
+        await gateway.disconnect()
+
+        # 1. ``locked()`` retorna ``False``.
+        assert gateway._worker_lock.locked() is False, (
+            "_worker_lock quedo cogido tras disconnect() — "
+            "el async with no se libero (auditoria X3)"
+        )
+        # 2. Prueba definitiva: podemos adquirir y liberar el lock
+        # de inmediato.
+        async with gateway._worker_lock:
+            pass

@@ -118,14 +118,28 @@ class TestWorkerIdMatching:
         capturador. Tras invocar ``main_persistent_loop()`` (que sale
         tras leer el comando porque stdin se cierra), la respuesta
         escrita a stdout debe tener ``id: 5``.
+
+        Cambio sept-2026 (post-auditoria): el worker arranca en
+        estado idle, asi que el test primero envia ``attach_portal``
+        para que el portal este attached, y luego el ``ping`` (un
+        comando del ``COMMAND_REGISTRY``) ya puede ejecutarse.
         """
         ts = _build_fake_ts()
 
         def _fake_ping(portal, ts_arg, args):  # noqa: ARG001
             return {"ok": True, "pid": 42}
 
-        payload = json.dumps({"id": 5, "command": "ping", "args": {}})
-        stdin = io.StringIO(payload + "\n")
+        # 1. attach_portal (id=1) — lleva al estado connected.
+        # 2. ping (id=5) — el handler del COMMAND_REGISTRY que probamos.
+        payload = (
+            json.dumps(
+                {"id": 1, "command": "attach_portal", "args": {"mode": "WithGraphicalUserInterface"}}
+            )
+            + "\n"
+            + json.dumps({"id": 5, "command": "ping", "args": {}})
+            + "\n"
+        )
+        stdin = io.StringIO(payload)
         stdout = _CapturingStdout()
 
         original_stdin, original_stdout = sys.stdin, sys.stdout
@@ -139,14 +153,19 @@ class TestWorkerIdMatching:
             sys.stdin = original_stdin
             sys.stdout = original_stdout
 
-        # El worker escribio una unica respuesta (luego salio del
-        # loop por EOF de stdin).
+        # El worker escribio 3 lineas: el "ready_idle" signal (id=0),
+        # la respuesta al attach_portal (id=1) y la respuesta al ping
+        # (id=5). Filtramos la respuesta al ping por su id; el resto
+        # se ignora en este test.
         lines = stdout.get_lines()
-        assert len(lines) == 1, f"se esperaba 1 linea, got {len(lines)}: {lines!r}"
-        response = json.loads(lines[0])
-        assert response["id"] == 5, f"id esperado 5, got {response.get('id')!r}"
-        assert response["ok"] is True
-        assert response["result"] == {"ok": True, "pid": 42}
+        assert len(lines) == 3, f"se esperaban 3 lineas, got {len(lines)}: {lines!r}"
+        ping_response = next(
+            (json.loads(l) for l in lines if json.loads(l).get("id") == 5),
+            None,
+        )
+        assert ping_response is not None, f"no se encontro respuesta a id=5 en {lines!r}"
+        assert ping_response["ok"] is True
+        assert ping_response["result"] == {"ok": True, "pid": 42}
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -255,7 +274,8 @@ class TestSendTimeout:
 
         Mockeamos el reader para que NO resuelva el future, y usamos
         un timeout muy corto (0.1s) para que el test sea rapido.
-        Verificamos que el estado pasa a ``disconnected`` y que se
+        Verificamos que el estado pasa a ``"idle"`` (sept-2026,
+        el antiguo ``"disconnected"`` ya no existe) y que se
         lanza ``RuntimeError`` mencionando el timeout.
         """
         gateway = TIAProcessGateway(persistent=True)
@@ -284,8 +304,9 @@ class TestSendTimeout:
                 "slow_op", args={}, timeout_override=0.1
             )
 
-        # El estado pasa a disconnected tras el timeout.
-        assert gateway._connection_state == "disconnected"
+        # El estado pasa a "idle" tras el timeout (sept-2026; el
+        # antiguo "disconnected" ya no existe en el state machine).
+        assert gateway._connection_state == "idle"
         # El mensaje incluye el comando y el timeout.
         msg = str(exc_info.value)
         assert "slow_op" in msg
@@ -310,9 +331,15 @@ class TestExitCommand:
     def test_exit_command_cierra_loop_y_llama_detach(self) -> None:
         """Tras ``exit`` el loop termina y ``portal.detach()`` se invoca.
 
-        Enviamos un ping seguido de un ``exit`` por stdin. El
+        Enviamos un attach, un ping y un ``exit`` por stdin. El
         handler de ping devuelve un dict; luego ``exit`` rompe el
         loop. El cleanup final invoca ``portal.detach()``.
+
+        Cambio sept-2026 (post-auditoria): el worker arranca en
+        estado idle, asi que el test primero envia ``attach_portal``
+        para que el portal este attached. El ``exit`` NO genera
+        respuesta (simplemente rompe el loop), por lo que solo
+        esperamos 3 lineas: ready_idle, attach, ping.
         """
         ts = _build_fake_ts()
         fake_portal = ts.attach_portal.return_value
@@ -320,10 +347,14 @@ class TestExitCommand:
         def _fake_ping(portal, ts_arg, args):  # noqa: ARG001
             return {"ok": True, "pid": 99}
 
-        # Stdin con un ping y luego un exit (sin newline final -> EOF al leer).
+        # Stdin con attach, ping, exit (sin newline final -> EOF al leer).
         payload = (
-            json.dumps({"id": 1, "command": "ping", "args": {}}) + "\n"
-            + json.dumps({"id": 2, "command": "exit", "args": {}}) + "\n"
+            json.dumps(
+                {"id": 1, "command": "attach_portal", "args": {"mode": "WithGraphicalUserInterface"}}
+            )
+            + "\n"
+            + json.dumps({"id": 2, "command": "ping", "args": {}}) + "\n"
+            + json.dumps({"id": 3, "command": "exit", "args": {}}) + "\n"
         )
         stdin = io.StringIO(payload)
         stdout = _CapturingStdout()
@@ -339,14 +370,20 @@ class TestExitCommand:
             sys.stdin = original_stdin
             sys.stdout = original_stdout
 
-        # El worker escribio 1 respuesta (la del ping; el ``exit`` no
-        # genera respuesta, simplemente rompe el loop).
+        # El worker escribio 3 lineas: el "ready_idle" (id=0), la
+        # respuesta al attach (id=1) y la respuesta al ping (id=2).
+        # El ``exit`` no genera respuesta, simplemente rompe el loop.
+        # Filtramos la respuesta al ping por id.
         lines = stdout.get_lines()
-        assert len(lines) == 1, f"se esperaba 1 linea (ping), got {len(lines)}: {lines!r}"
-        response = json.loads(lines[0])
-        assert response["id"] == 1
-        assert response["ok"] is True
-        # El cleanup llamo a portal.detach() (best-effort).
+        assert len(lines) == 3, f"se esperaban 3 lineas (ready_idle + attach + ping), got {len(lines)}: {lines!r}"
+        ping_response = next(
+            (json.loads(l) for l in lines if json.loads(l).get("id") == 2),
+            None,
+        )
+        assert ping_response is not None, f"no se encontro respuesta a id=2 en {lines!r}"
+        assert ping_response["ok"] is True
+        # El cleanup llamo a portal.detach() (best-effort) porque el
+        # portal estaba attached cuando salio del loop.
         fake_portal.detach.assert_called_once()
 
 
@@ -399,23 +436,39 @@ class TestStartPersistentWorkerArgs:
         """El subproceso se invoca con ``--worker-persistent`` (junto con el script en dev).
 
         Mockeamos ``asyncio.create_subprocess_exec`` para capturar
-        los args sin levantar un subproceso real. Mockeamos
-        ``_send_to_persistent_worker`` (que es quien ejecuta el
-        ping) para evitar que el reader intente leer de un stream
-        falso.
+        los args sin levantar un subproceso real. Para simular el
+        "ready_idle" signal (sept-2026) equipamos el fake stdout
+        con una linea JSON que el reader_task consumira, resolviendo
+        el future en ``_pending_responses[0]`` registrado por
+        ``_start_persistent_worker``.
 
         Verificamos que en ``args`` aparece ``"--worker-persistent"``
         y que el ejecutable es ``sys.executable`` (en dev:
         ``python -u main.py --worker-persistent``).
+
+        Cambio sept-2026 (state machine refactor): tras el ready_idle
+        el estado del gateway queda en ``"idle"`` (NO ``"connected"``
+        como en el round anterior). El connect explicito via
+        ``attach_portal`` es lo que transiciona a ``"connected"``.
         """
         gateway = TIAProcessGateway(persistent=True)
 
         fake_proc = MagicMock(name="FakeSubprocess")
         fake_proc.returncode = None
         fake_proc.stdin = MagicMock()
-        fake_proc.stdout = MagicMock()
-        sentinel = {"ok": True, "pid": 1}
-        gateway._send_to_persistent_worker = AsyncMock(return_value=sentinel)
+        # stdout: emite el ready_idle (id=0) y luego EOF. El reader_task
+        # leera el ready_idle, resolvera el future registrado en
+        # ``_pending_responses[0]`` y saldra del loop.
+        ready_line = (
+            json.dumps({"id": 0, "ok": True, "result": "ready_idle"}) + "\n"
+        ).encode("utf-8")
+        stdout_iter = iter([ready_line, b""])
+
+        class _FakeStream:
+            async def readline(self):
+                return next(stdout_iter, b"")
+
+        fake_proc.stdout = _FakeStream()
 
         with patch(
             "core.infrastructure.gateway.asyncio.create_subprocess_exec",
@@ -436,8 +489,10 @@ class TestStartPersistentWorkerArgs:
         assert gateway._worker_proc is fake_proc
         # El reader_task se creo.
         assert gateway._reader_task is not None
-        # El estado paso a ``connected`` tras el ping exitoso.
-        assert gateway._connection_state == "connected"
+        # El estado queda en ``idle`` tras el ready_idle exitoso
+        # (NO connected; el connect explicito via attach_portal es
+        # lo que transiciona a connected).
+        assert gateway._connection_state == "idle"
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -455,11 +510,24 @@ class TestWorkerUnknownCommand:
         maneja el caso ``None`` lanzando ``ValueError`` con un
         mensaje util, y que el loop lo captura y escribe la
         respuesta de error con el ``id`` correcto.
+
+        Cambio sept-2026 (post-auditoria): el worker arranca en
+        estado idle, asi que el test primero envia ``attach_portal``
+        para llegar al codepath del registry. Si no lo hicieramos,
+        el check de ``portal is None`` cortaria antes y devolveria
+        "Portal no attached" en vez del ValueError del registry.
         """
         ts = _build_fake_ts()
 
-        payload = json.dumps({"id": 7, "command": "no_existe_este_comando", "args": {}})
-        stdin = io.StringIO(payload + "\n")
+        payload = (
+            json.dumps(
+                {"id": 1, "command": "attach_portal", "args": {"mode": "WithGraphicalUserInterface"}}
+            )
+            + "\n"
+            + json.dumps({"id": 7, "command": "no_existe_este_comando", "args": {}})
+            + "\n"
+        )
+        stdin = io.StringIO(payload)
         stdout = _CapturingStdout()
 
         original_stdin, original_stdout = sys.stdin, sys.stdout
@@ -473,10 +541,292 @@ class TestWorkerUnknownCommand:
             sys.stdin = original_stdin
             sys.stdout = original_stdout
 
+        # 3 lineas: ready_idle (id=0) + attach (id=1) + error (id=7).
         lines = stdout.get_lines()
-        assert len(lines) == 1
-        response = json.loads(lines[0])
-        assert response["id"] == 7
+        assert len(lines) == 3, f"se esperaban 3 lineas, got {len(lines)}: {lines!r}"
+        error_response = next(
+            (json.loads(l) for l in lines if json.loads(l).get("id") == 7),
+            None,
+        )
+        assert error_response is not None, f"no se encontro respuesta a id=7 en {lines!r}"
+        assert error_response["ok"] is False
+        assert "ValueError" in error_response["error"]
+        assert "no_existe_este_comando" in error_response["error"]
+
+
+
+# ───────────────────────────────────────────────────────────────────────────
+# Tests del state machine del worker (commit 1, sept-2026 post-auditoria).
+#
+# Cubre el refactor que desacopla la vida del subproceso worker de la
+# vida del portal TIA: el worker arranca en idle, NO hace attach al
+# inicio, y los comandos ``attach_portal``/``detach_portal`` controlan
+# el estado del portal. El resto de comandos requieren portal attached.
+# ───────────────────────────────────────────────────────────────────────────
+
+
+class TestWorkerIdleAtStartup:
+    """El worker arranca en estado idle: emite ``ready_idle`` y NO hace attach."""
+
+    def test_worker_no_llama_attach_portal_al_inicio(self) -> None:
+        """``ts.attach_portal`` NO se invoca durante el startup del loop.
+
+        Caso real (sept-2026): el worker arranca en milisegundos sin
+        pagar el coste de attach (~5s). El gateway le envia un
+        ``attach_portal`` explicito cuando el operario decide conectar.
+
+        Verificamos:
+          1. ``ts.attach_portal`` NO se llama durante el startup.
+          2. La primera linea de stdout es el ``ready_idle`` con
+             ``result="ready_idle"`` y ``ok=True``.
+        """
+        ts = _build_fake_ts()
+        stdin = io.StringIO("")
+        stdout = _CapturingStdout()
+
+        original_stdin, original_stdout = sys.stdin, sys.stdout
+        try:
+            sys.stdin = stdin
+            sys.stdout = stdout
+            with patch.object(worker_tia, "_load_siemens_wrapper", return_value=ts):
+                worker_tia.main_persistent_loop()
+        finally:
+            sys.stdin = original_stdin
+            sys.stdout = original_stdout
+
+        # 1. ``attach_portal`` NO se llamo al inicio.
+        ts.attach_portal.assert_not_called()
+
+        # 2. La unica linea de stdout es el ready_idle signal.
+        lines = stdout.get_lines()
+        assert len(lines) == 1, f"se esperaba 1 linea (ready_idle), got {len(lines)}: {lines!r}"
+        ready = json.loads(lines[0])
+        assert ready["id"] == 0
+        assert ready["ok"] is True
+        assert ready["result"] == "ready_idle"
+
+
+class TestWorkerAttachCommand:
+    """El comando ``attach_portal`` attacha el portal y devuelve ``{"pid": int}``."""
+
+    def test_attach_portal_con_mode_explicito_devuelve_pid(self) -> None:
+        """``attach_portal`` con mode ``WithGraphicalUserInterface`` devuelve ``{"pid": <int>}``."""
+        ts = _build_fake_ts()
+        fake_portal = ts.attach_portal.return_value
+        fake_portal.get_process_id.return_value = 54321
+
+        payload = json.dumps(
+            {
+                "id": 1,
+                "command": "attach_portal",
+                "args": {"mode": "WithGraphicalUserInterface"},
+            }
+        )
+        stdin = io.StringIO(payload + "\n")
+        stdout = _CapturingStdout()
+
+        original_stdin, original_stdout = sys.stdin, sys.stdout
+        try:
+            sys.stdin = stdin
+            sys.stdout = stdout
+            with patch.object(worker_tia, "_load_siemens_wrapper", return_value=ts):
+                worker_tia.main_persistent_loop()
+        finally:
+            sys.stdin = original_stdin
+            sys.stdout = original_stdout
+
+        ts.attach_portal.assert_called_once()
+        call_kwargs = ts.attach_portal.call_args.kwargs
+        assert call_kwargs.get("portal_mode") == "WithGraphicalUserInterface"
+
+        lines = stdout.get_lines()
+        attach_response = next(
+            (json.loads(l) for l in lines if json.loads(l).get("id") == 1),
+            None,
+        )
+        assert attach_response is not None
+        assert attach_response["ok"] is True
+        assert attach_response["result"] == {"pid": 54321}
+
+    def test_attach_portal_con_mode_por_defecto(self) -> None:
+        """``attach_portal`` sin ``args["mode"]`` usa ``WithGraphicalUserInterface``."""
+        ts = _build_fake_ts()
+        fake_portal = ts.attach_portal.return_value
+        fake_portal.get_process_id.return_value = 11111
+
+        payload = json.dumps({"id": 1, "command": "attach_portal", "args": {}})
+        stdin = io.StringIO(payload + "\n")
+        stdout = _CapturingStdout()
+
+        original_stdin, original_stdout = sys.stdin, sys.stdout
+        try:
+            sys.stdin = stdin
+            sys.stdout = stdout
+            with patch.object(worker_tia, "_load_siemens_wrapper", return_value=ts):
+                worker_tia.main_persistent_loop()
+        finally:
+            sys.stdin = original_stdin
+            sys.stdout = original_stdout
+
+        ts.attach_portal.assert_called_once()
+        call_kwargs = ts.attach_portal.call_args.kwargs
+        assert call_kwargs.get("portal_mode") == "WithGraphicalUserInterface"
+
+    def test_attach_portal_falla_devuelve_error(self) -> None:
+        """Si ``ts.attach_portal`` lanza, el worker responde con error."""
+        ts = _build_fake_ts()
+        ts.attach_portal.side_effect = RuntimeError(
+            "No matching TIA Portal version"
+        )
+
+        payload = json.dumps(
+            {
+                "id": 1,
+                "command": "attach_portal",
+                "args": {"mode": "WithGraphicalUserInterface"},
+            }
+        )
+        stdin = io.StringIO(payload + "\n")
+        stdout = _CapturingStdout()
+
+        original_stdin, original_stdout = sys.stdin, sys.stdout
+        try:
+            sys.stdin = stdin
+            sys.stdout = stdout
+            with patch.object(worker_tia, "_load_siemens_wrapper", return_value=ts):
+                worker_tia.main_persistent_loop()
+        finally:
+            sys.stdin = original_stdin
+            sys.stdout = original_stdout
+
+        lines = stdout.get_lines()
+        attach_response = next(
+            (json.loads(l) for l in lines if json.loads(l).get("id") == 1),
+            None,
+        )
+        assert attach_response is not None
+        assert attach_response["ok"] is False
+        assert "No matching TIA Portal version" in attach_response["error"]
+        assert "RuntimeError" in attach_response["error"]
+
+
+class TestWorkerDetachCommand:
+    """El comando ``detach_portal`` detacha el portal attached."""
+
+    def test_detach_portal_llama_a_portal_detach(self) -> None:
+        """``detach_portal`` con portal attached -> ``portal.detach()`` y ``{"detached": true}``."""
+        ts = _build_fake_ts()
+        fake_portal = ts.attach_portal.return_value
+        fake_portal.get_process_id.return_value = 12345
+
+        # 1. attach_portal (id=1) -> estado connected.
+        # 2. detach_portal (id=2) -> vuelve a idle.
+        payload = (
+            json.dumps(
+                {
+                    "id": 1,
+                    "command": "attach_portal",
+                    "args": {"mode": "WithGraphicalUserInterface"},
+                }
+            )
+            + "\n"
+            + json.dumps({"id": 2, "command": "detach_portal", "args": {}})
+            + "\n"
+        )
+        stdin = io.StringIO(payload)
+        stdout = _CapturingStdout()
+
+        original_stdin, original_stdout = sys.stdin, sys.stdout
+        try:
+            sys.stdin = stdin
+            sys.stdout = stdout
+            with patch.object(worker_tia, "_load_siemens_wrapper", return_value=ts):
+                worker_tia.main_persistent_loop()
+        finally:
+            sys.stdin = original_stdin
+            sys.stdout = original_stdout
+
+        fake_portal.detach.assert_called_once()
+
+        lines = stdout.get_lines()
+        detach_response = next(
+            (json.loads(l) for l in lines if json.loads(l).get("id") == 2),
+            None,
+        )
+        assert detach_response is not None
+        assert detach_response["ok"] is True
+        assert detach_response["result"] == {"detached": True}
+
+    def test_detach_portal_en_idle_es_idempotente(self) -> None:
+        """``detach_portal`` sin portal attached -> ``{"detached": false}`` (no error)."""
+        ts = _build_fake_ts()
+        fake_portal = ts.attach_portal.return_value
+
+        payload = json.dumps(
+            {"id": 1, "command": "detach_portal", "args": {}}
+        )
+        stdin = io.StringIO(payload + "\n")
+        stdout = _CapturingStdout()
+
+        original_stdin, original_stdout = sys.stdin, sys.stdout
+        try:
+            sys.stdin = stdin
+            sys.stdout = stdout
+            with patch.object(worker_tia, "_load_siemens_wrapper", return_value=ts):
+                worker_tia.main_persistent_loop()
+        finally:
+            sys.stdin = original_stdin
+            sys.stdout = original_stdout
+
+        fake_portal.detach.assert_not_called()
+        lines = stdout.get_lines()
+        detach_response = next(
+            (json.loads(l) for l in lines if json.loads(l).get("id") == 1),
+            None,
+        )
+        assert detach_response is not None
+        assert detach_response["ok"] is True
+        assert detach_response["result"] == {"detached": False}
+
+
+class TestWorkerRejectsOperationsWhenIdle:
+    """Los comandos del ``COMMAND_REGISTRY`` requieren portal attached."""
+
+    def test_list_plcs_sin_attach_devuelve_error_claro(self) -> None:
+        """``list_plcs`` en estado idle -> error claro (Portal no attached)."""
+        ts = _build_fake_ts()
+        fake_portal = ts.attach_portal.return_value
+        fake_portal.get_process_id.return_value = 12345
+
+        def _fake_list_plcs(portal, ts_arg, args):  # noqa: ARG001
+            return ["PLC1", "PLC2"]
+
+        payload = json.dumps(
+            {"id": 1, "command": "list_plcs", "args": {}}
+        )
+        stdin = io.StringIO(payload + "\n")
+        stdout = _CapturingStdout()
+
+        original_stdin, original_stdout = sys.stdin, sys.stdout
+        try:
+            sys.stdin = stdin
+            sys.stdout = stdout
+            with patch.object(worker_tia, "_load_siemens_wrapper", return_value=ts), \
+                 patch.object(
+                     worker_tia, "COMMAND_REGISTRY", {"list_plcs": _fake_list_plcs}
+                 ):
+                worker_tia.main_persistent_loop()
+        finally:
+            sys.stdin = original_stdin
+            sys.stdout = original_stdout
+
+        ts.attach_portal.assert_not_called()
+        lines = stdout.get_lines()
+        response = next(
+            (json.loads(l) for l in lines if json.loads(l).get("id") == 1),
+            None,
+        )
+        assert response is not None
         assert response["ok"] is False
-        assert "ValueError" in response["error"]
-        assert "no_existe_este_comando" in response["error"]
+        assert "Portal no attached" in response["error"]
+        assert "Conectar primero" in response["error"]
