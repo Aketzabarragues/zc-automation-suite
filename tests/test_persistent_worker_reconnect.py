@@ -549,3 +549,179 @@ class TestDisconnectReleasesLock:
         # de inmediato.
         async with gateway._worker_lock:
             pass
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Test 13: ``_send_to_persistent_worker`` maneja BrokenPipeError
+#          cuando el subproceso muere durante el write
+# ────────────────────────────────────────────────────────────────────────
+
+
+class TestSendHandlesBrokenPipe:
+    """``_send_to_persistent_worker`` traduce ``BrokenPipeError`` a ``RuntimeError``.
+
+    Caso real (audit X3): el operario lanza un ``connect()`` pero
+    el subproceso worker muere justo antes (OOM, kill del SO, o el
+    usuario cierra TIA Portal de forma abrupta que arrastra al
+    worker). El ``proc.stdin.write()`` lanza ``BrokenPipeError``
+    nativo. El gateway:
+
+      1. Captura la excepcion en su ``except Exception`` generico
+         (linea ~1199 de gateway.py).
+      2. Marca el estado como ``"error"`` (es un fallo grave de I/O,
+         no una desconexion limpia).
+      3. Puebla ``_last_error`` con la info del tipo nativo.
+      4. Re-lanza como ``RuntimeError`` con un mensaje claro
+         ("Error de I/O con el worker persistente...") para que
+         el caller (use case / endpoint) no vea tipos nativos de
+         asyncio.
+    """
+
+    @pytest.mark.asyncio
+    async def test_broken_pipe_en_stdin_write_marca_error_y_relanza(self) -> None:
+        """``proc.stdin.write()`` lanza ``BrokenPipeError`` → estado ``"error"`` + ``RuntimeError``.
+
+        Mockeamos el ``stdin`` del proc para que ``write()`` lance
+        ``BrokenPipeError``. La ``drain()`` NUNCA debe invocarse
+        (porque write fallo antes). El gateway traduce la excepcion
+        a ``RuntimeError("Error de I/O...")`` y marca el estado
+        ``"error"``.
+        """
+        gateway = TIAProcessGateway(persistent=True)
+        # Proc mock con stdin/stdout que simulan worker muerto.
+        fake_proc = MagicMock(name="DeadWorker")
+        fake_proc.returncode = None  # aun no detectado como muerto
+        # stdin.write lanza BrokenPipeError.
+        fake_proc.stdin = MagicMock()
+        fake_proc.stdin.write = MagicMock(
+            side_effect=BrokenPipeError("Broken pipe")  # type: ignore[attr-defined]
+        )
+        fake_proc.stdin.drain = AsyncMock()
+        fake_proc.stdout = MagicMock()
+        gateway._worker_proc = fake_proc
+
+        # Reader vivo (no es BrokenPipeError lo que mata al reader,
+        # es el write a stdin).
+        async def _hanging_reader() -> None:
+            await asyncio.sleep(60)
+        reader_task = asyncio.create_task(_hanging_reader())
+        gateway._reader_task = reader_task
+
+        # La llamada a _send_to_persistent_worker debe lanzar
+        # RuntimeError mencionando "Error de I/O" y el BrokenPipeError.
+        with pytest.raises(RuntimeError, match="Error de I/O") as exc_info:
+            await gateway._send_to_persistent_worker(
+                "list_plcs", args={}, timeout_override=2.0
+            )
+        # El mensaje incluye la causa raiz (BrokenPipeError).
+        assert "BrokenPipeError" in str(exc_info.value)
+        # El estado pasa a "error" (es un fallo grave de I/O,
+        # no una desconexion limpia del portal).
+        assert gateway._connection_state == "error"
+        # _last_error queda registrado para el siguiente
+        # GET /tia/connection del frontend.
+        assert gateway._last_error is not None
+        assert "BrokenPipeError" in gateway._last_error
+        # drain() NO se invoco (write fallo antes).
+        fake_proc.stdin.drain.assert_not_called()
+
+        # Cleanup: cancelamos el reader hanging.
+        reader_task.cancel()
+        try:
+            await reader_task
+        except (asyncio.CancelledError, Exception):
+            pass
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Test 14: dos ``disconnect()`` concurrentes no rompen el lock
+#          ni dejan estado inconsistente (audit X3, sept-2026)
+# ────────────────────────────────────────────────────────────────────────
+
+
+class TestConcurrentDisconnectsAreSafe:
+    """Dos ``disconnect()`` en paralelo: ambos retornan, el lock se libera, no hay dead-lock.
+
+    Caso real (audit X3, logs/zc_tray.log 12:11:41/12:11:44): el
+    frontend hace polling de ``GET /tia/connection`` cada 500 ms y
+    el operario hace doble-click en "Desconectar" cuando ve el
+    circulo verde. Los dos ``disconnect()`` se solapan: el primero
+    empieza la transicion optimista a ``"idle"``; el segundo la ve
+    inmediatamente y trata de hacer su propia limpieza.
+
+    Con la transicion optimista (sept-2026 round 3) el segundo
+    ``disconnect()`` ya ve ``state="idle"`` antes de adquirir el
+    lock y entra en la rama idempotente. El lock se serializa
+    correctamente y ambos retornan sin excepcion.
+    """
+
+    @pytest.mark.asyncio
+    async def test_dos_disconnect_concurrentes_no_deadlockean(self) -> None:
+        """Lanzar 2 ``disconnect()`` en paralelo: ambos retornan, lock liberado, estado ``"idle"``.
+
+        El test verifica:
+
+          1. Las dos corrutinas ``disconnect()`` completan sin lanzar
+             excepciones (el test fallaria si una colgara esperando
+             el lock o si una lanzara ``RuntimeError`` espurio).
+          2. El estado final es ``"idle"`` (no se quedo en
+             ``"connected"`` ni se transiciono a ``"error"``).
+          3. ``_worker_lock`` se libero completamente (puede ser
+             re-adquirido inmediatamente).
+          4. ``detach_portal`` se envio al menos una vez (el primer
+             disconnect; el segundo es no-op porque ya estaba en
+             ``"idle"`` al pasar el check de estado).
+        """
+        gateway = TIAProcessGateway(persistent=True)
+        gateway._connection_state = "connected"
+        gateway._worker_proc = _build_alive_proc()
+        reader = MagicMock(name="Reader")
+        reader.done.return_value = False
+        gateway._reader_task = reader
+        # Caches stale para verificar limpieza.
+        gateway._cache = {"plcs": ["PLC1"]}
+        gateway._project_path = r"C:\ws\proyectoA\proyectoA.ap17"
+        heartbeat = MagicMock(name="Heartbeat")
+        heartbeat.done.return_value = False
+        gateway._heartbeat_task = heartbeat
+
+        sent_commands: list[str] = []
+
+        async def fake_send(command, args, timeout_override):  # noqa: ARG001
+            sent_commands.append(command)
+            if command == "detach_portal":
+                return {"detached": True}
+            return {}
+        gateway._send_to_persistent_worker = fake_send
+
+        # Lanzamos los dos disconnect en paralelo. asyncio.gather
+        # reune ambos resultados; si uno falla, la excepcion se
+        # propaga al test.
+        await asyncio.wait_for(
+            asyncio.gather(
+                gateway.disconnect(),
+                gateway.disconnect(),
+                return_exceptions=False,
+            ),
+            timeout=3.0,
+        )
+
+        # Estado final: idle.
+        assert gateway._connection_state == "idle"
+        # Lock liberado.
+        assert gateway._worker_lock.locked() is False, (
+            "_worker_lock quedo cogido tras 2 disconnects concurrentes"
+        )
+        # Re-adquirir el lock funciona (prueba definitiva de que
+        # esta libre).
+        async with gateway._worker_lock:
+            pass
+        # detach_portal se envio (al menos una vez). Puede ser 1 o
+        # 2 dependiendo del orden de las transiciones optimistas;
+        # el contrato importante es que el primer disconnect lo
+        # hizo, y el segundo no crasheo.
+        assert "detach_portal" in sent_commands
+        # Caches limpios (el primer disconnect los limpio; el
+        # segundo no hace nada porque ya estaba en idle).
+        assert gateway._cache == {}
+        assert gateway._project_path is None

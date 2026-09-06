@@ -64,7 +64,11 @@ def _build_fake_ts(portal: MagicMock | None = None) -> MagicMock:
     """Crea un mock de ``siemens_tia_scripting`` para los tests del worker.
 
     El mock expone lo minimo que ``main_persistent_loop()`` necesita:
-      - ``Enums.PortalMode.AnyUserInterface`` / ``WithGraphicalUserInterface``.
+      - ``Enums.PortalMode.AnyUserInterface`` / ``WithGraphicalUserInterface`` /
+        ``WithoutGraphicalUserInterface`` (creado con ``spec=`` para que
+        ``getattr(...)`` lance ``AttributeError`` ante nombres invalidos;
+        asi el codepath defensivo de ``_handle_attach`` se ejercita en
+        los tests, no solo en produccion).
       - ``attach_portal(...)`` retorna el portal del caller (o un portal
         con ``detach()`` y ``get_process_id()`` por defecto).
     """
@@ -74,8 +78,22 @@ def _build_fake_ts(portal: MagicMock | None = None) -> MagicMock:
         portal.detach = MagicMock()
         portal.get_process_id = MagicMock(return_value=12345)
     ts.attach_portal.return_value = portal
+    # ``spec=`` restringe los atributos validos. Si el codigo bajo
+    # test pide un nombre que NO esta en la lista (e.g.
+    # ``WithHiddenMainWindow``), ``getattr`` lanza ``AttributeError``
+    # y el codepath defensivo de ``_handle_attach`` se ejecuta.
+    # Sin ``spec=``, MagicMock auto-crea el atributo y el bug del
+    # PortalMode invalido seria invisible a los tests.
+    ts.Enums.PortalMode = MagicMock(
+        spec=["AnyUserInterface", "WithGraphicalUserInterface",
+              "WithoutGraphicalUserInterface"],
+        name="FakePortalModeEnum",
+    )
     ts.Enums.PortalMode.AnyUserInterface = "AnyUserInterface"
     ts.Enums.PortalMode.WithGraphicalUserInterface = "WithGraphicalUserInterface"
+    ts.Enums.PortalMode.WithoutGraphicalUserInterface = (
+        "WithoutGraphicalUserInterface"
+    )
     return ts
 
 
@@ -830,3 +848,130 @@ class TestWorkerRejectsOperationsWhenIdle:
         assert response["ok"] is False
         assert "Portal no attached" in response["error"]
         assert "Conectar primero" in response["error"]
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Tests del handler ``_handle_attach`` inline (audit X3, sept-2026)
+#
+# Cubre las dos ramas defensivas de ``_handle_attach`` (worker_tia.py
+# ~1399): el codepath del PortalMode invalido y el codepath de
+# ``attach_portal`` retornando ``None``. El handler es un closure
+# dentro de ``main_persistent_loop``; lo testeamos indirectamente
+# enviando el comando ``attach_portal`` por stdin y observando la
+# respuesta JSON.
+# ────────────────────────────────────────────────────────────────────────
+
+
+class TestHandleAttachInvalidPortalMode:
+    """``_handle_attach`` devuelve error claro cuando el ``PortalMode`` no existe en ``ts.Enums``."""
+
+    def test_attach_portal_con_mode_invalido_devuelve_error_claro(self) -> None:
+        """``mode="WithHiddenMainWindow"`` (no existe en ``ts.Enums.PortalMode``) → error ``"PortalMode invalido"``.
+
+        Caso real (audit X3, sept-2026): si el gateway envia un
+        mode que el build concreto del wrapper de Siemens no
+        expone, el ``getattr(ts.Enums.PortalMode, mode_name)``
+        lanza ``AttributeError``. El handler lo captura y devuelve
+        un dict con ``error`` que el loop traduce a
+        ``ok=False``. El gateway ve el error y no transiciona a
+        ``"connected"``.
+        """
+        ts = _build_fake_ts()  # expone WithGraphicalUserInterface y WithoutGraphicalUserInterface
+        # NO anadimos WithHiddenMainWindow a proposito: queremos
+        # que el getattr() falle con AttributeError.
+
+        payload = json.dumps(
+            {
+                "id": 1,
+                "command": "attach_portal",
+                "args": {"mode": "WithHiddenMainWindow"},
+            }
+        )
+        stdin = io.StringIO(payload + "\n")
+        stdout = _CapturingStdout()
+
+        original_stdin, original_stdout = sys.stdin, sys.stdout
+        try:
+            sys.stdin = stdin
+            sys.stdout = stdout
+            with patch.object(worker_tia, "_load_siemens_wrapper", return_value=ts):
+                worker_tia.main_persistent_loop()
+        finally:
+            sys.stdin = original_stdin
+            sys.stdout = original_stdout
+
+        # 1. ``ts.attach_portal`` NO se llamo (el getattr fallo antes).
+        ts.attach_portal.assert_not_called()
+        # 2. La respuesta tiene ``ok=False`` y un mensaje claro.
+        lines = stdout.get_lines()
+        attach_response = next(
+            (json.loads(l) for l in lines if json.loads(l).get("id") == 1),
+            None,
+        )
+        assert attach_response is not None, (
+            f"no se encontro respuesta a id=1 en {lines!r}"
+        )
+        assert attach_response["ok"] is False
+        assert "PortalMode invalido" in attach_response["error"]
+        assert "WithHiddenMainWindow" in attach_response["error"]
+        # El mensaje sugiere los valores validos.
+        assert "WithGraphicalUserInterface" in attach_response["error"]
+
+
+class TestHandleAttachReturnsNone:
+    """``_handle_attach`` devuelve error claro cuando ``ts.attach_portal`` retorna ``None``."""
+
+    def test_attach_portal_retornando_none_devuelve_error_claro(self) -> None:
+        """``ts.attach_portal.return_value = None`` → error ``"attach_portal retorno None"``.
+
+        Caso real (audit X3, sept-2026): ``ts.attach_portal(...)``
+        retorna ``None`` cuando TIA Portal no esta abierto o el
+        usuario no pertenece al grupo Openness de Windows. El
+        handler lo detecta y devuelve un error con un mensaje
+        util para el operario (en vez de un ``AttributeError``
+        al intentar ``None.get_process_id()``).
+        """
+        ts = _build_fake_ts()
+        # Sobrescribimos el return_value (el helper lo dejo apuntando
+        # al portal por defecto). Esto es lo que el wrapper de
+        # Siemens hace cuando TIA no esta abierto.
+        ts.attach_portal.return_value = None
+
+        payload = json.dumps(
+            {
+                "id": 1,
+                "command": "attach_portal",
+                "args": {"mode": "WithGraphicalUserInterface"},
+            }
+        )
+        stdin = io.StringIO(payload + "\n")
+        stdout = _CapturingStdout()
+
+        original_stdin, original_stdout = sys.stdin, sys.stdout
+        try:
+            sys.stdin = stdin
+            sys.stdout = stdout
+            with patch.object(worker_tia, "_load_siemens_wrapper", return_value=ts):
+                worker_tia.main_persistent_loop()
+        finally:
+            sys.stdin = original_stdin
+            sys.stdout = original_stdout
+
+        # 1. ``ts.attach_portal`` se llamo UNA vez con el mode correcto.
+        ts.attach_portal.assert_called_once()
+        call_kwargs = ts.attach_portal.call_args.kwargs
+        assert call_kwargs.get("portal_mode") == "WithGraphicalUserInterface"
+        # 2. La respuesta tiene ``ok=False`` y un mensaje util.
+        lines = stdout.get_lines()
+        attach_response = next(
+            (json.loads(l) for l in lines if json.loads(l).get("id") == 1),
+            None,
+        )
+        assert attach_response is not None, (
+            f"no se encontro respuesta a id=1 en {lines!r}"
+        )
+        assert attach_response["ok"] is False
+        # El mensaje diagnostica las dos causas mas probables.
+        assert "attach_portal retorno None" in attach_response["error"]
+        assert "TIA Portal" in attach_response["error"]
+        assert "Openness" in attach_response["error"]

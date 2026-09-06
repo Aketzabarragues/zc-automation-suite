@@ -362,3 +362,112 @@ async def test_disconnect_bajo_lock_contention_actualiza_estado_optimistamente()
     assert gateway._cache == {}
     # 9. El heartbeat task fue cancelado.
     assert gateway._heartbeat_task is None or gateway._heartbeat_task.done()
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Tests del lazy start (sept-2026, audit X3 + X4)
+#
+# Cubre el caso donde ``gateway.start()`` NO se invoca antes del
+# primer ``connect()`` (e.g. un test que instancia el gateway
+# directamente, o un escenario futuro donde el lifespan de FastAPI
+# no arranca el worker por algun motivo). El ``connect()`` debe ser
+# capaz de relanzar el subproceso por si mismo.
+# ────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_connect_hace_lazy_start_si_proc_es_none() -> None:
+    """``connect()`` invoca ``_start_persistent_worker`` cuando ``_worker_proc is None``.
+
+    Caso real (audit X3/X4): si el lifespan de FastAPI fallo o si un
+    test crea el gateway y no llama ``start()``, el primer
+    ``connect()`` no debe lanzar ``RuntimeError("Reader task... no
+    esta vivo")``; debe arrancar el subproceso y luego enviar el
+    attach. El operario ve el circulo amarillo (``"connecting"``)
+    durante el arranque y luego el verde (``"connected"``).
+    """
+    gateway = TIAProcessGateway(persistent=True)
+    # _worker_proc = None (gateway recien construido, sin start()).
+    assert gateway._worker_proc is None
+    assert gateway._reader_task is None
+    # Mockeamos _start_persistent_worker para que setee _worker_proc y
+    # _reader_task (como haria el codigo real). Asi no necesitamos un
+    # subproceso de verdad.
+    async def fake_start() -> None:
+        gateway._worker_proc = _build_alive_proc()
+        reader = MagicMock(name="ReaderFromLazyStart")
+        reader.done.return_value = False
+        gateway._reader_task = reader
+    gateway._start_persistent_worker = fake_start
+
+    # Mockeamos _send_to_persistent_worker para evitar I/O real.
+    async def fake_send(command, args, timeout_override):  # noqa: ARG001
+        if command == "attach_portal":
+            return {"pid": 7777}
+        return {}
+    gateway._send_to_persistent_worker = fake_send
+    gateway._detect_project_change = AsyncMock(return_value=False)
+
+    await gateway.connect()
+
+    # Estado final: connected.
+    assert gateway._connection_state == "connected"
+    # El subproceso fue arrancado por el lazy start.
+    assert gateway._worker_proc is not None
+    assert gateway._reader_task is not None
+    # El heartbeat arranco tras el connect OK.
+    assert gateway._heartbeat_task is not None
+
+
+@pytest.mark.asyncio
+async def test_connect_hace_lazy_start_si_proc_ha_muerto() -> None:
+    """``connect()`` relanza el worker si ``_worker_proc.returncode is not None``.
+
+    Caso real: el subproceso worker crashea silenciosamente
+    (e.g. OOM kill del SO) y ``_worker_proc.returncode`` pasa a
+    ``-9``. ``connect()`` debe detectarlo y relanzar antes de
+    intentar enviar el attach (si no, el write al stdin morira
+    con ``BrokenPipeError`` y el operario vera un mensaje
+    confuso de "Error de I/O" en vez de una reconexion limpia).
+    """
+    gateway = TIAProcessGateway(persistent=True)
+    # _worker_proc existe pero esta muerto (returncode != None).
+    dead_proc = MagicMock(name="DeadWorkerProc")
+    dead_proc.returncode = -9  # OOM kill
+    gateway._worker_proc = dead_proc
+    # Reader tambien muerto.
+    dead_reader = MagicMock(name="DeadReader")
+    dead_reader.done.return_value = True
+    gateway._reader_task = dead_reader
+
+    start_call_count = 0
+
+    async def fake_start() -> None:
+        nonlocal start_call_count
+        start_call_count += 1
+        # Sustituye el proc muerto por uno vivo.
+        gateway._worker_proc = _build_alive_proc()
+        reader = MagicMock(name="FreshReader")
+        reader.done.return_value = False
+        gateway._reader_task = reader
+    gateway._start_persistent_worker = fake_start
+
+    async def fake_send(command, args, timeout_override):  # noqa: ARG001
+        if command == "attach_portal":
+            return {"pid": 8888}
+        return {}
+    gateway._send_to_persistent_worker = fake_send
+    gateway._detect_project_change = AsyncMock(return_value=False)
+
+    await gateway.connect()
+
+    # El relanzamiento ocurrio UNA vez.
+    assert start_call_count == 1, (
+        f"_start_persistent_worker debio invocarse 1 vez; got {start_call_count}"
+    )
+    # El estado final es connected (el proc muerto fue sustituido).
+    assert gateway._connection_state == "connected"
+    # El proc ya no es el muerto.
+    assert gateway._worker_proc is not dead_proc
+    # El reader ya no es el muerto.
+    assert gateway._reader_task is not dead_reader
