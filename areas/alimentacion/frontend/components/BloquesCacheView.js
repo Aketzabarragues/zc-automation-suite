@@ -582,10 +582,10 @@ export default {
                 </div>
 
                 <!-- Divisor entre zonas A y B. El border-t se
-                     posiciona arriba del div, asi que usamos ``my-4``
+                     posiciona arriba del div, asi que usamos my-4
                      (margin-top y margin-bottom de 16px) en vez de
-                     ``py-4`` para que el espacio visual arriba y
-                     abajo del border sea SIMETRICO. Con ``py-4`` el
+                     py-4 para que el espacio visual arriba y
+                     abajo del border sea SIMETRICO. Con py-4 el
                      padding se acumula solo abajo del border,
                      dando la sensacion de "mas aire" en la parte
                      de abajo. -->
