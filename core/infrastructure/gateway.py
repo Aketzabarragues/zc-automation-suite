@@ -20,6 +20,14 @@ from core.infrastructure.build_cache import BuildCache
 from core.models import BloqueCache, BloquePLC
 
 
+# Logger de la capa de infraestructura. Los logs de start/connect/
+# disconnect/kill aparecen en el root logger (zc_tray) cuando se
+# ejecuta via main_tray.py, gracias a que main_tray configura un
+# FileHandler en el root logger con nivel INFO. Trazabilidad del
+# ciclo de vida del subproceso worker persistente (sept-2026).
+_log = logging.getLogger(__name__)
+
+
 # Timeout por defecto del subproceso OT (segundos).
 #
 # Una ``execute_transactional_batch`` contra un PLC real puede
@@ -629,8 +637,24 @@ class TIAProcessGateway:
         dispara tarde, en el primer comando).
         """
         if not self._persistent:
+            _log.info("gateway.start(): no-op (persistent=False, modo 1-shot)")
             return  # modo 1-shot: no hay worker persistente que arrancar
-        await self._start_persistent_worker()
+        _log.info("gateway.start(): arrancando worker persistente (persistent=True)")
+        try:
+            await self._start_persistent_worker()
+            _log.info(
+                "gateway.start(): worker persistente arrancado OK "
+                "(state=%r, worker_alive=%s)",
+                self._connection_state,
+                self.is_worker_alive(),
+            )
+        except Exception as exc:
+            _log.error(
+                "gateway.start(): FALLO al arrancar worker: %s: %s",
+                type(exc).__name__,
+                exc,
+            )
+            raise
 
     async def _start_persistent_worker(self) -> None:
         """Lanza el subproceso worker OT en modo persistente (lazy start).
@@ -663,6 +687,10 @@ class TIAProcessGateway:
             ``self._last_ping_ok`` / ``self._last_error``.
         """
         if self._worker_proc is not None and self._worker_proc.returncode is None:
+            _log.info(
+                "_start_persistent_worker: no-op (subproceso ya vivo, pid=%d)",
+                self._worker_proc.pid,
+            )
             return  # ya esta corriendo, no-op
 
         self._connection_state = "connecting"
@@ -697,6 +725,11 @@ class TIAProcessGateway:
             env=worker_env,
         )
         self._worker_proc = proc
+        _log.info(
+            "_start_persistent_worker: subproceso LANZADO (pid=%d, args=%s)",
+            proc.pid,
+            launch_args,
+        )
         # El reader_task es la unica task que consume stdout. Si
         # termina (EOF, excepcion), los futures pendientes se quedan
         # sin resolver; ``_send_to_persistent_worker`` los detecta
@@ -1146,6 +1179,12 @@ class TIAProcessGateway:
         worker ya esta muerto, los tasks cancelados o los futures
         ya resueltos, no hace nada.
 
+        _log.info(
+            "_kill_persistent_worker: matando subproceso (proc=%s, returncode=%s)",
+            getattr(self._worker_proc, "pid", None) if self._worker_proc else None,
+            getattr(self._worker_proc, "returncode", None) if self._worker_proc else None,
+        )
+
         Orden de operaciones (importa):
 
           1. Cancela ``_reader_task`` (la unica task que consume stdout
@@ -1233,6 +1272,7 @@ class TIAProcessGateway:
                 # estado consistente para una nueva conexion.
                 pass
         self._worker_proc = None
+        _log.info("_kill_persistent_worker: subproceso MATADO (self._worker_proc=None)")
 
         # 4. Resuelve los futures pendientes con RuntimeError. Esto
         # desbloquea a cualquier ``_send_to_persistent_worker`` en vuelo
@@ -1337,6 +1377,12 @@ class TIAProcessGateway:
                     timeout_override=60.0,
                 )
             except Exception as exc:
+                _log.error(
+                    "gateway.connect: attach_portal fallo (excepcion): "
+                    "%s: %s",
+                    type(exc).__name__,
+                    exc,
+                )
                 self._connection_state = "error"
                 if not self._last_error:
                     self._last_error = f"{type(exc).__name__}: {exc}"
@@ -1359,6 +1405,10 @@ class TIAProcessGateway:
             # Transicion a connected e inicio del heartbeat.
             self._connection_state = "connected"
             self._last_ping_ok = time.monotonic()
+            _log.info(
+                "gateway.connect: attach_portal OK (pid=%r, state=connected)",
+                result.get("pid") if isinstance(result, dict) else None,
+            )
             self._last_error = None
             # Cachear el PID del portal TIA Portal (lo devuelve el
             # worker en ``attach_portal``). Si la respuesta no trae
@@ -1448,6 +1498,12 @@ class TIAProcessGateway:
                 "disconnect() solo aplica a gateway.persistent=True"
             )
 
+        _log.info(
+            "gateway.disconnect: llamado (state=%r, worker_alive=%s)",
+            getattr(self, "_connection_state", None),
+            self.is_worker_alive(),
+        )
+
         async with self._worker_lock:
             # Marcamos "idle" (sept-2026) PRIMERO para que el
             # ``GET /tia/connection`` siguiente lo vea, incluso si
@@ -1457,6 +1513,7 @@ class TIAProcessGateway:
             # el state machine refactorizado.)
             self._connection_state = "idle"
             self._last_error = None
+            _log.info("gateway.disconnect: state=idle (subproceso sigue vivo)")
 
             # Cancela el heartbeat task si esta corriendo. El loop
             # ya tiene ``except asyncio.CancelledError: return`` que

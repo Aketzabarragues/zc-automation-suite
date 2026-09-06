@@ -143,6 +143,23 @@ class WebServiceSupervisor:
         from interfaces.web_server.app import create_app
 
         gateway = TIAProcessGateway(persistent=True)
+        self.log.info("WebServiceSupervisor: arrancando worker persistente ANTES de uvicorn...")
+        try:
+            asyncio.run(gateway.start())
+            self.log.info(
+                "WebServiceSupervisor: worker persistente arrancado OK "
+                "(state=%r, worker_alive=%s)",
+                gateway._connection_state,
+                gateway.is_worker_alive(),
+            )
+        except Exception as exc:
+            self.log.error(
+                "WebServiceSupervisor: FALLO arrancando worker: %s: %s. "
+                "Reintentando con backoff.",
+                type(exc).__name__,
+                exc,
+            )
+            raise
         app = create_app(gateway)
         # Guardamos la referencia al gateway en self para que el
         # ``finally`` de abajo pueda llamar a ``disconnect()`` como
