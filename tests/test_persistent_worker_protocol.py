@@ -434,23 +434,39 @@ class TestStartPersistentWorkerArgs:
         """El subproceso se invoca con ``--worker-persistent`` (junto con el script en dev).
 
         Mockeamos ``asyncio.create_subprocess_exec`` para capturar
-        los args sin levantar un subproceso real. Mockeamos
-        ``_send_to_persistent_worker`` (que es quien ejecuta el
-        ping) para evitar que el reader intente leer de un stream
-        falso.
+        los args sin levantar un subproceso real. Para simular el
+        "ready_idle" signal (sept-2026) equipamos el fake stdout
+        con una linea JSON que el reader_task consumira, resolviendo
+        el future en ``_pending_responses[0]`` registrado por
+        ``_start_persistent_worker``.
 
         Verificamos que en ``args`` aparece ``"--worker-persistent"``
         y que el ejecutable es ``sys.executable`` (en dev:
         ``python -u main.py --worker-persistent``).
+
+        Cambio sept-2026 (state machine refactor): tras el ready_idle
+        el estado del gateway queda en ``"idle"`` (NO ``"connected"``
+        como en el round anterior). El connect explicito via
+        ``attach_portal`` es lo que transiciona a ``"connected"``.
         """
         gateway = TIAProcessGateway(persistent=True)
 
         fake_proc = MagicMock(name="FakeSubprocess")
         fake_proc.returncode = None
         fake_proc.stdin = MagicMock()
-        fake_proc.stdout = MagicMock()
-        sentinel = {"ok": True, "pid": 1}
-        gateway._send_to_persistent_worker = AsyncMock(return_value=sentinel)
+        # stdout: emite el ready_idle (id=0) y luego EOF. El reader_task
+        # leera el ready_idle, resolvera el future registrado en
+        # ``_pending_responses[0]`` y saldra del loop.
+        ready_line = (
+            json.dumps({"id": 0, "ok": True, "result": "ready_idle"}) + "\n"
+        ).encode("utf-8")
+        stdout_iter = iter([ready_line, b""])
+
+        class _FakeStream:
+            async def readline(self):
+                return next(stdout_iter, b"")
+
+        fake_proc.stdout = _FakeStream()
 
         with patch(
             "core.infrastructure.gateway.asyncio.create_subprocess_exec",
@@ -471,8 +487,10 @@ class TestStartPersistentWorkerArgs:
         assert gateway._worker_proc is fake_proc
         # El reader_task se creo.
         assert gateway._reader_task is not None
-        # El estado paso a ``connected`` tras el ping exitoso.
-        assert gateway._connection_state == "connected"
+        # El estado queda en ``idle`` tras el ready_idle exitoso
+        # (NO connected; el connect explicito via attach_portal es
+        # lo que transiciona a connected).
+        assert gateway._connection_state == "idle"
 
 
 # ────────────────────────────────────────────────────────────────────────

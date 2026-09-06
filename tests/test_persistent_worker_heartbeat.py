@@ -457,3 +457,64 @@ class TestHeartbeatNoneProc:
         # NO se intento hacer ping: el check de ``None`` ocurre antes
         # del ``_send_to_persistent_worker``.
         gateway._send_to_persistent_worker.assert_not_called()
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Test 7 (sept-2026, state machine refactor): el heartbeat SOLO se inicia
+# cuando el gateway esta en ``state="connected"``. En idle (sin portal
+# attached), el ``get_process_id`` no tiene sentido y solo gastaria
+# round-trips contra el worker.
+# ────────────────────────────────────────────────────────────────────────
+
+
+class TestHeartbeatOnlyRunsWhenConnected:
+    """El heartbeat NO se inicia mientras el gateway esta en ``"idle"``."""
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_no_se_inicia_si_state_es_idle(self) -> None:
+        """Tras ``_start_persistent_worker`` (que lleva a ``"idle"``), el heartbeat NO arranca.
+
+        Caso sept-2026 (state machine refactor): antes, el heartbeat
+        se iniciaba al final de ``_start_persistent_worker`` (que
+        transicionaba a ``"connected"`` tras un attach inicial).
+        Ahora, el worker arranca en ``"idle"`` y el heartbeat solo
+        se inicia cuando ``connect()`` transiciona a
+        ``"connected"``. Esto evita pings ``get_process_id`` contra
+        un worker que no tiene portal attached (TCA en error).
+        """
+        import json
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        gateway = TIAProcessGateway(persistent=True)
+
+        # Fake stdout emite "ready_idle" (sept-2026) y luego EOF.
+        ready_line = (
+            json.dumps({"id": 0, "ok": True, "result": "ready_idle"}) + "\n"
+        ).encode("utf-8")
+        stdout_iter = iter([ready_line, b""])
+
+        class _FakeStream:
+            async def readline(self):
+                return next(stdout_iter, b"")
+
+        fake_proc = MagicMock(name="FakeSubprocess")
+        fake_proc.returncode = None
+        fake_proc.stdin = MagicMock()
+        fake_proc.stdout = _FakeStream()
+        # _detect_project_change es best-effort; mockeamos para que
+        # no lea del fake stdout.
+        gateway._detect_project_change = AsyncMock(return_value=False)
+
+        with patch(
+            "core.infrastructure.gateway.asyncio.create_subprocess_exec",
+            new=AsyncMock(return_value=fake_proc),
+        ):
+            await gateway._start_persistent_worker()
+
+        # Estado idle tras ready_idle.
+        assert gateway._connection_state == "idle"
+        # Heartbeat NO se inicio: el gateway esta en idle, no en connected.
+        assert gateway._heartbeat_task is None, (
+            "el heartbeat NO debe arrancar en state='idle'; solo en "
+            "state='connected' (sept-2026 state machine refactor)"
+        )
