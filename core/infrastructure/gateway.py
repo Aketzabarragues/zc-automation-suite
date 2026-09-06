@@ -1018,13 +1018,35 @@ class TIAProcessGateway:
             try:
                 response = json.loads(line.decode("utf-8").strip())
             except Exception:
-                # Linea no parseable. Logueamos a stderr pero no
-                # rompemos el reader (el worker podria estar
-                # emitiendo basura; el match por id es defensivo).
-                sys.stderr.write(
-                    f"[GATEWAY READER] linea no parseable: {line!r}\n"
-                )
-                sys.stderr.flush()
+                # Linea no parseable. NO logueamos como ERROR: en
+                # modo persistente, el stdout del worker se mezcla
+                # con los logs de Siemens (que no son JSON). Ver
+                # `_start_persistent_worker` que lanza el worker
+                # con `stdout=asyncio.subprocess.PIPE`. El reader
+                # filtra y descarta; solo logueamos en DEBUG (no
+                # ERROR) y con un filtro para no spammear con
+                # lineas claramente de Siemens (timestamps).
+                line_str = line.decode("utf-8", errors="replace")
+                # Filtro heuristico: lineas de log de Siemens
+                # empiezan con un timestamp ISO. Si la linea NO
+                # parece un log de Siemens (e.g. comando JSON
+                # malformado), si la logueamos como WARNING.
+                stripped = line_str.strip()
+                if not (
+                    len(stripped) > 11
+                    and stripped[0].isdigit()
+                    and stripped[4] == "-"
+                    and stripped[7] == "-"
+                ):
+                    # No es un log de Siemens: probablemente es un
+                    # comando JSON malformado del worker (bug del
+                    # worker). WARNING, no ERROR.
+                    _log.warning(
+                        "[GATEWAY READER] linea no parseable "
+                        "(no es log de Siemens): %r",
+                        line_str[:200],
+                    )
+                # En cualquier caso, seguimos leyendo.
                 continue
             if not isinstance(response, dict):
                 continue
