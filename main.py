@@ -21,6 +21,7 @@ Cero UI propia: no hay TUI ni bucles interactivos.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import io
 import sys
 from typing import NoReturn
@@ -117,8 +118,6 @@ def run_web_mode(host_port: str) -> None:
         host_port: Cadena ``"host:port"`` parseable por ``uvicorn.run``.
     """
     # Importación tardía por la misma razón que en ``run_mcp_mode``.
-    import asyncio
-
     import uvicorn
 
     from interfaces.web_server.app import create_app

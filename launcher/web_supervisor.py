@@ -27,6 +27,7 @@ Notas sobre el worker OT:
 """
 from __future__ import annotations
 
+import asyncio
 import io
 import logging
 import sys
@@ -221,7 +222,6 @@ class WebServiceSupervisor:
                     # Si por algun motivo hubiera loop vivo, el
                     # ``except`` de abajo absorbe el
                     # ``RuntimeError`` y no enmascaramos el shutdown.
-                    import asyncio
                     asyncio.run(gateway.disconnect())
                 except Exception as exc:  # noqa: BLE001
                     self.log.warning(

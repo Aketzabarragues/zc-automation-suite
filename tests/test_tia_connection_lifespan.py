@@ -208,6 +208,13 @@ def test_supervisor_serve_once_llama_disconnect_en_finally(
     fake_gateway._cache = {}
     fake_gateway._bloques_cache = {}
     fake_gateway._dispatch_worker = AsyncMock()
+    # ``b82f9d6`` anadio ``asyncio.run(gateway.start())`` al inicio
+    # de ``_serve_once`` para arrancar el worker persistente ANTES
+    # de uvicorn. ``start()`` debe ser un awaitable para que
+    # ``asyncio.run()`` lo consuma; un ``MagicMock`` sync rompe con
+    # ``ValueError: a coroutine was expected``. Mismo patron que
+    # ``disconnect`` arriba.
+    fake_gateway.start = AsyncMock()
 
     fake_app = MagicMock(name="fake_app")
     fake_server = MagicMock(name="fake_server")
@@ -257,6 +264,14 @@ def test_supervisor_serve_once_no_rompe_si_gateway_no_tiene_disconnect(
             self._cache = {}
             self._bloques_cache = {}
             self._dispatch_worker = AsyncMock()
+            # ``b82f9d6`` anadio ``asyncio.run(gateway.start())`` al
+            # inicio de ``_serve_once`` y, en el exito, lee
+            # ``gateway._connection_state`` y ``gateway.is_worker_alive()``
+            # para el log. Sin esto el fake no llega al path del
+            # ``finally`` que es lo que queremos verificar.
+            self.start = AsyncMock()
+            self._connection_state = "idle"
+            self.is_worker_alive = MagicMock(return_value=True)
 
     fake_app = MagicMock(name="fake_app")
     fake_server = MagicMock(name="fake_server")
