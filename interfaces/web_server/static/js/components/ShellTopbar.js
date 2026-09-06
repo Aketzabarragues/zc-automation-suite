@@ -168,18 +168,20 @@ export default {
                 <span class="text-accent font-bold uppercase tracking-widest">{{ currentViewLabel }}</span>
             </nav>
 
-            <!-- Derecha (v3.0): solo texto con el PLC activo.
+            <!-- Derecha (v3.0): mini-card con el PLC activo.
                  Toda la accion (indicators, Conectar/Desconectar,
                  select PLC, Buscar PLCs) migro al primer card de
-                 BloquesCacheView. Aqui solo queda el "PLC: <name>"
-                 en texto plano para que la topbar siga siendo
-                 el sitio donde el operario ve de un vistazo que
-                 PLC esta cargado, sin tener que ir a la vista
-                 de Cache del PLC. -->
-            <div class="text-xs text-ink-muted"
+                 BloquesCacheView. Aqui queda un mini-card tipo
+                 "badge" con el PLC: el label "PLC:" en muted y
+                 el nombre del PLC en accent monospace, separados
+                 por gap-2 para que se lean claramente. Asi la
+                 topbar sigue siendo el sitio donde el operario
+                 ve de un vistazo que PLC esta cargado, sin
+                 tener que ir a la vista de Cache del PLC. -->
+            <div class="inline-flex items-center gap-2 bg-surface-sunken border border-line rounded-md px-3 py-1.5 text-xs"
                  data-testid="topbar-plc-text">
-                PLC:
-                <span class="font-mono text-ink">{{ store.selectedPlc || '—' }}</span>
+                <span class="text-ink-muted">PLC:</span>
+                <span class="font-mono font-semibold text-accent">{{ store.selectedPlc || '—' }}</span>
             </div>
         </header>
     `,
