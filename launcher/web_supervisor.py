@@ -136,7 +136,26 @@ class WebServiceSupervisor:
             backoff = min(backoff * 2, 30.0)
 
     def _serve_once(self) -> None:
-        """Construye la app y corre uvicorn hasta que pare."""
+        """Construye la app y corre uvicorn hasta que pare.
+
+        NOTA sobre el arranque del worker persistente (sept-2026
+        round 2): esta función YA NO llama ``gateway.start()``
+        directamente. Lo hace el lifespan de FastAPI
+        (``interfaces/web_server/app.py::_tia_lifespan``) al
+        startup de uvicorn. La razón es que el ``gateway.start()``
+        crea un reader task asyncio, y ese task debe vivir en el
+        MISMO event loop que uvicorn para sobrevivir a las
+        llamadas de los endpoints HTTP. Si lo lanzamos aqui con
+        ``asyncio.run(gateway.start())``, ese loop se cierra al
+        retornar y el reader task se cancela: el operario vería
+        ``RuntimeError: Reader task del worker persistente no
+        esta vivo`` al pulsar "Conectar" segundos después, aunque
+        ``is_worker_alive()`` siga siendo True (el subproceso
+        sigue vivo, pero su reader task en el loop cerrado está
+        muerto). Confiar en el lifespan lo arregla: el lifespan
+        corre en el loop de uvicorn, donde el reader y los
+        endpoints conviven.
+        """
         # Importación tardía: respeta el orden de inicialización de
         # pystray (algunos backends de pystray requieren que el main
         # thread sea el del icono).
@@ -144,23 +163,11 @@ class WebServiceSupervisor:
         from interfaces.web_server.app import create_app
 
         gateway = TIAProcessGateway(persistent=True)
-        self.log.info("WebServiceSupervisor: arrancando worker persistente ANTES de uvicorn...")
-        try:
-            asyncio.run(gateway.start())
-            self.log.info(
-                "WebServiceSupervisor: worker persistente arrancado OK "
-                "(state=%r, worker_alive=%s)",
-                gateway._connection_state,
-                gateway.is_worker_alive(),
-            )
-        except Exception as exc:
-            self.log.error(
-                "WebServiceSupervisor: FALLO arrancando worker: %s: %s. "
-                "Reintentando con backoff.",
-                type(exc).__name__,
-                exc,
-            )
-            raise
+        self.log.info(
+            "WebServiceSupervisor: gateway preparado (persistent=True). "
+            "El worker persistente lo arrancara el lifespan de FastAPI "
+            "al startup de uvicorn (mismo event loop, reader task vivo)."
+        )
         app = create_app(gateway)
         # Guardamos la referencia al gateway en self para que el
         # ``finally`` de abajo pueda llamar a ``disconnect()`` como

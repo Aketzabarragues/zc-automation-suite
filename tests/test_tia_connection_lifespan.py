@@ -80,6 +80,13 @@ def test_lifespan_llama_disconnect_al_shutdown_persistent() -> None:
     gateway = MagicMock(spec=TIAProcessGateway)
     gateway.persistent = True
     gateway.disconnect = AsyncMock()
+    # El lifespan de sept-2026 round 2 arranca el worker al
+    # startup (no en el supervisor con asyncio.run) para que el
+    # reader task viva en el mismo loop que uvicorn. Sin este
+    # AsyncMock, ``await gateway.start()`` falla con
+    # ``TypeError: object MagicMock can't be used in 'await'
+    # expression``.
+    gateway.start = AsyncMock()
 
     app = _build_app_with_lifespan(gateway)
     with TestClient(app) as client:
@@ -91,6 +98,8 @@ def test_lifespan_llama_disconnect_al_shutdown_persistent() -> None:
     # ejecuta el codigo post-``yield`` del lifespan y por tanto
     # llama a ``gateway.disconnect()``.
     gateway.disconnect.assert_awaited_once()
+    # Y al startup (pre-yield) llamó a ``gateway.start()``.
+    gateway.start.assert_awaited_once()
 
 
 # ── Test 2: lifespan NO llama a disconnect si persistent=False ───
@@ -144,6 +153,7 @@ def test_lifespan_no_enmascara_shutdown_si_disconnect_falla(
     gateway.disconnect = AsyncMock(
         side_effect=RuntimeError("subproceso ya muerto")
     )
+    gateway.start = AsyncMock()  # ver test 1
 
     app = _build_app_with_lifespan(gateway)
 
