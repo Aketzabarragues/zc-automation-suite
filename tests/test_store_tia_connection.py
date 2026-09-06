@@ -680,41 +680,67 @@ def test_main_js_imports_refresh_tia_connection() -> None:
     )
 
 
-# ── ShellTopbar.js: renderiza el indicador ──────────────────────────
+# ── BloquesCacheView.js: renderiza el TIA state como texto ──────────
+#
+# Tras la migración v3.0 (sept-2026), el ``TiaConnectionIndicator``
+# visual desapareció de la ``ShellTopbar``. Su información se
+# muestra AHORA como texto en el primer card de
+# ``BloquesCacheView.js`` (fila de estado, ``TIA: <state>`` con
+# color green/amber/red/gray) + un botón "🔌 Conectar" que
+# dispara el mismo flujo de antes.
 
 
-def test_shell_topbar_imports_tia_connection_indicator() -> None:
-    """``ShellTopbar.js`` importa ``TiaConnectionIndicator``."""
-    text = _read(SHELL_TOPBAR_JS)
-    assert "TiaConnectionIndicator" in text, (
-        "ShellTopbar.js debe importar el componente TiaConnectionIndicator "
-        "para renderizar el círculo de estado en el topbar."
+BLOQUES_CACHE_VIEW_JS = (
+    REPO_ROOT
+    / "areas" / "alimentacion" / "frontend" / "components"
+    / "BloquesCacheView.js"
+)
+
+
+def test_bloques_cache_view_renders_tia_state_text() -> None:
+    """El primer card de ``BloquesCacheView`` pinta el estado del
+    TIA como texto (sin indicator visual): ``TIA: connected |
+    connecting… | idle | error``, con la misma paleta de colores
+    que el antiguo ``TiaConnectionIndicator``.
+    """
+    text = _read(BLOQUES_CACHE_VIEW_JS)
+    # Setup: computeds que derivan el state + texto + color.
+    assert "tiaState" in text, (
+        "BloquesCacheView debe declarar un computed 'tiaState' "
+        "que lee store.tiaConnection.state."
+    )
+    assert "tiaStateText" in text, (
+        "BloquesCacheView debe declarar un computed 'tiaStateText' "
+        "que mapea state a texto (connected/connecting…/idle/error)."
+    )
+    assert "tiaStateClass" in text, (
+        "BloquesCacheView debe declarar un computed 'tiaStateClass' "
+        "que mapea state a color (green/amber/red/gray)."
+    )
+    # Template: caption "TIA:" + texto del state con color.
+    assert "TIA:" in text, (
+        "BloquesCacheView debe pintar el caption 'TIA:' en su template."
+    )
+    assert "text-green-600" in text, (
+        "El state 'connected' debe pintarse con text-green-600."
+    )
+    assert "text-amber-600" in text, (
+        "El state 'connecting' debe pintarse con text-amber-600."
+    )
+    assert "text-red-700" in text, (
+        "El state 'error' debe pintarse con text-red-700."
     )
 
 
-def test_shell_topbar_renders_tia_connection_indicator_in_template() -> None:
-    """El template del ShellTopbar monta
-    ``<TiaConnectionIndicator>`` con handler ``@connect``."""
-    text = _read(SHELL_TOPBAR_JS)
-    # Buscamos el tag en el template.
-    assert "<TiaConnectionIndicator" in text, (
-        "ShellTopbar.js debe renderizar <TiaConnectionIndicator> "
-        "en su template."
-    )
-    assert "@connect" in text, (
-        "ShellTopbar.js debe capturar el evento @connect del "
-        "indicador para reconectar cuando el operario pulse el círculo."
-    )
-
-
-def test_shell_topbar_handle_connect_calls_connect_tia() -> None:
-    """El handler ``handleConnect`` del ShellTopbar debe llamar a
-    ``connectTia()`` del store."""
-    text = _read(SHELL_TOPBAR_JS)
+def test_bloques_cache_view_handle_connect_calls_connect_tia() -> None:
+    """El handler ``handleConnect`` del primer card de
+    ``BloquesCacheView`` debe llamar a ``connectTia()`` del store
+    (mismo flujo que tenía el antiguo ShellTopbar)."""
+    text = _read(BLOQUES_CACHE_VIEW_JS)
     start = text.find("function handleConnect")
     assert start != -1, (
-        "ShellTopbar.js debe declarar un handler handleConnect para "
-        "el evento @connect del TiaConnectionIndicator."
+        "BloquesCacheView debe declarar un handler handleConnect "
+        "(migrado de ShellTopbar en v3.0) para el botón '🔌 Conectar'."
     )
     body = text[start:start + 400]
     assert "connectTia()" in body, (

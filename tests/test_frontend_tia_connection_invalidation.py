@@ -29,15 +29,6 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 API_JS = REPO_ROOT / "interfaces" / "web_server" / "static" / "js" / "api.js"
 STORE_JS = REPO_ROOT / "interfaces" / "web_server" / "static" / "js" / "store.js"
-SHELL_TOPBAR_JS = (
-    REPO_ROOT
-    / "interfaces"
-    / "web_server"
-    / "static"
-    / "js"
-    / "components"
-    / "ShellTopbar.js"
-)
 DISPOSITIVOS_JS = (
     REPO_ROOT
     / "areas"
@@ -53,6 +44,18 @@ PROCESOS_SYNC_VIEW_JS = (
     / "frontend"
     / "components"
     / "ProcesosSyncView.js"
+)
+# Tras la migración v3.0 (sept-2026), la selección PLC y el
+# ``handleRefreshPlcs`` con la detección de ``TIAConnectionError``
+# se movieron de ``ShellTopbar`` al primer card de
+# ``BloquesCacheView``. Los tests apuntan al nuevo sujeto.
+BLOQUES_CACHE_VIEW_JS = (
+    REPO_ROOT
+    / "areas"
+    / "alimentacion"
+    / "frontend"
+    / "components"
+    / "BloquesCacheView.js"
 )
 
 
@@ -146,7 +149,7 @@ def test_store_js_load_and_apply_plc_blocks_handles_tia_connection_error() -> No
 @pytest.mark.parametrize(
     "component_path,component_label",
     [
-        (SHELL_TOPBAR_JS, "ShellTopbar"),
+        (BLOQUES_CACHE_VIEW_JS, "BloquesCacheView"),
         (DISPOSITIVOS_JS, "Dispositivos"),
         (PROCESOS_SYNC_VIEW_JS, "ProcesosSyncView"),
     ],
@@ -165,7 +168,7 @@ def test_component_imports_reset_plc_state(
 @pytest.mark.parametrize(
     "component_path,component_label",
     [
-        (SHELL_TOPBAR_JS, "ShellTopbar"),
+        (BLOQUES_CACHE_VIEW_JS, "BloquesCacheView"),
         (DISPOSITIVOS_JS, "Dispositivos"),
         (PROCESOS_SYNC_VIEW_JS, "ProcesosSyncView"),
     ],
@@ -182,13 +185,17 @@ def test_component_detects_tia_connection_error(
     )
 
 
-def test_shell_topbar_resets_state_on_refresh_plcs_tia_down() -> None:
-    """El handler ``handleRefreshPlcs`` del ShellTopbar resetea el
-    state del PLC si ``apiFetchPlcs`` o ``apiFetchProjectInfo``
-    reportan TIAConnectionError."""
-    text = _read(SHELL_TOPBAR_JS)
+def test_bloques_cache_view_resets_state_on_refresh_plcs_tia_down() -> None:
+    """Tras la migración v3.0, el handler ``handleRefreshPlcs`` vive
+    en el primer card de ``BloquesCacheView`` (no en la ShellTopbar).
+    Resetea el state del PLC si ``apiFetchPlcs`` o
+    ``apiFetchProjectInfo`` reportan TIAConnectionError."""
+    text = _read(BLOQUES_CACHE_VIEW_JS)
     start = text.find("async function handleRefreshPlcs")
-    assert start != -1
+    assert start != -1, (
+        "BloquesCacheView debe declarar un handler handleRefreshPlcs "
+        "(migrado de ShellTopbar en v3.0)."
+    )
     body = text[start:start + 1500]
     assert "errorType === \"TIAConnectionError\"" in body, (
         "handleRefreshPlcs debe detectar TIAConnectionError en "

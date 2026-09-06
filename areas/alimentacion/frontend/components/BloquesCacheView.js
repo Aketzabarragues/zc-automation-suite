@@ -46,7 +46,11 @@ import {
     store,
     pushLog,
     loadAndApplyPlcBlocks,
+    resetPlcState,
+    connectTia,
+    disconnectTia,
 } from "/js/store.js";
+import { apiFetchPlcs, apiFetchProjectInfo } from "/js/api.js";
 
 /** Umbral de "stale" del cache local (5 min, mismo TTL que el backend). */
 const STALE_AFTER_MS = 5 * 60 * 1000;
@@ -291,6 +295,157 @@ export default {
             }
         );
 
+        // ────────────────────────────────────────────────────────────
+        //  v3.0 (sept-2026): controles del worker persistente y del
+        //  PLC que antes vivían en la ShellTopbar migran a este
+        //  componente. La topbar ahora solo pinta el PLC activo en
+        //  texto. Aquí se gestiona toda la acción: Conectar /
+        //  Desconectar, refrescar PLCs, cambiar de PLC, y el
+        //  status textual del worker y del attach a TIA.
+        //
+        //  Los botones se muestran SIEMPRE; la habilitacion
+        //  (``canConnect`` / ``canDisconnect`` / ``canSelectPlc``
+        //  / ``canSearchPlcs``) refleja el state machine
+        //  (``idle | connecting | connected | error``) y
+        //  ``store.busy``. El operario siempre ve el mismo
+        //  conjunto de controles, lo que cambia es cuales
+        //  están activos.
+        // ────────────────────────────────────────────────────────────
+
+        /**
+         * State del worker TIA persistente (``idle | connecting |
+         * connected | error``), leído de ``store.tiaConnection``.
+         * Exposición plana (regla Vue 3 sin build step) para que
+         * el template no acceda a ``store.tiaConnection`` directo.
+         */
+        const tiaState = computed(() => {
+            return (store.tiaConnection && store.tiaConnection.state) || "idle";
+        });
+
+        /** True si el subproceso del worker está vivo. */
+        const workerAlive = computed(() => {
+            return Boolean(store.tiaConnection && store.tiaConnection.worker_alive);
+        });
+
+        /** Texto humano del state. */
+        const tiaStateText = computed(() => {
+            switch (tiaState.value) {
+                case "connected":  return "connected";
+                case "connecting": return "connecting…";
+                case "error":      return "error";
+                case "idle":
+                default:           return "idle";
+            }
+        });
+
+        /** Color del texto del state (misma paleta que el antiguo
+         *  ``TiaConnectionIndicator``: green/amber/red/gray). */
+        const tiaStateClass = computed(() => {
+            switch (tiaState.value) {
+                case "connected":  return "text-green-600 font-semibold";
+                case "connecting": return "text-amber-600 font-semibold";
+                case "error":      return "text-red-700 font-semibold";
+                case "idle":
+                default:           return "text-ink-muted font-semibold";
+            }
+        });
+
+        /** True si TIA está connected (lista de PLCs operativa). */
+        const isTiaConnected = computed(() => tiaState.value === "connected");
+
+        /** Caption del proyecto TIA (vía tiaConnection.project.name
+         *  o, en fallback, store.projectInfo.name — segunda fuente
+         *  por si la peticion /project-info corrió antes que el
+         *  state machine publicara el project). */
+        const tiaProjectName = computed(() => {
+            const p = store.tiaConnection && store.tiaConnection.project;
+            if (p && p.name) return p.name;
+            const pi = store.projectInfo;
+            if (pi && pi.name) return pi.name;
+            return null;
+        });
+
+        /**
+         * Habilitacion de los 4 controles. Los botones se
+         * muestran siempre; lo que cambia es si aceptan click.
+         */
+        const canConnect = computed(() => {
+            return !store.busy
+                && (tiaState.value === "idle" || tiaState.value === "error");
+        });
+        const canDisconnect = computed(() => {
+            return !store.busy
+                && (tiaState.value === "connecting" || tiaState.value === "connected");
+        });
+        const canSelectPlc = computed(() => {
+            return !store.busy && isTiaConnected.value
+                && Array.isArray(store.plcs) && store.plcs.length > 0;
+        });
+        const canSearchPlcs = computed(() => {
+            return !store.busy && isTiaConnected.value;
+        });
+
+        /** Handler del botón "🔌 Conectar". Delega en
+         *  ``connectTia()`` (helper del store) que pone
+         *  ``state="connecting"`` y dispara el POST. */
+        async function handleConnect() {
+            await connectTia();
+        }
+
+        /** Handler del botón "⏏ Desconectar". ``disconnectTia``
+         *  limpia los slots del PLC tras el detach OK. */
+        async function handleDisconnect() {
+            await disconnectTia();
+        }
+
+        /**
+         * Refresca el desplegable de PLCs Y carga el nombre del
+         * proyecto TIA conectado. Misma implementación que tenía
+         * la v2.2 en ``ShellTopbar.handleRefreshPlcs``: dos
+         * llamadas en paralelo y deteccion centralizada de
+         * ``TIAConnectionError`` (que limpia el state del PLC
+         * via ``resetPlcState()``).
+         */
+        async function handleRefreshPlcs() {
+            store.busy = true;
+            try {
+                const [plcsResp, infoResp] = await Promise.all([
+                    apiFetchPlcs(),
+                    apiFetchProjectInfo(),
+                ]);
+
+                const tiaDown =
+                    (plcsResp && plcsResp.errorType === "TIAConnectionError") ||
+                    (infoResp && infoResp.errorType === "TIAConnectionError");
+
+                if (tiaDown) {
+                    pushLog(
+                        "TIA Portal no responde. Reconecta y vuelve a seleccionar el PLC.",
+                        "error"
+                    );
+                    resetPlcState();
+                } else if (plcsResp.ok && plcsResp.data && plcsResp.data.plcs) {
+                    store.plcs = plcsResp.data.plcs;
+                } else if (plcsResp.data && plcsResp.data.ok === false) {
+                    pushLog(plcsResp.data.error || "TIA Portal no conectado", "warning");
+                    store.plcs = [];
+                }
+
+                if (infoResp.ok && infoResp.data && infoResp.data.project_info) {
+                    store.projectInfo = infoResp.data.project_info;
+                } else if (infoResp.data && infoResp.data.ok === false) {
+                    store.projectInfo = null;
+                }
+            } finally {
+                store.busy = false;
+            }
+        }
+
+        /** Handler del ``@change`` del ``<select>`` de PLC. */
+        async function onPlcSelected() {
+            await loadAndApplyPlcBlocks(store.selectedPlc);
+        }
+
         return {
             store,
             activeTab,
@@ -312,45 +467,128 @@ export default {
             displayType,
             displayPath,
             handleRefresh,
+            // v3.0: controles migrados de ShellTopbar
+            tiaState,
+            tiaStateText,
+            tiaStateClass,
+            workerAlive,
+            isTiaConnected,
+            tiaProjectName,
+            canConnect,
+            canDisconnect,
+            canSelectPlc,
+            canSearchPlcs,
+            handleConnect,
+            handleDisconnect,
+            handleRefreshPlcs,
+            onPlcSelected,
         };
     },
     template: /* html */ `
         <section class="flex-1 flex flex-col overflow-hidden">
 
-            <!-- Cabecera mínima: solo info contextual del PLC activo
-                 (scanned_at) y botón de refresh renombrado a
-                 "Actualizar". El título "Cache de bloques" y el hint
-                 "Selecciona un PLC..." se eliminaron tras el
-                 rediseño "Modern Corporate" — el topbar ya muestra
-                 la sub-vista activa y la selección de PLC vive
-                 también en el topbar. -->
-            <div v-if="store.selectedPlc" class="mb-4 bg-surface-raised border border-line rounded p-4 flex justify-between items-center" data-testid="bloques-cache-card-info">
-                <p class="text-xs text-ink-muted">
-                    PLC activo:
-                    <span class="font-semibold text-ink">{{ plcName }}</span>
-                    <template v-if="scannedAt">
-                        · Escaneado:
-                        <span class="font-mono">{{ scannedAt }}</span>
+            <!-- ★ Card 1 (v3.0 sept-2026): estado del sistema +
+                 controles de PLC. Migrado desde la ShellTopbar.
+                 La topbar ahora solo pinta el PLC activo en
+                 texto; este card absorbe todo lo demas.
+
+                 Layout de 3 filas dentro de un flex column:
+                   1. Estado textual (worker + TIA + proyecto).
+                   2. Controles (Conectar / Desconectar / select
+                      PLC sin label / Buscar PLCs).
+                   3. PLC activo + escaneado + boton "↻ Actualizar"
+                      (lo que ya estaba).
+
+                 Los botones se muestran SIEMPRE; la habilitacion
+                 (canConnect / canDisconnect / canSelectPlc /
+                 canSearchPlcs) refleja el state machine y
+                 store.busy. ★ -->
+            <div class="mb-4 bg-surface-raised border border-line rounded p-4 flex flex-col gap-3"
+                 data-testid="bloques-cache-card-info">
+
+                <!-- Fila 1: estado textual del worker + TIA + proyecto -->
+                <div class="flex items-center gap-3 text-xs flex-wrap">
+                    <span class="text-ink-muted">
+                        Worker:
+                        <span :class="workerAlive ? 'text-green-600 font-semibold' : 'text-red-700 font-semibold'">
+                            {{ workerAlive ? 'vivo' : 'muerto' }}
+                        </span>
+                    </span>
+                    <span class="text-line-strong" aria-hidden="true">·</span>
+                    <span class="text-ink-muted">
+                        TIA:
+                        <span :class="tiaStateClass">{{ tiaStateText }}</span>
+                    </span>
+                    <template v-if="tiaProjectName">
+                        <span class="text-line-strong" aria-hidden="true">·</span>
+                        <span class="text-ink-muted">
+                            Proyecto: <span class="font-mono text-ink">{{ tiaProjectName }}</span>
+                        </span>
                     </template>
-                </p>
-                <button @click="handleRefresh"
-                    :disabled="!store.selectedPlc || isRefreshing"
-                    data-testid="bloques-cache-actualizar"
-                    class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
-                    <span v-if="isRefreshing" class="animate-spin">↻</span>
-                    <span v-else>↻</span>
-                    Actualizar
-                </button>
+                </div>
+
+                <!-- Fila 2: controles (siempre visibles, :disabled segun estado) -->
+                <div class="flex items-center gap-2 flex-wrap">
+                    <button @click="handleConnect"
+                        :disabled="!canConnect"
+                        data-testid="bloques-cache-connect-tia"
+                        class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
+                        <span>🔌</span>
+                        Conectar
+                    </button>
+
+                    <button @click="handleDisconnect"
+                        :disabled="!canDisconnect"
+                        data-testid="bloques-cache-disconnect-tia"
+                        class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
+                        <span>⏏</span>
+                        Desconectar
+                    </button>
+
+                    <select v-model="store.selectedPlc" @change="onPlcSelected"
+                        :disabled="!canSelectPlc"
+                        data-testid="bloques-cache-plc-select"
+                        class="bg-white border border-line text-accent font-bold text-sm rounded focus:border-accent-bright focus:outline-none px-3 py-1.5 font-mono disabled:opacity-50 cursor-pointer">
+                        <option value="">-- Selecciona un PLC --</option>
+                        <option v-for="p in store.plcs" :key="p" :value="p">{{ p }}</option>
+                    </select>
+
+                    <button @click="handleRefreshPlcs"
+                        :disabled="!canSearchPlcs"
+                        data-testid="bloques-cache-refresh-plcs"
+                        class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
+                        <span>🔍</span>
+                        Buscar PLCs
+                    </button>
+                </div>
+
+                <!-- Fila 3: PLC activo + escaneado + boton "↻ Actualizar" -->
+                <div class="flex justify-between items-center gap-3">
+                    <p class="text-xs text-ink-muted">
+                        <template v-if="store.selectedPlc">
+                            PLC activo:
+                            <span class="font-semibold text-ink">{{ plcName }}</span>
+                            <template v-if="scannedAt">
+                                · Escaneado:
+                                <span class="font-mono">{{ scannedAt }}</span>
+                            </template>
+                        </template>
+                        <template v-else>
+                            Sin PLC seleccionado. Pulsa
+                            <strong class="text-accent">"🔍 Buscar PLCs"</strong>
+                            para listar los PLCs del proyecto TIA conectado.
+                        </template>
+                    </p>
+                    <button @click="handleRefresh"
+                        :disabled="!store.selectedPlc || isRefreshing"
+                        data-testid="bloques-cache-actualizar"
+                        class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
+                        <span v-if="isRefreshing" class="animate-spin">↻</span>
+                        <span v-else>↻</span>
+                        Actualizar
+                    </button>
+                </div>
             </div>
-            <div v-else class="mb-4 bg-surface-raised border border-line rounded p-4 flex justify-end" data-testid="bloques-cache-card-info">
-                <button @click="handleRefresh"
-                    :disabled="!store.selectedPlc || isRefreshing"
-                    data-testid="bloques-cache-actualizar"
-                    class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
-                    <span v-if="isRefreshing" class="animate-spin">↻</span>
-                    <span v-else>↻</span>
-                    Actualizar
-                </button>
             </div>
 
             <!-- Aviso ámbar: cache "stale" (> 5 min) -->

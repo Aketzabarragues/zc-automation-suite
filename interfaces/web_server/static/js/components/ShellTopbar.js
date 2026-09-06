@@ -1,6 +1,44 @@
 /**
  * Componente ShellTopbar — barra superior cross-cutting del shell
- * corporativo (v2.2).
+ * corporativo (v3.0, sept-2026).
+ *
+ * Tras la v3, la topbar se reduce a un rol pasivo: solo pinta el
+ * breadcrumb (Área · Sub-vista) a la izquierda y el PLC activo en
+ * texto a la derecha. Todo lo que antes vivia aqui (indicators
+ * de worker y TIA, botones Conectar/Desconectar, select de PLC,
+ * boton "Buscar PLCs") migra al primer card de
+ * ``BloquesCacheView.js``, que es donde el operario realmente
+ * decide la conexion y la seleccion del PLC.
+ *
+ * El split es deliberado: la topbar es chrome (lee estado, no
+ * propone acciones); la vista de Cache del PLC es donde el
+ * operario interactua con el state machine del worker persistente.
+ * Asi la topbar queda minimalista y la accion vive junto al
+ * contenido que la consume.
+ *
+ * Funcionalidad que se queda en la topbar:
+ *   * Breadcrumb del área (`<Área> · <Sub-vista>`).
+ *   * Texto del PLC activo (``PLC: <nombre>`` o ``PLC: —`` si
+ *     no hay seleccion).
+ *
+ * Funcionalidad que se movio al card 1 de BloquesCacheView:
+ *   * WorkerStatusIndicator + TiaConnectionIndicator (ahora como
+ *     texto "Worker: vivo/muerto" y "TIA: <state>", con la
+ *     misma paleta de colores).
+ *   * Botones Conectar / Desconectar (siempre visibles,
+ *     :disabled segun state machine).
+ *   * Select de PLC + boton Buscar PLCs (siempre visibles,
+ *     :disabled segun estado de conexion).
+ *   * Caption del proyecto TIA.
+ *
+ * Es cross-cutting: vive en `/js/components/` y se monta en
+ * `main.js` (el shell raíz) una sola vez. Las áreas NO lo
+ * importan — es parte del chrome, no de la navegación.
+ *
+ * Tema: capa clara. `bg-white` para el header, `border-line` para
+ * el separador inferior. Sin hex hardcoded. El feedback largo
+ * (ProgressIndicator) sigue viviendo en el ShellSidebar; este
+ * componente es SOLO breadcrumb + texto PLC.
  *
  * Tras la v2 del rediseño "Modern Corporate", la selección de PLC
  * y el indicador de proyecto migran del sidebar a una barra
@@ -82,10 +120,6 @@ const VIEW_LABELS = {
 
 export default {
     name: "ShellTopbar",
-    components: {
-        TiaConnectionIndicator,
-        WorkerStatusIndicator,
-    },
     props: {
         /** ``{ key, label, icon }`` del área activa. Requerido
          *  para construir el breadcrumb (etiqueta del área). Si
@@ -114,184 +148,10 @@ export default {
             return VIEW_LABELS[store.currentView] || "—";
         });
 
-        /**
-         * State reactivo del worker TIA persistente, derivado de
-         * ``store.tiaConnection.state``. Refleja el state
-         * machine sept-2026 (``idle | connecting | connected |
-         * error``). Lo exponemos al template como variable plana
-         * (regla Vue 3 sin build step) para no acceder a
-         * ``store.tiaConnection`` directamente en el template.
-         */
-        const tiaState = computed(() => {
-            return (store.tiaConnection && store.tiaConnection.state) || "idle";
-        });
-
-        /**
-         * Flag derivado: el worker está conectado a TIA Portal
-         * (``state === "connected"``). Es la condición para
-         * mostrar la lista de PLCs y el botón "Buscar PLCs".
-         * ``false`` en cualquier otro estado (idle / connecting /
-         * error) para evitar que el operario vea PLCs stale o
-         * intente refrescar sin tener portal attached.
-         */
-        const isTiaConnected = computed(() => tiaState.value === "connected");
-
-        /**
-         * Flag derivado: el botón "Conectar" debe mostrarse.
-         * Visible cuando ``state in {idle, error}`` (operario
-         * puede pedir un attach a TIA). Oculto en ``connecting``
-         * (ya hay un attach en curso, el botón seria no-op
-         * visualmente y podria confundir) y en ``connected``
-         * (ahi mostramos "Desconectar" en su lugar).
-         */
-        const showConnectButton = computed(() => {
-            return tiaState.value === "idle" || tiaState.value === "error";
-        });
-
-        /**
-         * Flag derivado: el botón "Desconectar" debe mostrarse.
-         * Visible cuando ``state in {connecting, connected}``.
-         * En ``connecting`` permite al operario abortar un attach
-         * si tarda demasiado (el backend maneja el detach
-         * idempotente). En ``connected`` es el camino normal
-         * para "soltar" TIA sin matar el worker persistente.
-         */
-        const showDisconnectButton = computed(() => {
-            return tiaState.value === "connecting" || tiaState.value === "connected";
-        });
-
-        /**
-         * Flag derivado: la lista de PLCs (``<select>`` +
-         * caption del proyecto) debe ser visible. SOLO si el
-         * worker está conectado a TIA y hay PLCs detectados.
-         * Antes de sept-2026, el ``<select>`` se mostraba
-         * siempre (con lista vacía si TIA no estaba conectado);
-         * ahora lo ocultamos para no confundir al operario con
-         * una lista de PLCs que ya no aplica tras un detach.
-         */
-        const showPlcList = computed(() => {
-            return isTiaConnected.value && Array.isArray(store.plcs)
-                && store.plcs.length > 0;
-        });
-
-        /**
-         * Refresca el desplegable de PLCs Y carga el nombre del
-         * proyecto TIA conectado. Las dos llamadas se hacen en
-         * paralelo (mismo click del operario) para minimizar la
-         * latencia visible. Si TIA no está conectado, ambos
-         * endpoints devuelven ``{ok: false, error: "..."}`` y la
-         * barra queda en estado degradado: lista vacía, sin
-         * caption de proyecto.
-         *
-         * Este handler vivía en el ShellSidebar en la v1; al
-         * mover la selección PLC a la topbar, se reubica aquí
-         * sin cambiar la semántica (mismo cuerpo, mismos
-         * side-effects en el store).
-         */
-        async function handleRefreshPlcs() {
-            store.busy = true;
-            try {
-                const [plcsResp, infoResp] = await Promise.all([
-                    apiFetchPlcs(),
-                    apiFetchProjectInfo(),
-                ]);
-
-                // Deteccion centralizada de TIA no responde: si
-                // CUALQUIERA de los dos endpoints del shell reporta
-                // ``X-Error-Type: TIAConnectionError``, reseteamos el
-                // state del PLC y dejamos la barra en estado
-                // degradado. Asi el operario ve el mensaje claro
-                // "Reconecta el portal" sin tener que tirar de cada
-                // sub-flujo (preview, commit, scan de bloques) para
-                // descubrir que TIA cerro.
-                const tiaDown =
-                    (plcsResp && plcsResp.errorType === "TIAConnectionError") ||
-                    (infoResp && infoResp.errorType === "TIAConnectionError");
-
-                if (tiaDown) {
-                    pushLog(
-                        "TIA Portal no responde. Reconecta y vuelve a seleccionar el PLC.",
-                        "error"
-                    );
-                    resetPlcState();
-                } else if (plcsResp.ok && plcsResp.data && plcsResp.data.plcs) {
-                    store.plcs = plcsResp.data.plcs;
-                } else if (plcsResp.data && plcsResp.data.ok === false) {
-                    pushLog(plcsResp.data.error || "TIA Portal no conectado", "warning");
-                    store.plcs = [];
-                }
-
-                if (infoResp.ok && infoResp.data && infoResp.data.project_info) {
-                    store.projectInfo = infoResp.data.project_info;
-                } else if (infoResp.data && infoResp.data.ok === false) {
-                    store.projectInfo = null;
-                }
-            } finally {
-                store.busy = false;
-            }
-        }
-
-        /**
-         * Handler del ``@change`` del ``<select>`` de PLC. Una
-         * sola llamada a ``loadAndApplyPlcBlocks`` dispara el
-         * scan de bloques+tag_tables del PLC recién elegido
-         * (``GET /api/v1/plcs/<plc>/blocks``) y deja el snapshot
-         * en ``store.plcBlocksCache`` para que la vista
-         * ``BloquesCacheView`` lo tenga listo en cuanto el
-         * operario navegue a ella. La promesa se ignora: el
-         * feedback de la operación larga llega por el
-         * ``ProgressTracker`` backend, que el
-         * ``ProgressIndicator`` (anclado al fondo del
-         * ShellSidebar) muestra automáticamente.
-         */
-        async function onPlcSelected() {
-            await loadAndApplyPlcBlocks(store.selectedPlc);
-        }
-
-        /**
-         * Handler del botón "Conectar" del topbar (v2.2). El
-         * operario lo pulsa cuando el worker está en estado
-         * ``idle`` (recien arrancado o tras un "Desconectar"
-         * previo) o ``error`` (attach anterior falló). Delega
-         * en ``connectTia()`` (helper del store) que setea
-         * ``state="connecting"`` y dispara
-         * ``POST /api/v1/tia/connect``. La promesa se ignora
-         * porque el feedback de la operación larga llega por
-         * el propio indicador (color pulsante → verde) y por
-         * los logs que ``connectTia`` empuja a ``ConsolaLogs``.
-         */
-        async function handleConnect() {
-            await connectTia();
-        }
-
-        /**
-         * Handler del botón "Desconectar" del topbar (v2.2).
-         * Complementario a ``handleConnect``: pide al worker
-         * persistente que haga ``detach_portal`` (NO destructivo:
-         * el subproceso worker sigue vivo, solo pierde la
-         * referencia al portal TIA). El helper ``disconnectTia``
-         * del store se encarga del POST y, tras exito, limpia
-         * los slots del PLC (``plcs``, ``selectedPlc``,
-         * ``plcBlocksCache``, ``projectInfo``) para que el
-         * topbar no muestre datos stale.
-         */
-        async function handleDisconnect() {
-            await disconnectTia();
-        }
-
         return {
             store,
             areaLabel,
             currentViewLabel,
-            tiaState,
-            isTiaConnected,
-            showConnectButton,
-            showDisconnectButton,
-            showPlcList,
-            handleRefreshPlcs,
-            onPlcSelected,
-            handleConnect,
-            handleDisconnect,
         };
     },
     template: /* html */ `
@@ -308,82 +168,18 @@ export default {
                 <span class="text-accent font-bold uppercase tracking-widest">{{ currentViewLabel }}</span>
             </nav>
 
-            <!-- Derecha (v2.2): bloque reorganizado para el state
-                 machine del worker persistente.
-
-                 Orden de izquierda a derecha:
-                   1. WorkerStatusIndicator (verde=worker vivo,
-                      gris=muerto). Ortogonal al estado de attach.
-                   2. TiaConnectionIndicator (verde=connected,
-                      ambar pulsante=connecting, gris=idle,
-                      rojo=error). Clickable para pedir "Conectar"
-                      cuando esta en idle/error.
-                   3. Boton "Conectar" (v2.2) — visible SOLO si
-                      state in {idle, error}. Dispara handleConnect.
-                   4. Boton "Desconectar" (v2.2) — visible SOLO si
-                      state in {connecting, connected}. Dispara
-                      handleDisconnect, que limpia los slots del
-                      PLC tras el detach OK.
-                   5. Lista de PLCs (label + caption del proyecto
-                      + select) — visible SOLO si state == "connected"
-                      y store.plcs.length > 0.
-                   6. Boton "Buscar PLCs" — visible SOLO si
-                      state == "connected".
-
-                 Layout inline con 'flex items-center gap-2';
-                 el espaciado lo controla 'gap'. -->
-            <div class="flex items-center gap-2">
-                <WorkerStatusIndicator />
-                <TiaConnectionIndicator @connect="handleConnect" />
-
-                <button v-if="showConnectButton"
-                        type="button"
-                        @click="handleConnect"
-                        :disabled="store.busy"
-                        data-testid="topbar-connect-tia"
-                        class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
-                    <span>🔌</span>
-                    Conectar
-                </button>
-
-                <button v-if="showDisconnectButton"
-                        type="button"
-                        @click="handleDisconnect"
-                        :disabled="store.busy"
-                        data-testid="topbar-disconnect-tia"
-                        class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
-                    <span v-if="store.busy" class="animate-spin">↻</span>
-                    <span v-else>⏏</span>
-                    {{ store.busy ? 'Desconectando...' : 'Desconectar' }}
-                </button>
-
-                <template v-if="showPlcList">
-                    <label class="text-[10px] font-bold text-ink-muted uppercase tracking-widest">PLC:</label>
-                    <p v-if="store.projectInfo && store.projectInfo.name"
-                       class="text-[11px] font-mono text-ink-muted truncate max-w-[200px]"
-                       :title="store.projectInfo.name"
-                       data-testid="topbar-project-name">
-                        {{ store.projectInfo.name }}
-                    </p>
-                    <select v-model="store.selectedPlc" @change="onPlcSelected"
-                            :disabled="store.busy"
-                            data-testid="topbar-plc-select"
-                            class="bg-white border border-line text-accent font-bold text-sm rounded focus:border-accent-bright focus:outline-none px-3 py-1.5 font-mono disabled:opacity-50 cursor-pointer">
-                        <option value="">-- Selecciona un PLC --</option>
-                        <option v-for="p in store.plcs" :key="p" :value="p">{{ p }}</option>
-                    </select>
-                </template>
-
-                <button v-if="isTiaConnected"
-                        type="button"
-                        @click="handleRefreshPlcs"
-                        :disabled="store.busy"
-                        data-testid="topbar-refresh-plcs"
-                        class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
-                    <span v-if="store.busy" class="animate-spin">↻</span>
-                    <span v-else>🔍</span>
-                    {{ store.busy ? 'Buscando...' : 'Buscar PLCs' }}
-                </button>
+            <!-- Derecha (v3.0): solo texto con el PLC activo.
+                 Toda la accion (indicators, Conectar/Desconectar,
+                 select PLC, Buscar PLCs) migro al primer card de
+                 BloquesCacheView. Aqui solo queda el "PLC: <name>"
+                 en texto plano para que la topbar siga siendo
+                 el sitio donde el operario ve de un vistazo que
+                 PLC esta cargado, sin tener que ir a la vista
+                 de Cache del PLC. -->
+            <div class="text-xs text-ink-muted"
+                 data-testid="topbar-plc-text">
+                PLC:
+                <span class="font-mono text-ink">{{ store.selectedPlc || '—' }}</span>
             </div>
         </header>
     `,

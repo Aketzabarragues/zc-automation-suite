@@ -56,6 +56,16 @@ SHELL_TOPBAR_JS = (
     / "components"
     / "ShellTopbar.js"
 )
+# Tras la migración v3.0 (sept-2026), la selección PLC y el
+# ``handleRefreshPlcs`` con la detección de TIAConnectionError
+# migraron de la ShellTopbar al primer card de
+# ``BloquesCacheView``. Los tests positivos apuntan a este
+# nuevo sujeto.
+BLOQUES_CACHE_VIEW_JS = (
+    REPO_ROOT
+    / "areas" / "alimentacion" / "frontend" / "components"
+    / "BloquesCacheView.js"
+)
 STYLES_CSS = REPO_ROOT / "interfaces" / "web_server" / "static" / "styles.css"
 
 
@@ -116,36 +126,25 @@ def test_store_js_exposes_unified_helper() -> None:
     assert "cacheSummary()" not in text
 
 
-def test_sidebar_wires_change_handler_to_progress_indicator() -> None:
-    """El sidebar (ahora ``ShellTopbar`` en v2) une el ``@change``
-    del select con ``loadAndApplyPlcBlocks``.
-
-    El feedback de la operación larga se ve en el
-    ``ProgressIndicator``, pero ese vive en el ``ShellSidebar``
-    (no en el topbar) porque debe ir anclado sobre fondo navy.
-    El topbar solo monta el select + botón. Por eso este test
-    verifica que el topbar NO contiene ``<ProgressIndicator``
-    ni el variant ``dark`` (asertos negativos para detectar
-    una migración accidental del progress de vuelta al topbar).
-
-    NOTA: tras la v2 del rediseño "Modern Corporate", la
-    selección PLC y el wiring del ``@change`` viven en
-    ``ShellTopbar`` (genérico y cross-cutting), no en el
-    ``Sidebar.js`` del área ni en el ``ShellSidebar``.
+def test_bloques_cache_view_wires_change_handler_to_load_and_apply() -> None:
+    """Tras la migración v3.0 (sept-2026), el ``<select>`` de PLC
+    vive en el primer card de ``BloquesCacheView`` (no en la
+    ShellTopbar). Une el ``@change`` con ``loadAndApplyPlcBlocks``
+    via ``onPlcSelected`` (mismo wiring que tenía el topbar antes).
     """
-    text = _read(SHELL_TOPBAR_JS)
+    text = _read(BLOQUES_CACHE_VIEW_JS)
     # Wiring del select → scan via el helper unificado del store.
-    assert "@change=\"onPlcSelected\"" in text
-    assert "loadAndApplyPlcBlocks" in text
+    assert "@change=\"onPlcSelected\"" in text, (
+        "BloquesCacheView debe tener un <select> con "
+        "@change=\"onPlcSelected\" en su template."
+    )
+    assert "loadAndApplyPlcBlocks" in text, (
+        "BloquesCacheView debe importar y usar loadAndApplyPlcBlocks "
+        "para que el @change del select dispare el scan de bloques."
+    )
     # El handler ya no encadena dos llamadas (refactor: una sola).
     assert "refreshPlcBlocks" not in text
     assert "loadPlcBlocksCache" not in text
-    # El topbar NO monta el ProgressIndicator: ese vive en el
-    # ShellSidebar (variant dark sobre fondo navy). Si el topbar
-    # lo trajera, el visual quedaría raro y rompería la
-    # separación de responsabilidades.
-    assert "<ProgressIndicator" not in text
-    assert "dark" not in text
     # NO reintroducimos el badge custom ni el ↻ propio.
     assert "plc-blocks-cache-badge" not in text
     assert "plc-blocks-cache-refresh" not in text
@@ -153,34 +152,41 @@ def test_sidebar_wires_change_handler_to_progress_indicator() -> None:
     assert "Escaneando" not in text
 
 
-def test_sidebar_button_text_is_buscar_plcs() -> None:
-    """El botón del shell (ahora ``ShellTopbar``) dice ``Buscar PLCs``.
-
-    Reemplaza el antiguo ``Refrescar lista`` (rename aprobado en
-    el plan canónico). Verifica AMBOS lados: el texto nuevo
-    está presente, el viejo NO (defensivo contra un rename
-    parcial o un revert accidental).
-
-    NOTA: tras la v2 del rediseño "Modern Corporate", este
-    botón vive en el ``ShellTopbar`` genérico, no en el
-    ``ShellSidebar`` ni en el ``Sidebar.js`` del área.
-    """
+def test_shell_topbar_does_not_render_progress_indicator() -> None:
+    """Asertos negativos: tras la v3.0, la ShellTopbar ya no monta
+    ``<ProgressIndicator>`` ni el variant ``dark``. Migró al
+    primer card de ``BloquesCacheView``. La topbar es solo chrome
+    pasivo (breadcrumb + texto del PLC)."""
     text = _read(SHELL_TOPBAR_JS)
+    # El topbar NO monta el ProgressIndicator.
+    assert "<ProgressIndicator" not in text, (
+        "ShellTopbar no debe montar <ProgressIndicator>: ese vive en el "
+        "ShellSidebar (variant dark sobre fondo navy)."
+    )
+    assert "dark" not in text, (
+        "ShellTopbar no debe incluir el variant 'dark' del ProgressIndicator."
+    )
+
+
+def test_bloques_cache_view_button_text_is_buscar_plcs() -> None:
+    """Tras la v3.0, el botón "Buscar PLCs" vive en el primer card
+    de ``BloquesCacheView`` (migrado desde la ShellTopbar)."""
+    text = _read(BLOQUES_CACHE_VIEW_JS)
     assert "Buscar PLCs" in text, (
-        "El botón del ShellTopbar debe decir 'Buscar PLCs'. "
-        "Si quieres otra variante, edita ShellTopbar.js y este test juntos."
+        "El botón de BloquesCacheView debe decir 'Buscar PLCs'. "
+        "Si quieres otra variante, edita BloquesCacheView.js y este test juntos."
     )
     assert "Refrescar lista" not in text, (
-        "Texto legacy 'Refrescar lista' encontrado en ShellTopbar.js. "
+        "Texto legacy 'Refrescar lista' encontrado en BloquesCacheView.js. "
         "Debe estar completamente sustituido por 'Buscar PLCs'."
     )
 
 
-def test_sidebar_calls_api_fetch_project_info() -> None:
-    """``handleRefreshPlcs`` (ahora en ``ShellTopbar``) invoca
+def test_bloques_cache_view_calls_api_fetch_project_info() -> None:
+    """``handleRefreshPlcs`` (ahora en ``BloquesCacheView``) invoca
     ``apiFetchProjectInfo`` en paralelo con ``apiFetchPlcs``
-    (mismo click del operario)."""
-    text = _read(SHELL_TOPBAR_JS)
+    (mismo click del operario, v3.0)."""
+    text = _read(BLOQUES_CACHE_VIEW_JS)
     # Importa la nueva función.
     assert "apiFetchProjectInfo" in text
     # La usa dentro del handler (no solo el import).
@@ -189,18 +195,21 @@ def test_sidebar_calls_api_fetch_project_info() -> None:
     assert "Promise.all" in text
 
 
-def test_sidebar_renders_project_name_caption() -> None:
-    """El template del ``ShellTopbar`` pinta el caption del
-    nombre del proyecto solo si ``store.projectInfo.name``
-    está disponible. El contrato es el data-testid
-    (``topbar-project-name``) + el guard del v-if.
-    """
-    text = _read(SHELL_TOPBAR_JS)
-    # data-testid para anclar el smoke test.
-    assert "topbar-project-name" in text
-    # Guard v-if para no mostrar nada si aún no hay info.
+def test_bloques_cache_view_renders_project_name_caption() -> None:
+    """El primer card de ``BloquesCacheView`` pinta el caption del
+    nombre del proyecto cuando ``tiaProjectName`` (computed
+    derivado de ``store.tiaConnection.project.name`` con
+    fallback a ``store.projectInfo.name``) está disponible."""
+    text = _read(BLOQUES_CACHE_VIEW_JS)
+    # El template pinta el caption.
+    assert "Proyecto:" in text, (
+        "BloquesCacheView debe pintar el caption 'Proyecto:' en su template."
+    )
+    # Computed que combina las 2 fuentes (tiaConnection.project + projectInfo).
+    assert "tiaProjectName" in text
+    # Fallback a store.projectInfo.name (compat con v2.2).
     assert "store.projectInfo" in text
-    assert "store.projectInfo.name" in text
+    assert "projectInfo.name" in text
 
 
 def test_store_js_exposes_project_info_slot() -> None:

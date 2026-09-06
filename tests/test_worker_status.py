@@ -241,21 +241,50 @@ def test_indicator_js_is_syntactically_valid() -> None:
         )
 
 
-# ── 4. ShellTopbar: importa y renderiza el indicador ───────────────
+# ── 4. BloquesCacheView: muestra el worker status como texto ────────
 
 
-def test_shelltopbar_imports_worker_indicator() -> None:
-    """El ``ShellTopbar.js`` importa y registra el
-    ``WorkerStatusIndicator`` en ``components``, y lo renderiza
-    en el bloque PLC del topbar."""
-    shelltopbar = REPO_ROOT / "interfaces" / "web_server" / "static" / "js" / "components" / "ShellTopbar.js"
-    text = _read(shelltopbar)
-    assert (
-        'import WorkerStatusIndicator from "./WorkerStatusIndicator.js"' in text
-    ), "ShellTopbar debe importar WorkerStatusIndicator."
-    assert (
-        "WorkerStatusIndicator," in text
-    ), "ShellTopbar debe registrar WorkerStatusIndicator en components."
-    assert (
-        "<WorkerStatusIndicator" in text
-    ), "ShellTopbar debe renderizar <WorkerStatusIndicator /> en el template."
+def test_bloques_cache_view_renders_worker_status_text() -> None:
+    """Tras la migración v3.0 (sept-2026), el ``WorkerStatusIndicator``
+    visual desapareció de la ``ShellTopbar``. Su información se
+    muestra AHORA como texto en el primer card de
+    ``BloquesCacheView.js`` (fila de estado, ``Worker: vivo/muerto``).
+
+    Verifica que el componente ``BloquesCacheView`` declara el
+    computed ``workerAlive`` que lee ``store.tiaConnection.worker_alive``,
+    y lo pinta en el template con el texto y color adecuados.
+    """
+    bloques = (
+        REPO_ROOT
+        / "areas" / "alimentacion" / "frontend" / "components"
+        / "BloquesCacheView.js"
+    )
+    text = _read(bloques)
+    # Setup: computed ``workerAlive`` lee ``store.tiaConnection.worker_alive``.
+    assert "workerAlive" in text, (
+        "BloquesCacheView debe declarar el computed 'workerAlive' "
+        "que lee store.tiaConnection.worker_alive."
+    )
+    assert "store.tiaConnection" in text, (
+        "BloquesCacheView debe leer store.tiaConnection para derivar el estado."
+    )
+    assert "worker_alive" in text, (
+        "BloquesCacheView debe leer el campo 'worker_alive' del store."
+    )
+    # Template: pinta "Worker: vivo/muerto" con color verde/rojo.
+    assert "Worker:" in text, (
+        "BloquesCacheView debe pintar el caption 'Worker:' en su template."
+    )
+    assert "vivo" in text, (
+        "BloquesCacheView debe mostrar el texto 'vivo' cuando workerAlive=true."
+    )
+    assert "muerto" in text, (
+        "BloquesCacheView debe mostrar el texto 'muerto' cuando workerAlive=false."
+    )
+    assert "text-green-600" in text, (
+        "El texto 'vivo' debe pintarse con text-green-600 (consistente con "
+        "el antiguo color del circulo WorkerStatusIndicator)."
+    )
+    assert "text-red-700" in text, (
+        "El texto 'muerto' debe pintarse con text-red-700."
+    )
