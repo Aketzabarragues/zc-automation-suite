@@ -2,12 +2,11 @@
 
 Tres endpoints:
 
-  GET  /api/v1/tia/connection  -> estado actual del worker persistente.
+  GET  /api/v1/tia/connection  -> estado actual del worker.
   POST /api/v1/tia/connect     -> fuerza el attach al portal TIA.
   POST /api/v1/tia/disconnect  -> hace el detach del portal TIA.
 
-Shape del GET (ver design doc ``_plan/12_worker_persistent_design.md`` §4.1 +
-extension sept-2026 para ``pid`` del portal)::
+Shape del GET::
 
     {
       "state": "idle" | "connecting" | "connected" | "disconnected" | "error",
@@ -20,41 +19,22 @@ extension sept-2026 para ``pid`` del portal)::
       "pid": int | null
     }
 
-    ``project_changed`` (PR 7) es un flag one-shot: ``True`` solo
-    en el primer poll tras detectar que el operario abrio un
-    proyecto distinto en TIA Portal sin pasar por la app. El
-    gateway lo resetea a ``False`` en el mismo read para que la
-    SPA no re-notifique el mismo cambio en cada polling.
+    ``project_changed`` es un flag one-shot: ``True`` solo en el primer
+    poll tras detectar que el operario abrio un proyecto distinto en
+    TIA Portal sin pasar por la app. El gateway lo resetea a ``False``
+    en el mismo read para que la SPA no re-notifique el mismo cambio
+    en cada polling.
 
-    ``worker_alive`` (sept-2026) es ortogonal a ``state``:
-    indica si el subproceso del worker esta vivo, INDEPENDIENTEMENTE
-    de si el attach a TIA tuvo exito.
+    ``worker_alive`` es ortogonal a ``state``: subproceso worker vivo
+    aunque el attach a TIA Portal haya fallado.
 
-    ``pid`` (sept-2026) es el PID del PROCESO TIA Portal al que
-    estamos attached. Solo se expone cuando ``state == "connected"``
-    (fuera de ese estado seria confuso: el portal no esta attached
-    y el PID no significa nada). Lo setea ``gateway.connect()`` tras
-    un ``attach_portal`` exitoso y lo limpia ``gateway.disconnect()``.
-    Util para diagnostico: si el operario tiene 3 zombies en Task
-    Manager, el PID le dice cual cerrar.
+    ``pid`` es el PID del proceso TIA Portal attached. Solo se expone
+    cuando ``state == "connected"`` (fuera de ese estado el portal no
+    esta attached y el PID no significa nada). Util para Task Manager
+    cuando hay varios TIA abiertos.
 
-Las dependencias se inyectan via ``Depends`` (Clean Architecture en
-routers; ver ``interfaces/web_server/dependencies.py``). NO se
-importan globales: el gateway llega por ``get_gateway`` y se recupera
-de ``request.app.state.gateway``.
-
-Historial:
-  - PR 5a (jul-2026): router inicial con 3 endpoints.
-  - PR 6 (jul-2026): logica ``reconnect()`` / ``disconnect()`` en el
-    gateway; el router los invoca via try/except NotImplementedError
-    mientras se estabilizaba la logica persistente.
-  - Commit sept-2026 (state machine refactor): el worker arranca en
-    ``"idle"`` (sin attach); el operario decide cuando conectar via
-    boton en el topbar. El router ahora delega en ``gateway.connect()``
-    (no ``reconnect()``) y ``gateway.disconnect()`` (sin matar el
-    subproceso). El try/except NotImplementedError se elimina (PR 6 ya
-    esta en main; la rama legacy es codigo muerto). El PID del portal
-    se anade a la respuesta para diagnostico.
+Las dependencias se inyectan via ``Depends``; ver
+``interfaces/web_server/dependencies.py``.
 """
 from __future__ import annotations
 

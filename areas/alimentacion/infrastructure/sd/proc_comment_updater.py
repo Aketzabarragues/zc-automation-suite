@@ -3,63 +3,16 @@
 Modifica un par de archivos ``.s7dcl`` + ``.s7res`` exportados por
 TIA Portal para escribir el comentario de cada slot de los arrays
 ``PReal[]``, ``PInt[]`` y ``ALM[]`` de un DB de proceso. Es el
-hermano "procesos" del ``DispCommentUpdater`` (que cubre los 6 DBs
-de dispositivos ED/EA/SA/V/M/M_VF).
-
-Diferencias respecto a ``DispCommentUpdater``
---------------------------------------------
-* **Sin slot 0 fijo.** Los arrays de procesos empiezan en ``1``
-  (``Array[1..N_MAX_...]``). El slot 0 NO existe en el DB y por
-  tanto NO se incluye en el ``slot_map``. Si por error llega un
-  ``slot_map`` con slot 0, se acepta pero se ignora.
-* **Sin slot 0 "NO USAR" obligatorio.** No hay texto fijo a
-  inyectar; cada slot del Excel se mapea directamente.
-* **Arrays parametrizados.** En lugar de un único ``db_array_name``
-  fijo, el updater recibe ``array_name`` (p. ej. ``"PReal"``) que
-  es el nombre del array principal. Los arrays satélite
-  (``PReal_Vis``, ``Aux.PReal_ValorAnterior``, etc.) se pasan como
-  set en ``satellite_arrays``.
-* **Propagación a satélites.** Cuando se actualiza el slot ``N`` del
-  array principal, el updater busca en el ``.s7dcl`` la asignación
-  del mismo slot en cada array satélite (si existe) y actualiza su
-  ``es-ES`` con el mismo texto. Cada satélite tiene su propio MLC
-  (distinto del principal), pero el texto debe ser idéntico porque
-  son "copias" del comentario.
-* **No crea asignaciones nuevas en satélites.** Si el satélite no
-  tiene slot ``N`` (caso: N_MAX demasiado bajo), el updater lo
-  salta silenciosamente. Crear nuevos slots en satélites sería un
-  cambio de cardinalidad, fuera de scope.
+hermano "procesos" de ``DispCommentUpdater`` (DBs de dispositivos
+ED/EA/SA/V/M/M_VF); admite propagación del comentario a arrays
+satélite del mismo DB.
 
 Convención de archivos
 ----------------------
-Idéntica a ``DispCommentUpdater`` (ver su docstring para
-detalles). Resumido:
-
-``<db_name>.s7dcl`` contiene::
-
-    DATA_BLOCK DB<N>_<PROC>_PARAM
-        ...
-        { S7_MLC := "MLC_abc" }
-        "PReal" : Array[1.._."50100_N_MAX_PREAL"] of _.UDT_ZC_PREAL;
-        ...
-        { S7_MLC := "MLC_def" }
-        PReal[1] := ();
-        ...
-        { S7_MLC := "MLC_ghi" }
-        PReal_Vis[1] := FALSE;
-        ...
-        { S7_MLC := "MLC_jkl" }
-        Aux.PReal_ValorAnterior[1] := ();
-    END_DATA_BLOCK
-
-``<db_name>.s7res`` contiene::
-
-    MultiLingualTexts:
-      - id: MLC_abc
-        es-ES: <texto>
-      ...
-
-El cruce entre ambos es el ID ``MLC_xxx``.
+El ``.s7dcl`` anota cada slot del array con
+``{ S7_MLC := "MLC_xxx" }`` y el ``.s7res`` mapea cada
+``MLC_xxx`` a su ``es-ES``. El cruce entre ambos es el ID
+``MLC_xxx``.
 
 Uso típico
 ----------
@@ -74,10 +27,8 @@ Uso típico
         satellite_arrays={"PReal_Vis", "Aux.PReal_ValorAnterior"},
         registry=MLCRegistry(),
     )
-    result = updater.update()
+    updater.update()
     updater.save()
-    if updater.was_modified():
-        ...  # importar el bloque a TIA
 
 Restricción arquitectónica (``.clinerules`` §1): este módulo es
 OFFLINE; no importa ``siemens_tia_scripting``. Solo ``pathlib``,
