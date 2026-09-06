@@ -99,7 +99,15 @@ async def test_ciclo_idle_connected_idle_completo() -> None:
     await gateway.connect()
     assert gateway._connection_state == "connected"
     assert gateway._heartbeat_task is not None
-    # Project detection se llamo al conectar.
+    # Project detection se llamo al conectar (sept-2026 round 4:
+    # fire-and-forget via ``_safe_detect_project_change`` task).
+    # Esperamos a la task (que en el test termina inmediatamente
+    # porque ``_detect_project_change`` es un AsyncMock) antes de
+    # verificar, para evitar una condicion de carrera con el assert.
+    if gateway._detect_project_change_task is not None:
+        await gateway._detect_project_change_task
+    # Project detection se llamo al conectar (vía el wrapper
+    # ``_safe_detect_project_change``).
     gateway._detect_project_change.assert_awaited_once()
 
     # 3. Comando del registry funciona en connected.

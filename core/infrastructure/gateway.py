@@ -169,6 +169,7 @@ class TIAProcessGateway:
             self._pending_responses: dict[int, asyncio.Future[Any]] = {}
             self._reader_task: asyncio.Task[None] | None = None
             self._heartbeat_task: asyncio.Task[None] | None = None
+            self._detect_project_change_task: asyncio.Task[None] | None = None
             # Estados posibles: "idle" | "connecting" | "connected" |
             # "disconnected" | "error".
             #
@@ -298,25 +299,10 @@ class TIAProcessGateway:
                 "ping",
                 "get_project_info",
             ) and self._connection_state != "connected":
-                _log.warning(
-                    "DIAG: _dispatch_worker(%s): state=%s != 'connected', "
-                    "lanzando TIAConnectionError",
-                    command, self._connection_state,
-                )
                 raise TIAConnectionError(
                     "Worker no conectado a TIA Portal. Conectar primero."
                 )
-            _log.info(
-                "DIAG: _dispatch_worker(%s): state=connected, "
-                "esperando lock (locked=%s)...",
-                command, self._worker_lock.locked(),
-            )
             async with self._worker_lock:
-                _log.info(
-                    "DIAG: _dispatch_worker(%s): lock adquirido, "
-                    "llamando _send_to_persistent_worker",
-                    command,
-                )
                 return await self._send_to_persistent_worker(
                     command, args, timeout_override
                 )
@@ -1108,28 +1094,12 @@ class TIAProcessGateway:
         """
         # Lazy start: si el proc no existe o ya murio, lo relanzamos.
         if self._worker_proc is None or self._worker_proc.returncode is not None:
-            _log.warning(
-                "DIAG: _send_to_persistent_worker(%s): lazy start "
-                "(proc=%s, returncode=%s)",
-                command,
-                self._worker_proc,
-                self._worker_proc.returncode if self._worker_proc else None,
-            )
             await self._start_persistent_worker()
 
         # El reader_task es quien resuelve futures. Si murio (e.g.
         # EOF inesperado), NO podemos recibir respuestas. Marcamos
         # disconnected y fallamos rapido en vez de esperar al timeout.
         if self._reader_task is None or self._reader_task.done():
-            _log.warning(
-                "DIAG: _send_to_persistent_worker(%s): reader_task "
-                "MURIO (reader_task=%s, done=%s). proc alive=%s",
-                command,
-                self._reader_task,
-                self._reader_task.done() if self._reader_task else None,
-                self._worker_proc.returncode is None
-                if self._worker_proc else False,
-            )
             # El reader_task es quien resuelve futures. Si murio (e.g.
             # EOF inesperado), NO podemos recibir respuestas. Marcamos
             # "error" (no "idle", porque un reader muerto es un fallo
@@ -1139,13 +1109,6 @@ class TIAProcessGateway:
                 "Reader task del worker persistente no esta vivo. "
                 "El subproceso probablemente murio."
             )
-        _log.info(
-            "DIAG: _send_to_persistent_worker(%s): paso checks. "
-            "proc alive=%s, reader alive=%s. Escribiendo a stdin...",
-            command,
-            self._worker_proc.returncode is None,
-            not self._reader_task.done(),
-        )
 
         request_id = self._next_request_id
         self._next_request_id += 1
@@ -1165,29 +1128,12 @@ class TIAProcessGateway:
         try:
             assert self._worker_proc.stdin is not None
             self._worker_proc.stdin.write(payload + b"\n")
-            _log.info(
-                "DIAG: _send_to_persistent_worker(%s): escrito a stdin, "
-                "esperando drain...",
-                command,
-            )
             await self._worker_proc.stdin.drain()
-            _log.info(
-                "DIAG: _send_to_persistent_worker(%s): drain completo. "
-                "Esperando respuesta (timeout=%.1fs)...",
-                command,
-                timeout_override if timeout_override is not None else self._timeout,
-            )
 
             timeout = (
                 timeout_override if timeout_override is not None else self._timeout
             )
             response = await asyncio.wait_for(future, timeout=timeout)
-            _log.info(
-                "DIAG: _send_to_persistent_worker(%s): respuesta "
-                "RECIBIDA: %s",
-                command,
-                str(response)[:200],
-            )
 
             if not response.get("ok"):
                 err = response.get("error", "Error interno en el worker OT.")
@@ -1211,15 +1157,6 @@ class TIAProcessGateway:
 
             return response.get("result")
         except asyncio.TimeoutError as exc:
-            _log.warning(
-                "DIAG: _send_to_persistent_worker(%s): TIMEOUT después "
-                "de %.1fs. Reader_task alive=%s, proc alive=%s",
-                command,
-                timeout,
-                not self._reader_task.done() if self._reader_task else False,
-                self._worker_proc.returncode is None
-                if self._worker_proc else False,
-            )
             # El worker no respondio al comando en el timeout. En el
             # state machine sept-2026 marcamos "idle" (no "error"):
             # puede ser un comando lento puntual, no un fallo del
@@ -1521,20 +1458,43 @@ class TIAProcessGateway:
             # ultimo conocido, marca ``_project_changed`` y limpia
             # caches (cambio de proyecto = datos stale).
             #
-            # NO se hace bajo el lock: ``_detect_project_change``
-            # adquiere su propio ``async with self._worker_lock``
-            # internamente. El lock ya esta cogido aqui, asi que
-            # ``_detect_project_change`` reentra y se serializa.
-            # (La reentrada en ``asyncio.Lock`` es segura: el mismo
-            # task que ya lo tiene puede adquirirlo de nuevo sin
-            # deadlock.)
-            try:
-                await self._detect_project_change()
-            except Exception:
-                # Best-effort: si falla (e.g. TIA sin proyecto
-                # abierto, timeout), no es bloqueante. La siguiente
-                # operacion del operario reintentara.
-                pass
+            # Cambio sept-2026 round 4 (fix del audit del operario
+            # Aketza, log 2026-09-06 15:32:30,000): el
+            # ``_detect_project_change`` se hace fire-and-forget en
+            # background en vez de awaited dentro del lock. El
+            # comando ``get_project_info`` puede tardar varios
+            # segundos si TIA esta cargando el proyecto o tiene un
+            # dialogo modal (caso real observado: 5+ segundos). Si
+            # lo hicieramos awaited, el ``_worker_lock`` se
+            # retendria durante todo ese tiempo, bloqueando el
+            # primer ping del heartbeat y el primer "Buscar PLCs"
+            # del operario (que venia a 5s del connect, justo
+            # cuando el lock se liberaba). El fire-and-forget
+            # resuelve esto: connect() retorna al frontend
+            # inmediatamente, y la deteccion de proyecto se hace
+            # en paralelo con el resto del flujo.
+            self._detect_project_change_task = (
+                asyncio.create_task(self._safe_detect_project_change())
+            )
+
+    async def _safe_detect_project_change(self) -> None:
+        """Wrapper best-effort de ``_detect_project_change`` para
+        fire-and-forget desde ``connect()``.
+
+        Captura todas las excepciones (TIA cerrado, timeout, COM
+        disconnect) para que la task no genere "Task exception was
+        never retrieved" en el event loop. Si falla, no se hace
+        nada: la siguiente operacion del operario reintentara
+        (via ``_detect_project_change`` o el heartbeat que
+        tambien detecta cambios implicitos).
+        """
+        try:
+            await self._detect_project_change()
+        except Exception as exc:  # noqa: BLE001
+            _log.debug(
+                "_safe_detect_project_change: fallo (best-effort): %s: %s",
+                type(exc).__name__, exc,
+            )
 
     async def disconnect(self) -> None:
         """Envia ``detach_portal`` al worker vivo y transiciona a ``"idle"``.
