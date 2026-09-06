@@ -1,28 +1,16 @@
 """Resolucion centralizada del ``config.json`` del usuario.
 
 Patron: "template bundleado + copia writable al lado del .exe".
-
-  - En modo frozen (PyInstaller ``--onefile``), el ``config.json``
-    bundleado en ``sys._MEIPASS`` es la plantilla default.
-  - En la primera ejecucion se copia a
-    ``<exe_dir>/config/config.json`` para que el operario pueda
-    editarlo sin recompilar nada.
-  - En siguientes ejecuciones, **SIEMPRE gana el del usuario**:
-    no sobreescribimos un archivo existente aunque el bundleado
-    sea mas nuevo. El operario borra el archivo a mano si quiere
-    resetear.
-  - Si ``<exe_dir>/config/`` no es escribible (CD-ROM, red
-    readonly, permisos), fallback al bundleado directo con
-    warning (modo "live demo": los edits no persisten, pero la
-    app arranca).
+En modo frozen (PyInstaller ``--onefile``) el ``config.json``
+bundleado en ``sys._MEIPASS`` es la plantilla. En la primera
+ejecucion se copia a ``<exe_dir>/config/config.json``; en
+siguientes ejecuciones **siempre gana el del usuario** (no se
+sobreescribe). Si la carpeta no es escribible, fallback readonly
+al bundleado con warning.
 
 El resolver se llama desde ``ConfigManager.__init__`` cuando el
-caller no pasa un ``config_path`` explicito. Los callers que pasan
-``config_path=`` (todos los tests, ``app.py``, ``mcp_server.py``)
-siguen funcionando identico: compat 100%.
-
-Inspirado en ``core/application/log_paths.py:resolve_log_dir``
-(mismo patron de env var + frozen + dev + fallback).
+caller no pasa un ``config_path`` explicito. Inspirado en
+``core/application/log_paths.py:resolve_log_dir``.
 """
 from __future__ import annotations
 
@@ -49,44 +37,33 @@ def resolve_config_path(
     """Devuelve la ruta al ``config.json`` que debe usar la app.
 
     Prioridad de localizacion:
-
-      1. ``$ZC_CONFIG_DIR/config.json`` si esta definido y no
-         vacio. Si el archivo no existe, se copia el bundleado
-         alli (mismo comportamiento que primera ejecucion).
-      2. Modo frozen (PyInstaller ``--onefile``):
-         ``<exe_dir>/<default_subdir>/config.json``. Si no
-         existe, se copia desde
-         ``<sys._MEIPASS>/<bundled_relpath>``. Fallback readonly
-         al bundleado si no se puede escribir.
-      3. Modo dev (``python main_tray.py``):
-         ``<cwd>/<bundled_relpath>`` (el del repo, sin copia).
-         El developer edita el archivo en su repo directamente.
+      1. ``$ZC_CONFIG_DIR/config.json`` si la env var esta
+         definida y no vacia.
+      2. Modo frozen: ``<exe_dir>/<default_subdir>/config.json``,
+         copiando el bundleado si no existe.
+      3. Modo dev: ``<cwd>/<bundled_relpath>`` (el del repo).
 
     Politica: **el usuario gana siempre**. Si el archivo destino
-    ya existe, NO se sobreescribe. El operario borra el archivo
-    a mano si quiere resetear al bundleado.
+    ya existe, NO se sobreescribe. Si no se puede escribir
+    (permisos, red readonly, CD-ROM), fallback readonly al
+    bundleado con warning.
 
     Args:
-        env_var: Variable de entorno a respetar como override
-            (default ``ZC_CONFIG_DIR``, mismo patron que
-            ``ZC_LOG_DIR``).
+        env_var: Variable de entorno a respetar como override.
         default_subdir: Subcarpeta por defecto bajo el ejecutable
-            (modo frozen). El archivo siempre se llama
-            ``config.json``.
+            (modo frozen).
         bundled_relpath: Ruta relativa al bundle (``_MEIPASS`` en
             frozen, ``cwd`` en dev) donde vive el ``config.json``
             plantilla.
 
     Returns:
-        ``Path`` al ``config.json``. La ruta existe en disco
-        (recien copiada o preexistente). Si la copia falla por
-        permisos, devuelve la ruta bundleada (lectura OK pero
-        escritura no; el caller debe estar preparado para eso).
+        ``Path`` al ``config.json`` recien copiado o preexistente,
+        o a la ruta bundleada si la copia fallo (lectura OK pero
+        escritura no).
 
     Raises:
         FileNotFoundError: Si ni la ruta prioritaria ni la
-            bundleada se pueden resolver (caso extremo: el
-            bundleado no existe en disco).
+            bundleada se pueden resolver.
     """
     # 1. Override explicito por env var (aplica en cualquier modo).
     override = os.environ.get(env_var, "").strip()

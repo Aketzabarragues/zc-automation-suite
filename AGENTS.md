@@ -6,6 +6,17 @@
 > Reglas arquitectónicas críticas en `.clinerules` (corto, se carga siempre).
 > Convenciones operativas y "cómo extender" están aquí (medio, se consulta).
 
+## TL;DR del state machine OT (sept-2026)
+
+El worker de TIA Portal (`core/infrastructure/tia/worker_tia.py`) corre
+como subproceso **persistente**: arranca en `idle` (sin portal attached),
+el gateway le envía un `attach_portal` explícito cuando el operario pulsa
+"Conectar" desde la topbar, y un `detach_portal` cuando pulsa "Desconectar".
+El subproceso NO muere entre comandos — eso elimina pagar el coste de
+arranque del CLR + attach (~5s) en cada operación. Los detalles del
+contrato IPC, state machine y comandos de ciclo de vida están en
+`.clinerules` §2.2.
+
 ---
 
 ## Arquitectura: cómo añadir una nueva feature
@@ -37,18 +48,18 @@
    `areas/<area>/application/use_cases/` si es del área) orquesta,
    llama al gateway, y emite progress.
 6. El router FastAPI expone el endpoint con `Depends(get_gateway)`.
-   Los routers genéricos viven en `core/interfaces/web_server/routers/`;
+   Los routers genéricos viven en `interfaces/web_server/routers/`;
    los del área en `areas/<area>/interfaces/web/`.
 7. Tests: mockea el gateway con `MagicMock(spec=TIAProcessGateway)`,
    nunca el worker directamente.
 
 ### 2. Nuevo endpoint REST
 1. Añade el handler en el router correspondiente:
-   - Genérico: `core/interfaces/web_server/routers/<area>.py` con
+   - Genérico: `interfaces/web_server/routers/<area>.py` con
      un `APIRouter`.
    - Del área: `areas/<area>/interfaces/web/<router>.py` y declara
      `register_routers(app)` en el `__init__.py` del paquete.
-2. El shell FastAPI (`core/interfaces/web_server/app.py::create_app`)
+2. El shell FastAPI (`interfaces/web_server/app.py::create_app`)
   Descubre los routers del área vía `AreaRegistry.for_each("contributes_routers", app=app)`.
 3. Inyecta dependencias vía `Depends(get_gateway | get_app_state |
    get_logger | get_progress_tracker)`. NUNCA importes globales
@@ -79,7 +90,7 @@
    nuevas clases se detectan automáticamente.
 
 ### 4. Nuevo campo / tipo de dispositivo (data-driven, en el área)
-1. `areas/alimentacion/domain/catalog.py`: añade dataclass.
+1. `areas/alimentacion/domain/disp_catalog.py`: añade dataclass.
 2. `core/infrastructure/config_manager.py`: añade mapeo `hw_type` → tabla PLC.
 3. `core/infrastructure/parsers/excel_parser.py`: añade parser base
    (si es genérico) o `areas/alimentacion/infrastructure/parsers/`
@@ -113,15 +124,16 @@
 4. Si tiene adaptadores (parsers, modificadores, etc.):
    `areas/<area>/infrastructure/`. Los **modificadores SimaticML/SD**
    son específicos de cada área y viven aquí (NO en `core/`), por
-   ejemplo `areas/<area>/infrastructure/xml/modifiers.py` (TagTableModifier,
-   SimaticMLTagParser) y `areas/<area>/infrastructure/sd/` (modificadores
-   de `.s7dcl`). `core/` solo aporta el gateway y los parsers base
-   genéricos (p. ej. `core/infrastructure/parsers/excel_parser.py`).
+   ejemplo `areas/<area>/infrastructure/xml/disp_tag_table_modifier.py`
+   y `areas/<area>/infrastructure/sd/` (modificadores de `.s7dcl`).
+   `core/` solo aporta el gateway y los parsers base genéricos
+   (p. ej. `core/infrastructure/parsers/excel_parser.py`).
 5. Si tiene comandos TIA transaccionales:
    `areas/<area>/infrastructure/tia/extra_commands.py` con
    `register(registry)`.
 6. Si tiene routers FastAPI: `areas/<area>/interfaces/web/` con
-   `register_routers(app)` en el `__init__.py` del paquete.
+   `register_routers(app)` en el `__init__.py` del paquete. Los routers
+   genéricos viven en `interfaces/web_server/routers/` (no en `core/`).
 7. Si tiene tools MCP: `areas/<area>/interfaces/mcp/tools.py` con
    `register(mcp)`.
 8. Si tiene UI: `areas/<area>/frontend/components/` +
@@ -177,11 +189,10 @@ internamente desde `ejecutar_transaccion` (no pisar el tracker del
 commit).
 
 ### Tests
-- **Backend:** `pytest tests/` corre TODOS los tests. 233 tests
-  actualmente (acumulado de los 138 originales + los tests nuevos
-  de PR 0-6: AppState genérico, AreaRegistry, command loader,
-  manifest endpoint, MCP shell + 4 tools del área). Deben pasar
-  todos antes de commit.
+- **Backend:** `pytest tests/` corre TODOS los tests. 837 tests
+  actualmente (acumulado histórico: PR 0-6 originales + state machine
+  del worker persistente + A2-A9 robustness + tests E2E del worker
+  real). Deben pasar todos antes de commit.
 - **Naming:** `tests/test_<modulo>.py`. Mismo nombre que el archivo
   que prueban. Para áreas, `tests/test_area_<area>_<feature>.py`.
 - **Mockear gateway** con `MagicMock(spec=TIAProcessGateway)`.
@@ -191,9 +202,27 @@ commit).
   QA manual con `?demo=1` y servidor de pruebas.
 
 ### Command loader del worker OT
-- `core/infrastructure/tia/worker_tia.py` solo contiene comandos
-  **genéricos** (open/close/save/list_plcs/list_blocks/compile_plc/
-  export_*/import_*/user_constants/transactional_batch).
+- `core/infrastructure/tia/worker_tia.py` contiene los comandos
+  **genéricos** del `COMMAND_REGISTRY`:
+  - Ciclo de vida de proyecto: `open_new_portal`, `open_project`,
+    `save_project`, `close_project`.
+  - Inspección: `list_plcs`, `get_project_info`, `list_blocks`,
+    `scan_blocks`.
+  - Mutación / compilación: `compile_plc`.
+  - Export masivo SimaticSD: `export_blocks_sd`, `export_udts_sd`.
+  - Export masivo SimaticML (XML): `export_plc_tags_xml`.
+  - Import masivo desde disco: `import_blocks_sd`, `import_plc_tags_xml`.
+  - Bloques y tablas granulares: `export_block`, `import_block`,
+    `export_tag_table`, `import_tag_table`.
+  - Constantes de usuario (N_MAX): `get_user_constants`,
+    `update_user_constant_value`, `update_user_constant_name`,
+    `delete_user_constant`.
+  - Lotes transaccionales: `execute_transactional_batch`.
+  - Health check: `ping`.
+- Los comandos del **state machine** (`attach_portal`, `detach_portal`)
+  NO están en el registry: los gestiona `main_persistent_loop` en
+  línea (ver `.clinerules` §2.2). Si los añades al registry, rompes
+  el ciclo de vida.
 - Las áreas aportan comandos adicionales vía
   `areas/<area>/infrastructure/tia/extra_commands.py::register(registry)`.
   El `load_extra_commands()` del command loader los descubre

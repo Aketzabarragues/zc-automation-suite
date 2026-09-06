@@ -100,35 +100,11 @@ class AlarmasParser:
     TABLE = "Tabla_Alarmas"
 
     def extraer(self, wb: Workbook) -> list[AlarmaPLC]:
-        """Extrae todas las alarmas del workbook.
+        """Lee las alarmas del workbook ya abierto.
 
-        Args:
-            wb: workbook de openpyxl ya abierto (no se cierra aquí).
-
-        Returns:
-            Lista de ``AlarmaPLC``. Si la hoja o la tabla no
-            existen (R1 del plan), devuelve ``[]``. Las filas que
-            fallen al construir el DTO se descartan con WARNING.
-
-        Política de descarte (consistente con ``ProcesosParser``,
-        ``PRealParser`` y ``PIntParser``; legacy dropna por UID):
-            * Filas con ``UID`` vacío (``None`` / ``""`` / whitespace
-              / ``"nan"`` / ``"None"`` / ``"null"``) se descartan
-              silenciosamente. Esto evita alarmas fantasma sin UID
-              en el cache. Es el equivalente del
-              ``pandas.dropna(subset=["UID"])`` del legacy TUI.
-            * Filas con ``UID`` no vacío se conservan aunque el
-              resto de campos esté vacío: el DTO tiene defaults
-              tolerantes (``str = ""``, ``int = 0``).
-
-        Diferencia con ``PRealParser.extraer`` / ``PIntParser.extraer``:
-        ``AlarmasParser.extraer`` construye un DTO con **6 campos**
-        (sin ``Visibilidad``, sin ``Producto``, sin ``Tipo``, sin
-        ``num_lista``, sin ``txt_lista``). El legacy alarmas usa
-        solo esas 6 columnas de la ``ListObject``. El resto del
-        flujo es idéntico: ``extract_list_object_rows`` →
-        ``dropna por UID`` → ``try/except`` por fila →
-        ``logger.warning`` en descarte.
+        Descarta las filas con UID vacío y las que fallen al
+        construir el DTO. Si la hoja o la tabla no existen,
+        devuelve ``[]``.
         """
         rows = extract_list_object_rows(wb, self.SHEET, self.TABLE)
         result: list[AlarmaPLC] = []

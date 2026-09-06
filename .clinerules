@@ -8,12 +8,36 @@ El ecosistema .NET/COM subyacente de Siemens **NO ES THREAD-SAFE**. Tienes estri
 *   **Capa OT (Proceso Hijo):** El script `core/infrastructure/tia/worker_tia.py` es el ÚNICO lugar autorizado para interactuar con la API de Siemens. Aloja los **comandos genéricos** del motor OT (~20 handlers). Las **áreas** (Bounded Contexts en `areas/<area>/infrastructure/tia/extra_commands.py`) aportan **comandos adicionales transaccionales** al `COMMAND_REGISTRY` mediante `AreaSpec.contributes_tia_commands`. Dichos handlers corren DENTRO del proceso del worker bajo la misma transacción atómica, pero NO importan `siemens_tia_scripting` directamente. El worker los descubre al arrancar vía `core.infrastructure.tia.command_loader.load_extra_commands(COMMAND_REGISTRY)`.
 *   **Comunicación IPC:** El padre levanta al hijo vía `asyncio.create_subprocess_exec`. Envía los argumentos JSON por `stdin`. El hijo ejecuta la tarea y devuelve UN ÚNICO JSON por `stdout`. Cualquier otro log del hijo va a `stderr`.
 
-## 2. REGLAS DEL WORKER EFÍMERO (MOTOR OT)
-Cada vez que modifiques o añadas comandos en `worker_tia.py`, debes cumplir este ciclo de vida ineludible:
-1.  **Silenciar el logger nativo:** Inmediatamente después de iniciar el script, DEBES invocar `siemens_tia_scripting.set_logging(path="worker_openness.log", console=False)`[cite: 4]. Si no lo haces, la DLL ensuciará el `stdout` y romperá el parseo JSON del proceso padre.
-2.  **Enganche:** Usar `attach_portal()` para conectarse a la instancia[cite: 4].
-3.  **Extracción de Contexto:** Usar `get_project()` para obtener el objeto del proyecto[cite: 4].
-4.  **Desconexión:** En un bloque `finally`, invocar OBLIGATORIAMENTE `detach()` sobre la instancia del portal para liberar el *Runtime Callable Wrapper*[cite: 4].
+## 2. WORKER OT: DOS MODOS, UN SOLO PROCESO
+`worker_tia.py` se ejecuta como subproceso. Tiene dos entry points según el modo:
+
+### 2.1 Modo 1-shot (`main()`, compatibilidad)
+- Un solo comando por stdin, una respuesta por stdout, el subproceso muere.
+- Se conserva por compatibilidad con callers antiguos y para tests aislados.
+- Ciclo: `set_logging(console=False)` → `attach_portal` (o `open_new_portal` para cold start) → handler → `detach` en `finally`.
+
+### 2.2 Modo persistente (`main_persistent_loop()`, modo principal en producción)
+- El subproceso se queda vivo entre comandos. Lee JSON de stdin línea a línea, responde con el mismo `id` a stdout, hasta EOF o comando `exit`.
+- Lo arranca `gateway._start_persistent_worker()` desde el lifespan de FastAPI. El gateway lo monitoriza con heartbeat 30s y expone `connect()`/`disconnect()` para que la UI lo encienda/apague.
+
+**State machine del worker persistente (4 estados):**
+- `idle` (inicial): `portal is None`. El worker emite un `ready_idle` con `id=0` y se queda esperando.
+- `connected`: tras un `attach_portal` OK del gateway. Los handlers del `COMMAND_REGISTRY` operan contra el portal attached.
+- `error`: tras un fallo grave de I/O con el worker. El gateway no puede enviar más comandos.
+- (el estado `disconnected` se eliminó en sept-2026; ahora todo reposo es `idle`).
+
+**Comandos del state machine (gestionados INLINE en `main_persistent_loop`, NO en el `COMMAND_REGISTRY`):**
+- `attach_portal` → llama `ts.attach_portal(...)`, asigna `portal`, responde `{"pid": <int>}` o `{"error": "..."}`.
+- `detach_portal` → si hay portal, llama `portal.detach()` (best-effort) y responde `{"detached": true}`. Si no, `{"detached": false}`. Idempotente.
+- `ping` → `portal.get_process_id()`. Devuelve `{"pid": <int>}` o `{"error": ...}`. Usado por el heartbeat y por reconexión.
+- `get_project_info` → propiedades del proyecto activo (las que el portal permita leer).
+
+**Por qué `attach_portal`/`detach_portal` no están en el `COMMAND_REGISTRY`:** necesitan reasignar la variable local `portal` del loop, y los handlers del registry reciben `portal` como argumento sin poder reasignarlo.
+
+**Reglas ineludibles del worker (ambos modos):**
+- **Silenciar el logger nativo:** invocar `set_logging(console=False)` justo después de cargar el wrapper. Si no, Siemens escribe logs a stdout y rompe el parseo JSON del gateway.
+- **No devolver objetos nativos .NET al proceso IT:** mapear siempre a `dict`/`list`/`str`/`bool`/`int` antes de emitir JSON. Ver §3.
+- **Cleanup en `finally` (modo 1-shot) o al exit (modo persistente):** invocar `portal.detach()` best-effort para liberar el RCW. El fallo se ignora (el siguiente attach creará un RCW nuevo).
 
 ## 3. PROHIBICIÓN DE RETENCIÓN DE ESTADO OT
 *   **NUNCA** intentes devolver objetos nativos (como `Plc`, `ProgramBlock` o `HmiTag`) desde el worker al proceso padre.

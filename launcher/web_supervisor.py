@@ -1,29 +1,15 @@
 """Supervisor del web server FastAPI con auto-restart.
 
-Aloja el servidor FastAPI/uvicorn en un hilo daemon y lo reinicia
-automáticamente si muere por un error no solicitado. La parada explícita
-(vía ``stop()``) NO dispara restart.
+Aloja uvicorn en un hilo daemon y lo relanza con backoff si muere por
+un error no solicitado. Una parada explícita vía ``stop()`` no
+dispara restart. El gateway usa ``persistent=True`` para aprovechar
+el worker persistente en el flujo de bandeja.
 
-API pública (gemela de ``MCPServiceSupervisor``):
+API pública de ``WebServiceSupervisor``:
   - ``start()``             → lanza el hilo (idempotente).
   - ``stop(timeout)``       → señaliza parada limpia, espera al hilo.
   - ``is_alive() -> bool``  → True si el supervisor está corriendo.
   - ``restart_count``       → contador de reinicios (para el menú "Estado").
-
-Notas sobre el worker OT:
-  - El modo web usa **worker persistente** (1 attach por sesión, N
-    comandos por el mismo attach). Ver design doc
-    ``_plan/12_worker_persistent_design.md`` §1.3 y §2.1. Por eso
-    instanciamos ``TIAProcessGateway(persistent=True)`` aquí — es el
-    flujo principal del operario (bandeja) y es donde se materializa
-    el ahorro del 90% del overhead de attach.
-  - El modo MCP (launcher separado) sigue siendo process-per-call:
-    ``persistent=False`` (default). Compatibilidad 100% con los tests
-    del MCP, sin cambios observables.
-  - "El worker se reinicia solo si muere" lo cumple el gateway en
-    modo persistente mediante su propio lazy start. Esta capa solo
-    asegura que el **proceso web** (el que aloja el gateway) esté
-    vivo.
 """
 from __future__ import annotations
 
@@ -138,23 +124,13 @@ class WebServiceSupervisor:
     def _serve_once(self) -> None:
         """Construye la app y corre uvicorn hasta que pare.
 
-        NOTA sobre el arranque del worker persistente (sept-2026
-        round 2): esta función YA NO llama ``gateway.start()``
-        directamente. Lo hace el lifespan de FastAPI
-        (``interfaces/web_server/app.py::_tia_lifespan``) al
-        startup de uvicorn. La razón es que el ``gateway.start()``
-        crea un reader task asyncio, y ese task debe vivir en el
-        MISMO event loop que uvicorn para sobrevivir a las
-        llamadas de los endpoints HTTP. Si lo lanzamos aqui con
-        ``asyncio.run(gateway.start())``, ese loop se cierra al
-        retornar y el reader task se cancela: el operario vería
-        ``RuntimeError: Reader task del worker persistente no
-        esta vivo`` al pulsar "Conectar" segundos después, aunque
-        ``is_worker_alive()`` siga siendo True (el subproceso
-        sigue vivo, pero su reader task en el loop cerrado está
-        muerto). Confiar en el lifespan lo arregla: el lifespan
-        corre en el loop de uvicorn, donde el reader y los
-        endpoints conviven.
+        El arranque real del worker persistente lo hace el lifespan de
+        FastAPI (``interfaces/web_server/app.py::_tia_lifespan``), no
+        esta función. El motivo: ``gateway.start()`` crea un reader
+        task asyncio que debe vivir en el mismo event loop que
+        uvicorn para que los endpoints HTTP lo puedan usar. Si lo
+        lanzáramos aquí con ``asyncio.run``, ese loop se cerraría al
+        retornar y el reader task quedaría muerto.
         """
         # Importación tardía: respeta el orden de inicialización de
         # pystray (algunos backends de pystray requieren que el main
@@ -171,21 +147,18 @@ class WebServiceSupervisor:
         app = create_app(gateway)
         # Guardamos la referencia al gateway en self para que el
         # ``finally`` de abajo pueda llamar a ``disconnect()`` como
-        # red de seguridad (auditoría X2). El lifespan de FastAPI
-        # YA hace esto al shutdown normal, pero si uvicorn crashea
-        # antes de ejecutar el lifespan cleanup, o si la app se
-        # destruye por una excepción en startup, esta red cubre el
-        # caso y evita que el subproceso del worker persistente
-        # quede zombi (~200 MB con ``siemens_tia_scripting.pyd``
-        # cargado).
+        # red de seguridad. El lifespan de FastAPI ya hace esto al
+        # shutdown normal, pero si uvicorn crashea antes del
+        # lifespan cleanup, o si la app se destruye por una excepción
+        # en startup, esta red evita que el subproceso del worker
+        # persistente quede zombi (~200 MB con el .pyd cargado).
         self._gateway = gateway
 
         # Compatibilidad con modo windowed (pythonw.exe / frozen).
         # uvicorn asume ``sys.stdout.isatty()`` en su formatter de
         # colores; si sys.stdout es ``None`` (modo windowed), crashea
-        # con ``AttributeError: 'NoneType' object has no attribute
-        # 'isatty'`` durante ``uvicorn.Config.__init__``. Ver
-        # docstring de ``_patch_stdio_for_uvicorn`` mas abajo.
+        # durante ``uvicorn.Config.__init__``. Ver docstring de
+        # ``_patch_stdio_for_uvicorn`` más abajo.
         with _patch_stdio_for_uvicorn():
             config = uvicorn.Config(
                 app,
@@ -206,14 +179,11 @@ class WebServiceSupervisor:
         try:
             self._server.run()
         finally:
-            # Red de seguridad X2: si el lifespan de FastAPI no
-            # llamó a ``gateway.disconnect()`` (e.g. uvicorn crashea
-            # antes del lifespan cleanup), lo llamamos aquí. Envuelto
-            # en try/except para no enmascarar el motivo original
-            # del shutdown. ``disconnect()`` es idempotente (ver
-            # ``_kill_persistent_worker``), así que en el path
-            # normal donde el lifespan YA llamó, esta segunda
-            # llamada es un no-op.
+            # Red de seguridad: si el lifespan de FastAPI no llamó a
+            # ``gateway.disconnect()`` (p. ej. uvicorn crashea antes
+            # del lifespan cleanup), lo llamamos aquí. ``disconnect()``
+            # es idempotente, así que en el path normal donde el
+            # lifespan ya llamó, esta segunda llamada es un no-op.
             gateway = getattr(self, "_gateway", None)
             if (
                 gateway is not None
@@ -221,14 +191,12 @@ class WebServiceSupervisor:
                 and callable(getattr(gateway, "disconnect", None))
             ):
                 try:
-                    # ``_serve_once`` es sync (``self._server.run()``
-                    # es bloqueante y uvicorn crea y destruye su
-                    # propio loop internamente). Cuando llegamos al
-                    # ``finally`` en el path canónico NO hay loop
-                    # corriendo, asi que ``asyncio.run()`` es seguro.
-                    # Si por algun motivo hubiera loop vivo, el
-                    # ``except`` de abajo absorbe el
-                    # ``RuntimeError`` y no enmascaramos el shutdown.
+                    # ``_serve_once`` es sync y uvicorn crea y destruye
+                    # su propio loop internamente. En el path canónico
+                    # no hay loop corriendo al llegar aquí, así que
+                    # ``asyncio.run()`` es seguro. Si por algún motivo
+                    # hubiera loop vivo, el ``except`` de abajo absorbe
+                    # el ``RuntimeError`` y no enmascaramos el shutdown.
                     asyncio.run(gateway.disconnect())
                 except Exception as exc:  # noqa: BLE001
                     self.log.warning(
@@ -246,29 +214,20 @@ import contextlib
 
 @contextlib.contextmanager
 def _patch_stdio_for_uvicorn() -> object:
-    """Context manager que reemplaza ``sys.stdout`` / ``sys.stderr`` por
-    buffers descartables (``io.StringIO``) si son ``None``, y los
-    restaura al salir.
+    """Reemplaza ``sys.stdout`` / ``sys.stderr`` por ``io.StringIO()`` si
+    son ``None``, y los restaura al salir.
 
-    Por que es necesario: ``uvicorn.Config.__init__`` invoca su
-    formatter por defecto, que llama ``sys.stdout.isatty()`` para
-    decidir si usar colores ANSI. En modo windowed (``pythonw.exe`` o
-    frozen sin consola), ``sys.stdout`` es ``None`` y uvicorn crashea
-    con::
+    Por qué: ``uvicorn.Config.__init__`` invoca su formatter por
+    defecto, que llama ``sys.stdout.isatty()`` para decidir si usar
+    colores ANSI. En modo windowed (``pythonw.exe`` o frozen sin
+    consola), ``sys.stdout`` es ``None`` y uvicorn crashea con::
 
         AttributeError: 'NoneType' object has no attribute 'isatty'
 
-    Esto era el bug que hacia que el web server fallara 5 veces
-    consecutivas al arrancar desde el menu "Iniciar web" del tray
-    (visto en ``_source/zc_tray.log`` el 2026-09-05 con el
-    ``[ERROR] zc_tray.web: Web server crasheó (restart #5)``).
-
-    Redirigir a ``io.StringIO()`` evita el crash. NO afecta a los logs
-    reales, que van al root logger (``zc_tray``) via
-    ``_reconfigure_uvicorn_loggers`` justo despues de
-    ``uvicorn.Config.__init__``. Los writes a esos buffers
-    descartables se pierden, que es lo que queremos: en modo
-    windowed NO hay consola donde escribir.
+    Redirigir a ``io.StringIO()`` evita el crash. Los writes a esos
+    buffers descartables se pierden: en modo windowed no hay consola
+    donde escribir. Los logs reales van al root logger (``zc_tray``)
+    vía ``_reconfigure_uvicorn_loggers``.
     """
     saved_stdout, saved_stderr = sys.stdout, sys.stderr
     try:
@@ -282,33 +241,20 @@ def _patch_stdio_for_uvicorn() -> object:
 
 
 def _reconfigure_uvicorn_loggers() -> None:
-    """Quita los ``StreamHandler`` de los loggers de uvicorn y los
-    deja propagar al root.
+    """Quita los ``StreamHandler`` de los loggers de uvicorn y fuerza
+    ``propagate=True`` para que los mensajes lleguen al root logger
+    con su nivel original (sin recategorizarse por el redirect de
+    ``sys.stderr`` en modo windowed).
 
-    Uvicorn, en ``uvicorn.Config.__init__``, configura sus loggers
-    (``uvicorn``, ``uvicorn.error``, ``uvicorn.access``) con un
-    dictConfig por defecto que añade un ``StreamHandler`` (apuntando
-    a ``sys.stderr`` en el momento de la instanciación) a cada uno.
-    En modo frozen/windowed, ``main_tray._setup_logging_redirect()``
-    ha redirigido ``sys.stderr`` al logger ``zc_tray`` a nivel
-    ``ERROR``, así que las ``INFO`` de uvicorn se recapturan como
-    ``ERROR`` y aparecen en el log con el tag equivocado:
+    Uvicorn añade un ``StreamHandler`` a ``uvicorn``,
+    ``uvicorn.error`` y ``uvicorn.access`` durante
+    ``uvicorn.Config.__init__``. Si lo dejamos, en modo windowed un
+    ``INFO`` de uvicorn acaba logueado como
+    ``[ERROR] zc_tray: INFO:     Started server process [28752]``
+    porque el redirect de ``main_tray`` recaptura el stream.
 
-        [ERROR] zc_tray: INFO:     Started server process [28752]
-
-    El fix: eliminar TODOS los ``StreamHandler`` de los loggers de
-    uvicorn (cualquier stream al que escriban acabaría siendo
-    capturado por el redirect de ``main_tray``) y forzar
-    ``propagate=True``. El root (``zc_tray``) ya tiene un
-    ``FileHandler`` con el formato consistente
-    (``"%(asctime)s [%(levelname)s] %(name)s: %(message)s"``), y
-    el nivel del ``LogRecord`` se preserva al propagar — un
-    ``INFO`` se loguea como ``[INFO]`` y un ``ERROR`` como
-    ``[ERROR]``.
-
-    Esta función está expuesta a nivel de módulo (con prefijo ``_``
-    para marcar "uso interno") para que sea testeable sin necesidad
-    de instanciar ``uvicorn.Config`` en el test.
+    Expuesta a nivel de módulo (prefijo ``_`` = uso interno) para
+    que sea testeable sin instanciar ``uvicorn.Config``.
     """
     import logging
 

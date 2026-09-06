@@ -143,50 +143,18 @@ def make_cmd_update_disp_comments_db(hw_type: str) -> Callable[..., Any]:
 
 
 def make_cmd_commit_devices_sync() -> Callable[..., Any]:
-    """Handler del op compuesto ``commit_devices_sync``.
+    """Compone N_MAX, renombres y devices en una sola transacción.
 
-    Reusa los handlers atómicos del core del worker
-    (``update_user_constant_value``, ``update_user_constant_name``) y
-    los métodos nativos de PlcTagTable (``table.export``,
-    ``target_plc.import_plc_tags``) bajo una ÚNICA transacción.
+    Reusa ``update_user_constant_value`` y ``update_user_constant_name``
+    del core del worker para N_MAX y renombres, y ``TagTableModifier``
+    sobre los XML exportados de las tablas 2000_Disp_<hw> para los
+    devices.
 
-    **Importante**: este op NO abre su propia ``start_transaction``.
-    Se ejecuta DENTRO de la transacción que abrió el batch wrapper
-    (``_cmd_execute_transactional_batch`` en ``worker_tia``). El
-    wrapper es el responsable del ``start_transaction`` y del
-    ``end_transaction(rollback=False/True)``. Si este op abriera su
-    propia transacción, TIA Portal V21 rechazaría con
-    ``OpennessAccessException: Multiple instances of ExclusiveAccess
-    is not supported`` (bug detectado en 2026-08-28 durante validación
-    en PLC real).
-
-    El edit XML offline (paso 3c) corre dentro del worker usando
-    ``TagTableModifier`` (Python puro, no importa
-    ``siemens_tia_scripting``). Moverlo aquí respeta ``.clinerules`` §1
-    (el worker sigue siendo el único proceso que importa la DLL).
-
-    Si el op propaga una excepción, el batch wrapper hace
-    ``end_transaction(rollback=True)`` y revierte N_MAX + renames +
-    devices ya aplicados. Los XMLs editados en ``work_dir`` quedan en
-    disco (write-only, no se pueden rollbackear desde TIA) y se
-    sobrescriben en el siguiente run.
-
-    Args del op:
-      - ``plc_name`` (str, requerido).
-      - ``undo_text`` (str, opcional).
-      - ``work_dir`` (str, requerido): directorio donde el worker
-        escribe los XML exportados/modificados.
-      - ``nmax_ops`` (list[dict]): ops online, cada dict con
-        ``{table_name, constant_name, new_value}``.
-      - ``rename_ops`` (list[dict]): ops online, cada dict con
-        ``{table_name, current_name, new_name}``.
-      - ``device_changes`` (list[dict]): ops offline, cada dict con
-        ``{table_name, tia_folder, adds, removes}``.
-
-    Específico del flujo "sync dispositivos" del subdominio alimentación:
-    NO genérico (la semántica de N_MAX como PlcUserConstant de la
-    tabla 000_Config_Dispositivos y de los devices como PlcUserConstant
-    de las 6 tablas 2000_Disp_<hw> es convención de este área).
+    No abre su propia transacción: corre dentro de la transacción
+    del batch wrapper, que es quien hace el ``start_transaction`` y
+    el rollback si algo falla. Abrir otra provocaría conflicto de
+    ExclusiveAccess en TIA Portal. Los XML editados en ``work_dir``
+    se sobrescriben en el siguiente run.
     """
     def _cmd(portal: Any, ts: Any, args: dict[str, Any]) -> dict[str, Any]:
         plc_name: str = args.get("plc_name", "")

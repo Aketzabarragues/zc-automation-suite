@@ -1,18 +1,19 @@
-﻿"""Motor OT efÃ­mero para interacciÃ³n con TIA Portal Openness.
+﻿"""Subproceso OT para TIA Portal Openness. Ejecutado por TIAProcessGateway.
 
-Este script es ejecutado exclusivamente como un subproceso aislado por TIAProcessGateway.
-NACE -> CONECTA (COM) -> EJECUTA COMANDO -> EMITE JSON A STDOUT -> DESCONECTA -> MUERE.
+Hay dos modos de uso, según los argumentos:
+  - main(): un solo comando por stdin/stdout y termina (modo 1-shot).
+  - main_persistent_loop(): se queda vivo leyendo comandos hasta EOF
+    o "exit" (modo persistente, usado por el gateway web).
 
-Reglas estricta de I/O:
-- STDIN:  Recibe un JSON con 'command' (str) y 'args' (dict).
-- STDOUT: Emite UNICAMENTE una lÃ­nea JSON final con {'ok': True, 'result': ...} o {'ok': False, 'error': ...}.
-- STDERR: ReorientaciÃ³n de logs, trazas de excepciÃ³n y advertencias C++/CLR.
+Reglas de I/O del modo 1-shot:
+- STDIN: un JSON con 'command' (str) y 'args' (dict).
+- STDOUT: una línea JSON final con {'ok': True, 'result': ...} o {'ok': False, 'error': ...}.
+- STDERR: logs y trazas de excepción.
 
-InyecciÃ³n de dependencias:
-  Los handlers del COMMAND_REGISTRY reciben (portal, args). Cada handler que
-  necesite un proyecto abierto debe extraerlo con _get_active_project(portal),
-  que valida su existencia y centraliza el control de errores. Esto permite
-  comandos de ciclo de vida (open_project) que NO requieren proyecto previo.
+Reglas de I/O del modo persistente: ver main_persistent_loop.
+
+Los handlers del COMMAND_REGISTRY reciben (portal, ts, args). Si
+necesitan proyecto abierto lo extraen con _get_active_project(portal).
 """
 
 from __future__ import annotations
@@ -32,14 +33,14 @@ from typing import Any, Callable, NoReturn
 from core.models.bloque_plc import BloquePLC
 
 # Forzar UTF-8 en los streams del worker.
-# El worker es un subproceso de TIAProcessGateway (vía
+# El worker es un subproceso de TIAProcessGateway (v�a
 # asyncio.create_subprocess_exec en Windows con CreateProcess).
-# La reconfigure de main.py NO se hereda al subproceso, así que
-# lo hacemos también aquí. Sin esto, Pythonnet intenta convertir
+# La reconfigure de main.py NO se hereda al subproceso, as� que
+# lo hacemos tambi�n aqu�. Sin esto, Pythonnet intenta convertir
 # strings de TIA Portal (Latin-1) a Python UTF-8 y revienta con
 # "utf-8 codec can't decode byte 0xe1 in position N".
-# Reconfiguración de I/O a UTF-8. Vive aquí (no a nivel de módulo) para no
-# romper a quien importe este módulo (p. ej. tests que usan capture de pytest).
+# Reconfiguraci�n de I/O a UTF-8. Vive aqu� (no a nivel de m�dulo) para no
+# romper a quien importe este m�dulo (p. ej. tests que usan capture de pytest).
 def _reconfigure_stdio_utf8() -> None:
     if sys.platform != "win32":
         return
@@ -67,15 +68,15 @@ def _write_json_and_exit(payload: dict[str, Any], code: int) -> NoReturn:
 def _get_active_project(portal: Any) -> Any:
     """Extrae y valida el proyecto activo del portal.
 
-    Centraliza la lÃ³gica de extracciÃ³n y validaciÃ³n del proyecto. Antes vivÃ­a
+    Centraliza la lógica de extracción y validación del proyecto. Antes vivía
     en main(); ahora cada handler que necesita proyecto lo invoca, lo que
     permite comandos de ciclo de vida (open_project) que NO requieren
-    proyecto previo y produce errores semÃ¡nticos limpios en los demÃ¡s.
+    proyecto previo y produce errores semánticos limpios en los demás.
     """
     project = portal.get_project()
     if not project:
         raise RuntimeError(
-            "No hay ningÃºn proyecto abierto en TIA Portal. "
+            "No hay ningún proyecto abierto en TIA Portal. "
             "Ejecuta 'open_project' primero."
         )
     return project
@@ -84,7 +85,7 @@ def _get_active_project(portal: Any) -> Any:
 def _find_plc(project: Any, plc_name: str) -> Any:
     """Resuelve el objeto Plc por nombre dentro del proyecto activo.
 
-    Helper centralizado para evitar duplicaciÃ³n en los handlers del dispatcher.
+    Helper centralizado para evitar duplicación en los handlers del dispatcher.
     Levanta RuntimeError si no existe.
     """
     if not plc_name:
@@ -95,7 +96,7 @@ def _find_plc(project: Any, plc_name: str) -> Any:
             return plc
 
     raise RuntimeError(
-        f"No se encontrÃ³ ningÃºn PLC con el nombre '{plc_name}' en el proyecto activo."
+        f"No se encontró ningún PLC con el nombre '{plc_name}' en el proyecto activo."
     )
 
 
@@ -107,7 +108,7 @@ def _safe_get_plc_name(plc) -> str | None:
     intenta convertir el .Name a Python str y revienta con
     UnicodeDecodeError. Como nosotros solo necesitamos comparar
     contra nombres ASCII, devolvemos None en ese caso (la
-    comparaciÃ³n fallarÃ¡ y se tratarÃ¡ como "no es la que
+    comparación fallará y se tratará como "no es la que
     buscamos").
     """
     try:
@@ -121,7 +122,7 @@ def _safe_get_table_name(table) -> str | None:
 
     Ver ``_safe_get_plc_name``. Algunas PlcTagTables del proyecto
     tienen nombres con caracteres no-ASCII (Latin-1) que hacen
-    fallar la conversiÃ³n a Python str via Pythonnet. Como
+    fallar la conversión a Python str via Pythonnet. Como
     nuestra tabla objetivo siempre tiene nombre ASCII, saltamos
     cualquier tabla que no se pueda decodificar.
     """
@@ -132,7 +133,7 @@ def _safe_get_table_name(table) -> str | None:
 
 
 def _ensure_target_dir(target_dir: str) -> Path:
-    """Valida que target_dir estÃ© presente y devuelve la ruta resuelta."""
+    """Valida que target_dir esté presente y devuelve la ruta resuelta."""
     if not target_dir:
         raise ValueError("Se requiere el argumento 'target_dir'.")
     target_path = Path(target_dir)
@@ -140,15 +141,15 @@ def _ensure_target_dir(target_dir: str) -> Path:
     return target_path
 
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ──────────────────────────────────────────────────────────────────────────
 # Handlers del dispatcher. Todos reciben (portal: Any, args: dict[str, Any]).
 # Cada handler que necesite proyecto abierto invoca _get_active_project().
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ──────────────────────────────────────────────────────────────────────────
 
 def _cmd_open_project(portal: Any, ts: Any, args: dict[str, Any]) -> None:
-    """Abre un proyecto TIA Portal desde una ruta absoluta. Manual Â§2.4.3.
+    """Abre un proyecto TIA Portal desde una ruta absoluta. Manual §2.4.3.
 
-    PRECONDICIÃ“N: el portal ya estÃ¡ conectado (vÃ­a ``attach_portal`` o
+    PRECONDICIÓN: el portal ya está conectado (vía ``attach_portal`` o
     ``open_new_portal``). Para abrir proyecto desde cero (cold start),
     usar ``open_new_portal``.
     """
@@ -161,30 +162,22 @@ def _cmd_open_project(portal: Any, ts: Any, args: dict[str, Any]) -> None:
     portal.open_project(project_file_path=project_file_path)
 
 
-# NOTA (sept-2026 round 3, fix de auditoría profunda del worker):
-# El handler ``_cmd_attach_portal`` se eliminó de este archivo porque
-# era código muerto en producción: el loop persistente
-# ``main_persistent_loop`` dispatcha ``attach_portal`` INLINE
-# (worker_tia.py:~1532) ANTES de consultar el ``COMMAND_REGISTRY``,
-# usando ``_handle_attach`` (~1406). El handler del registry no podía
-# mutar la variable local ``portal`` (las funciones no reasignan
-# scope del llamante), así que su ``return True`` era inútil.
-# El path 1-shot (``main()``) tampoco lo invocaba: hace su propio
-# attach inline (worker_tia.py:~1733). Eliminado el 2026-09-06.
+# attach_portal se gestiona dentro de main_persistent_loop, no aqu�.
+# No lo a�adas al COMMAND_REGISTRY.
 
 
 def _cmd_open_new_portal(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
     """Cold start: lanza una instancia NUEVA de TIA Portal y abre proyecto.
 
-    Sigue el Manual V1.2.1 Â§2.4.1:
-      1. ``ts.open_portal(portal_mode=...)`` â†’ instancia del portal.
-      2. ``portal.open_project(project_file_path=...)`` â†’ abre proyecto.
+    Sigue el Manual V1.2.1 §2.4.1:
+      1. ``ts.open_portal(portal_mode=...)`` → instancia del portal.
+      2. ``portal.open_project(project_file_path=...)`` → abre proyecto.
 
     Args:
         project_file_path: Ruta absoluta al .apxx.
 
     Returns:
-        ``True`` si el portal nuevo se creÃ³ con Ã©xito.
+        ``True`` si el portal nuevo se creó con éxito.
     """
     project_file_path: str = args.get("project_file_path", "")
     if not project_file_path:
@@ -201,23 +194,23 @@ def _cmd_open_new_portal(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
     )
     if new_portal is None:
         raise RuntimeError(
-            "Fallo crÃ­tico: open_portal retornÃ³ None."
+            "Fallo crítico: open_portal retornó None."
         )
     new_portal.open_project(project_file_path=project_file_path)
     return True
 
 
 def _cmd_save_project(portal: Any, ts: Any, args: dict[str, Any]) -> None:
-    """Guarda los cambios pendientes del proyecto activo (manual Â§2.37.2)."""
+    """Guarda los cambios pendientes del proyecto activo (manual §2.37.2)."""
     _ = ts
     project = _get_active_project(portal)
     project.save()
 
 
 def _cmd_close_project(portal: Any, ts: Any, args: dict[str, Any]) -> None:
-    """Cierra el proyecto activo (manual Â§2.37.3).
+    """Cierra el proyecto activo (manual §2.37.3).
 
-    ADVERTENCIA CRÃTICA: project.close() destruye permanentemente todos
+    ADVERTENCIA CR�?TICA: project.close() destruye permanentemente todos
     los cambios no guardados del proyecto. El caller es responsable de
     haber invocado save() antes si la persistencia era necesaria.
     """
@@ -235,15 +228,15 @@ def _cmd_list_plcs(portal: Any, ts: Any, args: dict[str, Any]) -> list[str]:
 
 
 def _cmd_ping(portal: Any, ts: Any, args: dict[str, Any]) -> dict[str, Any]:
-    """Verifica si la conexión con TIA Portal sigue activa.
+    """Verifica si la conexi�n con TIA Portal sigue activa.
 
-    Implementación: ``portal.get_process_id()`` (sección 2.5.1 del
+    Implementaci�n: ``portal.get_process_id()`` (secci�n 2.5.1 del
     manual de Siemens). Si retorna un PID, ``ok=True`` con el PID.
-    Si lanza excepción COM/RPC (TIA cerrado), ``ok=False``.
+    Si lanza excepci�n COM/RPC (TIA cerrado), ``ok=False``.
 
-    Primitiva del heartbeat (PR 4) y de la reconexión manual (PR 6)
+    Primitiva del heartbeat (PR 4) y de la reconexi�n manual (PR 6)
     del design doc del worker persistente
-    (``_plan/12_worker_persistent_design.md`` §3.3).
+    (``_plan/12_worker_persistent_design.md`` �3.3).
 
     Returns:
         ``{"ok": True, "pid": <int>}`` si el portal responde.
@@ -260,11 +253,11 @@ def _cmd_ping(portal: Any, ts: Any, args: dict[str, Any]) -> dict[str, Any]:
 
 
 def _cmd_get_project_info(portal: Any, ts: Any, args: dict[str, Any]) -> dict[str, Any]:
-    """Devuelve propiedades básicas del proyecto TIA activo como primitivos.
+    """Devuelve propiedades b�sicas del proyecto TIA activo como primitivos.
 
-    Lee un set acotado de propiedades del proyecto que son útiles para
-    que la SPA muestre al operario a qué proyecto está enganchado. NO
-    devuelve objetos nativos TIA (siempre primitivos, por AGENTS.md §Datos).
+    Lee un set acotado de propiedades del proyecto que son �tiles para
+    que la SPA muestre al operario a qu� proyecto est� enganchado. NO
+    devuelve objetos nativos TIA (siempre primitivos, por AGENTS.md �Datos).
 
     Si una propiedad lanza al leerla (p. ej. PermissionDenied o
     EncodingError), se omite del payload en lugar de tumbar el handler:
@@ -272,15 +265,15 @@ def _cmd_get_project_info(portal: Any, ts: Any, args: dict[str, Any]) -> dict[st
 
     Args:
         portal: Instancia de TIA Portal ya enganchada.
-        ts: Módulo ``siemens_tia_scripting`` (no se usa directamente;
+        ts: M�dulo ``siemens_tia_scripting`` (no se usa directamente;
             el handler opera sobre el ``portal`` ya inicializado).
         args: Argumentos del comando (no se usan; no se requiere
-            configuración del caller).
+            configuraci�n del caller).
 
     Returns:
-        ``dict`` con al menos la key ``name``. Opcionalmente también
+        ``dict`` con al menos la key ``name``. Opcionalmente tambi�n
         ``path``, ``author``, ``creation_time``, ``last_modified``,
-        ``last_modified_by`` y ``version``, omitidas si no están
+        ``last_modified_by`` y ``version``, omitidas si no est�n
         disponibles o si su lectura lanza. Los datetimes .NET se
         serializan como strings ISO 8601.
     """
@@ -295,7 +288,7 @@ def _cmd_get_project_info(portal: Any, ts: Any, args: dict[str, Any]) -> dict[st
 
     result: dict[str, Any] = {"name": _safe_get("Name")}
 
-    # Propiedades opcionales. Si una no está activa o falla, se omite.
+    # Propiedades opcionales. Si una no est� activa o falla, se omite.
     for prop_name, out_key in (
         ("Path", "path"),
         ("Author", "author"),
@@ -307,7 +300,7 @@ def _cmd_get_project_info(portal: Any, ts: Any, args: dict[str, Any]) -> dict[st
         value = _safe_get(prop_name)
         if value is None:
             continue
-        # Normalizar a primitivo: datetime/DateTime .NET → ISO 8601 string.
+        # Normalizar a primitivo: datetime/DateTime .NET ? ISO 8601 string.
         if hasattr(value, "isoformat"):
             value = value.isoformat()
         result[out_key] = value
@@ -316,14 +309,14 @@ def _cmd_get_project_info(portal: Any, ts: Any, args: dict[str, Any]) -> dict[st
 
 
 def _cmd_list_blocks(portal: Any, ts: Any, args: dict[str, Any]) -> list[str]:
-    """Lista los nombres de los bloques de programa de un PLC especÃ­fico."""
+    """Lista los nombres de los bloques de programa de un PLC específico."""
     _ = ts
     project = _get_active_project(portal)
     plc_name: str = args.get("plc_name", "")
-    # CoerciÃ³n defensiva (TIA Portal V21): aunque el manual define folder_path
+    # Coerción defensiva (TIA Portal V21): aunque el manual define folder_path
     # como Optional[str], el wrapper .NET rechaza valores None. Forzamos "" para
-    # que el binding del CLR acepte el parÃ¡metro y delegue al comportamiento
-    # nativo de "raÃ­z del PLC".
+    # que el binding del CLR acepte el parámetro y delegue al comportamiento
+    # nativo de "raíz del PLC".
     folder_path: str = args.get("folder_path") or ""
 
     target_plc = _find_plc(project, plc_name)
@@ -334,10 +327,10 @@ def _cmd_list_blocks(portal: Any, ts: Any, args: dict[str, Any]) -> list[str]:
 def _cmd_compile_plc(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
     """Compila el software del PLC y retorna el booleano nativo de Siemens.
 
-    SemÃ¡ntica documentada (API V1.2.1, secciÃ³n 2.2.11):
-      - True  -> La compilaciÃ³n TIENE errores.
-      - False -> La compilaciÃ³n NO tiene errores (Ã©xito).
-    La capa de presentaciÃ³n (MCP) traduce este valor a un mensaje humano.
+    Semántica documentada (API V1.2.1, sección 2.2.11):
+      - True  -> La compilación TIENE errores.
+      - False -> La compilación NO tiene errores (éxito).
+    La capa de presentación (MCP) traduce este valor a un mensaje humano.
     """
     _ = ts
     project = _get_active_project(portal)
@@ -347,7 +340,7 @@ def _cmd_compile_plc(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
 
 
 def _export_objects_sd(portal: Any, ts: Any, args: dict[str, Any]) -> str:
-    """Exporta una colecciÃ³n de objetos TIA (Bloques o UDTs) a archivos .s7dcl.
+    """Exporta una colección de objetos TIA (Bloques o UDTs) a archivos .s7dcl.
 
     Espera en args: plc_name, target_dir, collection_key
     ('program_blocks' | 'user_data_types'). `ts` se inyecta desde
@@ -356,8 +349,8 @@ def _export_objects_sd(portal: Any, ts: Any, args: dict[str, Any]) -> str:
 
     Nota de formato: TIA Portal V21 emite archivos .s7dcl
     (Simatic Source Documents) cuando se solicita ``export_format=SimaticSD``.
-    El sufijo ``.s7dcl`` es el canÃ³nico a partir de V17; el ``.scl``
-    histÃ³rico queda obsoleto en esta arquitectura.
+    El sufijo ``.s7dcl`` es el canónico a partir de V17; el ``.scl``
+    histórico queda obsoleto en esta arquitectura.
     """
     project = _get_active_project(portal)
     plc_name: str = args.get("plc_name", "")
@@ -378,10 +371,10 @@ def _export_objects_sd(portal: Any, ts: Any, args: dict[str, Any]) -> str:
         )
 
     for obj in objects:
-        # El wrapper nativo de Siemens soporta coerciÃ³n desde strings hacia
+        # El wrapper nativo de Siemens soporta coerción desde strings hacia
         # sus enumeradores internos (TypeError previo: "export_format must
         # be an Enum or string"). Inyectamos el literal "SimaticSD" para
-        # forzar la exportaciÃ³n en formato fuente SimaticSD (.s7dcl) sin
+        # forzar la exportación en formato fuente SimaticSD (.s7dcl) sin
         # depender del espacio de nombres ts.Enums.ExportFormats (no
         # expuesto en este build). Manual V1.2.1, secciones 2.10.5 y 2.15.5.
         obj.export(
@@ -408,9 +401,9 @@ def _cmd_export_udts_sd(portal: Any, ts: Any, args: dict[str, Any]) -> str:
 def _cmd_export_plc_tags_xml(portal: Any, ts: Any, args: dict[str, Any]) -> str:
     """Exporta las tablas de variables del PLC como XML SimaticML.
 
-    Itera sobre plc.get_plc_tag_tables() (manual Â§2.2.8) y exporta cada
+    Itera sobre plc.get_plc_tag_tables() (manual §2.2.8) y exporta cada
     tabla con export_format=SimaticML, export_options=WithDefaults y
-    keep_folder_structure=True (preserva jerarquÃ­a de grupos del PLC).
+    keep_folder_structure=True (preserva jerarquía de grupos del PLC).
 
     Args:
         args: Dict con:
@@ -419,7 +412,7 @@ def _cmd_export_plc_tags_xml(portal: Any, ts: Any, args: dict[str, Any]) -> str:
               los XML exportados.
             - ``table_names`` (list[str], opcional): filtro de tablas a
               exportar. Si se pasa y no es ``None``, SOLO se exportan las
-              tablas cuyo ``get_name()`` estÃ© en la lista. Si es ``None``
+              tablas cuyo ``get_name()`` esté en la lista. Si es ``None``
               o se omite, se exportan TODAS las tablas del PLC (back-compat
               con llamadas existentes).
     """
@@ -441,10 +434,10 @@ def _cmd_export_plc_tags_xml(portal: Any, ts: Any, args: dict[str, Any]) -> str:
             name = _safe_get_table_name(table)
             if name not in target_table_names:
                 continue
-        # MitigaciÃ³n defensiva: el wrapper nativo no expone ni
-        # ExportFormats ni ExportOptions en este build. SegÃºn la
-        # documentaciÃ³n oficial (manual V1.2.1, secciones 2.10.5 y 2.15.5),
-        # ambos parÃ¡metros son opcionales; al omitirlos, el wrapper C++
+        # Mitigación defensiva: el wrapper nativo no expone ni
+        # ExportFormats ni ExportOptions en este build. Según la
+        # documentación oficial (manual V1.2.1, secciones 2.10.5 y 2.15.5),
+        # ambos parámetros son opcionales; al omitirlos, el wrapper C++
         # subyacente aplica los defaults internos (SimaticML para el
         # formato, None para las opciones).
         table.export(
@@ -456,23 +449,23 @@ def _cmd_export_plc_tags_xml(portal: Any, ts: Any, args: dict[str, Any]) -> str:
 
 
 def _cmd_import_blocks_sd(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
-    """Importa bloques de programa en formato Simatic Source Documents (.s7dcl) desde el disco al PLC (manual Â§2.2.23).
+    """Importa bloques de programa en formato Simatic Source Documents (.s7dcl) desde el disco al PLC (manual §2.2.23).
 
     TIA Portal asume que el directorio existe; si no, el CLR lanza una
-    excepciÃ³n grave. Por eso validamos con os.path.isdir() ANTES de invocar
-    el mÃ©todo COM.
+    excepción grave. Por eso validamos con os.path.isdir() ANTES de invocar
+    el método COM.
 
-    Nota: el nombre del comando refleja la convenciÃ³n actual (.s7dcl /
+    Nota: el nombre del comando refleja la convención actual (.s7dcl /
     SimaticSD); internamente el wrapper sigue invocando
     ``target_plc.import_blocks`` porque la API de Siemens mantiene
-    estable el nombre del mÃ©todo independientemente de la extensiÃ³n
+    estable el nombre del método independientemente de la extensión
     del archivo.
     """
     _ = ts
     project = _get_active_project(portal)
     plc_name: str = args.get("plc_name", "")
     import_dir: str = args.get("import_dir", "")
-    # CoerciÃ³n defensiva (TIA Portal V21): el wrapper .NET no acepta None para
+    # Coerción defensiva (TIA Portal V21): el wrapper .NET no acepta None para
     # target_folder_path aunque el manual lo declare Optional[str]. Forzamos "".
     target_folder: str = args.get("target_folder") or ""
 
@@ -481,7 +474,7 @@ def _cmd_import_blocks_sd(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
 
     if not os.path.isdir(import_dir):
         raise RuntimeError(
-            f"El directorio de importaciÃ³n no existe o no es accesible: '{import_dir}'."
+            f"El directorio de importación no existe o no es accesible: '{import_dir}'."
         )
 
     target_plc = _find_plc(project, plc_name)
@@ -493,16 +486,16 @@ def _cmd_import_blocks_sd(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
 
 
 def _cmd_import_plc_tags_xml(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
-    """Importa tablas de variables (PLC tags) en formato XML al PLC (manual Â§2.2.24).
+    """Importa tablas de variables (PLC tags) en formato XML al PLC (manual §2.2.24).
 
-    ValidaciÃ³n previa con os.path.isdir() para evitar la excepciÃ³n grave
+    Validación previa con os.path.isdir() para evitar la excepción grave
     del CLR cuando el directorio no existe.
     """
     _ = ts
     project = _get_active_project(portal)
     plc_name: str = args.get("plc_name", "")
     import_dir: str = args.get("import_dir", "")
-    # CoerciÃ³n defensiva (TIA Portal V21): el wrapper .NET no acepta None para
+    # Coerción defensiva (TIA Portal V21): el wrapper .NET no acepta None para
     # target_folder_path aunque el manual lo declare Optional[str]. Forzamos "".
     target_folder: str = args.get("target_folder") or ""
 
@@ -511,7 +504,7 @@ def _cmd_import_plc_tags_xml(portal: Any, ts: Any, args: dict[str, Any]) -> bool
 
     if not os.path.isdir(import_dir):
         raise RuntimeError(
-            f"El directorio de importaciÃ³n no existe o no es accesible: '{import_dir}'."
+            f"El directorio de importación no existe o no es accesible: '{import_dir}'."
         )
 
     target_plc = _find_plc(project, plc_name)
@@ -523,7 +516,7 @@ def _cmd_import_plc_tags_xml(portal: Any, ts: Any, args: dict[str, Any]) -> bool
 
 
 def _cmd_export_block(portal: Any, ts: Any, args: dict[str, Any]) -> str:
-    """Exporta un Ãºnico bloque de programa como SimaticSD (.scl). Manual Â§2.10.5."""
+    """Exporta un único bloque de programa como SimaticSD (.scl). Manual §2.10.5."""
     _ = ts
     project = _get_active_project(portal)
     plc_name: str = args.get("plc_name", "")
@@ -546,12 +539,12 @@ def _cmd_export_block(portal: Any, ts: Any, args: dict[str, Any]) -> str:
 
 
 def _cmd_import_block(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
-    """Importa un Ãºnico bloque (.scl) desde disco al PLC. Manual Â§2.2.23."""
+    """Importa un único bloque (.scl) desde disco al PLC. Manual §2.2.23."""
     _ = ts
     project = _get_active_project(portal)
     plc_name: str = args.get("plc_name", "")
     import_dir: str = args.get("import_dir", "")
-    # CoerciÃ³n defensiva (TIA Portal V21): el wrapper .NET no acepta None para
+    # Coerción defensiva (TIA Portal V21): el wrapper .NET no acepta None para
     # target_folder_path aunque el manual lo declare Optional[str]. Forzamos "".
     target_folder: str = args.get("target_folder") or ""
     if not import_dir:
@@ -590,7 +583,7 @@ def _safe_get_block_name(block) -> str | None:
 def _safe_get_block_path(block) -> str:
     """Lee la ruta jerarquica de un bloque tolerando COM exceptions.
 
-    El escaner silenció COM exceptions menores al leer la ruta de un
+    El escaner silenci� COM exceptions menores al leer la ruta de un
     bloque (legacy ``scanner.py`` lineas 156-169): TIA Portal las
     detecta y envenena la transaccion si esto ocurre DENTRO del
     ``with transaccion()``. Como ahora el escaneo se hace fuera de
@@ -715,7 +708,7 @@ def _cmd_scan_blocks(portal: Any, ts: Any, args: dict[str, Any]) -> dict[str, An
     blocks_list = _scan_block_group_recursive(program_blocks)
 
     # Tag tables: llamada SIN folder_path para que TIA recorra todo el
-    # arbol recursivamente (Manual V1.2.1 §2.2.8).
+    # arbol recursivamente (Manual V1.2.1 �2.2.8).
     tag_tables_objs: list[Any] = []
     try:
         tag_tables_objs = list(target_plc.get_plc_tag_tables() or [])
@@ -740,7 +733,7 @@ def _cmd_scan_blocks(portal: Any, ts: Any, args: dict[str, Any]) -> dict[str, An
         )
 
     # UDTs (User Data Types): coleccion distinta de program_blocks.
-    # Manual V1.2.1 §2.2.9: ``plc.get_user_data_types()`` devuelve la
+    # Manual V1.2.1 �2.2.9: ``plc.get_user_data_types()`` devuelve la
     # raiz del arbol de UDTs (puede ser un grupo/carpeta anidada, asi
     # que reaprovechamos el walker recursivo). Es defensivo: si TIA no
     # expone el metodo (builds antiguos, proyecto vacio) o lanza una
@@ -768,31 +761,13 @@ def _cmd_scan_blocks(portal: Any, ts: Any, args: dict[str, Any]) -> dict[str, An
     }
 
 
-# ─── COMMAND_REGISTRY ──────────────────────────────────────────────────────
-# NOTA (sept-2026 round 3, fix de auditoría profunda del worker):
-# ``attach_portal`` y ``detach_portal`` son comandos del STATE MACHINE
-# del worker persistente, NO comandos del registry. El loop
-# ``main_persistent_loop`` los dispatcha INLINE (worker_tia.py:~1532)
-# ANTES de consultar el ``COMMAND_REGISTRY``, porque necesitan mutar
-# la variable local ``portal`` (las funciones no pueden reasignar
-# variables del scope del llamante). Ver el inline handler
-# ``_handle_attach`` (~1406) y ``_handle_detach`` (~1482).
-#
-# Históricamente, ``attach_portal`` SÍ estaba en el registry (como
-# ``_cmd_attach_portal``), pero su firma ``(portal, ts, args) -> bool``
-# no podía reasignar ``portal``, así que el attach real nunca
-# surtía efecto. Era código muerto en producción (solo lo invocaba
-# el path 1-shot de ``main()``, que también hace su propio attach
-# inline y no lo usaba). Eliminado del registry en sept-2026.
-#
-# Si alguien en el futuro refactoriza el loop persistente y mueve
-# el dispatch al registry, el ``_handle_attach`` INLINE ya
-# documenta el contrato (mutación de ``portal``) y se debe
-# respetar.
+# ??? COMMAND_REGISTRY ??????????????????????????????????????????????????????
+# attach_portal y detach_portal se gestionan dentro de
+# main_persistent_loop, no aqu�. No los a�adas al registry.
 
 
 def _cmd_export_tag_table(portal: Any, ts: Any, args: dict[str, Any]) -> str:
-    """Exporta una única PlcTagTable como XML SimaticML. Manual §2.10.5 / §2.28.3."""
+    """Exporta una �nica PlcTagTable como XML SimaticML. Manual �2.10.5 / �2.28.3."""
     _ = ts
     project = _get_active_project(portal)
     plc_name: str = args.get("plc_name", "")
@@ -814,12 +789,12 @@ def _cmd_export_tag_table(portal: Any, ts: Any, args: dict[str, Any]) -> str:
 
 
 def _cmd_import_tag_table(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
-    """Importa una Ãºnica PlcTagTable (XML) desde disco al PLC. Manual Â§2.2.24."""
+    """Importa una única PlcTagTable (XML) desde disco al PLC. Manual §2.2.24."""
     _ = ts
     project = _get_active_project(portal)
     plc_name: str = args.get("plc_name", "")
     import_dir: str = args.get("import_dir", "")
-    # CoerciÃ³n defensiva (TIA Portal V21): el wrapper .NET no acepta None para
+    # Coerción defensiva (TIA Portal V21): el wrapper .NET no acepta None para
     # target_folder_path aunque el manual lo declare Optional[str]. Forzamos "".
     target_folder: str = args.get("target_folder") or ""
     if not import_dir:
@@ -835,7 +810,7 @@ def _cmd_import_tag_table(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
 
 
 def _cmd_get_user_constants(portal: Any, ts: Any, args: dict[str, Any]) -> dict[str, str]:
-    """Devuelve {value: name} de las PlcUserConstant de una tabla. Manual Â§2.28.5."""
+    """Devuelve {value: name} de las PlcUserConstant de una tabla. Manual §2.28.5."""
     _ = ts
     project = _get_active_project(portal)
     plc_name: str = args.get("plc_name", "")
@@ -860,7 +835,7 @@ def _cmd_get_user_constants(portal: Any, ts: Any, args: dict[str, Any]) -> dict[
 
 
 def _cmd_update_user_constant_value(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
-    """Actualiza el valor de una PlcUserConstant. Manual Â§2.28."""
+    """Actualiza el valor de una PlcUserConstant. Manual §2.28."""
     _ = ts
     project = _get_active_project(portal)
     plc_name: str = args.get("plc_name", "")
@@ -895,7 +870,7 @@ def _cmd_update_user_constant_value(portal: Any, ts: Any, args: dict[str, Any]) 
 
 
 def _cmd_update_user_constant_name(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
-    """Renombra una PlcUserConstant. Manual Â§2.28."""
+    """Renombra una PlcUserConstant. Manual §2.28."""
     _ = ts
     project = _get_active_project(portal)
     plc_name: str = args.get("plc_name", "")
@@ -915,7 +890,7 @@ def _cmd_update_user_constant_name(portal: Any, ts: Any, args: dict[str, Any]) -
 
 
 def _cmd_delete_user_constant(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
-    """Borra una PlcUserConstant. Manual Â§2.34.4. snake_case: constant.delete()."""
+    """Borra una PlcUserConstant. Manual §2.34.4. snake_case: constant.delete()."""
     _ = ts
     project = _get_active_project(portal)
     plc_name: str = args.get("plc_name", "")
@@ -933,19 +908,19 @@ def _cmd_delete_user_constant(portal: Any, ts: Any, args: dict[str, Any]) -> boo
     raise RuntimeError(f"Constante '{constant_name}' no encontrada en tabla '{table_name}'.")
 
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# Lotes transaccionales: ejecutan N comandos atÃ³micos bajo una ÃšNICA
-# transacciÃ³n de TIA Portal. Si una operaciÃ³n falla, las anteriores se
-# deshacen vÃ­a end_transaction(rollback=True). Esto garantiza atomicidad
+# ──────────────────────────────────────────────────────────────────────────
+# Lotes transaccionales: ejecutan N comandos atómicos bajo una ÚNICA
+# transacción de TIA Portal. Si una operación falla, las anteriores se
+# deshacen vía end_transaction(rollback=True). Esto garantiza atomicidad
 # en el historial del proyecto (Undo) y previene estados intermedios
 # inconsistentes.
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ──────────────────────────────────────────────────────────────────────────
 
-# Comandos prohibidos dentro de un lote. CausarÃ­an:
-#   - open/close_project: destruirÃ­an el portal activo a mitad del lote.
-#   - save_project      : forzarÃ­a un commit parcial fuera de la transacciÃ³n.
-#   - list_plcs         : no es una operaciÃ³n, es introspecciÃ³n.
-#   - execute_transactional_batch: anidamiento no soportado (podrÃ­a
+# Comandos prohibidos dentro de un lote. Causarían:
+#   - open/close_project: destruirían el portal activo a mitad del lote.
+#   - save_project      : forzaría un commit parcial fuera de la transacción.
+#   - list_plcs         : no es una operación, es introspección.
+#   - execute_transactional_batch: anidamiento no soportado (podría
 #     balancear transacciones de forma incorrecta sobre el RCW del project).
 _TRANSACTION_FORBIDDEN_COMMANDS: frozenset[str] = frozenset(
     {
@@ -956,8 +931,8 @@ _TRANSACTION_FORBIDDEN_COMMANDS: frozenset[str] = frozenset(
         "execute_transactional_batch",
         "compile_plc",
         # Comandos del ciclo de vida de la instancia TIA: gestionan su
-        # propia conexión con el portal. No pueden ejecutarse DENTRO de
-        # una transacción de proyecto (romperían el RCW / no tendría
+        # propia conexi�n con el portal. No pueden ejecutarse DENTRO de
+        # una transacci�n de proyecto (romper�an el RCW / no tendr�a
         # sentido enlazarlos con operaciones de proyecto).
         "attach_portal",
         "open_new_portal",
@@ -968,58 +943,26 @@ _TRANSACTION_FORBIDDEN_COMMANDS: frozenset[str] = frozenset(
 def _cmd_execute_transactional_batch(
     portal: Any, ts: Any, args: dict[str, Any]
 ) -> dict[str, Any]:
-    """Ejecuta mÃºltiples comandos atÃ³micos bajo una Ãºnica transacciÃ³n de TIA Portal.
+    """Ejecuta varios comandos bajo una sola transacci�n de TIA Portal.
 
-    ActÃºa como ACUMULADOR DE RESULTADOS: captura el valor de retorno de cada
-    handler atÃ³mico y lo agrega a `details`, evitando el "sumidero de datos"
-    clÃ¡sico donde el lote ejecuta operaciones pero la capa IT queda ciega
-    ante los resultados intermedios (p. ej. el booleano de compile_plc, la
-    ruta de export_blocks_scl, etc.).
-
-    AÃ­sla la cadena bajo `project.start_transaction()` / `end_transaction()`
-    (manual Â§2.37.27 / Â§2.37.28). Si cualquier handler levanta excepciÃ³n,
-    se invoca `end_transaction(rollback=True)` para revertir TODA la cadena
-    y se propaga un RuntimeError con el paso exacto que causÃ³ el aborto.
-
-    Args:
-        portal: Instancia del portal TIA (inyectada por el dispatcher).
-        ts:     MÃ³dulo Siemens inyectado (no usado directamente aquÃ­, pero
-                requerido por la firma uniforme del COMMAND_REGISTRY).
-        args:   Dict con:
-                  - operations: list[dict] -> [{"command": str, "args": dict}, ...]
-                  - undo_text:  str (opcional) -> texto del historial.
-
-    Returns:
-        {
-            "success":             True,
-            "operations_executed": int,
-            "details": [
-                {"step": int, "command": str, "result": Any},
-                ...
-            ],
-        }
-
-    Raises:
-        ValueError: Si la lista estÃ¡ vacÃ­a, contiene un comando desconocido
-                    o un comando prohibido dentro de un lote.
-        RuntimeError: Si una operaciÃ³n falla; el mensaje identifica el
-                      Ã­ndice (basado en pasos YA acumulados + 1) y nombre
-                      del comando que rompiÃ³ el lote.
+    Si cualquier handler falla se hace rollback de toda la cadena y se
+    lanza RuntimeError con el paso que rompi�. Captura el retorno de
+    cada paso en ``details`` para que la IT vea los resultados intermedios.
     """
     _ = ts
     project = _get_active_project(portal)
-    undo_text: str = args.get("undo_text", "OperaciÃ³n por Lote")
+    undo_text: str = args.get("undo_text", "Operación por Lote")
     operations: list[dict[str, Any]] = args.get("operations", [])
 
     if not operations:
-        raise ValueError("La lista de operaciones estÃ¡ vacÃ­a.")
+        raise ValueError("La lista de operaciones está vacía.")
 
-    # Iniciar transacciÃ³n nativa (manual Â§2.37.27).
+    # Iniciar transacción nativa (manual §2.37.27).
     project.start_transaction(undo_text=undo_text, dialog_text=undo_text)
 
-    # Acumulador de resultados intermedios. Cada paso exitoso aÃ±ade su
-    # retorno nativo (bool, str, list, dict, etc.) SIN coerciÃ³n, para
-    # preservar la semÃ¡ntica exacta del wrapper de Siemens.
+    # Acumulador de resultados intermedios. Cada paso exitoso añade su
+    # retorno nativo (bool, str, list, dict, etc.) SIN coerción, para
+    # preservar la semántica exacta del wrapper de Siemens.
     results_list: list[dict[str, Any]] = []
 
     cmd: str = ""
@@ -1032,19 +975,19 @@ def _cmd_execute_transactional_batch(
                 raise ValueError(f"Comando desconocido en lote: '{cmd}'")
             if cmd in _TRANSACTION_FORBIDDEN_COMMANDS:
                 raise ValueError(
-                    f"El comando '{cmd}' estÃ¡ prohibido dentro de un lote "
+                    f"El comando '{cmd}' está prohibido dentro de un lote "
                     "transaccional."
                 )
 
-            # Ejecutar el handler atÃ³mico reinyectando portal y ts,
-            # capturando su valor de retorno para inspecciÃ³n posterior.
+            # Ejecutar el handler atómico reinyectando portal y ts,
+            # capturando su valor de retorno para inspección posterior.
             step_result: Any = COMMAND_REGISTRY[cmd](portal, ts, cmd_args)
 
             results_list.append(
                 {"step": idx + 1, "command": cmd, "result": step_result}
             )
 
-        # Confirmar transacciÃ³n si no hubo errores (manual Â§2.37.28).
+        # Confirmar transacción si no hubo errores (manual §2.37.28).
         project.end_transaction(rollback=False)
 
         return {
@@ -1054,20 +997,20 @@ def _cmd_execute_transactional_batch(
         }
 
     except Exception as e:
-        # ReversiÃ³n garantizada ante excepciones (manual Â§2.37.28).
+        # Reversión garantizada ante excepciones (manual §2.37.28).
         # Silenciamos fallos secundarios del rollback para no enmascarar
-        # la causa raÃ­z original.
+        # la causa raíz original.
         try:
             project.end_transaction(rollback=True)
         except Exception:
             pass
-        # len(results_list) marca el ÃšLTIMO paso exitoso; el fallo ocurre
-        # en resultados_list + 1 (o en validaciÃ³n previa, donde len=0).
+        # len(results_list) marca el ÚLTIMO paso exitoso; el fallo ocurre
+        # en resultados_list + 1 (o en validación previa, donde len=0).
         #
-        # Incluimos los ``args`` de la op que fallÃ³ (truncados a 500
-        # chars) para diagnÃ³stico. Sin esto, el operario ve
+        # Incluimos los ``args`` de la op que falló (truncados a 500
+        # chars) para diagnóstico. Sin esto, el operario ve
         # ``Lote abortado en el paso 72 ('update_user_constant_value')``
-        # pero no sabe quÃ© ``N_MAX`` ni quÃ© valor es el problemÃ¡tico.
+        # pero no sabe qué ``N_MAX`` ni qué valor es el problemático.
         import json as _json
         try:
             args_str = _json.dumps(cmd_args, ensure_ascii=False, default=str)[:500]
@@ -1081,72 +1024,68 @@ def _cmd_execute_transactional_batch(
 
 
 COMMAND_REGISTRY: dict[str, Callable[[Any, Any, dict[str, Any]], Any]] = {
-    # ── Ciclo de vida del proyecto ────────────────────────────────────────
-    # NOTA: ``attach_portal`` NO está en el registry. Es un comando
-    # del state machine del worker persistente, gestionado INLINE
-    # por ``_handle_attach`` (ver ``main_persistent_loop``).
-    # Ver comentario en COMMAND_REGISTRY preamble (~línea 770).
+    # ?? Ciclo de vida del proyecto ????????????????????????????????????????
     "open_new_portal": _cmd_open_new_portal,
     "open_project": _cmd_open_project,
     "save_project": _cmd_save_project,
     "close_project": _cmd_close_project,
-    # â”€â”€ InspecciÃ³n â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Inspección ─────────────────────────────────────────────
     "list_plcs": _cmd_list_plcs,
     "get_project_info": _cmd_get_project_info,
     "list_blocks": _cmd_list_blocks,
     "scan_blocks": _cmd_scan_blocks,
-    # â”€â”€ MutaciÃ³n / compilaciÃ³n â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Mutación / compilación ────────────────────────────────────
     "compile_plc": _cmd_compile_plc,
-    # â”€â”€ ExportaciÃ³n masiva Simatic Source Documents (.s7dcl) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Exportación masiva Simatic Source Documents (.s7dcl) ──────────
     "export_blocks_sd": _cmd_export_blocks_sd,
     "export_udts_sd": _cmd_export_udts_sd,
-    # â”€â”€ ExportaciÃ³n masiva SimaticML (XML) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Exportación masiva SimaticML (XML) ───────────────────────────────
     "export_plc_tags_xml": _cmd_export_plc_tags_xml,
-    # â”€â”€ ImportaciÃ³n masiva desde disco (cierre del ciclo I/O) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Importación masiva desde disco (cierre del ciclo I/O) ─────────────
     "import_blocks_sd": _cmd_import_blocks_sd,
     "import_plc_tags_xml": _cmd_import_plc_tags_xml,
-    # â”€â”€ Bloques granulares â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Bloques granulares ──────────────────────────────────────────────
     "export_block": _cmd_export_block,
     "import_block": _cmd_import_block,
-    # â”€â”€ Tablas de variables granulares â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Tablas de variables granulares ──────────────────────────────────
     "export_tag_table": _cmd_export_tag_table,
     "import_tag_table": _cmd_import_tag_table,
-    # â”€â”€ Constantes de usuario (N_MAX, dimensionamiento) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Constantes de usuario (N_MAX, dimensionamiento) ─────────────────
     "get_user_constants": _cmd_get_user_constants,
     "update_user_constant_value": _cmd_update_user_constant_value,
     "update_user_constant_name": _cmd_update_user_constant_name,
     "delete_user_constant": _cmd_delete_user_constant,
-    # â”€â”€ Lotes transaccionales (rollback automÃ¡tico) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Lotes transaccionales (rollback automático) ────────────────────
     "execute_transactional_batch": _cmd_execute_transactional_batch,
-    # â”€â”€ Health check (PR 1 worker persistente) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    # Primitiva del heartbeat (PR 4) y de la reconexiÃ³n manual (PR 6).
+    # ── Health check (PR 1 worker persistente) ───────────────────────
+    # Primitiva del heartbeat (PR 4) y de la reconexión manual (PR 6).
     # NO requiere proyecto abierto: detecta si el portal TIA sigue vivo
     # via ``portal.get_process_id()``.
     "ping": _cmd_ping,
-    # â”€â”€ Ops atomicos de las areas (registrados via load_extra_commands
+    # ── Ops atomicos de las areas (registrados via load_extra_commands
     # al arrancar el worker): ``update_disp_comments_db_<hw>`` y
     # ``commit_devices_sync``. Ver ``core.infrastructure.tia.command_loader``.
 }
 
 
-# ─── Punto de extensión: comandos aportados por las áreas ────────────────
-# Las áreas (Bounded Contexts) registradas en ``areas/*/`` aportan
+# ??? Punto de extensi�n: comandos aportados por las �reas ????????????????
+# Las �reas (Bounded Contexts) registradas en ``areas/*/`` aportan
 # comandos transaccionales adicionales al ``COMMAND_REGISTRY`` mediante
 # ``AreaSpec.contributes_tia_commands``. Dichos handlers corren
-# DENTRO del proceso del worker, bajo la misma transacción atómica
+# DENTRO del proceso del worker, bajo la misma transacci�n at�mica
 # que cualquier otro comando del lote, pero NO importan
 # ``siemens_tia_scripting`` directamente (cumplen la regla
-# ``.clinerules`` §1: el worker es el único proceso que importa la DLL).
+# ``.clinerules`` �1: el worker es el �nico proceso que importa la DLL).
 #
-# Esta llamada se ejecuta una sola vez al import del módulo. Como
-# Python cachea los imports, está OK que se invoque varias veces
+# Esta llamada se ejecuta una sola vez al import del m�dulo. Como
+# Python cachea los imports, est� OK que se invoque varias veces
 # (los handlers se machacan por nombre, no se duplican).
 #
-# Importación al final del módulo para evitar ciclo con ``AreaRegistry``:
-#   worker_tia → command_loader → AreaRegistry → areas.<area>
-#     → extra_commands → (lazy) worker_tia
-# Cuando este bloque se ejecuta, ``COMMAND_REGISTRY`` ya está
-# completamente definido, por lo que las áreas pueden mutarlo in-place.
+# Importaci�n al final del m�dulo para evitar ciclo con ``AreaRegistry``:
+#   worker_tia ? command_loader ? AreaRegistry ? areas.<area>
+#     ? extra_commands ? (lazy) worker_tia
+# Cuando este bloque se ejecuta, ``COMMAND_REGISTRY`` ya est�
+# completamente definido, por lo que las �reas pueden mutarlo in-place.
 from core.infrastructure.tia.command_loader import load_extra_commands
 
 load_extra_commands(COMMAND_REGISTRY)
@@ -1155,31 +1094,11 @@ load_extra_commands(COMMAND_REGISTRY)
 
 
 def _load_siemens_wrapper() -> Any:
-    """Carga nativa del wrapper de Siemens vÃ­a inyecciÃ³n en sys.path.
-
-    Mecanismo heredado del proyecto anterior, superior a importlib.util
-    para binarios .pyd con dependencias CLR/Pythonnet: en lugar de fabricar
-    un spec sintÃ©tico, expone la ruta de _MEIPASS al loader nativo de
-    Python (`_imp`) para que la DLL se cargue por el camino estÃ¡ndar,
-    ejecutando correctamente su cÃ³digo de inicializaciÃ³n y registrando
-    submÃ³dulos como `ts.Enums`.
-
-    Modo producciÃ³n (PyInstaller --onefile):
-      - Inyecta sys._MEIPASS en sys.path (prioridad).
-      - AÃ±ade la ruta a la variable de entorno PATH.
-      - En Windows 3.8+, registra la ruta vÃ­a os.add_dll_directory para
-        que las dependencias nativas sean localizables.
-
-    Modo desarrollo:
-      - El mÃ³dulo ya estÃ¡ disponible vÃ­a el venv del usuario; se importa
-        directamente con la lÃ³gica estÃ¡ndar.
-
-    Retorna el mÃ³dulo ya inicializado. Lanza ImportError si la DLL no
-    se encuentra o falla su carga.
-    """
+    """Carga el wrapper nativo de Siemens. En producci�n lo inyecta desde _MEIPASS; en dev, del venv."""
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass is not None:
-        # InyecciÃ³n prioritaria para el loader nativo.
+        # PyInstaller onefile: a�adimos la ruta del bundle a sys.path
+        # y al PATH del sistema para que las DLLs nativas se localicen.
         if meipass not in sys.path:
             sys.path.insert(0, meipass)
 
@@ -1190,37 +1109,16 @@ def _load_siemens_wrapper() -> Any:
         import siemens_tia_scripting as ts
         return ts
 
-    # Modo desarrollo: import estÃ¡ndar del venv.
     import siemens_tia_scripting as ts
     return ts
 
 def _is_com_disconnect(exc: BaseException) -> bool:
-    """Heuristica que detecta excepciones tipicas de desconexion COM/RPC.
+    """Heur�stica: parece que TIA Portal se cerr� y hay que re-attachar.
 
-    La deteccion exacta del tipo de error que .NET lanza cuando TIA
-    Portal se cierra mid-flight es fragil (depende de la build del
-    wrapper, de si el subproceso se murio o solo el RCW quedo en
-    estado invalido, etc.). Esta heuristica mira tres senales:
-
-    1. El nombre de la clase de la excepcion contiene ``"COM"`` o
-       ``"RPC"`` (cubre ``COMException``, ``RPCException``,
-       ``System.Runtime.InteropServices.COMException``,
-       ``OSError`` con errno tipo RPC, etc.).
-    2. El objeto tiene un atributo ``hresult`` (los COMException de
-       .NET lo exponen; los Python ``OSError`` con WSAECONNRESET
-       no, pero las excepciones que envuelven HRESULT si).
-
-    Falsos positivos son aceptables (mejor re-attachar de mas que
-    de menos). Falsos negativos harian que el loop siguiera usando
-    un ``portal`` invalido y los handlers fallaran con errores
-    crípticos; con esta heuristica esos casos caen al re-attach.
-
-    Args:
-        exc: Excepcion capturada durante la ejecucion de un handler.
-
-    Returns:
-        ``True`` si la excepcion sugiere que el portal TIA se
-        desconecto; ``False`` en caso contrario.
+    Detectar esto de forma exacta no es viable (depende del build del
+    wrapper, de si muri� el subproceso o solo el RCW qued� inv�lido).
+    Aceptamos falsos positivos: re-attachar de m�s es mejor que dejar
+    al loop usando un portal muerto.
     """
     name = type(exc).__name__
     if "COM" in name or "RPC" in name:
@@ -1231,82 +1129,21 @@ def _is_com_disconnect(exc: BaseException) -> bool:
 
 
 def main_persistent_loop() -> None:
-    """Loop principal del worker OT persistente (PR 3 del refactor).
+    """Loop principal del worker OT persistente.
 
-    Esta funcion se invoca cuando el subproceso recibe
-    ``--worker-persistent`` (modo web, gateway con
-    ``persistent=True``). Lee comandos JSON de stdin linea por
-    linea, los despacha al ``COMMAND_REGISTRY`` y escribe la
-    respuesta con el mismo ``id`` a stdout.
+    El subproceso se invoca con ``--worker-persistent`` y se queda
+    vivo entre comandos. Lee JSON de stdin l�nea a l�nea, lo despacha
+    al ``COMMAND_REGISTRY`` y escribe la respuesta con el mismo
+    ``id`` a stdout.
 
-    Modelo de ciclo de vida (state machine, sept-2026 post-auditoria):
+    Estados: idle (sin portal) ? connected (tras attach_portal) ?
+    idle (tras detach_portal). El subproceso no muere entre comandos.
 
-      - El worker arranca en estado **idle** (``portal is None``).
-        NO hace attach al inicio: el gateway le envia un comando
-        ``attach_portal`` explicito cuando el operario pulsa el
-        boton "Conectar" del topbar (o cuando el primer comando lo
-        requiere). Esto elimina el coste de attach (~5s) en el
-        arranque de la app si el operario no necesita TIA todavia.
-      - Tras el attach, el estado es **connected** y los comandos
-        del ``COMMAND_REGISTRY`` operan contra el portal attached.
-      - El operario (o el gateway) envia ``detach_portal`` para
-        volver a **idle** sin matar el subproceso. El portal
-        attached se libera; el worker sigue vivo esperando mas
-        comandos.
-
-    Contrato del protocolo (ver §2.5 del design doc):
-
-      - Entrada (``stdin``): una linea JSON por comando, con la
-        forma ``{"id": int, "command": str, "args": dict}``. El
-        ``id`` es obligatorio y se usa para matchear la respuesta.
-      - Salida (``stdout``): una linea JSON por respuesta, con la
-        forma ``{"id": int, "ok": bool, "result": any}`` o
-        ``{"id": int, "ok": false, "error": str}``. SIEMPRE con
-        ``id`` para que el reader del gateway pueda matchear.
-      - Comando ``exit``: sale del loop limpiamente (cleanup
-        con ``portal.detach()`` si el portal esta attached). El
-        subproceso termina con ``returncode = 0``.
-      - Stdin cerrado (EOF): sale del loop. Mismo cleanup.
-      - Excepcion parseando JSON o leyendo stdin: escribe a
-        ``stderr`` y sale del loop (el subproceso muere). El
-        gateway detecta EOF en stdout y marca el estado como
-        ``disconnected``.
-
-    Comandos especiales del state machine (gestionados en linea,
-    NO en el ``COMMAND_REGISTRY``):
-
-      - ``attach_portal`` (``args: {"mode": "WithGraphicalUserInterface" | "WithoutGraphicalUserInterface"}``):
-        llama ``ts.attach_portal(...)`` con el modo pedido,
-        asigna el resultado a la variable local ``portal`` y
-        responde ``{"pid": <int>}`` o ``{"error": "..."}``.
-      - ``detach_portal``: si ``portal is not None``, llama
-        ``portal.detach()`` y responde ``{"detached": true}``.
-        Si ya estaba en idle, responde ``{"detached": false}``
-        (operacion idempotente).
-
-    Resto de comandos del ``COMMAND_REGISTRY``: requieren
-    ``portal is not None``. Si se invocan en estado idle, el
-    loop responde ``{ok: false, error: "Portal no attached. Conectar
-    primero."}`` sin despachar al handler (romperia con
-    ``AttributeError: NoneType``).
-
-    Cleanup:
-
-      - Al exit (sea por ``exit``, EOF o error): si ``portal is not
-        None``, ``portal.detach()`` best-effort. El fallo no
-        propaga (puede ser que TIA ya este cerrado y el RCW este
-        muerto).
-
-    Notas de I/O:
-
-      - ``stdout`` se vacia con ``flush()`` despues de CADA respuesta.
-        Sin esto, el gateway (que lee en una task asyncio paralela)
-        podria quedarse esperando un buffer que nunca llega.
-      - ``stderr`` se usa para logs y trazas de errores de loop. El
-        gateway NO lee stderr en el modo persistente (lo deja
-        fluir al stderr del proceso IT).
+    ``attach_portal`` y ``detach_portal`` se gestionan aqu� (no en
+    el ``COMMAND_REGISTRY``) porque necesitan reasignar la variable
+    local ``portal``.
     """
-    # 1. Carga del wrapper nativo (mismo patron que main() en path 1-shot).
+    # 1. Carga del wrapper nativo.
     try:
         ts = _load_siemens_wrapper()
     except (ImportError, FileNotFoundError) as e:
@@ -1316,32 +1153,12 @@ def main_persistent_loop() -> None:
         )
         return  # _write_json_and_exit es NoReturn, pero el type checker lo agradece
 
-    # 2. Estado inicial: IDLE (sept-2026, post-auditoria).
-    # El worker NO hace attach al inicio. El gateway le enviara
-    # un comando ``attach_portal`` explicito cuando el operario
-    # decida conectar. Esto desacopla la vida del subproceso
-    # worker de la vida del portal TIA: el worker puede arrancar
-    # en milisegundos sin pagar el coste de attach (~5s reales,
-    # ver ``_plan/12_worker_persistent_design.md`` §1.2), y el
-    # operario decide cuando conectar.
+    # 2. Estado inicial: idle. El worker arranca sin portal; el gateway
+    # le env�a un attach_portal cuando el operario pulse "Conectar".
     portal: Any = None
 
-    # 2.5 Signal "ready_idle" (sept-2026, post-auditoria, refactor
-    # del state machine). Tras la carga exitosa del wrapper, escribimos
-    # un mensaje a stdout con id=0 (id reservado, fuera del rango normal
-    # del protocolo request-response que usa ids >= 1). El gateway lee
-    # este mensaje ANTES de enviar el primer comando, para saber que el
-    # subproceso esta vivo y el wrapper cargo OK. NO incluye ``pid``
-    # porque NO hay portal attached todavia (estado idle por diseño).
-    #
-    # Cambia respecto al flujo anterior (PR 3 / sept-2026 round 1) que
-    # emitia ``{"result": "ready", "pid": <int>}`` tras un attach
-    # inicial. Ese flujo era invalido para el nuevo state machine:
-    # si el worker attacha al inicio, el gateway queda acoplado al
-    # ciclo de vida de TIA Portal (un TIA cerrado al startup tira la
-    # app completa). Con ``ready_idle`` el gateway puede arrancar la
-    # web incluso sin TIA abierta, y el operario decide cuando
-    # conectar via el boton del topbar.
+    # 2.5 Signal "ready_idle" (id=0, reservado). El gateway lo lee antes
+    # de enviar el primer comando para saber que el subproceso est� vivo.
     try:
         ready_payload: dict[str, Any] = {
             "id": 0,
@@ -1352,8 +1169,7 @@ def main_persistent_loop() -> None:
         sys.stdout.flush()
     except Exception as exc:
         # Si no podemos escribir el ready (e.g. stdout cerrado), el
-        # gateway lo detectara por timeout. No morimos: el worker
-        # sigue siendo util si el IT process se reconecta.
+        # gateway lo detectara por timeout. No morimos.
         sys.stderr.write(
             f"[WORKER READY ERROR] {type(exc).__name__}: {exc}\n"
         )
@@ -1362,65 +1178,14 @@ def main_persistent_loop() -> None:
     # 3. Helpers locales para el state machine.
 
     def _try_reattach() -> bool:
-        """Re-attacha el portal TIA tras un COM-disconnect mid-loop.
+        """Re-attacha el portal TIA tras un cierre de TIA a media sesi�n.
 
-        Re-asigna la variable local ``portal`` (``nonlocal``) si el
-        attach tiene exito. Retorna ``True`` si el portal queda
-        vivo, ``False`` en caso contrario.
-
-        Solo se invoca desde el cuerpo del loop cuando
-        ``portal.get_process_id()`` lanza (el RCW quedo invalido
-        tras un cierre de TIA o un glitch COM). NO se invoca para
-        cold-start; eso lo hace ``_handle_attach``.
-
-        Limitacion conocida (audit A9, sept-2026) — carrera con
-        ``disconnect()`` del gateway:
-
-        El codepath que invoca ``_try_reattach`` (linea 1567, el
-        ``except`` que captura excepciones de ``get_process_id``)
-        NO distingue entre dos escenarios muy distintos:
-
-          a) **TIA se cerro sola** (crash, dialogo modal mato el
-             proceso, etc.) → el re-attach defensivo es
-             CORRECTO: re-animamos el portal y el siguiente
-             comando del operario funciona.
-          b) **El operario pulso "Desconectar"** → la intencion
-             es que NO haya portal attached. Si el heartbeat del
-             gateway esta en vuelo (``portal.get_process_id()``
-             se invoca desde alli en ``_cmd_ping``) y TIA responde
-             lento justo en ese momento, el reader puede
-             interpretar el timeout como COM-disconnect y
-             disparar este ``_try_reattach``, REVIVIENDO un
-             portal que el operario intento matar.
-
-        El re-attach NO discrimina entre los dos casos. Es
-        defensivo contra (a), pero puede causar (b). En la
-        practica, (b) es raro y de bajo impacto (el operario
-        ve "Conectado" en el topbar cuando deberia ver
-        "Desconectado", pero basta un re-disconnect o un
-        reconectar para arreglar el estado). Aceptamos la
-        limitacion porque la alternativa (introducir un flag
-        ``_user_wants_disconnect`` sincronizado via un comando
-        ``mark_disconnecting`` antes del detach) es
-        significativamente mas compleja y anade un round-trip
-        extra al ciclo disconnect.
-
-        Si en el futuro se quiere cerrar la carrera, los
-        anclajes son:
-
-          1. Anadir un flag ``_disconnect_pending: bool`` al
-             estado del worker.
-          2. ``_handle_detach`` lo pone a ``True`` antes de
-             hacer el detach.
-          3. ``_try_reattach`` lo consulta y retorna ``False``
-             si esta a ``True`` (no re-attaches).
-          4. ``_handle_detach`` lo limpia a ``False`` tras el
-             detach exitoso (o lo deja a ``True`` si el detach
-             fallo, para que el siguiente attach explicito del
-             gateway lo confirme).
-
-        No se implementa en sept-2026 por YAGNI: el problema
-        es raro y el workaround (re-disconnect) es aceptable.
+        Devuelve True si el portal queda vivo, False en caso contrario.
+        Limitaci�n conocida: si el operario acaba de pulsar "Desconectar"
+        y el heartbeat lee el portal justo en ese momento, este re-attach
+        puede revivir un portal que el operario quer�a desconectar. El
+        caso es raro y de bajo impacto (basta un re-disconnect para
+        arreglarlo).
         """
         nonlocal portal
         if portal is not None:
@@ -1446,48 +1211,29 @@ def main_persistent_loop() -> None:
             return False
 
     def _handle_attach(args: dict[str, Any]) -> dict[str, Any]:
-        """Implementacion inline del comando ``attach_portal``.
+        """Conecta con TIA Portal. Devuelve ``{"pid": <int>}`` o ``{"error": "..."}``.
 
-        El handler NO se mete en el ``COMMAND_REGISTRY`` porque
-        necesita mutar la variable local ``portal`` (el registry
-        recibe ``portal`` como argumento y no puede reasignarlo).
-        El gateway lo invia como un comando normal; el loop lo
-        despacha aqui antes de caer al registry.
-
-        Args:
-            args: dict con la clave opcional ``"mode"`` que
-                selecciona el ``PortalMode`` de Siemens. Default
-                ``"WithGraphicalUserInterface"`` (consistente con
-                el attach inicial del refactor anterior). Valores
-                validos: ``"WithGraphicalUserInterface"`` y
-                ``"WithoutGraphicalUserInterface"``.
-
-        Returns:
-            ``{"pid": <int>}`` si el attach fue exitoso (con el
-            PID de TIA Portal), o ``{"error": "..."}`` si fallo.
+        ``args["mode"]`` puede ser ``"WithGraphicalUserInterface"`` o
+        ``"WithoutGraphicalUserInterface"``. Default: con GUI.
         """
         nonlocal portal
         if portal is not None:
-            # Ya hay un portal attached. Esto NO es un error: el
-            # operario puede hacer connect varias veces (e.g. el
-            # frontend reintenta tras un timeout). Devolvemos el
-            # PID actual para que el gateway confirme el estado.
+            # Ya hay portal attached. Devolvemos el PID actual para
+            # que el gateway confirme el estado.
             try:
                 pid = int(portal.get_process_id())
                 return {"pid": pid}
             except Exception:
-                # El portal esta vivo en la variable local pero
-                # get_process_id falla (TIA cerrada mid-session).
-                # Forzamos detach y re-attach abajo.
+                # El portal est� vivo pero get_process_id falla
+                # (TIA cerrada mid-session). Forzamos detach y re-attach.
                 try:
                     portal.detach()
                 except Exception:
                     pass
                 portal = None
         mode_name = (args or {}).get("mode", "WithGraphicalUserInterface")
-        # Resolucion del enum. Mapeo explicito para no acoplar el
-        # worker al espacio de nombres ``ts.Enums.PortalMode``
-        # (no expuesto en todos los builds del wrapper).
+        # Resoluci�n del enum por nombre para no acoplarnos al espacio
+        # ts.Enums.PortalMode (no expuesto en todos los builds).
         try:
             portal_mode = getattr(
                 ts.Enums.PortalMode, mode_name
@@ -1507,43 +1253,24 @@ def main_persistent_loop() -> None:
         if new_portal is None:
             return {
                 "error": (
-                    "attach_portal retorno None. ¿Esta TIA Portal "
-                    "abierto? ¿El usuario pertenece al grupo Openness?"
+                    "attach_portal retorno None. �Esta TIA Portal "
+                    "abierto? �El usuario pertenece al grupo Openness?"
                 )
             }
         portal = new_portal
         try:
             pid = int(portal.get_process_id())
         except Exception:
-            # Attach OK pero el PID no se puede leer (TIA en estado
-            # raro). Devolvemos pid=None para que el gateway no
-            # asuma PID valido.
+            # Attach OK pero el PID no se puede leer (TIA en estado raro).
             pid = None
         return {"pid": pid}
 
     def _handle_detach(args: dict[str, Any]) -> dict[str, Any]:  # noqa: ARG001
-        """Implementacion inline del comando ``detach_portal``.
+        """Desconecta de TIA Portal. Idempotente.
 
-        Idempotente: si ya estamos en idle, retorna
-        ``{"detached": false}`` sin error. Si hay portal attached,
-        llama ``portal.detach()`` best-effort y retorna
-        ``{"detached": true}``.
-
-        Returns:
-            ``{"detached": true}`` si habia portal y se detacho.
-            ``{"detached": false}`` si ya estabamos en idle.
-
-        Cambio sept-2026 (fix A7 del audit de robustez): si
-        ``portal.detach()`` lanza (TIA ya cerrada, RCW stale, etc.),
-        antes el handler absorbia el error con ``pass`` y devolvia
-        ``{"detached": True}`` igualmente. Esto es engañoso: el
-        gateway pensaba que el detach fue OK; el frontend mostraba
-        "Desconectado" en verde. Ahora (sept-2026) dejamos un
-        WARNING con la excepcion para que el operario vea en los
-        logs POR QUE el detach fue problematico. El return sigue
-        siendo ``{"detached": True}`` porque el best-effort sigue
-        siendo el contrato (el siguiente ``attach_portal`` creara
-        un RCW nuevo); pero dejamos rastro para diagnostico.
+        Si no hay portal attached devuelve ``{"detached": false}``.
+        Si lo hay llama ``portal.detach()`` (best-effort: si falla por
+        TIA cerrada se loguea como WARNING) y devuelve ``{"detached": true}``.
         """
         nonlocal portal
         if portal is None:
@@ -1551,13 +1278,8 @@ def main_persistent_loop() -> None:
         try:
             portal.detach()
         except Exception as exc:
-            # TIA ya cerrada, RCW stale, etc. No propagamos: el
-            # objetivo del detach es liberar el RCW; si ya esta
-            # muerto, el siguiente attach_portal creara uno nuevo.
-            # Pero dejamos rastro (A7): el operario ve "WARNING
-            # detach_portal best-effort fallo: ..." en los logs y
-            # puede correlacionarlo con un TIA que se cerro de
-            # forma abrupta, dialogos modales colgados, etc.
+            # TIA ya cerrada o RCW stale. Logueamos para que el operario
+            # pueda correlacionarlo con un TIA que se cerr� de golpe.
             _logger.warning(
                 "detach_portal best-effort fallo: %s: %s",
                 type(exc).__name__,
@@ -1566,31 +1288,25 @@ def main_persistent_loop() -> None:
         portal = None
         return {"detached": True}
 
-    # 4. Loop principal. Lee lineas de stdin hasta EOF o ``exit``.
+    # 4. Loop principal.
     while True:
         try:
             line = sys.stdin.readline()
             if not line:
-                # stdin cerrado -> el proceso IT cerro el pipe. Salida limpia.
+                # stdin cerrado (el IT cerr� el pipe). Salida limpia.
                 break
             stripped = line.strip()
             if not stripped:
-                # Linea vacia (raro pero tolerante): seguimos leyendo.
+                # L�nea vac�a: seguimos leyendo.
                 continue
             payload = json.loads(stripped)
             request_id = payload.get("id", 0)
             command = payload.get("command", "")
             args = payload.get("args", {}) or {}
 
-            # Comando de control del protocolo.
             if command == "exit":
                 break
 
-            # Comandos del state machine: gestion inline (mutan
-            # ``portal``), NO via COMMAND_REGISTRY. Despachados
-            # ANTES de cualquier check de ``portal is not None``
-            # porque justamente son los comandos que controlan el
-            # estado del portal.
             if command == "attach_portal":
                 result = _handle_attach(args)
                 ok = "error" not in result
@@ -1609,12 +1325,9 @@ def main_persistent_loop() -> None:
                 sys.stdout.flush()
                 continue
 
-            # Resto de comandos del registry: requieren portal
-            # attached. Esto cierra el caso del operario que pulsa
-            # una operacion (e.g. ``list_plcs``) sin haber
-            # conectado primero: el loop responde con un error
-            # claro en vez de un ``AttributeError: 'NoneType'``
-            # desde dentro de un handler.
+            # El resto de comandos necesitan portal attached. Si no
+            # hay, respondemos con un error claro en vez de dejar
+            # que el handler reviente con NoneType.
             if portal is None:
                 response = {
                     "id": request_id,
@@ -1627,9 +1340,8 @@ def main_persistent_loop() -> None:
                 sys.stdout.flush()
                 continue
 
-            # Re-attach defensivo (idempotente con el check anterior):
-            # si el portal esta vivo (``get_process_id`` no lanza),
-            # seguimos; si no, intentamos re-attachar una vez.
+            # Re-attach defensivo: si el portal muri� desde el �ltimo
+            # comando, intentamos re-attachar una vez antes de fallar.
             try:
                 portal.get_process_id()
             except Exception:
@@ -1647,7 +1359,6 @@ def main_persistent_loop() -> None:
                     sys.stdout.flush()
                     continue
 
-            # Despacho al handler del registry.
             try:
                 handler = COMMAND_REGISTRY.get(command)
                 if handler is None:
@@ -1655,11 +1366,9 @@ def main_persistent_loop() -> None:
                 result = handler(portal, ts, args)
                 response = {"id": request_id, "ok": True, "result": result}
             except Exception as exc:
-                # Si la excepcion parece COM/RPC, marcamos el portal
-                # como None para que el siguiente comando fuerce
-                # re-attach. Si es un error de aplicacion (e.g.
-                # ValueError por args invalidos), dejamos el portal
-                # vivo.
+                # Si parece COM/RPC marcamos el portal como None para
+                # forzar re-attach en el siguiente comando. Si es un
+                # error de aplicaci�n (e.g. args inv�lidos) lo dejamos vivo.
                 if _is_com_disconnect(exc):
                     portal = None
                 response = {
@@ -1668,28 +1377,21 @@ def main_persistent_loop() -> None:
                     "error": f"{type(exc).__name__}: {exc}",
                 }
 
-            # Respuesta SIEMPRE con ``id`` para que el reader del
-            # gateway pueda matchear. SIEMPRE con flush() para
-            # desbloquear la task de lectura.
+            # Siempre con id (para que el reader del gateway matchee)
+            # y siempre con flush (para no bloquear la task de lectura).
             sys.stdout.write(json.dumps(response, ensure_ascii=False) + "\n")
             sys.stdout.flush()
         except Exception as exc:
-            # Error parseando JSON o leyendo stdin. Logueamos a
-            # stderr y salimos del loop: el subproceso muere, el
-            # gateway detecta EOF y marca el estado como
-            # ``disconnected``. Operario debe reiniciar.
+            # Error parseando JSON o leyendo stdin. Salimos del loop;
+            # el gateway detectar� EOF y marcar� el estado como error.
             sys.stderr.write(
                 f"[WORKER LOOP ERROR] {type(exc).__name__}: {exc}\n"
             )
             sys.stderr.flush()
             break
 
-    # 5. Cleanup best-effort al exit. Si el portal esta attached
-    #    (sea por ``exit`` explicito, EOF de stdin, o error de
-    #    loop), lo detachamos. El detach puede fallar (TIA ya
-    #    cerrada, RCW stale) y eso esta OK: el objetivo es
-    #    liberar el RCW; si ya esta muerto, el OS lo reapa
-    #    cuando el subproceso termine.
+    # 5. Limpieza al salir. Si quedaba portal attached lo soltamos
+    # (best-effort; si falla el OS libera al morir el subproceso).
     if portal is not None:
         try:
             portal.detach()
@@ -1710,7 +1412,7 @@ def main() -> None:
         main_persistent_loop()
         return
 
-    # 1. Carga dinÃ¡mica tardÃ­a del wrapper nativo (SecciÃ³n 1.7.1 V1.2.1).
+    # 1. Carga dinámica tardía del wrapper nativo (Sección 1.7.1 V1.2.1).
     try:
         ts = _load_siemens_wrapper()
     except (ImportError, FileNotFoundError) as e:
@@ -1741,7 +1443,7 @@ def main() -> None:
         payload = json.loads(raw_stdin) if raw_stdin else {}
     except Exception as e:
         _write_json_and_exit(
-            {"ok": False, "error": f"Payload STDIN invÃ¡lido (JSON malformado): {e}"},
+            {"ok": False, "error": f"Payload STDIN inválido (JSON malformado): {e}"},
             code=1,
         )
 
@@ -1755,11 +1457,11 @@ def main() -> None:
         )
 
     portal = None
-    # ── Métricas de timing (observabilidad PR, no cambian comportamiento) ──
+    # ?? M�tricas de timing (observabilidad PR, no cambian comportamiento) ??
     # time.monotonic() es inmune a saltos NTP. Cada t_X_end se inicializa
-    # a None para distinguir "no se ejecutó" (null en el JSON) de
-    # "se ejecutó en 0ms" (0 entero). Los timings se emiten a stderr al
-    # final del bucle, en el finally, para capturar también los errores.
+    # a None para distinguir "no se ejecut�" (null en el JSON) de
+    # "se ejecut� en 0ms" (0 entero). Los timings se emiten a stderr al
+    # final del bucle, en el finally, para capturar tambi�n los errores.
     t_load_dll_start: float | None = None
     t_load_dll_end: float | None = None
     t_attach_start: float | None = None
@@ -1770,26 +1472,26 @@ def main() -> None:
     t_detach_end: float | None = None
     try:
         # 1'. Marca de carga del wrapper nativo. La carga efectiva
-        #     sucede arriba (línea ~1175), pero para que las cuatro
+        #     sucede arriba (l�nea ~1175), pero para que las cuatro
         #     mediciones sumen coherentemente al total del worker
-        #     partimos de aquí: el handler ya tiene `ts` enlazado
-        #     cuando entra a este bloque. En producción el grueso
-        #     del coste de import .pyd ya está pagado; aún así lo
+        #     partimos de aqu�: el handler ya tiene `ts` enlazado
+        #     cuando entra a este bloque. En producci�n el grueso
+        #     del coste de import .pyd ya est� pagado; a�n as� lo
         #     medimos para detectar regresiones en frozen vs dev.
         t_load_dll_start = time.monotonic()
         t_load_dll_end = time.monotonic()
 
         # 4. Enganche al portal. Los comandos del ciclo de vida de la
         #    instancia TIA (attach_portal, open_new_portal) gestionan
-        #    su propia conexiÃ³n: NO hacemos attach previo porque
-        #    romperÃ­a precisamente el caso cold-start (open_new_portal
-        #    sobre una instancia aÃºn no lanzada) y serÃ­a redundante
+        #    su propia conexión: NO hacemos attach previo porque
+        #    rompería precisamente el caso cold-start (open_new_portal
+        #    sobre una instancia aún no lanzada) y sería redundante
         #    para attach_portal (el handler rehace el attach).
         if command not in ("attach_portal", "open_new_portal"):
             # Usamos AnyUserInterface para que el filtro de instancias
             # COM acepte tanto TIA Portal con GUI activa como
-            # instancias headless (manual V1.2.1 Â§2.4.2). De este modo
-            # el proceso aislado puede reengancharse a la sesiÃ³n ya
+            # instancias headless (manual V1.2.1 §2.4.2). De este modo
+            # el proceso aislado puede reengancharse a la sesión ya
             # abierta por el usuario sin colisionar con su estado.
             t_attach_start = time.monotonic()
             portal = ts.attach_portal(
@@ -1798,12 +1500,12 @@ def main() -> None:
             t_attach_end = time.monotonic()
             if portal is None:
                 raise RuntimeError(
-                    "Fallo crÃ­tico: attach_portal retornÃ³ una referencia nula. "
-                    "AsegÃºrate de que TIA Portal estÃ¡ abierto."
+                    "Fallo crítico: attach_portal retornó una referencia nula. "
+                    "Asegúrate de que TIA Portal está abierto."
                 )
 
-        # 5. Despacho al handler. La extracciÃ³n del proyecto es responsabilidad
-        #    del propio handler (vÃ­a _get_active_project) si lo requiere.
+        # 5. Despacho al handler. La extracción del proyecto es responsabilidad
+        #    del propio handler (vía _get_active_project) si lo requiere.
         handler = COMMAND_REGISTRY[command]
         t_handler_start = time.monotonic()
         result = handler(portal, ts, args)
@@ -1818,7 +1520,7 @@ def main() -> None:
             code=1,
         )
     finally:
-        # 6. LiberaciÃ³n estricta de punteros RCW de .NET.
+        # 6. Liberación estricta de punteros RCW de .NET.
         if portal is not None:
             t_detach_start = time.monotonic()
             try:
@@ -1827,10 +1529,10 @@ def main() -> None:
                 sys.stderr.write(f"[WORKER DETACH ERROR] {e}\n")
             t_detach_end = time.monotonic()
 
-        # 7. Emisión de timings como JSON estructurado a stderr.
+        # 7. Emisi�n de timings como JSON estructurado a stderr.
         #    stderr y NO stdout: stdout es el canal del JSON response
-        #    que parsea el gateway. Mezclar ahí rompería la
-        #    comunicación. Cada campo null = fase no ejecutada
+        #    que parsea el gateway. Mezclar ah� romper�a la
+        #    comunicaci�n. Cada campo null = fase no ejecutada
         #    (p.ej. attach_portal_ms es null para attach_portal /
         #    open_new_portal, que no hacen attach previo).
         def _ms(end, start):

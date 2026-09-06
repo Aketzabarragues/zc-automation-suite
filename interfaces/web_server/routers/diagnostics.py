@@ -188,32 +188,8 @@ async def get_progress(
 ) -> dict[str, Any]:
     """Devuelve el snapshot del ``ProgressTracker`` Singleton.
 
-    La SPA hace polling cada 500 ms contra este endpoint (ver
-    ``main.js::setInterval``). El tracker es la **única fuente
-    de verdad** del progreso: la SPA nunca escribe, solo lee.
-
-    Estructura del response::
-
-        {
-            "ok": True,
-            "progress": {
-                "active": bool,
-                "operation": "preview" | "commit" | ... | null,
-                "label": "Generando prevision para PLC_X" | null,
-                "current": 2,        # stages completados
-                "total":   4,
-                "percent": 50,
-                "stages":  [
-                    {"id": "export_tags", "label": "Export tags",
-                     "status": "done", "detail": "...",
-                     "started_at": "...", "finished_at": "..."},
-                    ...
-                ],
-                "started_at":  "...",
-                "finished_at": null,
-                "error": null
-            }
-        }
+    La SPA hace polling cada 500 ms contra este endpoint; el tracker
+    es la única fuente de verdad del progreso (la SPA solo lee).
     """
     snap = _get_progress_singleton().snapshot()
     return {"ok": True, "progress": snap.to_dict()}

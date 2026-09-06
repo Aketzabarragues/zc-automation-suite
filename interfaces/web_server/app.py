@@ -104,47 +104,19 @@ class NoCacheStaticFiles(_BaseStaticFiles):
 
 @asynccontextmanager
 async def _tia_lifespan(app: FastAPI):
-    """Lifespan que arranca el worker persistente al startup y lo
-    cierra al shutdown (auditoría X2 + fix de event loop post-implementación).
+    """Lifespan del web server: arranca el worker persistente al
+    startup y lo cierra al shutdown.
 
-    **Startup (este PR, sept-2026 round 2):**
+    El ``gateway.start()`` crea un reader task que debe vivir en el
+    mismo event loop que uvicorn, por eso va aquí y no en el
+    supervisor. Al shutdown se llama ``disconnect()`` para liberar
+    los ~200 MB del ``.pyd`` cargado.
 
-    Si el gateway es persistente (``persistent=True``), llama
-    ``await gateway.start()`` ANTES del ``yield``. Esto es
-    crítico y por eso vive en el lifespan (no en
-    ``WebServiceSupervisor._serve_once``): el ``gateway.start()``
-    crea un reader task en asyncio, y ese reader task DEBE vivir
-    en el mismo event loop que uvicorn para que sobreviva
-    cuando el operario llame a ``connect()`` desde un endpoint
-    HTTP. Si lo lanzamos en un loop efímero
-    (``asyncio.run(gateway.start())`` desde el supervisor), ese
-    loop se cierra al retornar y el reader task se cancela.
-    El síntoma en producción era
-    ``RuntimeError: Reader task del worker persistente no esta vivo``
-    al pulsar "Conectar" 10 s después del startup, aunque
-    ``worker_alive=True``.
-
-    **Shutdown (auditoría X2):**
-
-    Tras el ``yield``, llama ``await gateway.disconnect()`` para
-    que el worker persistente NO quede zombi (~200 MB con
-    ``siemens_tia_scripting.pyd`` cargado) hasta que se cierre
-    TIA o se mate el proceso manualmente.
-
-    Solo aplica a gateways persistentes (modo web). Modo 1-shot
-    (MCP) usa gateways ``persistent=False`` y ``disconnect()``
-    lanzaría ``TIAConnectionError``; lo saltamos con un guard.
-
-    Cubre el path canónico: ``python main.py --web`` y
-    ``WebServiceSupervisor._serve_once`` (el supervisor también
-    tiene su propia red de seguridad en el ``finally``).
+    Solo aplica a gateways ``persistent=True`` (modo web); en modo
+    1-shot (MCP) se omite con un guard.
     """
     import logging
 
-    # ── Startup ───────────────────────────────────────────────
-    # Arrancamos el worker persistente AQUÍ (no antes) para que
-    # el reader task viva en el mismo loop que uvicorn. Ver
-    # docstring para el razonamiento completo.
     gateway = getattr(app.state, "gateway", None)
     if gateway is not None and getattr(gateway, "persistent", False):
         try:
@@ -165,7 +137,6 @@ async def _tia_lifespan(app: FastAPI):
 
     yield
 
-    # ── Shutdown (auditoría X2) ──────────────────────────────
     # ``gateway`` puede haber cambiado (no deberia, pero defensa):
     # lo re-leemos de ``app.state``.
     gateway = getattr(app.state, "gateway", None)
@@ -223,10 +194,9 @@ def create_app(gateway: TIAProcessGateway) -> FastAPI:
     app.include_router(catalog_router)
     app.include_router(diagnostics_router)
     app.include_router(portal_router)
-    # PR 5a: estado del worker OT persistente. La SPA hace polling
-    # cada 2s contra ``GET /tia/connection`` y lanza ``POST
-    # /tia/connect`` / ``POST /tia/disconnect`` al pulsar el
-    # indicador del topbar. Logica reconnect/disconnect en PR 6.
+    # Estado del worker OT persistente. La SPA hace polling cada 2s
+    # contra ``GET /tia/connection`` y lanza ``POST /tia/connect`` /
+    # ``POST /tia/disconnect`` al pulsar el indicador del topbar.
     app.include_router(tia_connection_router)
 
     # ── 3. Routers aportados por las áreas (Bounded Contexts) ─────

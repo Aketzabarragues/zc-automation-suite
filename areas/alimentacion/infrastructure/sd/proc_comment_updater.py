@@ -416,34 +416,12 @@ class ProcCommentUpdater:
     def read_current_comments(
         self, slot_indices: "list[int] | tuple[int, ...]", array_name: str
     ) -> "dict[int, str | None]":
-        """Lee el ``es-ES`` actual de los slots dados del array.
+        """Lee el ``es-ES`` actual de los slots del array principal.
 
-        Esta función es la inversa de ``update()`` en modo lectura:
-        no modifica ningún archivo, solo consulta el ``.s7res`` y
-        devuelve el texto actual para cada slot.
-
-        Args:
-            slot_indices: Lista de slots 1-based cuyo ``es-ES`` se
-                quiere leer.
-            array_name: Nombre del array principal en el DB
-                (``"PReal"``, ``"PInt"``, ``"ALM"``). Las entradas del
-                array principal son las que se exponen al operario
-                en la vista de diff; los satélites son "copias" del
-                mismo texto y NO entran en la comparación (se
-                propagan automáticamente al aplicar cambios, ver
-                ``update()``).
-
-        Returns:
-            ``{slot: es-ES_text}`` o ``{slot: None}`` si el slot no
-            existe en el ``.s7dcl`` o no tiene MLC adyacente.
-            ``es-ES_text`` puede ser ``""`` si el MLC existe pero
-            tiene el texto vacío en el ``.s7res`` (caso TIA "sin
-            comentario").
-
-        Notas:
-            No falla si el archivo no existe: en ese caso, devuelve
-            ``{slot: None}`` para todos. El caller decide si abortar
-            o marcar la vista como "sin datos de TIA".
+        Solo expone los MLCs del array principal; los satélites son
+        copias del mismo texto y se actualizan al aplicar cambios.
+        Si el archivo no existe, devuelve ``{slot: None}`` para
+        todos los slots.
         """
         # Si el .s7res no existe (p. ej. el export falló), devolvemos
         # None para todos los slots.

@@ -47,36 +47,11 @@ async def get_catalog(
 ) -> dict[str, Any]:
     """Devuelve el catálogo de presentación (device_tabs, nmax, ...).
 
-    Itera las áreas vía ``AreaRegistry`` y fusiona los diccionarios
-    que cada una aporta en su hook ``contributes_catalog``. El
-    shell NO conoce áreas concretas: si una futura área declara
-    ``contributes_catalog`` en su ``AreaSpec``, su salida aparece
-    automáticamente en este endpoint sin tocar este router.
-
-    Si dos áreas aportan claves con el mismo nombre, gana la
-    última en orden de discovery de ``AreaRegistry``. El contrato
-    actual del hook (``(cm: ConfigManager) -> dict[str, Any]``)
-    se respeta intacto: este router no impone mutación de
-    estado, solo hace merge de los payloads.
-
-    La SPA lo llama una vez al arrancar (en ``main.js``) y lo
-    cachea en ``store.catalog``. Si en el futuro la SPA
-    quisiera refrescarlo sin recargar, se añade un botón
-    "Refrescar catálogo" que llame a este mismo endpoint.
-
-    Respuesta (shape estable, la SPA hace fallback por clave
-    ausente si el backend aún no la expone):
-
-        {
-          "ok": true,
-          "catalog": {
-            "device_tabs":   [...],
-            "nmax":          [...],
-            "model_columns": {...},
-            "col_labels":    {...},
-            "mono_cols":     [...]
-          }
-        }
+    Fusiona los diccionarios que cada área aporta en su hook
+    ``contributes_catalog``. El shell no conoce áreas concretas: una
+    nueva área que declare el hook aparece automáticamente. Si dos
+    áreas aportan la misma clave, gana la última en orden de
+    discovery.
     """
     merged: dict[str, Any] = {}
     for spec in AreaRegistry.discover().all():
