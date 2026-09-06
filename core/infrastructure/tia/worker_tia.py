@@ -1244,11 +1244,22 @@ def main_persistent_loop() -> None:
     ``--worker-persistent`` (modo web, gateway con
     ``persistent=True``). Lee comandos JSON de stdin linea por
     linea, los despacha al ``COMMAND_REGISTRY`` y escribe la
-    respuesta con el mismo ``id`` a stdout. Mantiene UN attach
-    al portal durante toda la vida del proceso: los comandos
-    sucesivos reutilizan el mismo portal attached, evitando el
-    coste de ``ts.attach_portal()`` (~5s reales por attach, ver
-    ``_plan/12_worker_persistent_design.md`` §1.2).
+    respuesta con el mismo ``id`` a stdout.
+
+    Modelo de ciclo de vida (state machine, sept-2026 post-auditoria):
+
+      - El worker arranca en estado **idle** (``portal is None``).
+        NO hace attach al inicio: el gateway le envia un comando
+        ``attach_portal`` explicito cuando el operario pulsa el
+        boton "Conectar" del topbar (o cuando el primer comando lo
+        requiere). Esto elimina el coste de attach (~5s) en el
+        arranque de la app si el operario no necesita TIA todavia.
+      - Tras el attach, el estado es **connected** y los comandos
+        del ``COMMAND_REGISTRY`` operan contra el portal attached.
+      - El operario (o el gateway) envia ``detach_portal`` para
+        volver a **idle** sin matar el subproceso. El portal
+        attached se libera; el worker sigue vivo esperando mas
+        comandos.
 
     Contrato del protocolo (ver §2.5 del design doc):
 
@@ -1260,33 +1271,38 @@ def main_persistent_loop() -> None:
         ``{"id": int, "ok": false, "error": str}``. SIEMPRE con
         ``id`` para que el reader del gateway pueda matchear.
       - Comando ``exit``: sale del loop limpiamente (cleanup
-        con ``portal.detach()``). El subproceso termina con
-        ``returncode = 0``.
+        con ``portal.detach()`` si el portal esta attached). El
+        subproceso termina con ``returncode = 0``.
       - Stdin cerrado (EOF): sale del loop. Mismo cleanup.
       - Excepcion parseando JSON o leyendo stdin: escribe a
         ``stderr`` y sale del loop (el subproceso muere). El
         gateway detecta EOF en stdout y marca el estado como
         ``disconnected``.
 
-    Re-attach defensivo:
+    Comandos especiales del state machine (gestionados en linea,
+    NO en el ``COMMAND_REGISTRY``):
 
-      - Antes de ejecutar un comando, si ``portal is None``, intenta
-        re-attachar (``ts.attach_portal(AnyUserInterface)``). Si
-        tambien falla, devuelve ``{ok: false, error: ...}`` sin
-        tocar el loop (el gateway recibe el error y reintenta o
-        desconecta).
-      - Durante la ejecucion de un handler, si la excepcion parece
-        COM/RPC (``_is_com_disconnect``), marca ``portal = None``
-        para que el siguiente comando fuerce re-attach.
+      - ``attach_portal`` (``args: {"mode": "WithGraphicalUserInterface" | "WithoutGraphicalUserInterface"}``):
+        llama ``ts.attach_portal(...)`` con el modo pedido,
+        asigna el resultado a la variable local ``portal`` y
+        responde ``{"pid": <int>}`` o ``{"error": "..."}``.
+      - ``detach_portal``: si ``portal is not None``, llama
+        ``portal.detach()`` y responde ``{"detached": true}``.
+        Si ya estaba en idle, responde ``{"detached": false}``
+        (operacion idempotente).
 
-    Comandos especiales (sin re-attach):
+    Resto de comandos del ``COMMAND_REGISTRY``: requieren
+    ``portal is not None``. Si se invocan en estado idle, el
+    loop responde ``{ok: false, error: "Portal no attached. Conectar
+    primero."}`` sin despachar al handler (romperia con
+    ``AttributeError: NoneType``).
 
-      - ``attach_portal`` y ``open_new_portal`` gestionan su propia
-        conexion con TIA (re-asignan el RCW del portal). El re-attach
-        defensivo basado en ``get_process_id()`` NO se ejecuta
-        antes de estos comandos (romperia el caso cold-start). El
-        siguiente comando que use el portal hara el re-attach si
-        hace falta.
+    Cleanup:
+
+      - Al exit (sea por ``exit``, EOF o error): si ``portal is not
+        None``, ``portal.detach()`` best-effort. El fallo no
+        propaga (puede ser que TIA ya este cerrado y el RCW este
+        muerto).
 
     Notas de I/O:
 
@@ -1307,31 +1323,64 @@ def main_persistent_loop() -> None:
         )
         return  # _write_json_and_exit es NoReturn, pero el type checker lo agradece
 
-    # 2. Attach inicial. Si falla, devolvemos error y morimos (el
-    #    gateway lo detectara via ping timeout o EOF en stdout).
-    portal = None
-    try:
-        portal = ts.attach_portal(
-            portal_mode=ts.Enums.PortalMode.WithGraphicalUserInterface
-        )
-        if portal is None:
-            _write_json_and_exit(
-                {"ok": False, "error": "attach_portal retorno None"},
-                code=1,
-            )
-            return
-    except Exception as exc:
-        _write_json_and_exit(
-            {"ok": False, "error": f"Initial attach failed: {exc}"},
-            code=1,
-        )
-        return
+    # 2. Estado inicial: IDLE (sept-2026, post-auditoria).
+    # El worker NO hace attach al inicio. El gateway le enviara
+    # un comando ``attach_portal`` explicito cuando el operario
+    # decida conectar. Esto desacopla la vida del subproceso
+    # worker de la vida del portal TIA: el worker puede arrancar
+    # en milisegundos sin pagar el coste de attach (~5s reales,
+    # ver ``_plan/12_worker_persistent_design.md`` §1.2), y el
+    # operario decide cuando conectar.
+    portal: Any = None
 
-    # 3. Helpers locales (definen ``portal`` via ``nonlocal``).
+    # 2.5 Signal "ready_idle" (sept-2026, post-auditoria, refactor
+    # del state machine). Tras la carga exitosa del wrapper, escribimos
+    # un mensaje a stdout con id=0 (id reservado, fuera del rango normal
+    # del protocolo request-response que usa ids >= 1). El gateway lee
+    # este mensaje ANTES de enviar el primer comando, para saber que el
+    # subproceso esta vivo y el wrapper cargo OK. NO incluye ``pid``
+    # porque NO hay portal attached todavia (estado idle por diseño).
+    #
+    # Cambia respecto al flujo anterior (PR 3 / sept-2026 round 1) que
+    # emitia ``{"result": "ready", "pid": <int>}`` tras un attach
+    # inicial. Ese flujo era invalido para el nuevo state machine:
+    # si el worker attacha al inicio, el gateway queda acoplado al
+    # ciclo de vida de TIA Portal (un TIA cerrado al startup tira la
+    # app completa). Con ``ready_idle`` el gateway puede arrancar la
+    # web incluso sin TIA abierta, y el operario decide cuando
+    # conectar via el boton del topbar.
+    try:
+        ready_payload: dict[str, Any] = {
+            "id": 0,
+            "ok": True,
+            "result": "ready_idle",
+        }
+        sys.stdout.write(json.dumps(ready_payload, ensure_ascii=False) + "\n")
+        sys.stdout.flush()
+    except Exception as exc:
+        # Si no podemos escribir el ready (e.g. stdout cerrado), el
+        # gateway lo detectara por timeout. No morimos: el worker
+        # sigue siendo util si el IT process se reconecta.
+        sys.stderr.write(
+            f"[WORKER READY ERROR] {type(exc).__name__}: {exc}\n"
+        )
+        sys.stderr.flush()
+
+    # 3. Helpers locales para el state machine.
+
     def _try_reattach() -> bool:
-        """Re-attacha el portal TIA si hace falta. Retorna ``True`` si queda vivo."""
+        """Re-attacha el portal TIA tras un COM-disconnect mid-loop.
+
+        Re-asigna la variable local ``portal`` (``nonlocal``) si el
+        attach tiene exito. Retorna ``True`` si el portal queda
+        vivo, ``False`` en caso contrario.
+
+        Solo se invoca desde el cuerpo del loop cuando
+        ``portal.get_process_id()`` lanza (el RCW quedo invalido
+        tras un cierre de TIA o un glitch COM). NO se invoca para
+        cold-start; eso lo hace ``_handle_attach``.
+        """
         nonlocal portal
-        # Si el portal ya esta vivo (``get_process_id`` no lanza), nada que hacer.
         if portal is not None:
             try:
                 portal.get_process_id()
@@ -1345,7 +1394,115 @@ def main_persistent_loop() -> None:
         except Exception:
             portal = None
             return False
-        return portal is not None
+        if portal is None:
+            return False
+        try:
+            portal.get_process_id()
+            return True
+        except Exception:
+            portal = None
+            return False
+
+    def _handle_attach(args: dict[str, Any]) -> dict[str, Any]:
+        """Implementacion inline del comando ``attach_portal``.
+
+        El handler NO se mete en el ``COMMAND_REGISTRY`` porque
+        necesita mutar la variable local ``portal`` (el registry
+        recibe ``portal`` como argumento y no puede reasignarlo).
+        El gateway lo invia como un comando normal; el loop lo
+        despacha aqui antes de caer al registry.
+
+        Args:
+            args: dict con la clave opcional ``"mode"`` que
+                selecciona el ``PortalMode`` de Siemens. Default
+                ``"WithGraphicalUserInterface"`` (consistente con
+                el attach inicial del refactor anterior). Valores
+                validos: ``"WithGraphicalUserInterface"`` y
+                ``"WithoutGraphicalUserInterface"``.
+
+        Returns:
+            ``{"pid": <int>}`` si el attach fue exitoso (con el
+            PID de TIA Portal), o ``{"error": "..."}`` si fallo.
+        """
+        nonlocal portal
+        if portal is not None:
+            # Ya hay un portal attached. Esto NO es un error: el
+            # operario puede hacer connect varias veces (e.g. el
+            # frontend reintenta tras un timeout). Devolvemos el
+            # PID actual para que el gateway confirme el estado.
+            try:
+                pid = int(portal.get_process_id())
+                return {"pid": pid}
+            except Exception:
+                # El portal esta vivo en la variable local pero
+                # get_process_id falla (TIA cerrada mid-session).
+                # Forzamos detach y re-attach abajo.
+                try:
+                    portal.detach()
+                except Exception:
+                    pass
+                portal = None
+        mode_name = (args or {}).get("mode", "WithGraphicalUserInterface")
+        # Resolucion del enum. Mapeo explicito para no acoplar el
+        # worker al espacio de nombres ``ts.Enums.PortalMode``
+        # (no expuesto en todos los builds del wrapper).
+        try:
+            portal_mode = getattr(
+                ts.Enums.PortalMode, mode_name
+            )
+        except AttributeError:
+            return {
+                "error": (
+                    f"PortalMode invalido: {mode_name!r}. "
+                    "Use 'WithGraphicalUserInterface' o "
+                    "'WithoutGraphicalUserInterface'."
+                )
+            }
+        try:
+            new_portal = ts.attach_portal(portal_mode=portal_mode)
+        except Exception as exc:
+            return {"error": f"{type(exc).__name__}: {exc}"}
+        if new_portal is None:
+            return {
+                "error": (
+                    "attach_portal retorno None. ¿Esta TIA Portal "
+                    "abierto? ¿El usuario pertenece al grupo Openness?"
+                )
+            }
+        portal = new_portal
+        try:
+            pid = int(portal.get_process_id())
+        except Exception:
+            # Attach OK pero el PID no se puede leer (TIA en estado
+            # raro). Devolvemos pid=None para que el gateway no
+            # asuma PID valido.
+            pid = None
+        return {"pid": pid}
+
+    def _handle_detach(args: dict[str, Any]) -> dict[str, Any]:  # noqa: ARG001
+        """Implementacion inline del comando ``detach_portal``.
+
+        Idempotente: si ya estamos en idle, retorna
+        ``{"detached": false}`` sin error. Si hay portal attached,
+        llama ``portal.detach()`` best-effort y retorna
+        ``{"detached": true}``.
+
+        Returns:
+            ``{"detached": true}`` si habia portal y se detacho.
+            ``{"detached": false}`` si ya estabamos en idle.
+        """
+        nonlocal portal
+        if portal is None:
+            return {"detached": False}
+        try:
+            portal.detach()
+        except Exception:
+            # TIA ya cerrada, RCW stale, etc. No propagamos: el
+            # objetivo del detach es liberar el RCW; si ya esta
+            # muerto, el siguiente attach_portal creara uno nuevo.
+            pass
+        portal = None
+        return {"detached": True}
 
     # 4. Loop principal. Lee lineas de stdin hasta EOF o ``exit``.
     while True:
@@ -1367,16 +1524,64 @@ def main_persistent_loop() -> None:
             if command == "exit":
                 break
 
-            # Re-attach defensivo para todos los comandos EXCEPTO los
-            # de ciclo de vida (que gestionan su propia conexion).
-            if command not in ("attach_portal", "open_new_portal"):
-                if portal is None and not _try_reattach():
-                    response: dict[str, Any] = {
+            # Comandos del state machine: gestion inline (mutan
+            # ``portal``), NO via COMMAND_REGISTRY. Despachados
+            # ANTES de cualquier check de ``portal is not None``
+            # porque justamente son los comandos que controlan el
+            # estado del portal.
+            if command == "attach_portal":
+                result = _handle_attach(args)
+                ok = "error" not in result
+                response = (
+                    {"id": request_id, "ok": ok, "result": result}
+                    if ok
+                    else {"id": request_id, "ok": False, "error": result["error"]}
+                )
+                sys.stdout.write(json.dumps(response, ensure_ascii=False) + "\n")
+                sys.stdout.flush()
+                continue
+            if command == "detach_portal":
+                result = _handle_detach(args)
+                response = {"id": request_id, "ok": True, "result": result}
+                sys.stdout.write(json.dumps(response, ensure_ascii=False) + "\n")
+                sys.stdout.flush()
+                continue
+
+            # Resto de comandos del registry: requieren portal
+            # attached. Esto cierra el caso del operario que pulsa
+            # una operacion (e.g. ``list_plcs``) sin haber
+            # conectado primero: el loop responde con un error
+            # claro en vez de un ``AttributeError: 'NoneType'``
+            # desde dentro de un handler.
+            if portal is None:
+                response = {
+                    "id": request_id,
+                    "ok": False,
+                    "error": (
+                        "Portal no attached. Conectar primero."
+                    ),
+                }
+                sys.stdout.write(json.dumps(response, ensure_ascii=False) + "\n")
+                sys.stdout.flush()
+                continue
+
+            # Re-attach defensivo (idempotente con el check anterior):
+            # si el portal esta vivo (``get_process_id`` no lanza),
+            # seguimos; si no, intentamos re-attachar una vez.
+            try:
+                portal.get_process_id()
+            except Exception:
+                if not _try_reattach():
+                    response = {
                         "id": request_id,
                         "ok": False,
-                        "error": "Portal no disponible y re-attach fallo",
+                        "error": (
+                            "Portal no disponible y re-attach fallo"
+                        ),
                     }
-                    sys.stdout.write(json.dumps(response) + "\n")
+                    sys.stdout.write(
+                        json.dumps(response, ensure_ascii=False) + "\n"
+                    )
                     sys.stdout.flush()
                     continue
 
@@ -1417,9 +1622,12 @@ def main_persistent_loop() -> None:
             sys.stderr.flush()
             break
 
-    # 5. Cleanup best-effort. Si detach() falla (portal ya caido),
-    #    no pasa nada: el OS reapa el subproceso y el gateway
-    #    detecta el cambio de estado.
+    # 5. Cleanup best-effort al exit. Si el portal esta attached
+    #    (sea por ``exit`` explicito, EOF de stdin, o error de
+    #    loop), lo detachamos. El detach puede fallar (TIA ya
+    #    cerrada, RCW stale) y eso esta OK: el objetivo es
+    #    liberar el RCW; si ya esta muerto, el OS lo reapa
+    #    cuando el subproceso termine.
     if portal is not None:
         try:
             portal.detach()
