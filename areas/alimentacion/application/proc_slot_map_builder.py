@@ -85,6 +85,17 @@ class ProcSlotMap:
     db_param_name: str = ""
     db_alm_name: str = ""
     table_name: str = ""
+    # Subcarpeta TIA de cada DB dentro de "Bloques de programa"
+    # (relativa al root del PLC, con ``\\`` como separator, e.g.
+    # ``"ZC_Plantillas\\50010_ProcesoEstandar\\53010_Parametros"``).
+    # Se extrae del ``BloquePLC.ruta`` cacheado al escanear TIA. Si
+    # la cache no tiene la ruta (escaneo fallido), queda ``""`` y el
+    # worker escribe los archivos a la raíz de ``exports/`` (legacy).
+    # Ver `BloqueCacheManager` y la fix del bug de reimport del
+    # 2026-09-07 (TIA requiere misma estructura de carpetas para
+    # reconciliar el bloque por nombre y hacer UPDATE).
+    param_subpath: str = ""
+    alm_subpath: str = ""
     nmax: dict[str, int] = field(default_factory=dict)
     nmax_names: dict[str, str] = field(default_factory=dict)
     missing_blocks: list[str] = field(default_factory=list)
@@ -246,6 +257,28 @@ def proc_build_slot_maps(
     if BloquePLC.normalize_name(table_name) not in bloques_cache.tag_tables:
         missing_blocks.append(f"Tabla de variables: {table_name}")
 
+    # Extraer la subcarpeta TIA de cada DB del ``BloqueCache``. TIA
+    # Portal V21 requiere que el archivo se reimporte en la MISMA
+    # ruta donde ya existe el bloque; si lo importamos a la raíz,
+    # falla con "object with the name already exists" (validado
+    # 2026-09-07). La ruta se cachea al escanear TIA en
+    # ``BloquePLC.ruta`` (jerarquía con ``\\`` separator). Si la
+    # cache está vacía o el valor es ``""`` (no se pudo escanear
+    # la ruta), dejamos el subpath como ``""`` y el worker cae al
+    # comportamiento legacy (raíz de ``exports/``).
+    def _extract_subpath(key: str) -> str:
+        val = bloques_cache.blocks.get(key, "")
+        # Tests legacy pueden pasar un string directamente como
+        # valor (atajo en lugar de un ``BloquePLC`` completo).
+        if isinstance(val, str):
+            return val
+        return getattr(val, "ruta", "")
+
+    param_key = BloquePLC.normalize_name(db_param_name)
+    param_subpath = _extract_subpath(param_key)
+    alm_key = BloquePLC.normalize_name(db_alm_name)
+    alm_subpath = _extract_subpath(alm_key)
+
     if missing_blocks:
         # NO abortamos: devolvemos el slot map con missing_blocks
         # poblado y los 3 dicts vacíos. La SPA pinta el aviso.
@@ -254,6 +287,8 @@ def proc_build_slot_maps(
             db_param_name=db_param_name,
             db_alm_name=db_alm_name,
             table_name=table_name,
+            param_subpath=param_subpath,
+            alm_subpath=alm_subpath,
             missing_blocks=missing_blocks,
             warnings=warnings,
         )
@@ -300,6 +335,8 @@ def proc_build_slot_maps(
         db_param_name=db_param_name,
         db_alm_name=db_alm_name,
         table_name=table_name,
+        param_subpath=param_subpath,
+        alm_subpath=alm_subpath,
         nmax=nmax_desired,
         nmax_names=nmax_names,
         missing_blocks=missing_blocks,

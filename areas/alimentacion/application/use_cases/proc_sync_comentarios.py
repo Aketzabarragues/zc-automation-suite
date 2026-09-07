@@ -568,11 +568,20 @@ class ProcSyncComentariosUseCase:
                 # Antes había 2 ops separadas (``_preal`` + ``_pint``);
                 # ahora 1 sola (``_param``) que hace 1 export + 1 import
                 # cubriendo ambos arrays.
+                #
+                # ``db_subpath`` es la subcarpeta TIA donde está el DB
+                # (extraída de ``BloqueCache.blocks[<db>].ruta``). TIA
+                # Portal V21 requiere reimportar en la MISMA ruta donde
+                # ya existe el bloque, si no, falla con "object with the
+                # name already exists" (validado 2026-09-07). Si la
+                # cache no tiene la ruta (``""``), el handler cae al
+                # comportamiento legacy (raíz de ``exports/``).
                 {
                     "command": "update_proc_comments_db_param",
                     "args": {
                         "plc_name":       plc_name,
                         "db_name":        slot_map.db_param_name,
+                        "db_subpath":     slot_map.param_subpath,
                         "preal_slot_map": preal_apply,
                         "pint_slot_map":  pint_apply,
                         "work_dir":       str(work_dir),
@@ -584,6 +593,7 @@ class ProcSyncComentariosUseCase:
                     "args": {
                         "plc_name": plc_name,
                         "db_name": slot_map.db_alm_name,
+                        "db_subpath": slot_map.alm_subpath,
                         "array_name": "ALM",
                         "slot_map": alm_apply,
                         "work_dir": str(work_dir),

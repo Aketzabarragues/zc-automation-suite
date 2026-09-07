@@ -435,6 +435,14 @@ def make_cmd_update_proc_comments_db(kind: str) -> Callable[..., Any]:
         slot_map: dict[str, str] = args.get("slot_map", {})
         work_dir: str = args.get("work_dir", "")
         target_folder: str = args.get("target_folder", "")
+        # ``db_subpath`` es la subcarpeta TIA del DB (e.g.
+        # ``"ZC_Plantillas\\50010_ProcesoEstandar\\53010_Parametros"``).
+        # TIA Portal V21 requiere reimportar en la MISMA ruta donde
+        # ya existe el bloque; si no, falla con "object with the
+        # name already exists" (validado 2026-09-07). Si la cache
+        # no tiene la ruta (``""``), el worker escribe a la raíz
+        # de ``exports/`` (legacy).
+        db_subpath: str = args.get("db_subpath", "")
 
         if not (
             plc_name and db_name and array_name and work_dir and target_folder
@@ -451,6 +459,15 @@ def make_cmd_update_proc_comments_db(kind: str) -> Callable[..., Any]:
             int(k): v for k, v in slot_map.items() if int(k) >= 1
         }
 
+        # Subcarpeta efectiva: si el BloqueCache tenía la ruta del
+        # bloque (``db_subpath``), el archivo va a
+        # ``<work_dir>/<db_subpath>/<db_name>.s7dcl`` (mismo path
+        # que TIA tiene internamente, así el reimport reconcilia
+        # por nombre y hace UPDATE). Si no, cae a la raíz legacy.
+        effective_work_dir = (
+            str(Path(work_dir) / db_subpath) if db_subpath else work_dir
+        )
+
         # Import local: solo se carga cuando el handler se invoca
         # (cumple "offline-first" del worker, igual que los
         # handlers de disp). Apunta al nuevo paquete SD.
@@ -459,8 +476,8 @@ def make_cmd_update_proc_comments_db(kind: str) -> Callable[..., Any]:
         )
         from areas.alimentacion.infrastructure.sd.mlc_registry import MLCRegistry
 
-        s7dcl_path = SdPair(Path(work_dir), db_name).dcl
-        s7res_path = SdPair(Path(work_dir), db_name).res
+        s7dcl_path = SdPair(Path(effective_work_dir), db_name).dcl
+        s7res_path = SdPair(Path(effective_work_dir), db_name).res
 
         # Import lazy del worker para evitar el ciclo
         # ``worker_tia → command_loader → AreaRegistry → areas.<area>
@@ -469,10 +486,13 @@ def make_cmd_update_proc_comments_db(kind: str) -> Callable[..., Any]:
         core_registry = worker_tia.COMMAND_REGISTRY
 
         # 1. EXPORT SELECTIVO (reusa ``export_block`` del core).
+        #    TIA escribe ``.s7dcl``/``.s7res`` en ``effective_work_dir``,
+        #    que incluye el subpath del DB (crea el directorio si
+        #    no existe).
         core_registry["export_block"](portal, ts, {
             "plc_name":   plc_name,
             "block_name": db_name,
-            "target_dir": work_dir,
+            "target_dir": effective_work_dir,
         })
 
         # 2. Updater offline (con propagación a satélites).
@@ -489,7 +509,11 @@ def make_cmd_update_proc_comments_db(kind: str) -> Callable[..., Any]:
 
         # 3. IMPORT SELECTIVO (reusa ``import_block`` del core) — solo
         #    si el updater modificó algo, para no ensuciar el
-        #    historial Undo.
+        #    historial Undo. Pasamos ``work_dir`` (raíz) y TIA
+        #    escanea recursivamente: si el archivo está en
+        #    ``<work_dir>/<db_subpath>/<db_name>.s7dcl``, TIA
+        #    encuentra el bloque en su ubicación correcta y hace
+        #    UPDATE (no CREATE). Si no, fallback a raíz legacy.
         if updater.was_modified():
             core_registry["import_block"](portal, ts, {
                 "plc_name":      plc_name,
@@ -547,6 +571,9 @@ def make_cmd_update_proc_comments_db_param() -> Callable[..., Any]:
         pint_slot_map_raw: dict[str, str] = args.get("pint_slot_map", {}) or {}
         work_dir: str = args.get("work_dir", "")
         target_folder: str = args.get("target_folder", "")
+        # ``db_subpath`` es la subcarpeta TIA del DB PARAM. Ver
+        # rationale en el handler ``_alm``.
+        db_subpath: str = args.get("db_subpath", "")
 
         if not (plc_name and db_name and work_dir and target_folder):
             raise ValueError(
@@ -564,24 +591,30 @@ def make_cmd_update_proc_comments_db_param() -> Callable[..., Any]:
             int(k): v for k, v in pint_slot_map_raw.items() if int(k) >= 1
         }
 
+        # Subcarpeta efectiva: ver rationale en el handler ``_alm``.
+        effective_work_dir = (
+            str(Path(work_dir) / db_subpath) if db_subpath else work_dir
+        )
+
         # Import local (offline-first; mismo patrón que los otros handlers).
         from areas.alimentacion.infrastructure.sd.proc_comment_updater import (
             ProcCommentUpdater,
         )
         from areas.alimentacion.infrastructure.sd.mlc_registry import MLCRegistry
 
-        s7dcl_path = SdPair(Path(work_dir), db_name).dcl
-        s7res_path = SdPair(Path(work_dir), db_name).res
+        s7dcl_path = SdPair(Path(effective_work_dir), db_name).dcl
+        s7res_path = SdPair(Path(effective_work_dir), db_name).res
 
         # Import lazy del worker.
         from core.infrastructure.tia import worker_tia
         core_registry = worker_tia.COMMAND_REGISTRY
 
-        # 1. UN SOLO export_block sobre el DB PARAM.
+        # 1. UN SOLO export_block sobre el DB PARAM (en el subpath
+        #    de TIA si lo hay).
         core_registry["export_block"](portal, ts, {
             "plc_name":   plc_name,
             "block_name": db_name,
-            "target_dir": work_dir,
+            "target_dir": effective_work_dir,
         })
 
         # 2. updater PReal (con sus satélites).
