@@ -22,10 +22,9 @@ def mock_gateway() -> MagicMock:
     g.execute_transactional_batch = AsyncMock(
         return_value={
             "success": True,
-            "operations_executed": 3,
+            "operations_executed": 2,
             "details": [
-                {"kind": "preal", "modified": True, "db_name": "DB53100_CPR_PARAM"},
-                {"kind": "pint",  "modified": True, "db_name": "DB53100_CPR_PARAM"},
+                {"kind": "param", "modified": True, "db_name": "DB53100_CPR_PARAM"},
                 {"kind": "alm",   "modified": True, "db_name": "DB55100_CPR_ALM"},
             ],
         }
@@ -253,17 +252,25 @@ def test_endpoint_commit_invoca_gateway_con_target_folder_y_undo(
 
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["operations_executed"] == 3
-    # Verifica que se llamó al gateway con 3 ops.
+    assert body["operations_executed"] == 2
+    # Verifica que se llamó al gateway con 2 ops.
     call_args = mock_gateway.execute_transactional_batch.call_args.kwargs
     operations = call_args["operations"]
-    assert len(operations) == 3
+    assert len(operations) == 2
     command_names = [op["command"] for op in operations]
     assert command_names == [
-        "update_proc_comments_db_preal",
-        "update_proc_comments_db_pint",
+        "update_proc_comments_db_param",
         "update_proc_comments_db_alm",
     ]
+    # La op _param lleva preal_slot_map + pint_slot_map en args.
+    param_op = operations[0]
+    assert param_op["args"]["db_name"] == "DB53100_CPR_PARAM"
+    assert "preal_slot_map" in param_op["args"]
+    assert "pint_slot_map" in param_op["args"]
+    # La op _alm sigue llevando array_name + slot_map (formato legacy).
+    alm_op = operations[1]
+    assert alm_op["args"]["array_name"] == "ALM"
+    assert "slot_map" in alm_op["args"]
     # target_folder y work_dir vienen del config. El work_dir del
     # commit sigue el patrón ``<build_cache>/alimentacion/procesos/exports/``
     # (jerarquía canónica de ``BuildCache``: ``<area_id>/<contexto>/<subestado>``).

@@ -210,7 +210,7 @@ def test_ejecutar_transaccion_done_stage_closes_correctly() -> None:
     gateway.execute_transactional_batch = AsyncMock(
         return_value={
             "success": True,
-            "operations_executed": 3,
+            "operations_executed": 2,
             "details": [],
         }
     )
@@ -232,7 +232,7 @@ def test_ejecutar_transaccion_done_stage_closes_correctly() -> None:
     )
 
     assert result["success"] is True
-    assert result["operations_executed"] == 3
+    assert result["operations_executed"] == 2
     snap = tracker.snapshot()
     # 5 stages: check_state, check_blocks, build_slot_maps,
     # open_transaction, done. Todos DONE.
@@ -243,7 +243,7 @@ def test_ejecutar_transaccion_done_stage_closes_correctly() -> None:
     )
     done_stage = next(s for s in snap.stages if s["id"] == "done")
     assert done_stage["status"] == STAGE_DONE
-    assert "3 ops" in done_stage["detail"]
+    assert "2 ops" in done_stage["detail"]
 
 
 def test_generar_prevision_diff_real_con_archivos_tia(tmp_path) -> None:

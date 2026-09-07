@@ -404,9 +404,16 @@ class ProcSyncComentariosUseCase:
         "open_transaction", "done"]``.
 
         El lote se ejecuta con ``gateway.execute_transactional_batch``
-        (3 sub-ops: PReal + PInt + ALM). El worker abre
-        ``start_transaction``, itera los sub-comandos, y cierra con
-        ``end_transaction``. Si cualquiera falla, rollback atómico.
+        (2 sub-ops: ``_param`` combinando PReal+PInt + ``_alm``). El
+        worker abre ``start_transaction``, itera los sub-comandos, y
+        cierra con ``end_transaction``. Si cualquiera falla, rollback
+        atómico.
+
+        Histórico: antes había 3 ops (``_preal`` + ``_pint`` + ``_alm``).
+        Se unificaron ``_preal`` y ``_pint`` en ``_param`` para evitar
+        el bug del doble ``export_block`` sobre el mismo DB (el segundo
+        export SOBREESCRIBÍA el cambio de PReal con el contenido
+        ORIGINAL de TIA si TIA rechazaba ese MLC concreto).
 
         Política: el diff se **recalcula desde el AppState** (no se
         usa la ``prevision`` del body) para evitar race conditions
@@ -486,7 +493,7 @@ class ProcSyncComentariosUseCase:
                     "plc_name es obligatorio para ejecutar_transaccion."
                 )
 
-            # open_transaction: componer las 3 ops y enviar al gateway.
+            # open_transaction: componer las 2 ops y enviar al gateway.
             # Limpiamos el workdir antes del apply para que no queden
             # residuos de runs anteriores (cierra la asimetría con
             # ``DispSyncInstancesUseCase`` que ya lo hacía).
@@ -555,26 +562,21 @@ class ProcSyncComentariosUseCase:
             }
 
             operations: list[dict[str, Any]] = [
+                # 1 op combinada para PReal + PInt sobre el MISMO DB
+                # PARAM. Evita el bug del doble ``export_block`` que
+                # SOBREESCRIBÍA el cambio de PReal al exportar PInt.
+                # Antes había 2 ops separadas (``_preal`` + ``_pint``);
+                # ahora 1 sola (``_param``) que hace 1 export + 1 import
+                # cubriendo ambos arrays.
                 {
-                    "command": "update_proc_comments_db_preal",
+                    "command": "update_proc_comments_db_param",
                     "args": {
-                        "plc_name": plc_name,
-                        "db_name": slot_map.db_param_name,
-                        "array_name": "PReal",
-                        "slot_map": preal_apply,
-                        "work_dir": str(work_dir),
-                        "target_folder": target_folder,
-                    },
-                },
-                {
-                    "command": "update_proc_comments_db_pint",
-                    "args": {
-                        "plc_name": plc_name,
-                        "db_name": slot_map.db_param_name,
-                        "array_name": "PInt",
-                        "slot_map": pint_apply,
-                        "work_dir": str(work_dir),
-                        "target_folder": target_folder,
+                        "plc_name":       plc_name,
+                        "db_name":        slot_map.db_param_name,
+                        "preal_slot_map": preal_apply,
+                        "pint_slot_map":  pint_apply,
+                        "work_dir":       str(work_dir),
+                        "target_folder":  target_folder,
                     },
                 },
                 {
@@ -593,7 +595,7 @@ class ProcSyncComentariosUseCase:
             if _track:
                 self._progress.start_stage(
                     "open_transaction",
-                    "Aplicando 3 comentarios a TIA — puede tardar 1-3 min",
+                    "Aplicando comentarios a TIA — puede tardar 1-3 min",
                 )
             result = await self._gateway.execute_transactional_batch(
                 operations=operations,
@@ -653,7 +655,7 @@ class ProcSyncComentariosUseCase:
             se infiere del desired (``"."`` → "agregar", otro →
             "renombrar").
 
-        Slots de TIA NO en el Excel (``current_dict \ slot_map_dict``):
+        Slots de TIA NO en el Excel (``current_dict - slot_map_dict``):
           - Caso "eliminar". El slot existe en TIA con un comentario
             histórico pero el operario no lo tiene en su Excel
             (p. ej.Compactado de 60 slots donde el Excel solo trae

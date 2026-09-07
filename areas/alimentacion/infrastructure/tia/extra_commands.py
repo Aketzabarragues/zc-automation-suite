@@ -514,6 +514,158 @@ def make_cmd_update_proc_comments_db(kind: str) -> Callable[..., Any]:
     return _cmd
 
 
+def make_cmd_update_proc_comments_db_param() -> Callable[..., Any]:
+    """Handler combinado para los 2 arrays del DB PARAM (PReal + PInt).
+
+    El bug del que partimos: cuando se enviaban 2 ops separadas
+    (``_preal`` y ``_pint``) sobre el mismo DB, la segunda op
+    SOBREESCRIBÍA el ``.s7dcl`` / ``.s7res`` en ``exports/`` con un
+    export fresco de TIA (que aún no tenía el cambio de PReal si TIA
+    rechazó ese MLC concreto). El resultado: PReal se quedaba sin
+    actualizar aunque el updater SÍ lo escribía en disco.
+
+    Solución: 1 solo ``export_block`` al inicio, 2 llamadas al
+    ``ProcCommentUpdater`` (PReal, luego PInt) sobre el MISMO archivo
+    exportado, 1 solo ``save()`` implícito por updater, y 1 solo
+    ``import_block`` al final (si alguno modificó). El ALM sigue
+    saliendo como op separada porque usa un DB distinto.
+
+    Args:
+        args: ``{
+            "plc_name": str,
+            "db_name": str (DB PARAM),
+            "preal_slot_map": dict[str, str] (slot 1-based → texto),
+            "pint_slot_map":  dict[str, str] (slot 1-based → texto),
+            "work_dir": str,
+            "target_folder": str,
+        }``
+    """
+    def _cmd(portal: Any, ts: Any, args: dict[str, Any]) -> dict[str, Any]:
+        plc_name: str = args.get("plc_name", "")
+        db_name: str = args.get("db_name", "")
+        preal_slot_map_raw: dict[str, str] = args.get("preal_slot_map", {}) or {}
+        pint_slot_map_raw: dict[str, str] = args.get("pint_slot_map", {}) or {}
+        work_dir: str = args.get("work_dir", "")
+        target_folder: str = args.get("target_folder", "")
+
+        if not (plc_name and db_name and work_dir and target_folder):
+            raise ValueError(
+                f"update_proc_comments_db_param: args incompletos. "
+                f"Recibido: plc_name={plc_name!r} db_name={db_name!r} "
+                f"work_dir={work_dir!r} target_folder={target_folder!r}"
+            )
+
+        # Coerción: los slot_map llegan con keys str (JSON); el updater
+        # quiere int. Filtro slot 0 (defensivo, no aplica a procesos).
+        preal_slot_map: dict[int, str] = {
+            int(k): v for k, v in preal_slot_map_raw.items() if int(k) >= 1
+        }
+        pint_slot_map: dict[int, str] = {
+            int(k): v for k, v in pint_slot_map_raw.items() if int(k) >= 1
+        }
+
+        # Import local (offline-first; mismo patrón que los otros handlers).
+        from areas.alimentacion.infrastructure.sd.proc_comment_updater import (
+            ProcCommentUpdater,
+        )
+        from areas.alimentacion.infrastructure.sd.mlc_registry import MLCRegistry
+
+        s7dcl_path = SdPair(Path(work_dir), db_name).dcl
+        s7res_path = SdPair(Path(work_dir), db_name).res
+
+        # Import lazy del worker.
+        from core.infrastructure.tia import worker_tia
+        core_registry = worker_tia.COMMAND_REGISTRY
+
+        # 1. UN SOLO export_block sobre el DB PARAM.
+        core_registry["export_block"](portal, ts, {
+            "plc_name":   plc_name,
+            "block_name": db_name,
+            "target_dir": work_dir,
+        })
+
+        # 2. updater PReal (con sus satélites).
+        preal_result = None
+        preal_modified = False
+        if preal_slot_map:
+            updater_preal = ProcCommentUpdater(
+                s7dcl_path=s7dcl_path,
+                s7res_path=s7res_path,
+                slot_map=preal_slot_map,
+                array_name="PReal",
+                satellite_arrays=set(_PROC_SATELLITES["preal"]),
+                registry=MLCRegistry(),
+            )
+            preal_result = updater_preal.update()
+            updater_preal.save()
+            preal_modified = updater_preal.was_modified()
+
+        # 3. updater PInt (con sus satélites) — opera sobre el MISMO
+        #    archivo ya modificado por PReal. Como ``MLCRegistry`` se
+        #    re-extrae del .s7res en cada nueva instancia, ve los
+        #    MLCs nuevos/actualizados del paso anterior.
+        pint_result = None
+        pint_modified = False
+        if pint_slot_map:
+            updater_pint = ProcCommentUpdater(
+                s7dcl_path=s7dcl_path,
+                s7res_path=s7res_path,
+                slot_map=pint_slot_map,
+                array_name="PInt",
+                satellite_arrays=set(_PROC_SATELLITES["pint"]),
+                registry=MLCRegistry(),
+            )
+            pint_result = updater_pint.update()
+            updater_pint.save()
+            pint_modified = updater_pint.was_modified()
+
+        # 4. UN SOLO import_block (si alguno de los dos modificó algo).
+        any_modified = preal_modified or pint_modified
+        if any_modified:
+            core_registry["import_block"](portal, ts, {
+                "plc_name":      plc_name,
+                "import_dir":    work_dir,
+                "target_folder": target_folder,
+            })
+
+        return {
+            "kind":      "param",
+            "db_name":   db_name,
+            "modified":  any_modified,
+            "preal": _result_block(preal_result, preal_modified),
+            "pint":  _result_block(pint_result,  pint_modified),
+        }
+
+    return _cmd
+
+
+def _result_block(
+    result: "ProcCommentResult | None",
+    modified: bool,
+) -> dict[str, Any]:
+    """Empaqueta un ``ProcCommentResult`` (o ``None``) en un dict JSON-safe.
+
+    Usado por ``make_cmd_update_proc_comments_db_param`` para componer
+    el payload de retorno: cada uno de PReal/PInt puede estar ``None``
+    si su slot_map estaba vacío (cero cambios que aplicar).
+    """
+    if result is None:
+        return {
+            "modified": False,
+            "reused": {}, "inserted": {},
+            "satellite_reused": {}, "satellite_inserted": {},
+            "total_mlcs_in_res": 0,
+        }
+    return {
+        "modified":            modified,
+        "reused":              result.reused,
+        "inserted":            result.inserted,
+        "satellite_reused":    result.satellite_reused,
+        "satellite_inserted":  result.satellite_inserted,
+        "total_mlcs_in_res":   result.total_mlcs_in_res,
+    }
+
+
 def register(registry: dict[str, Callable[..., Any]]) -> None:
     """Aporta los comandos del área alimentación al ``COMMAND_REGISTRY``.
 
@@ -525,6 +677,10 @@ def register(registry: dict[str, Callable[..., Any]]) -> None:
       - ``update_proc_comments_db_<kind>`` (×3: preal, pint, alm):
         SD source comments offline + import por array de proceso,
         con propagación a satélites del mismo slot.
+      - ``update_proc_comments_db_param``: handler combinado que aplica
+        PReal y PInt sobre el MISMO DB PARAM en un solo export/import.
+        Evita el bug del doble ``export_block`` que SOBREESCRIBÍA el
+        cambio de PReal al exportar PInt.
 
     Muta ``registry`` in-place. Es seguro llamarla varias veces (los
     handlers se machacan por nombre, no se duplican).
@@ -537,6 +693,12 @@ def register(registry: dict[str, Callable[..., Any]]) -> None:
         registry[f"update_proc_comments_db_{kind}"] = (
             make_cmd_update_proc_comments_db(kind)
         )
+    # Handler combinado para los 2 arrays del DB PARAM (PReal + PInt).
+    # Evita el doble ``export_block`` sobre el mismo DB que SOBREESCRIBÍA
+    # el cambio de PReal al exportar PInt (bug fixed 2026-09-07).
+    registry["update_proc_comments_db_param"] = (
+        make_cmd_update_proc_comments_db_param()
+    )
     registry["commit_devices_sync"] = make_cmd_commit_devices_sync()
 
 
@@ -545,6 +707,7 @@ __all__ = [
     "EXTRA_PROC_KINDS",
     "make_cmd_update_disp_comments_db",
     "make_cmd_update_proc_comments_db",
+    "make_cmd_update_proc_comments_db_param",
     "make_cmd_commit_devices_sync",
     "register",
 ]
