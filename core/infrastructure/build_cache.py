@@ -28,13 +28,25 @@ Reglas de arquitectura
   (que los borra y recrea) o de los consumers (que los crean con
   ``mkdir(parents=True, exist_ok=True)`` cuando los necesitan).
 
-* ``.build_cache/`` está dentro del cwd por convención. Si en el
-  futuro hay que moverlo (a ``%LocalAppData%``, etc.), se replica
-  el patrón de ``core/application/log_paths.py:ZC_LOG_DIR``. YAGNI
-  por ahora (ver ``_plan/08_routes_standardization.md`` §5).
+* **Default del root del build_cache**: ``tempfile.gettempdir() /
+  "zc_build_cache"``, NO ``<cwd>/.build_cache``. Justificación:
+  TIA Portal V21 abre el directorio ``exports/`` con un handle de
+  lectura para enumerar los ``.s7dcl``/``.s7res`` durante el
+  ``import_blocks``. Si la ruta está en una unidad de red (ej.
+  ``Z:`` donde la SPA corre), TIA rechaza el import con
+  ``UnauthorizedAccessException`` (validado 2026-09-07). La carpeta
+  temp del usuario está siempre en una unidad local y ambos procesos
+  (worker y TIA) tienen acceso.
 
-* NO se añade ``ZC_BUILD_CACHE_DIR`` env var todavía (mismo YAGNI).
-  Si el operario lo necesita, lo pide y se hace en un PR específico.
+* Default del root: ``<tempfile.gettempdir()>/zc_build_cache`` (NO
+  ``<cwd>/.build_cache``). Razón: TIA Portal V21 hace
+  ``DirectoryInfo.InternalGetFiles`` sobre el ``exports/`` durante
+  ``import_blocks``. Si el path está en una unidad de red donde
+  TIA no tiene los mismos permisos que la SPA, falla con
+  ``UnauthorizedAccessException`` (validado 2026-09-07). El temp
+  del usuario está siempre en una unidad local accesible por
+  ambos procesos. Override vía ``$ZC_BUILD_CACHE_DIR`` si el
+  operario necesita otra ruta.
 
 Decisiones diferidas
 --------------------
@@ -48,6 +60,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import tempfile
 from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
@@ -156,4 +169,38 @@ class ContextCache:
             sub.mkdir(parents=True, exist_ok=True)
 
 
-__all__ = ["BuildCache", "AreaCache", "ContextCache"]
+def get_default_build_cache_dir() -> Path:
+    """Resuelve el ``root`` del ``BuildCache`` por defecto.
+
+    Orden de resolución:
+      1. ``$ZC_BUILD_CACHE_DIR`` (env var) — el operario puede forzar
+         una ruta concreta (ej. ``D:\\zc_build_cache``) si quiere.
+      2. ``<tempfile.gettempdir()>/zc_build_cache`` — fallback por
+         defecto. SIEMPRE apunta a una unidad local (``%TEMP%`` del
+         usuario en Windows, ``/tmp`` en Linux), donde TIA Portal y
+         el worker pueden leer/escribir sin problemas de permisos.
+
+    Por qué NO usamos ``<cwd>/.build_cache`` como antes: la SPA
+    suele correr en una unidad de red (ej. ``Z:`` en setups con
+    VM compartida). TIA Portal V21, al hacer ``import_blocks``,
+    intenta listar los archivos del ``exports/`` con un handle de
+    lectura. Si el path está en una unidad de red donde TIA no
+    tiene los mismos permisos que la SPA, falla con
+    ``UnauthorizedAccessException`` (validado 2026-09-07 con crash
+    dump de TIA: ``System.UnauthorizedAccessException`` en
+    ``DirectoryInfo.InternalGetFiles`` durante
+    ``SimaticSDImportStrategy.Validate``).
+
+    Returns:
+        Path al directorio root del ``BuildCache``. NO garantiza
+        que exista — los consumers deben llamar ``mkdir(parents=True,
+        exist_ok=True)`` si lo necesitan (o pasar por ``BuildCache``
+        / ``ContextCache`` que lo crean al primer acceso).
+    """
+    custom = os.environ.get("ZC_BUILD_CACHE_DIR", "").strip()
+    if custom:
+        return Path(custom)
+    return Path(tempfile.gettempdir()) / "zc_build_cache"
+
+
+__all__ = ["BuildCache", "AreaCache", "ContextCache", "get_default_build_cache_dir"]

@@ -36,6 +36,7 @@ from areas.alimentacion.application.proc_slot_map_builder import (
 from areas.alimentacion.infrastructure.build_cache import build_cache
 from core.application.progress_buffer import ProgressTracker, get_progress_tracker
 from core.application.state import AppState
+from core.infrastructure.build_cache import get_default_build_cache_dir
 from core.infrastructure.config_manager import ConfigManager
 from core.infrastructure.gateway import TIAProcessGateway
 from core.infrastructure.tia.export_paths import SdPair, XmlTarget
@@ -87,7 +88,7 @@ class ProcSyncComentariosUseCase:
         self._build_cache: Path = (
             build_cache_dir
             if build_cache_dir is not None
-            else Path(os.getcwd()) / ".build_cache"
+            else get_default_build_cache_dir()
         )
 
     # ── API pública ──────────────────────────────────────────────────────
