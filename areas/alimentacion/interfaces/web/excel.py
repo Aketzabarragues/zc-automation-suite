@@ -16,30 +16,33 @@ config (``sd``, ``m_sina``, ``tq``, ``tq_ae``), este endpoint lo
 recoge sin cambios (delegando en el use case, que también es
 data-driven).
 
-Flujo ``/upload``:
+Flujo ``/upload`` (sept-2026, revisado tras bug del tempfile):
   1. Recibe el ``UploadFile`` (multipart).
   2. ``progress.begin(operation="upload_excel", ..., stages=[...])``.
-  3. Escribe el contenido a un ``tempfile.NamedTemporaryFile``
-     (``zcupload_*.xlsx``).
-  4. ``UploadExcelUseCase.execute(tmp_path)`` — parsea, cachea,
-     vuelca al ``AppState`` y construye el summary.
-  5. ``progress.finish(success=True)`` y devuelve el response del
+  3. Lee el contenido a memoria (``await file.read()``).
+  4. **Lo persiste** en una ubicación estable (``<dir>/last_excel_<ext>``,
+     sibling del dir de logs). ANTES escribia a un tempfile en
+     %TEMP% que se borraba en el ``finally`` → el reload fallaba
+     porque ``state.excel_path`` apuntaba a un archivo que ya no
+     existía. Ahora la ruta persiste y el reload funciona.
+  5. ``UploadExcelUseCase.execute(persistent_path)`` — parsea, cachea,
+     vuelca al ``AppState`` (``excel_path=persistent_path``) y
+     construye el summary.
+  6. ``progress.finish(success=True)`` y devuelve el response del
      use case. En error, ``progress.finish(success=False)`` y
      propaga el ``HTTPException`` que ya emite el use case.
-  6. ``finally: tmp_path.unlink(missing_ok=True)`` — limpieza
-     defensiva del tempfile.
 
 Flujo ``/reload`` (sept-2026, pedido operario):
-  1. Lee ``state.excel_path`` (ruta absoluta guardada en el primer
-     ``/upload``).
+  1. Lee ``state.excel_path`` (ruta absoluta persistida en el
+     primer ``/upload``, ahora ESTABLE gracias al fix del
+     tempfile).
   2. Si ``excel_path`` es ``None`` o el archivo ya no existe en
-     disco (movido/borrado), devuelve ``409 Conflict`` con
-     ``error`` accionable para que la SPA fuerce la re-selección.
+     disco (movido/borrado por el operario), devuelve ``409 Conflict``
+     con ``detail`` accionable para que la SPA fuerce la
+     re-seleccion.
   3. ``UploadExcelUseCase.execute(excel_path)`` — re-lee desde
      la misma ruta, repuebla el cache y el AppState con el
-     contenido ACTUAL del archivo. Asi el operario que edita
-     el Excel en otra app y pulsa "Actualizar" ve reflejados
-     sus cambios sin tener que re-seleccionar el archivo.
+     contenido ACTUAL del archivo.
   4. Mismo response shape que ``/upload`` (summary, devices, etc.).
 """
 from __future__ import annotations
@@ -55,6 +58,7 @@ from areas.alimentacion.application.use_cases.upload_excel import (
 )
 from areas.alimentacion.infrastructure.cache import ExcelCacheManager
 from core.application.log_buffer import LogBuffer
+from core.application.log_paths import resolve_log_dir
 from core.application.progress_buffer import ProgressTracker
 from core.application.state import AppState
 from core.infrastructure.config_manager import ConfigManager
@@ -69,6 +73,57 @@ from interfaces.web_server.dependencies import (
 router = APIRouter(prefix="/api/v1/excel", tags=["Excel"])
 
 
+# ── Persistencia del Excel subido (sept-2026, fix tempfile) ─────
+#
+# El operario necesita poder "Actualizar" tras editar el Excel
+# en otra app. Para que ``/reload`` funcione, la ruta que
+# guardamos en ``AppState.excel_path`` debe ser **estable**,
+# NO un tempfile en ``%TEMP%`` que se borraba en el ``finally``
+# del handler (este era el bug que reporto el operario: el
+# ``/reload`` fallaba con 409 "archivo no existe" porque
+# ``excel_path`` apuntaba al tempfile ya borrado).
+#
+# Ubicacion: dir sibling del de logs (``<dir_logs_parent>/cache/``).
+# Mismo patron de resolucion que ``resolve_log_dir`` pero con
+# subdir distinto (``cache`` en vez de ``logs``) para no mezclar
+# logs y datos persistentes. Si no se puede crear (permisos),
+# fallback a ``%LocalAppData%/zc-automation-suite/cache/``.
+
+
+def resolve_excel_cache_dir() -> Path:
+    """Devuelve la carpeta estable donde persistir el Excel subido.
+
+    Politica: sibling del dir de logs (``<parent>/cache/`` en vez
+    de ``<parent>/logs/``). Si no se puede crear (permisos),
+    fallback a ``%LocalAppData%/zc-automation-suite/cache``
+    (mismo patron que ``resolve_log_dir``).
+
+    Returns:
+        ``Path`` a una carpeta existente. Nunca ``None``.
+    """
+    log_dir = resolve_log_dir()
+    candidate = log_dir.parent / "cache"
+    try:
+        candidate.mkdir(parents=True, exist_ok=True)
+        return candidate
+    except OSError:
+        fallback = (
+            Path.home()
+            / "AppData"
+            / "Local"
+            / "zc-automation-suite"
+            / "cache"
+        )
+        fallback.mkdir(parents=True, exist_ok=True)
+        return fallback
+
+
+# Nombre del archivo Excel persistido. Fixed name para que cada
+# /upload sobreescriba el anterior — el "activo" es siempre el
+# ultimo que subio el operario.
+_PERSISTED_EXCEL_BASENAME = "last_excel"
+
+
 @router.post("/upload")
 async def upload_excel(
     file: UploadFile = File(...),
@@ -77,13 +132,16 @@ async def upload_excel(
     config_manager: ConfigManager = Depends(get_config_manager),
     progress: ProgressTracker = Depends(get_progress_tracker),
 ) -> dict[str, Any]:
-    """Recibe un .xlsx y delega en ``UploadExcelUseCase``.
+    """Recibe un .xlsx, lo persiste en disco y delega en ``UploadExcelUseCase``.
 
     La orquestación HTTP es la única responsabilidad del handler:
-    extraer el archivo de la request, persistirlo a un tempfile
-    temporal, abrir el ``ProgressTracker``, invocar el use case y
-    devolver su response. La lógica de parseo, cache y volcado al
-    ``AppState`` vive en el use case (testeable sin FastAPI).
+    extraer el archivo de la request, **persistirlo** en una
+    ubicación estable (sibling del dir de logs, sept-2026 — antes
+    era un tempfile que se borraba en el ``finally``, lo que
+    rompia ``/reload``), abrir el ``ProgressTracker``, invocar el
+    use case y devolver su response. La lógica de parseo, cache
+    y volcado al ``AppState`` vive en el use case (testeable sin
+    FastAPI).
     """
     filename = file.filename or "upload.xlsx"
     suffix = Path(filename).suffix or ".xlsx"
@@ -96,16 +154,33 @@ async def upload_excel(
         label=f"Cargando Excel: {filename}",
         stages=["parsear_excel", "volcar_appstate"],
     )
-    tmp_path: Path | None = None
+    persisted_path: Path | None = None
     try:
-        with tempfile.NamedTemporaryFile(
-            delete=False, suffix=suffix, prefix="zcupload_"
-        ) as tmp:
-            content = await file.read()
-            tmp.write(content)
-            tmp_path = Path(tmp.name)
+        # Leemos a memoria (no a NamedTemporaryFile, que era lo
+        # que nos rompia: ``state.excel_path`` apuntaba al
+        # tempfile y se borraba en el ``finally``).
+        content = await file.read()
+        # Persistimos en una ubicacion estable ANTES de pasar al
+        # use case. Asi ``state.excel_path`` apunta a un archivo
+        # que vive mas alla de este handler, y ``/reload`` lo
+        # puede re-leer sin problemas.
+        #
+        # Usamos ``write_bytes`` directo (no atomic rename) porque
+        # ``os.replace`` falla en Windows cuando el target esta
+        # abierto (e.g. openpyxl en un test anterior que aun
+        # retiene el handle). ``write_bytes`` abre con ``wb`` que
+        # sobreescribe, y al cerrar libera el handle para que el
+        # siguiente upload (o un test posterior) pueda
+        # sobreescribirlo. La "atomicidad" no es critica aqui:
+        # si el write falla a medias, ``content`` esta en
+        # memoria del proceso (todavia en ``await file.read()``
+        # mas arriba) y el operario puede reintentar el upload.
+        cache_dir = resolve_excel_cache_dir()
+        persisted_path = cache_dir / f"{_PERSISTED_EXCEL_BASENAME}{suffix}"
+        persisted_path.write_bytes(content)
         logger.info(
-            f"[excel/upload] Recibiendo archivo '{filename}' ({len(content)} bytes)."
+            f"[excel/upload] Recibiendo archivo '{filename}' "
+            f"({len(content)} bytes), persistido en '{persisted_path}'."
         )
 
         use_case = UploadExcelUseCase(
@@ -115,7 +190,7 @@ async def upload_excel(
             progress_tracker=progress,
             log=logger,
         )
-        result = await use_case.execute(tmp_path)
+        result = await use_case.execute(persisted_path)
         progress.finish(success=True)
         return result
     except Exception as exc:
@@ -123,13 +198,13 @@ async def upload_excel(
         # y ``logger.error(...)`` y emitió ``HTTPException(400)``.
         # Aquí solo aseguramos que el tracker quede cerrado en
         # cualquier otro fallo (p. ej. error al escribir el
-        # tempfile o al construir el use case).
+        # archivo persistente o al construir el use case).
         if progress.active:
             progress.finish(success=False, error=str(exc))
         raise
-    finally:
-        if tmp_path is not None:
-            tmp_path.unlink(missing_ok=True)
+    # NO hay finally que borre el archivo: el archivo es
+    # persistente a proposito (sept-2026) para que ``/reload``
+    # lo pueda re-leer en futuras llamadas.
 
 
 @router.post("/reload")
@@ -151,10 +226,12 @@ async def reload_excel(
     ``TypeError: Failed to fetch`` al reusar la misma referencia
     de File tras un reset del input.
 
-    Solucion: el backend ya guarda la ruta absoluta del Excel
-    en ``AppState.excel_path`` (R1 del plan original, residuo
-    para invalidacion por mtime). Este endpoint la aprovecha
-    para re-leer desde disco.
+    Solucion: el backend guarda la ruta absoluta del Excel
+    en ``AppState.excel_path``. Desde sept-2026, esa ruta
+    apunta a una **ubicacion estable** (sibling del dir de
+    logs) gracias al fix de ``/upload`` que persiste el
+    archivo en vez de usar un tempfile. Este endpoint re-lee
+    desde esa ruta.
 
     Args: ninguno (lee ``state.excel_path``).
 

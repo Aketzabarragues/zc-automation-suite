@@ -247,6 +247,12 @@ _trash_temp/
 *_err.txt
 # Directorio de logs del worker OT y el tray launcher en runtime
 logs/
+# Cache del Excel persistido por ``POST /api/v1/excel/upload``
+# (sept-2026, fix del tempfile). Se crea junto a logs/ en runtime
+# (``<dir_logs_parent>/cache/``) y contiene ``last_excel.xlsx``
+# que es el snapshot del ultimo Excel subido por el operario.
+# No se commitea: es data del operario, no codigo fuente.
+cache/
 # Copias de seguridad que crean ciertos editores (Notepad++/VS Code) y
 # clientes de sync (Nextcloud) al detectar modificaciones externas. Se
 # nombran con el sufijo " (conflicted copy YYYY-MM-DD HHMMSS).ext"
