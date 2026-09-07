@@ -152,6 +152,20 @@ def mock_config_manager() -> MagicMock:
     cm.get_app_state_attr_for = MagicMock(
         side_effect=lambda hw: f"dispositivos_{hw}"
     )
+    # Sept-2026: ``_get_affected_dbs_for_compile`` lo necesita para
+    # resolver los 6 DBs de dispositivos a recompilar. Sin este
+    # mock retorna MagicMock en vez de string, y el assert del test
+    # del caso feliz (``"DB2000_ED" in affected_dbs``) revienta.
+    cm.get_db_name = MagicMock(
+        side_effect=lambda hw: {
+            "ed": "DB2000_ED",
+            "ea": "DB2001_EA",
+            "sa": "DB2006_SA",
+            "v": "DB2010_V",
+            "m": "DB2015_M",
+            "m_vf": "DB2016_M_VF",
+        }.get(hw)
+    )
     return cm
 
 
@@ -528,7 +542,13 @@ async def test_ejecutar_transaccion_emits_device_changes_for_adds_and_removes(
 async def test_ejecutar_transaccion_compiles_plc_after_commit(
     use_case, mock_gateway
 ):
-    """Despues del commit, el use case llama a ``compile_plc`` (fuera de transaccion).
+    """Despues del commit, el use case llama a ``compile_blocks`` (fuera de
+    transaccion) para recompilar SOLO los 6 DBs de dispositivos (sept-2026).
+
+    Antes el use case llamaba a ``compile_plc(plc_name)`` (full software
+    compile, minutos en S7-1500 con 200+ bloques). Ahora llama a
+    ``compile_blocks(plc_name, affected_dbs)`` con los 6 DBs afectados
+    por el sync (ED/EA/SA/V/M/M_VF), lo que tarda segundos.
 
     La compilacion no puede ir dentro de la transaccion: si falla,
     el PLC ya esta modificado (commit ya aplicado). Llamarla despues
@@ -539,15 +559,32 @@ async def test_ejecutar_transaccion_compiles_plc_after_commit(
         "operations_executed": 3,
         "details": [],
     }
-    # compile_plc retorna True si HAY errores (semantica Siemens).
-    # Para el caso feliz, retornamos False.
-    mock_gateway.compile_plc = AsyncMock(return_value=False)
+    # ``compile_blocks`` retorna un dict con ``compiled``,
+    # ``skipped_unchanged``, ``not_found``, ``errors``. Caso feliz:
+    # todos los bloques se compilaron sin errores.
+    mock_gateway.compile_blocks = AsyncMock(return_value={
+        "compiled": [
+            {"name": "DB2000_ED", "had_errors": False, "was_inconsistent": True},
+            {"name": "DB2001_EA", "had_errors": False, "was_inconsistent": True},
+        ],
+        "skipped_unchanged": ["DB2006_SA", "DB2010_V", "DB2015_M", "DB2016_M_VF"],
+        "not_found": [],
+        "errors": [],
+    })
 
     result = await use_case.ejecutar_transaccion("PLC1", {})
     assert result["success"] is True
-    # El use case debe haber llamado a compile_plc UNA vez con el plc_name.
-    mock_gateway.compile_plc.assert_called_once_with("PLC1")
-    # El resultado incluye compile_ok=True (sin errores).
+    # El use case debe haber llamado a compile_blocks UNA vez con
+    # el plc_name y la lista de 6 DBs (en el orden del config).
+    mock_gateway.compile_blocks.assert_called_once()
+    call_args = mock_gateway.compile_blocks.call_args
+    assert call_args.args[0] == "PLC1"
+    affected_dbs = call_args.args[1]
+    assert len(affected_dbs) == 6
+    assert "DB2000_ED" in affected_dbs
+    assert "DB2016_M_VF" in affected_dbs
+    # El resultado incluye compile_ok=True (sin errores, 2 compilados,
+    # 4 saltados por consistentes).
     assert result["compile_ok"] is True
     assert result["compile_error"] is None
 
@@ -556,20 +593,30 @@ async def test_ejecutar_transaccion_compiles_plc_after_commit(
 async def test_ejecutar_transaccion_handles_compile_errors_gracefully(
     use_case, mock_gateway
 ):
-    """Si la compilacion falla (TIA reporta errores), el resultado lo refleja.
+    """Si la compilacion falla (TIA reporta errores en algun DB), el
+    resultado lo refleja.
 
-    El commit YA fue aplicado. La compilacion falla (p. ej. N_MAX cambio
-    dimensiones de DBs). El use case devuelve ``compile_ok=False`` con
-    un mensaje de error, pero el ``success=True`` porque el commit
-    fue exitoso.
+    El commit YA fue aplicado. La compilacion falla en uno de los DBs
+    (p. ej. N_MAX cambio dimensiones). El use case devuelve
+    ``compile_ok=False`` con un mensaje de error, pero el
+    ``success=True`` porque el commit fue exitoso.
     """
     mock_gateway.commit_devices_sync.return_value = {
         "success": True,
         "operations_executed": 3,
         "details": [],
     }
-    # compile_plc retorna True si HAY errores.
-    mock_gateway.compile_plc = AsyncMock(return_value=True)
+    # ``compile_blocks`` retorna 1 bloque con errores, 1 con OK, el
+    # resto saltados. ``had_errors=True`` en al menos uno -> compile_ok=False.
+    mock_gateway.compile_blocks = AsyncMock(return_value={
+        "compiled": [
+            {"name": "DB2000_ED", "had_errors": True, "was_inconsistent": True},
+            {"name": "DB2001_EA", "had_errors": False, "was_inconsistent": True},
+        ],
+        "skipped_unchanged": ["DB2006_SA"],
+        "not_found": [],
+        "errors": [],
+    })
 
     result = await use_case.ejecutar_transaccion("PLC1", {})
     assert result["success"] is True
@@ -584,7 +631,7 @@ async def test_ejecutar_transaccion_handles_compile_errors_gracefully(
 async def test_ejecutar_transaccion_handles_compile_exception_gracefully(
     use_case, mock_gateway
 ):
-    """Si ``compile_plc`` lanza una excepcion, no fallamos el resultado.
+    """Si ``compile_blocks`` lanza una excepcion, no fallamos el resultado.
 
     El commit ya fue aplicado. Reportamos el error de compilacion pero
     no abortamos: el operario puede ver el problema en TIA Portal
@@ -595,7 +642,7 @@ async def test_ejecutar_transaccion_handles_compile_exception_gracefully(
         "operations_executed": 3,
         "details": [],
     }
-    mock_gateway.compile_plc = AsyncMock(
+    mock_gateway.compile_blocks = AsyncMock(
         side_effect=RuntimeError("TIA Openness timeout")
     )
 

@@ -393,6 +393,142 @@ def _cmd_compile_plc(portal: Any, ts: Any, args: dict[str, Any]) -> bool:
     return bool(target_plc.compile_software())
 
 
+def _cmd_compile_blocks(portal: Any, ts: Any, args: dict[str, Any]) -> dict[str, Any]:
+    """Compila una lista explicita de bloques del PLC (no todo el software).
+
+    Caso de uso (sept-2026, pedido operario): tras modificar
+    N_MAX + comentarios de dispositivos, el use case de sync necesita
+    que TIA recompile los DataBlocks para que el array se
+    redimensione. Compilar TODO el PLC (``compile_software``)
+    tarda minutos en un S7-1500 con 200+ bloques; nosotros
+    solo hemos tocado 6 DBs (ED/EA/SA/V/M/M_VF). Este handler
+    compila SOLO los bloques de la lista ``block_names``,
+    saltando los que ya estan consistentes (``is_consistent()=True``).
+
+    Semantica por bloque:
+      - ``is_consistent()=True``  -> se SALTA (sin cambios, ahorra
+        tiempo). Reportado en ``skipped_unchanged``.
+      - ``is_consistent()=False`` -> se COMPILA con ``.compile()``.
+        Si la compilacion retorna True (hay errores) o lanza
+        excepcion, se registra en ``compiled`` o ``errors``
+        respectivamente.
+      - bloque no encontrado en el PLC -> se SALTA, reportado en
+        ``not_found`` (no falla el handler entero).
+
+    Args:
+        plc_name: nombre del PLC (e.g. ``"PLC1"``).
+        block_names: lista de nombres de bloques a compilar
+            (e.g. ``["DB2000_ED", "DB2001_EA", ...]``). Lista
+            vacia -> el handler devuelve ``{"error": "..."}`` (el
+            caller debe pasar nombres explicitos, decision
+            sept-2026 del operario para tener control
+            determinista).
+
+    Returns:
+        ``dict`` con la forma::
+
+            {
+                "compiled": [
+                    # bloques efectivamente compilados
+                    {"name": "DB2000_ED", "had_errors": False, "was_inconsistent": True}
+                ],
+                "skipped_unchanged": [
+                    # bloques ya consistentes, NO compilados
+                    "DB2001_EA"
+                ],
+                "not_found": [
+                    # nombres pedidos que no existen en el PLC
+                    "DB_FAKE"
+                ],
+                "errors": [
+                    # excepciones durante .compile() (bloque sigue
+                    # procesandose en el siguiente item de la lista)
+                    {"name": "DB2002_SA", "error": "..."}
+                ]
+            }
+
+        ``had_errors`` viene del valor de retorno de ``.compile()``
+        (True si TIA reporto errores, semantica Siemens §2.2.11).
+
+    Raises:
+        ValueError: si ``plc_name`` o ``block_names`` faltan o
+            ``block_names`` esta vacio.
+    """
+    _ = ts
+    project = _get_active_project(portal)
+    plc_name: str = args.get("plc_name", "")
+    block_names: list[str] | None = args.get("block_names")
+
+    if not plc_name:
+        raise ValueError("Se requiere el argumento 'plc_name'.")
+    if not block_names:
+        raise ValueError(
+            "Se requiere 'block_names' (lista no vacia de bloques a compilar). "
+            "Si quieres compilar todo el PLC, usa el comando 'compile_plc'."
+        )
+
+    target_plc = _find_plc(project, plc_name)
+
+    # Indexamos los bloques del PLC por nombre para busqueda O(1).
+    # ``get_program_blocks()`` es la API que devuelve TODOS los
+    # bloques (FCs, FBs, OBs, DBs) sin importar el grupo al que
+    # pertenezcan. Tambien incluye system blocks si los hay
+    # (estos no son compilables, ver rama mas abajo).
+    all_blocks = target_plc.get_program_blocks()
+    by_name: dict[str, Any] = {}
+    for b in all_blocks:
+        name = _safe_get_block_name(b)
+        if name is not None:
+            by_name.setdefault(name, b)  # primero que aparece gana
+
+    compiled: list[dict[str, Any]] = []
+    skipped_unchanged: list[str] = []
+    not_found: list[str] = []
+    errors: list[dict[str, str]] = []
+
+    for name in block_names:
+        block = by_name.get(name)
+        if block is None:
+            not_found.append(name)
+            continue
+        # ``is_consistent()`` retorna True si el bloque ya esta
+        # compilado y no tiene cambios pendientes. Saltamos para
+        # ahorrar tiempo (decision sept-2026).
+        try:
+            is_consistent = bool(block.is_consistent())
+        except Exception:
+            # Si is_consistent() lanza (raro, pero defensivo),
+            # asumimos que NO es consistente y compilamos.
+            is_consistent = False
+        if is_consistent:
+            skipped_unchanged.append(name)
+            continue
+        # Compilamos. ``.compile()`` retorna el bool nativo de
+        # Siemens: True si hay errores, False si OK.
+        try:
+            had_errors = bool(block.compile())
+            compiled.append({
+                "name": name,
+                "had_errors": had_errors,
+                "was_inconsistent": True,
+            })
+        except Exception as exc:
+            # El bloque concreto falla (p.ej. error de sintaxis
+            # grave), pero seguimos con el siguiente. El caller
+            # recibira la lista de errores y decidira.
+            errors.append({
+                "name": name,
+                "error": f"{type(exc).__name__}: {exc}",
+            })
+
+    return {
+        "compiled": compiled,
+        "skipped_unchanged": skipped_unchanged,
+        "not_found": not_found,
+        "errors": errors,
+    }
+
+
 def _export_objects_sd(portal: Any, ts: Any, args: dict[str, Any]) -> str:
     """Exporta una colección de objetos TIA (Bloques o UDTs) a archivos .s7dcl.
 
@@ -984,6 +1120,7 @@ _TRANSACTION_FORBIDDEN_COMMANDS: frozenset[str] = frozenset(
         "list_plcs",
         "execute_transactional_batch",
         "compile_plc",
+        "compile_blocks",
         # Comandos del ciclo de vida de la instancia TIA: gestionan su
         # propia conexi�n con el portal. No pueden ejecutarse DENTRO de
         # una transacci�n de proyecto (romper�an el RCW / no tendr�a
@@ -1090,6 +1227,7 @@ COMMAND_REGISTRY: dict[str, Callable[[Any, Any, dict[str, Any]], Any]] = {
     "scan_blocks": _cmd_scan_blocks,
     # ── Mutación / compilación ────────────────────────────────────
     "compile_plc": _cmd_compile_plc,
+    "compile_blocks": _cmd_compile_blocks,
     # ── Exportación masiva Simatic Source Documents (.s7dcl) ──────────
     "export_blocks_sd": _cmd_export_blocks_sd,
     "export_udts_sd": _cmd_export_udts_sd,

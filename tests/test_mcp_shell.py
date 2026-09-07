@@ -60,7 +60,7 @@ def _list_tool_names(mcp: Any) -> list[str]:
 
 
 def test_mcp_shell_registers_generic_tools() -> None:
-    """El shell registra las 22 tools genéricas del gateway."""
+    """El shell registra las 23 tools genéricas del gateway."""
     mcp = create_mcp_server(MagicMock(spec=TIAProcessGateway))
 
     names = _list_tool_names(mcp)
@@ -73,6 +73,7 @@ def test_mcp_shell_registers_generic_tools() -> None:
         "tia_list_plcs",
         "tia_list_blocks",
         "tia_compile_plc",
+        "tia_compile_blocks",
         "tia_export_blocks_sd",
         "tia_export_udts_sd",
         "tia_export_plc_tags_xml",
@@ -88,7 +89,7 @@ def test_mcp_shell_registers_generic_tools() -> None:
         "tia_delete_user_constant",
         "tia_execute_transactional_batch",
     ]
-    assert len(generic_tools) == 22, (
+    assert len(generic_tools) == 23, (
         "Si añades/eliminas tools genéricas del shell, actualiza este assert."
     )
     for expected in generic_tools:
@@ -98,7 +99,7 @@ def test_mcp_shell_registers_generic_tools() -> None:
 
 
 def test_mcp_shell_with_area_registers_4_area_tools() -> None:
-    """Con el AreaRegistry discover'd (alimentación), se registran 22 + 4 = 26 tools."""
+    """Con el AreaRegistry discover'd (alimentación), se registran 23 + 4 = 27 tools."""
     mcp = create_mcp_server(MagicMock(spec=TIAProcessGateway))
 
     names = _list_tool_names(mcp)
@@ -113,9 +114,9 @@ def test_mcp_shell_with_area_registers_4_area_tools() -> None:
         assert expected in names, (
             f"Tool del área esperada no registrada: {expected!r}"
         )
-    # Total: 22 genéricas + 4 del área = 26.
-    assert len(names) == 26, (
-        f"Esperaba 26 tools (22 genéricas + 4 del área), obtuve {len(names)}: "
+    # Total: 23 genéricas + 4 del área = 27.
+    assert len(names) == 27, (
+        f"Esperaba 27 tools (23 genéricas + 4 del área), obtuve {len(names)}: "
         f"{names}"
     )
 

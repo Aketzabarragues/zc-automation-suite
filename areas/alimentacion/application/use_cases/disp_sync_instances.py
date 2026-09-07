@@ -544,30 +544,78 @@ class DispSyncInstancesUseCase:
             # 2. La compilacion puede fallar (p.ej. N_MAX cambia dimensiones
             #    de DBs que las referencian) y eso NO debe revertir el sync
             #    (los cambios del Excel ya estan en el PLC).
-            # 3. Semantica Siemens: compile_software() retorna True si HAY
-            #    errores, False si NO hay errores. Invertimos para que
+            # 3. Semantica Siemens: ``compile_software()`` retorna True si
+            #    HAY errores, False si NO hay. Invertimos para que
             #    ``compile_ok`` sea True en el caso feliz.
+            #
+            # Sept-2026: antes compilabamos TODO el PLC con
+            # ``gateway.compile_plc(plc_name)``. En un S7-1500 con 200+
+            # bloques eso tarda minutos. Aqui solo hemos tocado los 6
+            # DBs de dispositivos (ED/EA/SA/V/M/M_VF): N_MAX cambia
+            # sus arrays, los comentarios_db actualizan su S7_MLC, y
+            # los device tables importan nuevos tags. Los FCs/FBs/OBs
+            # NO se han modificado, no necesitan recompilacion.
+            #
+            # Usamos ``gateway.compile_blocks(plc_name, affected_dbs)``
+            # que:
+            #   - Itera SOLO los 6 DBs.
+            #   - Salta los que ya estan consistentes (``is_consistent()``
+            #     retorna True si no hay cambios pendientes).
+            #   - Devuelve un dict con ``compiled``, ``skipped_unchanged``,
+            #     ``not_found``, ``errors`` para trazabilidad.
             self._progress.start_stage(
-                "compile_plc", "Compilando software del PLC..."
+                "compile_plc", "Compilando los 6 DBs de dispositivos..."
             )
+            affected_dbs = self._get_affected_dbs_for_compile()
             compile_ok = True
             compile_error = None
             try:
-                has_errors = await self._gateway.compile_plc(plc_name)
-                compile_ok = not has_errors
-                if not compile_ok:
+                # OJO: usamos ``compile_result`` (no ``result``) porque
+                # ``result`` ya esta binded al retorno de
+                # ``commit_devices_sync`` (Stage 4). Si reusasemos el
+                # mismo nombre, las lineas finales (que esperan
+                # ``result["details"]`` y ``result["operations_executed"]``)
+                # leerian el dict de compile_blocks en vez del commit,
+                # y revientan con KeyError.
+                compile_result = await self._gateway.compile_blocks(
+                    plc_name, affected_dbs
+                )
+                # ``compile_ok`` es True solo si TODOS los bloques
+                # efectivamente compilados NO tienen errores Y no
+                # hubo excepciones. Los "skipped_unchanged" no
+                # cuentan (no los tocamos, no tienen errores por
+                # definicion). Los "not_found" cuentan como warning
+                # (no deberia pasar: los DBs los acabamos de importar
+                # en la tx anterior, pero por si acaso).
+                compiled = compile_result.get("compiled", [])
+                errors = compile_result.get("errors", [])
+                any_had_errors = any(c.get("had_errors") for c in compiled)
+                if any_had_errors or errors:
+                    compile_ok = False
+                    n_had = sum(1 for c in compiled if c.get("had_errors"))
+                    n_err = len(errors)
+                    n_not_found = len(compile_result.get("not_found", []))
                     compile_error = (
-                        "TIA reporta errores de compilacion. Revisa el "
-                        "proyecto en TIA Portal: los DBs pueden haber "
-                        "quedado con tamano inconsistente tras el resize "
-                        "de N_MAX."
+                        f"TIA reporta errores de compilacion: "
+                        f"{n_had} bloque(s) con errores, "
+                        f"{n_err} excepcion(es), "
+                        f"{n_not_found} no encontrado(s). "
+                        f"Revisa el proyecto en TIA Portal: los DBs "
+                        f"pueden haber quedado con tamano inconsistente "
+                        f"tras el resize de N_MAX."
                     )
                     _logger.warning(
-                        f"[{plc_name}] Compilacion con errores "
-                        f"(commit ya aplicado)."
+                        f"[{plc_name}] Compilacion parcial con "
+                        f"errores (commit ya aplicado): "
+                        f"{compile_result}"
                     )
                 else:
-                    _logger.info(f"[{plc_name}] Compilacion OK.")
+                    n_skipped = len(compile_result.get("skipped_unchanged", []))
+                    _logger.info(
+                        f"[{plc_name}] Compilacion OK "
+                        f"({len(compiled)} compilados, "
+                        f"{n_skipped} saltados por consistentes)."
+                    )
             except Exception as exc:
                 compile_ok = False
                 compile_error = f"Excepcion durante la compilacion: {exc}"
@@ -613,6 +661,29 @@ class DispSyncInstancesUseCase:
         """Helper: generar previsi\u00f3n + ejecutar transacci\u00f3n en una llamada."""
         prevision = await self.generar_prevision(plc_name)
         return await self.ejecutar_transaccion(plc_name, prevision)
+
+    def _get_affected_dbs_for_compile(self) -> list[str]:
+        """Devuelve los nombres de los 6 DBs de dispositivos a recompilar.
+
+        Sept-2026: tras un sync completo (N_MAX + comments + device
+        tables), estos son los unicos bloques cuyo tamano/contenido
+        ha cambiado. Los FCs/FBs/OBs NO se han tocado; no necesitan
+        recompilacion.
+
+        Se resuelve del ``ConfigManager`` (data-driven: si en el
+        futuro se anade un 7mo tipo, basta con declararlo en el
+        config; este helper lo recoge sin cambios).
+
+        Returns:
+            Lista de nombres de DBs (e.g.
+            ``["DB2000_ED", "DB2001_EA", "DB2006_SA",
+               "DB2010_V", "DB2015_M", "DB2016_M_VF"]``).
+        """
+        return [
+            self._config.get_db_name(hw)
+            for hw in ("ed", "ea", "sa", "v", "m", "m_vf")
+        ]
+
 
     async def _run_apply_comentarios(self, plc_name: str) -> dict[str, Any]:
         """Aplica los comentarios por instancia a los 6 DBs de dispositivos.

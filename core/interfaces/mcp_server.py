@@ -193,6 +193,70 @@ def create_mcp_server(gateway: TIAProcessGateway) -> FastMCP:
         )
 
     @mcp.tool()
+    async def tia_compile_blocks(
+        plc_name: str, block_names: list[str]
+    ) -> str:
+        """Compila una lista explicita de bloques del PLC (no todo el software).
+
+        Caso de uso tipico (sept-2026): tras modificar N_MAX o
+        comentarios de dispositivos, solo los DBs afectados (p.ej.
+        ``DB2000_ED``, ``DB2001_EA``, ...) necesitan
+        recompilacion para que TIA Portal recalcule las
+        dimensiones. Compilar todo el PLC (``tia_compile_plc``)
+        tarda minutos en un S7-1500 con 200+ bloques; este tool
+        tarda segundos.
+
+        Comportamiento por bloque:
+          - Si ``is_consistent()=True`` -> se SALTA (ya compilado
+            y sin cambios). Reportado en el resumen.
+          - Si ``is_consistent()=False`` -> se COMPILA con
+            ``.compile()``. El bool retornado (True/False errores)
+            se reporta en el resumen.
+          - Si el bloque no existe en el PLC -> se SALTA, reportado
+            en el resumen (no falla el tool entero).
+
+        Args:
+            plc_name: nombre del PLC (e.g. ``"PLC1"``).
+            block_names: lista NO vacia de nombres de bloques a
+                compilar (e.g. ``["DB2000_ED", "DB2001_EA"]``).
+
+        Returns:
+            Resumen humano, p.ej.::
+
+              "Compilados 2/3 bloques del PLC 'PLC1':
+               - DB2000_ED: OK
+               - DB2001_EA: con errores
+               - DB2002_SA: saltado (ya consistente)
+               - DB_FAKE: no encontrado"
+
+        Para recompilar todo el PLC (caso raro, project grandes),
+        usa ``tia_compile_plc`` en su lugar.
+        """
+        result = await gateway.compile_blocks(plc_name, block_names)
+        compiled = result.get("compiled", [])
+        skipped = result.get("skipped_unchanged", [])
+        not_found = result.get("not_found", [])
+        errors = result.get("errors", [])
+
+        lines: list[str] = [
+            f"Compilados {len(compiled)}/{len(block_names)} bloques del PLC '{plc_name}':"
+        ]
+        # Bloques compilados (con o sin errores).
+        for entry in compiled:
+            status = "con errores" if entry["had_errors"] else "OK"
+            lines.append(f"- {entry['name']}: {status}")
+        # Saltados por estar consistentes.
+        for name in skipped:
+            lines.append(f"- {name}: saltado (ya consistente)")
+        # No encontrados.
+        for name in not_found:
+            lines.append(f"- {name}: no encontrado en el PLC")
+        # Excepciones durante compile().
+        for entry in errors:
+            lines.append(f"- {entry['name']}: ERROR ({entry['error']})")
+        return "\n".join(lines)
+
+    @mcp.tool()
     async def tia_export_blocks_sd(plc_name: str, target_dir: str) -> str:
         """Exporta los bloques como archivos Simatic Source Documents (.s7dcl).
 

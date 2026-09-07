@@ -1812,6 +1812,65 @@ class TIAProcessGateway:
             "compile_plc", {"plc_name": plc_name}
         )
 
+    async def compile_blocks(
+        self, plc_name: str, block_names: list[str]
+    ) -> dict[str, Any]:
+        """Compila una lista explicita de bloques del PLC (no todo el software).
+
+        Caso de uso (sept-2026, pedido operario): tras modificar
+        N_MAX + comentarios de dispositivos, el use case de sync
+        necesita que TIA recompile los DataBlocks para que el
+        array se redimensione. Compilar TODO el PLC
+        (``compile_plc``) tarda minutos en un S7-1500 con 200+
+        bloques; nosotros solo hemos tocado 6 DBs
+        (ED/EA/SA/V/M/M_VF). Este metodo compila SOLO los
+        bloques de la lista, saltando los que ya estan
+        consistentes (``is_consistent()=True``).
+
+        Args:
+            plc_name: nombre del PLC (e.g. ``"PLC1"``).
+            block_names: lista de nombres de bloques a compilar
+                (e.g. ``["DB2000_ED", "DB2001_EA", ...]``). Lista
+                vacia -> ``RuntimeError`` (el caller debe pasar
+                nombres explicitos, decision sept-2026 del
+                operario para tener control determinista).
+
+        Returns:
+            ``dict`` con la forma::
+
+                {
+                    "compiled": [
+                        # bloques efectivamente compilados
+                        {"name": "DB2000_ED", "had_errors": False,
+                         "was_inconsistent": True}
+                    ],
+                    "skipped_unchanged": [
+                        # bloques ya consistentes, NO compilados
+                        "DB2001_EA"
+                    ],
+                    "not_found": [
+                        # nombres pedidos que no existen en el PLC
+                        "DB_FAKE"
+                    ],
+                    "errors": [
+                        # excepciones durante .compile() (el bloque
+                        # sigue procesandose en el siguiente item)
+                        {"name": "DB2002_SA", "error": "..."}
+                    ]
+                }
+
+        Raises:
+            RuntimeError: si el PLC no existe (delegado de
+                ``_find_plc``). NO se relanza excepciones de bloques
+                individuales: cada error va en ``errors`` para que
+                un bloque problematico no impida compilar los
+                demas.
+        """
+        return await self._dispatch_worker(
+            "compile_blocks",
+            {"plc_name": plc_name, "block_names": list(block_names)},
+        )
+
     async def export_blocks_sd(self, plc_name: str, target_dir: str) -> str:
         """Exporta los bloques de programa del PLC a archivos Simatic Source Documents (.s7dcl) en target_dir.
 

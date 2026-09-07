@@ -155,10 +155,20 @@ def test_ejecutar_transaccion_emits_7_stages(
             "details": [],
         }
     gateway.commit_devices_sync = fake_commit  # type: ignore[method-assign]
-    # compile_plc retorna False (sin errores)
-    async def fake_compile(plc_name: str) -> bool:
-        return False
-    gateway.compile_plc = fake_compile  # type: ignore[method-assign]
+    # ``compile_blocks`` (sept-2026) retorna un dict con
+    # ``compiled`` (todos OK), ``skipped_unchanged``, ``not_found``,
+    # ``errors``. Caso feliz: todos consistentes (no hay nada que
+    # compilar -> el handler reporta todo como ``skipped_unchanged``).
+    async def fake_compile_blocks(
+        plc_name: str, block_names: list[str]
+    ) -> dict:
+        return {
+            "compiled": [],
+            "skipped_unchanged": list(block_names),
+            "not_found": [],
+            "errors": [],
+        }
+    gateway.compile_blocks = fake_compile_blocks  # type: ignore[method-assign]
 
     use_case = DispSyncInstancesUseCase(
         gateway=gateway,
@@ -302,9 +312,16 @@ async def test_apply_comentarios_disp_fallo_no_revienta_el_commit(
             "details": [],
         }
     gateway.commit_devices_sync = fake_commit  # type: ignore[method-assign]
-    async def fake_compile(plc_name):
-        return False
-    gateway.compile_plc = fake_compile  # type: ignore[method-assign]
+    async def fake_compile_blocks(
+        plc_name: str, block_names: list[str]
+    ) -> dict:
+        return {
+            "compiled": [],
+            "skipped_unchanged": list(block_names),
+            "not_found": [],
+            "errors": [],
+        }
+    gateway.compile_blocks = fake_compile_blocks  # type: ignore[method-assign]
     # El batch de comentarios falla (TIA en estado raro).
     async def fake_comments_batch(
         plc_name, dispositivos_slot_maps, target_folder,
