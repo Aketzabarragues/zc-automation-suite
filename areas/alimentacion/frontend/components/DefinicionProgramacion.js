@@ -43,7 +43,7 @@
 import { computed, ref } from "/js/vendor/vue.esm-browser.prod.js";
 // Imports absolutos: ver nota en ``Sidebar.js``.
 import { store, pushLog } from "/js/store.js";
-import { apiUploadExcel, apiFetchMemory } from "/js/api.js";
+import { apiUploadExcel, apiReloadExcel, apiFetchMemory } from "/js/api.js";
 
 export default {
     name: "DefinicionProgramacion",
@@ -150,37 +150,76 @@ export default {
         }
 
         /**
-         * Re-lee el último Excel cacheado en `store.lastExcelFile` sin
-         * pedirle al operario que re-seleccione el archivo del disco.
-         * El cache vive en el store, así que sobrevive a navegaciones
-         * entre sub-vistas del área. Si no hay archivo cacheado
-         * (p.ej. acaba de arrancar la SPA o el operario cambió de
-         * área, lo que resetea `store.lastExcelFile`), cae al
-         * comportamiento legacy: pide al padre que dispare
-         * `apiFetchMemory` vía `main.js` (escuchando el evento
-         * "refresh").
+         * Re-lee el último Excel desde DISCO via ``apiReloadExcel``
+         * (endpoint ``POST /api/v1/excel/reload``). El backend ya
+         * tiene la ruta absoluta guardada en ``AppState.excel_path``
+         * (desde el primer ``/upload``); este handler no reenvía
+         * el File en memoria, asi que:
+         *   1. Recoge cambios del operario en el Excel (el File
+         *      cacheado era un snapshot en el momento del upload).
+         *   2. Evita el "TypeError: Failed to fetch" del browser
+         *      al reusar la misma referencia de File tras un reset
+         *      del input.
+         *
+         * Si el archivo ya no existe en disco (movido/borrado
+         * entre el upload y el reload), el backend devuelve
+         * 409 Conflict. En ese caso:
+         *   - Mostramos el detail accionable al operario.
+         *   - Abrimos el file picker automaticamente para que
+         *     re-seleccione el archivo (UX: 1 click).
+         *
+         * Sept-2026 (pedido operario): antes este handler reenviaba
+         * el ``store.lastExcelFile`` (File en memoria del primer
+         * upload). El File era un snapshot: los cambios en disco
+         * no se veian, y en algunos navegadores el reuso de la
+         * misma referencia tras ``fileInput.value = ""`` daba
+         * ``TypeError: Failed to fetch``.
          */
         async function handleActualizar() {
-            if (store.lastExcelFile) {
-                const file = store.lastExcelFile;
-                store.busy = true;
-                try {
-                    const r = await apiUploadExcel(file);
-                    if (r.ok) {
-                        store.uploadSummary = r.data.summary || {};
-                        pushLog("🔄 Excel recargado: " + file.name, "success");
-                        const mem = await apiFetchMemory();
-                        if (mem.ok && mem.data && mem.data.ok) {
-                            store.memoryState = mem.data;
-                        }
-                    } else {
-                        alert("Error recargando Excel: " + (r.data.detail || r.status));
-                    }
-                } finally {
-                    store.busy = false;
-                }
-            } else {
+            if (!store.lastExcelFile) {
+                // Caso legacy: el operario acaba de arrancar la SPA
+                // o cambio de area (lo que resetea ``lastExcelFile``)
+                // y el ``excel_cache`` del backend puede tener datos.
+                // Pedimos al padre que dispare ``apiFetchMemory``.
                 emit("refresh");
+                return;
+            }
+            store.busy = true;
+            try {
+                const r = await apiReloadExcel();
+                if (r.ok) {
+                    store.uploadSummary = r.data.summary || {};
+                    pushLog("🔄 Excel recargado desde disco", "success");
+                    const mem = await apiFetchMemory();
+                    if (mem.ok && mem.data && mem.data.ok) {
+                        store.memoryState = mem.data;
+                    }
+                } else if (r.status === 409) {
+                    // Archivo movido/borrado o no se subio antes.
+                    // El detail del backend ya es accionable.
+                    const detail = r.data && r.data.detail
+                        ? r.data.detail
+                        : "El archivo Excel ya no esta disponible.";
+                    alert("Error recargando Excel: " + detail);
+                    pushLog(
+                        "❌ " + detail,
+                        "error"
+                    );
+                    // Forzar re-seleccion: abrimos el file picker
+                    // automaticamente para que el operario solo tenga
+                    // que confirmar el archivo en el dialogo.
+                    if (fileInput.value) {
+                        fileInput.value.value = "";  // reset
+                        fileInput.value.click();
+                    }
+                } else {
+                    const detail = r.data && r.data.detail
+                        ? r.data.detail
+                        : "HTTP " + (r.status || "?");
+                    alert("Error recargando Excel: " + detail);
+                }
+            } finally {
+                store.busy = false;
             }
         }
 

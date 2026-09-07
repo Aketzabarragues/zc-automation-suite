@@ -75,6 +75,36 @@ export function apiUploadExcel(file) {
 }
 
 /**
+ * Re-lee el ultimo Excel desde disco (``state.excel_path``) sin
+ * pedir al operario que re-seleccione el archivo.
+ *
+ * Caso de uso (sept-2026, pedido operario): el operario carga
+ * un Excel, lo edita en otra app, y quiere refrescar la SPA
+ * sin tener que volver a seleccionar el archivo. El handler
+ * ``/upload`` recibia un File en memoria, que era un snapshot
+ * en el momento de la primera subida: no veia los cambios
+ * posteriores y, en algunos navegadores, daba
+ * ``TypeError: Failed to fetch`` al reusar la misma referencia
+ * de File tras un reset del input.
+ *
+ * El endpoint ``POST /api/v1/excel/reload`` (backend) lee la
+ * ruta absoluta del Excel guardada en ``AppState.excel_path``
+ * tras el primer ``/upload`` y la re-parsea desde disco. Asi
+ * los cambios del operario se reflejan sin intervencion del
+ * usuario.
+ *
+ * Devuelve el mismo shape que ``apiUploadExcel`` (summary,
+ * devices, dimensiones, etc.).
+ *
+ * Si no hay Excel previo o el archivo ya no existe en disco
+ * (movido/borrado), el backend devuelve 409 Conflict con
+ * ``detail`` accionable; el componente debe forzar la
+ * re-seleccion del archivo.
+ */
+export const apiReloadExcel = () =>
+    _request("POST", "/api/v1/excel/reload");
+
+/**
  * Devuelve el catálogo de áreas configuradas en el backend.
  * Cada elemento: ``{ key, label, description, icon, available }``.
  * Alimenta la pantalla de bienvenida.
