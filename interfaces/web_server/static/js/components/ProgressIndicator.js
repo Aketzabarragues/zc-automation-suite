@@ -46,14 +46,19 @@ import { apiClearProgress } from "../api.js";
  */
 const STAGE_ICON_LIGHT = {
     pending:  { icon: "○", cls: "text-ink-muted" },
-    running:  { icon: "⏳", cls: "text-accent" },
+    // Icono de "running": flecha circular rotando (vía animate-spin
+    // en el template), consistente con los botones de refresh de la
+    // SPA (BloquesCacheView, ProcesosSyncView, etc.). Antes era
+    // ⏳ (reloj de arena), pero el ↻ rotando es mas natural y se
+    // lee mejor como "operacion en curso".
+    running:  { icon: "↻", cls: "text-accent" },
     done:     { icon: "✓", cls: "text-green-600" },
     error:    { icon: "✗", cls: "text-red-600" },
 };
 
 const STAGE_ICON_DARK = {
     pending:  { icon: "○", cls: "text-on-shell-faint" },
-    running:  { icon: "⏳", cls: "text-accent-bright" },
+    running:  { icon: "↻", cls: "text-accent-bright" },
     done:     { icon: "✓", cls: "text-green-600" },
     error:    { icon: "✗", cls: "text-red-600" },
 };
@@ -111,12 +116,25 @@ export default {
             }
         });
 
-        /** Título del panel. */
-        const title = computed(() => {
-            const p = store.progress;
-            if (mode.value === "error") return "✗ Error";
-            if (mode.value === "success") return "✓ Completado";
-            if (mode.value === "running") return "⏳ En curso";
+        /**
+         * Icono del titulo del panel, separado del texto para poder
+         * aplicar ``animate-spin inline-block`` SOLO al icono cuando
+         * esta en ``running`` (la flecha rotando da feedback de
+         * "operacion en curso" sin alterar el texto). En los otros
+         * modos (error, success) el icono queda estatico.
+         */
+        const titleIcon = computed(() => {
+            if (mode.value === "error") return "✗";
+            if (mode.value === "success") return "✓";
+            if (mode.value === "running") return "↻";
+            return "";
+        });
+
+        /** Texto del titulo (sin el icono, que se pinta aparte). */
+        const titleText = computed(() => {
+            if (mode.value === "error") return "Error";
+            if (mode.value === "success") return "Completado";
+            if (mode.value === "running") return "En curso";
             return "";
         });
 
@@ -183,7 +201,8 @@ export default {
             hasContent,
             mode,
             barCls,
-            title,
+            titleIcon,
+            titleText,
             subtitle,
             store,
             stageMeta,
@@ -203,7 +222,16 @@ export default {
                 <div class="min-w-0 flex-1">
                     <div :class="dark
                         ? 'text-xs font-bold text-on-shell'
-                        : 'text-xs font-bold text-ink'">{{ title }}</div>
+                        : 'text-xs font-bold text-ink'">
+                        <span v-if="titleIcon"
+                              :class="mode === 'running'
+                                  ? 'inline-block animate-spin mr-1'
+                                  : 'mr-1'"
+                              data-testid="progress-title-icon">
+                            {{ titleIcon }}
+                        </span>
+                        {{ titleText }}
+                    </div>
                     <div :class="dark
                         ? 'text-[10px] text-on-shell-muted truncate'
                         : 'text-[10px] text-ink-muted truncate'">{{ subtitle }}</div>
@@ -234,7 +262,10 @@ export default {
                     :class="['flex justify-between items-baseline py-0.5',
                              stage.status === 'running' ? runningHighlightCls : '']">
                     <span class="flex items-baseline gap-1 min-w-0 flex-1">
-                        <span :class="['w-3 text-center', stageMeta[stage.status]?.cls || (dark ? 'text-on-shell-faint' : 'text-ink-muted')]">
+                        <span :class="['w-3 text-center',
+                                       stageMeta[stage.status]?.cls || (dark ? 'text-on-shell-faint' : 'text-ink-muted'),
+                                       stage.status === 'running' ? 'inline-block animate-spin' : '']"
+                              :data-testid="'progress-stage-icon-' + stage.id">
                             {{ stageMeta[stage.status]?.icon || "?" }}
                         </span>
                         <span :class="dark ? 'text-on-shell-faint w-4 text-right' : 'text-ink-muted w-4 text-right'">{{ idx + 1 }}.</span>
