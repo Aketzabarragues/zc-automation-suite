@@ -55,7 +55,6 @@ from areas.alimentacion.application.use_cases.disp_diff_constants import (
 from areas.alimentacion.infrastructure.build_cache import build_cache
 from core.application.progress_buffer import ProgressTracker, get_progress_tracker
 from core.application.state import AppState, get_app_state
-from core.infrastructure.build_cache import get_default_build_cache_dir
 from core.infrastructure.config_manager import ConfigManager
 from core.infrastructure.gateway import TIAProcessGateway
 from core.infrastructure.tia.export_paths import XmlTarget
@@ -93,12 +92,11 @@ class DispSyncInstancesUseCase:
         self._state = state if state is not None else get_app_state()
         # ``build_cache_dir`` es ahora la RA\u00cdZ del ``BuildCache`` del
         # \u00e1rea (no un workdir concreto). Por convenci\u00f3n, apunta a
-        # ``<tempfile.gettempdir()>/zc_build_cache`` (NO ``<cwd>/.build_cache``
-        # que puede caer en una unidad de red donde TIA no tiene acceso
-        # y falla con ``UnauthorizedAccessException`` al hacer
-        # ``import_blocks``). Tests legacy siguen pasando ``tmp_path``
+        # ``<cwd>/.build_cache``. Tests legacy siguen pasando ``tmp_path``
         # o ``tmp_path / ".build_cache"`` aqu\u00ed; ambos funcionan.
-        self._build_cache = build_cache_dir or get_default_build_cache_dir()
+        self._build_cache = build_cache_dir or (
+            Path(os.getcwd()) / ".build_cache"
+        )
         # ``ProgressTracker`` opcional. Si no se inyecta, usamos el
         # Singleton global (Composition Root de ``main.py``). Tests
         # legacy que no lo pasan se siguen comportando idéntico: el
