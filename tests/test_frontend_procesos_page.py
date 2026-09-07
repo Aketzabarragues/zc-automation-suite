@@ -566,14 +566,35 @@ def test_no_backticks_in_template_bodies() -> None:
 
     Detectado en commit ``b8338bb`` (Fase 6.A — UI Procesos) tras
     2 rounds de fix en ``AreaLanding.js`` y ``Procesos.js``.
+
+    Endurecido en commit ``e49b963`` (post-v3.0 dashboard layout):
+    el regex original usaba ``.*?`` (non-greedy) que cerraba en
+    el PRIMER backtick encontrado dentro del template, escapando
+    a la deteccion de backticks literales que cierran el template
+    prematuramente (causa del TypeError en runtime). Ahora se usa
+    ``.*`` (greedy) con delimitador obligatorio ``\s*[,;}]`` para
+    forzar al regex a encontrar el ULTIMO backtick antes de la
+    coma/cierre del ``export default``. Asi, cualquier backtick
+    literal dentro del template queda dentro del ``body`` capturado
+    y se cuenta correctamente.
     """
     import re
 
     components_dir = REPO_ROOT / "areas" / "alimentacion" / "frontend" / "components"
     # Regex con DOTALL: el ``.`` matchea newlines, necesario para
-    # capturar todo el template body (que es multi-línea).
+    # capturar todo el template body (que es multi-linea).
+    #
+    # IMPORTANTE: ``.*`` GREEDY (no ``.*?`` non-greedy) + delimitador
+    # obligatorio ``\s*[,;}]`` al final. Esto fuerza al regex a
+    # buscar el ULTIMO backtick que sea seguido de coma, ``;`` o
+    # cierre de objeto ``}`` — que es donde termina legitimamente
+    # el template literal. Un backtick literal dentro del template
+    # (e.g. `` `my-4` `` en un comentario HTML) no tiene ese delimitador
+    # justo despues, asi que el regex lo SOBREPASA y termina en el
+    # backtick de cierre real, dejando el backtick literal dentro
+    # del body capturado (que es lo que queremos detectar).
     pattern = re.compile(
-        r"template:\s*/\*\s*html\s*\*/\s*`(.*?)`\s*,",
+        r"template:\s*/\*\s*html\s*\*/\s*`(.*)`\s*[,;}]",
         re.DOTALL,
     )
     offenders: list[tuple[str, int]] = []
@@ -583,11 +604,15 @@ def test_no_backticks_in_template_bodies() -> None:
         if not match:
             continue
         body = match.group(1)
-        # Contar backticks en el cuerpo (no en los delimitadores
-        # del template literal, que ya están fuera del grupo 1).
-        count = body.count("`")
-        if count > 0:
-            offenders.append((js_file.name, count))
+        # Ignorar escapes ``\X`` (backslash seguido de cualquier
+        # caracter) para no contar como bug los backticks ESCAPADOS
+        # legitimos (`` \` `` produce un backtick literal en el output
+        # sin cerrar el template). Solo los backticks NO-escapados
+        # cuentan como bug.
+        body_no_escapes = re.sub(r"\\.", "", body)
+        unescaped_backticks = body_no_escapes.count("`")
+        if unescaped_backticks > 0:
+            offenders.append((js_file.name, unescaped_backticks))
     assert not offenders, (
         f"Backticks literales encontrados dentro de templates "
         f"(rompen el template literal de JS): {offenders}. "
