@@ -23,7 +23,6 @@ Routers del área que se verifican:
   - ``POST /api/v1/sync/preview``                          → 422 sin body
   - ``POST /api/v1/sync/commit``                           → 422 sin body
   - ``POST /api/v1/excel/upload``                           → 422 sin file
-  - ``POST /api/v1/excel/reload``                           → 409 sin excel_path (sept-2026)
 
 Routers comunes del shell (sanity check, no cambian en PR 4):
   - ``GET  /api/v1/areas``                                 → 200

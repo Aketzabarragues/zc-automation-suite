@@ -43,7 +43,7 @@
 import { computed, ref } from "/js/vendor/vue.esm-browser.prod.js";
 // Imports absolutos: ver nota en ``Sidebar.js``.
 import { store, pushLog } from "/js/store.js";
-import { apiUploadExcel, apiReloadExcel, apiFetchMemory } from "/js/api.js";
+import { apiUploadExcel, apiFetchMemory } from "/js/api.js";
 
 export default {
     name: "DefinicionProgramacion",
@@ -150,76 +150,41 @@ export default {
         }
 
         /**
-         * Re-lee el último Excel desde DISCO via ``apiReloadExcel``
-         * (endpoint ``POST /api/v1/excel/reload``). El backend ya
-         * tiene la ruta absoluta guardada en ``AppState.excel_path``
-         * (desde el primer ``/upload``); este handler no reenvía
-         * el File en memoria, asi que:
-         *   1. Recoge cambios del operario en el Excel (el File
-         *      cacheado era un snapshot en el momento del upload).
-         *   2. Evita el "TypeError: Failed to fetch" del browser
-         *      al reusar la misma referencia de File tras un reset
-         *      del input.
+         * "Volver a seleccionar" el Excel: abre el file picker
+         * para que el operario re-seleccione el archivo (con sus
+         * cambios en disco). El ``@change`` del input dispara
+         * ``handleExcel``, que sube el archivo via
+         * ``apiUploadExcel`` (mismo flujo que la primera carga).
          *
-         * Si el archivo ya no existe en disco (movido/borrado
-         * entre el upload y el reload), el backend devuelve
-         * 409 Conflict. En ese caso:
-         *   - Mostramos el detail accionable al operario.
-         *   - Abrimos el file picker automaticamente para que
-         *     re-seleccione el archivo (UX: 1 click).
+         * Por que esto y no un "reload" que re-lea desde la ruta
+         * del archivo original (sept-2026, pedido operario):
+         * los navegadores **NO exponen la ruta completa del archivo
+         * original** (restriccion W3C de seguridad: el File API
+         * solo expone basename, size y tipo). Por tanto, no
+         * podemos re-leer el archivo del operario desde disco sin
+         * su intervencion. La unica forma honesta de "refrescar"
+         * es pedirle que re-seleccione, asi que el boton hace
+         * exactamente eso. Si en el futuro Chrome/Edge dominan
+         * el parque, se puede migrar a File System Access API sin
+         * romper a Safari/Firefox (mantenemos este fallback).
          *
-         * Sept-2026 (pedido operario): antes este handler reenviaba
-         * el ``store.lastExcelFile`` (File en memoria del primer
-         * upload). El File era un snapshot: los cambios en disco
-         * no se veian, y en algunos navegadores el reuso de la
-         * misma referencia tras ``fileInput.value = ""`` daba
-         * ``TypeError: Failed to fetch``.
+         * Si no hay ``lastExcelFile`` (operario acaba de arrancar
+         * o cambio de area, lo que resetea el slot), pedimos al
+         * padre que dispare ``apiFetchMemory`` via el evento
+         * ``refresh`` (mismo patron legacy que antes).
          */
-        async function handleActualizar() {
+        function handleActualizar() {
             if (!store.lastExcelFile) {
-                // Caso legacy: el operario acaba de arrancar la SPA
-                // o cambio de area (lo que resetea ``lastExcelFile``)
-                // y el ``excel_cache`` del backend puede tener datos.
-                // Pedimos al padre que dispare ``apiFetchMemory``.
                 emit("refresh");
                 return;
             }
-            store.busy = true;
-            try {
-                const r = await apiReloadExcel();
-                if (r.ok) {
-                    store.uploadSummary = r.data.summary || {};
-                    pushLog("🔄 Excel recargado desde disco", "success");
-                    const mem = await apiFetchMemory();
-                    if (mem.ok && mem.data && mem.data.ok) {
-                        store.memoryState = mem.data;
-                    }
-                } else if (r.status === 409) {
-                    // Archivo movido/borrado o no se subio antes.
-                    // El detail del backend ya es accionable.
-                    const detail = r.data && r.data.detail
-                        ? r.data.detail
-                        : "El archivo Excel ya no esta disponible.";
-                    alert("Error recargando Excel: " + detail);
-                    pushLog(
-                        "❌ " + detail,
-                        "error"
-                    );
-                    // Forzar re-seleccion: abrimos el file picker
-                    // automaticamente para que el operario solo tenga
-                    // que confirmar el archivo en el dialogo.
-                    if (fileInput.value) {
-                        fileInput.value.value = "";  // reset
-                        fileInput.value.click();
-                    }
-                } else {
-                    const detail = r.data && r.data.detail
-                        ? r.data.detail
-                        : "HTTP " + (r.status || "?");
-                    alert("Error recargando Excel: " + detail);
-                }
-            } finally {
-                store.busy = false;
+            // Reset del input para que el @change se dispare aunque
+            // el operario re-seleccione el MISMO archivo (los
+            // inputs nativos ignoran el evento change si el valor
+            // no cambia entre selecciones).
+            if (fileInput.value) {
+                fileInput.value.value = "";
+                fileInput.value.click();
             }
         }
 
@@ -250,7 +215,7 @@ export default {
                     <button @click="handleActualizar" :disabled="store.busy"
                         data-testid="def-programacion-actualizar"
                         class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
-                        🔄 Actualizar
+                        🔄 Volver a seleccionar
                     </button>
                 </div>
                 <div v-if="store.uploadSummary" class="mt-2 text-xs text-ink-muted">

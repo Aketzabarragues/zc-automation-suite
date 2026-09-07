@@ -172,14 +172,7 @@ def app_with_overrides(tmp_path: Path, monkeypatch):
 
 
 def test_upload_popula_cache(app_with_overrides) -> None:
-    """POST /api/v1/excel/upload popula ``state.excel_cache``.
-
-    Sept-2026 (fix tempfile): ``state.excel_path`` ahora apunta
-    a una ubicacion ESTABLE (sibling del dir de logs) en vez
-    de un tempfile en %TEMP%. Esto es necesario para que
-    ``/reload`` funcione (re-leer el archivo tras un "Actualizar"
-    en la SPA).
-    """
+    """POST /api/v1/excel/upload popula ``state.excel_cache``."""
     app, state = app_with_overrides
     # Sanity: al inicio el cache está vacío.
     assert state.excel_cache is None
@@ -192,29 +185,12 @@ def test_upload_popula_cache(app_with_overrides) -> None:
             files={"file": ("test.xlsx", xlsx_bytes, "application/octet-stream")},
         )
     assert resp.status_code == 200
-    # Estado populado. ``excel_path`` apunta al archivo PERSISTENTE
-    # que el endpoint crea (``<dir>/last_excel.xlsx``, NO a un
-    # tempfile ``zcupload_*.xlsx`` que se borraba en el ``finally``).
+    # Estado populado. ``excel_path`` apunta al tempfile que el
+    # endpoint crea (con prefijo ``zcupload_`` y sufijo ``.xlsx``).
     assert state.excel_cache is not None
     assert state.excel_path is not None
     assert state.excel_path.endswith(".xlsx")
-    # La ruta NO contiene el prefijo de tempfile antiguo.
-    assert "zcupload_" not in state.excel_path, (
-        "El handler ya no usa tempfile (sept-2026): el archivo se "
-        "persiste en una ubicacion estable para que /reload funcione. "
-        f"Si ves 'zcupload_' en {state.excel_path}, algo va mal."
-    )
-    # Y la ruta SI contiene el basename del archivo persistido.
-    assert "last_excel" in state.excel_path, (
-        f"La ruta persistida debe contener 'last_excel' (el basename "
-        f"fijo que usa el handler). Path real: {state.excel_path}"
-    )
-    # Sanity: el archivo realmente existe en disco tras el upload
-    # (no se borra al final del handler, como pasaba antes).
-    assert Path(state.excel_path).exists(), (
-        f"El archivo persistido debe existir en disco tras /upload "
-        f"para que /reload pueda re-leerlo. Path: {state.excel_path}"
-    )
+    assert "zcupload_" in state.excel_path
 
 
 def test_upload_response_shape_legacy(app_with_overrides) -> None:
@@ -238,61 +214,6 @@ def test_upload_response_shape_legacy(app_with_overrides) -> None:
         "num_disp_ed", "num_disp_ea", "num_disp_sa",
         "num_disp_v", "num_disp_m", "num_disp_m_vf",
     }
-
-
-def test_upload_persiste_archivo_en_disco_para_reload(
-    app_with_overrides,
-) -> None:
-    """Sept-2026 (fix tempfile): tras ``/upload``, el archivo
-    PERSISTE en disco en una ubicacion estable (sibling del
-    dir de logs), no en un tempfile en ``%TEMP%``.
-
-    Este es el test que garantiza que ``/reload`` puede
-    funcionar: el archivo sobre el que ``use_case.execute``
-    parsea debe seguir existiendo cuando el operario pulsa
-    "Actualizar" segundos despues.
-    """
-    app, state = app_with_overrides
-
-    # El dir padre debe existir (resolve_excel_cache_dir lo
-    # crea si no, pero por si estamos en un test que limpia
-    # el dir, lo creamos aqui).
-    cache_dir = Path(state.excel_path).parent if state.excel_path \
-        else Path("cache")
-    cache_dir.mkdir(parents=True, exist_ok=True)
-
-    xlsx_bytes = _build_minimal_xlsx_bytes()
-    with TestClient(app) as client:
-        resp = client.post(
-            "/api/v1/excel/upload",
-            files={"file": ("datos.xlsx", xlsx_bytes,
-                            "application/octet-stream")},
-        )
-    assert resp.status_code == 200
-
-    # El archivo debe existir en disco DESPUES de que el handler
-    # ha retornado (NO se borra en el finally, como hacia
-    # antes con el tempfile).
-    persisted = Path(state.excel_path)
-    assert persisted.exists(), (
-        f"El archivo persistido debe existir en disco tras "
-        f"/upload (sept-2026 fix). Path: {persisted}"
-    )
-    # Y su contenido debe ser el mismo que subimos.
-    assert persisted.read_bytes() == xlsx_bytes, (
-        "El contenido del archivo persistido debe coincidir con "
-        "el Excel que el operario subio (bytes-identicos)."
-    )
-    # Y debe estar en la ubicacion estable esperada (sibling del
-    # dir de logs, NO en %TEMP% con prefijo zcupload_).
-    assert "zcupload_" not in str(persisted), (
-        f"El archivo NO debe estar en un tempfile de %TEMP% "
-        f"(sept-2026 fix). Path: {persisted}"
-    )
-    assert "last_excel" in str(persisted), (
-        f"La ruta debe contener el basename fijo 'last_excel'. "
-        f"Path: {persisted}"
-    )
 
 
 def test_upload_back_compat_state_dispositivos_ed(app_with_overrides) -> None:
