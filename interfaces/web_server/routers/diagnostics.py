@@ -15,9 +15,10 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
 
 from core.application.log_buffer import LogBuffer
 from core.application.progress_buffer import ProgressTracker
@@ -34,6 +35,30 @@ from core.application.progress_buffer import get_progress_tracker as _get_progre
 
 
 _logger = logging.getLogger(__name__)
+
+
+class LogEntry(BaseModel):
+    """Payload de un push de log desde el frontend al ``LogBuffer``.
+
+    Sept-2026: el frontend (``store.js::_applyTiaSnapshot``) detecta
+    cuando TIA se cierra por fuera y, tras limpiar el state PLC-related
+    para evitar confusion, deja un aviso en la ConsolaLogs. Como
+    ``pushLog`` del frontend solo escribe a ``store.logs`` (memoria
+    local, sobreescrita por el poll cada 1s), necesitamos un endpoint
+    que persista el mensaje en el ``LogBuffer`` del backend (el que
+    se ve en la ConsolaLogs de la SPA).
+
+    Validacion: ``level`` es un Literal para que el frontend NO
+    pueda inyectar niveles arbitrarios (defensivo, evita que un
+    caller escriba a niveles reservados o inventados).
+    """
+
+    message: str = Field(
+        ..., min_length=1, max_length=2000, description="Texto del log"
+    )
+    level: Literal["info", "success", "warning", "error"] = Field(
+        default="info", description="Nivel de severidad (mismo enum que LogBuffer)"
+    )
 
 
 def _extract_software_from_cache(state: AppState) -> dict[str, Any]:
@@ -177,6 +202,47 @@ async def clear_logs(
     """Vacía el buffer de logs (botón 'Limpiar consola' en SPA)."""
     get_log_buffer().clear()
     return {"cleared": True}
+
+
+@router.post("/logs", status_code=201)
+async def post_log(
+    entry: LogEntry,
+) -> dict[str, Any]:
+    """Push de log desde el frontend al ``LogBuffer`` visible en la ConsolaLogs.
+
+    Caso de uso (sept-2026, pedido operario): cuando TIA Portal se
+    cierra por fuera (sin click en "Desconectar"), el worker persistente
+    lo detecta por heartbeat y la SPA transiciona ``tiaConnection.state``
+    a ``"idle"`` o ``"error"``. Hasta ahora eso solo actualizaba el
+    circulo/texto del estado: el resto de caches (plcs, selectedPlc,
+    plcBlocksCache, projectInfo, previewData, procesosSync) seguian
+    en memoria, dando la falsa sensacion de que el operario seguia
+    conectado.
+
+    El fix limpia esos slots en ``_applyTiaSnapshot`` y ademas deja un
+    aviso persistente en la ConsolaLogs via este endpoint (el push
+    local de ``store.js::pushLog`` no persiste: el poll cada 1s
+    sobreescribe ``store.logs`` con la version del backend, asi que
+    necesitamos que el mensaje viva en el ``LogBuffer`` backend).
+
+    Politica:
+      - ``level`` validado por Pydantic (Literal); el frontend NO
+        puede inyectar niveles arbitrarios.
+      - Sin autenticacion: el endpoint es interno de la SPA. Si en
+        el futuro se expone a un tercero, hay que meter auth + rate
+        limiting (un caller hostil podria llenar el buffer).
+      - Devuelve 201 Created (estandar REST para creacion de recurso
+        en una collection).
+    """
+    if entry.level == "success":
+        get_log_buffer().success(entry.message)
+    elif entry.level == "warning":
+        get_log_buffer().warning(entry.message)
+    elif entry.level == "error":
+        get_log_buffer().error(entry.message)
+    else:
+        get_log_buffer().info(entry.message)
+    return {"ok": True, "level": entry.level, "message": entry.message}
 
 
 # ── Progress tracker (overlay de operaciones largas en la SPA) ─────

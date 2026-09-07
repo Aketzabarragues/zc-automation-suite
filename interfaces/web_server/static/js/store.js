@@ -784,7 +784,57 @@ function _logTiaStateTransition(prevState, newState, snapshot) {
  * Devuelve ``true`` si aplicó el snapshot, ``false`` si lo descartó
  * (respuesta no OK, ``r.data`` malformado o ``state`` invalido).
  * Los callers normalmente ignoran el retorno.
+ *
+ * Sept-2026 (limpieza reactiva al cierre externo de TIA):
+ *   Si la transición es ``connected|connecting -> idle|error`` (TIA
+ *   cerrado por fuera, no por click del operario), se invoca
+ *   ``_clearAllPlcStateOnTiaLoss()`` para vaciar el state
+ *   PLC-related y se deja un aviso "warning" en la ConsolaLogs
+ *   via ``apiPushLog`` (fire-and-forget, no bloquea la SPA). Ver
+ *   el helper para los detalles de qué se limpia.
  */
+function _clearAllPlcStateOnTiaLoss() {
+    /**
+     * Limpieza COMPLETA del state PLC-related cuando TIA se pierde
+     * (cierre externo o error del worker). Pensada para que el
+     * operario NO vea caches stale en la SPA tras un incidente.
+     *
+     * Slots limpiados (sept-2026, pedido operario):
+     *   - ``store.plcs``               → ``[]`` (lista de PLCs stale)
+     *   - ``store.selectedPlc``        → ``""`` (dropdown a placeholder)
+     *   - ``store.plcBlocksCache``     → ``null`` (snapshot bloques stale)
+     *   - ``store.projectInfo``        → ``null`` (caption proyecto stale)
+     *   - ``store.previewData``        → ``null`` (prevision disp. stale)
+     *   - ``store.procesosSync.preview``       → ``null``
+     *   - ``store.procesosSync.applying``      → ``false``
+     *   - ``store.procesosSync.lastAppliedAt`` → ``null``
+     *   - ``store.procesosSync.error``         → ``null``
+     *   - ``store.tiaConnection.project``     → ``null``
+     *
+     * Slots que NO se limpian (son ortogonales a TIA):
+     *   - ``store.uploadSummary``, ``store.lastExcelFile``: datos
+     *     del Excel cargado, independientes del attach a TIA.
+     *   - ``store.memoryState``: snapshot del ``AppState`` backend
+     *     (dispositivos y constantes), independiente.
+     *
+     * Misma politica que ``disconnectTia`` post-sept-2026 (que
+     * antes NO limpiaba previewData/procesosSync por diseno y
+     * ahora si, para que ambos caminos sean consistentes).
+     */
+    store.plcs = [];
+    store.selectedPlc = "";
+    store.plcBlocksCache = null;
+    store.projectInfo = null;
+    store.previewData = null;
+    store.procesosSync.preview = null;
+    store.procesosSync.applying = false;
+    store.procesosSync.lastAppliedAt = null;
+    store.procesosSync.error = null;
+    if (store.tiaConnection && typeof store.tiaConnection === "object") {
+        store.tiaConnection.project = null;
+    }
+}
+
 function _applyTiaSnapshot(r) {
     if (!r || !r.ok || !r.data || typeof r.data !== "object") return false;
     const newState = r.data.state;
@@ -832,6 +882,40 @@ function _applyTiaSnapshot(r) {
     });
     if (prevState !== newState) {
         _logTiaStateTransition(prevState, newState, r.data);
+
+        // Limpieza reactiva (sept-2026, pedido operario): si TIA
+        // se cerro por fuera (transicion connected/connecting ->
+        // idle/error) y la SPA tenia state PLC-related cacheado,
+        // lo limpiamos para que el operario no vea datos stale
+        // (lista de PLCs, prevision, cache de bloques, etc.).
+        // Mismo cleanup que ``disconnectTia`` (click del operario),
+        // por lo que ambos caminos son consistentes.
+        //
+        // Fire-and-forget: el push al LogBuffer no bloquea la SPA.
+        // Si el push falla (backend caido, etc.), el cleanup ya
+        // se aplico localmente y la SPA no se rompe.
+        if (
+            (prevState === "connected" || prevState === "connecting") &&
+            (newState === "idle" || newState === "error")
+        ) {
+            _clearAllPlcStateOnTiaLoss();
+            const reason = newState === "error"
+                ? "TIA Portal dejo de responder. Estado PLC vaciado (lista, prevision, cache)."
+                : "TIA Portal se cerro externamente. Estado PLC vaciado (lista, prevision, cache).";
+            // Dynamic import: evita acoplar el modulo a api.js en
+            // tiempo de carga (mismo patron que connectTia y
+            // disconnectTia arriba).
+            import("./api.js").then(({ apiPushLog }) => {
+                apiPushLog(reason, "warning").catch((e) => {
+                    // eslint-disable-next-line no-console
+                    console.warn(
+                        "[_applyTiaSnapshot] no se pudo pushear " +
+                        "log al backend (cleanup local aplicado):",
+                        e
+                    );
+                });
+            });
+        }
     }
     return true;
 }
@@ -1003,16 +1087,25 @@ export async function disconnectTia() {
         const { apiDisconnectTia } = await import("./api.js");
         const r = await apiDisconnectTia();
         _applyTiaSnapshot(r);
-        // Limpieza post-detach de los slots del PLC. Se ejecuta
-        // tambien en error path: si la respuesta no es OK, dejamos
-        // los slots como estaban (preferible un "stale" visible a
-        // un "vacio" confuso si el detach fallo). Por eso el guard
-        // ``r && r.ok``.
+        // Limpieza post-detach de los slots PLC-related. Se ejecuta
+        // SOLO si la respuesta es OK: si el detach fallo (p.ej.
+        // TIA ya estaba cerrado y devuelve error), preferimos dejar
+        // los slots como estaban — un "stale" visible es mejor que
+        // un "vacio" confuso si el operario no sabe si el detach
+        // se hizo. Por eso el guard ``r && r.ok``.
+        //
+        // Sept-2026: ahora usamos el helper ``_clearAllPlcStateOnTiaLoss``
+        // (mismo que aplica la limpieza reactiva en ``_applyTiaSnapshot``
+        // cuando TIA se cierra por fuera). Antes del helper, esta
+        // rama manual solo limpiaba 4 slots y dejaba stale
+        // ``previewData`` / ``procesosSync.*`` (el comentario de
+        // diseno decia que era intencional para que el operario
+        // pudiera ver la ultima prevision tras un detach temporal).
+        // Aketza decidio armonizar: si TIA esta muerto, la prevision
+        // no se puede aplicar, asi que es preferible limpiarla a
+        // mostrarla stale y susceptible de "Aplicar" fallido.
         if (r && r.ok) {
-            store.plcs = [];
-            store.selectedPlc = "";
-            store.plcBlocksCache = null;
-            store.projectInfo = null;
+            _clearAllPlcStateOnTiaLoss();
         }
         return r;
     } finally {

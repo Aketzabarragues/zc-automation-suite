@@ -595,44 +595,202 @@ def test_disconnect_tia_delegates_to_apply_tia_snapshot() -> None:
 
 
 def test_disconnect_clears_plc_state() -> None:
-    """``disconnectTia()`` debe limpiar los slots del PLC
-    (``plcs``, ``selectedPlc``, ``plcBlocksCache``,
-    ``projectInfo``) tras un detach OK. Sin esta limpieza, el
-    topbar mostraria PLCs stale y un caption de proyecto
-    antiguo tras un "Conectar / Desconectar" rapido."""
+    """``disconnectTia()`` debe limpiar el state PLC-related tras
+    un detach OK. Sin esta limpieza, el topbar mostraria PLCs
+    stale y un caption de proyecto antiguo tras un "Conectar /
+    Desconectar" rapido.
+
+    Sept-2026 (limpieza reactiva): las asignaciones literales
+    ``store.plcs = []`` etc. ya NO viven dentro de ``disconnectTia``
+    (ahora se reutiliza ``_clearAllPlcStateOnTiaLoss``, el mismo
+    helper que aplica el cleanup reactivo en ``_applyTiaSnapshot``
+    cuando TIA se cierra por fuera). Verificamos:
+      1. El helper existe y limpia los 4 slots "historicos"
+         (plcs, selectedPlc, plcBlocksCache, projectInfo).
+      2. ``disconnectTia`` invoca el helper tras un ``r && r.ok``.
+    """
     text = _read(STORE_JS)
-    start = text.find("export async function disconnectTia")
-    assert start != -1
-    # Cogemos un tramo generoso que cubra el helper entero
-    # (incluida la limpieza post-detach).
-    body = text[start:start + 1500]
+    # 1) El helper existe y limpia los 4 slots historicos.
+    helper_start = text.find("function _clearAllPlcStateOnTiaLoss")
+    assert helper_start != -1, (
+        "store.js debe declarar el helper _clearAllPlcStateOnTiaLoss "
+        "(sept-2026, limpieza reactiva al cierre externo de TIA)."
+    )
+    # Cogemos 2500 chars del helper: cubre el JSDoc (~30 lineas)
+    # Y las asignaciones (~25 lineas). El helper total es ~55
+    # lineas (~3000 chars); 2500 cubre las primeras 4
+    # asignaciones (plcs, selectedPlc, plcBlocksCache, projectInfo)
+    # que son las que este test valida.
+    helper_body = text[helper_start:helper_start + 2500]
     for slot, val in (
         ('store.plcs = []',          "plcs (lista)"),
         ('store.selectedPlc = ""',   "selectedPlc (dropdown)"),
         ('store.plcBlocksCache = null', "plcBlocksCache (snapshot bloques)"),
         ('store.projectInfo = null', "projectInfo (caption proyecto)"),
     ):
-        assert slot in body, (
-            f"disconnectTia debe resetear {val} tras un detach OK "
+        assert slot in helper_body, (
+            f"_clearAllPlcStateOnTiaLoss debe resetear {val} "
             f"(asignacion esperada: '{slot}'). Sin esta limpieza, "
             f"el topbar mostraria datos stale del attach anterior."
         )
 
+    # 2) disconnectTia invoca el helper tras un r && r.ok.
+    disconnect_start = text.find("export async function disconnectTia")
+    assert disconnect_start != -1
+    # Cogemos un tramo generoso que cubra el body entero.
+    body = text[disconnect_start:disconnect_start + 2500]
+    assert "_clearAllPlcStateOnTiaLoss" in body, (
+        "disconnectTia debe invocar el helper _clearAllPlcStateOnTiaLoss "
+        "tras un detach OK (sept-2026, armonizacion con el cierre "
+        "externo de TIA)."
+    )
+    assert "r && r.ok" in body or "r.ok" in body, (
+        "disconnectTia debe guardar la llamada al helper detras "
+        "de un check 'r && r.ok' (o equivalente) para no "
+        "pisar slots en error path."
+    )
+
 
 def test_disconnect_clears_plc_state_only_on_ok_response() -> None:
-    """``disconnectTia()`` solo debe limpiar los slots del PLC
+    """``disconnectTia()`` solo debe limpiar el state PLC-related
     si la respuesta del backend es OK (``r && r.ok``). Si el
     detach fallo, preferimos dejar los slots como estaban
     (un "stale" visible es mejor que un "vacio" confuso cuando
-    el operario no sabe si el detach se hizo o no)."""
+    el operario no sabe si el detach se hizo o no).
+
+    Sept-2026: la limpieza se hace via ``_clearAllPlcStateOnTiaLoss()``
+    (helper compartido con el cierre externo). Verificamos que
+    la llamada al helper esta detras del guard ``r && r.ok``.
+    """
     text = _read(STORE_JS)
     start = text.find("export async function disconnectTia")
     assert start != -1
-    body = text[start:start + 1500]
+    body = text[start:start + 2500]
     assert "r && r.ok" in body or "r.ok" in body, (
         "disconnectTia debe guardar la limpieza del PLC detras "
         "de un check 'r && r.ok' (o equivalente) para no "
         "pisar slots en error path."
+    )
+    # Y la llamada al helper esta dentro de ese guard.
+    assert "_clearAllPlcStateOnTiaLoss" in body, (
+        "disconnectTia debe invocar el helper _clearAllPlcStateOnTiaLoss "
+        "para limpiar el state PLC-related (sept-2026)."
+    )
+
+
+# ── Sept-2026: limpieza REACTIVA al cierre externo de TIA ─────────
+#
+# Caso: el operario cierra TIA Portal sin pulsar "Desconectar"
+# (lo cierra en el SO, o se cae el proceso TIA). El worker
+# persistente lo detecta por heartbeat y la SPA transiciona
+# ``tiaConnection.state`` a ``"idle"`` o ``"error"``. Hasta
+# sept-2026 eso solo actualizaba el circulo del topbar: el
+# resto de caches (plcs, selectedPlc, plcBlocksCache, projectInfo,
+# previewData, procesosSync) quedaban stale.
+#
+# Fix: ``_applyTiaSnapshot`` detecta la transicion
+# ``connected|connecting -> idle|error`` y aplica el helper
+# ``_clearAllPlcStateOnTiaLoss``, dejando ademas un aviso
+# "warning" en la ConsolaLogs via ``apiPushLog`` (fire-and-forget,
+# no bloquea la SPA).
+# ───────────────────────────────────────────────────────────────────
+
+
+def test_apply_tia_snapshot_clears_plc_state_on_external_close() -> None:
+    """``_applyTiaSnapshot`` debe limpiar el state PLC-related
+    cuando detecta una transicion ``connected|connecting ->
+    idle|error`` (TIA cerrado por fuera).
+
+    El patron textual: dentro del cuerpo de ``_applyTiaSnapshot``
+    debe haber un bloque ``if`` que:
+      1. Compruebe ``prevState`` (connected o connecting) Y
+         ``newState`` (idle o error).
+      2. Invoque ``_clearAllPlcStateOnTiaLoss()``.
+      3. Haga un push de log al backend via ``apiPushLog``
+         con ``level: "warning"`` para que la ConsolaLogs
+         muestre el aviso al operario.
+    """
+    text = _read(STORE_JS)
+    start = text.find("function _applyTiaSnapshot")
+    assert start != -1
+    # Cogemos el cuerpo entero. La funcion crecio con la
+    # limpieza reactiva (~80 lineas, ~4500 chars).
+    body = text[start:start + 5000]
+
+    # 1) El helper se invoca dentro de _applyTiaSnapshot.
+    assert "_clearAllPlcStateOnTiaLoss" in body, (
+        "_applyTiaSnapshot debe invocar el helper "
+        "_clearAllPlcStateOnTiaLoss en la rama de transicion "
+        "connected/connecting -> idle/error (sept-2026)."
+    )
+
+    # 2) La condicion de la transicion. Usamos regex para ser
+    # robustos a whitespace / saltos de linea.
+    import re
+    pattern = re.compile(
+        r"prevState\s*===\s*[\"']connected[\"']\s*\|\|\s*"
+        r"prevState\s*===\s*[\"']connecting[\"']\s*"
+        r".*?"
+        r"newState\s*===\s*[\"']idle[\"']\s*\|\|\s*"
+        r"newState\s*===\s*[\"']error[\"']",
+        re.DOTALL,
+    )
+    assert pattern.search(body), (
+        "_applyTiaSnapshot debe tener una condicion que detecte "
+        "transicion prevState in {connected, connecting} Y "
+        "newState in {idle, error} para disparar la limpieza "
+        "reactiva (sept-2026)."
+    )
+
+    # 3) Push de log al backend para que la ConsolaLogs muestre
+    # el aviso. Usamos apiPushLog con level "warning" (no
+    # "info", "success" o "error" — el operario tiene que ver
+    # claramente que algo paso).
+    assert "apiPushLog" in body, (
+        "_applyTiaSnapshot debe pushear un log al backend via "
+        "apiPushLog para que la ConsolaLogs muestre el aviso "
+        "de cierre externo (sept-2026)."
+    )
+    assert "warning" in body, (
+        "El log pusheado al backend debe ser de nivel 'warning' "
+        "para que el operario lo identifique claramente."
+    )
+
+
+def test_apply_tia_snapshot_does_not_clear_on_idle_to_connecting() -> None:
+    """``_applyTiaSnapshot`` NO debe limpiar en una transicion
+    ``idle -> connecting`` (el operario esta conectando, no
+    se ha perdido la conexion).
+
+    Test de regresion: si la condicion de la limpieza es
+    demasiado laxa (p.ej. ``newState === "idle"`` sin
+    comprobar ``prevState``), se dispararia un cleanup espurio
+    en cada intento de conectar. Verificamos que el cleanup
+    SOLO se dispara cuando ``prevState`` era
+    ``connected|connecting``.
+    """
+    text = _read(STORE_JS)
+    start = text.find("function _applyTiaSnapshot")
+    assert start != -1
+    body = text[start:start + 5000]
+
+    # Buscamos el patron. Si la condicion es demasiado laxa
+    # (solo ``newState === "idle"``), el regex no matchea.
+    import re
+    pattern = re.compile(
+        r"(prevState\s*===\s*[\"']connected[\"']\s*\|\|\s*"
+        r"prevState\s*===\s*[\"']connecting[\"'])\s*"
+        r".*?"
+        r"(newState\s*===\s*[\"']idle[\"']\s*\|\|\s*"
+        r"newState\s*===\s*[\"']error[\"'])",
+        re.DOTALL,
+    )
+    assert pattern.search(body), (
+        "La limpieza reactiva debe condicionarse a "
+        "prevState in {connected, connecting} (no solo a "
+        "newState in {idle, error}). Si la condicion es solo "
+        "el newState, se dispararia un cleanup espurio en cada "
+        "idle->connecting del operario (regression)."
     )
 
 

@@ -128,6 +128,29 @@ export const apiFetchLogs = () => _request("GET", "/api/v1/logs");
 export const apiClearLogs = () => _request("POST", "/api/v1/logs/clear");
 
 /**
+ * Push de log desde el frontend al ``LogBuffer`` del backend.
+ *
+ * Caso de uso (sept-2026, pedido operario): el push local de
+ * ``store.js::pushLog`` solo escribe a ``store.logs`` (memoria del
+ * cliente), pero el poll cada 1s sobreescribe ``store.logs`` con
+ * lo que devuelve ``GET /api/v1/logs``. Para que un mensaje
+ * persista en la ConsolaLogs del sidebar (que lee del backend),
+ * necesitamos enviarlo al ``LogBuffer`` backend via este endpoint.
+ *
+ * Usado por ``store._applyTiaSnapshot`` cuando detecta que TIA
+ * se cerro por fuera y limpia el state PLC-related: deja un
+ * aviso "warning" en la ConsolaLogs para que el operario sepa
+ * por que se han vaciado los datos.
+ *
+ * Args:
+ *   message: texto del log (max 2000 chars, validado en backend).
+ *   level: uno de "info" | "success" | "warning" | "error".
+ *          El backend rechaza cualquier otro valor (Pydantic Literal).
+ */
+export const apiPushLog = (message, level = "info") =>
+    _request("POST", "/api/v1/logs", { message, level });
+
+/**
  * Snapshot del ``ProgressTracker`` backend.
  *
  * Devuelve la forma ``{ ok, progress: { active, operation, label, current,
