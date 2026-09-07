@@ -513,12 +513,21 @@ def make_cmd_update_proc_comments_db(kind: str) -> Callable[..., Any]:
         #    escanea recursivamente: si el archivo está en
         #    ``<work_dir>/<db_subpath>/<db_name>.s7dcl``, TIA
         #    encuentra el bloque en su ubicación correcta y hace
-        #    UPDATE (no CREATE). Si no, fallback a raíz legacy.
+        #    UPDATE (no CREATE).
+        #
+        #    CRÍTICO: ``target_folder`` se pasa VACÍO (no el
+        #    ``get_tia_folder_proceso()`` que viene del use case) para
+        #    que TIA reconcilie por NOMBRE en lugar de por ruta. Si
+        #    pasáramos ``target_folder="003_Procesos"``, TIA intentaría
+        #    CREAR el bloque en ese folder, pero como el bloque ya
+        #    existe en otra ubicación (``ZC_Plantillas/.../...``), falla
+        #    con "object with the name already exists". Mismo patrón
+        #    que ``commit_devices_sync`` (legacy ``import_plc_tags_xml``).
         if updater.was_modified():
             core_registry["import_block"](portal, ts, {
                 "plc_name":      plc_name,
                 "import_dir":    work_dir,
-                "target_folder": target_folder,
+                "target_folder": "",  # reconcilia por nombre (ver rationale arriba)
             })
 
         return {
@@ -653,12 +662,13 @@ def make_cmd_update_proc_comments_db_param() -> Callable[..., Any]:
             pint_modified = updater_pint.was_modified()
 
         # 4. UN SOLO import_block (si alguno de los dos modificó algo).
+        #    Ver rationale del ``target_folder=""`` en el handler ``_alm``.
         any_modified = preal_modified or pint_modified
         if any_modified:
             core_registry["import_block"](portal, ts, {
                 "plc_name":      plc_name,
                 "import_dir":    work_dir,
-                "target_folder": target_folder,
+                "target_folder": "",  # reconcilia por nombre
             })
 
         return {

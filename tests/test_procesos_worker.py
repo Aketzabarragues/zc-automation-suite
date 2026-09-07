@@ -147,7 +147,10 @@ def test_handler_preal_invoca_export_updater_import() -> None:
         imp_args = mock_import.call_args.args[2]
         assert imp_args["plc_name"] == "PLC_X"
         assert imp_args["import_dir"] == str(work_dir)
-        assert imp_args["target_folder"] == "003_Procesos"
+        # target_folder se pasa VACÍO (no el "003_Procesos" que viene
+        # del use case) para que TIA reconcilie por nombre y haga
+        # UPDATE (no CREATE) — ver rationale en extra_commands.py.
+        assert imp_args["target_folder"] == ""
 
 
 def test_handler_no_invoca_import_si_no_modified() -> None:
