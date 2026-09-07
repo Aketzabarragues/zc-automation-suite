@@ -194,6 +194,15 @@ async def post_tia_connect(
         "ok": True,
         "state": state,
         "pid": pid,
+        # ``worker_alive`` (sept-2026, fix parpadeo "muerto"): lo
+        # exponemos tambien en la respuesta POST (no solo en el GET)
+        # para que el ``WorkerStatusIndicator`` de la SPA se
+        # actualice inmediatamente tras el click, sin esperar al
+        # proximo poll del GET (cadencia 1s → parpadeo visible
+        # "muerto" -> "vivo" en cada Conectar/Desconectar).
+        "worker_alive": bool(
+            getattr(gateway, "is_worker_alive", lambda: False)()
+        ),
     }
 
 
@@ -229,7 +238,19 @@ async def post_tia_disconnect(
     # ``disconnect()`` siempre transiciona a ``"idle"`` al final (incluso
     # si el detach_portal fallo: el estado del gateway refleja "idle"
     # de todos modos). Ver ``gateway.disconnect()`` para el detalle.
-    return {"ok": True, "state": "idle"}
+    return {
+        "ok": True,
+        "state": "idle",
+        # ``worker_alive`` (sept-2026, fix parpadeo "muerto"): el
+        # worker sigue vivo tras el disconnect (subproceso en estado
+        # ``"idle"``, solo se hace ``detach_portal``, NO kill). Lo
+        # exponemos en la respuesta POST para que la SPA pinte el
+        # circulo verde inmediatamente, sin esperar al GET de
+        # dentro de 1s (que era cuando se veia el parpadeo).
+        "worker_alive": bool(
+            getattr(gateway, "is_worker_alive", lambda: False)()
+        ),
+    }
 
 
 __all__ = ["router"]

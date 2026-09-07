@@ -53,9 +53,13 @@ export default {
         });
 
         const tooltip = computed(() => {
+            // Textos armonizados sept-2026: tono serio y
+            // consistente en castellano. Antes: "en marcha" /
+            // "detenido" (coloquial). Ahora: "activo" /
+            // "inactivo" (formal, neutro).
             return alive.value
-                ? "Worker OT: en marcha"
-                : "Worker OT: detenido";
+                ? "Worker OT: activo"
+                : "Worker OT: inactivo";
         });
 
         return { alive, colorClass, tooltip };
@@ -64,7 +68,7 @@ export default {
         <span
             :title="tooltip"
             :class="['w-3 h-3 rounded-full inline-block', colorClass, 'transition-colors']"
-            :aria-label="alive ? 'Worker OT en marcha' : 'Worker OT detenido'"
+            :aria-label="alive ? 'Worker OT activo' : 'Worker OT inactivo'"
             data-testid="worker-status-indicator">
         </span>
     `,

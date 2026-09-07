@@ -815,7 +815,19 @@ function _applyTiaSnapshot(r) {
                 : null,
         last_error:
             r.data.last_error !== undefined ? r.data.last_error : null,
-        worker_alive: r.data.worker_alive === true,
+        // Merge defensivo (sept-2026, fix parpadeo "muerto"): si
+        // el backend no incluye ``worker_alive`` en la respuesta
+        // (p.ej. un POST antiguo que olvida propagar el campo, o
+        // un GET en modo 1-shot del MCP), conservamos el valor
+        // previo del store en vez de pisarlo con ``false``. Asi
+        // el indicador del worker no parpadea "muerto" -> "vivo"
+        // en cada click de Conectar/Desconectar (mismo patron
+        // que ``project``, ``plcs``, ``last_ping_ok_unix`` y
+        // ``last_error`` justo arriba).
+        worker_alive:
+            r.data.worker_alive === undefined
+                ? store.tiaConnection.worker_alive
+                : r.data.worker_alive === true,
         project_changed: r.data.project_changed === true,
     });
     if (prevState !== newState) {

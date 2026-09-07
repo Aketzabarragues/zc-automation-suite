@@ -405,11 +405,25 @@ def test_apply_tia_snapshot_defaults_missing_worker_alive_to_false() -> None:
     valor ``undefined`` del backend dejaria el campo en ``undefined``
     y el ``WorkerStatusIndicator`` (que lee
     ``Boolean(tc && tc.worker_alive)``) lo pintaria gris de
-    todas formas, pero queremos ser explicitos sobre el default."""
+    todas formas, pero queremos ser explicitos sobre el default.
+
+    Sept-2026 (fix parpadeo "muerto"): la coercion ahora vive
+    dentro de un ternario que PRESERVA el valor previo del store
+    si el campo viene ``undefined`` (defensa frontend, complemento
+    del fix backend que ahora expone ``worker_alive`` en las
+    respuestas POST). La coercion explicita a booleano se
+    mantiene: si el backend incluye el campo, se graba el bool
+    real; si lo omite, se conserva el valor previo.
+    """
     text = _read(STORE_JS)
     start = text.find("function _applyTiaSnapshot")
     assert start != -1
-    body = text[start:start + 1500]
+    # Ventana ampliada a 2500 chars (antes 1500) en sept-2026:
+    # el ternario del fix parpadeo añade ~12 lineas antes de
+    # ``worker_alive`` y ``project_changed`` (comentario
+    # explicativo + multi-line ternary). Sigue cubriendo la
+    # rama de exito completa de ``_applyTiaSnapshot``.
+    body = text[start:start + 2500]
     # Patron esperado: coercion explicita a ``true``. Aceptamos
     # ``=== true`` o ``!!r.data.worker_alive`` como equivalentes.
     # NO aceptamos asignacion directa sin coercion
@@ -438,7 +452,10 @@ def test_apply_tia_snapshot_defaults_missing_project_changed_to_false() -> None:
     text = _read(STORE_JS)
     start = text.find("function _applyTiaSnapshot")
     assert start != -1
-    body = text[start:start + 1500]
+    # Ventana ampliada a 2500 chars (mismo motivo que el test
+    # de ``worker_alive`` justo arriba: el fix parpadeo anade
+    # lineas extra en la rama de exito de ``_applyTiaSnapshot``).
+    body = text[start:start + 2500]
     has_explicit_bool = (
         "r.data.project_changed === true" in body
         or "Boolean(r.data.project_changed)" in body

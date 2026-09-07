@@ -87,17 +87,25 @@ def test_component_declares_connect_emit() -> None:
 def test_component_returns_color_class_tooltip_handle_click_from_setup() -> None:
     """REGLA Vue 3 sin build step (ver AGENTS.md): el template
     solo ve lo que ``setup()`` retorna. El componente debe
-    exponer ``colorClass``, ``tooltip`` y ``handleClick`` en el
-    return para que el template los use en ``:class``, ``:title``
-    y ``@click`` respectivamente."""
+    exponer ``colorClass``, ``tooltip``, ``stateLabel`` y
+    ``handleClick`` en el return para que el template los use
+    en ``:class``, ``:title``, ``:aria-label`` y ``@click``
+    respectivamente.
+
+    ``stateLabel`` (sept-2026, armonización de textos):
+    convierte el ``state`` crudo en inglés a su etiqueta en
+    castellano (``Conectado`` / ``Conectando`` / ``En reposo`` /
+    ``Error``) para el ``aria-label`` del botón. Sin esto, la
+    SPA anunciaría "Estado TIA: connected" (ingles) al operario
+    que use lector de pantalla o tabule hasta el botón."""
     text = _read(COMPONENT_JS)
     # Buscamos el return del setup.
-    assert "return { state, project, colorClass, tooltip, handleClick" in text, (
+    assert "return { state, project, colorClass, tooltip, stateLabel, handleClick" in text, (
         "El setup() debe retornar explícitamente state, project, "
-        "colorClass, tooltip y handleClick. Sin esto, el template "
-        "no podría usar :class=colorClass ni :title=tooltip (ver "
-        "AGENTS.md, sección 'Vue 3 sin build step — acceso a store "
-        "desde templates')."
+        "colorClass, tooltip, stateLabel y handleClick. Sin esto, "
+        "el template no podría usar :class=colorClass ni :title=tooltip "
+        "ni :aria-label=stateLabel (ver AGENTS.md, sección 'Vue 3 sin "
+        "build step — acceso a store desde templates')."
     )
 
 

@@ -490,3 +490,72 @@ def test_get_connection_expone_project_changed_consumiendo_flag(
     body2 = resp2.json()
     assert body2["project_changed"] is False
     assert mock_gateway.consume_project_changed.call_count == 2
+
+
+# ── Sept-2026: POST /connect y /disconnect exponen worker_alive ─────
+#
+# Antes (pre-sept-2026): las respuestas POST de connect y
+# disconnect NO incluían ``worker_alive``. El frontend recibía
+# ``undefined`` y ``_applyTiaSnapshot`` lo grababa como
+# ``false``, haciendo que el círculo del worker parpadease
+# "muerto" (gris) durante ~1s tras cada click hasta el
+# siguiente poll del GET.
+#
+# Tras el fix: las respuestas POST incluyen ``worker_alive``
+# (leído del gateway con ``is_worker_alive()``), y el frontend
+# hace un merge defensivo (store.js) para preservar el valor
+# anterior si el campo falta. Cero parpadeo.
+
+
+def test_post_connect_includes_worker_alive(
+    client: TestClient, mock_gateway: MagicMock
+) -> None:
+    """POST /connect expone ``worker_alive`` en la respuesta.
+
+    Sept-2026 (fix parpadeo "muerto"): el backend incluye
+    ``worker_alive`` (chequeo barato de ``is_worker_alive()``)
+    para que la SPA actualice el ``WorkerStatusIndicator``
+    inmediatamente, sin esperar al próximo poll del GET.
+    """
+    mock_gateway._connection_state = "connected"
+    mock_gateway._last_portal_pid = 4242
+    mock_gateway.connect = AsyncMock()
+    mock_gateway.is_worker_alive = MagicMock(return_value=True)
+
+    resp = client.post("/api/v1/tia/connect")
+    assert resp.status_code == 200
+    body = resp.json()
+
+    assert body["ok"] is True
+    assert "worker_alive" in body, (
+        "POST /connect debe incluir ``worker_alive`` en la "
+        "respuesta (sept-2026, fix parpadeo 'muerto' al click)."
+    )
+    assert body["worker_alive"] is True
+    mock_gateway.is_worker_alive.assert_called()
+
+
+def test_post_disconnect_includes_worker_alive(
+    client: TestClient, mock_gateway: MagicMock
+) -> None:
+    """POST /disconnect expone ``worker_alive`` en la respuesta.
+
+    Mismo motivo que el test de connect: tras el detach el
+    worker sigue vivo (estado ``"idle"``), y la SPA necesita
+    ver el indicador verde inmediatamente, no 1s después.
+    """
+    mock_gateway._connection_state = "idle"
+    mock_gateway.disconnect = AsyncMock()
+    mock_gateway.is_worker_alive = MagicMock(return_value=True)
+
+    resp = client.post("/api/v1/tia/disconnect")
+    assert resp.status_code == 200
+    body = resp.json()
+
+    assert body["ok"] is True
+    assert "worker_alive" in body, (
+        "POST /disconnect debe incluir ``worker_alive`` en la "
+        "respuesta (sept-2026, fix parpadeo 'muerto' al click)."
+    )
+    assert body["worker_alive"] is True
+    mock_gateway.is_worker_alive.assert_called()

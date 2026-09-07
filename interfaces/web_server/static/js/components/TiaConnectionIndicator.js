@@ -29,7 +29,7 @@
  * compilador en runtime). Por eso TODO el acceso a ``store`` se
  * encapsula en ``computed`` y se retorna explícitamente desde
  * ``setup()``. El template solo lee ``state``, ``project``,
- * ``colorClass``, ``tooltip`` y ``handleClick``.
+ * ``colorClass``, ``tooltip``, ``stateLabel`` y ``handleClick``.
  *
  * Tema: tokens semánticos del tema "Industrial Claro" cuando
  * apliquen. Los colores de estado (green/amber/gray/red) son
@@ -42,6 +42,19 @@
  */
 import { computed } from "/js/vendor/vue.esm-browser.prod.js";
 import { store } from "/js/store.js";
+
+// Mapping de ``state`` a etiqueta en castellano para el
+// ``aria-label`` del botón (sept-2026, armonización de textos).
+// El operario ve "Estado TIA: Conectado" en vez del state crudo
+// en inglés ("connected", "idle", "connecting", "error"). Si el
+// state es desconocido, ``stateLabel`` cae al state crudo como
+// fallback (defensivo, no rompe la SPA).
+const STATE_LABELS = {
+    connected: "Conectado",
+    connecting: "Conectando",
+    idle: "En reposo",
+    error: "Error",
+};
 
 export default {
     name: "TiaConnectionIndicator",
@@ -58,6 +71,15 @@ export default {
         // "Conectar" del operario.
         const state = computed(() =>
             (store.tiaConnection && store.tiaConnection.state) || "idle"
+        );
+        // ``stateLabel`` (sept-2026, armonización textos):
+        // versión en castellano de ``state`` para el
+        // ``aria-label`` del botón. Lee del mapping
+        // ``STATE_LABELS`` y cae al state crudo si el mapping
+        // no lo contempla (defensivo, no rompe la SPA si en
+        // el futuro se añade un state nuevo al state machine).
+        const stateLabel = computed(
+            () => STATE_LABELS[state.value] || state.value
         );
         const project = computed(() =>
             (store.tiaConnection && store.tiaConnection.project) || null
@@ -124,7 +146,12 @@ export default {
                 return "TIA en reposo. Pulsa 'Conectar' para abrir un portal.";
             }
             if (state.value === "connecting") {
-                return "Conectando...";
+                // Texto armonizado sept-2026: explicito "con TIA
+                // Portal" en vez del generico "Conectando...". Da
+                // contexto al operario (es uno de los dos
+                // indicadores del topbar, y este se refiere al
+                // attach, no al worker OT).
+                return "Conectando con TIA Portal...";
             }
             return "Estado TIA desconocido";
         });
@@ -144,7 +171,7 @@ export default {
             }
         }
 
-        return { state, project, colorClass, tooltip, handleClick };
+        return { state, project, colorClass, tooltip, stateLabel, handleClick };
     },
     template: /* html */ `
         <button
@@ -152,7 +179,7 @@ export default {
             @click="handleClick"
             :title="tooltip"
             :class="['w-3 h-3 rounded-full', colorClass, 'transition-colors']"
-            :aria-label="'Estado TIA: ' + state"
+            :aria-label="'Estado TIA: ' + stateLabel"
             data-testid="tia-connection-indicator">
         </button>
     `,
