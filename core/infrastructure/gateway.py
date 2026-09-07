@@ -1580,8 +1580,8 @@ class TIAProcessGateway:
         """
         return await self._dispatch_worker("ping", args={})
 
-    async def get_plcs(self, force_refresh: bool = False) -> list[str]:
-        """Obtiene los PLCs disponibles utilizando la caché de memoria IT.
+    async def get_plcs(self, force_refresh: bool = False) -> list[dict[str, Any]]:
+        """Obtiene los PLCs disponibles (con metadatos) usando la caché IT.
 
         ``timeout_override=10s``: el polling del frontend hace
         ``GET /tia/connection`` cada 2s, y este método se invoca
@@ -1590,6 +1590,26 @@ class TIAProcessGateway:
         minutos y bloquearia el ``disconnect()`` del operario. 10s
         es más que suficiente para un ``list_plcs`` en condiciones
         normales.
+
+        Returns:
+            Lista de dicts ``[{"name": str, "short_designation":
+            str | None}, ...]``. ``name`` es la identidad del PLC;
+            ``short_designation`` es la property "ShortDesignation"
+            de TIA (modelo / referencia corta del PLC, p.ej.
+            ``"CPU 1518-4 PN/DP"``) o ``None`` si TIA no la expone.
+
+        Nota (sept-2026): breaking change de contrato. Antes este
+        método devolvía ``list[str]`` (solo nombres); ahora devuelve
+        ``list[dict]`` para que la SPA pueda pintar el modelo del PLC
+        en la card de "PLC activo" sin un round trip extra. La caché
+        IT ``self._cache["plcs"]`` queda invalidada en cualquier
+        ``clear_cache()`` (open/close project) — la siguiente
+        llamada relee con la nueva forma. En despliegues con caché
+        preexistente (sesión que sobrevive al upgrade), la primera
+        lectura devolverá el formato viejo; se recomienda reiniciar
+        el worker tras el upgrade para que la caché no se quede
+        con la lista de strings obsoleta. La propia SPA ignora
+        entradas que no sean dicts (defensivo).
         """
         cache_key = "plcs"
         if not force_refresh and cache_key in self._cache:

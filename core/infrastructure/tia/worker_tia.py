@@ -219,12 +219,66 @@ def _cmd_close_project(portal: Any, ts: Any, args: dict[str, Any]) -> None:
     project.close()
 
 
-def _cmd_list_plcs(portal: Any, ts: Any, args: dict[str, Any]) -> list[str]:
-    """Lista los nombres de los PLCs del proyecto activo."""
+def _cmd_list_plcs(portal: Any, ts: Any, args: dict[str, Any]) -> list[dict[str, Any]]:
+    """Lista los PLCs del proyecto activo con metadatos útiles para la SPA.
+
+    Devuelve una lista de dicts ``[{"name": str, "short_designation":
+    str | None}, ...]``. ``short_designation`` es la propiedad
+    "ShortDesignation" del PLC (modelo / referencia corta, p.ej.
+    "CPU 1518-4 PN/DP") y se usa en la card de "PLC activo" del
+    BloquesCacheView (sept-2026, pedido operario). Se lee con el
+    mismo patrón defensivo que ``_cmd_get_project_info``: si la
+    property no existe, está vacía o lanza al leerla (p. ej.
+    PermissionDenied, Plc no accesible), ``short_designation`` es
+    ``None`` en vez de tumbar el handler. La SPA renderiza
+    "Modelo: —" cuando el valor es ``None``.
+
+    Returns:
+        Lista de dicts ``{"name": str, "short_designation": str | None}``.
+        ``name`` siempre presente (es la identidad del PLC);
+        ``short_designation`` puede ser ``None`` si TIA no expone
+        la property o si falla su lectura.
+
+    Raises:
+        ``RuntimeError``: si no hay proyecto activo (via
+        ``_get_active_project``). La SPA lo traduce a un error
+        legible.
+    """
     _ = ts
     project = _get_active_project(portal)
     plcs = project.get_plcs()
-    return [plc.get_name() for plc in plcs]
+
+    def _safe_short_designation(plc: Any) -> str | None:
+        """Lee ``ShortDesignation`` del PLC de forma defensiva.
+
+        Cubre 3 casos que rompen el read ingenuo:
+          1. La property no existe en este modelo de PLC.
+          2. La property existe pero devuelve ``None`` o string vacío.
+          3. El read lanza (COM, PermissionDenied, etc.).
+
+        En cualquiera de los 3, devolvemos ``None`` para que la
+        SPA pinte el guion y el operario sepa que ese PLC concreto
+        no expone el modelo.
+        """
+        getter = getattr(plc, "get_property", None)
+        if getter is None:
+            return None
+        try:
+            value = getter("ShortDesignation")
+        except Exception:
+            return None
+        if value is None:
+            return None
+        try:
+            s = str(value).strip()
+        except Exception:
+            return None
+        return s if s else None
+
+    return [
+        {"name": plc.get_name(), "short_designation": _safe_short_designation(plc)}
+        for plc in plcs
+    ]
 
 
 def _cmd_ping(portal: Any, ts: Any, args: dict[str, Any]) -> dict[str, Any]:

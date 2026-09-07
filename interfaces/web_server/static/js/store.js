@@ -858,7 +858,7 @@ function _applyTiaSnapshot(r) {
  * gracias a la reactividad del store).
  */
 export async function connectTia() {
-    const { apiConnectTia } = await import("./api.js");
+    const { apiConnectTia, apiFetchProjectInfo } = await import("./api.js");
     const prevState = store.tiaConnection && store.tiaConnection.state;
     store.tiaConnection = {
         ...store.tiaConnection,
@@ -874,6 +874,54 @@ export async function connectTia() {
         // a pisar con datos corruptos. El proximo tick del
         // polling (2s) reintentara con un GET fresco.
         _applyTiaSnapshot(r);
+
+        // Sept-2026 (pedido operario): tras el connect OK leemos
+        // las propiedades del proyecto TIA (name + path) y las
+        // dejamos listas para la card de "cache del plc". Sin
+        // esto, el operario tenía que esperar al siguiente poll
+        // del GET /tia/connection (1s) o pulsar "Buscar PLCs" para
+        // ver el nombre del proyecto, y el path ni se mostraba.
+        // El round trip extra (~50ms, lectura barata) se compensa
+        // con UX inmediata: el operario confirma que está conectado
+        // al proyecto correcto ANTES de buscar PLCs.
+        //
+        // Replicamos la info en DOS slots para cubrir todos los
+        // consumers:
+        //   - ``store.projectInfo``: slot histórico, lo lee el
+        //     ``tiaProjectName`` computed como fallback y muchos
+        //     tests lo validan.
+        //   - ``store.tiaConnection.project``: slot nuevo, lo usa
+        //     el ``tiaProjectName`` computed como fuente principal
+        //     y permite que el path se vea sin esperar al poll.
+        try {
+            const infoResp = await apiFetchProjectInfo();
+            if (
+                infoResp && infoResp.ok && infoResp.data
+                && infoResp.data.project_info
+            ) {
+                store.projectInfo = infoResp.data.project_info;
+                store.tiaConnection = {
+                    ...store.tiaConnection,
+                    project: infoResp.data.project_info,
+                };
+            } else if (infoResp && infoResp.ok === false) {
+                store.projectInfo = null;
+                store.tiaConnection = {
+                    ...store.tiaConnection,
+                    project: null,
+                };
+            }
+        } catch (e) {
+            // No tumbar el connect si la lectura del proyecto falla:
+            // el operario ya está connected, y el próximo poll del
+            // GET /tia/connection rellenara el project. Solo
+            // dejamos un warning en la consola del navegador.
+            // eslint-disable-next-line no-console
+            console.warn(
+                `[connectTia] No se pudo leer project info tras ` +
+                `connect: ${e && e.message ? e.message : e}`
+            );
+        }
     } else if (r) {
         // Error path: la respuesta trae ``{ok: false, data: {error,
         // detail}}`` (o similar). Forzamos ``state='error'`` y

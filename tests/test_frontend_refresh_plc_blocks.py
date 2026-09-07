@@ -182,17 +182,45 @@ def test_bloques_cache_view_button_text_is_buscar_plcs() -> None:
     )
 
 
-def test_bloques_cache_view_calls_api_fetch_project_info() -> None:
-    """``handleRefreshPlcs`` (ahora en ``BloquesCacheView``) invoca
-    ``apiFetchProjectInfo`` en paralelo con ``apiFetchPlcs``
-    (mismo click del operario, v3.0)."""
+def test_bloques_cache_view_does_not_call_api_fetch_project_info() -> None:
+    """Sept-2026: ``apiFetchProjectInfo`` ya NO se invoca desde
+    ``handleRefreshPlcs`` (BloquesCacheView). El operario pidió
+    mover esa lectura al "Conectar" para confirmar el proyecto
+    ANTES de buscar PLCs.
+
+    Verifica:
+      - ``BloquesCacheView.js`` NO importa ``apiFetchProjectInfo``.
+      - ``handleRefreshPlcs`` solo lista PLCs (sin ``Promise.all``
+        con project-info, sin lectura del project).
+      - La lectura se hace en ``store.js::connectTia``, donde
+        tras un POST /tia/connect OK se llama a
+        ``apiFetchProjectInfo()`` y se actualiza
+        ``store.projectInfo`` + ``store.tiaConnection.project``.
+    """
     text = _read(BLOQUES_CACHE_VIEW_JS)
-    # Importa la nueva función.
-    assert "apiFetchProjectInfo" in text
-    # La usa dentro del handler (no solo el import).
-    assert "apiFetchProjectInfo()" in text
-    # Y la combina en paralelo con apiFetchPlcs.
-    assert "Promise.all" in text
+    # ``BloquesCacheView`` ya NO importa la funcion.
+    assert "apiFetchProjectInfo" not in text, (
+        "BloquesCacheView.js NO debe llamar a apiFetchProjectInfo. "
+        "La lectura del proyecto se hace en store.connectTia tras "
+        "el POST /tia/connect OK (sept-2026, pedido operario)."
+    )
+
+    # Y store.connectTia la invoca.
+    store_text = _read(STORE_JS)
+    start = store_text.find("export async function connectTia")
+    assert start != -1, "connectTia no encontrado en store.js"
+    # Cogemos 2000 chars por la armazon defensiva (try/except +
+    # replicacion en 2 slots) que anadimos en sept-2026.
+    body = store_text[start:start + 2000]
+    assert "apiFetchProjectInfo" in body, (
+        "connectTia debe llamar a apiFetchProjectInfo tras un "
+        "POST /tia/connect OK para que la card 'cache del plc' "
+        "muestre el nombre y la ruta del proyecto sin esperar "
+        "al siguiente poll del GET (sept-2026)."
+    )
+    assert "apiFetchProjectInfo()" in body, (
+        "connectTia debe invocar la funcion (no solo importarla)."
+    )
 
 
 def test_bloques_cache_view_renders_project_name_caption() -> None:

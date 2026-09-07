@@ -241,7 +241,13 @@ def test_connect_tia_handles_error_response() -> None:
     text = _read(STORE_JS)
     start = text.find("export async function connectTia")
     assert start != -1
-    body = text[start:start + 2000]
+    # Ventana ampliada a 4000 chars (antes 2000) en sept-2026:
+    # la rama OK de ``connectTia`` ahora anade la lectura de
+    # project info (~30 lineas: try/except + replicacion en 2
+    # slots), lo que empuja la rama ``else if (r)`` con el
+    # ``state: "error"`` mas alla de los 2000 chars originales.
+    # 4000 cubre holgadamente la rama de error completa.
+    body = text[start:start + 4000]
     assert "state: \"error\"" in body, (
         "connectTia debe poner state='error' si la respuesta del "
         "backend no es OK."

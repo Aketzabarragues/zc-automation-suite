@@ -89,15 +89,27 @@ class TestListPlcsInWhitelist:
 
             async def _patched(awaitable, *args, **kwargs):  # noqa: ARG001
                 if isinstance(awaitable, asyncio.Future):
+                    # sept-2026: ``list_plcs`` ahora devuelve una
+                    # lista de dicts ``{name, short_designation}``
+                    # (no solo strings). Este test mockea la
+                    # respuesta del subproceso worker, asi que
+                    # usamos la nueva forma para que el ``assert``
+                    # de abajo sea coherente con el contrato real.
                     awaitable.set_result(
-                        {"id": 1, "ok": True, "result": ["PLC1"]}
+                        {
+                            "id": 1,
+                            "ok": True,
+                            "result": [
+                                {"name": "PLC1", "short_designation": None}
+                            ],
+                        }
                     )
                     return awaitable.result()
                 return await real_wait_for(awaitable, *args, **kwargs)
 
             with patch("core.infrastructure.gateway.asyncio.wait_for", side_effect=_patched):
                 result = await gateway._dispatch_worker("list_plcs", args={})
-            assert result == ["PLC1"]
+            assert result == [{"name": "PLC1", "short_designation": None}]
         finally:
             gateway._reader_task.cancel()
             try:

@@ -271,15 +271,16 @@ def test_bloques_cache_view_renders_worker_status_text() -> None:
     assert "worker_alive" in text, (
         "BloquesCacheView debe leer el campo 'worker_alive' del store."
     )
-    # Template: pinta "Worker: vivo/muerto" con color verde/rojo.
+    # Template: pinta "Worker: activo/inactivo" con color verde/rojo
+    # (armonización sept-2026, antes era "vivo/muerto" coloquial).
     assert "Worker:" in text, (
         "BloquesCacheView debe pintar el caption 'Worker:' en su template."
     )
-    assert "vivo" in text, (
-        "BloquesCacheView debe mostrar el texto 'vivo' cuando workerAlive=true."
+    assert "activo" in text, (
+        "BloquesCacheView debe mostrar el texto 'activo' cuando workerAlive=true."
     )
-    assert "muerto" in text, (
-        "BloquesCacheView debe mostrar el texto 'muerto' cuando workerAlive=false."
+    assert "inactivo" in text, (
+        "BloquesCacheView debe mostrar el texto 'inactivo' cuando workerAlive=false."
     )
     assert "text-green-600" in text, (
         "El texto 'vivo' debe pintarse con text-green-600 (consistente con "

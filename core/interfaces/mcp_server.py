@@ -144,8 +144,23 @@ def create_mcp_server(gateway: TIAProcessGateway) -> FastMCP:
         return "Proyecto cerrado. Los cambios no guardados se han perdido."
 
     @mcp.tool()
-    async def tia_list_plcs(force_refresh: bool = False) -> list[str]:
-        """Lista los nombres de los PLCs presentes en el proyecto activo."""
+    async def tia_list_plcs(force_refresh: bool = False) -> list[dict[str, Any]]:
+        """Lista los PLCs presentes en el proyecto activo.
+
+        Cada elemento es un dict con:
+          - ``name`` (str): identidad del PLC (la que espera el
+            resto de tools MCP como ``tia_list_blocks(plc_name=...)``).
+          - ``short_designation`` (str | None): modelo o referencia
+            corta del PLC (p.ej. ``"CPU 1518-4 PN/DP"``). ``None``
+            si TIA no expone la property o si falla su lectura.
+
+        Sept-2026 (armonización): antes el tool devolvía ``list[str]``
+        (solo nombres). Ahora coincide con el shape que expone el
+        ``/api/v1/plcs`` de la SPA (``gateway.get_plcs()``), de
+        forma que un agente MCP puede razonar sobre el modelo del
+        PLC sin un round trip extra. Si tu workflow esperaba solo
+        strings, usa ``[p["name"] for p in tia_list_plcs()]``.
+        """
         return await gateway.get_plcs(force_refresh=force_refresh)
 
     @mcp.tool()

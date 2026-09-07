@@ -50,7 +50,7 @@ import {
     connectTia,
     disconnectTia,
 } from "/js/store.js";
-import { apiFetchPlcs, apiFetchProjectInfo } from "/js/api.js";
+import { apiFetchPlcs } from "/js/api.js";
 
 /** Umbral de "stale" del cache local (5 min, mismo TTL que el backend). */
 const STALE_AFTER_MS = 5 * 60 * 1000;
@@ -366,6 +366,54 @@ export default {
         });
 
         /**
+         * Path del proyecto TIA (vía tiaConnection.project.path
+         * o, en fallback, store.projectInfo.path). Se pinta en la
+         * card 1 debajo del nombre del proyecto, en una segunda
+         * linea, para que el operario confirme que está conectado
+         * al proyecto correcto (no solo por nombre) antes de
+         * buscar PLCs.
+         *
+         * Sept-2026 (pedido operario): antes el path no se mostraba
+         * en ningún sitio. Ahora va en la card 1, en la lista de
+         * "Estado del sistema" debajo de "Proyecto:".
+         */
+        const tiaProjectPath = computed(() => {
+            const p = store.tiaConnection && store.tiaConnection.project;
+            if (p && p.path) return p.path;
+            const pi = store.projectInfo;
+            if (pi && pi.path) return pi.path;
+            return null;
+        });
+
+        /**
+         * Modelo del PLC activo (``short_designation`` de TIA, p.ej.
+         * ``"CPU 1518-4 PN/DP"``). Se busca en ``store.plcs`` que
+         * desde sept-2026 guarda la lista de dicts ``{name,
+         * short_designation}`` que devuelve ``/api/v1/plcs``.
+         *
+         * Lookup defensivo:
+         *   - Si el PLC activo (plcName) no está en store.plcs (p.ej.
+         *     el operario cambió de proyecto en TIA y aún no ha
+         *     pulsado "Buscar PLCs"), devolvemos ``null`` y la card
+         *     pintará "Modelo: —".
+         *   - Si la entry es un string (cache pre-sept-2026 con la
+         *     forma antigua ``["PLC1", "PLC2"]``), el ``.find`` no
+         *     matcheará y devolvemos ``null``. La próxima pulsación
+         *     de "Buscar PLCs" ya traerá el shape nuevo.
+         *   - Si ``short_designation`` es ``None`` (TIA no expone la
+         *     property para este PLC), devolvemos ``null`` y la
+         *     card pintará "Modelo: —".
+         */
+        const plcModel = computed(() => {
+            const name = (plcName && plcName.value) || store.selectedPlc;
+            if (!name) return null;
+            if (!Array.isArray(store.plcs) || store.plcs.length === 0) return null;
+            const entry = store.plcs.find((p) => p && p.name === name);
+            if (!entry || typeof entry !== "object") return null;
+            return entry.short_designation || null;
+        });
+
+        /**
          * Habilitacion de los 4 controles. Los botones se
          * muestran siempre; lo que cambia es si aceptan click.
          */
@@ -399,24 +447,25 @@ export default {
         }
 
         /**
-         * Refresca el desplegable de PLCs Y carga el nombre del
-         * proyecto TIA conectado. Misma implementación que tenía
-         * la v2.2 en ``ShellTopbar.handleRefreshPlcs``: dos
-         * llamadas en paralelo y deteccion centralizada de
-         * ``TIAConnectionError`` (que limpia el state del PLC
-         * via ``resetPlcState()``).
+         * Refresca el desplegable de PLCs. La info del proyecto
+         * TIA (``store.projectInfo``) ya NO se pide aquí: el
+         * operario pidió mover esa lectura al "Conectar" para
+         * confirmar el proyecto ANTES de buscar PLCs. Aqui solo
+         * se actualiza la lista.
+         *
+         * Sept-2026: ``/api/v1/plcs`` ahora devuelve una lista de
+         * dicts ``{name, short_designation}`` (antes solo strings).
+         * ``store.plcs`` guarda ese shape tal cual; el dropdown y
+         * el lookup de modelo en zona B leen ``p.name`` y
+         * ``p.short_designation`` respectivamente.
          */
         async function handleRefreshPlcs() {
             store.busy = true;
             try {
-                const [plcsResp, infoResp] = await Promise.all([
-                    apiFetchPlcs(),
-                    apiFetchProjectInfo(),
-                ]);
+                const plcsResp = await apiFetchPlcs();
 
                 const tiaDown =
-                    (plcsResp && plcsResp.errorType === "TIAConnectionError") ||
-                    (infoResp && infoResp.errorType === "TIAConnectionError");
+                    plcsResp && plcsResp.errorType === "TIAConnectionError";
 
                 if (tiaDown) {
                     pushLog(
@@ -429,12 +478,6 @@ export default {
                 } else if (plcsResp.data && plcsResp.data.ok === false) {
                     pushLog(plcsResp.data.error || "TIA Portal no conectado", "warning");
                     store.plcs = [];
-                }
-
-                if (infoResp.ok && infoResp.data && infoResp.data.project_info) {
-                    store.projectInfo = infoResp.data.project_info;
-                } else if (infoResp.data && infoResp.data.ok === false) {
-                    store.projectInfo = null;
                 }
             } finally {
                 store.busy = false;
@@ -474,6 +517,8 @@ export default {
             workerAlive,
             isTiaConnected,
             tiaProjectName,
+            tiaProjectPath,
+            plcModel,
             canConnect,
             canDisconnect,
             canSelectPlc,
@@ -524,7 +569,7 @@ export default {
                                 <span :class="workerAlive ? 'text-green-600' : 'text-red-700'">●</span>
                                 <span class="text-ink-muted">Worker:</span>
                                 <span :class="workerAlive ? 'text-green-600 font-semibold' : 'text-red-700 font-semibold'">
-                                    {{ workerAlive ? 'vivo' : 'muerto' }}
+                                    {{ workerAlive ? 'activo' : 'inactivo' }}
                                 </span>
                             </li>
                             <li class="flex items-center gap-2">
@@ -536,6 +581,11 @@ export default {
                                 <span class="text-ink-muted">●</span>
                                 <span class="text-ink-muted">Proyecto:</span>
                                 <span class="font-mono text-ink">{{ tiaProjectName }}</span>
+                            </li>
+                            <li v-if="tiaProjectPath" class="flex items-center gap-2">
+                                <span class="text-ink-muted">●</span>
+                                <span class="text-ink-muted">Ruta:</span>
+                                <span class="font-mono text-ink-muted break-all" data-testid="bloques-cache-project-path">{{ tiaProjectPath }}</span>
                             </li>
                         </ul>
                     </div>
@@ -567,7 +617,18 @@ export default {
                                 data-testid="bloques-cache-plc-select"
                                 class="col-span-2 bg-white border border-line text-accent font-bold text-sm rounded focus:border-accent-bright focus:outline-none px-3 py-1.5 font-mono disabled:opacity-50 cursor-pointer">
                                 <option value="">-- Selecciona un PLC --</option>
-                                <option v-for="p in store.plcs" :key="p" :value="p">{{ p }}</option>
+                                <!--
+                                  Sept-2026: store.plcs ahora guarda
+                                  [{name, short_designation}, ...] (antes
+                                  ["PLC1", "PLC2"]). "p.name ? p.name : p"
+                                  es defensivo: si la lista viniera en el
+                                  formato antiguo (cache pre-upgrade),
+                                  seguimos pintando el string como si fuera
+                                  el nombre.
+                                -->
+                                <option v-for="p in store.plcs" :key="p && p.name ? p.name : p" :value="p && p.name ? p.name : p">
+                                    {{ p && p.name ? p.name : p }}
+                                </option>
                             </select>
 
                             <button @click="handleRefreshPlcs"
@@ -592,11 +653,15 @@ export default {
                 <div class="my-4 border-t border-line"></div>
 
                 <!-- Zona B: PLC activo + boton "↻ Actualizar".
-                     PLC info en 2 lineas separadas:
+                     PLC info en 3 lineas separadas (sept-2026, pedido
+                     operario):
                        - Linea 1: nombre del PLC (principal).
-                       - Linea 2: timestamp del escaneado.
+                       - Linea 2: modelo (ShortDesignation de TIA).
+                                  "—" si TIA no expone la property o
+                                  si el PLC no esta en store.plcs.
+                       - Linea 3: timestamp del escaneado.
                      El boton "↻ Actualizar" se queda a la derecha
-                     (centrado verticalmente respecto a las 2 lineas). -->
+                     (centrado verticalmente respecto a las 3 lineas). -->
                 <div>
                     <h4 class="text-[10px] font-bold text-ink-muted uppercase tracking-widest mb-2">
                         PLC activo
@@ -605,7 +670,11 @@ export default {
                         <div v-if="store.selectedPlc" class="space-y-1">
                             <p class="text-xs">
                                 <span class="text-ink-muted">PLC:</span>
-                                <span class="font-mono font-semibold text-ink ml-1">{{ plcName }}</span>
+                                <span class="font-mono font-semibold text-ink ml-1" data-testid="bloques-cache-plc-name">{{ plcName }}</span>
+                            </p>
+                            <p class="text-xs">
+                                <span class="text-ink-muted">Modelo:</span>
+                                <span class="font-mono ml-1" data-testid="bloques-cache-plc-model">{{ plcModel || '—' }}</span>
                             </p>
                             <p v-if="scannedAt" class="text-xs">
                                 <span class="text-ink-muted">Escaneado:</span>

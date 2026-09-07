@@ -817,7 +817,15 @@ class TestWorkerRejectsOperationsWhenIdle:
         fake_portal.get_process_id.return_value = 12345
 
         def _fake_list_plcs(portal, ts_arg, args):  # noqa: ARG001
-            return ["PLC1", "PLC2"]
+            # sept-2026: ``_cmd_list_plcs`` ahora devuelve una
+            # lista de dicts ``{name, short_designation}``. Esta
+            # _fake_ reemplaza al comando del registry en este
+            # test, asi que usamos la nueva forma para que el
+            # round-trip JSON refleje el contrato real.
+            return [
+                {"name": "PLC1", "short_designation": None},
+                {"name": "PLC2", "short_designation": None},
+            ]
 
         payload = json.dumps(
             {"id": 1, "command": "list_plcs", "args": {}}
