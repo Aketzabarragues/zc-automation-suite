@@ -16,13 +16,16 @@
  * Timeouts (sept-2026, fix AbortError):
  *   Cada endpoint se clasifica en uno de tres buckets segun cuanto
  *   puede tardar contra TIA Portal (S7-1500 con 200+ bloques es el
- *   peor caso realista). El default es ``FAST_TIMEOUT_MS`` (30s) para
- *   no penalizar lecturas rapidas. Las operaciones largas declaran
- *   explicitamente ``MEDIUM_TIMEOUT_MS`` o ``SLOW_TIMEOUT_MS``.
+ *   peor caso realista). El default es ``FAST_TIMEOUT_MS`` (2 min)
+ *   para cubrir holgadamente lecturas tipicas + cold-start del
+ *   backend. Las operaciones largas declaran explicitamente
+ *   ``MEDIUM_TIMEOUT_MS`` o ``SLOW_TIMEOUT_MS``.
  *
  *   Reglas practicas:
- *     - FAST (30s):  lecturas puras (PLC list, logs, progress, etc).
- *     - MEDIUM (2 min): attach/open/preview/upload (pueden tocar
+ *     - FAST (2 min):  default. Lecturas puras (PLC list, logs,
+ *       progress, etc) que tipicamente tardan <1s pero pueden
+ *       dispararse a 30-60s en cold-start del backend.
+ *     - MEDIUM (5 min): attach/open/preview/upload (pueden tocar
  *       TIA Portal en cold-start o hacer export masivo).
  *     - SLOW (10 min): commits transaccionales (N_MAX + devices en
  *       una sola transaccion COM, minutos en S7-1500 grandes).
@@ -32,8 +35,8 @@
  *       cliente debe ser MAYOR que el del backend, si no el
  *       navegador aborta antes de que TIA termine.
  */
-const FAST_TIMEOUT_MS = 30_000;
-const MEDIUM_TIMEOUT_MS = 120_000;
+const FAST_TIMEOUT_MS = 120_000;
+const MEDIUM_TIMEOUT_MS = 300_000;
 const SLOW_TIMEOUT_MS = 600_000;
 
 async function _request(method, url, body, timeoutMs = FAST_TIMEOUT_MS) {

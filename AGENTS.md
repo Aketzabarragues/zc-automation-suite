@@ -174,9 +174,11 @@ Convenciones:
 
 ### Timeouts de fetch (cliente)
 - **3 buckets** definidos en `interfaces/web_server/static/js/api.js`:
-  - `FAST_TIMEOUT_MS = 30_000` (default): lecturas puras (PLC list,
-    logs, progress, catalog, memory, tia/connection, blocks, etc).
-  - `MEDIUM_TIMEOUT_MS = 120_000` (2 min): attach, open, preview,
+  - `FAST_TIMEOUT_MS = 120_000` (2 min, default): lecturas puras
+    (PLC list, logs, progress, catalog, memory, tia/connection,
+    blocks, etc). Tipicamente <1s pero pueden dispararse a 30-60s
+    en cold-start del backend.
+  - `MEDIUM_TIMEOUT_MS = 300_000` (5 min): attach, open, preview,
     upload Excel, connect. Tocan TIA Portal en cold-start o hacen
     export masivo.
   - `SLOW_TIMEOUT_MS = 600_000` (10 min): commits transaccionales
