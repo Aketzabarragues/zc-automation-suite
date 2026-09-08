@@ -59,10 +59,16 @@ def test_clean_resuelve_asimetria(tmp_path: Path) -> None:
     Esto cierra la asimetría previa: ``disp_sync_instances`` ya
     limpiaba su workdir, ``proc_sync_comentarios`` no. Ahora ambos
     comparten el mismo helper.
+
+    Tras ``clean()`` las raíces ``exports/`` y ``modified/`` existen
+    pero NO contienen archivos sueltos (solo las 3 subcarpetas
+    vacías que ``clean()`` recrea). Para verificar "limpio" se
+    comprueba que ``exports/variables/`` (subcarpeta typed) está
+    vacía.
     """
     area = build_cache(root=tmp_path)
 
-    # Stale en ambos contextos.
+    # Stale en ambos contextos (en la raíz, contrato pre-Commit-1).
     (area.dispositivos.exports / "old.s7dcl").parent.mkdir(parents=True)
     (area.dispositivos.exports / "old.s7dcl").write_text("old", encoding="utf-8")
     (area.procesos.modified).mkdir(parents=True)
@@ -74,8 +80,13 @@ def test_clean_resuelve_asimetria(tmp_path: Path) -> None:
     area.dispositivos.clean()
     area.procesos.clean()
 
-    # Ambos contextos limpios en exports/ y modified/.
-    assert not list(area.dispositivos.exports.iterdir())
-    assert not list(area.procesos.modified.iterdir())
+    # Las raíces exports/ y modified/ existen pero no tienen archivos
+    # sueltos: tras clean(), contienen 3 subcarpetas vacías (variables/,
+    # bloques/, udt/).
+    assert area.dispositivos.exports.exists()
+    assert area.procesos.modified.exists()
+    # Y las subcarpetas typed están vacías.
+    assert not list(area.dispositivos.exports_variables.iterdir())
+    assert not list(area.procesos.modified_variables.iterdir())
     # Y el preview de procesos sigue intacto.
     assert preview_artifact.exists()

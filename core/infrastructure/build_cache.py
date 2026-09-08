@@ -3,16 +3,56 @@
 Convención de la app (NO config del proyecto)
 =============================================
 
-Cada área (Bounded Context) necesita 3 subestados estables de un
-mismo workdir para el ciclo "exportar de TIA → modificar offline →
-importar a TIA"::
+Cada área (Bounded Context) necesita una matriz 3×3 de subcarpetas
+para el ciclo "exportar de TIA → modificar offline → importar a TIA"::
 
     .build_cache/
-    └── <area_id>/                # área (alimentacion, trazabilidad, ...)
-        └── <contexto>/           # bounded context del área (dispositivos, ...)
-            ├── exports/          # lo recién exportado de TIA (sin tocar)
-            ├── modified/         # lo que los modificadores ya tocaron
-            └── preview/          # dry-runs, N_MAX preview, diffs
+    └── <area_id>/                          # área (alimentacion, trazabilidad, ...)
+        └── <contexto>/                     # bounded context del área (dispositivos, ...)
+            ├── preview/                    # read-only. Lo que se NECESITA para el diff.
+            │   ├── variables/              # TAG tables (XML)
+            │   ├── bloques/                # Program blocks (.s7dcl/.s7res)
+            │   └── udt/                    # User Data Types — convención, vacío por ahora
+            ├── exports/                    # snapshot limpio de TIA. SE QUEDA tras commit.
+            │   ├── variables/
+            │   ├── bloques/
+            │   └── udt/
+            └── modified/                   # copy de exports/ + edit del updater. SE QUEDA tras commit.
+                ├── variables/
+                ├── bloques/
+                └── udt/
+
+Las 3 carpetas de alto nivel (``preview/``, ``exports/``, ``modified/``)
+corresponden a las 3 fases del flujo: dry-run, snapshot pre-commit, y
+snapshot listo para importar. Dentro de cada una, las 3 subcarpetas
+(``variables/``, ``bloques/``, ``udt/``) separan por tipo de artefacto
+TIA, lo que da claridad y deja sitio al futuro updater de UDTs.
+
+Reglas de retención (acordado 2026-09-08, ver ``_plan/16_carpetas_convencion.md``)
+---------------------------------------------------------------------------------
+
+* Las 3 carpetas se limpian **solo al inicio** de la operación que las
+  regenera. Después se quedan para auditoría hasta el siguiente ciclo.
+
+  - ``preview/``  se limpia al inicio de ``generar_prevision``.
+  - ``exports/``  se limpia al inicio de ``ejecutar_transaccion``.
+  - ``modified/`` se limpia al inicio de ``ejecutar_transaccion``
+    (junto con ``exports/``).
+
+* ``git diff modified/ exports/`` tras un commit muestra exactamente qué
+  cambió el updater. ``git diff modified/ preview/`` muestra qué se habría
+  aplicado si se hubiera confirmado el preview anterior.
+
+* Para retro-compat con el código actual, los alias ``exports``,
+  ``modified``, ``preview`` (raíz) apuntan a la **raíz** de la fase
+  (``<root>/<contexto>/exports/``, NO ``exports/variables/``).
+  Esto preserva el contrato del Commit 1: los call sites que
+  pasan ``work_dir = proc_ctx.exports`` a TIA siguen escribiendo
+  en el mismo path de siempre. Los commits 2-5 del plan migran
+  los call sites a las subcarpetas explícitas
+  (``exports_variables`` / ``exports_bloques`` / ``exports_udt``
+  / ``modified_*`` / ``preview_*``). El commit 6 retira los
+  alias raíz.
 
 Reglas de arquitectura
 ----------------------
@@ -25,7 +65,7 @@ Reglas de arquitectura
 * La estructura se mantiene estable durante TODA la vida del proceso
   (cachea ``Path`` en ``@cached_property``). Crear o borrar los
   directorios físicos es responsabilidad de ``ContextCache.clean()``
-  (que los borra y recrea) o de los consumers (que los crean con
+  (que borra y recrea) o de los consumers (que los crean con
   ``mkdir(parents=True, exist_ok=True)`` cuando los necesitan).
 
 * ``.build_cache/`` está dentro del cwd por convención. Si en el
@@ -58,6 +98,12 @@ from pathlib import Path
 # este módulo lo lee de allí.
 _BUILD_CACHE_DIRNAME: str = ".build_cache"
 
+# Tipos de artefacto TIA dentro de cada subcarpeta (preview/, exports/,
+# modified/). ``variables`` = TAG tables, ``bloques`` = Program blocks
+# (.s7dcl/.s7res), ``udt`` = User Data Types. Por convención, no por
+# config: cuando llegue el updater de UDTs, la subcarpeta ya existe.
+_TYPE_DIRS: tuple[str, ...] = ("variables", "bloques", "udt")
+
 
 @dataclass(frozen=True)
 class BuildCache:
@@ -65,7 +111,7 @@ class BuildCache:
 
     Estructura canónica::
 
-        <root>/<area_id>/<contexto>/{exports,modified,preview}
+        <root>/<area_id>/<contexto>/{preview,exports,modified}/{variables,bloques,udt}
 
     Attributes:
         area_id: Identificador del área (Bounded Context). OBLIGATORIO
@@ -111,49 +157,162 @@ class AreaCache:
     root: Path
 
 
+def _type_path(parent: Path, type_name: str) -> Path:
+    """Resuelve ``<parent>/<type_name>`` y se asegura de que existe.
+
+    Idempotente: ``mkdir(parents=True, exist_ok=True)`` no falla si
+    el directorio ya existe. Se llama en cada acceso al ``cached_property``
+    para que el directorio esté disponible desde el primer momento
+    sin requerir un ``clean()`` previo.
+    """
+    p = parent / type_name
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
 @dataclass(frozen=True)
 class ContextCache:
-    """3 subestados de un contexto de dominio.
+    """Matriz 3×3 de subcarpetas: 3 fases × 3 tipos de artefacto TIA.
+
+    Estructura::
+
+        <root>/{preview,exports,modified}/{variables,bloques,udt}
 
     Attributes:
         root: Directorio del contexto (``<area>/<contexto>``).
+
+    Backward compat: ``exports``, ``modified``, ``preview`` (raíz)
+    apuntan a la **raíz** de la fase (``<root>/<contexto>/<fase>/``,
+    NO a ``<fase>/variables/``). Esto preserva el contrato del
+    Commit 1: el código actual que pasa ``work_dir = proc_ctx.exports``
+    a TIA sigue apuntando al mismo path de siempre. Los commits 2-5
+    del plan migran los call sites a las subcarpetas explícitas
+    (``exports_variables`` / ``exports_bloques`` / ``exports_udt``
+    / ``modified_*`` / ``preview_*``). El commit 6 retira los
+    alias raíz.
     """
 
     root: Path
 
+    # ── preview/ ────────────────────────────────────────────────────
+    @cached_property
+    def preview(self) -> Path:
+        """DEPRECATED alias de la raíz ``preview/``. Se retira en commit 6.
+
+        Apunta a ``<root>/<contexto>/preview/`` (raíz), NO a
+        ``preview/variables/``. Esto preserva el contrato del
+        Commit 1: el código actual que usa ``ctx.preview`` como
+        work_dir de TIA sigue apuntando al mismo path de siempre.
+        Los commits 2-5 migran a ``preview_variables`` /
+        ``preview_bloques`` / ``preview_udt`` explícitos.
+        """
+        return self.root / "preview"
+
+    @cached_property
+    def preview_variables(self) -> Path:
+        """TAG tables (XML) para el diff. Read-only."""
+        return _type_path(self.root / "preview", "variables")
+
+    @cached_property
+    def preview_bloques(self) -> Path:
+        """Program blocks (.s7dcl/.s7res) para el diff. Read-only."""
+        return _type_path(self.root / "preview", "bloques")
+
+    @cached_property
+    def preview_udt(self) -> Path:
+        """User Data Types para el diff. Vacío por ahora (convención futura)."""
+        return _type_path(self.root / "preview", "udt")
+
+    # ── exports/ ────────────────────────────────────────────────────
     @cached_property
     def exports(self) -> Path:
-        """Lo recién exportado de TIA. Inmutable hasta el siguiente apply."""
+        """DEPRECATED alias de la raíz ``exports/``. Se retira en commit 6.
+
+        Apunta a ``<root>/<contexto>/exports/`` (raíz), NO a
+        ``exports/variables/``. Preserva el contrato del Commit 1.
+        Los commits 2-5 migran a ``exports_variables`` /
+        ``exports_bloques`` / ``exports_udt`` explícitos.
+        """
         return self.root / "exports"
 
     @cached_property
+    def exports_variables(self) -> Path:
+        """TAG tables (XML). Snapshot limpio de TIA."""
+        return _type_path(self.root / "exports", "variables")
+
+    @cached_property
+    def exports_bloques(self) -> Path:
+        """Program blocks (.s7dcl/.s7res). Snapshot limpio de TIA."""
+        return _type_path(self.root / "exports", "bloques")
+
+    @cached_property
+    def exports_udt(self) -> Path:
+        """User Data Types. Snapshot limpio de TIA. Vacío por ahora."""
+        return _type_path(self.root / "exports", "udt")
+
+    # ── modified/ ───────────────────────────────────────────────────
+    @cached_property
     def modified(self) -> Path:
-        """Lo que los modificadores ya tocaron. Listo para importar."""
+        """DEPRECATED alias de la raíz ``modified/``. Se retira en commit 6.
+
+        Apunta a ``<root>/<contexto>/modified/`` (raíz), NO a
+        ``modified/variables/``. Preserva el contrato del Commit 1.
+        Los commits 2-5 migran a ``modified_variables`` /
+        ``modified_bloques`` / ``modified_udt`` explícitos.
+        """
         return self.root / "modified"
 
     @cached_property
-    def preview(self) -> Path:
-        """Dry-runs, N_MAX preview, diffs. NO se borra en ``clean()``."""
-        return self.root / "preview"
+    def modified_variables(self) -> Path:
+        """TAG tables (XML). Copy de exports/ + edit del updater."""
+        return _type_path(self.root / "modified", "variables")
 
+    @cached_property
+    def modified_bloques(self) -> Path:
+        """Program blocks (.s7dcl/.s7res). Copy de exports/ + edit del updater."""
+        return _type_path(self.root / "modified", "bloques")
+
+    @cached_property
+    def modified_udt(self) -> Path:
+        """User Data Types. Copy de exports/ + edit del updater. Vacío por ahora."""
+        return _type_path(self.root / "modified", "udt")
+
+    # ── Limpieza ────────────────────────────────────────────────────
     def clean(self) -> None:
-        """Borra y recrea ``exports/`` y ``modified/``.
+        """Borra y recrea ``exports/`` y ``modified/`` con sus 3 subcarpetas.
 
-        ``preview/`` NO se toca: puede contener dry-runs en curso o
-        artefactos históricos que el operario quiere consultar tras
-        el apply.
+        Borra las raíces ``<root>/exports/`` y ``<root>/modified/``
+        enteras (atrapando archivos sueltos pre-Commit-1) y las
+        recrea con las 3 subcarpetas (``variables/``, ``bloques/``,
+        ``udt/``) dentro. ``preview/`` NO se toca (puede contener
+        dry-runs en curso o artefactos históricos). Para limpiar
+        preview, usar ``clean_preview()``.
 
-        Resuelve la asimetría detectada en la research previa:
-        ``disp_sync_instances`` ya limpiaba su workdir antes del
-        apply, pero ``proc_sync_comentarios`` no — riesgo de
-        contaminación de diffs con residuos de runs anteriores.
+        Regla de retención: cada operación arranca limpia. Se
+        invoca al inicio de ``ejecutar_transaccion``. Para
+        ``generar_prevision``, usar ``clean_preview()``.
 
         Idempotente: si los subdirs no existen, los crea vacíos.
         """
-        for sub in (self.exports, self.modified):
-            if sub.exists():
-                shutil.rmtree(sub)
-            sub.mkdir(parents=True, exist_ok=True)
+        for top in ("exports", "modified"):
+            top_dir = self.root / top
+            if top_dir.exists():
+                shutil.rmtree(top_dir)
+            for type_name in _TYPE_DIRS:
+                (top_dir / type_name).mkdir(parents=True, exist_ok=True)
+
+    def clean_preview(self) -> None:
+        """Borra y recrea ``preview/`` con sus 3 subcarpetas.
+
+        Se invoca al inicio de ``generar_prevision`` (junto con
+        un export fresco de TIA). Análogo a ``clean()`` pero solo
+        para la fase read-only.
+        """
+        top_dir = self.root / "preview"
+        if top_dir.exists():
+            shutil.rmtree(top_dir)
+        for type_name in _TYPE_DIRS:
+            (top_dir / type_name).mkdir(parents=True, exist_ok=True)
 
 
 __all__ = ["BuildCache", "AreaCache", "ContextCache"]
