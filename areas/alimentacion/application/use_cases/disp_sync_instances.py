@@ -516,13 +516,38 @@ class DispSyncInstancesUseCase:
             # muestra exactamente qué cambió el updater.
             #
             # Paso previo (Python puro, FUERA de la tx TIA):
-            #   ``shutil.copytree(exports/variables, modified/variables)``
-            # — copia el snapshot pre-commit a ``modified/variables/`` para
-            # que el worker tenga algo que sobreescribir con su export
-            # selectivo. El worker hace su propio export a
+            #   ``shutil.copytree(exports/variables, modified/variables,
+            #   ignore=_ignore_non_device_xmls)``
+            # — copia el snapshot pre-commit a ``modified/variables/``
+            # para que el worker tenga algo que sobreescribir con su
+            # export selectivo. El worker hace su propio export a
             # ``modified/variables/`` (sobrescribe), modifica in-place y
             # luego importa desde ahí. El snapshot de ``exports/variables/``
             # queda intacto porque la copia es en una dirección.
+            #
+            # POR QUÉ EL FILTRO ``ignore=`` (sept-2026, bug rollback
+            # silencioso V21):
+            #   Por la convención de 9 carpetas, ``exports/variables/``
+            #   contiene TODAS las tablas PLC del snapshot pre-commit,
+            #   incluida ``000_sistema/000_Config_Dispositivos.xml`` (la
+            #   tabla N_MAX). El handler offline
+            #   (``commit_disp_devices_offline``) hace su propio export
+            #   selectivo a ``modified/variables/`` para los
+            #   ``device_changes`` (tablas 2000_Disp_<hw>), pero al hacer
+            #   ``import_plc_tags`` desde el directorio raíz, TIA
+            #   re-importaría TAMBIÉN cualquier otro XML que estuviera
+            #   allí, incluido el ``000_Config_Dispositivos.xml`` con su
+            #   contenido pre-commit (N_MAX viejos). Esto sobrescribiría
+            #   los N_MAX aplicados online en la Tx A, anulando el fix
+            #   sept-2026 del rollback silencioso de V21.
+            #
+            #   Solución: ``shutil.copytree(ignore=...)`` con un callable
+            #   que excluye los XMLs cuyo nombre base NO esté en el
+            #   conjunto de ``table_name`` de los ``device_changes`` que
+            #   se van a tocar offline. Solo se copian los XMLs de las
+            #   tablas que se van a tocar offline. Si en el futuro se
+            #   añade otra tabla "online-only", el filtro la excluye
+            #   automáticamente sin tocar este código.
             #
             # NOTA: el ``disp_ctx.clean()`` ya se hizo en el stage 1
             # (arriba), que limpia ``exports/`` + ``modified/`` con sus
@@ -531,9 +556,39 @@ class DispSyncInstancesUseCase:
             # copia necesita como fuente.
             work_dir = disp_ctx.modified_variables
             if disp_ctx.exports_variables.exists():
+                # Conjunto de ``table_name`` de los device_changes que
+                # se van a tocar offline. Es la "allowlist" de XMLs que
+                # SE copian; cualquier otro .xml del snapshot queda
+                # excluido (tablas online-only, no afectadas por Tx B).
+                device_table_names = {
+                    dc["table_name"] for dc in device_changes
+                }
+
+                def _ignore_non_device_xmls(
+                    directory: str, files: list[str]
+                ) -> set[str]:
+                    """Excluir XMLs cuyo nombre base no esté en
+                    ``device_table_names``.
+
+                    ``shutil.copytree`` invoca este callable UNA VEZ
+                    POR CADA SUBDIRECTORIO del árbol (incluida la
+                    raíz). Solo necesitamos inspeccionar ``files``
+                    (los nombres del directorio actual): la recursión
+                    la hace ``copytree`` automáticamente. Los no-XMLs
+                    (por si los hay en algún subdir) se preservan.
+                    """
+                    ignored: set[str] = set()
+                    for name in files:
+                        if name.endswith(".xml"):
+                            stem = name[:-4]  # sin extensión
+                            if stem not in device_table_names:
+                                ignored.add(name)
+                    return ignored
+
                 shutil.copytree(
                     disp_ctx.exports_variables,
                     disp_ctx.modified_variables,
+                    ignore=_ignore_non_device_xmls,
                     dirs_exist_ok=True,
                 )
 
