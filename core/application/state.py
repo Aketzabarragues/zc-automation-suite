@@ -61,10 +61,18 @@ class AppState:
     def __init__(self) -> None:
         # Storage genérico (data-driven): única fuente de verdad.
         self._dispositivos: dict[str, list[Any]] = {}
-        # Placeholder de back-compat (ver docstring de clase).
-        # TODO(PR2.5): tipar correctamente dimensiones una vez se decida
-        # dónde vive definitivamente.
-        self.dimensiones: Any = None
+        # N_MAX (dimensiones de los PlcUserConstant de la tabla
+        # ``000_Config_Dispositivos``). Default ``{}`` (dict vacio) en
+        # lugar de ``None``: el operario puede pulsar "Generar
+        # Prevision" en Dispositivos ANTES de subir un Excel, y el
+        # ``_extract_nmax_diff`` del sync_devices hace ``d.get(name)``
+        # sobre este slot. Si fuera ``None``, fallaria con
+        # ``'NoneType' object has no attribute 'get'``. El flujo
+        # ``upload_excel.py:159`` lo rellena con ``cache.n_max`` tras
+        # un upload OK; mientras tanto, dict vacio == "el operario
+        # aun no ha subido Excel" == preview sin cambios N_MAX (que
+        # es lo que queremos: que se renderice vacio, no que explote).
+        self.dimensiones: dict[str, Any] = {}
         # Cache IT del Excel (Fase 5 del plan). Anotado ``Any`` para
         # no importar el área desde ``core/``.
         self.excel_cache: Any = None

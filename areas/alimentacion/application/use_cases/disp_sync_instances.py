@@ -978,7 +978,14 @@ class DispSyncInstancesUseCase:
             )
 
         # 2. Estado deseado desde AppState.dimensiones (data-driven).
-        d = self._state.dimensiones
+        # Defensa de doble capa: el default de AppState.dimensiones es
+        # ``{}`` (no ``None``) desde sept-2026, pero si algo lo
+        # setea a ``None`` en el futuro (reset, mock de test, etc.)
+        # caemos a dict vacio en vez de explotar con
+        # ``'NoneType' object has no attribute 'get'`` (bug del
+        # 2026-09-08 que se reproducia cuando el operario pulsaba
+        # "Generar Prevision" antes de subir un Excel).
+        d = self._state.dimensiones or {}
         desired: dict[str, int] = {}
         for nmax_name in self._config.list_nmax_active():
             v = d.get(nmax_name)

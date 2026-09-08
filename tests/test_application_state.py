@@ -139,20 +139,28 @@ def test_contains_checks_hw_type_membership(
 
 
 def test_dimensiones_present_by_default(fresh_state: AppState) -> None:
-    """``dimensiones`` existe como placeholder (atributo back-compat).
+    """``dimensiones`` existe como dict vacio por default (back-compat).
 
-    Tras PR 2, ``dimensiones`` ya no es un ``DimensionesDispositivos``
-    instanciado por defecto: el ``AppState`` genérico no sabe de
-    áreas, y el modelo vive en ``areas.alimentacion.domain.models``.
-    El atributo se mantiene como ``Any = None`` para no romper la SPA
-    (``DefinicionProgramacion.js`` lee ``store.memoryState.dimensiones``),
-    los routers (``excel.py`` setea, ``diagnostics.py`` lee) y los
-    tests que aún construyen ``DimensionesDispositivos(...)`` y lo
-    asignan manualmente. La tipificación se resolverá en un refactor
-    futuro (TODO(PR2.5)).
+    Tras sept-2026, ``dimensiones`` ya no es un ``Any = None``: el
+    sync_devices (``_extract_nmax_diff`` en
+    ``areas/alimentacion/application/use_cases/disp_sync_instances.py``)
+    hace ``self._state.dimensiones.get(name)`` directamente. Si el
+    operario pulsa "Generar Prevision" en Dispositivos ANTES de
+    subir un Excel, el slot estaba en ``None`` y reventaba con
+    ``'NoneType' object has no attribute 'get'``. El default es
+    ahora ``{}`` (dict vacio) para que ese path renderice un preview
+    sin cambios N_MAX en lugar de explotar.
+
+    Sigue siendo un placeholder generico (``Any`` de fondo,
+    ``dict`` formalmente) porque el ``AppState`` core no sabe de
+    areas; el ``upload_excel.py`` lo rellena con ``cache.n_max`` tras
+    un upload OK, y el modelo real (``DimensionesDispositivos``)
+    vive en ``areas.alimentacion.domain.models``. La tipificacion
+    se resolvera en un refactor futuro (TODO(PR2.5)).
     """
     assert hasattr(fresh_state, "dimensiones")
-    assert fresh_state.dimensiones is None
+    assert fresh_state.dimensiones == {}
+    assert isinstance(fresh_state.dimensiones, dict)
 
 
 # ────────────────────────────────────────────────────────────────────────
