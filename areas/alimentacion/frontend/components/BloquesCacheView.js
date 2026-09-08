@@ -285,13 +285,24 @@ export default {
          * desplegable mientras está viendo esta vista, recargamos
          * el cache para el PLC nuevo (sin esperar al próximo
          * mount).
+         *
+         * Guard: NO recargar si la cache ya está sincronizada con
+         * el PLC nuevo. Sin este guard, ``loadAndApplyPlcBlocks``
+         * setea ``store.selectedPlc = plcName`` (store.js:585, fix
+         * del bug "Cache no disponible sin tocar dropdown" en
+         * ``ce9f892``) y este watch se vuelve a disparar, causando
+         * un bucle garantizado de doble ``scan_blocks`` por cada
+         * selección de PLC. El doble scan mantiene TIA ocupado
+         * ~40s y provocaba rollback silencioso en el primer commit
+         * (smoke test sept-2026).
          */
         watch(
             () => store.selectedPlc,
             (newPlc) => {
-                if (newPlc) {
-                    loadAndApplyPlcBlocks(newPlc);
-                }
+                if (!newPlc) return;
+                const cached = store.plcBlocksCache;
+                if (cached && cached.plc_name === newPlc) return;
+                loadAndApplyPlcBlocks(newPlc);
             }
         );
 
