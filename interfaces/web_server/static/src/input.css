@@ -31,7 +31,7 @@
  * áreas nuevas se recogen automáticamente por el glob. */
 @source "../index.html";
 @source "../js/**/*.js";
-@source "../../../../../areas/**/frontend/**/*.js";
+@source "../../../../areas/**/frontend/**/*.js";
 
 /* ── Tokens semánticos del tema ──────────────────────────────────────── */
 @theme {

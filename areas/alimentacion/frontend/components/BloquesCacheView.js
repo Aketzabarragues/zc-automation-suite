@@ -607,23 +607,28 @@ export default {
                     <!-- Grid de cards: uno por PLC. Columnas fijas
                          (no auto-fit) para que la pinta sea estable
                          independientemente del numero de PLCs.
-                         Estilo "card" tipo boton: bg-surface-raised +
-                         border + rounded + p-3. Card seleccionado:
+                         Formato vertical (mas alto que ancho) con
+                         min-h-[120px] + p-4: las cards siempre quedan
+                         en proporcion portrait (alto > ancho) en todos
+                         los breakpoints. Card no seleccionado usa
+                         bg-surface-sunken (gris hundido del tema) para
+                         destacar como "card" frente al fondo del card
+                         padre (bg-surface-raised). Card seleccionado:
                          border-green-500 + bg-green-50 + text-green-800
                          (opcion A del analisis previo, "seleccionado
                          sutil"). Hover: border-accent + bg-accent-subtle. -->
                     <div v-if="Array.isArray(store.plcs) && store.plcs.length > 0"
-                         class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3"
+                         class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3"
                          data-testid="bloques-cache-plc-grid">
                         <button v-for="p in store.plcs" :key="p && p.name ? p.name : p"
                             type="button"
                             @click="selectPlc(p)"
                             :data-testid="'bloques-cache-plc-card-' + (p && p.name ? p.name : p)"
                             :data-active="(p && p.name) === store.selectedPlc"
-                            :class="['text-left p-3 rounded border transition-colors duration-200 flex flex-col gap-1 min-h-[60px]',
+                            :class="['text-left p-4 rounded border transition-colors duration-200 flex flex-col gap-1 min-h-[120px] justify-center',
                                      (p && p.name) === store.selectedPlc
                                          ? 'border-green-500 bg-green-50 text-green-800'
-                                         : 'border-line bg-surface-raised text-ink hover:border-accent hover:bg-accent-subtle']">
+                                         : 'border-line bg-surface-sunken text-ink hover:border-accent hover:bg-accent-subtle']">
                             <span class="font-mono font-semibold text-xs truncate"
                                   :data-testid="'bloques-cache-plc-card-name-' + (p && p.name ? p.name : p)">
                                 {{ p && p.name ? p.name : p }}
