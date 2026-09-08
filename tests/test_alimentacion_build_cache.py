@@ -34,23 +34,46 @@ def test_alimentacion_tiene_dispositivos_y_procesos(tmp_path: Path) -> None:
 
 
 def test_jerarquia_completa_de_dispositivos(tmp_path: Path) -> None:
-    """``dispositivos`` expone los 3 subestados bajo ``<root>/alimentacion/dispositivos/``."""
+    """``dispositivos`` expone las 6 subcarpetas typed bajo ``<root>/alimentacion/dispositivos/``.
+
+    Tras Commit 6, los alias raíz ``preview``, ``exports`` y
+    ``modified`` se retiraron. El código usa las 6 subcarpetas
+    explícitas (``preview_variables`` / ``preview_bloques`` /
+    ``exports_variables`` / ``exports_bloques`` /
+    ``modified_variables`` / ``modified_bloques``).
+    """
     area = build_cache(root=tmp_path)
     disp = area.dispositivos
 
-    assert disp.exports == tmp_path / "alimentacion" / "dispositivos" / "exports"
-    assert disp.modified == tmp_path / "alimentacion" / "dispositivos" / "modified"
-    assert disp.preview == tmp_path / "alimentacion" / "dispositivos" / "preview"
+    # Alias raíz NO existen (retirados en Commit 6).
+    assert not hasattr(disp, "exports")
+    assert not hasattr(disp, "modified")
+    assert not hasattr(disp, "preview")
+    # Subcarpetas typed existen y apuntan donde deben.
+    assert disp.exports_variables == tmp_path / "alimentacion" / "dispositivos" / "exports" / "variables"
+    assert disp.exports_bloques == tmp_path / "alimentacion" / "dispositivos" / "exports" / "bloques"
+    assert disp.modified_variables == tmp_path / "alimentacion" / "dispositivos" / "modified" / "variables"
+    assert disp.modified_bloques == tmp_path / "alimentacion" / "dispositivos" / "modified" / "bloques"
+    assert disp.preview_variables == tmp_path / "alimentacion" / "dispositivos" / "preview" / "variables"
+    assert disp.preview_bloques == tmp_path / "alimentacion" / "dispositivos" / "preview" / "bloques"
 
 
 def test_jerarquia_completa_de_procesos(tmp_path: Path) -> None:
-    """``procesos`` expone los 3 subestados bajo ``<root>/alimentacion/procesos/``."""
+    """``procesos`` expone las 6 subcarpetas typed bajo ``<root>/alimentacion/procesos/``."""
     area = build_cache(root=tmp_path)
     proc = area.procesos
 
-    assert proc.exports == tmp_path / "alimentacion" / "procesos" / "exports"
-    assert proc.modified == tmp_path / "alimentacion" / "procesos" / "modified"
-    assert proc.preview == tmp_path / "alimentacion" / "procesos" / "preview"
+    # Alias raíz NO existen (retirados en Commit 6).
+    assert not hasattr(proc, "exports")
+    assert not hasattr(proc, "modified")
+    assert not hasattr(proc, "preview")
+    # Subcarpetas typed existen y apuntan donde deben.
+    assert proc.exports_variables == tmp_path / "alimentacion" / "procesos" / "exports" / "variables"
+    assert proc.exports_bloques == tmp_path / "alimentacion" / "procesos" / "exports" / "bloques"
+    assert proc.modified_variables == tmp_path / "alimentacion" / "procesos" / "modified" / "variables"
+    assert proc.modified_bloques == tmp_path / "alimentacion" / "procesos" / "modified" / "bloques"
+    assert proc.preview_variables == tmp_path / "alimentacion" / "procesos" / "preview" / "variables"
+    assert proc.preview_bloques == tmp_path / "alimentacion" / "procesos" / "preview" / "bloques"
 
 
 def test_clean_resuelve_asimetria(tmp_path: Path) -> None:
@@ -60,31 +83,28 @@ def test_clean_resuelve_asimetria(tmp_path: Path) -> None:
     limpiaba su workdir, ``proc_sync_comentarios`` no. Ahora ambos
     comparten el mismo helper.
 
-    Tras ``clean()`` las raíces ``exports/`` y ``modified/`` existen
-    pero NO contienen archivos sueltos (solo las 3 subcarpetas
-    vacías que ``clean()`` recrea). Para verificar "limpio" se
-    comprueba que ``exports/variables/`` (subcarpeta typed) está
-    vacía.
+    Tras ``clean()`` las raíces ``exports/`` y ``modified/`` se
+    borran enteras y se recrean con las 3 subcarpetas
+    (``variables/``, ``bloques/``, ``udt/``) dentro. Para
+    verificar "limpio" se comprueba que las subcarpetas typed
+    están vacías.
     """
     area = build_cache(root=tmp_path)
 
-    # Stale en ambos contextos (en la raíz, contrato pre-Commit-1).
-    (area.dispositivos.exports / "old.s7dcl").parent.mkdir(parents=True)
-    (area.dispositivos.exports / "old.s7dcl").write_text("old", encoding="utf-8")
-    (area.procesos.modified).mkdir(parents=True)
-    (area.procesos.modified / "old_modified.s7dcl").write_text("old", encoding="utf-8")
-    (area.procesos.preview).mkdir(parents=True)
-    preview_artifact = area.procesos.preview / "dry_run.json"
+    # Stale en ambos contextos (en las subcarpetas typed).
+    (area.dispositivos.exports_variables / "old.xml").write_text("old", encoding="utf-8")
+    (area.procesos.modified_variables / "old_modified.s7dcl").write_text("old", encoding="utf-8")
+    # Y un artefacto de dry-run en preview/ que NO debe ser tocado.
+    (area.procesos.preview_variables).mkdir(parents=True, exist_ok=True)
+    preview_artifact = area.procesos.preview_variables / "dry_run.json"
     preview_artifact.write_text('{"dry": true}', encoding="utf-8")
 
     area.dispositivos.clean()
     area.procesos.clean()
 
-    # Las raíces exports/ y modified/ existen pero no tienen archivos
-    # sueltos: tras clean(), contienen 3 subcarpetas vacías (variables/,
-    # bloques/, udt/).
-    assert area.dispositivos.exports.exists()
-    assert area.procesos.modified.exists()
+    # Las raíces exports/ y modified/ existen (con sus 3 subcarpetas vacías).
+    assert area.dispositivos.exports_variables.exists()
+    assert area.procesos.modified_variables.exists()
     # Y las subcarpetas typed están vacías.
     assert not list(area.dispositivos.exports_variables.iterdir())
     assert not list(area.procesos.modified_variables.iterdir())

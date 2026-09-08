@@ -69,21 +69,25 @@ def test_area_cache_es_solo_un_contenedor(tmp_path: Path) -> None:
 # ── ContextCache (3 subestados + clean) ──────────────────────────────────
 
 
-def test_context_cache_subestados(tmp_path: Path) -> None:
-    """Los 3 alias raíz (``exports``, ``modified``, ``preview``) apuntan a la RAÍZ de la fase.
+def test_context_cache_no_tiene_alias_raiz(tmp_path: Path) -> None:
+    """Los alias raíz ``preview``, ``exports`` y ``modified`` se retiraron en Commit 6.
 
-    Backward compat: el código actual usa estos paths raíz. Se
-    retiran en el commit 6 del plan. Mientras tanto, siguen
-    existiendo como alias de la raíz (``<root>/<contexto>/<fase>/``).
+    El contrato actual exige que el código use las 6 subcarpetas
+    explícitas (``preview_variables`` / ``preview_bloques`` /
+    ``exports_variables`` / ``exports_bloques`` / ``modified_variables``
+    / ``modified_bloques``). El alias raíz a la fase (``exports/``)
+    se retiró porque rompía la convención: ya no hay razón para que
+    el código escriba en la raíz si tiene las subcarpetas typed.
     """
     ctx = ContextCache(root=tmp_path / "dispositivos")
-    assert ctx.preview == tmp_path / "dispositivos" / "preview"
-    assert ctx.exports == tmp_path / "dispositivos" / "exports"
-    assert ctx.modified == tmp_path / "dispositivos" / "modified"
+    # Verifica que los alias raíz NO existen.
+    assert not hasattr(ctx, "preview")
+    assert not hasattr(ctx, "exports")
+    assert not hasattr(ctx, "modified")
 
 
 def test_context_cache_clean_borra_y_recrea_exports_y_modified(tmp_path: Path) -> None:
-    """``clean()`` borra y recrea las subcarpetas de ``exports/`` y ``modified/``.
+    """``clean()`` borra y recrea las raíces ``exports/`` y ``modified/``.
 
     Caso típico: el operario hizo un export hace 2 horas, los
     modificadores generaron ``modified/``, pero los .s7dcl/.s7res de
@@ -185,30 +189,6 @@ def test_context_cache_tiene_9_subcarpetas_explicitas(tmp_path: Path) -> None:
     ):
         assert p.exists()
         assert p.is_dir()
-
-
-def test_alias_raiz_apuntan_a_la_raiz_de_la_fase(tmp_path: Path) -> None:
-    """Backward compat: ``exports``, ``modified``, ``preview`` (raíz) son alias de la RAÍZ de la fase.
-
-    Apuntan a ``<root>/<contexto>/{exports,modified,preview}/`` (raíz),
-    NO a ``{exports,modified,preview}/variables/``. Esto preserva
-    el contrato del Commit 1: el código actual que pasa
-    ``work_dir = proc_ctx.exports`` a TIA sigue apuntando al mismo
-    path de siempre. Los commits 2-5 migran call sites a las
-    subcarpetas explícitas. El commit 6 retira los alias.
-
-    Los alias NO crean el directorio automáticamente (son paths
-    puros); las subcarpetas explícitas (``exports_variables``,
-    etc.) sí lo hacen vía ``_type_path``.
-    """
-    ctx = ContextCache(root=tmp_path / "compat")
-    assert ctx.preview == tmp_path / "compat" / "preview"
-    assert ctx.exports == tmp_path / "compat" / "exports"
-    assert ctx.modified == tmp_path / "compat" / "modified"
-    # Y NO son las subcarpetas typed.
-    assert ctx.exports != ctx.exports_variables
-    assert ctx.modified != ctx.modified_variables
-    assert ctx.preview != ctx.preview_variables
 
 
 def test_idempotencia_de_subcarpetas(tmp_path: Path) -> None:

@@ -43,16 +43,11 @@ Reglas de retención (acordado 2026-09-08, ver ``_plan/16_carpetas_convencion.md
   cambió el updater. ``git diff modified/ preview/`` muestra qué se habría
   aplicado si se hubiera confirmado el preview anterior.
 
-* Para retro-compat con el código actual, los alias ``exports``,
-  ``modified``, ``preview`` (raíz) apuntan a la **raíz** de la fase
-  (``<root>/<contexto>/exports/``, NO ``exports/variables/``).
-  Esto preserva el contrato del Commit 1: los call sites que
-  pasan ``work_dir = proc_ctx.exports`` a TIA siguen escribiendo
-  en el mismo path de siempre. Los commits 2-5 del plan migran
-  los call sites a las subcarpetas explícitas
-  (``exports_variables`` / ``exports_bloques`` / ``exports_udt``
-  / ``modified_*`` / ``preview_*``). El commit 6 retira los
-  alias raíz.
+* **Los alias raíz ``preview``, ``exports`` y ``modified`` se
+  retiraron en el commit 6 del plan**. Todo el código usa las
+  6 subcarpetas explícitas (``preview_variables`` /
+  ``preview_bloques`` / ``exports_variables`` / ``exports_bloques``
+  / ``modified_variables`` / ``modified_bloques``).
 
 Reglas de arquitectura
 ----------------------
@@ -181,33 +176,16 @@ class ContextCache:
     Attributes:
         root: Directorio del contexto (``<area>/<contexto>``).
 
-    Backward compat: ``exports``, ``modified``, ``preview`` (raíz)
-    apuntan a la **raíz** de la fase (``<root>/<contexto>/<fase>/``,
-    NO a ``<fase>/variables/``). Esto preserva el contrato del
-    Commit 1: el código actual que pasa ``work_dir = proc_ctx.exports``
-    a TIA sigue apuntando al mismo path de siempre. Los commits 2-5
-    del plan migran los call sites a las subcarpetas explícitas
-    (``exports_variables`` / ``exports_bloques`` / ``exports_udt``
-    / ``modified_*`` / ``preview_*``). El commit 6 retira los
-    alias raíz.
+    Los call sites usan las 6 subcarpetas explícitas
+    (``preview_variables`` / ``preview_bloques`` / ``exports_variables``
+    / ``exports_bloques`` / ``modified_variables`` / ``modified_bloques``).
+    Los alias raíz ``preview``, ``exports`` y ``modified`` se
+    retiraron en el commit 6 del plan (``_plan/16_carpetas_convencion.md``).
     """
 
     root: Path
 
     # ── preview/ ────────────────────────────────────────────────────
-    @cached_property
-    def preview(self) -> Path:
-        """DEPRECATED alias de la raíz ``preview/``. Se retira en commit 6.
-
-        Apunta a ``<root>/<contexto>/preview/`` (raíz), NO a
-        ``preview/variables/``. Esto preserva el contrato del
-        Commit 1: el código actual que usa ``ctx.preview`` como
-        work_dir de TIA sigue apuntando al mismo path de siempre.
-        Los commits 2-5 migran a ``preview_variables`` /
-        ``preview_bloques`` / ``preview_udt`` explícitos.
-        """
-        return self.root / "preview"
-
     @cached_property
     def preview_variables(self) -> Path:
         """TAG tables (XML) para el diff. Read-only."""
@@ -225,17 +203,6 @@ class ContextCache:
 
     # ── exports/ ────────────────────────────────────────────────────
     @cached_property
-    def exports(self) -> Path:
-        """DEPRECATED alias de la raíz ``exports/``. Se retira en commit 6.
-
-        Apunta a ``<root>/<contexto>/exports/`` (raíz), NO a
-        ``exports/variables/``. Preserva el contrato del Commit 1.
-        Los commits 2-5 migran a ``exports_variables`` /
-        ``exports_bloques`` / ``exports_udt`` explícitos.
-        """
-        return self.root / "exports"
-
-    @cached_property
     def exports_variables(self) -> Path:
         """TAG tables (XML). Snapshot limpio de TIA."""
         return _type_path(self.root / "exports", "variables")
@@ -251,17 +218,6 @@ class ContextCache:
         return _type_path(self.root / "exports", "udt")
 
     # ── modified/ ───────────────────────────────────────────────────
-    @cached_property
-    def modified(self) -> Path:
-        """DEPRECATED alias de la raíz ``modified/``. Se retira en commit 6.
-
-        Apunta a ``<root>/<contexto>/modified/`` (raíz), NO a
-        ``modified/variables/``. Preserva el contrato del Commit 1.
-        Los commits 2-5 migran a ``modified_variables`` /
-        ``modified_bloques`` / ``modified_udt`` explícitos.
-        """
-        return self.root / "modified"
-
     @cached_property
     def modified_variables(self) -> Path:
         """TAG tables (XML). Copy de exports/ + edit del updater."""
