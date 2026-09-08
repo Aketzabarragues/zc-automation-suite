@@ -177,25 +177,13 @@ class ProcSyncComentariosUseCase:
             # check_blocks: cache de bloques del PLC.
             # Distinguimos 2 casos de "sin cache":
             #   1. ``bloques_cache is None`` → el PLC nunca ha sido
-            #      escaneado. Antes abortabamos con un error bloqueante
-            #      (``precondiciones_ok=False`` + ``missing_blocks``
-            #      con texto de UI). Tras el fix de sept-2026, lo
-            #      tratamos como un **warning informativo**: el
-            #      ``precondiciones_ok`` se queda en ``True``, los
-            #      ``missing_blocks`` van vacios (el operario vera
-            #      un array vacio en la UI, que es menos ruidoso que
-            #      un error), y emitimos un ``warning`` con el mismo
-            #      texto. La SPA pinta el warning como un banner
-            #      ambar (no como error bloqueante) y el operario
-            #      puede ir a la pagina de Bloques a re-escanear.
-            #      El rationale: el aviso ambar de "cache stale"
-            #      (> 5 min) ya existe en ``BloquesCacheView``; no
-            #      necesitamos un segundo error aqui.
+            #      escaneado. El operario debe ir al sidebar y
+            #      esperar al escaneo. NO fingimos que los 3 bloques
+            #      están missing (eso es engañoso).
             #   2. ``bloques_cache`` existe pero está vacío → el PLC
             #      fue escaneado pero el proyecto no tiene bloques.
             #      Esto es un estado válido pero improbable; lo
-            #      tratamos como missing_blocks (que el slot_map
-            #      builder reportara con los nombres concretos).
+            #      tratamos como missing_blocks.
             if _track:
                 self._progress.start_stage("check_blocks", "Verificando bloques TIA...")
             if self._bloques_cache is None:
@@ -207,17 +195,16 @@ class ProcSyncComentariosUseCase:
                     self._progress.finish_stage("done", "Sin cache de bloques")
                 return {
                     "proc_uid": proc_uid,
-                    "precondiciones_ok": True,
-                    "missing_blocks": [],
+                    "precondiciones_ok": False,
+                    "missing_blocks": [
+                        "Cache de bloques del PLC no disponible. "
+                        "Selecciona el PLC en el sidebar y espera al "
+                        "escaneo de bloques (1-3 min en PLCs grandes)."
+                    ],
                     "arrays": {},
                     "summary": {"total": 0, "agregados": 0, "renombrados": 0,
                                 "eliminados": 0, "sin_cambios": 0},
-                    "warnings": [
-                        "Cache de bloques del PLC no disponible. "
-                        "Ve a la pagina 'Cache del PLC' en el sidebar "
-                        "y escanea el PLC para inicializarla "
-                        "(1-3 min en PLCs grandes)."
-                    ],
+                    "warnings": [],
                 }
             bloques = self._bloques_cache
             if _track:
