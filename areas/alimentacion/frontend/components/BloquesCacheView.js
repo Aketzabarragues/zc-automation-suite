@@ -275,26 +275,8 @@ export default {
         onMounted(() => {
             const current = store.selectedPlc;
             const cached = store.plcBlocksCache;
-            // Si hay un PLC activo y la cache está stale o vacía,
-            // re-escaneamos para tener bloques frescos.
             if (current && (!cached || cached.plc_name !== current)) {
                 loadAndApplyPlcBlocks(current);
-            }
-            // Además, refrescamos la lista de PLCs (que incluye
-            // ``short_designation`` para pintar el modelo en la card
-            // "PLC activo") si está vacía. Sept-2026 round 3, fix del
-            // operario: si el operario escaneó bloques con "↻ Actualizar"
-            // pero no pulsó "🔍 Buscar PLCs", ``store.plcs`` queda
-            // vacío y la card muestra "Modelo: —" aunque el PLC sí
-            // tenga modelo. Llamamos a ``handleRefreshPlcs`` en
-            // ``onMounted`` (solo si está vacía para no martillear
-            // TIA) para garantizar que el lookup de ``plcModel`` en
-            // la card tenga datos.
-            if (
-                !Array.isArray(store.plcs) ||
-                store.plcs.length === 0
-            ) {
-                handleRefreshPlcs();
             }
         });
 
@@ -685,7 +667,7 @@ export default {
                         PLC activo
                     </h4>
                     <div class="flex justify-between items-center gap-3">
-                        <div v-if="plcName" class="space-y-1">
+                        <div v-if="store.selectedPlc" class="space-y-1">
                             <p class="text-xs">
                                 <span class="text-ink-muted">PLC:</span>
                                 <span class="font-mono font-semibold text-ink ml-1" data-testid="bloques-cache-plc-name">{{ plcName }}</span>
