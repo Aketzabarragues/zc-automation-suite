@@ -15,19 +15,25 @@ El flujo de ``generar_prevision`` calcula:
 
 El flujo de ``ejecutar_transaccion`` calcula en el IT process los
 ``nmax_ops``, ``rename_ops`` y ``device_changes`` (este último solo si
-hay adds o removes) y los pasa a ``gateway.commit_devices_sync``, que
-ejecuta DENTRO DEL WORKER una única ``start_transaction`` con el orden
-estricto del operario:
-  1. N_MAX online (``update_user_constant_value`` por cada uno).
-  2. Renames online (``update_user_constant_name`` por cada uno).
-  3. Por cada ``device_change``: export selectivo + ``TagTableModifier``
-     (add/remove) + import selectivo.
-  4. ``end_transaction(rollback=False)``.
+hay adds o removes) y los pasa al worker en **2 transacciones
+secuenciales** (sept-2026 fix):
 
-Si cualquier paso falla, el worker hace ``end_transaction(rollback=True)``
+  Tx A (online puro): ``gateway.commit_disp_nmax_renames_online``
+    El handler abre su propia ``start_transaction`` y aplica:
+    1. N_MAX online (``update_user_constant_value`` por cada uno).
+    2. Renames online (``update_user_constant_name`` por cada uno).
+    3. ``end_transaction(rollback=False)``.
+
+  Tx B (offline puro): ``gateway.commit_disp_devices_offline``
+    El handler abre su propia ``start_transaction`` y, por cada
+    ``device_change``, hace: export selectivo + ``TagTableModifier``
+    (add/remove) + import selectivo. Cierra con
+    ``end_transaction(rollback=False)``.
+
+Si cualquier paso falla, el handler hace ``end_transaction(rollback=True)``
 y propaga el error. La fase offline (edit XML) corre DENTRO del worker
-para garantizar una sola transacción TIA (no dos). El módulo
-``TagTableModifier`` es Python puro (no importa ``siemens_tia_scripting``),
+para garantizar atomicidad por tx. El módulo ``TagTableModifier`` es
+Python puro (no importa ``siemens_tia_scripting``),
 así que no rompe ``.clinerules §1``.
 
 Shape del preview (back-compat con la SPA):
@@ -531,15 +537,25 @@ class DispSyncInstancesUseCase:
                     dirs_exist_ok=True,
                 )
 
-            # Aplicar N_MAX + renames + devices en UNA sola transaccion TIA.
-            # Las 3 fases son siempre activas (sin bypass): es un sync atomico
-            # por diseno. Si falla una fase, el batch wrapper hace rollback
-            # atomico de las 3 y la transaccion queda como si nada.
+            # Aplicar N_MAX + renames + devices en 2 transacciones TIA
+            # SECUENCIALES (sept-2026 fix del bug "primer commit no
+            # aplica, segundo sí"). TIA V21 hace rollback silencioso al
+            # mezclar ``set_property`` (online) con ``import_plc_tags``
+            # (offline) en la misma ``start_transaction``. Por eso
+            # partimos el flujo en Tx A (online puro) + Tx B (offline
+            # puro), cada una con su propio handler que abre/cierra su
+            # tx TIA internamente.
+            #
+            # NO se usa ``execute_transactional_batch`` (que añadiría
+            # otra tx encima): cada handler abre y cierra su propia tx.
+            # Si falla Tx A, NO se intenta Tx B. Si falla Tx B, Tx A ya
+            # está aplicada (es comportamiento esperado: el operario
+            # reintenta solo la fase de devices, N_MAX ya está OK).
             self._progress.start_stage(
                 "open_transaction",
                 f"Aplicando {len(nmax_ops)} N_MAX + {len(rename_ops)} renames "
-                f"+ {len(device_changes)} device tables en TIA Portal "
-                f"(puede tardar 1-3 min)...",
+                f"(tx online) + {len(device_changes)} device tables (tx "
+                f"offline) en TIA Portal (puede tardar 1-3 min)...",
             )
             # ── INSTRUMENTACIÓN TEMPORAL (sept-2026) ─────────────────────
             # Diagnóstico del bug "primer commit no aplica, segundo sí".
@@ -571,14 +587,44 @@ class DispSyncInstancesUseCase:
                     f"[INSTRUMENT] nmax_esperados={expected_nmax} "
                     f"nmax_antes={nmax_before}"
                 )
-            result = await self._gateway.commit_devices_sync(
+            # ── Tx A: online puro (N_MAX + renames) ───────────────────
+            # Cada handler abre/cierra su propia tx TIA. No se solapan.
+            nmax_result = await self._gateway.commit_disp_nmax_renames_online(
                 plc_name=plc_name,
                 nmax_ops=nmax_ops,
                 rename_ops=rename_ops,
-                device_changes=device_changes,
-                work_dir=str(work_dir),
-                undo_text="Sincronizar N_MAX + Dispositivos",
+                undo_text="Sync N_MAX + renames",
             )
+            # ── Tx B: offline puro (devices export+edit+import) ───────
+            # Solo se invoca si hay device_changes (no-op si está vacío).
+            # Si N_MAX falló, no llegamos aquí: la excepción de arriba
+            # ya propagó y abortó el flujo.
+            if device_changes:
+                devices_result = await self._gateway.commit_disp_devices_offline(
+                    plc_name=plc_name,
+                    device_changes=device_changes,
+                    work_dir=str(work_dir),
+                    undo_text="Sync devices",
+                )
+            else:
+                devices_result = {
+                    "success": True,
+                    "operations_executed": 0,
+                    "details": [],
+                }
+            # Componer el shape legacy que esperan los callers/tests:
+            # ``operations_executed`` y ``details``.
+            result = {
+                "success": True,
+                "operations_executed": (
+                    nmax_result["operations_executed"]
+                    + devices_result["operations_executed"]
+                ),
+                "details": (
+                    nmax_result.get("details", [])
+                    + devices_result.get("details", [])
+                ),
+            }
             # Post-commit: re-leer N_MAX y comparar. Solo si había
             # ``nmax_ops`` (commits sin N_MAX, e.g. solo renames, no se
             # instrumentan — no hay nada que comparar).

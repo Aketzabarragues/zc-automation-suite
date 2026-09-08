@@ -127,6 +127,28 @@ def test_load_extra_commands_alimentacion_registers_six_handlers() -> None:
         )
 
 
+def test_load_extra_commands_alimentacion_registers_disp_commit_handlers() -> None:
+    """Sept-2026: el área registra los 2 handlers del nuevo split
+    online/offline para el commit de dispositivos:
+      - ``commit_disp_nmax_renames_online`` (Tx A: N_MAX+renames).
+      - ``commit_disp_devices_offline`` (Tx B: devices export+edit+import).
+    Y mantiene el ``commit_devices_sync`` (DEPRECATED) por compat.
+    """
+    from core.infrastructure.tia.worker_tia import COMMAND_REGISTRY
+
+    for name in (
+        "commit_disp_nmax_renames_online",
+        "commit_disp_devices_offline",
+        "commit_devices_sync",
+    ):
+        assert name in COMMAND_REGISTRY, (
+            f"Falta handler {name!r} en COMMAND_REGISTRY del worker."
+        )
+        assert callable(COMMAND_REGISTRY[name]), (
+            f"{name!r} debe ser callable (factory + handler)"
+        )
+
+
 def test_alimentacion_area_spec_has_tia_commands_hook() -> None:
     """El ``AREA_SPEC`` del área de alimentación expone un callable no-None
     en ``contributes_tia_commands`` (es lo que el loader busca).

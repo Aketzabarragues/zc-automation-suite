@@ -2222,31 +2222,14 @@ class TIAProcessGateway:
         work_dir: str,
         undo_text: str = "Sync dispositivos (N_MAX + devices)",
     ) -> dict[str, Any]:
-        """Commit atomico N_MAX + renames + devices en UNA sola transaccion TIA.
+        """DEPRECATED: usar ``commit_disp_nmax_renames_online`` +
+        ``commit_disp_devices_offline`` en su lugar.
 
-        Dentro del worker abre una unica ``start_transaction`` y aplica:
-        N_MAX online (``update_user_constant_value``), renames online
-        (``update_user_constant_name``) y, por cada tabla con adds o
-        removes, export selectivo → edit XML offline (con
-        ``TagTableModifier``) → import selectivo. Si CUALQUIER paso
-        falla, el worker ejecuta ``end_transaction(rollback=True)`` y
-        la excepcion se propaga al caller.
-
-        Args:
-            plc_name: nombre del PLC destino en TIA.
-            nmax_ops: lista de ``{table_name, constant_name, new_value}``
-                (online).
-            rename_ops: lista de ``{table_name, current_name, new_name}``
-                (online).
-            device_changes: lista de ``{table_name, tia_folder, adds,
-                removes}`` (offline, solo tablas con adds o removes).
-            work_dir: ruta absoluta del directorio donde el worker escribe
-                los XML exportados/modificados.
-            undo_text: texto del historial Undo de TIA.
-
-        Returns:
-            Dict con shape de ``execute_transactional_batch``:
-            ``{"success": True, "operations_executed": int, "details": [...]}``.
+        Mantenido por compat con callers/tests legacy. Mezcla online
+        (N_MAX+renames) y offline (devices) en la misma
+        ``start_transaction``, lo que en TIA V21 produce rollback
+        silencioso de los cambios online. Se retira en PR siguiente
+        tras confirmar el fix en prod.
         """
         if not Path(work_dir).is_absolute():
             raise ValueError(
@@ -2277,6 +2260,106 @@ class TIAProcessGateway:
                     },
                 }],
                 "undo_text": undo_text,
+            },
+            timeout_override=dynamic_timeout,
+        )
+
+    async def commit_disp_nmax_renames_online(
+        self,
+        plc_name: str,
+        nmax_ops: list[dict[str, Any]],
+        rename_ops: list[dict[str, Any]],
+        undo_text: str = "Sync N_MAX + renames (online)",
+    ) -> dict[str, Any]:
+        """Aplica N_MAX + renames en una tx TIA propia (online puro).
+
+        Sept-2026 fix para el bug "primer commit no aplica, segundo sí":
+        TIA V21 hace rollback silencioso cuando se mezclan
+        ``set_property`` (online, PlcUserConstant) con ``import_plc_tags``
+        (offline, XML) en la misma ``start_transaction``. Separamos
+        ambos tipos de cambio en dos transacciones secuenciales.
+
+        El handler del worker abre y cierra su propia
+        ``start_transaction`` / ``end_transaction``. NO usa
+        ``execute_transactional_batch`` (que añade otra tx encima).
+
+        Args:
+            plc_name: nombre del PLC destino en TIA.
+            nmax_ops: lista de ``{table_name, constant_name, new_value}``.
+            rename_ops: lista de ``{table_name, current_name, new_name}``.
+            undo_text: texto del historial Undo de TIA.
+
+        Returns:
+            Dict con shape de ``execute_transactional_batch``:
+            ``{"success": True, "operations_executed": int, "details": [...]}``.
+        """
+        # Estimacion de ops para el timeout dinamico: N_MAX + renames +
+        # 2 (start + end transaction).
+        estimated_ops = 2 + len(nmax_ops) + len(rename_ops)
+        per_op_seconds = 5.0
+        dynamic_timeout = max(self._timeout, per_op_seconds * estimated_ops)
+
+        return await self._dispatch_worker(
+            "commit_disp_nmax_renames_online",
+            {
+                "plc_name": plc_name,
+                "undo_text": undo_text,
+                "nmax_ops": list(nmax_ops),
+                "rename_ops": list(rename_ops),
+            },
+            timeout_override=dynamic_timeout,
+        )
+
+    async def commit_disp_devices_offline(
+        self,
+        plc_name: str,
+        device_changes: list[dict[str, Any]],
+        work_dir: str,
+        undo_text: str = "Sync devices (offline)",
+    ) -> dict[str, Any]:
+        """Aplica device changes (export+edit+import) en una tx TIA
+        propia (offline puro).
+
+        Sept-2026 fix (ver ``commit_disp_nmax_renames_online``): la fase
+        offline de devices corre en su propia ``start_transaction``,
+        llamada secuencialmente desde IT después del lote online. Esto
+        evita el rollback silencioso de TIA V21 al mezclar
+        ``set_property`` (online) con ``import_plc_tags`` (offline).
+
+        El handler del worker abre y cierra su propia
+        ``start_transaction`` / ``end_transaction``. NO usa
+        ``execute_transactional_batch``.
+
+        Args:
+            plc_name: nombre del PLC destino en TIA.
+            device_changes: lista de ``{table_name, tia_folder, adds,
+                removes}`` (offline, solo tablas con adds o removes).
+            work_dir: ruta absoluta del directorio donde el worker
+                escribe los XML exportados/modificados.
+            undo_text: texto del historial Undo de TIA.
+
+        Returns:
+            Dict con shape de ``execute_transactional_batch``:
+            ``{"success": True, "operations_executed": int, "details": [...]}``.
+        """
+        if not Path(work_dir).is_absolute():
+            raise ValueError(
+                f"work_dir debe ser una ruta absoluta. Recibido: '{work_dir}'"
+            )
+
+        # Estimacion de ops para el timeout dinamico: 3 ops por
+        # device_change (export + edit + import) + 2 (start + end tx).
+        estimated_ops = 2 + 3 * len(device_changes)
+        per_op_seconds = 5.0
+        dynamic_timeout = max(self._timeout, per_op_seconds * estimated_ops)
+
+        return await self._dispatch_worker(
+            "commit_disp_devices_offline",
+            {
+                "plc_name": plc_name,
+                "undo_text": undo_text,
+                "work_dir": work_dir,
+                "device_changes": list(device_changes),
             },
             timeout_override=dynamic_timeout,
         )

@@ -210,19 +210,283 @@ def make_cmd_update_disp_comments_db(hw_type: str) -> Callable[..., Any]:
     return _cmd
 
 
+def make_cmd_commit_disp_nmax_renames_online() -> Callable[..., Any]:
+    """Handler que aplica N_MAX + renames en una tx TIA propia (online puro).
+
+    A diferencia del antiguo ``commit_devices_sync`` (que mezclaba online
+    con offline en la misma tx y provocaba rollback silencioso en TIA V21),
+    este handler **abre y cierra su propia** ``start_transaction`` /
+    ``end_transaction`` y SOLO hace cambios online:
+
+      * ``update_user_constant_value`` por cada N_MAX.
+      * ``update_user_constant_name`` por cada rename.
+
+    Los cambios offline (devices) van en otro handler separado
+    (``make_cmd_commit_disp_devices_offline``) que corre en OTRA tx
+    TIA, llamada secuencialmente desde IT. Esto evita el bug V21 del
+    "primer commit no aplica, segundo sí" causado por la mezcla
+    online+offline en una misma tx.
+
+    Si una op falla, hace ``end_transaction(rollback=True)`` y re-lanza
+    la excepción. Ver ``.clinerules`` §2.2 sobre el state machine
+    del worker.
+    """
+    def _cmd(portal: Any, ts: Any, args: dict[str, Any]) -> dict[str, Any]:
+        plc_name: str = args.get("plc_name", "")
+        undo_text: str = args.get("undo_text", "Sync N_MAX + renames (online)")
+        nmax_ops: list[dict[str, Any]] = args.get("nmax_ops") or []
+        rename_ops: list[dict[str, Any]] = args.get("rename_ops") or []
+
+        if not plc_name:
+            raise ValueError("commit_disp_nmax_renames_online: plc_name requerido.")
+
+        # Imports locales: ciclo worker_tia → extra_commands → (lazy) worker_tia.
+        from core.infrastructure.tia import worker_tia
+        from core.infrastructure.tia.worker_tia import (
+            _cmd_update_user_constant_value,
+            _cmd_update_user_constant_name,
+        )
+
+        project = worker_tia._get_active_project(portal)
+        # Valida que el PLC existe (lanza si no).
+        worker_tia._find_plc(project, plc_name)
+
+        results_list: list[dict[str, Any]] = []
+        step_idx = 0
+
+        def _record(op_name: str, result: Any) -> None:
+            nonlocal step_idx
+            step_idx += 1
+            results_list.append(
+                {"step": step_idx, "command": op_name, "result": result}
+            )
+
+        # Tx TIA PROPIA (no del batch wrapper). Online puro.
+        project.start_transaction(undo_text=undo_text, dialog_text=undo_text)
+        op_label = "start_transaction"
+        try:
+            for nmax_op in nmax_ops:
+                op_label = (
+                    f"update_user_constant_value("
+                    f"{nmax_op.get('constant_name')})"
+                )
+                r = _cmd_update_user_constant_value(
+                    portal, ts, {
+                        "plc_name": plc_name,
+                        "table_name": nmax_op["table_name"],
+                        "constant_name": nmax_op["constant_name"],
+                        "new_value": nmax_op["new_value"],
+                    }
+                )
+                _record("update_user_constant_value", r)
+
+            for rename_op in rename_ops:
+                op_label = (
+                    f"update_user_constant_name("
+                    f"{rename_op.get('table_name')}:"
+                    f"{rename_op.get('current_name')}->"
+                    f"{rename_op.get('new_name')})"
+                )
+                r = _cmd_update_user_constant_name(
+                    portal, ts, {
+                        "plc_name": plc_name,
+                        "table_name": rename_op["table_name"],
+                        "current_name": rename_op["current_name"],
+                        "new_name": rename_op["new_name"],
+                    }
+                )
+                _record("update_user_constant_name", r)
+
+            # Confirmar (manual §2.37.28). Sin rollback.
+            project.end_transaction(rollback=False)
+        except Exception as e:
+            # Rollback atómico: deshace cualquier set_property parcial.
+            try:
+                project.end_transaction(rollback=True)
+            except Exception:
+                pass
+            raise RuntimeError(
+                f"commit_disp_nmax_renames_online abortado en "
+                f"'{op_label}'. Rollback ejecutado. Motivo: {e}"
+            ) from e
+
+        return {
+            "success": True,
+            "operations_executed": step_idx,
+            "details": results_list,
+        }
+
+    return _cmd
+
+
+def make_cmd_commit_disp_devices_offline() -> Callable[..., Any]:
+    """Handler que aplica device changes (export+edit+import) en una tx
+    TIA propia (offline puro).
+
+    A diferencia del antiguo ``commit_devices_sync`` (que mezclaba online
+    con offline en la misma tx y provocaba rollback silencioso en TIA V21),
+    este handler **abre y cierra su propia** ``start_transaction`` /
+    ``end_transaction`` y SOLO hace cambios offline:
+
+      * Por cada ``device_change``: export selectivo de la tabla PLC
+        → ``TagTableModifier`` sobre el XML (add/remove) → import
+        selectivo via ``target_plc.import_plc_tags``.
+
+    Los cambios online (N_MAX + renames) van en otro handler
+    (``make_cmd_commit_disp_nmax_renames_online``) que corre en OTRA
+    tx TIA, llamada secuencialmente desde IT.
+
+    Si una op falla, hace ``end_transaction(rollback=True)`` y re-lanza
+    la excepción. Los XML editados en ``work_dir`` se sobrescriben
+    en el siguiente run (idempotente).
+    """
+    def _cmd(portal: Any, ts: Any, args: dict[str, Any]) -> dict[str, Any]:
+        plc_name: str = args.get("plc_name", "")
+        undo_text: str = args.get("undo_text", "Sync devices (offline)")
+        work_dir: str = args.get("work_dir", "")
+        device_changes: list[dict[str, Any]] = args.get("device_changes") or []
+
+        if not plc_name:
+            raise ValueError("commit_disp_devices_offline: plc_name requerido.")
+        if not work_dir:
+            raise ValueError("commit_disp_devices_offline: work_dir requerido.")
+
+        # Imports locales.
+        from core.infrastructure.tia import worker_tia
+        from core.infrastructure.tia.worker_tia import _safe_get_table_name
+        from areas.alimentacion.infrastructure.xml.disp_tag_table_modifier import (
+            TagTableModifier,
+        )
+
+        project = worker_tia._get_active_project(portal)
+        target_plc = worker_tia._find_plc(project, plc_name)
+        work_path = Path(work_dir)
+        work_path.mkdir(parents=True, exist_ok=True)
+
+        results_list: list[dict[str, Any]] = []
+        step_idx = 0
+
+        def _record(op_name: str, result: Any) -> None:
+            nonlocal step_idx
+            step_idx += 1
+            results_list.append(
+                {"step": step_idx, "command": op_name, "result": result}
+            )
+
+        # Tx TIA PROPIA. Offline puro.
+        project.start_transaction(undo_text=undo_text, dialog_text=undo_text)
+        op_label = "start_transaction"
+        try:
+            for dev_change in device_changes:
+                table_name: str = dev_change["table_name"]
+                tia_folder: str = dev_change.get("tia_folder", "")
+                adds: list[dict[str, str]] = dev_change.get("adds") or []
+                removes: set[str] = set(dev_change.get("removes") or [])
+
+                # 3a. Buscar la tabla.
+                tables = target_plc.get_plc_tag_tables()
+                table = next(
+                    (
+                        t for t in tables
+                        if _safe_get_table_name(t) == table_name
+                    ),
+                    None,
+                )
+                if table is None:
+                    raise RuntimeError(
+                        f"Tabla '{table_name}' no encontrada en PLC "
+                        f"'{plc_name}'."
+                    )
+
+                # 3b. Export selectivo (incluye la estructura de
+                #     carpetas TIA). Mismo patrón que el legacy
+                #     ``commit_devices_sync``.
+                op_label = f"export_plc_tags_xml({table_name})"
+                table.export(
+                    target_directory_path=str(work_path),
+                    keep_folder_structure=True,
+                )
+                _record(
+                    f"export_plc_tags_xml[{table_name}]",
+                    str(work_path),
+                )
+
+                # 3c. Edit XML offline.
+                xml_path = work_path / tia_folder / f"{table_name}.xml"
+                if not xml_path.is_file():
+                    matches = list(work_path.rglob(f"{table_name}.xml"))
+                    if not matches:
+                        raise RuntimeError(
+                            f"XML de '{table_name}' no encontrado tras "
+                            f"export en '{work_path}'."
+                        )
+                    xml_path = matches[0]
+
+                op_label = f"edit_xml({table_name})"
+                modifier = TagTableModifier(xml_path)
+                added_count = modifier.add_user_constants_by_table(
+                    table_name, adds
+                )
+                removed_count = modifier.remove_user_constants(removes)
+                # Regenerar el ID de la PlcTagTable raiz (commit 3e2babd).
+                new_table_id = modifier.regenerate_root_table_id()
+                if modifier.was_modified():
+                    modifier.save(xml_path)
+                _record(
+                    f"edit_xml[{table_name}]",
+                    {
+                        "added": added_count,
+                        "removed": removed_count,
+                        "modified": modifier.was_modified(),
+                        "new_table_id": new_table_id,
+                    },
+                )
+
+                # 3d. Import selectivo. Pasamos ``target_folder_path=""``
+                #     para que TIA reconcilie por NOMBRE (commit 3e2babd).
+                op_label = f"import_plc_tags_xml({table_name})"
+                target_plc.import_plc_tags(
+                    import_root_directory=str(work_path),
+                    target_folder_path="",
+                )
+                _record(
+                    f"import_plc_tags_xml[{table_name}]",
+                    True,
+                )
+
+            project.end_transaction(rollback=False)
+        except Exception as e:
+            try:
+                project.end_transaction(rollback=True)
+            except Exception:
+                pass
+            raise RuntimeError(
+                f"commit_disp_devices_offline abortado en '{op_label}'. "
+                f"Rollback ejecutado. Motivo: {e}"
+            ) from e
+
+        return {
+            "success": True,
+            "operations_executed": step_idx,
+            "details": results_list,
+        }
+
+    return _cmd
+
+
 def make_cmd_commit_devices_sync() -> Callable[..., Any]:
-    """Compone N_MAX, renombres y devices en una sola transacción.
+    """DEPRECATED: usar ``commit_disp_nmax_renames_online`` +
+    ``commit_disp_devices_offline`` en su lugar.
 
-    Reusa ``update_user_constant_value`` y ``update_user_constant_name``
-    del core del worker para N_MAX y renombres, y ``TagTableModifier``
-    sobre los XML exportados de las tablas 2000_Disp_<hw> para los
-    devices.
+    Esta factory se mantiene por compat con callers/tests legacy, pero
+    YA NO es la vía recomendada. Mezcla online (N_MAX+renames) y
+    offline (devices) en la misma ``start_transaction``, lo que en TIA
+    V21 produce un rollback silencioso de los cambios online (ver
+    análisis del LLM externo, sept-2026).
 
-    No abre su propia transacción: corre dentro de la transacción
-    del batch wrapper, que es quien hace el ``start_transaction`` y
-    el rollback si algo falla. Abrir otra provocaría conflicto de
-    ExclusiveAccess en TIA Portal. Los XML editados en ``work_dir``
-    se sobrescriben en el siguiente run.
+    El bug "primer commit no aplica, segundo sí" desaparece al
+    partir el flujo en 2 transacciones secuenciales online→offline.
+    Se retira en PR siguiente tras confirmar el fix en prod.
     """
     def _cmd(portal: Any, ts: Any, args: dict[str, Any]) -> dict[str, Any]:
         plc_name: str = args.get("plc_name", "")
@@ -870,8 +1134,16 @@ def register(registry: dict[str, Callable[..., Any]]) -> None:
     Comandos registrados:
       - ``update_disp_comments_db_<hw>`` (×6): SD source comments
         offline + import por hw_type.
-      - ``commit_devices_sync``: op compuesto N_MAX + renames + devices
-        en una sola ``start_transaction``.
+      - ``commit_disp_nmax_renames_online``: handler online puro
+        (N_MAX + renames) con su propia ``start_transaction`` /
+        ``end_transaction``. Sept-2026: sustituye al antiguo
+        ``commit_devices_sync`` para evitar el rollback silencioso de
+        TIA V21 al mezclar online + offline en la misma tx.
+      - ``commit_disp_devices_offline``: handler offline puro
+        (export + edit + import por tabla) con su propia tx.
+        Se llama secuencialmente desde IT tras el handler online.
+      - ``commit_devices_sync``: DEPRECATED. Se mantiene por compat
+        con tests/callers legacy; se retira en PR siguiente.
       - ``update_proc_comments_db_<kind>`` (×3: preal, pint, alm):
         SD source comments offline + import por array de proceso,
         con propagación a satélites del mismo slot.
@@ -897,6 +1169,18 @@ def register(registry: dict[str, Callable[..., Any]]) -> None:
     registry["update_proc_comments_db_param"] = (
         make_cmd_update_proc_comments_db_param()
     )
+    # Sept-2026: 2 handlers nuevos que reemplazan al antiguo
+    # ``commit_devices_sync``. Cada uno abre/cierra su propia tx TIA
+    # para evitar el rollback silencioso de V21 al mezclar online +
+    # offline en la misma tx.
+    registry["commit_disp_nmax_renames_online"] = (
+        make_cmd_commit_disp_nmax_renames_online()
+    )
+    registry["commit_disp_devices_offline"] = (
+        make_cmd_commit_disp_devices_offline()
+    )
+    # DEPRECATED: se mantiene por compat con callers/tests legacy.
+    # Se retira en PR siguiente tras confirmar el fix en prod.
     registry["commit_devices_sync"] = make_cmd_commit_devices_sync()
 
 

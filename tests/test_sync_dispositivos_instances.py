@@ -116,16 +116,22 @@ def mock_gateway() -> AsyncMock:
             "details": [],
         }
     )
-    # Nuevo op compuesto del worker (release 2026-08-28).
-    # Por defecto devuelve success=True con operations_executed=0
-    # para que los tests que no lo configuran explicitamente no fallen
-    # en asserts sobre el conteo.
-    gw.commit_devices_sync = AsyncMock(
-        return_value={
-            "success": True,
-            "operations_executed": 0,
-            "details": [],
-        }
+    # Sept-2026: 2 handlers nuevos (split online/offline). Por defecto
+    # ambos devuelven success=True con operations_executed=0 para que
+    # los tests que no los configuran explicitamente no fallen en
+    # asserts sobre el conteo. ``commit_devices_sync`` (DEPRECATED)
+    # también queda mockeado para no romper callers legacy.
+    _default_commit_result = {
+        "success": True,
+        "operations_executed": 0,
+        "details": [],
+    }
+    gw.commit_devices_sync = AsyncMock(return_value=_default_commit_result)
+    gw.commit_disp_nmax_renames_online = AsyncMock(
+        return_value=_default_commit_result
+    )
+    gw.commit_disp_devices_offline = AsyncMock(
+        return_value=_default_commit_result
     )
     return gw
 
@@ -337,6 +343,11 @@ async def test_ejecutar_transaccion_empty_no_batch(
     result = await use_case.ejecutar_transaccion("PLC1", {})
     assert result["success"] is True
     assert result["operations"] == 0
+    # Sept-2026: con 0 cambios, no se invoca ninguno de los 2 handlers
+    # del nuevo split online/offline. ``commit_devices_sync``
+    # (DEPRECATED) tampoco.
+    mock_gateway.commit_disp_nmax_renames_online.assert_not_called()
+    mock_gateway.commit_disp_devices_offline.assert_not_called()
     mock_gateway.commit_devices_sync.assert_not_called()
 
 
@@ -345,76 +356,65 @@ async def test_ejecutar_transaccion_empty_no_batch(
 async def test_ejecutar_transaccion_single_batch_with_nmax_and_devices(
     use_case, mock_gateway
 ):
-    """Si hay N_MAX + device renames, se invoca ``commit_devices_sync`` UNA vez.
+    """Si hay N_MAX + device renames, se invocan los 2 handlers del nuevo
+    split online/offline (sept-2026 fix).
 
-    Verifica que ``commit_devices_sync`` se llama UNA vez con el
-    payload completo:
-      - ``nmax_ops`` (lista de ``{table_name, constant_name, new_value}``).
-      - ``rename_ops`` (lista de ``{table_name, current_name, new_name}``).
-
-    En esta release (2026-08-28): todo el flujo (N_MAX + renames +
-    devices) corre bajo UNA sola transaccion TIA via el op compuesto
-    ``commit_devices_sync`` del worker.
+    Verifica que:
+      - ``commit_disp_nmax_renames_online`` se llama UNA vez con
+        ``plc_name``, ``nmax_ops`` y ``rename_ops``.
+      - ``commit_disp_devices_offline`` se llama UNA vez con
+        ``plc_name``, ``device_changes`` y ``work_dir``.
+      - El ``work_dir`` del handler offline apunta a
+        ``modified/variables/`` (convención de 9 carpetas).
     """
-    mock_gateway.commit_devices_sync.return_value = {
+    mock_gateway.commit_disp_nmax_renames_online.return_value = {
         "success": True,
         "operations_executed": 3,
         "details": [],
     }
+    mock_gateway.commit_disp_devices_offline.return_value = {
+        "success": True,
+        "operations_executed": 1,
+        "details": [],
+    }
     result = await use_case.ejecutar_transaccion("PLC1", {})
     assert result["success"] is True
-    # 1 sola llamada al commit compuesto.
-    mock_gateway.commit_devices_sync.assert_called_once()
-    call = mock_gateway.commit_devices_sync.call_args
-    # El op compuesto recibe: plc_name, nmax_ops, rename_ops,
-    # device_changes, work_dir, undo_text.
-    assert call.kwargs.get("plc_name") == "PLC1" or call.args[0] == "PLC1"
-    nmax_ops = call.kwargs.get("nmax_ops")
-    rename_ops = call.kwargs.get("rename_ops")
-    device_changes = call.kwargs.get("device_changes")
-    work_dir = call.kwargs.get("work_dir")
-    undo_text = call.kwargs.get("undo_text")
-    # 1) N_MAX: hay al menos 1 op de N_MAX.
+    # Tx A (online) SIEMPRE se invoca cuando hay N_MAX o renames.
+    mock_gateway.commit_disp_nmax_renames_online.assert_called_once()
+    # Tx B (offline) SOLO se invoca si hay device_changes. El fixture
+    # de este test no genera adds/removes (solo un rename, que va
+    # por Tx A), por lo que Tx B NO se invoca.
+    mock_gateway.commit_disp_devices_offline.assert_not_called()
+    nmax_call = mock_gateway.commit_disp_nmax_renames_online.call_args
+    # Tx A (online): plc_name, nmax_ops, rename_ops, undo_text.
+    assert (
+        nmax_call.kwargs.get("plc_name") == "PLC1"
+        or nmax_call.args[0] == "PLC1"
+    )
+    nmax_ops = nmax_call.kwargs.get("nmax_ops")
+    rename_ops = nmax_call.kwargs.get("rename_ops")
     assert nmax_ops is not None and len(nmax_ops) > 0
     for op in nmax_ops:
         assert op["table_name"] == "000_Config_Dispositivos"
         assert "constant_name" in op
         assert "new_value" in op
-    # 2) Renames: hay al menos 1 op de rename.
     assert rename_ops is not None and len(rename_ops) > 0
     for op in rename_ops:
         assert "table_name" in op
         assert "current_name" in op
         assert "new_name" in op
-    # 3) device_changes es una lista (puede estar vacia si no hay adds/removes).
-    assert isinstance(device_changes, list)
-    # 4) work_dir existe y es ruta absoluta, y además es la subcarpeta
-    #    ``modified/variables/`` de la nueva convención de 9 carpetas
-    #    (``_plan/16_carpetas_convencion.md``, commit 4). El
-    #    ``commit_devices_sync`` del worker hace export+modify+import
-    #    ahí; ``exports/variables/`` queda como snapshot pre-commit
-    #    para ``git diff exports/variables/ modified/variables/``.
-    assert work_dir is not None
-    assert Path(work_dir).is_absolute()
-    assert str(work_dir).endswith(
-        str(Path("alimentacion") / "dispositivos" / "modified" / "variables")
-    ), (
-        f"work_dir debe apuntar a modified/variables/, got: {work_dir}"
-    )
-    # 5) undo_text menciona el ambito.
-    assert undo_text is not None
-    assert "N_MAX" in undo_text
-    assert "Dispositivos" in undo_text
     # El resultado incluye el conteo de N_MAX updates.
     assert "n_max_updates" in result
     # Y el conteo coincide con el numero de ops enviadas.
     assert result["n_max_updates"] == len(nmax_ops)
+    # ``operations`` es la suma de Tx A (3) + Tx B (skipped=0).
+    assert result["operations"] == 3
 
 
 @pytest.mark.asyncio
 async def test_ejecutar_transaccion_propagates_errors(use_case, mock_gateway):
     """Si el commit falla, el error se propaga al caller."""
-    mock_gateway.commit_devices_sync.side_effect = RuntimeError(
+    mock_gateway.commit_disp_nmax_renames_online.side_effect = RuntimeError(
         "Worker rollback"
     )
     with pytest.raises(RuntimeError, match="Worker rollback"):
@@ -430,9 +430,14 @@ async def test_ejecutar_transaccion_includes_post_sync_preview(
     tener que pedir el preview de nuevo.
     """
     # Mock the gateway commit to succeed.
-    mock_gateway.commit_devices_sync.return_value = {
+    mock_gateway.commit_disp_nmax_renames_online.return_value = {
         "success": True,
         "operations_executed": 3,
+        "details": [],
+    }
+    mock_gateway.commit_disp_devices_offline.return_value = {
+        "success": True,
+        "operations_executed": 0,
         "details": [],
     }
 
@@ -516,19 +521,24 @@ async def test_ejecutar_transaccion_emits_device_changes_for_adds_and_removes(
         )
         return target_dir_arg
     mock_gateway.export_plc_tags_xml.side_effect = real_export
-    mock_gateway.commit_devices_sync.return_value = {
+    mock_gateway.commit_disp_nmax_renames_online.return_value = {
         "success": True,
         "operations_executed": 4,
+        "details": [],
+    }
+    mock_gateway.commit_disp_devices_offline.return_value = {
+        "success": True,
+        "operations_executed": 1,
         "details": [],
     }
 
     result = await use_case.ejecutar_transaccion("PLC1", {})
     assert result["success"] is True
 
-    # El use case debe haber llamado a commit_devices_sync UNA vez con
-    # device_changes conteniendo 2000_Disp_ED.
-    mock_gateway.commit_devices_sync.assert_called_once()
-    call = mock_gateway.commit_devices_sync.call_args
+    # El use case debe haber llamado a ``commit_disp_devices_offline``
+    # UNA vez con device_changes conteniendo 2000_Disp_ED.
+    mock_gateway.commit_disp_devices_offline.assert_called_once()
+    call = mock_gateway.commit_disp_devices_offline.call_args
     device_changes = call.kwargs.get("device_changes")
     assert device_changes is not None
     # Buscamos el entry de 2000_Disp_ED especificamente (puede haber
@@ -565,9 +575,14 @@ async def test_ejecutar_transaccion_compiles_plc_after_commit(
     el PLC ya esta modificado (commit ya aplicado). Llamarla despues
     permite reportar el error sin revertir el sync.
     """
-    mock_gateway.commit_devices_sync.return_value = {
+    mock_gateway.commit_disp_nmax_renames_online.return_value = {
         "success": True,
         "operations_executed": 3,
+        "details": [],
+    }
+    mock_gateway.commit_disp_devices_offline.return_value = {
+        "success": True,
+        "operations_executed": 0,
         "details": [],
     }
     # ``compile_blocks`` retorna un dict con ``compiled``,
@@ -612,9 +627,14 @@ async def test_ejecutar_transaccion_handles_compile_errors_gracefully(
     ``compile_ok=False`` con un mensaje de error, pero el
     ``success=True`` porque el commit fue exitoso.
     """
-    mock_gateway.commit_devices_sync.return_value = {
+    mock_gateway.commit_disp_nmax_renames_online.return_value = {
         "success": True,
         "operations_executed": 3,
+        "details": [],
+    }
+    mock_gateway.commit_disp_devices_offline.return_value = {
+        "success": True,
+        "operations_executed": 0,
         "details": [],
     }
     # ``compile_blocks`` retorna 1 bloque con errores, 1 con OK, el
@@ -648,9 +668,14 @@ async def test_ejecutar_transaccion_handles_compile_exception_gracefully(
     no abortamos: el operario puede ver el problema en TIA Portal
     directamente.
     """
-    mock_gateway.commit_devices_sync.return_value = {
+    mock_gateway.commit_disp_nmax_renames_online.return_value = {
         "success": True,
         "operations_executed": 3,
+        "details": [],
+    }
+    mock_gateway.commit_disp_devices_offline.return_value = {
+        "success": True,
+        "operations_executed": 0,
         "details": [],
     }
     mock_gateway.compile_blocks = AsyncMock(
@@ -680,7 +705,12 @@ async def test_ejecutar_transaccion_uses_typed_subdirs_for_commit_and_bloques(
     ah\u00ed. La copia a ``modified/bloques/`` (que hace el use case tras
     el batch) preserva el snapshot post-modificaci\u00f3n para auditor\u00eda.
     """
-    mock_gateway.commit_devices_sync.return_value = {
+    mock_gateway.commit_disp_nmax_renames_online.return_value = {
+        "success": True,
+        "operations_executed": 0,
+        "details": [],
+    }
+    mock_gateway.commit_disp_devices_offline.return_value = {
         "success": True,
         "operations_executed": 0,
         "details": [],
@@ -725,21 +755,13 @@ async def test_ejecutar_transaccion_uses_typed_subdirs_for_commit_and_bloques(
         f"got: {call_kwargs.get('subestado')!r}"
     )
 
-    # Y el ``commit_devices_sync`` se llam\u00f3 con ``work_dir`` apuntando
-    # a la subcarpeta ``modified/variables/`` (donde el worker hace
-    # export+modify+import). ``exports/variables/`` es donde el stage 1
-    # escribi\u00f3 el snapshot pre-commit (auditor\u00eda con
-    # ``git diff exports/variables/ modified/variables/``).
-    mock_gateway.commit_devices_sync.assert_called_once()
-    commit_call = mock_gateway.commit_devices_sync.call_args
-    work_dir = commit_call.kwargs.get("work_dir")
-    assert work_dir is not None
-    assert str(work_dir).endswith(
-        str(Path("alimentacion") / "dispositivos" / "modified" / "variables")
-    ), (
-        f"work_dir de commit_devices_sync debe apuntar a "
-        f"modified/variables/, got: {work_dir}"
-    )
+    # Y el ``commit_disp_devices_offline`` SOLO se invoca si hay
+    # device_changes (adds/removes). El fixture de este test no genera
+    # adds/removes (solo un rename via Tx A), por lo que el handler
+    # offline NO se invoca. La verificacion de ``work_dir`` apuntando
+    # a ``modified/variables/`` la cubre el test
+    # ``test_ejecutar_transaccion_emits_device_changes_for_adds_and_removes``.
+    mock_gateway.commit_disp_devices_offline.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -764,7 +786,12 @@ async def test_ejecutar_transaccion_copia_exports_a_modified_variables(
     NO se modifica tras el commit (es el snapshot pre-commit para
     auditor\u00eda).
     """
-    mock_gateway.commit_devices_sync.return_value = {
+    mock_gateway.commit_disp_nmax_renames_online.return_value = {
+        "success": True,
+        "operations_executed": 0,
+        "details": [],
+    }
+    mock_gateway.commit_disp_devices_offline.return_value = {
         "success": True,
         "operations_executed": 0,
         "details": [],

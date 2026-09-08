@@ -142,7 +142,29 @@ def test_ejecutar_transaccion_emits_7_stages(
     async def fake_batch(operations, undo_text=""):
         return {"success": True, "operations_executed": len(operations), "details": []}
     gateway.execute_transactional_batch = fake_batch  # type: ignore[method-assign]
-    # commit_devices_sync (nuevo op compuesto): reusamos fake_batch como stub.
+    # commit_disp_nmax_renames_online (sept-2026 fix): stub OK.
+    async def fake_nmax_renames(
+        plc_name, nmax_ops, rename_ops, undo_text="", **kwargs,
+    ):
+        return {
+            "success": True,
+            "operations_executed": (
+                len(nmax_ops) + len(rename_ops)
+            ),
+            "details": [],
+        }
+    gateway.commit_disp_nmax_renames_online = fake_nmax_renames  # type: ignore[method-assign]
+    # commit_disp_devices_offline (sept-2026 fix): stub OK.
+    async def fake_devices_offline(
+        plc_name, device_changes, work_dir, undo_text="", **kwargs,
+    ):
+        return {
+            "success": True,
+            "operations_executed": 3 * len(device_changes),
+            "details": [],
+        }
+    gateway.commit_disp_devices_offline = fake_devices_offline  # type: ignore[method-assign]
+    # commit_devices_sync (DEPRECATED): stub OK por compat con callers legacy.
     async def fake_commit(
         plc_name, nmax_ops, rename_ops, device_changes, work_dir,
         undo_text="", **kwargs,
@@ -221,8 +243,23 @@ def test_ejecutar_transaccion_finish_false_on_batch_failure(
     async def fake_batch(operations, undo_text=""):
         raise RuntimeError("Lote abortado en el paso 1")
     gateway.execute_transactional_batch = fake_batch  # type: ignore[method-assign]
-    # commit_devices_sync: simulamos el mismo error para que el use case
-    # propague la excepcion y el tracker termine en error.
+    # commit_disp_nmax_renames_online: simulamos el mismo error para
+    # que el use case propague la excepcion y el tracker termine en
+    # error.
+    async def fake_nmax_renames(
+        plc_name, nmax_ops, rename_ops, undo_text="", **kwargs,
+    ):
+        raise RuntimeError("commit_disp_nmax_renames_online abortado")
+    gateway.commit_disp_nmax_renames_online = fake_nmax_renames  # type: ignore[method-assign]
+    # commit_disp_devices_offline: stub OK (no llegamos aquí si el
+    # anterior falla, pero lo definimos para evitar el MagicMock
+    # default que retornaría un dict vacío).
+    async def fake_devices_offline(
+        plc_name, device_changes, work_dir, undo_text="", **kwargs,
+    ):
+        return {"success": True, "operations_executed": 0, "details": []}
+    gateway.commit_disp_devices_offline = fake_devices_offline  # type: ignore[method-assign]
+    # commit_devices_sync (DEPRECATED): stub compat.
     async def fake_commit(
         plc_name, nmax_ops, rename_ops, device_changes, work_dir,
         undo_text="", **kwargs,
@@ -261,13 +298,13 @@ def test_ejecutar_transaccion_finish_false_on_batch_failure(
         }]
     )
 
-    with pytest.raises(RuntimeError, match="commit_devices_sync abortado"):
+    with pytest.raises(RuntimeError, match="commit_disp_nmax_renames_online abortado"):
         asyncio.run(use_case.ejecutar_transaccion("PLC_TEST", {}))
 
     snap = fresh_tracker.snapshot()
     assert snap.active is False
     assert snap.error is not None
-    assert "commit_devices_sync abortado" in snap.error
+    assert "commit_disp_nmax_renames_online abortado" in snap.error
     # El último stage en running (open_transaction) debe estar en error.
     open_tx = next(
         (s for s in snap.stages if s["id"] == "open_transaction"),
@@ -298,8 +335,28 @@ async def test_apply_comentarios_disp_fallo_no_revienta_el_commit(
     async def fake_batch(operations, undo_text=""):
         return {"success": True, "operations_executed": len(operations), "details": []}
     gateway.execute_transactional_batch = fake_batch  # type: ignore[method-assign]
-    # commit_devices_sync: stub OK (la idea del test es que el commit
-    # global sea exitoso aunque fallen los comentarios).
+    # commit_disp_nmax_renames_online: stub OK (la idea del test es
+    # que el commit global sea exitoso aunque fallen los comentarios).
+    async def fake_nmax_renames(
+        plc_name, nmax_ops, rename_ops, undo_text="", **kwargs,
+    ):
+        return {
+            "success": True,
+            "operations_executed": len(nmax_ops) + len(rename_ops),
+            "details": [],
+        }
+    gateway.commit_disp_nmax_renames_online = fake_nmax_renames  # type: ignore[method-assign]
+    # commit_disp_devices_offline: stub OK.
+    async def fake_devices_offline(
+        plc_name, device_changes, work_dir, undo_text="", **kwargs,
+    ):
+        return {
+            "success": True,
+            "operations_executed": 3 * len(device_changes),
+            "details": [],
+        }
+    gateway.commit_disp_devices_offline = fake_devices_offline  # type: ignore[method-assign]
+    # commit_devices_sync (DEPRECATED): stub compat.
     async def fake_commit(
         plc_name, nmax_ops, rename_ops, device_changes, work_dir,
         undo_text="", **kwargs,

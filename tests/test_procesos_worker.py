@@ -76,6 +76,11 @@ def test_register_anhade_las_keys_de_procesos() -> None:
     assert "update_proc_comments_db_param" in registry
     # También siguen las legacy de dispositivos.
     assert "update_disp_comments_db_ed" in registry
+    # Sept-2026: 2 handlers nuevos del split online/offline.
+    assert "commit_disp_nmax_renames_online" in registry
+    assert "commit_disp_devices_offline" in registry
+    # Y el legacy ``commit_devices_sync`` (DEPRECATED) sigue registrado
+    # por compat con callers/tests legacy.
     assert "commit_devices_sync" in registry
 
 
