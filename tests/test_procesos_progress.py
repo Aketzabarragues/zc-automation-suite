@@ -194,8 +194,12 @@ def test_generar_prevision_done_closes_when_cache_is_none() -> None:
     import asyncio
     result = asyncio.run(use_case.generar_prevision(100))
 
-    assert result["precondiciones_ok"] is False
-    assert "Cache de bloques" in result["missing_blocks"][0]
+    # Sept-2026: el contrato cambio a warning en vez de error. El
+    # use case devuelve ``precondiciones_ok=True`` con un warning
+    # informativo; la SPA lo pinta como ambar.
+    assert result["precondiciones_ok"] is True
+    assert result["missing_blocks"] == []
+    assert "Cache de bloques" in result["warnings"][0]
     snap = tracker.snapshot()
     done_stage = next(s for s in snap.stages if s["id"] == "done")
     assert done_stage["status"] == STAGE_DONE

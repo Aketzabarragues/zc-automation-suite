@@ -100,9 +100,13 @@ def test_endpoint_preview_devuelve_shape_esperado(
     assert "missing_blocks" in body
     # Sin BloqueCache (gateway.get_bloques_cache devuelve None),
     # el use case devuelve un mensaje accionable.
-    assert body["precondiciones_ok"] is False
-    assert len(body["missing_blocks"]) == 1
-    assert "Cache de bloques del PLC no disponible" in body["missing_blocks"][0]
+    # Sept-2026: ya NO abortamos con error bloqueante. Devolvemos
+    # ``precondiciones_ok=True`` con un warning informativo; la SPA lo
+    # pinta como ambar y el operario decide si re-escanear.
+    assert body["precondiciones_ok"] is True
+    assert body["missing_blocks"] == []
+    assert len(body["warnings"]) == 1
+    assert "Cache de bloques del PLC no disponible" in body["warnings"][0]
 
 
 def test_endpoint_preview_usa_cache_real_del_gateway(
@@ -169,11 +173,12 @@ def test_endpoint_preview_sin_plc_name_devuelve_precondiciones_false(
     )
     assert resp.status_code == 200
     body = resp.json()
-    assert body["precondiciones_ok"] is False
-    # El router NO llama a get_bloques_cache con "" (porque evita
-    # el lookup en vacío), así que el mock no se invoca aquí. Esto
-    # es OK; el use case maneja la cache=None igualmente.
-    assert "Cache de bloques" in body["missing_blocks"][0]
+    # Sept-2026: el contrato cambio a warning en vez de error. El
+    # router sigue sin llamar a get_bloques_cache con "" (defensivo);
+    # el use case maneja cache=None y devuelve warnings.
+    assert body["precondiciones_ok"] is True
+    assert body["missing_blocks"] == []
+    assert "Cache de bloques" in body["warnings"][0]
 
 
 def test_endpoint_commit_invoca_3_ops_en_lote(
