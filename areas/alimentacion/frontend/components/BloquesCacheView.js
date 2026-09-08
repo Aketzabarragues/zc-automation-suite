@@ -667,7 +667,7 @@ export default {
                         PLC activo
                     </h4>
                     <div class="flex justify-between items-center gap-3">
-                        <div v-if="store.selectedPlc" class="space-y-1">
+                        <div v-if="plcName" class="space-y-1">
                             <p class="text-xs">
                                 <span class="text-ink-muted">PLC:</span>
                                 <span class="font-mono font-semibold text-ink ml-1" data-testid="bloques-cache-plc-name">{{ plcName }}</span>

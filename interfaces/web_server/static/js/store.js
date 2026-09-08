@@ -572,6 +572,17 @@ export async function loadAndApplyPlcBlocks(plcName, { force = false } = {}) {
             : await apiScanPlcBlocks(plcName);
         if (r.ok) {
             _applyBlocksSnapshot(plcName, r.data);
+            // Sincronizar ``selectedPlc`` con el PLC que acabamos de
+            // escanear. Asi, las vistas que dependen de
+            // ``store.selectedPlc`` (p.ej. ``ProcesosSyncView`` y la
+            // card "PLC activo" de ``BloquesCacheView``) saben qué PLC
+            // está activo sin depender de que el operario haya tocado
+            // el dropdown despues del escaneo. Antes de este fix, el
+            // escaneo dejaba ``selectedPlc`` intacto (potencialmente
+            // vacio o stale), y el preview de Procesos pasaba
+            // ``plc_name=""`` al backend → "Cache de bloques no
+            // disponible" aunque la cache existiera en memoria.
+            store.selectedPlc = plcName;
         } else if (r.errorType === "TIAConnectionError") {
             // TIA Portal no responde. El backend ya invalido su
             // cache; el frontend debe hacer lo propio para que
