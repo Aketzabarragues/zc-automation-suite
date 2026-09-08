@@ -139,6 +139,16 @@ class ProcSyncComentariosUseCase:
                 ],
             )
         try:
+            # Workdir del preview (read-only). Por convención de la app
+            # (ver ``_plan/16_carpetas_convencion.md``), los TAG
+            # tables de N_MAX van a ``preview/variables/`` y los
+            # bloques ``.s7dcl``/``.s7res`` van a ``preview/bloques/``.
+            # ``preview/`` se limpia al inicio con ``clean_preview()``
+            # para atrapar artefactos de dry-runs anteriores. ``exports/``
+            # y ``modified/`` se preservan intactos (los usa el commit
+            # en curso, ver ``ejecutar_transaccion``).
+            proc_ctx = build_cache(root=self._build_cache).procesos
+            proc_ctx.clean_preview()
             # check_state: validar que excel_cache no esté vacío.
             if _track:
                 self._progress.start_stage("check_state", "Validando AppState...")
@@ -870,9 +880,12 @@ class ProcSyncComentariosUseCase:
         # ``000_Config_Dispositivos`` de dispositivos.
         # ``target_dir`` SIN subcarpeta: el worker, con
         # ``keep_folder_structure=True``, crea la jerarquía del PLC
-        # (``target_dir/003_Procesos/100_CPR.xml``).
-        target_dir = build_cache(root=self._build_cache).procesos.preview
-        target_dir.mkdir(parents=True, exist_ok=True)
+        # (``target_dir/003_Procesos/100_CPR.xml``). El target_dir
+        # es la subcarpeta ``preview/variables/`` (TAG tables
+        # separados de bloques; ver ``_plan/16_carpetas_convencion.md``).
+        target_dir = build_cache(root=self._build_cache).procesos.preview_variables
+        # La subcarpeta ya existe via ``cached_property``; no hace
+        # falta ``mkdir(parents=True, exist_ok=True)``.
         table_name = slot_map.table_name  # p. ej. "100_CPR"
 
         current: dict[str, int] = {}
@@ -958,7 +971,7 @@ class ProcSyncComentariosUseCase:
         from areas.alimentacion.infrastructure.sd.proc_comment_updater import (
             ProcCommentUpdater,
         )
-        work_dir = build_cache(root=self._build_cache).procesos.preview
+        work_dir = build_cache(root=self._build_cache).procesos.preview_bloques
         plc_name = (
             self._bloques_cache.plc_name
             if self._bloques_cache is not None

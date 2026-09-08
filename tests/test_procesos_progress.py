@@ -270,9 +270,11 @@ def test_generar_prevision_diff_real_con_archivos_tia(tmp_path) -> None:
 
     # 1. Preparar los archivos .s7dcl/.s7res en el work_dir que
     # construirá el use case como si vinieran de TIA. El caso de uso
-    # los monta en ``<build_cache>/alimentacion/procesos/preview/``
-    # (vía ``BuildCache``), por lo que pre-escribimos directamente ahí.
-    work_dir = tmp_path / "alimentacion" / "procesos" / "preview"
+    # los monta en ``<build_cache>/alimentacion/procesos/preview/bloques/``
+    # (vía ``BuildCache``, subcarpeta typed para bloques; ver
+    # ``_plan/16_carpetas_convencion.md``), por lo que pre-escribimos
+    # directamente ahí.
+    work_dir = tmp_path / "alimentacion" / "procesos" / "preview" / "bloques"
     work_dir.mkdir(parents=True)
     db_param = "DB53100_CPR_PARAM"
     db_alm = "DB55100_CPR_ALM"
@@ -322,11 +324,23 @@ def test_generar_prevision_diff_real_con_archivos_tia(tmp_path) -> None:
     (work_dir / f"{db_alm}.s7res").write_text(s7res_alm, encoding="utf-8-sig")
 
     # 2. Mock del gateway: export_block escribe los archivos en
-    # work_dir. En producción, TIA hace esto; aquí lo simula el mock.
+    # work_dir (como TIA real). Importante: el use case llama
+    # ``clean_preview()`` al inicio, que BORRA el work_dir; por eso
+    # el contenido pre-escrito se mete en un side_effect del mock
+    # que se ejecuta en cada llamada (justo DESPUÉS del clean).
     gateway = MagicMock(spec=TIAProcessGateway)
 
+    payloads = {
+        db_param: (s7dcl_param, s7res_param),
+        db_alm: (s7dcl_alm, s7res_alm),
+    }
+
     async def fake_export(plc_name, block_name, target_dir):
-        # En producción TIA escribe; aquí ya están escritos.
+        # En producción TIA escribe; aquí simulamos escribiendo
+        # el payload correspondiente en target_dir (post-clean).
+        dcl, res = payloads.get(block_name, ("", ""))
+        (Path(target_dir) / f"{block_name}.s7dcl").write_text(dcl, encoding="utf-8")
+        (Path(target_dir) / f"{block_name}.s7res").write_text(res, encoding="utf-8-sig")
         return target_dir
 
     gateway.export_block = AsyncMock(side_effect=fake_export)
@@ -380,8 +394,11 @@ def test_generar_prevision_diff_real_con_archivos_tia(tmp_path) -> None:
     result = asyncio.run(use_case.generar_prevision(100))
 
     # El preview debe haber escrito los exports en
-    # ``<build_cache>/alimentacion/procesos/preview/``.
-    expected_work_dir = tmp_path / "alimentacion" / "procesos" / "preview"
+    # ``<build_cache>/alimentacion/procesos/preview/bloques/``
+    # (subcarpeta typed para bloques .s7dcl/.s7res).
+    expected_work_dir = (
+        tmp_path / "alimentacion" / "procesos" / "preview" / "bloques"
+    )
     assert expected_work_dir.is_dir(), (
         f"El preview no creó su work_dir: {expected_work_dir}"
     )
@@ -725,8 +742,10 @@ def test_generar_prevision_slots_tia_no_excel_aparecen_como_eliminar(
     }
 
     # Escribimos los .s7dcl/.s7res en el work_dir para que el
-    # ``read_current_comments`` los pueda leer.
-    work_dir = tmp_path / "alimentacion" / "procesos" / "preview"
+    # ``read_current_comments`` los pueda leer. El work_dir es la
+    # subcarpeta typed ``preview/bloques/`` (ver
+    # ``_plan/16_carpetas_convencion.md``).
+    work_dir = tmp_path / "alimentacion" / "procesos" / "preview" / "bloques"
     work_dir.mkdir(parents=True)
     s7dcl = (
         'DATA_BLOCK "DB53100_CPR_PARAM"\n'
@@ -781,8 +800,23 @@ def test_generar_prevision_slots_tia_no_excel_aparecen_como_eliminar(
 
     gateway = MagicMock(spec=TIAProcessGateway)
 
+    # El use case llama ``clean_preview()`` al inicio, que BORRA el
+    # work_dir; los archivos pre-escritos arriba se pierden. Por eso
+    # el side_effect re-escribe los payloads en cada llamada
+    # (justo DESPUÉS del clean), reflejando el comportamiento real
+    # de TIA.
+    payloads = {
+        db_param: (s7dcl, s7res),
+        db_alm_resolved: (
+            f'DATA_BLOCK "{db_alm_resolved}"\n    END_DATA_BLOCK\n',
+            "MultiLingualTexts:\n",
+        ),
+    }
+
     async def fake_export_block(plc_name, block_name, target_dir):
-        # El mock "exporta" los archivos que ya escribimos arriba.
+        dcl, res = payloads.get(block_name, ("", ""))
+        (Path(target_dir) / f"{block_name}.s7dcl").write_text(dcl, encoding="utf-8")
+        (Path(target_dir) / f"{block_name}.s7res").write_text(res, encoding="utf-8-sig")
         return target_dir
 
     gateway.export_block = AsyncMock(side_effect=fake_export_block)
