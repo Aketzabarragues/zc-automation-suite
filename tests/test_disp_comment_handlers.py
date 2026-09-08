@@ -13,6 +13,7 @@ from __future__ import annotations
 import importlib
 import sys
 from pathlib import Path
+import tempfile
 from unittest.mock import MagicMock
 
 import pytest
@@ -213,3 +214,146 @@ def test_handler_todos_los_hw_types_registrados() -> None:
     for name in expected:
         assert name in COMMAND_REGISTRY, f"Falta handler {name!r} en COMMAND_REGISTRY"
         assert callable(COMMAND_REGISTRY[name]), f"{name!r} no es callable"
+
+
+def test_handler_usa_exports_subdir_y_copytree_si_se_pasa() -> None:
+    """Commit 7: cuando se pasa ``exports_subdir``, el handler de disp
+    exporta al snapshot limpio (``exports_subdir``) y hace
+    ``shutil.copytree`` a ``work_dir`` antes del modify. El snapshot
+    pre-commit queda intacto en ``exports_subdir`` y la versión
+    modificada vive en ``work_dir`` (= ``modified_bloques/``).
+
+    Consecuencia: ``git diff exports/bloques/ modified/bloques/``
+    muestra los cambios del updater (audit pre vs post).
+    """
+    import shutil
+    from unittest.mock import MagicMock
+    from core.infrastructure.tia import worker_tia
+    from core.models.bloque_plc import BloquePLC
+
+    portal = MagicMock()
+    ts = MagicMock()
+
+    tmp_exports = Path(tempfile.mkdtemp(prefix="exports_"))
+    tmp_work = Path(tempfile.mkdtemp(prefix="work_"))
+    db_name = "DB2000_ED"
+
+    # Simulamos el export de TIA: escribe ``.s7dcl`` y ``.s7res`` en
+    # ``exports_subdir`` (= snapshot pre-commit).
+    pre_dcl = tmp_exports / f"{db_name}.s7dcl"
+    pre_res = tmp_exports / f"{db_name}.s7res"
+    pre_dcl.write_text("PRE_DCL_CONTENT", encoding="utf-8")
+    pre_res.write_text("MultiLingualTexts: []\n", encoding="utf-8-sig")
+
+    def fake_export_block(portal_, ts_, args):
+        target_dir = Path(args["target_dir"])
+        # Simulamos: TIA escribe en target_dir (que en el flujo Commit 7
+        # es ``exports_subdir``, NO ``work_dir``).
+        (target_dir / f"{args['block_name']}.s7dcl").write_text(
+            "PRE_DCL_CONTENT", encoding="utf-8"
+        )
+        (target_dir / f"{args['block_name']}.s7res").write_text(
+            "MultiLingualTexts: []\n", encoding="utf-8-sig"
+        )
+        return target_dir
+
+    def fake_import_block(portal_, ts_, args):
+        # Capturamos el import_dir para verificar de dónde se importa.
+        captured["import_dir"] = args.get("import_dir")
+        return True
+
+    captured: dict = {}
+    core_registry = worker_tia.COMMAND_REGISTRY
+    original_export = core_registry["export_block"]
+    original_import = core_registry["import_block"]
+    core_registry["export_block"] = fake_export_block
+    core_registry["import_block"] = fake_import_block
+    try:
+        handler = COMMAND_REGISTRY["update_disp_comments_db_ed"]
+        result = handler(portal, ts, {
+            "plc_name": "PLC1",
+            "db_name": db_name,
+            "db_array_name": "ED",
+            "slot_map": {"0": "NO USAR"},
+            "work_dir": str(tmp_work),
+            "target_folder": "2000_Dispositivos",
+            "exports_subdir": str(tmp_exports),
+        })
+    finally:
+        core_registry["export_block"] = original_export
+        core_registry["import_block"] = original_import
+
+    # 1. El snapshot pre-commit en ``exports_subdir`` está INTACTO
+    #    (el updater NO lo modificó).
+    assert pre_dcl.read_text(encoding="utf-8") == "PRE_DCL_CONTENT", (
+        "El snapshot pre-commit en ``exports_subdir`` debe quedar intacto."
+    )
+    # 2. La copia en ``work_dir`` (modified_bloques) tiene el archivo
+    #    escrito por el export inicial (vía copytree).
+    assert (tmp_work / f"{db_name}.s7dcl").exists(), (
+        "El handler debe hacer shutil.copytree de ``exports_subdir`` a ``work_dir``."
+    )
+    # 3. El import_block se llamó desde ``work_dir`` (modified_bloques).
+    assert str(captured.get("import_dir")) == str(tmp_work), (
+        f"El import debe hacerse desde ``work_dir`` (modified_bloques), "
+        f"got: {captured.get('import_dir')!r}"
+    )
+    # 4. El export_block se llamó a ``exports_subdir`` (NO a ``work_dir``).
+    assert pre_dcl.exists(), "El export debe escribirse en ``exports_subdir``."
+
+
+def test_handler_sin_exports_subdir_usa_patron_legacy() -> None:
+    """Sin ``exports_subdir`` (legacy), el handler exporta directo a ``work_dir``.
+
+    Mantiene backward compat con tests legacy que no pasan
+    ``exports_subdir``. En este caso, el snapshot pre y post-commit
+    viven en el mismo path (asimétrico; pre-Commit 7).
+    """
+    from unittest.mock import MagicMock
+    from core.infrastructure.tia import worker_tia
+
+    portal = MagicMock()
+    ts = MagicMock()
+    tmp_work = Path(tempfile.mkdtemp(prefix="legacy_"))
+    db_name = "DB2000_ED"
+
+    captured: dict = {}
+
+    def fake_export_block(portal_, ts_, args):
+        captured["target_dir"] = args.get("target_dir")
+        target_dir = Path(args["target_dir"])
+        (target_dir / f"{args['block_name']}.s7dcl").write_text(
+            "DCL", encoding="utf-8"
+        )
+        (target_dir / f"{args['block_name']}.s7res").write_text(
+            "MultiLingualTexts: []\n", encoding="utf-8-sig"
+        )
+        return target_dir
+
+    def fake_import_block(portal_, ts_, args):
+        captured["import_dir"] = args.get("import_dir")
+        return True
+
+    core_registry = worker_tia.COMMAND_REGISTRY
+    original_export = core_registry["export_block"]
+    original_import = core_registry["import_block"]
+    core_registry["export_block"] = fake_export_block
+    core_registry["import_block"] = fake_import_block
+    try:
+        handler = COMMAND_REGISTRY["update_disp_comments_db_ed"]
+        # NOTAR: NO pasamos ``exports_subdir`` (legacy).
+        handler(portal, ts, {
+            "plc_name": "PLC1",
+            "db_name": db_name,
+            "db_array_name": "ED",
+            "slot_map": {"0": "NO USAR"},
+            "work_dir": str(tmp_work),
+            "target_folder": "2000_Dispositivos",
+        })
+    finally:
+        core_registry["export_block"] = original_export
+        core_registry["import_block"] = original_import
+
+    # Legacy: export e import ambos sobre ``work_dir``.
+    assert str(captured.get("target_dir")) == str(tmp_work)
+    assert str(captured.get("import_dir")) == str(tmp_work)

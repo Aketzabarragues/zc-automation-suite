@@ -9,6 +9,7 @@ funciona end-to-end:
 """
 from __future__ import annotations
 
+import os
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -705,13 +706,22 @@ async def test_ejecutar_transaccion_uses_typed_subdirs_for_commit_and_bloques(
     result = await use_case.ejecutar_transaccion("PLC1", {})
     assert result["success"] is True
 
-    # El batch de comentarios se llam\u00f3 con ``subestado="exports/bloques"``.
+    # El batch de comentarios se llam\u00f3 con ``work_dir=modified/bloques``
+    # + ``exports_subdir=exports/bloques`` (Commit 7).
     mock_gateway.update_disp_instance_comments_batch.assert_called_once()
     call_kwargs = (
         mock_gateway.update_disp_instance_comments_batch.call_args.kwargs
     )
-    assert call_kwargs.get("subestado") == "exports/bloques", (
-        f"subestado debe ser 'exports/bloques' (convenci\u00f3n 9 carpetas), "
+    # ``os.sep`` para tolerar backslash en Windows y slash en Linux/macOS.
+    assert str(call_kwargs.get("work_dir")).endswith(
+        f"modified{os.sep}bloques"
+    ), f"work_dir debe apuntar a 'modified/bloques', got: {call_kwargs.get('work_dir')!r}"
+    assert str(call_kwargs.get("exports_subdir")).endswith(
+        f"exports{os.sep}bloques"
+    ), f"exports_subdir debe apuntar a 'exports/bloques' (snapshot pre-commit), got: {call_kwargs.get('exports_subdir')!r}"
+    # Y NO debe llevar ``subestado`` activo (Commit 7 lo reemplaza).
+    assert call_kwargs.get("subestado") in (None, "exports"), (
+        f"subestado no deber\u00eda pasarse (o solo con el default 'exports' legacy), "
         f"got: {call_kwargs.get('subestado')!r}"
     )
 

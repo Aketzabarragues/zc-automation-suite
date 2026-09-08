@@ -2293,22 +2293,23 @@ class TIAProcessGateway:
         contexto: str = "dispositivos",
         subestado: str = "exports",
         build_cache_dir: Path | None = None,
+        work_dir: Path | str | None = None,
+        exports_subdir: Path | str | None = None,
         undo_text: str = "Sync comentarios dispositivos",
     ) -> dict[str, Any]:
         """Aplica los comentarios por instancia a los 6 DBs de dispositivos
         en una sola transacción TIA con rollback atómico.
 
-        Misma convención que ``DispSyncInstancesUseCase``: el directorio
-        de trabajo es ``<build_cache>/<area_id>/<contexto>/<subestado>/``
-        (con ``build_cache = Path(os.getcwd()) / ".build_cache"`` por
-        defecto). El directorio se conserva tras la operación para
-        permitir inspección manual y diff con ``git diff``.
+        Convenciones de path (Commit 7):
 
-        Los parámetros ``area_id``, ``contexto`` y ``subestado`` son
-        parametrizables (keyword-only) para que un 2º área pueda
-        reutilizar este método apuntando a su propio workdir sin que
-        el gateway tenga que saber qué áreas existen. Por defecto
-        apuntan al flujo canónico de alimentación/dispositivos/exports/.
+        * Si el caller pasa ``work_dir`` y ``exports_subdir`` explícitos
+          (recomendado, caso nuevo de 9 carpetas), el gateway los usa
+          tal cual. ``exports_subdir`` es el snapshot limpio pre-commit
+          (``exports/bloques/``) y ``work_dir`` es donde el updater
+          modifica la copia (``modified/bloques/``).
+        * Si el caller no los pasa (legacy), el gateway compone el
+          ``work_dir`` desde ``area_id``/``contexto``/``subestado`` (sin
+          copia intermedia; pre-Commit 7).
 
         Args:
             plc_name: nombre del PLC en TIA.
@@ -2319,14 +2320,22 @@ class TIAProcessGateway:
                 TIA (resuelta por ``ConfigManager.get_tia_folder_dispositivos()``).
             db_names: ``{hw_type: db_name}`` ya resuelto por ConfigManager.
             db_array_names: ``{hw_type: db_array_name}`` ya resuelto por ConfigManager.
-            area_id: id del área para resolver el workdir
+            area_id: id del área para resolver el workdir legacy
                 (default ``"alimentacion"``).
             contexto: contexto de dominio dentro del área
                 (default ``"dispositivos"``).
-            subestado: subestado del ``ContextCache``
-                (default ``"exports"``; otros: ``"modified"``, ``"preview"``).
-            build_cache_dir: ruta al directorio ``.build_cache``. Si es
-                None, se usa ``Path(os.getcwd()) / ".build_cache"``.
+            subestado: subestado legacy del ``ContextCache``
+                (default ``"exports"``). Solo se usa si ``work_dir`` no
+                se pasa explícitamente.
+            build_cache_dir: ruta al directorio ``.build_cache`` (solo
+                para el path legacy cuando ``work_dir`` no se pasa).
+            work_dir: path explícito al workdir de modify+import
+                (``modified_bloques/``). Si se pasa, se usa tal cual.
+            exports_subdir: path explícito al workdir del snapshot
+                limpio pre-commit (``exports_bloques/``). Si se pasa,
+                el handler hace export aquí + ``shutil.copytree`` a
+                ``work_dir``. Si no, comportamiento legacy (export
+                directo a ``work_dir``).
             undo_text: etiqueta del historial Undo de TIA Portal.
 
         Returns:
@@ -2340,13 +2349,11 @@ class TIAProcessGateway:
         if not dispositivos_slot_maps:
             raise ValueError("dispositivos_slot_maps está vacío.")
 
-        # Workdir de export para los 6 DBs. El gateway vive en
-        # ``core/`` (no debe importar áreas), así que construimos el
-        # path directamente desde los parámetros, sin pasar por
-        # ``AlimentacionAreaCache``. Por defecto, apunta al flujo
-        # canónico de alimentación/dispositivos/exports/.
-        root = Path(build_cache_dir) if build_cache_dir is not None else Path(os.getcwd()) / ".build_cache"
-        work_dir = BuildCache(area_id=area_id, root=root).area.root / contexto / subestado
+        # Workdir: preferir el explícito (Commit 7) sobre el legacy.
+        if work_dir is None:
+            root = Path(build_cache_dir) if build_cache_dir is not None else Path(os.getcwd()) / ".build_cache"
+            work_dir = BuildCache(area_id=area_id, root=root).area.root / contexto / subestado
+        work_dir = Path(work_dir)
         work_dir.mkdir(parents=True, exist_ok=True)
 
         operations: list[dict[str, Any]] = []
@@ -2356,16 +2363,22 @@ class TIAProcessGateway:
                     f"slot_map[{hw_type!r}][0] debe ser 'NO USAR' "
                     f"(got {slot_map.get(0)!r})."
                 )
+            op_args: dict[str, Any] = {
+                "plc_name":      plc_name,
+                "db_name":       db_names.get(hw_type, ""),
+                "db_array_name": db_array_names.get(hw_type, ""),
+                "slot_map":      {str(k): v for k, v in slot_map.items()},
+                "work_dir":      str(work_dir),
+                "target_folder": target_folder,
+            }
+            # Si el caller pasó ``exports_subdir``, se lo pasamos al
+            # handler. Si no, el handler hace el legacy (export directo
+            # a ``work_dir``).
+            if exports_subdir is not None:
+                op_args["exports_subdir"] = str(exports_subdir)
             operations.append({
                 "command": f"update_disp_comments_db_{hw_type}",
-                "args": {
-                    "plc_name":      plc_name,
-                    "db_name":       db_names.get(hw_type, ""),
-                    "db_array_name": db_array_names.get(hw_type, ""),
-                    "slot_map":      {str(k): v for k, v in slot_map.items()},
-                    "work_dir":      str(work_dir),
-                    "target_folder": target_folder,
-                },
+                "args": op_args,
             })
         result = await self.execute_transactional_batch(
             operations, undo_text=undo_text

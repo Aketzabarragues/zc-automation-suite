@@ -729,6 +729,16 @@ class DispSyncInstancesUseCase:
         (N_MAX + devices ya estan aplicados); el operario puede reintentar
         via POST /api/v1/alimentacion/aplicar-comentarios-disp.
 
+        Convención de 9 carpetas (Commit 7):
+
+        * ``exports/bloques/`` = snapshot limpio pre-commit. TIA exporta
+          aquí primero (dentro de la tx).
+        * ``modified/bloques/`` = donde el updater modifica. El handler
+          hace ``shutil.copytree(exports/bloques/, modified/bloques/)``
+          tras el export y modifica la copia.
+        * ``git diff exports/bloques/ modified/bloques/`` muestra los
+          cambios del updater (audit pre vs post).
+
         Returns:
             ``dict`` con shape::
 
@@ -753,15 +763,13 @@ class DispSyncInstancesUseCase:
             warnings = list(build_warnings)
             target_folder = self._config.get_tia_folder_dispositivos()
             undo_text = f"Sync comentarios dispositivos ({plc_name})"
-            # Por la convención de 9 carpetas (plan 2026-09-08), los
-            # ``.s7dcl``/``.s7res`` (bloques) viven en la subcarpeta
-            # ``exports/bloques/``, no en la raíz ``exports/``. El gateway
-            # compone el work_dir como ``<root>/<area>/<contexto>/<subestado>/``,
-            # así que pasamos ``subestado="exports/bloques"`` explícitamente.
-            # El handler ``update_disp_comments_db_<hw>`` del worker hace
-            # export+modify+import en ese dir. Después copiamos a
-            # ``modified/bloques/`` para preservar el resultado
-            # post-modificación (auditoría: ver qué se aplicó).
+            # Por la convención de 9 carpetas, los ``.s7dcl``/``.s7res``
+            # (bloques) viven en la subcarpeta ``exports/bloques/``,
+            # no en la raíz. Pasamos ``work_dir`` y ``exports_subdir``
+            # explícitos al gateway (Commit 7); el handler hace
+            # export → ``shutil.copytree`` → modify → import, dejando
+            # el snapshot pre-commit intacto en ``exports/bloques/`` y
+            # la versión modificada en ``modified/bloques/``.
             disp_ctx = build_cache(root=self._build_cache).dispositivos
             result = await self._gateway.update_disp_instance_comments_batch(
                 plc_name=plc_name,
@@ -769,20 +777,10 @@ class DispSyncInstancesUseCase:
                 target_folder=target_folder,
                 db_names=db_names,
                 db_array_names=db_array_names,
-                subestado="exports/bloques",
+                work_dir=disp_ctx.modified_bloques,
+                exports_subdir=disp_ctx.exports_bloques,
                 undo_text=undo_text,
             )
-            # Auditoría: copia ``exports/bloques/`` (post-modificación
-            # del worker) a ``modified/bloques/``. Como el handler
-            # modifica in-place, ``exports/bloques/`` ya contiene el
-            # resultado aplicado. La copia deja ``modified/bloques/``
-            # como snapshot de lo importado.
-            if disp_ctx.exports_bloques.exists():
-                shutil.copytree(
-                    disp_ctx.exports_bloques,
-                    disp_ctx.modified_bloques,
-                    dirs_exist_ok=True,
-                )
             applied = True
             ops = int(result.get("operations_executed", 0))
             self._progress.finish_stage(

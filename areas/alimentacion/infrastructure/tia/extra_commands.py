@@ -65,6 +65,31 @@ def make_cmd_update_disp_comments_db(hw_type: str) -> Callable[..., Any]:
     Vive dentro de la transacción que abrió
     ``execute_transactional_batch`` en el lote (no abre transacción
     propia); es atómico respecto al lote.
+
+    Args (de ``args``):
+        plc_name: nombre del PLC en TIA.
+        db_name: nombre del DB objetivo.
+        db_array_name: nombre del array dentro del DB.
+        slot_map: ``{slot: texto}``.
+        work_dir: directorio de TRABAJO donde TIA escribe el export,
+                  el updater modifica in-place, y desde donde TIA
+                  importa. Por convención de 9 carpetas
+                  (``_plan/16_carpetas_convencion.md``), es
+                  ``modified_bloques/<db_subpath>`` (raíz de la fase
+                  post-commit).
+        target_folder: carpeta TIA donde está el DB (estática para
+                       dispositivos, viene de ``config.json``).
+        exports_subdir: directorio del SNAPSHOT LIMPIO pre-commit
+                       (opcional, Commit 7). Si se pasa, TIA
+                       exporta aquí primero, luego
+                       ``shutil.copytree`` copia el snapshot a
+                       ``work_dir``, y el updater modifica la
+                       copia. Si NO se pasa (legacy), TIA
+                       exporta directo a ``work_dir`` y el updater
+                       modifica in-place. Con ``exports_subdir``
+                       se consigue que ``git diff exports/bloques/
+                       modified/bloques/`` muestre los cambios del
+                       updater (audit pre vs post).
     """
     def _cmd(portal: Any, ts: Any, args: dict[str, Any]) -> dict[str, Any]:
         plc_name: str = args.get("plc_name", "")
@@ -73,6 +98,14 @@ def make_cmd_update_disp_comments_db(hw_type: str) -> Callable[..., Any]:
         slot_map: dict[str, str] = args.get("slot_map", {})
         work_dir: str = args.get("work_dir", "")
         target_folder: str = args.get("target_folder", "")
+        # ``exports_subdir`` (Commit 7): ver rationale en el docstring.
+        # Si se pasa, el export va al snapshot limpio (``exports/bloques``)
+        # y luego se copia a ``work_dir`` (= ``modified_bloques``). Si
+        # NO se pasa (legacy), el export va directo a ``work_dir`` y el
+        # updater modifica in-place (asimétrico con proc; ver
+        # ``_plan/16_carpetas_convencion.md`` §8 sobre la decisión de
+        # Commit 7).
+        exports_subdir: str = args.get("exports_subdir", "") or ""
 
         if not (plc_name and db_name and db_array_name and work_dir and target_folder):
             raise ValueError(
@@ -103,11 +136,45 @@ def make_cmd_update_disp_comments_db(hw_type: str) -> Callable[..., Any]:
         core_registry = worker_tia.COMMAND_REGISTRY
 
         # 1. EXPORT SELECTIVO (reusa ``export_block`` del core).
-        core_registry["export_block"](portal, ts, {
-            "plc_name":   plc_name,
-            "block_name": db_name,
-            "target_dir": work_dir,
-        })
+        #    Patrón nuevo (Commit 7, si ``exports_subdir`` se pasa):
+        #      - Export al snapshot limpio (``exports/bloques``) +
+        #        ``shutil.copytree`` a ``work_dir`` (= ``modified_bloques``).
+        #        El updater modifica la copia, dejando el snapshot
+        #        limpio en ``exports/bloques/`` intacto.
+        #      - Consecuencia: ``git diff exports/bloques/ modified/bloques/``
+        #        muestra los cambios del updater.
+        #    Patrón legacy (``exports_subdir=""``):
+        #      - Export directo a ``work_dir`` y updater modifica
+        #        in-place. (Asimétrico con proc; pre-Commit 7.)
+        if exports_subdir:
+            export_target_dir = exports_subdir
+            core_registry["export_block"](portal, ts, {
+                "plc_name":   plc_name,
+                "block_name": db_name,
+                "target_dir": export_target_dir,
+            })
+            # El export escribe ``.s7dcl``/``.s7res`` en
+            # ``export_target_dir`` (TIA respeta la ruta tal cual).
+            # Copiamos el contenido a ``work_dir`` para que el updater
+            # opere sobre la copia, no sobre el snapshot limpio.
+            if Path(export_target_dir).exists():
+                shutil.copytree(
+                    export_target_dir, work_dir,
+                    dirs_exist_ok=True,
+                )
+            else:
+                # El export no produjo archivos (¿db_name mal?). El
+                # updater fallará al no encontrar ``.s7dcl``/``.s7res``;
+                # dejamos que lance el error natural en lugar de
+                # enmascararlo con un fallback.
+                Path(work_dir).mkdir(parents=True, exist_ok=True)
+        else:
+            # Legacy: export directo a ``work_dir``.
+            core_registry["export_block"](portal, ts, {
+                "plc_name":   plc_name,
+                "block_name": db_name,
+                "target_dir": work_dir,
+            })
 
         # 2. Updater offline.
         updater = DispCommentUpdater(
