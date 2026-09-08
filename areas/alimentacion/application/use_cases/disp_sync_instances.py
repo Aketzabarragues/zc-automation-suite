@@ -122,8 +122,11 @@ class DispSyncInstancesUseCase:
 
         Steps:
           1. Export bulk del PLC al directorio
-             ``.build_cache/alimentacion/dispositivos/exports/`` (vía
-             ``build_cache(root=self._build_cache).dispositivos.exports``).
+             ``.build_cache/alimentacion/dispositivos/preview/variables/``
+             (vía ``build_cache(root=self._build_cache).dispositivos.preview_variables``).
+             ``preview/`` se limpia al inicio con ``clean_preview()``
+             para atrapar artefactos de dry-runs anteriores. NO se
+             toca ``exports/`` ni ``modified/``.
           2. Calcula el diff de devices (instancias) con
              ``_compute_diff_readonly`` sobre los 6 XMLs
              ``2000_Disp_*``.
@@ -150,9 +153,15 @@ class DispSyncInstancesUseCase:
             )
         try:
             # Workdir de export para el diff read-only. Por convenci\u00f3n
-            # de la app, vive en ``.build_cache/alimentacion/dispositivos/exports/``.
-            tags_base = build_cache(root=self._build_cache).dispositivos.exports
-            tags_base.mkdir(parents=True, exist_ok=True)
+            # de la app (ver ``_plan/16_carpetas_convencion.md``),
+            # vive en ``.build_cache/alimentacion/dispositivos/preview/variables/``
+            # (NO en ``exports/``). El ``preview/`` se limpia al inicio
+            # para que el diff sea contra un export fresco. ``exports/``
+            # y ``modified/`` se preservan intactos (los usa el commit
+            # en curso, ver ``ejecutar_transaccion``).
+            disp_ctx = build_cache(root=self._build_cache).dispositivos
+            disp_ctx.clean_preview()
+            tags_base = disp_ctx.preview_variables
             if _track:
                 self._progress.start_stage(
                 "export_tags", "Iniciando export bulk de tags del PLC..."
