@@ -507,9 +507,24 @@ class ProcSyncComentariosUseCase:
             # Limpiamos el workdir antes del apply para que no queden
             # residuos de runs anteriores (cierra la asimetría con
             # ``DispSyncInstancesUseCase`` que ya lo hacía).
+            #
+            # Commit 5: ``proc_ctx.clean()`` ya limpia las 6 subcarpetas
+            # operativas (``exports/{variables,bloques,udt}`` +
+            # ``modified/{variables,bloques,udt}``) y deja intacto
+            # ``preview/`` (auditable). Los handlers de procesos ahora
+            # separan exports/modified:
+            #   - ``work_dir`` = ``modified_bloques``: el updater modifica
+            #     in-place aquí. El handler hace la copia con
+            #     ``shutil.copytree`` desde ``exports_bloques``.
+            #   - ``exports_subdir`` = ``exports_bloques``: el snapshot
+            #     limpio de TIA queda aquí, auditable tras el commit
+            #     (``git diff modified/ exports/`` muestra qué cambió
+            #     el updater).
+            # Ver ``_plan/16_carpetas_convencion.md`` §2.2.
             proc_ctx = build_cache(root=self._build_cache).procesos
             proc_ctx.clean()
-            work_dir = proc_ctx.exports
+            work_dir = proc_ctx.modified_bloques
+            exports_subdir = proc_ctx.exports_bloques
             target_folder = self._config.get_tia_folder_proceso()
             undo_text = (
                 f"Sync comentarios proceso {slot_map.db_param_name.split('_')[1] if '_' in slot_map.db_param_name else proc_uid} "
@@ -585,7 +600,13 @@ class ProcSyncComentariosUseCase:
                 # ya existe el bloque, si no, falla con "object with the
                 # name already exists" (validado 2026-09-07). Si la
                 # cache no tiene la ruta (``""``), el handler cae al
-                # comportamiento legacy (raíz de ``exports/``).
+                # comportamiento legacy (raíz de ``work_dir``).
+                #
+                # Commit 5: ``work_dir`` apunta a ``modified_bloques`` y
+                # ``exports_subdir`` al snapshot limpio (``exports_bloques``).
+                # El handler hace 1 export a ``exports_subdir/<db_subpath>``
+                # + ``shutil.copytree`` a ``work_dir/<db_subpath>`` y
+                # luego el updater modifica la copia.
                 {
                     "command": "update_proc_comments_db_param",
                     "args": {
@@ -595,6 +616,7 @@ class ProcSyncComentariosUseCase:
                         "preal_slot_map": preal_apply,
                         "pint_slot_map":  pint_apply,
                         "work_dir":       str(work_dir),
+                        "exports_subdir": str(exports_subdir),
                         "target_folder":  target_folder,
                     },
                 },
@@ -607,6 +629,7 @@ class ProcSyncComentariosUseCase:
                         "array_name": "ALM",
                         "slot_map": alm_apply,
                         "work_dir": str(work_dir),
+                        "exports_subdir": str(exports_subdir),
                         "target_folder": target_folder,
                     },
                 },

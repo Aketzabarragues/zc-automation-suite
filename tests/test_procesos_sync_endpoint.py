@@ -271,19 +271,26 @@ def test_endpoint_commit_invoca_gateway_con_target_folder_y_undo(
     alm_op = operations[1]
     assert alm_op["args"]["array_name"] == "ALM"
     assert "slot_map" in alm_op["args"]
-    # target_folder y work_dir vienen del config. El work_dir del
-    # commit sigue el patrón ``<build_cache>/alimentacion/procesos/exports/``
-    # (jerarquía canónica de ``BuildCache``: ``<area_id>/<contexto>/<subestado>``).
-    # El preview usa ``<build_cache>/alimentacion/procesos/preview/``
-    # separado, para que el operario no confunda archivos exportados
-    # durante un preview con archivos a reimportar en el commit.
+    # target_folder y work_dir vienen del config. Commit 5: el
+    # ``work_dir`` del commit apunta a ``modified_bloques`` (NO a
+    # ``exports`` raíz), y se pasa el ``exports_subdir`` apuntando
+    # al snapshot limpio (``exports_bloques``). El handler hace
+    # 1 export al snapshot + ``shutil.copytree`` a ``modified_bloques``
+    # antes del updater. La jerarquía canónica de ``BuildCache`` es
+    # ``<area_id>/<contexto>/<fase>/<tipo>`` (ver
+    # ``_plan/16_carpetas_convencion.md`` §0.1).
     for op in operations:
         assert op["args"]["target_folder"] == "003_Procesos"
         # ``os.sep`` para tolerar backslash en Windows y slash en
         # Linux/macOS.
         assert op["args"]["work_dir"].endswith(
-            f"alimentacion{os.sep}procesos{os.sep}exports"
+            f"alimentacion{os.sep}procesos{os.sep}modified{os.sep}bloques"
         ), op["args"]["work_dir"]
+        # ``exports_subdir`` apunta al snapshot limpio (auditable
+        # tras el commit: ``git diff modified/ exports/``).
+        assert op["args"]["exports_subdir"].endswith(
+            f"alimentacion{os.sep}procesos{os.sep}exports{os.sep}bloques"
+        ), op["args"]["exports_subdir"]
     # Undo text menciona el codigo "CPR" y el PLC.
     assert "CPR" in call_args["undo_text"]
     assert "PLC_X" in call_args["undo_text"]

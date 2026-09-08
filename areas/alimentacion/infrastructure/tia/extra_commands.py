@@ -30,6 +30,7 @@ solo cuando el handler se ejecuta, no al import del módulo).
 """
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 from typing import Any, Callable
 
@@ -443,6 +444,14 @@ def make_cmd_update_proc_comments_db(kind: str) -> Callable[..., Any]:
         # no tiene la ruta (``""``), el worker escribe a la raíz
         # de ``exports/`` (legacy).
         db_subpath: str = args.get("db_subpath", "")
+        # ``exports_subdir`` (Commit 5): si se pasa, el handler
+        # exporta al snapshot limpio (``exports_subdir/<db_subpath>``)
+        # y luego ``shutil.copytree`` lo copia a ``work_dir/<db_subpath>``
+        # (que será ``modified_bloques``). Si NO se pasa (legacy,
+        # backward compat con Commit 4 y tests anteriores), el export
+        # va directamente a ``work_dir/<db_subpath>`` y el updater
+        # modifica in-place. Default ``""`` = comportamiento legacy.
+        exports_subdir: str = args.get("exports_subdir", "") or ""
 
         if not (
             plc_name and db_name and array_name and work_dir and target_folder
@@ -486,14 +495,51 @@ def make_cmd_update_proc_comments_db(kind: str) -> Callable[..., Any]:
         core_registry = worker_tia.COMMAND_REGISTRY
 
         # 1. EXPORT SELECTIVO (reusa ``export_block`` del core).
-        #    TIA escribe ``.s7dcl``/``.s7res`` en ``effective_work_dir``,
-        #    que incluye el subpath del DB (crea el directorio si
-        #    no existe).
-        core_registry["export_block"](portal, ts, {
-            "plc_name":   plc_name,
-            "block_name": db_name,
-            "target_dir": effective_work_dir,
-        })
+        #    Patrón nuevo (Commit 5, si se pasa ``exports_subdir``):
+        #      - TIA escribe ``.s7dcl``/``.s7res`` al snapshot limpio
+        #        en ``<exports_subdir>/<db_subpath>/`` (auditable).
+        #      - ``shutil.copytree`` copia el snapshot a
+        #        ``<work_dir>/<db_subpath>/`` (= ``modified_bloques``)
+        #        para que el updater modifique la copia, dejando el
+        #        snapshot intacto.
+        #    Patrón legacy (backward compat, ``exports_subdir=""``):
+        #      - TIA escribe directo a ``<work_dir>/<db_subpath>/``
+        #        y el updater modifica in-place. Mismo comportamiento
+        #        que Commit 4 (disp) y que los tests anteriores.
+        if exports_subdir:
+            export_target_dir = (
+                str(Path(exports_subdir) / db_subpath)
+                if db_subpath else exports_subdir
+            )
+            core_registry["export_block"](portal, ts, {
+                "plc_name":   plc_name,
+                "block_name": db_name,
+                "target_dir": export_target_dir,
+            })
+            # Copia el snapshot limpio a ``effective_work_dir``
+            # (``work_dir/<db_subpath>``). TIA ya creó el directorio
+            # durante el export; ``copytree`` lo replica en el destino
+            # (que se crea si no existe). ``dirs_exist_ok=True``
+            # permite re-ejecuciones defensivas.
+            if Path(export_target_dir).exists():
+                shutil.copytree(
+                    export_target_dir, effective_work_dir,
+                    dirs_exist_ok=True,
+                )
+            else:
+                # Caso defensivo: TIA no exportó nada. Creamos el
+                # directorio vacío para que el updater no lance
+                # ``FileNotFoundError`` al instanciarse.
+                Path(effective_work_dir).mkdir(
+                    parents=True, exist_ok=True,
+                )
+        else:
+            # Legacy: export directo a ``effective_work_dir``.
+            core_registry["export_block"](portal, ts, {
+                "plc_name":   plc_name,
+                "block_name": db_name,
+                "target_dir": effective_work_dir,
+            })
 
         # 2. Updater offline (con propagación a satélites).
         updater = ProcCommentUpdater(
@@ -569,7 +615,16 @@ def make_cmd_update_proc_comments_db_param() -> Callable[..., Any]:
             "db_name": str (DB PARAM),
             "preal_slot_map": dict[str, str] (slot 1-based → texto),
             "pint_slot_map":  dict[str, str] (slot 1-based → texto),
-            "work_dir": str,
+            "work_dir": str (root de modified_bloques si se pasa
+                              exports_subdir; en otro caso root
+                              del snapshot directo),
+            "exports_subdir": str (opcional, Commit 5). Si se pasa,
+                              TIA exporta al snapshot limpio aquí
+                              (``exports_bloques``) y luego
+                              ``shutil.copytree`` lo copia a
+                              ``work_dir/<db_subpath>``. Si se omite,
+                              el export va directo a ``work_dir``
+                              (legacy / backward compat con Commit 4).
             "target_folder": str,
         }``
     """
@@ -583,6 +638,13 @@ def make_cmd_update_proc_comments_db_param() -> Callable[..., Any]:
         # ``db_subpath`` es la subcarpeta TIA del DB PARAM. Ver
         # rationale en el handler ``_alm``.
         db_subpath: str = args.get("db_subpath", "")
+        # ``exports_subdir`` (Commit 5): ver rationale completo en el
+        # factory ``make_cmd_update_proc_comments_db``. Si se pasa, el
+        # export va al snapshot limpio (``exports_bloques``) y luego
+        # se copia a ``work_dir`` (= ``modified_bloques``). Si NO se
+        # pasa (legacy), el export va directo a ``work_dir`` y el
+        # updater modifica in-place.
+        exports_subdir: str = args.get("exports_subdir", "") or ""
 
         if not (plc_name and db_name and work_dir and target_folder):
             raise ValueError(
@@ -618,13 +680,39 @@ def make_cmd_update_proc_comments_db_param() -> Callable[..., Any]:
         from core.infrastructure.tia import worker_tia
         core_registry = worker_tia.COMMAND_REGISTRY
 
-        # 1. UN SOLO export_block sobre el DB PARAM (en el subpath
-        #    de TIA si lo hay).
-        core_registry["export_block"](portal, ts, {
-            "plc_name":   plc_name,
-            "block_name": db_name,
-            "target_dir": effective_work_dir,
-        })
+        # 1. UN SOLO export_block sobre el DB PARAM. Patrón nuevo
+        #    (Commit 5, si ``exports_subdir`` se pasa):
+        #      - Export al snapshot limpio (``exports_bloques``) +
+        #        ``shutil.copytree`` a ``modified_bloques``.
+        #    Patrón legacy (backward compat, ``exports_subdir=""``):
+        #      - Export directo a ``modified_bloques`` (lo que
+        #        Commit 4 dejó para disp; también funciona aquí).
+        if exports_subdir:
+            export_target_dir = (
+                str(Path(exports_subdir) / db_subpath)
+                if db_subpath else exports_subdir
+            )
+            core_registry["export_block"](portal, ts, {
+                "plc_name":   plc_name,
+                "block_name": db_name,
+                "target_dir": export_target_dir,
+            })
+            if Path(export_target_dir).exists():
+                shutil.copytree(
+                    export_target_dir, effective_work_dir,
+                    dirs_exist_ok=True,
+                )
+            else:
+                Path(effective_work_dir).mkdir(
+                    parents=True, exist_ok=True,
+                )
+        else:
+            # Legacy: export directo a ``effective_work_dir``.
+            core_registry["export_block"](portal, ts, {
+                "plc_name":   plc_name,
+                "block_name": db_name,
+                "target_dir": effective_work_dir,
+            })
 
         # 2. updater PReal (con sus satélites).
         preal_result = None
