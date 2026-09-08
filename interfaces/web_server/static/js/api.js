@@ -12,9 +12,31 @@
  *   * Reutilizarlas desde varios componentes sin duplicación.
  *   * Mockearlas en tests con ``vi.mock`` o sustituyendo el módulo.
  *   * Localizar el cambio cuando evolucione el endpoint backend.
+ *
+ * Timeouts (sept-2026, fix AbortError):
+ *   Cada endpoint se clasifica en uno de tres buckets segun cuanto
+ *   puede tardar contra TIA Portal (S7-1500 con 200+ bloques es el
+ *   peor caso realista). El default es ``FAST_TIMEOUT_MS`` (30s) para
+ *   no penalizar lecturas rapidas. Las operaciones largas declaran
+ *   explicitamente ``MEDIUM_TIMEOUT_MS`` o ``SLOW_TIMEOUT_MS``.
+ *
+ *   Reglas practicas:
+ *     - FAST (30s):  lecturas puras (PLC list, logs, progress, etc).
+ *     - MEDIUM (2 min): attach/open/preview/upload (pueden tocar
+ *       TIA Portal en cold-start o hacer export masivo).
+ *     - SLOW (10 min): commits transaccionales (N_MAX + devices en
+ *       una sola transaccion COM, minutos en S7-1500 grandes).
+ *     - El backend (``gateway.execute_transactional_batch`` y
+ *       ``gateway.commit_devices_sync``) YA calcula su propio
+ *       ``dynamic_timeout = max(default, 5s x num_ops)``. El del
+ *       cliente debe ser MAYOR que el del backend, si no el
+ *       navegador aborta antes de que TIA termine.
  */
+const FAST_TIMEOUT_MS = 30_000;
+const MEDIUM_TIMEOUT_MS = 120_000;
+const SLOW_TIMEOUT_MS = 600_000;
 
-async function _request(method, url, body) {
+async function _request(method, url, body, timeoutMs = FAST_TIMEOUT_MS) {
     /** @type {RequestInit} */
     const opts = { method, headers: {} };
     if (body instanceof FormData) {
@@ -26,11 +48,9 @@ async function _request(method, url, body) {
     // Timeout defensivo (sept-2026): sin esto, si el servidor cuelga
     // (worker persistente bloqueado, deadlock del lock, etc.) el
     // navegador espera indefinidamente y el boton se queda pillado
-    // con ``store.busy = true`` para siempre. 30s es conservador:
-    // el heartbeat del worker es 5s y el ping inicial puede tardar
-    // 15s; 30s cubre holgadamente sin disparar el watchdog del
-    // operario por nada.
-    const timeoutMs = 30000;
+    // con ``store.busy = true`` para siempre. El timeout concreto se
+    // elige por endpoint (ver constantes arriba); el default (30s)
+    // sigue siendo valido para lecturas rapidas.
     const timeoutController = new AbortController();
     const timer = setTimeout(() => timeoutController.abort(), timeoutMs);
     opts.signal = timeoutController.signal;
@@ -51,12 +71,25 @@ async function _request(method, url, body) {
     } catch (e) {
         // Distinguimos timeout de otros errores para que el caller
         // pueda mostrar un mensaje accionable.
+        //
+        // sept-2026: si es timeout, NO mostramos el ``String(e)`` crudo
+        // (``"AbortError: signal is aborted without reason"``). Eso es
+        // un ``DOMException`` interno del navegador y confunde al
+        // operario. En su lugar, un mensaje humano con el tiempo
+        // esperado y un hint accionable.
         const isTimeout = e && e.name === "AbortError";
+        const timeoutSeconds = Math.round(timeoutMs / 1000);
+        const detail = isTimeout
+            ? `La operación tardó más de ${timeoutSeconds}s. ` +
+              `Si persiste, comprueba el estado del worker TIA (icono del topbar) ` +
+              `o reinicia la app. La operación puede haberse completado en TIA Portal ` +
+              `aunque el cliente la haya abortado.`
+            : String(e);
         return {
             ok: false,
             status: 0,
             data: {
-                detail: String(e),
+                detail,
                 timeout: isTimeout,
                 timeoutMs: isTimeout ? timeoutMs : null,
             },
@@ -71,7 +104,10 @@ async function _request(method, url, body) {
 export function apiUploadExcel(file) {
     const fd = new FormData();
     fd.append("file", file);
-    return _request("POST", "/api/v1/excel/upload", fd);
+    // MEDIUM: el parser de openpyxl puede tardar con Excels grandes
+    // (varias hojas, miles de filas, formulas). 2 min cubre holgadamente
+    // un Excel corporativo tipico; subir si Aketza reporta timeouts.
+    return _request("POST", "/api/v1/excel/upload", fd, MEDIUM_TIMEOUT_MS);
 }
 
 /**
@@ -95,11 +131,17 @@ export const apiFetchProjectInfo = () =>
     _request("GET", "/api/v1/portal/project-info");
 
 /** Dispara el hot-attach contra una instancia abierta de TIA Portal. */
-export const apiAttachPortal = () => _request("POST", "/api/v1/portal/attach");
+export const apiAttachPortal = () =>
+    // MEDIUM: el primer attach tras arranque en frio del CLR puede
+    // tardar 15-20s. Los siguientes son <5s pero dejamos margen.
+    _request("POST", "/api/v1/portal/attach", undefined, MEDIUM_TIMEOUT_MS);
 
 /** Abre un .apxx en frío (cold-start) y lo carga. */
 export const apiOpenNewPortal = (projectFilePath) =>
-    _request("POST", "/api/v1/portal/open-new", { project_file_path: projectFilePath });
+    // MEDIUM: cold-start = arrancar TIA Portal + abrir el .apxx.
+    // El open_project solo tarda 5-30s segun tamano del proyecto,
+    // pero el arranque del TIA Portal puede sumar 30-60s mas.
+    _request("POST", "/api/v1/portal/open-new", { project_file_path: projectFilePath }, MEDIUM_TIMEOUT_MS);
 
 /** Vuelca el ``AppState`` (IT-only) para alimentar el Inspector. */
 export const apiFetchMemory = () => _request("GET", "/api/v1/state/dispositivos");
@@ -115,11 +157,19 @@ export const apiFetchCatalog = () => _request("GET", "/api/v1/catalog");
 
 /** Pide a TIA Portal una Pre-Flight (Diff) completa: N_MAX + devices. NO toca TIA. */
 export const apiGeneratePreview = (plcName) =>
-    _request("POST", "/api/v1/sync/preview", { plc_name: plcName });
+    // MEDIUM: hace un export masivo de las 7 tablas del PLC + diff
+    // IT-only. En S7-1500 con 200+ bloques el export puede tardar
+    // 30-60s. 2 min cubre holgadamente.
+    _request("POST", "/api/v1/sync/preview", { plc_name: plcName }, MEDIUM_TIMEOUT_MS);
 
 /** Aplica el Diff completo (N_MAX + devices) en UNA transacción COM única. */
 export const apiCommit = (plcName, prevision) =>
-    _request("POST", "/api/v1/sync/commit", { plc_name: plcName, prevision });
+    // SLOW: el backend usa ``commit_devices_sync`` con
+    // ``dynamic_timeout = max(default, 5s x estimated_ops)``. Para un
+    // sync de 50 N_MAX + 6 device_changes eso son ~350s. El cliente
+    // debe esperar MAS que el backend, si no aborta antes de que TIA
+    // termine y el operario ve un falso error.
+    _request("POST", "/api/v1/sync/commit", { plc_name: plcName, prevision }, SLOW_TIMEOUT_MS);
 
 /** Snapshot de logs para pintar la consola. */
 export const apiFetchLogs = () => _request("GET", "/api/v1/logs");
@@ -225,7 +275,10 @@ export function apiProcesosSyncPreview(procUid, plcName) {
     return _request(
         "POST",
         "/api/v1/procesos/sync/preview",
-        { proc_uid: procUid, plc_name: plcName || "" }
+        { proc_uid: procUid, plc_name: plcName || "" },
+        // MEDIUM: export masivo + diff IT-only, similar a
+        // apiGeneratePreview.
+        MEDIUM_TIMEOUT_MS,
     );
 }
 
@@ -276,7 +329,11 @@ export const apiFetchTiaConnection = () =>
  * fallo devuelve ``{ok: false, state: "error", error: "..."}``
  * y el frontend lo refleja en el store y en el log.
  */
-export const apiConnectTia = () => _request("POST", "/api/v1/tia/connect");
+export const apiConnectTia = () =>
+    // MEDIUM: el connect arranca el worker si esta parado (lazy
+    // start, sept-2026 round 3) + attach_portal. Con CLR frio puede
+    // tardar 15-20s.
+    _request("POST", "/api/v1/tia/connect", undefined, MEDIUM_TIMEOUT_MS);
 
 /**
  * Desconexión explícita del worker TIA persistente.
@@ -292,6 +349,10 @@ export function apiProcesosSyncCommit(procUid, plcName, prevision) {
     return _request(
         "POST",
         "/api/v1/procesos/sync/commit",
-        { proc_uid: procUid, plc_name: plcName, prevision: prevision || {} }
+        { proc_uid: procUid, plc_name: plcName, prevision: prevision || {} },
+        // SLOW: commit transaccional sobre DBs de procesos (similar a
+        // apiCommit). El backend calcula su dynamic_timeout; el cliente
+        // debe esperar MAS (10 min cubre S7-1500 grandes).
+        SLOW_TIMEOUT_MS,
     );
 }

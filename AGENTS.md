@@ -172,6 +172,34 @@ Convenciones:
   la única fuente de verdad. El operario limpia explícitamente con
   `apiClearProgress()` cuando quiere.
 
+### Timeouts de fetch (cliente)
+- **3 buckets** definidos en `interfaces/web_server/static/js/api.js`:
+  - `FAST_TIMEOUT_MS = 30_000` (default): lecturas puras (PLC list,
+    logs, progress, catalog, memory, tia/connection, blocks, etc).
+  - `MEDIUM_TIMEOUT_MS = 120_000` (2 min): attach, open, preview,
+    upload Excel, connect. Tocan TIA Portal en cold-start o hacen
+    export masivo.
+  - `SLOW_TIMEOUT_MS = 600_000` (10 min): commits transaccionales
+    (sync dispositivos, sync procesos). El backend usa
+    `dynamic_timeout = max(default, 5s × n_ops)` y el cliente debe
+    esperar MÁS, si no el navegador aborta antes de que TIA termine
+    y el operario ve un `AbortError` falso.
+- **Regla nueva al añadir endpoint**: clasificar el endpoint en uno
+  de los 3 buckets y pasar el `timeoutMs` correspondiente al
+  `_request()`. Si dudas, empieza por MEDIUM y sube si Aketza
+  reporta timeouts.
+- **Mensaje de timeout humano**: `_request()` NO muestra el
+  `String(e)` crudo (`"AbortError: signal is aborted without reason"`).
+  En su lugar, un mensaje con el tiempo esperado + hint accionable
+  ("comprueba el estado del worker TIA" / "reinicia la app"). El
+  operario debe ver algo accionable, no un `DOMException` interno
+  del navegador.
+- **Mismatched client/server**: el timeout del cliente debe ser
+  siempre MAYOR que el `dynamic_timeout` que calcula el gateway
+  para ese comando. Si reduces el `ZC_GATEWAY_TIMEOUT` o el
+  `per_op_seconds`, asegúrate de que el cliente sigue siendo
+  mayor (sube el bucket FAST/MEDIUM/SLOW si hace falta).
+
 ### ProgressTracker — API completa
 ```
 begin(operation, label, stages)  # stages = lista de IDs en orden
