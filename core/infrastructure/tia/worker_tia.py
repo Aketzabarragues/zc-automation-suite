@@ -1392,11 +1392,49 @@ def main_persistent_loop() -> None:
     ``attach_portal`` y ``detach_portal`` se gestionan aqu� (no en
     el ``COMMAND_REGISTRY``) porque necesitan reasignar la variable
     local ``portal``.
+
+    Observabilidad (sept-2026, PR de worker logging): cada paso
+    relevante emite un evento estructurado (JSON lines) al logger
+    ``zc.worker_ot`` configurado en
+    :mod:`core.infrastructure.tia.worker_logging`. Esto NO cambia la
+    logica de attach/detach/heartbeat; solo anade trazas para que el
+    operario pueda diagnosticar el comportamiento del subproceso
+    post-mortem. ``main()`` (modo 1-shot / MCP) sigue emitiendo
+    ``[WORKER TIMING]`` / ``[WORKER ERROR]`` como siempre, intacto.
     """
+    # 0. Configurar logger estructurado. Lo hacemos ANTES de cargar
+    # el wrapper nativo para tener trazabilidad incluso si la carga
+    # falla (la primera linea del archivo sera ``worker_started`` o
+    # el stack trace, pero el archivo existira, lo que ayuda al
+    # operario a distinguir 'no arranco' de 'arranco y fallo').
+    # Import lazy: el modulo de logging es ligero pero queremos
+    # que el import de worker_tia siga siendo barato cuando se
+    # importa solo por los handlers (no por el loop).
+    from core.infrastructure.tia.worker_logging import (  # noqa: PLC0415
+        configure_worker_logger,
+        log_event,
+    )
+
+    worker_log = configure_worker_logger()
+    log_event(
+        worker_log,
+        logging.INFO,
+        'worker_started',
+        persistent=True,
+        pid=os.getpid(),
+    )
     # 1. Carga del wrapper nativo.
     try:
         ts = _load_siemens_wrapper()
     except (ImportError, FileNotFoundError) as e:
+        log_event(
+            worker_log,
+            logging.CRITICAL,
+            'worker_stopped',
+            reason='wrapper_load_failed',
+            error_class=type(e).__name__,
+            error_msg=str(e),
+        )
         _write_json_and_exit(
             {"ok": False, "error": f"Fallo al cargar 'siemens_tia_scripting': {e}"},
             code=1,
@@ -1428,15 +1466,6 @@ def main_persistent_loop() -> None:
     # 3. Helpers locales para el state machine.
 
     def _try_reattach() -> bool:
-        """Re-attacha el portal TIA tras un cierre de TIA a media sesi�n.
-
-        Devuelve True si el portal queda vivo, False en caso contrario.
-        Limitaci�n conocida: si el operario acaba de pulsar "Desconectar"
-        y el heartbeat lee el portal justo en ese momento, este re-attach
-        puede revivir un portal que el operario quer�a desconectar. El
-        caso es raro y de bajo impacto (basta un re-disconnect para
-        arreglarlo).
-        """
         nonlocal portal
         if portal is not None:
             try:
@@ -1448,17 +1477,39 @@ def main_persistent_loop() -> None:
             portal = ts.attach_portal(
                 portal_mode=ts.Enums.PortalMode.AnyUserInterface
             )
-        except Exception:
+        except Exception as exc:
             portal = None
+            log_event(
+                worker_log,
+                logging.ERROR,
+                'reconnect_failed',
+                error_class=type(exc).__name__,
+                error_msg=str(exc),
+            )
             return False
         if portal is None:
+            log_event(
+                worker_log,
+                logging.ERROR,
+                'reconnect_failed',
+                error_class='NoneType',
+                error_msg='attach_portal retorno None',
+            )
             return False
         try:
             portal.get_process_id()
-            return True
-        except Exception:
+        except Exception as exc:
             portal = None
+            log_event(
+                worker_log,
+                logging.ERROR,
+                'reconnect_failed',
+                error_class=type(exc).__name__,
+                error_msg=str(exc),
+            )
             return False
+        log_event(worker_log, logging.INFO, 'reconnect')
+        return True
 
     def _handle_attach(args: dict[str, Any]) -> dict[str, Any]:
         """Conecta con TIA Portal. Devuelve ``{"pid": <int>}`` o ``{"error": "..."}``.
@@ -1496,11 +1547,30 @@ def main_persistent_loop() -> None:
                     "'WithoutGraphicalUserInterface'."
                 )
             }
+        attach_start = time.monotonic()
         try:
             new_portal = ts.attach_portal(portal_mode=portal_mode)
         except Exception as exc:
+            attach_ms = round((time.monotonic() - attach_start) * 1000)
+            log_event(
+                worker_log,
+                logging.WARNING,
+                'attach_failed',
+                duration_ms=attach_ms,
+                error_class=type(exc).__name__,
+                error_msg=str(exc),
+            )
             return {"error": f"{type(exc).__name__}: {exc}"}
         if new_portal is None:
+            attach_ms = round((time.monotonic() - attach_start) * 1000)
+            log_event(
+                worker_log,
+                logging.WARNING,
+                'attach_failed',
+                duration_ms=attach_ms,
+                error_class='NoneType',
+                error_msg='attach_portal retorno None',
+            )
             return {
                 "error": (
                     "attach_portal retorno None. �Esta TIA Portal "
@@ -1513,29 +1583,45 @@ def main_persistent_loop() -> None:
         except Exception:
             # Attach OK pero el PID no se puede leer (TIA en estado raro).
             pid = None
+        attach_ms = round((time.monotonic() - attach_start) * 1000)
+        log_event(
+            worker_log,
+            logging.INFO,
+            'attach',
+            duration_ms=attach_ms,
+            pid=pid,
+            portal_mode=mode_name,
+        )
         return {"pid": pid}
 
     def _handle_detach(args: dict[str, Any]) -> dict[str, Any]:  # noqa: ARG001
-        """Desconecta de TIA Portal. Idempotente.
-
-        Si no hay portal attached devuelve ``{"detached": false}``.
-        Si lo hay llama ``portal.detach()`` (best-effort: si falla por
-        TIA cerrada se loguea como WARNING) y devuelve ``{"detached": true}``.
-        """
         nonlocal portal
         if portal is None:
             return {"detached": False}
+        detach_start = time.monotonic()
+        detach_error_class: str | None = None
+        detach_error_msg: str | None = None
         try:
             portal.detach()
         except Exception as exc:
             # TIA ya cerrada o RCW stale. Logueamos para que el operario
-            # pueda correlacionarlo con un TIA que se cerr� de golpe.
+            # pueda correlacionarlo con un TIA que se cerro de golpe.
             _logger.warning(
                 "detach_portal best-effort fallo: %s: %s",
                 type(exc).__name__,
                 exc,
             )
+            detach_error_class = type(exc).__name__
+            detach_error_msg = str(exc)
         portal = None
+        detach_ms = round((time.monotonic() - detach_start) * 1000)
+        detach_fields = {"duration_ms": detach_ms}
+        if detach_error_class is not None:
+            detach_fields["error_class"] = detach_error_class
+            detach_fields["error_msg"] = detach_error_msg or ''
+            log_event(worker_log, logging.WARNING, 'detach', **detach_fields)
+        else:
+            log_event(worker_log, logging.INFO, 'detach', **detach_fields)
         return {"detached": True}
 
     # 4. Loop principal.
@@ -1544,6 +1630,7 @@ def main_persistent_loop() -> None:
             line = sys.stdin.readline()
             if not line:
                 # stdin cerrado (el IT cerr� el pipe). Salida limpia.
+                log_event(worker_log, logging.INFO, 'worker_stopped', reason='stdin_closed')
                 break
             stripped = line.strip()
             if not stripped:
@@ -1553,8 +1640,19 @@ def main_persistent_loop() -> None:
             request_id = payload.get("id", 0)
             command = payload.get("command", "")
             args = payload.get("args", {}) or {}
-
+            if command == "ping":
+                log_event(worker_log, logging.DEBUG, 'ping_received', request_id=request_id)
+            else:
+                log_event(
+                    worker_log,
+                    logging.DEBUG,
+                    'command_received',
+                    request_id=request_id,
+                    command=command,
+                    args_keys=list(args.keys()),
+                )
             if command == "exit":
+                log_event(worker_log, logging.INFO, 'worker_stopped', reason='exit_command')
                 break
 
             if command == "attach_portal":
@@ -1609,16 +1707,23 @@ def main_persistent_loop() -> None:
                     sys.stdout.flush()
                     continue
 
+            handler_start = time.monotonic()
             try:
                 handler = COMMAND_REGISTRY.get(command)
                 if handler is None:
                     raise ValueError(f"Comando desconocido: {command!r}")
                 result = handler(portal, ts, args)
                 response = {"id": request_id, "ok": True, "result": result}
+                captured_exc: Exception | None = None
             except Exception as exc:
+                # Capturamos la excepcion para que este disponible
+                # despues del bloque try/except (donde emitimos los
+                # logs estructurados). Si el handler OK, ``captured_exc``
+                # queda en None.
+                captured_exc = exc
                 # Si parece COM/RPC marcamos el portal como None para
                 # forzar re-attach en el siguiente comando. Si es un
-                # error de aplicaci�n (e.g. args inv�lidos) lo dejamos vivo.
+                # error de aplicacion (e.g. args invalidos) lo dejamos vivo.
                 if _is_com_disconnect(exc):
                     portal = None
                 response = {
@@ -1626,6 +1731,56 @@ def main_persistent_loop() -> None:
                     "ok": False,
                     "error": f"{type(exc).__name__}: {exc}",
                 }
+            handler_ms = round((time.monotonic() - handler_start) * 1000)
+            if command == "ping" and isinstance(result, dict):
+                log_event(
+                    worker_log,
+                    logging.DEBUG,
+                    'ping_completed',
+                    request_id=request_id,
+                    ok=response["ok"],
+                    duration_ms=handler_ms,
+                    pid=result.get("pid") if response["ok"] else None,
+                    error=response.get("error") if not response["ok"] else None,
+                )
+            elif command == "ping":
+                log_event(
+                    worker_log,
+                    logging.DEBUG,
+                    'ping_completed',
+                    request_id=request_id,
+                    ok=response["ok"],
+                    duration_ms=handler_ms,
+                    error=response.get("error") if not response["ok"] else None,
+                )
+            elif response["ok"]:
+                log_event(
+                    worker_log,
+                    logging.INFO,
+                    'command_completed',
+                    request_id=request_id,
+                    command=command,
+                    duration_ms=handler_ms,
+                    result_type=type(result).__name__,
+                )
+            else:
+                # ``captured_exc`` siempre esta definido aqui (la rama
+                # ``response["ok"] is False`` solo se alcanza si el
+                # handler fallo). Lo tipamos explicitamente para que
+                # el type checker no se queje.
+                assert captured_exc is not None
+                error_class = type(captured_exc).__name__
+                error_msg = str(response.get("error", ""))
+                log_event(
+                    worker_log,
+                    logging.ERROR,
+                    'command_failed',
+                    request_id=request_id,
+                    command=command,
+                    duration_ms=handler_ms,
+                    error_class=error_class,
+                    error_msg=error_msg,
+                )
 
             # Siempre con id (para que el reader del gateway matchee)
             # y siempre con flush (para no bloquear la task de lectura).
@@ -1633,7 +1788,15 @@ def main_persistent_loop() -> None:
             sys.stdout.flush()
         except Exception as exc:
             # Error parseando JSON o leyendo stdin. Salimos del loop;
-            # el gateway detectar� EOF y marcar� el estado como error.
+            # el gateway detectara EOF y marcara el estado como error.
+            log_event(
+                worker_log,
+                logging.ERROR,
+                'error',
+                error_class=type(exc).__name__,
+                error_msg=str(exc),
+                context='main_loop_exception',
+            )
             sys.stderr.write(
                 f"[WORKER LOOP ERROR] {type(exc).__name__}: {exc}\n"
             )
