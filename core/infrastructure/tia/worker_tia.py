@@ -1068,7 +1068,28 @@ def _cmd_update_user_constant_value(portal: Any, ts: Any, args: dict[str, Any]) 
         raise RuntimeError(f"Tabla '{table_name}' no encontrada.")
     for constant in table.get_user_constants():
         if constant.get_property(name="Name") == constant_name:
-            constant.set_property(name="Value", value=str(new_value))
+            # Doble validación (manual §2.28 + fix commit fantasma
+            # sept-2026). TIA V21 + Pythonnet puede fallar
+            # silenciosamente: set_property retorna int (0=OK, !=0=fallo)
+            # sin lanzar excepción. Sin este check, el batch wrapper
+            # cierra la transacción con "éxito" mientras el PLC queda
+            # sin modificar.
+            rc = constant.set_property(name="Value", value=str(new_value))
+            if rc != 0:
+                raise RuntimeError(
+                    f"N_MAX '{constant_name}' en tabla '{table_name}': "
+                    f"TIA rechazó la modificación (código de retorno {rc}). "
+                    f"Valor intentado: '{new_value}'."
+                )
+            # Double-check: re-leer y comparar con el valor deseado.
+            actual = constant.get_property(name="Value")
+            if str(actual).strip() != str(new_value).strip():
+                raise RuntimeError(
+                    f"N_MAX '{constant_name}' en tabla '{table_name}': "
+                    f"set_property retornó 0 (OK) pero el valor real en TIA "
+                    f"es '{actual}', no '{new_value}'. Posible fallo "
+                    f"silencioso de Pythonnet/TIA V21."
+                )
             return True
     raise RuntimeError(f"Constante '{constant_name}' no encontrada en tabla '{table_name}'.")
 
@@ -1088,7 +1109,22 @@ def _cmd_update_user_constant_name(portal: Any, ts: Any, args: dict[str, Any]) -
         raise RuntimeError(f"Tabla '{table_name}' no encontrada.")
     for constant in table.get_user_constants():
         if constant.get_property(name="Name") == current_name:
-            constant.set_property(name="Name", value=new_name)
+            # Doble validación (ver rationale en _cmd_update_user_constant_value).
+            rc = constant.set_property(name="Name", value=new_name)
+            if rc != 0:
+                raise RuntimeError(
+                    f"Rename '{current_name}' -> '{new_name}' en tabla "
+                    f"'{table_name}': TIA rechazó la modificación "
+                    f"(código de retorno {rc})."
+                )
+            actual = constant.get_property(name="Name")
+            if actual != new_name:
+                raise RuntimeError(
+                    f"Rename '{current_name}' -> '{new_name}' en tabla "
+                    f"'{table_name}': set_property retornó 0 (OK) pero el "
+                    f"nombre real en TIA es '{actual}', no '{new_name}'. "
+                    f"Posible fallo silencioso de Pythonnet/TIA V21."
+                )
             return True
     raise RuntimeError(f"Constante '{current_name}' no encontrada en tabla '{table_name}'.")
 
@@ -1191,6 +1227,14 @@ def _cmd_execute_transactional_batch(
             results_list.append(
                 {"step": idx + 1, "command": cmd, "result": step_result}
             )
+            # Si la op retornó False (fallo no-excepción), abortar el
+            # batch para que el wrapper haga rollback de las ops
+            # anteriores (defensa en profundidad, sept-2026).
+            if step_result is False:
+                raise RuntimeError(
+                    f"Lote abortado: op '{cmd}' retornó False en paso "
+                    f"{idx + 1}. Rollback ejecutado."
+                )
 
         # Confirmar transacción si no hubo errores (manual §2.37.28).
         project.end_transaction(rollback=False)
