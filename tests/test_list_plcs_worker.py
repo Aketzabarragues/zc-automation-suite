@@ -218,6 +218,60 @@ def test_cmd_list_plcs_name_always_present() -> None:
 
 
 # ────────────────────────────────────────────────────────────────────────
+# Tests de regresión: el handler pasa ``ShortDesignation`` como named arg
+# ────────────────────────────────────────────────────────────────────────
+
+
+def test_cmd_list_plcs_passes_short_designation_as_named_arg() -> None:
+    """Regression test (sept-2026): el handler pasa ``"ShortDesignation"``
+    como named argument (``name=``) a ``plc.get_property``, no como
+    positional. En Pythonnet, los métodos .NET sobrecargados resuelven
+    mal la overload con positional, y el ``try/except`` del handler
+    silenciaba el fallo retornando ``None``. La SPA pintaba "Modelo: —"
+    para PLCs reales (validado: script standalone del operario con
+    ``name="ShortDesignation"`` retorna "CPU 1518-4 PN/DP"; el worker
+    con positional retornaba ``None``).
+
+    Verificamos que el handler hace la llamada con ``name=...`` (no
+    positional) usando ``mock_calls`` del MagicMock. Si alguien en el
+    futuro cambia el código a ``getter("ShortDesignation")``
+    (positional), el test falla.
+    """
+    portal = _make_portal([
+        {"name": "PLC1", "short_designation": "CPU 1518-4 PN/DP"},
+    ])
+
+    _cmd_list_plcs(portal, ts=None, args={})
+
+    # El PLC mockeado es el único en el portal.
+    plc_mock = portal.get_project().get_plcs()[0]
+    # Verificamos que se llamó a ``get_property`` con el keyword
+    # ``name=`` (no positional). ``call_args_list`` contiene todas
+    # las llamadas; ``call.kwargs`` expone los named args.
+    assert plc_mock.get_property.call_count >= 1, (
+        "Esperaba al menos 1 llamada a plc.get_property; "
+        f"got {plc_mock.get_property.call_count}"
+    )
+    found_named_call = False
+    for call in plc_mock.get_property.call_args_list:
+        # ``call.kwargs`` es dict con los named args; ``call.args``
+        # es tuple con los positional. Si la llamada fue con positional,
+        # ``call.kwargs`` está vacío y ``call.args`` tiene la string.
+        if "name" in call.kwargs:
+            assert call.kwargs["name"] == "ShortDesignation", (
+                f"Named arg 'name' esperaba 'ShortDesignation', "
+                f"got {call.kwargs['name']!r}"
+            )
+            found_named_call = True
+    assert found_named_call, (
+        "El handler NO paso 'ShortDesignation' como named arg. "
+        "Esto es la regresion del bug 'Modelo: —' en la SPA "
+        "(sept-2026): la llamada con positional mapea a una "
+        "overload incorrecta de get_property en Pythonnet."
+    )
+
+
+# ────────────────────────────────────────────────────────────────────────
 # Tests de registro en COMMAND_REGISTRY
 # ────────────────────────────────────────────────────────────────────────
 

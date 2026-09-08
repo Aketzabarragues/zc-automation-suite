@@ -264,7 +264,21 @@ def _cmd_list_plcs(portal: Any, ts: Any, args: dict[str, Any]) -> list[dict[str,
         if getter is None:
             return None
         try:
-            value = getter("ShortDesignation")
+            # IMPORTANTE: pasar el nombre de la property como named
+            # argument (``name=``). En Pythonnet, los métodos .NET
+            # sobrecargados resuelven mal la overload con positional:
+            # ``getter("ShortDesignation")`` puede mapear a una
+            # overload distinta (e.g., ``get_property(int)`` o similar)
+            # y retornar ``None`` o lanzar silenciosamente, que el
+            # ``try/except`` de abajo atrapa como "property no
+            # disponible". El resto del worker usa ``name=``
+            # consistentemente (líneas 339, 1017, 1022, 1056, 1076,
+            # 1095); esta era la única excepción y la causa del bug
+            # "Modelo: —" en la SPA para PLCs reales (validado
+            # 2026-09-08: el script standalone del operario con
+            # ``name="ShortDesignation"`` retorna "CPU 1518-4 PN/DP";
+            # el worker con positional retornaba ``None``).
+            value = getter(name="ShortDesignation")
         except Exception:
             return None
         if value is None:
