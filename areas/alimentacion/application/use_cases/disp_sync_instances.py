@@ -541,6 +541,36 @@ class DispSyncInstancesUseCase:
                 f"+ {len(device_changes)} device tables en TIA Portal "
                 f"(puede tardar 1-3 min)...",
             )
+            # ── INSTRUMENTACIÓN TEMPORAL (sept-2026) ─────────────────────
+            # Diagnóstico del bug "primer commit no aplica, segundo sí".
+            # Mide los N_MAX en el PLC antes y después del commit para ver
+            # si TIA hace rollback silencioso post-`end_transaction`. Se
+            # retirará tras confirmar la causa raíz.
+            #
+            # NO raise: instrumentación pura. Si falla la lectura, log
+            # warning y continúa. El bloque ``if nmax_ops:`` cubre el caso
+            # de commits sin N_MAX (solo renames, por ejemplo).
+            #
+            # Forma de ``nmax_ops`` (post-extracción en stage 3):
+            #   ``[{"table_name", "constant_name", "new_value"}, ...]``
+            if nmax_ops:
+                expected_nmax = {
+                    op["constant_name"]: op["new_value"]
+                    for op in nmax_ops
+                }
+                try:
+                    nmax_before = await self._gateway.get_user_constants(
+                        plc_name, "000_Config_Dispositivos"
+                    )
+                except Exception as exc:
+                    _logger.warning(
+                        f"[INSTRUMENT] No se pudo leer N_MAX pre-commit: {exc}"
+                    )
+                    nmax_before = None
+                _logger.info(
+                    f"[INSTRUMENT] nmax_esperados={expected_nmax} "
+                    f"nmax_antes={nmax_before}"
+                )
             result = await self._gateway.commit_devices_sync(
                 plc_name=plc_name,
                 nmax_ops=nmax_ops,
@@ -549,6 +579,42 @@ class DispSyncInstancesUseCase:
                 work_dir=str(work_dir),
                 undo_text="Sincronizar N_MAX + Dispositivos",
             )
+            # Post-commit: re-leer N_MAX y comparar. Solo si había
+            # ``nmax_ops`` (commits sin N_MAX, e.g. solo renames, no se
+            # instrumentan — no hay nada que comparar).
+            #
+            # ``get_user_constants`` retorna ``{value_str: name}`` (ver
+            # ``worker_tia.py:_cmd_get_user_constants``); invertimos para
+            # comparar por nombre.
+            if nmax_ops:
+                try:
+                    nmax_after = await self._gateway.get_user_constants(
+                        plc_name, "000_Config_Dispositivos"
+                    )
+                except Exception as exc:
+                    _logger.warning(
+                        f"[INSTRUMENT] No se pudo leer N_MAX post-commit: {exc}"
+                    )
+                    nmax_after = None
+                if isinstance(nmax_after, dict) and nmax_after:
+                    actual_by_name = {v: k for k, v in nmax_after.items()}
+                    diffs = []
+                    for name, expected in expected_nmax.items():
+                        actual = actual_by_name.get(name)
+                        if str(actual) != str(expected):
+                            diffs.append(
+                                f"{name}: esperado={expected}, leido={actual}"
+                            )
+                    if diffs:
+                        _logger.warning(
+                            f"[INSTRUMENT] COMMIT NO APLICÓ N_MAX! "
+                            f"Diffs: {diffs}"
+                        )
+                    else:
+                        _logger.info(
+                            f"[INSTRUMENT] Commit aplicó N_MAX correctamente "
+                            f"({len(expected_nmax)} constantes)"
+                        )
             self._progress.finish_stage(
                 "open_transaction",
                 f"{result['operations_executed']} ops aplicadas OK",
