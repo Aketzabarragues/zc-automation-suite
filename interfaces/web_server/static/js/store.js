@@ -953,7 +953,7 @@ function _applyTiaSnapshot(r) {
  * gracias a la reactividad del store).
  */
 export async function connectTia() {
-    const { apiConnectTia, apiFetchProjectInfo } = await import("./api.js");
+    const { apiConnectTia, apiFetchProjectInfo, apiFetchPlcs } = await import("./api.js");
     const prevState = store.tiaConnection && store.tiaConnection.state;
     store.tiaConnection = {
         ...store.tiaConnection,
@@ -1014,6 +1014,53 @@ export async function connectTia() {
             // eslint-disable-next-line no-console
             console.warn(
                 `[connectTia] No se pudo leer project info tras ` +
+                `connect: ${e && e.message ? e.message : e}`
+            );
+        }
+
+        // Sept-2026 (v3.0 dashboard, pedido operario): tras el
+        // project info, listamos los PLCs del proyecto TIA
+        // conectado. Asi el operario ve la grid de PLCs
+        // disponibles inmediatamente tras pulsar "Conectar", sin
+        // tener que pulsar el antiguo boton "Buscar PLCs" (que
+        // ahora se elimina del template del BloquesCacheView).
+        //
+        // El backend ``GET /api/v1/plcs`` devuelve una lista de
+        // dicts ``[{name, short_designation}, ...]`` (modelo
+        // "ShortDesignation" de TIA, sept-2026 round 3). La grid
+        // del BloquesCacheView pinta el nombre en la linea 1 y el
+        // modelo en la linea 2 de cada card.
+        //
+        // Si la respuesta trae ``errorType === "TIAConnectionError"``
+        // (TIA se cayó entre el connect OK y este fetch), forzamos
+        // ``resetPlcState()`` y avisamos al operario via ``pushLog``.
+        // Misma politica que el antiguo ``handleRefreshPlcs`` del
+        // BloquesCacheView (v3.0) que ahora vive aqui.
+        try {
+            const plcsResp = await apiFetchPlcs();
+            const tiaDown =
+                plcsResp && plcsResp.errorType === "TIAConnectionError";
+            if (tiaDown) {
+                pushLog(
+                    "TIA Portal no responde. Reconecta y vuelve a seleccionar el PLC.",
+                    "error"
+                );
+                resetPlcState();
+            } else if (plcsResp && plcsResp.ok && Array.isArray(plcsResp.data && plcsResp.data.plcs)) {
+                store.plcs = plcsResp.data.plcs;
+                store.tiaConnection = {
+                    ...store.tiaConnection,
+                    plcs: plcsResp.data.plcs,
+                };
+            } else if (plcsResp && plcsResp.ok === false) {
+                // Conservar store.plcs previo en error (defensivo).
+                // Si tampoco habia previo, queda como [] (initial
+                // state).
+            }
+        } catch (e) {
+            // eslint-disable-next-line no-console
+            console.warn(
+                `[connectTia] No se pudo leer PLCs tras ` +
                 `connect: ${e && e.message ? e.message : e}`
             );
         }

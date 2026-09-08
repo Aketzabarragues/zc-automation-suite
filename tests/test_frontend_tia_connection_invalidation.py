@@ -168,7 +168,13 @@ def test_component_imports_reset_plc_state(
 @pytest.mark.parametrize(
     "component_path,component_label",
     [
-        (BLOQUES_CACHE_VIEW_JS, "BloquesCacheView"),
+        # Tras la v3.1 (sept-2026 round 3), BloquesCacheView ya NO
+        # tiene su propio handler de apiFetchPlcs (lo quito al
+        # eliminar el boton "🔍 Buscar PLCs"): el flujo de fetch
+        # de PLCs tras Conectar vive ahora en el store
+        # (``connectTia``), no en el componente. Por eso
+        # BloquesCacheView sale de la lista de componentes que
+        # "detectan TIAConnectionError" directamente.
         (DISPOSITIVOS_JS, "Dispositivos"),
         (PROCESOS_SYNC_VIEW_JS, "ProcesosSyncView"),
     ],
@@ -185,23 +191,33 @@ def test_component_detects_tia_connection_error(
     )
 
 
-def test_bloques_cache_view_resets_state_on_refresh_plcs_tia_down() -> None:
-    """Tras la migración v3.0, el handler ``handleRefreshPlcs`` vive
-    en el primer card de ``BloquesCacheView`` (no en la ShellTopbar).
-    Resetea el state del PLC si ``apiFetchPlcs`` o
-    ``apiFetchProjectInfo`` reportan TIAConnectionError."""
-    text = _read(BLOQUES_CACHE_VIEW_JS)
-    start = text.find("async function handleRefreshPlcs")
-    assert start != -1, (
-        "BloquesCacheView debe declarar un handler handleRefreshPlcs "
-        "(migrado de ShellTopbar en v3.0)."
-    )
-    body = text[start:start + 1500]
+def test_store_connect_tia_resets_state_on_plcs_tia_down() -> None:
+    """Tras la v3.1 (sept-2026 round 3), la deteccion de
+    ``TIAConnectionError`` y el ``resetPlcState()`` correspondiente
+    ya no viven en el handler ``handleRefreshPlcs`` del
+    BloquesCacheView (que se elimino). Viven ahora en ``connectTia``
+    del store, que tras el POST /tia/connect OK dispara el fetch
+    de project info Y el fetch de PLCs. Si cualquiera de las dos
+    respuestas trae ``errorType === "TIAConnectionError"`` (TIA
+    se cayo entre el connect y el fetch), forzamos ``resetPlcState()``
+    para que el operario tenga que re-seleccionar el PLC tras
+    reconectar.
+
+    El comportamiento es el mismo que el antiguo
+    ``handleRefreshPlcs`` del BloquesCacheView (v3.0), solo
+    que ahora vive en el store para que cualquier consumidor
+    se beneficie (no solo el BloquesCacheView).
+    """
+    text = _read(STORE_JS)
+    start = text.find("export async function connectTia")
+    assert start != -1, "store.js debe exportar connectTia."
+    body = text[start:start + 4000]
     assert "errorType === \"TIAConnectionError\"" in body, (
-        "handleRefreshPlcs debe detectar TIAConnectionError en "
-        "las respuestas de apiFetchPlcs/apiFetchProjectInfo."
+        "connectTia debe detectar TIAConnectionError en la "
+        "respuesta de apiFetchPlcs (y de apiFetchProjectInfo) "
+        "para resetear el state del PLC."
     )
     assert "resetPlcState()" in body, (
-        "handleRefreshPlcs debe llamar a resetPlcState() cuando "
-        "TIA no responde para forzar re-seleccion del PLC."
+        "connectTia debe llamar a resetPlcState() cuando TIA no "
+        "responde para forzar re-seleccion del PLC."
     )

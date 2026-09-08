@@ -44,13 +44,11 @@ import {
 // (``store.js``, ``api.js``) viven en ``/js/``, no se mueven.
 import {
     store,
-    pushLog,
     loadAndApplyPlcBlocks,
     resetPlcState,
     connectTia,
     disconnectTia,
 } from "/js/store.js";
-import { apiFetchPlcs } from "/js/api.js";
 
 /** Umbral de "stale" del cache local (5 min, mismo TTL que el backend). */
 const STALE_AFTER_MS = 5 * 60 * 1000;
@@ -397,36 +395,13 @@ export default {
         });
 
         /**
-         * Modelo del PLC activo (``short_designation`` de TIA, p.ej.
-         * ``"CPU 1518-4 PN/DP"``). Se busca en ``store.plcs`` que
-         * desde sept-2026 guarda la lista de dicts ``{name,
-         * short_designation}`` que devuelve ``/api/v1/plcs``.
-         *
-         * Lookup defensivo:
-         *   - Si el PLC activo (plcName) no está en store.plcs (p.ej.
-         *     el operario cambió de proyecto en TIA y aún no ha
-         *     pulsado "Buscar PLCs"), devolvemos ``null`` y la card
-         *     pintará "Modelo: —".
-         *   - Si la entry es un string (cache pre-sept-2026 con la
-         *     forma antigua ``["PLC1", "PLC2"]``), el ``.find`` no
-         *     matcheará y devolvemos ``null``. La próxima pulsación
-         *     de "Buscar PLCs" ya traerá el shape nuevo.
-         *   - Si ``short_designation`` es ``None`` (TIA no expone la
-         *     property para este PLC), devolvemos ``null`` y la
-         *     card pintará "Modelo: —".
-         */
-        const plcModel = computed(() => {
-            const name = (plcName && plcName.value) || store.selectedPlc;
-            if (!name) return null;
-            if (!Array.isArray(store.plcs) || store.plcs.length === 0) return null;
-            const entry = store.plcs.find((p) => p && p.name === name);
-            if (!entry || typeof entry !== "object") return null;
-            return entry.short_designation || null;
-        });
-
-        /**
-         * Habilitacion de los 4 controles. Los botones se
-         * muestran siempre; lo que cambia es si aceptan click.
+         * Habilitacion de los 2 controles del card 1 (Conectar /
+         * Desconectar). Se muestran siempre; lo que cambia es si
+         * aceptan click. El antiguo "select PLC" + "Buscar PLCs"
+         * desaparecen en v3.1 (la seleccion de PLC se hace
+         * picando en uno de los cards de la grid de "PLC
+         * DISPONIBLES", y la lista se rellena automaticamente al
+         * pulsar Conectar via ``connectTia()`` en el store).
          */
         const canConnect = computed(() => {
             return !store.busy
@@ -436,17 +411,13 @@ export default {
             return !store.busy
                 && (tiaState.value === "connecting" || tiaState.value === "connected");
         });
-        const canSelectPlc = computed(() => {
-            return !store.busy && isTiaConnected.value
-                && Array.isArray(store.plcs) && store.plcs.length > 0;
-        });
-        const canSearchPlcs = computed(() => {
-            return !store.busy && isTiaConnected.value;
-        });
 
         /** Handler del botón "🔌 Conectar". Delega en
          *  ``connectTia()`` (helper del store) que pone
-         *  ``state="connecting"`` y dispara el POST. */
+         *  ``state="connecting"``, dispara el POST, y tras el
+         *  attach OK hace el fetch de project info Y de la lista
+         *  de PLCs automaticamente (sept-2026 round 3, pedido
+         *  operario). */
         async function handleConnect() {
             await connectTia();
         }
@@ -458,46 +429,14 @@ export default {
         }
 
         /**
-         * Refresca el desplegable de PLCs. La info del proyecto
-         * TIA (``store.projectInfo``) ya NO se pide aquí: el
-         * operario pidió mover esa lectura al "Conectar" para
-         * confirmar el proyecto ANTES de buscar PLCs. Aqui solo
-         * se actualiza la lista.
-         *
-         * Sept-2026: ``/api/v1/plcs`` ahora devuelve una lista de
-         * dicts ``{name, short_designation}`` (antes solo strings).
-         * ``store.plcs`` guarda ese shape tal cual; el dropdown y
-         * el lookup de modelo en zona B leen ``p.name`` y
-         * ``p.short_designation`` respectivamente.
+         * Click en un card de la grid "PLC DISPONIBLES" (v3.1).
+         * Setea ``store.selectedPlc`` y el ``watch`` existente (en
+         * ``onMounted``) dispara ``loadAndApplyPlcBlocks`` que carga
+         * el snapshot de bloques+tag_tables+UDTs del PLC nuevo.
          */
-        async function handleRefreshPlcs() {
-            store.busy = true;
-            try {
-                const plcsResp = await apiFetchPlcs();
-
-                const tiaDown =
-                    plcsResp && plcsResp.errorType === "TIAConnectionError";
-
-                if (tiaDown) {
-                    pushLog(
-                        "TIA Portal no responde. Reconecta y vuelve a seleccionar el PLC.",
-                        "error"
-                    );
-                    resetPlcState();
-                } else if (plcsResp.ok && plcsResp.data && plcsResp.data.plcs) {
-                    store.plcs = plcsResp.data.plcs;
-                } else if (plcsResp.data && plcsResp.data.ok === false) {
-                    pushLog(plcsResp.data.error || "TIA Portal no conectado", "warning");
-                    store.plcs = [];
-                }
-            } finally {
-                store.busy = false;
-            }
-        }
-
-        /** Handler del ``@change`` del ``<select>`` de PLC. */
-        async function onPlcSelected() {
-            await loadAndApplyPlcBlocks(store.selectedPlc);
+        function selectPlc(plc) {
+            if (!plc || !plc.name) return;
+            store.selectedPlc = plc.name;
         }
 
         return {
@@ -529,15 +468,11 @@ export default {
             isTiaConnected,
             tiaProjectName,
             tiaProjectPath,
-            plcModel,
             canConnect,
             canDisconnect,
-            canSelectPlc,
-            canSearchPlcs,
             handleConnect,
             handleDisconnect,
-            handleRefreshPlcs,
-            onPlcSelected,
+            selectPlc,
         };
     },
     template: /* html */ `
@@ -601,7 +536,14 @@ export default {
                         </ul>
                     </div>
 
-                    <!-- Col 2: Controles -->
+                    <!-- Col 2: Controles. v3.1 (sept-2026 round 3):
+                         se elimina el <select> de PLCs y el boton
+                         "🔍 Buscar PLCs". La seleccion del PLC se
+                         hace ahora picando en uno de los cards de
+                         la grid "PLC DISPONIBLES" de la zona B, y
+                         la lista se rellena automaticamente al pulsar
+                         Conectar (lo hace connectTia en el store,
+                         que dispara apiFetchPlcs tras el attach). -->
                     <div>
                         <h4 class="text-[10px] font-bold text-ink-muted uppercase tracking-widest mb-2">
                             Controles
@@ -622,33 +564,6 @@ export default {
                                 <span>⏏</span>
                                 Desconectar
                             </button>
-
-                            <select v-model="store.selectedPlc" @change="onPlcSelected"
-                                :disabled="!canSelectPlc"
-                                data-testid="bloques-cache-plc-select"
-                                class="col-span-2 bg-white border border-line text-accent font-bold text-sm rounded focus:border-accent-bright focus:outline-none px-3 py-1.5 font-mono disabled:opacity-50 cursor-pointer">
-                                <option value="">-- Selecciona un PLC --</option>
-                                <!--
-                                  Sept-2026: store.plcs ahora guarda
-                                  [{name, short_designation}, ...] (antes
-                                  ["PLC1", "PLC2"]). "p.name ? p.name : p"
-                                  es defensivo: si la lista viniera en el
-                                  formato antiguo (cache pre-upgrade),
-                                  seguimos pintando el string como si fuera
-                                  el nombre.
-                                -->
-                                <option v-for="p in store.plcs" :key="p && p.name ? p.name : p" :value="p && p.name ? p.name : p">
-                                    {{ p && p.name ? p.name : p }}
-                                </option>
-                            </select>
-
-                            <button @click="handleRefreshPlcs"
-                                :disabled="!canSearchPlcs"
-                                data-testid="bloques-cache-refresh-plcs"
-                                class="col-span-2 px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
-                                <span>🔍</span>
-                                Buscar PLCs
-                            </button>
                         </div>
                     </div>
                 </div>
@@ -663,40 +578,22 @@ export default {
                      de abajo. -->
                 <div class="my-4 border-t border-line"></div>
 
-                <!-- Zona B: PLC activo + boton "↻ Actualizar".
-                     PLC info en 3 lineas separadas (sept-2026, pedido
-                     operario):
-                       - Linea 1: nombre del PLC (principal).
-                       - Linea 2: modelo (ShortDesignation de TIA).
-                                  "—" si TIA no expone la property o
-                                  si el PLC no esta en store.plcs.
-                       - Linea 3: timestamp del escaneado.
-                     El boton "↻ Actualizar" se queda a la derecha
-                     (centrado verticalmente respecto a las 3 lineas). -->
+                <!-- Zona B: PLC DISPONIBLES (v3.1, sept-2026 round 3).
+                     Grid responsive de cards (uno por PLC) con
+                     nombre + modelo (ShortDesignation de TIA).
+                     Click en un card -> store.selectedPlc = p.name
+                     (el watch existente dispara loadAndApplyPlcBlocks
+                     que carga el snapshot de bloques del PLC nuevo).
+                     El card del PLC activo se marca con border +
+                     bg verde (estilo "seleccionado" sutil). El
+                     boton "↻ Actualizar" vive en la cabecera a la
+                     derecha del titulo (mismo patron que el card 1
+                     de otras vistas). -->
                 <div>
-                    <h4 class="text-[10px] font-bold text-ink-muted uppercase tracking-widest mb-2">
-                        PLC activo
-                    </h4>
-                    <div class="flex justify-between items-center gap-3">
-                        <div v-if="store.selectedPlc" class="space-y-1">
-                            <p class="text-xs">
-                                <span class="text-ink-muted">PLC:</span>
-                                <span class="font-mono font-semibold text-ink ml-1" data-testid="bloques-cache-plc-name">{{ plcName }}</span>
-                            </p>
-                            <p class="text-xs">
-                                <span class="text-ink-muted">Modelo:</span>
-                                <span class="font-mono ml-1" data-testid="bloques-cache-plc-model">{{ plcModel || '—' }}</span>
-                            </p>
-                            <p v-if="scannedAt" class="text-xs">
-                                <span class="text-ink-muted">Escaneado:</span>
-                                <span class="font-mono ml-1">{{ scannedAt }}</span>
-                            </p>
-                        </div>
-                        <p v-else class="text-xs text-ink-muted">
-                            Sin PLC seleccionado. Pulsa
-                            <strong class="text-accent">"🔍 Buscar PLCs"</strong>
-                            para listar los PLCs del proyecto TIA conectado.
-                        </p>
+                    <div class="flex justify-between items-center mb-2">
+                        <h4 class="text-[10px] font-bold text-ink-muted uppercase tracking-widest">
+                            PLC disponibles
+                        </h4>
                         <button @click="handleRefresh"
                             :disabled="!store.selectedPlc || isRefreshing"
                             data-testid="bloques-cache-actualizar"
@@ -705,6 +602,48 @@ export default {
                             <span v-else>↻</span>
                             Actualizar
                         </button>
+                    </div>
+
+                    <!-- Grid de cards: uno por PLC. Columnas fijas
+                         (no auto-fit) para que la pinta sea estable
+                         independientemente del numero de PLCs.
+                         Estilo "card" tipo boton: bg-surface-raised +
+                         border + rounded + p-3. Card seleccionado:
+                         border-green-500 + bg-green-50 + text-green-800
+                         (opcion A del analisis previo, "seleccionado
+                         sutil"). Hover: border-accent + bg-accent-subtle. -->
+                    <div v-if="Array.isArray(store.plcs) && store.plcs.length > 0"
+                         class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3"
+                         data-testid="bloques-cache-plc-grid">
+                        <button v-for="p in store.plcs" :key="p && p.name ? p.name : p"
+                            type="button"
+                            @click="selectPlc(p)"
+                            :data-testid="'bloques-cache-plc-card-' + (p && p.name ? p.name : p)"
+                            :data-active="(p && p.name) === store.selectedPlc"
+                            :class="['text-left p-3 rounded border transition-colors duration-200 flex flex-col gap-1 min-h-[60px]',
+                                     (p && p.name) === store.selectedPlc
+                                         ? 'border-green-500 bg-green-50 text-green-800'
+                                         : 'border-line bg-surface-raised text-ink hover:border-accent hover:bg-accent-subtle']">
+                            <span class="font-mono font-semibold text-xs truncate"
+                                  :data-testid="'bloques-cache-plc-card-name-' + (p && p.name ? p.name : p)">
+                                {{ p && p.name ? p.name : p }}
+                            </span>
+                            <span v-if="p && p.short_designation"
+                                  class="text-[10px] truncate"
+                                  :class="(p && p.name) === store.selectedPlc ? 'text-green-700' : 'text-ink-muted'">
+                                {{ p.short_designation }}
+                            </span>
+                            <span v-else class="text-[10px] italic text-ink-muted">
+                                modelo no disponible
+                            </span>
+                        </button>
+                    </div>
+
+                    <!-- Empty state: store.plcs vacio o no es array. -->
+                    <div v-else
+                         class="flex items-center justify-center p-6 text-center text-ink-muted text-xs italic border border-dashed border-line rounded"
+                         data-testid="bloques-cache-plc-grid-empty">
+                        No se han encontrado PLCs disponibles.
                     </div>
                 </div>
             </div>

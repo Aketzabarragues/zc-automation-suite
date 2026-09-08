@@ -126,21 +126,41 @@ def test_store_js_exposes_unified_helper() -> None:
     assert "cacheSummary()" not in text
 
 
-def test_bloques_cache_view_wires_change_handler_to_load_and_apply() -> None:
-    """Tras la migración v3.0 (sept-2026), el ``<select>`` de PLC
-    vive en el primer card de ``BloquesCacheView`` (no en la
-    ShellTopbar). Une el ``@change`` con ``loadAndApplyPlcBlocks``
-    via ``onPlcSelected`` (mismo wiring que tenía el topbar antes).
+def test_bloques_cache_view_wires_plc_selection_to_load_and_apply() -> None:
+    """Tras la v3.1 (sept-2026 round 3), la selección de PLC ya NO
+    se hace con un ``<select>`` (eliminado en este PR). Ahora el
+    operario pica en uno de los cards de la grid "PLC
+    DISPONIBLES", que dispara ``selectPlc(p)`` → setea
+    ``store.selectedPlc = p.name`` → el ``watch`` existente en el
+    setup llama a ``loadAndApplyPlcBlocks`` (el mismo helper del
+    store que se usaba antes con el @change del select).
+
+    El wiring por lo tanto es: card click → ``selectPlc`` → watch
+    → ``loadAndApplyPlcBlocks``. Lo verificamos textualmente.
     """
     text = _read(BLOQUES_CACHE_VIEW_JS)
-    # Wiring del select → scan via el helper unificado del store.
-    assert "@change=\"onPlcSelected\"" in text, (
-        "BloquesCacheView debe tener un <select> con "
-        "@change=\"onPlcSelected\" en su template."
+    # Handler dedicado que setea store.selectedPlc.
+    assert "function selectPlc" in text, (
+        "BloquesCacheView debe declarar un handler `selectPlc` "
+        "que se llama al picar en un card de la grid."
     )
+    # El handler setea el PLC en el store (dispara el watch).
+    assert "store.selectedPlc" in text, (
+        "selectPlc debe setear store.selectedPlc (que el watch "
+        "existente observa y dispara loadAndApplyPlcBlocks)."
+    )
+    # El watch del store.selectedPlc sigue activo.
     assert "loadAndApplyPlcBlocks" in text, (
-        "BloquesCacheView debe importar y usar loadAndApplyPlcBlocks "
-        "para que el @change del select dispare el scan de bloques."
+        "BloquesCacheView debe seguir importando y usando "
+        "loadAndApplyPlcBlocks (vía el watch de store.selectedPlc)."
+    )
+    # El antiguo <select> y @change=onPlcSelected desaparecieron.
+    assert "@change=\"onPlcSelected\"" not in text, (
+        "El @change del <select> se eliminó: ya no hay select "
+        "en el card 1 (v3.1)."
+    )
+    assert "bloques-cache-plc-select" not in text, (
+        "El data-testid del <select> ya no debe existir."
     )
     # El handler ya no encadena dos llamadas (refactor: una sola).
     assert "refreshPlcBlocks" not in text
