@@ -242,3 +242,40 @@ def test_work_dir_parametrizable_por_area_y_contexto(
         )
     )
     assert (tmp_path / "trazabilidad" / "lotes" / "exports").exists()
+
+
+def test_subestado_acepta_subpath_typed_9_carpetas(
+    gateway: TIAProcessGateway, tmp_path: Path,
+) -> None:
+    """El param ``subestado`` acepta subpaths typed (ej. ``exports/bloques``).
+
+    Convenci\u00f3n de 9 carpetas (plan 2026-09-08): los ``.s7dcl``/``.s7res``
+    de los 6 DBs de dispositivos viven en la subcarpeta
+    ``exports/bloques/``, no en la ra\u00edz ``exports/``. El use case
+    ``DispSyncInstancesUseCase.ejecutar_transaccion`` (commit 4) pasa
+    ``subestado="exports/bloques"`` expl\u00edcitamente al gateway, y el
+    work_dir se construye respetando ese subpath (sin asumir
+    ``exports/`` plano). El test verifica que el gateway NO
+    hardcodea el subdir: cualquier valor de subestado se concatena
+    tal cual al path base.
+    """
+    import asyncio
+
+    asyncio.run(
+        gateway.update_disp_instance_comments_batch(
+            plc_name="PLC_X",
+            dispositivos_slot_maps={"ed": {0: "NO USAR", 1: "X"}},
+            target_folder="2000_Dispositivos",
+            db_names={"ed": "DB2000_ED"},
+            db_array_names={"ed": "ED"},
+            area_id="alimentacion",
+            contexto="dispositivos",
+            subestado="exports/bloques",
+            build_cache_dir=tmp_path,
+        )
+    )
+    # El work_dir se construye como
+    # ``<root>/alimentacion/dispositivos/exports/bloques``.
+    assert (
+        tmp_path / "alimentacion" / "dispositivos" / "exports" / "bloques"
+    ).exists()

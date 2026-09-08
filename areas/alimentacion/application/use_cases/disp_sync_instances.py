@@ -46,6 +46,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -376,14 +377,19 @@ class DispSyncInstancesUseCase:
         )
         try:
             # ── Stage 1: export selectivo ──────────────────────────
-            # Workdir de export para el diff. Mismo que en ``generar_prevision``:
-            # ``.build_cache/alimentacion/dispositivos/exports/``. Lo limpiamos
-            # con ``ctx.clean()`` para evitar XMLs de runs anteriores que
-            # ensucien el diff (defensivo: cualquier fallo previo puede haber
-            # dejado ``tags_base/`` con contenido parcial).
+            # Workdir de export para el diff. Por la convención de 9
+            # carpetas (``_plan/16_carpetas_convencion.md``), las TAG
+            # tables (variables) viven en ``exports/variables/`` (no en
+            # la raíz ``exports/``). ``ctx.clean()`` borra y recrea las
+            # 3 subcarpetas operativas de ``exports/`` y ``modified/``
+            # (``variables/``, ``bloques/``, ``udt/``); ``preview/`` no
+            # se toca (lo usa ``generar_prevision``). El snapshot de
+            # ``exports/variables/`` se queda tras el commit para
+            # auditoría: ``git diff exports/variables/ modified/variables/``
+            # muestra qué cambió el updater.
             disp_ctx = build_cache(root=self._build_cache).dispositivos
             disp_ctx.clean()
-            tags_base = disp_ctx.exports
+            tags_base = disp_ctx.exports_variables
             tags_base.mkdir(parents=True, exist_ok=True)
             self._progress.start_stage(
                 "export_tags", "Exportando 7 tablas del PLC (selectivo)..."
@@ -495,14 +501,35 @@ class DispSyncInstancesUseCase:
 
             # ── Stage 4: open_transaction (la unica tx TIA) ────────
             # ``work_dir`` es donde el worker escribe los XML exportados
-            # y modificados. En la convención nueva, es el mismo path
-            # f\u00edsico que ``tags_base`` (``exports/``): el worker
-            # hace export+modify+import en el mismo dir, dentro de la tx
-            # TIA. Lo limpiamos de nuevo con ``ctx.clean()`` (idempotente)
-            # para que ``commit_devices_sync`` arranque de cero (defensivo
-            # ante XMLs stale de un run previo abortado).
-            work_dir = disp_ctx.exports
-            disp_ctx.clean()
+            # y modificados. Por la convención de 9 carpetas (plan
+            # 2026-09-08), las TAG tables (variables) viven en
+            # ``modified/variables/``: el worker hace export+modify+import
+            # ahí, dentro de la tx TIA. ``exports/variables/`` (donde el
+            # stage 1 escribió el snapshot pre-commit) se preserva para
+            # auditoría: ``git diff exports/variables/ modified/variables/``
+            # muestra exactamente qué cambió el updater.
+            #
+            # Paso previo (Python puro, FUERA de la tx TIA):
+            #   ``shutil.copytree(exports/variables, modified/variables)``
+            # — copia el snapshot pre-commit a ``modified/variables/`` para
+            # que el worker tenga algo que sobreescribir con su export
+            # selectivo. El worker hace su propio export a
+            # ``modified/variables/`` (sobrescribe), modifica in-place y
+            # luego importa desde ahí. El snapshot de ``exports/variables/``
+            # queda intacto porque la copia es en una dirección.
+            #
+            # NOTA: el ``disp_ctx.clean()`` ya se hizo en el stage 1
+            # (arriba), que limpia ``exports/`` + ``modified/`` con sus
+            # 3 subcarpetas. NO se vuelve a limpiar aquí: si limpiamos,
+            # perderíamos el snapshot de ``exports/variables/`` que la
+            # copia necesita como fuente.
+            work_dir = disp_ctx.modified_variables
+            if disp_ctx.exports_variables.exists():
+                shutil.copytree(
+                    disp_ctx.exports_variables,
+                    disp_ctx.modified_variables,
+                    dirs_exist_ok=True,
+                )
 
             # Aplicar N_MAX + renames + devices en UNA sola transaccion TIA.
             # Las 3 fases son siempre activas (sin bypass): es un sync atomico
@@ -726,14 +753,36 @@ class DispSyncInstancesUseCase:
             warnings = list(build_warnings)
             target_folder = self._config.get_tia_folder_dispositivos()
             undo_text = f"Sync comentarios dispositivos ({plc_name})"
+            # Por la convención de 9 carpetas (plan 2026-09-08), los
+            # ``.s7dcl``/``.s7res`` (bloques) viven en la subcarpeta
+            # ``exports/bloques/``, no en la raíz ``exports/``. El gateway
+            # compone el work_dir como ``<root>/<area>/<contexto>/<subestado>/``,
+            # así que pasamos ``subestado="exports/bloques"`` explícitamente.
+            # El handler ``update_disp_comments_db_<hw>`` del worker hace
+            # export+modify+import en ese dir. Después copiamos a
+            # ``modified/bloques/`` para preservar el resultado
+            # post-modificación (auditoría: ver qué se aplicó).
+            disp_ctx = build_cache(root=self._build_cache).dispositivos
             result = await self._gateway.update_disp_instance_comments_batch(
                 plc_name=plc_name,
                 dispositivos_slot_maps=slot_maps,
                 target_folder=target_folder,
                 db_names=db_names,
                 db_array_names=db_array_names,
+                subestado="exports/bloques",
                 undo_text=undo_text,
             )
+            # Auditoría: copia ``exports/bloques/`` (post-modificación
+            # del worker) a ``modified/bloques/``. Como el handler
+            # modifica in-place, ``exports/bloques/`` ya contiene el
+            # resultado aplicado. La copia deja ``modified/bloques/``
+            # como snapshot de lo importado.
+            if disp_ctx.exports_bloques.exists():
+                shutil.copytree(
+                    disp_ctx.exports_bloques,
+                    disp_ctx.modified_bloques,
+                    dirs_exist_ok=True,
+                )
             applied = True
             ops = int(result.get("operations_executed", 0))
             self._progress.finish_stage(

@@ -387,9 +387,19 @@ async def test_ejecutar_transaccion_single_batch_with_nmax_and_devices(
         assert "new_name" in op
     # 3) device_changes es una lista (puede estar vacia si no hay adds/removes).
     assert isinstance(device_changes, list)
-    # 4) work_dir existe y es ruta absoluta.
+    # 4) work_dir existe y es ruta absoluta, y además es la subcarpeta
+    #    ``modified/variables/`` de la nueva convención de 9 carpetas
+    #    (``_plan/16_carpetas_convencion.md``, commit 4). El
+    #    ``commit_devices_sync`` del worker hace export+modify+import
+    #    ahí; ``exports/variables/`` queda como snapshot pre-commit
+    #    para ``git diff exports/variables/ modified/variables/``.
     assert work_dir is not None
     assert Path(work_dir).is_absolute()
+    assert str(work_dir).endswith(
+        str(Path("alimentacion") / "dispositivos" / "modified" / "variables")
+    ), (
+        f"work_dir debe apuntar a modified/variables/, got: {work_dir}"
+    )
     # 5) undo_text menciona el ambito.
     assert undo_text is not None
     assert "N_MAX" in undo_text
@@ -652,3 +662,157 @@ async def test_ejecutar_transaccion_handles_compile_exception_gracefully(
     # Pero compile_ok=False y compile_error tiene la excepcion.
     assert result["compile_ok"] is False
     assert "TIA Openness timeout" in result["compile_error"]
+
+
+@pytest.mark.asyncio
+async def test_ejecutar_transaccion_uses_typed_subdirs_for_commit_and_bloques(
+    use_case, mock_gateway, tmp_path,
+):
+    """Tras el commit, ``update_disp_instance_comments_batch`` (stage 7)
+    se invoca con ``subestado="exports/bloques"``, NO con la raíz
+    ``exports/`` ni ``exports/``.
+
+    Convenci\u00f3n de 9 carpetas (plan 2026-09-08): los ``.s7dcl``/``.s7res``
+    de los 6 DBs de dispositivos viven en la subcarpeta
+    ``exports/bloques/``, no en la ra\u00edz ``exports/``. El handler
+    ``update_disp_comments_db_<hw>`` del worker hace export+modify+import
+    ah\u00ed. La copia a ``modified/bloques/`` (que hace el use case tras
+    el batch) preserva el snapshot post-modificaci\u00f3n para auditor\u00eda.
+    """
+    mock_gateway.commit_devices_sync.return_value = {
+        "success": True,
+        "operations_executed": 0,
+        "details": [],
+    }
+    mock_gateway.compile_blocks = AsyncMock(return_value={
+        "compiled": [],
+        "skipped_unchanged": [
+            "DB2000_ED", "DB2001_EA", "DB2006_SA",
+            "DB2010_V", "DB2015_M", "DB2016_M_VF",
+        ],
+        "not_found": [],
+        "errors": [],
+    })
+    # El batch de comentarios: stub OK para que el flujo termine limpio.
+    mock_gateway.update_disp_instance_comments_batch = AsyncMock(
+        return_value={
+            "success": True,
+            "operations_executed": 6,
+            "details": [],
+        }
+    )
+
+    result = await use_case.ejecutar_transaccion("PLC1", {})
+    assert result["success"] is True
+
+    # El batch de comentarios se llam\u00f3 con ``subestado="exports/bloques"``.
+    mock_gateway.update_disp_instance_comments_batch.assert_called_once()
+    call_kwargs = (
+        mock_gateway.update_disp_instance_comments_batch.call_args.kwargs
+    )
+    assert call_kwargs.get("subestado") == "exports/bloques", (
+        f"subestado debe ser 'exports/bloques' (convenci\u00f3n 9 carpetas), "
+        f"got: {call_kwargs.get('subestado')!r}"
+    )
+
+    # Y el ``commit_devices_sync`` se llam\u00f3 con ``work_dir`` apuntando
+    # a la subcarpeta ``modified/variables/`` (donde el worker hace
+    # export+modify+import). ``exports/variables/`` es donde el stage 1
+    # escribi\u00f3 el snapshot pre-commit (auditor\u00eda con
+    # ``git diff exports/variables/ modified/variables/``).
+    mock_gateway.commit_devices_sync.assert_called_once()
+    commit_call = mock_gateway.commit_devices_sync.call_args
+    work_dir = commit_call.kwargs.get("work_dir")
+    assert work_dir is not None
+    assert str(work_dir).endswith(
+        str(Path("alimentacion") / "dispositivos" / "modified" / "variables")
+    ), (
+        f"work_dir de commit_devices_sync debe apuntar a "
+        f"modified/variables/, got: {work_dir}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_ejecutar_transaccion_copia_exports_a_modified_variables(
+    use_case, mock_gateway, tmp_path,
+):
+    """Antes del ``commit_devices_sync``, el use case copia el snapshot
+    de ``exports/variables/`` a ``modified/variables/`` (Python puro).
+
+    Convenci\u00f3n de 9 carpetas (plan 2026-09-08, commit 4): el
+    ``commit_devices_sync`` del worker hace export+modify+import en
+    ``modified/variables/``. Para que el worker tenga datos v\u00e1lidos
+    desde el primer momento (por si su export selectivo falla a
+    mitad), el use case pre-copia el snapshot pre-commit
+    (``exports/variables/``) a ``modified/variables/``. Esto es
+    defensivo: el worker's export selectivo sobreescribe
+    ``modified/variables/`` con datos frescos, pero si la export
+    selectiva omite alguna tabla, la copia previa garantiza que los
+    datos de ``exports/variables/`` siguen ah\u00ed.
+
+    El test verifica que la copia existe Y que ``exports/variables/``
+    NO se modifica tras el commit (es el snapshot pre-commit para
+    auditor\u00eda).
+    """
+    mock_gateway.commit_devices_sync.return_value = {
+        "success": True,
+        "operations_executed": 0,
+        "details": [],
+    }
+    mock_gateway.compile_blocks = AsyncMock(return_value={
+        "compiled": [],
+        "skipped_unchanged": [
+            "DB2000_ED", "DB2001_EA", "DB2006_SA",
+            "DB2010_V", "DB2015_M", "DB2016_M_VF",
+        ],
+        "not_found": [],
+        "errors": [],
+    })
+    mock_gateway.update_disp_instance_comments_batch = AsyncMock(
+        return_value={"success": True, "operations_executed": 0, "details": []}
+    )
+
+    # ``build_cache_dir`` apunta a ``tmp_path`` (en el fixture
+    # ``use_case``). El export de TIA escribe a ``<root>/alimentacion/
+    # dispositivos/exports/variables/`` (que es el target del
+    # ``mock_gateway.export_plc_tags_xml``). Tras la copia, debe
+    # existir tambi\u00e9n ``<root>/alimentacion/dispositivos/modified/
+    # variables/`` con el mismo contenido.
+    await use_case.ejecutar_transaccion("PLC1", {})
+
+    root = tmp_path
+    exports_variables = (
+        root / "alimentacion" / "dispositivos" / "exports" / "variables"
+    )
+    modified_variables = (
+        root / "alimentacion" / "dispositivos" / "modified" / "variables"
+    )
+    assert exports_variables.exists(), (
+        f"exports/variables/ debe existir tras ejecutar_transaccion: "
+        f"{exports_variables}"
+    )
+    assert modified_variables.exists(), (
+        f"modified/variables/ debe existir tras la copia: "
+        f"{modified_variables}"
+    )
+    # El snapshot de exports/variables/ y modified/variables/ debe
+    # coincidir (la copia es byte-a-byte antes del commit; el worker
+    # re-exporta a modified/variables/ pero los archivos pre-commit
+    # deben coincidir al menos con los que el test escribi\u00f3).
+    # Comparamos solo los archivos que el test fixture escribi\u00f3
+    # (``fake_export`` usa ``_write_bulk_export_tree`` que crea
+    # ``000_Sistema/000_Config_Dispositivos.xml`` y
+    # ``2000_Dispositivos/2000_Disp_ED.xml``).
+    expected_files = [
+        "000_Sistema/000_Config_Dispositivos.xml",
+        "2000_Dispositivos/2000_Disp_ED.xml",
+    ]
+    for rel in expected_files:
+        e = exports_variables / rel
+        m = modified_variables / rel
+        assert e.is_file(), f"export snapshot missing: {e}"
+        assert m.is_file(), f"modified copy missing: {m}"
+        assert e.read_bytes() == m.read_bytes(), (
+            f"snapshot pre-commit debe coincidir con la copia "
+            f"pre-worker-export: {rel}"
+        )

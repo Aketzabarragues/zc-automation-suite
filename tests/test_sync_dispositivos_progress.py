@@ -323,9 +323,12 @@ async def test_apply_comentarios_disp_fallo_no_revienta_el_commit(
         }
     gateway.compile_blocks = fake_compile_blocks  # type: ignore[method-assign]
     # El batch de comentarios falla (TIA en estado raro).
+    # ``**kwargs`` para tolerar los nuevos args del gateway
+    # (``subestado``, ``build_cache_dir``, ``area_id``, ``contexto``)
+    # sin necesidad de enumerarlos uno a uno en este stub.
     async def fake_comments_batch(
         plc_name, dispositivos_slot_maps, target_folder,
-        db_names, db_array_names, undo_text="",
+        db_names, db_array_names, undo_text="", **kwargs,
     ):
         raise RuntimeError("TIA no responde")
     gateway.update_disp_instance_comments_batch = fake_comments_batch  # type: ignore[method-assign]
