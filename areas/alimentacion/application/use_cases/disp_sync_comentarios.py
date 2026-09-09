@@ -4,8 +4,15 @@ Pieza del flujo post-``apply_disp`` (N_MAX) + ``compile_plc`` (redimensionado):
 recibe el AppState con los dispositivos cargados desde el Excel, y para
 cada DB de dispositivo (ED/EA/SA/V/M/M_VF) escribe el comentario de
 cada instancia (``comentario_db``) en el Source Document correspondiente
-(``.s7dcl``/``.s7res``) y reimporta el bloque a TIA Portal, todo bajo
-UNA sola transacción COM con rollback atómico.
+(``.s7dcl``/``.s7res``) y reimporta el bloque a TIA Portal.
+
+**Flujo sept-2026 (fix del SOBREESCRIBIR entre handlers):** el IT hace
+export de los 6 DBs a ``exports/bloques/`` UNA VEZ, copytree a
+``modified/bloques/`` UNA VEZ, y luego el gateway invoca 6 veces al
+handler ``update_disp_comments_db_apply_<hw>`` (cada uno con su
+propia tx TIA). Ver ``_run_apply_comentarios`` en
+``disp_sync_instances.py`` para el flujo equivalente dentro de
+``ejecutar_transaccion``.
 
 Restricciones arquitectónicas:
   - NO importa ``siemens_tia_scripting``.
@@ -19,9 +26,13 @@ Stages de progress (alineado con ``.clinerules`` §7):
 from __future__ import annotations
 
 import logging
+import os
+import shutil
+from pathlib import Path
 from typing import Any
 
 from areas.alimentacion.application.disp_slot_map_builder import disp_build_slot_maps
+from areas.alimentacion.infrastructure.build_cache import build_cache
 from core.application.progress_buffer import ProgressTracker, get_progress_tracker
 from core.application.state import AppState
 from core.infrastructure.config_manager import ConfigManager
@@ -38,6 +49,8 @@ class DispComentariosSyncUseCase:
         gateway:          gateway asíncrono al motor OT.
         config_manager:   configuración TIA del departamento activo.
         app_state:        estado con los dispositivos cargados del Excel.
+        build_cache_dir:  raíz del ``BuildCache`` del área. Por defecto
+                          ``<cwd>/.build_cache``.
         progress:         tracker de progreso (Singleton global si None).
     """
 
@@ -46,11 +59,18 @@ class DispComentariosSyncUseCase:
         gateway: TIAProcessGateway,
         config_manager: ConfigManager,
         app_state: AppState,
+        build_cache_dir: Path | None = None,
         progress: ProgressTracker | None = None,
     ) -> None:
         self._gateway = gateway
         self._config = config_manager
         self._state = app_state
+        # ``build_cache_dir`` es ahora la RAÍZ del ``BuildCache`` del
+        # área. Por convención, apunta a ``<cwd>/.build_cache``. Tests
+        # pueden pasar ``tmp_path`` o ``tmp_path / ".build_cache"``.
+        self._build_cache = build_cache_dir or (
+            Path(os.getcwd()) / ".build_cache"
+        )
         self._progress: ProgressTracker = (
             progress if progress is not None else get_progress_tracker()
         )
@@ -148,7 +168,20 @@ class DispComentariosSyncUseCase:
     # ── Internals ────────────────────────────────────────────────────────
 
     async def _run_apply(self, plc_name: str) -> dict[str, Any]:
-        """Lógica de apply: check + build + batch transaccional. Emite progress."""
+        """Lógica de apply: check + build + export pre-batch + 6 applies.
+
+        **Flujo sept-2026 (fix del SOBREESCRIBIR entre handlers):**
+
+          1. Export de los 6 DBs a ``exports/bloques/`` UNA VEZ.
+          2. Copytree ``exports/bloques/ → modified/bloques/`` UNA VEZ.
+          3. Batch: 6 invocaciones separadas al nuevo handler
+             ``update_disp_comments_db_apply_<hw>`` (1 dispatch por
+             hw_type). Cada handler abre/cierra **su propia tx TIA**
+             (mismo patrón que N_MAX/devices), evitando el rollback
+             silencioso de TIA V21 al mezclar 6 imports en 1 sola tx.
+
+        Emite progress.
+        """
         self._progress.start_stage("read_state", "Validando AppState...")
         warnings: list[str] = self._check_app_state()
         if warnings:
@@ -178,20 +211,47 @@ class DispComentariosSyncUseCase:
         )
 
         target_folder = self._config.get_tia_folder_dispositivos()
-        undo_text = f"Sync comentarios dispositivos ({plc_name})"
+
+        # Convención de 9 carpetas: bloques en ``exports/bloques/`` y
+        # ``modified/bloques/``. Hacemos el export + copytree UNA VEZ
+        # antes del batch.
+        disp_ctx = build_cache(root=self._build_cache).dispositivos
+        modified_bloques = disp_ctx.modified_bloques
+        if modified_bloques.exists():
+            shutil.rmtree(modified_bloques)
+        modified_bloques.mkdir(parents=True, exist_ok=True)
+        exports_bloques = disp_ctx.exports_bloques
 
         # Etiqueta honesta: opaca, cubre la transacción COM (1-3 min).
         self._progress.start_stage(
             "open_transaction",
             f"Aplicando {len(slot_maps)} comentarios a TIA — puede tardar 1-3 min",
         )
+        # 1. EXPORT de los 6 DBs a ``exports/bloques/`` UNA VEZ.
+        for hw_type, db_name in db_names.items():
+            await self._gateway.export_block(
+                plc_name=plc_name,
+                block_name=db_name,
+                target_dir=str(exports_bloques),
+            )
+
+        # 2. COPYTREE ``exports/bloques/ → modified/bloques/`` UNA VEZ.
+        if exports_bloques.exists():
+            shutil.copytree(
+                str(exports_bloques),
+                str(modified_bloques),
+                dirs_exist_ok=True,
+            )
+
+        # 3. BATCH: 6 invocaciones separadas (1 dispatch por hw_type).
+        #    Cada handler abre/cierra su propia tx TIA.
         result = await self._gateway.update_disp_instance_comments_batch(
             plc_name=plc_name,
             dispositivos_slot_maps=slot_maps,
             target_folder=target_folder,
             db_names=db_names,
             db_array_names=db_array_names,
-            undo_text=undo_text,
+            work_dir=modified_bloques,
         )
         ops_executed = result.get("operations_executed", 0)
         self._progress.finish_stage(

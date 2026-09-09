@@ -942,13 +942,28 @@ class DispSyncInstancesUseCase:
         aplicados); el operario puede reintentar via POST
         /api/v1/alimentacion/aplicar-comentarios-disp.
 
+        **Flujo sept-2026 (fix del SOBREESCRIBIR entre handlers):**
+
+        1. **Export de los 6 DBs** a ``exports/bloques/`` UNA VEZ.
+           Antes este export se hacía DENTRO de cada handler, lo que
+           mezclaba 6 imports en 1 sola tx y, peor, hacía que cada
+           ``shutil.copytree`` SOBREESCRIBIERA ``modified_bloques/`` con
+           la versión ORIGINAL de ``exports/bloques/``, destruyendo
+           los cambios del handler anterior.
+        2. **Copytree** ``exports/bloques/ → modified/bloques/`` UNA VEZ.
+           Ahora el snapshot pre-commit queda intacto en
+           ``exports/bloques/`` y la versión modificada vive en
+           ``modified/bloques/``.
+        3. **Batch**: 6 invocaciones separadas al nuevo handler
+           ``update_disp_comments_db_apply_<hw>`` (1 dispatch por
+           hw_type). Cada handler abre/cierra **su propia tx TIA**
+           (mismo patrón que N_MAX/devices), evitando el rollback
+           silencioso de TIA V21 al mezclar 6 imports en 1 sola tx.
+
         Convención de 9 carpetas (Commit 7):
 
-        * ``exports/bloques/`` = snapshot limpio pre-commit. TIA exporta
-          aquí primero (dentro de la tx).
-        * ``modified/bloques/`` = donde el updater modifica. El handler
-          hace ``shutil.copytree(exports/bloques/, modified/bloques/)``
-          tras el export y modifica la copia.
+        * ``exports/bloques/`` = snapshot limpio pre-commit.
+        * ``modified/bloques/`` = donde el updater modifica.
         * ``git diff exports/bloques/ modified/bloques/`` muestra los
           cambios del updater (audit pre vs post).
 
@@ -984,14 +999,6 @@ class DispSyncInstancesUseCase:
             )
             warnings = list(build_warnings)
             target_folder = self._config.get_tia_folder_dispositivos()
-            undo_text = f"Sync comentarios dispositivos ({plc_name})"
-            # Por la convención de 9 carpetas, los ``.s7dcl``/``.s7res``
-            # (bloques) viven en la subcarpeta ``exports/bloques/``,
-            # no en la raíz. Pasamos ``work_dir`` y ``exports_subdir``
-            # explícitos al gateway (Commit 7); el handler hace
-            # export → ``shutil.copytree`` → modify → import, dejando
-            # el snapshot pre-commit intacto en ``exports/bloques/`` y
-            # la versión modificada en ``modified/bloques/``.
             disp_ctx = build_cache(root=self._build_cache).dispositivos
             # Limpieza defensiva de ``modified/bloques/`` (sept-2026):
             # aunque ``disp_ctx.clean()`` en Stage 1 ya lo hace,
@@ -1001,16 +1008,42 @@ class DispSyncInstancesUseCase:
             modified_bloques = disp_ctx.modified_bloques
             if modified_bloques.exists():
                 shutil.rmtree(modified_bloques)
-                modified_bloques.mkdir(parents=True, exist_ok=True)
+            modified_bloques.mkdir(parents=True, exist_ok=True)
+            exports_bloques = disp_ctx.exports_bloques
+
+            # 1. EXPORT de los 6 DBs a ``exports/bloques/`` UNA VEZ.
+            #    Antes este export se hacía DENTRO de cada handler, lo
+            #    que mezclaba 6 imports en 1 sola tx y, peor, hacía
+            #    que cada copytree SOBREESCRIBIERA ``modified_bloques/``
+            #    con la versión ORIGINAL de ``exports/bloques/``.
+            #    Ahora lo hacemos UNA VEZ aquí.
+            for hw_type, db_name in db_names.items():
+                await self._gateway.export_block(
+                    plc_name=plc_name,
+                    block_name=db_name,
+                    target_dir=str(exports_bloques),
+                )
+
+            # 2. COPYTREE ``exports/bloques/ → modified/bloques/`` UNA VEZ.
+            #    El updater modifica la copia, dejando el snapshot
+            #    pre-commit intacto en ``exports/bloques/`` para el
+            #    ``git diff`` de auditoría.
+            if exports_bloques.exists():
+                shutil.copytree(
+                    str(exports_bloques),
+                    str(modified_bloques),
+                    dirs_exist_ok=True,
+                )
+
+            # 3. BATCH: 6 invocaciones separadas (1 dispatch por hw_type).
+            #    Cada handler abre/cierra su propia tx TIA.
             result = await self._gateway.update_disp_instance_comments_batch(
                 plc_name=plc_name,
                 dispositivos_slot_maps=slot_maps,
                 target_folder=target_folder,
                 db_names=db_names,
                 db_array_names=db_array_names,
-                work_dir=disp_ctx.modified_bloques,
-                exports_subdir=disp_ctx.exports_bloques,
-                undo_text=undo_text,
+                work_dir=modified_bloques,
             )
             applied = True
             ops = int(result.get("operations_executed", 0))

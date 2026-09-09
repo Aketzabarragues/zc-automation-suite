@@ -1,10 +1,14 @@
 """Tests del método del gateway ``update_disp_instance_comments_batch``.
 
-Mockeamos ``execute_transactional_batch`` y ``clear_cache`` del gateway
-para no lanzar el subprocess real (requiere TIA + siemens_tia_scripting).
+**Sept-2026:** el método ya NO usa ``execute_transactional_batch``. Hace
+6 invocaciones separadas a ``_dispatch_worker`` (1 por hw_type) con
+``update_disp_comments_db_apply_<hw>``. Mockeamos ``_dispatch_worker`` y
+``clear_cache`` del gateway para no lanzar el subprocess real (requiere
+TIA + siemens_tia_scripting).
 """
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -14,13 +18,19 @@ from core.infrastructure.gateway import TIAProcessGateway
 
 @pytest.fixture
 def gateway() -> TIAProcessGateway:
-    """Gateway fresco, con execute_transactional_batch y clear_cache mockeados."""
+    """Gateway fresco, con ``_dispatch_worker`` y ``clear_cache`` mockeados."""
     g = TIAProcessGateway()
-    g.execute_transactional_batch = AsyncMock(
+    g._dispatch_worker = AsyncMock(
         return_value={
-            "success": True,
-            "operations_executed": 6,
-            "details": [],
+            "hw_type": "ed",
+            "db_name": "DB2000_ED",
+            "modified": True,
+            "disp_comment_result": {
+                "reused": {},
+                "inserted": {},
+                "no_usar_mlc": "MLC_xxx",
+                "total_mlcs_in_res": 1,
+            },
         }
     )
     g.clear_cache = MagicMock()
@@ -59,10 +69,15 @@ def test_raises_si_slot_0_no_es_no_usar(gateway: TIAProcessGateway) -> None:
         )
 
 
-def test_construye_6_operaciones_con_args_completos(
+def test_dispatcha_6_operaciones_separadas(
     gateway: TIAProcessGateway,
 ) -> None:
-    """slot_maps con 6 tipos → 6 operaciones con db_name / db_array_name / target_folder."""
+    """slot_maps con 6 tipos → 6 invocaciones separadas a ``_dispatch_worker``
+    con ``update_disp_comments_db_apply_<hw>`` (1 dispatch por hw_type).
+
+    Sept-2026: el método ya NO usa ``execute_transactional_batch``; cada
+    handler abre/cierra su propia tx TIA.
+    """
     import asyncio
 
     slot_maps = {
@@ -89,7 +104,7 @@ def test_construye_6_operaciones_con_args_completos(
         "m":    "M",
         "m_vf": "M_VF",
     }
-    asyncio.run(
+    result = asyncio.run(
         gateway.update_disp_instance_comments_batch(
             plc_name="PLC_X",
             dispositivos_slot_maps=slot_maps,
@@ -99,19 +114,31 @@ def test_construye_6_operaciones_con_args_completos(
         )
     )
 
-    call_args = gateway.execute_transactional_batch.call_args
-    ops = call_args.args[0]
-    assert len(ops) == 6
-    # Cada op debe tener db_name y db_array_name correctamente poblados.
-    for op in ops:
-        cmd = op["command"]
-        assert cmd.startswith("update_disp_comments_db_")
-        hw = cmd.removeprefix("update_disp_comments_db_")
-        assert op["args"]["db_name"] == db_names[hw]
-        assert op["args"]["db_array_name"] == db_array_names[hw]
-        assert op["args"]["target_folder"] == "2000_Dispositivos"
-        assert op["args"]["plc_name"] == "PLC_X"
-        assert op["args"]["slot_map"]["0"] == "NO USAR"
+    # 6 invocaciones separadas, 1 por hw_type.
+    assert gateway._dispatch_worker.await_count == 6
+    # Cada invocación es un comando distinto ``update_disp_comments_db_apply_<hw>``.
+    commands = [c.args[0] for c in gateway._dispatch_worker.await_args_list]
+    assert set(commands) == {
+        "update_disp_comments_db_apply_ed",
+        "update_disp_comments_db_apply_ea",
+        "update_disp_comments_db_apply_sa",
+        "update_disp_comments_db_apply_v",
+        "update_disp_comments_db_apply_m",
+        "update_disp_comments_db_apply_m_vf",
+    }
+    # Cada op debe tener db_name, db_array_name, target_folder, plc_name, slot_map correctos.
+    for call in gateway._dispatch_worker.await_args_list:
+        cmd = call.args[0]
+        op_args = call.args[1]
+        hw = cmd.removeprefix("update_disp_comments_db_apply_")
+        assert op_args["db_name"] == db_names[hw]
+        assert op_args["db_array_name"] == db_array_names[hw]
+        assert op_args["target_folder"] == "2000_Dispositivos"
+        assert op_args["plc_name"] == "PLC_X"
+        assert op_args["slot_map"]["0"] == "NO USAR"
+    # El return tiene operations_executed == 6.
+    assert result["operations_executed"] == 6
+    assert result["success"] is True
 
 
 def test_target_folder_no_hardcodeado(gateway: TIAProcessGateway) -> None:
@@ -128,9 +155,9 @@ def test_target_folder_no_hardcodeado(gateway: TIAProcessGateway) -> None:
         )
     )
 
-    ops = gateway.execute_transactional_batch.call_args.args[0]
-    for op in ops:
-        assert op["args"]["target_folder"] == "OTRA_CARPETA"
+    for call in gateway._dispatch_worker.await_args_list:
+        op_args = call.args[1]
+        assert op_args["target_folder"] == "OTRA_CARPETA"
 
 
 def test_llama_clear_cache_en_exito(gateway: TIAProcessGateway) -> None:
@@ -154,13 +181,12 @@ def test_work_dir_usa_build_cache(
 ) -> None:
     """El work_dir es ``<build_cache>/alimentacion/dispositivos/exports/``.
 
-    Mismo path can\u00f3nico que ``DispSyncInstancesUseCase`` (que escribe
+    Mismo path canónico que ``DispSyncInstancesUseCase`` (que escribe
     en ``exports/`` para su flujo de N_MAX + devices). Unificar el
     subdir permite que ``ContextCache.clean()`` aplique a ambos
-    flujos de dispositivos desde un \u00fanico punto.
+    flujos de dispositivos desde un único punto.
     """
     import asyncio
-    from pathlib import Path
 
     asyncio.run(
         gateway.update_disp_instance_comments_batch(
@@ -249,11 +275,11 @@ def test_subestado_acepta_subpath_typed_9_carpetas(
 ) -> None:
     """El param ``subestado`` acepta subpaths typed (ej. ``exports/bloques``).
 
-    Convenci\u00f3n de 9 carpetas (plan 2026-09-08): los ``.s7dcl``/``.s7res``
+    Convención de 9 carpetas (plan 2026-09-08): los ``.s7dcl``/``.s7res``
     de los 6 DBs de dispositivos viven en la subcarpeta
-    ``exports/bloques/``, no en la ra\u00edz ``exports/``. El use case
+    ``exports/bloques/``, no en la raíz ``exports/``. El use case
     ``DispSyncInstancesUseCase.ejecutar_transaccion`` (commit 4) pasa
-    ``subestado="exports/bloques"`` expl\u00edcitamente al gateway, y el
+    ``subestado="exports/bloques"`` explícitamente al gateway, y el
     work_dir se construye respetando ese subpath (sin asumir
     ``exports/`` plano). El test verifica que el gateway NO
     hardcodea el subdir: cualquier valor de subestado se concatena

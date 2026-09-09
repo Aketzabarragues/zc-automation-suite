@@ -8,13 +8,16 @@ DENTRO del proceso del worker, bajo el mismo
 comando del lote.
 
 Comandos aportados al ``COMMAND_REGISTRY`` del worker:
-  - ``update_disp_comments_db_<hw>`` (×6, uno por hw_type): export +
-    edit SD offline + import selectivo de los DBs de array.
-  - ``commit_devices_sync``: commit atómico N_MAX + renames + devices
-    en una sola ``start_transaction`` del worker. Específico del flujo
-    "sync dispositivos" del subdominio alimentación (N_MAX como
-    PlcUserConstant de la tabla 000_Config_Dispositivos + devices como
-    PlcUserConstant de las 6 tablas 2000_Disp_<hw>).
+  - ``update_disp_comments_db_<hw>`` (×6, uno por hw_type): DEPRECATED
+    (sept-2026). export + edit SD offline + import selectivo de los
+    DBs de array. Se mantiene por compat con callers/tests legacy.
+  - ``update_disp_comments_db_apply_<hw>`` (×6): NUEVO (sept-2026).
+    SOLO aplica (lee + modifica + guarda + importa). NO hace export ni
+    copytree propio. Abre/cierra su propia tx TIA. El IT hace el
+    export + copytree UNA VEZ antes del batch.
+  - ``commit_devices_sync``: DEPRECATED. Commit atómico N_MAX + renames
+    + devices en una sola ``start_transaction`` del worker. Sustituido
+    por ``commit_disp_nmax_renames_online`` + ``commit_disp_devices_offline``.
 
 Punto de extensión cableado por ``AreaSpec.contributes_tia_commands``
 y consumido al arrancar el worker vía
@@ -53,44 +56,32 @@ EXTRA_HW_TYPES: tuple[str, ...] = (
 def make_cmd_update_disp_comments_db(hw_type: str) -> Callable[..., Any]:
     """Factory que genera un handler atómico para el DB de ``hw_type``.
 
-    El ``hw_type`` se queda capturado en el closure para etiquetar el
-    retorno y poder trazarlo en logs / historial de TIA.
+    **DEPRECATED (sept-2026):** usar ``make_cmd_update_disp_comments_db_apply``
+    en su lugar. Este factory se mantiene por compat con callers/tests
+    legacy.
 
-    El handler:
-      1. Exporta selectivamente el DB objetivo (``export_block``).
-      2. Aplica el updater offline ``DispCommentUpdater`` sobre los
-         ``.s7dcl`` / ``.s7res`` exportados.
-      3. Si hubo cambios, re-importa el bloque al proyecto
-         (``import_block``).
+    El factory original hacía **export + copytree DENTRO de cada handler**.
+    El batch wrapper ejecuta 6 invocaciones secuenciales (1 por hw_type),
+    y cada ``shutil.copytree`` SOBREESCRIBÍA ``modified_bloques/`` con la
+    versión ORIGINAL de ``exports/bloques/``, destruyendo los cambios del
+    handler anterior. Aunque cada ``import_block`` se ejecutaba ANTES del
+    SOBREESCRIBIR del siguiente handler, el patrón mezclaba 6 imports
+    offline en una sola ``start_transaction`` del batch wrapper, lo que
+    en TIA V21 causaba el mismo rollback silencioso que vimos con
+    N_MAX/devices.
 
-    Vive dentro de la transacción que abrió
-    ``execute_transactional_batch`` en el lote (no abre transacción
-    propia); es atómico respecto al lote.
+    El nuevo flow (``make_cmd_update_disp_comments_db_apply``) hace:
 
-    Args (de ``args``):
-        plc_name: nombre del PLC en TIA.
-        db_name: nombre del DB objetivo.
-        db_array_name: nombre del array dentro del DB.
-        slot_map: ``{slot: texto}``.
-        work_dir: directorio de TRABAJO donde TIA escribe el export,
-                  el updater modifica in-place, y desde donde TIA
-                  importa. Por convención de 9 carpetas
-                  (``_plan/16_carpetas_convencion.md``), es
-                  ``modified_bloques/<db_subpath>`` (raíz de la fase
-                  post-commit).
-        target_folder: carpeta TIA donde está el DB (estática para
-                       dispositivos, viene de ``config.json``).
-        exports_subdir: directorio del SNAPSHOT LIMPIO pre-commit
-                       (opcional, Commit 7). Si se pasa, TIA
-                       exporta aquí primero, luego
-                       ``shutil.copytree`` copia el snapshot a
-                       ``work_dir``, y el updater modifica la
-                       copia. Si NO se pasa (legacy), TIA
-                       exporta directo a ``work_dir`` y el updater
-                       modifica in-place. Con ``exports_subdir``
-                       se consigue que ``git diff exports/bloques/
-                       modified/bloques/`` muestre los cambios del
-                       updater (audit pre vs post).
+      1. El use case (IT) exporta los 6 DBs a ``exports/bloques/`` UNA VEZ
+         y hace ``shutil.copytree`` a ``modified/bloques/`` UNA VEZ.
+      2. Cada handler solo lee de ``modified/bloques/``, modifica, guarda
+         e importa. SIN export, SIN copytree. Abre/cierra su propia tx
+         (mismo patrón que ``commit_disp_nmax_renames_online`` y
+         ``commit_disp_devices_offline``).
+      3. El gateway hace 6 invocaciones separadas al nuevo handler (1
+         dispatch por DB), NO via ``execute_transactional_batch``.
+
+    Se retira en PR siguiente tras confirmar el fix en prod.
     """
     def _cmd(portal: Any, ts: Any, args: dict[str, Any]) -> dict[str, Any]:
         plc_name: str = args.get("plc_name", "")
@@ -236,6 +227,195 @@ def make_cmd_update_disp_comments_db(hw_type: str) -> Callable[..., Any]:
                 f"(slot_map={len(slot_map_int)} slots, "
                 f"reused={len(result.reused)}, inserted={len(result.inserted)})"
             )
+
+        return {
+            "hw_type":           hw_type,
+            "db_name":           db_name,
+            "modified":          updater.was_modified(),
+            "disp_comment_result": {
+                "reused":            result.reused,
+                "inserted":          result.inserted,
+                "no_usar_mlc":       result.no_usar_mlc,
+                "total_mlcs_in_res": result.total_mlcs_in_res,
+            },
+        }
+
+    return _cmd
+
+
+def make_cmd_update_disp_comments_db_apply(hw_type: str) -> Callable[..., Any]:
+    """Factory que genera un handler que **aplica** (lee + modifica +
+    guarda + importa) los comentarios SD de un DB en su **propia** tx TIA.
+
+    Diferencias clave con ``make_cmd_update_disp_comments_db`` (DEPRECATED):
+
+      * **NO hace export ni copytree propio.** Asume que el archivo
+        ``.s7dcl``/``.s7res`` ya está en ``work_dir`` (preparado por el
+        use case IT con export + copytree antes del batch).
+      * **Abre y cierra su propia** ``start_transaction`` /
+        ``end_transaction`` (mismo patrón que
+        ``commit_disp_nmax_renames_online`` y
+        ``commit_disp_devices_offline``).
+
+    Esto evita dos bugs:
+
+      1. **SOBREESCRIBIR entre handlers del batch:** el factory original
+         hacía ``shutil.copytree(exports/bloques/, modified_bloques/)``
+         dentro de cada handler. Con 6 invocaciones secuenciales (1 por
+         hw_type), cada copytree borraba los cambios del handler
+         anterior. Ahora el copytree se hace UNA VEZ en IT antes del
+         batch.
+      2. **Rollback silencioso de TIA V21** al mezclar 6 imports offline
+         en una sola ``start_transaction`` del batch wrapper. Ahora cada
+         handler abre/cierra su propia tx.
+
+    Si una op falla, hace ``end_transaction(rollback=True)`` y re-lanza
+    la excepción.
+
+    Args (de ``args``):
+        plc_name: nombre del PLC en TIA.
+        db_name: nombre del DB objetivo.
+        db_array_name: nombre del array dentro del DB.
+        slot_map: ``{slot: texto}``.
+        work_dir: directorio de TRABAJO (preparado por IT con export +
+                  copytree pre-batch). Aquí está el ``.s7dcl``/``.s7res``
+                  a modificar. Por convención de 9 carpetas, es
+                  ``modified_bloques/``.
+        target_folder: carpeta TIA donde está el DB (estática para
+                       dispositivos, viene de ``config.json``).
+    """
+    def _cmd(portal: Any, ts: Any, args: dict[str, Any]) -> dict[str, Any]:
+        plc_name: str = args.get("plc_name", "")
+        db_name: str = args.get("db_name", "")
+        db_array_name: str = args.get("db_array_name", "")
+        slot_map: dict[str, str] = args.get("slot_map", {})
+        work_dir: str = args.get("work_dir", "")
+        target_folder: str = args.get("target_folder", "")
+
+        if not (plc_name and db_name and db_array_name and work_dir and target_folder):
+            raise ValueError(
+                f"update_disp_comments_db_apply_{hw_type}: args incompletos. "
+                f"Recibido: plc_name={plc_name!r} db_name={db_name!r} "
+                f"db_array_name={db_array_name!r} work_dir={work_dir!r} "
+                f"target_folder={target_folder!r}"
+            )
+
+        # Coerción: slot_map llega con keys str (JSON); el updater quiere int.
+        slot_map_int: dict[int, str] = {int(k): v for k, v in slot_map.items()}
+
+        # ── DIAGNOSTICO TEMPORAL (sept-2026) ────────────────────────────────
+        # Log del slot_map recibido y de la existencia de los archivos
+        # .s7dcl/.s7res. Se retira tras confirmar el fix en prod.
+        _log_diag = logging.getLogger(
+            f"{__name__}.update_disp_comments_db_apply_{hw_type}"
+        )
+        _log_diag.info(
+            f"[DIAG-DISP] slot_map recibido: db_name={db_name!r} "
+            f"work_dir={work_dir!r} target_folder={target_folder!r} "
+            f"slot_map_int={dict(list(slot_map_int.items())[:5])}{'...' if len(slot_map_int) > 5 else ''} "
+            f"(total {len(slot_map_int)} slots)"
+        )
+
+        # Import local: solo se carga cuando el handler se invoca
+        # (cumple "offline-first" del worker, igual que antes). Apunta
+        # a la nueva ubicación del paquete SD (PR 3).
+        from areas.alimentacion.infrastructure.sd.disp_comment_updater import (
+            DispCommentUpdater,
+        )
+
+        s7dcl_path = SdPair(Path(work_dir), db_name).dcl
+        s7res_path = SdPair(Path(work_dir), db_name).res
+
+        # DIAGNOSTICO: paths resueltos + existencia pre-apply.
+        # En el flujo nuevo, el IT ya hizo export + copytree ANTES
+        # del batch, así que estos archivos DEBEN existir.
+        _log_diag.info(
+            f"[DIAG-DISP] paths resueltos: "
+            f"s7dcl_path={str(s7dcl_path)!r} exists={s7dcl_path.is_file()} "
+            f"s7res_path={str(s7res_path)!r} exists={s7res_path.is_file()}"
+        )
+
+        # Verificar que los archivos existen (preparados por IT).
+        if not s7dcl_path.is_file():
+            raise FileNotFoundError(
+                f"update_disp_comments_db_apply_{hw_type}: no se encontró "
+                f"'.s7dcl' en '{s7dcl_path}'. ¿El IT hizo export + copytree "
+                f"antes del batch?"
+            )
+        if not s7res_path.is_file():
+            raise FileNotFoundError(
+                f"update_disp_comments_db_apply_{hw_type}: no se encontró "
+                f"'.s7res' en '{s7res_path}'. ¿El IT hizo export + copytree "
+                f"antes del batch?"
+            )
+
+        # Import lazy del worker para evitar el ciclo
+        # ``worker_tia → command_loader → AreaRegistry → areas.<area> →
+        # extra_commands → (lazy) worker_tia``. En el momento en que se
+        # invoca el handler, ``worker_tia`` ya está completamente cargado.
+        from core.infrastructure.tia import worker_tia
+        core_registry = worker_tia.COMMAND_REGISTRY
+
+        project = worker_tia._get_active_project(portal)
+        op_label = "start_transaction"
+        undo_label = f"Sync comentarios {db_name} ({hw_type})"
+
+        # Tx TIA PROPIA (NO del batch wrapper). Esto evita el rollback
+        # silencioso de TIA V21 al mezclar múltiples imports en la misma
+        # tx. Mismo patrón que ``commit_disp_nmax_renames_online`` y
+        # ``commit_disp_devices_offline``.
+        project.start_transaction(
+            undo_text=undo_label, dialog_text=undo_label
+        )
+        try:
+            # Updater offline: lee de work_dir, modifica en memoria, guarda.
+            updater = DispCommentUpdater(
+                s7dcl_path=s7dcl_path,
+                s7res_path=s7res_path,
+                slot_map=slot_map_int,
+                db_array_name=db_array_name,
+            )
+            result = updater.update()
+            updater.save()
+
+            # DIAGNOSTICO: resultado del updater + was_modified post-save.
+            _log_diag.info(
+                f"[DIAG-DISP] updater.update() resultado: "
+                f"reused={dict(list(result.reused.items())[:3])}... "
+                f"inserted={dict(list(result.inserted.items())[:3])}... "
+                f"no_usar_mlc={result.no_usar_mlc!r} "
+                f"total_mlcs_in_res={result.total_mlcs_in_res} "
+                f"was_modified_post_save={updater.was_modified()}"
+            )
+
+            # Import selectivo (reusa ``import_block`` del core) — solo si
+            # el updater modificó algo, para no ensuciar el historial Undo.
+            if updater.was_modified():
+                _log_diag.info(
+                    f"[DIAG-DISP] LLAMANDO import_block desde {work_dir!r}"
+                )
+                core_registry["import_block"](portal, ts, {
+                    "plc_name":      plc_name,
+                    "import_dir":    work_dir,
+                    "target_folder": target_folder,
+                })
+            else:
+                _log_diag.warning(
+                    f"[DIAG-DISP] NO se llama import_block: was_modified=False "
+                    f"(slot_map={len(slot_map_int)} slots, "
+                    f"reused={len(result.reused)}, inserted={len(result.inserted)})"
+                )
+
+            project.end_transaction(rollback=False)
+        except Exception as e:
+            try:
+                project.end_transaction(rollback=True)
+            except Exception:
+                pass
+            raise RuntimeError(
+                f"update_disp_comments_db_apply_{hw_type} abortado en "
+                f"'{op_label}'. Rollback ejecutado. Motivo: {e}"
+            ) from e
 
         return {
             "hw_type":           hw_type,
@@ -1163,8 +1343,14 @@ def register(registry: dict[str, Callable[..., Any]]) -> None:
     """Aporta los comandos del área alimentación al ``COMMAND_REGISTRY``.
 
     Comandos registrados:
-      - ``update_disp_comments_db_<hw>`` (×6): SD source comments
-        offline + import por hw_type.
+      - ``update_disp_comments_db_<hw>`` (×6): DEPRECATED (sept-2026).
+        Handler original que hacía export + copytree dentro de cada
+        invocación. Causaba SOBREESCRIBIR entre handlers del batch.
+        Se mantiene por compat con callers/tests legacy.
+      - ``update_disp_comments_db_apply_<hw>`` (×6): NUEVO (sept-2026).
+        Handler que SOLO aplica (lee + modifica + guarda + importa).
+        NO hace export ni copytree propio. Abre/cierra su propia tx
+        TIA. El IT hace el export + copytree UNA VEZ antes del batch.
       - ``commit_disp_nmax_renames_online``: handler online puro
         (N_MAX + renames) con su propia ``start_transaction`` /
         ``end_transaction``. Sept-2026: sustituye al antiguo
@@ -1189,6 +1375,12 @@ def register(registry: dict[str, Callable[..., Any]]) -> None:
     for hw in EXTRA_HW_TYPES:
         registry[f"update_disp_comments_db_{hw}"] = (
             make_cmd_update_disp_comments_db(hw)
+        )
+        # Handler NUEVO (sept-2026): solo aplica. El IT hace el
+        # export + copytree pre-batch. Cada handler abre/cierra su
+        # propia tx. Ver ``make_cmd_update_disp_comments_db_apply``.
+        registry[f"update_disp_comments_db_apply_{hw}"] = (
+            make_cmd_update_disp_comments_db_apply(hw)
         )
     for kind in EXTRA_PROC_KINDS:
         registry[f"update_proc_comments_db_{kind}"] = (
@@ -1219,6 +1411,7 @@ __all__ = [
     "EXTRA_HW_TYPES",
     "EXTRA_PROC_KINDS",
     "make_cmd_update_disp_comments_db",
+    "make_cmd_update_disp_comments_db_apply",
     "make_cmd_update_proc_comments_db",
     "make_cmd_update_proc_comments_db_param",
     "make_cmd_commit_devices_sync",

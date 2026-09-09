@@ -2377,22 +2377,40 @@ class TIAProcessGateway:
         subestado: str = "exports",
         build_cache_dir: Path | None = None,
         work_dir: Path | str | None = None,
-        exports_subdir: Path | str | None = None,
-        undo_text: str = "Sync comentarios dispositivos",
+        exports_subdir: Path | str | None = None,  # noqa: ARG001 — kept for back-compat
+        undo_text: str = "Sync comentarios dispositivos",  # noqa: ARG001 — kept for back-compat
     ) -> dict[str, Any]:
         """Aplica los comentarios por instancia a los 6 DBs de dispositivos
-        en una sola transacción TIA con rollback atómico.
+        en **6 transacciones TIA separadas** (1 por hw_type).
+
+        Cambia respecto a versiones anteriores (sept-2026):
+
+          * **NO usa** ``execute_transactional_batch`` (que mezclaba 6
+            imports offline en 1 sola ``start_transaction``, con
+            riesgo de rollback silencioso de TIA V21).
+          * Cada hw_type se invoca como una **op independiente**
+            ``update_disp_comments_db_apply_<hw>`` que abre/cierra
+            **su propia tx TIA** (mismo patrón que
+            ``commit_disp_nmax_renames_online`` y
+            ``commit_disp_devices_offline``).
+          * El handler NO hace export ni copytree propio: asume que el
+            IT ya preparó los ``.s7dcl``/``.s7res`` en ``work_dir`` con
+            export + copytree pre-batch (esto evita el SOBREESCRIBIR
+            entre handlers del batch original).
 
         Convenciones de path (Commit 7):
 
-        * Si el caller pasa ``work_dir`` y ``exports_subdir`` explícitos
-          (recomendado, caso nuevo de 9 carpetas), el gateway los usa
-          tal cual. ``exports_subdir`` es el snapshot limpio pre-commit
-          (``exports/bloques/``) y ``work_dir`` es donde el updater
-          modifica la copia (``modified/bloques/``).
-        * Si el caller no los pasa (legacy), el gateway compone el
-          ``work_dir`` desde ``area_id``/``contexto``/``subestado`` (sin
-          copia intermedia; pre-Commit 7).
+        * Si el caller pasa ``work_dir`` explícito (recomendado), el
+          gateway lo usa tal cual. Por convención de 9 carpetas es
+          ``modified_bloques/`` (donde el updater modifica).
+        * Si el caller no lo pasa (legacy), el gateway compone el
+          ``work_dir`` desde ``area_id``/``contexto``/``subestado``.
+
+        ``exports_subdir`` y ``undo_text`` se aceptan en la firma por
+        back-compat con callers que los pasaban, pero ya NO se usan
+        (el nuevo handler abre su propia tx con undo_label propio por
+        DB; el export + copytree lo hace el caller antes de invocar
+        este método).
 
         Args:
             plc_name: nombre del PLC en TIA.
@@ -2414,17 +2432,16 @@ class TIAProcessGateway:
                 para el path legacy cuando ``work_dir`` no se pasa).
             work_dir: path explícito al workdir de modify+import
                 (``modified_bloques/``). Si se pasa, se usa tal cual.
-            exports_subdir: path explícito al workdir del snapshot
-                limpio pre-commit (``exports_bloques/``). Si se pasa,
-                el handler hace export aquí + ``shutil.copytree`` a
-                ``work_dir``. Si no, comportamiento legacy (export
-                directo a ``work_dir``).
-            undo_text: etiqueta del historial Undo de TIA Portal.
+            exports_subdir: DEPRECATED. Se acepta en la firma por
+                back-compat pero ya NO se usa (el IT hace export +
+                copytree antes del batch).
+            undo_text: DEPRECATED. Se acepta en la firma por
+                back-compat pero ya NO se usa (cada handler abre su
+                propia tx con su propio undo_label).
 
         Returns:
-            Dict con shape de ``execute_transactional_batch``:
-            ``{"success": True, "operations_executed": int, "details": [...],
-               "work_dir": str}``.
+            ``{"success": True, "operations_executed": int,
+               "details": [...], "work_dir": str}``.
 
         Raises:
             ValueError: si algún ``slot_map[0] != "NO USAR"`` o si falta info.
@@ -2439,7 +2456,8 @@ class TIAProcessGateway:
         work_dir = Path(work_dir)
         work_dir.mkdir(parents=True, exist_ok=True)
 
-        operations: list[dict[str, Any]] = []
+        results_list: list[dict[str, Any]] = []
+        ops_count = 0
         for hw_type, slot_map in dispositivos_slot_maps.items():
             if 0 not in slot_map or slot_map[0] != "NO USAR":
                 raise ValueError(
@@ -2454,17 +2472,21 @@ class TIAProcessGateway:
                 "work_dir":      str(work_dir),
                 "target_folder": target_folder,
             }
-            # Si el caller pasó ``exports_subdir``, se lo pasamos al
-            # handler. Si no, el handler hace el legacy (export directo
-            # a ``work_dir``).
-            if exports_subdir is not None:
-                op_args["exports_subdir"] = str(exports_subdir)
-            operations.append({
-                "command": f"update_disp_comments_db_{hw_type}",
-                "args": op_args,
-            })
-        result = await self.execute_transactional_batch(
-            operations, undo_text=undo_text
-        )
+            # Cada op es 1 dispatch directo (sin batch wrapper); el
+            # handler abre/cierra su propia tx. 5 min por DB como techo
+            # (cold-start TIA + export + import + 6 commits).
+            result = await self._dispatch_worker(
+                f"update_disp_comments_db_apply_{hw_type}",
+                op_args,
+                timeout_override=max(self._timeout, 5.0 * 60.0),
+            )
+            results_list.append({"hw_type": hw_type, "result": result})
+            ops_count += 1
+
         self.clear_cache()
-        return result
+        return {
+            "success": True,
+            "operations_executed": ops_count,
+            "details": results_list,
+            "work_dir": str(work_dir),
+        }

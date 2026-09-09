@@ -79,6 +79,10 @@ def gateway() -> MagicMock:
             ],
         }
     )
+    # Sept-2026: el use case ahora hace export_block ANTES del batch
+    # (export + copytree pre-batch, fix del SOBREESCRIBIR entre
+    # handlers). Mockeamos ``export_block`` como AsyncMock.
+    g.export_block = AsyncMock(return_value="C:/work")
     return g
 
 

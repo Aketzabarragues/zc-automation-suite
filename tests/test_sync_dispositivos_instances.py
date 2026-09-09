@@ -133,6 +133,10 @@ def mock_gateway() -> AsyncMock:
     gw.commit_disp_devices_offline = AsyncMock(
         return_value=_default_commit_result
     )
+    # Sept-2026 (fix SOBREESCRIBIR entre handlers): el use case ahora
+    # hace export_block pre-batch (export de los 6 DBs a
+    # ``exports/bloques/`` UNA VEZ). Mockeamos como AsyncMock.
+    gw.export_block = AsyncMock(return_value="C:/work")
     return gw
 
 
@@ -172,6 +176,22 @@ def mock_config_manager() -> MagicMock:
             "m": "DB2015_M",
             "m_vf": "DB2016_M_VF",
         }.get(hw)
+    )
+    # Sept-2026: ``disp_build_slot_maps`` lo necesita para resolver
+    # ``db_name`` y ``db_array_name`` de cada hw. Sin esto, retorna
+    # MagicMock y el export_block pre-batch falla.
+    cm.get_dispositivo_config = MagicMock(
+        side_effect=lambda hw: MagicMock(
+            db_name={
+                "ed": "DB2000_ED",
+                "ea": "DB2001_EA",
+                "sa": "DB2006_SA",
+                "v": "DB2010_V",
+                "m": "DB2015_M",
+                "m_vf": "DB2016_M_VF",
+            }.get(hw, f"DB_{hw}"),
+            db_array_name=hw.upper(),
+        )
     )
     return cm
 
@@ -694,16 +714,21 @@ async def test_ejecutar_transaccion_handles_compile_exception_gracefully(
 async def test_ejecutar_transaccion_uses_typed_subdirs_for_commit_and_bloques(
     use_case, mock_gateway, tmp_path,
 ):
-    """Tras el commit, ``update_disp_instance_comments_batch`` (stage 7)
-    se invoca con ``subestado="exports/bloques"``, NO con la raíz
-    ``exports/`` ni ``exports/``.
+    """Tras el commit, ``_run_apply_comentarios`` (stage 7) hace
+    ``export_block`` pre-batch + ``copytree`` a ``modified/bloques/``,
+    luego invoca ``update_disp_instance_comments_batch`` con
+    ``work_dir=modified/bloques/``.
 
-    Convenci\u00f3n de 9 carpetas (plan 2026-09-08): los ``.s7dcl``/``.s7res``
+    Convención de 9 carpetas (plan 2026-09-08): los ``.s7dcl``/``.s7res``
     de los 6 DBs de dispositivos viven en la subcarpeta
-    ``exports/bloques/``, no en la ra\u00edz ``exports/``. El handler
-    ``update_disp_comments_db_<hw>`` del worker hace export+modify+import
-    ah\u00ed. La copia a ``modified/bloques/`` (que hace el use case tras
-    el batch) preserva el snapshot post-modificaci\u00f3n para auditor\u00eda.
+    ``exports/bloques/``, no en la raíz ``exports/``.
+
+    Sept-2026 (fix SOBREESCRIBIR entre handlers): el IT hace el
+    export + copytree UNA VEZ antes del batch (antes el handler
+    ``update_disp_comments_db_<hw>`` lo hacía DENTRO de cada
+    invocación, lo que mezclaba 6 imports en 1 sola tx y, peor,
+    hacía que cada copytree SOBREESCRIBIERA ``modified/bloques/``
+    con la versión ORIGINAL de ``exports/bloques/``).
     """
     mock_gateway.commit_disp_nmax_renames_online.return_value = {
         "success": True,
@@ -736,8 +761,28 @@ async def test_ejecutar_transaccion_uses_typed_subdirs_for_commit_and_bloques(
     result = await use_case.ejecutar_transaccion("PLC1", {})
     assert result["success"] is True
 
-    # El batch de comentarios se llam\u00f3 con ``work_dir=modified/bloques``
-    # + ``exports_subdir=exports/bloques`` (Commit 7).
+    # 1. ``export_block`` se llamó UNA VEZ por DB activo (los hw_types
+    #    activos del mock_config_manager: ``ed`` y ``v``) con
+    #    ``target_dir=exports/bloques/`` (snapshot pre-commit).
+    expected_dbs = {"DB2000_ED", "DB2010_V"}
+    exported_dbs = {
+        c.kwargs["block_name"]
+        for c in mock_gateway.export_block.await_args_list
+    }
+    assert exported_dbs == expected_dbs, (
+        f"export_block debe invocarse 1 vez por DB activo con target_dir="
+        f"exports/bloques/. Got: {exported_dbs}"
+    )
+    for c in mock_gateway.export_block.await_args_list:
+        assert str(c.kwargs["target_dir"]).endswith(
+            f"exports{os.sep}bloques"
+        ), (
+            f"export_block.target_dir debe apuntar a 'exports/bloques', "
+            f"got: {c.kwargs['target_dir']!r}"
+        )
+
+    # 2. El batch de comentarios se llamó con ``work_dir=modified/bloques``
+    #    (NO con ``exports_subdir``: el IT ya hizo el copytree).
     mock_gateway.update_disp_instance_comments_batch.assert_called_once()
     call_kwargs = (
         mock_gateway.update_disp_instance_comments_batch.call_args.kwargs
@@ -746,12 +791,15 @@ async def test_ejecutar_transaccion_uses_typed_subdirs_for_commit_and_bloques(
     assert str(call_kwargs.get("work_dir")).endswith(
         f"modified{os.sep}bloques"
     ), f"work_dir debe apuntar a 'modified/bloques', got: {call_kwargs.get('work_dir')!r}"
-    assert str(call_kwargs.get("exports_subdir")).endswith(
-        f"exports{os.sep}bloques"
-    ), f"exports_subdir debe apuntar a 'exports/bloques' (snapshot pre-commit), got: {call_kwargs.get('exports_subdir')!r}"
+    # ``exports_subdir`` ya NO se pasa (el IT hace el export+copytree
+    # internamente; el gateway lo ignora aunque lo reciba por back-compat).
+    assert "exports_subdir" not in call_kwargs, (
+        f"exports_subdir ya NO debe pasarse al gateway (el IT hace el "
+        f"copytree internamente). Got: {call_kwargs.get('exports_subdir')!r}"
+    )
     # Y NO debe llevar ``subestado`` activo (Commit 7 lo reemplaza).
     assert call_kwargs.get("subestado") in (None, "exports"), (
-        f"subestado no deber\u00eda pasarse (o solo con el default 'exports' legacy), "
+        f"subestado no debería pasarse (o solo con el default 'exports' legacy), "
         f"got: {call_kwargs.get('subestado')!r}"
     )
 
@@ -762,6 +810,7 @@ async def test_ejecutar_transaccion_uses_typed_subdirs_for_commit_and_bloques(
     # a ``modified/variables/`` la cubre el test
     # ``test_ejecutar_transaccion_emits_device_changes_for_adds_and_removes``.
     mock_gateway.commit_disp_devices_offline.assert_not_called()
+
 
 
 @pytest.mark.asyncio
