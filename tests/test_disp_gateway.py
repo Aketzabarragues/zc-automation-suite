@@ -1,10 +1,10 @@
 """Tests del método del gateway ``update_disp_instance_comments_batch``.
 
-**Sept-2026:** el método ya NO usa ``execute_transactional_batch``. Hace
-6 invocaciones separadas a ``_dispatch_worker`` (1 por hw_type) con
-``update_disp_comments_db_apply_<hw>``. Mockeamos ``_dispatch_worker`` y
-``clear_cache`` del gateway para no lanzar el subprocess real (requiere
-TIA + siemens_tia_scripting).
+**Sept-2026:** el método usa ``execute_transactional_batch`` con 6
+operaciones dentro (1 por hw_type con ``update_disp_comments_db_<hw>``),
+abiertas bajo una sola ``start_transaction``/``end_transaction`` TIA.
+Mockeamos ``execute_transactional_batch`` para capturar las operaciones
+y no lanzar el subprocess real (requiere TIA + siemens_tia_scripting).
 """
 from __future__ import annotations
 
@@ -69,14 +69,20 @@ def test_raises_si_slot_0_no_es_no_usar(gateway: TIAProcessGateway) -> None:
         )
 
 
-def test_dispatcha_6_operaciones_separadas(
+def test_dispatcha_6_operaciones_en_una_sola_tx(
     gateway: TIAProcessGateway,
 ) -> None:
-    """slot_maps con 6 tipos → 6 invocaciones separadas a ``_dispatch_worker``
-    con ``update_disp_comments_db_apply_<hw>`` (1 dispatch por hw_type).
+    """slot_maps con 6 tipos → 1 dispatch a ``execute_transactional_batch``
+    con 6 operaciones dentro (1 por hw_type), todas bajo la misma
+    ``start_transaction``/``end_transaction`` TIA.
 
-    Sept-2026: el método ya NO usa ``execute_transactional_batch``; cada
-    handler abre/cierra su propia tx TIA.
+    Sept-2026: se simplificó el diseño. Antes había 6 dispatches
+    separados (1 por hw_type con su propia tx), pero eso provocaba
+    sobreescritura de ``modified/`` entre handlers. Ahora el IT hace
+    export + copytree UNA VEZ y el gateway mete las 6 ops en una sola
+    tx TIA, con rollback atómico si algo falla. El nombre del comando
+    pasó de ``update_disp_comments_db_apply_<hw>`` (con sufijo) a
+    ``update_disp_comments_db_<hw>`` (sin sufijo).
     """
     import asyncio
 
@@ -104,6 +110,19 @@ def test_dispatcha_6_operaciones_separadas(
         "m":    "M",
         "m_vf": "M_VF",
     }
+    captured_operations: list[list[dict]] = []
+
+    async def fake_execute_batch(operations, undo_text):
+        captured_operations.append(list(operations))
+        return {
+            "success": True,
+            "operations_executed": len(operations),
+            "details": [{"op": o["command"]} for o in operations],
+            "work_dir": "/work",
+        }
+
+    gateway.execute_transactional_batch = fake_execute_batch  # type: ignore[method-assign]
+
     result = asyncio.run(
         gateway.update_disp_instance_comments_batch(
             plc_name="PLC_X",
@@ -114,23 +133,23 @@ def test_dispatcha_6_operaciones_separadas(
         )
     )
 
-    # 6 invocaciones separadas, 1 por hw_type.
-    assert gateway._dispatch_worker.await_count == 6
-    # Cada invocación es un comando distinto ``update_disp_comments_db_apply_<hw>``.
-    commands = [c.args[0] for c in gateway._dispatch_worker.await_args_list]
-    assert set(commands) == {
-        "update_disp_comments_db_apply_ed",
-        "update_disp_comments_db_apply_ea",
-        "update_disp_comments_db_apply_sa",
-        "update_disp_comments_db_apply_v",
-        "update_disp_comments_db_apply_m",
-        "update_disp_comments_db_apply_m_vf",
+    # 1 sola llamada a execute_transactional_batch con 6 ops dentro.
+    assert len(captured_operations) == 1
+    ops = captured_operations[0]
+    assert len(ops) == 6
+    # Cada op es un comando distinto ``update_disp_comments_db_<hw>`` (sin sufijo).
+    assert {op["command"] for op in ops} == {
+        "update_disp_comments_db_ed",
+        "update_disp_comments_db_ea",
+        "update_disp_comments_db_sa",
+        "update_disp_comments_db_v",
+        "update_disp_comments_db_m",
+        "update_disp_comments_db_m_vf",
     }
     # Cada op debe tener db_name, db_array_name, target_folder, plc_name, slot_map correctos.
-    for call in gateway._dispatch_worker.await_args_list:
-        cmd = call.args[0]
-        op_args = call.args[1]
-        hw = cmd.removeprefix("update_disp_comments_db_apply_")
+    for op in ops:
+        hw = op["command"].removeprefix("update_disp_comments_db_")
+        op_args = op["args"]
         assert op_args["db_name"] == db_names[hw]
         assert op_args["db_array_name"] == db_array_names[hw]
         assert op_args["target_folder"] == "2000_Dispositivos"
@@ -145,19 +164,44 @@ def test_target_folder_no_hardcodeado(gateway: TIAProcessGateway) -> None:
     """target_folder viene del caller, no se hardcodea en el gateway."""
     import asyncio
 
-    asyncio.run(
+    slot_maps = {
+        "ed": {0: "NO USAR", 1: "Bomba 1"},
+    }
+    db_names = {"ed": "DB2000_ED"}
+    db_array_names = {"ed": "ED"}
+
+    captured_operations: list[list[dict]] = []
+
+    async def fake_execute_batch(operations, undo_text):
+        captured_operations.append(operations)
+        return {
+            "success": True,
+            "operations_executed": len(operations),
+            "details": [{"op": "op"} for _ in operations],
+        }
+
+    gateway.execute_transactional_batch = fake_execute_batch  # type: ignore[method-assign]
+
+    result = asyncio.run(
         gateway.update_disp_instance_comments_batch(
             plc_name="PLC_X",
-            dispositivos_slot_maps={"ed": {0: "NO USAR", 1: "X"}},
-            target_folder="OTRA_CARPETA",
-            db_names={"ed": "DB2000_ED"},
-            db_array_names={"ed": "ED"},
+            dispositivos_slot_maps=slot_maps,
+            target_folder="2000_Dispositivos",
+            db_names=db_names,
+            db_array_names=db_array_names,
         )
     )
 
-    for call in gateway._dispatch_worker.await_args_list:
-        op_args = call.args[1]
-        assert op_args["target_folder"] == "OTRA_CARPETA"
+    assert result["success"] is True
+    assert len(captured_operations) == 1
+    ops = captured_operations[0]
+    assert len(ops) == 1
+    assert ops[0]["command"] == "update_disp_comments_db_ed"
+    assert ops[0]["args"]["target_folder"] == "2000_Dispositivos"
+    assert ops[0]["args"]["plc_name"] == "PLC_X"
+    assert ops[0]["args"]["db_name"] == "DB2000_ED"
+    assert ops[0]["args"]["db_array_name"] == "ED"
+    assert ops[0]["args"]["slot_map"] == {"0": "NO USAR", "1": "Bomba 1"}
 
 
 def test_llama_clear_cache_en_exito(gateway: TIAProcessGateway) -> None:
