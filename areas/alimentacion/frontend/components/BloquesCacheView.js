@@ -604,50 +604,75 @@ export default {
                         </button>
                     </div>
 
-                    <!-- Grid de cards: uno por PLC. Columnas fijas
-                         (no auto-fit) para que la pinta sea estable
-                         independientemente del numero de PLCs.
-                         Formato vertical (mas alto que ancho) con
-                         min-h-[120px] + p-4: las cards siempre quedan
-                         en proporcion portrait (alto > ancho) en todos
-                         los breakpoints. Card no seleccionado usa
-                         bg-surface-sunken (gris hundido del tema) para
-                         destacar como "card" frente al fondo del card
-                         padre (bg-surface-raised). Card seleccionado:
-                         border-green-500 + bg-green-50 + text-green-800
-                         (opcion A del analisis previo, "seleccionado
-                         sutil"). Hover: border-accent + bg-accent-subtle. -->
+                    <!-- Lista vertical de cards horizontales (v3.2,
+                         sept-2026 round 4). Inspirado en el prototipo
+                         de Gemini (variante 4 verde) + theme Industrial
+                         Claro de la SPA. Cada fila = 1 PLC.
+                         Card contenedor: gris hundido (bg-surface-sunken)
+                         si no seleccionado, verde (bg-green-50) +
+                         ring verde si seleccionado.
+                         Distribucion interna:
+                           [icono 10x10] [nombre + modelo] [pill]
+                         Icono no seleccionado: bg-surface-raised (blanco)
+                         + text-ink-muted (contraste con el gris del card).
+                         Pill no seleccionado: bg-surface-sunken (igual
+                         que card, jerarquia baja).
+                         Pill seleccionado: bg-surface-raised (blanco) +
+                         border-green-300 + text-green-700 (lee como
+                         badge sobre el verde del card, opcion C del
+                         analisis).
+                         Sin "Estado TIA / Sincronizado / Disponible"
+                         (feedback operario: el estado TIA es global,
+                         no por PLC). Pill texto: "Seleccionar" /
+                         "Seleccionado" (sin check).
+                         Click -> store.selectedPlc = p.name; el watch
+                         existente dispara loadAndApplyPlcBlocks. -->
                     <div v-if="Array.isArray(store.plcs) && store.plcs.length > 0"
-                         class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3"
-                         data-testid="bloques-cache-plc-grid">
+                         class="flex flex-col gap-3"
+                         data-testid="bloques-cache-plc-list">
                         <button v-for="p in store.plcs" :key="p && p.name ? p.name : p"
                             type="button"
                             @click="selectPlc(p)"
                             :data-testid="'bloques-cache-plc-card-' + (p && p.name ? p.name : p)"
                             :data-active="(p && p.name) === store.selectedPlc"
-                            :class="['text-left p-4 rounded border transition-colors duration-200 flex flex-col gap-1 min-h-[120px] justify-center',
+                            :class="['w-full flex items-center justify-between gap-4 p-4 rounded-xl border shadow-sm transition-all duration-200 group text-left',
                                      (p && p.name) === store.selectedPlc
-                                         ? 'border-green-500 bg-green-50 text-green-800'
-                                         : 'border-line bg-surface-sunken text-ink hover:border-accent hover:bg-accent-subtle']">
-                            <span class="font-mono font-semibold text-xs truncate"
-                                  :data-testid="'bloques-cache-plc-card-name-' + (p && p.name ? p.name : p)">
-                                {{ p && p.name ? p.name : p }}
-                            </span>
-                            <span v-if="p && p.short_designation"
-                                  class="text-[10px] truncate"
-                                  :class="(p && p.name) === store.selectedPlc ? 'text-green-700' : 'text-ink-muted'">
-                                {{ p.short_designation }}
-                            </span>
-                            <span v-else class="text-[10px] italic text-ink-muted">
-                                modelo no disponible
-                            </span>
+                                         ? 'border-green-500 bg-green-50 ring-1 ring-green-500'
+                                         : 'border-line bg-surface-sunken hover:border-accent hover:bg-accent-subtle']">
+                            <!-- IZQUIERDA: icono + nombre + modelo -->
+                            <div class="flex items-center gap-4 min-w-0 flex-1">
+                                <div :class="['w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0 transition-colors',
+                                               (p && p.name) === store.selectedPlc
+                                                   ? 'bg-green-500 text-white'
+                                                   : 'bg-surface-raised text-ink-muted group-hover:bg-accent-subtle group-hover:text-accent']">
+                                    <span aria-hidden="true">&#128187;</span>
+                                </div>
+                                <div class="text-left min-w-0 flex-1">
+                                    <h4 :class="['font-mono font-bold text-sm leading-none mb-1 truncate',
+                                                 (p && p.name) === store.selectedPlc ? 'text-green-800' : 'text-ink']">
+                                        {{ p && p.name ? p.name : p }}
+                                    </h4>
+                                    <p class="text-xs text-ink-muted truncate">
+                                        {{ p && p.short_designation ? p.short_designation : 'modelo no disponible' }}
+                                    </p>
+                                </div>
+                            </div>
+                            <!-- DERECHA: pill "Seleccionar" / "Seleccionado"
+                                 (label visual, no es <button> anidado: el
+                                 padre ya es <button> y seria HTML invalido) -->
+                            <div :class="['px-5 py-2 rounded-full text-xs font-bold border shrink-0 transition-colors',
+                                          (p && p.name) === store.selectedPlc
+                                              ? 'bg-surface-raised border-green-300 text-green-700'
+                                              : 'bg-surface-sunken border-line text-ink-muted group-hover:border-accent group-hover:text-accent group-hover:bg-accent-subtle']">
+                                {{ (p && p.name) === store.selectedPlc ? 'Seleccionado' : 'Seleccionar' }}
+                            </div>
                         </button>
                     </div>
 
                     <!-- Empty state: store.plcs vacio o no es array. -->
                     <div v-else
                          class="flex items-center justify-center p-6 text-center text-ink-muted text-xs italic border border-dashed border-line rounded"
-                         data-testid="bloques-cache-plc-grid-empty">
+                         data-testid="bloques-cache-plc-list-empty">
                         No se han encontrado PLCs disponibles.
                     </div>
                 </div>
