@@ -30,6 +30,7 @@ solo cuando el handler se ejecuta, no al import del módulo).
 """
 from __future__ import annotations
 
+import logging
 import shutil
 from pathlib import Path
 from typing import Any, Callable
@@ -118,6 +119,21 @@ def make_cmd_update_disp_comments_db(hw_type: str) -> Callable[..., Any]:
         # Coerción: slot_map llega con keys str (JSON); el updater quiere int.
         slot_map_int: dict[int, str] = {int(k): v for k, v in slot_map.items()}
 
+        # ── DIAGNOSTICO TEMPORAL (sept-2026) ────────────────────────────────
+        # Log del slot_map recibido y de la existencia de los archivos
+        # .s7dcl/.s7res ANTES del export. Se retira tras confirmar el
+        # bug de "modified == exports".
+        _log_diag = logging.getLogger(
+            f"{__name__}.update_disp_comments_db_{hw_type}"
+        )
+        _log_diag.info(
+            f"[DIAG-DISP] slot_map recibido: db_name={db_name!r} "
+            f"work_dir={work_dir!r} target_folder={target_folder!r} "
+            f"exports_subdir={exports_subdir!r} "
+            f"slot_map_int={dict(list(slot_map_int.items())[:5])}{'...' if len(slot_map_int) > 5 else ''} "
+            f"(total {len(slot_map_int)} slots)"
+        )
+
         # Import local: solo se carga cuando el handler se invoca
         # (cumple "offline-first" del worker, igual que antes). Apunta
         # a la nueva ubicación del paquete SD (PR 3).
@@ -127,6 +143,13 @@ def make_cmd_update_disp_comments_db(hw_type: str) -> Callable[..., Any]:
 
         s7dcl_path = SdPair(Path(work_dir), db_name).dcl
         s7res_path = SdPair(Path(work_dir), db_name).res
+
+        # DIAGNOSTICO: paths resueltos + existencia pre-export.
+        _log_diag.info(
+            f"[DIAG-DISP] paths resueltos: "
+            f"s7dcl_path={str(s7dcl_path)!r} exists={s7dcl_path.is_file()} "
+            f"s7res_path={str(s7res_path)!r} exists={s7res_path.is_file()}"
+        )
 
         # Import lazy del worker para evitar el ciclo
         # ``worker_tia → command_loader → AreaRegistry → areas.<area> →
@@ -186,14 +209,33 @@ def make_cmd_update_disp_comments_db(hw_type: str) -> Callable[..., Any]:
         result = updater.update()
         updater.save()
 
+        # DIAGNOSTICO: resultado del updater + was_modified post-save.
+        _log_diag.info(
+            f"[DIAG-DISP] updater.update() resultado: "
+            f"reused={dict(list(result.reused.items())[:3])}... "
+            f"inserted={dict(list(result.inserted.items())[:3])}... "
+            f"no_usar_mlc={result.no_usar_mlc!r} "
+            f"total_mlcs_in_res={result.total_mlcs_in_res} "
+            f"was_modified_post_save={updater.was_modified()}"
+        )
+
         # 3. IMPORT SELECTIVO (reusa ``import_block`` del core) — solo si
         #    el updater modificó algo, para no ensuciar el historial Undo.
         if updater.was_modified():
+            _log_diag.info(
+                f"[DIAG-DISP] LLAMANDO import_block desde {work_dir!r}"
+            )
             core_registry["import_block"](portal, ts, {
                 "plc_name":      plc_name,
                 "import_dir":    work_dir,
                 "target_folder": target_folder,
             })
+        else:
+            _log_diag.warning(
+                f"[DIAG-DISP] NO se llama import_block: was_modified=False "
+                f"(slot_map={len(slot_map_int)} slots, "
+                f"reused={len(result.reused)}, inserted={len(result.inserted)})"
+            )
 
         return {
             "hw_type":           hw_type,
