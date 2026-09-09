@@ -320,17 +320,24 @@ def make_cmd_commit_disp_nmax_renames_online() -> Callable[..., Any]:
 
 
 def make_cmd_commit_disp_devices_offline() -> Callable[..., Any]:
-    """Handler que aplica device changes (export+edit+import) en una tx
-    TIA propia (offline puro).
+    """Handler que aplica device changes (import) en una tx TIA propia
+    (offline puro).
 
     A diferencia del antiguo ``commit_devices_sync`` (que mezclaba online
     con offline en la misma tx y provocaba rollback silencioso en TIA V21),
     este handler **abre y cierra su propia** ``start_transaction`` /
     ``end_transaction`` y SOLO hace cambios offline:
 
-      * Por cada ``device_change``: export selectivo de la tabla PLC
-        → ``TagTableModifier`` sobre el XML (add/remove) → import
-        selectivo via ``target_plc.import_plc_tags``.
+      * Por cada ``device_change``: ``import_plc_tags`` desde
+        ``work_dir`` (los XMLs ya están editados por IT en el
+        Stage 7 ``copy_and_edit`` de ``ejecutar_transaccion``).
+
+    NO hace ``table.export`` (sept-2026 fix del race condition): ese
+    paso lo hace IT en el Stage 6 ``export_post_tx_a`` (después de
+    Tx A y con sleep de consolidación), leyendo los datos
+    post-renames de TIA. Hacerlo aquí leería los datos stale (sin
+    renames consolidados) y los re-importaría, haciendo rollback
+    silencioso de los renames aplicados en Tx A.
 
     Los cambios online (N_MAX + renames) van en otro handler
     (``make_cmd_commit_disp_nmax_renames_online``) que corre en OTRA
@@ -352,11 +359,12 @@ def make_cmd_commit_disp_devices_offline() -> Callable[..., Any]:
             raise ValueError("commit_disp_devices_offline: work_dir requerido.")
 
         # Imports locales.
+        # Nota: ``TagTableModifier`` ya NO se importa aquí — la
+        # edición offline la hace IT en el Stage 7 ``copy_and_edit``
+        # de ``ejecutar_transaccion``. Este handler solo importa XMLs
+        # ya editados.
         from core.infrastructure.tia import worker_tia
         from core.infrastructure.tia.worker_tia import _safe_get_table_name
-        from areas.alimentacion.infrastructure.xml.disp_tag_table_modifier import (
-            TagTableModifier,
-        )
 
         project = worker_tia._get_active_project(portal)
         target_plc = worker_tia._find_plc(project, plc_name)
@@ -398,49 +406,30 @@ def make_cmd_commit_disp_devices_offline() -> Callable[..., Any]:
                         f"'{plc_name}'."
                     )
 
-                # 3b. Export selectivo (incluye la estructura de
-                #     carpetas TIA). Mismo patrón que el legacy
-                #     ``commit_devices_sync``.
-                op_label = f"export_plc_tags_xml({table_name})"
-                table.export(
-                    target_directory_path=str(work_path),
-                    keep_folder_structure=True,
-                )
-                _record(
-                    f"export_plc_tags_xml[{table_name}]",
-                    str(work_path),
-                )
+                # 3b. ANTES: ``table.export(...)`` — REDUNDANTE, causa
+                #     rollback de renames. ELIMINADO en sept-2026: el
+                #     export ahora se hace en Stage 6
+                #     (``export_post_tx_a``), después de Tx A y con
+                #     sleep de consolidación. El XML exportado está
+                #     en ``modified/variables/<tia_folder>/<table_name>.xml``
+                #     antes de que se invoque este handler (lo edita
+                #     IT en Stage 7 ``copy_and_edit``).
 
-                # 3c. Edit XML offline.
+                # 3c. Validar que el XML está presente. La edición
+                #     offline la hace IT en el Stage 7 ``copy_and_edit``
+                #     de ``ejecutar_transaccion``: este handler solo
+                #     importa lo que ya está en ``work_path``.
                 xml_path = work_path / tia_folder / f"{table_name}.xml"
                 if not xml_path.is_file():
                     matches = list(work_path.rglob(f"{table_name}.xml"))
                     if not matches:
                         raise RuntimeError(
-                            f"XML de '{table_name}' no encontrado tras "
-                            f"export en '{work_path}'."
+                            f"XML de '{table_name}' no encontrado en "
+                            f"work_dir '{work_path}'. ¿Stage 7 "
+                            f"``copy_and_edit`` corrió antes de "
+                            f"invocar este handler?"
                         )
                     xml_path = matches[0]
-
-                op_label = f"edit_xml({table_name})"
-                modifier = TagTableModifier(xml_path)
-                added_count = modifier.add_user_constants_by_table(
-                    table_name, adds
-                )
-                removed_count = modifier.remove_user_constants(removes)
-                # Regenerar el ID de la PlcTagTable raiz (commit 3e2babd).
-                new_table_id = modifier.regenerate_root_table_id()
-                if modifier.was_modified():
-                    modifier.save(xml_path)
-                _record(
-                    f"edit_xml[{table_name}]",
-                    {
-                        "added": added_count,
-                        "removed": removed_count,
-                        "modified": modifier.was_modified(),
-                        "new_table_id": new_table_id,
-                    },
-                )
 
                 # 3d. Import selectivo. Pasamos ``target_folder_path=""``
                 #     para que TIA reconcilie por NOMBRE (commit 3e2babd).

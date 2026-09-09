@@ -22,7 +22,7 @@ from __future__ import annotations
 import importlib
 import inspect
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -247,6 +247,85 @@ def test_commit_disp_devices_offline_missing_required_args(
             portal=portal, ts=MagicMock(),
             args={"plc_name": "PLC_X", "device_changes": []},
         )
+
+
+def test_table_export_not_in_devices_offline_handler(tmp_path: Path) -> None:
+    """Sept-2026 fix del race condition online+offline: el handler
+    ``commit_disp_devices_offline`` ya NO hace ``table.export``
+    internamente.
+
+    Por qué se quitó: el export dentro de Tx B leía los datos de TIA
+    antes de que la consolidación interna de los cambios online de Tx A
+    terminara, veía los nombres VIEJOS de los PlcUserConstant
+    (pre-renames), los SOBREESCRIBÍA en ``modified/variables/`` y el
+    ``import_plc_tags`` los re-importaba → rollback silencioso de los
+    renames aplicados en Tx A.
+
+    Solución: el export lo hace IT en el Stage 6 ``export_post_tx_a``
+    de ``ejecutar_transaccion``, después de Tx A y con sleep de
+    consolidación. El handler offline solo importa los XMLs ya
+    editados (Stage 7 ``copy_and_edit``).
+
+    Verifica que:
+      - El handler hace ``import_plc_tags`` por cada ``device_change``.
+      - El handler NO hace ``table.export`` (el método ``table.export``
+        del PlcTagTable no debe ser llamado).
+    """
+    portal = MagicMock()
+    project = MagicMock()
+    plc = MagicMock()
+    # Mockeamos una tabla que el handler pueda "encontrar".
+    table = MagicMock()
+    table.export = MagicMock()  # NO debe llamarse.
+    plc.get_name.return_value = "PLC_X"
+    plc.get_plc_tag_tables.return_value = [table]
+    plc.import_plc_tags = MagicMock(return_value=True)
+    project.get_plcs.return_value = [plc]
+    portal.get_project.return_value = project
+    project.start_transaction = MagicMock()
+    project.end_transaction = MagicMock()
+    # El handler llama ``_safe_get_table_name(table)`` y compara
+    # con ``table_name``. Patcheamos para que retorne el nombre
+    # esperado sin importar lo que el mock de la tabla diga.
+    with patch.object(
+        worker_tia, "_safe_get_table_name",
+        return_value="2000_Disp_ED",
+    ):
+        handler = extra_commands.make_cmd_commit_disp_devices_offline()
+        # Pre-poblamos el ``work_dir`` con el XML que el handler
+        # espera encontrar (Stage 7 ``copy_and_edit`` lo habría
+        # escrito). Sin esto, el handler raise con "XML no
+        # encontrado" antes de llegar al import.
+        table_xml = (
+            tmp_path / "2000_Dispositivos" / "2000_Disp_ED.xml"
+        )
+        table_xml.parent.mkdir(parents=True, exist_ok=True)
+        table_xml.write_text("<root/>", encoding="utf-8")
+
+        handler(
+            portal=portal, ts=MagicMock(),
+            args={
+                "plc_name": "PLC_X",
+                "work_dir": str(tmp_path),
+                "device_changes": [
+                    {
+                        "table_name": "2000_Disp_ED",
+                        "tia_folder": "2000_Dispositivos",
+                        "adds": [{"plc_tag": "V_X", "uid": "99"}],
+                        "removes": [],
+                    },
+                ],
+            },
+        )
+
+    # 1. ``table.export`` NO debe haberse llamado (sept-2026 fix).
+    table.export.assert_not_called()
+    # 2. ``import_plc_tags`` SÍ se llamó (es lo único que hace este
+    #    handler: importar XMLs ya editados).
+    plc.import_plc_tags.assert_called()
+    # 3. La tx se abrió y cerró OK (no rollback).
+    project.start_transaction.assert_called_once()
+    project.end_transaction.assert_called_once_with(rollback=False)
 
 
 # ────────────────────────────────────────────────────────────────────────
