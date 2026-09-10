@@ -1,0 +1,125 @@
+# DIRECTRICES ARQUITECTÓNICAS: ZC-PLC-SUITE (greenfield IEC 61131-3)
+
+Eres un Arquitecto de Software Senior trabajando en un repositorio que interconecta FastAPI (capa IT) con TIA Portal Openness (capa OT) mediante la librería oficial `siemens_tia_scripting`. La arquitectura es **PLC-style**: Function Blocks con `nStep` discreto, Data Blocks como memoria compartida, y un HMI pasivo subscrito por SSE.
+
+## 1. AISLAMIENTO DE PROCESO: WORKER PERSISTENTE COMO ÚNICO PUERTO OT
+
+El ecosistema .NET/COM de Siemens **NO ES THREAD-SAFE**.
+
+- **Capa IT (`core/web/`, `core/plc/`):** Orquesta, enruta, ejecuta FastAPI. **NUNCA** importa `siemens_tia_scripting`. Si lo hace, el worker se reinicia y el attach persistente se pierde.
+- **Capa OT (`core/worker/worker_tia.py`):** **ÚNICO** módulo autorizado para `import siemens_tia_scripting`. El import es **perezoso** (dentro de una función, nunca a nivel de módulo). Aloja el loop persistente y los handlers de comandos TIA.
+- **`core/worker/worker_bridge.py`:** Fachada con lock. Los FBs (Function Blocks) **solo hablan con `WorkerBridge`**, nunca directamente con `worker_tia`. Lock desde la primera línea, con `assert self._lock.locked()` en métodos privados.
+- **Comunicación IPC:** `asyncio.create_subprocess_exec`. Comandos JSON por stdin, respuesta JSON por stdout. Logs a stderr.
+
+**Consecuencia:** los FBs son síncronos desde el punto de vista del HMI. La complejidad asíncrona vive en `WorkerBridge` y en el worker, no se filtra a los FBs.
+
+## 2. WORKER PERSISTENTE — UN SOLO MODO
+
+El worker se ejecuta como subproceso **persistente** desde el arranque de la app. No hay modo 1-shot (el legacy lo conservaba por compatibilidad, aquí se descarta).
+
+**State machine (4 estados):**
+- `idle` (inicial): `portal is None`. El worker emite `ready_idle` y se queda esperando.
+- `connecting`: tras un `attach_portal` en curso.
+- `connected`: tras un `attach_portal` OK. Los handlers de comandos operan contra el portal attached.
+- `error`: tras un fallo grave de I/O. El gateway no puede enviar más comandos.
+
+(El antiguo `disconnected` se eliminó: todo reposo es `idle`.)
+
+**Comandos del state machine** (gestionados INLINE en el loop, no en un registry):
+- `attach_portal` → llama `ts.attach_portal(...)`, asigna `portal`, responde OK/error.
+- `detach_portal` → llama `portal.detach()` (best-effort), responde OK. Idempotente.
+- `ping` → `portal.get_process_id()`. Usado por heartbeat y reconexión.
+- `get_project_info` → propiedades del proyecto activo.
+
+**Reglas ineludibles del worker:**
+- **Silenciar el logger nativo** con `set_logging(console=False)` justo después de cargar el wrapper. Si no, Siemens escribe a stdout y rompe el parseo JSON.
+- **No devolver objetos nativos .NET** al proceso IT. Mapear siempre a `dict`/`list`/`str`/`bool`/`int` antes de emitir JSON.
+- **Shutdown handler obligatorio** (lección X2): el gateway expone `WorkerBridge.shutdown()` que envía `detach_portal` + cierra el subproceso. Se llama desde el `lifespan` de FastAPI al apagado. Sin esto, el `.pyd` de Siemens queda en memoria (~200 MB zombi).
+
+## 3. PROHIBICIÓN DE RETENCIÓN DE ESTADO OT
+
+**NUNCA** devuelvas objetos nativos (como `Plc`, `ProgramBlock`, `HmiTag`) desde el worker al proceso IT. Mapear siempre a tipos primitivos puros de Python antes de emitir JSON.
+
+## 4. API DE SIEMENS TIA SCRIPTING (V1.2.1)
+
+No inventes métodos. Utiliza estrictamente la API soportada.
+
+- **Versión de Python:** 3.12, 3.13 o 3.14. No uses características deprecadas ni asumas 3.11.
+- **Formatos de Exportación:** `export_format=ts.Enums.ExportFormats.SimaticSD` para SCL/UDTs.
+- **Firmas verificadas** (no las compruebes de nuevo, ya están confirmadas contra el manual Openness):
+  - `ts.attach_portal(portal_mode)`: requiere instancia YA en ejecución. NO lanza TIA Portal.
+  - `ts.open_portal(portal_mode, version=None)`: lanza instancia nueva. Después `portal.open_project(project_file_path)`.
+  - `portal.detach()`: libera el RCW. NO cierra TIA Portal.
+  - `project.start_transaction(undo_text, dialog_text)`: ambos obligatorios.
+  - `project.update_transaction(dialog_text)`: feedback en vivo durante lotes largos. Úsalo.
+  - `obj.get_property(name=...)` / `set_property(name=..., value=...)`: siempre por keyword, NUNCA posicional.
+  - Carga del `.pyd` en frozen (PyInstaller): manual vía `sys.path` + `os.environ["PATH"]` + `os.add_dll_directory` desde `sys._MEIPASS`. **NUNCA** `importlib.util`.
+
+## 5. ENGINE + FBs (el "PLC" en Python)
+
+- **`core/plc/plc.py`:** contiene `Engine`, `FB_Base`, `DB_EstadoConexion` y `FB_ConexionTIA`. **Trasversal puro** — no conoce áreas.
+- **`areas/<area>/plc/functions.py`:** FBs específicos del área. Se registran en el `Engine` al arrancar.
+- **`areas/<area>/plc/data.py`:** DBs específicos del área.
+- **El router `core/web/routers/plc.py`** es GENÉRICO: `POST /api/v1/plc/fb/{name}/start` busca el FB en `engine.fbs` por nombre. No conoce FBs específicos.
+- **Convenciones de los FBs:**
+  - `nStep == 0` → idle. `n_done` (override) → done. `n_error = 99` → error.
+  - `start(**params)` resetea y arranca. `tick()` es llamado por el Engine cada 100ms.
+  - Si una etapa puede fallar, capturá la excepción, poné `nError=1` y `nStep=99`. El Engine lo publica al SSE.
+
+## 6. SSE — HMI PASIVO
+
+El frontend **NO pregunta NUNCA**. Solo escucha.
+
+- **`GET /api/v1/plc/events`** (SSE con `StreamingResponse` nativo de FastAPI, sin `sse-starlette` si es posible): emite snapshot inicial al conectar, luego stream de eventos del Engine.
+- **El snapshot inicial contiene TODOS los DBs y FBs registrados.** El HMI lo usa para pintarse sin parpadeos.
+- **Cada conexión SSE tiene su propia `asyncio.Queue(maxsize=200)`.** Si el cliente es lento, descartamos eventos (no bloqueamos al Engine).
+- **El `WorkerBridge` debe mergear TODOS los campos estables de la respuesta del backend** (lección X1). Si el backend añade `worker_alive` o `project_changed`, el bridge los propaga. NUNCA descartar campos con defaults "razonables".
+
+## 7. POLLING EN EL FRONTEND — PROHIBIDO
+
+El legacy tenía 3 `setInterval` (1s/500ms/2s) que preguntaban al backend. **El greenfield los prohíbe todos.** Toda la comunicación es push vía SSE. Si en el futuro un cliente necesita polling para algo que el SSE no cubre, **es señal de que falta un evento en el Engine**, no de añadir polling.
+
+Excepción única documentada: el heartbeat del worker (ping cada 5s) es interno, no se expone al frontend. El frontend ve el `state` del worker cuando cambia.
+
+## 8. CONCURRENCIA — LOCK DESDE EL PRIMER COMMIT
+
+- **El lock de `WorkerBridge` no es reentrante.** Ninguna cadena de llamadas interna vuelve a cogerlo.
+- **`assert self._lock.locked()`** al inicio de métodos privados que asumen el lock cogido.
+- **Double-checked locking** en `connect()`/`disconnect()` desde el primer test que se escriba (lección X3: el doble clic rápido puede dejar procs huérfanos).
+- **Shutdown handler obligatorio** (lección X2): libera el `.pyd` de Siemens, no queda zombi.
+
+## 9. PYTHON Y CÓDIGO LIMPIO
+
+- Tipado estricto (Type Hinting) en todas las firmas.
+- PEP 8.
+- `asyncio` eficiente. Nada bloqueante en el Event Loop principal.
+- `from __future__ import annotations` en módulos con type hints forward-ref.
+
+## 10. CSS / FRONTEND BUILD
+
+- Tras añadir clases nuevas en cualquier `.js` de `static/js/`, **recompilar Tailwind**:
+  `tailwindcss-extra.exe -i interfaces/web_server/static/src/input.css -o interfaces/web_server/static/styles.css --minify`
+- Tailwind v4 escanea `static/js/**/*.js` (templates Vue son template strings).
+- **NO CDN, NO daisyUI, NO `import` de CSS externo.**
+- Tema: tokens semánticos `bg-surface*`, `text-ink*`, `bg-accent`, `border-line`.
+- **PROHIBIDO** string literals multi-línea dentro de arrays de `:class` (compilador runtime de Vue no los acepta).
+- **Vue 3 sin build step:** los `import` a nivel de módulo (`import { store } from "..."`) son invisibles para el compilador de templates. **TODO** acceso a `store` desde el template se hace vía `computed` retornado del `setup()`.
+
+## 11. SINGLE-TENANT
+
+- App desktop, single-tenant. Un operario + su S7-1500.
+- `Engine`, `ProgressTracker`, `LogBuffer` son singletons.
+- **NUNCA** persistir estado entre reinicios. Cache IT solo en memoria.
+
+## 12. TESTS — 6 OBLIGATORIOS (Fase 1)
+
+Antes de cerrar Fase 1, sin excepción:
+
+1. El lock de `WorkerBridge` no es reentrante.
+2. Doble clic en "Conectar" no deja dos `attach` colgando.
+3. Dos suscriptores SSE reciben el mismo evento; desconectar uno no afecta al otro.
+4. El Engine no tickea FBs en estado terminal (`nStep == 0`, `n_done`, `n_error`).
+5. **El shutdown handler del worker existe y libera el `.pyd` de Siemens** (no queda zombi ~200 MB).
+6. **Doble clic en Conectar + Desconectar no deja el worker en estado inconsistente** (race conditions en reconnect).
+
+Más detalles en `PLC_IE_61131_GREENFIELD.md` §3.
