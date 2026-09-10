@@ -29,17 +29,18 @@ def test_ping_endpoint() -> None:
 
 @pytest.mark.integration
 def test_events_endpoint_streams() -> None:
-    """``GET /api/v1/events`` emite un primer evento SSE con ``{ping: pong}``.
+    """``GET /api/v1/events`` emite un primer evento SSE con ``{tick: 0}``.
 
     Verifica:
       - ``Content-Type: text/event-stream``
       - La primera línea del stream es exactamente
-        ``data: {"ping": "pong"}`` (formato SSE, sin ``\\n`` final).
+        ``data: {"tick": 0}`` (formato SSE, sin ``\\n`` final).
 
-    IMPORTANTE: el endpoint hace un loop ``while True`` con heartbeats,
-    asi que NO usamos ``next(iter_lines())`` que bloquearia esperando
-    mas datos. En su lugar, leemos con un break tras la primera linea;
-    el ``with client.stream()`` cierra la conexion al salir del bloque.
+    IMPORTANTE: el endpoint hace un loop ``while True`` con ticks cada
+    500ms, asi que NO usamos ``next(iter_lines())`` que bloquearia
+    esperando mas datos. En su lugar, leemos con un break tras la
+    primera linea; el ``with client.stream()`` cierra la conexion
+    al salir del bloque.
     """
     with TestClient(app) as client:
         # ``max_events=1`` cierra el stream tras el primer evento
@@ -48,10 +49,10 @@ def test_events_endpoint_streams() -> None:
             assert response.status_code == 200
             assert response.headers["content-type"].startswith("text/event-stream")
             # ``iter_lines`` decodifica bytes → str y separa por '\\n'.
-            # El primer chunk es ``data: {"ping": "pong"}\\n\\n``, por
-            # lo que la primera línea (sin newline) es exactamente
-            # ``data: {"ping": "pong"}``. Leemos con break para no
-            # quedar atrapados en el bucle ``while True`` del endpoint.
+            # El primer chunk es ``data: {"tick": 0}\\n\\n``, por lo
+            # que la primera línea (sin newline) es exactamente
+            # ``data: {"tick": 0}``. Leemos con break para no quedar
+            # atrapados en el bucle ``while True`` del endpoint.
             for line in response.iter_lines():
-                assert line == 'data: {"ping": "pong"}'
+                assert line == 'data: {"tick": 0}'
                 break

@@ -40,42 +40,38 @@ async def ping() -> dict[str, str]:
 
 
 # ── Constantes del stream SSE ────────────────────────────────────────────
-# El primer evento (data) llega inmediato; los heartbeats (comentarios SSE,
-# líneas que empiezan con ``:``) llegan cada ``_HEARTBEAT_EVERY`` ticks de
-# 1 segundo. Documentado en el plan: la conexión debe aguantar >30s sin
-# cerrarse (ver §4 Fase 0.5, criterio de cierre).
-_HEARTBEAT_EVERY = 5  # ticks de 1s → heartbeat cada 5s
-_TICK_SECONDS = 1.0
+# Cada ``_TICK_SECONDS`` segundos el endpoint emite un evento ``{"tick": N}``
+# donde N es un contador que incrementa de 0 a ``_TICK_MAX`` y se resetea.
+# En el frontend el HMI pinta el tick, lo que permite al operario VER
+# visualmente cada cuanto tiempo se actualiza la web (cada 500ms con
+# la config por defecto). Esto es un test vivo del push.
+_TICK_SECONDS = 0.5
+_TICK_MAX = 500
 
 
 @router.get("/events")
 async def events(max_events: int = 0) -> StreamingResponse:
-    """SSE mínimo: un evento inicial + heartbeats periódicos.
+    """SSE con un contador que incrementa cada ``_TICK_SECONDS`` segundos.
 
     Query params:
-        ``max_events``: si > 0, el stream se cierra tras emitir el evento
-        inicial (modo test). Default 0 = infinito (modo produccion).
+        ``max_events``: si > 0, el stream se cierra tras emitir el primer
+        evento (modo test). Default 0 = infinito (modo demo del operario).
 
     Yields:
-        Bytes en formato SSE. Primer chunk: ``data: {"ping": "pong"}\\n\\n``.
-        Heartbeats cada 5s como comentarios SSE (no disparan eventos en el
-        cliente, pero mantienen viva la conexión TCP).
+        Bytes en formato SSE. Cada chunk es ``data: {"tick": N}\\n\\n``
+        con N incrementando. El frontend pinta N y se ve el refesco.
     """
     async def event_stream() -> AsyncGenerator[bytes, None]:
-        # Evento inicial — el HMI lo usa como snapshot de "estoy vivo".
-        yield b'data: {"ping": "pong"}\n\n'
+        # Primer evento inmediato.
+        tick = 0
+        yield f'data: {{"tick": {tick}}}\n\n'.encode()
         # Modo test: cerrar tras el primer evento.
         if max_events > 0:
             return
-        # Modo produccion: loop de keepalive.
-        tick_count = 0
+        # Modo demo: emitir ticks incrementales.
         while True:
             await asyncio.sleep(_TICK_SECONDS)
-            tick_count += 1
-            if tick_count % _HEARTBEAT_EVERY == 0:
-                # Comentario SSE (línea ``:...``) — no es un ``message``
-                # en el EventSource del cliente, pero evita timeouts de
-                # proxies intermedios.
-                yield b": heartbeat\n\n"
+            tick = (tick + 1) % _TICK_MAX
+            yield f'data: {{"tick": {tick}}}\n\n'.encode()
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

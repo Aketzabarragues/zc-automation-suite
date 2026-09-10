@@ -25,13 +25,28 @@ app.innerHTML = `
             zc-automation-suite — Fase 0.5
         </h1>
         <p class="text-ink-muted mb-4">
-            Spike SSE dentro de PyInstaller. Esperando evento del backend…
+            Spike SSE dentro de PyInstaller. El backend emite
+            <code>{"tick": N}</code> cada 500ms; el contador se resetea a 0
+            al llegar a 500. Mira la consola del navegador (F12) para ver
+            los timestamps exactos.
         </p>
+        <div class="grid grid-cols-2 gap-3 max-w-md">
+            <div class="bg-surface-raised border border-line rounded p-3">
+                <div class="text-[10px] uppercase text-ink-muted">tick actual</div>
+                <div id="tick-value" class="text-3xl font-bold text-accent">—</div>
+            </div>
+            <div class="bg-surface-raised border border-line rounded p-3">
+                <div class="text-[10px] uppercase text-ink-muted">ultimo evento</div>
+                <div id="tick-time" class="text-3xl font-bold text-ink">—</div>
+            </div>
+        </div>
         <pre id="sse-output"
-             class="bg-surface-raised border border-line rounded p-3 whitespace-pre-wrap break-words">esperando evento…</pre>
+             class="mt-3 bg-surface-raised border border-line rounded p-3 whitespace-pre-wrap break-words text-xs">esperando evento…</pre>
     </main>
 `;
 
+const tickValueEl = document.getElementById("tick-value");
+const tickTimeEl = document.getElementById("tick-time");
 const outputEl = document.getElementById("sse-output");
 let eventSource = null;
 
@@ -45,6 +60,24 @@ function connect() {
     };
 
     eventSource.onmessage = (e) => {
+        // Parseamos el JSON {"tick": N} y pintamos el tick + timestamp.
+        // En la consola del navegador (F12) se ve la fecha/hora exacta
+        // de cada push, lo que permite medir la frecuencia visualmente.
+        let tick = null;
+        try {
+            const parsed = JSON.parse(e.data);
+            tick = parsed.tick;
+        } catch {
+            tick = e.data;
+        }
+        tickValueEl.textContent = String(tick);
+        const now = new Date();
+        tickTimeEl.textContent =
+            String(now.getHours()).padStart(2, "0") + ":" +
+            String(now.getMinutes()).padStart(2, "0") + ":" +
+            String(now.getSeconds()).padStart(2, "0") + "." +
+            String(now.getMilliseconds()).padStart(3, "0");
+        console.log(`[SSE] ${now.toISOString()} tick=${tick}`);
         outputEl.textContent = e.data;
     };
 
