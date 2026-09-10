@@ -419,23 +419,27 @@ export function usePlc() {
     const idle = computed(() => tiaState.value === "idle");
     const errorState = computed(() => tiaState.value === "error");
 
-    return {
-        // Estado reactivo crudo (los `computed` arriba son los
-        // derivados "amigables para el template"; el resto del
-        // estado se lee aqui directamente, tambien como `computed`
-        // implicitamente por la reactividad de Vue 3 cuando el
-        // template los toca).
-        DBs: state.DBs,
-        FBs: state.FBs,
-        logs: state.logs,
-        areas: state.areas,
-        areaManifest: state.areaManifest,
-        topLevelView: state.topLevelView,
-        currentView: state.currentView,
-        selectedArea: state.selectedArea,
-        busy: state.busy,
-
-        // Computed para el template (Vue 3 sin build step).
+    // -----------------------------------------------------------------
+    // IMPORTANTE — patron de retorno del composable.
+    //
+    // El bug que esto arregla: si retornamos `{ areas: state.areas, ... }`,
+    // JavaScript copia la referencia al array INICIAL (vacio) en el
+    // momento de la llamada. Cuando `fetchAreas()` hace luego
+    // `state.areas = r.data`, el objeto `plc` que el componente tiene
+    // SIGUE apuntando al array inicial — el template nunca ve el
+    // catalogo nuevo.
+    //
+    // Solucion: devolver un Proxy que delega las lecturas a `state`
+    // (que es el `reactive` original). Asi `plc.areas` se resuelve
+    // a `state.areas` en CADA acceso, y la reactividad de Vue 3
+    // trackea la dependencia via el `get` trap del `reactive`.
+    //
+    // Los `computed` y las funciones se exponen como extensiones
+    // (precedencia sobre el state si hay colision de keys, que no
+    // deberia haber dado el naming usado).
+    // -----------------------------------------------------------------
+    const extensions = {
+        // Computed para el template.
         tiaState,
         workerAlive,
         projectName,
@@ -446,14 +450,35 @@ export function usePlc() {
         connecting,
         idle,
         errorState,
-
         // Comandos.
         startFb,
         disconnectFb,
         fetchAreas,
         loadAreaManifest,
-
         // Lifecycle.
         init,
     };
+    return new Proxy(state, {
+        get(target, prop) {
+            if (prop in extensions) return extensions[prop];
+            return target[prop];
+        },
+        has(target, prop) {
+            return prop in extensions || prop in target;
+        },
+        ownKeys(target) {
+            // Expone las keys de `state` + las de `extensions` para
+            // que `Object.keys(plc)` y el devtools de Vue las vean.
+            return Array.from(new Set([
+                ...Reflect.ownKeys(target),
+                ...Reflect.ownKeys(extensions),
+            ]));
+        },
+        getOwnPropertyDescriptor(target, prop) {
+            if (prop in extensions) {
+                return Reflect.getOwnPropertyDescriptor(extensions, prop);
+            }
+            return Reflect.getOwnPropertyDescriptor(target, prop);
+        },
+    });
 }
