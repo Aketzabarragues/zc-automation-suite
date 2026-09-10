@@ -19,8 +19,8 @@
  * la red (CDN) o desde ``/js/`` servido por FastAPI.
  */
 import { createApp, computed, nextTick } from "/js/vendor/vue.esm-browser.prod.js";
-import { store, goToArea, goToSubview, loadCatalog, refreshTiaConnection } from "./store.js";
-import { apiFetchLogs, apiFetchMemory, apiFetchProgress } from "./api.js";
+import { store, goToArea, goToSubview, loadCatalog } from "./store.js";
+import { apiFetchMemory } from "./api.js";
 import { loadArea, mountArea } from "./area-loader.js";
 import Welcome from "./components/Welcome.js";
 import ConsolaLogs from "./components/ConsolaLogs.js";
@@ -230,39 +230,80 @@ _app.mount("#app");
 
 loadCatalog();
 
-setInterval(async () => {
-    if (store.topLevelView !== "area") return;
-    const r = await apiFetchLogs();
-    if (r.ok && Array.isArray(r.data.logs)) {
-        store.logs = r.data.logs;
+// ── SSE: Server-Sent Events (Fase 1 del refactor) ──────────────
+// Abre un EventSource contra /api/v1/stream. El SSE es la ÚNICA
+// fuente de updates del store desde 1.3.1 (los 3 setInterval de
+// logs/progress/tia se eliminaron; antes coexistían como red de
+// seguridad durante la migración, ahora ya no son necesarios).
+//
+//   - onopen: confirma que la conexión está viva.
+//   - onerror: avisa si el server se cae. La UI queda "congelada"
+//     hasta la reconexión; el EventSource del navegador reintenta
+//     solo (comportamiento estándar del spec). El operario ve el
+//     warning en F12 console (si lo tiene abierto).
+//   - onmessage: parsea el JSON y actualiza el store. Ver el
+//     switch de tipos abajo para el mapeo exacto event→slot.
+//
+// Sin wrapper, sin composables, sin ``sse.js`` nuevo: directo en
+// ``main.js`` como pide el plan. La UI no cambia (mismos
+// componentes, mismo copy, mismos iconos, mismos colores).
+const sse = new EventSource("/api/v1/stream");
+sse.onopen = () => {
+    console.log("[SSE] connection opened");
+};
+sse.onerror = (e) => {
+    console.warn("[SSE] connection error", e);
+};
+sse.onmessage = (e) => {
+    let event;
+    try {
+        event = JSON.parse(e.data);
+    } catch (err) {
+        console.warn("[SSE] evento no es JSON válido:", e.data, err);
+        return;
     }
-}, 1000);
-
-setInterval(async () => {
-    if (store.topLevelView !== "area") return;
-    const r = await apiFetchProgress();
-    if (r.ok && r.data && r.data.ok && r.data.progress) {
-        store.progress = r.data.progress;
+    switch (event.type) {
+        case "log":
+            // Append. El polling periódico (1.2.3 lo mantiene activo)
+            // resetea al snapshot del LogBuffer (200 entradas); el SSE
+            // solo empuja lo nuevo entre polls. Orden cronológico OK
+            // porque el LogBuffer emite en orden de llegada.
+            store.logs.push({
+                timestamp: event.timestamp,
+                level: event.level,
+                message: event.message,
+            });
+            break;
+        case "progress": {
+            // El event YA ES el ProgressSnapshot (más "type"). Quitamos
+            // "type" y reemplazamos el slot completo (mismo patrón que
+            // el polling hace con ``r.data.progress``).
+            const { type, ...snapshot } = event;
+            store.progress = snapshot;
+            break;
+        }
+        case "tia_state":
+            // Solo cambia el state; el resto de campos de
+            // tiaConnection (``project``, ``plcs``, ``last_ping_ok_unix``,
+            // ``last_error``) se actualiza cuando llega un evento
+            // ``plcs`` o ``project_info`` correspondiente. Antes de
+            // 1.3.1 los mantenía ``refreshTiaConnection`` por polling.
+            store.tiaConnection.state = event.state;
+            break;
+        case "plcs":
+            // Cache: ``event.data = [{name, short_designation}, ...]``.
+            // ``tiaConnection.plcs`` espera ``string[]`` (compat con
+            // el shape que ya consume la SPA); ``store.plcs`` recibe
+            // la lista completa con metadatos.
+            store.tiaConnection.plcs = event.data.map(p => p.name);
+            store.plcs = event.data;
+            break;
+        case "project_info":
+            // Cache: ``event.data = {name, path, author, ...}``.
+            store.tiaConnection.project = event.data;
+            store.projectInfo = event.data;
+            break;
+        default:
+            console.debug("[SSE] tipo de evento desconocido:", event.type);
     }
-}, 500);
-
-/**
- * Polling del estado de conexión del worker TIA persistente
- * (PR 5b / §4.3 del design doc). 2 segundos es suficiente para
- * que el operario perciba la transición de color del indicador
- * sin sobrecargar el backend (el heartbeat interno del worker
- * ya es 5s; el polling del frontend es más frecuente porque
- * reacciona a reconexiones manuales).
- *
- * INCONDICIONAL (sin guard de ``topLevelView``) por dos
- * motivos:
- *   1. El indicador del topbar también se ve en la pantalla
- *      de welcome (es parte del chrome cross-cutting).
- *   2. ``refreshTiaConnection`` es liviano: 1 GET sin
- *      side-effects. El coste de ejecutarlo siempre es trivial.
- *      (Mismo razonamiento que el polling de progreso: 2 req/s
- *      idle es despreciable para FastAPI.)
- */
-setInterval(() => {
-    store.refreshTiaConnection?.();
-}, 2000);
+};

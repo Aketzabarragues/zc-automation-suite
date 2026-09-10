@@ -43,6 +43,8 @@ from core.application.log_buffer import get_log_buffer
 from core.application.progress_buffer import get_progress_tracker
 from core.application.state import get_app_state
 from core.infrastructure.gateway import TIAProcessGateway
+from core.sse.event_bus import EventBus
+from core.sse.stream import router as sse_router
 from interfaces.web_server.routers import (
     area_manifests_router,
     areas_router,
@@ -185,6 +187,13 @@ def create_app(gateway: TIAProcessGateway) -> FastAPI:
     # usa el del repo).
     from core.infrastructure.config_manager import ConfigManager
     app.state.config_manager = ConfigManager()
+    # ── 6. Bus de eventos SSE ──────────────────────────────────────
+    # El endpoint ``/api/v1/stream`` (router SSE) lee ``app.state.event_bus``
+    # en cada conexión. El wiring de los Singletons (LogBuffer,
+    # ProgressTracker, gateway persistente) al bus es responsabilidad
+    # del Composition Root externo (1.1.6); aquí solo creamos el bus
+    # y lo exponemos para que el endpoint no 500ee.
+    app.state.event_bus = EventBus()
 
     # ── 2. Routers comunes del core (orden estable, alfabético) ───
     # Estos routers son GENÉRICOS: no saben de áreas, viven en el
@@ -198,6 +207,11 @@ def create_app(gateway: TIAProcessGateway) -> FastAPI:
     # contra ``GET /tia/connection`` y lanza ``POST /tia/connect`` /
     # ``POST /tia/disconnect`` al pulsar el indicador del topbar.
     app.include_router(tia_connection_router)
+    # ── 2b. Router SSE (Fase 1 del refactor) ──────────────────────
+    # ``GET /api/v1/stream``: Server-Sent Events para reemplazar el
+    # polling de logs / progress / tia_state en pasos posteriores.
+    # El router ya define ``prefix="/api/v1"`` (1.0.3).
+    app.include_router(sse_router)
 
     # ── 3. Routers aportados por las áreas (Bounded Contexts) ─────
     # Descubre cada ``AreaSpec`` registrada y, si declara

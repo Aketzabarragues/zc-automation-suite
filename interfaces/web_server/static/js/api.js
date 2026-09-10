@@ -174,9 +174,6 @@ export const apiCommit = (plcName, prevision) =>
     // termine y el operario ve un falso error.
     _request("POST", "/api/v1/sync/commit", { plc_name: plcName, prevision }, SLOW_TIMEOUT_MS);
 
-/** Snapshot de logs para pintar la consola. */
-export const apiFetchLogs = () => _request("GET", "/api/v1/logs");
-
 /** Vacía el buffer de logs (botón "Limpiar"). */
 export const apiClearLogs = () => _request("POST", "/api/v1/logs/clear");
 
@@ -202,19 +199,6 @@ export const apiClearLogs = () => _request("POST", "/api/v1/logs/clear");
  */
 export const apiPushLog = (message, level = "info") =>
     _request("POST", "/api/v1/logs", { message, level });
-
-/**
- * Snapshot del ``ProgressTracker`` backend.
- *
- * Devuelve la forma ``{ ok, progress: { active, operation, label, current,
- * total, percent, stages, started_at, finished_at, error } }``.
- *
- * Llamado por el polling 500 ms en ``main.js``. NO escribe al backend
- * (la SPA es solo observadora; el backend emite los cambios cuando
- * los use cases avanzan).
- */
-export const apiFetchProgress = () =>
-    _request("GET", "/api/v1/progress/current");
 
 /**
  * Resetea el ``ProgressTracker`` backend al estado vacío.
@@ -302,26 +286,6 @@ export function apiProcesosSyncPreview(procUid, plcName) {
  *                            puede pasar el mismo que recibió).
  * @returns {Promise<{ok, status, data}>}
  */
-
-/**
- * Devuelve el snapshot del estado de conexión del worker TIA
- * persistente (PR 5a / §4.1 del design doc).
- *
- * Shape (alineado con ``GET /api/v1/tia/connection`` del backend):
- *   {
- *     state:               "connected" | "connecting" | "disconnected" | "error",
- *     project:             { name, path, version } | null,
- *     plcs:                string[],
- *     last_ping_ok_unix:   number | null,
- *     last_error:          string | null,
- *   }
- *
- * Llamado por el polling 2s en ``main.js`` y por el
- * ``TiaConnectionIndicator`` (reactivo, vía store). NO escribe
- * al backend: es solo lectura.
- */
-export const apiFetchTiaConnection = () =>
-    _request("GET", "/api/v1/tia/connection");
 
 /**
  * Fuerza la reconexión del worker TIA persistente.

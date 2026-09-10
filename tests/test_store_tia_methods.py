@@ -82,24 +82,27 @@ def test_store_object_assign_exposes_tia_helpers() -> None:
 
 
 def test_main_js_polling_uses_store_dot_method() -> None:
-    """Regresion explicita del bug: ``main.js`` debe invocar el
-    polling de TIA como ``store.refreshTiaConnection?.()`` (con el
-    store como receptor). Si el bug se reintroduce (e.g. alguien
-    cambia la firma a una funcion importada), este test falla
-    para que lo veamos en CI antes de que llegue a produccion.
+    """Regresión 1.3.1: el polling de TIA se eliminó. Ahora el SSE
+    actualiza el store directamente. Verificamos que main.js:
+      1. NO tiene el polling legacy ``store.refreshTiaConnection?.()``
+         (es código muerto desde 1.3.1).
+      2. SÍ tiene el ``EventSource`` que consume el SSE.
+      3. El handler ``onmessage`` parsea y actualiza el store.
     """
     text = _read(MAIN_JS)
-    # El patron EXACTO que debe existir en main.js: la llamada al
-    # polling con store como receptor. Es la convencion que el
-    # store.js cumple (Object.assign) y la que el operador ?.()
-    # protege contra funciones no asignadas.
-    assert "store.refreshTiaConnection?.()" in text, (
-        "main.js debe llamar al polling de TIA via "
-        "`store.refreshTiaConnection?.()`. Es el patron protegido "
-        "por el `?.()` que evita fallos si el store no expone la "
-        "funcion (y que store.js cumple via Object.assign). Si "
-        "cambias esto, recuerda mantener la consistencia entre "
-        "main.js y store.js."
+    # El polling legacy ya no debe existir.
+    assert "store.refreshTiaConnection?.()" not in text, (
+        "main.js NO debe tener `store.refreshTiaConnection?.()`. "
+        "El polling de TIA se eliminó en 1.3.1; el estado llega "
+        "vía SSE."
+    )
+    # El SSE debe estar cableado.
+    assert 'new EventSource("/api/v1/stream")' in text, (
+        "main.js debe abrir un EventSource contra /api/v1/stream."
+    )
+    assert "sse.onmessage" in text, (
+        "main.js debe tener un handler sse.onmessage que parsee "
+        "los eventos."
     )
 
 

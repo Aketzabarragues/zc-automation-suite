@@ -14,6 +14,7 @@ thread-safe con snapshot inmutable).
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from threading import Lock
@@ -107,7 +108,10 @@ class ProgressTracker:
     cuando actualizamos un stage.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        on_publish: Callable[["ProgressSnapshot"], None] | None = None,
+    ) -> None:
         self._lock: Lock = Lock()
         self._active: bool = False
         self._operation: str | None = None
@@ -120,6 +124,11 @@ class ProgressTracker:
         # Lo re-empaquetamos en dataclasses frozen al hacer ``snapshot()``.
         self._stages: dict[str, dict[str, Any]] = {}
         self._stage_order: list[str] = []
+        # Hook opcional: invocado tras cada cambio de estado con un
+        # ``ProgressSnapshot`` inmutable. Usado por la capa SSE para
+        # retransmitir al ``EventBus``. El lock NO se retiene durante
+        # la notificación (se publica tras soltarlo).
+        self._on_publish = on_publish
 
     @property
     def active(self) -> bool:
@@ -211,6 +220,9 @@ class ProgressTracker:
                 for sid in stages
             }
             self._stage_order = list(stages)
+            snapshot = self._build_snapshot_unlocked()
+        if self._on_publish is not None:
+            self._on_publish(snapshot)
 
     def start_stage(self, stage_id: str, detail: str | None = None) -> None:
         """Marca un stage como ``running``.
@@ -235,6 +247,9 @@ class ProgressTracker:
             rec["started_at"] = _now_iso()
             if detail is not None:
                 rec["detail"] = detail
+            snapshot = self._build_snapshot_unlocked()
+        if self._on_publish is not None:
+            self._on_publish(snapshot)
 
     def finish_stage(self, stage_id: str, detail: str | None = None) -> None:
         """Marca un stage como ``done``.
@@ -250,6 +265,9 @@ class ProgressTracker:
             rec["finished_at"] = _now_iso()
             if detail is not None:
                 rec["detail"] = detail
+            snapshot = self._build_snapshot_unlocked()
+        if self._on_publish is not None:
+            self._on_publish(snapshot)
 
     def error_stage(self, stage_id: str, detail: str) -> None:
         """Marca un stage como ``error`` con detalle del fallo.
@@ -263,6 +281,9 @@ class ProgressTracker:
             rec["status"] = STAGE_ERROR
             rec["finished_at"] = _now_iso()
             rec["detail"] = detail
+            snapshot = self._build_snapshot_unlocked()
+        if self._on_publish is not None:
+            self._on_publish(snapshot)
 
     def finish(
         self, success: bool = True, error: str | None = None
@@ -295,6 +316,9 @@ class ProgressTracker:
                         rec["finished_at"] = _now_iso()
                         if not rec.get("detail"):
                             rec["detail"] = err_msg
+            snapshot = self._build_snapshot_unlocked()
+        if self._on_publish is not None:
+            self._on_publish(snapshot)
 
     def snapshot(self) -> ProgressSnapshot:
         """Devuelve un snapshot inmutable del estado actual.
@@ -303,44 +327,52 @@ class ProgressTracker:
         tupla de dicts (no la estructura interna mutable).
         """
         with self._lock:
-            stages: list[dict[str, Any]] = []
-            current = 0
-            for sid in self._stage_order:
-                rec = self._stages.get(sid)
-                if rec is None:
-                    continue
-                # Validamos el status (defensivo: nunca debería
-                # haber un valor fuera del set, pero si lo hay
-                # caemos a ``pending`` para no romper la SPA).
-                status = rec["status"] if rec["status"] in _VALID_STATUSES else STAGE_PENDING
-                stages.append({
-                    "id": rec["id"],
-                    "label": rec["label"],
-                    "status": status,
-                    "detail": rec["detail"],
-                    "started_at": rec["started_at"],
-                    "finished_at": rec["finished_at"],
-                })
-                if status in (STAGE_DONE, STAGE_ERROR):
-                    current += 1
+            return self._build_snapshot_unlocked()
 
-            total = len(self._stage_order)
-            percent = (
-                int(round(100.0 * current / total)) if total > 0 else 0
-            )
+    def _build_snapshot_unlocked(self) -> ProgressSnapshot:
+        """Construye el snapshot asumiendo que ``self._lock`` ya está
+        adquirido. Usado por ``snapshot()`` (público, con lock) y por
+        los métodos que mutan estado para publicar el progreso tras
+        soltar el lock.
+        """
+        stages: list[dict[str, Any]] = []
+        current = 0
+        for sid in self._stage_order:
+            rec = self._stages.get(sid)
+            if rec is None:
+                continue
+            # Validamos el status (defensivo: nunca debería
+            # haber un valor fuera del set, pero si lo hay
+            # caemos a ``pending`` para no romper la SPA).
+            status = rec["status"] if rec["status"] in _VALID_STATUSES else STAGE_PENDING
+            stages.append({
+                "id": rec["id"],
+                "label": rec["label"],
+                "status": status,
+                "detail": rec["detail"],
+                "started_at": rec["started_at"],
+                "finished_at": rec["finished_at"],
+            })
+            if status in (STAGE_DONE, STAGE_ERROR):
+                current += 1
 
-            return ProgressSnapshot(
-                active=self._active,
-                operation=self._operation,
-                label=self._label,
-                current=current,
-                total=total,
-                percent=percent,
-                stages=tuple(stages),
-                started_at=self._started_at,
-                finished_at=self._finished_at,
-                error=self._error,
-            )
+        total = len(self._stage_order)
+        percent = (
+            int(round(100.0 * current / total)) if total > 0 else 0
+        )
+
+        return ProgressSnapshot(
+            active=self._active,
+            operation=self._operation,
+            label=self._label,
+            current=current,
+            total=total,
+            percent=percent,
+            stages=tuple(stages),
+            started_at=self._started_at,
+            finished_at=self._finished_at,
+            error=self._error,
+        )
 
     def clear(self) -> None:
         """Resetea el tracker al estado vacío inicial.
@@ -357,6 +389,9 @@ class ProgressTracker:
             self._error = None
             self._stages = {}
             self._stage_order = []
+            snapshot = self._build_snapshot_unlocked()
+        if self._on_publish is not None:
+            self._on_publish(snapshot)
 
 
 # ── Singleton thread-safe (inicialización perezosa) ─────────────────

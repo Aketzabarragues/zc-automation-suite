@@ -12,6 +12,7 @@ a la implementación del transporte (HTTP, MCP, CLI, ...).
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Callable
 from datetime import datetime
 from threading import Lock
 from typing import Any
@@ -25,9 +26,17 @@ class LogBuffer:
     ``level`` (info / success / warning / error).
     """
 
-    def __init__(self, maxlen: int = 200) -> None:
+    def __init__(
+        self,
+        maxlen: int = 200,
+        on_publish: Callable[[dict[str, Any]], None] | None = None,
+    ) -> None:
         self._buffer: deque[dict[str, Any]] = deque(maxlen=maxlen)
         self._lock: Lock = Lock()
+        # Hook opcional: invocado tras cada ``_push`` con el lock
+        # YA liberado (no se retiene mientras se notifica). Usado por
+        # la capa SSE para retransmitir cada mensaje al ``EventBus``.
+        self._on_publish = on_publish
 
     def _push(self, level: str, message: str) -> None:
         """Inserta un mensaje con timestamp."""
@@ -38,6 +47,8 @@ class LogBuffer:
         }
         with self._lock:
             self._buffer.append(entry)
+        if self._on_publish is not None:
+            self._on_publish(entry)
 
     # ── API pública por nivel ──────────────────────────────────────────
 

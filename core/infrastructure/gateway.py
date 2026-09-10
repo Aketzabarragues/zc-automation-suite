@@ -13,6 +13,7 @@ import logging
 import os
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -101,10 +102,37 @@ class TIAProcessGateway:
         referencian rutas a .py.
     """
 
+    # ── Property: _connection_state ─────────────────────────────────
+    # Almacenamiento privado: ``_conn_state``. El acceso externo debe
+    # pasar por la property ``_connection_state`` para que el setter
+    # publique cambios de estado al ``EventBus`` (vía ``on_state_change``).
+    # Solo disponible en modo ``persistent=True``; en modo 1-shot el
+    # atributo ``_conn_state`` no existe y la property lanzaría
+    # ``AttributeError`` (el código non-persistent no accede a él).
+    @property
+    def _connection_state(self) -> str:
+        """Estado de la conexión OT.
+
+        Valores: ``"idle"`` (vivo sin portal) | ``"connecting"`` |
+        ``"connected"`` | ``"error"``. El setter dispara
+        ``on_state_change(new_value)`` si está configurado.
+        """
+        return self._conn_state
+
+    @_connection_state.setter
+    def _connection_state(self, value: str) -> None:
+        if self._conn_state != value:
+            self._conn_state = value
+            on_change = getattr(self, "_on_state_change", None)
+            if on_change is not None:
+                on_change(value)
+
     def __init__(
         self,
         timeout: float | None = None,
         persistent: bool = False,
+        on_state_change: Callable[[str], None] | None = None,
+        on_cache_update: Callable[[str, Any], None] | None = None,
     ) -> None:
         """Inicializa el gateway IT.
 
@@ -119,6 +147,18 @@ class TIAProcessGateway:
                 sesión, un attach al inicio, N comandos por el mismo
                 attach. Si es ``False`` (default), comportamiento 1-shot:
                 1 subproceso por llamada a ``_dispatch_worker``.
+            on_state_change: Callback opcional invocado cada vez que
+                ``_connection_state`` cambia (solo en modo persistente).
+                Usado por la capa SSE para retransmitir al ``EventBus``
+                como evento ``"tia_state"``. No se llama si el valor
+                no cambia (evita spam).
+            on_cache_update: Callback opcional invocado cuando el
+                cache IT se actualiza con datos nuevos (solo en modo
+                persistente). Firma: ``(key: str, value: Any) -> None``.
+                Usado por la capa SSE para retransmitir al ``EventBus``
+                como evento ``"plcs"`` o ``"project_info"``. NO se
+                llama en cache hits (cuando el valor ya estaba en
+                caché y se devuelve sin releer).
         """
         self._persistent = persistent
         # Atributo público de solo-lectura. El flag lo decide el composition
@@ -146,8 +186,14 @@ class TIAProcessGateway:
             # Estados: "idle" (vivo sin portal) | "connecting" |
             # "connected" | "error". El operario decide cuándo conectar
             # vía ``connect()``. "idle" es también el estado tras un
-            # ``disconnect()``.
-            self._connection_state: str = "idle"
+            # ``disconnect()``. Almacenamiento privado: el acceso
+            # externo pasa por la property ``_connection_state`` (arriba)
+            # que dispara ``on_state_change`` en cada cambio.
+            self._conn_state: str = "idle"
+            self._on_state_change: Callable[[str], None] | None = on_state_change
+            # Hook opcional invocado tras una actualización real del
+            # cache IT (no en cache hit). Firma: (key, value).
+            self._on_cache_update: Callable[[str, Any], None] | None = on_cache_update
             self._project_path: str | None = None
             # One-shot: el frontend lo consume vía /tia/connection y se
             # resetea tras la lectura (consume_project_changed).
@@ -1619,6 +1665,8 @@ class TIAProcessGateway:
             "list_plcs", timeout_override=self.GET_PLCS_TIMEOUT_S
         )
         self._cache[cache_key] = plcs
+        if self._on_cache_update is not None:
+            self._on_cache_update(cache_key, plcs)
         return plcs
 
     async def get_project_info(self, force_refresh: bool = False) -> dict[str, Any]:
@@ -1651,6 +1699,8 @@ class TIAProcessGateway:
             "get_project_info", timeout_override=self.GET_PROJECT_INFO_TIMEOUT_S
         )
         self._cache[cache_key] = info
+        if self._on_cache_update is not None:
+            self._on_cache_update(cache_key, info)
         return info
 
     async def get_blocks(

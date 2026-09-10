@@ -800,12 +800,14 @@ def test_apply_tia_snapshot_does_not_clear_on_idle_to_connecting() -> None:
 
 
 def test_api_exports_tia_connection_functions() -> None:
-    """``api.js`` expone las 3 funciones del PR 5a/b:
-    ``apiFetchTiaConnection``, ``apiConnectTia``,
-    ``apiDisconnectTia``."""
+    """``api.js`` expone las funciones de mutación del PR 5a/b
+    (connect/disconnect). ``apiFetchTiaConnection`` se eliminó en
+    1.3.2 del refactor SSE: el estado TIA ya no se pide por polling,
+    se recibe como evento ``tia_state`` del ``EventSource`` en main.js.
+    ``apiConnectTia`` y ``apiDisconnectTia`` siguen (los dispara el
+    operario al pulsar los botones del topbar)."""
     text = _read(API_JS)
     for fn, endpoint in (
-        ("apiFetchTiaConnection", "/api/v1/tia/connection"),
         ("apiConnectTia", "/api/v1/tia/connect"),
         ("apiDisconnectTia", "/api/v1/tia/disconnect"),
     ):
@@ -821,37 +823,27 @@ def test_api_exports_tia_connection_functions() -> None:
 
 
 def test_main_js_has_tia_connection_polling_2s() -> None:
-    """``main.js`` arranca un ``setInterval`` cada 2 segundos
-    (2000 ms) que llama a ``refreshTiaConnection`` (o
-    ``store.refreshTiaConnection``)."""
+    """Regresión 1.3.1: el polling de TIA se eliminó en favor del SSE.
+    El estado TIA ahora se recibe como evento ``tia_state`` del
+    ``EventSource`` (main.js). Verificamos que NO queda el polling
+    legacy Y que el SSE handler actualiza ``store.tiaConnection.state``.
+    """
     text = _read(MAIN_JS)
-    # El call real es ``store.refreshTiaConnection?.()`` (acceso
-    # defensivo a un helper que puede ser undefined en tests).
-    # Buscamos un setInterval dentro de un radio razonable (los
-    # siguientes 1500 chars desde el comentario del PR 5b) que
-    # mencione refreshTiaConnection y termine con 2000.
-    import re
-    # Estrategia: anclar cerca del comentario del PR 5b para
-    # evitar matchear los otros 2 setInterval (logs 1s, progress 500ms).
-    anchor = text.find("Polling del estado de conexi")
-    if anchor == -1:
-        # Fallback: aceptar el primer setInterval(... 2000 ...) del archivo.
-        pattern = re.compile(
-            r"setInterval\(\s*[\s\S]{0,200}refreshTiaConnection[\s\S]{0,200}2000\s*\)",
-        )
-        matches = pattern.findall(text)
-    else:
-        # Buscar solo en los siguientes 1500 chars desde el ancla.
-        chunk = text[anchor:anchor + 1500]
-        pattern = re.compile(
-            r"setInterval\(\s*[\s\S]{0,200}refreshTiaConnection[\s\S]{0,200}2000\s*\)",
-        )
-        matches = pattern.findall(chunk)
-    assert len(matches) >= 1, (
-        "main.js debe llamar a refreshTiaConnection con "
-        "setInterval(..., 2000) (polling cada 2s del estado TIA). "
-        "El call esperado es store.refreshTiaConnection?.() o "
-        "refreshTiaConnection()."
+    # El polling legacy (setInterval(..., 2000) + refreshTiaConnection)
+    # ya no debe existir.
+    assert "setInterval" not in text or "store.refreshTiaConnection?.()" not in text, (
+        "main.js NO debe tener el polling legacy "
+        "`store.refreshTiaConnection?.()` con setInterval. "
+        "El estado TIA llega vía SSE (1.3.1)."
+    )
+    # El SSE debe actualizar el state de tiaConnection.
+    assert 'case "tia_state"' in text, (
+        "main.js debe manejar el evento SSE 'tia_state' y actualizar "
+        "store.tiaConnection.state."
+    )
+    assert "store.tiaConnection.state = event.state" in text, (
+        "El handler de 'tia_state' debe asignar event.state a "
+        "store.tiaConnection.state."
     )
 
 
