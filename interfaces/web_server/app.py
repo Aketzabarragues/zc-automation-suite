@@ -53,6 +53,7 @@ from interfaces.web_server.routers import (
     portal_router,
     tia_connection_router,
 )
+from interfaces.web_server.routers.plc import router as plc_router
 
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -116,8 +117,20 @@ async def _tia_lifespan(app: FastAPI):
 
     Solo aplica a gateways ``persistent=True`` (modo web); en modo
     1-shot (MCP) se omite con un guard.
+
+    Fase 3, DA-005.5 — además arranca el ``Engine`` (OB1) con los
+    7 FBs del área de alimentación. El ``plc_router`` (HTTP) lo
+    monta ``create_app`` (no el ``register`` del área) porque
+    Starlette matchea rutas en orden de inserción: si el router
+    se incluye DESPUÉS del catch-all ``app.mount("/", ...)``,
+    el mount intercepta todas las requests y devuelve 404. Si
+    el wiring falla, el web server arranca sin FBs activos (los
+    endpoints ``/api/v1/plc/fb/...`` devolverán 404); el operario
+    verá el error en el log file.
     """
     import logging
+
+    _logger = logging.getLogger(__name__)
 
     gateway = getattr(app.state, "gateway", None)
     if gateway is not None and getattr(gateway, "persistent", False):
@@ -128,7 +141,7 @@ async def _tia_lifespan(app: FastAPI):
             # estado en la UI (``worker_alive=False``, circulo
             # gris) y diagnosticar desde ahi. Logueamos como
             # ERROR para que sea visible en el log file.
-            logging.getLogger(__name__).error(
+            _logger.error(
                 "gateway.start() en lifespan fallo: %s: %s. "
                 "El web server arranca igualmente, pero el worker "
                 "permanente estara muerto. Revisa el log para mas "
@@ -137,7 +150,53 @@ async def _tia_lifespan(app: FastAPI):
                 exc,
             )
 
+    # ── Engine + 7 FBs (DA-005.5) ─────────────────────────────
+    # Crea el OB1 y cablea los 7 FBs del área de alimentación
+    # (``areas.alimentacion.register``) con sus deps de
+    # ``app.state``. La mitad HTTP del wiring (``plc_router``) ya
+    # está montada en ``create_app`` ANTES del catch-all de
+    # estáticos; aquí solo se ocupa del runtime de los FBs.
+    # Si el register falla, los endpoints ``/plc/fb/...`` existirán
+    # pero los FBs no estarán registrados (404 por nombre); el
+    # resto de la app sigue funcionando (gateway, SSE, áreas, etc.).
+    # Defensivo: si ``app.state.event_bus`` falta (típico de tests
+    # que usan ``FastAPI()`` directo, sin ``create_app``), se salta
+    # el wiring — el lifespan ya era defensivo con ``gateway`` y
+    # ahora también con el resto de deps.
+    event_bus = getattr(app.state, "event_bus", None)
+    if event_bus is not None:
+        from core.plc.engine import Engine
+        app.state.engine = Engine(
+            tick_period_s=0.1, event_bus=event_bus
+        )
+        from areas.alimentacion import register as register_alimentacion
+        try:
+            register_alimentacion(app.state.engine, app)
+            await app.state.engine.start_loop()
+        except Exception as exc:  # noqa: BLE001
+            _logger.error(
+                "Engine/FBs wiring fallo en lifespan: %s: %s. "
+                "El web server arranca sin FBs activos; "
+                "/api/v1/plc/fb/... daran 404. Revisa el log.",
+                type(exc).__name__, exc,
+            )
+    else:
+        _logger.debug(
+            "Engine wiring saltado: app.state.event_bus no esta seteado "
+            "(tests o paths sin create_app)."
+        )
+
     yield
+
+    # ── Shutdown: parar el loop del Engine. ──────────────────────
+    # Idempotente (``stop_loop`` ya lo es). Si el wiring falló en
+    # startup y el loop nunca arrancó, esto es un no-op.
+    engine = getattr(app.state, "engine", None)
+    if engine is not None:
+        try:
+            await engine.stop_loop()
+        except Exception as exc:  # noqa: BLE001
+            _logger.warning("engine.stop_loop() fallo: %s", exc)
 
     # ``gateway`` puede haber cambiado (no deberia, pero defensa):
     # lo re-leemos de ``app.state``.
@@ -151,7 +210,7 @@ async def _tia_lifespan(app: FastAPI):
     except Exception as exc:  # noqa: BLE001
         # No enmascarar el motivo original del shutdown. Logueamos
         # y dejamos que uvicorn termine.
-        logging.getLogger(__name__).warning(
+        _logger.warning(
             "gateway.disconnect() en lifespan fallo: %s", exc
         )
 
@@ -220,6 +279,16 @@ def create_app(gateway: TIAProcessGateway) -> FastAPI:
     # este archivo. El área "alimentación" monta aquí los routers
     # ``/api/v1/alimentacion/*``, ``/api/v1/sync/*``, ``/api/v1/excel/*``.
     AreaRegistry.discover().for_each("contributes_routers", app=app)
+
+    # ── 3b. Router PLC FBs (DA-005.5) ─────────────────────────────
+    # ``POST/GET /api/v1/plc/fb/{name}/...`` — arranca y consulta el
+    # estado de los FBs del Engine. Se monta AQUÍ (entre los routers
+    # del área y los estáticos) y NO en el lifespan, porque Starlette
+    # matchea rutas en orden de inserción: si se incluye DESPUÉS del
+    # catch-all ``app.mount("/", ...)``, el mount intercepta todas
+    # las requests y devuelve 404 (causa del bug que el wiring del
+    # DA-005.5 descubrió).
+    app.include_router(plc_router)
 
     # ── 4. Estáticos de las áreas ────────────────────────────────────
     # IMPORTANTE: este mount va ANTES del catch-all de la SPA. Si va

@@ -29,9 +29,15 @@ Paquete autocontenido que aporta al core:
     ``application/disp_state_extensions.install``.
   - Defaults defensivos del ``ConfigManager`` vía
     ``infrastructure/config_defaults.install``.
+  - **Wiring del Engine + 7 FBs + plc_router** vía ``register()``
+    (Fase 3, paso DA-005.5). El Composition Root
+    (``interfaces/web_server/app.py``) llama a ``register()`` desde
+    el ``lifespan`` para activar el runtime de Function Blocks.
 
-Los 7 ``contributes_*`` quedan cableados en la ``AREA_SPEC`` definida
-abajo: el área aporta TODOS los extension points disponibles hoy.
+Los 7 ``contributes_*`` + ``register()`` cubren todos los extension
+points y la activación del runtime. La ``AREA_SPEC`` y ``register``
+se mantienen en este mismo archivo (Composition Root del área) para
+que añadir/quitar un FB sea 1 edit.
 """
 from __future__ import annotations
 
@@ -86,4 +92,133 @@ AREA_SPEC = AreaSpec(
 )
 
 
-__all__ = ["AREA_SPEC", "register_tia", "register_mcp", "build_manifest"]
+# ── Wiring del Engine + 7 FBs (DA-005.5) ──────────────────────────
+# El Composition Root (``interfaces/web_server/app.py::_tia_lifespan``)
+# invoca esta función tras construir el ``Engine``. Crea los 7 FBs
+# del área con sus dependencias (gateway / config_manager / app_state
+# / progress_tracker leídos de ``app.state``) y los registra en el
+# engine bajo su nombre canónico (sin prefijo ``Function``).
+#
+# El ``plc_router`` (la mitad HTTP del wiring: ``POST/GET
+# /api/v1/plc/fb/{name}/...``) NO se monta aquí: el shell lo incluye
+# en ``create_app`` ANTES del catch-all ``app.mount("/", ...)`` (si se
+# monta después, el mount intercepta las requests y devuelve 404).
+# Ver ``interfaces/web_server/app.py::create_app``.
+#
+# Convenciones:
+#  * Nombre en el engine: ``<clase>.__name__`` sin el prefijo
+#    ``Function`` (ej. ``FunctionSubirExcel`` → ``SubirExcel``).
+#    Es el identificador estable que la SPA y el router usan.
+#  * Si en el futuro se añade un FB, basta con añadirlo a la lista
+#    ``fbs`` de ``register()`` y se registra solo. Sin tocar el resto.
+def _fb_engine_name(fb_class: type) -> str:
+    """Deriva el nombre del FB en el engine desde el nombre de la clase.
+
+    Quita el prefijo ``Function`` para obtener el nombre canónico
+    que la SPA espera en ``/api/v1/plc/fb/{name}/...`` (p. ej.
+    ``FunctionSubirExcel`` → ``SubirExcel``).
+    """
+    name = fb_class.__name__
+    return name[len("Function"):] if name.startswith("Function") else name
+
+
+def register(engine, app) -> None:
+    """Cablea los 7 FBs del área en el ``Engine``.
+
+    Llamada desde ``interfaces/web_server/app.py::_tia_lifespan``
+    tras crear el ``Engine``. Lee las dependencias (``gateway``,
+    ``config_manager``, ``app_state``, ``progress_tracker``) de
+    ``app.state`` y construye cada FB con sus deps explícitas.
+
+    NO monta el ``plc_router``: ese router se incluye en
+    ``create_app`` del shell, ANTES del catch-all ``app.mount("/")``,
+    para que el routing no quede shadowed por el mount estático.
+
+    Args:
+        engine: ``core.plc.engine.Engine`` recién creado.
+        app:    ``fastapi.FastAPI`` del que se leen las deps de
+                ``app.state`` (gateway, config_manager, app_state,
+                progress_tracker).
+    """
+    # Imports diferidos: las FBs importan ``core.models`` y los use
+    # cases legacy (que importan ``areas.alimentacion.application.*``).
+    # Hacerlo aquí evita que el simple ``import areas.alimentacion``
+    # del discovery del AreaRegistry arrastre todo el grafo de
+    # dependencias si la app se monta sin lifespan (p. ej. en tests
+    # que solo inspeccionan el ``AREA_SPEC``).
+    from areas.alimentacion.functions.function_DiffConstants import (
+        FunctionDiffConstants,
+    )
+    from areas.alimentacion.functions.function_GenerarPreview import (
+        FunctionGenerarPreview,
+    )
+    from areas.alimentacion.functions.function_ScanPlcBlocks import (
+        FunctionScanPlcBlocks,
+    )
+    from areas.alimentacion.functions.function_SincronizarDispComentarios import (
+        FunctionSincronizarDispComentarios,
+    )
+    from areas.alimentacion.functions.function_SincronizarDispositivos import (
+        FunctionSincronizarDispositivos,
+    )
+    from areas.alimentacion.functions.function_SincronizarProcesosComentarios import (
+        FunctionSincronizarProcesosComentarios,
+    )
+    from areas.alimentacion.functions.function_SubirExcel import (
+        FunctionSubirExcel,
+    )
+
+    gateway = app.state.gateway
+    config_manager = app.state.config_manager
+    app_state = app.state.app_state
+    progress_tracker = app.state.progress_tracker
+
+    # 7 FBs (DA-005.5; ver ``_plan/REFACTOR_PLAN.md`` §2.1).
+    # El orden es estable: facilita diffs en tests y en logs.
+    fbs = [
+        FunctionSubirExcel(
+            config_manager=config_manager,
+            app_state=app_state,
+            progress_tracker=progress_tracker,
+        ),
+        FunctionScanPlcBlocks(
+            gateway=gateway,
+            progress_tracker=progress_tracker,
+        ),
+        FunctionGenerarPreview(
+            gateway=gateway,
+            config_manager=config_manager,
+            app_state=app_state,
+            progress_tracker=progress_tracker,
+        ),
+        FunctionSincronizarDispositivos(
+            gateway=gateway,
+            config_manager=config_manager,
+            app_state=app_state,
+            progress_tracker=progress_tracker,
+        ),
+        FunctionSincronizarDispComentarios(
+            gateway=gateway,
+            config_manager=config_manager,
+            app_state=app_state,
+            progress_tracker=progress_tracker,
+        ),
+        FunctionSincronizarProcesosComentarios(
+            gateway=gateway,
+            config_manager=config_manager,
+            app_state=app_state,
+            progress_tracker=progress_tracker,
+        ),
+        FunctionDiffConstants(),
+    ]
+    for fb in fbs:
+        engine.register_fb(_fb_engine_name(type(fb)), fb)
+
+
+__all__ = [
+    "AREA_SPEC",
+    "register_tia",
+    "register_mcp",
+    "build_manifest",
+    "register",
+]
