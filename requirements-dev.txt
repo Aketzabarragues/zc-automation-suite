@@ -1,0 +1,13 @@
+# Dev dependencies para zc-plc-suite
+#
+# Instalar con: pip install -r requirements.txt -r requirements-dev.txt
+
+# Tests
+pytest>=8.0
+pytest-asyncio>=0.23
+
+# Linter / formatter
+ruff>=0.3
+
+# Tipos (opcional pero recomendado)
+# mypy>=1.8
