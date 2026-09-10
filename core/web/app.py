@@ -27,9 +27,10 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from core.plc.plc import DB_ESTADO, ENGINE, FB_ConexionTIA, MockWorkerBridge
+from core.plc.plc import DB_ESTADO, ENGINE, FB_ConexionTIA
 from core.web.routers.plc import router as plc_router
 from core.web.routers.spike import router as spike_router
+from core.worker.worker_bridge import WorkerBridge
 
 
 def _static_dir() -> Path:
@@ -89,15 +90,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         para que el ``@asynccontextmanager`` lo reconozca.
     """
     # ── Startup ─────────────────────────────────────────────────────
-    # En Fase 1 usamos ``MockWorkerBridge`` (definido en
-    # ``core/plc/plc.py``): no lanza subproceso, no necesita TIA
-    # Portal. Cuando el orquestador integre el bridge real
-    # (``core.worker.worker_bridge.WorkerBridge``) en un commit
-    # posterior, basta con cambiar ``MockWorkerBridge()`` por
-    # ``WorkerBridge()`` y anyadir ``await bridge.start()`` antes
-    # del ``register_fb``. La interfaz (``WorkerBridgeProtocol``)
-    # se mantiene identica, asi que el FB y los routers no cambian.
-    bridge = MockWorkerBridge()
+    # Usamos el ``WorkerBridge`` real (``core/worker/worker_bridge.py``):
+    # arranca un subproceso persistente con ``siemens_tia_scripting``
+    # lazy-import dentro del subproceso. La interfaz
+    # (``WorkerBridgeProtocol``) es identica a la del mock que usamos
+    # durante el desarrollo de Fase 1, asi que el ``FB_ConexionTIA`` y
+    # los routers no cambian.
+    bridge = WorkerBridge()
+    await bridge.start()  # idempotente: arranca el subproceso ``worker_tia``.
     fb_conexion = FB_ConexionTIA(bridge=bridge, db=DB_ESTADO)
     ENGINE.register_fb("ConexionTIA", fb_conexion)
     ENGINE.start_loop()
@@ -108,10 +108,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # ── Shutdown ─────────────────────────────────────────────────
         # 1) Parar el loop. Esto espera a que la task termine.
         await ENGINE.stop_loop()
-        # 2) Cerrar la fachada. ``MockWorkerBridge.shutdown()`` es
-        # un no-op idempotente. Cuando se cambie al bridge real,
-        # este mismo ``await`` liberara el ``.pyd`` de Siemens
-        # (leccion X2: si no, queda ~200 MB zombi).
+        # 2) Cerrar la fachada. ``WorkerBridge.shutdown()`` envia
+        # ``detach_portal`` al subproceso, cierra stdin, espera al
+        # subproceso y libera el ``.pyd`` de Siemens (leccion X2:
+        # si no, queda ~200 MB zombi en memoria al cerrar la app).
         await bridge.shutdown()
 
 
