@@ -314,7 +314,7 @@ def _handle_attach_portal(args: dict[str, Any], message_id: int) -> None:
       - ``portal_mode`` es un param del frontend (default "Primary").
 
     **RESOLUCION DEL BUG DEL ENUM** (validado con TIA Portal abierto,
-    pid 25448, proyecto ``D:\_PROYECTOS_DESARROLLO\25128 SI...``):
+    pid 25448, proyecto ``D:/_PROYECTOS_DESARROLLO/25128 SI...``):
         Pasar ``portal_mode="Primary"`` como string falla con
         ``"Expected an Enum with a '_value_' attribute"``. El wrapper
         de Siemens espera una instancia del Enum
