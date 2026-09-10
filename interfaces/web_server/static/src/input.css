@@ -1,0 +1,40 @@
+/* =========================================================================
+ *  input.css — Fuente Tailwind v4 del shell SPA.
+ *
+ *  Fase 0.5 spike: tema mínimo. Compilable con `tailwindcss-extra.exe`
+ *                  a `interfaces/web_server/static/styles.css`.
+ *
+ *  En Fase 2+ se amplía con el @source "../js/**/*.js" para que Tailwind
+ *  detecte las clases dentro de los template strings de los componentes
+ *  Vue, y se añaden los tokens de `bg-shell*` / `on-shell*` que ya están
+ *  definidos en el legacy (ver legacy_backup/interfaces/web_server/static/
+ *  src/input.css para la referencia completa del tema Industrial Claro).
+ *
+ *  Tema "Industrial Claro":
+ *    - Superficies neutrales (gris muy claro / blanco).
+ *    - Acento azul marino Siemens (`rgb(0 52 102)`).
+ *    - Tokens semánticos: `bg-surface`, `text-ink`, `bg-accent`. Nunca
+ *      hex hardcoded en el HTML; siempre pasar por los tokens.
+ * ========================================================================= */
+
+@import "tailwindcss";
+
+@source "../index.html";
+@source "../js/**/*.js";
+
+/* ── Tokens semánticos del tema Industrial Claro ─────────────────────── */
+@theme {
+    /* Superficies */
+    --color-surface:         #f3f4f6;  /* fondo general de la app */
+    --color-surface-raised:  #ffffff;  /* paneles, tarjetas, tablas */
+
+    /* Bordes */
+    --color-line:            #d1d5db;
+
+    /* Texto */
+    --color-ink:             #1f2937;  /* texto principal */
+    --color-ink-muted:       #6b7280;  /* texto secundario */
+
+    /* Acento (Azul Marino Siemens / Industrial) */
+    --color-accent:          rgb(0 52 102);
+}

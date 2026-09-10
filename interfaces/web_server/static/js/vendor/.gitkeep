@@ -1,0 +1,5 @@
+# Vue 3 ESM (`vue.esm-browser.prod.js`) se importa desde aquí en Fase 3+.
+# Fase 0.5 usa Vanilla JS en main.js; este .gitkeep evita que la carpeta
+# desaparezca del repo mientras tanto. Cuando llegue Fase 3, copiar el
+# bundle desde legacy_backup/interfaces/web_server/static/js/vendor/ a esta
+# carpeta y eliminar este .gitkeep.
