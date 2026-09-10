@@ -1,27 +1,34 @@
 """Composition Root de FastAPI para zc-automation-suite.
 
-Fase 0.5 spike: SSE mínimo para validar PyInstaller.
+Fase 1: Engine + FBs trasversales + router generico de PLC.
 
 Esta es la factoría única de la app. Ensambla los routers de la capa
-``core/web/routers/``, monta la SPA estática en ``/``, y deja la
-instancia lista para que uvicorn la importe (``uvicorn core.web.app:app``)
-o para que ``main_tray.py`` la lance como subproceso en background.
+``core/web/routers/``, monta la SPA estática en ``/``, instancia el
+``FB_ConexionTIA`` con la fachada del worker y arranca el Engine en
+el ``lifespan``.
 
-Convenciones (.clinerules §6, §9; AGENTS.md):
+Convenciones (.clinerules §5, §6, §9; AGENTS.md):
   - **Routers en orden alfabético** al incluirlos.
   - La app NO importa ``siemens_tia_scripting`` (ver §1): el SDK de
-    Siemens solo se carga desde ``core/worker/`` en una fase posterior.
-  - Sin estado global mutable: el ``Engine`` y ``WorkerBridge`` llegarán
-    en Fase 1 y se inyectarán vía ``Depends`` (AGENTS.md §3).
+    Siemens solo se carga desde ``core/worker/`` (a través de la
+    fachada, en una fase posterior).
+  - El ``lifespan`` arranca el Engine al startup y lo para al
+    shutdown. El shutdown también cierra la fachada del worker
+    (leccion X2 de ``PLC_IE_61131_GREENFIELD.md`` §0.4: si no, el
+    ``.pyd`` de Siemens queda en memoria ~200 MB zombi).
 """
 from __future__ import annotations
 
 import sys
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
+from core.plc.plc import DB_ESTADO, ENGINE, FB_ConexionTIA, MockWorkerBridge
+from core.web.routers.plc import router as plc_router
 from core.web.routers.spike import router as spike_router
 
 
@@ -53,24 +60,85 @@ def _static_dir() -> Path:
     return Path(__file__).parent / "static"
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Lifespan de FastAPI: arranca el Engine al startup, lo para al
+    shutdown.
+
+    Startup:
+      1. Instancia la fachada del worker (en Fase 1 es el stub de
+         ``core/worker/worker_bridge.py``; el agente ``tia-ot-worker``
+         lo sustituye por la implementacion real en su commit).
+      2. Crea el ``FB_ConexionTIA`` con la fachada + la DB trasversal
+         y lo registra en el Engine. Usamos ``register_fb`` con la
+         clave ``"ConexionTIA"`` (misma que la convencion del proyecto).
+      3. Arranca el loop del Engine (``start_loop()``). La task
+         tickea FBs cada 100 ms.
+
+    Shutdown:
+      1. Para el loop del Engine (``stop_loop()``). Espera a que la
+         task termine limpiamente.
+      2. Cierra la fachada del worker (``shutdown()`` si existe;
+         si no, ``detach()`` como fallback). Esto es la leccion X2:
+         sin shutdown, el subproceso del worker queda zombi con el
+         ``.pyd`` de Siemens cargado.
+
+    Note:
+        El parametro ``app`` no se usa directamente; FastAPI lo pasa
+        por convencion del ``lifespan`` protocol. Lo dejamos nombrado
+        para que el ``@asynccontextmanager`` lo reconozca.
+    """
+    # ── Startup ─────────────────────────────────────────────────────
+    # En Fase 1 usamos ``MockWorkerBridge`` (definido en
+    # ``core/plc/plc.py``): no lanza subproceso, no necesita TIA
+    # Portal. Cuando el orquestador integre el bridge real
+    # (``core.worker.worker_bridge.WorkerBridge``) en un commit
+    # posterior, basta con cambiar ``MockWorkerBridge()`` por
+    # ``WorkerBridge()`` y anyadir ``await bridge.start()`` antes
+    # del ``register_fb``. La interfaz (``WorkerBridgeProtocol``)
+    # se mantiene identica, asi que el FB y los routers no cambian.
+    bridge = MockWorkerBridge()
+    fb_conexion = FB_ConexionTIA(bridge=bridge, db=DB_ESTADO)
+    ENGINE.register_fb("ConexionTIA", fb_conexion)
+    ENGINE.start_loop()
+
+    try:
+        yield
+    finally:
+        # ── Shutdown ─────────────────────────────────────────────────
+        # 1) Parar el loop. Esto espera a que la task termine.
+        await ENGINE.stop_loop()
+        # 2) Cerrar la fachada. ``MockWorkerBridge.shutdown()`` es
+        # un no-op idempotente. Cuando se cambie al bridge real,
+        # este mismo ``await`` liberara el ``.pyd`` de Siemens
+        # (leccion X2: si no, queda ~200 MB zombi).
+        await bridge.shutdown()
+
+
 def create_app() -> FastAPI:
     """Factoría de la app FastAPI.
 
     Returns:
         Instancia de FastAPI con:
-          - El router de spike bajo ``/api/v1``.
-          - La SPA estática montada en ``/`` (catch-all, ``html=True`` para
-            servir ``index.html`` en ``GET /``).
+          - El router generico de PLC bajo ``/api/v1``.
+          - El router de spike bajo ``/api/v1`` (sigue presente
+            para que el ``.exe`` empaquetado de Fase 0.5 siga
+            funcionando hasta que se retire en Fase 5).
+          - El lifespan que arranca/para el Engine (ver arriba).
+          - La SPA estática montada en ``/``.
     """
     app = FastAPI(
         title="zc-automation-suite",
         version="0.1.0",
+        lifespan=lifespan,
     )
-    # Routers en orden alfabético (convención AGENTS.md).
+    # Routers en orden alfabetico (convencion AGENTS.md).
+    # ``plc`` antes que ``spike``: orden alfabetico.
+    app.include_router(plc_router, prefix="/api/v1")
     app.include_router(spike_router, prefix="/api/v1")
-    # SPA estática: sirve /, /styles.css, /js/main.js, etc.
-    # html=True hace que GET / sirva index.html automáticamente.
-    # IMPORTANTE: este mount va al FINAL, después de los routers API.
+    # SPA estatica: sirve /, /styles.css, /js/main.js, etc.
+    # html=True hace que GET / sirva index.html automaticamente.
+    # IMPORTANTE: este mount va al FINAL, despues de los routers API.
     app.mount("/", StaticFiles(directory=str(_static_dir()), html=True), name="static")
     return app
 
