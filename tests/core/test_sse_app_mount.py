@@ -107,11 +107,37 @@ def test_curl_stream_devuelve_snapshot_en_app_real() -> None:
         import json
 
         payload = body[len("data: "):].rstrip("\n")
-        assert json.loads(payload) == {
-            "type": "snapshot",
-            "dbs": {},
-            "fbs": {},
+        # DA-011: el snapshot ya no es el placeholder vacío; es el
+        # estado real del Engine (los 7 FBs del wiring de DA-005.5
+        # con ``nStep=0`` y ``error_msg=None`` por estar en ``n_idle``).
+        # DA-001 (sept-2026) y DA-007 (DA-005.5) lo activaron; este
+        # test, escrito en 1.1.5 (skeleton), validaba el placeholder
+        # hardcodeado que DA-011 elimina.
+        snapshot = json.loads(payload)
+        assert snapshot["type"] == "snapshot"
+        assert snapshot["dbs"] == {}
+        assert isinstance(snapshot["fbs"], dict)
+        # Tras el wiring (create_app ejecuta el lifespan en uvicorn
+        # startup), el engine tiene los 7 FBs del area. Si en un
+        # futuro se quita el wiring o cambia el nombre de un FB,
+        # este assert fallará claramente: la regresion apunta al
+        # wiring, no al SSE.
+        expected_fbs = {
+            "SubirExcel",
+            "ScanPlcBlocks",
+            "GenerarPreview",
+            "SincronizarDispositivos",
+            "SincronizarDispComentarios",
+            "SincronizarProcesosComentarios",
+            "DiffConstants",
         }
+        assert set(snapshot["fbs"].keys()) == expected_fbs
+        # Cada FB expone nStep + error_msg (contrato con el frontend).
+        for fb_state in snapshot["fbs"].values():
+            assert "nStep" in fb_state
+            assert "error_msg" in fb_state
+            assert fb_state["nStep"] == 0  # idle al arranque
+            assert fb_state["error_msg"] is None
     finally:
         server.should_exit = True
         thread.join(timeout=5)

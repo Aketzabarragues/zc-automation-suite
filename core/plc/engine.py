@@ -12,6 +12,9 @@ API:
   - ``start_loop()`` — arranca el loop como task asyncio.  Idempotente.
   - ``stop_loop()`` — cancela el task.  Idempotente.
   - ``tick_once()`` — un tick del loop, sin dormir.  Para tests.
+  - ``snapshot()`` — dict JSON-serializable con el estado actual
+    (``dbs`` vacío + ``fbs`` con ``nStep``/``error_msg`` de cada FB).
+    Consumido por el SSE como contenido del evento inicial.
 
 Paso 2.0.5+2.0.6+2.0.7: OB1 con guarda de ``is_terminal()`` y
 publicación de ``fb_changed`` al ``EventBus``.  El engine filtra FBs
@@ -77,6 +80,43 @@ class Engine:
     def registered_fb_names(self) -> list[str]:
         """Snapshot de nombres registrados.  Para diagnóstico y tests."""
         return list(self._fbs.keys())
+
+    def snapshot(self) -> dict[str, Any]:
+        """Snapshot JSON-serializable del estado actual del Engine.
+
+        Consumido por el SSE en ``core/sse/stream.py::_build_snapshot``
+        como contenido del evento inicial ``{"type": "snapshot", ...}``.
+        Permite al cliente pintar el estado del PLC sin esperar al
+        primer ``fb_changed``.
+
+        Shape (estable, es contrato con el frontend):
+          {
+            "dbs": {},                   # vacío por ahora (DA-011 no
+                                         #  toca DBs; 3.3.3.x lo rellena)
+            "fbs": {
+              "<nombre_FB>": {
+                "nStep": int,            # nStep actual del FB
+                "error_msg": str | None, # None si no hay error
+              },
+              ...
+            },
+          }
+
+        NOTA: NO serializa objetos nativos TIA (no hay en este punto,
+        pero si llegasen, sería bug: el snapshot cruza el límite
+        OT→IT y debe ser JSON-puro). ``fb.nStep`` y ``fb.error_msg``
+        son ya tipos primitivos (``int`` y ``Optional[str]``).
+        """
+        return {
+            "dbs": {},
+            "fbs": {
+                name: {
+                    "nStep": fb.nStep,
+                    "error_msg": fb.error_msg,
+                }
+                for name, fb in self._fbs.items()
+            },
+        }
 
     # ------------------------------------------------------------------
     # Loop
