@@ -89,12 +89,22 @@ class _UvicornThread:
     _READY_POLL_S = 0.1
 
     def __init__(self, host: str, port: int) -> None:
+        # ``log_config=None`` desactiva el dictConfig por defecto de
+        # uvicorn, que define un ColorFormatter con ``sys.stdout.isatty()``.
+        # Cuando el .exe corre con ``--windowed`` (sin consola),
+        # ``sys.stdout`` es None y el ColorFormatter falla con
+        # ``AttributeError: 'NoneType' object has no attribute 'isatty'``.
+        # Al pasar None, uvicorn usa el logging ya configurado por
+        # ``logging.basicConfig`` arriba (que escribe a stdout si existe,
+        # o se descarta si no). Ver `.clinerules` §10 sobre el flag
+        # ``--windowed`` y la consola.
         config = uvicorn.Config(
             "core.web.app:app",
             host=host,
             port=port,
             log_level="info",
             lifespan="on",
+            log_config=None,
         )
         self._server = uvicorn.Server(config)
         self._thread = threading.Thread(
