@@ -1,0 +1,76 @@
+# ============================================================================
+#  Ruff config para zc-plc-suite
+# ============================================================================
+#
+# Ruff = linter + formatter unificado (sustituye a flake8 + isort + black).
+# Comandos:
+#   ruff check .          # lint
+#   ruff format .         # format
+#   ruff check --fix .    # auto-fix
+# ============================================================================
+
+# Target version
+target-version = "py312"
+line-length = 100
+
+# Excluir legacy_backup y directorios de build
+extend-exclude = [
+    "legacy_backup",
+    "_plan",
+    "_source",
+    "build",
+    "dist",
+    ".venv",
+    "__pycache__",
+]
+
+[lint]
+# Reglas seleccionadas (balance entre estrictas y pragmáticas)
+# - E/W: pycodestyle (estilo PEP 8)
+# - F: pyflakes (errores reales)
+# - I: isort (orden de imports)
+# - N: pep8-naming
+# - UP: pyupgrade (sintaxis moderna)
+# - B: bugbear (trampas comunes)
+# - A: builtins (shadowing de builtins)
+# - C4: comprehensions
+# - SIM: simplify
+# - PIE: pie (misc)
+# - PT: pytest style
+# - RET: return simplifications
+select = ["E", "W", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "PIE", "PT", "RET"]
+
+# Reglas ignoradas (con justificación)
+ignore = [
+    # pycodestyle
+    "E501",   # line-too-long (lo maneja el formatter)
+    "E731",   # assigning-lambda (patrón válido en tests)
+    # pyflakes
+    "F401",   # unused-import (se permite en __init__.py con re-exports)
+    # bugbear
+    "B008",   # function-call-in-default-argument (patrón válido con FastAPI Depends)
+    "B904",   # raise-without-from-inside-except (verbose, lo gestionamos manualmente)
+]
+
+# Ignorar reglas en migraciones / tests concretos si fuera necesario
+# (ejemplos; sin uso por ahora)
+[lint.per-file-ignores]
+# Tests pueden tener imports no usados (fixtures dinámicas), asserts sin mensaje, etc.
+"tests/**/*.py" = ["F401", "F811"]
+# __init__.py puede tener imports no usados (re-exports)
+"**/__init__.py" = ["F401"]
+
+# Reglas adicionales para tests
+[lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+# Configurar isort dentro de ruff
+[lint.isort]
+known-first-party = ["core", "areas", "interfaces"]
+combine-as-imports = true
+
+[format]
+# Formateo idéntico a black
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = true
