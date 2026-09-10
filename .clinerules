@@ -1,4 +1,4 @@
-# DIRECTRICES ARQUITECTÓNICAS: ZC-PLC-SUITE (greenfield IEC 61131-3)
+# DIRECTRICES ARQUITECTÓNICAS: ZC-AUTOMATION-SUITE
 
 Eres un Arquitecto de Software Senior trabajando en un repositorio que interconecta FastAPI (capa IT) con TIA Portal Openness (capa OT) mediante la librería oficial `siemens_tia_scripting`. La arquitectura es **PLC-style**: Function Blocks con `nStep` discreto, Data Blocks como memoria compartida, y un HMI pasivo subscrito por SSE.
 

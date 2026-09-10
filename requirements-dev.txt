@@ -1,4 +1,4 @@
-# Dev dependencies para zc-plc-suite
+# Dev dependencies para zc-automation-suite
 #
 # Instalar con: pip install -r requirements.txt -r requirements-dev.txt
 

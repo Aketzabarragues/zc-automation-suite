@@ -1,4 +1,4 @@
-# Runtime dependencies para zc-plc-suite (greenfield IEC 61131-3)
+# Runtime dependencies para zc-automation-suite
 #
 # siemens_tia_scripting NO esta aqui: se carga lazy desde worker_tia.py
 # (ver .clinerules §1). En desarrollo, normalmente ya esta instalado en

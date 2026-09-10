@@ -1,5 +1,5 @@
 [project]
-name = "zc-plc-suite"
+name = "zc-automation-suite"
 version = "0.1.0"
 description = "Plataforma de integracion IT/OT para automatizacion e inspeccion de proyectos TIA Portal (arquitectura PLC-style IEC 61131-3)"
 readme = "README.md"
@@ -12,7 +12,7 @@ keywords = ["tia-portal", "openness", "plc", "iec-61131-3", "fastapi", "vue3"]
 
 # Entry point unico
 [project.scripts]
-zc-plc-suite = "main_tray:main"
+zc-automation-suite = "main_tray:main"
 
 # Runtime dependencies
 dependencies = [

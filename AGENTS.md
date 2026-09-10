@@ -1,4 +1,4 @@
-# AGENTS.md — Guía de extensión para zc-plc-suite
+# AGENTS.md — Guía de extensión para zc-automation-suite
 
 > Documento vivo para agentes AI (mavis, otros) y humanos que extiendan el proyecto. Si una convención cambia, edita aquí y avisa al equipo.
 >

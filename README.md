@@ -1,4 +1,4 @@
-# zc-plc-suite
+# zc-automation-suite
 
 Plataforma de integración IT/OT para automatización e inspección de proyectos TIA Portal, construida con arquitectura **PLC-style (IEC 61131-3)**: Function Blocks con `nStep` discreto, Data Blocks como memoria compartida, y un HMI pasivo subscrito por SSE.
 

@@ -1,5 +1,5 @@
 # ============================================================================
-#  Ruff config para zc-plc-suite
+#  Ruff config para zc-automation-suite
 # ============================================================================
 #
 # Ruff = linter + formatter unificado (sustituye a flake8 + isort + black).
