@@ -67,12 +67,15 @@ export async function loadArea(app, areaId) {
     const { usePlc } = await import("/js/composables/usePlc.js");
     const plc = usePlc();
 
-    // 1) Manifest via composable (que ya rellena state.areaManifest).
-    const r = await plc.loadAreaManifest(areaId);
+    // 1) Manifest: lo leemos de state.areaManifest (que el padre ya
+    //    relleno via plc.loadAreaManifest antes de llamarnos). NO
+    //    hacemos un segundo fetch aqui: el manifest es grande y el
+    //    doble fetch causaba 2x latencia + riesgo de loop si la SPA
+    //    re-entraba en onAreaSelected por reactividad.
     const manifest = plc.areaManifest || {};
     const loaders = (manifest && manifest.loaders) || {};
 
-    if (!r.ok || Object.keys(loaders).length === 0) {
+    if (Object.keys(loaders).length === 0) {
         // Modo degradado: nada que montar.
         return manifest;
     }

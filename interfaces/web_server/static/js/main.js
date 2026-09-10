@@ -78,10 +78,17 @@ const App = {
          *   2. Cargar el manifest del area (`plc.loadAreaManifest`).
          *   3. Resolver loaders y registrar componentes (`loadArea`).
          *   4. Transicionar a la vista de area (`topLevelView = "area"`).
-         *   AHORA Vue re-renderiza con TODO listo.
+         *   AHORA Vue re-renderiza con TODO listo y el Welcome se
+         *   DESMONTA (asi no se vuelve a emitir `@select`).
          *
          * Si el manifest viene vacio (loaders: {}), la SPA entra en
          * modo degradado (mensaje "Area no soportada en el frontend").
+         *
+         * BUG QUE ESTO ARREGLA: si no se transiciona topLevelView,
+         * el Welcome sigue montado, y cualquier re-render del v-for
+         * de cards (por reactividad viva del Proxy del usePlc)
+         * re-dispara el handler, causando un loop infinito de fetch
+         * al manifest.
          */
         async function onAreaSelected(key) {
             if (!key) return;
@@ -93,7 +100,12 @@ const App = {
             // 3. Registrar componentes del area en la app.
             //    Si loaders esta vacio, loadArea no hace nada.
             await loadArea(_app, key);
-            // 4. Transicionar a la vista de area (dispara re-render).
+            // 4. Transicionar a la vista de area (dispara re-render
+            //    y desmonta el Welcome). DEBE IR AL FINAL: si va
+            //    antes, el Welcome se desmonta con plc.areaManifest
+            //    aun vacio y la SPA pinta "Area no soportada" durante
+            //    un tick antes de que llegue el manifest.
+            plc.topLevelView = "area";
             await nextTick();
         }
 
