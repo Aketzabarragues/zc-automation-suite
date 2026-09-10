@@ -1,0 +1,100 @@
+[project]
+name = "zc-plc-suite"
+version = "0.1.0"
+description = "Plataforma de integracion IT/OT para automatizacion e inspeccion de proyectos TIA Portal (arquitectura PLC-style IEC 61131-3)"
+readme = "README.md"
+requires-python = ">=3.12,<3.15"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Aketza" }
+]
+keywords = ["tia-portal", "openness", "plc", "iec-61131-3", "fastapi", "vue3"]
+
+# Entry point unico
+[project.scripts]
+zc-plc-suite = "main_tray:main"
+
+# Runtime dependencies
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "pydantic>=2.6",
+    # HMI tray launcher
+    "pystray>=0.19",
+    "Pillow>=10.0",
+    # Async subprocess IPC
+    # (stdlib only: asyncio, subprocess, json — sin deps extra)
+    # siemens_tia_scripting se carga lazy desde worker_tia.py
+    # NO esta en deps porque solo se necesita en runtime con TIA
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.3",
+]
+
+[project.urls]
+"Documentacion" = "https://github.com/Aketzabarragues/zc-automation-suite/blob/greenfield/iec-61131-3/PLC_IE_61131_GREENFIELD.md"
+"Issues" = "https://github.com/Aketzabarragues/zc-automation-suite/issues"
+
+# ============================================================================
+#  Build system
+# ============================================================================
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+# ============================================================================
+#  Setuptools
+# ============================================================================
+
+[tool.setuptools]
+# Entry point unico
+script-files = ["main_tray.py"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = [
+    "core.*",
+    "areas.*",
+    "interfaces.*",
+]
+# Legacy NO se empaqueta: legacy_backup/ contiene el legacy preservado
+# como referencia, pero NO es parte del paquete.
+exclude = [
+    "legacy_backup*",
+    "tests*",
+    "_plan*",
+    "_source*",
+]
+
+# ============================================================================
+#  Tools configuration
+# ============================================================================
+
+[tool.ruff]
+# Ver ruff.toml para la config completa.
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# Reglas basicas + complejidad moderada. Reglas de seguridad se anaden en ruff.toml.
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "PIE", "PT", "RET", "SIM"]
+ignore = [
+    "E501",  # line too long (lo gestiona el formatter)
+    "B008",  # function call in default argument (patron comun en FastAPI Depends)
+]
+
+[tool.pytest.ini_options]
+# Ver pytest.ini para la config minima.
+minversion = "8.0"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "frontend_smoke: smoke tests del frontend (contract checks)",
+    "integration: integration tests (TestClient + Engine real)",
+    "e2e: smoke E2E con S7-1500 real (no automatizado)",
+]
