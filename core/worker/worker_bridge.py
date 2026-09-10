@@ -391,7 +391,7 @@ class WorkerBridge:
 
     # ── Comandos publicos (todos async, todos protegidos por el lock) ─
 
-    async def attach(self, portal_mode: str = "Primary") -> int:
+    async def attach(self, portal_mode: str = "WithGraphicalUserInterface") -> int:
         """Attach a una instancia YA en ejecucion de TIA Portal.
 
         ``ts.attach_portal()`` **NO** lanza TIA Portal (verificado
@@ -407,8 +407,13 @@ class WorkerBridge:
         check y el acquire.
 
         Args:
-            portal_mode: Modo de attach (default "Primary"). Se pasa
-                tal cual a ``ts.attach_portal``.
+            portal_mode: Nombre del modo de attach (default
+                ``"WithGraphicalUserInterface"``). Se pasa al worker
+                como string; el worker lo resuelve a
+                ``ts.Enums.PortalMode[portal_mode]`` (verificado
+                contra el manual oficial, seccion 2.4.2). Valores
+                validos: ``"WithGraphicalUserInterface"``,
+                ``"WithoutGraphicalUserInterface"``.
 
         Returns:
             El PID del proceso de TIA Portal al que se hizo attach.
@@ -488,9 +493,10 @@ class WorkerBridge:
                 con mensaje legible).
             WorkerBridgeError: Si el subproceso worker no responde.
         """
-        result = await self._send(
-            "list_plcs", {}, timeout=self._command_timeout
-        )
+        async with self._lock:
+            result = await self._send(
+                "list_plcs", {}, timeout=self._command_timeout
+            )
         if not isinstance(result, list):
             raise WorkerCommandError(
                 f"list_plcs expected list, got "
@@ -510,7 +516,8 @@ class WorkerBridge:
                 portal attached ya no responde (TIA cerrado).
             WorkerBridgeError: Si el subproceso worker no responde.
         """
-        result = await self._send("ping", {}, timeout=10.0)
+        async with self._lock:
+            result = await self._send("ping", {}, timeout=10.0)
         if not isinstance(result, dict) or "pid" not in result:
             raise WorkerBridgeError(
                 f"ping returned unexpected result: {result!r}"
@@ -527,9 +534,10 @@ class WorkerBridge:
                 comando no esta implementado todavia.
             WorkerBridgeError: Si el subproceso worker no responde.
         """
-        result = await self._send(
-            "get_project_info", {}, timeout=self._command_timeout
-        )
+        async with self._lock:
+            result = await self._send(
+                "get_project_info", {}, timeout=self._command_timeout
+            )
         if not isinstance(result, dict):
             # Distinto de "no es dict" vs "es dict sin campos esperados":
             # en este caso, si el worker implementa el comando, esperamos

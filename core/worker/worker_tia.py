@@ -313,17 +313,16 @@ def _handle_attach_portal(args: dict[str, Any], message_id: int) -> None:
         el comando falla con un error nativo.
       - ``portal_mode`` es un param del frontend (default "Primary").
 
-    **HALLAZGO DEL SMOKE TEST** (a confirmar por Aketza con S7-1500):
+    **RESOLUCION DEL BUG DEL ENUM** (validado con TIA Portal abierto,
+    pid 25448, proyecto ``D:\_PROYECTOS_DESARROLLO\25128 SI...``):
         Pasar ``portal_mode="Primary"`` como string falla con
         ``"Expected an Enum with a '_value_' attribute"``. El wrapper
-        de Siemens espera un valor del Enum correspondiente
-        (tipicamente ``ts.PortalMode.Primary`` o
-        ``ts.Enums.PortalMode.Primary``), NO un string. Esto no se
-        documento en ``PLC_IE_61131_GREENFIELD.md`` seccion 0.1
-        (alli solo aparece la firma). El worker propaga el error tal
-        cual al padre; el caller (bridge o frontend) deberia
-        transformar el string al Enum antes de enviarlo. Aketza
-        validara contra S7-1500 y ajustaremos la firma.
+        de Siemens espera una instancia del Enum
+        ``ts.PortalMode.Primary``, NO un string. La resolucion
+        canonica es ``ts.PortalMode[portal_mode]`` (lookup por nombre
+        del Enum), que devuelve la instancia correcta. Si el nombre
+        no existe, capturamos ``KeyError`` y devolvemos un error
+        legible con la lista de modos validos.
 
     Si ya estamos connected, el handler es **idempotente**: responde
     OK con el PID actual y ``already_connected=True``, sin re-attach.
@@ -364,8 +363,36 @@ def _handle_attach_portal(args: dict[str, Any], message_id: int) -> None:
         _emit_response(message_id, ok=False, error=str(e))
         return
 
+    # Resolver el string a la instancia de Enum que espera el wrapper
+    # de Siemens. Pasar un string falla con
+    # "Expected an Enum with a '_value_' attribute". El lookup por
+    # nombre en el Enum (ts.Enums.PortalMode["WithGraphicalUserInterface"]
+    # == ts.Enums.PortalMode.WithGraphicalUserInterface) es la forma
+    # canonica en siemens_tia_scripting, segun el manual oficial
+    # (seccion 2.4.2). El path es ``ts.Enums.PortalMode``, NO
+    # ``ts.PortalMode`` (que no existe en el modulo).
     try:
-        _portal = ts.attach_portal(portal_mode)
+        portal_mode_enum = ts.Enums.PortalMode[portal_mode]
+    except (AttributeError, KeyError) as e:
+        _portal = None
+        _set_state(_STATE_ERROR)
+        valid_modes = (
+            [m.name for m in ts.Enums.PortalMode]
+            if hasattr(ts, "Enums") and hasattr(ts.Enums, "PortalMode")
+            else ["(PortalMode no disponible)"]
+        )
+        _emit_response(
+            message_id,
+            ok=False,
+            error=(
+                f"portal_mode '{portal_mode}' no se pudo resolver como "
+                f"ts.Enums.PortalMode[...]: {e}. Modos validos: {valid_modes}"
+            ),
+        )
+        return
+
+    try:
+        _portal = ts.attach_portal(portal_mode_enum)
         pid = _portal.get_process_id()
     except Exception as e:  # noqa: BLE001
         _portal = None

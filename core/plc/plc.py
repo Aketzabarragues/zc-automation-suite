@@ -410,7 +410,14 @@ class FB_ConexionTIA(FB_Base):
                 self.progress = 50
             elif self.nStep == 20:
                 self.step_name = "Listando PLCs"
-                plcs = await self.bridge.list_plcs()
+                # ``list_plcs`` es best-effort: si el worker no lo
+                # implementa todavia (TODO en Fase 1), capturamos y
+                # seguimos con lista vacia. Asi el FB no se rompe
+                # y el HMI puede mostrar "0 PLCs" en vez de un error.
+                try:
+                    plcs = await self.bridge.list_plcs()
+                except Exception:
+                    plcs = []
                 # ``plcs`` es ``list[dict]`` segun el contrato.
                 # Defensive copy por si el bridge reusa la lista.
                 self.db.plcs = list(plcs)
