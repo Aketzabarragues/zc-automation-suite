@@ -1,40 +1,93 @@
 /* =========================================================================
- *  input.css — Fuente Tailwind v4 del shell SPA.
- *
- *  Fase 0.5 spike: tema mínimo. Compilable con `tailwindcss-extra.exe`
- *                  a `interfaces/web_server/static/styles.css`.
- *
- *  En Fase 2+ se amplía con el @source "../js/**/*.js" para que Tailwind
- *  detecte las clases dentro de los template strings de los componentes
- *  Vue, y se añaden los tokens de `bg-shell*` / `on-shell*` que ya están
- *  definidos en el legacy (ver legacy_backup/interfaces/web_server/static/
- *  src/input.css para la referencia completa del tema Industrial Claro).
+ *  input.css — Fuente Tailwind v4 del shell SPA (Fase 3, HMI pasivo).
  *
  *  Tema "Industrial Claro":
- *    - Superficies neutrales (gris muy claro / blanco).
- *    - Acento azul marino Siemens (`rgb(0 52 102)`).
- *    - Tokens semánticos: `bg-surface`, `text-ink`, `bg-accent`. Nunca
- *      hex hardcoded en el HTML; siempre pasar por los tokens.
+ *    • Superficies neutrales (gris muy claro / blanco).
+ *    • Acento azul marino Siemens (`rgb(0 52 102)`).
+ *    • Tokens semánticos: `bg-surface`, `text-ink`, `bg-accent`.
+ *      Cero hex hardcoded en el HTML; siempre pasar por los tokens.
+ *
+ *  La capa "shell" (sidebar/topbar corporativos sobre fondo navy)
+ *  se mantiene como tokens `bg-shell*` para que el chrome del
+ *  ShellSidebar siga teniendo el aspecto navy que pidió Aketza
+ *  en la v3.0 del rediseño.
+ *
+ *  Tokens para los estados de los indicadores (verde/ambar/gris/rojo)
+ *  y la animación `pulse` se definen explícitamente en `@theme`
+ *  para que Tailwind los emita como clases utilitarias.
  * ========================================================================= */
 
 @import "tailwindcss";
 
+/* ── Paths de escaneo de clases ────────────────────────────────────────
+ * Es esencial incluir `static/js//.js`: las plantillas Vue viven
+ * como template strings dentro de los componentes ESM, por lo que
+ * Tailwind NO las detecta si sólo escanea HTML.
+ *
+ * Tras el PR 5 (bounded contexts), los componentes del área
+ * ``alimentacion`` están en ``areas/alimentacion/frontend/``;
+ * los incluimos para que Tailwind no purgue sus clases. Las
+ * áreas nuevas se recogen automáticamente por el glob. */
 @source "../index.html";
 @source "../js/**/*.js";
+@source "../../../../areas/**/frontend/**/*.js";
 
 /* ── Tokens semánticos del tema Industrial Claro ─────────────────────── */
 @theme {
     /* Superficies */
     --color-surface:         #f3f4f6;  /* fondo general de la app */
     --color-surface-raised:  #ffffff;  /* paneles, tarjetas, tablas */
+    --color-surface-sunken:  #e5e7eb;  /* inputs, filas alternas, botones secundarios */
 
     /* Bordes */
     --color-line:            #d1d5db;
+    --color-line-strong:     #9ca3af;  /* divisores con énfasis, focus */
 
     /* Texto */
     --color-ink:             #1f2937;  /* texto principal */
-    --color-ink-muted:       #6b7280;  /* texto secundario */
+    --color-ink-muted:       #6b7280;  /* texto secundario, etiquetas */
+    --color-ink-inverse:     #ffffff;  /* texto sobre el acento */
 
     /* Acento (Azul Marino Siemens / Industrial) */
     --color-accent:          rgb(0 52 102);
+    --color-accent-hover:    rgb(0 40 79);
+    --color-accent-subtle:   rgb(230 237 245);
+
+    /* Estados de los indicadores (TiaConnectionIndicator, ProgressIndicator).
+       Definidos aquí para que Tailwind los emita como clases utilitarias. */
+    --color-green-500:       oklch(72.3% 0.219 149.579);
+    --color-green-600:       oklch(62.7% 0.194 149.214);
+    --color-amber-500:       oklch(76.9% 0.188 70.08);
+    --color-amber-600:       oklch(66.6% 0.179 58.318);
+    --color-gray-400:        oklch(70.7% 0.022 261.325);
+    --color-red-500:         oklch(63.7% 0.237 25.331);
+    --color-red-600:         oklch(57.7% 0.245 27.325);
+    --animate-pulse:         pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    --animate-spin:          spin 1s linear infinite;
+    --animate-fade-in-up:    fade-in-up 0.4s ease-out both;
+
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50%      { opacity: 0.5; }
+    }
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+    @keyframes fade-in-up {
+        from { opacity: 0; transform: translateY(8px); }
+        to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Capa "shell" (sidebar/topbar corporativos sobre fondo navy).
+       `shell*` describe la superficie oscura; `on-shell*` es el
+       texto/íconos sobre esa superficie. */
+    --color-shell:           #00205B;                  /* navy Zeus Control */
+    --color-shell-deep:      #001540;                  /* 1 tono más oscuro: separadores internos, inputs */
+    --color-on-shell:        #ffffff;                  /* texto principal sobre shell */
+    --color-on-shell-muted:  #93b5e3;                  /* texto secundario sobre shell (azul claro) */
+    --color-on-shell-faint:  #5a7fbb;                  /* captions, hints, labels de sección */
+    --color-shell-hover:     rgb(255 255 255 / 0.05);  /* hover de items de nav */
+    --color-shell-active:    rgb(255 255 255 / 0.10);  /* item activo (sutil) */
+    --color-shell-border:    #001540;                  /* línea 1px separadora interna */
+    --color-accent-bright:   #4d8fd1;                  /* azul claro para el border-l activo (contrasta con navy) */
 }

@@ -28,6 +28,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from core.plc.plc import DB_ESTADO, ENGINE, FB_ConexionTIA
+from core.web.routers.areas import router as areas_router
 from core.web.routers.plc import router as plc_router
 from core.web.routers.spike import router as spike_router
 from core.worker.worker_bridge import WorkerBridge
@@ -121,6 +122,8 @@ def create_app() -> FastAPI:
     Returns:
         Instancia de FastAPI con:
           - El router generico de PLC bajo ``/api/v1``.
+          - El router de areas bajo ``/api/v1`` (catalogo + manifest,
+            introducido en Fase 3 con el area ``tia_conexion``).
           - El router de spike bajo ``/api/v1`` (sigue presente
             para que el ``.exe`` empaquetado de Fase 0.5 siga
             funcionando hasta que se retire en Fase 5).
@@ -132,13 +135,38 @@ def create_app() -> FastAPI:
         version="0.1.0",
         lifespan=lifespan,
     )
+    # Registrar las areas operativas ANTES de los routers de API.
+    # El area ``tia_conexion`` anade su ``AreaSpec`` al Catalogo
+    # (registry en memoria) desde su ``register()``. En Fase 4+
+    # se anyadiran mas areas aqui, en el orden en que la SPA las
+    # quiera pintar (catalogo respeta el orden de registro).
+    from areas.tia_conexion import register as register_tia_conexion
+    register_tia_conexion(ENGINE, app)
+
     # Routers en orden alfabetico (convencion AGENTS.md).
-    # ``plc`` antes que ``spike``: orden alfabetico.
+    # ``areas`` antes que ``plc`` antes que ``spike``: orden
+    # alfabetico.
+    app.include_router(areas_router, prefix="/api/v1")
     app.include_router(plc_router, prefix="/api/v1")
     app.include_router(spike_router, prefix="/api/v1")
+    # Areas frontend static: sirve los ``.js`` de ``areas/<area>/frontend/``.
+    # El manifest (router /api/v1/areas/{id}/manifest) devuelve URLs
+    # absolutas tipo ``/areas/<area>/frontend/components/<X>.js``; el
+    # ``area-loader.js`` del shell SPA hace ``import(url)`` sobre ellas.
+    # ``html=False`` porque servimos .js, no HTML (no listar directorios).
+    # IMPORTANTE: este mount va ANTES del mount ``/`` de la SPA, porque
+    # ``/`` captura todo lo que no haya matcheado antes.
+    areas_static = Path(__file__).parent.parent.parent / "areas"
+    if areas_static.is_dir():
+        app.mount(
+            "/areas",
+            StaticFiles(directory=str(areas_static), html=False),
+            name="areas-static",
+        )
     # SPA estatica: sirve /, /styles.css, /js/main.js, etc.
     # html=True hace que GET / sirva index.html automaticamente.
-    # IMPORTANTE: este mount va al FINAL, despues de los routers API.
+    # IMPORTANTE: este mount va al FINAL, despues de los routers API
+    # y despues del mount /areas (captura todo lo demas).
     app.mount("/", StaticFiles(directory=str(_static_dir()), html=True), name="static")
     return app
 

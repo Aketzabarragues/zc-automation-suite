@@ -5,9 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>zc-automation-suite</title>
     <!--
-      Fase 0.5 spike: shell mínimo para validar SSE.
-      - styles.css: placeholder (se compila con tailwindcss-extra en Fase 2+).
-      - js/main.js: HMI Vanilla JS que abre 1 EventSource a /api/v1/events.
+      Fase 3: SPA Vue 3 sin build step, HMI pasivo.
+      - styles.css: tema "Industrial Claro" con tokens semanticos
+        (compilado offline desde static/src/input.css por tailwindcss-extra).
+      - js/main.js: entrypoint de la SPA (Vue 3 ESM, EventSource SSE
+        unico contra /api/v1/plc/events, sin polling).
     -->
     <link rel="stylesheet" href="/styles.css">
 </head>
