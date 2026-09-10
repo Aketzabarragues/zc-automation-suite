@@ -89,10 +89,16 @@ ignore = [
 ]
 
 [tool.pytest.ini_options]
-# Ver pytest.ini para la config minima.
+# Config minima de pytest. Complementa a pytest.ini (pytest lee primero
+# pyproject.toml por convencion, y luego pytest.ini; las keys duplicadas
+# se sobreescriben).
 minversion = "8.0"
 testpaths = ["tests"]
 asyncio_mode = "auto"
+# Anade la raiz del proyecto al sys.path para que los tests puedan
+# hacer `from core.web.app import app`. En pytest 9.x, `rootdir` ya
+# no se declara explicitamente: se detecta del ini file.
+pythonpath = ["."]
 markers = [
     "frontend_smoke: smoke tests del frontend (contract checks)",
     "integration: integration tests (TestClient + Engine real)",
