@@ -1,0 +1,14 @@
+# Runtime dependencies para zc-plc-suite (greenfield IEC 61131-3)
+#
+# siemens_tia_scripting NO esta aqui: se carga lazy desde worker_tia.py
+# (ver .clinerules §1). En desarrollo, normalmente ya esta instalado en
+# el venv del operario (es el SDK oficial de Siemens). En frozen (PyInstaller),
+# se carga desde sys._MEIPASS con sys.path + os.environ["PATH"] (ver .clinerules §4).
+
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pydantic>=2.6
+
+# HMI tray launcher
+pystray>=0.19
+Pillow>=10.0
