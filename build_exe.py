@@ -41,7 +41,33 @@ def main() -> int:
         # runtime (futuras fases) hará ``Path(__file__).parent / "static"``
         # para resolver assets.
         "--add-data", f"interfaces/web_server/static{_ADD_DATA_SEP}static",
+        # --collect-all + --hidden-import son obligatorios para que
+        # PyInstaller incluya el paquete ``core.web`` y sus routers.
+        # Sin esto, el .exe incluye index.html (vía --add-data) pero
+        # NO el código Python de los routers: el endpoint /api/v1/ping
+        # y /api/v1/events devuelven 404. PyInstaller tiene un bug
+        # conocido con paquetes que tienen __init__.py vacíos (no
+        # detecta dependencias transitivas). Ver:
+        # https://github.com/pyinstaller/pyinstaller/issues/5568
+        "--collect-all", "core",
+        "--hidden-import", "core.web.app",
+        "--hidden-import", "core.web.routers.spike",
+        "--hidden-import", "uvicorn.logging",
+        "--hidden-import", "uvicorn.loops",
+        "--hidden-import", "uvicorn.loops.auto",
+        "--hidden-import", "uvicorn.protocols",
+        "--hidden-import", "uvicorn.protocols.http",
+        "--hidden-import", "uvicorn.protocols.http.auto",
+        "--hidden-import", "uvicorn.protocols.websockets",
+        "--hidden-import", "uvicorn.protocols.websockets.auto",
+        "--hidden-import", "uvicorn.lifespan",
+        "--hidden-import", "uvicorn.lifespan.on",
+        "--hidden-import", "anyio",
+        "--hidden-import", "anyio._backends",
+        "--hidden-import", "anyio._backends._asyncio",
         # Sin consola (windowed): la bandeja maneja la UX.
+        # El logging de uvicorn se desactiva con ``log_config=None`` en
+        # main_tray.py (sino falla con stdout=None).
         "--windowed",
         "main_tray.py",
     ]
