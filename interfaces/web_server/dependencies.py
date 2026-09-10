@@ -24,6 +24,7 @@ from core.application.progress_buffer import ProgressTracker
 from core.application.state import AppState
 from core.infrastructure.config_manager import ConfigManager
 from core.infrastructure.gateway import TIAProcessGateway
+from core.plc.engine import Engine
 
 
 def get_gateway(request: Request) -> TIAProcessGateway:
@@ -65,10 +66,25 @@ def get_config_manager(request: Request) -> ConfigManager:
     return request.app.state.config_manager
 
 
+def get_engine(request: Request) -> Engine:
+    """Devuelve el ``Engine`` de FBs inyectado en ``app.state``.
+
+    El Composition Root (``interfaces/web_server/app.py::create_app``)
+    construye el ``Engine`` con los FBs registrados y lo expone en
+    ``app.state.engine``.  Los routers lo recuperan vía ``Depends``.
+
+    NOTA de Fase 2, paso 2.2.1: el router ``/api/v1/plc/fb/...`` está
+    creado pero ``app.py`` aún no lo inyecta.  El wiring queda
+    pendiente de OK del operario.
+    """
+    return request.app.state.engine
+
+
 __all__ = [
     "get_gateway",
     "get_app_state",
     "get_logger",
     "get_progress_tracker",
     "get_config_manager",
+    "get_engine",
 ]
