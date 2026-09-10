@@ -1,6 +1,14 @@
 """Smoke tests del state ``tiaConnection`` y los helpers
-``refreshTiaConnection`` / ``connectTia`` / ``disconnectTia``
-del store frontend (PR 5b / §4.3 del design doc).
+``connectTia`` / ``disconnectTia`` del store frontend
+(PR 5b / §4.3 del design doc, refactor 3.3 sept-2026).
+
+Historia:
+  - Hasta 3.3.1 tambien se cubria ``refreshTiaConnection`` (helper
+    de polling legacy, eliminado junto con el setInterval de 2s en
+    1.3.1).  Los tests especificos de ``refreshTiaConnection`` se
+    eliminaron en 3.3.1.
+  - La regresion positiva (que ``refreshTiaConnection`` debia
+    existir) se invierte en ``test_store_tia_methods.py``.
 
 Sin infra JS (Jest/Vitest): se valida el contrato textual
 sobre ``store.js`` y la presencia/forma de las funciones
@@ -104,15 +112,6 @@ def test_store_tia_connection_initial_state_is_idle() -> None:
 # ── store.js: helpers exportados ────────────────────────────────────
 
 
-def test_store_exports_refresh_tia_connection() -> None:
-    """``store.js`` exporta ``refreshTiaConnection()``."""
-    text = _read(STORE_JS)
-    assert "export async function refreshTiaConnection" in text, (
-        "store.js debe exportar refreshTiaConnection() para que "
-        "el polling de main.js pueda llamarlo."
-    )
-
-
 def test_store_exports_connect_tia() -> None:
     """``store.js`` exporta ``connectTia()``."""
     text = _read(STORE_JS)
@@ -132,78 +131,6 @@ def test_store_exports_disconnect_tia() -> None:
 
 
 # ── store.js: comportamiento de los helpers ─────────────────────────
-
-
-def test_refresh_tia_connection_calls_api_fetch_tia_connection() -> None:
-    """``refreshTiaConnection()`` debe llamar a
-    ``apiFetchTiaConnection()`` (vía import dinámico de api.js) y
-    delegar en ``_applyTiaSnapshot`` para mergear el snapshot
-    (DRY, fix audit X1 / sept-2026)."""
-    text = _read(STORE_JS)
-    start = text.find("export async function refreshTiaConnection")
-    assert start != -1
-    body = text[start:start + 500]
-    assert "apiFetchTiaConnection" in body, (
-        "refreshTiaConnection debe llamar a apiFetchTiaConnection() "
-        "para traer el snapshot del backend."
-    )
-    assert "_applyTiaSnapshot" in body, (
-        "refreshTiaConnection debe delegar en _applyTiaSnapshot "
-        "(helper privado declarado en el mismo archivo) para mergear "
-        "el snapshot en store.tiaConnection. El bloque de Object.assign "
-        "de 12 lineas que antes se duplicaba en refresh/connect/disconnect "
-        "ahora vive SOLO en _applyTiaSnapshot (DRY, fix audit X1). "
-        "Es la llamada transitiva a Object.assign dentro del helper "
-        "lo que preserva la reactividad de los campos anidados "
-        "(project, plcs): reasignar store.tiaConnection = r.data "
-        "romperia las refs de los computed que ya lo tenian cacheado."
-    )
-
-
-def test_refresh_tia_connection_logs_state_transitions() -> None:
-    """``refreshTiaConnection()`` debe loguear las transiciones
-    de estado en ``ConsolaLogs`` vía ``pushLog`` (PR 5b / §4.4
-    del design doc: "[TIA] Conectado a ...", "[TIA]
-    Desconectado ...", "[TIA] Error: ...")."""
-    text = _read(STORE_JS)
-    # El delegate real es la funcion helper ``_logTiaStateTransition``
-    # que contiene los pushLog. Verificamos que el helper existe y
-    # que es invocado desde refreshTiaConnection.
-    assert "function _logTiaStateTransition" in text, (
-        "store.js debe declarar un helper _logTiaStateTransition "
-        "que contenga los pushLog (DRY entre refreshTiaConnection "
-        "y connectTia)."
-    )
-    start = text.find("export async function refreshTiaConnection")
-    assert start != -1
-    # Cogemos un tramo generoso que cubra refreshTiaConnection +
-    # _logTiaStateTransition (siguientes 4000 chars).
-    body = text[start:start + 4000]
-    assert "_logTiaStateTransition" in body, (
-        "refreshTiaConnection debe invocar _logTiaStateTransition "
-        "para loguear la transición."
-    )
-    # Y el helper debe tener pushLog con los 3 mensajes clave.
-    assert "Conectado a" in text, (
-        "store.js debe incluir el mensaje '[TIA] Conectado a ...' "
-        "para la transición a 'connected'."
-    )
-    assert "Desconectado" in text, (
-        "store.js debe incluir el mensaje '[TIA] Desconectado ...' "
-        "para la transición a 'disconnected'."
-    )
-    assert "Error:" in text, (
-        "store.js debe incluir el prefijo '[TIA] Error: ...' para "
-        "la transición a 'error'."
-    )
-    # Y al menos 3 pushLog() en el archivo (uno por cada estado
-    # transicionable: connected, disconnected, error).
-    pushlog_count = text.count("pushLog(")
-    assert pushlog_count >= 3, (
-        f"store.js debe contener al menos 3 pushLog() en el helper "
-        f"_logTiaStateTransition (uno por estado transicionable). "
-        f"Encontrados: {pushlog_count}."
-    )
 
 
 def test_connect_tia_sets_connecting_state_before_api_call() -> None:
@@ -504,10 +431,9 @@ def test_apply_tia_snapshot_validates_state_field() -> None:
     """``_applyTiaSnapshot(r)`` debe validar que ``r.data.state`` sea
     uno de los 4 valores estables del state machine sept-2026
     (``connected`` / ``connecting`` / ``idle`` / ``error``). Si
-    no lo es, descarta el snapshot (mismo patron que tenia el
-    ``refreshTiaConnection`` original antes del refactor, ahora
-    centralizado en el helper). El antiguo ``disconnected`` ya
-    NO se acepta (el backend no lo emite nunca)."""
+    no lo es, descarta el snapshot (centralizado en el helper desde
+    el fix audit X1). El antiguo ``disconnected`` ya NO se acepta
+    (el backend no lo emite nunca)."""
     text = _read(STORE_JS)
     start = text.find("function _applyTiaSnapshot")
     assert start != -1
@@ -518,24 +444,6 @@ def test_apply_tia_snapshot_validates_state_field() -> None:
             f"(validacion contra los 4 valores estables del "
             f"state machine sept-2026)."
         )
-
-
-def test_refresh_tia_connection_delegates_to_apply_tia_snapshot() -> None:
-    """``refreshTiaConnection()`` debe delegar SIEMPRE en
-    ``_applyTiaSnapshot(r)`` (no reimplementar el ``Object.assign``
-    inline). Es el contrato DRY que el fix audit X1 introduce:
-    el bloque de 12 lineas que antes se copiaba en los 3 helpers
-    ahora vive SOLO en el helper."""
-    text = _read(STORE_JS)
-    start = text.find("export async function refreshTiaConnection")
-    assert start != -1
-    body = text[start:start + 500]
-    assert "_applyTiaSnapshot" in body, (
-        "refreshTiaConnection debe delegar en _applyTiaSnapshot. "
-        "Sin esto, el campo worker_alive/project_changed no llega "
-        "al store desde el polling cada 2s (caso de uso principal "
-        "del bug X1)."
-    )
 
 
 def test_connect_tia_delegates_to_apply_tia_snapshot() -> None:
@@ -847,14 +755,6 @@ def test_main_js_has_tia_connection_polling_2s() -> None:
     )
 
 
-def test_main_js_imports_refresh_tia_connection() -> None:
-    """``main.js`` importa ``refreshTiaConnection`` del store."""
-    text = _read(MAIN_JS)
-    assert "refreshTiaConnection" in text, (
-        "main.js debe importar y usar refreshTiaConnection del store."
-    )
-
-
 # ── BloquesCacheView.js: renderiza el TIA state como texto ──────────
 #
 # Tras la migración v3.0 (sept-2026), el ``TiaConnectionIndicator``
@@ -934,7 +834,7 @@ def test_store_js_is_syntactically_valid() -> None:
     assert text.count("{") == text.count("}"), (
         f"Llaves desbalanceadas en store.js: {text.count('{')} '{{' vs "
         f"{text.count('}')} '}}'. Probablemente hay un typo en los "
-        "helpers refreshTiaConnection/connectTia/disconnectTia."
+        "helpers connectTia/disconnectTia o en el Object.assign."
     )
     # node --check
     try:

@@ -268,10 +268,11 @@ export const store = reactive({
      * ``state`` contra los 4 valores estables y descarta
      * silenciosamente cualquier otro.
      *
-     * El polling cada 2 s (en ``main.js``) llama a
-     * ``refreshTiaConnection()``, que actualiza este slot vía
-     * ``Object.assign`` para no perder la reactividad de Vue 3
-     * con arrays/objetos anidados.
+     * La actualizacion del slot se hace via SSE (canal ``tia_state``
+     * + ``plcs`` + ``project_info`` que el ``main.js`` parsea y
+     * aplica con ``Object.assign`` para no perder la reactividad de
+     * Vue 3 con arrays/objetos anidados.  No hay polling: el estado
+     * llega cuando cambia en el backend.
      *
      * El ``TiaConnectionIndicator`` del ``ShellTopbar`` lee
      * ``store.tiaConnection.state`` reactivamente y renderiza el
@@ -697,16 +698,11 @@ export function resetPlcState() {
  *     ``ConsolaLogs`` se hace dentro de ``_applyTiaSnapshot``
  *     (formato §4.4 del design doc).
  *
- * Idempotente y segura para llamarse en bucle (polling 2s).
- * Devuelve la respuesta cruda por si el caller quiere
- * inspeccionarla; lo normal es ignorar el retorno.
+ * (El polling de 2s se elimino en 1.3.1; el estado de TIA llega
+ * via SSE.  La funcion ``refreshTiaConnection`` que existia antes
+ * se elimino en Fase 3.3: ver test_store_tia_methods.py para la
+ * regresion inversa.)
  */
-export async function refreshTiaConnection() {
-    const { apiFetchTiaConnection } = await import("./api.js");
-    const r = await apiFetchTiaConnection();
-    _applyTiaSnapshot(r);
-    return r;
-}
 
 /**
  * Helper privado: loguea una transición de estado del worker
@@ -1172,23 +1168,24 @@ export async function disconnectTia() {
 }
 
 /**
- * Regresion (2026-09-05): ``main.js`` y otros callers hacen
- * ``store.refreshTiaConnection?.()`` / ``store.connectTia?.()`` /
- * ``store.disconnectTia?.()``. Asumen que el ``store`` expone los
- * helpers como metodos (mismo patron que el resto del codigo
- * reactivo). Si NO se asignan, el ``?.()`` los skipea
- * silenciosamente y la SPA queda SIN polling de TIA, sin
- * reconexion manual desde el topbar, etc.
+ * Expone ``connectTia`` y ``disconnectTia`` en el ``store`` para los
+ * callers que las invocan reactivamente (``store.connectTia?.()``),
+ * mismo patron que el resto del codigo reactivo (Fase 1, PR 5b).
  *
- * Las funciones ``refreshTiaConnection``, ``connectTia`` y
- * ``disconnectTia`` se exportan como funciones independientes (arriba)
- * para que el codigo de los componentes las importe y use
- * directamente (``import { connectTia } from "./store.js"``). Pero
- * ademas las EXPONEMOS en el ``store`` para los callers que las
- * invocan reactivamente (``store.refreshTiaConnection?.()``).
+ * Las funciones ``connectTia`` y ``disconnectTia`` se exportan como
+ * funciones independientes (arriba) para que el codigo de los
+ * componentes las importe y use directamente
+ * (``import { connectTia } from "./store.js"``). Pero ademas las
+ * EXPONEMOS en el ``store`` para los callers que las invocan
+ * reactivamente.
+ *
+ * NOTA (Fase 3.3, sept-2026): ``refreshTiaConnection`` ya NO se
+ * exporta ni se asigna al store.  El polling legacy se elimino en
+ * 1.3.1; el estado de TIA llega via SSE (canal ``tia_state`` que
+ * ``main.js`` parsea directamente).  Ver test_store_tia_methods.py
+ * para la regresion inversa.
  */
 Object.assign(store, {
-    refreshTiaConnection,
     connectTia,
     disconnectTia,
 });
