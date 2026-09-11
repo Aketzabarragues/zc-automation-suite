@@ -366,6 +366,56 @@ def _h_list_plcs(args: dict, tia_client: "SyncTIAClient") -> dict:
     return {"plcs": result}
 
 
+def _h_get_project_info(args: dict, tia_client: "SyncTIAClient") -> dict:
+    """Devuelve propiedades basicas del proyecto TIA activo como primitivos.
+
+    Lee un set acotado de propiedades del proyecto que son utiles para
+    que la SPA muestre al operario a que proyecto esta enganchado. NO
+    devuelve objetos nativos TIA (siempre primitivos, AGENTS.md §Datos).
+
+    Si una property lanza al leerla (PermissionDenied, EncodingError),
+    se omite del payload en vez de tumbar el handler: la SPA recibe un
+    dict parcial y renderiza solo lo disponible.
+
+    Returns:
+        ``dict`` con al menos ``name``. Opcionalmente: ``path``,
+        ``author``, ``creation_time``, ``last_modified``,
+        ``last_modified_by``, ``version``. Datetimes .NET -> ISO 8601.
+    """
+    portal = tia_client.wrapper
+    if portal is None:
+        raise RuntimeError(
+            "No portal attached. Llama a attach_portal primero."
+        )
+    project = _get_active_project(portal)
+
+    def _safe_get(name: str) -> Any:
+        try:
+            return project.get_property(name=name)
+        except Exception:
+            return None
+
+    result: dict[str, Any] = {"name": _safe_get("Name")}
+
+    for prop_name, out_key in (
+        ("Path", "path"),
+        ("Author", "author"),
+        ("CreationTime", "creation_time"),
+        ("LastModified", "last_modified"),
+        ("LastModifiedBy", "last_modified_by"),
+        ("Version", "version"),
+    ):
+        value = _safe_get(prop_name)
+        if value is None:
+            continue
+        # Normalizar a primitivo: datetime/DateTime .NET -> ISO 8601 string.
+        if hasattr(value, "isoformat"):
+            value = value.isoformat()
+        result[out_key] = value
+
+    return result
+
+
 def register_core_commands(target: SyncTIAClient) -> None:
     """Registra los comandos core (lifecycle + inspection) en ``target``.
 
@@ -388,6 +438,7 @@ def register_core_commands(target: SyncTIAClient) -> None:
     target.register_command("ping", _h_ping)
     target.register_command("list_blocks", _h_list_blocks)
     target.register_command("list_plcs", _h_list_plcs)
+    target.register_command("get_project_info", _h_get_project_info)
 
 
 # Singleton de proceso. main.py (4.5.1) hace tia_client = SyncTIAClient().
