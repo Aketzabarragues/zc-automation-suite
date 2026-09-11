@@ -22,6 +22,7 @@ Carga del wrapper:
 from __future__ import annotations
 
 import logging
+import os
 import queue
 from typing import Any, Callable
 
@@ -187,6 +188,82 @@ class SyncTIAClient:
 
     def registered_commands(self) -> list[str]:
         return sorted(self._handlers.keys())
+
+
+# ---------------------------------------------------------------------------
+# Handlers migrados desde worker_tia.py (Fase 4 / paso 4.1.2a1).
+# Lifecycle del proyecto: open_new_portal / open_project / save_project /
+# close_project. Sin cambios funcionales, solo adaptacion de signature:
+# (portal, ts, args) -> (args, tia_client). Acceso a portal/ts via
+# tia_client.wrapper / tia_client.ts (acceso single-threaded OB1).
+# ---------------------------------------------------------------------------
+def _h_open_new_portal(args: dict, tia_client: "SyncTIAClient") -> dict:
+    """Cold start: lanza una instancia NUEVA de TIA Portal y abre proyecto.
+
+    Usa ``tia_client.ts.open_portal(...)`` (modulo siemens_tia_scripting)
+    y luego ``new_portal.open_project(...)``. No necesita portal previo:
+    crea uno nuevo.
+    """
+    ts = tia_client.ts
+    if ts is None:
+        raise RuntimeError("Modulo siemens_tia_scripting no attached.")
+    project_file_path: str = args.get("project_file_path", "")
+    if not project_file_path:
+        raise ValueError(
+            "open_new_portal requiere el argumento 'project_file_path'."
+        )
+    if not os.path.isfile(project_file_path):
+        raise RuntimeError(
+            f"El archivo de proyecto no existe: '{project_file_path}'."
+        )
+    new_portal = ts.open_portal(portal_mode=ts.Enums.PortalMode.AnyUserInterface)
+    if new_portal is None:
+        raise RuntimeError("Fallo critico: open_portal retorno None.")
+    new_portal.open_project(project_file_path=project_file_path)
+    # En OB1 el portal pasa a ser el nuevo. main.py lo attach_wrapper().
+    # Aqui solo notificamos al caller con el project path abierto.
+    return {"opened": True, "project_file_path": project_file_path}
+
+
+def _h_open_project(args: dict, tia_client: "SyncTIAClient") -> dict:
+    """Abre un proyecto TIA Portal desde una ruta absoluta.
+
+    PRECONDICION: el portal ya esta conectado (vía attach_portal o
+    open_new_portal). Para abrir proyecto desde cero (cold start),
+    usar ``open_new_portal``.
+    """
+    portal = tia_client.wrapper
+    if portal is None:
+        raise RuntimeError(
+            "No portal attached. Llama a attach_portal primero."
+        )
+    project_file_path: str = args.get("project_file_path", "")
+    if not project_file_path:
+        raise ValueError("Se requiere el argumento 'project_file_path'.")
+    if not os.path.isfile(project_file_path):
+        raise RuntimeError(
+            f"El archivo de proyecto no existe: '{project_file_path}'."
+        )
+    portal.open_project(project_file_path=project_file_path)
+    return {"opened": True, "project_file_path": project_file_path}
+
+
+def register_core_commands(target: SyncTIAClient) -> None:
+    """Registra los comandos core (lifecycle + inspection) en ``target``.
+
+    Idempotente por nombre: si un comando ya esta registrado en el
+    target, register_command() lanza ValueError. El caller decide si
+    reinstancia o ignora.
+
+    Uso en main.py (4.5.1): ``register_core_commands(tia_client)``.
+    Uso en tests: ``register_core_commands(client); client.attach_wrapper(mock)``.
+
+    4.1.2a1a (este commit): open_new_portal, open_project.
+    4.1.2a1b (siguiente): save_project, close_project.
+    4.1.2a2+: list_blocks, ping, list_plcs, get_project_info, scan_blocks.
+    """
+    target.register_command("open_new_portal", _h_open_new_portal)
+    target.register_command("open_project", _h_open_project)
 
 
 # Singleton de proceso. main.py (4.5.1) hace tia_client = SyncTIAClient().
