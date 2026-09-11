@@ -130,6 +130,11 @@ def run_mcp_mode() -> None:
     agrega tools del gateway + tools aportadas por las áreas vía
     ``AreaRegistry.discover().for_each("contributes_mcp_tools", ...)``.
     """
+    # Setup logging unificado ANTES de cualquier import pesado (FastMCP,
+    # gateway, areas). Asi cualquier warning/import se loguea a zc.log.
+    from core.application.log_paths import setup_logging
+    setup_logging("mcp")
+
     # Importación tardía: minimiza el tiempo de arranque cuando solo se
     # necesita el modo --worker y pospone la carga de fastmcp hasta que
     # el usuario realmente invoca la herramienta IT.
@@ -154,7 +159,11 @@ def run_web_mode(host_port: str) -> None:
 
     from interfaces.web_server.app import create_app
     from core.infrastructure.gateway import TIAProcessGateway
+    from core.application.log_paths import setup_logging
 
+    # Setup logging unificado ANTES de instanciar nada. Asi cualquier
+    # warning de import (FastAPI, uvicorn, areas) se loguea a zc.log.
+    setup_logging("web")
     logging.getLogger("zc.debug.da012").debug(
         "run_web_mode entry host_port=%r", host_port
     )
