@@ -477,14 +477,14 @@ Si un paso no cumple estos criterios, se subdivide.
 | **Feature 2 — `ProgressBar` per-instance** | **3** | **3** | **🟡 Pendiente (A creado sin commit, B y C por hacer)** |
 | **3.3.3.x (catálogo vía SSE)** | 3 | 3 | 🟡 Pendiente (desbloqueado) |
 | **3.3.2 (eliminar `loadCatalog`)** | 1 | 1 | ⏸️ Bloqueado por 3.3.3.x |
-| **DA-014 — Fase 4 Refactor OB1** | 16 | 16 | 🟡 En curso (4.0.1 ✅ `a85857a`; 4.1.1 ✅ `2716a29`; 4.1.2 subdividido) |
+| **DA-014 — Fase 4 Refactor OB1** | 16 | 16 | 🟡 En curso (4.0.1 ✅; 4.1.1 ✅; 4.1.2a ✅ lifecycle+inspeccion; 4.1.2b pendiente) |
 | Demo final + rebuild `.exe` | — | — | Pendiente |
-| **Total** | **~78 pasos** | **~78 commits** | **~63 hechos** |
+| **Total** | **~78 pasos** | **~78 commits** | **~73 hechos** |
 
 **Commits revertidos** (parte de la historia, no cuentan en el total):
 - `e07c33a` — DA-012 `stderr=DEVNULL` (REVERTIDO por `83cf920`, hipótesis descartada).
 
-**Tiempo estimado restante**: ~6 días (~22 commits: Feature 2 × 3 + 3.3.3.x × 3 + 3.3.2 + DA-014 Fase 4 OB1 × 14 restantes — 4.1.2 se subdivide en 4.1.2a/b/c por regla <200 líneas). Validación con operario entre cada paso.
+**Tiempo estimado restante**: ~5 días (~13 commits: Feature 2 × 3 + 3.3.3.x × 3 + 3.3.2 + DA-014 Fase 4 OB1 × 5 restantes — 4.1.2a hecho en 10 commits; 4.1.2b/c pendientes). Validación con operario entre cada paso.
 
 ---
 
