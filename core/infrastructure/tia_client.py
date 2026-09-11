@@ -32,16 +32,24 @@ logger = logging.getLogger(__name__)
 HandlerSig = Callable[[dict], dict]
 
 
+# Handler signature v2 (Fase 4 / paso 4.1.2): recibe (args, tia_client).
+# El dispatcher pasa `self` como segundo argumento para que los handlers
+# puedan acceder al wrapper (.NET portal) y al modulo siemens sin
+# depender de un singleton global (testable sin monkey-patching).
+HandlerSig = Callable[[dict, "SyncTIAClient"], dict]
+
+
 class SyncTIAClient:
     """Cliente sync al wrapper TIA. OB1-friendly, sin subproceso."""
 
     def __init__(self) -> None:
         self._handlers: dict[str, HandlerSig] = {}
         self._pending: queue.Queue[tuple[str, dict]] = queue.Queue()
-        # Placeholder; main.py attach_wrapper() lo rellena en arranque.
-        # Antes de attach, dispatch() funciona solo con handlers que no
-        # tocan el wrapper (util para tests y para el spike).
+        # Placeholder; main.py attach_wrapper()/attach_ts() lo rellena en
+        # arranque. Antes de attach, dispatch() funciona solo con handlers
+        # que no tocan el wrapper (util para tests y para el spike).
         self._wrapper = None
+        self._ts = None  # modulo siemens_tia_scripting
 
     # ----------------------------------------------------------- API publica
     def register_command(self, name: str, handler: HandlerSig) -> None:
@@ -56,12 +64,15 @@ class SyncTIAClient:
 
         Shape de retorno: {"ok": True, "result": <dict>} o
         {"ok": False, "error": "<msg>"}.
+
+        El handler recibe (args, self) para acceder a wrapper/ts sin
+        depender del singleton global.
         """
         handler = self._handlers.get(command)
         if handler is None:
             return {"ok": False, "error": f"unknown_command:{command}"}
         try:
-            return {"ok": True, "result": handler(args or {})}
+            return {"ok": True, "result": handler(args or {}, self)}
         except Exception as exc:  # noqa: BLE001 - captura cualquier fallo de handler
             logger.exception("dispatch failed: %s", command)
             return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
@@ -89,11 +100,19 @@ class SyncTIAClient:
 
     # --------------------------------------------------------------- helpers
     def attach_wrapper(self, wrapper) -> None:
-        """Adjunta un wrapper ya cargado (mock en tests, .pyd real en main).
+        """Adjunta el portal .NET (mock en tests, .pyd real en main).
 
         Solo el hilo OB1 debe llamarlo.
         """
         self._wrapper = wrapper
+
+    def attach_ts(self, ts_module) -> None:
+        """Adjunta el modulo ``siemens_tia_scripting`` (mock o real).
+
+        Lo usan handlers que invocan ``ts.open_portal(...)`` o
+        ``ts.Enums.PortalMode.X``. Solo el hilo OB1 debe llamarlo.
+        """
+        self._ts = ts_module
 
     @property
     def wrapper(self):
@@ -103,6 +122,15 @@ class SyncTIAClient:
         el objeto retornado (los RCW .NET no son thread-safe).
         """
         return self._wrapper
+
+    @property
+    def ts(self):
+        """Accessor del modulo ``siemens_tia_scripting``.
+
+        Idem wrapper: solo el hilo OB1 debe llamar funciones sobre el
+        modulo retornado.
+        """
+        return self._ts
 
     def has_command(self, name: str) -> bool:
         return name in self._handlers

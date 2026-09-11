@@ -23,7 +23,7 @@ def _new_client() -> SyncTIAClient:
 
 def test_register_and_dispatch_returns_result() -> None:
     client = _new_client()
-    client.register_command("ping", lambda args: {"pong": True, "echoed": args})
+    client.register_command("ping", lambda args, _client: {"pong": True, "echoed": args})
     out = client.dispatch("ping", {"k": 1})
     assert out == {"ok": True, "result": {"pong": True, "echoed": {"k": 1}}}
 
@@ -36,9 +36,9 @@ def test_dispatch_unknown_command_returns_typed_error() -> None:
 
 def test_register_duplicate_command_raises() -> None:
     client = _new_client()
-    client.register_command("foo", lambda args: {})
+    client.register_command("foo", lambda args, _client: {})
     try:
-        client.register_command("foo", lambda args: {})
+        client.register_command("foo", lambda args, _client: {})
     except ValueError as exc:
         assert "already registered" in str(exc)
         assert "foo" in str(exc)
@@ -49,7 +49,7 @@ def test_register_duplicate_command_raises() -> None:
 def test_dispatch_handler_exception_becomes_error_not_propagation() -> None:
     client = _new_client()
 
-    def boom(args):  # noqa: ARG001
+    def boom(args, _client):  # noqa: ARG001
         raise RuntimeError("exploto")
 
     client.register_command("boom", boom)
@@ -60,7 +60,7 @@ def test_dispatch_handler_exception_becomes_error_not_propagation() -> None:
 
 def test_dispatch_without_args_defaults_to_empty_dict() -> None:
     client = _new_client()
-    client.register_command("noargs", lambda args: {"got": args})
+    client.register_command("noargs", lambda args, _client: {"got": args})
     out = client.dispatch("noargs")
     assert out == {"ok": True, "result": {"got": {}}}
 
@@ -70,7 +70,7 @@ def test_submit_then_dispatch_pending_drains_fifo() -> None:
     captured: list[tuple[str, dict]] = []
     client.register_command(
         "echo",
-        lambda args: captured.append(("echo", args)) or {"echoed": args},
+        lambda args, _client: captured.append(("echo", args)) or {"echoed": args},
     )
 
     client.submit("echo", {"i": 1})
@@ -90,7 +90,7 @@ def test_dispatch_pending_on_empty_queue_returns_zero() -> None:
 def test_submit_from_another_thread_then_drain_is_fifo() -> None:
     """Productor en hilo aparte encola 100; main thread drena en orden."""
     client = _new_client()
-    client.register_command("echo", lambda args: args)
+    client.register_command("echo", lambda args, _client: args)
 
     def producer() -> None:
         for i in range(100):
@@ -111,15 +111,41 @@ def test_attach_wrapper_and_accessor_returns_same_object() -> None:
     assert client.wrapper is sentinel
 
 
+def test_attach_ts_and_accessor_returns_same_object() -> None:
+    client = _new_client()
+    sentinel = object()
+    client.attach_ts(sentinel)
+    assert client.ts is sentinel
+
+
 def test_wrapper_defaults_to_none_until_attached() -> None:
     client = _new_client()
     assert client.wrapper is None
 
 
+def test_ts_defaults_to_none_until_attached() -> None:
+    client = _new_client()
+    assert client.ts is None
+
+
+def test_dispatcher_passes_client_as_second_arg_to_handler() -> None:
+    """El handler recibe (args, client). Verifica que `client` es la instancia."""
+    client = _new_client()
+    received: list = []
+
+    def capture(args, c):
+        received.append((args, c))
+        return {"ok": True}
+
+    client.register_command("cap", capture)
+    client.dispatch("cap", {"x": 1})
+    assert received == [({"x": 1}, client)]
+
+
 def test_has_command_true_for_registered_false_otherwise() -> None:
     client = _new_client()
-    client.register_command("a", lambda args: {})
-    client.register_command("b", lambda args: {})
+    client.register_command("a", lambda args, _client: {})
+    client.register_command("b", lambda args, _client: {})
     assert client.has_command("a") is True
     assert client.has_command("b") is True
     assert client.has_command("c") is False
@@ -127,16 +153,16 @@ def test_has_command_true_for_registered_false_otherwise() -> None:
 
 def test_registered_commands_returns_sorted_list() -> None:
     client = _new_client()
-    client.register_command("z", lambda args: {})
-    client.register_command("a", lambda args: {})
-    client.register_command("m", lambda args: {})
+    client.register_command("z", lambda args, _client: {})
+    client.register_command("a", lambda args, _client: {})
+    client.register_command("m", lambda args, _client: {})
     assert client.registered_commands() == ["a", "m", "z"]
 
 
 def test_dispatch_isolated_instances_have_independent_registries() -> None:
     """Dos SyncTIAClient no comparten handlers; singleton != obligatorio."""
     a, b = _new_client(), _new_client()
-    a.register_command("only_in_a", lambda args: {"a": True})
+    a.register_command("only_in_a", lambda args, _client: {"a": True})
     assert a.has_command("only_in_a") is True
     assert b.has_command("only_in_a") is False
     assert b.dispatch("only_in_a") == {
