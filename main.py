@@ -23,8 +23,40 @@ from __future__ import annotations
 import argparse
 import asyncio
 import io
+import logging
+import os
 import sys
 from typing import NoReturn
+
+# ── DA-012: toggle de logging DEBUG exhaustivo ───────────────────────
+# Cuando ZC_DEBUG=1, se emite log DEBUG de TODO el flujo (main,
+# lifespan, gateway, worker, reader_task, heartbeat, SSE, bus,
+# engine). Pensado para capturar data en el siguiente arranque del
+# operario y diagnosticar el bug DA-012 (SSE que cuelga 0 bytes en
+# producción con TIA real, mock funciona).
+#
+# Uso:
+#   $ ZC_DEBUG=1 python main.py --web
+#   $ ZC_DEBUG=1 python main.py --mcp
+#
+# El default (sin env var) NO emite DEBUG: solo WARNING+ via los
+# loggers que ya estuvieran configurados (uvicorn, root). Asi el
+# operario puede activar el modo cuando lo necesita sin ruido en
+# operación normal.
+if os.environ.get("ZC_DEBUG") == "1":
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format=(
+            "%(asctime)s.%(msecs)03d [ZC_DEBUG] "
+            "%(name)s %(levelname)s %(message)s"
+        ),
+        datefmt="%H:%M:%S",
+        force=True,  # pisa basicConfig previo (uvicorn lo hace)
+    )
+    # Logger especifico del flow DA-012 (gateway, worker, SSE, etc.).
+    # Lo activamos aunque basicConfig ya esté en DEBUG para que un
+    # futuro caller pueda filtrar por nombre.
+    logging.getLogger("zc.debug.da012").setLevel(logging.DEBUG)
 
 # Forzar UTF-8 en stdout/stderr/stdin para evitar errores
 # de codificacion cuando TIA Portal (via Pythonnet)
@@ -123,6 +155,10 @@ def run_web_mode(host_port: str) -> None:
     from interfaces.web_server.app import create_app
     from core.infrastructure.gateway import TIAProcessGateway
 
+    logging.getLogger("zc.debug.da012").debug(
+        "run_web_mode entry host_port=%r", host_port
+    )
+
     # Modo web: el gateway se construye con ``persistent=True`` para
     # que en PR 3+ el worker OT corra como subproceso vivo durante
     # toda la sesión (1 attach al inicio, N comandos por el mismo
@@ -134,8 +170,14 @@ def run_web_mode(host_port: str) -> None:
     # nada en este PR (el dispatch falla de forma explícita si se
     # intenta usar, sin pisar el modo 1-shot del MCP).
     gateway = TIAProcessGateway(persistent=True)
+    logging.getLogger("zc.debug.da012").debug(
+        "run_web_mode: gateway instanciado (persistent=True, pid=%s)", os.getpid()
+    )
 
     host, _, port = host_port.partition(":")
+    logging.getLogger("zc.debug.da012").debug(
+        "run_web_mode: host=%s port=%s (parsed)", host or "127.0.0.1", port or "8000"
+    )
     # Red de seguridad X2: aunque el lifespan de FastAPI YA llama a
     # ``gateway.disconnect()`` al shutdown (ver ``app.py::_tia_lifespan``),
     # ``uvicorn.run`` es sync y bloqueante: si crashea antes de
@@ -160,22 +202,34 @@ async def _run_web_mode_async(
 
     from interfaces.web_server.app import create_app
 
+    _dbg = logging.getLogger("zc.debug.da012")
+    _dbg.debug("_run_web_mode_async entry: creando app FastAPI")
+
     app = create_app(gateway)
+    _dbg.debug("_run_web_mode_async: app FastAPI creada, routers montados")
+
     config = uvicorn.Config(app, host=host, port=port)
     server = uvicorn.Server(config)
+    _dbg.debug(
+        "_run_web_mode_async: uvicorn.Server listo, await server.serve() (bloquea hasta shutdown)"
+    )
     try:
         await server.serve()
     finally:
+        _dbg.debug("_run_web_mode_async: server.serve() retorno, entrando a finally")
         try:
             await gateway.disconnect()
+            _dbg.debug("_run_web_mode_async: gateway.disconnect() OK")
         except Exception as exc:  # noqa: BLE001
-            import logging
             logging.getLogger(__name__).warning(
                 "gateway.disconnect() en main fallo: %s", exc
             )
 
 
 def main() -> None:
+    logging.getLogger("zc.debug.da012").debug(
+        "main() entry: argv=%r sys.executable=%r", sys.argv, sys.executable
+    )
     args = parse_args()
 
     if args.worker_persistent:

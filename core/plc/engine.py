@@ -32,6 +32,7 @@ from core.plc.function_base import FunctionBase
 from core.sse.event_bus import EventBus
 
 logger = logging.getLogger(__name__)
+_dbg = logging.getLogger("zc.debug.da012")
 
 # Período por defecto del loop: 100 ms (10 ticks/s).  Configurable en
 # el constructor para tests rápidos.
@@ -128,6 +129,13 @@ class Engine:
             logger.warning("Engine: start_loop() ignorado, ya corriendo")
             return
         self._task = asyncio.create_task(self._run(), name="plc-engine-loop")
+        _dbg.debug(
+            "Engine.start_loop: task 'plc-engine-loop' creado (periodo=%.0f ms, "
+            "fbs=%d event_bus=%s)",
+            self._tick_period_s * 1000,
+            len(self._fbs),
+            "yes" if self._event_bus else "no",
+        )
         logger.info(
             "Engine: loop arrancado (periodo=%.0f ms)",
             self._tick_period_s * 1000,
@@ -143,6 +151,7 @@ class Engine:
         except asyncio.CancelledError:
             pass
         self._task = None
+        _dbg.debug("Engine.stop_loop: task cancelado y esperado")
         logger.info("Engine: loop parado")
 
     async def tick_once(self) -> None:
@@ -158,6 +167,7 @@ class Engine:
         Cada FB no terminal es best-effort (paso 2.0.4): traga sus
         propias excepciones, el engine no se entera.
         """
+        ticked = []
         for name, fb in list(self._fbs.items()):
             if fb.is_terminal():
                 continue
@@ -165,6 +175,11 @@ class Engine:
             await fb.tick()
             if fb.nStep != n_step_before and self._event_bus is not None:
                 self._publish_fb_changed(name, fb)
+                ticked.append((name, fb.nStep))
+        if ticked:
+            _dbg.debug(
+                "Engine.tick_once: fbs_cambiaron=%s", ticked
+            )
 
     def _publish_fb_changed(self, name: str, fb: FunctionBase) -> None:
         """Publica un evento ``fb_changed`` al bus.
@@ -189,10 +204,13 @@ class Engine:
 
     async def _run(self) -> None:
         """Bucle del OB1: tick + sleep hasta que ``stop_loop()`` cancele."""
+        _dbg.debug("Engine._run: loop arrancado")
         try:
+            n_ticks = 0
             while True:
                 try:
                     await self.tick_once()
+                    n_ticks += 1
                 except Exception:
                     # Los FBs ya son best-effort, pero si algo se cuela
                     # (p. ej. un error en ``register_fb`` concurrente),
@@ -200,5 +218,6 @@ class Engine:
                     logger.exception("Engine: tick_once() lanzó — loop sigue")
                 await asyncio.sleep(self._tick_period_s)
         except asyncio.CancelledError:
+            _dbg.debug("Engine._run: cancelado tras %d ticks", n_ticks)
             logger.debug("Engine: loop cancelado, saliendo")
             raise

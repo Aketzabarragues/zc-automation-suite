@@ -1423,6 +1423,10 @@ def main_persistent_loop() -> None:
         persistent=True,
         pid=os.getpid(),
     )
+    logging.getLogger("zc.debug.da012").debug(
+        "worker.main_persistent_loop entry: pid=%s persistent=True",
+        os.getpid(),
+    )
     # 1. Carga del wrapper nativo.
     try:
         ts = _load_siemens_wrapper()
@@ -1625,11 +1629,18 @@ def main_persistent_loop() -> None:
         return {"detached": True}
 
     # 4. Loop principal.
+    _dbg = logging.getLogger("zc.debug.da012")
+    _dbg.debug("worker.main_persistent_loop: entrando al dispatch loop")
+    _n_cmds = 0
     while True:
         try:
             line = sys.stdin.readline()
             if not line:
                 # stdin cerrado (el IT cerr� el pipe). Salida limpia.
+                _dbg.debug(
+                    "worker.dispatch_loop: stdin EOF, exit (cmds_procesados=%d)",
+                    _n_cmds,
+                )
                 log_event(worker_log, logging.INFO, 'worker_stopped', reason='stdin_closed')
                 break
             stripped = line.strip()
@@ -1640,6 +1651,11 @@ def main_persistent_loop() -> None:
             request_id = payload.get("id", 0)
             command = payload.get("command", "")
             args = payload.get("args", {}) or {}
+            _n_cmds += 1
+            _dbg.debug(
+                "worker.dispatch_loop: stdin leyo (id=%d command=%r, cmds_total=%d)",
+                request_id, command, _n_cmds,
+            )
             if command == "ping":
                 log_event(worker_log, logging.DEBUG, 'ping_received', request_id=request_id)
             else:
@@ -1786,6 +1802,10 @@ def main_persistent_loop() -> None:
             # y siempre con flush (para no bloquear la task de lectura).
             sys.stdout.write(json.dumps(response, ensure_ascii=False) + "\n")
             sys.stdout.flush()
+            _dbg.debug(
+                "worker.dispatch_loop: respuesta escrita a stdout (id=%d ok=%s)",
+                request_id, response.get("ok"),
+            )
         except Exception as exc:
             # Error parseando JSON o leyendo stdin. Salimos del loop;
             # el gateway detectara EOF y marcara el estado como error.
@@ -1805,6 +1825,10 @@ def main_persistent_loop() -> None:
 
     # 5. Limpieza al salir. Si quedaba portal attached lo soltamos
     # (best-effort; si falla el OS libera al morir el subproceso).
+    logging.getLogger("zc.debug.da012").debug(
+        "worker.main_persistent_loop: saliendo (cmds_total=%d, portal_attached=%s)",
+        _n_cmds, portal is not None,
+    )
     if portal is not None:
         try:
             portal.detach()
@@ -1961,6 +1985,14 @@ def main() -> None:
             "handler_ms": _ms(t_handler_end, t_handler_start),
             "detach_ms": _ms(t_detach_end, t_detach_start),
         }
+        # DA-012: este sys.stderr.write es sync I/O. En el subproceso
+        # worker NO bloquea al parent, pero SI bloquea al worker si el
+        # buffer de stderr (PIPE sin reader) se llena. La línea se
+        # pierde o se loguea aqui para diagnóstico via el logger DEBUG.
+        logging.getLogger("zc.debug.da012").debug(
+            "worker.timing emit: command=%r timings=%s",
+            command, timings,
+        )
         sys.stderr.write(f"[WORKER TIMING] {json.dumps(timings)}\n")
 
 

@@ -131,11 +131,17 @@ async def _tia_lifespan(app: FastAPI):
     import logging
 
     _logger = logging.getLogger(__name__)
+    _dbg = logging.getLogger("zc.debug.da012")
 
     gateway = getattr(app.state, "gateway", None)
+    _dbg.debug("_tia_lifespan STARTUP entry: gateway=%s", gateway)
     if gateway is not None and getattr(gateway, "persistent", False):
+        _dbg.debug(
+            "_tia_lifespan: gateway.persistent=True, llamando gateway.start()"
+        )
         try:
             await gateway.start()
+            _dbg.debug("_tia_lifespan: gateway.start() retorno OK")
         except Exception as exc:  # noqa: BLE001
             # No abortamos uvicorn: el operario podrá ver el
             # estado en la UI (``worker_alive=False``, circulo
@@ -164,15 +170,31 @@ async def _tia_lifespan(app: FastAPI):
     # el wiring — el lifespan ya era defensivo con ``gateway`` y
     # ahora también con el resto de deps.
     event_bus = getattr(app.state, "event_bus", None)
+    _dbg.debug(
+        "_tia_lifespan: event_bus=%s, saltara engine si None", event_bus
+    )
     if event_bus is not None:
         from core.plc.engine import Engine
         app.state.engine = Engine(
             tick_period_s=0.1, event_bus=event_bus
         )
+        _dbg.debug(
+            "_tia_lifespan: Engine creado (tick_period_s=0.1)"
+        )
         from areas.alimentacion import register as register_alimentacion
         try:
+            _dbg.debug(
+                "_tia_lifespan: register_alimentacion(engine, app) — registra 7 FBs"
+            )
             register_alimentacion(app.state.engine, app)
+            _dbg.debug(
+                "_tia_lifespan: 7 FBs registrados=%s",
+                app.state.engine.registered_fb_names(),
+            )
             await app.state.engine.start_loop()
+            _dbg.debug(
+                "_tia_lifespan: engine.start_loop() retorno OK (loop asyncio creado)"
+            )
         except Exception as exc:  # noqa: BLE001
             _logger.error(
                 "Engine/FBs wiring fallo en lifespan: %s: %s. "
@@ -191,10 +213,12 @@ async def _tia_lifespan(app: FastAPI):
     # ── Shutdown: parar el loop del Engine. ──────────────────────
     # Idempotente (``stop_loop`` ya lo es). Si el wiring falló en
     # startup y el loop nunca arrancó, esto es un no-op.
+    _dbg.debug("_tia_lifespan SHUTDOWN entry: parando engine loop + gateway")
     engine = getattr(app.state, "engine", None)
     if engine is not None:
         try:
             await engine.stop_loop()
+            _dbg.debug("_tia_lifespan: engine.stop_loop() OK")
         except Exception as exc:  # noqa: BLE001
             _logger.warning("engine.stop_loop() fallo: %s", exc)
 
@@ -207,6 +231,7 @@ async def _tia_lifespan(app: FastAPI):
         return
     try:
         await gateway.disconnect()
+        _dbg.debug("_tia_lifespan: gateway.disconnect() OK")
     except Exception as exc:  # noqa: BLE001
         # No enmascarar el motivo original del shutdown. Logueamos
         # y dejamos que uvicorn termine.
@@ -223,10 +248,15 @@ def create_app(gateway: TIAProcessGateway) -> FastAPI:
             por el Composition Root externo, **NO** se re-instancia
             aquí para no duplicar el RCW de TIA Portal).
     """
+    import logging
+
+    _dbg = logging.getLogger("zc.debug.da012")
+    _dbg.debug("create_app entry: gateway=%s", gateway)
     app = FastAPI(
         title="ZC Automation Suite - Web Server",
         lifespan=_tia_lifespan,
     )
+    _dbg.debug("create_app: FastAPI instanciado, lifespan=_tia_lifespan")
 
     # ── 1. Inyección de estado (Composition Root → app.state) ─────
     # Todos los routers leen estas dependencias vía ``Depends``.
@@ -253,6 +283,7 @@ def create_app(gateway: TIAProcessGateway) -> FastAPI:
     # del Composition Root externo (1.1.6); aquí solo creamos el bus
     # y lo exponemos para que el endpoint no 500ee.
     app.state.event_bus = EventBus()
+    _dbg.debug("create_app: app.state.event_bus = EventBus() creado")
 
     # ── 2. Routers comunes del core (orden estable, alfabético) ───
     # Estos routers son GENÉRICOS: no saben de áreas, viven en el

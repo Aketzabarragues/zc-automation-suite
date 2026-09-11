@@ -10,8 +10,11 @@ TIA Portal) sin corromper el bus.
 from __future__ import annotations
 
 import asyncio
+import logging
 import threading
 from typing import Any
+
+_dbg = logging.getLogger("zc.debug.da012")
 
 
 class EventBus:
@@ -36,23 +39,42 @@ class EventBus:
         q: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         with self._lock:
             self._subs.add(q)
+        _dbg.debug(
+            "EventBus.subscribe: queue id=%s subscribers_now=%d",
+            id(q),
+            len(self._subs),
+        )
         return q
 
     def unsubscribe(self, q: asyncio.Queue[dict[str, Any]]) -> None:
         with self._lock:
             self._subs.discard(q)
+        _dbg.debug(
+            "EventBus.unsubscribe: queue id=%s subscribers_now=%d",
+            id(q),
+            len(self._subs),
+        )
 
     def publish(self, event: dict[str, Any]) -> None:
         # Snapshot atómico: cualquier subscribe/unsubscribe posterior
         # no afecta a esta entrega.
         with self._lock:
             subs = list(self._subs)
+        _dbg.debug(
+            "EventBus.publish: event type=%r subscribers=%d",
+            event.get("type"),
+            len(subs),
+        )
         for q in subs:
             try:
                 q.put_nowait(event)
             except asyncio.QueueFull:
                 # Suscriptor lento con maxsize: descartamos. En SSE el
                 # cliente se reconecta y recibe el snapshot inicial.
+                _dbg.warning(
+                    "EventBus.publish: queue id=%s FULL, evento descartado",
+                    id(q),
+                )
                 pass
 
     def subscriber_count(self) -> int:

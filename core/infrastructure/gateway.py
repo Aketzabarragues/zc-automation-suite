@@ -25,6 +25,9 @@ from core.models import BloqueCache, BloquePLC
 # disconnect/kill llegan al root logger (zc_tray) cuando se ejecuta
 # via main_tray.py, que configura un FileHandler en el root con INFO.
 _log = logging.getLogger(__name__)
+# DA-012: logger dedicado para diagnostico del bug SSE. Toggleable con
+# ZC_DEBUG=1 en main.py (basicConfig fuerza level=DEBUG en root).
+_dbg = logging.getLogger("zc.debug.da012")
 
 
 # Timeout por defecto del subproceso OT (segundos).
@@ -587,6 +590,11 @@ class TIAProcessGateway:
             TIAConnectionError: si el worker no emite ready en 60s o si
                 la creación del subproceso falla.
         """
+        _dbg.debug(
+            "gateway.start entry: persistent=%s worker_alive_before=%s",
+            self._persistent,
+            self.is_worker_alive(),
+        )
         if not self._persistent:
             _log.info("gateway.start(): no-op (persistent=False, modo 1-shot)")
             return
@@ -598,6 +606,11 @@ class TIAProcessGateway:
                 "(state=%r, worker_alive=%s)",
                 self._connection_state,
                 self.is_worker_alive(),
+            )
+            _dbg.debug(
+                "gateway.start: worker listo (state=%r, pid=%s)",
+                self._connection_state,
+                self._worker_proc.pid if self._worker_proc else None,
             )
         except Exception as exc:
             _log.error(
@@ -637,6 +650,11 @@ class TIAProcessGateway:
           - Puede actualizar ``self._connection_state`` y
             ``self._last_ping_ok`` / ``self._last_error``.
         """
+        _dbg.debug(
+            "_start_persistent_worker entry: worker_proc=%s",
+            "alive" if (self._worker_proc and self._worker_proc.returncode is None)
+            else "dead-or-none",
+        )
         if self._worker_proc is not None and self._worker_proc.returncode is None:
             _log.info(
                 "_start_persistent_worker: no-op (subproceso ya vivo, pid=%d)",
@@ -671,21 +689,42 @@ class TIAProcessGateway:
             env=worker_env,
         )
         self._worker_proc = proc
+        _dbg.debug(
+            "_start_persistent_worker: subprocess LANZADO (pid=%d, args=%s, "
+            "stdin/stdout=PIPE stderr=PIPE — sin reader de stderr, ver DA-012)",
+            proc.pid,
+            launch_args,
+        )
         _log.info(
             "_start_persistent_worker: subproceso LANZADO (pid=%d, args=%s)",
             proc.pid,
             launch_args,
         )
-        self._reader_task = asyncio.create_task(self._read_worker_stdout_forever())
+        self._reader_task = asyncio.create_task(
+            self._read_worker_stdout_forever()
+        )
+        _dbg.debug(
+            "_start_persistent_worker: reader_task creado (task=%s)",
+            self._reader_task,
+        )
 
         # Espera al "ready_idle" (id=0). Pre-condicion: el caller ya
         # adquirió self._worker_lock; aquí no se vuelve a coger.
         loop = asyncio.get_running_loop()
         ready_future: asyncio.Future[dict[str, Any]] = loop.create_future()
         self._pending_responses[0] = ready_future
+        _dbg.debug(
+            "_start_persistent_worker: await ready_future (timeout=%ss)",
+            self.READY_IDLE_TIMEOUT_S,
+        )
         try:
             ready_payload = await asyncio.wait_for(
                 ready_future, timeout=self.READY_IDLE_TIMEOUT_S
+            )
+            _dbg.debug(
+                "_start_persistent_worker: ready_idle recibido (ok=%s, result=%r)",
+                ready_payload.get("ok"),
+                ready_payload.get("result"),
             )
             if not ready_payload.get("ok"):
                 # Caso raro: el wrapper falló al cargar pero el subproceso
@@ -709,6 +748,10 @@ class TIAProcessGateway:
                 "Posible causa: carga del wrapper .NET muy lenta o "
                 "bug en main_persistent_loop."
             )
+            _dbg.error(
+                "_start_persistent_worker: TIMEOUT ready_idle (%ss). Worker vivo pero sin stdout.",
+                self.READY_IDLE_TIMEOUT_S,
+            )
             raise TIAConnectionError(self._last_error)
         finally:
             # Quitar el future del dict SIEMPRE (doble seguridad con
@@ -724,12 +767,26 @@ class TIAProcessGateway:
         # es el primer momento en que podemos preguntar sin penalizar.
         # _detect_project_change() adquiere su propio lock internamente.
         if self._reader_task is not None and not self._reader_task.done():
+            _dbg.debug(
+                "_start_persistent_worker: detectando proyecto inicial "
+                "(reader_task vivo, dispatchea get_project_info)"
+            )
             try:
                 await self._detect_project_change()
-            except Exception:
+                _dbg.debug(
+                    "_start_persistent_worker: project detect OK (path=%r)",
+                    self._project_path,
+                )
+            except Exception as exc:
+                _dbg.debug(
+                    "_start_persistent_worker: project detect fallo (best-effort): %s: %s",
+                    type(exc).__name__,
+                    exc,
+                )
                 # Best-effort: si falla (e.g. TIA sin proyecto), no
                 # bloqueante. El primer connect() lo reintenta.
                 pass
+        _dbg.debug("_start_persistent_worker: exit OK")
 
     async def _heartbeat_loop(self) -> None:
         """Heartbeat continuo: ping al worker cada ``ZC_WORKER_HEARTBEAT_SECONDS`` (default 5s).
@@ -752,6 +809,11 @@ class TIAProcessGateway:
         """
         interval = float(os.environ.get("ZC_WORKER_HEARTBEAT_SECONDS", "5.0"))
         consecutive_failures = 0
+        _dbg.debug(
+            "_heartbeat_loop entry: interval=%ss consecutive_failures=%d",
+            interval,
+            consecutive_failures,
+        )
 
         try:
             while True:
@@ -760,9 +822,14 @@ class TIAProcessGateway:
                 await asyncio.sleep(interval)
 
                 if self._worker_proc is None:
+                    _dbg.debug("_heartbeat_loop: worker_proc None, exit")
                     return
 
                 if self._worker_proc.returncode is not None:
+                    _dbg.debug(
+                        "_heartbeat_loop: worker_proc.returncode=%s (muerto)",
+                        self._worker_proc.returncode,
+                    )
                     # Subproceso muerto. Marcamos idle (no "connected"
                     # ni "error") para que el operario pueda reintentar
                     # connect() y el gateway haga lazy start.
@@ -779,6 +846,9 @@ class TIAProcessGateway:
                 # get_process_id() es ligero; si tarda más, algo va mal.
                 try:
                     async with self._worker_lock:
+                        _dbg.debug(
+                            "_heartbeat_loop: dispatch ping (lock acquired, send)"
+                        )
                         result = await asyncio.wait_for(
                             self._send_to_persistent_worker(
                                 "ping",
@@ -786,6 +856,9 @@ class TIAProcessGateway:
                                 timeout_override=self.HEARTBEAT_PING_TIMEOUT_S,
                             ),
                             timeout=self.HEARTBEAT_PING_TIMEOUT_S,
+                        )
+                        _dbg.debug(
+                            "_heartbeat_loop: ping result=%r", result
                         )
                     if result and isinstance(result, dict) and result.get("ok"):
                         # Guard: si el gateway ya pasó a idle/error
@@ -810,11 +883,23 @@ class TIAProcessGateway:
                                 if consecutive_failures >= 3
                                 else "connecting"
                             )
+                        _dbg.debug(
+                            "_heartbeat_loop: ping FAIL consecutive=%d state=%s",
+                            consecutive_failures,
+                            self._connection_state,
+                        )
                 except asyncio.CancelledError:
                     # Cancelacion externa (gateway apagandose): salimos
                     # sin propagar la excepcion (es un cierre limpio).
+                    _dbg.debug("_heartbeat_loop: CancelledError (shutdown)")
                     return
                 except Exception as exc:
+                    _dbg.debug(
+                        "_heartbeat_loop: exception %s: %s (consecutive=%d)",
+                        type(exc).__name__,
+                        exc,
+                        consecutive_failures + 1,
+                    )
                     # Cualquier fallo (TimeoutError, RuntimeError,
                     # TIAConnectionError, EOF en stdin, ...) cuenta como
                     # un fallo. NO propagamos: el heartbeat NUNCA muere
@@ -869,22 +954,41 @@ class TIAProcessGateway:
         # ``self._worker_proc`` (relanzamiento) no nos haga leer
         # del proc equivocado.
         proc = self._worker_proc
+        _dbg.debug(
+            "_read_worker_stdout_forever entry: proc=%s stdout=%s",
+            "alive" if proc else "None",
+            "open" if (proc and proc.stdout) else "None",
+        )
         if proc is None or proc.stdout is None:
             return
+        _n_lines = 0
+        _n_json = 0
         try:
             while True:
                 try:
                     line = await proc.stdout.readline()
-                except Exception:
+                except Exception as exc:
+                    _dbg.warning(
+                        "_read_worker_stdout_forever: readline() raise %s: %s — saliendo",
+                        type(exc).__name__,
+                        exc,
+                    )
                     # Stream roto: salimos y dejamos que los timeouts
                     # en ``_send_to_persistent_worker`` manejen la
                     # limpieza.
                     break
                 if not line:
                     # EOF: el worker cerro stdout. Salimos.
+                    _dbg.debug(
+                        "_read_worker_stdout_forever: EOF (lines=%d, json=%d) — saliendo",
+                        _n_lines,
+                        _n_json,
+                    )
                     break
+                _n_lines += 1
                 try:
                     response = json.loads(line.decode("utf-8").strip())
+                    _n_json += 1
                 except Exception:
                     # Linea no parseable. NO logueamos como ERROR: en
                     # modo persistente, el stdout del worker se mezcla
@@ -924,6 +1028,13 @@ class TIAProcessGateway:
                 future = self._pending_responses.get(request_id)
                 if future is not None and not future.done():
                     future.set_result(response)
+                    _dbg.debug(
+                        "_read_worker_stdout_forever: future resuelta (id=%d, "
+                        "ok=%s, pending=%d)",
+                        request_id,
+                        response.get("ok"),
+                        len(self._pending_responses),
+                    )
                 # Pop defensivo: el reader limpia el dict al resolver el
                 # future para evitar memory leaks si el caller ya hizo
                 # timeout y su ``finally`` no corrio (caso extremo:
@@ -936,6 +1047,13 @@ class TIAProcessGateway:
                 # (p.ej. el caller ya hizo timeout y se fue). El reader
                 # sigue procesando los siguientes.
         finally:
+            _dbg.debug(
+                "_read_worker_stdout_forever: exit (lines=%d, json=%d, "
+                "pending_drained=%d)",
+                _n_lines,
+                _n_json,
+                len(self._pending_responses),
+            )
             # Al salir del loop (EOF, stream roto, excepción), los
             # futures aún registrados se resuelven con ``RuntimeError``
             # para que el caller en vuelo reciba la excepción al
@@ -986,9 +1104,19 @@ class TIAProcessGateway:
         # de errores.
         t_dispatch_start = time.monotonic()
         _result: Any = None
+        _dbg.debug(
+            "_send_to_persistent_worker entry: command=%r args_keys=%s "
+            "timeout_override=%s",
+            command,
+            list((args or {}).keys()),
+            timeout_override,
+        )
         try:
             # Lazy start: si el proc no existe o ya murio, lo relanzamos.
             if self._worker_proc is None or self._worker_proc.returncode is not None:
+                _dbg.debug(
+                    "_send: worker_proc None/muerto, lazy-start"
+                )
                 await self._start_persistent_worker()
 
             # El reader_task es quien resuelve futures. Si murio (e.g.
@@ -1000,6 +1128,11 @@ class TIAProcessGateway:
                 # "error" (no "idle", porque un reader muerto es un fallo
                 # grave del worker, no una desconexion limpia del portal).
                 self._connection_state = "error"
+                _dbg.error(
+                    "_send: reader_task muerto (None=%s, done=%s). Sin respuestas posibles.",
+                    self._reader_task is None,
+                    self._reader_task.done() if self._reader_task else None,
+                )
                 raise RuntimeError(
                     "Reader task del worker persistente no esta vivo. "
                     "El subproceso probablemente murio."
@@ -1010,6 +1143,11 @@ class TIAProcessGateway:
             payload = json.dumps(
                 {"id": request_id, "command": command, "args": args or {}}
             ).encode("utf-8")
+            _dbg.debug(
+                "_send: serializado (request_id=%d, payload_bytes=%d)",
+                request_id,
+                len(payload),
+            )
 
             # ``asyncio.get_running_loop()`` es la API moderna (la antigua
             # ``get_event_loop()`` está deprecada fuera de un event loop
@@ -1026,12 +1164,26 @@ class TIAProcessGateway:
             try:
                 assert self._worker_proc.stdin is not None
                 self._worker_proc.stdin.write(payload + b"\n")
+                _dbg.debug(
+                    "_send: stdin.write(payload) OK (id=%d), await drain()...",
+                    request_id,
+                )
                 await self._worker_proc.stdin.drain()
+                _dbg.debug(
+                    "_send: stdin drain() completo (id=%d), await future...",
+                    request_id,
+                )
 
                 timeout = (
                     timeout_override if timeout_override is not None else self._timeout
                 )
                 response = await asyncio.wait_for(future, timeout=timeout)
+                _dbg.debug(
+                    "_send: future resuelta (id=%d, ok=%s, response_keys=%s)",
+                    request_id,
+                    response.get("ok"),
+                    list(response.keys()),
+                )
 
                 if not response.get("ok"):
                     err = response.get("error", "Error interno en el worker OT.")
@@ -1049,6 +1201,9 @@ class TIAProcessGateway:
                             "Worker persistente: error de conexion TIA (%s); "
                             "cache invalidada.",
                             err,
+                        )
+                        _dbg.debug(
+                            "_send: TIA connection error -> idle, cache invalidada"
                         )
                         raise TIAConnectionError(str(err))
                     raise RuntimeError(str(err))
@@ -1099,6 +1254,18 @@ class TIAProcessGateway:
             _t_dispatch_end = time.monotonic()
             _dispatch_ms = (_t_dispatch_end - t_dispatch_start) * 1000
             self._metrics.setdefault(command, []).append(_dispatch_ms)
+            # DA-012: este sys.stderr.write es sync I/O dentro de una
+            # coroutine asyncio. Si stderr está buffereado (PIPE,
+            # archivo, captura de launcher), el write puede bloquear
+            # el event loop y ESTRELLAR el SSE (ver analisis paso a
+            # paso en commit message). Para diagnóstico, lo logueamos
+            # vía el logger DEBUG tambien: el operario lo ve en el log
+            # sin pasar por stderr del proceso.
+            _dbg.debug(
+                "dispatch_total_ms=%d command=%r (timing, NO se emite a stderr)",
+                round(_dispatch_ms),
+                command,
+            )
             sys.stderr.write(
                 f"[PERSISTENT WORKER TIMING] command={command!r} "
                 f"dispatch_total_ms={round(_dispatch_ms)}\n"
@@ -1131,6 +1298,14 @@ class TIAProcessGateway:
             getattr(self._worker_proc, "pid", None) if self._worker_proc else None,
             getattr(self._worker_proc, "returncode", None) if self._worker_proc else None,
         )
+        _dbg.debug(
+            "_kill_persistent_worker entry: pid=%s returncode=%s "
+            "reader_task=%s heartbeat_task=%s",
+            getattr(self._worker_proc, "pid", None) if self._worker_proc else None,
+            getattr(self._worker_proc, "returncode", None) if self._worker_proc else None,
+            "alive" if (self._reader_task and not self._reader_task.done()) else "dead/None",
+            "alive" if (self._heartbeat_task and not self._heartbeat_task.done()) else "dead/None",
+        )
         # 1. Cancela el reader_task (consume stdout y resuelve futures).
         if self._reader_task is not None and not self._reader_task.done():
             self._reader_task.cancel()
@@ -1142,6 +1317,7 @@ class TIAProcessGateway:
                 # el reader ya no es util, el proc va a morir).
                 pass
         self._reader_task = None
+        _dbg.debug("_kill_persistent_worker: reader_task cancelado y esperado")
 
         # 2. Cancela el heartbeat_task. El loop ya tiene
         # ``except asyncio.CancelledError: return`` que cierra limpio.
@@ -1152,6 +1328,7 @@ class TIAProcessGateway:
             except (asyncio.CancelledError, Exception):
                 pass
         self._heartbeat_task = None
+        _dbg.debug("_kill_persistent_worker: heartbeat_task cancelado y esperado")
 
         # 3. Mata el subproceso. ``returncode is None`` significa que
         # esta vivo; si ya tiene ``returncode`` fijado, el proc ya
@@ -1169,7 +1346,12 @@ class TIAProcessGateway:
                 except asyncio.TimeoutError:
                     self._worker_proc.kill()
                     await self._worker_proc.wait()
-            except Exception:
+            except Exception as exc:
+                _dbg.debug(
+                    "_kill_persistent_worker: proc terminate/wait raise %s: %s",
+                    type(exc).__name__,
+                    exc,
+                )
                 # best-effort: cualquier fallo en el shutdown del proc
                 # (BrokenPipeError, ProcessLookupError, etc.) se
                 # ignora. Lo que importa es que el gateway quede en
@@ -1177,6 +1359,7 @@ class TIAProcessGateway:
                 pass
         self._worker_proc = None
         _log.info("_kill_persistent_worker: subproceso MATADO (self._worker_proc=None)")
+        _dbg.debug("_kill_persistent_worker: exit")
 
         # 4. Resuelve los futures pendientes con RuntimeError. Esto
         # desbloquea a cualquier ``_send_to_persistent_worker`` en vuelo
@@ -1381,6 +1564,11 @@ class TIAProcessGateway:
         _log.info(
             "gateway.disconnect: llamado (state=%r, worker_alive=%s)",
             getattr(self, "_connection_state", None),
+            self.is_worker_alive(),
+        )
+        _dbg.debug(
+            "gateway.disconnect entry: state=%r worker_alive=%s",
+            self._connection_state,
             self.is_worker_alive(),
         )
 
