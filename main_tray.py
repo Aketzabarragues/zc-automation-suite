@@ -36,101 +36,18 @@ from pathlib import Path
 
 
 # ── Configuración de logging ANTES de cualquier import "pesado" ────
-# La lógica de dónde van los logs vive en
-# ``core.application.log_paths.resolve_log_dir`` (modulo compartido con
-# ``worker_tia.py``). Aquí solo la invocamos y construimos el nombre
-# del fichero (``zc_tray.log``). El worker usa la misma función para
-# ``worker_openness.log``, así ambos acaban en la misma carpeta con
-# el mismo override por env var (``ZC_LOG_DIR``) y el mismo fallback
-# a ``%LocalAppData%\zc-automation-suite\logs\`` si el path por
-# defecto no se puede crear.
-# Importante: la función se importa AQUÍ (no arriba) porque la
-# config de logging debe quedar lista ANTES de cargar modulos pesados.
+# Desde DA-013 unificamos: setup_logging() en core.application.log_paths
+# escribe a UN SOLO archivo ``zc.log`` (mismo que ``--web`` y ``--mcp``).
+# Modo "tray" se ve como ``[zc.tray]`` en cada línea del log.
+# Override por ``ZC_LOG_DIR``, fallback a
+# ``%LocalAppData%\zc-automation-suite\logs\``. ZC_DEBUG=1 activa DEBUG.
+# Importante: setup_logging() se llama AQUÍ (no arriba) porque debe
+# quedar lista ANTES de cargar modulos pesados.
 
-from core.application.log_paths import resolve_log_dir  # noqa: E402
+from core.application.log_paths import setup_logging  # noqa: E402
 
-LOG_DIR = resolve_log_dir()
-LOG_FILE = LOG_DIR / "zc_tray.log"
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[
-        logging.FileHandler(LOG_FILE, encoding="utf-8"),
-        # En dev (python.exe) también a stdout. En modo windowed
-        # (PyInstaller ``console=False``) ``sys.stdout`` es ``None``;
-        # crear un ``StreamHandler(None)`` provoca un ``AttributeError``
-        # en cada ``emit()`` porque ``None.write`` no existe. Se filtra
-        # explícitamente para que el .exe windowed solo escriba al
-        # log file (``%LocalAppData%\zc-automation-suite\logs\zc_tray.log``).
-        *(
-            [logging.StreamHandler(sys.stdout)]
-            if sys.stdout is not None
-            else []
-        ),
-    ],
-)
-log = logging.getLogger("zc_tray")
-
-
-def _setup_logging_redirect() -> None:
-    """En modo frozen/windowed, reemplaza stdout/stderr por logger.
-
-    En dev (no frozen) no hace nada: stdout es terminal real.
-    Documentado para Fase 2; en este modo es no-op.
-    """
-    if getattr(sys, "frozen", False):
-        class _StreamToLogger:
-            def __init__(self, logger, level):
-                self._logger = logger
-                self._level = level
-                self._buffer = ""
-
-            def write(self, msg):
-                self._buffer += msg
-                while "\n" in self._buffer:
-                    line, _, self._buffer = self._buffer.partition("\n")
-                    if line and not line.isspace():
-                        self._logger.log(self._level, line.rstrip())
-                return len(msg)
-
-            def flush(self):
-                if self._buffer and not self._buffer.isspace():
-                    self._logger.log(self._level, self._buffer.rstrip())
-                    self._buffer = ""
-
-            def isatty(self) -> bool:
-                return False
-
-            def fileno(self) -> int:
-                raise OSError("_StreamToLogger has no file descriptor")
-
-        sys.stdout = _StreamToLogger(log, logging.INFO)  # type: ignore[assignment]
-        sys.stderr = _StreamToLogger(log, logging.ERROR)  # type: ignore[assignment]
-
-        # Reconfigurar loggers de uvicorn: por defecto añaden un
-        # ``StreamHandler(sys.stderr)`` a sus loggers (``uvicorn``,
-        # ``uvicorn.error``, ``uvicorn.access``). Como acabamos de
-        # redirigir ``sys.stderr`` al logger ``zc_tray`` a nivel
-        # ``ERROR``, las ``INFO`` de uvicorn se recapturan como
-        # ``ERROR`` y aparecen en el log con el tag equivocado
-        # (ej. ``[ERROR] zc_tray: INFO:     Started server process``).
-        # Solución: quitar los handlers de uvicorn y dejar que
-        # propaguen al root (``zc_tray``), que ya tiene el
-        # ``FileHandler`` con el formato consistente. Así, un INFO
-        # de uvicorn se loguea como ``[INFO] uvicorn: ...``.
-        for _uv_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
-            _uv_logger = logging.getLogger(_uv_name)
-            # Filtrar solo los StreamHandler a stderr capturable.
-            # Otros handlers (p.ej. FileHandler propios) se preservan.
-            _uv_logger.handlers = [
-                h for h in _uv_logger.handlers
-                if not (
-                    isinstance(h, logging.StreamHandler)
-                    and getattr(h, "stream", None) in (None, sys.__stderr__)
-                )
-            ]
-            _uv_logger.propagate = True
+LOG_FILE = setup_logging("tray")
+log = logging.getLogger("zc.tray")
 
 
 def _resolve_icon_path() -> Path | None:
