@@ -416,6 +416,50 @@ def _h_get_project_info(args: dict, tia_client: "SyncTIAClient") -> dict:
     return result
 
 
+# ---------------------------------------------------------------------------
+# Helpers adicionales (4.1.2a5a) para scan_blocks. Leen nombre / ruta /
+# nombre de tabla tolerando errores del wrapper .NET (UnicodeDecodeError,
+# COM transients).
+# ---------------------------------------------------------------------------
+def _safe_get_block_name(block: Any) -> str | None:
+    """Lee el nombre de un bloque tolerando UnicodeDecodeError y COM."""
+    try:
+        if hasattr(block, "get_name"):
+            return block.get_name()
+        if hasattr(block, "Name"):
+            return block.Name
+    except UnicodeDecodeError:
+        return None
+    except Exception:
+        return None
+    return None
+
+
+def _safe_get_block_path(block: Any) -> str:
+    """Lee la ruta jerarquica de un bloque tolerando COM exceptions.
+
+    Devuelve "" si falla (el bloque sigue siendo cacheado con su nombre).
+    """
+    try:
+        if hasattr(block, "get_path"):
+            return str(block.get_path())
+        if hasattr(block, "Path"):
+            return str(block.Path)
+    except Exception:
+        return ""
+    return ""
+
+
+def _safe_get_table_name(table: Any) -> str | None:
+    """Lee el nombre de una PlcTagTable tolerando UnicodeDecodeError."""
+    try:
+        return table.get_name()
+    except UnicodeDecodeError:
+        return None
+    except Exception:
+        return None
+
+
 def register_core_commands(target: SyncTIAClient) -> None:
     """Registra los comandos core (lifecycle + inspection) en ``target``.
 
