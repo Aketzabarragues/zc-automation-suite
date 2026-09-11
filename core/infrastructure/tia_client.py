@@ -24,7 +24,10 @@ from __future__ import annotations
 import logging
 import os
 import queue
+import re
 from typing import Any, Callable
+
+from core.models.bloque_plc import BloquePLC
 
 logger = logging.getLogger(__name__)
 
@@ -458,6 +461,63 @@ def _safe_get_table_name(table: Any) -> str | None:
         return None
     except Exception:
         return None
+
+
+def _scan_block_group_recursive(group_or_blocks: Any) -> list[dict]:
+    """Recorre recursivamente un grupo o coleccion de bloques -> DTOs dict.
+
+    Estrategia (espejo del legacy scanner._scan_group_recursive):
+      1. Extrae la lista plana via get_blocks() (preferred) o .Blocks.
+         Si ninguno, intenta __iter__.
+      2. Cada bloque: nombre, ruta, tipo derivado, numero del nombre.
+      3. Recurre en sub-grupos via get_groups() / .Groups.
+
+    Returns:
+        Lista de dicts con shape BloquePLC.to_dict().
+        Bloques con nombre inaccesible (UnicodeDecodeError) se omiten.
+    """
+    blocks_iter: list = []
+    try:
+        if hasattr(group_or_blocks, "get_blocks"):
+            blocks_iter = list(group_or_blocks.get_blocks() or [])
+        elif hasattr(group_or_blocks, "Blocks"):
+            blocks_iter = list(group_or_blocks.Blocks or [])
+        elif hasattr(group_or_blocks, "__iter__"):
+            blocks_iter = list(group_or_blocks)
+    except Exception:
+        blocks_iter = []
+
+    out: list[dict] = []
+    for block in blocks_iter:
+        nombre = _safe_get_block_name(block)
+        if not nombre:
+            continue
+        ruta = _safe_get_block_path(block)
+        tipo = BloquePLC.detect_tipo(nombre)
+        match = re.match(r"^(DB|FB|FC|OB|UDT)(\d+)", nombre, re.IGNORECASE)
+        numero = int(match.group(2)) if match else 0
+        out.append(
+            BloquePLC(
+                nombre=str(nombre),
+                numero=numero,
+                tipo=tipo,
+                ruta=ruta,
+            ).to_dict()
+        )
+
+    groups: list = []
+    try:
+        if hasattr(group_or_blocks, "get_groups"):
+            groups = list(group_or_blocks.get_groups() or [])
+        elif hasattr(group_or_blocks, "Groups"):
+            groups = list(group_or_blocks.Groups or [])
+    except Exception:
+        groups = []
+
+    for sub in groups:
+        out.extend(_scan_block_group_recursive(sub))
+
+    return out
 
 
 def register_core_commands(target: SyncTIAClient) -> None:
