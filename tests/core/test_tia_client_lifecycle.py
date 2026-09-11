@@ -29,11 +29,13 @@ def client_with_handlers():
 
 
 # ------------------------------------------------------------ register_core_commands
-def test_register_core_commands_registers_open_handlers(client_with_handlers):
-    """4.1.2a1a: solo open_new_portal + open_project. save/close van en 4.1.2a1b."""
+def test_register_core_commands_registers_four_lifecycle(client_with_handlers):
+    """4.1.2a1a + 4.1.2a1b: los 4 comandos lifecycle ya registrados."""
     assert set(client_with_handlers.registered_commands()) == {
         "open_new_portal",
         "open_project",
+        "save_project",
+        "close_project",
     }
 
 

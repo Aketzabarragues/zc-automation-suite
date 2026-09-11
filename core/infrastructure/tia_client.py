@@ -248,6 +248,35 @@ def _h_open_project(args: dict, tia_client: "SyncTIAClient") -> dict:
     return {"opened": True, "project_file_path": project_file_path}
 
 
+def _h_save_project(args: dict, tia_client: "SyncTIAClient") -> dict:
+    """Guarda los cambios pendientes del proyecto activo."""
+    portal = tia_client.wrapper
+    if portal is None:
+        raise RuntimeError(
+            "No portal attached. Llama a attach_portal primero."
+        )
+    project = _get_active_project(portal)
+    project.save()
+    return {"saved": True}
+
+
+def _h_close_project(args: dict, tia_client: "SyncTIAClient") -> dict:
+    """Cierra el proyecto activo.
+
+    ADVERTENCIA: project.close() destruye permanentemente todos los
+    cambios no guardados. El caller es responsable de haber invocado
+    save() antes si la persistencia era necesaria.
+    """
+    portal = tia_client.wrapper
+    if portal is None:
+        raise RuntimeError(
+            "No portal attached. Llama a attach_portal primero."
+        )
+    project = _get_active_project(portal)
+    project.close()
+    return {"closed": True}
+
+
 def register_core_commands(target: SyncTIAClient) -> None:
     """Registra los comandos core (lifecycle + inspection) en ``target``.
 
@@ -258,12 +287,14 @@ def register_core_commands(target: SyncTIAClient) -> None:
     Uso en main.py (4.5.1): ``register_core_commands(tia_client)``.
     Uso en tests: ``register_core_commands(client); client.attach_wrapper(mock)``.
 
-    4.1.2a1a (este commit): open_new_portal, open_project.
-    4.1.2a1b (siguiente): save_project, close_project.
+    4.1.2a1a: open_new_portal, open_project.
+    4.1.2a1b (este commit): save_project, close_project.
     4.1.2a2+: list_blocks, ping, list_plcs, get_project_info, scan_blocks.
     """
     target.register_command("open_new_portal", _h_open_new_portal)
     target.register_command("open_project", _h_open_project)
+    target.register_command("save_project", _h_save_project)
+    target.register_command("close_project", _h_close_project)
 
 
 # Singleton de proceso. main.py (4.5.1) hace tia_client = SyncTIAClient().
