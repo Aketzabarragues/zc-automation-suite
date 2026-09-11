@@ -317,6 +317,55 @@ def _h_list_blocks(args: dict, tia_client: "SyncTIAClient") -> dict:
     return {"blocks": names, "plc_name": plc_name}
 
 
+def _safe_short_designation(plc: Any) -> str | None:
+    """Lee ``ShortDesignation`` del PLC de forma defensiva.
+
+    Cubre 3 casos:
+      1. La property no existe en este modelo de PLC.
+      2. La property existe pero devuelve None o string vacio.
+      3. El read lanza (COM, PermissionDenied, etc.).
+
+    Devuelve None en cualquiera -> la SPA pinta "Modelo: -" cuando es None.
+
+    IMPORTANTE: pasar nombre como named arg (name=). Los metodos .NET
+    sobrecargados resuelven mal la overload con positional (ver §list_plcs).
+    """
+    getter = getattr(plc, "get_property", None)
+    if getter is None:
+        return None
+    try:
+        value = getter(name="ShortDesignation")
+    except Exception:
+        return None
+    if value is None:
+        return None
+    try:
+        s = str(value).strip()
+    except Exception:
+        return None
+    return s if s else None
+
+
+def _h_list_plcs(args: dict, tia_client: "SyncTIAClient") -> dict:
+    """Lista los PLCs del proyecto activo con metadatos para la SPA.
+
+    Returns:
+        ``{"plcs": [{"name": str, "short_designation": str | None}, ...]}``.
+    """
+    portal = tia_client.wrapper
+    if portal is None:
+        raise RuntimeError(
+            "No portal attached. Llama a attach_portal primero."
+        )
+    project = _get_active_project(portal)
+    plcs = project.get_plcs()
+    result = [
+        {"name": plc.get_name(), "short_designation": _safe_short_designation(plc)}
+        for plc in plcs
+    ]
+    return {"plcs": result}
+
+
 def register_core_commands(target: SyncTIAClient) -> None:
     """Registra los comandos core (lifecycle + inspection) en ``target``.
 
@@ -338,6 +387,7 @@ def register_core_commands(target: SyncTIAClient) -> None:
     target.register_command("close_project", _h_close_project)
     target.register_command("ping", _h_ping)
     target.register_command("list_blocks", _h_list_blocks)
+    target.register_command("list_plcs", _h_list_plcs)
 
 
 # Singleton de proceso. main.py (4.5.1) hace tia_client = SyncTIAClient().
