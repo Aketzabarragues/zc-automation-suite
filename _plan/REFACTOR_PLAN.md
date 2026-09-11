@@ -330,11 +330,11 @@ Si un paso no cumple estos criterios, se subdivide.
 >
 > **Regla del plan**: cada sub-paso modifica 1-2 archivos, <200 líneas, commiteable solo, validado con el operario antes del siguiente. Si un sub-paso se complica, se subdivide.
 >
-> **Estado**: 🟡 Decisión aprobada (DA-014). NO se arranca código hasta validar el spike (Paso 4.0.1) con el operario.
+> **Estado**: 🟢 Spike 4.0.1 validado y commiteado (`a85857a`). Procediendo con 4.1.x.
 
 ### 4.0 Spike técnico OB1 (validación previa)
 
-#### [ ] Paso 4.0.1 — Spike OB1 mínimo viable
+#### [x] Paso 4.0.1 — Spike OB1 mínimo viable ✅
 - **Archivos**: NUEVO script autocontenido `tests/spikes/ob1_spike.py` (o `core/infrastructure/_spike_ob1.py`, ~150 líneas).
 - **Acción**: prototipo que demuestra el modelo OB1 sin tocar el código de producción:
   - `SyncTIAClient` stub con 1 comando (`ping`) y 1 método directo (sin asyncio, sin subproceso).
@@ -345,6 +345,7 @@ Si un paso no cumple estos criterios, se subdivide.
 - **Verificación**: el operario ejecuta el spike en su máquina, ve que arranca y responde. Si funciona, se procede a 4.1+. Si falla, se diagnostica antes de tocar nada más.
 - **Output**: commit con el spike en `tests/spikes/`. Si valida, se mantiene como referencia. Si no, se descarta.
 - **Tiempo estimado**: 1 día.
+- **Estado**: ✅ Commit `a85857a` en `feature/spike-ob1`. 210 inserciones (175 líneas de código + headers). Operario validó que arranca + 3 endpoints responden + sin subproceso. Stack: Flask 3.1.3 + threading + queue.Queue (sin asyncio, sin uvicorn, sin asyncio.subprocess).
 
 ### 4.1 tia_client.py (reemplaza gateway.py + worker_tia.py)
 
@@ -471,14 +472,14 @@ Si un paso no cumple estos criterios, se subdivide.
 | **Feature 2 — `ProgressBar` per-instance** | **3** | **3** | **🟡 Pendiente (A creado sin commit, B y C por hacer)** |
 | **3.3.3.x (catálogo vía SSE)** | 3 | 3 | 🟡 Pendiente (desbloqueado) |
 | **3.3.2 (eliminar `loadCatalog`)** | 1 | 1 | ⏸️ Bloqueado por 3.3.3.x |
-| **DA-014 — Fase 4 Refactor OB1** | 16 | 16 | 🟡 Pendiente (spike 4.0.1 primero) |
+| **DA-014 — Fase 4 Refactor OB1** | 16 | 16 | 🟡 En curso (4.0.1 ✅ `a85857a`; 4.1.1 siguiente) |
 | Demo final + rebuild `.exe` | — | — | Pendiente |
-| **Total** | **~78 pasos** | **~78 commits** | **~61 hechos** |
+| **Total** | **~78 pasos** | **~78 commits** | **~62 hechos** |
 
 **Commits revertidos** (parte de la historia, no cuentan en el total):
 - `e07c33a` — DA-012 `stderr=DEVNULL` (REVERTIDO por `83cf920`, hipótesis descartada).
 
-**Tiempo estimado restante**: ~7-8 días (~24 commits: Feature 2 × 3 + 3.3.3.x × 3 + 3.3.2 + DA-014 Fase 4 OB1 × 16). Validación con operario entre cada paso.
+**Tiempo estimado restante**: ~6-7 días (~23 commits: Feature 2 × 3 + 3.3.3.x × 3 + 3.3.2 + DA-014 Fase 4 OB1 × 15 restantes). Validación con operario entre cada paso.
 
 ---
 
