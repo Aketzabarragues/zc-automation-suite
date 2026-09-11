@@ -29,14 +29,23 @@ def client_with_handlers():
 
 
 # ------------------------------------------------------------ register_core_commands
-def test_register_core_commands_registers_four_lifecycle(client_with_handlers):
-    """4.1.2a1a + 4.1.2a1b: los 4 comandos lifecycle ya registrados."""
-    assert set(client_with_handlers.registered_commands()) == {
+def test_register_core_commands_includes_lifecycle_handlers(client_with_handlers):
+    """Los 4 comandos lifecycle + los de inspection (4.1.2a2-5) estan registrados."""
+    expected = {
+        # 4.1.2a1
         "open_new_portal",
         "open_project",
         "save_project",
         "close_project",
+        # 4.1.2a2
+        "ping",
+        "list_blocks",
+        # 4.1.2a3-5
+        "list_plcs",
+        "get_project_info",
+        "scan_blocks",
     }
+    assert expected <= set(client_with_handlers.registered_commands())
 
 
 # ------------------------------------------------------------ open_new_portal
