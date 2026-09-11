@@ -25,6 +25,7 @@ import logging
 import os
 import queue
 import re
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 from core.models.bloque_plc import BloquePLC
@@ -520,6 +521,86 @@ def _scan_block_group_recursive(group_or_blocks: Any) -> list[dict]:
     return out
 
 
+def _h_scan_blocks(args: dict, tia_client: "SyncTIAClient") -> dict:
+    """Escanea recursivamente TODOS los bloques, tag tables y UDTs de un PLC.
+
+    Returns:
+        ``{
+            "plc_name":   str,
+            "blocks":     [{nombre, numero, tipo, ruta}, ...],
+            "tag_tables": [{nombre, numero, tipo, ruta}, ...],
+            "udts":       [{nombre, numero, tipo, ruta}, ...],
+            "scanned_at": str (ISO 8601 UTC),
+        }``
+
+    Raises:
+        ValueError: si ``plc_name`` falta o esta vacio.
+        RuntimeError: si no hay proyecto activo o el PLC no existe.
+    """
+    plc_name: str = args.get("plc_name", "")
+    if not plc_name:
+        raise ValueError("Se requiere el argumento 'plc_name'.")
+
+    portal = tia_client.wrapper
+    if portal is None:
+        raise RuntimeError(
+            "No portal attached. Llama a attach_portal primero."
+        )
+    project = _get_active_project(portal)
+    target_plc = _find_plc(project, plc_name)
+
+    # Bloques: recorrido recursivo.
+    program_blocks = target_plc.get_program_blocks()
+    blocks_list = _scan_block_group_recursive(program_blocks)
+
+    # Tag tables: defensivo; si TIA falla, log warning y seguimos.
+    tag_tables_objs: list = []
+    try:
+        tag_tables_objs = list(target_plc.get_plc_tag_tables() or [])
+    except Exception as exc:
+        logger.warning(
+            "No se pudieron listar PlcTagTables del PLC '%s': %s",
+            plc_name, exc,
+        )
+
+    tag_tables_list: list[dict] = []
+    for table in tag_tables_objs:
+        nombre = _safe_get_table_name(table)
+        if not nombre:
+            continue
+        ruta = _safe_get_block_path(table)
+        tag_tables_list.append(
+            BloquePLC(
+                nombre=str(nombre),
+                numero=0,
+                tipo="OTHER",
+                ruta=ruta,
+            ).to_dict()
+        )
+
+    # UDTs: coleccion distinta de program_blocks. Defensivo: si TIA no
+    # expone get_user_data_types() o lanza, devolvemos udts=[] y dejamos
+    # que blocks/tag_tables sigan devolviendo su contenido.
+    udts_list: list[dict] = []
+    try:
+        user_data_types = target_plc.get_user_data_types()
+        udts_list = _scan_block_group_recursive(user_data_types)
+    except Exception as exc:
+        logger.warning(
+            "No se pudieron listar User Data Types del PLC '%s': %s",
+            plc_name, exc,
+        )
+        udts_list = []
+
+    return {
+        "plc_name": plc_name,
+        "blocks": blocks_list,
+        "tag_tables": tag_tables_list,
+        "udts": udts_list,
+        "scanned_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 def register_core_commands(target: SyncTIAClient) -> None:
     """Registra los comandos core (lifecycle + inspection) en ``target``.
 
@@ -543,6 +624,7 @@ def register_core_commands(target: SyncTIAClient) -> None:
     target.register_command("list_blocks", _h_list_blocks)
     target.register_command("list_plcs", _h_list_plcs)
     target.register_command("get_project_info", _h_get_project_info)
+    target.register_command("scan_blocks", _h_scan_blocks)
 
 
 # Singleton de proceso. main.py (4.5.1) hace tia_client = SyncTIAClient().
