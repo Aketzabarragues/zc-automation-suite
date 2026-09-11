@@ -2,7 +2,7 @@
 
 > **Lección del greenfield (sept-2026):** tareas grandes = alucinaciones de los agentes. Cada paso modifica 1-2 archivos, < 200 líneas, commiteable solo, verificable independientemente. Si delegamos 1 archivo a la vez, el agente NO inventa nada.
 
-> **Rama actual:** `main` (HEAD `3a882a0`). Es la única rama operativa; no hay "rama legacy" ni "rama greenfield" operativas (la preservada `greenfield/iec-61131-3` es solo referencia, no se toca).
+> **Rama actual:** `main` (HEAD `2279887`). Es la única rama operativa; no hay "rama legacy" ni "rama greenfield" operativas (la preservada `greenfield/iec-61131-3` es solo referencia, no se toca).
 > **Regla dura:** nada de lo que está en `main` antes del refactor cambia sin pedir. Cada paso se valida con el operario antes del siguiente.
 
 ---
@@ -466,18 +466,19 @@ Si un paso no cumple estos criterios, se subdivide.
 | DA-005.5 (wiring Engine + 7 FBs) | 1 | 1 | ✅ (`3a882a0`) |
 | DA-011 (snapshot inicial SSE) | 1 | 1 | ✅ (`e70c560`) |
 | DA-012 (keepalive SSE, fix real) | 1 | 1 | ✅ (`7b5fd01`) |
-| **ZC_DEBUG=1 logging infra** (DA-012 historia) | 1 | 1 | ✅ (`9d6c208`) |
+| ZC_DEBUG=1 logging infra (DA-012 historia) | 1 | 1 | ✅ (`9d6c208`) |
+| **DA-013 (log unificado `zc.log`)** | **3** | **3** | **✅ (`064f153`, `62ae0db`, `2279887`)** |
+| **Feature 2 — `ProgressBar` per-instance** | **3** | **3** | **🟡 Pendiente (A creado sin commit, B y C por hacer)** |
 | **3.3.3.x (catálogo vía SSE)** | 3 | 3 | 🟡 Pendiente (desbloqueado) |
 | **3.3.2 (eliminar `loadCatalog`)** | 1 | 1 | ⏸️ Bloqueado por 3.3.3.x |
-| **DA-013 (log unificado `zc.log`)** | 1 | 1 | 🟡 Pendiente |
 | **DA-014 — Fase 4 Refactor OB1** | 16 | 16 | 🟡 Pendiente (spike 4.0.1 primero) |
 | Demo final + rebuild `.exe` | — | — | Pendiente |
-| **Total** | **~73 pasos** | **~73 commits** | **~58 hechos** |
+| **Total** | **~78 pasos** | **~78 commits** | **~61 hechos** |
 
 **Commits revertidos** (parte de la historia, no cuentan en el total):
 - `e07c33a` — DA-012 `stderr=DEVNULL` (REVERTIDO por `83cf920`, hipótesis descartada).
 
-**Tiempo estimado restante**: ~7-8 días (~24 commits: 3.3.3.x × 3 + 3.3.2 + DA-013 + DA-014 Fase 4 OB1 × 16). Validación con operario entre cada paso.
+**Tiempo estimado restante**: ~7-8 días (~24 commits: Feature 2 × 3 + 3.3.3.x × 3 + 3.3.2 + DA-014 Fase 4 OB1 × 16). Validación con operario entre cada paso.
 
 ---
 
@@ -546,10 +547,11 @@ Documentadas en cada FB durante la implementación; las recojo aquí para que el
 
 ## Cierre del refactor
 
-Cuando todos los ~73 pasos estén hechos y validados:
+Cuando todos los ~78 pasos estén hechos y validados:
 - 1 EventSource por sesión, 0 polling.
-- 1 archivo de log (`zc.log`).
+- 1 archivo de log (`zc.log`). ✅ HECHO (DA-013, 3 commits: `064f153`, `62ae0db`, `2279887`).
 - Todos los `use_case.py` migrados a `function_*.py` con `nStep`.
+- `ProgressTracker` legacy reemplazado por `ProgressBar` per-instance en cada FB. ✅ Coexisten durante la migración (Feature 2 + DA-014).
 - `store.js` refactorizado in-place (sigue siendo `reactive`, alimentado por SSE).
 - **Arquitectura OB1**: single-threaded cyclic main loop en hilo principal + Flask sync en hilo secundario + TIA wrapper directo sin subproceso. Sin asyncio, sin uvicorn, sin FastAPI, sin worker subprocess.
 - Tests pasan (sin `pytest-asyncio` en estos paths).
@@ -568,12 +570,16 @@ Aketza eligió **Opción A: Wiring → 3.3.3.x → 3.3.2 → Fase 4 (OB1) → de
 4. **Demo contra TIA real** (S7-1500 del operario). Valida el `attach_portal`, el `engine.tick`, el SSE de los `fb_changed`, el snapshot inicial con los 7 FBs, y los keepalives cada 15s.
 5. **3.3.3.x** — Catálogo por SSE (3 commits, ~65 líneas). Backend incluye el catálogo en el snapshot SSE. HMI lo consume. **Desbloquea 3.3.2**.
 6. **3.3.2** — Eliminar `loadCatalog` (1 commit, ~-15 líneas). Dead code una vez el catálogo llega por SSE.
-7. **DA-013** — Log unificado `zc.log` (1 commit, ~50 líneas). Setup centralizado del logging en `_tia_lifespan`. Captura los logs que DA-012 redirige a DEVNULL. Entra antes de Fase 4.
-8. **DA-014 — Fase 4 Refactor OB1** (16 sub-pasos, ver abajo). Spike (4.0.1) valida approach antes de tocar producción. Si valida, se procede 4.1-4.9 incrementalmente. Si NO valida, se aborta y Fase 4 vuelve al plan original de "limpieza" (borrar use cases, domains, etc.).
-9. **Demo final** contra TIA real.
-10. **Rebuild del `.exe`** con PyInstaller (adaptado para Flask + threading si OB1 llega al 4.9.2).
+7. **DA-013** — Log unificado `zc.log` ✅ HECHO (`064f153`, `62ae0db`, `2279887`). Ver detalles en sección DA-013.
+8. **Feature 2 — `ProgressBar` per-instance** (3 commits planeados, ~280 líneas; A ya creado sin commit). Pieza nueva pedida por el operario el 2026-09-11: cada FB crea su propio `ProgressBar` en `_start_locked` (no Faceplate, no Singleton); publica al `EventBus` para SSE; shape compatible con `ProgressIndicator.vue` (frontend sin cambios). Coexiste con `ProgressTracker` legacy hasta Fase 4.
+   - **A — `core/application/progress_bar.py`** (~280 líneas, YA creado, sin commit). Clase `ProgressBar` con `ProgressBarStage`, métodos `start`/`advance`/`complete`/`error`/`attach_to_bus`/`to_dict`. Idempotente, sin dependencias.
+   - **B — `core/plc/engine.py` + integración con `progress_bar.py`** (~50 líneas). Engine tiene `_active_progress_bars: dict[str, ProgressBar]` + `register_progress_bar(pb)`/`unregister_progress_bar(pb)`. `Engine.snapshot()` incluye `"progress_bars": [...]` con los bars activos.
+   - **C — Ejemplo de uso en `function_SubirExcel.py`** (~30 líneas). El FB crea un `ProgressBar` en `_start_locked`, llama `attach_to_bus(self._engine._event_bus)`, llama `advance(stage_id, detail=...)` en cada sub-etapa, `complete()` o `error(msg)` al final. **No reemplaza** el `ProgressTracker` legacy que ya usa; es ejemplo de adopción.
+9. **DA-014 — Fase 4 Refactor OB1** (16 sub-pasos, ver abajo). Spike (4.0.1) valida approach antes de tocar producción. Si valida, se procede 4.1-4.9 incrementalmente. Si NO valida, se aborta y Fase 4 vuelve al plan original de "limpieza" (borrar use cases, domains, etc.).
+10. **Demo final** contra TIA real.
+11. **Rebuild del `.exe`** con PyInstaller (adaptado para Flask + threading si OB1 llega al 4.9.2).
 
-**Total commits pendientes**: ~24 (3.3.3.x × 3 + 3.3.2 + DA-013 + DA-014 Fase 4 OB1 × 16). Sin contar demo + rebuild que no son commits.
+**Total commits pendientes**: ~24 (Feature 2 × 3 + 3.3.3.x × 3 + 3.3.2 + DA-014 Fase 4 OB1 × 16). DA-013 ya está hecho y descontado. Sin contar demo + rebuild que no son commits.
 
 **Nota sobre DA-014**: el spike 4.0.1 es **validación previa obligatoria**. Si el spike falla, no se arranca ningún sub-paso de Fase 4. Se vuelve al plan original de limpieza (4.0.x borrado de carpetas) y se documenta el motivo del fallo en DA-014 (post-mortem).
 
@@ -657,14 +663,24 @@ Aketza eligió **Opción A: Wiring → 3.3.3.x → 3.3.2 → Fase 4 (OB1) → de
 
 - **Verificación final**: 1151 pass / 1 fail preexistente (logging flaky) / 0 regresiones nuevas.
 
-### DA-013 (2026-09-10, mavis) — Log unificado `zc.log` no aplicado (era DA-012)
+### DA-013 (2026-09-10 → 2026-09-11, mavis + operario) — Log unificado `zc.log` ✅ APLICADO (con desvíos)
 
-- **Contexto**: el plan original proponía "1 archivo de log (`zc.log`)" en el cierre. En la realidad, `logs/worker_ot.log` (414 KB) existe pero `zc.log` no. `ZC_LOG_DIR` no está seteado. Cada componente configura su logger de forma independiente.
-- **Causa raíz**: el setup centralizado de logging (Fase 4) no se ha aplicado. El cierre del refactor lo cubre, pero está mezclado con la limpieza destructiva.
-- **Síntoma observable**: los logs están dispersos. Para diagnosticar un problema del operario hay que abrir varios archivos (`worker_ot.log`, logs de uvicorn, etc.). Tras DA-012, los logs de timing del worker SÍ se perderán (redirigidos a DEVNULL), así que un `zc.log` centralizado cobra más valor.
-- **Fix previsto** (1 commit, ~50 líneas): crear `core/infrastructure/log_paths.py` con `resolve_log_dir()` y `setup_root_logging()` que configura el `logging.root` con un `FileHandler` apuntando a `$ZC_LOG_DIR/zc.log` (o `<exe_dir>/logs/zc.log` en frozen; `<cwd>/logs/zc.log` en dev). Idempotente. Lo llama el `_tia_lifespan` en startup. Captura los logs que DA-012 redirige a DEVNULL.
-- **Cuándo**: DESPUÉS de 3.3.2 y ANTES de Fase 4.
-- **Influencia en el plan**: DA-007 refleja el orden nuevo.
+> **Estado**: ✅ HECHO en 3 commits (`064f153`, `62ae0db`, `2279887`). Nombre y ubicación distintos a los previstos originalmente; detalles abajo.
+
+- **Contexto**: el plan original proponía "1 archivo de log (`zc.log`)" en el cierre. En la realidad pre-DA-013, `logs/worker_ot.log` (414 KB) existía pero `zc.log` no. Cada componente (`main.py`, `main_tray.py`, worker TIA) configuraba su logger de forma independiente con `basicConfig` ad-hoc.
+- **Síntoma observable**: los logs estaban dispersos (consola de uvicorn + `logs/worker_ot.log` + logs de pystray). Tras DA-012 (quirk de uvicorn+Proactor), la necesidad de un log unificado se volvió más acuciante.
+- **Implementación real** (3 commits en lugar del 1 previsto, por "delegar en pasos pequeños"):
+  - `064f153` — `core/application/log_paths.py` (NUEVO, +153/-17 líneas): `setup_logging(mode: str)` idempotente. FileHandler único a `<log_dir>/zc.log` (append), formato `%(asctime)s.%(msecs)03d [%(levelname)s] [%(name)s] %(message)s`. Override `ZC_LOG_DIR`, fallback a `<exe_dir>/logs` (frozen) o `<cwd>/logs` (dev). Respeta `ZC_DEBUG=1` para subir a DEBUG.
+  - `62ae0db` — `main.py` (+9 líneas): `setup_logging("web")` / `setup_logging("mcp")` antes de imports pesados en `--web` y `--mcp`. Logger names `zc.web` / `zc.mcp`.
+  - `2279887` — `main_tray.py` (+12/-95 líneas): reemplazado `basicConfig` propio por `setup_logging("tray")`, eliminada la función `_setup_logging_redirect`. Logger name `zc.tray`.
+- **Desvíos del plan original**:
+  - **3 commits en lugar de 1** (regla "delegar en pasos pequeños" del operario).
+  - **Ruta `core/application/` en lugar de `core/infrastructure/`** (sigue convención del operario: código de aplicación/setup vive en `application/`).
+  - **Invocado desde `main.py` y `main_tray.py` en lugar de `_tia_lifespan`**. Razón: `setup_logging()` debe correr ANTES de imports pesados (uvicorn, pystray, etc.) para capturar sus logs. El lifespan arranca tarde.
+  - **Cubre `--web`, `--mcp`, `tray`** (3 modos de entrada). El worker TIA ya loguea a `zc.log` por append (sin cambios — usa `logging` stdlib).
+  - **Nombre `setup_logging(mode)` en lugar de `setup_root_logging()`** (más explícito: mode-aware).
+- **Verificación**: 1151 pass / 1 fail preexistente / 0 regresiones. `python -c "from core.application.log_paths import setup_logging; setup_logging('test')"` verificado: idempotente, append mode, formato correcto, ZC_DEBUG=1 → DEBUG.
+- **Pendiente para Fase 4 OB1**: el formato y el file handler se mantienen; solo cambia el bootstrap (sin `_tia_lifespan`, lo llama `main.py` directo).
 
 ### DA-014 (2026-09-11, operario + mavis) — Refactor OB1: arquitectura single-threaded cyclic
 
