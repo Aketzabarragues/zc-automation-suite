@@ -16,8 +16,10 @@ devuelve el placeholder histórico.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import os
 from typing import Any, AsyncIterator, Optional
 
 from fastapi import APIRouter, Request
@@ -27,6 +29,16 @@ from core.plc.engine import Engine
 from core.sse.event_bus import EventBus
 
 _dbg = logging.getLogger("zc.debug.da012")
+
+# DA-012: keepalive SSE. Patron estandar de SSE en produccion.
+# Yield un comentario ':' cada N segundos para forzar a uvicorn a
+# flushear bytes al socket TCP. Sin esto, en Windows con un subprocess
+# worker con PIPE handles, uvicorn retiene el PRIMER chunk del
+# streaming response en su buffer interno (quirk documentado del
+# ProactorEventLoop + multiples PIPE handles) y el cliente recibe
+# 0 bytes durante 10-30s hasta que el buffer drena o se cierra la
+# conexion. Override por env: ZC_SSE_KEEPALIVE_SECONDS (default 15).
+KEEPALIVE_SECONDS = float(os.environ.get("ZC_SSE_KEEPALIVE_SECONDS", "15.0"))
 
 
 def _format_sse(event: dict[str, Any]) -> bytes:
@@ -70,13 +82,29 @@ async def _stream(
         _dbg.debug(
             "_stream: PRIMER yield snapshot enviado al cliente (post-yield)"
         )
-        # 2) Loop de eventos del bus hasta cancelación del cliente.
+        # 2) Loop de eventos del bus. DA-012: si el bus esta vacio
+        # durante mas de KEEPALIVE_SECONDS, emitimos un comentario SSE
+        # ':keepalive' (clientes EventSource lo ignoran) para forzar
+        # a uvicorn a flushear bytes al socket TCP. Sin esto, en
+        # Windows con subprocess worker PIPE handles, uvicorn retiene
+        # el chunk del snapshot en su buffer interno y el cliente
+        # recibe 0 bytes. Ver commit DA-012 para el diagnostico.
         while True:
-            event = await queue.get()
-            _dbg.debug(
-                "_stream: queue.get() retorno event type=%r", event.get("type")
-            )
-            yield _format_sse(event)
+            try:
+                event = await asyncio.wait_for(
+                    queue.get(), timeout=KEEPALIVE_SECONDS
+                )
+                _dbg.debug(
+                    "_stream: queue.get() retorno event type=%r", event.get("type")
+                )
+                yield _format_sse(event)
+            except asyncio.TimeoutError:
+                # No hay eventos en KEEPALIVE_SECONDS: emitimos un
+                # comentario SSE para forzar el flush del transport.
+                _dbg.debug(
+                    "_stream: keepalive (no eventos en %.1fs)", KEEPALIVE_SECONDS
+                )
+                yield b": keepalive\n\n"
     finally:
         bus.unsubscribe(queue)
         _dbg.debug("_stream: finally, queue unsubscribed")
