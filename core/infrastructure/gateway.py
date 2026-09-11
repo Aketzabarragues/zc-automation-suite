@@ -662,18 +662,12 @@ class TIAProcessGateway:
             "PYTHONUTF8": "1",
         }
 
-        # DA-012: stderr=DEVNULL (antes PIPE). El worker escribe logs
-        # de timing a sys.stderr y llenaba el buffer (reader_task solo
-        # lee stdout). El subproceso se bloqueaba en el write y con el
-        # el event loop de asyncio compartido con uvicorn, el SSE
-        # aceptaba conexiones pero no emitia bytes. DEVNULL elimina el
-        # PIPE; los logs de timing se recuperan en zc.log en DA-013.
         proc = await asyncio.create_subprocess_exec(
             sys.executable,
             *launch_args,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
             env=worker_env,
         )
         self._worker_proc = proc
