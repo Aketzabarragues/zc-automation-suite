@@ -277,6 +277,46 @@ def _h_close_project(args: dict, tia_client: "SyncTIAClient") -> dict:
     return {"closed": True}
 
 
+def _h_ping(args: dict, tia_client: "SyncTIAClient") -> dict:
+    """Verifica si la conexion con TIA Portal sigue activa.
+
+    Retorna ``{"pid": <int>}`` si TIA responde. Levanta RuntimeError si
+    no hay portal attached. Deja propagar excepciones COM/RPC (TIA
+    cerrado) para que el dispatcher las reporte como
+    ``{"ok": False, "error": "COMError: ..."}``.
+
+    Implementacion: ``portal.get_process_id()`` (manual Siemens §2.5.1).
+    """
+    portal = tia_client.wrapper
+    if portal is None:
+        raise RuntimeError("No hay portal attached")
+    pid = portal.get_process_id()
+    return {"pid": int(pid)}
+
+
+def _h_list_blocks(args: dict, tia_client: "SyncTIAClient") -> dict:
+    """Lista los nombres de los bloques de programa de un PLC especifico.
+
+    Args:
+        plc_name (str): nombre del PLC objetivo.
+        folder_path (str, opcional): ruta de carpeta; "" = raiz del PLC.
+            Coercion defensiva: el wrapper .NET rechaza None, forzamos "".
+    """
+    portal = tia_client.wrapper
+    if portal is None:
+        raise RuntimeError(
+            "No portal attached. Llama a attach_portal primero."
+        )
+    project = _get_active_project(portal)
+    plc_name: str = args.get("plc_name", "")
+    folder_path: str = args.get("folder_path") or ""
+
+    target_plc = _find_plc(project, plc_name)
+    blocks = target_plc.get_program_blocks(folder_path=folder_path)
+    names = [block.get_name() for block in blocks]
+    return {"blocks": names, "plc_name": plc_name}
+
+
 def register_core_commands(target: SyncTIAClient) -> None:
     """Registra los comandos core (lifecycle + inspection) en ``target``.
 
@@ -288,13 +328,16 @@ def register_core_commands(target: SyncTIAClient) -> None:
     Uso en tests: ``register_core_commands(client); client.attach_wrapper(mock)``.
 
     4.1.2a1a: open_new_portal, open_project.
-    4.1.2a1b (este commit): save_project, close_project.
-    4.1.2a2+: list_blocks, ping, list_plcs, get_project_info, scan_blocks.
+    4.1.2a1b: save_project, close_project.
+    4.1.2a2a (este commit): ping, list_blocks.
+    4.1.2a3+: list_plcs, get_project_info, scan_blocks.
     """
     target.register_command("open_new_portal", _h_open_new_portal)
     target.register_command("open_project", _h_open_project)
     target.register_command("save_project", _h_save_project)
     target.register_command("close_project", _h_close_project)
+    target.register_command("ping", _h_ping)
+    target.register_command("list_blocks", _h_list_blocks)
 
 
 # Singleton de proceso. main.py (4.5.1) hace tia_client = SyncTIAClient().
