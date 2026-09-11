@@ -23,9 +23,59 @@ from __future__ import annotations
 
 import logging
 import queue
-from typing import Callable
+from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Helpers internos (4.1.2a). Migrados desde worker_tia.py sin cambios
+# funcionales: extraen y validan el proyecto / PLC / nombre de PLC de
+# forma defensiva frente a errores del wrapper .NET.
+# ---------------------------------------------------------------------------
+def _get_active_project(portal: Any) -> Any:
+    """Extrae y valida el proyecto activo del portal.
+
+    Levanta RuntimeError si no hay proyecto abierto.
+    """
+    project = portal.get_project()
+    if not project:
+        raise RuntimeError(
+            "No hay ningun proyecto abierto en TIA Portal. "
+            "Ejecuta 'open_project' primero."
+        )
+    return project
+
+
+def _safe_get_plc_name(plc: Any) -> str | None:
+    """Lee el nombre de un Plc tolerando errores de encoding.
+
+    Algunos PLCs tienen nombres no-ASCII (Latin-1, acentos) que hacen
+    fallar la conversion .NET -> Python str. Devolvemos None en ese
+    caso (la comparacion falla y se trata como "no es la que buscamos").
+    """
+    try:
+        return plc.get_name()
+    except UnicodeDecodeError:
+        return None
+
+
+def _find_plc(project: Any, plc_name: str) -> Any:
+    """Resuelve el objeto Plc por nombre dentro del proyecto activo.
+
+    Levanta ValueError si plc_name vacio; RuntimeError si no existe.
+    """
+    if not plc_name:
+        raise ValueError("Se requiere el argumento 'plc_name'.")
+
+    for plc in project.get_plcs():
+        if _safe_get_plc_name(plc) == plc_name:
+            return plc
+
+    raise RuntimeError(
+        f"No se encontro ningun PLC con el nombre '{plc_name}' "
+        "en el proyecto activo."
+    )
 
 # Firma de un handler: recibe args dict, retorna dict serializable.
 # Los handlers acceden al wrapper via tia_client.wrapper.
