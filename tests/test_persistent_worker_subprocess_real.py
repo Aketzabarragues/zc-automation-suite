@@ -33,12 +33,18 @@ Skip automatico:
 """
 from __future__ import annotations
 
+import asyncio
 import json
+import socket
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
+
+from core.infrastructure.gateway import TIAProcessGateway
+from main import _run_web_mode_async
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -216,3 +222,103 @@ def test_worker_persistente_emite_ready_idle_y_responde_ping() -> None:
             except subprocess.TimeoutExpired:
                 proc.kill()
                 proc.wait()
+
+
+# ────────────────────────────────────────────────────────────────────────
+# DA-012 (sept-2026): regresion del subproceso worker persistente
+# que bloquea el event loop con su stderr.
+#
+# Bug pre-DA-012: el subproceso se lanzaba con stderr=PIPE. El worker
+# escribia logs de timing a sys.stderr y llenaba el buffer (reader_task
+# solo lee stdout). El subproceso se bloqueaba en el write y con el
+# event loop de asyncio compartido con uvicorn, el SSE aceptaba
+# conexiones pero no emitia bytes.
+#
+# DA-012: stderr=DEVNULL. El subproceso ya no bloquea. Los logs de
+# timing se pierden (capturados por DA-013 en zc.log cuando entre).
+#
+# Marcados con ``@pytest.mark.worker_e2e`` para permitir ``pytest -m
+# worker_e2e`` (maquina del operario con TIA) y ``pytest -m
+# "not worker_e2e"`` (CI sin TIA, skip). El ``pytestmark`` de skip
+# si no hay wrapper a nivel de modulo tambien aplica: en CI sin TIA
+# se skipean igual.
+# ────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+@pytest.mark.worker_e2e
+async def test_start_persistent_worker_no_hereda_stderr_al_proceso_principal() -> None:
+    """``gateway.start()`` con persistent=True no debe dejar el stderr
+    del subproceso conectado al del proceso principal.
+
+    Antes de DA-012, ``stderr=asyncio.subprocess.PIPE`` heredaba el
+    PIPE. El worker escribia logs de timing ahi y llenaba el buffer.
+    Tras DA-012, ``stderr=DEVNULL`` y no hay nada que heredar.
+    """
+    gateway = TIAProcessGateway(persistent=True, timeout=5.0)
+    try:
+        await gateway.start()
+        proc = gateway._worker_proc
+        assert proc is not None
+        assert proc.stderr is None, (
+            "DA-012 roto: stderr del subproceso es "
+            f"{type(proc.stderr).__name__}, deberia ser None (DEVNULL)."
+        )
+    finally:
+        await gateway.disconnect()
+
+
+@pytest.mark.asyncio
+@pytest.mark.worker_e2e
+async def test_sse_no_queda_bloqueado_con_worker_persistente_vivo() -> None:
+    """El server arranca, hace el wiring de DA-005.5, y el SSE
+    emite el snapshot con los 7 FBs en <2s aunque el subproceso
+    worker TIA este vivo.
+
+    Antes de DA-012, el subproceso llenaba el buffer de stderr y
+    bloqueaba el event loop. El cliente no recibia bytes en 6s.
+    Tras DA-012, el event loop respira y el SSE emite OK.
+    """
+    gateway = TIAProcessGateway(persistent=True, timeout=5.0)
+    try:
+        # Arrancamos el server en una task asyncio. Cuidado: el
+        # _run_web_mode_async es bloqueante (await server.serve()),
+        # asi que lo lanzamos como task y testeamos el puerto.
+        server_task = asyncio.create_task(
+            _run_web_mode_async(gateway, "127.0.0.1", 8765)
+        )
+        # Espera a que uvicorn acepte conexiones.
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            try:
+                with socket.create_connection(("127.0.0.1", 8765), timeout=0.1):
+                    break
+            except OSError:
+                await asyncio.sleep(0.1)
+        else:
+            pytest.fail("Server no arranco en 5s")
+
+        # Cliente socket raw: debe recibir el primer chunk SSE
+        # (snapshot con los 7 FBs) en <3s. Antes de DA-012, da
+        # timeout (0 bytes).
+        reader, writer = await asyncio.open_connection("127.0.0.1", 8765)
+        writer.write(
+            b"GET /api/v1/stream HTTP/1.1\r\n"
+            b"Host: 127.0.0.1\r\n"
+            b"Connection: close\r\n\r\n"
+        )
+        await writer.drain()
+        data = await asyncio.wait_for(reader.read(4096), timeout=3.0)
+        writer.close()
+        text = data.decode("utf-8", errors="replace")
+        assert "SubirExcel" in text, (
+            f"DA-012 roto: snapshot no emitido en 3s. "
+            f"Primeros 200 bytes: {text[:200]!r}"
+        )
+    finally:
+        server_task.cancel()
+        try:
+            await server_task
+        except (asyncio.CancelledError, Exception):
+            pass
+        await gateway.disconnect()
