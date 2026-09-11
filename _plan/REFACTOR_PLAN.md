@@ -349,17 +349,22 @@ Si un paso no cumple estos criterios, se subdivide.
 
 ### 4.1 tia_client.py (reemplaza gateway.py + worker_tia.py)
 
-#### [ ] Paso 4.1.1 — tia_client.py (skeleton)
+#### [x] Paso 4.1.1 — tia_client.py (skeleton) ✅
 - **Archivos**: `core/infrastructure/tia_client.py` (NUEVO, ~80 líneas).
 - **Acción**: `class SyncTIAClient` con `__init__()` (carga `siemens_tia_scripting`), `dispatch(command, args)`, `register_command(name, handler)`. **Sin asyncio.** Sin subproceso.
 - **Verificación**: tests unitarios con mock del wrapper. No toca producción todavía (se importa solo desde el spike si se valida).
 - **Tiempo estimado**: 0.5 día.
+- **Estado**: ✅ Commit `2716a29` en `feature/spike-ob1`. 261 inserciones (91 líneas módulo + 107 líneas tests, 13/13 verdes). API: `register_command`/`dispatch`/`submit`/`dispatch_pending`/`attach_wrapper`/`wrapper`/`has_command`/`registered_commands`. Singleton `tia_client`. main.py NO se toca (queda para 4.5.1).
 
 #### [ ] Paso 4.1.2 — tia_client.py (comandos core migrados)
-- **Archivos**: `core/infrastructure/tia_client.py` (modificado, +400 líneas).
+- **Archivos**: `core/infrastructure/tia_client.py` (modificado, +400 líneas → subdividido en 4.1.2a/b/c por regla <200 líneas).
 - **Acción**: migrar los handlers de `COMMAND_REGISTRY` desde `worker_tia.py`: `attach_portal`, `list_plcs`, `get_project_info`, `compile_plc`, `export_*`, `import_*`, `get_user_constants`, `update_user_constant_*`, `delete_user_constant`, `execute_transactional_batch`, `ping`. Sin cambios funcionales, solo movimiento de código.
-- **Verificación**: tests con mock del wrapper verifican cada comando retorna el shape esperado. Suite completa verde.
-- **Tiempo estimado**: 1 día.
+- **Subdivisión planificada** (validar con operario antes de empezar):
+  - **4.1.2a — Lifecycle + inspección** (~+150 líneas): `open_new_portal`, `open_project`, `save_project`, `close_project`, `list_plcs`, `get_project_info`, `list_blocks`, `scan_blocks`, `ping`. **9 comandos**.
+  - **4.1.2b — Mutación + export/import masivo** (~+150 líneas): `compile_plc`, `export_blocks_sd`, `export_udts_sd`, `export_plc_tags_xml`, `import_blocks_sd`, `import_plc_tags_xml`. **6 comandos**.
+  - **4.1.2c — Granular + user constants + transaccional** (~+100 líneas): `export_block`, `import_block`, `export_tag_table`, `import_tag_table`, `get_user_constants`, `update_user_constant_value`, `update_user_constant_name`, `delete_user_constant`, `execute_transactional_batch`. **9 comandos**.
+- **Verificación**: tests con mock del wrapper verifican cada comando retorna el shape esperado. Suite completa verde después de cada subdivisión.
+- **Tiempo estimado**: 1 día (sin subdivisión) / ~1.5 días (con subdivisión + tests por lote).
 
 #### [ ] Paso 4.1.3 — Áreas registran comandos en tia_client (no en subproceso)
 - **Archivos**: `areas/alimentacion/infrastructure/tia/extra_commands.py` → renombrado a `commands.py` (modificado, ~10 líneas: `register(tia_client)` en lugar de `register(registry)`).
@@ -472,14 +477,14 @@ Si un paso no cumple estos criterios, se subdivide.
 | **Feature 2 — `ProgressBar` per-instance** | **3** | **3** | **🟡 Pendiente (A creado sin commit, B y C por hacer)** |
 | **3.3.3.x (catálogo vía SSE)** | 3 | 3 | 🟡 Pendiente (desbloqueado) |
 | **3.3.2 (eliminar `loadCatalog`)** | 1 | 1 | ⏸️ Bloqueado por 3.3.3.x |
-| **DA-014 — Fase 4 Refactor OB1** | 16 | 16 | 🟡 En curso (4.0.1 ✅ `a85857a`; 4.1.1 siguiente) |
+| **DA-014 — Fase 4 Refactor OB1** | 16 | 16 | 🟡 En curso (4.0.1 ✅ `a85857a`; 4.1.1 ✅ `2716a29`; 4.1.2 subdividido) |
 | Demo final + rebuild `.exe` | — | — | Pendiente |
-| **Total** | **~78 pasos** | **~78 commits** | **~62 hechos** |
+| **Total** | **~78 pasos** | **~78 commits** | **~63 hechos** |
 
 **Commits revertidos** (parte de la historia, no cuentan en el total):
 - `e07c33a` — DA-012 `stderr=DEVNULL` (REVERTIDO por `83cf920`, hipótesis descartada).
 
-**Tiempo estimado restante**: ~6-7 días (~23 commits: Feature 2 × 3 + 3.3.3.x × 3 + 3.3.2 + DA-014 Fase 4 OB1 × 15 restantes). Validación con operario entre cada paso.
+**Tiempo estimado restante**: ~6 días (~22 commits: Feature 2 × 3 + 3.3.3.x × 3 + 3.3.2 + DA-014 Fase 4 OB1 × 14 restantes — 4.1.2 se subdivide en 4.1.2a/b/c por regla <200 líneas). Validación con operario entre cada paso.
 
 ---
 
