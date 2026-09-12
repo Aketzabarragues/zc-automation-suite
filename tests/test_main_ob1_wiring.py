@@ -1,4 +1,4 @@
-"""Tests del wiring main_tray.py ↔ Ob1ServiceSupervisor (Fase 4 / 4.N4).
+"""Tests del wiring main.py ↔ Ob1ServiceSupervisor (Fase 4 / 4.N4).
 
 Verifica el ciclo de vida del tray launcher OB1 SIN arrancar pystray
 (la bandeja real requiere GUI). Patches:
@@ -10,11 +10,15 @@ Verifica el ciclo de vida del tray launcher OB1 SIN arrancar pystray
     (queremos validar la integracion end-to-end con HTTP real).
 
 Cubre:
-  1. main_tray.main() crea un Ob1ServiceSupervisor (no WebServiceSupervisor).
+  1. main.main() crea un Ob1ServiceSupervisor (no WebServiceSupervisor).
   2. El supervisor usa host/port de env vars (ZC_WEB_HOST / ZC_WEB_PORT).
   3. Click en "Iniciar web" → supervisor arranca → Flask + OB1 responden.
   4. Click en "Parar web" → supervisor para → Flask dead.
   5. Click en "Salir" → on_before_exit() para el supervisor.
+
+Histórico: este archivo se llamaba ``test_main_tray_ob1_wiring.py``
+hasta sept-2026. Se renombró cuando ``main_tray.py`` se renombró a
+``main.py`` (Fase 4 / 4.N8, sept-2026).
 """
 from __future__ import annotations
 
@@ -42,7 +46,7 @@ def port(request) -> int:
 
 @pytest.fixture
 def fresh_main_tray(monkeypatch, tmp_path, port):
-    """Recarga ``main_tray`` con env vars controladas y tray mockeado.
+    """Recarga ``main`` con env vars controladas y tray mockeado.
 
     No invoca main(); expone los callbacks del menu para test manual.
     """
@@ -66,15 +70,15 @@ def fresh_main_tray(monkeypatch, tmp_path, port):
 
     monkeypatch.setattr("launcher.tray_app.run_tray", fake_run_tray)
 
-    # Recargar main_tray para que use el patched run_tray.
-    if "main_tray" in sys.modules:
-        del sys.modules["main_tray"]
-    mod = importlib.import_module("main_tray")
+    # Recargar main para que use el patched run_tray.
+    if "main" in sys.modules:
+        del sys.modules["main"]
+    mod = importlib.import_module("main")
 
     # Llamar main() en un hilo (porque run_tray bloquea).
     main_thread = threading.Thread(
         target=mod.main,
-        name="main_tray_test",
+        name="main_test",
         daemon=True,
     )
     main_thread.start()
@@ -85,17 +89,17 @@ def fresh_main_tray(monkeypatch, tmp_path, port):
         time.sleep(0.05)
 
     assert "web" in captured, (
-        "main_tray no llego a run_tray; posiblemente crasheo antes."
+        "main no llego a run_tray; posiblemente crasheo antes."
     )
     yield captured
 
-    # Cleanup: marcar done para que run_tray retorne, luego main_tray
+    # Cleanup: marcar done para que run_tray retorne, luego main
     # hara web.stop() en el bloque final.
     if "done_event" in captured:
         captured["done_event"].set()
     main_thread.join(timeout=5.0)
 
-    # Red de seguridad: si main_tray fallo en cleanup, paramos nosotros.
+    # Red de seguridad: si main fallo en cleanup, paramos nosotros.
     web = captured.get("web")
     if web is not None and web.is_alive():
         try:
@@ -105,18 +109,18 @@ def fresh_main_tray(monkeypatch, tmp_path, port):
 
 
 @pytest.mark.slow
-def test_main_tray_creates_ob1_supervisor(fresh_main_tray):
-    """main_tray.main() crea un Ob1ServiceSupervisor (no WebServiceSupervisor)."""
+def test_main_creates_ob1_supervisor(fresh_main_tray):
+    """main.main() crea un Ob1ServiceSupervisor (no WebServiceSupervisor)."""
     from launcher.ob1_supervisor import Ob1ServiceSupervisor
 
     web = fresh_main_tray["web"]
     assert isinstance(web, Ob1ServiceSupervisor), (
-        f"main_tray deberia crear Ob1ServiceSupervisor; obtuvo {type(web).__name__}"
+        f"main deberia crear Ob1ServiceSupervisor; obtuvo {type(web).__name__}"
     )
 
 
 @pytest.mark.slow
-def test_main_tray_uses_env_vars_for_host_port(fresh_main_tray):
+def test_main_uses_env_vars_for_host_port(fresh_main_tray):
     """El supervisor toma host/port de ZC_WEB_HOST / ZC_WEB_PORT."""
     web = fresh_main_tray["web"]
     assert web.host == "127.0.0.1"

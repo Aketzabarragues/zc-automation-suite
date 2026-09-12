@@ -1877,7 +1877,7 @@ def main() -> None:
 
     # 2. Silenciado absoluto de la consola nativa C++.
     # Ruta del log: misma logica que ``zc_tray.log`` (ver
-    # ``main_tray.py``), para que ambos acaben en la misma
+    # ``main.py``), para que ambos acaben en la misma
     # carpeta (``<exe_dir>/logs/`` en produccion, ``<cwd>/logs/``
     # en dev) con el mismo override por env var y el mismo
     # fallback a AppData. El fallback al CWD que se ve mas abajo

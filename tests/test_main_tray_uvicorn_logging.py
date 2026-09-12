@@ -1,7 +1,7 @@
 """DEPRECATED: este test fue reemplazado por
 ``tests/test_uvicorn_loggers_reconfig.py``.
 
-Razón: el fix de uvicorn NO debe estar en ``main_tray._setup_logging_redirect``
+Razón: el fix de uvicorn NO debe estar en ``main._setup_logging_redirect``
 (que se ejecuta al principio de ``main()``, antes de que uvicorn haya
 importado y configurado sus loggers). Debe estar en
 ``launcher/web_supervisor._reconfigure_uvicorn_loggers``, llamado JUSTO

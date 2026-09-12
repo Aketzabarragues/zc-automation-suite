@@ -2,7 +2,7 @@
 debe quitar los ``StreamHandler`` a stderr de los loggers de uvicorn
 después de que ``uvicorn.Config`` los haya poblado.
 
-Bug original: en modo frozen/windowed, ``main_tray._setup_logging_redirect()``
+Bug original: en modo frozen/windowed, ``main._setup_logging_redirect()``
 redirige ``sys.stderr`` al logger ``zc_tray`` a nivel ``ERROR``. uvicorn, en
 su ``Config.__init__``, añade un ``StreamHandler(stderr)`` a sus 3 loggers
 (``uvicorn``, ``uvicorn.error``, ``uvicorn.access``). El resultado: las ``INFO``
@@ -13,7 +13,7 @@ equivocado:
 
 El fix debe ejecutarse JUSTO después de que ``uvicorn.Config`` configure los
 loggers (no al importarse, porque uvicorn configura lazy en su ``__init__``).
-Por eso está en ``launcher/web_supervisor.py:139-145``, no en ``main_tray.py``.
+Por eso está en ``launcher/web_supervisor.py:139-145``, no en ``main.py``.
 """
 from __future__ import annotations
 
@@ -53,7 +53,7 @@ def test_uvicorn_streamhandlers_are_removed() -> None:
     de los 3 loggers de uvicorn, sin importar a qué stream apunten.
 
     Razón: en producción, ``sys.stderr`` ha sido reemplazado por
-    ``_StreamToLogger`` (vía ``main_tray._setup_logging_redirect``),
+    ``_StreamToLogger`` (vía ``main._setup_logging_redirect``),
     por lo que filtrar por ``h.stream is sys.__stderr__`` no
     captura el caso real. La solución robusta es eliminar cualquier
     ``StreamHandler``: uvicorn propaga al root y este se encarga
@@ -110,7 +110,7 @@ def test_uvicorn_info_appears_as_info_in_log_file(tmp_path: Path) -> None:
     Simula el path completo:
       1. root logger con FileHandler a tmp log.
       2. uvicorn (simulado) añade su StreamHandler(stderr).
-      3. main_tray (simulado) redirige stderr → root a nivel ERROR.
+      3. main (simulado) redirige stderr → root a nivel ERROR.
       4. Aplicamos el fix.
       5. uvicorn emite INFO; debe aparecer como [INFO] en el log.
     """
@@ -128,7 +128,7 @@ def test_uvicorn_info_appears_as_info_in_log_file(tmp_path: Path) -> None:
     # 2) uvicorn añade su StreamHandler(stderr).
     _populate_uvicorn_handlers_like_uicorn_does()
 
-    # 3) main_tray redirige stderr → root a nivel ERROR (solo
+    # 3) main redirige stderr → root a nivel ERROR (solo
     #    simulación: en la app real, sys.stderr es _StreamToLogger).
     #    Como aquí queremos comprobar el log, NO redirigimos stderr
     #    de verdad; emitimos directamente al logger uvicorn, que es

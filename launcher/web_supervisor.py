@@ -251,7 +251,7 @@ def _reconfigure_uvicorn_loggers() -> None:
     ``uvicorn.Config.__init__``. Si lo dejamos, en modo windowed un
     ``INFO`` de uvicorn acaba logueado como
     ``[ERROR] zc_tray: INFO:     Started server process [28752]``
-    porque el redirect de ``main_tray`` recaptura el stream.
+    porque el redirect de ``main.py`` recaptura el stream.
 
     Expuesta a nivel de módulo (prefijo ``_`` = uso interno) para
     que sea testeable sin instanciar ``uvicorn.Config``.
@@ -266,7 +266,7 @@ def _reconfigure_uvicorn_loggers() -> None:
         # excluye ``FileHandler`` y otras subclases. Razón: uvicorn
         # usa ``StreamHandler(sys.stderr)`` puro por defecto, y ese
         # stream está siendo capturado por el redirect de
-        # ``main_tray``, así que cualquier write acabaría
+        # ``main.py``, así que cualquier write acabaría
         # re-clasificándose como ``ERROR``.
         _uv_logger.handlers = [
             h for h in _uv_logger.handlers

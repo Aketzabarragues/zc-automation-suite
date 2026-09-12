@@ -2,11 +2,11 @@
 
 Resolución centralizada de carpeta de logs + setup unificado.
 
-Toda la app (``--web``, ``--mcp``, ``--tray``, worker) escribe al
+Toda la app (``--web``, ``--mcp``, default bandeja, worker) escribe al
 **MISMO archivo** ``<log_dir>/zc.log``. Esto unifica los 4 setups
 distintos que existían antes:
 
-  - ``main_tray.py``: ``zc_tray.log`` (FileHandler + StreamHandler)
+  - ``main.py`` (default bandeja): ``zc_tray.log`` (FileHandler + StreamHandler)
   - ``main.py --web``: solo console (ZC_DEBUG, sin FileHandler)
   - ``main.py --mcp``: ???
   - ``worker_tia.py``: ``worker_openness.log`` (separado, con su setup)
@@ -21,11 +21,11 @@ Uso::
     # main.py --web
     from core.application.log_paths import setup_logging
     setup_logging("web")
-    
-    # main_tray.py
+
+    # main.py (default bandeja)
     from core.application.log_paths import setup_logging
     setup_logging("tray")
-    
+
     # worker_tia.py (subprocess)
     from core.application.log_paths import setup_logging
     setup_logging("worker")
@@ -66,7 +66,7 @@ def resolve_log_dir(
 
       1. ``env_var`` (default ``ZC_LOG_DIR``) si esta definida y no vacia.
       2. Modo frozen (PyInstaller ``--onefile``): ``<exe_dir>/<default_subdir>``.
-      3. Modo dev (``python main_tray.py``): ``<cwd>/<default_subdir>``.
+      3. Modo dev (``python main.py``): ``<cwd>/<default_subdir>``.
       4. Fallback legacy a ``%LocalAppData%\\zc-automation-suite\\<default_subdir>``
          si la ruta prioritaria no se puede crear (permisos, etc.).
 

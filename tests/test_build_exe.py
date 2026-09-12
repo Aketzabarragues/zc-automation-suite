@@ -304,8 +304,11 @@ def test_write_generated_spec_contains_required_keys(tmp_path: Path) -> None:
     # ── Windowed: console=False ────────────────────────────────────
     assert "console=False" in content
 
-    # ── Entry point = main_tray.py ─────────────────────────────────
-    assert "main_tray.py" in content
+    # ── Entry point = main.py ──────────────────────────────────────
+    # El spec generado incluye el path absoluto al entry script;
+    # verificamos que apunte a main.py y NO a main_tray.py.
+    assert "main_tray.py" not in content
+    assert "main.py" in content  # path absoluto al entry en el .spec
 
     # ── Hidden imports críticos ────────────────────────────────────
     assert "pystray" in content
@@ -320,8 +323,8 @@ def test_write_generated_spec_contains_required_keys(tmp_path: Path) -> None:
     # (mcp y fastmcp aparecen dentro de comillas en la lista de excludes)
     assert "'mcp'" in content or "'mcp'," in content
     assert "'fastmcp'" in content or "'fastmcp'," in content
-    # main.py NO se usa en frozen
-    assert "'main'" in content or "'main'," in content
+    # main.py NO se excluye (es el entry del .exe).
+    assert "'main'" not in content and "'main'," not in content
 
     # ── Datos del proyecto: SPA, icono, config.json ────────────────
     # El source (SPA) y los destinos (icon.ico → "launcher", config.json

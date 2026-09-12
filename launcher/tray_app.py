@@ -96,7 +96,7 @@ def run_tray(
         log: Logger del launcher.
         on_before_exit: Hook opcional invocado por ``on_exit`` ANTES de
             detener el icono de bandeja. Pensado para que el composition
-            root (``main_tray.py``) cierre limpiamente sus recursos
+            root (``main.py``) cierre limpiamente sus recursos
             (e.g. parar el web server) sin que el módulo de la bandeja
             tenga que conocerlos. Si lanza, se loggea y se continúa
             (no debe bloquear la salida del icono).

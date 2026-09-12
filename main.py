@@ -1,35 +1,47 @@
 """Composition Root del launcher (modo dev) con system tray.
 
 Este módulo es el **único entry point** del proyecto (Fase 4 / DA-014,
-sept-2026). Reemplaza a ``main.py`` (legacy FastAPI/uvicorn) y a
-``main_ob1.py`` (modo CLI). El operario lo usa así:
+sept-2026). El operario lo usa así:
 
     Doble clic sobre run_tray.bat   # ← SIN consola (recomendado)
-    pythonw.exe main_tray.py        # ← SIN consola (manual)
-    python main_tray.py             # ← CON consola (debug)
+    pythonw.exe main.py             # ← SIN consola (manual)
+    python main.py                  # ← CON consola (debug)
+
+Modos disponibles (Fase 4 / DA-014, sept-2026):
+  - default              -> Bandeja con icono (pystray). Click en
+                           "Iniciar web" arranca Flask + OB1 main loop
+                           en hilos daemon. Click "Parar web" los para.
+  - ``--web [host:port]`` -> CLI headless: Flask + OB1 sin bandeja.
+                           Ctrl+C para parar.
+  - ``--mcp``             -> Servidor FastMCP STDIO (legacy gateway).
+  - ``--worker``          -> Modo subproceso OT 1-shot (lo invoca el
+                           gateway legacy). NO instancia bandeja.
+  - ``--worker-persistent`` -> Modo subproceso OT persistente (loop).
+                           NO instancia bandeja.
 
 Responsabilidades exclusivas de esta capa:
-  1. Configurar logging a fichero.
-  2. Leer variables de entorno para host/puerto del web server.
-  3. Crear el ``Ob1ServiceSupervisor`` (NO iniciarlo — el operario
-     decide haciendo click en "Iniciar web" en el menú de bandeja).
-  4. Bloquear el main thread con el icono de bandeja (pystray lo
-     requiere así en Windows).
-  5. Al pulsar "Iniciar web", arranca Flask + OB1 main loop en hilos
-     daemon. Al pulsar "Parar web" o "Salir", los detiene limpiamente.
+  1. Configurar logging a fichero (unificado en ``zc.log``).
+  2. Parsear CLI args y dispatch al modo correspondiente.
+  3. En modo bandeja: crear ``Ob1ServiceSupervisor`` (NO iniciarlo),
+     bloquear main thread con pystray, y delegar start/stop a los
+     callbacks del menu (Iniciar/Parar web).
+  4. En modo --web: arrancar ``Ob1ServiceSupervisor`` en foreground,
+     bloquear main thread hasta Ctrl+C.
 
 Lo que esta capa NO hace:
-  - NO instancia el gateway directamente (lo hace el supervisor OB1 al
-    construir la app Flask).
-  - NO lanza workers persistentes: el patrón OB1 los elimina de raíz
-    (TIA wrapper se llama directamente via ``SyncTIAClient``, sin
-    subproceso).
+  - NO instancia ``SyncTIAClient``, ``Engine``, ``EventBusSync`` ni
+    Flask directamente. Lo hace ``Ob1ServiceSupervisor`` (separación
+    composition root / runtime lifecycle).
+  - NO lanza subprocesos TIA. OB1 elimina el patrón process-per-call:
+    el wrapper se llama directamente via ``SyncTIAClient``, en el
+    mismo proceso que Flask y el OB1 main loop.
   - NO modifica nada de ``application/``, ``core/``, ``infrastructure/``
     ni ``interfaces/``.
 
-Dispatch ``--worker`` y ``--worker-persistent``: cuando el binario se
-invoca con esos flags, este entry point se transforma en el subproceso
-OT (modo dev o frozen indistintamente). Ver bloque más abajo.
+Nombre histórico: este archivo se llamaba ``main_tray.py`` hasta
+sept-2026. Se renombro a ``main.py`` para reflejar que es el UNICO
+entry point (el resto de mains legacy — FastAPI, OB1 CLI — se borraron
+en 4.N5 y 4.N6).
 """
 from __future__ import annotations
 
@@ -37,6 +49,7 @@ import io
 import logging
 import os
 import sys
+import threading
 import time
 import traceback
 from pathlib import Path
@@ -117,6 +130,22 @@ def main() -> int:
         worker_main()
         return 0
 
+    # ── Dispatch --web [host:port] (CLI OB1 headless, sin bandeja) ─
+    # Modo CLI para servidores headless / integracion continua: arranca
+    # Flask + OB1 main loop directamente, sin icono de bandeja. Ctrl+C
+    # para parar. Migrado de ``main_ob1.py`` (4.N5, sept-2026) tras
+    # eliminar main_ob1.py como entry point independiente.
+    if "--web" in sys.argv[1:]:
+        return _run_cli_web_mode()
+
+    # ── Dispatch --mcp (CLI MCP STDIO) ─
+    # Migrado de ``main.py`` (4.N6, sept-2026). El servidor MCP usa
+    # el gateway legacy (``TIAProcessGateway``) hasta migrar FBs y
+    # use cases a ``tia_client``. Por eso este modo sigue cargando
+    # ``run_mcp_stdio`` del modulo legacy.
+    if "--mcp" in sys.argv[1:]:
+        return _run_cli_mcp_mode()
+
     # Forzar UTF-8 (mismo patrón que main.py / worker_tia.py).
     # IMPORTANTE: en modo frozen/windowed (``console=False`` en el .spec
     # de PyInstaller), ``sys.stdout`` / ``stderr`` / ``stdin`` son ``None``
@@ -157,6 +186,8 @@ def main() -> int:
     # para modo windowed (no crea StreamHandler(sys.stdout) si stdout
     # es None). Ver core/application/log_paths.py. Por eso no hace
     # falta un redirect adicional aqui (commit 2279887 lo elimino,
+    # pero la llamada se quedo en este punto y rompia main.main()
+    # con NameError. Fix sept-2026: quitar la llamada).
     # pero la llamada se quedo en este punto y rompia main_tray.main()
     # con NameError. Fix sept-2026: quitar la llamada).
     log.info("=" * 60)
@@ -217,6 +248,108 @@ def main() -> int:
     log.info("Cerrando OB1 supervisor...")
     web.stop(timeout=5.0)
     log.info("Adios.")
+    return 0
+
+
+# ── Modos CLI (sin bandeja) ──────────────────────────────────────
+# Migrados desde ``main_ob1.py`` (--web) y ``main.py`` (--mcp) en
+# sept-2026 (Fase 4 / 4.N5-4.N6). main.py es ahora el UNICO
+# entry point del proyecto.
+
+
+def _run_cli_web_mode() -> int:
+    """Modo ``--web [host:port]``: OB1 server sin bandeja.
+
+    Bloquea el main thread hasta Ctrl+C. Usado para servidores headless
+    y para integracion continua (sin GUI). Migrado de main_ob1.py.
+
+    Returns:
+        Exit code (0 limpio, !=0 si falla).
+    """
+    # Parsear host:port del CLI (manual para no depender de argparse).
+    host_port = "127.0.0.1:5000"
+    tick_period_ms = _read_env_int("ZC_OB1_TICK_MS", 100)
+    argv = sys.argv[1:]
+    if "--web" in argv:
+        idx = argv.index("--web")
+        # Si --web lleva argumento explicito, lo usamos.
+        if idx + 1 < len(argv) and not argv[idx + 1].startswith("--"):
+            host_port = argv[idx + 1]
+    if "--tick-period-ms" in argv:
+        idx = argv.index("--tick-period-ms")
+        if idx + 1 < len(argv):
+            tick_period_ms = _read_env_int("--tick-period-ms", tick_period_ms)
+            try:
+                tick_period_ms = int(argv[idx + 1])
+            except ValueError:
+                pass
+    if "--no-engine" in argv:
+        no_engine = True
+    else:
+        no_engine = False
+
+    host, _, port_str = host_port.partition(":")
+    host = host or "127.0.0.1"
+    port = int(port_str) if port_str else 5000
+
+    log.info(
+        "Modo --web: OB1 server arrancando en %s:%d (tick=%dms, engine=%s).",
+        host, port, tick_period_ms, "OFF" if no_engine else "ON",
+    )
+
+    from launcher.ob1_supervisor import Ob1ServiceSupervisor
+
+    web = Ob1ServiceSupervisor(
+        host=host,
+        port=port,
+        tick_period_s=tick_period_ms / 1000.0,
+        no_engine=no_engine,
+    )
+    web.start()
+    if not web.wait_until_alive(timeout_s=10.0):
+        log.error("OB1 supervisor no arranco en 10s; abortando.")
+        web.stop(timeout=2.0)
+        return 1
+
+    log.info("OB1 server vivo en http://%s:%d. Ctrl+C para parar.", host, port)
+
+    # Bloquear main thread hasta Ctrl+C.
+    shutdown = threading.Event()
+
+    def _on_signal(signum, _frame):
+        log.info("Signal %d recibido; parando OB1 supervisor.", signum)
+        shutdown.set()
+
+    if sys.platform == "win32":
+        import signal
+        signal.signal(signal.SIGINT, _on_signal)
+        signal.signal(signal.SIGTERM, _on_signal)
+
+    try:
+        while not shutdown.is_set() and web.is_alive():
+            shutdown.wait(timeout=1.0)
+    except KeyboardInterrupt:
+        log.info("Ctrl+C detectado; parando.")
+
+    web.stop(timeout=5.0)
+    log.info("Adios.")
+    return 0
+
+
+def _run_cli_mcp_mode() -> int:
+    """Modo ``--mcp``: MCP STDIO server sin bandeja.
+
+    Migrado de main.py. Por ahora delega en el modulo legacy
+    (``core/interfaces/mcp_server.run_mcp_stdio``) porque las tools
+    MCP usan el gateway async legacy. Cuando los use cases migrados
+    a ``tia_client`` (Fase 4.6+), este modo tambien migra a OB1.
+
+    Returns:
+        Exit code (0 limpio, !=0 si falla).
+    """
+    log.info("Modo --mcp: arrancando FastMCP STDIO (legacy gateway).")
+    from core.interfaces.mcp_server import run_mcp_stdio
+    run_mcp_stdio()
     return 0
 
 

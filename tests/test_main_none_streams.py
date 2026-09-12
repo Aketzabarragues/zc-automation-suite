@@ -1,4 +1,4 @@
-r"""Regression test: ``main_tray.main()`` no debe petar cuando
+r"""Regression test: ``main.main()`` no debe petar cuando
 ``sys.stdout`` / ``sys.stderr`` / ``sys.stdin`` son ``None``.
 
 Este escenario se da cuando el binario se ejecuta en modo
@@ -34,7 +34,7 @@ sys.path.insert(0, str(ROOT))
 
 @pytest.fixture
 def fresh_main_tray(monkeypatch: pytest.MonkeyPatch):
-    """Recarga ``main_tray`` con ``sys.argv`` controlado (sin ``--worker``)
+    """Recarga ``main`` con ``sys.argv`` controlado (sin ``--worker``)
     y streams ``None`` para forzar el path windowed."""
     monkeypatch.setattr(sys, "argv", ["zc_automation_suite.exe"])
     # Forzar streams None: simula el modo windowed de PyInstaller.
@@ -45,9 +45,9 @@ def fresh_main_tray(monkeypatch: pytest.MonkeyPatch):
     # El módulo tiene un setup module-level (logging) que ya consumió
     # los streams reales. Recargamos para que ``_setup_logging_redirect``
     # se evalúe de nuevo con el ``sys`` parchado.
-    if "main_tray" in sys.modules:
-        del sys.modules["main_tray"]
-    return importlib.import_module("main_tray")
+    if "main" in sys.modules:
+        del sys.modules["main"]
+    return importlib.import_module("main")
 
 
 def test_main_does_not_crash_when_streams_are_none(
@@ -69,7 +69,7 @@ def test_main_does_not_crash_when_streams_are_none(
 
     # El bloque problemático está en main(). Lo extraemos y ejecutamos
     # en un namespace aislado para verificar que NO lanza.
-    src = Path(ROOT / "main_tray.py").read_text(encoding="utf-8")
+    src = Path(ROOT / "main.py").read_text(encoding="utf-8")
 
     # Encontrar el bloque del UTF-8 reconfigure dentro de main().
     marker = "# Forzar UTF-8"
@@ -107,7 +107,7 @@ def test_main_handles_none_stdout_specifically(
     # stderr y stdin los dejamos como están (pueden ser los reales
     # capturados por pytest).
 
-    src = Path(ROOT / "main_tray.py").read_text(encoding="utf-8")
+    src = Path(ROOT / "main.py").read_text(encoding="utf-8")
     marker = "# Forzar UTF-8"
     start = src.index(marker)
     end = src.index("_setup_logging_redirect", start)
@@ -142,7 +142,7 @@ def test_main_handles_streams_without_buffer(
     monkeypatch.setattr(sys, "stderr", _WeirdStream())
     monkeypatch.setattr(sys, "stdin", _WeirdStream())
 
-    src = Path(ROOT / "main_tray.py").read_text(encoding="utf-8")
+    src = Path(ROOT / "main.py").read_text(encoding="utf-8")
     marker = "# Forzar UTF-8"
     start = src.index(marker)
     end = src.index("_setup_logging_redirect", start)
@@ -176,9 +176,9 @@ def test_logging_setup_skips_streamhandler_when_stdout_is_none(
     # Apuntar el log file a tmp_path para no tocar %LocalAppData%.
     monkeypatch.setenv("ZC_LOG_DIR", str(tmp_path))
 
-    if "main_tray" in sys.modules:
-        del sys.modules["main_tray"]
-    importlib.import_module("main_tray")
+    if "main" in sys.modules:
+        del sys.modules["main"]
+    importlib.import_module("main")
 
     log = logging.getLogger("zc_tray")
 
@@ -195,7 +195,7 @@ def test_logging_setup_skips_streamhandler_when_stdout_is_none(
     ]
     assert broken_handlers == [], (
         f"BUG REGRESIÓN: hay handler(s) con stream=None: {broken_handlers!r}. "
-        f"main_tray.py debería omitir el StreamHandler cuando sys.stdout es None."
+        f"main.py debería omitir el StreamHandler cuando sys.stdout es None."
     )
 
     # El log debe poder emitir sin lanzar (el bug era aquí).

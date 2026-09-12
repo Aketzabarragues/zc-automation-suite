@@ -40,7 +40,7 @@ from core.models import BloqueCache, BloquePLC
 
 # Logger de la capa de infraestructura. Los logs de start/connect/
 # disconnect/kill llegan al root logger (zc_tray) cuando se ejecuta
-# via main_tray.py, que configura un FileHandler en el root con INFO.
+# via main.py, que configura un FileHandler en el root con INFO.
 _log = logging.getLogger(__name__)
 # DA-012: logger dedicado para diagnostico del bug SSE. Toggleable con
 # ZC_DEBUG=1 en main.py (basicConfig fuerza level=DEBUG en root).

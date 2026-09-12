@@ -1,6 +1,6 @@
 """Orquestador PyInstaller para ``zc-automation-suite`` (Fat Binary).
 
-Compila ``main_tray.py`` en ``dist/zc_automation_suite.exe`` con TODO lo
+Compila ``main.py`` en ``dist/zc_automation_suite.exe`` con TODO lo
 necesario para ejecutar la app en producción, incluyendo el binario
 nativo de Siemens (``.pyd``) y sus dependencias (``.dll`` / ``.xml``)
 resueltos dinámicamente desde el intérprete Python actual (3.12 / 3.13
@@ -25,11 +25,13 @@ arquitectónicas del proyecto):
     ensamblados .NET nativos. Crítico; sin esto, el worker muere
     con ``ImportError`` al cargar ``siemens_tia_scripting``.
 
-  - **Entry = ``main_tray.py``**: el ``.exe`` arranca como bandeja
+  - **Entry = ``main.py``**: el ``.exe`` arranca como bandeja
     + web supervisor (``console=False``, windowed). MCP queda
-    dev-only y se invoca con ``python main.py`` en el repo.
-    ``main_tray.py`` despacha ``--worker`` internamente para que el
-    gateway pueda re-invocar el ``.exe`` como subproceso OT efímero.
+    dev-only y se invoca con ``python main.py --mcp`` en el repo.
+    ``main.py`` despacha ``--worker`` internamente para que el
+    gateway legacy pueda re-invocar el ``.exe`` como subproceso OT
+    efímero (cuando el gateway async legacy se invoque, el .exe
+    frozen se relanza con ``--worker``).
 
   - **Auto-generación del ``.spec``**: el spec se genera
     programáticamente en el mismo tempdir de staging y se borra en
@@ -76,7 +78,7 @@ EXE_NAME = "zc_automation_suite"
 PYD_CANONICAL_NAME = "siemens_tia_scripting.pyd"
 STAGING_PREFIX = "zc_build_"
 SUPPORTED_PYTHONS: list[tuple[int, int]] = [(3, 12), (3, 13), (3, 14)]
-ENTRY_SCRIPT = "main_tray.py"  # entry del .exe (UX: bandeja + web supervisor)
+ENTRY_SCRIPT = "main.py"  # entry del .exe (UX: bandeja + web supervisor)
 
 # Datos del proyecto que se bundlean dentro de _MEIPASS, conservando
 # la MISMA ruta relativa que el código espera en runtime.
@@ -289,8 +291,9 @@ SPEC_TEMPLATE = dedent(
             # excluidos explícitamente para no inflar el bundle.
             'mcp', 'fastmcp', 'fastmcp.server', 'fastmcp.tools',
             'mcp.server', 'mcp.server.stdio',
-            # main.py NO se usa en frozen (entry = main_tray.py)
-            'main',
+            # main.py se incluye via ENTRY_SCRIPT (entry del .exe);
+            # PyInstaller lo empaqueta automáticamente. No excluir.
+            # El comentario antiguo era engañoso (main.py es el entry).
             # Dev/test/tamaño
             'pytest', 'unittest', 'matplotlib', 'numpy.tests',
             'pandas.tests', 'tkinter', 'test', 'tests',
@@ -321,7 +324,7 @@ SPEC_TEMPLATE = dedent(
             '*.dll',  # wildcard defensivo (heredado del legacy)
         ],
         runtime_tmpdir=None,
-        console=False,  # WINDOWED: entry = main_tray.py, no abre consola
+        console=False,  # WINDOWED: entry = main.py (bandeja), no abre consola
         disable_windowed_traceback=False,
         icon={exe_icon_py!r},  # ruta absoluta al .ico (ver build_exe.EXE_ICON)
         target_arch=None,
