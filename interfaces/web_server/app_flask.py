@@ -104,6 +104,20 @@ def create_app(
         type(_engine).__name__,
         type(_bus).__name__,
     )
+
+    # Registrar blueprints migrados en pasos 4.4.2+.
+    # Si la importacion falla (blueprint no migrado aun), seguimos sin
+    # el — los endpoints viejos en FastAPI siguen disponibles mientras
+    # la migracion no sea completa.
+    try:
+        from interfaces.web_server.routers.tia_connection_ob1 import (
+            bp as tia_connection_bp,
+        )
+        app.register_blueprint(tia_connection_bp)
+        logger.info("create_app: blueprint tia_connection_ob1 registrado.")
+    except ImportError:
+        logger.debug("create_app: blueprint tia_connection_ob1 no disponible.")
+
     return app
 
 
