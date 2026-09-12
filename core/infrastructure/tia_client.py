@@ -601,6 +601,32 @@ def _h_scan_blocks(args: dict, tia_client: "SyncTIAClient") -> dict:
     }
 
 
+def _h_compile_plc(args: dict, tia_client: "SyncTIAClient") -> dict:
+    """Compila el software del PLC y retorna el booleano nativo de Siemens.
+
+    Semantica documentada (API V1.2.1, seccion 2.2.11):
+      - True  -> La compilacion TIENE errores.
+      - False -> La compilacion NO tiene errores (exito).
+
+    Returns:
+        ``{"had_errors": bool}``. La capa de presentacion (MCP/SPA)
+        traduce este valor a un mensaje humano.
+    """
+    plc_name: str = args.get("plc_name", "")
+    if not plc_name:
+        raise ValueError("Se requiere el argumento 'plc_name'.")
+
+    portal = tia_client.wrapper
+    if portal is None:
+        raise RuntimeError(
+            "No portal attached. Llama a attach_portal primero."
+        )
+    project = _get_active_project(portal)
+    target_plc = _find_plc(project, plc_name)
+    had_errors = bool(target_plc.compile_software())
+    return {"had_errors": had_errors}
+
+
 def register_core_commands(target: SyncTIAClient) -> None:
     """Registra los comandos core (lifecycle + inspection) en ``target``.
 
@@ -611,10 +637,13 @@ def register_core_commands(target: SyncTIAClient) -> None:
     Uso en main.py (4.5.1): ``register_core_commands(tia_client)``.
     Uso en tests: ``register_core_commands(client); client.attach_wrapper(mock)``.
 
-    4.1.2a1a: open_new_portal, open_project.
-    4.1.2a1b: save_project, close_project.
-    4.1.2a2a (este commit): ping, list_blocks.
-    4.1.2a3+: list_plcs, get_project_info, scan_blocks.
+    4.1.2a1: open_new_portal, open_project, save_project, close_project.
+    4.1.2a2: ping, list_blocks.
+    4.1.2a3: list_plcs.
+    4.1.2a4: get_project_info.
+    4.1.2a5: scan_blocks.
+    4.1.2b1 (este commit): compile_plc.
+    4.1.2b2+: compile_blocks, export/import masivo.
     """
     target.register_command("open_new_portal", _h_open_new_portal)
     target.register_command("open_project", _h_open_project)
@@ -625,6 +654,7 @@ def register_core_commands(target: SyncTIAClient) -> None:
     target.register_command("list_plcs", _h_list_plcs)
     target.register_command("get_project_info", _h_get_project_info)
     target.register_command("scan_blocks", _h_scan_blocks)
+    target.register_command("compile_plc", _h_compile_plc)
 
 
 # Singleton de proceso. main.py (4.5.1) hace tia_client = SyncTIAClient().
