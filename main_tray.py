@@ -153,7 +153,12 @@ def main() -> int:
                     # sin UTF-8 forzado en este stream concreto.
                     pass
 
-    _setup_logging_redirect()
+    # NOTA: setup_logging('tray') ya configura streams correctamente
+    # para modo windowed (no crea StreamHandler(sys.stdout) si stdout
+    # es None). Ver core/application/log_paths.py. Por eso no hace
+    # falta un redirect adicional aqui (commit 2279887 lo elimino,
+    # pero la llamada se quedo en este punto y rompia main_tray.main()
+    # con NameError. Fix sept-2026: quitar la llamada).
     log.info("=" * 60)
     log.info("ZC Automation Suite (tray launcher) iniciando.")
     log.info("Python: %s | frozen=%s | pythonw=%s",
