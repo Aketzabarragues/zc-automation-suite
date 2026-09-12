@@ -725,6 +725,54 @@ def _h_export_udts_sd(args: dict, tia_client: "SyncTIAClient") -> dict:
     return _export_objects_sd(target_plc, target_path, "user_data_types")
 
 
+def _h_export_plc_tags_xml(args: dict, tia_client: "SyncTIAClient") -> dict:
+    """Exporta las tablas de variables del PLC como XML SimaticML.
+
+    Args:
+        plc_name (str, requerido).
+        target_dir (str, requerido).
+        table_names (list[str], opcional): whitelist. Si se pasa y no es
+            None, solo se exportan las tablas cuyo get_name() este en la
+            lista. Si es None / se omite, se exportan TODAS las tablas.
+
+    Returns:
+        ``{"exported_to": str, "count": int}``.
+    """
+    plc_name: str = args.get("plc_name", "")
+    target_dir: str = args.get("target_dir", "")
+    target_table_names = args.get("table_names")
+
+    if not plc_name:
+        raise ValueError("Se requiere el argumento 'plc_name'.")
+
+    portal = tia_client.wrapper
+    if portal is None:
+        raise RuntimeError(
+            "No portal attached. Llama a attach_portal primero."
+        )
+    project = _get_active_project(portal)
+    target_plc = _find_plc(project, plc_name)
+    target_path = _ensure_target_dir(target_dir)
+
+    tag_tables = target_plc.get_plc_tag_tables()
+    count = 0
+    for table in tag_tables:
+        if target_table_names is not None:
+            name = _safe_get_table_name(table)
+            if name not in target_table_names:
+                continue
+        # Defensivo: wrapper no expone ExportFormats/ExportOptions en este
+        # build. Segun manual V1.2.1 §2.10.5, ambos parametros son opcionales;
+        # el wrapper C++ subyacente aplica defaults internos (SimaticML, None).
+        table.export(
+            target_directory_path=str(target_path),
+            keep_folder_structure=True,
+        )
+        count += 1
+
+    return {"exported_to": str(target_path), "count": count}
+
+
 def _h_compile_blocks(args: dict, tia_client: "SyncTIAClient") -> dict:
     """Compila una lista explicita de bloques del PLC (no todo el software).
 
@@ -852,6 +900,7 @@ def register_core_commands(target: SyncTIAClient) -> None:
     target.register_command("compile_blocks", _h_compile_blocks)
     target.register_command("export_blocks_sd", _h_export_blocks_sd)
     target.register_command("export_udts_sd", _h_export_udts_sd)
+    target.register_command("export_plc_tags_xml", _h_export_plc_tags_xml)
 
 
 # Singleton de proceso. main.py (4.5.1) hace tia_client = SyncTIAClient().
