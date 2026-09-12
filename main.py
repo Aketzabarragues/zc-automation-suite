@@ -1,51 +1,14 @@
-"""Composition Root del launcher (modo dev) con system tray.
+"""Único entry point del proyecto.
 
-Este módulo es el **único entry point** del proyecto (Fase 4 / DA-014,
-sept-2026). El operario lo usa así:
-
-    Doble clic sobre run_tray.bat   # ← SIN consola (recomendado)
-    pythonw.exe main.py             # ← SIN consola (manual)
-    python main.py                  # ← CON consola (debug)
-    python main.py --web 0.0.0.0:8000   # ← CLI headless (sin bandeja)
-
-Dos modos disponibles (Fase 4 / 4.N11, sept-2026):
-  - default              -> Bandeja con icono (pystray). Click en
-                           "Iniciar web" arranca Flask + OB1 main loop
-                           en hilos daemon. Click "Parar web" los para.
+Modos:
+  - default (sin args) -> Bandeja con icono (pystray).
   - ``--web [host:port]`` -> CLI headless: Flask + OB1 sin bandeja.
                            Ctrl+C para parar.
 
-Modos eliminados (sept-2026, limpieza 4.N11):
-  - ``--mcp``: el servidor MCP STDIO ya no se invoca desde este
-    entry point. Vive en ``core/interfaces/mcp_server.py`` y se
-    arranca como modulo Python (no como CLI flag).
-  - ``--worker`` y ``--worker-persistent``: OB1 elimina el patrón
-    process-per-call del gateway legacy. El wrapper Siemens se
-    llama directamente via ``SyncTIAClient`` en el mismo proceso.
-
-Responsabilidades exclusivas de esta capa:
-  1. Configurar logging a fichero (unificado en ``zc.log``).
-  2. Parsear CLI args y dispatch al modo correspondiente.
-  3. En modo bandeja: crear ``Ob1ServiceSupervisor`` (NO iniciarlo),
-     bloquear main thread con pystray, y delegar start/stop a los
-     callbacks del menu (Iniciar/Parar web).
-  4. En modo --web: arrancar ``Ob1ServiceSupervisor`` en foreground,
-     bloquear main thread hasta Ctrl+C.
-
-Lo que esta capa NO hace:
-  - NO instancia ``SyncTIAClient``, ``Engine``, ``EventBusSync`` ni
-    Flask directamente. Lo hace ``Ob1ServiceSupervisor`` (separación
-    composition root / runtime lifecycle).
-  - NO lanza subprocesos TIA. OB1 elimina el patrón process-per-call:
-    el wrapper se llama directamente via ``SyncTIAClient``, en el
-    mismo proceso que Flask y el OB1 main loop.
-  - NO modifica nada de ``application/``, ``core/``, ``infrastructure/``
-    ni ``interfaces/``.
-
-Nombre histórico: este archivo se llamaba ``main_tray.py`` hasta
-sept-2026. Se renombro a ``main.py`` para reflejar que es el UNICO
-entry point (el resto de mains legacy — FastAPI, OB1 CLI — se borraron
-en 4.N5 y 4.N6).
+Lanzamientos típicos:
+  - run_tray.bat            # doble click, sin consola
+  - python main.py          # consola para debug
+  - run_app.bat             # python main.py --web
 """
 from __future__ import annotations
 
@@ -58,35 +21,17 @@ import time
 import traceback
 from pathlib import Path
 
+from core.application.log_paths import setup_logging
 
-# ── Configuración de logging ANTES de cualquier import "pesado" ────
-# Desde DA-013 unificamos: setup_logging() en core.application.log_paths
-# escribe a UN SOLO archivo ``zc.log`` (mismo que ``--web`` y ``--mcp``).
-# Modo "tray" se ve como ``[zc.tray]`` en cada línea del log.
-# Override por ``ZC_LOG_DIR``, fallback a
-# ``%LocalAppData%\zc-automation-suite\logs\``. ZC_DEBUG=1 activa DEBUG.
-# Importante: setup_logging() se llama AQUÍ (no arriba) porque debe
-# quedar lista ANTES de cargar modulos pesados.
-
-from core.application.log_paths import setup_logging  # noqa: E402
-
-# Modo de logging: "tray" (modo default) o "web" (CLI headless).
-# Ambos escriben al MISMO archivo (``<log_dir>/zc.log``); el prefijo del
-# logger name solo distingue la fuente en logs (``[zc.tray]`` vs
-# ``[zc.web]``). El usuario pidio "un solo log para toda la aplicacion"
-# (Fase C, sept-2026): ambos modos usan setup_logging() unificado, asi
-# los logs van al mismo archivo.
-_INIT_MODE = "web" if "--web" in sys.argv[1:] else "tray"
-LOG_FILE = setup_logging(_INIT_MODE)
-log = logging.getLogger(f"zc.{_INIT_MODE}")
+# Logger: nombre cambia segun modo para distinguir fuente en logs.
+# Ambos modos escriben al MISMO archivo ``zc.log``.
+_MODE = "web" if "--web" in sys.argv[1:] else "tray"
+LOG_FILE = setup_logging(_MODE)
+log = logging.getLogger(f"zc.{_MODE}")
 
 
 def _resolve_icon_path() -> Path | None:
-    """Resuelve la ruta del .ico.
-
-    Modo frozen (Fase 2): vive dentro de ``sys._MEIPASS``.
-    Modo dev: vive junto al código fuente.
-    """
+    """Ruta del .ico. Modo frozen: ``sys._MEIPASS``. Modo dev: junto al codigo."""
     if getattr(sys, "frozen", False):
         base = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
     else:
@@ -96,6 +41,7 @@ def _resolve_icon_path() -> Path | None:
 
 
 def _read_env_int(name: str, default: int) -> int:
+    """Lee una env var como int; si falla, log + default."""
     raw = os.environ.get(name)
     if raw is None:
         return default
@@ -106,60 +52,88 @@ def _read_env_int(name: str, default: int) -> int:
         return default
 
 
-def main() -> int:
-    # ── Dispatch --web [host:port] (CLI OB1 headless, sin bandeja) ─
-    # Modo CLI para servidores headless / integracion continua: arranca
-    # Flask + OB1 main loop directamente, sin icono de bandeja. Ctrl+C
-    # para parar. Migrado de ``main_ob1.py`` (4.N5, sept-2026) tras
-    # eliminar main_ob1.py como entry point independiente.
-    if "--web" in sys.argv[1:]:
-        return _run_cli_web_mode()
+def _force_utf8_streams() -> None:
+    """Forzar UTF-8 en stdout/stderr/stdin en Windows.
 
-    # Sin flag -> modo bandeja (default).
-    # Forzar UTF-8 (mismo patrón que main.py / worker_tia.py).
-    # IMPORTANTE: en modo frozen/windowed (``console=False`` en el .spec
-    # de PyInstaller), ``sys.stdout`` / ``stderr`` / ``stdin`` son ``None``
-    # porque no hay consola asignada. El bloque ``try`` falla con
-    # ``AttributeError`` (``NoneType.reconfigure``); el ``except`` no debe
-    # entonces intentar ``sys.stdout.buffer`` (que también es ``None``)
-    # o vuelve a romper. Se filtra por ``None`` antes de cada reconfigure
-    # y, si nada es reconfigurable, ``_setup_logging_redirect()`` más
-    # abajo redirige la salida al log file (``%LocalAppData%\...\zc_tray.log``).
+    En modo frozen/windowed los streams son ``None``; el bloque
+    ``try/except`` maneja eso sin caer en ``sys.stdout.buffer``.
+    """
+    if sys.platform != "win32":
+        return
+    for name in ("stdout", "stderr", "stdin"):
+        stream = getattr(sys, name, None)
+        if stream is None:
+            continue
+        try:
+            stream.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+            continue
+        except (AttributeError, Exception):
+            pass
+        # Fallback: reconstruir el TextIOWrapper si hay buffer.
+        try:
+            setattr(
+                sys, name,
+                io.TextIOWrapper(  # type: ignore[arg-type]
+                    stream.buffer,  # type: ignore[attr-defined]
+                    encoding="utf-8", errors="replace",
+                ),
+            )
+        except (AttributeError, Exception):
+            pass
+
+
+def _run_cli_web_mode() -> int:
+    """Modo ``--web [host:port]``: OB1 server en foreground sin bandeja.
+
+    Bloquea el main thread hasta Ctrl+C / SIGTERM. Pensado para
+    servidores headless y CI.
+    """
+    argv = sys.argv[1:]
+    # Parsear ``--web [host:port]``.
+    host_port = "127.0.0.1:8000"
+    if "--web" in argv:
+        idx = argv.index("--web")
+        if idx + 1 < len(argv) and not argv[idx + 1].startswith("--"):
+            host_port = argv[idx + 1]
+    host, _, port_str = host_port.partition(":")
+    host = host or "127.0.0.1"
+    port = int(port_str) if port_str else 8000
+
+    from launcher.ob1_supervisor import Ob1ServiceSupervisor
+
+    log.info("Modo --web: OB1 server arrancando en %s:%d.", host, port)
+    web = Ob1ServiceSupervisor(host=host, port=port, tick_period_s=0.1)
+    web.start()
+    if not web.wait_until_alive(timeout_s=10.0):
+        log.error("OB1 supervisor no arranco en 10s; abortando.")
+        web.stop(timeout=2.0)
+        return 1
+    log.info("OB1 server vivo en http://%s:%d. Ctrl+C para parar.", host, port)
+
+    # Bloquear main thread hasta Ctrl+C.
+    shutdown = threading.Event()
     if sys.platform == "win32":
-        for _stream_name in ("stdout", "stderr", "stdin"):
-            _stream = getattr(sys, _stream_name, None)
-            if _stream is None:
-                # Modo windowed: el stream no existe. _setup_logging_redirect
-                # se encargará de la salida. No hacemos nada.
-                continue
-            try:
-                _stream.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
-            except (AttributeError, Exception):
-                # Stream sin ``reconfigure`` (Python <3.7). Intentamos
-                # reconstruir el TextIOWrapper, pero solo si tiene ``buffer``.
-                try:
-                    setattr(
-                        sys,
-                        _stream_name,
-                        io.TextIOWrapper(  # type: ignore[arg-type]
-                            _stream.buffer,  # type: ignore[attr-defined]
-                            encoding="utf-8",
-                            errors="replace",
-                        ),
-                    )
-                except (AttributeError, Exception):
-                    # Sin buffer tampoco (p.ej. stream cerrado). Seguimos
-                    # sin UTF-8 forzado en este stream concreto.
-                    pass
+        import signal
+        signal.signal(signal.SIGINT, lambda *_: shutdown.set())
+        signal.signal(signal.SIGTERM, lambda *_: shutdown.set())
+    try:
+        while not shutdown.is_set() and web.is_alive():
+            shutdown.wait(timeout=1.0)
+    except KeyboardInterrupt:
+        log.info("Ctrl+C detectado; parando.")
+    web.stop(timeout=5.0)
+    log.info("Adios.")
+    return 0
 
-    # NOTA: setup_logging('tray') ya configura streams correctamente
-    # para modo windowed (no crea StreamHandler(sys.stdout) si stdout
-    # es None). Ver core/application/log_paths.py. Por eso no hace
-    # falta un redirect adicional aqui (commit 2279887 lo elimino,
-    # pero la llamada se quedo en este punto y rompia main.main()
-    # con NameError. Fix sept-2026: quitar la llamada).
-    # pero la llamada se quedo en este punto y rompia main_tray.main()
-    # con NameError. Fix sept-2026: quitar la llamada).
+
+def _run_tray_mode() -> int:
+    """Modo default: bandeja con icono (pystray).
+
+    Crea el ``Ob1ServiceSupervisor`` (NO lo inicia), bloquea el main
+    thread con pystray y delega start/stop a los callbacks del menu.
+    """
+    _force_utf8_streams()
+
     log.info("=" * 60)
     log.info("ZC Automation Suite (tray launcher) iniciando.")
     log.info("Python: %s | frozen=%s | pythonw=%s",
@@ -179,36 +153,19 @@ def main() -> int:
         port=web_port,
         tick_period_s=tick_period_ms / 1000.0,
     )
-    log.info(
-        "OB1 supervisor creado: %s:%d (tick=%dms).",
-        web_host,
-        web_port,
-        tick_period_ms,
-    )
+    log.info("OB1 supervisor creado: %s:%d (tick=%dms).", web_host, web_port, tick_period_ms)
     log.info("Esperando que el operario elija Iniciar web desde el menu.")
 
-    # Bloquear main thread con pystray.
-    # El hook ``on_before_exit`` se dispara desde el menú "Salir" ANTES
-    # de detener el icono, para que la bandeja y el web server se
-    # cierren en el orden correcto (web primero, icono después). Si
-    # ``run_tray`` levanta antes de que el operario clique Salir, el
-    # hook no se habrá llamado y el ``web.stop`` posterior actúa como
-    # red de seguridad.
     try:
         from launcher.tray_app import run_tray
-
         icon_path = _resolve_icon_path()
         run_tray(
-            web,
-            icon_path,
-            log,
+            web, icon_path, log,
             on_before_exit=lambda: web.stop(timeout=5.0),
         )
     except Exception as exc:  # noqa: BLE001
         log.error("El icono de bandeja falló: %s\n%s", exc, traceback.format_exc())
-        log.info(
-            "Web server queda disponible. Cierre el proceso desde el Task Manager."
-        )
+        log.info("Web server queda disponible. Cierre el proceso desde el Task Manager.")
         try:
             while web.is_alive():
                 time.sleep(1.0)
@@ -221,89 +178,11 @@ def main() -> int:
     return 0
 
 
-# ── Modos CLI (sin bandeja) ──────────────────────────────────────
-# Migrados desde ``main_ob1.py`` (--web) y ``main.py`` (--mcp) en
-# sept-2026 (Fase 4 / 4.N5-4.N6). main.py es ahora el UNICO
-# entry point del proyecto.
-
-
-def _run_cli_web_mode() -> int:
-    """Modo ``--web [host:port]``: OB1 server sin bandeja.
-
-    Bloquea el main thread hasta Ctrl+C. Usado para servidores headless
-    y para integracion continua (sin GUI). Migrado de main_ob1.py.
-
-    Returns:
-        Exit code (0 limpio, !=0 si falla).
-    """
-    # Parsear host:port del CLI (manual para no depender de argparse).
-    host_port = "127.0.0.1:5000"
-    tick_period_ms = _read_env_int("ZC_OB1_TICK_MS", 100)
-    argv = sys.argv[1:]
-    if "--web" in argv:
-        idx = argv.index("--web")
-        # Si --web lleva argumento explicito, lo usamos.
-        if idx + 1 < len(argv) and not argv[idx + 1].startswith("--"):
-            host_port = argv[idx + 1]
-    if "--tick-period-ms" in argv:
-        idx = argv.index("--tick-period-ms")
-        if idx + 1 < len(argv):
-            tick_period_ms = _read_env_int("--tick-period-ms", tick_period_ms)
-            try:
-                tick_period_ms = int(argv[idx + 1])
-            except ValueError:
-                pass
-    if "--no-engine" in argv:
-        no_engine = True
-    else:
-        no_engine = False
-
-    host, _, port_str = host_port.partition(":")
-    host = host or "127.0.0.1"
-    port = int(port_str) if port_str else 5000
-
-    log.info(
-        "Modo --web: OB1 server arrancando en %s:%d (tick=%dms, engine=%s).",
-        host, port, tick_period_ms, "OFF" if no_engine else "ON",
-    )
-
-    from launcher.ob1_supervisor import Ob1ServiceSupervisor
-
-    web = Ob1ServiceSupervisor(
-        host=host,
-        port=port,
-        tick_period_s=tick_period_ms / 1000.0,
-        no_engine=no_engine,
-    )
-    web.start()
-    if not web.wait_until_alive(timeout_s=10.0):
-        log.error("OB1 supervisor no arranco en 10s; abortando.")
-        web.stop(timeout=2.0)
-        return 1
-
-    log.info("OB1 server vivo en http://%s:%d. Ctrl+C para parar.", host, port)
-
-    # Bloquear main thread hasta Ctrl+C.
-    shutdown = threading.Event()
-
-    def _on_signal(signum, _frame):
-        log.info("Signal %d recibido; parando OB1 supervisor.", signum)
-        shutdown.set()
-
-    if sys.platform == "win32":
-        import signal
-        signal.signal(signal.SIGINT, _on_signal)
-        signal.signal(signal.SIGTERM, _on_signal)
-
-    try:
-        while not shutdown.is_set() and web.is_alive():
-            shutdown.wait(timeout=1.0)
-    except KeyboardInterrupt:
-        log.info("Ctrl+C detectado; parando.")
-
-    web.stop(timeout=5.0)
-    log.info("Adios.")
-    return 0
+def main() -> int:
+    """Dispatch: ``--web`` -> CLI headless; sin flag -> bandeja."""
+    if "--web" in sys.argv[1:]:
+        return _run_cli_web_mode()
+    return _run_tray_mode()
 
 
 if __name__ == "__main__":
