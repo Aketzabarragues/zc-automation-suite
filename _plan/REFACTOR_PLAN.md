@@ -477,9 +477,9 @@ Si un paso no cumple estos criterios, se subdivide.
 | **Feature 2 — `ProgressBar` per-instance** | **3** | **3** | **🟡 Pendiente (A creado sin commit, B y C por hacer)** |
 | **3.3.3.x (catálogo vía SSE)** | 3 | 3 | 🟡 Pendiente (desbloqueado) |
 | **3.3.2 (eliminar `loadCatalog`)** | 1 | 1 | ⏸️ Bloqueado por 3.3.3.x |
-| **DA-014 — Fase 4 Refactor OB1** | 16 | 16 | 🟡 En curso (4.0.1+4.1.x ✅; 4.2+4.3+4.4+4.5 ✅; 4.6 soft + 4.8 parcial; 4.7 + full 4.6/4.8 + 4.9 deferred) |
+| **DA-014 — Fase 4 Refactor OB1** | 16 | 16 | 🟡 En curso (4.0.1+4.1.x ✅; 4.2+4.3+4.5 ✅; 4.4.2-4.4.8 ✅ los 7 routers Flask; 4.6 soft + 4.7 + 4.8 full + 4.9 deferred) |
 | Demo final + rebuild `.exe` | — | — | Pendiente |
-| **Total** | **~78 pasos** | **~78 commits** | **~80 hechos** |
+| **Total** | **~78 pasos** | **~78 commits** | **~88 hechos** |
 
 **Commits revertidos** (parte de la historia, no cuentan en el total):
 - `e07c33a` — DA-012 `stderr=DEVNULL` (REVERTIDO por `83cf920`, hipótesis descartada).
