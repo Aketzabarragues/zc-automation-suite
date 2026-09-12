@@ -202,12 +202,63 @@ class SyncTIAClient:
 # (portal, ts, args) -> (args, tia_client). Acceso a portal/ts via
 # tia_client.wrapper / tia_client.ts (acceso single-threaded OB1).
 # ---------------------------------------------------------------------------
-def _h_open_new_portal(args: dict, tia_client: "SyncTIAClient") -> dict:
-    """Cold start: lanza una instancia NUEVA de TIA Portal y abre proyecto.
+def _h_attach_portal(args: dict, tia_client: "SyncTIAClient") -> dict:
+    """Abre un portal TIA Portal NUEVO y lo attach al client (persistente).
 
-    Usa ``tia_client.ts.open_portal(...)`` (modulo siemens_tia_scripting)
-    y luego ``new_portal.open_project(...)``. No necesita portal previo:
-    crea uno nuevo.
+    OB1 model: tras este comando, ``tia_client.wrapper`` queda attached
+    y los siguientes dispatch (list_plcs, get_project_info, sync disp,
+    compile PLC, etc.) usan el mismo portal sin reconectar. El portal
+    vive hasta que se llame ``detach_portal`` (o se reemplace).
+
+    Args:
+        args: opcional ``portal_mode`` (default ``AnyUserInterface``).
+              Cualquier otro arg depende del wrapper.
+    """
+    ts = tia_client.ts
+    if ts is None:
+        raise RuntimeError("Modulo siemens_tia_scripting no attached.")
+    if tia_client.wrapper is not None:
+        # Idempotente: ya hay portal attached.
+        return {
+            "attached": True,
+            "already_attached": True,
+            "state": "connected",
+        }
+    portal_mode_str = args.get("portal_mode", "AnyUserInterface")
+    portal_mode = getattr(ts.Enums.PortalMode, portal_mode_str, None)
+    if portal_mode is None:
+        raise ValueError(
+            f"portal_mode desconocido: '{portal_mode_str}'. "
+            f"Validos: {[m for m in dir(ts.Enums.PortalMode) if not m.startswith('_')]}"
+        )
+    new_portal = ts.open_portal(portal_mode=portal_mode)
+    if new_portal is None:
+        raise RuntimeError("Fallo critico: open_portal retorno None.")
+    tia_client.attach_wrapper(new_portal)
+    logger.info("Portal TIA attached (mode=%s)", portal_mode_str)
+    return {
+        "attached": True,
+        "already_attached": False,
+        "state": "connected",
+    }
+
+
+def _h_detach_portal(args: dict, tia_client: "SyncTIAClient") -> dict:
+    """Detach del portal TIA Portal (lo cierra).
+
+    En OB1 el detach es ``tia_client.attach_wrapper(None)``: los
+    siguientes dispatch daran 'No portal attached' hasta un nuevo attach.
+    """
+    tia_client.attach_wrapper(None)
+    logger.info("Portal TIA detached.")
+    return {"attached": False, "state": "disconnected"}
+
+
+def _h_open_new_portal(args: dict, tia_client: "SyncTIAClient") -> dict:
+    """Cold start: lanza TIA Portal, abre proyecto Y lo attach.
+
+    Combina ``attach_portal`` + ``open_project`` en un solo paso.
+    Util para arrancar desde cero (operario abre proyecto nuevo).
     """
     ts = tia_client.ts
     if ts is None:
@@ -221,13 +272,19 @@ def _h_open_new_portal(args: dict, tia_client: "SyncTIAClient") -> dict:
         raise RuntimeError(
             f"El archivo de proyecto no existe: '{project_file_path}'."
         )
-    new_portal = ts.open_portal(portal_mode=ts.Enums.PortalMode.AnyUserInterface)
-    if new_portal is None:
-        raise RuntimeError("Fallo critico: open_portal retorno None.")
-    new_portal.open_project(project_file_path=project_file_path)
-    # En OB1 el portal pasa a ser el nuevo. main.py lo attach_wrapper().
-    # Aqui solo notificamos al caller con el project path abierto.
-    return {"opened": True, "project_file_path": project_file_path}
+    # Si ya hay portal attached, lo usamos; si no, abrimos uno nuevo.
+    portal = tia_client.wrapper
+    if portal is None:
+        portal = ts.open_portal(portal_mode=ts.Enums.PortalMode.AnyUserInterface)
+        if portal is None:
+            raise RuntimeError("Fallo critico: open_portal retorno None.")
+        tia_client.attach_wrapper(portal)
+    portal.open_project(project_file_path=project_file_path)
+    return {
+        "opened": True,
+        "project_file_path": project_file_path,
+        "state": "connected",
+    }
 
 
 def _h_open_project(args: dict, tia_client: "SyncTIAClient") -> dict:
@@ -1395,6 +1452,8 @@ def register_core_commands(target: SyncTIAClient) -> None:
     4.1.2b1 (este commit): compile_plc.
     4.1.2b2+: compile_blocks, export/import masivo.
     """
+    target.register_command("attach_portal", _h_attach_portal)
+    target.register_command("detach_portal", _h_detach_portal)
     target.register_command("open_new_portal", _h_open_new_portal)
     target.register_command("open_project", _h_open_project)
     target.register_command("save_project", _h_save_project)

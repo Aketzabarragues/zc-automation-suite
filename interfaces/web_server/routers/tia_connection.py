@@ -75,47 +75,47 @@ def get_tia_connection():
 
 @bp.post("/connect")
 def post_tia_connect():
-    """Attach al portal TIA Portal.
+    """Attach al portal TIA Portal (persistente).
 
-    En OB1 el portal se carga via tia_client.attach_wrapper(). El wiring
-    real con el wrapper siemens_tia_scripting.pyd se hara en pasos
-    posteriores de DA-014 (4.5.2+). Por ahora este endpoint retorna
-    un error informativo si no hay portal attached.
+    Llama al command ``attach_portal``: abre un portal via
+    ``ts.open_portal(...)`` y lo attach al tia_client. El portal queda
+    vivo hasta ``disconnect`` (o hasta que se cambie de proyecto).
+
+    Los siguientes comandos (sync disp, scan blocks, compile PLC, etc.)
+    usan el mismo portal — sin reconectar por comando.
     """
     tia_client = current_app.config["TIA_CLIENT"]
-    if tia_client.wrapper is not None:
+    if tia_client.ts is None:
+        return jsonify({
+            "ok": False,
+            "state": "disconnected",
+            "error": "Modulo siemens_tia_scripting no attached.",
+        }), 503
+    result = tia_client.dispatch("attach_portal")
+    if result.get("ok"):
         return jsonify({
             "ok": True,
             "state": "connected",
             "pid": None,
             "worker_alive": True,
+            "already_attached": result["result"].get("already_attached", False),
         })
-    # Sin attach real todavia (4.5.2+ cablea esto). Devolvemos error
-    # legible para que la SPA pueda mostrarlo.
     return jsonify({
         "ok": False,
         "state": "disconnected",
-        "error": (
-            "OB1: attach_wrapper() no implementado todavia (Fase 4 / "
-            "paso 4.5.2+). main.py debe llamar tia_client.attach_wrapper(real_portal)."
-        ),
+        "error": result.get("error", "unknown"),
         "worker_alive": True,
-    }), 503
+    }), 500
 
 
 @bp.post("/disconnect")
 def post_tia_disconnect():
-    """Detach del portal TIA Portal.
-
-    En OB1 el detach es simplemente ``tia_client.attach_wrapper(None)``.
-    No matamos nada: el wrapper se setea a None y los siguientes dispatch
-    daran 'No portal attached' hasta un nuevo attach.
-    """
+    """Detach del portal TIA Portal (lo cierra)."""
     tia_client = current_app.config["TIA_CLIENT"]
-    tia_client.attach_wrapper(None)
+    result = tia_client.dispatch("detach_portal")
     return jsonify({
-        "ok": True,
-        "state": "disconnected",
+        "ok": result.get("ok", False),
+        "state": "disconnected" if result.get("ok") else "connected",
         "worker_alive": True,
     })
 

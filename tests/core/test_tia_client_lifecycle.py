@@ -91,7 +91,11 @@ def test_open_new_portal_happy_path(client_with_handlers):
         )
         assert out == {
             "ok": True,
-            "result": {"opened": True, "project_file_path": project_path},
+            "result": {
+                "opened": True,
+                "project_file_path": project_path,
+                "state": "connected",
+            },
         }
         ts.open_portal.assert_called_once_with(
             portal_mode=ts.Enums.PortalMode.AnyUserInterface
@@ -99,6 +103,9 @@ def test_open_new_portal_happy_path(client_with_handlers):
         new_portal.open_project.assert_called_once_with(
             project_file_path=project_path
         )
+        # OB1 model: tras open_new_portal, el portal queda attached
+        # al tia_client para uso persistente.
+        assert client_with_handlers.wrapper is new_portal
     finally:
         os.unlink(project_path)
 

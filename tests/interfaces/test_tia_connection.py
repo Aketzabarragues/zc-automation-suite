@@ -97,14 +97,14 @@ def test_get_connection_handles_list_plcs_failure_gracefully(client):
     assert data["plcs"] == []
 
 
-def test_post_connect_without_wrapper_returns_503(client):
-    """Sin attach_wrapper real, /connect retorna 503 con error legible."""
+def test_post_connect_without_ts_returns_503(client):
+    """Sin modulo siemens_tia_scripting attached, /connect retorna 503."""
     c, _ = client
     resp = c.post("/api/v1/tia/connect")
     assert resp.status_code == 503
     data = resp.get_json()
     assert data["ok"] is False
-    assert "attach_wrapper" in data["error"]
+    assert "siemens_tia_scripting" in data["error"]
     assert data["state"] == "disconnected"
 
 
