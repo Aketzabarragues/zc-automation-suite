@@ -846,6 +846,105 @@ def _h_import_plc_tags_xml(args: dict, tia_client: "SyncTIAClient") -> dict:
     return {"imported_from": import_dir}
 
 
+def _h_export_block(args: dict, tia_client: "SyncTIAClient") -> dict:
+    """Exporta un unico bloque de programa como SimaticSD. Manual §2.10.5."""
+    plc_name: str = args.get("plc_name", "")
+    block_name: str = args.get("block_name", "")
+    target_dir: str = args.get("target_dir", "")
+
+    if not plc_name:
+        raise ValueError("Se requiere el argumento 'plc_name'.")
+    if not block_name:
+        raise ValueError("Se requiere el argumento 'block_name'.")
+
+    portal = tia_client.wrapper
+    if portal is None:
+        raise RuntimeError(
+            "No portal attached. Llama a attach_portal primero."
+        )
+    project = _get_active_project(portal)
+    target_plc = _find_plc(project, plc_name)
+    target_path = _ensure_target_dir(target_dir)
+
+    blocks = target_plc.get_program_blocks()
+    for block in blocks:
+        # Defensivo: get_name puede lanzar UnicodeDecodeError; usamos helper.
+        name = _safe_get_block_name(block)
+        if name == block_name:
+            block.export(
+                target_directory_path=str(target_path),
+                export_format="SimaticSD",
+                keep_folder_structure=False,
+            )
+            return {"exported_to": str(target_path), "block_name": block_name}
+
+    raise RuntimeError(
+        f"Bloque '{block_name}' no encontrado en PLC '{plc_name}'."
+    )
+
+
+def _h_export_tag_table(args: dict, tia_client: "SyncTIAClient") -> dict:
+    """Exporta una unica PlcTagTable como XML SimaticML. Manual §2.10.5/§2.28.3."""
+    plc_name: str = args.get("plc_name", "")
+    table_name: str = args.get("table_name", "")
+    target_dir: str = args.get("target_dir", "")
+
+    if not plc_name:
+        raise ValueError("Se requiere el argumento 'plc_name'.")
+    if not table_name:
+        raise ValueError("Se requiere el argumento 'table_name'.")
+
+    portal = tia_client.wrapper
+    if portal is None:
+        raise RuntimeError(
+            "No portal attached. Llama a attach_portal primero."
+        )
+    project = _get_active_project(portal)
+    target_plc = _find_plc(project, plc_name)
+    target_path = _ensure_target_dir(target_dir)
+
+    tag_tables = target_plc.get_plc_tag_tables()
+    for table in tag_tables:
+        name = _safe_get_table_name(table)
+        if name == table_name:
+            table.export(
+                target_directory_path=str(target_path),
+                keep_folder_structure=False,
+            )
+            return {"exported_to": str(target_path), "table_name": table_name}
+
+    raise RuntimeError(
+        f"Tabla '{table_name}' no encontrada en PLC '{plc_name}'."
+    )
+
+
+def _h_import_tag_table(args: dict, tia_client: "SyncTIAClient") -> dict:
+    """Importa una unica PlcTagTable (XML) desde disco al PLC. Manual §2.2.24."""
+    plc_name: str = args.get("plc_name", "")
+    import_dir: str = args.get("import_dir", "")
+    target_folder: str = args.get("target_folder") or ""
+
+    if not plc_name:
+        raise ValueError("Se requiere el argumento 'plc_name'.")
+    if not import_dir:
+        raise ValueError("Se requiere el argumento 'import_dir'.")
+    if not os.path.isdir(import_dir):
+        raise RuntimeError(f"El directorio no existe: '{import_dir}'.")
+
+    portal = tia_client.wrapper
+    if portal is None:
+        raise RuntimeError(
+            "No portal attached. Llama a attach_portal primero."
+        )
+    project = _get_active_project(portal)
+    target_plc = _find_plc(project, plc_name)
+    target_plc.import_plc_tags(
+        import_root_directory=import_dir,
+        target_folder_path=target_folder,
+    )
+    return {"imported_from": import_dir}
+
+
 def _h_compile_blocks(args: dict, tia_client: "SyncTIAClient") -> dict:
     """Compila una lista explicita de bloques del PLC (no todo el software).
 
@@ -976,6 +1075,9 @@ def register_core_commands(target: SyncTIAClient) -> None:
     target.register_command("export_plc_tags_xml", _h_export_plc_tags_xml)
     target.register_command("import_blocks_sd", _h_import_blocks_sd)
     target.register_command("import_plc_tags_xml", _h_import_plc_tags_xml)
+    target.register_command("export_block", _h_export_block)
+    target.register_command("export_tag_table", _h_export_tag_table)
+    target.register_command("import_tag_table", _h_import_tag_table)
 
 
 # Singleton de proceso. main.py (4.5.1) hace tia_client = SyncTIAClient().
