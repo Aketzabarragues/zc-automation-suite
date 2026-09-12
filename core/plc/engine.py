@@ -58,6 +58,9 @@ class Engine:
         # Bus opcional: si es ``None`` (default), el engine no publica
         # eventos.  Se inyecta en producción desde ``app.state.event_bus``.
         self._event_bus: EventBus | None = event_bus
+        # Contador de ciclos ejecutado. Se incrementa en run_cycle().
+        # Lectura cross-thread es GIL-atomic en CPython.
+        self.cycle_count: int = 0
 
     # ------------------------------------------------------------------
     # Registro de FBs
@@ -174,6 +177,7 @@ class Engine:
         import asyncio
 
         asyncio.run(self.tick_once())
+        self.cycle_count += 1
 
     async def tick_once(self) -> None:
         """Un tick: ``await tick()`` sobre cada FB NO terminal registrado.
