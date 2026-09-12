@@ -1,4 +1,4 @@
-"""Tests del blueprint tia_connection_ob1 (Fase 4 / paso 4.4.2)."""
+"""Tests del blueprint tia_connection (Fase 4 / paso 4.4.2)."""
 from __future__ import annotations
 
 from unittest.mock import MagicMock

@@ -1,4 +1,4 @@
-"""Tests del blueprint diagnostics_ob1 (Fase 4 / paso 4.4.3).
+"""Tests del blueprint diagnostics (Fase 4 / paso 4.4.3).
 
 Tests basicos con stubs (no se importan AppState / LogBuffer / etc.
 reales — los mocks son suficiente para verificar el wiring).

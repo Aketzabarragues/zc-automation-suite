@@ -144,67 +144,67 @@ def create_app(
     # el — los endpoints viejos en FastAPI siguen disponibles mientras
     # la migracion no sea completa.
     try:
-        from interfaces.web_server.routers.tia_connection_ob1 import (
+        from interfaces.web_server.routers.tia_connection import (
             bp as tia_connection_bp,
         )
         app.register_blueprint(tia_connection_bp)
-        logger.info("create_app: blueprint tia_connection_ob1 registrado.")
+        logger.info("create_app: blueprint tia_connection registrado.")
     except ImportError:
-        logger.debug("create_app: blueprint tia_connection_ob1 no disponible.")
+        logger.debug("create_app: blueprint tia_connection no disponible.")
 
     try:
-        from interfaces.web_server.routers.diagnostics_ob1 import (
+        from interfaces.web_server.routers.diagnostics import (
             bp as diagnostics_bp,
         )
         app.register_blueprint(diagnostics_bp)
-        logger.info("create_app: blueprint diagnostics_ob1 registrado.")
+        logger.info("create_app: blueprint diagnostics registrado.")
     except ImportError:
-        logger.debug("create_app: blueprint diagnostics_ob1 no disponible.")
+        logger.debug("create_app: blueprint diagnostics no disponible.")
 
     try:
-        from interfaces.web_server.routers.area_manifests_ob1 import (
+        from interfaces.web_server.routers.area_manifests import (
             bp as area_manifests_bp,
         )
         app.register_blueprint(area_manifests_bp)
-        logger.info("create_app: blueprint area_manifests_ob1 registrado.")
+        logger.info("create_app: blueprint area_manifests registrado.")
     except ImportError:
-        logger.debug("create_app: blueprint area_manifests_ob1 no disponible.")
+        logger.debug("create_app: blueprint area_manifests no disponible.")
 
     try:
-        from interfaces.web_server.routers.catalog_ob1 import (
+        from interfaces.web_server.routers.catalog import (
             bp as catalog_bp,
         )
         app.register_blueprint(catalog_bp)
-        logger.info("create_app: blueprint catalog_ob1 registrado.")
+        logger.info("create_app: blueprint catalog registrado.")
     except ImportError:
-        logger.debug("create_app: blueprint catalog_ob1 no disponible.")
+        logger.debug("create_app: blueprint catalog no disponible.")
 
     try:
-        from interfaces.web_server.routers.portal_ob1 import (
+        from interfaces.web_server.routers.portal import (
             bp as portal_bp,
         )
         app.register_blueprint(portal_bp)
-        logger.info("create_app: blueprint portal_ob1 registrado.")
+        logger.info("create_app: blueprint portal registrado.")
     except ImportError:
-        logger.debug("create_app: blueprint portal_ob1 no disponible.")
+        logger.debug("create_app: blueprint portal no disponible.")
 
     try:
-        from interfaces.web_server.routers.plc_ob1 import (
+        from interfaces.web_server.routers.plc import (
             bp as plc_bp,
         )
         app.register_blueprint(plc_bp)
-        logger.info("create_app: blueprint plc_ob1 registrado.")
+        logger.info("create_app: blueprint plc registrado.")
     except ImportError:
-        logger.debug("create_app: blueprint plc_ob1 no disponible.")
+        logger.debug("create_app: blueprint plc no disponible.")
 
     try:
-        from interfaces.web_server.routers.areas_ob1 import (
+        from interfaces.web_server.routers.areas import (
             bp as areas_bp,
         )
         app.register_blueprint(areas_bp)
-        logger.info("create_app: blueprint areas_ob1 registrado.")
+        logger.info("create_app: blueprint areas registrado.")
     except ImportError:
-        logger.debug("create_app: blueprint areas_ob1 no disponible.")
+        logger.debug("create_app: blueprint areas no disponible.")
 
     return app
 
