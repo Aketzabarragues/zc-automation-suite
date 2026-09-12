@@ -70,8 +70,15 @@ from pathlib import Path
 
 from core.application.log_paths import setup_logging  # noqa: E402
 
-LOG_FILE = setup_logging("tray")
-log = logging.getLogger("zc.tray")
+# Modo de logging: "tray" (modo default) o "web" (CLI headless).
+# Ambos escriben al MISMO archivo (``<log_dir>/zc.log``); el prefijo del
+# logger name solo distingue la fuente en logs (``[zc.tray]`` vs
+# ``[zc.web]``). El usuario pidio "un solo log para toda la aplicacion"
+# (Fase C, sept-2026): ambos modos usan setup_logging() unificado, asi
+# los logs van al mismo archivo.
+_INIT_MODE = "web" if "--web" in sys.argv[1:] else "tray"
+LOG_FILE = setup_logging(_INIT_MODE)
+log = logging.getLogger(f"zc.{_INIT_MODE}")
 
 
 def _resolve_icon_path() -> Path | None:
