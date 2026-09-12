@@ -40,8 +40,9 @@ def test_alimentacion_spec_has_expected_hooks() -> None:
     ``update_disp_comments_db_*`` aportados al ``COMMAND_REGISTRY``
     del worker OT desde ``infrastructure/tia/extra_commands.py``).
     PR 4 implementó ``contributes_routers`` (3 routers web movidos
-    desde el shell a ``areas/alimentacion/interfaces/web/`` y
-    descubiertos vía ``AreaRegistry.for_each("contributes_routers", app=app)``).
+    desde el shell a ``areas/alimentacion/interfaces/web/``). [Borrado
+    Fase A, sept-2026; los endpoints HTTP del area se migraran a
+    blueprints Flask OB1 en 4.6.2.]
     PR 5 implementó ``contributes_frontend_manifest`` (manifest del
     área para la SPA).
     PR 6 implementó ``contributes_mcp_tools`` (4 tools MCP que dan
@@ -50,7 +51,7 @@ def test_alimentacion_spec_has_expected_hooks() -> None:
 
     Este test se actualiza por PR: cada vez que un PR añade un hook
     nuevo, lo promovemos de ``is None`` a ``is not None``. Cuando
-    los 7 hooks estén implementados, el bloque final desaparece.
+    los 6 hooks estén implementados, el bloque final desaparece.
     """
     spec = AreaRegistry.discover().get("alimentacion")
     assert spec is not None
@@ -63,8 +64,6 @@ def test_alimentacion_spec_has_expected_hooks() -> None:
     assert spec.contributes_catalog is not None
     # Implementado en PR 3
     assert spec.contributes_tia_commands is not None
-    # Implementado en PR 4
-    assert spec.contributes_routers is not None
     # Implementado en PR 5
     assert spec.contributes_frontend_manifest is not None
     # Implementado en PR 6

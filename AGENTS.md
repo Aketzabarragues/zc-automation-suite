@@ -376,7 +376,7 @@ commit).
 | Correr tests | `python -m pytest tests/ -v` |
 | Servidor dev (web) | `python main.py --web 127.0.0.1:8000` |
 | Servidor dev (MCP) | `python main.py --mcp` |
-| Launcher bandeja | `python main_tray.py` (o `run_tray.bat`) |
+| Launcher bandeja | `python main.py` (o `run_tray.bat`) |
 | Recompilar CSS | `tailwindcss-extra.exe -i interfaces/web_server/static/src/input.css -o interfaces/web_server/static/styles.css --minify` (también `run_tailwind.bat` si existe) |
 | Build .exe | `python build_exe.py` |
 | Test E2E manual | abrir `http://127.0.0.1:8000/` (demo: `?demo=1`) |

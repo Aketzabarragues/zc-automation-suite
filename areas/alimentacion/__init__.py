@@ -17,7 +17,9 @@ Paquete autocontenido que aporta al core:
     ``AREA_SPEC.contributes_tia_commands`` y descubiertos al
     arrancar el worker por ``core.infrastructure.tia.command_loader``.
   - 3 routers web en ``interfaces/web/`` (alimentacion, sync, excel)
-    cableados a ``contributes_routers``.
+    cableados a ``contributes_routers``. [Borrado Fase A, sept-2026;
+    los endpoints HTTP se reimplementaran como blueprints Flask OB1
+    cuando los use cases migren (4.6.2).]
   - 4 tools MCP en ``interfaces/mcp/tools.py`` (sync preview/commit,
     aplicar comentarios, upload excel) cableadas a
     ``contributes_mcp_tools``. Dan paridad con los endpoints web:
@@ -29,14 +31,13 @@ Paquete autocontenido que aporta al core:
     ``application/disp_state_extensions.install``.
   - Defaults defensivos del ``ConfigManager`` vía
     ``infrastructure/config_defaults.install``.
-  - **Wiring del Engine + 7 FBs + plc_router** vía ``register()``
-    (Fase 3, paso DA-005.5). El Composition Root
-    (``interfaces/web_server/app.py``) llama a ``register()`` desde
-    el ``lifespan`` para activar el runtime de Function Blocks.
+  - **Wiring del Engine + 7 FBs** vía ``register()``
+    (Fase 3, paso DA-005.5). El Composition Root (``main.py``) llama
+    a ``register()`` para activar el runtime de Function Blocks.
 
-Los 7 ``contributes_*`` + ``register()`` cubren todos los extension
-points y la activación del runtime. La ``AREA_SPEC`` y ``register``
-se mantienen en este mismo archivo (Composition Root del área) para
+Los 6 ``contributes_*`` + ``register()`` cubren los extension points
+y la activación del runtime. La ``AREA_SPEC`` y ``register`` se
+mantienen en este mismo archivo (Composition Root del área) para
 que añadir/quitar un FB sea 1 edit.
 """
 from __future__ import annotations
@@ -53,7 +54,6 @@ from areas.alimentacion.infrastructure.tia.extra_commands import (
     register as register_tia,
 )
 from areas.alimentacion.interfaces.mcp.tools import register as register_mcp
-from areas.alimentacion.interfaces.web import register_routers
 from core.application.area_registry import AreaSpec
 
 
@@ -76,8 +76,6 @@ AREA_SPEC = AreaSpec(
     contributes_catalog=build_alim_catalog,
     # ── Implementado en PR 3 ──────────────────────────────────────
     contributes_tia_commands=register_tia,
-    # ── Implementado en PR 4 ──────────────────────────────────────
-    contributes_routers=register_routers,
     # ── Implementado en PR 5 (frontend-spa) ────────────────────────
     # Manifest del área para la SPA. Espejo Python de ``manifest.js``
     # (mismo shape, pero con URLs strings en ``loaders`` en vez de
@@ -93,11 +91,11 @@ AREA_SPEC = AreaSpec(
 
 
 # ── Wiring del Engine + 7 FBs (DA-005.5) ──────────────────────────
-# El Composition Root (``interfaces/web_server/app.py::_tia_lifespan``)
-# invoca esta función tras construir el ``Engine``. Crea los 7 FBs
-# del área con sus dependencias (gateway / config_manager / app_state
-# / progress_tracker leídos de ``app.state``) y los registra en el
-# engine bajo su nombre canónico (sin prefijo ``Function``).
+# El Composition Root (``main.py``) invoca esta función tras construir
+# el ``Engine``. Crea los 7 FBs del área con sus dependencias
+# (gateway / config_manager / app_state / progress_tracker leídos de
+# los singletons legacy) y los registra en el engine bajo su nombre
+# canónico (sin prefijo ``Function``).
 #
 # El ``plc_router`` (la mitad HTTP del wiring: ``POST/GET
 # /api/v1/plc/fb/{name}/...``) NO se monta aquí: el shell lo incluye

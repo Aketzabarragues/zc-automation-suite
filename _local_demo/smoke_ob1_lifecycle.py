@@ -1,7 +1,7 @@
 """Smoke test final del ciclo de vida OB1 (Fase 4 / DA-014).
 
 Equivalente al flujo del operario con la bandeja:
-  1. main_tray arranca
+  1. main.py arranca (modo bandeja)
   2. Operario hace click en "Iniciar web"
   3. Ob1Supervisor arranca Flask + OB1 main loop en hilos
   4. Flask responde /ping y /cycle_count refleja el OB1 loop
@@ -29,7 +29,7 @@ def main() -> int:
     print("FASE 4 / OB1: SMOKE TEST CICLO DE VIDA")
     print("=" * 60)
 
-    print("\n[1] Creando Ob1ServiceSupervisor (equivalente a main_tray tray mode)")
+    print("\n[1] Creando Ob1ServiceSupervisor (equivalente a main.py tray mode)")
     from launcher.ob1_supervisor import Ob1ServiceSupervisor
     s = Ob1ServiceSupervisor(host="127.0.0.1", port=5997, tick_period_s=0.05)
     print(f"  - supervisor creado en {s.host}:{s.port}")

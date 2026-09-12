@@ -1,29 +1,27 @@
-"""Routers GENÉRICOS de la capa web (FastAPI).
+"""Routers Flask de la capa web (Fase 4 / DA-014, sept-2026).
 
-Solo routers del shell (comunes a todas las áreas). Los routers
+Solo blueprints del shell (comunes a todas las áreas). Los routers
 específicos de cada Bounded Context viven en
 ``areas/<area>/interfaces/web/`` y los monta el shell vía
 ``AreaRegistry.for_each("contributes_routers", app=app)`` desde
-``interfaces/web_server/app.py``.
+``interfaces/web_server/app_flask.py``.
 
-Cada submódulo expone un ``APIRouter`` independiente que se ensambla
-en ``interfaces/web_server/app.py``. Los routers NO importan estado
-global: todas las dependencias se reciben vía ``fastapi.Depends``.
+Cada submódulo expone un ``Blueprint`` independiente que se ensambla
+en ``interfaces/web_server/app_flask.py::create_app``. Los blueprints
+NO importan estado global: las dependencias se reciben vía
+``current_app.config["_LAZY_*"]`` (lazy resolvers parametrizados en
+create_app).
+
+Histórico:
+  - Hasta sept-2026 existían 7 routers FastAPI equivalentes
+    (``areas.py``, ``area_manifests.py``, ``catalog.py``,
+    ``diagnostics.py``, ``plc.py``, ``portal.py``, ``tia_connection.py``).
+    Se borraron en Fase A (4.N10) tras migrar a Flask + OB1.
+
+Convenio de naming:
+  - El sufijo ``_ob1`` se eliminara en una fase posterior del cleanup
+    cuando el equipo valide que los blueprints no tienen duplicados.
 """
 from __future__ import annotations
 
-from .area_manifests import router as area_manifests_router
-from .areas import router as areas_router
-from .catalog import router as catalog_router
-from .diagnostics import router as diagnostics_router
-from .portal import router as portal_router
-from .tia_connection import router as tia_connection_router
-
-__all__ = [
-    "area_manifests_router",
-    "areas_router",
-    "catalog_router",
-    "diagnostics_router",
-    "portal_router",
-    "tia_connection_router",
-]
+__all__: list[str] = []
