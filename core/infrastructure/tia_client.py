@@ -1156,6 +1156,131 @@ def _h_update_user_constant_name(args: dict, tia_client: "SyncTIAClient") -> dic
     )
 
 
+# ---------------------------------------------------------------------------
+# Comandos prohibidos dentro de un lote transaccional. Causarían:
+#   - open/close_project: destruirían el portal a mitad del lote.
+#   - save_project      : forzaría commit parcial fuera de la transacción.
+#   - list_plcs         : no es operación, es introspección.
+#   - compile_plc / compile_blocks: TIA rechaza compilar dentro de transacción.
+#   - execute_transactional_batch: anidamiento no soportado.
+#   - attach_portal / open_new_portal: ciclo de vida de la instancia TIA.
+# ---------------------------------------------------------------------------
+_TRANSACTION_FORBIDDEN_COMMANDS: frozenset[str] = frozenset(
+    {
+        "open_project",
+        "close_project",
+        "save_project",
+        "list_plcs",
+        "compile_plc",
+        "compile_blocks",
+        "execute_transactional_batch",
+        "attach_portal",
+        "open_new_portal",
+    }
+)
+
+
+def _h_execute_transactional_batch(
+    args: dict, tia_client: "SyncTIAClient"
+) -> dict:
+    """Ejecuta varios comandos bajo una sola transaccion de TIA Portal.
+
+    Si cualquier handler falla se hace rollback de toda la cadena y se
+    lanza RuntimeError con el paso que rompio. Captura el retorno de
+    cada paso en ``details`` para que la IT vea los resultados intermedios.
+
+    Sub-comandos se ejecutan via ``tia_client.dispatch(cmd, args)``, que
+    ya envuelve excepciones y devuelve ``{ok, result|error}``. Aqui solo
+    validamos ``ok`` y propagamos / hacemos rollback segun corresponda.
+    """
+    undo_text: str = args.get("undo_text", "Operacion por lote")
+    operations: list[dict] = args.get("operations", [])
+
+    if not operations:
+        raise ValueError("La lista de operaciones esta vacia.")
+
+    portal = tia_client.wrapper
+    if portal is None:
+        raise RuntimeError(
+            "No portal attached. Llama a attach_portal primero."
+        )
+    project = _get_active_project(portal)
+
+    # Iniciar transaccion nativa (manual §2.37.27).
+    project.start_transaction(undo_text=undo_text, dialog_text=undo_text)
+
+    results_list: list[dict] = []
+    cmd: str = ""
+    cmd_args: dict = {}
+    try:
+        for idx, op in enumerate(operations):
+            cmd = op.get("command", "")
+            cmd_args = op.get("args", {})
+
+            if cmd in _TRANSACTION_FORBIDDEN_COMMANDS:
+                raise ValueError(
+                    f"El comando '{cmd}' esta prohibido dentro de un lote "
+                    "transaccional."
+                )
+
+            # Ejecutar via el dispatcher del propio tia_client. Si el handler
+            # lanza, dispatch captura y devuelve {ok: False, error: ...}.
+            dispatch_out = tia_client.dispatch(cmd, cmd_args)
+
+            if not dispatch_out.get("ok"):
+                # Traducir el error del sub-comando a excepcion para que el
+                # try/except de abajo haga rollback.
+                raise RuntimeError(
+                    f"sub-comando '{cmd}' fallo: "
+                    f"{dispatch_out.get('error', '?')}"
+                )
+
+            step_result = dispatch_out.get("result")
+            results_list.append({
+                "step": idx + 1,
+                "command": cmd,
+                "result": step_result,
+            })
+
+            # Defensa en profundidad (sept-2026): si la op retorno False
+            # (fallo no-excepcion), abortar el batch para rollback.
+            if step_result is False:
+                raise RuntimeError(
+                    f"Lote abortado: op '{cmd}' retorno False en paso "
+                    f"{idx + 1}. Rollback ejecutado."
+                )
+
+        # Confirmar transaccion si no hubo errores (manual §2.37.28).
+        project.end_transaction(rollback=False)
+
+        return {
+            "success": True,
+            "operations_executed": len(operations),
+            "details": results_list,
+        }
+
+    except Exception as exc:
+        # Reversion garantizada ante excepciones (manual §2.37.28).
+        # Silenciamos fallos secundarios del rollback para no enmascarar la
+        # causa raiz original.
+        try:
+            project.end_transaction(rollback=True)
+        except Exception:
+            pass
+        # Incluimos los args de la op que fallo (truncados a 500 chars) para
+        # diagnostico del operario.
+        import json as _json
+        try:
+            args_str = _json.dumps(cmd_args, ensure_ascii=False, default=str)[:500]
+        except Exception:
+            args_str = repr(cmd_args)[:500]
+        raise RuntimeError(
+            f"Lote abortado en el paso {len(results_list) + 1} ('{cmd}'). "
+            f"Args: {args_str}. "
+            f"Rollback ejecutado. Motivo: {exc}"
+        )
+
+
 def _h_compile_blocks(args: dict, tia_client: "SyncTIAClient") -> dict:
     """Compila una lista explicita de bloques del PLC (no todo el software).
 
@@ -1294,6 +1419,9 @@ def register_core_commands(target: SyncTIAClient) -> None:
     target.register_command("update_user_constant_value", _h_update_user_constant_value)
     target.register_command("update_user_constant_name", _h_update_user_constant_name)
     target.register_command("delete_user_constant", _h_delete_user_constant)
+    target.register_command(
+        "execute_transactional_batch", _h_execute_transactional_batch
+    )
 
 
 # Singleton de proceso. main.py (4.5.1) hace tia_client = SyncTIAClient().
