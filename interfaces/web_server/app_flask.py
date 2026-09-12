@@ -188,6 +188,15 @@ def create_app(
     except ImportError:
         logger.debug("create_app: blueprint portal_ob1 no disponible.")
 
+    try:
+        from interfaces.web_server.routers.plc_ob1 import (
+            bp as plc_bp,
+        )
+        app.register_blueprint(plc_bp)
+        logger.info("create_app: blueprint plc_ob1 registrado.")
+    except ImportError:
+        logger.debug("create_app: blueprint plc_ob1 no disponible.")
+
     return app
 
 
