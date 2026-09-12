@@ -1073,32 +1073,61 @@ def _wrap_handler(handler):
     """Adapta un handler (portal, ts, args) al dispatcher OB1 (args, tia_client).
 
     El dispatcher de SyncTIAClient invoca handlers con (args, tia_client).
-    Los handlers internos del area (cuyo cuerpo se mantiene por compat
-    con el IT legacy) esperan (portal, ts, args). Este wrapper extrae
-    portal (tia_client.wrapper) y ts (tia_client.ts) y los pasa al
-    handler interno. Migrar la firma interna a (args, tia_client) se
-    hace en pasos posteriores de DA-014.
+    Los handlers internos del area esperan (portal, ts, args). Este wrapper
+    extrae portal (tia_client.wrapper) y ts (tia_client.ts) y los pasa al
+    handler interno. Migrar la firma interna a (args, tia_client) queda
+    para pasos posteriores de DA-014.
     """
     def _wrapped(args, tia_client):
         return handler(tia_client.wrapper, tia_client.ts, args)
     return _wrapped
 
 
-def register(tia_client) -> None:
-    """Aporta los comandos del area alimentacion al SyncTIAClient.
+def register(registry):
+    """Aporta los comandos al COMMAND_REGISTRY del worker (legacy, Fase 3).
 
-    Punto de extension estandar para OB1 (Fase 4 / paso 4.1.3). main.py
-    (4.5.1) llama register(tia_client) por cada area declarada en
-    AreaSpec.contributes_tia_commands.
+    Compat con worker_tia.py, que sigue vivo hasta el paso 4.6.1.
+    Tras eso, worker_tia desaparece y solo queda register_ob1(tia_client)
+    como punto de extension.
 
-    Comandos registrados (wrapper sobre los handlers (portal, ts, args)
-    existentes):
+    Comandos registrados:
       - update_disp_comments_db_<hw> (x6)
       - update_proc_comments_db_<kind> (x3: preal, pint, alm)
       - update_proc_comments_db_param (combinado PReal+PInt)
       - commit_disp_nmax_renames_online (online puro)
       - commit_disp_devices_offline (offline puro)
       - commit_devices_sync (DEPRECATED, compat legacy)
+    """
+    for hw in EXTRA_HW_TYPES:
+        registry[f"update_disp_comments_db_{hw}"] = (
+            make_cmd_update_disp_comments_db(hw)
+        )
+    for kind in EXTRA_PROC_KINDS:
+        registry[f"update_proc_comments_db_{kind}"] = (
+            make_cmd_update_proc_comments_db(kind)
+        )
+    registry["update_proc_comments_db_param"] = (
+        make_cmd_update_proc_comments_db_param()
+    )
+    registry["commit_disp_nmax_renames_online"] = (
+        make_cmd_commit_disp_nmax_renames_online()
+    )
+    registry["commit_disp_devices_offline"] = (
+        make_cmd_commit_disp_devices_offline()
+    )
+    registry["commit_devices_sync"] = make_cmd_commit_devices_sync()
+
+
+def register_ob1(tia_client) -> None:
+    """Aporta los comandos del area al SyncTIAClient (OB1 / Fase 4 / DA-014).
+
+    Punto de extension estandar para el modelo OB1. main.py (paso 4.5.1)
+    llama register_ob1(tia_client) por cada area declarada en
+    AreaSpec.contributes_tia_commands.
+
+    Equivale a register(registry) pero los handlers se envuelven con
+    _wrap_handler para adaptarlos a la firma (args, tia_client) del
+    dispatcher del SyncTIAClient.
     """
     for hw in EXTRA_HW_TYPES:
         tia_client.register_command(
@@ -1126,9 +1155,6 @@ def register(tia_client) -> None:
         "commit_devices_sync",
         _wrap_handler(make_cmd_commit_devices_sync()),
     )
-
-
-
 __all__ = [
     "EXTRA_HW_TYPES",
     "EXTRA_PROC_KINDS",
