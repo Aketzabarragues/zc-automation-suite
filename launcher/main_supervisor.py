@@ -1,28 +1,20 @@
-"""Supervisor del OB1 (Fase 4 / 4.N1).
+"""Aloja Flask daemon y main loop en hilos daemon; auto-restart con backoff.
 
-Aloja el Flask daemon y el OB1 main loop en hilos daemon. Auto-restart
-con backoff si cualquiera de los dos muere por error no solicitado.
+Dos hilos daemon:
+  - ``flask-daemon``: werkzeug serve_forever (single-threaded).
+  - ``main-loop``: drena la cola TIA + tickea el Engine.
 
-Diseño (sept-2026):
-  - El OB1 main loop vive en un hilo daemon dedicado (``ob1-loop``).
-    NO en el main thread (ese lo ocupa pystray en modo bandeja).
-  - El Flask server vive en otro hilo daemon (``flask-daemon``).
-  - Ambos hilos comparten el mismo ``SyncTIAClient`` (es thread-safe
-    via ``queue.Queue`` interna), ``Engine`` (sync, ticks desde el OB1
-    loop) y ``EventBusSync`` (queue.Queue, thread-safe).
-  - El shutdown se propaga via ``threading.Event``: cuando ``stop()``
-    se llama, ambos hilos ven el flag y salen limpiamente.
+Comparten ``SyncTIAClient``, ``Engine`` y ``EventBusSync`` (thread-safe).
+Shutdown via ``threading.Event``: stop() señaliza, ambos hilos salen limpios.
 
-API pública (idéntica a ``WebServiceSupervisor`` para que el tray menu
-sea intercambiable):
-  - ``start()``             -> arranca ambos hilos (idempotente).
-  - ``stop(timeout)``       -> señaliza parada, espera a ambos hilos.
-  - ``is_alive() -> bool``  -> True si Flask esta healthy + OB1 vivo.
-  - ``restart_count``       -> contador de reinicios.
+API:
+  - start()              -> arranca ambos hilos (idempotente).
+  - stop(timeout)        -> señaliza parada, espera a ambos hilos.
+  - is_alive() -> bool   -> True si Flask bindeado + main loop vivo.
+  - restart_count        -> contador de reinicios tras crash.
 
-Trade-off aceptado: Flask dev server es single-threaded (``threaded=False``),
-asi que HTTP requests serializan contra el OB1 main loop en el mismo
-proceso. Para 1 operario, <10 req/s, OK.
+Trade-off: Flask threaded=False -> HTTP serializa contra el main loop.
+Para 1 operario (<10 req/s) OK.
 """
 from __future__ import annotations
 
@@ -34,8 +26,8 @@ import traceback
 from werkzeug.serving import make_server
 
 
-class Ob1ServiceSupervisor:
-    """Ejecuta Flask daemon + OB1 main loop en hilos daemon; auto-restart."""
+class MainServiceSupervisor:
+    """Flask daemon + main loop en hilos daemon; auto-restart con backoff."""
 
     def __init__(
         self,
@@ -48,30 +40,24 @@ class Ob1ServiceSupervisor:
         self.port = port
         self.tick_period_s = tick_period_s
         self.no_engine = no_engine
-        self.log = logging.getLogger("zc.ob1")
+        self.log = logging.getLogger("zc.main")
 
         self._stop_event = threading.Event()
-        # Hilos daemon.
         self._flask_thread: threading.Thread | None = None
         self._loop_thread: threading.Thread | None = None
-        # Flask server (para shutdown limpio).
         self._flask_server = None  # type: ignore[assignment]
-        # Estado: True cuando ambos hilos están corriendo.
         self._healthy = threading.Event()
         self.restart_count = 0
-        # Lock para serializar start/stop desde el hilo del tray icon.
         self._lifecycle_lock = threading.Lock()
 
-    # ── API pública ───────────────────────────────────────────────
     def start(self) -> None:
-        """Lanza Flask daemon + OB1 main loop (idempotente)."""
+        """Lanza Flask daemon + main loop (idempotente)."""
         with self._lifecycle_lock:
             if self._is_running():
                 self.log.debug("start() llamado pero ya estaba vivo; no-op.")
                 return
             self._stop_event.clear()
             self._healthy.clear()
-            # Construir components ANTES de lanzar los hilos (sin race).
             try:
                 self._components = self._build_components()
             except Exception as exc:  # noqa: BLE001
@@ -83,8 +69,8 @@ class Ob1ServiceSupervisor:
                 daemon=True,
             )
             self._loop_thread = threading.Thread(
-                target=self._run_ob1_loop_forever,
-                name="ob1-loop",
+                target=self._run_main_loop_forever,
+                name="main-loop",
                 daemon=True,
             )
             self._flask_thread.start()
@@ -94,7 +80,6 @@ class Ob1ServiceSupervisor:
         """Solicita el cierre de ambos hilos y espera."""
         with self._lifecycle_lock:
             self._stop_event.set()
-            # Señal de parada limpia para werkzeug (si está vivo).
             if self._flask_server is not None:
                 try:
                     self._flask_server.shutdown()
@@ -103,15 +88,14 @@ class Ob1ServiceSupervisor:
             flask_t = self._flask_thread
             loop_t = self._loop_thread
         # Join fuera del lock para no bloquear otros callers.
-        for label, thread in (("flask", flask_t), ("ob1-loop", loop_t)):
+        for label, thread in (("flask", flask_t), ("main-loop", loop_t)):
             if thread is None:
                 continue
             thread.join(timeout=timeout)
             if thread.is_alive():
                 self.log.warning(
                     "Hilo %s no terminó en %.1fs; se abandona (daemon).",
-                    label,
-                    timeout,
+                    label, timeout,
                 )
             else:
                 self.log.info("Hilo %s terminado limpiamente.", label)
@@ -130,7 +114,15 @@ class Ob1ServiceSupervisor:
             and self._loop_thread.is_alive()
         )
 
-    # ── Internals ─────────────────────────────────────────────────
+    def wait_until_alive(self, timeout_s: float = 10.0) -> bool:
+        """Espera a que Flask esté bindeado + main loop vivo. Útil para tests."""
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            if self.is_alive():
+                return True
+            time.sleep(0.1)
+        return False
+
     def _is_running(self) -> bool:
         return (
             (self._flask_thread is not None and self._flask_thread.is_alive())
@@ -138,11 +130,7 @@ class Ob1ServiceSupervisor:
         )
 
     def _build_components(self):
-        """Crea tia_client, engine, event_bus, flask_app.
-
-        Se llama UNA VEZ en start(); los objetos se comparten entre los
-        dos hilos. Los re-creamos en cada reinicio tras crash.
-        """
+        """Crea tia_client, engine, event_bus, flask_app. Compartidos entre hilos."""
         from core.infrastructure.tia_client import (
             SyncTIAClient,
             register_core_commands,
@@ -163,7 +151,7 @@ class Ob1ServiceSupervisor:
         return tia_client, engine, event_bus, flask_app
 
     def _run_flask_forever(self) -> None:
-        """Hilo daemon: arranca werkzeug make_server, vigila, reinicia."""
+        """Hilo daemon: werkzeug serve_forever, vigila, reinicia con backoff."""
         backoff = 1.0
         while not self._stop_event.is_set():
             try:
@@ -176,38 +164,32 @@ class Ob1ServiceSupervisor:
                 self.restart_count += 1
                 self.log.error(
                     "Flask daemon crasheó (restart #%d): %s\n%s",
-                    self.restart_count,
-                    exc,
-                    traceback.format_exc(),
+                    self.restart_count, exc, traceback.format_exc(),
                 )
 
             if self._stop_event.is_set():
                 break
             self.log.info(
                 "Reintento del Flask daemon en %.1fs (intento #%d).",
-                backoff,
-                self.restart_count,
+                backoff, self.restart_count,
             )
             if self._stop_event.wait(timeout=backoff):
                 break
             backoff = min(backoff * 2, 30.0)
 
     def _serve_flask_once(self) -> None:
-        """Construye y sirve Flask hasta que ``stop()`` lo apague."""
-        # Las components se construyen en start() (compartidas con OB1 loop).
-        # Aqui solo creamos el server de werkzeug.
+        """Sirve Flask hasta que stop() lo apague."""
         _, _, _, flask_app = self._components
         server = make_server(
             host=self.host,
             port=self.port,
             app=flask_app,
-            threaded=False,  # single-threaded: serializa contra OB1
+            threaded=False,  # single-threaded: serializa contra main loop
         )
         self._flask_server = server
         self.log.info(
             "Flask daemon arrancando en http://%s:%d (threaded=False).",
-            self.host,
-            self.port,
+            self.host, self.port,
         )
         self._healthy.set()
         try:
@@ -216,12 +198,12 @@ class Ob1ServiceSupervisor:
             self._healthy.clear()
             self._flask_server = None
 
-    def _run_ob1_loop_forever(self) -> None:
-        """Hilo daemon: OB1 main loop (dispatch TIA + engine tick)."""
+    def _run_main_loop_forever(self) -> None:
+        """Hilo daemon: dispatch TIA + engine tick en bucle."""
         tia_client, engine, _, _ = self._components
 
         self.log.info(
-            "OB1 main loop arrancando (tick=%dms, engine=%s).",
+            "Main loop arrancando (tick=%dms, engine=%s).",
             int(self.tick_period_s * 1000),
             "ON" if engine is not None else "OFF",
         )
@@ -231,31 +213,20 @@ class Ob1ServiceSupervisor:
                 try:
                     tia_client.dispatch_pending()
                 except Exception as exc:  # noqa: BLE001
-                    self.log.exception("OB1 loop: dispatch_pending() failed: %s", exc)
+                    self.log.exception("Main loop: dispatch_pending() failed: %s", exc)
                 # 2. Tick engine.
                 if engine is not None:
                     try:
                         engine.run_cycle()
                     except Exception as exc:  # noqa: BLE001
-                        self.log.exception("OB1 loop: engine.run_cycle() failed: %s", exc)
-                # 3. Sleep (cede CPU al Flask daemon y otros hilos).
-                #    Esperamos al stop_event con timeout para responder rápido.
+                        self.log.exception("Main loop: engine.run_cycle() failed: %s", exc)
+                # 3. Sleep con stop_event.wait para responder rápido al shutdown.
                 if self._stop_event.wait(timeout=self.tick_period_s):
                     break
         except Exception as exc:  # noqa: BLE001
-            self.log.error("OB1 loop crasheó: %s\n%s", exc, traceback.format_exc())
+            self.log.error("Main loop crasheó: %s\n%s", exc, traceback.format_exc())
         finally:
-            self.log.info("OB1 main loop: bye.")
-
-    # ── Diagnostics ──────────────────────────────────────────────
-    def wait_until_alive(self, timeout_s: float = 10.0) -> bool:
-        """Espera a que Flask esté bindeado + OB1 loop vivo. Útil para tests."""
-        deadline = time.time() + timeout_s
-        while time.time() < deadline:
-            if self.is_alive():
-                return True
-            time.sleep(0.1)
-        return False
+            self.log.info("Main loop: bye.")
 
 
-__all__ = ["Ob1ServiceSupervisor"]
+__all__ = ["MainServiceSupervisor"]

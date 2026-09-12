@@ -1087,7 +1087,7 @@ def register(registry):
     """Aporta los comandos al COMMAND_REGISTRY del worker (legacy, Fase 3).
 
     Compat con worker_tia.py, que sigue vivo hasta el paso 4.6.1.
-    Tras eso, worker_tia desaparece y solo queda register_ob1(tia_client)
+    Tras eso, worker_tia desaparece y solo queda register_main(tia_client)
     como punto de extension.
 
     Comandos registrados:
@@ -1118,12 +1118,11 @@ def register(registry):
     registry["commit_devices_sync"] = make_cmd_commit_devices_sync()
 
 
-def register_ob1(tia_client) -> None:
-    """Aporta los comandos del area al SyncTIAClient (OB1 / Fase 4 / DA-014).
+def register_main(tia_client) -> None:
+    """Aporta los comandos del area al SyncTIAClient.
 
-    Punto de extension estandar para el modelo OB1. main.py (paso 4.5.1)
-    llama register_ob1(tia_client) por cada area declarada en
-    AreaSpec.contributes_tia_commands.
+    Punto de extension estandar. main.py llama register_main(tia_client)
+    por cada area declarada en AreaSpec.contributes_tia_commands.
 
     Equivale a register(registry) pero los handlers se envuelven con
     _wrap_handler para adaptarlos a la firma (args, tia_client) del
@@ -1163,4 +1162,5 @@ __all__ = [
     "make_cmd_update_proc_comments_db_param",
     "make_cmd_commit_devices_sync",
     "register",
+    "register_main",
 ]

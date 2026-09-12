@@ -1,14 +1,14 @@
-"""Tests del wiring main.py ↔ Ob1ServiceSupervisor (Fase 4 / 4.N4).
+"""Tests del wiring main.py ↔ MainServiceSupervisor.
 
 Patches:
   - ``launcher.tray_app.run_tray`` → capturamos el supervisor y los
-    callbacks (on_before_exit) para invocarlos manualmente y simular
-    clicks del operario sin arrancar pystray (requiere GUI).
+    callbacks (on_before_exit) para simular clicks del operario sin
+    arrancar pystray (requiere GUI).
 
 Cubre:
-  1. main() crea un Ob1ServiceSupervisor.
+  1. main() crea un MainServiceSupervisor.
   2. El supervisor usa host/port fijos (127.0.0.1:9484).
-  3. Click "Iniciar web" → supervisor arranca → Flask + OB1 responden.
+  3. Click "Iniciar web" → supervisor arranca → Flask + main loop responden.
   4. Click "Parar web" → supervisor para → Flask dead.
   5. Click "Salir" → on_before_exit() para el supervisor.
 """
@@ -22,7 +22,6 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -32,10 +31,7 @@ sys.path.insert(0, str(ROOT))
 
 @pytest.fixture
 def fresh_main(monkeypatch, tmp_path):
-    """Recarga ``main`` con log dir tmp y tray mockeado.
-
-    No invoca main(); expone el supervisor capturado por run_tray.
-    """
+    """Recarga ``main`` con log dir tmp y tray mockeado."""
     monkeypatch.setenv("ZC_LOG_DIR", str(tmp_path))
 
     captured: dict = {}
@@ -75,18 +71,17 @@ def fresh_main(monkeypatch, tmp_path):
 
 
 def _http_get(url: str, timeout: float = 2.0) -> tuple[int, str]:
-    """GET helper: retorna (status, body)."""
     resp = urllib.request.urlopen(url, timeout=timeout)
     return resp.status, resp.read().decode("utf-8")
 
 
 @pytest.mark.slow
-def test_main_creates_ob1_supervisor(fresh_main):
-    """main() crea un Ob1ServiceSupervisor (no WebServiceSupervisor)."""
-    from launcher.ob1_supervisor import Ob1ServiceSupervisor
+def test_main_creates_main_supervisor(fresh_main):
+    """main() crea un MainServiceSupervisor."""
+    from launcher.main_supervisor import MainServiceSupervisor
 
     web = fresh_main["web"]
-    assert isinstance(web, Ob1ServiceSupervisor)
+    assert isinstance(web, MainServiceSupervisor)
 
 
 @pytest.mark.slow
@@ -98,8 +93,8 @@ def test_main_uses_fixed_host_port(fresh_main):
 
 
 @pytest.mark.slow
-def test_iniciar_web_starts_flask_and_ob1(fresh_main):
-    """Click "Iniciar web" → Flask responde, OB1 loop tickea."""
+def test_iniciar_web_starts_flask_and_main_loop(fresh_main):
+    """Click "Iniciar web" → Flask responde, main loop tickea."""
     web = fresh_main["web"]
     assert not web.is_alive()
 
@@ -110,7 +105,6 @@ def test_iniciar_web_starts_flask_and_ob1(fresh_main):
     assert status == 200
     assert body.strip() == '{"pong":true}'
 
-    # OB1 loop tickea: cycle_count incrementa.
     time.sleep(0.3)
     status, body = _http_get(f"http://127.0.0.1:{web.port}/cycle_count")
     assert status == 200
@@ -118,8 +112,8 @@ def test_iniciar_web_starts_flask_and_ob1(fresh_main):
 
 
 @pytest.mark.slow
-def test_parar_web_stops_flask_and_ob1(fresh_main):
-    """Click "Parar web" → Flask dead, OB1 loop parado."""
+def test_parar_web_stops_flask_and_main_loop(fresh_main):
+    """Click "Parar web" → Flask dead, main loop parado."""
     web = fresh_main["web"]
     web.start()
     assert web.wait_until_alive(timeout_s=5.0)

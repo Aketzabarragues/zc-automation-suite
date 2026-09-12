@@ -82,10 +82,10 @@ def main() -> int:
              sys.executable.endswith("pythonw.exe"))
     log.info("Log file: %s", LOG_FILE)
 
-    from launcher.ob1_supervisor import Ob1ServiceSupervisor
+    from launcher.main_supervisor import MainServiceSupervisor
 
-    web = Ob1ServiceSupervisor(host="127.0.0.1", port=WEB_PORT, tick_period_s=0.1)
-    log.info("OB1 supervisor creado: 127.0.0.1:%d (tick=100ms).", WEB_PORT)
+    web = MainServiceSupervisor(host="127.0.0.1", port=WEB_PORT, tick_period_s=0.1)
+    log.info("Supervisor creado: 127.0.0.1:%d (tick=100ms).", WEB_PORT)
     log.info("Esperando que el operario elija Iniciar web desde el menu.")
 
     try:
@@ -103,7 +103,7 @@ def main() -> int:
         except KeyboardInterrupt:
             log.info("Ctrl+C detectado.")
 
-    log.info("Cerrando OB1 supervisor...")
+    log.info("Cerrando supervisor...")
     web.stop(timeout=5.0)
     log.info("Adios.")
     return 0

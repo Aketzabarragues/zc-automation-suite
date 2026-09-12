@@ -1,20 +1,20 @@
 """
-OB1 Spike — minimum viable (Fase 4 / paso 4.0.1).
+Main spike — minimum viable (Fase 4 / paso 4.0.1, sept-2026).
 
-Valida el modelo OB1 antes de tocar codigo de produccion. NO es parte del
-runtime de la app; vive en tests/spikes/ para descartarse limpiamente si
-el approach no funciona.
+Valida el modelo cyclic single-threaded antes de tocar codigo de
+produccion. NO es parte del runtime de la app; vive en tests/spikes/
+para descartarse limpiamente si el approach no funciona.
 
 Componentes del spike:
 - SyncTIAClient: stub que reemplaza el subproceso persistente + IPC.
   API publica: dispatch(command, args) -> dict (sync), register_command().
   Mecanismo interno: cola FIFO para que el hilo Flask pueda enqueuear
-  comandos y el hilo OB1 los drene secuencialmente.
+  comandos y el hilo main los drene secuencialmente.
 - Engine: contador de ciclos trivial. El real vive en core/plc/engine.py.
-- OB1 loop: hilo principal, 10 Hz (100 ms). Cada ciclo: drena cola TIA,
+- main loop: hilo principal, 10 Hz (100 ms). Cada ciclo: drena cola TIA,
   tick engine, publica evento de ciclo en cola SSE.
 - Flask: hilo daemon con 3 endpoints (/ping, /cycle_count, /stream).
-  Comunicacion Flask <-> OB1 via queue.Queue thread-safe.
+  Comunicacion Flask <-> main via queue.Queue thread-safe.
 
 Reglas del spike:
 - Sin asyncio. Sin uvicorn. Sin asyncio.subprocess.
@@ -23,7 +23,7 @@ Reglas del spike:
 - Endpoints: GET /ping, GET /cycle_count, GET /stream.
 
 Ejecucion:
-    python tests/spikes/ob1_spike.py
+    python tests/spikes/main_spike.py
 
 Validacion manual en otra ventana:
     curl.exe http://127.0.0.1:5000/ping
@@ -31,7 +31,7 @@ Validacion manual en otra ventana:
     curl.exe -N http://127.0.0.1:5000/stream
 
 Salida esperada:
-- /ping: {"pong": true} en <100 ms (latencia directa, sin OB1).
+- /ping: {"pong": true} en <100 ms (latencia directa, sin main loop).
 - /cycle_count: counter incrementandose (1, 2, 3, ...).
 - /stream: eventos SSE data: {"type": "cycle", "n": N} cada ~100 ms.
 
@@ -49,12 +49,8 @@ from typing import Callable
 from flask import Flask, Response, jsonify
 
 
-# ---------------------------------------------------------------------------
-# SyncTIAClient: stub del futuro tia_client.py (paso 4.1.x).
-# API sync, sin asyncio, sin subproceso. Vive en el mismo proceso que Flask.
-# ---------------------------------------------------------------------------
 class SyncTIAClient:
-    """Stub de TIA client para validar el modelo OB1."""
+    """Stub de TIA client para validar el modelo main."""
 
     def __init__(self) -> None:
         self._commands: dict[str, Callable[[dict], dict]] = {}
@@ -65,7 +61,7 @@ class SyncTIAClient:
         self._commands[name] = handler
 
     def dispatch(self, command: str, args: dict | None = None) -> dict:
-        """Dispatcher sincrono (llamado desde el hilo OB1). Retorna dict."""
+        """Dispatcher sincrono (llamado desde el hilo main). Retorna dict."""
         handler = self._commands.get(command)
         if handler is None:
             return {"ok": False, "error": f"unknown_command:{command}"}
@@ -75,13 +71,11 @@ class SyncTIAClient:
             return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
     def submit(self, command: str, args: dict | None = None) -> None:
-        """Encola comando para que OB1 lo procese (thread-safe, no bloquea)."""
+        """Encola comando para que el main loop lo procese (thread-safe)."""
         self._pending.put((command, args or {}))
 
     def dispatch_pending(self) -> int:
-        """Drena la cola FIFO y ejecuta cada comando. Retorna # procesados.
-        Llamado desde el hilo OB1, una vez por ciclo.
-        """
+        """Drena la cola FIFO y ejecuta cada comando. Retorna # procesados."""
         processed = 0
         while True:
             try:
@@ -92,9 +86,6 @@ class SyncTIAClient:
             processed += 1
 
 
-# ---------------------------------------------------------------------------
-# Engine: contador trivial. El real esta en core/plc/engine.py (4.2.1).
-# ---------------------------------------------------------------------------
 class Engine:
     """Stub cyclic engine. Solo mantiene cycle_count."""
 
@@ -102,20 +93,16 @@ class Engine:
         self.cycle_count: int = 0
 
     def run_cycle(self) -> None:
-        """Un tick del ciclo OB1. El real procesa FBs, aqui solo cuenta."""
+        """Un tick del main loop. El real procesa FBs, aqui solo cuenta."""
         self.cycle_count += 1
 
 
-# ---------------------------------------------------------------------------
-# Singletons del spike (suficiente para validar el modelo).
-# ---------------------------------------------------------------------------
 tia_client = SyncTIAClient()
 engine = Engine()
 event_queue: queue.Queue[dict] = queue.Queue(maxsize=1000)
 shutdown_event = threading.Event()
 
-# Registrar comandos de ejemplo para que `dispatch()` tenga algo que hacer.
-# En 4.1.2 el real los importa del registry existente.
+# Comandos de ejemplo para que dispatch() tenga algo que hacer.
 tia_client.register_command(
     "ping_tia",
     lambda args: {"pong": True, "echoed": args},
@@ -126,27 +113,22 @@ tia_client.register_command(
 )
 
 
-# ---------------------------------------------------------------------------
-# Flask app: 3 endpoints, vive en hilo daemon.
-# ---------------------------------------------------------------------------
 def _create_app() -> Flask:
     app = Flask(__name__)
 
     @app.get("/ping")
     def ping():
-        """Latencia directa, sin tocar OB1."""
+        """Latencia directa, sin tocar el main loop."""
         return jsonify({"pong": True})
 
     @app.get("/cycle_count")
     def cycle_count():
-        """Lee counter del hilo OB1.
-        CPython int reads son GIL-atomic -> es seguro cross-thread.
-        """
+        """Lee counter del main loop. CPython int reads son GIL-atomic."""
         return jsonify({"cycles": engine.cycle_count})
 
     @app.get("/stream")
     def stream():
-        """SSE: emite eventos de ciclo desde la cola del hilo OB1.
+        """SSE: emite eventos de ciclo desde la cola del main loop.
         Keepalive cada 1s para que werkzeug no cierre por inactividad.
         """
         def gen():
@@ -163,11 +145,8 @@ def _create_app() -> Flask:
     return app
 
 
-# ---------------------------------------------------------------------------
-# OB1 main loop: vive en el hilo principal, 10 Hz.
-# ---------------------------------------------------------------------------
 def start_loop_forever() -> None:
-    """Arranca Flask daemon y entra al loop OB1. Ctrl+C detiene."""
+    """Arranca Flask daemon y entra al main loop. Ctrl+C detiene."""
     flask_thread = threading.Thread(
         target=lambda: _create_app().run(
             host="127.0.0.1",
@@ -181,10 +160,10 @@ def start_loop_forever() -> None:
     )
     flask_thread.start()
 
-    print("[ob1-spike] Flask daemon: http://127.0.0.1:5000")
-    print("[ob1-spike] Endpoints: GET /ping, GET /cycle_count, GET /stream")
-    print("[ob1-spike] OB1 main loop @ 10 Hz. Ctrl+C to stop.")
-    print("[ob1-spike] Stack: 1 hilo OB1 (main) + 1 hilo Flask (daemon).")
+    print("[main-spike] Flask daemon: http://127.0.0.1:5000")
+    print("[main-spike] Endpoints: GET /ping, GET /cycle_count, GET /stream")
+    print("[main-spike] Main loop @ 10 Hz. Ctrl+C to stop.")
+    print("[main-spike] Stack: 1 hilo main + 1 hilo Flask (daemon).")
 
     interval_s = 0.1
     try:
@@ -201,10 +180,11 @@ def start_loop_forever() -> None:
                 pass
             time.sleep(interval_s)
     except KeyboardInterrupt:
-        print("\n[ob1-spike] Ctrl+C received. Shutting down.")
+        print("\n[main-spike] Ctrl+C received. Shutting down.")
         shutdown_event.set()
         # Daemon Flask thread muere solo cuando sale el main thread.
 
 
 if __name__ == "__main__":
     start_loop_forever()
+
