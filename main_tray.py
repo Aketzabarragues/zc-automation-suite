@@ -1,28 +1,35 @@
 """Composition Root del launcher (modo dev) con system tray.
 
-Este módulo es el entry point para ejecutar el tray launcher en dev:
+Este módulo es el **único entry point** del proyecto (Fase 4 / DA-014,
+sept-2026). Reemplaza a ``main.py`` (legacy FastAPI/uvicorn) y a
+``main_ob1.py`` (modo CLI). El operario lo usa así:
+
     Doble clic sobre run_tray.bat   # ← SIN consola (recomendado)
     pythonw.exe main_tray.py        # ← SIN consola (manual)
     python main_tray.py             # ← CON consola (debug)
 
-NO es el composition root de la aplicación (ese sigue siendo ``main.py``).
-NO es la versión empaquetada — eso es Fase 2 (PyInstaller).
-
 Responsabilidades exclusivas de esta capa:
   1. Configurar logging a fichero.
   2. Leer variables de entorno para host/puerto del web server.
-  3. Crear el supervisor del web (NO iniciarlo — el operario decide).
+  3. Crear el ``Ob1ServiceSupervisor`` (NO iniciarlo — el operario
+     decide haciendo click en "Iniciar web" en el menú de bandeja).
   4. Bloquear el main thread con el icono de bandeja (pystray lo
      requiere así en Windows).
-  5. Al salir (menú "Salir"), detener el web server limpiamente.
+  5. Al pulsar "Iniciar web", arranca Flask + OB1 main loop en hilos
+     daemon. Al pulsar "Parar web" o "Salir", los detiene limpiamente.
 
 Lo que esta capa NO hace:
-  - NO instancia el gateway directamente (lo hace el supervisor al
-    construir la app FastAPI, igual que ``main.py --web``).
-  - NO lanza workers persistentes: el patrón process-per-call del
-    gateway es intocable.
+  - NO instancia el gateway directamente (lo hace el supervisor OB1 al
+    construir la app Flask).
+  - NO lanza workers persistentes: el patrón OB1 los elimina de raíz
+    (TIA wrapper se llama directamente via ``SyncTIAClient``, sin
+    subproceso).
   - NO modifica nada de ``application/``, ``core/``, ``infrastructure/``
     ni ``interfaces/``.
+
+Dispatch ``--worker`` y ``--worker-persistent``: cuando el binario se
+invoca con esos flags, este entry point se transforma en el subproceso
+OT (modo dev o frozen indistintamente). Ver bloque más abajo.
 """
 from __future__ import annotations
 
@@ -155,13 +162,23 @@ def main() -> int:
              sys.executable.endswith("pythonw.exe"))
     log.info("Log file: %s", LOG_FILE)
 
-    from launcher.web_supervisor import WebServiceSupervisor
+    from launcher.ob1_supervisor import Ob1ServiceSupervisor
 
     web_host = os.environ.get("ZC_WEB_HOST", "127.0.0.1")
     web_port = _read_env_int("ZC_WEB_PORT", 8000)
+    tick_period_ms = _read_env_int("ZC_OB1_TICK_MS", 100)
 
-    web = WebServiceSupervisor(host=web_host, port=web_port)
-    log.info("Web supervisor creado: %s:%d", web_host, web_port)
+    web = Ob1ServiceSupervisor(
+        host=web_host,
+        port=web_port,
+        tick_period_s=tick_period_ms / 1000.0,
+    )
+    log.info(
+        "OB1 supervisor creado: %s:%d (tick=%dms).",
+        web_host,
+        web_port,
+        tick_period_ms,
+    )
     log.info("Esperando que el operario elija Iniciar web desde el menu.")
 
     # Bloquear main thread con pystray.
@@ -192,7 +209,7 @@ def main() -> int:
         except KeyboardInterrupt:
             log.info("Ctrl+C detectado.")
 
-    log.info("Cerrando web supervisor...")
+    log.info("Cerrando OB1 supervisor...")
     web.stop(timeout=5.0)
     log.info("Adios.")
     return 0
