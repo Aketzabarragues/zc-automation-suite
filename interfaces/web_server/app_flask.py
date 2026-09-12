@@ -5,6 +5,8 @@ Retorna una ``Flask`` configurada con:
   - 7 blueprints del shell (``/api/v1/...``).
   - SPA estática servida en ``/`` (catch-all a ``index.html`` para
     rutas client-side).
+  - Estáticos de áreas en ``/static/areas/<area>/...`` (apunta a
+    ``<repo_root>/areas/<area>/...``).
 
 Flask dev server es single-threaded (``threaded=False``): HTTP serializa
 contra el main loop en el mismo proceso. OK para 1 operario (<10 req/s).
@@ -26,6 +28,7 @@ from core.sse.event_bus_sync import EventBusSync
 logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "static"
+AREAS_STATIC_DIR = Path(__file__).parent.parent.parent / "areas"  # <repo_root>/areas
 
 
 def create_app(
@@ -115,6 +118,19 @@ def create_app(
                 _bus.unsubscribe(subscriber_queue)
 
         return Response(gen(), mimetype="text/event-stream")
+
+    # ── Estáticos de áreas (Vue components del área) ───────────
+    # El manifest del área devuelve URLs ``/static/areas/<area>/frontend/...``
+    # que apuntan a ``<repo_root>/areas/<area>/frontend/...``.
+    if AREAS_STATIC_DIR.is_dir():
+        @app.get("/static/areas/<area>/<path:filename>")
+        def area_static(area: str, filename: str):
+            """Sirve los estáticos del área (manifest, components, lib)."""
+            target = AREAS_STATIC_DIR / area / filename
+            if target.is_file():
+                return send_from_directory(str(AREAS_STATIC_DIR / area), filename)
+            from flask import abort
+            abort(404)
 
     # ── SPA estática (Vue 3) ─────────────────────────────────────
     if STATIC_DIR.is_dir():
