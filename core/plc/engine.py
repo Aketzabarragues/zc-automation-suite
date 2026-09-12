@@ -154,6 +154,27 @@ class Engine:
         _dbg.debug("Engine.stop_loop: task cancelado y esperado")
         logger.info("Engine: loop parado")
 
+    def run_cycle(self) -> None:
+        """Version sync de ``tick_once()`` para el loop OB1 (Fase 4 / DA-014).
+
+        El OB1 main loop es sync (no asyncio). Para integrarse con FBs
+        async (``await fb.tick()``), esta funcion crea un event loop
+        efimero por ciclo, ejecuta ``tick_once()`` y lo cierra.
+
+        Overhead aceptable para FBs best-effort (paso 2.0.4) sin I/O
+        bloqueante pesado. Si en el futuro los FBs requieren I/O real,
+        mover el engine a un thread dedicado con loop persistente
+        (el OB1 main loop ya no lo invoca, se suscribe via event_bus).
+
+        Raises:
+            Exception: cualquier excepcion que escape de tick_once
+                (los FBs son best-effort internamente; esta excepcion
+                solo indica un fallo del propio engine).
+        """
+        import asyncio
+
+        asyncio.run(self.tick_once())
+
     async def tick_once(self) -> None:
         """Un tick: ``await tick()`` sobre cada FB NO terminal registrado.
 
