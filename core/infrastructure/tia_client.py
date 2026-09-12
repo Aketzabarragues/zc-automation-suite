@@ -627,6 +627,102 @@ def _h_compile_plc(args: dict, tia_client: "SyncTIAClient") -> dict:
     return {"had_errors": had_errors}
 
 
+def _h_compile_blocks(args: dict, tia_client: "SyncTIAClient") -> dict:
+    """Compila una lista explicita de bloques del PLC (no todo el software).
+
+    Caso de uso (sept-2026): tras modificar N_MAX + comentarios de
+    dispositivos, el FB de sync necesita que TIA recompile los DataBlocks
+    para que el array se redimensione. Compilar todo el PLC
+    (``compile_software``) tarda minutos en un S7-1500 con 200+ bloques;
+    solo hemos tocado N DBs concretos. Este handler compila SOLO los
+    bloques de la lista ``block_names``, saltando los ya consistentes.
+
+    Semantica por bloque:
+      - ``is_consistent()=True``  -> se SALTA (sin cambios, ahorra tiempo).
+      - ``is_consistent()=False`` -> se COMPILA con ``.compile()``.
+      - bloque no encontrado -> se SALTA (no falla el handler entero).
+
+    Args:
+        plc_name: nombre del PLC.
+        block_names: lista de nombres a compilar. Vacia -> ValueError
+            (sept-2026: el caller debe pasar nombres explicitos).
+
+    Returns:
+        ``{
+            "compiled":         [{"name", "had_errors", "was_inconsistent"}],
+            "skipped_unchanged": [name, ...],
+            "not_found":        [name, ...],
+            "errors":           [{"name", "error"}],
+        }``
+    """
+    plc_name: str = args.get("plc_name", "")
+    block_names = args.get("block_names")
+
+    if not plc_name:
+        raise ValueError("Se requiere el argumento 'plc_name'.")
+    if not block_names:
+        raise ValueError(
+            "Se requiere 'block_names' (lista no vacia de bloques a compilar). "
+            "Si quieres compilar todo el PLC, usa el comando 'compile_plc'."
+        )
+
+    portal = tia_client.wrapper
+    if portal is None:
+        raise RuntimeError(
+            "No portal attached. Llama a attach_portal primero."
+        )
+    project = _get_active_project(portal)
+    target_plc = _find_plc(project, plc_name)
+
+    # Indexar bloques del PLC por nombre para busqueda O(1).
+    all_blocks = target_plc.get_program_blocks()
+    by_name: dict = {}
+    for b in all_blocks:
+        name = _safe_get_block_name(b)
+        if name is not None:
+            by_name.setdefault(name, b)  # primero que aparece gana
+
+    compiled: list[dict] = []
+    skipped_unchanged: list[str] = []
+    not_found: list[str] = []
+    errors: list[dict] = []
+
+    for name in block_names:
+        block = by_name.get(name)
+        if block is None:
+            not_found.append(name)
+            continue
+        # is_consistent(): True si ya esta compilado y sin cambios.
+        try:
+            is_consistent = bool(block.is_consistent())
+        except Exception:
+            # Defensivo: si lanza (raro), asumimos NO consistente y compilamos.
+            is_consistent = False
+        if is_consistent:
+            skipped_unchanged.append(name)
+            continue
+        # .compile() retorna True si hay errores (semantica Siemens §2.2.11).
+        try:
+            had_errors = bool(block.compile())
+            compiled.append({
+                "name": name,
+                "had_errors": had_errors,
+                "was_inconsistent": True,
+            })
+        except Exception as exc:
+            errors.append({
+                "name": name,
+                "error": f"{type(exc).__name__}: {exc}",
+            })
+
+    return {
+        "compiled": compiled,
+        "skipped_unchanged": skipped_unchanged,
+        "not_found": not_found,
+        "errors": errors,
+    }
+
+
 def register_core_commands(target: SyncTIAClient) -> None:
     """Registra los comandos core (lifecycle + inspection) en ``target``.
 
@@ -655,6 +751,7 @@ def register_core_commands(target: SyncTIAClient) -> None:
     target.register_command("get_project_info", _h_get_project_info)
     target.register_command("scan_blocks", _h_scan_blocks)
     target.register_command("compile_plc", _h_compile_plc)
+    target.register_command("compile_blocks", _h_compile_blocks)
 
 
 # Singleton de proceso. main.py (4.5.1) hace tia_client = SyncTIAClient().
