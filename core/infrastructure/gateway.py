@@ -7,6 +7,23 @@ de subprocess. Backend headless: sin UI propia.
 
 from __future__ import annotations
 
+# ---------------------------------------------------------------------------
+# DEPRECATED (Fase 4 / DA-014, sept-2026): este modulo es legacy.
+#
+# Migrado a ``core.infrastructure.tia_client.SyncTIAClient``: misma API
+# publica (``dispatch(command, args)``, ``register_command(name, handler)``)
+# pero en el mismo proceso que Flask + OB1 main loop (sin subprocess,
+# sin asyncio, sin IPC).
+#
+# Este archivo se mantiene temporalmente porque los 7 routers FastAPI
+# existentes en ``interfaces/web_server/routers/`` aun lo importan.
+# Pasos 4.4.2+ migraran esos routers a Flask blueprints; cuando
+# ningun caller lo importe, este archivo se eliminara en 4.6.1.
+#
+# NO anadir nuevos callers a este modulo. Usar SyncTIAClient.
+# ---------------------------------------------------------------------------
+
+
 import asyncio
 import json
 import logging
