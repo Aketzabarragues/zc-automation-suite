@@ -26,6 +26,7 @@ import os
 import queue
 import re
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable
 
 from core.models.bloque_plc import BloquePLC
@@ -627,6 +628,103 @@ def _h_compile_plc(args: dict, tia_client: "SyncTIAClient") -> dict:
     return {"had_errors": had_errors}
 
 
+def _ensure_target_dir(target_dir: str) -> Path:
+    """Valida que target_dir este presente y devuelve la ruta resuelta.
+
+    Crea el directorio si no existe (parents=True). Usado por todos
+    los handlers de export masivo (export_blocks_sd, export_udts_sd,
+    export_plc_tags_xml).
+    """
+    if not target_dir:
+        raise ValueError("Se requiere el argumento 'target_dir'.")
+    target_path = Path(target_dir)
+    target_path.mkdir(parents=True, exist_ok=True)
+    return target_path
+
+
+def _export_objects_sd(
+    target_plc: Any,
+    target_path: Path,
+    collection_key: str,
+) -> dict:
+    """Exporta una coleccion de objetos TIA (Bloques o UDTs) a .s7dcl.
+
+    Args:
+        target_plc: PLC del que exportar.
+        target_path: Path resuelto del directorio destino.
+        collection_key: 'program_blocks' | 'user_data_types'.
+
+    Returns:
+        ``{"exported_to": str, "count": int}``.
+
+    Nota de formato: TIA Portal V21 emite archivos .s7dcl (Simatic
+    Source Documents) cuando se solicita ``export_format=SimaticSD``.
+    El sufijo ``.s7dcl`` es canonico a partir de V17.
+    """
+    if collection_key == "program_blocks":
+        objects = target_plc.get_program_blocks()
+    elif collection_key == "user_data_types":
+        objects = target_plc.get_user_data_types()
+    else:
+        raise ValueError(
+            f"collection_key desconocido: '{collection_key}'. "
+            "Use 'program_blocks' o 'user_data_types'."
+        )
+
+    count = 0
+    for obj in objects:
+        # El wrapper soporta coercion string->enum (TypeError previo:
+        # "export_format must be an Enum or string"). Inyectamos literal
+        # "SimaticSD" para evitar depender de ts.Enums.ExportFormats.
+        # Manual V1.2.1, secciones 2.10.5 y 2.15.5.
+        obj.export(
+            target_directory_path=str(target_path),
+            export_format="SimaticSD",
+            keep_folder_structure=True,
+        )
+        count += 1
+
+    return {"exported_to": str(target_path), "count": count}
+
+
+def _h_export_blocks_sd(args: dict, tia_client: "SyncTIAClient") -> dict:
+    """Exporta los bloques de programa del PLC como .s7dcl."""
+    plc_name: str = args.get("plc_name", "")
+    target_dir: str = args.get("target_dir", "")
+
+    if not plc_name:
+        raise ValueError("Se requiere el argumento 'plc_name'.")
+
+    portal = tia_client.wrapper
+    if portal is None:
+        raise RuntimeError(
+            "No portal attached. Llama a attach_portal primero."
+        )
+    project = _get_active_project(portal)
+    target_plc = _find_plc(project, plc_name)
+    target_path = _ensure_target_dir(target_dir)
+    return _export_objects_sd(target_plc, target_path, "program_blocks")
+
+
+def _h_export_udts_sd(args: dict, tia_client: "SyncTIAClient") -> dict:
+    """Exporta los User Data Types del PLC como .s7dcl."""
+    plc_name: str = args.get("plc_name", "")
+    target_dir: str = args.get("target_dir", "")
+
+    if not plc_name:
+        raise ValueError("Se requiere el argumento 'plc_name'.")
+
+    portal = tia_client.wrapper
+    if portal is None:
+        raise RuntimeError(
+            "No portal attached. Llama a attach_portal primero."
+        )
+    project = _get_active_project(portal)
+    target_plc = _find_plc(project, plc_name)
+    target_path = _ensure_target_dir(target_dir)
+    return _export_objects_sd(target_plc, target_path, "user_data_types")
+
+
 def _h_compile_blocks(args: dict, tia_client: "SyncTIAClient") -> dict:
     """Compila una lista explicita de bloques del PLC (no todo el software).
 
@@ -752,6 +850,8 @@ def register_core_commands(target: SyncTIAClient) -> None:
     target.register_command("scan_blocks", _h_scan_blocks)
     target.register_command("compile_plc", _h_compile_plc)
     target.register_command("compile_blocks", _h_compile_blocks)
+    target.register_command("export_blocks_sd", _h_export_blocks_sd)
+    target.register_command("export_udts_sd", _h_export_udts_sd)
 
 
 # Singleton de proceso. main.py (4.5.1) hace tia_client = SyncTIAClient().
