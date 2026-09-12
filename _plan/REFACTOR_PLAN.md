@@ -418,20 +418,61 @@ Si un paso no cumple estos criterios, se subdivide.
 
 ### 4.6 Eliminar código legacy
 
-#### [ ] Paso 4.6.1 — Eliminar gateway.py y worker_tia.py
-- **Archivos**: `git rm core/infrastructure/gateway.py core/infrastructure/tia/worker_tia.py`.
-- **Acción**: borrar los archivos. Imports que queden rotos se arreglan en el mismo commit.
-- **Verificación**: `grep -r "from core.infrastructure.gateway" --include="*.py"` → 0. `grep -r "from core.infrastructure.tia.worker_tia"` → 0. Tests pasan.
+#### [x] Paso 4.6.1a — git rm 7 routers FastAPI comunes ✅
+- **Archivos**: `git rm interfaces/web_server/routers/areas.py area_manifests.py catalog.py diagnostics.py plc.py portal.py tia_connection.py`.
+- **Acción**: borrar los archivos. Equivalentes `*_ob1.py` ya registrados en `app_flask.py` (pasos 4.4.2-4.4.8).
+- **Verificación**: `pytest tests/ -q` → 1437+ pass. ✅ Commit `e4844bb`.
+- **Tiempo estimado**: 0.1 día.
+
+#### [x] Paso 4.6.1b — git rm test_router_plc.py ✅
+- **Archivos**: `git rm tests/test_router_plc.py`.
+- **Acción**: reemplazado por `tests/interfaces/test_plc_ob1.py` (3 endpoints FB start/status/disconnect).
+- **Verificación**: ✅ Commit `4cb3a77`.
+
+#### [ ] Paso 4.6.2 — git rm FastAPI app.py + dependencies.py + 5 routers de área
+- **Archivos a migrar primero** (5 routers en `areas/alimentacion/interfaces/web/`):
+  - `disp_comentarios.py` (86 líneas, 1 endpoint POST)
+  - `disp_sync.py` (127 líneas, 2 endpoints preview/commit)
+  - `excel.py` (118 líneas, 1 endpoint upload)
+  - `plc_blocks.py` (164 líneas, 2 endpoints list/refresh)
+  - `proc_sync.py` (164 líneas, 2 endpoints preview/commit)
+- **Migración Flask blueprint** (1 archivo nuevo por router, ~50-80 líneas cada uno):
+  - APIRouter → Blueprint
+  - Depends() → current_app.config["_LAZY_*"]
+  - async def → def (usar `asyncio.run()` para use cases async)
+  - HTTPException → return jsonify(...), status_code
+  - BaseModel → request.get_json()
+- **Acción final**: `git rm interfaces/web_server/app.py dependencies.py areas/alimentacion/interfaces/web/{5 routers} conftest.py tests/test_*_endpoint.py tests/test_*_router.py`.
+- **Verificación**: `pytest tests/ -q` → 1437+ pass.
+- **Tiempo estimado**: 1.5 días.
+- **Estado**: 🔴 **BLOQUEADO**. Los 5 routers de área importan use cases en `areas/alimentacion/application/use_cases/` que a su vez usan `TIAProcessGateway` (legacy async). Para migrar a Flask sync hay que migrar esos use cases de `await gateway.dispatch(...)` a `tia_client.dispatch(...)` (sync). Esto es un refactor de ~300 líneas × 5 use cases = ~1500 líneas. No cabe en una sesión sin riesgo de alucinaciones (memoria: "tareas grandes = alucinaciones"). Dividir en 5 commits (1 router + su use case por paso).
+
+#### [ ] Paso 4.6.3 — git rm main.py + main_tray.py legacy + launcher/web_supervisor.py
+- **Archivos**: `git rm main.py main_tray.py launcher/web_supervisor.py`.
+- **main.py** legacy arranca uvicorn + FastAPI. Reemplazado por `main_ob1.py` (paso 4.5.1 ya hecho).
+- **main_tray.py**: system tray que arranca main.py. Migrar a `main_ob1.py` (~50 líneas).
+- **launcher/web_supervisor.py**: watchdog de uvicorn. Eliminar (no aplica a Flask dev server).
+- **Verificación**: `python main_ob1.py --web` arranca + bandeja funciona.
 - **Tiempo estimado**: 0.5 día.
+- **Estado**: 🟡 Pendiente (después de 4.6.2).
+
+#### [ ] Paso 4.6.4 — git rm gateway.py + worker_tia.py + command_loader.py
+- **Archivos**: `git rm core/infrastructure/gateway.py core/infrastructure/tia/worker_tia.py core/infrastructure/tia/command_loader.py`.
+- **Acción**: borrar los archivos. Equivalentes en `tia_client.py` (24 comandos migrados, pasos 4.1.2a-c) y `extra_commands.register_ob1()`.
+- **Verificación**: `grep -r "from core.infrastructure.gateway" --include="*.py"` → 0. Tests pasan.
+- **Tiempo estimado**: 0.5 día.
+- **Estado**: 🔴 **BLOQUEADO**. 71 archivos importan `gateway`/`worker_tia`. Los tests (46 archivos) los mockean con `MagicMock(spec=TIAProcessGateway)`. Borrar el gateway implica migrar todos los mocks o perder esa cobertura. Requiere TIA Portal para validar integración real.
 
 ### 4.7 Cleanup legacy post-OB1 (Fase 4 original integrada)
 
 #### [ ] Paso 4.7.1 — Borrar `areas/alimentacion/application/` y `domain/`
 - **Archivos**: `git rm -r areas/alimentacion/application/ areas/alimentacion/domain/`.
 - **Verificación**: tests pasan.
+- **Estado**: 🔴 **BLOQUEADO**. 60 archivos dependen (use cases en 5 routers de área + 7 FBs + 13 tests). Requiere migración previa de los 5 routers (4.6.2).
 
 #### [ ] Paso 4.7.2 — Borrar `core/application/state.py` y `core/models/`
-- Idem.
+- **Verificación**: tests pasan.
+- **Estado**: 🔴 **BLOQUEADO**. 48 archivos dependen. `tia_client.py` mismo importa `BloquePLC` de `core.models`. Requiere refactor mayor.
 
 #### [ ] Paso 4.7.3 — Quitar `apiFetch*` redundantes de `api.js` (si no se hizo en 1.3.2)
 - Idem.
@@ -440,18 +481,21 @@ Si un paso no cumple estos criterios, se subdivide.
 
 #### [ ] Paso 4.8.1 — Suite de tests sin pytest-asyncio
 - **Archivos**: tests que actualmente usan `@pytest.mark.asyncio` se reescriben a sync.
-- **Verificación**: `pytest tests/ -q` → 1151+ pass, 0 fail nuevos.
+- **Verificación**: `pytest tests/ -q` → 1437+ pass, 0 fail nuevos.
+- **Estado**: 🔴 **BLOQUEADO**. Depende de 4.6+4.7 (la mayoría de los tests async testean funcionalidad legacy).
 
 ### 4.9 Demo + rebuild
 
 #### [ ] Paso 4.9.1 — Demo end-to-end con TIA real
-- **Acción**: el operario arranca `python main.py --web`, conecta a TIA, ejecuta un FB, verifica que el SSE emite el snapshot y los `fb_changed`. Compara UX con versión pre-OB1: ¿se ve igual la UI? ¿el click en FB responde igual? ¿hay latencia perceptible?
+- **Acción**: el operario arranca `python main_ob1.py --web 127.0.0.1:8000`, conecta a TIA, ejecuta un FB (vía `POST /api/v1/plc/fb/<name>/start`), verifica que el SSE emite el snapshot y los `fb_changed`. Compara UX con versión pre-OB1: ¿se ve igual la UI? ¿el click en FB responde igual? ¿hay latencia perceptible?
 - **Verificación**: demo pasa todos los pasos manuales.
+- **Estado**: 🟡 Pendiente. **Requiere TIA Portal corriendo en la máquina del operario** (no automatizable en sandbox). Ejecutable vía `python main_ob1.py --web`.
 
 #### [ ] Paso 4.9.2 — Rebuild del `.exe` con PyInstaller
 - **Archivos**: `dist/zc_automation_suite.exe` (NUEVO).
 - **Acción**: `python build_exe.py`. Adaptar `.spec` para Flask + threading si hace falta. Verificar que el `.exe` arranca bandeja + web + TIA real funcionan.
 - **Verificación**: demo del `.exe` con TIA real funciona end-to-end.
+- **Estado**: 🟡 Pendiente (después de 4.6.3).
 
 #### [ ] Paso 4.9.3 — Actualizar docs (`.clinerules`, `AGENTS.md`, `README.md`)
 - **Archivos**: 3 archivos de docs, ~100 líneas cada uno.
