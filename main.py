@@ -6,18 +6,22 @@ sept-2026). El operario lo usa así:
     Doble clic sobre run_tray.bat   # ← SIN consola (recomendado)
     pythonw.exe main.py             # ← SIN consola (manual)
     python main.py                  # ← CON consola (debug)
+    python main.py --web 0.0.0.0:8000   # ← CLI headless (sin bandeja)
 
-Modos disponibles (Fase 4 / DA-014, sept-2026):
+Dos modos disponibles (Fase 4 / 4.N11, sept-2026):
   - default              -> Bandeja con icono (pystray). Click en
                            "Iniciar web" arranca Flask + OB1 main loop
                            en hilos daemon. Click "Parar web" los para.
   - ``--web [host:port]`` -> CLI headless: Flask + OB1 sin bandeja.
                            Ctrl+C para parar.
-  - ``--mcp``             -> Servidor FastMCP STDIO (legacy gateway).
-  - ``--worker``          -> Modo subproceso OT 1-shot (lo invoca el
-                           gateway legacy). NO instancia bandeja.
-  - ``--worker-persistent`` -> Modo subproceso OT persistente (loop).
-                           NO instancia bandeja.
+
+Modos eliminados (sept-2026, limpieza 4.N11):
+  - ``--mcp``: el servidor MCP STDIO ya no se invoca desde este
+    entry point. Vive en ``core/interfaces/mcp_server.py`` y se
+    arranca como modulo Python (no como CLI flag).
+  - ``--worker`` y ``--worker-persistent``: OB1 elimina el patrón
+    process-per-call del gateway legacy. El wrapper Siemens se
+    llama directamente via ``SyncTIAClient`` en el mismo proceso.
 
 Responsabilidades exclusivas de esta capa:
   1. Configurar logging a fichero (unificado en ``zc.log``).
@@ -96,40 +100,6 @@ def _read_env_int(name: str, default: int) -> int:
 
 
 def main() -> int:
-    # ── Dispatch --worker-persistent (subprocess OT persistente) ANTES de --worker ─
-    # El flag ``--worker-persistent`` lo usa TIAProcessGateway cuando
-    # se construye con ``persistent=True`` (modo web, PR 3+). El
-    # subproceso del worker debe entrar en ``main_persistent_loop()``
-    # (loop de N comandos por stdin/stdout con 1 attach al inicio).
-    # En este PR (PR 2) el loop es un ``NotImplementedError`` con
-    # la referencia al plan; en PR 3 será el loop real.
-    #
-    # Importante: comprobar ``--worker-persistent`` ANTES que
-    # ``--worker`` porque en argparse la cadena ``--worker-persistent``
-    # NO es igual a ``--worker`` (sigue siendo una cadena distinta),
-    # pero queremos ser explícitos sobre la precedencia: si el
-    # binario frozen se invoca con ``--worker-persistent`` (modo web),
-    # ese es el dispatch correcto, no el 1-shot.
-    if "--worker-persistent" in sys.argv[1:]:
-        from core.infrastructure.tia.worker_tia import main_persistent_loop
-
-        main_persistent_loop()
-        return 0
-
-    # ── Dispatch --worker (subprocess OT) ANTES de cualquier setup ───
-    # Cuando el .exe frozen se lanza con `--worker`, el gateway
-    # (``infrastructure/gateway.py``) nos está invocando como
-    # subproceso efímero para ejecutar una tarea contra TIA Portal.
-    # En ese caso saltamos TODA la inicialización de la bandeja
-    # (logging a fichero, pystray, supervisor, etc.) y delegamos
-    # directamente en el motor OT. El worker tiene su propio setup
-    # de logging/UTF-8 en ``worker_tia.py``.
-    if "--worker" in sys.argv[1:]:
-        from core.infrastructure.tia.worker_tia import main as worker_main
-
-        worker_main()
-        return 0
-
     # ── Dispatch --web [host:port] (CLI OB1 headless, sin bandeja) ─
     # Modo CLI para servidores headless / integracion continua: arranca
     # Flask + OB1 main loop directamente, sin icono de bandeja. Ctrl+C
@@ -138,14 +108,7 @@ def main() -> int:
     if "--web" in sys.argv[1:]:
         return _run_cli_web_mode()
 
-    # ── Dispatch --mcp (CLI MCP STDIO) ─
-    # Migrado de ``main.py`` (4.N6, sept-2026). El servidor MCP usa
-    # el gateway legacy (``TIAProcessGateway``) hasta migrar FBs y
-    # use cases a ``tia_client``. Por eso este modo sigue cargando
-    # ``run_mcp_stdio`` del modulo legacy.
-    if "--mcp" in sys.argv[1:]:
-        return _run_cli_mcp_mode()
-
+    # Sin flag -> modo bandeja (default).
     # Forzar UTF-8 (mismo patrón que main.py / worker_tia.py).
     # IMPORTANTE: en modo frozen/windowed (``console=False`` en el .spec
     # de PyInstaller), ``sys.stdout`` / ``stderr`` / ``stdin`` son ``None``
@@ -333,23 +296,6 @@ def _run_cli_web_mode() -> int:
 
     web.stop(timeout=5.0)
     log.info("Adios.")
-    return 0
-
-
-def _run_cli_mcp_mode() -> int:
-    """Modo ``--mcp``: MCP STDIO server sin bandeja.
-
-    Migrado de main.py. Por ahora delega en el modulo legacy
-    (``core/interfaces/mcp_server.run_mcp_stdio``) porque las tools
-    MCP usan el gateway async legacy. Cuando los use cases migrados
-    a ``tia_client`` (Fase 4.6+), este modo tambien migra a OB1.
-
-    Returns:
-        Exit code (0 limpio, !=0 si falla).
-    """
-    log.info("Modo --mcp: arrancando FastMCP STDIO (legacy gateway).")
-    from core.interfaces.mcp_server import run_mcp_stdio
-    run_mcp_stdio()
     return 0
 
 
