@@ -972,6 +972,85 @@ def _h_import_block(args: dict, tia_client: "SyncTIAClient") -> dict:
     return {"imported_from": import_dir}
 
 
+def _find_plc_tag_table(target_plc: Any, table_name: str) -> Any:
+    """Resuelve una PlcTagTable por nombre en el PLC objetivo.
+
+    Usa ``_safe_get_table_name`` para tolerar UnicodeDecodeError en
+    tablas con caracteres no-ASCII. Levanta RuntimeError si no existe.
+    """
+    if not table_name:
+        raise ValueError("Se requiere el argumento 'table_name'.")
+    for table in target_plc.get_plc_tag_tables():
+        if _safe_get_table_name(table) == table_name:
+            return table
+    raise RuntimeError(
+        f"Tabla '{table_name}' no encontrada en PLC."
+    )
+
+
+def _h_get_user_constants(args: dict, tia_client: "SyncTIAClient") -> dict:
+    """Devuelve {value_str: name} de las PlcUserConstant de una tabla.
+
+    Solo incluye constantes cuyo Value es parseable como int (las
+    constantes con Value no-numerico se omiten silenciosamente).
+    """
+    plc_name: str = args.get("plc_name", "")
+    table_name: str = args.get("table_name", "")
+
+    if not plc_name:
+        raise ValueError("Se requiere el argumento 'plc_name'.")
+
+    portal = tia_client.wrapper
+    if portal is None:
+        raise RuntimeError(
+            "No portal attached. Llama a attach_portal primero."
+        )
+    project = _get_active_project(portal)
+    target_plc = _find_plc(project, plc_name)
+    table = _find_plc_tag_table(target_plc, table_name)
+
+    result: dict[str, str] = {}
+    for constant in table.get_user_constants():
+        raw_value = constant.get_property(name="Value")
+        try:
+            int_value = int(str(raw_value).strip())
+        except (TypeError, ValueError):
+            continue
+        name = constant.get_property(name="Name")
+        result[str(int_value)] = str(name)
+    return {"constants": result}
+
+
+def _h_delete_user_constant(args: dict, tia_client: "SyncTIAClient") -> dict:
+    """Borra una PlcUserConstant. Manual §2.34.4."""
+    plc_name: str = args.get("plc_name", "")
+    table_name: str = args.get("table_name", "")
+    constant_name: str = args.get("constant_name", "")
+
+    if not plc_name:
+        raise ValueError("Se requiere el argumento 'plc_name'.")
+    if not constant_name:
+        raise ValueError("Se requiere el argumento 'constant_name'.")
+
+    portal = tia_client.wrapper
+    if portal is None:
+        raise RuntimeError(
+            "No portal attached. Llama a attach_portal primero."
+        )
+    project = _get_active_project(portal)
+    target_plc = _find_plc(project, plc_name)
+    table = _find_plc_tag_table(target_plc, table_name)
+
+    for constant in table.get_user_constants():
+        if constant.get_property(name="Name") == constant_name:
+            constant.delete()
+            return {"deleted": True, "constant": constant_name}
+
+    raise RuntimeError(
+        f"Constante '{constant_name}' no encontrada en tabla '{table_name}'."
+    )
+
+
 def _h_compile_blocks(args: dict, tia_client: "SyncTIAClient") -> dict:
     """Compila una lista explicita de bloques del PLC (no todo el software).
 
@@ -1106,6 +1185,8 @@ def register_core_commands(target: SyncTIAClient) -> None:
     target.register_command("export_tag_table", _h_export_tag_table)
     target.register_command("import_tag_table", _h_import_tag_table)
     target.register_command("import_block", _h_import_block)
+    target.register_command("get_user_constants", _h_get_user_constants)
+    target.register_command("delete_user_constant", _h_delete_user_constant)
 
 
 # Singleton de proceso. main.py (4.5.1) hace tia_client = SyncTIAClient().
