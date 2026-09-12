@@ -23,8 +23,8 @@ from core.application.log_paths import setup_logging
 WEB_PORT = 9484  # puerto fijo del web server (Flask + OB1 main loop)
 
 # Un solo archivo ``zc.log`` para toda la aplicacion.
-LOG_FILE = setup_logging("tray")
-log = logging.getLogger("zc.tray")
+LOG_FILE = setup_logging()  # root_name = "zc"
+log = logging.getLogger("zc")
 
 
 def _resolve_icon_path() -> Path | None:

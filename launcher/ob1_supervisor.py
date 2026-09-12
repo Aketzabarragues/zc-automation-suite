@@ -48,7 +48,7 @@ class Ob1ServiceSupervisor:
         self.port = port
         self.tick_period_s = tick_period_s
         self.no_engine = no_engine
-        self.log = logging.getLogger("zc.tray.ob1")
+        self.log = logging.getLogger("zc.ob1")
 
         self._stop_event = threading.Event()
         # Hilos daemon.
