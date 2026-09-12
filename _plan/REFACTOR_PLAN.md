@@ -418,16 +418,12 @@ Si un paso no cumple estos criterios, se subdivide.
 
 ### 4.6 Eliminar código legacy
 
-#### [x] Paso 4.6.1a — git rm 7 routers FastAPI comunes ✅
-- **Archivos**: `git rm interfaces/web_server/routers/areas.py area_manifests.py catalog.py diagnostics.py plc.py portal.py tia_connection.py`.
-- **Acción**: borrar los archivos. Equivalentes `*_ob1.py` ya registrados en `app_flask.py` (pasos 4.4.2-4.4.8).
-- **Verificación**: `pytest tests/ -q` → 1437+ pass. ✅ Commit `e4844bb`.
-- **Tiempo estimado**: 0.1 día.
-
-#### [x] Paso 4.6.1b — git rm test_router_plc.py ✅
-- **Archivos**: `git rm tests/test_router_plc.py`.
-- **Acción**: reemplazado por `tests/interfaces/test_plc_ob1.py` (3 endpoints FB start/status/disconnect).
-- **Verificación**: ✅ Commit `4cb3a77`.
+#### [~] Paso 4.6.1a/b — git rm 7 routers FastAPI comunes ✅⤺
+- **Archivos**: `git rm interfaces/web_server/routers/areas.py area_manifests.py catalog.py diagnostics.py plc.py portal.py tia_connection.py tests/test_router_plc.py`.
+- **Commits intentados** (`e4844bb` y `4cb3a77`) y luego **REVERTIDOS** (`03fb352`).
+- **Razón del revert**: borrar los 7 routers rompe `app.py` (que los importa via `routers/__init__.py`). El app FastAPI legacy queda inimportable. Los 7 blueprints `*_ob1.py` equivalentes ya están registrados en `app_flask.py`, pero el FastAPI app sigue vivo y necesita sus routers mientras siga en uso.
+- **Lección**: 4.6.1a/b NO se puede ejecutar aislado. Va ligado a 4.6.2 (migración de los 5 routers de área que también dependen de FastAPI).
+- **Estado**: 🟡 Pendiente (junto con 4.6.2).
 
 #### [ ] Paso 4.6.2 — git rm FastAPI app.py + dependencies.py + 5 routers de área
 - **Archivos a migrar primero** (5 routers en `areas/alimentacion/interfaces/web/`):
