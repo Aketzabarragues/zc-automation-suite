@@ -38,6 +38,10 @@ def create_app(
     tia_client: Any = None,
     engine: Engine | None = None,
     event_bus: EventBusSync | None = None,
+    app_state: Any = None,
+    config_manager: Any = None,
+    log_buffer: Any = None,
+    progress_tracker: Any = None,
 ) -> Flask:
     """Factory: retorna Flask app configurada para OB1.
 
@@ -45,6 +49,8 @@ def create_app(
         tia_client: SyncTIAClient. Default: singleton global.
         engine: Engine. Default: se crea uno nuevo.
         event_bus: EventBusSync. Default: se crea uno nuevo.
+        app_state / config_manager / log_buffer / progress_tracker:
+            legacy singletons. Si None, se cargan al primer uso (lazy).
 
     Inyeccion explicita para tests; production usa los singletons.
     """
@@ -53,10 +59,38 @@ def create_app(
     _engine = engine if engine is not None else Engine()
     _bus = event_bus if event_bus is not None else EventBusSync()
 
+    # Resolucion lazy: si no se inyectan, los resolvemos al primer
+    # acceso desde un endpoint. Asi create_app() no fuerza la carga
+    # de modulos legacy si el caller solo quiere los endpoints OB1.
+    def _resolve_lazy(provided, import_path, factory_name):
+        if provided is not None:
+            return provided
+        from importlib import import_module
+        mod = import_module(import_path)
+        return getattr(mod, factory_name)()
+
     # Stash para que endpoints lo lean (sin globals para tests).
     app.config["TIA_CLIENT"] = _tia
     app.config["ENGINE"] = _engine
     app.config["EVENT_BUS"] = _bus
+
+    # Guardar resolvers lazy (se llaman desde endpoints).
+    app.config["_LAZY_APP_STATE"] = lambda: _resolve_lazy(
+        app_state, "core.application.state", "get_app_state"
+    )
+    app.config["_LAZY_CONFIG_MANAGER"] = lambda: _resolve_lazy(
+        config_manager,
+        "core.infrastructure.config_manager",
+        "get_config_manager",
+    )
+    app.config["_LAZY_LOG_BUFFER"] = lambda: _resolve_lazy(
+        log_buffer, "core.application.log_buffer", "get_log_buffer"
+    )
+    app.config["_LAZY_PROGRESS_TRACKER"] = lambda: _resolve_lazy(
+        progress_tracker,
+        "core.application.progress_buffer",
+        "get_progress_tracker",
+    )
 
     # ----------------------------------------------------------- endpoints
     @app.get("/ping")
@@ -117,6 +151,15 @@ def create_app(
         logger.info("create_app: blueprint tia_connection_ob1 registrado.")
     except ImportError:
         logger.debug("create_app: blueprint tia_connection_ob1 no disponible.")
+
+    try:
+        from interfaces.web_server.routers.diagnostics_ob1 import (
+            bp as diagnostics_bp,
+        )
+        app.register_blueprint(diagnostics_bp)
+        logger.info("create_app: blueprint diagnostics_ob1 registrado.")
+    except ImportError:
+        logger.debug("create_app: blueprint diagnostics_ob1 no disponible.")
 
     return app
 
