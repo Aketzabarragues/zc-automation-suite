@@ -1069,63 +1069,64 @@ def _result_block(
     }
 
 
-def register(registry: dict[str, Callable[..., Any]]) -> None:
-    """Aporta los comandos del Ã¡rea alimentaciÃ³n al ``COMMAND_REGISTRY``.
+def _wrap_handler(handler):
+    """Adapta un handler (portal, ts, args) al dispatcher OB1 (args, tia_client).
 
-    Comandos registrados:
-      - ``update_disp_comments_db_<hw>`` (×6): export + edit SD offline
-        + import selectivo de los DBs de array. El IT hace export +
-        copytree UNA VEZ antes del batch (sino SOBREESCRIBE archivos
-        de otros handlers).
+    El dispatcher de SyncTIAClient invoca handlers con (args, tia_client).
+    Los handlers internos del area (cuyo cuerpo se mantiene por compat
+    con el IT legacy) esperan (portal, ts, args). Este wrapper extrae
+    portal (tia_client.wrapper) y ts (tia_client.ts) y los pasa al
+    handler interno. Migrar la firma interna a (args, tia_client) se
+    hace en pasos posteriores de DA-014.
+    """
+    def _wrapped(args, tia_client):
+        return handler(tia_client.wrapper, tia_client.ts, args)
+    return _wrapped
 
-      - ``commit_disp_nmax_renames_online``: handler online puro
-        (N_MAX + renames) con su propia ``start_transaction`` /
-        ``end_transaction``. Sept-2026: sustituye al antiguo
-        ``commit_devices_sync`` para evitar el rollback silencioso de
-        TIA V21 al mezclar online + offline en la misma tx.
-      - ``commit_disp_devices_offline``: handler offline puro
-        (export + edit + import por tabla) con su propia tx.
-        Se llama secuencialmente desde IT tras el handler online.
-      - ``commit_devices_sync``: DEPRECATED. Se mantiene por compat
-        con tests/callers legacy; se retira en PR siguiente.
-      - ``update_proc_comments_db_<kind>`` (Ã—3: preal, pint, alm):
-        SD source comments offline + import por array de proceso,
-        con propagaciÃ³n a satÃ©lites del mismo slot.
-      - ``update_proc_comments_db_param``: handler combinado que aplica
-        PReal y PInt sobre el MISMO DB PARAM en un solo export/import.
-        Evita el bug del doble ``export_block`` que SOBREESCRIBÃA el
-        cambio de PReal al exportar PInt.
 
-    Muta ``registry`` in-place. Es seguro llamarla varias veces (los
-    handlers se machacan por nombre, no se duplican).
+def register(tia_client) -> None:
+    """Aporta los comandos del area alimentacion al SyncTIAClient.
+
+    Punto de extension estandar para OB1 (Fase 4 / paso 4.1.3). main.py
+    (4.5.1) llama register(tia_client) por cada area declarada en
+    AreaSpec.contributes_tia_commands.
+
+    Comandos registrados (wrapper sobre los handlers (portal, ts, args)
+    existentes):
+      - update_disp_comments_db_<hw> (x6)
+      - update_proc_comments_db_<kind> (x3: preal, pint, alm)
+      - update_proc_comments_db_param (combinado PReal+PInt)
+      - commit_disp_nmax_renames_online (online puro)
+      - commit_disp_devices_offline (offline puro)
+      - commit_devices_sync (DEPRECATED, compat legacy)
     """
     for hw in EXTRA_HW_TYPES:
-        registry[f"update_disp_comments_db_{hw}"] = (
-            make_cmd_update_disp_comments_db(hw)
+        tia_client.register_command(
+            f"update_disp_comments_db_{hw}",
+            _wrap_handler(make_cmd_update_disp_comments_db(hw)),
         )
     for kind in EXTRA_PROC_KINDS:
-        registry[f"update_proc_comments_db_{kind}"] = (
-            make_cmd_update_proc_comments_db(kind)
+        tia_client.register_command(
+            f"update_proc_comments_db_{kind}",
+            _wrap_handler(make_cmd_update_proc_comments_db(kind)),
         )
-    # Handler combinado para los 2 arrays del DB PARAM (PReal + PInt).
-    # Evita el doble ``export_block`` sobre el mismo DB que SOBREESCRIBÃA
-    # el cambio de PReal al exportar PInt (bug fixed 2026-09-07).
-    registry["update_proc_comments_db_param"] = (
-        make_cmd_update_proc_comments_db_param()
+    tia_client.register_command(
+        "update_proc_comments_db_param",
+        _wrap_handler(make_cmd_update_proc_comments_db_param()),
     )
-    # Sept-2026: 2 handlers nuevos que reemplazan al antiguo
-    # ``commit_devices_sync``. Cada uno abre/cierra su propia tx TIA
-    # para evitar el rollback silencioso de V21 al mezclar online +
-    # offline en la misma tx.
-    registry["commit_disp_nmax_renames_online"] = (
-        make_cmd_commit_disp_nmax_renames_online()
+    tia_client.register_command(
+        "commit_disp_nmax_renames_online",
+        _wrap_handler(make_cmd_commit_disp_nmax_renames_online()),
     )
-    registry["commit_disp_devices_offline"] = (
-        make_cmd_commit_disp_devices_offline()
+    tia_client.register_command(
+        "commit_disp_devices_offline",
+        _wrap_handler(make_cmd_commit_disp_devices_offline()),
     )
-    # DEPRECATED: se mantiene por compat con callers/tests legacy.
-    # Se retira en PR siguiente tras confirmar el fix en prod.
-    registry["commit_devices_sync"] = make_cmd_commit_devices_sync()
+    tia_client.register_command(
+        "commit_devices_sync",
+        _wrap_handler(make_cmd_commit_devices_sync()),
+    )
+
 
 
 __all__ = [
