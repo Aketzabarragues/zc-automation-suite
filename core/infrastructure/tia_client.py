@@ -813,6 +813,39 @@ def _h_import_blocks_sd(args: dict, tia_client: "SyncTIAClient") -> dict:
     return {"imported_from": import_dir}
 
 
+def _h_import_plc_tags_xml(args: dict, tia_client: "SyncTIAClient") -> dict:
+    """Importa PlcTagTables en formato XML al PLC (manual §2.2.24).
+
+    Valida import_dir antes de invocar el metodo COM.
+    """
+    plc_name: str = args.get("plc_name", "")
+    import_dir: str = args.get("import_dir", "")
+    target_folder: str = args.get("target_folder") or ""
+
+    if not plc_name:
+        raise ValueError("Se requiere el argumento 'plc_name'.")
+    if not import_dir:
+        raise ValueError("Se requiere el argumento 'import_dir'.")
+    if not os.path.isdir(import_dir):
+        raise RuntimeError(
+            f"El directorio de importacion no existe o no es accesible: "
+            f"'{import_dir}'."
+        )
+
+    portal = tia_client.wrapper
+    if portal is None:
+        raise RuntimeError(
+            "No portal attached. Llama a attach_portal primero."
+        )
+    project = _get_active_project(portal)
+    target_plc = _find_plc(project, plc_name)
+    target_plc.import_plc_tags(
+        import_root_directory=import_dir,
+        target_folder_path=target_folder,
+    )
+    return {"imported_from": import_dir}
+
+
 def _h_compile_blocks(args: dict, tia_client: "SyncTIAClient") -> dict:
     """Compila una lista explicita de bloques del PLC (no todo el software).
 
@@ -942,6 +975,7 @@ def register_core_commands(target: SyncTIAClient) -> None:
     target.register_command("export_udts_sd", _h_export_udts_sd)
     target.register_command("export_plc_tags_xml", _h_export_plc_tags_xml)
     target.register_command("import_blocks_sd", _h_import_blocks_sd)
+    target.register_command("import_plc_tags_xml", _h_import_plc_tags_xml)
 
 
 # Singleton de proceso. main.py (4.5.1) hace tia_client = SyncTIAClient().
