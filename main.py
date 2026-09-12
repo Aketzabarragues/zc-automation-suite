@@ -1,8 +1,8 @@
 """Único entry point del proyecto.
 
-Modo: bandeja con icono (pystray). Click en "Iniciar web" arranca
-Flask + OB1 main loop en hilos daemon. Click "Parar web" los para.
-Click "Salir" cierra todo.
+Modo: bandeja con icono (pystray). Click "Iniciar web" arranca
+Flask + OB1 en hilos daemon. Click "Parar web" los para. Click
+"Salir" cierra todo.
 
 Lanzamientos típicos:
   - run_app.bat            # doble click, sin consola
@@ -14,24 +14,21 @@ from __future__ import annotations
 import io
 import logging
 import sys
-import threading
 import time
 import traceback
 from pathlib import Path
 
 from core.application.log_paths import setup_logging
 
-# Puerto fijo del web server (Flask + OB1 main loop).
-WEB_PORT = 9484
+WEB_PORT = 9484  # puerto fijo del web server (Flask + OB1 main loop)
 
-# Setup logging ANTES de cualquier import pesado.
-# Un solo archivo ``zc.log`` para toda la aplicacion (bandeja + web + TIA).
+# Un solo archivo ``zc.log`` para toda la aplicacion.
 LOG_FILE = setup_logging("tray")
 log = logging.getLogger("zc.tray")
 
 
 def _resolve_icon_path() -> Path | None:
-    """Path del .ico. Modo frozen: ``sys._MEIPASS``. Modo dev: junto al codigo."""
+    """Path del .ico: ``_MEIPASS`` si frozen, junto al codigo en dev."""
     if getattr(sys, "frozen", False):
         base = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
     else:
@@ -41,10 +38,9 @@ def _resolve_icon_path() -> Path | None:
 
 
 def _force_utf8_streams() -> None:
-    """Forzar UTF-8 en stdout/stderr/stdin en Windows.
+    """UTF-8 en stdout/stderr/stdin en Windows.
 
-    En modo frozen/windowed los streams son ``None``; el bloque
-    ``try/except`` lo maneja sin caer en ``sys.stdout.buffer``.
+    Tolera streams ``None`` (modo windowed de PyInstaller).
     """
     if sys.platform != "win32":
         return
@@ -56,27 +52,25 @@ def _force_utf8_streams() -> None:
             stream.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
             continue
         except (AttributeError, Exception):
-            pass
-        # Fallback: reconstruir el TextIOWrapper si hay buffer.
-        try:
-            setattr(
-                sys, name,
-                io.TextIOWrapper(  # type: ignore[arg-type]
-                    stream.buffer,  # type: ignore[attr-defined]
-                    encoding="utf-8", errors="replace",
-                ),
-            )
-        except (AttributeError, Exception):
-            pass
+            # Fallback: reconstruir el TextIOWrapper si el stream tiene buffer.
+            try:
+                setattr(
+                    sys, name,
+                    io.TextIOWrapper(  # type: ignore[arg-type]
+                        stream.buffer,  # type: ignore[attr-defined]
+                        encoding="utf-8", errors="replace",
+                    ),
+                )
+            except (AttributeError, Exception):
+                pass
 
 
 def main() -> int:
     """Crea el supervisor OB1 y bloquea main thread con pystray.
 
-    El supervisor arranca/parar Flask + OB1 main loop via callbacks
-    del menu. ``on_before_exit`` se dispara antes de detener el icono
-    para cerrar el web server en orden. Si pystray falla, el web
-    server queda vivo (red de seguridad) hasta Ctrl+C.
+    Start/stop del web + OB1 main loop se hace via callbacks del menu.
+    ``on_before_exit`` para el web server antes de quitar el icono.
+    Si pystray falla, el web queda vivo hasta Ctrl+C.
     """
     _force_utf8_streams()
 
@@ -96,9 +90,8 @@ def main() -> int:
 
     try:
         from launcher.tray_app import run_tray
-        icon_path = _resolve_icon_path()
         run_tray(
-            web, icon_path, log,
+            web, _resolve_icon_path(), log,
             on_before_exit=lambda: web.stop(timeout=5.0),
         )
     except Exception as exc:  # noqa: BLE001
@@ -118,3 +111,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
