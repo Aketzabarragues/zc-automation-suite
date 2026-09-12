@@ -773,6 +773,46 @@ def _h_export_plc_tags_xml(args: dict, tia_client: "SyncTIAClient") -> dict:
     return {"exported_to": str(target_path), "count": count}
 
 
+def _h_import_blocks_sd(args: dict, tia_client: "SyncTIAClient") -> dict:
+    """Importa bloques .s7dcl desde el disco al PLC (manual §2.2.23).
+
+    Valida import_dir antes de invocar el metodo COM (TIA lanza excepcion
+    grave si el dir no existe).
+
+    Args:
+        plc_name (str, requerido).
+        import_dir (str, requerido): directorio con archivos .s7dcl.
+        target_folder (str, opcional): carpeta destino en el PLC; "" = raiz.
+            Coercion defensiva: el wrapper .NET no acepta None.
+    """
+    plc_name: str = args.get("plc_name", "")
+    import_dir: str = args.get("import_dir", "")
+    target_folder: str = args.get("target_folder") or ""
+
+    if not plc_name:
+        raise ValueError("Se requiere el argumento 'plc_name'.")
+    if not import_dir:
+        raise ValueError("Se requiere el argumento 'import_dir'.")
+    if not os.path.isdir(import_dir):
+        raise RuntimeError(
+            f"El directorio de importacion no existe o no es accesible: "
+            f"'{import_dir}'."
+        )
+
+    portal = tia_client.wrapper
+    if portal is None:
+        raise RuntimeError(
+            "No portal attached. Llama a attach_portal primero."
+        )
+    project = _get_active_project(portal)
+    target_plc = _find_plc(project, plc_name)
+    target_plc.import_blocks(
+        import_root_directory=import_dir,
+        target_folder_path=target_folder,
+    )
+    return {"imported_from": import_dir}
+
+
 def _h_compile_blocks(args: dict, tia_client: "SyncTIAClient") -> dict:
     """Compila una lista explicita de bloques del PLC (no todo el software).
 
@@ -901,6 +941,7 @@ def register_core_commands(target: SyncTIAClient) -> None:
     target.register_command("export_blocks_sd", _h_export_blocks_sd)
     target.register_command("export_udts_sd", _h_export_udts_sd)
     target.register_command("export_plc_tags_xml", _h_export_plc_tags_xml)
+    target.register_command("import_blocks_sd", _h_import_blocks_sd)
 
 
 # Singleton de proceso. main.py (4.5.1) hace tia_client = SyncTIAClient().
