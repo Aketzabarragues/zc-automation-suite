@@ -124,13 +124,19 @@ def test_post_disconnect_clears_wrapper(client):
 
 
 def test_endpoint_paths_use_api_v1_prefix():
-    """Los endpoints viven bajo /api/v1/tia (Blueprint url_prefix)."""
+    """Los endpoints viven bajo /api/v1/tia (Blueprint url_prefix).
+
+    Sin prefix: cae a SPA fallback (``/tia/connection`` no es estático
+    ni empieza por ``api/``, sin extension → devuelve ``index.html``
+    para que Vue Router resuelva la ruta). Rutas ``/api/...`` que no
+    existen devuelven 404.
+    """
     tia = SyncTIAClient()
     register_core_commands(tia)
     app = create_app(tia_client=tia, engine=Engine(), event_bus=EventBusSync())
     client = app.test_client()
     resp = client.get("/api/v1/tia/connection")
     assert resp.status_code == 200
-    # Sin prefix debe dar 404.
-    resp2 = client.get("/tia/connection")
+    # Rutas /api/... inexistentes -> 404.
+    resp2 = client.get("/api/v1/inexistente")
     assert resp2.status_code == 404

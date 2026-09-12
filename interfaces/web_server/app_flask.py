@@ -1,37 +1,31 @@
-"""App Flask sync para el modelo OB1 (Fase 4 / paso 4.4.1).
+"""Factory Flask para el modelo OB1.
 
-Factory ``create_app()`` retorna una ``Flask`` configurada con:
-  - ``/ping``: health check (latencia directa, sin OB1).
-  - ``/cycle_count``: lee engine.cycle_count del hilo OB1 principal.
-  - ``/stream``: SSE basico emitiendo heartbeats cada 500ms (placeholder;
-    se reemplaza por ``/api/v1/stream`` migrado en 4.4.x).
+Retorna una ``Flask`` configurada con:
+  - 3 endpoints base (``/ping``, ``/cycle_count``, ``/stream``).
+  - 7 blueprints del shell (``/api/v1/...``).
+  - SPA estática servida en ``/`` (catch-all a ``index.html`` para
+    rutas client-side).
 
-Trade-off aceptado (DA-014): Flask dev server es single-threaded, lo
-que significa que requests HTTP serializan contra el OB1 main loop.
-Esto elimina la complejidad de asyncio.subprocess + ProactorEventLoop
-a costa de perder paralelismo I/O. Para la carga esperada (1 operario,
-<10 req/s) es aceptable.
-
-Estado de la migracion (sept-2026): skeleton minimo. Los 7 routers
-existentes en ``interfaces/web_server/routers/`` siguen en FastAPI.
-La migracion a Flask blueprints sera en pasos 4.4.2+ (futuras
-conversaciones; este paso solo prueba que ``create_app`` arranca).
+Flask dev server es single-threaded (``threaded=False``): HTTP serializa
+contra el main loop en el mismo proceso. OK para 1 operario (<10 req/s).
 """
 from __future__ import annotations
 
 import json
 import logging
-import threading
-import time
+from pathlib import Path
 from typing import Any
 
-from flask import Flask, Response, jsonify
+from flask import Flask, Response, jsonify, send_from_directory
 
+from core.infrastructure.config_manager import ConfigManager
 from core.infrastructure.tia_client import tia_client as default_tia_client
 from core.plc.engine import Engine
 from core.sse.event_bus_sync import EventBusSync
 
 logger = logging.getLogger(__name__)
+
+STATIC_DIR = Path(__file__).parent / "static"
 
 
 def create_app(
@@ -43,18 +37,17 @@ def create_app(
     log_buffer: Any = None,
     progress_tracker: Any = None,
 ) -> Flask:
-    """Factory: retorna Flask app configurada para OB1.
+    """Crea la Flask app con endpoints base + blueprints + SPA estática.
 
     Args:
         tia_client: SyncTIAClient. Default: singleton global.
         engine: Engine. Default: se crea uno nuevo.
         event_bus: EventBusSync. Default: se crea uno nuevo.
         app_state / config_manager / log_buffer / progress_tracker:
-            legacy singletons. Si None, se cargan al primer uso (lazy).
-
-    Inyeccion explicita para tests; production usa los singletons.
+            legacy singletons. Si None, lazy al primer uso desde
+            los endpoints (sin forzar import en ``create_app``).
     """
-    app = Flask(__name__)
+    app = Flask(__name__, static_folder=None)  # servimos manualmente
     _tia = tia_client if tia_client is not None else default_tia_client
     _engine = engine if engine is not None else Engine()
     _bus = event_bus if event_bus is not None else EventBusSync()
@@ -69,22 +62,19 @@ def create_app(
         mod = import_module(import_path)
         return getattr(mod, factory_name)()
 
-    # Stash para que endpoints lo lean (sin globals para tests).
     app.config["TIA_CLIENT"] = _tia
     app.config["ENGINE"] = _engine
     app.config["EVENT_BUS"] = _bus
-
-    # Guardar resolvers lazy (se llaman desde endpoints).
     app.config["_LAZY_APP_STATE"] = lambda: _resolve_lazy(
         app_state, "core.application.state", "get_app_state"
     )
-    app.config["_LAZY_CONFIG_MANAGER"] = lambda: _resolve_lazy(
-        config_manager,
-        "core.infrastructure.config_manager",
-        "get_config_manager",
+    app.config["_LAZY_CONFIG_MANAGER"] = lambda: (
+        config_manager if config_manager is not None else ConfigManager()
     )
     app.config["_LAZY_LOG_BUFFER"] = lambda: _resolve_lazy(
-        log_buffer, "core.application.log_buffer", "get_log_buffer"
+        log_buffer,
+        "core.application.log_buffer",
+        "get_log_buffer",
     )
     app.config["_LAZY_PROGRESS_TRACKER"] = lambda: _resolve_lazy(
         progress_tracker,
@@ -92,7 +82,6 @@ def create_app(
         "get_progress_tracker",
     )
 
-    # ----------------------------------------------------------- endpoints
     @app.get("/ping")
     def ping():
         """Health check: latencia directa, sin OB1."""
@@ -100,21 +89,15 @@ def create_app(
 
     @app.get("/cycle_count")
     def cycle_count():
-        """Counter del engine del hilo OB1 principal.
+        """Counter del engine del main loop.
 
-        El engine es sync (4.2.1) pero se ticka desde otro thread;
-        lectura cross-thread de un int es GIL-atomic en CPython.
+        Lectura cross-thread de un int es GIL-atomic en CPython.
         """
         return jsonify({"cycles": _engine.cycle_count})
 
     @app.get("/stream")
     def stream():
-        """SSE basico: emite un heartbeat cada 500ms.
-
-        Lee del EventBusSync del OB1 main loop. Si no hay eventos,
-        emite ': keepalive\\n\\n' (comment line de SSE) para mantener
-        la conexion viva (mitigacion equivalente al DA-012 SSE keepalive).
-        """
+        """SSE: eventos del main loop + keepalive cada 500ms."""
         subscriber_queue = _bus.subscribe()
         keepalive_s = 0.5
 
@@ -124,7 +107,7 @@ def create_app(
                     try:
                         event = subscriber_queue.get(timeout=keepalive_s)
                     except Exception:
-                        # Timeout: emitimos keepalive (no genera evento).
+                        # Timeout: keepalive (comment line de SSE).
                         yield ": keepalive\n\n"
                         continue
                     yield f"data: {json.dumps(event)}\n\n"
@@ -133,80 +116,67 @@ def create_app(
 
         return Response(gen(), mimetype="text/event-stream")
 
+    # ── SPA estática (Vue 3) ─────────────────────────────────────
+    if STATIC_DIR.is_dir():
+        @app.get("/<path:filename>")
+        def spa_static(filename: str):
+            """Sirve estáticos de la SPA o cae a index.html para rutas SPA.
+
+            Reglas:
+              - ``/api/...``: 404 (blueprints cubren las válidas).
+              - Path con extension (``/styles.css``, ``/js/main.js``):
+                404 si no existe.
+              - Path sin extension (``/dashboard``, ``/login``): cae a
+                ``index.html`` (Vue Router resuelve en el cliente).
+            """
+            if filename.startswith("api/"):
+                from flask import abort
+                abort(404)
+            target = STATIC_DIR / filename
+            if target.is_file():
+                return send_from_directory(STATIC_DIR, filename)
+            # SPA fallback solo para paths sin extension.
+            if "." not in filename.rsplit("/", 1)[-1]:
+                return send_from_directory(STATIC_DIR, "index.html")
+            from flask import abort
+            abort(404)
+
+        @app.get("/")
+        def spa_root():
+            return send_from_directory(STATIC_DIR, "index.html")
+    else:
+        logger.warning("create_app: STATIC_DIR no existe; SPA no servida.")
+
+    # ── Blueprints del shell ────────────────────────────────────
+    _register_blueprints(app)
+
     logger.info(
         "create_app: Flask OB1 inicializada (engine=%s, bus=%s)",
-        type(_engine).__name__,
-        type(_bus).__name__,
+        type(_engine).__name__, type(_bus).__name__,
     )
-
-    # Registrar blueprints migrados en pasos 4.4.2+.
-    # Si la importacion falla (blueprint no migrado aun), seguimos sin
-    # el — los endpoints viejos en FastAPI siguen disponibles mientras
-    # la migracion no sea completa.
-    try:
-        from interfaces.web_server.routers.tia_connection import (
-            bp as tia_connection_bp,
-        )
-        app.register_blueprint(tia_connection_bp)
-        logger.info("create_app: blueprint tia_connection registrado.")
-    except ImportError:
-        logger.debug("create_app: blueprint tia_connection no disponible.")
-
-    try:
-        from interfaces.web_server.routers.diagnostics import (
-            bp as diagnostics_bp,
-        )
-        app.register_blueprint(diagnostics_bp)
-        logger.info("create_app: blueprint diagnostics registrado.")
-    except ImportError:
-        logger.debug("create_app: blueprint diagnostics no disponible.")
-
-    try:
-        from interfaces.web_server.routers.area_manifests import (
-            bp as area_manifests_bp,
-        )
-        app.register_blueprint(area_manifests_bp)
-        logger.info("create_app: blueprint area_manifests registrado.")
-    except ImportError:
-        logger.debug("create_app: blueprint area_manifests no disponible.")
-
-    try:
-        from interfaces.web_server.routers.catalog import (
-            bp as catalog_bp,
-        )
-        app.register_blueprint(catalog_bp)
-        logger.info("create_app: blueprint catalog registrado.")
-    except ImportError:
-        logger.debug("create_app: blueprint catalog no disponible.")
-
-    try:
-        from interfaces.web_server.routers.portal import (
-            bp as portal_bp,
-        )
-        app.register_blueprint(portal_bp)
-        logger.info("create_app: blueprint portal registrado.")
-    except ImportError:
-        logger.debug("create_app: blueprint portal no disponible.")
-
-    try:
-        from interfaces.web_server.routers.plc import (
-            bp as plc_bp,
-        )
-        app.register_blueprint(plc_bp)
-        logger.info("create_app: blueprint plc registrado.")
-    except ImportError:
-        logger.debug("create_app: blueprint plc no disponible.")
-
-    try:
-        from interfaces.web_server.routers.areas import (
-            bp as areas_bp,
-        )
-        app.register_blueprint(areas_bp)
-        logger.info("create_app: blueprint areas registrado.")
-    except ImportError:
-        logger.debug("create_app: blueprint areas no disponible.")
-
     return app
+
+
+def _register_blueprints(app: Flask) -> None:
+    """Registra los 7 blueprints del shell. Si alguno no esta disponible
+    (migracion en curso), lo loggea y sigue."""
+    blueprints = [
+        "tia_connection",
+        "diagnostics",
+        "area_manifests",
+        "catalog",
+        "portal",
+        "plc",
+        "areas",
+    ]
+    for name in blueprints:
+        try:
+            from importlib import import_module
+            mod = import_module(f"interfaces.web_server.routers.{name}")
+            app.register_blueprint(mod.bp)
+            logger.info("create_app: blueprint %s registrado.", name)
+        except ImportError as exc:
+            logger.debug("create_app: blueprint %s no disponible (%s).", name, exc)
 
 
 __all__ = ["create_app"]
