@@ -37,12 +37,14 @@ class MainServiceSupervisor:
         tick_period_s: float = 0.1,
         no_engine: bool = False,
         config_manager: Any = None,
+        event_bus: Any = None,
     ) -> None:
         self.host = host
         self.port = port
         self.tick_period_s = tick_period_s
         self.no_engine = no_engine
         self.config_manager = config_manager
+        self.event_bus = event_bus  # si None, _build_components crea uno
         self.log = logging.getLogger("zc.main")
 
         self._stop_event = threading.Event()
@@ -168,7 +170,7 @@ class MainServiceSupervisor:
             # Registrar los FBs del area (template + futuros reales).
             from areas.alimentacion import register as register_alimentacion
             register_alimentacion(engine)
-        event_bus = EventBusSync()
+        event_bus = self.event_bus if self.event_bus is not None else EventBusSync()
         flask_app = create_app(
             tia_client=tia_client,
             engine=engine,
