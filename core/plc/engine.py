@@ -8,28 +8,26 @@ paso 2.0.4).
 
 API:
   - ``register_fb(name, fb)`` — asocia un nombre a un FunctionBase.
+    Si ``on_fb_change`` esta definido en el engine, cablea el hook
+    ``_on_nstep_change`` del FB para que publique al bus en cada
+    cambio de nStep.
   - ``get_fb(name)`` — lookup por nombre, ``None`` si no existe.
   - ``start_loop()`` — arranca el loop como task asyncio.  Idempotente.
   - ``stop_loop()`` — cancela el task.  Idempotente.
   - ``tick_once()`` — un tick del loop, sin dormir.  Para tests.
-  - ``snapshot()`` — dict JSON-serializable con el estado actual
-    (``dbs`` vacío + ``fbs`` con ``nStep``/``error_msg`` de cada FB).
-    Consumido por el SSE como contenido del evento inicial.
-
-Paso 2.0.5+2.0.6+2.0.7: OB1 con guarda de ``is_terminal()`` y
-publicación de ``fb_changed`` al ``EventBus``.  El engine filtra FBs
-terminales y, tras tickear uno no terminal, si su ``nStep`` cambió,
-publica ``{"type": "fb_changed", "name", "nStep", "error_msg"}``.
-Si no se inyecta ``event_bus`` (default ``None``), no publica.
+  - ``snapshot()`` — dict JSON-serializable con el estado actual.
+  - ``on_fb_change(name, fb)`` — callable opcional. Si esta definida,
+    cada cambio de nStep de cualquier FB la invoca. Usado por la capa
+    SSE para retransmitir ``{type: "fb_state", ...}``.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from core.plc.function_base import FunctionBase
-from core.sse.event_bus import EventBus
 
 logger = logging.getLogger(__name__)
 _dbg = logging.getLogger("zc.debug.da012")
@@ -50,24 +48,29 @@ class Engine:
     def __init__(
         self,
         tick_period_s: float = DEFAULT_TICK_PERIOD_S,
-        event_bus: EventBus | None = None,
     ) -> None:
         self._fbs: dict[str, FunctionBase] = {}
         self._task: asyncio.Task[None] | None = None
         self._tick_period_s: float = tick_period_s
-        # Bus opcional: si es ``None`` (default), el engine no publica
-        # eventos.  Se inyecta en producción desde ``app.state.event_bus``.
-        self._event_bus: EventBus | None = event_bus
         # Contador de ciclos ejecutado. Se incrementa en run_cycle().
         # Lectura cross-thread es GIL-atomic en CPython.
         self.cycle_count: int = 0
+        # Hook opcional: callable(name, fb) invocado tras cada cambio
+        # de nStep de cualquier FB. Se cablea desde
+        # core.sse.publishers.wire_all() en el arranque.
+        self.on_fb_change: Callable[[str, FunctionBase], None] | None = None
 
     # ------------------------------------------------------------------
     # Registro de FBs
     # ------------------------------------------------------------------
 
     def register_fb(self, name: str, fb: FunctionBase) -> None:
-        """Registra ``fb`` bajo ``name``.  Si ya existe, lo pisa con warning."""
+        """Registra ``fb`` bajo ``name``.  Si ya existe, lo pisa con warning.
+
+        Si ``self.on_fb_change`` esta definido, lo cablea como
+        ``fb._on_nstep_change`` para que cada cambio de nStep del FB
+        se retransmita automaticamente.
+        """
         if name in self._fbs:
             logger.warning(
                 "Engine: FB '%s' ya registrado, pisando con %s",
@@ -75,6 +78,10 @@ class Engine:
                 type(fb).__name__,
             )
         self._fbs[name] = fb
+        if self.on_fb_change is not None:
+            fb._on_nstep_change = (
+                lambda old, new, _n=name, _fb=fb: self.on_fb_change(_n, _fb)
+            )
         logger.info("Engine: FB registrado '%s' (%s)", name, type(fb).__name__)
 
     def get_fb(self, name: str) -> FunctionBase | None:
@@ -184,44 +191,21 @@ class Engine:
 
         FBs en ``n_idle``, ``n_done`` o ``n_error`` se saltan (paso 2.0.6):
         no se llama a ``tick()`` siquiera, así no pagan el lock acquire.
-        Tras tickear un FB no terminal, si su ``nStep`` cambió, el
-        engine publica ``fb_changed`` al ``EventBus`` (paso 2.0.7).
+        La publicación de cambios de nStep al bus la hace el propio FB
+        via ``FunctionBase._on_nstep_change`` (cableado en
+        ``register_fb()`` si ``self.on_fb_change`` esta definido).
         Itera sobre ``list(self._fbs.items())`` para tolerar
         ``register_fb()`` / ``unregister_fb()`` concurrentes sin
         ``RuntimeError: dictionary changed size during iteration``.
         Cada FB no terminal es best-effort (paso 2.0.4): traga sus
         propias excepciones, el engine no se entera.
         """
-        ticked = []
         for name, fb in list(self._fbs.items()):
             if fb.is_terminal():
                 continue
-            n_step_before = fb.nStep
             await fb.tick()
-            if fb.nStep != n_step_before and self._event_bus is not None:
-                self._publish_fb_changed(name, fb)
-                ticked.append((name, fb.nStep))
-        if ticked:
-            _dbg.debug(
-                "Engine.tick_once: fbs_cambiaron=%s", ticked
-            )
-
-    def _publish_fb_changed(self, name: str, fb: FunctionBase) -> None:
-        """Publica un evento ``fb_changed`` al bus.
-
-        Esquema del evento (consumido por el frontend vía SSE):
-          - ``type``: literal ``"fb_changed"``.
-          - ``name``: nombre con el que se registró el FB.
-          - ``nStep``: nuevo ``nStep`` tras el tick.
-          - ``error_msg``: ``None`` en éxito, mensaje de error si
-            ``nStep == n_error``.
-        """
-        self._event_bus.publish({
-            "type": "fb_changed",
-            "name": name,
-            "nStep": fb.nStep,
-            "error_msg": fb.error_msg,
-        })
+            # El cambio de nStep se publica automaticamente via
+            # FunctionBase._on_nstep_change (ver _notify_nstep_change).
 
     # ------------------------------------------------------------------
     # Loop interno

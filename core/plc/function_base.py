@@ -23,11 +23,16 @@ estado (``nStep``, ``result``, ``error_msg``).  Siguen el patrón
 "lock del assert" del greenfield: el wrapper público adquiere
 ``self._lock`` y delega en un método privado ``_x_locked`` que asume
 el lock cogido y arranca con ``assert self._lock.locked()``.
+
+Hook ``_on_nstep_change(old: int, new: int)``: invocado tras cada
+cambio de ``nStep``. Usado por la capa SSE para publicar
+``{type: "fb_state", ...}`` al bus. Es opcional (no-op si None).
 """
 from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -68,6 +73,15 @@ class FunctionBase:
         # leen desde _tick_locked() si los necesitan.
         self._params: dict[str, Any] = {}
         self._lock = asyncio.Lock()
+        # Hook opcional: invocado tras cada cambio de nStep con
+        # (old_nStep, new_nStep). Usado por la capa SSE para publicar
+        # ``{type: "fb_state", ...}`` al bus. No-op si None.
+        self._on_nstep_change: Callable[[int, int], None] | None = None
+
+    def _notify_nstep_change(self, old: int, new: int) -> None:
+        """Dispara el hook si nStep cambio. Llamar tras cualquier mutacion."""
+        if self._on_nstep_change is not None and old != new:
+            self._on_nstep_change(old, new)
 
     # ------------------------------------------------------------------
     # API pública (adquiere el lock y delega en el _locked gemelo)
@@ -94,6 +108,7 @@ class FunctionBase:
         silencian).
         """
         async with self._lock:
+            n_before = self.nStep
             try:
                 await self._tick_locked()
             except (NotImplementedError, AssertionError):
@@ -110,6 +125,7 @@ class FunctionBase:
                 )
                 self.error_msg = f"{type(e).__name__}: {e}"
                 self.nStep = self.n_error
+            self._notify_nstep_change(n_before, self.nStep)
 
     def is_terminal(self) -> bool:
         """``True`` si el FB está en estado terminal y NO debe tickearse.
@@ -144,6 +160,7 @@ class FunctionBase:
         self.result = None
         self.nStep = 10
         logger.info("FB %s: start() OK (nStep=%d)", self.nombre, self.nStep)
+        self._notify_nstep_change(self.n_idle, 10)
         return True
 
     async def _tick_locked(self) -> None:
