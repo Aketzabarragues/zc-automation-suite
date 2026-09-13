@@ -1,4 +1,4 @@
-"""Tests unitarios de ``core.infrastructure.tia_client.SyncTIAClient``.
+"""Tests unitarios de ``core.infrastructure.tia_loop.SyncTIAClient``.
 
 Skeleton (Fase 4 / paso 4.1.1). Cubren:
   - register + dispatch + shape de retorno.
@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import threading
 
-from core.infrastructure.tia_client import SyncTIAClient
+import pytest
+
+from core.infrastructure.tia_loop import SyncTIAClient
 
 
 def _new_client() -> SyncTIAClient:
@@ -65,6 +67,7 @@ def test_dispatch_without_args_defaults_to_empty_dict() -> None:
     assert out == {"ok": True, "result": {"got": {}}}
 
 
+@pytest.mark.skip(reason="obsoleto: submit() + dispatch_pending() eliminados al migrar a tia_loop")
 def test_submit_then_dispatch_pending_drains_fifo() -> None:
     client = _new_client()
     captured: list[tuple[str, dict]] = []
@@ -72,23 +75,22 @@ def test_submit_then_dispatch_pending_drains_fifo() -> None:
         "echo",
         lambda args, _client: captured.append(("echo", args)) or {"echoed": args},
     )
-
     client.submit("echo", {"i": 1})
     client.submit("echo", {"i": 2})
     client.submit("echo", {"i": 3})
-
     processed = client.dispatch_pending()
     assert processed == 3
     assert [c[1] for c in captured] == [{"i": 1}, {"i": 2}, {"i": 3}]
 
 
+@pytest.mark.skip(reason="obsoleto: idem")
 def test_dispatch_pending_on_empty_queue_returns_zero() -> None:
     client = _new_client()
     assert client.dispatch_pending() == 0
 
 
+@pytest.mark.skip(reason="obsoleto: idem")
 def test_submit_from_another_thread_then_drain_is_fifo() -> None:
-    """Productor en hilo aparte encola 100; main thread drena en orden."""
     client = _new_client()
     client.register_command("echo", lambda args, _client: args)
 
@@ -100,7 +102,6 @@ def test_submit_from_another_thread_then_drain_is_fifo() -> None:
     t.start()
     t.join(timeout=2.0)
     assert not t.is_alive(), "producer thread hung"
-
     assert client.dispatch_pending() == 100
 
 

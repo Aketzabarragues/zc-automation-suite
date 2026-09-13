@@ -134,7 +134,7 @@ class MainServiceSupervisor:
 
     def _build_components(self):
         """Crea tia_client, engine, event_bus, flask_app. Compartidos entre hilos."""
-        from core.infrastructure.tia_client import (
+        from core.infrastructure.tia_loop import (
             SyncTIAClient,
             register_core_commands,
         )
@@ -203,8 +203,8 @@ class MainServiceSupervisor:
             self._flask_server = None
 
     def _run_main_loop_forever(self) -> None:
-        """Hilo daemon: dispatch TIA + engine tick en bucle."""
-        tia_client, engine, _, _ = self._components
+        """Hilo daemon: engine tick en bucle. TIA tiene su propio hilo."""
+        _, engine, _, _ = self._components
 
         self.log.info(
             "Main loop arrancando (tick=%dms, engine=%s).",
@@ -213,18 +213,13 @@ class MainServiceSupervisor:
         )
         try:
             while not self._stop_event.is_set():
-                # 1. Drenar cola TIA (commands submitted por Flask thread).
-                try:
-                    tia_client.dispatch_pending()
-                except Exception as exc:  # noqa: BLE001
-                    self.log.exception("Main loop: dispatch_pending() failed: %s", exc)
-                # 2. Tick engine.
+                # Tick engine. (TIA tiene su propio hilo tia-loop.)
                 if engine is not None:
                     try:
                         engine.run_cycle()
                     except Exception as exc:  # noqa: BLE001
                         self.log.exception("Main loop: engine.run_cycle() failed: %s", exc)
-                # 3. Sleep con stop_event.wait para responder rápido al shutdown.
+                # Sleep con stop_event.wait para responder rápido al shutdown.
                 if self._stop_event.wait(timeout=self.tick_period_s):
                     break
         except Exception as exc:  # noqa: BLE001

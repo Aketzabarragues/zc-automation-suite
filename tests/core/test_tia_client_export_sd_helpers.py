@@ -9,7 +9,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from core.infrastructure.tia_client import (
+from core.infrastructure.tia_loop import (
     _ensure_target_dir,
     _export_objects_sd,
 )

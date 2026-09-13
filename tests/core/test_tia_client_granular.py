@@ -9,7 +9,7 @@ from __future__ import annotations
 import tempfile
 from unittest.mock import MagicMock
 
-from core.infrastructure.tia_client import (
+from core.infrastructure.tia_loop import (
     SyncTIAClient,
     register_core_commands,
 )

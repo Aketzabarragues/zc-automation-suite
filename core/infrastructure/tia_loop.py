@@ -1,30 +1,41 @@
 """
-SyncTIAClient — cliente sync al wrapper siemens_tia_scripting (DA-014).
+core.infrastructure.tia_loop — subsistema TIA Portal (OB1-friendly).
 
-Skeleton (Fase 4 / paso 4.1.1). Comandos core se migran en 4.1.2.
-Areas registran comandos extra en 4.1.3.
+Antes: tia_client.py (1250 lineas). Ahora este archivo contiene todo
+el subsistema TIA Portal autocontenido:
 
-Reemplaza gateway.py + worker_tia.py. Vive en el mismo proceso que Flask
-y el loop OB1. NO subproceso. NO asyncio. NO IPC.
+  - Carga del wrapper .NET (siemens_tia_scripting.pyd) al arrancar.
+  - State machine de 6 estados.
+  - Hilo dedicado ("tia-loop") que drena la cola de commands.
+  - 24 commands core (lifecycle + inspection + mutation).
+  - API publica: submit_and_wait / submit_batch / state / start / stop.
 
-Modelo OB1:
-- Hilo OB1 (main loop) llama dispatch() y dispatch_pending() por ciclo.
-- Hilo Flask encola comandos via submit() (thread-safe, queue.Queue).
-- Hilo OB1 es el UNICO que llama metodos sobre tia_client.wrapper
-  (acceso single-threaded al wrapper .NET, evita RCW races).
+El wrapper .NET vive y se usa SOLO desde el tia-loop. El main loop
+(OB1) y los FBs NO tocan el wrapper directamente: pasan por la API
+publica (submit_and_wait, etc.) que encola en el tia-loop.
 
-Carga del wrapper:
-- El skeleton NO carga siemens_tia_scripting.pyd (eso requiere stage en
-  tempfile y queda fuera de este paso).
-- main.py (4.5.1) hace: tia_client.attach_wrapper(loader.load()).
-- Tests inyectan mocks via attach_wrapper().
+State machine (6 estados):
+  IDLE        portal cerrado
+  ATTACHING   ejecutando attach_portal / open_new_portal
+  CONNECTED   portal vivo, listo para commands
+  BUSY        command en curso
+  DETACHING   ejecutando detach_portal
+  ERROR       fallo irrecuperable
+
+Threading model:
+  - main-loop (OB1): NO toca el wrapper .NET.
+  - tia-loop: UNICO dueno del wrapper, drena _cmd_queue.
+  - Flask thread: encola via submit_and_wait (bloquea con timeout).
+  - Single thread para Openness: el RCW .NET no es thread-safe.
 """
 from __future__ import annotations
 
+import itertools
 import logging
 import os
 import queue
 import re
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -32,6 +43,28 @@ from typing import Any, Callable
 from core.models.bloque_plc import BloquePLC
 
 logger = logging.getLogger(__name__)
+
+
+# Estados del subsistema TIA (expuestos publicamente para que el router
+# Flask y la SPA consulten /api/v1/tia/connection sin tocar el wrapper).
+STATE_IDLE = "idle"
+STATE_ATTACHING = "attaching"
+STATE_CONNECTED = "connected"
+STATE_BUSY = "busy"
+STATE_DETACHING = "detaching"
+STATE_ERROR = "error"
+
+# Sentinela para que stop_tia_loop() ordene al hilo salir de forma
+# limpia (queue.put) sin usar un flag externo que podria racear.
+_SENTINEL_STOP: Any = object()
+
+
+def _next_request_id() -> int:
+    """Generador thread-safe de IDs unicos para correlacionar request/response."""
+    return next(_REQ_COUNTER)
+
+
+_REQ_COUNTER = itertools.count(1)
 
 
 # ---------------------------------------------------------------------------
@@ -96,16 +129,49 @@ HandlerSig = Callable[[dict, "SyncTIAClient"], dict]
 
 
 class SyncTIAClient:
-    """Cliente sync al wrapper TIA. OB1-friendly, sin subproceso."""
+    """Cliente + state machine + hilo del subsistema TIA Portal.
+
+    API principal:
+      - submit_and_wait / submit_batch: encolar commands y obtener respuesta.
+      - start_tia_loop / stop_tia_loop: arrancar/parar el hilo dedicado.
+      - state: propiedad de solo lectura (IDLE, CONNECTED, BUSY, ...).
+
+    Single thread para Openness: el tia-loop es el UNICO dueno del
+    wrapper .NET. El resto de la app pasa por la cola.
+    """
 
     def __init__(self) -> None:
         self._handlers: dict[str, HandlerSig] = {}
-        self._pending: queue.Queue[tuple[str, dict]] = queue.Queue()
-        # Placeholder; main.py attach_wrapper()/attach_ts() lo rellena en
-        # arranque. Antes de attach, dispatch() funciona solo con handlers
-        # que no tocan el wrapper (util para tests y para el spike).
-        self._wrapper = None
-        self._ts = None  # modulo siemens_tia_scripting
+        # Wrapper + modulo siemens. Se rellenan al start_tia_loop()
+        # (carga real) o antes (mock en tests via attach_wrapper/attach_ts).
+        self._wrapper: Any = None
+        self._ts: Any = None
+        # State machine: 6 estados. Ver constantes STATE_* arriba.
+        self._state: str = STATE_IDLE
+        self._state_lock = threading.Lock()
+        # Cola de commands FIFO. Cada item:
+        #   (req_id, command_name, args, response_queue)
+        # response_queue es None para fire-and-forget o queue.Queue
+        # para request/response.
+        self._cmd_queue: queue.Queue = queue.Queue()
+        # Hilo dedicado.
+        self._tia_thread: threading.Thread | None = None
+        self._tia_stop = threading.Event()
+
+    # ----------------------------------------------------------- state (lectura)
+    @property
+    def state(self) -> str:
+        """Estado actual del subsistema TIA (thread-safe)."""
+        with self._state_lock:
+            return self._state
+
+    def _set_state(self, new_state: str) -> None:
+        """Transiciona el estado (solo el tia-loop debe llamarlo)."""
+        with self._state_lock:
+            old = self._state
+            self._state = new_state
+        if old != new_state:
+            logger.info("TIA state: %s -> %s", old, new_state)
 
     # ----------------------------------------------------------- API publica
     def register_command(self, name: str, handler: HandlerSig) -> None:
@@ -116,7 +182,7 @@ class SyncTIAClient:
         logger.debug("registered command: %s", name)
 
     def dispatch(self, command: str, args: dict | None = None) -> dict:
-        """Dispatcher sync. Solo llamado desde el hilo OB1.
+        """Dispatcher sync. Solo llamado desde el tia-loop (interno).
 
         Shape de retorno: {"ok": True, "result": <dict>} o
         {"ok": False, "error": "<msg>"}.
@@ -133,57 +199,140 @@ class SyncTIAClient:
             logger.exception("dispatch failed: %s", command)
             return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
-    def submit(self, command: str, args: dict | None = None) -> None:
-        """Encola comando para drenar en el proximo ciclo OB1. Thread-safe.
+    def submit_and_wait(
+        self, command: str, args: dict | None = None, timeout: float = 30.0,
+    ) -> dict:
+        """Encola un command y BLOQUEA hasta tener respuesta (con timeout).
 
-        Pensado para que el hilo Flask encole sin bloquear.
+        Pensado para que el hilo Flask (o el main loop, si necesita
+        respuesta sincrona) pida un resultado. El tia-loop procesa el
+        command y pone el dict resultante en la response_queue interna.
+
+        Returns:
+            ``{"ok": True, "result": <dict>}`` o
+            ``{"ok": False, "error": "<msg>"}``.
+
+        Raises:
+            TimeoutError: si el tia-loop no responde en ``timeout`` segundos.
+            RuntimeError: si el tia-loop no esta corriendo.
         """
-        self._pending.put((command, args or {}))
+        if self._tia_thread is None or not self._tia_thread.is_alive():
+            raise RuntimeError(
+                "tia-loop no esta corriendo. Llama a start_tia_loop() primero."
+            )
+        resp_q: queue.Queue = queue.Queue(maxsize=1)
+        item = (_next_request_id(), command, args or {}, resp_q)
+        self._cmd_queue.put(item)
+        try:
+            return resp_q.get(timeout=timeout)
+        except queue.Empty:
+            raise TimeoutError(
+                f"submit_and_wait({command!r}) supero el timeout de {timeout}s."
+            )
 
-    def dispatch_pending(self) -> int:
-        """Drena cola FIFO y ejecuta cada comando. Solo hilo OB1.
+    def submit_batch(
+        self, items: list[tuple[str, dict]], timeout: float = 60.0,
+    ) -> list[dict]:
+        """Encola varios commands en lote y espera a todos.
 
-        Retorna el numero de comandos procesados en este drain.
+        Args:
+            items: lista de ``(command_name, args)``.
+            timeout: timeout total (suma de todos los commands).
+
+        Returns:
+            Lista de respuestas en el mismo orden que ``items``.
         """
-        processed = 0
-        while True:
+        if self._tia_thread is None or not self._tia_thread.is_alive():
+            raise RuntimeError("tia-loop no esta corriendo.")
+        resp_qs = [queue.Queue(maxsize=1) for _ in items]
+        for (name, args), q in zip(items, resp_qs):
+            self._cmd_queue.put((_next_request_id(), name, args, q))
+        results = []
+        for q in resp_qs:
             try:
-                cmd, args = self._pending.get_nowait()
+                results.append(q.get(timeout=timeout))
             except queue.Empty:
-                return processed
-            self.dispatch(cmd, args)
-            processed += 1
+                results.append({"ok": False, "error": "timeout"})
+        return results
+
+    def start_tia_loop(self) -> threading.Thread:
+        """Arranca el hilo dedicado tia-loop (idempotente).
+
+        Si no hay modulo siemens attached (caso normal al arrancar la
+        app), lo carga via ``tia_loader.load_siemenstia()``. Si la
+        carga falla, levanta ``RuntimeError`` con mensaje accionable.
+
+        Returns:
+            El ``Thread`` arrancado (daemon=True).
+        """
+        if self._tia_thread is not None and self._tia_thread.is_alive():
+            logger.debug("start_tia_loop: ya estaba corriendo; no-op.")
+            return self._tia_thread
+        if self._ts is None:
+            # Carga lazy del wrapper .NET. Solo la primera vez.
+            try:
+                from core.infrastructure.tia_loader import load_siemenstia
+                ts_module, _wrapper_module = load_siemenstia()
+            except (FileNotFoundError, RuntimeError) as exc:
+                logger.error("No se pudo cargar el wrapper TIA: %s", exc)
+                raise
+            self.attach_ts(ts_module)
+        self._tia_stop.clear()
+        self._set_state(STATE_IDLE)
+        thread = threading.Thread(
+            target=_tia_loop_main,
+            args=(self, self._tia_stop),
+            name="tia-loop",
+            daemon=True,
+        )
+        thread.start()
+        self._tia_thread = thread
+        logger.info("tia-loop arrancado.")
+        return thread
+
+    def stop_tia_loop(self, timeout: float = 5.0) -> None:
+        """Senala parada al tia-loop y espera a que termine."""
+        if self._tia_thread is None:
+            return
+        self._cmd_queue.put(_SENTINEL_STOP)
+        self._tia_stop.set()
+        self._tia_thread.join(timeout=timeout)
+        if self._tia_thread.is_alive():
+            logger.warning("tia-loop no termino en %.1fs; se abandona.", timeout)
+        else:
+            logger.info("tia-loop terminado.")
+        self._tia_thread = None
 
     # --------------------------------------------------------------- helpers
-    def attach_wrapper(self, wrapper) -> None:
+    def attach_wrapper(self, wrapper: Any) -> None:
         """Adjunta el portal .NET (mock en tests, .pyd real en main).
 
-        Solo el hilo OB1 debe llamarlo.
+        Solo el tia-loop debe llamarlo (o tests que mockean).
         """
         self._wrapper = wrapper
 
-    def attach_ts(self, ts_module) -> None:
+    def attach_ts(self, ts_module: Any) -> None:
         """Adjunta el modulo ``siemens_tia_scripting`` (mock o real).
 
         Lo usan handlers que invocan ``ts.open_portal(...)`` o
-        ``ts.Enums.PortalMode.X``. Solo el hilo OB1 debe llamarlo.
+        ``ts.Enums.PortalMode.X``.
         """
         self._ts = ts_module
 
     @property
-    def wrapper(self):
+    def wrapper(self) -> Any:
         """Accessor del wrapper siemens_tia_scripting.
 
-        Acceso single-threaded: solo el hilo OB1 debe llamar metodos sobre
-        el objeto retornado (los RCW .NET no son thread-safe).
+        Acceso single-threaded: solo el tia-loop debe llamar metodos
+        sobre el objeto retornado (los RCW .NET no son thread-safe).
         """
         return self._wrapper
 
     @property
-    def ts(self):
+    def ts(self) -> Any:
         """Accessor del modulo ``siemens_tia_scripting``.
 
-        Idem wrapper: solo el hilo OB1 debe llamar funciones sobre el
+        Idem wrapper: solo el tia-loop debe llamar funciones sobre el
         modulo retornado.
         """
         return self._ts
@@ -1481,6 +1630,81 @@ def register_core_commands(target: SyncTIAClient) -> None:
     target.register_command(
         "execute_transactional_batch", _h_execute_transactional_batch
     )
+
+
+# ---------------------------------------------------------------------------
+# Hilo dedicado: tia-loop
+# ---------------------------------------------------------------------------
+def _tia_loop_main(
+    client: SyncTIAClient, stop_event: threading.Event,
+) -> None:
+    """Bucle principal del tia-loop (corre en background, daemon=True).
+
+    Drena la cola _cmd_queue y procesa cada item. El wrapper .NET se
+    toca UNICAMENTE aqui. Si el bucle crashea con excepcion no
+    capturada, transiciona a ERROR y el operario ve el problema.
+    """
+    logger.info("tia-loop: arrancando (daemon).")
+    try:
+        while not stop_event.is_set():
+            try:
+                item = client._cmd_queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            if item is _SENTINEL_STOP:
+                break
+            _req_id, name, args, resp_q = item
+            _execute_one(client, name, args, resp_q)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("tia-loop crasheo: %s", exc)
+        client._set_state(STATE_ERROR)
+    finally:
+        client._set_state(STATE_IDLE)
+        logger.info("tia-loop: bye.")
+
+
+def _execute_one(
+    client: SyncTIAClient,
+    name: str,
+    args: dict,
+    resp_q: queue.Queue | None,
+) -> None:
+    """Ejecuta un command y publica el resultado en resp_q (si existe).
+
+    Transiciona state segun el command:
+      - attach_portal / open_new_portal: IDLE -> ATTACHING -> CONNECTED.
+      - detach_portal: CONNECTED -> DETACHING -> IDLE.
+      - resto: CONNECTED -> BUSY -> CONNECTED (o ERROR si falla).
+    """
+    # Transicion previa segun el command (algunos tienen su propio state).
+    if name in ("attach_portal", "open_new_portal"):
+        client._set_state(STATE_ATTACHING)
+    elif name == "detach_portal":
+        client._set_state(STATE_DETACHING)
+    elif client.state == STATE_CONNECTED:
+        client._set_state(STATE_BUSY)
+
+    # Ejecutar el handler via dispatch (shape {"ok":..., "result"|"error":...}).
+    result = client.dispatch(name, args)
+
+    # Post-transicion. Si el handler fallo, vamos a ERROR; si no, dejamos
+    # el estado que el propio handler haya establecido (p. ej. attach
+    # ya dejo CONNECTED).
+    if not result.get("ok", False):
+        client._set_state(STATE_ERROR)
+    elif client.state in (STATE_BUSY,):
+        # Para commands que NO son attach/detach: volver a CONNECTED si
+        # wrapper sigue vivo, si no a IDLE.
+        if client._wrapper is not None:
+            client._set_state(STATE_CONNECTED)
+        else:
+            client._set_state(STATE_IDLE)
+
+    if resp_q is not None:
+        try:
+            resp_q.put_nowait(result)
+        except queue.Full:
+            logger.warning("resp_q llena; descartando respuesta de %s.", name)
 
 
 # Singleton de proceso. main.py (4.5.1) hace tia_client = SyncTIAClient().

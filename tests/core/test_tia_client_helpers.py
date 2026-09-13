@@ -1,4 +1,4 @@
-"""Tests de los helpers internos de ``core.infrastructure.tia_client``.
+"""Tests de los helpers internos de ``core.infrastructure.tia_loop``.
 
 Cubren (Fase 4 / paso 4.1.2a helpers):
   - _get_active_project: retorna project si existe; RuntimeError si None/falsy.
@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from core.infrastructure.tia_client import (
+from core.infrastructure.tia_loop import (
     _find_plc,
     _get_active_project,
     _safe_get_plc_name,

@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from core.infrastructure.tia_client import (
+from core.infrastructure.tia_loop import (
     SyncTIAClient,
     register_core_commands,
 )

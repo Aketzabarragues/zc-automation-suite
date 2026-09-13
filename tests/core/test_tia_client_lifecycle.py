@@ -1,4 +1,4 @@
-"""Tests de los handlers lifecycle de ``core.infrastructure.tia_client``.
+"""Tests de los handlers lifecycle de ``core.infrastructure.tia_loop``.
 
 Cubren (Fase 4 / paso 4.1.2a1):
   - register_core_commands() registra los 4 comandos en el target.
@@ -15,7 +15,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from core.infrastructure.tia_client import (
+from core.infrastructure.tia_loop import (
     SyncTIAClient,
     register_core_commands,
 )

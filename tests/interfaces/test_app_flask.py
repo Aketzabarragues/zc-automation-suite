@@ -50,7 +50,7 @@ def test_cycle_count_reflects_engine_state(app_with_injections):
 
 def test_create_app_injects_default_tia_client_singleton():
     """Si no se inyecta tia_client, usa el singleton global."""
-    from core.infrastructure.tia_client import tia_client
+    from core.infrastructure.tia_loop import tia_client
 
     app = create_app()
     assert app.config["TIA_CLIENT"] is tia_client

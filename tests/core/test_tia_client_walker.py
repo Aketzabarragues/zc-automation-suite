@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from core.infrastructure.tia_client import _scan_block_group_recursive
+from core.infrastructure.tia_loop import _scan_block_group_recursive
 
 
 def _block(nombre: str, ruta: str = ""):
