@@ -100,14 +100,22 @@ def main() -> int:
             return _FakeProject()
         def get_project(self):
             return _FakeProject()
+        def get_process_id(self):
+            return 12345
+        def detach(self):
+            pass
 
     class _FakeTs:
         class Enums:
             class PortalMode:
                 WithUserInterface = "WithUserInterface"
                 WithoutUserInterface = "WithoutUserInterface"
+                WithGraphicalUserInterface = "WithGraphicalUserInterface"
+                WithoutGraphicalUserInterface = "WithoutGraphicalUserInterface"
                 AnyUserInterface = "AnyUserInterface"
         def open_portal(self, portal_mode):
+            return _FakePortal()
+        def attach_portal(self, portal_mode):
             return _FakePortal()
 
     tc.attach_ts(_FakeTs())

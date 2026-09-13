@@ -93,9 +93,9 @@ def post_tia_connect():
         return jsonify({
             "ok": True,
             "state": tia_client.state,
-            "pid": None,
+            "pid": result["result"].get("pid"),
             "worker_alive": True,
-            "already_attached": result["result"].get("already_attached", False),
+            "portal_mode": result["result"].get("portal_mode"),
         })
     return jsonify({
         "ok": False,

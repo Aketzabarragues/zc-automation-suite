@@ -36,6 +36,7 @@ import os
 import queue
 import re
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -113,6 +114,64 @@ def _find_plc(project: Any, plc_name: str) -> Any:
         f"No se encontro ningun PLC con el nombre '{plc_name}' "
         "en el proyecto activo."
     )
+
+
+def _is_com_disconnect(exc: BaseException) -> bool:
+    """Heurística: parece que TIA Portal se cerró y hay que re-attachar.
+
+    Detectar esto de forma exacta no es viable (depende del build del
+    wrapper, de si murió el subproceso o solo el RCW quedó inválido).
+    Aceptamos falsos positivos: re-attachar de más es mejor que dejar
+    al loop usando un portal muerto.
+    """
+    name = type(exc).__name__
+    if "COM" in name or "RPC" in name:
+        return True
+    if hasattr(exc, "hresult"):
+        return True
+    return False
+
+
+def _try_reattach(client: "SyncTIAClient") -> bool:
+    """Intenta re-attachar al portal si está muerto.
+
+    Si ``client.wrapper`` ya responde a ``get_process_id()``, retorna True
+    sin tocar nada. Si falla o no hay wrapper, intenta
+    ``ts.attach_portal(AnyUserInterface)`` y deja el wrapper listo.
+    """
+    if client._wrapper is not None:
+        try:
+            client._wrapper.get_process_id()
+            return True
+        except Exception:
+            client.attach_wrapper(None)
+    ts = client._ts
+    if ts is None:
+        return False
+    try:
+        new_portal = ts.attach_portal(
+            portal_mode=ts.Enums.PortalMode.AnyUserInterface,
+        )
+    except Exception as exc:
+        logger.warning(
+            "re-attach fallo: %s: %s", type(exc).__name__, exc,
+        )
+        return False
+    if new_portal is None:
+        logger.warning("re-attach fallo: attach_portal retorno None.")
+        return False
+    try:
+        new_portal.get_process_id()
+    except Exception as exc:
+        logger.warning(
+            "re-attach: get_process_id fallo tras attach: %s: %s",
+            type(exc).__name__, exc,
+        )
+        client.attach_wrapper(None)
+        return False
+    client.attach_wrapper(new_portal)
+    logger.info("re-attach OK.")
+    return True
 
 # Handler signature: recibe (args, tia_client). El dispatcher pasa
 # `self` para que los handlers accedan al wrapper sin singleton global.
@@ -378,48 +437,109 @@ class SyncTIAClient:
 # (single-threaded; lo toca el tia-loop).
 # ---------------------------------------------------------------------------
 def _h_attach_portal(args: dict, tia_client: "SyncTIAClient") -> dict:
-    """Abre un portal TIA Portal y lo attach al client (persistente).
+    """Attach a un portal TIA Portal ya abierto (persistente).
 
-    Idempotente: si ya hay wrapper attached, devuelve already_attached.
-    Tras esto, los demas commands usan el mismo portal.
+    ``args["mode"]`` puede ser ``"WithGraphicalUserInterface"`` o
+    ``"WithoutGraphicalUserInterface"``. Default: con GUI.
+    Acepta también ``args["portal_mode"]`` por compat con callers previos.
 
-    Args:
-        args: opcional ``portal_mode`` (default ``AnyUserInterface``).
+    Idempotente: si ya hay portal attached, devuelve su PID actual
+    (o fuerza detach + re-attach si ``get_process_id()`` falla).
+
+    Returns:
+        ``{"pid": <int|None>, "state": "connected", "portal_mode": <str>}``
+        o ``{"error": <str>}`` si falla el attach.
     """
     ts = tia_client.ts
     if ts is None:
-        raise RuntimeError("Modulo siemens_tia_scripting no attached.")
+        return {"error": "Modulo siemens_tia_scripting no attached."}
     if tia_client.wrapper is not None:
-        # Idempotente: ya hay portal attached.
+        try:
+            pid = int(tia_client.wrapper.get_process_id())
+            return {"pid": pid, "state": "connected", "portal_mode": "attached"}
+        except Exception:
+            # Portal vivo pero get_process_id falla (TIA cerrada
+            # mid-session). Forzamos detach y seguimos con attach fresh.
+            try:
+                tia_client.wrapper.detach()
+            except Exception:
+                pass
+            tia_client.attach_wrapper(None)
+    mode_name = (args or {}).get("mode") or (args or {}).get(
+        "portal_mode", "WithGraphicalUserInterface",
+    )
+    try:
+        portal_mode = getattr(ts.Enums.PortalMode, mode_name)
+    except AttributeError:
         return {
-            "attached": True,
-            "already_attached": True,
-            "state": "connected",
+            "error": (
+                f"PortalMode invalido: {mode_name!r}. "
+                "Use 'WithGraphicalUserInterface' o "
+                "'WithoutGraphicalUserInterface'."
+            ),
         }
-    portal_mode_str = args.get("portal_mode", "AnyUserInterface")
-    portal_mode = getattr(ts.Enums.PortalMode, portal_mode_str, None)
-    if portal_mode is None:
-        raise ValueError(
-            f"portal_mode desconocido: '{portal_mode_str}'. "
-            f"Validos: {[m for m in dir(ts.Enums.PortalMode) if not m.startswith('_')]}"
+    attach_start = time.monotonic()
+    try:
+        new_portal = ts.attach_portal(portal_mode=portal_mode)
+    except Exception as exc:
+        attach_ms = round((time.monotonic() - attach_start) * 1000)
+        logger.warning(
+            "attach_failed (%.0fms): %s: %s",
+            attach_ms, type(exc).__name__, exc,
         )
-    new_portal = ts.open_portal(portal_mode=portal_mode)
+        return {"error": f"{type(exc).__name__}: {exc}"}
     if new_portal is None:
-        raise RuntimeError("Fallo critico: open_portal retorno None.")
+        attach_ms = round((time.monotonic() - attach_start) * 1000)
+        logger.warning("attach_failed (%.0fms): attach_portal retorno None.", attach_ms)
+        return {
+            "error": (
+                "attach_portal retorno None. ¿Esta TIA Portal abierto? "
+                "¿El usuario pertenece al grupo Openness?"
+            ),
+        }
     tia_client.attach_wrapper(new_portal)
-    logger.info("Portal TIA attached (mode=%s)", portal_mode_str)
+    try:
+        pid = int(new_portal.get_process_id())
+    except Exception:
+        pid = None
+    attach_ms = round((time.monotonic() - attach_start) * 1000)
+    logger.info(
+        "attach OK (%.0fms, pid=%s, mode=%s)",
+        attach_ms, pid, mode_name,
+    )
     return {
-        "attached": True,
-        "already_attached": False,
+        "pid": pid,
         "state": "connected",
+        "portal_mode": mode_name,
     }
 
 
-def _h_detach_portal(args: dict, tia_client: "SyncTIAClient") -> dict:
-    """Cierra el portal attached (si lo hay)."""
+def _h_detach_portal(args: dict, tia_client: "SyncTIAClient") -> dict:  # noqa: ARG001
+    """Cierra el portal attached (best-effort).
+
+    Si ``portal.detach()`` falla (TIA ya cerrado o RCW stale) se loggea
+    como warning pero no se propaga: idempotente.
+    """
+    if tia_client.wrapper is None:
+        return {"detached": False}
+    detach_start = time.monotonic()
+    detach_error: Exception | None = None
+    try:
+        tia_client.wrapper.detach()
+    except Exception as exc:
+        # TIA ya cerrada o RCW stale. Logueamos para que el operario
+        # pueda correlacionarlo con un TIA que se cerro de golpe.
+        logger.warning(
+            "detach_portal best-effort fallo: %s: %s",
+            type(exc).__name__, exc,
+        )
+        detach_error = exc
     tia_client.attach_wrapper(None)
-    logger.info("Portal TIA detached.")
-    return {"attached": False, "state": "disconnected"}
+    detach_ms = round((time.monotonic() - detach_start) * 1000)
+    if detach_error is None:
+        logger.info("detach OK (%.0fms).", detach_ms)
+        return {"detached": True}
+    return {"detached": True, "warning": f"{type(detach_error).__name__}: {detach_error}"}
 
 
 def _h_open_new_portal(args: dict, tia_client: "SyncTIAClient") -> dict:
@@ -1638,7 +1758,40 @@ def _execute_one(
       - attach_portal / open_new_portal: IDLE -> ATTACHING -> CONNECTED (o ERROR).
       - detach_portal: CONNECTED -> DETACHING -> IDLE (o ERROR).
       - resto: CONNECTED -> BUSY -> CONNECTED (o ERROR si falla).
+
+    Re-attach defensivo: para comandos distintos de los de ciclo de vida,
+    si el wrapper no responde a ``get_process_id()`` se intenta
+    ``_try_reattach()`` antes de fallar. Si el handler revienta con
+    una excepcion que parece COM/RPC (``_is_com_disconnect``), el wrapper
+    se marca como None para forzar re-attach en el siguiente comando.
     """
+    # Re-attach defensivo: solo aplica a commands que no son de ciclo de
+    # vida. attach/detach/open_new_portal gestionan su propio wrapper.
+    if name not in ("attach_portal", "detach_portal", "open_new_portal"):
+        if client._wrapper is not None:
+            try:
+                client._wrapper.get_process_id()
+            except Exception:
+                if not _try_reattach(client):
+                    result = {"ok": False, "error": "Portal no disponible y re-attach fallo"}
+                    if resp_q is not None:
+                        try:
+                            resp_q.put_nowait(result)
+                        except queue.Full:
+                            logger.warning("resp_q llena; descartando respuesta de %s.", name)
+                    client._set_state(STATE_ERROR)
+                    return
+        else:
+            # No hay wrapper: requiere attach previo.
+            result = {"ok": False, "error": "Portal no attached. Conectar primero."}
+            if resp_q is not None:
+                try:
+                    resp_q.put_nowait(result)
+                except queue.Full:
+                    logger.warning("resp_q llena; descartando respuesta de %s.", name)
+            client._set_state(STATE_ERROR)
+            return
+
     # Transicion previa segun el command.
     if name in ("attach_portal", "open_new_portal"):
         client._set_state(STATE_ATTACHING)
@@ -1647,8 +1800,20 @@ def _execute_one(
     elif client.state == STATE_CONNECTED:
         client._set_state(STATE_BUSY)
 
-    # Ejecutar el handler via dispatch (shape {"ok":..., "result"|"error":...}).
-    result = client.dispatch(name, args)
+    # Ejecutar el handler via dispatch. Capturamos excepciones para
+    # distinguir COM/RPC (forzar re-attach) de errores de aplicacion.
+    handler_exc: Exception | None = None
+    try:
+        result = client.dispatch(name, args)
+    except Exception as exc:
+        handler_exc = exc
+        if _is_com_disconnect(exc):
+            # Portal parece muerto. Marcamos wrapper = None para forzar
+            # re-attach en el siguiente comando y devolvemos error claro.
+            client.attach_wrapper(None)
+            result = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        else:
+            result = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
     # Transicion posterior segun el resultado y el command.
     if not result.get("ok", False):
@@ -1668,6 +1833,12 @@ def _execute_one(
             client._set_state(STATE_CONNECTED)
         else:
             client._set_state(STATE_IDLE)
+
+    if handler_exc is not None:
+        logger.warning(
+            "handler %s lanzo %s: %s",
+            name, type(handler_exc).__name__, handler_exc,
+        )
 
     if resp_q is not None:
         try:
