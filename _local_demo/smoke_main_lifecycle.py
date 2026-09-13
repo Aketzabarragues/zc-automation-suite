@@ -1,19 +1,17 @@
-"""Smoke test final del ciclo de vida main (Fase 4 / DA-014).
+"""Smoke E2E del ciclo de vida del main (sin TIA, sin FBs, sin web de areas).
 
-Equivalente al flujo del operario con la bandeja:
-  1. main.py arranca (modo bandeja con pystray)
-  2. Operario hace click en "Iniciar web"
-  3. MainServiceSupervisor arranca Flask + main loop en hilos
-  4. Flask responde /ping y /cycle_count refleja el main loop
-  5. Operario hace click en "Parar web"
-  6. Ambos hilos paran limpiamente
+Verifica el flujo base del supervisor OB1:
+  1. setup_logging() arranca el log unificado.
+  2. ConfigManager() carga config/config.json sin error.
+  3. MainServiceSupervisor levanta Flask + main loop en hilos daemon.
+  4. Flask responde /ping, /cycle_count incrementa con el tiempo,
+     /stream emite keepalive SSE.
+  5. stop() cierra los hilos limpio.
 """
 from __future__ import annotations
 
 import json
-import logging
 import sys
-import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -21,59 +19,77 @@ from pathlib import Path
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
+# Puerto separado (19484) para no chocar con la app en 9484.
+HOST = "127.0.0.1"
+PORT = 19484
+BASE = f"http://{HOST}:{PORT}"
+
 
 def main() -> int:
-    logging.basicConfig(level=logging.INFO, stream=sys.stdout, format="%(asctime)s [%(name)s] %(message)s")
-
     print("=" * 60)
-    print("FASE 4 / MAIN: SMOKE TEST CICLO DE VIDA")
+    print("SMOKE MAIN (base OB1: sin TIA, sin FBs, sin web de areas)")
     print("=" * 60)
 
-    print("\n[1] Creando MainServiceSupervisor")
+    print("\n[1] setup_logging()")
+    from core.application.log_paths import setup_logging
+    log_file = setup_logging()
+    print(f"  - log unificado: {log_file}")
+
+    print("\n[2] ConfigManager() eager")
+    from core.infrastructure.config_manager import ConfigManager
+    cm = ConfigManager()
+    print(f"  - config path: {cm.path}")
+    print(f"  - department: {cm.department}")
+
+    print("\n[3] MainServiceSupervisor.start()")
     from launcher.main_supervisor import MainServiceSupervisor
-    s = MainServiceSupervisor(host="127.0.0.1", port=5997, tick_period_s=0.05)
-    print(f"  - supervisor creado en {s.host}:{s.port}")
-
-    print('\n[2] Simulando click en "Iniciar web" -> supervisor.start()')
+    s = MainServiceSupervisor(
+        host=HOST, port=PORT, tick_period_s=0.05, config_manager=cm,
+    )
     s.start()
-    print("  - esperando Flask + main loop alive...")
-    s.wait_until_alive(timeout_s=5.0)
-    print(f"  - vivo: {s.is_alive()}")
+    if not s.wait_until_alive(timeout_s=5.0):
+        print("  - FAIL: supervisor no arranco en 5s")
+        return 1
+    print(f"  - supervisor vivo: Flask + main-loop activos")
 
-    print("\n[3] Verificando /ping (HTTP Flask daemon)")
-    resp = urllib.request.urlopen("http://127.0.0.1:5997/ping", timeout=2)
-    body = resp.read().decode().strip()
-    print(f"  - GET /ping -> {resp.status} {body}")
-    assert resp.status == 200
+    print("\n[4] GET /ping")
+    body = urllib.request.urlopen(f"{BASE}/ping", timeout=2).read().decode().strip()
+    print(f"  - {body}")
     assert body == '{"pong":true}'
 
-    print("\n[4] Verificando /cycle_count refleja el main loop")
-    time.sleep(0.3)
-    resp = urllib.request.urlopen("http://127.0.0.1:5997/cycle_count", timeout=2)
-    data1 = json.loads(resp.read())
-    print(f"  - lectura 1: cycles={data1['cycles']}")
-    time.sleep(0.2)
-    resp = urllib.request.urlopen("http://127.0.0.1:5997/cycle_count", timeout=2)
-    data2 = json.loads(resp.read())
-    delta = data2["cycles"] - data1["cycles"]
-    print(f"  - lectura 2: cycles={data2['cycles']} (incremento={delta})")
-    assert delta > 0, "Main loop NO tickeando!"
+    print("\n[5] GET /cycle_count (verifica main loop tickea)")
+    c0 = json.loads(urllib.request.urlopen(f"{BASE}/cycle_count", timeout=2).read())["cycles"]
+    print(f"  - t0:   cycles={c0}")
+    import time
+    time.sleep(1.0)
+    c1 = json.loads(urllib.request.urlopen(f"{BASE}/cycle_count", timeout=2).read())["cycles"]
+    print(f"  - t+1s: cycles={c1}  (delta={c1 - c0})")
+    assert c1 > c0, f"main loop no tickea: {c0} -> {c1}"
 
-    print('\n[5] Simulando click en "Parar web" -> supervisor.stop()')
+    print("\n[6] GET /stream (espera keepalive SSE)")
+    req = urllib.request.urlopen(f"{BASE}/stream", timeout=3)
+    chunk = req.read(64)
+    req.close()
+    print(f"  - primer chunk: {chunk!r}")
+    assert b": keepalive" in chunk or b"data:" in chunk
+
+    print('\n[7] MainServiceSupervisor.stop()')
     s.stop(timeout=3.0)
-    print(f"  - vivo tras stop: {s.is_alive()}")
-    assert not s.is_alive()
+    if s.is_alive():
+        print("  - FAIL: supervisor no paro limpio")
+        return 1
+    print(f"  - supervisor parado limpio")
 
-    print("\n[6] Verificando que Flask esta muerto")
+    print("\n[8] Flask muerto?")
     try:
-        urllib.request.urlopen("http://127.0.0.1:5997/ping", timeout=1)
+        urllib.request.urlopen(f"{BASE}/ping", timeout=1)
         print("  - FAIL: Flask sigue respondiendo")
         return 1
-    except urllib.error.URLError as exc:
-        print(f"  - OK: Flask muerto ({exc.__class__.__name__})")
+    except urllib.error.URLError:
+        print(f"  - OK: Flask cerrado")
 
     print("\n" + "=" * 60)
-    print("CICLO DE VIDA MAIN: PASS")
+    print("SMOKE MAIN: PASS")
     print("=" * 60)
     return 0
 
