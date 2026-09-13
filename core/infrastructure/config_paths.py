@@ -32,7 +32,7 @@ _CONFIG_FILENAME: str = "config.json"
 def resolve_config_path(
     env_var: str = "ZC_CONFIG_DIR",
     default_subdir: str = "config",
-    bundled_relpath: str = "infrastructure/config.json",
+    bundled_relpath: str = "config/config.json",
 ) -> Path:
     """Devuelve la ruta al ``config.json`` que debe usar la app.
 
@@ -101,9 +101,9 @@ def resolve_config_path(
         )
 
     # 3. Modo dev: usar el archivo del repo directamente (sin copia).
-    #    El developer edita ``infrastructure/config.json`` en su repo
-    #    y los cambios se ven en el siguiente reinicio. No copiamos
-    #    a un sitio "del usuario" porque no hay .exe del que hablar.
+    #    El developer edita ``config/config.json`` en su repo y los
+    #    cambios se ven en el siguiente reinicio. No copiamos a un
+    #    sitio "del usuario" porque no hay .exe del que hablar.
     return _bundled_path(bundled_relpath)
 
 

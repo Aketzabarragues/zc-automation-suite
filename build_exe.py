@@ -87,13 +87,13 @@ ENTRY_SCRIPT = "main.py"  # entry del .exe (UX: bandeja + web supervisor)
 #   ``(ruta_origen_absoluta, directorio_destino_en_bundle)``
 # El segundo elemento es el DIRECTORIO dentro de ``_MEIPASS`` donde
 # se deposita el archivo, NO la ruta completa del archivo. Si
-# pusiera la ruta completa del archivo (``"infrastructure/config.json"``),
+# pusiera la ruta completa del archivo (``"config/config.json"``),
 # PyInstaller crearía un directorio anidado
-# ``_MEIPASS\infrastructure\config.json\config.json`` con un
+# ``_MEIPASS\config\config.json\config.json`` con un
 # ``\config.json`` extra al final. Bug real visto en
 # ``dist\zc_automation_suite.exe``: el web crasheaba con
-# ``FileNotFoundError: 'infrastructure\config.json'`` porque
-# ``ConfigManager`` busca en ``_MEIPASS\infrastructure\config.json``
+# ``FileNotFoundError: 'config\config.json'`` porque
+# ``ConfigManager`` busca en ``_MEIPASS\config\config.json``
 # (sin el sufijo).
 #
 # - ``static/`` → directorio, mapping a sí mismo (entero).
@@ -108,7 +108,7 @@ ENTRY_SCRIPT = "main.py"  # entry del .exe (UX: bandeja + web supervisor)
 # - ``icon.ico`` → fichero suelto, mapping a su carpeta padre.
 #   El código hace ``_MEIPASS\launcher\icon.ico``.
 # - ``config.json`` → fichero suelto, mapping a su carpeta padre.
-#   El código hace ``_MEIPASS\infrastructure\config.json``.
+#   El código hace ``_MEIPASS\config\config.json``.
 #
 # IMPORTANTE sobre ``areas/alimentacion/frontend``: el destino en el
 # bundle DEBE preservar el segmento ``frontend/`` porque el manifest
@@ -122,7 +122,7 @@ PROJECT_DATA_FILES: list[tuple[str, str]] = [
     ("interfaces/web_server/static", "interfaces/web_server/static"),
     ("areas/alimentacion/frontend", "interfaces/web_server/static/areas/alimentacion/frontend"),
     ("launcher/icon.ico", "launcher"),
-    ("infrastructure/config.json", "infrastructure"),
+    ("config/config.json", "config"),
 ]
 
 # Icono embebido en el .exe (lo que se ve en el Explorador de Windows,

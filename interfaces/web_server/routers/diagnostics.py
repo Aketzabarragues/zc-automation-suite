@@ -60,7 +60,7 @@ def _get_app_state():
 
 
 def _get_config_manager():
-    return current_app.config["_LAZY_CONFIG_MANAGER"]()
+    return current_app.config["CONFIG_MANAGER"]
 
 
 def _get_log_buffer():

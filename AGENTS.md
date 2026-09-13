@@ -139,7 +139,7 @@ contrato IPC, state machine y comandos de ciclo de vida están en
 8. Si tiene UI: `areas/<area>/frontend/components/` +
    `areas/<area>/frontend/manifest.js` (un `build()` que devuelve
    `{ components, routes, sidebar, landing, loaders }`).
-9. Añadir el bloque en `infrastructure/config.json` bajo
+9. Añadir el bloque en `config/config.json` bajo
    `departments.<area_id>`.
 10. Tests: `tests/test_area_<area_id>_*.py` siguiendo el patrón
     existente (mockear gateway con `MagicMock(spec=TIAProcessGateway)`).
@@ -304,7 +304,7 @@ commit).
   `core/infrastructure/config_paths.py:resolve_config_path()`.
 - Resolución: `$ZC_CONFIG_DIR/config.json` (override) →
   frozen: `<exe_dir>/config/config.json` (se copia del bundleado en
-  primera ejecución) → dev: `<cwd>/infrastructure/config.json` (el
+  primera ejecución) → dev: `<cwd>/config/config.json` (el
   del repo, sin copia) → fallback readonly al bundleado si no se
   puede escribir la ruta del usuario.
 - Política: **el usuario gana siempre**. NO sobreescribimos un

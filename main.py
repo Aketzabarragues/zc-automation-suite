@@ -82,9 +82,20 @@ def main() -> int:
              sys.executable.endswith("pythonw.exe"))
     log.info("Log file: %s", LOG_FILE)
 
+    from core.infrastructure.config_manager import ConfigManager
     from launcher.main_supervisor import MainServiceSupervisor
 
-    web = MainServiceSupervisor(host="127.0.0.1", port=WEB_PORT, tick_period_s=0.1)
+    # Config eager: falla rapido al arrancar si el JSON esta roto
+    # o no existe, con el log ya en marcha para diagnosticar.
+    config_manager = ConfigManager()
+    log.info("Config cargado: %s", config_manager.path)
+
+    web = MainServiceSupervisor(
+        host="127.0.0.1",
+        port=WEB_PORT,
+        tick_period_s=0.1,
+        config_manager=config_manager,
+    )
     log.info("Supervisor creado: 127.0.0.1:%d (tick=100ms).", WEB_PORT)
     log.info("Esperando que el operario elija Iniciar web desde el menu.")
 

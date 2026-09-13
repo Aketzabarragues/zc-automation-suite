@@ -19,7 +19,7 @@ bp = Blueprint("catalog", __name__, url_prefix="/api/v1")
 @bp.get("/catalog")
 def get_catalog():
     """Catalogo de presentacion fusionado de las areas."""
-    config_manager = current_app.config["_LAZY_CONFIG_MANAGER"]()
+    config_manager = current_app.config["CONFIG_MANAGER"]
 
     merged: dict[str, Any] = {}
     for spec in AreaRegistry.discover().all():

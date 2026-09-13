@@ -166,11 +166,11 @@ def test_project_data_files_use_directory_destinations() -> None:
     dentro de ``_MEIPASS``, NO la ruta completa del archivo.
 
     Bug real visto en el .exe de producción: con
-    ``("infrastructure/config.json", "infrastructure/config.json")``
+    ``("config/config.json", "config/config.json")``
     PyInstaller depositaba el fichero en
-    ``_MEIPASS\\infrastructure\\config.json\\config.json`` (con
+    ``_MEIPASS\\config\\config.json\\config.json`` (con
     sufijo extra). ``ConfigManager`` busca en
-    ``_MEIPASS\\infrastructure\\config.json`` y falla con
+    ``_MEIPASS\\config\\config.json`` y falla con
     ``FileNotFoundError`` al arrancar el web. Mismo problema con
     el icono.
     """
@@ -183,7 +183,7 @@ def test_project_data_files_use_directory_destinations() -> None:
 
     # Aserciones explícitas para que el bug no se cuele de nuevo.
     assert ("launcher/icon.ico", "launcher") in build_exe.PROJECT_DATA_FILES
-    assert ("infrastructure/config.json", "infrastructure") in build_exe.PROJECT_DATA_FILES
+    assert ("config/config.json", "config") in build_exe.PROJECT_DATA_FILES
     assert (
         "interfaces/web_server/static",
         "interfaces/web_server/static",
@@ -328,16 +328,16 @@ def test_write_generated_spec_contains_required_keys(tmp_path: Path) -> None:
 
     # ── Datos del proyecto: SPA, icono, config.json ────────────────
     # El source (SPA) y los destinos (icon.ico → "launcher", config.json
-    # → "infrastructure") deben aparecer en el spec generado. Tras
+    # → "config") deben aparecer en el spec generado. Tras
     # el fix del bug del directorio anidado, ``launcher/icon.ico`` y
-    # ``infrastructure/config.json`` ya NO son los destinos (eran
+    # ``config/config.json`` ya NO son los destinos (eran
     # rutas de archivo, no directorios).
     assert "interfaces/web_server/static" in content
     # El icono y el config.json se mapean a sus directorios padre.
     # En el spec el dest va como string entre comillas simples:
     # ``(r"...icon.ico", 'launcher')``. Buscamos ambos formatos.
     assert "'launcher'" in content or '"launcher"' in content
-    assert "'infrastructure'" in content or '"infrastructure"' in content
+    assert "'config'" in content or '"config"' in content
 
 
 def test_write_generated_spec_is_valid_python(tmp_path: Path) -> None:

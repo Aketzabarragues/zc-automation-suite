@@ -163,6 +163,11 @@ class ConfigManager:
             if entry.get("hw_type")
         }
 
+    @property
+    def path(self) -> Path:
+        """Ruta al archivo JSON que se cargo."""
+        return self._config_path
+
     # ── Carga ───────────────────────────────────────────────────────────
 
     def _load_config(self) -> dict[str, Any]:

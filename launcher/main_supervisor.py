@@ -22,6 +22,7 @@ import logging
 import threading
 import time
 import traceback
+from typing import Any
 
 from werkzeug.serving import make_server
 
@@ -35,11 +36,13 @@ class MainServiceSupervisor:
         port: int = 5000,
         tick_period_s: float = 0.1,
         no_engine: bool = False,
+        config_manager: Any = None,
     ) -> None:
         self.host = host
         self.port = port
         self.tick_period_s = tick_period_s
         self.no_engine = no_engine
+        self.config_manager = config_manager
         self.log = logging.getLogger("zc.main")
 
         self._stop_event = threading.Event()
@@ -147,6 +150,7 @@ class MainServiceSupervisor:
             tia_client=tia_client,
             engine=engine,
             event_bus=event_bus,
+            config_manager=self.config_manager,
         )
         return tia_client, engine, event_bus, flask_app
 

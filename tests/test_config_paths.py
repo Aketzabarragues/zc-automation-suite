@@ -2,7 +2,7 @@
 
 Cubre los 6 escenarios del diseño:
 
-  1. Modo dev: ``resolve_config_path()`` devuelve ``<cwd>/infrastructure/config.json``.
+  1. Modo dev: ``resolve_config_path()`` devuelve ``<cwd>/config/config.json``.
   2. Modo frozen + usuario ya tiene config: devuelve el del usuario
      (NO sobreescribe, aunque el bundleado sea "mas nuevo").
   3. Modo frozen + primera ejecucion: copia el bundleado a
@@ -33,8 +33,8 @@ from core.infrastructure.config_paths import resolve_config_path
 def _make_bundled(
     meipass: Path, content: str = '{"_bundled": true, "version": 1}',
 ) -> Path:
-    """Crea un config.json bundleado en ``<meipass>/infrastructure/``."""
-    bundled_dir = meipass / "infrastructure"
+    """Crea un config.json bundleado en ``<meipass>/config/``."""
+    bundled_dir = meipass / "config"
     bundled_dir.mkdir(parents=True, exist_ok=True)
     bundled = bundled_dir / "config.json"
     bundled.write_text(content, encoding="utf-8")
@@ -69,7 +69,7 @@ def _clear_frozen(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_dev_mode_devuelve_path_del_repo(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
-    """En dev (``sys.frozen`` False), devuelve ``<cwd>/infrastructure/config.json``.
+    """En dev (``sys.frozen`` False), devuelve ``<cwd>/config/config.json``.
 
     No se copia nada: el developer edita el archivo en su repo
     directamente.
@@ -81,10 +81,8 @@ def test_dev_mode_devuelve_path_del_repo(
 
     result = resolve_config_path()
 
-    assert result == tmp_path / "infrastructure" / "config.json"
+    assert result == tmp_path / "config" / "config.json"
     assert result.is_file()
-    # No se crea una copia en <cwd>/config/ (eso es solo frozen).
-    assert not (tmp_path / "config" / "config.json").exists()
 
 
 # ── 2. Modo frozen + usuario ya tiene config ─────────────────────────────
@@ -259,7 +257,7 @@ def test_segunda_llamada_no_reescribe_usuario(
     first.write_text('{"_user_edit": "mi config"}', encoding="utf-8")
 
     # El "desarrollador" actualiza el bundleado (v2).
-    (meipass / "infrastructure" / "config.json").write_text(
+    (meipass / "config" / "config.json").write_text(
         '{"_bundled_v2": true}', encoding="utf-8"
     )
 

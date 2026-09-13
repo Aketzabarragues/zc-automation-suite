@@ -68,11 +68,14 @@ def create_app(
     app.config["TIA_CLIENT"] = _tia
     app.config["ENGINE"] = _engine
     app.config["EVENT_BUS"] = _bus
+    # ConfigManager: eager. Si no se inyecta, se crea uno nuevo (singleton
+    # de ConfigManager se evita a proposito para que tests y supervisor
+    # tengan control explicito de la instancia).
+    if config_manager is None:
+        config_manager = ConfigManager()
+    app.config["CONFIG_MANAGER"] = config_manager
     app.config["_LAZY_APP_STATE"] = lambda: _resolve_lazy(
         app_state, "core.application.state", "get_app_state"
-    )
-    app.config["_LAZY_CONFIG_MANAGER"] = lambda: (
-        config_manager if config_manager is not None else ConfigManager()
     )
     app.config["_LAZY_LOG_BUFFER"] = lambda: _resolve_lazy(
         log_buffer,
