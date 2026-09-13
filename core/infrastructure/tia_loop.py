@@ -1672,11 +1672,11 @@ def _execute_one(
     """Ejecuta un command y publica el resultado en resp_q (si existe).
 
     Transiciona state segun el command:
-      - attach_portal / open_new_portal: IDLE -> ATTACHING -> CONNECTED.
-      - detach_portal: CONNECTED -> DETACHING -> IDLE.
+      - attach_portal / open_new_portal: IDLE -> ATTACHING -> CONNECTED (o ERROR).
+      - detach_portal: CONNECTED -> DETACHING -> IDLE (o ERROR).
       - resto: CONNECTED -> BUSY -> CONNECTED (o ERROR si falla).
     """
-    # Transicion previa segun el command (algunos tienen su propio state).
+    # Transicion previa segun el command.
     if name in ("attach_portal", "open_new_portal"):
         client._set_state(STATE_ATTACHING)
     elif name == "detach_portal":
@@ -1687,14 +1687,20 @@ def _execute_one(
     # Ejecutar el handler via dispatch (shape {"ok":..., "result"|"error":...}).
     result = client.dispatch(name, args)
 
-    # Post-transicion. Si el handler fallo, vamos a ERROR; si no, dejamos
-    # el estado que el propio handler haya establecido (p. ej. attach
-    # ya dejo CONNECTED).
+    # Transicion posterior segun el resultado y el command.
     if not result.get("ok", False):
         client._set_state(STATE_ERROR)
-    elif client.state in (STATE_BUSY,):
-        # Para commands que NO son attach/detach: volver a CONNECTED si
-        # wrapper sigue vivo, si no a IDLE.
+    elif name in ("attach_portal", "open_new_portal"):
+        # attach OK: CONNECTED si wrapper attached, si no IDLE.
+        if client._wrapper is not None:
+            client._set_state(STATE_CONNECTED)
+        else:
+            client._set_state(STATE_IDLE)
+    elif name == "detach_portal":
+        # detach OK: siempre IDLE.
+        client._set_state(STATE_IDLE)
+    elif client.state == STATE_BUSY:
+        # command normal: volver a CONNECTED si wrapper sigue vivo.
         if client._wrapper is not None:
             client._set_state(STATE_CONNECTED)
         else:

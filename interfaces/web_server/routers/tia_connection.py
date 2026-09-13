@@ -1,21 +1,16 @@
-"""Flask blueprint para /api/v1/tia/* (Fase 4 / paso 4.4.2).
+"""Flask blueprint para /api/v1/tia/* (subsistema TIA-loop).
 
-Equivalente sync del router FastAPI ``tia_connection.py``. En el
-modelo OB1 (sin subproceso worker), la semantica cambia:
+Endpoints:
+  GET  /api/v1/tia/connection   estado del subsistema TIA + project + plcs
+  POST /api/v1/tia/connect      abre portal (attach_portal)
+  POST /api/v1/tia/disconnect   cierra portal (detach_portal)
 
-  - state == "connected"   <=> tia_client.wrapper is not None.
-  - state == "disconnected" <=> tia_client.wrapper is None.
-  - No hay pid / worker_alive (mismo proceso, no subproceso).
-  - project y plcs se leen directamente via tia_client.dispatch
-    (sync) si wrapper esta attached.
-
-Migrar los otros 6 routers sigue el mismo patron: ver
-4.4.2 commit message y AGENTS.md §"Como anadir un blueprint".
+El wrapper .NET vive en el tia-loop (no aqui). Flask solo encola via
+submit_and_wait y recibe la respuesta; nunca toca el wrapper directamente.
 """
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from flask import Blueprint, current_app, jsonify
 
@@ -23,86 +18,88 @@ logger = logging.getLogger(__name__)
 
 bp = Blueprint("tia_connection", __name__, url_prefix="/api/v1/tia")
 
+# Timeout para abrir/cerrar portal (segundos). Generoso porque TIA Portal
+# puede tardar al attach si hay proyecto en red.
+ATTACH_TIMEOUT_S = 10.0
+
 
 @bp.get("/connection")
-def get_tia_connection():
-    """Estado del cliente TIA en OB1 (sin subproceso worker)."""
+def get_tia_connection() -> Any:
+    """Estado del subsistema TIA: state, project (si conectado), plcs."""
     tia_client = current_app.config["TIA_CLIENT"]
-    portal = tia_client.wrapper
-    state = "connected" if portal is not None else "disconnected"
+    state = tia_client.state
+    portal_alive = tia_client.wrapper is not None
 
     project: dict | None = None
     plcs: list[str] = []
-    if state == "connected":
-        # Best-effort: errores transitorios de TIA Portal no tumbar el endpoint.
+
+    if state == "connected" and portal_alive:
+        # Best-effort: errores transitorios no tumbar el endpoint.
         try:
-            info = tia_client.dispatch("get_project_info")
+            info = tia_client.submit_and_wait("get_project_info", timeout=2.0)
             if info.get("ok") and isinstance(info.get("result"), dict):
                 result = info["result"]
-                # Si el handler reporta name=None (property fallo), tratamos
-                # como sin info: la SPA distingue "no hay info" vs
-                # "info parcial" (todos None).
                 if result.get("name") is not None:
                     project = {
                         "name": result.get("name"),
                         "path": result.get("path"),
                         "version": result.get("version"),
                     }
-        except Exception:
-            logger.warning("get_tia_connection: get_project_info fallo", exc_info=True)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("get_tia_connection: get_project_info fallo: %s", exc)
             project = None
         try:
-            plc_resp = tia_client.dispatch("list_plcs")
+            plc_resp = tia_client.submit_and_wait("list_plcs", timeout=2.0)
             if plc_resp.get("ok") and isinstance(plc_resp.get("result"), dict):
                 plcs_data = plc_resp["result"].get("plcs", [])
                 plcs = [p["name"] for p in plcs_data if "name" in p]
-        except Exception:
-            logger.warning("get_tia_connection: list_plcs fallo", exc_info=True)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("get_tia_connection: list_plcs fallo: %s", exc)
             plcs = []
 
     return jsonify({
         "state": state,
         "project": project,
         "plcs": plcs,
-        # En OB1 no hay subproceso; estos campos son siempre None/False.
         "last_ping_ok_unix": None,
         "last_error": None,
         "project_changed": False,
-        "worker_alive": True,  # mismo proceso, siempre vivo
+        "worker_alive": True,   # mismo proceso
         "pid": None,
     })
 
 
 @bp.post("/connect")
 def post_tia_connect():
-    """Attach al portal TIA Portal (persistente).
-
-    Llama al command ``attach_portal``: abre un portal via
-    ``ts.open_portal(...)`` y lo attach al tia_client. El portal queda
-    vivo hasta ``disconnect`` (o hasta que se cambie de proyecto).
-
-    Los siguientes comandos (sync disp, scan blocks, compile PLC, etc.)
-    usan el mismo portal — sin reconectar por comando.
-    """
+    """Attach al portal TIA Portal (persistente)."""
     tia_client = current_app.config["TIA_CLIENT"]
     if tia_client.ts is None:
         return jsonify({
             "ok": False,
-            "state": "disconnected",
-            "error": "Modulo siemens_tia_scripting no attached.",
+            "state": tia_client.state,
+            "error": "modulo siemens_tia_scripting no attached",
         }), 503
-    result = tia_client.dispatch("attach_portal")
+    try:
+        result = tia_client.submit_and_wait(
+            "attach_portal", timeout=ATTACH_TIMEOUT_S,
+        )
+    except TimeoutError as exc:
+        return jsonify({
+            "ok": False,
+            "state": tia_client.state,
+            "error": f"timeout: {exc}",
+        }), 504
     if result.get("ok"):
         return jsonify({
             "ok": True,
-            "state": "connected",
+            "state": tia_client.state,
             "pid": None,
             "worker_alive": True,
             "already_attached": result["result"].get("already_attached", False),
         })
     return jsonify({
         "ok": False,
-        "state": "disconnected",
+        "state": tia_client.state,
         "error": result.get("error", "unknown"),
         "worker_alive": True,
     }), 500
@@ -112,10 +109,19 @@ def post_tia_connect():
 def post_tia_disconnect():
     """Detach del portal TIA Portal (lo cierra)."""
     tia_client = current_app.config["TIA_CLIENT"]
-    result = tia_client.dispatch("detach_portal")
+    try:
+        result = tia_client.submit_and_wait(
+            "detach_portal", timeout=ATTACH_TIMEOUT_S,
+        )
+    except TimeoutError as exc:
+        return jsonify({
+            "ok": False,
+            "state": tia_client.state,
+            "error": f"timeout: {exc}",
+        }), 504
     return jsonify({
         "ok": result.get("ok", False),
-        "state": "disconnected" if result.get("ok") else "connected",
+        "state": tia_client.state,
         "worker_alive": True,
     })
 
