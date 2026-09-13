@@ -148,6 +148,14 @@ class SyncTIAClient:
         # Hilo dedicado.
         self._tia_thread: threading.Thread | None = None
         self._tia_stop = threading.Event()
+        # Hooks opcionales para la capa SSE. Se cablean desde
+        # core.sse.publishers.wire_all() en el arranque.
+        #   on_state_change: Callable[[], None] -> se invoca tras cada
+        #     transicion de state (el callback publica al bus).
+        #   on_loop_status: Callable[[], None] -> se invoca cuando el
+        #     hilo arranca / termina (el callback publica running).
+        self.on_state_change: Callable[[], None] | None = None
+        self.on_loop_status: Callable[[], None] | None = None
 
     # ----------------------------------------------------------- state (lectura)
     @property
@@ -163,6 +171,13 @@ class SyncTIAClient:
             self._state = new_state
         if old != new_state:
             logger.info("TIA state: %s -> %s", old, new_state)
+            if self.on_state_change is not None:
+                try:
+                    self.on_state_change()
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "on_state_change hook fallo: %s", exc,
+                    )
 
     # ----------------------------------------------------------- API publica
     def register_command(self, name: str, handler: HandlerSig) -> None:
@@ -279,6 +294,12 @@ class SyncTIAClient:
         thread.start()
         self._tia_thread = thread
         logger.info("tia-loop arrancado.")
+        # Notifica al bus que el hilo arranco (para fb_state del TIA-loop).
+        if self.on_loop_status is not None:
+            try:
+                self.on_loop_status()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("on_loop_status hook fallo: %s", exc)
         return thread
 
     def stop_tia_loop(self, timeout: float = 5.0) -> None:
@@ -1575,6 +1596,11 @@ def _tia_loop_main(
     finally:
         client._set_state(STATE_IDLE)
         logger.info("tia-loop: bye.")
+        if client.on_loop_status is not None:
+            try:
+                client.on_loop_status()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("on_loop_status hook fallo: %s", exc)
 
 
 def _execute_one(
