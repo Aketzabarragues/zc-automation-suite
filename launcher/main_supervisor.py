@@ -155,10 +155,8 @@ class MainServiceSupervisor:
           3. wire_all() cablea LogBuffer, ProgressTracker, tia_client y
              engine al bus SSE.
         """
-        from core.infrastructure.tia_loop import (
-            SyncTIAClient,
-            register_core_commands,
-        )
+        from core.infrastructure.tia.tia_loop import SyncTIAClient
+        from core.infrastructure.tia.tia_handlers import register_core_commands
         from core.plc.engine import Engine
         from core.sse.event_bus_sync import EventBusSync
         from interfaces.web_server.app_flask import create_app

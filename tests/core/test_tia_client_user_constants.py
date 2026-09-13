@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from core.infrastructure.tia_loop import (
+from core.infrastructure.tia.tia_loop import (
     SyncTIAClient,
     _find_plc_tag_table,
     register_core_commands,

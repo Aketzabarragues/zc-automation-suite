@@ -16,7 +16,7 @@ import threading
 
 import pytest
 
-from core.infrastructure.tia_loop import SyncTIAClient
+from core.infrastructure.tia.tia_loop import SyncTIAClient
 
 
 def _new_client() -> SyncTIAClient:

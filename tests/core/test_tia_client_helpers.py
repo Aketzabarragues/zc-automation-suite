@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from core.infrastructure.tia_loop import (
+from core.infrastructure.tia.tia_loop import (
     _find_plc,
     _get_active_project,
     _safe_get_plc_name,
