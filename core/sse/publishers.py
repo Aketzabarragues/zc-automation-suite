@@ -139,7 +139,7 @@ def make_tia_loop_status_publisher(
     """
     def publish() -> None:
         thread = tia_client._tia_thread
-        running = thread is not None and thread.is_alive()
+        running = tia_client._loop_running
         bus.publish({
             "type": "tia_loop_status",
             "running": running,
@@ -190,16 +190,47 @@ def wire_all(
     # 4. Engine FB state
     if hasattr(engine, "on_fb_change"):
         engine.on_fb_change = make_fb_state_publisher(bus, engine)
+        # Cablear retroactivamente los FBs YA registrados: el hook
+        # _on_nstep_change de cada FB se conecta para que cualquier
+        # cambio de nStep publique al bus. (register_fb() cablea esto
+        # para FBs nuevos; aqui nos encargamos de los registrados
+        # antes de wire_all.)
+        if engine is not None:
+            for fb_name, fb in list(engine._fbs.items()):  # noqa: SLF001
+                fb._on_nstep_change = (
+                    lambda old, new, _n=fb_name, _fb=fb: (
+                        engine.on_fb_change(_n, _fb)
+                    )
+                )
         logger.debug("publishers: engine.on_fb_change cableado.")
     else:
         logger.debug("publishers: engine.on_fb_change aun no existe; saltando.")
 
     # 5. TIA-loop lifecycle
     if hasattr(tia_client, "on_loop_status"):
-        tia_client.on_loop_status = make_tia_loop_status_publisher(bus, tia_client)
+        publisher_5 = make_tia_loop_status_publisher(bus, tia_client)
+        tia_client.on_loop_status = publisher_5
+        # Publica retroactivamente el estado actual: el hook se conecta
+        # DESPUES de que el tia-loop arranca, asi que el evento
+        # "running=true" inicial se pierde si no lo forzamos aqui.
+        try:
+            publisher_5()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("publishers: retroactiva tia_loop_status fallo: %s", exc)
         logger.debug("publishers: SyncTIAClient.on_loop_status cableado.")
     else:
         logger.debug("publishers: SyncTIAClient.on_loop_status aun no existe; saltando.")
+
+    # 4b. Publica retroactivamente cada FB registrado en el engine.
+    if engine is not None and hasattr(engine, "on_fb_change"):
+        for fb_name, fb in list(engine._fbs.items()):  # noqa: SLF001
+            try:
+                engine.on_fb_change(fb_name, fb)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(
+                    "publishers: retroactiva fb_state(%s) fallo: %s",
+                    fb_name, exc,
+                )
 
     logger.info("publishers: wire_all() completado (5 publishers).")
 

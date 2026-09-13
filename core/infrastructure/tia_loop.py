@@ -148,6 +148,13 @@ class SyncTIAClient:
         # Hilo dedicado.
         self._tia_thread: threading.Thread | None = None
         self._tia_stop = threading.Event()
+        # Flag explicito de "el tia-loop esta corriendo". El publisher 5
+        # (tia_loop_status) lee este flag en lugar de ``_tia_thread.is_alive()``
+        # porque el join() puede retornar antes de que el finally del
+        # hilo publique, dando un False positivo. Setear True al final de
+        # start_tia_loop() y False al inicio de stop_tia_loop() (y tambien
+        # en el finally de _tia_loop_main por si crashea sin stop).
+        self._loop_running: bool = False
         # Hooks opcionales para la capa SSE. Se cablean desde
         # core.sse.publishers.wire_all() en el arranque.
         #   on_state_change: Callable[[], None] -> se invoca tras cada
@@ -293,6 +300,7 @@ class SyncTIAClient:
         )
         thread.start()
         self._tia_thread = thread
+        self._loop_running = True
         logger.info("tia-loop arrancado.")
         # Notifica al bus que el hilo arranco (para fb_state del TIA-loop).
         if self.on_loop_status is not None:
@@ -306,6 +314,15 @@ class SyncTIAClient:
         """Senala parada al tia-loop y espera a que termine."""
         if self._tia_thread is None:
             return
+        # Marca parada ANTES del join para que el publisher 5 vea
+        # running=False de forma determinista (no depende del finally
+        # del hilo ni de ``is_alive()`` durante la carrera).
+        self._loop_running = False
+        if self.on_loop_status is not None:
+            try:
+                self.on_loop_status()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("on_loop_status hook fallo: %s", exc)
         self._cmd_queue.put(_SENTINEL_STOP)
         self._tia_stop.set()
         self._tia_thread.join(timeout=timeout)
@@ -1596,6 +1613,12 @@ def _tia_loop_main(
     finally:
         client._set_state(STATE_IDLE)
         logger.info("tia-loop: bye.")
+        # Si el hilo sale por crash (no por stop_tia_loop), el flag
+        # sigue True; lo corregimos y publicamos para que el bus vea
+        # running=False. Si ya estaba False (stop normal), este publish
+        # es un duplicado inocuo.
+        if client._loop_running:
+            client._loop_running = False
         if client.on_loop_status is not None:
             try:
                 client.on_loop_status()
