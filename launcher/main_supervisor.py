@@ -80,7 +80,12 @@ class MainServiceSupervisor:
             self._loop_thread.start()
 
     def stop(self, timeout: float = 5.0) -> None:
-        """Solicita el cierre de ambos hilos y espera."""
+        """Solicita el cierre de los hilos y espera (orden inverso).
+
+        Orden: main-loop -> flask -> tia-loop. tia-loop al final
+        para que el wrapper siga vivo mientras Flask drena respuestas
+        pendientes a commands ya encolados.
+        """
         with self._lifecycle_lock:
             self._stop_event.set()
             if self._flask_server is not None:
@@ -90,8 +95,9 @@ class MainServiceSupervisor:
                     self.log.warning("flask server.shutdown() falló: %s", exc)
             flask_t = self._flask_thread
             loop_t = self._loop_thread
+            tia_client = self._components[0] if self._components else None
         # Join fuera del lock para no bloquear otros callers.
-        for label, thread in (("flask", flask_t), ("main-loop", loop_t)):
+        for label, thread in (("main-loop", loop_t), ("flask", flask_t)):
             if thread is None:
                 continue
             thread.join(timeout=timeout)
@@ -102,6 +108,9 @@ class MainServiceSupervisor:
                 )
             else:
                 self.log.info("Hilo %s terminado limpiamente.", label)
+        # tia-loop al final: drena la cola pendiente y luego sale.
+        if tia_client is not None:
+            tia_client.stop_tia_loop(timeout=timeout)
         self._healthy.clear()
         self._flask_thread = None
         self._loop_thread = None
@@ -133,7 +142,15 @@ class MainServiceSupervisor:
         )
 
     def _build_components(self):
-        """Crea tia_client, engine, event_bus, flask_app. Compartidos entre hilos."""
+        """Crea tia_client, engine, event_bus, flask_app. Compartidos entre hilos.
+
+        Orden importante:
+          1. tia_client + start_tia_loop() ANTES de Flask. Si falla la
+             carga del wrapper .NET, _build_components() lanza y Flask
+             nunca arranca (fail-fast, el operario ve el error al
+             pulsar "Iniciar web").
+          2. engine + event_bus + flask_app.
+        """
         from core.infrastructure.tia_loop import (
             SyncTIAClient,
             register_core_commands,
@@ -144,6 +161,9 @@ class MainServiceSupervisor:
 
         tia_client = SyncTIAClient()
         register_core_commands(tia_client)
+        # tia-loop ANTES de Flask: si la carga del wrapper falla, no
+        # se monta la web y el operario ve el error.
+        tia_client.start_tia_loop()
         engine = Engine(tick_period_s=self.tick_period_s) if not self.no_engine else None
         event_bus = EventBusSync()
         flask_app = create_app(
