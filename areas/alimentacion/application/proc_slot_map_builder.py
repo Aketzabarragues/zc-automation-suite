@@ -31,7 +31,7 @@ from areas.alimentacion.infrastructure.sd.proc_comment_updater import (
 )
 from core.application.state import AppState
 from core.infrastructure.config.config_manager import ConfigManager
-from core.infrastructure.tia.export_paths import EMPTY_TEXT
+from core.infrastructure.tia.tia_export_paths import EMPTY_TEXT
 from core.models.bloque_cache import BloqueCache
 from core.models.bloque_plc import BloquePLC
 

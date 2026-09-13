@@ -1,4 +1,4 @@
-"""Jerarquía canónica de workdirs de export/modificación.
+"""Jerarquía canónica de workdirs de export/modificación del subsistema TIA.
 
 Convención de la app (NO config del proyecto)
 =============================================
@@ -28,8 +28,8 @@ snapshot listo para importar. Dentro de cada una, las 3 subcarpetas
 (``variables/``, ``bloques/``, ``udt/``) separan por tipo de artefacto
 TIA, lo que da claridad y deja sitio al futuro updater de UDTs.
 
-Reglas de retención (acordado 2026-09-08, ver ``_plan/16_carpetas_convencion.md``)
----------------------------------------------------------------------------------
+Reglas de retención (acordado 2026-09-08)
+-----------------------------------------
 
 * Las 3 carpetas se limpian **solo al inicio** de la operación que las
   regenera. Después se quedan para auditoría hasta el siguiente ciclo.
@@ -43,41 +43,21 @@ Reglas de retención (acordado 2026-09-08, ver ``_plan/16_carpetas_convencion.md
   cambió el updater. ``git diff modified/ preview/`` muestra qué se habría
   aplicado si se hubiera confirmado el preview anterior.
 
-* **Los alias raíz ``preview``, ``exports`` y ``modified`` se
-  retiraron en el commit 6 del plan**. Todo el código usa las
-  6 subcarpetas explícitas (``preview_variables`` /
-  ``preview_bloques`` / ``exports_variables`` / ``exports_bloques``
-  / ``modified_variables`` / ``modified_bloques``).
-
 Reglas de arquitectura
 ----------------------
 
 * El core **NO sabe qué áreas existen**. Por eso ``area_id`` es
   obligatorio (sin default): cada consumer pasa el suyo. El día que
   llegue un 2º área, no hay que tocar este módulo — solo extender
-  ``AreaCache`` desde el paquete del área.
+  ``WorkdirAreaLayout`` desde el paquete del área.
 
 * La estructura se mantiene estable durante TODA la vida del proceso
   (cachea ``Path`` en ``@cached_property``). Crear o borrar los
-  directorios físicos es responsabilidad de ``ContextCache.clean()``
+  directorios físicos es responsabilidad de ``WorkdirContextLayout.clean()``
   (que borra y recrea) o de los consumers (que los crean con
   ``mkdir(parents=True, exist_ok=True)`` cuando los necesitan).
 
-* ``.build_cache/`` está dentro del cwd por convención. Si en el
-  futuro hay que moverlo (a ``%LocalAppData%``, etc.), se replica
-  el patrón de ``core/application/log_paths.py:ZC_LOG_DIR``. YAGNI
-  por ahora (ver ``_plan/08_routes_standardization.md`` §5).
-
-* NO se añade ``ZC_BUILD_CACHE_DIR`` env var todavía (mismo YAGNI).
-  Si el operario lo necesita, lo pide y se hace en un PR específico.
-
-Decisiones diferidas
---------------------
-
-* Migración de ``BuildCache(area_id=AREA_ID)`` a DI en el
-  composition root (main.py, app.py, mcp_server.py): NO en este
-  plan. La construcción con 1 argumento es trivial; se hace
-  oportunistamente cuando se toquen esos archivos por otro motivo.
+* ``.build_cache/`` está dentro del cwd por convención.
 """
 from __future__ import annotations
 
@@ -101,8 +81,8 @@ _TYPE_DIRS: tuple[str, ...] = ("variables", "bloques", "udt")
 
 
 @dataclass(frozen=True)
-class BuildCache:
-    """Raíz de los workdirs de export/modificación.
+class TIAWorkdirLayout:
+    """Raíz de los workdirs de export/modificación del subsistema TIA.
 
     Estructura canónica::
 
@@ -122,19 +102,19 @@ class BuildCache:
     root: Path = field(default_factory=lambda: Path(os.getcwd()) / _BUILD_CACHE_DIRNAME)
 
     @cached_property
-    def area(self) -> "AreaCache":
+    def area(self) -> "WorkdirAreaLayout":
         """Sub-jerarquía del área: ``<root>/<area_id>/``.
 
-        Se delega en ``AreaCache`` (no se devuelve un ``Path`` crudo)
-        para que mañana cada área pueda aportar su propio ``AreaCache``
+        Se delega en ``WorkdirAreaLayout`` (no se devuelve un ``Path`` crudo)
+        para que mañana cada área pueda aportar su propio ``WorkdirAreaLayout``
         extendido con los contextos que necesite (dispositivos,
         procesos, lotes, recetas, etc.).
         """
-        return AreaCache(self.area_id, self.root / self.area_id)
+        return WorkdirAreaLayout(self.area_id, self.root / self.area_id)
 
 
 @dataclass(frozen=True)
-class AreaCache:
+class WorkdirAreaLayout:
     """Contenedor base por área.
 
     El core solo conoce el ``root`` del área. Los **contextos**
@@ -144,7 +124,7 @@ class AreaCache:
     concreto de hoy.
 
     Attributes:
-        area_id: Identificador del área (mismo que en ``BuildCache``).
+        area_id: Identificador del área (mismo que en ``TIAWorkdirLayout``).
         root:    ``<build_cache.root>/<area_id>``.
     """
 
@@ -166,7 +146,7 @@ def _type_path(parent: Path, type_name: str) -> Path:
 
 
 @dataclass(frozen=True)
-class ContextCache:
+class WorkdirContextLayout:
     """Matriz 3×3 de subcarpetas: 3 fases × 3 tipos de artefacto TIA.
 
     Estructura::
@@ -179,8 +159,6 @@ class ContextCache:
     Los call sites usan las 6 subcarpetas explícitas
     (``preview_variables`` / ``preview_bloques`` / ``exports_variables``
     / ``exports_bloques`` / ``modified_variables`` / ``modified_bloques``).
-    Los alias raíz ``preview``, ``exports`` y ``modified`` se
-    retiraron en el commit 6 del plan (``_plan/16_carpetas_convencion.md``).
     """
 
     root: Path
@@ -271,4 +249,4 @@ class ContextCache:
             (top_dir / type_name).mkdir(parents=True, exist_ok=True)
 
 
-__all__ = ["BuildCache", "AreaCache", "ContextCache"]
+__all__ = ["TIAWorkdirLayout", "WorkdirAreaLayout", "WorkdirContextLayout"]

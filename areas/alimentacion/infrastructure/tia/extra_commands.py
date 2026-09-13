@@ -15,7 +15,7 @@ import shutil
 from pathlib import Path
 from typing import Any, Callable
 
-from core.infrastructure.tia.export_paths import SdPair
+from core.infrastructure.tia.tia_export_paths import SdPair
 
 logger = logging.getLogger(__name__)
 

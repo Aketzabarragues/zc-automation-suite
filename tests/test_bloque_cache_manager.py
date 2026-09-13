@@ -1,4 +1,4 @@
-"""Tests del ``BloqueCacheManager`` (singleton IT de caches de bloques).
+"""Tests del ``TIABloqueCache`` (singleton IT de caches de bloques).
 
 Validan el contrato de la API publica:
   - ``get`` / ``put`` / ``clear`` con aislamiento por PLC.
@@ -9,7 +9,7 @@ Validan el contrato de la API publica:
   - ``BloqueCache.udts`` (tercer slot, UDTs) por defecto es ``{}``.
 
 Como el manager tiene estado a nivel de CLASE (ClassVar), cada test
-hace ``BloqueCacheManager.clear()`` en su ``finally`` para no contaminar
+hace ``TIABloqueCache.clear()`` en su ``finally`` para no contaminar
 el resto de la suite. ``pytest-asyncio`` con ``mode=strict`` requiere
 decorador explicito ``@pytest.mark.asyncio``.
 """
@@ -21,7 +21,7 @@ import logging
 import pytest
 import pytest_asyncio
 
-from core.infrastructure.cache.bloque_cache_manager import BloqueCacheManager
+from core.infrastructure.cache.bloque_cache_manager import TIABloqueCache
 from core.models import BloqueCache, BloquePLC
 
 
@@ -67,9 +67,9 @@ def test_bloque_cache_udts_defaults_to_empty_dict() -> None:
 @pytest_asyncio.fixture(autouse=True)
 async def _clean_state() -> None:
     """Limpia el estado de clase antes y después de cada test."""
-    await BloqueCacheManager.clear()
+    await TIABloqueCache.clear()
     yield
-    await BloqueCacheManager.clear()
+    await TIABloqueCache.clear()
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -80,15 +80,15 @@ async def _clean_state() -> None:
 @pytest.mark.asyncio
 async def test_get_returns_none_when_empty() -> None:
     """Sin estado previo → ``get`` devuelve ``None``."""
-    assert await BloqueCacheManager.get("PLC_X") is None
+    assert await TIABloqueCache.get("PLC_X") is None
 
 
 @pytest.mark.asyncio
 async def test_put_then_get_returns_same_cache() -> None:
     """Tras ``put``, ``get`` devuelve el mismo objeto cache."""
     cache = _make_cache("PLC_A")
-    await BloqueCacheManager.put("PLC_A", cache)
-    fetched = await BloqueCacheManager.get("PLC_A")
+    await TIABloqueCache.put("PLC_A", cache)
+    fetched = await TIABloqueCache.get("PLC_A")
     assert fetched is cache
     assert fetched.plc_name == "PLC_A"
     assert "db1" in fetched.blocks
@@ -103,21 +103,21 @@ async def test_put_then_get_returns_same_cache() -> None:
 @pytest.mark.asyncio
 async def test_clear_specific_plc_leaves_others() -> None:
     """``clear("PLC_A")`` solo borra PLC_A, deja PLC_B intacto."""
-    await BloqueCacheManager.put("PLC_A", _make_cache("PLC_A"))
-    await BloqueCacheManager.put("PLC_B", _make_cache("PLC_B"))
-    await BloqueCacheManager.clear("PLC_A")
-    assert await BloqueCacheManager.get("PLC_A") is None
-    assert await BloqueCacheManager.get("PLC_B") is not None
+    await TIABloqueCache.put("PLC_A", _make_cache("PLC_A"))
+    await TIABloqueCache.put("PLC_B", _make_cache("PLC_B"))
+    await TIABloqueCache.clear("PLC_A")
+    assert await TIABloqueCache.get("PLC_A") is None
+    assert await TIABloqueCache.get("PLC_B") is not None
 
 
 @pytest.mark.asyncio
 async def test_clear_none_removes_all() -> None:
     """``clear(None)`` vacia TODOS los PLCs cacheados."""
-    await BloqueCacheManager.put("PLC_A", _make_cache("PLC_A"))
-    await BloqueCacheManager.put("PLC_B", _make_cache("PLC_B"))
-    await BloqueCacheManager.clear(None)
-    assert await BloqueCacheManager.get("PLC_A") is None
-    assert await BloqueCacheManager.get("PLC_B") is None
+    await TIABloqueCache.put("PLC_A", _make_cache("PLC_A"))
+    await TIABloqueCache.put("PLC_B", _make_cache("PLC_B"))
+    await TIABloqueCache.clear(None)
+    assert await TIABloqueCache.get("PLC_A") is None
+    assert await TIABloqueCache.get("PLC_B") is None
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -128,20 +128,20 @@ async def test_clear_none_removes_all() -> None:
 @pytest.mark.asyncio
 async def test_on_plc_change_invalidates_old_only_when_different() -> None:
     """Si old != new, se borra old. new queda intacto."""
-    await BloqueCacheManager.put("PLC_OLD", _make_cache("PLC_OLD"))
-    await BloqueCacheManager.put("PLC_NEW", _make_cache("PLC_NEW"))
-    await BloqueCacheManager.on_plc_change("PLC_OLD", "PLC_NEW")
-    assert await BloqueCacheManager.get("PLC_OLD") is None
-    assert await BloqueCacheManager.get("PLC_NEW") is not None
+    await TIABloqueCache.put("PLC_OLD", _make_cache("PLC_OLD"))
+    await TIABloqueCache.put("PLC_NEW", _make_cache("PLC_NEW"))
+    await TIABloqueCache.on_plc_change("PLC_OLD", "PLC_NEW")
+    assert await TIABloqueCache.get("PLC_OLD") is None
+    assert await TIABloqueCache.get("PLC_NEW") is not None
 
 
 @pytest.mark.asyncio
 async def test_on_plc_change_is_noop_when_same_plc() -> None:
     """Si old == new, no se invalida nada."""
     cache = _make_cache("PLC_X")
-    await BloqueCacheManager.put("PLC_X", cache)
-    await BloqueCacheManager.on_plc_change("PLC_X", "PLC_X")
-    assert await BloqueCacheManager.get("PLC_X") is cache
+    await TIABloqueCache.put("PLC_X", cache)
+    await TIABloqueCache.on_plc_change("PLC_X", "PLC_X")
+    assert await TIABloqueCache.get("PLC_X") is cache
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -156,12 +156,12 @@ async def test_concurrent_puts_are_thread_safe() -> None:
     cache_b = _make_cache("PLC_B")
 
     await asyncio.gather(
-        BloqueCacheManager.put("PLC_A", cache_a),
-        BloqueCacheManager.put("PLC_B", cache_b),
+        TIABloqueCache.put("PLC_A", cache_a),
+        TIABloqueCache.put("PLC_B", cache_b),
     )
 
-    a = await BloqueCacheManager.get("PLC_A")
-    b = await BloqueCacheManager.get("PLC_B")
+    a = await TIABloqueCache.get("PLC_A")
+    b = await TIABloqueCache.get("PLC_B")
     assert a is cache_a
     assert b is cache_b
 
@@ -176,10 +176,10 @@ async def test_invalidation_logs_info(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """La invalidacion emite ``INFO`` con el nombre del PLC afectado."""
-    await BloqueCacheManager.put("PLC_LOGS", _make_cache("PLC_LOGS"))
+    await TIABloqueCache.put("PLC_LOGS", _make_cache("PLC_LOGS"))
 
     with caplog.at_level(logging.INFO, logger="core.infrastructure.cache.bloque_cache_manager"):
-        await BloqueCacheManager.clear("PLC_LOGS")
+        await TIABloqueCache.clear("PLC_LOGS")
 
     # Filtramos solo los INFO de este logger.
     info_messages = [

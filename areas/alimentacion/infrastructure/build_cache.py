@@ -1,7 +1,7 @@
-"""BuildCache del área alimentación: dispositivos y procesos.
+"""Workdir layout del área alimentación: dispositivos y procesos.
 
-Extiende ``core.infrastructure.cache.build_cache.AreaCache`` con los
-contextos (bounded contexts del área) que necesita hoy:
+Extiende ``core.infrastructure.tia.tia_workdir_layout.WorkdirAreaLayout``
+con los contextos (bounded contexts del área) que necesita hoy:
 
 * ``dispositivos``: ciclo de export/modify/import de los 6 DBs de
   dispositivos (ED, EA, SA, V, M, M_VF) + tabla N_MAX.
@@ -9,7 +9,7 @@ contextos (bounded contexts del área) que necesita hoy:
   (PReal, PInt, ALM).
 
 Mañana, ``areas/trazabilidad/infrastructure/build_cache.py`` aportará
-su propio ``TrazabilidadAreaCache`` con ``.lotes`` y ``.recetas``
+su propio ``TrazabilidadAreaLayout`` con ``.lotes`` y ``.recetas``
 siguiendo el mismo patrón — sin tocar ``core/``.
 
 Convenio de uso
@@ -35,18 +35,16 @@ from functools import cached_property
 from pathlib import Path
 
 from areas.alimentacion._area_id import AREA_ID
-from core.infrastructure.cache.build_cache import (
-    AreaCache as _CoreAreaCache,
-)
-from core.infrastructure.cache.build_cache import (
-    BuildCache,
-    ContextCache,
+from core.infrastructure.tia.tia_workdir_layout import (
+    TIAWorkdirLayout,
+    WorkdirAreaLayout,
+    WorkdirContextLayout,
 )
 
 
 @dataclass(frozen=True)
-class AlimentacionAreaCache(_CoreAreaCache):
-    """``AreaCache`` del área alimentación con sus contextos.
+class AlimentacionAreaLayout(WorkdirAreaLayout):
+    """Workdir layout del área alimentación con sus contextos.
 
     Añade ``.dispositivos`` y ``.procesos`` como ``cached_property``
     sobre la base genérica de ``core``. Si en el futuro el área gana
@@ -55,18 +53,18 @@ class AlimentacionAreaCache(_CoreAreaCache):
     """
 
     @cached_property
-    def dispositivos(self) -> ContextCache:
+    def dispositivos(self) -> WorkdirContextLayout:
         """Contexto de dispositivos (N_MAX + 6 DBs de devices)."""
-        return ContextCache(self.root / "dispositivos")
+        return WorkdirContextLayout(self.root / "dispositivos")
 
     @cached_property
-    def procesos(self) -> ContextCache:
+    def procesos(self) -> WorkdirContextLayout:
         """Contexto de procesos (PReal + PInt + ALM)."""
-        return ContextCache(self.root / "procesos")
+        return WorkdirContextLayout(self.root / "procesos")
 
 
-def build_cache(root: Path | None = None) -> AlimentacionAreaCache:
-    """Atajo: devuelve el ``AreaCache`` de alimentación ya configurado.
+def build_cache(root: Path | None = None) -> AlimentacionAreaLayout:
+    """Atajo: devuelve el layout de alimentación ya configurado.
 
     Por defecto, ``root = <cwd>/.build_cache``. Tests pueden
     inyectar un ``tmp_path`` directamente:
@@ -78,14 +76,14 @@ def build_cache(root: Path | None = None) -> AlimentacionAreaCache:
             assert ctx.exports == tmp_path / "alimentacion" / "dispositivos" / "exports"
 
     Returns:
-        ``AlimentacionAreaCache`` con ``.dispositivos`` y ``.procesos``
+        ``AlimentacionAreaLayout`` con ``.dispositivos`` y ``.procesos``
         listos para usar.
     """
-    bc = BuildCache(
+    bc = TIAWorkdirLayout(
         area_id=AREA_ID,
         root=root if root is not None else Path(os.getcwd()) / ".build_cache",
     )
-    return AlimentacionAreaCache(area_id=bc.area_id, root=bc.area.root)
+    return AlimentacionAreaLayout(area_id=bc.area_id, root=bc.area.root)
 
 
-__all__ = ["AlimentacionAreaCache", "build_cache"]
+__all__ = ["AlimentacionAreaLayout", "build_cache"]

@@ -54,7 +54,7 @@ from pathlib import Path
 from typing import Any
 
 from areas.alimentacion.infrastructure.sd.mlc_registry import MLCRegistry
-from core.infrastructure.tia.export_paths import (
+from core.infrastructure.tia.tia_export_paths import (
     EMPTY_TEXT,
     MAX_COMMENT_LEN,
     SD_ENCODING,

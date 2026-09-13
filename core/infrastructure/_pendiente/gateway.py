@@ -34,7 +34,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from core.infrastructure.cache.build_cache import BuildCache
+from core.infrastructure.tia.tia_workdir_layout import TIAWorkdirLayout
 from core.models import BloqueCache, BloquePLC
 
 
@@ -2669,7 +2669,7 @@ class TIAProcessGateway:
         # Workdir: preferir el explicito (Commit 7) sobre el legacy.
         if work_dir is None:
             root = Path(build_cache_dir) if build_cache_dir is not None else Path(os.getcwd()) / ".build_cache"
-            work_dir = BuildCache(area_id=area_id, root=root).area.root / contexto / subestado
+            work_dir = TIAWorkdirLayout(area_id=area_id, root=root).area.root / contexto / subestado
         work_dir = Path(work_dir)
         work_dir.mkdir(parents=True, exist_ok=True)
 

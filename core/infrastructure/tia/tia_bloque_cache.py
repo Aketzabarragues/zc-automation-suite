@@ -16,9 +16,8 @@ del event loop. NO usa threading (el cache es IT-side y vive en el
 proceso asyncio principal; los workers OT son subprocesos efímeros que
 no comparten memoria).
 
-Lifecycle: el manager se reinicia al recargar el proceso (.clinerules §8:
-nunca persistir estado entre reinicios). El gateway invalida
-explícitamente en ``open_project`` / ``close_project``.
+Lifecycle: el manager se reinicia al recargar el proceso. El gateway
+invalida explícitamente en ``open_project`` / ``close_project``.
 """
 from __future__ import annotations
 
@@ -29,10 +28,10 @@ from typing import ClassVar
 from core.models.bloque_cache import BloqueCache
 
 
-_logger = logging.getLogger(__name__)
+_logger = logging.getLogger("zc.tia_loop")
 
 
-class BloqueCacheManager:
+class TIABloqueCache:
     """Singleton por proceso del cache IT de bloques de PLC."""
 
     _caches: ClassVar[dict[str, BloqueCache]] = {}
@@ -95,7 +94,8 @@ class BloqueCacheManager:
                 )
             else:
                 _logger.debug(
-                    "clear(plc_name=%r): no había cache; no-op.", plc_name
+                    "clear(plc_name=%r): no había cache; no-op.",
+                    plc_name,
                 )
 
     @classmethod
