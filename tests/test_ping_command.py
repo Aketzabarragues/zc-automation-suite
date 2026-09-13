@@ -32,14 +32,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from core.infrastructure.gateway import TIAProcessGateway
+from core.infrastructure._pendiente.gateway import TIAProcessGateway
 
 
 # ────────────────────────────────────────────────────────────────────────
 # Carga perezosa del módulo del worker (sin ejecutar main()).
 # ────────────────────────────────────────────────────────────────────────
 
-worker_tia = importlib.import_module("core.infrastructure.tia.worker_tia")
+worker_tia = importlib.import_module("core.infrastructure._pendiente.worker_tia")
 COMMAND_REGISTRY: dict = worker_tia.COMMAND_REGISTRY
 _cmd_ping = worker_tia._cmd_ping
 

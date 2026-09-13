@@ -38,7 +38,7 @@ def main() -> int:
     setup_logging()
 
     print("\n[2] ConfigManager() + MainServiceSupervisor")
-    from core.infrastructure.config_manager import ConfigManager
+    from core.infrastructure.config.config_manager import ConfigManager
     from launcher.main_supervisor import MainServiceSupervisor
     cm = ConfigManager()
     s = MainServiceSupervisor(host=HOST, port=PORT, tick_period_s=0.1, config_manager=cm)

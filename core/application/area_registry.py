@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, TypedDict
 
 if TYPE_CHECKING:
-    from core.infrastructure.config_manager import ConfigManager
+    from core.infrastructure.config.config_manager import ConfigManager
 
 _logger = logging.getLogger(f"{__name__}.AreaRegistry")
 

@@ -28,7 +28,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from core.infrastructure.gateway import TIAProcessGateway, TIAConnectionError
+from core.infrastructure._pendiente.gateway import TIAProcessGateway, TIAConnectionError
 
 
 def _make_proc_with_response(response: dict) -> MagicMock:
@@ -107,7 +107,7 @@ class TestListPlcsInWhitelist:
                     return awaitable.result()
                 return await real_wait_for(awaitable, *args, **kwargs)
 
-            with patch("core.infrastructure.gateway.asyncio.wait_for", side_effect=_patched):
+            with patch("core.infrastructure._pendiente.gateway.asyncio.wait_for", side_effect=_patched):
                 result = await gateway._dispatch_worker("list_plcs", args={})
             assert result == [{"name": "PLC1", "short_designation": None}]
         finally:

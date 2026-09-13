@@ -33,7 +33,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from core.infrastructure.tia.worker_tia import (
+from core.infrastructure._pendiente.worker_tia import (
     COMMAND_REGISTRY,
     _cmd_execute_transactional_batch,
     _cmd_update_user_constant_name,

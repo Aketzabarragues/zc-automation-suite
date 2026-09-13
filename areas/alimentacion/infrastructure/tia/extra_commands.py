@@ -143,7 +143,7 @@ def make_cmd_commit_disp_nmax_renames_online() -> Callable[..., Any]:
             raise ValueError("commit_disp_nmax_renames_online: plc_name requerido.")
 
         from core.infrastructure.tia import worker_tia
-        from core.infrastructure.tia.worker_tia import (
+        from core.infrastructure._pendiente.worker_tia import (
             _cmd_update_user_constant_value,
             _cmd_update_user_constant_name,
         )

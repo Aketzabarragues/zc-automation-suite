@@ -34,7 +34,7 @@ Uso tipico en un test:
 
     def test_algo() -> None:
         ts = build_fake_ts()
-        with patch("core.infrastructure.tia.worker_tia._load_siemens_wrapper",
+        with patch("core.infrastructure._pendiente.worker_tia._load_siemens_wrapper",
                    return_value=ts):
             worker_tia.main_persistent_loop()
 

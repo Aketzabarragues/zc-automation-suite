@@ -247,7 +247,7 @@ def test_load_with_config_manager(tmp_path) -> None:
     """Si se inyecta un ``ConfigManager``, los parsers lo usan para
     resolver ``SHEET``/``TABLE`` data-driven."""
     import json
-    from core.infrastructure.config_manager import ConfigManager
+    from core.infrastructure.config.config_manager import ConfigManager
 
     cfg: dict[str, Any] = {
         "departments": {

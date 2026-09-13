@@ -52,8 +52,8 @@ from core.application.progress_buffer import (
     get_progress_tracker,
 )
 from core.application.state import AppState, get_app_state
-from core.infrastructure.config_manager import ConfigManager
-from core.infrastructure.gateway import TIAProcessGateway
+from core.infrastructure.config.config_manager import ConfigManager
+from core.infrastructure._pendiente.gateway import TIAProcessGateway
 from core.plc.function_base import FunctionBase
 
 logger = logging.getLogger(__name__)

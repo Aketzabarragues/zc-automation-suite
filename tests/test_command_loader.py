@@ -1,6 +1,6 @@
 """Tests del command loader del worker OT (PR 3).
 
-Cubre ``core.infrastructure.tia.command_loader.load_extra_commands``:
+Cubre ``core.infrastructure._pendiente.command_loader.load_extra_commands``:
   - Mockea el ``AreaRegistry`` con 2 specs: uno que aporta
     ``contributes_tia_commands`` y otro que no.
   - Verifica que solo se invoca el callable del spec que aporta.
@@ -22,7 +22,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from core.application.area_registry import AreaRegistry, AreaSpec
-from core.infrastructure.tia.command_loader import load_extra_commands
+from core.infrastructure._pendiente.command_loader import load_extra_commands
 
 
 # ── 1. Registry vacío + lista de áreas vacía = no-op ────────────────────
@@ -106,7 +106,7 @@ def test_load_extra_commands_alimentacion_registers_six_handlers() -> None:
       AreaSpec.contributes_tia_commands → extra_commands.register
         → COMMAND_REGISTRY["update_disp_comments_db_<hw>"]
     """
-    from core.infrastructure.tia.worker_tia import COMMAND_REGISTRY
+    from core.infrastructure._pendiente.worker_tia import COMMAND_REGISTRY
 
     expected_keys = {
         "update_disp_comments_db_ed",
@@ -134,7 +134,7 @@ def test_load_extra_commands_alimentacion_registers_disp_commit_handlers() -> No
       - ``commit_disp_devices_offline`` (Tx B: devices export+edit+import).
     Y mantiene el ``commit_devices_sync`` (DEPRECATED) por compat.
     """
-    from core.infrastructure.tia.worker_tia import COMMAND_REGISTRY
+    from core.infrastructure._pendiente.worker_tia import COMMAND_REGISTRY
 
     for name in (
         "commit_disp_nmax_renames_online",

@@ -30,7 +30,7 @@ from areas.alimentacion.interfaces.mcp import tools as mcp_tools
 from core.application.log_buffer import get_log_buffer
 from core.application.progress_buffer import ProgressTracker
 from core.application.state import get_app_state
-from core.infrastructure.gateway import TIAProcessGateway
+from core.infrastructure._pendiente.gateway import TIAProcessGateway
 from core.interfaces import mcp_server
 
 
@@ -203,7 +203,7 @@ def mcp_deps(tmp_path: Path):
     tests usan un capturador ligero (``_McpToolCapture``) para evitar
     instanciar un FastMCP real (más rápido, mismo shape de API).
     """
-    from core.infrastructure.config_manager import ConfigManager
+    from core.infrastructure.config.config_manager import ConfigManager
 
     config_path = _write_config(tmp_path)
     cm = ConfigManager(config_path=config_path)

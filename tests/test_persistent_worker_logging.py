@@ -16,7 +16,7 @@ Estrategia de captura:
 Los eventos se emiten via ``log_event`` (lazy-imported en
 ``main_persistent_loop``). Interceptamos las llamadas a esa funcion
 con ``unittest.mock.patch.object`` aplicado al modulo
-``core.infrastructure.tia.worker_logging`` (que es donde se busca el
+``core.infrastructure._pendiente.worker_logging`` (que es donde se busca el
 simbolo al hacer ``from X import Y``). Asi NO necesitamos configurar
 un logger real, no escribimos en ``worker_ot.log``, y los tests son
 deterministas y rapidos.
@@ -40,9 +40,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import core.infrastructure.tia.worker_logging as worker_logging_mod
-import core.infrastructure.tia.worker_tia as worker_tia
-from core.infrastructure.tia.worker_tia import main_persistent_loop
+import core.infrastructure._pendiente.worker_logging as worker_logging_mod
+import core.infrastructure._pendiente.worker_tia as worker_tia
+from core.infrastructure._pendiente.worker_tia import main_persistent_loop
 
 
 # ────────────────────────────────────────────────────────────────────────

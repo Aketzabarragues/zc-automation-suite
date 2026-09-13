@@ -19,7 +19,7 @@ import pytest
 
 from areas.alimentacion.functions.function_ScanPlcBlocks import FunctionScanPlcBlocks
 from core.application.progress_buffer import ProgressTracker
-from core.infrastructure.gateway import TIAProcessGateway
+from core.infrastructure._pendiente.gateway import TIAProcessGateway
 from core.models import BloqueCache, BloquePLC
 
 

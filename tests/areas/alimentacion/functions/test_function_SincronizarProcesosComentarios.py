@@ -23,8 +23,8 @@ from areas.alimentacion.functions.function_SincronizarProcesosComentarios import
     FunctionSincronizarProcesosComentarios,
 )
 from core.application.progress_buffer import ProgressTracker
-from core.infrastructure.config_manager import ConfigManager
-from core.infrastructure.gateway import TIAProcessGateway
+from core.infrastructure.config.config_manager import ConfigManager
+from core.infrastructure._pendiente.gateway import TIAProcessGateway
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────

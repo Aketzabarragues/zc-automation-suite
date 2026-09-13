@@ -15,7 +15,7 @@ import logging
 from typing import Any
 
 from core.application.state import AppState
-from core.infrastructure.config_manager import ConfigManager
+from core.infrastructure.config.config_manager import ConfigManager
 
 
 _logger = logging.getLogger(__name__)

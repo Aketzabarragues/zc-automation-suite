@@ -36,8 +36,8 @@ from core.application.state import AppState  # noqa: E402
 from areas.alimentacion.application.use_cases.disp_sync_instances import (  # noqa: E402
     DispSyncInstancesUseCase,
 )
-from core.infrastructure.config_manager import ConfigManager  # noqa: E402
-from core.infrastructure.gateway import TIAProcessGateway  # noqa: E402
+from core.infrastructure.config.config_manager import ConfigManager  # noqa: E402
+from core.infrastructure._pendiente.gateway import TIAProcessGateway  # noqa: E402
 
 
 @pytest.fixture

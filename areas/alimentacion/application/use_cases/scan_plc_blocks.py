@@ -43,7 +43,7 @@ from core.application.progress_buffer import (
     ProgressTracker,
     get_progress_tracker,
 )
-from core.infrastructure.gateway import TIAProcessGateway
+from core.infrastructure._pendiente.gateway import TIAProcessGateway
 from core.models import BloqueCache, BloquePLC
 
 

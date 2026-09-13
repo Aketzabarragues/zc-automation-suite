@@ -14,7 +14,7 @@ segun el resultado:
 
 Estrategia de testing:
 
-- **Tiempo:** ``asyncio.sleep`` (del modulo ``core.infrastructure.gateway``)
+- **Tiempo:** ``asyncio.sleep`` (del modulo ``core.infrastructure._pendiente.gateway``)
   se parchea con una funcion que cede el control (``await real_sleep(0)``)
   en lugar de esperar el intervalo real. Esto hace que el heartbeat
   gire muy rapido dentro del test, permitiendo contar ticks de forma
@@ -48,7 +48,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from core.infrastructure.gateway import TIAProcessGateway
+from core.infrastructure._pendiente.gateway import TIAProcessGateway
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -112,7 +112,7 @@ async def _run_heartbeat_for_n_pings(
     gateway._send_to_persistent_worker = fake_send
 
     with patch(
-        "core.infrastructure.gateway.asyncio.sleep",
+        "core.infrastructure._pendiente.gateway.asyncio.sleep",
         new=fake_sleep,
     ):
         task = asyncio.create_task(gateway._heartbeat_loop())
@@ -295,7 +295,7 @@ class TestHeartbeatDisconnectedState:
         gateway._send_to_persistent_worker = fake_send
 
         with patch(
-            "core.infrastructure.gateway.asyncio.sleep",
+            "core.infrastructure._pendiente.gateway.asyncio.sleep",
             new=fake_sleep,
         ):
             task = asyncio.create_task(gateway._heartbeat_loop())
@@ -362,7 +362,7 @@ class TestHeartbeatIntervalConfig:
         gateway._send_to_persistent_worker = fake_send
 
         with patch(
-            "core.infrastructure.gateway.asyncio.sleep",
+            "core.infrastructure._pendiente.gateway.asyncio.sleep",
             new=fake_sleep,
         ):
             task = asyncio.create_task(gateway._heartbeat_loop())
@@ -432,7 +432,7 @@ class TestHeartbeatDeadWorker:
             await real_sleep(0)
 
         with patch(
-            "core.infrastructure.gateway.asyncio.sleep",
+            "core.infrastructure._pendiente.gateway.asyncio.sleep",
             new=fake_sleep,
         ):
             task = asyncio.create_task(gateway._heartbeat_loop())
@@ -488,7 +488,7 @@ class TestHeartbeatNoneProc:
             await real_sleep(0)
 
         with patch(
-            "core.infrastructure.gateway.asyncio.sleep",
+            "core.infrastructure._pendiente.gateway.asyncio.sleep",
             new=fake_sleep,
         ):
             task = asyncio.create_task(gateway._heartbeat_loop())
@@ -552,7 +552,7 @@ class TestHeartbeatOnlyRunsWhenConnected:
         gateway._detect_project_change = AsyncMock(return_value=False)
 
         with patch(
-            "core.infrastructure.gateway.asyncio.create_subprocess_exec",
+            "core.infrastructure._pendiente.gateway.asyncio.create_subprocess_exec",
             new=AsyncMock(return_value=fake_proc),
         ):
             await gateway._start_persistent_worker()

@@ -24,7 +24,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from core.infrastructure import config_paths
-from core.infrastructure.config_paths import resolve_config_path
+from core.infrastructure.config.config_paths import resolve_config_path
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
@@ -133,7 +133,7 @@ def test_frozen_first_run_copia_bundled(
     expected_dst = exe_dir / "config" / "config.json"
     assert not expected_dst.exists()  # precondicion: no existe
 
-    with caplog.at_level(logging.INFO, logger="core.infrastructure.config_paths"):
+    with caplog.at_level(logging.INFO, logger="core.infrastructure.config.config_paths"):
         result = resolve_config_path()
 
     assert result == expected_dst
@@ -169,7 +169,7 @@ def test_frozen_no_se_puede_escribir_fallback_readonly(
         return real_mkdir(self, *args, **kwargs)
     monkeypatch.setattr(Path, "mkdir", fake_mkdir)
 
-    with caplog.at_level(logging.WARNING, logger="core.infrastructure.config_paths"):
+    with caplog.at_level(logging.WARNING, logger="core.infrastructure.config.config_paths"):
         result = resolve_config_path()
 
     # Fallback: devuelve la ruta bundleada.
@@ -202,7 +202,7 @@ def test_env_var_override_usa_path_y_copia(
     expected_dst = override_dir / "config.json"
     assert not expected_dst.exists()  # precondicion
 
-    with caplog.at_level(logging.INFO, logger="core.infrastructure.config_paths"):
+    with caplog.at_level(logging.INFO, logger="core.infrastructure.config.config_paths"):
         result = resolve_config_path()
 
     assert result == expected_dst

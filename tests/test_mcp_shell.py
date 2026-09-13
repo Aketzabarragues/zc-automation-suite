@@ -18,7 +18,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from core.infrastructure.gateway import TIAProcessGateway
+from core.infrastructure._pendiente.gateway import TIAProcessGateway
 from core.interfaces import mcp_server
 from core.interfaces.mcp_server import (
     create_mcp_server,

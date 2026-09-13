@@ -24,7 +24,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from core.application.area_registry import AreaRegistry
-from core.infrastructure.config_manager import ConfigManager
+from core.infrastructure.config.config_manager import ConfigManager
 
 
 # ── Filtro por dept_id: la función es no-op para otros departamentos ──

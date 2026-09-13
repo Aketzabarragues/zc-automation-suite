@@ -23,7 +23,7 @@ import pytest
 
 # Cargar el modulo del worker sin ejecutar ``main()`` (que requiere
 # siemens_tia_scripting, no disponible en tests).
-worker_tia = importlib.import_module("core.infrastructure.tia.worker_tia")
+worker_tia = importlib.import_module("core.infrastructure._pendiente.worker_tia")
 COMMAND_REGISTRY: dict = worker_tia.COMMAND_REGISTRY
 _cmd_get_project_info = worker_tia._cmd_get_project_info
 

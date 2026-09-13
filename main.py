@@ -82,7 +82,7 @@ def main() -> int:
              sys.executable.endswith("pythonw.exe"))
     log.info("Log file: %s", LOG_FILE)
 
-    from core.infrastructure.config_manager import ConfigManager
+    from core.infrastructure.config.config_manager import ConfigManager
     from launcher.main_supervisor import MainServiceSupervisor
 
     # Config eager: falla rapido al arrancar si el JSON esta roto

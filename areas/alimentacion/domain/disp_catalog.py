@@ -35,7 +35,7 @@ from areas.alimentacion.domain.models.excel_cache import (
     DispV,
     Dispositivo,
 )
-from core.infrastructure.config_manager import ConfigManager
+from core.infrastructure.config.config_manager import ConfigManager
 
 
 # ── Mapping canónica → clase Python ────────────────────────────────────

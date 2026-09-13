@@ -36,8 +36,8 @@ import pytest
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
-from core.infrastructure.gateway import TIAProcessGateway  # noqa: E402
-from core.infrastructure.tia.worker_tia import (  # noqa: E402
+from core.infrastructure._pendiente.gateway import TIAProcessGateway  # noqa: E402
+from core.infrastructure._pendiente.worker_tia import (  # noqa: E402
     _is_com_disconnect,
 )
 
@@ -186,7 +186,7 @@ class TestGatewayStartPublic:
         gateway._start_persistent_worker = AsyncMock()
 
         with caplog.at_level(
-            logging.INFO, logger="core.infrastructure.gateway"
+            logging.INFO, logger="core.infrastructure._pendiente.gateway"
         ):
             await gateway.start()
 

@@ -21,7 +21,7 @@ from areas.alimentacion.application.use_cases.scan_plc_blocks import (
     ScanPlcBlocksUseCase,
 )
 from core.application.progress_buffer import ProgressTracker
-from core.infrastructure.gateway import TIAProcessGateway
+from core.infrastructure._pendiente.gateway import TIAProcessGateway
 from core.models import BloqueCache, BloquePLC
 
 

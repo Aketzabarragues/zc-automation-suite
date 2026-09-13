@@ -34,7 +34,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from core.infrastructure.build_cache import BuildCache
+from core.infrastructure.cache.build_cache import BuildCache
 from core.models import BloqueCache, BloquePLC
 
 

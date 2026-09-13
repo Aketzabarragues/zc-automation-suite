@@ -1,4 +1,4 @@
-"""Tests del helper ``core.infrastructure.tia.worker_logging``.
+"""Tests del helper ``core.infrastructure._pendiente.worker_logging``.
 
 Cubre el contrato publico del modulo:
 
@@ -35,7 +35,7 @@ from unittest.mock import patch
 import pytest
 
 from core.application.log_paths import resolve_log_dir
-from core.infrastructure.tia.worker_logging import (
+from core.infrastructure._pendiente.worker_logging import (
     JsonLineFormatter,
     _KNOWN_EVENTS,
     _LOGGER_NAME,
@@ -248,7 +248,7 @@ class TestFileHandlerLocation:
         )
         # Tambien parcheamos el simbolo que el helper importa.
         monkeypatch.setattr(
-            "core.infrastructure.tia.worker_logging.resolve_log_dir",
+            "core.infrastructure._pendiente.worker_logging.resolve_log_dir",
             lambda *a, **k: tmp_path,
         )
 
@@ -293,7 +293,7 @@ class TestFileHandlerLocation:
 
         monkeypatch.setenv("ZC_LOG_DIR", str(zc_log_dir))
         monkeypatch.setattr(
-            "core.infrastructure.tia.worker_logging.resolve_log_dir",
+            "core.infrastructure._pendiente.worker_logging.resolve_log_dir",
             lambda *a, **k: resolved_dir,
         )
 
@@ -343,7 +343,7 @@ class TestFileHandlerResilience:
         # Windows y Linux) o None para forzar el error.
         bogus_path = Path("\x00invalid")
         with patch(
-            "core.infrastructure.tia.worker_logging.resolve_log_dir",
+            "core.infrastructure._pendiente.worker_logging.resolve_log_dir",
             return_value=bogus_path,
         ):
             # NO debe lanzar excepcion.
@@ -380,7 +380,7 @@ def test_resolve_log_dir_is_used_not_env_var_directly() -> None:
     directamente, este test falla (es un detector de regresion
     barato; complementa el test 5).
     """
-    import core.infrastructure.tia.worker_logging as mod
+    import core.infrastructure._pendiente.worker_logging as mod
     # El simbolo esta en el namespace del modulo.
     assert hasattr(mod, "resolve_log_dir")
     # Y NO se importa ``os.environ`` para leer ZC_LOG_DIR.

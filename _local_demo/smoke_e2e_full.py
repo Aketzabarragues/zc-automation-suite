@@ -54,7 +54,7 @@ def main() -> int:
     # [2] ConfigManager eager
     # -----------------------------------------------------------------
     print("\n[2] ConfigManager() eager")
-    from core.infrastructure.config_manager import ConfigManager
+    from core.infrastructure.config.config_manager import ConfigManager
     cm = ConfigManager()
     print(f"  - config path: {cm.path}")
 

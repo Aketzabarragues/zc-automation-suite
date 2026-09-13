@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from core.infrastructure.build_cache import AreaCache, BuildCache, ContextCache
+from core.infrastructure.cache.build_cache import AreaCache, BuildCache, ContextCache
 
 
 # ── BuildCache (raíz) ─────────────────────────────────────────────────────

@@ -33,7 +33,7 @@ from areas.alimentacion.infrastructure.cache import ExcelCacheManager
 from core.application.log_buffer import LogBuffer
 from core.application.progress_buffer import ProgressTracker
 from core.application.state import AppState, get_app_state
-from core.infrastructure.config_manager import ConfigManager
+from core.infrastructure.config.config_manager import ConfigManager
 
 
 # ── Configuración JSON fixture ─────────────────────────────────────────

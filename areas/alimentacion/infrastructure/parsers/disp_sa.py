@@ -35,7 +35,7 @@ from areas.alimentacion.infrastructure.parsers._xlsx_helpers import (
     _safe_str,
     extract_list_object_rows,
 )
-from core.infrastructure.config_manager import ConfigManager
+from core.infrastructure.config.config_manager import ConfigManager
 
 
 logger = logging.getLogger(__name__)

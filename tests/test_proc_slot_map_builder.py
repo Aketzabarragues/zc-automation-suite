@@ -14,7 +14,7 @@ from areas.alimentacion.application.proc_slot_map_builder import (
     ProcSlotMap,
     proc_build_slot_maps,
 )
-from core.infrastructure.config_manager import ConfigManager
+from core.infrastructure.config.config_manager import ConfigManager
 from core.models.bloque_cache import BloqueCache
 from core.models.bloque_plc import BloquePLC
 

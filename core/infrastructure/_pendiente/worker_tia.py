@@ -1353,7 +1353,7 @@ COMMAND_REGISTRY: dict[str, Callable[[Any, Any, dict[str, Any]], Any]] = {
 #     ? extra_commands ? (lazy) worker_tia
 # Cuando este bloque se ejecuta, ``COMMAND_REGISTRY`` ya est�
 # completamente definido, por lo que las �reas pueden mutarlo in-place.
-from core.infrastructure.tia.command_loader import load_extra_commands
+from core.infrastructure._pendiente.command_loader import load_extra_commands
 
 load_extra_commands(COMMAND_REGISTRY)
 
@@ -1427,7 +1427,7 @@ def main_persistent_loop() -> None:
     # Import lazy: el modulo de logging es ligero pero queremos
     # que el import de worker_tia siga siendo barato cuando se
     # importa solo por los handlers (no por el loop).
-    from core.infrastructure.tia.worker_logging import (  # noqa: PLC0415
+    from core.infrastructure._pendiente.worker_logging import (  # noqa: PLC0415
         configure_worker_logger,
         log_event,
     )

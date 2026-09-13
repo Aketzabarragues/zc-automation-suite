@@ -157,7 +157,7 @@ def test_workbook_sin_defined_names_devuelve_instancia_vacia(tmp_path) -> None:
 def test_with_config_manager_resolves_data_driven(tmp_path) -> None:
     """Si se inyecta ``ConfigManager``, las entradas del ``n_max_catalog``
     se traducen a ``num_disp_<hw>`` data-driven."""
-    from core.infrastructure.config_manager import ConfigManager
+    from core.infrastructure.config.config_manager import ConfigManager
 
     config_path = _write_config(tmp_path)
     cm = ConfigManager(config_path=config_path)

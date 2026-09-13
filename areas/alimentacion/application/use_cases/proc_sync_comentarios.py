@@ -36,8 +36,8 @@ from areas.alimentacion.application.proc_slot_map_builder import (
 from areas.alimentacion.infrastructure.build_cache import build_cache
 from core.application.progress_buffer import ProgressTracker, get_progress_tracker
 from core.application.state import AppState
-from core.infrastructure.config_manager import ConfigManager
-from core.infrastructure.gateway import TIAProcessGateway
+from core.infrastructure.config.config_manager import ConfigManager
+from core.infrastructure._pendiente.gateway import TIAProcessGateway
 from core.infrastructure.tia.export_paths import SdPair, XmlTarget
 from core.models.bloque_cache import BloqueCache
 

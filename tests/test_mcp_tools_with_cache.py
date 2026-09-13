@@ -25,9 +25,9 @@ from openpyxl.worksheet.table import Table, TableStyleInfo
 from areas.alimentacion.interfaces.mcp import tools as mcp_tools
 from core.application.log_buffer import get_log_buffer
 from core.application.state import get_app_state
-from core.infrastructure.gateway import TIAProcessGateway
+from core.infrastructure._pendiente.gateway import TIAProcessGateway
 from core.interfaces import mcp_server
-from core.infrastructure.config_manager import ConfigManager
+from core.infrastructure.config.config_manager import ConfigManager
 
 
 # ── Config JSON fixture (mismo que test_mcp_alimentacion_tools) ──────

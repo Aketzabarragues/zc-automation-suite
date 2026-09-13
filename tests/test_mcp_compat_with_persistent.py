@@ -61,7 +61,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from core.infrastructure.gateway import TIAConnectionError, TIAProcessGateway
+from core.infrastructure._pendiente.gateway import TIAConnectionError, TIAProcessGateway
 
 
 # ─────────────────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 """BuildCache del área alimentación: dispositivos y procesos.
 
-Extiende ``core.infrastructure.build_cache.AreaCache`` con los
+Extiende ``core.infrastructure.cache.build_cache.AreaCache`` con los
 contextos (bounded contexts del área) que necesita hoy:
 
 * ``dispositivos``: ciclo de export/modify/import de los 6 DBs de
@@ -35,10 +35,10 @@ from functools import cached_property
 from pathlib import Path
 
 from areas.alimentacion._area_id import AREA_ID
-from core.infrastructure.build_cache import (
+from core.infrastructure.cache.build_cache import (
     AreaCache as _CoreAreaCache,
 )
-from core.infrastructure.build_cache import (
+from core.infrastructure.cache.build_cache import (
     BuildCache,
     ContextCache,
 )

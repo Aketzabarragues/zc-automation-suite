@@ -53,7 +53,7 @@ from areas.alimentacion.infrastructure.parsers.disp_v import DispVParser
 from areas.alimentacion.infrastructure.parsers.proc_pint import PIntParser
 from areas.alimentacion.infrastructure.parsers.proc_preal import PRealParser
 from areas.alimentacion.infrastructure.parsers.proc_procesos import ProcesosParser
-from core.infrastructure.config_manager import ConfigManager
+from core.infrastructure.config.config_manager import ConfigManager
 
 
 _logger = logging.getLogger(__name__)

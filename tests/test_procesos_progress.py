@@ -34,8 +34,8 @@ from core.application.progress_buffer import (  # noqa: E402
     STAGE_PENDING,
     STAGE_RUNNING,
 )
-from core.infrastructure.config_manager import ConfigManager  # noqa: E402
-from core.infrastructure.gateway import TIAProcessGateway  # noqa: E402
+from core.infrastructure.config.config_manager import ConfigManager  # noqa: E402
+from core.infrastructure._pendiente.gateway import TIAProcessGateway  # noqa: E402
 from core.models.bloque_cache import BloqueCache  # noqa: E402
 from core.models.bloque_plc import BloquePLC  # noqa: E402
 from areas.alimentacion.application.use_cases.proc_sync_comentarios import (  # noqa: E402
@@ -263,7 +263,7 @@ def test_generar_prevision_diff_real_con_archivos_tia(tmp_path) -> None:
     """
     import asyncio
     import re
-    from core.infrastructure.gateway import TIAProcessGateway
+    from core.infrastructure._pendiente.gateway import TIAProcessGateway
     from core.models.bloque_cache import BloqueCache
     from core.models.bloque_plc import BloquePLC
     from unittest.mock import AsyncMock
@@ -439,7 +439,7 @@ def test_generar_prevision_incluye_nmax_block_en_response(tmp_path) -> None:
     """
     import asyncio
     from core.application.progress_buffer import ProgressTracker
-    from core.infrastructure.gateway import TIAProcessGateway
+    from core.infrastructure._pendiente.gateway import TIAProcessGateway
     from core.models.bloque_cache import BloqueCache
     from core.models.bloque_plc import BloquePLC
     from unittest.mock import AsyncMock, MagicMock
@@ -523,7 +523,7 @@ def test_generar_prevision_nmax_block_con_sufijos_usa_gateway(tmp_path) -> None:
     """
     import asyncio
     from core.application.progress_buffer import ProgressTracker
-    from core.infrastructure.gateway import TIAProcessGateway
+    from core.infrastructure._pendiente.gateway import TIAProcessGateway
     from core.models.bloque_cache import BloqueCache
     from core.models.bloque_plc import BloquePLC
     from unittest.mock import AsyncMock, MagicMock
@@ -619,7 +619,7 @@ def test_generar_prevision_no_pisa_tracker_con_otra_operacion_activa(
     """
     import asyncio
     from core.application.progress_buffer import ProgressTracker
-    from core.infrastructure.gateway import TIAProcessGateway
+    from core.infrastructure._pendiente.gateway import TIAProcessGateway
     from core.models.bloque_cache import BloqueCache
     from core.models.bloque_plc import BloquePLC
     from unittest.mock import AsyncMock, MagicMock
@@ -694,7 +694,7 @@ def test_generar_prevision_slots_tia_no_excel_aparecen_como_eliminar(
     """
     import asyncio
     from core.application.progress_buffer import ProgressTracker
-    from core.infrastructure.gateway import TIAProcessGateway
+    from core.infrastructure._pendiente.gateway import TIAProcessGateway
     from core.models.bloque_cache import BloqueCache
     from core.models.bloque_plc import BloquePLC
     from unittest.mock import AsyncMock, MagicMock
@@ -879,7 +879,7 @@ def test_generar_prevision_closes_tracker_when_missing_blocks(tmp_path) -> None:
         ProgressTracker,
         STAGE_DONE,
     )
-    from core.infrastructure.gateway import TIAProcessGateway
+    from core.infrastructure._pendiente.gateway import TIAProcessGateway
     from core.models.bloque_cache import BloqueCache
     from core.models.bloque_plc import BloquePLC
     from unittest.mock import MagicMock

@@ -29,7 +29,7 @@ import pytest
 # Los handlers viven en el area de alimentacion, no en el core del worker.
 # Los cargamos via ``register`` para verificar que se anaden al
 # COMMAND_REGISTRY del worker como cualquier otro op del area.
-worker_tia = importlib.import_module("core.infrastructure.tia.worker_tia")
+worker_tia = importlib.import_module("core.infrastructure._pendiente.worker_tia")
 extra_commands = importlib.import_module(
     "areas.alimentacion.infrastructure.tia.extra_commands"
 )

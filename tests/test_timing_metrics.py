@@ -37,7 +37,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from core.infrastructure.gateway import TIAProcessGateway
+from core.infrastructure._pendiente.gateway import TIAProcessGateway
 from core.infrastructure.tia import worker_tia
 
 
@@ -129,7 +129,7 @@ class TestDispatchWorkerTiming:
 
         stderr_capture = io.StringIO()
         with patch(
-            "core.infrastructure.gateway.asyncio.create_subprocess_exec",
+            "core.infrastructure._pendiente.gateway.asyncio.create_subprocess_exec",
             new=AsyncMock(return_value=fake_proc),
         ):
             with patch("sys.stderr", stderr_capture):
@@ -153,7 +153,7 @@ class TestDispatchWorkerTiming:
 
         stderr_capture = io.StringIO()
         with patch(
-            "core.infrastructure.gateway.asyncio.create_subprocess_exec",
+            "core.infrastructure._pendiente.gateway.asyncio.create_subprocess_exec",
             new=AsyncMock(return_value=fake_proc),
         ):
             with patch("sys.stderr", stderr_capture):
@@ -182,7 +182,7 @@ class TestDispatchWorkerTiming:
 
         stderr_capture = io.StringIO()
         with patch(
-            "core.infrastructure.gateway.asyncio.create_subprocess_exec",
+            "core.infrastructure._pendiente.gateway.asyncio.create_subprocess_exec",
             new=AsyncMock(return_value=proc),
         ):
             with patch("sys.stderr", stderr_capture):
@@ -207,7 +207,7 @@ class TestDispatchWorkerTiming:
 
         stderr_capture = io.StringIO()
         with patch(
-            "core.infrastructure.gateway.asyncio.create_subprocess_exec",
+            "core.infrastructure._pendiente.gateway.asyncio.create_subprocess_exec",
             new=AsyncMock(return_value=fake_proc),
         ):
             with patch("sys.stderr", stderr_capture):
@@ -230,7 +230,7 @@ class TestDispatchWorkerTiming:
 
         stderr_capture = io.StringIO()
         with patch(
-            "core.infrastructure.gateway.asyncio.create_subprocess_exec",
+            "core.infrastructure._pendiente.gateway.asyncio.create_subprocess_exec",
             new=AsyncMock(return_value=fake_proc),
         ):
             with patch("sys.stderr", stderr_capture):
@@ -250,7 +250,7 @@ class TestDispatchWorkerTiming:
         async def _one(cmd, payload):
             p = _make_fake_subprocess(payload)
             with patch(
-                "core.infrastructure.gateway.asyncio.create_subprocess_exec",
+                "core.infrastructure._pendiente.gateway.asyncio.create_subprocess_exec",
                 new=AsyncMock(return_value=p),
             ):
                 with patch("sys.stderr", io.StringIO()):
@@ -285,7 +285,7 @@ class TestGetMetrics:
         fake_proc = _make_fake_subprocess({"ok": True, "result": []})
 
         with patch(
-            "core.infrastructure.gateway.asyncio.create_subprocess_exec",
+            "core.infrastructure._pendiente.gateway.asyncio.create_subprocess_exec",
             new=AsyncMock(return_value=fake_proc),
         ):
             with patch("sys.stderr", io.StringIO()):
@@ -311,7 +311,7 @@ class TestGetMetrics:
                 {"ok": True, "result": []}, delay_s=delay
             )
             with patch(
-                "core.infrastructure.gateway.asyncio.create_subprocess_exec",
+                "core.infrastructure._pendiente.gateway.asyncio.create_subprocess_exec",
                 new=AsyncMock(return_value=p),
             ):
                 with patch("sys.stderr", io.StringIO()):
@@ -586,7 +586,7 @@ class TestSendToPersistentWorkerTiming:
                     return await real_wait_for(awaitable, *args, **kwargs)
 
                 with patch(
-                    "core.infrastructure.gateway.asyncio.wait_for",
+                    "core.infrastructure._pendiente.gateway.asyncio.wait_for",
                     side_effect=_patched_wait_for,
                 ):
                     result = await gateway._send_to_persistent_worker(
@@ -646,7 +646,7 @@ class TestSendToPersistentWorkerTiming:
                     return await asyncio.wait_for(awaitable, *args, **kwargs)
 
                 with patch(
-                    "core.infrastructure.gateway.asyncio.wait_for",
+                    "core.infrastructure._pendiente.gateway.asyncio.wait_for",
                     side_effect=_patched_wait_for,
                 ):
                     await gateway._send_to_persistent_worker(

@@ -45,7 +45,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from core.infrastructure.gateway import TIAConnectionError, TIAProcessGateway
+from core.infrastructure._pendiente.gateway import TIAConnectionError, TIAProcessGateway
 
 
 def _build_alive_proc() -> MagicMock:

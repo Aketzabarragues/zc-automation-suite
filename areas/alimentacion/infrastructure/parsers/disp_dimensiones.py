@@ -33,7 +33,7 @@ from areas.alimentacion.infrastructure.parsers._xlsx_helpers import (
     _safe_int,
     logger,
 )
-from core.infrastructure.config_manager import ConfigManager
+from core.infrastructure.config.config_manager import ConfigManager
 
 
 # Mapa por defecto de named ranges N_MAX / num_disp_* → atributo

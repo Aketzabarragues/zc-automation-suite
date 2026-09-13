@@ -21,7 +21,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from core.infrastructure.gateway import (
+from core.infrastructure._pendiente.gateway import (
     TIAConnectionError,
     TIAProcessGateway,
     _is_tia_connection_error,
@@ -134,7 +134,7 @@ class TestGatewayConnectionErrorHandling:
         })
 
         with patch(
-            "core.infrastructure.gateway.asyncio.create_subprocess_exec",
+            "core.infrastructure._pendiente.gateway.asyncio.create_subprocess_exec",
             new=AsyncMock(return_value=fake_proc),
         ):
             with pytest.raises(TIAConnectionError):
@@ -161,7 +161,7 @@ class TestGatewayConnectionErrorHandling:
         })
 
         with patch(
-            "core.infrastructure.gateway.asyncio.create_subprocess_exec",
+            "core.infrastructure._pendiente.gateway.asyncio.create_subprocess_exec",
             new=AsyncMock(return_value=fake_proc),
         ):
             with pytest.raises(RuntimeError) as exc_info:
@@ -199,7 +199,7 @@ class TestGatewayConnectionErrorHandling:
         })
 
         with patch(
-            "core.infrastructure.gateway.asyncio.create_subprocess_exec",
+            "core.infrastructure._pendiente.gateway.asyncio.create_subprocess_exec",
             new=AsyncMock(return_value=fake_proc),
         ):
             with pytest.raises(TIAConnectionError):

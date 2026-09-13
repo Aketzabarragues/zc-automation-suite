@@ -145,7 +145,7 @@ class ConfigManager:
         # Si el caller pasa ``config_path`` explícito, eso gana
         # (compat 100% con tests, app.py, mcp_server.py).
         if config_path is None:
-            from core.infrastructure.config_paths import resolve_config_path
+            from core.infrastructure.config.config_paths import resolve_config_path
             config_path = resolve_config_path()
 
         self._config_path = Path(config_path)

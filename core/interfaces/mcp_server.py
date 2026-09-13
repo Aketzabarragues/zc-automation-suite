@@ -35,8 +35,8 @@ from fastmcp import FastMCP
 
 from core.application.log_buffer import get_log_buffer
 from core.application.state import get_app_state
-from core.infrastructure.config_manager import ConfigManager
-from core.infrastructure.gateway import TIAProcessGateway
+from core.infrastructure.config.config_manager import ConfigManager
+from core.infrastructure._pendiente.gateway import TIAProcessGateway
 
 # ── Composition Root ligero ────────────────────────────────────────────
 # Las tools MCP de las áreas (``areas/*/interfaces/mcp/tools.py``)

@@ -20,7 +20,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from core.infrastructure.config_manager import (
+from core.infrastructure.config.config_manager import (
     ConfigManager,
     DispositivoTIAConfig,
 )

@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from core.infrastructure.gateway import TIAProcessGateway
+from core.infrastructure._pendiente.gateway import TIAProcessGateway
 from core.sse.cache_subscribe import (
     hook_tia_gateway_cache_to_bus,
     make_cache_publisher,
