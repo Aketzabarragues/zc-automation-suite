@@ -165,6 +165,10 @@ class MainServiceSupervisor:
         # se monta la web y el operario ve el error.
         tia_client.start_tia_loop()
         engine = Engine(tick_period_s=self.tick_period_s) if not self.no_engine else None
+        if engine is not None:
+            # Registrar los FBs del area (template + futuros reales).
+            from areas.alimentacion import register as register_alimentacion
+            register_alimentacion(engine)
         event_bus = EventBusSync()
         flask_app = create_app(
             tia_client=tia_client,
