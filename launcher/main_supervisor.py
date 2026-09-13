@@ -150,6 +150,8 @@ class MainServiceSupervisor:
              nunca arranca (fail-fast, el operario ve el error al
              pulsar "Iniciar web").
           2. engine + event_bus + flask_app.
+          3. wire_all() cablea LogBuffer, ProgressTracker, tia_client y
+             engine al bus SSE.
         """
         from core.infrastructure.tia_loop import (
             SyncTIAClient,
@@ -161,9 +163,6 @@ class MainServiceSupervisor:
 
         tia_client = SyncTIAClient()
         register_core_commands(tia_client)
-        # tia-loop ANTES de Flask: si la carga del wrapper falla, no
-        # se monta la web y el operario ve el error.
-        tia_client.start_tia_loop()
         engine = Engine(tick_period_s=self.tick_period_s) if not self.no_engine else None
         if engine is not None:
             # Registrar los FBs del area (template + futuros reales).
@@ -176,6 +175,25 @@ class MainServiceSupervisor:
             event_bus=event_bus,
             config_manager=self.config_manager,
         )
+        # Cablea los 5 publishers al bus ANTES de arrancar el tia-loop
+        # para que ``on_loop_status`` capture el evento "running=true"
+        # en cuanto el hilo arranca. Idempotente si los hooks no existen
+        # (log warn + skip).
+        from core.application.log_buffer import get_log_buffer
+        from core.application.progress_buffer import get_progress_tracker
+        from core.sse.publishers import wire_all
+        wire_all(
+            log_buffer=get_log_buffer(),
+            progress_tracker=get_progress_tracker(),
+            tia_client=tia_client,
+            engine=engine,
+            bus=event_bus,
+        )
+        # tia-loop arranca ultimo: si la carga del wrapper falla, los
+        # publishers ya estan cableados (al menos log+progress), y el
+        # fallo se loggea a LogBuffer para que el operario lo vea en
+        # la consola.
+        tia_client.start_tia_loop()
         return tia_client, engine, event_bus, flask_app
 
     def _run_flask_forever(self) -> None:
