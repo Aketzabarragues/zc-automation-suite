@@ -39,7 +39,7 @@ from core.application.state import AppState
 from core.infrastructure.config.config_manager import ConfigManager
 from core.infrastructure._pendiente.gateway import TIAProcessGateway
 from core.infrastructure.tia.tia_export_paths import SdPair, XmlTarget
-from core.models.bloque_cache import BloqueCache
+from core.data.data_bloque_cache import DataBloqueCache
 
 
 _logger = logging.getLogger(f"{__name__}.ProcSyncComentariosUseCase")
@@ -70,7 +70,7 @@ class ProcSyncComentariosUseCase:
         config_manager: ConfigManager,
         app_state: AppState,
         progress: ProgressTracker | None = None,
-        bloques_cache: BloqueCache | None = None,
+        bloques_cache: DataBloqueCache | None = None,
         build_cache_dir: Path | None = None,
     ) -> None:
         self._gateway = gateway
@@ -79,7 +79,7 @@ class ProcSyncComentariosUseCase:
         self._progress: ProgressTracker = (
             progress if progress is not None else get_progress_tracker()
         )
-        self._bloques_cache: BloqueCache | None = bloques_cache
+        self._bloques_cache: DataBloqueCache | None = bloques_cache
         # ``build_cache_dir`` es la RA\u00cdZ del ``BuildCache`` del \u00e1rea
         # (no un workdir concreto). Por convenci\u00f3n, ``<cwd>/.build_cache``.
         # Tests legacy siguen pasando ``tmp_path`` o ``tmp_path /
@@ -213,7 +213,7 @@ class ProcSyncComentariosUseCase:
                     f"{len(bloques.blocks)} bloques, {len(bloques.tag_tables)} tablas"
                 )
 
-            # build_slot_maps: cruzar Excel + BloqueCache.
+            # build_slot_maps: cruzar Excel + DataBloqueCache.
             if _track:
                 self._progress.start_stage("build_slot_maps", "Cruzando Excel ↔ bloques...")
             try:
@@ -595,7 +595,7 @@ class ProcSyncComentariosUseCase:
                 # cubriendo ambos arrays.
                 #
                 # ``db_subpath`` es la subcarpeta TIA donde está el DB
-                # (extraída de ``BloqueCache.blocks[<db>].ruta``). TIA
+                # (extraída de ``DataBloqueCache.blocks[<db>].ruta``). TIA
                 # Portal V21 requiere reimportar en la MISMA ruta donde
                 # ya existe el bloque, si no, falla con "object with the
                 # name already exists" (validado 2026-09-07). Si la
@@ -1002,7 +1002,7 @@ class ProcSyncComentariosUseCase:
         )
         if not plc_name:
             raise RuntimeError(
-                "BloqueCache sin plc_name; no se puede exportar."
+                "DataBloqueCache sin plc_name; no se puede exportar."
             )
 
         # 1. Exportar los 2 DBs (en paralelo sería ideal pero

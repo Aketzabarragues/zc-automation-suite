@@ -47,7 +47,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, NoReturn
 
-from core.models.bloque_plc import BloquePLC
+from core.data.data_bloque_plc import DataBloquePLC
 
 # Forzar UTF-8 en los streams del worker.
 # El worker es un subproceso de TIAProcessGateway (v�a
@@ -840,7 +840,7 @@ def _scan_block_group_recursive(group_or_blocks: Any) -> list[dict[str, Any]]:
       3. Extrae sub-grupos via ``get_groups()`` / ``.Groups`` y recurre.
 
     Returns:
-        Lista de ``dict`` con shape ``BloquePLC.to_dict()``.
+        Lista de ``dict`` con shape ``DataBloquePLC.to_dict()``.
         Bloques con nombre inaccesible (UnicodeDecodeError) se omiten
         silenciosamente (logueados a debug).
     """
@@ -863,11 +863,11 @@ def _scan_block_group_recursive(group_or_blocks: Any) -> list[dict[str, Any]]:
             _logger.debug("Bloque sin nombre legible: omitido.")
             continue
         ruta = _safe_get_block_path(block)
-        tipo = BloquePLC.detect_tipo(nombre)
+        tipo = DataBloquePLC.detect_tipo(nombre)
         match = re.match(r"^(DB|FB|FC|OB|UDT)(\d+)", nombre, re.IGNORECASE)
         numero = int(match.group(2)) if match else 0
         out.append(
-            BloquePLC(
+            DataBloquePLC(
                 nombre=str(nombre),
                 numero=numero,
                 tipo=tipo,
@@ -896,7 +896,7 @@ def _cmd_scan_blocks(portal: Any, ts: Any, args: dict[str, Any]) -> dict[str, An
 
     Devuelve un dict primitivo serializable (lista de bloques + lista de
     tablas + lista de UDTs + timestamp ISO 8601 + nombre del PLC). El IT
-    reconstruye ``BloqueCache`` a partir de este payload.
+    reconstruye ``DataBloqueCache`` a partir de este payload.
 
     Args:
         portal: instancia del portal TIA (inyectada por el dispatcher).
@@ -945,7 +945,7 @@ def _cmd_scan_blocks(portal: Any, ts: Any, args: dict[str, Any]) -> dict[str, An
             continue
         ruta = _safe_get_block_path(table)
         tag_tables_list.append(
-            BloquePLC(
+            DataBloquePLC(
                 nombre=str(nombre),
                 numero=0,
                 tipo="OTHER",

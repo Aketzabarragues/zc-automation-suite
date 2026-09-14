@@ -1,6 +1,6 @@
 """Manager Singleton del cache IT de bloques PLC en memoria.
 
-Mantiene ``dict[plc_name, BloqueCache]`` a nivel de proceso (estado
+Mantiene ``dict[plc_name, DataBloqueCache]`` a nivel de proceso (estado
 clase, NO instancia) para que cualquier consumidor (gateway, use case,
 router) vea la misma vista.
 
@@ -25,26 +25,26 @@ import asyncio
 import logging
 from typing import ClassVar
 
-from core.models.bloque_cache import BloqueCache
+from core.data.data_bloque_cache import DataBloqueCache
 
 
 _logger = logging.getLogger("zc.tia_loop")
 
 
-class TIABloqueCache:
+class TIADataBloqueCache:
     """Singleton por proceso del cache IT de bloques de PLC."""
 
-    _caches: ClassVar[dict[str, BloqueCache]] = {}
+    _caches: ClassVar[dict[str, DataBloqueCache]] = {}
     _lock: ClassVar[asyncio.Lock] = asyncio.Lock()
 
     @classmethod
-    async def get(cls, plc_name: str) -> BloqueCache | None:
+    async def get(cls, plc_name: str) -> DataBloqueCache | None:
         """Devuelve el cache para ``plc_name`` o ``None`` si no existe."""
         async with cls._lock:
             return cls._caches.get(plc_name)
 
     @classmethod
-    async def put(cls, plc_name: str, cache: BloqueCache) -> None:
+    async def put(cls, plc_name: str, cache: DataBloqueCache) -> None:
         """Reemplaza el cache de un PLC concreto.
 
         Loguea a INFO con el conteo de bloques y tablas para que el

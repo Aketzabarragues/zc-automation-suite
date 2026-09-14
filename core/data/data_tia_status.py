@@ -1,4 +1,4 @@
-"""core.data.data_estado — Data Block del estado global de TIA Portal.
+"""core.data.data_tia_status — Data Block del estado global de TIA Portal.
 
 Fase 3, paso 3.1.1.  Reemplaza (progresivamente) los campos sueltos
 de ``core/infrastructure/gateway.py:_connection_state`` y agrega
@@ -27,7 +27,7 @@ Campos:
 Migracion:
   - La SPA hoy consume ``{"type": "tia_state", "state": "..."}``
     (1 campo).  En 3.3 (refactor in-place de ``store.js``) se
-    actualiza a consumir el payload completo de ``DataEstado``.
+    actualiza a consumir el payload completo de ``DataTiaStatus``.
   - Hasta entonces, el serializador de ``tia_state`` emite el campo
     ``state`` (back-compat) y, opcionalmente, el resto de los
     campos en un dict extendido.
@@ -38,10 +38,10 @@ from dataclasses import dataclass, field
 
 
 @dataclass
-class DataEstado:
+class DataTiaStatus:
     """Estado global del worker TIA + proyecto + PLCs.
 
-    Instanciar con ``DataEstado()`` da el estado por defecto
+    Instanciar con ``DataTiaStatus()`` da el estado por defecto
     (worker muerto, TIA idle, sin proyecto).  El Composition Root
     lo inyecta en ``app.state.data_estado`` y el router lo lee
     para servirlo al frontend.

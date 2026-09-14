@@ -1,4 +1,4 @@
-"""Tests del Data Block ``core.data.data_estado.DataEstado``.
+"""Tests del Data Block ``core.data.data_tia_status.DataTiaStatus``.
 
 Fase 3, paso 3.1.1.  Cubren:
   - Valores por defecto (worker muerto, TIA idle, sin proyecto).
@@ -10,12 +10,12 @@ Fase 3, paso 3.1.1.  Cubren:
 """
 from __future__ import annotations
 
-from core.data.data_estado import DataEstado
+from core.data.data_tia_status import DataTiaStatus
 
 
 def test_data_estado_defaults() -> None:
     """Valores por defecto: worker muerto, TIA idle, sin proyecto."""
-    estado = DataEstado()
+    estado = DataTiaStatus()
     assert estado.worker_alive is False
     assert estado.tia_state == "idle"
     assert estado.project_name is None
@@ -27,7 +27,7 @@ def test_data_estado_defaults() -> None:
 
 def test_data_estado_is_mutable() -> None:
     """Los campos son asignables (dataclass no-frozen)."""
-    estado = DataEstado()
+    estado = DataTiaStatus()
     estado.worker_alive = True
     estado.tia_state = "connected"
     estado.project_name = "MiProyecto"
@@ -48,7 +48,7 @@ def test_data_estado_is_mutable() -> None:
 def test_data_estado_to_dict_shape() -> None:
     """``to_dict()`` produce la shape correcta, con ``state`` para
     back-compat con la SPA actual."""
-    estado = DataEstado(
+    estado = DataTiaStatus(
         worker_alive=True,
         tia_state="connected",
         project_name="MiProyecto",
@@ -72,7 +72,7 @@ def test_data_estado_to_dict_shape() -> None:
 def test_data_estado_to_dict_copia_lista_plcs() -> None:
     """``to_dict()`` retorna una COPIA de ``plcs`` (no alias del list
     interno), para evitar que mutaciones externas filtren al DB."""
-    estado = DataEstado(plcs=["PLC-1"])
+    estado = DataTiaStatus(plcs=["PLC-1"])
     d = estado.to_dict()
     d["plcs"].append("PLC-2")  # mutar el dict NO debe afectar al DB
     assert estado.plcs == ["PLC-1"]
@@ -84,7 +84,7 @@ def test_data_estado_to_dict_copia_lista_plcs() -> None:
 
 def test_data_estado_plcs_default_factory_independiente() -> None:
     """Dos instancias no comparten el list de PLCs (default_factory)."""
-    e1 = DataEstado()
-    e2 = DataEstado()
+    e1 = DataTiaStatus()
+    e2 = DataTiaStatus()
     e1.plcs.append("PLC-compartido")
     assert e2.plcs == []  # la otra instancia NO se ve afectada

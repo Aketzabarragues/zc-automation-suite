@@ -356,7 +356,7 @@ def _h_scan_blocks(args: dict, tia_client: "SyncTIAClient") -> dict:
             plc_name, exc,
         )
 
-    from core.models.bloque_plc import BloquePLC  # local import para no tocar top-level
+    from core.data.data_bloque_plc import DataBloquePLC  # local import para no tocar top-level
 
     tag_tables_list: list[dict] = []
     for table in tag_tables_objs:
@@ -365,7 +365,7 @@ def _h_scan_blocks(args: dict, tia_client: "SyncTIAClient") -> dict:
             continue
         ruta = _safe_get_block_path(table)
         tag_tables_list.append(
-            BloquePLC(
+            DataBloquePLC(
                 nombre=str(nombre),
                 numero=0,
                 tipo="OTHER",

@@ -21,7 +21,7 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from core.models.bloque_plc import BloquePLC
+from core.data.data_bloque_plc import DataBloquePLC
 
 if TYPE_CHECKING:
     from core.infrastructure.tia.tia_loop import SyncTIAClient
@@ -158,7 +158,7 @@ def _scan_block_group_recursive(group_or_blocks: Any) -> list[dict]:
     """Recorre recursivamente un grupo o coleccion de bloques -> DTOs dict.
 
     Returns:
-        Lista de dicts con shape BloquePLC.to_dict(). Bloques con
+        Lista de dicts con shape DataBloquePLC.to_dict(). Bloques con
         nombre inaccesible (UnicodeDecodeError) se omiten.
     """
     blocks_iter: list = []
@@ -178,11 +178,11 @@ def _scan_block_group_recursive(group_or_blocks: Any) -> list[dict]:
         if not nombre:
             continue
         ruta = _safe_get_block_path(block)
-        tipo = BloquePLC.detect_tipo(nombre)
+        tipo = DataBloquePLC.detect_tipo(nombre)
         match = re.match(r"^(DB|FB|FC|OB|UDT)(\d+)", nombre, re.IGNORECASE)
         numero = int(match.group(2)) if match else 0
         out.append(
-            BloquePLC(
+            DataBloquePLC(
                 nombre=str(nombre),
                 numero=numero,
                 tipo=tipo,

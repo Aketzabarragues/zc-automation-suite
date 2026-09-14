@@ -1,4 +1,4 @@
-"""Tests del DTO ``BloquePLC``.
+"""Tests del DTO ``DataBloquePLC``.
 
 Validan las tres superficies del value object:
   - ``normalize_name`` (estabilidad de claves en caches).
@@ -12,7 +12,7 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from core.models.bloque_plc import BloquePLC
+from core.data.data_bloque_plc import DataBloquePLC
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -23,24 +23,24 @@ from core.models.bloque_plc import BloquePLC
 def test_normalize_name_strips_nbsp_and_spaces_and_lowercases() -> None:
     """Distintos formatos del mismo bloque deben coincidir tras normalizar."""
     assert (
-        BloquePLC.normalize_name("DB 2000")
-        == BloquePLC.normalize_name("DB2000")
-        == BloquePLC.normalize_name("db\xa02000")
+        DataBloquePLC.normalize_name("DB 2000")
+        == DataBloquePLC.normalize_name("DB2000")
+        == DataBloquePLC.normalize_name("db\xa02000")
     )
     # Y todos colapsan al mismo string canonico.
-    assert BloquePLC.normalize_name("DB 2000") == "db2000"
+    assert DataBloquePLC.normalize_name("DB 2000") == "db2000"
 
 
 def test_normalize_name_empty_returns_empty() -> None:
     """String vacia → vacia (no falla)."""
-    assert BloquePLC.normalize_name("") == ""
+    assert DataBloquePLC.normalize_name("") == ""
 
 
 def test_normalize_name_keeps_prefix() -> None:
     """NO se hace prefix-stripping: DB1 ≠ FB1."""
-    assert BloquePLC.normalize_name("DB1") == "db1"
-    assert BloquePLC.normalize_name("FB1") == "fb1"
-    assert BloquePLC.normalize_name("DB1") != BloquePLC.normalize_name("FB1")
+    assert DataBloquePLC.normalize_name("DB1") == "db1"
+    assert DataBloquePLC.normalize_name("FB1") == "fb1"
+    assert DataBloquePLC.normalize_name("DB1") != DataBloquePLC.normalize_name("FB1")
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -69,7 +69,7 @@ def test_normalize_name_keeps_prefix() -> None:
 def test_detect_tipo_db_fb_fc_ob_udt(
     name: str, expected_tipo: str, expected_numero: int
 ) -> None:
-    assert BloquePLC.detect_tipo(name) == expected_tipo
+    assert DataBloquePLC.detect_tipo(name) == expected_tipo
     # El ``numero`` se extrae en ``_cmd_scan_blocks`` con el mismo regex;
     # aqui validamos solo la clasificacion (el numero sale del mismo
     # match que el tipo).
@@ -77,9 +77,9 @@ def test_detect_tipo_db_fb_fc_ob_udt(
 
 def test_detect_tipo_other() -> None:
     """Nombre sin prefijo estandar → ``OTHER``."""
-    assert BloquePLC.detect_tipo("MyBlock") == "OTHER"
-    assert BloquePLC.detect_tipo("Sistema") == "OTHER"
-    assert BloquePLC.detect_tipo("") == "OTHER"
+    assert DataBloquePLC.detect_tipo("MyBlock") == "OTHER"
+    assert DataBloquePLC.detect_tipo("Sistema") == "OTHER"
+    assert DataBloquePLC.detect_tipo("") == "OTHER"
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -89,7 +89,7 @@ def test_detect_tipo_other() -> None:
 
 def test_to_dict_has_four_fields() -> None:
     """to_dict debe serializar exactamente 4 campos primitivos."""
-    b = BloquePLC(nombre="DB1_SYS", numero=1, tipo="DB", ruta="0_Sistema\\DB1_SYS")
+    b = DataBloquePLC(nombre="DB1_SYS", numero=1, tipo="DB", ruta="0_Sistema\\DB1_SYS")
     d = b.to_dict()
     assert set(d.keys()) == {"nombre", "numero", "tipo", "ruta"}
     assert d == {
@@ -107,6 +107,6 @@ def test_to_dict_has_four_fields() -> None:
 
 def test_frozen_dataclass_cannot_be_mutated() -> None:
     """``frozen=True`` → cualquier intento de asignar atributo falla."""
-    b = BloquePLC(nombre="DB1", numero=1, tipo="DB", ruta="")
+    b = DataBloquePLC(nombre="DB1", numero=1, tipo="DB", ruta="")
     with pytest.raises(FrozenInstanceError):
         b.nombre = "DB2"  # type: ignore[misc]

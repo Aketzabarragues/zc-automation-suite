@@ -36,8 +36,8 @@ from core.application.progress_buffer import (  # noqa: E402
 )
 from core.infrastructure.config.config_manager import ConfigManager  # noqa: E402
 from core.infrastructure._pendiente.gateway import TIAProcessGateway  # noqa: E402
-from core.models.bloque_cache import BloqueCache  # noqa: E402
-from core.models.bloque_plc import BloquePLC  # noqa: E402
+from core.data.data_bloque_cache import DataBloqueCache  # noqa: E402
+from core.data.data_bloque_plc import DataBloquePLC  # noqa: E402
 from areas.alimentacion.application.use_cases.proc_sync_comentarios import (  # noqa: E402
     ProcSyncComentariosUseCase,
 )
@@ -69,18 +69,18 @@ def _make_state(excel_cache: MagicMock | None) -> MagicMock:
     return s
 
 
-def _make_populated_cache() -> BloqueCache:
+def _make_populated_cache() -> DataBloqueCache:
     """Cache con los 3 nombres esperados para proc uid=100, codigo=CPR."""
-    return BloqueCache(
+    return DataBloqueCache(
         blocks={
-            BloquePLC.normalize_name("DB53100_CPR_PARAM"):
-                BloquePLC(nombre="DB53100_CPR_PARAM", numero=0, tipo="DB", ruta=""),
-            BloquePLC.normalize_name("DB55100_CPR_ALM"):
-                BloquePLC(nombre="DB55100_CPR_ALM", numero=0, tipo="DB", ruta=""),
+            DataBloquePLC.normalize_name("DB53100_CPR_PARAM"):
+                DataBloquePLC(nombre="DB53100_CPR_PARAM", numero=0, tipo="DB", ruta=""),
+            DataBloquePLC.normalize_name("DB55100_CPR_ALM"):
+                DataBloquePLC(nombre="DB55100_CPR_ALM", numero=0, tipo="DB", ruta=""),
         },
         tag_tables={
-            BloquePLC.normalize_name("100_CPR"):
-                BloquePLC(nombre="100_CPR", numero=0, tipo="TAG_TABLE", ruta=""),
+            DataBloquePLC.normalize_name("100_CPR"):
+                DataBloquePLC(nombre="100_CPR", numero=0, tipo="TAG_TABLE", ruta=""),
         },
         plc_name="PLC_X",
     )
@@ -163,7 +163,7 @@ def test_generar_prevision_done_closes_when_missing_blocks() -> None:
         config_manager=config,
         app_state=_make_state(_make_excel_cache()),
         progress=tracker,
-        bloques_cache=BloqueCache(),  # VACÍA → missing_blocks
+        bloques_cache=DataBloqueCache(),  # VACÍA → missing_blocks
     )
 
     import asyncio
@@ -264,8 +264,8 @@ def test_generar_prevision_diff_real_con_archivos_tia(tmp_path) -> None:
     import asyncio
     import re
     from core.infrastructure._pendiente.gateway import TIAProcessGateway
-    from core.models.bloque_cache import BloqueCache
-    from core.models.bloque_plc import BloquePLC
+    from core.data.data_bloque_cache import DataBloqueCache
+    from core.data.data_bloque_plc import DataBloquePLC
     from unittest.mock import AsyncMock
 
     # 1. Preparar los archivos .s7dcl/.s7res en el work_dir que
@@ -362,16 +362,16 @@ def test_generar_prevision_diff_real_con_archivos_tia(tmp_path) -> None:
     state.excel_cache = ec
 
     # 4. Cache de bloques con los 3 nombres.
-    bloques = BloqueCache(
+    bloques = DataBloqueCache(
         blocks={
-            BloquePLC.normalize_name(db_param):
-                BloquePLC(nombre=db_param, numero=0, tipo="DB", ruta=""),
-            BloquePLC.normalize_name(db_alm):
-                BloquePLC(nombre=db_alm, numero=0, tipo="DB", ruta=""),
+            DataBloquePLC.normalize_name(db_param):
+                DataBloquePLC(nombre=db_param, numero=0, tipo="DB", ruta=""),
+            DataBloquePLC.normalize_name(db_alm):
+                DataBloquePLC(nombre=db_alm, numero=0, tipo="DB", ruta=""),
         },
         tag_tables={
-            BloquePLC.normalize_name("100_CPR"):
-                BloquePLC(nombre="100_CPR", numero=0, tipo="TAG_TABLE", ruta=""),
+            DataBloquePLC.normalize_name("100_CPR"):
+                DataBloquePLC(nombre="100_CPR", numero=0, tipo="TAG_TABLE", ruta=""),
         },
         plc_name="PLC_X",
     )
@@ -440,8 +440,8 @@ def test_generar_prevision_incluye_nmax_block_en_response(tmp_path) -> None:
     import asyncio
     from core.application.progress_buffer import ProgressTracker
     from core.infrastructure._pendiente.gateway import TIAProcessGateway
-    from core.models.bloque_cache import BloqueCache
-    from core.models.bloque_plc import BloquePLC
+    from core.data.data_bloque_cache import DataBloqueCache
+    from core.data.data_bloque_plc import DataBloquePLC
     from unittest.mock import AsyncMock, MagicMock
 
     proc = MagicMock(uid=100, nombre="Compacto", codigo="CPR")
@@ -457,18 +457,18 @@ def test_generar_prevision_incluye_nmax_block_en_response(tmp_path) -> None:
                   comentario_db="AL 1")
     ]
     state = MagicMock(excel_cache=ec)
-    bloques = BloqueCache(
+    bloques = DataBloqueCache(
         blocks={
-            BloquePLC.normalize_name("DB53100_CPR_PARAM"):
-                BloquePLC(nombre="DB53100_CPR_PARAM", numero=0,
+            DataBloquePLC.normalize_name("DB53100_CPR_PARAM"):
+                DataBloquePLC(nombre="DB53100_CPR_PARAM", numero=0,
                           tipo="DB", ruta=""),
-            BloquePLC.normalize_name("DB55100_CPR_ALM"):
-                BloquePLC(nombre="DB55100_CPR_ALM", numero=0,
+            DataBloquePLC.normalize_name("DB55100_CPR_ALM"):
+                DataBloquePLC(nombre="DB55100_CPR_ALM", numero=0,
                           tipo="DB", ruta=""),
         },
         tag_tables={
-            BloquePLC.normalize_name("100_CPR"):
-                BloquePLC(nombre="100_CPR", numero=0, tipo="TAG_TABLE",
+            DataBloquePLC.normalize_name("100_CPR"):
+                DataBloquePLC(nombre="100_CPR", numero=0, tipo="TAG_TABLE",
                           ruta=""),
         },
         plc_name="PLC_X",
@@ -524,8 +524,8 @@ def test_generar_prevision_nmax_block_con_sufijos_usa_gateway(tmp_path) -> None:
     import asyncio
     from core.application.progress_buffer import ProgressTracker
     from core.infrastructure._pendiente.gateway import TIAProcessGateway
-    from core.models.bloque_cache import BloqueCache
-    from core.models.bloque_plc import BloquePLC
+    from core.data.data_bloque_cache import DataBloqueCache
+    from core.data.data_bloque_plc import DataBloquePLC
     from unittest.mock import AsyncMock, MagicMock
 
     proc = MagicMock(uid=100, nombre="Compacto", codigo="CPR")
@@ -541,18 +541,18 @@ def test_generar_prevision_nmax_block_con_sufijos_usa_gateway(tmp_path) -> None:
                   comentario_db="AL 1")
     ]
     state = MagicMock(excel_cache=ec)
-    bloques = BloqueCache(
+    bloques = DataBloqueCache(
         blocks={
-            BloquePLC.normalize_name("DB53100_CPR_PARAM"):
-                BloquePLC(nombre="DB53100_CPR_PARAM", numero=0,
+            DataBloquePLC.normalize_name("DB53100_CPR_PARAM"):
+                DataBloquePLC(nombre="DB53100_CPR_PARAM", numero=0,
                           tipo="DB", ruta=""),
-            BloquePLC.normalize_name("DB55100_CPR_ALM"):
-                BloquePLC(nombre="DB55100_CPR_ALM", numero=0,
+            DataBloquePLC.normalize_name("DB55100_CPR_ALM"):
+                DataBloquePLC(nombre="DB55100_CPR_ALM", numero=0,
                           tipo="DB", ruta=""),
         },
         tag_tables={
-            BloquePLC.normalize_name("100_CPR"):
-                BloquePLC(nombre="100_CPR", numero=0, tipo="TAG_TABLE",
+            DataBloquePLC.normalize_name("100_CPR"):
+                DataBloquePLC(nombre="100_CPR", numero=0, tipo="TAG_TABLE",
                           ruta=""),
         },
         plc_name="PLC_X",
@@ -620,8 +620,8 @@ def test_generar_prevision_no_pisa_tracker_con_otra_operacion_activa(
     import asyncio
     from core.application.progress_buffer import ProgressTracker
     from core.infrastructure._pendiente.gateway import TIAProcessGateway
-    from core.models.bloque_cache import BloqueCache
-    from core.models.bloque_plc import BloquePLC
+    from core.data.data_bloque_cache import DataBloqueCache
+    from core.data.data_bloque_plc import DataBloquePLC
     from unittest.mock import AsyncMock, MagicMock
 
     # Tracker YA activo con otra operación.
@@ -645,10 +645,10 @@ def test_generar_prevision_no_pisa_tracker_con_otra_operacion_activa(
     ec.parametros_int = []
     ec.alarmas = []
     state = MagicMock(excel_cache=ec)
-    bloques = BloqueCache(
+    bloques = DataBloqueCache(
         blocks={
-            BloquePLC.normalize_name("DB53100_CPR_PARAM"):
-                BloquePLC(nombre="DB53100_CPR_PARAM", numero=0,
+            DataBloquePLC.normalize_name("DB53100_CPR_PARAM"):
+                DataBloquePLC(nombre="DB53100_CPR_PARAM", numero=0,
                           tipo="DB", ruta=""),
         },
         tag_tables={},
@@ -695,8 +695,8 @@ def test_generar_prevision_slots_tia_no_excel_aparecen_como_eliminar(
     import asyncio
     from core.application.progress_buffer import ProgressTracker
     from core.infrastructure._pendiente.gateway import TIAProcessGateway
-    from core.models.bloque_cache import BloqueCache
-    from core.models.bloque_plc import BloquePLC
+    from core.data.data_bloque_cache import DataBloqueCache
+    from core.data.data_bloque_plc import DataBloquePLC
     from unittest.mock import AsyncMock, MagicMock
 
     db_param = "DB53100_CPR_PARAM"
@@ -714,19 +714,19 @@ def test_generar_prevision_slots_tia_no_excel_aparecen_como_eliminar(
     ec.parametros_int = []
     ec.alarmas = []  # El test solo cubre PReal.
     state = MagicMock(excel_cache=ec)
-    bloques = BloqueCache(
+    bloques = DataBloqueCache(
         blocks={
-            BloquePLC.normalize_name(db_param):
-                BloquePLC(nombre=db_param, numero=0, tipo="DB", ruta=""),
+            DataBloquePLC.normalize_name(db_param):
+                DataBloquePLC(nombre=db_param, numero=0, tipo="DB", ruta=""),
             # El test no cubre alarmas, pero el builder necesita que
             # el DB de alarmas exista en el cache. Con ``ec.alarmas=[]``
             # cae al fallback ``DB<proc.uid>_CPR_ALM`` (``DB100_CPR_ALM``).
-            BloquePLC.normalize_name("DB100_CPR_ALM"):
-                BloquePLC(nombre="DB100_CPR_ALM", numero=0, tipo="DB", ruta=""),
+            DataBloquePLC.normalize_name("DB100_CPR_ALM"):
+                DataBloquePLC(nombre="DB100_CPR_ALM", numero=0, tipo="DB", ruta=""),
         },
         tag_tables={
-            BloquePLC.normalize_name("100_CPR"):
-                BloquePLC(nombre="100_CPR", numero=0, tipo="TAG_TABLE",
+            DataBloquePLC.normalize_name("100_CPR"):
+                DataBloquePLC(nombre="100_CPR", numero=0, tipo="TAG_TABLE",
                           ruta=""),
         },
         plc_name="PLC_X",
@@ -880,8 +880,8 @@ def test_generar_prevision_closes_tracker_when_missing_blocks(tmp_path) -> None:
         STAGE_DONE,
     )
     from core.infrastructure._pendiente.gateway import TIAProcessGateway
-    from core.models.bloque_cache import BloqueCache
-    from core.models.bloque_plc import BloquePLC
+    from core.data.data_bloque_cache import DataBloqueCache
+    from core.data.data_bloque_plc import DataBloquePLC
     from unittest.mock import MagicMock
 
     # Tracker LIMPIO (no activo). El use case va a ser el dueño
@@ -889,7 +889,7 @@ def test_generar_prevision_closes_tracker_when_missing_blocks(tmp_path) -> None:
     tracker = ProgressTracker()
     assert tracker.active is False
 
-    # El proceso 1 NO existe en el PLC: el BloqueCache solo tiene
+    # El proceso 1 NO existe en el PLC: el DataBloqueCache solo tiene
     # bloques del proceso 100, no del 1. ``proc_build_slot_maps``
     # lo detectará y poblará ``missing_blocks``.
     proc = MagicMock(uid=1, nombre="Genérico", codigo="GNR")
@@ -905,16 +905,16 @@ def test_generar_prevision_closes_tracker_when_missing_blocks(tmp_path) -> None:
                   comentario_db="Y")
     ]
     state = MagicMock(excel_cache=ec)
-    # BloqueCache del proceso 100 (NO del 1 que estamos consultando).
-    bloques = BloqueCache(
+    # DataBloqueCache del proceso 100 (NO del 1 que estamos consultando).
+    bloques = DataBloqueCache(
         blocks={
-            BloquePLC.normalize_name("DB53100_CPR_PARAM"):
-                BloquePLC(nombre="DB53100_CPR_PARAM", numero=0,
+            DataBloquePLC.normalize_name("DB53100_CPR_PARAM"):
+                DataBloquePLC(nombre="DB53100_CPR_PARAM", numero=0,
                           tipo="DB", ruta=""),
         },
         tag_tables={
-            BloquePLC.normalize_name("100_CPR"):
-                BloquePLC(nombre="100_CPR", numero=0, tipo="TAG_TABLE",
+            DataBloquePLC.normalize_name("100_CPR"):
+                DataBloquePLC(nombre="100_CPR", numero=0, tipo="TAG_TABLE",
                           ruta=""),
         },
         plc_name="PLC_X",

@@ -1,6 +1,6 @@
 """Tests de ``proc_build_slot_maps`` (Track B capa app).
 
-Cubre el cruce Excel ↔ BloqueCache para los 3 arrays por proceso
+Cubre el cruce Excel ↔ DataBloqueCache para los 3 arrays por proceso
 (PReal, PInt, ALM). Verifica precondiciones, fallback de ``num_db``,
 comentarios vacíos y filtrado por codigo/proceso.
 """
@@ -15,25 +15,25 @@ from areas.alimentacion.application.proc_slot_map_builder import (
     proc_build_slot_maps,
 )
 from core.infrastructure.config.config_manager import ConfigManager
-from core.models.bloque_cache import BloqueCache
-from core.models.bloque_plc import BloquePLC
+from core.data.data_bloque_cache import DataBloqueCache
+from core.data.data_bloque_plc import DataBloquePLC
 
 
-def _make_bloque_cache(names: list[str], tag_tables: list[str] | None = None) -> BloqueCache:
-    """Crea un BloqueCache con los nombres de bloques y tag tables indicados."""
+def _make_bloque_cache(names: list[str], tag_tables: list[str] | None = None) -> DataBloqueCache:
+    """Crea un DataBloqueCache con los nombres de bloques y tag tables indicados."""
     blocks = {
-        BloquePLC.normalize_name(n): BloquePLC(
+        DataBloquePLC.normalize_name(n): DataBloquePLC(
             nombre=n, numero=0, tipo="DB", ruta=""
         )
         for n in names
     }
     tables_dict = {
-        BloquePLC.normalize_name(n): BloquePLC(
+        DataBloquePLC.normalize_name(n): DataBloquePLC(
             nombre=n, numero=0, tipo="TAG_TABLE", ruta=""
         )
         for n in (tag_tables or [])
     }
-    return BloqueCache(blocks=blocks, tag_tables=tables_dict)
+    return DataBloqueCache(blocks=blocks, tag_tables=tables_dict)
 
 
 def _make_excel_cache(
@@ -170,7 +170,7 @@ def test_proceso_no_en_excel_lanza_runtime_error() -> None:
     """``proc_uid`` no está en ``excel_cache.procesos`` → RuntimeError."""
     excel_cache = _make_excel_cache(procesos=[])
     state = MagicMock(excel_cache=excel_cache)
-    bloques = BloqueCache()
+    bloques = DataBloqueCache()
 
     with pytest.raises(RuntimeError, match="no está en el Excel"):
         proc_build_slot_maps(state, MagicMock(), 999, bloques)
@@ -190,7 +190,7 @@ def test_bloque_ausente_en_bloque_cache_devuelve_missing() -> None:
         procesos=[proc], parametros_real=parametros_real, alarmas=alarmas
     )
     state = MagicMock(excel_cache=excel_cache)
-    bloques = BloqueCache()  # vacío → faltan los 3 bloques
+    bloques = DataBloqueCache()  # vacío → faltan los 3 bloques
 
     result = proc_build_slot_maps(state, MagicMock(), 1, bloques)
     assert len(result.missing_blocks) == 3
@@ -216,7 +216,7 @@ def test_tres_bloques_ausentes_missing_tiene_3_entradas() -> None:
         alarmas=[MagicMock(uid="AL_1", proceso="Compacto", num_db=55100, comentario_db="Y")],
     )
     state = MagicMock(excel_cache=excel_cache)
-    bloques = BloqueCache()
+    bloques = DataBloqueCache()
 
     result = proc_build_slot_maps(state, MagicMock(), 1, bloques)
     assert len(result.missing_blocks) == 3
@@ -230,7 +230,7 @@ def test_tres_bloques_ausentes_missing_tiene_3_entradas() -> None:
 def test_excel_vacio_lanza_runtime_error() -> None:
     """``state.excel_cache is None`` → RuntimeError."""
     state = MagicMock(excel_cache=None)
-    bloques = BloqueCache()
+    bloques = DataBloqueCache()
     with pytest.raises(RuntimeError, match="excel_cache está vacío"):
         proc_build_slot_maps(state, MagicMock(), 1, bloques)
 

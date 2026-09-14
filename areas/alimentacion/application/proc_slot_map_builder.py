@@ -13,7 +13,7 @@ Es el hermano "procesos" de ``disp_slot_map_builder.py`` (que cubre los
   - **Parametrizado por array.** Recibe un único ``array_name`` por
     llamada (no un ``hw_type``).
   - **3 arrays** por proceso (PReal, PInt, ALM) en lugar de 1.
-  - **Cruza con BloqueCache** (no con ConfigManager) para verificar
+  - **Cruza con DataBloqueCache** (no con ConfigManager) para verificar
     que el DB/tabla existen en el PLC. Faltan → ``missing_blocks``
     poblado, NO aborta (la SPA muestra el aviso y NO abre la vista
     de diff).
@@ -32,8 +32,8 @@ from areas.alimentacion.infrastructure.sd.proc_comment_updater import (
 from core.application.state import AppState
 from core.infrastructure.config.config_manager import ConfigManager
 from core.infrastructure.tia.tia_export_paths import EMPTY_TEXT
-from core.models.bloque_cache import BloqueCache
-from core.models.bloque_plc import BloquePLC
+from core.data.data_bloque_cache import DataBloqueCache
+from core.data.data_bloque_plc import DataBloquePLC
 
 
 _logger = logging.getLogger(__name__)
@@ -72,7 +72,7 @@ class ProcSlotMap:
                     ya computados (``"100_N_MAX_PREAL"``, etc.). Vacío
                     si el config no aporta sufijos.
         missing_blocks: lista de mensajes describiendo los bloques
-                        ausentes en el ``BloqueCache``. Vacía si
+                        ausentes en el ``DataBloqueCache``. Vacía si
                         todo está presente.
         warnings: lista de warnings no fatales (p. ej. ``num_db``
                   fallback al ``proc.uid`` cuando la lista de
@@ -88,10 +88,10 @@ class ProcSlotMap:
     # Subcarpeta TIA de cada DB dentro de "Bloques de programa"
     # (relativa al root del PLC, con ``\\`` como separator, e.g.
     # ``"ZC_Plantillas\\50010_ProcesoEstandar\\53010_Parametros"``).
-    # Se extrae del ``BloquePLC.ruta`` cacheado al escanear TIA. Si
+    # Se extrae del ``DataBloquePLC.ruta`` cacheado al escanear TIA. Si
     # la cache no tiene la ruta (escaneo fallido), queda ``""`` y el
     # worker escribe los archivos a la raíz de ``exports/`` (legacy).
-    # Ver `BloqueCacheManager` y la fix del bug de reimport del
+    # Ver `DataBloqueCacheManager` y la fix del bug de reimport del
     # 2026-09-07 (TIA requiere misma estructura de carpetas para
     # reconciliar el bloque por nombre y hacer UPDATE).
     param_subpath: str = ""
@@ -185,9 +185,9 @@ def proc_build_slot_maps(
     app_state: AppState,
     config_manager: ConfigManager,
     proc_uid: int,
-    bloques_cache: BloqueCache,
+    bloques_cache: DataBloqueCache,
 ) -> ProcSlotMap:
-    """Cruza Excel + BloqueCache + config para producir los slot maps.
+    """Cruza Excel + DataBloqueCache + config para producir los slot maps.
 
     Raises:
         RuntimeError: si ``app_state.excel_cache`` es ``None`` o si
@@ -198,7 +198,7 @@ def proc_build_slot_maps(
 
     Política de precondiciones:
       - Si falta alguno de los 3 bloques (DB_PARAM, DB_ALM, tabla)
-        en el ``BloqueCache``, la función añade el nombre a
+        en el ``DataBloqueCache``, la función añade el nombre a
         ``missing_blocks`` y retorna con los 3 dicts vacíos
         (NO lanza). La SPA pinta el aviso y bloquea la vista de diff.
     """
@@ -248,35 +248,35 @@ def proc_build_slot_maps(
 
     table_name = f"{proc_uid}_{proc.codigo}"
 
-    # Verificar precondiciones contra el BloqueCache.
+    # Verificar precondiciones contra el DataBloqueCache.
     missing_blocks: list[str] = []
-    if BloquePLC.normalize_name(db_param_name) not in bloques_cache.blocks:
+    if DataBloquePLC.normalize_name(db_param_name) not in bloques_cache.blocks:
         missing_blocks.append(f"DB de parámetros: {db_param_name}")
-    if BloquePLC.normalize_name(db_alm_name) not in bloques_cache.blocks:
+    if DataBloquePLC.normalize_name(db_alm_name) not in bloques_cache.blocks:
         missing_blocks.append(f"DB de alarmas: {db_alm_name}")
-    if BloquePLC.normalize_name(table_name) not in bloques_cache.tag_tables:
+    if DataBloquePLC.normalize_name(table_name) not in bloques_cache.tag_tables:
         missing_blocks.append(f"Tabla de variables: {table_name}")
 
-    # Extraer la subcarpeta TIA de cada DB del ``BloqueCache``. TIA
+    # Extraer la subcarpeta TIA de cada DB del ``DataBloqueCache``. TIA
     # Portal V21 requiere que el archivo se reimporte en la MISMA
     # ruta donde ya existe el bloque; si lo importamos a la raíz,
     # falla con "object with the name already exists" (validado
     # 2026-09-07). La ruta se cachea al escanear TIA en
-    # ``BloquePLC.ruta`` (jerarquía con ``\\`` separator). Si la
+    # ``DataBloquePLC.ruta`` (jerarquía con ``\\`` separator). Si la
     # cache está vacía o el valor es ``""`` (no se pudo escanear
     # la ruta), dejamos el subpath como ``""`` y el worker cae al
     # comportamiento legacy (raíz de ``exports/``).
     def _extract_subpath(key: str) -> str:
         val = bloques_cache.blocks.get(key, "")
         # Tests legacy pueden pasar un string directamente como
-        # valor (atajo en lugar de un ``BloquePLC`` completo).
+        # valor (atajo en lugar de un ``DataBloquePLC`` completo).
         if isinstance(val, str):
             return val
         return getattr(val, "ruta", "")
 
-    param_key = BloquePLC.normalize_name(db_param_name)
+    param_key = DataBloquePLC.normalize_name(db_param_name)
     param_subpath = _extract_subpath(param_key)
-    alm_key = BloquePLC.normalize_name(db_alm_name)
+    alm_key = DataBloquePLC.normalize_name(db_alm_name)
     alm_subpath = _extract_subpath(alm_key)
 
     if missing_blocks:
