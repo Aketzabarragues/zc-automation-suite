@@ -242,10 +242,8 @@ export const store = reactive({
     },
 
     /**
-     * Estado de conexión del worker TIA persistente
-     * (PR 5b / §4.3 del design doc). Slot espejo del snapshot
-     * ``GET /api/v1/tia/connection`` que el backend mantiene en
-     * ``TIAProcessGateway._connection_state``.
+     * Estado de conexión del worker TIA persistente.
+     * Slot espejo del snapshot ``GET /api/v1/tia/connection``.
      *
      * Shape (estable, alineado con el backend, sept-2026
      * state machine):
@@ -332,9 +330,8 @@ export const store = reactive({
      *   }
      *
      * ``null`` antes de seleccionar un área. Si el endpoint
-     * ``/manifest`` no está implementado (PR 4 del backend aún no
-     * lo ha añadido) o falla, ``goToArea`` lo deja ``null`` y la
-     * SPA funciona en modo degradado (mensaje claro en el main).
+     * ``/manifest`` falla, ``goToArea`` lo deja ``null`` y la SPA
+     * funciona en modo degradado (mensaje claro en el main).
      */
     areaManifest: null,
 });
@@ -373,9 +370,8 @@ export function goToWelcome() {
  * ``area-loader.loadArea``), lo guarda en ``store.areaManifest`` y
  * transiciona a la vista de área (``topLevelView = 'area'``).
  *
- * Si el endpoint ``GET /api/v1/areas/<id>/manifest`` no existe
- * todavía (PR 4 del backend aún no lo ha añadido) o responde con
- * error, ``loadArea`` cae al manifest vacío (``loaders: {}``).
+ * Si el endpoint ``GET /api/v1/areas/<id>/manifest`` falla,
+ * ``loadArea`` cae al manifest vacío (``loaders: {}``).
  * En ese caso la SPA queda en modo degradado: ``topLevelView``
  * pasa a ``'area'``, ``areaManifest`` queda ``null``, y el
  * template raíz muestra un mensaje "Área no soportada en el
@@ -680,8 +676,7 @@ export function resetPlcState() {
 
 /**
  * Trae el snapshot del estado de conexión del worker TIA
- * persistente (PR 5b / §4.3 del design doc) desde
- * ``GET /api/v1/tia/connection`` y lo aplica a
+ * persistente desde ``GET /api/v1/tia/connection`` y lo aplica a
  * ``store.tiaConnection``.
  *
  * Reglas:
@@ -709,7 +704,7 @@ export function resetPlcState() {
  * TIA persistente en la ``ConsolaLogs``. Usado por
  * ``_applyTiaSnapshot`` (y por tanto por ``refreshTiaConnection``,
  * ``connectTia`` y ``disconnectTia``) para mantener el formato
- * consistente (PR 5b / §4.4 del design doc).
+ * consistente.
  *
  * Tras el refactor de state machine (sept-2026), el antiguo
  * ``disconnected`` se reemplaza por ``idle``: el worker arranca
@@ -929,7 +924,6 @@ function _applyTiaSnapshot(r) {
 
 /**
  * Fuerza la reconexión del worker TIA persistente.
- * PR 5b / §4.3 del design doc.
  *
  * Flujo:
  *   1. Setea ``store.tiaConnection.state = "connecting"`` para
@@ -1083,7 +1077,6 @@ export async function connectTia() {
 
 /**
  * Desconexión explícita del worker TIA persistente.
- * PR 5b / §4.3 del design doc + refactor state machine sept-2026.
  *
  * Llamado por el operario al pulsar el botón "Desconectar" del
  * ``ShellTopbar`` (visible cuando ``state in {connecting, connected}``).
@@ -1170,7 +1163,7 @@ export async function disconnectTia() {
 /**
  * Expone ``connectTia`` y ``disconnectTia`` en el ``store`` para los
  * callers que las invocan reactivamente (``store.connectTia?.()``),
- * mismo patron que el resto del codigo reactivo (Fase 1, PR 5b).
+ * mismo patron que el resto del codigo reactivo.
  *
  * Las funciones ``connectTia`` y ``disconnectTia`` se exportan como
  * funciones independientes (arriba) para que el codigo de los
