@@ -1,7 +1,7 @@
 """Aloja Flask daemon y main loop en hilos daemon; auto-restart con backoff.
 
 Dos hilos daemon:
-  - ``flask-daemon``: werkzeug serve_forever (single-threaded).
+  - ``flask-daemon``: werkzeug serve_forever (threaded=True).
   - ``main-loop``: drena la cola TIA + tickea el Engine.
 
 Comparten ``SyncTIAClient``, ``Engine`` y ``EventBusSync`` (thread-safe).
@@ -13,8 +13,8 @@ API:
   - is_alive() -> bool   -> True si Flask bindeado + main loop vivo.
   - restart_count        -> contador de reinicios tras crash.
 
-Trade-off: Flask threaded=False -> HTTP serializa contra el main loop.
-Para 1 operario (<10 req/s) OK.
+Flask se levanta con ``threaded=True``: el SSE de larga vida no
+bloquea las demás requests HTTP. Para 1 operario (<10 req/s) OK.
 """
 from __future__ import annotations
 
@@ -234,7 +234,7 @@ class MainServiceSupervisor:
         )
         self._flask_server = server
         self.log.info(
-            "Flask daemon arrancando en http://%s:%d (threaded=False).",
+            "Flask daemon arrancando en http://%s:%d (threaded=True).",
             self.host, self.port,
         )
         self._healthy.set()

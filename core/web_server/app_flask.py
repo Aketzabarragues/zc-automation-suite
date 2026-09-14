@@ -8,8 +8,9 @@ Retorna una ``Flask`` configurada con:
   - Estáticos de áreas en ``/static/areas/<area>/...`` (apunta a
     ``<repo_root>/areas/<area>/...``).
 
-Flask dev server es single-threaded (``threaded=False``): HTTP serializa
-contra el main loop en el mismo proceso. OK para 1 operario (<10 req/s).
+El werkzeug se levanta con ``threaded=True`` desde
+``core.launcher.main_supervisor``: el SSE de larga vida no bloquea
+las demás requests HTTP. OK para 1 operario (<10 req/s).
 """
 from __future__ import annotations
 
