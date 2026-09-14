@@ -1,4 +1,4 @@
-"""Flask blueprint para catalog (Fase 4 / paso 4.4.5).
+"""Flask blueprint para catalog.
 
 GET /api/v1/catalog -> catalogo de presentacion (device_tabs, nmax, ...).
 

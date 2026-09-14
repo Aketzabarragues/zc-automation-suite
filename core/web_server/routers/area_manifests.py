@@ -1,6 +1,6 @@
-"""Flask blueprint para manifests frontend de areas (Fase 4 / paso 4.4.4).
+"""Flask blueprint para manifests frontend de areas.
 
-Equivalente sync de ``area_manifests.py`` (FastAPI). Endpoint unico:
+Endpoint unico:
 
   GET /api/v1/areas/<area_id>/manifest -> AreaManifest JSON
 
