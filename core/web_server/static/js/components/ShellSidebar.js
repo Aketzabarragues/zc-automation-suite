@@ -138,10 +138,10 @@ export default {
 
             <div class="flex-1 min-h-0 flex flex-col">
                 <!-- Boton PLC (comun): siempre visible cuando hay area
-                     activa. Resalta si store.currentView === "plc".
-                     El padre enruta "plc" al PlcPanelView del shell.
-                     ``pt-6`` da aire frente al header (mas cercano al
-                     espaciado de "Navegacion" abajo). -->
+                     activa. Resalta si store.currentView === 'plc'.
+                     El padre enruta 'plc' al PlcPanelView del shell.
+                     'pt-6' da aire frente al header (mas cercano al
+                     espaciado de 'Navegacion' abajo). -->
                 <div class="px-3 pt-6 shrink-0" data-testid="sidebar-plc-button-wrapper">
                     <p class="px-3 text-[10px] uppercase tracking-widest text-on-shell-faint font-bold mb-2">PLC</p>
                     <button @click="navigate('plc')"
