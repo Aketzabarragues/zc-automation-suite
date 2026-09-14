@@ -222,12 +222,25 @@ def main() -> int:
             final_status = st
             break
     assert final_status.get("is_terminal"), "sync_dispositivos no termino en 7.5s"
-    assert final_status["result"] == {
-        "ok": True,
-        "titulo": "Sincronizar dispositivos",
-        "steps_completed": 4,
-        "total_steps": 4,
-    }
+    # Chequeos laxos por campo: el FB puede anadir stats / plc_name
+    # u otros campos extra en ``result``. El smoke valida la shape
+    # base, no la igualdad exacta.
+    res = final_status["result"]
+    assert res["ok"] is True, f"result.ok esperado True, recibido {res.get('ok')!r}"
+    assert res["titulo"] == "Sincronizar dispositivos", (
+        f"result.titulo esperado 'Sincronizar dispositivos', recibido {res.get('titulo')!r}"
+    )
+    assert res["steps_completed"] == 4, (
+        f"result.steps_completed esperado 4, recibido {res.get('steps_completed')!r}"
+    )
+    assert res["total_steps"] == 4, (
+        f"result.total_steps esperado 4, recibido {res.get('total_steps')!r}"
+    )
+    # Stats: si el FB los emite, validamos que cubra los 4 steps del CASE.
+    if "stats" in res:
+        assert set(res["stats"].keys()) >= {
+            "parsear_excel", "validar_N_MAX", "exportar_TIA", "importar_TIA",
+        }, f"stats no cubre los 4 steps del CASE: {set(res['stats'].keys())}"
     print(f"  - PASS: result={final_status['result']}")
 
     # -----------------------------------------------------------------
