@@ -140,9 +140,10 @@ export default {
                 <!-- Boton PLC (comun): siempre visible cuando hay area
                      activa. Resalta si store.currentView === 'plc'.
                      El padre enruta 'plc' al PlcPanelView del shell.
-                     'pt-6' da aire frente al header (mas cercano al
-                     espaciado de 'Navegacion' abajo). -->
-                <div class="px-3 pt-6 shrink-0" data-testid="sidebar-plc-button-wrapper">
+                     'pt-10' (40px) da aire claro frente a la linea
+                     divisoria del header: antes 'pt-6' se confundia con
+                     el padding del propio header. -->
+                <div class="px-3 pt-10 shrink-0" data-testid="sidebar-plc-button-wrapper">
                     <p class="px-3 text-[10px] uppercase tracking-widest text-on-shell-faint font-bold mb-2">PLC</p>
                     <button @click="navigate('plc')"
                             data-testid="sidebar-plc-button"
