@@ -47,18 +47,32 @@ AREA_SPEC = AreaSpec(
 
 
 def register(engine) -> None:
-    """Registra ``FunctionTemplate`` como ``plantilla`` en el engine.
+    """Registra los FBs del area en el engine.
 
     Llamado desde ``launcher.main_supervisor._build_components()`` tras
-    crear el engine. La plantilla usa los 10 pasos dummy por defecto
-    (``paso_1``..``paso_10``). Cuando se migren los FBs reales
-    (Fase 2), este registro se sustituye por el ``register_fb(...)``
-    de cada FB concreto (copia de ``FunctionTemplate`` con su logica).
+    crear el engine. Registra tres FBs para validar el faceplate SSE
+    dinamico end-to-end (cada uno con stages ``paso_X`` o ``test_X_Y``):
+
+      - ``plantilla``:  FunctionTemplate (10 pasos dummy, paso_1..paso_10).
+      - ``cuatro_pasos``: FunctionCuatroPasos (4 pasos, test_1_1..test_1_4).
+      - ``seis_pasos``:   FunctionSeisPasos (6 pasos, test_2_1..test_2_6).
+
+    Cuando se migren los FBs reales del area (Fase 2), este registro
+    se sustituye por el ``register_fb(...)`` de cada FB concreto
+    (copia de ``FunctionTemplate`` con su logica).
     """
+    from areas.alimentacion.functions.function_cuatro_pasos import FunctionCuatroPasos
+    from areas.alimentacion.functions.function_seis_pasos import FunctionSeisPasos
     from areas.alimentacion.functions.function_template import FunctionTemplate
-    # ``nombre="plantilla"`` para que el ``operation`` del progress_tracker
+    # ``nombre="X"`` para que el ``operation`` del progress_tracker
     # coincida con el key del engine (mismo string en ambos sitios).
     engine.register_fb("plantilla", FunctionTemplate(nombre="plantilla"))
+    engine.register_fb(
+        "cuatro_pasos", FunctionCuatroPasos(nombre="cuatro_pasos"),
+    )
+    engine.register_fb(
+        "seis_pasos", FunctionSeisPasos(nombre="seis_pasos"),
+    )
 
 
 __all__ = [
