@@ -1,29 +1,13 @@
-"""Function Block TEMPLATE con 10 pasos discretos (1s cada uno).
+"""Function Block TEMPLATE parametrizable.
 
-Patron para migrar los 7 FBs legacy del area. Cuando funcione, los
-FBs reales (SubirExcel, ScanPlcBlocks, Sincronizar*, etc.) se
-adaptan a este shape: state machine interna + asyncio.sleep por
-paso + self.result con la shape legacy.
+Plantilla dummy para validar el engine + progress tracker. El caller
+la instancia con ``titulo`` y ``steps`` (lista de ``{nombre, duracion_s}``);
+cada ejecucion emite eventos SSE ``progress`` al bus por stage
+(begin / start / finish) y cierra con ``finish(success=True)``.
 
-State machine (nStep):
-  0   idle         (sin start)
-  10  arrancar     (pre-flight)
-  20  paso 1       (sleep 1s)
-  30  paso 2       (sleep 1s)
-  40  paso 3       (sleep 1s)
-  50  paso 4       (sleep 1s)
-  60  paso 5       (sleep 1s)
-  70  paso 6       (sleep 1s)
-  80  paso 7       (sleep 1s)
-  90  paso 8       (sleep 1s)
-  95  finalizar
-  99  done         (terminal)
-
-Tiempo total de ejecucion: ~10s (10 pasos de 1s + transiciones).
-
-El FB NO usa tia_client ni wrapper. Solo sirve para validar que el
-engine, los FBs y el flujo end-to-end funcionan. Cuando migramos los
-FBs reales, sustituyen este dummy.
+Cuando se migren los FBs reales del area (Fase 2), este template
+sirve de referencia: cada FB adopta este shape (titulo + steps
+declarativos + ``progress_tracker`` cableado).
 """
 from __future__ import annotations
 
@@ -32,20 +16,57 @@ import logging
 from typing import Any
 
 from core.composition.plc_function_base import FunctionBase
+from core.runtime.progress_buffer import ProgressTracker, get_progress_tracker
 
 logger = logging.getLogger(__name__)
 
 
 class FunctionTemplate(FunctionBase):
-    """FB template. Sin tocar TIA ni Excel. Solo avanza 10 pasos."""
+    """FB template parametrizable. Emite eventos progress por stage.
+
+    State machine:
+      10  arrancar  (emit progress_tracker.begin)
+      20  ejecutar  (1 step por tick; permanece hasta agotar steps)
+      95  finalizar (emit progress_tracker.finish)
+      99  done      (terminal)
+    """
 
     n_arrancar = 10
+    n_ejecutar = 20
     n_finalizar = 95
-    # pasos 20, 30, 40, 50, 60, 70, 80, 90 (sleep 1s cada uno)
 
-    def __init__(self, nombre: str = "Template") -> None:
+    def __init__(
+        self,
+        nombre: str = "Template",
+        titulo: str = "Demo Template",
+        steps: list[dict[str, Any]] | None = None,
+        tracker: ProgressTracker | None = None,
+    ) -> None:
         super().__init__(nombre)
-        self.steps_completed: int = 0
+        self.titulo = titulo
+        # Default razonable si el caller no pasa steps: 4 pasos x 1s.
+        # Asi ``FunctionTemplate()`` sigue funcionando en tests basicos.
+        self.steps: list[dict[str, Any]] = (
+            steps if steps is not None
+            else [
+                {"nombre": "paso_1", "duracion_s": 1.0},
+                {"nombre": "paso_2", "duracion_s": 1.0},
+                {"nombre": "paso_3", "duracion_s": 1.0},
+                {"nombre": "paso_4", "duracion_s": 1.0},
+            ]
+        )
+        # Inyeccion opcional del tracker (default: singleton global).
+        # Tests / smoke pueden pasar uno propio para aislar estado.
+        self._tracker = tracker if tracker is not None else get_progress_tracker()
+        self._step_idx: int = 0
+
+    async def _start_locked(self, **params: Any) -> bool:
+        """Override del base: tras pasar a nStep=10, emite ``begin()``."""
+        ok = await super()._start_locked(**params)
+        if not ok:
+            return False
+        self._step_idx = 0
+        return True
 
     async def _tick_locked(self) -> None:
         assert self._lock.locked()
@@ -53,11 +74,8 @@ class FunctionTemplate(FunctionBase):
             return
         if self.nStep == self.n_arrancar:
             self._step_arrancar()
-        elif 20 <= self.nStep < 90:
-            await self._step_sleep_one()
-        elif self.nStep == 90:
-            await self._step_sleep_one()
-            self.nStep = self.n_finalizar
+        elif self.nStep == self.n_ejecutar:
+            await self._step_ejecutar()
         elif self.nStep == self.n_finalizar:
             self._step_finalizar()
 
@@ -66,24 +84,46 @@ class FunctionTemplate(FunctionBase):
     # ------------------------------------------------------------------
 
     def _step_arrancar(self) -> None:
-        """nStep 10 -> 20. Pre-flight vacio (no hay params requeridos)."""
-        logger.info("[%s] arrancando", self.nombre)
-        self.steps_completed = 0
-        self.nStep = 20
+        """nStep 10 -> 20. Emite ``begin`` con titulo + stages."""
+        logger.info("[%s] arrancando (titulo=%s, %d steps)",
+                    self.nombre, self.titulo, len(self.steps))
+        self._tracker.begin(
+            operation=self.nombre,
+            label=self.titulo,
+            stages=[s["nombre"] for s in self.steps],
+        )
+        self.nStep = self.n_ejecutar
 
-    async def _step_sleep_one(self) -> None:
-        """Pasos 20-90: espera 1s y avanza."""
-        self.steps_completed += 1
-        logger.info("[%s] paso %d/8", self.nombre, self.steps_completed)
-        await asyncio.sleep(1.0)
-        self.nStep += 10
+    async def _step_ejecutar(self) -> None:
+        """nStep 20: ejecuta un step y permanece, o transiciona a 95."""
+        idx = self._step_idx
+        step = self.steps[idx]
+        nombre = step["nombre"]
+        duracion = float(step["duracion_s"])
+        logger.info(
+            "[%s] step %d/%d (%s, %.2fs)",
+            self.nombre, idx + 1, len(self.steps), nombre, duracion,
+        )
+        self._tracker.start_stage(nombre)
+        await asyncio.sleep(duracion)
+        self._tracker.finish_stage(nombre, detail=f"OK en {duracion:.2f}s")
+        self._step_idx += 1
+        if self._step_idx < len(self.steps):
+            # Permanece en n_ejecutar: el siguiente tick ejecuta el
+            # siguiente step. Asi el ciclo del engine maneja los
+            # espacios entre stages de forma natural.
+            return
+        self.nStep = self.n_finalizar
 
     def _step_finalizar(self) -> None:
-        """nStep 95 -> 99. Vuelca self.result y transiciona a done."""
+        """nStep 95 -> 99. Emite ``finish(success=True)`` y vuelca result."""
         logger.info("[%s] done", self.nombre)
-        self.result: dict[str, Any] = {
+        self._tracker.finish(success=True)
+        self.result = {
             "ok": True,
-            "steps_completed": self.steps_completed,
+            "titulo": self.titulo,
+            "steps_completed": self._step_idx,
+            "total_steps": len(self.steps),
         }
         self.nStep = self.n_done
 

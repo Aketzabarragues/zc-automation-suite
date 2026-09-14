@@ -6,7 +6,8 @@ Aporta al core:
   - TIA commands del área (registrados por el tia-loop).
   - Frontend manifest (Vue 3 ESM del área).
   - Config defaults del ConfigManager.
-  - FunctionBlock Template (10 pasos x 1s) para validar el engine.
+  - FunctionBlock Template parametrizable (titulo + steps) para
+    validar el engine y el progress tracker como faceplate SSE.
 
 Los routers web, los use cases legacy, las tools MCP y los FBs no-
 template siguen existiendo en el area pero no se montan en este
@@ -44,15 +45,28 @@ AREA_SPEC = AreaSpec(
 
 
 def register(engine) -> None:
-    """Registra el FunctionBlock Template en el engine.
+    """Registra el FunctionBlock Template parametrizable en el engine.
 
     Llamado desde launcher.main_supervisor._build_components() tras
-    crear el engine. Solo registra el template (dummy con 10 pasos x
-    1s); los FBs reales (SubirExcel, ScanPlcBlocks, etc.) se
-    reincorporan cuando migren al modelo OB1.
+    crear el engine. El template representa el flujo canonico
+    ``sync_dispositivos`` del area: parsear_excel -> validar_N_MAX ->
+    exportar_TIA -> importar_TIA. Cuando se migren los FBs reales
+    (Fase 2), este registro se sustituye por ellos.
     """
     from areas.alimentacion.functions.function_Template import FunctionTemplate
-    engine.register_fb("Template", FunctionTemplate())
+    engine.register_fb(
+        "sync_dispositivos",
+        FunctionTemplate(
+            nombre="sync_dispositivos",
+            titulo="Sincronizar dispositivos",
+            steps=[
+                {"nombre": "parsear_excel", "duracion_s": 0.3},
+                {"nombre": "validar_N_MAX", "duracion_s": 0.3},
+                {"nombre": "exportar_TIA", "duracion_s": 0.5},
+                {"nombre": "importar_TIA", "duracion_s": 0.5},
+            ],
+        ),
+    )
 
 
 __all__ = [
