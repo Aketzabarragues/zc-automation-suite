@@ -18,7 +18,7 @@ import time
 import traceback
 from pathlib import Path
 
-from core.application.log_paths import setup_logging
+from core.infrastructure.config.config_paths import setup_logging
 
 WEB_PORT = 9484  # puerto fijo del web server (Flask + OB1 main loop)
 

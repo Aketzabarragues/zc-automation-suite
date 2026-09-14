@@ -21,7 +21,7 @@ import pytest
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
-from core.application.log_paths import resolve_log_dir  # noqa: E402
+from core.infrastructure.config.config_paths import resolve_log_dir  # noqa: E402
 
 
 # ── Helpers ────────────────────────────────────────────────────────

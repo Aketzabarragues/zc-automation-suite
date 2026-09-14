@@ -1883,7 +1883,7 @@ def main() -> None:
     # fallback a AppData. El fallback al CWD que se ve mas abajo
     # es un ultimo recurso si ``set_logging`` rechaza el path
     # absoluto (caso muy raro, p.ej. permiso denegado de Siemens).
-    from core.application.log_paths import resolve_log_dir
+    from core.infrastructure.config.config_paths import resolve_log_dir
     _log_path = resolve_log_dir() / "worker_openness.log"
     try:
         ts.set_logging(path=str(_log_path), console=False)

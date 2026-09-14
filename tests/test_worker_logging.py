@@ -34,7 +34,7 @@ from unittest.mock import patch
 
 import pytest
 
-from core.application.log_paths import resolve_log_dir
+from core.infrastructure.config.config_paths import resolve_log_dir
 from core.infrastructure._pendiente.worker_logging import (
     JsonLineFormatter,
     _KNOWN_EVENTS,

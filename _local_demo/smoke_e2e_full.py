@@ -47,7 +47,7 @@ def main() -> int:
     # [1] setup_logging
     # -----------------------------------------------------------------
     print("\n[1] setup_logging()")
-    from core.application.log_paths import setup_logging
+    from core.infrastructure.config.config_paths import setup_logging
     setup_logging()
 
     # -----------------------------------------------------------------

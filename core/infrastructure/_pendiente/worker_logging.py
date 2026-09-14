@@ -42,7 +42,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 
-from core.application.log_paths import resolve_log_dir
+from core.infrastructure.config.config_paths import resolve_log_dir
 
 
 _LOGGER_NAME = "zc.worker_ot"

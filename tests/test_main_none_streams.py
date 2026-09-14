@@ -91,6 +91,6 @@ def test_logging_setup_skips_streamhandler_when_stdout_is_none(
     monkeypatch.setattr(sys, "stdout", None)
     if "core.application.log_paths" in sys.modules:
         del sys.modules["core.application.log_paths"]
-    from core.application.log_paths import setup_logging
+    from core.infrastructure.config.config_paths import setup_logging
 
     setup_logging("tray")  # no raise

@@ -31,7 +31,7 @@ def main() -> int:
     print("=" * 60)
 
     print("\n[1] setup_logging()")
-    from core.application.log_paths import setup_logging
+    from core.infrastructure.config.config_paths import setup_logging
     log_file = setup_logging()
     print(f"  - log unificado: {log_file}")
 
