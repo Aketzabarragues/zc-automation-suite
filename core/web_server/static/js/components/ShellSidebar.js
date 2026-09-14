@@ -133,14 +133,16 @@ export default {
 
             <header class="px-5 py-5 border-b border-shell-border shrink-0">
                 <p class="text-[10px] uppercase tracking-widest text-on-shell-faint font-bold mb-1">Área</p>
-                <p class="text-2xl font-extrabold text-on-shell tracking-tight truncate">{{ areaLabel }}</p>
+                <p class="text-xl font-extrabold text-on-shell tracking-tight truncate">{{ areaLabel }}</p>
             </header>
 
             <div class="flex-1 min-h-0 flex flex-col">
                 <!-- Boton PLC (comun): siempre visible cuando hay area
                      activa. Resalta si store.currentView === "plc".
-                     El padre enruta "plc" al PlcPanelView del shell. -->
-                <div class="px-3 pt-3 shrink-0" data-testid="sidebar-plc-button-wrapper">
+                     El padre enruta "plc" al PlcPanelView del shell.
+                     ``pt-6`` da aire frente al header (mas cercano al
+                     espaciado de "Navegacion" abajo). -->
+                <div class="px-3 pt-6 shrink-0" data-testid="sidebar-plc-button-wrapper">
                     <p class="px-3 text-[10px] uppercase tracking-widest text-on-shell-faint font-bold mb-2">PLC</p>
                     <button @click="navigate('plc')"
                             data-testid="sidebar-plc-button"
