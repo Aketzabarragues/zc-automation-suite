@@ -1,10 +1,9 @@
-"""Flask blueprint para areas (Fase 4 / paso 4.4.8).
+"""Flask blueprint para areas.
 
-Equivalente sync de ``areas.py`` (FastAPI). Endpoint unico:
+Endpoint unico:
   GET /api/v1/areas -> lista de areas configuradas.
 
-Delega en ``ListAreasUseCase`` (legacy) para mantener la logica de
-descubrimiento intacta.
+Delega en ``ListAreasUseCase`` (``core.composition.app_area_registry``).
 
 NOTA: ``ListAreasUseCase`` se resuelve en tiempo de ejecucion via
 ``import_module(...).ListAreasUseCase`` (no en import time), para que
