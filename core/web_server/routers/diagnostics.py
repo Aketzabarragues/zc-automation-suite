@@ -25,7 +25,7 @@ bp = Blueprint("diagnostics", __name__, url_prefix="/api/v1")
 
 
 def _extract_software_from_cache(state: Any) -> dict[str, Any]:
-    """Extrae 4 dominios de software + flag. Espejo del helper legacy."""
+    """Extrae 4 dominios de software + flag desde el ExcelCache del AppState."""
     empty: dict[str, Any] = {
         "procesos": [],
         "parametros_int": [],
