@@ -91,13 +91,12 @@ const App = {
             store.uploadSummary = null;
             store.lastExcelFile = null;
             store.previewData = null;
-            // 1. Cargar el manifest.
-            const manifest = await loadArea(key);
-            // 2. Registrar componentes del área en la app.
-            //    Si loaders está vacío, mountArea no hace nada.
-            await mountArea(_app, key);
-            // 3. Transicionar a la vista de área (dispara re-render
-            //    con TODO ya listo: manifest + componentes).
+            // ``mountArea`` ya hace ``loadArea`` internamente + registra
+            // los componentes del area en la app Vue. Devuelve el manifest
+            // para asignarlo a ``store.areaManifest`` sin un segundo fetch.
+            const manifest = await mountArea(_app, key);
+            // Transicionar a la vista de area (dispara re-render con
+            // TODO ya listo: manifest + componentes).
             store.areaManifest = manifest && manifest.id ? manifest : null;
             store.topLevelView = "area";
             // ``nextTick`` no es estrictamente necesario pero es
