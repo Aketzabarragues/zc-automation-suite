@@ -5,12 +5,17 @@ Flask + OB1 en hilos daemon. Click "Parar web" los para. Click
 "Salir" cierra todo.
 
 Lanzamientos típicos:
-  - run_app.bat            # doble click, sin consola
-  - python main.py         # consola para debug
-  - pythonw.exe main.py    # sin consola (manual)
+  - run_app.bat                            # doble click, sin consola
+  - python main.py                         # consola para debug
+  - python main.py --web 127.0.0.1:8000    # puerto custom
+  - pythonw.exe main.py                    # sin consola (manual)
+
+Argumentos:
+  --web HOST:PORT    bind del web server (default: 127.0.0.1:9484)
 """
 from __future__ import annotations
 
+import argparse
 import io
 import logging
 import sys
@@ -20,7 +25,44 @@ from pathlib import Path
 
 from core.infrastructure.config.config_paths import setup_logging
 
-WEB_PORT = 9484  # puerto fijo del web server (Flask + OB1 main loop)
+DEFAULT_WEB_HOST = "127.0.0.1"
+DEFAULT_WEB_PORT = 9484
+
+
+def _parse_web_addr(value: str) -> tuple[str, int]:
+    """Parsea ``"HOST:PORT"`` o ``"PORT"`` a ``(host, port)``."""
+    if ":" in value:
+        host, port_str = value.rsplit(":", 1)
+        return host, int(port_str)
+    return DEFAULT_WEB_HOST, int(value)
+
+
+def _parse_args(argv: list[str]) -> tuple[str, int]:
+    """Lee ``--web HOST:PORT`` o devuelve defaults. Idempotente."""
+    parser = argparse.ArgumentParser(
+        prog="main.py", add_help=True,
+        description="Lanza el web server de ZC Automation Suite.",
+    )
+    parser.add_argument(
+        "--web", metavar="HOST:PORT", default=None,
+        help=(
+            f"Bind del web server. Formato HOST:PORT o PORT solo. "
+            f"Default: {DEFAULT_WEB_HOST}:{DEFAULT_WEB_PORT}."
+        ),
+    )
+    # ``parse_known_args`` ignora flags desconocidos (compat con futuros args).
+    args, _ = parser.parse_known_args(argv)
+    if args.web is None:
+        return DEFAULT_WEB_HOST, DEFAULT_WEB_PORT
+    try:
+        return _parse_web_addr(args.web)
+    except ValueError as exc:
+        parser.error(f"--web invalido ({args.web!r}): {exc}")
+
+
+# Parseo eager para que ``WEB_HOST`` / ``WEB_PORT`` esten disponibles
+# en el scope del modulo (compat con scripts que importan ``main``).
+WEB_HOST, WEB_PORT = _parse_args(sys.argv[1:])
 
 # Un solo archivo ``zc.log`` para toda la aplicacion.
 LOG_FILE = setup_logging()  # root_name = "zc"
@@ -91,12 +133,12 @@ def main() -> int:
     log.info("Config cargado: %s", config_manager.path)
 
     web = MainServiceSupervisor(
-        host="127.0.0.1",
+        host=WEB_HOST,
         port=WEB_PORT,
         tick_period_s=0.1,
         config_manager=config_manager,
     )
-    log.info("Supervisor creado: 127.0.0.1:%d (tick=100ms).", WEB_PORT)
+    log.info("Supervisor creado: %s:%d (tick=100ms).", WEB_HOST, WEB_PORT)
     log.info("Esperando que el operario elija Iniciar web desde el menu.")
 
     try:

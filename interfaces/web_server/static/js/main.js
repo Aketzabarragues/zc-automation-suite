@@ -231,7 +231,7 @@ _app.mount("#app");
 loadCatalog();
 
 // ── SSE: Server-Sent Events (Fase 1 del refactor) ──────────────
-// Abre un EventSource contra /api/v1/stream. El SSE es la ÚNICA
+// Abre un EventSource contra /stream. El SSE es la ÚNICA
 // fuente de updates del store desde 1.3.1 (los 3 setInterval de
 // logs/progress/tia se eliminaron; antes coexistían como red de
 // seguridad durante la migración, ahora ya no son necesarios).
@@ -247,7 +247,7 @@ loadCatalog();
 // Sin wrapper, sin composables, sin ``sse.js`` nuevo: directo en
 // ``main.js`` como pide el plan. La UI no cambia (mismos
 // componentes, mismo copy, mismos iconos, mismos colores).
-const sse = new EventSource("/api/v1/stream");
+const sse = new EventSource("/stream");
 sse.onopen = () => {
     console.log("[SSE] connection opened");
 };
