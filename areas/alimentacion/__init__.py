@@ -49,7 +49,7 @@ AREA_SPEC = AreaSpec(
 def register(engine) -> None:
     """Registra los FBs del area en el engine.
 
-    Llamado desde ``launcher.main_supervisor._build_components()`` tras
+    Llamado desde ``core.launcher.main_supervisor._build_components()`` tras
     crear el engine. Registra tres FBs para validar el faceplate SSE
     dinamico end-to-end (cada uno con stages ``paso_X`` o ``test_X_Y``):
 

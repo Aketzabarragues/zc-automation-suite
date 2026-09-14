@@ -142,7 +142,7 @@ class AreaRegistry:
 _AREA_DEFAULTS: dict[str, dict[str, str]] = {
     "alimentacion": {
         "label":       "Area de alimentacion",
-        "icon":        "",
+        "icon":        "📁",
         "description": "Dispositivos, sincronizacion e inspeccion de PLCs del area de alimentacion.",
     },
 }

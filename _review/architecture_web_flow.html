@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Arquitectura Web — del clic del ratón al PLC</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+:root{
+  --bg:#f7f5f0;
+  --card:#ffffff;
+  --ink:#14171e;
+  --muted:#7c7a72;
+  --line:#e9e3d6;
+  --line-soft:#efebde;
+  --primary:#00345f;        /* azul Siemens */
+  --primary-soft:#00345f10;
+  --primary-deep:#001a33;
+  --accent:#c97b3f;
+  --success:#2f6f5e;
+  --danger:#b06367;
+  --bus:#7c3aed;
+  --bus-soft:#7c3aed14;
+  --worker:#0891b2;
+  --worker-soft:#0891b214;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{background:var(--bg)}
+body{
+  font-family:'Outfit',sans-serif;
+  color:var(--ink);
+  background:var(--bg);
+  font-size:15px;
+  line-height:1.55;
+  padding:48px 24px 96px;
+  max-width:1100px;
+  margin:0 auto;
+}
+h1{font-family:'DM Serif Display',serif;font-weight:400;font-size:42px;letter-spacing:-0.005em;color:var(--ink);margin-bottom:8px}
+h2{font-family:'DM Serif Display',serif;font-weight:400;font-size:26px;letter-spacing:-0.005em;color:var(--ink);margin-bottom:8px;display:flex;align-items:center;gap:10px}
+h3{font-family:'Outfit',sans-serif;font-weight:600;font-size:17px;color:var(--ink);margin-bottom:6px}
+p{margin-bottom:8px;color:var(--ink)}
+.lead{font-size:17px;color:var(--muted);max-width:680px;margin-bottom:32px}
+.mono{font-family:'JetBrains Mono',monospace;font-size:13px}
+.meta{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--muted);margin-bottom:32px}
+section{margin-bottom:64px}
+hr{border:none;border-top:1px solid var(--line);margin:64px 0}
+
+.hero{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:32px 36px;margin-bottom:48px;box-shadow:0 2px 8px rgba(0,0,0,0.03)}
+.hero h1{margin-bottom:12px}
+.hero .badge{display:inline-block;background:var(--primary-soft);color:var(--primary);font-family:'JetBrains Mono',monospace;font-size:12px;padding:4px 10px;border-radius:6px;margin-bottom:16px;font-weight:500}
+.hero .plc-card{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:14px 18px;margin-top:20px;font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.7}
+.hero .plc-card .lbl{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:6px;font-family:'Outfit',sans-serif}
+
+/* Diagramas */
+.diagram{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:32px 28px;overflow-x:auto}
+.diagram-caption{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);margin-top:14px;text-align:center;text-transform:uppercase;letter-spacing:0.04em}
+
+/* Sequence diagram */
+.seq{font-family:'JetBrains Mono',monospace;font-size:13px}
+.seq .actors{display:grid;gap:0;margin-bottom:8px}
+.seq .actor{text-align:center;font-weight:600;padding:8px 4px;color:var(--ink);border:1px solid var(--line);background:var(--bg);border-radius:6px}
+.seq .lifeline{border-left:1px dashed var(--line-soft);min-height:24px;position:relative}
+.seq .step{display:grid;align-items:center;padding:6px 0;font-size:12.5px;color:var(--ink)}
+.seq .step .label{color:var(--muted);font-size:11px;padding-right:8px}
+.seq .step .arrow{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:500}
+.seq .step .arrow.req{background:var(--primary-soft);color:var(--primary)}
+.seq .step .arrow.resp{background:var(--success);color:white}
+.seq .step .arrow.bus{background:var(--bus-soft);color:var(--bus)}
+.seq .step .arrow.worker{background:var(--worker-soft);color:var(--worker)}
+.seq .step .note{font-style:italic;color:var(--muted);font-size:11.5px;padding-left:8px}
+
+/* State machine */
+.state-machine{display:flex;justify-content:center;flex-wrap:wrap;gap:24px;padding:24px 0}
+.state{background:var(--card);border:2px solid var(--primary);border-radius:10px;padding:14px 20px;text-align:center;min-width:120px;position:relative}
+.state.idle{border-color:var(--muted);color:var(--muted)}
+.state.connecting{border-color:var(--accent);color:var(--accent);background:#c97b3f08}
+.state.connected{border-color:var(--success);color:var(--success);background:#2f6f5e08}
+.state.busy{border-color:var(--worker);color:var(--worker);background:var(--worker-soft)}
+.state.error{border-color:var(--danger);color:var(--danger);background:#b0636708}
+.state .name{font-weight:700;font-size:14px;font-family:'JetBrains Mono',monospace}
+.state .desc{font-size:11px;color:var(--muted);margin-top:4px;font-family:'Outfit',sans-serif}
+
+/* Layers table */
+.layer{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:24px 28px;margin-bottom:16px}
+.layer-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:8px}
+.layer-name{font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:600;color:var(--primary)}
+.layer-tech{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--muted)}
+.layer-desc{color:var(--muted);font-size:14px;margin-bottom:12px}
+.layer-files{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink);background:var(--bg);border:1px solid var(--line);padding:8px 12px;border-radius:6px;line-height:1.7;margin-top:8px}
+
+/* Bus diagram */
+.bus-diagram{display:grid;grid-template-columns:1fr 200px 1fr;gap:24px;align-items:center;padding:24px 0}
+.bus-side{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px}
+.bus-side h4{margin-bottom:8px;font-size:14px;color:var(--ink)}
+.bus-side ul{list-style:none;padding:0;margin:0;font-size:13px;font-family:'JetBrains Mono',monospace;color:var(--muted)}
+.bus-side ul li{padding:3px 0}
+.bus-center{display:flex;flex-direction:column;align-items:center;gap:10px}
+.bus-center .hub{width:120px;height:120px;border-radius:50%;background:var(--bus-soft);border:2px solid var(--bus);display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-weight:700;color:var(--bus);text-align:center;font-size:13px}
+.bus-center .arrow{color:var(--bus);font-size:22px}
+.bus-center .arrow.left{transform:scaleX(-1)}
+
+/* FAQ */
+.faq{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:24px 28px}
+.faq h3{color:var(--primary);margin-bottom:8px;margin-top:16px}
+.faq h3:first-child{margin-top:0}
+.faq p{color:var(--muted);font-size:14px;margin:0}
+
+footer{margin-top:64px;padding-top:24px;border-top:1px solid var(--line);font-size:13px;color:var(--muted);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (max-width:768px){
+  body{padding:24px 16px 64px}
+  h1{font-size:32px}
+  .bus-diagram{grid-template-columns:1fr}
+  .state-machine{flex-direction:column;align-items:center}
+}
+</style>
+</head>
+<body>
+
+<!-- ===================== HERO ===================== -->
+<div class="hero">
+  <span class="badge">Arquitectura OB1 · single-process · single-tenant</span>
+  <h1>Del clic del ratón al PLC: cómo funciona la arquitectura web</h1>
+  <p class="lead">
+    Una sola analogía para entenderlo todo: la app es un <strong>S7-1500 con un HMI web</strong>.
+    El <span class="mono">main.py</span> es el <strong>OB1</strong> (cíclico), el
+    <span class="mono">tia-loop</span> es el <strong>hilo de periferia</strong> (único dueño
+    del wrapper .NET), y la SPA es el <strong>HMI</strong>. Lo demás son FBs, DBs y un
+    bus de eventos.
+  </p>
+  <div class="plc-card">
+    <div class="lbl">Equivalencias PLC ↔ App</div>
+    OB1 (cíclico 100 ms) → <strong>main-loop</strong> ejecuta engine.run_cycle()<br>
+    Hilo de periferia .NET → <strong>tia-loop</strong> (único dueño del wrapper Siemens)<br>
+    FB (Function Block) → <strong>FunctionBase</strong> con nStep + tracker<br>
+    DB (Data Block) → <strong>store.js</strong> en SPA + AppState backend<br>
+    HMI (panel táctil) → <strong>SPA Vue 3</strong> (ShellSidebar, plcpanelview, etc.)<br>
+    Bus de eventos → <strong>EventBusSync + SSE</strong>
+  </div>
+</div>
+
+<!-- ===================== ÁRBOL DE PROCESOS ===================== -->
+<section>
+  <h2>
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+    1. El árbol de procesos: un solo Python, 3 hilos daemon
+  </h2>
+  <p>
+    Cuando ejecutas <span class="mono">python main.py</span>, arranca un único proceso
+    Python (la CPU del PLC). Dentro, tres hilos daemon hacen el trabajo (los OB
+    del OB1, por decirlo así).
+  </p>
+  <div class="diagram">
+    <svg viewBox="0 0 1000 420" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;max-height:520px">
+      <!-- main.py -->
+      <rect x="400" y="20" width="200" height="50" rx="8" fill="#00345f" stroke="#00345f"/>
+      <text x="500" y="42" fill="white" text-anchor="middle" font-family="JetBrains Mono" font-size="14" font-weight="700">main.py</text>
+      <text x="500" y="58" fill="white" text-anchor="middle" font-family="Outfit" font-size="11">entry point único</text>
+      <line x1="500" y1="70" x2="500" y2="100" stroke="#00345f" stroke-width="2"/>
+
+      <!-- main_supervisor -->
+      <rect x="340" y="100" width="320" height="50" rx="8" fill="#ffffff" stroke="#00345f" stroke-width="2"/>
+      <text x="500" y="122" fill="#00345f" text-anchor="middle" font-family="JetBrains Mono" font-size="13" font-weight="700">main_supervisor.py</text>
+      <text x="500" y="138" fill="#7c7a72" text-anchor="middle" font-family="Outfit" font-size="11">arranca los 3 hilos + bandeja pystray</text>
+
+      <!-- 3 hilos -->
+      <line x1="500" y1="150" x2="180" y2="190" stroke="#00345f" stroke-width="1.5"/>
+      <line x1="500" y1="150" x2="500" y2="190" stroke="#00345f" stroke-width="1.5"/>
+      <line x1="500" y1="150" x2="820" y2="190" stroke="#00345f" stroke-width="1.5"/>
+
+      <!-- tia-loop -->
+      <rect x="40" y="190" width="280" height="100" rx="8" fill="#0891b214" stroke="#0891b2" stroke-width="2"/>
+      <text x="180" y="215" fill="#0891b2" text-anchor="middle" font-family="JetBrains Mono" font-size="13" font-weight="700">tia-loop (hilo)</text>
+      <text x="180" y="235" fill="#14171e" text-anchor="middle" font-family="Outfit" font-size="11">único dueño del wrapper .NET</text>
+      <text x="180" y="251" fill="#14171e" text-anchor="middle" font-family="Outfit" font-size="11">cola FIFO + state machine</text>
+      <text x="180" y="267" fill="#7c7a72" text-anchor="middle" font-family="Outfit" font-size="10">26 comandos (attach, scan, export, ...)</text>
+      <text x="180" y="280" fill="#7c7a72" text-anchor="middle" font-family="Outfit" font-size="10">estado: idle / connecting / connected / busy / error</text>
+
+      <!-- flask -->
+      <rect x="360" y="190" width="280" height="100" rx="8" fill="#00345f10" stroke="#00345f" stroke-width="2"/>
+      <text x="500" y="215" fill="#00345f" text-anchor="middle" font-family="JetBrains Mono" font-size="13" font-weight="700">flask (hilo)</text>
+      <text x="500" y="235" fill="#14171e" text-anchor="middle" font-family="Outfit" font-size="11">werkzeug serve_forever, threaded=True</text>
+      <text x="500" y="251" fill="#14171e" text-anchor="middle" font-family="Outfit" font-size="11">7 blueprints + /stream (SSE)</text>
+      <text x="500" y="267" fill="#7c7a72" text-anchor="middle" font-family="Outfit" font-size="10">NUNCA toca el wrapper .NET directo</text>
+      <text x="500" y="280" fill="#7c7a72" text-anchor="middle" font-family="Outfit" font-size="10">encola via tia.submit_and_wait()</text>
+
+      <!-- main-loop -->
+      <rect x="680" y="190" width="280" height="100" rx="8" fill="#00345f10" stroke="#00345f" stroke-width="2"/>
+      <text x="820" y="215" fill="#00345f" text-anchor="middle" font-family="JetBrains Mono" font-size="13" font-weight="700">main-loop (hilo)</text>
+      <text x="820" y="235" fill="#14171e" text-anchor="middle" font-family="Outfit" font-size="11">engine.run_cycle() cada 100 ms</text>
+      <text x="820" y="251" fill="#14171e" text-anchor="middle" font-family="Outfit" font-size="11">dispara FBs (FunctionBase)</text>
+      <text x="820" y="267" fill="#7c7a72" text-anchor="middle" font-family="Outfit" font-size="10">OB1 cíclico del sistema</text>
+      <text x="820" y="280" fill="#7c7a72" text-anchor="middle" font-family="Outfit" font-size="10">publica al EventBusSync</text>
+
+      <!-- TIA Portal -->
+      <rect x="40" y="340" width="280" height="60" rx="8" fill="#ffffff" stroke="#7c7a72" stroke-width="2" stroke-dasharray="4,4"/>
+      <text x="180" y="362" fill="#14171e" text-anchor="middle" font-family="JetBrains Mono" font-size="13" font-weight="700">TIA Portal (externo)</text>
+      <text x="180" y="380" fill="#7c7a72" text-anchor="middle" font-family="Outfit" font-size="11">wrapper siemens_tia_scripting.pyd</text>
+      <text x="180" y="392" fill="#7c7a72" text-anchor="middle" font-family="Outfit" font-size="10">única entrada: tia-loop</text>
+      <line x1="180" y1="290" x2="180" y2="340" stroke="#0891b2" stroke-width="2" stroke-dasharray="4,4"/>
+
+      <!-- Navegador -->
+      <rect x="680" y="340" width="280" height="60" rx="8" fill="#ffffff" stroke="#7c7a72" stroke-width="2" stroke-dasharray="4,4"/>
+      <text x="820" y="362" fill="#14171e" text-anchor="middle" font-family="JetBrains Mono" font-size="13" font-weight="700">Navegador (externo)</text>
+      <text x="820" y="380" fill="#7c7a72" text-anchor="middle" font-family="Outfit" font-size="11">SPA Vue 3 (ShellSidebar, plcpanelview)</text>
+      <text x="820" y="392" fill="#7c7a72" text-anchor="middle" font-family="Outfit" font-size="10">HTTP 127.0.0.1:9484</text>
+      <line x1="820" y1="290" x2="820" y2="340" stroke="#00345f" stroke-width="2" stroke-dasharray="4,4"/>
+
+      <!-- Flask <-> Navegador -->
+      <line x1="500" y1="290" x2="500" y2="370" stroke="#7c7a72" stroke-width="1"/>
+      <line x1="360" y1="370" x2="680" y2="370" stroke="#7c7a72" stroke-width="2" stroke-dasharray="4,4"/>
+      <text x="500" y="364" fill="#7c7a72" text-anchor="middle" font-family="Outfit" font-size="10">HTTP bidireccional</text>
+    </svg>
+  </div>
+  <p class="diagram-caption">Proceso único Python · 3 hilos daemon · TIA Portal y navegador fuera del proceso</p>
+</section>
+
+<hr/>
+
+<!-- ===================== FLUJO END-TO-END ===================== -->
+<section>
+  <h2>
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h6"/><path d="M22 12h-6"/><path d="M12 2v6"/><path d="M12 22v-6"/><path d="M12 8a4 4 0 100 8 4 4 0 000-8z"/></svg>
+    2. Flujo end-to-end: el botón ↻ Refrescar
+  </h2>
+  <p>
+    Ejemplo concreto: el operario entra al panel PLC, ve un snapshot antiguo y pulsa
+    <strong>↻ Refrescar</strong>. Esto dispara 9 saltos entre capas antes de que
+    la SPA actualice el panel. Es secuencial, no paralelo (como un SFC).
+  </p>
+
+  <div class="diagram">
+    <div class="seq">
+      <!-- Cabecera de actores -->
+      <div class="actors" style="grid-template-columns: 1fr 1fr 1fr 1fr;">
+        <div class="actor">SPA (navegador)</div>
+        <div class="actor">Flask (hilo)</div>
+        <div class="actor">tia-loop (hilo)</div>
+        <div class="actor">TIA Portal (.NET)</div>
+      </div>
+
+      <!-- Step 1: clic -->
+      <div class="step">
+        <span class="label">[1] operario pulsa ↻</span>
+        <span class="arrow req">→ clic</span>
+        <span class="arrow req">→</span>
+        <span class="arrow req">→</span>
+        <span class="arrow req">→</span>
+        <span class="note">en plcpanelview.handleRefresh()</span>
+      </div>
+
+      <!-- Step 2: store -->
+      <div class="step">
+        <span class="label">[2] SPA llama al store</span>
+        <span class="arrow req">loadAndApplyPlcBlocks(plc, {force:true})</span>
+        <span class="arrow req">→</span>
+        <span class="arrow req">→</span>
+        <span class="arrow req">→</span>
+        <span class="note">store.js:564 — fija isRefreshing=true</span>
+      </div>
+
+      <!-- Step 3: api -->
+      <div class="step">
+        <span class="label">[3] store llama a api</span>
+        <span class="arrow req">apiRefreshPlcBlocks('PLC_1')</span>
+        <span class="arrow req">→</span>
+        <span class="arrow req">→</span>
+        <span class="arrow req">→</span>
+        <span class="note">api.js:240 — fetch POST + AbortController (2min)</span>
+      </div>
+
+      <!-- Step 4: HTTP -->
+      <div class="step">
+        <span class="label">[4] HTTP request</span>
+        <span class="arrow resp">← POST /api/v1/plcs/PLC_1/blocks/refresh</span>
+        <span class="arrow resp"></span>
+        <span class="arrow resp"></span>
+        <span class="arrow resp"></span>
+        <span class="note">werkzeug lo entrega al handler de Flask</span>
+      </div>
+
+      <!-- Step 5: bp_blocks -->
+      <div class="step">
+        <span class="label">[5] Flask ejecuta el handler</span>
+        <span class="arrow resp">←</span>
+        <span class="arrow worker">_scan_plc_blocks('PLC_1')</span>
+        <span class="arrow worker">→</span>
+        <span class="arrow worker">→</span>
+        <span class="note">routers/plc.py:bp_blocks — Helper común</span>
+      </div>
+
+      <!-- Step 6: tia.submit_and_wait -->
+      <div class="step">
+        <span class="label">[6] Flask encola en tia-loop</span>
+        <span class="arrow resp">←</span>
+        <span class="arrow worker">tia.submit_and_wait('scan_blocks', {plc_name:'PLC_1'}, 120s)</span>
+        <span class="arrow worker">→</span>
+        <span class="arrow worker">→</span>
+        <span class="note">Flask BLOQUEA aquí esperando respuesta (sync)</span>
+      </div>
+
+      <!-- Step 7: tia-loop drena -->
+      <div class="step">
+        <span class="label">[7] tia-loop drena la cola</span>
+        <span class="arrow resp">←</span>
+        <span class="arrow resp">←</span>
+        <span class="arrow worker">drena cola FIFO, dispatch</span>
+        <span class="arrow worker">→</span>
+        <span class="note">único hilo que toca el wrapper .NET</span>
+      </div>
+
+      <!-- Step 8: handler -->
+      <div class="step">
+        <span class="label">[8] ejecuta _h_scan_blocks</span>
+        <span class="arrow resp">←</span>
+        <span class="arrow resp">←</span>
+        <span class="arrow worker">_h_scan_blocks(args, tia_client)</span>
+        <span class="arrow worker">→</span>
+        <span class="note">tia_handlers.py:327 — recorre bloques/tag_tables/UDTs</span>
+      </div>
+
+      <!-- Step 9: wrapper call -->
+      <div class="step">
+        <span class="label">[9] llamada al wrapper .NET</span>
+        <span class="arrow resp">←</span>
+        <span class="arrow resp">←</span>
+        <span class="arrow resp">←</span>
+        <span class="arrow worker">portal.get_program_blocks() → recursivo</span>
+        <span class="note">S7-1500: ~200 bloques = 30-60s</span>
+      </div>
+
+      <!-- Step 10: response -->
+      <div class="step">
+        <span class="label">[10] respuesta subiendo</span>
+        <span class="arrow resp">← 200 OK { ok, snapshot }</span>
+        <span class="arrow resp"></span>
+        <span class="arrow resp"></span>
+        <span class="arrow resp"></span>
+        <span class="note">shape: {plc_name, blocks, tag_tables, udts, scanned_at}</span>
+      </div>
+
+      <!-- Step 11: _applyBlocksSnapshot -->
+      <div class="step">
+        <span class="label">[11] SPA parsea + pinta</span>
+        <span class="arrow worker">_applyBlocksSnapshot(plc, payload)</span>
+        <span class="arrow resp">→</span>
+        <span class="arrow resp">→</span>
+        <span class="arrow resp">→</span>
+        <span class="note">store.plcBlocksCache = {...}</span>
+      </div>
+
+      <!-- Step 12: Vue reactive -->
+      <div class="step">
+        <span class="label">[12] Vue re-renderiza</span>
+        <span class="arrow worker">groupedBlocks, blocksCount (computed)</span>
+        <span class="arrow resp">→</span>
+        <span class="arrow resp">→</span>
+        <span class="arrow resp">→</span>
+        <span class="note">plcpanelview re-pinta la tabla + badges</span>
+      </div>
+
+      <!-- Step 13: ProgressIndicator + logs -->
+      <div class="step">
+        <span class="label">[13] Feedback al operario</span>
+        <span class="arrow worker">pushLog('Cache de PLC_1 refrescado', 'success')</span>
+        <span class="arrow bus">→ bus SSE →</span>
+        <span class="arrow bus"></span>
+        <span class="arrow bus"></span>
+        <span class="note">ProgressIndicator en sidebar + ConsolaLogs</span>
+      </div>
+
+    </div>
+  </div>
+  <p class="diagram-caption">12 saltos · ~1-3s en PLC pequeño, ~60s en S7-1500 grande · todo secuencial</p>
+</section>
+
+<hr/>
+
+<!-- ===================== STATE MACHINE ===================== -->
+<section>
+  <h2>
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 10v6m11-11h-6m-10 0H1m17.07-7.07l-4.24 4.24M7.17 16.83l-4.24 4.24m0-18.14l4.24 4.24m9.66 9.66l4.24 4.24"/></svg>
+    3. State machine del tia-loop
+  </h2>
+  <p>
+    El tia-loop NO ejecuta comandos a pelo. Tiene una state machine (como los
+    modos de operación de un PLC: STOP / RUN / ERROR). Esto evita race
+    conditions con el wrapper .NET (que es single-threaded y no tolera accesos
+    concurrentes).
+  </p>
+
+  <div class="diagram">
+    <svg viewBox="0 0 900 320" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;max-height:420px">
+      <!-- States -->
+      <rect x="40" y="130" width="130" height="60" rx="8" fill="#ffffff" stroke="#7c7a72" stroke-width="2"/>
+      <text x="105" y="155" fill="#7c7a72" text-anchor="middle" font-family="JetBrains Mono" font-size="14" font-weight="700">idle</text>
+      <text x="105" y="175" fill="#7c7a72" text-anchor="middle" font-family="Outfit" font-size="11">sin portal</text>
+
+      <rect x="220" y="130" width="140" height="60" rx="8" fill="#c97b3f08" stroke="#c97b3f" stroke-width="2"/>
+      <text x="290" y="155" fill="#c97b3f" text-anchor="middle" font-family="JetBrains Mono" font-size="14" font-weight="700">attaching</text>
+      <text x="290" y="175" fill="#c97b3f" text-anchor="middle" font-family="Outfit" font-size="11">attach_portal()</text>
+
+      <rect x="410" y="40" width="140" height="60" rx="8" fill="#2f6f5e08" stroke="#2f6f5e" stroke-width="2"/>
+      <text x="480" y="65" fill="#2f6f5e" text-anchor="middle" font-family="JetBrains Mono" font-size="14" font-weight="700">connected</text>
+      <text x="480" y="85" fill="#2f6f5e" text-anchor="middle" font-family="Outfit" font-size="11">portal listo</text>
+
+      <rect x="410" y="220" width="140" height="60" rx="8" fill="#0891b214" stroke="#0891b2" stroke-width="2"/>
+      <text x="480" y="245" fill="#0891b2" text-anchor="middle" font-family="JetBrains Mono" font-size="14" font-weight="700">busy</text>
+      <text x="480" y="265" fill="#0891b2" text-anchor="middle" font-family="Outfit" font-size="11">ejecutando comando</text>
+
+      <rect x="220" y="40" width="140" height="60" rx="8" fill="#b0636708" stroke="#b06367" stroke-width="2"/>
+      <text x="290" y="65" fill="#b06367" text-anchor="middle" font-family="JetBrains Mono" font-size="14" font-weight="700">error</text>
+      <text x="290" y="85" fill="#b06367" text-anchor="middle" font-family="Outfit" font-size="11">irrecuperable</text>
+
+      <rect x="620" y="130" width="140" height="60" rx="8" fill="#ffffff" stroke="#c97b3f" stroke-width="2"/>
+      <text x="690" y="155" fill="#c97b3f" text-anchor="middle" font-family="JetBrains Mono" font-size="14" font-weight="700">detaching</text>
+      <text x="690" y="175" fill="#c97b3f" text-anchor="middle" font-family="Outfit" font-size="11">detach_portal()</text>
+
+      <!-- Arrows -->
+      <!-- idle → attaching -->
+      <line x1="170" y1="160" x2="220" y2="160" stroke="#00345f" stroke-width="2" marker-end="url(#arrowhead)"/>
+      <text x="195" y="152" fill="#00345f" text-anchor="middle" font-family="Outfit" font-size="11">POST /tia/connect</text>
+
+      <!-- attaching → connected -->
+      <path d="M 360 150 Q 380 90 410 75" fill="none" stroke="#2f6f5e" stroke-width="2" marker-end="url(#arrowhead)"/>
+      <text x="385" y="100" fill="#2f6f5e" text-anchor="middle" font-family="Outfit" font-size="11">OK</text>
+
+      <!-- attaching → error -->
+      <path d="M 290 130 L 290 100" fill="none" stroke="#b06367" stroke-width="2" marker-end="url(#arrowhead)"/>
+      <text x="295" y="115" fill="#b06367" font-family="Outfit" font-size="11">fail</text>
+
+      <!-- connected → busy -->
+      <line x1="480" y1="100" x2="480" y2="220" stroke="#0891b2" stroke-width="2" marker-end="url(#arrowhead)"/>
+      <text x="490" y="160" fill="#0891b2" font-family="Outfit" font-size="11">submit_and_wait</text>
+
+      <!-- busy → connected -->
+      <path d="M 510 245 Q 540 200 530 90" fill="none" stroke="#2f6f5e" stroke-width="2" marker-end="url(#arrowhead)"/>
+      <text x="560" y="170" fill="#2f6f5e" font-family="Outfit" font-size="11">done</text>
+
+      <!-- busy → error -->
+      <path d="M 410 250 L 360 80" fill="none" stroke="#b06367" stroke-width="2" stroke-dasharray="4,4" marker-end="url(#arrowhead)"/>
+      <text x="370" y="180" fill="#b06367" font-family="Outfit" font-size="11">COM disconnect</text>
+
+      <!-- connected → detaching -->
+      <line x1="550" y1="70" x2="620" y2="150" fill="none" stroke="#00345f" stroke-width="2" marker-end="url(#arrowhead)"/>
+      <text x="600" y="100" fill="#00345f" font-family="Outfit" font-size="11">POST /tia/disconnect</text>
+
+      <!-- detaching → idle -->
+      <line x1="620" y1="160" x2="170" y2="160" fill="none" stroke="#7c7a72" stroke-width="2" stroke-dasharray="4,4" marker-end="url(#arrowhead)"/>
+      <text x="380" y="155" fill="#7c7a72" font-family="Outfit" font-size="11">OK</text>
+
+      <!-- error → idle (manual reset) -->
+      <path d="M 220 70 Q 130 70 100 130" fill="none" stroke="#7c7a72" stroke-width="2" stroke-dasharray="4,4" marker-end="url(#arrowhead)"/>
+      <text x="135" y="100" fill="#7c7a72" font-family="Outfit" font-size="11">retry</text>
+
+      <defs>
+        <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+          <polygon points="0 0, 10 3.5, 0 7" fill="#00345f"/>
+        </marker>
+      </defs>
+    </svg>
+  </div>
+  <p class="diagram-caption">El state se publica al bus SSE → la SPA lo pinta en TiaConnectionIndicator</p>
+</section>
+
+<hr/>
+
+<!-- ===================== BUS SSE ===================== -->
+<section>
+  <h2>
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11a9 9 0 019 9"/><path d="M4 4a16 16 0 0116 16"/><circle cx="5" cy="19" r="1"/></svg>
+    4. El bus SSE: cómo el backend empuja al frontend
+  </h2>
+  <p>
+    Sin polling. El backend tiene un <span class="mono">EventBusSync</span>
+    interno. Cuando algo cambia (un FB avanza un step, el state del TIA cambia,
+    un log se añade), se publica en el bus. El endpoint
+    <span class="mono">/stream</span> de Flask mantiene 1 conexión HTTP abierta
+    por SPA y le empuja los eventos en formato SSE.
+  </p>
+
+  <div class="diagram">
+    <div class="bus-diagram">
+      <!-- Lado izquierdo: publicadores -->
+      <div class="bus-side">
+        <h4>Publicadores (backend)</h4>
+        <ul>
+          <li>· tia-loop (state changes)</li>
+          <li>· engine.run_cycle (FB progress)</li>
+          <li>· LogBuffer.append (logs)</li>
+          <li>· ProgressTracker (stages)</li>
+          <li>· CacheSubscribe (invalidaciones)</li>
+        </ul>
+      </div>
+
+      <!-- Centro: hub -->
+      <div class="bus-center">
+        <div class="arrow left">→</div>
+        <div class="hub">EventBusSync<br/>+ SSE</div>
+        <div>→</div>
+      </div>
+
+      <!-- Lado derecho: suscriptores -->
+      <div class="bus-side">
+        <h4>Suscriptores (frontend)</h4>
+        <ul>
+          <li>· store.tiaConnection</li>
+          <li>· store.progress</li>
+          <li>· store.logs</li>
+          <li>· ProgressIndicator</li>
+          <li>· TiaConnectionIndicator</li>
+        </ul>
+      </div>
+    </div>
+
+    <div style="margin-top:24px;padding-top:24px;border-top:1px solid var(--line-soft);font-family:'JetBrains Mono',monospace;font-size:12.5px;color:var(--ink);">
+      <strong style="color:var(--muted);font-family:'Outfit',sans-serif;font-size:12px">EVENTO TÍPICO (lo que viaja por el bus)</strong>
+      <pre style="background:var(--bg);border:1px solid var(--line);padding:12px;border-radius:6px;margin-top:8px;line-height:1.6;font-size:12px">
+data: {"type":"progress","operation":"sync_dispositivos","label":"Sync dispositivos PLC_1",
+       "current":3,"total":8,"percent":37,"stages":[{"id":"scan","label":"Escanear",
+       "state":"running"},{"id":"diff","label":"Diff IT","state":"pending"}]}
+
+data: {"type":"tia_state","state":"connected","worker_alive":true,
+       "project":{"name":"MiProyecto","path":"C:\\Proyectos\\MiProyecto.ap17"}}
+
+data: {"type":"log","level":"success","message":"Cache de PLC_1 refrescado","ts":"..."}
+</pre>
+    </div>
+  </div>
+  <p class="diagram-caption">1 conexión HTTP abierta · auto-reconnect nativo del navegador · snapshot inicial completo</p>
+</section>
+
+<hr/>
+
+<!-- ===================== LAS 5 CAPAS ===================== -->
+<section>
+  <h2>
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+    5. Las 5 capas (de dentro a fuera del proceso)
+  </h2>
+
+  <div class="layer">
+    <div class="layer-head">
+      <span class="layer-name">5 · TIA Portal (.NET)</span>
+      <span class="layer-tech">externo · single-threaded</span>
+    </div>
+    <div class="layer-desc">
+      Instancia de TIA Portal con un proyecto cargado. Solo se accede vía
+      <span class="mono">siemens_tia_scripting.pyd</span>. Single-threaded:
+      un solo hilo Python puede tocarlo a la vez.
+    </div>
+  </div>
+
+  <div class="layer">
+    <div class="layer-head">
+      <span class="layer-name">4 · tia-loop + tia_handlers</span>
+      <span class="layer-tech">core/infrastructure/tia/</span>
+    </div>
+    <div class="layer-desc">
+      Hilo daemon con cola FIFO. Drena comandos y delega en
+      <span class="mono">_h_*</span> (26 handlers puros). State machine
+      protege contra race conditions. ÚNICO punto de entrada al wrapper.
+    </div>
+    <div class="layer-files">tia_loop.py · tia_handlers.py · tia_helpers.py · tia_loader.py</div>
+  </div>
+
+  <div class="layer">
+    <div class="layer-head">
+      <span class="layer-name">3 · Flask + routers</span>
+      <span class="layer-tech">core/web_server/</span>
+    </div>
+    <div class="layer-desc">
+      Hilo werkzeug (threaded). Sirve la SPA estática y los 7 blueprints.
+      Cada handler es un <span class="mono">@bp.get/post</span> que llama a
+      <span class="mono">tia_client.submit_and_wait(...)</span> y devuelve JSON.
+      <span class="mono">/stream</span> abre el SSE.
+    </div>
+    <div class="layer-files">app_flask.py · routers/{tia_connection,portal,plc,areas,catalog,area_manifests,diagnostics}.py</div>
+  </div>
+
+  <div class="layer">
+    <div class="layer-head">
+      <span class="layer-name">2 · SPA Vue 3 (navegador)</span>
+      <span class="layer-tech">core/web_server/static/js/</span>
+    </div>
+    <div class="layer-desc">
+      Estado reactivo global en <span class="mono">store.js</span>. Cada componente
+      Vue tiene <span class="mono">setup()</span> que expone <span class="mono">computed</span>
+      derivados del store. Las funciones de <span class="mono">api.js</span> son puras
+      (no tocan store). El SSE actualiza el store directamente desde el bus.
+    </div>
+    <div class="layer-files">main.js · store.js · api.js · components/{ShellSidebar,plcpanelview,...}.js</div>
+  </div>
+
+  <div class="layer">
+    <div class="layer-head">
+      <span class="layer-name">1 · Operario (humano)</span>
+      <span class="layer-tech">click · vista · decisión</span>
+    </div>
+    <div class="layer-desc">
+      Pulsa botones en el navegador. Solo ve lo que la SPA pinta.
+      Las decisiones largas (>500 ms) van con ProgressIndicator visible.
+    </div>
+  </div>
+</section>
+
+<hr/>
+
+<!-- ===================== FAQ ===================== -->
+<section>
+  <div class="faq">
+    <h2>
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      FAQ operario
+    </h2>
+
+    <h3>¿Por qué Flask NO toca el wrapper .NET directamente?</h3>
+    <p>
+      El wrapper es single-threaded (los RCW de .NET no toleran accesos concurrentes
+      desde el mismo proceso). Si Flask lo tocara en cada request, y Flask es
+      <span class="mono">threaded=True</span>, dos requests podrían reventar el
+      wrapper. El tia-loop es el ÚNICO que lo toca, vía la cola FIFO. Flask solo
+      encola comandos y espera la respuesta.
+    </p>
+
+    <h3>¿Por qué 3 hilos y no 1 solo asyncio?</h3>
+    <p>
+      El wrapper .NET bloquea el hilo Python mientras hace la llamada COM (sync).
+      Si todo fuera asyncio, una llamada bloqueante tiraría el event loop y ninguna
+      otra request avanzaría. Separar en hilos es la forma pythónica de mezclar
+      I/O bloqueante (TIA) con I/O no-bloqueante (HTTP). Trade-off aceptado: pierdes
+      paralelismo, ganas simplicidad.
+    </p>
+
+    <h3>¿Por qué un EventBus y no llamadas directas entre hilos?</h3>
+    <p>
+      Sin bus, el main-loop tendría que hacer <span class="mono">store.tiaConnection = ...</span>
+      desde su hilo, y Flask leería esa variable desde otro hilo. Eso son race
+      conditions garantizadas. Con bus + SSE: el publicador encola, el suscriptor
+      (hilo de Flask que mantiene el SSE) consume. La SPA actualiza su store
+      desde el SSE, sin tocar variables cross-thread en Python.
+    </p>
+
+    <h3>¿Por qué no hay autenticación?</h3>
+    <p>
+      Single-tenant (un operario por puesto, red local industrial). El binding a
+      <span class="mono">127.0.0.1:9484</span> solo expone a la máquina local. Si
+      Aketza quiere exponer la SPA a la red, hay que añadir auth + bind a
+      <span class="mono">0.0.0.0</span> con firewall — pendiente.
+    </p>
+
+    <h3>¿Qué pasa si TIA Portal se cierra mientras opero?</h3>
+    <p>
+      El handler que esté ejecutándose lanza <span class="mono">COMException</span>.
+      El tia-loop captura la excepción defensivamente, transiciona a
+      <span class="mono">error</span> y publica el nuevo state al bus. La SPA lo
+      refleja en el TiaConnectionIndicator (rojo) y resetea el state PLC.
+      El operario ve "TIA no responde" en la ConsolaLogs y sabe qué pasó.
+    </p>
+
+    <h3>¿Cómo se añade un comando TIA nuevo?</h3>
+    <p>
+      1) Añadir <span class="mono">_h_xxx(args, tia_client)</span> en
+      <span class="mono">tia_handlers.py</span>. 2) Registrar en
+      <span class="mono">register_core_commands</span>. 3) (Opcional) Exponerlo
+      vía un endpoint en <span class="mono">routers/</span> que llame a
+      <span class="mono">tia.submit_and_wait('xxx', args)</span>. 4) (Opcional)
+      Botón en la SPA que llame al endpoint via <span class="mono">api.js</span>.
+    </p>
+
+  </div>
+</section>
+
+<footer>
+  <span>feature/spike-ob1 · main.py → 3 hilos daemon · 26 comandos · 7 routers</span>
+  <span>del clic al PLC: ~1-3s en PLC pequeño, hasta 60s en S7-1500 grande</span>
+</footer>
+
+</body>
+</html>

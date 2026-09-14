@@ -125,7 +125,7 @@ def main() -> int:
     log.info("Log file: %s", LOG_FILE)
 
     from core.infrastructure.config.config_manager import ConfigManager
-    from launcher.main_supervisor import MainServiceSupervisor
+    from core.launcher.main_supervisor import MainServiceSupervisor
 
     # Config eager: falla rapido al arrancar si el JSON esta roto
     # o no existe, con el log ya en marcha para diagnosticar.
@@ -142,7 +142,7 @@ def main() -> int:
     log.info("Esperando que el operario elija Iniciar web desde el menu.")
 
     try:
-        from launcher.tray_app import run_tray
+        from core.launcher.tray_app import run_tray
         run_tray(
             web, _resolve_icon_path(), log,
             on_before_exit=lambda: web.stop(timeout=5.0),

@@ -93,7 +93,7 @@ def main() -> int:
 
     tc.attach_ts(_FakeTs())
 
-    from launcher.main_supervisor import MainServiceSupervisor
+    from core.launcher.main_supervisor import MainServiceSupervisor
     s = MainServiceSupervisor(
         host=HOST, port=PORT, tick_period_s=0.05,
         config_manager=cm, event_bus=bus,

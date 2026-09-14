@@ -48,18 +48,18 @@ contrato IPC, state machine y comandos de ciclo de vida están en
    `areas/<area>/application/use_cases/` si es del área) orquesta,
    llama al gateway, y emite progress.
 6. El router FastAPI expone el endpoint con `Depends(get_gateway)`.
-   Los routers genéricos viven en `interfaces/web_server/routers/`;
-   los del área en `areas/<area>/interfaces/web/`.
+   Los routers genéricos viven en `core/web_server/routers/`;
+   los del área en `areas/<area>/interfaces/web/ (futuro)`.
 7. Tests: mockea el gateway con `MagicMock(spec=TIAProcessGateway)`,
    nunca el worker directamente.
 
 ### 2. Nuevo endpoint REST
 1. Añade el handler en el router correspondiente:
-   - Genérico: `interfaces/web_server/routers/<area>.py` con
+   - Genérico: `core/web_server/routers/<area>.py` con
      un `APIRouter`.
-   - Del área: `areas/<area>/interfaces/web/<router>.py` y declara
+   - Del área: `areas/<area>/interfaces/web/ (futuro)<router>.py` y declara
      `register_routers(app)` en el `__init__.py` del paquete.
-2. El shell FastAPI (`interfaces/web_server/app.py::create_app`)
+2. El shell FastAPI (`core/web_server/app_flask.py::create_app`)
   Descubre los routers del área vía `AreaRegistry.for_each("contributes_routers", app=app)`.
 3. Inyecta dependencias vía `Depends(get_gateway | get_app_state |
    get_logger | get_progress_tracker)`. NUNCA importes globales
@@ -73,7 +73,7 @@ contrato IPC, state machine y comandos de ciclo de vida están en
 ### 3. Nueva vista en la SPA
 1. Crea `areas/<area>/frontend/components/<Vista>.js` con Vue 3 ESM.
    Exporta un `default { name, setup, template }`. NO añadas
-   componentes en `interfaces/web_server/static/js/components/areas/`
+   componentes en `core/web_server/static/js/components/areas/`
    (esa carpeta ya no existe tras PR 7).
 2. El template es un `template: /* html */ \`...\`` (template string).
 3. PROHIBIDO: string literals multi-línea dentro de arrays de `:class`.
@@ -82,7 +82,7 @@ contrato IPC, state machine y comandos de ciclo de vida están en
 5. Fetch en `api.js` (función pura, devuelve `{ ok, status, data }`).
 6. Registra el componente en `areas/<area>/frontend/manifest.js` (un
    `build()` que devuelve `{ components, routes, sidebar, landing, loaders }`).
-   El shell SPA (`interfaces/web_server/static/js/main.js`) lo carga
+   El shell SPA (`core/web_server/static/js/main.js`) lo carga
    dinámicamente vía `area-loader.js` al entrar al área.
 7. Estilos: solo tokens semánticos del tema. Tras añadir clases,
    **recompila Tailwind** (ver `.clinerules` §9). El config ya
@@ -131,9 +131,9 @@ contrato IPC, state machine y comandos de ciclo de vida están en
 5. Si tiene comandos TIA transaccionales:
    `areas/<area>/infrastructure/tia/extra_commands.py` con
    `register(registry)`.
-6. Si tiene routers FastAPI: `areas/<area>/interfaces/web/` con
+6. Si tiene routers FastAPI: `areas/<area>/interfaces/web/ (futuro)` con
    `register_routers(app)` en el `__init__.py` del paquete. Los routers
-   genéricos viven en `interfaces/web_server/routers/` (no en `core/`).
+   genéricos viven en `core/web_server/routers/`.
 7. Si tiene tools MCP: `areas/<area>/interfaces/mcp/tools.py` con
    `register(mcp)`.
 8. Si tiene UI: `areas/<area>/frontend/components/` +
@@ -173,7 +173,7 @@ Convenciones:
   `apiClearProgress()` cuando quiere.
 
 ### Timeouts de fetch (cliente)
-- **3 buckets** definidos en `interfaces/web_server/static/js/api.js`:
+- **3 buckets** definidos en `core/web_server/static/js/api.js`:
   - `FAST_TIMEOUT_MS = 120_000` (2 min, default): lecturas puras
     (PLC list, logs, progress, catalog, memory, tia/connection,
     blocks, etc). Tipicamente <1s pero pueden dispararse a 30-60s
@@ -377,7 +377,7 @@ commit).
 | Servidor dev (web) | `python main.py --web 127.0.0.1:8000` |
 | Servidor dev (MCP) | `python main.py --mcp` |
 | Launcher bandeja | `python main.py` (o `run_tray.bat`) |
-| Recompilar CSS | `tailwindcss-extra.exe -i interfaces/web_server/static/src/input.css -o interfaces/web_server/static/styles.css --minify` (también `run_tailwind.bat` si existe) |
+| Recompilar CSS | `tailwindcss-extra.exe -i core/web_server/static/src/input.css -o core/web_server/static/styles.css --minify` (también `run_tailwind.bat` si existe) |
 | Build .exe | `python build_exe.py` |
 | Test E2E manual | abrir `http://127.0.0.1:8000/` (demo: `?demo=1`) |
 
