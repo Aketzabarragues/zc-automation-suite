@@ -40,7 +40,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from core.data.data_bloque_plc import DataBloquePLC
+from core.data.data_block_plc import DataBloquePLC
 
 
 @dataclass(frozen=False)

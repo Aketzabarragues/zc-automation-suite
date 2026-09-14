@@ -15,8 +15,8 @@ from areas.alimentacion.application.proc_slot_map_builder import (
     proc_build_slot_maps,
 )
 from core.infrastructure.config.config_manager import ConfigManager
-from core.data.data_bloque_cache import DataBloqueCache
-from core.data.data_bloque_plc import DataBloquePLC
+from core.data.data_block_cache import DataBloqueCache
+from core.data.data_block_plc import DataBloquePLC
 
 
 def _make_bloque_cache(names: list[str], tag_tables: list[str] | None = None) -> DataBloqueCache:

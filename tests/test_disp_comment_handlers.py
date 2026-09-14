@@ -229,7 +229,7 @@ def test_handler_usa_exports_subdir_y_copytree_si_se_pasa() -> None:
     import shutil
     from unittest.mock import MagicMock
     from core.infrastructure.tia import worker_tia
-    from core.data.data_bloque_plc import DataBloquePLC
+    from core.data.data_block_plc import DataBloquePLC
 
     portal = MagicMock()
     ts = MagicMock()

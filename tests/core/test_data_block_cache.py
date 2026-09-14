@@ -15,8 +15,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from core.data.data_bloque_cache import DataBloqueCache
-from core.data.data_bloque_plc import DataBloquePLC
+from core.data.data_block_cache import DataBloqueCache
+from core.data.data_block_plc import DataBloquePLC
 
 
 def test_defaults_vacios():

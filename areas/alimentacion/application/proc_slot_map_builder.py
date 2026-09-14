@@ -32,8 +32,8 @@ from areas.alimentacion.infrastructure.sd.proc_comment_updater import (
 from core.runtime.app_state import AppState
 from core.infrastructure.config.config_manager import ConfigManager
 from core.infrastructure.tia.tia_export_paths import EMPTY_TEXT
-from core.data.data_bloque_cache import DataBloqueCache
-from core.data.data_bloque_plc import DataBloquePLC
+from core.data.data_block_cache import DataBloqueCache
+from core.data.data_block_plc import DataBloquePLC
 
 
 _logger = logging.getLogger(__name__)

@@ -21,7 +21,7 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from core.data.data_bloque_plc import DataBloquePLC
+from core.data.data_block_plc import DataBloquePLC
 
 if TYPE_CHECKING:
     from core.infrastructure.tia.tia_loop import SyncTIAClient

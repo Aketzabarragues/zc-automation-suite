@@ -25,7 +25,7 @@ import asyncio
 import logging
 from typing import ClassVar
 
-from core.data.data_bloque_cache import DataBloqueCache
+from core.data.data_block_cache import DataBloqueCache
 
 
 _logger = logging.getLogger("zc.tia_loop")

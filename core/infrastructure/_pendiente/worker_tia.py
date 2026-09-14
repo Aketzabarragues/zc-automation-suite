@@ -47,7 +47,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, NoReturn
 
-from core.data.data_bloque_plc import DataBloquePLC
+from core.data.data_block_plc import DataBloquePLC
 
 # Forzar UTF-8 en los streams del worker.
 # El worker es un subproceso de TIAProcessGateway (v�a

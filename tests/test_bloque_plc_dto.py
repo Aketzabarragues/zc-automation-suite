@@ -12,7 +12,7 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from core.data.data_bloque_plc import DataBloquePLC
+from core.data.data_block_plc import DataBloquePLC
 
 
 # ────────────────────────────────────────────────────────────────────────

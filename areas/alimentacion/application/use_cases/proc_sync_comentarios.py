@@ -39,7 +39,7 @@ from core.runtime.app_state import AppState
 from core.infrastructure.config.config_manager import ConfigManager
 from core.infrastructure._pendiente.gateway import TIAProcessGateway
 from core.infrastructure.tia.tia_export_paths import SdPair, XmlTarget
-from core.data.data_bloque_cache import DataBloqueCache
+from core.data.data_block_cache import DataBloqueCache
 
 
 _logger = logging.getLogger(f"{__name__}.ProcSyncComentariosUseCase")

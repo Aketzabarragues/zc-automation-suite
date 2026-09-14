@@ -36,8 +36,8 @@ from core.runtime.progress_buffer import (  # noqa: E402
 )
 from core.infrastructure.config.config_manager import ConfigManager  # noqa: E402
 from core.infrastructure._pendiente.gateway import TIAProcessGateway  # noqa: E402
-from core.data.data_bloque_cache import DataBloqueCache  # noqa: E402
-from core.data.data_bloque_plc import DataBloquePLC  # noqa: E402
+from core.data.data_block_cache import DataBloqueCache  # noqa: E402
+from core.data.data_block_plc import DataBloquePLC  # noqa: E402
 from areas.alimentacion.application.use_cases.proc_sync_comentarios import (  # noqa: E402
     ProcSyncComentariosUseCase,
 )
@@ -264,8 +264,8 @@ def test_generar_prevision_diff_real_con_archivos_tia(tmp_path) -> None:
     import asyncio
     import re
     from core.infrastructure._pendiente.gateway import TIAProcessGateway
-    from core.data.data_bloque_cache import DataBloqueCache
-    from core.data.data_bloque_plc import DataBloquePLC
+    from core.data.data_block_cache import DataBloqueCache
+    from core.data.data_block_plc import DataBloquePLC
     from unittest.mock import AsyncMock
 
     # 1. Preparar los archivos .s7dcl/.s7res en el work_dir que
@@ -440,8 +440,8 @@ def test_generar_prevision_incluye_nmax_block_en_response(tmp_path) -> None:
     import asyncio
     from core.runtime.progress_buffer import ProgressTracker
     from core.infrastructure._pendiente.gateway import TIAProcessGateway
-    from core.data.data_bloque_cache import DataBloqueCache
-    from core.data.data_bloque_plc import DataBloquePLC
+    from core.data.data_block_cache import DataBloqueCache
+    from core.data.data_block_plc import DataBloquePLC
     from unittest.mock import AsyncMock, MagicMock
 
     proc = MagicMock(uid=100, nombre="Compacto", codigo="CPR")
@@ -524,8 +524,8 @@ def test_generar_prevision_nmax_block_con_sufijos_usa_gateway(tmp_path) -> None:
     import asyncio
     from core.runtime.progress_buffer import ProgressTracker
     from core.infrastructure._pendiente.gateway import TIAProcessGateway
-    from core.data.data_bloque_cache import DataBloqueCache
-    from core.data.data_bloque_plc import DataBloquePLC
+    from core.data.data_block_cache import DataBloqueCache
+    from core.data.data_block_plc import DataBloquePLC
     from unittest.mock import AsyncMock, MagicMock
 
     proc = MagicMock(uid=100, nombre="Compacto", codigo="CPR")
@@ -620,8 +620,8 @@ def test_generar_prevision_no_pisa_tracker_con_otra_operacion_activa(
     import asyncio
     from core.runtime.progress_buffer import ProgressTracker
     from core.infrastructure._pendiente.gateway import TIAProcessGateway
-    from core.data.data_bloque_cache import DataBloqueCache
-    from core.data.data_bloque_plc import DataBloquePLC
+    from core.data.data_block_cache import DataBloqueCache
+    from core.data.data_block_plc import DataBloquePLC
     from unittest.mock import AsyncMock, MagicMock
 
     # Tracker YA activo con otra operación.
@@ -695,8 +695,8 @@ def test_generar_prevision_slots_tia_no_excel_aparecen_como_eliminar(
     import asyncio
     from core.runtime.progress_buffer import ProgressTracker
     from core.infrastructure._pendiente.gateway import TIAProcessGateway
-    from core.data.data_bloque_cache import DataBloqueCache
-    from core.data.data_bloque_plc import DataBloquePLC
+    from core.data.data_block_cache import DataBloqueCache
+    from core.data.data_block_plc import DataBloquePLC
     from unittest.mock import AsyncMock, MagicMock
 
     db_param = "DB53100_CPR_PARAM"
@@ -880,8 +880,8 @@ def test_generar_prevision_closes_tracker_when_missing_blocks(tmp_path) -> None:
         STAGE_DONE,
     )
     from core.infrastructure._pendiente.gateway import TIAProcessGateway
-    from core.data.data_bloque_cache import DataBloqueCache
-    from core.data.data_bloque_plc import DataBloquePLC
+    from core.data.data_block_cache import DataBloqueCache
+    from core.data.data_block_plc import DataBloquePLC
     from unittest.mock import MagicMock
 
     # Tracker LIMPIO (no activo). El use case va a ser el dueño
