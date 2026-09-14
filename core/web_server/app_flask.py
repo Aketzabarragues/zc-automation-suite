@@ -177,9 +177,15 @@ def create_app(
 
 
 def _register_blueprints(app: Flask) -> None:
-    """Registra los 7 blueprints del shell. Si alguno no esta disponible
-    (migracion en curso), lo loggea y sigue."""
-    blueprints = [
+    """Registra los blueprints del shell. Si alguno no esta disponible
+    (migracion en curso), lo loggea y sigue.
+
+    Algunos modulos exponen mas de un blueprint (``plc`` tiene ``bp``
+    para FBs y ``bp_blocks`` para cache de bloques del PLC). Aqui
+    se registran todos los que exporten (``__all__``); los demas se
+    saltan sin error.
+    """
+    blueprint_modules = [
         "tia_connection",
         "diagnostics",
         "area_manifests",
@@ -188,14 +194,22 @@ def _register_blueprints(app: Flask) -> None:
         "plc",
         "areas",
     ]
-    for name in blueprints:
+    for name in blueprint_modules:
         try:
             from importlib import import_module
-            mod = import_module(f"interfaces.web_server.routers.{name}")
-            app.register_blueprint(mod.bp)
-            logger.info("create_app: blueprint %s registrado.", name)
+            mod = import_module(f"core.web_server.routers.{name}")
+            for attr in getattr(mod, "__all__", ["bp"]):
+                bp = getattr(mod, attr, None)
+                if bp is not None:
+                    app.register_blueprint(bp)
+                    logger.info(
+                        "create_app: blueprint %s.%s registrado.",
+                        name, attr,
+                    )
         except ImportError as exc:
-            logger.debug("create_app: blueprint %s no disponible (%s).", name, exc)
+            logger.debug(
+                "create_app: blueprint %s no disponible (%s).", name, exc
+            )
 
 
 __all__ = ["create_app"]
