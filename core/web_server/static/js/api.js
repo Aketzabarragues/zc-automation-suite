@@ -289,7 +289,7 @@ export function apiProcesosSyncPreview(procUid, plcName) {
 
 /**
  * Fuerza la reconexión del worker TIA persistente.
- * Endpoint: POST /api/v1/tia/connect (PR 5a / §4.1 del design doc).
+ * Endpoint: POST /api/v1/tia/connect.
  *
  * En éxito el backend devuelve el nuevo snapshot (con
  * ``state === "connected"`` y el proyecto recién attached). En
@@ -304,7 +304,7 @@ export const apiConnectTia = () =>
 
 /**
  * Desconexión explícita del worker TIA persistente.
- * Endpoint: POST /api/v1/tia/disconnect (PR 5a / §4.1 del design doc).
+ * Endpoint: POST /api/v1/tia/disconnect.
  *
  * Tras un 200, el snapshot del backend pasa a ``state ===
  * "disconnected"`` y el indicador del topbar se vuelve gris.

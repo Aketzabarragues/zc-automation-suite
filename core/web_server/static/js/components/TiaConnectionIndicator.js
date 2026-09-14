@@ -1,8 +1,8 @@
 /**
  * Componente TiaConnectionIndicator.
  *
- * Círculo de estado del worker TIA persistente (PR 5b / §4.2 del
- * design doc) que vive en el ``ShellTopbar``. Muestra el estado
+ * Círculo de estado del worker TIA persistente que vive en el
+ * ``ShellTopbar``. Muestra el estado
  * de conexión con TIA Portal con un código de colores:
  *
  *   - verde   (bg-green-500)            → ``connected``
