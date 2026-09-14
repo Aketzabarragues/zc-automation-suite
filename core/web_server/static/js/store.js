@@ -690,8 +690,7 @@ export function resetPlcState() {
  *     un parpadeo ``connected`` → ``error`` → ``connected`` en
  *     cada timeout de la red).
  *   * La deteccion de transiciones de estado y el logueo en
- *     ``ConsolaLogs`` se hace dentro de ``_applyTiaSnapshot``
- *     (formato §4.4 del design doc).
+ *     ``ConsolaLogs`` se hace dentro de ``_applyTiaSnapshot``.
  *
  * (El polling de 2s se elimino en 1.3.1; el estado de TIA llega
  * via SSE.  La funcion ``refreshTiaConnection`` que existia antes

@@ -43,12 +43,11 @@
  * Los loaders son funciones que devuelven ``Promise<{default}``.
  * Cada entry se resuelve y se pasa a ``app.component(name, def)``.
  *
- * Decisión de degradación: si el endpoint ``/manifest`` no existe
- * (PR 4 del backend aún no lo ha añadido), ``loadArea`` NO lanza
- * excepción. Devuelve un manifest vacío con ``loaders: {}`` y la SPA
- * muestra un mensaje "Área no soportada en el frontend" en lugar de
- * crashear. Esto es importante para que el frontend se pueda desplegar
- * antes que el backend.
+ * Decisión de degradación: si el endpoint ``/manifest`` falla,
+ * ``loadArea`` NO lanza excepción. Devuelve un manifest vacío con
+ * ``loaders: {}`` y la SPA muestra un mensaje "Área no soportada en
+ * el frontend" en lugar de crashear. Esto es importante para que el
+ * frontend se pueda desplegar antes que el backend.
  */
 
 /**
