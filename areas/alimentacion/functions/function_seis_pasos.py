@@ -25,10 +25,15 @@ class FunctionSeisPasos(FunctionTemplate):
 
     STEP_TIMEOUT_S = 15.0
 
-    def __init__(self, tracker: ProgressTracker | None = None) -> None:
+    def __init__(
+        self,
+        nombre: str = "seis_pasos",
+        titulo: str = "Test FB 6 pasos",
+        tracker: ProgressTracker | None = None,
+    ) -> None:
         super().__init__(
-            nombre="seis_pasos",
-            titulo="Test FB 6 pasos",
+            nombre=nombre,
+            titulo=titulo,
             steps=[
                 {"nombre": "test_2_1"},
                 {"nombre": "test_2_2"},
