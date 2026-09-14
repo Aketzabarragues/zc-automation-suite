@@ -133,6 +133,14 @@ const App = {
          */
         function onShellNavigate(key) {
             if (!key) return;
+            // ``"plc"`` es key reservada del shell (boton comun del
+            // ShellSidebar). ``goToSubview`` la rechazaria porque no
+            // esta en el manifest del area. La aplicamos directo.
+            if (key === "plc") {
+                store.currentView = "plc";
+                return;
+            }
+            // Para el resto de keys validamos contra el manifest.
             goToSubview(key);
         }
         /**

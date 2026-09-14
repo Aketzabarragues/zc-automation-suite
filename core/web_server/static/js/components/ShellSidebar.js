@@ -47,8 +47,8 @@ const DEFAULT_ICONS = {
     cache: "🗃️",
 };
 
-/** Capitaliza la primera letra (fallback de label cuando no hay
- *  ``viewLabels`` en el manifest). */
+/** Capitaliza la primera letra (util para labels derivados de
+ *  keys: ``"alimentacion"`` -> ``"Alimentacion"``). */
 function capitalize(s) {
     if (!s) return "";
     return String(s).charAt(0).toUpperCase() + String(s).slice(1);
@@ -60,17 +60,19 @@ export default {
     emits: ["navigate", "back"],
     setup(_, { emit }) {
         /**
-         * Label del area activa para la cabecera. Resuelve primero
-         * contra ``store.availableAreas`` (cargado por Welcome);
-         * si no encuentra coincidencia, cae al store.selectedArea
-         * crudo. Sin prop.
+         * Label del area activa para la cabecera. Se prefiere el
+         * ``key`` capitalizado (``"alimentacion"`` -> ``"Alimentacion"``)
+         * sobre el ``label`` completo del backend (``"Area de
+         * alimentacion"``). Razon: el sidebar tiene poco ancho y el
+         * sufijo "Area de" / "Departamento de" / etc. es ruido para el
+         * operario (ya está el caption "Area" arriba). El label del
+         * backend se mantiene como fallback si por algun motivo el
+         * key no esta presente.
          */
         const areaLabel = computed(() => {
             const sel = store.selectedArea;
             if (!sel) return "—";
-            const a = (store.availableAreas || []).find((x) => x.key === sel);
-            if (a) return a.subtitle || a.label || a.key;
-            return sel;
+            return capitalize(sel);
         });
 
         /**
@@ -130,7 +132,7 @@ export default {
         <aside class="fixed left-0 top-0 h-screen w-72 flex-shrink-0 bg-shell text-on-shell flex flex-col overflow-hidden z-30">
 
             <header class="px-5 py-5 border-b border-shell-border shrink-0">
-                <p class="text-[10px] uppercase tracking-widest text-on-shell-faint font-bold mb-1">Módulo</p>
+                <p class="text-[10px] uppercase tracking-widest text-on-shell-faint font-bold mb-1">Área</p>
                 <p class="text-2xl font-extrabold text-on-shell tracking-tight truncate">{{ areaLabel }}</p>
             </header>
 
