@@ -1,13 +1,12 @@
-"""Function Block TEMPLATE parametrizable.
+"""Function Block TEST: dummy FB para validar el engine + progress tracker.
 
-Plantilla dummy para validar el engine + progress tracker. El caller
-la instancia con ``titulo`` y ``steps`` (lista de ``{nombre, duracion_s}``);
-cada ejecucion emite eventos SSE ``progress`` al bus por stage
-(begin / start / finish) y cierra con ``finish(success=True)``.
+El caller la instancia con ``titulo`` y ``steps`` (lista de
+``{nombre, duracion_s}``); cada ejecucion emite eventos SSE
+``progress`` al bus por stage (begin / start / finish) y cierra
+con ``finish(success=True)``.
 
-Cuando se migren los FBs reales del area (Fase 2), este template
-sirve de referencia: cada FB adopta este shape (titulo + steps
-declarativos + ``progress_tracker`` cableado).
+Cuando se migren los FBs reales del area (Fase 2), este test FB
+sigue siendo util como smoke del propio base.
 """
 from __future__ import annotations
 
@@ -21,8 +20,8 @@ from core.runtime.progress_buffer import ProgressTracker, get_progress_tracker
 logger = logging.getLogger(__name__)
 
 
-class FunctionTemplate(FunctionBase):
-    """FB template parametrizable. Emite eventos progress por stage.
+class FunctionTest(FunctionBase):
+    """FB test parametrizable. Emite eventos progress por stage.
 
     State machine:
       10  arrancar  (emit progress_tracker.begin)
@@ -128,4 +127,4 @@ class FunctionTemplate(FunctionBase):
         self.nStep = self.n_done
 
 
-__all__ = ["FunctionTemplate"]
+__all__ = ["FunctionTest"]

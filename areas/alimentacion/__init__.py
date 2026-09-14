@@ -53,10 +53,10 @@ def register(engine) -> None:
     exportar_TIA -> importar_TIA. Cuando se migren los FBs reales
     (Fase 2), este registro se sustituye por ellos.
     """
-    from areas.alimentacion.functions.function_Template import FunctionTemplate
+    from areas.alimentacion.functions.function_test import FunctionTest
     engine.register_fb(
         "sync_dispositivos",
-        FunctionTemplate(
+        FunctionTest(
             nombre="sync_dispositivos",
             titulo="Sincronizar dispositivos",
             steps=[
