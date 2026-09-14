@@ -193,26 +193,26 @@ def main() -> int:
     assert body["state"] == "connected"
 
     # -----------------------------------------------------------------
-    # [8] POST /api/v1/plc/fb/sync_dispositivos/start + polling hasta done
+    # [8] POST /api/v1/plc/fb/plantilla/start + polling hasta done
     # -----------------------------------------------------------------
-    print("\n[8] POST /api/v1/plc/fb/sync_dispositivos/start + polling")
+    print("\n[8] POST /api/v1/plc/fb/plantilla/start + polling")
     # Limpiamos el tracker (no emite al bus; solo resetea estado
     # interno). La cola del subscriber NO se drena: queremos conservar
     # los tia_state / fb_state previos (de [6] y [7]) para validarlos
     # en [10]. Los progress events de esta ejecucion concreta se
-    # validan en [10bis] filtrando por operation='sync_dispositivos'.
+    # validan en [10bis] filtrando por operation='plantilla'.
     tracker = get_progress_tracker()
     tracker.clear()
 
-    code, body = post("/api/v1/plc/fb/sync_dispositivos/start")
+    code, body = post("/api/v1/plc/fb/plantilla/start")
     print(f"  - start -> {code}: {body}")
     assert code == 200 and body["started"] is True
 
     last_nstep = -1
     final_status: dict[str, Any] = {}
-    for i in range(15):
+    for i in range(30):  # 30 * 0.5s = 15s (10 steps * 0.3s = 3s + transiciones)
         time.sleep(0.5)
-        code, st = get("/api/v1/plc/fb/sync_dispositivos/status")
+        code, st = get("/api/v1/plc/fb/plantilla/status")
         nStep = st.get("nStep", 0)
         is_terminal = st.get("is_terminal", False)
         if nStep != last_nstep:
@@ -221,26 +221,28 @@ def main() -> int:
         if is_terminal:
             final_status = st
             break
-    assert final_status.get("is_terminal"), "sync_dispositivos no termino en 7.5s"
+    assert final_status.get("is_terminal"), "plantilla no termino en 15s"
     # Chequeos laxos por campo: el FB puede anadir stats / plc_name
     # u otros campos extra en ``result``. El smoke valida la shape
     # base, no la igualdad exacta.
     res = final_status["result"]
     assert res["ok"] is True, f"result.ok esperado True, recibido {res.get('ok')!r}"
-    assert res["titulo"] == "Sincronizar dispositivos", (
-        f"result.titulo esperado 'Sincronizar dispositivos', recibido {res.get('titulo')!r}"
+    assert res["titulo"] == "Plantilla FB", (
+        f"result.titulo esperado 'Plantilla FB', recibido {res.get('titulo')!r}"
     )
-    assert res["steps_completed"] == 4, (
-        f"result.steps_completed esperado 4, recibido {res.get('steps_completed')!r}"
+    assert res["steps_completed"] == 10, (
+        f"result.steps_completed esperado 10, recibido {res.get('steps_completed')!r}"
     )
-    assert res["total_steps"] == 4, (
-        f"result.total_steps esperado 4, recibido {res.get('total_steps')!r}"
+    assert res["total_steps"] == 10, (
+        f"result.total_steps esperado 10, recibido {res.get('total_steps')!r}"
     )
-    # Stats: si el FB los emite, validamos que cubra los 4 steps del CASE.
+    # Stats: la plantilla emite 10 keys (paso_1..paso_10).
     if "stats" in res:
-        assert set(res["stats"].keys()) >= {
-            "parsear_excel", "validar_N_MAX", "exportar_TIA", "importar_TIA",
-        }, f"stats no cubre los 4 steps del CASE: {set(res['stats'].keys())}"
+        expected_stats = {f"paso_{i}" for i in range(1, 11)}
+        assert set(res["stats"].keys()) >= expected_stats, (
+            f"stats no cubre los 10 pasos: faltantes="
+            f"{expected_stats - set(res['stats'].keys())}"
+        )
     print(f"  - PASS: result={final_status['result']}")
 
     # -----------------------------------------------------------------
@@ -298,35 +300,37 @@ def main() -> int:
     # [10bis] Validar eventos 'progress' del Template (faceplate SSE)
     # -----------------------------------------------------------------
     print("\n[10bis] Validar eventos 'progress' del Template")
-    # Filtramos por operation='sync_dispositivos' para aislar SOLO los
-    # progress events emitidos por el FB de este smoke (evita contaminar
-    # con progress de otros FBs en futuras extensiones).
+    # Filtramos por operation='plantilla' para aislar SOLO los progress
+    # events emitidos por la plantilla (evita contaminar con progress
+    # de otros FBs en futuras extensiones).
     progress_evs = [
         e for e in events_by_type.get("progress", [])
-        if e.get("operation") == "sync_dispositivos"
+        if e.get("operation") == "plantilla"
     ]
-    print(f"  - eventos progress de sync_dispositivos: {len(progress_evs)}")
-    assert len(progress_evs) >= 9, (
-        f"esperado >=9 progress events (begin+4 start+4 finish), "
+    print(f"  - eventos progress de plantilla: {len(progress_evs)}")
+    # 10 steps => 1 begin + 10 start + 10 finish + 1 finish(success) = 22 eventos.
+    assert len(progress_evs) >= 21, (
+        f"esperado >=21 progress events (begin+10 start+10 finish), "
         f"recibidos: {len(progress_evs)}"
     )
 
     # 1. Primer evento tras begin(): operation + label + stages + active
     first = progress_evs[0]
     assert first["type"] == "progress"
-    assert first["operation"] == "sync_dispositivos", (
-        f"operation esperada='sync_dispositivos', recibida={first['operation']!r}"
+    assert first["operation"] == "plantilla", (
+        f"operation esperada='plantilla', recibida={first['operation']!r}"
     )
-    assert first["label"] == "Sincronizar dispositivos", (
-        f"label esperado='Sincronizar dispositivos', recibido={first['label']!r}"
+    assert first["label"] == "Plantilla FB", (
+        f"label esperado='Plantilla FB', recibido={first['label']!r}"
     )
     assert first["active"] is True
-    assert first["total"] == 4
+    assert first["total"] == 10
     assert first["current"] == 0
     assert first["percent"] == 0
     stage_ids = [s["id"] for s in first["stages"]]
-    assert stage_ids == ["parsear_excel", "validar_N_MAX", "exportar_TIA", "importar_TIA"], (
-        f"stages esperados en orden canonico, recibidos: {stage_ids}"
+    expected_stages = [f"paso_{i}" for i in range(1, 11)]
+    assert stage_ids == expected_stages, (
+        f"stages esperados {expected_stages}, recibidos: {stage_ids}"
     )
     assert all(s["status"] == "pending" for s in first["stages"]), (
         f"todos los stages deben empezar en pending, recibidos: "
@@ -335,15 +339,15 @@ def main() -> int:
     print(f"  - begin OK: operation={first['operation']!r} label={first['label']!r}")
     print(f"    stages={stage_ids}")
 
-    # 2. Ultimo evento tras finish(): active=False + current=4 + percent=100
+    # 2. Ultimo evento tras finish(): active=False + current=10 + percent=100
     last = progress_evs[-1]
     assert last["active"] is False, (
         f"ultimo progress event debe tener active=False, active={last['active']!r}"
     )
-    assert last["current"] == 4, (
-        f"ultimo current esperado=4, recibido={last['current']}"
+    assert last["current"] == 10, (
+        f"ultimo current esperado=10, recibido={last['current']}"
     )
-    assert last["total"] == 4
+    assert last["total"] == 10
     assert last["percent"] == 100, (
         f"ultimo percent esperado=100, recibido={last['percent']}"
     )
@@ -351,7 +355,7 @@ def main() -> int:
         f"ultimo error esperado=None, recibido={last['error']!r}"
     )
     last_stage_statuses = [s["status"] for s in last["stages"]]
-    assert last_stage_statuses == ["done"] * 4, (
+    assert last_stage_statuses == ["done"] * 10, (
         f"todos los stages deben quedar en 'done', recibidos: {last_stage_statuses}"
     )
     print(f"  - finish OK: current={last['current']}/{last['total']} percent={last['percent']}%")

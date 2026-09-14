@@ -6,13 +6,15 @@ Aporta al core:
   - TIA commands del área (registrados por el tia-loop).
   - Frontend manifest (Vue 3 ESM del área).
   - Config defaults del ConfigManager.
-  - FunctionBlock Template parametrizable (titulo + steps) para
-    validar el engine y el progress tracker como faceplate SSE.
+  - FunctionBlock Template (``FunctionTemplate``) registrado como
+    ``plantilla``: 10 pasos dummy para validar el engine y el
+    progress tracker como faceplate SSE. Sirve tambien como
+    molde para migrar los FBs reales del area (Fase 2).
 
 Los routers web, los use cases legacy, las tools MCP y los FBs no-
 template siguen existiendo en el area pero no se montan en este
 momento (Fase 2). El Composition Root (main_supervisor) llama a
-``register(engine)`` para activar el template.
+``register(engine)`` para activar la plantilla.
 """
 from __future__ import annotations
 
@@ -45,28 +47,18 @@ AREA_SPEC = AreaSpec(
 
 
 def register(engine) -> None:
-    """Registra el FunctionBlock Template parametrizable en el engine.
+    """Registra ``FunctionTemplate`` como ``plantilla`` en el engine.
 
-    Llamado desde launcher.main_supervisor._build_components() tras
-    crear el engine. El template representa el flujo canonico
-    ``sync_dispositivos`` del area: parsear_excel -> validar_N_MAX ->
-    exportar_TIA -> importar_TIA. Cuando se migren los FBs reales
-    (Fase 2), este registro se sustituye por ellos.
+    Llamado desde ``launcher.main_supervisor._build_components()`` tras
+    crear el engine. La plantilla usa los 10 pasos dummy por defecto
+    (``paso_1``..``paso_10``). Cuando se migren los FBs reales
+    (Fase 2), este registro se sustituye por el ``register_fb(...)``
+    de cada FB concreto (copia de ``FunctionTemplate`` con su logica).
     """
-    from areas.alimentacion.functions.function_test import FunctionTest
-    engine.register_fb(
-        "sync_dispositivos",
-        FunctionTest(
-            nombre="sync_dispositivos",
-            titulo="Sincronizar dispositivos",
-            steps=[
-                {"nombre": "parsear_excel", "duracion_s": 0.3},
-                {"nombre": "validar_N_MAX", "duracion_s": 0.3},
-                {"nombre": "exportar_TIA", "duracion_s": 0.5},
-                {"nombre": "importar_TIA", "duracion_s": 0.5},
-            ],
-        ),
-    )
+    from areas.alimentacion.functions.function_template import FunctionTemplate
+    # ``nombre="plantilla"`` para que el ``operation`` del progress_tracker
+    # coincida con el key del engine (mismo string en ambos sitios).
+    engine.register_fb("plantilla", FunctionTemplate(nombre="plantilla"))
 
 
 __all__ = [
