@@ -1,12 +1,12 @@
-"""Flask blueprint para portal/plcs/project (Fase 4 / paso 4.4.6).
+"""Flask blueprint para portal/plcs/project.
 
-Equivalente sync de ``portal.py`` (FastAPI). Endpoints:
+Endpoints:
   POST /api/v1/portal/attach     -> hot-attach a TIA Portal abierto.
   POST /api/v1/portal/open-new  -> cold start (abre .apxx).
   GET  /api/v1/plcs              -> lista PLCs del proyecto activo.
   GET  /api/v1/portal/project-info -> info del proyecto.
 
-Todos delegan en tia_client.dispatch() (sync, mismo proceso).
+Todos delegan en tia_client.submit_and_wait() (sync, mismo proceso).
 """
 from __future__ import annotations
 
