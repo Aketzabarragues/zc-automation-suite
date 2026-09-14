@@ -10,8 +10,8 @@ Categoria:
   - Deteccion de COM/RPC para re-attach defensivo.
   - Generacion de request_id y export masivo SD.
 
-Estos helpers son funciones puras (sin estado). Se importan desde
-core.infrastructure.tia.tia_handlers y desde el dispatcher de tia.tia_loop.
+Funciones puras (sin estado). Se importan desde tia_handlers y desde
+el dispatcher de tia_loop.
 """
 from __future__ import annotations
 

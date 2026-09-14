@@ -1,63 +1,37 @@
-"""Jerarquía canónica de workdirs de export/modificación del subsistema TIA.
+"""Jerarquia canonica de workdirs de export/modificacion del subsistema TIA.
 
-Convención de la app (NO config del proyecto)
-=============================================
-
-Cada área (Bounded Context) necesita una matriz 3×3 de subcarpetas
-para el ciclo "exportar de TIA → modificar offline → importar a TIA"::
+Convencion de la app (NO config del proyecto). Cada area (Bounded
+Context) necesita una matriz 3x3 de subcarpetas para el ciclo
+"exportar de TIA -> modificar offline -> importar a TIA"::
 
     .build_cache/
-    └── <area_id>/                          # área (alimentacion, trazabilidad, ...)
-        └── <contexto>/                     # bounded context del área (dispositivos, ...)
-            ├── preview/                    # read-only. Lo que se NECESITA para el diff.
+    └── <area_id>/
+        └── <contexto>/
+            ├── preview/                    # dry-run, read-only para diff
             │   ├── variables/              # TAG tables (XML)
             │   ├── bloques/                # Program blocks (.s7dcl/.s7res)
-            │   └── udt/                    # User Data Types — convención, vacío por ahora
-            ├── exports/                    # snapshot limpio de TIA. SE QUEDA tras commit.
+            │   └── udt/                    # User Data Types (vacio por ahora)
+            ├── exports/                    # snapshot limpio de TIA (se queda tras commit)
             │   ├── variables/
             │   ├── bloques/
             │   └── udt/
-            └── modified/                   # copy de exports/ + edit del updater. SE QUEDA tras commit.
+            └── modified/                   # copy de exports/ + edit del updater
                 ├── variables/
                 ├── bloques/
                 └── udt/
 
-Las 3 carpetas de alto nivel (``preview/``, ``exports/``, ``modified/``)
-corresponden a las 3 fases del flujo: dry-run, snapshot pre-commit, y
-snapshot listo para importar. Dentro de cada una, las 3 subcarpetas
-(``variables/``, ``bloques/``, ``udt/``) separan por tipo de artefacto
-TIA, lo que da claridad y deja sitio al futuro updater de UDTs.
+Reglas de retencion:
+  - preview/ se limpia al inicio de generar_prevision.
+  - exports/ y modified/ se limpian al inicio de ejecutar_transaccion.
+  - Tras commit, las 3 carpetas se quedan para auditoria hasta el
+    siguiente ciclo.
 
-Reglas de retención (acordado 2026-09-08)
------------------------------------------
-
-* Las 3 carpetas se limpian **solo al inicio** de la operación que las
-  regenera. Después se quedan para auditoría hasta el siguiente ciclo.
-
-  - ``preview/``  se limpia al inicio de ``generar_prevision``.
-  - ``exports/``  se limpia al inicio de ``ejecutar_transaccion``.
-  - ``modified/`` se limpia al inicio de ``ejecutar_transaccion``
-    (junto con ``exports/``).
-
-* ``git diff modified/ exports/`` tras un commit muestra exactamente qué
-  cambió el updater. ``git diff modified/ preview/`` muestra qué se habría
-  aplicado si se hubiera confirmado el preview anterior.
-
-Reglas de arquitectura
-----------------------
-
-* El core **NO sabe qué áreas existen**. Por eso ``area_id`` es
-  obligatorio (sin default): cada consumer pasa el suyo. El día que
-  llegue un 2º área, no hay que tocar este módulo — solo extender
-  ``WorkdirAreaLayout`` desde el paquete del área.
-
-* La estructura se mantiene estable durante TODA la vida del proceso
-  (cachea ``Path`` en ``@cached_property``). Crear o borrar los
-  directorios físicos es responsabilidad de ``WorkdirContextLayout.clean()``
-  (que borra y recrea) o de los consumers (que los crean con
-  ``mkdir(parents=True, exist_ok=True)`` cuando los necesitan).
-
-* ``.build_cache/`` está dentro del cwd por convención.
+Reglas de arquitectura:
+  - El core NO sabe que areas existen. ``area_id`` es obligatorio.
+  - Las areas extienden ``WorkdirAreaLayout`` desde su paquete propio.
+  - La estructura se cachea en ``@cached_property`` durante toda la
+    vida del proceso. ``clean()`` borra y recrea.
+  - ``.build_cache/`` vive dentro del cwd por convencion.
 """
 from __future__ import annotations
 

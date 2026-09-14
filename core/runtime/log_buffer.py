@@ -1,12 +1,11 @@
-"""Application Layer - Log Buffer (Singleton).
+"""Log Buffer (Singleton).
 
-Buffer circular thread-safe que la SPA consulta via polling para
+Buffer FIFO circular thread-safe que la SPA consulta via polling para
 mostrar mensajes de trazabilidad al operario.
 
-Estrategia: cualquier módulo del backend (gateway, use cases,
-modifiers) puede llamar ``log_buffer.info("...")`` y el mensaje
-aparece automáticamente en la consola inferior de la SPA sin acoplarse
-a la implementación del transporte (HTTP, MCP, CLI, ...).
+Estrategia: cualquier modulo del backend puede llamar
+``log_buffer.info("...")`` y el mensaje aparece en la consola inferior
+de la SPA sin acoplarse al transporte (HTTP, MCP, CLI, ...).
 """
 
 from __future__ import annotations

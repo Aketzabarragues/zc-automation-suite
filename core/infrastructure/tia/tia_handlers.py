@@ -5,15 +5,15 @@ y devuelve ``dict``. Acceso a portal/ts via ``tia_client.wrapper`` /
 ``tia_client.ts`` (single-threaded; lo toca el tia-loop).
 
 Categorias:
-  - lifecycle  (7): attach, detach, open_new_portal, open/save/close_project, ping
-  - inspect    (5): list_plcs, get_project_info, list_blocks, scan_blocks
-  - export     (5): export_blocks_sd, export_udts_sd, export_plc_tags_xml,
-                    export_block, export_tag_table
-  - import     (4): import_blocks_sd, import_plc_tags_xml, import_block,
-                    import_tag_table
-  - mutate     (5): compile_plc, compile_blocks, get/update_value/update_name/
-                    delete user_constant
-  - batch      (1): execute_transactional_batch
+  - lifecycle (7): attach, detach, open_new_portal, open/save/close_project, ping
+  - inspect   (4): list_plcs, get_project_info, list_blocks, scan_blocks
+  - export    (5): export_blocks_sd, export_udts_sd, export_plc_tags_xml,
+                   export_block, export_tag_table
+  - import    (4): import_blocks_sd, import_plc_tags_xml, import_block,
+                   import_tag_table
+  - mutate    (5): compile_plc, compile_blocks, get/update_value/update_name/
+                   delete user_constant
+  - batch     (1): execute_transactional_batch
 
 Re-exporta helpers desde tia_helpers para que los handlers los usen sin
 imports repetidos.
@@ -1041,10 +1041,10 @@ def _h_execute_transactional_batch(
 # Registry
 # ---------------------------------------------------------------------------
 def register_core_commands(target: "SyncTIAClient") -> None:
-    """Registra los comandos core en ``target``.
+    """Registra los 26 comandos core en ``target``.
 
-    Idempotente: si un comando ya esta registrado, register_command()
-    lanza ValueError. El caller decide si reinstancia o ignora.
+    Si un comando ya esta registrado, ``register_command()`` lanza
+    ValueError. El caller decide si reinstancia o ignora.
     """
     target.register_command("attach_portal", _h_attach_portal)
     target.register_command("detach_portal", _h_detach_portal)

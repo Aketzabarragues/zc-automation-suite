@@ -1,11 +1,10 @@
-"""Capa de Dominio (Core).
+"""Nucleo transversal de la app (OB1 + DDD-like layout).
 
-Modelos de dominio puros: entidades, value objects, dataclasses y reglas
-de negocio. Esta capa es ESTRICTAMENTE PURA y no puede depender de:
+Subpaquetes:
+  data/           Value Objects y DTOs.
+  composition/    Wiring (engine, FBs, area registry).
+  runtime/        Estado global + buffers + SSE.
+  infrastructure/ Adaptadores externos (TIA Portal, config).
 
-- ``siemens_tia_scripting`` (motor OT de TIA Portal).
-- ``infrastructure.*`` (capa de infraestructura).
-- ``interfaces.*`` (capa de presentación).
-
-Únicamente puede importar de la stdlib y de tipos primitivos.
+_pendiente/ contiene legacy pendiente de migrar a OB1.
 """

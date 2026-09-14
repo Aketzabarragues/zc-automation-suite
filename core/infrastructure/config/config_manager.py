@@ -1,20 +1,16 @@
-"""Gestor de configuración multi-departamento (genérico).
+"""Gestor de configuracion multi-departamento.
 
-Lee ``infrastructure/config.json`` y expone el mapeo entre tipos de
-dispositivo del departamento activo y nombres reales de tablas / DBs /
-carpetas dentro del PLC de TIA Portal. Esto evita hardcodear nombres
-como ``"000_Config_Dispositivos"`` o ``"2000_Disp_ED"`` en los casos
-de uso.
+Lee ``config/config.json`` y expone el mapeo entre tipos de dispositivo
+del departamento activo y nombres reales de tablas / DBs / carpetas
+dentro del PLC de TIA Portal. Evita hardcodear nombres como
+``"000_Config_Dispositivos"`` o ``"2000_Disp_ED"`` en los casos de uso.
 
-Este módulo es **genérico** (Plan: Bounded Contexts — PR 1):
+Modulo generico: no tiene defaults hardcoded de un area concreta.
+Si una clave no esta en el JSON, devuelve ``""`` o ``[]`` y loggea
+warning. Las areas aportan sus defaults especificos via
+``AreaSpec.contributes_config_defaults``.
 
-  - NO tiene defaults hardcoded de un área concreta (alimentación).
-  - Si una clave no existe en el JSON: warning + fallback genérico
-    (``""`` o ``[]`` según el caso).
-  - Las áreas aportan sus defaults específicos vía
-    ``AreaSpec.contributes_config_defaults`` (cableado en PR 2).
-
-Estructura del ``config.json``:
+Estructura de ``config.json``::
 
     {
       "departments": {
@@ -30,7 +26,7 @@ Estructura del ``config.json``:
       }
     }
 
-Restricción arquitectónica: este módulo es OFFLINE; no importa
+Restriccion arquitectonica: este modulo es OFFLINE, no importa
 ``siemens_tia_scripting``.
 """
 from __future__ import annotations
@@ -46,16 +42,11 @@ from typing import Any
 _logger: logging.Logger = logging.getLogger(f"{__name__}.ConfigManager")
 
 
-# ── Fallbacks genéricos (PR 1: ya no hay defaults de alimentación) ─────
-# Antes de PR 1, este módulo exponía ``_DEFAULT_DEPARTMENT =
-# "alimentacion"`` y ``_DEFAULT_NMAX_CATALOG`` con los 6 N_MAX legacy.
-# Ahora esos defaults se aportan por el área "alimentación" vía
-# ``contributes_config_defaults`` (PR 2). Si en el JSON no está la
-# clave, el getter retorna un valor vacío y loggea un warning.
-_DEFAULT_GLOBAL_CONFIG_TABLE_NAME = ""        # antes "000_Config_Dispositivos"
-_DEFAULT_TIA_FOLDER_PROCESO = ""              # antes "003_Procesos"
-_DEFAULT_TIA_FOLDER_DISPOSITIVOS = ""         # antes "2000_Dispositivos"
-_DEFAULT_TIA_FOLDER_NMAX = ""                 # antes "000_Sistema"
+# Fallbacks genericos (string vacio si una clave no esta en el JSON).
+_DEFAULT_GLOBAL_CONFIG_TABLE_NAME = ""
+_DEFAULT_TIA_FOLDER_PROCESO = ""
+_DEFAULT_TIA_FOLDER_DISPOSITIVOS = ""
+_DEFAULT_TIA_FOLDER_NMAX = ""
 
 
 @dataclass(frozen=True)

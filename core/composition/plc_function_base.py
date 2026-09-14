@@ -1,32 +1,30 @@
-"""core.plc.function_base — clase base de los Function Blocks (FBs).
+"""Clase base de los Function Blocks (FBs).
 
-Fase 2 del refactor: state machine discreto ``nStep`` con tolerancia
-best-effort.  Cada FB es un orquestador asíncrono de una operación
-del operario contra TIA Portal (subir excel, escanear bloques,
-sincronizar dispositivos, etc.).
+State machine discreto ``nStep`` con tolerancia best-effort. Cada FB
+es un orquestador async de una operacion del operario contra TIA
+Portal (subir excel, escanear bloques, sincronizar dispositivos, etc.).
 
 State machine::
 
     nStep=0   idle      (FB creado, sin start)
-    nStep=10  arrancar  (transición tras start OK)
-    nStep=20  ejecutar  (transición durante tick si procede)
-    nStep=30  finalizar (transición al completar)
-    nStep=99  done      (terminal OK, el engine NO tickea más)
-    nStep=98  error     (terminal con error_msg, el engine NO tickea más)
+    nStep=10  arrancar  (transicion tras start OK)
+    nStep=20  ejecutar  (transicion durante tick si procede)
+    nStep=30  finalizar (transicion al completar)
+    nStep=99  done      (terminal OK, el engine NO tickea mas)
+    nStep=98  error     (terminal con error_msg, el engine NO tickea mas)
 
-Las subclases overridean ``_tick_locked()`` para implementar la
-lógica.  La base lanza ``NotImplementedError`` si se tickea sin
-overridear (error de programación, no de runtime).
+Las subclases overridean ``_tick_locked()`` para implementar la logica.
+La base lanza ``NotImplementedError`` si se tickea sin override (error
+de programacion, no de runtime).
 
 Concurrencia: ``start()`` y ``tick()`` son coroutines que comparten
-estado (``nStep``, ``result``, ``error_msg``).  Siguen el patrón
-"lock del assert" del greenfield: el wrapper público adquiere
-``self._lock`` y delega en un método privado ``_x_locked`` que asume
-el lock cogido y arranca con ``assert self._lock.locked()``.
+estado (``nStep``, ``result``, ``error_msg``). Patron "lock del assert":
+el wrapper publico adquiere ``self._lock`` y delega en un metodo
+privado ``_x_locked`` que asume el lock cogido.
 
-Hook ``_on_nstep_change(old: int, new: int)``: invocado tras cada
-cambio de ``nStep``. Usado por la capa SSE para publicar
-``{type: "fb_state", ...}`` al bus. Es opcional (no-op si None).
+Hook ``_on_nstep_change(old, new)``: invocado tras cada cambio de
+``nStep``. La capa SSE lo usa para publicar ``{type: "fb_state", ...}``
+al bus. Opcional (no-op si None).
 """
 from __future__ import annotations
 
@@ -39,24 +37,7 @@ logger = logging.getLogger(__name__)
 
 
 class FunctionBase:
-    """Clase base de un Function Block (state machine asíncrono).
-
-    API pública:
-      - ``__init__(nombre)`` — estado inicial ``nStep=n_idle`` (0).
-      - ``start(**params)`` — arranca el FB.  Idempotente: si ya está
-        activo o terminal, ignora la llamada (``False``).
-      - ``tick()`` — avanza el state machine un paso.  La base lanza
-        ``NotImplementedError``; las subclases overridean
-        ``_tick_locked()`` (no ``tick()`` directamente) para mantener
-        el contrato del lock.
-      - ``is_terminal()`` — ``True`` si el FB está en ``n_idle``,
-        ``n_done`` o ``n_error``; el engine NO tickea FBs terminales.
-
-    Estado compartido (protegido por ``self._lock``):
-      - ``nStep: int``  — paso discreto del state machine.
-      - ``error_msg: str | None``  — mensaje si ``nStep == n_error``.
-      - ``result: Any``  — payload de retorno si ``nStep == n_done``.
-    """
+    """Clase base de un Function Block (state machine async)."""
 
     # Constantes de estado a nivel de clase: las subclases y el engine
     # las referencian sin necesidad de instanciar.
@@ -69,13 +50,12 @@ class FunctionBase:
         self.nStep: int = self.n_idle
         self.error_msg: str | None = None
         self.result: Any = None
-        # Parámetros del último start() exitoso.  Las subclases los
-        # leen desde _tick_locked() si los necesitan.
+        # Parametros del ultimo start() exitoso. Las subclases los leen
+        # desde _tick_locked() si los necesitan.
         self._params: dict[str, Any] = {}
         self._lock = asyncio.Lock()
         # Hook opcional: invocado tras cada cambio de nStep con
-        # (old_nStep, new_nStep). Usado por la capa SSE para publicar
-        # ``{type: "fb_state", ...}`` al bus. No-op si None.
+        # (old_nStep, new_nStep). No-op si None.
         self._on_nstep_change: Callable[[int, int], None] | None = None
 
     def _notify_nstep_change(self, old: int, new: int) -> None:
@@ -84,43 +64,40 @@ class FunctionBase:
             self._on_nstep_change(old, new)
 
     # ------------------------------------------------------------------
-    # API pública (adquiere el lock y delega en el _locked gemelo)
+    # API publica (adquiere el lock y delega en el _locked gemelo)
     # ------------------------------------------------------------------
 
     async def start(self, **params: Any) -> bool:
-        """Arranca el FB.  Idempotente: si ya está activo, ignora.
+        """Arranca el FB. Idempotente: si ya esta activo, ignora.
 
-        Devuelve ``True`` si pasó ``nStep`` de ``n_idle`` a 10,
-        ``False`` si ya estaba activo o en estado terminal.
+        Devuelve ``True`` si paso ``nStep`` de ``n_idle`` a 10, ``False``
+        si ya estaba activo o en estado terminal.
         """
         async with self._lock:
             return await self._start_locked(**params)
 
     async def tick(self) -> None:
-        """Avanza el state machine un paso.  Overridear ``_tick_locked``.
+        """Avanza el state machine un paso. Overridear ``_tick_locked``.
 
-        Tolerancia best-effort (Fase 2, paso 2.0.4): si ``_tick_locked()``
-        lanza una excepción de runtime (no de programación), el wrapper
-        la captura, hace log, fija ``error_msg`` y transita ``nStep`` a
-        ``n_error``.  El FB queda terminal pero vivo: el operario ve el
-        error y puede resetearlo manualmente.  ``NotImplementedError`` y
-        ``AssertionError`` propagan (errores de programación, no se
-        silencian).
+        Tolerancia best-effort: si ``_tick_locked()`` lanza una excepcion
+        de runtime (no de programacion), el wrapper la captura, hace log,
+        fija ``error_msg`` y transita ``nStep`` a ``n_error``. El FB queda
+        terminal pero vivo: el operario ve el error y puede resetearlo.
+        ``NotImplementedError`` y ``AssertionError`` propagan (errores de
+        programacion, no se silencian).
         """
         async with self._lock:
             n_before = self.nStep
             try:
                 await self._tick_locked()
             except (NotImplementedError, AssertionError):
-                # Programación: la subclase olvidó overridear o el lock
-                # no estaba cogido.  Propaga para que el dev lo vea
-                # claro en consola/tests.
+                # Programacion: la subclase olvido overridear o el lock
+                # no estaba cogido. Propaga para que el dev lo vea en consola.
                 raise
             except Exception as e:
-                # Runtime: TIA Portal, Excel, red, etc.  Degradado pero
-                # vivo — el operario ve el error y resetea el FB.
+                # Runtime: TIA Portal, Excel, red, etc. Degradado pero vivo.
                 logger.exception(
-                    "FB %s: error en tick() (nStep=%d) — %s: %s",
+                    "FB %s: error en tick() (nStep=%d) -- %s: %s",
                     self.nombre, self.nStep, type(e).__name__, e,
                 )
                 self.error_msg = f"{type(e).__name__}: {e}"
@@ -128,24 +105,22 @@ class FunctionBase:
             self._notify_nstep_change(n_before, self.nStep)
 
     def is_terminal(self) -> bool:
-        """``True`` si el FB está en estado terminal y NO debe tickearse.
+        """``True`` si el FB esta en estado terminal y NO debe tickearse.
 
-        Idle (``nStep=0``) también cuenta como terminal: un FB sin
-        ``start()`` no hace nada en ``tick()``.  ``n_done`` y
-        ``n_error`` son los dos estados finales tras una ejecución.
+        Idle (``nStep=0``) tambien cuenta: un FB sin ``start()`` no hace
+        nada en ``tick()``. ``n_done`` y ``n_error`` son los finales tras
+        una ejecucion.
         """
         return self.nStep in (self.n_idle, self.n_done, self.n_error)
 
     # ------------------------------------------------------------------
-    # Métodos privados (asumen self._lock cogido)
+    # Metodos privados (asumen self._lock cogido)
     # ------------------------------------------------------------------
 
     async def _start_locked(self, **params: Any) -> bool:
-        """Asume ``self._lock`` cogido.  No llamar directamente.
+        """Asume ``self._lock`` cogido. No llamar directamente.
 
         Idempotente: si ``nStep != n_idle``, ignora y devuelve ``False``.
-        En caso contrario, captura ``params``, resetea ``error_msg`` y
-        ``result``, y avanza ``nStep`` a 10.
         """
         assert self._lock.locked(), "_start_locked() requiere self._lock cogido"
         if self.nStep != self.n_idle:
@@ -164,17 +139,15 @@ class FunctionBase:
         return True
 
     async def _tick_locked(self) -> None:
-        """Asume ``self._lock`` cogido.  Overridear en subclases.
+        """Asume ``self._lock`` cogido. Overridear en subclases.
 
-        La base hace dos cosas y se detiene ahí:
+        La base hace dos cosas y se detiene ahi:
           1. Guarda defensiva de ``is_terminal()`` (no-op si terminal).
-          2. Si no, lanza ``NotImplementedError`` (error de programación
-             — la subclase olvidó overridear).
+          2. Si no, lanza ``NotImplementedError`` (la subclase olvido
+             overridear).
         """
         assert self._lock.locked(), "_tick_locked() requiere self._lock cogido"
         if self.is_terminal():
-            # El engine ya filtra, pero si alguien llama tick()
-            # manualmente sobre un FB idle/done/error, no hacemos nada.
             return
         raise NotImplementedError(
             f"FB {self.nombre}: _tick_locked() debe ser implementado por "

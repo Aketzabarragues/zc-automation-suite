@@ -1,15 +1,15 @@
-"""core.infrastructure.tia_loader — carga el wrapper siemens_tia_scripting.pyd.
+"""core.infrastructure.tia.tia_loader - carga el wrapper siemens_tia_scripting.pyd.
 
 Stage del .pyd en tempdir con nombre canonico e import via importlib.
 Si la wheel no esta instalada o el staging falla, levanta excepciones
-con mensajes accionables para el operario (ver AGENTS.md §Build).
+con mensajes accionables para el operario.
 
 Tres pasos:
-  1. resolve_siemens_pyd()       — localiza el .pyd en el venv actual.
-  2. stage_vendor_assets()       — copia a tempdir con nombre canonico.
-  3. load_siemenstia()           — carga el modulo via importlib.
+  1. resolve_siemens_pyd()  - localiza el .pyd en el venv actual.
+  2. stage_vendor_assets()  - copia a tempdir con nombre canonico.
+  3. load_siemenstia()      - carga el modulo via importlib.
 
-Usado por core.infrastructure.tia_loop.start_tia_loop() cuando arranca
+Usado por core.infrastructure.tia.tia_loop.start_tia_loop() cuando arranca
 el hilo dedicado TIA (no en main.py).
 """
 from __future__ import annotations

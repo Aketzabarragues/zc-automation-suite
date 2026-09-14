@@ -1,7 +1,7 @@
-"""Core TIA infrastructure: worker OT genérico + command loader.
+"""Subsistema TIA (OB1).
 
-El worker (`worker_tia.py`) expone los comandos genéricos del
-gateway TIA Portal. Los comandos específicos de cada área se
-aÃ±aden en runtime mediante `command_loader.load_extra_commands`,
-que itera el `AreaRegistry` y deja que cada área aporte los suyos.
+Aloja el loop persistente (tia_loop.py), los 26 comandos genéricos
+(tia_handlers.py), las utilities defensivas (tia_helpers.py) y la
+carga del wrapper .NET (tia_loader.py). Las areas extienden el
+registro de comandos via AreasSpec.contributes_tia_commands.
 """

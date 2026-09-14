@@ -1,27 +1,23 @@
-"""Constantes y helpers para rutas de export/modificación de TIA Portal.
+"""core.infrastructure.tia.tia_export_paths - constantes y paths de export/modificacion TIA.
 
-Convención de la app (NO config del proyecto):
+Convencion de la app (NO config del proyecto):
   * Sufijos de archivos SD/XML que genera TIA Portal al exportar
     Source Documents y tablas de tags.
   * Encodings de lectura/escritura de esos archivos.
-  * Límite práctico de longitud de comentario (S7_MLC).
-  * Texto vacío de placeholder (".") que TIA usa cuando un campo
-    está sin comentar.
+  * Limite practico de longitud de comentario (S7_MLC).
+  * Texto vacio de placeholder (".") que TIA usa cuando un campo
+    esta sin comentar.
 
-Estas constantes estaban duplicadas en
+Las constantes estaban duplicadas en
 ``areas/alimentacion/infrastructure/sd/disp_comment_updater.py`` y
 ``areas/alimentacion/infrastructure/sd/proc_comment_updater.py``. Se
-centralizan aquí para que cualquier área futura (trazabilidad, etc.)
+centralizan aqui para que cualquier area futura (trazabilidad, etc.)
 pueda consumirlas sin reescribirlas.
 
-Helpers de paths (``SdPair`` y ``XmlTarget``) son genéricos por
-naturaleza: no saben de áreas ni de dominios, solo resuelven el par
-``.s7dcl``/``.s7res`` o el ``.xml`` de una tabla. Cualquier área puede
+Helpers de paths (``SdPair`` y ``XmlTarget``) son genericos por
+naturaleza: no saben de areas ni de dominios, solo resuelven el par
+``.s7dcl``/``.s7res`` o el ``.xml`` de una tabla. Cualquier area puede
 usarlos.
-
-Si en el futuro un proyecto necesitase override (p. ej. otro encoding),
-se añade a ``infrastructure/config.json`` y los consumidores lo leen
-vía ``ConfigManager``. Por ahora YAGNI: la convención es fija.
 """
 from __future__ import annotations
 

@@ -1,12 +1,10 @@
-"""Core infrastructure layer: gateway, TIA worker, parsers base, cache, config.
+"""Adaptadores externos del nucleo.
 
-Esta capa es TRANSVERSAL. NO sabe de áreas concretas: solo expone
-adaptadores comunes (gateway hacia TIA Portal, parsers base genéricos,
-cache IT en memoria) que las áreas usan para registrar sus
-contribuciones.
+Capa transversal que conecta el core con el mundo exterior: TIA Portal
+(via tia/), config del proyecto (via config/), y persistencia local.
+NO sabe de areas concretas: expone interfaces comunes que las areas
+extienden via AreaSpec.contributes_*.
 
-Importante: los MODIFICADORES SimaticML/SD son específicos de cada
-área y viven en ``areas/<area>/infrastructure/xml/`` y
-``areas/<area>/infrastructure/sd/``, NO aquí. Esta capa solo aporta
-el gateway y los parsers base que no saben de áreas.
+_pendiente/ contiene legacy que se ira migrando a medida que las areas
+se adapten al modelo OB1.
 """

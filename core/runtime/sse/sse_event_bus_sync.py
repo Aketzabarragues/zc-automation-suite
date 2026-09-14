@@ -1,14 +1,14 @@
-"""EventBusSync — bus pub/sub sync para el modelo OB1 (Fase 4 / DA-014).
+"""EventBusSync - bus pub/sub sync para el modelo OB1.
 
-Versión thread-safe del ``EventBus`` original (basado en ``asyncio.Queue``).
-La API async se mantiene para los consumidores SSE (paso 4.4.x migrara
-esos a sync + Flask generator responses); el OB1 main loop usa este.
+Version thread-safe del ``EventBus`` original (basado en ``asyncio.Queue``).
+El OB1 main loop usa este; los consumidores SSE migraran a sync cuando
+sea necesario.
 
 API equivalente a ``EventBus`` pero con ``queue.Queue`` thread-safe:
-  - ``subscribe()`` → ``queue.Queue`` nueva (size configurable).
-  - ``unsubscribe(q)`` → retira la cola del bus.
-  - ``publish(event)`` → encola el evento en TODAS las colas vivas.
-  - ``subscriber_count()`` → diagnóstico / tests.
+  - subscribe()             : queue.Queue nueva (size configurable).
+  - unsubscribe(q)          : retira la cola del bus.
+  - publish(event)          : encola en TODAS las colas vivas.
+  - subscriber_count()      : diagnostico / tests.
 
 Idempotente: ``publish`` siempre encola (no deduplica).
 """

@@ -1,12 +1,9 @@
 """core.infrastructure.tia.tia_loop - OB1 del subsistema TIA Portal.
 
-Este archivo es el "main loop" del subsistema TIA. Contiene:
-
-  - Clase SyncTIAClient: state machine + cola FIFO + hilo dedicado + API
-    publica (submit_and_wait / submit_batch / start_tia_loop / stop_tia_loop).
-  - Dispatcher _execute_one: re-attach defensivo, transicion de state,
-    captura de excepciones COM/RPC.
-  - Loop principal _tia_loop_main: drena la cola y delega en el dispatcher.
+Contiene:
+  - SyncTIAClient: state machine + cola FIFO + hilo dedicado + API publica.
+  - _execute_one: re-attach defensivo, transicion de state, captura COM/RPC.
+  - _tia_loop_main: drena la cola y delega en el dispatcher.
 
 Los 26 comandos (_h_*) viven en core.infrastructure.tia.tia_handlers.
 Las 14 utilities defensivas viven en core.infrastructure.tia.tia_helpers.
@@ -30,8 +27,7 @@ from core.infrastructure.tia.tia_helpers import (
 logger = logging.getLogger("zc.tia_loop")
 
 
-# Estados del subsistema TIA (expuestos publicamente para que el router
-# Flask y la SPA consulten /api/v1/tia/connection sin tocar el wrapper).
+# Estados del subsistema TIA (publicos; los usa /api/v1/tia/connection).
 STATE_IDLE = "idle"
 STATE_ATTACHING = "attaching"
 STATE_CONNECTED = "connected"
@@ -39,11 +35,11 @@ STATE_BUSY = "busy"
 STATE_DETACHING = "detaching"
 STATE_ERROR = "error"
 
-# Sentinela para que stop_tia_loop() ordene al hilo salir de forma
-# limpia (queue.put) sin usar un flag externo que podria racear.
+# Sentinela para que stop_tia_loop() ordene al hilo salir limpio
+# (queue.put), sin un flag externo que pueda racear.
 _SENTINEL_STOP: tuple = ("__STOP__",)
 
-# Firma de un handler de comando. Recibe args JSON y el cliente, devuelve dict.
+# Firma de un handler de comando. Recibe args JSON + cliente, devuelve dict.
 HandlerSig = Callable[[dict, "SyncTIAClient"], dict]
 
 
@@ -72,9 +68,9 @@ class SyncTIAClient:
         self._tia_thread: threading.Thread | None = None
         self._tia_stop = threading.Event()
         # Flag explicito de "el tia-loop esta corriendo". El publisher 5
-        # (tia_loop_status) lee este flag en lugar de ``_tia_thread.is_alive()``
-        # porque el join() puede retornar antes de que el finally del
-        # hilo publique, dando un False positivo.
+        # (tia_loop_status) lee este flag en lugar de
+        # ``_tia_thread.is_alive()``: el join() puede retornar antes de
+        # que el finally del hilo publique, dando un False positivo.
         self._loop_running: bool = False
         # Hooks opcionales para la capa SSE. Se cablean desde
         # core.sse.publishers.wire_all() en el arranque.

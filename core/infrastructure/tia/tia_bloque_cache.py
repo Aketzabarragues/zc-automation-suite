@@ -1,23 +1,20 @@
 """Manager Singleton del cache IT de bloques PLC en memoria.
 
-Mantiene ``dict[plc_name, DataBloqueCache]`` a nivel de proceso (estado
-clase, NO instancia) para que cualquier consumidor (gateway, use case,
-router) vea la misma vista.
+Mantiene ``dict[plc_name, DataBloqueCache]`` a nivel de proceso
+(estado de clase, NO de instancia) para que cualquier consumidor
+(gateway, use case, router) vea la misma vista.
 
 API:
-  - ``get(plc_name)``: recupera el cache; ``None`` si no hay.
-  - ``put(plc_name, cache)``: reemplaza el cache para un PLC.
-  - ``clear(plc_name=None)``: borra un PLC concreto (``None`` = todos).
-  - ``on_plc_change(old, new)``: invalida ``old`` si difiere de ``new``;
-    deja ``new`` intacto (el caller asume que ``new`` acaba de escanearse).
+  - get(plc_name)         : recupera el cache; ``None`` si no hay.
+  - put(plc_name, cache)  : reemplaza el cache para un PLC.
+  - clear(plc_name=None)  : borra un PLC concreto (``None`` = todos).
+  - on_plc_change(old, new): invalida ``old`` si difiere de ``new``.
 
-Concurrencia: ``asyncio.Lock`` para serializar ``get/put/clear`` dentro
-del event loop. NO usa threading (el cache es IT-side y vive en el
-proceso asyncio principal; los workers OT son subprocesos efímeros que
-no comparten memoria).
+Concurrencia: ``asyncio.Lock`` dentro del event loop. No usa threading
+(el cache es IT-side; los workers OT son subprocesos que no comparten
+memoria).
 
-Lifecycle: el manager se reinicia al recargar el proceso. El gateway
-invalida explícitamente en ``open_project`` / ``close_project``.
+Lifecycle: el manager se reinicia al recargar el proceso.
 """
 from __future__ import annotations
 

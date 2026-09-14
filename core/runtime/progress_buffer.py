@@ -1,16 +1,16 @@
-"""Application Layer - Progress Tracker (Singleton).
+"""Progress Tracker (Singleton).
 
 Buffer thread-safe que la SPA consulta via polling para mostrar el
-avance granular de las operaciones largas (carga de Excel, generación
-de previsión, commit contra TIA, etc.).
+avance granular de las operaciones largas (carga de Excel, generacion
+de preview, commit contra TIA, etc.).
 
 Estrategia: los use cases llaman ``progress_tracker.begin(...)`` y
-van emitiendo ``start_stage``/``finish_stage``/``error_stage`` según
-avanzan. La SPA hace ``GET /api/v1/progress/current`` cada 500 ms y
-pinta un overlay con la lista de stages y su estado.
+emiten ``start_stage``/``finish_stage``/``error_stage`` segun avanzan.
+La SPA hace ``GET /api/v1/progress/current`` cada 500 ms y pinta un
+overlay con la lista de stages y su estado.
 
-Inspirado en ``application/log_buffer.py`` (mismo patrón Singleton
-thread-safe con snapshot inmutable).
+Mismo patron Singleton thread-safe con snapshot inmutable que
+``log_buffer.py``.
 """
 from __future__ import annotations
 

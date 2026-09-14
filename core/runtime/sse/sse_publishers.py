@@ -1,22 +1,21 @@
-"""core.sse.publishers — cablea publishers al EventBusSync.
+"""core.runtime.sse.sse_publishers - cablea publishers al EventBusSync.
 
-5 publishers se conectan al bus al arrancar la app
-(ver wire_all() en main_supervisor._build_components):
+5 publishers se conectan al bus al arrancar la app (ver ``wire_all()``
+en ``main_supervisor._build_components``):
 
-  1. LogBuffer        -> {type: "log", level, message, timestamp}
-  2. ProgressTracker  -> {type: "progress", **snapshot.to_dict()}
-  3. SyncTIAClient    -> {type: "tia_state", state, project, plcs}
-  4. FunctionBase     -> {type: "fb_state", name, nStep, is_terminal, result}
+  1. LogBuffer          -> {type: "log", level, message, timestamp}
+  2. ProgressTracker    -> {type: "progress", **snapshot.to_dict()}
+  3. SyncTIAClient      -> {type: "tia_state", state, project, plcs}
+  4. FunctionBase       -> {type: "fb_state", name, nStep, is_terminal, result}
   5. TIA-loop lifecycle -> {type: "tia_loop_status", running, thread_name}
 
-Cualquier cambio en cualquiera de los 5 se retransmite como evento
-SSE a todos los suscriptores del bus.
+Cualquier cambio se retransmite como evento SSE a todos los suscriptores
+del bus.
 
-Para añadir un publisher nuevo:
-  1. Crear una factory `make_X_publisher(bus, ...) -> callable`.
-  2. Anadir el cableado en wire_all().
-  3. (Si hace falta) Anadir el hook en la clase origen
-     (p. ej. SyncTIAClient.on_state_change).
+Para anadir un publisher nuevo:
+  1. Crear una factory ``make_X_publisher(bus, ...) -> callable``.
+  2. Anadir el cableado en ``wire_all()``.
+  3. (Si hace falta) Anadir el hook en la clase origen.
 """
 from __future__ import annotations
 

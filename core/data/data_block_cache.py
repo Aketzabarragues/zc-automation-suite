@@ -1,39 +1,19 @@
-"""core.data.data_bloque_cache — Data Block del cache de bloques de un PLC.
+"""Cache de bloques de un PLC.
 
-Fase 3, paso 3.1.2.  Migrado de ``core/models/bloque_cache.py`` sin
-cambios de contrato: agrupa el resultado de un escaneo completo de un
-PLC (bloques + tablas de variables + UDTs) y se reconstruye en el
-gateway IT a partir de un dict primitivo recibido del worker OT.
+Agrupa el resultado de un escaneo completo (bloques + tablas de
+variables + UDTs). Se reconstruye en el gateway IT a partir de un
+dict primitivo recibido del worker OT.
 
 Campos:
-  - ``blocks`` (dict[str, BloquePLC]): bloques de programa (DB/FB/FC/OB).
-  - ``tag_tables`` (dict[str, BloquePLC]): tablas de variables PLC.
-  - ``udts`` (dict[str, BloquePLC]): User Data Types.
-    Invariante: los UDTs NUNCA aparecen en ``blocks`` (coleccion
-    separada).  El worker OT los escanea via
-    ``plc.get_user_data_types()`` y el gateway los reconstruye en
-    su propio slot.
-  - ``plc_name`` (str): nombre del PLC al que pertenece el cache.
-    Vacio si aun no se ha cacheado nada.  Se usa para logs y para
-    invalidar selectivamente cuando el operario cambia de PLC
-    activo.
-  - ``scanned_at`` (datetime, UTC): timestamp del ultimo escaneo.
-    El formato ISO-8601 es el contrato con la SPA.
+  - blocks (dict[str, DataBloquePLC]): bloques de programa (DB/FB/FC/OB).
+  - tag_tables (dict[str, DataBloquePLC]): tablas de variables PLC.
+  - udts (dict[str, DataBloquePLC]): User Data Types (coleccion
+    separada, nunca aparecen en ``blocks``).
+  - plc_name (str): nombre del PLC al que pertenece el cache.
+  - scanned_at (datetime, UTC): timestamp del ultimo escaneo.
 
-Convenciones:
-  - Los tres dicts estan indexados por ``BloquePLC.normalize_name``
-    para lookups case/space-insensitive.
-  - ``scanned_at`` se captura en UTC; ``to_dict()`` lo serializa
-    en ISO-8601.
-
-Migracion:
-  - Renombrado de ``BloqueCache`` (legacy) a ``DataBloqueCache``.
-    El legacy se mantiene hasta Fase 4 (DA-006 del plan: los use
-    cases legacy coexisten con los DBs hasta Fase 4).
-  - Import de ``DataBloquePLC`` (paso 3.1.3) desde
-    ``core.data.data_bloque_plc``.  El legacy ``BloquePLC`` en
-    ``core/models/bloque_plc.py`` sigue existiendo para los use
-    cases que aun lo importan, pero este DB ya solo usa el nuevo.
+Los tres dicts se indexan por ``DataBloquePLC.normalize_name``
+(case/space-insensitive). ``scanned_at`` se serializa en ISO-8601.
 """
 from __future__ import annotations
 
@@ -45,12 +25,7 @@ from core.data.data_block_plc import DataBloquePLC
 
 @dataclass(frozen=False)
 class DataBloqueCache:
-    """Cache de un escaneo completo de un PLC.
-
-    Instanciar con ``DataBloqueCache()`` da un cache vacio
-    (sin bloques, sin tablas, sin UDTs, ``plc_name=""`` y
-    ``scanned_at`` al momento de la creacion).
-    """
+    """Cache de un escaneo completo de un PLC."""
 
     blocks: dict[str, DataBloquePLC] = field(default_factory=dict)
     tag_tables: dict[str, DataBloquePLC] = field(default_factory=dict)
@@ -61,7 +36,7 @@ class DataBloqueCache:
     )
 
     def to_dict(self) -> dict:
-        """Serializa a dict primitivo (compatible JSON / IPC / SSE)."""
+        """Serializa a dict primitivo (JSON / IPC / SSE)."""
         return {
             "plc_name": self.plc_name,
             "blocks": [b.to_dict() for b in self.blocks.values()],
