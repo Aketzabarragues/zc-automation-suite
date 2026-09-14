@@ -1,4 +1,4 @@
-"""Flask blueprint para PLC FBs (Fase 4 / paso 4.4.7).
+"""Flask blueprint para PLC FBs.
 
 Equivalente sync de ``plc.py`` (FastAPI). Endpoints:
   POST /api/v1/plc/fb/<name>/start       -> arranca FB.
