@@ -31,7 +31,7 @@ import asyncio
 import logging
 from typing import Any
 
-from core.plc.function_base import FunctionBase
+from core.composition.plc_function_base import FunctionBase
 
 logger = logging.getLogger(__name__)
 

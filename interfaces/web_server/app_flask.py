@@ -22,7 +22,7 @@ from flask import Flask, Response, jsonify, send_from_directory
 
 from core.infrastructure.config.config_manager import ConfigManager
 from core.infrastructure.tia.tia_loop import tia_client as default_tia_client
-from core.plc.engine import Engine
+from core.composition.plc_engine import Engine
 from core.sse.event_bus_sync import EventBusSync
 
 logger = logging.getLogger(__name__)

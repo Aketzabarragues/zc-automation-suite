@@ -37,7 +37,7 @@ from core.runtime.log_buffer import LogBuffer, get_log_buffer
 from core.runtime.progress_buffer import ProgressTracker, get_progress_tracker
 from core.runtime.app_state import AppState, get_app_state
 from core.infrastructure.config.config_manager import ConfigManager
-from core.plc.function_base import FunctionBase
+from core.composition.plc_function_base import FunctionBase
 
 
 class FunctionSubirExcel(FunctionBase):

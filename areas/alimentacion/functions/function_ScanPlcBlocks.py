@@ -40,7 +40,7 @@ from core.runtime.progress_buffer import (
 )
 from core.infrastructure._pendiente.gateway import TIAProcessGateway
 from core.models import BloqueCache, BloquePLC
-from core.plc.function_base import FunctionBase
+from core.composition.plc_function_base import FunctionBase
 
 logger = logging.getLogger(__name__)
 

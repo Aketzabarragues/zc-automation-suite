@@ -8,7 +8,7 @@ import time
 
 import pytest
 
-from core.plc.engine import Engine
+from core.composition.plc_engine import Engine
 from core.sse.event_bus_sync import EventBusSync
 from interfaces.web_server.app_flask import create_app
 

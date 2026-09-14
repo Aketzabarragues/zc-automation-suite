@@ -9,7 +9,7 @@ from core.infrastructure.tia.tia_loop import (
     SyncTIAClient,
     register_core_commands,
 )
-from core.plc.engine import Engine
+from core.composition.plc_engine import Engine
 from core.sse.event_bus_sync import EventBusSync
 from interfaces.web_server.app_flask import create_app
 

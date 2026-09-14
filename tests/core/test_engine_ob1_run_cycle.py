@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from core.plc.engine import Engine
-from core.plc.function_base import FunctionBase
+from core.composition.plc_engine import Engine
+from core.composition.plc_function_base import FunctionBase
 
 
 class _CountingFB(FunctionBase):

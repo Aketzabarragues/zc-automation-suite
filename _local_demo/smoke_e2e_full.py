@@ -64,7 +64,7 @@ def main() -> int:
     print("\n[3] tia-loader + tia-loop + engine + bus + wire_all")
     from core.infrastructure.tia.tia_loop import SyncTIAClient
     from core.infrastructure.tia.tia_handlers import register_core_commands
-    from core.plc.engine import Engine
+    from core.composition.plc_engine import Engine
     from core.sse.event_bus_sync import EventBusSync
     from core.sse.publishers import wire_all
     from core.runtime.log_buffer import get_log_buffer

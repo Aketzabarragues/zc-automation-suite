@@ -17,8 +17,8 @@ import asyncio
 
 import pytest
 
-from core.plc.engine import Engine
-from core.plc.function_base import FunctionBase
+from core.composition.plc_engine import Engine
+from core.composition.plc_function_base import FunctionBase
 from core.sse.event_bus import EventBus
 
 

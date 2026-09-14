@@ -19,7 +19,7 @@ import asyncio
 
 import pytest
 
-from core.plc.function_base import FunctionBase
+from core.composition.plc_function_base import FunctionBase
 
 
 @pytest.mark.asyncio

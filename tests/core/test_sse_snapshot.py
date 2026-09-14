@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import asyncio
 
-from core.plc.engine import Engine
-from core.plc.function_base import FunctionBase
+from core.composition.plc_engine import Engine
+from core.composition.plc_function_base import FunctionBase
 from core.sse.stream import _build_snapshot
 
 

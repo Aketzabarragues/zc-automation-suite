@@ -27,7 +27,7 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-from core.plc.function_base import FunctionBase
+from core.composition.plc_function_base import FunctionBase
 
 logger = logging.getLogger(__name__)
 _dbg = logging.getLogger("zc.debug.da012")

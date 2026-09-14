@@ -5,8 +5,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from core.plc.engine import Engine
-from core.plc.function_base import FunctionBase
+from core.composition.plc_engine import Engine
+from core.composition.plc_function_base import FunctionBase
 from interfaces.web_server.app_flask import create_app
 
 

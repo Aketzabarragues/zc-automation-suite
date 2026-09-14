@@ -54,7 +54,7 @@ from typing import Any, Callable
 from areas.alimentacion.application.use_cases.disp_diff_constants import (
     DispCalculateConstantsDiffUseCase,
 )
-from core.plc.function_base import FunctionBase
+from core.composition.plc_function_base import FunctionBase
 
 logger = logging.getLogger(__name__)
 
