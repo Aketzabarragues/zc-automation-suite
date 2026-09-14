@@ -209,7 +209,7 @@ const App = {
                 <!-- 1. ShellSidebar: cross-cutting del shell (sept-2026).
                      No recibe props; lee del store. Tiene un boton
                      PLC comun + la nav del area (especifica, del manifest).
-                     El padre resuelve ``navigate`` y ``back``. -->
+                     El padre resuelve 'navigate' y 'back'. -->
                 <ShellSidebar @navigate="onShellNavigate" @back="onShellBack" />
 
                 <!-- 2. Columna derecha: topbar + main + consola.
