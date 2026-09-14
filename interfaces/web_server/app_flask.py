@@ -84,7 +84,7 @@ def create_app(
     )
     app.config["_LAZY_PROGRESS_TRACKER"] = lambda: _resolve_lazy(
         progress_tracker,
-        "core.application.progress_buffer",
+        "core.runtime.progress_buffer",
         "get_progress_tracker",
     )
 
