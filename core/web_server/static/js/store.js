@@ -312,7 +312,7 @@ export const store = reactive({
 
     /**
      * Manifest del área activa, cargado por
-     * ``core/interfaces/web_server/static/js/area-loader.js``.
+     * ``core/web_server/static/js/area-loader.js``.
      *
      * Shape esperado (alineado con
      * ``areas/alimentacion/frontend/manifest.js`` y con el
