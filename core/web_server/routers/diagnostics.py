@@ -1,8 +1,4 @@
-"""Flask blueprint para endpoints de diagnostics (Fase 4 / paso 4.4.3).
-
-Equivalente sync de ``interfaces/web_server/routers/diagnostics.py``
-(FastAPI). Mismas rutas, mismas respuestas, mismas dependencias leidas
-de ``app.config``.
+"""Flask blueprint para endpoints de diagnostics.
 
 Endpoints:
   GET  /api/v1/state/dispositivos -> vuelca AppState.
@@ -12,8 +8,8 @@ Endpoints:
   GET  /api/v1/progress/current  -> snapshot de ProgressTracker.
   POST /api/v1/progress/clear    -> resetea ProgressTracker.
 
-Las dependencias se inyectan via ``current_app.config['APP_STATE']``,
-etc. Ver ``interfaces/web_server/app_flask.create_app``.
+Las dependencias se inyectan via ``current_app.config['_LAZY_*']``
+(lazy resolvers). Ver ``core/web_server/app_flask.create_app``.
 """
 from __future__ import annotations
 
