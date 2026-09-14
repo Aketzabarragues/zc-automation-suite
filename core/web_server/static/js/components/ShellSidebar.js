@@ -1,89 +1,102 @@
 /**
- * Componente ShellSidebar — chrome corporativo reusable (v2.1).
+ * Componente ShellSidebar — chrome corporativo reusable (v3.0).
  *
- * Sidebar genérico cross-cutting sobre fondo navy con cabecera
- * "Módulo · <Área>", navegación entre sub-vistas del área,
- * ProgressIndicator dark y botón "← Volver al inicio" PINADO
- * al fondo. En la v2 se le retiró la selección PLC (que migró
- * al ``ShellTopbar``) y el ``plcSelector`` prop. En la v2.1 se
- * ha garantizado que el aside ocupa SIEMPRE el alto del
- * viewport (``h-full``) y que el botón Volver está siempre
- * visible al fondo (patrón bulletproof: nav + ProgressIndicator
- * envueltos en contenedor ``flex-1 min-h-0``; el footer vive
- * como hijo directo del aside, con ``shrink-0`` para no
- * comprimirse).
+ * Sidebar genérico cross-cutting sobre fondo navy. Tras el refactor
+ * de areas (sept-2026), este componente ya no recibe ``navItems``
+ * por prop ni depende de un wrapper por area. Lee directamente
+ * del ``store``:
+ *   * Cabecera: ``store.availableAreas`` para el label del area.
+ *   * Sub-vistas: ``store.areaManifest.components.views`` +
+ *     ``viewLabels`` (opcional, fallback a la key capitalizada).
+ *   * Boton PLC: siempre visible en la zona media, encima de la
+ *     nav del area. Común a TODAS las areas (todas tienen PLCs).
  *
  * Estructura (de arriba a abajo):
- *   1. Cabecera (shrink-0): bloque navy con caption "Módulo" +
- *      label del área activa, tipografía ``text-2xl
- *      font-extrabold tracking-tight`` para dialogar con la
- *      topbar clara que tiene justo al lado.
- *   2. Zona media (flex-1 min-h-0): contenedor que agrupa la
- *      nav (flex-1, scrolls si hay muchos items) y el
- *      ProgressIndicator (v-if, ocupa su tamaño natural cuando
- *      hay operación en curso). El contenedor absorbe el
- *      espacio sobrante para que el footer quede pegado al
- *      fondo.
- *   3. Footer (shrink-0): caja ``bg-shell-deep rounded-xl`` con
- *      el botón "← Volver al inicio" centrado. Replica el
- *      patrón del ejemplo de referencia
- *      (``_source/Rediseno.html``): caja oscura sobre fondo
- *      navy, padding generoso, texto bold.
- *
- * Props:
- *   * ``area``     : ``{ key, label, icon }`` — área activa. El
- *                    ``label`` se muestra en la cabecera como
- *                    "título" del shell.
- *   * ``navItems`` : ``Array<{ key, icon, label }>`` — entradas
- *                    de la navegación del área.
+ *   1. Cabecera (shrink-0): bloque navy con "Módulo" + label del
+ *      area activa.
+ *   2. Zona media (flex-1 min-h-0):
+ *        a. Boton "PLC" (comun, navega a currentView="plc").
+ *        b. Navegacion del area (especifica, viene del manifest).
+ *        c. ProgressIndicator (variant dark).
+ *   3. Footer (shrink-0): boton "← Volver al inicio".
  *
  * Emits:
- *   * ``navigate(key: string)`` — el operario ha pulsado un
- *     item de la nav. El padre (wrapper del área) decide a qué
- *     sub-vista navegar.
- *   * ``back()`` — el operario ha pulsado "← Volver al
- *     inicio". El padre normalmente llama a ``goToWelcome``.
+ *   * ``navigate(key: string)`` — el operario pulso un item de la
+ *     nav (incluido el boton PLC). El padre resuelve la key (si
+ *     es "plc" renderiza el PlcPanelView comun; si es otra key,
+ *     renderiza la vista del manifest del area).
+ *   * ``back()`` — volver al Welcome.
  *
- * Tema: capa "shell" corporativa (tokens ``bg-shell*``,
- * ``text-on-shell*``, ``border-shell-border``,
- * ``accent-bright``). Cero hex hardcoded.
- *
- * IMPORTANTE sobre templates Vue: el compilador en runtime de
- * ``vue.esm-browser.prod.js`` NO acepta string literals multi-línea
- * dentro de arrays de ``:class``. Cada literal va en una sola
- * línea. Salto de línea entre elementos del array OK.
+ * Tema: capa "shell" corporativa. Sin hex hardcoded.
  */
 import { computed } from "/js/vendor/vue.esm-browser.prod.js";
 import { store } from "/js/store.js";
 import ProgressIndicator from "/js/components/ProgressIndicator.js";
 
+/**
+ * Icono por defecto de cada sub-vista canonica del shell.
+ * El area puede sobrescribir via ``manifest.components.navIcons``
+ * (opcional, no se usa en areas actuales).
+ */
+const DEFAULT_ICONS = {
+    landing: "🏠",
+    plc: "🔌",
+    def: "📊",
+    disp: "⚡",
+    proc: "⚙️",
+    cache: "🗃️",
+};
+
+/** Capitaliza la primera letra (fallback de label cuando no hay
+ *  ``viewLabels`` en el manifest). */
+function capitalize(s) {
+    if (!s) return "";
+    return String(s).charAt(0).toUpperCase() + String(s).slice(1);
+}
+
 export default {
     name: "ShellSidebar",
     components: { ProgressIndicator },
-    props: {
-        area: { type: Object, required: true },
-        navItems: { type: Array, required: true },
-    },
     emits: ["navigate", "back"],
-    setup(props, { emit }) {
+    setup(_, { emit }) {
         /**
-         * Etiqueta del área activa, derivada del prop ``area``.
-         * Fallback neutro si el área no trae label. Se usa como
-         * "título" del shell (cabecera del sidebar).
-         *
-         * Si el área trae un campo ``subtitle`` (forma corta,
-         * p. ej. ``"Alimentación"`` para el área cuyo label
-         * completo es ``"Área de alimentación"``), se prefiere
-         * ese para evitar redundancia con el caption "Área" que
-         * ya muestra la cabecera del sidebar.
+         * Label del area activa para la cabecera. Resuelve primero
+         * contra ``store.availableAreas`` (cargado por Welcome);
+         * si no encuentra coincidencia, cae al store.selectedArea
+         * crudo. Sin prop.
          */
         const areaLabel = computed(() => {
-            if (!props.area) return "—";
-            if (props.area.subtitle) return props.area.subtitle;
-            return props.area.label || props.area.key || "—";
+            const sel = store.selectedArea;
+            if (!sel) return "—";
+            const a = (store.availableAreas || []).find((x) => x.key === sel);
+            if (a) return a.subtitle || a.label || a.key;
+            return sel;
         });
 
-        /** Emite ``navigate`` con la key del item. */
+        /**
+         * Sub-vistas del area activa derivadas del manifest.
+         * Cada item es ``{ key, label, icon }``. Si el manifest
+         * no tiene ``viewLabels``, el label es la key capitalizada.
+         * ``navIcons`` del manifest (si existe) sobrescribe el
+         * default por key.
+         */
+        const navItems = computed(() => {
+            const m = store.areaManifest;
+            if (!m || !m.components || !m.components.views) return [];
+            const labels = m.components.viewLabels || {};
+            const icons = m.components.navIcons || {};
+            // "plc" es del shell, no del area: se filtra para no
+            // duplicar el boton comun.
+            return Object.entries(m.components.views)
+                .filter(([key]) => key !== "plc")
+                .map(([key, _compName]) => ({
+                    key,
+                    label: labels[key] || capitalize(key),
+                    icon: icons[key] || DEFAULT_ICONS[key] || "📄",
+                }));
+        });
+
+        /** Emite ``navigate`` con la key del item (incluido "plc"). */
         function navigate(key) {
             if (!key) return;
             emit("navigate", key);
@@ -94,65 +107,71 @@ export default {
             emit("back");
         }
 
+        /**
+         * Helper de class para los items de la nav + el boton PLC.
+         * Item activo = currentView === key.
+         */
+        function itemClass(active) {
+            return active
+                ? "bg-shell-active border-accent-bright text-on-shell font-semibold"
+                : "border-transparent text-on-shell-muted hover:bg-shell-hover hover:text-on-shell";
+        }
+
         return {
             store,
             areaLabel,
+            navItems,
             navigate,
             back,
+            itemClass,
         };
     },
     template: /* html */ `
         <aside class="fixed left-0 top-0 h-screen w-72 flex-shrink-0 bg-shell text-on-shell flex flex-col overflow-hidden z-30">
 
-            <!-- 1. Cabecera: bloque navy con "Módulo" + área.
-                 Sin card blanco, sin logo, sin emoji: la unidad
-                 navy es la identidad del shell. Cualquier blanco
-                 rompería la coherencia con el resto de la SPA.
-                 Tipografía grande (text-2xl extrabold tracking
-                 -tight) para que dialogue con la topbar clara.
-                 shrink-0 garantiza que el header nunca se
-                 comprime aunque el espacio sea escaso. -->
             <header class="px-5 py-5 border-b border-shell-border shrink-0">
-                <p class="text-[10px] uppercase tracking-widest text-on-shell-faint font-bold mb-1">Área</p>
+                <p class="text-[10px] uppercase tracking-widest text-on-shell-faint font-bold mb-1">Módulo</p>
                 <p class="text-2xl font-extrabold text-on-shell tracking-tight truncate">{{ areaLabel }}</p>
             </header>
 
-            <!-- 2. Zona media (nav + ProgressIndicator) en
-                 contenedor flex-1: absorbe todo el espacio
-                 sobrante para que el footer quede PINADO al
-                 fondo del aside aunque la nav tenga poco
-                 contenido o el progress esté v-if=false. -->
             <div class="flex-1 min-h-0 flex flex-col">
-                <!-- 2a. Navegación entre vistas del área
-                     (flex-1 dentro de la zona media, scrolls). -->
+                <!-- Boton PLC (comun): siempre visible cuando hay area
+                     activa. Resalta si store.currentView === "plc".
+                     El padre enruta "plc" al PlcPanelView del shell. -->
+                <div class="px-3 pt-3 shrink-0" data-testid="sidebar-plc-button-wrapper">
+                    <p class="px-3 text-[10px] uppercase tracking-widest text-on-shell-faint font-bold mb-2">PLC</p>
+                    <button @click="navigate('plc')"
+                            data-testid="sidebar-plc-button"
+                            :data-active="store.currentView === 'plc'"
+                            :class="[
+                                'w-full text-left flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors duration-150 border-l-2',
+                                itemClass(store.currentView === 'plc')
+                            ]">
+                        <span class="text-base opacity-90" aria-hidden="true">🔌</span>
+                        <span class="truncate">PLC</span>
+                    </button>
+                </div>
+
+                <!-- Navegacion del area (sub-vistas, viene del manifest). -->
                 <nav class="flex-1 px-3 py-3 overflow-y-auto">
                     <p class="px-3 text-[10px] uppercase tracking-widest text-on-shell-faint font-bold mb-2">Navegación</p>
                     <button v-for="item in navItems" :key="item.key"
                             @click="navigate(item.key)"
                             :data-area-key="item.key"
+                            :data-active="store.currentView === item.key"
                             :class="[
                                 'w-full text-left flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors duration-150 border-l-2',
-                                store.currentView === item.key
-                                    ? 'bg-shell-active border-accent-bright text-on-shell font-semibold'
-                                    : 'border-transparent text-on-shell-muted hover:bg-shell-hover hover:text-on-shell'
+                                itemClass(store.currentView === item.key)
                             ]">
                         <span class="text-base opacity-90" aria-hidden="true">{{ item.icon }}</span>
                         <span class="truncate">{{ item.label }}</span>
                     </button>
                 </nav>
 
-                <!-- 2b. ProgressIndicator (variant dark automático).
-                     v-if: si no hay nada que reportar, no se
-                     renderiza y el nav absorbe el espacio extra. -->
+                <!-- ProgressIndicator (variant dark automatico). -->
                 <ProgressIndicator dark />
             </div>
 
-            <!-- 3. Footer con "← Volver al inicio". Acción
-                 secundaria, PINADA al fondo del aside. Caja
-                 oscura (bg-shell-deep) sobre fondo navy, mismo
-                 lenguaje visual que el ejemplo de referencia
-                 (caja "bg-black/20" sobre navy). shrink-0
-                 garantiza que el botón nunca se comprime. -->
             <footer class="p-4 border-t border-shell-border shrink-0">
                 <button @click="back"
                         data-testid="sidebar-back"

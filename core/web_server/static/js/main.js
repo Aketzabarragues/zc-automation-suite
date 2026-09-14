@@ -3,16 +3,19 @@
  *
  * Responsabilidades:
  *   * Importar ``createApp`` del build ESM de Vue 3.
- *   * Registrar los 4 componentes cross-cutting: Welcome, ConsolaLogs,
- *     ProgressIndicator, ShellTopbar.
- *   * Enrutar entre welcome y el layout de área según ``store.topLevelView``.
- *   * Dentro del área, enrutar entre sub-vistas según ``store.currentView``
- *     (validado contra ``store.areaManifest.components.views``).
- *   * Conectar el evento ``refresh`` de Definición programación a
- *     ``apiFetchMemory``.
+ *   * Registrar los 6 componentes cross-cutting del shell:
+ *     Welcome, ConsolaLogs, ProgressIndicator, ShellTopbar,
+ *     ShellSidebar, plcpanelview.
+ *   * Enrutar entre welcome y el layout de área según
+ *     ``store.topLevelView``.
+ *   * Dentro del área, enrutar entre sub-vistas según
+ *     ``store.currentView``. Hay DOS familias de vistas:
+ *       - "plc" (reservada del shell) → renderiza ``<plcpanelview />``
+ *         (panel comun de gestion del PLC, comun a TODAS las areas).
+ *       - resto de keys → renderiza ``<component :is="currentViewComponent" />``
+ *         resuelto del manifest del area activa.
  *   * Cargar dinámicamente los componentes del área seleccionada vía
  *     ``area-loader.js`` (sin imports hardcoded de las áreas).
- *   * Lanzar el polling de logs (1 s) y de progreso (500 ms).
  *   * Montar la app en ``#app``.
  *
  * NO hay build step: el navegador carga los módulos directamente desde
@@ -26,6 +29,8 @@ import Welcome from "./components/Welcome.js";
 import ConsolaLogs from "./components/ConsolaLogs.js";
 import ProgressIndicator from "./components/ProgressIndicator.js";
 import ShellTopbar from "./components/ShellTopbar.js";
+import ShellSidebar from "./components/ShellSidebar.js";
+import plcpanelview from "./components/plcpanelview.js";
 
 /** Componente raíz: enrutador top-level (welcome) + layout de área. */
 const App = {
@@ -34,6 +39,8 @@ const App = {
         ConsolaLogs,
         ProgressIndicator,
         ShellTopbar,
+        ShellSidebar,
+        plcpanelview,
     },
     setup() {
         /**
@@ -112,29 +119,45 @@ const App = {
             goToSubview(key);
         }
         /**
-         * Nombre del componente de sidebar del área activa, leído del
-         * manifest. ``null`` mientras no hay manifest (welcome o
-         * área no soportada por el backend). Lo usa
-         * ``<component :is="sidebarComponent" />`` para resolver el
-         * componente registrado por ``mountArea``.
+         * Manejador del ``navigate`` emitido por ``ShellSidebar``.
+         * Recibe la key del item pulsado (incluido ``"plc"`` del
+         * boton comun). Para "plc" y para keys de las views del area
+         * hace lo mismo: ``goToSubview(key)``. El main.js enruta
+         * "plc" al PlcPanelView comun o al componente del manifest
+         * segun el template.
          */
-        const sidebarComponent = computed(() => {
-            const m = store.areaManifest;
-            if (!m || !m.components) return null;
-            return m.components.sidebar || null;
-        });
+        function onShellNavigate(key) {
+            if (!key) return;
+            goToSubview(key);
+        }
         /**
-         * Nombre del componente de la sub-vista activa (``'landing'
-         * | 'def' | 'disp'`` para alimentación), leído del manifest.
-         * Si la key de ``store.currentView`` no está en el manifest
-         * (área sin esa sub-vista), devuelve ``null`` y la vista no
-         * se renderiza.
+         * Manejador del ``back`` emitido por ``ShellSidebar``.
+         * Vuelve al Welcome (resetea topLevelView y areaManifest).
+         */
+        function onShellBack() {
+            store.topLevelView = "welcome";
+            store.areaManifest = null;
+            store.selectedArea = "";
+            store.currentView = "landing";
+        }
+        /**
+         * Nombre del componente de la sub-vista activa para keys
+         * del area (es decir, todo lo que NO es ``"plc"`` que es del
+         * shell). Leído del manifest. Si la key no está, devuelve
+         * ``null`` y la vista no se renderiza.
          */
         const currentViewComponent = computed(() => {
+            if (store.currentView === "plc") return null;  // del shell
             const m = store.areaManifest;
             if (!m || !m.components || !m.components.views) return null;
             return m.components.views[store.currentView] || null;
         });
+        /**
+         * True si la sub-vista activa es ``"plc"``, que es del shell
+         * (no del area). El template usa este flag para decidir
+         * entre ``<plcpanelview />`` y ``<component :is="currentViewComponent" />``.
+         */
+        const isPlcView = computed(() => store.currentView === "plc");
         /**
          * Flag derivado: estamos en un área cuyo manifest no se pudo
          * cargar (endpoint no existe, loaders vacíos o red caída). Lo
@@ -171,8 +194,10 @@ const App = {
             refreshMemory,
             onAreaSelected,
             onSubviewSelected,
-            sidebarComponent,
+            onShellNavigate,
+            onShellBack,
             currentViewComponent,
+            isPlcView,
             areaManifestEmpty,
             topbarArea,
         };
@@ -181,8 +206,11 @@ const App = {
         <div class="flex flex-col flex-1 min-h-0">
             <Welcome v-if="store.topLevelView === 'welcome'" @select="onAreaSelected" />
             <div v-else class="flex flex-1 overflow-hidden min-w-0">
-                <!-- 1. Sidebar slim: full-height, columna izquierda fija -->
-                <component v-if="sidebarComponent" :is="sidebarComponent" />
+                <!-- 1. ShellSidebar: cross-cutting del shell (sept-2026).
+                     No recibe props; lee del store. Tiene un boton
+                     PLC comun + la nav del area (especifica, del manifest).
+                     El padre resuelve ``navigate`` y ``back``. -->
+                <ShellSidebar @navigate="onShellNavigate" @back="onShellBack" />
 
                 <!-- 2. Columna derecha: topbar + main + consola.
                      La clase ml-72 reserva el ancho del ShellSidebar
@@ -207,6 +235,7 @@ const App = {
                                 </p>
                             </div>
                         </div>
+                        <plcpanelview v-else-if="isPlcView" data-testid="shell-plc-panel" />
                         <component v-else-if="currentViewComponent"
                             :is="currentViewComponent"
                             @select="onSubviewSelected"
@@ -225,6 +254,8 @@ _app.component("Welcome", Welcome);
 _app.component("ConsolaLogs", ConsolaLogs);
 _app.component("ProgressIndicator", ProgressIndicator);
 _app.component("ShellTopbar", ShellTopbar);
+_app.component("ShellSidebar", ShellSidebar);
+_app.component("plcpanelview", plcpanelview);
 _app.mount("#app");
 
 loadCatalog();
