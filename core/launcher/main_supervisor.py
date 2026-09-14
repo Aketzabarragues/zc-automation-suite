@@ -159,7 +159,7 @@ class MainServiceSupervisor:
         from core.infrastructure.tia.tia_handlers import register_core_commands
         from core.composition.plc_engine import Engine
         from core.runtime.sse.sse_event_bus_sync import EventBusSync
-        from interfaces.web_server.app_flask import create_app
+        from core.web_server.app_flask import create_app
 
         tia_client = SyncTIAClient()
         register_core_commands(tia_client)
@@ -230,7 +230,7 @@ class MainServiceSupervisor:
             host=self.host,
             port=self.port,
             app=flask_app,
-            threaded=False,  # single-threaded: serializa contra main loop
+            threaded=True,  # multi-thread: el SSE de larga vida no bloquea el resto de requests
         )
         self._flask_server = server
         self.log.info(

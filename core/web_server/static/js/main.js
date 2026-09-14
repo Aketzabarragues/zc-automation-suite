@@ -98,14 +98,19 @@ const App = {
             store.uploadSummary = null;
             store.lastExcelFile = null;
             store.previewData = null;
-            // ``mountArea`` ya hace ``loadArea`` internamente + registra
-            // los componentes del area en la app Vue. Devuelve el manifest
-            // para asignarlo a ``store.areaManifest`` sin un segundo fetch.
-            const manifest = await mountArea(_app, key);
-            // Transicionar a la vista de area (dispara re-render con
-            // TODO ya listo: manifest + componentes).
-            store.areaManifest = manifest && manifest.id ? manifest : null;
-            store.topLevelView = "area";
+            try {
+                // ``mountArea`` ya hace ``loadArea`` internamente + registra
+                // los componentes del area en la app Vue. Devuelve el manifest
+                // para asignarlo a ``store.areaManifest`` sin un segundo fetch.
+                const manifest = await mountArea(_app, key);
+                // Transicionar a la vista de area (dispara re-render con
+                // TODO ya listo: manifest + componentes).
+                store.areaManifest = manifest && manifest.id ? manifest : null;
+                store.topLevelView = "area";
+            } catch (e) {
+                console.error("[App] onAreaSelected:", e);
+                return;
+            }
             // ``nextTick`` no es estrictamente necesario pero es
             // defensivo: garantiza que el re-render ya se hizo
             // antes de que el usuario pueda interactuar.
