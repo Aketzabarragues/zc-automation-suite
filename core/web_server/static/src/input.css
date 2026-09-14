@@ -1,9 +1,9 @@
 /* ===========================================================================
  *  input.css — Fuente del CSS de la SPA ZC Automation Suite.
  * ---------------------------------------------------------------------------
- *  Compilado offline por el binario `tailwindcss-extra` (Tailwind v4 +
- *  daisyUI) a `interfaces/web_server/static/styles.css`, que se sirve
- *  como recurso local desde el FastAPI (sin CDN).
+ *  Compilado offline por el binario `tailwindcss-extra` (Tailwind v4) a
+ *  `core/web_server/static/styles.css`, que se sirve como recurso local
+ *  desde el shell Flask (sin CDN).
  *
  *  Tema Industrial Claro:
  *    • Superficies neutrales (gris muy claro / blanco).
@@ -12,10 +12,6 @@
  *      mediante clases literales dentro de su propio componente
  *      (`ConsolaLogs.js`); los tokens semánticos de este tema solo
  *      aplican a Sidebar / Inspector / Sync.
- *
- *  NOTA: daisyUI queda explícitamente fuera del pipeline (deuda
- *  técnica erradicada en este ticket). Si más adelante se
- *  reintroduce, evaluar antes el impacto en el bundle.
  * =========================================================================== */
 
 @import "tailwindcss";
@@ -25,10 +21,10 @@
  * como template strings dentro de los componentes ESM, por lo que
  * Tailwind NO las detecta si sólo escanea HTML.
  *
- * Tras el PR 5 (bounded contexts), los componentes del área
- * ``alimentacion`` están en ``areas/alimentacion/frontend/``;
- * los incluimos para que Tailwind no purgue sus clases. Las
- * áreas nuevas se recogen automáticamente por el glob. */
+ * Los componentes del área `alimentacion` están en
+ * ``areas/alimentacion/frontend/``; los incluimos para que Tailwind
+ * no purgue sus clases. Las áreas nuevas se recogen automáticamente
+ * por el glob. */
 @source "../index.html";
 @source "../js/**/*.js";
 @source "../../../../areas/**/frontend/**/*.js";
@@ -54,14 +50,11 @@
   --color-accent-hover:    rgb(0 40 79);
   --color-accent-subtle:   rgb(230 237 245);
 
-  /* PR 5b: tokens de color semánticos para el indicador de
-     conexión del worker TIA persistente
-     (``TiaConnectionIndicator.js``). Definidos aquí para que
-     Tailwind los emita como ``bg-green-500`` / ``bg-amber-500``
-     / ``bg-gray-400`` / ``bg-red-500`` y ``animate-pulse`` en
-     el próximo ``run_tailwind.bat``. Sin esto, las clases
-     utilitarias referenciadas por el componente quedan vacías
-     y el círculo del topbar se renderiza sin color. */
+  /* Tokens de color para el indicador de conexión del worker TIA
+     persistente (``TiaConnectionIndicator.js``). Sin ellos, las
+     clases ``bg-green-500`` / ``bg-amber-500`` / ``bg-gray-400`` /
+     ``bg-red-500`` y ``animate-pulse`` quedan vacías tras la
+     compilación y el círculo del topbar se renderiza sin color. */
   --color-green-500:       oklch(72.3% 0.219 149.579);
   --color-amber-500:       oklch(76.9% 0.188 70.08);
   --color-gray-400:        oklch(70.7% 0.022 261.325);
