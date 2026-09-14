@@ -75,11 +75,11 @@ def create_app(
         config_manager = ConfigManager()
     app.config["CONFIG_MANAGER"] = config_manager
     app.config["_LAZY_APP_STATE"] = lambda: _resolve_lazy(
-        app_state, "core.application.state", "get_app_state"
+        app_state, "core.runtime.app_state", "get_app_state"
     )
     app.config["_LAZY_LOG_BUFFER"] = lambda: _resolve_lazy(
         log_buffer,
-        "core.application.log_buffer",
+        "core.runtime.log_buffer",
         "get_log_buffer",
     )
     app.config["_LAZY_PROGRESS_TRACKER"] = lambda: _resolve_lazy(

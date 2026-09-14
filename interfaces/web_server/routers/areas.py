@@ -26,7 +26,7 @@ def list_areas():
     """Lista las areas configuradas."""
     config_manager = current_app.config["CONFIG_MANAGER"]
     # Lookup dinamico para que monkey-patching de tests funcione.
-    ar_mod = import_module("core.application.area_registry")
+    ar_mod = import_module("core.composition.app_area_registry")
     uc = ar_mod.ListAreasUseCase(config_manager)
     return jsonify([asdict(a) for a in uc.execute()])
 
