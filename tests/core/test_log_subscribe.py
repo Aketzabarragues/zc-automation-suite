@@ -14,7 +14,7 @@ import json
 
 import pytest
 
-from core.application.log_buffer import LogBuffer
+from core.runtime.log_buffer import LogBuffer
 from core.sse.event_bus import EventBus
 from core.sse.log_subscribe import hook_log_buffer_to_bus, make_log_publisher
 from core.sse.stream import _stream

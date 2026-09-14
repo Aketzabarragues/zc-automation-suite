@@ -18,7 +18,7 @@ from __future__ import annotations
 import pytest
 
 from core.application.area_registry import AreaRegistry, AreaSpec
-from core.application.state import AppState, get_app_state
+from core.runtime.app_state import AppState, get_app_state
 
 
 # ── Registry: el área de alimentación se autoregistra ─────────────────

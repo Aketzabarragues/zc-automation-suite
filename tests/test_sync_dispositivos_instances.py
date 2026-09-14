@@ -19,7 +19,7 @@ import pytest
 from areas.alimentacion.application.use_cases.disp_sync_instances import (
     DispSyncInstancesUseCase,
 )
-from core.application.state import AppState
+from core.runtime.app_state import AppState
 from areas.alimentacion.domain.models.excel_cache import (
     DispED,
     DimensionesDispositivos,

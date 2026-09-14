@@ -14,7 +14,7 @@ Cubre:
 """
 from __future__ import annotations
 
-from core.application.progress_buffer import (
+from core.runtime.progress_buffer import (
     ProgressTracker,
     STAGE_DONE,
     STAGE_ERROR,
@@ -261,7 +261,7 @@ def test_begin_identical_retry_silently_replaces(monkeypatch) -> None:
 
     # Mock del LogBuffer: capturamos los warnings que pasan por él.
     captured: list[str] = []
-    from core.application.log_buffer import LogBuffer
+    from core.runtime.log_buffer import LogBuffer
 
     fake_buffer = LogBuffer(maxlen=100)
     # ``get_log_buffer`` retorna el singleton del módulo
@@ -301,7 +301,7 @@ def test_begin_same_operation_different_stages_warns(monkeypatch) -> None:
     específico (alguien cambió la spec sin querer).
     """
     from core.application import progress_buffer
-    from core.application.log_buffer import LogBuffer
+    from core.runtime.log_buffer import LogBuffer
 
     tracker = progress_buffer.ProgressTracker()
     monkeypatch.setattr(progress_buffer, "_tracker", tracker)

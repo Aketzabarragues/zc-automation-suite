@@ -21,7 +21,7 @@ import pytest
 from areas.alimentacion.functions.function_GenerarPreview import (
     FunctionGenerarPreview,
 )
-from core.application.progress_buffer import ProgressTracker
+from core.runtime.progress_buffer import ProgressTracker
 from core.infrastructure.config.config_manager import ConfigManager
 from core.infrastructure._pendiente.gateway import TIAProcessGateway
 

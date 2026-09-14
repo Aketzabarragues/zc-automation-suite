@@ -20,7 +20,7 @@ from typing import Any
 
 import pytest
 
-from core.application.state import AppState, get_app_state
+from core.runtime.app_state import AppState, get_app_state
 
 
 # ── Activación de las properties legacy para los tests ────────────────

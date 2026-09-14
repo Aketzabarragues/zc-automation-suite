@@ -179,8 +179,8 @@ class MainServiceSupervisor:
         # para que ``on_loop_status`` capture el evento "running=true"
         # en cuanto el hilo arranca. Idempotente si los hooks no existen
         # (log warn + skip).
-        from core.application.log_buffer import get_log_buffer
-        from core.application.progress_buffer import get_progress_tracker
+        from core.runtime.log_buffer import get_log_buffer
+        from core.runtime.progress_buffer import get_progress_tracker
         from core.sse.publishers import wire_all
         wire_all(
             log_buffer=get_log_buffer(),

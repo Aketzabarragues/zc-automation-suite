@@ -33,9 +33,9 @@ from typing import Any, Callable
 
 from areas.alimentacion.infrastructure.cache import ExcelCacheManager
 from areas.alimentacion.infrastructure.loaders import ExcelLoader
-from core.application.log_buffer import LogBuffer, get_log_buffer
-from core.application.progress_buffer import ProgressTracker, get_progress_tracker
-from core.application.state import AppState, get_app_state
+from core.runtime.log_buffer import LogBuffer, get_log_buffer
+from core.runtime.progress_buffer import ProgressTracker, get_progress_tracker
+from core.runtime.app_state import AppState, get_app_state
 from core.infrastructure.config.config_manager import ConfigManager
 from core.plc.function_base import FunctionBase
 

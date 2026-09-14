@@ -33,8 +33,8 @@ from typing import Any
 
 from areas.alimentacion.application.disp_slot_map_builder import disp_build_slot_maps
 from areas.alimentacion.infrastructure.build_cache import build_cache
-from core.application.progress_buffer import ProgressTracker, get_progress_tracker
-from core.application.state import AppState
+from core.runtime.progress_buffer import ProgressTracker, get_progress_tracker
+from core.runtime.app_state import AppState
 from core.infrastructure.config.config_manager import ConfigManager
 from core.infrastructure._pendiente.gateway import TIAProcessGateway
 

@@ -48,11 +48,11 @@ from typing import Any, Callable
 from areas.alimentacion.application.use_cases.disp_sync_instances import (
     DispSyncInstancesUseCase,
 )
-from core.application.progress_buffer import (
+from core.runtime.progress_buffer import (
     ProgressTracker,
     get_progress_tracker,
 )
-from core.application.state import AppState, get_app_state
+from core.runtime.app_state import AppState, get_app_state
 from core.infrastructure.config.config_manager import ConfigManager
 from core.infrastructure._pendiente.gateway import TIAProcessGateway
 from core.plc.function_base import FunctionBase

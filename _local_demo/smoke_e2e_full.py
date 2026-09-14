@@ -67,8 +67,8 @@ def main() -> int:
     from core.plc.engine import Engine
     from core.sse.event_bus_sync import EventBusSync
     from core.sse.publishers import wire_all
-    from core.application.log_buffer import get_log_buffer
-    from core.application.progress_buffer import get_progress_tracker
+    from core.runtime.log_buffer import get_log_buffer
+    from core.runtime.progress_buffer import get_progress_tracker
 
     tc = SyncTIAClient()
     register_core_commands(tc)

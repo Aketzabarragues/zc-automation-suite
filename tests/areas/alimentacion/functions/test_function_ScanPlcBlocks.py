@@ -18,7 +18,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from areas.alimentacion.functions.function_ScanPlcBlocks import FunctionScanPlcBlocks
-from core.application.progress_buffer import ProgressTracker
+from core.runtime.progress_buffer import ProgressTracker
 from core.infrastructure._pendiente.gateway import TIAProcessGateway
 from core.models import BloqueCache, BloquePLC
 

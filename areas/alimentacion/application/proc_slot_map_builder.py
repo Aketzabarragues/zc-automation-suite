@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from areas.alimentacion.infrastructure.sd.proc_comment_updater import (
     strip_enclosing_quotes,
 )
-from core.application.state import AppState
+from core.runtime.app_state import AppState
 from core.infrastructure.config.config_manager import ConfigManager
 from core.infrastructure.tia.tia_export_paths import EMPTY_TEXT
 from core.data.data_bloque_cache import DataBloqueCache

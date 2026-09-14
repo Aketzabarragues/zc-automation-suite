@@ -34,7 +34,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
-from core.application.progress_buffer import (
+from core.runtime.progress_buffer import (
     ProgressTracker,
     get_progress_tracker,
 )

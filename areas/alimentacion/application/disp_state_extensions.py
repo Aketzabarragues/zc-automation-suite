@@ -23,7 +23,7 @@ Invocación:
 """
 from __future__ import annotations
 
-from core.application.state import AppState
+from core.runtime.app_state import AppState
 from areas.alimentacion.domain.models.excel_cache import (
     DispED,
     DispEA,

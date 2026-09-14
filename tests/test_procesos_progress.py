@@ -27,7 +27,7 @@ import pytest
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
-from core.application.progress_buffer import (  # noqa: E402
+from core.runtime.progress_buffer import (  # noqa: E402
     ProgressTracker,
     STAGE_DONE,
     STAGE_ERROR,
@@ -438,7 +438,7 @@ def test_generar_prevision_incluye_nmax_block_en_response(tmp_path) -> None:
     apply actual NO las usa.
     """
     import asyncio
-    from core.application.progress_buffer import ProgressTracker
+    from core.runtime.progress_buffer import ProgressTracker
     from core.infrastructure._pendiente.gateway import TIAProcessGateway
     from core.data.data_bloque_cache import DataBloqueCache
     from core.data.data_bloque_plc import DataBloquePLC
@@ -522,7 +522,7 @@ def test_generar_prevision_nmax_block_con_sufijos_usa_gateway(tmp_path) -> None:
     un bloque con ``todos`` no vacío.
     """
     import asyncio
-    from core.application.progress_buffer import ProgressTracker
+    from core.runtime.progress_buffer import ProgressTracker
     from core.infrastructure._pendiente.gateway import TIAProcessGateway
     from core.data.data_bloque_cache import DataBloqueCache
     from core.data.data_bloque_plc import DataBloquePLC
@@ -618,7 +618,7 @@ def test_generar_prevision_no_pisa_tracker_con_otra_operacion_activa(
     Patrón análogo a ``disp_sync_instances``.
     """
     import asyncio
-    from core.application.progress_buffer import ProgressTracker
+    from core.runtime.progress_buffer import ProgressTracker
     from core.infrastructure._pendiente.gateway import TIAProcessGateway
     from core.data.data_bloque_cache import DataBloqueCache
     from core.data.data_bloque_plc import DataBloquePLC
@@ -693,7 +693,7 @@ def test_generar_prevision_slots_tia_no_excel_aparecen_como_eliminar(
     "ELIMINAR" (análogo a dispositivos).
     """
     import asyncio
-    from core.application.progress_buffer import ProgressTracker
+    from core.runtime.progress_buffer import ProgressTracker
     from core.infrastructure._pendiente.gateway import TIAProcessGateway
     from core.data.data_bloque_cache import DataBloqueCache
     from core.data.data_bloque_plc import DataBloquePLC
@@ -875,7 +875,7 @@ def test_generar_prevision_closes_tracker_when_missing_blocks(tmp_path) -> None:
     progress bar se quedaba en 5/6 con el stage 5 (export_and_diff)
     en PENDING.
     """
-    from core.application.progress_buffer import (
+    from core.runtime.progress_buffer import (
         ProgressTracker,
         STAGE_DONE,
     )

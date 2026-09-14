@@ -30,9 +30,9 @@ from areas.alimentacion.application.use_cases.upload_excel import (
     UploadExcelUseCase,
 )
 from areas.alimentacion.infrastructure.cache import ExcelCacheManager
-from core.application.log_buffer import LogBuffer
-from core.application.progress_buffer import ProgressTracker
-from core.application.state import AppState, get_app_state
+from core.runtime.log_buffer import LogBuffer
+from core.runtime.progress_buffer import ProgressTracker
+from core.runtime.app_state import AppState, get_app_state
 from core.infrastructure.config.config_manager import ConfigManager
 
 

@@ -18,7 +18,7 @@ import json
 
 import pytest
 
-from core.application.progress_buffer import ProgressTracker
+from core.runtime.progress_buffer import ProgressTracker
 from core.sse.event_bus import EventBus
 from core.sse.progress_subscribe import (
     hook_progress_tracker_to_bus,

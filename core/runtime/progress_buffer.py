@@ -183,7 +183,7 @@ class ProgressTracker:
                 same_stages = self._stage_order == list(stages)
                 if not (same_operation and same_stages):
                     try:
-                        from core.application.log_buffer import get_log_buffer
+                        from core.runtime.log_buffer import get_log_buffer
                         if not same_operation:
                             get_log_buffer().warning(
                                 f"ProgressTracker: '{self._operation}' en curso fue "

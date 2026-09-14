@@ -39,7 +39,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from core.application.progress_buffer import (
+from core.runtime.progress_buffer import (
     ProgressTracker,
     get_progress_tracker,
 )
