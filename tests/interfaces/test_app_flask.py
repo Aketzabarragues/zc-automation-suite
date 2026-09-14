@@ -9,7 +9,7 @@ import time
 import pytest
 
 from core.composition.plc_engine import Engine
-from core.sse.event_bus_sync import EventBusSync
+from core.runtime.sse.sse_event_bus_sync import EventBusSync
 from interfaces.web_server.app_flask import create_app
 
 

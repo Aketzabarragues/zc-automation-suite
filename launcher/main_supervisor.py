@@ -158,7 +158,7 @@ class MainServiceSupervisor:
         from core.infrastructure.tia.tia_loop import SyncTIAClient
         from core.infrastructure.tia.tia_handlers import register_core_commands
         from core.composition.plc_engine import Engine
-        from core.sse.event_bus_sync import EventBusSync
+        from core.runtime.sse.sse_event_bus_sync import EventBusSync
         from interfaces.web_server.app_flask import create_app
 
         tia_client = SyncTIAClient()
@@ -181,7 +181,7 @@ class MainServiceSupervisor:
         # (log warn + skip).
         from core.runtime.log_buffer import get_log_buffer
         from core.runtime.progress_buffer import get_progress_tracker
-        from core.sse.publishers import wire_all
+        from core.runtime.sse.sse_publishers import wire_all
         wire_all(
             log_buffer=get_log_buffer(),
             progress_tracker=get_progress_tracker(),

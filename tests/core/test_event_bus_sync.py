@@ -7,7 +7,7 @@ import time
 
 import pytest
 
-from core.sse.event_bus_sync import EventBusSync
+from core.runtime.sse.sse_event_bus_sync import EventBusSync
 
 
 def test_subscribe_returns_queue_with_maxsize():
