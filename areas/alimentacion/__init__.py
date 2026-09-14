@@ -26,7 +26,7 @@ from areas.alimentacion.infrastructure.config_defaults import (
 from areas.alimentacion.infrastructure.tia.extra_commands import (
     register as register_tia,
 )
-from core.application.area_registry import AreaSpec
+from core.composition.app_area_registry import AreaSpec
 from areas.alimentacion._area_id import AREA_ID  # noqa: E402,F401
 
 

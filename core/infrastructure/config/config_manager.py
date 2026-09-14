@@ -302,7 +302,7 @@ class ConfigManager:
         # Import perezoso para evitar ciclo: core.infrastructure importa
         # core.application solo aquí.
         try:
-            from core.application.area_registry import AreaRegistry
+            from core.composition.app_area_registry import AreaRegistry
         except ImportError:
             _logger.debug(
                 "AreaRegistry no disponible; apply_defaults es no-op."

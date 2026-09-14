@@ -41,7 +41,7 @@ def build() -> "AreaFrontendManifest":
 
     La SPA (``area-loader.js``) hace ``import(<url>)`` por loader.
     """
-    from core.application.area_registry import AreaFrontendManifest
+    from core.composition.app_area_registry import AreaFrontendManifest
 
     _manifest: AreaFrontendManifest = {
         "id": "alimentacion",

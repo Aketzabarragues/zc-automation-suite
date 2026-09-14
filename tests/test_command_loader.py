@@ -21,7 +21,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from core.application.area_registry import AreaRegistry, AreaSpec
+from core.composition.app_area_registry import AreaRegistry, AreaSpec
 from core.infrastructure._pendiente.command_loader import load_extra_commands
 
 

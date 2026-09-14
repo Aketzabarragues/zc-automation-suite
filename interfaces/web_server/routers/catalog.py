@@ -11,7 +11,7 @@ from typing import Any
 
 from flask import Blueprint, current_app, jsonify
 
-from core.application.area_registry import AreaRegistry
+from core.composition.app_area_registry import AreaRegistry
 
 bp = Blueprint("catalog", __name__, url_prefix="/api/v1")
 

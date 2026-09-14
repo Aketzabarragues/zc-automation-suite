@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import pytest
 
-from core.application.area_registry import AreaRegistry, AreaSpec
+from core.composition.app_area_registry import AreaRegistry, AreaSpec
 from core.runtime.app_state import AppState, get_app_state
 
 

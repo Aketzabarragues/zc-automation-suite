@@ -165,7 +165,7 @@ def get_app_state() -> AppState:
                 # El área de alimentación pega las 6 properties
                 # ``dispositivos_ed/ea/...`` sobre la CLASE ``AppState``
                 # (no sobre ``_state``) usando ``setattr(AppState, ...)``.
-                from core.application.area_registry import AreaRegistry
+                from core.composition.app_area_registry import AreaRegistry
                 for spec in AreaRegistry.discover().all():
                     if spec.contributes_state_extensions is not None:
                         spec.contributes_state_extensions(_state)

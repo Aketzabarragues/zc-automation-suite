@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from flask import Blueprint, jsonify
 
-from core.application.area_registry import AreaRegistry
+from core.composition.app_area_registry import AreaRegistry
 
 bp = Blueprint("area_manifests", __name__, url_prefix="/api/v1/areas")
 

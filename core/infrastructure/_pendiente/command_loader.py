@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from core.application.area_registry import AreaRegistry
+from core.composition.app_area_registry import AreaRegistry
 
 
 def load_extra_commands(registry: dict[str, Callable[[object, object, dict], object]]) -> None:

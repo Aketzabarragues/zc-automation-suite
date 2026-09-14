@@ -23,7 +23,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from core.application.area_registry import AreaRegistry
+from core.composition.app_area_registry import AreaRegistry
 from core.infrastructure.config.config_manager import ConfigManager
 
 
