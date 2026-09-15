@@ -5,7 +5,7 @@ Cubre:
   * ``load`` lanza ``FileNotFoundError`` si el path no existe.
   * Los lookups ``*_by_codigo`` se precomputan correctamente.
   * Si un parser lanza, ``wb.close()`` se llama en el ``finally``.
-  * ``load`` con hojas faltantes no lanza: las listas quedan vacías.
+  * ``load`` con hojas faltantes no lanza: las listas quedan vacÃ­as.
   * ``to_dict()`` produce un dict JSON-serializable.
   * El cache incluye 6 tipos de dispositivos + 4 listas de software
     + 1 ``n_max``.
@@ -29,10 +29,10 @@ from areas.alimentacion.domain.models.excel_cache import (
     ParamRealPLC,
     ProcesoPLC,
 )
-from areas.alimentacion.infrastructure.loaders.excel_loader import ExcelLoader
+from areas.alimentacion.helpers.loaders.excel_loader import ExcelLoader
 
 
-# ── Helpers ─────────────────────────────────────────────────────────────
+# â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def _add_named_value(
@@ -126,11 +126,11 @@ def _build_full_xlsx(target: Path) -> Path:
     return target
 
 
-# ── Tests ───────────────────────────────────────────────────────────────
+# â”€â”€ Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def test_load_basico(tmp_path) -> None:
-    """Excel con 1 fila de CADA dominio → ``ExcelCache`` con todos los campos."""
+    """Excel con 1 fila de CADA dominio â†’ ``ExcelCache`` con todos los campos."""
     xlsx = _build_full_xlsx(tmp_path / "full.xlsx")
     cache = ExcelLoader().load(xlsx)
 
@@ -165,7 +165,7 @@ def test_load_basico(tmp_path) -> None:
 
 
 def test_load_con_excel_inexistente_lanza_filenotfounderror(tmp_path) -> None:
-    """Path inexistente → ``FileNotFoundError``."""
+    """Path inexistente â†’ ``FileNotFoundError``."""
     missing = tmp_path / "no.xlsx"
     with pytest.raises(FileNotFoundError):
         ExcelLoader().load(missing)
@@ -189,7 +189,7 @@ def test_load_construye_lookups_by_codigo(tmp_path) -> None:
 
 def test_load_workbook_cerrado_tras_error(tmp_path, monkeypatch) -> None:
     """Si un parser lanza, ``wb.close()`` se llama en el ``finally``."""
-    from areas.alimentacion.infrastructure.parsers import disp_ed as disp_ed_mod
+    from areas.alimentacion.helpers.parsers import disp_ed as disp_ed_mod
 
     # Mockear ``DispEDParser.extraer`` para que lance.
     calls: dict[str, int] = {"extraer": 0}
@@ -204,17 +204,17 @@ def test_load_workbook_cerrado_tras_error(tmp_path, monkeypatch) -> None:
     with pytest.raises(RuntimeError, match="parser boom"):
         ExcelLoader().load(xlsx)
 
-    # El parser mockeado se llamó 1 vez.
+    # El parser mockeado se llamÃ³ 1 vez.
     assert calls["extraer"] == 1
-    # El workbook se cerró (no se puede verificar directamente sin
+    # El workbook se cerrÃ³ (no se puede verificar directamente sin
     # un spy de openpyxl; el test ya cubre el path del ``finally``).
 
 
 def test_load_con_hojas_faltantes(tmp_path) -> None:
-    """Excel SIN hojas de software → listas vacías, no excepción."""
+    """Excel SIN hojas de software â†’ listas vacÃ­as, no excepciÃ³n."""
     wb = Workbook()
     wb.remove(wb.active)
-    # Solo 1 dispositivo y nada más.
+    # Solo 1 dispositivo y nada mÃ¡s.
     _add_table(wb, "DISP_ED", "Tabla_Disp_ED",
                ["UID", "Numero", "PLC.Tag", "Descripcion"],
                [["ED_001", 1, "V_ED_001", "Entrada 1"]])
@@ -224,7 +224,7 @@ def test_load_con_hojas_faltantes(tmp_path) -> None:
     cache = ExcelLoader().load(xlsx)
     # Dispositivo poblado.
     assert len(cache.dispositivos["ed"]) == 1
-    # Software: listas vacías.
+    # Software: listas vacÃ­as.
     assert cache.procesos == ()
     assert cache.parametros_real == ()
     assert cache.parametros_int == ()

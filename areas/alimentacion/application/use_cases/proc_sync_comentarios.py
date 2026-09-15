@@ -1,18 +1,18 @@
 """Caso de uso: sincronizar comentarios por slot de los DBs de procesos.
 
-Pieza del flujo "procesos" análoga a ``DispComentariosSyncUseCase``
+Pieza del flujo "procesos" anÃ¡loga a ``DispComentariosSyncUseCase``
 (dispositivos). Selecciona un proceso, genera el diff entre el
 Excel y los DBs de TIA (PReal[] + PInt[] + ALM[]), lo muestra en
-preview, y al confirmar lo aplica en **UNA sola transacción COM**
-con rollback atómico vía ``gateway.execute_transactional_batch``.
+preview, y al confirmar lo aplica en **UNA sola transacciÃ³n COM**
+con rollback atÃ³mico vÃ­a ``gateway.execute_transactional_batch``.
 
-Restricciones arquitectónicas:
+Restricciones arquitectÃ³nicas:
   - NO importa ``siemens_tia_scripting``.
-  - Toda interacción con TIA Portal pasa por ``TIAProcessGateway``.
+  - Toda interacciÃ³n con TIA Portal pasa por ``TIAProcessGateway``.
   - Cero rutas hardcodeadas: la carpeta destino se lee SIEMPRE del
     ``ConfigManager.get_tia_folder_proceso()``.
 
-Stages de progress (alineado con ``.clinerules`` §7):
+Stages de progress (alineado con ``.clinerules`` Â§7):
   - ``generar_prevision``: ``["check_state", "check_blocks",
      "build_slot_maps", "compute_nmax", "export_and_diff", "done"]``.
      ``compute_nmax`` se ejecuta entre ``build_slot_maps`` y
@@ -33,7 +33,7 @@ from areas.alimentacion.application.proc_slot_map_builder import (
     ProcSlotMap,
     proc_build_slot_maps,
 )
-from areas.alimentacion.infrastructure.build_cache import build_cache
+from areas.alimentacion.helpers.build_cache import build_cache
 from core.runtime.progress_buffer import ProgressTracker, get_progress_tracker
 from core.runtime.app_state import AppState
 from core.infrastructure.config.config_manager import ConfigManager
@@ -49,13 +49,13 @@ class ProcSyncComentariosUseCase:
     """Caso de uso: sincronizar comentarios de los 3 arrays de un proceso.
 
     Attributes:
-        gateway: gateway asíncrono al motor OT.
-        config_manager: configuración TIA del departamento activo.
-        app_state: estado con los procesos / parámetros / alarmas
+        gateway: gateway asÃ­ncrono al motor OT.
+        config_manager: configuraciÃ³n TIA del departamento activo.
+        app_state: estado con los procesos / parÃ¡metros / alarmas
                    del Excel.
         progress: tracker de progreso (Singleton global si None).
         bloques_cache: cache de bloques del PLC activo. Si es None,
-                       el caso de uso asume que la cache está vacía
+                       el caso de uso asume que la cache estÃ¡ vacÃ­a
                        y devuelve ``missing_blocks`` poblado para
                        los 3 nombres esperados.
         build_cache_dir: directorio base del work_dir del worker OT
@@ -90,7 +90,7 @@ class ProcSyncComentariosUseCase:
             else Path(os.getcwd()) / ".build_cache"
         )
 
-    # ── API pública ──────────────────────────────────────────────────────
+    # â”€â”€ API pÃºblica â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     async def generar_prevision(self, proc_uid: int) -> dict[str, Any]:
         """Calcula el diff de comentarios SIN tocar TIA.
@@ -121,13 +121,13 @@ class ProcSyncComentariosUseCase:
                   "warnings": list[str],
                 }
         """
-        # Solo emitir progress si NO hay ya una operación activa.
-        # Si el operario disparó un escaneo de bloques (o un
-        # ``generar_prevision`` anterior) que aún está en curso,
-        # nuestro ``begin()`` lo sobrescribiría y los ``start_stage``
-        # podrían fallar (``ValueError`` si el stage no está en
+        # Solo emitir progress si NO hay ya una operaciÃ³n activa.
+        # Si el operario disparÃ³ un escaneo de bloques (o un
+        # ``generar_prevision`` anterior) que aÃºn estÃ¡ en curso,
+        # nuestro ``begin()`` lo sobrescribirÃ­a y los ``start_stage``
+        # podrÃ­an fallar (``ValueError`` si el stage no estÃ¡ en
         # los declarados en el ``begin()`` del otro caller).
-        # Patrón análogo a ``sync_dispositivos_instances``.
+        # PatrÃ³n anÃ¡logo a ``sync_dispositivos_instances``.
         _track = not self._progress.active
         if _track:
             self._progress.begin(
@@ -139,7 +139,7 @@ class ProcSyncComentariosUseCase:
                 ],
             )
         try:
-            # Workdir del preview (read-only). Por convención de la app
+            # Workdir del preview (read-only). Por convenciÃ³n de la app
             # (ver ``_plan/16_carpetas_convencion.md``), los TAG
             # tables de N_MAX van a ``preview/variables/`` y los
             # bloques ``.s7dcl``/``.s7res`` van a ``preview/bloques/``.
@@ -149,7 +149,7 @@ class ProcSyncComentariosUseCase:
             # en curso, ver ``ejecutar_transaccion``).
             proc_ctx = build_cache(root=self._build_cache).procesos
             proc_ctx.clean_preview()
-            # check_state: validar que excel_cache no esté vacío.
+            # check_state: validar que excel_cache no estÃ© vacÃ­o.
             if _track:
                 self._progress.start_stage("check_state", "Validando AppState...")
             if self._state.excel_cache is None:
@@ -176,13 +176,13 @@ class ProcSyncComentariosUseCase:
 
             # check_blocks: cache de bloques del PLC.
             # Distinguimos 2 casos de "sin cache":
-            #   1. ``bloques_cache is None`` → el PLC nunca ha sido
+            #   1. ``bloques_cache is None`` â†’ el PLC nunca ha sido
             #      escaneado. El operario debe ir al sidebar y
             #      esperar al escaneo. NO fingimos que los 3 bloques
-            #      están missing (eso es engañoso).
-            #   2. ``bloques_cache`` existe pero está vacío → el PLC
+            #      estÃ¡n missing (eso es engaÃ±oso).
+            #   2. ``bloques_cache`` existe pero estÃ¡ vacÃ­o â†’ el PLC
             #      fue escaneado pero el proyecto no tiene bloques.
-            #      Esto es un estado válido pero improbable; lo
+            #      Esto es un estado vÃ¡lido pero improbable; lo
             #      tratamos como missing_blocks.
             if _track:
                 self._progress.start_stage("check_blocks", "Verificando bloques TIA...")
@@ -215,7 +215,7 @@ class ProcSyncComentariosUseCase:
 
             # build_slot_maps: cruzar Excel + DataBloqueCache.
             if _track:
-                self._progress.start_stage("build_slot_maps", "Cruzando Excel ↔ bloques...")
+                self._progress.start_stage("build_slot_maps", "Cruzando Excel â†” bloques...")
             try:
                 slot_map = proc_build_slot_maps(
                     self._state, self._config, proc_uid, bloques
@@ -286,7 +286,7 @@ class ProcSyncComentariosUseCase:
                     # Cierra el tracker (``active=False``) para que
                     # la SPA muestre el estado "completado" y no
                     # "En curso" indefinidamente (bug que el operario
-                    # reportó el 2026-09-02).
+                    # reportÃ³ el 2026-09-02).
                     self._progress.finish(success=True)
                 return {
                     "proc_uid": proc_uid,
@@ -305,16 +305,16 @@ class ProcSyncComentariosUseCase:
 
             # Precondiciones OK: exportar los 3 DBs y comparar con
             # el Excel para producir un diff real. Sin este stage
-            # el "total" sería fake (= nº de slots del Excel),
-            # no el nº de cambios que se aplicarían. Con este
+            # el "total" serÃ­a fake (= nÂº de slots del Excel),
+            # no el nÂº de cambios que se aplicarÃ­an. Con este
             # stage:
             #   - exportamos DB_PARAM y DB_ALM (1-3 min en PLCs
             #     grandes) a un work_dir.
             #   - leemos los .s7res resultantes y extraemos el
             #     ``es-ES`` actual de cada slot (solo del array
-            #     principal, no de los satélites).
+            #     principal, no de los satÃ©lites).
             #   - comparamos desired (Excel) con current (TIA) por
-            #     slot. action ∈ {sin_cambios, renombrar, agregar}.
+            #     slot. action âˆˆ {sin_cambios, renombrar, agregar}.
             if _track:
                 self._progress.start_stage(
                     "export_and_diff",
@@ -328,11 +328,11 @@ class ProcSyncComentariosUseCase:
                 # Si el export falla (TIA no responde, permisos,
                 # etc.), NO abortamos el preview: devolvemos un diff
                 # con ``current=None`` para todos los slots y un
-                # warning. El operario ve que algo falló en el
-                # backend pero el preview sigue siendo útil (al
-                # menos sabe qué slots quiere actualizar).
+                # warning. El operario ve que algo fallÃ³ en el
+                # backend pero el preview sigue siendo Ãºtil (al
+                # menos sabe quÃ© slots quiere actualizar).
                 _logger.warning(
-                    f"export_and_diff falló: {exc}. Devolviendo "
+                    f"export_and_diff fallÃ³: {exc}. Devolviendo "
                     f"current=None para todos los slots."
                 )
                 if _track:
@@ -344,17 +344,17 @@ class ProcSyncComentariosUseCase:
                 if _track:
                     self._progress.start_stage(
                         "done",
-                        f"Preview con current=None (export falló)",
+                        f"Preview con current=None (export fallÃ³)",
                     )
                     self._progress.finish_stage(
                         "done",
-                        f"Preview con current=None (export falló)",
+                        f"Preview con current=None (export fallÃ³)",
                     )
                 response = self._compose_response(
                     proc_uid, slot_map,
                     preal_current=None, pint_current=None, alm_current=None,
                     nmax_block=nmax_block,
-                    extra_warnings=[f"Export falló: {exc}. current=None."],
+                    extra_warnings=[f"Export fallÃ³: {exc}. current=None."],
                 )
                 if _track:
                     self._progress.finish(success=True)
@@ -389,7 +389,7 @@ class ProcSyncComentariosUseCase:
                 # Cierra el tracker (``active=False``) para que la SPA
                 # muestre el estado "completado" en lugar de "En curso"
                 # indefinidamente. ``finish_stage("done")`` solo marca
-                # el último stage como DONE, pero el ``ProgressTracker``
+                # el Ãºltimo stage como DONE, pero el ``ProgressTracker``
                 # sigue en ``active=True`` hasta que se llame a
                 # ``finish(success=True)``.
                 self._progress.finish(success=True)
@@ -408,7 +408,7 @@ class ProcSyncComentariosUseCase:
     async def ejecutar_transaccion(
         self, proc_uid: int, prevision: dict[str, Any]
     ) -> dict[str, Any]:
-        """Aplica el diff en UNA transacción TIA atómica.
+        """Aplica el diff en UNA transacciÃ³n TIA atÃ³mica.
 
         Stages: ``["check_state", "check_blocks", "build_slot_maps",
         "open_transaction", "done"]``.
@@ -417,21 +417,21 @@ class ProcSyncComentariosUseCase:
         (2 sub-ops: ``_param`` combinando PReal+PInt + ``_alm``). El
         worker abre ``start_transaction``, itera los sub-comandos, y
         cierra con ``end_transaction``. Si cualquiera falla, rollback
-        atómico.
+        atÃ³mico.
 
-        Histórico: antes había 3 ops (``_preal`` + ``_pint`` + ``_alm``).
+        HistÃ³rico: antes habÃ­a 3 ops (``_preal`` + ``_pint`` + ``_alm``).
         Se unificaron ``_preal`` y ``_pint`` en ``_param`` para evitar
         el bug del doble ``export_block`` sobre el mismo DB (el segundo
-        export SOBREESCRIBÍA el cambio de PReal con el contenido
+        export SOBREESCRIBÃA el cambio de PReal con el contenido
         ORIGINAL de TIA si TIA rechazaba ese MLC concreto).
 
-        Política: el diff se **recalcula desde el AppState** (no se
+        PolÃ­tica: el diff se **recalcula desde el AppState** (no se
         usa la ``prevision`` del body) para evitar race conditions
         con cambios de Excel entre el preview y el commit.
         """
-        # Solo emitir progress si NO hay ya una operación activa.
-        # Patrón análogo a ``sync_dispositivos_instances`` y a
-        # ``generar_prevision`` de este mismo módulo.
+        # Solo emitir progress si NO hay ya una operaciÃ³n activa.
+        # PatrÃ³n anÃ¡logo a ``sync_dispositivos_instances`` y a
+        # ``generar_prevision`` de este mismo mÃ³dulo.
         _track = not self._progress.active
         if _track:
             self._progress.begin(
@@ -450,7 +450,7 @@ class ProcSyncComentariosUseCase:
                 if _track:
                     self._progress.finish_stage("check_state", "Excel no cargado")
                 raise RuntimeError(
-                    "AppState.excel_cache está vacío. Cargue el Excel con "
+                    "AppState.excel_cache estÃ¡ vacÃ­o. Cargue el Excel con "
                     "POST /api/v1/excel/upload."
                 )
             if _track:
@@ -496,7 +496,7 @@ class ProcSyncComentariosUseCase:
             # Necesitamos el plc_name. En el flujo, viene del front
             # en la prevision dict (lo emite el preview del
             # cliente). Si no, usamos "" y dejamos que el gateway
-            # decida (en la práctica esto NO debería pasar).
+            # decida (en la prÃ¡ctica esto NO deberÃ­a pasar).
             plc_name = prevision.get("plc_name", "") or ""
             if not plc_name:
                 raise RuntimeError(
@@ -505,8 +505,8 @@ class ProcSyncComentariosUseCase:
 
             # open_transaction: componer las 2 ops y enviar al gateway.
             # Limpiamos el workdir antes del apply para que no queden
-            # residuos de runs anteriores (cierra la asimetría con
-            # ``DispSyncInstancesUseCase`` que ya lo hacía).
+            # residuos de runs anteriores (cierra la asimetrÃ­a con
+            # ``DispSyncInstancesUseCase`` que ya lo hacÃ­a).
             #
             # Commit 5: ``proc_ctx.clean()`` ya limpia las 6 subcarpetas
             # operativas (``exports/{variables,bloques,udt}`` +
@@ -514,13 +514,13 @@ class ProcSyncComentariosUseCase:
             # ``preview/`` (auditable). Los handlers de procesos ahora
             # separan exports/modified:
             #   - ``work_dir`` = ``modified_bloques``: el updater modifica
-            #     in-place aquí. El handler hace la copia con
+            #     in-place aquÃ­. El handler hace la copia con
             #     ``shutil.copytree`` desde ``exports_bloques``.
             #   - ``exports_subdir`` = ``exports_bloques``: el snapshot
-            #     limpio de TIA queda aquí, auditable tras el commit
-            #     (``git diff modified/ exports/`` muestra qué cambió
+            #     limpio de TIA queda aquÃ­, auditable tras el commit
+            #     (``git diff modified/ exports/`` muestra quÃ© cambiÃ³
             #     el updater).
-            # Ver ``_plan/16_carpetas_convencion.md`` §2.2.
+            # Ver ``_plan/16_carpetas_convencion.md`` Â§2.2.
             proc_ctx = build_cache(root=self._build_cache).procesos
             proc_ctx.clean()
             work_dir = proc_ctx.modified_bloques
@@ -535,7 +535,7 @@ class ProcSyncComentariosUseCase:
             # detectarlos, re-leemos el ``current`` de TIA con la
             # misma rutina que el preview. Si el re-export falla (TIA
             # no responde), seguimos solo con los slots del Excel
-            # (modo degradado: el operario verá solo "renombrar /
+            # (modo degradado: el operario verÃ¡ solo "renombrar /
             # agregar", no "eliminar", pero el apply no aborta).
             preal_to_delete: dict[int, str] = {}
             pint_to_delete: dict[int, str] = {}
@@ -568,8 +568,8 @@ class ProcSyncComentariosUseCase:
             except Exception as exc:
                 _logger.warning(
                     f"ejecutar_transaccion: re-lectura de TIA para "
-                    f"detectar 'eliminar' falló: {exc}. El apply solo "
-                    f"aplicará los slots del Excel (sin 'eliminar')."
+                    f"detectar 'eliminar' fallÃ³: {exc}. El apply solo "
+                    f"aplicarÃ¡ los slots del Excel (sin 'eliminar')."
                 )
 
             # Mezcla los slot_maps: Excel + "eliminar" (reset a ".").
@@ -589,18 +589,18 @@ class ProcSyncComentariosUseCase:
             operations: list[dict[str, Any]] = [
                 # 1 op combinada para PReal + PInt sobre el MISMO DB
                 # PARAM. Evita el bug del doble ``export_block`` que
-                # SOBREESCRIBÍA el cambio de PReal al exportar PInt.
-                # Antes había 2 ops separadas (``_preal`` + ``_pint``);
+                # SOBREESCRIBÃA el cambio de PReal al exportar PInt.
+                # Antes habÃ­a 2 ops separadas (``_preal`` + ``_pint``);
                 # ahora 1 sola (``_param``) que hace 1 export + 1 import
                 # cubriendo ambos arrays.
                 #
-                # ``db_subpath`` es la subcarpeta TIA donde está el DB
-                # (extraída de ``DataBloqueCache.blocks[<db>].ruta``). TIA
+                # ``db_subpath`` es la subcarpeta TIA donde estÃ¡ el DB
+                # (extraÃ­da de ``DataBloqueCache.blocks[<db>].ruta``). TIA
                 # Portal V21 requiere reimportar en la MISMA ruta donde
                 # ya existe el bloque, si no, falla con "object with the
                 # name already exists" (validado 2026-09-07). Si la
                 # cache no tiene la ruta (``""``), el handler cae al
-                # comportamiento legacy (raíz de ``work_dir``).
+                # comportamiento legacy (raÃ­z de ``work_dir``).
                 #
                 # Commit 5: ``work_dir`` apunta a ``modified_bloques`` y
                 # ``exports_subdir`` al snapshot limpio (``exports_bloques``).
@@ -638,7 +638,7 @@ class ProcSyncComentariosUseCase:
             if _track:
                 self._progress.start_stage(
                     "open_transaction",
-                    "Aplicando comentarios a TIA — puede tardar 1-3 min",
+                    "Aplicando comentarios a TIA â€” puede tardar 1-3 min",
                 )
             result = await self._gateway.execute_transactional_batch(
                 operations=operations,
@@ -671,7 +671,7 @@ class ProcSyncComentariosUseCase:
                 self._progress.finish(success=False, error=str(exc))
             raise
 
-    # ── Internals ────────────────────────────────────────────────────────
+    # â”€â”€ Internals â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def _compose_arrays(
         self,
@@ -683,7 +683,7 @@ class ProcSyncComentariosUseCase:
         """Compone el dict ``arrays`` con los 3 arrays del proceso.
 
         Para cada slot, generamos una entrada ``{current, desired,
-        action}`` con ``action ∈ {"sin_cambios", "renombrar",
+        action}`` con ``action âˆˆ {"sin_cambios", "renombrar",
         "agregar", "eliminar"}``.
 
         Slots del Excel (``slot_map_dict``):
@@ -691,23 +691,23 @@ class ProcSyncComentariosUseCase:
             ``ProcCommentUpdater.read_current_comments``), el
             ``current`` es el ``es-ES`` real de TIA y ``action``:
               - ``"agregar"`` si el slot no existe en TIA (``current
-                is None``) → el apply lo creará.
+                is None``) â†’ el apply lo crearÃ¡.
               - ``"renombrar"`` si ``current != desired``.
               - ``"sin_cambios"`` si ``current == desired``.
           - Si los mapas son ``None`` (export degradado), ``action``
-            se infiere del desired (``"."`` → "agregar", otro →
+            se infiere del desired (``"."`` â†’ "agregar", otro â†’
             "renombrar").
 
         Slots de TIA NO en el Excel (``current_dict - slot_map_dict``):
           - Caso "eliminar". El slot existe en TIA con un comentario
-            histórico pero el operario no lo tiene en su Excel
+            histÃ³rico pero el operario no lo tiene en su Excel
             (p. ej.Compactado de 60 slots donde el Excel solo trae
             los 20 que el operario quiere gestionar). El apply
-            resetea el comentario a ``"."`` (convención TIA "sin
-            comentario"). Si el current es ``""`` (ya vacío),
+            resetea el comentario a ``"."`` (convenciÃ³n TIA "sin
+            comentario"). Si el current es ``""`` (ya vacÃ­o),
             ``action = "sin_cambios"`` para no molestar al operario.
 
-        Los labels están alineados con ``sync_dispositivos_instances``
+        Los labels estÃ¡n alineados con ``sync_dispositivos_instances``
         para que la SPA reuse la misma ``STATUS_META``.
         """
         arrays: dict[str, Any] = {}
@@ -746,7 +746,7 @@ class ProcSyncComentariosUseCase:
                 for slot in to_remove:
                     current = current_dict[slot]
                     if current is None or current == "":
-                        # Slot vacío en TIA, no hay nada que borrar.
+                        # Slot vacÃ­o en TIA, no hay nada que borrar.
                         # Lo reportamos como "sin_cambios" para no
                         # contaminar la UI con falsos positivos.
                         action = "sin_cambios"
@@ -754,7 +754,7 @@ class ProcSyncComentariosUseCase:
                         action = "eliminar"
                     slot_map_serialized[str(slot)] = {
                         "current": current,
-                        "desired": None,  # no está en el Excel
+                        "desired": None,  # no estÃ¡ en el Excel
                         "action": action,
                     }
             arrays[arr_name] = {
@@ -768,16 +768,16 @@ class ProcSyncComentariosUseCase:
         return arrays
 
     def _compute_summary(self, arrays: dict[str, Any]) -> dict[str, int]:
-        """Suma el total de slots y cuenta por tipo de acción.
+        """Suma el total de slots y cuenta por tipo de acciÃ³n.
 
         Shape del dict (alineado con ``sync_dispositivos_instances``):
 
-        - ``agregados``: nº de slots con ``action == "agregar"``.
-        - ``renombrados``: nº de slots con ``action == "renombrar"``.
-        - ``eliminados``: nº de slots con ``action == "eliminar"``.
-          Slots que están en TIA pero no en el Excel; el apply los
-          resetea a ``"."`` (convención TIA "sin comentario").
-        - ``sin_cambios``: nº de slots con ``action == "sin_cambios"``.
+        - ``agregados``: nÂº de slots con ``action == "agregar"``.
+        - ``renombrados``: nÂº de slots con ``action == "renombrar"``.
+        - ``eliminados``: nÂº de slots con ``action == "eliminar"``.
+          Slots que estÃ¡n en TIA pero no en el Excel; el apply los
+          resetea a ``"."`` (convenciÃ³n TIA "sin comentario").
+        - ``sin_cambios``: nÂº de slots con ``action == "sin_cambios"``.
         - ``total``: suma de los 4 anteriores.
         """
         total = 0
@@ -816,7 +816,7 @@ class ProcSyncComentariosUseCase:
         extra_warnings: "list[str] | None" = None,
     ) -> dict[str, Any]:
         """Compone la respuesta del preview con el diff y los nombres
-        TIA resueltos. Usado por la rama de éxito y la de error
+        TIA resueltos. Usado por la rama de Ã©xito y la de error
         del export (donde ``current`` puede ser ``None``)."""
         arrays = self._compose_arrays(
             slot_map, preal_current, pint_current, alm_current
@@ -872,14 +872,14 @@ class ProcSyncComentariosUseCase:
         Si el export falla, NO aborta el preview: emite un warning
         y devuelve un bloque con ``current={}`` y
         ``status="sin_cambios"`` para todos los kinds. La SPA
-        mostrará las cards con current=desconocido (gris) en lugar
+        mostrarÃ¡ las cards con current=desconocido (gris) en lugar
         de romper la vista.
 
         Raises:
-            nada: cualquier excepción se loggea como warning y se
+            nada: cualquier excepciÃ³n se loggea como warning y se
             devuelve un bloque degradado.
         """
-        from areas.alimentacion.infrastructure.xml.disp_tag_table_parser import (
+        from areas.alimentacion.helpers.xml.disp_tag_table_parser import (
             SimaticMLTagParser,
         )
 
@@ -902,7 +902,7 @@ class ProcSyncComentariosUseCase:
         # en la carpeta TIA ``003_Procesos/``. NO en la tabla
         # ``000_Config_Dispositivos`` de dispositivos.
         # ``target_dir`` SIN subcarpeta: el worker, con
-        # ``keep_folder_structure=True``, crea la jerarquía del PLC
+        # ``keep_folder_structure=True``, crea la jerarquÃ­a del PLC
         # (``target_dir/003_Procesos/100_CPR.xml``). El target_dir
         # es la subcarpeta ``preview/variables/`` (TAG tables
         # separados de bloques; ver ``_plan/16_carpetas_convencion.md``).
@@ -920,7 +920,7 @@ class ProcSyncComentariosUseCase:
             )
             # El worker puede haber escrito el XML en
             # ``<target_dir>/<grupo>/<table>.xml`` o directamente en
-            # ``<target_dir>/<table>.xml`` según el group structure
+            # ``<target_dir>/<table>.xml`` segÃºn el group structure
             # del PLC. ``XmlTarget`` resuelve la ruta con fallback
             # rglob integrado.
             try:
@@ -933,14 +933,14 @@ class ProcSyncComentariosUseCase:
                 )
         except Exception as exc:
             _logger.warning(
-                f"[N_MAX procesos] export/parse falló: {exc}. "
+                f"[N_MAX procesos] export/parse fallÃ³: {exc}. "
                 f"Devolviendo current={{}} para no romper la SPA."
             )
             current = {}
 
         # 2. Diff unificado: los N_MAX del proceso siempre existen
         # en TIA (son PlcUserConstant con cardinalidad fija por
-        # proyecto), así que solo hay ``actualizar`` o ``sin_cambios``.
+        # proyecto), asÃ­ que solo hay ``actualizar`` o ``sin_cambios``.
         todos: list[dict[str, Any]] = []
         for kind, name in nmax_names.items():
             cur_val = current.get(name)
@@ -991,7 +991,7 @@ class ProcSyncComentariosUseCase:
             caller, que decide si abortar el preview o devolver
             un diff con ``current=None``.
         """
-        from areas.alimentacion.infrastructure.sd.proc_comment_updater import (
+        from areas.alimentacion.helpers.sd.proc_comment_updater import (
             ProcCommentUpdater,
         )
         work_dir = build_cache(root=self._build_cache).procesos.preview_bloques
@@ -1005,7 +1005,7 @@ class ProcSyncComentariosUseCase:
                 "DataBloqueCache sin plc_name; no se puede exportar."
             )
 
-        # 1. Exportar los 2 DBs (en paralelo sería ideal pero
+        # 1. Exportar los 2 DBs (en paralelo serÃ­a ideal pero
         # ``export_block`` no es thread-safe a nivel del wrapper .NET;
         # los hacemos secuenciales).
         await self._gateway.export_block(
@@ -1022,7 +1022,7 @@ class ProcSyncComentariosUseCase:
         # 2. Leer los comentarios actuales de cada array. Creamos 2
         # updaters en modo solo-lectura (sin slot_map y sin array_name
         # de instancia, porque cada read_current_comments recibe su
-        # propio array_name por parámetro).
+        # propio array_name por parÃ¡metro).
         updater_param = ProcCommentUpdater(
             s7dcl_path=SdPair(work_dir, slot_map.db_param_name).dcl,
             s7res_path=SdPair(work_dir, slot_map.db_param_name).res,
@@ -1033,8 +1033,8 @@ class ProcSyncComentariosUseCase:
             s7res_path=SdPair(work_dir, slot_map.db_alm_name).res,
             slot_map={},
         )
-        # Slots a leer: los del Excel + los que tienen asignación
-        # en el ``.s7dcl`` (slots de TIA no en el Excel → "eliminar"
+        # Slots a leer: los del Excel + los que tienen asignaciÃ³n
+        # en el ``.s7dcl`` (slots de TIA no en el Excel â†’ "eliminar"
         # en el preview). Si el ``.s7dcl`` no existe, ``find_array_slots``
         # devuelve set() y solo se leen los del Excel (modo degradado).
         preal_slots = (
@@ -1058,12 +1058,12 @@ class ProcSyncComentariosUseCase:
         return current_preal, current_pint, current_alm
 
 
-# ── Helpers de módulo ───────────────────────────────────────────────────
+# â”€â”€ Helpers de mÃ³dulo â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def _extract_codigo(db_param_name: str) -> str:
     """Extrae el ``codigo`` del nombre de DB (``DB53100_CPR_PARAM``
-    → ``"CPR"``). Devuelve ``""`` si el formato no encaja."""
+    â†’ ``"CPR"``). Devuelve ``""`` si el formato no encaja."""
     parts = db_param_name.split("_")
     if len(parts) >= 2:
         return parts[1]

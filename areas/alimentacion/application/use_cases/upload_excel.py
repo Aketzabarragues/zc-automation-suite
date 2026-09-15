@@ -1,46 +1,46 @@
-"""Application Layer - Carga del Excel corporativo (subdominio alimentación).
+"""Application Layer - Carga del Excel corporativo (subdominio alimentaciÃ³n).
 
-Caso de uso: extraer la lógica de negocio del endpoint
+Caso de uso: extraer la lÃ³gica de negocio del endpoint
 ``POST /api/v1/excel/upload`` para que sea testeable sin FastAPI,
 reusable desde otros puntos de entrada (MCP, jobs, recargas) y
-preparada para la Fase 7 (``GenerateProcessUseCase`` se compondrá
+preparada para la Fase 7 (``GenerateProcessUseCase`` se compondrÃ¡
 con este).
 
 Responsabilidades del use case:
-  1. Parsear el ``.xlsx`` vía ``ExcelLoader`` (en thread, no bloquea
+  1. Parsear el ``.xlsx`` vÃ­a ``ExcelLoader`` (en thread, no bloquea
      el event loop de asyncio).
   2. Cachear el resultado en ``ExcelCacheManager`` (singleton IT).
   3. Volcar el resultado al ``AppState`` (devices, dimensiones,
      excel_cache, excel_path) en la shape legacy que la SPA y los
      routers siguen leyendo.
-  4. Construir el ``summary`` con la misma lógica data-driven del
+  4. Construir el ``summary`` con la misma lÃ³gica data-driven del
      endpoint (iterando ``ConfigManager.list_hw_types_active()`` y
      resolviendo el ``canonical`` por hw).
   5. Emitir logs y progress (stages ``parsear_excel`` y
      ``volcar_appstate``).
 
 El handler FastAPI (``areas/alimentacion/interfaces/web/excel.py``)
-se queda en la orquestación HTTP pura: recibir el ``UploadFile``,
+se queda en la orquestaciÃ³n HTTP pura: recibir el ``UploadFile``,
 escribirlo a un tempfile, abrir el tracker, delegar en este use case
-y devolver el dict resultante. No contiene lógica de negocio.
+y devolver el dict resultante. No contiene lÃ³gica de negocio.
 
-Stages de progress (alineado con ``.clinerules`` §7):
+Stages de progress (alineado con ``.clinerules`` Â§7):
   ``["parsear_excel", "volcar_appstate"]``
 
 Trade-off documentado: este use case lanza ``HTTPException(400)``
-directamente cuando el parseo o el volcado fallan. Se hace así por
+directamente cuando el parseo o el volcado fallan. Se hace asÃ­ por
 dos motivos:
-  1. Coherencia con el comportamiento histórico del endpoint
+  1. Coherencia con el comportamiento histÃ³rico del endpoint
      (back-compat con los 3 tests existentes de
      ``test_excel_endpoint_with_cache.py``).
-  2. Cero valor añadir una excepción de dominio intermedia: el
-     único consumidor hoy es el router FastAPI, y FastAPI entiende
+  2. Cero valor aÃ±adir una excepciÃ³n de dominio intermedia: el
+     Ãºnico consumidor hoy es el router FastAPI, y FastAPI entiende
      ``HTTPException`` nativamente.
 
 La consecuencia negativa es que este use case deja de ser
-transport-agnostic: si mañana se quisiera invocar desde un job
-batch o desde otro protocolo, habría que refactorizar para usar
-una excepción de dominio. Por ahora, la simplicidad gana.
+transport-agnostic: si maÃ±ana se quisiera invocar desde un job
+batch o desde otro protocolo, habrÃ­a que refactorizar para usar
+una excepciÃ³n de dominio. Por ahora, la simplicidad gana.
 """
 from __future__ import annotations
 
@@ -50,8 +50,8 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from areas.alimentacion.infrastructure.cache import ExcelCacheManager
-from areas.alimentacion.infrastructure.loaders import ExcelLoader
+from areas.alimentacion.helpers.cache import ExcelCacheManager
+from areas.alimentacion.helpers.loaders import ExcelLoader
 from core.runtime.log_buffer import LogBuffer, get_log_buffer
 from core.runtime.progress_buffer import ProgressTracker, get_progress_tracker
 from core.runtime.app_state import AppState, get_app_state
@@ -68,9 +68,9 @@ class UploadExcelUseCase:
             estado a nivel de clase. Se pasa la clase para que los
             tests puedan inyectar un fake sin tocar el singleton
             global.
-        config_manager: configuración TIA del departamento activo.
+        config_manager: configuraciÃ³n TIA del departamento activo.
             Si es ``None`` al ejecutar, se lanza ``RuntimeError``
-            (el router siempre lo inyecta vía ``Depends``).
+            (el router siempre lo inyecta vÃ­a ``Depends``).
         app_state: estado de la app. Por defecto el Singleton
             (``get_app_state()``).
         progress_tracker: tracker de progreso. Por defecto el
@@ -96,7 +96,7 @@ class UploadExcelUseCase:
         )
         self._log: LogBuffer = log if log is not None else get_log_buffer()
 
-    # ── API pública ──────────────────────────────────────────────────────
+    # â”€â”€ API pÃºblica â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     async def execute(self, excel_path: str | Path) -> dict[str, Any]:
         """Carga el Excel desde ``excel_path``, popula el cache y el
@@ -104,7 +104,7 @@ class UploadExcelUseCase:
 
         Args:
             excel_path: ruta al ``.xlsx`` a parsear (absoluta o
-                relativa). El cache guarda la versión
+                relativa). El cache guarda la versiÃ³n
                 ``absolute()``.
 
         Returns:
@@ -134,10 +134,10 @@ class UploadExcelUseCase:
         if self._config is None:
             raise RuntimeError(
                 "UploadExcelUseCase.execute requiere un config_manager "
-                "explícito. El router debe inyectarlo vía Depends."
+                "explÃ­cito. El router debe inyectarlo vÃ­a Depends."
             )
 
-        # ── Stage 1: parsear_excel ────────────────────────────────────
+        # â”€â”€ Stage 1: parsear_excel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         self._progress.start_stage("parsear_excel")
         try:
             loader = ExcelLoader(config_manager=self._config)
@@ -149,7 +149,7 @@ class UploadExcelUseCase:
                 f"{total_devs} dispositivos parseados",
             )
 
-            # ── Stage 2: volcar_appstate ──────────────────────────────
+            # â”€â”€ Stage 2: volcar_appstate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             self._progress.start_stage("volcar_appstate")
             # Back-compat con la SPA: poblar ``state.dispositivos_<hw>``
             # desde ``cache.dispositivos`` (la SPA sigue esperando
@@ -157,7 +157,7 @@ class UploadExcelUseCase:
             for hw, devices_tuple in cache.dispositivos.items():
                 self._state.set_devices(hw, list(devices_tuple))
             self._state.dimensiones = cache.n_max
-            # El cache vive en el área de alimentación, pero AppState
+            # El cache vive en el Ã¡rea de alimentaciÃ³n, pero AppState
             # lo expone como placeholder ``Any`` (ver ``state.py``).
             self._state.excel_cache = cache
             self._state.excel_path = cache.excel_path
@@ -173,9 +173,9 @@ class UploadExcelUseCase:
                 status_code=400, detail=f"excel_upload failed: {exc}"
             ) from exc
 
-        # ── Summary + log de éxito ────────────────────────────────────
+        # â”€â”€ Summary + log de Ã©xito â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         # ``summary`` con la shape legacy: ``{tipo_canonica: count}``.
-        # Como el cache no expone directamente las claves canónicas
+        # Como el cache no expone directamente las claves canÃ³nicas
         # (``DispED``...), derivamos el summary a partir de los
         # ``hw_type`` de ``config_manager``.
         summary: dict[str, int] = {}
@@ -196,8 +196,8 @@ class UploadExcelUseCase:
         self._log.success(
             f"[excel/load] Carga maestra: {sum(summary.values())} "
             f"dispositivos ({len(summary)} tipos), {n_procesos} "
-            f"procesos, {n_preal} parámetros reales, {n_pint} "
-            f"parámetros enteros, {n_alarmas} alarmas."
+            f"procesos, {n_preal} parÃ¡metros reales, {n_pint} "
+            f"parÃ¡metros enteros, {n_alarmas} alarmas."
         )
 
         return {

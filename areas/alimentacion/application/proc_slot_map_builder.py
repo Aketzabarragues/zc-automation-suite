@@ -2,23 +2,23 @@
 
 Une los datos de AppState (columna ``comentario_db`` de
 ``ParamRealPLC`` / ``ParamIntPLC`` / ``AlarmaPLC``) con la
-configuración TIA y la cache de bloques del PLC para producir el
+configuraciÃ³n TIA y la cache de bloques del PLC para producir el
 mapping ``{slot: texto}`` por array (PReal, PInt, ALM) que el
-caso de uso envía al worker.
+caso de uso envÃ­a al worker.
 
 Es el hermano "procesos" de ``disp_slot_map_builder.py`` (que cubre los
 6 DBs de dispositivos ED/EA/SA/V/M/M_VF con slot 0 fijo
 "NO USAR"). Las diferencias son:
   - **Sin slot 0.** Los arrays de proceso empiezan en 1.
-  - **Parametrizado por array.** Recibe un único ``array_name`` por
+  - **Parametrizado por array.** Recibe un Ãºnico ``array_name`` por
     llamada (no un ``hw_type``).
   - **3 arrays** por proceso (PReal, PInt, ALM) en lugar de 1.
   - **Cruza con DataBloqueCache** (no con ConfigManager) para verificar
-    que el DB/tabla existen en el PLC. Faltan → ``missing_blocks``
+    que el DB/tabla existen en el PLC. Faltan â†’ ``missing_blocks``
     poblado, NO aborta (la SPA muestra el aviso y NO abre la vista
     de diff).
 
-Restricción arquitectónica (``.clinerules`` §1): este módulo es
+RestricciÃ³n arquitectÃ³nica (``.clinerules`` Â§1): este mÃ³dulo es
 OFFLINE; no importa ``siemens_tia_scripting``.
 """
 from __future__ import annotations
@@ -26,7 +26,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
-from areas.alimentacion.infrastructure.sd.proc_comment_updater import (
+from areas.alimentacion.helpers.sd.proc_comment_updater import (
     strip_enclosing_quotes,
 )
 from core.runtime.app_state import AppState
@@ -44,39 +44,39 @@ class ProcSlotMap:
     """Slot maps y metadatos TIA para un proceso.
 
     Attributes:
-        preal: ``{slot: comentario}`` para ``PReal[1..N]``. Vacío si
-               no hay parámetros reales o si ``missing_blocks`` está
+        preal: ``{slot: comentario}`` para ``PReal[1..N]``. VacÃ­o si
+               no hay parÃ¡metros reales o si ``missing_blocks`` estÃ¡
                poblado.
-        pint: ``{slot: comentario}`` para ``PInt[1..N]``. Vacío si
-               no hay parámetros enteros o si ``missing_blocks`` está
+        pint: ``{slot: comentario}`` para ``PInt[1..N]``. VacÃ­o si
+               no hay parÃ¡metros enteros o si ``missing_blocks`` estÃ¡
                poblado.
-        alm: ``{slot: comentario}`` para ``ALM[1..N]``. Vacío si no
-               hay alarmas o si ``missing_blocks`` está poblado.
-        db_param_name: nombre canónico del DB de parámetros
+        alm: ``{slot: comentario}`` para ``ALM[1..N]``. VacÃ­o si no
+               hay alarmas o si ``missing_blocks`` estÃ¡ poblado.
+        db_param_name: nombre canÃ³nico del DB de parÃ¡metros
                        (``"DB<num_db>_<codigo>_PARAM"``).
-        db_alm_name: nombre canónico del DB de alarmas
+        db_alm_name: nombre canÃ³nico del DB de alarmas
                      (``"DB<num_db>_<codigo>_ALM"``).
-        table_name: nombre canónico de la tabla de variables
+        table_name: nombre canÃ³nico de la tabla de variables
                     (``"<uid>_<codigo>"``).
         nmax: ``{kind: desired_int}`` con los valores DESEADOS de
               las PlcUserConstant N_MAX del proceso, donde
-              ``kind ∈ {"preal", "pint", "alm"}``. Cada valor es el
+              ``kind âˆˆ {"preal", "pint", "alm"}``. Cada valor es el
               ``len()`` de la lista filtrada por proceso del Excel
               (``len(excel.parametros_real where codigo == proc.codigo)``
               para ``preal``, etc.). El nombre COMPLETO de la
               PlcUserConstant se computa en el use case como
               ``f"{proc.uid}_N_MAX_{suffix}"`` con el sufijo del
-              config. Vacío si el departamento no define
+              config. VacÃ­o si el departamento no define
               ``procesos.n_max_suffixes``.
         nmax_names: ``{kind: full_name}`` con los nombres completos
-                    ya computados (``"100_N_MAX_PREAL"``, etc.). Vacío
+                    ya computados (``"100_N_MAX_PREAL"``, etc.). VacÃ­o
                     si el config no aporta sufijos.
         missing_blocks: lista de mensajes describiendo los bloques
-                        ausentes en el ``DataBloqueCache``. Vacía si
-                        todo está presente.
+                        ausentes en el ``DataBloqueCache``. VacÃ­a si
+                        todo estÃ¡ presente.
         warnings: lista de warnings no fatales (p. ej. ``num_db``
                   fallback al ``proc.uid`` cuando la lista de
-                  parámetros está vacía).
+                  parÃ¡metros estÃ¡ vacÃ­a).
     """
 
     preal: dict[int, str] = field(default_factory=dict)
@@ -90,7 +90,7 @@ class ProcSlotMap:
     # ``"ZC_Plantillas\\50010_ProcesoEstandar\\53010_Parametros"``).
     # Se extrae del ``DataBloquePLC.ruta`` cacheado al escanear TIA. Si
     # la cache no tiene la ruta (escaneo fallido), queda ``""`` y el
-    # worker escribe los archivos a la raíz de ``exports/`` (legacy).
+    # worker escribe los archivos a la raÃ­z de ``exports/`` (legacy).
     # Ver `DataBloqueCacheManager` y la fix del bug de reimport del
     # 2026-09-07 (TIA requiere misma estructura de carpetas para
     # reconciliar el bloque por nombre y hacer UPDATE).
@@ -102,7 +102,7 @@ class ProcSlotMap:
     warnings: list[str] = field(default_factory=list)
 
 
-# ── Helpers internos ────────────────────────────────────────────────────
+# â”€â”€ Helpers internos â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def _resolve_num_db(
@@ -116,13 +116,13 @@ def _resolve_num_db(
 ) -> int:
     """Resuelve el ``num_db`` a usar para nombrar el DB de un proceso.
 
-    Política:
+    PolÃ­tica:
       - Toma la primera fila que cumple el filtro (codigo ==
-        proc.codigo o proceso == proc.nombre según ``kind_label``).
-      - Si la lista está vacía, **fallback documentado**:
+        proc.codigo o proceso == proc.nombre segÃºn ``kind_label``).
+      - Si la lista estÃ¡ vacÃ­a, **fallback documentado**:
         ``num_db = proc.uid`` con warning. Esto preserva la
-        convención legacy donde el DB PARAM se nombraba con
-        ``3000 + uid`` cuando no había filas explícitas en el Excel.
+        convenciÃ³n legacy donde el DB PARAM se nombraba con
+        ``3000 + uid`` cuando no habÃ­a filas explÃ­citas en el Excel.
     """
     if proc_field == "codigo":
         filtered = [p for p in parametros if getattr(p, "codigo", "") == codigo]
@@ -135,7 +135,7 @@ def _resolve_num_db(
     # Fallback.
     msg = (
         f"Proceso uid={proc_uid} ({kind_label}): no hay filas en el Excel; "
-        f"se usa num_db={proc_uid} como fallback (convención legacy)."
+        f"se usa num_db={proc_uid} como fallback (convenciÃ³n legacy)."
     )
     warnings.append(msg)
     _logger.warning(msg)
@@ -147,8 +147,8 @@ def _build_slot_map(
 ) -> dict[int, str]:
     """Construye ``{i+1: comentario_db}`` 1-based.
 
-    Política de comentarios vacíos: si ``comentario_db`` es "" o
-    ``None``, se mapea a ``"."`` (convención TIA "sin comentario")
+    PolÃ­tica de comentarios vacÃ­os: si ``comentario_db`` es "" o
+    ``None``, se mapea a ``"."`` (convenciÃ³n TIA "sin comentario")
     con warning al logger.
     """
     if proc_field == "codigo":
@@ -162,23 +162,23 @@ def _build_slot_map(
         comentario = str(getattr(p, "comentario_db", "") or "")
         # Si el operario pega el comentario del Excel con comillas
         # envolventes por error (p. ej. ``'COMPACTO - FIJOS - '``),
-        # las quitamos aquí. Si no, el diff diría "renombrar" siempre
+        # las quitamos aquÃ­. Si no, el diff dirÃ­a "renombrar" siempre
         # que el desired (Excel) tenga comillas y el current (TIA)
-        # no — un falso positivo. La misma limpieza se hace en el
+        # no â€” un falso positivo. La misma limpieza se hace en el
         # lado TIA (``ProcCommentUpdater._build_mlc_text_map``)
         # y en el apply (``_sanitize_comment_text``).
         comentario = strip_enclosing_quotes(comentario)
         if not comentario.strip():
             _logger.warning(
-                f"Parámetro sin comentario_db (Excel vacío); "
-                f"se mapea a '.' (índice {i + 1})."
+                f"ParÃ¡metro sin comentario_db (Excel vacÃ­o); "
+                f"se mapea a '.' (Ã­ndice {i + 1})."
             )
             comentario = EMPTY_TEXT
         slot_map[i + 1] = comentario
     return slot_map
 
 
-# ── API pública ──────────────────────────────────────────────────────────
+# â”€â”€ API pÃºblica â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def proc_build_slot_maps(
@@ -191,21 +191,21 @@ def proc_build_slot_maps(
 
     Raises:
         RuntimeError: si ``app_state.excel_cache`` es ``None`` o si
-                      ``proc_uid`` no está en ``excel_cache.procesos``.
+                      ``proc_uid`` no estÃ¡ en ``excel_cache.procesos``.
                       Mensaje accionable: "Cargue primero el Excel
                       con POST /api/v1/excel/upload" o
-                      "El proceso {uid} no está en el Excel cargado".
+                      "El proceso {uid} no estÃ¡ en el Excel cargado".
 
-    Política de precondiciones:
+    PolÃ­tica de precondiciones:
       - Si falta alguno de los 3 bloques (DB_PARAM, DB_ALM, tabla)
-        en el ``DataBloqueCache``, la función añade el nombre a
-        ``missing_blocks`` y retorna con los 3 dicts vacíos
+        en el ``DataBloqueCache``, la funciÃ³n aÃ±ade el nombre a
+        ``missing_blocks`` y retorna con los 3 dicts vacÃ­os
         (NO lanza). La SPA pinta el aviso y bloquea la vista de diff.
     """
     excel_cache = app_state.excel_cache
     if excel_cache is None:
         raise RuntimeError(
-            "excel_cache está vacío. Cargue primero el Excel con "
+            "excel_cache estÃ¡ vacÃ­o. Cargue primero el Excel con "
             "POST /api/v1/excel/upload."
         )
 
@@ -217,13 +217,13 @@ def proc_build_slot_maps(
             break
     if proc is None:
         raise RuntimeError(
-            f"El proceso con uid={proc_uid} no está en el Excel cargado. "
+            f"El proceso con uid={proc_uid} no estÃ¡ en el Excel cargado. "
             "Recargue el Excel o seleccione otro proceso."
         )
 
     warnings: list[str] = []
 
-    # Nombres canónicos TIA.
+    # Nombres canÃ³nicos TIA.
     num_db_param = _resolve_num_db(
         list(excel_cache.parametros_real),
         codigo=proc.codigo,
@@ -251,7 +251,7 @@ def proc_build_slot_maps(
     # Verificar precondiciones contra el DataBloqueCache.
     missing_blocks: list[str] = []
     if DataBloquePLC.normalize_name(db_param_name) not in bloques_cache.blocks:
-        missing_blocks.append(f"DB de parámetros: {db_param_name}")
+        missing_blocks.append(f"DB de parÃ¡metros: {db_param_name}")
     if DataBloquePLC.normalize_name(db_alm_name) not in bloques_cache.blocks:
         missing_blocks.append(f"DB de alarmas: {db_alm_name}")
     if DataBloquePLC.normalize_name(table_name) not in bloques_cache.tag_tables:
@@ -259,13 +259,13 @@ def proc_build_slot_maps(
 
     # Extraer la subcarpeta TIA de cada DB del ``DataBloqueCache``. TIA
     # Portal V21 requiere que el archivo se reimporte en la MISMA
-    # ruta donde ya existe el bloque; si lo importamos a la raíz,
+    # ruta donde ya existe el bloque; si lo importamos a la raÃ­z,
     # falla con "object with the name already exists" (validado
     # 2026-09-07). La ruta se cachea al escanear TIA en
-    # ``DataBloquePLC.ruta`` (jerarquía con ``\\`` separator). Si la
-    # cache está vacía o el valor es ``""`` (no se pudo escanear
+    # ``DataBloquePLC.ruta`` (jerarquÃ­a con ``\\`` separator). Si la
+    # cache estÃ¡ vacÃ­a o el valor es ``""`` (no se pudo escanear
     # la ruta), dejamos el subpath como ``""`` y el worker cae al
-    # comportamiento legacy (raíz de ``exports/``).
+    # comportamiento legacy (raÃ­z de ``exports/``).
     def _extract_subpath(key: str) -> str:
         val = bloques_cache.blocks.get(key, "")
         # Tests legacy pueden pasar un string directamente como
@@ -281,7 +281,7 @@ def proc_build_slot_maps(
 
     if missing_blocks:
         # NO abortamos: devolvemos el slot map con missing_blocks
-        # poblado y los 3 dicts vacíos. La SPA pinta el aviso.
+        # poblado y los 3 dicts vacÃ­os. La SPA pinta el aviso.
         return ProcSlotMap(
             preal={}, pint={}, alm={},
             db_param_name=db_param_name,
@@ -293,7 +293,7 @@ def proc_build_slot_maps(
             warnings=warnings,
         )
 
-    # Precondiciones OK: cruzamos Excel → slot maps.
+    # Precondiciones OK: cruzamos Excel â†’ slot maps.
     preal = _build_slot_map(
         list(excel_cache.parametros_real),
         proc_field="codigo",
@@ -314,7 +314,7 @@ def proc_build_slot_maps(
     )
 
     # N_MAX deseados (solo visual, no se aplican en el commit actual).
-    # Cada N_MAX se computa como el nº de filas del Excel para este
+    # Cada N_MAX se computa como el nÂº de filas del Excel para este
     # proceso, y el nombre completo de la PlcUserConstant se deriva
     # del uid del proceso + el sufijo del config
     # (``f"{proc.uid}_N_MAX_{suffix}"``).

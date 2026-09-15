@@ -1,14 +1,14 @@
 """Tests del parser ``PIntParser`` (Fase 3 del plan).
 
-Cubre la extracción de ``Tabla_PInt`` (hoja ``P_INT``) y la
-preservación de ``num_lista`` como ``int | str`` (helper
+Cubre la extracciÃ³n de ``Tabla_PInt`` (hoja ``P_INT``) y la
+preservaciÃ³n de ``num_lista`` como ``int | str`` (helper
 ``_safe_num_lista``), ya tratado en Fase 2 pero re-verificado en
-el contexto del parser de enteros. Además incluye el test de
+el contexto del parser de enteros. AdemÃ¡s incluye el test de
 tipos distintos (R4 del plan): ``ParamIntPLC`` y ``ParamRealPLC``
 son nominalmente distintos aunque compartan shape.
 
 Convenciones:
-    * Excel sintético construido en ``tmp_path`` con ``Table`` real
+    * Excel sintÃ©tico construido en ``tmp_path`` con ``Table`` real
       (R5 del plan).
     * Se carga con ``load_workbook`` para garantizar que la
       ``ListObject`` se registre en ``worksheet.tables``.
@@ -22,10 +22,10 @@ from areas.alimentacion.domain.models.excel_cache import (
     ParamIntPLC,
     ParamRealPLC,
 )
-from areas.alimentacion.infrastructure.parsers.proc_pint import PIntParser
+from areas.alimentacion.helpers.parsers.proc_pint import PIntParser
 
 
-# ── Helpers de construcción de Excels sintéticos ────────────────────────
+# â”€â”€ Helpers de construcciÃ³n de Excels sintÃ©ticos â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def _save_xlsx_with_pint_table(
@@ -36,13 +36,13 @@ def _save_xlsx_with_pint_table(
     table_name: str = "Tabla_PInt",
     headers: list[str] | None = None,
 ) -> str:
-    """Crea un .xlsx sintético con la tabla de parámetros enteros.
+    """Crea un .xlsx sintÃ©tico con la tabla de parÃ¡metros enteros.
 
     Args:
         tmp_path: fixture pytest de path temporal.
-        rows: lista de filas de datos (``None`` o ``[]`` → solo
-            cabeceras, útil para verificar que la tabla existe
-            pero está vacía).
+        rows: lista de filas de datos (``None`` o ``[]`` â†’ solo
+            cabeceras, Ãºtil para verificar que la tabla existe
+            pero estÃ¡ vacÃ­a).
         sheet_name: nombre de la hoja (default ``P_INT``).
         table_name: nombre de la ``ListObject`` (default
             ``Tabla_PInt``).
@@ -79,7 +79,7 @@ def _save_xlsx_with_pint_table(
         ws.append(row)
 
     # Registrar la Table (R5 del plan: sin esto, ``worksheet.tables``
-    # no contiene la ``ListObject`` y el parser no la encontraría).
+    # no contiene la ``ListObject`` y el parser no la encontrarÃ­a).
     last_col_letter = chr(ord("A") + len(headers) - 1)
     last_row = 1 + len(rows)
     ref = f"A1:{last_col_letter}{last_row}"
@@ -103,11 +103,11 @@ def _load(path: str) -> Workbook:
     return load_workbook(path)
 
 
-# ── Tests del parser ``PIntParser`` ──────────────────────────────────────
+# â”€â”€ Tests del parser ``PIntParser`` â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def test_extrae_pint_basico(tmp_path) -> None:
-    """Excel con 1 fila válida → DTO con los 12 campos correctos."""
+    """Excel con 1 fila vÃ¡lida â†’ DTO con los 12 campos correctos."""
     xlsx_path = _save_xlsx_with_pint_table(
         tmp_path,
         rows=[
@@ -149,7 +149,7 @@ def test_extrae_pint_basico(tmp_path) -> None:
 
 
 def test_hoja_inexistente_devuelve_lista_vacia(tmp_path) -> None:
-    """Sheet ``P_INT`` no existe → ``[]`` (no lanza)."""
+    """Sheet ``P_INT`` no existe â†’ ``[]`` (no lanza)."""
     xlsx_path = _save_xlsx_with_pint_table(
         tmp_path,
         rows=[["PI_1_001", "001", "P", "PI1", 3002, "", "", "", "", "Si", 0, ""]],
@@ -163,7 +163,7 @@ def test_hoja_inexistente_devuelve_lista_vacia(tmp_path) -> None:
 
 
 def test_tabla_inexistente_devuelve_lista_vacia(tmp_path) -> None:
-    """Sheet existe pero ``Tabla_PInt`` no → ``[]`` (no lanza)."""
+    """Sheet existe pero ``Tabla_PInt`` no â†’ ``[]`` (no lanza)."""
     # Construimos un .xlsx con OTRA tabla en P_INT.
     xlsx_path = tmp_path / "otro.xlsx"
     wb = Workbook()
@@ -188,10 +188,10 @@ def test_tabla_inexistente_devuelve_lista_vacia(tmp_path) -> None:
 
 
 def test_fila_sin_uid_se_descarta(tmp_path) -> None:
-    """Fila con UID vacío (None) NO aparece en el resultado.
+    """Fila con UID vacÃ­o (None) NO aparece en el resultado.
 
-    Política consistente con ``ProcesosParser`` y ``PRealParser``
-    (dropna por UID). Evita parámetros fantasma sin UID en el
+    PolÃ­tica consistente con ``ProcesosParser`` y ``PRealParser``
+    (dropna por UID). Evita parÃ¡metros fantasma sin UID en el
     cache.
     """
     xlsx_path = _save_xlsx_with_pint_table(
@@ -211,14 +211,14 @@ def test_fila_sin_uid_se_descarta(tmp_path) -> None:
                 "Si",
                 0,
                 "",
-            ],  # válida
+            ],  # vÃ¡lida
         ],
     )
     wb = _load(xlsx_path)
 
     result = PIntParser().extraer(wb)
 
-    # Solo la fila con UID válido se queda.
+    # Solo la fila con UID vÃ¡lido se queda.
     assert len(result) == 1
     assert result[0].uid == "PI_1_001"
 
@@ -226,13 +226,13 @@ def test_fila_sin_uid_se_descarta(tmp_path) -> None:
 def test_paramint_y_paramreal_son_tipos_distintos() -> None:
     """``ParamIntPLC`` y ``ParamRealPLC`` son tipos nominalmente distintos (R4).
 
-    Aunque el shape (12 campos) es idéntico, las dos dataclasses
+    Aunque el shape (12 campos) es idÃ©ntico, las dos dataclasses
     son tipos distintos en Python. ``isinstance(ParamIntPLC(...),
     ParamRealPLC)`` devuelve ``False``. Esto permite extender
-    cada una con campos específicos (p. ej. ``rango_min``/
+    cada una con campos especÃ­ficos (p. ej. ``rango_min``/
     ``rango_max`` solo en ``ParamRealPLC``) sin tocar la otra.
 
-    Decisión del operario (R4 del plan, resuelto el 2026-09-01):
+    DecisiÃ³n del operario (R4 del plan, resuelto el 2026-09-01):
     mantener los DTOs separados aunque hoy coincidan en campos.
     """
     p_int = ParamIntPLC(
@@ -263,19 +263,19 @@ def test_paramint_y_paramreal_son_tipos_distintos() -> None:
         num_lista=0,
         txt_lista="",
     )
-    # El test crítico de R4: cada DTO NO es instancia del otro.
+    # El test crÃ­tico de R4: cada DTO NO es instancia del otro.
     assert not isinstance(p_int, ParamRealPLC)
     assert not isinstance(p_real, ParamIntPLC)
-    # Y sí son instancias de sí mismos (control de sanidad).
+    # Y sÃ­ son instancias de sÃ­ mismos (control de sanidad).
     assert isinstance(p_int, ParamIntPLC)
     assert isinstance(p_real, ParamRealPLC)
 
 
 def test_num_lista_preserva_texto(tmp_path) -> None:
-    """Fila con ``Num.Lista="TODOS"`` → ``dto.num_lista == "TODOS"``.
+    """Fila con ``Num.Lista="TODOS"`` â†’ ``dto.num_lista == "TODOS"``.
 
     Mismo contrato que ``PRealParser``: ``_safe_num_lista``
-    preserva los marcadores semánticos del operario (``"N/A"``,
+    preserva los marcadores semÃ¡nticos del operario (``"N/A"``,
     ``"TODOS"``) como ``str`` en lugar de caer a ``0``.
     """
     xlsx_path = _save_xlsx_with_pint_table(
@@ -304,6 +304,6 @@ def test_num_lista_preserva_texto(tmp_path) -> None:
     assert len(result) == 1
     p = result[0]
     assert p.num_lista == "TODOS"
-    # El tipo debe ser exactamente ``str`` (no int caído a 0).
+    # El tipo debe ser exactamente ``str`` (no int caÃ­do a 0).
     assert isinstance(p.num_lista, str)
     assert not isinstance(p.num_lista, int)

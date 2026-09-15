@@ -1,9 +1,9 @@
-"""Tests de la extensión de BuildCache para el área alimentación.
+"""Tests de la extensiÃ³n de BuildCache para el Ã¡rea alimentaciÃ³n.
 
 Cubre:
   * ``build_cache()`` devuelve ``AlimentacionAreaCache`` con los 2
-    contextos del área (dispositivos y procesos).
-  * La jerarquía física es ``<root>/alimentacion/<contexto>/<subestado>``.
+    contextos del Ã¡rea (dispositivos y procesos).
+  * La jerarquÃ­a fÃ­sica es ``<root>/alimentacion/<contexto>/<subestado>``.
   * ``build_cache(root=tmp_path)`` permite inyectar un root distinto
     al cwd para tests aislados.
 """
@@ -11,14 +11,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from areas.alimentacion.infrastructure.build_cache import (
+from areas.alimentacion.helpers.build_cache import (
     AlimentacionAreaCache,
     build_cache,
 )
 
 
 def test_build_cache_devuelve_alimentacion_area_cache(tmp_path: Path) -> None:
-    """``build_cache()`` instancia un ``AlimentacionAreaCache`` válido."""
+    """``build_cache()`` instancia un ``AlimentacionAreaCache`` vÃ¡lido."""
     area = build_cache(root=tmp_path)
     assert isinstance(area, AlimentacionAreaCache)
     assert area.area_id == "alimentacion"
@@ -26,7 +26,7 @@ def test_build_cache_devuelve_alimentacion_area_cache(tmp_path: Path) -> None:
 
 
 def test_alimentacion_tiene_dispositivos_y_procesos(tmp_path: Path) -> None:
-    """El área aporta 2 contextos: dispositivos y procesos."""
+    """El Ã¡rea aporta 2 contextos: dispositivos y procesos."""
     area = build_cache(root=tmp_path)
 
     assert area.dispositivos.root == tmp_path / "alimentacion" / "dispositivos"
@@ -36,16 +36,16 @@ def test_alimentacion_tiene_dispositivos_y_procesos(tmp_path: Path) -> None:
 def test_jerarquia_completa_de_dispositivos(tmp_path: Path) -> None:
     """``dispositivos`` expone las 6 subcarpetas typed bajo ``<root>/alimentacion/dispositivos/``.
 
-    Tras Commit 6, los alias raíz ``preview``, ``exports`` y
-    ``modified`` se retiraron. El código usa las 6 subcarpetas
-    explícitas (``preview_variables`` / ``preview_bloques`` /
+    Tras Commit 6, los alias raÃ­z ``preview``, ``exports`` y
+    ``modified`` se retiraron. El cÃ³digo usa las 6 subcarpetas
+    explÃ­citas (``preview_variables`` / ``preview_bloques`` /
     ``exports_variables`` / ``exports_bloques`` /
     ``modified_variables`` / ``modified_bloques``).
     """
     area = build_cache(root=tmp_path)
     disp = area.dispositivos
 
-    # Alias raíz NO existen (retirados en Commit 6).
+    # Alias raÃ­z NO existen (retirados en Commit 6).
     assert not hasattr(disp, "exports")
     assert not hasattr(disp, "modified")
     assert not hasattr(disp, "preview")
@@ -63,7 +63,7 @@ def test_jerarquia_completa_de_procesos(tmp_path: Path) -> None:
     area = build_cache(root=tmp_path)
     proc = area.procesos
 
-    # Alias raíz NO existen (retirados en Commit 6).
+    # Alias raÃ­z NO existen (retirados en Commit 6).
     assert not hasattr(proc, "exports")
     assert not hasattr(proc, "modified")
     assert not hasattr(proc, "preview")
@@ -79,15 +79,15 @@ def test_jerarquia_completa_de_procesos(tmp_path: Path) -> None:
 def test_clean_resuelve_asimetria(tmp_path: Path) -> None:
     """``clean()`` en dispositivos o procesos limpia exports/ y modified/ por igual.
 
-    Esto cierra la asimetría previa: ``disp_sync_instances`` ya
+    Esto cierra la asimetrÃ­a previa: ``disp_sync_instances`` ya
     limpiaba su workdir, ``proc_sync_comentarios`` no. Ahora ambos
     comparten el mismo helper.
 
-    Tras ``clean()`` las raíces ``exports/`` y ``modified/`` se
+    Tras ``clean()`` las raÃ­ces ``exports/`` y ``modified/`` se
     borran enteras y se recrean con las 3 subcarpetas
     (``variables/``, ``bloques/``, ``udt/``) dentro. Para
     verificar "limpio" se comprueba que las subcarpetas typed
-    están vacías.
+    estÃ¡n vacÃ­as.
     """
     area = build_cache(root=tmp_path)
 
@@ -102,10 +102,10 @@ def test_clean_resuelve_asimetria(tmp_path: Path) -> None:
     area.dispositivos.clean()
     area.procesos.clean()
 
-    # Las raíces exports/ y modified/ existen (con sus 3 subcarpetas vacías).
+    # Las raÃ­ces exports/ y modified/ existen (con sus 3 subcarpetas vacÃ­as).
     assert area.dispositivos.exports_variables.exists()
     assert area.procesos.modified_variables.exists()
-    # Y las subcarpetas typed están vacías.
+    # Y las subcarpetas typed estÃ¡n vacÃ­as.
     assert not list(area.dispositivos.exports_variables.iterdir())
     assert not list(area.procesos.modified_variables.iterdir())
     # Y el preview de procesos sigue intacto.

@@ -1,18 +1,18 @@
 """Tests del extension point ``contributes_config_defaults`` (PR 2).
 
-Cubre los defaults defensivos que el área de alimentación aporta
-vía su ``AreaSpec.contributes_config_defaults``. Estos defaults
+Cubre los defaults defensivos que el Ã¡rea de alimentaciÃ³n aporta
+vÃ­a su ``AreaSpec.contributes_config_defaults``. Estos defaults
 rellenan claves ausentes en el bloque ``departments["alimentacion"]``
-del ``config.json`` (back-compat con configs mínimos que aún no
-migraron a la versión con ``n_max_catalog``, carpetas TIA explícitas
+del ``config.json`` (back-compat con configs mÃ­nimos que aÃºn no
+migraron a la versiÃ³n con ``n_max_catalog``, carpetas TIA explÃ­citas
 y ``global_config_table_name``).
 
-Política (ver ``areas/alimentacion/infrastructure/config_defaults.py``):
+PolÃ­tica (ver ``areas/alimentacion/infrastructure/config_defaults.py``):
   - El callable ``install(dept_cfg, dept_id)`` solo muta el dict
     si ``dept_id == "alimentacion"``.
   - No sobrescribe claves ya presentes (defensa).
-  - El área ``ConfigManager.apply_defaults`` invoca el callable
-    pasándole ``(dept_cfg, dept_id)`` (PR 2). Antes de PR 2, la
+  - El Ã¡rea ``ConfigManager.apply_defaults`` invoca el callable
+    pasÃ¡ndole ``(dept_cfg, dept_id)`` (PR 2). Antes de PR 2, la
     firma era solo ``(dept_cfg)``; para back-compat el core detecta
     la firma con ``inspect.signature``.
 """
@@ -27,24 +27,24 @@ from core.composition.app_area_registry import AreaRegistry
 from core.infrastructure.config.config_manager import ConfigManager
 
 
-# ── Filtro por dept_id: la función es no-op para otros departamentos ──
+# â”€â”€ Filtro por dept_id: la funciÃ³n es no-op para otros departamentos â”€â”€
 
 
 def test_install_is_noop_for_other_departments() -> None:
     """``install`` ignora departamentos distintos de ``alimentacion``."""
-    from areas.alimentacion.infrastructure.config_defaults import (
+    from areas.alimentacion.helpers.config_defaults import (
         install as alim_install,
     )
 
-    dept_cfg: dict[str, Any] = {}  # vacío: nada que preservar.
+    dept_cfg: dict[str, Any] = {}  # vacÃ­o: nada que preservar.
     alim_install(dept_cfg, dept_id="envasado")
-    # No añade nada: el dict sigue vacío.
+    # No aÃ±ade nada: el dict sigue vacÃ­o.
     assert dept_cfg == {}
 
 
 def test_install_pads_alimentacion_dept_with_nmax_catalog() -> None:
-    """``install`` añade los 6 N_MAX legacy al bloque de alimentación."""
-    from areas.alimentacion.infrastructure.config_defaults import (
+    """``install`` aÃ±ade los 6 N_MAX legacy al bloque de alimentaciÃ³n."""
+    from areas.alimentacion.helpers.config_defaults import (
         install as alim_install,
     )
 
@@ -59,8 +59,8 @@ def test_install_pads_alimentacion_dept_with_nmax_catalog() -> None:
 
 
 def test_install_pads_alimentacion_dept_with_tia_folders() -> None:
-    """``install`` añade las 3 carpetas TIA por defecto."""
-    from areas.alimentacion.infrastructure.config_defaults import (
+    """``install`` aÃ±ade las 3 carpetas TIA por defecto."""
+    from areas.alimentacion.helpers.config_defaults import (
         install as alim_install,
     )
 
@@ -73,8 +73,8 @@ def test_install_pads_alimentacion_dept_with_tia_folders() -> None:
 
 
 def test_install_pads_alimentacion_dept_with_global_config_table() -> None:
-    """``install`` añade el ``global_config_table_name`` por defecto."""
-    from areas.alimentacion.infrastructure.config_defaults import (
+    """``install`` aÃ±ade el ``global_config_table_name`` por defecto."""
+    from areas.alimentacion.helpers.config_defaults import (
         install as alim_install,
     )
 
@@ -85,7 +85,7 @@ def test_install_pads_alimentacion_dept_with_global_config_table() -> None:
 
 def test_install_does_not_overwrite_existing_keys() -> None:
     """``install`` no sobrescribe claves ya presentes en el JSON."""
-    from areas.alimentacion.infrastructure.config_defaults import (
+    from areas.alimentacion.helpers.config_defaults import (
         install as alim_install,
     )
 
@@ -108,19 +108,19 @@ def test_install_does_not_overwrite_existing_keys() -> None:
     assert dept_cfg["tia_folders"]["nmax"] == "000_Sistema"
 
 
-# ── ConfigManager.apply_defaults invoca al área con (dept_cfg, dept_id) ──
+# â”€â”€ ConfigManager.apply_defaults invoca al Ã¡rea con (dept_cfg, dept_id) â”€â”€
 
 
 def test_apply_defaults_invokes_area_with_dept_id_kwarg(
     tmp_path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``apply_defaults`` invoca el callable del área con
+    """``apply_defaults`` invoca el callable del Ã¡rea con
     ``(dept_cfg=dept_cfg, dept_id=self._department)``.
 
     Mockeamos el ``AreaRegistry`` para verificar la firma exacta
     de la llamada. Importante: usamos un callable REAL (no
     ``MagicMock``) para que ``inspect.signature`` detecte ``dept_id``
-    en sus parámetros.
+    en sus parÃ¡metros.
     """
     cfg = {
         "departments": {

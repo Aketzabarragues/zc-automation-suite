@@ -1,4 +1,4 @@
-﻿"""Comandos TIA del area alimentacion.
+"""Comandos TIA del area alimentacion.
 
 Aporta al SyncTIAClient los handlers de sync de comentarios
 dispositivos/procesos + commits online/offline de devices + N_MAX.
@@ -71,7 +71,7 @@ def make_cmd_update_disp_comments_db(hw_type: str) -> Callable[..., Any]:
 
         slot_map_int: dict[int, str] = {int(k): v for k, v in slot_map.items()}
 
-        from areas.alimentacion.infrastructure.sd.disp_comment_updater import (
+        from areas.alimentacion.helpers.sd.disp_comment_updater import (
             DispCommentUpdater,
         )
         from core.infrastructure.tia import worker_tia
@@ -230,7 +230,7 @@ def make_cmd_commit_disp_devices_offline() -> Callable[..., Any]:
             )
 
         from core.infrastructure.tia import worker_tia
-        from areas.alimentacion.infrastructure.xml.disp_tag_table_modifier import (
+        from areas.alimentacion.helpers.xml.disp_tag_table_modifier import (
             DispTagTableModifier,
         )
 
@@ -345,10 +345,10 @@ def make_cmd_update_proc_comments_db(kind: str) -> Callable[..., Any]:
             str(Path(work_dir) / db_subpath) if db_subpath else work_dir
         )
 
-        from areas.alimentacion.infrastructure.sd.proc_comment_updater import (
+        from areas.alimentacion.helpers.sd.proc_comment_updater import (
             ProcCommentUpdater,
         )
-        from areas.alimentacion.infrastructure.sd.mlc_registry import MLCRegistry
+        from areas.alimentacion.helpers.sd.mlc_registry import MLCRegistry
         from core.infrastructure.tia import worker_tia
 
         core_registry = worker_tia.COMMAND_REGISTRY
@@ -456,10 +456,10 @@ def make_cmd_update_proc_comments_db_param() -> Callable[..., Any]:
             str(Path(work_dir) / db_subpath) if db_subpath else work_dir
         )
 
-        from areas.alimentacion.infrastructure.sd.proc_comment_updater import (
+        from areas.alimentacion.helpers.sd.proc_comment_updater import (
             ProcCommentUpdater,
         )
-        from areas.alimentacion.infrastructure.sd.mlc_registry import MLCRegistry
+        from areas.alimentacion.helpers.sd.mlc_registry import MLCRegistry
         from core.infrastructure.tia import worker_tia
 
         core_registry = worker_tia.COMMAND_REGISTRY

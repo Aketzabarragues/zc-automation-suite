@@ -4,17 +4,17 @@ Modifica un par de archivos ``.s7dcl`` + ``.s7res`` exportados por
 TIA Portal para escribir el comentario de cada slot de los arrays
 ``PReal[]``, ``PInt[]`` y ``ALM[]`` de un DB de proceso. Es el
 hermano "procesos" de ``DispCommentUpdater`` (DBs de dispositivos
-ED/EA/SA/V/M/M_VF); admite propagación del comentario a arrays
-satélite del mismo DB.
+ED/EA/SA/V/M/M_VF); admite propagaciÃ³n del comentario a arrays
+satÃ©lite del mismo DB.
 
-Convención de archivos
+ConvenciÃ³n de archivos
 ----------------------
 El ``.s7dcl`` anota cada slot del array con
 ``{ S7_MLC := "MLC_xxx" }`` y el ``.s7res`` mapea cada
 ``MLC_xxx`` a su ``es-ES``. El cruce entre ambos es el ID
 ``MLC_xxx``.
 
-Uso típico
+Uso tÃ­pico
 ----------
 
 ::
@@ -30,7 +30,7 @@ Uso típico
     updater.update()
     updater.save()
 
-Restricción arquitectónica (``.clinerules`` §1): este módulo es
+RestricciÃ³n arquitectÃ³nica (``.clinerules`` Â§1): este mÃ³dulo es
 OFFLINE; no importa ``siemens_tia_scripting``. Solo ``pathlib``,
 ``re``, ``dataclasses``, ``logging``.
 """
@@ -42,7 +42,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from areas.alimentacion.infrastructure.sd.mlc_registry import MLCRegistry
+from areas.alimentacion.helpers.sd.mlc_registry import MLCRegistry
 from core.infrastructure.tia.tia_export_paths import (
     EMPTY_TEXT,
     MAX_COMMENT_LEN,
@@ -54,46 +54,46 @@ from core.infrastructure.tia.tia_export_paths import (
 _logger: logging.Logger = logging.getLogger(f"{__name__}.ProcCommentUpdater")
 
 
-# ── Resultado del update ────────────────────────────────────────────────
+# â”€â”€ Resultado del update â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 @dataclass(frozen=True)
 class ProcCommentResult:
-    """Resumen de la actualización de un bloque de proceso.
+    """Resumen de la actualizaciÃ³n de un bloque de proceso.
 
     Attributes:
-        reused: ``{slot: mlc_id}`` para slots cuyo MLC ya existía
-                (en el array principal, no en los satélites).
+        reused: ``{slot: mlc_id}`` para slots cuyo MLC ya existÃ­a
+                (en el array principal, no en los satÃ©lites).
         inserted: ``{slot: mlc_id}`` para slots con MLC nuevo
                 generado (en el array principal).
-        satellite_reused: ``{slot: mlc_id}`` para MLCs de satélites
-                que ya existían y se actualizaron.
-        satellite_inserted: ``{slot: mlc_id}`` para MLCs de satélites
+        satellite_reused: ``{slot: mlc_id}`` para MLCs de satÃ©lites
+                que ya existÃ­an y se actualizaron.
+        satellite_inserted: ``{slot: mlc_id}`` para MLCs de satÃ©lites
                 nuevos generados.
-        total_mlcs_in_res: número de entradas MultiLingualTexts en
+        total_mlcs_in_res: nÃºmero de entradas MultiLingualTexts en
                 el ``.s7res`` resultante (post-update).
     """
 
     reused: dict[int, str]
     inserted: dict[int, str]
-    satellite_reused: dict[int, str]  # slot → mlc_id (uno por satélite)
+    satellite_reused: dict[int, str]  # slot â†’ mlc_id (uno por satÃ©lite)
     satellite_inserted: dict[int, str]
     total_mlcs_in_res: int
 
 
-# ── Regex de parsing ────────────────────────────────────────────────────
+# â”€â”€ Regex de parsing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-# Detecta una asignación `<ARRAY>[i] := <RHS>;` (con posibles espacios).
+# Detecta una asignaciÃ³n `<ARRAY>[i] := <RHS>;` (con posibles espacios).
 # Soporta nombres de array **anidados con punto** (p. ej.
 # ``Aux.PReal_ValorAnterior[5] := ();``). El grupo ``array`` captura
 # el nombre completo incluyendo los segmentos ``A.B.C`` que TIA
 # utiliza para anidar arrays dentro de STRUCTs (e.g. ``Aux``).
 #
 # El RHS puede ser:
-#   - Una tupla/registro vacío: ``();``  (UDTs)
+#   - Una tupla/registro vacÃ­o: ``();``  (UDTs)
 #   - Un literal escalar: ``FALSE;``, ``0;``, ``0.0;``  (arrays de
 #     escalares como Bool, Int, Real que TIA no envuelve en parens).
-#   - Una expresión cualquiera no-vacía que termina en ``;``.
+#   - Una expresiÃ³n cualquiera no-vacÃ­a que termina en ``;``.
 _ASSIGNMENT_RE = re.compile(
     r"""(?xm)
     ^(?P<indent>\s*)
@@ -103,7 +103,7 @@ _ASSIGNMENT_RE = re.compile(
     """
 )
 
-# Detecta un bloque `{ ... S7_MLC := "MLC_xxx" ... }` (single-line o multi-línea).
+# Detecta un bloque `{ ... S7_MLC := "MLC_xxx" ... }` (single-line o multi-lÃ­nea).
 _MLC_BLOCK_RE = re.compile(
     r"""(?xm)
     ^(?P<indent>\s*)\{(?P<body>[^}]*)\}\s*$
@@ -116,7 +116,7 @@ _MLC_INNER_RE = re.compile(
 )
 
 
-# ── Entry point ─────────────────────────────────────────────────────────
+# â”€â”€ Entry point â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 class ProcCommentUpdater:
@@ -125,24 +125,24 @@ class ProcCommentUpdater:
     Attributes:
         s7dcl_path: ruta al archivo ``.s7dcl``.
         s7res_path: ruta al archivo ``.s7res``.
-        slot_map: ``{slot: texto}`` 1-based. Slots que no están
-                  en el map se dejan intactos (comentario histórico
+        slot_map: ``{slot: texto}`` 1-based. Slots que no estÃ¡n
+                  en el map se dejan intactos (comentario histÃ³rico
                   del operario conservado).
         array_name: nombre del array principal en el DB
                   (p. ej. ``"PReal"``, ``"PInt"``, ``"ALM"``).
-        satellite_arrays: set de nombres de arrays satélite del
+        satellite_arrays: set de nombres de arrays satÃ©lite del
                   mismo proceso (p. ej. ``{"PReal_Vis",
                   "Aux.PReal_ValorAnterior"}``). Para cada slot
                   actualizado en el array principal, el updater
-                  propaga el texto a los MLCs de los satélites del
-                  mismo índice (si existen en el ``.s7dcl``).
+                  propaga el texto a los MLCs de los satÃ©lites del
+                  mismo Ã­ndice (si existen en el ``.s7dcl``).
         registry: ``MLCRegistry`` con los MLCs ya presentes en el
                   ``.s7res`` reservados.
 
     Raises:
-        ValueError: si ``update()`` se llama con ``array_name`` vacío
+        ValueError: si ``update()`` se llama con ``array_name`` vacÃ­o
                     (es obligatorio en modo escritura; no en modo
-                    lectura vía ``read_current_comments``).
+                    lectura vÃ­a ``read_current_comments``).
         FileNotFoundError: si los archivos no existen.
     """
 
@@ -159,20 +159,20 @@ class ProcCommentUpdater:
         self._s7res_path = Path(s7res_path)
 
         if not self._s7dcl_path.is_file():
-            raise FileNotFoundError(f"No se encontró .s7dcl: '{self._s7dcl_path}'")
+            raise FileNotFoundError(f"No se encontrÃ³ .s7dcl: '{self._s7dcl_path}'")
         if not self._s7res_path.is_file():
-            raise FileNotFoundError(f"No se encontró .s7res: '{self._s7res_path}'")
+            raise FileNotFoundError(f"No se encontrÃ³ .s7res: '{self._s7res_path}'")
 
-        # ``array_name`` es opcional en construcción: solo es obligatorio
+        # ``array_name`` es opcional en construcciÃ³n: solo es obligatorio
         # cuando se llama a ``update()`` (modo escritura). ``read_current_comments``
-        # recibe el nombre del array por parámetro en cada llamada, así que
+        # recibe el nombre del array por parÃ¡metro en cada llamada, asÃ­ que
         # un updater de solo-lectura (p. ej. usado en el preview de
         # procesos) puede construirse con ``array_name=""``.
         self._array_name: str = (array_name or "").strip()
 
-        # Filtrar el slot 0 (no aplica a procesos). Si está, se ignora
-        # silenciosamente con warning (defensivo: podría venir de un
-        # caller que reutiliza código de dispositivos).
+        # Filtrar el slot 0 (no aplica a procesos). Si estÃ¡, se ignora
+        # silenciosamente con warning (defensivo: podrÃ­a venir de un
+        # caller que reutiliza cÃ³digo de dispositivos).
         filtered = {
             int(k): v for k, v in slot_map.items() if int(k) >= 1
         }
@@ -198,23 +198,23 @@ class ProcCommentUpdater:
             self._registry: MLCRegistry = MLCRegistry(used_ids=existing)
         else:
             # Si nos pasan uno ya poblado, lo usamos tal cual
-            # (reservando también los existentes del .s7res por si
-            # el caller olvidó hacerlo).
+            # (reservando tambiÃ©n los existentes del .s7res por si
+            # el caller olvidÃ³ hacerlo).
             registry.reserve(self._extract_existing_mlcs())
             self._registry = registry
         self._result: ProcCommentResult | None = None
 
-    # ── API pública ────────────────────────────────────────────────────
+    # â”€â”€ API pÃºblica â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def update(self) -> ProcCommentResult:
-        """Orquesta la actualización. Retorna ``ProcCommentResult``.
+        """Orquesta la actualizaciÃ³n. Retorna ``ProcCommentResult``.
 
         Algoritmo:
           1. Para cada slot del slot_map, localizar el MLC existente
              del array principal o generar uno nuevo.
           2. Para cada slot actualizado, propagar el texto a los
-             MLCs de los satélites del mismo índice.
-          3. Restaurar MLCs huérfanos referenciados por el .s7dcl.
+             MLCs de los satÃ©lites del mismo Ã­ndice.
+          3. Restaurar MLCs huÃ©rfanos referenciados por el .s7dcl.
           4. Equilibrar el .s7res (conservar solo MLCs referenciados).
         """
         if not self._array_name:
@@ -227,7 +227,7 @@ class ProcCommentUpdater:
         satellite_reused: dict[int, str] = {}
         satellite_inserted: dict[int, str] = {}
 
-        # 1) Para cada slot del map, asegurar asignación + MLC.
+        # 1) Para cada slot del map, asegurar asignaciÃ³n + MLC.
         for slot, raw_text in self._slot_map.items():
             text = _sanitize_comment_text(raw_text, slot)
             existing_mlc = self._find_assignment_mlc(self._array_name, slot)
@@ -235,10 +235,10 @@ class ProcCommentUpdater:
                 # MLC ya estaba en el .s7dcl; lo respetamos.
                 self._registry.reserve([existing_mlc])
                 reused[slot] = existing_mlc
-                # Si el .s7res perdió esta entrada, la restauramos.
+                # Si el .s7res perdiÃ³ esta entrada, la restauramos.
                 self._upsert_s7res_entry(existing_mlc, text)
             else:
-                # Crear MLC nuevo y asignación.
+                # Crear MLC nuevo y asignaciÃ³n.
                 new_mlc = self._registry.next_mlc_id()
                 self._inject_mlc_block_or_assignment(
                     self._array_name, slot, new_mlc
@@ -246,23 +246,23 @@ class ProcCommentUpdater:
                 self._upsert_s7res_entry(new_mlc, text)
                 inserted[slot] = new_mlc
 
-            # 2) Propagación a satélites del mismo slot.
+            # 2) PropagaciÃ³n a satÃ©lites del mismo slot.
             for sat_array in self._satellite_arrays:
                 sat_mlc = self._find_assignment_mlc(sat_array, slot)
                 if sat_mlc is None:
-                    # El satélite no tiene este slot en el .s7dcl
+                    # El satÃ©lite no tiene este slot en el .s7dcl
                     # (caso N_MAX limitado o array no presente).
-                    # No creamos asignaciones nuevas para satélites
+                    # No creamos asignaciones nuevas para satÃ©lites
                     # (eso es cambio de cardinalidad, fuera de scope).
                     continue
-                # El satélite ya tenía MLC: lo actualizamos.
+                # El satÃ©lite ya tenÃ­a MLC: lo actualizamos.
                 self._registry.reserve([sat_mlc])
                 self._upsert_s7res_entry(sat_mlc, text)
                 satellite_reused[slot] = sat_mlc
 
         # 3) Calcular el conjunto de MLCs referenciados por el .s7dcl
-        # (cabecera + array principal + todos los satélites) para
-        # equilibrar el .s7res. TIA exige que el nº de MLCs en
+        # (cabecera + array principal + todos los satÃ©lites) para
+        # equilibrar el .s7res. TIA exige que el nÂº de MLCs en
         # .s7dcl coincida EXACTAMENTE con el del .s7res.
         referenced: set[str] = (
             set(reused.values())
@@ -272,8 +272,8 @@ class ProcCommentUpdater:
         )
 
         # 3.bis) Si el .s7dcl referencia MLCs que el .s7res no tiene
-        # (caso típico: la exportación de TIA omite los MLCs de
-        # cabecera), los añadimos con texto "." (convención TIA).
+        # (caso tÃ­pico: la exportaciÃ³n de TIA omite los MLCs de
+        # cabecera), los aÃ±adimos con texto "." (convenciÃ³n TIA).
         existing_in_res = self._extract_existing_mlcs()
         for mlc_id in referenced:
             if mlc_id not in existing_in_res:
@@ -308,7 +308,7 @@ class ProcCommentUpdater:
         out_dcl.write_text(self._s7dcl, encoding=SD_ENCODING)
         out_res.write_text(self._s7res, encoding=SD_RES_ENCODING)
 
-    # ── Internals: registry ─────────────────────────────────────────────
+    # â”€â”€ Internals: registry â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def _extract_existing_mlcs(self) -> set[str]:
         """Lee el ``.s7res`` y devuelve el set de IDs ``MLC_*`` presentes."""
@@ -323,18 +323,18 @@ class ProcCommentUpdater:
             - id: MLC_xxx
               es-ES: <texto>
 
-        Esta función es la inversa de ``_upsert_s7res_entry`` y se
+        Esta funciÃ³n es la inversa de ``_upsert_s7res_entry`` y se
         usa para leer el estado actual de TIA (sin modificar nada)
         durante la fase de preview / diff.
 
         Nota sobre comillas envolventes:
           TIA Portal exporta algunos comentarios entre comillas
-          literales en el ``.s7res`` (caso típico: texto con
+          literales en el ``.s7res`` (caso tÃ­pico: texto con
           espacios al final, comillas internas, o caracteres que
           YAML considera "no seguros"). Por ejemplo, un comentario
           ``COMPACTO - FIJOS - `` (con espacio al final) se
           exporta como ``es-ES: 'COMPACTO - FIJOS - '``. Si el
-          parser las preservara, el operario vería comillas
+          parser las preservara, el operario verÃ­a comillas
           literales en la UI del diff. Las quitamos
           conservadoramente solo si el texto capturado empieza Y
           termina con la MISMA comilla (simples o dobles); un texto
@@ -343,7 +343,7 @@ class ProcCommentUpdater:
         """
         result: dict[str, str] = {}
         # Regex: cada entrada es un bloque ``- id: MLC_X\n    es-ES: ...``.
-        # El grupo ``inner`` captura las líneas indentadas que siguen
+        # El grupo ``inner`` captura las lÃ­neas indentadas que siguen
         # al ``- id:`` hasta el siguiente ``- id:`` o fin de bloque.
         pattern = re.compile(
             r"(?xm)^(?P<indent>\s*-\s*id:\s*(?P<mlc>\S+)\s*\n)"
@@ -355,8 +355,8 @@ class ProcCommentUpdater:
             inner = m.group("inner")
             es_match = re.search(r"es-ES:\s*([^\n]*)", inner)
             if es_match is None:
-                # MLC sin es-ES (raro pero posible si TIA exportó
-                # un comentario vacío). Lo guardamos como string vacío
+                # MLC sin es-ES (raro pero posible si TIA exportÃ³
+                # un comentario vacÃ­o). Lo guardamos como string vacÃ­o
                 # para que el caller lo distinga de "no existe".
                 result[mlc_id] = ""
             else:
@@ -369,12 +369,12 @@ class ProcCommentUpdater:
     ) -> "dict[int, str | None]":
         """Lee el ``es-ES`` actual de los slots del array principal.
 
-        Solo expone los MLCs del array principal; los satélites son
+        Solo expone los MLCs del array principal; los satÃ©lites son
         copias del mismo texto y se actualizan al aplicar cambios.
         Si el archivo no existe, devuelve ``{slot: None}`` para
         todos los slots.
         """
-        # Si el .s7res no existe (p. ej. el export falló), devolvemos
+        # Si el .s7res no existe (p. ej. el export fallÃ³), devolvemos
         # None para todos los slots.
         if not self._s7res_path.is_file():
             return {slot: None for slot in slot_indices}
@@ -386,9 +386,9 @@ class ProcCommentUpdater:
                 result[slot] = None
             else:
                 # Si el MLC existe en el .s7dcl pero no en el .s7res,
-                # devolvemos string vacío (caso TIA degenerado; el
-                # updater lo trataría como "." en la próxima
-                # aplicación).
+                # devolvemos string vacÃ­o (caso TIA degenerado; el
+                # updater lo tratarÃ­a como "." en la prÃ³xima
+                # aplicaciÃ³n).
                 result[slot] = mlc_to_text.get(mlc, "")
         return result
 
@@ -401,10 +401,10 @@ class ProcCommentUpdater:
         1. **Cabecera del bloque**:
            ``S7_BlockComment := "MLC_32c"``,
            ``S7_BlockTitle := "MLC_wT"``.
-        2. **Bloque de declaración de variable/array**:
+        2. **Bloque de declaraciÃ³n de variable/array**:
            ``{ S7_MLC := "MLC_3Vz" }`` antes de
            ``"ED" : Array[...] of _.UDT_...``.
-        3. **Bloque adyacente a asignación de instancia**:
+        3. **Bloque adyacente a asignaciÃ³n de instancia**:
            ``{ S7_MLC := "MLC_3vw" }`` antes de ``ED[i] := ();``.
 
         Si omitimos cualquiera de estos formatos del conjunto de
@@ -419,27 +419,27 @@ class ProcCommentUpdater:
             )
         )
 
-    # ── Internals: .s7dcl ───────────────────────────────────────────────
+    # â”€â”€ Internals: .s7dcl â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def _find_assignment_mlc(self, array_name: str, slot: int) -> str | None:
         """Busca ``<ARRAY>[slot] := ...;`` y devuelve su MLC adyacente.
 
         El MLC asociado es el bloque ``{ S7_MLC := "..." }`` que
-        aparece INMEDIATAMENTE antes de la asignación, sin otra
-        asignación ``<ARRAY>[<otro>]:=...;`` del mismo array en
+        aparece INMEDIATAMENTE antes de la asignaciÃ³n, sin otra
+        asignaciÃ³n ``<ARRAY>[<otro>]:=...;`` del mismo array en
         medio. Esto es importante porque el formato TIA puede tener
         varios bloques ``S7_MLC`` consecutivos (uno por slot) y cada
         uno va con su slot.
 
-        Devuelve ``None`` si la asignación no existe o si existe
+        Devuelve ``None`` si la asignaciÃ³n no existe o si existe
         pero sin MLC adyacente.
         """
         match = self._find_assignment(array_name, slot)
         if match is None:
             return None
         assign_start = match.start()
-        # Encontrar la asignación previa del mismo array para delimitar
-        # el rango de búsqueda.
+        # Encontrar la asignaciÃ³n previa del mismo array para delimitar
+        # el rango de bÃºsqueda.
         prev_assign_end = 0
         for prev in _ASSIGNMENT_RE.finditer(self._s7dcl[:assign_start]):
             if prev.group("array") == array_name:
@@ -453,14 +453,14 @@ class ProcCommentUpdater:
         return last_mlc
 
     def find_array_slots(self, array_name: str) -> set[int]:
-        """Devuelve el set de slots 1-based que tienen asignación de
+        """Devuelve el set de slots 1-based que tienen asignaciÃ³n de
         MLC en el ``.s7dcl`` para el array dado.
 
-        Útil para detectar slots "huérfanos" del Excel: el operario
+        Ãštil para detectar slots "huÃ©rfanos" del Excel: el operario
         tiene en su Excel un subconjunto de los slots que existen
-        en TIA. Los slots que están en TIA (tienen asignación)
+        en TIA. Los slots que estÃ¡n en TIA (tienen asignaciÃ³n)
         pero no en el Excel se marcan como ``"eliminar"`` en el
-        preview (análogo al sync de dispositivos).
+        preview (anÃ¡logo al sync de dispositivos).
         """
         result: set[int] = set()
         for match in _ASSIGNMENT_RE.finditer(self._s7dcl):
@@ -477,7 +477,7 @@ class ProcCommentUpdater:
     def _find_assignment(
         self, array_name: str, slot: int
     ) -> re.Match[str] | None:
-        """Localiza la asignación ``<ARRAY>[slot] := ...;`` en el .s7dcl."""
+        """Localiza la asignaciÃ³n ``<ARRAY>[slot] := ...;`` en el .s7dcl."""
         for m in _ASSIGNMENT_RE.finditer(self._s7dcl):
             array = m.group("array")
             idx = int(m.group("idx"))
@@ -488,31 +488,31 @@ class ProcCommentUpdater:
     def _inject_mlc_block_or_assignment(
         self, array_name: str, slot: int, mlc_id: str
     ) -> None:
-        """Inserta la asignación y/o su bloque S7_MLC.
+        """Inserta la asignaciÃ³n y/o su bloque S7_MLC.
 
-        - Si existe ``<ARRAY>[slot] := ...;`` sin bloque MLC → añade
+        - Si existe ``<ARRAY>[slot] := ...;`` sin bloque MLC â†’ aÃ±ade
           el bloque antes.
-        - Si no existe la asignación → añade bloque + asignación al
-          final del bloque de inicialización (última asignación del
-          array). Si no aparece ``END_DATA_BLOCK``, añade al final
+        - Si no existe la asignaciÃ³n â†’ aÃ±ade bloque + asignaciÃ³n al
+          final del bloque de inicializaciÃ³n (Ãºltima asignaciÃ³n del
+          array). Si no aparece ``END_DATA_BLOCK``, aÃ±ade al final
           del archivo.
         """
         match = self._find_assignment(array_name, slot)
         if match is not None:
-            # Existe la asignación. ¿Tiene MLC? Si no, añadir el bloque.
+            # Existe la asignaciÃ³n. Â¿Tiene MLC? Si no, aÃ±adir el bloque.
             existing = self._find_assignment_mlc(array_name, slot)
             if existing is None:
                 indent = match.group("indent")
-                # Si la indentación del bloque no incluye ya 4 espacios
+                # Si la indentaciÃ³n del bloque no incluye ya 4 espacios
                 # (algunos formatos usan 8), respetamos la del match.
                 block = f"{indent}{{\n{indent}    S7_MLC := \"{mlc_id}\";\n{indent}}}\n"
                 self._upsert_s7dcl_block(match, block)
             return
 
-        # No existe la asignación. Insertar bloque + asignación.
-        # Estrategia: añadir al final del bloque de inicialización,
+        # No existe la asignaciÃ³n. Insertar bloque + asignaciÃ³n.
+        # Estrategia: aÃ±adir al final del bloque de inicializaciÃ³n,
         # antes de ``END_DATA_BLOCK``. Si no aparece
-        # ``END_DATA_BLOCK``, añadir al final del archivo.
+        # ``END_DATA_BLOCK``, aÃ±adir al final del archivo.
         new_block = (
             f'        {{ S7_MLC := "{mlc_id}"; }}\n'
             f'        {array_name}[{slot}] := ();\n'
@@ -534,7 +534,7 @@ class ProcCommentUpdater:
         if self._s7dcl != before:
             self._modified = True
 
-    # ── Internals: .s7res ───────────────────────────────────────────────
+    # â”€â”€ Internals: .s7res â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def _upsert_s7res_entry(self, mlc_id: str, text: str) -> None:
         """Inserta o actualiza una entrada ``- id: <mlc_id> / es-ES: <text>``."""
@@ -576,10 +576,10 @@ class ProcCommentUpdater:
             self._modified = True
 
     def _find_s7res_append_pos(self) -> int:
-        """Encuentra la posición donde añadir una nueva entrada.
+        """Encuentra la posiciÃ³n donde aÃ±adir una nueva entrada.
 
-        Estrategia: encontrar el final de la última entrada YAML de
-        la lista y devolver el offset justo después de esa línea.
+        Estrategia: encontrar el final de la Ãºltima entrada YAML de
+        la lista y devolver el offset justo despuÃ©s de esa lÃ­nea.
         """
         last_entry_end = 0
         for m in re.finditer(
@@ -597,7 +597,7 @@ class ProcCommentUpdater:
         return last_entry_end
 
     def _prune_s7res(self, keep_mlcs: set[str]) -> None:
-        """Elimina del ``.s7res`` las entradas MLC que no estén en ``keep_mlcs``."""
+        """Elimina del ``.s7res`` las entradas MLC que no estÃ©n en ``keep_mlcs``."""
         entry_re = re.compile(
             r"(?xm)^[ \t]*-\s*id:\s*(?P<mlc>\S+)\s*\n"
             r"(?:[ \t]+[^\n]*\n)*?"
@@ -617,14 +617,14 @@ class ProcCommentUpdater:
             self._s7res = new
             self._modified = True
             _logger.debug(
-                f"ProcCommentUpdater: {removed} entradas MLC huérfanas eliminadas."
+                f"ProcCommentUpdater: {removed} entradas MLC huÃ©rfanas eliminadas."
             )
 
     def _count_s7res_entries(self) -> int:
         return len(re.findall(r"(?m)^\s*-\s*id:\s*MLC_\S+", self._s7res))
 
 
-# ── Helpers de módulo ───────────────────────────────────────────────────
+# â”€â”€ Helpers de mÃ³dulo â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def strip_enclosing_quotes(text: str) -> str:
@@ -633,13 +633,13 @@ def strip_enclosing_quotes(text: str) -> str:
     TIA Portal exporta algunos comentarios entre comillas literales
     en el ``.s7res`` (espacios al final, comillas internas, etc.). Y
     el operario a veces pega textos del Excel con comillas envolventes
-    por error. Esta función los limpia de forma conservadora: solo
-    actúa si la primera Y la última posición son la MISMA comilla
+    por error. Esta funciÃ³n los limpia de forma conservadora: solo
+    actÃºa si la primera Y la Ãºltima posiciÃ³n son la MISMA comilla
     (simples o dobles). Un texto con una sola comilla al inicio o al
     final se queda tal cual.
 
-    Además hace ``.strip()`` por si TIA deja espacios colgando
-    después de la comilla de cierre (caso raro pero visto en
+    AdemÃ¡s hace ``.strip()`` por si TIA deja espacios colgando
+    despuÃ©s de la comilla de cierre (caso raro pero visto en
     exports reales).
     """
     if len(text) < 2:

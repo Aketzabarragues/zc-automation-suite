@@ -1,13 +1,13 @@
 """Tests del ``DimensionesParser`` (Fase 5 del plan).
 
 Cubre:
-  * Extracción básica de ``N_MAX_*`` / ``Num_Disp_*`` desde los
+  * ExtracciÃ³n bÃ¡sica de ``N_MAX_*`` / ``Num_Disp_*`` desde los
     defined names del workbook.
-  * Defensa ante prefijos inválidos (se ignoran).
-  * N_MAX adicionales del catálogo (no legacy) acaban en ``extras``.
-  * Workbook sin ``defined_names`` devuelve instancia vacía.
+  * Defensa ante prefijos invÃ¡lidos (se ignoran).
+  * N_MAX adicionales del catÃ¡logo (no legacy) acaban en ``extras``.
+  * Workbook sin ``defined_names`` devuelve instancia vacÃ­a.
   * El parser es data-driven: el ``ConfigManager`` opcional
-    construye el ``named_range_map`` desde el catálogo.
+    construye el ``named_range_map`` desde el catÃ¡logo.
 """
 from __future__ import annotations
 
@@ -19,14 +19,14 @@ from openpyxl import Workbook
 from openpyxl.workbook.defined_name import DefinedName
 
 from areas.alimentacion.domain.models.excel_cache import DimensionesDispositivos
-from areas.alimentacion.infrastructure.parsers.disp_dimensiones import DimensionesParser
+from areas.alimentacion.helpers.parsers.disp_dimensiones import DimensionesParser
 
 
-# ── Helpers ─────────────────────────────────────────────────────────────
+# â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def _write_config(tmp_path: Path) -> Path:
-    """Escribe un config.json mínimo con n_max_catalog de 6 hw_types."""
+    """Escribe un config.json mÃ­nimo con n_max_catalog de 6 hw_types."""
     cfg: dict[str, Any] = {
         "departments": {
             "alimentacion": {
@@ -59,22 +59,22 @@ def _add_named_value(
     name: str,
     value: Any,
 ) -> None:
-    """Añade un defined name que apunta a ``sheet!cell`` con ``value``."""
+    """AÃ±ade un defined name que apunta a ``sheet!cell`` con ``value``."""
     if sheet_name not in wb.sheetnames:
         ws = wb.create_sheet(sheet_name)
     else:
         ws = wb[sheet_name]
     ws[cell] = value
-    # ``localSheetId=None`` → workbook-scoped.
+    # ``localSheetId=None`` â†’ workbook-scoped.
     dn = DefinedName(name=name, attr_text=f"'{sheet_name}'!${cell}")
     wb.defined_names[name] = dn
 
 
-# ── Tests ───────────────────────────────────────────────────────────────
+# â”€â”€ Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def test_extrae_n_max_basico(tmp_path) -> None:
-    """Excel con 6 defined names ``N_MAX_DISP_X`` → 6 contadores correctos."""
+    """Excel con 6 defined names ``N_MAX_DISP_X`` â†’ 6 contadores correctos."""
     wb = Workbook()
     # Quitar la hoja por defecto
     wb.remove(wb.active)
@@ -95,7 +95,7 @@ def test_extrae_n_max_basico(tmp_path) -> None:
 
 
 def test_falta_defined_name_devuelve_cero(tmp_path) -> None:
-    """Solo 2 defined names presentes → los otros 4 quedan en 0."""
+    """Solo 2 defined names presentes â†’ los otros 4 quedan en 0."""
     wb = Workbook()
     wb.remove(wb.active)
     _add_named_value(wb, "Config", "A1", "N_MAX_DISP_ED", 7)
@@ -139,7 +139,7 @@ def test_extras_captura_nmax_adicionales(tmp_path) -> None:
 
 
 def test_workbook_sin_defined_names_devuelve_instancia_vacia(tmp_path) -> None:
-    """Workbook sin defined names → ``DimensionesDispositivos()`` vacío."""
+    """Workbook sin defined names â†’ ``DimensionesDispositivos()`` vacÃ­o."""
     wb = Workbook()
     wb.remove(wb.active)
     wb.create_sheet("Config")  # hoja sin defined names
@@ -164,7 +164,7 @@ def test_with_config_manager_resolves_data_driven(tmp_path) -> None:
 
     wb = Workbook()
     wb.remove(wb.active)
-    # El ConfigManager mapea ``N_MAX_DISP_ED`` (canónico en catalog) → ``num_disp_ed``.
+    # El ConfigManager mapea ``N_MAX_DISP_ED`` (canÃ³nico en catalog) â†’ ``num_disp_ed``.
     _add_named_value(wb, "Config", "A1", "N_MAX_DISP_ED", 11)
     _add_named_value(wb, "Config", "A2", "N_MAX_DISP_V", 33)
 

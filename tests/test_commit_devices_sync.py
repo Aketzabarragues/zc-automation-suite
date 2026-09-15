@@ -1,21 +1,21 @@
 """Tests de integracion de los handlers ``commit_disp_nmax_renames_online``
 y ``commit_disp_devices_offline`` (sept-2026 fix del bug "primer commit
-no aplica, segundo sí" en TIA V21).
+no aplica, segundo sÃ­" en TIA V21).
 
 Sept-2026: el antiguo ``commit_devices_sync`` mezclaba cambios online
 (N_MAX+renames via ``set_property``) con cambios offline (devices via
 ``import_plc_tags``) en una sola ``start_transaction``. TIA V21 hace
 rollback silencioso de los ``set_property`` cuando se mezclan con
-``import_plc_tags`` en la misma tx. La solución es partir el flujo en
+``import_plc_tags`` en la misma tx. La soluciÃ³n es partir el flujo en
 2 transacciones SECUENCIALES, cada una abriendo su propia tx:
 
   Tx A (online puro): ``commit_disp_nmax_renames_online``
   Tx B (offline puro): ``commit_disp_devices_offline``
 
-Estrategia: estos tests verifican que los handlers están registrados en
+Estrategia: estos tests verifican que los handlers estÃ¡n registrados en
 el COMMAND_REGISTRY del worker, que tienen la firma esperada, que
 abren/cierran su propia ``start_transaction`` / ``end_transaction``,
-y que hacen rollback atómico si una op falla.
+y que hacen rollback atÃ³mico si una op falla.
 """
 from __future__ import annotations
 
@@ -31,17 +31,17 @@ import pytest
 # COMMAND_REGISTRY del worker como cualquier otro op del area.
 worker_tia = importlib.import_module("core.infrastructure._pendiente.worker_tia")
 extra_commands = importlib.import_module(
-    "areas.alimentacion.infrastructure.tia.extra_commands"
+    "areas.alimentacion.helpers.tia.extra_commands"
 )
 
 
-# ────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Tests de registro
-# ────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def test_commit_disp_nmax_renames_online_is_registered() -> None:
-    """El handler online está en COMMAND_REGISTRY bajo
+    """El handler online estÃ¡ en COMMAND_REGISTRY bajo
     ``commit_disp_nmax_renames_online``."""
     from core.infrastructure.tia import command_loader
     command_loader.load_extra_commands(worker_tia.COMMAND_REGISTRY)
@@ -49,7 +49,7 @@ def test_commit_disp_nmax_renames_online_is_registered() -> None:
 
 
 def test_commit_disp_devices_offline_is_registered() -> None:
-    """El handler offline está en COMMAND_REGISTRY bajo
+    """El handler offline estÃ¡ en COMMAND_REGISTRY bajo
     ``commit_disp_devices_offline``."""
     from core.infrastructure.tia import command_loader
     command_loader.load_extra_commands(worker_tia.COMMAND_REGISTRY)
@@ -70,9 +70,9 @@ def test_commit_disp_devices_offline_factory_signature() -> None:
     assert list(sig.parameters.keys()) == ["portal", "ts", "args"]
 
 
-# ────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Tests del handler online: abre/cierra su propia tx
-# ────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def _build_online_mock_portal() -> MagicMock:
@@ -137,7 +137,7 @@ def test_commit_disp_nmax_renames_online_rollback_on_failure() -> None:
             },
         )
     project = portal.get_project.return_value
-    # start_transaction se llamó (la tx se abrió).
+    # start_transaction se llamÃ³ (la tx se abriÃ³).
     project.start_transaction.assert_called_once()
     # end_transaction con rollback=True (no False).
     project.end_transaction.assert_called_once_with(rollback=True)
@@ -154,14 +154,14 @@ def test_commit_disp_nmax_renames_online_missing_plc_name() -> None:
         )
 
 
-# ────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Tests del handler offline: abre/cierra su propia tx
-# ────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def _build_offline_mock_portal(tmp_path: Path) -> MagicMock:
     """Portal mock con PLC sin tablas (handler no llega a export si
-    ``device_changes`` está vacío)."""
+    ``device_changes`` estÃ¡ vacÃ­o)."""
     portal = MagicMock()
     project = MagicMock()
     plc = MagicMock()
@@ -183,7 +183,7 @@ def test_commit_disp_devices_offline_opens_own_transaction(
     portal = _build_offline_mock_portal(tmp_path)
     handler = extra_commands.make_cmd_commit_disp_devices_offline()
 
-    # device_changes vacío: la tx se abre/cierra igualmente, sin entrar
+    # device_changes vacÃ­o: la tx se abre/cierra igualmente, sin entrar
     # al bucle de export/edit/import.
     handler(
         portal=portal, ts=MagicMock(),
@@ -204,7 +204,7 @@ def test_commit_disp_devices_offline_rollback_on_failure(
     """Si una op falla, hace ``end_transaction(rollback=True)`` y re-lanza.
 
     Forzamos un fallo: el ``device_change`` referencia una tabla que
-    no existe en el PLC (la lista está vacía en el mock).
+    no existe en el PLC (la lista estÃ¡ vacÃ­a en el mock).
     """
     portal = _build_offline_mock_portal(tmp_path)
     handler = extra_commands.make_cmd_commit_disp_devices_offline()
@@ -254,21 +254,21 @@ def test_table_export_not_in_devices_offline_handler(tmp_path: Path) -> None:
     ``commit_disp_devices_offline`` ya NO hace ``table.export``
     internamente.
 
-    Por qué se quitó: el export dentro de Tx B leía los datos de TIA
-    antes de que la consolidación interna de los cambios online de Tx A
-    terminara, veía los nombres VIEJOS de los PlcUserConstant
-    (pre-renames), los SOBREESCRIBÍA en ``modified/variables/`` y el
-    ``import_plc_tags`` los re-importaba → rollback silencioso de los
+    Por quÃ© se quitÃ³: el export dentro de Tx B leÃ­a los datos de TIA
+    antes de que la consolidaciÃ³n interna de los cambios online de Tx A
+    terminara, veÃ­a los nombres VIEJOS de los PlcUserConstant
+    (pre-renames), los SOBREESCRIBÃA en ``modified/variables/`` y el
+    ``import_plc_tags`` los re-importaba â†’ rollback silencioso de los
     renames aplicados en Tx A.
 
-    Solución: el export lo hace IT en el Stage 6 ``export_post_tx_a``
-    de ``ejecutar_transaccion``, después de Tx A y con sleep de
-    consolidación. El handler offline solo importa los XMLs ya
+    SoluciÃ³n: el export lo hace IT en el Stage 6 ``export_post_tx_a``
+    de ``ejecutar_transaccion``, despuÃ©s de Tx A y con sleep de
+    consolidaciÃ³n. El handler offline solo importa los XMLs ya
     editados (Stage 7 ``copy_and_edit``).
 
     Verifica que:
       - El handler hace ``import_plc_tags`` por cada ``device_change``.
-      - El handler NO hace ``table.export`` (el método ``table.export``
+      - El handler NO hace ``table.export`` (el mÃ©todo ``table.export``
         del PlcTagTable no debe ser llamado).
     """
     portal = MagicMock()
@@ -293,7 +293,7 @@ def test_table_export_not_in_devices_offline_handler(tmp_path: Path) -> None:
     ):
         handler = extra_commands.make_cmd_commit_disp_devices_offline()
         # Pre-poblamos el ``work_dir`` con el XML que el handler
-        # espera encontrar (Stage 7 ``copy_and_edit`` lo habría
+        # espera encontrar (Stage 7 ``copy_and_edit`` lo habrÃ­a
         # escrito). Sin esto, el handler raise con "XML no
         # encontrado" antes de llegar al import.
         table_xml = (
@@ -320,17 +320,17 @@ def test_table_export_not_in_devices_offline_handler(tmp_path: Path) -> None:
 
     # 1. ``table.export`` NO debe haberse llamado (sept-2026 fix).
     table.export.assert_not_called()
-    # 2. ``import_plc_tags`` SÍ se llamó (es lo único que hace este
+    # 2. ``import_plc_tags`` SÃ se llamÃ³ (es lo Ãºnico que hace este
     #    handler: importar XMLs ya editados).
     plc.import_plc_tags.assert_called()
-    # 3. La tx se abrió y cerró OK (no rollback).
+    # 3. La tx se abriÃ³ y cerrÃ³ OK (no rollback).
     project.start_transaction.assert_called_once()
     project.end_transaction.assert_called_once_with(rollback=False)
 
 
-# ────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Tests del handler DEPRECATED ``commit_devices_sync`` (compat)
-# ────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def test_commit_devices_sync_still_registered_as_deprecated() -> None:

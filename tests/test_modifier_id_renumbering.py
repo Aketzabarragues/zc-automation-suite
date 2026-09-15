@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from areas.alimentacion.infrastructure.xml.disp_tag_table_modifier import TagTableModifier
+from areas.alimentacion.helpers.xml.disp_tag_table_modifier import TagTableModifier
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _OPERATOR_XML = _REPO_ROOT / "_source" / ".build_cache" / "base" / "tags" / "2000_Dispositivos" / "2000_Disp_M.xml"
@@ -202,7 +202,7 @@ def test_add_user_constants_against_real_operator_xml(tmp_path):
         for i in range(3)
     ]
     n = mod.add_user_constants_by_table("2000_Disp_M", to_add)
-    # Solo se añaden los que NO estaban previamente. Como el operario
+    # Solo se aÃ±aden los que NO estaban previamente. Como el operario
     # ya hizo un sync previo, M_NEW_* seguro no existen -> los 3 add.
     assert n == 3, f"Esperaba 3 adds, obtuvo {n}. Existentes: {existing}"
 
@@ -309,7 +309,7 @@ def test_regenerate_root_table_id_no_collision_with_existing(tmp_path):
     # Verificar que el nuevo ID no choca con ninguno existente
     all_ids = [e.get("ID") for e in mod._root.iter() if "ID" in e.attrib]
     assert all_ids.count(new_id) == 1, (
-        f"ID regenerado '{new_id}' aparece más de una vez en el documento"
+        f"ID regenerado '{new_id}' aparece mÃ¡s de una vez en el documento"
     )
 
 

@@ -7,13 +7,13 @@ operan sobre el .NET wrapper y el modulo siemens. Solo verificamos:
   3. Que los handlers registrados tengan firma ``(args, tia_client) -> dict``.
 
 No testeamos la logica interna (export/import SD, modificadores de
-comentarios) — eso esta cubierto por tests del area.
+comentarios) â€” eso esta cubierto por tests del area.
 """
 from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from areas.alimentacion.infrastructure.tia.extra_commands import (
+from areas.alimentacion.helpers.tia.extra_commands import (
     EXTRA_HW_TYPES,
     EXTRA_PROC_KINDS,
     register,

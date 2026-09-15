@@ -1,19 +1,19 @@
 """Tests del ``ProcCommentUpdater``.
 
-Cubre el updater offline análogo a ``DispCommentUpdater`` pero
+Cubre el updater offline anÃ¡logo a ``DispCommentUpdater`` pero
 parametrizado por ``array_name`` + ``satellite_arrays`` (sin slot 0
-fijo) y con propagación de ``es-ES`` a los satélites del mismo
+fijo) y con propagaciÃ³n de ``es-ES`` a los satÃ©lites del mismo
 slot. No toca TIA, no toca red, no toca disco fuera de ``tmp_path``.
 
 Estructura de los tests
 -----------------------
 * ``synthetic_s7dcl`` / ``synthetic_s7res``: fixture que escribe
-  pares sintéticos ``.s7dcl`` / ``.s7res`` con el shape esperado
+  pares sintÃ©ticos ``.s7dcl`` / ``.s7res`` con el shape esperado
   (3 arrays paralelos: PReal, PReal_Vis, Aux.PReal_ValorAnterior,
-  cada uno con slots 1..N). Aísla los tests del formato real de
+  cada uno con slots 1..N). AÃ­sla los tests del formato real de
   los ``_source/`` de la CPR (que pueden cambiar entre PRs).
 * El test 6 (encoding) usa ``tmp_path`` directo.
-* El resto usa la fixture sintética como base.
+* El resto usa la fixture sintÃ©tica como base.
 """
 from __future__ import annotations
 
@@ -21,15 +21,15 @@ from pathlib import Path
 
 import pytest
 
-from areas.alimentacion.infrastructure.sd.mlc_registry import MLCRegistry
-from areas.alimentacion.infrastructure.sd.proc_comment_updater import (
+from areas.alimentacion.helpers.sd.mlc_registry import MLCRegistry
+from areas.alimentacion.helpers.sd.proc_comment_updater import (
     ProcCommentResult,
     ProcCommentUpdater,
     strip_enclosing_quotes,
 )
 
 
-# ── Fixtures sintéticos ─────────────────────────────────────────────────
+# â”€â”€ Fixtures sintÃ©ticos â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def _build_synthetic_s7dcl(n_slots: int = 30) -> str:
@@ -113,13 +113,13 @@ def registry_with_existing() -> MLCRegistry:
     return reg
 
 
-# ── Tests ───────────────────────────────────────────────────────────────
+# â”€â”€ Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def test_slot_unico_inserta_mlc_y_actualiza_es_es(
     synthetic_block: tuple[Path, Path],
 ) -> None:
-    """slot_map = {1: "nuevo"} → updater respeta MLC existente, actualiza es-ES."""
+    """slot_map = {1: "nuevo"} â†’ updater respeta MLC existente, actualiza es-ES."""
     dcl, res = synthetic_block
     updater = ProcCommentUpdater(
         s7dcl_path=dcl,
@@ -136,20 +136,20 @@ def test_slot_unico_inserta_mlc_y_actualiza_es_es(
     # Slot 1: MLC reutilizado (MLC_PR_001 ya estaba).
     assert result.reused[1] == "MLC_PR_001"
     assert result.inserted == {}
-    # (Nota: satellite_reused es dict con key=slot, así que solo
-    # queda el último satélite escrito en el dict. La cobertura
-    # completa de la propagación se verifica en el .s7res abajo
+    # (Nota: satellite_reused es dict con key=slot, asÃ­ que solo
+    # queda el Ãºltimo satÃ©lite escrito en el dict. La cobertura
+    # completa de la propagaciÃ³n se verifica en el .s7res abajo
     # y en test_propagacion_a_satelites_mismo_slot.)
     content = res.read_text(encoding="utf-8-sig")
-    # 3 entradas (principal + 2 satélites) con es-ES = "nuevo_PR_1"
+    # 3 entradas (principal + 2 satÃ©lites) con es-ES = "nuevo_PR_1"
     count = content.count("es-ES: nuevo_PR_1")
-    assert count == 3, f"Esperaba 3 entradas con es-ES: nuevo_PR_1; encontré {count}"
+    assert count == 3, f"Esperaba 3 entradas con es-ES: nuevo_PR_1; encontrÃ© {count}"
 
 
 def test_slot_map_mas_corto_que_el_array(
     synthetic_block: tuple[Path, Path],
 ) -> None:
-    """slot_map = {1, 2, 3} → solo esos 3 se actualizan, resto intacto."""
+    """slot_map = {1, 2, 3} â†’ solo esos 3 se actualizan, resto intacto."""
     dcl, res = synthetic_block
     updater = ProcCommentUpdater(
         s7dcl_path=dcl,
@@ -168,14 +168,14 @@ def test_slot_map_mas_corto_que_el_array(
     assert "es-ES: x3" in content
     # Slot 4 sigue con el texto original.
     assert "es-ES: original_PR_4" in content
-    # Slot 30 (último) también intacto.
+    # Slot 30 (Ãºltimo) tambiÃ©n intacto.
     assert "es-ES: original_PR_30" in content
 
 
 def test_slot_map_vacio_no_modifica(
     synthetic_block: tuple[Path, Path],
 ) -> None:
-    """slot_map = {} → was_modified() False, ningún cambio."""
+    """slot_map = {} â†’ was_modified() False, ningÃºn cambio."""
     dcl, res = synthetic_block
     updater = ProcCommentUpdater(
         s7dcl_path=dcl,
@@ -192,7 +192,7 @@ def test_slot_map_vacio_no_modifica(
 def test_idempotencia_doble_apply(
     synthetic_block: tuple[Path, Path],
 ) -> None:
-    """Aplicar el mismo slot_map 2 veces → 2ª was_modified() False, sin cambios."""
+    """Aplicar el mismo slot_map 2 veces â†’ 2Âª was_modified() False, sin cambios."""
     dcl, res = synthetic_block
     # Primera pasada.
     updater1 = ProcCommentUpdater(
@@ -222,8 +222,8 @@ def test_idempotencia_doble_apply(
 def test_propagacion_a_satelites_mismo_slot(
     synthetic_block: tuple[Path, Path],
 ) -> None:
-    """slot_map = {5: "nuevo"} → PReal_Vis[5] y Aux.PReal_ValorAnterior[5]
-    también actualizan su es-ES con el mismo texto (MLCs distintos)."""
+    """slot_map = {5: "nuevo"} â†’ PReal_Vis[5] y Aux.PReal_ValorAnterior[5]
+    tambiÃ©n actualizan su es-ES con el mismo texto (MLCs distintos)."""
     dcl, res = synthetic_block
     updater = ProcCommentUpdater(
         s7dcl_path=dcl,
@@ -239,9 +239,9 @@ def test_propagacion_a_satelites_mismo_slot(
     # MLC principal: slot 5 reutilizado.
     assert result.reused[5] == "MLC_PR_005"
     content = res.read_text(encoding="utf-8-sig")
-    # 3 entradas (principal + 2 satélites) con es-ES = "COMPARTIDO_5"
+    # 3 entradas (principal + 2 satÃ©lites) con es-ES = "COMPARTIDO_5"
     count = content.count("es-ES: COMPARTIDO_5")
-    assert count == 3, f"Esperaba 3 entradas con es-ES: COMPARTIDO_5; encontré {count}"
+    assert count == 3, f"Esperaba 3 entradas con es-ES: COMPARTIDO_5; encontrÃ© {count}"
     # El resto de slots conserva su texto original.
     assert "es-ES: original_PR_4" in content
     assert "es-ES: original_VIS_4" in content
@@ -251,7 +251,7 @@ def test_propagacion_a_satelites_mismo_slot(
 def test_sin_satelites_para_alm(
     tmp_path: Path,
 ) -> None:
-    """ALM con satellite_arrays=set() funciona: no busca satélites,
+    """ALM con satellite_arrays=set() funciona: no busca satÃ©lites,
     actualiza solo el array principal."""
     dcl_text = (
         'DATA_BLOCK "DB55100_TEST_ALM"\n'
@@ -284,7 +284,7 @@ def test_sin_satelites_para_alm(
         s7res_path=res,
         slot_map={1: "alarma_1_nueva", 2: "alarma_2_nueva"},
         array_name="ALM",
-        satellite_arrays=set(),  # ALM no tiene satélites
+        satellite_arrays=set(),  # ALM no tiene satÃ©lites
         registry=MLCRegistry(),
     )
     result = updater.update()
@@ -292,7 +292,7 @@ def test_sin_satelites_para_alm(
     assert updater.was_modified() is True
     assert result.reused[1] == "MLC_ALM_001"
     assert result.reused[2] == "MLC_ALM_002"
-    # No hay satélites.
+    # No hay satÃ©lites.
     assert result.satellite_reused == {}
     content = res.read_text(encoding="utf-8-sig")
     assert "es-ES: alarma_1_nueva" in content
@@ -321,10 +321,10 @@ def test_encoding_utf8_sin_bom_s7dcl_utf8_sig_s7res(
 
     # s7dcl: sin BOM.
     dcl_bytes = dcl.read_bytes()
-    assert not dcl_bytes.startswith(b"\xef\xbb\xbf"), "s7dcl no debería tener BOM"
+    assert not dcl_bytes.startswith(b"\xef\xbb\xbf"), "s7dcl no deberÃ­a tener BOM"
     # s7res: con BOM (utf-8-sig).
     res_bytes = res.read_bytes()
-    assert res_bytes.startswith(b"\xef\xbb\xbf"), "s7res debería tener BOM"
+    assert res_bytes.startswith(b"\xef\xbb\xbf"), "s7res deberÃ­a tener BOM"
 
 
 def test_truncado_texto_a_254_chars(
@@ -354,7 +354,7 @@ def test_truncado_texto_a_254_chars(
 def test_slot_map_mayor_que_array_inserta_nuevos_slots(
     tmp_path: Path,
 ) -> None:
-    """slot_map con slots > N_MAX del array → updater inserta asignaciones nuevas."""
+    """slot_map con slots > N_MAX del array â†’ updater inserta asignaciones nuevas."""
     dcl = tmp_path / "DB53100_TEST_PARAM.s7dcl"
     res = tmp_path / "DB53100_TEST_PARAM.s7res"
     dcl.write_text(_build_synthetic_s7dcl(5), encoding="utf-8")
@@ -399,14 +399,14 @@ def test_slot_0_se_ignora(
     # Slot 0 NO aparece en reused ni en inserted.
     assert 0 not in result.reused
     assert 0 not in result.inserted
-    # Slot 1 sí se actualiza.
+    # Slot 1 sÃ­ se actualiza.
     assert result.reused[1] == "MLC_PR_001"
 
 
 def test_comentario_vacio_se_mapea_a_punto(
     synthetic_block: tuple[Path, Path],
 ) -> None:
-    """comentario_db vacío → es-ES = '.' (convención TIA 'sin comentario')."""
+    """comentario_db vacÃ­o â†’ es-ES = '.' (convenciÃ³n TIA 'sin comentario')."""
     dcl, res = synthetic_block
     updater = ProcCommentUpdater(
         s7dcl_path=dcl,
@@ -442,11 +442,11 @@ def test_construye_registry_con_mlcs_existentes(
     assert 1 not in result.inserted
 
 
-# ── Comillas envolventes (TIA exporta a veces con '…' alrededor) ────────
+# â”€â”€ Comillas envolventes (TIA exporta a veces con 'â€¦' alrededor) â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 class TestStripEnclosingQuotes:
-    """Cubre el helper ``strip_enclosing_quotes`` (público).
+    """Cubre el helper ``strip_enclosing_quotes`` (pÃºblico).
 
     Se llama desde:
       * ``ProcCommentUpdater._build_mlc_text_map`` al leer el
@@ -455,7 +455,7 @@ class TestStripEnclosingQuotes:
       * ``proc_slot_map_builder._build_slot_map`` al leer el Excel
         (lado desired).
 
-    La función es conservadora: solo actúa si el texto empieza Y
+    La funciÃ³n es conservadora: solo actÃºa si el texto empieza Y
     termina con la MISMA comilla (simples o dobles).
     """
 
@@ -470,7 +470,7 @@ class TestStripEnclosingQuotes:
         assert strip_enclosing_quotes("COMPACTO - FIJOS") == "COMPACTO - FIJOS"
 
     def test_comillas_simples_envolventes_se_quitan(self):
-        # Caso típico que ve el operario: TIA exporta
+        # Caso tÃ­pico que ve el operario: TIA exporta
         # ``es-ES: 'COMPACTO - FIJOS - '`` (con espacio al final).
         assert (
             strip_enclosing_quotes("'COMPACTO - FIJOS - '")
@@ -485,26 +485,26 @@ class TestStripEnclosingQuotes:
 
     def test_comillas_no_balanceadas_se_quedan_igual(self):
         # Una sola comilla al inicio o al final NO se quita (puede
-        # ser parte legítima del texto).
+        # ser parte legÃ­tima del texto).
         assert strip_enclosing_quotes("'hola") == "'hola"
         assert strip_enclosing_quotes("hola'") == "hola'"
 
     def test_comillas_mixtas_no_se_quitan(self):
-        # Empieza con ' y termina con " (o viceversa) → no es
+        # Empieza con ' y termina con " (o viceversa) â†’ no es
         # "envolvente balanceada", se queda igual.
         assert strip_enclosing_quotes("'hola\"") == "'hola\""
 
     def test_espacios_dentro_de_comillas_se_stripean(self):
         # TIA a veces deja espacios colgando DENTRO de las comillas
-        # (p. ej. ``'COMPACTO - ' `` con espacio tras el último
-        # carácter). El helper los quita tras extraer el contenido.
+        # (p. ej. ``'COMPACTO - ' `` con espacio tras el Ãºltimo
+        # carÃ¡cter). El helper los quita tras extraer el contenido.
         assert (
             strip_enclosing_quotes("'COMPACTO '")
             == "COMPACTO"
         )
 
     def test_texto_con_comilla_interna_al_final_se_conserva(self):
-        # El texto contiene una comilla simple legítima en su
+        # El texto contiene una comilla simple legÃ­tima en su
         # interior. NO debe quitarla.
         assert (
             strip_enclosing_quotes("Bomba de 6'' pulgada")
@@ -526,10 +526,10 @@ class TestReadCurrentCommentsStripsEnclosingQuotes:
     def test_quita_comillas_simples_del_s7res(
         self, tmp_path, synthetic_block
     ):
-        # Partimos del bloque sintético estándar (que tiene slots
+        # Partimos del bloque sintÃ©tico estÃ¡ndar (que tiene slots
         # 1..30 con el MLC correspondiente), pero sobrescribimos el
         # ``.s7res`` con un comentario ENTRE comillas simples en
-        # el slot 1 (caso TIA real visto en producción).
+        # el slot 1 (caso TIA real visto en producciÃ³n).
         dcl, res = synthetic_block
         new_s7res = (
             "MultiLingualTexts:\n"
@@ -545,5 +545,5 @@ class TestReadCurrentCommentsStripsEnclosingQuotes:
         # El ``current`` del slot 1 viene SIN comillas envolventes.
         result = updater.read_current_comments([1], "PReal")
         assert result[1] == "COMPACTO - FIJOS -", (
-            f"esperaba 'COMPACTO - FIJOS -', recibí {result[1]!r}"
+            f"esperaba 'COMPACTO - FIJOS -', recibÃ­ {result[1]!r}"
         )

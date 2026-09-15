@@ -2,15 +2,15 @@
 
 Objetivo: verificar que el use case es testeable SIN FastAPI
 (``TestClient``). Se instancia directamente con dependencias
-explícitas y se invoca ``await use_case.execute(xlsx_path)``.
+explÃ­citas y se invoca ``await use_case.execute(xlsx_path)``.
 
 Cubre:
-  * Happy path: parsea un xlsx sintético, popula el cache y el
+  * Happy path: parsea un xlsx sintÃ©tico, popula el cache y el
     ``AppState``, devuelve la shape legacy del response.
   * Sad path: con un xlsx que no existe, lanza ``HTTPException(400)``
     y deja el ``ProgressTracker`` en estado ``error``.
 
-Patrón: ``pytest-asyncio`` + Excel sintético en ``tmp_path`` +
+PatrÃ³n: ``pytest-asyncio`` + Excel sintÃ©tico en ``tmp_path`` +
 fake ``ExcelCacheManager`` (no toca el singleton global).
 """
 from __future__ import annotations
@@ -29,14 +29,14 @@ from openpyxl.worksheet.table import Table, TableStyleInfo
 from areas.alimentacion.application.use_cases.upload_excel import (
     UploadExcelUseCase,
 )
-from areas.alimentacion.infrastructure.cache import ExcelCacheManager
+from areas.alimentacion.helpers.cache import ExcelCacheManager
 from core.runtime.log_buffer import LogBuffer
 from core.runtime.progress_buffer import ProgressTracker
 from core.runtime.app_state import AppState, get_app_state
 from core.infrastructure.config.config_manager import ConfigManager
 
 
-# ── Configuración JSON fixture ─────────────────────────────────────────
+# â”€â”€ ConfiguraciÃ³n JSON fixture â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 _FULL_CONFIG: dict[str, Any] = {
@@ -93,7 +93,7 @@ _FULL_CONFIG: dict[str, Any] = {
 }
 
 
-# ── Excel sintético (copia local de _build_minimal_xlsx_bytes) ────────
+# â”€â”€ Excel sintÃ©tico (copia local de _build_minimal_xlsx_bytes) â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def _add_table(
@@ -139,15 +139,15 @@ def _build_minimal_xlsx_bytes() -> bytes:
     return buf.getvalue()
 
 
-# ── Fake ExcelCacheManager (no toca el singleton global) ──────────────
+# â”€â”€ Fake ExcelCacheManager (no toca el singleton global) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 class FakeCacheManager:
     """Fake que reemplaza a ``ExcelCacheManager`` en los tests.
 
-    Implementa la API mínima que el use case usa: ``put`` como
-    ``classmethod`` async. Acumula el último cache en ``last_cache``
-    para inspección.
+    Implementa la API mÃ­nima que el use case usa: ``put`` como
+    ``classmethod`` async. Acumula el Ãºltimo cache en ``last_cache``
+    para inspecciÃ³n.
     """
 
     last_cache: Any = None
@@ -164,12 +164,12 @@ class FakeCacheManager:
         cls.put_call_count = 0
 
 
-# ── Fixtures ───────────────────────────────────────────────────────────
+# â”€â”€ Fixtures â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 @pytest.fixture
 def config_manager(tmp_path: Path) -> ConfigManager:
-    """ConfigManager con el JSON fixture del subdominio alimentación."""
+    """ConfigManager con el JSON fixture del subdominio alimentaciÃ³n."""
     p = tmp_path / "config.json"
     p.write_text(json.dumps(_FULL_CONFIG), encoding="utf-8")
     return ConfigManager(config_path=p)
@@ -177,7 +177,7 @@ def config_manager(tmp_path: Path) -> ConfigManager:
 
 @pytest.fixture
 def state() -> AppState:
-    """AppState fresco: devices vacíos, cache y dimensiones a None."""
+    """AppState fresco: devices vacÃ­os, cache y dimensiones a None."""
     s = get_app_state()
     s.reset()
     s.excel_cache = None
@@ -203,7 +203,7 @@ def use_case(
     state: AppState,
     progress: ProgressTracker,
 ) -> UploadExcelUseCase:
-    """Use case con todas las dependencias inyectadas explícitamente."""
+    """Use case con todas las dependencias inyectadas explÃ­citamente."""
     FakeCacheManager.reset()
     return UploadExcelUseCase(
         excel_cache_manager=FakeCacheManager,  # type: ignore[arg-type]
@@ -214,7 +214,7 @@ def use_case(
     )
 
 
-# ── Tests ──────────────────────────────────────────────────────────────
+# â”€â”€ Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 @pytest.mark.asyncio
@@ -230,7 +230,7 @@ async def test_execute_happy_path_puebla_cache_y_state(
     xlsx_path.write_bytes(_build_minimal_xlsx_bytes())
 
     # El use case espera que el caller haya hecho begin con los
-    # stages correctos. Lo replicamos aquí.
+    # stages correctos. Lo replicamos aquÃ­.
     progress.begin(
         operation="upload_excel",
         label="Cargando Excel: test.xlsx",
@@ -239,14 +239,14 @@ async def test_execute_happy_path_puebla_cache_y_state(
 
     result = await use_case.execute(xlsx_path)
 
-    # ── Response shape ────────────────────────────────────────────
+    # â”€â”€ Response shape â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     assert result["ok"] is True
     assert "summary" in result
     assert "total_dispositivos" in result
     assert "dimensiones" in result
     # 6 dispositivos (1 por tipo).
     assert result["total_dispositivos"] == 6
-    # ``dimensiones`` tiene los 6 canónicos.
+    # ``dimensiones`` tiene los 6 canÃ³nicos.
     assert set(result["dimensiones"].keys()) == {
         "num_disp_ed", "num_disp_ea", "num_disp_sa",
         "num_disp_v", "num_disp_m", "num_disp_m_vf",
@@ -255,20 +255,20 @@ async def test_execute_happy_path_puebla_cache_y_state(
     assert len(result["summary"]) == 6
     assert all(v == 1 for v in result["summary"].values())
 
-    # ── Side effects en AppState ──────────────────────────────────
+    # â”€â”€ Side effects en AppState â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     assert state.excel_cache is not None
     assert state.excel_path is not None
-    # El cache guarda la versión absolute() del path.
+    # El cache guarda la versiÃ³n absolute() del path.
     assert state.excel_path.endswith("test.xlsx")
     assert state.dimensiones is not None
-    # Los 6 atributos legacy están populados.
+    # Los 6 atributos legacy estÃ¡n populados.
     for hw in ("ed", "ea", "sa", "v", "m", "m_vf"):
         devices = state.get_devices(hw)
         assert len(devices) == 1, (
             f"Tipo {hw!r} esperaba 1 dispositivo, obtuve {len(devices)}"
         )
 
-    # ── Side effect en el cache manager ───────────────────────────
+    # â”€â”€ Side effect en el cache manager â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     assert FakeCacheManager.put_call_count == 1
     assert FakeCacheManager.last_cache is state.excel_cache
 
@@ -281,7 +281,7 @@ async def test_execute_invalida_progress_stages(
 ) -> None:
     """Los dos stages pasan a ``done`` tras un ``execute`` exitoso.
 
-    No tocamos ``progress.finish`` (lo hace el handler) — solo
+    No tocamos ``progress.finish`` (lo hace el handler) â€” solo
     verificamos que ``start_stage`` + ``finish_stage`` deja los
     stages en estado ``done``.
     """
@@ -299,7 +299,7 @@ async def test_execute_invalida_progress_stages(
     by_id = {s["id"]: s for s in snap.stages}
     assert by_id["parsear_excel"]["status"] == "done"
     assert by_id["volcar_appstate"]["status"] == "done"
-    # La operación sigue activa: el handler es quien llama a finish.
+    # La operaciÃ³n sigue activa: el handler es quien llama a finish.
     assert snap.active is True
     # El detail del primer stage menciona los 6 dispositivos.
     assert "6" in (by_id["parsear_excel"]["detail"] or "")
@@ -341,7 +341,7 @@ async def test_execute_path_inexistente_lanza_http_exception(
     lanza ``HTTPException(400)``, deja el progress en error y emite
     log de error.
 
-    Decisión documentada: usamos ``HTTPException`` directamente
+    DecisiÃ³n documentada: usamos ``HTTPException`` directamente
     desde el use case (ver docstring de ``UploadExcelUseCase``).
     """
     progress.begin(
@@ -357,13 +357,13 @@ async def test_execute_path_inexistente_lanza_http_exception(
     assert exc_info.value.status_code == 400
     assert "excel_upload failed" in str(exc_info.value.detail)
 
-    # El progress se cerró con error.
+    # El progress se cerrÃ³ con error.
     snap = progress.snapshot()
     assert snap.active is False
     assert snap.error is not None
-    # El stage parsear_excel quedó en error (lo cerró finish()).
+    # El stage parsear_excel quedÃ³ en error (lo cerrÃ³ finish()).
     by_id = {s["id"]: s for s in snap.stages}
     assert by_id["parsear_excel"]["status"] == "error"
 
-    # El use case no llegó a cachear ni a tocar el state.
+    # El use case no llegÃ³ a cachear ni a tocar el state.
     assert FakeCacheManager.put_call_count == 0

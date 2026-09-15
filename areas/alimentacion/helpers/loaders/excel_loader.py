@@ -1,30 +1,30 @@
-"""Cargador síncrono del Excel corporativo del subdominio alimentación.
+"""Cargador sÃ­ncrono del Excel corporativo del subdominio alimentaciÃ³n.
 
 ``ExcelLoader`` abre el workbook UNA sola vez, ejecuta los 11
 parsers que lo componen (6 dispositivos + 4 software + 1 N_MAX) y
 construye una ``ExcelCache`` inmutable con los 3 lookups
 precomputados por ``codigo``.
 
-Es **síncrono** (no async) porque la apertura del workbook con
-openpyxl es CPU/IO-bound y bloquearía el event loop de asyncio.
+Es **sÃ­ncrono** (no async) porque la apertura del workbook con
+openpyxl es CPU/IO-bound y bloquearÃ­a el event loop de asyncio.
 Los callers (router FastAPI, MCP tool) lo invocan con
 ``asyncio.to_thread(loader.load, path)`` para no bloquear el event
 loop.
 
-Pipeline (orden de ejecución sobre el mismo ``wb``):
+Pipeline (orden de ejecuciÃ³n sobre el mismo ``wb``):
     1. 6 mini parsers de dispositivos (``DispED``/``EA``/``SA``/``V``
-       /``M``/``M_VF``) — extaen las ``ListObject`` de las hojas
+       /``M``/``M_VF``) â€” extaen las ``ListObject`` de las hojas
        ``DISP_<HW>``.
     2. 4 parsers de software (``Procesos``/``PReal``/``PInt``/
-       ``Alarmas``) — extraen las ``ListObject`` de las hojas
+       ``Alarmas``) â€” extraen las ``ListObject`` de las hojas
        ``CONFIGURACION``/``P_REAL``/``P_INT``/``ALARMAS``.
-    3. 1 parser de N_MAX (``DimensionesParser``) — extrae los
+    3. 1 parser de N_MAX (``DimensionesParser``) â€” extrae los
        defined names ``N_MAX_*``/``Num_Disp_*``.
 
 Tras el parseo, construye los lookups ``*_by_codigo`` filtrando
-filas sin ``codigo`` para evitar colisiones con la clave vacía.
+filas sin ``codigo`` para evitar colisiones con la clave vacÃ­a.
 
-Restricción arquitectónica: este módulo NO importa
+RestricciÃ³n arquitectÃ³nica: este mÃ³dulo NO importa
 ``siemens_tia_scripting``. Solo ``openpyxl`` + ``logging`` + DTOs
 del subdominio.
 """
@@ -40,19 +40,19 @@ from areas.alimentacion.domain.models.excel_cache import (
     Dispositivo,
     ExcelCache,
 )
-from areas.alimentacion.infrastructure.parsers.proc_alarmas import AlarmasParser
-from areas.alimentacion.infrastructure.parsers.disp_dimensiones import (
+from areas.alimentacion.helpers.parsers.proc_alarmas import AlarmasParser
+from areas.alimentacion.helpers.parsers.disp_dimensiones import (
     DimensionesParser,
 )
-from areas.alimentacion.infrastructure.parsers.disp_ed import DispEDParser
-from areas.alimentacion.infrastructure.parsers.disp_ea import DispEAParser
-from areas.alimentacion.infrastructure.parsers.disp_m import DispMParser
-from areas.alimentacion.infrastructure.parsers.disp_m_vf import DispM_VFParser
-from areas.alimentacion.infrastructure.parsers.disp_sa import DispSAParser
-from areas.alimentacion.infrastructure.parsers.disp_v import DispVParser
-from areas.alimentacion.infrastructure.parsers.proc_pint import PIntParser
-from areas.alimentacion.infrastructure.parsers.proc_preal import PRealParser
-from areas.alimentacion.infrastructure.parsers.proc_procesos import ProcesosParser
+from areas.alimentacion.helpers.parsers.disp_ed import DispEDParser
+from areas.alimentacion.helpers.parsers.disp_ea import DispEAParser
+from areas.alimentacion.helpers.parsers.disp_m import DispMParser
+from areas.alimentacion.helpers.parsers.disp_m_vf import DispM_VFParser
+from areas.alimentacion.helpers.parsers.disp_sa import DispSAParser
+from areas.alimentacion.helpers.parsers.disp_v import DispVParser
+from areas.alimentacion.helpers.parsers.proc_pint import PIntParser
+from areas.alimentacion.helpers.parsers.proc_preal import PRealParser
+from areas.alimentacion.helpers.parsers.proc_procesos import ProcesosParser
 from core.infrastructure.config.config_manager import ConfigManager
 
 
@@ -91,7 +91,7 @@ class ExcelLoader:
 
         Args:
             excel_path: ruta al ``.xlsx`` a parsear (absoluta o
-                relativa; el cache guarda la versión ``absolute()``).
+                relativa; el cache guarda la versiÃ³n ``absolute()``).
 
         Returns:
             ``ExcelCache`` inmutable con los 10 dominios del Excel
@@ -108,38 +108,38 @@ class ExcelLoader:
         path = Path(excel_path)
         if not path.is_file():
             raise FileNotFoundError(
-                f"No se encontró el Excel: '{path}'"
+                f"No se encontrÃ³ el Excel: '{path}'"
             )
 
-        # Resolución Windows-safe (R3 del plan): ``st_mtime_ns``
-        # está disponible en Python 3.7+ y en openpyxl / Windows
-        # con precisión de nanosegundos.
+        # ResoluciÃ³n Windows-safe (R3 del plan): ``st_mtime_ns``
+        # estÃ¡ disponible en Python 3.7+ y en openpyxl / Windows
+        # con precisiÃ³n de nanosegundos.
         mtime_ns = path.stat().st_mtime_ns
         wb = load_workbook(
             filename=str(path), read_only=False, data_only=True,
         )
         try:
-            # ── 6 dispositivos ───────────────────────────────────────
+            # â”€â”€ 6 dispositivos â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             disp_ed = self._disp_ed.extraer(wb)
             disp_ea = self._disp_ea.extraer(wb)
             disp_sa = self._disp_sa.extraer(wb)
             disp_v = self._disp_v.extraer(wb)
             disp_m = self._disp_m.extraer(wb)
             disp_m_vf = self._disp_m_vf.extraer(wb)
-            # ── 4 software ───────────────────────────────────────────
+            # â”€â”€ 4 software â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             procesos = self._procesos.extraer(wb)
             preal = self._preal.extraer(wb)
             pint = self._pint.extraer(wb)
             alarmas = self._alarmas.extraer(wb)
-            # ── 1 N_MAX ──────────────────────────────────────────────
+            # â”€â”€ 1 N_MAX â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             n_max = self._dimensiones.extraer(wb)
         finally:
             wb.close()
 
-        # ── Lookups precomputados por ``codigo`` ─────────────────────
-        # Filtramos ``codigo`` vacío para no contaminar el dict con
+        # â”€â”€ Lookups precomputados por ``codigo`` â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # Filtramos ``codigo`` vacÃ­o para no contaminar el dict con
         # un valor clave="" que pise accidentalmente otras entradas
-        # válidas.
+        # vÃ¡lidas.
         procesos_by_codigo = {
             p.codigo: p for p in procesos if p.codigo
         }

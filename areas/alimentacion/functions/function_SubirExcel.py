@@ -10,17 +10,17 @@ State machine:
   nStep=20  parsear    (ExcelLoader.load + ExcelCacheManager.put)
   nStep=30  volcar     (AppState + summary + log + self.result)
   nStep=99  done       (terminal OK)
-  nStep=98  error      (terminal con error_msg, vía wrapper de la base)
+  nStep=98  error      (terminal con error_msg, vÃ­a wrapper de la base)
 
 El FB es best-effort: cada step envuelve su trabajo en try/except
-y re-lanza.  El wrapper ``tick()`` de la base captura la excepción,
+y re-lanza.  El wrapper ``tick()`` de la base captura la excepciÃ³n,
 fija ``error_msg`` y transita a ``n_error`` (paso 2.0.4).  El estado
 parcial queda: el cache puede estar populado aunque el AppState no.
-El caller (router 2.2.1) decide qué hacer con eso.
+El caller (router 2.2.1) decide quÃ© hacer con eso.
 
 Trade-off respecto al use case legacy: este FB NO lanza
-``HTTPException``.  El use case legacy lo hacía porque su único
-consumidor era FastAPI; el FB es transport-agnostic, así que deja
+``HTTPException``.  El use case legacy lo hacÃ­a porque su Ãºnico
+consumidor era FastAPI; el FB es transport-agnostic, asÃ­ que deja
 que las excepciones de dominio (RuntimeError, ValueError, errores
 del loader, etc.) propaguen tal cual.  La forma del ``self.result``
 es la misma que la del use case (back-compat con la SPA).
@@ -31,8 +31,8 @@ import asyncio
 from pathlib import Path
 from typing import Any, Callable
 
-from areas.alimentacion.infrastructure.cache import ExcelCacheManager
-from areas.alimentacion.infrastructure.loaders import ExcelLoader
+from areas.alimentacion.helpers.cache import ExcelCacheManager
+from areas.alimentacion.helpers.loaders import ExcelLoader
 from core.runtime.log_buffer import LogBuffer, get_log_buffer
 from core.runtime.progress_buffer import ProgressTracker, get_progress_tracker
 from core.runtime.app_state import AppState, get_app_state
@@ -43,16 +43,16 @@ from core.composition.plc_function_base import FunctionBase
 class FunctionSubirExcel(FunctionBase):
     """FB que sube el Excel del operario y popula ``AppState``.
 
-    Inyección de dependencias vía constructor (mismo patrón que el
+    InyecciÃ³n de dependencias vÃ­a constructor (mismo patrÃ³n que el
     use case legacy, ver ``upload_excel.py:UploadExcelUseCase``):
-      - ``config_manager``: configuración TIA del departamento
+      - ``config_manager``: configuraciÃ³n TIA del departamento
         activo.  Obligatorio: si es ``None`` al ejecutar, lanza
         ``RuntimeError``.
       - ``app_state``: estado de la app.  Default Singleton
         (``get_app_state()``).
       - ``progress_tracker``: tracker de progreso.  Default Singleton.
       - ``log``: buffer de logs.  Default Singleton.
-      - ``excel_loader_factory``: factoría del loader.  Default
+      - ``excel_loader_factory``: factorÃ­a del loader.  Default
         ``ExcelLoader``.  Inyectada para tests.
       - ``excel_cache_cls``: clase del cache.  Default
         ``ExcelCacheManager``.  Inyectada para tests.
@@ -94,9 +94,9 @@ class FunctionSubirExcel(FunctionBase):
         self._log: LogBuffer = log if log is not None else get_log_buffer()
         self._loader_factory = excel_loader_factory
         self._cache_cls = excel_cache_cls
-        # Estado entre ticks (atributos internos, empiezan vacíos).
+        # Estado entre ticks (atributos internos, empiezan vacÃ­os).
         self._xlsx_path: str = ""
-        self._cache: Any = None  # ExcelCache, tipado Any para evitar import cíclico
+        self._cache: Any = None  # ExcelCache, tipado Any para evitar import cÃ­clico
 
     async def _tick_locked(self) -> None:
         assert self._lock.locked()
@@ -113,11 +113,11 @@ class FunctionSubirExcel(FunctionBase):
     # ------------------------------------------------------------------
 
     def _step_arrancar(self) -> None:
-        """nStep=10→20: pre-flight.  Valida config y captura xlsx_path."""
+        """nStep=10â†’20: pre-flight.  Valida config y captura xlsx_path."""
         if self._config is None:
             raise RuntimeError(
-                "FunctionSubirExcel requiere config_manager explícito. "
-                "Inyéctalo en el constructor."
+                "FunctionSubirExcel requiere config_manager explÃ­cito. "
+                "InyÃ©ctalo en el constructor."
             )
         xlsx_path = self._params.get("xlsx_path")
         if not xlsx_path:
@@ -128,10 +128,10 @@ class FunctionSubirExcel(FunctionBase):
         self.nStep = 20
 
     async def _step_parsear(self) -> None:
-        """nStep=20→30: parsea el xlsx (en hilo) y guarda en cache.
+        """nStep=20â†’30: parsea el xlsx (en hilo) y guarda en cache.
 
         Emite la stage ``parsear_excel`` al ``ProgressTracker``.
-        Re-lanza cualquier excepción para que el wrapper de la base
+        Re-lanza cualquier excepciÃ³n para que el wrapper de la base
         la capture y ponga el FB en ``n_error`` con ``error_msg``.
         """
         self._progress.start_stage("parsear_excel")
@@ -151,10 +151,10 @@ class FunctionSubirExcel(FunctionBase):
             raise
 
     def _step_volcar_y_result(self) -> None:
-        """nStep=30→99: vuelca AppState, construye summary y result.
+        """nStep=30â†’99: vuelca AppState, construye summary y result.
 
-        Emite la stage ``volcar_appstate``.  Loggea el éxito con el
-        conteo por tipo canónico (mismo shape que el use case legacy).
+        Emite la stage ``volcar_appstate``.  Loggea el Ã©xito con el
+        conteo por tipo canÃ³nico (mismo shape que el use case legacy).
         """
         self._progress.start_stage("volcar_appstate")
         try:
@@ -192,8 +192,8 @@ class FunctionSubirExcel(FunctionBase):
         self._log.success(
             f"[excel/load] Carga maestra: {sum(summary.values())} "
             f"dispositivos ({len(summary)} tipos), {n_procesos} "
-            f"procesos, {n_preal} parámetros reales, {n_pint} "
-            f"parámetros enteros, {n_alarmas} alarmas."
+            f"procesos, {n_preal} parÃ¡metros reales, {n_pint} "
+            f"parÃ¡metros enteros, {n_alarmas} alarmas."
         )
 
         self.result = {

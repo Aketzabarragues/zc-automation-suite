@@ -1,10 +1,10 @@
-"""Bounded Context: Alimentación.
+"""Bounded Context: AlimentaciÃ³n.
 
 Aporta al core:
   - State extensions (back-compat legacy de AppState).
-  - Catálogo de presentación (consumido por /api/v1/catalog).
-  - TIA commands del área (registrados por el tia-loop).
-  - Frontend manifest (Vue 3 ESM del área).
+  - CatÃ¡logo de presentaciÃ³n (consumido por /api/v1/catalog).
+  - TIA commands del Ã¡rea (registrados por el tia-loop).
+  - Frontend manifest (Vue 3 ESM del Ã¡rea).
   - Config defaults del ConfigManager.
   - FunctionBlock Template (``FunctionTemplate``) registrado como
     ``plantilla``: 10 pasos dummy para validar el engine y el
@@ -24,10 +24,10 @@ from areas.alimentacion.application.disp_state_extensions import (
 from areas.alimentacion.domain.disp_catalog import build_catalog as build_alim_catalog
 from areas.alimentacion.frontend.dispositivos_router import build_routers
 from areas.alimentacion.frontend.manifest import build as build_manifest
-from areas.alimentacion.infrastructure.config_defaults import (
+from areas.alimentacion.helpers.config_defaults import (
     install as install_defaults,
 )
-from areas.alimentacion.infrastructure.tia.extra_commands import (
+from areas.alimentacion.helpers.tia.extra_commands import (
     register as register_tia,
 )
 from core.composition.app_area_registry import AreaSpec
@@ -36,7 +36,7 @@ from areas.alimentacion._area_id import AREA_ID  # noqa: E402,F401
 
 AREA_SPEC = AreaSpec(
     id=AREA_ID,
-    label="Área de alimentación",
+    label="Ãrea de alimentaciÃ³n",
     icon="",
     config_block="alimentacion",
     contributes_routers=build_routers,

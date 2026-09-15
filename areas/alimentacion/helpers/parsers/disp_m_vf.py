@@ -1,23 +1,25 @@
-"""Parser de ``DispED`` (Entradas Digitales) del Excel corporativo.
+"""Parser de ``DispM_VF`` (Motores con Variador de Frecuencia) del Excel.
 
-Replica 1:1 del ``_build_disp_ed`` del parser consolidado legacy
-(``AlimentacionExcelParser``). Lee la ``ListObject`` ``Tabla_Disp_ED``
-de la hoja ``DISP_ED`` del workbook del departamento de alimentación
-y la mapea a una lista de ``DispED`` (DTO inmutable definido en
-``areas.alimentacion.domain.models.excel_cache``).
+Replica 1:1 del ``_build_disp_m_vf`` del parser consolidado legacy
+(``AlimentacionExcelParser``). Hereda todos los campos de ``DispM`` y
+aÃ±ade ``sa_byte`` (salida analÃ³gica) + ``cfg_byteanalogica`` (lÃ­nea SCL
+de control analÃ³gico del variador).
+
+Lee la ``ListObject`` ``Tabla_Disp_M_VF`` de la hoja ``DISP_M_VF``
+del workbook del departamento de alimentaciÃ³n y la mapea a una
+lista de ``DispM_VF``.
 
 Diferencias con el legacy:
     * Recibe el workbook **ya abierto** (``wb: Workbook``). NO abre
       el archivo: esa responsabilidad es del ``ExcelLoader``.
     * Sin pandas: openpyxl directo + ``extract_list_object_rows``.
     * Defensivo: cada fila se envuelve en ``try/except`` y las
-      filas inválidas se descartan con ``logger.warning`` (no
-      rompen la carga).
+      filas invÃ¡lidas se descartan con ``logger.warning``.
     * Si se inyecta un ``ConfigManager``, las constantes ``SHEET`` /
       ``TABLE`` se sobreescriben desde
-      ``ConfigManager.get_excel_target_for("ed")``.
+      ``ConfigManager.get_excel_target_for("m_vf")``.
 
-Restricción arquitectónica: este módulo es OFFLINE; no importa
+RestricciÃ³n arquitectÃ³nica: este mÃ³dulo es OFFLINE; no importa
 ``siemens_tia_scripting``.
 """
 from __future__ import annotations
@@ -26,8 +28,8 @@ import logging
 
 from openpyxl import Workbook
 
-from areas.alimentacion.domain.models.excel_cache import DispED
-from areas.alimentacion.infrastructure.parsers._xlsx_helpers import (
+from areas.alimentacion.domain.models.excel_cache import DispM_VF
+from areas.alimentacion.helpers.parsers._xlsx_helpers import (
     _safe_int,
     _safe_str,
     extract_list_object_rows,
@@ -38,24 +40,24 @@ from core.infrastructure.config.config_manager import ConfigManager
 logger = logging.getLogger(__name__)
 
 
-class DispEDParser:
-    """Parser de la ``Tabla_Disp_ED`` (hoja ``DISP_ED``).
+class DispM_VFParser:
+    """Parser de la ``Tabla_Disp_M_VF`` (hoja ``DISP_M_VF``).
 
     Atributos de clase:
-        * ``SHEET``: nombre literal de la hoja (``"DISP_ED"``).
+        * ``SHEET``: nombre literal de la hoja (``"DISP_M_VF"``).
         * ``TABLE``: nombre de la ``ListObject``
-          (``"Tabla_Disp_ED"``).
+          (``"Tabla_Disp_M_VF"``).
 
     Si se inyecta un ``ConfigManager`` con un ``excel_target``
-    para ``"ed"``, los nombres se sobreescriben en ``__init__``.
+    para ``"m_vf"``, los nombres se sobreescriben en ``__init__``.
     """
 
-    SHEET = "DISP_ED"
-    TABLE = "Tabla_Disp_ED"
+    SHEET = "DISP_M_VF"
+    TABLE = "Tabla_Disp_M_VF"
 
     def __init__(self, config_manager: ConfigManager | None = None) -> None:
         if config_manager is not None:
-            target = config_manager.get_excel_target_for("ed")
+            target = config_manager.get_excel_target_for("m_vf")
             if target is not None:
                 sheet = target.get("sheet")
                 table = target.get("table")
@@ -64,26 +66,25 @@ class DispEDParser:
                 if isinstance(table, str) and table:
                     self.TABLE = table
 
-    def extraer(self, wb: Workbook) -> list[DispED]:
-        """Extrae todas las entradas digitales del workbook.
+    def extraer(self, wb: Workbook) -> list[DispM_VF]:
+        """Extrae todos los motores con variador del workbook.
 
         Args:
-            wb: workbook de openpyxl ya abierto (no se cierra aquí).
+            wb: workbook de openpyxl ya abierto (no se cierra aquÃ­).
 
         Returns:
-            Lista de ``DispED``. Si la hoja o la tabla no existen,
+            Lista de ``DispM_VF``. Si la hoja o la tabla no existen,
             devuelve ``[]``. Las filas que fallen al construir el
             DTO se descartan con WARNING.
         """
         rows = extract_list_object_rows(wb, self.SHEET, self.TABLE)
-        result: list[DispED] = []
+        result: list[DispM_VF] = []
         for row in rows:
-            # Política legacy: descartar filas sin UID ni Numero.
             if not _safe_str(row.get("UID")) and not _safe_str(row.get("Numero")):
                 continue
             try:
                 result.append(
-                    DispED(
+                    DispM_VF(
                         numero=_safe_int(row.get("Numero")),
                         plc_tag=_safe_str(row.get("PLC.Tag")),
                         plc_comentario=_safe_str(row.get("PLC.Comentario")),
@@ -91,8 +92,13 @@ class DispEDParser:
                         uid=_safe_str(row.get("UID")),
                         tag=_safe_str(row.get("Tag")),
                         fat=_safe_str(row.get("FAT")),
-                        e_byte=_safe_int(row.get("E.Byte")),
-                        e_bit=_safe_int(row.get("E.Bit")),
+                        s_byte=_safe_int(row.get("S.Byte")),
+                        s_bit=_safe_int(row.get("S.Bit")),
+                        rt_byte=_safe_int(row.get("RT.Byte")),
+                        rt_bit=_safe_int(row.get("RT.Bit")),
+                        rm_byte=_safe_int(row.get("RM.Byte")),
+                        rm_bit=_safe_int(row.get("RM.Bit")),
+                        sa_byte=_safe_int(row.get("SA.Byte")),
                         gr_alarma=_safe_int(row.get("Gr.Alarma")),
                         cuadro=_safe_str(row.get("Cuadro")),
                         observaciones=_safe_str(row.get("Observaciones")),
@@ -101,9 +107,16 @@ class DispEDParser:
                         hmi_index=_safe_int(row.get("Hmi.Index")),
                         hmi_texto=_safe_str(row.get("Hmi.Texto")),
                         cfg_habilitar=_safe_str(row.get("Cfg.Habilitar")),
-                        cfg_byte_entrada=_safe_str(row.get("Cfg.ByteEntrada")),
-                        cfg_bit_entrada=_safe_str(row.get("Cfg.BitEntrada")),
-                        cfg_grupo_alarma=_safe_str(row.get("Cfg.GrupoAlarma")),
+                        cfg_byteretornotermico=_safe_str(row.get("Cfg.ByteRetornoTermico")),
+                        cfg_bitretornotermico=_safe_str(row.get("Cfg.BitRetornoTermico")),
+                        cfg_byteconfmarcha=_safe_str(row.get("Cfg.ByteConfMarcha")),
+                        cfg_bitconfmarcha=_safe_str(row.get("Cfg.BitConfMarcha")),
+                        cfg_byteactivacion=_safe_str(row.get("Cfg.ByteActivacion")),
+                        cfg_bitactivacion=_safe_str(row.get("Cfg.BitActivacion")),
+                        cfg_byteanalogica=_safe_str(row.get("Cfg.ByteAnalogica")),
+                        cfg_habrettermico=_safe_str(row.get("Cfg.HabRetTermico")),
+                        cfg_habretconfmarcha=_safe_str(row.get("Cfg.HabRetConfMarcha")),
+                        cfg_grupoalarma=_safe_str(row.get("Cfg.GrupoAlarma")),
                         comentario_db=_safe_str(row.get("ComentarioDB")),
                     )
                 )
@@ -115,4 +128,4 @@ class DispEDParser:
         return result
 
 
-__all__ = ["DispEDParser"]
+__all__ = ["DispM_VFParser"]

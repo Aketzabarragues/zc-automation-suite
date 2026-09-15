@@ -1,12 +1,12 @@
 """Tests de los comandos del worker para sync de comentarios de procesos.
 
-Cubre la integración de ``extra_commands.register(registry)`` con el
-``COMMAND_REGISTRY`` del worker genérico: verifica que las 3 keys
+Cubre la integraciÃ³n de ``extra_commands.register(registry)`` con el
+``COMMAND_REGISTRY`` del worker genÃ©rico: verifica que las 3 keys
 ``update_proc_comments_db_<kind>`` quedan registradas y que su
-handler invoca la cadena esperada (export → updater.update() →
+handler invoca la cadena esperada (export â†’ updater.update() â†’
 import, con guarda de was_modified).
 
-Patrón de mocking: mockeamos directamente las keys
+PatrÃ³n de mocking: mockeamos directamente las keys
 ``"export_block"`` e ``"import_block"`` en el
 ``COMMAND_REGISTRY`` real (mismo enfoque que
 ``test_disp_comment_handlers.py``) para evitar el problema del
@@ -21,15 +21,15 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from areas.alimentacion.infrastructure.tia import extra_commands
+from areas.alimentacion.helpers.tia import extra_commands
 from core.infrastructure.tia import worker_tia
 
 
-# ── Helpers ──────────────────────────────────────────────────────────────
+# â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def _build_minimal_block_files(work_dir: Path, db_name: str) -> None:
-    """Escribe un par mínimo .s7dcl + .s7res en ``work_dir`` para que
+    """Escribe un par mÃ­nimo .s7dcl + .s7res en ``work_dir`` para que
     el updater no lance FileNotFoundError al invocarse."""
     dcl = work_dir / f"{db_name}.s7dcl"
     res = work_dir / f"{db_name}.s7res"
@@ -59,12 +59,12 @@ def _build_minimal_block_files(work_dir: Path, db_name: str) -> None:
     )
 
 
-# ── Tests ───────────────────────────────────────────────────────────────
+# â”€â”€ Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def test_register_anhade_las_keys_de_procesos() -> None:
-    """``register(registry)`` añade las keys de procesos:
-    las 3 individuales (``_preal``, ``_pint``, ``_alm``) más la combinada
+    """``register(registry)`` aÃ±ade las keys de procesos:
+    las 3 individuales (``_preal``, ``_pint``, ``_alm``) mÃ¡s la combinada
     ``_param`` (PReal + PInt en un solo export/import sobre el DB PARAM).
     """
     registry: dict[str, Any] = {}
@@ -74,7 +74,7 @@ def test_register_anhade_las_keys_de_procesos() -> None:
     assert "update_proc_comments_db_alm" in registry
     # Nueva op combinada: 1 export + 1 import cubriendo PReal y PInt.
     assert "update_proc_comments_db_param" in registry
-    # También siguen las legacy de dispositivos.
+    # TambiÃ©n siguen las legacy de dispositivos.
     assert "update_disp_comments_db_ed" in registry
     # Sept-2026: 2 handlers nuevos del split online/offline.
     assert "commit_disp_nmax_renames_online" in registry
@@ -85,8 +85,8 @@ def test_register_anhade_las_keys_de_procesos() -> None:
 
 
 def test_handler_preal_invoca_export_updater_import() -> None:
-    """Handler de PReal: ``export_block`` → ``ProcCommentUpdater.update()
-    + save()`` → ``import_block`` (en ese orden, con los args correctos)."""
+    """Handler de PReal: ``export_block`` â†’ ``ProcCommentUpdater.update()
+    + save()`` â†’ ``import_block`` (en ese orden, con los args correctos)."""
     COMMAND_REGISTRY = worker_tia.COMMAND_REGISTRY
     with tempfile.TemporaryDirectory() as td:
         work_dir = Path(td)
@@ -110,7 +110,7 @@ def test_handler_preal_invoca_export_updater_import() -> None:
 
         try:
             with patch(
-                "areas.alimentacion.infrastructure.sd.proc_comment_updater."
+                "areas.alimentacion.helpers.sd.proc_comment_updater."
                 "ProcCommentUpdater",
                 return_value=mock_updater,
             ):
@@ -152,14 +152,14 @@ def test_handler_preal_invoca_export_updater_import() -> None:
         imp_args = mock_import.call_args.args[2]
         assert imp_args["plc_name"] == "PLC_X"
         assert imp_args["import_dir"] == str(work_dir)
-        # target_folder se pasa VACÍO (no el "003_Procesos" que viene
+        # target_folder se pasa VACÃO (no el "003_Procesos" que viene
         # del use case) para que TIA reconcilie por nombre y haga
-        # UPDATE (no CREATE) — ver rationale en extra_commands.py.
+        # UPDATE (no CREATE) â€” ver rationale en extra_commands.py.
         assert imp_args["target_folder"] == ""
 
 
 def test_handler_no_invoca_import_si_no_modified() -> None:
-    """Si ``was_modified() == False`` (caso slot_map vacío), el handler
+    """Si ``was_modified() == False`` (caso slot_map vacÃ­o), el handler
     NO invoca ``import_block`` (evita ensuciar el historial Undo)."""
     COMMAND_REGISTRY = worker_tia.COMMAND_REGISTRY
     with tempfile.TemporaryDirectory() as td:
@@ -179,12 +179,12 @@ def test_handler_no_invoca_import_si_no_modified() -> None:
         mock_updater.update.return_value.satellite_reused = {}
         mock_updater.update.return_value.satellite_inserted = {}
         mock_updater.update.return_value.total_mlcs_in_res = 5
-        mock_updater.was_modified.return_value = False  # NO se modificó
+        mock_updater.was_modified.return_value = False  # NO se modificÃ³
         mock_updater.save = MagicMock()
 
         try:
             with patch(
-                "areas.alimentacion.infrastructure.sd.proc_comment_updater."
+                "areas.alimentacion.helpers.sd.proc_comment_updater."
                 "ProcCommentUpdater",
                 return_value=mock_updater,
             ):
@@ -195,7 +195,7 @@ def test_handler_no_invoca_import_si_no_modified() -> None:
                         "plc_name":      "PLC_X",
                         "db_name":       "DB_TEST",
                         "array_name":    "ALM",
-                        "slot_map":      {},  # vacío → no hay cambios
+                        "slot_map":      {},  # vacÃ­o â†’ no hay cambios
                         "work_dir":      str(work_dir),
                         "target_folder": "003_Procesos",
                     },
@@ -210,7 +210,7 @@ def test_handler_no_invoca_import_si_no_modified() -> None:
             else:
                 COMMAND_REGISTRY["import_block"] = orig_import
 
-        # export sí se llama (siempre).
+        # export sÃ­ se llama (siempre).
         mock_export.assert_called_once()
         # update se llama, save se llama.
         assert mock_updater.update.called
@@ -219,13 +219,13 @@ def test_handler_no_invoca_import_si_no_modified() -> None:
         mock_import.assert_not_called()
 
 
-# ── Tests del handler combinado ``_param`` (regression bug 2026-09-07) ──
+# â”€â”€ Tests del handler combinado ``_param`` (regression bug 2026-09-07) â”€â”€
 
 
 def test_handler_param_1_export_1_import_cubre_preal_y_pint() -> None:
     """Regression del bug del doble ``export_block``: el handler combinado
     ``_param`` debe hacer **1 solo export** y **1 solo import**, no
-    2+2 como las ops separadas harían. Así el cambio de PReal escrito
+    2+2 como las ops separadas harÃ­an. AsÃ­ el cambio de PReal escrito
     por el updater en disco NO se SOBREESCRIBE por el export de PInt
     sobre el mismo DB.
     """
@@ -241,8 +241,8 @@ def test_handler_param_1_export_1_import_cubre_preal_y_pint() -> None:
         COMMAND_REGISTRY["export_block"] = mock_export
         COMMAND_REGISTRY["import_block"] = mock_import
 
-        # ``side_effect`` con lista: la 1ª llamada al ``ProcCommentUpdater``
-        # es para PReal, la 2ª es para PInt. Ambas devuelven un mock
+        # ``side_effect`` con lista: la 1Âª llamada al ``ProcCommentUpdater``
+        # es para PReal, la 2Âª es para PInt. Ambas devuelven un mock
         # que reporta ``was_modified() == True`` y resultados triviales.
         def _make_mock_updater() -> MagicMock:
             mu = MagicMock()
@@ -256,7 +256,7 @@ def test_handler_param_1_export_1_import_cubre_preal_y_pint() -> None:
 
         try:
             with patch(
-                "areas.alimentacion.infrastructure.sd.proc_comment_updater."
+                "areas.alimentacion.helpers.sd.proc_comment_updater."
                 "ProcCommentUpdater",
                 side_effect=[_make_mock_updater(), _make_mock_updater()],
             ):
@@ -283,7 +283,7 @@ def test_handler_param_1_export_1_import_cubre_preal_y_pint() -> None:
             else:
                 COMMAND_REGISTRY["import_block"] = orig_import
 
-        # CRÍTICO: 1 solo export, 1 solo import (no 2+2 como antes).
+        # CRÃTICO: 1 solo export, 1 solo import (no 2+2 como antes).
         mock_export.assert_called_once()
         mock_import.assert_called_once()
         # La op cubre ambos arrays: ``preal`` y ``pint`` deben figurar.
@@ -294,7 +294,7 @@ def test_handler_param_1_export_1_import_cubre_preal_y_pint() -> None:
 
 
 def test_handler_param_no_invoca_import_si_ninguno_modified() -> None:
-    """Si ambos slot_maps están vacíos (cero cambios), el handler
+    """Si ambos slot_maps estÃ¡n vacÃ­os (cero cambios), el handler
     NO invoca ``import_block`` (evita ensuciar historial Undo)."""
     COMMAND_REGISTRY = worker_tia.COMMAND_REGISTRY
     with tempfile.TemporaryDirectory() as td:
@@ -310,7 +310,7 @@ def test_handler_param_no_invoca_import_si_ninguno_modified() -> None:
 
         try:
             with patch(
-                "areas.alimentacion.infrastructure.sd.proc_comment_updater."
+                "areas.alimentacion.helpers.sd.proc_comment_updater."
                 "ProcCommentUpdater",
             ):
                 handler = extra_commands.make_cmd_update_proc_comments_db_param()
@@ -319,8 +319,8 @@ def test_handler_param_no_invoca_import_si_ninguno_modified() -> None:
                     {
                         "plc_name":       "PLC_X",
                         "db_name":        "DB_TEST",
-                        "preal_slot_map": {},  # vacío
-                        "pint_slot_map":  {},  # vacío
+                        "preal_slot_map": {},  # vacÃ­o
+                        "pint_slot_map":  {},  # vacÃ­o
                         "work_dir":       str(work_dir),
                         "target_folder":  "003_Procesos",
                     },
@@ -342,19 +342,19 @@ def test_handler_param_no_invoca_import_si_ninguno_modified() -> None:
         assert result["pint"]["modified"] is False
 
 
-# ── Tests del nuevo patrón ``exports_subdir`` (Commit 5) ──────────────
+# â”€â”€ Tests del nuevo patrÃ³n ``exports_subdir`` (Commit 5) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 #
-# El plan 9-carpetas (ver ``_plan/16_carpetas_convencion.md`` §2.2)
-# introduce la separación:
+# El plan 9-carpetas (ver ``_plan/16_carpetas_convencion.md`` Â§2.2)
+# introduce la separaciÃ³n:
 #   - TIA exporta al snapshot limpio (``exports_bloques/<db_subpath>/``).
 #   - ``shutil.copytree`` lo copia a ``modified_bloques/<db_subpath>/``.
 #   - El updater modifica la copia.
-#   - El import_block lee desde ``modified_bloques`` raíz.
+#   - El import_block lee desde ``modified_bloques`` raÃ­z.
 #
 # Estos tests verifican que los handlers respetan este contrato cuando
 # el use case les pasa el nuevo arg opcional ``exports_subdir``. Los
 # tests anteriores (``test_handler_preal_invoca_export_updater_import``
-# etc.) NO pasan ``exports_subdir``, así que cubren el camino legacy.
+# etc.) NO pasan ``exports_subdir``, asÃ­ que cubren el camino legacy.
 
 
 def test_handler_alm_usa_exports_subdir_y_copytree_si_se_pasa() -> None:
@@ -377,8 +377,8 @@ def test_handler_alm_usa_exports_subdir_y_copytree_si_se_pasa() -> None:
         # ``side_effect`` del export: simula a TIA creando el
         # directorio y escribiendo los archivos en ``target_dir``.
         # (En el commit anterior los tests pre-creaban los archivos;
-        # aquí los crea el mock para que ``shutil.copytree`` tenga
-        # algo real que copiar — y así verificamos que el copytree
+        # aquÃ­ los crea el mock para que ``shutil.copytree`` tenga
+        # algo real que copiar â€” y asÃ­ verificamos que el copytree
         # deja los archivos en ``work_dir/<db_subpath>``.)
         def _export_side_effect(portal, ts, args):
             tdir = Path(args["target_dir"])
@@ -412,7 +412,7 @@ def test_handler_alm_usa_exports_subdir_y_copytree_si_se_pasa() -> None:
 
         try:
             with patch(
-                "areas.alimentacion.infrastructure.sd.proc_comment_updater."
+                "areas.alimentacion.helpers.sd.proc_comment_updater."
                 "ProcCommentUpdater",
                 side_effect=_capture_updater,
             ):
@@ -451,16 +451,16 @@ def test_handler_alm_usa_exports_subdir_y_copytree_si_se_pasa() -> None:
         assert exp_args["target_dir"] != str(work_dir / db_subpath)
         assert exp_args["target_dir"] != str(exports_subdir)
 
-        # 2) shutil.copytree (REAL, no mockeado) copió los archivos
+        # 2) shutil.copytree (REAL, no mockeado) copiÃ³ los archivos
         #    del snapshot limpio al modified. Lo verificamos
         #    comprobando que los archivos existen en modified_target.
         assert (modified_target / "DB_TEST.s7dcl").exists()
         assert (modified_target / "DB_TEST.s7res").exists()
-        # Y también siguen en el snapshot limpio (TIA no los borra).
+        # Y tambiÃ©n siguen en el snapshot limpio (TIA no los borra).
         assert (export_target / "DB_TEST.s7dcl").exists()
         assert (export_target / "DB_TEST.s7res").exists()
 
-        # 3) El updater se construyó con paths del modified, no del
+        # 3) El updater se construyÃ³ con paths del modified, no del
         #    exports. Esto es lo que hace que el updater modifique la
         #    copia, dejando el snapshot intacto.
         assert len(captured_init_kwargs) == 1
@@ -469,7 +469,7 @@ def test_handler_alm_usa_exports_subdir_y_copytree_si_se_pasa() -> None:
         assert s7dcl_path == modified_target / "DB_TEST.s7dcl"
         assert s7res_path == modified_target / "DB_TEST.s7res"
 
-        # 4) import_block llamado con import_dir = work_dir (raíz) y
+        # 4) import_block llamado con import_dir = work_dir (raÃ­z) y
         #    target_folder="" (reconcilia por nombre).
         mock_import.assert_called_once()
         imp_args = mock_import.call_args.args[2]
@@ -479,8 +479,8 @@ def test_handler_alm_usa_exports_subdir_y_copytree_si_se_pasa() -> None:
 
 
 def test_handler_param_usa_exports_subdir_y_copytree_si_se_pasa() -> None:
-    """Commit 5: el handler combinado ``_param`` también respeta el
-    nuevo patrón. 1 export a ``exports_subdir/<db_subpath>`` +
+    """Commit 5: el handler combinado ``_param`` tambiÃ©n respeta el
+    nuevo patrÃ³n. 1 export a ``exports_subdir/<db_subpath>`` +
     ``shutil.copytree`` a ``work_dir/<db_subpath>`` + 2 updaters
     (PReal, PInt) sobre la copia + 1 import desde ``work_dir``.
     """
@@ -525,7 +525,7 @@ def test_handler_param_usa_exports_subdir_y_copytree_si_se_pasa() -> None:
 
         try:
             with patch(
-                "areas.alimentacion.infrastructure.sd.proc_comment_updater."
+                "areas.alimentacion.helpers.sd.proc_comment_updater."
                 "ProcCommentUpdater",
                 side_effect=_capture_updater,
             ):
@@ -559,7 +559,7 @@ def test_handler_param_usa_exports_subdir_y_copytree_si_se_pasa() -> None:
         exp_args = mock_export.call_args.args[2]
         assert exp_args["target_dir"] == str(export_target)
 
-        # 2) shutil.copytree (real) dejó los archivos en modified_target.
+        # 2) shutil.copytree (real) dejÃ³ los archivos en modified_target.
         assert (modified_target / "DB_TEST.s7dcl").exists()
         assert (modified_target / "DB_TEST.s7res").exists()
 
@@ -581,7 +581,7 @@ def test_handler_param_usa_exports_subdir_y_copytree_si_se_pasa() -> None:
 
 def test_handler_alm_sin_exports_subdir_usa_patron_legacy() -> None:
     """Backward compat (Commit 5): si NO se pasa ``exports_subdir``
-    (caso de tests legacy o callers que aún no migraron), el handler
+    (caso de tests legacy o callers que aÃºn no migraron), el handler
     exporta directo a ``work_dir/<db_subpath>`` y el updater modifica
     in-place. Mismo comportamiento que antes del Commit 5.
     """
@@ -589,7 +589,7 @@ def test_handler_alm_sin_exports_subdir_usa_patron_legacy() -> None:
     with tempfile.TemporaryDirectory() as td:
         work_dir = Path(td)
         # Pre-crear los archivos en work_dir (como hacen los tests
-        # legacy: el export mock no hace nada, los archivos ya están).
+        # legacy: el export mock no hace nada, los archivos ya estÃ¡n).
         _build_minimal_block_files(work_dir, "DB_TEST")
 
         orig_export = COMMAND_REGISTRY.get("export_block")
@@ -610,7 +610,7 @@ def test_handler_alm_sin_exports_subdir_usa_patron_legacy() -> None:
 
         try:
             with patch(
-                "areas.alimentacion.infrastructure.sd.proc_comment_updater."
+                "areas.alimentacion.helpers.sd.proc_comment_updater."
                 "ProcCommentUpdater",
                 return_value=mock_updater,
             ):
@@ -641,7 +641,7 @@ def test_handler_alm_sin_exports_subdir_usa_patron_legacy() -> None:
         mock_export.assert_called_once()
         exp_args = mock_export.call_args.args[2]
         assert exp_args["target_dir"] == str(work_dir)
-        # El import también desde work_dir con target_folder="".
+        # El import tambiÃ©n desde work_dir con target_folder="".
         mock_import.assert_called_once()
         imp_args = mock_import.call_args.args[2]
         assert imp_args["import_dir"] == str(work_dir)
