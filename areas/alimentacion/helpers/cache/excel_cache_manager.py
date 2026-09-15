@@ -1,10 +1,10 @@
-"""Singleton IT del cache del Excel corporativo del subdominio alimentación.
+"""Singleton IT del cache del Excel corporativo del subdominio alimentaciÃ³n.
 
-Este módulo aporta el ``ExcelCacheManager``, equivalente IT del
+Este mÃ³dulo aporta el ``ExcelCacheManager``, equivalente IT del
 ``BloqueCacheManager`` de ``core`` (ver ``core/infrastructure/cache/
 bloque_cache_manager.py``) pero con tres diferencias clave:
 
-  1. Cachea **una sola entrada** (``ExcelCache``) por proceso, no un
+  1. Cachea **una sola entrada** (``DataExcelCache``) por proceso, no un
      ``dict[plc_name, cache]`` por PLC.
   2. Aporta ``wait_for_first_load(timeout)`` con ``asyncio.Event``
      (D4 del operario) para que coroutines puedan esperar al primer
@@ -14,19 +14,19 @@ bloque_cache_manager.py``) pero con tres diferencias clave:
      sube uno nuevo.
 
 API:
-    * ``get() -> ExcelCache | None``
+    * ``get() -> DataExcelCache | None``
     * ``put(cache) -> None``
     * ``clear() -> None``
     * ``needs_reload(excel_path, excel_mtime_ns) -> bool``
-        (lectura atómica, no async — útil en hot paths del router).
+        (lectura atÃ³mica, no async â€” Ãºtil en hot paths del router).
     * ``on_excel_reload(excel_path, excel_mtime_ns) -> None``
         (limpia el cache si la tupla nueva difiere).
-    * ``wait_for_first_load(timeout) -> ExcelCache | None``
+    * ``wait_for_first_load(timeout) -> DataExcelCache | None``
         (bloquea hasta el primer ``put`` o hasta ``timeout``).
 
-Restricción arquitectónica: este módulo NO importa
+RestricciÃ³n arquitectÃ³nica: este mÃ³dulo NO importa
 ``siemens_tia_scripting``. Solo usa ``asyncio``, ``logging`` y el
-DTO ``ExcelCache`` de ``areas.alimentacion.domain.models``.
+DTO ``DataExcelCache`` de ``areas.alimentacion.domain.models``.
 """
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ import asyncio
 import logging
 from typing import ClassVar
 
-from areas.alimentacion.domain.models.excel_cache import ExcelCache
+from areas.alimentacion.data.data_ExcelCache import DataExcelCache
 
 
 _logger = logging.getLogger(__name__)
@@ -43,30 +43,30 @@ _logger = logging.getLogger(__name__)
 class ExcelCacheManager:
     """Singleton por proceso del cache IT del Excel corporativo."""
 
-    _cache: ClassVar[ExcelCache | None] = None
+    _cache: ClassVar[DataExcelCache | None] = None
     _lock: ClassVar[asyncio.Lock] = asyncio.Lock()
     _first_load_event: ClassVar[asyncio.Event] = asyncio.Event()
 
     @classmethod
-    async def get(cls) -> ExcelCache | None:
-        """Devuelve el cache actual o ``None`` si está vacío.
+    async def get(cls) -> DataExcelCache | None:
+        """Devuelve el cache actual o ``None`` si estÃ¡ vacÃ­o.
 
         Returns:
-            El ``ExcelCache`` cacheado o ``None`` si nunca se hizo
+            El ``DataExcelCache`` cacheado o ``None`` si nunca se hizo
             un ``put``.
         """
         async with cls._lock:
             return cls._cache
 
     @classmethod
-    async def put(cls, cache: ExcelCache) -> None:
-        """Almacena un nuevo ``ExcelCache`` (reemplaza el anterior).
+    async def put(cls, cache: DataExcelCache) -> None:
+        """Almacena un nuevo ``DataExcelCache`` (reemplaza el anterior).
 
-        Si el cache estaba vacío (``_first_load_event`` no estaba
+        Si el cache estaba vacÃ­o (``_first_load_event`` no estaba
         seteado), lo dispara para desbloquear a las coroutines
         esperando en ``wait_for_first_load``.
 
-        Emite un ``INFO`` con las métricas del cache (procesos, PReal,
+        Emite un ``INFO`` con las mÃ©tricas del cache (procesos, PReal,
         PInt, alarmas, tipos de dispositivos, path).
         """
         async with cls._lock:
@@ -90,9 +90,9 @@ class ExcelCacheManager:
     async def clear(cls) -> None:
         """Invalida el cache.
 
-        Si había un cache, emite un ``INFO`` con el path del Excel
+        Si habÃ­a un cache, emite un ``INFO`` con el path del Excel
         invalidado. Resetea el ``_first_load_event`` para que
-        ``wait_for_first_load`` vuelva a bloquear hasta el próximo
+        ``wait_for_first_load`` vuelva a bloquear hasta el prÃ³ximo
         ``put``.
         """
         async with cls._lock:
@@ -108,14 +108,14 @@ class ExcelCacheManager:
     def needs_reload(cls, excel_path: str, excel_mtime_ns: int) -> bool:
         """Decide si el cache es stale sin adquirir el lock.
 
-        Útil en hot paths del router (no bloquea el event loop). La
-        lectura de referencias atómicas en CPython es segura sin
+        Ãštil en hot paths del router (no bloquea el event loop). La
+        lectura de referencias atÃ³micas en CPython es segura sin
         lock; el peor caso es leer un valor ligeramente stale, lo
-        cual solo afecta a esta decisión y se corrige en el próximo
+        cual solo afecta a esta decisiÃ³n y se corrige en el prÃ³ximo
         ``on_excel_reload``.
 
         Returns:
-            ``True`` si el cache está vacío, si el path difiere, o
+            ``True`` si el cache estÃ¡ vacÃ­o, si el path difiere, o
             si el ``mtime_ns`` difiere. ``False`` solo si la tupla
             ``(path, mtime_ns)`` coincide exactamente.
         """
@@ -133,8 +133,8 @@ class ExcelCacheManager:
         """Invalida el cache si la nueva tupla difiere de la cacheada.
 
         Si la tupla ``(excel_path, excel_mtime_ns)`` coincide con
-        la cacheada, es un no-op (el cache sigue siendo válido).
-        Si difiere (o el cache está vacío), llama a ``clear()``.
+        la cacheada, es un no-op (el cache sigue siendo vÃ¡lido).
+        Si difiere (o el cache estÃ¡ vacÃ­o), llama a ``clear()``.
         """
         if cls.needs_reload(excel_path, excel_mtime_ns):
             await cls.clear()
@@ -142,7 +142,7 @@ class ExcelCacheManager:
     @classmethod
     async def wait_for_first_load(
         cls, timeout: float | None = None
-    ) -> ExcelCache | None:
+    ) -> DataExcelCache | None:
         """Bloquea hasta que el primer load se complete o expire el timeout.
 
         Args:
@@ -150,9 +150,9 @@ class ExcelCacheManager:
                 indefinida. ``0`` = no espera (testea estado actual).
 
         Returns:
-            El cache actual si el primer ``put`` ocurrió durante la
-            espera, o ``None`` si expiró el ``timeout`` o si el
-            ``put`` aún no se hizo.
+            El cache actual si el primer ``put`` ocurriÃ³ durante la
+            espera, o ``None`` si expirÃ³ el ``timeout`` o si el
+            ``put`` aÃºn no se hizo.
         """
         try:
             await asyncio.wait_for(cls._first_load_event.wait(), timeout=timeout)

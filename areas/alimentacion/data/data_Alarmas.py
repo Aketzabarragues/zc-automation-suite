@@ -1,11 +1,11 @@
-"""areas.alimentacion.data.data_Alarmas — Data Block de AlarmaPLC.
+"""areas.alimentacion.data.data_Alarmas â€” Data Block de DataAlarmaPLC.
 
 Fase 3, paso 3.2.7.  Migrado de ``areas/alimentacion/domain/models/excel_cache.py``.
 
 Una **alarma** es un bit de un DB de alarmas (``DB{num_db}``) que el
 HMI monitoriza para senalizar un evento.  Las alarmas se agrupan en
 un DB por proceso: ``DB{num_db}_{proceso_codigo}_ALM`` (uno por proceso,
-contiene varios ``AlarmaPLC`` consecutivos en una ``ARRAY[0..N] OF BOOL``
+contiene varios ``DataAlarmaPLC`` consecutivos en una ``ARRAY[0..N] OF BOOL``
 o similar).
 
 Mas simple que ``DataParamRealPLC`` / ``DataParamIntPLC`` (7 campos, sin
@@ -33,9 +33,9 @@ class DataAlarmaPLC:
 
     Campos (7):
       - ``uid``: identificador unico **str** (``'AL_1_001'``).
-      - ``numero``: nº logico de la alarma (``"001"``, ``"002"``).
+      - ``numero``: nÂº logico de la alarma (``"001"``, ``"002"``).
       - ``proceso``: nombre del proceso al que pertenece la alarma.
-      - ``num_db``: nº del DB de alarmas donde se mapea este bit.
+      - ``num_db``: nÂº del DB de alarmas donde se mapea este bit.
       - ``descripcion``: descripcion legible (visible en HMI al activarse).
       - ``comentario_db``: comentario del DB (no del bit).
     """

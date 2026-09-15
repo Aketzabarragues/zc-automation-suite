@@ -7,7 +7,7 @@ Endpoints:
   GET  /api/v1/progress/current  -> snapshot de ProgressTracker.
   POST /api/v1/progress/clear    -> resetea ProgressTracker.
 
-El endpoint ``/api/v1/state/dispositivos`` (vuelco del ExcelCache
+El endpoint ``/api/v1/state/dispositivos`` (vuelco del DataExcelCache
 del AppState) era de este modulo, pero es especifico del area de
 alimentacion. Se movio a
 ``areas/alimentacion/frontend/dispositivos_router.py`` y se monta

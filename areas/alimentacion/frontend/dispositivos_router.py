@@ -1,6 +1,6 @@
 """Router Flask del dominio de alimentacion.
 
-Endpoints que exponen el modelo ``ExcelCache`` (especifico de esta
+Endpoints que exponen el modelo ``DataExcelCache`` (especifico de esta
 area) via HTTP REST. Montado por el shell Flask a traves del hook
 ``AreaSpec.contributes_routers`` de alimentacion. El shell no sabe
 que existe este router; solo lo registra cuando el AreaRegistry lo
@@ -10,10 +10,10 @@ Endpoints:
   GET /api/v1/state/dispositivos -> vuelca AppState del area:
     - ``dimensiones``     (num_disp_ed, ...)
     - ``dispositivos``    ({canonica: [Dispositivo, ...]})
-    - ``procesos``        (ExcelCache.procesos)
-    - ``parametros_int``  (ExcelCache.parametros_int)
-    - ``parametros_real`` (ExcelCache.parametros_real)
-    - ``alarmas``         (ExcelCache.alarmas)
+    - ``procesos``        (DataExcelCache.procesos)
+    - ``parametros_int``  (DataExcelCache.parametros_int)
+    - ``parametros_real`` (DataExcelCache.parametros_real)
+    - ``alarmas``         (DataExcelCache.alarmas)
     - ``software_parsers_implemented`` (bool)
 
 Las dependencias se inyectan via ``current_app.config['_LAZY_*']``
@@ -38,7 +38,7 @@ bp = Blueprint(
 
 
 def _extract_software_from_cache(state: Any) -> dict[str, Any]:
-    """Extrae 4 dominios de software + flag desde el ExcelCache del AppState."""
+    """Extrae 4 dominios de software + flag desde el DataExcelCache del AppState."""
     empty: dict[str, Any] = {
         "procesos": [],
         "parametros_int": [],

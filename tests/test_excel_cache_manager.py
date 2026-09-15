@@ -1,14 +1,14 @@
 """Tests del ``ExcelCacheManager`` (singleton IT del cache del Excel).
 
-Cubre la API pÃºblica:
+Cubre la API pÃƒÂºblica:
   * ``get`` / ``put`` / ``clear``.
-  * ``needs_reload`` (lectura atÃ³mica, no async).
+  * ``needs_reload`` (lectura atÃƒÂ³mica, no async).
   * ``on_excel_reload``.
   * ``wait_for_first_load`` con ``asyncio.Event``.
 
-Sigue el mismo patrÃ³n de ``test_bloque_cache_manager.py``: estado
+Sigue el mismo patrÃƒÂ³n de ``test_bloque_cache_manager.py``: estado
 de clase ``ClassVar`` con un fixture ``autouse`` que limpia antes
-y despuÃ©s de cada test (para no contaminar la suite).
+y despuÃƒÂ©s de cada test (para no contaminar la suite).
 """
 from __future__ import annotations
 
@@ -18,16 +18,14 @@ from datetime import datetime, timezone
 import pytest
 import pytest_asyncio
 
-from areas.alimentacion.domain.models.excel_cache import (
-    DimensionesDispositivos,
-    ExcelCache,
+from areas.alimentacion.data.data_ExcelCache import DataExcelCache,
 )
 from areas.alimentacion.helpers.cache import ExcelCacheManager
 
 
-def _make_cache(path: str = "/tmp/a.xlsx", mtime_ns: int = 1) -> ExcelCache:
-    """Helper: cache mÃ­nimo con todos los campos requeridos."""
-    return ExcelCache(
+def _make_cache(path: str = "/tmp/a.xlsx", mtime_ns: int = 1) -> DataExcelCache:
+    """Helper: cache mÃƒÂ­nimo con todos los campos requeridos."""
+    return DataExcelCache(
         excel_path=path,
         excel_mtime_ns=mtime_ns,
         parsed_at=datetime(2026, 9, 1, 12, 0, 0, tzinfo=timezone.utc),
@@ -42,7 +40,7 @@ def _make_cache(path: str = "/tmp/a.xlsx", mtime_ns: int = 1) -> ExcelCache:
     )
 
 
-# â”€â”€ Fixture autouse â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Ã¢â€â‚¬Ã¢â€â‚¬ Fixture autouse Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -57,12 +55,12 @@ async def _clean_state() -> None:
     ExcelCacheManager._first_load_event = asyncio.Event()
 
 
-# â”€â”€ get / put â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Ã¢â€â‚¬Ã¢â€â‚¬ get / put Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 
 @pytest.mark.asyncio
 async def test_get_vacio_devuelve_none() -> None:
-    """Sin estado previo â†’ ``get`` devuelve ``None``."""
+    """Sin estado previo Ã¢â€ â€™ ``get`` devuelve ``None``."""
     assert await ExcelCacheManager.get() is None
 
 
@@ -76,7 +74,7 @@ async def test_put_then_get() -> None:
     assert fetched.excel_path == "/tmp/a.xlsx"
 
 
-# â”€â”€ clear â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Ã¢â€â‚¬Ã¢â€â‚¬ clear Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 
 @pytest.mark.asyncio
@@ -87,16 +85,16 @@ async def test_clear_vacia_cache() -> None:
     assert await ExcelCacheManager.get() is None
 
 
-# â”€â”€ needs_reload â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Ã¢â€â‚¬Ã¢â€â‚¬ needs_reload Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 
 def test_needs_reload_con_cache_vacio() -> None:
-    """Cache vacÃ­o â†’ siempre ``needs_reload == True`` (no async)."""
+    """Cache vacÃƒÂ­o Ã¢â€ â€™ siempre ``needs_reload == True`` (no async)."""
     assert ExcelCacheManager.needs_reload("/tmp/a.xlsx", 1) is True
 
 
 def test_needs_reload_con_path_distinto() -> None:
-    """Cache cargado con path A, query con path B â†’ ``True``."""
+    """Cache cargado con path A, query con path B Ã¢â€ â€™ ``True``."""
     # Seteamos manualmente (sin async) el ``_cache``.
     ExcelCacheManager._cache = _make_cache(path="/tmp/A.xlsx", mtime_ns=1)
     try:
@@ -106,7 +104,7 @@ def test_needs_reload_con_path_distinto() -> None:
 
 
 def test_needs_reload_con_mtime_distinto() -> None:
-    """Cache cargado con mtime 1, query con mtime 2 â†’ ``True``."""
+    """Cache cargado con mtime 1, query con mtime 2 Ã¢â€ â€™ ``True``."""
     ExcelCacheManager._cache = _make_cache(path="/tmp/A.xlsx", mtime_ns=1)
     try:
         assert ExcelCacheManager.needs_reload("/tmp/A.xlsx", 2) is True
@@ -115,7 +113,7 @@ def test_needs_reload_con_mtime_distinto() -> None:
 
 
 def test_needs_reload_con_mismo_path_y_mtime_devuelve_false() -> None:
-    """Misma tupla (path, mtime) â†’ ``False``."""
+    """Misma tupla (path, mtime) Ã¢â€ â€™ ``False``."""
     ExcelCacheManager._cache = _make_cache(path="/tmp/A.xlsx", mtime_ns=1)
     try:
         assert ExcelCacheManager.needs_reload("/tmp/A.xlsx", 1) is False
@@ -123,7 +121,7 @@ def test_needs_reload_con_mismo_path_y_mtime_devuelve_false() -> None:
         ExcelCacheManager._cache = None
 
 
-# â”€â”€ on_excel_reload â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Ã¢â€â‚¬Ã¢â€â‚¬ on_excel_reload Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 
 @pytest.mark.asyncio
@@ -143,7 +141,7 @@ async def test_on_excel_reload_no_hace_nada_si_igual() -> None:
     assert await ExcelCacheManager.get() is cache
 
 
-# â”€â”€ wait_for_first_load â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Ã¢â€â‚¬Ã¢â€â‚¬ wait_for_first_load Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 
 @pytest.mark.asyncio
@@ -167,7 +165,7 @@ async def test_wait_for_first_load_resuelve_despues_de_put() -> None:
 @pytest.mark.asyncio
 async def test_wait_for_first_load_timeout_devuelve_none() -> None:
     """Si el timeout expira antes del ``put``, devuelve ``None``."""
-    # Estado limpio: cache vacÃ­o, event no seteado.
+    # Estado limpio: cache vacÃƒÂ­o, event no seteado.
     ExcelCacheManager._first_load_event.clear()
     ExcelCacheManager._cache = None
 

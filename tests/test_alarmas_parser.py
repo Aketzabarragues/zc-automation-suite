@@ -1,16 +1,16 @@
 """Tests del parser ``AlarmasParser`` (Fase 4 del plan).
 
-Cubre la extracciÃ³n de ``Tabla_Alarmas`` (hoja ``ALARMAS``) y, en
-particular, la invariante R-F4.1: ``AlarmaPLC`` NO tiene atributo
+Cubre la extracciÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n de ``Tabla_Alarmas`` (hoja ``ALARMAS``) y, en
+particular, la invariante R-F4.1: ``DataAlarmaPLC`` NO tiene atributo
 ``visibilidad`` y el parser ignora silenciosamente la columna
 ``Visibilidad`` del Excel si esta existe.
 
-Es la **implementaciÃ³n de referencia** que los 6 mini parsers de
-dispositivos de Fase 5 imitarÃ¡n; los tests aquÃ­ son la plantilla
-que los tests de Fase 5 extenderÃ¡n.
+Es la **implementaciÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n de referencia** que los 6 mini parsers de
+dispositivos de Fase 5 imitarÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡n; los tests aquÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­ son la plantilla
+que los tests de Fase 5 extenderÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡n.
 
 Convenciones:
-    * Excel sintÃ©tico construido en ``tmp_path`` con ``Table`` real
+    * Excel sintÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©tico construido en ``tmp_path`` con ``Table`` real
       (R5 del plan).
     * Se carga con ``load_workbook`` para garantizar que la
       ``ListObject`` se registre en ``worksheet.tables``.
@@ -22,11 +22,11 @@ from dataclasses import fields
 from openpyxl import Workbook
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
-from areas.alimentacion.domain.models.excel_cache import AlarmaPLC
+from areas.alimentacion.data.data_Alarmas import DataAlarmaPLC
 from areas.alimentacion.helpers.parsers.proc_alarmas import AlarmasParser
 
 
-# â”€â”€ Helpers de construcciÃ³n de Excels sintÃ©ticos â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Helpers de construcciÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n de Excels sintÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©ticos ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬
 
 
 def _save_xlsx_with_alarmas_table(
@@ -37,19 +37,19 @@ def _save_xlsx_with_alarmas_table(
     table_name: str = "Tabla_Alarmas",
     headers: list[str] | None = None,
 ) -> str:
-    """Crea un .xlsx sintÃ©tico con la tabla de alarmas.
+    """Crea un .xlsx sintÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©tico con la tabla de alarmas.
 
     Args:
         tmp_path: fixture pytest de path temporal.
-        rows: lista de filas de datos (``None`` o ``[]`` â†’ solo
-            cabeceras, Ãºtil para verificar que la tabla existe
-            pero estÃ¡ vacÃ­a).
+        rows: lista de filas de datos (``None`` o ``[]`` ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ solo
+            cabeceras, ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºtil para verificar que la tabla existe
+            pero estÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡ vacÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­a).
         sheet_name: nombre de la hoja (default ``ALARMAS``).
         table_name: nombre de la ``ListObject`` (default
             ``Tabla_Alarmas``).
         headers: cabeceras (default: las del Excel legacy del
             corporativo, 6 columnas). Si se pasa otra lista, el
-            test puede simular schema drift (p. ej. aÃ±adir
+            test puede simular schema drift (p. ej. aÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â±adir
             ``Visibilidad`` para verificar R-F4.1).
 
     Returns:
@@ -77,7 +77,7 @@ def _save_xlsx_with_alarmas_table(
         ws.append(row)
 
     # Registrar la Table (R5 del plan: sin esto, ``worksheet.tables``
-    # no contiene la ``ListObject`` y el parser no la encontrarÃ­a).
+    # no contiene la ``ListObject`` y el parser no la encontrarÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­a).
     last_col_letter = chr(ord("A") + len(headers) - 1)
     last_row = 1 + len(rows)
     ref = f"A1:{last_col_letter}{last_row}"
@@ -101,15 +101,15 @@ def _load(path: str) -> Workbook:
     return load_workbook(path)
 
 
-# â”€â”€ Tests del parser ``AlarmasParser`` â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Tests del parser ``AlarmasParser`` ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬
 
 
 def test_extrae_alarmas_basico(tmp_path) -> None:
-    """Excel con 1 fila vÃ¡lida â†’ DTO con los 6 campos correctos.
+    """Excel con 1 fila vÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡lida ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ DTO con los 6 campos correctos.
 
-    El test cubre los 6 campos del DTO ``AlarmaPLC``:
+    El test cubre los 6 campos del DTO ``DataAlarmaPLC``:
     ``uid``, ``numero``, ``proceso``, ``num_db``, ``descripcion``,
-    ``comentario_db``. ``num_db`` se castea a ``int`` vÃ­a
+    ``comentario_db``. ``num_db`` se castea a ``int`` vÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­a
     ``_safe_int``. El resto son ``str`` con defaults tolerantes.
     """
     xlsx_path = _save_xlsx_with_alarmas_table(
@@ -131,7 +131,7 @@ def test_extrae_alarmas_basico(tmp_path) -> None:
 
     assert len(result) == 1
     a = result[0]
-    assert isinstance(a, AlarmaPLC)
+    assert isinstance(a, DataAlarmaPLC)
     assert a.uid == "AL_1_001"
     assert a.numero == "001"
     assert a.proceso == "Proceso Uno"
@@ -141,11 +141,11 @@ def test_extrae_alarmas_basico(tmp_path) -> None:
 
 
 def test_hoja_inexistente_devuelve_lista_vacia(tmp_path) -> None:
-    """Sheet ``ALARMAS`` no existe â†’ ``[]`` (no lanza).
+    """Sheet ``ALARMAS`` no existe ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ ``[]`` (no lanza).
 
-    PolÃ­tica coherente con R1 del plan y con el resto de
-    parsers de software: si la hoja no estÃ¡, no es un error
-    (el Excel puede no traerla en alguna configuraciÃ³n).
+    PolÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­tica coherente con R1 del plan y con el resto de
+    parsers de software: si la hoja no estÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡, no es un error
+    (el Excel puede no traerla en alguna configuraciÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n).
     """
     xlsx_path = _save_xlsx_with_alarmas_table(
         tmp_path,
@@ -160,7 +160,7 @@ def test_hoja_inexistente_devuelve_lista_vacia(tmp_path) -> None:
 
 
 def test_tabla_inexistente_devuelve_lista_vacia(tmp_path) -> None:
-    """Sheet existe pero ``Tabla_Alarmas`` no â†’ ``[]`` (no lanza)."""
+    """Sheet existe pero ``Tabla_Alarmas`` no ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ ``[]`` (no lanza)."""
     # Construimos un .xlsx con OTRA tabla en ALARMAS.
     xlsx_path = tmp_path / "otro.xlsx"
     wb = Workbook()
@@ -185,9 +185,9 @@ def test_tabla_inexistente_devuelve_lista_vacia(tmp_path) -> None:
 
 
 def test_fila_sin_uid_se_descarta(tmp_path) -> None:
-    """Fila con UID vacÃ­o (``None``) NO aparece en el resultado.
+    """Fila con UID vacÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­o (``None``) NO aparece en el resultado.
 
-    PolÃ­tica consistente con ``ProcesosParser``/``PRealParser``/
+    PolÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­tica consistente con ``ProcesosParser``/``PRealParser``/
     ``PIntParser`` (dropna por UID). Evita alarmas fantasma sin
     UID en el cache.
     """
@@ -196,7 +196,7 @@ def test_fila_sin_uid_se_descarta(tmp_path) -> None:
         rows=[
             [None, "001", "P", 5001, "desc", "coment"],  # sin UID
             [
-                "AL_1_001",  # vÃ¡lida
+                "AL_1_001",  # vÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡lida
                 "001",
                 "Proceso Uno",
                 5001,
@@ -209,29 +209,29 @@ def test_fila_sin_uid_se_descarta(tmp_path) -> None:
 
     result = AlarmasParser().extraer(wb)
 
-    # Solo la fila con UID vÃ¡lido se queda.
+    # Solo la fila con UID vÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡lido se queda.
     assert len(result) == 1
     assert result[0].uid == "AL_1_001"
 
 
 def test_sin_visibilidad_en_dto() -> None:
-    """``AlarmaPLC`` NO expone atributo ``visibilidad`` (R-F4.1).
+    """``DataAlarmaPLC`` NO expone atributo ``visibilidad`` (R-F4.1).
 
     Esta es una **invariante contractual**: la tabla de Alarmas
     del Excel corporativo no incluye ``Visibilidad`` (consistente
     con el legacy ``_legacy_reference/ZC_ALM_TOOLS/infrastructure/
     parsers/software/alarmas.py:21-31``), por lo que el DTO no
-    expone ese campo. El test bloquea cualquier regresiÃ³n que
-    aÃ±ada ``visibilidad`` al DTO por confusiÃ³n con
-    ``ParamRealPLC``/``ParamIntPLC``.
+    expone ese campo. El test bloquea cualquier regresiÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n que
+    aÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â±ada ``visibilidad`` al DTO por confusiÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n con
+    ``DataParamRealPLC``/``DataParamIntPLC``.
 
     Se verifica doble:
-        * ``hasattr(AlarmaPLC(...), 'visibilidad') == False``
+        * ``hasattr(DataAlarmaPLC(...), 'visibilidad') == False``
           (invariante de instancia).
-        * ``'visibilidad' not in [f.name for f in fields(AlarmaPLC)]``
+        * ``'visibilidad' not in [f.name for f in fields(DataAlarmaPLC)]``
           (invariante de clase / dataclass).
     """
-    a = AlarmaPLC(
+    a = DataAlarmaPLC(
         uid="AL_1_001",
         numero="001",
         proceso="P",
@@ -242,9 +242,9 @@ def test_sin_visibilidad_en_dto() -> None:
     # Invariante de instancia.
     assert not hasattr(a, "visibilidad")
     # Invariante de clase.
-    field_names = {f.name for f in fields(AlarmaPLC)}
+    field_names = {f.name for f in fields(DataAlarmaPLC)}
     assert "visibilidad" not in field_names
-    # Sanity: los 6 campos esperados sÃ­ estÃ¡n.
+    # Sanity: los 6 campos esperados sÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­ estÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡n.
     assert field_names == {
         "uid",
         "numero",
@@ -258,14 +258,14 @@ def test_sin_visibilidad_en_dto() -> None:
 def test_columna_visibilidad_en_excel_se_ignora(tmp_path) -> None:
     """Columna extra ``Visibilidad`` en el Excel se ignora (R-F4.1).
 
-    Defensa contra schema drift: si el corporativo aÃ±ade una
+    Defensa contra schema drift: si el corporativo aÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â±ade una
     columna ``Visibilidad`` a ``Tabla_Alarmas`` en el futuro, el
     parser la **ignora silenciosamente**. El DTO se construye
     correctamente con sus 6 campos conocidos y el resultado NO
     tiene atributo ``visibilidad``.
 
-    Por quÃ© funciona: ``AlarmasParser.extraer`` llama al
-    constructor de ``AlarmaPLC`` con kwargs explÃ­citos
+    Por quÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â© funciona: ``AlarmasParser.extraer`` llama al
+    constructor de ``DataAlarmaPLC`` con kwargs explÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­citos
     (``uid=...``, ``numero=...``, etc.) y NO usa ``**row``. La
     columna extra queda en el ``dict`` que devuelve
     ``extract_list_object_rows``, pero el constructor de la
@@ -273,11 +273,11 @@ def test_columna_visibilidad_en_excel_se_ignora(tmp_path) -> None:
     ni se descarta la fila: la alarma se conserva con sus 6
     campos originales.
 
-    Esto es crÃ­tico para la **back-compat con el legacy** y para
+    Esto es crÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­tico para la **back-compat con el legacy** y para
     que ``AlarmasParser`` siga siendo drop-in si el schema del
     Excel evoluciona.
     """
-    # Cabecera con Visibilidad aÃ±adida al final (columna extra).
+    # Cabecera con Visibilidad aÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â±adida al final (columna extra).
     headers_con_visibilidad = [
         "UID",
         "Numero",
@@ -287,7 +287,7 @@ def test_columna_visibilidad_en_excel_se_ignora(tmp_path) -> None:
         "ComentarioDB",
         "Visibilidad",  # columna extra (schema drift)
     ]
-    # Una fila vÃ¡lida: el campo "Si" en Visibilidad debe ignorarse.
+    # Una fila vÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡lida: el campo "Si" en Visibilidad debe ignorarse.
     fila = [
         "AL_1_001",
         "001",
@@ -306,7 +306,7 @@ def test_columna_visibilidad_en_excel_se_ignora(tmp_path) -> None:
 
     result = AlarmasParser().extraer(wb)
 
-    # El parser devuelve 1 alarma: la fila es vÃ¡lida para los 6
+    # El parser devuelve 1 alarma: la fila es vÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡lida para los 6
     # campos que conoce, y la columna "Visibilidad" simplemente
     # se ignora.
     assert len(result) == 1
@@ -320,10 +320,10 @@ def test_columna_visibilidad_en_excel_se_ignora(tmp_path) -> None:
     assert a.comentario_db == "DB alarmas"
     # El valor de "Visibilidad" NO aparece en el DTO.
     assert not hasattr(a, "visibilidad")
-    # El dict crudo sÃ­ traÃ­a la clave (extract_list_object_rows la
-    # recoge), pero el constructor de AlarmaPLC solo lee los 6
-    # kwargs explÃ­citos. Verificamos que la fila cruda tiene la
-    # clave para confirmar que el parser la "vio" pero no la usÃ³.
+    # El dict crudo sÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­ traÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­a la clave (extract_list_object_rows la
+    # recoge), pero el constructor de DataAlarmaPLC solo lee los 6
+    # kwargs explÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­citos. Verificamos que la fila cruda tiene la
+    # clave para confirmar que el parser la "vio" pero no la usÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³.
     from areas.alimentacion.helpers.parsers._xlsx_helpers import (
         extract_list_object_rows,
     )

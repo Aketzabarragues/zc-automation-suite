@@ -1,4 +1,4 @@
-"""areas.alimentacion.data.data_ParametrosReal — Data Block de ParamRealPLC.
+"""areas.alimentacion.data.data_ParametrosReal â€” Data Block de DataParamRealPLC.
 
 Fase 3, paso 3.2.6.  Migrado de ``areas/alimentacion/domain/models/excel_cache.py``.
 
@@ -6,7 +6,7 @@ Un **parametro real** es una variable ``REAL`` (32 bits, IEEE 754) que
 el PLC expone al HMI y que el operario puede ajustar en runtime
 (tipicamente un setpoint, un limite o un factor de escalado).  Se
 agrupa en un DB por proceso: ``DB{num_db}_{codigo}_PREAL`` (uno por
-proceso, contiene varios ``ParamRealPLC`` consecutivos).
+proceso, contiene varios ``DataParamRealPLC`` consecutivos).
 
 Shape identico a ``DataParamIntPLC`` (12 campos, mismos nombres, mismos
 defaults), pero **tipo distinto en Python** (R4 del plan): ver
@@ -25,10 +25,10 @@ class DataParamRealPLC:
 
     Campos (12):
       - ``uid``: identificador unico **str** (``'PR_1_001'``).
-      - ``numero``: nº logico del parametro (``"001"``, ``"002"``).
+      - ``numero``: nÂº logico del parametro (``"001"``, ``"002"``).
       - ``proceso``: nombre del proceso al que pertenece.
       - ``codigo``: codigo corto del proceso.
-      - ``num_db``: nº del DB donde se mapea este parametro.
+      - ``num_db``: nÂº del DB donde se mapea este parametro.
       - ``producto``: nombre del producto / linea.
       - ``tipo``: clasificacion funcional (``"Setpoint"``, ``"Limite"``).
       - ``descripcion``: descripcion legible.

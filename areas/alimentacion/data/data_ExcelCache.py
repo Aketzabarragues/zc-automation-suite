@@ -1,7 +1,7 @@
-"""areas.alimentacion.data.data_ExcelCache — Data Block raiz del cache del Excel.
+"""areas.alimentacion.data.data_ExcelCache â€” Data Block raiz del cache del Excel.
 
 Fase 3, paso 3.2.3.  Migrado de ``areas/alimentacion/domain/models/excel_cache.py``
-(que contiene el root ``ExcelCache`` + los DTOs hoja).  Esta migracion
+(que contiene el root ``DataExcelCache`` + los DTOs hoja).  Esta migracion
 se hace al final del bloque 3.2 (despues de 3.2.4-3.2.7) porque la
 raiz importa los DTOs hoja: ``DataProcesoPLC``, ``DataParamRealPLC``,
 ``DataParamIntPLC``, ``DataAlarmaPLC``, ``DataDimensionesDispositivos``.

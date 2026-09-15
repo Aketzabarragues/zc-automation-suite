@@ -1,8 +1,8 @@
-"""areas.alimentacion.data.data_Procesos — Data Block de ProcesoPLC.
+"""areas.alimentacion.data.data_Procesos ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Data Block de DataProcesoPLC.
 
 Fase 3, paso 3.2.4.  Migrado de ``areas/alimentacion/domain/models/excel_cache.py``
-(que contiene el DTO raiz ``ExcelCache`` mas los DTOs hoja: ``ProcesoPLC``,
-``ParamRealPLC``, ``ParamIntPLC``, ``AlarmaPLC``, 6 Disp*, etc.).
+(que contiene el DTO raiz ``DataExcelCache`` mas los DTOs hoja: ``DataProcesoPLC``,
+``DataParamRealPLC``, ``DataParamIntPLC``, ``DataAlarmaPLC``, 6 Disp*, etc.).
 
 Un **proceso** es la unidad organizativa del Excel: agrupa un conjunto
 de parametros reales, parametros enteros y alarmas que se generan
@@ -26,10 +26,10 @@ class DataProcesoPLC:
       - ``uid``: identificador entero unico (1, 2, 3, ...).
       - ``nombre``: nombre legible del proceso.
       - ``codigo``: codigo corto usado en el nombre de los DBs.
-      - ``preal`` / ``index_preal``: nº de parametros reales y su
+      - ``preal`` / ``index_preal``: nÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âº de parametros reales y su
         offset dentro del DB PREAL.
       - ``pint`` / ``index_pint``: analogo para parametros enteros.
-      - ``alarmas``: nº de alarmas del proceso.
+      - ``alarmas``: nÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âº de alarmas del proceso.
     """
 
     uid: int
