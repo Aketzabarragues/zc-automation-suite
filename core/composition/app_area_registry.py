@@ -57,7 +57,12 @@ class AreaSpec:
     config_block: str = ""
 
     contributes_routers: Callable[[Any], None] | None = None
-    contributes_tia_commands: Callable[[dict], None] | None = None
+    # Acepta el ``SyncTIAClient`` (no un dict) — el wiring en
+    # ``main_supervisor._build_components()`` lo pasa directamente al
+    # callable del area para que registre sus comandos via
+    # ``tia_client.register_command(...)``. La firma ``Callable[[dict], None]``
+    # del legacy ``_pendiente.command_loader`` queda obsoleta.
+    contributes_tia_commands: Callable[[Any], None] | None = None
     contributes_mcp_tools: Callable[[Any], None] | None = None
     contributes_frontend_manifest: Callable[[], "AreaFrontendManifest"] | None = None
     contributes_state_extensions: Callable[[Any], None] | None = None

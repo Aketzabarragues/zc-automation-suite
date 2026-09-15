@@ -163,6 +163,19 @@ class MainServiceSupervisor:
 
         tia_client = SyncTIAClient()
         register_core_commands(tia_client)
+        # Cablear los comandos TIA extra de cada area (transaccionales,
+        # comments por hw/proc, commits online/offline de dispositivos,
+        # etc). El area aporta el callable via
+        # ``AreaSpec.contributes_tia_commands``; el supervisor lo invoca
+        # pasandole el ``tia_client`` para que registre sus handlers
+        # con ``tia_client.register_command(...)``. Sin este wiring los
+        # comandos del area lanzan ``unknown_command:<name>`` al
+        # primer dispatch (ej. ``commit_disp_nmax_renames_online``
+        # falla en ``/api/v1/sync/commit``).
+        from core.composition.app_area_registry import AreaRegistry
+        for spec in AreaRegistry.discover().all():
+            if spec.contributes_tia_commands is not None:
+                spec.contributes_tia_commands(tia_client)
         engine = Engine(tick_period_s=self.tick_period_s) if not self.no_engine else None
         if engine is not None:
             # Registrar FBs core (generic, sin acoplamiento al area).
