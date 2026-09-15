@@ -1,16 +1,25 @@
-"""Helper IT: genera la prevision (diff completo) de dispositivos vs PLC.
+"""Helper IT: genera el preview (diff read-only) de dispositivos vs PLC.
 
 Replica paso a paso la logica del legacy
 ``DispSyncInstancesUseCase.generar_prevision`` (areas/alimentacion/
-application/use_cases/disp_sync_instances.py:119), pero como funcion
-asincrona autocontenida con kwargs explicitos:
+application/use_cases/disp_sync_instances.py:119), pero partido en **4
+funciones puras independientes**. Cada funcion toma un
+``DispPreviewContext`` por argumento y muta sus campos con el
+resultado de su trabajo.
 
-  1. **N_MAX** (dimensiones): diff por nombre entre
-     ``000_Config_Dispositivos.xml`` (TIA) y ``AppState.dimensiones``
-     (Excel).
-  2. **Devices** (instancias): diff por UID (valor) entre las 6 tablas
-     ``2000_Disp_*`` (TIA) y ``AppState.dispositivos_*`` (Excel).
-     Detecta agregados, eliminados y renombrados.
+Este modulo **no contiene state machine**. La orquestacion de las 4
+funciones (orden, dependencias entre etapas, mapeo a steps del FB) vive
+exclusivamente en ``areas/alimentacion/functions/
+function_DispGenerarPreview.py``. Aqui solo estan las funciones puras
+y la forma del estado compartido (``DispPreviewContext``).
+
+Las 4 funciones siguen el orden del legacy:
+
+  1.  ``exportar_tags``   -> clean preview/ + export 7 tablas.
+  2.  ``compute_devices`` -> diff read-only devices (CPU en to_thread).
+  3.  ``compute_nmax``    -> diff read-only N_MAX (CPU en to_thread).
+  4.  ``build_response``  -> shape legacy con ``agregados, eliminados,
+                              renombrados, todos, nmax, summary``.
 
 Output (shape legacy back-compat con la SPA)::
 
@@ -34,88 +43,127 @@ Restricciones arquitectonicas (.clinerules):
     se leen del ``ConfigManager``.
   - El helper NO toca ``progress_tracker``; eso es responsabilidad
     del FB wrapper (``FunctionDispGenerarPreview``).
+  - El helper NO contiene state machine (orden, mapping, dispatch);
+    eso vive en el FB.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
 import os
+from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
 from typing import Any
 
+
 logger = logging.getLogger("zc.areas.alimentacion.disp_generate_preview")
 
 
-async def disp_generate_preview(
-    plc_name: str,
-    *,
-    tia_client: Any,
-    config_manager: Any,
-    app_state: Any,
-    build_cache_root: Path | None = None,
-) -> dict[str, Any]:
-    """Calcula el diff completo (N_MAX + devices) entre TIA y AppState.
+# ===========================================================================
+# Contexto mutable (estado compartido entre las 4 funciones)
+# ===========================================================================
 
-    Args:
-        plc_name: nombre del PLC destino.
-        tia_client: cliente TIA (Singleton core o mock) usado para
-            ``export_plc_tags_xml``.
-        config_manager: ``ConfigManager`` del departamento activo.
-        app_state: ``AppState`` con los dispositivos cargados del Excel.
-        build_cache_root: raiz del ``BuildCache`` del area
-            (``<cwd>/.build_cache`` por convencion).
+@dataclass
+class DispPreviewContext:
+    """Estado compartido entre las 4 funciones de ``disp_generate_preview``.
 
-    Returns:
-        ``dict`` con shape legacy ``{agregados, eliminados, renombrados,
-        todos, nmax, summary}``.
+    Cada funcion toma un ``DispPreviewContext`` por argumento, lee las
+    deps inyectadas y los resultados de funciones previas, y muta los
+    campos que representan resultados de su trabajo. El FB
+    ``FunctionDispGenerarPreview`` instancia uno y lo reusa entre sus 4
+    ticks para que los resultados intermedios esten disponibles para
+    las funciones posteriores.
     """
-    build_cache_root = build_cache_root or (
-        Path(os.getcwd()) / ".build_cache"
-    )
 
-    # Limpiar preview/ y exportar bulk de 7 tablas selectivas.
+    # ── Deps inyectadas ──
+    plc_name: str
+    tia_client: Any
+    config_manager: Any
+    app_state: Any
+    build_cache_root: Path
+
+    # ── Resultados de exportar_tags ──
+    tags_base: Path | None = None
+    selective_tables: list[str] = field(default_factory=list)
+
+    # ── Resultados de compute_devices ──
+    desired_state_per_table: dict[str, dict[str, str]] = field(default_factory=dict)
+    added_per_table: dict[str, list[str]] = field(default_factory=dict)
+    removed_per_table: dict[str, list[str]] = field(default_factory=dict)
+    renamed_per_table: dict[str, tuple[str, str]] = field(default_factory=dict)
+    base_state_per_table: dict[str, dict[str, str]] = field(default_factory=dict)
+
+    # ── Resultados de compute_nmax ──
+    nmax_block: dict[str, Any] = field(default_factory=dict)
+
+    # ── Resultado de build_response (shape legacy final) ──
+    result: dict[str, Any] = field(default_factory=dict)
+
+
+# ===========================================================================
+# 4 funciones puras (cada una muta ``ctx``; sin state machine aqui)
+# ===========================================================================
+
+async def exportar_tags(ctx: DispPreviewContext) -> None:
+    """Limpia preview/ y exporta las tablas selectivas al snapshot."""
     from areas.alimentacion.helpers.build_cache import build_cache
 
-    disp_ctx = build_cache(root=build_cache_root).dispositivos
+    disp_ctx = build_cache(root=ctx.build_cache_root).dispositivos
     disp_ctx.clean_preview()
-    tags_base = disp_ctx.preview_variables
-
-    selective_tables = _selective_table_names(config_manager)
+    ctx.tags_base = disp_ctx.preview_variables
+    ctx.selective_tables = _selective_table_names(ctx.config_manager)
     await _dispatch_async(
-        tia_client,
+        ctx.tia_client,
         "export_plc_tags_xml",
         {
-            "plc_name": plc_name,
-            "target_dir": str(tags_base),
-            "table_names": selective_tables,
+            "plc_name": ctx.plc_name,
+            "target_dir": str(ctx.tags_base),
+            "table_names": ctx.selective_tables,
         },
     )
 
-    # Diff de devices (CPU puro -> to_thread).
-    desired_state_per_table = _build_desired_state_from_app(
-        app_state, config_manager,
+
+async def compute_devices(ctx: DispPreviewContext) -> None:
+    """Calcula el diff de devices entre los XMLs exportados y AppState."""
+    assert ctx.tags_base is not None, (
+        "compute_devices requiere exportar_tags previo"
     )
-    added_p, removed_p, renamed, base_state_per_table = await asyncio.to_thread(
-        _compute_diff_readonly, tags_base, desired_state_per_table,
+    ctx.desired_state_per_table = _build_desired_state_from_app(
+        ctx.app_state, ctx.config_manager,
+    )
+    (
+        ctx.added_per_table,
+        ctx.removed_per_table,
+        ctx.renamed_per_table,
+        ctx.base_state_per_table,
+    ) = await asyncio.to_thread(
+        _compute_diff_readonly, ctx.tags_base, ctx.desired_state_per_table,
     )
 
-    # Diff de N_MAX (CPU puro -> to_thread).
-    nmax_block = await asyncio.to_thread(
+
+async def compute_nmax(ctx: DispPreviewContext) -> None:
+    """Calcula el diff de N_MAX entre el TIA (export bulk) y AppState."""
+    assert ctx.tags_base is not None, (
+        "compute_nmax requiere exportar_tags previo"
+    )
+    ctx.nmax_block = await asyncio.to_thread(
         _extract_nmax_diff,
-        tags_base, config_manager, app_state,
+        ctx.tags_base, ctx.config_manager, ctx.app_state,
     )
 
-    # ── Build response (shape legacy) ──
+
+async def build_response(ctx: DispPreviewContext) -> None:
+    """Compone la shape legacy final con todos los resultados intermedios."""
     agregados: list[dict[str, Any]] = [
         {"uid": uid, "table": tk, "plc_tag": td.get(uid, "")}
-        for tk, td in desired_state_per_table.items()
-        for uid in added_p.get(tk, []) if uid in td
+        for tk, td in ctx.desired_state_per_table.items()
+        for uid in ctx.added_per_table.get(tk, []) if uid in td
     ]
     eliminados: list[dict[str, Any]] = [
         {"uid": uid, "table": tk, "plc_tag": tb.get(uid, "")}
-        for tk, tb in base_state_per_table.items()
-        for uid in removed_p.get(tk, []) if uid in tb
+        for tk, tb in ctx.base_state_per_table.items()
+        for uid in ctx.removed_per_table.get(tk, []) if uid in tb
     ]
     renombrados: list[dict[str, Any]] = [
         {
@@ -124,7 +172,7 @@ async def disp_generate_preview(
             "actual": old,
             "nuevo": new,
         }
-        for uid, (old, new) in renamed.items()
+        for uid, (old, new) in ctx.renamed_per_table.items()
     ]
 
     def _type_from_table(table_key: str) -> str:
@@ -133,14 +181,14 @@ async def disp_generate_preview(
         return stem.lower()
 
     todos: list[dict[str, Any]] = []
-    for table_key, base in base_state_per_table.items():
+    for table_key, base in ctx.base_state_per_table.items():
         type_key = _type_from_table(table_key)
         renamed_for_table: dict[str, str] = {}
-        for uid, (_old, new) in renamed.items():
+        for uid, (_old, new) in ctx.renamed_per_table.items():
             if uid.startswith(f"{table_key}:"):
                 renamed_for_table[uid.split(":", 1)[1]] = new
 
-        removed_uids = set(removed_p.get(table_key, []))
+        removed_uids = set(ctx.removed_per_table.get(table_key, []))
 
         for uid_str, plc_tag in base.items():
             try:
@@ -178,9 +226,9 @@ async def disp_generate_preview(
                     "status": "sin_cambios",
                 })
 
-    for table_key, desired in desired_state_per_table.items():
+    for table_key, desired in ctx.desired_state_per_table.items():
         type_key = _type_from_table(table_key)
-        for uid_str in added_p.get(table_key, []):
+        for uid_str in ctx.added_per_table.get(table_key, []):
             try:
                 numero = int(uid_str)
             except (TypeError, ValueError):
@@ -202,12 +250,12 @@ async def disp_generate_preview(
         )
     )
 
-    return {
+    ctx.result = {
         "agregados": agregados,
         "eliminados": eliminados,
         "renombrados": renombrados,
         "todos": todos,
-        "nmax": nmax_block,
+        "nmax": ctx.nmax_block,
         "summary": {
             "agregados": len(agregados),
             "eliminados": len(eliminados),
@@ -403,4 +451,11 @@ def _compute_diff_readonly(
     )
 
 
-__all__ = ["disp_generate_preview"]
+__all__ = [
+    "DispPreviewContext",
+    # 4 funciones puras (sin state machine, sin orden; eso vive en el FB)
+    "exportar_tags",
+    "compute_devices",
+    "compute_nmax",
+    "build_response",
+]

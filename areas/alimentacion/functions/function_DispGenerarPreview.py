@@ -1,34 +1,41 @@
-"""FB de area: generar la prevision (diff completo) de dispositivos vs PLC.
+"""FB de area: preview de dispositivos vs PLC (diff read-only).
 
-Wrapper con state machine del helper ``disp_generate_preview``
-definido en ``areas/alimentacion/helpers/sync/disp_generate_preview.py``.
+State machine sobre el helper ``disp_generate_preview``
+(areas/alimentacion/helpers/sync/disp_generate_preview.py). El helper
+expone funciones independientes (``exportar_tags``, ``compute_devices``,
+``compute_nmax``, ``build_response``) que reciben un
+``DispPreviewContext`` y mutan sus campos. **Aqui en el FB vive la
+state machine**: el orden de las 4 llamadas, el mapping step ->
+funcion del helper, y la instanciacion del ctx.
 
-El FB aporta state machine + progress_tracker + Zona 0 inyectable. La
-logica pesada (export bulk + diff read-only en hilo) vive en el helper.
+Antes (sept-2026 -): 2 de los 4 steps eran checkpoints vacios
+(combinado con...); el resto ejecutaba el helper monolitico de golpe.
 
-Hereda directo de ``FunctionBase`` (no del template) porque su logica
-es especifica del area. Zona 0 con 4 deps comunes + 1 especifica.
+Despues (sept-2026): cada step del FB ejecuta una funcion real del
+helper contra el ``DispPreviewContext`` compartido entre los 4 ticks.
+
+Hereda directo de ``FunctionBase`` (no del template). Zona 0 con 4 deps
+comunes + 1 especifica.
 
 Runtime params via ``start(**kwargs)``:
   - ``plc_name`` (str): nombre del PLC destino. Obligatorio.
 
-El ``self.result`` se popula con la shape legacy esperada por la SPA
-(el endpoint ``/api/v1/plcs/<name>/preview`` lo devuelve tal cual)::
+El ``self.result`` se popula con la shape legacy esperada por la SPA::
 
     {
-      'agregados':   [{uid, table, plc_tag}],
-      'eliminados':  [{uid, table, plc_tag}],
-      'renombrados': [{uid, table, actual, nuevo}],
-      'todos':       [...],
-      'nmax':        {current, desired, todos, summary},
-      'summary':     {agregados, eliminados, renombrados, sin_cambios, total},
+      'agregados':   list[dict],
+      'eliminados':  list[dict],
+      'renombrados': list[dict],
+      'todos':       list[dict],
+      'nmax':        dict,
+      'summary':     dict,
     }
 
-Steps (4, alineados con el legacy):
-  - exportar_tags
-  - compute_devices
-  - compute_nmax
-  - build_response
+Steps (4, mismo orden que el legacy ``generar_prevision``):
+  - exportar_tags      -> helper.disp_generate_preview.exportar_tags
+  - compute_devices    -> helper.disp_generate_preview.compute_devices
+  - compute_nmax       -> helper.disp_generate_preview.compute_nmax
+  - build_response     -> helper.disp_generate_preview.build_response
 """
 from __future__ import annotations
 
@@ -95,13 +102,17 @@ class FunctionDispGenerarPreview(FunctionBase):
         )
         # ZONA 3: estado entre ticks.
         self._plc_name: str = ""
+        # DispPreviewContext compartido entre los 4 ticks. Se
+        # reinicializa en cada on_start() para no arrastrar estado del
+        # run anterior (el FB es re-arrancable).
+        self._ctx: Any = None
 
     # ==================================================================
-    # HOOK 1: on_start  (ZONA 3: validar params)
+    # HOOK 1: on_start  (ZONA 3: validar params + crear ctx)
     # ==================================================================
 
     def on_start(self, **params: Any) -> None:
-        """Validar deps inyectadas + capturar plc_name."""
+        """Validar deps inyectadas + capturar plc_name + crear ctx."""
         if self._config is None:
             raise RuntimeError(
                 "FunctionDispGenerarPreview requiere config_manager. "
@@ -118,92 +129,69 @@ class FunctionDispGenerarPreview(FunctionBase):
                 "FunctionDispGenerarPreview.start(plc_name=...) es obligatorio"
             )
         self._plc_name = str(plc_name)
+
+        # Crear el DispPreviewContext que las 4 funciones iran mutando.
+        # Lazy import para evitar ciclo con helpers/sync/.
+        from areas.alimentacion.helpers.sync.disp_generate_preview import (
+            DispPreviewContext,
+        )
+        self._ctx = DispPreviewContext(
+            plc_name=self._plc_name,
+            tia_client=self._tia_client,
+            config_manager=self._config,
+            app_state=self._state,
+            build_cache_root=self._build_cache_root,
+        )
+
         self._log.info(
             f"[{self.nombre}] Iniciando preview de {self._plc_name}"
         )
 
     # ==================================================================
-    # HOOK 2: run_step  (ZONA 4: CASE por etapa)
+    # HOOK 2: run_step  (ZONA 4: state machine -> dispatch al helper)
     # ==================================================================
 
     async def run_step(self, idx: int, **params: Any) -> str:
-        """CASE de los 4 pasos del FB.
+        """Dispatch del FB step ``idx`` a la funcion del helper ``disp_generate_preview``.
 
-        El helper hace la export + diff + build completo en una sola
-        llamada; los steps del FB son checkpoints visuales en el
-        progressbar. Esto refleja el progreso REAL que el operador
-        quiere ver: primero export, luego devices, luego N_MAX,
-        luego respuesta.
+        Aqui vive la state machine: cada step del FB llama a UNA
+        funcion del helper contra el ``DispPreviewContext`` compartido.
+        El ``case`` es explicito (no dict.get dispatch) para que sea
+        visible en stack traces cuando algo falla.
         """
         # Lazy import para evitar ciclo con helpers/sync/.
-        from areas.alimentacion.helpers.sync.disp_generate_preview import (
-            disp_generate_preview,
-        )
+        from areas.alimentacion.helpers.sync import disp_generate_preview
+
+        if self._ctx is None:
+            raise RuntimeError(
+                "DispPreviewContext no inicializado. on_start() no se ejecuto "
+                "(o el FB no recibio un plc_name valido)."
+            )
 
         step_nombre = self.steps[idx]["nombre"]
         match step_nombre:
             case "exportar_tags":
-                # El helper hace el export dentro de la llamada final;
-                # aqui solo marcamos el stage.
-                return "combinado con compute (siguiente paso)"
-
+                await disp_generate_preview.exportar_tags(self._ctx)
             case "compute_devices":
-                # Aqui tampoco hay progreso real separado; el helper
-                # calcula todo de golpe. Devolvemos el stage para el
-                # progressbar.
-                return "combinado con compute_nmax (siguiente paso)"
-
+                await disp_generate_preview.compute_devices(self._ctx)
             case "compute_nmax":
-                # Unica llamada que ejecuta TODO el helper.
-                result = await disp_generate_preview(
-                    plc_name=self._plc_name,
-                    tia_client=self._tia_client,
-                    config_manager=self._config,
-                    app_state=self._state,
-                    build_cache_root=self._build_cache_root,
-                )
-                self._stats["preview"] = result
-                s = result["summary"]
-                self._log.success(
-                    f"[{self.nombre}] preview calculado para "
-                    f"{self._plc_name}: "
-                    f"{s['agregados']} agregados, {s['eliminados']} "
-                    f"eliminados, {s['renombrados']} renombrados, "
-                    f"{result['nmax']['summary']['actualizar']} N_MAX "
-                    f"actualizar"
-                )
-                return (
-                    f"{s['agregados']} agregados, {s['eliminados']} "
-                    f"eliminados, {s['renombrados']} renombrados"
-                )
-
+                await disp_generate_preview.compute_nmax(self._ctx)
             case "build_response":
-                # El result ya esta en _stats del paso anterior.
-                # Este step es solo para completar el progressbar con
-                # 4 etapas (alineado con el legacy).
-                preview = self._stats.get("preview")
-                if preview is None:
-                    raise RuntimeError(
-                        "build_response: compute_nmax no dejo preview "
-                        "en _stats"
-                    )
-                s = preview["summary"]
-                return (
-                    f"{s['total']} entradas en vista unificada"
-                )
-
+                await disp_generate_preview.build_response(self._ctx)
             case _:
                 raise ValueError(f"step no soportado: {step_nombre!r}")
 
+        # Resumen legible del step que acaba de correr.
+        return _step_summary(self._ctx, step_nombre)
+
     # ==================================================================
-    # HOOK 3: on_finish  (ZONA 5: vuelco del result)
+    # HOOK 3: on_finish  (ZONA 5: vuelco del result desde el ctx)
     # ==================================================================
 
     def on_finish(self, **params: Any) -> None:
         """Vuelca ``self.result`` con la shape legacy que espera la SPA."""
-        preview = self._stats.get("preview")
-        if preview is None:
-            # Caso error temprano (deps no inyectadas): result vacio.
+        if self._ctx is None:
+            # Error temprano: deps no inyectadas o plc_name ausente.
             self.result = {
                 "agregados": [],
                 "eliminados": [],
@@ -217,7 +205,46 @@ class FunctionDispGenerarPreview(FunctionBase):
                             "total": 0},
             }
             return
-        self.result = preview
+
+        self.result = self._ctx.result
+
+        # Log de cierre, igual que hacia el helper monolitico.
+        s = self._ctx.result["summary"]
+        nmax_summary = self._ctx.result["nmax"]["summary"]
+        self._log.success(
+            f"[{self.nombre}] preview calculado para "
+            f"{self._ctx.plc_name}: "
+            f"{s['agregados']} agregados, {s['eliminados']} eliminados, "
+            f"{s['renombrados']} renombrados, "
+            f"{nmax_summary['actualizar']} N_MAX actualizar"
+        )
+
+
+def _step_summary(ctx: Any, step_nombre: str) -> str:
+    """Resumen legible del step que acaba de correr (aparece en la SPA)."""
+    if step_nombre == "exportar_tags":
+        return (
+            f"{step_nombre}: {len(ctx.selective_tables)} tablas exportadas"
+        )
+    if step_nombre == "compute_devices":
+        adds = sum(len(v) for v in ctx.added_per_table.values())
+        rems = sum(len(v) for v in ctx.removed_per_table.values())
+        return (
+            f"{step_nombre}: {adds} adds, {rems} removes, "
+            f"{len(ctx.renamed_per_table)} renames"
+        )
+    if step_nombre == "compute_nmax":
+        nmax_summary = ctx.nmax_block.get("summary", {})
+        return (
+            f"{step_nombre}: {nmax_summary.get('actualizar', 0)} N_MAX "
+            f"actualizar, {nmax_summary.get('sin_cambios', 0)} sin cambios"
+        )
+    if step_nombre == "build_response":
+        s = ctx.result.get("summary", {})
+        return (
+            f"{step_nombre}: {s.get('total', 0)} entradas en vista unificada"
+        )
+    return f"{step_nombre}: OK"
 
 
 __all__ = ["FunctionDispGenerarPreview"]
