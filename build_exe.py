@@ -96,31 +96,39 @@ ENTRY_SCRIPT = "main.py"  # entry del .exe (UX: bandeja + web supervisor)
 # ``ConfigManager`` busca en ``_MEIPASS\config\config.json``
 # (sin el sufijo).
 #
-# - ``static/`` → directorio, mapping a sí mismo (entero).
-#   El código hace ``Path(__file__).parent / "static"`` y debe
-#   encontrar la SPA en ``_MEIPASS\interfaces\web_server\static\``.
-# - ``areas/alimentacion/frontend/`` → directorio, mapping a la
-#   ruta que el ``area-loader.js`` espera en runtime:
-#   ``_MEIPASS\interfaces\web_server\static\areas\alimentacion\``.
-#   Añadido en PR 7 (estaba en PR 5 pero no se había añadido al
-#   bundle del .exe; el código en runtime lo busca en la ruta
-#   estática del shell, no bajo ``_MEIPASS/areas/``).
-# - ``icon.ico`` → fichero suelto, mapping a su carpeta padre.
-#   El código hace ``_MEIPASS\launcher\icon.ico``.
-# - ``config.json`` → fichero suelto, mapping a su carpeta padre.
-#   El código hace ``_MEIPASS\config\config.json``.
+# Tras sept-2026 (PR 7), la SPA vive en ``core/web_server/static``
+# (no en ``interfaces/web_server/static``, que se borro). El codigo
+# en ``app_flask.py`` resuelve la ruta via:
+#   STATIC_DIR      = Path(__file__).parent / "static"
+#   AREAS_STATIC_DIR = Path(__file__).parent.parent.parent / "areas"
+# Cuando PyInstaller bundlea ``core/web_server/app_flask.py`` en
+# ``_MEIPASS/core/web_server/app_flask.py``, esas dos rutas se
+# resuelven correctamente:
+#   STATIC_DIR      -> _MEIPASS/core/web_server/static
+#   AREAS_STATIC_DIR -> _MEIPASS/areas
+#
+# - ``core/web_server/static`` -> directorio, mapping a si mismo.
+#   El endpoint SPA lo sirve desde ``_MEIPASS/core/web_server/static``.
+# - ``areas/alimentacion/frontend`` -> directorio, mapping a
+#   ``areas/alimentacion/frontend`` (NO bajo ``core/web_server/static``).
+#   El endpoint /static/areas/<area>/... lo sirve desde
+#   ``_MEIPASS/areas/<area>/`` (NO desde ``static/``).
+# - ``icon.ico`` -> fichero suelto, mapping a su carpeta padre.
+#   El codigo hace ``_MEIPASS\launcher\icon.ico``.
+# - ``config.json`` -> fichero suelto, mapping a su carpeta padre.
+#   El codigo hace ``_MEIPASS\config\config.json``.
 #
 # IMPORTANTE sobre ``areas/alimentacion/frontend``: el destino en el
-# bundle DEBE preservar el segmento ``frontend/`` porque el manifest
-# del área expone loaders con prefijo ``/static/areas/alimentacion/
-# frontend/components/<X>.js`` (ver ``areas/alimentacion/frontend/
-# manifest.py::_STATIC_PREFIX``). Si bundleamos quitando ``frontend/``
-# (destino ``.../alimentacion``), la URL pide un segmento ``frontend/``
-# que no existe en el bundle y el navegador falla con
-# ``Failed to fetch dynamically imported module``.
+# bundle debe ser ``areas/alimentacion/frontend`` (no ``core/web_server/
+# static/areas/alimentacion/frontend``) para que el endpoint
+# /static/areas/<area>/... lo encuentre en runtime frozen via
+# ``AREAS_STATIC_DIR / area / filename``. Si lo bundleamos bajo
+# ``core/web_server/static/...`` el endpoint NO lo encuentra
+# porque resuelve ``_MEIPASS/areas/...`` (no ``_MEIPASS/core/web_server
+# /static/areas/...``).
 PROJECT_DATA_FILES: list[tuple[str, str]] = [
-    ("interfaces/web_server/static", "interfaces/web_server/static"),
-    ("areas/alimentacion/frontend", "interfaces/web_server/static/areas/alimentacion/frontend"),
+    ("core/web_server/static", "core/web_server/static"),
+    ("areas/alimentacion/frontend", "areas/alimentacion/frontend"),
     ("core/launcher/icon.ico", "core/launcher"),
     ("config/config.json", "config"),
 ]
