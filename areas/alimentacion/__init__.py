@@ -115,6 +115,9 @@ def register(
     from areas.alimentacion.functions.function_SincronizarDispComentarios import (
         FunctionSincronizarDispComentarios,
     )
+    from areas.alimentacion.functions.function_DispGenerarPreview import (
+        FunctionDispGenerarPreview,
+    )
     from core.composition.plc_function_template import FunctionTemplate
 
     # Defaults a Singleton global (mismo patron que la plantilla FB).
@@ -155,6 +158,21 @@ def register(
         "sincronizar_disp_comentarios",
         FunctionSincronizarDispComentarios(
             nombre="sincronizar_disp_comentarios",
+            config_manager=config_manager,
+            tia_client=tia_client,
+            build_cache=build_cache,
+            log=log,
+            app_state=app_state,
+        ),
+    )
+
+    # FB con I/O contra TIA: preview de dispositivos vs PLC (export
+    # bulk + diff read-only). Reemplaza el legacy generar_prevision
+    # del use case DispSyncInstancesUseCase. STEP_TIMEOUT_S=60s.
+    engine.register_fb(
+        "disp_generar_preview",
+        FunctionDispGenerarPreview(
+            nombre="disp_generar_preview",
             config_manager=config_manager,
             tia_client=tia_client,
             build_cache=build_cache,
