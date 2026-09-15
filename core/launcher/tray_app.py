@@ -43,13 +43,13 @@ def _load_icon_image(icon_path: Path | None, log: logging.Logger) -> Image.Image
 
     text = "ZC"
     try:
-        font = ImageFont.truetype("seguisb.ttf", 28)
+        font = ImageFont.truetype("seguisb.ttf", 32)
     except OSError:
         font = ImageFont.load_default()
     bbox = draw.textbbox((0, 0), text, font=font)
     tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
     draw.text(
-        ((size - tw) / 2 - bbox[0], (size - th) / 2 - bbox[1] - 4),
+        ((size - tw) / 2 - bbox[0], (size - th) / 2 - bbox[1]),
         text,
         fill=(255, 255, 255, 255),
         font=font,
