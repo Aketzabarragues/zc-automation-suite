@@ -166,8 +166,14 @@ class MainServiceSupervisor:
         engine = Engine(tick_period_s=self.tick_period_s) if not self.no_engine else None
         if engine is not None:
             # Registrar los FBs del area (template + futuros reales).
+            from core.runtime.log_buffer import get_log_buffer
             from areas.alimentacion import register as register_alimentacion
-            register_alimentacion(engine)
+            register_alimentacion(
+                engine,
+                config_manager=self.config_manager,
+                tia_client=tia_client,
+                log=get_log_buffer(),
+            )
         event_bus = self.event_bus if self.event_bus is not None else EventBusSync()
         flask_app = create_app(
             tia_client=tia_client,
