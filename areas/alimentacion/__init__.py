@@ -21,7 +21,7 @@ from __future__ import annotations
 from areas.alimentacion.helpers.state.install_state_extensions import (
     install as install_state,
 )
-from areas.alimentacion.domain.disp_catalog import build_catalog as build_alim_catalog
+from areas.alimentacion.data.data_DispCatalog import build_catalog as build_alim_catalog
 from areas.alimentacion.frontend.dispositivos_router import build_routers
 from areas.alimentacion.frontend.manifest import build as build_manifest
 from areas.alimentacion.helpers.config_defaults import (
