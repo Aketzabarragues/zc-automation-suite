@@ -52,6 +52,13 @@ def create_app(
             los endpoints (sin forzar import en ``create_app``).
     """
     app = Flask(__name__, static_folder=None)  # servimos manualmente
+    # Preservar el orden de insercion de los dicts al serializar a JSON.
+    # Flask 3.x tiene app.json.sort_keys = True por defecto, lo que rompe
+    # el orden del sidebar (manifest de areas: landing / def / disp / proc
+    # se serializaba como def / disp / landing / proc). Tambien afecta a
+    # progress events, log buffer, TIA state, etc. — todos deberian
+    # respetar el orden natural del codigo Python.
+    app.json.sort_keys = False
     _tia = tia_client if tia_client is not None else default_tia_client
     _engine = engine if engine is not None else Engine()
     _bus = event_bus if event_bus is not None else EventBusSync()

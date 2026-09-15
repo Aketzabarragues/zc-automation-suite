@@ -19,7 +19,7 @@
  * dentro de arrays de `:class`. Cada literal va en una sola línea.
  *
  * @event select  Emite la ``key`` de la sub-vista elegida
- *                (``'def'`` | ``'disp'`` | ``'cache'`` | ``'proc'``).
+ *                (``'def'`` | ``'disp'`` | ``'proc'``).
  *                El componente padre (``main.js``) llama a
  *                ``goToSubview(key)``.
  */
@@ -33,10 +33,17 @@ import { store } from "/js/store.js";
  * llega una segunda área con sub-vistas distintas, este componente
  * será específico de Alimentación o se parametrizará.
  *
- * Las 4 keys (``def``, ``disp``, ``cache``, ``proc``) coinciden
- * con las declaradas en ``manifest.js`` (``views`` del área) y en
+ * Las 3 keys (``def``, ``disp``, ``proc``) coinciden con las
+ * declaradas en ``manifest.py`` (``views`` del área) y en
  * ``store.areaManifest.components.views`` que el backend publica
  * en ``GET /api/v1/areas/alimentacion/manifest``.
+ *
+ * NOTA: ``cache`` (la vista "Cache del PLC") ya NO es sub-vista del
+ * área desde el refactor PR 7. Vive en el shell como
+ * ``currentView="plc"`` (panel comun PlcPanelView), accesible desde
+ * el botón "PLC" del ShellSidebar. Si se deja aqui, el click cae en
+ * ``goToSubview("cache")`` que la ignora silenciosamente porque la
+ * key no esta en el manifest -> boton zombie sin destino.
  */
 const SUBVIEW_OPTIONS = [
     {
@@ -50,12 +57,6 @@ const SUBVIEW_OPTIONS = [
         icon: "⚡",
         label: "Dispositivos",
         description: "Previsualiza y aplica cambios en TIA Portal.",
-    },
-    {
-        key: "cache",
-        icon: "🗃️",
-        label: "Cache del PLC",
-        description: "Volcado de bloques del PLC (DBs, FCs, UDTs) cacheado en memoria.",
     },
     {
         key: "proc",
