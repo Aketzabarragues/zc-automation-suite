@@ -108,6 +108,9 @@ def register(
 
     from areas.alimentacion.functions.function_SubirExcel import FunctionSubirExcel
     from areas.alimentacion.functions.function_DiffConstants import FunctionDiffConstants
+    from areas.alimentacion.functions.function_SincronizarDispComentarios import (
+        FunctionSincronizarDispComentarios,
+    )
     from core.composition.plc_function_template import FunctionTemplate
 
     # Defaults a Singleton global (mismo patron que la plantilla FB).
@@ -137,6 +140,22 @@ def register(
         FunctionDiffConstants(
             nombre="diff_constants",
             log=log,
+        ),
+    )
+
+    # FB con I/O contra TIA: necesita config_manager + tia_client +
+    # build_cache (raiz del BuildCache del area) + log + app_state.
+    # Hace export + copytree + 6 dispatches al worker OT. Puede
+    # tardar varios minutos (STEP_TIMEOUT_S=300s).
+    engine.register_fb(
+        "sincronizar_disp_comentarios",
+        FunctionSincronizarDispComentarios(
+            nombre="sincronizar_disp_comentarios",
+            config_manager=config_manager,
+            tia_client=tia_client,
+            build_cache=build_cache,
+            log=log,
+            app_state=app_state,
         ),
     )
 
