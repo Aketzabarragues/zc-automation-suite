@@ -376,7 +376,8 @@ def _build_desired_state_from_app(
         cfg = config_manager.get_dispositivo_config(hw)
         if cfg is None:
             continue
-        table_name = cfg["table_name"]
+        # ``DispositivoTIAConfig`` es un dataclass (atributos, NO keys).
+        table_name = cfg.tag_table
         attr_name = config_manager.get_app_state_attr_for(hw)
         devices = getattr(app_state, attr_name, {}) or {}
         result[table_name] = {
@@ -536,7 +537,12 @@ def _get_affected_dbs_for_compile(config_manager: Any) -> list[str]:
         cfg = config_manager.get_dispositivo_config(hw)
         if cfg is None:
             continue
-        result.append(cfg["table_name"])
+        # Aqui queremos el NOMBRE DEL DB (``cfg.db_name``), no la
+        # PlcTagTable (``cfg.tag_table``): la compilacion opera sobre
+        # los DBs de array. El legacy DispSyncInstancesUseCase.
+        # _get_affected_dbs_for_compile hacia lo mismo via
+        # ``config.get_db_name(hw)``.
+        result.append(cfg.db_name)
     return result
 
 

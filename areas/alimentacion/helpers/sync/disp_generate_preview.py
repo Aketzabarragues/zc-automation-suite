@@ -258,7 +258,8 @@ def _build_desired_state_from_app(
         cfg = config_manager.get_dispositivo_config(hw)
         if cfg is None:
             continue
-        table_name = cfg["table_name"]
+        # ``DispositivoTIAConfig`` es un dataclass (atributos, NO keys).
+        table_name = cfg.tag_table
         attr_name = config_manager.get_app_state_attr_for(hw)
         devices = getattr(app_state, attr_name, {}) or {}
         result[table_name] = {
