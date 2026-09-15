@@ -103,19 +103,30 @@ def get_fb_status(name: str):
 # bloques tarda 30-60s. 120s cubre holgadamente.
 SCAN_TIMEOUT_S = 120.0
 
+# Poll bloqueante del FB en el handler sync de Flask.
+_POLL_INTERVAL_S = 0.05
+
 
 def _scan_plc_blocks(plc_name: str):
-    """Helper comun: dispatch ``scan_blocks`` y normaliza la respuesta.
+    """Helper comun: dispatch via FB ``scan_plc_blocks`` y normaliza la respuesta.
 
-    Devuelve ``(status_code, body)``. ``body.ok`` es True si TIA
-    respondio OK; ``body.snapshot`` trae el shape ``{ plc_name,
-    blocks, tag_tables, udts, scanned_at }``.
+    Devuelve ``(status_code, body)``. ``body.ok`` es True si el FB
+    termino OK; ``body.snapshot`` trae el shape ``{ plc_name,
+    blocks, tag_tables, udts, scanned_at }`` reconstruido desde
+    ``TIADataBloqueCache``.
+
+    Si el portal no esta attached, devuelve 503 + X-Error-Type
+    (mismo contrato que la version pre-FB) para que el SPA distinga
+    el caso y resetee el state PLC via ``store.loadAndApplyPlcBlocks``.
     """
-    tia_client = current_app.config["TIA_CLIENT"]
-    if tia_client.ts is None or tia_client.wrapper is None:
-        # No hay portal attached. Distinguible en el cliente por el
-        # ``X-Error-Type`` para que ``store.loadAndApplyPlcBlocks``
-        # sepa resetear el state PLC.
+    import asyncio
+    import time
+
+    from core.infrastructure.tia.tia_bloque_cache import TIADataBloqueCache
+
+    tia_client = current_app.config.get("TIA_CLIENT")
+    if tia_client is None or tia_client.ts is None or tia_client.wrapper is None:
+        # No hay portal attached.
         resp = jsonify({
             "ok": False,
             "error": "TIA Portal no conectado. Pulse Conectar primero.",
@@ -123,41 +134,81 @@ def _scan_plc_blocks(plc_name: str):
         resp.headers["X-Error-Type"] = "TIAConnectionError"
         return 503, resp
 
-    try:
-        result = tia_client.submit_and_wait(
-            "scan_blocks",
-            {"plc_name": plc_name},
-            timeout=SCAN_TIMEOUT_S,
-        )
-    except TimeoutError as exc:
+    engine = current_app.config.get("ENGINE")
+    if engine is None:
         resp = jsonify({
             "ok": False,
-            "error": f"timeout: {exc}",
+            "error": "engine no inicializado",
+        })
+        return 500, resp
+
+    fb = engine.get_fb("scan_plc_blocks")
+    if fb is None:
+        resp = jsonify({
+            "ok": False,
+            "error": "FB 'scan_plc_blocks' no registrado en el engine",
+        })
+        return 500, resp
+
+    # force_refresh: leer del body si es POST, default False.
+    body = request.get_json(silent=True) or {}
+    force_refresh = bool(body.get("force_refresh", False))
+
+    started = asyncio.run(fb.start(
+        plc_name=plc_name,
+        force_refresh=force_refresh,
+    ))
+    if not started:
+        # El FB esta corriendo. Devolvemos 409 para que el SPA sepa
+        # reintentar cuando termine.
+        return 409, jsonify({
+            "ok": False,
+            "error": "FB 'scan_plc_blocks' ya activo o terminal. Haz /disconnect y reintenta.",
+        })
+
+    # Poll bloqueante hasta que el FB entre en estado terminal.
+    elapsed = 0.0
+    while not fb.is_terminal() and elapsed < SCAN_TIMEOUT_S:
+        time.sleep(_POLL_INTERVAL_S)
+        elapsed += _POLL_INTERVAL_S
+
+    if not fb.is_terminal():
+        # Timeout: cancelamos el FB y devolvemos 504.
+        try:
+            asyncio.run(fb.cancel("timeout en /api/v1/plcs/<name>/blocks"))
+        except Exception:
+            pass
+        resp = jsonify({
+            "ok": False,
+            "error": f"timeout tras {SCAN_TIMEOUT_S:.1f}s sin terminar",
         })
         resp.headers["X-Error-Type"] = "TIAConnectionError"
         return 504, resp
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("scan_blocks '%s' fallo: %s", plc_name, exc)
-        resp = jsonify({
-            "ok": False,
-            "error": f"error inesperado: {exc}",
-        })
-        resp.headers["X-Error-Type"] = "TIAConnectionError"
-        return 500, resp
 
-    if not result.get("ok"):
-        # El handler ya valido el argumento ``plc_name``. Si llega
-        # aqui es por un error de TIA Portal (proyecto cerrado,
-        # PLC renombrado, etc.). El operario ve el mensaje en la
-        # ConsolaLogs del sidebar.
-        error_msg = result.get("error", "scan_blocks devolvio error")
-        resp = jsonify({"ok": False, "error": error_msg})
-        if "no portal" in error_msg.lower() or "no attached" in error_msg.lower():
+    if fb.nStep == fb.n_error:
+        err = fb.error_msg or "FB termino en error"
+        resp = jsonify({"ok": False, "error": err})
+        if "no portal" in err.lower() or "no attached" in err.lower():
             resp.headers["X-Error-Type"] = "TIAConnectionError"
         return 500, resp
 
-    snapshot = result.get("result") or {}
-    return 200, jsonify({"ok": True, "snapshot": snapshot})
+    # OK: leer la cache IT (que el FB relleno via el helper) y
+    # devolver el snapshot con la shape que espera la SPA.
+    cache = asyncio.run(TIADataBloqueCache.get(plc_name))
+    if cache is None:
+        # Caso raro: el FB reporto OK pero la cache esta vacia.
+        # Devolvemos un snapshot vacio pero valido.
+        return 200, jsonify({
+            "ok": True,
+            "snapshot": {
+                "plc_name": plc_name,
+                "blocks": [],
+                "tag_tables": [],
+                "udts": [],
+                "scanned_at": None,
+            },
+        })
+    return 200, jsonify({"ok": True, "snapshot": cache.to_dict()})
 
 
 # Blueprint separado del de FBs para que el ``url_prefix`` pueda ser
