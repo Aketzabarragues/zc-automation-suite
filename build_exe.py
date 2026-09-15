@@ -153,40 +153,74 @@ EXE_ICON: Path = ROOT / "core" / "launcher" / "icon.ico"
 # los use cases, los routers del área ni el command loader del worker.
 #
 # Auto-scan (sept-2026): la lista se genera dinámicamente escaneando
-# ``areas/<area>/**/*.py`` en runtime. Cualquier modulo nuevo (FB, helper,
-# router, modificador XML/SD) se recoge automaticamente al añadir su .py;
-# los legacy ``*_old.py`` desaparecen solos al borrarlos. Cuando se anada
-# un segundo area (envasado, etc.), basta con que su ``__init__.py``
+# ``areas/<area>/**/*.py`` + ``core/web_server/routers/**/*.py`` en
+# runtime. Cualquier modulo nuevo (FB, helper, router, blueprint del
+# shell) se recoge automaticamente al añadir su .py; los legacy
+# ``*_old.py`` desaparecen solos al borrarlos. Cuando se anada un
+# segundo area (envasado, etc.), basta con que su ``__init__.py``
 # exista bajo ``areas/<otro_area>/``.
-def _scan_areas_for_hiddenimports() -> list[str]:
-    """Escanea ``areas/alimentacion/**/*.py`` y devuelve la lista de modulos.
+def _scan_hiddenimports() -> list[str]:
+    """Escanea ``areas/`` y ``core/web_server/routers/`` y devuelve los
+    modulos Python a bundlear como hiddenimports.
 
     Genera entradas como ``"areas"``, ``"areas.alimentacion"`` y
     ``"areas.alimentacion.functions.function_SubirExcel"`` (sin la
     extension ``.py``). Excluye ``__pycache__/``.
 
+    Por que hay que escanear ``core/web_server/routers/`` ademas de
+    ``areas/alimentacion/``: los 7 blueprints del shell (tia_connection,
+    diagnostics, area_manifests, catalog, portal, plc, areas) viven
+    en ``core/web_server/routers/`` y se importan dinamicamente desde
+    ``core/web_server/app_flask.py::_register_blueprints`` con
+    ``importlib.import_module("core.web_server.routers.<name>")``.
+    PyInstaller no detecta este patron y el paquete ``core.web_server.
+    routers`` no se bundlea, por lo que los 7 blueprints del shell
+    fallan con ``No module named 'core.web_server.routers'`` en runtime
+    y los endpoints como ``GET /api/v1/areas`` devuelven 404.
+
     Returns:
-        Lista de nombres de modulos Python ordenados.
+        Lista de nombres de modulos Python ordenados y deduplicados.
     """
-    out: list[str] = ["areas"]
+    seen: set[str] = set()
+    out: list[str] = []
+
+    def _add(mod: str) -> None:
+        if mod and mod not in seen:
+            seen.add(mod)
+            out.append(mod)
+
+    _add("areas")
+
+    # ── Escaneo de areas/ ─────────────────────────────────────────
     area_root = ROOT / "areas" / "alimentacion"
-    if not area_root.is_dir():
-        return out
-    for py_file in sorted(area_root.rglob("*.py")):
-        if "__pycache__" in py_file.parts:
-            continue
-        rel = py_file.relative_to(ROOT)
-        mod_path = rel.with_suffix("")
-        # ``__init__.py`` representa al paquete padre (sin sufijo), no
-        # a un modulo llamado ``__init__`` (que PyInstaller rechaza).
-        if mod_path.name == "__init__":
-            out.append(".".join(rel.parent.parts))
-        else:
-            out.append(".".join(mod_path.parts))
+    if area_root.is_dir():
+        for py_file in sorted(area_root.rglob("*.py")):
+            if "__pycache__" in py_file.parts:
+                continue
+            rel = py_file.relative_to(ROOT)
+            mod_path = rel.with_suffix("")
+            if mod_path.name == "__init__":
+                _add(".".join(rel.parent.parts))
+            else:
+                _add(".".join(mod_path.parts))
+
+    # ── Escaneo de core/web_server/routers/ (blueprints del shell)
+    routers_root = ROOT / "core" / "web_server" / "routers"
+    if routers_root.is_dir():
+        for py_file in sorted(routers_root.rglob("*.py")):
+            if "__pycache__" in py_file.parts:
+                continue
+            rel = py_file.relative_to(ROOT)
+            mod_path = rel.with_suffix("")
+            if mod_path.name == "__init__":
+                _add(".".join(rel.parent.parts))
+            else:
+                _add(".".join(mod_path.parts))
+
     return out
 
 
-HIDDEN_IMPORTS_AREAS: list[str] = _scan_areas_for_hiddenimports()
+HIDDEN_IMPORTS_AREAS: list[str] = _scan_hiddenimports()
 
 
 def _py_repr_hiddenimports(modules: list[str]) -> str:
