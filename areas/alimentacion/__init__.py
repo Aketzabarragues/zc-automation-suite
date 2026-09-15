@@ -28,6 +28,9 @@ from areas.alimentacion.frontend.dispositivos_router import (
 from areas.alimentacion.frontend.excel_router import (
     build_routers as build_excel_routers,
 )
+from areas.alimentacion.frontend.diff_constants_router import (
+    build_routers as build_diff_constants_routers,
+)
 from areas.alimentacion.frontend.manifest import build as build_manifest
 from areas.alimentacion.helpers.config_defaults import (
     install as install_defaults,
@@ -53,6 +56,7 @@ def _build_all_routers(app) -> None:
     """
     build_dispositivos_routers(app)
     build_excel_routers(app)
+    build_diff_constants_routers(app)
 
 
 AREA_SPEC = AreaSpec(
