@@ -215,12 +215,21 @@ def make_cmd_commit_disp_devices_offline() -> Callable[..., Any]:
       3. import_blocks_sd masivo al PLC.
     """
     def _cmd(args: dict[str, Any], tia_client: Any) -> dict[str, Any]:
+        """Aplica SOLO el import_blocks_sd de Tx B (Stage 8).
+
+        El helper ``areas.alimentacion.helpers.sync.disp_sync`` ya hace:
+          - Stage 6: export_post_tx_a (relee XMLs post-Tx A).
+          - Stage 7: _apply_xml_edits_offline (edita los XMLs offline).
+
+        Aqui solo queda Tx B pura: abrir tx TIA, llamar
+        ``import_blocks_sd`` sobre los XMLs ya modificados, cerrar tx.
+        Convencion del legacy ``disp_sync_instances.py:735-742``:
+        el handler SOLO hace import (no export ni edit).
+        """
         plc_name: str = args.get("plc_name", "")
         undo_text: str = args.get("undo_text", "Sync devices (offline)")
         modified_dir: str = args.get("modified_dir", "")
         target_folder: str = args.get("target_folder", "")
-        db_subpath: str = args.get("db_subpath", "")
-        exports_subdir: str = args.get("exports_subdir", "") or ""
 
         if not (plc_name and modified_dir and target_folder):
             raise ValueError(
@@ -229,54 +238,18 @@ def make_cmd_commit_disp_devices_offline() -> Callable[..., Any]:
             )
 
         from core.infrastructure.tia import tia_helpers
-        from areas.alimentacion.helpers.xml.disp_tag_table_modifier import (
-            DispTagTableModifier,
-        )
 
         portal = tia_client.wrapper
         project = tia_helpers._get_active_project(portal)
         tia_helpers._find_plc(project, plc_name)
 
-        effective_modified = (
-            str(Path(modified_dir) / db_subpath) if db_subpath else modified_dir
-        )
-        effective_exports = (
-            str(Path(exports_subdir) / db_subpath) if (exports_subdir and db_subpath)
-            else exports_subdir
-        )
-
         project.start_transaction(undo_text=undo_text, dialog_text=undo_text)
         try:
-            # 1. Export masivo al snapshot limpio (si se pasa).
-            if effective_exports:
-                tia_client._handlers["export_blocks_sd"]({
-                    "plc_name": plc_name,
-                    "target_dir": effective_exports,
-                }, tia_client)
-                if Path(effective_exports).exists():
-                    shutil.copytree(
-                        effective_exports, effective_modified,
-                        dirs_exist_ok=True,
-                    )
-                else:
-                    Path(effective_modified).mkdir(parents=True, exist_ok=True)
-
-            # 2. Modifier offline (tag tables).
-            modifier = DispTagTableModifier(
-                modified_dir=Path(effective_modified),
-                exports_dir=Path(effective_exports) if effective_exports else None,
-            )
-            modifier.run()
-            modified = modifier.was_modified
-
-            # 3. Import masivo (si hubo cambios).
-            if modified:
-                tia_client._handlers["import_blocks_sd"]({
-                    "plc_name": plc_name,
-                    "import_dir": modified_dir,
-                    "target_folder": target_folder,
-                }, tia_client)
-
+            import_result = tia_client._handlers["import_blocks_sd"]({
+                "plc_name": plc_name,
+                "import_dir": modified_dir,
+                "target_folder": target_folder,
+            }, tia_client)
             project.end_transaction(rollback=False)
         except Exception as e:
             try:
@@ -287,8 +260,9 @@ def make_cmd_commit_disp_devices_offline() -> Callable[..., Any]:
 
         return {
             "success": True,
-            "modified": modified,
+            "modified": bool(import_result.get("imported", 0)),
             "plc_name": plc_name,
+            "details": import_result,
         }
 
     return _cmd
