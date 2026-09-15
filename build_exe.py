@@ -144,60 +144,41 @@ EXE_ICON: Path = ROOT / "core" / "launcher" / "icon.ico"
 # entrar al área de alimentación desde la SPA el backend no encuentra
 # los use cases, los routers del área ni el command loader del worker.
 #
-# Convención: cualquier módulo nuevo bajo ``areas/<area>/<sub>/`` debe
-# añadirse a esta lista. Una alternativa más DRY sería iterar las
-# carpetas en runtime, pero PyInstaller analiza el .spec antes de
-# ejecutar nada, así que tiene que ser estática. Cuando se añada un
-# segundo área (envasado, etc.), basta con añadir sus módulos aquí.
-HIDDEN_IMPORTS_AREAS: list[str] = [
-    # ── Raíz de áreas (necesario para AreaRegistry.discover()) ──
-    "areas",
-    # ── Área de alimentación ──
-    "areas.alimentacion",
-    # Domain (modelos + catálogo de presentación)
-    "areas.alimentacion.domain",
-    "areas.alimentacion.domain.models",
-    # Application (use cases + state extensions)
-    "areas.alimentacion.application",
-    "areas.alimentacion.application.disp_slot_map_builder",  # legacy, pendiente de fusionar con data_DispSlotMap
-    "areas.alimentacion.helpers.state.install_state_extensions",
-    "areas.alimentacion.application.proc_slot_map_builder",  # legacy, pendiente de fusionar con data_ProcSlotMap
-    "areas.alimentacion.application.use_cases",
-    "areas.alimentacion.application.use_cases.disp_diff_constants",
-    "areas.alimentacion.application.use_cases.disp_sync_comentarios",
-    "areas.alimentacion.application.use_cases.disp_sync_instances",
-    "areas.alimentacion.application.use_cases.proc_sync_comentarios",
-    # Helpers (parsers, sd, xml, tia, config_defaults)
-    "areas.alimentacion.helpers",
-    "areas.alimentacion.helpers.config_defaults",
-    "areas.alimentacion.helpers.parsers",
-    "areas.alimentacion.helpers.parsers.alimentacion_excel_parser",
-    "areas.alimentacion.helpers.parsers.disp_dimensiones",
-    "areas.alimentacion.helpers.parsers.proc_alarmas",
-    "areas.alimentacion.helpers.parsers.proc_pint",
-    "areas.alimentacion.helpers.parsers.proc_preal",
-    "areas.alimentacion.helpers.parsers.proc_procesos",
-    "areas.alimentacion.helpers.sd",
-    "areas.alimentacion.helpers.sd.disp_comment_updater",
-    "areas.alimentacion.helpers.sd.mlc_registry",
-    "areas.alimentacion.helpers.xml",
-    "areas.alimentacion.helpers.xml.disp_tag_table_modifier",
-    "areas.alimentacion.helpers.xml.disp_tag_table_parser",
-    "areas.alimentacion.helpers.tia",
-    "areas.alimentacion.helpers.tia.extra_commands",
-    # Interfaces (web routers + MCP tools)
-    "areas.alimentacion.interfaces",
-    "areas.alimentacion.interfaces.web",
-    "areas.alimentacion.interfaces.web.disp_comentarios",
-    "areas.alimentacion.interfaces.web.disp_sync",
-    "areas.alimentacion.interfaces.web.proc_sync",
-    "areas.alimentacion.interfaces.web.excel",
-    "areas.alimentacion.interfaces.mcp",
-    "areas.alimentacion.interfaces.mcp.tools",
-    # Frontend (manifest Python, espejo del manifest.js)
-    "areas.alimentacion.frontend",
-    "areas.alimentacion.frontend.manifest",
-]
+# Auto-scan (sept-2026): la lista se genera dinámicamente escaneando
+# ``areas/<area>/**/*.py`` en runtime. Cualquier modulo nuevo (FB, helper,
+# router, modificador XML/SD) se recoge automaticamente al añadir su .py;
+# los legacy ``*_old.py`` desaparecen solos al borrarlos. Cuando se anada
+# un segundo area (envasado, etc.), basta con que su ``__init__.py``
+# exista bajo ``areas/<otro_area>/``.
+def _scan_areas_for_hiddenimports() -> list[str]:
+    """Escanea ``areas/alimentacion/**/*.py`` y devuelve la lista de modulos.
+
+    Genera entradas como ``"areas"``, ``"areas.alimentacion"`` y
+    ``"areas.alimentacion.functions.function_SubirExcel"`` (sin la
+    extension ``.py``). Excluye ``__pycache__/``.
+
+    Returns:
+        Lista de nombres de modulos Python ordenados.
+    """
+    out: list[str] = ["areas"]
+    area_root = ROOT / "areas" / "alimentacion"
+    if not area_root.is_dir():
+        return out
+    for py_file in sorted(area_root.rglob("*.py")):
+        if "__pycache__" in py_file.parts:
+            continue
+        rel = py_file.relative_to(ROOT)
+        mod_path = rel.with_suffix("")
+        # ``__init__.py`` representa al paquete padre (sin sufijo), no
+        # a un modulo llamado ``__init__`` (que PyInstaller rechaza).
+        if mod_path.name == "__init__":
+            out.append(".".join(rel.parent.parts))
+        else:
+            out.append(".".join(mod_path.parts))
+    return out
+
+
+HIDDEN_IMPORTS_AREAS: list[str] = _scan_areas_for_hiddenimports()
 
 
 def _py_repr_hiddenimports(modules: list[str]) -> str:
