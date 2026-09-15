@@ -165,8 +165,19 @@ class MainServiceSupervisor:
         register_core_commands(tia_client)
         engine = Engine(tick_period_s=self.tick_period_s) if not self.no_engine else None
         if engine is not None:
-            # Registrar los FBs del area (template + futuros reales).
+            # Registrar FBs core (generic, sin acoplamiento al area).
+            # Deben ir ANTES de los areas para que cualquier consumer
+            # que los busque por nombre los encuentre ya en el engine.
+            from core.composition.register_core_fbs import (
+                register as register_core_fbs,
+            )
             from core.runtime.log_buffer import get_log_buffer
+            register_core_fbs(
+                engine,
+                tia_client=tia_client,
+                log=get_log_buffer(),
+            )
+            # Registrar los FBs del area (template + futuros reales).
             from areas.alimentacion import register as register_alimentacion
             register_alimentacion(
                 engine,
