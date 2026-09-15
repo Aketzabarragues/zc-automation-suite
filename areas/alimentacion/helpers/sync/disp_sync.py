@@ -97,6 +97,7 @@ class DispSyncContext:
 
     # ── Resultados de preparar_ops ──
     nmax_ops: list[dict[str, Any]] = field(default_factory=list)
+    rename_ops: list[dict[str, Any]] = field(default_factory=list)
     device_changes: list[dict[str, Any]] = field(default_factory=list)
 
     # ── Resultados de tx_a_nmax_renames ──
@@ -126,7 +127,11 @@ async def exportar_tags(ctx: DispSyncContext) -> None:
 
     disp_ctx = build_cache(root=ctx.build_cache_root).dispositivos
     disp_ctx.clean()
-    ctx.tags_base = disp_ctx.modified_variables
+    # El snapshot limpio vive en ``exports_variables`` (convencion de 9
+    # carpetas). ``modified_variables`` se rellena en ``editar_xmls_offline``
+    # via ``shutil.copytree`` filtrado (que excluye ``000_Config_Dispositivos``
+    # para no re-importar la N_MAX online en Tx B).
+    ctx.tags_base = disp_ctx.exports_variables
     ctx.selective_tables = _selective_table_names(ctx.config_manager)
     await _dispatch_async(
         ctx.tia_client,
@@ -159,7 +164,7 @@ async def compute_diff(ctx: DispSyncContext) -> None:
 
 
 async def preparar_ops(ctx: DispSyncContext) -> None:
-    """Calcula nmax_ops + device_changes para los handlers online/offline."""
+    """Calcula nmax_ops + rename_ops + device_changes para los handlers."""
     assert ctx.tags_base is not None, (
         "preparar_ops requiere exportar_tags previo"
     )
@@ -167,7 +172,22 @@ async def preparar_ops(ctx: DispSyncContext) -> None:
         ctx.tags_base, ctx.config_manager, ctx.app_state,
     )
 
-    # Device changes: lista de {table_name, adds: [...], removes: [...]}.
+    # Rename ops (shape legacy: {table_name, current_name, new_name}).
+    # Tx A las pasa separadas al handler commit_disp_nmax_renames_online.
+    ctx.rename_ops = [
+        {
+            "table_name": uid.split(":", 1)[0],
+            "current_name": old,
+            "new_name": new,
+        }
+        for uid, (old, new) in ctx.renamed_per_table.items()
+    ]
+
+    # Device changes: lista de {table_name, tia_folder, adds, removes}.
+    # ``tia_folder`` resuelve la subcarpeta donde vive el XML del device
+    # dentro de modified/variables (e.g. "PLC_Tags" o ""). Se necesita
+    # tanto en ``editar_xmls_offline`` (para encontrar el XML a editar)
+    # como en el copytree filtrado (Stage 7).
     ctx.device_changes = []
     nmax_table = ctx.config_manager.get_global_config_table_name()
     for table_key in ctx.selective_tables:
@@ -186,6 +206,7 @@ async def preparar_ops(ctx: DispSyncContext) -> None:
         if adds or removes:
             ctx.device_changes.append({
                 "table_name": table_key,
+                "tia_folder": _resolve_tia_folder(ctx.config_manager, table_key),
                 "adds": adds,
                 "removes": removes,
             })
@@ -196,22 +217,21 @@ async def tx_a_nmax_renames(ctx: DispSyncContext) -> None:
     assert ctx.tags_base is not None, (
         "tx_a_nmax_renames requiere exportar_tags previo"
     )
-    if ctx.nmax_ops or ctx.renamed_per_table:
+    if ctx.nmax_ops or ctx.rename_ops:
         nmax_result = await _dispatch_async(
             ctx.tia_client,
             "commit_disp_nmax_renames_online",
             {
                 "plc_name": ctx.plc_name,
                 "nmax_ops": ctx.nmax_ops,
-                "renames": [
-                    {
-                        "table": uid.split(":", 1)[0],
-                        "current_value": uid.split(":", 1)[1],
-                        "new_name": new,
-                    }
-                    for uid, (_old, new) in ctx.renamed_per_table.items()
-                ],
-                "work_dir": str(ctx.tags_base),
+                # Key ``rename_ops`` + items con ``table_name``,
+                # ``current_name``, ``new_name``: shape que espera el
+                # handler ``commit_disp_nmax_renames_online``. Antes
+                # pasabamos ``renames`` con keys ``table`` y
+                # ``current_value``: el handler las ignoraba
+                # silenciosamente y los renames NUNCA se aplicaban.
+                "rename_ops": ctx.rename_ops,
+                "undo_text": "Sync N_MAX + renames",
             },
             timeout_s=120.0,
         )
@@ -234,29 +254,35 @@ async def wait_consolidation(ctx: DispSyncContext) -> None:
 
 
 async def exportar_post_tx_a(ctx: DispSyncContext) -> None:
-    """Relee los XMLs de las tablas tras Tx A (estado ya consolidado)."""
+    """Relee los XMLs de los devices tras Tx A (estado ya consolidado)."""
     assert ctx.tags_base is not None, (
         "exportar_post_tx_a requiere exportar_tags previo"
     )
+    # Re-exportar solo las 6 tablas de devices (NO la N_MAX: ya esta
+    # consolidada en Tx A). El destino es ``exports_variables``
+    # (snapshot limpio), no ``modified_variables``: el copytree de
+    # Stage 7 hace la copia filtrada.
+    from areas.alimentacion.helpers.build_cache import build_cache
+    disp_ctx = build_cache(root=ctx.build_cache_root).dispositivos
     await _dispatch_async(
         ctx.tia_client,
         "export_plc_tags_xml",
         {
             "plc_name": ctx.plc_name,
-            "target_dir": str(ctx.tags_base),
-            "table_names": ctx.selective_tables,
+            "target_dir": str(disp_ctx.exports_variables),
+            "table_names": [dc["table_name"] for dc in ctx.device_changes],
         },
     )
 
 
 async def editar_xmls_offline(ctx: DispSyncContext) -> None:
-    """Edita los XMLs offline con los adds/removes post-Tx A."""
+    """Copia filtrada exports->modified + edita XMLs offline (adds/removes)."""
     assert ctx.tags_base is not None, (
         "editar_xmls_offline requiere exportar_tags previo"
     )
     await asyncio.to_thread(
-        _apply_xml_edits_offline,
-        ctx.tags_base, ctx.device_changes, ctx.config_manager,
+        _copy_and_edit_offline,
+        ctx.build_cache_root, ctx.device_changes,
     )
 
 
@@ -274,13 +300,18 @@ async def tx_b_devices(ctx: DispSyncContext) -> None:
         # ``commit_disp_devices_offline`` rechaza el dispatch con
         # ``ValueError: target_folder requerido``.
         target_folder = ctx.config_manager.get_tia_folder_dispositivos()
+        # Tx B importa desde ``modified_variables`` (NO ``exports_variables``)
+        # porque el copytree de Stage 7 (``_copy_and_edit_offline``) ya
+        # copio y edito los XMLs ahi.
+        from areas.alimentacion.helpers.build_cache import build_cache
+        disp_ctx = build_cache(root=ctx.build_cache_root).dispositivos
         devices_result = await _dispatch_async(
             ctx.tia_client,
             "commit_disp_devices_offline",
             {
                 "plc_name": ctx.plc_name,
                 "device_changes": ctx.device_changes,
-                "modified_dir": str(ctx.tags_base),
+                "modified_dir": str(disp_ctx.modified_variables),
                 "target_folder": target_folder,
                 "undo_text": "Sync devices",
             },
@@ -566,24 +597,81 @@ def _resolve_tia_folder(config_manager: Any, table_key: str) -> str:
     return config_manager.get_tia_folder_dispositivos()
 
 
-def _apply_xml_edits_offline(
-    tags_base: Path,
+def _ignore_non_device_xmls(
+    device_table_names: set[str],
+) -> "callable":
+    """Callable para ``shutil.copytree(ignore=...)``.
+
+    Excluye los XMLs cuyo stem (``"2000_Disp_ED"`` sin ``.xml``) NO
+    este en ``device_table_names``. Esto evita que el copytree de
+    Stage 7 (``exports/variables/ -> modified/variables/``) copie el
+    ``000_Config_Dispositivos.xml`` (tabla N_MAX online-only que NO
+    debe llegar al import offline de Tx B). Si la copia lo incluyera,
+    Tx B (``import_plc_tags_xml``) lo re-importaria con sus valores
+    pre-commit, sobrescribiendo los N_MAX aplicados online en Tx A y
+    anulando el fix sept-2026 del rollback silencioso V21.
+
+    ``shutil.copytree`` invoca este callable UNA VEZ POR CADA
+    SUBDIRECTORIO del arbol (incluida la raiz). Solo inspeccionamos
+    ``files`` (los nombres del directorio actual): la recursion la hace
+    ``copytree`` automaticamente. Los no-XMLs se preservan.
+    """
+    def _ignore(directory: str, files: list[str]) -> set[str]:
+        ignored: set[str] = set()
+        for name in files:
+            if name.endswith(".xml"):
+                stem = name[:-4]
+                if stem not in device_table_names:
+                    ignored.add(name)
+        return ignored
+    return _ignore
+
+
+def _copy_and_edit_offline(
+    build_cache_root: Path,
     device_changes: list[dict[str, Any]],
-    config_manager: Any,
 ) -> None:
-    """Edita los XMLs offline con los adds/removes post-Tx A."""
+    """Stage 7 del sync: copytree filtrado exports->modified + edits.
+
+    Replica el legacy ``disp_sync_instances.py:680-735``. El copytree
+    con filtro excluye ``000_Config_Dispositivos.xml`` (tabla N_MAX
+    online-only) para que Tx B no la re-importe y anule los N_MAX de Tx A.
+    """
+    from areas.alimentacion.helpers.build_cache import build_cache
     from areas.alimentacion.helpers.xml.disp_tag_table_modifier import (
         TagTableModifier,
     )
 
+    disp_ctx = build_cache(root=build_cache_root).dispositivos
+    device_table_names = {dc["table_name"] for dc in device_changes}
+
+    # 1. Copytree filtrado exports/variables -> modified/variables.
+    # El filtro es CRITICO: si copiamos la tabla N_MAX, Tx B la
+    # re-importaria con sus valores pre-commit, anulando los N_MAX
+    # aplicados online en Tx A.
+    if disp_ctx.exports_variables.exists():
+        shutil.copytree(
+            disp_ctx.exports_variables,
+            disp_ctx.modified_variables,
+            ignore=_ignore_non_device_xmls(device_table_names),
+            dirs_exist_ok=True,
+        )
+
+    # 2. Edit offline de cada tabla en modified_variables.
     for dc in device_changes:
         table_name = dc["table_name"]
+        tia_folder = dc.get("tia_folder") or ""
         adds = dc.get("adds", []) or []
         removes = set(dc.get("removes", []) or [])
-        tia_folder = _resolve_tia_folder(config_manager, table_name)
-        xml_path = tags_base / tia_folder / f"{table_name}.xml"
+        xml_path = (
+            disp_ctx.modified_variables
+            / tia_folder
+            / f"{table_name}.xml"
+        )
         if not xml_path.is_file():
-            matches = list(tags_base.rglob(f"{table_name}.xml"))
+            matches = list(
+                disp_ctx.modified_variables.rglob(f"{table_name}.xml")
+            )
             if matches:
                 xml_path = matches[0]
         if xml_path.is_file():
