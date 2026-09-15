@@ -22,6 +22,7 @@ from areas.alimentacion.application.disp_state_extensions import (
     install as install_state,
 )
 from areas.alimentacion.domain.disp_catalog import build_catalog as build_alim_catalog
+from areas.alimentacion.frontend.dispositivos_router import build_routers
 from areas.alimentacion.frontend.manifest import build as build_manifest
 from areas.alimentacion.infrastructure.config_defaults import (
     install as install_defaults,
@@ -38,6 +39,7 @@ AREA_SPEC = AreaSpec(
     label="Área de alimentación",
     icon="",
     config_block="alimentacion",
+    contributes_routers=build_routers,
     contributes_state_extensions=install_state,
     contributes_config_defaults=install_defaults,
     contributes_catalog=build_alim_catalog,

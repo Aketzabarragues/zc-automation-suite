@@ -170,6 +170,14 @@ def create_app(
     # ── Blueprints del shell ────────────────────────────────────
     _register_blueprints(app)
 
+    # ── Routers aportados por las areas (AreaSpec.contributes_routers)
+    # Cada area registra su blueprint aqui (ej. alimentacion expone
+    # /api/v1/state/dispositivos desde su ``dispositivos_router``).
+    # El shell no sabe que areas concretas existen; el AreaRegistry
+    # las descubre y les pasa la ``app``.
+    from core.composition.app_area_registry import AreaRegistry
+    AreaRegistry.discover().for_each("contributes_routers", app=app)
+
     logger.info(
         "create_app: Flask OB1 inicializada (engine=%s, bus=%s)",
         type(_engine).__name__, type(_bus).__name__,
