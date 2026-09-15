@@ -34,6 +34,9 @@ from areas.alimentacion.frontend.diff_constants_router import (
 from areas.alimentacion.frontend.disp_comments_router import (
     build_routers as build_disp_comments_routers,
 )
+from areas.alimentacion.frontend.disp_preview_router import (
+    build_routers as build_disp_preview_routers,
+)
 from areas.alimentacion.frontend.manifest import build as build_manifest
 from areas.alimentacion.helpers.config_defaults import (
     install as install_defaults,
@@ -61,6 +64,7 @@ def _build_all_routers(app) -> None:
     build_excel_routers(app)
     build_diff_constants_routers(app)
     build_disp_comments_routers(app)
+    build_disp_preview_routers(app)
 
 
 AREA_SPEC = AreaSpec(
