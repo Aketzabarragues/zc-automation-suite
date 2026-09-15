@@ -2,56 +2,32 @@
 
 Replica la logica completa de
 ``DispSyncInstancesUseCase.ejecutar_transaccion`` (areas/alimentacion/
-application/use_cases/disp_sync_instances.py:336) como **11 sub-stages
-puros e independientes**. Cada sub-stage es una funcion async que
-muta un ``DispSyncContext`` compartido.
+application/use_cases/disp_sync_instances.py:336) como **11 funciones
+puras independientes**. Cada funcion toma un ``DispSyncContext`` por
+argumento y muta sus campos con el resultado de su trabajo.
 
-Las 11 etapas siguen el orden del legacy:
+Este modulo **no contiene state machine**. La orquestacion de las 11
+funciones (orden, dependencias entre etapas, mapeo a steps del FB) vive
+exclusivamente en ``areas/alimentacion/functions/
+function_DispSincronizarDispositivos.py``. Aqui solo estan las funciones
+puras y la forma del estado compartido (``DispSyncContext``).
 
-  1.  export_diff              -> clean modified/ + export 7 tablas.
-  2.  compute_diff             -> diff read-only (CPU en to_thread).
-  3.  prepare_xml              -> ops NMAX + device_changes para apply.
-  4.  tx_a_nmax_renames        -> dispatch ``commit_disp_nmax_renames_online``
-                                   (online puro, abre/cierra su tx TIA).
-  5.  wait_consolidation       -> sleep 2s para que TIA consolide.
-  6.  export_post_tx_a         -> releer XMLs post-Tx A.
-  7.  copy_and_edit            -> copytree filtrado + TagTableModifier.
-  8.  tx_b_devices             -> dispatch ``commit_disp_devices_offline``
-                                   (offline puro, abre/cierra su tx TIA).
-  9.  compile_blocks           -> dispatch ``compile_blocks`` (fuera de tx).
-  10. apply_comentarios_disp   -> reusa ``apply_disp_comments`` de A.4
-                                   (6 dispatches separados por hw_type).
-  11. post_preview             -> reusa ``disp_generate_preview`` de A.5
-                                   para que la SPA vea "todo en sync".
+Las 11 funciones siguen el orden del legacy:
 
-**API publica** (sept-2026):
-
-- ``disp_sync(...)`` -- ejecuta los 11 stages en orden, devuelve el
-  dict legacy con la shape que espera la SPA. Mantiene back-compat con
-  callers existentes.
-- ``run_stage(ctx, stage_name)`` -- ejecuta UN stage individual contra
-  un ``DispSyncContext`` ya inicializado. Usado por el FB
-  ``FunctionDispSincronizarDispositivos`` para mapear 1 stage del FB
-  a 1 stage real del helper (antes todos los stages del FB eran
-  checkpoints vacios, lo que provocaba que el progressbar saltara al
-  ultimo step sin transicion visible).
-- ``DispSyncContext`` -- dataclass con todos los resultados intermedios
-  que comparten los 11 stages.
-- ``STAGE_NAMES`` -- tupla con los 11 nombres canonicos de los stages
-  (mismo orden que ``FunctionDispSincronizarDispositivos.steps``).
-
-Output (shape legacy back-compat con la SPA)::
-
-    {
-      "success":         True,
-      "message":         str,
-      "operations":      int,
-      "n_max_updates":   int,
-      "post_sync_preview": dict | None,
-      "compile_ok":      bool,
-      "compile_error":   str | None,
-      "comments_sync":   dict,
-    }
+  1.  ``exportar_tags``           -> clean modified/ + export 7 tablas.
+  2.  ``compute_diff``             -> diff read-only (CPU en to_thread).
+  3.  ``preparar_ops``              -> ops NMAX + device_changes para apply.
+  4.  ``tx_a_nmax_renames``        -> dispatch ``commit_disp_nmax_renames_online``
+                                       (online puro, abre/cierra su tx TIA).
+  5.  ``wait_consolidation``       -> sleep 2s para que TIA consolide.
+  6.  ``exportar_post_tx_a``       -> releer XMLs post-Tx A.
+  7.  ``editar_xmls_offline``      -> TagTableModifier sobre los XMLs.
+  8.  ``tx_b_devices``             -> dispatch ``commit_disp_devices_offline``
+                                       (offline puro, abre/cierra su tx TIA).
+  9.  ``compilar_bloques``         -> dispatch ``compile_blocks`` (fuera de tx).
+  10. ``aplicar_comentarios``      -> reusa ``apply_disp_comments`` de A.4.
+  11. ``post_preview``             -> reusa ``disp_generate_preview`` de A.5
+                                       para que la SPA vea "todo en sync".
 
 Restricciones arquitectonicas (.clinerules):
   - NO importa ``siemens_tia_scripting``.
@@ -61,6 +37,8 @@ Restricciones arquitectonicas (.clinerules):
   - Cero rutas hardcodeadas; todo via ConfigManager.
   - El helper NO toca ``progress_tracker``; eso es responsabilidad
     del FB wrapper (``FunctionDispSincronizarDispositivos``).
+  - El helper NO contiene state machine (orden, mapping, dispatch);
+    eso vive en el FB.
 """
 from __future__ import annotations
 
@@ -84,197 +62,66 @@ TIA_CONSOLIDATION_SLEEP_S: float = 2.0
 
 
 # ===========================================================================
-# Contexto mutable (estado compartido entre los 11 stages)
+# Contexto mutable (estado compartido entre las 11 funciones)
 # ===========================================================================
 
 @dataclass
 class DispSyncContext:
-    """Estado compartido entre los 11 stages de disp_sync.
+    """Estado compartido entre las 11 funciones de ``disp_sync``.
 
-    Cada ``_stage_X(ctx)`` lee las deps inyectadas y los resultados
-    de stages previos, y muta los campos que representan resultados
-    de su trabajo. El FB ``FunctionDispSincronizarDispositivos`` puede
-    instanciar uno, ejecutar UN stage via ``run_stage(ctx, ...)``, y
-    leer los resultados parciales para mostrar progreso real.
+    Cada funcion toma un ``DispSyncContext`` por argumento, lee las deps
+    inyectadas y los resultados de funciones previas, y muta los campos
+    que representan resultados de su trabajo. El FB
+    ``FunctionDispSincronizarDispositivos`` instancia uno y lo reusa
+    entre sus 11 ticks para que los resultados intermedios esten
+    disponibles para las funciones posteriores.
     """
 
-    # ── Deps inyectadas (Zona 0) ──
+    # ── Deps inyectadas ──
     plc_name: str
     tia_client: Any
     config_manager: Any
     app_state: Any
     build_cache_root: Path
 
-    # ── Resultados de Stage 1 (exportar_tags) ──
+    # ── Resultados de exportar_tags ──
     tags_base: Path | None = None
     selective_tables: list[str] = field(default_factory=list)
 
-    # ── Resultados de Stage 2 (compute_diff) ──
+    # ── Resultados de compute_diff ──
     desired_state_per_table: dict[str, dict[str, str]] = field(default_factory=dict)
     added_per_table: dict[str, list[str]] = field(default_factory=dict)
     removed_per_table: dict[str, list[str]] = field(default_factory=dict)
     renamed_per_table: dict[str, tuple[str, str]] = field(default_factory=dict)
     base_state_per_table: dict[str, dict[str, str]] = field(default_factory=dict)
 
-    # ── Resultados de Stage 3 (preparar_ops) ──
+    # ── Resultados de preparar_ops ──
     nmax_ops: list[dict[str, Any]] = field(default_factory=list)
     device_changes: list[dict[str, Any]] = field(default_factory=list)
 
-    # ── Resultados de Stage 4 (tx_a_nmax_renames) ──
+    # ── Resultados de tx_a_nmax_renames ──
     nmax_result: dict[str, Any] = field(default_factory=dict)
 
-    # ── Resultados de Stage 8 (tx_b_devices) ──
+    # ── Resultados de tx_b_devices ──
     devices_result: dict[str, Any] = field(default_factory=dict)
 
-    # ── Resultados de Stage 9 (compilar_bloques) ──
+    # ── Resultados de compilar_bloques ──
     compile_ok: bool = True
     compile_error: str | None = None
 
-    # ── Resultados de Stage 10 (aplicar_comentarios) ──
+    # ── Resultados de aplicar_comentarios ──
     comments_result: dict[str, Any] = field(default_factory=dict)
 
-    # ── Resultados de Stage 11 (post_preview) ──
+    # ── Resultados de post_preview ──
     post_sync_preview: dict[str, Any] | None = None
 
 
-# Nombres canonicos de los 11 stages (mismo orden que
-# ``FunctionDispSincronizarDispositivos.steps``). El FB indexa estos
-# nombres para mapear 1:1 con sus steps y llamar a ``run_stage``.
-STAGE_NAMES: tuple[str, ...] = (
-    "exportar_tags",
-    "compute_diff",
-    "preparar_ops",
-    "tx_a_nmax_renames",
-    "wait_consolidation",
-    "exportar_post_tx_a",
-    "editar_xmls_offline",
-    "tx_b_devices",
-    "compilar_bloques",
-    "aplicar_comentarios",
-    "post_preview",
-)
-
-
 # ===========================================================================
-# API publica (back-compat): disp_sync orquesta los 11 stages
+# 11 funciones puras (cada una muta ``ctx``; sin state machine aqui)
 # ===========================================================================
 
-async def disp_sync(
-    plc_name: str,
-    *,
-    tia_client: Any,
-    config_manager: Any,
-    app_state: Any,
-    build_cache_root: Path | None = None,
-) -> dict[str, Any]:
-    """Ejecuta la sincronizacion transaccional completa (11 etapas).
-
-    Equivalente a llamar a ``run_stage(ctx, name)`` para los 11 stages
-    en orden. Mantiene la API legacy para back-compat con callers que
-    aun usan el helper monolitico.
-
-    Args:
-        plc_name: nombre del PLC destino.
-        tia_client: cliente TIA (Singleton core o mock).
-        config_manager: ``ConfigManager`` del departamento activo.
-        app_state: ``AppState`` con los dispositivos cargados del Excel.
-        build_cache_root: raiz del ``BuildCache`` del area.
-
-    Returns:
-        ``dict`` con shape legacy ``{success, message, operations,
-        n_max_updates, post_sync_preview, compile_ok, compile_error,
-        comments_sync}``.
-    """
-    ctx = DispSyncContext(
-        plc_name=plc_name,
-        tia_client=tia_client,
-        config_manager=config_manager,
-        app_state=app_state,
-        build_cache_root=build_cache_root or (
-            Path(os.getcwd()) / ".build_cache"
-        ),
-    )
-
-    for name in STAGE_NAMES:
-        await run_stage(ctx, name)
-
-    # Componer el shape legacy que esperan los callers/tests.
-    result = {
-        "operations_executed": (
-            ctx.nmax_result.get("operations_executed", 0)
-            + ctx.devices_result.get("operations_executed", 0)
-        ),
-        "details": (
-            ctx.nmax_result.get("details", [])
-            + ctx.devices_result.get("details", [])
-        ),
-    }
-
-    return {
-        "success": True,
-        "message": (
-            f"Inyeccion completada. Detalles: {result['details']}"
-        ),
-        "operations": result["operations_executed"],
-        "n_max_updates": len(ctx.nmax_ops),
-        "post_sync_preview": ctx.post_sync_preview,
-        "compile_ok": ctx.compile_ok,
-        "compile_error": ctx.compile_error,
-        "comments_sync": ctx.comments_result,
-    }
-
-
-# ===========================================================================
-# API por stage (usada por el FB)
-# ===========================================================================
-
-async def run_stage(ctx: DispSyncContext, stage_name: str) -> None:
-    """Ejecuta UN stage individual del sync contra ``ctx``.
-
-    El FB ``FunctionDispSincronizarDispositivos`` mapea 1:1 sus 11
-    steps con los nombres de ``STAGE_NAMES``, llamando a esta funcion
-    en cada ``run_step(idx)``. Asi el progressbar muestra 11 stages
-    con trabajo real, no 10 checkpoints vacios.
-
-    Raises:
-        ValueError: si ``stage_name`` no esta en ``STAGE_NAMES``.
-    """
-    if stage_name not in STAGE_NAMES:
-        raise ValueError(
-            f"stage no soportado: {stage_name!r}. "
-            f"Stages validos: {STAGE_NAMES}"
-        )
-    # Dispatch explicito (no dict) para que sea visible en stack traces.
-    if stage_name == "exportar_tags":
-        await _stage_exportar_tags(ctx)
-    elif stage_name == "compute_diff":
-        await _stage_compute_diff(ctx)
-    elif stage_name == "preparar_ops":
-        await _stage_preparar_ops(ctx)
-    elif stage_name == "tx_a_nmax_renames":
-        await _stage_tx_a_nmax_renames(ctx)
-    elif stage_name == "wait_consolidation":
-        await _stage_wait_consolidation(ctx)
-    elif stage_name == "exportar_post_tx_a":
-        await _stage_exportar_post_tx_a(ctx)
-    elif stage_name == "editar_xmls_offline":
-        await _stage_editar_xmls_offline(ctx)
-    elif stage_name == "tx_b_devices":
-        await _stage_tx_b_devices(ctx)
-    elif stage_name == "compilar_bloques":
-        await _stage_compilar_bloques(ctx)
-    elif stage_name == "aplicar_comentarios":
-        await _stage_aplicar_comentarios(ctx)
-    elif stage_name == "post_preview":
-        await _stage_post_preview(ctx)
-
-
-# ===========================================================================
-# Implementacion de los 11 stages (cada uno muta ``ctx``)
-# ===========================================================================
-
-async def _stage_exportar_tags(ctx: DispSyncContext) -> None:
-    """Stage 1: clean modified/ + export 7 tablas."""
+async def exportar_tags(ctx: DispSyncContext) -> None:
+    """Limpia modified/ y exporta las tablas selectivas al snapshot."""
     from areas.alimentacion.helpers.build_cache import build_cache
 
     disp_ctx = build_cache(root=ctx.build_cache_root).dispositivos
@@ -292,10 +139,10 @@ async def _stage_exportar_tags(ctx: DispSyncContext) -> None:
     )
 
 
-async def _stage_compute_diff(ctx: DispSyncContext) -> None:
-    """Stage 2: diff read-only entre TIA (XMLs) y AppState."""
+async def compute_diff(ctx: DispSyncContext) -> None:
+    """Calcula el diff entre los XMLs exportados y el AppState (read-only)."""
     assert ctx.tags_base is not None, (
-        "Stage compute_diff requiere Stage 1 (exportar_tags) previo"
+        "compute_diff requiere exportar_tags previo"
     )
     ctx.desired_state_per_table = _build_desired_state_from_app(
         ctx.app_state, ctx.config_manager,
@@ -311,10 +158,10 @@ async def _stage_compute_diff(ctx: DispSyncContext) -> None:
     )
 
 
-async def _stage_preparar_ops(ctx: DispSyncContext) -> None:
-    """Stage 3: ops NMAX + device_changes para apply."""
+async def preparar_ops(ctx: DispSyncContext) -> None:
+    """Calcula nmax_ops + device_changes para los handlers online/offline."""
     assert ctx.tags_base is not None, (
-        "Stage preparar_ops requiere Stage 1 (exportar_tags) previo"
+        "preparar_ops requiere exportar_tags previo"
     )
     ctx.nmax_ops = _compute_nmax_ops_for_apply(
         ctx.tags_base, ctx.config_manager, ctx.app_state,
@@ -344,10 +191,10 @@ async def _stage_preparar_ops(ctx: DispSyncContext) -> None:
             })
 
 
-async def _stage_tx_a_nmax_renames(ctx: DispSyncContext) -> None:
-    """Stage 4: dispatch online de N_MAX + renames (Tx A)."""
+async def tx_a_nmax_renames(ctx: DispSyncContext) -> None:
+    """Tx A (online puro): dispatch de N_MAX + renames contra TIA."""
     assert ctx.tags_base is not None, (
-        "Stage tx_a_nmax_renames requiere Stage 1 (exportar_tags) previo"
+        "tx_a_nmax_renames requiere exportar_tags previo"
     )
     if ctx.nmax_ops or ctx.renamed_per_table:
         nmax_result = await _dispatch_async(
@@ -381,15 +228,15 @@ async def _stage_tx_a_nmax_renames(ctx: DispSyncContext) -> None:
         }
 
 
-async def _stage_wait_consolidation(ctx: DispSyncContext) -> None:
-    """Stage 5: sleep 2s para que TIA consolide internamente."""
+async def wait_consolidation(ctx: DispSyncContext) -> None:
+    """Espera 2s para que TIA consolide internamente tras Tx A."""
     await asyncio.to_thread(time.sleep, TIA_CONSOLIDATION_SLEEP_S)
 
 
-async def _stage_exportar_post_tx_a(ctx: DispSyncContext) -> None:
-    """Stage 6: releer XMLs post-Tx A."""
+async def exportar_post_tx_a(ctx: DispSyncContext) -> None:
+    """Relee los XMLs de las tablas tras Tx A (estado ya consolidado)."""
     assert ctx.tags_base is not None, (
-        "Stage exportar_post_tx_a requiere Stage 1 (exportar_tags) previo"
+        "exportar_post_tx_a requiere exportar_tags previo"
     )
     await _dispatch_async(
         ctx.tia_client,
@@ -402,10 +249,10 @@ async def _stage_exportar_post_tx_a(ctx: DispSyncContext) -> None:
     )
 
 
-async def _stage_editar_xmls_offline(ctx: DispSyncContext) -> None:
-    """Stage 7: edita los XMLs offline con adds/removes post-Tx A."""
+async def editar_xmls_offline(ctx: DispSyncContext) -> None:
+    """Edita los XMLs offline con los adds/removes post-Tx A."""
     assert ctx.tags_base is not None, (
-        "Stage editar_xmls_offline requiere Stage 1 (exportar_tags) previo"
+        "editar_xmls_offline requiere exportar_tags previo"
     )
     await asyncio.to_thread(
         _apply_xml_edits_offline,
@@ -413,10 +260,10 @@ async def _stage_editar_xmls_offline(ctx: DispSyncContext) -> None:
     )
 
 
-async def _stage_tx_b_devices(ctx: DispSyncContext) -> None:
-    """Stage 8: dispatch offline de import_plc_tags_xml (Tx B)."""
+async def tx_b_devices(ctx: DispSyncContext) -> None:
+    """Tx B (offline puro): dispatch de import_plc_tags_xml contra TIA."""
     assert ctx.tags_base is not None, (
-        "Stage tx_b_devices requiere Stage 1 (exportar_tags) previo"
+        "tx_b_devices requiere exportar_tags previo"
     )
     if ctx.device_changes:
         # ``target_folder`` es la ruta interna de TIA Portal donde
@@ -452,8 +299,8 @@ async def _stage_tx_b_devices(ctx: DispSyncContext) -> None:
         }
 
 
-async def _stage_compilar_bloques(ctx: DispSyncContext) -> None:
-    """Stage 9: dispatch compile_blocks (fuera de tx)."""
+async def compilar_bloques(ctx: DispSyncContext) -> None:
+    """Compila los DBs afectados (fuera de tx; el commit ya esta aplicado)."""
     affected_dbs = _get_affected_dbs_for_compile(ctx.config_manager)
     try:
         compile_result = await _dispatch_async(
@@ -505,8 +352,8 @@ async def _stage_compilar_bloques(ctx: DispSyncContext) -> None:
         )
 
 
-async def _stage_aplicar_comentarios(ctx: DispSyncContext) -> None:
-    """Stage 10: aplica comentarios a las 6 tag tables (helper de A.4)."""
+async def aplicar_comentarios(ctx: DispSyncContext) -> None:
+    """Aplica comentarios a las 6 tag tables (helper de A.4)."""
     from areas.alimentacion.helpers.sync.disp_comment_sync import (
         apply_disp_comments,
     )
@@ -520,8 +367,8 @@ async def _stage_aplicar_comentarios(ctx: DispSyncContext) -> None:
     )
 
 
-async def _stage_post_preview(ctx: DispSyncContext) -> None:
-    """Stage 11: reusa ``disp_generate_preview`` para que la SPA vea 'todo en sync'."""
+async def post_preview(ctx: DispSyncContext) -> None:
+    """Genera el preview post-sync para que la SPA vea 'todo en sync'."""
     from areas.alimentacion.helpers.sync.disp_generate_preview import (
         disp_generate_preview,
     )
@@ -724,7 +571,7 @@ def _apply_xml_edits_offline(
     device_changes: list[dict[str, Any]],
     config_manager: Any,
 ) -> None:
-    """Edita los XMLs offline con los adds/removes post-Tx A (Stage 7)."""
+    """Edita los XMLs offline con los adds/removes post-Tx A."""
     from areas.alimentacion.helpers.xml.disp_tag_table_modifier import (
         TagTableModifier,
     )
@@ -765,9 +612,18 @@ def _get_affected_dbs_for_compile(config_manager: Any) -> list[str]:
 
 
 __all__ = [
-    "disp_sync",
     "DispSyncContext",
-    "STAGE_NAMES",
-    "run_stage",
     "TIA_CONSOLIDATION_SLEEP_S",
+    # 11 funciones puras (sin state machine, sin orden; eso vive en el FB)
+    "exportar_tags",
+    "compute_diff",
+    "preparar_ops",
+    "tx_a_nmax_renames",
+    "wait_consolidation",
+    "exportar_post_tx_a",
+    "editar_xmls_offline",
+    "tx_b_devices",
+    "compilar_bloques",
+    "aplicar_comentarios",
+    "post_preview",
 ]

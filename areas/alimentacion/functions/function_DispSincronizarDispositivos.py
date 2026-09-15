@@ -1,16 +1,18 @@
 """FB de area: sincronizacion transaccional de dispositivos vs PLC.
 
 State machine sobre el helper ``disp_sync`` (areas/alimentacion/helpers
-/sync/disp_sync.py). Las 11 etapas viven en el helper como funciones
-``_stage_X(ctx)`` puras e independientes; el FB las ejecuta 1:1 desde
-``run_step(idx)`` llamando a ``run_stage(self._ctx, step_nombre)``.
+/sync/disp_sync.py). El helper expone funciones independientes
+(``exportar_tags``, ``compute_diff``, ``tx_a_nmax_renames``, etc.) que
+reciben un ``DispSyncContext`` y mutan sus campos. **Aqui en el FB vive
+la state machine**: el orden de las 11 llamadas, el mapping step ->
+funcion del helper, y la instanciacion del ctx.
 
 Antes (sept-2026 -): 10 de los 11 steps del FB eran checkpoints
 vacios; solo el ultimo invocaba el helper monolitico de golpe. Esto
 provocaba que el progressbar saltara al ultimo step sin transicion
 visible.
 
-Ahora (sept-2026): cada step del FB ejecuta 1 stage real del helper
+Ahora (sept-2026): cada step del FB ejecuta 1 funcion real del helper
 contra un ``DispSyncContext`` compartido entre los 11 ticks. El
 progressbar muestra 11 etapas con trabajo real y duracion real.
 
@@ -33,8 +35,7 @@ El ``self.result`` se popula con la shape legacy esperada por la SPA::
       'comments_sync':   dict,
     }
 
-Steps (11, mismo orden que el legacy ``ejecutar_transaccion`` y que
-``disp_sync.STAGE_NAMES``):
+Steps (11, mismo orden que el legacy ``ejecutar_transaccion``):
   - exportar_tags
   - compute_diff
   - preparar_ops
@@ -148,7 +149,7 @@ class FunctionDispSincronizarDispositivos(FunctionBase):
             )
         self._plc_name = str(plc_name)
 
-        # Crear el DispSyncContext que los 11 stages iran mutando.
+        # Crear el DispSyncContext que las 11 funciones iran mutando.
         # Lazy import para evitar ciclo con helpers/sync/.
         from areas.alimentacion.helpers.sync.disp_sync import DispSyncContext
         self._ctx = DispSyncContext(
@@ -165,20 +166,20 @@ class FunctionDispSincronizarDispositivos(FunctionBase):
         )
 
     # ==================================================================
-    # HOOK 2: run_step  (ZONA 4: 1 step FB = 1 stage real del helper)
+    # HOOK 2: run_step  (ZONA 4: state machine -> dispatch al helper)
     # ==================================================================
 
     async def run_step(self, idx: int, **params: Any) -> str:
-        """Ejecuta el stage ``steps[idx].nombre`` del helper ``disp_sync``.
+        """Dispatch del FB step ``idx`` a la funcion del helper ``disp_sync``.
 
-        Mapeo 1:1 con ``disp_sync.STAGE_NAMES``: cada tick del engine
-        avanza UN stage real del sync (exportar_tags, compute_diff,
-        tx_a_nmax_renames, etc.). El ``DispSyncContext`` vive entre
-        ticks para que los resultados intermedios (nmax_ops,
-        device_changes, etc.) esten disponibles para stages posteriores.
+        Aqui vive la state machine: cada step del FB llama a UNA
+        funcion del helper (``exportar_tags``, ``compute_diff``, etc.)
+        contra el ``DispSyncContext`` compartido. El ``case`` es
+        explicito (no dict.get dispatch) para que sea visible en stack
+        traces cuando algo falla.
         """
         # Lazy import para evitar ciclo con helpers/sync/.
-        from areas.alimentacion.helpers.sync.disp_sync import run_stage
+        from areas.alimentacion.helpers.sync import disp_sync
 
         if self._ctx is None:
             raise RuntimeError(
@@ -187,10 +188,34 @@ class FunctionDispSincronizarDispositivos(FunctionBase):
             )
 
         step_nombre = self.steps[idx]["nombre"]
-        await run_stage(self._ctx, step_nombre)
+        match step_nombre:
+            case "exportar_tags":
+                await disp_sync.exportar_tags(self._ctx)
+            case "compute_diff":
+                await disp_sync.compute_diff(self._ctx)
+            case "preparar_ops":
+                await disp_sync.preparar_ops(self._ctx)
+            case "tx_a_nmax_renames":
+                await disp_sync.tx_a_nmax_renames(self._ctx)
+            case "wait_consolidation":
+                await disp_sync.wait_consolidation(self._ctx)
+            case "exportar_post_tx_a":
+                await disp_sync.exportar_post_tx_a(self._ctx)
+            case "editar_xmls_offline":
+                await disp_sync.editar_xmls_offline(self._ctx)
+            case "tx_b_devices":
+                await disp_sync.tx_b_devices(self._ctx)
+            case "compilar_bloques":
+                await disp_sync.compilar_bloques(self._ctx)
+            case "aplicar_comentarios":
+                await disp_sync.aplicar_comentarios(self._ctx)
+            case "post_preview":
+                await disp_sync.post_preview(self._ctx)
+            case _:
+                raise ValueError(f"step no soportado: {step_nombre!r}")
 
-        # Devolv un resumen legible del stage que acaba de correr.
-        return _stage_summary(self._ctx, step_nombre)
+        # Resumen legible del step que acaba de correr (aparece en la SPA).
+        return _step_summary(self._ctx, step_nombre)
 
     # ==================================================================
     # HOOK 3: on_finish  (ZONA 5: vuelco del result desde el ctx)
@@ -252,8 +277,8 @@ class FunctionDispSincronizarDispositivos(FunctionBase):
         )
 
 
-def _stage_summary(ctx: Any, step_nombre: str) -> str:
-    """Resumen legible del stage que acaba de correr (aparece en la SPA)."""
+def _step_summary(ctx: Any, step_nombre: str) -> str:
+    """Resumen legible del step que acaba de correr (aparece en la SPA)."""
     if step_nombre == "exportar_tags":
         return (
             f"{step_nombre}: {len(ctx.selective_tables)} tablas exportadas"
