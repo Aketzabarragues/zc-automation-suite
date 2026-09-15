@@ -65,10 +65,10 @@ def upload_excel():
 
     file = request.files["file"]
     suffix = Path(file.filename or "upload.xlsx").suffix or ".xlsx"
-    if suffix.lower() != ".xlsx":
+    if suffix.lower() not in (".xlsx", ".xlsm"):
         return jsonify({
             "ok": False,
-            "error": f"solo se aceptan .xlsx (recibido: {suffix})",
+            "error": f"solo se aceptan .xlsx o .xlsm (recibido: {suffix})",
         }), 400
 
     # ── 1. Escribir el archivo a un tempfile ──
