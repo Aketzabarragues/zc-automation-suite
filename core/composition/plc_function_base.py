@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import traceback
 from collections.abc import Callable
 from typing import Any
 
@@ -228,10 +229,27 @@ class FunctionBase:
             except (NotImplementedError, AssertionError):
                 raise
             except Exception as e:
+                # Capturamos el traceback de la excepcion ACTUAL (no el
+                # stack del caller) para que el operario vea la traza
+                # completa en la ConsolaLogs de la SPA.
+                tb_str = "".join(
+                    traceback.format_exception(type(e), e, e.__traceback__)
+                ).rstrip()
+                # Traceback completo al log de Python (para debugging offline).
                 logger.exception(
                     "FB %s: error en tick() (nStep=%d) -- %s: %s",
                     self.nombre, self.nStep, type(e).__name__, e,
                 )
+                # Tambien al LogBuffer del FB: la ConsolaLogs de la SPA
+                # lo recibe via SSE y el operario lo ve en vivo (no solo
+                # en zc.log). Sin esto, el progressbar muestra el
+                # error_msg corto pero el operario no ve el traceback.
+                if self._log is not None:
+                    self._log.error(
+                        f"[{self.nombre}] ERROR en tick() "
+                        f"(nStep={self.nStep}): {type(e).__name__}: {e}\n"
+                        f"{tb_str}"
+                    )
                 self.error_msg = f"{type(e).__name__}: {e}"
                 self._close_tracker_on_error()
                 self.nStep = self.n_error
