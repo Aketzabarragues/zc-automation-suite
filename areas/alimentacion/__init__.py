@@ -102,8 +102,6 @@ def register(
     from core.runtime.app_state import get_app_state
     from core.runtime.log_buffer import get_log_buffer
 
-    from areas.alimentacion.functions.function_cuatro_pasos import FunctionCuatroPasos
-    from areas.alimentacion.functions.function_seis_pasos import FunctionSeisPasos
     from areas.alimentacion.functions.function_template import FunctionTemplate
     from areas.alimentacion.functions.function_SubirExcel import FunctionSubirExcel
 
@@ -111,14 +109,9 @@ def register(
     log = log if log is not None else get_log_buffer()
     app_state = app_state if app_state is not None else get_app_state()
 
-    # Demos (intactos): no necesitan deps externas.
+    # Plantilla FB registrada como ``plantilla``: 10 pasos dummy para
+    # validar el engine y el progress tracker como faceplate SSE.
     engine.register_fb("plantilla", FunctionTemplate(nombre="plantilla"))
-    engine.register_fb(
-        "cuatro_pasos", FunctionCuatroPasos(nombre="cuatro_pasos"),
-    )
-    engine.register_fb(
-        "seis_pasos", FunctionSeisPasos(nombre="seis_pasos"),
-    )
 
     # FBs reales migrados al patron plantilla (A.1+).
     engine.register_fb(
