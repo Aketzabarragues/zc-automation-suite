@@ -223,7 +223,7 @@ def _register_blueprints(app: Flask) -> None:
                         name, attr,
                     )
         except ImportError as exc:
-            logger.debug(
+            logger.warning(
                 "create_app: blueprint %s no disponible (%s).", name, exc
             )
 

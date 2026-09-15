@@ -90,7 +90,16 @@ class AreaRegistry:
         """Itera ``areas/*/`` e importa cada ``__init__.py``."""
         try:
             import areas as _areas_pkg
-        except ImportError:
+        except ImportError as exc:
+            logger.warning("AreaRegistry: areas no se pudo importar: %s", exc)
+            return
+
+        if not hasattr(_areas_pkg, "__path__"):
+            logger.warning(
+                "AreaRegistry: areas no tiene __path__; no se puede iterar "
+                "subpaquetes. _areas_pkg=%r",
+                _areas_pkg,
+            )
             return
 
         for module_info in pkgutil.iter_modules(_areas_pkg.__path__):
@@ -107,6 +116,10 @@ class AreaRegistry:
                 continue
             spec: AreaSpec | None = getattr(module, "AREA_SPEC", None)
             if spec is None:
+                logger.warning(
+                    "AreaRegistry: %s no expone AREA_SPEC; area ignorada.",
+                    full_name,
+                )
                 continue
             if spec.id in self._specs:
                 logger.warning(
@@ -115,6 +128,11 @@ class AreaRegistry:
                 )
                 continue
             self._specs[spec.id] = spec
+        logger.info(
+            "AreaRegistry: descubrimiento completo. areas=%d (%s)",
+            len(self._specs),
+            list(self._specs.keys()),
+        )
 
     def get(self, area_id: str) -> AreaSpec | None:
         """Devuelve la ``AreaSpec`` con ``id == area_id``, o ``None``."""
