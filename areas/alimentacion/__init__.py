@@ -102,8 +102,8 @@ def register(
     from core.runtime.app_state import get_app_state
     from core.runtime.log_buffer import get_log_buffer
 
-    from areas.alimentacion.functions.function_template import FunctionTemplate
     from areas.alimentacion.functions.function_SubirExcel import FunctionSubirExcel
+    from core.composition.plc_function_template import FunctionTemplate
 
     # Defaults a Singleton global (mismo patron que la plantilla FB).
     log = log if log is not None else get_log_buffer()
