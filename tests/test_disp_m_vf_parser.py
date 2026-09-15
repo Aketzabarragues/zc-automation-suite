@@ -1,13 +1,13 @@
 """Tests del ``DispM_VFParser`` (Fase 5 del plan).
 
-Cubre la extracciÃ³n de ``Tabla_Disp_M_VF`` (hoja ``DISP_M_VF``) y la
-construcciÃ³n de ``DispM_VF`` (motores con variador de frecuencia).
+Cubre la extracciÃƒÂ³n de ``Tabla_Disp_M_VF`` (hoja ``DISP_M_VF``) y la
+construcciÃƒÂ³n de ``DispM_VF`` (motores con variador de frecuencia).
 Los campos exclusivos ``sa_byte`` y ``cfg_byteanalogica`` se
-verifican explÃ­citamente.
+verifican explÃƒÂ­citamente.
 """
 from __future__ import annotations
 
-from areas.alimentacion.domain.models.excel_cache import DispM_VF
+from areas.alimentacion.data.data_Dispositivos import DispM_VF
 from areas.alimentacion.helpers.parsers.disp_m_vf import DispM_VFParser
 
 from tests._disp_parser_test_helpers import (
@@ -83,7 +83,7 @@ def test_fila_sin_uid_se_descarta(tmp_path) -> None:
 
 
 def test_defaults_when_only_uid_and_numero(tmp_path) -> None:
-    """Solo UID+Numero â†’ ``sa_byte`` y ``cfg_byteanalogica`` son defaults."""
+    """Solo UID+Numero Ã¢â€ â€™ ``sa_byte`` y ``cfg_byteanalogica`` son defaults."""
     xlsx_path = save_xlsx_with_disp_table(
         tmp_path, "M_VF",
         rows=[["MVF_001", 1, "V_MVF_001", "c", "d"]],

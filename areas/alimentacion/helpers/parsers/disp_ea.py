@@ -1,13 +1,13 @@
-"""Parser de ``DispEA`` (Entradas AnalÃ³gicas) del Excel corporativo.
+"""Parser de ``DispEA`` (Entradas AnalÃƒÂ³gicas) del Excel corporativo.
 
 Replica 1:1 del ``_build_disp_ea`` del parser consolidado legacy
 (``AlimentacionExcelParser``). ``RII`` y ``RSI`` se castean con
 ``_safe_float`` (en legacy eran ``float(int(...))`` por culpa del
-``astype(int)`` global del ``BaseParser``: aquÃ­ el casteo es
+``astype(int)`` global del ``BaseParser``: aquÃƒÂ­ el casteo es
 directo y limpio).
 
 Lee la ``ListObject`` ``Tabla_Disp_EA`` de la hoja ``DISP_EA`` del
-workbook del departamento de alimentaciÃ³n y la mapea a una lista
+workbook del departamento de alimentaciÃƒÂ³n y la mapea a una lista
 de ``DispEA``.
 
 Diferencias con el legacy:
@@ -15,12 +15,12 @@ Diferencias con el legacy:
       el archivo: esa responsabilidad es del ``ExcelLoader``.
     * Sin pandas: openpyxl directo + ``extract_list_object_rows``.
     * Defensivo: cada fila se envuelve en ``try/except`` y las
-      filas invÃ¡lidas se descartan con ``logger.warning``.
+      filas invÃƒÂ¡lidas se descartan con ``logger.warning``.
     * Si se inyecta un ``ConfigManager``, las constantes ``SHEET`` /
       ``TABLE`` se sobreescriben desde
       ``ConfigManager.get_excel_target_for("ea")``.
 
-RestricciÃ³n arquitectÃ³nica: este mÃ³dulo es OFFLINE; no importa
+RestricciÃƒÂ³n arquitectÃƒÂ³nica: este mÃƒÂ³dulo es OFFLINE; no importa
 ``siemens_tia_scripting``.
 """
 from __future__ import annotations
@@ -29,7 +29,7 @@ import logging
 
 from openpyxl import Workbook
 
-from areas.alimentacion.domain.models.excel_cache import DispEA
+from areas.alimentacion.data.data_Dispositivos import DispEA
 from areas.alimentacion.helpers.parsers._xlsx_helpers import (
     _safe_float,
     _safe_int,
@@ -69,10 +69,10 @@ class DispEAParser:
                     self.TABLE = table
 
     def extraer(self, wb: Workbook) -> list[DispEA]:
-        """Extrae todas las entradas analÃ³gicas del workbook.
+        """Extrae todas las entradas analÃƒÂ³gicas del workbook.
 
         Args:
-            wb: workbook de openpyxl ya abierto (no se cierra aquÃ­).
+            wb: workbook de openpyxl ya abierto (no se cierra aquÃƒÂ­).
 
         Returns:
             Lista de ``DispEA``. Si la hoja o la tabla no existen,
@@ -85,8 +85,8 @@ class DispEAParser:
             if not _safe_str(row.get("UID")) and not _safe_str(row.get("Numero")):
                 continue
             try:
-                # ``UNIDADES`` en MAYÃšSCULAS (legacy). Aceptamos
-                # tambiÃ©n ``Unidades`` por compat hacia delante.
+                # ``UNIDADES`` en MAYÃƒÅ¡SCULAS (legacy). Aceptamos
+                # tambiÃƒÂ©n ``Unidades`` por compat hacia delante.
                 unidades_raw = row.get("UNIDADES")
                 if unidades_raw is None:
                     unidades_raw = row.get("Unidades")

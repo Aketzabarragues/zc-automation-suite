@@ -1,11 +1,11 @@
 """Tests del ``DispSAParser`` (Fase 5 del plan).
 
-Estructura idÃ©ntica a ``DispEA`` (mismos campos y semÃ¡ntica;
+Estructura idÃƒÂ©ntica a ``DispEA`` (mismos campos y semÃƒÂ¡ntica;
 solo cambia el sentido: salida vs entrada). Mismos 5 tests.
 """
 from __future__ import annotations
 
-from areas.alimentacion.domain.models.excel_cache import DispSA
+from areas.alimentacion.data.data_Dispositivos import DispSA
 from areas.alimentacion.helpers.parsers.disp_sa import DispSAParser
 
 from tests._disp_parser_test_helpers import (
@@ -16,7 +16,7 @@ from tests._disp_parser_test_helpers import (
 
 
 def test_extrae_disp_sa_basico(tmp_path) -> None:
-    """Excel con 1 fila vÃ¡lida â†’ ``DispSA`` con ``rii``/``rsi`` float."""
+    """Excel con 1 fila vÃƒÂ¡lida Ã¢â€ â€™ ``DispSA`` con ``rii``/``rsi`` float."""
     xlsx_path = save_xlsx_with_disp_table(
         tmp_path, "SA",
         rows=[build_full_row("SA", UID="SA_001", Numero=1,
@@ -82,7 +82,7 @@ def test_fila_sin_uid_se_descarta(tmp_path) -> None:
 
 
 def test_defaults_when_only_uid_and_numero(tmp_path) -> None:
-    """Solo UID+Numero+PLC.Tag â†’ resto defaults."""
+    """Solo UID+Numero+PLC.Tag Ã¢â€ â€™ resto defaults."""
     xlsx_path = save_xlsx_with_disp_table(
         tmp_path, "SA",
         rows=[["SA_001", 1, "V_SA_001", "c", "d"]],

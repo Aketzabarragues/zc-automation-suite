@@ -24,7 +24,7 @@ Invocacion:
 from __future__ import annotations
 
 from core.runtime.app_state import AppState
-from areas.alimentacion.domain.models.excel_cache import (
+from areas.alimentacion.data.data_Dispositivos import (
     DispED,
     DispEA,
     DispM,

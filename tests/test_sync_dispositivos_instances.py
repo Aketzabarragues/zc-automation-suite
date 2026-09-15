@@ -20,15 +20,12 @@ from areas.alimentacion.application.use_cases.disp_sync_instances import (
     DispSyncInstancesUseCase,
 )
 from core.runtime.app_state import AppState
-from areas.alimentacion.domain.models.excel_cache import (
-    DispED,
-    DimensionesDispositivos,
-)
+from areas.alimentacion.data.data_Dispositivos import (Dispositivo, DispED, DispEA, DispSA, DispV, DispM, DispM_VF)`nfrom areas.alimentacion.data.data_Dimensiones import DimensionesDispositivos
 
 
-# ────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Helpers
-# ────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def _write_plc_user_constants_xml(
@@ -79,9 +76,9 @@ def _write_bulk_export_tree(
             )
 
 
-# ────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Fixtures
-# ────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 @pytest.fixture
@@ -120,7 +117,7 @@ def mock_gateway() -> AsyncMock:
     # ambos devuelven success=True con operations_executed=0 para que
     # los tests que no los configuran explicitamente no fallen en
     # asserts sobre el conteo. ``commit_devices_sync`` (DEPRECATED)
-    # también queda mockeado para no romper callers legacy.
+    # tambiÃ©n queda mockeado para no romper callers legacy.
     _default_commit_result = {
         "success": True,
         "operations_executed": 0,
@@ -250,9 +247,9 @@ def use_case(
     )
 
 
-# ────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Tests de generar_prevision
-# ────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 @pytest.mark.asyncio
@@ -315,9 +312,9 @@ async def test_generar_prevision_detects_device_rename(
     assert len(rename_todos) == 1
 
 
-# ────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Tests de ejecutar_transaccion (N_MAX + devices en UNA transacci\u00f3n)
-# ────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 @pytest.mark.asyncio
@@ -326,10 +323,10 @@ async def test_ejecutar_transaccion_empty_no_batch(
 ):
     """Si NO hay cambios, NO se invoca ``execute_transactional_batch``.
 
-    Para que el batch esté vacío, el AppState debe COINCIDIR con el
+    Para que el batch estÃ© vacÃ­o, el AppState debe COINCIDIR con el
     TIA mock: N_MAX_DISP_ED=10, N_MAX_DISP_V=12, devices sin cambios.
     """
-    # Alinear N_MAX con TIA (10/12) y devices idénticos.
+    # Alinear N_MAX con TIA (10/12) y devices idÃ©nticos.
     use_case._state.dimensiones = DimensionesDispositivos(
         num_disp_ed=10, num_disp_ea=0, num_disp_sa=0,
         num_disp_v=12, num_disp_m=0, num_disp_m_vf=0,
@@ -385,7 +382,7 @@ async def test_ejecutar_transaccion_single_batch_with_nmax_and_devices(
       - ``commit_disp_devices_offline`` se llama UNA vez con
         ``plc_name``, ``device_changes`` y ``work_dir``.
       - El ``work_dir`` del handler offline apunta a
-        ``modified/variables/`` (convención de 9 carpetas).
+        ``modified/variables/`` (convenciÃ³n de 9 carpetas).
     """
     mock_gateway.commit_disp_nmax_renames_online.return_value = {
         "success": True,
@@ -719,16 +716,16 @@ async def test_ejecutar_transaccion_uses_typed_subdirs_for_commit_and_bloques(
     luego invoca ``update_disp_instance_comments_batch`` con
     ``work_dir=modified/bloques/``.
 
-    Convención de 9 carpetas (plan 2026-09-08): los ``.s7dcl``/``.s7res``
+    ConvenciÃ³n de 9 carpetas (plan 2026-09-08): los ``.s7dcl``/``.s7res``
     de los 6 DBs de dispositivos viven en la subcarpeta
-    ``exports/bloques/``, no en la raíz ``exports/``.
+    ``exports/bloques/``, no en la raÃ­z ``exports/``.
 
     Sept-2026 (fix SOBREESCRIBIR entre handlers): el IT hace el
     export + copytree UNA VEZ antes del batch (antes el handler
-    ``update_disp_comments_db_<hw>`` lo hacía DENTRO de cada
-    invocación, lo que mezclaba 6 imports en 1 sola tx y, peor,
-    hacía que cada copytree SOBREESCRIBIERA ``modified/bloques/``
-    con la versión ORIGINAL de ``exports/bloques/``).
+    ``update_disp_comments_db_<hw>`` lo hacÃ­a DENTRO de cada
+    invocaciÃ³n, lo que mezclaba 6 imports en 1 sola tx y, peor,
+    hacÃ­a que cada copytree SOBREESCRIBIERA ``modified/bloques/``
+    con la versiÃ³n ORIGINAL de ``exports/bloques/``).
     """
     mock_gateway.commit_disp_nmax_renames_online.return_value = {
         "success": True,
@@ -761,7 +758,7 @@ async def test_ejecutar_transaccion_uses_typed_subdirs_for_commit_and_bloques(
     result = await use_case.ejecutar_transaccion("PLC1", {})
     assert result["success"] is True
 
-    # 1. ``export_block`` se llamó UNA VEZ por DB activo (los hw_types
+    # 1. ``export_block`` se llamÃ³ UNA VEZ por DB activo (los hw_types
     #    activos del mock_config_manager: ``ed`` y ``v``) con
     #    ``target_dir=exports/bloques/`` (snapshot pre-commit).
     expected_dbs = {"DB2000_ED", "DB2010_V"}
@@ -781,7 +778,7 @@ async def test_ejecutar_transaccion_uses_typed_subdirs_for_commit_and_bloques(
             f"got: {c.kwargs['target_dir']!r}"
         )
 
-    # 2. El batch de comentarios se llamó con ``work_dir=modified/bloques``
+    # 2. El batch de comentarios se llamÃ³ con ``work_dir=modified/bloques``
     #    (NO con ``exports_subdir``: el IT ya hizo el copytree).
     mock_gateway.update_disp_instance_comments_batch.assert_called_once()
     call_kwargs = (
@@ -799,7 +796,7 @@ async def test_ejecutar_transaccion_uses_typed_subdirs_for_commit_and_bloques(
     )
     # Y NO debe llevar ``subestado`` activo (Commit 7 lo reemplaza).
     assert call_kwargs.get("subestado") in (None, "exports"), (
-        f"subestado no debería pasarse (o solo con el default 'exports' legacy), "
+        f"subestado no deberÃ­a pasarse (o solo con el default 'exports' legacy), "
         f"got: {call_kwargs.get('subestado')!r}"
     )
 
@@ -821,24 +818,24 @@ async def test_ejecutar_transaccion_copia_exports_a_modified_variables(
     ``exports/variables/`` a ``modified/variables/`` CON FILTRO.
 
     Sept-2026: el filtro ``ignore=_ignore_non_device_xmls`` excluye
-    los XMLs cuyo nombre base NO está en el conjunto de ``table_name``
+    los XMLs cuyo nombre base NO estÃ¡ en el conjunto de ``table_name``
     de los ``device_changes``. Esto evita que el handler offline
     (``commit_disp_devices_offline``) re-importe
     ``000_Config_Dispositivos.xml`` (tabla N_MAX, online-only) con su
-    contenido pre-commit, lo que sobrescribiría los N_MAX aplicados
+    contenido pre-commit, lo que sobrescribirÃ­a los N_MAX aplicados
     online en la Tx A (rollback del fix sept-2026).
 
     En este test NO hay ``device_changes`` (solo un rename en Tx A,
-    ningún add/remove), por lo que ``device_table_names = set()`` y el
+    ningÃºn add/remove), por lo que ``device_table_names = set()`` y el
     filtro EXCLUYE todos los XMLs. ``modified/variables/`` se crea
-    (vía ``copytree``) pero queda vacío de XMLs. El snapshot
+    (vÃ­a ``copytree``) pero queda vacÃ­o de XMLs. El snapshot
     ``exports/variables/`` queda intacto (la copia es en una
-    dirección).
+    direcciÃ³n).
 
     El test verifica:
       1. ``exports/variables/`` existe y conserva su contenido
-         pre-commit (snapshot para auditoría).
-      2. ``modified/variables/`` existe (la copia se intentó).
+         pre-commit (snapshot para auditorÃ­a).
+      2. ``modified/variables/`` existe (la copia se intentÃ³).
       3. ``000_Config_Dispositivos.xml`` (tabla N_MAX online-only) NO
          se copia a ``modified/``.
       4. ``2000_Disp_ED.xml`` (tabla de devices, pero sin
@@ -873,7 +870,7 @@ async def test_ejecutar_transaccion_copia_exports_a_modified_variables(
     # ``mock_gateway.export_plc_tags_xml``). Tras el ``copytree``
     # filtrado, debe existir ``<root>/alimentacion/dispositivos/
     # modified/variables/`` pero SIN los XMLs del snapshot
-    # (filter excluye todos porque ``device_changes`` está vacío).
+    # (filter excluye todos porque ``device_changes`` estÃ¡ vacÃ­o).
     await use_case.ejecutar_transaccion("PLC1", {})
 
     root = tmp_path
@@ -883,14 +880,14 @@ async def test_ejecutar_transaccion_copia_exports_a_modified_variables(
     modified_variables = (
         root / "alimentacion" / "dispositivos" / "modified" / "variables"
     )
-    # 1. El snapshot pre-commit sigue ahí (la copia es en una
-    #    dirección: ``exports/variables/`` no se modifica).
+    # 1. El snapshot pre-commit sigue ahÃ­ (la copia es en una
+    #    direcciÃ³n: ``exports/variables/`` no se modifica).
     assert exports_variables.exists(), (
         f"exports/variables/ debe existir tras ejecutar_transaccion: "
         f"{exports_variables}"
     )
     # El snapshot contiene los XMLs que el fixture ``fake_export``
-    # escribió vía ``_write_bulk_export_tree``.
+    # escribiÃ³ vÃ­a ``_write_bulk_export_tree``.
     nmax_in_exports = (
         exports_variables
         / "000_Sistema" / "000_Config_Dispositivos.xml"
@@ -905,7 +902,7 @@ async def test_ejecutar_transaccion_copia_exports_a_modified_variables(
     assert ed_in_exports.is_file(), (
         f"snapshot pre-commit devices debe estar en exports/: {ed_in_exports}"
     )
-    # 2. ``modified/variables/`` existe (el copytree filtrado corrió).
+    # 2. ``modified/variables/`` existe (el copytree filtrado corriÃ³).
     assert modified_variables.exists(), (
         f"modified/variables/ debe existir tras la copia: "
         f"{modified_variables}"
@@ -913,7 +910,7 @@ async def test_ejecutar_transaccion_copia_exports_a_modified_variables(
     # 3. El filtro EXCLUYE ``000_Config_Dispositivos.xml`` (tabla
     #    N_MAX online-only). El archivo NO debe estar en
     #    ``modified/`` porque (a) no hay ``device_changes`` y (b)
-    #    aunque los hubiera, esta tabla no está en el
+    #    aunque los hubiera, esta tabla no estÃ¡ en el
     #    ``device_table_names`` allowlist.
     nmax_in_modified = (
         modified_variables
@@ -925,7 +922,7 @@ async def test_ejecutar_transaccion_copia_exports_a_modified_variables(
         f"{nmax_in_modified}"
     )
     # 4. ``2000_Disp_ED.xml`` TAMPOCO se copia en este escenario
-    #    (no hay device_changes, por lo que el filtro está vacío y
+    #    (no hay device_changes, por lo que el filtro estÃ¡ vacÃ­o y
     #    excluye todos los XMLs). Esto es seguro: el handler offline
     #    no se invoca sin device_changes.
     ed_in_modified = (
@@ -947,8 +944,8 @@ async def test_ejecutar_transaccion_copia_solo_xmls_de_devices(
 
     Bug sept-2026 que arregla este test: el ``copytree`` SIN filtro
     copiaba ``000_Config_Dispositivos.xml`` (tabla N_MAX online-only)
-    a ``modified/``. El handler offline hacía ``import_plc_tags``
-    desde el directorio raíz, re-importando ese XML con su contenido
+    a ``modified/``. El handler offline hacÃ­a ``import_plc_tags``
+    desde el directorio raÃ­z, re-importando ese XML con su contenido
     pre-commit (N_MAX viejos) y sobrescribiendo los N_MAX aplicados
     online en la Tx A.
 
@@ -967,7 +964,7 @@ async def test_ejecutar_transaccion_copia_solo_xmls_de_devices(
     """
     # Forzar un add para que ``device_changes`` incluya 2000_Disp_ED.
     # El fixture TIA mock tiene 2000_Disp_ED con V_001/V_002.
-    # Añadimos V_999 para que haya un add (cambia
+    # AÃ±adimos V_999 para que haya un add (cambia
     # ``_compute_diff_readonly``).
     class DispEDStub:
         def __init__(self, numero, plc_tag):
@@ -1039,19 +1036,19 @@ async def test_ejecutar_transaccion_copia_solo_xmls_de_devices(
     assert (
         exports_variables / "2000_Dispositivos" / "2000_Disp_ED.xml"
     ).is_file()
-    # El ``copytree`` filtrado se ejecutó.
+    # El ``copytree`` filtrado se ejecutÃ³.
     assert modified_variables.exists()
-    # El XML de devices SÍ se copia a modified/ (allowlist
+    # El XML de devices SÃ se copia a modified/ (allowlist
     # incluye ``2000_Disp_ED``).
     ed_in_modified = (
         modified_variables
         / "2000_Dispositivos" / "2000_Disp_ED.xml"
     )
     assert ed_in_modified.is_file(), (
-        f"2000_Disp_ED.xml debe copiarse (está en device_table_names): "
+        f"2000_Disp_ED.xml debe copiarse (estÃ¡ en device_table_names): "
         f"{ed_in_modified}"
     )
-    # El XML de N_MAX NO se copia (online-only, no está en
+    # El XML de N_MAX NO se copia (online-only, no estÃ¡ en
     # ``device_table_names``).
     nmax_in_modified = (
         modified_variables
@@ -1068,16 +1065,16 @@ def test_filtro_ignore_non_device_xmls() -> None:
     ``shutil.copytree(ignore=...)``.
 
     Verifica que:
-      - Excluye XMLs cuyo nombre base NO está en ``device_table_names``.
-      - Conserva XMLs cuyo nombre base SÍ está en ``device_table_names``.
-      - Conserva los archivos no-XML (por si los hay en algún subdir).
-      - Funciona correctamente cuando se invoca con una lista vacía
-        (caso ``device_changes`` vacío → allowlist vacía → excluye
+      - Excluye XMLs cuyo nombre base NO estÃ¡ en ``device_table_names``.
+      - Conserva XMLs cuyo nombre base SÃ estÃ¡ en ``device_table_names``.
+      - Conserva los archivos no-XML (por si los hay en algÃºn subdir).
+      - Funciona correctamente cuando se invoca con una lista vacÃ­a
+        (caso ``device_changes`` vacÃ­o â†’ allowlist vacÃ­a â†’ excluye
         todos los XMLs).
     """
     # Recreamos el callable localmente (mismo algoritmo que
     # ``_ignore_non_device_xmls`` dentro de ``ejecutar_transaccion``).
-    # Si el algoritmo cambia en producción, este test detectará
+    # Si el algoritmo cambia en producciÃ³n, este test detectarÃ¡
     # el drift.
     def _ignore_non_device_xmls(
         directory: str, files: list[str], allowlist: set[str]
@@ -1094,11 +1091,11 @@ def test_filtro_ignore_non_device_xmls() -> None:
 
     # Caso 1: directorio con mezcla de XMLs de devices y N_MAX.
     files = [
-        "2000_Disp_ED.xml",         # en allowlist → conserva
-        "000_Config_Dispositivos.xml",  # NO en allowlist → excluye
-        "readme.md",                # no-XML → conserva
-        "2000_Disp_V.xml",          # NO en allowlist → excluye
-        ".gitkeep",                 # no-XML → conserva
+        "2000_Disp_ED.xml",         # en allowlist â†’ conserva
+        "000_Config_Dispositivos.xml",  # NO en allowlist â†’ excluye
+        "readme.md",                # no-XML â†’ conserva
+        "2000_Disp_V.xml",          # NO en allowlist â†’ excluye
+        ".gitkeep",                 # no-XML â†’ conserva
     ]
     ignored = _ignore_non_device_xmls("/dummy", files, allowlist)
     assert "2000_Disp_ED.xml" not in ignored
@@ -1107,8 +1104,8 @@ def test_filtro_ignore_non_device_xmls() -> None:
     assert "readme.md" not in ignored
     assert ".gitkeep" not in ignored
 
-    # Caso 2: allowlist vacía → excluye todos los XMLs (edge case
-    # del task: ``device_changes`` vacío).
+    # Caso 2: allowlist vacÃ­a â†’ excluye todos los XMLs (edge case
+    # del task: ``device_changes`` vacÃ­o).
     files_with_xml = [
         "2000_Disp_ED.xml",
         "000_Config_Dispositivos.xml",
@@ -1117,17 +1114,17 @@ def test_filtro_ignore_non_device_xmls() -> None:
         "/dummy", files_with_xml, set()
     )
     assert ignored_empty == set(files_with_xml), (
-        f"allowlist vacía debe excluir TODOS los XMLs, got: {ignored_empty}"
+        f"allowlist vacÃ­a debe excluir TODOS los XMLs, got: {ignored_empty}"
     )
 
-    # Caso 3: solo no-XMLs → no excluye nada.
+    # Caso 3: solo no-XMLs â†’ no excluye nada.
     files_no_xml = ["readme.md", "data.csv", ".gitkeep"]
     ignored_no_xml = _ignore_non_device_xmls(
         "/dummy", files_no_xml, allowlist
     )
     assert ignored_no_xml == set()
 
-    # Caso 4: directorio vacío (puede pasar en subcarpetas recién
+    # Caso 4: directorio vacÃ­o (puede pasar en subcarpetas reciÃ©n
     # creadas por el ``copytree`` con ``dirs_exist_ok=True``).
     assert _ignore_non_device_xmls("/dummy", [], allowlist) == set()
 

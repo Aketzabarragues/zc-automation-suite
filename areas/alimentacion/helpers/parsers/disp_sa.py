@@ -1,12 +1,12 @@
-"""Parser de ``DispSA`` (Salidas AnalÃ³gicas) del Excel corporativo.
+"""Parser de ``DispSA`` (Salidas AnalÃƒÂ³gicas) del Excel corporativo.
 
 Replica 1:1 del ``_build_disp_sa`` del parser consolidado legacy
-(``AlimentacionExcelParser``). Estructura IDÃ‰NTICA a ``DispEA`` (mismos
-campos y semÃ¡ntica; solo cambia el sentido de la variable: salida vs
+(``AlimentacionExcelParser``). Estructura IDÃƒâ€°NTICA a ``DispEA`` (mismos
+campos y semÃƒÂ¡ntica; solo cambia el sentido de la variable: salida vs
 entrada).
 
 Lee la ``ListObject`` ``Tabla_Disp_SA`` de la hoja ``DISP_SA`` del
-workbook del departamento de alimentaciÃ³n y la mapea a una lista
+workbook del departamento de alimentaciÃƒÂ³n y la mapea a una lista
 de ``DispSA``.
 
 Diferencias con el legacy:
@@ -14,12 +14,12 @@ Diferencias con el legacy:
       el archivo: esa responsabilidad es del ``ExcelLoader``.
     * Sin pandas: openpyxl directo + ``extract_list_object_rows``.
     * Defensivo: cada fila se envuelve en ``try/except`` y las
-      filas invÃ¡lidas se descartan con ``logger.warning``.
+      filas invÃƒÂ¡lidas se descartan con ``logger.warning``.
     * Si se inyecta un ``ConfigManager``, las constantes ``SHEET`` /
       ``TABLE`` se sobreescriben desde
       ``ConfigManager.get_excel_target_for("sa")``.
 
-RestricciÃ³n arquitectÃ³nica: este mÃ³dulo es OFFLINE; no importa
+RestricciÃƒÂ³n arquitectÃƒÂ³nica: este mÃƒÂ³dulo es OFFLINE; no importa
 ``siemens_tia_scripting``.
 """
 from __future__ import annotations
@@ -28,7 +28,7 @@ import logging
 
 from openpyxl import Workbook
 
-from areas.alimentacion.domain.models.excel_cache import DispSA
+from areas.alimentacion.data.data_Dispositivos import DispSA
 from areas.alimentacion.helpers.parsers._xlsx_helpers import (
     _safe_float,
     _safe_int,
@@ -68,10 +68,10 @@ class DispSAParser:
                     self.TABLE = table
 
     def extraer(self, wb: Workbook) -> list[DispSA]:
-        """Extrae todas las salidas analÃ³gicas del workbook.
+        """Extrae todas las salidas analÃƒÂ³gicas del workbook.
 
         Args:
-            wb: workbook de openpyxl ya abierto (no se cierra aquÃ­).
+            wb: workbook de openpyxl ya abierto (no se cierra aquÃƒÂ­).
 
         Returns:
             Lista de ``DispSA``. Si la hoja o la tabla no existen,
@@ -84,8 +84,8 @@ class DispSAParser:
             if not _safe_str(row.get("UID")) and not _safe_str(row.get("Numero")):
                 continue
             try:
-                # ``UNIDADES`` en MAYÃšSCULAS (legacy). Aceptamos
-                # tambiÃ©n ``Unidades`` por compat hacia delante.
+                # ``UNIDADES`` en MAYÃƒÅ¡SCULAS (legacy). Aceptamos
+                # tambiÃƒÂ©n ``Unidades`` por compat hacia delante.
                 unidades_raw = row.get("UNIDADES")
                 if unidades_raw is None:
                     unidades_raw = row.get("Unidades")

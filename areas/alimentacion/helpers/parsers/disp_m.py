@@ -3,24 +3,24 @@
 Replica 1:1 del ``_build_dispm`` del parser consolidado legacy
 (``AlimentacionExcelParser``). Lee la ``ListObject``
 ``Tabla_Disp_M`` de la hoja ``DISP_M`` del workbook del
-departamento de alimentaciÃ³n y la mapea a una lista de ``DispM``.
+departamento de alimentaciÃƒÂ³n y la mapea a una lista de ``DispM``.
 
-Campos especÃ­ficos: ``S.Byte/S.Bit`` (salida/activaciÃ³n),
-``RT.Byte/RT.Bit`` (retorno tÃ©rmico), ``RM.Byte/RM.Bit`` (retorno
-de confirmaciÃ³n de marcha) + 8 campos SCL ``cfg_*`` que preservan
-lÃ­neas SCL crudas (sin truncar).
+Campos especÃƒÂ­ficos: ``S.Byte/S.Bit`` (salida/activaciÃƒÂ³n),
+``RT.Byte/RT.Bit`` (retorno tÃƒÂ©rmico), ``RM.Byte/RM.Bit`` (retorno
+de confirmaciÃƒÂ³n de marcha) + 8 campos SCL ``cfg_*`` que preservan
+lÃƒÂ­neas SCL crudas (sin truncar).
 
 Diferencias con el legacy:
     * Recibe el workbook **ya abierto** (``wb: Workbook``). NO abre
       el archivo: esa responsabilidad es del ``ExcelLoader``.
     * Sin pandas: openpyxl directo + ``extract_list_object_rows``.
     * Defensivo: cada fila se envuelve en ``try/except`` y las
-      filas invÃ¡lidas se descartan con ``logger.warning``.
+      filas invÃƒÂ¡lidas se descartan con ``logger.warning``.
     * Si se inyecta un ``ConfigManager``, las constantes ``SHEET`` /
       ``TABLE`` se sobreescriben desde
       ``ConfigManager.get_excel_target_for("m")``.
 
-RestricciÃ³n arquitectÃ³nica: este mÃ³dulo es OFFLINE; no importa
+RestricciÃƒÂ³n arquitectÃƒÂ³nica: este mÃƒÂ³dulo es OFFLINE; no importa
 ``siemens_tia_scripting``.
 """
 from __future__ import annotations
@@ -29,7 +29,7 @@ import logging
 
 from openpyxl import Workbook
 
-from areas.alimentacion.domain.models.excel_cache import DispM
+from areas.alimentacion.data.data_Dispositivos import DispM
 from areas.alimentacion.helpers.parsers._xlsx_helpers import (
     _safe_int,
     _safe_str,
@@ -71,7 +71,7 @@ class DispMParser:
         """Extrae todos los motores digitales del workbook.
 
         Args:
-            wb: workbook de openpyxl ya abierto (no se cierra aquÃ­).
+            wb: workbook de openpyxl ya abierto (no se cierra aquÃƒÂ­).
 
         Returns:
             Lista de ``DispM``. Si la hoja o la tabla no existen,

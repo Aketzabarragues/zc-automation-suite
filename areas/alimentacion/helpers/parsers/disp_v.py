@@ -3,23 +3,23 @@
 Replica 1:1 del ``_build_disp_v`` del parser consolidado legacy
 (``AlimentacionExcelParser``). Lee la ``ListObject``
 ``Tabla_Disp_V`` de la hoja ``DISP_V`` del workbook del
-departamento de alimentaciÃ³n y la mapea a una lista de ``DispV``.
+departamento de alimentaciÃƒÂ³n y la mapea a una lista de ``DispV``.
 
-Campos especÃ­ficos: ``S.Byte/S.Bit``, ``RR.Byte/RR.Bit``,
+Campos especÃƒÂ­ficos: ``S.Byte/S.Bit``, ``RR.Byte/RR.Bit``,
 ``RT.Byte/RT.Bit`` (retornos de reposo/trabajo) + 8 campos SCL
-``cfg_*`` que preservan lÃ­neas SCL crudas (sin truncar).
+``cfg_*`` que preservan lÃƒÂ­neas SCL crudas (sin truncar).
 
 Diferencias con el legacy:
     * Recibe el workbook **ya abierto** (``wb: Workbook``). NO abre
       el archivo: esa responsabilidad es del ``ExcelLoader``.
     * Sin pandas: openpyxl directo + ``extract_list_object_rows``.
     * Defensivo: cada fila se envuelve en ``try/except`` y las
-      filas invÃ¡lidas se descartan con ``logger.warning``.
+      filas invÃƒÂ¡lidas se descartan con ``logger.warning``.
     * Si se inyecta un ``ConfigManager``, las constantes ``SHEET`` /
       ``TABLE`` se sobreescriben desde
       ``ConfigManager.get_excel_target_for("v")``.
 
-RestricciÃ³n arquitectÃ³nica: este mÃ³dulo es OFFLINE; no importa
+RestricciÃƒÂ³n arquitectÃƒÂ³nica: este mÃƒÂ³dulo es OFFLINE; no importa
 ``siemens_tia_scripting``.
 """
 from __future__ import annotations
@@ -28,7 +28,7 @@ import logging
 
 from openpyxl import Workbook
 
-from areas.alimentacion.domain.models.excel_cache import DispV
+from areas.alimentacion.data.data_Dispositivos import DispV
 from areas.alimentacion.helpers.parsers._xlsx_helpers import (
     _safe_int,
     _safe_str,
@@ -70,7 +70,7 @@ class DispVParser:
         """Extrae todas las variables internas del workbook.
 
         Args:
-            wb: workbook de openpyxl ya abierto (no se cierra aquÃ­).
+            wb: workbook de openpyxl ya abierto (no se cierra aquÃƒÂ­).
 
         Returns:
             Lista de ``DispV``. Si la hoja o la tabla no existen,

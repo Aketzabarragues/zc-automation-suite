@@ -1,13 +1,13 @@
 """Tests del ``DimensionesParser`` (Fase 5 del plan).
 
 Cubre:
-  * ExtracciÃ³n bÃ¡sica de ``N_MAX_*`` / ``Num_Disp_*`` desde los
+  * ExtracciÃƒÂ³n bÃƒÂ¡sica de ``N_MAX_*`` / ``Num_Disp_*`` desde los
     defined names del workbook.
-  * Defensa ante prefijos invÃ¡lidos (se ignoran).
-  * N_MAX adicionales del catÃ¡logo (no legacy) acaban en ``extras``.
-  * Workbook sin ``defined_names`` devuelve instancia vacÃ­a.
+  * Defensa ante prefijos invÃƒÂ¡lidos (se ignoran).
+  * N_MAX adicionales del catÃƒÂ¡logo (no legacy) acaban en ``extras``.
+  * Workbook sin ``defined_names`` devuelve instancia vacÃƒÂ­a.
   * El parser es data-driven: el ``ConfigManager`` opcional
-    construye el ``named_range_map`` desde el catÃ¡logo.
+    construye el ``named_range_map`` desde el catÃƒÂ¡logo.
 """
 from __future__ import annotations
 
@@ -18,15 +18,15 @@ from typing import Any
 from openpyxl import Workbook
 from openpyxl.workbook.defined_name import DefinedName
 
-from areas.alimentacion.domain.models.excel_cache import DimensionesDispositivos
+from areas.alimentacion.data.data_Dimensiones import DimensionesDispositivos
 from areas.alimentacion.helpers.parsers.disp_dimensiones import DimensionesParser
 
 
-# â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Ã¢â€â‚¬Ã¢â€â‚¬ Helpers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 
 def _write_config(tmp_path: Path) -> Path:
-    """Escribe un config.json mÃ­nimo con n_max_catalog de 6 hw_types."""
+    """Escribe un config.json mÃƒÂ­nimo con n_max_catalog de 6 hw_types."""
     cfg: dict[str, Any] = {
         "departments": {
             "alimentacion": {
@@ -59,22 +59,22 @@ def _add_named_value(
     name: str,
     value: Any,
 ) -> None:
-    """AÃ±ade un defined name que apunta a ``sheet!cell`` con ``value``."""
+    """AÃƒÂ±ade un defined name que apunta a ``sheet!cell`` con ``value``."""
     if sheet_name not in wb.sheetnames:
         ws = wb.create_sheet(sheet_name)
     else:
         ws = wb[sheet_name]
     ws[cell] = value
-    # ``localSheetId=None`` â†’ workbook-scoped.
+    # ``localSheetId=None`` Ã¢â€ â€™ workbook-scoped.
     dn = DefinedName(name=name, attr_text=f"'{sheet_name}'!${cell}")
     wb.defined_names[name] = dn
 
 
-# â”€â”€ Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Ã¢â€â‚¬Ã¢â€â‚¬ Tests Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 
 def test_extrae_n_max_basico(tmp_path) -> None:
-    """Excel con 6 defined names ``N_MAX_DISP_X`` â†’ 6 contadores correctos."""
+    """Excel con 6 defined names ``N_MAX_DISP_X`` Ã¢â€ â€™ 6 contadores correctos."""
     wb = Workbook()
     # Quitar la hoja por defecto
     wb.remove(wb.active)
@@ -95,7 +95,7 @@ def test_extrae_n_max_basico(tmp_path) -> None:
 
 
 def test_falta_defined_name_devuelve_cero(tmp_path) -> None:
-    """Solo 2 defined names presentes â†’ los otros 4 quedan en 0."""
+    """Solo 2 defined names presentes Ã¢â€ â€™ los otros 4 quedan en 0."""
     wb = Workbook()
     wb.remove(wb.active)
     _add_named_value(wb, "Config", "A1", "N_MAX_DISP_ED", 7)
@@ -139,7 +139,7 @@ def test_extras_captura_nmax_adicionales(tmp_path) -> None:
 
 
 def test_workbook_sin_defined_names_devuelve_instancia_vacia(tmp_path) -> None:
-    """Workbook sin defined names â†’ ``DimensionesDispositivos()`` vacÃ­o."""
+    """Workbook sin defined names Ã¢â€ â€™ ``DimensionesDispositivos()`` vacÃƒÂ­o."""
     wb = Workbook()
     wb.remove(wb.active)
     wb.create_sheet("Config")  # hoja sin defined names
@@ -164,7 +164,7 @@ def test_with_config_manager_resolves_data_driven(tmp_path) -> None:
 
     wb = Workbook()
     wb.remove(wb.active)
-    # El ConfigManager mapea ``N_MAX_DISP_ED`` (canÃ³nico en catalog) â†’ ``num_disp_ed``.
+    # El ConfigManager mapea ``N_MAX_DISP_ED`` (canÃƒÂ³nico en catalog) Ã¢â€ â€™ ``num_disp_ed``.
     _add_named_value(wb, "Config", "A1", "N_MAX_DISP_ED", 11)
     _add_named_value(wb, "Config", "A2", "N_MAX_DISP_V", 33)
 
