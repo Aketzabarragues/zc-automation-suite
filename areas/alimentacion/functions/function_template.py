@@ -10,6 +10,11 @@ del ``FunctionBase`` y no hay que tocarlo.
 ZONAS A TOCAR (migracion de un FB real)
 ============================================================================
 
+  ZONA 0  Dependencias comunes (inyeccion en ``__init__``).
+        Por defecto todas son ``None``; el FB concreto las recibe
+        del ``register_fb()`` en ``register_alimentacion``. Ver la
+        lista en el constructor mas abajo.
+
   1. ``STEP_TIMEOUT_S``  Timeout por step (segundos). Ajustar al
                         peor caso del FB real.
 
@@ -22,10 +27,16 @@ ZONAS A TOCAR (migracion de un FB real)
 
   3. ``on_start``       Validar params obligatorios del ``start()``.
                         Lanzar ``ValueError`` si falta algo.
+                        Tambien aqui se capturan las deps inyectadas
+                        en atributos privados (``self._xlsx_path``,
+                        ``self._plc_name``, etc.).
 
   4. ``run_step``       CASE con la logica de cada etapa. Cada
                         rama hace el trabajo del step y retorna
-                        un ``detail`` (str) para el HMI.
+                        un ``detail`` (str) para el HMI. Aqui
+                        ``self._tia_client``, ``self._config``,
+                        ``self._build_cache`` y ``self._log`` ya
+                        estan disponibles.
 
   5. ``on_finish``      Vuelca ``self.result`` con la shape final
                         que el caller (use case / endpoint REST)
@@ -60,7 +71,7 @@ import logging
 from typing import Any
 
 from core.composition.plc_function_base import FunctionBase
-from core.runtime.progress_buffer import ProgressTracker
+from core.runtime.progress_buffer import ProgressTracker, get_progress_tracker
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +97,24 @@ class FunctionTemplate(FunctionBase):
         titulo: str = "Plantilla FB",
         steps: list[dict[str, Any]] | None = None,
         tracker: ProgressTracker | None = None,
+        # ── ZONA 0: deps comunes (todas opcionales, default None) ──
+        # config_manager: ConfigManager del departamento activo (lectura
+        #                 de hw_types, n_max_catalog, excel_target, etc).
+        #                 Inyectado por ``register_alimentacion`` al
+        #                 registrar el FB en el engine.
+        # tia_client:     SyncTIAClient del core. Sustituye al legacy
+        #                 TIAProcessGateway (borrado en refactor sept-2026).
+        #                 None si el FB no toca TIA (ej. SubirExcel).
+        # build_cache:    BuildCache del area (.build_cache/<area>/<contexto>/...).
+        #                 None si el FB no exporta nada a TIA.
+        # log:            LogBuffer del core. Los ``self._log.info/warn/error``
+        #                 aparecen en la ConsolaLogs de la SPA.
+        #                 Si None, el FB usa ``logger`` del modulo (no se ve
+        #                 en la SPA, solo en stdout).
+        config_manager: Any = None,
+        tia_client: Any = None,
+        build_cache: Any = None,
+        log: Any = None,
     ) -> None:
         super().__init__(
             # TOCAR: id canonico del FB (snake_case, estable, sin espacios).
@@ -111,10 +140,21 @@ class FunctionTemplate(FunctionBase):
                 {"nombre": "paso_9"},
                 {"nombre": "paso_10"},
             ],
-            tracker=tracker,
+            tracker=tracker if tracker is not None else get_progress_tracker(),
         )
         # ==================================================================
-        # ESTADO INTERNO DEL FB
+        # ESTADO INTERNO DEL FB (ZONA 0: deps inyectadas)
+        # ==================================================================
+        self._config = config_manager
+        self._tia_client = tia_client
+        self._build_cache = build_cache
+        # Si el FB no recibe ``log``, usamos el logger del modulo
+        # (no aparece en ConsolaLogs de la SPA, solo en stdout/archivo).
+        # Para que el operario vea los logs del FB en la SPA, hay que
+        # inyectar ``log=get_log_buffer()`` al registrar el FB.
+        self._log = log if log is not None else logger
+        # ==================================================================
+        # ESTADO INTERNO DEL FB (ZONA 3: atributos del start())
         # ==================================================================
         # TOCAR: atributos privados del FB (estado del proceso). Se inicializan
         # en ``on_start`` cuando llegan los params del ``start()``. Ejemplos:
@@ -170,7 +210,7 @@ class FunctionTemplate(FunctionBase):
     async def run_step(self, idx: int, **params: Any) -> str:
         """Logica del step N. Devuelve un detail (str) para el HMI."""
         step_nombre = self.steps[idx]["nombre"]
-        logger.info("[%s] CASE %s (idx=%d)", self.nombre, step_nombre, idx)
+        self._log.info("[%s] CASE %s (idx=%d)", self.nombre, step_nombre, idx)
 
         # ------------------------------------------------------------------
         # CASE step_nombre OF
