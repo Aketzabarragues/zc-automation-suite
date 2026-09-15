@@ -259,11 +259,28 @@ def make_cmd_commit_disp_devices_offline() -> Callable[..., Any]:
             }, tia_client)
             project.end_transaction(rollback=False)
         except Exception as e:
+            # Si ``import_plc_tags_xml`` falla, intentamos rollback. Pero
+            # si el PLC ya esta corrupto (transacciones previas abiertas
+            # de un sync anterior que no termino bien), el rollback
+            # tambien revienta con ``CommitOnDispose`` y silenciariamos
+            # el error original. Mejor: propagar el error ORIGINAL con
+            # contexto explicito + sugerencia al operario de hacer
+            # rollback manual en TIA Portal.
             try:
                 project.end_transaction(rollback=True)
-            except Exception:
-                pass
-            raise
+                raise  # Rollback fue bien: propagar el error original.
+            except Exception as rb_exc:
+                # Rollback fallo: el PLC esta corrupto. Reportar ambos
+                # errores y sugerir rollback manual al operario.
+                raise RuntimeError(
+                    f"commit_disp_devices_offline: error en "
+                    f"import_plc_tags_xml: {e}. Ademas, el rollback "
+                    f"automatico fallo ({type(rb_exc).__name__}: "
+                    f"{rb_exc}). El PLC esta en estado corrupto: "
+                    f"haz rollback manual en TIA Portal (Edit -> Undo) "
+                    f"hasta que el proyecto vuelva al estado previo al "
+                    f"sync, antes de re-intentar."
+                ) from e
 
         return {
             "success": True,
