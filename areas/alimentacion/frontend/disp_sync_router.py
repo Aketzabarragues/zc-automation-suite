@@ -32,14 +32,14 @@ from __future__ import annotations
 import logging
 import time
 
-from flask import Blueprint, current_app, jsonify
+from flask import Blueprint, current_app, jsonify, request
 
 logger = logging.getLogger(__name__)
 
 bp = Blueprint(
     "area_alimentacion_disp_sync",
     __name__,
-    url_prefix="/api/v1/plcs/<string:plc_name>/sync/commit",
+    url_prefix="/api/v1/sync/commit",
 )
 
 
@@ -52,8 +52,13 @@ def _get_fb(name: str):
 
 
 @bp.post("")
-def post_disp_sync_commit(plc_name: str):
-    """Dispara el FB ``disp_sincronizar`` para ``plc_name``.
+def post_disp_sync_commit():
+    """Dispara el FB ``disp_sincronizar`` para el ``plc_name`` del body.
+
+    El ``plc_name`` viene en el body JSON (``{plc_name: str,
+    prevision: dict}``), no en el path. La SPA asi lo manda porque
+    el path se reserva para la jerarquia de URLs (procesos usa
+    ``/api/v1/procesos/sync/commit``).
 
     Bloquea el hilo de Flask hasta que el FB termina (max ~600s,
     ``STEP_TIMEOUT_S`` del FB). Cuando el FB entra en estado
@@ -61,10 +66,19 @@ def post_disp_sync_commit(plc_name: str):
 
     Returns:
         200 con shape legacy completo.
+        400 si falta ``plc_name`` en el body.
         409 si el FB ya esta activo o terminal.
         500 si el FB no esta registrado o termino en error.
         504 si timeout.
     """
+    body = request.get_json(silent=True) or {}
+    plc_name = body.get("plc_name")
+    if not plc_name:
+        return jsonify({
+            "ok": False,
+            "error": "plc_name (str) es obligatorio en el body",
+        }), 400
+
     fb = _get_fb("disp_sincronizar")
     if fb is None:
         return jsonify({
@@ -92,7 +106,7 @@ def post_disp_sync_commit(plc_name: str):
 
     # ── Devolver el resultado ──
     if not fb.is_terminal():
-        fb.cancel("timeout en /api/v1/plcs/<name>/sync/commit")
+        fb.cancel("timeout en /api/v1/sync/commit")
         return jsonify({
             "ok": False,
             "error": f"timeout tras {fb_step_timeout:.1f}s sin terminar",
@@ -109,9 +123,9 @@ def post_disp_sync_commit(plc_name: str):
 
 
 @bp.get("/status")
-def get_disp_sync_status(plc_name: str):
+def get_disp_sync_status():
     """Placeholder. Devuelve siempre 200 con ok=True."""
-    return jsonify({"ok": True, "plc_name": plc_name})
+    return jsonify({"ok": True})
 
 
 def build_routers(app) -> None:
