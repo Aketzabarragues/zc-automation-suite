@@ -207,15 +207,15 @@ def make_cmd_commit_disp_nmax_renames_online() -> Callable[..., Any]:
 
 
 def make_cmd_commit_disp_devices_offline() -> Callable[..., Any]:
-    """Aplica device changes (import) en una tx TIA propia (offline puro).
+    """Tx B del sync dispositivos: importa los PlcTagTables modificados.
 
     Patron:
-      1. export masivo (export_blocks_sd) al snapshot limpio.
-      2. TagTableModifier offline sobre los .s7dcl exportados.
-      3. import_blocks_sd masivo al PLC.
+      1. export masivo (lo hace Stage 6 en ``disp_sync.py``).
+      2. TagTableModifier offline (lo hace Stage 7 en ``disp_sync.py``).
+      3. import_plc_tags_xml masivo al PLC (esto, Tx B).
     """
     def _cmd(args: dict[str, Any], tia_client: Any) -> dict[str, Any]:
-        """Aplica SOLO el import_blocks_sd de Tx B (Stage 8).
+        """Aplica SOLO el import_plc_tags_xml de Tx B (Stage 8).
 
         El helper ``areas.alimentacion.helpers.sync.disp_sync`` ya hace:
           - Stage 6: export_post_tx_a (relee XMLs post-Tx A).
@@ -245,7 +245,14 @@ def make_cmd_commit_disp_devices_offline() -> Callable[..., Any]:
 
         project.start_transaction(undo_text=undo_text, dialog_text=undo_text)
         try:
-            import_result = tia_client._handlers["import_blocks_sd"]({
+            # Los dispositivos son PlcTagTables, NO bloques .s7dcl.
+            # ``import_plc_tags_xml`` hace un import masivo de la carpeta
+            # completa (todos los .xml de tag tables en una sola llamada
+            # nativa de Siemens). El legacy
+            # ``disp_sync_instances.py:14,728`` ya usaba este comando;
+            # ``import_blocks_sd`` reventaba en TIA V21 porque iteraba
+            # internamente intentando interpretar los XMLs como bloques.
+            import_result = tia_client._handlers["import_plc_tags_xml"]({
                 "plc_name": plc_name,
                 "import_dir": modified_dir,
                 "target_folder": target_folder,
@@ -260,7 +267,7 @@ def make_cmd_commit_disp_devices_offline() -> Callable[..., Any]:
 
         return {
             "success": True,
-            "modified": bool(import_result.get("imported", 0)),
+            "modified": True,
             "plc_name": plc_name,
             "details": import_result,
         }
