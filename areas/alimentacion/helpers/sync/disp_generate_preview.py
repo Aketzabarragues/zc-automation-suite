@@ -241,9 +241,9 @@ def _selective_table_names(config_manager: Any) -> list[str]:
     """Lista las tablas que el sync dispositivos toca (data-driven)."""
     nmax_table = config_manager.get_global_config_table_name()
     device_tables = [
-        config_manager.get_dispositivo_config(hw)["table_name"]
+        config_manager.get_tag_table_name(hw)
         for hw in config_manager.list_hw_types_active()
-        if config_manager.get_dispositivo_config(hw) is not None
+        if config_manager.get_tag_table_name(hw) is not None
     ]
     return [nmax_table, *device_tables]
 
