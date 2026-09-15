@@ -211,6 +211,15 @@ async def disp_sync(
 
     # ── Stage 8: Tx B (offline puro: import devices) ──
     if device_changes:
+        # ``target_folder`` es la ruta interna de TIA Portal donde
+        # ``import_blocks_sd`` mete los bloques (e.g. ``""`` o
+        # ``"Program blocks"``). El legacy
+        # ``disp_sync_instances.py:1001`` usaba
+        # ``config.get_tia_folder_dispositivos()``; replicamos esa
+        # convencion. Sin esto, el handler
+        # ``commit_disp_devices_offline`` rechaza el dispatch con
+        # ``ValueError: target_folder requerido``.
+        target_folder = config_manager.get_tia_folder_dispositivos()
         devices_result = await _dispatch_async(
             tia_client,
             "commit_disp_devices_offline",
@@ -218,6 +227,7 @@ async def disp_sync(
                 "plc_name": plc_name,
                 "device_changes": device_changes,
                 "modified_dir": str(tags_base),
+                "target_folder": target_folder,
                 "undo_text": "Sync devices",
             },
             timeout_s=180.0,
