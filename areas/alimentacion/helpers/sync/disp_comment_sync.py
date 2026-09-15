@@ -7,14 +7,20 @@ escribe el comentario de cada instancia (``comentario_db``) en el
 Source Document correspondiente (``.s7dcl``/``.s7res``) y reimporta
 el bloque a TIA Portal.
 
-Flujo sept-2026 (fix del SOBREESCRIBIR entre handlers):
-  1. Export de los 6 DBs a ``exports/bloques/`` UNA VEZ.
-  2. Copytree ``exports/bloques/`` -> ``modified/bloques/`` UNA VEZ.
-  3. Batch: 6 invocaciones separadas a
-     ``update_disp_comments_db_<hw>`` (1 dispatch por hw_type).
-     Cada handler abre/cierra su propia tx TIA, evitando el
-     rollback silencioso de TIA V21 al mezclar 6 imports en 1 sola
-     tx.
+Flujo sept-2026 (convencion de 9 carpetas + atomicidad por tx):
+  1. Export de los 6 DBs a ``exports/bloques/`` UNA VEZ (snapshot
+     pre-commit para auditoria con ``git diff``).
+  2. ``shutil.copytree`` ``exports/bloques/`` -> ``modified/bloques/``
+     UNA VEZ (el updater modifica la copia, dejando el snapshot
+     intacto en ``exports/bloques/``).
+  3. **UNA sola tx TIA** que contiene los 6 imports
+     (``update_disp_comments_db_<hw>``, 1 dispatch por hw_type).
+     El lote se ejecuta via ``execute_transactional_batch``: el worker
+     abre ``start_transaction``, itera los 6 imports en una sola tx
+     y cierra ``end_transaction``. Si cualquiera falla, rollback
+     atomico de los 6. Esto replica el legacy
+     ``gateway.update_disp_instance_comments_batch`` (1 batch con 6
+     ops dentro).
 
 Restricciones arquitectonicas (.clinerules):
   - NO importa ``siemens_tia_scripting``.
@@ -43,8 +49,6 @@ async def apply_disp_comments(
 ) -> dict[str, Any]:
     """Aplica los comentarios por instancia a los 6 DBs de dispositivos.
 
-    Cada hw_type abre/cierra su propia tx TIA (un dispatch por hw).
-
     Args:
         plc_name: nombre del PLC destino.
         app_state: ``AppState`` con los dispositivos cargados del Excel.
@@ -52,7 +56,8 @@ async def apply_disp_comments(
         build_cache_root: raiz del ``BuildCache`` del area
             (``<cwd>/.build_cache`` por convencion).
         tia_client: cliente TIA (Singleton core o mock) usado para
-            los dispatches ``export_block`` y ``update_disp_comments_db_<hw>``.
+            los dispatches ``export_block`` y
+            ``execute_transactional_batch``.
 
     Returns:
         ``dict`` con shape::
@@ -66,7 +71,7 @@ async def apply_disp_comments(
                 "disp_dbs_updated":  int,
                 "total_ops":         int,
               },
-              "details":  list[dict],   # del worker
+              "details":  list[dict],   # del worker batch
               "warnings": list[str],
             }
     """
@@ -97,7 +102,12 @@ async def apply_disp_comments(
 
     target_folder = config_manager.get_tia_folder_dispositivos()
 
-    # ── 3. Preparar modified_bloques (clean + copytree) ──
+    # ── 3. Limpieza defensiva de modified/bloques/ ──
+    # Aunque ``disp_ctx.clean()`` en Stage 1 del sync ya limpia modified,
+    # forzamos aqui por simetria con el handler de procesos y para
+    # garantizar idempotencia si este metodo se invoca standalone
+    # (POST /aplicar-comentarios-disp). NO tocamos exports/bloques/
+    # (es el snapshot de auditoria).
     disp_ctx = build_cache(root=build_cache_root).dispositivos
     modified_bloques = disp_ctx.modified_bloques
     if modified_bloques.exists():
@@ -105,7 +115,7 @@ async def apply_disp_comments(
     modified_bloques.mkdir(parents=True, exist_ok=True)
     exports_bloques = disp_ctx.exports_bloques
 
-    # ── 4. Export UNA VEZ + copytree ──
+    # ── 4. Export UNA VEZ de los 6 DBs a exports/bloques/ ──
     for hw_type, db_name in db_names.items():
         await _dispatch_async(
             tia_client,
@@ -117,6 +127,7 @@ async def apply_disp_comments(
             },
         )
 
+    # ── 5. Copytree UNA VEZ exports/bloques/ -> modified/bloques/ ──
     if exports_bloques.exists():
         shutil.copytree(
             str(exports_bloques),
@@ -124,23 +135,21 @@ async def apply_disp_comments(
             dirs_exist_ok=True,
         )
 
-    # ── 5. Batch: 6 dispatches separados (1 por hw_type) ──
-    details: list[dict[str, Any]] = []
-    ops_executed = 0
-
+    # ── 6. UNA sola tx con los 6 imports (atomicidad) ──
+    # Construimos las 6 operaciones ``update_disp_comments_db_<hw>``
+    # y las despachamos en UNA sola ``execute_transactional_batch``.
+    # El worker abre UNA tx, itera las 6 ops, cierra UNA tx.
+    # Si cualquiera falla, rollback atomico.
+    operations: list[dict[str, Any]] = []
     for hw_type, db_name in db_names.items():
         slot_map = slot_maps.get(hw_type, {})
-        # El handler espera ``{slot_str: texto}`` (la conversion a int
-        # la hace internamente via ``slot_map_int = {int(k): v ...}``).
         slot_map_str: dict[str, str] = {
             str(slot): text for slot, text in slot_map.items()
         }
         db_array_name = db_array_names.get(hw_type, "")
-        cmd = f"update_disp_comments_db_{hw_type}"
-        resp = await _dispatch_async(
-            tia_client,
-            cmd,
-            {
+        operations.append({
+            "command": f"update_disp_comments_db_{hw_type}",
+            "args": {
                 "plc_name": plc_name,
                 "db_name": db_name,
                 "db_array_name": db_array_name,
@@ -148,16 +157,28 @@ async def apply_disp_comments(
                 "work_dir": str(modified_bloques),
                 "target_folder": target_folder,
             },
-        )
-        if resp.get("ok"):
-            ops_executed += 1
-        details.append({
-            "hw_type": hw_type,
-            "db_name": db_name,
-            "ok": resp.get("ok", False),
-            "result": resp.get("result"),
-            "error": resp.get("error"),
         })
+
+    batch_result = await _dispatch_async(
+        tia_client,
+        "execute_transactional_batch",
+        {
+            "operations": operations,
+            "undo_text": "Sync disp comments",
+        },
+        timeout_s=600.0,
+    )
+
+    if not batch_result.get("ok"):
+        raise RuntimeError(
+            f"apply_disp_comments: execute_transactional_batch fallo: "
+            f"{batch_result.get('error')}"
+        )
+
+    # ── 7. Normalizar return shape ──
+    inner = batch_result.get("result") or {}
+    ops_executed = int(inner.get("operations_executed", 0))
+    details = inner.get("details") or []
 
     return {
         "plc_name": plc_name,
@@ -179,7 +200,7 @@ async def _dispatch_async(
     args: dict[str, Any],
     timeout_s: float = 300.0,
 ) -> dict[str, Any]:
-    """Envia un comando al worker OT via ``submit_and_wait`` (sync) + to_thread.
+    """ Envia un comando al worker OT via ``submit_and_wait`` (sync) + to_thread.
 
     Encapsula el patron comun del area: ``submit_and_wait`` es sync
     (bloquea el thread), asi que lo envolvemos en ``asyncio.to_thread``
