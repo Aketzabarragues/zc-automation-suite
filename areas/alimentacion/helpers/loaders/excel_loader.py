@@ -36,8 +36,7 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
-from areas.alimentacion.data.data_ExcelCache import DataExcelCache,
-)
+from areas.alimentacion.data.data_ExcelCache import DataExcelCache
 from areas.alimentacion.helpers.parsers.proc_alarmas import AlarmasParser
 from areas.alimentacion.helpers.parsers.disp_dimensiones import (
     DimensionesParser,
