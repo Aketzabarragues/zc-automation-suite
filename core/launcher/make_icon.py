@@ -22,7 +22,12 @@ from PIL import Image, ImageDraw, ImageFont
 
 
 PACKAGING_DIR = Path(__file__).parent
-ICON_PATH = PACKAGING_DIR / "icon.ico"
+# El .ico se materializa en ``<raiz>/launcher/icon.ico``, que es la
+# ruta que esperan tanto ``main.py::_resolve_icon_path`` (dev) como
+# ``build_exe.py::EXE_ICON`` y ``PROJECT_DATA_FILES`` (frozen). Desde
+# este script: core/launcher/ -> core/ -> raiz.
+ROOT = PACKAGING_DIR.parent.parent
+ICON_PATH = ROOT / "launcher" / "icon.ico"
 
 
 def _make_placeholder_icon() -> Image.Image:
@@ -68,6 +73,11 @@ def main() -> int:
         return 0
 
     img = _make_placeholder_icon()
+    # Asegurar que existe el directorio destino (raiz/launcher/).
+    # Antes del refactor PR 7 el script vivia ahi, asi que el
+    # directorio siempre existia. Ahora vive en core/launcher/ y
+    # raiz/launcher/ se crea al primer build.
+    ICON_PATH.parent.mkdir(parents=True, exist_ok=True)
     img.save(
         ICON_PATH,
         format="ICO",
