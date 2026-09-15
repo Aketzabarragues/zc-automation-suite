@@ -87,7 +87,15 @@ class FunctionBase:
             step_timeout_s if step_timeout_s is not None else self.STEP_TIMEOUT_S
         )
         self._step_idx: int = 0
-        self._cancelled = asyncio.Event()
+        # ``asyncio.Lock``/``Event`` se atan al event loop en su primer
+        # uso. Como el FB es un Singleton del engine que sobrevive a
+        # multiples ``asyncio.run()`` (engine.run_cycle() sync + el router
+        # que dispara ``asyncio.run(fb.start())``), re-entrar al FB desde
+        # un loop nuevo dispara "bound to a different event loop".
+        # ``_ensure_loop_objects()`` los recrea perezosamente al inicio de
+        # cada entry point async. ``self._loop`` rastrea en que loop
+        # quedan atados actualmente.
+        self._loop: asyncio.AbstractEventLoop | None = None
 
         # Estado publico del FB (mismo shape que antes para compatibilidad
         # con publishers SSE y endpoints REST).
@@ -100,6 +108,7 @@ class FunctionBase:
         # ``on_finish`` consulta para construir ``self.result``.
         self._stats: dict[str, Any] = {}
         self._lock = asyncio.Lock()
+        self._cancelled = asyncio.Event()
         # Hook opcional: invocado tras cada cambio de nStep con
         # (old_nStep, new_nStep). No-op si None. Lo cablea publishers
         # para retransmitir fb_state al bus SSE.
@@ -148,6 +157,29 @@ class FunctionBase:
         """``True`` si el FB esta en estado terminal y NO debe tickearse."""
         return self.nStep in (self.n_idle, self.n_done, self.n_error)
 
+    def _ensure_loop_objects(self) -> None:
+        """(Re)crea ``_lock`` y ``_cancelled`` si el event loop cambio.
+
+        Los primitives de asyncio (``Lock``, ``Event``) se atan al
+        loop en su primer ``acquire()``/``wait()``. Cuando el FB
+        sobrevive entre llamadas efimeras -- ``Engine.run_cycle()``
+        es sync y crea un ``asyncio.run()`` por ciclo, y los routers
+        hacen ``asyncio.run(fb.start())`` desde hilos de Flask -- el
+        loop cambia en cada invocacion y los primitives del loop
+        anterior disparan ``RuntimeError: ... is bound to a different
+        event loop``. Recrearlos aqui (solo si el loop cambio) resuelve
+        el binding sin pagar el coste cuando el loop es estable.
+
+        La identidad del FB (Zona 0, deps inyectadas, ``_tracker``,
+        ``_on_nstep_change``) NO se toca: el re-arranque entre
+        requests sigue funcionando identico.
+        """
+        current = asyncio.get_running_loop()
+        if self._loop is not current:
+            self._loop = current
+            self._lock = asyncio.Lock()
+            self._cancelled = asyncio.Event()
+
     # ------------------------------------------------------------------
     # API publica (adquiere el lock y delega en el _locked gemelo)
     # ------------------------------------------------------------------
@@ -175,6 +207,7 @@ class FunctionBase:
             True si transiciono a ``n_arrancar``.
             False si estaba activo y se rechazo la llamada.
         """
+        self._ensure_loop_objects()
         async with self._lock:
             if self.nStep not in (self.n_idle, self.n_done, self.n_error):
                 logger.warning(
@@ -222,6 +255,7 @@ class FunctionBase:
         ``NotImplementedError`` y ``AssertionError`` propagan (errores
         de programacion, no se silencian).
         """
+        self._ensure_loop_objects()
         async with self._lock:
             n_before = self.nStep
             try:
@@ -262,6 +296,7 @@ class FunctionBase:
         la cancelacion (``asyncio.CancelledError``) y el base cierra
         el tracker con ``success=False``. No-op si ya esta terminal.
         """
+        self._ensure_loop_objects()
         async with self._lock:
             if self.is_terminal():
                 return

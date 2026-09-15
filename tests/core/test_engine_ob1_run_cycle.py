@@ -113,3 +113,63 @@ def test_engine_exposes_both_sync_and_async_apis():
     assert inspect.iscoroutinefunction(engine.tick_once)
     # Sync API (OB1).
     assert not inspect.iscoroutinefunction(engine.run_cycle)
+
+
+def test_fb_survives_multiple_asyncio_run_loops():
+    """El FB Singleton debe tolerar N ``asyncio.run()`` consecutivos.
+
+    Escenario real (sept-2026): el ``Engine.run_cycle()`` es sync y
+    crea un ``asyncio.run()`` por ciclo. Ademas, los routers llaman
+    ``asyncio.run(fb.start())`` desde hilos de Flask. Cada llamada
+    crea un event loop efimero y lo cierra. Los primitives asyncio
+    (``Lock``, ``Event``) que el FB creo en su primer ``acquire()``
+    quedan atados a ESE loop; re-entrar desde otro loop dispara
+    ``RuntimeError: ... is bound to a different event loop``.
+
+    ``_ensure_loop_objects()`` recrea ``_lock`` y ``_cancelled``
+    perezosamente al inicio de cada entry point async cuando detecta
+    que el loop cambio. El test verifica que esto ocurre y que el FB
+    puede re-arrancar entre loops.
+    """
+    import asyncio
+
+    class _LoopyFB(FunctionBase):
+        def __init__(self):
+            super().__init__(nombre="loopy", titulo="Loopy", steps=["s1", "s2"])
+            self.visits: list[str] = []
+
+        def on_start(self, **params):
+            self.visits.append("start")
+
+        async def run_step(self, idx, **params):
+            self.visits.append(f"step{idx}")
+            return f"step{idx}"
+
+        def on_finish(self, **params):
+            self.visits.append("finish")
+            self.result = {"visits": list(self.visits)}
+
+    fb = _LoopyFB()
+
+    async def _drive_to_done(label: str) -> None:
+        await fb.start()
+        for _ in range(5):
+            if fb.is_terminal():
+                break
+            await fb.tick()
+        assert fb.is_terminal(), f"{label}: FB no terminal tras 5 ciclos"
+
+    # Tres ``asyncio.run()`` consecutivos contra el MISMO FB.
+    asyncio.run(_drive_to_done("run1"))
+    assert fb.result == {"visits": ["start", "step0", "step1", "finish"]}
+
+    asyncio.run(_drive_to_done("run2"))
+    assert fb.result == {
+        "visits": [
+            "start", "step0", "step1", "finish",  # run1
+            "start", "step0", "step1", "finish",  # run2
+        ],
+    }
+
+    asyncio.run(_drive_to_done("run3"))
+    assert fb.result and len(fb.result["visits"]) == 12, fb.result
