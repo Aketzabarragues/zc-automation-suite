@@ -1,4 +1,4 @@
-"""Genera ``launcher/icon.ico`` (placeholder) si no existe.
+"""Genera ``core/launcher/icon.ico`` (placeholder) si no existe.
 
 No sobreescribe un icono real ya presente. La idea es que el repo no
 arranque con un binario versionado: el icono se materializa al primer
@@ -9,8 +9,12 @@ en esta carpeta y este script lo respetará. Se acepta tamaño 16x16,
 32x32, 48x48, 64x64 o 256x256 (estándar Windows .ico multi-resolución).
 
 Uso:
-    python launcher/make_icon.py            # genera si falta
-    python launcher/make_icon.py --force    # regenera siempre
+    python core/launcher/make_icon.py            # genera si falta
+    python core/launcher/make_icon.py --force    # regenera siempre
+
+El .ico vive en este mismo directorio (core/launcher/) por
+coherencia con el refactor PR 7, ``main.py::_resolve_icon_path``
+y ``build_exe.py::EXE_ICON`` / ``PROJECT_DATA_FILES``.
 """
 from __future__ import annotations
 
@@ -22,12 +26,12 @@ from PIL import Image, ImageDraw, ImageFont
 
 
 PACKAGING_DIR = Path(__file__).parent
-# El .ico se materializa en ``<raiz>/launcher/icon.ico``, que es la
-# ruta que esperan tanto ``main.py::_resolve_icon_path`` (dev) como
-# ``build_exe.py::EXE_ICON`` y ``PROJECT_DATA_FILES`` (frozen). Desde
-# este script: core/launcher/ -> core/ -> raiz.
-ROOT = PACKAGING_DIR.parent.parent
-ICON_PATH = ROOT / "launcher" / "icon.ico"
+# El .ico vive en core/launcher/ (mismo directorio que este script),
+# que es la ruta que esperan tanto ``main.py::_resolve_icon_path``
+# (dev) como ``build_exe.py::EXE_ICON`` y ``PROJECT_DATA_FILES``
+# (frozen). Tras el refactor PR 7 todo el shell del launcher vive
+# en este directorio: el script, el .ico, y el codigo que lo busca.
+ICON_PATH = PACKAGING_DIR / "icon.ico"
 
 
 def _make_placeholder_icon() -> Image.Image:
@@ -73,11 +77,6 @@ def main() -> int:
         return 0
 
     img = _make_placeholder_icon()
-    # Asegurar que existe el directorio destino (raiz/launcher/).
-    # Antes del refactor PR 7 el script vivia ahi, asi que el
-    # directorio siempre existia. Ahora vive en core/launcher/ y
-    # raiz/launcher/ se crea al primer build.
-    ICON_PATH.parent.mkdir(parents=True, exist_ok=True)
     img.save(
         ICON_PATH,
         format="ICO",

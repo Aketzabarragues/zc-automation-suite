@@ -182,7 +182,7 @@ def test_project_data_files_use_directory_destinations() -> None:
     assert len(build_exe.PROJECT_DATA_FILES) == 4
 
     # Aserciones explícitas para que el bug no se cuele de nuevo.
-    assert ("launcher/icon.ico", "launcher") in build_exe.PROJECT_DATA_FILES
+    assert ("core/launcher/icon.ico", "core/launcher") in build_exe.PROJECT_DATA_FILES
     assert ("config/config.json", "config") in build_exe.PROJECT_DATA_FILES
     assert (
         "interfaces/web_server/static",
@@ -327,16 +327,16 @@ def test_write_generated_spec_contains_required_keys(tmp_path: Path) -> None:
     assert "'main'" not in content and "'main'," not in content
 
     # ── Datos del proyecto: SPA, icono, config.json ────────────────
-    # El source (SPA) y los destinos (icon.ico → "launcher", config.json
-    # → "config") deben aparecer en el spec generado. Tras
-    # el fix del bug del directorio anidado, ``launcher/icon.ico`` y
+    # El source (SPA) y los destinos (icon.ico → "core/launcher",
+    # config.json → "config") deben aparecer en el spec generado. Tras
+    # el fix del bug del directorio anidado, ``core/launcher/icon.ico`` y
     # ``config/config.json`` ya NO son los destinos (eran
     # rutas de archivo, no directorios).
     assert "interfaces/web_server/static" in content
     # El icono y el config.json se mapean a sus directorios padre.
     # En el spec el dest va como string entre comillas simples:
-    # ``(r"...icon.ico", 'launcher')``. Buscamos ambos formatos.
-    assert "'launcher'" in content or '"launcher"' in content
+    # ``(r"...icon.ico", 'core/launcher')``. Buscamos ambos formatos.
+    assert "'core/launcher'" in content or '"core/launcher"' in content
     assert "'config'" in content or '"config"' in content
 
 

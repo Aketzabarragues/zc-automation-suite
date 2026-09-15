@@ -70,12 +70,18 @@ log = logging.getLogger("zc")
 
 
 def _resolve_icon_path() -> Path | None:
-    """Path del .ico: ``_MEIPASS`` si frozen, junto al codigo en dev."""
+    """Path del .ico: ``_MEIPASS/core/launcher/icon.ico`` si frozen,
+    ``<raiz>/core/launcher/icon.ico`` en dev.
+
+    Coherente con el refactor PR 7 (todo el shell del launcher vive
+    en ``core/launcher/``) y con ``build_exe.py::EXE_ICON`` /
+    ``PROJECT_DATA_FILES`` (que bundlea el mismo path al .exe).
+    """
     if getattr(sys, "frozen", False):
         base = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
     else:
         base = Path(__file__).parent
-    icon = base / "launcher" / "icon.ico"
+    icon = base / "core" / "launcher" / "icon.ico"
     return icon if icon.is_file() else None
 
 

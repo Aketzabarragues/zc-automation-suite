@@ -121,19 +121,19 @@ ENTRY_SCRIPT = "main.py"  # entry del .exe (UX: bandeja + web supervisor)
 PROJECT_DATA_FILES: list[tuple[str, str]] = [
     ("interfaces/web_server/static", "interfaces/web_server/static"),
     ("areas/alimentacion/frontend", "interfaces/web_server/static/areas/alimentacion/frontend"),
-    ("launcher/icon.ico", "launcher"),
+    ("core/launcher/icon.ico", "core/launcher"),
     ("config/config.json", "config"),
 ]
 
 # Icono embebido en el .exe (lo que se ve en el Explorador de Windows,
 # en Alt+Tab, en el .lnk si se crea un acceso directo, etc.).
 # PyInstaller solo acepta .ico multi-resolución (16/32/48/64/128/256).
-# Por defecto usamos el mismo ``launcher/icon.ico`` que se bundlea
+# Por defecto usamos el mismo ``core/launcher/icon.ico`` que se bundlea
 # como data file para la bandeja en runtime, pero puedes cambiarlo
 # apuntando ``EXE_ICON`` a otro .ico sin tocar el resto del script.
 # Si el fichero no existe, ``run_pyinstaller()`` falla con mensaje
-# accionable (``ejecuta launcher/make_icon.py`` o coloca tu icono).
-EXE_ICON: Path = ROOT / "launcher" / "icon.ico"
+# accionable (``ejecuta core/launcher/make_icon.py`` o coloca tu icono).
+EXE_ICON: Path = ROOT / "core" / "launcher" / "icon.ico"
 
 # Plantilla del .spec auto-generado. Usa placeholders ``{...}`` que
 # se sustituyen en ``write_generated_spec_file()`` con rutas reales.
