@@ -94,6 +94,10 @@ class FunctionBase:
         self.error_msg: str | None = None
         self.result: Any = None
         self._params: dict[str, Any] = {}
+        # Estado entre ticks: dict ``{step_nombre: stats}`` que cada
+        # step rellena con info util (contadores, paths, etc.) y que
+        # ``on_finish`` consulta para construir ``self.result``.
+        self._stats: dict[str, Any] = {}
         self._lock = asyncio.Lock()
         # Hook opcional: invocado tras cada cambio de nStep con
         # (old_nStep, new_nStep). No-op si None. Lo cablea publishers
