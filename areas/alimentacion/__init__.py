@@ -22,7 +22,12 @@ from areas.alimentacion.helpers.state.install_state_extensions import (
     install as install_state,
 )
 from areas.alimentacion.data.data_DispCatalog import build_catalog as build_alim_catalog
-from areas.alimentacion.frontend.dispositivos_router import build_routers
+from areas.alimentacion.frontend.dispositivos_router import (
+    build_routers as build_dispositivos_routers,
+)
+from areas.alimentacion.frontend.excel_router import (
+    build_routers as build_excel_routers,
+)
 from areas.alimentacion.frontend.manifest import build as build_manifest
 from areas.alimentacion.helpers.config_defaults import (
     install as install_defaults,
@@ -34,12 +39,28 @@ from core.composition.app_area_registry import AreaSpec
 from areas.alimentacion._area_id import AREA_ID  # noqa: E402,F401
 
 
+def _build_all_routers(app) -> None:
+    """Registra TODOS los routers del area en la Flask app.
+
+    Llamado por ``AreaRegistry.for_each("contributes_routers", app=app)``
+    desde ``core/web_server/app_flask.create_app``. Llama a los
+    ``build_routers`` de cada modulo del frontend en orden.
+
+    Añadir un router nuevo al area:
+      1. Crear ``areas/<area>/frontend/<x>_router.py`` con un
+         blueprint ``bp`` y un hook ``build_routers(app)``.
+      2. Importar aqui y llamar ``<modulo>_routers.build_routers(app)``.
+    """
+    build_dispositivos_routers(app)
+    build_excel_routers(app)
+
+
 AREA_SPEC = AreaSpec(
     id=AREA_ID,
     label="Área de alimentación",
     icon="",
     config_block="alimentacion",
-    contributes_routers=build_routers,
+    contributes_routers=_build_all_routers,
     contributes_state_extensions=install_state,
     contributes_config_defaults=install_defaults,
     contributes_catalog=build_alim_catalog,
