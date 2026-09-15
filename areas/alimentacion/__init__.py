@@ -122,6 +122,9 @@ def register(
     from areas.alimentacion.functions.function_DispGenerarPreview import (
         FunctionDispGenerarPreview,
     )
+    from areas.alimentacion.functions.function_DispSincronizarDispositivos import (
+        FunctionDispSincronizarDispositivos,
+    )
     from core.composition.plc_function_template import FunctionTemplate
 
     # Defaults a Singleton global (mismo patron que la plantilla FB).
@@ -177,6 +180,22 @@ def register(
         "disp_generar_preview",
         FunctionDispGenerarPreview(
             nombre="disp_generar_preview",
+            config_manager=config_manager,
+            tia_client=tia_client,
+            build_cache=build_cache,
+            log=log,
+            app_state=app_state,
+        ),
+    )
+
+    # FB con I/O contra TIA: sync transaccional de dispositivos vs PLC.
+    # Reemplaza el legacy ejecutar_transaccion del use case
+    # DispSyncInstancesUseCase. 11 etapas (export, 2 tx, compile,
+    # apply comentarios, post_preview). STEP_TIMEOUT_S=600s.
+    engine.register_fb(
+        "disp_sincronizar",
+        FunctionDispSincronizarDispositivos(
+            nombre="disp_sincronizar",
             config_manager=config_manager,
             tia_client=tia_client,
             build_cache=build_cache,
