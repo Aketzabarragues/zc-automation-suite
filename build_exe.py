@@ -159,9 +159,9 @@ HIDDEN_IMPORTS_AREAS: list[str] = [
     "areas.alimentacion.domain.models",
     # Application (use cases + state extensions)
     "areas.alimentacion.application",
-    "areas.alimentacion.application.disp_slot_map_builder",
+    "areas.alimentacion.application.disp_slot_map_builder",  # legacy, pendiente de fusionar con data_DispSlotMap
     "areas.alimentacion.helpers.state.install_state_extensions",
-    "areas.alimentacion.application.proc_slot_map_builder",
+    "areas.alimentacion.application.proc_slot_map_builder",  # legacy, pendiente de fusionar con data_ProcSlotMap
     "areas.alimentacion.application.use_cases",
     "areas.alimentacion.application.use_cases.disp_diff_constants",
     "areas.alimentacion.application.use_cases.disp_sync_comentarios",

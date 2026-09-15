@@ -9,13 +9,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from areas.alimentacion.application.disp_slot_map_builder import (
+from areas.alimentacion.data.data_DispSlotMap import (
     disp_build_slot_map_for_hw,
     disp_build_slot_maps,
 )
 
 
-# Mutable a nivel de módulo: cada test lo sobrescribe según su escenario.
+# Mutable a nivel de mÃ³dulo: cada test lo sobrescribe segÃºn su escenario.
 devices_by_hw: dict[str, list] = {}
 
 
@@ -45,7 +45,7 @@ def config_manager() -> MagicMock:
     return cm
 
 
-# ── disp_build_slot_map_for_hw ─────────────────────────────────────────────
+# â”€â”€ disp_build_slot_map_for_hw â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def test_disp_build_slot_map_for_hw_slot_0_siempre_no_usar(app_state: MagicMock) -> None:
@@ -85,7 +85,7 @@ def test_disp_build_slot_map_for_hw_vacio_retorna_solo_slot_0(
     assert slot_map == {0: "NO USAR"}
 
 
-# ── disp_build_slot_maps ────────────────────────────────────────────────────
+# â”€â”€ disp_build_slot_maps â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def test_disp_build_slot_maps_retorna_los_4_dicts(app_state: MagicMock, config_manager: MagicMock) -> None:

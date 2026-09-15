@@ -1,8 +1,8 @@
 """Tests de ``proc_build_slot_maps`` (Track B capa app).
 
-Cubre el cruce Excel ↔ DataBloqueCache para los 3 arrays por proceso
+Cubre el cruce Excel â†” DataBloqueCache para los 3 arrays por proceso
 (PReal, PInt, ALM). Verifica precondiciones, fallback de ``num_db``,
-comentarios vacíos y filtrado por codigo/proceso.
+comentarios vacÃ­os y filtrado por codigo/proceso.
 """
 from __future__ import annotations
 
@@ -10,8 +10,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from areas.alimentacion.application.proc_slot_map_builder import (
-    ProcSlotMap,
+from areas.alimentacion.data.data_ProcSlotMap import (
+    DataProcSlotMap,
     proc_build_slot_maps,
 )
 from core.infrastructure.config.config_manager import ConfigManager
@@ -51,14 +51,14 @@ def _make_excel_cache(
     return ec
 
 
-# ── Tests ───────────────────────────────────────────────────────────────
+# â”€â”€ Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def test_caso_normal_30_preal_60_pint_32_alm() -> None:
     """Caso normal: 30 PReal + 60 PInt + 32 ALM con comentarios."""
     proc = MagicMock(uid=1, nombre="Compacto", codigo="CPR")
 
-    # 30 PReal con comentarios no vacíos.
+    # 30 PReal con comentarios no vacÃ­os.
     parametros_real = [
         MagicMock(uid=f"PR_{i}", codigo="CPR", num_db=53100, comentario_db=f"PR {i}")
         for i in range(1, 31)
@@ -88,7 +88,7 @@ def test_caso_normal_30_preal_60_pint_32_alm() -> None:
     )
 
     result = proc_build_slot_maps(state, config, 1, bloques)
-    assert isinstance(result, ProcSlotMap)
+    assert isinstance(result, DataProcSlotMap)
     assert result.missing_blocks == []
     assert result.db_param_name == "DB53100_CPR_PARAM"
     assert result.db_alm_name == "DB55100_CPR_ALM"
@@ -106,7 +106,7 @@ def test_caso_normal_30_preal_60_pint_32_alm() -> None:
 
 
 def test_comentario_vacio_se_mapea_a_punto() -> None:
-    """``comentario_db`` vacío → "." con warning."""
+    """``comentario_db`` vacÃ­o â†’ "." con warning."""
     proc = MagicMock(uid=1, nombre="Compacto", codigo="CPR")
     parametros_real = [
         MagicMock(uid="PR_1", codigo="CPR", num_db=53100, comentario_db=""),
@@ -134,16 +134,16 @@ def test_comentario_vacio_se_mapea_a_punto() -> None:
 def test_comentario_con_comillas_envolventes_se_limpian() -> None:
     """Si el operario pega el comentario del Excel con comillas
     envolventes por error (p. ej. ``'COMPACTO - FIJOS - '``), el
-    builder las quita. Si no, el diff diría "renombrar" siempre
+    builder las quita. Si no, el diff dirÃ­a "renombrar" siempre
     que el desired (Excel) tenga comillas y el current (TIA) no
-    — un falso positivo. Caso real visto en producción.
+    â€” un falso positivo. Caso real visto en producciÃ³n.
     """
     proc = MagicMock(uid=1, nombre="Compacto", codigo="CPR")
     parametros_real = [
-        # Slot 1: el operario pegó el comentario con comillas simples.
+        # Slot 1: el operario pegÃ³ el comentario con comillas simples.
         MagicMock(uid="PR_1", codigo="CPR", num_db=53100,
                   comentario_db="'COMPACTO - FIJOS - '"),
-        # Slot 2: el operario lo pegó con comillas dobles.
+        # Slot 2: el operario lo pegÃ³ con comillas dobles.
         MagicMock(uid="PR_2", codigo="CPR", num_db=53100,
                   comentario_db='"COMPACTO - FIJOS - X"'),
     ]
@@ -167,17 +167,17 @@ def test_comentario_con_comillas_envolventes_se_limpian() -> None:
 
 
 def test_proceso_no_en_excel_lanza_runtime_error() -> None:
-    """``proc_uid`` no está en ``excel_cache.procesos`` → RuntimeError."""
+    """``proc_uid`` no estÃ¡ en ``excel_cache.procesos`` â†’ RuntimeError."""
     excel_cache = _make_excel_cache(procesos=[])
     state = MagicMock(excel_cache=excel_cache)
     bloques = DataBloqueCache()
 
-    with pytest.raises(RuntimeError, match="no está en el Excel"):
+    with pytest.raises(RuntimeError, match="no estÃ¡ en el Excel"):
         proc_build_slot_maps(state, MagicMock(), 999, bloques)
 
 
 def test_bloque_ausente_en_bloque_cache_devuelve_missing() -> None:
-    """Si falta DB_PARAM → missing_blocks no vacío, preal/pint/alm vacíos."""
+    """Si falta DB_PARAM â†’ missing_blocks no vacÃ­o, preal/pint/alm vacÃ­os."""
     proc = MagicMock(uid=1, nombre="Compacto", codigo="CPR")
     parametros_real = [
         MagicMock(uid="PR_1", codigo="CPR", num_db=53100, comentario_db="X")
@@ -190,22 +190,22 @@ def test_bloque_ausente_en_bloque_cache_devuelve_missing() -> None:
         procesos=[proc], parametros_real=parametros_real, alarmas=alarmas
     )
     state = MagicMock(excel_cache=excel_cache)
-    bloques = DataBloqueCache()  # vacío → faltan los 3 bloques
+    bloques = DataBloqueCache()  # vacÃ­o â†’ faltan los 3 bloques
 
     result = proc_build_slot_maps(state, MagicMock(), 1, bloques)
     assert len(result.missing_blocks) == 3
-    # Los 3 dicts de slot_map están vacíos.
+    # Los 3 dicts de slot_map estÃ¡n vacÃ­os.
     assert result.preal == {}
     assert result.pint == {}
     assert result.alm == {}
-    # Pero los nombres TIA están resueltos igualmente.
+    # Pero los nombres TIA estÃ¡n resueltos igualmente.
     assert result.db_param_name == "DB53100_CPR_PARAM"
     assert result.db_alm_name == "DB55100_CPR_ALM"
     assert result.table_name == "1_CPR"
 
 
 def test_tres_bloques_ausentes_missing_tiene_3_entradas() -> None:
-    """Variante: 3 bloques ausentes → missing_blocks con 3 entradas."""
+    """Variante: 3 bloques ausentes â†’ missing_blocks con 3 entradas."""
     proc = MagicMock(uid=1, nombre="Compacto", codigo="CPR")
     # Proveemos filas para que _resolve_num_db NO caiga en el
     # fallback (necesitamos verificar que se generan los 3 nombres
@@ -228,16 +228,16 @@ def test_tres_bloques_ausentes_missing_tiene_3_entradas() -> None:
 
 
 def test_excel_vacio_lanza_runtime_error() -> None:
-    """``state.excel_cache is None`` → RuntimeError."""
+    """``state.excel_cache is None`` â†’ RuntimeError."""
     state = MagicMock(excel_cache=None)
     bloques = DataBloqueCache()
-    with pytest.raises(RuntimeError, match="excel_cache está vacío"):
+    with pytest.raises(RuntimeError, match="excel_cache estÃ¡ vacÃ­o"):
         proc_build_slot_maps(state, MagicMock(), 1, bloques)
 
 
 def test_fallback_num_db_cuando_lista_vacia() -> None:
     """Si no hay filas de PReal/PInt en el Excel, num_db_param = proc.uid
-    con warning (convención legacy)."""
+    con warning (convenciÃ³n legacy)."""
     proc = MagicMock(uid=123, nombre="Compacto", codigo="CPR")
     # Sin PReal en el Excel.
     excel_cache = _make_excel_cache(
@@ -245,7 +245,7 @@ def test_fallback_num_db_cuando_lista_vacia() -> None:
         parametros_int=[], alarmas=[],
     )
     state = MagicMock(excel_cache=excel_cache)
-    # Solo el DB_ALM está presente (con num_db=99).
+    # Solo el DB_ALM estÃ¡ presente (con num_db=99).
     alarmas = [
         MagicMock(uid="AL_1", proceso="Compacto", num_db=99,
                   comentario_db="alarma 1")
@@ -256,14 +256,14 @@ def test_fallback_num_db_cuando_lista_vacia() -> None:
         tag_tables=["123_CPR"],
     )
     result = proc_build_slot_maps(state, MagicMock(), 123, bloques)
-    # num_db_param cayó al fallback proc.uid=123.
+    # num_db_param cayÃ³ al fallback proc.uid=123.
     assert result.db_param_name == "DB123_CPR_PARAM"
     # Hubo al menos un warning por el fallback.
     assert any("fallback" in w.lower() or "no hay filas" in w.lower()
                for w in result.warnings)
 
 
-# ── N_MAX deseados (solo visual, no se aplican en el commit) ────────────
+# â”€â”€ N_MAX deseados (solo visual, no se aplican en el commit) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def _config_with_nmax(suffixes: dict[str, str] | None) -> ConfigManager:
@@ -274,7 +274,7 @@ def _config_with_nmax(suffixes: dict[str, str] | None) -> ConfigManager:
 
 
 def test_nmax_deseados_se_computan_desde_listas_del_excel() -> None:
-    """``ProcSlotMap.nmax`` = ``len()`` de las listas filtradas
+    """``DataProcSlotMap.nmax`` = ``len()`` de las listas filtradas
     por proceso del Excel. ``nmax_names`` = nombres completos con
     el sufijo del config (``f"{proc.uid}_N_MAX_{suffix}"``).
     """

@@ -1,4 +1,4 @@
-"""Builder de slot_maps para comentarios por instancia de DBs de procesos.
+﻿"""Builder de slot_maps para comentarios por instancia de DBs de procesos.
 
 Une los datos de AppState (columna ``comentario_db`` de
 ``ParamRealPLC`` / ``ParamIntPLC`` / ``AlarmaPLC``) con la

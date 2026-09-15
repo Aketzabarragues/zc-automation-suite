@@ -14,7 +14,7 @@ El flujo de ``generar_prevision`` calcula:
      y, si hay add/remove, ``import_plc_tags_xml`` (offline XML).
 
 El flujo de ``ejecutar_transaccion`` calcula en el IT process los
-``nmax_ops``, ``rename_ops`` y ``device_changes`` (este Ãºltimo solo si
+``nmax_ops``, ``rename_ops`` y ``device_changes`` (este ÃƒÂºltimo solo si
 hay adds o removes) y los pasa al worker en **2 transacciones
 secuenciales** (sept-2026 fix):
 
@@ -32,9 +32,9 @@ secuenciales** (sept-2026 fix):
 
 Si cualquier paso falla, el handler hace ``end_transaction(rollback=True)``
 y propaga el error. La fase offline (edit XML) corre DENTRO del worker
-para garantizar atomicidad por tx. El mÃ³dulo ``TagTableModifier`` es
+para garantizar atomicidad por tx. El mÃƒÂ³dulo ``TagTableModifier`` es
 Python puro (no importa ``siemens_tia_scripting``),
-asÃ­ que no rompe ``.clinerules Â§1``.
+asÃƒÂ­ que no rompe ``.clinerules Ã‚Â§1``.
 
 Shape del preview (back-compat con la SPA):
   - ``agregados`` / ``eliminados`` / ``renombrados`` (listas de devices).
@@ -106,31 +106,31 @@ class DispSyncInstancesUseCase:
         )
         # ``ProgressTracker`` opcional. Si no se inyecta, usamos el
         # Singleton global (Composition Root de ``main.py``). Tests
-        # legacy que no lo pasan se siguen comportando idÃ©ntico: el
+        # legacy que no lo pasan se siguen comportando idÃƒÂ©ntico: el
         # tracker emite pero nadie lo lee.
         self._progress: ProgressTracker = (
             progress if progress is not None else get_progress_tracker()
         )
 
-    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    # API pÃºblica
-    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    # API pÃƒÂºblica
+    # Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
     async def generar_prevision(self, plc_name: str) -> dict[str, Any]:
         """Calcula el diff completo: N_MAX + devices.
 
         Comportamiento con el ``ProgressTracker``: solo emite los
         4 stages (begin/start_stage/finish) si NO hay ya una
-        operaciÃ³n activa en el tracker. Esto permite que
-        ``ejecutar_transaccion`` llame internamente a este mÃ©todo
+        operaciÃƒÂ³n activa en el tracker. Esto permite que
+        ``ejecutar_transaccion`` llame internamente a este mÃƒÂ©todo
         (para el post-sync preview) sin pisar el tracker del
-        commit en curso. La firma pÃºblica NO cambia: 100%
-        back-compat con tests legacy que monkey-patchean este mÃ©todo.
+        commit en curso. La firma pÃƒÂºblica NO cambia: 100%
+        back-compat con tests legacy que monkey-patchean este mÃƒÂ©todo.
 
         Steps:
           1. Export bulk del PLC al directorio
              ``.build_cache/alimentacion/dispositivos/preview/variables/``
-             (vÃ­a ``build_cache(root=self._build_cache).dispositivos.preview_variables``).
+             (vÃƒÂ­a ``build_cache(root=self._build_cache).dispositivos.preview_variables``).
              ``preview/`` se limpia al inicio con ``clean_preview()``
              para atrapar artefactos de dry-runs anteriores. NO se
              toca ``exports/`` ni ``modified/``.
@@ -142,15 +142,15 @@ class DispSyncInstancesUseCase:
           4. Devuelve el shape legacy esperado por la SPA:
              ``{agregados, eliminados, renombrados, todos, nmax, summary}``.
         """
-        # Solo emitir progress si NO hay ya una operaciÃ³n activa
-        # (tÃ­picamente un commit en curso desde ``ejecutar_transaccion``).
+        # Solo emitir progress si NO hay ya una operaciÃƒÂ³n activa
+        # (tÃƒÂ­picamente un commit en curso desde ``ejecutar_transaccion``).
         _track = not self._progress.active
         if _track:
-            # â”€â”€ Progress tracking (overlay SPA) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-            # 4 stages: export_tags â†’ compute_devices â†’ compute_nmax â†’ build_response.
+            # Ã¢â€â‚¬Ã¢â€â‚¬ Progress tracking (overlay SPA) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+            # 4 stages: export_tags Ã¢â€ â€™ compute_devices Ã¢â€ â€™ compute_nmax Ã¢â€ â€™ build_response.
             self._progress.begin(
                 operation="preview",
-                label=f"Generando previsiÃ³n para {plc_name}",
+                label=f"Generando previsiÃƒÂ³n para {plc_name}",
                 stages=[
                     "export_tags",
                     "compute_devices",
@@ -198,7 +198,7 @@ class DispSyncInstancesUseCase:
                 f"{len(base_state_per_table)} tablas analizadas",
             )
 
-            # N_MAX: lee la tabla de configuraciÃ³n global.
+            # N_MAX: lee la tabla de configuraciÃƒÂ³n global.
             if _track:
                 self._progress.start_stage("compute_nmax")
             nmax_block = await asyncio.to_thread(
@@ -233,9 +233,9 @@ class DispSyncInstancesUseCase:
                 for uid, (old, new) in renamed.items()
             ]
 
-            # Lista UNIFICADA para la vista de pestaÃ±as.
+            # Lista UNIFICADA para la vista de pestaÃƒÂ±as.
             def _type_from_table(table_key: str) -> str:
-                """``2000_Disp_ED`` â†’ ``"ed"``, ``2000_Disp_M_VF`` â†’ ``"m_vf"``."""
+                """``2000_Disp_ED`` Ã¢â€ â€™ ``"ed"``, ``2000_Disp_M_VF`` Ã¢â€ â€™ ``"m_vf"``."""
                 stem = table_key.split("_Disp_", 1)[-1]
                 return stem.lower()
 
@@ -360,13 +360,13 @@ class DispSyncInstancesUseCase:
           Stage 5: ``wait_consolidation`` (espera pasiva)
             Sleep 2s para que TIA V21 consolide los cambios online
             internamente antes del export de Stage 6. Sin esta espera,
-            el export leerÃ­a nombres viejos (sin los renames reciÃ©n
-            aplicados) y los re-importarÃ­a en Tx B, haciendo rollback
+            el export leerÃƒÂ­a nombres viejos (sin los renames reciÃƒÂ©n
+            aplicados) y los re-importarÃƒÂ­a en Tx B, haciendo rollback
             silencioso de los renames.
 
           Stage 6: ``export_post_tx_a`` (TIA, IT)
             Re-export de las 6 tablas de devices a
-            ``exports/variables/``. Lee los datos post-Tx A, que SÃ
+            ``exports/variables/``. Lee los datos post-Tx A, que SÃƒÂ
             tienen los renames consolidados.
 
           Stage 7: ``copy_and_edit`` (IT, Python puro)
@@ -396,12 +396,12 @@ class DispSyncInstancesUseCase:
                 evitar race conditions); se conserva en la firma por
                 back-compat con la SPA.
         """
-        # â”€â”€ Progress tracking (overlay SPA) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # Ã¢â€â‚¬Ã¢â€â‚¬ Progress tracking (overlay SPA) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
         # 11 stages fijos que reflejan el flujo real (sept-2026 fix).
-        # El antiguo "open_transaction" monolÃ­tico se ha partido en 5
+        # El antiguo "open_transaction" monolÃƒÂ­tico se ha partido en 5
         # sub-stages para reflejar el orden validado por el operario:
-        # Tx A â†’ espera consolidaciÃ³n â†’ export post-Tx A â†’ copy/edit
-        # offline â†’ Tx B. Ver docstring del mÃ©todo.
+        # Tx A Ã¢â€ â€™ espera consolidaciÃƒÂ³n Ã¢â€ â€™ export post-Tx A Ã¢â€ â€™ copy/edit
+        # offline Ã¢â€ â€™ Tx B. Ver docstring del mÃƒÂ©todo.
         self._progress.begin(
             operation="commit",
             label=f"Aplicando cambios en {plc_name}",
@@ -420,17 +420,17 @@ class DispSyncInstancesUseCase:
             ],
         )
         try:
-            # â”€â”€ Stage 1: export selectivo â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-            # Workdir de export para el diff. Por la convenciÃ³n de 9
+            # Ã¢â€â‚¬Ã¢â€â‚¬ Stage 1: export selectivo Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+            # Workdir de export para el diff. Por la convenciÃƒÂ³n de 9
             # carpetas (``_plan/16_carpetas_convencion.md``), las TAG
             # tables (variables) viven en ``exports/variables/`` (no en
-            # la raÃ­z ``exports/``). ``ctx.clean()`` borra y recrea las
+            # la raÃƒÂ­z ``exports/``). ``ctx.clean()`` borra y recrea las
             # 3 subcarpetas operativas de ``exports/`` y ``modified/``
             # (``variables/``, ``bloques/``, ``udt/``); ``preview/`` no
             # se toca (lo usa ``generar_prevision``). El snapshot de
             # ``exports/variables/`` se queda tras el commit para
-            # auditorÃ­a: ``git diff exports/variables/ modified/variables/``
-            # muestra quÃ© cambiÃ³ el updater.
+            # auditorÃƒÂ­a: ``git diff exports/variables/ modified/variables/``
+            # muestra quÃƒÂ© cambiÃƒÂ³ el updater.
             disp_ctx = build_cache(root=self._build_cache).dispositivos
             disp_ctx.clean()
             tags_base = disp_ctx.exports_variables
@@ -447,7 +447,7 @@ class DispSyncInstancesUseCase:
                 "export_diff", f"Export OK ({len(selective_tables)} tablas)"
             )
 
-            # â”€â”€ Stage 2: compute diff (read-only) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # Ã¢â€â‚¬Ã¢â€â‚¬ Stage 2: compute diff (read-only) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
             self._progress.start_stage("compute_diff")
             desired_state_per_table = self._build_desired_state_from_app()
             added_per_table, removed_per_table, renamed, _ = await asyncio.to_thread(
@@ -461,7 +461,7 @@ class DispSyncInstancesUseCase:
                 f"{len(renamed)} renames",
             )
 
-            # â”€â”€ Stage 3: prepare (construir ops) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # Ã¢â€â‚¬Ã¢â€â‚¬ Stage 3: prepare (construir ops) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
             self._progress.start_stage("prepare_xml")
 
             # N_MAX: lista de ops online. ``calculate_nmax_diff`` retorna
@@ -517,7 +517,7 @@ class DispSyncInstancesUseCase:
                 f"{len(device_changes)} device tables",
             )
 
-            # â”€â”€ Early return: nada que commitear â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # Ã¢â€â‚¬Ã¢â€â‚¬ Early return: nada que commitear Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
             if not (nmax_ops or rename_ops or device_changes):
                 self._progress.finish_stage(
                     "tx_a_nmax_renames", "Sin cambios (no-op)"
@@ -548,16 +548,16 @@ class DispSyncInstancesUseCase:
                     "comments_sync": comments_result,
                 }
 
-            # â”€â”€ Stages 4-8: Tx A â†’ espera â†’ export post â†’ edit â†’ Tx B â”€
-            # Sept-2026: el antiguo "open_transaction" monolÃ­tico (que
+            # Ã¢â€â‚¬Ã¢â€â‚¬ Stages 4-8: Tx A Ã¢â€ â€™ espera Ã¢â€ â€™ export post Ã¢â€ â€™ edit Ã¢â€ â€™ Tx B Ã¢â€â‚¬
+            # Sept-2026: el antiguo "open_transaction" monolÃƒÂ­tico (que
             # mezclaba online + offline) ha sido partido en 5 sub-stages
             # para evitar el rollback silencioso de TIA V21 por race
-            # condition online+offline. El orden estÃ¡ validado
-            # empÃ­ricamente por el operario (sept-2026): el ``table.export``
+            # condition online+offline. El orden estÃƒÂ¡ validado
+            # empÃƒÂ­ricamente por el operario (sept-2026): el ``table.export``
             # dentro de Tx B lee los datos de TIA antes de que la
-            # consolidaciÃ³n interna de los cambios online termine, ve
+            # consolidaciÃƒÂ³n interna de los cambios online termine, ve
             # nombres VIEJOS, los SOBREESCRIBE en ``modified/variables/`` y
-            # el ``import_plc_tags`` los re-importa â†’ rollback.
+            # el ``import_plc_tags`` los re-importa Ã¢â€ â€™ rollback.
             #
             # Stages:
             #   4: ``tx_a_nmax_renames`` (Tx A online puro: N_MAX + renames).
@@ -566,7 +566,7 @@ class DispSyncInstancesUseCase:
             #   7: ``copy_and_edit`` (copytree filtrado + TagTableModifier).
             #   8: ``tx_b_devices`` (Tx B offline puro: solo import).
 
-            # â”€â”€ Stage 4: Tx A (online puro: N_MAX + renames) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # Ã¢â€â‚¬Ã¢â€â‚¬ Stage 4: Tx A (online puro: N_MAX + renames) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
             self._progress.start_stage(
                 "tx_a_nmax_renames",
                 f"Aplicando {len(nmax_ops)} N_MAX + {len(rename_ops)} renames "
@@ -583,12 +583,12 @@ class DispSyncInstancesUseCase:
                 f"{nmax_result['operations_executed']} ops aplicadas OK",
             )
 
-            # â”€â”€ Stage 5: wait_consolidation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # Ã¢â€â‚¬Ã¢â€â‚¬ Stage 5: wait_consolidation Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
             # TIA V21 consolida los cambios online internamente, pero
             # ``end_transaction`` no espera a que termine. Sin esta
-            # espera, el export de Stage 6 leerÃ­a datos stale (sin los
-            # renames reciÃ©n aplicados) y los re-importarÃ­a en Tx B,
-            # haciendo rollback silencioso. 2 segundos empÃ­ricamente
+            # espera, el export de Stage 6 leerÃƒÂ­a datos stale (sin los
+            # renames reciÃƒÂ©n aplicados) y los re-importarÃƒÂ­a en Tx B,
+            # haciendo rollback silencioso. 2 segundos empÃƒÂ­ricamente
             # es suficiente para S7-1500 + TIA V21 +
             # ``siemens_tia_scripting.pyd``.
             self._progress.start_stage(
@@ -598,10 +598,10 @@ class DispSyncInstancesUseCase:
             await asyncio.sleep(2.0)
             self._progress.finish_stage("wait_consolidation")
 
-            # â”€â”€ Stage 6: export_post_tx_a â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # Ã¢â€â‚¬Ã¢â€â‚¬ Stage 6: export_post_tx_a Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
             # Re-export de las 6 tablas de devices (las que se tocan
-            # offline) DESPUÃ‰S de Tx A. Lee los datos post-renames de
-            # TIA, que SÃ tienen los nombres consolidados. El handler
+            # offline) DESPUÃƒâ€°S de Tx A. Lee los datos post-renames de
+            # TIA, que SÃƒÂ tienen los nombres consolidados. El handler
             # ``commit_disp_devices_offline`` ya NO hace ``table.export``
             # internamente: recibe los XMLs ya editados en
             # ``modified/variables/<tia_folder>/<table_name>.xml``.
@@ -615,39 +615,39 @@ class DispSyncInstancesUseCase:
             )
             self._progress.finish_stage("export_post_tx_a", "Re-export OK")
 
-            # â”€â”€ Stage 7: copy_and_edit â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-            # Copia filtrada ``exports/variables/`` â†’ ``modified/variables/``
+            # Ã¢â€â‚¬Ã¢â€â‚¬ Stage 7: copy_and_edit Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+            # Copia filtrada ``exports/variables/`` Ã¢â€ â€™ ``modified/variables/``
             # (excluye ``000_Config_Dispositivos.xml``, tabla N_MAX
             # online-only que NO debe llegar al import offline de Tx B)
-            # + ediciÃ³n offline con ``TagTableModifier`` (add/remove).
+            # + ediciÃƒÂ³n offline con ``TagTableModifier`` (add/remove).
             #
-            # POR QUÃ‰ EL FILTRO ``ignore=`` (sept-2026, bug rollback
+            # POR QUÃƒâ€° EL FILTRO ``ignore=`` (sept-2026, bug rollback
             # silencioso V21):
-            #   Por la convenciÃ³n de 9 carpetas, ``exports/variables/``
+            #   Por la convenciÃƒÂ³n de 9 carpetas, ``exports/variables/``
             #   contiene TODAS las tablas PLC del snapshot pre-commit,
             #   incluida ``000_sistema/000_Config_Dispositivos.xml`` (la
             #   tabla N_MAX). El handler offline
             #   (``commit_disp_devices_offline``) hace
-            #   ``import_plc_tags`` desde el directorio raÃ­z
-            #   (``modified/variables/``), por lo que re-importarÃ­a
-            #   TAMBIÃ‰N cualquier otro XML que estuviera allÃ­, incluido
+            #   ``import_plc_tags`` desde el directorio raÃƒÂ­z
+            #   (``modified/variables/``), por lo que re-importarÃƒÂ­a
+            #   TAMBIÃƒâ€°N cualquier otro XML que estuviera allÃƒÂ­, incluido
             #   el ``000_Config_Dispositivos.xml`` con su contenido
-            #   pre-commit (N_MAX viejos). Esto sobrescribirÃ­a los N_MAX
+            #   pre-commit (N_MAX viejos). Esto sobrescribirÃƒÂ­a los N_MAX
             #   aplicados online en la Tx A, anulando el fix sept-2026
             #   del rollback silencioso de V21.
             #
-            #   SoluciÃ³n: ``shutil.copytree(ignore=...)`` con un callable
-            #   que excluye los XMLs cuyo nombre base NO estÃ© en el
+            #   SoluciÃƒÂ³n: ``shutil.copytree(ignore=...)`` con un callable
+            #   que excluye los XMLs cuyo nombre base NO estÃƒÂ© en el
             #   conjunto de ``table_name`` de los ``device_changes`` que
             #   se van a tocar offline. Solo se copian los XMLs de las
             #   tablas que se van a tocar offline. Si en el futuro se
-            #   aÃ±ade otra tabla "online-only", el filtro la excluye
-            #   automÃ¡ticamente sin tocar este cÃ³digo.
+            #   aÃƒÂ±ade otra tabla "online-only", el filtro la excluye
+            #   automÃƒÂ¡ticamente sin tocar este cÃƒÂ³digo.
             #
             # NOTA: el ``disp_ctx.clean()`` ya se hizo en el stage 1
             # (arriba), que limpia ``exports/`` + ``modified/`` con sus
-            # 3 subcarpetas. NO se vuelve a limpiar aquÃ­: si limpiamos,
-            # perderÃ­amos el snapshot de ``exports/variables/`` que la
+            # 3 subcarpetas. NO se vuelve a limpiar aquÃƒÂ­: si limpiamos,
+            # perderÃƒÂ­amos el snapshot de ``exports/variables/`` que la
             # copia necesita como fuente.
             self._progress.start_stage(
                 "copy_and_edit", "Copiando y editando XMLs de devices..."
@@ -659,20 +659,20 @@ class DispSyncInstancesUseCase:
             def _ignore_non_device_xmls(
                 directory: str, files: list[str]
             ) -> set[str]:
-                """Excluir XMLs cuyo nombre base no estÃ© en
+                """Excluir XMLs cuyo nombre base no estÃƒÂ© en
                 ``device_table_names``.
 
                 ``shutil.copytree`` invoca este callable UNA VEZ
-                POR CADA SUBDIRECTORIO del Ã¡rbol (incluida la
-                raÃ­z). Solo necesitamos inspeccionar ``files``
-                (los nombres del directorio actual): la recursiÃ³n
-                la hace ``copytree`` automÃ¡ticamente. Los no-XMLs
-                (por si los hay en algÃºn subdir) se preservan.
+                POR CADA SUBDIRECTORIO del ÃƒÂ¡rbol (incluida la
+                raÃƒÂ­z). Solo necesitamos inspeccionar ``files``
+                (los nombres del directorio actual): la recursiÃƒÂ³n
+                la hace ``copytree`` automÃƒÂ¡ticamente. Los no-XMLs
+                (por si los hay en algÃƒÂºn subdir) se preservan.
                 """
                 ignored: set[str] = set()
                 for name in files:
                     if name.endswith(".xml"):
-                        stem = name[:-4]  # sin extensiÃ³n
+                        stem = name[:-4]  # sin extensiÃƒÂ³n
                         if stem not in device_table_names:
                             ignored.add(name)
                 return ignored
@@ -685,10 +685,10 @@ class DispSyncInstancesUseCase:
                     dirs_exist_ok=True,
                 )
 
-            # EdiciÃ³n offline: por cada ``device_change``, leer XML de
+            # EdiciÃƒÂ³n offline: por cada ``device_change``, leer XML de
             # ``modified/variables/`` y aplicar ``TagTableModifier``
             # (add/remove). Esto es lo que el handler
-            # ``commit_disp_devices_offline`` importarÃ¡ en Tx B.
+            # ``commit_disp_devices_offline`` importarÃƒÂ¡ en Tx B.
             from areas.alimentacion.helpers.xml.disp_tag_table_modifier import (
                 TagTableModifier,
             )
@@ -718,10 +718,10 @@ class DispSyncInstancesUseCase:
                     if modifier.was_modified():
                         modifier.save(xml_path)
             self._progress.finish_stage(
-                "copy_and_edit", "EdiciÃ³n offline OK"
+                "copy_and_edit", "EdiciÃƒÂ³n offline OK"
             )
 
-            # â”€â”€ Stage 8: Tx B (offline puro: import devices) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # Ã¢â€â‚¬Ã¢â€â‚¬ Stage 8: Tx B (offline puro: import devices) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
             # SIN ``table.export`` redundante (lo hace Stage 6 con datos
             # post-Tx A, ya con los renames consolidados). El handler
             # abre/cierra su propia ``start_transaction`` internamente y
@@ -765,7 +765,7 @@ class DispSyncInstancesUseCase:
                 ),
             }
 
-            # â”€â”€ Stage 9: post-commit compile (fuera de la tx) â”€â”€â”€â”€â”€
+            # Ã¢â€â‚¬Ã¢â€â‚¬ Stage 9: post-commit compile (fuera de la tx) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
             # NO va dentro de la transaccion del worker porque:
             # 1. La transaccion ya hizo end_transaction(rollback=False);
             #    el PLC ya esta modificado.
@@ -856,7 +856,7 @@ class DispSyncInstancesUseCase:
                 "Compilacion OK" if compile_ok else "Compilacion con errores",
             )
 
-            # â”€â”€ Stage 10: apply comentarios (Tx 2, fuera de la tx ppal) â”€â”€
+            # Ã¢â€â‚¬Ã¢â€â‚¬ Stage 10: apply comentarios (Tx 2, fuera de la tx ppal) Ã¢â€â‚¬Ã¢â€â‚¬
             # Se ejecuta DESPUES de la compilacion, que es cuando los DBs
             # ya estan redimensionados y podemos escribir los S7_MLC con
             # confianza. Best-effort: si falla (p.ej. TIA en estado raro),
@@ -867,7 +867,7 @@ class DispSyncInstancesUseCase:
                 plc_name
             )
 
-            # â”€â”€ Stage 11: post-sync preview â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # Ã¢â€â‚¬Ã¢â€â‚¬ Stage 11: post-sync preview Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
             # Despues de Tx B + compile + comentarios, re-ejecutamos el
             # preview para que la SPA vea el estado "todo en sync" sin
             # tener que pedirlo de nuevo. Si falla (p.ej. TIA en estado
@@ -945,22 +945,22 @@ class DispSyncInstancesUseCase:
         **Flujo sept-2026 (fix del SOBREESCRIBIR entre handlers):**
 
         1. **Export de los 6 DBs** a ``exports/bloques/`` UNA VEZ.
-           Antes este export se hacÃ­a DENTRO de cada handler, lo que
-           mezclaba 6 imports en 1 sola tx y, peor, hacÃ­a que cada
+           Antes este export se hacÃƒÂ­a DENTRO de cada handler, lo que
+           mezclaba 6 imports en 1 sola tx y, peor, hacÃƒÂ­a que cada
            ``shutil.copytree`` SOBREESCRIBIERA ``modified_bloques/`` con
-           la versiÃ³n ORIGINAL de ``exports/bloques/``, destruyendo
+           la versiÃƒÂ³n ORIGINAL de ``exports/bloques/``, destruyendo
            los cambios del handler anterior.
-        2. **Copytree** ``exports/bloques/ â†’ modified/bloques/`` UNA VEZ.
+        2. **Copytree** ``exports/bloques/ Ã¢â€ â€™ modified/bloques/`` UNA VEZ.
            Ahora el snapshot pre-commit queda intacto en
-           ``exports/bloques/`` y la versiÃ³n modificada vive en
+           ``exports/bloques/`` y la versiÃƒÂ³n modificada vive en
            ``modified/bloques/``.
         3. **Batch**: 6 invocaciones separadas al nuevo handler
            ``update_disp_comments_db_apply_<hw>`` (1 dispatch por
            hw_type). Cada handler abre/cierra **su propia tx TIA**
-           (mismo patrÃ³n que N_MAX/devices), evitando el rollback
+           (mismo patrÃƒÂ³n que N_MAX/devices), evitando el rollback
            silencioso de TIA V21 al mezclar 6 imports en 1 sola tx.
 
-        ConvenciÃ³n de 9 carpetas (Commit 7):
+        ConvenciÃƒÂ³n de 9 carpetas (Commit 7):
 
         * ``exports/bloques/`` = snapshot limpio pre-commit.
         * ``modified/bloques/`` = donde el updater modifica.
@@ -969,11 +969,11 @@ class DispSyncInstancesUseCase:
 
         Limpieza defensiva (sept-2026): este flujo opera con bloques
         (``.s7dcl``/``.s7res``), NO con variables. Aunque Stage 1
-        (``export_diff``) ya limpia ``modified/bloques/`` vÃ­a
+        (``export_diff``) ya limpia ``modified/bloques/`` vÃƒÂ­a
         ``disp_ctx.clean()``, hacemos un ``shutil.rmtree`` defensivo
-        aquÃ­ para garantizar que un run NUNCA lee artefactos de un
+        aquÃƒÂ­ para garantizar que un run NUNCA lee artefactos de un
         run anterior. NO tocamos ``exports/bloques/`` (es el snapshot
-        de auditorÃ­a que el operario revisa con ``git diff``) ni
+        de auditorÃƒÂ­a que el operario revisa con ``git diff``) ni
         ``modified/variables/`` (lo usa el flujo de N_MAX + devices).
 
         Returns:
@@ -991,7 +991,7 @@ class DispSyncInstancesUseCase:
             "Aplicando comentarios por instancia a los 6 DBs...",
         )
         try:
-            from areas.alimentacion.application.disp_slot_map_builder import (
+            from areas.alimentacion.data.data_DispSlotMap import (
                 disp_build_slot_maps,
             )
             slot_maps, db_names, db_array_names, build_warnings = disp_build_slot_maps(
@@ -1002,8 +1002,8 @@ class DispSyncInstancesUseCase:
             disp_ctx = build_cache(root=self._build_cache).dispositivos
             # Limpieza defensiva de ``modified/bloques/`` (sept-2026):
             # aunque ``disp_ctx.clean()`` en Stage 1 ya lo hace,
-            # forzamos aquÃ­ por simetrÃ­a con el handler de procesos y
-            # para garantizar idempotencia si este mÃ©todo se invoca
+            # forzamos aquÃƒÂ­ por simetrÃƒÂ­a con el handler de procesos y
+            # para garantizar idempotencia si este mÃƒÂ©todo se invoca
             # standalone (POST /aplicar-comentarios-disp).
             modified_bloques = disp_ctx.modified_bloques
             if modified_bloques.exists():
@@ -1012,11 +1012,11 @@ class DispSyncInstancesUseCase:
             exports_bloques = disp_ctx.exports_bloques
 
             # 1. EXPORT de los 6 DBs a ``exports/bloques/`` UNA VEZ.
-            #    Antes este export se hacÃ­a DENTRO de cada handler, lo
-            #    que mezclaba 6 imports en 1 sola tx y, peor, hacÃ­a
+            #    Antes este export se hacÃƒÂ­a DENTRO de cada handler, lo
+            #    que mezclaba 6 imports en 1 sola tx y, peor, hacÃƒÂ­a
             #    que cada copytree SOBREESCRIBIERA ``modified_bloques/``
-            #    con la versiÃ³n ORIGINAL de ``exports/bloques/``.
-            #    Ahora lo hacemos UNA VEZ aquÃ­.
+            #    con la versiÃƒÂ³n ORIGINAL de ``exports/bloques/``.
+            #    Ahora lo hacemos UNA VEZ aquÃƒÂ­.
             for hw_type, db_name in db_names.items():
                 await self._gateway.export_block(
                     plc_name=plc_name,
@@ -1024,10 +1024,10 @@ class DispSyncInstancesUseCase:
                     target_dir=str(exports_bloques),
                 )
 
-            # 2. COPYTREE ``exports/bloques/ â†’ modified/bloques/`` UNA VEZ.
+            # 2. COPYTREE ``exports/bloques/ Ã¢â€ â€™ modified/bloques/`` UNA VEZ.
             #    El updater modifica la copia, dejando el snapshot
             #    pre-commit intacto en ``exports/bloques/`` para el
-            #    ``git diff`` de auditorÃ­a.
+            #    ``git diff`` de auditorÃƒÂ­a.
             if exports_bloques.exists():
                 shutil.copytree(
                     str(exports_bloques),
@@ -1073,9 +1073,9 @@ class DispSyncInstancesUseCase:
                 "error": err_msg,
             }
 
-    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     # N_MAX: diff y ops (NUEVO en esta release)
-    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
     def _compute_nmax_ops_for_apply(
         self, plc_name: str, tags_base: Path
@@ -1176,9 +1176,9 @@ class DispSyncInstancesUseCase:
             },
         }
 
-    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     # Diff de devices (helpers internos)
-    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
     @staticmethod
     def _compute_diff_readonly(

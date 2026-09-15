@@ -14,13 +14,13 @@ propia tx TIA). Ver ``_run_apply_comentarios`` en
 ``disp_sync_instances.py`` para el flujo equivalente dentro de
 ``ejecutar_transaccion``.
 
-Restricciones arquitectÃ³nicas:
+Restricciones arquitectÃƒÂ³nicas:
   - NO importa ``siemens_tia_scripting``.
-  - Toda interacciÃ³n con TIA Portal pasa por ``TIAProcessGateway``.
+  - Toda interacciÃƒÂ³n con TIA Portal pasa por ``TIAProcessGateway``.
   - Cero rutas hardcodeadas: la carpeta destino, los nombres de los DBs
     y los nombres de los arrays se leen SIEMPRE del ``ConfigManager``.
 
-Stages de progress (alineado con ``.clinerules`` Â§7):
+Stages de progress (alineado con ``.clinerules`` Ã‚Â§7):
   ``["read_state", "build_slot_maps", "open_transaction", "done"]``
 """
 from __future__ import annotations
@@ -31,7 +31,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from areas.alimentacion.application.disp_slot_map_builder import disp_build_slot_maps
+from areas.alimentacion.data.data_DispSlotMap import disp_build_slot_maps
 from areas.alimentacion.helpers.build_cache import build_cache
 from core.runtime.progress_buffer import ProgressTracker, get_progress_tracker
 from core.runtime.app_state import AppState
@@ -46,10 +46,10 @@ class DispComentariosSyncUseCase:
     """Caso de uso: sincroniza comentarios por instancia de los 6 DBs.
 
     Attributes:
-        gateway:          gateway asÃ­ncrono al motor OT.
-        config_manager:   configuraciÃ³n TIA del departamento activo.
+        gateway:          gateway asÃƒÂ­ncrono al motor OT.
+        config_manager:   configuraciÃƒÂ³n TIA del departamento activo.
         app_state:        estado con los dispositivos cargados del Excel.
-        build_cache_dir:  raÃ­z del ``BuildCache`` del Ã¡rea. Por defecto
+        build_cache_dir:  raÃƒÂ­z del ``BuildCache`` del ÃƒÂ¡rea. Por defecto
                           ``<cwd>/.build_cache``.
         progress:         tracker de progreso (Singleton global si None).
     """
@@ -65,8 +65,8 @@ class DispComentariosSyncUseCase:
         self._gateway = gateway
         self._config = config_manager
         self._state = app_state
-        # ``build_cache_dir`` es ahora la RAÃZ del ``BuildCache`` del
-        # Ã¡rea. Por convenciÃ³n, apunta a ``<cwd>/.build_cache``. Tests
+        # ``build_cache_dir`` es ahora la RAÃƒÂZ del ``BuildCache`` del
+        # ÃƒÂ¡rea. Por convenciÃƒÂ³n, apunta a ``<cwd>/.build_cache``. Tests
         # pueden pasar ``tmp_path`` o ``tmp_path / ".build_cache"``.
         self._build_cache = build_cache_dir or (
             Path(os.getcwd()) / ".build_cache"
@@ -75,14 +75,14 @@ class DispComentariosSyncUseCase:
             progress if progress is not None else get_progress_tracker()
         )
 
-    # â”€â”€ API pÃºblica â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # Ã¢â€â‚¬Ã¢â€â‚¬ API pÃƒÂºblica Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
     async def apply_comentarios_disp(self, plc_name: str) -> dict[str, Any]:
         """Aplica los comentarios por instancia a los 6 DBs de dispositivos
-        en UNA sola transacciÃ³n TIA con rollback atÃ³mico.
+        en UNA sola transacciÃƒÂ³n TIA con rollback atÃƒÂ³mico.
 
-        Si ``AppState`` estÃ¡ vacÃ­o, NO toca TIA: warning accionable + return.
-        Si la transacciÃ³n falla, ``progress.finish(success=False)`` y propaga.
+        Si ``AppState`` estÃƒÂ¡ vacÃƒÂ­o, NO toca TIA: warning accionable + return.
+        Si la transacciÃƒÂ³n falla, ``progress.finish(success=False)`` y propaga.
 
         Returns:
             ``dict`` con::
@@ -116,7 +116,7 @@ class DispComentariosSyncUseCase:
     async def preview_comentarios_disp(self, plc_name: str) -> dict[str, Any]:
         """Calcula el diff de comentarios SIN tocar TIA.
 
-        Ãštil para que la SPA muestre "lo que se va a aplicar" antes del
+        ÃƒÅ¡til para que la SPA muestre "lo que se va a aplicar" antes del
         commit. No invoca el gateway (no toca TIA).
         """
         self._progress.begin(
@@ -165,19 +165,19 @@ class DispComentariosSyncUseCase:
             self._progress.finish(success=False, error=str(exc))
             raise
 
-    # â”€â”€ Internals â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # Ã¢â€â‚¬Ã¢â€â‚¬ Internals Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
     async def _run_apply(self, plc_name: str) -> dict[str, Any]:
-        """LÃ³gica de apply: check + build + export pre-batch + 6 applies.
+        """LÃƒÂ³gica de apply: check + build + export pre-batch + 6 applies.
 
         **Flujo sept-2026 (fix del SOBREESCRIBIR entre handlers):**
 
           1. Export de los 6 DBs a ``exports/bloques/`` UNA VEZ.
-          2. Copytree ``exports/bloques/ â†’ modified/bloques/`` UNA VEZ.
+          2. Copytree ``exports/bloques/ Ã¢â€ â€™ modified/bloques/`` UNA VEZ.
           3. Batch: 6 invocaciones separadas al nuevo handler
              ``update_disp_comments_db_apply_<hw>`` (1 dispatch por
              hw_type). Cada handler abre/cierra **su propia tx TIA**
-             (mismo patrÃ³n que N_MAX/devices), evitando el rollback
+             (mismo patrÃƒÂ³n que N_MAX/devices), evitando el rollback
              silencioso de TIA V21 al mezclar 6 imports en 1 sola tx.
 
         Emite progress.
@@ -212,7 +212,7 @@ class DispComentariosSyncUseCase:
 
         target_folder = self._config.get_tia_folder_dispositivos()
 
-        # ConvenciÃ³n de 9 carpetas: bloques en ``exports/bloques/`` y
+        # ConvenciÃƒÂ³n de 9 carpetas: bloques en ``exports/bloques/`` y
         # ``modified/bloques/``. Hacemos el export + copytree UNA VEZ
         # antes del batch.
         disp_ctx = build_cache(root=self._build_cache).dispositivos
@@ -222,10 +222,10 @@ class DispComentariosSyncUseCase:
         modified_bloques.mkdir(parents=True, exist_ok=True)
         exports_bloques = disp_ctx.exports_bloques
 
-        # Etiqueta honesta: opaca, cubre la transacciÃ³n COM (1-3 min).
+        # Etiqueta honesta: opaca, cubre la transacciÃƒÂ³n COM (1-3 min).
         self._progress.start_stage(
             "open_transaction",
-            f"Aplicando {len(slot_maps)} comentarios a TIA â€” puede tardar 1-3 min",
+            f"Aplicando {len(slot_maps)} comentarios a TIA Ã¢â‚¬â€ puede tardar 1-3 min",
         )
         # 1. EXPORT de los 6 DBs a ``exports/bloques/`` UNA VEZ.
         for hw_type, db_name in db_names.items():
@@ -235,7 +235,7 @@ class DispComentariosSyncUseCase:
                 target_dir=str(exports_bloques),
             )
 
-        # 2. COPYTREE ``exports/bloques/ â†’ modified/bloques/`` UNA VEZ.
+        # 2. COPYTREE ``exports/bloques/ Ã¢â€ â€™ modified/bloques/`` UNA VEZ.
         if exports_bloques.exists():
             shutil.copytree(
                 str(exports_bloques),
@@ -276,13 +276,13 @@ class DispComentariosSyncUseCase:
     def _check_app_state(self) -> list[str]:
         """Devuelve warning si AppState no tiene dispositivos cargados.
 
-        PolÃ­tica: si NO hay ningÃºn dispositivo en ningÃºn tipo, asumimos
-        que el operario aÃºn no cargÃ³ el Excel. NO abortamos: devolvemos
-        un warning accionable y dejamos que el caller decida quÃ© hacer.
+        PolÃƒÂ­tica: si NO hay ningÃƒÂºn dispositivo en ningÃƒÂºn tipo, asumimos
+        que el operario aÃƒÂºn no cargÃƒÂ³ el Excel. NO abortamos: devolvemos
+        un warning accionable y dejamos que el caller decida quÃƒÂ© hacer.
         """
         if not self._state.all_devices():
             return [
-                "AppState estÃ¡ vacÃ­o. Cargue primero el Excel con "
+                "AppState estÃƒÂ¡ vacÃƒÂ­o. Cargue primero el Excel con "
                 "POST /api/v1/excel/upload."
             ]
         return []
