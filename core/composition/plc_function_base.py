@@ -152,14 +152,55 @@ class FunctionBase:
     # ------------------------------------------------------------------
 
     async def start(self, **params: Any) -> bool:
-        """Arranca el FB. Idempotente: si ya esta activo, ignora."""
+        """Arranca (o re-arranca) el FB.
+
+        Acepta arranque inicial desde ``n_idle`` y re-arranque desde
+        ``n_done``/``n_error``: el FB es una pieza reutilizable que el
+        operario dispara N veces contra el engine (subir excel,
+        sincronizar dispositivos, etc.) sin necesidad de reiniciar la
+        app. En el re-arranque se limpia el estado por-llamada
+        (``_stats``, ``_params``, ``error_msg``, ``result``,
+        ``_step_idx``, ``_cancelled``); la identidad del FB y las
+        deps inyectadas (``nombre``, ``titulo``, ``_tracker``,
+        ``_on_nstep_change``, Zona 0) se mantienen.
+
+        Rechaza la llamada si el FB esta activo (``n_arrancar``,
+        ``n_ejecutar``, ``n_finalizar``) para no interrumpir un
+        ciclo en vuelo: el caller recibe ``False`` (HTTP 409 en el
+        router) y puede reintentar cuando el FB vuelva a un estado
+        terminal.
+
+        Returns:
+            True si transiciono a ``n_arrancar``.
+            False si estaba activo y se rechazo la llamada.
+        """
         async with self._lock:
-            if self.nStep != self.n_idle:
+            if self.nStep not in (self.n_idle, self.n_done, self.n_error):
                 logger.warning(
-                    "FB %s: start() ignorado, ya activo o terminal (nStep=%d)",
+                    "FB %s: start() ignorado, FB activo (nStep=%d)",
                     self.nombre, self.nStep,
                 )
                 return False
+            # Trazabilidad: si re-arrancamos desde terminal, deja una
+            # linea visible en ConsolaLogs con el motivo antes de
+            # pisar ``error_msg``. El operario ya vio el error por SSE
+            # en tiempo real, pero la linea marca donde empieza el
+            # ciclo nuevo (equivalente HMI del "fault acknowledged"
+            # en PLC).
+            prev_nStep = self.nStep
+            prev_error = self.error_msg
+            if prev_nStep == self.n_done:
+                logger.info(
+                    "FB %s: re-arrancando (ultima ejecucion OK)",
+                    self.nombre,
+                )
+            elif prev_nStep == self.n_error:
+                logger.warning(
+                    "FB %s: re-arrancando tras error: %s",
+                    self.nombre, prev_error or "<sin mensaje>",
+                )
+            # Reset del estado por-llamada (deps + identidad OK).
+            self._stats.clear()
             self._params = dict(params)
             self.error_msg = None
             self.result = None
