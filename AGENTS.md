@@ -158,6 +158,39 @@ Convenciones:
 - `store.areaManifest` guarda el manifest del área activa.
   `store.currentView` se valida contra `store.areaManifest.routes`.
 
+### 7. Migrar un use case legacy a FB (playbook)
+
+> Checklist operacional para mover un use case de
+> `areas/<area>/application/use_cases/` a un FB usando
+> `function_template.py` como base. Aplica a los 5 use cases
+> restantes de alimentación (A.2-A.6) y a futuras áreas.
+> Detalle completo en `docs/MIGRATION_PLAYBOOK.md`.
+
+**Referencia canónica**: FB `subir_excel`
+(`areas/alimentacion/functions/function_SubirExcel.py` +
+`helpers/sync/upload_excel.py` + `frontend/excel_router.py`).
+Replica su estructura. Cubre los 5 gotchas conocidos.
+
+**6 pasos por migración**:
+1. Identificar el use case origen en `application/use_cases/`.
+2. Extraer la lógica pura a `helpers/sync/<use_case>.py` (kwargs
+   explícitos, sin Singletons).
+3. Crear el FB copiando `function_SubirExcel.py`, renombrar
+   clase + `nombre` canónico, ajustar Zona 0/3 y los hooks
+   `on_start` / `run_step` / `on_finish`.
+4. Registrar en `areas/<area>/__init__.py::register_<area>(engine,
+   *, config_manager, tia_client, build_cache, log, app_state)`.
+5. Endpoint en `frontend/<use_case>_router.py`, montar en
+   `_build_all_routers(app)`. Propagar `started=False` como 409.
+6. Smoke en vivo + `git rm application/use_cases/<use_case>.py`.
+
+**Gotchas** (detalle en `docs/MIGRATION_PLAYBOOK.md`):
+- `LogBuffer.info(message)` solo acepta 1 arg. Usar f-strings.
+- `_stats` lo inicializa `FunctionBase.__init__`; no redeclararlo.
+- FB re-arrancable: `start()` acepta desde `n_done`/`n_error`.
+- Lazy import del helper dentro de `run_step` (evita ciclos).
+- Mapear objetos nativos TIA a primitivos antes de `self.result`.
+
 ---
 
 ## Convenciones operativas
