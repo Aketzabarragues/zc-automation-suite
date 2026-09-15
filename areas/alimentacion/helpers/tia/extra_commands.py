@@ -53,7 +53,7 @@ def make_cmd_update_disp_comments_db(hw_type: str) -> Callable[..., Any]:
         plc_name, db_name, db_array_name, slot_map, work_dir,
         target_folder.
     """
-    def _cmd(portal: Any, ts: Any, args: dict[str, Any]) -> dict[str, Any]:
+    def _cmd(args: dict[str, Any], tia_client: Any) -> dict[str, Any]:
         plc_name: str = args.get("plc_name", "")
         db_name: str = args.get("db_name", "")
         db_array_name: str = args.get("db_array_name", "")
@@ -74,17 +74,15 @@ def make_cmd_update_disp_comments_db(hw_type: str) -> Callable[..., Any]:
         from areas.alimentacion.helpers.sd.disp_comment_updater import (
             DispCommentUpdater,
         )
-        from core.infrastructure.tia import worker_tia
-        core_registry = worker_tia.COMMAND_REGISTRY
 
         s7dcl_path = SdPair(Path(work_dir), db_name).dcl
         s7res_path = SdPair(Path(work_dir), db_name).res
 
-        core_registry["export_block"](portal, ts, {
+        tia_client._handlers["export_block"]({
             "plc_name": plc_name,
             "block_name": db_name,
             "target_dir": work_dir,
-        })
+        }, tia_client)
 
         updater = DispCommentUpdater(
             s7dcl_path=s7dcl_path,
@@ -96,11 +94,11 @@ def make_cmd_update_disp_comments_db(hw_type: str) -> Callable[..., Any]:
         updater.save()
 
         if updater.was_modified():
-            core_registry["import_block"](portal, ts, {
+            tia_client._handlers["import_block"]({
                 "plc_name": plc_name,
                 "import_dir": work_dir,
                 "target_folder": target_folder,
-            })
+            }, tia_client)
 
         return {
             "hw_type": hw_type,
@@ -133,7 +131,7 @@ def make_cmd_commit_disp_nmax_renames_online() -> Callable[..., Any]:
     (make_cmd_commit_disp_devices_offline) en otra tx TIA, llamada
     secuencialmente desde IT.
     """
-    def _cmd(portal: Any, ts: Any, args: dict[str, Any]) -> dict[str, Any]:
+    def _cmd(args: dict[str, Any], tia_client: Any) -> dict[str, Any]:
         plc_name: str = args.get("plc_name", "")
         undo_text: str = args.get("undo_text", "Sync N_MAX + renames (online)")
         nmax_ops: list[dict[str, Any]] = args.get("nmax_ops") or []
@@ -142,14 +140,15 @@ def make_cmd_commit_disp_nmax_renames_online() -> Callable[..., Any]:
         if not plc_name:
             raise ValueError("commit_disp_nmax_renames_online: plc_name requerido.")
 
-        from core.infrastructure.tia import worker_tia
-        from core.infrastructure._pendiente.worker_tia import (
-            _cmd_update_user_constant_value,
-            _cmd_update_user_constant_name,
+        from core.infrastructure.tia import tia_helpers
+        from core.infrastructure.tia.tia_handlers import (
+            _h_update_user_constant_value,
+            _h_update_user_constant_name,
         )
 
-        project = worker_tia._get_active_project(portal)
-        worker_tia._find_plc(project, plc_name)  # valida que existe
+        portal = tia_client.wrapper
+        project = tia_helpers._get_active_project(portal)
+        tia_helpers._find_plc(project, plc_name)  # valida que existe
 
         results_list: list[dict[str, Any]] = []
         step_idx = 0
@@ -164,12 +163,12 @@ def make_cmd_commit_disp_nmax_renames_online() -> Callable[..., Any]:
         try:
             for nmax_op in nmax_ops:
                 op_label = f"update_user_constant_value({nmax_op.get('constant_name')})"
-                r = _cmd_update_user_constant_value(portal, ts, {
+                r = _h_update_user_constant_value({
                     "plc_name": plc_name,
                     "table_name": nmax_op["table_name"],
                     "constant_name": nmax_op["constant_name"],
                     "new_value": nmax_op["new_value"],
-                })
+                }, tia_client)
                 _record("update_user_constant_value", r)
 
             for rename_op in rename_ops:
@@ -179,12 +178,12 @@ def make_cmd_commit_disp_nmax_renames_online() -> Callable[..., Any]:
                     f"{rename_op.get('current_name')}->"
                     f"{rename_op.get('new_name')})"
                 )
-                r = _cmd_update_user_constant_name(portal, ts, {
+                r = _h_update_user_constant_name({
                     "plc_name": plc_name,
                     "table_name": rename_op["table_name"],
                     "current_name": rename_op["current_name"],
                     "new_name": rename_op["new_name"],
-                })
+                }, tia_client)
                 _record("update_user_constant_name", r)
 
             project.end_transaction(rollback=False)
@@ -215,7 +214,7 @@ def make_cmd_commit_disp_devices_offline() -> Callable[..., Any]:
       2. TagTableModifier offline sobre los .s7dcl exportados.
       3. import_blocks_sd masivo al PLC.
     """
-    def _cmd(portal: Any, ts: Any, args: dict[str, Any]) -> dict[str, Any]:
+    def _cmd(args: dict[str, Any], tia_client: Any) -> dict[str, Any]:
         plc_name: str = args.get("plc_name", "")
         undo_text: str = args.get("undo_text", "Sync devices (offline)")
         modified_dir: str = args.get("modified_dir", "")
@@ -229,14 +228,14 @@ def make_cmd_commit_disp_devices_offline() -> Callable[..., Any]:
                 "target_folder son requeridos."
             )
 
-        from core.infrastructure.tia import worker_tia
+        from core.infrastructure.tia import tia_helpers
         from areas.alimentacion.helpers.xml.disp_tag_table_modifier import (
             DispTagTableModifier,
         )
 
-        core_registry = worker_tia.COMMAND_REGISTRY
-        project = worker_tia._get_active_project(portal)
-        worker_tia._find_plc(project, plc_name)
+        portal = tia_client.wrapper
+        project = tia_helpers._get_active_project(portal)
+        tia_helpers._find_plc(project, plc_name)
 
         effective_modified = (
             str(Path(modified_dir) / db_subpath) if db_subpath else modified_dir
@@ -250,10 +249,10 @@ def make_cmd_commit_disp_devices_offline() -> Callable[..., Any]:
         try:
             # 1. Export masivo al snapshot limpio (si se pasa).
             if effective_exports:
-                core_registry["export_blocks_sd"](portal, ts, {
+                tia_client._handlers["export_blocks_sd"]({
                     "plc_name": plc_name,
                     "target_dir": effective_exports,
-                })
+                }, tia_client)
                 if Path(effective_exports).exists():
                     shutil.copytree(
                         effective_exports, effective_modified,
@@ -272,11 +271,11 @@ def make_cmd_commit_disp_devices_offline() -> Callable[..., Any]:
 
             # 3. Import masivo (si hubo cambios).
             if modified:
-                core_registry["import_blocks_sd"](portal, ts, {
+                tia_client._handlers["import_blocks_sd"]({
                     "plc_name": plc_name,
                     "import_dir": modified_dir,
                     "target_folder": target_folder,
-                })
+                }, tia_client)
 
             project.end_transaction(rollback=False)
         except Exception as e:
@@ -322,7 +321,7 @@ def make_cmd_update_proc_comments_db(kind: str) -> Callable[..., Any]:
       2. ProcCommentUpdater offline sobre los .s7dcl/.s7res exportados.
       3. Si hubo cambios, re-import del bloque (import_block).
     """
-    def _cmd(portal: Any, ts: Any, args: dict[str, Any]) -> dict[str, Any]:
+    def _cmd(args: dict[str, Any], tia_client: Any) -> dict[str, Any]:
         plc_name: str = args.get("plc_name", "")
         db_name: str = args.get("db_name", "")
         array_name: str = args.get("array_name", "")
@@ -349,9 +348,7 @@ def make_cmd_update_proc_comments_db(kind: str) -> Callable[..., Any]:
             ProcCommentUpdater,
         )
         from areas.alimentacion.helpers.sd.mlc_registry import MLCRegistry
-        from core.infrastructure.tia import worker_tia
 
-        core_registry = worker_tia.COMMAND_REGISTRY
         s7dcl_path = SdPair(Path(effective_work_dir), db_name).dcl
         s7res_path = SdPair(Path(effective_work_dir), db_name).res
 
@@ -360,11 +357,11 @@ def make_cmd_update_proc_comments_db(kind: str) -> Callable[..., Any]:
                 str(Path(exports_subdir) / db_subpath)
                 if db_subpath else exports_subdir
             )
-            core_registry["export_block"](portal, ts, {
+            tia_client._handlers["export_block"]({
                 "plc_name": plc_name,
                 "block_name": db_name,
                 "target_dir": export_target_dir,
-            })
+            }, tia_client)
             if Path(export_target_dir).exists():
                 shutil.copytree(
                     export_target_dir, effective_work_dir,
@@ -373,11 +370,11 @@ def make_cmd_update_proc_comments_db(kind: str) -> Callable[..., Any]:
             else:
                 Path(effective_work_dir).mkdir(parents=True, exist_ok=True)
         else:
-            core_registry["export_block"](portal, ts, {
+            tia_client._handlers["export_block"]({
                 "plc_name": plc_name,
                 "block_name": db_name,
                 "target_dir": effective_work_dir,
-            })
+            }, tia_client)
 
         updater = ProcCommentUpdater(
             s7dcl_path=s7dcl_path,
@@ -392,11 +389,11 @@ def make_cmd_update_proc_comments_db(kind: str) -> Callable[..., Any]:
         modified = updater.was_modified()
 
         if modified:
-            core_registry["import_block"](portal, ts, {
+            tia_client._handlers["import_block"]({
                 "plc_name": plc_name,
                 "import_dir": work_dir,
                 "target_folder": "",
-            })
+            }, tia_client)
 
         return {
             "kind": kind,
@@ -428,7 +425,7 @@ def make_cmd_update_proc_comments_db_param() -> Callable[..., Any]:
         plc_name, db_name, preal_slot_map, pint_slot_map, work_dir,
         target_folder, db_subpath (opcional), exports_subdir (opcional).
     """
-    def _cmd(portal: Any, ts: Any, args: dict[str, Any]) -> dict[str, Any]:
+    def _cmd(args: dict[str, Any], tia_client: Any) -> dict[str, Any]:
         plc_name: str = args.get("plc_name", "")
         db_name: str = args.get("db_name", "")
         preal_slot_map_raw: dict[str, str] = args.get("preal_slot_map", {}) or {}
@@ -460,9 +457,7 @@ def make_cmd_update_proc_comments_db_param() -> Callable[..., Any]:
             ProcCommentUpdater,
         )
         from areas.alimentacion.helpers.sd.mlc_registry import MLCRegistry
-        from core.infrastructure.tia import worker_tia
 
-        core_registry = worker_tia.COMMAND_REGISTRY
         s7dcl_path = SdPair(Path(effective_work_dir), db_name).dcl
         s7res_path = SdPair(Path(effective_work_dir), db_name).res
 
@@ -472,11 +467,11 @@ def make_cmd_update_proc_comments_db_param() -> Callable[..., Any]:
                 str(Path(exports_subdir) / db_subpath)
                 if db_subpath else exports_subdir
             )
-            core_registry["export_block"](portal, ts, {
+            tia_client._handlers["export_block"]({
                 "plc_name": plc_name,
                 "block_name": db_name,
                 "target_dir": export_target_dir,
-            })
+            }, tia_client)
             if Path(export_target_dir).exists():
                 shutil.copytree(
                     export_target_dir, effective_work_dir,
@@ -485,11 +480,11 @@ def make_cmd_update_proc_comments_db_param() -> Callable[..., Any]:
             else:
                 Path(effective_work_dir).mkdir(parents=True, exist_ok=True)
         else:
-            core_registry["export_block"](portal, ts, {
+            tia_client._handlers["export_block"]({
                 "plc_name": plc_name,
                 "block_name": db_name,
                 "target_dir": effective_work_dir,
-            })
+            }, tia_client)
 
         # 2. updater PReal.
         preal_result = None
@@ -526,11 +521,11 @@ def make_cmd_update_proc_comments_db_param() -> Callable[..., Any]:
         # 4. Un solo import_block si alguno modifico.
         any_modified = preal_modified or pint_modified
         if any_modified:
-            core_registry["import_block"](portal, ts, {
+            tia_client._handlers["import_block"]({
                 "plc_name": plc_name,
                 "import_dir": work_dir,
                 "target_folder": "",
-            })
+            }, tia_client)
 
         return {
             "kind": "param",
@@ -580,14 +575,17 @@ def _result_block(
 # Adaptadores de registro
 # ---------------------------------------------------------------------------
 def _wrap_handler(handler):
-    """Adapta un handler (portal, ts, args) al dispatcher (args, tia_client).
+    """Pasa los args del SyncTIAClient (args, tia_client) directamente al handler.
 
     El dispatcher del SyncTIAClient invoca con (args, tia_client). Los
-    handlers internos del area esperan (portal, ts, args). Este wrapper
-    extrae wrapper y ts y los pasa.
+    handlers internos del area (_cmd) ahora esperan la misma firma: el
+    refactor (sept-2026) elimino la indireccion legacy de extraer
+    ``portal`` y ``ts`` aqui -- el handler los toma directo de
+    ``tia_client.wrapper`` cuando los necesita (project.start_transaction,
+    user_constants, etc).
     """
     def _wrapped(args, tia_client):
-        return handler(tia_client.wrapper, tia_client.ts, args)
+        return handler(args, tia_client)
     return _wrapped
 
 
