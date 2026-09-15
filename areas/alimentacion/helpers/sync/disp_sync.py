@@ -145,10 +145,11 @@ async def disp_sync(
             for uid in added_per_table.get(table_key, [])
             if uid in desired_state_per_table[table_key]
         ]
-        removes = [
-            {"uid": uid}
-            for uid in removed_per_table.get(table_key, [])
-        ]
+        # ``removes`` debe ser lista de strings (uids), NO lista de dicts:
+        # ``TagTableModifier.remove_user_constants`` espera ``set[str]``.
+        # ``adds`` si es lista de dicts (``{"uid", "plc_tag"}``) porque
+        # ``add_user_constants_by_table`` los desempaqueta como name+value.
+        removes = list(removed_per_table.get(table_key, []))
         if adds or removes:
             device_changes.append({
                 "table_name": table_key,
