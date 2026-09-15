@@ -103,6 +103,7 @@ def register(
     from core.runtime.log_buffer import get_log_buffer
 
     from areas.alimentacion.functions.function_SubirExcel import FunctionSubirExcel
+    from areas.alimentacion.functions.function_DiffConstants import FunctionDiffConstants
     from core.composition.plc_function_template import FunctionTemplate
 
     # Defaults a Singleton global (mismo patron que la plantilla FB).
@@ -121,6 +122,17 @@ def register(
             config_manager=config_manager,
             log=log,
             app_state=app_state,
+        ),
+    )
+
+    # FB puro (sin I/O): solo necesita log. No toca TIA, no toca
+    # config_manager ni build_cache. La validacion de los 4 estados
+    # se hace en on_start.
+    engine.register_fb(
+        "diff_constants",
+        FunctionDiffConstants(
+            nombre="diff_constants",
+            log=log,
         ),
     )
 
