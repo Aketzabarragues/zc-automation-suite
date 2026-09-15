@@ -30,14 +30,30 @@ def _load_icon_image(icon_path: Path | None, log: logging.Logger) -> Image.Image
         except Exception as exc:  # noqa: BLE001
             log.warning("No se pudo cargar %s (%s); usando placeholder.", icon_path, exc)
 
-    img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+    # Placeholder 64x64 RGBA. Misma paleta y logica de centrado que
+    # make_icon.py::_make_placeholder_icon (incluido el nudge vertical
+    # de -4 px) para que el icono del tray sin .ico en disco sea
+    # consistente con el .ico generado para el build. Fondo cuadrado
+    # (no rounded) porque a 64 px las esquinas redondeadas quedan
+    # pixeladas.
+    size = 64
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    draw.rectangle((0, 0, 64, 64), fill=(15, 76, 117, 255))
+    draw.rectangle((0, 0, size, size), fill=(15, 76, 117, 255))
+
+    text = "ZC"
     try:
         font = ImageFont.truetype("seguisb.ttf", 28)
     except OSError:
         font = ImageFont.load_default()
-    draw.text((12, 16), "ZC", fill=(255, 255, 255, 255), font=font)
+    bbox = draw.textbbox((0, 0), text, font=font)
+    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    draw.text(
+        ((size - tw) / 2 - bbox[0], (size - th) / 2 - bbox[1] - 4),
+        text,
+        fill=(255, 255, 255, 255),
+        font=font,
+    )
     return img
 
 
