@@ -1,25 +1,25 @@
 """Back-compat de las 6 properties legacy en ``AppState``.
 
-Tras la migración a ``AppState`` genérico (PR 1), ``state.dispositivos_ed``,
+Tras la migración a ``AppState`` generico (sept-2026), ``state.dispositivos_ed``,
 ``state.dispositivos_ea``, etc. ya no existen como properties
-nativas. El área de alimentación las aporta aquí, monkey-patching
+nativas. El area de alimentacion las aporta aqui, monkey-patching
 la CLASE ``AppState`` con properties de sugar que delegan a
-``get_devices`` / ``set_devices``. Idéntico al comportamiento legacy
-que el parche de transición de PR 1 garantizaba.
+``get_devices`` / ``set_devices``. Identico al comportamiento legacy
+que el parche de transicion garantizaba.
 
 Compatible 100% con los tests existentes que hacen
 ``state.dispositivos_ed = [...]`` o leen ``state.dispositivos_ed``.
 
 Importante: usamos ``setattr(AppState, attr, property(...))`` sobre
-la CLASE (no sobre la instancia) para que la instalación se propague
+la CLASE (no sobre la instancia) para que la instalacion se propague
 a todas las instancias de ``AppState`` y al Singleton global que
 ``get_app_state()`` retorna. Si se hiciese sobre ``self``, el
-comportamiento sería local a la instancia que recibió ``install()``
-y la SPA (que usa el Singleton) NO vería las properties.
+comportamiento seria local a la instancia que recibio ``install()``
+y la SPA (que usa el Singleton) NO veria las properties.
 
-Invocación:
+Invocacion:
     ``get_app_state()`` invoca este callable tras crear el Singleton
-    si la ``AreaSpec`` del área tiene ``contributes_state_extensions``.
+    si la ``AreaSpec`` del area tiene ``contributes_state_extensions``.
 """
 from __future__ import annotations
 
@@ -34,8 +34,8 @@ from areas.alimentacion.domain.models.excel_cache import (
 )
 
 
-# Mapeo canónico ``hw_type → nombre de la property legacy``.
-# Mantener sincronizado con la convención que el área de alimentación
+# Mapeo canonico ``hw_type -> nombre de la property legacy``.
+# Mantener sincronizado con la convencion que el area de alimentacion
 # documenta en AGENTS.md y que el parser de Excel usa para poblar
 # ``AppState`` desde el corporativo.
 _LEGACY = (
@@ -67,9 +67,9 @@ def _make_property(attr: str, hw: str) -> None:
     """Construye una property ``getter``/``setter`` y la pega a ``AppState``.
 
     La property:
-      - ``getter`` → ``self.get_devices(hw)`` (devuelve la lista del
-        dict interno, o ``[]`` si el ``hw_type`` aún no existe).
-      - ``setter`` → ``self.set_devices(hw, value)`` (sustituye la
+      - ``getter`` -> ``self.get_devices(hw)`` (devuelve la lista del
+        dict interno, o ``[]`` si el ``hw_type`` aun no existe).
+      - ``setter`` -> ``self.set_devices(hw, value)`` (sustituye la
         lista del ``hw_type``).
     """
     def _getter(self: AppState) -> list:  # noqa: ANN001

@@ -1,4 +1,4 @@
-"""Tests del ``AppState`` genérico (Plan: Bounded Contexts — PR 1+2).
+"""Tests del ``AppState`` genÃ©rico (Plan: Bounded Contexts â€” PR 1+2).
 
 Cubre la API data-driven del Singleton:
   - ``get_devices`` / ``set_devices`` / ``reset``.
@@ -7,10 +7,10 @@ Cubre la API data-driven del Singleton:
   - Single-tenant: ``get_app_state()`` retorna SIEMPRE la misma instancia.
 
 Tras PR 2, las 6 properties legacy (``dispositivos_ed/ea/sa/v/m/m_vf``)
-vienen aportadas por ``areas.alimentacion.application.disp_state_extensions``;
-este módulo las prueba invocando ``install`` explícitamente (el
+vienen aportadas por ``areas.alimentacion.helpers.state.install_state_extensions``;
+este mÃ³dulo las prueba invocando ``install`` explÃ­citamente (el
 Singleton las activa perezosamente, pero las ``AppState`` "frescas"
-de los tests también las necesitan para validar back-compat).
+de los tests tambiÃ©n las necesitan para validar back-compat).
 
 Tests OFFLINE puros (sin gateway, sin TIA).
 """
@@ -23,13 +23,13 @@ import pytest
 from core.runtime.app_state import AppState, get_app_state
 
 
-# ── Activación de las properties legacy para los tests ────────────────
-# Las 6 properties ``dispositivos_*`` se añaden a la CLASE ``AppState``
-# al importarse el ``__init__`` del área (vía ``get_app_state()``) o
-# cuando algún test las solicita. Importamos el módulo del área
-# explícitamente: su ``__init__`` registra la ``AREA_SPEC`` y las
-# properties quedan disponibles al instanciar ``AppState()`` aquí.
-from areas.alimentacion.application.disp_state_extensions import (  # noqa: E402, F401
+# â”€â”€ ActivaciÃ³n de las properties legacy para los tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Las 6 properties ``dispositivos_*`` se aÃ±aden a la CLASE ``AppState``
+# al importarse el ``__init__`` del Ã¡rea (vÃ­a ``get_app_state()``) o
+# cuando algÃºn test las solicita. Importamos el mÃ³dulo del Ã¡rea
+# explÃ­citamente: su ``__init__`` registra la ``AREA_SPEC`` y las
+# properties quedan disponibles al instanciar ``AppState()`` aquÃ­.
+from areas.alimentacion.helpers.state.install_state_extensions import (  # noqa: E402, F401
     install as _install_legacy_state_props,
 )
 
@@ -38,10 +38,10 @@ from areas.alimentacion.application.disp_state_extensions import (  # noqa: E402
 def _ensure_legacy_state_props_installed() -> None:
     """Pega las 6 properties legacy a ``AppState`` antes de cada test.
 
-    El área de alimentación las instala en ``get_app_state()`` (vía
+    El Ã¡rea de alimentaciÃ³n las instala en ``get_app_state()`` (vÃ­a
     ``AreaSpec.contributes_state_extensions``). En estos tests instanciamos
-    ``AppState()`` directamente sin pasar por el Singleton, así que las
-    añadimos explícitamente. El ``install`` es idempotente: solo
+    ``AppState()`` directamente sin pasar por el Singleton, asÃ­ que las
+    aÃ±adimos explÃ­citamente. El ``install`` es idempotente: solo
     re-asigna el ``property`` a la clase.
     """
     _install_legacy_state_props(None)
@@ -53,13 +53,13 @@ def fresh_state() -> AppState:
     return AppState()
 
 
-# ────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # API data-driven
-# ────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def test_get_devices_empty_for_unknown_hw_type(fresh_state: AppState) -> None:
-    """``get_devices`` retorna ``[]`` para un hw_type que aún no existe."""
+    """``get_devices`` retorna ``[]`` para un hw_type que aÃºn no existe."""
     assert fresh_state.get_devices("ed") == []
     assert fresh_state.get_devices("m_sina") == []
     assert fresh_state.get_devices("anything") == []
@@ -89,14 +89,14 @@ def test_list_hw_types_only_includes_non_empty(
     """``list_hw_types`` solo retorna los hw_types con al menos 1 device."""
     fresh_state.set_devices("ed", [{"uid": "1"}])
     fresh_state.set_devices("v", [{"uid": "1"}])
-    fresh_state.set_devices("m_sina", [])  # vacío: no debe aparecer
+    fresh_state.set_devices("m_sina", [])  # vacÃ­o: no debe aparecer
     assert sorted(fresh_state.list_hw_types()) == ["ed", "v"]
 
 
 def test_all_devices_flattens_all_hw_types(
     fresh_state: AppState,
 ) -> None:
-    """``all_devices`` devuelve una lista heterogénea con todos los devices."""
+    """``all_devices`` devuelve una lista heterogÃ©nea con todos los devices."""
     fresh_state.set_devices("ed", [{"uid": "E1"}, {"uid": "E2"}])
     fresh_state.set_devices("v", [{"uid": "V1"}])
     all_d = fresh_state.all_devices()
@@ -106,7 +106,7 @@ def test_all_devices_flattens_all_hw_types(
 
 
 def test_reset_clears_all_hw_types(fresh_state: AppState) -> None:
-    """``reset`` vacía todas las listas."""
+    """``reset`` vacÃ­a todas las listas."""
     fresh_state.set_devices("ed", [{"uid": "1"}])
     fresh_state.set_devices("v", [{"uid": "2"}])
     fresh_state.reset()
@@ -126,16 +126,16 @@ def test_iter_yields_hw_to_devices_pairs(fresh_state: AppState) -> None:
 def test_contains_checks_hw_type_membership(
     fresh_state: AppState,
 ) -> None:
-    """``hw_type in state`` refleja si la clave está en el dict interno."""
+    """``hw_type in state`` refleja si la clave estÃ¡ en el dict interno."""
     assert "ed" not in fresh_state
     fresh_state.set_devices("ed", [])
-    assert "ed" in fresh_state  # existe aunque esté vacía
+    assert "ed" in fresh_state  # existe aunque estÃ© vacÃ­a
     assert "v" not in fresh_state
 
 
-# ────────────────────────────────────────────────────────────────────────
-# dimensiones (back-compat — placeholder)
-# ────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# dimensiones (back-compat â€” placeholder)
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def test_dimensiones_present_by_default(fresh_state: AppState) -> None:
@@ -163,9 +163,9 @@ def test_dimensiones_present_by_default(fresh_state: AppState) -> None:
     assert isinstance(fresh_state.dimensiones, dict)
 
 
-# ────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Singleton
-# ────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def test_get_app_state_returns_singleton_instance() -> None:
@@ -180,29 +180,29 @@ def test_get_app_state_is_app_state_instance() -> None:
     assert isinstance(get_app_state(), AppState)
 
 
-# ────────────────────────────────────────────────────────────────────────
-# Repr (no rompe con estado vacío ni con devices)
-# ────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Repr (no rompe con estado vacÃ­o ni con devices)
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def test_repr_works_empty_and_populated(fresh_state: AppState) -> None:
-    """``__repr__`` no lanza con estado vacío ni con devices."""
+    """``__repr__`` no lanza con estado vacÃ­o ni con devices."""
     r1 = repr(fresh_state)
     assert "AppState(" in r1
 
     fresh_state.set_devices("ed", [{"uid": "1"}, {"uid": "2"}])
     fresh_state.set_devices("v", [])
     r2 = repr(fresh_state)
-    # Solo aparecen las claves no vacías en el conteo.
+    # Solo aparecen las claves no vacÃ­as en el conteo.
     assert "'ed': 2" in r2  # ed tiene 2 devices
-    # v está vacía: NO aparece como clave en el dict del repr.
+    # v estÃ¡ vacÃ­a: NO aparece como clave en el dict del repr.
     assert "'v':" not in r2
 
 
-# ────────────────────────────────────────────────────────────────────────
-# Parche de transición (PR 1): las 6 properties legacy siguen
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Parche de transiciÃ³n (PR 1): las 6 properties legacy siguen
 # funcionando para no romper la SPA ni los tests que las usan.
-# ────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def test_legacy_property_dispositivos_ed_serves_from_state(
@@ -210,8 +210,8 @@ def test_legacy_property_dispositivos_ed_serves_from_state(
 ) -> None:
     """``state.dispositivos_ed`` lee de ``_dispositivos['ed']`` (parche PR 1).
 
-    Este comportamiento desaparecerá en PR 2, cuando las properties
-    pasen a aportarse vía ``AreaSpec.contributes_state_extensions``.
+    Este comportamiento desaparecerÃ¡ en PR 2, cuando las properties
+    pasen a aportarse vÃ­a ``AreaSpec.contributes_state_extensions``.
     """
     fresh_state.set_devices("ed", [{"uid": "ED_001"}])
     assert fresh_state.dispositivos_ed == [{"uid": "ED_001"}]
@@ -229,7 +229,7 @@ def test_legacy_setter_dispositivos_ea_syncs_to_dict(
 def test_legacy_property_returns_empty_for_unset_hw(
     fresh_state: AppState,
 ) -> None:
-    """Las 6 properties legacy retornan ``[]`` si aún no se asignaron."""
+    """Las 6 properties legacy retornan ``[]`` si aÃºn no se asignaron."""
     assert fresh_state.dispositivos_ed == []
     assert fresh_state.dispositivos_ea == []
     assert fresh_state.dispositivos_sa == []

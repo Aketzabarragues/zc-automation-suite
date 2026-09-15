@@ -18,7 +18,7 @@ momento (Fase 2). El Composition Root (main_supervisor) llama a
 """
 from __future__ import annotations
 
-from areas.alimentacion.application.disp_state_extensions import (
+from areas.alimentacion.helpers.state.install_state_extensions import (
     install as install_state,
 )
 from areas.alimentacion.domain.disp_catalog import build_catalog as build_alim_catalog
