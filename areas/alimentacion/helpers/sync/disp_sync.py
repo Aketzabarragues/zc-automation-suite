@@ -379,10 +379,19 @@ def _build_desired_state_from_app(
         # ``DispositivoTIAConfig`` es un dataclass (atributos, NO keys).
         table_name = cfg.tag_table
         attr_name = config_manager.get_app_state_attr_for(hw)
-        devices = getattr(app_state, attr_name, {}) or {}
-        result[table_name] = {
-            str(uid): plc_tag for uid, plc_tag in devices.items()
-        }
+        if attr_name is None:
+            continue
+        # ``dispositivos_<hw>`` son listas de dataclasses ``DispED/EA/SA/V/M/M_VF``
+        # (atributos ``numero`` y ``plc_tag``), no dicts. Iteramos la lista.
+        devices = getattr(app_state, attr_name, []) or []
+        table_dict: dict[str, str] = {}
+        for device in devices:
+            numero = int(getattr(device, "numero", 0) or 0)
+            plc_tag = str(getattr(device, "plc_tag", "") or "")
+            if numero > 0 and plc_tag:
+                table_dict[str(numero)] = plc_tag
+        if table_dict:
+            result[table_name] = table_dict
     return result
 
 
