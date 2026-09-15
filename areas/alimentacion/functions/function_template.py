@@ -210,7 +210,7 @@ class FunctionTemplate(FunctionBase):
     async def run_step(self, idx: int, **params: Any) -> str:
         """Logica del step N. Devuelve un detail (str) para el HMI."""
         step_nombre = self.steps[idx]["nombre"]
-        self._log.info("[%s] CASE %s (idx=%d)", self.nombre, step_nombre, idx)
+        self._log.info(f"[{self.nombre}] CASE {step_nombre} (idx={idx})")
 
         # ------------------------------------------------------------------
         # CASE step_nombre OF

@@ -103,7 +103,7 @@ class FunctionSubirExcel(FunctionBase):
             )
         self._xlsx_path = str(xlsx_path)
         self._log.info(
-            "[%s] Iniciando carga desde %s", self.nombre, self._xlsx_path
+            f"[{self.nombre}] Iniciando carga desde {self._xlsx_path}"
         )
 
     # ==================================================================
