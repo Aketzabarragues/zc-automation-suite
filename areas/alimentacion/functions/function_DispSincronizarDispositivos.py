@@ -1,9 +1,18 @@
 """FB de area: sincronizacion transaccional de dispositivos vs PLC.
 
-Wrapper con state machine del helper ``disp_sync`` definido en
-``areas/alimentacion/helpers/sync/disp_sync.py``. Las 11 etapas del
-sync viven en el helper; el FB aporta state machine + tracker + Zona 0
-inyectable.
+State machine sobre el helper ``disp_sync`` (areas/alimentacion/helpers
+/sync/disp_sync.py). Las 11 etapas viven en el helper como funciones
+``_stage_X(ctx)`` puras e independientes; el FB las ejecuta 1:1 desde
+``run_step(idx)`` llamando a ``run_stage(self._ctx, step_nombre)``.
+
+Antes (sept-2026 -): 10 de los 11 steps del FB eran checkpoints
+vacios; solo el ultimo invocaba el helper monolitico de golpe. Esto
+provocaba que el progressbar saltara al ultimo step sin transicion
+visible.
+
+Ahora (sept-2026): cada step del FB ejecuta 1 stage real del helper
+contra un ``DispSyncContext`` compartido entre los 11 ticks. El
+progressbar muestra 11 etapas con trabajo real y duracion real.
 
 Hereda directo de ``FunctionBase`` (no del template). Zona 0 con 4 deps
 comunes + 1 especifica.
@@ -24,7 +33,8 @@ El ``self.result`` se popula con la shape legacy esperada por la SPA::
       'comments_sync':   dict,
     }
 
-Steps (11, mismo orden que el legacy ``ejecutar_transaccion``):
+Steps (11, mismo orden que el legacy ``ejecutar_transaccion`` y que
+``disp_sync.STAGE_NAMES``):
   - exportar_tags
   - compute_diff
   - preparar_ops
@@ -110,13 +120,16 @@ class FunctionDispSincronizarDispositivos(FunctionBase):
         )
         # ZONA 3: estado entre ticks.
         self._plc_name: str = ""
+        # DispSyncContext compartido entre los 11 ticks. Se reinicializa
+        # en cada on_start() para no arrastrar estado del run anterior.
+        self._ctx: Any = None
 
     # ==================================================================
-    # HOOK 1: on_start  (ZONA 3: validar params)
+    # HOOK 1: on_start  (ZONA 3: validar params + crear ctx)
     # ==================================================================
 
     def on_start(self, **params: Any) -> None:
-        """Validar deps inyectadas + capturar plc_name."""
+        """Validar deps inyectadas + capturar plc_name + crear ctx."""
         if self._config is None:
             raise RuntimeError(
                 "FunctionDispSincronizarDispositivos requiere "
@@ -134,71 +147,63 @@ class FunctionDispSincronizarDispositivos(FunctionBase):
                 "es obligatorio"
             )
         self._plc_name = str(plc_name)
+
+        # Crear el DispSyncContext que los 11 stages iran mutando.
+        # Lazy import para evitar ciclo con helpers/sync/.
+        from areas.alimentacion.helpers.sync.disp_sync import DispSyncContext
+        self._ctx = DispSyncContext(
+            plc_name=self._plc_name,
+            tia_client=self._tia_client,
+            config_manager=self._config,
+            app_state=self._state,
+            build_cache_root=self._build_cache_root,
+        )
+
         self._log.info(
             f"[{self.nombre}] Iniciando sync transaccional para "
             f"{self._plc_name} (11 etapas)"
         )
 
     # ==================================================================
-    # HOOK 2: run_step  (ZONA 4: CASE por etapa)
+    # HOOK 2: run_step  (ZONA 4: 1 step FB = 1 stage real del helper)
     # ==================================================================
 
     async def run_step(self, idx: int, **params: Any) -> str:
-        """CASE de las 11 etapas del FB.
+        """Ejecuta el stage ``steps[idx].nombre`` del helper ``disp_sync``.
 
-        El helper hace todo el flujo en una sola llamada; los steps
-        del FB son checkpoints visuales en el progressbar que
-        reflejan el progreso REAL del legacy.
+        Mapeo 1:1 con ``disp_sync.STAGE_NAMES``: cada tick del engine
+        avanza UN stage real del sync (exportar_tags, compute_diff,
+        tx_a_nmax_renames, etc.). El ``DispSyncContext`` vive entre
+        ticks para que los resultados intermedios (nmax_ops,
+        device_changes, etc.) esten disponibles para stages posteriores.
         """
         # Lazy import para evitar ciclo con helpers/sync/.
-        from areas.alimentacion.helpers.sync.disp_sync import disp_sync
+        from areas.alimentacion.helpers.sync.disp_sync import run_stage
+
+        if self._ctx is None:
+            raise RuntimeError(
+                "DispSyncContext no inicializado. on_start() no se ejecuto "
+                "(o el FB no recibio un plc_name valido)."
+            )
 
         step_nombre = self.steps[idx]["nombre"]
-        match step_nombre:
-            case "exportar_tags" | "compute_diff" | "preparar_ops" \
-                | "tx_a_nmax_renames" | "wait_consolidation" \
-                | "exportar_post_tx_a" | "editar_xmls_offline" \
-                | "tx_b_devices" | "compilar_bloques" \
-                | "aplicar_comentarios":
-                # Checkpoints visuales. El trabajo real ocurre en el
-                # ultimo paso donde se invoca el helper de golpe.
-                return f"{step_nombre}: combinado con sync final"
+        await run_stage(self._ctx, step_nombre)
 
-            case "post_preview":
-                # Aqui SI se ejecuta el helper completo.
-                result = await disp_sync(
-                    plc_name=self._plc_name,
-                    tia_client=self._tia_client,
-                    config_manager=self._config,
-                    app_state=self._state,
-                    build_cache_root=self._build_cache_root,
-                )
-                self._stats["sync"] = result
-                ops = result.get("operations", 0)
-                nmax = result.get("n_max_updates", 0)
-                compile_ok = result.get("compile_ok", False)
-                self._log.success(
-                    f"[{self.nombre}] sync completo para "
-                    f"{self._plc_name}: {ops} ops ({nmax} N_MAX), "
-                    f"compile={'OK' if compile_ok else 'con errores'}"
-                )
-                return (
-                    f"{ops} ops aplicadas, {nmax} N_MAX, "
-                    f"compile={'OK' if compile_ok else 'WARN'}"
-                )
-
-            case _:
-                raise ValueError(f"step no soportado: {step_nombre!r}")
+        # Devolv un resumen legible del stage que acaba de correr.
+        return _stage_summary(self._ctx, step_nombre)
 
     # ==================================================================
-    # HOOK 3: on_finish  (ZONA 5: vuelco del result)
+    # HOOK 3: on_finish  (ZONA 5: vuelco del result desde el ctx)
     # ==================================================================
 
     def on_finish(self, **params: Any) -> None:
-        """Vuelca ``self.result`` con la shape legacy que espera la SPA."""
-        sync = self._stats.get("sync")
-        if sync is None:
-            # Caso error temprano (deps no inyectadas): result vacio.
+        """Vuelca ``self.result`` con la shape legacy que espera la SPA.
+
+        Lee los resultados finales del ``DispSyncContext`` (mismos campos
+        que el helper monolitico ``disp_sync`` retornaba, sept-2026 -).
+        """
+        if self._ctx is None:
+            # Error temprano: deps no inyectadas o plc_name ausente.
             self.result = {
                 "success": False,
                 "message": "FB no llego a ejecutar (deps no inyectadas "
@@ -211,7 +216,82 @@ class FunctionDispSincronizarDispositivos(FunctionBase):
                 "comments_sync": None,
             }
             return
-        self.result = sync
+
+        # Componer el shape legacy desde el ctx (mismo calculo que el
+        # helper monolitico: operations_executed = N_MAX + devices).
+        operations_executed = (
+            self._ctx.nmax_result.get("operations_executed", 0)
+            + self._ctx.devices_result.get("operations_executed", 0)
+        )
+        details = (
+            self._ctx.nmax_result.get("details", [])
+            + self._ctx.devices_result.get("details", [])
+        )
+        self.result = {
+            "success": True,
+            "message": (
+                f"Inyeccion completada. Detalles: {details}"
+            ),
+            "operations": operations_executed,
+            "n_max_updates": len(self._ctx.nmax_ops),
+            "post_sync_preview": self._ctx.post_sync_preview,
+            "compile_ok": self._ctx.compile_ok,
+            "compile_error": self._ctx.compile_error,
+            "comments_sync": self._ctx.comments_result,
+        }
+
+        # Log de cierre, igual que el helper monolitico.
+        compile_label = (
+            "OK" if self._ctx.compile_ok else "con errores"
+        )
+        self._log.success(
+            f"[{self.nombre}] sync completo para "
+            f"{self._ctx.plc_name}: {operations_executed} ops "
+            f"({len(self._ctx.nmax_ops)} N_MAX), "
+            f"compile={compile_label}"
+        )
+
+
+def _stage_summary(ctx: Any, step_nombre: str) -> str:
+    """Resumen legible del stage que acaba de correr (aparece en la SPA)."""
+    if step_nombre == "exportar_tags":
+        return (
+            f"{step_nombre}: {len(ctx.selective_tables)} tablas exportadas"
+        )
+    if step_nombre == "compute_diff":
+        adds = sum(len(v) for v in ctx.added_per_table.values())
+        rems = sum(len(v) for v in ctx.removed_per_table.values())
+        return (
+            f"{step_nombre}: {adds} adds, {rems} removes, "
+            f"{len(ctx.renamed_per_table)} renames"
+        )
+    if step_nombre == "preparar_ops":
+        return (
+            f"{step_nombre}: {len(ctx.nmax_ops)} N_MAX ops, "
+            f"{len(ctx.device_changes)} tablas con cambios"
+        )
+    if step_nombre == "tx_a_nmax_renames":
+        ops = ctx.nmax_result.get("operations_executed", 0)
+        return f"{step_nombre}: {ops} N_MAX aplicados en TIA"
+    if step_nombre == "wait_consolidation":
+        return (
+            f"{step_nombre}: TIA consolida (2s)"
+        )
+    if step_nombre == "exportar_post_tx_a":
+        return f"{step_nombre}: XMLs releidos post-Tx A"
+    if step_nombre == "editar_xmls_offline":
+        return f"{step_nombre}: XMLs offline editados"
+    if step_nombre == "tx_b_devices":
+        ops = ctx.devices_result.get("operations_executed", 0)
+        return f"{step_nombre}: {ops} device ops aplicados en TIA"
+    if step_nombre == "compilar_bloques":
+        label = "OK" if ctx.compile_ok else "WARN"
+        return f"{step_nombre}: compile={label}"
+    if step_nombre == "aplicar_comentarios":
+        return f"{step_nombre}: comentarios aplicados"
+    if step_nombre == "post_preview":
+        return f"{step_nombre}: preview post-sync generado"
+    return f"{step_nombre}: OK"
 
 
 __all__ = ["FunctionDispSincronizarDispositivos"]
