@@ -3,7 +3,7 @@
 Migrado del use case legacy ``application/use_cases/upload_excel.py``
 (sept-2026, refactor de areas). Hereda de ``FunctionTemplate``
 (plantilla con Zona 0 de inyeccion de deps). La logica pura vive en
-``helpers/sync/upload_excel.py``; aqui solo esta la state machine +
+``helpers/excel/excel_upload.py``; aqui solo esta la state machine +
 tracker + 2 pasos.
 
 Runtime params via ``start(**kwargs)``:
@@ -81,7 +81,7 @@ class FunctionSubirExcel(FunctionBase):
         # Deps especificas
         # ``excel_loader_factory`` y ``excel_cache_cls`` se importan
         # lazily en run_step (ZONA 4) para evitar import circular
-        # entre ``function_SubirExcel`` y ``helpers/sync/upload_excel``.
+        # entre ``function_SubirExcel`` y ``helpers/excel/excel_upload``.
         self._loader_factory = excel_loader_factory
         self._cache_cls = excel_cache_cls
         self._state: AppState = (
@@ -112,8 +112,8 @@ class FunctionSubirExcel(FunctionBase):
 
     async def run_step(self, idx: int, **params: Any) -> str:
         """CASE de los 2 pasos."""
-        # Lazy import para evitar ciclo con helpers/sync/upload_excel.
-        from areas.alimentacion.helpers.sync.upload_excel import (
+        # Lazy import para evitar ciclo con helpers/excel/excel_upload.
+        from areas.alimentacion.helpers.excel.excel_upload import (
             dump_cache_to_state,
             parse_excel_to_cache,
         )
