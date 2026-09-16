@@ -50,7 +50,7 @@ from pathlib import Path
 from typing import Any
 
 
-logger = logging.getLogger("zc.areas.alimentacion.disp_sync")
+logger = logging.getLogger("zc.areas.alimentacion.disp_Sincronizar")
 
 
 # Sincronizacion con TIA V21: tras un commit online, TIA tarda ~2s en
@@ -65,7 +65,7 @@ TIA_CONSOLIDATION_SLEEP_S: float = 2.0
 
 @dataclass
 class DispSyncContext:
-    """Estado compartido entre las 11 funciones de ``disp_sync``.
+    """Estado compartido entre las 11 funciones de ``disp_Sincronizar``.
 
     Cada funcion toma un ``DispSyncContext`` por argumento, lee las deps
     inyectadas y los resultados de funciones previas, y muta los campos

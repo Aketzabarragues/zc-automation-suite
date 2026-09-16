@@ -35,7 +35,7 @@ from flask import Blueprint, current_app, jsonify, request
 logger = logging.getLogger(__name__)
 
 bp = Blueprint(
-    "area_alimentacion_disp_sync",
+    "area_alimentacion_disp_Sincronizar",
     __name__,
     url_prefix="/api/v1/sync/commit",
 )
@@ -130,7 +130,7 @@ def build_routers(app) -> None:
     """Hook ``contributes_routers`` del area (router de SyncCommit)."""
     app.register_blueprint(bp)
     logger.info(
-        "area_alimentacion: router 'area_alimentacion_disp_sync' "
+        "area_alimentacion: router 'area_alimentacion_disp_Sincronizar' "
         "registrado."
     )
 
