@@ -1,4 +1,4 @@
-"""Tests del parser ``ProcesosParser``.
+﻿"""Tests del parser ``ProcesosParser``.
 
 Cubre la extracciÃƒÂ³n de ``Tabla_Procesos`` (hoja ``CONFIGURACION``) y
 la fidelidad de los 8 campos del DTO ``DataProcesoPLC`` con el Excel
@@ -17,7 +17,7 @@ from openpyxl import Workbook
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
 from areas.alimentacion.data.data_Procesos import DataProcesoPLC
-from areas.alimentacion.helpers.parsers.proc_procesos import ProcesosParser
+from areas.alimentacion.helpers.excel.excel_parser_proc_procesos import ProcesosParser
 
 
 # Ã¢â€â‚¬Ã¢â€â‚¬ Helpers de construcciÃƒÂ³n de Excels sintÃƒÂ©ticos Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬

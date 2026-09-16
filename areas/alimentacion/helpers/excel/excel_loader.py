@@ -1,4 +1,4 @@
-"""Cargador síncrono del Excel corporativo del subdominio alimentación.
+﻿"""Cargador síncrono del Excel corporativo del subdominio alimentación.
 
 ``ExcelLoader`` abre el workbook UNA sola vez, ejecuta los 11
 parsers que lo componen (6 dispositivos + 4 software + 1 N_MAX) y
@@ -37,19 +37,19 @@ from pathlib import Path
 from openpyxl import load_workbook
 
 from areas.alimentacion.data.data_ExcelCache import DataExcelCache
-from areas.alimentacion.helpers.parsers.proc_alarmas import AlarmasParser
-from areas.alimentacion.helpers.parsers.disp_dimensiones import (
+from areas.alimentacion.helpers.excel.excel_parser_proc_alarmas import AlarmasParser
+from areas.alimentacion.helpers.excel.excel_parser_disp_dimensiones import (
     DimensionesParser,
 )
-from areas.alimentacion.helpers.parsers.disp_ed import DispEDParser
-from areas.alimentacion.helpers.parsers.disp_ea import DispEAParser
-from areas.alimentacion.helpers.parsers.disp_m import DispMParser
-from areas.alimentacion.helpers.parsers.disp_m_vf import DispM_VFParser
-from areas.alimentacion.helpers.parsers.disp_sa import DispSAParser
-from areas.alimentacion.helpers.parsers.disp_v import DispVParser
-from areas.alimentacion.helpers.parsers.proc_pint import PIntParser
-from areas.alimentacion.helpers.parsers.proc_preal import PRealParser
-from areas.alimentacion.helpers.parsers.proc_procesos import ProcesosParser
+from areas.alimentacion.helpers.excel.excel_parser_disp_ed import DispEDParser
+from areas.alimentacion.helpers.excel.excel_parser_disp_ea import DispEAParser
+from areas.alimentacion.helpers.excel.excel_parser_disp_m import DispMParser
+from areas.alimentacion.helpers.excel.excel_parser_disp_m_vf import DispM_VFParser
+from areas.alimentacion.helpers.excel.excel_parser_disp_sa import DispSAParser
+from areas.alimentacion.helpers.excel.excel_parser_disp_v import DispVParser
+from areas.alimentacion.helpers.excel.excel_parser_proc_pint import PIntParser
+from areas.alimentacion.helpers.excel.excel_parser_proc_preal import PRealParser
+from areas.alimentacion.helpers.excel.excel_parser_proc_procesos import ProcesosParser
 from core.infrastructure.config.config_manager import ConfigManager
 
 

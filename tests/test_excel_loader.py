@@ -185,7 +185,7 @@ def test_load_construye_lookups_by_codigo(tmp_path) -> None:
 
 def test_load_workbook_cerrado_tras_error(tmp_path, monkeypatch) -> None:
     """Si un parser lanza, ``wb.close()`` se llama en el ``finally``."""
-    from areas.alimentacion.helpers.parsers import disp_ed as disp_ed_mod
+    from areas.alimentacion.helpers.excel import excel_parser_disp_ed as disp_ed_mod
 
     # Mockear ``DispEDParser.extraer`` para que lance.
     calls: dict[str, int] = {"extraer": 0}

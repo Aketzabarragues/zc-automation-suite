@@ -1,4 +1,4 @@
-"""Tests del ``DispMParser`` (Fase 5 del plan).
+﻿"""Tests del ``DispMParser`` (Fase 5 del plan).
 
 Cubre la extracciÃƒÂ³n de ``Tabla_Disp_M`` (hoja ``DISP_M``) y la
 construcciÃƒÂ³n de ``DispM`` (motores digitales).
@@ -6,7 +6,7 @@ construcciÃƒÂ³n de ``DispM`` (motores digitales).
 from __future__ import annotations
 
 from areas.alimentacion.data.data_Dispositivos import DispM
-from areas.alimentacion.helpers.parsers.disp_m import DispMParser
+from areas.alimentacion.helpers.excel.excel_parser_disp_m import DispMParser
 
 from tests._disp_parser_test_helpers import (
     build_full_row,

@@ -1,4 +1,4 @@
-"""Tests del ``DispVParser`` (Fase 5 del plan).
+﻿"""Tests del ``DispVParser`` (Fase 5 del plan).
 
 Cubre la extracciÃƒÂ³n de ``Tabla_Disp_V`` (hoja ``DISP_V``) y la
 construcciÃƒÂ³n de ``DispV``. Los campos especÃƒÂ­ficos (S.Byte/S.Bit,
@@ -7,7 +7,7 @@ RR.Byte/RR.Bit, RT.Byte/RT.Bit) se verifican explÃƒÂ­citamente.
 from __future__ import annotations
 
 from areas.alimentacion.data.data_Dispositivos import DispV
-from areas.alimentacion.helpers.parsers.disp_v import DispVParser
+from areas.alimentacion.helpers.excel.excel_parser_disp_v import DispVParser
 
 from tests._disp_parser_test_helpers import (
     build_full_row,

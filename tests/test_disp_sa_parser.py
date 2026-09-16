@@ -1,4 +1,4 @@
-"""Tests del ``DispSAParser`` (Fase 5 del plan).
+﻿"""Tests del ``DispSAParser`` (Fase 5 del plan).
 
 Estructura idÃƒÂ©ntica a ``DispEA`` (mismos campos y semÃƒÂ¡ntica;
 solo cambia el sentido: salida vs entrada). Mismos 5 tests.
@@ -6,7 +6,7 @@ solo cambia el sentido: salida vs entrada). Mismos 5 tests.
 from __future__ import annotations
 
 from areas.alimentacion.data.data_Dispositivos import DispSA
-from areas.alimentacion.helpers.parsers.disp_sa import DispSAParser
+from areas.alimentacion.helpers.excel.excel_parser_disp_sa import DispSAParser
 
 from tests._disp_parser_test_helpers import (
     build_full_row,

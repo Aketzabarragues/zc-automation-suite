@@ -1,4 +1,4 @@
-"""Tests del ``DispM_VFParser`` (Fase 5 del plan).
+﻿"""Tests del ``DispM_VFParser`` (Fase 5 del plan).
 
 Cubre la extracciÃƒÂ³n de ``Tabla_Disp_M_VF`` (hoja ``DISP_M_VF``) y la
 construcciÃƒÂ³n de ``DispM_VF`` (motores con variador de frecuencia).
@@ -8,7 +8,7 @@ verifican explÃƒÂ­citamente.
 from __future__ import annotations
 
 from areas.alimentacion.data.data_Dispositivos import DispM_VF
-from areas.alimentacion.helpers.parsers.disp_m_vf import DispM_VFParser
+from areas.alimentacion.helpers.excel.excel_parser_disp_m_vf import DispM_VFParser
 
 from tests._disp_parser_test_helpers import (
     build_full_row,

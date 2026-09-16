@@ -1,11 +1,11 @@
-"""Tests del ``DispEAParser`` (Fase 5 del plan).
+﻿"""Tests del ``DispEAParser`` (Fase 5 del plan).
 
 Cubre la extracciÃƒÂ³n de ``Tabla_Disp_EA`` (hoja ``DISP_EA``).
 """
 from __future__ import annotations
 
 from areas.alimentacion.data.data_Dispositivos import DispEA
-from areas.alimentacion.helpers.parsers.disp_ea import DispEAParser
+from areas.alimentacion.helpers.excel.excel_parser_disp_ea import DispEAParser
 
 from tests._disp_parser_test_helpers import (
     build_full_row,
