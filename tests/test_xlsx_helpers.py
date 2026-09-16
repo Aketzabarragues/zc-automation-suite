@@ -1,4 +1,4 @@
-"""Tests del helper compartido ``_xlsx_helpers.py``.
+﻿"""Tests del helper compartido ``_xlsx_helpers.py``.
 
 Cubre los cast defensivos (``_safe_str`` / ``_safe_int`` / ``_safe_float``)
 y el lector de ``ListObject`` (``extract_list_object_rows``) sobre un
@@ -12,7 +12,7 @@ from __future__ import annotations
 from openpyxl import Workbook
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
-from areas.alimentacion.helpers.parsers._xlsx_helpers import (
+from areas.alimentacion.helpers.excel._excel_helpers import (
     _safe_float,
     _safe_int,
     _safe_str,

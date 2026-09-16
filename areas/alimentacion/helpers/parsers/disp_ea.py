@@ -1,4 +1,4 @@
-"""Parser de ``DispEA`` (Entradas Analógicas) del Excel corporativo.
+﻿"""Parser de ``DispEA`` (Entradas Analógicas) del Excel corporativo.
 
 Replica 1:1 del ``_build_disp_ea`` del parser consolidado legacy
 (``AlimentacionExcelParser``). ``RII`` y ``RSI`` se castean con
@@ -30,7 +30,7 @@ import logging
 from openpyxl import Workbook
 
 from areas.alimentacion.data.data_Dispositivos import DispEA
-from areas.alimentacion.helpers.parsers._xlsx_helpers import (
+from areas.alimentacion.helpers.excel._excel_helpers import (
     _safe_float,
     _safe_int,
     _safe_str,

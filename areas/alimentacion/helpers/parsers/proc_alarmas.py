@@ -1,4 +1,4 @@
-"""Parser de alarmas del Excel corporativo.
+﻿"""Parser de alarmas del Excel corporativo.
 
 Extrae la ``ListObject`` ``Tabla_Alarmas`` de la hoja ``ALARMAS`` del
 workbook del departamento de alimentación y la mapea a una lista
@@ -59,7 +59,7 @@ import logging
 from openpyxl import Workbook
 
 from areas.alimentacion.data.data_Alarmas import DataAlarmaPLC
-from areas.alimentacion.helpers.parsers._xlsx_helpers import (
+from areas.alimentacion.helpers.excel._excel_helpers import (
     _safe_int,
     _safe_str,
     extract_list_object_rows,

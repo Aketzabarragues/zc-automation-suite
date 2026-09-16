@@ -1,4 +1,4 @@
-"""Tests del parser ``AlarmasParser`` (Fase 4 del plan).
+﻿"""Tests del parser ``AlarmasParser`` (Fase 4 del plan).
 
 Cubre la extracciÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n de ``Tabla_Alarmas`` (hoja ``ALARMAS``) y, en
 particular, la invariante R-F4.1: ``DataAlarmaPLC`` NO tiene atributo
@@ -324,7 +324,7 @@ def test_columna_visibilidad_en_excel_se_ignora(tmp_path) -> None:
     # recoge), pero el constructor de DataAlarmaPLC solo lee los 6
     # kwargs explÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­citos. Verificamos que la fila cruda tiene la
     # clave para confirmar que el parser la "vio" pero no la usÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³.
-    from areas.alimentacion.helpers.parsers._xlsx_helpers import (
+    from areas.alimentacion.helpers.excel._excel_helpers import (
         extract_list_object_rows,
     )
     raw_rows = extract_list_object_rows(wb, "ALARMAS", "Tabla_Alarmas")

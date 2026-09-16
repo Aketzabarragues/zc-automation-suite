@@ -1,4 +1,4 @@
-"""Parser de ``N_MAX`` (defined names) del Excel corporativo.
+﻿"""Parser de ``N_MAX`` (defined names) del Excel corporativo.
 
 Absorbe la lógica de:
   - ``core/infrastructure/parsers/excel_parser.py::extraer_dimensiones``
@@ -29,7 +29,7 @@ from typing import Any
 from openpyxl import Workbook
 
 from areas.alimentacion.data.data_Dimensiones import DimensionesDispositivos
-from areas.alimentacion.helpers.parsers._xlsx_helpers import (
+from areas.alimentacion.helpers.excel._excel_helpers import (
     _safe_int,
     logger,
 )

@@ -1,4 +1,4 @@
-"""Parser de parÃƒÆ’Ã‚¡metros enteros del Excel corporativo.
+﻿"""Parser de parÃƒÆ’Ã‚¡metros enteros del Excel corporativo.
 
 Extrae la ``ListObject`` ``Tabla_PInt`` de la hoja ``P_INT`` del
 workbook del departamento de alimentaciÃƒÆ’Ã‚Â³n y la mapea a una lista
@@ -48,7 +48,7 @@ import logging
 from openpyxl import Workbook
 
 from areas.alimentacion.data.data_ParametrosInt import DataParamIntPLC
-from areas.alimentacion.helpers.parsers._xlsx_helpers import (
+from areas.alimentacion.helpers.excel._excel_helpers import (
     _safe_int,
     _safe_num_lista,
     _safe_str,

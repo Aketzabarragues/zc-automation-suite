@@ -1,4 +1,4 @@
-"""Parser de ``DispV`` (Variables internas) del Excel corporativo.
+﻿"""Parser de ``DispV`` (Variables internas) del Excel corporativo.
 
 Replica 1:1 del ``_build_disp_v`` del parser consolidado legacy
 (``AlimentacionExcelParser``). Lee la ``ListObject``
@@ -29,7 +29,7 @@ import logging
 from openpyxl import Workbook
 
 from areas.alimentacion.data.data_Dispositivos import DispV
-from areas.alimentacion.helpers.parsers._xlsx_helpers import (
+from areas.alimentacion.helpers.excel._excel_helpers import (
     _safe_int,
     _safe_str,
     extract_list_object_rows,

@@ -1,4 +1,4 @@
-"""Parser de procesos del Excel corporativo.
+﻿"""Parser de procesos del Excel corporativo.
 
 Extrae la ``ListObject`` ``Tabla_Procesos`` de la hoja ``CONFIGURACION``
 del workbook del departamento de alimentación y la mapea a una lista de
@@ -31,7 +31,7 @@ import logging
 from openpyxl import Workbook
 
 from areas.alimentacion.data.data_Procesos import DataProcesoPLC
-from areas.alimentacion.helpers.parsers._xlsx_helpers import (
+from areas.alimentacion.helpers.excel._excel_helpers import (
     extract_list_object_rows,
     _safe_int,
     _safe_str,

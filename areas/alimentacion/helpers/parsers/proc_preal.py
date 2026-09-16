@@ -42,7 +42,7 @@ import logging
 from openpyxl import Workbook
 
 from areas.alimentacion.data.data_ParametrosReal import DataParamRealPLC
-from areas.alimentacion.helpers.parsers._xlsx_helpers import (
+from areas.alimentacion.helpers.excel._excel_helpers import (
     _safe_int,
     _safe_num_lista,
     _safe_str,

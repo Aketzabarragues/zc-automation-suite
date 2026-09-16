@@ -117,8 +117,10 @@ class FunctionSubirExcel(FunctionBase):
             dump_cache_to_state,
             parse_excel_to_cache,
         )
-        from areas.alimentacion.helpers.excel import ExcelCacheManager
-        from areas.alimentacion.helpers.excel import ExcelLoader
+        from areas.alimentacion.helpers.excel.excel_cache_manager import (
+            ExcelCacheManager,
+        )
+        from areas.alimentacion.helpers.excel.excel_loader import ExcelLoader
 
         if self._config is None:
             raise RuntimeError(
@@ -181,7 +183,9 @@ class FunctionSubirExcel(FunctionBase):
     def on_finish(self, **params: Any) -> None:
         """Vuelca ``self.result`` con la shape legacy del endpoint."""
         # Recuperamos el cache para devolver las ``dimensiones``.
-        from areas.alimentacion.helpers.excel import ExcelCacheManager
+        from areas.alimentacion.helpers.excel.excel_cache_manager import (
+            ExcelCacheManager,
+        )
         # NOTA: en un FB async esto seria await, pero ``on_finish``
         # es sync. El cache ya esta en memoria del Engine global
         # asi que lo recuperamos sync via el ``cache_cls`` directo.

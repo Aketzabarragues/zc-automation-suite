@@ -1,4 +1,4 @@
-"""Tests del parser ``PRealParser`` y del helper ``_safe_num_lista``.
+﻿"""Tests del parser ``PRealParser`` y del helper ``_safe_num_lista``.
 
 Cubre la extracciÃƒÆ’Ã‚Â³n de ``Tabla_PReal`` (hoja ``P_REAL``) y la
 preservaciÃƒÆ’Ã‚Â³n de ``num_lista`` como ``int | str`` (helper
@@ -19,7 +19,7 @@ from openpyxl import Workbook
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
 from areas.alimentacion.data.data_ParametrosReal import DataParamRealPLC
-from areas.alimentacion.helpers.parsers._xlsx_helpers import (
+from areas.alimentacion.helpers.excel._excel_helpers import (
     _safe_num_lista,
 )
 from areas.alimentacion.helpers.parsers.proc_preal import PRealParser

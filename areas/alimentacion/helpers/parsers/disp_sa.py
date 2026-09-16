@@ -1,4 +1,4 @@
-"""Parser de ``DispSA`` (Salidas Analógicas) del Excel corporativo.
+﻿"""Parser de ``DispSA`` (Salidas Analógicas) del Excel corporativo.
 
 Replica 1:1 del ``_build_disp_sa`` del parser consolidado legacy
 (``AlimentacionExcelParser``). Estructura IDÃƒâ€°NTICA a ``DispEA`` (mismos
@@ -29,7 +29,7 @@ import logging
 from openpyxl import Workbook
 
 from areas.alimentacion.data.data_Dispositivos import DispSA
-from areas.alimentacion.helpers.parsers._xlsx_helpers import (
+from areas.alimentacion.helpers.excel._excel_helpers import (
     _safe_float,
     _safe_int,
     _safe_str,

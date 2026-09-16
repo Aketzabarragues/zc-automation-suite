@@ -18,9 +18,11 @@ from datetime import datetime, timezone
 import pytest
 import pytest_asyncio
 
-from areas.alimentacion.data.data_ExcelCache import DataExcelCache,
+from areas.alimentacion.data.data_ExcelCache import (
+    DataExcelCache,
+    DimensionesDispositivos,
 )
-from areas.alimentacion.helpers.cache import ExcelCacheManager
+from areas.alimentacion.helpers.excel.excel_cache_manager import ExcelCacheManager
 
 
 def _make_cache(path: str = "/tmp/a.xlsx", mtime_ns: int = 1) -> DataExcelCache:

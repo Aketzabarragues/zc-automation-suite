@@ -1,4 +1,4 @@
-"""Parser de ``DispED`` (Entradas Digitales) del Excel corporativo.
+﻿"""Parser de ``DispED`` (Entradas Digitales) del Excel corporativo.
 
 Replica 1:1 del ``_build_disp_ed`` del parser consolidado legacy
 (``AlimentacionExcelParser``). Lee la ``ListObject`` ``Tabla_Disp_ED``
@@ -27,7 +27,7 @@ import logging
 from openpyxl import Workbook
 
 from areas.alimentacion.data.data_Dispositivos import DispED
-from areas.alimentacion.helpers.parsers._xlsx_helpers import (
+from areas.alimentacion.helpers.excel._excel_helpers import (
     _safe_int,
     _safe_str,
     extract_list_object_rows,

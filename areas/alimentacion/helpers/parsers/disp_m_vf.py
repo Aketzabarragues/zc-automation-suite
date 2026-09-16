@@ -1,4 +1,4 @@
-"""Parser de ``DispM_VF`` (Motores con Variador de Frecuencia) del Excel.
+﻿"""Parser de ``DispM_VF`` (Motores con Variador de Frecuencia) del Excel.
 
 Replica 1:1 del ``_build_disp_m_vf`` del parser consolidado legacy
 (``AlimentacionExcelParser``). Hereda todos los campos de ``DispM`` y
@@ -29,7 +29,7 @@ import logging
 from openpyxl import Workbook
 
 from areas.alimentacion.data.data_Dispositivos import DispM_VF
-from areas.alimentacion.helpers.parsers._xlsx_helpers import (
+from areas.alimentacion.helpers.excel._excel_helpers import (
     _safe_int,
     _safe_str,
     extract_list_object_rows,
