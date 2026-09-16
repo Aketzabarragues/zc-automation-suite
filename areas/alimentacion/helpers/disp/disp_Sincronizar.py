@@ -383,18 +383,134 @@ async def compilar_bloques(ctx: DispSyncContext) -> None:
 
 
 async def aplicar_comentarios(ctx: DispSyncContext) -> None:
-    """Aplica comentarios a las 6 tag tables (helper de A.4)."""
-    from areas.alimentacion.helpers.sync.disp_comment_sync import (
-        apply_disp_comments,
+    """Stage 10 del sync: aplica los comentarios por instancia a los 6 DBs de disp.
+
+    Flujo (replica ``apply_disp_comments`` que vivia en
+    ``helpers/sync/disp_comment_sync.py``, borrado al refactorizar A.4
+    para consolidarlo aqui):
+
+      1. Validar AppState.
+      2. Construir slot_maps (disp_build_slot_maps).
+      3. Limpiar modified/bloques/ (defensivo).
+      4. Exportar 6 DBs a exports/bloques/ (1 dispatch por DB).
+      5. Copytree exports/bloques/ -> modified/bloques/.
+      6. Una sola tx transaccional con los 6 imports (atomicidad).
+      7. Normalizar return shape en ``ctx.comments_result``.
+
+    Si TIA V21 falla en cualquiera de los 6 imports, rollback atomico.
+    """
+    from areas.alimentacion.helpers.build_cache import build_cache
+    from areas.alimentacion.data.data_DispSlotMap import disp_build_slot_maps
+
+    # ── 1. Validar AppState ──
+    if not ctx.app_state.all_devices():
+        warning = (
+            "AppState esta vacio. Cargue primero el Excel con "
+            "POST /api/v1/excel/upload."
+        )
+        ctx.comments_result = {
+            "plc_name": ctx.plc_name,
+            "success": True,
+            "applied": True,
+            "operations_executed": 0,
+            "summary": {"disp_dbs_updated": 0, "total_ops": 0},
+            "details": [],
+            "warnings": [warning],
+        }
+        return
+
+    # ── 2. Construir slot_maps ──
+    slot_maps_data = disp_build_slot_maps(ctx.app_state, ctx.config_manager)
+    slot_maps = slot_maps_data.slot_maps
+    db_names = slot_maps_data.db_names
+    db_array_names = slot_maps_data.db_array_names
+    warnings = list(slot_maps_data.warnings)
+
+    target_folder = ctx.config_manager.get_tia_folder_dispositivos()
+
+    # ── 3. Limpiar modified/bloques/ ──
+    # Aunque Stage 1 del sync ya limpio modified/, forzamos aqui
+    # por idempotencia si este stage se invoca standalone.
+    disp_ctx = build_cache(root=ctx.build_cache_root).dispositivos
+    modified_bloques = disp_ctx.modified_bloques
+    if modified_bloques.exists():
+        shutil.rmtree(modified_bloques)
+    modified_bloques.mkdir(parents=True, exist_ok=True)
+    exports_bloques = disp_ctx.exports_bloques
+
+    # ── 4. Export UNA VEZ de los 6 DBs a exports/bloques/ ──
+    for hw_type, db_name in db_names.items():
+        await _dispatch_async(
+            ctx.tia_client,
+            "export_block",
+            {
+                "plc_name": ctx.plc_name,
+                "block_name": db_name,
+                "target_dir": str(exports_bloques),
+            },
+        )
+
+    # ── 5. Copytree exports/bloques/ -> modified/bloques/ ──
+    if exports_bloques.exists():
+        shutil.copytree(
+            str(exports_bloques),
+            str(modified_bloques),
+            dirs_exist_ok=True,
+        )
+
+    # ── 6. Una sola tx con los 6 imports (atomicidad) ──
+    operations: list[dict[str, Any]] = []
+    for hw_type, db_name in db_names.items():
+        slot_map = slot_maps.get(hw_type, {})
+        slot_map_str: dict[str, str] = {
+            str(slot): text for slot, text in slot_map.items()
+        }
+        db_array_name = db_array_names.get(hw_type, "")
+        operations.append({
+            "command": f"update_disp_comments_db_{hw_type}",
+            "args": {
+                "plc_name": ctx.plc_name,
+                "db_name": db_name,
+                "db_array_name": db_array_name,
+                "slot_map": slot_map_str,
+                "work_dir": str(modified_bloques),
+                "target_folder": target_folder,
+            },
+        })
+
+    batch_result = await _dispatch_async(
+        ctx.tia_client,
+        "execute_transactional_batch",
+        {
+            "operations": operations,
+            "undo_text": "Sync disp comments",
+        },
+        timeout_s=600.0,
     )
 
-    ctx.comments_result = await apply_disp_comments(
-        plc_name=ctx.plc_name,
-        app_state=ctx.app_state,
-        config_manager=ctx.config_manager,
-        build_cache_root=ctx.build_cache_root,
-        tia_client=ctx.tia_client,
-    )
+    if not batch_result.get("ok"):
+        raise RuntimeError(
+            f"aplicar_comentarios: execute_transactional_batch fallo: "
+            f"{batch_result.get('error')}"
+        )
+
+    # ── 7. Normalizar return shape ──
+    inner = batch_result.get("result") or {}
+    ops_executed = int(inner.get("operations_executed", 0))
+    details = inner.get("details") or []
+
+    ctx.comments_result = {
+        "plc_name": ctx.plc_name,
+        "success": True,
+        "applied": True,
+        "operations_executed": ops_executed,
+        "summary": {
+            "disp_dbs_updated": ops_executed,
+            "total_ops": ops_executed,
+        },
+        "details": details,
+        "warnings": warnings,
+    }
 
 
 async def post_preview(ctx: DispSyncContext) -> None:

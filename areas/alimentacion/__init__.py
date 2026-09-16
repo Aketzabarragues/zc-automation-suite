@@ -25,9 +25,6 @@ from areas.alimentacion.frontend.dispositivos_router import (
 from areas.alimentacion.frontend.excel_router import (
     build_routers as build_excel_routers,
 )
-from areas.alimentacion.frontend.disp_comments_router import (
-    build_routers as build_disp_comments_routers,
-)
 from areas.alimentacion.frontend.disp_preview_router import (
     build_routers as build_disp_preview_routers,
 )
@@ -59,7 +56,6 @@ def _build_all_routers(app) -> None:
     """
     build_dispositivos_routers(app)
     build_excel_routers(app)
-    build_disp_comments_routers(app)
     build_disp_preview_routers(app)
     build_disp_sync_routers(app)
 
@@ -111,9 +107,6 @@ def register(
     from core.runtime.log_buffer import get_log_buffer
 
     from areas.alimentacion.functions.function_SubirExcel import FunctionSubirExcel
-    from areas.alimentacion.functions.function_SincronizarDispComentarios import (
-        FunctionSincronizarDispComentarios,
-    )
     from areas.alimentacion.functions.function_DispGenerarPreview import (
         FunctionDispGenerarPreview,
     )
@@ -145,17 +138,9 @@ def register(
     # build_cache (raiz del BuildCache del area) + log + app_state.
     # Hace export + copytree + 6 dispatches al worker OT. Puede
     # tardar varios minutos (STEP_TIMEOUT_S=300s).
-    engine.register_fb(
-        "sincronizar_disp_comentarios",
-        FunctionSincronizarDispComentarios(
-            nombre="sincronizar_disp_comentarios",
-            config_manager=config_manager,
-            tia_client=tia_client,
-            build_cache=build_cache,
-            log=log,
-            app_state=app_state,
-        ),
-    )
+    # (Eliminado A.4: FB ``sincronizar_disp_comentarios``. La logica
+    # vive ahora en ``disp_Sincronizar.aplicar_comentarios`` stage 10.)
+    # engine.register_fb(...) — borrado.
 
     # FB con I/O contra TIA: preview de dispositivos vs PLC (export
     # bulk + diff read-only). Reemplaza el legacy generar_prevision
