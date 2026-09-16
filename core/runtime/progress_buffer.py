@@ -14,11 +14,14 @@ Mismo patron Singleton thread-safe con snapshot inmutable que
 """
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from threading import Lock
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 # Status values para ``ProgressStage.status``. Constantes exportadas
@@ -183,9 +186,8 @@ class ProgressTracker:
                 same_stages = self._stage_order == list(stages)
                 if not (same_operation and same_stages):
                     try:
-                        from core.runtime.log_buffer import get_log_buffer
                         if not same_operation:
-                            get_log_buffer().warning(
+                            logger.warning(
                                 f"ProgressTracker: '{self._operation}' en curso fue "
                                 f"reemplazado por '{operation}'."
                             )
@@ -193,7 +195,7 @@ class ProgressTracker:
                             # Mismo operation pero stages distintos:
                             # escenario anómalo (alguien cambió la
                             # spec). Warning más específico.
-                            get_log_buffer().warning(
+                            logger.warning(
                                 f"ProgressTracker: '{self._operation}' en curso fue "
                                 f"reiniciado con stages distintos "
                                 f"(antes={self._stage_order}, ahora={list(stages)})."
