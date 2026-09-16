@@ -1,7 +1,7 @@
 """FB de area: preview de dispositivos vs PLC (diff read-only).
 
 State machine sobre el helper ``disp_generate_preview``
-(areas/alimentacion/helpers/sync/disp_generate_preview.py). El helper
+(areas/alimentacion/helpers/disp/disp_generate_preview.py). El helper
 expone funciones independientes (``exportar_tags``, ``compute_devices``,
 ``compute_nmax``, ``build_response``) que reciben un
 ``DispPreviewContext`` y mutan sus campos. **Aqui en el FB vive la
@@ -132,7 +132,7 @@ class FunctionDispGenerarPreview(FunctionBase):
 
         # Crear el DispPreviewContext que las 4 funciones iran mutando.
         # Lazy import para evitar ciclo con helpers/sync/.
-        from areas.alimentacion.helpers.sync.disp_generate_preview import (
+        from areas.alimentacion.helpers.disp.disp_generate_preview import (
             DispPreviewContext,
         )
         self._ctx = DispPreviewContext(
@@ -159,8 +159,8 @@ class FunctionDispGenerarPreview(FunctionBase):
         El ``case`` es explicito (no dict.get dispatch) para que sea
         visible en stack traces cuando algo falla.
         """
-        # Lazy import para evitar ciclo con helpers/sync/.
-        from areas.alimentacion.helpers.sync import disp_generate_preview
+        # Lazy import para evitar ciclo con helpers/disp/.
+        from areas.alimentacion.helpers.disp import disp_generate_preview
 
         if self._ctx is None:
             raise RuntimeError(

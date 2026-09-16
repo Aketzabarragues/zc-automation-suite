@@ -404,7 +404,7 @@ async def post_preview(ctx: DispSyncContext) -> None:
     shape legacy (agregados, eliminados, renombrados, todos, nmax,
     summary).
     """
-    from areas.alimentacion.helpers.sync.disp_generate_preview import (
+    from areas.alimentacion.helpers.disp.disp_generate_preview import (
         DispPreviewContext,
         build_response as pv_build_response,
         compute_devices as pv_compute_devices,
