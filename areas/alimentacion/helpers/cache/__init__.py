@@ -1,9 +1,9 @@
-"""Cache del Excel corporativo (subdominio alimentaciÃƒÂ³n).
+"""Cache del Excel corporativo (subdominio alimentación).
 
 Aporta el ``ExcelCacheManager``: Singleton por proceso que cachea
-una sola ``DataExcelCache`` (raÃƒÂ­z con los 10 dominios del Excel).
+una sola ``DataExcelCache`` (raíz con los 10 dominios del Excel).
 
-RestricciÃƒÂ³n arquitectÃƒÂ³nica: este paquete NO importa
+Restricción arquitectónica: este paquete NO importa
 ``siemens_tia_scripting``. Solo ``asyncio`` + ``logging`` + DTOs
 del subdominio.
 """

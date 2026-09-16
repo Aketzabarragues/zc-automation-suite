@@ -1,4 +1,4 @@
-"""areas.alimentacion.data.data_ParametrosInt Ã¢â‚¬â€ Data Block de DataParamIntPLC.
+"""areas.alimentacion.data.data_ParametrosInt Ã¢â‚¬” Data Block de DataParamIntPLC.
 
 Fase 3, paso 3.2.5.  Migrado de ``areas/alimentacion/domain/models/excel_cache.py``.
 
@@ -30,11 +30,11 @@ class DataParamIntPLC:
 
     Campos:
       - ``uid``: identificador unico **str** (``'PI_1_001'``).
-      - ``numero``: nÃ‚Âº logico del parametro dentro del proceso
+      - ``numero``: nÃ‚º logico del parametro dentro del proceso
         (``"001"``, ``"002"``, ...).
       - ``proceso``: nombre del proceso al que pertenece.
       - ``codigo``: codigo corto del proceso.
-      - ``num_db``: nÃ‚Âº del DB donde se mapea este parametro.
+      - ``num_db``: nÃ‚º del DB donde se mapea este parametro.
       - ``producto``: nombre del producto / linea.
       - ``tipo``: clasificacion funcional (``"Contador"``, ``"Indice"``).
       - ``descripcion``: descripcion legible para el operario.

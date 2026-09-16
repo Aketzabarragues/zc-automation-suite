@@ -1,4 +1,4 @@
-"""Parser de parÃƒÆ’Ã‚Â¡metros enteros del Excel corporativo.
+"""Parser de parÃƒÆ’Ã‚¡metros enteros del Excel corporativo.
 
 Extrae la ``ListObject`` ``Tabla_PInt`` de la hoja ``P_INT`` del
 workbook del departamento de alimentaciÃƒÆ’Ã‚Â³n y la mapea a una lista
@@ -15,7 +15,7 @@ Diferencias con el legacy TUI (``_legacy_reference/ZC_ALM_TOOLS``):
     * Sin pandas: openpyxl directo. Coherente con el parser
       consolidado ``AlimentacionExcelParser`` del repo.
     * Defensivo: cada fila se envuelve en ``try/except`` y las
-      filas invÃƒÆ’Ã‚Â¡lidas se descartan con ``logger.warning`` (no
+      filas invÃƒÆ’Ã‚¡lidas se descartan con ``logger.warning`` (no
       rompen la carga). ``extract_list_object_rows`` ya devuelve
       ``[]`` si la hoja o la tabla no existen.
     * Mismas claves literales del Excel que el legacy
@@ -27,7 +27,7 @@ Diferencias con el legacy TUI (``_legacy_reference/ZC_ALM_TOOLS``):
 
 Punto crÃƒÆ’Ã‚Â­tico de Fase 3 (heredado de R4 del plan, ya tratado en
 Fase 2): el campo ``num_lista`` **no** se mapea con ``_safe_int``
-(que destruirÃƒÆ’Ã‚Â­a los marcadores semÃƒÆ’Ã‚Â¡nticos del operario cayendo a
+(que destruirÃƒÆ’Ã‚Â­a los marcadores semÃƒÆ’Ã‚¡nticos del operario cayendo a
 ``0``). Se usa ``_safe_num_lista``, que preserva ``"N/A"`` y
 ``"TODOS"`` literalmente. Esto es coherente con la regla R4 del
 operario y con el shape del DTO (``num_lista: int | str``).
@@ -35,7 +35,7 @@ operario y con el shape del DTO (``num_lista: int | str``).
 Diferencia entre ``DataParamIntPLC`` y ``DataParamRealPLC`` (R4 del plan):
 aunque el shape (12 campos) es idÃƒÆ’Ã‚Â©ntico, los dos DTOs son
 **nominalmente distintos** en Python. El parser usa su propio DTO
-(``DataParamIntPLC``) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â no se reutiliza ``DataParamRealPLC``. Si en el
+(``DataParamIntPLC``) Ãƒ¢Ã¢â€šÂ¬Ã¢â‚¬Â no se reutiliza ``DataParamRealPLC``. Si en el
 futuro se quiere aÃƒÆ’Ã‚Â±adir ``rango_min``/``rango_max`` solo a
 ``DataParamRealPLC`` (derivados de ``DispEA.RII``/``DispEA.RSI``), se
 hace sin tocar ``DataParamIntPLC``.
@@ -65,8 +65,8 @@ class PIntParser:
     """Parser de la ``Tabla_PInt`` (hoja ``P_INT``).
 
     Mapea cada fila de la ``ListObject`` a un ``DataParamIntPLC``. Las
-    claves de columna son **literales** (con mayÃƒÆ’Ã‚Âºsculas, puntos y
-    espacios) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â exactamente como aparecen en el Excel del
+    claves de columna son **literales** (con mayÃƒÆ’Ã‚ºsculas, puntos y
+    espacios) Ãƒ¢Ã¢â€šÂ¬Ã¢â‚¬Â exactamente como aparecen en el Excel del
     corporativo y como las consumÃƒÆ’Ã‚Â­a el legacy.
 
     Atributos de clase:
@@ -78,7 +78,7 @@ class PIntParser:
     TABLE = "Tabla_PInt"
 
     def extraer(self, wb: Workbook) -> list[DataParamIntPLC]:
-        """Extrae todos los parÃƒÆ’Ã‚Â¡metros enteros del workbook.
+        """Extrae todos los parÃƒÆ’Ã‚¡metros enteros del workbook.
 
         Args:
             wb: workbook de openpyxl ya abierto (no se cierra aquÃƒÆ’Ã‚Â­).
@@ -92,7 +92,7 @@ class PIntParser:
         ``PRealParser``, legacy dropna por UID):
             * Filas con ``UID`` vacÃƒÆ’Ã‚Â­o (``None`` / ``""`` / whitespace
               / ``"nan"`` / ``"None"`` / ``"null"``) se descartan
-              silenciosamente. Esto evita parÃƒÆ’Ã‚Â¡metros fantasma sin
+              silenciosamente. Esto evita parÃƒÆ’Ã‚¡metros fantasma sin
               UID en el cache. Es el equivalente del
               ``pandas.dropna(subset=["UID"])`` del legacy TUI.
             * Filas con ``UID`` no vacÃƒÆ’Ã‚Â­o se conservan aunque el

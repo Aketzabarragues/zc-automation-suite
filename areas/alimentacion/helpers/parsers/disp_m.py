@@ -3,24 +3,24 @@
 Replica 1:1 del ``_build_dispm`` del parser consolidado legacy
 (``AlimentacionExcelParser``). Lee la ``ListObject``
 ``Tabla_Disp_M`` de la hoja ``DISP_M`` del workbook del
-departamento de alimentaciÃƒÂ³n y la mapea a una lista de ``DispM``.
+departamento de alimentación y la mapea a una lista de ``DispM``.
 
-Campos especÃƒÂ­ficos: ``S.Byte/S.Bit`` (salida/activaciÃƒÂ³n),
-``RT.Byte/RT.Bit`` (retorno tÃƒÂ©rmico), ``RM.Byte/RM.Bit`` (retorno
-de confirmaciÃƒÂ³n de marcha) + 8 campos SCL ``cfg_*`` que preservan
-lÃƒÂ­neas SCL crudas (sin truncar).
+Campos específicos: ``S.Byte/S.Bit`` (salida/activación),
+``RT.Byte/RT.Bit`` (retorno térmico), ``RM.Byte/RM.Bit`` (retorno
+de confirmación de marcha) + 8 campos SCL ``cfg_*`` que preservan
+líneas SCL crudas (sin truncar).
 
 Diferencias con el legacy:
     * Recibe el workbook **ya abierto** (``wb: Workbook``). NO abre
       el archivo: esa responsabilidad es del ``ExcelLoader``.
     * Sin pandas: openpyxl directo + ``extract_list_object_rows``.
     * Defensivo: cada fila se envuelve en ``try/except`` y las
-      filas invÃƒÂ¡lidas se descartan con ``logger.warning``.
+      filas inválidas se descartan con ``logger.warning``.
     * Si se inyecta un ``ConfigManager``, las constantes ``SHEET`` /
       ``TABLE`` se sobreescriben desde
       ``ConfigManager.get_excel_target_for("m")``.
 
-RestricciÃƒÂ³n arquitectÃƒÂ³nica: este mÃƒÂ³dulo es OFFLINE; no importa
+Restricción arquitectónica: este módulo es OFFLINE; no importa
 ``siemens_tia_scripting``.
 """
 from __future__ import annotations
@@ -71,7 +71,7 @@ class DispMParser:
         """Extrae todos los motores digitales del workbook.
 
         Args:
-            wb: workbook de openpyxl ya abierto (no se cierra aquÃƒÂ­).
+            wb: workbook de openpyxl ya abierto (no se cierra aquí).
 
         Returns:
             Lista de ``DispM``. Si la hoja o la tabla no existen,

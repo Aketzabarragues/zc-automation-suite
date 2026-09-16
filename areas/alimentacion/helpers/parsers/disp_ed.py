@@ -2,7 +2,7 @@
 
 Replica 1:1 del ``_build_disp_ed`` del parser consolidado legacy
 (``AlimentacionExcelParser``). Lee la ``ListObject`` ``Tabla_Disp_ED``
-de la hoja ``DISP_ED`` del workbook del departamento de alimentaciÃƒÂ³n
+de la hoja ``DISP_ED`` del workbook del departamento de alimentación
 y la mapea a una lista de ``DispED`` (DTO inmutable definido en
 ``areas.alimentacion.domain.models.excel_cache``).
 
@@ -11,13 +11,13 @@ Diferencias con el legacy:
       el archivo: esa responsabilidad es del ``ExcelLoader``.
     * Sin pandas: openpyxl directo + ``extract_list_object_rows``.
     * Defensivo: cada fila se envuelve en ``try/except`` y las
-      filas invÃƒÂ¡lidas se descartan con ``logger.warning`` (no
+      filas inválidas se descartan con ``logger.warning`` (no
       rompen la carga).
     * Si se inyecta un ``ConfigManager``, las constantes ``SHEET`` /
       ``TABLE`` se sobreescriben desde
       ``ConfigManager.get_excel_target_for("ed")``.
 
-RestricciÃƒÂ³n arquitectÃƒÂ³nica: este mÃƒÂ³dulo es OFFLINE; no importa
+Restricción arquitectónica: este módulo es OFFLINE; no importa
 ``siemens_tia_scripting``.
 """
 from __future__ import annotations
@@ -68,7 +68,7 @@ class DispEDParser:
         """Extrae todas las entradas digitales del workbook.
 
         Args:
-            wb: workbook de openpyxl ya abierto (no se cierra aquÃƒÂ­).
+            wb: workbook de openpyxl ya abierto (no se cierra aquí).
 
         Returns:
             Lista de ``DispED``. Si la hoja o la tabla no existen,
@@ -78,7 +78,7 @@ class DispEDParser:
         rows = extract_list_object_rows(wb, self.SHEET, self.TABLE)
         result: list[DispED] = []
         for row in rows:
-            # PolÃƒÂ­tica legacy: descartar filas sin UID ni Numero.
+            # Política legacy: descartar filas sin UID ni Numero.
             if not _safe_str(row.get("UID")) and not _safe_str(row.get("Numero")):
                 continue
             try:

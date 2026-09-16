@@ -33,9 +33,9 @@ class DataAlarmaPLC:
 
     Campos (7):
       - ``uid``: identificador unico **str** (``'AL_1_001'``).
-      - ``numero``: nÂº logico de la alarma (``"001"``, ``"002"``).
+      - ``numero``: nº logico de la alarma (``"001"``, ``"002"``).
       - ``proceso``: nombre del proceso al que pertenece la alarma.
-      - ``num_db``: nÂº del DB de alarmas donde se mapea este bit.
+      - ``num_db``: nº del DB de alarmas donde se mapea este bit.
       - ``descripcion``: descripcion legible (visible en HMI al activarse).
       - ``comentario_db``: comentario del DB (no del bit).
     """

@@ -1,13 +1,13 @@
-"""Parser de ``DispEA`` (Entradas AnalÃƒÂ³gicas) del Excel corporativo.
+"""Parser de ``DispEA`` (Entradas Analógicas) del Excel corporativo.
 
 Replica 1:1 del ``_build_disp_ea`` del parser consolidado legacy
 (``AlimentacionExcelParser``). ``RII`` y ``RSI`` se castean con
 ``_safe_float`` (en legacy eran ``float(int(...))`` por culpa del
-``astype(int)`` global del ``BaseParser``: aquÃƒÂ­ el casteo es
+``astype(int)`` global del ``BaseParser``: aquí el casteo es
 directo y limpio).
 
 Lee la ``ListObject`` ``Tabla_Disp_EA`` de la hoja ``DISP_EA`` del
-workbook del departamento de alimentaciÃƒÂ³n y la mapea a una lista
+workbook del departamento de alimentación y la mapea a una lista
 de ``DispEA``.
 
 Diferencias con el legacy:
@@ -15,12 +15,12 @@ Diferencias con el legacy:
       el archivo: esa responsabilidad es del ``ExcelLoader``.
     * Sin pandas: openpyxl directo + ``extract_list_object_rows``.
     * Defensivo: cada fila se envuelve en ``try/except`` y las
-      filas invÃƒÂ¡lidas se descartan con ``logger.warning``.
+      filas inválidas se descartan con ``logger.warning``.
     * Si se inyecta un ``ConfigManager``, las constantes ``SHEET`` /
       ``TABLE`` se sobreescriben desde
       ``ConfigManager.get_excel_target_for("ea")``.
 
-RestricciÃƒÂ³n arquitectÃƒÂ³nica: este mÃƒÂ³dulo es OFFLINE; no importa
+Restricción arquitectónica: este módulo es OFFLINE; no importa
 ``siemens_tia_scripting``.
 """
 from __future__ import annotations
@@ -69,10 +69,10 @@ class DispEAParser:
                     self.TABLE = table
 
     def extraer(self, wb: Workbook) -> list[DispEA]:
-        """Extrae todas las entradas analÃƒÂ³gicas del workbook.
+        """Extrae todas las entradas analógicas del workbook.
 
         Args:
-            wb: workbook de openpyxl ya abierto (no se cierra aquÃƒÂ­).
+            wb: workbook de openpyxl ya abierto (no se cierra aquí).
 
         Returns:
             Lista de ``DispEA``. Si la hoja o la tabla no existen,
@@ -86,7 +86,7 @@ class DispEAParser:
                 continue
             try:
                 # ``UNIDADES`` en MAYÃƒÅ¡SCULAS (legacy). Aceptamos
-                # tambiÃƒÂ©n ``Unidades`` por compat hacia delante.
+                # también ``Unidades`` por compat hacia delante.
                 unidades_raw = row.get("UNIDADES")
                 if unidades_raw is None:
                     unidades_raw = row.get("Unidades")

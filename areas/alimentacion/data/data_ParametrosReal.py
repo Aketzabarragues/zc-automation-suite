@@ -25,10 +25,10 @@ class DataParamRealPLC:
 
     Campos (12):
       - ``uid``: identificador unico **str** (``'PR_1_001'``).
-      - ``numero``: nÂº logico del parametro (``"001"``, ``"002"``).
+      - ``numero``: nº logico del parametro (``"001"``, ``"002"``).
       - ``proceso``: nombre del proceso al que pertenece.
       - ``codigo``: codigo corto del proceso.
-      - ``num_db``: nÂº del DB donde se mapea este parametro.
+      - ``num_db``: nº del DB donde se mapea este parametro.
       - ``producto``: nombre del producto / linea.
       - ``tipo``: clasificacion funcional (``"Setpoint"``, ``"Limite"``).
       - ``descripcion``: descripcion legible.

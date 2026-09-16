@@ -2,11 +2,11 @@
 
 Replica 1:1 del ``_build_disp_m_vf`` del parser consolidado legacy
 (``AlimentacionExcelParser``). Hereda todos los campos de ``DispM`` y
-aÃƒÂ±ade ``sa_byte`` (salida analÃƒÂ³gica) + ``cfg_byteanalogica`` (lÃƒÂ­nea SCL
-de control analÃƒÂ³gico del variador).
+añade ``sa_byte`` (salida analógica) + ``cfg_byteanalogica`` (línea SCL
+de control analógico del variador).
 
 Lee la ``ListObject`` ``Tabla_Disp_M_VF`` de la hoja ``DISP_M_VF``
-del workbook del departamento de alimentaciÃƒÂ³n y la mapea a una
+del workbook del departamento de alimentación y la mapea a una
 lista de ``DispM_VF``.
 
 Diferencias con el legacy:
@@ -14,12 +14,12 @@ Diferencias con el legacy:
       el archivo: esa responsabilidad es del ``ExcelLoader``.
     * Sin pandas: openpyxl directo + ``extract_list_object_rows``.
     * Defensivo: cada fila se envuelve en ``try/except`` y las
-      filas invÃƒÂ¡lidas se descartan con ``logger.warning``.
+      filas inválidas se descartan con ``logger.warning``.
     * Si se inyecta un ``ConfigManager``, las constantes ``SHEET`` /
       ``TABLE`` se sobreescriben desde
       ``ConfigManager.get_excel_target_for("m_vf")``.
 
-RestricciÃƒÂ³n arquitectÃƒÂ³nica: este mÃƒÂ³dulo es OFFLINE; no importa
+Restricción arquitectónica: este módulo es OFFLINE; no importa
 ``siemens_tia_scripting``.
 """
 from __future__ import annotations
@@ -70,7 +70,7 @@ class DispM_VFParser:
         """Extrae todos los motores con variador del workbook.
 
         Args:
-            wb: workbook de openpyxl ya abierto (no se cierra aquÃƒÂ­).
+            wb: workbook de openpyxl ya abierto (no se cierra aquí).
 
         Returns:
             Lista de ``DispM_VF``. Si la hoja o la tabla no existen,

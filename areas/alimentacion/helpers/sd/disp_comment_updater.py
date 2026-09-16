@@ -2,11 +2,11 @@
 
 Modifica un par de archivos ``.s7dcl`` + ``.s7res`` exportados por
 TIA Portal para escribir el comentario de cada instancia de un array
-de UDTs en un DB de dispositivo. Replica el patrÃ³n OFFLINE de
+de UDTs en un DB de dispositivo. Replica el patrón OFFLINE de
 ``infrastructure/xml/disp_tag_table_modifier.py`` (sin imports de
 ``siemens_tia_scripting``, solo ``pathlib``, ``re``, ``dataclasses``).
 
-ConvenciÃ³n de archivos
+Convención de archivos
 ----------------------
 ``<db_name>.s7dcl`` contiene (resumido)::
 
@@ -30,7 +30,7 @@ ConvenciÃ³n de archivos
 El cruce entre ambos es el ID ``MLC_abc``: aparece en el bloque
 ``S7_MLC := "..."`` del ``.s7dcl`` y como ``id:`` en el ``.s7res``.
 
-Uso tÃ­pico
+Uso típico
 ----------
 ::
 
@@ -64,7 +64,7 @@ from core.infrastructure.tia.tia_export_paths import (
 
 _logger: logging.Logger = logging.getLogger(f"{__name__}.DispCommentUpdater")
 
-# Texto fijo para el slot 0 (siempre "NO USAR" segÃºn decisiÃ³n de diseÃ±o).
+# Texto fijo para el slot 0 (siempre "NO USAR" según decisión de diseÃ±o).
 _NO_USAR_TEXT: str = "NO USAR"
 
 
@@ -73,13 +73,13 @@ _NO_USAR_TEXT: str = "NO USAR"
 
 @dataclass(frozen=True)
 class DispCommentResult:
-    """Resumen de la actualizaciÃ³n.
+    """Resumen de la actualización.
 
     Attributes:
-        reused:   ``{slot: mlc_id}`` para slots cuyo MLC ya existÃ­a.
+        reused:   ``{slot: mlc_id}`` para slots cuyo MLC ya existía.
         inserted: ``{slot: mlc_id}`` para slots con MLC nuevo generado.
-        no_usar_mlc: MLC del slot 0 (respetado si ya existÃ­a; creado si no).
-        total_mlcs_in_res: nÃºmero de entradas MultiLingualTexts en el
+        no_usar_mlc: MLC del slot 0 (respetado si ya existía; creado si no).
+        total_mlcs_in_res: número de entradas MultiLingualTexts en el
                            ``.s7res`` resultante (post-update).
     """
 
@@ -91,7 +91,7 @@ class DispCommentResult:
 
 # â”€â”€ Regex de parsing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-# Detecta una asignaciÃ³n `<ARRAY>[i] := ();` (con posibles espacios).
+# Detecta una asignación `<ARRAY>[i] := ();` (con posibles espacios).
 _ASSIGNMENT_RE = re.compile(
     r"""(?xm)
     ^(?P<indent>\s*)
@@ -100,8 +100,8 @@ _ASSIGNMENT_RE = re.compile(
     """
 )
 
-# Detecta un bloque `{ ... S7_MLC := "MLC_xxx" ... }` (single-line o multi-lÃ­nea).
-# Acepta tanto `{ S7_MLC := "..." }` (todo en una lÃ­nea) como
+# Detecta un bloque `{ ... S7_MLC := "MLC_xxx" ... }` (single-line o multi-línea).
+# Acepta tanto `{ S7_MLC := "..." }` (todo en una línea) como
 # `{\n    S7_MLC := "..."\n}` (bloque expandido).
 _MLC_BLOCK_RE = re.compile(
     r"""(?xm)
@@ -111,7 +111,7 @@ _MLC_BLOCK_RE = re.compile(
 
 # Captura el `S7_MLC := "MLC_xxx"` dentro del cuerpo de un bloque.
 # El ``;`` final es opcional: en formato compacto ``{ S7_MLC := "..." }``
-# el ``;`` estÃ¡ despuÃ©s del ``}`` que cierra el bloque (no dentro).
+# el ``;`` está después del ``}`` que cierra el bloque (no dentro).
 _MLC_INNER_RE = re.compile(
     r"""S7_MLC\s*:=\s*"(?P<mlc>[A-Za-z_][A-Za-z0-9_]*)"\s*;?"""
 )
@@ -132,7 +132,7 @@ class DispCommentUpdater:
                        hardcoded.
 
     Raises:
-        ValueError: si ``slot_map[0] != "NO USAR"`` o ``db_array_name`` vacÃ­o.
+        ValueError: si ``slot_map[0] != "NO USAR"`` o ``db_array_name`` vacío.
         FileNotFoundError: si los archivos no existen.
     """
 
@@ -147,12 +147,12 @@ class DispCommentUpdater:
         self._s7res_path = Path(s7res_path)
 
         if not self._s7dcl_path.is_file():
-            raise FileNotFoundError(f"No se encontrÃ³ .s7dcl: '{self._s7dcl_path}'")
+            raise FileNotFoundError(f"No se encontró .s7dcl: '{self._s7dcl_path}'")
         if not self._s7res_path.is_file():
-            raise FileNotFoundError(f"No se encontrÃ³ .s7res: '{self._s7res_path}'")
+            raise FileNotFoundError(f"No se encontró .s7res: '{self._s7res_path}'")
 
         if not db_array_name or not db_array_name.strip():
-            raise ValueError("db_array_name es obligatorio y no puede estar vacÃ­o.")
+            raise ValueError("db_array_name es obligatorio y no puede estar vacío.")
         self._db_array_name = db_array_name.strip()
 
         if 0 not in slot_map or slot_map[0] != _NO_USAR_TEXT:
@@ -170,10 +170,10 @@ class DispCommentUpdater:
         self._registry: MLCRegistry = self._build_registry()
         self._result: DispCommentResult | None = None
 
-    # â”€â”€ API pÃºblica â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # â”€â”€ API pública â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def update(self) -> DispCommentResult:
-        """Orquesta la actualizaciÃ³n. Retorna ``DispCommentResult``.
+        """Orquesta la actualización. Retorna ``DispCommentResult``.
 
         Algoritmo (ver docstring del plan):
           1. Para cada i in slot_map: localizar MLC existente o crear uno.
@@ -184,7 +184,7 @@ class DispCommentUpdater:
         reused: dict[int, str] = {}
         inserted: dict[int, str] = {}
 
-        # 1) Para cada slot del map, asegurar asignaciÃ³n + MLC.
+        # 1) Para cada slot del map, asegurar asignación + MLC.
         for slot, raw_text in self._slot_map.items():
             text = self._sanitize_comment_text(raw_text, slot)
             existing_mlc = self._find_assignment_mlc(slot)
@@ -192,7 +192,7 @@ class DispCommentUpdater:
                 # MLC ya estaba en el .s7dcl; lo respetamos.
                 self._registry.reserve([existing_mlc])
                 reused[slot] = existing_mlc
-                # Si el .s7res perdiÃ³ esta entrada, la restauramos con el texto.
+                # Si el .s7res perdió esta entrada, la restauramos con el texto.
                 self._upsert_s7res_entry(existing_mlc, text)
             else:
                 # Crear MLC nuevo.
@@ -202,11 +202,11 @@ class DispCommentUpdater:
                 inserted[slot] = new_mlc
 
         # 2) Slot 0 â€” siempre debe tener MLC. Si no lo tiene, crearlo.
-        # (El bucle anterior ya lo garantiza porque slot_map[0] estÃ¡ en slot_map;
-        # pero defendÃ¡monos por si slot_map se construye sin 0.)
+        # (El bucle anterior ya lo garantiza porque slot_map[0] está en slot_map;
+        # pero defendámonos por si slot_map se construye sin 0.)
         no_usar_mlc = reused.get(0) or inserted.get(0) or self._ensure_slot0_mlc()
 
-        # 3) Eliminar MLCs huÃ©rfanos del .s7res (los que ya no se referencian).
+        # 3) Eliminar MLCs huérfanos del .s7res (los que ya no se referencian).
         # IMPORTANTE: ``referenced`` debe incluir TODOS los MLCs del .s7dcl,
         # no solo los de los slots. TIA exige que el ``count`` de MLCs en el
         # .s7dcl coincida EXACTAMENTE con el del .s7res. Si omitimos los
@@ -223,9 +223,9 @@ class DispCommentUpdater:
         )
 
         # 3.bis) Si el .s7dcl referencia MLCs que el .s7res no tiene
-        # (caso tÃ­pico: la exportaciÃ³n de TIA omite los MLCs de cabecera
+        # (caso típico: la exportación de TIA omite los MLCs de cabecera
         # como ``MLC_block_cmt``, ``MLC_arr_cmt``), los aÃ±adimos al
-        # .s7res con texto ``"."`` (convenciÃ³n TIA "sin comentario").
+        # .s7res con texto ``"."`` (convención TIA "sin comentario").
         # TIA los regenera o los respeta; en cualquier caso, el balance
         # .s7dcl/.s7res se mantiene y el reimport funciona.
         existing_in_res = self._extract_existing_mlcs()
@@ -282,11 +282,11 @@ class DispCommentUpdater:
            ``S7_BlockComment := "MLC_32c"``,
            ``S7_BlockTitle := "MLC_wT"``.
 
-        2. **Bloque de declaraciÃ³n de variable/array**:
+        2. **Bloque de declaración de variable/array**:
            ``{ S7_MLC := "MLC_3Vz" }`` antes de
            ``"ED" : Array[...] of _.UDT_...``.
 
-        3. **Bloque adyacente a asignaciÃ³n de instancia**:
+        3. **Bloque adyacente a asignación de instancia**:
            ``{ S7_MLC := "MLC_3vw" }`` antes de ``ED[i] := ();``.
 
         Si omitimos cualquiera de estos formatos del conjunto de
@@ -308,25 +308,25 @@ class DispCommentUpdater:
         """Busca ``<ARRAY>[slot] := ();`` y devuelve su MLC asociado (si existe).
 
         El MLC asociado es el bloque ``{ S7_MLC := "..." }`` que aparece
-        INMEDIATAMENTE antes de la asignaciÃ³n, sin otra asignaciÃ³n
+        INMEDIATAMENTE antes de la asignación, sin otra asignación
         ``<ARRAY>[<otro>]:=();`` del mismo array en medio. Esto es
         importante porque el formato TIA puede tener varios bloques
         ``S7_MLC`` consecutivos (uno por slot) y cada uno va con su slot.
 
-        Devuelve ``None`` si la asignaciÃ³n no existe o si existe pero sin MLC.
+        Devuelve ``None`` si la asignación no existe o si existe pero sin MLC.
         """
         match = self._find_assignment(slot)
         if match is None:
             return None
         assign_start = match.start()
-        # Encontrar la asignaciÃ³n previa del mismo array (si existe) para
-        # delimitar el rango de bÃºsqueda. Si no hay previa, empezamos
+        # Encontrar la asignación previa del mismo array (si existe) para
+        # delimitar el rango de búsqueda. Si no hay previa, empezamos
         # desde el inicio.
         prev_assign_end = 0
         for prev in _ASSIGNMENT_RE.finditer(self._s7dcl[:assign_start]):
             if prev.group("array") == self._db_array_name:
                 prev_assign_end = prev.end()
-        # Buscar el ÃšLTIMO bloque S7_MLC en el rango [prev_assign_end, assign_start).
+        # Buscar el ÚLTIMO bloque S7_MLC en el rango [prev_assign_end, assign_start).
         search_range = self._s7dcl[prev_assign_end:assign_start]
         last_mlc: str | None = None
         for blk in _MLC_BLOCK_RE.finditer(search_range):
@@ -336,7 +336,7 @@ class DispCommentUpdater:
         return last_mlc
 
     def _find_assignment(self, slot: int) -> re.Match[str] | None:
-        """Localiza la asignaciÃ³n ``<ARRAY>[slot] := ();`` en el .s7dcl."""
+        """Localiza la asignación ``<ARRAY>[slot] := ();`` en el .s7dcl."""
         for m in _ASSIGNMENT_RE.finditer(self._s7dcl):
             array = m.group("array")
             idx = int(m.group("idx"))
@@ -345,27 +345,27 @@ class DispCommentUpdater:
         return None
 
     def _inject_mlc_block_or_assignment(self, slot: int, mlc_id: str) -> None:
-        """Inserta la asignaciÃ³n y/o su bloque S7_MLC.
+        """Inserta la asignación y/o su bloque S7_MLC.
 
         - Si existe ``<ARRAY>[slot] := ();`` sin bloque MLC â†’ aÃ±ade el bloque antes.
-        - Si no existe la asignaciÃ³n â†’ aÃ±ade bloque + asignaciÃ³n al final del bloque
-          de inicializaciÃ³n (Ãºltima asignaciÃ³n del array). Si no hay inicializaciÃ³n,
+        - Si no existe la asignación â†’ aÃ±ade bloque + asignación al final del bloque
+          de inicialización (última asignación del array). Si no hay inicialización,
           la aÃ±ade justo antes de ``END_DATA_BLOCK``.
         """
         match = self._find_assignment(slot)
         if match is not None:
-            # Existe la asignaciÃ³n. Â¿Tiene MLC? Si no, aÃ±adir el bloque.
+            # Existe la asignación. Â¿Tiene MLC? Si no, aÃ±adir el bloque.
             existing = self._find_assignment_mlc(slot)
             if existing is None:
-                # Insertar bloque antes de la asignaciÃ³n, con la indentaciÃ³n
-                # que tenga la asignaciÃ³n.
+                # Insertar bloque antes de la asignación, con la indentación
+                # que tenga la asignación.
                 indent = match.group("indent")
                 block = f"{indent}{{\n{indent}    S7_MLC := \"{mlc_id}\";\n{indent}}}\n"
                 self._upsert_s7dcl_block(match, block)
             return
 
-        # No existe la asignaciÃ³n. Insertar bloque + asignaciÃ³n.
-        # Estrategia: aÃ±adir al final del bloque de inicializaciÃ³n, justo
+        # No existe la asignación. Insertar bloque + asignación.
+        # Estrategia: aÃ±adir al final del bloque de inicialización, justo
         # antes de ``END_DATA_BLOCK``. Si no aparece ``END_DATA_BLOCK``,
         # aÃ±adir al final del archivo.
         new_block = (
@@ -393,8 +393,8 @@ class DispCommentUpdater:
     def _ensure_slot0_mlc(self) -> str:
         """Asegura que ``<ARRAY>[0] := ();`` existe con un MLC. Devuelve el MLC.
 
-        Usado como red de seguridad si slot_map no incluye 0 (no deberÃ­a pasar,
-        pero defendÃ¡monos).
+        Usado como red de seguridad si slot_map no incluye 0 (no debería pasar,
+        pero defendámonos).
         """
         existing = self._find_assignment_mlc(0)
         if existing is not None:
@@ -440,7 +440,7 @@ class DispCommentUpdater:
             # No existe â†’ aÃ±adir al final de MultiLingualTexts.
             new_entry = f"  - id: {mlc_id}\n    es-ES: {text}\n"
             # Si MultiLingualTexts existe y tiene entradas, aÃ±adir antes de la
-            # siguiente lÃ­nea que no sea parte de la lista (o al final del bloque).
+            # siguiente línea que no sea parte de la lista (o al final del bloque).
             list_start = re.search(
                 r"(?m)^MultiLingualTexts:\s*$", self._s7res
             )
@@ -448,7 +448,7 @@ class DispCommentUpdater:
                 # No hay bloque MultiLingualTexts; crearlo al principio.
                 self._s7res = "MultiLingualTexts:\n" + new_entry + self._s7res
             else:
-                # Buscar el final de la lista YAML (lÃ­nea no indentada o fin).
+                # Buscar el final de la lista YAML (línea no indentada o fin).
                 insert_pos = self._find_s7res_append_pos()
                 self._s7res = self._s7res[:insert_pos] + new_entry + self._s7res[insert_pos:]
 
@@ -456,15 +456,15 @@ class DispCommentUpdater:
             self._modified = True
 
     def _find_s7res_append_pos(self) -> int:
-        """Encuentra la posiciÃ³n donde aÃ±adir una nueva entrada MultiLingualTexts.
+        """Encuentra la posición donde aÃ±adir una nueva entrada MultiLingualTexts.
 
-        Estrategia: encontrar el final de la Ãºltima entrada YAML de la
-        lista (lÃ­nea ``- id: MLC_xxx`` o ``es-ES: ...`` indentada), y
-        devolver el offset justo despuÃ©s de esa lÃ­nea (incluyendo el
+        Estrategia: encontrar el final de la última entrada YAML de la
+        lista (línea ``- id: MLC_xxx`` o ``es-ES: ...`` indentada), y
+        devolver el offset justo después de esa línea (incluyendo el
         ``\n`` final).
         """
-        # Cualquier lÃ­nea indentada que parezca de la lista.
-        # Acepta 2 o 4 espacios (o mÃ¡s) de indentaciÃ³n, indistintamente.
+        # Cualquier línea indentada que parezca de la lista.
+        # Acepta 2 o 4 espacios (o más) de indentación, indistintamente.
         last_entry_end = 0
         for m in re.finditer(
             r"(?m)^[ \t]+(?:-\s*id:\s*|es-ES:\s*)[^\n]*\n",
@@ -474,7 +474,7 @@ class DispCommentUpdater:
             if end > last_entry_end:
                 last_entry_end = end
         if last_entry_end == 0:
-            # Lista vacÃ­a o no indentada como esperamos; insertar tras "MultiLingualTexts:".
+            # Lista vacía o no indentada como esperamos; insertar tras "MultiLingualTexts:".
             m = re.search(r"(?m)^MultiLingualTexts:[^\n]*\n", self._s7res)
             if m is None:
                 return 0
@@ -482,11 +482,11 @@ class DispCommentUpdater:
         return last_entry_end
 
     def _prune_s7res(self, keep_mlcs: set[str]) -> None:
-        """Elimina del ``.s7res`` las entradas MLC que no estÃ©n en ``keep_mlcs``.
+        """Elimina del ``.s7res`` las entradas MLC que no estén en ``keep_mlcs``.
 
         Conserva siempre las entradas que coincidan con MLCs referenciados.
         """
-        # PatrÃ³n: bloque completo de una entrada ``- id: ...\n    es-ES: ...``.
+        # Patrón: bloque completo de una entrada ``- id: ...\n    es-ES: ...``.
         entry_re = re.compile(
             r"(?xm)^[ \t]*-\s*id:\s*(?P<mlc>\S+)\s*\n"
             r"(?:[ \t]+[^\n]*\n)*?"
@@ -506,13 +506,13 @@ class DispCommentUpdater:
             self._s7res = new
             self._modified = True
             _logger.debug(
-                f"DispCommentUpdater: {removed} entradas MLC huÃ©rfanas eliminadas."
+                f"DispCommentUpdater: {removed} entradas MLC huérfanas eliminadas."
             )
 
     def _count_s7res_entries(self) -> int:
         return len(re.findall(r"(?m)^\s*-\s*id:\s*MLC_\S+", self._s7res))
 
-    # â”€â”€ Internals: sanitizaciÃ³n â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # â”€â”€ Internals: sanitización â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     @staticmethod
     def _sanitize_comment_text(text: str, slot: int) -> str:
@@ -521,12 +521,12 @@ class DispCommentUpdater:
             text = ""
         # Trim de espacios extremos.
         s = text.strip()
-        # Colapsar saltos de lÃ­nea a espacio.
+        # Colapsar saltos de línea a espacio.
         s = re.sub(r"\s+", " ", s)
-        # VacÃ­o â†’ ".".
+        # Vacío â†’ ".".
         if not s:
             s = EMPTY_TEXT
-        # Truncar si excede el mÃ¡ximo.
+        # Truncar si excede el máximo.
         if len(s) > MAX_COMMENT_LEN:
             _logger.warning(
                 f"Comentario del slot {slot} truncado de {len(s)} a "

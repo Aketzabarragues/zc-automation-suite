@@ -1,6 +1,6 @@
 """Parser de ``N_MAX`` (defined names) del Excel corporativo.
 
-Absorbe la lÃƒÂ³gica de:
+Absorbe la lógica de:
   - ``core/infrastructure/parsers/excel_parser.py::extraer_dimensiones``
     (filtra prefijos ``N_MAX_``/``Num_Disp_``, castea a ``int``).
   - ``AlimentacionExcelParser::extraer_dimensiones`` (puebla
@@ -18,7 +18,7 @@ Diferencias con el legacy:
     * Defensivo: defined names que no se puedan resolver se
       descartan silenciosamente.
 
-RestricciÃƒÂ³n arquitectÃƒÂ³nica: este mÃƒÂ³dulo es OFFLINE; no importa
+Restricción arquitectónica: este módulo es OFFLINE; no importa
 ``siemens_tia_scripting``.
 """
 from __future__ import annotations
@@ -36,9 +36,9 @@ from areas.alimentacion.helpers.parsers._xlsx_helpers import (
 from core.infrastructure.config.config_manager import ConfigManager
 
 
-# Mapa por defecto de named ranges N_MAX / num_disp_* Ã¢â€ â€™ atributo
+# Mapa por defecto de named ranges N_MAX / num_disp_* Ã¢â€ ’ atributo
 # legacy. Se usa como fallback cuando el parser se construye sin
-# ``ConfigManager`` (modo histÃƒÂ³rico) o cuando ``extraer`` se llama
+# ``ConfigManager`` (modo histórico) o cuando ``extraer`` se llama
 # sin ``named_range_map``.
 _DEFAULT_NAMED_RANGE_MAP: dict[str, str] = {
     "N_MAX_DISP_ED":   "num_disp_ed",
@@ -60,22 +60,22 @@ class DimensionesParser:
     """Parser de los defined names ``N_MAX_*``/``Num_Disp_*`` del Excel.
 
     Atributos de clase:
-        * ``PREFIXES``: tupla de prefijos vÃƒÂ¡lidos para el filtrado
+        * ``PREFIXES``: tupla de prefijos válidos para el filtrado
           defensivo de N_MAX adicionales (``"N_MAX_"`` y
           ``"Num_Disp_"``).
 
-    PolÃƒÂ­tica:
+    Política:
         * Si la hoja/celda del defined name no se puede resolver
           (``KeyError``, ``TypeError``, ``AttributeError``), se
           descarta con WARNING.
         * Si el valor no se puede castear a ``int``, se descarta
           silenciosamente.
-        * Si el defined name NO estÃƒÂ¡ en el ``named_range_map`` Y NO
+        * Si el defined name NO está en el ``named_range_map`` Y NO
           empieza por ``N_MAX_``/``Num_Disp_``, se ignora (no es un
           N_MAX).
-        * Si el defined name NO estÃƒÂ¡ en el ``named_range_map`` pero
+        * Si el defined name NO está en el ``named_range_map`` pero
           empieza por ``N_MAX_``/``Num_Disp_``, va a ``extras`` (data
-          driven: futuros N_MAX del catÃƒÂ¡logo).
+          driven: futuros N_MAX del catálogo).
 
     Si se inyecta un ``ConfigManager``, el ``named_range_map`` se
     construye data-driven desde el ``n_max_catalog`` del config.
@@ -91,7 +91,7 @@ class DimensionesParser:
         """Devuelve ``{nombre_nmax: nombre_attr_legacy}``.
 
         Si hay ``ConfigManager``, itera ``list_nmax_active()`` y
-        resuelve ``hw_type`` Ã¢â€ â€™ ``num_disp_<hw>``. Si no, usa
+        resuelve ``hw_type`` Ã¢â€ ’ ``num_disp_<hw>``. Si no, usa
         ``_DEFAULT_NAMED_RANGE_MAP``.
         """
         if self._config_manager is None:
@@ -104,11 +104,11 @@ class DimensionesParser:
                 continue
             attr = f"num_disp_{hw}"
             mapping[nmax_name] = attr
-            # Aceptamos tambiÃƒÂ©n la forma legacy (``Num_Disp_X``).
+            # Aceptamos también la forma legacy (``Num_Disp_X``).
             excel_nr = entry.get("excel_named_range", "")
             if excel_nr:
                 mapping[excel_nr] = attr
-            # Y la forma minÃƒÂºscula ``num_disp_x``.
+            # Y la forma minúscula ``num_disp_x``.
             mapping[attr] = attr
         return mapping
 
@@ -121,15 +121,15 @@ class DimensionesParser:
 
         Args:
             wb: workbook de openpyxl **ya abierto** (no se cierra
-                aquÃƒÂ­; la responsabilidad es del ``ExcelLoader``).
+                aquí; la responsabilidad es del ``ExcelLoader``).
             named_range_map: override opcional del mapeo
                 ``{nombre_nmax: nombre_attr_legacy}``. Si es ``None``,
-                se usa el del ``ConfigManager`` (si se inyectÃƒÂ³) o el
+                se usa el del ``ConfigManager`` (si se inyectó) o el
                 ``_DEFAULT_NAMED_RANGE_MAP``.
 
         Returns:
             ``DimensionesDispositivos`` con los 6 contadores
-            canÃƒÂ³nicos + ``extras`` para N_MAX adicionales del Excel.
+            canónicos + ``extras`` para N_MAX adicionales del Excel.
         """
         defined_names = getattr(wb, "defined_names", None)
         if defined_names is None:
@@ -157,7 +157,7 @@ class DimensionesParser:
             else:
                 # Si el named range no es de los legacy, intentar leerlo
                 # como N_MAX directo (data-driven): p.ej. un Excel que
-                # defina ``N_MAX_DISP_FF`` Ã¢â€ â€™ acaba en ``extras``.
+                # defina ``N_MAX_DISP_FF`` Ã¢â€ ’ acaba en ``extras``.
                 if any(name.startswith(p) for p in self.PREFIXES):
                     v = _safe_int(_resolve_value(definition, wb))
                     if v:
@@ -173,7 +173,7 @@ class DimensionesParser:
         return DimensionesDispositivos()
 
 
-# Ã¢â€â‚¬Ã¢â€â‚¬ Helpers de mapeo de named ranges (privados al mÃƒÂ³dulo) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+# Ã¢”â‚¬Ã¢”â‚¬ Helpers de mapeo de named ranges (privados al módulo) Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬
 
 
 def _resolve_value(definition: Any, workbook: Any) -> Any:
@@ -201,7 +201,7 @@ def _resolve_value(definition: Any, workbook: Any) -> Any:
         return None
     try:
         # ``destinations`` es la API moderna (openpyxl 3.1).
-        # Si estÃƒÂ¡ disponible, devuelve (sheet, coord) directamente.
+        # Si está disponible, devuelve (sheet, coord) directamente.
         destinations = getattr(definition, "destinations", None)
         if destinations is not None:
             dest = list(destinations)

@@ -1,16 +1,16 @@
-"""Workdir layout del Ã¡rea alimentaciÃ³n: dispositivos y procesos.
+"""Workdir layout del área alimentación: dispositivos y procesos.
 
 Extiende ``core.infrastructure.tia.tia_workdir_layout.WorkdirAreaLayout``
-con los contextos (bounded contexts del Ã¡rea) que necesita hoy:
+con los contextos (bounded contexts del área) que necesita hoy:
 
 * ``dispositivos``: ciclo de export/modify/import de los 6 DBs de
   dispositivos (ED, EA, SA, V, M, M_VF) + tabla N_MAX.
-* ``procesos``: ciclo anÃ¡logo para los bloques de proceso
+* ``procesos``: ciclo análogo para los bloques de proceso
   (PReal, PInt, ALM).
 
-MaÃ±ana, ``areas/trazabilidad/infrastructure/build_cache.py`` aportarÃ¡
+MaÃ±ana, ``areas/trazabilidad/infrastructure/build_cache.py`` aportará
 su propio ``TrazabilidadAreaLayout`` con ``.lotes`` y ``.recetas``
-siguiendo el mismo patrÃ³n â€” sin tocar ``core/``.
+siguiendo el mismo patrón â€” sin tocar ``core/``.
 
 Convenio de uso
 ===============
@@ -44,11 +44,11 @@ from core.infrastructure.tia.tia_workdir_layout import (
 
 @dataclass(frozen=True)
 class AlimentacionAreaLayout(WorkdirAreaLayout):
-    """Workdir layout del Ã¡rea alimentaciÃ³n con sus contextos.
+    """Workdir layout del área alimentación con sus contextos.
 
     AÃ±ade ``.dispositivos`` y ``.procesos`` como ``cached_property``
-    sobre la base genÃ©rica de ``core``. Si en el futuro el Ã¡rea gana
-    mÃ¡s contextos (e.g. ``.recetas``), se aÃ±aden aquÃ­ como
+    sobre la base genérica de ``core``. Si en el futuro el área gana
+    más contextos (e.g. ``.recetas``), se aÃ±aden aquí como
     ``@cached_property`` adicionales â€” el core no se toca.
     """
 
@@ -64,7 +64,7 @@ class AlimentacionAreaLayout(WorkdirAreaLayout):
 
 
 def build_cache(root: Path | None = None) -> AlimentacionAreaLayout:
-    """Atajo: devuelve el layout de alimentaciÃ³n ya configurado.
+    """Atajo: devuelve el layout de alimentación ya configurado.
 
     Por defecto, ``root = <cwd>/.build_cache``. Tests pueden
     inyectar un ``tmp_path`` directamente:

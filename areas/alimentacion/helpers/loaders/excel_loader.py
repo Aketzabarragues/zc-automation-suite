@@ -1,30 +1,30 @@
-"""Cargador sÃƒÂ­ncrono del Excel corporativo del subdominio alimentaciÃƒÂ³n.
+"""Cargador síncrono del Excel corporativo del subdominio alimentación.
 
 ``ExcelLoader`` abre el workbook UNA sola vez, ejecuta los 11
 parsers que lo componen (6 dispositivos + 4 software + 1 N_MAX) y
 construye una ``DataExcelCache`` inmutable con los 3 lookups
 precomputados por ``codigo``.
 
-Es **sÃƒÂ­ncrono** (no async) porque la apertura del workbook con
-openpyxl es CPU/IO-bound y bloquearÃƒÂ­a el event loop de asyncio.
+Es **síncrono** (no async) porque la apertura del workbook con
+openpyxl es CPU/IO-bound y bloquearía el event loop de asyncio.
 Los callers (router FastAPI, MCP tool) lo invocan con
 ``asyncio.to_thread(loader.load, path)`` para no bloquear el event
 loop.
 
-Pipeline (orden de ejecuciÃƒÂ³n sobre el mismo ``wb``):
+Pipeline (orden de ejecución sobre el mismo ``wb``):
     1. 6 mini parsers de dispositivos (``DispED``/``EA``/``SA``/``V``
-       /``M``/``M_VF``) Ã¢â‚¬â€ extaen las ``ListObject`` de las hojas
+       /``M``/``M_VF``) Ã¢â‚¬” extaen las ``ListObject`` de las hojas
        ``DISP_<HW>``.
     2. 4 parsers de software (``Procesos``/``PReal``/``PInt``/
-       ``Alarmas``) Ã¢â‚¬â€ extraen las ``ListObject`` de las hojas
+       ``Alarmas``) Ã¢â‚¬” extraen las ``ListObject`` de las hojas
        ``CONFIGURACION``/``P_REAL``/``P_INT``/``ALARMAS``.
-    3. 1 parser de N_MAX (``DimensionesParser``) Ã¢â‚¬â€ extrae los
+    3. 1 parser de N_MAX (``DimensionesParser``) Ã¢â‚¬” extrae los
        defined names ``N_MAX_*``/``Num_Disp_*``.
 
 Tras el parseo, construye los lookups ``*_by_codigo`` filtrando
-filas sin ``codigo`` para evitar colisiones con la clave vacÃƒÂ­a.
+filas sin ``codigo`` para evitar colisiones con la clave vacía.
 
-RestricciÃƒÂ³n arquitectÃƒÂ³nica: este mÃƒÂ³dulo NO importa
+Restricción arquitectónica: este módulo NO importa
 ``siemens_tia_scripting``. Solo ``openpyxl`` + ``logging`` + DTOs
 del subdominio.
 """
@@ -88,7 +88,7 @@ class ExcelLoader:
 
         Args:
             excel_path: ruta al ``.xlsx`` a parsear (absoluta o
-                relativa; el cache guarda la versiÃƒÂ³n ``absolute()``).
+                relativa; el cache guarda la versión ``absolute()``).
 
         Returns:
             ``DataExcelCache`` inmutable con los 10 dominios del Excel
@@ -105,38 +105,38 @@ class ExcelLoader:
         path = Path(excel_path)
         if not path.is_file():
             raise FileNotFoundError(
-                f"No se encontrÃƒÂ³ el Excel: '{path}'"
+                f"No se encontró el Excel: '{path}'"
             )
 
-        # ResoluciÃƒÂ³n Windows-safe (R3 del plan): ``st_mtime_ns``
-        # estÃƒÂ¡ disponible en Python 3.7+ y en openpyxl / Windows
-        # con precisiÃƒÂ³n de nanosegundos.
+        # Resolución Windows-safe (R3 del plan): ``st_mtime_ns``
+        # está disponible en Python 3.7+ y en openpyxl / Windows
+        # con precisión de nanosegundos.
         mtime_ns = path.stat().st_mtime_ns
         wb = load_workbook(
             filename=str(path), read_only=False, data_only=True,
         )
         try:
-            # Ã¢â€â‚¬Ã¢â€â‚¬ 6 dispositivos Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+            # Ã¢”â‚¬Ã¢”â‚¬ 6 dispositivos Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬
             disp_ed = self._disp_ed.extraer(wb)
             disp_ea = self._disp_ea.extraer(wb)
             disp_sa = self._disp_sa.extraer(wb)
             disp_v = self._disp_v.extraer(wb)
             disp_m = self._disp_m.extraer(wb)
             disp_m_vf = self._disp_m_vf.extraer(wb)
-            # Ã¢â€â‚¬Ã¢â€â‚¬ 4 software Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+            # Ã¢”â‚¬Ã¢”â‚¬ 4 software Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬
             procesos = self._procesos.extraer(wb)
             preal = self._preal.extraer(wb)
             pint = self._pint.extraer(wb)
             alarmas = self._alarmas.extraer(wb)
-            # Ã¢â€â‚¬Ã¢â€â‚¬ 1 N_MAX Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+            # Ã¢”â‚¬Ã¢”â‚¬ 1 N_MAX Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬
             n_max = self._dimensiones.extraer(wb)
         finally:
             wb.close()
 
-        # Ã¢â€â‚¬Ã¢â€â‚¬ Lookups precomputados por ``codigo`` Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-        # Filtramos ``codigo`` vacÃƒÂ­o para no contaminar el dict con
+        # Ã¢”â‚¬Ã¢”â‚¬ Lookups precomputados por ``codigo`` Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬
+        # Filtramos ``codigo`` vacío para no contaminar el dict con
         # un valor clave="" que pise accidentalmente otras entradas
-        # vÃƒÂ¡lidas.
+        # válidas.
         procesos_by_codigo = {
             p.codigo: p for p in procesos if p.codigo
         }
