@@ -117,8 +117,8 @@ def register(
     from areas.alimentacion.functions.function_DispGenerarPreview import (
         FunctionDispGenerarPreview,
     )
-    from areas.alimentacion.functions.function_DispSincronizarDispositivos import (
-        FunctionDispSincronizarDispositivos,
+    from areas.alimentacion.functions.function_DispSincronizar import (
+        FunctionDispSincronizar,
     )
     from core.composition.plc_function_template import FunctionTemplate
 
@@ -178,7 +178,7 @@ def register(
     # apply comentarios, post_preview). STEP_TIMEOUT_S=600s.
     engine.register_fb(
         "disp_sincronizar",
-        FunctionDispSincronizarDispositivos(
+        FunctionDispSincronizar(
             nombre="disp_sincronizar",
             config_manager=config_manager,
             tia_client=tia_client,

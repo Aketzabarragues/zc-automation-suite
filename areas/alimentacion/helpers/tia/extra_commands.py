@@ -210,8 +210,8 @@ def make_cmd_commit_disp_devices_offline() -> Callable[..., Any]:
     """Tx B del sync dispositivos: importa los PlcTagTables modificados.
 
     Patron:
-      1. export masivo (lo hace Stage 6 en ``disp_sync.py``).
-      2. TagTableModifier offline (lo hace Stage 7 en ``disp_sync.py``).
+      1. export masivo (lo hace Stage 6 en ``disp_Sincronizar.py``).
+      2. TagTableModifier offline (lo hace Stage 7 en ``disp_Sincronizar.py``).
       3. import_plc_tags_xml masivo al PLC (esto, Tx B).
     """
     def _cmd(args: dict[str, Any], tia_client: Any) -> dict[str, Any]:

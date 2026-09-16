@@ -6,7 +6,7 @@ por argumento y muta sus campos con el resultado de su trabajo.
 Este modulo **no contiene state machine**. La orquestacion de las 11
 funciones (orden, dependencias entre etapas, mapeo a steps del FB) vive
 exclusivamente en ``areas/alimentacion/functions/
-function_DispSincronizarDispositivos.py``. Aqui solo estan las funciones
+function_DispSincronizar.py``. Aqui solo estan las funciones
 puras y la forma del estado compartido (``DispSyncContext``).
 
 Las 11 funciones siguen el orden del legacy:
@@ -33,7 +33,7 @@ Restricciones arquitectonicas (.clinerules):
   - Sin Singletons dentro del helper; todas las deps inyectadas.
   - Cero rutas hardcodeadas; todo via ConfigManager.
   - El helper NO toca ``progress_tracker``; eso es responsabilidad
-    del FB wrapper (``FunctionDispSincronizarDispositivos``).
+    del FB wrapper (``FunctionDispSincronizar``).
   - El helper NO contiene state machine (orden, mapping, dispatch);
     eso vive en el FB.
 """
@@ -70,7 +70,7 @@ class DispSyncContext:
     Cada funcion toma un ``DispSyncContext`` por argumento, lee las deps
     inyectadas y los resultados de funciones previas, y muta los campos
     que representan resultados de su trabajo. El FB
-    ``FunctionDispSincronizarDispositivos`` instancia uno y lo reusa
+    ``FunctionDispSincronizar`` instancia uno y lo reusa
     entre sus 11 ticks para que los resultados intermedios esten
     disponibles para las funciones posteriores.
     """

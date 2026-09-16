@@ -1,7 +1,7 @@
 """Router Flask del endpoint ``POST /api/v1/plcs/<name>/sync/commit``.
 
-El helper vive en ``areas/alimentacion/helpers/disp/disp_sync.py``.
-El FB ``FunctionDispSincronizarDispositivos`` tiene la state machine
+El helper vive en ``areas/alimentacion/helpers/disp/disp_Sincronizar.py``.
+El FB ``FunctionDispSincronizar`` tiene la state machine
 + tracker. Este router solo orquesta: arranca el FB y devuelve el
 ``result``.
 

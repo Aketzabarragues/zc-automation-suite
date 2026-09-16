@@ -1,7 +1,7 @@
 """FB de area: sincronizacion transaccional de dispositivos vs PLC.
 
 State machine sobre el helper ``disp_sync`` (areas/alimentacion/helpers
-/disp/disp_sync.py). El helper expone funciones independientes
+/disp/disp_Sincronizar.py). El helper expone funciones independientes
 (``exportar_tags``, ``compute_diff``, ``tx_a_nmax_renames``, etc.) que
 reciben un ``DispSyncContext`` y mutan sus campos. **Aqui en el FB vive
 la state machine**: el orden de las 11 llamadas, el mapping step ->
@@ -59,7 +59,7 @@ from core.runtime.app_state import AppState, get_app_state
 from core.runtime.log_buffer import LogBuffer, get_log_buffer
 
 
-class FunctionDispSincronizarDispositivos(FunctionBase):
+class FunctionDispSincronizar(FunctionBase):
     """FB que sincroniza dispositivos contra TIA (11 etapas transaccionales)."""
 
     # ==================================================================
@@ -133,18 +133,18 @@ class FunctionDispSincronizarDispositivos(FunctionBase):
         """Validar deps inyectadas + capturar plc_name + crear ctx."""
         if self._config is None:
             raise RuntimeError(
-                "FunctionDispSincronizarDispositivos requiere "
+                "FunctionDispSincronizar requiere "
                 "config_manager. Inyectalo en el constructor."
             )
         if self._tia_client is None:
             raise RuntimeError(
-                "FunctionDispSincronizarDispositivos requiere "
+                "FunctionDispSincronizar requiere "
                 "tia_client. Inyectalo en el constructor."
             )
         plc_name = params.get("plc_name")
         if not plc_name:
             raise ValueError(
-                "FunctionDispSincronizarDispositivos.start(plc_name=...) "
+                "FunctionDispSincronizar.start(plc_name=...) "
                 "es obligatorio"
             )
         self._plc_name = str(plc_name)
@@ -319,4 +319,4 @@ def _step_summary(ctx: Any, step_nombre: str) -> str:
     return f"{step_nombre}: OK"
 
 
-__all__ = ["FunctionDispSincronizarDispositivos"]
+__all__ = ["FunctionDispSincronizar"]
