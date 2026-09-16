@@ -22,12 +22,14 @@ legacy::
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
 from core.composition.plc_function_base import FunctionBase
 from core.runtime.app_state import AppState, get_app_state
-from core.runtime.log_buffer import LogBuffer, get_log_buffer
+
+logger = logging.getLogger(__name__)
 
 
 class FunctionSubirExcel(FunctionBase):
@@ -55,7 +57,6 @@ class FunctionSubirExcel(FunctionBase):
         config_manager: Any = None,
         tia_client: Any = None,
         build_cache: Any = None,
-        log: Any = None,
         # ── Deps especificas de este FB ──
         excel_loader_factory: type = None,
         excel_cache_cls: type = None,
@@ -74,10 +75,6 @@ class FunctionSubirExcel(FunctionBase):
         self._config = config_manager
         self._tia_client = tia_client  # No usado en este FB.
         self._build_cache = build_cache  # No usado en este FB.
-        # Si no se inyecta ``log``, fallback al Singleton global
-        # (asi el operario ve los logs en ConsolaLogs aunque el
-        # caller no inyecte nada).
-        self._log: LogBuffer = log if log is not None else get_log_buffer()
         # Deps especificas
         # ``excel_loader_factory`` y ``excel_cache_cls`` se importan
         # lazily en run_step (ZONA 4) para evitar import circular
@@ -102,7 +99,7 @@ class FunctionSubirExcel(FunctionBase):
                 "FunctionSubirExcel.start(xlsx_path=...) es obligatorio"
             )
         self._xlsx_path = str(xlsx_path)
-        self._log.info(
+        logger.web(
             f"[{self.nombre}] Iniciando carga desde {self._xlsx_path}"
         )
 
@@ -171,8 +168,8 @@ class FunctionSubirExcel(FunctionBase):
                     "summary": summary_dict["summary"],
                     "total_dispositivos": summary_dict["total_dispositivos"],
                 }
-                # Log de exito (legacy ``self._log.success(...)``)
-                self._log.success(
+                # Log de exito del volcado al AppState.
+                logger.ok(
                     f"[{self.nombre}] Carga: {summary_dict['total_dispositivos']} "
                     f"dispositivos ({len(summary_dict['summary'])} tipos)"
                 )

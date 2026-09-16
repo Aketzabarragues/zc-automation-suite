@@ -39,13 +39,15 @@ Steps (4, mismo orden que el legacy ``generar_prevision``):
 """
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import Any
 
 from core.composition.plc_function_base import FunctionBase
 from core.runtime.app_state import AppState, get_app_state
-from core.runtime.log_buffer import LogBuffer, get_log_buffer
+
+logger = logging.getLogger(__name__)
 
 
 class FunctionDispGenerarPreview(FunctionBase):
@@ -73,7 +75,6 @@ class FunctionDispGenerarPreview(FunctionBase):
         config_manager: Any = None,
         tia_client: Any = None,
         build_cache: Any = None,
-        log: Any = None,
         # ── Deps especificas de este FB ──
         app_state: AppState | None = None,
     ) -> None:
@@ -95,7 +96,6 @@ class FunctionDispGenerarPreview(FunctionBase):
             build_cache if build_cache is not None
             else Path(os.getcwd()) / ".build_cache"
         )
-        self._log: LogBuffer = log if log is not None else get_log_buffer()
         # Deps especificas.
         self._state: AppState = (
             app_state if app_state is not None else get_app_state()
@@ -143,7 +143,7 @@ class FunctionDispGenerarPreview(FunctionBase):
             build_cache_root=self._build_cache_root,
         )
 
-        self._log.info(
+        logger.web(
             f"[{self.nombre}] Iniciando preview de {self._plc_name}"
         )
 
@@ -211,7 +211,7 @@ class FunctionDispGenerarPreview(FunctionBase):
         # Log de cierre, igual que hacia el helper monolitico.
         s = self._ctx.result["summary"]
         nmax_summary = self._ctx.result["nmax"]["summary"]
-        self._log.success(
+        logger.ok(
             f"[{self.nombre}] preview calculado para "
             f"{self._ctx.plc_name}: "
             f"{s['agregados']} agregados, {s['eliminados']} eliminados, "

@@ -79,7 +79,6 @@ def register(
     config_manager=None,
     tia_client=None,
     build_cache=None,
-    log=None,
     app_state=None,
 ) -> None:
     """Registra los FBs del area en el engine.
@@ -94,17 +93,18 @@ def register(
         FBs que ejecutan comandos contra TIA.
       - ``build_cache``: ``BuildCache`` del area. Obligatorio para FBs
         que exportan a ``.build_cache/<area>/<contexto>/...``.
-      - ``log``: ``LogBuffer`` del core. Si es ``None``, se usa el
-        Singleton global (vía ``get_log_buffer()``).
       - ``app_state``: ``AppState`` del core. Si es ``None``, se usa
         el Singleton global (vía ``get_app_state()``).
+
+    Los FBs usan ``logger = logging.getLogger(__name__)`` directamente
+    tras el commit del bridge (``5840a0b``), ya no se inyecta
+    ``log=`` por constructor.
 
     Si un FB no recibe su dep, cae al Singleton global (mismo patron
     que la plantilla FB). Si un FB NECESITA una dep y se le olvida
     inyectarla, su ``on_start`` o ``run_step`` lanzara ``RuntimeError``.
     """
     from core.runtime.app_state import get_app_state
-    from core.runtime.log_buffer import get_log_buffer
 
     from areas.alimentacion.functions.function_SubirExcel import FunctionSubirExcel
     from areas.alimentacion.functions.function_DispGenerarPreview import (
@@ -116,7 +116,6 @@ def register(
     from core.composition.plc_function_template import FunctionTemplate
 
     # Defaults a Singleton global (mismo patron que la plantilla FB).
-    log = log if log is not None else get_log_buffer()
     app_state = app_state if app_state is not None else get_app_state()
 
     # Plantilla FB registrada como ``plantilla``: 10 pasos dummy para
@@ -129,7 +128,6 @@ def register(
         FunctionSubirExcel(
             nombre="subir_excel",
             config_manager=config_manager,
-            log=log,
             app_state=app_state,
         ),
     )
@@ -152,7 +150,6 @@ def register(
             config_manager=config_manager,
             tia_client=tia_client,
             build_cache=build_cache,
-            log=log,
             app_state=app_state,
         ),
     )
@@ -168,7 +165,6 @@ def register(
             config_manager=config_manager,
             tia_client=tia_client,
             build_cache=build_cache,
-            log=log,
             app_state=app_state,
         ),
     )

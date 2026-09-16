@@ -50,13 +50,15 @@ Steps (11, mismo orden que el legacy ``ejecutar_transaccion``):
 """
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import Any
 
 from core.composition.plc_function_base import FunctionBase
 from core.runtime.app_state import AppState, get_app_state
-from core.runtime.log_buffer import LogBuffer, get_log_buffer
+
+logger = logging.getLogger(__name__)
 
 
 class FunctionDispSincronizar(FunctionBase):
@@ -85,7 +87,6 @@ class FunctionDispSincronizar(FunctionBase):
         config_manager: Any = None,
         tia_client: Any = None,
         build_cache: Any = None,
-        log: Any = None,
         # ── Deps especificas de este FB ──
         app_state: AppState | None = None,
     ) -> None:
@@ -114,7 +115,6 @@ class FunctionDispSincronizar(FunctionBase):
             build_cache if build_cache is not None
             else Path(os.getcwd()) / ".build_cache"
         )
-        self._log: LogBuffer = log if log is not None else get_log_buffer()
         # Deps especificas.
         self._state: AppState = (
             app_state if app_state is not None else get_app_state()
@@ -162,7 +162,7 @@ class FunctionDispSincronizar(FunctionBase):
             build_cache_root=self._build_cache_root,
         )
 
-        self._log.info(
+        logger.web(
             f"[{self.nombre}] Iniciando sync transaccional para "
             f"{self._plc_name} (11 etapas)"
         )
@@ -271,7 +271,7 @@ class FunctionDispSincronizar(FunctionBase):
         compile_label = (
             "OK" if self._ctx.compile_ok else "con errores"
         )
-        self._log.success(
+        logger.ok(
             f"[{self.nombre}] sync completo para "
             f"{self._ctx.plc_name}: {operations_executed} ops "
             f"({len(self._ctx.nmax_ops)} N_MAX), "
