@@ -1,4 +1,4 @@
-"""Caso de uso: sincronizar comentarios por slot de los DBs de procesos.
+﻿"""Caso de uso: sincronizar comentarios por slot de los DBs de procesos.
 
 Pieza del flujo "procesos" análoga a ``DispComentariosSyncUseCase``
 (dispositivos). Selecciona un proceso, genera el diff entre el
@@ -991,7 +991,7 @@ class ProcSyncComentariosUseCase:
             caller, que decide si abortar el preview o devolver
             un diff con ``current=None``.
         """
-        from areas.alimentacion.helpers.sd.proc_comment_updater import (
+        from areas.alimentacion.helpers.simatic_sd.simatic_sd_proc_comment_updater import (
             ProcCommentUpdater,
         )
         work_dir = build_cache(root=self._build_cache).procesos.preview_bloques

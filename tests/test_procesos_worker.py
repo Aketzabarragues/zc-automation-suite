@@ -1,4 +1,4 @@
-"""Tests de los comandos del worker para sync de comentarios de procesos.
+﻿"""Tests de los comandos del worker para sync de comentarios de procesos.
 
 Cubre la integraciÃ³n de ``extra_commands.register(registry)`` con el
 ``COMMAND_REGISTRY`` del worker genÃ©rico: verifica que las 3 keys
@@ -110,7 +110,7 @@ def test_handler_preal_invoca_export_updater_import() -> None:
 
         try:
             with patch(
-                "areas.alimentacion.helpers.sd.proc_comment_updater."
+                "areas.alimentacion.helpers.simatic_sd.simatic_sd_proc_comment_updater."
                 "ProcCommentUpdater",
                 return_value=mock_updater,
             ):
@@ -184,7 +184,7 @@ def test_handler_no_invoca_import_si_no_modified() -> None:
 
         try:
             with patch(
-                "areas.alimentacion.helpers.sd.proc_comment_updater."
+                "areas.alimentacion.helpers.simatic_sd.simatic_sd_proc_comment_updater."
                 "ProcCommentUpdater",
                 return_value=mock_updater,
             ):
@@ -256,7 +256,7 @@ def test_handler_param_1_export_1_import_cubre_preal_y_pint() -> None:
 
         try:
             with patch(
-                "areas.alimentacion.helpers.sd.proc_comment_updater."
+                "areas.alimentacion.helpers.simatic_sd.simatic_sd_proc_comment_updater."
                 "ProcCommentUpdater",
                 side_effect=[_make_mock_updater(), _make_mock_updater()],
             ):
@@ -310,7 +310,7 @@ def test_handler_param_no_invoca_import_si_ninguno_modified() -> None:
 
         try:
             with patch(
-                "areas.alimentacion.helpers.sd.proc_comment_updater."
+                "areas.alimentacion.helpers.simatic_sd.simatic_sd_proc_comment_updater."
                 "ProcCommentUpdater",
             ):
                 handler = extra_commands.make_cmd_update_proc_comments_db_param()
@@ -412,7 +412,7 @@ def test_handler_alm_usa_exports_subdir_y_copytree_si_se_pasa() -> None:
 
         try:
             with patch(
-                "areas.alimentacion.helpers.sd.proc_comment_updater."
+                "areas.alimentacion.helpers.simatic_sd.simatic_sd_proc_comment_updater."
                 "ProcCommentUpdater",
                 side_effect=_capture_updater,
             ):
@@ -525,7 +525,7 @@ def test_handler_param_usa_exports_subdir_y_copytree_si_se_pasa() -> None:
 
         try:
             with patch(
-                "areas.alimentacion.helpers.sd.proc_comment_updater."
+                "areas.alimentacion.helpers.simatic_sd.simatic_sd_proc_comment_updater."
                 "ProcCommentUpdater",
                 side_effect=_capture_updater,
             ):
@@ -610,7 +610,7 @@ def test_handler_alm_sin_exports_subdir_usa_patron_legacy() -> None:
 
         try:
             with patch(
-                "areas.alimentacion.helpers.sd.proc_comment_updater."
+                "areas.alimentacion.helpers.simatic_sd.simatic_sd_proc_comment_updater."
                 "ProcCommentUpdater",
                 return_value=mock_updater,
             ):

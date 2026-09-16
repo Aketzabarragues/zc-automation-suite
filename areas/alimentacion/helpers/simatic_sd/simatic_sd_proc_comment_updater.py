@@ -1,4 +1,4 @@
-"""Actualizador offline de comentarios por instancia para DBs de procesos.
+﻿"""Actualizador offline de comentarios por instancia para DBs de procesos.
 
 Modifica un par de archivos ``.s7dcl`` + ``.s7res`` exportados por
 TIA Portal para escribir el comentario de cada slot de los arrays
@@ -42,7 +42,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from areas.alimentacion.helpers.sd.mlc_registry import MLCRegistry
+from areas.alimentacion.helpers.simatic_sd.simatic_sd_mlc_registry import MLCRegistry
 from core.infrastructure.tia.tia_export_paths import (
     EMPTY_TEXT,
     MAX_COMMENT_LEN,

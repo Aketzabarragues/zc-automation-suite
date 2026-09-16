@@ -1,4 +1,4 @@
-"""Comandos TIA del area alimentacion.
+﻿"""Comandos TIA del area alimentacion.
 
 Aporta al SyncTIAClient los handlers de sync de comentarios
 dispositivos/procesos + commits online/offline de devices + N_MAX.
@@ -71,7 +71,7 @@ def make_cmd_update_disp_comments_db(hw_type: str) -> Callable[..., Any]:
 
         slot_map_int: dict[int, str] = {int(k): v for k, v in slot_map.items()}
 
-        from areas.alimentacion.helpers.sd.disp_comment_updater import (
+        from areas.alimentacion.helpers.simatic_sd.simatic_sd_disp_comment_updater import (
             DispCommentUpdater,
         )
 
@@ -349,10 +349,10 @@ def make_cmd_update_proc_comments_db(kind: str) -> Callable[..., Any]:
             str(Path(work_dir) / db_subpath) if db_subpath else work_dir
         )
 
-        from areas.alimentacion.helpers.sd.proc_comment_updater import (
+        from areas.alimentacion.helpers.simatic_sd.simatic_sd_proc_comment_updater import (
             ProcCommentUpdater,
         )
-        from areas.alimentacion.helpers.sd.mlc_registry import MLCRegistry
+        from areas.alimentacion.helpers.simatic_sd.simatic_sd_mlc_registry import MLCRegistry
 
         s7dcl_path = SdPair(Path(effective_work_dir), db_name).dcl
         s7res_path = SdPair(Path(effective_work_dir), db_name).res
@@ -458,10 +458,10 @@ def make_cmd_update_proc_comments_db_param() -> Callable[..., Any]:
             str(Path(work_dir) / db_subpath) if db_subpath else work_dir
         )
 
-        from areas.alimentacion.helpers.sd.proc_comment_updater import (
+        from areas.alimentacion.helpers.simatic_sd.simatic_sd_proc_comment_updater import (
             ProcCommentUpdater,
         )
-        from areas.alimentacion.helpers.sd.mlc_registry import MLCRegistry
+        from areas.alimentacion.helpers.simatic_sd.simatic_sd_mlc_registry import MLCRegistry
 
         s7dcl_path = SdPair(Path(effective_work_dir), db_name).dcl
         s7res_path = SdPair(Path(effective_work_dir), db_name).res

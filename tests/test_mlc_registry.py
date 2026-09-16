@@ -1,4 +1,4 @@
-"""Tests OFFLINE de ``MLCRegistry``.
+﻿"""Tests OFFLINE de ``MLCRegistry``.
 
 Cubre unicidad, reserva, release, saturaciÃ³n defensiva.
 Sin imports de TIA, sin red, sin disco.
@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
-from areas.alimentacion.helpers.sd.mlc_registry import MLCRegistry
+from areas.alimentacion.helpers.simatic_sd.simatic_sd_mlc_registry import MLCRegistry
 
 
 # â”€â”€ next_mlc_id â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -115,10 +115,10 @@ def test_runtime_error_si_no_hay_ids_disponibles() -> None:
     # sufijo. AsÃ­ el primer ID generado serÃ¡ siempre el mismo, y los
     # siguientes colisionarÃ¡n.
     with patch(
-        "areas.alimentacion.helpers.sd.mlc_registry.random.randint",
+        "areas.alimentacion.helpers.simatic_sd.simatic_sd_mlc_registry.random.randint",
         return_value=3,
     ), patch(
-        "areas.alimentacion.helpers.sd.mlc_registry.random.choices",
+        "areas.alimentacion.helpers.simatic_sd.simatic_sd_mlc_registry.random.choices",
         return_value=list("aaa"),
     ):
         # Genera el primero (lo registra).

@@ -1,4 +1,4 @@
-"""Actualizador offline de comentarios por instancia en Source Documents.
+﻿"""Actualizador offline de comentarios por instancia en Source Documents.
 
 Modifica un par de archivos ``.s7dcl`` + ``.s7res`` exportados por
 TIA Portal para escribir el comentario de cada instancia de un array
@@ -53,7 +53,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from areas.alimentacion.helpers.sd.mlc_registry import MLCRegistry
+from areas.alimentacion.helpers.simatic_sd.simatic_sd_mlc_registry import MLCRegistry
 from core.infrastructure.tia.tia_export_paths import (
     EMPTY_TEXT,
     MAX_COMMENT_LEN,

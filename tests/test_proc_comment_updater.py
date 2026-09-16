@@ -1,4 +1,4 @@
-"""Tests del ``ProcCommentUpdater``.
+﻿"""Tests del ``ProcCommentUpdater``.
 
 Cubre el updater offline anÃ¡logo a ``DispCommentUpdater`` pero
 parametrizado por ``array_name`` + ``satellite_arrays`` (sin slot 0
@@ -21,8 +21,8 @@ from pathlib import Path
 
 import pytest
 
-from areas.alimentacion.helpers.sd.mlc_registry import MLCRegistry
-from areas.alimentacion.helpers.sd.proc_comment_updater import (
+from areas.alimentacion.helpers.simatic_sd.simatic_sd_mlc_registry import MLCRegistry
+from areas.alimentacion.helpers.simatic_sd.simatic_sd_proc_comment_updater import (
     ProcCommentResult,
     ProcCommentUpdater,
     strip_enclosing_quotes,

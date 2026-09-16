@@ -1,4 +1,4 @@
-"""Tests OFFLINE de ``DispCommentUpdater``.
+﻿"""Tests OFFLINE de ``DispCommentUpdater``.
 
 Trabaja sobre archivos ``.s7dcl`` / ``.s7res`` temporales (no toca
 el repo). Cubre los casos del plan:
@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from areas.alimentacion.helpers.sd.disp_comment_updater import DispCommentUpdater
+from areas.alimentacion.helpers.simatic_sd.simatic_sd_disp_comment_updater import DispCommentUpdater
 
 
 # â”€â”€ Fixtures: contenido de .s7dcl / .s7res â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

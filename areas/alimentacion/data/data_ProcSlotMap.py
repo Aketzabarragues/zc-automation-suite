@@ -1,4 +1,4 @@
-"""Data Block de slot maps de procesos.
+﻿"""Data Block de slot maps de procesos.
 
 Slot maps y metadatos TIA para un proceso. Es el hermano "procesos"
 de ``DataDispSlotMap`` que cubre los 6 DBs de dispositivos
@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
-from areas.alimentacion.helpers.sd.proc_comment_updater import (
+from areas.alimentacion.helpers.simatic_sd.simatic_sd_proc_comment_updater import (
     strip_enclosing_quotes,
 )
 from core.runtime.app_state import AppState
