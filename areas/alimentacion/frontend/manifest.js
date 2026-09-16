@@ -47,7 +47,7 @@ const _comps = {
     "AreaLanding":             () => import("./components/AreaLanding.js"),
     "DefinicionProgramacion":  () => import("./components/DefinicionProgramacion.js"),
     "Dispositivos":            () => import("./components/Dispositivos.js"),
-    // Sub-vista de primer nivel "Procesos" (Fase 6.A — UI sin lógica).
+    // Sub-vista de primer nivel "Procesos" (UI sin lógica).
     // Distinta del sub-componente ``ProcesosPanel``: esta es accesible
     // desde el Sidebar y la welcome (``key: "proc"``), mientras que
     // ``ProcesosPanel`` solo se monta dentro del tab "Procesos" de

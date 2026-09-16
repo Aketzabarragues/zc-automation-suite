@@ -597,7 +597,7 @@ def _wrap_handler(handler):
 
 
 def register(registry):
-    """Aporta los comandos al COMMAND_REGISTRY legacy (Fase 3).
+    """Aporta los comandos al COMMAND_REGISTRY del worker OT.
 
     Compat con worker_tia.py. Tras el rename a tia_loop.py, este
     punto de extension queda solo para tests que importan worker_tia.

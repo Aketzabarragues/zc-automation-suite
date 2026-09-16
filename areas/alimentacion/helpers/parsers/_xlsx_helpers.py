@@ -1,13 +1,11 @@
 """Helpers compartidos para los parsers del Excel corporativo.
 
 Este módulo concentra utilidades usadas por **todos** los parsers de
-software y de hardware del subdominio ``alimentacion`` (los mini parsers
-creados en las Fases 1-5 del plan
-``_plan/04_excel_cache_phased_plan.md``). Su objetivo es eliminar
-duplicación de código entre parsers (cada uno abría el workbook,
-localizaba la ``ListObject``, iteraba filas, descartaba vacías...) y
-unificar la **semántica defensiva** del cast de valores (``_safe_str``
-/ ``_safe_int`` / ``_safe_float``).
+software y de hardware del subdominio ``alimentacion``. Su objetivo es
+eliminar duplicación de código entre parsers (cada uno abría el
+workbook, localizaba la ``ListObject``, iteraba filas, descartaba
+vacías...) y unificar la **semántica defensiva** del cast de valores
+(``_safe_str`` / ``_safe_int`` / ``_safe_float``).
 
 Convención del helper:
     * ``_safe_str`` **NUNCA** devuelve ``None`` (devuelve ``""``). Esto
@@ -20,8 +18,7 @@ Convención del helper:
       ``int``/``float`` para no perder ``True``/``False`` legítimos.
     * ``extract_list_object_rows`` es la única puerta de entrada a las
       ``ListObject`` (Tablas Nombradas). Si la hoja o la tabla no
-      existen, devuelve ``[]`` (no lanza) â€” política coherente con el
-      R1 del plan.
+      existen, devuelve ``[]`` (no lanza) — política defensiva.
 
 Restricción arquitectónica: este módulo es OFFLINE; no importa
 ``siemens_tia_scripting``. Única dependencia externa: ``openpyxl``.
@@ -115,8 +112,7 @@ def _safe_float(val: Any, default: float = 0.0) -> float:
 def _safe_num_lista(value: Any) -> int | str:
     """None/NaN/vacío â†’ 0. Numérico â†’ int. Texto no numérico â†’ str.
 
-    Helper **específico** de los parsers de parámetros (Fase 2 y 3
-    del plan ``_plan/04_excel_cache_phased_plan.md``). La columna
+    Helper **específico** de los parsers de parámetros. La columna
     ``Num.Lista`` del Excel corporativo puede contener **dos clases
     de valores**:
 
@@ -171,9 +167,9 @@ def extract_list_object_rows(
         (``all(cell is None)``) se descartan. Las cabeceras vacías
         (``""`` o ``None``) se omiten del dict.
 
-    Política defensiva (R1 del plan):
-        * Si la hoja no existe â†’ ``[]``.
-        * Si la tabla no existe en la hoja â†’ ``[]``.
+    Política defensiva:
+        * Si la hoja no existe → ``[]``.
+        * Si la tabla no existe en la hoja → ``[]``.
         * Si el ``ref`` de la tabla es inválido â†’ ``[]``.
         * Si ``range_boundaries`` lanza â†’ ``[]``.
 

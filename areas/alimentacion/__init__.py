@@ -1,20 +1,20 @@
 """Bounded Context: Alimentación.
 
 Aporta al core:
-  - State extensions (back-compat legacy de AppState).
+  - State extensions de AppState.
   - Catálogo de presentación (consumido por /api/v1/catalog).
   - TIA commands del área (registrados por el tia-loop).
   - Frontend manifest (Vue 3 ESM del área).
   - Config defaults del ConfigManager.
   - FunctionBlock Template (``FunctionTemplate``) registrado como
     ``plantilla``: 10 pasos dummy para validar el engine y el
-    progress tracker como faceplate SSE. Sirve tambien como
-    molde para migrar los FBs reales del area (Fase 2).
+    progress tracker como faceplate SSE. Sirve también como
+    molde para migrar los FBs reales del área.
 
 Los routers web, los use cases legacy, las tools MCP y los FBs no-
-template siguen existiendo en el area pero no se montan en este
-momento (Fase 2). El Composition Root (main_supervisor) llama a
-``register(engine, ...)`` para activar la plantilla + FBs migrados.
+template siguen existiendo en el área pero no se montan. El
+Composition Root (main_supervisor) llama a ``register(engine, ...)``
+para activar la plantilla + FBs migrados.
 """
 from __future__ import annotations
 

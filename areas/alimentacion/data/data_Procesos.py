@@ -1,17 +1,11 @@
-"""areas.alimentacion.data.data_Procesos ÃƒÆ’Ã†’Ãƒâ€šÃ‚¢ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã…¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Data Block de DataProcesoPLC.
-
-Fase 3, paso 3.2.4.  Migrado de ``areas/alimentacion/domain/models/excel_cache.py``
-(que contiene el DTO raiz ``DataExcelCache`` mas los DTOs hoja: ``DataProcesoPLC``,
-``DataParamRealPLC``, ``DataParamIntPLC``, ``DataAlarmaPLC``, 6 Disp*, etc.).
+"""Data Block de DataProcesoPLC.
 
 Un **proceso** es la unidad organizativa del Excel: agrupa un conjunto
-de parametros reales, parametros enteros y alarmas que se generan
-juntos en el PLC.  Este DTO contiene exclusivamente los 8 campos del
-Excel corporativo.  Los nombres de DB y otros valores derivados se
-computan en el consumidor (frontend para mostrar, backend futuro para
-generar XML).
-
-El legacy sigue coexistiendo (DA-006) hasta Fase 4 (4.0.2).
+de parámetros reales, parámetros enteros y alarmas que se generan
+juntos en el PLC. Este DTO contiene exclusivamente los 8 campos del
+Excel corporativo. Los nombres de DB y otros valores derivados se
+computan en el consumidor (frontend para mostrar, backend para generar
+XML).
 """
 from __future__ import annotations
 

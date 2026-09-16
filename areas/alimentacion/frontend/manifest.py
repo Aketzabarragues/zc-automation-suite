@@ -96,8 +96,8 @@ def build() -> "AreaFrontendManifest":
             "AreaLanding":             f"{_STATIC_PREFIX}/components/AreaLanding.js",
             "DefinicionProgramacion":  f"{_STATIC_PREFIX}/components/DefinicionProgramacion.js",
             "Dispositivos":            f"{_STATIC_PREFIX}/components/Dispositivos.js",
-            # Sub-vista de primer nivel "Procesos" (Fase 6.A — UI sin
-            # lógica). Distinta del sub-componente ``ProcesosPanel``:
+            # Sub-vista de primer nivel "Procesos" (UI sin lógica).
+            # Distinta del sub-componente ``ProcesosPanel``:
             # esta es accesible desde el Sidebar y la welcome
             # (``key: "proc"``), mientras que ``ProcesosPanel`` solo
             # se monta dentro del tab "Procesos" de Definicion.

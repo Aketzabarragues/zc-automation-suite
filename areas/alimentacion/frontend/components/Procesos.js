@@ -2,10 +2,7 @@
  * Componente Procesos.
  *
  * Sub-vista de primer nivel del área "alimentacion" que se muestra
- * cuando ``store.currentView === 'proc'``. Es el primer paso (UI
- * solamente) de la funcionalidad de "generación de procesos en
- * TIA Portal" anunciada en el plan canónico
- * ``_plan/04_excel_cache_phased_plan.md`` (Fase 6, extensión).
+ * cuando ``store.currentView === 'proc'``.
  *
  * Estructura:
  *   1. Cabecera: icono + título + descripción corta.

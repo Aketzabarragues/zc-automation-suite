@@ -1,18 +1,14 @@
-"""areas.alimentacion.data.data_ParametrosReal â€” Data Block de DataParamRealPLC.
+"""Data Block de DataParamRealPLC.
 
-Fase 3, paso 3.2.6.  Migrado de ``areas/alimentacion/domain/models/excel_cache.py``.
-
-Un **parametro real** es una variable ``REAL`` (32 bits, IEEE 754) que
+Un **parámetro real** es una variable ``REAL`` (32 bits, IEEE 754) que
 el PLC expone al HMI y que el operario puede ajustar en runtime
-(tipicamente un setpoint, un limite o un factor de escalado).  Se
-agrupa en un DB por proceso: ``DB{num_db}_{codigo}_PREAL`` (uno por
-proceso, contiene varios ``DataParamRealPLC`` consecutivos).
+(típicamente un setpoint, un límite o un factor de escalado). Se agrupa
+en un DB por proceso: ``DB{num_db}_{codigo}_PREAL`` (uno por proceso,
+contiene varios ``DataParamRealPLC`` consecutivos).
 
-Shape identico a ``DataParamIntPLC`` (12 campos, mismos nombres, mismos
-defaults), pero **tipo distinto en Python** (R4 del plan): ver
-``data_ParametrosInt.py`` para la justificacion.
-
-El legacy sigue coexistiendo (DA-006) hasta Fase 4 (4.0.2).
+Shape idéntico a ``DataParamIntPLC`` (12 campos, mismos nombres, mismos
+defaults), pero **tipo distinto en Python**: ver ``data_ParametrosInt.py``
+para la justificación.
 """
 from __future__ import annotations
 

@@ -1,10 +1,8 @@
 /**
  * Componente DefinicionProgramacion.
  *
- * Vista "shell" de la pestaña **Definición programación**. Ya NO
- * contiene la tabla de dispositivos ni las 4 tablas de software
- * (Fase 6) en línea: se compone de sub-componentes para resolver el
- * rediseño de tabs principales acordado con el operario.
+ * Vista "shell" de la pestaña **Definición programación**. Se compone
+ * de sub-componentes para resolver el rediseño de tabs principales.
  *
  * Estructura del template (de arriba abajo):
  *   1. Carga excel + botón "Actualizar" (unificados en el mismo

@@ -1,13 +1,8 @@
-"""areas.alimentacion.data.data_ProcSlotMap ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒ¢Ã¢â€šÂ¬Ã‚Â Data Block de slot maps de procesos.
+"""Data Block de slot maps de procesos.
 
-Fase 3, paso 3.2.9.  Migrado de ``areas/alimentacion/application/proc_slot_map_builder.py``
-(que define el dataclass ``DataProcSlotMap`` con 12 campos). El builder
-``proc_build_slot_maps`` se fusiono aqui mismo (sept-2026) para que el
-area solo tenga la familia ``data_*`` como punto de entrada publico.
-
-Slot maps y metadatos TIA para un proceso.  Es el hermano "procesos"
-de ``DataDispSlotMap`` (paso 3.2.8) que cubre los 6 DBs de
-dispositivos ED/EA/SA/V/M/M_VF.  Las diferencias:
+Slot maps y metadatos TIA para un proceso. Es el hermano "procesos"
+de ``DataDispSlotMap`` que cubre los 6 DBs de dispositivos
+ED/EA/SA/V/M/M_VF. Las diferencias:
   - Sin slot 0.  Los arrays de proceso empiezan en 1.
   - Parametrizado por array (no por hw_type).
   - 3 arrays por proceso (PReal, PInt, ALM) en lugar de 1.

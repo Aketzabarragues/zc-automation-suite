@@ -1,8 +1,8 @@
 """Slot maps y builder para comentarios por instancia de DBs de dispositivos.
 
 Consolida:
-  - El dataclass ``DataDispSlotMap`` (antes en este archivo, paso 3.2.8).
-  - La funcion ``disp_build_slot_maps`` y ``disp_build_slot_map_for_hw``
+  - El dataclass ``DataDispSlotMap``.
+  - La función ``disp_build_slot_maps`` y ``disp_build_slot_map_for_hw``
     (antes en ``application/disp_slot_map_builder.py``).
 
 Une los datos de AppState (``comentario_db`` de cada dispositivo) con la

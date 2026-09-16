@@ -1,8 +1,4 @@
-"""areas.alimentacion.data.data_DispCatalog — Data Block del catalogo de dispositivos.
-
-Fase 3, paso 3.2.1.  Migrado de ``areas/alimentacion/domain/disp_catalog.py``
-(sept-2026) consolidando el dataclass ``DataDispCatalog`` con las
-constantes y funciones del legacy en un solo modulo de ``data/``.
+"""Data Block del catálogo de dispositivos.
 
 Catálogo de presentación para alimentar la SPA. Este módulo es la
 **fuente de verdad** de:
@@ -49,7 +45,7 @@ class DataDispCatalog:
     """Snapshot del catalogo de dispositivos para la SPA.
 
     Instanciar con ``DataDispCatalog()`` da un catalogo vacio
-    valido.  Los campos se rellenan en el wiring final de Fase 3
+    valido. Los campos se rellenan en el wiring final del módulo
     (DA-005.5) leyendo del ``ConfigManager`` y/o del legacy
     ``disp_catalog.build_catalog``.
     """

@@ -273,7 +273,7 @@ _app.mount("#app");
 
 loadCatalog();
 
-// ── SSE: Server-Sent Events (Fase 1 del refactor) ──────────────
+// ── SSE: Server-Sent Events ────────────────────────────────────
 // Abre un EventSource contra /stream. El SSE es la ÚNICA
 // fuente de updates del store desde 1.3.1 (los 3 setInterval de
 // logs/progress/tia se eliminaron; antes coexistían como red de

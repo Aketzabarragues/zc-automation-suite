@@ -8,8 +8,8 @@ del workbook del departamento de alimentación y la mapea a una lista de
 Diferencias con el legacy TUI (``_legacy_reference/ZC_ALM_TOOLS``):
     * Recibe el workbook **ya abierto** (``wb: Workbook``). NO abre
       el archivo: esa responsabilidad es del loader / endpoint /
-      MCP tool (Fase 5). Esto evita abrir el workbook 4 veces (uno
-      por parser de software) y soporta el patrón de Fase 5 donde el
+      MCP tool. Esto evita abrir el workbook 4 veces (uno
+      por parser de software) y soporta el patrón donde el
       ``ExcelLoader`` abre el workbook UNA vez y compone 11 parsers.
     * Sin pandas: openpyxl directo. Coherente con el parser
       consolidado ``AlimentacionExcelParser`` del repo.
@@ -64,8 +64,8 @@ class ProcesosParser:
             wb: workbook de openpyxl ya abierto (no se cierra aquí).
 
         Returns:
-            Lista de ``DataProcesoPLC``. Si la hoja o la tabla no existen
-            (R1 del plan), devuelve ``[]``. Las filas que fallen al
+            Lista de ``DataProcesoPLC``. Si la hoja o la tabla no
+            existen, devuelve ``[]``. Las filas que fallen al
             construir el DTO se descartan con WARNING.
 
         Política de descarte (legacy, plan Ã‚Â§5.7 test 5):

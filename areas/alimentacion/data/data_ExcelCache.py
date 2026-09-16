@@ -1,10 +1,4 @@
-"""areas.alimentacion.data.data_ExcelCache â€” Data Block raiz del cache del Excel.
-
-Fase 3, paso 3.2.3.  Migrado de ``areas/alimentacion/domain/models/excel_cache.py``
-(que contiene el root ``DataExcelCache`` + los DTOs hoja).  Esta migracion
-se hace al final del bloque 3.2 (despues de 3.2.4-3.2.7) porque la
-raiz importa los DTOs hoja: ``DataProcesoPLC``, ``DataParamRealPLC``,
-``DataParamIntPLC``, ``DataAlarmaPLC``, ``DataDimensionesDispositivos``.
+"""Data Block raíz del caché del Excel.
 
 Esta dataclass ``frozen=True`` agrupa TODOS los datos derivados del
 Excel (10 dominios: 6 dispositivos + N_MAX + 4 software) en una sola
@@ -22,8 +16,6 @@ Diseno:
     evitar O(n) por cada acceso.
   - ``software_parsers_implemented``: flag para que la SPA detecte si
     el backend expone los 4 dominios nuevos.
-
-El legacy sigue coexistiendo (DA-006) hasta Fase 4 (4.0.2).
 """
 from __future__ import annotations
 

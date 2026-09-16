@@ -8,9 +8,9 @@ de ``DataParamRealPLC`` (DTO inmutable definido en
 Diferencias con el legacy TUI (``_legacy_reference/ZC_ALM_TOOLS``):
     * Recibe el workbook **ya abierto** (``wb: Workbook``). NO abre
       el archivo: esa responsabilidad es del loader / endpoint /
-      MCP tool (Fase 5). Esto evita abrir el workbook 4 veces (uno
-      por parser de software) y soporta el patrón de Fase 5 donde
-      el ``ExcelLoader`` abre el workbook UNA vez y compone 11
+      MCP tool. Esto evita abrir el workbook 4 veces (uno
+      por parser de software) y soporta el patrón donde el
+      ``ExcelLoader`` abre el workbook UNA vez y compone 11
       parsers.
     * Sin pandas: openpyxl directo. Coherente con el parser
       consolidado ``AlimentacionExcelParser`` del repo.
@@ -25,9 +25,9 @@ Diferencias con el legacy TUI (``_legacy_reference/ZC_ALM_TOOLS``):
       ``Descripcion``, ``ComentarioDB``, ``Visibilidad``,
       ``Num.Lista``, ``Txt.Lista``.
 
-Punto crítico de Fase 2 (R4 del plan): el campo ``num_lista``
-**no** se mapea con ``_safe_int`` (que destruiría los marcadores
-semánticos del operario cayendo a ``0``). Se usa
+Punto crítico: el campo ``num_lista`` **no** se mapea con
+``_safe_int`` (que destruiría los marcadores semánticos del operario
+cayendo a ``0``). Se usa
 ``_safe_num_lista``, que preserva ``"N/A"`` y ``"TODOS"``
 literalmente. Esto es coherente con la regla R4 del operario y
 con el shape del DTO (``num_lista: int | str``).
@@ -77,8 +77,8 @@ class PRealParser:
 
         Returns:
             Lista de ``DataParamRealPLC``. Si la hoja o la tabla no
-            existen (R1 del plan), devuelve ``[]``. Las filas que
-            fallen al construir el DTO se descartan con WARNING.
+            existen, devuelve ``[]``. Las filas que fallen al
+            construir el DTO se descartan con WARNING.
 
         Política de descarte (consistente con ``ProcesosParser``,
         legacy dropna por UID):

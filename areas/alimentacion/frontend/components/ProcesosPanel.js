@@ -2,8 +2,8 @@
  * Componente ProcesosPanel.
  *
  * Panel que se muestra cuando ``store.activeMainTab === 'procesos'``.
- * Contiene los 4 dominios del Excel corporativo (Fase 6) en
- * sub-tabs, con la misma estética que ``DispositivosPanel``:
+ * Contiene los 4 dominios del Excel corporativo en sub-tabs, con la
+ * misma estética que ``DispositivosPanel``:
  *
  *   - Procesos             → ``store.memoryState.procesos``
  *   - Parámetros Enteros   → ``store.memoryState.parametros_int``

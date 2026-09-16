@@ -1,13 +1,10 @@
-"""areas.alimentacion.data.data_Dispositivos — Data Blocks de dispositivos.
+"""Data Blocks de dispositivos.
 
-Fase 3, paso 3.2.2.  Migrado de ``areas/alimentacion/domain/models/excel_cache.py``.
 Agrupa SOLO la familia "Dispositivos" en data pura (Protocol + 6 Disp*).
-``DimensionesDispositivos`` migra a su propio archivo
-``data_Dimensiones.py`` (subdivision del plan original) para mantener
-cada archivo < 200 lineas segun la regla del operario.
+``DimensionesDispositivos`` migra a su propio archivo ``data_Dimensiones.py``
+para mantener cada archivo < 200 líneas según la regla del operario.
 
-El legacy sigue coexistiendo (DA-006) y exporta los mismos nombres para
-back-compat hasta Fase 4 (4.0.2: borrar ``areas/alimentacion/domain/``).
+Migrado de ``areas/alimentacion/domain/models/excel_cache.py``.
 
 Convencion: ``frozen=True``, sin I/O, sin imports de
 ``siemens_tia_scripting`` u openpyxl.  ``str`` -> default ``""``,

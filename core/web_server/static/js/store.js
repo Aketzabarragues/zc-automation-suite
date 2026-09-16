@@ -99,8 +99,7 @@ export const store = reactive({
      *     ok: true,
      *     dimensiones: { num_disp_ed: int, ... },
      *     dispositivos: { "DispED": [...], ... },
-     *     // Nuevos (Fase 6): 4 dominios de software.
-     *     // Cada uno es [] si el operario no ha subido Excel.
+     *     // 4 dominios de software (cada uno [] si no hay Excel).
      *     procesos:             Array<ProcesoPLC>,
      *     parametros_int:       Array<ParamIntPLC>,
      *     parametros_real:      Array<ParamRealPLC>,
@@ -111,8 +110,8 @@ export const store = reactive({
      *
      * El flag ``software_parsers_implemented`` permite a la SPA
      * funcionar en modo degradado (banner ámbar) si el backend aún
-     * no trae los 4 nuevos campos (caso back-compat con una versión
-     * anterior a Fase 6 del plan canónico).
+     * no trae los 4 nuevos campos (back-compat con versiones
+     * anteriores).
      */
     memoryState: null,
 
@@ -692,10 +691,9 @@ export function resetPlcState() {
  *   * La deteccion de transiciones de estado y el logueo en
  *     ``ConsolaLogs`` se hace dentro de ``_applyTiaSnapshot``.
  *
- * (El polling de 2s se elimino en 1.3.1; el estado de TIA llega
- * via SSE.  La funcion ``refreshTiaConnection`` que existia antes
- * se elimino en Fase 3.3: ver test_store_tia_methods.py para la
- * regresion inversa.)
+ * (El polling de 2s se eliminó; el estado de TIA llega via SSE.
+ * La función ``refreshTiaConnection`` que existía antes ya no existe:
+ * ver test_store_tia_methods.py para la regresión inversa.)
  */
 
 /**
@@ -1171,9 +1169,9 @@ export async function disconnectTia() {
  * EXPONEMOS en el ``store`` para los callers que las invocan
  * reactivamente.
  *
- * NOTA (Fase 3.3, sept-2026): ``refreshTiaConnection`` ya NO se
- * exporta ni se asigna al store.  El polling legacy se elimino en
- * 1.3.1; el estado de TIA llega via SSE (canal ``tia_state`` que
+ * NOTA: ``refreshTiaConnection`` ya NO se exporta ni se asigna al
+ * store. El polling legacy se eliminó; el estado de TIA llega via
+ * SSE (canal ``tia_state`` que
  * ``main.js`` parsea directamente).  Ver test_store_tia_methods.py
  * para la regresion inversa.
  */

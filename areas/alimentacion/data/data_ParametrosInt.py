@@ -1,23 +1,19 @@
-"""areas.alimentacion.data.data_ParametrosInt Ã¢â‚¬” Data Block de DataParamIntPLC.
+"""Data Block de DataParamIntPLC.
 
-Fase 3, paso 3.2.5.  Migrado de ``areas/alimentacion/domain/models/excel_cache.py``.
-
-Un **parametro entero** es una variable ``DINT``/``INT`` (32/16 bits) que
+Un **parámetro entero** es una variable ``DINT``/``INT`` (32/16 bits) que
 el PLC expone al HMI y que el operario puede ajustar en runtime
-(tipicamente un contador, un indice o un factor de escalado discreto).
+(típicamente un contador, un índice o un factor de escalado discreto).
 Se agrupa en un DB por proceso: ``DB{num_db}_{codigo}_PINT`` (uno por
 proceso, contiene varios ``DataParamIntPLC`` consecutivos).
 
-Shape identico a ``DataParamRealPLC`` (12 campos, mismos nombres, mismos
-defaults), pero **tipo distinto en Python** (R4 del plan, resuelto por
-el operario el 2026-09-01): ``DataParamIntPLC`` y ``DataParamRealPLC``
-son nominalmente dos dataclasses separadas. ``isinstance(DataParamIntPLC(...), DataParamRealPLC) == False``.
+Shape idéntico a ``DataParamRealPLC`` (12 campos, mismos nombres, mismos
+defaults), pero **tipo distinto en Python**: ``DataParamIntPLC`` y
+``DataParamRealPLC`` son nominalmente dos dataclasses separadas.
+``isinstance(DataParamIntPLC(...), DataParamRealPLC) == False``.
 
 Razon de la separacion (R4): si en el futuro se quiere anadir
 ``rango_min``/``rango_max`` solo a ``DataParamRealPLC`` (derivados de
 ``DispEA.RII``/``DispEA.RSI``), se hace sin tocar ``DataParamIntPLC``.
-
-El legacy sigue coexistiendo (DA-006) hasta Fase 4 (4.0.2).
 """
 from __future__ import annotations
 

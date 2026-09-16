@@ -1,15 +1,14 @@
-"""areas.alimentacion.data.data_Dimensiones — Data Block de N_MAX de dispositivos.
+"""Data Block de N_MAX de dispositivos.
 
-Fase 3, paso 3.2.2 (subdivision del plan original: ``data_Dispositivos.py``
-se parte en dos archivos para mantener < 200 lineas).  Migrado de
-``areas/alimentacion/domain/models/excel_cache.py`` (donde vivia como
+Subdivision de ``data_Dispositivos.py`` en dos archivos para mantener
+cada uno < 200 líneas. Migrado de
+``areas/alimentacion/domain/models/excel_cache.py`` (donde vivía como
 ``DimensionesDispositivos``).
 
 Este archivo contiene SOLO ``DimensionesDispositivos`` (cantidades N_MAX
-de los 6 tipos legacy + extras).  El legacy sigue coexistiendo (DA-006)
-hasta Fase 4 (4.0.2: borrar ``areas/alimentacion/domain/``).
+de los 6 tipos legacy + extras).
 
-Convencion:
+Convención:
   - ``frozen=True``: las dimensiones N_MAX son casi inmutables; cambiar
     un N_MAX obliga a reescribir el dataclass completo.
   - Sin I/O, sin imports de ``siemens_tia_scripting`` u openpyxl.

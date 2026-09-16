@@ -8,9 +8,9 @@ de ``DataAlarmaPLC`` (DTO inmutable definido en
 Diferencias con el legacy TUI (``_legacy_reference/ZC_ALM_TOOLS``):
     * Recibe el workbook **ya abierto** (``wb: Workbook``). NO abre
       el archivo: esa responsabilidad es del loader / endpoint /
-      MCP tool (Fase 5). Esto evita abrir el workbook 4 veces (uno
-      por parser de software) y soporta el patrón de Fase 5 donde
-      el ``ExcelLoader`` abre el workbook UNA vez y compone 11
+      MCP tool. Esto evita abrir el workbook 4 veces (uno
+      por parser de software) y soporta el patrón donde el
+      ``ExcelLoader`` abre el workbook UNA vez y compone 11
       parsers.
     * Sin pandas: openpyxl directo. Coherente con el parser
       consolidado ``AlimentacionExcelParser`` del repo.
@@ -23,26 +23,25 @@ Diferencias con el legacy TUI (``_legacy_reference/ZC_ALM_TOOLS``):
       software/alarmas.py`` líneas 23-30): ``UID``, ``Numero``,
       ``Proceso``, ``Num.DB``, ``Descripcion``, ``ComentarioDB``.
       **NO** se lee ``Visibilidad`` (no existe en esta tabla del
-      legacy; R-F4.1 del plan documenta que si el Excel la trae en
-      el futuro, se ignora silenciosamente).
+      legacy; si el Excel la trae en el futuro, se ignora
+      silenciosamente).
 
 Esta es la **implementación de referencia** que los 6 mini parsers
-de dispositivos de Fase 5 (``disp_ed.py``, ``disp_ea.py``,
-``disp_sa.py``, ``disp_v.py``, ``disp_m.py``, ``disp_m_vf.py``)
-imitarán en estructura: cada uno es una clase con
-``SHEET``/``TABLE`` como constantes y un único método
+de dispositivos (``disp_ed.py``, ``disp_ea.py``, ``disp_sa.py``,
+``disp_v.py``, ``disp_m.py``, ``disp_m_vf.py``) imitarán en
+estructura: cada uno es una clase con ``SHEET``/``TABLE`` como
+constantes y un único método
 ``extraer(self, wb: Workbook) -> list[DTO]`` que delega en
 ``extract_list_object_rows`` y descarta filas inválidas con
-``logger.warning``. Los parsers de Fase 5 serán casi 1:1 con
-``AlarmasParser`` cambiando solo el DTO destino y las claves de
-columna (R5 del plan, R-F4.1 también).
+``logger.warning``. Serán casi 1:1 con ``AlarmasParser`` cambiando
+solo el DTO destino y las claves de columna.
 
-R-F4.1 (defensa contra schema drift): el método ``extraer`` solo
-lee las 6 claves que conoce (``UID``, ``Numero``, ``Proceso``,
-``Num.DB``, ``Descripcion``, ``ComentarioDB``). Si el Excel incluye
-columnas adicionales (por ejemplo, ``Visibilidad`` si el
-corporativo decide añadirla en el futuro), esas columnas se
-ignoran silenciosamente: el ``dict`` que devuelve
+Defensa contra schema drift: el método ``extraer`` solo lee las 6
+claves que conoce (``UID``, ``Numero``, ``Proceso``, ``Num.DB``,
+``Descripcion``, ``ComentarioDB``). Si el Excel incluye columnas
+adicionales (por ejemplo, ``Visibilidad`` si el corporativo decide
+añadirla en el futuro), esas columnas se ignoran silenciosamente:
+el ``dict`` que devuelve
 ``extract_list_object_rows`` las contendrá como claves, pero el
 constructor de ``DataAlarmaPLC`` no las acepta (``frozen=True`` con
 lista cerrada de campos) y el ``try/except`` que rodea la
@@ -84,14 +83,14 @@ class AlarmasParser:
           (``"Tabla_Alarmas"``).
 
     Implementación de referencia: este parser es la plantilla
-    que los 6 mini parsers de dispositivos (Fase 5.3 del plan)
-    imitarán. La única diferencia entre ``AlarmasParser`` y un
-    futuro ``DispEDParser`` será:
+    que los 6 mini parsers de dispositivos imitarán. La única
+    diferencia entre ``AlarmasParser`` y un futuro ``DispEDParser``
+    será:
 
         * Constantes ``SHEET``/``TABLE`` apuntando a la hoja y
           ``ListObject`` del dispositivo correspondiente.
-        * DTO destino (en este caso ``DataAlarmaPLC``, 6 campos; en
-          Fase 5 será ``DispED``, 11+ campos, etc.).
+        * DTO destino (en este caso ``DataAlarmaPLC``, 6 campos;
+          en los dispositivos será ``DispED``, 11+ campos, etc.).
         * Claves de columna leídas (las 6 del legacy alarmas, o
           las N del dispositivo).
     """

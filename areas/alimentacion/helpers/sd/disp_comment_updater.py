@@ -175,7 +175,7 @@ class DispCommentUpdater:
     def update(self) -> DispCommentResult:
         """Orquesta la actualización. Retorna ``DispCommentResult``.
 
-        Algoritmo (ver docstring del plan):
+        Algoritmo:
           1. Para cada i in slot_map: localizar MLC existente o crear uno.
           2. Slot 0: siempre debe tener MLC (respetar o crear).
           3. Reescribir ``.s7res`` (alta/baja de entradas).

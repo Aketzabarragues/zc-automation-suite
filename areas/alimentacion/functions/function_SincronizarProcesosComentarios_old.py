@@ -1,6 +1,6 @@
 """Function block: sincronizar comentarios de los 3 arrays de un proceso.
 
-Fase 2, paso 2.1.7.  Encapsula el método
+Encapsula el método
 ``ProcSyncComentariosUseCase.ejecutar_transaccion`` (areas/alimentacion/
 application/use_cases/proc_sync_comentarios.py:408) en un
 ``FunctionBase`` con state machine ``nStep = 10 -> 20 -> 30 -> 99``
@@ -18,11 +18,11 @@ State machine:
   nStep=99  done        (terminal OK)
   nStep=98  error       (terminal con error_msg)
 
-Decisión de diseño (mismo patrón que el resto de FBs wrapper de
-Fase 2): el use case legacy es de 1073 líneas con ``_compose_*``,
-``_compute_*`` y ``_export_and_read_current`` que hacen I/O pesada
-(transacción COM con 2 sub-ops, export bulk).  El FB es un WRAPPER
-con state machine que delega al use case via lazy instantiation.
+Decisión de diseño: el use case legacy es de 1073 líneas con
+``_compose_*``, ``_compute_*`` y ``_export_and_read_current`` que hacen
+I/O pesada (transacción COM con 2 sub-ops, export bulk). El FB es un
+WRAPPER con state machine que delega al use case via lazy
+instantiation.
 
 Detalle del flow: el use case **recalcula el diff desde el AppState**
 (no usa la ``prevision`` del body) para evitar race conditions con

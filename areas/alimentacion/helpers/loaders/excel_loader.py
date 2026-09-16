@@ -108,9 +108,9 @@ class ExcelLoader:
                 f"No se encontró el Excel: '{path}'"
             )
 
-        # Resolución Windows-safe (R3 del plan): ``st_mtime_ns``
-        # está disponible en Python 3.7+ y en openpyxl / Windows
-        # con precisión de nanosegundos.
+        # Resolución Windows-safe: ``st_mtime_ns`` está disponible en
+        # Python 3.7+ y en openpyxl / Windows con precisión de
+        # nanosegundos.
         mtime_ns = path.stat().st_mtime_ns
         wb = load_workbook(
             filename=str(path), read_only=False, data_only=True,

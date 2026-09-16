@@ -354,8 +354,7 @@ class TagTableModifier(XMLModifier):
             El root debe mantener su ID original (``0`` o el que TIA
             asigno al exportar). Sin esta llamada, el import de la
             PlcTagTable funciona correctamente. El metodo se conserva
-            solo por compat con el modulo legacy
-            (``disp_sync_instances.py``), que sera borrado en FASE 5.
+            solo por compat con codigo antiguo.
 
             Si necesitas regenerar IDs para evitar colision en algun
             flujo futuro, escribe un nuevo metodo especifico con el
