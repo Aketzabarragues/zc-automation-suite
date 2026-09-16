@@ -107,14 +107,9 @@ class FunctionTemplate(FunctionBase):
         #                 None si el FB no toca TIA (ej. SubirExcel).
         # build_cache:    BuildCache del area (.build_cache/<area>/<contexto>/...).
         #                 None si el FB no exporta nada a TIA.
-        # log:            LogBuffer del core. Los ``self._log.info/warn/error``
-        #                 aparecen en la ConsolaLogs de la SPA.
-        #                 Si None, el FB usa ``logger`` del modulo (no se ve
-        #                 en la SPA, solo en stdout).
         config_manager: Any = None,
         tia_client: Any = None,
         build_cache: Any = None,
-        log: Any = None,
     ) -> None:
         super().__init__(
             # TOCAR: id canonico del FB (snake_case, estable, sin espacios).
@@ -148,11 +143,6 @@ class FunctionTemplate(FunctionBase):
         self._config = config_manager
         self._tia_client = tia_client
         self._build_cache = build_cache
-        # Si el FB no recibe ``log``, usamos el logger del modulo
-        # (no aparece en ConsolaLogs de la SPA, solo en stdout/archivo).
-        # Para que el operario vea los logs del FB en la SPA, hay que
-        # inyectar ``log=get_log_buffer()`` al registrar el FB.
-        self._log = log if log is not None else logger
         # ==================================================================
         # ESTADO INTERNO DEL FB (ZONA 3: atributos del start())
         # ==================================================================
@@ -210,7 +200,7 @@ class FunctionTemplate(FunctionBase):
     async def run_step(self, idx: int, **params: Any) -> str:
         """Logica del step N. Devuelve un detail (str) para el HMI."""
         step_nombre = self.steps[idx]["nombre"]
-        self._log.info(f"[{self.nombre}] CASE {step_nombre} (idx={idx})")
+        logger.info(f"[{self.nombre}] CASE {step_nombre} (idx={idx})")
 
         # ------------------------------------------------------------------
         # CASE step_nombre OF

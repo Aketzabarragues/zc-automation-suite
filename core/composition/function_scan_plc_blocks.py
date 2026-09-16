@@ -25,11 +25,13 @@ El ``self.result`` se popula con la shape::
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from core.composition.plc_function_base import FunctionBase
 from core.runtime.app_state import AppState, get_app_state
-from core.runtime.log_buffer import LogBuffer, get_log_buffer
+
+logger = logging.getLogger(__name__)
 
 
 class FunctionScanPlcBlocks(FunctionBase):
@@ -57,7 +59,6 @@ class FunctionScanPlcBlocks(FunctionBase):
         config_manager: Any = None,
         tia_client: Any = None,
         build_cache: Any = None,
-        log: Any = None,
         # ── Deps especificas de este FB ──
         app_state: AppState | None = None,
     ) -> None:
@@ -74,7 +75,6 @@ class FunctionScanPlcBlocks(FunctionBase):
         self._config = config_manager  # No usado en este FB.
         self._tia_client = tia_client
         self._build_cache = build_cache  # No usado en este FB.
-        self._log: LogBuffer = log if log is not None else get_log_buffer()
         # Deps especificas.
         self._state: AppState = (
             app_state if app_state is not None else get_app_state()
@@ -96,7 +96,7 @@ class FunctionScanPlcBlocks(FunctionBase):
             )
         self._plc_name = str(plc_name)
         self._force_refresh = bool(params.get("force_refresh", False))
-        self._log.info(
+        logger.web(
             f"[{self.nombre}] Iniciando scan de '{self._plc_name}' "
             f"(force_refresh={self._force_refresh})"
         )
@@ -150,7 +150,7 @@ class FunctionScanPlcBlocks(FunctionBase):
                     "n_udts": len(cache.udts),
                     "scanned_at": cache.scanned_at.isoformat(),
                 }
-                self._log.success(
+                logger.ok(
                     f"[{self.nombre}] Scan completo: "
                     f"{len(cache.blocks)} bloques, "
                     f"{len(cache.tag_tables)} tablas, "

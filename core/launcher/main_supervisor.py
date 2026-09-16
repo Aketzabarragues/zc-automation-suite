@@ -184,11 +184,9 @@ class MainServiceSupervisor:
             from core.composition.register_core_fbs import (
                 register as register_core_fbs,
             )
-            from core.runtime.log_buffer import get_log_buffer
             register_core_fbs(
                 engine,
                 tia_client=tia_client,
-                log=get_log_buffer(),
             )
             # Registrar los FBs del area (template + futuros reales).
             from areas.alimentacion import register as register_alimentacion

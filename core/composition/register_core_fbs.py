@@ -15,12 +15,10 @@ from __future__ import annotations
 
 import logging
 
-from core.runtime.log_buffer import get_log_buffer
-
 logger = logging.getLogger("zc")
 
 
-def register(engine, *, tia_client=None, log=None) -> None:
+def register(engine, *, tia_client=None) -> None:
     """Registra los FBs core en ``engine``.
 
     Args:
@@ -28,8 +26,6 @@ def register(engine, *, tia_client=None, log=None) -> None:
         tia_client: cliente TIA inyectado (Singleton o mock). Se pasa
             a los FBs que necesitan dispatch contra el worker OT
             (p. ej. ``scan_plc_blocks``).
-        log: ``LogBuffer`` para los ``self._log.*`` de los FBs. Si
-            None, se usa el Singleton global.
 
     Raises:
         TypeError: si ``engine`` no expone ``register_fb``.
@@ -39,8 +35,6 @@ def register(engine, *, tia_client=None, log=None) -> None:
             f"engine debe exponer register_fb(); recibio {type(engine).__name__}"
         )
 
-    log = log if log is not None else get_log_buffer()
-
     from core.composition.function_scan_plc_blocks import FunctionScanPlcBlocks
 
     engine.register_fb(
@@ -48,7 +42,6 @@ def register(engine, *, tia_client=None, log=None) -> None:
         FunctionScanPlcBlocks(
             nombre="scan_plc_blocks",
             tia_client=tia_client,
-            log=log,
         ),
     )
     logger.info(
