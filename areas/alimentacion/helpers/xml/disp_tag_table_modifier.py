@@ -342,11 +342,24 @@ class TagTableModifier(XMLModifier):
     _ROOT_ID_OFFSET = 0x10000  # 65536, holgura para evitar colision
 
     def regenerate_root_table_id(self) -> str | None:
-        """Regenera el ID de la PlcTagTable raiz a un valor unico alto.
+        """.. deprecated::
+            NO LLAMAR. Cambiar el ID de la ``PlcTagTable`` raiz de `` ``0`` ``
+            a un valor alto (``max_id + 0x10000``) hace que TIA Portal V21
+            interprete el import como CREATE (no UPDATE) y reviente con::
 
-        Returns:
-            El nuevo ID en formato Siemens (hex mayuscula), o ``None``
-            si no hay PlcTagTable en el documento.
+                OpennessAccessException: Commit of a Transaction is not
+                allowed after an exception is thrown due to potential
+                project data corruption.
+
+            El root debe mantener su ID original (``0`` o el que TIA
+            asigno al exportar). Sin esta llamada, el import de la
+            PlcTagTable funciona correctamente. El metodo se conserva
+            solo por compat con el modulo legacy
+            (``disp_sync_instances.py``), que sera borrado en FASE 5.
+
+            Si necesitas regenerar IDs para evitar colision en algun
+            flujo futuro, escribe un nuevo metodo especifico con el
+            contexto validado contra TIA V21+.
         """
         _PLC_TAG_TABLE = "{*}SW.Tags.PlcTagTable"
         table = self._root.find(f".//{_PLC_TAG_TABLE}")

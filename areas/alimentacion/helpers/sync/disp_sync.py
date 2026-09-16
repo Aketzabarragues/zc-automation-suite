@@ -679,7 +679,11 @@ def _copy_and_edit_offline(
             modifier = TagTableModifier(xml_path)
             modifier.add_user_constants_by_table(table_name, adds)
             modifier.remove_user_constants(removes)
-            modifier.regenerate_root_table_id()
+            # NO llamamos ``modifier.regenerate_root_table_id()``:
+            # cambiar el ID del PlcTagTable root de ``0`` a un valor alto
+            # hace que TIA Portal V21 interprete el import como CREATE
+            # (no UPDATE) y reviente con ``CommitOnDispose`` al intentar
+            # commit/rollback. El root debe mantener su ID original.
             if modifier.was_modified():
                 modifier.save(xml_path)
 
