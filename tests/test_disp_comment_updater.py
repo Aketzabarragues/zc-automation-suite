@@ -16,6 +16,9 @@ from pathlib import Path
 import pytest
 
 from areas.alimentacion.helpers.simatic_sd.simatic_sd_disp_comment_updater import DispCommentUpdater
+from areas.alimentacion.helpers.simatic_sd.simatic_sd_s7dcl_parser import (
+    extract_all_mlcs_from_s7dcl,
+)
 
 
 # â”€â”€ Fixtures: contenido de .s7dcl / .s7res â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -328,10 +331,7 @@ END_DATA_BLOCK
         "    es-ES: NO USAR\n"
     )
     dcl, res = _write_pair(tmp_path, s7dcl, s7res)
-    updater = DispCommentUpdater(
-        dcl, res, slot_map={0: "NO USAR"}, db_array_name="ED"
-    )
-    extracted = updater._extract_all_mlcs_from_s7dcl()  # type: ignore[attr-defined]
+    extracted = extract_all_mlcs_from_s7dcl(dcl.read_text(encoding="utf-8"))
     assert "MLC_cmt_1" in extracted     # S7_BlockComment
     assert "MLC_title_1" in extracted   # S7_BlockTitle
     assert "MLC_arr_1" in extracted     # S7_MLC en bloque de array
