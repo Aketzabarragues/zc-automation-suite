@@ -1,16 +1,9 @@
 """Workdir layout del área alimentación: dispositivos y procesos.
 
 Extiende ``core.infrastructure.tia.tia_workdir_layout.WorkdirAreaLayout``
-con los contextos (bounded contexts del área) que necesita hoy:
-
-* ``dispositivos``: ciclo de export/modify/import de los 6 DBs de
-  dispositivos (ED, EA, SA, V, M, M_VF) + tabla N_MAX.
-* ``procesos``: ciclo análogo para los bloques de proceso
-  (PReal, PInt, ALM).
-
-MaÃ±ana, ``areas/trazabilidad/infrastructure/build_cache.py`` aportará
-su propio ``TrazabilidadAreaLayout`` con ``.lotes`` y ``.recetas``
-siguiendo el mismo patrón â€” sin tocar ``core/``.
+con los contextos del área: ``dispositivos`` (ciclo de export/modify/
+import de los 6 DBs de dispositivos + tabla N_MAX) y ``procesos``
+(ciclo análogo para PReal, PInt, ALM).
 
 Convenio de uso
 ===============

@@ -1,11 +1,9 @@
 """Router Flask del endpoint ``POST /api/v1/plcs/<name>/sync/commit``.
 
-Migrado del metodo legacy ``DispSyncInstancesUseCase.ejecutar_transaccion``
-(sept-2026, ahora vive en el FB nuevo ``disp_sincronizar``). El helper
-vive en ``areas/alimentacion/helpers/sync/disp_sync.py``; el FB
-``FunctionDispSincronizarDispositivos`` (registrado en el engine como
-``disp_sincronizar``) tiene la state machine + tracker; este router
-solo orquesta: arranca el FB y devuelve el ``result``.
+El helper vive en ``areas/alimentacion/helpers/sync/disp_sync.py``.
+El FB ``FunctionDispSincronizarDispositivos`` tiene la state machine
++ tracker. Este router solo orquesta: arranca el FB y devuelve el
+``result``.
 
 Endpoint:
   POST /api/v1/plcs/<plc_name>/sync/commit

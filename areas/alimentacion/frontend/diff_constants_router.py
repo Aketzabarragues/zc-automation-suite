@@ -1,11 +1,10 @@
 """Router Flask del endpoint ``POST /api/v1/plcs/<name>/diff-constants``.
 
-Migrado del use case legacy ``application/use_cases/disp_diff_constants.py``
-(sept-2026). La logica pura vive en
-``areas/alimentacion/helpers/sync/diff_constants.py``; el FB
-``FunctionDiffConstants`` (registrado en el engine como
-``diff_constants``) tiene la state machine + tracker; este router solo
-orquesta: recibe los 6 params, arranca el FB y devuelve el ``result``.
+La lógica pura vive en
+``areas/alimentacion/helpers/sync/diff_constants.py``. El FB
+``FunctionDiffConstants`` tiene la state machine + tracker. Este
+router solo orquesta: recibe los params, arranca el FB y devuelve
+el ``result``.
 
 Endpoint:
   POST /api/v1/plcs/<plc_name>/diff-constants
