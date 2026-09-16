@@ -25,9 +25,6 @@ from areas.alimentacion.frontend.dispositivos_router import (
 from areas.alimentacion.frontend.excel_router import (
     build_routers as build_excel_routers,
 )
-from areas.alimentacion.frontend.diff_constants_router import (
-    build_routers as build_diff_constants_routers,
-)
 from areas.alimentacion.frontend.disp_comments_router import (
     build_routers as build_disp_comments_routers,
 )
@@ -62,7 +59,6 @@ def _build_all_routers(app) -> None:
     """
     build_dispositivos_routers(app)
     build_excel_routers(app)
-    build_diff_constants_routers(app)
     build_disp_comments_routers(app)
     build_disp_preview_routers(app)
     build_disp_sync_routers(app)
@@ -115,7 +111,6 @@ def register(
     from core.runtime.log_buffer import get_log_buffer
 
     from areas.alimentacion.functions.function_SubirExcel import FunctionSubirExcel
-    from areas.alimentacion.functions.function_DiffConstants import FunctionDiffConstants
     from areas.alimentacion.functions.function_SincronizarDispComentarios import (
         FunctionSincronizarDispComentarios,
     )
@@ -143,17 +138,6 @@ def register(
             config_manager=config_manager,
             log=log,
             app_state=app_state,
-        ),
-    )
-
-    # FB puro (sin I/O): solo necesita log. No toca TIA, no toca
-    # config_manager ni build_cache. La validacion de los 4 estados
-    # se hace en on_start.
-    engine.register_fb(
-        "diff_constants",
-        FunctionDiffConstants(
-            nombre="diff_constants",
-            log=log,
         ),
     )
 
