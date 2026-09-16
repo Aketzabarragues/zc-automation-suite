@@ -231,10 +231,19 @@ def make_cmd_commit_disp_devices_offline() -> Callable[..., Any]:
         modified_dir: str = args.get("modified_dir", "")
         target_folder: str = args.get("target_folder", "")
 
-        if not (plc_name and modified_dir and target_folder):
+        # ``target_folder`` se deja opcional (default ``""`` en el handler
+        # de ``import_plc_tags_xml``): si se pasa no-vacio, TIA Portal
+        # busca esa ruta INTERNA especifica para el import. Pero como
+        # el filesystem del directorio a importar ya contiene la
+        # estructura completa (``<modified>/variables/2000_Dispositivos/``),
+        # TIA deduce la ruta de cada PLC tag automaticamente y hace UPDATE
+        # (no CREATE). Si pasamos un ``target_folder`` distinto, TIA no
+        # encuentra el match y revienta con ``CommitOnDispose``. Convencion
+        # del legacy: no pasar ``target_folder`` (import a raiz).
+        if not (plc_name and modified_dir):
             raise ValueError(
-                "commit_disp_devices_offline: plc_name, modified_dir y "
-                "target_folder son requeridos."
+                "commit_disp_devices_offline: plc_name y modified_dir "
+                "son requeridos."
             )
 
         from core.infrastructure.tia import tia_helpers

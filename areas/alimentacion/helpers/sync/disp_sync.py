@@ -293,17 +293,16 @@ async def tx_b_devices(ctx: DispSyncContext) -> None:
         "tx_b_devices requiere exportar_tags previo"
     )
     if ctx.device_changes:
-        # ``target_folder`` es la ruta interna de TIA Portal donde
-        # ``import_plc_tags_xml`` mete los tag tables. El legacy
-        # ``disp_sync_instances.py:1001`` usaba
-        # ``config.get_tia_folder_dispositivos()``; replicamos esa
-        # convencion. Sin esto, el handler
-        # ``commit_disp_devices_offline`` rechaza el dispatch con
-        # ``ValueError: target_folder requerido``.
-        target_folder = ctx.config_manager.get_tia_folder_dispositivos()
-        # Tx B importa desde ``modified_variables`` (NO ``exports_variables``)
-        # porque el copytree de Stage 7 (``_copy_and_edit_offline``) ya
-        # copio y edito los XMLs ahi.
+        # NO pasamos ``target_folder`` (legacy ``disp_sync_instances.py:736``
+        # tampoco lo pasaba). TIA Portal V21 escanea
+        # ``modified_variables/`` recursivamente: si encuentra la
+        # estructura interna del PLC (e.g.
+        # ``2000_Dispositivos/2000_Disp_ED.xml``), hace match
+        # automatico con su PLC tag interno y dispara UPDATE (no
+        # CREATE). Pasar ``target_folder`` con un valor explicito
+        # fuer.a el match a una sola carpeta, lo rompe y causa
+        # ``CommitOnDispose``. Import a RAIZ con ``target_folder=""``
+        # (default del handler) es el camino feliz.
         from areas.alimentacion.helpers.build_cache import build_cache
         disp_ctx = build_cache(root=ctx.build_cache_root).dispositivos
         devices_result = await _dispatch_async(
@@ -313,7 +312,6 @@ async def tx_b_devices(ctx: DispSyncContext) -> None:
                 "plc_name": ctx.plc_name,
                 "device_changes": ctx.device_changes,
                 "modified_dir": str(disp_ctx.modified_variables),
-                "target_folder": target_folder,
                 "undo_text": "Sync devices",
             },
             timeout_s=180.0,
