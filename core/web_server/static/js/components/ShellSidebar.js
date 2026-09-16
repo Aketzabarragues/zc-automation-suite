@@ -131,8 +131,8 @@ export default {
     template: /* html */ `
         <aside class="fixed left-0 top-0 h-screen w-72 flex-shrink-0 bg-shell text-on-shell flex flex-col overflow-hidden z-30">
 
-            <header class="px-5 py-5 border-b border-shell-border shrink-0">
-                <p class="text-[10px] uppercase tracking-widest text-on-shell-faint font-bold mb-1">Área</p>
+            <header class="px-5 py-4 border-b border-shell-border shrink-0">
+                <p class="text-[10px] uppercase tracking-widest text-on-shell-faint font-bold mb-2">Área</p>
                 <p class="text-xl font-extrabold text-on-shell tracking-tight truncate">{{ areaLabel }}</p>
             </header>
 
@@ -141,8 +141,12 @@ export default {
                      activa. Resalta si store.currentView === 'plc'.
                      El padre enruta 'plc' al PlcPanelView del shell.
                      'pt-8' (32px) es el sweet spot entre pt-6 (queda
-                     pegado al header) y pt-10 (separa demasiado). -->
-                <div class="px-3 pt-8 shrink-0" data-testid="sidebar-plc-button-wrapper">
+                     pegado al header) y pt-10 (separa demasiado).
+                     El wrapper lleva 'mb-2' para que el bloque PLC
+                     quede visualmente separado del bloque de
+                     Navegacion (simetrico al pt-8 que separa el
+                     bloque PLC del header). -->
+                <div class="px-3 pt-8 mb-2 shrink-0" data-testid="sidebar-plc-button-wrapper">
                     <p class="px-3 text-[10px] uppercase tracking-widest text-on-shell-faint font-bold mb-2">PLC</p>
                     <button @click="navigate('plc')"
                             data-testid="sidebar-plc-button"
@@ -156,9 +160,12 @@ export default {
                     </button>
                 </div>
 
-                <!-- Navegacion del area (sub-vistas, viene del manifest). -->
-                <nav class="flex-1 px-3 py-3 overflow-y-auto">
+                <!-- Navegacion del area (sub-vistas, viene del manifest).
+                     'gap-1' (4px) entre opciones para evitar el efecto
+                     'lista pegada' que tenia con 0 gap. -->
+                <nav class="flex-1 px-3 py-4 overflow-y-auto">
                     <p class="px-3 text-[10px] uppercase tracking-widest text-on-shell-faint font-bold mb-2">Navegación</p>
+                    <div class="flex flex-col gap-1">
                     <button v-for="item in navItems" :key="item.key"
                             @click="navigate(item.key)"
                             :data-area-key="item.key"
@@ -170,6 +177,7 @@ export default {
                         <span class="text-base opacity-90" aria-hidden="true">{{ item.icon }}</span>
                         <span class="truncate">{{ item.label }}</span>
                     </button>
+                    </div>
                 </nav>
 
                 <!-- ProgressIndicator (variant dark automatico). -->
