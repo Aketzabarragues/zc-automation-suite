@@ -1,7 +1,7 @@
 """FB de area: sincronizacion transaccional de dispositivos vs PLC.
 
 State machine sobre el helper ``disp_sync`` (areas/alimentacion/helpers
-/sync/disp_sync.py). El helper expone funciones independientes
+/disp/disp_sync.py). El helper expone funciones independientes
 (``exportar_tags``, ``compute_diff``, ``tx_a_nmax_renames``, etc.) que
 reciben un ``DispSyncContext`` y mutan sus campos. **Aqui en el FB vive
 la state machine**: el orden de las 11 llamadas, el mapping step ->
@@ -151,7 +151,7 @@ class FunctionDispSincronizarDispositivos(FunctionBase):
 
         # Crear el DispSyncContext que las 11 funciones iran mutando.
         # Lazy import para evitar ciclo con helpers/sync/.
-        from areas.alimentacion.helpers.sync.disp_sync import DispSyncContext
+        from areas.alimentacion.helpers.disp.disp_sync import DispSyncContext
         self._ctx = DispSyncContext(
             plc_name=self._plc_name,
             tia_client=self._tia_client,

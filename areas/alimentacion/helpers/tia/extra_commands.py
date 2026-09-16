@@ -217,7 +217,7 @@ def make_cmd_commit_disp_devices_offline() -> Callable[..., Any]:
     def _cmd(args: dict[str, Any], tia_client: Any) -> dict[str, Any]:
         """Aplica SOLO el import_plc_tags_xml de Tx B (Stage 8).
 
-        El helper ``areas.alimentacion.helpers.sync.disp_sync`` ya hace:
+        El helper ``areas.alimentacion.helpers.disp.disp_sync`` ya hace:
           - Stage 6: export_post_tx_a (relee XMLs post-Tx A).
           - Stage 7: _apply_xml_edits_offline (edita los XMLs offline).
 

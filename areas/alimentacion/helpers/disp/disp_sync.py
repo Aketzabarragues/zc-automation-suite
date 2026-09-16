@@ -147,6 +147,10 @@ async def compute_diff(ctx: DispSyncContext) -> None:
     assert ctx.tags_base is not None, (
         "compute_diff requiere exportar_tags previo"
     )
+    from areas.alimentacion.helpers.disp.disp_generate_preview import (
+        _build_desired_state_from_app,
+        _compute_diff_readonly,
+    )
     ctx.desired_state_per_table = _build_desired_state_from_app(
         ctx.app_state, ctx.config_manager,
     )
@@ -156,7 +160,7 @@ async def compute_diff(ctx: DispSyncContext) -> None:
         ctx.renamed_per_table,
         ctx.base_state_per_table,
     ) = await asyncio.to_thread(
-        _compute_diff_readonly_for_sync,
+        _compute_diff_readonly,
         ctx.tags_base, ctx.desired_state_per_table,
     )
 
@@ -465,94 +469,6 @@ def _selective_table_names(config_manager: Any) -> list[str]:
         seen.add(nmax_table)
         result.append(nmax_table)
     return result
-
-
-def _build_desired_state_from_app(
-    app_state: Any,
-    config_manager: Any,
-) -> dict[str, dict[str, str]]:
-    """Construye ``{tag_table: {uid: plc_tag}}`` desde el AppState."""
-    result: dict[str, dict[str, str]] = {}
-    for hw in config_manager.list_hw_types_active():
-        cfg = config_manager.get_dispositivo_config(hw)
-        if cfg is None:
-            continue
-        # ``DispositivoTIAConfig`` es un dataclass (atributos, NO keys).
-        table_name = cfg.tag_table
-        attr_name = config_manager.get_app_state_attr_for(hw)
-        if attr_name is None:
-            continue
-        # ``dispositivos_<hw>`` son listas de dataclasses ``DispED/EA/SA/V/M/M_VF``
-        # (atributos ``numero`` y ``plc_tag``), no dicts. Iteramos la lista.
-        devices = getattr(app_state, attr_name, []) or []
-        table_dict: dict[str, str] = {}
-        for device in devices:
-            numero = int(getattr(device, "numero", 0) or 0)
-            plc_tag = str(getattr(device, "plc_tag", "") or "")
-            if numero > 0 and plc_tag:
-                table_dict[str(numero)] = plc_tag
-        if table_dict:
-            result[table_name] = table_dict
-    return result
-
-
-def _compute_diff_readonly_for_sync(
-    tags_base: Path,
-    desired_state_per_table: dict[str, dict[str, str]],
-) -> tuple[
-    dict[str, list[str]],
-    dict[str, list[str]],
-    dict[str, tuple[str, str]],
-    dict[str, dict[str, str]],
-]:
-    """Calcula el diff de devices en modo read-only (no modifica XML)."""
-    from core.infrastructure.tia.tia_export_paths import XmlTarget
-    from areas.alimentacion.helpers.xml.disp_tag_table_modifier import (
-        TagTableModifier,
-    )
-
-    base_state_per_table: dict[str, dict[str, str]] = {}
-    for table_key in desired_state_per_table.keys():
-        try:
-            xml_path = XmlTarget(tags_base, table_key).path
-        except FileNotFoundError:
-            continue
-        modifier = TagTableModifier(xml_path)
-        table_constants: dict[str, str] = {}
-        for value_str, plc_tag in (
-            modifier.read_user_constants_with_uids().items()
-        ):
-            if value_str and plc_tag:
-                table_constants[value_str] = plc_tag
-        if table_constants:
-            base_state_per_table[table_key] = table_constants
-
-    added_per_table: dict[str, list[str]] = {}
-    removed_per_table: dict[str, list[str]] = {}
-    renamed_per_table: dict[str, tuple[str, str]] = {}
-
-    for table_key, desired in desired_state_per_table.items():
-        base = base_state_per_table.get(table_key, {})
-        base_values = set(base.keys())
-        desired_values = set(desired.keys())
-        added = sorted(desired_values - base_values)
-        removed = sorted(base_values - desired_values)
-        renamed: dict[str, tuple[str, str]] = {}
-        for uid in base_values & desired_values:
-            if base[uid] != desired[uid]:
-                renamed[f"{table_key}:{uid}"] = (base[uid], desired[uid])
-        if added:
-            added_per_table[table_key] = added
-        if removed:
-            removed_per_table[table_key] = removed
-        renamed_per_table.update(renamed)
-
-    return (
-        added_per_table,
-        removed_per_table,
-        renamed_per_table,
-        base_state_per_table,
-    )
 
 
 def _compute_nmax_ops_for_apply(
