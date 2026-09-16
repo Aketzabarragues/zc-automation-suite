@@ -20,6 +20,11 @@ import shutil
 import sys
 from pathlib import Path
 
+from core.infrastructure.log_web_bridge import (
+    install_log_buffer_handler,
+    install_web_level,
+)
+
 
 _logger = logging.getLogger(f"{__name__}.resolve_config_path")
 
@@ -310,6 +315,12 @@ def setup_logging(mode: str = "default") -> Path:
             )
         ]
         uv_logger.propagate = True
+
+    # Bridge logging <-> LogBuffer (consola web SPA).
+    # Tras esto, ``logger.web/ok/warning/error(...)`` enrutaran a la web
+    # ademas de al archivo. ``info/debug`` se quedan solo en archivo.
+    install_web_level()
+    install_log_buffer_handler()
 
     _setup_done = True
     _logger.info(
