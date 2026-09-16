@@ -124,7 +124,7 @@ def test_runtime_error_si_no_hay_ids_disponibles() -> None:
         # Genera el primero (lo registra).
         reg.next_mlc_id()
         # Los siguientes 50 intentos colisionan todos.
-        with pytest.raises(RuntimeError, match="no se pudo generar un MLC Ãºnico"):
+        with pytest.raises(RuntimeError, match="no se pudo generar un MLC único"):
             reg.next_mlc_id()
 
 
