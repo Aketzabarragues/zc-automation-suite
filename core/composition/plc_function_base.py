@@ -274,16 +274,16 @@ class FunctionBase:
                     "FB %s: error en tick() (nStep=%d) -- %s: %s",
                     self.nombre, self.nStep, type(e).__name__, e,
                 )
-                # Tambien al LogBuffer del FB: la ConsolaLogs de la SPA
-                # lo recibe via SSE y el operario lo ve en vivo (no solo
-                # en zc.log). Sin esto, el progressbar muestra el
-                # error_msg corto pero el operario no ve el traceback.
-                if self._log is not None:
-                    self._log.error(
-                        f"[{self.nombre}] ERROR en tick() "
-                        f"(nStep={self.nStep}): {type(e).__name__}: {e}\n"
-                        f"{tb_str}"
-                    )
+                # Tambien a la consola web de la SPA (LogBuffer): el
+                # operario lo ve en vivo (no solo en zc.log) gracias al
+                # ``LogBufferHandler`` del bridge instalado en
+                # ``setup_logging``. Sin esto, el progressbar muestra
+                # el error_msg corto pero el operario no ve el traceback.
+                logger.error(
+                    f"[{self.nombre}] ERROR en tick() "
+                    f"(nStep={self.nStep}): {type(e).__name__}: {e}\n"
+                    f"{tb_str}"
+                )
                 self.error_msg = f"{type(e).__name__}: {e}"
                 self._close_tracker_on_error()
                 self.nStep = self.n_error
