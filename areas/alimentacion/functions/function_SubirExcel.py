@@ -150,7 +150,12 @@ class FunctionSubirExcel(FunctionBase):
             case "volcar_appstate":
                 # Recuperar el cache del cache global (lo puso
                 # ``parse_excel_to_cache`` via ``ExcelCacheManager.put``).
-                from areas.alimentacion.helpers.excel import ExcelCacheManager
+                # Import desde el submódulo (no del paquete ``excel``
+                # porque su ``__init__.py`` está vacío por convención,
+                # ver b36d147).
+                from areas.alimentacion.helpers.excel.excel_cache_manager import (
+                    ExcelCacheManager,
+                )
                 cache = await ExcelCacheManager.get()
                 if cache is None:
                     raise RuntimeError(
