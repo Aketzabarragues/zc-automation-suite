@@ -1,13 +1,10 @@
 """Helper IT: genera el preview (diff read-only) de dispositivos vs PLC.
 
-Replica paso a paso la logica del legacy
-``DispSyncInstancesUseCase.generar_prevision`` (areas/alimentacion/
-application/use_cases/disp_sync_instances.py:119), pero partido en **4
-funciones puras independientes**. Cada funcion toma un
+Funciones puras independientes. Cada función toma un
 ``DispPreviewContext`` por argumento y muta sus campos con el
 resultado de su trabajo.
 
-Este modulo **no contiene state machine**. La orquestacion de las 4
+Este módulo **no contiene state machine**. La orquestación de las 4
 funciones (orden, dependencias entre etapas, mapeo a steps del FB) vive
 exclusivamente en ``areas/alimentacion/functions/
 function_DispGenerarPreview.py``. Aqui solo estan las funciones puras

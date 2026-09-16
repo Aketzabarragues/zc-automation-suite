@@ -221,10 +221,9 @@ def make_cmd_commit_disp_devices_offline() -> Callable[..., Any]:
           - Stage 6: export_post_tx_a (relee XMLs post-Tx A).
           - Stage 7: _apply_xml_edits_offline (edita los XMLs offline).
 
-        Aqui solo queda Tx B pura: abrir tx TIA, llamar
+        Aquí solo queda Tx B pura: abrir tx TIA, llamar
         ``import_blocks_sd`` sobre los XMLs ya modificados, cerrar tx.
-        Convencion del legacy ``disp_sync_instances.py:735-742``:
-        el handler SOLO hace import (no export ni edit).
+        El handler SOLO hace import (no export ni edit).
         """
         plc_name: str = args.get("plc_name", "")
         undo_text: str = args.get("undo_text", "Sync devices (offline)")
@@ -257,8 +256,7 @@ def make_cmd_commit_disp_devices_offline() -> Callable[..., Any]:
             # Los dispositivos son PlcTagTables, NO bloques .s7dcl.
             # ``import_plc_tags_xml`` hace un import masivo de la carpeta
             # completa (todos los .xml de tag tables en una sola llamada
-            # nativa de Siemens). El legacy
-            # ``disp_sync_instances.py:14,728`` ya usaba este comando;
+            # nativa de Siemens).
             # ``import_blocks_sd`` reventaba en TIA V21 porque iteraba
             # internamente intentando interpretar los XMLs como bloques.
             import_result = tia_client._handlers["import_plc_tags_xml"]({

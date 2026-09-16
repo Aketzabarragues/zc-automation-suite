@@ -1,10 +1,7 @@
-"""Helper IT: sincronizacion transaccional de dispositivos vs PLC.
+"""Helper IT: sincronización transaccional de dispositivos vs PLC.
 
-Replica la logica completa de
-``DispSyncInstancesUseCase.ejecutar_transaccion`` (areas/alimentacion/
-application/use_cases/disp_sync_instances.py:336) como **11 funciones
-puras independientes**. Cada funcion toma un ``DispSyncContext`` por
-argumento y muta sus campos con el resultado de su trabajo.
+Funciones puras independientes. Cada función toma un ``DispSyncContext``
+por argumento y muta sus campos con el resultado de su trabajo.
 
 Este modulo **no contiene state machine**. La orquestacion de las 11
 funciones (orden, dependencias entre etapas, mapeo a steps del FB) vive
@@ -293,8 +290,7 @@ async def tx_b_devices(ctx: DispSyncContext) -> None:
         "tx_b_devices requiere exportar_tags previo"
     )
     if ctx.device_changes:
-        # NO pasamos ``target_folder`` (legacy ``disp_sync_instances.py:736``
-        # tampoco lo pasaba). TIA Portal V21 escanea
+        # NO pasamos ``target_folder`` (TIA Portal V21 escanea
         # ``modified_variables/`` recursivamente: si encuentra la
         # estructura interna del PLC (e.g.
         # ``2000_Dispositivos/2000_Disp_ED.xml``), hace match
@@ -649,11 +645,11 @@ def _copy_and_edit_offline(
     build_cache_root: Path,
     device_changes: list[dict[str, Any]],
 ) -> None:
-    """Stage 7 del sync: copytree filtrado exports->modified + edits.
+    """Stage 7 del sync: copytree filtrado exports→modified + edits.
 
-    Replica el legacy ``disp_sync_instances.py:680-735``. El copytree
-    con filtro excluye ``000_Config_Dispositivos.xml`` (tabla N_MAX
-    online-only) para que Tx B no la re-importe y anule los N_MAX de Tx A.
+    El copytree con filtro excluye ``000_Config_Dispositivos.xml``
+    (tabla N_MAX online-only) para que Tx B no la re-importe y anule
+    los N_MAX de Tx A.
     """
     from areas.alimentacion.helpers.build_cache import build_cache
     from areas.alimentacion.helpers.xml.disp_tag_table_modifier import (
