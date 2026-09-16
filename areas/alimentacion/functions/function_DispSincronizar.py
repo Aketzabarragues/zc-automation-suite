@@ -1,7 +1,7 @@
 """FB de area: sincronizacion transaccional de dispositivos vs PLC.
 
-State machine sobre el helper ``disp_sync`` (areas/alimentacion/helpers
-/disp/disp_Sincronizar.py). El helper expone funciones independientes
+State machine sobre el helper ``disp_Sincronizar`` (areas/alimentacion/
+helpers/disp/disp_Sincronizar.py). El helper expone funciones independientes
 (``exportar_tags``, ``compute_diff``, ``tx_a_nmax_renames``, etc.) que
 reciben un ``DispSyncContext`` y mutan sus campos. **Aqui en el FB vive
 la state machine**: el orden de las 11 llamadas, el mapping step ->
@@ -150,8 +150,10 @@ class FunctionDispSincronizar(FunctionBase):
         self._plc_name = str(plc_name)
 
         # Crear el DispSyncContext que las 11 funciones iran mutando.
-        # Lazy import para evitar ciclo con helpers/sync/.
-        from areas.alimentacion.helpers.disp.disp_sync import DispSyncContext
+        # Lazy import para evitar ciclo con helpers/disp/.
+        from areas.alimentacion.helpers.disp.disp_Sincronizar import (
+            DispSyncContext,
+        )
         self._ctx = DispSyncContext(
             plc_name=self._plc_name,
             tia_client=self._tia_client,
@@ -170,7 +172,7 @@ class FunctionDispSincronizar(FunctionBase):
     # ==================================================================
 
     async def run_step(self, idx: int, **params: Any) -> str:
-        """Dispatch del FB step ``idx`` a la funcion del helper ``disp_sync``.
+        """Dispatch del FB step ``idx`` a la funcion del helper ``disp_Sincronizar``.
 
         Aqui vive la state machine: cada step del FB llama a UNA
         funcion del helper (``exportar_tags``, ``compute_diff``, etc.)
@@ -178,8 +180,8 @@ class FunctionDispSincronizar(FunctionBase):
         explicito (no dict.get dispatch) para que sea visible en stack
         traces cuando algo falla.
         """
-        # Lazy import para evitar ciclo con helpers/sync/.
-        from areas.alimentacion.helpers.sync import disp_sync
+        # Lazy import para evitar ciclo con helpers/disp/.
+        from areas.alimentacion.helpers.disp import disp_Sincronizar as helper
 
         if self._ctx is None:
             raise RuntimeError(
@@ -190,27 +192,27 @@ class FunctionDispSincronizar(FunctionBase):
         step_nombre = self.steps[idx]["nombre"]
         match step_nombre:
             case "exportar_tags":
-                await disp_sync.exportar_tags(self._ctx)
+                await helper.exportar_tags(self._ctx)
             case "compute_diff":
-                await disp_sync.compute_diff(self._ctx)
+                await helper.compute_diff(self._ctx)
             case "preparar_ops":
-                await disp_sync.preparar_ops(self._ctx)
+                await helper.preparar_ops(self._ctx)
             case "tx_a_nmax_renames":
-                await disp_sync.tx_a_nmax_renames(self._ctx)
+                await helper.tx_a_nmax_renames(self._ctx)
             case "wait_consolidation":
-                await disp_sync.wait_consolidation(self._ctx)
+                await helper.wait_consolidation(self._ctx)
             case "exportar_post_tx_a":
-                await disp_sync.exportar_post_tx_a(self._ctx)
+                await helper.exportar_post_tx_a(self._ctx)
             case "editar_xmls_offline":
-                await disp_sync.editar_xmls_offline(self._ctx)
+                await helper.editar_xmls_offline(self._ctx)
             case "tx_b_devices":
-                await disp_sync.tx_b_devices(self._ctx)
+                await helper.tx_b_devices(self._ctx)
             case "compilar_bloques":
-                await disp_sync.compilar_bloques(self._ctx)
+                await helper.compilar_bloques(self._ctx)
             case "aplicar_comentarios":
-                await disp_sync.aplicar_comentarios(self._ctx)
+                await helper.aplicar_comentarios(self._ctx)
             case "post_preview":
-                await disp_sync.post_preview(self._ctx)
+                await helper.post_preview(self._ctx)
             case _:
                 raise ValueError(f"step no soportado: {step_nombre!r}")
 
@@ -225,7 +227,7 @@ class FunctionDispSincronizar(FunctionBase):
         """Vuelca ``self.result`` con la shape legacy que espera la SPA.
 
         Lee los resultados finales del ``DispSyncContext`` (mismos campos
-        que el helper monolitico ``disp_sync`` retornaba, sept-2026 -).
+        que el helper monolitico ``disp_Sincronizar`` retornaba, sept-2026 -).
         """
         if self._ctx is None:
             # Error temprano: deps no inyectadas o plc_name ausente.
