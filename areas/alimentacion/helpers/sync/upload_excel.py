@@ -21,8 +21,8 @@ from pathlib import Path
 from typing import Any
 
 from areas.alimentacion.data.data_ExcelCache import DataExcelCache
-from areas.alimentacion.helpers.cache import ExcelCacheManager
-from areas.alimentacion.helpers.loaders import ExcelLoader
+from areas.alimentacion.helpers.excel import ExcelCacheManager
+from areas.alimentacion.helpers.excel import ExcelLoader
 from core.infrastructure.config.config_manager import ConfigManager
 from core.runtime.app_state import AppState
 
