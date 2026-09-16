@@ -305,12 +305,12 @@ def _build_desired_state_from_app(
             continue
         # ``DispositivoTIAConfig`` es un dataclass (atributos, NO keys).
         table_name = cfg.tag_table
-        attr_name = config_manager.get_app_state_attr_for(hw)
-        if attr_name is None:
-            continue
-        # ``dispositivos_<hw>`` son listas de dataclasses ``DispED/EA/SA/V/M/M_VF``
-        # (atributos ``numero`` y ``plc_tag``), no dicts. Iteramos la lista.
-        devices = getattr(app_state, attr_name, []) or []
+        # API generica del AppState (data-driven, no ligada a
+        # alimentacion). Tras la limpieza de las state extensions
+        # legacy (commit 1513ac1) ya no existen properties
+        # ``dispositivos_<hw>``; ``get_devices(hw)`` es la unica fuente
+        # de verdad (``set_devices`` lo alimenta al subir el Excel).
+        devices = app_state.get_devices(hw) if hasattr(app_state, "get_devices") else []
         table_dict: dict[str, str] = {}
         for device in devices:
             numero = int(getattr(device, "numero", 0) or 0)

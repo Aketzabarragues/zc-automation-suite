@@ -484,24 +484,6 @@ class ConfigManager:
             return []
         return [str(k) for k in raw.keys() if k]
 
-    # ── Resolvedor cross-capa: Dispositivo ⇄ AppState ──────────────────
-
-    def get_app_state_attr_for(self, hw_type: str) -> str | None:
-        """Devuelve el nombre del atributo ``AppState`` para ``hw_type``.
-
-        Convensión determinista: ``f"dispositivos_{hw_type}"`` (p.ej.
-        ``"ed"`` → ``"dispositivos_ed"``). Si el bloque ``Dispositivos``
-        del config define un override en ``app_state_attr``, se respeta.
-        Devuelve ``None`` si ``hw_type`` no está configurado.
-        """
-        d = self._department_config.get("Dispositivos", {}).get(hw_type)
-        if d is None:
-            return None
-        override = d.get("app_state_attr")
-        if isinstance(override, str) and override.strip():
-            return override.strip()
-        return f"dispositivos_{hw_type}"
-
     # ── Resolvedor cross-capa: Dispositivo ⇄ Excel ──────────────────────
 
     def get_excel_target_for(self, hw_type: str) -> dict[str, str] | None:
