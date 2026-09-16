@@ -398,19 +398,38 @@ async def aplicar_comentarios(ctx: DispSyncContext) -> None:
 
 
 async def post_preview(ctx: DispSyncContext) -> None:
-    """Genera el preview post-sync para que la SPA vea 'todo en sync'."""
+    """Genera el preview post-sync para que la SPA vea 'todo en sync'.
+
+    Reusa las 4 funciones puras del helper ``disp_generate_preview``
+    (sept-2026): ``exportar_tags``, ``compute_devices``, ``compute_nmax``
+    y ``build_response``. Crea un ``DispPreviewContext`` independiente
+    con las mismas deps que el sync y lo ejecuta en orden. El
+    ``build_response`` final popula ``ctx.post_sync_preview`` con la
+    shape legacy (agregados, eliminados, renombrados, todos, nmax,
+    summary).
+    """
     from areas.alimentacion.helpers.sync.disp_generate_preview import (
-        disp_generate_preview,
+        DispPreviewContext,
+        build_response as pv_build_response,
+        compute_devices as pv_compute_devices,
+        compute_nmax as pv_compute_nmax,
+        exportar_tags as pv_exportar_tags,
+    )
+
+    pv_ctx = DispPreviewContext(
+        plc_name=ctx.plc_name,
+        tia_client=ctx.tia_client,
+        config_manager=ctx.config_manager,
+        app_state=ctx.app_state,
+        build_cache_root=ctx.build_cache_root,
     )
 
     try:
-        ctx.post_sync_preview = await disp_generate_preview(
-            plc_name=ctx.plc_name,
-            tia_client=ctx.tia_client,
-            config_manager=ctx.config_manager,
-            app_state=ctx.app_state,
-            build_cache_root=ctx.build_cache_root,
-        )
+        await pv_exportar_tags(pv_ctx)
+        await pv_compute_devices(pv_ctx)
+        await pv_compute_nmax(pv_ctx)
+        await pv_build_response(pv_ctx)
+        ctx.post_sync_preview = pv_ctx.result
     except Exception as exc:
         logger.warning(
             f"[{ctx.plc_name}] Post-sync preview fallo "
