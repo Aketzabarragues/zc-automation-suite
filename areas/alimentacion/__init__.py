@@ -18,9 +18,6 @@ para activar la plantilla + FBs migrados.
 """
 from __future__ import annotations
 
-from areas.alimentacion.helpers.state.install_state_extensions import (
-    install as install_state,
-)
 from areas.alimentacion.data.data_DispCatalog import build_catalog as build_alim_catalog
 from areas.alimentacion.frontend.dispositivos_router import (
     build_routers as build_dispositivos_routers,
@@ -77,7 +74,6 @@ AREA_SPEC = AreaSpec(
     icon="",
     config_block="alimentacion",
     contributes_routers=_build_all_routers,
-    contributes_state_extensions=install_state,
     contributes_config_defaults=install_defaults,
     contributes_catalog=build_alim_catalog,
     contributes_tia_commands=register_tia,
