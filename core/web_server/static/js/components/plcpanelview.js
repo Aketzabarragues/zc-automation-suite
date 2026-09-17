@@ -265,17 +265,9 @@ export default {
             isRefreshing.value = true;
             try {
                 await loadAndApplyPlcBlocks(store.selectedPlc, { force: true });
-                pushLog(
-                    `Cache de ${store.selectedPlc} refrescado`,
-                    "success"
-                );
             } catch (e) {
-                pushLog(
-                    `Error refrescando cache: ${
-                        e && e.message ? e.message : String(e)
-                    }`,
-                    "warning"
-                );
+                // El error real lo emite el backend via logger.warning;
+                // pushLog local era ruido que el polling sobrescribia.
             } finally {
                 isRefreshing.value = false;
             }

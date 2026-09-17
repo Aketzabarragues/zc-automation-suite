@@ -272,34 +272,24 @@ export default {
                 if (r && r.ok) {
                     store.procesosSync.preview = r.data;
                     if (r.data && r.data.precondiciones_ok) {
-                        pushLog(
-                            `Preview comentarios proceso ${props.procUid}: ${r.data.summary && r.data.summary.total} slots`,
-                            "success"
-                        );
+                        // preview OK: el backend emite logger.web si quiere
+                        // que el operario lo vea en la consola.
                     } else {
-                        pushLog(
-                            `Preview comentarios proceso ${props.procUid}: precondiciones NO cumplidas`,
-                            "warning"
-                        );
+                        // precondiciones NO cumplidas: el backend emite
+                        // el warning via logger.warning.
                     }
                 } else if (r && r.errorType === "TIAConnectionError") {
                     // TIA Portal no responde. El backend ya invalido
                     // su cache; limpiamos el state del PLC en el SPA
                     // para evitar trabajar con datos stale.
-                    pushLog(
-                        "TIA Portal no responde. Reconecta y vuelve a seleccionar el PLC.",
-                        "error"
-                    );
                     resetPlcState();
                 } else {
                     const detail = (r && r.data && r.data.detail) ||
                                     "Error generando preview";
                     store.procesosSync.error = detail;
-                    pushLog(detail, "error");
                 }
             } catch (e) {
                 store.procesosSync.error = String(e && e.message ? e.message : e);
-                pushLog(store.procesosSync.error, "error");
             } finally {
                 isWorking.value = false;
                 store.procesosSync.applying = false;
@@ -328,10 +318,6 @@ export default {
                 if (r && r.ok) {
                     store.procesosSync.lastAppliedAt =
                         new Date().toISOString();
-                    pushLog(
-                        `Comentarios aplicados al PLC ${plcName.value}: ${r.data && r.data.operations_executed} ops`,
-                        "success"
-                    );
                     // Tras aplicar, el preview queda obsoleto. Lo
                     // limpiamos para forzar al operario a
                     // regenerarlo si quiere ver el nuevo estado.
@@ -340,20 +326,14 @@ export default {
                     // TIA Portal cerro durante el commit. Limpiamos
                     // el state del PLC en el SPA (backend ya invalido
                     // su cache).
-                    pushLog(
-                        "TIA Portal no responde. Reconecta y vuelve a seleccionar el PLC.",
-                        "error"
-                    );
                     resetPlcState();
                 } else {
                     const detail = (r && r.data && r.data.detail) ||
                                     "Error aplicando comentarios";
                     store.procesosSync.error = detail;
-                    pushLog(detail, "error");
                 }
             } catch (e) {
                 store.procesosSync.error = String(e && e.message ? e.message : e);
-                pushLog(store.procesosSync.error, "error");
             } finally {
                 isWorking.value = false;
                 store.procesosSync.applying = false;

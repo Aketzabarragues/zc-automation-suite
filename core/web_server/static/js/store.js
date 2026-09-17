@@ -497,32 +497,8 @@ export async function loadCatalog() {
                 }
             }
         } else {
-            pushLog(
-                "⚠️ No se pudo cargar el catálogo. La SPA funcionará " +
-                "en modo degradado (sin pestañas dinámicas).",
-                "warning"
-            );
         }
     } catch (e) {
-        pushLog(
-            "⚠️ Error cargando catálogo: " + String(e),
-            "warning"
-        );
-    }
-}
-
-/**
- * Empuja un mensaje al buffer de logs. La cola se trunca a 200
- * entradas para evitar fugas de memoria en sesiones largas.
- */
-export function pushLog(message, level = "info") {
-    store.logs.push({
-        message: String(message),
-        level,
-        timestamp: new Date().toISOString(),
-    });
-    if (store.logs.length > 200) {
-        store.logs.splice(0, store.logs.length - 200);
     }
 }
 
@@ -553,8 +529,6 @@ export function pushLog(message, level = "info") {
  *
  * En éxito aplica la respuesta al slot ``store.plcBlocksCache``
  * vía ``_applyBlocksSnapshot``. En error o excepción loggea vía
- * ``pushLog(..., "warning")`` (los warnings de timeline caen en
- * la ConsolaLogs).
  */
 export async function loadAndApplyPlcBlocks(plcName, { force = false } = {}) {
     if (!plcName) {
@@ -583,22 +557,15 @@ export async function loadAndApplyPlcBlocks(plcName, { force = false } = {}) {
             // TIA Portal no responde. El backend ya invalido su
             // cache; el frontend debe hacer lo propio para que
             // la SPA no siga trabajando con datos stale.
-            pushLog(
-                `TIA Portal no responde. Reconecta y vuelve a seleccionar el PLC.`,
-                "error"
-            );
             resetPlcState();
         } else {
             const msg =
                 (r.data && (r.data.detail || r.data.error)) ||
                 `HTTP ${r.status}`;
-            pushLog(`Cache ${plcName}: ${msg}`, "warning");
         }
     } catch (e) {
-        pushLog(
-            `Cache ${plcName}: error — ${String(e && e.message ? e.message : e)}`,
-            "warning"
-        );
+        // Error de cache: el backend lo emite via logger.warning
+        // en su catch. No duplicamos con pushLog local.
     }
 }
 
@@ -720,24 +687,16 @@ function _logTiaStateTransition(prevState, newState, snapshot) {
                     ? snapshot.plcs.length
                     : 0);
             const version = project.version ? ` v${project.version}` : "";
-            pushLog(
-                `[TIA] Conectado a "${project.name}" (TIA${version}, ${nplcs} PLCs).`
-            );
         } else {
-            pushLog("[TIA] Conectado.");
         }
     } else if (newState === "idle") {
         // Tras pulsar "Desconectar" el worker pasa a idle
         // (subproceso vivo, sin portal). El operario entiende
         // "Desconectado" como "ya no estoy en TIA Portal" sin
         // entrar en el detalle del state machine.
-        pushLog(
-            "[TIA] Desconectado. Pulsa 'Conectar' en el topbar para volver a abrir un portal."
-        );
     } else if (newState === "error") {
         const err =
             (snapshot && snapshot.last_error) || "desconocido";
-        pushLog(`[TIA] Error: ${err}`, "error");
     }
     // "connecting" se ignora: es estado transitorio.
 }
@@ -1020,7 +979,8 @@ export async function connectTia() {
         //
         // Si la respuesta trae ``errorType === "TIAConnectionError"``
         // (TIA se cayó entre el connect OK y este fetch), forzamos
-        // ``resetPlcState()`` y avisamos al operario via ``pushLog``.
+        // ``resetPlcState()``. El aviso al operario lo emite el backend
+        // via ``logger.warning``; el frontend ya no usa ``pushLog`` local.
         // Misma politica que el antiguo ``handleRefreshPlcs`` del
         // BloquesCacheView (v3.0) que ahora vive aqui.
         try {
@@ -1028,10 +988,6 @@ export async function connectTia() {
             const tiaDown =
                 plcsResp && plcsResp.errorType === "TIAConnectionError";
             if (tiaDown) {
-                pushLog(
-                    "TIA Portal no responde. Reconecta y vuelve a seleccionar el PLC.",
-                    "error"
-                );
                 resetPlcState();
             } else if (plcsResp && plcsResp.ok && Array.isArray(plcsResp.data && plcsResp.data.plcs)) {
                 store.plcs = plcsResp.data.plcs;

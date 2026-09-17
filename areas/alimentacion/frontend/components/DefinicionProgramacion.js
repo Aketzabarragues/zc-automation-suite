@@ -132,7 +132,6 @@ export default {
                 const r = await apiUploadExcel(file);
                 if (r.ok) {
                     store.uploadSummary = r.data.summary || {};
-                    pushLog("✅ Excel cargado en AppState", "success");
                     store.lastExcelFile = file;
                     const mem = await apiFetchMemory();
                     if (mem.ok && mem.data && mem.data.ok) {
