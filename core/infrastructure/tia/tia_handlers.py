@@ -38,6 +38,7 @@ from core.infrastructure.tia.tia_helpers import (
     _safe_get_table_name,
     _safe_short_designation,
     _scan_block_group_recursive,
+    log_ot_command,
 )
 
 if TYPE_CHECKING:
@@ -49,6 +50,7 @@ logger = logging.getLogger("zc.tia_loop")
 # ---------------------------------------------------------------------------
 # Handlers de ciclo de vida
 # ---------------------------------------------------------------------------
+@log_ot_command(name="attach_portal")
 def _h_attach_portal(args: dict, tia_client: "SyncTIAClient") -> dict:
     """Attach a un portal TIA Portal ya abierto (persistente).
 
@@ -123,6 +125,7 @@ def _h_attach_portal(args: dict, tia_client: "SyncTIAClient") -> dict:
     }
 
 
+@log_ot_command(name="detach_portal")
 def _h_detach_portal(args: dict, tia_client: "SyncTIAClient") -> dict:  # noqa: ARG001
     """Cierra el portal attached (best-effort).
 
@@ -149,6 +152,7 @@ def _h_detach_portal(args: dict, tia_client: "SyncTIAClient") -> dict:  # noqa: 
     return {"detached": True, "warning": f"{type(detach_error).__name__}: {detach_error}"}
 
 
+@log_ot_command(name="open_new_portal")
 def _h_open_new_portal(args: dict, tia_client: "SyncTIAClient") -> dict:
     """Cold start: abre TIA Portal y un proyecto en un solo paso.
 
@@ -182,6 +186,7 @@ def _h_open_new_portal(args: dict, tia_client: "SyncTIAClient") -> dict:
     }
 
 
+@log_ot_command(name="open_project")
 def _h_open_project(args: dict, tia_client: "SyncTIAClient") -> dict:
     """Abre un proyecto TIA Portal desde una ruta.
 
@@ -203,6 +208,7 @@ def _h_open_project(args: dict, tia_client: "SyncTIAClient") -> dict:
     return {"opened": True, "project_file_path": project_file_path}
 
 
+@log_ot_command(name="save_project")
 def _h_save_project(args: dict, tia_client: "SyncTIAClient") -> dict:  # noqa: ARG001
     """Guarda los cambios pendientes del proyecto activo."""
     portal = tia_client.wrapper
@@ -215,6 +221,7 @@ def _h_save_project(args: dict, tia_client: "SyncTIAClient") -> dict:  # noqa: A
     return {"saved": True}
 
 
+@log_ot_command(name="close_project")
 def _h_close_project(args: dict, tia_client: "SyncTIAClient") -> dict:  # noqa: ARG001
     """Cierra el proyecto activo.
 
@@ -231,6 +238,7 @@ def _h_close_project(args: dict, tia_client: "SyncTIAClient") -> dict:  # noqa: 
     return {"closed": True}
 
 
+@log_ot_command(name="ping")
 def _h_ping(args: dict, tia_client: "SyncTIAClient") -> dict:  # noqa: ARG001
     """Verifica si TIA Portal sigue activo.
 
@@ -247,6 +255,7 @@ def _h_ping(args: dict, tia_client: "SyncTIAClient") -> dict:  # noqa: ARG001
 # ---------------------------------------------------------------------------
 # Handlers de inspeccion
 # ---------------------------------------------------------------------------
+@log_ot_command(name="list_blocks")
 def _h_list_blocks(args: dict, tia_client: "SyncTIAClient") -> dict:
     """Lista los nombres de bloques de programa de un PLC."""
     portal = tia_client.wrapper
@@ -264,6 +273,7 @@ def _h_list_blocks(args: dict, tia_client: "SyncTIAClient") -> dict:
     return {"blocks": names, "plc_name": plc_name}
 
 
+@log_ot_command(name="list_plcs")
 def _h_list_plcs(args: dict, tia_client: "SyncTIAClient") -> dict:  # noqa: ARG001
     """Lista los PLCs del proyecto activo.
 
@@ -284,6 +294,7 @@ def _h_list_plcs(args: dict, tia_client: "SyncTIAClient") -> dict:  # noqa: ARG0
     return {"plcs": result}
 
 
+@log_ot_command(name="get_project_info")
 def _h_get_project_info(args: dict, tia_client: "SyncTIAClient") -> dict:  # noqa: ARG001
     """Propiedades basicas del proyecto TIA activo (siempre primitivos).
 
@@ -324,6 +335,7 @@ def _h_get_project_info(args: dict, tia_client: "SyncTIAClient") -> dict:  # noq
     return result
 
 
+@log_ot_command(name="scan_blocks")
 def _h_scan_blocks(args: dict, tia_client: "SyncTIAClient") -> dict:
     """Escanea bloques, tag tables y UDTs de un PLC.
 
@@ -397,6 +409,7 @@ def _h_scan_blocks(args: dict, tia_client: "SyncTIAClient") -> dict:
 # ---------------------------------------------------------------------------
 # Handlers de compilacion
 # ---------------------------------------------------------------------------
+@log_ot_command(name="compile_plc")
 def _h_compile_plc(args: dict, tia_client: "SyncTIAClient") -> dict:
     """Compila el software del PLC y retorna el booleano nativo de Siemens.
 
@@ -420,6 +433,7 @@ def _h_compile_plc(args: dict, tia_client: "SyncTIAClient") -> dict:
     return {"had_errors": had_errors}
 
 
+@log_ot_command(name="compile_blocks")
 def _h_compile_blocks(args: dict, tia_client: "SyncTIAClient") -> dict:
     """Compila una lista explicita de bloques del PLC (no todo el software).
 
@@ -508,6 +522,7 @@ def _h_compile_blocks(args: dict, tia_client: "SyncTIAClient") -> dict:
 # ---------------------------------------------------------------------------
 # Handlers de export
 # ---------------------------------------------------------------------------
+@log_ot_command(name="export_blocks_sd")
 def _h_export_blocks_sd(args: dict, tia_client: "SyncTIAClient") -> dict:
     """Exporta los bloques de programa del PLC como .s7dcl."""
     plc_name: str = args.get("plc_name", "")
@@ -527,6 +542,7 @@ def _h_export_blocks_sd(args: dict, tia_client: "SyncTIAClient") -> dict:
     return _export_objects_sd(target_plc, target_path, "program_blocks")
 
 
+@log_ot_command(name="export_udts_sd")
 def _h_export_udts_sd(args: dict, tia_client: "SyncTIAClient") -> dict:
     """Exporta los User Data Types del PLC como .s7dcl."""
     plc_name: str = args.get("plc_name", "")
@@ -546,6 +562,7 @@ def _h_export_udts_sd(args: dict, tia_client: "SyncTIAClient") -> dict:
     return _export_objects_sd(target_plc, target_path, "user_data_types")
 
 
+@log_ot_command(name="export_plc_tags_xml")
 def _h_export_plc_tags_xml(args: dict, tia_client: "SyncTIAClient") -> dict:
     """Exporta las tablas de variables del PLC como XML SimaticML."""
     plc_name: str = args.get("plc_name", "")
@@ -580,6 +597,7 @@ def _h_export_plc_tags_xml(args: dict, tia_client: "SyncTIAClient") -> dict:
     return {"exported_to": str(target_path), "count": count}
 
 
+@log_ot_command(name="export_block")
 def _h_export_block(args: dict, tia_client: "SyncTIAClient") -> dict:
     """Exporta un bloque de programa como SimaticSD (manual §2.10.5)."""
     plc_name: str = args.get("plc_name", "")
@@ -616,6 +634,7 @@ def _h_export_block(args: dict, tia_client: "SyncTIAClient") -> dict:
     )
 
 
+@log_ot_command(name="export_tag_table")
 def _h_export_tag_table(args: dict, tia_client: "SyncTIAClient") -> dict:
     """Exporta una PlcTagTable como XML SimaticML."""
     plc_name: str = args.get("plc_name", "")
@@ -654,6 +673,7 @@ def _h_export_tag_table(args: dict, tia_client: "SyncTIAClient") -> dict:
 # ---------------------------------------------------------------------------
 # Handlers de import
 # ---------------------------------------------------------------------------
+@log_ot_command(name="import_blocks_sd")
 def _h_import_blocks_sd(args: dict, tia_client: "SyncTIAClient") -> dict:
     """Importa bloques .s7dcl desde el disco al PLC (manual §2.2.23)."""
     plc_name: str = args.get("plc_name", "")
@@ -684,6 +704,7 @@ def _h_import_blocks_sd(args: dict, tia_client: "SyncTIAClient") -> dict:
     return {"imported_from": import_dir}
 
 
+@log_ot_command(name="import_plc_tags_xml")
 def _h_import_plc_tags_xml(args: dict, tia_client: "SyncTIAClient") -> dict:
     """Importa PlcTagTables en formato XML al PLC (manual §2.2.24)."""
     plc_name: str = args.get("plc_name", "")
@@ -714,6 +735,7 @@ def _h_import_plc_tags_xml(args: dict, tia_client: "SyncTIAClient") -> dict:
     return {"imported_from": import_dir}
 
 
+@log_ot_command(name="import_tag_table")
 def _h_import_tag_table(args: dict, tia_client: "SyncTIAClient") -> dict:
     """Importa una PlcTagTable (XML) desde disco al PLC (manual §2.2.24)."""
     plc_name: str = args.get("plc_name", "")
@@ -741,6 +763,7 @@ def _h_import_tag_table(args: dict, tia_client: "SyncTIAClient") -> dict:
     return {"imported_from": import_dir}
 
 
+@log_ot_command(name="import_block")
 def _h_import_block(args: dict, tia_client: "SyncTIAClient") -> dict:
     """Importa un bloque (.s7dcl) desde disco al PLC (manual §2.2.23)."""
     plc_name: str = args.get("plc_name", "")
@@ -771,6 +794,7 @@ def _h_import_block(args: dict, tia_client: "SyncTIAClient") -> dict:
 # ---------------------------------------------------------------------------
 # Handlers de constantes de usuario (N_MAX)
 # ---------------------------------------------------------------------------
+@log_ot_command(name="get_user_constants")
 def _h_get_user_constants(args: dict, tia_client: "SyncTIAClient") -> dict:
     """Devuelve {value_str: name} de las PlcUserConstant de una tabla.
 
@@ -803,6 +827,7 @@ def _h_get_user_constants(args: dict, tia_client: "SyncTIAClient") -> dict:
     return {"constants": result}
 
 
+@log_ot_command(name="delete_user_constant")
 def _h_delete_user_constant(args: dict, tia_client: "SyncTIAClient") -> dict:
     """Borra una PlcUserConstant (manual §2.34.4)."""
     plc_name: str = args.get("plc_name", "")
@@ -833,6 +858,7 @@ def _h_delete_user_constant(args: dict, tia_client: "SyncTIAClient") -> dict:
     )
 
 
+@log_ot_command(name="update_user_constant_value")
 def _h_update_user_constant_value(args: dict, tia_client: "SyncTIAClient") -> dict:
     """Actualiza el valor de una PlcUserConstant (N_MAX) (manual §2.28).
 
@@ -883,6 +909,7 @@ def _h_update_user_constant_value(args: dict, tia_client: "SyncTIAClient") -> di
     )
 
 
+@log_ot_command(name="update_user_constant_name")
 def _h_update_user_constant_name(args: dict, tia_client: "SyncTIAClient") -> dict:
     """Renombra una PlcUserConstant (manual §2.28).
 
@@ -955,6 +982,7 @@ _TRANSACTION_FORBIDDEN_COMMANDS: frozenset[str] = frozenset(
 )
 
 
+@log_ot_command(name="execute_transactional_batch")
 def _h_execute_transactional_batch(
     args: dict, tia_client: "SyncTIAClient",
 ) -> dict:

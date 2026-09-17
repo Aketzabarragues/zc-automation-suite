@@ -15,11 +15,13 @@ el dispatcher de tia_loop.
 """
 from __future__ import annotations
 
+import functools
 import itertools
 import logging
 import re
+import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from core.data.data_block_plc import DataBloquePLC
 
@@ -328,3 +330,86 @@ def _export_objects_sd(
         count += 1
 
     return {"exported_to": str(target_path), "count": count}
+
+
+# ---------------------------------------------------------------------------
+# Decorador de trazabilidad para handlers OT (Zona D, paso 1)
+# ---------------------------------------------------------------------------
+def log_ot_command(name: str) -> Callable[..., Any]:
+    """Decorador: emite web/ok alrededor de cada handler OT (entry/exit).
+
+    Patrón instrumentación estándar: log al entrar + log al salir. NO
+    captura excepciones: el caller (``_execute_one``) ya las gestiona
+    con ``logger.warning`` + traceback, duplicar sería ruido.
+
+    Args:
+        name: identificador del comando OT (mismo nombre que el
+            registro en el ``COMMAND_REGISTRY``). Lo usa el operario
+            para correlacionar logs y comparar con el árbol de
+            comandos de la SPA.
+
+    Output:
+      - ``logger.web`` al entrar: ``OT[{name}] args={resumen_args}``.
+      - ``logger.ok`` al salir OK: ``OT[{name}] OK en {ms}ms
+        ({resumen_result})``.
+    """
+    def deco(handler: Callable[..., Any]) -> Callable[..., Any]:
+        @functools.wraps(handler)
+        def wrapper(args: dict, tia_client: Any) -> dict:
+            logger.web(f"OT[{name}] args={_sanitize_args(args)}")
+            t0 = time.monotonic()
+            result = handler(args, tia_client)
+            ms = (time.monotonic() - t0) * 1000
+            logger.ok(
+                f"OT[{name}] OK en {ms:.0f}ms "
+                f"({_summarize_result(result)})"
+            )
+            return result
+        return wrapper
+    return deco
+
+
+def _sanitize_args(args: dict) -> str:
+    """Resumen corto de los args: keys + tipo/longitud (sin valores grandes).
+
+    Formato: ``"plc_name='ZC_PLC_STD', blocks=[3], options={2 keys}"``.
+    """
+    if not args:
+        return "{}"
+    parts: list[str] = []
+    for k, v in args.items():
+        if isinstance(v, (str, int, float, bool, type(None))):
+            parts.append(f"{k}={v!r}")
+        elif isinstance(v, list):
+            parts.append(f"{k}=[{len(v)}]")
+        elif isinstance(v, dict):
+            parts.append(f"{k}={{{len(v)} keys}}")
+        else:
+            parts.append(f"{k}=<{type(v).__name__}>")
+    return ", ".join(parts)
+
+
+def _summarize_result(result: dict) -> str:
+    """Resumen corto del resultado de un handler.
+
+    Formato:
+      - ``ok=False``: ``ERROR=<mensaje truncado>``.
+      - ``ok=True``: lista de campos principales con su longitud o
+        string truncado a 40 chars (para no inundar el log).
+      - Otros tipos: nombre de la clase.
+    """
+    if not isinstance(result, dict):
+        return type(result).__name__
+    if result.get("ok") is False:
+        return f"ERROR={str(result.get('error', '?'))[:80]}"
+    parts: list[str] = []
+    for k, v in result.items():
+        if k == "ok":
+            continue
+        if isinstance(v, list):
+            parts.append(f"{k}=[{len(v)}]")
+        elif isinstance(v, dict):
+            parts.append(f"{k}={{{len(v)} keys}}")
+        else:
+            parts.append(f"{k}={str(v)[:40]}")
+    return ", ".join(parts) or "ok"
