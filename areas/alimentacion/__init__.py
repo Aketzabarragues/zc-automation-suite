@@ -31,6 +31,9 @@ from areas.alimentacion.frontend.disp_preview_router import (
 from areas.alimentacion.frontend.disp_sync_router import (
     build_routers as build_disp_sync_routers,
 )
+from areas.alimentacion.frontend.proc_sync_router import (
+    build_routers as build_proc_sync_routers,
+)
 from areas.alimentacion.frontend.manifest import build as build_manifest
 from areas.alimentacion.helpers.config_defaults import (
     install as install_defaults,
@@ -58,6 +61,7 @@ def _build_all_routers(app) -> None:
     build_excel_routers(app)
     build_disp_preview_routers(app)
     build_disp_sync_routers(app)
+    build_proc_sync_routers(app)
 
 
 AREA_SPEC = AreaSpec(
@@ -113,6 +117,12 @@ def register(
     from areas.alimentacion.functions.function_DispSincronizar import (
         FunctionDispSincronizar,
     )
+    from areas.alimentacion.functions.function_ProcGenerarPreview import (
+        FunctionProcGenerarPreview,
+    )
+    from areas.alimentacion.functions.function_ProcSincronizar import (
+        FunctionProcSincronizar,
+    )
     from core.composition.plc_function_template import FunctionTemplate
 
     # Defaults a Singleton global (mismo patron que la plantilla FB).
@@ -162,6 +172,35 @@ def register(
         "disp_sincronizar",
         FunctionDispSincronizar(
             nombre="disp_sincronizar",
+            config_manager=config_manager,
+            tia_client=tia_client,
+            build_cache=build_cache,
+            app_state=app_state,
+        ),
+    )
+
+    # FBs con I/O contra TIA: preview + sync de comentarios de
+    # procesos vs PLC (DB_PARAM + DB_ALM). Reemplazan los 2
+    # metodos legacy del use case ProcSyncComentariosUseCase
+    # (``generar_prevision`` + ``ejecutar_transaccion``). 6 + 5
+    # etapas. STEP_TIMEOUT_S=180s (preview) y 300s (sync).
+    # ``bloques_cache`` se resuelve en on_start() desde el
+    # singleton TIADataBloqueCache (acceso sync al dict de
+    # clase) si el FB se registro sin esa dep.
+    engine.register_fb(
+        "proc_generar_preview",
+        FunctionProcGenerarPreview(
+            nombre="proc_generar_preview",
+            config_manager=config_manager,
+            tia_client=tia_client,
+            build_cache=build_cache,
+            app_state=app_state,
+        ),
+    )
+    engine.register_fb(
+        "proc_sincronizar",
+        FunctionProcSincronizar(
+            nombre="proc_sincronizar",
             config_manager=config_manager,
             tia_client=tia_client,
             build_cache=build_cache,

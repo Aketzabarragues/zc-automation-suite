@@ -132,7 +132,13 @@ class FunctionProcGenerarPreview(FunctionBase):
     # ==================================================================
 
     def on_start(self, **params: Any) -> None:
-        """Validar deps inyectadas + capturar plc_name + proc_uid + crear ctx."""
+        """Validar deps inyectadas + capturar plc_name + proc_uid + crear ctx.
+
+        ``bloques_cache`` puede inyectarse por constructor (test) o
+        leerse del singleton ``TIADataBloqueCache._caches`` (dict de
+        clase, acceso sync) si el FB se registro en el engine sin esa
+        dep (caso comun en prod).
+        """
         if self._config is None:
             raise RuntimeError(
                 "FunctionProcGenerarPreview requiere config_manager. "
@@ -155,6 +161,19 @@ class FunctionProcGenerarPreview(FunctionBase):
             )
         self._plc_name = str(plc_name)
         self._proc_uid = proc_uid
+
+        # Si bloques_cache no se inyecta por constructor, leemos del
+        # singleton sync (acceso directo al dict de clase). Esto permite
+        # que el FB funcione tanto en tests (inyeccion directa) como
+        # en prod (singleton). El FB se re-arranca por cada operacion,
+        # asi que un snapshot al start es suficiente.
+        if self._bloques_cache is None:
+            from core.infrastructure.tia.tia_bloque_cache import (
+                TIADataBloqueCache,
+            )
+            self._bloques_cache = TIADataBloqueCache._caches.get(
+                self._plc_name
+            )
 
         # Crear el ProcPreviewContext que las 5 funciones iran mutando.
         # Lazy import para evitar ciclo con helpers/proc/.
