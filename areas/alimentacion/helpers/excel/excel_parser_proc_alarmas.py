@@ -131,6 +131,10 @@ class AlarmasParser:
                     exc,
                 )
                 continue
+        logger.debug(
+            f"Parser[{self.SHEET}/{self.TABLE}]: "
+            f"{len(rows)} filas -> {len(result)} extraidas"
+        )
         return result
 
 

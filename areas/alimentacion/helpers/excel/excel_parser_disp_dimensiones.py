@@ -167,10 +167,15 @@ class DimensionesParser:
             kwargs = dict(result)
             if extras:
                 kwargs["extras"] = extras
-            return DimensionesDispositivos(**kwargs)
-        if extras:
-            return DimensionesDispositivos(extras=extras)
-        return DimensionesDispositivos()
+            dims = DimensionesDispositivos(**kwargs)
+        elif extras:
+            dims = DimensionesDispositivos(extras=extras)
+        else:
+            dims = DimensionesDispositivos()
+        logger.debug(
+            f"Parser[N_MAX]: {len(result)} canonicos + {len(extras)} extras"
+        )
+        return dims
 
 
 # Ã¢”â‚¬Ã¢”â‚¬ Helpers de mapeo de named ranges (privados al módulo) Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬

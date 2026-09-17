@@ -123,6 +123,10 @@ class DispVParser:
                     "Fila descartada en %s: %s", self.TABLE, exc,
                 )
                 continue
+        logger.debug(
+            f"Parser[{self.SHEET}/{self.TABLE}]: "
+            f"{len(rows)} filas -> {len(result)} extraidas"
+        )
         return result
 
 
