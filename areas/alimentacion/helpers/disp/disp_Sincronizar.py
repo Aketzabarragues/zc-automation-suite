@@ -45,9 +45,10 @@ import os
 import shutil
 import time
 from dataclasses import dataclass, field
-from functools import partial
 from pathlib import Path
 from typing import Any
+
+from areas.alimentacion.helpers.tia.dispatch_async import dispatch_async
 
 
 logger = logging.getLogger("zc.areas.alimentacion.disp_Sincronizar")
@@ -132,7 +133,7 @@ async def exportar_tags(ctx: DispSyncContext) -> None:
     ctx.tags_base = disp_ctx.exports_variables
     ctx.selective_tables = _selective_table_names(ctx.config_manager)
     logger.debug(f"workdir (exports): {ctx.tags_base}")
-    await _dispatch_async(
+    await dispatch_async(
         ctx.tia_client,
         "export_plc_tags_xml",
         {
@@ -221,7 +222,7 @@ async def tx_a_nmax_renames(ctx: DispSyncContext) -> None:
         "tx_a_nmax_renames requiere exportar_tags previo"
     )
     if ctx.nmax_ops or ctx.rename_ops:
-        nmax_result = await _dispatch_async(
+        nmax_result = await dispatch_async(
             ctx.tia_client,
             "commit_disp_nmax_renames_online",
             {
@@ -268,7 +269,7 @@ async def exportar_post_tx_a(ctx: DispSyncContext) -> None:
     from areas.alimentacion.helpers.build_cache import build_cache
     disp_ctx = build_cache(root=ctx.build_cache_root).dispositivos
     logger.debug(f"workdir (exports re-read post-TxA): {disp_ctx.exports_variables}")
-    await _dispatch_async(
+    await dispatch_async(
         ctx.tia_client,
         "export_plc_tags_xml",
         {
@@ -310,7 +311,7 @@ async def tx_b_devices(ctx: DispSyncContext) -> None:
         # (default del handler) es el camino feliz.
         from areas.alimentacion.helpers.build_cache import build_cache
         disp_ctx = build_cache(root=ctx.build_cache_root).dispositivos
-        devices_result = await _dispatch_async(
+        devices_result = await dispatch_async(
             ctx.tia_client,
             "commit_disp_devices_offline",
             {
@@ -338,7 +339,7 @@ async def compilar_bloques(ctx: DispSyncContext) -> None:
     """Compila los DBs afectados (fuera de tx; el commit ya esta aplicado)."""
     affected_dbs = _get_affected_dbs_for_compile(ctx.config_manager)
     try:
-        compile_result = await _dispatch_async(
+        compile_result = await dispatch_async(
             ctx.tia_client,
             "compile_blocks",
             {"plc_name": ctx.plc_name, "block_names": affected_dbs},
@@ -449,7 +450,7 @@ async def aplicar_comentarios(ctx: DispSyncContext) -> None:
 
     # ── 4. Export UNA VEZ de los 6 DBs a exports/bloques/ ──
     for hw_type, db_name in db_names.items():
-        await _dispatch_async(
+        await dispatch_async(
             ctx.tia_client,
             "export_block",
             {
@@ -487,7 +488,7 @@ async def aplicar_comentarios(ctx: DispSyncContext) -> None:
             },
         })
 
-    batch_result = await _dispatch_async(
+    batch_result = await dispatch_async(
         ctx.tia_client,
         "execute_transactional_batch",
         {
@@ -589,17 +590,10 @@ async def post_preview(ctx: DispSyncContext) -> None:
 # Helpers internos privados al modulo
 # ===========================================================================
 
-async def _dispatch_async(
-    tia_client: Any,
-    command: str,
-    args: dict[str, Any],
-    timeout_s: float = 60.0,
-) -> dict[str, Any]:
-    """Envia un comando al worker OT via submit_and_wait + to_thread."""
-    dispatch = partial(
-        tia_client.submit_and_wait, command, args, timeout_s,
-    )
-    return await asyncio.to_thread(dispatch)
+# Nota: ``dispatch_async`` se importa arriba desde
+# ``areas.alimentacion.helpers.tia.dispatch_async``. Antes vivia
+# duplicado aqui (4 copias en total: 2 disp + 2 proc); ahora vive
+# como helper compartido.
 
 
 def _selective_table_names(config_manager: Any) -> list[str]:

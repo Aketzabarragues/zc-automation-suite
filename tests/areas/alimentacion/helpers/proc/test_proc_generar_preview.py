@@ -77,7 +77,7 @@ def mock_tia_client() -> MagicMock:
     El gateway real (``SyncTIAClient``) no expone ``export_block`` /
     ``export_plc_tags_xml`` como metodos directos, sino como comandos
     despachados via ``submit_and_wait(command, args, timeout_s)``. El
-    helper wrapper ``_dispatch_async`` lo invoca con
+    helper wrapper compartido ``dispatch_async`` lo invoca con
     ``asyncio.to_thread``. Los tests mockean ``submit_and_wait``
     retornando dicts vacios (los comandos export_* no necesitan
     devolver nada util aqui).
@@ -441,20 +441,22 @@ def test_export_and_diff_skips_when_no_slot_map(
 def test_export_and_diff_handles_export_failure(
     make_ctx: Any,
 ) -> None:
-    """Si ``_dispatch_async`` lanza RuntimeError -> current=None + export_error poblado."""
+    """Si ``dispatch_async`` lanza RuntimeError -> current=None + export_error poblado."""
     import asyncio
     from unittest.mock import patch
     import areas.alimentacion.data.data_ProcSlotMap as data_mod
     import areas.alimentacion.helpers.proc.proc_generar_preview as helper_mod
+    from areas.alimentacion.helpers.tia import dispatch_async as dispatch_mod
 
     fake_sm = FakeSlotMap(preal={1: "Bomba 1"})
 
-    # ``_dispatch_async`` falla para export_block -> modo degradado.
+    # ``dispatch_async`` falla para export_block -> modo degradado.
     async def bad_dispatch(*args: Any, **kwargs: Any) -> dict[str, Any]:
         raise RuntimeError("TIA Portal no responde")
 
     with patch.object(data_mod, "proc_build_slot_maps", return_value=fake_sm), \
-         patch.object(helper_mod, "_dispatch_async", side_effect=bad_dispatch):
+         patch.object(helper_mod, "dispatch_async", side_effect=bad_dispatch), \
+         patch.object(dispatch_mod, "dispatch_async", side_effect=bad_dispatch):
         ctx = make_ctx()
         proc_build_slot_maps(ctx)
         asyncio.run(proc_export_and_diff(ctx))

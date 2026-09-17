@@ -52,9 +52,10 @@ import asyncio
 import logging
 import os
 from dataclasses import dataclass, field
-from functools import partial
 from pathlib import Path
 from typing import Any
+
+from areas.alimentacion.helpers.tia.dispatch_async import dispatch_async
 
 
 logger = logging.getLogger("zc.areas.alimentacion.proc_generate_preview")
@@ -207,7 +208,7 @@ async def proc_compute_nmax(ctx: ProcPreviewContext) -> None:
 
     current: dict[str, int] = {}
     try:
-        await _dispatch_async(
+        await dispatch_async(
             ctx.tia_client,
             "export_plc_tags_xml",
             {
@@ -304,7 +305,7 @@ async def proc_export_and_diff(ctx: ProcPreviewContext) -> None:
     try:
         # 1. Exportar los 2 DBs (secuencial; export_block no es
         # thread-safe a nivel del wrapper .NET).
-        await _dispatch_async(
+        await dispatch_async(
             ctx.tia_client,
             "export_block",
             {
@@ -314,7 +315,7 @@ async def proc_export_and_diff(ctx: ProcPreviewContext) -> None:
             },
             timeout_s=120.0,
         )
-        await _dispatch_async(
+        await dispatch_async(
             ctx.tia_client,
             "export_block",
             {
@@ -625,36 +626,10 @@ def _compute_summary_internal(arrays: dict[str, Any]) -> dict[str, int]:
     }
 
 
-async def _dispatch_async(
-    tia_client: Any,
-    command: str,
-    args: dict[str, Any],
-    timeout_s: float = 60.0,
-) -> dict[str, Any]:
-    """Envia un comando al worker OT via ``submit_and_wait`` + ``to_thread``.
-
-    El gateway (``SyncTIAClient``) no expone ``export_block``,
-    ``export_plc_tags_xml`` ni ``execute_transactional_batch`` como
-    metodos directos. Solo expone ``submit_and_wait(command, args,
-    timeout_s)``, que encola el comando en el worker persistente y
-    espera el resultado.
-
-    Args:
-        tia_client: ``SyncTIAClient`` (o mock en tests).
-        command: nombre del comando registrado en el worker OT.
-        args: argumentos del comando (dict).
-        timeout_s: timeout del dispatch en segundos.
-
-    Returns:
-        El ``result`` del worker OT (dict). En tests, lo que devuelva
-        el mock.
-
-    Mismo patron que ``disp_generate_preview._dispatch_async``.
-    """
-    dispatch = partial(
-        tia_client.submit_and_wait, command, args, timeout_s,
-    )
-    return await asyncio.to_thread(dispatch)
+# Nota: ``dispatch_async`` se importa arriba desde
+# ``areas.alimentacion.helpers.tia.dispatch_async``. Antes vivia
+# duplicado aqui (4 copias en total: 2 disp + 2 proc); ahora vive
+# como helper compartido.
 
 
 __all__ = ["ProcPreviewContext", "proc_check_state", "proc_check_blocks",

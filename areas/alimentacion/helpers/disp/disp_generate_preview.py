@@ -49,9 +49,10 @@ import asyncio
 import logging
 import os
 from dataclasses import dataclass, field
-from functools import partial
 from pathlib import Path
 from typing import Any
+
+from areas.alimentacion.helpers.tia.dispatch_async import dispatch_async
 
 
 logger = logging.getLogger("zc.areas.alimentacion.disp_generate_preview")
@@ -111,7 +112,7 @@ async def exportar_tags(ctx: DispPreviewContext) -> None:
     ctx.tags_base = disp_ctx.preview_variables
     ctx.selective_tables = _selective_table_names(ctx.config_manager)
     logger.debug(f"workdir (preview): {ctx.tags_base}")
-    await _dispatch_async(
+    await dispatch_async(
         ctx.tia_client,
         "export_plc_tags_xml",
         {
@@ -270,17 +271,10 @@ async def build_response(ctx: DispPreviewContext) -> None:
 # Helpers internos (privados al modulo)
 # ===========================================================================
 
-async def _dispatch_async(
-    tia_client: Any,
-    command: str,
-    args: dict[str, Any],
-    timeout_s: float = 60.0,
-) -> dict[str, Any]:
-    """Envia un comando al worker OT via submit_and_wait + to_thread."""
-    dispatch = partial(
-        tia_client.submit_and_wait, command, args, timeout_s,
-    )
-    return await asyncio.to_thread(dispatch)
+# Nota: ``dispatch_async`` se importa arriba desde
+# ``areas.alimentacion.helpers.tia.dispatch_async``. Antes vivia
+# duplicado aqui (4 copias en total: 2 disp + 2 proc); ahora vive
+# como helper compartido para que cualquier modulo del area lo use.
 
 
 def _selective_table_names(config_manager: Any) -> list[str]:
