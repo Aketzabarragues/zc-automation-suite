@@ -40,7 +40,7 @@
  */
 import { computed, ref } from "/js/vendor/vue.esm-browser.prod.js";
 // Imports absolutos: ver nota en ``Sidebar.js``.
-import { store, pushLog } from "/js/store.js";
+import { store } from "/js/store.js";
 import { apiUploadExcel, apiFetchMemory } from "/js/api.js";
 
 export default {

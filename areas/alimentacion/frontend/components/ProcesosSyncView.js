@@ -46,7 +46,7 @@ import {
     ref,
     watch,
 } from "/js/vendor/vue.esm-browser.prod.js";
-import { store, pushLog, resetPlcState } from "/js/store.js";
+import { store, resetPlcState } from "/js/store.js";
 import {
     apiProcesosSyncPreview,
     apiProcesosSyncCommit,
