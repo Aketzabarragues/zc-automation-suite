@@ -24,7 +24,11 @@ import time
 
 from flask import Blueprint, current_app, jsonify, request
 
+from core.infrastructure.log_web_bridge import install_web_level
+
 logger = logging.getLogger(__name__)
+# Asegura que ``Logger.web/ok`` existen en tests/scripts (idempotente).
+install_web_level()
 
 bp = Blueprint(
     "area_alimentacion_disp_preview",
@@ -77,6 +81,8 @@ def post_disp_preview():
         }), 500
 
     import asyncio
+    # Plan living TRAZABILIDAD_LOGGING §5 (operacion 4): 1 web al iniciar.
+    logger.web(f"Generando prevision de '{plc_name}'...")
     started = asyncio.run(fb.start(plc_name=plc_name))
     if not started:
         return jsonify({
@@ -108,7 +114,19 @@ def post_disp_preview():
             "nStep": fb.nStep,
         }), 500
 
-    return jsonify(fb.result or {"ok": True, "plc_name": plc_name})
+    result = fb.result or {"ok": True, "plc_name": plc_name}
+    # Plan living §5 (operacion 4): OK con resumen del diff + N_MAX.
+    s = (result.get("summary") or {}) if isinstance(result, dict) else {}
+    nmax = (
+        (result.get("nmax") or {}).get("summary") or {}
+        if isinstance(result, dict) else {}
+    )
+    logger.ok(
+        f"Prevision de '{plc_name}': "
+        f"{s.get('agregados', 0)} adds, {s.get('eliminados', 0)} removes, "
+        f"{s.get('renombrados', 0)} renames, {nmax.get('actualizar', 0)} N_MAX"
+    )
+    return jsonify(result)
 
 
 @bp.get("/status")
