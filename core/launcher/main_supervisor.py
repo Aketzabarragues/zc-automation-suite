@@ -26,6 +26,8 @@ from typing import Any
 
 from werkzeug.serving import make_server
 
+from core.runtime.log_buffer import get_log_buffer
+
 
 class MainServiceSupervisor:
     """Flask daemon + main loop en hilos daemon; auto-restart con backoff."""
@@ -207,7 +209,6 @@ class MainServiceSupervisor:
         # para que ``on_loop_status`` capture el evento "running=true"
         # en cuanto el hilo arranca. Idempotente si los hooks no existen
         # (log warn + skip).
-        from core.runtime.log_buffer import get_log_buffer
         from core.runtime.progress_buffer import get_progress_tracker
         from core.runtime.sse.sse_publishers import wire_all
         wire_all(
