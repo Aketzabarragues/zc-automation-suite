@@ -576,7 +576,7 @@ def _h_export_udts_sd(args: dict, tia_client: "SyncTIAClient") -> dict:
     return _export_objects_sd(target_plc, target_path, "user_data_types")
 
 
-@log_ot_command(name="export_plc_tags_xml")
+@log_ot_command(name="export_plc_tags_xml", level=logging.DEBUG)
 def _h_export_plc_tags_xml(args: dict, tia_client: "SyncTIAClient") -> dict:
     """Exporta las tablas de variables del PLC como XML SimaticML."""
     plc_name: str = args.get("plc_name", "")
@@ -611,7 +611,7 @@ def _h_export_plc_tags_xml(args: dict, tia_client: "SyncTIAClient") -> dict:
     return {"exported_to": str(target_path), "count": count}
 
 
-@log_ot_command(name="export_block")
+@log_ot_command(name="export_block", level=logging.DEBUG)
 def _h_export_block(args: dict, tia_client: "SyncTIAClient") -> dict:
     """Exporta un bloque de programa como SimaticSD (manual §2.10.5)."""
     plc_name: str = args.get("plc_name", "")
@@ -777,7 +777,7 @@ def _h_import_tag_table(args: dict, tia_client: "SyncTIAClient") -> dict:
     return {"imported_from": import_dir}
 
 
-@log_ot_command(name="import_block")
+@log_ot_command(name="import_block", level=logging.DEBUG)
 def _h_import_block(args: dict, tia_client: "SyncTIAClient") -> dict:
     """Importa un bloque (.s7dcl) desde disco al PLC (manual §2.2.23)."""
     plc_name: str = args.get("plc_name", "")
@@ -872,7 +872,7 @@ def _h_delete_user_constant(args: dict, tia_client: "SyncTIAClient") -> dict:
     )
 
 
-@log_ot_command(name="update_user_constant_value")
+@log_ot_command(name="update_user_constant_value", level=logging.DEBUG)
 def _h_update_user_constant_value(args: dict, tia_client: "SyncTIAClient") -> dict:
     """Actualiza el valor de una PlcUserConstant (N_MAX) (manual §2.28).
 
@@ -923,7 +923,7 @@ def _h_update_user_constant_value(args: dict, tia_client: "SyncTIAClient") -> di
     )
 
 
-@log_ot_command(name="update_user_constant_name")
+@log_ot_command(name="update_user_constant_name", level=logging.DEBUG)
 def _h_update_user_constant_name(args: dict, tia_client: "SyncTIAClient") -> dict:
     """Renombra una PlcUserConstant (manual §2.28).
 

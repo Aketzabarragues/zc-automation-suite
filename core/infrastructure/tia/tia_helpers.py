@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 from core.data.data_block_plc import DataBloquePLC
+from core.infrastructure.log_web_bridge import WEB_LEVEL
 
 if TYPE_CHECKING:
     from core.infrastructure.tia.tia_loop import SyncTIAClient
@@ -335,8 +336,10 @@ def _export_objects_sd(
 # ---------------------------------------------------------------------------
 # Decorador de trazabilidad para handlers OT (Zona D, paso 1)
 # ---------------------------------------------------------------------------
-def log_ot_command(name: str) -> Callable[..., Any]:
-    """Decorador: emite web/ok alrededor de cada handler OT (entry/exit).
+def log_ot_command(
+    name: str, level: int = WEB_LEVEL
+) -> Callable[..., Any]:
+    """Decorador: emite entry/exit alrededor de cada handler OT.
 
     Patrón instrumentación estándar: log al entrar + log al salir. NO
     captura excepciones: el caller (``_execute_one``) ya las gestiona
@@ -347,22 +350,28 @@ def log_ot_command(name: str) -> Callable[..., Any]:
             registro en el ``COMMAND_REGISTRY``). Lo usa el operario
             para correlacionar logs y comparar con el árbol de
             comandos de la SPA.
+        level: nivel de logging para los mensajes entry/exit. Default
+            ``WEB_LEVEL`` (25) -> mensaje llega a archivo + consola web
+            (verde al cerrar). Si se pasa ``logging.DEBUG`` (10),
+            el mensaje solo va al archivo (no satura la web cuando el
+            handler se llama muchas veces por sync, p.ej. export_block
+            por cada DB de dispositivos).
 
-    Output:
-      - ``logger.web`` al entrar: ``OT[{name}] args={resumen_args}``.
-      - ``logger.ok`` al salir OK: ``OT[{name}] OK en {ms}ms
-        ({resumen_result})``.
+    Output (en el nivel configurado):
+      - entry: ``OT[{name}] args={resumen_args}``.
+      - exit OK: ``OT[{name}] OK en {ms}ms ({resumen_result})``.
     """
     def deco(handler: Callable[..., Any]) -> Callable[..., Any]:
         @functools.wraps(handler)
         def wrapper(args: dict, tia_client: Any) -> dict:
-            logger.web(f"OT[{name}] args={_sanitize_args(args)}")
+            logger.log(level, f"OT[{name}] args={_sanitize_args(args)}")
             t0 = time.monotonic()
             result = handler(args, tia_client)
             ms = (time.monotonic() - t0) * 1000
-            logger.ok(
+            logger.log(
+                level,
                 f"OT[{name}] OK en {ms:.0f}ms "
-                f"({_summarize_result(result)})"
+                f"({_summarize_result(result)})",
             )
             return result
         return wrapper
