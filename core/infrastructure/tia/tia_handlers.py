@@ -755,6 +755,7 @@ def _h_export_tag_table(args: dict, tia_client: "SyncTIAClient") -> dict:
     name="import_blocks_sd",
     msg_in="Importando bloques SimaticSD al PLC '{plc_name}'...",
     msg_ok="Bloques importados: {result_str}",
+    level=logging.DEBUG,  # redundante cuando lo llama un commit que ya emite
 )
 def _h_import_blocks_sd(args: dict, tia_client: "SyncTIAClient") -> dict:
     """Importa bloques .s7dcl desde el disco al PLC (manual §2.2.23)."""
@@ -790,6 +791,7 @@ def _h_import_blocks_sd(args: dict, tia_client: "SyncTIAClient") -> dict:
     name="import_plc_tags_xml",
     msg_in="Importando tablas de variables al PLC '{plc_name}'...",
     msg_ok="Tablas importadas: {result_str}",
+    level=logging.DEBUG,  # redundante cuando lo llama un commit que ya emite
 )
 def _h_import_plc_tags_xml(args: dict, tia_client: "SyncTIAClient") -> dict:
     """Importa PlcTagTables en formato XML al PLC (manual §2.2.24)."""

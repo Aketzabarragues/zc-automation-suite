@@ -350,7 +350,11 @@ class FunctionBase:
             return
         step_nombre = self.steps[idx]["nombre"]
         self._tracker.start_stage(step_nombre)
-        logger.web(f"{step_nombre}...")
+        # Wrapper entry/exit va a DEBUG (no web). El operario ya ve
+        # el flujo via los ``_log.web/ok`` explicitos de cada FB
+        # (``[scan_plc_blocks] Iniciando scan de '...'``, etc.) y
+        # el progress tracker (start_stage/finish_stage) en la UI.
+        logger.debug(f"{step_nombre}: entrando...")
         _t0 = time.monotonic()
         try:
             detail = await asyncio.wait_for(
@@ -373,8 +377,8 @@ class FunctionBase:
             step_nombre, detail=str(detail) if detail else None,
         )
         _ms = (time.monotonic() - _t0) * 1000
-        logger.ok(
-            f"{step_nombre} completado en {_ms:.0f}ms"
+        logger.debug(
+            f"{step_nombre}: saliendo en {_ms:.0f}ms"
             + (f" ({detail})" if detail else "")
         )
         self._step_idx += 1

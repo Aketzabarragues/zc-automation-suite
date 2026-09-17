@@ -174,7 +174,7 @@ class TagTableModifier(XMLModifier):
             Numero de PlcUserConstants anadidos.
         """
         stem_match = self._path.stem == table_name
-        _logger.web(
+        _logger.debug(
             f"TagTableModifier.add_user_constants_by_table: table={table_name!r} "
             f"({len(dispositivos)} disp, stem_match={stem_match}, file={self._path.name})"
         )
@@ -223,8 +223,8 @@ class TagTableModifier(XMLModifier):
             added += 1
         if added > 0:
             self._modified = True
-        _logger.ok(
-            f"TagTableModifier OK: +{added} anadidos en '{table_name}' "
+        _logger.debug(
+            f"TagTableModifier: +{added} anadidos en '{table_name}' "
             f"(de {len(dispositivos)} solicitados)"
         )
         return added
@@ -282,7 +282,7 @@ class TagTableModifier(XMLModifier):
         """
         if not uids_to_remove:
             return 0
-        _logger.web(
+        _logger.debug(
             f"TagTableModifier.remove_user_constants: {len(uids_to_remove)} uids a eliminar "
             f"de '{self._path.name}'"
         )
@@ -299,8 +299,8 @@ class TagTableModifier(XMLModifier):
                 removed += 1
         if removed > 0:
             self._modified = True
-        _logger.ok(
-            f"TagTableModifier OK: -{removed} eliminados de '{self._path.name}' "
+        _logger.debug(
+            f"TagTableModifier: -{removed} eliminados de '{self._path.name}' "
             f"(de {len(uids_to_remove)} solicitados)"
         )
         return removed
