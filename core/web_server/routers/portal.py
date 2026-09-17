@@ -33,14 +33,12 @@ def portal_attach():
     """HOT-Attach a TIA Portal ya abierto."""
     tia = _tia()
     log = _log()
-    log.info("[portal/attach] Adjuntando a TIA Portal (OB1).")
     out = tia.dispatch("attach_portal")
     if not out.get("ok"):
         log.error(
             f"[portal/attach] Fallo: {out.get('error', '?')}"
         )
         return jsonify({"ok": False, "error": out.get("error", "?")}), 500
-    log.success("[portal/attach] Adjuntado OK.")
     return jsonify({"ok": True, "result": out.get("result")})
 
 
@@ -57,14 +55,12 @@ def portal_open_new():
             "error": "project_file_path requerido",
         }), 400
 
-    log.info(f"[portal/open] Abriendo proyecto {project_file_path} (OB1).")
     out = tia.dispatch(
         "open_new_portal", {"project_file_path": project_file_path}
     )
     if not out.get("ok"):
         log.error(f"[portal/open] Fallo: {out.get('error', '?')}")
         return jsonify({"ok": False, "error": out.get("error", "?")}), 500
-    log.success(f"[portal/open] Proyecto abierto: {project_file_path}.")
     return jsonify({"ok": True, "result": out.get("result")})
 
 
@@ -73,7 +69,6 @@ def listar_plcs():
     """Lista PLCs del TIA Portal conectado (best-effort: no tumba el server)."""
     tia = _tia()
     log = _log()
-    log.info("[portal/plcs] Listando PLCs (OB1).")
     out = tia.dispatch("list_plcs")
     if not out.get("ok"):
         log.error(f"[portal/plcs] Fallo: {out.get('error', '?')}")
@@ -86,7 +81,6 @@ def listar_plcs():
             "detail": out.get("error", "?"),
         })
     plcs = out.get("result", {}).get("plcs", [])
-    log.success(f"[portal/plcs] Listados {len(plcs)} PLCs.")
     return jsonify({"ok": True, "plcs": plcs})
 
 
@@ -95,7 +89,6 @@ def get_project_info():
     """Nombre y propiedades basicas del proyecto TIA activo."""
     tia = _tia()
     log = _log()
-    log.info("[portal/project] Consultando informacion del proyecto (OB1).")
     out = tia.dispatch("get_project_info")
     if not out.get("ok"):
         log.error(f"[portal/project] Fallo: {out.get('error', '?')}")
@@ -108,7 +101,6 @@ def get_project_info():
             "detail": out.get("error", "?"),
         })
     info = out.get("result", {})
-    log.success(f"[portal/project] Proyecto: {info.get('name', '(sin nombre)')}.")
     return jsonify({"ok": True, "project_info": info})
 
 
