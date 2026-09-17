@@ -162,7 +162,7 @@ class FunctionDispSincronizar(FunctionBase):
             build_cache_root=self._build_cache_root,
         )
 
-        logger.web(
+        logger.debug(
             f"[{self.nombre}] Iniciando sync transaccional para "
             f"{self._plc_name} (11 etapas)"
         )
@@ -271,7 +271,7 @@ class FunctionDispSincronizar(FunctionBase):
         compile_label = (
             "OK" if self._ctx.compile_ok else "con errores"
         )
-        logger.ok(
+        logger.debug(
             f"[{self.nombre}] sync completo para "
             f"{self._ctx.plc_name}: {operations_executed} ops "
             f"({len(self._ctx.nmax_ops)} N_MAX), "

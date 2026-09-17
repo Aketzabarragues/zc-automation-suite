@@ -99,7 +99,7 @@ class FunctionSubirExcel(FunctionBase):
                 "FunctionSubirExcel.start(xlsx_path=...) es obligatorio"
             )
         self._xlsx_path = str(xlsx_path)
-        logger.web(
+        logger.debug(
             f"[{self.nombre}] Iniciando carga desde {self._xlsx_path}"
         )
 
@@ -169,7 +169,7 @@ class FunctionSubirExcel(FunctionBase):
                     "total_dispositivos": summary_dict["total_dispositivos"],
                 }
                 # Log de exito del volcado al AppState.
-                logger.ok(
+                logger.debug(
                     f"[{self.nombre}] Carga: {summary_dict['total_dispositivos']} "
                     f"dispositivos ({len(summary_dict['summary'])} tipos)"
                 )

@@ -143,7 +143,7 @@ class FunctionDispGenerarPreview(FunctionBase):
             build_cache_root=self._build_cache_root,
         )
 
-        logger.web(
+        logger.debug(
             f"[{self.nombre}] Iniciando preview de {self._plc_name}"
         )
 
@@ -211,7 +211,7 @@ class FunctionDispGenerarPreview(FunctionBase):
         # Log de cierre, igual que hacia el helper monolitico.
         s = self._ctx.result["summary"]
         nmax_summary = self._ctx.result["nmax"]["summary"]
-        logger.ok(
+        logger.debug(
             f"[{self.nombre}] preview calculado para "
             f"{self._ctx.plc_name}: "
             f"{s['agregados']} agregados, {s['eliminados']} eliminados, "

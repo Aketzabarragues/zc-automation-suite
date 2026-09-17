@@ -96,7 +96,7 @@ class FunctionScanPlcBlocks(FunctionBase):
             )
         self._plc_name = str(plc_name)
         self._force_refresh = bool(params.get("force_refresh", False))
-        logger.web(
+        logger.debug(
             f"[{self.nombre}] Iniciando scan de '{self._plc_name}' "
             f"(force_refresh={self._force_refresh})"
         )
@@ -150,7 +150,7 @@ class FunctionScanPlcBlocks(FunctionBase):
                     "n_udts": len(cache.udts),
                     "scanned_at": cache.scanned_at.isoformat(),
                 }
-                logger.ok(
+                logger.debug(
                     f"[{self.nombre}] Scan completo: "
                     f"{len(cache.blocks)} bloques, "
                     f"{len(cache.tag_tables)} tablas, "

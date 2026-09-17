@@ -168,7 +168,7 @@ class ExcelLoader:
 
         total_disp = sum(len(t) for t in dispositivos_dict.values())
         total_sw = len(procesos) + len(preal) + len(pint) + len(alarmas)
-        _logger.ok(
+        _logger.debug(
             f"Excel parseado: {total_disp} disp + {total_sw} software "
             f"+ N_MAX en '{path.name}'"
         )

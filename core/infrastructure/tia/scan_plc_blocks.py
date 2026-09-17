@@ -91,7 +91,7 @@ async def scan_plc_blocks(
     # El comando OT 'scan_blocks' ya queda loggeado por el decorador
     # ``@log_ot_command`` en ``tia_handlers._h_scan_blocks``. Aqui
     # loggeamos solo el wrapper IT (force_refresh, reconstruct, put).
-    logger.web(
+    logger.debug(
         f"helper[scan_plc_blocks] plc={plc_name!r} "
         f"force_refresh={force_refresh}"
     )
@@ -108,7 +108,7 @@ async def scan_plc_blocks(
 
     cache = _reconstruct_cache(resp["result"])
     await TIADataBloqueCache.put(plc_name, cache)
-    logger.ok(
+    logger.debug(
         f"helper[scan_plc_blocks] {plc_name} OK: "
         f"{len(cache.blocks)} bloques, {len(cache.tag_tables)} tablas, "
         f"{len(cache.udts)} UDTs"
