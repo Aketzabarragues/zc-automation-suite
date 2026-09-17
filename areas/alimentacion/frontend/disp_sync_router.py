@@ -32,7 +32,11 @@ import time
 
 from flask import Blueprint, current_app, jsonify, request
 
+from core.infrastructure.log_web_bridge import install_web_level
+
 logger = logging.getLogger(__name__)
+# Asegura que ``Logger.web/ok`` existen en tests/scripts (idempotente).
+install_web_level()
 
 bp = Blueprint(
     "area_alimentacion_disp_Sincronizar",
@@ -85,6 +89,8 @@ def post_disp_sync_commit():
         }), 500
 
     import asyncio
+    # Plan living TRAZABILIDAD_LOGGING §5 (operacion 5): 1 web al iniciar.
+    logger.web(f"Sincronizando dispositivos en '{plc_name}'...")
     started = asyncio.run(fb.start(plc_name=plc_name))
     if not started:
         return jsonify({
@@ -117,7 +123,16 @@ def post_disp_sync_commit():
             "nStep": fb.nStep,
         }), 500
 
-    return jsonify(fb.result or {"ok": True, "plc_name": plc_name})
+    result = fb.result or {"ok": True, "plc_name": plc_name}
+    # Plan living §5 (operacion 5): OK con resumen del sync.
+    # Operario decidio NO incluir compile=OK/ERR (lo mantiene el
+    # errors/warnings automaticos si falla).
+    logger.ok(
+        f"Sincronizacion completa en '{plc_name}': "
+        f"{result.get('operations', 0)} ops, "
+        f"{result.get('n_max_updates', 0)} N_MAX"
+    )
+    return jsonify(result)
 
 
 @bp.get("/status")
