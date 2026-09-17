@@ -512,6 +512,9 @@ async def aplicar_comentarios(ctx: DispSyncContext) -> None:
     # Cada op trae ``disp_comment_result: {reused, inserted, ...}``;
     # sumamos para que el FB muestre "X reused + Y inserted en Z DBs"
     # en vez de "comentarios aplicados" sin numeros.
+    #
+    # ``reused`` e ``inserted`` son ``dict[int, str]`` (slot -> texto)
+    # del DispCommentResult, NO enteros. Sumamos con ``len()``.
     total_reused = 0
     total_inserted = 0
     total_modified = 0
@@ -520,8 +523,8 @@ async def aplicar_comentarios(ctx: DispSyncContext) -> None:
         if op_result.get("modified"):
             total_modified += 1
         dcr = op_result.get("disp_comment_result") or {}
-        total_reused += int(dcr.get("reused", 0))
-        total_inserted += int(dcr.get("inserted", 0))
+        total_reused += len(dcr.get("reused") or {})
+        total_inserted += len(dcr.get("inserted") or {})
 
     ctx.comments_result = {
         "plc_name": ctx.plc_name,
