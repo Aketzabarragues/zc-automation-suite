@@ -19,7 +19,11 @@ from typing import Any
 
 from flask import Blueprint, current_app, jsonify, request
 
+from core.infrastructure.log_web_bridge import install_web_level
+
 logger = logging.getLogger(__name__)
+# Asegura que ``Logger.web/ok`` existen en tests/scripts (idempotente).
+install_web_level()
 
 bp = Blueprint("plc_fbs", __name__, url_prefix="/api/v1/plc/fb")
 
@@ -154,6 +158,12 @@ def _scan_plc_blocks(plc_name: str):
     body = request.get_json(silent=True) or {}
     force_refresh = bool(body.get("force_refresh", False))
 
+    # Plan living TRAZABILIDAD_LOGGING §5 (operacion 3): 1 web al iniciar.
+    logger.web(
+        f"Leyendo cache del PLC '{plc_name}' "
+        f"(force_refresh={force_refresh})..."
+    )
+
     started = asyncio.run(fb.start(
         plc_name=plc_name,
         force_refresh=force_refresh,
@@ -208,7 +218,16 @@ def _scan_plc_blocks(plc_name: str):
                 "scanned_at": None,
             },
         })
-    return 200, jsonify({"ok": True, "snapshot": cache.to_dict()})
+    snapshot = cache.to_dict()
+    # Plan living §5 (operacion 3): OK con resumen del cache.
+    n_bloques = len(snapshot.get("blocks", []))
+    n_tablas = len(snapshot.get("tag_tables", []))
+    n_udts = len(snapshot.get("udts", []))
+    logger.ok(
+        f"PLC '{plc_name}' cache: {n_bloques} bloques, "
+        f"{n_tablas} tablas, {n_udts} UDTs"
+    )
+    return 200, jsonify({"ok": True, "snapshot": snapshot})
 
 
 # Blueprint separado del de FBs para que el ``url_prefix`` pueda ser
