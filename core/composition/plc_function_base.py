@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import traceback
 from collections.abc import Callable
 from typing import Any
@@ -349,6 +350,8 @@ class FunctionBase:
             return
         step_nombre = self.steps[idx]["nombre"]
         self._tracker.start_stage(step_nombre)
+        logger.web(f"FB[{self.nombre}] -> {step_nombre}")
+        _t0 = time.monotonic()
         try:
             detail = await asyncio.wait_for(
                 self.run_step(idx, **self._params),
@@ -368,6 +371,11 @@ class FunctionBase:
             raise
         self._tracker.finish_stage(
             step_nombre, detail=str(detail) if detail else None,
+        )
+        _ms = (time.monotonic() - _t0) * 1000
+        logger.ok(
+            f"FB[{self.nombre}] <- {step_nombre} OK en {_ms:.0f}ms "
+            f"({detail})"
         )
         self._step_idx += 1
         if self._step_idx >= len(self.steps):
