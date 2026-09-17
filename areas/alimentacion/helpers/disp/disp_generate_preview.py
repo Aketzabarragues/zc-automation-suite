@@ -110,6 +110,7 @@ async def exportar_tags(ctx: DispPreviewContext) -> None:
     disp_ctx.clean_preview()
     ctx.tags_base = disp_ctx.preview_variables
     ctx.selective_tables = _selective_table_names(ctx.config_manager)
+    logger.web(f"workdir (preview): {ctx.tags_base}")
     await _dispatch_async(
         ctx.tia_client,
         "export_plc_tags_xml",

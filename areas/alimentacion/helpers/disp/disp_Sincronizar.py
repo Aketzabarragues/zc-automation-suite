@@ -131,6 +131,7 @@ async def exportar_tags(ctx: DispSyncContext) -> None:
     # para no re-importar la N_MAX online en Tx B).
     ctx.tags_base = disp_ctx.exports_variables
     ctx.selective_tables = _selective_table_names(ctx.config_manager)
+    logger.web(f"workdir (exports): {ctx.tags_base}")
     await _dispatch_async(
         ctx.tia_client,
         "export_plc_tags_xml",
@@ -266,6 +267,7 @@ async def exportar_post_tx_a(ctx: DispSyncContext) -> None:
     # Stage 7 hace la copia filtrada.
     from areas.alimentacion.helpers.build_cache import build_cache
     disp_ctx = build_cache(root=ctx.build_cache_root).dispositivos
+    logger.web(f"workdir (exports re-read post-TxA): {disp_ctx.exports_variables}")
     await _dispatch_async(
         ctx.tia_client,
         "export_plc_tags_xml",
@@ -282,6 +284,9 @@ async def editar_xmls_offline(ctx: DispSyncContext) -> None:
     assert ctx.tags_base is not None, (
         "editar_xmls_offline requiere exportar_tags previo"
     )
+    from areas.alimentacion.helpers.build_cache import build_cache
+    disp_ctx = build_cache(root=ctx.build_cache_root).dispositivos
+    logger.web(f"workdir (modified): {disp_ctx.modified_variables}")
     await asyncio.to_thread(
         _copy_and_edit_offline,
         ctx.build_cache_root, ctx.device_changes,
@@ -437,6 +442,10 @@ async def aplicar_comentarios(ctx: DispSyncContext) -> None:
         shutil.rmtree(modified_bloques)
     modified_bloques.mkdir(parents=True, exist_ok=True)
     exports_bloques = disp_ctx.exports_bloques
+    logger.web(
+        f"workdir (comentarios): exports={exports_bloques}, "
+        f"modified={modified_bloques}"
+    )
 
     # ── 4. Export UNA VEZ de los 6 DBs a exports/bloques/ ──
     for hw_type, db_name in db_names.items():
