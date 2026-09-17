@@ -351,10 +351,22 @@ async def _re_export_current(
 ) -> "tuple[dict[int, str | None], dict[int, str | None], dict[int, str | None]]":
     """Re-exporta los 2 DBs del proceso y lee los ``es-ES`` actuales.
 
-    Re-usa la misma logica que ``proc_export_and_diff`` del helper
-    de preview, pero escribe a ``modified_bloques`` (en lugar de
-    ``preview_bloques``) porque estos son los archivos que el
-    updater va a modificar.
+    Exporta a ``exports_bloques/<db_subpath>/`` (NO a ``modified_bloques/``),
+    mismo patron que el sync handler ``update_proc_comments_db_param``.
+    Esto evita dejar archivos stale en ``modified_bloques/`` (raiz)
+    que el ``import_block`` posterior reescaneaba recursivamente y
+    marcaba como ``already exists``.
+
+    Flujo completo (con fix 2026-09-17):
+      1. ``proc_ctx.clean()`` borra ``exports/`` y ``modified/`` enteras.
+      2. ``_re_export_current`` exporta a ``exports/<subpath>/``.
+      3. Sync handler ``update_proc_comments_db_param``:
+         - re-exporta a ``exports/<subpath>/`` (overwrite),
+         - copytree ``exports/<subpath>/`` -> ``modified/<subpath>/``,
+         - updater modifica ``modified/<subpath>/DB_NAME.{s7dcl,s7res}``,
+         - ``import_block`` escanea ``modified/bloques/`` recursivamente
+           y SOLO encuentra ``modified/<subpath>/DB_NAME`` (la raiz
+           esta limpia despues de ``clean()``).
     """
     from areas.alimentacion.helpers.build_cache import build_cache
     from areas.alimentacion.helpers.simatic_sd.simatic_sd_proc_comment_updater import (
@@ -362,11 +374,26 @@ async def _re_export_current(
     )
     from core.infrastructure.tia.tia_export_paths import SdPair
 
-    work_dir = build_cache(root=ctx.build_cache_root).procesos.modified_bloques
+    proc_ctx = build_cache(root=ctx.build_cache_root).procesos
     plc_name = (
         ctx.bloques_cache.plc_name
         if ctx.bloques_cache is not None
         else ""
+    )
+
+    # Resolver la subcarpeta TIA de cada DB. Si la cache no la tiene
+    # (fallback legacy), se exporta a la raiz (mismo caso que el
+    # sync handler).
+    param_subpath = ctx.slot_map.param_subpath or ""
+    alm_subpath = ctx.slot_map.alm_subpath or ""
+
+    exports_param_dir = (
+        str(proc_ctx.exports_bloques / param_subpath)
+        if param_subpath else str(proc_ctx.exports_bloques)
+    )
+    exports_alm_dir = (
+        str(proc_ctx.exports_bloques / alm_subpath)
+        if alm_subpath else str(proc_ctx.exports_bloques)
     )
 
     # 1. Exportar los 2 DBs (secuencial; export_block no es
@@ -377,7 +404,7 @@ async def _re_export_current(
         {
             "plc_name": plc_name,
             "block_name": ctx.slot_map.db_param_name,
-            "target_dir": str(work_dir),
+            "target_dir": exports_param_dir,
         },
         timeout_s=120.0,
     )
@@ -387,20 +414,20 @@ async def _re_export_current(
         {
             "plc_name": plc_name,
             "block_name": ctx.slot_map.db_alm_name,
-            "target_dir": str(work_dir),
+            "target_dir": exports_alm_dir,
         },
         timeout_s=120.0,
     )
 
     # 2. Leer los comentarios actuales de cada array.
     updater_param = ProcCommentUpdater(
-        s7dcl_path=SdPair(work_dir, ctx.slot_map.db_param_name).dcl,
-        s7res_path=SdPair(work_dir, ctx.slot_map.db_param_name).res,
+        s7dcl_path=SdPair(Path(exports_param_dir), ctx.slot_map.db_param_name).dcl,
+        s7res_path=SdPair(Path(exports_param_dir), ctx.slot_map.db_param_name).res,
         slot_map={},
     )
     updater_alm = ProcCommentUpdater(
-        s7dcl_path=SdPair(work_dir, ctx.slot_map.db_alm_name).dcl,
-        s7res_path=SdPair(work_dir, ctx.slot_map.db_alm_name).res,
+        s7dcl_path=SdPair(Path(exports_alm_dir), ctx.slot_map.db_alm_name).dcl,
+        s7res_path=SdPair(Path(exports_alm_dir), ctx.slot_map.db_alm_name).res,
         slot_map={},
     )
 

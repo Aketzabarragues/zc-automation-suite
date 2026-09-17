@@ -359,6 +359,88 @@ def test_open_transaction_continues_when_re_export_fails(
     assert ctx.tx_result["operations_executed"] == 2
 
 
+def test_re_export_current_writes_to_exports_subpath(
+    make_ctx: Any,
+) -> None:
+    """``_re_export_current`` escribe a ``exports/<subpath>/``, NO a ``modified/``.
+
+    Fix 2026-09-17: el helper antiguo exportaba a ``modified_bloques``
+    (raiz), lo que dejaba archivos stale que el ``import_block`` del
+    sync handler reescaneaba y marcaba como ``already exists``.
+    Ahora replica el patron del sync handler: export a ``exports/<subpath>/``
+    y deja que el handler haga el copytree a ``modified/<subpath>/``.
+    """
+    import asyncio
+    from unittest.mock import patch
+    import areas.alimentacion.data.data_ProcSlotMap as data_mod
+
+    fake_sm = FakeSlotMap(
+        preal={1: "Bomba 1"},
+        pint={1: "Param 1"},
+        alm={1: "Alarma 1"},
+        param_subpath="ZC_Plantillas/50010_ProcesoEstandar/53010_Parametros/",
+        alm_subpath="ZC_Plantillas/50010_ProcesoEstandar/55010_Alarmas/",
+    )
+
+    # Capturamos TODOS los args de submit_and_wait para validar
+    # que el primer export_block (de _re_export_current) va a
+    # exports/<subpath>/, NO a modified/.
+    captured_calls: list[tuple[str, dict]] = []
+
+    def fake_submit_and_wait(command: str, args: dict, timeout_s: float) -> dict:
+        captured_calls.append((command, args))
+        if command == "export_block":
+            return {"ok": True, "result": {}}
+        return {
+            "ok": True,
+            "result": {"operations_executed": 2, "details": []},
+        }
+
+    mock_tia = MagicMock()
+    mock_tia.submit_and_wait = MagicMock(side_effect=fake_submit_and_wait)
+
+    with patch.object(data_mod, "proc_build_slot_maps", return_value=fake_sm):
+        ctx = make_ctx(tia_client=mock_tia)
+        proc_build_slot_maps_commit(ctx)
+        asyncio.run(proc_open_transaction(ctx))
+
+    # Filtramos solo los export_block.
+    export_calls = [
+        (cmd, args) for cmd, args in captured_calls if cmd == "export_block"
+    ]
+    # Hay 2 export_block via submit_and_wait: ambos de
+    # ``_re_export_current`` (1 PARAM + 1 ALM). El sync handler
+    # ``update_proc_comments_db_param/_alm`` tambien exporta
+    # internamente, pero via ``tia_client._handlers["export_block"]``
+    # directo en el worker OT, no via submit_and_wait.
+    assert len(export_calls) == 2
+
+    # Los 2 calls son de _re_export_current. Verificamos que
+    # sus target_dir apuntan a exports/<subpath>/, NO a modified/.
+    first_param_export = export_calls[0][1]
+    first_alm_export = export_calls[1][1]
+    assert "exports" in first_param_export["target_dir"], (
+        f"_re_export_current para PARAM debe escribir a exports/<subpath>/, "
+        f"obtuvo: {first_param_export['target_dir']}"
+    )
+    assert "modified" not in first_param_export["target_dir"], (
+        f"_re_export_current para PARAM NO debe escribir a modified/, "
+        f"obtuvo: {first_param_export['target_dir']}"
+    )
+    assert "ZC_Plantillas" in first_param_export["target_dir"]
+    assert "53010_Parametros" in first_param_export["target_dir"]
+
+    assert "exports" in first_alm_export["target_dir"], (
+        f"_re_export_current para ALM debe escribir a exports/<subpath>/, "
+        f"obtuvo: {first_alm_export['target_dir']}"
+    )
+    assert "modified" not in first_alm_export["target_dir"], (
+        f"_re_export_current para ALM NO debe escribir a modified/, "
+        f"obtuvo: {first_alm_export['target_dir']}"
+    )
+    assert "55010_Alarmas" in first_alm_export["target_dir"]
+
+
 # ── proc_done_summary_commit ────────────────────────────────────────
 
 
