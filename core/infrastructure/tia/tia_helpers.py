@@ -15,7 +15,6 @@ el dispatcher de tia_loop.
 """
 from __future__ import annotations
 
-import functools
 import itertools
 import logging
 import re
@@ -336,52 +335,13 @@ def _export_objects_sd(
 # ---------------------------------------------------------------------------
 # Decorador de trazabilidad para handlers OT (Zona D, paso 1)
 # ---------------------------------------------------------------------------
-def log_ot_command(
-    name: str,
-    level: int = logging.DEBUG,
-) -> Callable[..., Any]:
-    """Decorador: anotacion + log a DEBUG alrededor de cada handler OT.
-
-    Tras el giro 'DEBUG by default' (sept-2026), este decorador SOLO
-    emite trazas a ``zc.log``. Por defecto ``level=logging.DEBUG``:
-    nada llega a la consola web de la SPA. El operario decide si
-    quiere que un handler concreto emita ``logger.web/ok`` y lo
-    anade manualmente al lado del codigo del handler.
-
-    Args:
-        name: identificador del comando OT (mismo nombre que el
-            registro en el ``COMMAND_REGISTRY``). Solo se usa para
-            construir el mensaje de traza. Lo usa el operario para
-            correlacionar logs en ``zc.log``.
-        level: nivel de logging para los mensajes entry/exit. Default
-            ``logging.DEBUG`` (10) -> solo archivo, NO consola web.
-            Casi nunca se sobreescribe; si el operario quiere web
-            explicita, lo anade con ``logger.web(...)`` manual dentro
-            del handler en vez de cambiar este decorador.
-
-    Output (en ``zc.log``):
-      - entry: ``OT[{name}] args={resumen_args}``.
-      - exit OK: ``OT[{name}] OK en {ms}ms ({resumen_result})``.
-
-    El wrapper NO captura excepciones: el caller (``_execute_one``)
-    ya las gestiona con ``logger.warning`` + traceback; duplicar
-    seria ruido.
-    """
-    def deco(handler: Callable[..., Any]) -> Callable[..., Any]:
-        @functools.wraps(handler)
-        def wrapper(args: dict, tia_client: Any) -> dict:
-            t0 = time.monotonic()
-            logger.log(level, f"OT[{name}] args={_sanitize_args(args)}")
-            result = handler(args, tia_client)
-            ms = (time.monotonic() - t0) * 1000
-            logger.log(
-                level,
-                f"OT[{name}] OK en {ms:.0f}ms "
-                f"({_summarize_result(result)})",
-            )
-            return result
-        return wrapper
-    return deco
+# Tras el giro 'DEBUG by default' (sept-2026) el decorador
+# @log_ot_command se ha eliminado: los handlers se invocan sin
+# instrumentacion automatica. Si el operario quiere un log en la
+# consola web para un comando concreto, lo anade manualmente con
+# ``logger.web(...)`` / ``logger.ok(...)`` dentro del cuerpo del
+# handler (no en el CALLER). Ver seccion 4.5 del plan living
+# TRAZABILIDAD_LOGGING.md.
 
 
 def _sanitize_args(args: dict) -> str:
