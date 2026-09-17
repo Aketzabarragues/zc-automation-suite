@@ -350,7 +350,7 @@ class FunctionBase:
             return
         step_nombre = self.steps[idx]["nombre"]
         self._tracker.start_stage(step_nombre)
-        logger.web(f"FB[{self.nombre}] -> {step_nombre}")
+        logger.web(f"{step_nombre}...")
         _t0 = time.monotonic()
         try:
             detail = await asyncio.wait_for(
@@ -374,8 +374,8 @@ class FunctionBase:
         )
         _ms = (time.monotonic() - _t0) * 1000
         logger.ok(
-            f"FB[{self.nombre}] <- {step_nombre} OK en {_ms:.0f}ms "
-            f"({detail})"
+            f"{step_nombre} completado en {_ms:.0f}ms"
+            + (f" ({detail})" if detail else "")
         )
         self._step_idx += 1
         if self._step_idx >= len(self.steps):

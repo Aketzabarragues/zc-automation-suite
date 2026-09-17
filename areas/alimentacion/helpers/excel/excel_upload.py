@@ -16,8 +16,6 @@ El FB orquesta las 2 funciones en 2 steps (``parsear_excel`` /
 from __future__ import annotations
 
 import asyncio
-import logging
-from pathlib import Path
 from typing import Any
 
 from areas.alimentacion.data.data_ExcelCache import DataExcelCache
@@ -26,13 +24,7 @@ from areas.alimentacion.helpers.excel.excel_cache_manager import (
 )
 from areas.alimentacion.helpers.excel.excel_loader import ExcelLoader
 from core.infrastructure.config.config_manager import ConfigManager
-from core.infrastructure.log_web_bridge import install_web_level
 from core.runtime.app_state import AppState
-
-# Asegura que ``Logger.web/ok`` existen en tests/scripts (idempotente).
-install_web_level()
-
-_logger = logging.getLogger(__name__)
 
 
 async def parse_excel_to_cache(
@@ -57,19 +49,7 @@ async def parse_excel_to_cache(
         ``DataExcelCache`` ya cacheado en ``ExcelCacheManager.put``.
     """
     loader = loader_factory(config_manager=config_manager)
-    _logger.web(
-        f"parse_excel_to_cache: iniciando con {loader_factory.__name__}"
-    )
     cache = await asyncio.to_thread(loader.load, excel_path)
-    total_disp = sum(len(t) for t in cache.dispositivos.values())
-    total_sw = (
-        len(cache.procesos) + len(cache.parametros_real)
-        + len(cache.parametros_int) + len(cache.alarmas)
-    )
-    _logger.ok(
-        f"parse_excel_to_cache OK: {total_disp} disp + {total_sw} "
-        f"software + N_MAX en '{Path(excel_path).name}'"
-    )
     await cache_cls.put(cache)
     return cache
 

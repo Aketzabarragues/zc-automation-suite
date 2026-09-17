@@ -118,15 +118,8 @@ class ExcelLoader:
         # Python 3.7+ y en openpyxl / Windows con precisión de
         # nanosegundos.
         mtime_ns = path.stat().st_mtime_ns
-        size_kb = path.stat().st_size // 1024
-        _logger.web(
-            f"ExcelLoader: abriendo '{path.name}' ({size_kb} KB)"
-        )
         wb = load_workbook(
             filename=str(path), read_only=False, data_only=True,
-        )
-        _logger.web(
-            f"ExcelLoader: {len(wb.sheetnames)} hojas detectadas"
         )
         try:
             # Ã¢”â‚¬Ã¢”â‚¬ 6 dispositivos Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬
@@ -176,7 +169,7 @@ class ExcelLoader:
         total_disp = sum(len(t) for t in dispositivos_dict.values())
         total_sw = len(procesos) + len(preal) + len(pint) + len(alarmas)
         _logger.ok(
-            f"ExcelLoader OK: {total_disp} disp + {total_sw} software "
+            f"Excel parseado: {total_disp} disp + {total_sw} software "
             f"+ N_MAX en '{path.name}'"
         )
 
