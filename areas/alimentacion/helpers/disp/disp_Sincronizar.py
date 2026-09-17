@@ -508,6 +508,21 @@ async def aplicar_comentarios(ctx: DispSyncContext) -> None:
     ops_executed = int(inner.get("operations_executed", 0))
     details = inner.get("details") or []
 
+    # Agregados para N3 (resumen en la consola web del stage wrapper).
+    # Cada op trae ``disp_comment_result: {reused, inserted, ...}``;
+    # sumamos para que el FB muestre "X reused + Y inserted en Z DBs"
+    # en vez de "comentarios aplicados" sin numeros.
+    total_reused = 0
+    total_inserted = 0
+    total_modified = 0
+    for op in details:
+        op_result = op.get("result") or {}
+        if op_result.get("modified"):
+            total_modified += 1
+        dcr = op_result.get("disp_comment_result") or {}
+        total_reused += int(dcr.get("reused", 0))
+        total_inserted += int(dcr.get("inserted", 0))
+
     ctx.comments_result = {
         "plc_name": ctx.plc_name,
         "success": True,
@@ -516,6 +531,10 @@ async def aplicar_comentarios(ctx: DispSyncContext) -> None:
         "summary": {
             "disp_dbs_updated": ops_executed,
             "total_ops": ops_executed,
+            # Agregados N3 para el resumen de la SPA:
+            "total_reused": total_reused,
+            "total_inserted": total_inserted,
+            "total_modified": total_modified,
         },
         "details": details,
         "warnings": warnings,

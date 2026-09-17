@@ -310,12 +310,19 @@ def _step_summary(ctx: Any, step_nombre: str) -> str:
         return f"{step_nombre}: XMLs offline editados"
     if step_nombre == "tx_b_devices":
         ops = ctx.devices_result.get("operations_executed", 0)
-        return f"{step_nombre}: {ops} device ops aplicados en TIA"
+        return f"{step_nombre}: {ops} tablas importadas a TIA"
     if step_nombre == "compilar_bloques":
         label = "OK" if ctx.compile_ok else "WARN"
         return f"{step_nombre}: compile={label}"
     if step_nombre == "aplicar_comentarios":
-        return f"{step_nombre}: comentarios aplicados"
+        # N3: agregados reused/inserted por los 6 DBs de dispositivos.
+        s = ctx.comments_result.get("summary") or {}
+        return (
+            f"{step_nombre}: "
+            f"{s.get('total_reused', 0)} reused + "
+            f"{s.get('total_inserted', 0)} inserted "
+            f"en {s.get('disp_dbs_updated', 0)} DBs"
+        )
     if step_nombre == "post_preview":
         return f"{step_nombre}: preview post-sync generado"
     return f"{step_nombre}: OK"
