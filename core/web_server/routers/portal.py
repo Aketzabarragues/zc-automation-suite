@@ -15,7 +15,11 @@ from typing import Any
 
 from flask import Blueprint, current_app, jsonify, request
 
+from core.infrastructure.log_web_bridge import install_web_level
+
 logger = logging.getLogger(__name__)
+# Asegura que ``Logger.web/ok`` existen en tests/scripts (idempotente).
+install_web_level()
 
 bp = Blueprint("portal", __name__, url_prefix="/api/v1")
 
@@ -33,6 +37,11 @@ def portal_attach():
     """HOT-Attach a TIA Portal ya abierto."""
     tia = _tia()
     log = _log()
+    # Plan living TRAZABILIDAD_LOGGING §5 (operacion 2): 1 web al iniciar.
+    # El OK no va aqui: lo emite get_project_info con el nombre del
+    # proyecto, que es cuando sabemos esa info. Flujo SPA:
+    # connectTia() llama attach + fetch_project_info en cascada.
+    logger.web("Conectando a TIA Portal...")
     out = tia.dispatch("attach_portal")
     if not out.get("ok"):
         log.error(
@@ -55,6 +64,10 @@ def portal_open_new():
             "error": "project_file_path requerido",
         }), 400
 
+    # Plan living §5 (operacion 2): 1 web al iniciar cold start.
+    # El OK no va aqui: lo emite get_project_info con el nombre del
+    # proyecto, que es cuando sabemos esa info.
+    logger.web(f"Abriendo proyecto '{project_file_path}'...")
     out = tia.dispatch(
         "open_new_portal", {"project_file_path": project_file_path}
     )
@@ -101,6 +114,10 @@ def get_project_info():
             "detail": out.get("error", "?"),
         })
     info = out.get("result", {})
+    # Plan living §5 (operacion 2): OK con el nombre del proyecto.
+    # Es el momento en que sabemos el nombre: tras attach/open_new.
+    project_name = info.get("name", "(sin nombre)")
+    logger.ok(f"TIA Portal conectado al proyecto '{project_name}'.")
     return jsonify({"ok": True, "project_info": info})
 
 
