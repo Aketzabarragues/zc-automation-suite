@@ -196,7 +196,6 @@ class MainServiceSupervisor:
                 engine,
                 config_manager=self.config_manager,
                 tia_client=tia_client,
-                log=get_log_buffer(),
             )
         event_bus = self.event_bus if self.event_bus is not None else EventBusSync()
         flask_app = create_app(
