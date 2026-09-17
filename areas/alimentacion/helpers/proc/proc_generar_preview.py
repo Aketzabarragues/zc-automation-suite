@@ -48,9 +48,11 @@ Restricciones arquitectonicas (.clinerules):
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -205,8 +207,15 @@ async def proc_compute_nmax(ctx: ProcPreviewContext) -> None:
 
     current: dict[str, int] = {}
     try:
-        await ctx.tia_client.export_plc_tags_xml(
-            plc_name, str(target_dir), table_names=[table_name]
+        await _dispatch_async(
+            ctx.tia_client,
+            "export_plc_tags_xml",
+            {
+                "plc_name": plc_name,
+                "target_dir": str(target_dir),
+                "table_names": [table_name],
+            },
+            timeout_s=120.0,
         )
         try:
             xml_path = XmlTarget(target_dir, table_name).path
@@ -295,15 +304,25 @@ async def proc_export_and_diff(ctx: ProcPreviewContext) -> None:
     try:
         # 1. Exportar los 2 DBs (secuencial; export_block no es
         # thread-safe a nivel del wrapper .NET).
-        await ctx.tia_client.export_block(
-            plc_name=plc_name,
-            block_name=ctx.slot_map.db_param_name,
-            target_dir=str(work_dir),
+        await _dispatch_async(
+            ctx.tia_client,
+            "export_block",
+            {
+                "plc_name": plc_name,
+                "block_name": ctx.slot_map.db_param_name,
+                "target_dir": str(work_dir),
+            },
+            timeout_s=120.0,
         )
-        await ctx.tia_client.export_block(
-            plc_name=plc_name,
-            block_name=ctx.slot_map.db_alm_name,
-            target_dir=str(work_dir),
+        await _dispatch_async(
+            ctx.tia_client,
+            "export_block",
+            {
+                "plc_name": plc_name,
+                "block_name": ctx.slot_map.db_alm_name,
+                "target_dir": str(work_dir),
+            },
+            timeout_s=120.0,
         )
 
         # 2. Leer los comentarios actuales de cada array. Creamos 2
@@ -604,6 +623,38 @@ def _compute_summary_internal(arrays: dict[str, Any]) -> dict[str, int]:
         "eliminados": eliminados,
         "sin_cambios": sin_cambios,
     }
+
+
+async def _dispatch_async(
+    tia_client: Any,
+    command: str,
+    args: dict[str, Any],
+    timeout_s: float = 60.0,
+) -> dict[str, Any]:
+    """Envia un comando al worker OT via ``submit_and_wait`` + ``to_thread``.
+
+    El gateway (``SyncTIAClient``) no expone ``export_block``,
+    ``export_plc_tags_xml`` ni ``execute_transactional_batch`` como
+    metodos directos. Solo expone ``submit_and_wait(command, args,
+    timeout_s)``, que encola el comando en el worker persistente y
+    espera el resultado.
+
+    Args:
+        tia_client: ``SyncTIAClient`` (o mock en tests).
+        command: nombre del comando registrado en el worker OT.
+        args: argumentos del comando (dict).
+        timeout_s: timeout del dispatch en segundos.
+
+    Returns:
+        El ``result`` del worker OT (dict). En tests, lo que devuelva
+        el mock.
+
+    Mismo patron que ``disp_generate_preview._dispatch_async``.
+    """
+    dispatch = partial(
+        tia_client.submit_and_wait, command, args, timeout_s,
+    )
+    return await asyncio.to_thread(dispatch)
 
 
 __all__ = ["ProcPreviewContext", "proc_check_state", "proc_check_blocks",

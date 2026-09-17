@@ -42,8 +42,10 @@ Restricciones arquitectonicas (.clinerules):
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -228,10 +230,28 @@ async def proc_open_transaction(ctx: ProcSyncContext) -> None:
         },
     ]
 
-    ctx.tx_result = await ctx.tia_client.execute_transactional_batch(
-        operations=operations,
-        undo_text=undo_text,
+    # Normalizar return shape del gateway: ``{"ok": bool, "result":
+    # {"operations_executed": int, "details": [...]}, "error": str | None}``.
+    # Si ``ok=False``, propagamos el error (rollback atomico del worker).
+    batch_result = await _dispatch_async(
+        ctx.tia_client,
+        "execute_transactional_batch",
+        {
+            "operations": operations,
+            "undo_text": undo_text,
+        },
+        timeout_s=300.0,
     )
+    if not batch_result.get("ok"):
+        raise RuntimeError(
+            f"execute_transactional_batch fallo: "
+            f"{batch_result.get('error') or '<sin error>'}"
+        )
+    inner = batch_result.get("result") or {}
+    ctx.tx_result = {
+        "operations_executed": int(inner.get("operations_executed", 0)),
+        "details": inner.get("details") or [],
+    }
 
 
 def proc_done_summary_commit(ctx: ProcSyncContext) -> dict[str, Any]:
@@ -350,15 +370,25 @@ async def _re_export_current(
 
     # 1. Exportar los 2 DBs (secuencial; export_block no es
     # thread-safe a nivel del wrapper .NET).
-    await ctx.tia_client.export_block(
-        plc_name=plc_name,
-        block_name=ctx.slot_map.db_param_name,
-        target_dir=str(work_dir),
+    await _dispatch_async(
+        ctx.tia_client,
+        "export_block",
+        {
+            "plc_name": plc_name,
+            "block_name": ctx.slot_map.db_param_name,
+            "target_dir": str(work_dir),
+        },
+        timeout_s=120.0,
     )
-    await ctx.tia_client.export_block(
-        plc_name=plc_name,
-        block_name=ctx.slot_map.db_alm_name,
-        target_dir=str(work_dir),
+    await _dispatch_async(
+        ctx.tia_client,
+        "export_block",
+        {
+            "plc_name": plc_name,
+            "block_name": ctx.slot_map.db_alm_name,
+            "target_dir": str(work_dir),
+        },
+        timeout_s=120.0,
     )
 
     # 2. Leer los comentarios actuales de cada array.
@@ -387,6 +417,37 @@ async def _re_export_current(
         updater_param.read_current_comments(pint_slots, "PInt"),
         updater_alm.read_current_comments(alm_slots, "ALM"),
     )
+
+
+async def _dispatch_async(
+    tia_client: Any,
+    command: str,
+    args: dict[str, Any],
+    timeout_s: float = 60.0,
+) -> dict[str, Any]:
+    """Envia un comando al worker OT via ``submit_and_wait`` + ``to_thread``.
+
+    El gateway (``SyncTIAClient``) no expone ``export_block`` ni
+    ``execute_transactional_batch`` como metodos directos. Solo
+    expone ``submit_and_wait(command, args, timeout_s)``, que encola
+    el comando en el worker persistente y espera el resultado.
+
+    Args:
+        tia_client: ``SyncTIAClient`` (o mock en tests).
+        command: nombre del comando registrado en el worker OT.
+        args: argumentos del comando (dict).
+        timeout_s: timeout del dispatch en segundos.
+
+    Returns:
+        El ``result`` del worker OT (dict). En tests, lo que devuelva
+        el mock.
+
+    Mismo patron que ``disp_Sincronizar._dispatch_async``.
+    """
+    dispatch = partial(
+        tia_client.submit_and_wait, command, args, timeout_s,
+    )
+    return await asyncio.to_thread(dispatch)
 
 
 __all__ = [

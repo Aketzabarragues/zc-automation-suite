@@ -73,18 +73,27 @@ def mock_bloques_cache() -> MagicMock:
 
 @pytest.fixture
 def mock_tia_client() -> MagicMock:
-    """Gateway mockeado: ``execute_transactional_batch`` y ``export_block`` son AsyncMock."""
+    """Gateway mockeado.
+
+    El gateway real (``SyncTIAClient``) no expone ``export_block`` ni
+    ``execute_transactional_batch`` como metodos directos, sino como
+    comandos despachados via ``submit_and_wait(command, args,
+    timeout_s)``. Los tests mockean ``submit_and_wait`` retornando
+    el shape esperado (``{"ok": True, "result": {"operations_executed": N, ...}}``).
+    """
     client = MagicMock()
-    client.execute_transactional_batch = AsyncMock(
+    client.submit_and_wait = MagicMock(
         return_value={
-            "operations_executed": 2,
-            "details": [
-                {"command": "update_proc_comments_db_param", "ok": True},
-                {"command": "update_proc_comments_db_alm", "ok": True},
-            ],
+            "ok": True,
+            "result": {
+                "operations_executed": 2,
+                "details": [
+                    {"command": "update_proc_comments_db_param", "ok": True},
+                    {"command": "update_proc_comments_db_alm", "ok": True},
+                ],
+            },
         }
     )
-    client.export_block = AsyncMock(return_value=None)
     return client
 
 
@@ -237,14 +246,19 @@ def test_open_transaction_happy_path(
     assert ctx.tx_result is not None
     assert ctx.tx_result["operations_executed"] == 2
     # Verificamos que se llamo al gateway con las 2 ops correctas.
-    call_kwargs = ctx.tia_client.execute_transactional_batch.call_args.kwargs
-    assert "operations" in call_kwargs
-    assert len(call_kwargs["operations"]) == 2
-    commands = {op["command"] for op in call_kwargs["operations"]}
+    # ``submit_and_wait`` recibe (``command``, ``args``, ``timeout_s``).
+    call_args = ctx.tia_client.submit_and_wait.call_args
+    assert call_args is not None
+    command_name = call_args.args[0] if call_args.args else call_args.kwargs.get("command")
+    args = call_args.args[1] if len(call_args.args) > 1 else call_args.kwargs.get("args", {})
+    assert command_name == "execute_transactional_batch"
+    assert "operations" in args
+    assert len(args["operations"]) == 2
+    commands = {op["command"] for op in args["operations"]}
     assert commands == {"update_proc_comments_db_param", "update_proc_comments_db_alm"}
     # La op de PARAM contiene preal_slot_map + pint_slot_map.
     param_op = next(
-        op for op in call_kwargs["operations"]
+        op for op in args["operations"]
         if op["command"] == "update_proc_comments_db_param"
     )
     assert "preal_slot_map" in param_op["args"]
@@ -253,7 +267,7 @@ def test_open_transaction_happy_path(
     assert param_op["args"]["pint_slot_map"]["1"] == "Param 1"
     # La op de ALM contiene slot_map (string keys).
     alm_op = next(
-        op for op in call_kwargs["operations"]
+        op for op in args["operations"]
         if op["command"] == "update_proc_comments_db_alm"
     )
     assert alm_op["args"]["array_name"] == "ALM"
@@ -277,9 +291,10 @@ def test_open_transaction_undo_text_contains_codigo(
         proc_build_slot_maps_commit(ctx)
         asyncio.run(proc_open_transaction(ctx))
 
-    call_kwargs = ctx.tia_client.execute_transactional_batch.call_args.kwargs
-    assert "CPR" in call_kwargs["undo_text"]
-    assert "S7-1500" in call_kwargs["undo_text"]
+    call_args = ctx.tia_client.submit_and_wait.call_args
+    args = call_args.args[1] if len(call_args.args) > 1 else call_args.kwargs.get("args", {})
+    assert "CPR" in args["undo_text"]
+    assert "S7-1500" in args["undo_text"]
 
 
 def test_open_transaction_propagates_gateway_error(
@@ -291,11 +306,12 @@ def test_open_transaction_propagates_gateway_error(
     import areas.alimentacion.data.data_ProcSlotMap as data_mod
 
     fake_sm = FakeSlotMap(preal={1: "Bomba 1"})
+
+    # ``submit_and_wait`` falla con RuntimeError para el batch.
     mock_tia = MagicMock()
-    mock_tia.execute_transactional_batch = AsyncMock(
+    mock_tia.submit_and_wait = MagicMock(
         side_effect=RuntimeError("Bloque DB42_CPR_PARAM no encontrado en TIA")
     )
-    mock_tia.export_block = AsyncMock(return_value=None)
 
     with patch.object(data_mod, "proc_build_slot_maps", return_value=fake_sm):
         ctx = make_ctx(tia_client=mock_tia)
@@ -320,14 +336,18 @@ def test_open_transaction_continues_when_re_export_fails(
         alm={1: "Alarma 1"},
     )
 
-    # export_block falla -> re-export falla -> modo degradado.
+    # ``submit_and_wait`` falla para export_block, pero funciona para
+    # execute_transactional_batch (modo degradado).
+    def fake_submit_and_wait(command: str, args: dict, timeout_s: float) -> dict:
+        if command == "export_block":
+            raise RuntimeError("TIA no responde")
+        return {
+            "ok": True,
+            "result": {"operations_executed": 2, "details": []},
+        }
+
     mock_tia = MagicMock()
-    mock_tia.export_block = AsyncMock(
-        side_effect=RuntimeError("TIA no responde")
-    )
-    mock_tia.execute_transactional_batch = AsyncMock(
-        return_value={"operations_executed": 2, "details": []}
-    )
+    mock_tia.submit_and_wait = MagicMock(side_effect=fake_submit_and_wait)
 
     with patch.object(data_mod, "proc_build_slot_maps", return_value=fake_sm):
         ctx = make_ctx(tia_client=mock_tia)
