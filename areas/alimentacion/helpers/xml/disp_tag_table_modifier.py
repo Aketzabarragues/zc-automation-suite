@@ -21,9 +21,16 @@ Convencion de mapeo UID (via IT):
 """
 from __future__ import annotations
 
+import logging
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any, cast
+
+# Asegura que ``Logger.web/ok`` existen tambien fuera del arranque.
+from core.infrastructure.log_web_bridge import install_web_level
+install_web_level()
+
+_logger = logging.getLogger(__name__)
 
 
 # Wildcards XPath. ``{*}`` = cualquier namespace; evita acoplarse a la
@@ -166,10 +173,19 @@ class TagTableModifier(XMLModifier):
         Returns:
             Numero de PlcUserConstants anadidos.
         """
-        if self._path.stem != table_name:
+        stem_match = self._path.stem == table_name
+        _logger.web(
+            f"TagTableModifier.add_user_constants_by_table: table={table_name!r} "
+            f"({len(dispositivos)} disp, stem_match={stem_match}, file={self._path.name})"
+        )
+        if not stem_match:
             return 0
         template = self._find_template_user_constant()
         if template is None:
+            _logger.warning(
+                f"TagTableModifier: no template PlcUserConstant encontrado "
+                f"en '{self._path.name}', 0 anadidos"
+            )
             return 0
         existing_names = self._existing_user_constant_names()
         added = 0
@@ -207,6 +223,10 @@ class TagTableModifier(XMLModifier):
             added += 1
         if added > 0:
             self._modified = True
+        _logger.ok(
+            f"TagTableModifier OK: +{added} anadidos en '{table_name}' "
+            f"(de {len(dispositivos)} solicitados)"
+        )
         return added
 
     def _max_id_in_doc(self) -> int:
@@ -262,6 +282,10 @@ class TagTableModifier(XMLModifier):
         """
         if not uids_to_remove:
             return 0
+        _logger.web(
+            f"TagTableModifier.remove_user_constants: {len(uids_to_remove)} uids a eliminar "
+            f"de '{self._path.name}'"
+        )
         removed = 0
         for const in list(self._root.findall(f".//{_PLC_USER_CONSTANT}")):
             value_el = const.find(f".//{_VALUE_TAG}")
@@ -275,6 +299,10 @@ class TagTableModifier(XMLModifier):
                 removed += 1
         if removed > 0:
             self._modified = True
+        _logger.ok(
+            f"TagTableModifier OK: -{removed} eliminados de '{self._path.name}' "
+            f"(de {len(uids_to_remove)} solicitados)"
+        )
         return removed
 
     @staticmethod
