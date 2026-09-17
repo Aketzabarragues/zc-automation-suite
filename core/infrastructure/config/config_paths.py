@@ -279,9 +279,16 @@ def setup_logging(mode: str = "default") -> Path:
     root_name = f"zc.{mode}" if mode and mode != "default" else "zc"
     logging.root.name = root_name
 
-    # Level: INFO por defecto, DEBUG si ZC_DEBUG=1.
-    level = logging.DEBUG if os.environ.get("ZC_DEBUG") == "1" else logging.INFO
-    logging.root.setLevel(level)
+    # Level: DEBUG por defecto en archivo (capturamos todo lo de la
+    # app, incluidos los ``logger.debug`` que ahora emiten los 5 OT
+    # handlers repetitivos). Stdout tambien a DEBUG para ver el DEBUG
+    # en consola cuando se ejecuta en modo dev. Operario puede subir a
+    # WARNING para silenciar librerias externas con ``ZC_STDOUT_LEVEL``.
+    stdout_level_name = os.environ.get("ZC_STDOUT_LEVEL", "DEBUG").upper()
+    stdout_level = getattr(logging, stdout_level_name, logging.DEBUG)
+    file_level = logging.DEBUG  # siempre: queremos DEBUG en zc.log.
+
+    logging.root.setLevel(file_level)  # root acepta todo (DEBUG+)
 
     # Limpiar handlers previos (basicConfig previo, uvicorn por
     # defecto, etc.) para evitar duplicacion cuando se llama 2 veces.
@@ -294,14 +301,14 @@ def setup_logging(mode: str = "default") -> Path:
     # OK con lock). UTF-8 para tildes y emojis de logs.
     file_handler = logging.FileHandler(log_file, mode="a", encoding="utf-8")
     file_handler.setFormatter(formatter)
-    file_handler.setLevel(level)
+    file_handler.setLevel(file_level)
     logging.root.addHandler(file_handler)
 
     # StreamHandler: solo si stdout existe (no windowed de PyInstaller).
     if sys.stdout is not None:
         stream_handler = logging.StreamHandler(sys.stdout)
         stream_handler.setFormatter(formatter)
-        stream_handler.setLevel(level)
+        stream_handler.setLevel(stdout_level)
         logging.root.addHandler(stream_handler)
 
     # uvicorn: limpiar StreamHandler propios y propagar al root.
@@ -324,9 +331,12 @@ def setup_logging(mode: str = "default") -> Path:
 
     _setup_done = True
     _logger.info(
-        "setup_logging: mode=%s root_name=%s log_file=%s level=%s (ZC_DEBUG=%s)",
-        mode, root_name, log_file, logging.getLevelName(level),
-        os.environ.get("ZC_DEBUG", "0"),
+        "setup_logging: mode=%s root_name=%s log_file=%s "
+        "file_level=%s stdout_level=%s (ZC_STDOUT_LEVEL=%s)",
+        mode, root_name, log_file,
+        logging.getLevelName(file_level),
+        logging.getLevelName(stdout_level),
+        os.environ.get("ZC_STDOUT_LEVEL", "DEBUG"),
     )
 
     return log_file
