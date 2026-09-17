@@ -4,7 +4,15 @@ Funciones puras de insercion y reemplazo de bloques en el .s7dcl.
 """
 from __future__ import annotations
 
+import logging
 import re
+
+# Asegura que ``Logger.web/ok`` existen tambien fuera del arranque.
+from core.infrastructure.log_web_bridge import install_web_level
+install_web_level()
+
+
+_logger = logging.getLogger(__name__)
 
 
 def upsert_s7dcl_block(
@@ -16,7 +24,15 @@ def upsert_s7dcl_block(
     solo si el texto cambio.
     """
     new_s7dcl = s7dcl[: match.start()] + block + s7dcl[match.start() :]
-    return new_s7dcl, new_s7dcl != s7dcl
+    modified = new_s7dcl != s7dcl
+    # DEBUG (no web): es una funcion pura llamada una vez por slot
+    # durante la actualizacion; el resumen por DB lo emite el updater
+    # padre (DispCommentUpdater.update). Aqui solo registramos el diff.
+    _logger.debug(
+        f"upsert_s7dcl_block: match={match.group(0)[:30]!r}, "
+        f"block_len={len(block)}, modified={modified}"
+    )
+    return new_s7dcl, modified
 
 
 def build_mlc_assignment_block(indent: str, mlc_id: str) -> str:

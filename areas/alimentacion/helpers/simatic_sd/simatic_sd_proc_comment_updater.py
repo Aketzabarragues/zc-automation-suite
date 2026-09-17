@@ -67,6 +67,11 @@ from areas.alimentacion.helpers.simatic_sd.simatic_sd_text_utils import (
 from core.infrastructure.tia.tia_export_paths import SD_ENCODING, SD_RES_ENCODING
 
 
+# Asegura que ``Logger.web/ok`` existen tambien fuera del arranque.
+from core.infrastructure.log_web_bridge import install_web_level
+install_web_level()
+
+
 _logger: logging.Logger = logging.getLogger(f"{__name__}.ProcCommentUpdater")
 
 
@@ -193,6 +198,11 @@ class ProcCommentUpdater:
                 "array_name es obligatorio para update() (no para "
                 "read_current_comments)."
             )
+        _logger.web(
+            f"ProcCommentUpdater.update: array={self._array_name!r}, "
+            f"{len(self._slot_map)} slots, "
+            f"file='{self._s7dcl_path.name}'"
+        )
         reused: dict[int, str] = {}
         inserted: dict[int, str] = {}
         satellite_reused: dict[int, str] = {}
@@ -275,6 +285,12 @@ class ProcCommentUpdater:
             satellite_reused=satellite_reused,
             satellite_inserted=satellite_inserted,
             total_mlcs_in_res=total_mlcs,
+        )
+        _logger.ok(
+            f"ProcCommentUpdater OK: array={self._array_name!r}, "
+            f"reused={len(reused)}, inserted={len(inserted)}, "
+            f"satellites (reused={len(satellite_reused)}, inserted={len(satellite_inserted)}), "
+            f"total_mlcs_in_res={total_mlcs}, modified={self._modified}"
         )
         return self._result
 
