@@ -195,6 +195,17 @@ class FunctionSubirExcel(FunctionBase):
         # Si no podemos recuperar el cache sync, lo dejamos a ``None``
         # en dimensiones (la SPA no rompe si ve ``None``).
         dimensiones = cache.n_max.to_api_dict() if cache else None
+        # Conteos de software (procesos, preal, pint, alarmas). Nivel 5
+        # del plan de trazabilidad (sept-2026): el router necesita estos
+        # totales para emitir el resumen completo en la consola web.
+        software = None
+        if cache is not None:
+            software = {
+                "procesos": len(cache.procesos),
+                "preal": len(cache.parametros_real),
+                "pint": len(cache.parametros_int),
+                "alarmas": len(cache.alarmas),
+            }
         self.result = {
             "ok": True,
             "summary": self._stats.get("volcar_appstate", {}).get("summary", {}),
@@ -202,6 +213,7 @@ class FunctionSubirExcel(FunctionBase):
                 "total_dispositivos", 0
             ),
             "dimensiones": dimensiones,
+            "software": software,
         }
 
 

@@ -26,7 +26,11 @@ from typing import Any
 
 from flask import Blueprint, current_app, jsonify, request
 
+from core.infrastructure.log_web_bridge import install_web_level
+
 logger = logging.getLogger(__name__)
+# Asegura que ``Logger.web/ok`` existen en tests/scripts (idempotente).
+install_web_level()
 
 bp = Blueprint(
     "area_alimentacion_excel",
@@ -82,6 +86,13 @@ def upload_excel():
         "[area/excel] Recibiendo upload: '%s' (%d bytes)",
         file.filename, tmp_path.stat().st_size,
     )
+    # Plan living TRAZABILIDAD_LOGGING §5 (operación 1): 1 web + 1 ok
+    # con el resumen completo del Excel. El operario ve en la consola
+    # web "Cargando Excel ... -> Excel cargado: N disp + N proc + ...".
+    logger.web(
+        f"Cargando Excel '{file.filename}' "
+        f"({tmp_path.stat().st_size} bytes)..."
+    )
 
     # ── 2. Arrancar el FB ──
     fb = _get_fb("subir_excel")
@@ -126,7 +137,17 @@ def upload_excel():
             "nStep": fb.nStep,
         }), 500
 
-    return jsonify(fb.result or {"ok": True})
+    result = fb.result or {"ok": True}
+    # OK con resumen completo: dispositivos + software + N_MAX.
+    sw = (result.get("software") or {}) if isinstance(result, dict) else {}
+    logger.ok(
+        f"Excel cargado: {result.get('total_dispositivos', 0)} disp + "
+        f"{sw.get('procesos', 0)} proc + "
+        f"{sw.get('preal', 0)} preal + "
+        f"{sw.get('pint', 0)} pint + "
+        f"{sw.get('alarmas', 0)} alm + N_MAX"
+    )
+    return jsonify(result)
 
 
 def build_routers(app) -> None:
