@@ -538,14 +538,13 @@ def _compose_arrays_internal(
         ``action = "sin_cambios"``.
     """
     arrays: dict[str, Any] = {}
-    for arr_name, slot_map_dict, db_name, satellites, current_dict in (
-        ("PReal", slot_map.preal, slot_map.db_param_name,
-         ["PReal_Vis", "Aux.PReal_ValorAnterior"], preal_current),
-        ("PInt", slot_map.pint, slot_map.db_param_name,
-         ["PInt_Vis", "Aux.PInt_ValorAnterior"], pint_current),
-        ("ALM", slot_map.alm, slot_map.db_alm_name,
-         [], alm_current),
+    satellites_by_array = slot_map.satellites_by_array
+    for arr_name, slot_map_dict, db_name, current_dict in (
+        ("PReal", slot_map.preal, slot_map.db_param_name, preal_current),
+        ("PInt", slot_map.pint, slot_map.db_param_name, pint_current),
+        ("ALM", slot_map.alm, slot_map.db_alm_name, alm_current),
     ):
+        satellites = satellites_by_array.get(arr_name.lower(), ())
         slot_map_serialized: dict[str, Any] = {}
         # Slots del Excel: comparar desired vs current.
         for slot, desired in slot_map_dict.items():

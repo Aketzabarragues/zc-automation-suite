@@ -131,6 +131,13 @@ class FakeSlotMap:
     nmax: dict[str, int] = field(default_factory=dict)
     missing_blocks: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    satellites_by_array: dict[str, tuple[str, ...]] = field(
+        default_factory=lambda: {
+            "preal": ("PReal_Vis", "Aux.PReal_ValorAnterior"),
+            "pint": ("PInt_Vis", "Aux.PInt_ValorAnterior"),
+            "alm": (),
+        }
+    )
 
 
 # ── proc_check_state ─────────────────────────────────────────────────

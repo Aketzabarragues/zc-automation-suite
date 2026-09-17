@@ -441,6 +441,42 @@ def test_re_export_current_writes_to_exports_subpath(
     assert "55010_Alarmas" in first_alm_export["target_dir"]
 
 
+def test_proc_satellites_alias_resolves_to_constant():
+    """``_PROC_SATELLITES`` en extra_commands es alias de la constante de data_ProcSlotMap.
+
+    Verifica el DRY: ambos consumers (preview + sync) leen del mismo
+    dict. Antes (sept-2026) la constante local en ``extra_commands.py``
+    estaba hardcodeada con tuplas vacias -> el sync no propagaba
+    comentarios a ``PReal_Vis``, ``PInt_Vis`` ni a ``Aux.*``.
+    """
+    from areas.alimentacion.helpers.tia import extra_commands
+    from areas.alimentacion.data.data_ProcSlotMap import (
+        PROC_SATELLITES_BY_ARRAY,
+    )
+
+    # El alias en extra_commands apunta a la constante del data module.
+    assert extra_commands._PROC_SATELLITES is PROC_SATELLITES_BY_ARRAY
+
+    # Y la constante tiene los 4 satelites esperados + 1 vacio (ALM).
+    assert PROC_SATELLITES_BY_ARRAY == {
+        "preal": ("PReal_Vis", "Aux.PReal_ValorAnterior"),
+        "pint": ("PInt_Vis", "Aux.PInt_ValorAnterior"),
+        "alm": (),
+    }
+
+
+def test_slot_map_default_satellites_by_array():
+    """``DataProcSlotMap()`` expone ``satellites_by_array`` con los 4 satelites."""
+    from areas.alimentacion.data.data_ProcSlotMap import DataProcSlotMap
+
+    sm = DataProcSlotMap()
+    assert sm.satellites_by_array == {
+        "preal": ("PReal_Vis", "Aux.PReal_ValorAnterior"),
+        "pint": ("PInt_Vis", "Aux.PInt_ValorAnterior"),
+        "alm": (),
+    }
+
+
 # ── proc_done_summary_commit ────────────────────────────────────────
 
 

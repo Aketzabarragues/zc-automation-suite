@@ -544,11 +544,13 @@ def make_cmd_update_proc_comments_db_param() -> Callable[..., Any]:
 
 
 # Satelites de arrays de procesos (PReal y PInt dependen de otros).
-_PROC_SATELLITES: dict[str, tuple[str, ...]] = {
-    "preal": (),
-    "pint": (),
-    "alm": (),
-}
+# Fuente unica de verdad: ``areas.alimentacion.data.data_ProcSlotMap
+# .PROC_SATELLITES_BY_ARRAY``.  Antes (sept-2026) esta constante estaba
+# hardcodeada AQUI con tuplas vacias -> el sync no propagaba los
+# comentarios a ``PReal_Vis``, ``PInt_Vis`` ni a los arrays ``Aux.*``.
+from areas.alimentacion.data.data_ProcSlotMap import (
+    PROC_SATELLITES_BY_ARRAY as _PROC_SATELLITES,
+)
 
 
 def _result_block(

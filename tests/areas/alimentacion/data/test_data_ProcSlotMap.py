@@ -42,7 +42,7 @@ def test_frozen_no_muta():
 
 
 def test_to_dict_shape():
-    """``to_dict()`` emite las 12 keys del shape estable."""
+    """``to_dict()`` emite las 13 keys del shape estable (incluye satellites_by_array)."""
     m = DataProcSlotMap(
         preal={1: "real_1"},
         pint={1: "int_1"},
@@ -59,7 +59,37 @@ def test_to_dict_shape():
         "param_subpath", "alm_subpath",
         "nmax", "nmax_names",
         "missing_blocks", "warnings",
+        "satellites_by_array",
     }
+
+    # satellites_by_array expone el dict constante (tuplas -> listas).
+    assert snapshot["satellites_by_array"] == {
+        "preal": ["PReal_Vis", "Aux.PReal_ValorAnterior"],
+        "pint": ["PInt_Vis", "Aux.PInt_ValorAnterior"],
+        "alm": [],
+    }
+
+
+def test_proc_satellites_by_array_constant():
+    """``PROC_SATELLITES_BY_ARRAY`` es la fuente unica de verdad."""
+    from areas.alimentacion.data.data_ProcSlotMap import (
+        PROC_SATELLITES_BY_ARRAY,
+    )
+
+    assert PROC_SATELLITES_BY_ARRAY == {
+        "preal": ("PReal_Vis", "Aux.PReal_ValorAnterior"),
+        "pint": ("PInt_Vis", "Aux.PInt_ValorAnterior"),
+        "alm": (),
+    }
+
+
+def test_default_satellites_by_array_reflects_constant():
+    """``DataProcSlotMap()`` por defecto tiene los satellites de la constante."""
+    from areas.alimentacion.data.data_ProcSlotMap import (
+        PROC_SATELLITES_BY_ARRAY,
+    )
+    m = DataProcSlotMap()
+    assert m.satellites_by_array == PROC_SATELLITES_BY_ARRAY
 
 
 def test_to_dict_convierte_slots_int_a_str():

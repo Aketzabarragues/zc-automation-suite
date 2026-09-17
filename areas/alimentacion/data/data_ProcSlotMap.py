@@ -54,6 +54,12 @@ class DataProcSlotMap:
       - ``missing_blocks``: lista de mensajes describiendo los bloques
         ausentes en el ``BloqueCache``.  Vacia si todo esta presente.
       - ``warnings``: lista de warnings no fatales.
+      - ``satellites_by_array``: ``{array_name: tuple[satellites]}`` con
+        los arrays satelite del DB_PARAM que reciben la propagacion del
+        mismo comentario.  Es el mismo dict que
+        ``PROC_SATELLITES_BY_ARRAY`` (constante modulo-nivel); el
+        atributo existe solo para exponerlo via ``slot_map`` sin tener
+        que importar el modulo de datos desde el sync handler.
     """
 
     preal: dict[int, str] = field(default_factory=dict)
@@ -68,6 +74,9 @@ class DataProcSlotMap:
     nmax_names: dict[str, str] = field(default_factory=dict)
     missing_blocks: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    satellites_by_array: dict[str, tuple[str, ...]] = field(
+        default_factory=lambda: PROC_SATELLITES_BY_ARRAY
+    )
 
     def to_dict(self) -> dict:
         """Serializa a dict primitivo (compatible JSON / IPC / SSE).
@@ -87,7 +96,32 @@ class DataProcSlotMap:
             "nmax_names": dict(self.nmax_names),
             "missing_blocks": list(self.missing_blocks),
             "warnings": list(self.warnings),
+            "satellites_by_array": {
+                k: list(v) for k, v in self.satellites_by_array.items()
+            },
         }
+
+
+# ── Satelites por array principal ───────────────────────────────────
+# Cada array principal (PReal, PInt) tiene arrays satelite en el mismo
+# DB_PARAM que reciben el mismo comentario al sincronizar.  Convencion
+# TIA: ``PReal[i]`` se documenta tambien en:
+#   - ``PReal_Vis[i]`` (Bool, "visibilidad" para HMI/scada).
+#   - ``Aux.PReal_ValorAnterior[i]`` (Real, valor anterior para alarmas
+#     de histeresis / tendencias).
+# Idem para ``PInt`` con ``PInt_Vis`` y ``Aux.PInt_ValorAnterior``.
+# ALM no tiene satelites (su array es auto-contenido).
+#
+# Esta constante es la **unica fuente de verdad** que consultan:
+#   - ``proc_generar_preview._compose_arrays_internal`` (response a la SPA).
+#   - ``helpers/tia/extra_commands.py::_PROC_SATELLITES`` (sync handler).
+# Antes (sept-2026) la lista estaba hardcodeada en 2 sitios y el sync
+# handler tenia tuplas vacias -> no se propagaban los comentarios.
+PROC_SATELLITES_BY_ARRAY: dict[str, tuple[str, ...]] = {
+    "preal": ("PReal_Vis", "Aux.PReal_ValorAnterior"),
+    "pint": ("PInt_Vis", "Aux.PInt_ValorAnterior"),
+    "alm": (),
+}
 
 
 # ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ Helpers internos ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚¢Ãƒ¢Ã¢â€šÂ¬Ã‚ÂÃƒ¢Ã¢â‚¬Å¡Ã‚Â¬
