@@ -36,6 +36,12 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
+# Asegura que ``Logger.web()`` / ``Logger.ok()`` existen aunque el
+# modulo se importe fuera del arranque (tests, scripts). Es
+# idempotente: si ya estan registrados, no hace nada.
+from core.infrastructure.log_web_bridge import install_web_level
+install_web_level()
+
 from areas.alimentacion.data.data_ExcelCache import DataExcelCache
 from areas.alimentacion.helpers.excel.excel_parser_proc_alarmas import AlarmasParser
 from areas.alimentacion.helpers.excel.excel_parser_disp_dimensiones import (
@@ -112,8 +118,15 @@ class ExcelLoader:
         # Python 3.7+ y en openpyxl / Windows con precisión de
         # nanosegundos.
         mtime_ns = path.stat().st_mtime_ns
+        size_kb = path.stat().st_size // 1024
+        _logger.web(
+            f"ExcelLoader: abriendo '{path.name}' ({size_kb} KB)"
+        )
         wb = load_workbook(
             filename=str(path), read_only=False, data_only=True,
+        )
+        _logger.web(
+            f"ExcelLoader: {len(wb.sheetnames)} hojas detectadas"
         )
         try:
             # Ã¢”â‚¬Ã¢”â‚¬ 6 dispositivos Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬
@@ -159,6 +172,13 @@ class ExcelLoader:
             "m":     tuple(disp_m),
             "m_vf":  tuple(disp_m_vf),
         }
+
+        total_disp = sum(len(t) for t in dispositivos_dict.values())
+        total_sw = len(procesos) + len(preal) + len(pint) + len(alarmas)
+        _logger.ok(
+            f"ExcelLoader OK: {total_disp} disp + {total_sw} software "
+            f"+ N_MAX en '{path.name}'"
+        )
 
         return DataExcelCache(
             excel_path=str(path.absolute()),
