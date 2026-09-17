@@ -390,12 +390,14 @@ export async function goToArea(key) {
     if (!key) return;
     store.selectedArea = key;
     store.currentView = "landing";   // arrancar siempre en el landing del área.
-    // Reset suave del estado operativo de la SPA.
-    store.plcs = [];
-    store.selectedPlc = "";
+    // Reset selectivo (sept-2026, pedido operario): solo se limpia
+    // la prevision (que se regenera cada vez) y la info del proyecto
+    // TIA (re-fetch via connectTia). Mantenemos plcs, selectedPlc,
+    // uploadSummary y lastExcelFile porque son contexto persistente
+    // entre re-entradas del operario: la lista de PLCs y la seleccion
+    // del PLC activo, asi como el Excel cargado, deben sobrevivir a
+    // una salida y re-entrada al area (sept-2026, plan living §B).
     store.projectInfo = null;
-    store.uploadSummary = null;
-    store.lastExcelFile = null;
     store.previewData = null;
     // Cargar el manifest del área antes de cambiar ``topLevelView``.
     // Si falla, log warning y continuar (modo degradado).

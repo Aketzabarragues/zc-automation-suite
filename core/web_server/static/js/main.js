@@ -88,15 +88,14 @@ const App = {
          */
         async function onAreaSelected(key) {
             if (!key) return;
-            // Reset suave del estado operativo de la SPA, igual
-            // que ``store.goToArea`` haría, pero sin tocar todavía
-            // ``topLevelView`` ni ``areaManifest``.
+            // Reset selectivo (sept-2026, pedido operario): solo se
+            // limpia la prevision y la info del proyecto TIA. Mantenemos
+            // plcs, selectedPlc, uploadSummary y lastExcelFile para que
+            // sobrevivan a una salida + re-entrada al area. Coincide con
+            // ``store.goToArea`` (la version async del helper).
             store.selectedArea = key;
             store.currentView = "landing";
-            store.plcs = [];
-            store.selectedPlc = "";
-            store.uploadSummary = null;
-            store.lastExcelFile = null;
+            store.projectInfo = null;
             store.previewData = null;
             try {
                 // ``mountArea`` ya hace ``loadArea`` internamente + registra
