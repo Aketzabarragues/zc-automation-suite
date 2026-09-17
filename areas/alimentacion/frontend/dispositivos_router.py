@@ -60,7 +60,7 @@ def _extract_software_from_cache(state: Any) -> dict[str, Any]:
             ),
         }
     except Exception as exc:
-        logger.warning("Error extrayendo software del cache: %s", exc)
+        logger.debug("Error extrayendo software del cache: %s", exc)
         return empty
 
 
