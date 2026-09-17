@@ -254,6 +254,43 @@ def _try_mkdir(path: Path, source: str) -> bool:
         return False
 
 
+# Loggers externos que, con root en DEBUG, inundan ``zc.log`` con ruido
+# operacional (no son errores nuestros). Los silenciamos a WARNING para
+# que solo aparezcan cuando ocurra algo realmente anomalo. El root y
+# nuestros loggers (``zc.*`` y derivados) siguen en DEBUG.
+_NOISY_LOGGERS: tuple[str, ...] = (
+    "asyncio",            # "Using proactor: IocpProactor" cada 100ms.
+    "PIL",                # "Importing XxxImagePlugin" (~49 lineas).
+    "PIL.Image",
+    "PIL.PngImagePlugin",
+    "werkzeug",           # 1 INFO por HTTP request.
+    "urllib3",            # DEBUG de pool/http en operaciones largas.
+    "httpcore",
+    "httpx",
+)
+
+
+def silence_noisy_loggers() -> None:
+    """Sube a ``WARNING`` los loggers externos ruidosos.
+
+    Llamada por :func:`setup_logging` justo despues de instalar el
+    bridge. Idempotente: llamada directa no causa doble-emit ni
+    conflictos si :func:`setup_logging` la vuelve a invocar.
+
+    Casos cubiertos (todos verificados en el smoke del operario,
+    ``logs/zc.log`` tenia +500 lineas de estos):
+
+    - ``asyncio``: emite ``Using proactor: IocpProactor`` cada ~100ms
+      cuando algun subproceso nuestro crea un event loop.
+    - ``PIL``: emite ``Importing XxxImagePlugin`` para cada formato
+      de imagen al instanciar (Pillow carga plugins lazy).
+    - ``werkzeug``: 1 INFO por cada HTTP request del dev server Flask.
+    - ``urllib3/httpcore/httpx``: DEBUG verbose de conexiones HTTP.
+    """
+    for name in _NOISY_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+
 def setup_logging(mode: str = "default") -> Path:
     """Setup unificado de logging. Llamar UNA vez al inicio de cada entrypoint.
 
@@ -329,6 +366,11 @@ def setup_logging(mode: str = "default") -> Path:
     install_web_level()
     install_log_buffer_handler()
 
+    # Silenciar loggers externos que, en DEBUG, inundan ``zc.log`` con
+    # ruido puramente operacional (no son errores nuestros). El root
+    # sigue en DEBUG para capturar todo de ``zc.*`` y derivados.
+    silence_noisy_loggers()
+
     _setup_done = True
     _logger.info(
         "setup_logging: mode=%s root_name=%s log_file=%s "
@@ -346,6 +388,7 @@ __all__ = [
     "resolve_config_path",
     "resolve_log_dir",
     "setup_logging",
+    "silence_noisy_loggers",
     "LOG_FORMAT",
     "LOG_FILENAME",
 ]
