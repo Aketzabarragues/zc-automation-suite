@@ -516,6 +516,20 @@ def _h_compile_blocks(args: dict, tia_client: "SyncTIAClient") -> dict:
         "skipped_unchanged": skipped_unchanged,
         "not_found": not_found,
         "errors": errors,
+        # Campos top-level para que ``_summarize_result`` (en
+        # ``tia_helpers.py``) los incluya en el log del decorador
+        # ``@log_ot_command``. Asi el operario ve en la consola web
+        # ``n_compiled_ok=5, n_compiled_err=2, n_skipped=10, ...`` sin
+        # tener que abrir el dict completo.
+        "n_compiled_ok": sum(
+            1 for c in compiled if not c["had_errors"]
+        ),
+        "n_compiled_err": sum(
+            1 for c in compiled if c["had_errors"]
+        ) + len(errors),
+        "n_skipped": len(skipped_unchanged),
+        "n_not_found": len(not_found),
+        "n_errors": len(errors),
     }
 
 
