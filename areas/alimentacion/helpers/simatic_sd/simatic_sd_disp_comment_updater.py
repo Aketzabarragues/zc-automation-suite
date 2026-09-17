@@ -177,8 +177,8 @@ class DispCommentUpdater:
           3. Reescribir ``.s7res`` (alta/baja de entradas).
           4. Devolver resultado.
         """
-        _logger.web(
-            f"DispCommentUpdater.update: db_array={self._db_array_name!r}, "
+        _logger.debug(
+            f"DispCommentUpdater: array={self._db_array_name!r}, "
             f"{len(self._slot_map)} slots, "
             f"file='{self._s7dcl_path.name}', res='{self._s7res_path.name}'"
         )
@@ -244,8 +244,8 @@ class DispCommentUpdater:
             no_usar_mlc=no_usar_mlc,
             total_mlcs_in_res=total_mlcs,
         )
-        _logger.ok(
-            f"DispCommentUpdater OK: array={self._db_array_name!r}, "
+        _logger.debug(
+            f"DispCommentUpdater: array={self._db_array_name!r}, "
             f"reused={len(reused)}, inserted={len(inserted)}, "
             f"total_mlcs_in_res={total_mlcs}, modified={self._modified}"
         )

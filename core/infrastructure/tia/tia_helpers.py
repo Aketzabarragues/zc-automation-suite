@@ -336,8 +336,36 @@ def _export_objects_sd(
 # ---------------------------------------------------------------------------
 # Decorador de trazabilidad para handlers OT (Zona D, paso 1)
 # ---------------------------------------------------------------------------
+class _SafeFormatDict(dict):
+    """Dict que devuelve ``""`` para keys ausentes en ``format_map``.
+
+    Permite que un ``msg_in``/``msg_ok`` referencie ``{plc_name}`` o
+    ``{n_blocks}`` aunque el handler concreto no exponga esa key en un
+    caso dado (el mensaje se renderiza con un hueco vacio en vez de
+    lanzar ``KeyError``).
+    """
+    def __missing__(self, key: str) -> str:  # type: ignore[override]
+        return ""
+
+
+def _safe_format(template: str, ctx: dict) -> str:
+    """``format_map`` tolerante: keys ausentes -> ``""``.
+
+    Si el template falla por cualquier otro motivo (``IndexError``,
+    ``ValueError`` en formato de numero, etc.), devuelve el template
+    literal como fallback para no romper la traza.
+    """
+    try:
+        return template.format_map(_SafeFormatDict(**ctx))
+    except (KeyError, IndexError, ValueError):
+        return template
+
+
 def log_ot_command(
-    name: str, level: int = WEB_LEVEL
+    name: str,
+    level: int = WEB_LEVEL,
+    msg_in: str | None = None,
+    msg_ok: str | None = None,
 ) -> Callable[..., Any]:
     """Decorador: emite entry/exit alrededor de cada handler OT.
 
@@ -356,23 +384,50 @@ def log_ot_command(
             el mensaje solo va al archivo (no satura la web cuando el
             handler se llama muchas veces por sync, p.ej. export_block
             por cada DB de dispositivos).
+        msg_in: format string opcional para el mensaje de entrada.
+            Si se pasa, reemplaza al tecnico ``OT[{name}] args=...``.
+            Variables disponibles: ``{name}``, cualquier key de
+            ``args`` (tolerante: ausente -> ""), y ``{args_str}`` con
+            el resumen canonico de args. Usar para mensajes en
+            lenguaje natural (Nivel 2 trazabilidad).
+        msg_ok: format string opcional para el mensaje de salida OK.
+            Si se pasa, reemplaza al tecnico
+            ``OT[{name}] OK en {ms}ms (...)``. Variables disponibles:
+            ``{name}``, ``{ms}`` (con 0 decimales), cualquier key del
+            ``result`` (tolerante: ausente -> ""), y ``{result_str}``
+            con el resumen canonico del resultado.
 
     Output (en el nivel configurado):
-      - entry: ``OT[{name}] args={resumen_args}``.
-      - exit OK: ``OT[{name}] OK en {ms}ms ({resumen_result})``.
+      - entry: ``msg_in.format(**args)`` si se dio, si no
+        ``OT[{name}] args={resumen_args}``.
+      - exit OK: ``msg_ok.format(**result)`` si se dio, si no
+        ``OT[{name}] OK en {ms}ms ({resumen_result})``.
     """
     def deco(handler: Callable[..., Any]) -> Callable[..., Any]:
         @functools.wraps(handler)
         def wrapper(args: dict, tia_client: Any) -> dict:
-            logger.log(level, f"OT[{name}] args={_sanitize_args(args)}")
             t0 = time.monotonic()
+            if msg_in is not None:
+                ctx = {**args, "name": name, "args_str": _sanitize_args(args)}
+                logger.log(level, _safe_format(msg_in, ctx))
+            else:
+                logger.log(level, f"OT[{name}] args={_sanitize_args(args)}")
             result = handler(args, tia_client)
             ms = (time.monotonic() - t0) * 1000
-            logger.log(
-                level,
-                f"OT[{name}] OK en {ms:.0f}ms "
-                f"({_summarize_result(result)})",
-            )
+            if msg_ok is not None:
+                ctx = {
+                    **(result or {}),
+                    "name": name,
+                    "ms": f"{ms:.0f}",
+                    "result_str": _summarize_result(result),
+                }
+                logger.log(level, _safe_format(msg_ok, ctx))
+            else:
+                logger.log(
+                    level,
+                    f"OT[{name}] OK en {ms:.0f}ms "
+                    f"({_summarize_result(result)})",
+                )
             return result
         return wrapper
     return deco

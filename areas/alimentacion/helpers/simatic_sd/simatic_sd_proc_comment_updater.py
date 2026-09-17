@@ -198,8 +198,8 @@ class ProcCommentUpdater:
                 "array_name es obligatorio para update() (no para "
                 "read_current_comments)."
             )
-        _logger.web(
-            f"ProcCommentUpdater.update: array={self._array_name!r}, "
+        _logger.debug(
+            f"ProcCommentUpdater: array={self._array_name!r}, "
             f"{len(self._slot_map)} slots, "
             f"file='{self._s7dcl_path.name}'"
         )
@@ -286,8 +286,8 @@ class ProcCommentUpdater:
             satellite_inserted=satellite_inserted,
             total_mlcs_in_res=total_mlcs,
         )
-        _logger.ok(
-            f"ProcCommentUpdater OK: array={self._array_name!r}, "
+        _logger.debug(
+            f"ProcCommentUpdater: array={self._array_name!r}, "
             f"reused={len(reused)}, inserted={len(inserted)}, "
             f"satellites (reused={len(satellite_reused)}, inserted={len(satellite_inserted)}), "
             f"total_mlcs_in_res={total_mlcs}, modified={self._modified}"

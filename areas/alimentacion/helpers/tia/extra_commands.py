@@ -54,7 +54,10 @@ def make_cmd_update_disp_comments_db(hw_type: str) -> Callable[..., Any]:
         plc_name, db_name, db_array_name, slot_map, work_dir,
         target_folder.
     """
-    @log_ot_command(name=f"update_disp_comments_db_{hw_type}")
+    @log_ot_command(
+        name=f"update_disp_comments_db_{hw_type}",
+        level=logging.DEBUG,  # se llama 6 veces/sync (1 por hw_type)
+    )
     def _cmd(args: dict[str, Any], tia_client: Any) -> dict[str, Any]:
         plc_name: str = args.get("plc_name", "")
         db_name: str = args.get("db_name", "")
@@ -133,7 +136,11 @@ def make_cmd_commit_disp_nmax_renames_online() -> Callable[..., Any]:
     (make_cmd_commit_disp_devices_offline) en otra tx TIA, llamada
     secuencialmente desde IT.
     """
-    @log_ot_command(name="commit_disp_nmax_renames_online")
+    @log_ot_command(
+        name="commit_disp_nmax_renames_online",
+        msg_in="Aplicando N_MAX + renames online en '{plc_name}'...",
+        msg_ok="N_MAX + renames aplicados: {result_str}",
+    )
     def _cmd(args: dict[str, Any], tia_client: Any) -> dict[str, Any]:
         plc_name: str = args.get("plc_name", "")
         undo_text: str = args.get("undo_text", "Sync N_MAX + renames (online)")
@@ -217,7 +224,11 @@ def make_cmd_commit_disp_devices_offline() -> Callable[..., Any]:
       2. TagTableModifier offline (lo hace Stage 7 en ``disp_Sincronizar.py``).
       3. import_plc_tags_xml masivo al PLC (esto, Tx B).
     """
-    @log_ot_command(name="commit_disp_devices_offline")
+    @log_ot_command(
+        name="commit_disp_devices_offline",
+        msg_in="Importando PlcTagTables modificadas al PLC '{plc_name}'...",
+        msg_ok="PlcTagTables importadas: {result_str}",
+    )
     def _cmd(args: dict[str, Any], tia_client: Any) -> dict[str, Any]:
         """Aplica SOLO el import_plc_tags_xml de Tx B (Stage 8).
 
@@ -330,7 +341,10 @@ def make_cmd_update_proc_comments_db(kind: str) -> Callable[..., Any]:
       2. ProcCommentUpdater offline sobre los .s7dcl/.s7res exportados.
       3. Si hubo cambios, re-import del bloque (import_block).
     """
-    @log_ot_command(name=f"update_proc_comments_db_{kind}")
+    @log_ot_command(
+        name=f"update_proc_comments_db_{kind}",
+        level=logging.DEBUG,  # se llama 3 veces/sync (preal/pint/alm)
+    )
     def _cmd(args: dict[str, Any], tia_client: Any) -> dict[str, Any]:
         plc_name: str = args.get("plc_name", "")
         db_name: str = args.get("db_name", "")
@@ -435,7 +449,11 @@ def make_cmd_update_proc_comments_db_param() -> Callable[..., Any]:
         plc_name, db_name, preal_slot_map, pint_slot_map, work_dir,
         target_folder, db_subpath (opcional), exports_subdir (opcional).
     """
-    @log_ot_command(name="update_proc_comments_db_param")
+    @log_ot_command(
+        name="update_proc_comments_db_param",
+        msg_in="Aplicando comentarios PARAM (PReal + PInt) en '{db_name}'...",
+        msg_ok="Comentarios PARAM aplicados: {result_str}",
+    )
     def _cmd(args: dict[str, Any], tia_client: Any) -> dict[str, Any]:
         plc_name: str = args.get("plc_name", "")
         db_name: str = args.get("db_name", "")
