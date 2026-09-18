@@ -529,21 +529,28 @@ async def proc_tx_b_detectar_eliminar_read(
     (exceptcion en ``ProcCommentUpdater``), retorna ``({}, {}, {})``
     y el apply seguira solo con los slots del Excel (modo degradado).
     """
-    from areas.alimentacion.helpers.simatic_sd.simatic_sd_proc_comment_updater import (
-        ProcCommentUpdater,
+    from areas.alimentacion.helpers.simatic_sd.simatic_sd_db_array_comment_updater import (SimaticSDDbArrayCommentUpdater,
     )
     from core.infrastructure.tia.tia_export_paths import SdPair
 
     try:
-        updater_param = ProcCommentUpdater(
+        # Modo solo-lectura: ``slot_map={}`` y sin satellite_arrays.
+        # Solo usamos ``find_array_slots`` para detectar que existen en
+        # el .s7dcl exportado y ``read_current_comments`` para el
+        # texto ``es-ES`` actual (usado por el detector de 'eliminar').
+        updater_param = SimaticSDDbArrayCommentUpdater(
             s7dcl_path=SdPair(Path(ctx.exports_param_dir), ctx.slot_map.db_param_name).dcl,
             s7res_path=SdPair(Path(ctx.exports_param_dir), ctx.slot_map.db_param_name).res,
             slot_map={},
+            array_name="PReal",
+            quote_array_name=False,
         )
-        updater_alm = ProcCommentUpdater(
+        updater_alm = SimaticSDDbArrayCommentUpdater(
             s7dcl_path=SdPair(Path(ctx.exports_alm_dir), ctx.slot_map.db_alm_name).dcl,
             s7res_path=SdPair(Path(ctx.exports_alm_dir), ctx.slot_map.db_alm_name).res,
             slot_map={},
+            array_name="ALM",
+            quote_array_name=False,
         )
 
         preal_slots = sorted(

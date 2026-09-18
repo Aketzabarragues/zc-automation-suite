@@ -1,4 +1,4 @@
-﻿"""Comandos TIA del area alimentacion.
+"""Comandos TIA del area alimentacion.
 
 Aporta al SyncTIAClient los handlers de sync de comentarios
 dispositivos/procesos + commits online/offline de devices + N_MAX.
@@ -71,8 +71,7 @@ def make_cmd_update_disp_comments_db(hw_type: str) -> Callable[..., Any]:
 
         slot_map_int: dict[int, str] = {int(k): v for k, v in slot_map.items()}
 
-        from areas.alimentacion.helpers.simatic_sd.simatic_sd_disp_comment_updater import (
-            DispCommentUpdater,
+        from areas.alimentacion.helpers.simatic_sd.simatic_sd_db_array_comment_updater import (SimaticSDDbArrayCommentUpdater,
         )
 
         s7dcl_path = SdPair(Path(work_dir), db_name).dcl
@@ -84,11 +83,16 @@ def make_cmd_update_disp_comments_db(hw_type: str) -> Callable[..., Any]:
             "target_dir": work_dir,
         }, tia_client)
 
-        updater = DispCommentUpdater(
+        updater = SimaticSDDbArrayCommentUpdater(
             s7dcl_path=s7dcl_path,
             s7res_path=s7res_path,
             slot_map=slot_map_int,
-            db_array_name=db_array_name,
+            array_name=db_array_name,
+            quote_array_name=True,
+            keep_slot0=True,
+            ensure_slot0_mlc=True,
+            satellite_arrays=set(),
+            registry=MLCRegistry(),
         )
         result = updater.update()
         updater.save()
@@ -349,8 +353,7 @@ def make_cmd_update_proc_comments_db(kind: str) -> Callable[..., Any]:
             str(Path(work_dir) / db_subpath) if db_subpath else work_dir
         )
 
-        from areas.alimentacion.helpers.simatic_sd.simatic_sd_proc_comment_updater import (
-            ProcCommentUpdater,
+        from areas.alimentacion.helpers.simatic_sd.simatic_sd_db_array_comment_updater import (SimaticSDDbArrayCommentUpdater,
         )
         from areas.alimentacion.helpers.simatic_sd.simatic_sd_mlc_registry import MLCRegistry
 
@@ -381,11 +384,14 @@ def make_cmd_update_proc_comments_db(kind: str) -> Callable[..., Any]:
                 "target_dir": effective_work_dir,
             }, tia_client)
 
-        updater = ProcCommentUpdater(
+        updater = SimaticSDDbArrayCommentUpdater(
             s7dcl_path=s7dcl_path,
             s7res_path=s7res_path,
             slot_map=slot_map,
             array_name=array_name,
+            quote_array_name=False,
+            keep_slot0=False,
+            ensure_slot0_mlc=False,
             satellite_arrays=set(_PROC_SATELLITES.get(kind, set())),
             registry=MLCRegistry(),
         )
@@ -458,8 +464,7 @@ def make_cmd_update_proc_comments_db_param() -> Callable[..., Any]:
             str(Path(work_dir) / db_subpath) if db_subpath else work_dir
         )
 
-        from areas.alimentacion.helpers.simatic_sd.simatic_sd_proc_comment_updater import (
-            ProcCommentUpdater,
+        from areas.alimentacion.helpers.simatic_sd.simatic_sd_db_array_comment_updater import (SimaticSDDbArrayCommentUpdater,
         )
         from areas.alimentacion.helpers.simatic_sd.simatic_sd_mlc_registry import MLCRegistry
 
@@ -495,7 +500,7 @@ def make_cmd_update_proc_comments_db_param() -> Callable[..., Any]:
         preal_result = None
         preal_modified = False
         if preal_slot_map:
-            updater_preal = ProcCommentUpdater(
+            updater_preal = SimaticSDDbArrayCommentUpdater(
                 s7dcl_path=s7dcl_path,
                 s7res_path=s7res_path,
                 slot_map=preal_slot_map,
@@ -511,7 +516,7 @@ def make_cmd_update_proc_comments_db_param() -> Callable[..., Any]:
         pint_result = None
         pint_modified = False
         if pint_slot_map:
-            updater_pint = ProcCommentUpdater(
+            updater_pint = SimaticSDDbArrayCommentUpdater(
                 s7dcl_path=s7dcl_path,
                 s7res_path=s7res_path,
                 slot_map=pint_slot_map,

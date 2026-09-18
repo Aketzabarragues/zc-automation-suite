@@ -286,8 +286,7 @@ async def proc_export_and_diff(ctx: ProcPreviewContext) -> None:
         return
 
     from areas.alimentacion.helpers.build_cache import build_cache
-    from areas.alimentacion.helpers.simatic_sd.simatic_sd_proc_comment_updater import (
-        ProcCommentUpdater,
+    from areas.alimentacion.helpers.simatic_sd.simatic_sd_db_array_comment_updater import (SimaticSDDbArrayCommentUpdater,
     )
     from core.infrastructure.tia.tia_export_paths import SdPair
 
@@ -327,18 +326,23 @@ async def proc_export_and_diff(ctx: ProcPreviewContext) -> None:
         )
 
         # 2. Leer los comentarios actuales de cada array. Creamos 2
-        # updaters en modo solo-lectura (sin slot_map ni array_name
-        # de instancia, porque cada read_current_comments recibe su
-        # propio array_name por parametro).
-        updater_param = ProcCommentUpdater(
+        # updaters en modo solo-lectura (sin slot_map ni satellite_arrays).
+        # Solo usamos ``find_array_slots`` para saber que existen en
+        # el .s7dcl exportado y ``read_current_comments`` para su
+        # texto ``es-ES`` actual (usado por la preview / diff).
+        updater_param = SimaticSDDbArrayCommentUpdater(
             s7dcl_path=SdPair(work_dir, ctx.slot_map.db_param_name).dcl,
             s7res_path=SdPair(work_dir, ctx.slot_map.db_param_name).res,
             slot_map={},
+            array_name="PReal",
+            quote_array_name=False,
         )
-        updater_alm = ProcCommentUpdater(
+        updater_alm = SimaticSDDbArrayCommentUpdater(
             s7dcl_path=SdPair(work_dir, ctx.slot_map.db_alm_name).dcl,
             s7res_path=SdPair(work_dir, ctx.slot_map.db_alm_name).res,
             slot_map={},
+            array_name="ALM",
+            quote_array_name=False,
         )
 
         # Slots a leer: los del Excel + los que tienen asignacion
