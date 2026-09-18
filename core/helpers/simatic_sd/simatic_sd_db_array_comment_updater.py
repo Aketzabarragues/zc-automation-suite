@@ -146,6 +146,7 @@ def commit_array_comments(
     slot_map: dict[int, str],
     *,
     array_type: str = "UDT",
+    write_to_original: bool = False,
 ) -> ArrayCommitResult:
     """Actualiza los comentarios de un array en un DB SimaticSD.
 
@@ -165,6 +166,11 @@ def commit_array_comments(
         array_type: ``"UDT"`` para arrays de UDT (PReal, PInt),
             ``"Simple"`` (o cualquier otro) para escalares (Bool,
             Int, Real, etc.).
+        write_to_original: si True, escribe sobre los archivos
+            originales (no a ``modificado_<file>``). Util cuando
+            se hacen varias llamadas seguidas sobre el mismo DB
+            (FB proc_sincronizar itera 6 arrays sobre PARAM);
+            cada llamada acumula cambios en el mismo archivo.
 
     Returns:
         ``ArrayCommitResult`` con el resumen de la operacion.
@@ -294,10 +300,16 @@ def commit_array_comments(
     ]
 
     # Escribir archivos modificados (mismo prefijo que el script del
-    # operario: no tocamos los originales). Se escriben en el mismo
-    # directorio que los originales.
-    out_dcl = dcl_path.parent / f"modificado_{dcl_path.name}"
-    out_res = res_path.parent / f"modificado_{res_path.name}"
+    # operario: no tocamos los originales por defecto). Si el caller
+    # quiere acumular cambios sobre el mismo archivo (modo in-place,
+    # usado por ``commit_proc_simplified`` que itera 6 arrays),
+    # escribe sobre los originales.
+    if write_to_original:
+        out_dcl = dcl_path
+        out_res = res_path
+    else:
+        out_dcl = dcl_path.parent / f"modificado_{dcl_path.name}"
+        out_res = res_path.parent / f"modificado_{res_path.name}"
     out_dcl.write_text(dcl_text, encoding=SD_ENCODING)
     out_res.write_text(
         yaml.dump(res_data, allow_unicode=True, sort_keys=False),
