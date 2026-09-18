@@ -215,7 +215,11 @@ class FunctionSubirExcel(FunctionBase):
                 # Sept-2026: anadido para que el router pueda
                 # mostrar el conteo de N_MAX en el resumen. Antes
                 # el log terminaba con literal '+ N_MAX'.
-                "n_max_total": len(cache.n_max),
+                # ``cache.n_max`` es un ``DimensionesDispositivos``
+                # (dataclass), no una lista -> usamos ``all_nmax()``
+                # que retorna el dict unificado de N_MAX legacy (6) +
+                # extras (``extras={}`` por defecto).
+                "n_max_total": len(cache.n_max.all_nmax()),
             }
         self.result = {
             "ok": True,
