@@ -468,22 +468,29 @@ async def aplicar_comentarios(ctx: DispSyncContext) -> None:
             dirs_exist_ok=True,
         )
 
-    # ── 6. Commit inline + import por DB (sept-2026 DRY) ──
-    # Sin ``execute_transactional_batch``: el FB hace 6 llamadas
-    # a ``commit_array_comments`` directo (1 por hw_type) sobre los
-    # archivos ya exportados. Luego ``import_block`` por cada DB
-    # que tuvo cambios.
+    # ── 6. Commit inline + UN SOLO import (sept-2026 DRY) ──
+    # El FB hace 6 llamadas a ``commit_array_comments`` directo (1 por
+    # hw_type) sobre los archivos ya exportados. Luego UN SOLO
+    # ``import_block`` con ``import_dir=modified_bloques`` (que
+    # contiene los 6 .s7dcl): TIA Portal V21 importa todos los
+    # bloques del directorio en una sola operacion atomica.
     #
-    # Trade-off: perdemos la transaccion atomica TIA (start/end).
-    # Si un import_block falla tras el otro, los anteriores quedan
-    # aplicados. Para sync atomico, restaurar
-    # ``execute_transactional_batch`` (TODO sept-2026 follow-up).
+    # Sin ``target_folder``: el comentario legacy
+    # (sept-2026 disp_Sincronizar.py commit 21b) advierte que pasar
+    # ``target_folder`` explicito FUERZA el match a una sola carpeta
+    # y causa "CommitOnDispose". Con ``target_folder=""`` (default
+    # del handler), TIA escanea recursivamente y hace match CREATE
+    # para cada bloque.
+    #
+    # Antes (sept-2026 -): 6 ``import_block`` separados (1 por DB) =
+    # ~14s cada uno = 84s total. Ahora: 1 solo import_block = ~14s.
     from core.helpers.simatic_sd import commit_array_comments
     details: list[dict[str, Any]] = []
     total_reused = 0
     total_inserted = 0
     total_modified = 0
     ops_executed = 0
+    any_modified = False
     for hw_type, db_name in db_names.items():
         slot_map = slot_maps.get(hw_type, {})
         if not slot_map:
@@ -492,8 +499,6 @@ async def aplicar_comentarios(ctx: DispSyncContext) -> None:
         if not db_array_name:
             continue
         from core.infrastructure.tia.tia_export_paths import SdPair
-        # Trabajamos sobre modified_bloques (sept-2026: TIA Portal
-        # espera los archivos en modified/, no en exports/).
         dcl_path = SdPair(Path(modified_bloques), db_name).dcl
         res_path = SdPair(Path(modified_bloques), db_name).res
         result = commit_array_comments(
@@ -517,24 +522,24 @@ async def aplicar_comentarios(ctx: DispSyncContext) -> None:
         })
         ops_executed += 1
         total_reused += len(result.reused)
-        # ``result.injected`` (no ``inserted``): el dataclass
-        # ``ArrayCommitResult`` (sept-2026 DRY) usa ``injected`` para
-        # slots NUEVOS. El dict ``to_dict()`` expone ``inserted`` (key
-        # legacy); aqui operamos sobre el dataclass directo.
         total_inserted += len(result.injected)
         if modified:
             total_modified += 1
-            # Import por DB si hubo cambios. TIA espera modified/.
-            await dispatch_async(
-                ctx.tia_client,
-                "import_block",
-                {
-                    "plc_name": ctx.plc_name,
-                    "import_dir": str(modified_bloques),
-                    "target_folder": target_folder,
-                },
-                timeout_s=600.0,
-            )
+            any_modified = True
+
+    # UN SOLO import_block al final: TIA Portal importa todos los
+    # .s7dcl del directorio modified_bloques en una sola operacion.
+    if any_modified:
+        await dispatch_async(
+            ctx.tia_client,
+            "import_block",
+            {
+                "plc_name": ctx.plc_name,
+                "import_dir": str(modified_bloques),
+                "target_folder": "",  # default: TIA escanea recursivo
+            },
+            timeout_s=600.0,
+        )
 
     ctx.comments_result = {
         "plc_name": ctx.plc_name,

@@ -295,70 +295,66 @@ async def proc_open_transaction(ctx: ProcSyncContext) -> None:
             if (len(result.injected) + len(result.updated) + len(result.removed)) > 0:
                 alm_modified = True
 
-    # Import por DB si hubo cambios.
-    # Sept-2026 fix: TIA Portal espera los archivos en
-    # ``modified_bloques/<subpath>/``, NO en ``exports_bloques/``.
-    # Por eso hacemos copytree antes del import_block (patron del
-    # handler OT viejo, sept-2026 commit 21b).
-    target_folder = ctx.config_manager.get_tia_folder_proceso()
+    # Import unico: TIA Portal V21 importa todos los bloques del
+    # directorio en una sola operacion atomica (sept-2026 DRY).
+    # Antes (Commit 25): 2 ``import_block`` separados (PARAM + ALM) =
+    # ~14s cada uno = ~28s. Ahora: 1 solo import_block = ~14s.
+    #
+    # Sin ``target_folder``: el handler OT legacy advierte que pasar
+    # target_folder explicito causa "CommitOnDispose" en TIA V21.
+    # Con target_folder="" TIA escanea recursivamente.
+    target_folder_param = ctx.config_manager.get_tia_folder_proceso()
     plc_name = (
         ctx.bloques_cache.plc_name if ctx.bloques_cache is not None else ""
     )
     import shutil
     from areas.alimentacion.helpers.build_cache import build_cache
 
-    if param_modified and ctx.exports_param_dir is not None:
-        # Copytree exports_bloques/<subpath> -> modified_bloques/<subpath>
-        # para que TIA encuentre los archivos en la ruta que espera.
-        # IMPORTANTE: preservamos el subpath COMPLETO
-        # (p.ej. ``ZC_Plantillas/50010_ProcesoEstandar/53010_Parametros/``),
-        # NO solo el ultimo segmento. Si no, TIA Portal no encuentra
-        # los archivos y reporta "already exists" porque el archivo
-        # original sigue ahi.
+    if (param_modified or alm_modified) and plc_name:
+        # Copytree exports -> modified_bloques/<subpath> para
+        # ambos DBs. Si PARAM y ALM comparten el mismo subpath raiz,
+        # se hacen 2 copytrees (uno por DB).
         proc_ctx = build_cache(root=ctx.build_cache_root).procesos
-        modified_dir = (
-            str(Path(proc_ctx.modified_bloques) / ctx.slot_map.param_subpath)
-            if ctx.slot_map.param_subpath
-            else str(proc_ctx.modified_bloques)
-        )
-        if Path(ctx.exports_param_dir).exists():
-            Path(modified_dir).mkdir(parents=True, exist_ok=True)
-            shutil.copytree(
-                ctx.exports_param_dir, modified_dir,
-                dirs_exist_ok=True,
+        modified_root = proc_ctx.modified_bloques
+
+        if param_modified and ctx.exports_param_dir is not None:
+            modified_param_dir = (
+                str(Path(modified_root) / ctx.slot_map.param_subpath)
+                if ctx.slot_map.param_subpath
+                else str(modified_root)
             )
+            if Path(ctx.exports_param_dir).exists():
+                Path(modified_param_dir).mkdir(parents=True, exist_ok=True)
+                shutil.copytree(
+                    ctx.exports_param_dir, modified_param_dir,
+                    dirs_exist_ok=True,
+                )
+
+        if alm_modified and ctx.exports_alm_dir is not None:
+            modified_alm_dir = (
+                str(Path(modified_root) / ctx.slot_map.alm_subpath)
+                if ctx.slot_map.alm_subpath
+                else str(modified_root)
+            )
+            if Path(ctx.exports_alm_dir).exists():
+                Path(modified_alm_dir).mkdir(parents=True, exist_ok=True)
+                shutil.copytree(
+                    ctx.exports_alm_dir, modified_alm_dir,
+                    dirs_exist_ok=True,
+                )
+
+        # UN SOLO import_block al final: TIA importa todos los
+        # .s7dcl del directorio modified_bloques en una sola
+        # operacion atomica.
         await dispatch_async(
             ctx.tia_client,
             "import_block",
             {
                 "plc_name": plc_name,
-                "import_dir": modified_dir,
-                "target_folder": target_folder,
+                "import_dir": str(modified_root),
+                "target_folder": "",  # default: TIA escanea recursivo
             },
-            timeout_s=300.0,
-        )
-    if alm_modified and ctx.exports_alm_dir is not None:
-        proc_ctx = build_cache(root=ctx.build_cache_root).procesos
-        modified_dir = (
-            str(Path(proc_ctx.modified_bloques) / ctx.slot_map.alm_subpath)
-            if ctx.slot_map.alm_subpath
-            else str(proc_ctx.modified_bloques)
-        )
-        if Path(ctx.exports_alm_dir).exists():
-            Path(modified_dir).mkdir(parents=True, exist_ok=True)
-            shutil.copytree(
-                ctx.exports_alm_dir, modified_dir,
-                dirs_exist_ok=True,
-            )
-        await dispatch_async(
-            ctx.tia_client,
-            "import_block",
-            {
-                "plc_name": plc_name,
-                "import_dir": modified_dir,
-                "target_folder": target_folder,
-            },
-            timeout_s=300.0,
+            timeout_s=600.0,
         )
 
     ctx.tx_result = {
