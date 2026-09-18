@@ -1,9 +1,12 @@
 """Tests de ``proc_compute_nmax_diff``: helper puro que difiere N_MAX
-activos contra el estado deseado del AppState."""
+del proceso contra el estado exportado de TIA.
+
+Sept-2026: reescritura tras el bug N_MAX diff=0. La version anterior
+copiaba el patron de disp (tabla global); esta usa la tabla del
+proceso (``slot_map.table_name``) + fail-fast si no esta exportada.
+"""
 from __future__ import annotations
 
-import sys
-import types
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -14,37 +17,25 @@ import pytest
 # ────────────────────────────────────────────────────────────────────────
 # Fakes
 # ────────────────────────────────────────────────────────────────────────
-class FakeConfig:
-    """Replica los 3 metodos que ``proc_compute_nmax_diff`` consume."""
+class FakeSlotMap:
+    """Replica ``DataProcSlotMap`` con los 4 campos que el helper usa."""
 
     def __init__(
         self,
         *,
-        nmax_table: str = "000_Config_Dispositivos",
-        nmax_folder: str = "PLC_USER_CONSTANTS",
-        active: list[str] | None = None,
+        table_name: str = "100_CPR",
+        nmax: dict[str, int] | None = None,
+        nmax_names: dict[str, str] | None = None,
     ) -> None:
-        self._nmax_table = nmax_table
-        self._nmax_folder = nmax_folder
-        self._active = active if active is not None else [
-            "N_MAX_PREAL", "N_MAX_PINT",
-        ]
-
-    def get_global_config_table_name(self) -> str:
-        return self._nmax_table
-
-    def get_tia_folder_nmax(self) -> str:
-        return self._nmax_folder
-
-    def list_nmax_active(self) -> list[str]:
-        return list(self._active)
-
-
-class FakeAppState:
-    """Replica ``app_state.dimensiones`` (lo unico que el helper lee)."""
-
-    def __init__(self, dimensiones: dict[str, int] | None) -> None:
-        self.dimensiones = dimensiones
+        self.table_name = table_name
+        self.nmax = nmax if nmax is not None else {
+            "preal": 5, "pint": 10, "alm": 8,
+        }
+        self.nmax_names = nmax_names if nmax_names is not None else {
+            "preal": "100_N_MAX_PREAL",
+            "pint": "100_N_MAX_PINT",
+            "alm": "100_N_MAX_ALM",
+        }
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -52,28 +43,16 @@ class FakeAppState:
 # ────────────────────────────────────────────────────────────────────────
 @pytest.fixture
 def tags_base(tmp_path: Path) -> Path:
-    """Crea la carpeta donde estaria el XML exportado por TIA."""
-    base = tmp_path / "preview"
-    base.mkdir()
-    (base / "PLC_USER_CONSTANTS").mkdir()
-    return base
+    return tmp_path
 
 
-@pytest.fixture
-def write_nmax_xml(tags_base: Path):
-    """Devuelve un callable que escribe el ``.xml`` con N_MAX dados."""
-    def _write(values: dict[str, int]) -> Path:
-        xml_path = tags_base / "PLC_USER_CONSTANTS" / "000_Config_Dispositivos.xml"
-        # Formato minimo que ``parse_user_constants`` espera (no relevante:
-        # mockeamos el parser, asi que el contenido solo necesita existir).
-        xml_path.write_text("<root/>", encoding="utf-8")
-        # Patch para que ``parse_user_constants`` devuelva nuestros valores.
-        return xml_path
-    return _write
+def _write_xml(tags_base: Path, table_name: str, content: str = "<root/>"):
+    p = tags_base / f"{table_name}.xml"
+    p.write_text(content, encoding="utf-8")
+    return p
 
 
 def _patch_parser_returning(values: dict[str, int]):
-    """Helper: parchear ``SimaticMLTagParser.parse_user_constants``."""
     return patch(
         "areas.alimentacion.helpers.xml.disp_tag_table_parser."
         "SimaticMLTagParser.parse_user_constants",
@@ -82,184 +61,179 @@ def _patch_parser_returning(values: dict[str, int]):
 
 
 # ────────────────────────────────────────────────────────────────────────
-# Tests
+# Tests: diff correcto (happy paths)
 # ────────────────────────────────────────────────────────────────────────
 def test_proc_compute_nmax_diff_empty_when_no_changes(
-    tags_base: Path, write_nmax_xml
+    tags_base: Path,
 ) -> None:
-    """Si todos los N_MAX ya coinciden con AppState, retorna []."""
-    xml_path = write_nmax_xml({"N_MAX_PREAL": 10, "N_MAX_PINT": 20})
-    cfg = FakeConfig(active=["N_MAX_PREAL", "N_MAX_PINT"])
-    state = FakeAppState({"N_MAX_PREAL": 10, "N_MAX_PINT": 20})
-
-    with _patch_parser_returning({"N_MAX_PREAL": 10, "N_MAX_PINT": 20}):
+    """Todos los N_MAX ya coinciden con current -> []."""
+    sm = FakeSlotMap()
+    _write_xml(tags_base, sm.table_name)
+    with _patch_parser_returning({
+        "100_N_MAX_PREAL": 5, "100_N_MAX_PINT": 10, "100_N_MAX_ALM": 8,
+    }):
         from areas.alimentacion.helpers.proc.proc_compute_nmax_diff import (
             proc_compute_nmax_diff,
         )
-        ops = proc_compute_nmax_diff(tags_base, cfg, state)
+        ops = proc_compute_nmax_diff(tags_base, proc_uid=100, slot_map=sm)
 
     assert ops == []
 
 
 def test_proc_compute_nmax_diff_returns_diff_for_changed_values(
-    tags_base: Path, write_nmax_xml
+    tags_base: Path,
 ) -> None:
-    """Solo incluye N_MAX cuyo valor difiere del estado actual."""
-    write_nmax_xml({"N_MAX_PREAL": 10, "N_MAX_PINT": 20})
-    cfg = FakeConfig(
-        nmax_table="000_Config_Dispositivos",
-        active=["N_MAX_PREAL", "N_MAX_PINT"],
-    )
-    # AppState sube N_MAX_PREAL de 10 a 15; N_MAX_PINT sin cambios.
-    state = FakeAppState({"N_MAX_PREAL": 15, "N_MAX_PINT": 20})
-
-    with _patch_parser_returning({"N_MAX_PREAL": 10, "N_MAX_PINT": 20}):
+    """Solo los N_MAX cuyo valor difiere se incluyen."""
+    sm = FakeSlotMap(nmax={"preal": 8, "pint": 10, "alm": 8})  # preal cambia
+    _write_xml(tags_base, sm.table_name)
+    with _patch_parser_returning({
+        "100_N_MAX_PREAL": 5, "100_N_MAX_PINT": 10, "100_N_MAX_ALM": 8,
+    }):
         from areas.alimentacion.helpers.proc.proc_compute_nmax_diff import (
             proc_compute_nmax_diff,
         )
-        ops = proc_compute_nmax_diff(tags_base, cfg, state)
+        ops = proc_compute_nmax_diff(tags_base, proc_uid=100, slot_map=sm)
 
-    assert ops == [
-        {"table_name": "000_Config_Dispositivos",
-         "constant_name": "N_MAX_PREAL", "new_value": 15},
-    ]
+    assert ops == [{
+        "table_name": "100_CPR",
+        "constant_name": "100_N_MAX_PREAL",
+        "new_value": 8,
+    }]
 
 
-def test_proc_compute_nmax_diff_handles_missing_xml(
+def test_proc_compute_nmax_diff_uses_full_name_with_uid_prefix(
     tags_base: Path,
 ) -> None:
-    """Si el XML no existe (estado actual desconocido, ``current={}``),
-    el helper retorna ``[]``: NO puede comparar contra None (defensivo,
-    mismo comportamiento que ``_compute_nmax_ops_for_apply`` de disp).
+    """El constant_name retornado lleva el prefijo uid (forma completa TIA)."""
+    sm = FakeSlotMap(
+        table_name="50010_PRO_STD",
+        nmax={"preal": 50},
+        nmax_names={"preal": "50010_N_MAX_PREAL"},
+    )
+    _write_xml(tags_base, sm.table_name)
+    with _patch_parser_returning({"50010_N_MAX_PREAL": 30}):
+        from areas.alimentacion.helpers.proc.proc_compute_nmax_diff import (
+            proc_compute_nmax_diff,
+        )
+        ops = proc_compute_nmax_diff(tags_base, proc_uid=50010, slot_map=sm)
 
-    El FB aun despachara el handler con ``nmax_ops=[]`` por requisito
-    "sync_nmax incondicional": TIA no aplicara nada, pero el flujo se
-    ejecuta igual.
-    """
-    cfg = FakeConfig(active=["N_MAX_PREAL", "N_MAX_PINT"])
-    state = FakeAppState({"N_MAX_PREAL": 5, "N_MAX_PINT": 10})
+    assert ops == [{
+        "table_name": "50010_PRO_STD",
+        "constant_name": "50010_N_MAX_PREAL",
+        "new_value": 50,
+    }]
 
+
+def test_proc_compute_nmax_diff_returns_all_when_current_missing(
+    tags_base: Path,
+) -> None:
+    """Si la tabla esta recien creada (current sin entradas), todas las
+    desired != current(None) cuentan como diff. Sanity: 3 ops (preal
+    cambia 5->8, pint nuevo, alm nuevo)."""
+    sm = FakeSlotMap(nmax={"preal": 8, "pint": 10, "alm": 8})
+    _write_xml(tags_base, sm.table_name)
+    # current SOLO tiene preal (los demas faltan -> recien creados).
+    with _patch_parser_returning({"100_N_MAX_PREAL": 5}):
+        from areas.alimentacion.helpers.proc.proc_compute_nmax_diff import (
+            proc_compute_nmax_diff,
+        )
+        ops = proc_compute_nmax_diff(tags_base, proc_uid=100, slot_map=sm)
+
+    # 3 ops: preal cambia (5->8), pint nuevo, alm nuevo.
+    assert len(ops) == 3
+    by_name = {o["constant_name"]: o for o in ops}
+    assert by_name["100_N_MAX_PREAL"]["new_value"] == 8
+    assert by_name["100_N_MAX_PINT"]["new_value"] == 10
+    assert by_name["100_N_MAX_ALM"]["new_value"] == 8
+
+
+def test_proc_compute_nmax_diff_skips_kind_without_nmax_name(
+    tags_base: Path,
+    caplog,
+) -> None:
+    """Si un kind no tiene entry en nmax_names, se ignora con warning."""
+    sm = FakeSlotMap()
+    sm.nmax["orphan"] = 7  # kind sin nmax_name
+    _write_xml(tags_base, sm.table_name)
+    with _patch_parser_returning({
+        "100_N_MAX_PREAL": 5, "100_N_MAX_PINT": 10, "100_N_MAX_ALM": 8,
+    }):
+        from areas.alimentacion.helpers.proc.proc_compute_nmax_diff import (
+            proc_compute_nmax_diff,
+        )
+        ops = proc_compute_nmax_diff(tags_base, proc_uid=100, slot_map=sm)
+
+    # Solo preal/pint/alm, no orphan.
+    assert len(ops) == 0
+    assert any(
+        "orphan" in record.message for record in caplog.records
+    )
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Tests: FAIL-FAST
+# ────────────────────────────────────────────────────────────────────────
+def test_proc_compute_nmax_diff_raises_when_xml_missing(
+    tags_base: Path,
+) -> None:
+    """Si la tabla del proceso no esta exportada en tags_base -> RuntimeError."""
+    sm = FakeSlotMap()
+    # tags_base vacio: no creamos el XML.
     from areas.alimentacion.helpers.proc.proc_compute_nmax_diff import (
         proc_compute_nmax_diff,
     )
-    ops = proc_compute_nmax_diff(tags_base, cfg, state)
+    with pytest.raises(RuntimeError, match="preview"):
+        proc_compute_nmax_diff(tags_base, proc_uid=100, slot_map=sm)
 
-    assert ops == []
 
-
-def test_proc_compute_nmax_diff_includes_only_active_nmax(
-    tags_base: Path, write_nmax_xml
+def test_proc_compute_nmax_diff_raises_when_slot_map_none(
+    tags_base: Path,
 ) -> None:
-    """Solo se difieren los N_MAX que ``list_nmax_active()`` declara activos.
-    Aunque el XML tenga N_MAX_PREAL, si no esta en active, se ignora.
-    """
-    write_nmax_xml({"N_MAX_PREAL": 5, "N_MAX_PINT": 5, "N_MAX_OTHER": 99})
-    cfg = FakeConfig(active=["N_MAX_PINT"])  # solo PINT activo
-    state = FakeAppState({"N_MAX_PREAL": 50, "N_MAX_PINT": 50, "N_MAX_OTHER": 99})
-
-    with _patch_parser_returning(
-        {"N_MAX_PREAL": 5, "N_MAX_PINT": 5, "N_MAX_OTHER": 99}
-    ):
-        from areas.alimentacion.helpers.proc.proc_compute_nmax_diff import (
-            proc_compute_nmax_diff,
-        )
-        ops = proc_compute_nmax_diff(tags_base, cfg, state)
-
-    assert ops == [
-        {"table_name": "000_Config_Dispositivos",
-         "constant_name": "N_MAX_PINT", "new_value": 50},
-    ]
+    """slot_map=None -> RuntimeError claro."""
+    from areas.alimentacion.helpers.proc.proc_compute_nmax_diff import (
+        proc_compute_nmax_diff,
+    )
+    with pytest.raises(RuntimeError, match="slot_map es None"):
+        proc_compute_nmax_diff(tags_base, proc_uid=100, slot_map=None)
 
 
-def test_proc_compute_nmax_diff_default_zero_for_missing_app_state(
-    tags_base: Path, write_nmax_xml
+def test_proc_compute_nmax_diff_raises_when_table_name_empty(
+    tags_base: Path,
 ) -> None:
-    """Si AppState no tiene la key, el valor deseado es 0 (consistente
-    con ``_compute_nmax_ops_for_apply`` de disp)."""
-    write_nmax_xml({"N_MAX_PREAL": 10})
-    cfg = FakeConfig(active=["N_MAX_PREAL"])
-    # AppState vacio: N_MAX_PREAL deseado = 0, actual = 10 → diff.
-    state = FakeAppState({})
-
-    with _patch_parser_returning({"N_MAX_PREAL": 10}):
-        from areas.alimentacion.helpers.proc.proc_compute_nmax_diff import (
-            proc_compute_nmax_diff,
-        )
-        ops = proc_compute_nmax_diff(tags_base, cfg, state)
-
-    assert ops == [
-        {"table_name": "000_Config_Dispositivos",
-         "constant_name": "N_MAX_PREAL", "new_value": 0},
-    ]
+    """slot_map.table_name vacio -> RuntimeError (proc_uid no existe)."""
+    sm = FakeSlotMap(table_name="")
+    from areas.alimentacion.helpers.proc.proc_compute_nmax_diff import (
+        proc_compute_nmax_diff,
+    )
+    with pytest.raises(RuntimeError, match="proc_uid=100"):
+        proc_compute_nmax_diff(tags_base, proc_uid=100, slot_map=sm)
 
 
-def test_proc_compute_nmax_diff_returns_same_shape_as_disp(
-    tags_base: Path, write_nmax_xml
+def test_proc_compute_nmax_diff_raises_when_nmax_names_empty(
+    tags_base: Path,
 ) -> None:
-    """Sanity: el shape de cada op es IDENTICO al de disp
-    (``_compute_nmax_ops_for_apply``). Asi el handler genérico los acepta
-    sin conversion."""
-    write_nmax_xml({"N_MAX_PREAL": 5})
-    cfg = FakeConfig(active=["N_MAX_PREAL"])
-    state = FakeAppState({"N_MAX_PREAL": 12})
-
-    with _patch_parser_returning({"N_MAX_PREAL": 5}):
-        from areas.alimentacion.helpers.proc.proc_compute_nmax_diff import (
-            proc_compute_nmax_diff,
-        )
-        ops = proc_compute_nmax_diff(tags_base, cfg, state)
-
-    assert len(ops) == 1
-    op = ops[0]
-    assert set(op.keys()) == {"table_name", "constant_name", "new_value"}
-    assert isinstance(op["new_value"], int)
+    """nmax_names vacio -> RuntimeError (config sin suffixes)."""
+    sm = FakeSlotMap(nmax_names={})
+    _write_xml(tags_base, sm.table_name)
+    from areas.alimentacion.helpers.proc.proc_compute_nmax_diff import (
+        proc_compute_nmax_diff,
+    )
+    with pytest.raises(RuntimeError, match="n_max_suffixes"):
+        proc_compute_nmax_diff(tags_base, proc_uid=100, slot_map=sm)
 
 
-def test_proc_compute_nmax_diff_handles_parse_error_gracefully(
-    tags_base: Path, write_nmax_xml, caplog
+def test_proc_compute_nmax_diff_raises_on_parse_error(
+    tags_base: Path,
 ) -> None:
-    """Si el parser falla, el helper logea error y sigue con ``current={}``.
-    Como NO puede comparar contra None, retorna ``[]`` (comportamiento
-    defensivo, mismo que ``_compute_nmax_ops_for_apply`` de disp)."""
-    write_nmax_xml({"N_MAX_PREAL": 5})
-    cfg = FakeConfig(active=["N_MAX_PREAL"])
-    state = FakeAppState({"N_MAX_PREAL": 10})
-
+    """Si el parser falla, el helper propaga RuntimeError (no retorna vacio)."""
+    sm = FakeSlotMap()
+    _write_xml(tags_base, sm.table_name)
+    from areas.alimentacion.helpers.proc.proc_compute_nmax_diff import (
+        proc_compute_nmax_diff,
+    )
     with patch(
         "areas.alimentacion.helpers.xml.disp_tag_table_parser."
         "SimaticMLTagParser.parse_user_constants",
         side_effect=RuntimeError("XML corrupto"),
-    ):
-        from areas.alimentacion.helpers.proc.proc_compute_nmax_diff import (
-            proc_compute_nmax_diff,
-        )
-        ops = proc_compute_nmax_diff(tags_base, cfg, state)
-
-    # Sin info de estado actual, no se generan ops (defensivo).
-    assert ops == []
-    assert any(
-        "Parse FAIL" in record.message for record in caplog.records
-    )
-
-
-def test_proc_compute_nmax_diff_app_state_dimensiones_none(
-    tags_base: Path, write_nmax_xml
-) -> None:
-    """Si ``app_state.dimensiones`` es None, trata como ``{}`` (mismo
-    fallback que disp). Si ademas el XML tiene valores, retorna las ops
-    correspondientes para rebajar a 0."""
-    write_nmax_xml({"N_MAX_PREAL": 5})
-    cfg = FakeConfig(active=["N_MAX_PREAL"])
-    state = FakeAppState(None)  # explicit None
-
-    with _patch_parser_returning({"N_MAX_PREAL": 5}):
-        from areas.alimentacion.helpers.proc.proc_compute_nmax_diff import (
-            proc_compute_nmax_diff,
-        )
-        ops = proc_compute_nmax_diff(tags_base, cfg, state)
-
-    # dimensiones=None -> desired["N_MAX_PREAL"]=0; XML=5 -> diff.
-    assert ops == [
-        {"table_name": "000_Config_Dispositivos",
-         "constant_name": "N_MAX_PREAL", "new_value": 0},
-    ]
+    ), pytest.raises(RuntimeError, match="parseo de"):
+        proc_compute_nmax_diff(tags_base, proc_uid=100, slot_map=sm)
