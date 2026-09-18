@@ -70,6 +70,18 @@ def extract_all_mlcs_from_s7dcl(s7dcl: str) -> set[str]:
 
 # ── Busqueda de asignaciones ───────────────────────────────────────────────
 
+def _normalize_array_name(name: str) -> str:
+    """Quita comillas envolventes de un ``array_name``.
+
+    El regex ``_ASSIGNMENT_RE`` captura el grupo ``array`` SIN comillas
+    (las comillas estan fuera del grupo, marcadas con ``"?`` opcionales).
+    Para que ``array_name`` del caller coincida tanto si lo paso con
+    comillas (disp, ej. ``'"DispED"'``) como sin ellas (proc, ej.
+    ``'PReal'``), normalizamos aqui.
+    """
+    return name.strip('"') if name else name
+
+
 def find_assignment_mlc(
     s7dcl: str, array_name: str, slot: int
 ) -> str | None:
@@ -81,18 +93,20 @@ def find_assignment_mlc(
     importante porque el formato TIA puede tener varios bloques
     ``S7_MLC`` consecutivos (uno por slot) y cada uno va con su slot.
 
+    Sept-2026 fix: normaliza ``array_name`` antes de comparar (soporta
+    tanto ``'"DispED"'`` (disp) como ``'PReal'`` (proc)).
+
     Devuelve ``None`` si la asignacion no existe o si existe pero
     sin MLC adyacente.
     """
-    match = find_assignment(s7dcl, array_name, slot)
+    target = _normalize_array_name(array_name)
+    match = find_assignment(s7dcl, target, slot)
     if match is None:
         return None
     assign_start = match.start()
-    # Encontrar la asignacion previa del mismo array para delimitar
-    # el rango de busqueda.
     prev_assign_end = 0
     for prev in _ASSIGNMENT_RE.finditer(s7dcl[:assign_start]):
-        if prev.group("array") == array_name:
+        if prev.group("array") == target:
             prev_assign_end = prev.end()
     search_range = s7dcl[prev_assign_end:assign_start]
     last_mlc: str | None = None
@@ -106,33 +120,44 @@ def find_assignment_mlc(
 def find_assignment(
     s7dcl: str, array_name: str, slot: int
 ) -> re.Match[str] | None:
-    """Localiza la asignacion ``<ARRAY>[slot] := ...;`` en el .s7dcl."""
+    """Localiza la asignacion ``<ARRAY>[slot] := ...;`` en el .s7dcl.
+
+    Sept-2026 fix: normaliza ``array_name`` antes de comparar (soporta
+    tanto ``'"DispED"'`` (disp) como ``'PReal'`` (proc)).
+    """
+    target = _normalize_array_name(array_name)
     for m in _ASSIGNMENT_RE.finditer(s7dcl):
         array = m.group("array")
         idx = int(m.group("idx"))
-        if array == array_name and idx == slot:
+        if array == target and idx == slot:
             return m
     return None
 
 
 def find_array_slots(s7dcl: str, array_name: str) -> set[int]:
-    """Devuelve el set de slots 1-based que tienen asignacion en el .s7dcl
+    """Devuelve el set de slots que tienen asignacion en el .s7dcl
     para el array dado.
+
+    Filtra por ``slot >= 1`` (disp incluye slot 0 valido; proc no).
+    Para disp, el caller debe pasar ``array_name`` con comillas
+    ('"DispED"'); para proc, sin comillas ('PReal'). El parser
+    ahora normaliza internamente para soportar ambos formatos
+    indistintamente.
 
     Util para detectar slots "huerfanos" del Excel: el operario
     tiene en su Excel un subconjunto de los slots que existen
     en TIA.
     """
+    target = _normalize_array_name(array_name)
     result: set[int] = set()
     for match in _ASSIGNMENT_RE.finditer(s7dcl):
         arr = match.group("array")
-        if arr == array_name:
+        if arr == target:
             try:
                 slot = int(match.group("idx"))
             except (TypeError, ValueError):
                 continue
-            if slot >= 1:
-                result.add(slot)
+            result.add(slot)
     return result
 
 
