@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
-from areas.alimentacion.helpers.simatic_sd.simatic_sd_proc_comment_updater import (
+from areas.alimentacion.helpers.simatic_sd.simatic_sd_text_utils import (
     strip_enclosing_quotes,
 )
 from core.runtime.app_state import AppState
