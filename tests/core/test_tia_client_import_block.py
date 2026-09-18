@@ -92,10 +92,43 @@ def test_import_block_happy_path():
         )
 
     assert out == {"ok": True, "result": {"imported_from": tmp}}
-    plc.import_blocks.assert_called_once_with(
-        import_root_directory=tmp,
-        target_folder_path="",
-    )
+    # Sin ``target_folder`` explicito NO pasamos ``target_folder_path``
+    # a TIA: su firma es
+    # ``import_blocks(import_root_directory, target_folder_path=None)``.
+    # Pasar ``""`` (string vacio) hace que TIA V21 NO haga match UPDATE
+    # de bloques pre-existentes (sept-2026 regression proc sync,
+    # validado en VM con script standalone).
+    plc.import_blocks.assert_called_once_with(import_root_directory=tmp)
+
+
+def test_import_block_with_empty_target_folder_omits_param():
+    """Sept-2026 fix: ``target_folder=""`` ya NO se traduce a
+    ``target_folder_path=""`` en la llamada a TIA (que es lo que
+    rompe el match UPDATE). En su lugar omitimos el parametro y
+    dejamos que TIA use su default ``None``.
+    """
+    plc = MagicMock()
+    plc.get_name.return_value = "PLC_1"
+    project = MagicMock()
+    project.get_plcs.return_value = [plc]
+    portal = MagicMock()
+    portal.get_project.return_value = project
+
+    c = _client()
+    c.attach_wrapper(portal)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        out = c.dispatch(
+            "import_block",
+            {
+                "plc_name": "PLC_1",
+                "import_dir": tmp,
+                "target_folder": "",
+            },
+        )
+
+    assert out["ok"] is True
+    plc.import_blocks.assert_called_once_with(import_root_directory=tmp)
 
 
 def test_import_block_passes_target_folder():

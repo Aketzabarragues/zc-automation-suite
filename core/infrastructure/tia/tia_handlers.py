@@ -756,10 +756,27 @@ def _h_import_tag_table(args: dict, tia_client: "SyncTIAClient") -> dict:
 
 
 def _h_import_block(args: dict, tia_client: "SyncTIAClient") -> dict:
-    """Importa un bloque (.s7dcl) desde disco al PLC (manual §2.2.23)."""
+    """Importa un bloque (.s7dcl) desde disco al PLC (manual §2.2.23).
+
+    CRITICO sept-2026 (regression proc sync): ``import_blocks`` tiene
+    la firma
+    ``import_blocks(import_root_directory: str, target_folder_path: Optional[str] = None)``
+    (default = ``None``, NO string vacio). Pasar ``target_folder_path=""``
+    (string vacio) hace que TIA V21 NO haga match UPDATE de bloques
+    pre-existentes (replica el árbol de carpetas del PLC dentro del
+    ``import_root_directory``); en su lugar intenta CREATE y falla con
+    "Import failed because an object with the name X already exists".
+    Validado en VM: el mismo directorio que importa OK con script
+    standalone (``plc.import_blocks(import_root_directory=...)`` sin
+    pasar ``target_folder_path``) falla cuando el handler pasa
+    ``""``. Solucion: si el caller no pasa un ``target_folder`` no
+    vacio, NO pasamos el argumento y dejamos que TIA use su default
+    (``None`` = escanea recursivo, hace match UPDATE por nombre de
+    bloque preservando la ruta relativa).
+    """
     plc_name: str = args.get("plc_name", "")
     import_dir: str = args.get("import_dir", "")
-    target_folder: str = args.get("target_folder") or ""
+    target_folder_raw = args.get("target_folder") or ""
 
     if not plc_name:
         raise ValueError("Se requiere el argumento 'plc_name'.")
@@ -775,10 +792,14 @@ def _h_import_block(args: dict, tia_client: "SyncTIAClient") -> dict:
         )
     project = _get_active_project(portal)
     target_plc = _find_plc(project, plc_name)
-    target_plc.import_blocks(
-        import_root_directory=import_dir,
-        target_folder_path=target_folder,
-    )
+
+    if target_folder_raw:
+        target_plc.import_blocks(
+            import_root_directory=import_dir,
+            target_folder_path=target_folder_raw,
+        )
+    else:
+        target_plc.import_blocks(import_root_directory=import_dir)
     return {"imported_from": import_dir}
 
 
