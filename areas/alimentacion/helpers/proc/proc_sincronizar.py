@@ -295,26 +295,15 @@ async def proc_open_transaction(ctx: ProcSyncContext) -> None:
             if (len(result.injected) + len(result.updated) + len(result.removed)) > 0:
                 alm_modified = True
 
-    # Import: 2 ``import_block`` separados, uno por DB. Patron
-    # legacy sept-2026 (valido en smoke en vivo proceso 50010):
-    # el script standalone del operario (``import.py`` con
-    # ``plc.import_blocks(root)``) funciona importando desde la
-    # raiz. Commit 27 intento UN solo ``import_block`` combinado
-    # (mas rapido en teoria) pero TIA V21 falla silenciosamente
-    # con "Import failed because an object with the name X
-    # already exists in the plc." incluso cuando los archivos
-    # son validos (validado en VM, mismo ``modified_bloques/``).
-    # El script funciona y el codigo legacy de ``make_cmd_update
-    # _proc_comments_db_*`` que se invocaba via
-    # ``execute_transactional_batch`` hacia 2 imports separados
-    # (1 por kind). Restauramos ese patron: 1 ``import_block``
-    # por DB con cambios. Cada import ve UN solo ``.s7dcl`` en
-    # su subpath, sin riesgo de "mezcla" entre bloques.
+    # Import unico: TIA Portal V21 importa todos los bloques del
+    # directorio en una sola operacion atomica (sept-2026 DRY).
+    # Antes (Commit 25): 2 ``import_block`` separados (PARAM + ALM) =
+    # ~14s cada uno = ~28s. Ahora: 1 solo import_block = ~14s.
     #
-    # Trade-off aceptado: ~14s extra vs Commit 27. Antes del
-    # refactor DRY (Commit 25) ya eran 2 imports = ~28s. Aqui
-    # seguimos en ~28s, que es lo que el operario valido OK
-    # antes de la regresion.
+    # Sin ``target_folder``: el handler OT legacy advierte que pasar
+    # target_folder explicito causa "CommitOnDispose" en TIA V21.
+    # Con target_folder="" TIA escanea recursivamente.
+    target_folder_param = ctx.config_manager.get_tia_folder_proceso()
     plc_name = (
         ctx.bloques_cache.plc_name if ctx.bloques_cache is not None else ""
     )
@@ -322,6 +311,9 @@ async def proc_open_transaction(ctx: ProcSyncContext) -> None:
     from areas.alimentacion.helpers.build_cache import build_cache
 
     if (param_modified or alm_modified) and plc_name:
+        # Copytree exports -> modified_bloques/<subpath> para
+        # ambos DBs. Si PARAM y ALM comparten el mismo subpath raiz,
+        # se hacen 2 copytrees (uno por DB).
         proc_ctx = build_cache(root=ctx.build_cache_root).procesos
         modified_root = proc_ctx.modified_bloques
 
@@ -337,21 +329,6 @@ async def proc_open_transaction(ctx: ProcSyncContext) -> None:
                     ctx.exports_param_dir, modified_param_dir,
                     dirs_exist_ok=True,
                 )
-            # 1 import por DB. Import_dir = subpath COMPLETO del DB
-            # (no la raiz): TIA V21 hace match UPDATE contra el
-            # bloque que existe en esa ruta exacta del PLC. Pasar
-            # la raiz con target_folder="" hacia CREATE (regression
-            # Commit 27).
-            await dispatch_async(
-                ctx.tia_client,
-                "import_block",
-                {
-                    "plc_name": plc_name,
-                    "import_dir": modified_param_dir,
-                    "target_folder": "",
-                },
-                timeout_s=600.0,
-            )
 
         if alm_modified and ctx.exports_alm_dir is not None:
             modified_alm_dir = (
@@ -365,16 +342,20 @@ async def proc_open_transaction(ctx: ProcSyncContext) -> None:
                     ctx.exports_alm_dir, modified_alm_dir,
                     dirs_exist_ok=True,
                 )
-            await dispatch_async(
-                ctx.tia_client,
-                "import_block",
-                {
-                    "plc_name": plc_name,
-                    "import_dir": modified_alm_dir,
-                    "target_folder": "",
-                },
-                timeout_s=600.0,
-            )
+
+        # UN SOLO import_block al final: TIA importa todos los
+        # .s7dcl del directorio modified_bloques en una sola
+        # operacion atomica.
+        await dispatch_async(
+            ctx.tia_client,
+            "import_block",
+            {
+                "plc_name": plc_name,
+                "import_dir": str(modified_root),
+                "target_folder": "",  # default: TIA escanea recursivo
+            },
+            timeout_s=600.0,
+        )
 
     ctx.tx_result = {
         "operations_executed": operations_executed,
