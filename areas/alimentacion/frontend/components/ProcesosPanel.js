@@ -149,6 +149,11 @@ export default {
                             <th class="px-3 py-2 text-left text-ink-muted">PReal</th>
                             <th class="px-3 py-2 text-left text-ink-muted">PInt</th>
                             <th class="px-3 py-2 text-left text-ink-muted">Alarmas</th>
+                            <!-- Sept-2026: nueva columna del Excel (Alarmas_Hmi).
+                                 Mapeada en backend a DataProcesoPLC.alm_hmi y
+                                 a la PlcUserConstant <uid>_N_MAX_ALM_HMI.
+                                 Default 0 si la fila del Excel no tiene valor. -->
+                            <th class="px-3 py-2 text-left text-ink-muted">Alarmas HMI</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -159,9 +164,10 @@ export default {
                             <td class="px-3 py-1.5">{{ p.preal }}</td>
                             <td class="px-3 py-1.5">{{ p.pint }}</td>
                             <td class="px-3 py-1.5">{{ p.alarmas }}</td>
+                            <td class="px-3 py-1.5">{{ p.alm_hmi }}</td>
                         </tr>
                         <tr v-if="procesos.length === 0">
-                            <td colspan="6" class="px-3 py-6 text-center text-ink-muted italic">
+                            <td colspan="7" class="px-3 py-6 text-center text-ink-muted italic">
                                 ⚠️ Sin procesos definidos.
                             </td>
                         </tr>
