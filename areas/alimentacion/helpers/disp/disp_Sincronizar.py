@@ -468,64 +468,67 @@ async def aplicar_comentarios(ctx: DispSyncContext) -> None:
             dirs_exist_ok=True,
         )
 
-    # ── 6. Una sola tx con los 6 imports (atomicidad) ──
-    operations: list[dict[str, Any]] = []
-    for hw_type, db_name in db_names.items():
-        slot_map = slot_maps.get(hw_type, {})
-        slot_map_str: dict[str, str] = {
-            str(slot): text for slot, text in slot_map.items()
-        }
-        db_array_name = db_array_names.get(hw_type, "")
-        operations.append({
-            "command": f"update_disp_comments_db_{hw_type}",
-            "args": {
-                "plc_name": ctx.plc_name,
-                "db_name": db_name,
-                "db_array_name": db_array_name,
-                "slot_map": slot_map_str,
-                "work_dir": str(modified_bloques),
-                "target_folder": target_folder,
-            },
-        })
-
-    batch_result = await dispatch_async(
-        ctx.tia_client,
-        "execute_transactional_batch",
-        {
-            "operations": operations,
-            "undo_text": "Sync disp comments",
-        },
-        timeout_s=600.0,
-    )
-
-    if not batch_result.get("ok"):
-        raise RuntimeError(
-            f"aplicar_comentarios: execute_transactional_batch fallo: "
-            f"{batch_result.get('error')}"
-        )
-
-    # ── 7. Normalizar return shape ──
-    inner = batch_result.get("result") or {}
-    ops_executed = int(inner.get("operations_executed", 0))
-    details = inner.get("details") or []
-
-    # Agregados para N3 (resumen en la consola web del stage wrapper).
-    # Cada op trae ``disp_comment_result: {reused, inserted, ...}``;
-    # sumamos para que el FB muestre "X reused + Y inserted en Z DBs"
-    # en vez de "comentarios aplicados" sin numeros.
+    # ── 6. Commit inline + import por DB (sept-2026 DRY) ──
+    # Sin ``execute_transactional_batch``: el FB hace 6 llamadas
+    # a ``commit_array_comments`` directo (1 por hw_type) sobre los
+    # archivos ya exportados. Luego ``import_block`` por cada DB
+    # que tuvo cambios.
     #
-    # ``reused`` e ``inserted`` son ``dict[int, str]`` (slot -> texto)
-    # del DispCommentResult, NO enteros. Sumamos con ``len()``.
+    # Trade-off: perdemos la transaccion atomica TIA (start/end).
+    # Si un import_block falla tras el otro, los anteriores quedan
+    # aplicados. Para sync atomico, restaurar
+    # ``execute_transactional_batch`` (TODO sept-2026 follow-up).
+    from core.helpers.simatic_sd import commit_array_comments
+    details: list[dict[str, Any]] = []
     total_reused = 0
     total_inserted = 0
     total_modified = 0
-    for op in details:
-        op_result = op.get("result") or {}
-        if op_result.get("modified"):
+    ops_executed = 0
+    for hw_type, db_name in db_names.items():
+        slot_map = slot_maps.get(hw_type, {})
+        if not slot_map:
+            continue
+        db_array_name = db_array_names.get(hw_type, "")
+        if not db_array_name:
+            continue
+        from core.infrastructure.tia.tia_export_paths import SdPair
+        dcl_path = SdPair(Path(exports_bloques), db_name).dcl
+        res_path = SdPair(Path(exports_bloques), db_name).res
+        result = commit_array_comments(
+            dcl_path, res_path,
+            array_name=db_array_name,
+            slot_map={int(k): v for k, v in slot_map.items()},
+            array_type="Simple",  # disp: slot 0 valido, comillas
+            write_to_original=True,
+        )
+        modified = (
+            len(result.injected)
+            + len(result.updated)
+            + len(result.removed)
+        ) > 0
+        details.append({
+            "hw_type": hw_type,
+            "db_name": db_name,
+            "array_name": db_array_name,
+            "modified": modified,
+            "disp_comment_result": result.to_dict(),
+        })
+        ops_executed += 1
+        total_reused += len(result.reused)
+        total_inserted += len(result.inserted)
+        if modified:
             total_modified += 1
-        dcr = op_result.get("disp_comment_result") or {}
-        total_reused += len(dcr.get("reused") or {})
-        total_inserted += len(dcr.get("inserted") or {})
+            # Import por DB si hubo cambios.
+            await dispatch_async(
+                ctx.tia_client,
+                "import_block",
+                {
+                    "plc_name": ctx.plc_name,
+                    "import_dir": str(exports_bloques),
+                    "target_folder": target_folder,
+                },
+                timeout_s=600.0,
+            )
 
     ctx.comments_result = {
         "plc_name": ctx.plc_name,
@@ -535,7 +538,6 @@ async def aplicar_comentarios(ctx: DispSyncContext) -> None:
         "summary": {
             "disp_dbs_updated": ops_executed,
             "total_ops": ops_executed,
-            # Agregados N3 para el resumen de la SPA:
             "total_reused": total_reused,
             "total_inserted": total_inserted,
             "total_modified": total_modified,
