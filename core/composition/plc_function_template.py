@@ -103,7 +103,7 @@ class FunctionTemplate(FunctionBase):
         #                 Inyectado por ``register_alimentacion`` al
         #                 registrar el FB en el engine.
         # tia_client:     SyncTIAClient del core. Sustituye al legacy
-        #                 TIAProcessGateway (borrado en refactor sept-2026).
+        #                 TIAProcessGateway (borrado en refactor ).
         #                 None si el FB no toca TIA (ej. SubirExcel).
         # build_cache:    BuildCache del area (.build_cache/<area>/<contexto>/...).
         #                 None si el FB no exporta nada a TIA.

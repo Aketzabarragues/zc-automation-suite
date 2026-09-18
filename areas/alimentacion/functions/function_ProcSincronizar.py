@@ -1,31 +1,19 @@
-"""FB de area: sincronizacion transaccional de comentarios de un
-proceso contra TIA Portal (DB_PARAM + DB_ALM).
+"""FB de area: sincroniza comentarios de un proceso contra TIA Portal.
 
 State machine sobre el helper ``proc_sincronizar``
 (areas/alimentacion/helpers/proc/proc_sincronizar.py). El helper
-expone funciones independientes (``proc_check_state_commit``,
-``proc_check_blocks_commit``, ``proc_build_slot_maps_commit``,
-``proc_open_transaction``, ``proc_done_summary_commit``) que
-reciben un ``ProcSyncContext`` y mutan sus campos. **Aqui en el FB
-vive la state machine**: el orden de las 5 llamadas, el mapping
-step -> funcion del helper, y la instanciacion del ctx.
+expone funciones independientes que reciben un ``ProcSyncContext``
+y mutan sus campos. Aqui en el FB vive la state machine: el orden
+de las llamadas, el mapping step -> funcion del helper, y la
+instanciacion del ctx.
 
-Antes (sept-2026 -): 1 use case legacy monolitico
-(``ejecutar_transaccion``) en
-``application/use_cases/proc_sync_comentarios.py``.
-
-Despues (sept-2026): cada step del FB ejecuta una funcion real del
-helper contra el ``ProcSyncContext`` compartido entre los 5 ticks.
-
-Hereda directo de ``FunctionBase`` (no del template). Zona 0 con 5
-deps comunes (incluyendo ``bloques_cache`` que el legacy inyectaba
-manualmente).
+Hereda directo de ``FunctionBase``.
 
 Runtime params via ``start(**kwargs)``:
   - ``proc_uid`` (int): uid del proceso. Obligatorio.
   - ``plc_name`` (str): nombre del PLC destino. Obligatorio.
 
-El ``self.result`` se popula con la shape legacy esperada por la SPA::
+El ``self.result`` se popula con la shape esperada por la SPA::
 
     {
       "proc_uid":             int,
@@ -37,19 +25,15 @@ El ``self.result`` se popula con la shape legacy esperada por la SPA::
       "warnings":             list[str],
     }
 
-Steps (8, orden nuevo sept-2026 con Tx A N_MAX + compile previo):
-  - check_state_commit       -> helper.proc_sincronizar.proc_check_state_commit
-  - check_blocks_commit      -> helper.proc_sincronizar.proc_check_blocks_commit
-  - build_slot_maps_commit   -> helper.proc_sincronizar.proc_build_slot_maps_commit
-  - sync_nmax                -> helper.proc_sincronizar.proc_sync_nmax
-                                (Tx A N_MAX online, INCONDICIONAL)
-  - wait_consolidation       -> helper.proc_sincronizar.proc_wait_consolidation
-                                (sleep 2s; TIA consolida tras Tx A)
-  - compile_proc_blocks      -> helper.proc_sincronizar.proc_compile_blocks
-                                (resize de DBs PARAM/ALM en TIA)
-  - open_transaction         -> helper.proc_sincronizar.proc_open_transaction
-                                (Tx B: comentarios sobre DBs ya redimensionados)
-  - done                     -> (interno: vuelco ``ctx.result`` a ``self.result``)
+Steps (8, Tx A N_MAX + compile + Tx B):
+  - check_state_commit       -> valida excel_cache cargado
+  - check_blocks_commit      -> valida bloques_cache cargado
+  - build_slot_maps_commit   -> recalcula slot maps desde AppState
+  - sync_nmax                -> Tx A online (incluso si nmax_ops=[])
+  - wait_consolidation       -> sleep 2s para que TIA consolide
+  - compile_proc_blocks      -> compila PARAM + ALM tras el resize
+  - open_transaction         -> Tx B: commits + import
+  - done                     -> vuelca ctx.result a self.result
 """
 from __future__ import annotations
 

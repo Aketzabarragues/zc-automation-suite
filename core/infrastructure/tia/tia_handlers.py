@@ -758,8 +758,7 @@ def _h_import_tag_table(args: dict, tia_client: "SyncTIAClient") -> dict:
 def _h_import_block(args: dict, tia_client: "SyncTIAClient") -> dict:
     """Importa un bloque (.s7dcl) desde disco al PLC (manual §2.2.23).
 
-    CRITICO sept-2026 (regression proc sync): ``import_blocks`` tiene
-    la firma
+    CUIDADO: ``import_blocks`` tiene la firma
     ``import_blocks(import_root_directory: str, target_folder_path: Optional[str] = None)``
     (default = ``None``, NO string vacio). Pasar ``target_folder_path=""``
     (string vacio) hace que TIA V21 NO haga match UPDATE de bloques

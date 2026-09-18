@@ -335,7 +335,7 @@ def _export_objects_sd(
 # ---------------------------------------------------------------------------
 # Decorador de trazabilidad para handlers OT (Zona D, paso 1)
 # ---------------------------------------------------------------------------
-# Tras el giro 'DEBUG by default' (sept-2026) el decorador
+# Tras el giro 'DEBUG by default' el decorador
 # @log_ot_command se ha eliminado: los handlers se invocan sin
 # instrumentacion automatica. Si el operario quiere un log en la
 # consola web para un comando concreto, lo anade manualmente con

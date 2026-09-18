@@ -1,10 +1,8 @@
 """FB que sube el Excel del operario y popula ``AppState``.
 
-Migrado del use case legacy ``application/use_cases/upload_excel.py``
-(sept-2026, refactor de areas). Hereda de ``FunctionTemplate``
-(plantilla con Zona 0 de inyeccion de deps). La logica pura vive en
-``helpers/excel/excel_upload.py``; aqui solo esta la state machine +
-tracker + 2 pasos.
+Hereda de ``FunctionTemplate`` (plantilla con Zona 0 de inyeccion
+de deps). La logica pura vive en ``helpers/excel/excel_upload.py``;
+aqui solo esta la state machine + tracker + 2 pasos.
 
 Runtime params via ``start(**kwargs)``:
   - ``xlsx_path`` (``str | Path``): ruta al ``.xlsx`` a parsear.
@@ -192,19 +190,14 @@ class FunctionSubirExcel(FunctionBase):
         # es sync. El cache ya esta en memoria del Engine global
         # asi que lo recuperamos sync via el ``cache_cls`` directo.
         # NOTA: en un FB async esto seria await, pero ``on_finish``
-        # es sync. El cache ya esta en memoria del Engine global
-        # asi que lo recuperamos sync via la ClassVar publica
-        # ``ExcelCacheManager._cache`` (no ``_state``: ese atributo
-        # no existe y siempre daba None -> bug sept-2026 donde el
-        # router mostraba '0 proc' aunque el cache tuviera 8).
+        # Recuperamos el cache via la ClassVar publica
+        # ``ExcelCacheManager._cache``. El atributo ``_state`` no
+        # existe y daba None, lo que mostraba '0 proc' aunque el
+        # cache tuviera datos.
         cache = ExcelCacheManager._cache
-        # Si no podemos recuperar el cache sync, lo dejamos a ``None``
-        # en dimensiones (la SPA no rompe si ve ``None``).
         dimensiones = cache.n_max.to_api_dict() if cache else None
-        # Conteos de software (procesos, preal, pint, alarmas, n_max).
-        # Nivel 5 del plan de trazabilidad (sept-2026): el router
-        # necesita estos totales para emitir el resumen completo en
-        # la consola web.
+        # Conteos de software para el resumen completo en la consola
+        # web (procesos, preal, pint, alarmas, n_max).
         software = None
         if cache is not None:
             software = {
@@ -212,9 +205,7 @@ class FunctionSubirExcel(FunctionBase):
                 "preal": len(cache.parametros_real),
                 "pint": len(cache.parametros_int),
                 "alarmas": len(cache.alarmas),
-                # Sept-2026: anadido para que el router pueda
-                # mostrar el conteo de N_MAX en el resumen. Antes
-                # el log terminaba con literal '+ N_MAX'.
+                # El router muestra el conteo de N_MAX en el resumen.
                 # ``cache.n_max`` es un ``DimensionesDispositivos``
                 # (dataclass), no una lista -> usamos ``all_nmax()``
                 # que retorna el dict unificado de N_MAX legacy (6) +

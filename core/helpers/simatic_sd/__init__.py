@@ -4,7 +4,7 @@ Funciones puras (sin estado) para:
 - generar IDs MLC unicos (``simatic_sd_mlc_generator``)
 - actualizar comentarios de arrays en DBs (``simatic_sd_db_array_comment_updater``)
 
-Sept-2026 refactor DRY: estos helpers reemplazan al
+ refactor: estos helpers reemplazan al
 ``SimaticSDDbArrayCommentUpdater`` (viejo, 500+ lineas, con dataclasses
 y parser custom) y al ``MLCRegistry`` (viejo, con state machine).
 """

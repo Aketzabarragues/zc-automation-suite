@@ -151,7 +151,7 @@ async def test_proc_sincronizar_happy_path_8_ticks(
     """Happy path: 10 ticks -> nStep=99, todas las funciones del helper
     llamadas una vez, ``self.result`` con la shape legacy.
 
-    Sept-2026: el FB ahora tiene 8 steps (3 nuevos: sync_nmax,
+    : el FB ahora tiene 8 steps (3 nuevos: sync_nmax,
     wait_consolidation, compile_proc_blocks), por lo que el flujo es:
       tick #1:  10 -> 20 (on_start + tracker.begin)
       ticks #2-9: 20 (8 steps; nStep NO avanza)

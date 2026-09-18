@@ -7,14 +7,9 @@ reciben un ``DispSyncContext`` y mutan sus campos. **Aqui en el FB vive
 la state machine**: el orden de las 11 llamadas, el mapping step ->
 funcion del helper, y la instanciacion del ctx.
 
-Antes (sept-2026 -): 10 de los 11 steps del FB eran checkpoints
-vacios; solo el ultimo invocaba el helper monolitico de golpe. Esto
-provocaba que el progressbar saltara al ultimo step sin transicion
-visible.
-
-Ahora (sept-2026): cada step del FB ejecuta 1 funcion real del helper
-contra un ``DispSyncContext`` compartido entre los 11 ticks. El
-progressbar muestra 11 etapas con trabajo real y duracion real.
+Cada step del FB ejecuta una funcion real del helper contra un
+``DispSyncContext`` compartido. El progressbar muestra 11 etapas
+con trabajo y duracion reales.
 
 Hereda directo de ``FunctionBase`` (no del template). Zona 0 con 4 deps
 comunes + 1 especifica.
@@ -226,8 +221,7 @@ class FunctionDispSincronizar(FunctionBase):
     def on_finish(self, **params: Any) -> None:
         """Vuelca ``self.result`` con la shape legacy que espera la SPA.
 
-        Lee los resultados finales del ``DispSyncContext`` (mismos campos
-        que el helper monolitico ``disp_Sincronizar`` retornaba, sept-2026 -).
+        Lee los resultados finales del ``DispSyncContext``.
         """
         if self._ctx is None:
             # Error temprano: deps no inyectadas o plc_name ausente.

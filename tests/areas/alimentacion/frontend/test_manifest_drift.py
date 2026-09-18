@@ -49,9 +49,7 @@ def _resolve_repo_root() -> Path:
     """Raiz del repo. Sube hasta encontrar ``main.py``.
 
     Robusto frente a movimientos del test entre subdirectorios
-    de ``tests/`` (sept-2026: este test se movio de
-    ``tests/`` a ``tests/areas/alimentacion/frontend/`` tras la
-    limpieza del raiz de tests/).
+    de ``tests/`` .
     """
     here = Path(__file__).resolve().parent
     for candidate in [here, *here.parents]:

@@ -8,10 +8,10 @@ expone funciones independientes (``exportar_tags``, ``compute_devices``,
 state machine**: el orden de las 4 llamadas, el mapping step ->
 funcion del helper, y la instanciacion del ctx.
 
-Antes (sept-2026 -): 2 de los 4 steps eran checkpoints vacios
+Antes: 2 de los 4 steps eran checkpoints vacios
 (combinado con...); el resto ejecutaba el helper monolitico de golpe.
 
-Despues (sept-2026): cada step del FB ejecuta una funcion real del
+Despues: cada step del FB ejecuta una funcion real del
 helper contra el ``DispPreviewContext`` compartido entre los 4 ticks.
 
 Hereda directo de ``FunctionBase`` (no del template). Zona 0 con 4 deps

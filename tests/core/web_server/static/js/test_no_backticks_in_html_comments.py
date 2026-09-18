@@ -15,7 +15,7 @@ Este test barre TODOS los .js con template literal en
 ``core/web_server/static/js/`` y falla si encuentra
 backticks en comentarios HTML.
 
-Antes (sept-2026 legacy): escaneaba ``interfaces/web_server/static/js/``
+Antes : escaneaba ``interfaces/web_server/static/js/``
 (path borrado en commits 0-7 del refactor de interfaces
 -> core). Actualizado al nuevo path.
 
@@ -35,9 +35,7 @@ def _resolve_repo_root() -> Path:
     """Raiz del repo. Sube hasta encontrar ``main.py``.
 
     Robusto frente a movimientos del test entre subdirectorios
-    de ``tests/`` (sept-2026: este test se movio de ``tests/``
-    a ``tests/core/web_server/static/js/`` tras la limpieza del
-    raiz de tests/).
+    de ``tests/`` .
     """
     here = Path(__file__).resolve().parent
     for candidate in [here, *here.parents]:
@@ -53,13 +51,13 @@ JS_DIR = REPO_ROOT / "core" / "web_server" / "static" / "js"
 # Patrones:
 # - Comentario HTML: <!-- ... -->
 # - Buscamos backticks dentro.
-# ANTES (defectuoso, sept-2026): <!--[^>]*?`[^>]*?-->
+# ANTES (defectuoso, ): <!--[^>]*?`[^>]*?-->
 #   El [^>]*? antes del ` falla cuando hay un `>` en el contenido
 #   del comentario (e.g. `store.plcs.length > 0` en ShellTopbar.js v2.2),
 #   porque el `[^>]` excluye `>` y el regex se para antes de llegar al
 #   backtick. Resultado: el test pasaba con archivos que tenian
 #   backticks en comentarios HTML (bug del navegador silencioso).
-# AHORA (sept-2026, post-fix): <!--[^`]*?`.*?-->
+# AHORA : <!--[^`]*?`.*?-->
 #   El [^`]*? matchea cualquier cosa que no sea un backtick, no
 #   importa si hay `>` en medio. Asi el regex matchea correctamente
 #   comentarios con `>` arbitrarios.

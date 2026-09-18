@@ -46,7 +46,7 @@ class DataDispCatalog:
 
     Instanciar con ``DataDispCatalog()`` da un catalogo vacio
     valido. Los campos se rellenan en el wiring final del módulo
-    (DA-005.5) leyendo del ``ConfigManager`` y/o del legacy
+    leyendo del ``ConfigManager`` y/o del legacy
     ``disp_catalog.build_catalog``.
     """
 

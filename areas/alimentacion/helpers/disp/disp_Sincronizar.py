@@ -468,22 +468,10 @@ async def aplicar_comentarios(ctx: DispSyncContext) -> None:
             dirs_exist_ok=True,
         )
 
-    # ── 6. Commit inline + UN SOLO import (sept-2026 DRY) ──
-    # El FB hace 6 llamadas a ``commit_array_comments`` directo (1 por
-    # hw_type) sobre los archivos ya exportados. Luego UN SOLO
-    # ``import_block`` con ``import_dir=modified_bloques`` (que
-    # contiene los 6 .s7dcl): TIA Portal V21 importa todos los
-    # bloques del directorio en una sola operacion atomica.
-    #
-    # Sin ``target_folder``: el comentario legacy
-    # (sept-2026 disp_Sincronizar.py commit 21b) advierte que pasar
-    # ``target_folder`` explicito FUERZA el match a una sola carpeta
-    # y causa "CommitOnDispose". Con ``target_folder=""`` (default
-    # del handler), TIA escanea recursivamente y hace match CREATE
-    # para cada bloque.
-    #
-    # Antes (sept-2026 -): 6 ``import_block`` separados (1 por DB) =
-    # ~14s cada uno = 84s total. Ahora: 1 solo import_block = ~14s.
+    # 6 commits inline (1 por hw_type) sobre los archivos exportados,
+    # y 1 solo ``import_block`` con ``import_dir=modified_bloques``
+    # para que TIA importe todos los bloques en una operacion atomica.
+    # ``target_folder=""`` (default): TIA escanea recursivamente.
     from core.helpers.simatic_sd import commit_array_comments
     details: list[dict[str, Any]] = []
     total_reused = 0
@@ -561,10 +549,10 @@ async def aplicar_comentarios(ctx: DispSyncContext) -> None:
 async def post_preview(ctx: DispSyncContext) -> None:
     """Genera el preview post-sync para que la SPA vea 'todo en sync'.
 
-    Reusa las 4 funciones puras del helper ``disp_generate_preview``
-    (sept-2026): ``exportar_tags``, ``compute_devices``, ``compute_nmax``
-    y ``build_response``. Crea un ``DispPreviewContext`` independiente
-    con las mismas deps que el sync y lo ejecuta en orden. El
+    Reusa las 4 funciones puras de ``disp_generate_preview``
+    (``exportar_tags``, ``compute_devices``, ``compute_nmax`` y
+    ``build_response``). Crea un ``DispPreviewContext`` con las
+    mismas deps y lo ejecuta en orden. El
     ``build_response`` final popula ``ctx.post_sync_preview`` con la
     shape legacy (agregados, eliminados, renombrados, todos, nmax,
     summary).
@@ -686,19 +674,15 @@ def _ignore_non_device_xmls(
 ) -> "callable":
     """Callable para ``shutil.copytree(ignore=...)``.
 
-    Excluye los XMLs cuyo stem (``"2000_Disp_ED"`` sin ``.xml``) NO
-    este en ``device_table_names``. Esto evita que el copytree de
-    Stage 7 (``exports/variables/ -> modified/variables/``) copie el
-    ``000_Config_Dispositivos.xml`` (tabla N_MAX online-only que NO
-    debe llegar al import offline de Tx B). Si la copia lo incluyera,
-    Tx B (``import_plc_tags_xml``) lo re-importaria con sus valores
-    pre-commit, sobrescribiendo los N_MAX aplicados online en Tx A y
-    anulando el fix sept-2026 del rollback silencioso V21.
+    Excluye los XMLs cuyo stem NO este en ``device_table_names``.
+    Esto evita que se copie ``000_Config_Dispositivos.xml`` (tabla
+    N_MAX online-only que NO debe llegar al import offline de Tx B):
+    si se copiara, Tx B la re-importaria con sus valores pre-commit,
+    sobrescribiendo los N_MAX aplicados online en Tx A.
 
     ``shutil.copytree`` invoca este callable UNA VEZ POR CADA
     SUBDIRECTORIO del arbol (incluida la raiz). Solo inspeccionamos
-    ``files`` (los nombres del directorio actual): la recursion la hace
-    ``copytree`` automaticamente. Los no-XMLs se preservan.
+    ``files``: la recursion la hace ``copytree`` automaticamente.
     """
     def _ignore(directory: str, files: list[str]) -> set[str]:
         ignored: set[str] = set()

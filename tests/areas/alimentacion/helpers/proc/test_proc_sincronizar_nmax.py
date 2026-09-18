@@ -219,7 +219,7 @@ async def test_proc_compile_blocks_marks_error_on_gateway_fail() -> None:
 
 
 # ────────────────────────────────────────────────────────────────────────
-# Tests E2E: proc_compute_nmax_ops (sept-2026 fix)
+# Tests E2E: proc_compute_nmax_ops 
 # ────────────────────────────────────────────────────────────────────────
 def test_proc_compute_nmax_ops_uses_proc_table_path(tmp_path: Path) -> None:
     """E2E: proc_compute_nmax_ops calcula el diff contra la tabla del

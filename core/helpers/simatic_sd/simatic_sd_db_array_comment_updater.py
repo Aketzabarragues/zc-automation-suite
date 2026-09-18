@@ -1,8 +1,8 @@
 """Helper para actualizar comentarios de arrays en DBs SimaticSD.
 
-Sept-2026 refactor DRY (sustituye al SimaticSDDbArrayCommentUpdater
-viejo, 500+ lineas con dataclasses y parser custom). Esta version es
-~150 lineas, 4 casos explicitos, sin estado mutable compartido.
+Version simple (sin estado mutable, sin dataclasses, sin parser
+custom). Cuatro casos explicitos al iterar sobre los slots:
+insertar, eliminar, actualizar o anadir MLC.
 
 Caso de uso tipico (FB proc_sincronizar, Tx B):
   >>> from core.helpers.simatic_sd import commit_array_comments
@@ -46,9 +46,9 @@ operario, parametrizado y testeable):
     asignacion es ``:= ()`` (ancla vacia), borra toda la linea.
   - **C. Actualizar**: el slot existe con MLC y comentario nuevo.
     Cambia el texto en .s7res (YAML).
-  - **D. Anadir MLC**: el slot existe SIN MLC (caso del bug sept-2026
-    smoke en vivo proceso 50010: ``PReal_Vis[1] := FALSE;`` sin
-    MLC adyacente). Inyecta el bloque MLC.
+  - **D. Anadir MLC**: el slot existe SIN MLC adyacente. Esto pasa
+    en TIA cuando ``PReal_Vis[1] := FALSE;`` se escribio sin un
+    bloque ``{ S7_MLC := ... }`` delante. Inyecta el bloque.
 
 Tipo del array:
   - ``UDT`` (PReal, PInt): el slot es una struct con sub-campos. El
@@ -80,8 +80,6 @@ _logger = logging.getLogger(__name__)
 # ``utf-8-sig`` para que el BOM no contamine los strings.
 SD_ENCODING = "utf-8-sig"
 
-
-# ── Regex (sept-2026: cubre Seccion A y Seccion B sin distinguir) ─────
 
 # Regex a nivel de modulo para encontrar TODAS las asignaciones de un
 # array (usado por ``find_array_slots``). Captura array name y slot.
@@ -149,8 +147,8 @@ class ArrayCommitResult:
             "array_name": "PReal",
             "reused": {slot: texto},
             "inserted": {slot: MLC_id},
-            "satellite_reused": {},       # deprecado sept-2026 DRY
-            "satellite_inserted": {},     # deprecado sept-2026 DRY
+            "satellite_reused": {},
+            "satellite_inserted": {},
             "total_mlcs_in_res": int,
           }
         """
@@ -158,8 +156,8 @@ class ArrayCommitResult:
             "array_name": self.array_name,
             "reused": dict(self.reused),
             "inserted": dict(self.injected),
-            "satellite_reused": {},     # deprecado post-DRY
-            "satellite_inserted": {},   # deprecado post-DRY
+            "satellite_reused": {},
+            "satellite_inserted": {},
             "total_mlcs_in_res": (
                 len(self.injected)
                 + len(self.reused)

@@ -36,9 +36,7 @@ def _resolve_repo_root() -> Path:
 
     Sube en el arbol hasta encontrar un marcador del repo
     (``main.py``). Robusto frente a movimientos del test entre
-    subdirectorios de ``tests/`` (sept-2026: este test se movio
-    de ``tests/`` a ``tests/areas/alimentacion/`` tras la limpieza
-    del raiz de tests/).
+    subdirectorios de ``tests/`` .
     """
     here = Path(__file__).resolve().parent
     for candidate in [here, *here.parents]:

@@ -1,7 +1,7 @@
 """Tests de ``proc_compute_nmax_diff``: helper puro que difiere N_MAX
 del proceso contra el estado exportado de TIA.
 
-Sept-2026: reescritura tras el bug N_MAX diff=0. La version anterior
+: reescritura tras el bug N_MAX diff=0. La version anterior
 copiaba el patron de disp (tabla global); esta usa la tabla del
 proceso (``slot_map.table_name``) + fail-fast si no esta exportada.
 """
@@ -173,7 +173,7 @@ def test_proc_compute_nmax_diff_skips_kind_without_nmax_name(
 def test_proc_compute_nmax_diff_includes_alm_hmi(
     tags_base: Path,
 ) -> None:
-    """Sept-2026: 4to N_MAX ``alm_hmi`` (excelente de la columna
+    """: 4to N_MAX ``alm_hmi`` (excelente de la columna
     ``Alarmas_Hmi`` del Excel, PlcUserConstant ``<uid>_N_MAX_ALM_HMI``).
 
     Mismo patron data-driven: si desired != current, se anyade como
@@ -246,7 +246,7 @@ def test_proc_compute_nmax_diff_finds_xml_in_tags_subdir(
     un subdirectorio ``Tags/``. El helper debe encontrarlo via el
     fallback rglob de ``XmlTarget`` (no solo en raiz directa).
 
-    Sept-2026: bug que rompio el sync en vivo. Preview funcionaba
+    : bug que rompio el sync en vivo. Preview funcionaba
     porque usa ``XmlTarget``; sync fallaba porque buscaba directo.
     """
     sm = FakeSlotMap(

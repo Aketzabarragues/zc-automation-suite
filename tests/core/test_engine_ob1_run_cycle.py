@@ -118,7 +118,7 @@ def test_engine_exposes_both_sync_and_async_apis():
 def test_fb_survives_multiple_asyncio_run_loops():
     """El FB Singleton debe tolerar N ``asyncio.run()`` consecutivos.
 
-    Escenario real (sept-2026): el ``Engine.run_cycle()`` es sync y
+    Escenario real : el ``Engine.run_cycle()`` es sync y
     crea un ``asyncio.run()`` por ciclo. Ademas, los routers llaman
     ``asyncio.run(fb.start())`` desde hilos de Flask. Cada llamada
     crea un event loop efimero y lo cierra. Los primitives asyncio

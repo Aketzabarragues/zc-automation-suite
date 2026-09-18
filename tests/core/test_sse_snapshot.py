@@ -1,6 +1,6 @@
 """Tests del snapshot inicial del SSE (DA-011).
 
-DA-001 (sept-2026): el stream SSE queda abierto en ``await queue.get()``
+DA-001 : el stream SSE queda abierto en ``await queue.get()``
 esperando eventos. TestClient/httpx se cuelgan esperando EOF. Por
 tanto, estos tests son UNIT del ``_build_snapshot()`` y del
 ``Engine.snapshot()``, sin HTTP. La validación end-to-end con

@@ -96,13 +96,12 @@ def test_import_block_happy_path():
     # a TIA: su firma es
     # ``import_blocks(import_root_directory, target_folder_path=None)``.
     # Pasar ``""`` (string vacio) hace que TIA V21 NO haga match UPDATE
-    # de bloques pre-existentes (sept-2026 regression proc sync,
-    # validado en VM con script standalone).
+    # de bloques pre-existentes .
     plc.import_blocks.assert_called_once_with(import_root_directory=tmp)
 
 
 def test_import_block_with_empty_target_folder_omits_param():
-    """Sept-2026 fix: ``target_folder=""`` ya NO se traduce a
+    """ fix: ``target_folder=""`` ya NO se traduce a
     ``target_folder_path=""`` en la llamada a TIA (que es lo que
     rompe el match UPDATE). En su lugar omitimos el parametro y
     dejamos que TIA use su default ``None``.

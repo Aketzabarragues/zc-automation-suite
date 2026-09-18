@@ -8,7 +8,7 @@ y el backend los devuelve desde
 
 ``manifest.js`` y ``manifest.py`` son hermanos, no padre/hijo.
 
-Tras el refactor de areas (sept-2026), este manifest ya no
+Tras el refactor de areas, este manifest ya no
 declara nada del shell comun. El ShellSidebar, el ShellTopbar,
 el ProgressIndicator, la ConsolaLogs y el plcpanelview son del
 core (``core/web_server/static/js/components/``). Solo se declaran

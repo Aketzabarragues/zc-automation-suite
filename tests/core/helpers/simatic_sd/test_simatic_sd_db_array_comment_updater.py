@@ -1,4 +1,4 @@
-"""Tests de ``commit_array_comments`` (sept-2026 refactor DRY).
+"""Tests de ``commit_array_comments`` .
 
 Cubre los 4 casos del helper con archivos .s7dcl sinteticos que
 representan los formatos A (inline) y B (standalone) de TIA V21.
@@ -206,7 +206,7 @@ def test_caso_c_noop_si_texto_identico(tmp_path: Path) -> None:
 def test_caso_d_anade_mlc_a_slot_existente_simple(tmp_path: Path) -> None:
     """CASO D: slot existe como ``PReal_Vis[1] := FALSE;`` SIN MLC adyacente.
 
-    Caso del bug sept-2026 smoke en vivo proceso 50010: el helper
+    Caso del bug  smoke en vivo proceso 50010: el helper
     detecta que el slot existe (sin MLC) y le anade el bloque MLC.
     """
     dcl = _BASE_DCL.replace(

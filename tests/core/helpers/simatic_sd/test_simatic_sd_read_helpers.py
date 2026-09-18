@@ -1,5 +1,5 @@
 """Tests de ``find_array_slots`` y ``read_current_comments``
-(sept-2026 refactor DRY, Commit 21a).
+.
 
 Helpers de SOLO-LECTURA para el preview (``proc_generar_preview``).
 Cubren la API minima que el preview necesita: saber que slots

@@ -1,6 +1,6 @@
 """Generador de IDs MLC unicos para archivos SimaticSD (.s7res).
 
-Sept-2026 refactor DRY: reemplaza al ``MLCRegistry`` (viejo, con state
+ refactor: reemplaza al ``MLCRegistry`` (viejo, con state
 machine + reserve/next_mlc_id) por funciones puras mas simples.
 
 TIA Portal V21 espera que cada bloque ``{ S7_MLC := "MLC_xxx"; }`` en

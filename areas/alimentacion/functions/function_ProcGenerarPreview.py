@@ -9,11 +9,11 @@ expone funciones independientes (``proc_check_state``,
 state machine**: el orden de las 6 llamadas, el mapping step ->
 funcion del helper, y la instanciacion del ctx.
 
-Antes (sept-2026 -): 2 use cases legacy monolíticos
+Antes: 2 use cases legacy monolíticos
 (``generar_prevision`` + ``ejecutar_transaccion``) en
 ``application/use_cases/proc_sync_comentarios.py``.
 
-Despues (sept-2026): cada step del FB ejecuta una funcion real del
+Despues: cada step del FB ejecuta una funcion real del
 helper contra el ``ProcPreviewContext`` compartido entre los 6 ticks.
 
 Hereda directo de ``FunctionBase`` (no del template). Zona 0 con 5

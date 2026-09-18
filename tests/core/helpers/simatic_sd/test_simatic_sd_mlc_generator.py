@@ -1,4 +1,4 @@
-"""Tests de ``simatic_sd_mlc_generator`` (sept-2026 DRY).
+"""Tests de ``simatic_sd_mlc_generator`` .
 
 Cubre las dos funciones puras del modulo:
 - ``collect_existing_mlc_ids``: extrae IDs del .s7res.

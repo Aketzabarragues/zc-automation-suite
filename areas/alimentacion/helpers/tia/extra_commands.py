@@ -82,7 +82,7 @@ def make_cmd_update_disp_comments_db(hw_type: str) -> Callable[..., Any]:
             "target_dir": work_dir,
         }, tia_client)
 
-        # Sept-2026 DRY: helper transversal.
+        # Helper transversal.
         result = commit_array_comments(
             s7dcl_path, s7res_path,
             array_name=db_array_name,
@@ -109,7 +109,7 @@ def make_cmd_update_disp_comments_db(hw_type: str) -> Callable[..., Any]:
             "disp_comment_result": {
                 "reused": result.reused,
                 "inserted": result.inserted,
-                "no_usar_mlc": [],  # deprecado (sept-2026: helper nuevo no lo calcula)
+                "no_usar_mlc": [],
                 "total_mlcs_in_res": (
                     len(result.injected)
                     + len(result.reused)
@@ -237,15 +237,11 @@ def make_cmd_commit_disp_devices_offline() -> Callable[..., Any]:
         modified_dir: str = args.get("modified_dir", "")
         target_folder: str = args.get("target_folder", "")
 
-        # ``target_folder`` se deja opcional (default ``""`` en el handler
-        # de ``import_plc_tags_xml``): si se pasa no-vacio, TIA Portal
-        # busca esa ruta INTERNA especifica para el import. Pero como
-        # el filesystem del directorio a importar ya contiene la
-        # estructura completa (``<modified>/variables/2000_Dispositivos/``),
-        # TIA deduce la ruta de cada PLC tag automaticamente y hace UPDATE
-        # (no CREATE). Si pasamos un ``target_folder`` distinto, TIA no
-        # encuentra el match y revienta con ``CommitOnDispose``. Convencion
-        # del legacy: no pasar ``target_folder`` (import a raiz).
+        # No pasamos ``target_folder``: el directorio a importar ya
+        # contiene la estructura completa del PLC
+        # (``<modified>/variables/2000_Dispositivos/``), asi que TIA
+        # deduce la ruta de cada tag y hace UPDATE. Pasar un valor
+        # explicito haria que TIA no encontrase el match.
         if not (plc_name and modified_dir):
             raise ValueError(
                 "commit_disp_devices_offline: plc_name y modified_dir "
@@ -385,10 +381,8 @@ def make_cmd_update_proc_comments_db(kind: str) -> Callable[..., Any]:
                 "target_dir": effective_work_dir,
             }, tia_client)
 
-        # Sept-2026 DRY: helper transversal sin MLCRegistry ni parser
-        # custom. ``write_to_original=True`` porque los archivos ya
-        # estan en el workdir exportado (no hace falta prefijo
-        # ``modificado_``).
+        # ``write_to_original=True``: los archivos ya estan en el
+        # workdir exportado (no hace falta prefijo ``modificado_``).
         result = commit_array_comments(
             s7dcl_path, s7res_path,
             array_name=array_name,
@@ -492,7 +486,7 @@ def make_cmd_update_proc_comments_db_param() -> Callable[..., Any]:
                 "target_dir": effective_work_dir,
             }, tia_client)
 
-        # Sept-2026 DRY: helper transversal.
+        # Helper transversal.
         # TODO follow-up: integrar ``commit_proc_simplified`` para
         # iterar los 6 arrays del PARAM + sus satellites (hoy solo
         # PReal y PInt principal; satellites quedan en preview).
@@ -549,10 +543,7 @@ def make_cmd_update_proc_comments_db_param() -> Callable[..., Any]:
 
 
 # Satelites de arrays de procesos (PReal y PInt dependen de otros).
-# Fuente unica de verdad: ``areas.alimentacion.data.data_ProcSlotMap
-# .PROC_SATELLITES_BY_ARRAY``.  Antes (sept-2026) esta constante estaba
-# hardcodeada AQUI con tuplas vacias -> el sync no propagaba los
-# comentarios a ``PReal_Vis``, ``PInt_Vis`` ni a los arrays ``Aux.*``.
+# Fuente unica de verdad: ``data_ProcSlotMap.PROC_SATELLITES_BY_ARRAY``.
 from areas.alimentacion.data.data_ProcSlotMap import (
     PROC_SATELLITES_BY_ARRAY as _PROC_SATELLITES,
 )
@@ -565,9 +556,6 @@ def _result_block(
     """Empaqueta un ``ArrayCommitResult`` (o None) en dict JSON-safe.
 
     Cada PReal/PInt puede ser None si su slot_map estaba vacio.
-    Cuando ``result`` no es None, delega en ``result.to_dict()``
-    (sept-2026 DRY: el dataclass es el mismo que el helper nuevo;
-    ``total_mlcs_in_res`` se calcula a partir de los slots tocados).
     """
     if result is None:
         return {
@@ -576,16 +564,12 @@ def _result_block(
             "satellite_reused": {}, "satellite_inserted": {},
             "total_mlcs_in_res": 0,
         }
-    # El helper nuevo NO calcula satellites (TODO follow-up: usar
-    # ``commit_proc_simplified`` desde el FB para cubrirlos). Por
-    # compatibilidad con el JSON esperado por el router Flask,
-    # serializamos lo que tenemos.
     return {
         "modified": modified,
         "reused": dict(result.reused),
         "inserted": dict(result.inserted),
-        "satellite_reused": {},  # deprecado en sept-2026 DRY
-        "satellite_inserted": {},  # deprecado en sept-2026 DRY
+        "satellite_reused": {},
+        "satellite_inserted": {},
         "total_mlcs_in_res": (
             len(result.injected)
             + len(result.reused)
@@ -599,14 +583,11 @@ def _result_block(
 # Adaptadores de registro
 # ---------------------------------------------------------------------------
 def _wrap_handler(handler):
-    """Pasa los args del SyncTIAClient (args, tia_client) directamente al handler.
+    """Adapta la firma del dispatcher (args, tia_client) al handler.
 
-    El dispatcher del SyncTIAClient invoca con (args, tia_client). Los
-    handlers internos del area (_cmd) ahora esperan la misma firma: el
-    refactor (sept-2026) elimino la indireccion legacy de extraer
-    ``portal`` y ``ts`` aqui -- el handler los toma directo de
-    ``tia_client.wrapper`` cuando los necesita (project.start_transaction,
-    user_constants, etc).
+    Los handlers del area reciben ``(args, tia_client)`` directo y
+    extraen ``portal`` / ``ts`` de ``tia_client.wrapper`` cuando los
+    necesitan.
     """
     def _wrapped(args, tia_client):
         return handler(args, tia_client)
@@ -614,11 +595,7 @@ def _wrap_handler(handler):
 
 
 def register(registry):
-    """Aporta los comandos al COMMAND_REGISTRY del worker OT.
-
-    Compat con worker_tia.py. Tras el rename a tia_loop.py, este
-    punto de extension queda solo para tests que importan worker_tia.
-    """
+    """Aporta los comandos al COMMAND_REGISTRY del worker OT."""
     for hw in EXTRA_HW_TYPES:
         registry[f"update_disp_comments_db_{hw}"] = (
             make_cmd_update_disp_comments_db(hw)

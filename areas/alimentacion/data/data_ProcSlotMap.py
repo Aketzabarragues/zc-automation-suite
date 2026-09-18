@@ -109,11 +109,10 @@ class DataProcSlotMap:
 # Idem para ``PInt`` con ``PInt_Vis`` y ``Aux.PInt_ValorAnterior``.
 # ALM no tiene satelites (su array es auto-contenido).
 #
-# Esta constante es la **unica fuente de verdad** que consultan:
-#   - ``proc_generar_preview._compose_arrays_internal`` (response a la SPA).
-#   - ``helpers/tia/extra_commands.py::_PROC_SATELLITES`` (sync handler).
-# Antes (sept-2026) la lista estaba hardcodeada en 2 sitios y el sync
-# handler tenia tuplas vacias -> no se propagaban los comentarios.
+# Satelites de cada array principal (PReal y PInt dependen de otros).
+# Consultado por:
+#   - ``proc_generar_preview._compose_arrays_internal`` (response SPA)
+#   - ``helpers/tia/extra_commands.py`` (sync handler)
 PROC_SATELLITES_BY_ARRAY: dict[str, tuple[str, ...]] = {
     "preal": ("PReal_Vis", "Aux.PReal_ValorAnterior"),
     "pint": ("PInt_Vis", "Aux.PInt_ValorAnterior"),

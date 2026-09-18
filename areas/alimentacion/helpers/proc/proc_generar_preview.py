@@ -332,7 +332,7 @@ async def proc_export_and_diff(ctx: ProcPreviewContext) -> None:
         # Solo usamos ``find_array_slots`` para saber que existen en
         # el .s7dcl exportado y ``read_current_comments`` para su
         # texto ``es-ES`` actual (usado por la preview / diff).
-        # Sept-2026: migrado al helper transversal (sin
+        # migrado al helper transversal (sin
         # SimaticSDDbArrayCommentUpdater viejo).
         dcl_param_path = SdPair(work_dir, ctx.slot_map.db_param_name).dcl
         res_param_path = SdPair(work_dir, ctx.slot_map.db_param_name).res

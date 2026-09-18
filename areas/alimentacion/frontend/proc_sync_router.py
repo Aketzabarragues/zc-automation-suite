@@ -1,8 +1,6 @@
 """Router Flask de los endpoints ``POST /api/v1/procesos/sync/{preview,commit}``.
 
-Migrado del use case legacy ``proc_sync_comentarios``
-(sept-2026, ahora vive en 2 FBs nuevos ``proc_generar_preview`` +
-``proc_sincronizar``). Los helpers viven en
+Migrado del use case legacy ``proc_sync_comentarios``. Los helpers viven en
 ``areas/alimentacion/helpers/proc/``; los FBs
 (registrados en el engine con esos nombres) tienen la state machine
 + tracker; este router solo orquesta: arranca el FB y devuelve el

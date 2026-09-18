@@ -161,7 +161,7 @@ def test_fallback_to_appdata_when_default_fails(
     # Parcheamos SOLO el helper interno que ``resolve_log_dir`` usa,
     # no ``Path.mkdir`` globalmente (eso romperia operaciones legitimas
     # del propio test, como la creacion de ``fake_home``).
-    # Sept-2026: ``log_paths`` se movio a
+    # : ``log_paths`` se movio a
     # ``core.infrastructure.config.config_paths`` tras el refactor.
     from core.infrastructure.config import config_paths
 

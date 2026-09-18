@@ -54,7 +54,7 @@ from areas.alimentacion.helpers.tia.dispatch_async import dispatch_async
 
 logger = logging.getLogger("zc.areas.alimentacion.proc_sincronizar")
 
-# Sept-2026: misma espera que usa ``disp_Sincronizar.wait_consolidation``
+# Misma espera que usa ``disp_Sincronizar.wait_consolidation``.
 # tras Tx A. TIA necesita consolidar internamente antes de que el
 # ``compile_blocks`` vea el resize de los DBs.
 TIA_CONSOLIDATION_SLEEP_S: float = 2.0
@@ -104,10 +104,8 @@ class ProcSyncContext:
     compile_ok: bool = True
     compile_error: str | None = None
 
-    # ── Resultado de proc_open_transaction ──
     tx_result: "dict[str, Any] | None" = None
 
-    # ── Tx B sub-steps (sept-2026) ──
     work_dir: Path | None = None
     exports_subdir: Path | None = None
     exports_param_dir: str | None = None
@@ -117,20 +115,14 @@ class ProcSyncContext:
     apply_alm_map: dict[str, str] = field(default_factory=dict)
     tx_b_ops: list[dict[str, Any]] = field(default_factory=list)
 
-    # ── Resultado final (shape legacy) ──
     result: dict[str, Any] = field(default_factory=dict)
 
 
-# ===========================================================================
-# 5 funciones puras/async (cada una muta ``ctx``; sin state machine aqui)
-# ===========================================================================
-
 def proc_check_state_commit(ctx: ProcSyncContext) -> None:
-    """Valida que ``AppState.excel_cache`` esta cargado.
+    """Comprueba que ``AppState.excel_cache`` esta cargado.
 
-    Marca ``ctx.excel_loaded = False`` si no lo esta. El FB
-    inspecciona este flag para lanzar ``RuntimeError`` con un
-    mensaje accionable antes de delegar al gateway.
+    Si no, marca ``ctx.excel_loaded = False`` para que el FB aborte
+    con un mensaje accionable antes de tocar el gateway.
     """
     if ctx.app_state is None or ctx.app_state.excel_cache is None:
         ctx.excel_loaded = False
@@ -139,23 +131,19 @@ def proc_check_state_commit(ctx: ProcSyncContext) -> None:
 
 
 def proc_check_blocks_commit(ctx: ProcSyncContext) -> None:
-    """Valida que el cache de bloques del PLC esta disponible.
+    """Comprueba que el cache de bloques del PLC esta disponible.
 
-    Marca ``ctx.bloques_loaded = False`` si no lo esta. El FB
-    inspecciona este flag para lanzar ``RuntimeError`` con un
-    mensaje accionable antes de delegar al gateway.
+    Marca ``ctx.bloques_loaded`` para que el FB aborte con un mensaje
+    accionable si falta.
     """
     ctx.bloques_loaded = ctx.bloques_cache is not None
 
 
 def proc_build_slot_maps_commit(ctx: ProcSyncContext) -> None:
-    """Recalcula slot maps desde ``AppState`` (no usa ``prevision``).
+    """Recalcula slot maps desde ``AppState``.
 
-    El FB ya valido ``excel_loaded`` y ``bloques_loaded`` en pasos
-    previos; aqui solo llamamos al ``proc_build_slot_maps`` del
-    modulo de datos. Si la operacion lanza ``RuntimeError`` (uid
-    no existe, PLC sin bloques, etc.), se propaga al FB que
-    decide si abortar el commit.
+    Si falla (``RuntimeError`` por uid inexistente, PLC sin bloques,
+    etc.), se propaga al FB que decide si abortar.
     """
     from areas.alimentacion.data.data_ProcSlotMap import proc_build_slot_maps
     ctx.slot_map = proc_build_slot_maps(
@@ -164,32 +152,17 @@ def proc_build_slot_maps_commit(ctx: ProcSyncContext) -> None:
 
 
 async def proc_open_transaction(ctx: ProcSyncContext) -> None:
-    """Tx B: orquestador de las 5 fases + dispatch del lote final.
+    """Orquesta las 5 fases del sync de comentarios y dispara el lote final.
 
-    El lote se ejecuta con ``tia_client.execute_transactional_batch``:
-    ``update_proc_comments_db_param`` (PReal + PInt sobre el mismo
-    DB) + ``update_proc_comments_db_alm`` (ALM). El worker abre
-    ``start_transaction``, itera los sub-comandos, y cierra con
-    ``end_transaction``. Si cualquiera falla, rollback atomico.
+    Fases (cada una es una funcion publica testeable):
+      1. proc_tx_b_limpiar: limpia el workdir.
+      2. proc_tx_b_detectar_eliminar_export: re-exporta PARAM + ALM.
+      3. proc_tx_b_detectar_eliminar_read: lee comentarios actuales.
+      4. proc_tx_b_calcular_apply_maps: mezcla Excel + "eliminar" (".").
+      5. proc_tx_b_construir_ops: compone las 2 ops del lote.
 
-    Pipeline (sept-2026 - explicito y testeable):
-
-      Phase 1: proc_tx_b_limpiar
-                 -> clean del workdir
-      Phase 2: proc_tx_b_detectar_eliminar_export
-                 -> re-export de PARAM + ALM
-      Phase 3: proc_tx_b_detectar_eliminar_read
-                 -> leer comentarios actuales (modo degradado si falla)
-      Phase 4: proc_tx_b_calcular_apply_maps
-                 -> mezclar Excel + "eliminar" (slots con ".")
-      Phase 5: proc_tx_b_construir_ops
-                 -> componer las 2 OT ops
-      Final:   dispatch execute_transactional_batch
-
-    Historico: antes era 1 funcion monolitica con todo inline. Ahora
-    cada fase es una funcion publica testeable (sept-2026: el operario
-    pidio refactorizar el orden y exponer sub-steps para
-    trazabilidad/QA).
+    Tras las 5 fases, hace 6 commits inline sobre los archivos
+    exportados y un ``import_block`` al PLC.
     """
     codigo = (
         ctx.slot_map.db_param_name.split("_")[1]
@@ -219,14 +192,10 @@ async def proc_open_transaction(ctx: ProcSyncContext) -> None:
         )
         current_preal, current_pint, current_alm = {}, {}, {}
 
-    # Phase 4: mezclar Excel + eliminar
     proc_tx_b_calcular_apply_maps(ctx, current_preal, current_pint, current_alm)
 
-    # Phase 5 + Final: commit inline + import_block por DB.
-    # SIN wrapper intermedio (sept-2026 refactor DRY): el FB
-    # llama 6 veces a commit_array_comments directo, una por
-    # array del proceso, sobre los archivos ya exportados.
-    # Si el export fallo (exports_param_dir None), skip el commit.
+    # 6 commits sobre el DB PARAM (PReal + 3 satellites + PInt + 2 satellites)
+    # y 1 sobre el DB ALM. Cada commit opera sobre el archivo exportado.
     details: list[dict[str, Any]] = []
     operations_executed = 0
     param_modified = False
@@ -235,7 +204,6 @@ async def proc_open_transaction(ctx: ProcSyncContext) -> None:
     if ctx.exports_param_dir is not None:
         preal_apply_int = {int(k): v for k, v in ctx.apply_preal_map.items()}
         pint_apply_int = {int(k): v for k, v in ctx.apply_pint_map.items()}
-        # PARAM DB: 6 arrays (PReal + 3 satellites + PInt + 2 satellites).
         param_arrays = [
             ("PReal",                   "UDT"),
             ("PReal_Vis",               "Simple"),
@@ -247,10 +215,7 @@ async def proc_open_transaction(ctx: ProcSyncContext) -> None:
         from core.helpers.simatic_sd import commit_array_comments
         from core.infrastructure.tia.tia_export_paths import SdPair
         for array_name, array_type in param_arrays:
-            if array_name in ("PReal", "PReal_Vis", "Aux.PReal_ValorAnterior"):
-                slot_map = preal_apply_int
-            else:
-                slot_map = pint_apply_int
+            slot_map = preal_apply_int if array_name.startswith(("PReal", "Aux.PReal")) else pint_apply_int
             if not slot_map:
                 continue
             result = commit_array_comments(
@@ -273,7 +238,6 @@ async def proc_open_transaction(ctx: ProcSyncContext) -> None:
 
     if ctx.exports_alm_dir is not None:
         alm_apply_int = {int(k): v for k, v in ctx.apply_alm_map.items()}
-        # ALM DB: 1 array (sin satellites).
         if alm_apply_int:
             from core.helpers.simatic_sd import commit_array_comments
             from core.infrastructure.tia.tia_export_paths import SdPair
@@ -295,15 +259,6 @@ async def proc_open_transaction(ctx: ProcSyncContext) -> None:
             if (len(result.injected) + len(result.updated) + len(result.removed)) > 0:
                 alm_modified = True
 
-    # Import unico: TIA Portal V21 importa todos los bloques del
-    # directorio en una sola operacion atomica (sept-2026 DRY).
-    # Antes (Commit 25): 2 ``import_block`` separados (PARAM + ALM) =
-    # ~14s cada uno = ~28s. Ahora: 1 solo import_block = ~14s.
-    #
-    # Sin ``target_folder``: el handler OT legacy advierte que pasar
-    # target_folder explicito causa "CommitOnDispose" en TIA V21.
-    # Con target_folder="" TIA escanea recursivamente.
-    target_folder_param = ctx.config_manager.get_tia_folder_proceso()
     plc_name = (
         ctx.bloques_cache.plc_name if ctx.bloques_cache is not None else ""
     )
@@ -311,9 +266,6 @@ async def proc_open_transaction(ctx: ProcSyncContext) -> None:
     from areas.alimentacion.helpers.build_cache import build_cache
 
     if (param_modified or alm_modified) and plc_name:
-        # Copytree exports -> modified_bloques/<subpath> para
-        # ambos DBs. Si PARAM y ALM comparten el mismo subpath raiz,
-        # se hacen 2 copytrees (uno por DB).
         proc_ctx = build_cache(root=ctx.build_cache_root).procesos
         modified_root = proc_ctx.modified_bloques
 
@@ -343,16 +295,15 @@ async def proc_open_transaction(ctx: ProcSyncContext) -> None:
                     dirs_exist_ok=True,
                 )
 
-        # UN SOLO import_block al final: TIA importa todos los
-        # .s7dcl del directorio modified_bloques en una sola
-        # operacion atomica.
+        # Un solo import_block: TIA recorre modified_bloques y hace
+        # match UPDATE por nombre de bloque preservando su subpath.
         await dispatch_async(
             ctx.tia_client,
             "import_block",
             {
                 "plc_name": plc_name,
                 "import_dir": str(modified_root),
-                "target_folder": "",  # default: TIA escanea recursivo
+                "target_folder": "",
             },
             timeout_s=600.0,
         )
@@ -363,28 +314,12 @@ async def proc_open_transaction(ctx: ProcSyncContext) -> None:
     }
 
 
-# ===========================================================================
-# 4 funciones para el flujo Tx A + compile (sept-2026)
-# ===========================================================================
-
 def proc_compute_nmax_ops(ctx: ProcSyncContext) -> None:
-    """Calcula las ops de N_MAX via el helper puro
-    ``proc_compute_nmax_diff`` y las guarda en ``ctx.nmax_ops``.
+    """Calcula las ops de N_MAX con ``proc_compute_nmax_diff``.
 
-    Sept-2026 (fix bug N_MAX diff=0): el helper ahora toma ``proc_uid``
-    y ``slot_map`` (no ``app_state``/``config_manager``/``list_nmax_active``),
-    porque los N_MAX de proc viven en la tabla del PROCESO
-    (``slot_map.table_name``), no en la tabla global de dispositivos.
-
-    Si el helper lanza ``RuntimeError`` (ej. tabla no exportada en
-    TIA, porque el operario no ejecuto el preview antes del commit),
-    el raise se PROPAGA al FB. El step ``build_slot_maps_commit``
-    atrapa en su log "N_MAX diff: X ops a aplicar"; si no llega
-    ahi, el FB aborta con nStep=98 y mensaje accionable.
-
-    Args:
-        ctx: contexto con deps + ``slot_map`` (ya populado por el
-            step ``build_slot_maps_commit``).
+    Los N_MAX del proceso viven en su tabla (``slot_map.table_name``),
+    no en la tabla global de dispositivos. Si la tabla no esta
+    exportada en TIA, el helper lanza ``RuntimeError`` y el FB aborta.
     """
     from areas.alimentacion.helpers.build_cache import build_cache
     from areas.alimentacion.helpers.proc.proc_compute_nmax_diff import (
@@ -401,16 +336,13 @@ def proc_compute_nmax_ops(ctx: ProcSyncContext) -> None:
 
 
 async def proc_sync_nmax(ctx: ProcSyncContext) -> None:
-    """Tx A (online): dispatch ``commit_user_constants_online`` con
-    ``nmax_ops=ctx.nmax_ops`` y ``rename_ops=[]``.
+    """Despacha ``commit_user_constants_online`` con las ops de N_MAX.
 
-    El handler ``commit_user_constants_online`` abre/cierra su propia
-    tx TIA (sept-2026 fix del rollback silencioso V21 cuando se
-    mezclan ``set_property`` con ``import_plc_tags`` en una sola tx).
+    El handler abre y cierra su propia tx TIA (mix de set_property +
+    import_plc_tags en la misma tx hacia rollback silencioso en V21).
 
-    INCONDICIONAL (requisito del operario): aunque ``nmax_ops=[]``, se
-    despacha el handler igualmente para que el flujo se ejecute
-    completo.
+    Siempre se despacha, incluso con ``nmax_ops=[]``, para que el flujo
+    completo se ejecute.
     """
     nmax_result = await dispatch_async(
         ctx.tia_client,
@@ -548,33 +480,16 @@ def proc_done_summary_commit(ctx: ProcSyncContext) -> dict[str, Any]:
     return ctx.result
 
 
-# ===========================================================================
-# Tx B: 5 sub-steps del sync de comentarios (sept-2026 - explicit pipeline)
-# ===========================================================================
-#
-# Cada fase es una funcion publica testeable de forma independiente.
-# ``proc_open_transaction`` las orquesta en orden y luego hace el
-# dispatch final a ``execute_transactional_batch``. Mantiene la misma
-# forma de ejecucion que antes; el cambio es solo estructural.
-#
-# Flujo (5 fases + dispatch):
-#   1. proc_tx_b_limpiar                       - clean() del workdir
-#   2. proc_tx_b_detectar_eliminar_export      - re-export de los 2 DBs
-#   3. proc_tx_b_detectar_eliminar_read        - leer comentarios actuales
-#                                                (devuelve current_* en ctx)
-#   4. proc_tx_b_calcular_apply_maps           - mezcla Excel + eliminar
-#                                                (devuelve apply_* en ctx)
-#   5. proc_tx_b_construir_ops                 - componer las 2 OT ops
-#   Final: dispatch_async(execute_transactional_batch, ops)
+# Cada fase es una funcion publica testeable. ``proc_open_transaction``
+# las orquesta en orden y luego hace el dispatch final.
 
 
 def proc_tx_b_limpiar(ctx: ProcSyncContext) -> None:
-    """Fase 1: limpieza del workdir antes del batch.
+    """Fase limpia el workdir antes del batch.
 
-    Borra ``.build_cache/alimentacion/procesos/{exports,modified}/``
-    para que el ``import_block`` no encuentre archivos stale de runs
-    anteriores (validado sept-2026: stale = "Import failed because
-    object with name X already exists").
+    Borra ``exports/`` y ``modified/`` para evitar archivos stale de
+    runs anteriores (stale = "Import failed because object with name
+    X already exists").
     """
     from areas.alimentacion.helpers.build_cache import build_cache
 
@@ -585,11 +500,10 @@ def proc_tx_b_limpiar(ctx: ProcSyncContext) -> None:
 
 
 async def proc_tx_b_detectar_eliminar_export(ctx: ProcSyncContext) -> None:
-    """Fase 2: re-export de los 2 DBs a ``exports/<subpath>/``.
+    """Fase re-exporta los 2 DBs a ``exports/<subpath>/``.
 
-    Exporta PARAM + ALM al snapshot limpio. Si falla, el FB lo
-    reporta; el lote se aborta (no hay punto en continuar sin
-    estado actual fiable).
+    Si falla, el FB aborta (no tiene sentido continuar sin estado
+    actual fiable).
     """
     from areas.alimentacion.helpers.build_cache import build_cache
 
@@ -639,14 +553,11 @@ async def proc_tx_b_detectar_eliminar_export(ctx: ProcSyncContext) -> None:
 async def proc_tx_b_detectar_eliminar_read(
     ctx: ProcSyncContext,
 ) -> "tuple[dict[int, str | None], dict[int, str | None], dict[int, str | None]]":
-    """Fase 3: leer comentarios ``es-ES`` actuales de cada array.
+    """Fase lee los comentarios ``es-ES`` actuales de cada array.
 
-    Usa los archivos exportados en fase 2. Si falla el parseo
-    (YAML invalido o .s7dcl ausente), retorna ``({}, {}, {})`` y el
+    Usa los archivos exportados en fase 2. Si el parseo falla
+    (YAML invalido, .s7dcl ausente), devuelve ``({}, {}, {})`` y el
     apply seguira solo con los slots del Excel (modo degradado).
-
-    Sept-2026 DRY: usa ``find_array_slots`` y ``read_current_comments``
-    del helper transversal (sin updater viejo ni dataclasses).
     """
     from core.helpers.simatic_sd import (
         find_array_slots,
@@ -655,8 +566,6 @@ async def proc_tx_b_detectar_eliminar_read(
     from core.infrastructure.tia.tia_export_paths import SdPair
 
     try:
-        # Modo solo-lectura: ``commit_array_comments`` no se llama
-        # aqui (eso es Tx B fase 5). Solo leemos el estado actual.
         dcl_param = SdPair(Path(ctx.exports_param_dir), ctx.slot_map.db_param_name).dcl
         res_param = SdPair(Path(ctx.exports_param_dir), ctx.slot_map.db_param_name).res
         dcl_alm = SdPair(Path(ctx.exports_alm_dir), ctx.slot_map.db_alm_name).dcl
@@ -709,20 +618,16 @@ def proc_tx_b_calcular_apply_maps(
     current_pint: dict[int, str | None],
     current_alm: dict[int, str | None],
 ) -> "tuple[dict[str, str], dict[str, str], dict[str, str]]":
-    """Fase 4: mezcla Excel + "eliminar" (``"."``).
+    """Fase mezcla Excel + "eliminar" (``"."``).
 
-    "Eliminar" = slot presente en TIA (current) pero NO en el
-    Excel (slot_map). Su comentario se resetea a ``"."``. Asi el
-    operario ve "renombrar / agregar / eliminar" en la preview.
-
-    El resultado se guarda en ``ctx.apply_preal_map`` / ``apply_pint_map``
-    / ``apply_alm_map`` para que ``proc_tx_b_construir_ops`` lo use.
+    "Eliminar" = slot presente en TIA pero NO en el Excel. Su
+    comentario se resetea a ``"."``. Asi el operario ve
+    renombrar / agregar / eliminar en la preview.
     """
     def _merge(
         slot_map: dict[int, str],
         current: dict[int, str | None],
     ) -> dict[str, str]:
-        # Slots presentes solo en TIA (no en Excel) -> "."
         to_delete = {
             str(slot): "."
             for slot in sorted(set(current.keys()) - set(slot_map.keys()))
@@ -744,11 +649,11 @@ def proc_tx_b_calcular_apply_maps(
 
 
 def proc_tx_b_construir_ops(ctx: ProcSyncContext) -> list[dict[str, Any]]:
-    """Fase 5: compone las 2 OT ops (PARAM + ALM).
+    """Fase compone las 2 OT ops (PARAM + ALM).
 
-    1 op combinada para PReal + PInt sobre el MISMO DB PARAM
-    (evita el bug del doble ``export_block`` que sobreescribia
-    el cambio de PReal al re-exportar para PInt).
+    1 op combinada para PReal + PInt sobre el mismo DB PARAM
+    (evita el bug del doble export_block que sobreescribia el
+    cambio de PReal al re-exportar para PInt).
 
     ``db_subpath`` es la subcarpeta TIA donde esta el DB (de
     ``DataBloqueCache.blocks[<db>].ruta``). TIA Portal V21
@@ -756,9 +661,7 @@ def proc_tx_b_construir_ops(ctx: ProcSyncContext) -> list[dict[str, Any]]:
     bloque, si no, falla con "object with the name already
     exists" (validado 2026-09-07).
 
-    Guarda ``ctx.tx_b_ops`` (alias) y devuelve la lista. El
-    caller (``proc_open_transaction``) la pasa tal cual a
-    ``dispatch_async(execute_transactional_batch, ...)``.
+    Guarda ``ctx.tx_b_ops`` y devuelve la lista.
     """
     target_folder = ctx.config_manager.get_tia_folder_proceso()
 
@@ -794,18 +697,14 @@ def proc_tx_b_construir_ops(ctx: ProcSyncContext) -> list[dict[str, Any]]:
     return operations
 
 
-# ===========================================================================
-# Internals puras/async (legacy, conservadas para compat con tests)
-# ===========================================================================
+# Wrappers legacy. Conservados para compat con callers / tests que
+# importaban estos nombres. Usar las 4 fases publicas de Tx B.
+
 
 async def _compute_apply_maps(
     ctx: ProcSyncContext,
 ) -> "tuple[dict[str, str], dict[str, str], dict[str, str]]":
-    """DEPRECATED wrapper. Usar las 4 fases publicas de Tx B en su lugar.
-
-    Conservada para compat con callers / tests legacy. Internamente
-    delega en ``proc_tx_b_*``.
-    """
+    """DEPRECATED. Usar ``proc_tx_b_*`` directamente."""
     if not hasattr(ctx, "exports_param_dir"):
         await proc_tx_b_detectar_eliminar_export(ctx)
     current_preal, current_pint, current_alm = (
@@ -819,16 +718,9 @@ async def _compute_apply_maps(
 async def _re_export_current(  # noqa: D401 - legacy shim
     ctx: ProcSyncContext,
 ) -> "tuple[dict[int, str | None], dict[int, str | None], dict[int, str | None]]":
-    """DEPRECATED wrapper. Usar ``proc_tx_b_detectar_eliminar_export`` +
-    ``proc_tx_b_detectar_eliminar_read`` en su lugar."""
+    """DEPRECATED. Usar ``proc_tx_b_detectar_eliminar_export/read``."""
     await proc_tx_b_detectar_eliminar_export(ctx)
     return await proc_tx_b_detectar_eliminar_read(ctx)
-
-
-# Nota: ``dispatch_async`` se importa arriba desde
-# ``areas.alimentacion.helpers.tia.dispatch_async``. Antes vivia
-# duplicado aqui (4 copias en total: 2 disp + 2 proc); ahora vive
-# como helper compartido.
 
 
 __all__ = [
@@ -838,15 +730,12 @@ __all__ = [
     "proc_build_slot_maps_commit",
     "proc_open_transaction",
     "proc_done_summary_commit",
-    # Sept-2026: Tx B sub-steps publicos
     "proc_tx_b_limpiar",
     "proc_tx_b_detectar_eliminar_export",
     "proc_tx_b_detectar_eliminar_read",
     "proc_tx_b_calcular_apply_maps",
     "proc_tx_b_construir_ops",
-    # Constantes
     "TIA_CONSOLIDATION_SLEEP_S",
-    # Sept-2026: nuevos steps Tx A + compile
     "proc_compute_nmax_ops",
     "proc_sync_nmax",
     "proc_wait_consolidation",

@@ -226,7 +226,7 @@ def test_open_transaction_happy_path(
 ) -> None:
     """Happy path: 6+1 commits inline + import_block, ctx.tx_result poblado.
 
-    Sept-2026 refactor DRY: el FB ya NO despacha ``execute_transactional_batch``.
+     refactor: el FB ya NO despacha ``execute_transactional_batch``.
     Llama 6 veces a ``commit_array_comments`` directo (sobre archivos
     exportados) + 1 vez para ALM, luego ``import_block`` por DB.
     """
@@ -295,7 +295,7 @@ def test_open_transaction_propagates_gateway_error(
 ) -> None:
     """Si el gateway (export) falla, modo degradado: error se traga, sin tx_result.
 
-    Sept-2026 DRY: el re-export del PARAM esta en ``try/except`` de Fase
+    : el re-export del PARAM esta en ``try/except`` de Fase
     2-3; si falla, el FB sigue sin detectar "eliminar". El commit
     inline (Phase 5) tambien se salta si ``exports_param_dir is None``.
     """
@@ -329,7 +329,7 @@ def test_open_transaction_continues_when_re_export_fails(
 ) -> None:
     """Si el re-export para detectar 'eliminar' falla, sigue solo con Excel.
 
-    Sept-2026 DRY: el error del export se traga en modo degradado
+    : el error del export se traga en modo degradado
     (Fase 2-3 wrapped en try/except). Phase 5 (commit inline) se
     SKIP porque ``exports_param_dir`` queda None. ``operations_executed=0``.
     """
@@ -382,7 +382,7 @@ def test_re_export_current_writes_to_exports_subpath(
     Ahora replica el patron del sync handler: export a ``exports/<subpath>/``
     y deja que el handler haga el copytree a ``modified/<subpath>/``.
 
-    Sept-2026 DRY: el commit es inline (no hay copytree); el FB
+    : el commit es inline (no hay copytree); el FB
     importa directo desde ``exports/<subpath>/``.
     """
     import asyncio
@@ -467,8 +467,8 @@ def test_re_export_current_writes_to_exports_subpath(
 def test_proc_satellites_alias_resolves_to_constant():
     """``_PROC_SATELLITES`` en extra_commands es alias de la constante de data_ProcSlotMap.
 
-    Verifica el DRY: ambos consumers (preview + sync) leen del mismo
-    dict. Antes (sept-2026) la constante local en ``extra_commands.py``
+    Verifica el: ambos consumers (preview + sync) leen del mismo
+    dict. Antes  la constante local en ``extra_commands.py``
     estaba hardcodeada con tuplas vacias -> el sync no propagaba
     comentarios a ``PReal_Vis``, ``PInt_Vis`` ni a ``Aux.*``.
     """

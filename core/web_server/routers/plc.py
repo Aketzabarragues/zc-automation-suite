@@ -87,7 +87,7 @@ def get_fb_status(name: str):
 # ---------------------------------------------------------------------------
 # Blueprint hermano: endpoints de cache de bloques del PLC.
 #
-# Gap sept-2026: el shell SPA (``plcpanelview.js``) llama a
+# Gap el shell SPA (``plcpanelview.js``) llama a
 # ``loadAndApplyPlcBlocks`` con ``force=false`` (lee) o ``force=true``
 # (refrescar) apuntando a ``/api/v1/plcs/<name>/blocks``. Esos endpoints
 # no existian en routers tras la migracion del worker — los anadimos

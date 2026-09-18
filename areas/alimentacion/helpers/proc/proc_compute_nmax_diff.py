@@ -5,7 +5,7 @@ aplicara a la **tabla de variables del proceso** (``slot_map.table_name``
 = ``f"{proc_uid}_{proc.codigo}"``) cuando el usuario quiere que TIA
 redimensione los DBs PARAM / ALM antes del sync de comentarios.
 
-Sept-2026: reescritura despues del bug N_MAX diff=0 en produccion. La
+reescritura despues del bug N_MAX diff=0 en produccion. La
 version anterior copio el patron de ``disp_compute_nmax_diff`` que lee
 la tabla global ``000_Config_Dispositivos`` (tabla de dispositivos),
 pero los N_MAX de proc viven en la tabla del PROCESO por convencion
@@ -14,7 +14,7 @@ del operario (2026-09-02, validado en ``proc_generate_preview.py``).
 Forma del retorno:
     [{"table_name": str, "constant_name": str, "new_value": int}, ...]
 
-Sept-2026 (correccion): si la tabla del proceso NO esta exportada en
+ (correccion): si la tabla del proceso NO esta exportada en
 ``tags_base`` (ej. el operario lanzo el commit sin hacer preview antes),
 el helper lanza ``RuntimeError`` en lugar de retornar ``[]``. Razon: si
 no tenemos estado actual fiable, no debemos fabricar ops basados en

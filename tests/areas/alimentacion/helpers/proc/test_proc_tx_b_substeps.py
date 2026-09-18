@@ -1,7 +1,7 @@
 """Tests para los sub-steps publicos de Tx B
 (``proc_tx_b_*``) y un E2E de ``proc_open_transaction``.
 
-Sept-2026: refactor del flujo Tx B en 5 fases testeables
+: refactor del flujo Tx B en 5 fases testeables
 independientemente.
 """
 from __future__ import annotations
@@ -263,7 +263,7 @@ async def test_proc_open_transaction_e2e_all_5_phases() -> None:
     assert ctx.apply_preal_map == {"1": "Bomba 1", "2": "Bomba 2"}
     assert ctx.apply_pint_map == {"1": "Param 1"}
     assert ctx.apply_alm_map == {"1": "Alarma 1"}
-    # Phase 5 (sept-2026 DRY): commit inline -> 7 operaciones
+    # Phase 5 : commit inline -> 7 operaciones
     # (6 arrays PARAM + 1 ALM). NO hay execute_transactional_batch.
     assert len(batch_calls) == 0
     assert ctx.tx_result["operations_executed"] == 7
@@ -316,7 +316,7 @@ async def test_proc_open_transaction_degraded_when_export_fails() -> None:
     assert ctx.apply_preal_map == {"1": "Bomba 1"}
     assert ctx.apply_pint_map == {"1": "Param 1"}
     assert ctx.apply_alm_map == {"1": "Alarma 1"}
-    # Sept-2026 DRY: el commit inline (Phase 5) se SKIP porque
+    # : el commit inline (Phase 5) se SKIP porque
     # ``exports_param_dir`` quedo None. ``operations_executed=0``.
     assert ctx.tx_result["operations_executed"] == 0
     assert ctx.tx_result["details"] == []

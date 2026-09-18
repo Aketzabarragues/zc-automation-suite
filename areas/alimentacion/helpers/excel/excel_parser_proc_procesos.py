@@ -19,7 +19,7 @@ Diferencias con el legacy TUI (``_legacy_reference/ZC_ALM_TOOLS``):
       hoja o la tabla no existen.
     * Mismas claves literales del Excel que el legacy:
       ``UID``, ``Nombre``, ``Codigo``, ``PReal``, ``Index_Preal``,
-      ``PInt``, ``Index_Pint``, ``Alarmas``, ``Alarmas_Hmi`` (sept-2026).
+      ``PInt``, ``Index_Pint``, ``Alarmas``, ``Alarmas_Hmi``.
 
 Restricción arquitectónica: este módulo es OFFLINE; no importa
 ``siemens_tia_scripting``.
