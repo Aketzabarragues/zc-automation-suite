@@ -255,11 +255,20 @@ def proc_compute_nmax_ops(ctx: ProcSyncContext) -> None:
     """Calcula las ops de N_MAX via el helper puro
     ``proc_compute_nmax_diff`` y las guarda en ``ctx.nmax_ops``.
 
-    Si ``ctx.tags_base`` es ``None``, lo resuelve desde
-    ``build_cache(area_id='alimentacion').procesos.preview_variables``.
-    Si no hay AppState o no hay config, ``ctx.nmax_ops`` queda como
-    ``[]`` y el step ``proc_sync_nmax`` aun despachara el handler
-    (requisito "sync_nmax incondicional").
+    Sept-2026 (fix bug N_MAX diff=0): el helper ahora toma ``proc_uid``
+    y ``slot_map`` (no ``app_state``/``config_manager``/``list_nmax_active``),
+    porque los N_MAX de proc viven en la tabla del PROCESO
+    (``slot_map.table_name``), no en la tabla global de dispositivos.
+
+    Si el helper lanza ``RuntimeError`` (ej. tabla no exportada en
+    TIA, porque el operario no ejecuto el preview antes del commit),
+    el raise se PROPAGA al FB. El step ``build_slot_maps_commit``
+    atrapa en su log "N_MAX diff: X ops a aplicar"; si no llega
+    ahi, el FB aborta con nStep=98 y mensaje accionable.
+
+    Args:
+        ctx: contexto con deps + ``slot_map`` (ya populado por el
+            step ``build_slot_maps_commit``).
     """
     from areas.alimentacion.helpers.build_cache import build_cache
     from areas.alimentacion.helpers.proc.proc_compute_nmax_diff import (
@@ -270,12 +279,8 @@ def proc_compute_nmax_ops(ctx: ProcSyncContext) -> None:
         proc_ctx = build_cache(root=ctx.build_cache_root).procesos
         ctx.tags_base = proc_ctx.preview_variables
 
-    if ctx.app_state is None or ctx.config_manager is None:
-        ctx.nmax_ops = []
-        return
-
     ctx.nmax_ops = proc_compute_nmax_diff(
-        ctx.tags_base, ctx.config_manager, ctx.app_state
+        ctx.tags_base, ctx.proc_uid, ctx.slot_map,
     )
 
 

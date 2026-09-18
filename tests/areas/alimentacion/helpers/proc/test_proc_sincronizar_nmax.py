@@ -24,6 +24,9 @@ class FakeSlotMap:
         self,
         db_param: str = "DB53100_TEST_PARAM",
         db_alm: str = "DB55100_TEST_ALM",
+        table_name: str = "",
+        nmax: dict | None = None,
+        nmax_names: dict | None = None,
     ) -> None:
         self.db_param_name = db_param
         self.db_alm_name = db_alm
@@ -33,6 +36,9 @@ class FakeSlotMap:
         self.pint: list = []
         self.alm: list = []
         self.missing_blocks: list = []
+        self.table_name = table_name
+        self.nmax = nmax if nmax is not None else {}
+        self.nmax_names = nmax_names if nmax_names is not None else {}
 
     @property
     def satellites_by_array(self) -> dict[str, list[str]]:
@@ -210,3 +216,79 @@ async def test_proc_compile_blocks_marks_error_on_gateway_fail() -> None:
 
     assert ctx.compile_ok is False
     assert "TIA no responde" in ctx.compile_error
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Tests E2E: proc_compute_nmax_ops (sept-2026 fix)
+# ────────────────────────────────────────────────────────────────────────
+def test_proc_compute_nmax_ops_uses_proc_table_path(tmp_path: Path) -> None:
+    """E2E: proc_compute_nmax_ops calcula el diff contra la tabla del
+    PROCESO (no la tabla global de disp). Si Excel dice preal=8 y
+    current.xml dice 100_N_MAX_PREAL=5, retorna 1 op con constante
+    '100_N_MAX_PREAL' (con prefijo uid), NO 'N_MAX_PREAL'.
+    """
+    # Carpeta preview_variables exportada por el preview.
+    preview_dir = tmp_path / "preview_variables"
+    preview_dir.mkdir()
+    # Tabla del proceso 100_CPR (no la tabla global 000_Config_Dispositivos).
+    proc_xml = preview_dir / "100_CPR.xml"
+    proc_xml.write_text("<root/>", encoding="utf-8")
+
+    sm = FakeSlotMap(
+        table_name="100_CPR",
+        nmax={"preal": 8, "pint": 10, "alm": 8},
+        nmax_names={
+            "preal": "100_N_MAX_PREAL",
+            "pint": "100_N_MAX_PINT",
+            "alm": "100_N_MAX_ALM",
+        },
+    )
+    ctx = _ctx_with(slot_map=sm)
+    ctx.build_cache_root = tmp_path  # build_cache.root = tmp_path
+    # Pre-populamos tags_base para no depender de build_cache real.
+    ctx.tags_base = preview_dir
+
+    with patch(
+        "areas.alimentacion.helpers.xml.disp_tag_table_parser."
+        "SimaticMLTagParser.parse_user_constants",
+        return_value={"100_N_MAX_PREAL": 5},
+    ):
+        from areas.alimentacion.helpers.proc.proc_sincronizar import (
+            proc_compute_nmax_ops,
+        )
+        proc_compute_nmax_ops(ctx)
+
+    # Encontramos las 3 ops (preal diff, pint nuevo, alm nuevo).
+    by_name = {o["constant_name"]: o for o in ctx.nmax_ops}
+    assert by_name["100_N_MAX_PREAL"]["new_value"] == 8
+    assert by_name["100_N_MAX_PINT"]["new_value"] == 10
+    assert by_name["100_N_MAX_ALM"]["new_value"] == 8
+    assert all(o["table_name"] == "100_CPR" for o in ctx.nmax_ops)
+
+
+def test_proc_compute_nmax_ops_raises_when_xml_not_exported(
+    tmp_path: Path,
+) -> None:
+    """E2E: si la tabla del proceso NO esta exportada (el operario
+    salto el preview), el helper raise y propagamos al FB.
+
+    El operario lo valido 2026-09-18: 'si la tabla de variables no
+    existe a la hora de sincronizar, hay que marcar como error'.
+    """
+    preview_dir = tmp_path / "preview_variables"
+    preview_dir.mkdir()
+    # NO creamos el XML de 100_CPR.xml -> simulamos tabla no exportada.
+
+    sm = FakeSlotMap(
+        table_name="100_CPR",
+        nmax_names={"preal": "100_N_MAX_PREAL"},
+        nmax={"preal": 8},
+    )
+    ctx = _ctx_with(slot_map=sm)
+    ctx.tags_base = preview_dir
+
+    from areas.alimentacion.helpers.proc.proc_sincronizar import (
+        proc_compute_nmax_ops,
+    )
+    with pytest.raises(RuntimeError, match="preview"):
+        proc_compute_nmax_ops(ctx)
