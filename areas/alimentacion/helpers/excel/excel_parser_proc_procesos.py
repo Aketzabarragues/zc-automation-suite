@@ -19,7 +19,7 @@ Diferencias con el legacy TUI (``_legacy_reference/ZC_ALM_TOOLS``):
       hoja o la tabla no existen.
     * Mismas claves literales del Excel que el legacy:
       ``UID``, ``Nombre``, ``Codigo``, ``PReal``, ``Index_Preal``,
-      ``PInt``, ``Index_Pint``, ``Alarmas``.
+      ``PInt``, ``Index_Pint``, ``Alarmas``, ``Alarmas_Hmi`` (sept-2026).
 
 Restricción arquitectónica: este módulo es OFFLINE; no importa
 ``siemens_tia_scripting``.
@@ -96,6 +96,13 @@ class ProcesosParser:
                         pint=_safe_int(row.get("PInt")),
                         index_pint=_safe_int(row.get("Index_Pint")),
                         alarmas=_safe_int(row.get("Alarmas")),
+                        # Sept-2026: nueva columna del Excel. Mapeada
+                        # aqui como ``alm_hmi``. Si el Excel legacy NO
+                        # tiene la columna (filas mas viejas),
+                        # ``_safe_int`` retorna 0 -> desired=0, lo que
+                        # baja el N_MAX en TIA. Opcion A confirmada
+                        # por el operario: 'el Excel es la verdad'.
+                        alm_hmi=_safe_int(row.get("Alarmas_Hmi")),
                     )
                 )
             except Exception as exc:  # defensivo: nunca romper la tabla

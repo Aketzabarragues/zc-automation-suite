@@ -80,9 +80,10 @@ _FULL_CONFIG = {
             },
             "procesos": {
                 "n_max_suffixes": {
-                    "preal": "PREAL",
-                    "pint":  "PINT",
-                    "alm":   "ALM",
+                    "preal":   "PREAL",
+                    "pint":    "PINT",
+                    "alm":     "ALM",
+                    "alm_hmi": "ALM_HMI",
                 },
             },
         },
@@ -281,12 +282,16 @@ def test_get_proc_nmax_suffixes(cm: ConfigManager) -> None:
 
     El nombre completo de la PlcUserConstant se computa en el caller
     como ``f"{proc.uid}_N_MAX_{suffix}"`` con cada sufijo de este dict.
+
+    Sept-2026: incluye ``alm_hmi`` (nueva columna del Excel
+    ``Alarmas_Hmi`` mapeada como ``<uid>_N_MAX_ALM_HMI`` en TIA).
     """
     suffixes = cm.get_proc_nmax_suffixes()
     assert suffixes == {
-        "preal": "PREAL",
-        "pint":  "PINT",
-        "alm":   "ALM",
+        "preal":   "PREAL",
+        "pint":    "PINT",
+        "alm":     "ALM",
+        "alm_hmi": "ALM_HMI",
     }
 
 

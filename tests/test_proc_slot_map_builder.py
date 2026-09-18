@@ -278,7 +278,8 @@ def test_nmax_deseados_se_computan_desde_listas_del_excel() -> None:
     por proceso del Excel. ``nmax_names`` = nombres completos con
     el sufijo del config (``f"{proc.uid}_N_MAX_{suffix}"``).
     """
-    proc = MagicMock(uid=100, nombre="Compacto", codigo="CPR")
+    proc = MagicMock(uid=100, nombre="Compacto", codigo="CPR",
+                     alm_hmi=0)  # Sept-2026: legacy Excel sin columna.
     # 8 PReal, 3 PInt, 1 ALM.
     parametros_real = [
         MagicMock(uid=f"PR_{i}", codigo="CPR", num_db=53100,
@@ -298,7 +299,8 @@ def test_nmax_deseados_se_computan_desde_listas_del_excel() -> None:
     )
     state = MagicMock(excel_cache=excel_cache)
     config = _config_with_nmax(
-        {"preal": "PREAL", "pint": "PINT", "alm": "ALM"}
+        {"preal": "PREAL", "pint": "PINT", "alm": "ALM",
+         "alm_hmi": "ALM_HMI"}  # Sept-2026: nuevo sufijo.
     )
     bloques = _make_bloque_cache(
         ["DB53100_CPR_PARAM", "DB55100_CPR_ALM"],
@@ -306,11 +308,15 @@ def test_nmax_deseados_se_computan_desde_listas_del_excel() -> None:
     )
 
     result = proc_build_slot_maps(state, config, 100, bloques)
-    assert result.nmax == {"preal": 8, "pint": 3, "alm": 1}
+    # Sept-2026: 4 N_MAX (alm_hmi=0 en filas legacy).
+    assert result.nmax == {
+        "preal": 8, "pint": 3, "alm": 1, "alm_hmi": 0,
+    }
     assert result.nmax_names == {
-        "preal": "100_N_MAX_PREAL",
-        "pint":  "100_N_MAX_PINT",
-        "alm":   "100_N_MAX_ALM",
+        "preal":   "100_N_MAX_PREAL",
+        "pint":    "100_N_MAX_PINT",
+        "alm":     "100_N_MAX_ALM",
+        "alm_hmi": "100_N_MAX_ALM_HMI",
     }
 
 
@@ -340,6 +346,115 @@ def test_nmax_sin_sufijos_en_config_no_se_computa() -> None:
     result = proc_build_slot_maps(state, config, 100, bloques)
     assert result.nmax == {}
     assert result.nmax_names == {}
+
+
+def test_nmax_alm_hmi_se_computa_desde_campo_del_excel() -> None:
+    """Sept-2026: nuevo N_MAX ``alm_hmi``.
+
+    A diferencia de preal/pint/alm (que se derivan del len() de cada
+    slot_map), ``alm_hmi`` se deriva del campo ``proc.alm_hmi`` del
+    Excel (la HMI no genera arrays reales en el DB).
+
+    El builder debe anyadirlo al ``nmax`` con valor del campo, y al
+    ``nmax_names`` con el sufijo del config (``ALM_HMI``).
+    """
+    proc = MagicMock(uid=100, nombre="Compacto", codigo="CPR", alm_hmi=8)
+    # 3 PReal, 2 PInt, 1 ALM.
+    parametros_real = [
+        MagicMock(uid=f"PR_{i}", codigo="CPR", num_db=53100,
+                  comentario_db=f"PR {i}") for i in range(1, 4)
+    ]
+    parametros_int = [
+        MagicMock(uid=f"PI_{i}", codigo="CPR", num_db=53100,
+                  comentario_db=f"PI {i}") for i in range(1, 3)
+    ]
+    alarmas = [
+        MagicMock(uid="AL_1", proceso="Compacto", num_db=55100,
+                  comentario_db="AL 1")
+    ]
+    excel_cache = _make_excel_cache(
+        procesos=[proc], parametros_real=parametros_real,
+        parametros_int=parametros_int, alarmas=alarmas,
+    )
+    state = MagicMock(excel_cache=excel_cache)
+    config = _config_with_nmax({
+        "preal":   "PREAL",
+        "pint":    "PINT",
+        "alm":     "ALM",
+        "alm_hmi": "ALM_HMI",
+    })
+    bloques = _make_bloque_cache(
+        ["DB53100_CPR_PARAM", "DB55100_CPR_ALM"],
+        tag_tables=["100_CPR"],
+    )
+
+    result = proc_build_slot_maps(state, config, 100, bloques)
+
+    # 4 N_MAX ahora (3 originales + alm_hmi).
+    assert result.nmax == {
+        "preal":   3,
+        "pint":    2,
+        "alm":     1,
+        "alm_hmi": 8,  # viene del campo, no de un slot_map
+    }
+    assert result.nmax_names == {
+        "preal":   "100_N_MAX_PREAL",
+        "pint":    "100_N_MAX_PINT",
+        "alm":     "100_N_MAX_ALM",
+        "alm_hmi": "100_N_MAX_ALM_HMI",  # 4to sufijo del config
+    }
+
+
+def test_nmax_alm_hmi_cero_no_aparece_en_diff() -> None:
+    """Si ``proc.alm_hmi=0`` (fila legacy del Excel sin la columna)
+    pero el resto de filas preal/pint/alm SI existen, el builder
+    sigue añadiendo ``alm_hmi`` al nmax (desired=0).
+
+    Opcion A confirmada por el operario 2026-09-18: 'el Excel es la
+    verdad'. Si el PLC tiene un valor distinto, generara un diff
+    para bajarlo a 0. La logica de 'skip when current=desired=0'
+    la maneja ``proc_compute_nmax_diff`` (no el builder).
+    """
+    # Fila legacy: alm_hmi=0 (sin columna) PERO tiene preal/pint/alm.
+    proc = MagicMock(uid=100, nombre="Mixto", codigo="MIX", alm_hmi=0)
+    parametros_real = [
+        MagicMock(uid="PR_1", codigo="MIX", num_db=53100,
+                  comentario_db="PR 1")
+    ]
+    parametros_int = [
+        MagicMock(uid="PI_1", codigo="MIX", num_db=53100,
+                  comentario_db="PI 1")
+    ]
+    alarmas = [
+        MagicMock(uid="AL_1", proceso="Mixto", num_db=55100,
+                  comentario_db="AL 1")
+    ]
+    excel_cache = _make_excel_cache(
+        procesos=[proc], parametros_real=parametros_real,
+        parametros_int=parametros_int, alarmas=alarmas,
+    )
+    state = MagicMock(excel_cache=excel_cache)
+    config = _config_with_nmax({
+        "preal":   "PREAL",
+        "pint":    "PINT",
+        "alm":     "ALM",
+        "alm_hmi": "ALM_HMI",
+    })
+    bloques = _make_bloque_cache(
+        ["DB53100_MIX_PARAM", "DB55100_MIX_ALM"],
+        tag_tables=["100_MIX"],
+    )
+
+    result = proc_build_slot_maps(state, config, 100, bloques)
+
+    # 1 fila de cada (preal/pint/alm) + alm_hmi=0 legacy.
+    # La key siempre esta; el valor es 0 (fiel a Excel legacy).
+    assert result.nmax["alm_hmi"] == 0
+    assert result.nmax_names["alm_hmi"] == "100_N_MAX_ALM_HMI"
+    # Las otras 3 deben seguir computandose normal.
+    assert result.nmax["preal"] == 1
+    assert result.nmax["pint"] == 1
+    assert result.nmax["alm"] == 1
 
 
 def test_nmax_sufijos_se_pasan_a_traves_del_config_manager() -> None:

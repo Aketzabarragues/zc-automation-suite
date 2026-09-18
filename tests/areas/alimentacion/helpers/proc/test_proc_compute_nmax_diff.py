@@ -170,6 +170,58 @@ def test_proc_compute_nmax_diff_skips_kind_without_nmax_name(
     )
 
 
+def test_proc_compute_nmax_diff_includes_alm_hmi(
+    tags_base: Path,
+) -> None:
+    """Sept-2026: 4to N_MAX ``alm_hmi`` (excelente de la columna
+    ``Alarmas_Hmi`` del Excel, PlcUserConstant ``<uid>_N_MAX_ALM_HMI``).
+
+    Mismo patron data-driven: si desired != current, se anyade como
+    op; si coinciden, no aparece (sync_nmax aplica con lista vacia).
+    """
+    sm = FakeSlotMap(
+        table_name="100_CPR",
+        nmax={
+            "preal":   5,
+            "pint":    10,
+            "alm":     8,
+            "alm_hmi": 6,
+        },
+        nmax_names={
+            "preal":   "100_N_MAX_PREAL",
+            "pint":    "100_N_MAX_PINT",
+            "alm":     "100_N_MAX_ALM",
+            "alm_hmi": "100_N_MAX_ALM_HMI",
+        },
+    )
+    _write_xml(tags_base, sm.table_name)
+    # Current: solo preal coincide con desired. alm_hmi difiere
+    # (current=4 vs desired=6), pint y alm faltan (recien creadas).
+    with _patch_parser_returning({
+        "100_N_MAX_PREAL": 5,
+        "100_N_MAX_ALM_HMI": 4,
+    }):
+        from areas.alimentacion.helpers.proc.proc_compute_nmax_diff import (
+            proc_compute_nmax_diff,
+        )
+        ops = proc_compute_nmax_diff(tags_base, proc_uid=100, slot_map=sm)
+
+    # 3 ops (preal OK -> skip, alm_hmi diff, pint nuevo, alm nuevo).
+    names = {o["constant_name"] for o in ops}
+    assert "100_N_MAX_PREAL" not in names  # sin cambios
+    assert "100_N_MAX_ALM_HMI" in names
+    assert "100_N_MAX_PINT" in names
+    assert "100_N_MAX_ALM" in names
+    # Verifica valor de alm_hmi especificamente.
+    alm_hmi_op = next(o for o in ops
+                      if o["constant_name"] == "100_N_MAX_ALM_HMI")
+    assert alm_hmi_op == {
+        "table_name":   "100_CPR",
+        "constant_name": "100_N_MAX_ALM_HMI",
+        "new_value":    6,
+    }
+
+
 # ────────────────────────────────────────────────────────────────────────
 # Tests: FAIL-FAST
 # ────────────────────────────────────────────────────────────────────────

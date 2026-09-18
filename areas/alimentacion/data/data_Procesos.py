@@ -20,10 +20,14 @@ class DataProcesoPLC:
       - ``uid``: identificador entero unico (1, 2, 3, ...).
       - ``nombre``: nombre legible del proceso.
       - ``codigo``: codigo corto usado en el nombre de los DBs.
-      - ``preal`` / ``index_preal``: nÃƒÆ’Ã†’Ãƒ¢Ã¢â€šÂ¬Ã…¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚º de parametros reales y su
+      - ``preal`` / ``index_preal``: n de parametros reales y su
         offset dentro del DB PREAL.
       - ``pint`` / ``index_pint``: analogo para parametros enteros.
-      - ``alarmas``: nÃƒÆ’Ã†’Ãƒ¢Ã¢â€šÂ¬Ã…¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚º de alarmas del proceso.
+      - ``alarmas``: n de alarmas del proceso.
+      - ``alm_hmi``: n de alarmas representadas en HMI. Septiembre 2026:
+        nueva columna del Excel corporativo (``Alarmas_Hmi``). Su
+        PlcUserConstant en TIA es ``<uid>_N_MAX_ALM_HMI`` y se aplica
+        via el mismo flujo que ``preal`` / ``pint`` / ``alm``.
     """
 
     uid: int
@@ -34,6 +38,7 @@ class DataProcesoPLC:
     pint: int = 0
     index_pint: int = 0
     alarmas: int = 0
+    alm_hmi: int = 0
 
 
 __all__ = ["DataProcesoPLC"]

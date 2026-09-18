@@ -107,11 +107,12 @@
         }
       },
       "procesos": {
-        "_comment_nmax": "Sufijos de las PlcUserConstant N_MAX de los arrays de proceso. El nombre completo se computa como ``f\"{proc.uid}_N_MAX_{suffix}\"`` (p. ej. ``100_N_MAX_PREAL`` para el proceso uid=100 y array PReal). Las 3 constantes viven en la misma tabla ``000_Config_Dispositivos`` que usan los N_MAX de devices, en el folder ``tia_folders.nmax`` (``000_Sistema``). Se exponen como cards SOLO VISUALES en el preview de procesos (el apply actual NO las modifica; ver plan del sync de procesos).",
+        "_comment_nmax": "Sufijos de las PlcUserConstant N_MAX de los arrays de proceso. El nombre completo se computa como ``f\"{proc.uid}_N_MAX_{suffix}\"`` (p. ej. ``100_N_MAX_PREAL`` para el proceso uid=100 y array PReal). Las 4 constantes viven en la misma tabla del proceso (``<uid>_<codigo>``, p. ej. ``100_CPR``) en el folder TIA de la tabla del proceso (sept-2026, antes estaban en la tabla global ``000_Config_Dispositivos``; ver plan del sync de procesos). Se exponen como cards SOLO VISUALES en el preview de procesos; el sync las aplica via ``commit_user_constants_online`` en la Tx A previa al commit de comentarios (sept-2026).",
         "n_max_suffixes": {
-          "preal": "PREAL",
-          "pint":  "PINT",
-          "alm":   "ALM"
+          "preal":    "PREAL",
+          "pint":     "PINT",
+          "alm":      "ALM",
+          "alm_hmi":  "ALM_HMI"
         }
       }
     }

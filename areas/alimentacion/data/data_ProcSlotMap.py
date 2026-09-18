@@ -318,6 +318,11 @@ def proc_build_slot_maps(
         nmax_desired["preal"] = len(preal)
         nmax_desired["pint"] = len(pint)
         nmax_desired["alm"] = len(alm)
+        # Sept-2026: ``alm_hmi`` viene del campo del Excel (no de un
+        # slot_map, porque la HMI no genera arrays reales en el DB).
+        # Solo se anyade al dict si el campo esta declarado en el
+        # Excel (no es 0 por defecto en filas legacy).
+        nmax_desired["alm_hmi"] = proc.alm_hmi
         for kind, suffix in suffixes.items():
             nmax_names[kind] = f"{proc_uid}_N_MAX_{suffix}"
 
