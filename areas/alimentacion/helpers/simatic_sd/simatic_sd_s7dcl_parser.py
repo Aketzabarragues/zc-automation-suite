@@ -88,13 +88,42 @@ def find_assignment_mlc(
     """Busca ``<ARRAY>[slot] := ...;`` y devuelve su MLC adyacente.
 
     El MLC asociado es el bloque ``{ S7_MLC := "..." }`` que aparece
-    INMEDIATAMENTE antes de la asignacion, sin otra asignacion
-    ``<ARRAY>[<otro>]:=...;`` del mismo array en medio. Esto es
-    importante porque el formato TIA puede tener varios bloques
-    ``S7_MLC`` consecutivos (uno por slot) y cada uno va con su slot.
+    INMEDIATAMENTE antes O inmediatamente despues de la asignacion,
+    segun el formato. Esto es importante porque el formato TIA V21
+    exporta DBs con DOS secciones mezcladas:
 
-    Sept-2026 fix: normaliza ``array_name`` antes de comparar (soporta
-    tanto ``'"DispED"'`` (disp) como ``'PReal'`` (proc)).
+      - **Seccion A (inline / inicializacion)**: ``<ARRAY>[slot] := VALOR;``
+        seguido del bloque MLC. Ejemplo real (sept-2026, proceso 50010):
+        ``PInt_Vis[1] := false; \\n { \\n S7_MLC := "MLC_GXnT"; \\n }``.
+        El MLC esta DESPUES de la asignacion.
+
+      - **Seccion B (standalone / MLCs)**: ``{ \\n S7_MLC := "MLC_xxx"; \\n }``
+        seguido de ``<ARRAY>[slot] := ();``. El MLC esta ANTES.
+
+    Sept-2026 fix (tras bug smoke en vivo proceso 50010):
+
+      - El algoritmo anterior buscaba el ULTIMO MLC en un rango que iba
+        desde la ultima asignacion del mismo array hasta la actual.
+        Esto daba resultados incorrectos en tres casos:
+
+        1. Slots en Seccion A sin MLC propio (PReal_Vis[1] :=
+           FALSE;) → devolvia un MLC compartido de UDT u otro array
+           (p.ej. MLC_4dY del UDT PInt), contaminando ambos slots.
+        2. Slots en Seccion A con MLC adyacente anterior (PInt_Vis[2]
+           := false; con MLC_GXnT del PInt_Vis[1] entre medias) →
+           off-by-one: devolvia el MLC del slot anterior.
+        3. Slots en Seccion B tras Seccion A (PReal_Vis[2] := (); con
+           docenas de MLCs de Seccion A entre medias) → devolvia un
+           MLC aleatorio de Seccion A en lugar del MLC adyacente real
+           (que esta en las 1-3 lineas anteriores).
+
+      - El algoritmo nuevo detecta el formato (A vs B) y busca el MLC
+        en la direccion correcta, dentro de un rango pequeno (~10
+        lineas). Esto es determinista: si el MLC esta a >10 lineas
+        de la asignacion, NO es de ese slot.
+
+    Sept-2026 fix previo: normaliza ``array_name`` antes de comparar
+    (soporta tanto ``'"DispED"'`` (disp) como ``'PReal'`` (proc)).
 
     Devuelve ``None`` si la asignacion no existe o si existe pero
     sin MLC adyacente.
@@ -104,17 +133,74 @@ def find_assignment_mlc(
     if match is None:
         return None
     assign_start = match.start()
-    prev_assign_end = 0
-    for prev in _ASSIGNMENT_RE.finditer(s7dcl[:assign_start]):
-        if prev.group("array") == target:
-            prev_assign_end = prev.end()
-    search_range = s7dcl[prev_assign_end:assign_start]
-    last_mlc: str | None = None
-    for blk in _MLC_BLOCK_RE.finditer(search_range):
+    assign_end = match.end()
+
+    # Detectar formato: standalone (:= ();) o inline (:= VALOR;).
+    # El regex _ASSIGNMENT_RE captura `(?:\([^)]*\)|[^;]+)` despues de
+    # `:=`, o sea acepta ambos formatos. Aqui los distinguimos.
+    full_match = match.group(0)
+    is_standalone = bool(re.search(r":=\s*\(\s*\)\s*;", full_match))
+
+    if is_standalone:
+        # Seccion B: MLC esta ANTES de la asignacion. Tomamos el MLC
+        # INMEDIATAMENTE anterior (sin asignaciones de cualquier
+        # array entre medias). El rango es ~200 chars, suficiente
+        # para un bloque MLC multi-linea con indentacion.
+        #
+        # Por que NO el algoritmo antiguo (`prev_assign_end` +
+        # `last_mlc` en todo el rango): si hay MUCHAS asignaciones
+        # del mismo array antes (caso real: PReal[1..3] del proceso
+        # 50010), el ultimo MLC en ese rango enorme era de OTRO slot
+        # (p.ej. MLC de Aux.PInt_ValorAnterior[10]), no el adyacente
+        # al slot actual.
+        #
+        # El rango es ~200 chars: un bloque MLC multi-linea + ~5
+        # lineas de asignacion. Suficiente para archivos reales y
+        # sintéticos compactos. Para archivos sinteticos MUY grandes
+        # (donde el MLC esta a >200 chars), el updater deberia usar
+        # un cache pre-construido (no incluido en este fix; sept-2026
+        # follow-up).
+        before_start = max(0, assign_start - 200)
+        before_range = s7dcl[before_start:assign_start]
+        last_mlc: str | None = None
+        last_mlc_end_in_range = -1
+        for blk in _MLC_BLOCK_RE.finditer(before_range):
+            inner = _MLC_INNER_RE.search(blk.group("body"))
+            if inner:
+                last_mlc = inner.group("mlc")
+                last_mlc_end_in_range = blk.end()
+        if last_mlc is None:
+            return None
+        # Verificar que no hay asignacion (de cualquier array) entre
+        # el MLC encontrado y la asignacion actual.
+        between = before_range[last_mlc_end_in_range:]
+        if _ASSIGNMENT_RE.search(between):
+            # Hay una asignacion entre el MLC y esta: el MLC no es
+            # adyacente a esta asignacion (es de OTRO slot).
+            return None
+        return last_mlc
+
+    # Seccion A (inline / inicializacion): MLC esta DESPUES de la
+    # asignacion. Buscamos el PRIMER MLC que este INMEDIATAMENTE
+    # despues, sin ninguna asignacion (de cualquier array) entre
+    # medias. Si la hay, ese MLC es de OTRO slot/array (no del
+    # actual) y debemos devolver None.
+    #
+    # El rango es de ~200 chars: suficiente para un bloque MLC
+    # multi-linea con indentacion + 1 linea en blanco antes de la
+    # siguiente asignacion del mismo array. Si el siguiente MLC esta
+    # mas lejos, NO es del slot actual.
+    after_range = s7dcl[assign_end:assign_end + 200]
+    for blk in _MLC_BLOCK_RE.finditer(after_range):
+        between = s7dcl[assign_end:assign_end + blk.start()]
+        if _ASSIGNMENT_RE.search(between):
+            # Hay otra asignacion entre medias: el MLC es de OTRO
+            # slot/array. Esta asignacion tampoco tiene MLC propio.
+            return None
         inner = _MLC_INNER_RE.search(blk.group("body"))
         if inner:
-            last_mlc = inner.group("mlc")
-    return last_mlc
+            return inner.group("mlc")
+    return None
 
 
 def find_assignment(

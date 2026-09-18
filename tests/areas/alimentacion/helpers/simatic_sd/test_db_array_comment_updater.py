@@ -410,13 +410,16 @@ def test_proc_satellite_sin_mlc_se_inyecta_fix_sept_2026(
         '        { S7_MLC := "MLC_pr_002" }\n'
         '        PReal[2] := ();\n'
         '        PReal[3] := ();\n'
-        # PReal_Vis: 1 con MLC, 2-3 sin MLC (caso resize).
+        # PReal_Vis: 1 con MLC antes (formato B), 2-3 sin MLC (caso resize).
         '        { S7_MLC := "MLC_prv_001" }\n'
         '        PReal_Vis[1] := FALSE;\n'
         '        PReal_Vis[2] := ();\n'
         '        PReal_Vis[3] := ();\n'
-        # Aux.PReal_ValorAnterior: 1 con MLC, 2-3 sin MLC.
-        '        { S7_MLC := "MLC_aux_vapre_001" }\n'
+        # Aux.PReal_ValorAnterior: TODOS sin MLC (caso resize puro).
+        # Sept-2026 fix: el parser distingue formato A (`:= VALOR;`)
+        # vs B (`:= ();`). En formato A, el MLC debe estar DESPUES;
+        # si esta ANTES, NO es adyacente. Por tanto slot 1 se inyecta
+        # tambien (no se reutiliza nada).
         '        Aux.PReal_ValorAnterior[1] := 50.0;\n'
         '        Aux.PReal_ValorAnterior[2] := ();\n'
         '        Aux.PReal_ValorAnterior[3] := ();\n'
@@ -454,16 +457,22 @@ def test_proc_satellite_sin_mlc_se_inyecta_fix_sept_2026(
     # PReal[3]: inserted (no tenia MLC).
     assert 3 in result.inserted
 
-    # FIX: PReal_Vis[2..3] y Aux.PReal_ValorAnterior[2..3] deben aparecer en
-    # satellite_inserted (slots nuevos tras resize).
+    # FIX: PReal_Vis[2..3] y Aux.PReal_ValorAnterior[1..3] deben aparecer en
+    # satellite_inserted (slots nuevos tras resize). El test sintético
+    # modela el caso REAL del operario (proceso 50010, sept-2026):
+    # los slots [1] están en formato A inline (`:= VALOR;`) SIN MLC
+    # adyacente (porque TIA no puso MLC en la inicialización).
     assert ("PReal_Vis", 2) in result.satellite_inserted
     assert ("PReal_Vis", 3) in result.satellite_inserted
+    assert ("Aux.PReal_ValorAnterior", 1) in result.satellite_inserted
     assert ("Aux.PReal_ValorAnterior", 2) in result.satellite_inserted
     assert ("Aux.PReal_ValorAnterior", 3) in result.satellite_inserted
 
-    # PReal_Vis[1] y Aux.PReal_ValorAnterior[1]: reutilizado.
-    assert ("PReal_Vis", 1) in result.satellite_reused
-    assert ("Aux.PReal_ValorAnterior", 1) in result.satellite_reused
+    # PReal_Vis[1]: su asignacion es `:= FALSE;` (formato A inline).
+    # El MLC prv_001 esta ANTES de la asignacion, no DESPUES, asi
+    # que NO cuenta como adyacente (sept-2026 fix del parser).
+    # Por tanto el updater inyecta uno nuevo.
+    assert ("PReal_Vis", 1) in result.satellite_inserted
 
     # Texto comun al principal y satellites nuevos.
     dcl_after = dcl.read_text(encoding="utf-8")

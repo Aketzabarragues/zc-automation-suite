@@ -160,3 +160,138 @@ def test_no_matchea_campos_udt_disp() -> None:
     assert m is not None
     assert "Nombre" not in m.group()
     assert find_assignment_mlc(s7dcl_with_udt, '"DispED"', 1) == "MLC_one"
+
+
+# ── Formato inline / Seccion A (sept-2026 fix) ─────────────────────
+#
+# TIA V21 exporta los DBs con DOS secciones mezcladas:
+#   - Seccion B (standalone): MLC ANTES de la asignacion `:= ();`.
+#   - Seccion A (inline):     MLC DESPUES de la asignacion `:= VALOR;`.
+# El algoritmo anterior buscaba el ULTIMO MLC en un rango grande,
+# lo que daba falsos positivos (slots en Seccion A recibian MLCs
+# compartidos de UDT u otros arrays). Esto es el bug del smoke en
+# vivo proceso 50010 (sept-2026).
+#
+# Tests blindan el fix: el algoritmo debe detectar el formato y
+# buscar en la direccion correcta, dentro de un rango pequeno.
+
+_INLINE_S7DCL = """DATA_BLOCK DB
+    VAR
+        PReal_Vis : Array[1..3] of Bool;
+    END_VAR
+
+        PReal_Vis[1] := FALSE;
+        {
+            S7_MLC := "MLC_pv1";
+        }
+        PReal_Vis[2] := false;
+        {
+            S7_MLC := "MLC_pv2";
+        }
+        PReal_Vis[3] := true;
+END_DATA_BLOCK
+"""
+
+
+def test_inline_mlc_despues_de_asignacion() -> None:
+    """Formato A: ``PReal_Vis[1] := FALSE;`` + MLC justo despues.
+
+    El MLC esta DESPUES (no antes) de la asignacion. El algoritmo
+    debe encontrarlo.
+    """
+    assert find_assignment_mlc(_INLINE_S7DCL, "PReal_Vis", 1) == "MLC_pv1"
+    assert find_assignment_mlc(_INLINE_S7DCL, "PReal_Vis", 2) == "MLC_pv2"
+    # PReal_Vis[3] := true; NO tiene MLC adyacente despues.
+    assert find_assignment_mlc(_INLINE_S7DCL, "PReal_Vis", 3) is None
+
+
+def test_inline_slot_sin_mlc_devuelve_none_no_compartido() -> None:
+    """Sin MLC propio, devuelve None (no un MLC compartido de otro slot).
+
+    Caso critico sept-2026: el archivo REAL del operario (proceso
+    50010) tiene ``PReal_Vis[1] := FALSE;`` y ``Aux.PReal_ValorAnterior[1]
+    := 50.0;`` como slots SIN MLC propio. El bug era que devolvia un
+    MLC compartido (p.ej. MLC_4dY del UDT PInt), contaminando ambos.
+    El fix devuelve None.
+    """
+    # PReal_Vis[1] := FALSE; sin MLC adyacente propio (solo hay
+    # una declaracion de array, ningun MLC antes ni despues inmediato).
+    s7dcl = (
+        'DATA_BLOCK DB\n'
+        '    VAR\n'
+        '        PReal_Vis : Array[1..2] of Bool;\n'
+        '    END_VAR\n'
+        '        PReal_Vis[1] := FALSE;\n'
+        'END_DATA_BLOCK\n'
+    )
+    assert find_assignment_mlc(s7dcl, "PReal_Vis", 1) is None
+
+
+def test_inline_no_asigna_mlc_de_otro_array() -> None:
+    """El MLC encontrado DESPUES debe ser del MISMO array, no de otro.
+
+    Caso patologico del archivo sintetico: si el siguiente MLC esta
+    a >200 chars o pertenece a una asignacion de OTRO array, devolver
+    None.
+    """
+    s7dcl = (
+        'DATA_BLOCK DB\n'
+        '    VAR\n'
+        '        PReal_Vis : Array[1..1] of Bool;\n'
+        '        PInt : Array[1..1] of Int;\n'
+        '    END_VAR\n'
+        '        PReal_Vis[1] := FALSE;\n'
+        # Salto: otra asignacion de PInt antes del MLC.
+        '        PInt[1] := 30;\n'
+        '        { S7_MLC := "MLC_pi_001"; }\n'
+        '        PInt[1] := ();\n'
+        'END_DATA_BLOCK\n'
+    )
+    # El MLC_pi_001 es de PInt[1], no de PReal_Vis[1]. Devolver None.
+    assert find_assignment_mlc(s7dcl, "PReal_Vis", 1) is None
+    # PInt[1] := 30; (formato A) tiene MLC justo despues.
+    assert find_assignment_mlc(s7dcl, "PInt", 1) == "MLC_pi_001"
+
+
+def test_off_by_one_en_seccion_a() -> None:
+    """El MLC entre dos slots consecutivos pertenece al ANTERIOR.
+
+    Caso del operario (proceso 50010): ``PInt_Vis[1] := false;`` +
+    ``{ MLC_GXnT }`` + ``PInt_Vis[2] := false;``. El MLC pertenece
+    al slot 1, NO al slot 2. El bug era que el algoritmo lo asignaba
+    al slot 2 (off-by-one).
+    """
+    s7dcl = (
+        'DATA_BLOCK DB\n'
+        '    VAR\n'
+        '        PInt_Vis : Array[1..3] of Bool;\n'
+        '    END_VAR\n'
+        '        PInt_Vis[1] := false;\n'
+        '        { S7_MLC := "MLC_1"; }\n'
+        '        PInt_Vis[2] := false;\n'
+        '        { S7_MLC := "MLC_2"; }\n'
+        '        PInt_Vis[3] := true;\n'
+        'END_DATA_BLOCK\n'
+    )
+    assert find_assignment_mlc(s7dcl, "PInt_Vis", 1) == "MLC_1"
+    assert find_assignment_mlc(s7dcl, "PInt_Vis", 2) == "MLC_2"
+    assert find_assignment_mlc(s7dcl, "PInt_Vis", 3) is None
+
+
+def test_seccion_b_standalone_sigue_funcionando() -> None:
+    """Formato B (MLC ANTES de `:= ();`): comportamiento intacto."""
+    s7dcl = (
+        'DATA_BLOCK DB\n'
+        '    VAR\n'
+        '        PReal : Array[1..3] of Real;\n'
+        '    END_VAR\n'
+        '        { S7_MLC := "MLC_pr_001"; }\n'
+        '        PReal[1] := ();\n'
+        '        { S7_MLC := "MLC_pr_002"; }\n'
+        '        PReal[2] := ();\n'
+        '        PReal[3] := ();\n'
+        'END_DATA_BLOCK\n'
+    )
+    assert find_assignment_mlc(s7dcl, "PReal", 1) == "MLC_pr_001"
+    assert find_assignment_mlc(s7dcl, "PReal", 2) == "MLC_pr_002"
+    assert find_assignment_mlc(s7dcl, "PReal", 3) is None
