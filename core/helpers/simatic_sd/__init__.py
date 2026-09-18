@@ -12,18 +12,18 @@ from core.helpers.simatic_sd.simatic_sd_mlc_generator import (
     collect_existing_mlc_ids,
     next_mlc_id,
 )
+from core.helpers.simatic_sd.simatic_sd_db_array_comment_updater import (
+    ArrayCommitResult,
+    commit_array_comments,
+    find_array_slots,
+    read_current_comments,
+)
 
 __all__ = [
     "collect_existing_mlc_ids",
     "next_mlc_id",
+    "ArrayCommitResult",
+    "commit_array_comments",
+    "find_array_slots",
+    "read_current_comments",
 ]
-
-
-# Imports perezosos para evitar ciclos cuando estos helpers se usan
-# desde el codigo viejo (sept-2026: todavia coexisten durante la
-# migracion gradual).
-def __getattr__(name: str):  # pragma: no cover
-    if name in {"commit_array_comments", "ArrayCommitResult"}:
-        from core.helpers.simatic_sd import simatic_sd_db_array_comment_updater
-        return getattr(simatic_sd_db_array_comment_updater, name)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

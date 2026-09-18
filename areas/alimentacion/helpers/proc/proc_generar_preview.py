@@ -286,7 +286,9 @@ async def proc_export_and_diff(ctx: ProcPreviewContext) -> None:
         return
 
     from areas.alimentacion.helpers.build_cache import build_cache
-    from areas.alimentacion.helpers.simatic_sd.simatic_sd_db_array_comment_updater import (SimaticSDDbArrayCommentUpdater,
+    from core.helpers.simatic_sd import (
+        find_array_slots,
+        read_current_comments,
     )
     from core.infrastructure.tia.tia_export_paths import SdPair
 
@@ -330,42 +332,49 @@ async def proc_export_and_diff(ctx: ProcPreviewContext) -> None:
         # Solo usamos ``find_array_slots`` para saber que existen en
         # el .s7dcl exportado y ``read_current_comments`` para su
         # texto ``es-ES`` actual (usado por la preview / diff).
-        updater_param = SimaticSDDbArrayCommentUpdater(
-            s7dcl_path=SdPair(work_dir, ctx.slot_map.db_param_name).dcl,
-            s7res_path=SdPair(work_dir, ctx.slot_map.db_param_name).res,
-            slot_map={},
-            array_name="PReal",
-            quote_array_name=False,
-        )
-        updater_alm = SimaticSDDbArrayCommentUpdater(
-            s7dcl_path=SdPair(work_dir, ctx.slot_map.db_alm_name).dcl,
-            s7res_path=SdPair(work_dir, ctx.slot_map.db_alm_name).res,
-            slot_map={},
-            array_name="ALM",
-            quote_array_name=False,
-        )
+        # Sept-2026: migrado al helper transversal (sin
+        # SimaticSDDbArrayCommentUpdater viejo).
+        dcl_param_path = SdPair(work_dir, ctx.slot_map.db_param_name).dcl
+        res_param_path = SdPair(work_dir, ctx.slot_map.db_param_name).res
+        dcl_alm_path = SdPair(work_dir, ctx.slot_map.db_alm_name).dcl
+        res_alm_path = SdPair(work_dir, ctx.slot_map.db_alm_name).res
+
+        dcl_param_text = dcl_param_path.read_text(encoding="utf-8-sig") \
+            if dcl_param_path.exists() else ""
+        res_param_text = res_param_path.read_text(encoding="utf-8-sig") \
+            if res_param_path.exists() else ""
+        dcl_alm_text = dcl_alm_path.read_text(encoding="utf-8-sig") \
+            if dcl_alm_path.exists() else ""
+        res_alm_text = res_alm_path.read_text(encoding="utf-8-sig") \
+            if res_alm_path.exists() else ""
 
         # Slots a leer: los del Excel + los que tienen asignacion
         # en el ``.s7dcl`` (slots de TIA no en el Excel -> "eliminar"
         # en el preview). Si el ``.s7dcl`` no existe, ``find_array_slots``
         # devuelve set() y solo se leen los del Excel (modo degradado).
         preal_slots = (
-            set(ctx.slot_map.preal.keys()) | updater_param.find_array_slots("PReal")
+            set(ctx.slot_map.preal.keys())
+            | find_array_slots(dcl_param_text, "PReal", "UDT")
         )
         pint_slots = (
-            set(ctx.slot_map.pint.keys()) | updater_param.find_array_slots("PInt")
+            set(ctx.slot_map.pint.keys())
+            | find_array_slots(dcl_param_text, "PInt", "UDT")
         )
         alm_slots = (
-            set(ctx.slot_map.alm.keys()) | updater_alm.find_array_slots("ALM")
+            set(ctx.slot_map.alm.keys())
+            | find_array_slots(dcl_alm_text, "ALM", "Simple")
         )
-        ctx.preal_current = updater_param.read_current_comments(
-            sorted(preal_slots), "PReal"
+        ctx.preal_current = read_current_comments(
+            res_param_text, "PReal", sorted(preal_slots),
+            dcl_param_text, "UDT",
         )
-        ctx.pint_current = updater_param.read_current_comments(
-            sorted(pint_slots), "PInt"
+        ctx.pint_current = read_current_comments(
+            res_param_text, "PInt", sorted(pint_slots),
+            dcl_param_text, "UDT",
         )
-        ctx.alm_current = updater_alm.read_current_comments(
-            sorted(alm_slots), "ALM"
+        ctx.alm_current = read_current_comments(
+            res_alm_text, "ALM", sorted(alm_slots),
+            dcl_alm_text, "Simple",
         )
         ctx.export_error = None
     except Exception as exc:

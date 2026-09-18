@@ -83,13 +83,20 @@ SD_ENCODING = "utf-8-sig"
 
 # ── Regex (sept-2026: cubre Seccion A y Seccion B sin distinguir) ─────
 
-# Captura opcionalmente un bloque de metadatos ``{ ... }`` antes de
-# la asignacion ``Nombre[X] := ...;``. El bloque puede ser
-# multi-linea (Seccion A inline con MLC entre asignaciones, o
-# Seccion B standalone con MLC antes).
-#
+# Regex a nivel de modulo para encontrar TODAS las asignaciones de un
+# array (usado por ``find_array_slots``). Captura array name y slot.
 # NOTA: NO usamos ``str.format()`` para evitar colision con los
 # ``{...}`` del regex; usamos concatenacion directa.
+_ASSIGNMENT_RE = re.compile(
+    r"^\s*"
+    r"(?:\{\s*(?P<meta>[^}]+?)\s*\}\s*)?"
+    r"(?P<array>(?:[A-Za-z_][A-Za-z0-9_]*\.)*[A-Za-z_][A-Za-z0-9_]*)"
+    r"\s*\[\s*(?P<idx>\d+)\s*\]"
+    r"\s*:=\s*[^;]+;",
+    re.MULTILINE,
+)
+
+
 def _build_pattern(array_name: str, slot: int, array_type: str) -> re.Pattern[str]:
     """Compila el regex para un slot concreto.
 
@@ -103,8 +110,6 @@ def _build_pattern(array_name: str, slot: int, array_type: str) -> re.Pattern[st
         rhs = r"\(\s*\)"  # raiz vacia (sin sub-campos)
     else:
         rhs = r"[^;]+"  # cualquier valor
-    # ``(?P<meta>...)`` opcional + ``(?P<decl>...)`` obligatorio.
-    # Concatenamos para no chocar con format().
     pattern = (
         r"(?:\{\s*(?P<meta>[^}]+?)\s*\}\s*)?"
         r"(?P<decl>" + name + r"\s*:=\s*" + rhs + r";)"
@@ -138,6 +143,82 @@ class ArrayCommitResult:
 
 
 # ── API publica ─────────────────────────────────────────────────────
+
+def find_array_slots(
+    dcl_text: str,
+    array_name: str,
+    array_type: str = "UDT",
+) -> set[int]:
+    """Devuelve los slots que tienen una asignacion en el .s7dcl.
+
+    Para UDT busca ``Nombre[X] := ();`` (raiz vacia). Para Simple
+    busca cualquier asignacion ``Nombre[X] := <valor>;``.
+
+    Usado por el preview (``proc_generar_preview``) para saber
+    que slots existen en TIA Portal y detectar los "eliminar"
+    (slots que el Excel no incluye pero TIA si).
+    """
+    slots: set[int] = set()
+    name = re.escape(array_name)
+    # Acepta tanto ``:= ();`` (UDT) como ``:= <valor>;`` (Simple).
+    rhs = r"\(\s*\)" if array_type.upper() == "UDT" else r"[^;]+"
+    pattern = re.compile(
+        r"(?:\{\s*[^}]+?\s*\}\s*)?"
+        + name + r"\s*\[\s*(?P<idx>\d+)\s*\]\s*:=\s*" + rhs + r";",
+        re.MULTILINE,
+    )
+    for m in pattern.finditer(dcl_text):
+        try:
+            slots.add(int(m.group("idx")))
+        except (ValueError, TypeError):
+            continue
+    return slots
+
+
+def read_current_comments(
+    res_text: str,
+    array_name: str,
+    slots: list[int],
+    dcl_text: str | None = None,
+    array_type: str = "UDT",
+) -> dict[int, str | None]:
+    """Lee los comentarios actuales de un array desde .s7res + .s7dcl.
+
+    Para cada slot de ``slots``:
+      1. Busca el MLC adyacente en el .s7dcl (si ``dcl_text`` dado).
+      2. Busca el texto ``es-ES`` en el .s7res por MLC id.
+      3. Devuelve ``{slot: texto}``. Si no hay MLC, devuelve ``None``.
+
+    Usado por el preview para mostrar el texto actual de TIA
+    (con el que se compara el Excel en el diff).
+    """
+    res_data = yaml.safe_load(res_text) or {}
+    textos: list[dict[str, str]] = list(
+        res_data.get("MultiLingualTexts", []) or []
+    )
+    id_to_text: dict[str, str] = {
+        t.get("id", ""): t.get("es-ES", "")
+        for t in textos
+        if t.get("id")
+    }
+
+    result: dict[int, str | None] = {}
+    for slot in slots:
+        mlc_id = None
+        if dcl_text is not None:
+            pattern = _build_pattern(array_name, slot, array_type)
+            match = pattern.search(dcl_text)
+            if match:
+                meta = match.group("meta") or ""
+                mlc_match = _MLC_ATTR_RE.search(meta)
+                if mlc_match:
+                    mlc_id = mlc_match.group("id")
+        if mlc_id and mlc_id in id_to_text:
+            result[slot] = id_to_text[mlc_id]
+        else:
+            result[slot] = None
+    return result
+
 
 def commit_array_comments(
     dcl_path: str | Path,
