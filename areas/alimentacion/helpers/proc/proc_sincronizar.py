@@ -526,45 +526,56 @@ async def proc_tx_b_detectar_eliminar_read(
     """Fase 3: leer comentarios ``es-ES`` actuales de cada array.
 
     Usa los archivos exportados en fase 2. Si falla el parseo
-    (exceptcion en ``ProcCommentUpdater``), retorna ``({}, {}, {})``
-    y el apply seguira solo con los slots del Excel (modo degradado).
+    (YAML invalido o .s7dcl ausente), retorna ``({}, {}, {})`` y el
+    apply seguira solo con los slots del Excel (modo degradado).
+
+    Sept-2026 DRY: usa ``find_array_slots`` y ``read_current_comments``
+    del helper transversal (sin updater viejo ni dataclasses).
     """
-    from areas.alimentacion.helpers.simatic_sd.simatic_sd_db_array_comment_updater import (SimaticSDDbArrayCommentUpdater,
+    from core.helpers.simatic_sd import (
+        find_array_slots,
+        read_current_comments,
     )
     from core.infrastructure.tia.tia_export_paths import SdPair
 
     try:
-        # Modo solo-lectura: ``slot_map={}`` y sin satellite_arrays.
-        # Solo usamos ``find_array_slots`` para detectar que existen en
-        # el .s7dcl exportado y ``read_current_comments`` para el
-        # texto ``es-ES`` actual (usado por el detector de 'eliminar').
-        updater_param = SimaticSDDbArrayCommentUpdater(
-            s7dcl_path=SdPair(Path(ctx.exports_param_dir), ctx.slot_map.db_param_name).dcl,
-            s7res_path=SdPair(Path(ctx.exports_param_dir), ctx.slot_map.db_param_name).res,
-            slot_map={},
-            array_name="PReal",
-            quote_array_name=False,
-        )
-        updater_alm = SimaticSDDbArrayCommentUpdater(
-            s7dcl_path=SdPair(Path(ctx.exports_alm_dir), ctx.slot_map.db_alm_name).dcl,
-            s7res_path=SdPair(Path(ctx.exports_alm_dir), ctx.slot_map.db_alm_name).res,
-            slot_map={},
-            array_name="ALM",
-            quote_array_name=False,
-        )
+        # Modo solo-lectura: ``commit_array_comments`` no se llama
+        # aqui (eso es Tx B fase 5). Solo leemos el estado actual.
+        dcl_param = SdPair(Path(ctx.exports_param_dir), ctx.slot_map.db_param_name).dcl
+        res_param = SdPair(Path(ctx.exports_param_dir), ctx.slot_map.db_param_name).res
+        dcl_alm = SdPair(Path(ctx.exports_alm_dir), ctx.slot_map.db_alm_name).dcl
+        res_alm = SdPair(Path(ctx.exports_alm_dir), ctx.slot_map.db_alm_name).res
+
+        dcl_param_text = dcl_param.read_text(encoding="utf-8-sig") \
+            if dcl_param.exists() else ""
+        res_param_text = res_param.read_text(encoding="utf-8-sig") \
+            if res_param.exists() else ""
+        dcl_alm_text = dcl_alm.read_text(encoding="utf-8-sig") \
+            if dcl_alm.exists() else ""
+        res_alm_text = res_alm.read_text(encoding="utf-8-sig") \
+            if res_alm.exists() else ""
 
         preal_slots = sorted(
-            set(ctx.slot_map.preal.keys()) | updater_param.find_array_slots("PReal")
+            set(ctx.slot_map.preal.keys())
+            | find_array_slots(dcl_param_text, "PReal", "UDT")
         )
         pint_slots = sorted(
-            set(ctx.slot_map.pint.keys()) | updater_param.find_array_slots("PInt")
+            set(ctx.slot_map.pint.keys())
+            | find_array_slots(dcl_param_text, "PInt", "UDT")
         )
         alm_slots = sorted(
-            set(ctx.slot_map.alm.keys()) | updater_alm.find_array_slots("ALM")
+            set(ctx.slot_map.alm.keys())
+            | find_array_slots(dcl_alm_text, "ALM", "Simple")
         )
-        current_preal = updater_param.read_current_comments(preal_slots, "PReal")
-        current_pint = updater_param.read_current_comments(pint_slots, "PInt")
-        current_alm = updater_alm.read_current_comments(alm_slots, "ALM")
+        current_preal = read_current_comments(
+            res_param_text, "PReal", preal_slots, dcl_param_text, "UDT",
+        )
+        current_pint = read_current_comments(
+            res_param_text, "PInt", pint_slots, dcl_param_text, "UDT",
+        )
+        current_alm = read_current_comments(
+            res_alm_text, "ALM", alm_slots, dcl_alm_text, "Simple",
+        )
     except Exception as exc:
         logger.warning(
             f"proc_tx_b_detectar_eliminar_read: parseo de 'es-ES' "
