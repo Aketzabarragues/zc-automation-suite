@@ -118,7 +118,7 @@ def make_cmd_update_disp_comments_db(hw_type: str) -> Callable[..., Any]:
 # ---------------------------------------------------------------------------
 # Handlers de commits online (N_MAX + renames) y offline (devices)
 # ---------------------------------------------------------------------------
-def make_cmd_commit_disp_nmax_renames_online() -> Callable[..., Any]:
+def make_cmd_commit_user_constants_online() -> Callable[..., Any]:
     """Aplica N_MAX + renames en una tx TIA propia (online puro).
 
     A diferencia de commit_devices_sync (que mezclaba online+offline
@@ -138,7 +138,7 @@ def make_cmd_commit_disp_nmax_renames_online() -> Callable[..., Any]:
         rename_ops: list[dict[str, Any]] = args.get("rename_ops") or []
 
         if not plc_name:
-            raise ValueError("commit_disp_nmax_renames_online: plc_name requerido.")
+            raise ValueError("commit_user_constants_online: plc_name requerido.")
 
         from core.infrastructure.tia import tia_helpers
         from core.infrastructure.tia.tia_handlers import (
@@ -193,7 +193,7 @@ def make_cmd_commit_disp_nmax_renames_online() -> Callable[..., Any]:
             except Exception:
                 pass
             raise RuntimeError(
-                f"commit_disp_nmax_renames_online abortado en '{op_label}'. "
+                f"commit_user_constants_online abortado en '{op_label}'. "
                 f"Rollback ejecutado. Motivo: {e}"
             ) from e
 
@@ -300,14 +300,14 @@ def make_cmd_commit_disp_devices_offline() -> Callable[..., Any]:
 
 
 def make_cmd_commit_devices_sync() -> Callable[..., Any]:
-    """DEPRECATED. Usar commit_disp_nmax_renames_online + commit_disp_devices_offline.
+    """DEPRECATED. Usar commit_user_constants_online + commit_disp_devices_offline.
 
     Mantenido por compat con callers legacy que aún invocan este nombre.
     """
     def _cmd(portal: Any, ts: Any, args: dict[str, Any]) -> dict[str, Any]:
         raise NotImplementedError(
             "commit_devices_sync esta DEPRECATED. Usar "
-            "commit_disp_nmax_renames_online + commit_disp_devices_offline."
+            "commit_user_constants_online + commit_disp_devices_offline."
         )
 
     return _cmd
@@ -613,8 +613,8 @@ def register(registry):
     registry["update_proc_comments_db_param"] = (
         make_cmd_update_proc_comments_db_param()
     )
-    registry["commit_disp_nmax_renames_online"] = (
-        make_cmd_commit_disp_nmax_renames_online()
+    registry["commit_user_constants_online"] = (
+        make_cmd_commit_user_constants_online()
     )
     registry["commit_disp_devices_offline"] = (
         make_cmd_commit_disp_devices_offline()
@@ -643,8 +643,8 @@ def register_main(tia_client) -> None:
         _wrap_handler(make_cmd_update_proc_comments_db_param()),
     )
     tia_client.register_command(
-        "commit_disp_nmax_renames_online",
-        _wrap_handler(make_cmd_commit_disp_nmax_renames_online()),
+        "commit_user_constants_online",
+        _wrap_handler(make_cmd_commit_user_constants_online()),
     )
     tia_client.register_command(
         "commit_disp_devices_offline",

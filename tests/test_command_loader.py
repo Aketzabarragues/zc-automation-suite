@@ -127,17 +127,17 @@ def test_load_extra_commands_alimentacion_registers_six_handlers() -> None:
         )
 
 
-def test_load_extra_commands_alimentacion_registers_disp_commit_handlers() -> None:
-    """Sept-2026: el área registra los 2 handlers del nuevo split
-    online/offline para el commit de dispositivos:
-      - ``commit_disp_nmax_renames_online`` (Tx A: N_MAX+renames).
+def test_load_extra_commands_alimentacion_registers_commit_handlers() -> None:
+    """Sept-2026: el area registra el handler generico de commit de
+    constantes de usuario (N_MAX + renames), usado por disp y proc:
+      - ``commit_user_constants_online`` (Tx A: N_MAX + renames online).
       - ``commit_disp_devices_offline`` (Tx B: devices export+edit+import).
     Y mantiene el ``commit_devices_sync`` (DEPRECATED) por compat.
     """
     from core.infrastructure._pendiente.worker_tia import COMMAND_REGISTRY
 
     for name in (
-        "commit_disp_nmax_renames_online",
+        "commit_user_constants_online",
         "commit_disp_devices_offline",
         "commit_devices_sync",
     ):

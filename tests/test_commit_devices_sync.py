@@ -1,4 +1,4 @@
-"""Tests de integracion de los handlers ``commit_disp_nmax_renames_online``
+"""Tests de integracion de los handlers ``commit_user_constants_online``
 y ``commit_disp_devices_offline`` (sept-2026 fix del bug "primer commit
 no aplica, segundo sÃ­" en TIA V21).
 
@@ -9,7 +9,7 @@ rollback silencioso de los ``set_property`` cuando se mezclan con
 ``import_plc_tags`` en la misma tx. La soluciÃ³n es partir el flujo en
 2 transacciones SECUENCIALES, cada una abriendo su propia tx:
 
-  Tx A (online puro): ``commit_disp_nmax_renames_online``
+  Tx A (online puro): ``commit_user_constants_online``
   Tx B (offline puro): ``commit_disp_devices_offline``
 
 Estrategia: estos tests verifican que los handlers estÃ¡n registrados en
@@ -40,12 +40,12 @@ extra_commands = importlib.import_module(
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
-def test_commit_disp_nmax_renames_online_is_registered() -> None:
-    """El handler online estÃ¡ en COMMAND_REGISTRY bajo
-    ``commit_disp_nmax_renames_online``."""
+def test_commit_user_constants_online_is_registered() -> None:
+    """El handler online (generico: disp + proc) esta en COMMAND_REGISTRY bajo
+    ``commit_user_constants_online``."""
     from core.infrastructure.tia import command_loader
     command_loader.load_extra_commands(worker_tia.COMMAND_REGISTRY)
-    assert "commit_disp_nmax_renames_online" in worker_tia.COMMAND_REGISTRY
+    assert "commit_user_constants_online" in worker_tia.COMMAND_REGISTRY
 
 
 def test_commit_disp_devices_offline_is_registered() -> None:
@@ -56,9 +56,9 @@ def test_commit_disp_devices_offline_is_registered() -> None:
     assert "commit_disp_devices_offline" in worker_tia.COMMAND_REGISTRY
 
 
-def test_commit_disp_nmax_renames_online_factory_signature() -> None:
+def test_commit_user_constants_online_factory_signature() -> None:
     """La factory retorna un callable con firma ``(portal, ts, args) -> dict``."""
-    handler = extra_commands.make_cmd_commit_disp_nmax_renames_online()
+    handler = extra_commands.make_cmd_commit_user_constants_online()
     sig = inspect.signature(handler)
     assert list(sig.parameters.keys()) == ["portal", "ts", "args"]
 
@@ -89,12 +89,12 @@ def _build_online_mock_portal() -> MagicMock:
     return portal
 
 
-def test_commit_disp_nmax_renames_online_opens_own_transaction() -> None:
+def test_commit_user_constants_online_opens_own_transaction() -> None:
     """El handler online abre y cierra su propia ``start_transaction`` /
     ``end_transaction(rollback=False)``.
     """
     portal = _build_online_mock_portal()
-    handler = extra_commands.make_cmd_commit_disp_nmax_renames_online()
+    handler = extra_commands.make_cmd_commit_user_constants_online()
 
     handler(
         portal=portal, ts=MagicMock(),
@@ -111,7 +111,7 @@ def test_commit_disp_nmax_renames_online_opens_own_transaction() -> None:
     project.end_transaction.assert_called_once_with(rollback=False)
 
 
-def test_commit_disp_nmax_renames_online_rollback_on_failure() -> None:
+def test_commit_user_constants_online_rollback_on_failure() -> None:
     """Si una op falla, hace ``end_transaction(rollback=True)`` y re-lanza.
 
     Forzamos un fallo pasando un nmax_op contra un PLC sin la tabla
@@ -119,9 +119,9 @@ def test_commit_disp_nmax_renames_online_rollback_on_failure() -> None:
     El handler debe hacer rollback y propagar.
     """
     portal = _build_online_mock_portal()
-    handler = extra_commands.make_cmd_commit_disp_nmax_renames_online()
+    handler = extra_commands.make_cmd_commit_user_constants_online()
 
-    with pytest.raises(RuntimeError, match="commit_disp_nmax_renames_online"):
+    with pytest.raises(RuntimeError, match="commit_user_constants_online"):
         handler(
             portal=portal, ts=MagicMock(),
             args={
@@ -143,10 +143,10 @@ def test_commit_disp_nmax_renames_online_rollback_on_failure() -> None:
     project.end_transaction.assert_called_once_with(rollback=True)
 
 
-def test_commit_disp_nmax_renames_online_missing_plc_name() -> None:
+def test_commit_user_constants_online_missing_plc_name() -> None:
     """Sin ``plc_name``, ValueError fail-fast."""
     portal = MagicMock()
-    handler = extra_commands.make_cmd_commit_disp_nmax_renames_online()
+    handler = extra_commands.make_cmd_commit_user_constants_online()
     with pytest.raises(ValueError, match="plc_name"):
         handler(
             portal=portal, ts=MagicMock(),

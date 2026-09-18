@@ -14,7 +14,7 @@ Las 11 funciones siguen el orden del legacy:
   1.  ``exportar_tags``           -> clean modified/ + export 7 tablas.
   2.  ``compute_diff``             -> diff read-only (CPU en to_thread).
   3.  ``preparar_ops``              -> ops NMAX + device_changes para apply.
-  4.  ``tx_a_nmax_renames``        -> dispatch ``commit_disp_nmax_renames_online``
+  4.  ``tx_a_nmax_renames``        -> dispatch ``commit_user_constants_online``
                                        (online puro, abre/cierra su tx TIA).
   5.  ``wait_consolidation``       -> sleep 2s para que TIA consolide.
   6.  ``exportar_post_tx_a``       -> releer XMLs post-Tx A.
@@ -177,7 +177,7 @@ async def preparar_ops(ctx: DispSyncContext) -> None:
     )
 
     # Rename ops (shape legacy: {table_name, current_name, new_name}).
-    # Tx A las pasa separadas al handler commit_disp_nmax_renames_online.
+    # Tx A las pasa separadas al handler commit_user_constants_online.
     ctx.rename_ops = [
         {
             "table_name": uid.split(":", 1)[0],
@@ -224,13 +224,13 @@ async def tx_a_nmax_renames(ctx: DispSyncContext) -> None:
     if ctx.nmax_ops or ctx.rename_ops:
         nmax_result = await dispatch_async(
             ctx.tia_client,
-            "commit_disp_nmax_renames_online",
+            "commit_user_constants_online",
             {
                 "plc_name": ctx.plc_name,
                 "nmax_ops": ctx.nmax_ops,
                 # Key ``rename_ops`` + items con ``table_name``,
                 # ``current_name``, ``new_name``: shape que espera el
-                # handler ``commit_disp_nmax_renames_online``. Antes
+                # handler ``commit_user_constants_online``. Antes
                 # pasabamos ``renames`` con keys ``table`` y
                 # ``current_value``: el handler las ignoraba
                 # silenciosamente y los renames NUNCA se aplicaban.
@@ -622,7 +622,7 @@ def _compute_nmax_ops_for_apply(
     Returns:
         Lista de ``[{"table_name": ..., "constant_name": ...,
         "new_value": int}]`` lista para el dispatch al handler
-        ``commit_disp_nmax_renames_online``.
+        ``commit_user_constants_online``.
     """
     from areas.alimentacion.helpers.xml.disp_tag_table_parser import (
         SimaticMLTagParser,

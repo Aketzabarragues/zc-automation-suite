@@ -65,25 +65,25 @@ async def test_export_plc_tags_xml_with_empty_table_names(gateway: TIAProcessGat
 
 
 # ────────────────────────────────────────────────────────────────────────
-# Tests del handler ONLINE: commit_disp_nmax_renames_online
+# Tests del handler ONLINE: commit_user_constants_online (generico)
 # ────────────────────────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_commit_disp_nmax_renames_online_dispatches_single_op(
+async def test_commit_user_constants_online_dispatches_single_op(
     gateway: TIAProcessGateway,
 ) -> None:
-    """``commit_disp_nmax_renames_online`` envia UN SOLO op al worker
+    """``commit_user_constants_online`` envia UN SOLO op al worker
     (NO usa ``execute_transactional_batch``). El handler del worker
     abre/cierra su propia tx TIA.
 
     Verifica que:
-      - El comando despachado es ``commit_disp_nmax_renames_online``.
+      - El comando despachado es ``commit_user_constants_online``.
       - Los args (plc_name, nmax_ops, rename_ops, undo_text) llegan tal cual.
     """
     nmax_ops = [{"table_name": "000_Config_Dispositivos", "constant_name": "N1", "new_value": 5}]
     rename_ops = [{"table_name": "2000_Disp_ED", "current_name": "A", "new_name": "B"}]
-    await gateway.commit_disp_nmax_renames_online(
+    await gateway.commit_user_constants_online(
         plc_name="PLC_X",
         nmax_ops=nmax_ops,
         rename_ops=rename_ops,
@@ -91,7 +91,7 @@ async def test_commit_disp_nmax_renames_online_dispatches_single_op(
     )
     gateway._dispatch_worker.assert_called_once()
     call = gateway._dispatch_worker.call_args
-    assert call.args[0] == "commit_disp_nmax_renames_online"
+    assert call.args[0] == "commit_user_constants_online"
     args = call.args[1]
     assert args["plc_name"] == "PLC_X"
     assert args["nmax_ops"] == nmax_ops
@@ -100,11 +100,11 @@ async def test_commit_disp_nmax_renames_online_dispatches_single_op(
 
 
 @pytest.mark.asyncio
-async def test_commit_disp_nmax_renames_online_default_undo_text(
+async def test_commit_user_constants_online_default_undo_text(
     gateway: TIAProcessGateway,
 ) -> None:
     """Sin ``undo_text`` explicito, usa el default online."""
-    await gateway.commit_disp_nmax_renames_online(
+    await gateway.commit_user_constants_online(
         plc_name="PLC_X",
         nmax_ops=[],
         rename_ops=[],
@@ -114,7 +114,7 @@ async def test_commit_disp_nmax_renames_online_default_undo_text(
 
 
 @pytest.mark.asyncio
-async def test_commit_disp_nmax_renames_online_timeout_scales_with_ops(
+async def test_commit_user_constants_online_timeout_scales_with_ops(
     gateway: TIAProcessGateway,
 ) -> None:
     """El timeout_override crece con N_MAX + renames + 2 (start+end tx)."""
@@ -128,7 +128,7 @@ async def test_commit_disp_nmax_renames_online_timeout_scales_with_ops(
          "current_name": f"V_{i}", "new_name": f"V_NEW_{i}"}
         for i in range(60)
     ]
-    await gateway.commit_disp_nmax_renames_online(
+    await gateway.commit_user_constants_online(
         plc_name="PLC_X",
         nmax_ops=big_nmax,
         rename_ops=big_renames,

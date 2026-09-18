@@ -60,7 +60,7 @@ def test_register_main_registers_proc_param_combined_handler():
 def test_register_main_registers_online_and_offline_commit_handlers():
     client = _fresh_client()
     register_main(client)
-    assert client.has_command("commit_disp_nmax_renames_online")
+    assert client.has_command("commit_user_constants_online")
     assert client.has_command("commit_disp_devices_offline")
 
 
