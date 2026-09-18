@@ -100,6 +100,38 @@ class CommentUpdateResult:
     satellite_inserted: dict[tuple[str, int], str] = field(default_factory=dict)
     total_mlcs_in_res: int = 0
 
+    def to_dict(self) -> dict[str, Any]:
+        """Serializa a dict JSON-safe.
+
+        Flask ``jsonify`` no acepta tuplas como keys (lanza
+        ``TypeError: keys must be str, int, float, bool or None,
+        not tuple``). Las claves ``(sat_array_name, slot)`` se aplanan
+        a string ``f"{sat}|{slot}"`` para que el resultado atraviese
+        el router Flask sin reventar.
+
+        Esta es la UNICA fuente de verdad de la forma JSON del
+        resultado: el dataclass mantiene las tuplas internamente
+        (representacion canonica, testeable, type-safe), y este
+        helper hace la conversion para serializacion.
+
+        Disp usa ``satellite_reused/inserted={}`` (sin satellites),
+        proc las usa activamente: en cualquier caso el formato es
+        uniforme.
+        """
+        return {
+            "reused": dict(self.reused),
+            "inserted": dict(self.inserted),
+            "satellite_reused": {
+                f"{sat}|{slot}": mlc
+                for (sat, slot), mlc in self.satellite_reused.items()
+            },
+            "satellite_inserted": {
+                f"{sat}|{slot}": mlc
+                for (sat, slot), mlc in self.satellite_inserted.items()
+            },
+            "total_mlcs_in_res": self.total_mlcs_in_res,
+        }
+
 
 class SimaticSDDbArrayCommentUpdater:
     """Updater generico de comentarios por array en DB SimaticSD.

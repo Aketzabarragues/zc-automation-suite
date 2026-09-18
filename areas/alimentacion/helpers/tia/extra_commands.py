@@ -411,13 +411,7 @@ def make_cmd_update_proc_comments_db(kind: str) -> Callable[..., Any]:
             "db_name": db_name,
             "array_name": array_name,
             "modified": modified,
-            "proc_comment_result": {
-                "reused": result.reused,
-                "inserted": result.inserted,
-                "satellite_reused": result.satellite_reused,
-                "satellite_inserted": result.satellite_inserted,
-                "total_mlcs_in_res": result.total_mlcs_in_res,
-            },
+            "proc_comment_result": result.to_dict(),
         }
 
     return _cmd
@@ -562,9 +556,13 @@ def _result_block(
     result: Any,
     modified: bool,
 ) -> dict[str, Any]:
-    """Empaqueta un ProcCommentResult (o None) en dict JSON-safe.
+    """Empaqueta un ``CommentUpdateResult`` (o None) en dict JSON-safe.
 
     Cada PReal/PInt puede ser None si su slot_map estaba vacio.
+    Cuando ``result`` no es None, delega en ``result.to_dict()`` para
+    aplanar las tuplas ``(sat_array, slot)`` a string
+    ``"<sat>|<slot>"`` (unica fuente de verdad de la forma JSON,
+    sept-2026 DRY).
     """
     if result is None:
         return {
@@ -573,14 +571,9 @@ def _result_block(
             "satellite_reused": {}, "satellite_inserted": {},
             "total_mlcs_in_res": 0,
         }
-    return {
-        "modified": modified,
-        "reused": result.reused,
-        "inserted": result.inserted,
-        "satellite_reused": result.satellite_reused,
-        "satellite_inserted": result.satellite_inserted,
-        "total_mlcs_in_res": result.total_mlcs_in_res,
-    }
+    out = result.to_dict()
+    out["modified"] = modified
+    return out
 
 
 # ---------------------------------------------------------------------------

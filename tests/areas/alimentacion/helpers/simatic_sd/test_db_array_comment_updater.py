@@ -14,6 +14,7 @@ slot 0 omitido). Casos cubiertos:
 """
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -535,3 +536,143 @@ def test_save_inplace_y_no_save_si_no_hubo_cambios(tmp_path: Path) -> None:
     # same text -> not modified (o al menos sin modificar nada nuevo).
     updater.save()
     assert result.reused.get(1) == "MLC_Disp_001"
+
+
+# ── 8. to_dict() — serializacion JSON-safe ──────────────────────────
+#
+# Sept-2026: tras descubrir el ``TypeError: keys must be str, int,
+# float, bool or None, not tuple`` en ``jsonify(result)`` del router
+# de proc_sync (las tuplas ``(sat_array_name, slot)`` no son JSON
+# serializables), anadimos ``CommentUpdateResult.to_dict()`` que
+# aplana las claves a string ``"<sat>|<slot>"``. Esta es la UNICA
+# fuente de verdad de la forma JSON del resultado: cualquier lugar
+# que serialice el dataclass debe usar este helper.
+
+def test_to_dict_vacio_devuelve_shape_completo() -> None:
+    """``to_dict()`` siempre devuelve las 5 claves, aunque esten vacias."""
+    out = CommentUpdateResult().to_dict()
+    assert set(out.keys()) == {
+        "reused", "inserted",
+        "satellite_reused", "satellite_inserted",
+        "total_mlcs_in_res",
+    }
+    assert out["reused"] == {}
+    assert out["inserted"] == {}
+    assert out["satellite_reused"] == {}
+    assert out["satellite_inserted"] == {}
+    assert out["total_mlcs_in_res"] == 0
+
+
+def test_to_dict_aplana_tuplas_satellite_a_string_con_pipe() -> None:
+    """``(sat_array, slot)`` -> ``"<sat>|<slot>"`` (sin ambiguedad)."""
+    res = CommentUpdateResult(
+        reused={1: "MLC_pr_001"},
+        inserted={2: "MLC_pr_002"},
+        satellite_reused={
+            ("PReal_Vis", 1): "MLC_prv_001",
+            ("Aux.PReal_ValorAnterior", 1): "MLC_auxVa_001",
+        },
+        satellite_inserted={
+            ("PReal_Vis", 2): "MLC_prv_002",
+            ("Aux.PReal_ValorAnterior", 3): "MLC_auxVa_003",
+        },
+        total_mlcs_in_res=5,
+    )
+    out = res.to_dict()
+    assert out["reused"] == {1: "MLC_pr_001"}
+    assert out["inserted"] == {2: "MLC_pr_002"}
+    assert out["satellite_reused"] == {
+        "PReal_Vis|1": "MLC_prv_001",
+        "Aux.PReal_ValorAnterior|1": "MLC_auxVa_001",
+    }
+    assert out["satellite_inserted"] == {
+        "PReal_Vis|2": "MLC_prv_002",
+        "Aux.PReal_ValorAnterior|3": "MLC_auxVa_003",
+    }
+    assert out["total_mlcs_in_res"] == 5
+
+
+def test_to_dict_es_json_serializable_round_trip() -> None:
+    """``to_dict()`` no debe lanzar ``TypeError`` al pasarlo por ``json.dumps``.
+
+    Antes del fix, este test reventaba con
+    ``TypeError: keys must be str, int, float, bool or None, not tuple``
+    porque el dataclass exponia ``dict[tuple[str, int], str]`` y el
+    router Flask intentaba serializarlo directamente.
+    """
+    res = CommentUpdateResult(
+        satellite_reused={("PReal_Vis", 1): "MLC_x"},
+        satellite_inserted={("Aux.PReal_ValorAnterior", 2): "MLC_y"},
+    )
+    payload = json.dumps(res.to_dict())
+    # Round-trip: ninguna key perdida ni tipo corrupto.
+    reloaded = json.loads(payload)
+    assert reloaded["satellite_reused"] == {"PReal_Vis|1": "MLC_x"}
+    assert reloaded["satellite_inserted"] == {
+        "Aux.PReal_ValorAnterior|2": "MLC_y",
+    }
+
+
+def test_to_dict_no_muta_el_dataclass_inmutable() -> None:
+    """``CommentUpdateResult`` es ``frozen=True``; ``to_dict()`` no debe alterarlo."""
+    res = CommentUpdateResult(
+        satellite_reused={("X", 1): "a"},
+        satellite_inserted={("Y", 2): "b"},
+    )
+    res.to_dict()
+    # Las tuplas siguen ahi (representacion canonica).
+    assert ("X", 1) in res.satellite_reused
+    assert ("Y", 2) in res.satellite_inserted
+
+
+def test_to_dict_con_datos_reales_del_updater_proc(
+    tmp_path: Path,
+) -> None:
+    """End-to-end: el resultado de ``update()`` debe serializarse limpio.
+
+    Caso real: PReal con 3 slots + 2 satellites (PReal_Vis + Aux.PReal_ValorAnterior).
+    Tras el resize, ``satellite_inserted`` queda con tuplas
+    ``(sat_name, slot)`` que DEBEN aplanarse para que el router Flask
+    no reviente.
+    """
+    dcl = tmp_path / "DB_PROC.s7dcl"
+    res = tmp_path / "DB_PROC.s7res"
+    dcl.write_text(_synth_s7dcl_proc(preal_slots=3), encoding="utf-8")
+    res.write_text(
+        _synth_s7res_proc({
+            "MLC_prHeader": ".",
+            "MLC_prvHeader": ".",
+            "MLC_piHeader": ".",
+            "MLC_piVisHeader": ".",
+            "MLC_auxVaHeader": ".",
+            "MLC_auxIaHeader": ".",
+            "MLC_pr_001": "pr_1_old",
+            "MLC_pr_002": "pr_2_old",
+            "MLC_prv_001": "pr_1_old",
+            "MLC_auxVa_001": "pr_1_old",
+        }),
+        encoding="utf-8-sig",
+    )
+    updater = SimaticSDDbArrayCommentUpdater(
+        s7dcl_path=dcl, s7res_path=res,
+        array_name="PReal",
+        slot_map={1: "pr_1_new", 2: "pr_2_new", 3: "pr_3_new"},
+        quote_array_name=False,
+        keep_slot0=False,
+        satellite_arrays={"PReal_Vis", "Aux.PReal_ValorAnterior"},
+        registry=MLCRegistry(),
+    )
+    result = updater.update()
+    payload = json.dumps(result.to_dict())
+    reloaded = json.loads(payload)
+
+    # Ninguna tupla sobrevivio: todas son strings.
+    for k in reloaded["satellite_reused"]:
+        assert isinstance(k, str), f"key no aplanada: {k!r}"
+    for k in reloaded["satellite_inserted"]:
+        assert isinstance(k, str), f"key no aplanada: {k!r}"
+
+    # El shape completo esta presente.
+    assert "reused" in reloaded
+    assert "inserted" in reloaded
+    assert "total_mlcs_in_res" in reloaded
