@@ -176,14 +176,50 @@ def test_proc_compute_nmax_diff_skips_kind_without_nmax_name(
 def test_proc_compute_nmax_diff_raises_when_xml_missing(
     tags_base: Path,
 ) -> None:
-    """Si la tabla del proceso no esta exportada en tags_base -> RuntimeError."""
+    """Si la tabla del proceso no esta exportada en tags_base (ni en
+    raiz ni en subdirs como ``Tags/`` de TIA V21) -> RuntimeError."""
     sm = FakeSlotMap()
-    # tags_base vacio: no creamos el XML.
+    # tags_base vacio: no creamos el XML en ningun sitio.
     from areas.alimentacion.helpers.proc.proc_compute_nmax_diff import (
         proc_compute_nmax_diff,
     )
     with pytest.raises(RuntimeError, match="preview"):
         proc_compute_nmax_diff(tags_base, proc_uid=100, slot_map=sm)
+
+
+def test_proc_compute_nmax_diff_finds_xml_in_tags_subdir(
+    tags_base: Path,
+) -> None:
+    """TIA V21 con keep_folder_structure=True deposita el .xml en
+    un subdirectorio ``Tags/``. El helper debe encontrarlo via el
+    fallback rglob de ``XmlTarget`` (no solo en raiz directa).
+
+    Sept-2026: bug que rompio el sync en vivo. Preview funcionaba
+    porque usa ``XmlTarget``; sync fallaba porque buscaba directo.
+    """
+    sm = FakeSlotMap(
+        nmax={"preal": 5},  # Solo esta activa; el slot que difiere.
+        nmax_names={"preal": "100_N_MAX_PREAL"},
+    )
+    # Simulamos TIA V21: archivo en subdir Tags/.
+    tags_subdir = tags_base / "Tags"
+    tags_subdir.mkdir(parents=True, exist_ok=True)
+    xml_path = tags_subdir / f"{sm.table_name}.xml"
+    xml_path.write_text("<root/>", encoding="utf-8")
+
+    with _patch_parser_returning({}):
+        from areas.alimentacion.helpers.proc.proc_compute_nmax_diff import (
+            proc_compute_nmax_diff,
+        )
+        ops = proc_compute_nmax_diff(tags_base, proc_uid=100, slot_map=sm)
+
+    # Encontro el archivo en Tags/ (gracias al rglob) y computo el diff.
+    # current={} (no habia slot todavia), desired=5 -> op de crear.
+    assert ops == [{
+        "table_name": "100_CPR",
+        "constant_name": "100_N_MAX_PREAL",
+        "new_value": 5,
+    }]
 
 
 def test_proc_compute_nmax_diff_raises_when_slot_map_none(

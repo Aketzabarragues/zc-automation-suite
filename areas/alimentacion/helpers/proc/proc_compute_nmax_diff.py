@@ -92,13 +92,25 @@ def proc_compute_nmax_diff(
             f"Revisa config/defaults.py."
         )
 
-    xml_path = tags_base / f"{table_name}.xml"
-    if not xml_path.is_file():
+    # Usamos ``XmlTarget`` en vez del lookup directo ``tags_base /
+    # f"{table}.xml"``. Razon: TIA Portal V21, con
+    # ``keep_folder_structure=True`` (configurado en
+    # ``tia_helpers.py:328``), deposita el .xml en un subdirectorio
+    # ``Tags/`` (no en la raiz). El preview usa ``XmlTarget`` (busca
+    # primero directo y luego con ``rglob``) — el sync debe usar la
+    # misma abstraccion para no diverger.
+    from core.infrastructure.tia.tia_export_paths import XmlTarget
+
+    try:
+        xml_path = XmlTarget(tags_base, table_name).path
+    except FileNotFoundError:
+        # Mensaje con dos hints: el path "esperado" directo Y el
+        # tags_base para que el operario vea donde mirar.
         raise RuntimeError(
             f"Tabla de variables del proceso {proc_uid} no exportada: "
-            f"{xml_path}. Ejecuta POST /api/v1/procesos/sync/preview "
-            f"antes del commit, o revisa que el PLC tenga la tabla "
-            f"{table_name}."
+            f"{tags_base}/{table_name}.xml (ni directo ni con rglob). "
+            f"Ejecuta POST /api/v1/procesos/sync/preview antes del "
+            f"commit, o revisa que el PLC tenga la tabla {table_name}."
         )
 
     # ── Parse current ──
