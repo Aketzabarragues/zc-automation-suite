@@ -141,6 +141,33 @@ class ArrayCommitResult:
     removed: list[int] = field(default_factory=list)
     noop: list[int] = field(default_factory=list)
 
+    def to_dict(self) -> dict[str, Any]:
+        """Serializa a dict para JSON (consumidores: routers Flask).
+
+        Shape:
+          {
+            "array_name": "PReal",
+            "reused": {slot: texto},
+            "inserted": {slot: MLC_id},
+            "satellite_reused": {},       # deprecado sept-2026 DRY
+            "satellite_inserted": {},     # deprecado sept-2026 DRY
+            "total_mlcs_in_res": int,
+          }
+        """
+        return {
+            "array_name": self.array_name,
+            "reused": dict(self.reused),
+            "inserted": dict(self.injected),
+            "satellite_reused": {},     # deprecado post-DRY
+            "satellite_inserted": {},   # deprecado post-DRY
+            "total_mlcs_in_res": (
+                len(self.injected)
+                + len(self.reused)
+                + len(self.updated)
+                + len(self.removed)
+            ),
+        }
+
 
 # ── API publica ─────────────────────────────────────────────────────
 

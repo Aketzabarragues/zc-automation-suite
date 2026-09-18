@@ -296,28 +296,61 @@ async def proc_open_transaction(ctx: ProcSyncContext) -> None:
                 alm_modified = True
 
     # Import por DB si hubo cambios.
+    # Sept-2026 fix: TIA Portal espera los archivos en
+    # ``modified_bloques/<subpath>/``, NO en ``exports_bloques/``.
+    # Por eso hacemos copytree antes del import_block (patron del
+    # handler OT viejo, sept-2026 commit 21b).
     target_folder = ctx.config_manager.get_tia_folder_proceso()
     plc_name = (
         ctx.bloques_cache.plc_name if ctx.bloques_cache is not None else ""
     )
-    if param_modified:
+    import shutil
+    from areas.alimentacion.helpers.build_cache import build_cache
+
+    if param_modified and ctx.exports_param_dir is not None:
+        # Copytree exports_bloques/<subpath> -> modified_bloques/<subpath>
+        # para que TIA encuentre los archivos en la ruta que espera.
+        proc_ctx = build_cache(root=ctx.build_cache_root).procesos
+        modified_dir = (
+            str(Path(proc_ctx.modified_bloques) / Path(ctx.exports_param_dir).name)
+            if ctx.slot_map.param_subpath
+            else str(proc_ctx.modified_bloques / Path(ctx.exports_param_dir).name)
+        )
+        if Path(ctx.exports_param_dir).exists():
+            Path(modified_dir).mkdir(parents=True, exist_ok=True)
+            shutil.copytree(
+                ctx.exports_param_dir, modified_dir,
+                dirs_exist_ok=True,
+            )
         await dispatch_async(
             ctx.tia_client,
             "import_block",
             {
                 "plc_name": plc_name,
-                "import_dir": str(ctx.exports_param_dir),
+                "import_dir": modified_dir,
                 "target_folder": target_folder,
             },
             timeout_s=300.0,
         )
-    if alm_modified:
+    if alm_modified and ctx.exports_alm_dir is not None:
+        proc_ctx = build_cache(root=ctx.build_cache_root).procesos
+        modified_dir = (
+            str(Path(proc_ctx.modified_bloques) / Path(ctx.exports_alm_dir).name)
+            if ctx.slot_map.alm_subpath
+            else str(proc_ctx.modified_bloques / Path(ctx.exports_alm_dir).name)
+        )
+        if Path(ctx.exports_alm_dir).exists():
+            Path(modified_dir).mkdir(parents=True, exist_ok=True)
+            shutil.copytree(
+                ctx.exports_alm_dir, modified_dir,
+                dirs_exist_ok=True,
+            )
         await dispatch_async(
             ctx.tia_client,
             "import_block",
             {
                 "plc_name": plc_name,
-                "import_dir": str(ctx.exports_alm_dir),
+                "import_dir": modified_dir,
                 "target_folder": target_folder,
             },
             timeout_s=300.0,

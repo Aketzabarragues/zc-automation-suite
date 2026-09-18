@@ -492,8 +492,10 @@ async def aplicar_comentarios(ctx: DispSyncContext) -> None:
         if not db_array_name:
             continue
         from core.infrastructure.tia.tia_export_paths import SdPair
-        dcl_path = SdPair(Path(exports_bloques), db_name).dcl
-        res_path = SdPair(Path(exports_bloques), db_name).res
+        # Trabajamos sobre modified_bloques (sept-2026: TIA Portal
+        # espera los archivos en modified/, no en exports/).
+        dcl_path = SdPair(Path(modified_bloques), db_name).dcl
+        res_path = SdPair(Path(modified_bloques), db_name).res
         result = commit_array_comments(
             dcl_path, res_path,
             array_name=db_array_name,
@@ -518,13 +520,13 @@ async def aplicar_comentarios(ctx: DispSyncContext) -> None:
         total_inserted += len(result.inserted)
         if modified:
             total_modified += 1
-            # Import por DB si hubo cambios.
+            # Import por DB si hubo cambios. TIA espera modified/.
             await dispatch_async(
                 ctx.tia_client,
                 "import_block",
                 {
                     "plc_name": ctx.plc_name,
-                    "import_dir": str(exports_bloques),
+                    "import_dir": str(modified_bloques),
                     "target_folder": target_folder,
                 },
                 timeout_s=600.0,
