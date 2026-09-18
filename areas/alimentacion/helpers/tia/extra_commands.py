@@ -353,9 +353,7 @@ def make_cmd_update_proc_comments_db(kind: str) -> Callable[..., Any]:
             str(Path(work_dir) / db_subpath) if db_subpath else work_dir
         )
 
-        from areas.alimentacion.helpers.simatic_sd.simatic_sd_db_array_comment_updater import (SimaticSDDbArrayCommentUpdater,
-        )
-        from areas.alimentacion.helpers.simatic_sd.simatic_sd_mlc_registry import MLCRegistry
+        from core.helpers.simatic_sd import commit_array_comments
 
         s7dcl_path = SdPair(Path(effective_work_dir), db_name).dcl
         s7res_path = SdPair(Path(effective_work_dir), db_name).res
@@ -384,20 +382,23 @@ def make_cmd_update_proc_comments_db(kind: str) -> Callable[..., Any]:
                 "target_dir": effective_work_dir,
             }, tia_client)
 
-        updater = SimaticSDDbArrayCommentUpdater(
-            s7dcl_path=s7dcl_path,
-            s7res_path=s7res_path,
-            slot_map=slot_map,
+        # Sept-2026 DRY: helper transversal sin MLCRegistry ni parser
+        # custom. ``write_to_original=True`` porque los archivos ya
+        # estan en el workdir exportado (no hace falta prefijo
+        # ``modificado_``).
+        result = commit_array_comments(
+            s7dcl_path, s7res_path,
             array_name=array_name,
-            quote_array_name=False,
-            keep_slot0=False,
-            ensure_slot0_mlc=False,
-            satellite_arrays=set(_PROC_SATELLITES.get(kind, set())),
-            registry=MLCRegistry(),
+            slot_map=slot_map,
+            array_type="UDT" if kind in ("preal", "pint") else "Simple",
+            write_to_original=True,
         )
-        result = updater.update()
-        updater.save()
-        modified = updater.was_modified()
+
+        # ``total_injected`` > 0 o ``total_updated`` > 0 o
+        # ``total_removed`` > 0 -> hubo cambios -> importar.
+        modified = (
+            result.total_injected if hasattr(result, "total_injected") else len(result.injected)
+        ) + len(result.updated) + len(result.removed) > 0
 
         if modified:
             tia_client._handlers["import_block"]({
