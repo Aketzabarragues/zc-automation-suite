@@ -45,7 +45,22 @@ from pathlib import Path
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+def _resolve_repo_root() -> Path:
+    """Raiz del repo. Sube hasta encontrar ``main.py``.
+
+    Robusto frente a movimientos del test entre subdirectorios
+    de ``tests/`` (sept-2026: este test se movio de
+    ``tests/`` a ``tests/areas/alimentacion/frontend/`` tras la
+    limpieza del raiz de tests/).
+    """
+    here = Path(__file__).resolve().parent
+    for candidate in [here, *here.parents]:
+        if (candidate / "main.py").is_file():
+            return candidate
+    return here.parents[len(here.parents) - 4]
+
+
+REPO_ROOT = _resolve_repo_root()
 
 MANIFEST_JS = (
     REPO_ROOT

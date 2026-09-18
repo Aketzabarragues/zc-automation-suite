@@ -32,8 +32,19 @@ import pytest
 
 
 def _resolve_repo_root() -> Path:
-    """Devuelve la raiz del repo (un nivel por encima de ``tests/``)."""
-    return Path(__file__).resolve().parent.parent
+    """Devuelve la raiz del repo.
+
+    Sube en el arbol hasta encontrar un marcador del repo
+    (``main.py``). Robusto frente a movimientos del test entre
+    subdirectorios de ``tests/`` (sept-2026: este test se movio
+    de ``tests/`` a ``tests/areas/alimentacion/`` tras la limpieza
+    del raiz de tests/).
+    """
+    here = Path(__file__).resolve().parent
+    for candidate in [here, *here.parents]:
+        if (candidate / "main.py").is_file():
+            return candidate
+    return here.parents[len(here.parents) - 3]
 
 
 # ── Test 1: firma de register_alimentacion ───────────────────────────

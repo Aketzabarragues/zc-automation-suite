@@ -12,8 +12,12 @@ prematuramente y se lanza::
     TypeError: "<header>... is not a function" (backticks pares)
 
 Este test barre TODOS los .js con template literal en
-``interfaces/web_server/static/js/`` y falla si encuentra
+``core/web_server/static/js/`` y falla si encuentra
 backticks en comentarios HTML.
+
+Antes (sept-2026 legacy): escaneaba ``interfaces/web_server/static/js/``
+(path borrado en commits 0-7 del refactor de interfaces
+-> core). Actualizado al nuevo path.
 
 Regla para autores: dentro de comentarios HTML en templates
 Vue 3 ESM, NO uses backticks. Si necesitas resaltar ``code``,
@@ -27,8 +31,23 @@ from pathlib import Path
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-JS_DIR = REPO_ROOT / "interfaces" / "web_server" / "static" / "js"
+def _resolve_repo_root() -> Path:
+    """Raiz del repo. Sube hasta encontrar ``main.py``.
+
+    Robusto frente a movimientos del test entre subdirectorios
+    de ``tests/`` (sept-2026: este test se movio de ``tests/``
+    a ``tests/core/web_server/static/js/`` tras la limpieza del
+    raiz de tests/).
+    """
+    here = Path(__file__).resolve().parent
+    for candidate in [here, *here.parents]:
+        if (candidate / "main.py").is_file():
+            return candidate
+    return here.parents[len(here.parents) - 4]
+
+
+REPO_ROOT = _resolve_repo_root()
+JS_DIR = REPO_ROOT / "core" / "web_server" / "static" / "js"
 
 
 # Patrones:

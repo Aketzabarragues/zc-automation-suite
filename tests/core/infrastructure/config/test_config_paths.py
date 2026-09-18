@@ -161,7 +161,9 @@ def test_fallback_to_appdata_when_default_fails(
     # Parcheamos SOLO el helper interno que ``resolve_log_dir`` usa,
     # no ``Path.mkdir`` globalmente (eso romperia operaciones legitimas
     # del propio test, como la creacion de ``fake_home``).
-    from core.application import log_paths
+    # Sept-2026: ``log_paths`` se movio a
+    # ``core.infrastructure.config.config_paths`` tras el refactor.
+    from core.infrastructure.config import config_paths
 
     call_count = {"n": 0}
 
@@ -173,7 +175,7 @@ def test_fallback_to_appdata_when_default_fails(
         path.mkdir(parents=True, exist_ok=True)
         return True
 
-    monkeypatch.setattr(log_paths, "_try_mkdir", _fake_try_mkdir)
+    monkeypatch.setattr(config_paths, "_try_mkdir", _fake_try_mkdir)
 
     result = resolve_log_dir()
 
