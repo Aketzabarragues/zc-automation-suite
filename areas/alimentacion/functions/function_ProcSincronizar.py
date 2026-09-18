@@ -37,11 +37,18 @@ El ``self.result`` se popula con la shape legacy esperada por la SPA::
       "warnings":             list[str],
     }
 
-Steps (5, mismo orden que el legacy ``ejecutar_transaccion``):
+Steps (8, orden nuevo sept-2026 con Tx A N_MAX + compile previo):
   - check_state_commit       -> helper.proc_sincronizar.proc_check_state_commit
   - check_blocks_commit      -> helper.proc_sincronizar.proc_check_blocks_commit
   - build_slot_maps_commit   -> helper.proc_sincronizar.proc_build_slot_maps_commit
+  - sync_nmax                -> helper.proc_sincronizar.proc_sync_nmax
+                                (Tx A N_MAX online, INCONDICIONAL)
+  - wait_consolidation       -> helper.proc_sincronizar.proc_wait_consolidation
+                                (sleep 2s; TIA consolida tras Tx A)
+  - compile_proc_blocks      -> helper.proc_sincronizar.proc_compile_blocks
+                                (resize de DBs PARAM/ALM en TIA)
   - open_transaction         -> helper.proc_sincronizar.proc_open_transaction
+                                (Tx B: comentarios sobre DBs ya redimensionados)
   - done                     -> (interno: vuelco ``ctx.result`` a ``self.result``)
 """
 from __future__ import annotations
@@ -94,6 +101,9 @@ class FunctionProcSincronizar(FunctionBase):
                 {"nombre": "check_state_commit"},
                 {"nombre": "check_blocks_commit"},
                 {"nombre": "build_slot_maps_commit"},
+                {"nombre": "sync_nmax"},
+                {"nombre": "wait_consolidation"},
+                {"nombre": "compile_proc_blocks"},
                 {"nombre": "open_transaction"},
                 {"nombre": "done"},
             ],
@@ -239,6 +249,31 @@ class FunctionProcSincronizar(FunctionBase):
                         f"Faltan bloques en el PLC: "
                         f"{self._ctx.slot_map.missing_blocks}"
                     )
+                # Calcular nmax_ops ANTES del step sync_nmax. El helper
+                # necesita slot_map (resuelto arriba) y dimensiones (en
+                # app_state). Separamos el calculo del dispatch para
+                # poder loguear el resultado del diff y abortar si
+                # falla el parser, sin abrir Tx A.
+                proc_sincronizar.proc_compute_nmax_ops(self._ctx)
+                logger.debug(
+                    f"[{self.nombre}] N_MAX diff: "
+                    f"{len(self._ctx.nmax_ops)} ops a aplicar"
+                )
+            case "sync_nmax":
+                # INCONDICIONAL (requisito del operario): aunque
+                # ``ctx.nmax_ops=[]``, se despacha el handler. Asi el
+                # flujo se ejecuta completo aunque ya estuvieran
+                # aplicados.
+                await proc_sincronizar.proc_sync_nmax(self._ctx)
+            case "wait_consolidation":
+                await proc_sincronizar.proc_wait_consolidation(self._ctx)
+            case "compile_proc_blocks":
+                await proc_sincronizar.proc_compile_blocks(self._ctx)
+                if not self._ctx.compile_ok:
+                    raise RuntimeError(
+                        f"compile_proc_blocks reporto error: "
+                        f"{self._ctx.compile_error}"
+                    )
             case "open_transaction":
                 await proc_sincronizar.proc_open_transaction(self._ctx)
             case "done":
@@ -300,7 +335,17 @@ def _step_summary(ctx: Any, step_nombre: str) -> str:
         return (
             f"{step_nombre}: PReal={len(ctx.slot_map.preal)} "
             f"PInt={len(ctx.slot_map.pint)} ALM={len(ctx.slot_map.alm)}"
+            f" N_MAX_ops={len(ctx.nmax_ops)}"
         )
+    if step_nombre == "sync_nmax":
+        ops = len(ctx.nmax_ops or [])
+        return f"{step_nombre}: {ops} N_MAX aplicadas (incondicional)"
+    if step_nombre == "wait_consolidation":
+        return f"{step_nombre}: 2s sleep OK"
+    if step_nombre == "compile_proc_blocks":
+        if ctx.compile_ok:
+            return f"{step_nombre}: OK"
+        return f"{step_nombre}: ERROR ({ctx.compile_error})"
     if step_nombre == "open_transaction":
         ops = (ctx.tx_result or {}).get("operations_executed", 0)
         return f"{step_nombre}: {ops} ops aplicadas OK"

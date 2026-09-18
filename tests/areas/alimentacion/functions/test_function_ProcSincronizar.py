@@ -75,7 +75,9 @@ def progress(real_progress: ProgressTracker) -> ProgressTracker:
         label="Sincronizar comentarios del proceso (test)",
         stages=[
             "check_state_commit", "check_blocks_commit",
-            "build_slot_maps_commit", "open_transaction", "done",
+            "build_slot_maps_commit", "sync_nmax",
+            "wait_consolidation", "compile_proc_blocks",
+            "open_transaction", "done",
         ],
     )
     return real_progress
@@ -115,6 +117,18 @@ def _patch_helper_fns() -> ExitStack:
         patch.object(helper_mod, "proc_build_slot_maps_commit", MagicMock(), create=True)
     )
     stack.enter_context(
+        patch.object(helper_mod, "proc_compute_nmax_ops", MagicMock(), create=True)
+    )
+    stack.enter_context(
+        patch.object(helper_mod, "proc_sync_nmax", AsyncMock(), create=True)
+    )
+    stack.enter_context(
+        patch.object(helper_mod, "proc_wait_consolidation", AsyncMock(), create=True)
+    )
+    stack.enter_context(
+        patch.object(helper_mod, "proc_compile_blocks", AsyncMock(), create=True)
+    )
+    stack.enter_context(
         patch.object(helper_mod, "proc_open_transaction", AsyncMock(), create=True)
     )
     stack.enter_context(
@@ -127,15 +141,22 @@ def _patch_helper_fns() -> ExitStack:
 
 
 @pytest.mark.asyncio
-async def test_proc_sincronizar_happy_path_5_ticks(
+async def test_proc_sincronizar_happy_path_8_ticks(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
     mock_app_state: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
-    """Happy path: 7 ticks -> nStep=99, todas las funciones del helper
-    llamadas una vez, ``self.result`` con la shape legacy."""
+    """Happy path: 10 ticks -> nStep=99, todas las funciones del helper
+    llamadas una vez, ``self.result`` con la shape legacy.
+
+    Sept-2026: el FB ahora tiene 8 steps (3 nuevos: sync_nmax,
+    wait_consolidation, compile_proc_blocks), por lo que el flujo es:
+      tick #1:  10 -> 20 (on_start + tracker.begin)
+      ticks #2-9: 20 (8 steps; nStep NO avanza)
+      tick #10: 95 -> 99 (on_finish)
+    """
     fake_result = {
         "proc_uid": 42,
         "plc_name": "S7-1500",
@@ -189,14 +210,14 @@ async def test_proc_sincronizar_happy_path_5_ticks(
 
         # State machine del FunctionBase:
         #   tick #1: 10 -> 20 (on_start + tracker.begin)
-        #   ticks #2-6: 20 (corren los 5 steps; nStep NO avanza)
-        #   tick #7: 95 -> 99 (on_finish)
+        #   ticks #2-9: 20 (corren los 8 steps; nStep NO avanza)
+        #   tick #10: 95 -> 99 (on_finish)
         n_ticks_done = 0
         await fb.tick()
         n_ticks_done += 1
         assert fb.nStep == 20
 
-        for _ in range(5):
+        for _ in range(8):
             await fb.tick()
             n_ticks_done += 1
             assert fb.nStep in (20, 95)
@@ -205,7 +226,7 @@ async def test_proc_sincronizar_happy_path_5_ticks(
         await fb.tick()
         n_ticks_done += 1
         assert fb.nStep == 99
-        assert n_ticks_done == 7
+        assert n_ticks_done == 10
 
         assert fb.is_terminal() is True
         assert fb.error_msg is None
@@ -219,6 +240,10 @@ async def test_proc_sincronizar_happy_path_5_ticks(
         assert helper_mod.proc_check_state_commit.call_count == 1
         assert helper_mod.proc_check_blocks_commit.call_count == 1
         assert helper_mod.proc_build_slot_maps_commit.call_count == 1
+        assert helper_mod.proc_compute_nmax_ops.call_count == 1
+        assert helper_mod.proc_sync_nmax.await_count == 1
+        assert helper_mod.proc_wait_consolidation.await_count == 1
+        assert helper_mod.proc_compile_blocks.await_count == 1
         assert helper_mod.proc_open_transaction.await_count == 1
         assert helper_mod.proc_done_summary_commit.call_count == 1
 
@@ -434,7 +459,10 @@ async def test_proc_sincronizar_sad_open_transaction_fails(
         await fb.tick()  # 10 -> 20
         await fb.tick()  # 20: check_state_commit
         await fb.tick()  # 20: check_blocks_commit
-        await fb.tick()  # 20: build_slot_maps_commit
+        await fb.tick()  # 20: build_slot_maps_commit (+ calc nmax)
+        await fb.tick()  # 20: sync_nmax
+        await fb.tick()  # 20: wait_consolidation
+        await fb.tick()  # 20: compile_proc_blocks
         await fb.tick()  # 20 -> 98 (open_transaction falla)
 
     assert fb.nStep == fb.n_error

@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -52,6 +53,11 @@ from areas.alimentacion.helpers.tia.dispatch_async import dispatch_async
 
 
 logger = logging.getLogger("zc.areas.alimentacion.proc_sincronizar")
+
+# Sept-2026: misma espera que usa ``disp_Sincronizar.wait_consolidation``
+# tras Tx A. TIA necesita consolidar internamente antes de que el
+# ``compile_blocks`` vea el resize de los DBs.
+TIA_CONSOLIDATION_SLEEP_S: float = 2.0
 
 
 # ===========================================================================
@@ -87,6 +93,16 @@ class ProcSyncContext:
 
     # ── Resultado de proc_build_slot_maps_commit ──
     slot_map: Any = None  # DataProcSlotMap o None
+
+    # ── Resultado de proc_sync_nmax (Tx A: N_MAX online) ──
+    tags_base: Path | None = None
+    nmax_ops: list[dict[str, Any]] = field(default_factory=list)
+    nmax_result: "dict[str, Any] | None" = None
+
+    # ── Resultado de proc_compile_blocks (post-Tx A) ──
+    compile_result: "dict[str, Any] | None" = None
+    compile_ok: bool = True
+    compile_error: str | None = None
 
     # ── Resultado de proc_open_transaction ──
     tx_result: "dict[str, Any] | None" = None
@@ -253,6 +269,158 @@ async def proc_open_transaction(ctx: ProcSyncContext) -> None:
         "operations_executed": int(inner.get("operations_executed", 0)),
         "details": inner.get("details") or [],
     }
+
+
+# ===========================================================================
+# 4 funciones para el flujo Tx A + compile (sept-2026)
+# ===========================================================================
+
+def proc_compute_nmax_ops(ctx: ProcSyncContext) -> None:
+    """Calcula las ops de N_MAX via el helper puro
+    ``proc_compute_nmax_diff`` y las guarda en ``ctx.nmax_ops``.
+
+    Si ``ctx.tags_base`` es ``None``, lo resuelve desde
+    ``build_cache(area_id='alimentacion').procesos.preview_variables``.
+    Si no hay AppState o no hay config, ``ctx.nmax_ops`` queda como
+    ``[]`` y el step ``proc_sync_nmax`` aun despachara el handler
+    (requisito "sync_nmax incondicional").
+    """
+    from areas.alimentacion.helpers.build_cache import build_cache
+    from areas.alimentacion.helpers.proc.proc_compute_nmax_diff import (
+        proc_compute_nmax_diff,
+    )
+
+    if ctx.tags_base is None:
+        proc_ctx = build_cache(root=ctx.build_cache_root).procesos
+        ctx.tags_base = proc_ctx.preview_variables
+
+    if ctx.app_state is None or ctx.config_manager is None:
+        ctx.nmax_ops = []
+        return
+
+    ctx.nmax_ops = proc_compute_nmax_diff(
+        ctx.tags_base, ctx.config_manager, ctx.app_state
+    )
+
+
+async def proc_sync_nmax(ctx: ProcSyncContext) -> None:
+    """Tx A (online): dispatch ``commit_user_constants_online`` con
+    ``nmax_ops=ctx.nmax_ops`` y ``rename_ops=[]``.
+
+    El handler ``commit_user_constants_online`` abre/cierra su propia
+    tx TIA (sept-2026 fix del rollback silencioso V21 cuando se
+    mezclan ``set_property`` con ``import_plc_tags`` en una sola tx).
+
+    INCONDICIONAL (requisito del operario): aunque ``nmax_ops=[]``, se
+    despacha el handler igualmente para que el flujo se ejecute
+    completo.
+    """
+    nmax_result = await dispatch_async(
+        ctx.tia_client,
+        "commit_user_constants_online",
+        {
+            "plc_name": ctx.plc_name,
+            "nmax_ops": ctx.nmax_ops,
+            "rename_ops": [],
+            "undo_text": f"Sync N_MAX proceso {ctx.proc_uid} ({ctx.plc_name})",
+        },
+    )
+    if not nmax_result.get("ok"):
+        raise RuntimeError(
+            f"commit_user_constants_online fallo: "
+            f"{nmax_result.get('error') or '<sin error>'}"
+        )
+    ctx.nmax_result = nmax_result.get("result") or {}
+
+
+async def proc_wait_consolidation(ctx: ProcSyncContext) -> None:
+    """Sleep 2s para que TIA consolide internamente tras Tx A.
+
+    Mismo patron que ``disp_Sincronizar.wait_consolidation``.
+    Antes del compile, TIA necesita haber aplicado los N_MAX en su
+    modelo interno; si no, el resize de los DBs PARAM/ALM no esta
+    visible para ``compile_blocks``.
+    """
+    await asyncio.to_thread(time.sleep, TIA_CONSOLIDATION_SLEEP_S)
+
+
+def proc_discover_compile_dbs(ctx: ProcSyncContext) -> list[str]:
+    """Devuelve los nombres canonicos de DBs a compilar tras Tx A.
+
+    Para proc son los 2 DBs del proceso actual:
+      - ``db_param_name`` (PReal + PInt)
+      - ``db_alm_name`` (Alarmas)
+
+    Si ``ctx.slot_map`` no esta inicializado aun, retorna ``[]``.
+    El FB se asegura de invocar este helper DESPUES de
+    ``proc_build_slot_maps_commit``.
+    """
+    if ctx.slot_map is None:
+        return []
+    return [ctx.slot_map.db_param_name, ctx.slot_map.db_alm_name]
+
+
+async def proc_compile_blocks(ctx: ProcSyncContext) -> None:
+    """Compila los DBs PARAM + ALM del proceso actual.
+
+    Patron paralelo a ``disp_Sincronizar.compilar_bloques``: dispatch
+    de ``compile_blocks`` con ``block_names=[param_db, alm_db]``.
+    Timeout 120s para PLCs grandes (la compilacion tras un resize de
+    N_MAX puede tardar).
+
+    Si TIA reporta errores parciales, marca ``ctx.compile_ok=False``
+    y guarda el mensaje en ``ctx.compile_error`` (el FB lo evalua
+    en su post-step).
+    """
+    block_names = proc_discover_compile_dbs(ctx)
+    if not block_names:
+        ctx.compile_ok = False
+        ctx.compile_error = (
+            "proc_discover_compile_dbs retorno []: ctx.slot_map no "
+            "inicializado. Fallo previo en build_slot_maps_commit."
+        )
+        return
+
+    try:
+        compile_result = await dispatch_async(
+            ctx.tia_client,
+            "compile_blocks",
+            {"plc_name": ctx.plc_name, "block_names": block_names},
+            timeout_s=120.0,
+        )
+    except Exception as e:
+        ctx.compile_ok = False
+        ctx.compile_error = f"compile_blocks excepcion: {e!r}"
+        return
+
+    if not compile_result.get("ok"):
+        ctx.compile_ok = False
+        ctx.compile_error = (
+            compile_result.get("error") or "compile_blocks fallo"
+        )
+        return
+
+    ctx.compile_result = compile_result.get("result") or {}
+    compiled = (ctx.compile_result or {}).get("compiled", [])
+    errors = (ctx.compile_result or {}).get("errors", [])
+    any_had_errors = any(c.get("had_errors") for c in compiled)
+    if any_had_errors or errors:
+        ctx.compile_ok = False
+        n_had = sum(1 for c in compiled if c.get("had_errors"))
+        n_err = len(errors)
+        n_not_found = len((ctx.compile_result or {}).get("not_found", []))
+        ctx.compile_error = (
+            f"TIA reporta errores de compilacion post-N_MAX: "
+            f"{n_had} bloque(s) con errores, "
+            f"{n_err} excepcion(es), "
+            f"{n_not_found} no encontrado(s). "
+            f"Revisa el proyecto en TIA Portal: los DBs pueden haber "
+            f"quedado con tamano inconsistente tras el resize."
+        )
+        logger.warning(
+            f"[{ctx.plc_name}] Compilacion parcial proc tras N_MAX: "
+            f"{compile_result}"
+        )
 
 
 def proc_done_summary_commit(ctx: ProcSyncContext) -> dict[str, Any]:
