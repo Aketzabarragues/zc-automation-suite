@@ -191,13 +191,20 @@ class FunctionSubirExcel(FunctionBase):
         # NOTA: en un FB async esto seria await, pero ``on_finish``
         # es sync. El cache ya esta en memoria del Engine global
         # asi que lo recuperamos sync via el ``cache_cls`` directo.
-        cache = ExcelCacheManager._state if hasattr(ExcelCacheManager, "_state") else None
+        # NOTA: en un FB async esto seria await, pero ``on_finish``
+        # es sync. El cache ya esta en memoria del Engine global
+        # asi que lo recuperamos sync via la ClassVar publica
+        # ``ExcelCacheManager._cache`` (no ``_state``: ese atributo
+        # no existe y siempre daba None -> bug sept-2026 donde el
+        # router mostraba '0 proc' aunque el cache tuviera 8).
+        cache = ExcelCacheManager._cache
         # Si no podemos recuperar el cache sync, lo dejamos a ``None``
         # en dimensiones (la SPA no rompe si ve ``None``).
         dimensiones = cache.n_max.to_api_dict() if cache else None
-        # Conteos de software (procesos, preal, pint, alarmas). Nivel 5
-        # del plan de trazabilidad (sept-2026): el router necesita estos
-        # totales para emitir el resumen completo en la consola web.
+        # Conteos de software (procesos, preal, pint, alarmas, n_max).
+        # Nivel 5 del plan de trazabilidad (sept-2026): el router
+        # necesita estos totales para emitir el resumen completo en
+        # la consola web.
         software = None
         if cache is not None:
             software = {
@@ -205,6 +212,10 @@ class FunctionSubirExcel(FunctionBase):
                 "preal": len(cache.parametros_real),
                 "pint": len(cache.parametros_int),
                 "alarmas": len(cache.alarmas),
+                # Sept-2026: anadido para que el router pueda
+                # mostrar el conteo de N_MAX en el resumen. Antes
+                # el log terminaba con literal '+ N_MAX'.
+                "n_max_total": len(cache.n_max),
             }
         self.result = {
             "ok": True,

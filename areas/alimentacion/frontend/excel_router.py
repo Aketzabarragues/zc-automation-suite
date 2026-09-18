@@ -145,7 +145,8 @@ def upload_excel():
         f"{sw.get('procesos', 0)} proc + "
         f"{sw.get('preal', 0)} preal + "
         f"{sw.get('pint', 0)} pint + "
-        f"{sw.get('alarmas', 0)} alm + N_MAX"
+        f"{sw.get('alarmas', 0)} alm + "
+        f"{sw.get('n_max_total', 0)} N_MAX"
     )
     return jsonify(result)
 
