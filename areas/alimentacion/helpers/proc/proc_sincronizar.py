@@ -222,28 +222,110 @@ async def proc_open_transaction(ctx: ProcSyncContext) -> None:
     # Phase 4: mezclar Excel + eliminar
     proc_tx_b_calcular_apply_maps(ctx, current_preal, current_pint, current_alm)
 
-    # Phase 5: componer ops
-    operations = proc_tx_b_construir_ops(ctx)
+    # Phase 5 + Final: commit inline + import_block por DB.
+    # SIN wrapper intermedio (sept-2026 refactor DRY): el FB
+    # llama 6 veces a commit_array_comments directo, una por
+    # array del proceso, sobre los archivos ya exportados.
+    # Si el export fallo (exports_param_dir None), skip el commit.
+    details: list[dict[str, Any]] = []
+    operations_executed = 0
+    param_modified = False
+    alm_modified = False
 
-    # Final: dispatch del lote
-    batch_result = await dispatch_async(
-        ctx.tia_client,
-        "execute_transactional_batch",
-        {
-            "operations": operations,
-            "undo_text": undo_text,
-        },
-        timeout_s=300.0,
+    if ctx.exports_param_dir is not None:
+        preal_apply_int = {int(k): v for k, v in ctx.apply_preal_map.items()}
+        pint_apply_int = {int(k): v for k, v in ctx.apply_pint_map.items()}
+        # PARAM DB: 6 arrays (PReal + 3 satellites + PInt + 2 satellites).
+        param_arrays = [
+            ("PReal",                   "UDT"),
+            ("PReal_Vis",               "Simple"),
+            ("Aux.PReal_ValorAnterior", "Simple"),
+            ("PInt",                    "UDT"),
+            ("PInt_Vis",                "Simple"),
+            ("Aux.PInt_ValorAnterior",  "Simple"),
+        ]
+        from core.helpers.simatic_sd import commit_array_comments
+        from core.infrastructure.tia.tia_export_paths import SdPair
+        for array_name, array_type in param_arrays:
+            if array_name in ("PReal", "PReal_Vis", "Aux.PReal_ValorAnterior"):
+                slot_map = preal_apply_int
+            else:
+                slot_map = pint_apply_int
+            if not slot_map:
+                continue
+            result = commit_array_comments(
+                SdPair(Path(ctx.exports_param_dir), ctx.slot_map.db_param_name).dcl,
+                SdPair(Path(ctx.exports_param_dir), ctx.slot_map.db_param_name).res,
+                array_name=array_name,
+                slot_map=slot_map,
+                array_type=array_type,
+                write_to_original=True,
+            )
+            details.append({
+                "array": array_name,
+                "injected": dict(result.injected),
+                "updated": dict(result.updated),
+                "removed": list(result.removed),
+            })
+            operations_executed += 1
+            if (len(result.injected) + len(result.updated) + len(result.removed)) > 0:
+                param_modified = True
+
+    if ctx.exports_alm_dir is not None:
+        alm_apply_int = {int(k): v for k, v in ctx.apply_alm_map.items()}
+        # ALM DB: 1 array (sin satellites).
+        if alm_apply_int:
+            from core.helpers.simatic_sd import commit_array_comments
+            from core.infrastructure.tia.tia_export_paths import SdPair
+            result = commit_array_comments(
+                SdPair(Path(ctx.exports_alm_dir), ctx.slot_map.db_alm_name).dcl,
+                SdPair(Path(ctx.exports_alm_dir), ctx.slot_map.db_alm_name).res,
+                array_name="ALM",
+                slot_map=alm_apply_int,
+                array_type="Simple",
+                write_to_original=True,
+            )
+            details.append({
+                "array": "ALM",
+                "injected": dict(result.injected),
+                "updated": dict(result.updated),
+                "removed": list(result.removed),
+            })
+            operations_executed += 1
+            if (len(result.injected) + len(result.updated) + len(result.removed)) > 0:
+                alm_modified = True
+
+    # Import por DB si hubo cambios.
+    target_folder = ctx.config_manager.get_tia_folder_proceso()
+    plc_name = (
+        ctx.bloques_cache.plc_name if ctx.bloques_cache is not None else ""
     )
-    if not batch_result.get("ok"):
-        raise RuntimeError(
-            f"execute_transactional_batch fallo: "
-            f"{batch_result.get('error') or '<sin error>'}"
+    if param_modified:
+        await dispatch_async(
+            ctx.tia_client,
+            "import_block",
+            {
+                "plc_name": plc_name,
+                "import_dir": str(ctx.exports_param_dir),
+                "target_folder": target_folder,
+            },
+            timeout_s=300.0,
         )
-    inner = batch_result.get("result") or {}
+    if alm_modified:
+        await dispatch_async(
+            ctx.tia_client,
+            "import_block",
+            {
+                "plc_name": plc_name,
+                "import_dir": str(ctx.exports_alm_dir),
+                "target_folder": target_folder,
+            },
+            timeout_s=300.0,
+        )
+
     ctx.tx_result = {
-        "operations_executed": int(inner.get("operations_executed", 0)),
-        "details": inner.get("details") or [],
+        "operations_executed": operations_executed,
+        "details": details,
     }
 
 

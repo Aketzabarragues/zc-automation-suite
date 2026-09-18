@@ -224,10 +224,18 @@ def test_build_slot_maps_commit_propagates_runtime_error(
 def test_open_transaction_happy_path(
     make_ctx: Any,
 ) -> None:
-    """Happy path: 2 ops enviadas al gateway, ctx.tx_result poblado."""
+    """Happy path: 6+1 commits inline + import_block, ctx.tx_result poblado.
+
+    Sept-2026 refactor DRY: el FB ya NO despacha ``execute_transactional_batch``.
+    Llama 6 veces a ``commit_array_comments`` directo (sobre archivos
+    exportados) + 1 vez para ALM, luego ``import_block`` por DB.
+    """
     import asyncio
     from unittest.mock import patch
     import areas.alimentacion.data.data_ProcSlotMap as data_mod
+    from core.helpers.simatic_sd.simatic_sd_db_array_comment_updater import (
+        ArrayCommitResult,
+    )
 
     fake_sm = FakeSlotMap(
         preal={1: "Bomba 1", 2: "Bomba 2"},
@@ -235,79 +243,70 @@ def test_open_transaction_happy_path(
         alm={1: "Alarma 1"},
     )
 
-    # Mockear export_block para que NO haga nada (modo degradado,
-    # no detecta "eliminar", solo procesa los slots del Excel).
-    with patch.object(data_mod, "proc_build_slot_maps", return_value=fake_sm):
+    # Mockear ``commit_array_comments`` para que NO lea/escriba
+    # archivos reales (los tests legacy no configuran los .s7dcl/.s7res).
+    # Devuelve un resultado "no modificado" (injected/updated/removed
+    # vacios) -> NO se dispara import_block.
+    fake_result = ArrayCommitResult(array_name="dummy")
+
+    def fake_commit(dcl_path, res_path, array_name, slot_map, **kwargs):
+        # Validamos que se invoca con la API correcta.
+        assert isinstance(slot_map, dict)
+        assert kwargs.get("write_to_original") is True
+        return ArrayCommitResult(array_name=array_name)
+
+    with patch.object(
+        data_mod, "proc_build_slot_maps", return_value=fake_sm,
+    ), patch(
+        "core.helpers.simatic_sd.commit_array_comments",
+        side_effect=fake_commit,
+    ):
         ctx = make_ctx()
         proc_build_slot_maps_commit(ctx)
         asyncio.run(proc_open_transaction(ctx))
 
-    # El gateway recibio 2 ops.
+    # 6 arrays PARAM + 1 array ALM = 7 operaciones ejecutadas.
     assert ctx.tx_result is not None
-    assert ctx.tx_result["operations_executed"] == 2
-    # Verificamos que se llamo al gateway con las 2 ops correctas.
-    # ``submit_and_wait`` recibe (``command``, ``args``, ``timeout_s``).
-    call_args = ctx.tia_client.submit_and_wait.call_args
-    assert call_args is not None
-    command_name = call_args.args[0] if call_args.args else call_args.kwargs.get("command")
-    args = call_args.args[1] if len(call_args.args) > 1 else call_args.kwargs.get("args", {})
-    assert command_name == "execute_transactional_batch"
-    assert "operations" in args
-    assert len(args["operations"]) == 2
-    commands = {op["command"] for op in args["operations"]}
-    assert commands == {"update_proc_comments_db_param", "update_proc_comments_db_alm"}
-    # La op de PARAM contiene preal_slot_map + pint_slot_map.
-    param_op = next(
-        op for op in args["operations"]
-        if op["command"] == "update_proc_comments_db_param"
-    )
-    assert "preal_slot_map" in param_op["args"]
-    assert "pint_slot_map" in param_op["args"]
-    assert param_op["args"]["preal_slot_map"]["1"] == "Bomba 1"
-    assert param_op["args"]["pint_slot_map"]["1"] == "Param 1"
-    # La op de ALM contiene slot_map (string keys).
-    alm_op = next(
-        op for op in args["operations"]
-        if op["command"] == "update_proc_comments_db_alm"
-    )
-    assert alm_op["args"]["array_name"] == "ALM"
-    assert alm_op["args"]["slot_map"]["1"] == "Alarma 1"
-
-
-def test_open_transaction_undo_text_contains_codigo(
-    make_ctx: Any,
-) -> None:
-    """El undo_text incluye el codigo extraido de ``db_param_name``."""
-    import asyncio
-    from unittest.mock import patch
-    import areas.alimentacion.data.data_ProcSlotMap as data_mod
-
-    fake_sm = FakeSlotMap(
-        db_param_name="DB42_CPR_PARAM",
-        preal={1: "Bomba 1"},
-    )
-    with patch.object(data_mod, "proc_build_slot_maps", return_value=fake_sm):
-        ctx = make_ctx()
-        proc_build_slot_maps_commit(ctx)
-        asyncio.run(proc_open_transaction(ctx))
-
-    call_args = ctx.tia_client.submit_and_wait.call_args
-    args = call_args.args[1] if len(call_args.args) > 1 else call_args.kwargs.get("args", {})
-    assert "CPR" in args["undo_text"]
-    assert "S7-1500" in args["undo_text"]
+    assert ctx.tx_result["operations_executed"] == 7
+    # Los details tienen 7 entradas (6 PARAM + 1 ALM).
+    assert len(ctx.tx_result["details"]) == 7
+    arrays_committed = {d["array"] for d in ctx.tx_result["details"]}
+    assert arrays_committed == {
+        "PReal",
+        "PReal_Vis",
+        "Aux.PReal_ValorAnterior",
+        "PInt",
+        "PInt_Vis",
+        "Aux.PInt_ValorAnterior",
+        "ALM",
+    }
+    # Sin cambios -> import_block NO se llamo (solo 1 call al gateway
+    # por export, que esta mockeado por make_ctx).
+    submit_calls = ctx.tia_client.submit_and_wait.call_args_list
+    # Solo export_block + export_block (Fase 2) = 2 llamadas. NO hay
+    # execute_transactional_batch, NO hay import_block.
+    commands = [c.args[0] for c in submit_calls]
+    assert "execute_transactional_batch" not in commands
+    assert "import_block" not in commands
 
 
 def test_open_transaction_propagates_gateway_error(
     make_ctx: Any,
 ) -> None:
-    """Si el gateway falla, la excepcion se propaga al caller (rollback atomico)."""
+    """Si el gateway (export) falla, modo degradado: error se traga, sin tx_result.
+
+    Sept-2026 DRY: el re-export del PARAM esta en ``try/except`` de Fase
+    2-3; si falla, el FB sigue sin detectar "eliminar". El commit
+    inline (Phase 5) tambien se salta si ``exports_param_dir is None``.
+    """
     import asyncio
     from unittest.mock import patch
     import areas.alimentacion.data.data_ProcSlotMap as data_mod
 
     fake_sm = FakeSlotMap(preal={1: "Bomba 1"})
 
-    # ``submit_and_wait`` falla con RuntimeError para el batch.
+    # ``submit_and_wait`` falla con RuntimeError en la primera llamada
+    # (export_block de PARAM, Fase 2). El FB sigue en modo degradado.
     mock_tia = MagicMock()
     mock_tia.submit_and_wait = MagicMock(
         side_effect=RuntimeError("Bloque DB42_CPR_PARAM no encontrado en TIA")
@@ -316,19 +315,30 @@ def test_open_transaction_propagates_gateway_error(
     with patch.object(data_mod, "proc_build_slot_maps", return_value=fake_sm):
         ctx = make_ctx(tia_client=mock_tia)
         proc_build_slot_maps_commit(ctx)
-        with pytest.raises(RuntimeError, match="Bloque DB42_CPR_PARAM"):
-            asyncio.run(proc_open_transaction(ctx))
+        # NO lanza: el error del export se traga en modo degradado.
+        asyncio.run(proc_open_transaction(ctx))
 
-    assert ctx.tx_result is None
+    # El tx_result queda con 0 operaciones (export fallo, commit skip).
+    assert ctx.tx_result is not None
+    assert ctx.tx_result["operations_executed"] == 0
+    assert ctx.tx_result["details"] == []
 
 
 def test_open_transaction_continues_when_re_export_fails(
     make_ctx: Any,
 ) -> None:
-    """Si el re-export para detectar 'eliminar' falla, sigue solo con Excel."""
+    """Si el re-export para detectar 'eliminar' falla, sigue solo con Excel.
+
+    Sept-2026 DRY: el error del export se traga en modo degradado
+    (Fase 2-3 wrapped en try/except). Phase 5 (commit inline) se
+    SKIP porque ``exports_param_dir`` queda None. ``operations_executed=0``.
+    """
     import asyncio
     from unittest.mock import patch
     import areas.alimentacion.data.data_ProcSlotMap as data_mod
+    from core.helpers.simatic_sd.simatic_sd_db_array_comment_updater import (
+        ArrayCommitResult,
+    )
 
     fake_sm = FakeSlotMap(
         preal={1: "Bomba 1"},
@@ -336,27 +346,29 @@ def test_open_transaction_continues_when_re_export_fails(
         alm={1: "Alarma 1"},
     )
 
-    # ``submit_and_wait`` falla para export_block, pero funciona para
-    # execute_transactional_batch (modo degradado).
+    # ``submit_and_wait`` falla para export_block (modo degradado).
     def fake_submit_and_wait(command: str, args: dict, timeout_s: float) -> dict:
         if command == "export_block":
             raise RuntimeError("TIA no responde")
-        return {
-            "ok": True,
-            "result": {"operations_executed": 2, "details": []},
-        }
+        return {"ok": True, "result": {}}
 
     mock_tia = MagicMock()
     mock_tia.submit_and_wait = MagicMock(side_effect=fake_submit_and_wait)
 
-    with patch.object(data_mod, "proc_build_slot_maps", return_value=fake_sm):
+    with patch.object(data_mod, "proc_build_slot_maps", return_value=fake_sm), \
+         patch(
+             "core.helpers.simatic_sd.commit_array_comments",
+             return_value=ArrayCommitResult(array_name="dummy"),
+         ):
         ctx = make_ctx(tia_client=mock_tia)
         proc_build_slot_maps_commit(ctx)
         # NO debe abortar; sigue con los slots del Excel.
         asyncio.run(proc_open_transaction(ctx))
 
+    # Modo degradado: no hay export, no hay commit, 0 operaciones.
     assert ctx.tx_result is not None
-    assert ctx.tx_result["operations_executed"] == 2
+    assert ctx.tx_result["operations_executed"] == 0
+    assert ctx.tx_result["details"] == []
 
 
 def test_re_export_current_writes_to_exports_subpath(
@@ -369,10 +381,16 @@ def test_re_export_current_writes_to_exports_subpath(
     sync handler reescaneaba y marcaba como ``already exists``.
     Ahora replica el patron del sync handler: export a ``exports/<subpath>/``
     y deja que el handler haga el copytree a ``modified/<subpath>/``.
+
+    Sept-2026 DRY: el commit es inline (no hay copytree); el FB
+    importa directo desde ``exports/<subpath>/``.
     """
     import asyncio
     from unittest.mock import patch
     import areas.alimentacion.data.data_ProcSlotMap as data_mod
+    from core.helpers.simatic_sd.simatic_sd_db_array_comment_updater import (
+        ArrayCommitResult,
+    )
 
     fake_sm = FakeSlotMap(
         preal={1: "Bomba 1"},
@@ -382,34 +400,39 @@ def test_re_export_current_writes_to_exports_subpath(
         alm_subpath="ZC_Plantillas/50010_ProcesoEstandar/55010_Alarmas/",
     )
 
-    # Capturamos TODOS los args de submit_and_wait para validar
-    # que el primer export_block (de _re_export_current) va a
-    # exports/<subpath>/, NO a modified/.
+    # Capturamos TODOS los args de submit_and_wait.
     captured_calls: list[tuple[str, dict]] = []
 
     def fake_submit_and_wait(command: str, args: dict, timeout_s: float) -> dict:
         captured_calls.append((command, args))
-        if command == "export_block":
-            return {"ok": True, "result": {}}
-        return {
-            "ok": True,
-            "result": {"operations_executed": 2, "details": []},
-        }
+        return {"ok": True, "result": {}}
 
     mock_tia = MagicMock()
     mock_tia.submit_and_wait = MagicMock(side_effect=fake_submit_and_wait)
 
-    with patch.object(data_mod, "proc_build_slot_maps", return_value=fake_sm):
+    with patch.object(data_mod, "proc_build_slot_maps", return_value=fake_sm), \
+         patch(
+             "core.helpers.simatic_sd.commit_array_comments",
+             return_value=ArrayCommitResult(array_name="dummy"),
+         ):
         ctx = make_ctx(tia_client=mock_tia)
         proc_build_slot_maps_commit(ctx)
         asyncio.run(proc_open_transaction(ctx))
 
-    # Filtramos solo los export_block.
+    # Filtramos solo los export_block (Fase 2 re-export).
     export_calls = [
         (cmd, args) for cmd, args in captured_calls if cmd == "export_block"
     ]
-    # Hay 2 export_block via submit_and_wait: ambos de
-    # ``_re_export_current`` (1 PARAM + 1 ALM). El sync handler
+    assert len(export_calls) == 2  # 1 PARAM + 1 ALM.
+    # Todos los export_block van a ``exports/<subpath>/``.
+    for _, args in export_calls:
+        target_dir = args["target_dir"]
+        assert "/exports/" in target_dir or "\\exports\\" in target_dir
+        # Contiene el subpath (no la raiz).
+        assert (
+            "ZC_Plantillas/50010_ProcesoEstandar" in target_dir
+            or "ZC_Plantillas\\50010_ProcesoEstandar" in target_dir
+        )
     # ``update_proc_comments_db_param/_alm`` tambien exporta
     # internamente, pero via ``tia_client._handlers["export_block"]``
     # directo en el worker OT, no via submit_and_wait.

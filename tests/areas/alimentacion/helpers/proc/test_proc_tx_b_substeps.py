@@ -263,15 +263,18 @@ async def test_proc_open_transaction_e2e_all_5_phases() -> None:
     assert ctx.apply_preal_map == {"1": "Bomba 1", "2": "Bomba 2"}
     assert ctx.apply_pint_map == {"1": "Param 1"}
     assert ctx.apply_alm_map == {"1": "Alarma 1"}
-    # Phase 5: tx_b_ops con 2 ops.
-    assert len(ctx.tx_b_ops) == 2
-    # Final: 1 batch con operations + undo_text.
-    assert len(batch_calls) == 1
-    args = batch_calls[0][1]
-    assert len(args["operations"]) == 2
-    assert "Sync comentarios proceso" in args["undo_text"]
-    # Result del batch guardado en ctx.
-    assert ctx.tx_result["operations_executed"] == 2
+    # Phase 5 (sept-2026 DRY): commit inline -> 7 operaciones
+    # (6 arrays PARAM + 1 ALM). NO hay execute_transactional_batch.
+    assert len(batch_calls) == 0
+    assert ctx.tx_result["operations_executed"] == 7
+    arrays = [d["array"] for d in ctx.tx_result["details"]]
+    assert arrays == [
+        "PReal", "PReal_Vis", "Aux.PReal_ValorAnterior",
+        "PInt", "PInt_Vis", "Aux.PInt_ValorAnterior",
+        "ALM",
+    ]
+    # tx_b_ops queda obsoleto post-DRY (Phase 5 ya no construye ops).
+    assert ctx.tx_b_ops == []
 
 
 @pytest.mark.asyncio
@@ -313,5 +316,7 @@ async def test_proc_open_transaction_degraded_when_export_fails() -> None:
     assert ctx.apply_preal_map == {"1": "Bomba 1"}
     assert ctx.apply_pint_map == {"1": "Param 1"}
     assert ctx.apply_alm_map == {"1": "Alarma 1"}
-    # El batch se envio igual.
-    assert ctx.tx_result["operations_executed"] == 2
+    # Sept-2026 DRY: el commit inline (Phase 5) se SKIP porque
+    # ``exports_param_dir`` quedo None. ``operations_executed=0``.
+    assert ctx.tx_result["operations_executed"] == 0
+    assert ctx.tx_result["details"] == []
