@@ -310,11 +310,16 @@ async def proc_open_transaction(ctx: ProcSyncContext) -> None:
     if param_modified and ctx.exports_param_dir is not None:
         # Copytree exports_bloques/<subpath> -> modified_bloques/<subpath>
         # para que TIA encuentre los archivos en la ruta que espera.
+        # IMPORTANTE: preservamos el subpath COMPLETO
+        # (p.ej. ``ZC_Plantillas/50010_ProcesoEstandar/53010_Parametros/``),
+        # NO solo el ultimo segmento. Si no, TIA Portal no encuentra
+        # los archivos y reporta "already exists" porque el archivo
+        # original sigue ahi.
         proc_ctx = build_cache(root=ctx.build_cache_root).procesos
         modified_dir = (
-            str(Path(proc_ctx.modified_bloques) / Path(ctx.exports_param_dir).name)
+            str(Path(proc_ctx.modified_bloques) / ctx.slot_map.param_subpath)
             if ctx.slot_map.param_subpath
-            else str(proc_ctx.modified_bloques / Path(ctx.exports_param_dir).name)
+            else str(proc_ctx.modified_bloques)
         )
         if Path(ctx.exports_param_dir).exists():
             Path(modified_dir).mkdir(parents=True, exist_ok=True)
@@ -335,9 +340,9 @@ async def proc_open_transaction(ctx: ProcSyncContext) -> None:
     if alm_modified and ctx.exports_alm_dir is not None:
         proc_ctx = build_cache(root=ctx.build_cache_root).procesos
         modified_dir = (
-            str(Path(proc_ctx.modified_bloques) / Path(ctx.exports_alm_dir).name)
+            str(Path(proc_ctx.modified_bloques) / ctx.slot_map.alm_subpath)
             if ctx.slot_map.alm_subpath
-            else str(proc_ctx.modified_bloques / Path(ctx.exports_alm_dir).name)
+            else str(proc_ctx.modified_bloques)
         )
         if Path(ctx.exports_alm_dir).exists():
             Path(modified_dir).mkdir(parents=True, exist_ok=True)

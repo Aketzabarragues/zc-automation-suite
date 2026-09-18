@@ -517,7 +517,11 @@ async def aplicar_comentarios(ctx: DispSyncContext) -> None:
         })
         ops_executed += 1
         total_reused += len(result.reused)
-        total_inserted += len(result.inserted)
+        # ``result.injected`` (no ``inserted``): el dataclass
+        # ``ArrayCommitResult`` (sept-2026 DRY) usa ``injected`` para
+        # slots NUEVOS. El dict ``to_dict()`` expone ``inserted`` (key
+        # legacy); aqui operamos sobre el dataclass directo.
+        total_inserted += len(result.injected)
         if modified:
             total_modified += 1
             # Import por DB si hubo cambios. TIA espera modified/.
