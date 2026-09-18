@@ -71,8 +71,7 @@ def make_cmd_update_disp_comments_db(hw_type: str) -> Callable[..., Any]:
 
         slot_map_int: dict[int, str] = {int(k): v for k, v in slot_map.items()}
 
-        from areas.alimentacion.helpers.simatic_sd.simatic_sd_db_array_comment_updater import (SimaticSDDbArrayCommentUpdater,
-        )
+        from core.helpers.simatic_sd import commit_array_comments
 
         s7dcl_path = SdPair(Path(work_dir), db_name).dcl
         s7res_path = SdPair(Path(work_dir), db_name).res
@@ -83,21 +82,20 @@ def make_cmd_update_disp_comments_db(hw_type: str) -> Callable[..., Any]:
             "target_dir": work_dir,
         }, tia_client)
 
-        updater = SimaticSDDbArrayCommentUpdater(
-            s7dcl_path=s7dcl_path,
-            s7res_path=s7res_path,
-            slot_map=slot_map_int,
+        # Sept-2026 DRY: helper transversal.
+        result = commit_array_comments(
+            s7dcl_path, s7res_path,
             array_name=db_array_name,
-            quote_array_name=True,
-            keep_slot0=True,
-            ensure_slot0_mlc=True,
-            satellite_arrays=set(),
-            registry=MLCRegistry(),
+            slot_map=slot_map_int,
+            array_type="Simple",  # disp usa slot 0 valido + comillas
+            write_to_original=True,
         )
-        result = updater.update()
-        updater.save()
 
-        if updater.was_modified():
+        modified = (
+            len(result.injected) + len(result.updated) + len(result.removed) > 0
+        )
+
+        if modified:
             tia_client._handlers["import_block"]({
                 "plc_name": plc_name,
                 "import_dir": work_dir,
@@ -107,12 +105,17 @@ def make_cmd_update_disp_comments_db(hw_type: str) -> Callable[..., Any]:
         return {
             "hw_type": hw_type,
             "db_name": db_name,
-            "modified": updater.was_modified(),
+            "modified": modified,
             "disp_comment_result": {
                 "reused": result.reused,
                 "inserted": result.inserted,
-                "no_usar_mlc": result.no_usar_mlc,
-                "total_mlcs_in_res": result.total_mlcs_in_res,
+                "no_usar_mlc": [],  # deprecado (sept-2026: helper nuevo no lo calcula)
+                "total_mlcs_in_res": (
+                    len(result.injected)
+                    + len(result.reused)
+                    + len(result.updated)
+                    + len(result.removed)
+                ),
             },
         }
 
@@ -459,9 +462,7 @@ def make_cmd_update_proc_comments_db_param() -> Callable[..., Any]:
             str(Path(work_dir) / db_subpath) if db_subpath else work_dir
         )
 
-        from areas.alimentacion.helpers.simatic_sd.simatic_sd_db_array_comment_updater import (SimaticSDDbArrayCommentUpdater,
-        )
-        from areas.alimentacion.helpers.simatic_sd.simatic_sd_mlc_registry import MLCRegistry
+        from core.helpers.simatic_sd import commit_array_comments
 
         s7dcl_path = SdPair(Path(effective_work_dir), db_name).dcl
         s7res_path = SdPair(Path(effective_work_dir), db_name).res
@@ -491,37 +492,41 @@ def make_cmd_update_proc_comments_db_param() -> Callable[..., Any]:
                 "target_dir": effective_work_dir,
             }, tia_client)
 
-        # 2. updater PReal.
+        # Sept-2026 DRY: helper transversal.
+        # TODO follow-up: integrar ``commit_proc_simplified`` para
+        # iterar los 6 arrays del PARAM + sus satellites (hoy solo
+        # PReal y PInt principal; satellites quedan en preview).
         preal_result = None
         preal_modified = False
         if preal_slot_map:
-            updater_preal = SimaticSDDbArrayCommentUpdater(
-                s7dcl_path=s7dcl_path,
-                s7res_path=s7res_path,
-                slot_map=preal_slot_map,
+            preal_result = commit_array_comments(
+                s7dcl_path, s7res_path,
                 array_name="PReal",
-                satellite_arrays=set(_PROC_SATELLITES["preal"]),
-                registry=MLCRegistry(),
+                slot_map=preal_slot_map,
+                array_type="UDT",
+                write_to_original=True,
             )
-            preal_result = updater_preal.update()
-            updater_preal.save()
-            preal_modified = updater_preal.was_modified()
+            preal_modified = (
+                len(preal_result.injected)
+                + len(preal_result.updated)
+                + len(preal_result.removed)
+            ) > 0
 
-        # 3. updater PInt (sobre el mismo archivo ya modificado por PReal).
         pint_result = None
         pint_modified = False
         if pint_slot_map:
-            updater_pint = SimaticSDDbArrayCommentUpdater(
-                s7dcl_path=s7dcl_path,
-                s7res_path=s7res_path,
-                slot_map=pint_slot_map,
+            pint_result = commit_array_comments(
+                s7dcl_path, s7res_path,
                 array_name="PInt",
-                satellite_arrays=set(_PROC_SATELLITES["pint"]),
-                registry=MLCRegistry(),
+                slot_map=pint_slot_map,
+                array_type="UDT",
+                write_to_original=True,
             )
-            pint_result = updater_pint.update()
-            updater_pint.save()
-            pint_modified = updater_pint.was_modified()
+            pint_modified = (
+                len(pint_result.injected)
+                + len(pint_result.updated)
+                + len(pint_result.removed)
+            ) > 0
 
         # 4. Un solo import_block si alguno modifico.
         any_modified = preal_modified or pint_modified
@@ -557,13 +562,12 @@ def _result_block(
     result: Any,
     modified: bool,
 ) -> dict[str, Any]:
-    """Empaqueta un ``CommentUpdateResult`` (o None) en dict JSON-safe.
+    """Empaqueta un ``ArrayCommitResult`` (o None) en dict JSON-safe.
 
     Cada PReal/PInt puede ser None si su slot_map estaba vacio.
-    Cuando ``result`` no es None, delega en ``result.to_dict()`` para
-    aplanar las tuplas ``(sat_array, slot)`` a string
-    ``"<sat>|<slot>"`` (unica fuente de verdad de la forma JSON,
-    sept-2026 DRY).
+    Cuando ``result`` no es None, delega en ``result.to_dict()``
+    (sept-2026 DRY: el dataclass es el mismo que el helper nuevo;
+    ``total_mlcs_in_res`` se calcula a partir de los slots tocados).
     """
     if result is None:
         return {
@@ -572,9 +576,23 @@ def _result_block(
             "satellite_reused": {}, "satellite_inserted": {},
             "total_mlcs_in_res": 0,
         }
-    out = result.to_dict()
-    out["modified"] = modified
-    return out
+    # El helper nuevo NO calcula satellites (TODO follow-up: usar
+    # ``commit_proc_simplified`` desde el FB para cubrirlos). Por
+    # compatibilidad con el JSON esperado por el router Flask,
+    # serializamos lo que tenemos.
+    return {
+        "modified": modified,
+        "reused": dict(result.reused),
+        "inserted": dict(result.inserted),
+        "satellite_reused": {},  # deprecado en sept-2026 DRY
+        "satellite_inserted": {},  # deprecado en sept-2026 DRY
+        "total_mlcs_in_res": (
+            len(result.injected)
+            + len(result.reused)
+            + len(result.updated)
+            + len(result.removed)
+        ),
+    }
 
 
 # ---------------------------------------------------------------------------
