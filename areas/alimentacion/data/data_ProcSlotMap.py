@@ -14,9 +14,6 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
-from areas.alimentacion.helpers.simatic_sd.simatic_sd_text_utils import (
-    strip_enclosing_quotes,
-)
 from core.runtime.app_state import AppState
 from core.infrastructure.config.config_manager import ConfigManager
 from core.infrastructure.tia.tia_export_paths import EMPTY_TEXT
@@ -181,7 +178,9 @@ def _build_slot_map(
     slot_map: dict[int, str] = {}
     for i, p in enumerate(filtered):
         comentario = str(getattr(p, "comentario_db", "") or "")
-        comentario = strip_enclosing_quotes(comentario)
+        # Sept-2026 DRY: ``strip_enclosing_quotes`` ya no es necesario
+        # porque el helper ``commit_array_comments`` normaliza
+        # internamente (regex maneja comillas envolventes).
         if not comentario.strip():
             _logger.warning(
                 f"Parametro sin comentario_db (Excel vacio); "
