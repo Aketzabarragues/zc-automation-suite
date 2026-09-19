@@ -249,8 +249,7 @@ def test_proc_compute_nmax_ops_uses_proc_table_path(tmp_path: Path) -> None:
     ctx.tags_base = preview_dir
 
     with patch(
-        "areas.alimentacion.helpers.xml.disp_tag_table_parser."
-        "SimaticMLTagParser.parse_user_constants",
+        "core.helpers.simatic_ml.PlcUserConstantParser.parse_user_constants",
         return_value={"100_N_MAX_PREAL": 5},
     ):
         from areas.alimentacion.helpers.proc.proc_sincronizar import (

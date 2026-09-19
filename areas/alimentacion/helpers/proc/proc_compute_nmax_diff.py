@@ -66,9 +66,7 @@ def proc_compute_nmax_diff(
             no existe en ``tags_base`` (preview no se ejecuto o tabla
             ausente en TIA).
     """
-    from areas.alimentacion.helpers.xml.disp_tag_table_parser import (
-        SimaticMLTagParser,
-    )
+    from core.helpers.simatic_ml import PlcUserConstantParser
 
     # ── Fail-fast ──
     if slot_map is None:
@@ -115,7 +113,7 @@ def proc_compute_nmax_diff(
 
     # ── Parse current ──
     try:
-        current: dict[str, int] = SimaticMLTagParser.parse_user_constants(
+        current: dict[str, int] = PlcUserConstantParser.parse_user_constants(
             xml_path
         )
     except Exception as e:

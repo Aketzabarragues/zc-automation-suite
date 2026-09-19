@@ -1,23 +1,16 @@
-﻿"""Modificadores XML para PlcTagTable (SimaticML).
+"""Modificador SimaticML para PlcUserConstant (Siemens TIA Scripting).
 
-Clases que clonan nodos ``<SW.Tags.PlcUserConstant>`` de una plantilla,
-actualizan las etiquetas de nombre/valor iterando sobre los dispositivos
-y guardan el resultado para importacion posterior via
-``import_plc_tags_xml``.
+Carga un XML SimaticML exportado, permite anadir / eliminar
+``<SW.Tags.PlcUserConstant>`` clonando de una plantilla, y guarda el
+resultado para importacion posterior via ``import_plc_tags_xml``.
+
+Convenciones del modelo PlcUserConstant:
+  - ``<Name>``    <-- ``plc_tag`` (texto, unico por tabla)
+  - ``<Value>``   <-- ``uid`` del Excel o dimension N_MAX (entero)
+  - ``<Comment>`` <-- descripcion humana (multilingual es-ES)
 
 Restriccion arquitectonica: este modulo es OFFLINE; no importa
 ``siemens_tia_scripting``. Usa exclusivamente ``xml.etree.ElementTree``.
-
-Refactor obligatorio: las busquedas XPath NO usan diccionarios de
-namespaces hardcoded; se apoyan en la sintaxis de comodin ``{*}``
-introducida en Python 3.8 para ser inmunes a cambios de version del
-esquema SimaticML de Siemens.
-
-Convencion de mapeo UID (via IT):
-    TIA Portal PlcUserConstant tiene dos slots clave: ``Name`` (que
-    contiene el ``plc_tag``) y ``Value`` (que contiene el ``uid`` del
-    Excel o el valor N_MAX). El motor diff IT/OT se apoya en esa
-    separacion natural; no hay hackeos de campos compartidos.
 """
 from __future__ import annotations
 
@@ -28,21 +21,30 @@ from typing import Any, cast
 
 # Asegura que ``Logger.web/ok`` existen tambien fuera del arranque.
 from core.infrastructure.log_web_bridge import install_web_level
+
+from core.helpers.simatic_ml.simatic_ml_constants import (
+    COMMENT_TAG,
+    NAME_TAG,
+    USER_CONSTANT_TAG,
+    VALUE_TAG,
+)
+
 install_web_level()
 
 _logger = logging.getLogger(__name__)
 
 
-# Wildcards XPath. ``{*}`` = cualquier namespace; evita acoplarse a la
-# version concreta del esquema (p. ej. ``http://www.siemens.com/...``).
-_PLC_USER_CONSTANT = "{*}SW.Tags.PlcUserConstant"
-_NAME_TAG = "{*}Name"
-_COMMENT_TAG = "{*}Comment"
-_VALUE_TAG = "{*}Value"
+class PlcUserConstantModifier:
+    """Carga un XML SimaticML y permite mutar PlcUserConstants.
 
+    Inyeccion idempotente: si un PlcUserConstant con el mismo
+    ``<Name>`` ya existe, no se vuelve a insertar.
 
-class XMLModifier:
-    """Clase base: carga un XML SimaticML y permite guardarlo."""
+    Convenciones:
+      - ``Name``    <-- ``dispositivo.plc_tag``
+      - ``Value``   <-- ``dispositivo.uid`` (mapeo IT para diff)
+      - ``Comment`` <-- descripcion humana opcional
+    """
 
     def __init__(self, xml_path: str | Path) -> None:
         self._path = Path(xml_path)
@@ -70,68 +72,12 @@ class XMLModifier:
         """Devuelve ``True`` si add/remove mutaron el DOM."""
         return self._modified
 
-
-class TagTableModifier(XMLModifier):
-    """Modifica una PlcTagTable XML clonando nodos ``<{*}SW.Tags.PlcTag>``.
-
-    La inyeccion es **idempotente**: si un PlcTag con el mismo nombre
-    (``{*}Name``) ya existe, no se vuelve a insertar.
-
-    Convenciones:
-      - ``Name`` <-- ``dispositivo.plc_tag``
-      - ``Comment`` <-- ``dispositivo.uid`` (mapeo IT para diff)
-    """
-
-    def read_user_constants_with_uids(self) -> dict[str, str]:
-        """Itera PlcUserConstant del XML y devuelve ``{value_str: plc_tag}``.
-
-        Diferencia clave con ``read_tags_with_uids``:
-          - PlcUserConstant tiene ``<Value>`` (slot numǸrico) y ``<Name>`` (plc_tag).
-          - PlcTag tiene ``<Name>`` y ``<Comment>`` (uid textual).
-
-        PlcUserConstant es el tipo que almacena N_MAX y los dispositivos
-        PlcTag son las variables de instancia. Para el diff de constantes
-        usamos el ``<Value>`` (que coincide con ``numero`` del Excel).
-
-        Returns:
-            ``dict[str, str]`` con pares ``{value_str: plc_tag}`` (uno por
-            PlcUserConstant). Solo incluye constantes casteables a int.
-        """
-        result: dict[str, str] = {}
-        _USER_CONST_TAG = "{*}SW.Tags.PlcUserConstant"
-        for const in self._root.findall(f".//{_USER_CONST_TAG}"):
-            # FIX: usar ``.//`` (recursivo) porque <Name> y <Value> estǭn
-            # dentro de <AttributeList>, no como hijos directos.
-            name_el = const.find(f".//{_NAME_TAG}")
-            value_el = const.find(f".//{{*}}Value")
-            if name_el is None or value_el is None:
-                continue
-            name = (name_el.text or "").strip()
-            value = (value_el.text or "").strip()
-            if not name or not value:
-                continue
-            try:
-                int(value)
-            except ValueError:
-                continue
-            result[value] = name
-        return result
-    def _find_parent_of(
-        self, target: ET.Element
-    ) -> ET.Element | None:
-        """Busca el elemento padre de ``target`` recorriendo el arbol."""
-        for parent in self._root.iter():
-            for child in list(parent):
-                if child is target:
-                    return parent
-        return None
-
     # =================================================================
     # PlcUserConstant: add/remove para N_MAX y devices
     # =================================================================
     #
     # Los devices y N_MAX viven como PlcUserConstant en las tag tables
-    # (p. ej. 2000_Disp_ED, 000_Config_Dispositivos). El esquema es:
+    # (p.ej. 2000_Disp_ED, 000_Config_Dispositivos). El esquema es:
     #   <SW.Tags.PlcUserConstant ID="...">
     #     <AttributeList>
     #       <Name>...</Name>           (plc_tag)
@@ -139,23 +85,17 @@ class TagTableModifier(XMLModifier):
     #       <Value>5</Value>           (uid / dimension)
     #     </AttributeList>
     #   </SW.Tags.PlcUserConstant>
-    #
-    # A diferencia de PlcTag (que usaba Comment para el uid), PlcUserConstant
-    # tiene Value para el uid y Name para el plc_tag. Este es el unico
-    # modelo vigente: el codigo PlcTag-era (add_tags / add_tags_by_table /
-    # remove_tags / read_tags_with_uids) fue eliminado por obsolescencia
-    # tras el cambio a PlcUserConstant para devices y N_MAX.
 
     def _find_template_user_constant(self) -> ET.Element | None:
-        """Devuelve el primer ``{*}SW.Tags.PlcUserConstant`` como plantilla."""
-        tags = self._root.findall(f".//{_PLC_USER_CONSTANT}")
+        """Devuelve el primer PlcUserConstant del documento como plantilla."""
+        tags = self._root.findall(f".//{USER_CONSTANT_TAG}")
         return tags[0] if tags else None
 
     def _existing_user_constant_names(self) -> set[str]:
-        """Devuelve el conjunto de ``{*}Name`` ya presentes en PlcUserConstants."""
+        """Devuelve el conjunto de ``<Name>`` ya presentes."""
         result: set[str] = set()
-        for const in self._root.findall(f".//{_PLC_USER_CONSTANT}"):
-            name_el = const.find(f".//{_NAME_TAG}")
+        for const in self._root.findall(f".//{USER_CONSTANT_TAG}"):
+            name_el = const.find(f".//{NAME_TAG}")
             if name_el is not None and name_el.text:
                 result.add(name_el.text.strip())
         return result
@@ -165,7 +105,11 @@ class TagTableModifier(XMLModifier):
         table_name: str,
         dispositivos: list[dict[str, str]],
     ) -> int:
-        """Anade PlcUserConstants a la tabla (PlcTagTable) cuyo stem coincide con ``table_name``.
+        """Anade PlcUserConstants a la tabla cuyo stem coincide con ``table_name``.
+
+        Convencion: el archivo XML se llama igual que la tabla TIA
+        (p.ej. ``2000_Disp_ED.xml`` para la tabla ``2000_Disp_ED``).
+        Si el stem no coincide, no se hace nada (devuelve 0).
 
         Cada dict debe contener ``plc_tag`` (el Name) y ``uid`` (el Value).
         ``comment`` es opcional (default: vacio).
@@ -175,16 +119,17 @@ class TagTableModifier(XMLModifier):
         """
         stem_match = self._path.stem == table_name
         _logger.debug(
-            f"TagTableModifier.add_user_constants_by_table: table={table_name!r} "
-            f"({len(dispositivos)} disp, stem_match={stem_match}, file={self._path.name})"
+            f"PlcUserConstantModifier.add_user_constants_by_table: "
+            f"table={table_name!r} ({len(dispositivos)} disp, "
+            f"stem_match={stem_match}, file={self._path.name})"
         )
         if not stem_match:
             return 0
         template = self._find_template_user_constant()
         if template is None:
             _logger.warning(
-                f"TagTableModifier: no template PlcUserConstant encontrado "
-                f"en '{self._path.name}', 0 anadidos"
+                f"PlcUserConstantModifier: no template PlcUserConstant "
+                f"encontrado en '{self._path.name}', 0 anadidos"
             )
             return 0
         existing_names = self._existing_user_constant_names()
@@ -210,10 +155,10 @@ class TagTableModifier(XMLModifier):
             )
             self._renumber_ids(new_const, start=max_id + 1)
             max_id += ids_in_subtree
-            name_el = new_const.find(f".//{_NAME_TAG}")
+            name_el = new_const.find(f".//{NAME_TAG}")
             if name_el is not None:
                 name_el.text = name
-            value_el = new_const.find(f".//{_VALUE_TAG}")
+            value_el = new_const.find(f".//{VALUE_TAG}")
             if value_el is not None:
                 value_el.text = value_str
             if comment:
@@ -224,7 +169,7 @@ class TagTableModifier(XMLModifier):
         if added > 0:
             self._modified = True
         _logger.debug(
-            f"TagTableModifier: +{added} anadidos en '{table_name}' "
+            f"PlcUserConstantModifier: +{added} anadidos en '{table_name}' "
             f"(de {len(dispositivos)} solicitados)"
         )
         return added
@@ -275,7 +220,7 @@ class TagTableModifier(XMLModifier):
                 next_id += 1
 
     def remove_user_constants(self, uids_to_remove: set[str]) -> int:
-        """Elimina PlcUserConstants cuyo ``Value`` esta en ``uids_to_remove``.
+        """Elimina PlcUserConstants cuyo ``<Value>`` esta en ``uids_to_remove``.
 
         Returns:
             Numero de PlcUserConstants eliminados.
@@ -283,12 +228,12 @@ class TagTableModifier(XMLModifier):
         if not uids_to_remove:
             return 0
         _logger.debug(
-            f"TagTableModifier.remove_user_constants: {len(uids_to_remove)} uids a eliminar "
-            f"de '{self._path.name}'"
+            f"PlcUserConstantModifier.remove_user_constants: "
+            f"{len(uids_to_remove)} uids a eliminar de '{self._path.name}'"
         )
         removed = 0
-        for const in list(self._root.findall(f".//{_PLC_USER_CONSTANT}")):
-            value_el = const.find(f".//{_VALUE_TAG}")
+        for const in list(self._root.findall(f".//{USER_CONSTANT_TAG}")):
+            value_el = const.find(f".//{VALUE_TAG}")
             if value_el is None or value_el.text is None:
                 continue
             if value_el.text.strip() not in uids_to_remove:
@@ -300,8 +245,8 @@ class TagTableModifier(XMLModifier):
         if removed > 0:
             self._modified = True
         _logger.debug(
-            f"TagTableModifier: -{removed} eliminados de '{self._path.name}' "
-            f"(de {len(uids_to_remove)} solicitados)"
+            f"PlcUserConstantModifier: -{removed} eliminados de "
+            f"'{self._path.name}' (de {len(uids_to_remove)} solicitados)"
         )
         return removed
 
@@ -315,7 +260,7 @@ class TagTableModifier(XMLModifier):
         self, const: ET.Element, text: str
     ) -> None:
         """Inyecta la estructura canonica Siemens MultilingualText como Comment."""
-        comment_local_name = _COMMENT_TAG.split("}", 1)[-1]
+        comment_local_name = COMMENT_TAG.split("}", 1)[-1]
         comment_el = const.find(comment_local_name)
         if comment_el is None:
             comment_el = ET.SubElement(const, comment_local_name)
@@ -338,7 +283,7 @@ class TagTableModifier(XMLModifier):
 
     def _append_after_last_user_constant(self, new_const: ET.Element) -> None:
         """Inserta ``new_const`` tras el ultimo PlcUserConstant hermano si existe."""
-        consts = self._root.findall(f".//{_PLC_USER_CONSTANT}")
+        consts = self._root.findall(f".//{USER_CONSTANT_TAG}")
         last = consts[-1] if consts else None
         if last is not None and last is not new_const:
             parent = self._find_parent_of(last)
@@ -348,54 +293,12 @@ class TagTableModifier(XMLModifier):
                 return
         self._root.append(new_const)
 
-    # =================================================================
-    # PlcTagTable root ID: regeneracion para evitar "Create... exists"
-    # =================================================================
-    #
-    # TIA Portal exporta siempre la PlcTagTable raiz con ``ID="0"``
-    # (placeholder generico, no el ID real en el proyecto). Al
-    # re-importar el XML, TIA V21 ve ese ID="0" e intenta CREAR una
-    # tabla nueva en lugar de actualizar la existente, fallando con:
-    #     "Cannot create the 'SW.Tags.PlcTagTable' object with
-    #      Simatic ML ID '0' at line number 4 ... An attempt was made
-    #      to create an object that already exists."
-    #
-    # Solucion: regenerar el ID de la PlcTagTable raiz a un valor
-    # unico MUY ALTO (``max_id + 0x10000``) que no choque con ningun
-    # ID del proyecto TIA. TIA V21 detecta que ese ID no existe en
-    # el proyecto, importa la tabla, y luego reconcilia por nombre
-    # (mecanismo estandar de PlcTagTableComposition.Import). El
-    # resultado: UPDATE de la tabla existente, no CREATE.
-
-    _ROOT_ID_OFFSET = 0x10000  # 65536, holgura para evitar colision
-
-    def regenerate_root_table_id(self) -> str | None:
-        """.. deprecated::
-            NO LLAMAR. Cambiar el ID de la ``PlcTagTable`` raiz de `` ``0`` ``
-            a un valor alto (``max_id + 0x10000``) hace que TIA Portal V21
-            interprete el import como CREATE (no UPDATE) y reviente con::
-
-                OpennessAccessException: Commit of a Transaction is not
-                allowed after an exception is thrown due to potential
-                project data corruption.
-
-            El root debe mantener su ID original (``0`` o el que TIA
-            asigno al exportar). Sin esta llamada, el import de la
-            PlcTagTable funciona correctamente. El metodo se conserva
-            solo por compat con codigo antiguo.
-
-            Si necesitas regenerar IDs para evitar colision en algun
-            flujo futuro, escribe un nuevo metodo especifico con el
-            contexto validado contra TIA V21+.
-        """
-        _PLC_TAG_TABLE = "{*}SW.Tags.PlcTagTable"
-        table = self._root.find(f".//{_PLC_TAG_TABLE}")
-        if table is None:
-            return None
-        max_id = self._max_id_in_doc()
-        new_id_int = max_id + self._ROOT_ID_OFFSET
-        new_id = f"{new_id_int:X}"  # hex mayuscula, formato Siemens
-        old_id = table.get("ID")
-        table.set("ID", new_id)
-        self._modified = True
-        return new_id
+    def _find_parent_of(
+        self, target: ET.Element
+    ) -> ET.Element | None:
+        """Busca el elemento padre de ``target`` recorriendo el arbol."""
+        for parent in self._root.iter():
+            for child in list(parent):
+                if child is target:
+                    return parent
+        return None

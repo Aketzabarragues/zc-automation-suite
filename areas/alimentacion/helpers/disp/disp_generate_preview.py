@@ -328,9 +328,7 @@ def _extract_nmax_diff(
     que siempre existen en TIA (las 6 dimensiones: ED, EA, SA, V, M,
     M_VF). No se crean ni eliminan: solo se modifica su valor.
     """
-    from areas.alimentacion.helpers.xml.disp_tag_table_parser import (
-        SimaticMLTagParser,
-    )
+    from core.helpers.simatic_ml import PlcUserConstantParser
 
     nmax_folder = config_manager.get_tia_folder_nmax()
     nmax_table = config_manager.get_global_config_table_name()
@@ -339,7 +337,7 @@ def _extract_nmax_diff(
     current: dict[str, int] = {}
     if xml_path.is_file():
         try:
-            current = SimaticMLTagParser.parse_user_constants(xml_path)
+            current = PlcUserConstantParser.parse_user_constants(xml_path)
         except Exception as e:
             logger.error(f"[N_MAX] Parse FAIL {xml_path}: {e}")
     else:
@@ -395,9 +393,7 @@ def _compute_diff_readonly(
 ]:
     """Calcula el diff de devices en modo read-only (no modifica XML)."""
     from core.infrastructure.tia.tia_export_paths import XmlTarget
-    from areas.alimentacion.helpers.xml.disp_tag_table_modifier import (
-        TagTableModifier,
-    )
+    from core.helpers.simatic_ml import PlcUserConstantModifier
 
     base_state_per_table: dict[str, dict[str, str]] = {}
     for table_key in desired_state_per_table.keys():
@@ -405,7 +401,7 @@ def _compute_diff_readonly(
             xml_path = XmlTarget(tags_base, table_key).path
         except FileNotFoundError:
             continue
-        modifier = TagTableModifier(xml_path)
+        modifier = PlcUserConstantModifier(xml_path)
         table_constants: dict[str, str] = {}
         for value_str, plc_tag in (
             modifier.read_user_constants_with_uids().items()

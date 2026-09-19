@@ -18,7 +18,7 @@ Las 11 funciones siguen el orden del legacy:
                                        (online puro, abre/cierra su tx TIA).
   5.  ``wait_consolidation``       -> sleep 2s para que TIA consolide.
   6.  ``exportar_post_tx_a``       -> releer XMLs post-Tx A.
-  7.  ``editar_xmls_offline``      -> TagTableModifier sobre los XMLs.
+  7.  ``editar_xmls_offline``      -> PlcUserConstantModifier sobre los XMLs.
   8.  ``tx_b_devices``             -> dispatch ``commit_disp_devices_offline``
                                        (offline puro, abre/cierra su tx TIA).
   9.  ``compilar_bloques``         -> dispatch ``compile_blocks`` (fuera de tx).
@@ -203,7 +203,7 @@ async def preparar_ops(ctx: DispSyncContext) -> None:
             if uid in ctx.desired_state_per_table[table_key]
         ]
         # ``removes`` debe ser lista de strings (uids), NO lista de dicts:
-        # ``TagTableModifier.remove_user_constants`` espera ``set[str]``.
+        # ``PlcUserConstantModifier.remove_user_constants`` espera ``set[str]``.
         # ``adds`` si es lista de dicts (``{"uid", "plc_tag"}``) porque
         # ``add_user_constants_by_table`` los desempaqueta como name+value.
         removes = list(ctx.removed_per_table.get(table_key, []))
@@ -625,9 +625,7 @@ def _compute_nmax_ops_for_apply(
         "new_value": int}]`` lista para el dispatch al handler
         ``commit_user_constants_online``.
     """
-    from areas.alimentacion.helpers.xml.disp_tag_table_parser import (
-        SimaticMLTagParser,
-    )
+    from core.helpers.simatic_ml import PlcUserConstantParser
 
     nmax_folder = config_manager.get_tia_folder_nmax()
     nmax_table = config_manager.get_global_config_table_name()
@@ -636,7 +634,7 @@ def _compute_nmax_ops_for_apply(
     current: dict[str, int] = {}
     if xml_path.is_file():
         try:
-            current = SimaticMLTagParser.parse_user_constants(xml_path)
+            current = PlcUserConstantParser.parse_user_constants(xml_path)
         except Exception as e:
             logger.error(f"[N_MAX] Parse FAIL {xml_path}: {e}")
 
@@ -706,9 +704,7 @@ def _copy_and_edit_offline(
     los N_MAX de Tx A.
     """
     from areas.alimentacion.helpers.build_cache import build_cache
-    from areas.alimentacion.helpers.xml.disp_tag_table_modifier import (
-        TagTableModifier,
-    )
+    from core.helpers.simatic_ml import PlcUserConstantModifier
 
     disp_ctx = build_cache(root=build_cache_root).dispositivos
     device_table_names = {dc["table_name"] for dc in device_changes}
@@ -743,7 +739,7 @@ def _copy_and_edit_offline(
             if matches:
                 xml_path = matches[0]
         if xml_path.is_file():
-            modifier = TagTableModifier(xml_path)
+            modifier = PlcUserConstantModifier(xml_path)
             modifier.add_user_constants_by_table(table_name, adds)
             modifier.remove_user_constants(removes)
             # NO llamamos ``modifier.regenerate_root_table_id()``:

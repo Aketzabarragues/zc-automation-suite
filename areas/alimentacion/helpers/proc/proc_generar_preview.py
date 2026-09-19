@@ -176,7 +176,7 @@ async def proc_compute_nmax(ctx: ProcPreviewContext) -> None:
     Compara el desired (de ``DataProcSlotMap.nmax``, ``len()`` de las
     listas filtradas del Excel) contra el current (exportando la
     tabla del proceso con ``tia_client.export_plc_tags_xml`` y
-    parseando con ``SimaticMLTagParser.parse_user_constants``).
+    parseando con ``PlcUserConstantParser.parse_user_constants``).
 
     Mismo shape que el ``nmax_block`` de Dispositivos:
     ``{"current", "desired", "todos", "summary"}``.
@@ -197,9 +197,7 @@ async def proc_compute_nmax(ctx: ProcPreviewContext) -> None:
         return
 
     from areas.alimentacion.helpers.build_cache import build_cache
-    from areas.alimentacion.helpers.xml.disp_tag_table_parser import (
-        SimaticMLTagParser,
-    )
+    from core.helpers.simatic_ml import PlcUserConstantParser
     from core.infrastructure.tia.tia_export_paths import XmlTarget
 
     target_dir = build_cache(root=ctx.build_cache_root).procesos.preview_variables
@@ -220,7 +218,7 @@ async def proc_compute_nmax(ctx: ProcPreviewContext) -> None:
         )
         try:
             xml_path = XmlTarget(target_dir, table_name).path
-            current = SimaticMLTagParser.parse_user_constants(xml_path)
+            current = PlcUserConstantParser.parse_user_constants(xml_path)
         except FileNotFoundError:
             logger.warning(
                 f"[N_MAX procesos] XML esperado no encontrado en "

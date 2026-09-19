@@ -54,8 +54,7 @@ def _write_xml(tags_base: Path, table_name: str, content: str = "<root/>"):
 
 def _patch_parser_returning(values: dict[str, int]):
     return patch(
-        "areas.alimentacion.helpers.xml.disp_tag_table_parser."
-        "SimaticMLTagParser.parse_user_constants",
+        "core.helpers.simatic_ml.PlcUserConstantParser.parse_user_constants",
         return_value=values,
     )
 
@@ -320,8 +319,8 @@ def test_proc_compute_nmax_diff_raises_on_parse_error(
         proc_compute_nmax_diff,
     )
     with patch(
-        "areas.alimentacion.helpers.xml.disp_tag_table_parser."
-        "SimaticMLTagParser.parse_user_constants",
+        "core.helpers.simatic_ml.PlcUserConstantParser.parse_user_constants",
         side_effect=RuntimeError("XML corrupto"),
     ), pytest.raises(RuntimeError, match="parseo de"):
         proc_compute_nmax_diff(tags_base, proc_uid=100, slot_map=sm)
+
