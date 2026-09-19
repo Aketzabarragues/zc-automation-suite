@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -93,61 +94,74 @@ def upload_excel():
         f"({tmp_path.stat().st_size} bytes)..."
     )
 
-    # ── 2. Arrancar el FB ──
-    fb = _get_fb("subir_excel")
-    if fb is None:
-        return jsonify({
-            "ok": False,
-            "error": "FB 'subir_excel' no registrado en el engine",
-        }), 500
+    # Cleanup garantizado al final de CUALQUIER camino (normal, FB
+    # fallo, timeout, excepcion). ``delete=False`` es necesario porque
+    # el archivo se lee fuera del bloque ``with tempfile`` (el FB se
+    # ejecuta con el path), pero tenemos que borrarlo manualmente al
+    # terminar para no ensuciar el %TEMP% de Windows.
+    try:
+        # ── 2. Arrancar el FB ──
+        fb = _get_fb("subir_excel")
+        if fb is None:
+            return jsonify({
+                "ok": False,
+                "error": "FB 'subir_excel' no registrado en el engine",
+            }), 500
 
-    started = asyncio.run(fb.start(xlsx_path=str(tmp_path)))
-    if not started:
-        return jsonify({
-            "ok": False,
-            "error": "FB 'subir_excel' ya activo o terminal. "
-                     "Haz /disconnect y reintenta.",
-        }), 409
+        started = asyncio.run(fb.start(xlsx_path=str(tmp_path)))
+        if not started:
+            return jsonify({
+                "ok": False,
+                "error": "FB 'subir_excel' ya activo o terminal. "
+                         "Haz /disconnect y reintenta.",
+            }), 409
 
-    # ── 3. Esperar al resultado (poll bloqueante) ──
-    # El engine tickea el FB cada 100ms. Esperamos a que entre en
-    # estado terminal (done/error), con timeout = STEP_TIMEOUT_S del FB.
-    poll_interval_s = 0.05  # 50ms
-    import time
-    elapsed = 0.0
-    fb_step_timeout = getattr(fb, "STEP_TIMEOUT_S", 30.0)
-    while not fb.is_terminal() and elapsed < fb_step_timeout:
-        time.sleep(poll_interval_s)
-        elapsed += poll_interval_s
+        # ── 3. Esperar al resultado (poll bloqueante) ──
+        # El engine tickea el FB cada 100ms. Esperamos a que entre en
+        # estado terminal (done/error), con timeout = STEP_TIMEOUT_S del FB.
+        poll_interval_s = 0.05  # 50ms
+        import time
+        elapsed = 0.0
+        fb_step_timeout = getattr(fb, "STEP_TIMEOUT_S", 30.0)
+        while not fb.is_terminal() and elapsed < fb_step_timeout:
+            time.sleep(poll_interval_s)
+            elapsed += poll_interval_s
 
-    # ── 4. Devolver el resultado ──
-    if not fb.is_terminal():
-        # Timeout: cancelar el FB para no dejarlo colgado.
-        fb.cancel("timeout en /api/v1/excel/upload")
-        return jsonify({
-            "ok": False,
-            "error": f"timeout tras {fb_step_timeout:.1f}s sin terminar",
-        }), 504
+        # ── 4. Devolver el resultado ──
+        if not fb.is_terminal():
+            # Timeout: cancelar el FB para no dejarlo colgado.
+            fb.cancel("timeout en /api/v1/excel/upload")
+            return jsonify({
+                "ok": False,
+                "error": f"timeout tras {fb_step_timeout:.1f}s sin terminar",
+            }), 504
 
-    if fb.nStep == fb.n_error:
-        return jsonify({
-            "ok": False,
-            "error": fb.error_msg or "FB termino en error",
-            "nStep": fb.nStep,
-        }), 500
+        if fb.nStep == fb.n_error:
+            return jsonify({
+                "ok": False,
+                "error": fb.error_msg or "FB termino en error",
+                "nStep": fb.nStep,
+            }), 500
 
-    result = fb.result or {"ok": True}
-    # OK con resumen completo: dispositivos + software + N_MAX.
-    sw = (result.get("software") or {}) if isinstance(result, dict) else {}
-    logger.ok(
-        f"Excel cargado: {result.get('total_dispositivos', 0)} disp + "
-        f"{sw.get('procesos', 0)} proc + "
-        f"{sw.get('preal', 0)} preal + "
-        f"{sw.get('pint', 0)} pint + "
-        f"{sw.get('alarmas', 0)} alm + "
-        f"{sw.get('n_max_total', 0)} N_MAX"
-    )
-    return jsonify(result)
+        result = fb.result or {"ok": True}
+        # OK con resumen completo: dispositivos + software + N_MAX.
+        sw = (result.get("software") or {}) if isinstance(result, dict) else {}
+        logger.ok(
+            f"Excel cargado: {result.get('total_dispositivos', 0)} disp + "
+            f"{sw.get('procesos', 0)} proc + "
+            f"{sw.get('preal', 0)} preal + "
+            f"{sw.get('pint', 0)} pint + "
+            f"{sw.get('alarmas', 0)} alm + "
+            f"{sw.get('n_max_total', 0)} N_MAX"
+        )
+        return jsonify(result)
+    finally:
+        # Cleanup garantizado del tempfile. ``missing_ok=True`` por si
+        # ya fue borrado o nunca se llego a crear el archivo fisico.
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
 
 
 def build_routers(app) -> None:
