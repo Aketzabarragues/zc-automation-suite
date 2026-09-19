@@ -301,9 +301,19 @@ async def proc_export_and_diff(ctx: ProcPreviewContext) -> None:
         logger.warning(ctx.export_error)
         return
 
+    # Separamos export/read de PARAM y de ALM para distinguir:
+    #   - ambos OK: parse normal
+    #   - uno falla: warning + seguimos con el otro (modo degradado)
+    #   - ambos fallan: ctx.export_error poblado (modo error)
+    param_error: str | None = None
+    alm_error: str | None = None
+    dcl_param_text = ""
+    res_param_text = ""
+    dcl_alm_text = ""
+    res_alm_text = ""
+
+    # 1a. Export + read DB_PARAM.
     try:
-        # 1. Exportar los 2 DBs (secuencial; export_block no es
-        # thread-safe a nivel del wrapper .NET).
         await dispatch_async(
             ctx.tia_client,
             "export_block",
@@ -314,6 +324,19 @@ async def proc_export_and_diff(ctx: ProcPreviewContext) -> None:
             },
             timeout_s=120.0,
         )
+        dcl_param_path = SdPair(work_dir, ctx.slot_map.db_param_name).dcl
+        res_param_path = SdPair(work_dir, ctx.slot_map.db_param_name).res
+        dcl_param_text = dcl_param_path.read_text(encoding="utf-8-sig") \
+            if dcl_param_path.exists() else ""
+        res_param_text = res_param_path.read_text(encoding="utf-8-sig") \
+            if res_param_path.exists() else ""
+        if not dcl_param_text or not res_param_text:
+            param_error = f"export OK pero archivos vacios para {ctx.slot_map.db_param_name}"
+    except Exception as exc:
+        param_error = f"export/parse {ctx.slot_map.db_param_name}: {exc}"
+
+    # 1b. Export + read DB_ALM.
+    try:
         await dispatch_async(
             ctx.tia_client,
             "export_block",
@@ -324,28 +347,48 @@ async def proc_export_and_diff(ctx: ProcPreviewContext) -> None:
             },
             timeout_s=120.0,
         )
-
-        # 2. Leer los comentarios actuales de cada array. Creamos 2
-        # updaters en modo solo-lectura (sin slot_map ni satellite_arrays).
-        # Solo usamos ``find_array_slots`` para saber que existen en
-        # el .s7dcl exportado y ``read_current_comments`` para su
-        # texto ``es-ES`` actual (usado por la preview / diff).
-        # migrado al helper transversal (sin
-        # SimaticSDDbArrayCommentUpdater viejo).
-        dcl_param_path = SdPair(work_dir, ctx.slot_map.db_param_name).dcl
-        res_param_path = SdPair(work_dir, ctx.slot_map.db_param_name).res
         dcl_alm_path = SdPair(work_dir, ctx.slot_map.db_alm_name).dcl
         res_alm_path = SdPair(work_dir, ctx.slot_map.db_alm_name).res
-
-        dcl_param_text = dcl_param_path.read_text(encoding="utf-8-sig") \
-            if dcl_param_path.exists() else ""
-        res_param_text = res_param_path.read_text(encoding="utf-8-sig") \
-            if res_param_path.exists() else ""
         dcl_alm_text = dcl_alm_path.read_text(encoding="utf-8-sig") \
             if dcl_alm_path.exists() else ""
         res_alm_text = res_alm_path.read_text(encoding="utf-8-sig") \
             if res_alm_path.exists() else ""
+        if not dcl_alm_text or not res_alm_text:
+            alm_error = f"export OK pero archivos vacios para {ctx.slot_map.db_alm_name}"
+    except Exception as exc:
+        alm_error = f"export/parse {ctx.slot_map.db_alm_name}: {exc}"
 
+    # 2. Decidir que reportar segun cuantos DBs fallaron.
+    if param_error and alm_error:
+        # Ambos fallaron: error. El operario debe investigar.
+        logger.error(
+            f"proc_export_and_diff: ambos DBs fallaron. "
+            f"PARAM={param_error!r}; ALM={alm_error!r}"
+        )
+        ctx.preal_current = None
+        ctx.pint_current = None
+        ctx.alm_current = None
+        ctx.export_error = f"PARAM: {param_error}; ALM: {alm_error}"
+        return
+
+    if param_error:
+        logger.warning(
+            f"proc_export_and_diff: solo DB_PARAM fallo "
+            f"({param_error}). Sigo con ALM."
+        )
+        ctx.preal_current = None
+        ctx.pint_current = None
+        # ALM: parsear abajo.
+    if alm_error:
+        logger.warning(
+            f"proc_export_and_diff: solo DB_ALM fallo "
+            f"({alm_error}). Sigo con PARAM."
+        )
+        ctx.alm_current = None
+        # PARAM: parsear abajo.
+
+    # 3. Parsear comentarios de los DBs que NO fallaron.
+    if not param_error:
         # Slots a leer: los del Excel + los que tienen asignacion
         # en el ``.s7dcl`` (slots de TIA no en el Excel -> "eliminar"
         # en el preview). Si el ``.s7dcl`` no existe, ``find_array_slots``
@@ -358,10 +401,6 @@ async def proc_export_and_diff(ctx: ProcPreviewContext) -> None:
             set(ctx.slot_map.pint.keys())
             | find_array_slots(dcl_param_text, "PInt", "UDT")
         )
-        alm_slots = (
-            set(ctx.slot_map.alm.keys())
-            | find_array_slots(dcl_alm_text, "ALM", "Simple")
-        )
         ctx.preal_current = read_current_comments(
             res_param_text, "PReal", sorted(preal_slots),
             dcl_param_text, "UDT",
@@ -370,20 +409,17 @@ async def proc_export_and_diff(ctx: ProcPreviewContext) -> None:
             res_param_text, "PInt", sorted(pint_slots),
             dcl_param_text, "UDT",
         )
+    if not alm_error:
+        alm_slots = (
+            set(ctx.slot_map.alm.keys())
+            | find_array_slots(dcl_alm_text, "ALM", "Simple")
+        )
         ctx.alm_current = read_current_comments(
             res_alm_text, "ALM", sorted(alm_slots),
             dcl_alm_text, "Simple",
         )
-        ctx.export_error = None
-    except Exception as exc:
-        logger.warning(
-            f"proc_export_and_diff fallo: {exc}. Devolviendo "
-            f"current=None para todos los slots."
-        )
-        ctx.preal_current = None
-        ctx.pint_current = None
-        ctx.alm_current = None
-        ctx.export_error = str(exc)
+
+    ctx.export_error = None
 
 
 def proc_compose_response(ctx: ProcPreviewContext) -> None:
