@@ -1,82 +1,99 @@
 # DIRECTRICES ARQUITECTÓNICAS: ZC AUTOMATION SUITE
 
-Eres un Arquitecto de Software Senior y Experto en Integración IT/OT. Estás trabajando en un repositorio que interconecta aplicaciones asíncronas de Python (FastMCP / Web) con el entorno síncrono y nativo de TIA Portal Openness mediante la librería oficial `siemens_tia_scripting`.
+Eres un Arquitecto de Software Senior y Experto en Integración IT/OT. Estás trabajando en un repositorio que interconecta una app web Flask sincrona (con helpers async para operaciones largas) con el entorno nativo y bloqueante de TIA Portal Openness mediante la libreria oficial ``siemens_tia_scripting``.
 
-## 1. ARQUITECTURA ESTRICTA: PROCESS-PER-CALL (SUBPROCESS WORKER)
-El ecosistema .NET/COM subyacente de Siemens **NO ES THREAD-SAFE**. Tienes estrictamente prohibido importar la librería de Siemens en el proceso principal.
-*   **Capa IT (Proceso Padre):** Orquesta, enruta y cachea. Ejecuta `main.py` y `gateway.py`. **NUNCA** ejecuta `import siemens_tia_scripting`.
-*   **Capa OT (Proceso Hijo):** El script `core/infrastructure/tia/worker_tia.py` es el ÚNICO lugar autorizado para interactuar con la API de Siemens. Aloja los **comandos genéricos** del motor OT (~20 handlers). Las **áreas** (Bounded Contexts en `areas/<area>/infrastructure/tia/extra_commands.py`) aportan **comandos adicionales transaccionales** al `COMMAND_REGISTRY` mediante `AreaSpec.contributes_tia_commands`. Dichos handlers corren DENTRO del proceso del worker bajo la misma transacción atómica, pero NO importan `siemens_tia_scripting` directamente. El worker los descubre al arrancar vía `core.infrastructure.tia.command_loader.load_extra_commands(COMMAND_REGISTRY)`.
-*   **Comunicación IPC:** El padre levanta al hijo vía `asyncio.create_subprocess_exec`. Envía los argumentos JSON por `stdin`. El hijo ejecuta la tarea y devuelve UN ÚNICO JSON por `stdout`. Cualquier otro log del hijo va a `stderr`.
+## 1. CONFINAMIENTO POR HILO (NO PROCESS-PER-CALL)
 
-## 2. WORKER OT: DOS MODOS, UN SOLO PROCESO
-`worker_tia.py` se ejecuta como subproceso. Tiene dos entry points según el modo:
+El ecosistema .NET/COM subyacente de Siemens **NO ES THREAD-SAFE** en el proceso Python. Tienes estrictamente prohibido importar la libreria de Siemens en hilos que no sean el hilo dedicado del worker.
 
-### 2.1 Modo 1-shot (`main()`, compatibilidad)
-- Un solo comando por stdin, una respuesta por stdout, el subproceso muere.
-- Se conserva por compatibilidad con callers antiguos y para tests aislados.
-- Ciclo: `set_logging(console=False)` → `attach_portal` (o `open_new_portal` para cold start) → handler → `detach` en `finally`.
+* **Capa IT (proceso principal):** Orquesta, enruta y cachea. Ejecuta ``main.py`` (Flask sync) y los FBs / helpers. **NUNCA** ejecuta ``import siemens_tia_scripting``.
 
-### 2.2 Modo persistente (`main_persistent_loop()`, modo principal en producción)
-- El subproceso se queda vivo entre comandos. Lee JSON de stdin línea a línea, responde con el mismo `id` a stdout, hasta EOF o comando `exit`.
-- Lo arranca `gateway._start_persistent_worker()` desde el lifespan de FastAPI. El gateway lo monitoriza con heartbeat 30s y expone `connect()`/`disconnect()` para que la UI lo encienda/apague.
+* **Capa OT (worker dedicado):** ``core/infrastructure/tia/tia_loop.py`` define ``SyncTIAClient``. Su metodo ``_tia_loop_main`` corre en **un hilo dedicado** (``threading.Thread(daemon=True, target=...)``). Ese hilo es el **UNICO** lugar autorizado para interactuar con la API de Siemens.
 
-**State machine del worker persistente (4 estados):**
-- `idle` (inicial): `portal is None`. El worker emite un `ready_idle` con `id=0` y se queda esperando.
-- `connected`: tras un `attach_portal` OK del gateway. Los handlers del `COMMAND_REGISTRY` operan contra el portal attached.
-- `error`: tras un fallo grave de I/O con el worker. El gateway no puede enviar más comandos.
-- (el estado `disconnected` se eliminó en sept-2026; ahora todo reposo es `idle`).
+* **Comunicación IT -> OT:** La capa IT encola comandos via ``SyncTIAClient.submit_and_wait(command, args, timeout_s)``. El hilo dedicado los consume, ejecuta el handler del ``COMMAND_REGISTRY``, y devuelve ``{"ok": bool, "result": ...}``. Los handlers async de los FBs usan ``core.helpers.tia.tia_dispatch_async.dispatch_async`` (wrapper que invoca ``submit_and_wait`` dentro de ``asyncio.to_thread`` para no bloquear el event loop).
 
-**Comandos del state machine (gestionados INLINE en `main_persistent_loop`, NO en el `COMMAND_REGISTRY`):**
-- `attach_portal` → llama `ts.attach_portal(...)`, asigna `portal`, responde `{"pid": <int>}` o `{"error": "..."}`.
-- `detach_portal` → si hay portal, llama `portal.detach()` (best-effort) y responde `{"detached": true}`. Si no, `{"detached": false}`. Idempotente.
-- `ping` → `portal.get_process_id()`. Devuelve `{"pid": <int>}` o `{"error": ...}`. Usado por el heartbeat y por reconexión.
-- `get_project_info` → propiedades del proyecto activo (las que el portal permita leer).
+* **Comandos del worker:** ~20 handlers en ``COMMAND_REGISTRY`` (definidos en ``tia_handlers.py``). Las areas aportan comandos adicionales transaccionales en ``areas/<area>/infrastructure/tia/tia_extra_commands.py::register(registry)``. Descubiertos al arrancar via ``load_extra_commands``.
 
-**Por qué `attach_portal`/`detach_portal` no están en el `COMMAND_REGISTRY`:** necesitan reasignar la variable local `portal` del loop, y los handlers del registry reciben `portal` como argumento sin poder reasignarlo.
+## 2. WORKER OT: HILO DEDICADO + COLA + STATE MACHINE (6 ESTADOS)
 
-**Reglas ineludibles del worker (ambos modos):**
-- **Silenciar el logger nativo:** invocar `set_logging(console=False)` justo después de cargar el wrapper. Si no, Siemens escribe logs a stdout y rompe el parseo JSON del gateway.
-- **No devolver objetos nativos .NET al proceso IT:** mapear siempre a `dict`/`list`/`str`/`bool`/`int` antes de emitir JSON. Ver §3.
-- **Cleanup en `finally` (modo 1-shot) o al exit (modo persistente):** invocar `portal.detach()` best-effort para liberar el RCW. El fallo se ignora (el siguiente attach creará un RCW nuevo).
+``SyncTIAClient`` corre como hilo dedicado dentro del MISMO proceso Python (no subproceso separado). Combina una cola FIFO + state machine + ``threading.Lock`` para serializar el acceso.
 
-## 3. PROHIBICIÓN DE RETENCIÓN DE ESTADO OT
-*   **NUNCA** intentes devolver objetos nativos (como `Plc`, `ProgramBlock` o `HmiTag`) desde el worker al proceso padre.
-*   El worker debe mapear los objetos nativos a tipos primitivos puros de Python (diccionarios, listas, strings, booleanos) antes de emitir el JSON por `stdout`.
+**6 estados posibles:**
 
-## 4. API DE SIEMENS TIA SCRIPTING (V1.2.1)
-No inventes métodos. Utiliza estrictamente la API soportada.
-*   **Versión de Python:** El código debe ser compatible obligatoriamente con Python 3.12, 3.13 o 3.14[cite: 4]. No uses características deprecadas ni asumas compatibilidad con 3.11.
-*   **Formatos de Exportación:** Cuando exportes código fuente (SCL) o UDTs, utiliza `export_format=ts.Enums.ExportFormats.SimaticSD`[cite: 4].
-*   **Dudas de API:** Tienes a tu disposición una herramienta MCP (`search_tia_manual`) en el entorno. Si desconoces un método o los parámetros exactos (ej. cómo extraer variables o compilar hardware), **USA LA HERRAMIENTA DE BÚSQUEDA** antes de escribir código alucinado.
+| Estado | Significado | Transiciones |
+|---|---|---|
+| ``idle`` | Inicial. ``portal is None``. | -> ``attaching`` (attach) |
+| ``attaching`` | ``ts.attach_portal()`` en curso. | -> ``connected`` / ``error`` |
+| ``connected`` | Portal attached. Listo para handlers. | -> ``busy`` (handler en curso) |
+| ``busy`` | Handler ejecutandose contra el portal. | -> ``connected`` / ``error`` |
+| ``detaching`` | ``portal.detach()`` en curso. | -> ``idle`` / ``error`` |
+| ``error`` | Fallo grave de I/O o RCW invalido. | solo recoverable via re-attach |
 
-## 5. USO DEL CÓDIGO LEGACY (`_legacy_reference/`)
-Existe una carpeta `_legacy_reference/` con el código antiguo. 
-* **PERMITIDO:** Reutilizar la lógica de procesamiento de excel y XML (SimaticML) o algoritmos de negocio puro que se encuentren allí.
-* **PROHIBIDO:** Copiar patrones de concurrencia, inicialización de hilos, o uso global del wrapper de Siemens. La nueva arquitectura es estrictamente Subprocess-based.
+**Transiciones** se ejecutan bajo ``self._state_lock`` (threading.Lock). ``submit_and_wait`` rechaza comandos si el estado no es ``connected``.
 
-## 6. CÓDIGO LIMPIO Y PYTHON MODERNO
-*   Aplica tipado estricto (Type Hinting) en todas las firmas de funciones y retornos.
-*   Cumple con PEP 8.
-*   Usa `asyncio` de forma eficiente en el Gateway para no bloquear el Event Loop principal durante la espera de resolución del subproceso.
-*   Si una operación de lectura del proyecto implica una penalización alta de latencia, implementa un mecanismo de caché en memoria en `gateway.py` (`Estado IT`), permitiendo el parámetro `force_refresh=True`.
+**Comandos del state machine (gestionados INLINE en ``SyncTIAClient``, NO en el ``COMMAND_REGISTRY``):**
+
+* ``attach_wrapper(wrapper)`` / ``attach_ts(ts_module)`` -> ``attach_portal`` -> estado ``connected``.
+* ``detach_wrapper()`` -> ``portal.detach()`` best-effort -> estado ``idle``. Idempotente.
+* ``ping()`` -> ``portal.get_process_id()`` -> ``{"pid": int}``. Usado por health check.
+* ``get_project_info()`` -> propiedades del proyecto activo (las que el portal permita leer).
+
+**Por que ``attach`` / ``detach`` no estan en el ``COMMAND_REGISTRY``:** necesitan reasignar la variable ``portal`` del loop y modificar el estado. Los handlers del registry reciben ``portal`` como argumento sin poder reasignarlo.
+
+**Reglas ineludibles del worker:**
+
+* **Silenciar el logger nativo:** invocar ``set_logging(console=False)`` (o equivalente) justo despues de cargar el wrapper. Si no, Siemens escribe logs a stdout y rompe el parseo JSON.
+* **No devolver objetos nativos .NET al proceso IT:** mapear siempre a ``dict`` / ``list`` / ``str`` / ``bool`` / ``int`` antes de devolver. Ver §3.
+* **Cleanup:** el ``finally`` de ``_execute_one`` libera el handler pero NO el portal (permanece attached). El portal se libera explicitamente via ``detach_wrapper()`` o al apagar el proceso.
+
+## 3. PROHIBICION DE RETENCION DE ESTADO OT
+
+* **NUNCA** intentes devolver objetos nativos (como ``Plc``, ``ProgramBlock`` o ``HmiTag``) desde el worker a la capa IT.
+* El worker debe mapear los objetos nativos a tipos primitivos puros de Python (diccionarios, listas, strings, booleanos, enteros) antes de devolver el resultado al IT.
+
+## 4. API DE SIEMENS TIA SCRIPTING (V21)
+
+No inventes metodos. Utiliza estrictamente la API soportada.
+
+* **Version de Python:** El codigo debe ser compatible obligatoriamente con Python 3.12, 3.13 o 3.14. No uses caracteristicas deprecadas ni asumas compatibilidad con 3.11.
+* **Formatos de Exportacion:** Cuando exportes bloques o tags, usa ``export_format=ts.Enums.ExportFormats.SimaticSD`` para bloques (.s7dcl/.s7res) y el formato nativo para tablas de tags (.xml SimaticML).
+* **Regla CRITICA para ``import_blocks``:** la firma es ``import_blocks(import_root_directory: str, target_folder_path: Optional[str] = None)``. Pasar ``target_folder_path=""`` (string vacio) hace que TIA V21 intente CREATE en vez de UPDATE y falle con "Import failed because an object with the name X already exists". Pasar ``None`` (default, NO pasar el argumento) es el camino feliz. Ver docstring de ``_h_import_block`` en ``tia_handlers.py``.
+* **Dudas de API:** Tienes a tu disposicion una herramienta MCP (``search_tia_manual``). Si desconoces un metodo o los parametros exactos, **USA LA HERRAMIENTA DE BUSQUEDA** antes de escribir codigo alucinado.
+
+## 5. USO DEL CODIGO LEGACY
+
+NO existe una carpeta ``_legacy_reference/``. El legacy esta borrado del repo (sept-2026).
+
+* **PERMITIDO:** Reutilizar la logica de helpers en ``core/helpers/simatic_ml/`` (modificadores SimaticML: ``PlcUserConstantParser``, ``PlcUserConstantModifier``) y ``core/helpers/simatic_sd/`` (modificadores SimaticSD: ``commit_array_comments``, ``find_array_slots``, ``read_current_comments``).
+* **PROHIBIDO:** Importar ``siemens_tia_scripting`` desde fuera de ``core/infrastructure/tia/``. Crear nuevos ``asyncio`` wrappers para hablar con TIA (usar ``core.helpers.tia.tia_dispatch_async``). Crear clases nuevas que hereden de wrappers .NET.
+
+## 6. CODIGO LIMPIO Y PYTHON MODERNO
+
+* Aplica tipado estricto (Type Hinting) en todas las firmas de funciones y retornos.
+* Cumple con PEP 8.
+* Para operaciones IT -> OT bloqueantes (export / import pueden tardar 1-3 min): usa ``core.helpers.tia.tia_dispatch_async.dispatch_async`` que envuelve ``submit_and_wait`` en ``asyncio.to_thread``. Asi no bloqueas el event loop.
+* Si una operacion de lectura implica latencia alta, cachea el resultado en memoria (``SyncTIAClient._cache``). El parametro ``force_refresh=True`` permite bypass.
 
 ## 7. PROGRESS TRACKING (panel SPA en sidebar)
-*   Toda operación de >500 ms DEBE emitir progreso a `application/progress_buffer.py:ProgressTracker`.
-*   El use case recibe el tracker por constructor (`progress: ProgressTracker | None = None`); si no se inyecta, usa el Singleton global.
-*   Stage order = orden de ejecución real. NO agrupar ops atómicas en un solo stage.
-*   El stage `open_transaction` del commit es OPAQUE (transacción COM atómica en el worker, no desglosable). Label honesto: "puede tardar 1-3 min".
-*   Tests mockean el `ProgressTracker` directamente, NO el endpoint.
-*   Frontend: `ProgressIndicator.js` (panel fijo en sidebar) lee de `store.progress` (espejo reactivo). Polling 500 ms **INCONDICIONAL** (sin guard de estado) para evitar chicken-and-egg.
+
+* Toda operacion de >500 ms DEBE emitir progreso a ``core/application/progress_buffer.py:ProgressTracker``.
+* El FB recibe el tracker por constructor (``progress: ProgressTracker | None = None``); si no se inyecta, usa el Singleton global.
+* Stage order = orden de ejecucion real. NO agrupar ops atomicas en un solo stage.
+* El stage ``open_transaction`` (commit contra TIA) es OPAQUE (puede tardar 1-3 min). Label honesto al operario.
+* Tests instancian un ``ProgressTracker()`` limpio y lo pasan al FB (no mockear el tracker).
+* Frontend: ``core/web_server/static/js/components/ProgressIndicator.js`` (panel fijo en sidebar) lee de ``store.progress`` (espejo reactivo). Polling 500 ms **INCONDICIONAL** (sin guard de estado) para evitar chicken-and-egg.
 
 ## 8. SINGLE-TENANT
-*   La app es single-tenant (ver WARNING en `application/state.py`).
-*   `ProgressTracker`, `LogBuffer`, `AppState` son Singletons. Si llega un nuevo `begin()` con uno activo, OVERWRITE + warning al `LogBuffer`.
-*   NUNCA persistas estado entre reinicios. Cache IT solo en memoria (`gateway._cache`).
+
+* La app es single-tenant (ver ``core/application/state.py``).
+* ``ProgressTracker``, ``LogBuffer``, ``AppState`` son Singletons. Si llega un nuevo ``begin()`` con uno activo, OVERWRITE + warning al ``LogBuffer``.
+* NUNCA persistas estado entre reinicios. Cache IT solo en memoria.
 
 ## 9. CSS / FRONTEND BUILD
-*   Tras añadir clases nuevas en cualquier `.js` de `static/js/`, SIEMPRE recompilar:
-    `tailwindcss-extra.exe -i interfaces/web_server/static/src/input.css -o interfaces/web_server/static/styles.css --minify`
-*   Tailwind v4 escanea `static/js/**/*.js` (templates Vue son template strings).
-*   NO añadir CDN, NO daisyUI, NO `import` de CSS externo.
-*   Tema: tokens semánticos `bg-surface*`, `text-ink*`, `bg-accent`, `border-line`.
-*   PROHIBIDO string literals multi-línea dentro de arrays de `:class` (compilador runtime de Vue no los acepta).
+
+* Tras anadir clases nuevas en cualquier ``.js`` de ``core/web_server/static/js/``, SIEMPRE recompilar:
+  ``tailwindcss-extra.exe -i core/web_server/static/src/input.css -o core/web_server/static/styles.css --minify`` (tambien ``run_tailwind.bat``).
+* Tailwind v4 escanea ``core/web_server/static/js/**/*.js`` (templates Vue son template strings).
+* NO anadir CDN, NO daisyUI, NO ``import`` de CSS externo.
+* Tema: tokens semanticos ``bg-surface*``, ``text-ink*``, ``bg-accent``, ``border-line``.
+* PROHIBIDO string literals multi-linea dentro de arrays de ``:class`` (compilador runtime de Vue no los acepta).

@@ -47,9 +47,9 @@ contrato IPC, state machine y comandos de ciclo de vida están en
 5. El use case (en `core/application/use_cases/` si es genérico o en
    `areas/<area>/application/use_cases/` si es del área) orquesta,
    llama al gateway, y emite progress.
-6. El router FastAPI expone el endpoint con `Depends(get_gateway)`.
-   Los routers genéricos viven en `core/web_server/routers/`;
-   los del área en `areas/<area>/interfaces/web/ (futuro)`.
+6. El router Flask expone el endpoint con la dependencia
+   `get_gateway`. Los routers genéricos viven en
+   `core/web_server/routers/`; los del área en `areas/<area>/interfaces/web/ (futuro)`.
 7. Tests: mockea el gateway con `MagicMock(spec=TIAProcessGateway)`,
    nunca el worker directamente.
 
@@ -59,15 +59,16 @@ contrato IPC, state machine y comandos de ciclo de vida están en
      un `APIRouter`.
    - Del área: `areas/<area>/interfaces/web/ (futuro)<router>.py` y declara
      `register_routers(app)` en el `__init__.py` del paquete.
-2. El shell FastAPI (`core/web_server/app_flask.py::create_app`)
+2. El shell Flask (`core/web_server/app_flask.py::create_app`)
   Descubre los routers del área vía `AreaRegistry.for_each("contributes_routers", app=app)`.
-3. Inyecta dependencias vía `Depends(get_gateway | get_app_state |
-   get_logger | get_progress_tracker)`. NUNCA importes globales
-   directamente en el router.
+3. Inyecta dependencias vía los decoradores de Flask (o llamadas
+   explícitas a `get_gateway | get_app_state | get_logger |
+   get_progress_tracker`). NUNCA importes globales directamente
+   en el router.
 4. Si la operación es >500 ms, inyecta `ProgressTracker` y emite
    `begin/start_stage/finish_stage/finish`.
-5. Devuelve siempre un dict (FastAPI lo serializa a JSON).
-6. Test: usa `TestClient` con `MagicMock(spec=TIAProcessGateway)`,
+5. Devuelve siempre un dict (Flask lo serializa a JSON con `jsonify`).
+6. Test: usa `TestClient` de Flask con `MagicMock(spec=TIAProcessGateway)`,
    mismo patrón que `tests/test_areas_endpoint.py`.
 
 ### 3. Nueva vista en la SPA
@@ -131,7 +132,7 @@ contrato IPC, state machine y comandos de ciclo de vida están en
 5. Si tiene comandos TIA transaccionales:
    `areas/<area>/infrastructure/tia/extra_commands.py` con
    `register(registry)`.
-6. Si tiene routers FastAPI: `areas/<area>/interfaces/web/ (futuro)` con
+6. Si tiene routers Flask: `areas/<area>/interfaces/web/ (futuro)` con
    `register_routers(app)` en el `__init__.py` del paquete. Los routers
    genéricos viven en `core/web_server/routers/`.
 7. Si tiene tools MCP: `areas/<area>/interfaces/mcp/tools.py` con
@@ -200,7 +201,7 @@ Replica su estructura. Cubre los 5 gotchas conocidos.
   está en un área. Solo lectura.
 - **Progreso:** 500 ms. `apiFetchProgress()`. **SIEMPRE incondicional**
   (sin guard de estado) para evitar chicken-and-egg. 2 req/s idle
-  es trivial para FastAPI.
+  es trivial para Flask.
 - El frontend SOLO lee el tracker (nunca escribe). El backend es
   la única fuente de verdad. El operario limpia explícitamente con
   `apiClearProgress()` cuando quiere.
@@ -445,7 +446,7 @@ ni cargar skills manualmente: el routing es automático.
 | Tarea | Agente |
 |---|---|
 | Cambios en TIA worker, modificadores XML/SD, parsers Excel, gateway OT | `tia-ot-worker` |
-| Routers FastAPI, use cases, `app.py`, dependencias, tools MCP | `backend-api` |
+| Routers Flask, use cases, `app.py`, dependencias, tools MCP | `backend-api` |
 | Componentes Vue, store, api.js, tema, recompilar Tailwind | `frontend-spa` |
 | `build_exe.py`, launcher, tests pytest, `.bat` | `build-and-tests` |
 
