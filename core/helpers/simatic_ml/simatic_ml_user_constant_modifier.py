@@ -86,6 +86,35 @@ class PlcUserConstantModifier:
     #     </AttributeList>
     #   </SW.Tags.PlcUserConstant>
 
+    def read_user_constants_with_uids(self) -> dict[str, str]:
+        """Itera PlcUserConstants y devuelve ``{value_str: plc_tag}``.
+
+        Shape invertido vs ``PlcUserConstantParser.parse_user_constants``
+        (que devuelve ``{name: value_int}``): aqui la clave es el
+        ``<Value>`` (string) y el valor es el ``<Name>`` (plc_tag).
+        El caller (preview de dispositivos) necesita este shape
+        para hacer el diff contra el Excel.
+
+        Solo incluye constantes casteables a int (igual que el
+        parser).
+        """
+        result: dict[str, str] = {}
+        for const in self._root.findall(f".//{USER_CONSTANT_TAG}"):
+            name_el = const.find(f".//{NAME_TAG}")
+            value_el = const.find(f".//{VALUE_TAG}")
+            if name_el is None or value_el is None:
+                continue
+            name = (name_el.text or "").strip()
+            value = (value_el.text or "").strip()
+            if not name or not value:
+                continue
+            try:
+                int(value)
+            except ValueError:
+                continue
+            result[value] = name
+        return result
+
     def _find_template_user_constant(self) -> ET.Element | None:
         """Devuelve el primer PlcUserConstant del documento como plantilla."""
         tags = self._root.findall(f".//{USER_CONSTANT_TAG}")
