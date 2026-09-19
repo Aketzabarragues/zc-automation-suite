@@ -38,7 +38,7 @@ from areas.alimentacion.frontend.manifest import build as build_manifest
 from areas.alimentacion.helpers.config_defaults import (
     install as install_defaults,
 )
-from areas.alimentacion.helpers.tia.extra_commands import (
+from areas.alimentacion.helpers.tia.tia_extra_commands import (
     register_main as register_tia,
 )
 from core.composition.app_area_registry import AreaSpec

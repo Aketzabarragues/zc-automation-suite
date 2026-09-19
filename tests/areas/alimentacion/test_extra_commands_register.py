@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from areas.alimentacion.helpers.tia.extra_commands import (
+from areas.alimentacion.helpers.tia.tia_extra_commands import (
     EXTRA_HW_TYPES,
     EXTRA_PROC_KINDS,
     register,

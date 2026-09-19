@@ -112,7 +112,7 @@ class DataProcSlotMap:
 # Satelites de cada array principal (PReal y PInt dependen de otros).
 # Consultado por:
 #   - ``proc_generar_preview._compose_arrays_internal`` (response SPA)
-#   - ``helpers/tia/extra_commands.py`` (sync handler)
+#   - ``helpers/tia/tia_extra_commands.py`` (sync handler)
 PROC_SATELLITES_BY_ARRAY: dict[str, tuple[str, ...]] = {
     "preal": ("PReal_Vis", "Aux.PReal_ValorAnterior"),
     "pint": ("PInt_Vis", "Aux.PInt_ValorAnterior"),

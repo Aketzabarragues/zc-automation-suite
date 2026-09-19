@@ -49,7 +49,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from areas.alimentacion.helpers.tia.dispatch_async import dispatch_async
+from core.helpers.tia import dispatch_async
 
 
 logger = logging.getLogger("zc.areas.alimentacion.proc_sincronizar")

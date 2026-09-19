@@ -453,7 +453,7 @@ def test_export_and_diff_handles_export_failure(
     from unittest.mock import patch
     import areas.alimentacion.data.data_ProcSlotMap as data_mod
     import areas.alimentacion.helpers.proc.proc_generar_preview as helper_mod
-    from areas.alimentacion.helpers.tia import dispatch_async as dispatch_mod
+    from core.helpers.tia import dispatch_async as dispatch_mod
 
     fake_sm = FakeSlotMap(preal={1: "Bomba 1"})
 

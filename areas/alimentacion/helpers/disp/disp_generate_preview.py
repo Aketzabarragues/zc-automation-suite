@@ -52,7 +52,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from areas.alimentacion.helpers.tia.dispatch_async import dispatch_async
+from core.helpers.tia import dispatch_async
 
 
 logger = logging.getLogger("zc.areas.alimentacion.disp_generate_preview")
@@ -272,7 +272,7 @@ async def build_response(ctx: DispPreviewContext) -> None:
 # ===========================================================================
 
 # Nota: ``dispatch_async`` se importa arriba desde
-# ``areas.alimentacion.helpers.tia.dispatch_async``. Antes vivia
+# ``core.helpers.tia.dispatch_async``. Antes vivia
 # duplicado aqui (4 copias en total: 2 disp + 2 proc); ahora vive
 # como helper compartido para que cualquier modulo del area lo use.
 

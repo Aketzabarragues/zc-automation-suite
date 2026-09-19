@@ -55,7 +55,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from areas.alimentacion.helpers.tia.dispatch_async import dispatch_async
+from core.helpers.tia import dispatch_async
 
 
 logger = logging.getLogger("zc.areas.alimentacion.proc_generate_preview")
@@ -637,7 +637,7 @@ def _compute_summary_internal(arrays: dict[str, Any]) -> dict[str, int]:
 
 
 # Nota: ``dispatch_async`` se importa arriba desde
-# ``areas.alimentacion.helpers.tia.dispatch_async``. Antes vivia
+# ``core.helpers.tia.dispatch_async``. Antes vivia
 # duplicado aqui (4 copias en total: 2 disp + 2 proc); ahora vive
 # como helper compartido.
 
