@@ -218,7 +218,7 @@ class FunctionDispSincronizar(FunctionBase):
             case "aplicar_comentarios":
                 await helper.aplicar_comentarios(self._ctx)
             case "post_preview":
-                await helper.post_preview(self._ctx)
+                await helper.disp_post_preview(self._ctx)
             case _:
                 raise ValueError(f"step no soportado: {step_nombre!r}")
 

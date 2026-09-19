@@ -23,7 +23,7 @@ Las 11 funciones siguen el orden del legacy:
                                        (offline puro, abre/cierra su tx TIA).
   9.  ``compilar_bloques``         -> dispatch ``compile_blocks`` (fuera de tx).
   10. ``aplicar_comentarios``      -> reusa ``apply_disp_comments`` de A.4.
-  11. ``post_preview``             -> reusa ``disp_generate_preview`` de A.5
+  11. ``disp_post_preview``         -> reusa ``disp_generate_preview`` de A.5
                                        para que la SPA vea "todo en sync".
 
 Restricciones arquitectonicas (.clinerules):
@@ -553,7 +553,7 @@ async def aplicar_comentarios(ctx: DispSyncContext) -> None:
     }
 
 
-async def post_preview(ctx: DispSyncContext) -> None:
+async def disp_post_preview(ctx: DispSyncContext) -> None:
     """Genera el preview post-sync para que la SPA vea 'todo en sync'.
 
     Reusa las 4 funciones puras de ``disp_generate_preview``
