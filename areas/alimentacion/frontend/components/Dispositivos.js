@@ -34,7 +34,7 @@
  * `vue.esm-browser.prod.js` NO acepta string literals multi-línea
  * dentro de arrays de `:class`. Cada literal va en una sola línea.
  */
-import { computed, ref } from "/js/vendor/vue.esm-browser.prod.js";
+import { computed, ref, watch } from "/js/vendor/vue.esm-browser.prod.js";
 // Imports absolutos: ver nota en ``Sidebar.js``.
 import { store, resetPlcState } from "/js/store.js";
 import { apiGeneratePreview, apiCommit } from "/js/api.js";
@@ -88,6 +88,66 @@ export default {
         const activeTab = ref(
             tabs.value.length > 0 ? tabs.value[0].key : ""
         );
+
+        /**
+         * Set de hw_types seleccionados para el proximo sync.
+         * Inicializado con TODOS los hw_types activos (back-compat: si
+         * el operario nunca toca el selector, el sync cubre todo como
+         * antes). El operario puede desmarcar para acotar el sync a
+         * un subconjunto (e.g. "solo SA" o "ED + EA").
+         *
+         * Si los tabs llegan tarde (catalog async), el watch de abajo
+         * rellena el set con cualquier hw_type nuevo que aparezca.
+         * N_MAX siempre se procesa en backend independientemente del
+         * filtro (es config transversal); aqui no se representa.
+         */
+        const selectedHwTypes = ref(
+            new Set(tabs.value.map((t) => t.key))
+        );
+
+        // Si el catalog se carga tarde (SPA arrancando sin backend)
+        // y ``selectedHwTypes`` quedo vacio, re-popular con los
+        // hw_types disponibles en cuanto lleguen. Igual que el patron
+        // usado para ``activeTab``.
+        watch(
+            () => tabs.value.map((t) => t.key),
+            (keys) => {
+                const current = selectedHwTypes.value;
+                for (const k of keys) {
+                    if (!current.has(k)) current.add(k);
+                }
+                // Si el operario deselecciono todos y desaparece un
+                // hw_type, ``current`` queda con un set vacio. No
+                // forzamos reseleccion: el boton "Generar Prevision"
+                // ya se deshabilita con canPreview === false.
+            },
+            { immediate: true }
+        );
+
+        /**
+         * True si hay al menos 1 hw_type seleccionado (filtro valido).
+         * Si no, deshabilitamos preview/commit para no mandar 400.
+         */
+        const canPreview = computed(() => selectedHwTypes.value.size > 0);
+
+        /**
+         * Lista ordenada de hw_types seleccionados (Set -> Array)
+         * para pasarla al backend. ``Array.from`` mantiene orden de
+         * insercion; backend no asume orden, pero asi es estable.
+         */
+        const selectedHwTypesList = computed(
+            () => Array.from(selectedHwTypes.value)
+        );
+
+        /** Alternar un hw_type en el Set. */
+        function toggleHwType(key) {
+            const s = selectedHwTypes.value;
+            if (s.has(key)) {
+                s.delete(key);
+            } else {
+                s.add(key);
+            }
+        }
 
         const hasPreview = computed(
             () => !!store.previewData && Array.isArray(store.previewData.todos)
@@ -149,9 +209,11 @@ export default {
 
         async function generarPreview() {
             if (!store.selectedPlc) return;
+            if (!canPreview.value) return;
+            const hwTypes = selectedHwTypesList.value;
             store.busy = true;
             try {
-                const r = await apiGeneratePreview(store.selectedPlc);
+                const r = await apiGeneratePreview(store.selectedPlc, hwTypes);
                 if (r.ok) {
                     store.previewData = r.data;
                     pushLog("Previsión generada OK", "success");
@@ -177,10 +239,14 @@ export default {
 
         async function ejecutarCommit() {
             if (!store.previewData) return;
+            const hwTypes = selectedHwTypesList.value;
             const total = summary.value.agregados +
                           summary.value.renombrados +
                           summary.value.eliminados +
                           nmaxSummary.value.actualizar;
+            const tiposMsg = hwTypes.length < tabs.value.length
+                ? `\n\nSolo tipos seleccionados: ${hwTypes.join(", ")}\n(N_MAX siempre se procesa)`
+                : "";
             if (
                 !confirm(
                     `¿Aplicar ${total} cambios en TIA Portal?\n\n` +
@@ -191,7 +257,8 @@ export default {
                     `N_MAX (dimensiones):\n` +
                     `  Actualizar: ${nmaxSummary.value.actualizar}\n\n` +
                     `Los "sin cambios" no se tocan.\n` +
-                    `Esta operacion modifica el PLC.`
+                    `Esta operacion modifica el PLC.` +
+                    tiposMsg
                 )
             ) {
                 return;
@@ -200,7 +267,8 @@ export default {
             try {
                 const r = await apiCommit(
                     store.selectedPlc,
-                    store.previewData
+                    store.previewData,
+                    hwTypes
                 );
                 if (r.ok) {
                     // Tras un commit exitoso, el backend ya re-corre el
@@ -268,6 +336,10 @@ export default {
             activeTab,
             activeRows,
             tabCounts,
+            selectedHwTypes,
+            selectedHwTypesList,
+            canPreview,
+            toggleHwType,
             generarPreview,
             ejecutarCommit,
         };
@@ -278,22 +350,61 @@ export default {
                  "Generar Previsión". El título "⚡ Dispositivos" se
                  eliminó tras el rediseño "Modern Corporate" — el
                  topbar ya muestra la sub-vista activa. -->
-            <div class="mb-4 bg-surface-raised border border-line rounded p-4 flex justify-between items-center"
+            <div class="mb-4 bg-surface-raised border border-line rounded p-4"
                  data-testid="dispositivos-card-info">
-                <p v-if="hasPreview" class="text-xs text-ink-muted">
-                    {{ summary.total }} dispositivos analizados —
-                    <span class="text-accent">{{ summary.agregados }} a agregar</span> ·
-                    <span class="text-amber-700">{{ summary.renombrados }} a renombrar</span> ·
-                    <span class="text-red-700">{{ summary.eliminados }} a eliminar</span> ·
-                    <span class="text-ink-muted">{{ summary.sin_cambios }} sin cambios</span>
-                </p>
-                <span v-else></span>
-                <button @click="generarPreview"
-                    :disabled="!store.selectedPlc || store.busy"
-                    data-testid="dispositivos-generar-prevision"
-                    class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
-                    🔍 Generar Previsión
-                </button>
+                <div class="flex justify-between items-center">
+                    <p v-if="hasPreview" class="text-xs text-ink-muted">
+                        {{ summary.total }} dispositivos analizados —
+                        <span class="text-accent">{{ summary.agregados }} a agregar</span> ·
+                        <span class="text-amber-700">{{ summary.renombrados }} a renombrar</span> ·
+                        <span class="text-red-700">{{ summary.eliminados }} a eliminar</span> ·
+                        <span class="text-ink-muted">{{ summary.sin_cambios }} sin cambios</span>
+                    </p>
+                    <span v-else></span>
+                    <button @click="generarPreview"
+                        :disabled="!store.selectedPlc || store.busy || !canPreview"
+                        data-testid="dispositivos-generar-prevision"
+                        class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
+                        🔍 Generar Previsión
+                    </button>
+                </div>
+
+                <!-- Selector de tipos a sincronizar (selector "todos o
+                     los que nos interese", pedido operario sept-2026).
+                     Solo aparece si hay >=2 hw_types (con 1 seria
+                     redundante). Inicial: todos seleccionados
+                     (back-compat). El operador puede desmarcar para
+                     acotar el preview/commit a un subconjunto.
+                     N_MAX siempre se procesa en backend
+                     independientemente del filtro (es transversal). -->
+                <div v-if="tabs.length >= 2"
+                     class="mt-3 pt-3 border-t border-line"
+                     data-testid="dispositivos-hw-types-filter">
+                    <div class="flex items-center gap-3 flex-wrap">
+                        <span class="text-xs font-semibold text-ink-muted uppercase whitespace-nowrap">
+                            Sincronizar:
+                        </span>
+                        <label v-for="t in tabs" :key="t.key"
+                               class="flex items-center gap-1.5 text-xs cursor-pointer select-none">
+                            <input type="checkbox"
+                                   :checked="selectedHwTypes.has(t.key)"
+                                   @change="toggleHwType(t.key)"
+                                   :data-testid="'hw-type-' + t.key"
+                                   class="accent-accent cursor-pointer">
+                            <span :class="selectedHwTypes.has(t.key) ? 'text-ink font-semibold' : 'text-ink-muted'">
+                                {{ t.label }}
+                            </span>
+                        </label>
+                        <span v-if="selectedHwTypes.size === 0"
+                              class="text-xs text-amber-700 italic">
+                            (ninguno seleccionado)
+                        </span>
+                        <span v-else-if="selectedHwTypes.size < tabs.length"
+                              class="text-xs text-ink-muted">
+                            ({{ selectedHwTypes.size }}/{{ tabs.length }})
+                        </span>
+                    </div>
+                </div>
             </div>
 
             <!-- ★ Segundo card: engloba N_MAX + strip de tabs + tabla.
