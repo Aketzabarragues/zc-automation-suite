@@ -335,13 +335,23 @@ def _extract_nmax_diff(
     xml_path = tags_base / nmax_folder / f"{nmax_table}.xml"
 
     current: dict[str, int] = {}
+    nmax_error: str | None = None
     if xml_path.is_file():
         try:
             current = PlcUserConstantParser.parse_user_constants(xml_path)
         except Exception as e:
             logger.error(f"[N_MAX] Parse FAIL {xml_path}: {e}")
+            nmax_error = f"parse fail: {e}"
     else:
+        # Si TIA no devolvio nada, current={} lleva al diff a marcar
+        # TODAS las dims como "actualizar" enmascarando una falla de
+        # export. Marcamos ``nmax_error`` y devolvemos todos=[] para
+        # que la SPA muestre el error en vez de proponer cambios
+        # falsos.
         logger.warning(f"[N_MAX] XML esperado no encontrado: {xml_path}")
+        nmax_error = (
+            f"XML de N_MAX no encontrado en TIA export: {xml_path}"
+        )
 
     d = app_state.dimensiones or {}
     desired: dict[str, int] = {}
@@ -350,6 +360,21 @@ def _extract_nmax_diff(
         if v is None:
             v = 0
         desired[nmax_name] = int(v)
+
+    # Si hubo error de export, NO generamos ``todos``: seria un diff
+    # contra current={} que marcaria TODO como actualizar.
+    if nmax_error is not None:
+        return {
+            "current": {},
+            "desired": desired,
+            "todos": [],
+            "summary": {
+                "actualizar": 0,
+                "sin_cambios": len(desired),
+                "total": len(desired),
+            },
+            "nmax_error": nmax_error,
+        }
 
     todos: list[dict[str, Any]] = []
     for name in desired.keys():
@@ -379,6 +404,7 @@ def _extract_nmax_diff(
             ),
             "total": len(todos),
         },
+        "nmax_error": None,
     }
 
 

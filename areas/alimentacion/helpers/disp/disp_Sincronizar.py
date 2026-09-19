@@ -637,6 +637,13 @@ def _compute_nmax_ops_for_apply(
             current = PlcUserConstantParser.parse_user_constants(xml_path)
         except Exception as e:
             logger.error(f"[N_MAX] Parse FAIL {xml_path}: {e}")
+    else:
+        # Sin este else, current={} lleva al diff a marcar TODAS las
+        # dims como "actualizar" enmascarando una falla de export.
+        # Si TIA no devolvio nada, NO deberiamos proponer cambios.
+        logger.warning(
+            f"[N_MAX] XML esperado no encontrado (sync): {xml_path}"
+        )
 
     d = app_state.dimensiones or {}
     desired: dict[str, int] = {}
