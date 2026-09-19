@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import logging
 import time
+from typing import Any
 
 from flask import Blueprint, current_app, jsonify, request
 
@@ -57,20 +58,85 @@ def _get_fb(name: str):
     return _get_engine().get_fb(name)
 
 
-def _validate_body(body: dict) -> tuple[str | None, int | None, str | None]:
-    """Valida ``plc_name`` (str) + ``proc_uid`` (int) del body.
+def _validate_body(body: dict) -> tuple[str | None, list[int] | None, str | None]:
+    """Valida ``plc_name`` (str) + lista de ``proc_uids`` (list[int]).
+
+    Back-compat: si el body trae ``proc_uid`` (singular, int legado), se
+    convierte a ``[proc_uid]``. Si trae ``proc_uids`` (list[int]),
+    se valida que sea lista de enteros positivos.
 
     Returns:
-        Tupla (plc_name, proc_uid, error_msg). Si error_msg != None,
+        Tupla (plc_name, proc_uids, error_msg). Si error_msg != None,
         el body es invalido y devuelve 400 con ese mensaje.
     """
     plc_name = body.get("plc_name")
     if not plc_name:
         return None, None, "plc_name (str) es obligatorio en el body"
-    proc_uid = body.get("proc_uid")
-    if proc_uid is None or not isinstance(proc_uid, int):
-        return None, None, "proc_uid (int) es obligatorio en el body"
-    return plc_name, proc_uid, None
+
+    # Back-compat: ``proc_uid`` (singular) -> ``proc_uids`` (lista).
+    proc_uids_raw = body.get("proc_uids")
+    if proc_uids_raw is None:
+        legacy_uid = body.get("proc_uid")
+        if legacy_uid is None:
+            return None, None, (
+                "proc_uids (list[int]) o proc_uid (int, legacy) "
+                "obligatorio en el body"
+            )
+        proc_uids_raw = [legacy_uid]
+
+    if not isinstance(proc_uids_raw, list):
+        return None, None, "proc_uids debe ser list[int]"
+    proc_uids_clean: list[int] = []
+    for u in proc_uids_raw:
+        if not isinstance(u, int) or u <= 0:
+            return None, None, f"proc_uids contiene valor invalido: {u!r}"
+        proc_uids_clean.append(u)
+    if not proc_uids_clean:
+        return None, None, "proc_uids no puede estar vacio"
+
+    return plc_name, proc_uids_clean, None
+
+
+def _run_proc_fb(
+    fb_name: str,
+    plc_name: str,
+    proc_uids: list[int],
+) -> tuple[dict[str, Any] | None, dict[str, int | str] | None]:
+    """Ejecuta el FB indicado para cada ``proc_uid`` y agrega resultados.
+
+    Returns:
+        ``(results_per_uid, errors_per_uid)``. Si algun FB falla, el
+        resto se sigue ejecutando. ``results_per_uid`` mapea
+        ``proc_uid -> result_dict`` (omitidos los fallidos).
+    """
+    results: dict[str, dict[str, Any]] = {}
+    errors: dict[str, str] = {}
+    import asyncio
+    for uid in proc_uids:
+        fb = _get_fb(fb_name)
+        if fb is None:
+            errors[str(uid)] = f"FB '{fb_name}' no registrado en el engine"
+            continue
+        logger.web(
+            f"{fb_name}: procesando proceso '{uid}' en '{plc_name}'..."
+        )
+        # Reusa el FB registrado: cada start() espera a que termine
+        # el anterior. Si el FB ya esta activo, devuelve False.
+        started = asyncio.run(fb.start(plc_name=plc_name, proc_uid=uid))
+        if not started:
+            errors[str(uid)] = (
+                f"FB '{fb_name}' ya activo o terminal. "
+                "Haz /disconnect y reintenta."
+            )
+            continue
+        if not _poll_until_terminal(fb):
+            errors[str(uid)] = "timeout sin terminar"
+            continue
+        if fb.nStep == fb.n_error:
+            errors[str(uid)] = fb.error_msg or "FB termino en error"
+            continue
+        results[str(uid)] = fb.result or {"ok": True, "proc_uid": uid}
+    return (results if results else None), errors
 
 
 def _poll_until_terminal(fb: Any, poll_interval_s: float = 0.1) -> bool:
@@ -92,127 +158,90 @@ def _poll_until_terminal(fb: Any, poll_interval_s: float = 0.1) -> bool:
 
 @bp.post("/preview")
 def post_proc_sync_preview():
-    """Dispara el FB ``proc_generar_preview`` y devuelve su ``result``.
+    """Dispara el FB ``proc_generar_preview`` para 1 o N ``proc_uids``.
 
-    Body JSON: ``{plc_name: str, proc_uid: int}``.
+    Body JSON: ``{plc_name: str, proc_uids: list[int]}``.
+    Back-compat: ``proc_uid`` (singular, legacy) sigue funcionando.
 
     Returns:
-        200 con shape legacy completo.
-        400 si falta ``plc_name`` o ``proc_uid`` en el body.
-        409 si el FB ya esta activo o terminal.
-        500 si el FB no esta registrado o termino en error.
-        504 si timeout.
+        200 con ``{"ok": True, "results": {uid: result, ...},
+        "errors": {uid: msg, ...}}``. ``errors`` solo aparece si
+        algun FB fallo.
+        400 si el body es invalido.
+        500 si el FB no esta registrado.
+        504 si timeout global.
     """
     body = request.get_json(silent=True) or {}
-    plc_name, proc_uid, err = _validate_body(body)
+    plc_name, proc_uids, err = _validate_body(body)
     if err:
         return jsonify({"ok": False, "error": err}), 400
 
-    fb = _get_fb("proc_generar_preview")
-    if fb is None:
-        return jsonify({
-            "ok": False,
-            "error": "FB 'proc_generar_preview' no registrado en el engine",
-        }), 500
-
-    import asyncio
-    # Plan living TRAZABILIDAD_LOGGING §5: 1 web explicito al iniciar.
-    logger.web(f"Generando prevision de proceso '{proc_uid}' en '{plc_name}'...")
-    started = asyncio.run(fb.start(plc_name=plc_name, proc_uid=proc_uid))
-    if not started:
-        return jsonify({
-            "ok": False,
-            "error": "FB 'proc_generar_preview' ya activo o terminal. "
-                     "Haz /disconnect y reintenta.",
-        }), 409
-
-    if not _poll_until_terminal(fb):
-        return jsonify({
-            "ok": False,
-            "error": f"timeout tras {fb.STEP_TIMEOUT_S:.1f}s sin terminar",
-        }), 504
-
-    if fb.nStep == fb.n_error:
-        return jsonify({
-            "ok": False,
-            "error": fb.error_msg or "FB termino en error",
-            "nStep": fb.nStep,
-        }), 500
-
-    result = fb.result or {"ok": True, "plc_name": plc_name, "proc_uid": proc_uid}
-    # Plan living §5: OK con resumen del preview.
-    s = (result.get("summary") or {}) if isinstance(result, dict) else {}
-    nmax = (
-        (result.get("nmax") or {}).get("summary") or {}
-        if isinstance(result, dict) else {}
+    logger.web(
+        f"Generando prevision de {len(proc_uids)} proceso(s) "
+        f"({', '.join(str(u) for u in proc_uids)}) en '{plc_name}'..."
     )
+    results, errors = _run_proc_fb(
+        "proc_generar_preview", plc_name, proc_uids,
+    )
+    if not results:
+        return jsonify({
+            "ok": False,
+            "error": "ningun proceso pudo generar preview",
+            "errors": errors,
+        }), 500
+
     logger.ok(
-        f"Prevision de proceso '{proc_uid}' en '{plc_name}': "
-        f"{s.get('agregados', 0)} adds, {s.get('renombrados', 0)} renames, "
-        f"{s.get('eliminados', 0)} removes, "
-        f"{nmax.get('actualizar', 0)} N_MAX"
+        f"Prevision generada para {len(results)}/{len(proc_uids)} "
+        f"proceso(s) en '{plc_name}'"
+        + (f" (errores: {len(errors)})" if errors else "")
     )
-    return jsonify(result)
+    return jsonify({
+        "ok": True,
+        "plc_name": plc_name,
+        "results": results,
+        **({"errors": errors} if errors else {}),
+    })
 
 
 @bp.post("/commit")
 def post_proc_sync_commit():
-    """Dispara el FB ``proc_sincronizar`` y devuelve su ``result``.
+    """Dispara el FB ``proc_sincronizar`` para 1 o N ``proc_uids``.
 
-    Body JSON: ``{plc_name: str, proc_uid: int}``.
+    Body JSON: ``{plc_name: str, proc_uids: list[int]}``.
+    Back-compat: ``proc_uid`` (singular, legacy) sigue funcionando.
 
-    Returns:
-        200 con shape legacy completo (success, applied,
-        operations_executed, details, warnings).
-        400 si falta ``plc_name`` o ``proc_uid`` en el body.
-        409 si el FB ya esta activo o terminal.
-        500 si el FB no esta registrado o termino en error.
-        504 si timeout.
+    Mismo shape de respuesta que ``/preview``.
     """
     body = request.get_json(silent=True) or {}
-    plc_name, proc_uid, err = _validate_body(body)
+    plc_name, proc_uids, err = _validate_body(body)
     if err:
         return jsonify({"ok": False, "error": err}), 400
 
-    fb = _get_fb("proc_sincronizar")
-    if fb is None:
-        return jsonify({
-            "ok": False,
-            "error": "FB 'proc_sincronizar' no registrado en el engine",
-        }), 500
-
-    import asyncio
-    # Plan living TRAZABILIDAD_LOGGING §5: 1 web explicito al iniciar.
-    logger.web(f"Sincronizando comentarios de proceso '{proc_uid}' en '{plc_name}'...")
-    started = asyncio.run(fb.start(plc_name=plc_name, proc_uid=proc_uid))
-    if not started:
-        return jsonify({
-            "ok": False,
-            "error": "FB 'proc_sincronizar' ya activo o terminal. "
-                     "Haz /disconnect y reintenta.",
-        }), 409
-
-    if not _poll_until_terminal(fb):
-        return jsonify({
-            "ok": False,
-            "error": f"timeout tras {fb.STEP_TIMEOUT_S:.1f}s sin terminar",
-        }), 504
-
-    if fb.nStep == fb.n_error:
-        return jsonify({
-            "ok": False,
-            "error": fb.error_msg or "FB termino en error",
-            "nStep": fb.nStep,
-        }), 500
-
-    result = fb.result or {"ok": True, "plc_name": plc_name, "proc_uid": proc_uid}
-    # Plan living §5: OK con resumen del sync.
-    ops = result.get("operations_executed", 0) if isinstance(result, dict) else 0
-    logger.ok(
-        f"Sincronizacion de proceso '{proc_uid}' en '{plc_name}': "
-        f"{ops} ops aplicadas"
+    logger.web(
+        f"Sincronizando comentarios de {len(proc_uids)} proceso(s) "
+        f"({', '.join(str(u) for u in proc_uids)}) en '{plc_name}'..."
     )
-    return jsonify(result)
+    results, errors = _run_proc_fb(
+        "proc_sincronizar", plc_name, proc_uids,
+    )
+    if not results:
+        return jsonify({
+            "ok": False,
+            "error": "ningun proceso pudo sincronizarse",
+            "errors": errors,
+        }), 500
+
+    logger.ok(
+        f"Sincronizacion aplicada a {len(results)}/{len(proc_uids)} "
+        f"proceso(s) en '{plc_name}'"
+        + (f" (errores: {len(errors)})" if errors else "")
+    )
+    return jsonify({
+        "ok": True,
+        "plc_name": plc_name,
+        "results": results,
+        **({"errors": errors} if errors else {}),
+    })
 
 
 def build_routers(app) -> None:

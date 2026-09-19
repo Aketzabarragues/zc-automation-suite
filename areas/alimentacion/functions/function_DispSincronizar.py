@@ -16,6 +16,11 @@ comunes + 1 especifica.
 
 Runtime params via ``start(**kwargs)``:
   - ``plc_name`` (str): nombre del PLC destino. Obligatorio.
+  - ``device_hw_types`` (list[str] | None): filtro de hw_types a
+    sincronizar. ``None`` o ausente = todos los tipos activos. Si
+    trae lista, solo se sincronizan los hw_types incluidos (mas
+    N_MAX, que siempre se procesa). Back-compat: si el router envia
+    ``None`` o no lo envia, se comporta como antes.
 
 El ``self.result`` se popula con la shape legacy esperada por la SPA::
 
@@ -144,6 +149,11 @@ class FunctionDispSincronizar(FunctionBase):
             )
         self._plc_name = str(plc_name)
 
+        # ``device_hw_types``: filtro opcional. ``None`` o ausente =
+        # todos los tipos activos (back-compat). Lista vacia no se
+        # acepta aqui; el router ya valida y devuelve 400.
+        device_hw_types = params.get("device_hw_types")
+
         # Crear el DispSyncContext que las 11 funciones iran mutando.
         # Lazy import para evitar ciclo con helpers/disp/.
         from areas.alimentacion.helpers.disp.disp_Sincronizar import (
@@ -155,6 +165,7 @@ class FunctionDispSincronizar(FunctionBase):
             config_manager=self._config,
             app_state=self._state,
             build_cache_root=self._build_cache_root,
+            device_hw_types=device_hw_types,
         )
 
         logger.debug(

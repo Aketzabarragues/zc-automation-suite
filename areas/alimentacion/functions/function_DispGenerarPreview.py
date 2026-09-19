@@ -19,6 +19,10 @@ comunes + 1 especifica.
 
 Runtime params via ``start(**kwargs)``:
   - ``plc_name`` (str): nombre del PLC destino. Obligatorio.
+  - ``device_hw_types`` (list[str] | None): filtro de hw_types a
+    previsualizar. ``None`` o ausente = todos los tipos activos
+    (back-compat). Si trae lista, solo se exportan y diffan los
+    hw_types incluidos (mas N_MAX, transversal).
 
 El ``self.result`` se popula con la shape legacy esperada por la SPA::
 
@@ -130,6 +134,11 @@ class FunctionDispGenerarPreview(FunctionBase):
             )
         self._plc_name = str(plc_name)
 
+        # ``device_hw_types``: filtro opcional. ``None`` o ausente =
+        # todos los tipos activos (back-compat). Lista vacia no se
+        # acepta aqui; el router ya valida y devuelve 400.
+        device_hw_types = params.get("device_hw_types")
+
         # Crear el DispPreviewContext que las 4 funciones iran mutando.
         # Lazy import para evitar ciclo con helpers/sync/.
         from areas.alimentacion.helpers.disp.disp_generate_preview import (
@@ -141,6 +150,7 @@ class FunctionDispGenerarPreview(FunctionBase):
             config_manager=self._config,
             app_state=self._state,
             build_cache_root=self._build_cache_root,
+            device_hw_types=device_hw_types,
         )
 
         logger.debug(

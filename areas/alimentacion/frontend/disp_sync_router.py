@@ -62,6 +62,11 @@ def post_disp_sync_commit():
     el path se reserva para la jerarquia de URLs (procesos usa
     ``/api/v1/procesos/sync/commit``).
 
+    Body JSON opcional: ``{plc_name: str, device_hw_types:
+    list[str] | None}``. Si ``device_hw_types`` esta vacio o ausente,
+    se sincronizan TODOS los tipos (back-compat). Si trae lista,
+    solo se sincronizan esos tipos de dispositivo.
+
     Bloquea el hilo de Flask hasta que el FB termina (max ~600s,
     ``STEP_TIMEOUT_S`` del FB). Cuando el FB entra en estado
     terminal (``done`` o ``error``), devuelve el ``result``.
@@ -81,6 +86,25 @@ def post_disp_sync_commit():
             "error": "plc_name (str) es obligatorio en el body",
         }), 400
 
+    # ``device_hw_types``: lista opcional para filtrar el sync.
+    # Si es None o vacia, se sincronizan todos (back-compat).
+    device_hw_types = body.get("device_hw_types")
+    if device_hw_types is not None:
+        if not isinstance(device_hw_types, list) or not all(
+            isinstance(h, str) for h in device_hw_types
+        ):
+            return jsonify({
+                "ok": False,
+                "error": "device_hw_types debe ser list[str]",
+            }), 400
+        if not device_hw_types:
+            # Lista vacia: explicitamente "ninguno". Mejor 400 que
+            # confundir al operario con un sync vacio silencioso.
+            return jsonify({
+                "ok": False,
+                "error": "device_hw_types vacio: especifique al menos 1 tipo",
+            }), 400
+
     fb = _get_fb("disp_sincronizar")
     if fb is None:
         return jsonify({
@@ -90,8 +114,17 @@ def post_disp_sync_commit():
 
     import asyncio
     # Plan living TRAZABILIDAD_LOGGING §5 (operacion 5): 1 web al iniciar.
-    logger.web(f"Sincronizando dispositivos en '{plc_name}'...")
-    started = asyncio.run(fb.start(plc_name=plc_name))
+    tipos_msg = (
+        f" (tipos: {', '.join(device_hw_types)})"
+        if device_hw_types
+        else " (todos los tipos)"
+    )
+    logger.web(
+        f"Sincronizando dispositivos en '{plc_name}'{tipos_msg}..."
+    )
+    started = asyncio.run(
+        fb.start(plc_name=plc_name, device_hw_types=device_hw_types)
+    )
     if not started:
         return jsonify({
             "ok": False,
