@@ -115,6 +115,14 @@ class MainServiceSupervisor:
         # tia-loop al final: drena la cola pendiente y luego sale.
         if tia_client is not None:
             tia_client.stop_tia_loop(timeout=timeout)
+        # Cleanup del ``.build_cache/<area>/`` de staging tras apagar la
+        # app. Los exports, modified y preview de la sesion ya no son
+        # utiles (el commit es atomico: si fallo, el PLC no cambio; si
+        # salio bien, el siguiente sync re-exportara de cero). Iteramos
+        # todas las areas registradas para futuro-proof (hoy solo hay
+        # ``alimentacion``; ``trazabilidad``, ``recetas``, etc. entran
+        # solas).
+        self._cleanup_build_cache()
         self._healthy.clear()
         self._flask_thread = None
         self._loop_thread = None
@@ -129,6 +137,69 @@ class MainServiceSupervisor:
             and self._loop_thread is not None
             and self._loop_thread.is_alive()
         )
+
+    def _cleanup_build_cache(self) -> None:
+        """Borra ``<cwd>/.build_cache/<area_id>/`` para todas las areas.
+
+        Lo llama ``stop()`` al apagar la app. Idempotente: si el
+        directorio no existe (sesion nunca hizo export), ``rmtree``
+        con ``ignore_errors=True`` es un no-op.
+
+        La raiz ``.build_cache/`` se preserva (puede contener otras
+        areas que aun no se han apagado, o artefactos historicos que
+        el operario quiera inspeccionar). Solo borramos las
+        subcarpetas por area.
+
+        Por que NO usamos ``WorkdirContextLayout.clean()``:
+        ``clean()`` borra solo ``exports/`` y ``modified/`` y deja
+        ``preview/``. Aqui queremos limpieza TOTAL al apagar para
+        no acumular exports de sesiones pasadas en el repo. Si el
+        operario quiere mantener preview historico, basta con no
+        llamar a ``stop()`` (o comentar este metodo).
+        """
+        import os
+        import shutil
+        from pathlib import Path
+
+        root = Path(os.getcwd()) / ".build_cache"
+        if not root.exists():
+            return
+
+        try:
+            from core.composition.app_area_registry import AreaRegistry
+            area_ids = [spec.id for spec in AreaRegistry.discover().all()]
+        except Exception as exc:  # noqa: BLE001
+            # Si el registry falla (e.g. shutdown ya en curso), caemos
+            # al fallback conservador: NO borrar nada. El operario lo
+            # puede limpiar a mano. Mejor acumular que romper.
+            self.log.warning(
+                "Cleanup .build_cache: AreaRegistry indisponible (%s); "
+                "se omite el cleanup automatico.",
+                exc,
+            )
+            return
+
+        if not area_ids:
+            return
+
+        for area_id in area_ids:
+            area_dir = root / area_id
+            if not area_dir.exists():
+                continue
+            try:
+                shutil.rmtree(area_dir)
+                self.log.info(
+                    "Cleanup .build_cache: borrado %s",
+                    area_dir,
+                )
+            except Exception as exc:  # noqa: BLE001
+                # Archivos en uso por TIA u otro proceso: no abortamos
+                # el shutdown, solo dejamos rastro para que el operario
+                # lo limpie a mano.
+                self.log.warning(
+                    "Cleanup .build_cache: no se pudo borrar %s (%s)",
+                    area_dir, exc,
+                )
 
     def wait_until_alive(self, timeout_s: float = 10.0) -> bool:
         """Espera a que Flask esté bindeado + main loop vivo. Útil para tests."""
