@@ -749,6 +749,18 @@ def _copy_and_edit_offline(
             modifier = PlcUserConstantModifier(xml_path)
             modifier.add_user_constants_by_table(table_name, adds)
             modifier.remove_user_constants(removes)
+        else:
+            # El XML del tipo de dispositivo no esta en
+            # modified_variables (ni ruta directa ni rglob
+            # fallback). Saltamos ese tipo pero avisamos al
+            # operario: un FB que reporta "0 adds, 0 removes"
+            # sin este warning podria hacer creer al operario
+            # que ese tipo de dispositivo ya estaba al dia.
+            logger.warning(
+                f"[disp sync] XML no encontrado para tabla "
+                f"'{table_name}' en {disp_ctx.modified_variables}. "
+                f"Se omite del sync."
+            )
             # NO llamamos ``modifier.regenerate_root_table_id()``:
             # cambiar el ID del PlcTagTable root de ``0`` a un valor alto
             # hace que TIA Portal V21 interprete el import como CREATE

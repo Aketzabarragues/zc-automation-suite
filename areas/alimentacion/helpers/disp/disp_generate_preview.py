@@ -422,10 +422,20 @@ def _compute_diff_readonly(
     from core.helpers.simatic_ml import PlcUserConstantModifier
 
     base_state_per_table: dict[str, dict[str, str]] = {}
+    missing_tables: list[str] = []
     for table_key in desired_state_per_table.keys():
         try:
             xml_path = XmlTarget(tags_base, table_key).path
         except FileNotFoundError:
+            # El XML del tipo de dispositivo no esta en TIA
+            # (ni en ruta directa ni en rglob fallback). Lo
+            # marcamos como "missing" para avisar al operario
+            # en el preview, pero seguimos con los otros tipos.
+            logger.warning(
+                f"[disp preview] XML no encontrado para tabla "
+                f"'{table_key}' en {tags_base}. Se omite del diff."
+            )
+            missing_tables.append(table_key)
             continue
         modifier = PlcUserConstantModifier(xml_path)
         table_constants: dict[str, str] = {}
