@@ -397,10 +397,29 @@ Detalles:
 | Commits | 1-2 archivos por commit, mensajes en archivo (problema PowerShell con `-m` multilínea). Usar `git commit -F <archivo>`. |
 | Borrado | `mavis-trash` (recuperable), nunca `rm` directo. |
 | Tests | `python -m pytest tests/ -v` antes de cada commit. |
-| Logs | DEBUG por default, `logger.web/ok` solo en consola SPA para operario. |
 | Tema UI | "Industrial Claro": `bg-accent` azul Siemens `rgb(0 52 102)`. |
 | Naming | Prefijos `disp_*` / `proc_*` primero en helpers (regla del operario). |
 | Sync OT | `start_transaction` / `end_transaction` (rollback atómico) si transaccional. |
+
+### Logging (1 llamada → archivo + web)
+
+Un único `logging.getLogger(__name__)` enruta a **archivo** (`zc.log`) y/o **consola SPA** según el nivel:
+
+| Nivel | Archivo | Consola web (color) | Cuándo usarlo |
+|---|---|---|---|
+| `DEBUG` (10) | ✅ | ❌ | Trazas internas (transiciones TIA, ticks del engine). Solo archivo. |
+| `INFO` (20) | ✅ | ❌ | Requests HTTP de werkzeug, eventos del ciclo de vida. Solo archivo. |
+| `logger.web(...)` (25) | ✅ `[WEB]` | ✅ neutro | Mensaje contextual que el operario debe ver durante la operación (p. ej. "Generando prevision de 'S7-1500'..."). No marca éxito. |
+| `logger.ok(...)` (26) | ✅ `[OK]` | ✅ **verde** | Cierre exitoso de operación (p. ej. "Sincronización completa: 8 ops"). Reemplaza al antiguo `LogBuffer.success()`. |
+| `WARNING` (30) | ✅ | ✅ amber | Alerta operativa (compilación parcial, fila descartada, XML no encontrado). |
+| `ERROR` (40) | ✅ | ✅ red | Error recuperable (export fallido, parseo roto). |
+| `CRITICAL` (50) | ✅ | ✅ red | Crash irrecuperable. |
+
+**Reglas operativas:**
+- **1 sola llamada** en código: `logger.web/ok/warning/error(...)`. El handler enruta automáticamente.
+- **WEB** = "el operario debe ver esto, contexto neutro". **OK** = "operación exitosa, confirmada".
+- Tras cualquier cambio de logging, **smoke en vivo** (operario lo ve en la consola SPA durante una operación real).
+- `werkzeug` access logs saturan `zc.log` — si molesta, subir el filtro del StreamHandler de werkzeug a WARNING.
 
 Más detalle en `AGENTS.md` (extensión) y `.clinerules` (reglas arquitectónicas).
 
@@ -408,6 +427,7 @@ Más detalle en `AGENTS.md` (extensión) y `.clinerules` (reglas arquitectónica
 
 - **Reglas críticas**: `.clinerules` (leer siempre primero).
 - **Convenciones operativas**: `AGENTS.md`.
-- **Planes vivos**: `_plan/REFACTOR_PLAN.md` (DA-XXX), `docs/MIGRATION_PLAYBOOK.md` (use case → FB).
+- **Migración use case → FB**: `docs/MIGRATION_PLAYBOOK.md` (playbook operativo, no plan histórico).
+- **Historia del refactor**: vive en `git log -- main` (commits cohesivos, 1-2 archivos por paso). Las zonas A.1-A.7 del refactor están cerradas; el árbol está estable.
 - **Perfil del operario**: `C:\Users\ABH\.minimax\memory\user.md`.
 - **Perfil del agente**: `C:\Users\ABH\.minimax\memory\main.md`.
