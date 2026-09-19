@@ -23,9 +23,10 @@ El ``self.result`` se popula con la shape esperada por la SPA::
       "operations_executed":  int,
       "details":              list[dict],
       "warnings":             list[str],
+      "post_sync_preview":    dict | None,
     }
 
-Steps (8, Tx A N_MAX + compile + Tx B):
+Steps (9, Tx A N_MAX + compile + Tx B + post-preview):
   - check_state_commit       -> valida excel_cache cargado
   - check_blocks_commit      -> valida bloques_cache cargado
   - build_slot_maps_commit   -> recalcula slot maps desde AppState
@@ -33,6 +34,7 @@ Steps (8, Tx A N_MAX + compile + Tx B):
   - wait_consolidation       -> sleep 2s para que TIA consolide
   - compile_proc_blocks      -> compila PARAM + ALM tras el resize
   - open_transaction         -> Tx B: commits + import
+  - post_preview             -> regenera preview para 'todo en sync'
   - done                     -> vuelca ctx.result a self.result
 """
 from __future__ import annotations
@@ -89,6 +91,7 @@ class FunctionProcSincronizar(FunctionBase):
                 {"nombre": "wait_consolidation"},
                 {"nombre": "compile_proc_blocks"},
                 {"nombre": "open_transaction"},
+                {"nombre": "post_preview"},
                 {"nombre": "done"},
             ],
             tracker=tracker,
@@ -260,6 +263,13 @@ class FunctionProcSincronizar(FunctionBase):
                     )
             case "open_transaction":
                 await proc_sincronizar.proc_open_transaction(self._ctx)
+            case "post_preview":
+                # Regenera el preview tras el commit para que la SPA
+                # vea "todo en sync" sin pedir un preview manual. Si
+                # TIA aun esta consolidando Tx B, el helper captura la
+                # excepcion y deja ctx.post_sync_preview=None (warning
+                # en log). El operario puede lanzar preview manual.
+                await proc_sincronizar.proc_post_preview(self._ctx)
             case "done":
                 # ``proc_done_summary_commit`` compone ``ctx.result``;
                 # el FB lo vuelca a ``self.result`` en ``on_finish``.
@@ -333,6 +343,11 @@ def _step_summary(ctx: Any, step_nombre: str) -> str:
     if step_nombre == "open_transaction":
         ops = (ctx.tx_result or {}).get("operations_executed", 0)
         return f"{step_nombre}: {ops} ops aplicadas OK"
+    if step_nombre == "post_preview":
+        return (
+            f"{step_nombre}: "
+            f"{'preview regenerado OK' if ctx.post_sync_preview else 'preview fallo (warning en log)'}"
+        )
     if step_nombre == "done":
         return f"{step_nombre}: sync compuesto"
     return f"{step_nombre}: OK"

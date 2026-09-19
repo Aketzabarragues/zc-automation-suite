@@ -318,10 +318,44 @@ export default {
                 if (r && r.ok) {
                     store.procesosSync.lastAppliedAt =
                         new Date().toISOString();
-                    // Tras aplicar, el preview queda obsoleto. Lo
-                    // limpiamos para forzar al operario a
-                    // regenerarlo si quiere ver el nuevo estado.
-                    store.procesosSync.preview = null;
+                    // Tras un commit exitoso, el backend ya re-corre
+                    // el preview y lo devuelve en ``post_sync_preview``
+                    // dentro del result del proc_uid. El router lo
+                    // expone como ``results[uid].post_sync_preview``
+                    // (anidado por uid para soportar multiples uids
+                    // en el mismo body). Lo usamos para refrescar la
+                    // vista directamente: si el sync fue completo,
+                    // este preview mostrara 0 cambios (todo en sync).
+                    // Si por algun motivo no viene (raro: TIA
+                    // consolidando Tx B), hacemos fallback a llamar
+                    // al endpoint de preview manualmente.
+                    const newPreview =
+                        r.data?.results?.[String(props.procUid)]
+                            ?.post_sync_preview
+                        ?? r.data?.results?.[props.procUid]
+                            ?.post_sync_preview
+                        ?? null;
+                    if (newPreview) {
+                        store.procesosSync.preview = newPreview;
+                        pushLog(
+                            "Transacción aplicada OK. Vista refrescada con estado post-sync.",
+                            "success",
+                        );
+                    } else {
+                        const rp = await apiProcesosSyncPreview(
+                            props.procUid,
+                            plcName.value,
+                        );
+                        if (rp && rp.ok) {
+                            store.procesosSync.preview = rp.data;
+                        } else if (rp && rp.errorType === "TIAConnectionError") {
+                            resetPlcState();
+                        }
+                        pushLog(
+                            "Transacción aplicada OK. Preview refrescado (fallback).",
+                            "success",
+                        );
+                    }
                 } else if (r && r.errorType === "TIAConnectionError") {
                     // TIA Portal cerro durante el commit. Limpiamos
                     // el state del PLC en el SPA (backend ya invalido

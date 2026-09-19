@@ -210,14 +210,14 @@ async def test_proc_sincronizar_happy_path_8_ticks(
 
         # State machine del FunctionBase:
         #   tick #1: 10 -> 20 (on_start + tracker.begin)
-        #   ticks #2-9: 20 (corren los 8 steps; nStep NO avanza)
-        #   tick #10: 95 -> 99 (on_finish)
+        #   ticks #2-10: 20 (corren los 9 steps; nStep NO avanza)
+        #   tick #11: 95 -> 99 (on_finish)
         n_ticks_done = 0
         await fb.tick()
         n_ticks_done += 1
         assert fb.nStep == 20
 
-        for _ in range(8):
+        for _ in range(9):
             await fb.tick()
             n_ticks_done += 1
             assert fb.nStep in (20, 95)
@@ -226,7 +226,7 @@ async def test_proc_sincronizar_happy_path_8_ticks(
         await fb.tick()
         n_ticks_done += 1
         assert fb.nStep == 99
-        assert n_ticks_done == 10
+        assert n_ticks_done == 11
 
         assert fb.is_terminal() is True
         assert fb.error_msg is None

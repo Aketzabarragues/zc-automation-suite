@@ -115,6 +115,13 @@ class ProcSyncContext:
     apply_alm_map: dict[str, str] = field(default_factory=dict)
     tx_b_ops: list[dict[str, Any]] = field(default_factory=list)
 
+    # ── Resultado de proc_post_preview (preview post-sync) ──
+    # Misma shape que devuelve ``proc_generar_preview`` (legacy SPA):
+    # sirve para que el sync view muestre "todo en sync" sin pedir
+    # un preview manual extra. None si el helper fallo (commit ya
+    # aplicado; el operario puede lanzar preview manual aparte).
+    post_sync_preview: dict[str, Any] | None = None
+
     result: dict[str, Any] = field(default_factory=dict)
 
 
@@ -476,8 +483,65 @@ def proc_done_summary_commit(ctx: ProcSyncContext) -> dict[str, Any]:
         "operations_executed": ops_executed,
         "details": tx.get("details", []),
         "warnings": warnings,
+        # Se rellena con el dict legacy del preview (o None si fallo)
+        # al final del step ``post_preview``. El FB lo vuelca a
+        # ``self.result`` para que la SPA vea "todo en sync" sin
+        # pedir un preview manual extra (mismo patron que Dispositivos).
+        "post_sync_preview": ctx.post_sync_preview,
     }
     return ctx.result
+
+
+async def proc_post_preview(ctx: ProcSyncContext) -> None:
+    """Genera el preview post-sync para que la SPA vea 'todo en sync'.
+
+    Reusa las 5 funciones de ``proc_generar_preview``
+    (``proc_check_state``, ``proc_check_blocks``,
+    ``proc_build_slot_maps``, ``proc_compute_nmax``,
+    ``proc_export_and_diff`` y ``proc_compose_response``). Crea un
+    ``ProcPreviewContext`` con las mismas deps y lo ejecuta en orden.
+
+    Si el helper falla (e.g. TIA acabo de consolidar Tx A y aun no
+    responde), captura la excepcion y deja ``ctx.post_sync_preview =
+    None`` para que ``proc_done_summary_commit`` siga emitiendo el
+    shape legacy completo (con ``post_sync_preview=None``). El operario
+    puede entonces lanzar un preview manual desde la SPA.
+    """
+    from areas.alimentacion.helpers.proc.proc_generar_preview import (
+        ProcPreviewContext,
+        proc_build_slot_maps as pv_build_slot_maps,
+        proc_check_blocks as pv_check_blocks,
+        proc_check_state as pv_check_state,
+        proc_compose_response as pv_compose_response,
+        proc_compute_nmax as pv_compute_nmax,
+        proc_export_and_diff as pv_export_and_diff,
+    )
+
+    pv_ctx = ProcPreviewContext(
+        plc_name=ctx.plc_name,
+        proc_uid=ctx.proc_uid,
+        tia_client=ctx.tia_client,
+        config_manager=ctx.config_manager,
+        app_state=ctx.app_state,
+        build_cache_root=ctx.build_cache_root,
+        bloques_cache=ctx.bloques_cache,
+    )
+
+    try:
+        pv_check_state(pv_ctx)
+        pv_check_blocks(pv_ctx)
+        pv_build_slot_maps(pv_ctx)
+        await pv_compute_nmax(pv_ctx)
+        await pv_export_and_diff(pv_ctx)
+        pv_compose_response(pv_ctx)
+        ctx.post_sync_preview = pv_ctx.result
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            f"[{ctx.plc_name}/proceso {ctx.proc_uid}] Post-sync "
+            f"preview fallo (commit ya aplicado): {exc!r}. "
+            f"El operario puede lanzar preview manual desde la SPA."
+        )
+        ctx.post_sync_preview = None
 
 
 # Cada fase es una funcion publica testeable. ``proc_open_transaction``
