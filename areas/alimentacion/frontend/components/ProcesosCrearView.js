@@ -359,6 +359,7 @@ export default {
             </div>
 
             <button type="button"
+                    @click="generarPreview"
                     :disabled="!canGenerate"
                     data-testid="procesos-crear-generar-preview"
                     class="mt-4 px-3 py-1.5 bg-accent text-ink-inverse rounded-md text-xs font-semibold hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed">
