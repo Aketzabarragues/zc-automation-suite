@@ -108,6 +108,11 @@ def build() -> "AreaFrontendManifest":
             # que ``<procesos-sync-view>`` funcione como etiqueta en
             # el template del padre.
             "ProcesosSyncView":        f"{_STATIC_PREFIX}/components/ProcesosSyncView.js",
+            # ``ProcesosCrearView``: gemelo de ``ProcesosSyncView``
+            # para el flujo "crear proceso completo desde plantilla
+            # TIA". Inline dentro de ``Procesos.js``, mismo patron
+            # de registro (loader sin entrada en ``views``).
+            "ProcesosCrearView":       f"{_STATIC_PREFIX}/components/ProcesosCrearView.js",
             # Sub-componentes internos del rediseño Opción A
             # (tabs principales Dispositivos | Software). Se
             # registran como loaders pero NO como sub-vistas del

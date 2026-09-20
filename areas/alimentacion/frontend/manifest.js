@@ -56,6 +56,11 @@ const _comps = {
     // Sub-vista "Sync comentarios de DB" (preview + diff + apply).
     // Accesible desde la card de Procesos.js (key: "proc_sync").
     "ProcesosSyncView":        () => import("./components/ProcesosSyncView.js"),
+    // Sub-vista inline "Crear proceso completo desde plantilla TIA".
+    // Mismo patron que ``ProcesosSyncView``: se renderiza INLINE
+    // dentro de ``Procesos.js`` (panel hijo) y NO aparece en
+    // ``views`` (no es sub-vista top-level del area).
+    "ProcesosCrearView":       () => import("./components/ProcesosCrearView.js"),
     // Sub-componentes del rediseño de "Definición programación"
     // (tabs principales Dispositivos | Software). Se registran
     // como componentes globales para que ``DefinicionProgramacion``

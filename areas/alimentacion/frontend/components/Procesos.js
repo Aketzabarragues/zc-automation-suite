@@ -15,10 +15,12 @@
  *      por ser legacy — el UID ya viene en el selector y los
  *      nombres de DB los computa el use case internamente).
  *   4. 2 cards de acción:
- *        - "Crear proceso completo" (placeholder, alert TODO).
- *        - "Actualizar comentarios de DB" (funcional, expande la
- *          vista ``<procesos-sync-view>`` INLINE debajo de las
- *          cards, sin cambiar ``store.currentView``).
+ *        - "Crear proceso completo" (expande la vista
+ *          ``<procesos-crear-view>`` INLINE debajo de las cards,
+ *          sin cambiar ``store.currentView``).
+ *        - "Actualizar comentarios de DB" (expande la vista
+ *          ``<procesos-sync-view>`` INLINE debajo de las cards,
+ *          sin cambiar ``store.currentView``).
  *
  * Decisiones de diseño:
  *   - Estado local: ``selectedProcUid`` y ``showSyncView`` como
@@ -82,6 +84,16 @@ export default {
          * visual y permite cambiar de proceso sin "volver atrás".
          */
         const showSyncView = ref(false);
+
+        /**
+         * Flag paralelo a ``showSyncView`` pero para la sub-vista
+         * inline ``<procesos-crear-view>``. Mismo patron: el
+         * componente hijo emite ``close`` y nosotros lo apagamos.
+         * Mantenerlo independiente de ``showSyncView`` permite que
+         * ambas vistas convivan (no deberia ser habitual, pero no
+         * queremos acoplar su lifecycle).
+         */
+        const showCrearView = ref(false);
 
         /**
          * Lista de procesos del Excel cacheado. Defensivo: si el
@@ -190,6 +202,25 @@ export default {
             showSyncView.value = false;
         }
 
+        /**
+         * Handler de la card "Crear proceso completo". Activa el
+         * flag ``showCrearView`` para que se monte inline
+         * ``<procesos-crear-view>`` debajo de las cards. Análogo a
+         * ``openSyncView``: NO cambia ``store.currentView``.
+         */
+        function openCrearView() {
+            showCrearView.value = true;
+        }
+
+        /**
+         * Handler del evento ``close`` que emite
+         * ``<procesos-crear-view>`` cuando el operario pulsa
+         * "Cerrar". Colapsa la vista inline de crear.
+         */
+        function closeCrearView() {
+            showCrearView.value = false;
+        }
+
         return {
             procesos,
             hasExcel,
@@ -197,11 +228,14 @@ export default {
             selectedProcUid,
             selectedProc,
             showSyncView,
+            showCrearView,
             canAct,
             canOpenSync,
             syncCardTooltip,
             openSyncView,
             closeSyncView,
+            openCrearView,
+            closeCrearView,
         };
     },
     template: /* html */ `
@@ -255,7 +289,7 @@ export default {
                 <h3 class="text-sm font-semibold text-ink mb-3">¿Qué quieres hacer?</h3>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
 
-                    <button @click="alert('TODO: Crear proceso completo')"
+                    <button @click="openCrearView"
                             :disabled="!canAct"
                             data-testid="procesos-card-create"
                             class="bg-surface border-2 border-line rounded-xl p-4 text-left flex flex-col items-start transition hover:border-accent hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-line disabled:hover:shadow-none">
@@ -294,6 +328,19 @@ export default {
                     :proc-uid="selectedProcUid"
                     @close="closeSyncView">
                 </procesos-sync-view>
+            </div>
+
+            <!-- Vista de "crear proceso completo desde plantilla".
+                 Mismo patron que el sync view: inline debajo de
+                 las cards, sin tocar ``store.currentView``.
+                 ``<procesos-crear-view>`` gestiona su propio
+                 estado (plantillas, form, preview, apply) y
+                 emite ``close`` para colapsar. -->
+            <div v-if="showCrearView"
+                 class="mt-4 bg-surface-raised border border-line rounded p-4"
+                 data-testid="procesos-crear-inline-host">
+                <procesos-crear-view @close="closeCrearView">
+                </procesos-crear-view>
             </div>
 
         </section>
