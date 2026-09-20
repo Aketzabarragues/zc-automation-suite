@@ -323,3 +323,103 @@ export function apiProcesosSyncCommit(procUid, plcName, prevision) {
         SLOW_TIMEOUT_MS,
     );
 }
+
+/**
+ * Lista las plantillas TIA disponibles (subcarpetas de
+ * ``plantillas_path`` con ``manifest.json`` valido).
+ * Endpoint: GET /api/v1/procesos/plantillas.
+ *
+ * Cada elemento trae ``{carpeta, base, codigo, nombre, minimos}``. Si
+ * ``plantillas_path`` no esta configurado o el directorio no existe,
+ * el backend devuelve ``plantillas: []`` con un ``warning`` explicativo
+ * (NO es error); el frontend lo trata como "aun sin configurar".
+ *
+ * Lectura pura del filesystem. Tipicamente <100ms. Bucket FAST.
+ *
+ * @returns {Promise<{ok, status, data}>}
+ */
+export const apiListPlantillas = () =>
+    // FAST: lectura pura (subcarpetas + JSON de manifests).
+    _request("GET", "/api/v1/procesos/plantillas", null, FAST_TIMEOUT_MS);
+
+/**
+ * Actualiza la ruta base de plantillas (``plantillas_path``) en el
+ * ``config.json`` del usuario y recarga el ``ConfigManager`` backend.
+ * Endpoint: PUT /api/v1/procesos/plantillas.
+ *
+ * Tras un 200, el siguiente ``apiListPlantillas`` y los FBs que leen
+ * ``plantillas_path`` ven el nuevo valor sin reiniciar la app.
+ *
+ * Cadena vacia ("") es valida (resetea a "sin configurar"). Cualquier
+ * valor que no sea str devuelve 400.
+ *
+ * @param {string} plantillasPath - ruta absoluta del directorio base
+ *                                  de plantillas (o "" para resetear).
+ * @returns {Promise<{ok, status, data}>}
+ */
+export const apiUpdatePlantillasPath = (plantillasPath) =>
+    _request(
+        "PUT",
+        "/api/v1/procesos/plantillas",
+        { plantillas_path: plantillasPath || "" },
+        FAST_TIMEOUT_MS,
+    );
+
+/**
+ * Preview (read-only) de "crear proceso completo desde plantilla TIA".
+ * Endpoint: POST /api/v1/procesos/crear/preview.
+ *
+ * El backend dispara el FB ``proc_process_crear_preview`` (copytree +
+ * regex + lista de archivos previstos + colisiones contra
+ * ``plc_blocks_cache`` si se pasa). Devuelve el ``result`` con shape::
+ *
+ *   {manifest_plantilla, archivos_previstos, colisiones, preview_dir,
+ *    success}
+ *
+ * @param {object} params - campos:
+ *   - ``plantillas_path``       (str)
+ *   - ``dir_plantilla_nombre``  (str)
+ *   - ``base_nueva``            (int)
+ *   - ``codigo_nuevo``          (str)
+ *   - ``nombre_nuevo``          (str)
+ *   - ``minimos_usuario``       (dict con N_MAX_PREAL/PINT/ALM/ALM_HMI)
+ *   - ``plc_blocks_cache``      (list[str] | null, opcional)
+ * @returns {Promise<{ok, status, data}>}
+ */
+export const apiProcesosCrearPreview = (params) =>
+    // MEDIUM: export equivalente a apiProcesosSyncPreview (copytree
+    // + regex sobre la plantilla). STEP_TIMEOUT_S del FB=120s.
+    _request(
+        "POST",
+        "/api/v1/procesos/crear/preview",
+        params,
+        MEDIUM_TIMEOUT_MS,
+    );
+
+/**
+ * Aplica el clon del proceso en TIA Portal: orden estricto
+ * TAG -> DBs -> bloques logicos -> compile.
+ * Endpoint: POST /api/v1/procesos/crear/aplicar.
+ *
+ * El backend dispara el FB ``proc_process_crear_aplicar`` que hace 5
+ * dispatches al worker OT (``import_plc_tags_xml`` + 2
+ * ``import_blocks_sd`` + ``compile_plc``, mas un sleep de
+ * consolidacion de 2s entre imports). Devuelve el ``result`` con shape::
+ *
+ *   {manifest_plantilla, archivos_generados, colisiones, modified_dir,
+ *    success, import_result, compile_result}
+ *
+ * @param {object} params - mismos campos que ``apiProcesosCrearPreview``
+ *                          mas ``plc_name`` (str, obligatorio).
+ * @returns {Promise<{ok, status, data}>}
+ */
+export const apiProcesosCrearAplicar = (params) =>
+    // SLOW: 5 dispatches al worker OT (3 imports + 1 compile + 2s
+    // sleep). STEP_TIMEOUT_S del FB=600s. El backend ya espera eso;
+    // el cliente debe esperar MAS (10 min cubre S7-1500 grandes).
+    _request(
+        "POST",
+        "/api/v1/procesos/crear/aplicar",
+        params,
+        SLOW_TIMEOUT_MS,
+    );

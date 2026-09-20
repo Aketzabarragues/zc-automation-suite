@@ -31,6 +31,12 @@ from areas.alimentacion.frontend.disp_preview_router import (
 from areas.alimentacion.frontend.disp_sync_router import (
     build_routers as build_disp_sync_routers,
 )
+from areas.alimentacion.frontend.proc_plantillas_router import (
+    build_routers as build_proc_plantillas_routers,
+)
+from areas.alimentacion.frontend.proc_process_crear_router import (
+    build_routers as build_proc_process_crear_routers,
+)
 from areas.alimentacion.frontend.proc_sync_router import (
     build_routers as build_proc_sync_routers,
 )
@@ -61,6 +67,8 @@ def _build_all_routers(app) -> None:
     build_excel_routers(app)
     build_disp_preview_routers(app)
     build_disp_sync_routers(app)
+    build_proc_plantillas_routers(app)
+    build_proc_process_crear_routers(app)
     build_proc_sync_routers(app)
 
 
