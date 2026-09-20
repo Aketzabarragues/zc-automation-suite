@@ -82,11 +82,6 @@ class DispSyncContext:
     config_manager: Any
     app_state: Any
     build_cache_root: Path
-    # Filtro opcional de hw_types a sincronizar (None = todos).
-    # Lo envia el router desde el body de la SPA. Si la lista esta
-    # vacia, el router ya valida y devuelve 400; aqui solo se
-    # interpreta ``None`` (sin filtro) o lista con >=1 elemento.
-    device_hw_types: list[str] | None = None
 
     # ── Resultados de exportar_tags ──
     tags_base: Path | None = None
@@ -136,9 +131,7 @@ async def exportar_tags(ctx: DispSyncContext) -> None:
     # via ``shutil.copytree`` filtrado (que excluye ``000_Config_Dispositivos``
     # para no re-importar la N_MAX online en Tx B).
     ctx.tags_base = disp_ctx.exports_variables
-    ctx.selective_tables = _selective_table_names(
-        ctx.config_manager, ctx.device_hw_types,
-    )
+    ctx.selective_tables = _selective_table_names(ctx.config_manager)
     logger.debug(f"workdir (exports): {ctx.tags_base}")
     await dispatch_async(
         ctx.tia_client,
@@ -604,26 +597,12 @@ async def disp_post_preview(ctx: DispSyncContext) -> None:
 # como helper compartido.
 
 
-def _selective_table_names(
-    config_manager: Any,
-    hw_types_filter: list[str] | None = None,
-) -> list[str]:
-    """Lista las tablas que el sync dispositivos toca (data-driven).
-
-    Si ``hw_types_filter`` se pasa (lista no vacia), limita la salida
-    a los hw_types incluidos (interseccion con los activos). N_MAX
-    siempre se agrega al final porque es config transversal y se
-    procesa en Tx A independientemente de los devices seleccionados.
-    ``None`` o ``[]`` = todos los hw_types activos.
-    """
+def _selective_table_names(config_manager: Any) -> list[str]:
+    """Lista las tablas que el sync dispositivos toca (data-driven)."""
     nmax_table = config_manager.get_global_config_table_name()
-    active = config_manager.list_hw_types_active()
-    if hw_types_filter:
-        wanted = set(hw_types_filter)
-        active = [hw for hw in active if hw in wanted]
     seen: set[str] = set()
     result: list[str] = []
-    for hw_type in active:
+    for hw_type in config_manager.list_hw_types_active():
         tag_table = config_manager.get_tag_table_name(hw_type)
         if tag_table and tag_table not in seen:
             seen.add(tag_table)

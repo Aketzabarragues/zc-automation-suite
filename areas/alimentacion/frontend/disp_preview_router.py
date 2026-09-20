@@ -8,13 +8,10 @@ router solo orquesta: arranca el FB y devuelve el ``result``.
 
 Endpoint:
   POST /api/v1/plcs/<plc_name>/preview
-    Body JSON: ``{plc_name: str, device_hw_types: list[str] | None}``.
-    Si ``device_hw_types`` esta vacio o ausente, se previsualizan
-    TODOS los tipos (back-compat). Si trae lista, solo se exportan
-    los hw_types incluidos (mas N_MAX, transversal). Dispara el FB
-    ``disp_generar_preview`` y devuelve su ``result`` con shape
-    legacy completa: ``{agregados, eliminados, renombrados, todos,
-    nmax, summary}``.
+    Body JSON opcional (no requiere params adicionales; plc_name viene
+    del path). Dispara el FB ``disp_generar_preview`` y devuelve su
+    ``result`` con shape legacy completa: ``{agregados, eliminados,
+    renombrados, todos, nmax, summary}``.
 
   GET /api/v1/plcs/<plc_name>/preview/status
     Placeholder. Siempre devuelve 200 con ok=True.
@@ -75,25 +72,6 @@ def post_disp_preview():
             "error": "plc_name (str) es obligatorio en el body",
         }), 400
 
-    # ``device_hw_types``: lista opcional para filtrar el preview.
-    # Si es None o vacia, se exportan todos los tipos (back-compat).
-    device_hw_types = body.get("device_hw_types")
-    if device_hw_types is not None:
-        if not isinstance(device_hw_types, list) or not all(
-            isinstance(h, str) for h in device_hw_types
-        ):
-            return jsonify({
-                "ok": False,
-                "error": "device_hw_types debe ser list[str]",
-            }), 400
-        if not device_hw_types:
-            # Lista vacia: explicitamente "ninguno". Mejor 400 que
-            # confundir al operario con un preview vacio silencioso.
-            return jsonify({
-                "ok": False,
-                "error": "device_hw_types vacio: especifique al menos 1 tipo",
-            }), 400
-
     fb = _get_fb("disp_generar_preview")
     if fb is None:
         return jsonify({
@@ -103,15 +81,8 @@ def post_disp_preview():
 
     import asyncio
     # Plan living TRAZABILIDAD_LOGGING §5 (operacion 4): 1 web al iniciar.
-    tipos_msg = (
-        f" (tipos: {', '.join(device_hw_types)})"
-        if device_hw_types
-        else ""
-    )
-    logger.web(f"Generando prevision de '{plc_name}'{tipos_msg}...")
-    started = asyncio.run(
-        fb.start(plc_name=plc_name, device_hw_types=device_hw_types)
-    )
+    logger.web(f"Generando prevision de '{plc_name}'...")
+    started = asyncio.run(fb.start(plc_name=plc_name))
     if not started:
         return jsonify({
             "ok": False,
