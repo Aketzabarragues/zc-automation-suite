@@ -158,49 +158,21 @@ export const apiFetchMemory = () => _request("GET", "/api/v1/state/dispositivos"
  */
 export const apiFetchCatalog = () => _request("GET", "/api/v1/catalog");
 
-/** Pide a TIA Portal una Pre-Flight (Diff) completa: N_MAX + devices. NO toca TIA.
- *
- * ``deviceHwTypes`` opcional: si trae lista (e.g. ["ED", "EA"]),
- * solo se previsualizan esos tipos de dispositivo (mas N_MAX,
- * transversal). ``null`` o ausente = todos los tipos activos
- * (back-compat).
- */
-export const apiGeneratePreview = (plcName, deviceHwTypes = null) =>
+/** Pide a TIA Portal una Pre-Flight (Diff) completa: N_MAX + devices. NO toca TIA. */
+export const apiGeneratePreview = (plcName) =>
     // MEDIUM: hace un export masivo de las 7 tablas del PLC + diff
     // IT-only. En S7-1500 con 200+ bloques el export puede tardar
     // 30-60s. 2 min cubre holgadamente.
-    _request(
-        "POST",
-        "/api/v1/sync/preview",
-        {
-            plc_name: plcName,
-            ...(deviceHwTypes ? { device_hw_types: deviceHwTypes } : {}),
-        },
-        MEDIUM_TIMEOUT_MS
-    );
+    _request("POST", "/api/v1/sync/preview", { plc_name: plcName }, MEDIUM_TIMEOUT_MS);
 
-/** Aplica el Diff completo (N_MAX + devices) en UNA transacción COM única.
- *
- * ``deviceHwTypes`` opcional: si trae lista, solo se sincronizan
- * esos tipos (mas N_MAX). ``null`` o ausente = todos los tipos
- * activos (back-compat).
- */
-export const apiCommit = (plcName, prevision, deviceHwTypes = null) =>
+/** Aplica el Diff completo (N_MAX + devices) en UNA transacción COM única. */
+export const apiCommit = (plcName, prevision) =>
     // SLOW: el backend usa ``commit_devices_sync`` con
     // ``dynamic_timeout = max(default, 5s x estimated_ops)``. Para un
     // sync de 50 N_MAX + 6 device_changes eso son ~350s. El cliente
     // debe esperar MAS que el backend, si no aborta antes de que TIA
     // termine y el operario ve un falso error.
-    _request(
-        "POST",
-        "/api/v1/sync/commit",
-        {
-            plc_name: plcName,
-            prevision,
-            ...(deviceHwTypes ? { device_hw_types: deviceHwTypes } : {}),
-        },
-        SLOW_TIMEOUT_MS
-    );
+    _request("POST", "/api/v1/sync/commit", { plc_name: plcName, prevision }, SLOW_TIMEOUT_MS);
 
 /** Vacía el buffer de logs (botón "Limpiar"). */
 export const apiClearLogs = () => _request("POST", "/api/v1/logs/clear");
@@ -277,26 +249,20 @@ export function apiRefreshPlcBlocks(plcName) {
  * un proceso (PReal + PInt + ALM) sin tocar TIA.
  * Endpoint: POST /api/v1/procesos/sync/preview
  *
- * Acepta un uid (int, legacy) o una lista de uids (list[int]).
- * El backend itera sobre la lista y devuelve un dict
- * ``{results: {uid: ...}, errors: {uid: ...}}``.
- *
  * Devuelve el shape esperado por ``ProcesosSyncView``: incluye
  * ``precondiciones_ok``, ``missing_blocks``, ``arrays`` (PReal,
  * PInt, ALM con sus slot_maps y summaries) y un ``summary`` global.
  *
- * @param {number | number[]} procUids - uid o lista de uids de
- *                                       ProcesoPLC seleccionados.
+ * @param {number} procUid - uid del ProcesoPLC seleccionado.
  * @param {string} [plcName] - nombre del PLC activo (opcional, solo
  *                             para logging del backend).
  * @returns {Promise<{ok, status, data}>}
  */
-export function apiProcesosSyncPreview(procUids, plcName) {
-    const uids = Array.isArray(procUids) ? procUids : [procUids];
+export function apiProcesosSyncPreview(procUid, plcName) {
     return _request(
         "POST",
         "/api/v1/procesos/sync/preview",
-        { proc_uids: uids, plc_name: plcName || "" },
+        { proc_uid: procUid, plc_name: plcName || "" },
         // MEDIUM: export masivo + diff IT-only, similar a
         // apiGeneratePreview.
         MEDIUM_TIMEOUT_MS,
@@ -308,34 +274,18 @@ export function apiProcesosSyncPreview(procUids, plcName) {
  * transacción TIA atómica (con rollback si algo falla).
  * Endpoint: POST /api/v1/procesos/sync/commit
  *
- * Acepta un uid (int, legacy) o una lista de uids (list[int]).
- * El backend itera sobre la lista y devuelve un dict
- * ``{results: {uid: ...}, errors: {uid: ...}}``.
- *
  * El backend recalcula el diff desde el AppState (NO usa la
  * ``prevision`` del body para evitar race conditions con cambios
  * de Excel entre el preview y el commit). El ``plc_name`` es
  * obligatorio.
  *
- * @param {number | number[]} procUids - uid o lista de uids.
+ * @param {number} procUid - uid del ProcesoPLC seleccionado.
  * @param {string} plcName - nombre del PLC activo.
  * @param {object} prevision - dict con el preview previo (el
  *                            backend lo re-calcula; el cliente
  *                            puede pasar el mismo que recibió).
  * @returns {Promise<{ok, status, data}>}
  */
-export function apiProcesosSyncCommit(procUids, plcName, prevision) {
-    const uids = Array.isArray(procUids) ? procUids : [procUids];
-    return _request(
-        "POST",
-        "/api/v1/procesos/sync/commit",
-        { proc_uids: uids, plc_name: plcName, prevision: prevision || {} },
-        // SLOW: commit transaccional sobre DBs de procesos (similar a
-        // apiCommit). El backend calcula su dynamic_timeout; el cliente
-        // debe esperar MAS (10 min cubre S7-1500 grandes).
-        SLOW_TIMEOUT_MS,
-    );
-}
 
 /**
  * Fuerza la reconexión del worker TIA persistente.
@@ -361,3 +311,15 @@ export const apiConnectTia = () =>
  */
 export const apiDisconnectTia = () =>
     _request("POST", "/api/v1/tia/disconnect");
+
+export function apiProcesosSyncCommit(procUid, plcName, prevision) {
+    return _request(
+        "POST",
+        "/api/v1/procesos/sync/commit",
+        { proc_uid: procUid, plc_name: plcName, prevision: prevision || {} },
+        // SLOW: commit transaccional sobre DBs de procesos (similar a
+        // apiCommit). El backend calcula su dynamic_timeout; el cliente
+        // debe esperar MAS (10 min cubre S7-1500 grandes).
+        SLOW_TIMEOUT_MS,
+    );
+}
