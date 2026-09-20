@@ -99,11 +99,17 @@ export default {
                 ) || null
         );
 
+        // Botón "Generar prevision": basta con tener plantilla + Ex-
+        // cel/proceso cargados. NO depende de aplicacionBotonDisabled
+        // (eso es para "Aplicar al PLC", que vive debajo de la
+        // prevision). Si lo condicionamos a "ya hay preview",
+        // el botón queda disabled hasta que se genere la primera
+        // prevision (catch-22).
         const canGenerate = computed(
             () =>
                 Boolean(selectedPlantilla.value) &&
                 hayExcel.value &&
-                !aplicacionBotonDisabled.value
+                aplicacionEstado.value !== "aplicando"
         );
 
         const aplicacionBotonDisabled = computed(
