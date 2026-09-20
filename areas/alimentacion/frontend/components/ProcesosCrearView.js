@@ -400,7 +400,7 @@ export default {
 
             <!-- Formulario: solo se monta cuando hay plantilla
                  seleccionada. 2 columnas. Inputs controlados con
-                 ``v-model.number`` para los numericos. -->
+                 'v-model.number' para los numericos. -->
             <form v-if="selectedPlantilla"
                   data-testid="procesos-crear-form"
                   class="mt-3 grid grid-cols-2 gap-2"

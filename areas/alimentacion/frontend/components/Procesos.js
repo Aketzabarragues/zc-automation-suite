@@ -332,10 +332,10 @@ export default {
 
             <!-- Vista de "crear proceso completo desde plantilla".
                  Mismo patron que el sync view: inline debajo de
-                 las cards, sin tocar ``store.currentView``.
-                 ``<procesos-crear-view>`` gestiona su propio
+                 las cards, sin tocar 'store.currentView'.
+                 '<procesos-crear-view>' gestiona su propio
                  estado (plantillas, form, preview, apply) y
-                 emite ``close`` para colapsar. -->
+                 emite 'close' para colapsar. -->
             <div v-if="showCrearView"
                  class="mt-4 bg-surface-raised border border-line rounded p-4"
                  data-testid="procesos-crear-inline-host">
