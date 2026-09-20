@@ -271,7 +271,7 @@ class FunctionProcProcessCrearPreview(FunctionBase):
                     self._ctx
                 )
             case "done":
-                proc_process_generator.proc_process_done_summary(self._ctx)
+                await proc_process_generator.proc_process_done_summary(self._ctx)
             case _:
                 raise ValueError(f"step no soportado: {step_nombre!r}")
 

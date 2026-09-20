@@ -369,7 +369,7 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
                         f"{self._compile_result.get('error') or '<sin error>'}"
                     )
             case "done":
-                proc_process_generator.proc_process_done_summary(self._ctx)
+                await proc_process_generator.proc_process_done_summary(self._ctx)
             case _:
                 raise ValueError(f"step no soportado: {step_nombre!r}")
 
