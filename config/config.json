@@ -4,7 +4,9 @@
   "departments": {
     "alimentacion": {
       "_comment_folders": "Jerarquía TIA del departamento de alimentación: la tabla N_MAX ('000_Config_Dispositivos') vive en tia_folders.nmax (000_Sistema); las 6 tablas de dispositivos viven en tia_folders.dispositivos (2000_Dispositivos). El sync unificado parsea SOLO esos 7 XMLs del árbol exportado por export_plc_tags_xml; el resto (003_Procesos/*, 000_Traza_*, 2000_Disp_SD, etc.) se ignora.",
+      "_comment_plantillas": "Ruta base donde viven las subcarpetas de plantillas TIA para generar procesos. Cada subcarpeta contiene un manifest.json con ``base``, ``codigo``, ``nombre`` y ``minimos``. Cadena vacia = sin configurar; el operario la configura via ``PUT /api/v1/procesos/plantillas`` desde la SPA (Fase 1 de generar proceso desde plantilla).",
       "global_config_table_name": "000_Config_Dispositivos",
+      "plantillas_path": "",
       "tia_folders": {
         "proceso":      "003_Procesos",
         "dispositivos": "2000_Dispositivos",

@@ -538,6 +538,22 @@ class ConfigManager:
         folders = self._department_config.get("tia_folders", {})
         return str(folders.get("nmax", _DEFAULT_TIA_FOLDER_NMAX))
 
+    def get_plantillas_path(self) -> str:
+        """Ruta base donde viven las subcarpetas de plantillas TIA.
+
+        Cada subcarpeta debe contener un ``manifest.json`` con
+        ``base``, ``codigo``, ``nombre`` y ``minimos``. Por defecto
+        cadena vacia (sin configurar); el operario la configura via
+        ``PUT /api/v1/procesos/plantillas`` desde la SPA (Fase 1
+        de generar proceso desde plantilla).
+        """
+        plantillas = self._department_config.get("plantillas_path", "")
+        if not plantillas:
+            _logger.warning(
+                "ConfigManager.get_plantillas_path: ruta no configurada"
+            )
+        return str(plantillas)
+
     def get_proc_nmax_suffixes(self) -> dict[str, str]:
         """Sufijos de las PlcUserConstant N_MAX de los arrays de proceso.
 
