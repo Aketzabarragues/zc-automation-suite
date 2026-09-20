@@ -123,6 +123,12 @@ def register(
     from areas.alimentacion.functions.function_ProcSincronizar import (
         FunctionProcSincronizar,
     )
+    from areas.alimentacion.functions.function_ProcProcessCrearPreview import (
+        FunctionProcProcessCrearPreview,
+    )
+    from areas.alimentacion.functions.function_ProcProcessCrearAplicar import (
+        FunctionProcProcessCrearAplicar,
+    )
     from core.composition.plc_function_template import FunctionTemplate
 
     # Defaults a Singleton global (mismo patron que la plantilla FB).
@@ -205,6 +211,31 @@ def register(
             tia_client=tia_client,
             build_cache=build_cache,
             app_state=app_state,
+        ),
+    )
+
+    # FBs con I/O mixto (disco local + worker OT): crear un proceso
+    # completo desde una plantilla TIA (preview read-only + apply con
+    # import + compile). El helper ``proc_process_generator`` opera
+    # sobre directorios locales; los imports los despachan los FBs
+    # via ``core.helpers.tia.dispatch_async``. ``plc_blocks_cache``
+    # se resuelve en on_start() desde el singleton TIADataBloqueCache.
+    engine.register_fb(
+        "proc_process_crear_preview",
+        FunctionProcProcessCrearPreview(
+            nombre="proc_process_crear_preview",
+            config_manager=config_manager,
+            tia_client=tia_client,
+            build_cache=build_cache,
+        ),
+    )
+    engine.register_fb(
+        "proc_process_crear_aplicar",
+        FunctionProcProcessCrearAplicar(
+            nombre="proc_process_crear_aplicar",
+            config_manager=config_manager,
+            tia_client=tia_client,
+            build_cache=build_cache,
         ),
     )
 
