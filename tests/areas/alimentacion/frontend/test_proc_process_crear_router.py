@@ -1,23 +1,24 @@
 """Tests del router Flask ``proc_process_crear_router``.
 
-Cubre los endpoints POST:
+Tras Commit 51 (sept-2026, rediseño conceptual) el Excel del
+operario es la fuente de verdad para los datos del proceso nuevo.
+La SPA solo envia ``dir_plantilla_nombre + proc_uid`` y el router
+los resuelve desde ``AppState.excel_cache.procesos``.
 
+Tests:
   - ``test_crear_preview_ok_con_plantilla``:
-    Body valido con plantilla dummy en tmp_path + FB mockeado que
-    arranca OK y termina en n_done -> 200 con el ``fb.result``.
+    Body valido (minimal) + Excel con proc_uid=300 + plantillas_path OK
+    + FB mockeado que arranca OK -> 200 con el ``fb.result``.
+  - ``test_crear_preview_sin_excel``:
+    AppState.excel_cache=None -> 400 (accionable: "Cargue el Excel").
+  - ``test_crear_preview_proc_uid_inexistente``:
+    proc_uid=999 que no esta en el Excel -> 400 con mensaje accionable.
   - ``test_crear_preview_body_incompleto``:
-    Body sin campos obligatorios -> 400 con ``ok: False`` y mensaje
-    mencionando el campo que falta.
-  - ``test_crear_aplicar_fb_no_arranca``:
-    Body valido pero FB no registrado en el engine -> 500 con
-    ``ok: False``.
+    Body sin campos obligatorios -> 400.
+  - ``test_crear_aplicar_fb_no_registrado``:
+    engine.get_fb(None) -> 500.
   - ``test_crear_aplicar_fb_rechaza_start_409``:
-    Body valido pero el FB mockeado retorna ``started=False``
-    (porque ya esta activo) -> 409 con ``ok: False``.
-
-Los FBs se mockean ENTERAMENTE (``MagicMock``): no necesitamos engine
-OB1 en marcha. Para ``fb.start`` se usa ``AsyncMock`` (la firma real
-es async, y el router hace ``asyncio.run(fb.start(...))``).
+    fb.start = False -> 409.
 """
 from __future__ import annotations
 
@@ -33,13 +34,53 @@ from flask import Flask
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
-def _make_app(engine: MagicMock | None = None) -> Flask:
-    """Crea una app Flask minima con el ``Engine`` mockeado."""
+def _make_app(
+    engine: MagicMock | None = None,
+    app_state: MagicMock | None = None,
+    config_manager: MagicMock | None = None,
+) -> Flask:
+    """Crea una app Flask minima con el ``Engine`` y ``APP_STATE`` mockeados."""
     app = Flask(__name__)
     app.config["TESTING"] = True
     if engine is not None:
         app.config["ENGINE"] = engine
+    if app_state is not None:
+        app.config["APP_STATE"] = app_state
+    if config_manager is not None:
+        app.config["CONFIG_MANAGER"] = config_manager
+    else:
+        # Default: ConfigManager con plantillas_path = tmp_path del test
+        cm = MagicMock()
+        cm.get_plantillas_path.return_value = ""
+        app.config["CONFIG_MANAGER"] = cm
     return app
+
+
+def _make_mock_proc_excel(uid: int = 300) -> MagicMock:
+    """Crea un mock de ``DataProcesoPLC`` para inyectar en excel_cache."""
+    proc = MagicMock()
+    proc.uid = uid
+    proc.nombre = "ProcesoTest300"
+    proc.codigo = "EXP"
+    proc.preal = 30
+    proc.pint = 30
+    proc.alarmas = 30
+    proc.alm_hmi = 5
+    return proc
+
+
+def _make_mock_excel_cache(proc_uid: int = 300) -> MagicMock:
+    """Crea un mock del ``excel_cache`` con un proceso del Excel."""
+    cache = MagicMock()
+    cache.procesos = [_make_mock_proc_excel(proc_uid)]
+    return cache
+
+
+def _make_mock_app_state(proc_uid: int = 300) -> MagicMock:
+    """Crea un ``AppState`` mockeado con un Excel cacheado."""
+    state = MagicMock()
+    state.excel_cache = _make_mock_excel_cache(proc_uid)
+    return state
 
 
 def _make_mock_fb(
@@ -52,17 +93,7 @@ def _make_mock_fb(
     is_terminal_return: bool = True,
     step_timeout_s: float = 600.0,
 ) -> MagicMock:
-    """Crea un mock del FB que el router consume.
-
-    El router:
-      - llama ``asyncio.run(fb.start(**validated))`` -> necesita
-        ``AsyncMock``.
-      - llama ``_poll_until_terminal(fb)`` que itera hasta que
-        ``fb.is_terminal()`` retorne True.
-      - accede a ``fb.nStep``, ``fb.n_error``, ``fb.error_msg``,
-        ``fb.result``.
-      - accede a ``fb.STEP_TIMEOUT_S`` (clase attr).
-    """
+    """Crea un mock del FB que el router consume."""
     fb = MagicMock()
     fb.start = AsyncMock(return_value=started)
     fb.is_terminal = MagicMock(return_value=is_terminal_return)
@@ -87,19 +118,6 @@ def plantilla_dummy(tmp_path: Path) -> Path:
     (bloques / "50010_TEST_COMENTARIOS.s7res").write_text(
         "BOM content", encoding="utf-8-sig",
     )
-    (p / "Variables PLC" / "003_Procesos").mkdir(parents=True)
-    xml = (
-        '<?xml version="1.0" encoding="utf-8"?>\n'
-        "<Document>\n"
-        '  <SW.Tags.PlcTagTable ID="0">\n'
-        '    <AttributeList><Name>50010_TEST</Name></AttributeList>\n'
-        "    <ObjectList></ObjectList>\n"
-        "  </SW.Tags.PlcTagTable>\n"
-        "</Document>\n"
-    )
-    (p / "Variables PLC" / "003_Procesos" / "50010_TEST.xml").write_text(
-        xml, encoding="utf-8",
-    )
     (p / "manifest.json").write_text(
         json.dumps({
             "base": 50010, "codigo": "TEST", "nombre": "ProcesoTest",
@@ -117,111 +135,142 @@ def plantilla_dummy(tmp_path: Path) -> Path:
 
 
 def test_crear_preview_ok_con_plantilla(plantilla_dummy: Path) -> None:
-    """POST /api/v1/procesos/crear/preview con body valido -> 200."""
+    """Body minimal valido (dir_plantilla_nombre + proc_uid) ->
+    200 con el ``fb.result``."""
     from areas.alimentacion.frontend.proc_process_crear_router import bp
 
-    fb_mock = _make_mock_fb(
-        result={
-            "success": True,
-            "archivos_previstos": [
-                {"rel_in": "Bloques de programa/FC50010_TEST_INTERFAZ.s7dcl",
-                 "rel_out": "bloques/FC60010_EXP_INTERFAZ.s7dcl",
-                 "kind": "text", "colisiona": False},
-            ],
-            "colisiones": [],
-            "preview_dir": str(plantilla_dummy.parent / "preview"),
-            "manifest_plantilla": {"base": 50010, "codigo": "TEST"},
-        },
-    )
     engine = MagicMock()
+    fb_mock = _make_mock_fb(result={
+        "success": True,
+        "manifest_plantilla": {"base": 300, "codigo": "EXP"},
+        "archivos_previstos": [
+            {"rel_in": "Bloques de programa/FC50010.s7dcl",
+             "rel_out": "bloques/FC60010_EXP.s7dcl",
+             "kind": "text", "colisiona": False},
+        ],
+        "colisiones": [],
+        "preview_dir": str(plantilla_dummy.parent / "preview"),
+    })
     engine.get_fb.return_value = fb_mock
 
-    app = _make_app(engine)
+    cm = MagicMock()
+    cm.get_plantillas_path.return_value = str(plantilla_dummy.parent)
+
+    app_state = _make_mock_app_state(proc_uid=300)
+
+    app = _make_app(engine=engine, app_state=app_state, config_manager=cm)
     app.register_blueprint(bp)
     client = app.test_client()
 
     resp = client.post("/api/v1/procesos/crear/preview", json={
-        "plantillas_path": str(plantilla_dummy.parent),
         "dir_plantilla_nombre": "TestPlantilla",
-        "base_nueva": 60010,
-        "codigo_nuevo": "EXP",
-        "nombre_nuevo": "NuevoProceso",
-        "minimos_usuario": {
-            "N_MAX_PREAL": 30, "N_MAX_PINT": 30,
-            "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
-        },
+        "proc_uid": 300,
     })
     assert resp.status_code == 200
     data = resp.get_json()
     assert data["success"] is True
-    assert "archivos_previstos" in data
     assert len(data["archivos_previstos"]) == 1
     # El mock FB fue consultado por nombre correcto.
     engine.get_fb.assert_called_with("proc_process_crear_preview")
-    # El start() fue invocado con los kwargs validados.
+    # El start() fue invocado con los kwargs resueltos (uid=300 ->
+    # base=300, codigo=EXP, minimos_usuario={...} del Excel).
     fb_mock.start.assert_awaited_once()
+    kwargs = fb_mock.start.await_args.kwargs
+    assert kwargs["base_nueva"] == 300
+    assert kwargs["codigo_nuevo"] == "EXP"
+    assert kwargs["minimos_usuario"]["N_MAX_PREAL"] == 30
 
 
-def test_crear_preview_body_incompleto() -> None:
-    """POST sin campos obligatorios -> 400."""
+def test_crear_preview_sin_excel() -> None:
+    """AppState.excel_cache=None -> 400 accionable."""
     from areas.alimentacion.frontend.proc_process_crear_router import bp
 
-    app = _make_app(MagicMock())
+    engine = MagicMock()
+    state = MagicMock()
+    state.excel_cache = None
+    cm = MagicMock()
+    cm.get_plantillas_path.return_value = "C:/plantillas"
+
+    app = _make_app(engine=engine, app_state=state, config_manager=cm)
     app.register_blueprint(bp)
     client = app.test_client()
 
-    # Body vacio: faltan todos los campos obligatorios.
-    resp = client.post("/api/v1/procesos/crear/preview", json={})
+    resp = client.post("/api/v1/procesos/crear/preview", json={
+        "dir_plantilla_nombre": "P",
+        "proc_uid": 300,
+    })
     assert resp.status_code == 400
     data = resp.get_json()
-    assert data["ok"] is False
-    assert "falta" in data["error"]
+    assert "Excel" in data["error"] or "excel" in data["error"]
 
-    # Falta solo ``base_nueva``.
+
+def test_crear_preview_proc_uid_inexistente() -> None:
+    """proc_uid no esta en el Excel -> 400 accionable."""
+    from areas.alimentacion.frontend.proc_process_crear_router import bp
+
+    engine = MagicMock()
+    cm = MagicMock()
+    cm.get_plantillas_path.return_value = "C:/plantillas"
+    app_state = _make_mock_app_state(proc_uid=300)  # El Excel solo tiene uid=300
+
+    app = _make_app(engine=engine, app_state=app_state, config_manager=cm)
+    app.register_blueprint(bp)
+    client = app.test_client()
+
     resp = client.post("/api/v1/procesos/crear/preview", json={
-        "plantillas_path": "C:/x",
         "dir_plantilla_nombre": "P",
-        "codigo_nuevo": "X",
-        "nombre_nuevo": "Y",
-        "minimos_usuario": {"N_MAX_PREAL": 1},
+        "proc_uid": 999,  # No existe en el Excel
     })
     assert resp.status_code == 400
-    assert "base_nueva" in resp.get_json()["error"]
+    assert "999" in resp.get_json()["error"]
 
-    # ``minimos_usuario`` debe ser dict no vacio.
+
+def test_crear_preview_body_incompleto() -> None:
+    """Body sin dir_plantilla_nombre o sin proc_uid -> 400."""
+    from areas.alimentacion.frontend.proc_process_crear_router import bp
+
+    app = _make_app(engine=MagicMock())
+    app.register_blueprint(bp)
+    client = app.test_client()
+
+    # Body vacio: faltan los 2 campos obligatorios.
+    resp = client.post("/api/v1/procesos/crear/preview", json={})
+    assert resp.status_code == 400
+    assert "falta" in resp.get_json()["error"]
+
+    # Falta solo proc_uid.
     resp = client.post("/api/v1/procesos/crear/preview", json={
-        "plantillas_path": "C:/x",
         "dir_plantilla_nombre": "P",
-        "base_nueva": 1,
-        "codigo_nuevo": "X",
-        "nombre_nuevo": "Y",
-        "minimos_usuario": [],
     })
     assert resp.status_code == 400
-    assert "minimos_usuario" in resp.get_json()["error"]
+    assert "proc_uid" in resp.get_json()["error"]
+
+    # proc_uid no es int.
+    resp = client.post("/api/v1/procesos/crear/preview", json={
+        "dir_plantilla_nombre": "P",
+        "proc_uid": "300",
+    })
+    assert resp.status_code == 400
+    assert "int" in resp.get_json()["error"]
 
 
 def test_crear_aplicar_fb_no_registrado() -> None:
-    """Si el FB ``proc_process_crear_aplicar`` NO esta en el engine
-    (engine.get_fb retorna None) -> 500 con ``ok: False``.
-    """
+    """Si el FB NO esta en el engine -> 500."""
     from areas.alimentacion.frontend.proc_process_crear_router import bp
 
     engine = MagicMock()
     engine.get_fb.return_value = None
+    cm = MagicMock()
+    cm.get_plantillas_path.return_value = "C:/plantillas"
+    app_state = _make_mock_app_state(proc_uid=300)
 
-    app = _make_app(engine)
+    app = _make_app(engine=engine, app_state=app_state, config_manager=cm)
     app.register_blueprint(bp)
     client = app.test_client()
 
     resp = client.post("/api/v1/procesos/crear/aplicar", json={
-        "plantillas_path": "C:/x",
         "dir_plantilla_nombre": "P",
-        "base_nueva": 60010,
-        "codigo_nuevo": "EXP",
-        "nombre_nuevo": "NuevoProceso",
-        "minimos_usuario": {"N_MAX_PREAL": 30, "N_MAX_PINT": 30,
-                            "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5},
+        "proc_uid": 300,
         "plc_name": "S7-1500",
     })
     assert resp.status_code == 500
@@ -231,31 +280,26 @@ def test_crear_aplicar_fb_no_registrado() -> None:
 
 
 def test_crear_aplicar_fb_rechaza_start_409(plantilla_dummy: Path) -> None:
-    """Si el FB mockeado retorna ``started=False`` (porque ya esta
-    activo o terminal) -> 409 con ``ok: False``.
-    """
+    """Si fb.start retorna False -> 409."""
     from areas.alimentacion.frontend.proc_process_crear_router import bp
 
-    fb_mock = _make_mock_fb(started=False)
     engine = MagicMock()
+    fb_mock = _make_mock_fb(started=False)
     engine.get_fb.return_value = fb_mock
+    cm = MagicMock()
+    cm.get_plantillas_path.return_value = str(plantilla_dummy.parent)
+    app_state = _make_mock_app_state(proc_uid=300)
 
-    app = _make_app(engine)
+    app = _make_app(engine=engine, app_state=app_state, config_manager=cm)
     app.register_blueprint(bp)
     client = app.test_client()
 
     resp = client.post("/api/v1/procesos/crear/aplicar", json={
-        "plantillas_path": str(plantilla_dummy.parent),
         "dir_plantilla_nombre": "TestPlantilla",
-        "base_nueva": 60010,
-        "codigo_nuevo": "EXP",
-        "nombre_nuevo": "NuevoProceso",
-        "minimos_usuario": {"N_MAX_PREAL": 30, "N_MAX_PINT": 30,
-                            "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5},
+        "proc_uid": 300,
         "plc_name": "S7-1500",
     })
     assert resp.status_code == 409
     data = resp.get_json()
     assert data["ok"] is False
-    # El mensaje explica que el FB ya esta activo.
     assert "activo" in data["error"].lower() or "terminal" in data["error"].lower()

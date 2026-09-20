@@ -371,18 +371,21 @@ export const apiUpdatePlantillasPath = (plantillasPath) =>
  *
  * El backend dispara el FB ``proc_process_crear_preview`` (copytree +
  * regex + lista de archivos previstos + colisiones contra
- * ``plc_blocks_cache`` si se pasa). Devuelve el ``result`` con shape::
+ * ``plc_blocks_cache`` si se pasa).
+ *
+ * El Excel del operario es la fuente de verdad: el backend resuelve
+ * los datos del proceso (uid, codigo, nombre, N_MAX_*) a partir del
+ * ``proc_uid`` enviado, mirando el cache de procesos del Excel. La
+ * SPA no envia los 6 campos manuales (commit 51, sept-2026).
+ *
+ * Devuelve el ``result`` con shape::
  *
  *   {manifest_plantilla, archivos_previstos, colisiones, preview_dir,
  *    success}
  *
  * @param {object} params - campos:
- *   - ``plantillas_path``       (str)
- *   - ``dir_plantilla_nombre``  (str)
- *   - ``base_nueva``            (int)
- *   - ``codigo_nuevo``          (str)
- *   - ``nombre_nuevo``          (str)
- *   - ``minimos_usuario``       (dict con N_MAX_PREAL/PINT/ALM/ALM_HMI)
+ *   - ``dir_plantilla_nombre``  (str) obligatorio
+ *   - ``proc_uid``              (int) obligatorio
  *   - ``plc_blocks_cache``      (list[str] | null, opcional)
  * @returns {Promise<{ok, status, data}>}
  */
@@ -400,6 +403,11 @@ export const apiProcesosCrearPreview = (params) =>
  * Aplica el clon del proceso en TIA Portal: orden estricto
  * TAG -> DBs -> bloques logicos -> compile.
  * Endpoint: POST /api/v1/procesos/crear/aplicar.
+ *
+ * Mismo contrato minimalista que 'apiProcesosCrearPreview' (el Excel
+ * es la fuente de verdad para los datos del proceso). La SPA solo
+ * pasa los 3-4 campos clave: dir_plantilla_nombre, proc_uid,
+ * plc_name. Opcional plc_blocks_cache.
  *
  * El backend dispara el FB ``proc_process_crear_aplicar`` que hace 5
  * dispatches al worker OT (``import_plc_tags_xml`` + 2

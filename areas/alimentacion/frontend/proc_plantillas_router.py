@@ -68,6 +68,7 @@ def listar_plantillas():
         return jsonify({
             "ok": True,
             "plantillas": [],
+            "plantillas_path": "",
             "warning": "plantillas_path no configurado en config.json",
         }), 200
 
@@ -76,6 +77,7 @@ def listar_plantillas():
         return jsonify({
             "ok": True,
             "plantillas": [],
+            "plantillas_path": plantillas_path,
             "warning": f"Directorio no existe: {root}",
         }), 200
 
@@ -115,7 +117,11 @@ def listar_plantillas():
         "plantillas: %d plantilla(s) listada(s) en %s",
         len(plantillas), root,
     )
-    return jsonify({"ok": True, "plantillas": plantillas}), 200
+    return jsonify({
+        "ok": True,
+        "plantillas": plantillas,
+        "plantillas_path": plantillas_path,
+    }), 200
 
 
 @bp.put("")
