@@ -39,13 +39,19 @@ def _make_app(
     app_state: MagicMock | None = None,
     config_manager: MagicMock | None = None,
 ) -> Flask:
-    """Crea una app Flask minima con el ``Engine`` y ``APP_STATE`` mockeados."""
+    """Crea una app Flask minima con el ``Engine`` y ``APP_STATE`` mockeados.
+
+    ``_LAZY_APP_STATE`` es la convencion actual del shell Flask
+    (``core/web_server/app_flask.py``): el resolver es una lambda
+    que devuelve el AppState perezoso. Los routers lo invocan al
+    vuelo, no se cachea en startup.
+    """
     app = Flask(__name__)
     app.config["TESTING"] = True
     if engine is not None:
         app.config["ENGINE"] = engine
     if app_state is not None:
-        app.config["APP_STATE"] = app_state
+        app.config["_LAZY_APP_STATE"] = lambda: app_state
     if config_manager is not None:
         app.config["CONFIG_MANAGER"] = config_manager
     else:

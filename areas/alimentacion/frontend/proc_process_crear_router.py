@@ -91,7 +91,7 @@ def _get_config_manager():
 
 
 def _get_app_state():
-    return current_app.config["APP_STATE"]
+    return current_app.config["_LAZY_APP_STATE"]()
 
 
 def _resolve_excel_proc(app_state, proc_uid: int):
