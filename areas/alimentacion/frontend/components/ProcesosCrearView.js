@@ -5,39 +5,31 @@
  * desde una plantilla TIA. Se monta como panel hijo de 'Procesos.js'
  * (paralelo a '<procesos-sync-view>') y NO cambia 'store.currentView'.
  *
- * El Excel del operario es la fuente de verdad: este componente NO
- * pide al operario los datos del proceso nuevo (uid, codigo, nombre,
- * N_MAX). En su lugar:
- *   1. Lee la lista de plantillas disponibles con
- *      'apiListPlantillas'. Si no hay 'plantillas_path' configurado
- *      (warning), el operario puede abrir el modal y editarlo via
- *      'apiUpdatePlantillasPath' (PUT). Tras guardar, se recarga la
- *      lista.
- *   2. Lee los procesos del Excel ya cacheado en
- *      'store.memoryState.procesos' (NO hace falta volver a pedirlo).
- *   3. Click "Generar prevision" -> llama
- *      'apiProcesosCrearPreview' pasando solo 'dir_plantilla_nombre'
- *      y 'proc_uid'. El backend resuelve los N_MAX desde el Excel y
- *      dispara el FB.
- *   4. Click "Aplicar al PLC" -> llama 'apiProcesosCrearAplicar'.
- *      Mientras esta en vuelo el boton esta disabled. Al terminar
- *      muestra OK o el error del backend.
+ * Recibe 'procUid' como prop desde 'Procesos.js'. La pagina padre
+ * ya tiene el selector del proceso del Excel; el operario elige
+ * ahi el proceso a crear y luego pulsa "Crear proceso completo".
+ * Este sub-componente solo pide la plantilla a usar.
  *
- * Si no hay Excel cargado, la card padre (Procesos.js) ya pinta un
- * banner ambar. Aqui se refuerza mostrando tambien un mensaje claro.
+ * El backend es la fuente de verdad para los N_MAX: este componente
+ * NO los pide, los lee del store (que es la copia del Excel ya
+ * cacheado) para mostrarlos al operario antes de generar la
+ * prevision.
  *
- * Tema: Industrial Claro. Solo tokens semanticos ('bg-surface*',
- * 'border-line*', 'text-ink*', 'bg-accent', 'text-green-700',
- * 'text-amber-700', 'text-red-700').
+ * Flujo:
+ *   1. Carga plantillas via 'apiListPlantillas'.
+ *   2. Operario selecciona plantilla (unica interaccion aqui).
+ *   3. Click "Generar prevision" -> 'apiProcesosCrearPreview' con
+ *      '{dir_plantilla_nombre, proc_uid}'.
+ *   4. Click "Aplicar al PLC" -> 'apiProcesosCrearAplicar'.
  *
- * IMPORTANTE sobre templates Vue: el compilador en runtime de
- * 'vue.esm-browser.prod.js' NO acepta string literals multi-linea
- * dentro de arrays de ':class'. Cada literal va en una sola linea.
- * Ademas, prohibido usar backticks literales `` dentro de comentarios
- * HTML del template (cierran prematuramente el string template JS).
- * Usar comillas simples o nada.
+ * Tema: Industrial Claro. Solo tokens semanticos.
+ *
+ * IMPORTANTE sobre templates Vue: el compilador en runtime NO acepta
+ * string literals multi-linea dentro de arrays ':class'. Ademas,
+ * prohibido usar backticks literales dentro de comentarios HTML del
+ * template (cierran prematuramente el string template JS).
  */
-import { computed, ref, watch } from "/js/vendor/vue.esm-browser.prod.js";
+import { computed, ref } from "/js/vendor/vue.esm-browser.prod.js";
 import { store } from "/js/store.js";
 import {
     apiListPlantillas,
@@ -48,11 +40,19 @@ import {
 
 export default {
     name: "ProcesosCrearView",
+    props: {
+        /**
+         * UID del proceso del Excel que el operario quiere crear.
+         * Lo pasa 'Procesos.js' desde su selector.
+         */
+        procUid: {
+            type: Number,
+            default: null,
+        },
+    },
     emits: ["close"],
     setup(props, { emit }) {
-        // -----------------------------------------------------------------
-        // Estado: plantillas (config + disponibles)
-        // -----------------------------------------------------------------
+        // ── Estado: plantillas (config + disponibles) ─────────
         const plantillas = ref([]);
         const plantillasLoading = ref(false);
         const plantillasWarning = ref(null);
@@ -60,48 +60,36 @@ export default {
 
         const selectedPlantillaCarpeta = ref("");
 
-        // -----------------------------------------------------------------
-        // Estado: proceso del Excel seleccionado
-        // -----------------------------------------------------------------
-        const selectedProcUid = ref(null);
-
-        // -----------------------------------------------------------------
-        // Estado: preview + apply
-        // -----------------------------------------------------------------
+        // ── Estado: preview + apply ────────────────────────────
         const previewData = ref(null);
         const aplicacionEstado = ref("");          // "" | "aplicando" | "ok" | "error"
         const aplicacionError = ref(null);
 
-        // -----------------------------------------------------------------
-        // Estado: modal de la ruta
-        // -----------------------------------------------------------------
+        // ── Estado: modal de la ruta ───────────────────────────
         const showPathModal = ref(false);
         const pathEditBuffer = ref("");
 
-        // -----------------------------------------------------------------
-        // Computed
-        // -----------------------------------------------------------------
+        // ── Computed ────────────────────────────────────────────
 
-        // Lista de procesos del Excel (data-driven desde store).
-        // Cada item ya tiene al menos 'uid', 'codigo' y 'nombre'.
-        const procesosExcel = computed(
-            () => (store.memoryState && store.memoryState.procesos) || []
-        );
-
-        // Proceso del Excel actualmente seleccionado (para mostrar en
-        // la cabecera los valores que el backend va a usar).
-        const selectedProc = computed(
-            () =>
-                procesosExcel.value.find(
-                    (p) => p && Number(p.uid) === Number(selectedProcUid.value)
-                ) || null
+        // Proceso del Excel seleccionado (lo busca del store por uid).
+        // La fuente de verdad son los 8 campos del Excel: uid, nombre,
+        // codigo, preal, pint, index_preal, index_pint, alarmas, alm_hmi.
+        const procesoExcel = computed(
+            () => {
+                const procs =
+                    (store.memoryState &&
+                        store.memoryState.procesos) ||
+                    [];
+                return (
+                    procs.find(
+                        (p) => Number(p.uid) === Number(props.procUid)
+                    ) || null
+                );
+            }
         );
 
         const hayExcel = computed(
-            () =>
-                store.memoryState !== null &&
-                store.memoryState !== undefined &&
-                procesosExcel.value.length > 0
+            () => Boolean(store.memoryState) && procesoExcel.value !== null
         );
 
         const selectedPlantilla = computed(
@@ -114,8 +102,7 @@ export default {
         const canGenerate = computed(
             () =>
                 Boolean(selectedPlantilla.value) &&
-                Boolean(selectedProc.value) &&
-                Number.isFinite(Number(selectedProcUid.value)) &&
+                hayExcel.value &&
                 !aplicacionBotonDisabled.value
         );
 
@@ -127,9 +114,7 @@ export default {
                 aplicacionEstado.value === "aplicando"
         );
 
-        // -----------------------------------------------------------------
-        // Funciones
-        // -----------------------------------------------------------------
+        // ── Funciones ──────────────────────────────────────────
 
         async function loadPlantillas() {
             plantillasLoading.value = true;
@@ -141,12 +126,11 @@ export default {
                 plantillasWarning.value = r.data.warning || null;
                 plantillasPathActual.value =
                     r.data.plantillas_path || "";
-                // Si la plantilla seleccionada ya no existe, la
-                // limpiamos para no quedar con un estado inconsistente.
                 if (
                     selectedPlantillaCarpeta.value &&
                     !plantillas.value.some(
-                        (p) => p.carpeta === selectedPlantillaCarpeta.value
+                        (p) =>
+                            p.carpeta === selectedPlantillaCarpeta.value
                     )
                 ) {
                     selectedPlantillaCarpeta.value = "";
@@ -181,7 +165,7 @@ export default {
             previewData.value = null;
             const params = {
                 dir_plantilla_nombre: selectedPlantillaCarpeta.value,
-                proc_uid: Number(selectedProcUid.value),
+                proc_uid: Number(props.procUid),
             };
             const r = await apiProcesosCrearPreview(params);
             if (r && r.ok && r.data) {
@@ -199,7 +183,7 @@ export default {
             aplicacionError.value = null;
             const params = {
                 dir_plantilla_nombre: selectedPlantillaCarpeta.value,
-                proc_uid: Number(selectedProcUid.value),
+                proc_uid: Number(props.procUid),
                 plc_name: store.selectedPlc || "",
             };
             const r = await apiProcesosCrearAplicar(params);
@@ -211,26 +195,18 @@ export default {
             }
         }
 
-        // Si el operario cambia de proceso del Excel mientras hay un
-        // preview aplicado, limpiamos el preview: el anterior ya no
-        // es valido para el nuevo procUid.
-        watch(
-            () => Number(selectedProcUid.value),
+        // ── Wire al cargarse ───────────────────────────────────
+        loadPlantillas();
+
+        // ── Return ─────────────────────────────────────────────
+        const procedimientoLabel = computed(
             () => {
-                previewData.value = null;
-                aplicacionEstado.value = "";
-                aplicacionError.value = null;
+                const p = procesoExcel.value;
+                if (!p) return "(ninguno)";
+                return `${p.codigo} - ${p.nombre} (uid ${p.uid})`;
             }
         );
 
-        // -----------------------------------------------------------------
-        // Wire al cargarse
-        // -----------------------------------------------------------------
-        loadPlantillas();
-
-        // -----------------------------------------------------------------
-        // Return: todo lo que el template debe leer o invocar.
-        // -----------------------------------------------------------------
         return {
             plantillas,
             plantillasLoading,
@@ -238,9 +214,8 @@ export default {
             plantillasPathActual,
             selectedPlantillaCarpeta,
             selectedPlantilla,
-            procesosExcel,
-            selectedProcUid,
-            selectedProc,
+            procesoExcel,
+            procedimientoLabel,
             hayExcel,
             previewData,
             aplicacionEstado,
@@ -262,7 +237,7 @@ export default {
                 <div>
                     <h2 class="text-lg font-bold text-ink">Crear proceso completo desde plantilla</h2>
                     <p class="text-xs text-ink-muted mt-0.5">
-                        Clona una plantilla TIA (tags + DBs + bloques) para un proceso del Excel.
+                        Proceso seleccionado: <span class="font-mono font-bold text-accent">{{ procedimientoLabel }}</span>
                     </p>
                 </div>
                 <button @click="cerrar"
@@ -287,8 +262,6 @@ export default {
                 </span>
             </div>
 
-            <!-- Mini-modal: editar la ruta. Coherente con "sub-view inline
-                 NO usa overlays". -->
             <div v-if="showPathModal"
                  data-testid="procesos-crear-path-modal"
                  class="bg-surface-sunken border border-line rounded p-3 mt-2">
@@ -336,69 +309,45 @@ export default {
                 </select>
             </div>
 
-            <!-- Banner si NO hay Excel cargado. -->
-            <div v-if="!hayExcel"
-                 class="mt-3 px-3 py-2 bg-amber-100 border border-amber-300 rounded text-xs text-amber-800">
-                No hay procesos en el Excel. Sube un Excel antes de continuar.
-            </div>
-
-            <!-- Selector de proceso del Excel: el Excel ES la fuente de verdad.
-                 El backend extrae 'uid' = proc.uid, 'codigo' = proc.codigo,
-                 'nombre' = proc.nombre, N_MAX_* = proc.preal/pint/alarmas/alm_hmi. -->
-            <div v-if="hayExcel" class="mt-3">
-                <label class="block text-xs font-semibold text-ink-muted uppercase mb-1">
-                    Proceso del Excel a crear
-                </label>
-                <select v-model.number="selectedProcUid"
-                        data-testid="procesos-crear-proc-select"
-                        class="w-full bg-white border border-line text-accent font-bold text-sm rounded focus:border-accent focus:outline-none px-3 py-1.5 font-mono cursor-pointer">
-                    <option :value="null">
-                        Selecciona un proceso...
-                    </option>
-                    <option v-for="p in procesosExcel" :key="p.uid" :value="p.uid">
-                        {{ p.codigo }} - {{ p.nombre }} (uid {{ p.uid }})
-                    </option>
-                </select>
-
-                <!-- Mostrar los valores del proceso seleccionado para que el
-                     operario verifique que el backend va a usar estos N_MAX. -->
-                <div v-if="selectedProc"
-                     class="mt-2 grid grid-cols-3 gap-2 text-xs">
-                    <div class="bg-surface-sunken border border-line rounded px-2 py-1">
-                        <div class="text-ink-muted">PREAL</div>
-                        <div class="font-mono font-bold text-accent text-sm">
-                            {{ selectedProc.preal }}
-                        </div>
+            <!-- Grid con los N_MAX del proceso del Excel seleccionado.
+                 Es solo informativo (preview para el operario de lo que
+                 el backend va a usar); los valores reales los resuelve
+                 el backend via ProcGenerateProcExcel en AppState. -->
+            <div v-if="hayExcel" class="mt-3 grid grid-cols-3 gap-2 text-xs">
+                <div class="bg-surface-sunken border border-line rounded px-2 py-1">
+                    <div class="text-ink-muted">PREAL</div>
+                    <div class="font-mono font-bold text-accent text-sm">
+                        {{ procesoExcel.preal }}
                     </div>
-                    <div class="bg-surface-sunken border border-line rounded px-2 py-1">
-                        <div class="text-ink-muted">PINT</div>
-                        <div class="font-mono font-bold text-accent text-sm">
-                            {{ selectedProc.pint }}
-                        </div>
+                </div>
+                <div class="bg-surface-sunken border border-line rounded px-2 py-1">
+                    <div class="text-ink-muted">PINT</div>
+                    <div class="font-mono font-bold text-accent text-sm">
+                        {{ procesoExcel.pint }}
                     </div>
-                    <div class="bg-surface-sunken border border-line rounded px-2 py-1">
-                        <div class="text-ink-muted">ALM</div>
-                        <div class="font-mono font-bold text-accent text-sm">
-                            {{ selectedProc.alarmas }}
-                        </div>
+                </div>
+                <div class="bg-surface-sunken border border-line rounded px-2 py-1">
+                    <div class="text-ink-muted">ALM</div>
+                    <div class="font-mono font-bold text-accent text-sm">
+                        {{ procesoExcel.alarmas }}
                     </div>
-                    <div class="bg-surface-sunken border border-line rounded px-2 py-1">
-                        <div class="text-ink-muted">ALM HMI</div>
-                        <div class="font-mono font-bold text-accent text-sm">
-                            {{ selectedProc.alm_hmi }}
-                        </div>
+                </div>
+                <div class="bg-surface-sunken border border-line rounded px-2 py-1">
+                    <div class="text-ink-muted">ALM HMI</div>
+                    <div class="font-mono font-bold text-accent text-sm">
+                        {{ procesoExcel.alm_hmi }}
                     </div>
-                    <div class="bg-surface-sunken border border-line rounded px-2 py-1">
-                        <div class="text-ink-muted">UID</div>
-                        <div class="font-mono font-bold text-accent text-sm">
-                            {{ selectedProc.uid }}
-                        </div>
+                </div>
+                <div class="bg-surface-sunken border border-line rounded px-2 py-1">
+                    <div class="text-ink-muted">UID</div>
+                    <div class="font-mono font-bold text-accent text-sm">
+                        {{ procesoExcel.uid }}
                     </div>
-                    <div class="bg-surface-sunken border border-line rounded px-2 py-1">
-                        <div class="text-ink-muted">Codigo</div>
-                        <div class="font-mono font-bold text-accent text-sm">
-                            {{ selectedProc.codigo }}
-                        </div>
+                </div>
+                <div class="bg-surface-sunken border border-line rounded px-2 py-1">
+                    <div class="text-ink-muted">Codigo</div>
+                    <div class="font-mono font-bold text-accent text-sm">
+                        {{ procesoExcel.codigo }}
                     </div>
                 </div>
             </div>
@@ -410,7 +359,6 @@ export default {
                 Generar prevision
             </button>
 
-            <!-- Tabla de archivos previstos. -->
             <div v-if="previewData" class="mt-4">
                 <h3 class="text-sm font-semibold text-ink mb-2">
                     Archivos a generar ({{ (previewData.archivos_previstos || []).length }})

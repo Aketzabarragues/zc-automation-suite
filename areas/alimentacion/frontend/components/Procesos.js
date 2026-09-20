@@ -162,6 +162,19 @@ export default {
         });
 
         /**
+         * Habilita SOLO la card "Crear proceso completo".
+         * Necesita SOLO el proceso seleccionado del Excel: no
+         * requiere cache de bloques del PLC (el FB detecta las
+         * colisiones internamente leyendo excel_cache + bloques_cache
+         * del FB, no del client).
+         */
+        const canOpenCrear = computed(() => {
+            if (!canAct.value) return false;
+            if (!hasExcel.value) return false;
+            return true;
+        });
+
+        /**
          * Tooltip HTML estándar que explica por qué la card está
          * deshabilitada. Mensaje accionable según el motivo.
          */
@@ -175,6 +188,21 @@ export default {
             const cache = plcBlocksCache.value;
             if (!cache || !Array.isArray(cache.blocks) || cache.blocks.length === 0) {
                 return "Selecciona un PLC en el sidebar y espera al escaneo de bloques.";
+            }
+            return "";
+        });
+
+        /**
+         * Tooltip para la card "Crear proceso completo". Misma
+         * estructura que ``syncCardTooltip`` pero sin chequeo de
+         * ``plcBlocksCache`` (no aplica a esta card).
+         */
+        const crearCardTooltip = computed(() => {
+            if (!hasExcel.value) {
+                return "Carga primero el Excel y pulsa 'Actualizar' en 'Definición programación'.";
+            }
+            if (!canAct.value) {
+                return "Selecciona un proceso de la lista.";
             }
             return "";
         });
@@ -231,7 +259,9 @@ export default {
             showCrearView,
             canAct,
             canOpenSync,
+            canOpenCrear,
             syncCardTooltip,
+            crearCardTooltip,
             openSyncView,
             closeSyncView,
             openCrearView,
@@ -290,12 +320,13 @@ export default {
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
 
                     <button @click="openCrearView"
-                            :disabled="!canAct"
+                            :disabled="!canOpenCrear"
+                            :title="crearCardTooltip"
                             data-testid="procesos-card-create"
-                            class="bg-surface border-2 border-line rounded-xl p-4 text-left flex flex-col items-start transition hover:border-accent hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-line disabled:hover:shadow-none">
-                        <span class="text-3xl mb-2" aria-hidden="true">🏗️</span>
-                        <span class="text-sm font-semibold text-ink">Crear proceso completo</span>
-                        <span class="text-xs text-ink-muted mt-1">
+                            class="bg-surface-raised border border-line rounded-lg p-3 text-left flex flex-col items-start transition hover:border-accent hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-line disabled:hover:shadow-none focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
+                        <span class="text-2xl mb-1" aria-hidden="true">🏗️</span>
+                        <span class="text-sm font-semibold text-ink leading-snug">Crear proceso completo</span>
+                        <span class="text-xs text-ink-muted mt-0.5 leading-snug">
                             Genera el DB + bloques + UDTs del proceso.
                         </span>
                     </button>
@@ -339,7 +370,9 @@ export default {
             <div v-if="showCrearView"
                  class="mt-4 bg-surface-raised border border-line rounded p-4"
                  data-testid="procesos-crear-inline-host">
-                <procesos-crear-view @close="closeCrearView">
+                <procesos-crear-view
+                    :proc-uid="selectedProcUid"
+                    @close="closeCrearView">
                 </procesos-crear-view>
             </div>
 

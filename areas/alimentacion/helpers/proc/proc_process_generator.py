@@ -601,7 +601,7 @@ async def proc_process_aplicar_clonacion(
             # del operario si este XML contiene constantes de usuario.
             if "PlcUserConstant" in nuevo and minimos_plantilla:
                 nuevo = _reemplazar_nmax_en_xml(
-                    nuevo, minimos_plantilla, ctx.minimos_usuario
+                    nuevo, ctx.base_nueva, ctx.minimos_usuario
                 )
             _escribir_texto(out_path, nuevo, enc)
         elif suffix in (".s7dcl", ".scl", ".awl"):
@@ -715,48 +715,26 @@ def _escribir_texto(path: Path, contenido: str, encoding: str) -> None:
 
 def _reemplazar_nmax_en_xml(
     contenido: str,
-    minimos_plantilla: dict[str, int],
+    base_nueva: int,
     minimos_usuario: dict[str, int],
 ) -> str:
-    """Sustituye los ``<Value>NN</Value>`` del XML de variables por los
-    N_MAX del operario.
-
-    Estrategia: lee los ``<Value>NN</Value>`` en orden de aparicion
-    (que es el mismo orden que tienen en el manifest de la plantilla
-    para ``N_MAX_PINT``, ``N_MAX_PREAL``, ``N_MAX_ALM``,
-    ``N_MAX_ALM_HMI``) y los reemplaza uno a uno por los del operario.
-
-    Si hay MAS ``<Value>`` que N_MAX a sustituir (caso atipico), los
-    extras quedan sin tocar. Si hay MENOS (caso atipico), los N_MAX
-    del operario que sobren quedan sin aplicar al XML — el helper
-    deja el log de aviso para que el operario investigue.
-    """
-    valores_plantilla = [
-        int(minimos_plantilla.get(k, 0)) for k in N_MAX_KEYS
-    ]
-    valores_usuario = [
-        int(minimos_usuario.get(k, 0)) for k in N_MAX_KEYS
-    ]
-
-    # Localiza los ``<Value>`` actuales. Si NO coinciden con los de la
-    # plantilla, aborta el reemplazo (loggea via caller si hace falta).
-    matches = list(PATRON_XML_VALUE.finditer(contenido))
-    if len(matches) < len(valores_plantilla):
-        return contenido
-
-    # Reemplaza de atras hacia adelante para no desplazar los offsets.
-    for i in range(len(valores_plantilla) - 1, -1, -1):
-        m = matches[i]
-        # Solo reemplazamos si el valor actual coincide con el de la
-        # plantilla (asi no pisamos valores correctos en XMLs que ya
-        # estuvieran bien).
-        if int(m.group(1)) == valores_plantilla[i]:
-            contenido = (
-                contenido[: m.start(1)]
-                + str(valores_usuario[i])
-                + contenido[m.end(1):]
-            )
-
+    """Sustituye los <Value> de las constantes N_MAX de forma segura vinculándolos a su <Name>."""
+    for key in N_MAX_KEYS:
+        val_usuario = minimos_usuario.get(key)
+        if val_usuario is None:
+            continue
+        
+        # Busca la constante exacta (ej: <Name>60010_N_MAX_PINT</Name>) y captura su <Value>
+        # re.DOTALL permite que haya saltos de línea y otras etiquetas entre Name y Value
+        patron = rf"(<Name>{base_nueva}_{key}</Name>.*?<Value>)(\d+)(</Value>)"
+        
+        contenido = re.sub(
+            patron,
+            lambda m: f"{m.group(1)}{val_usuario}{m.group(3)}",
+            contenido,
+            flags=re.DOTALL
+        )
+        
     return contenido
 
 
