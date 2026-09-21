@@ -248,16 +248,17 @@ async def proc_process_copiar_a_preview(
 ) -> None:
     """Copia la plantilla ``dir_plantilla`` a ``dir_plantilla_copia``.
 
-    Raises:
-        RuntimeError: si ``dir_plantilla_copia`` ya existe (el operario
-            debe limpiar el staging antes de reintentar).
+    Borra ``dir_plantilla_copia/`` antes de copiar (regla de
+    retencion 2.x: cada preview parte limpio, mismo patron que
+    ``ContextCache.clean_preview()`` en dispositivos y que
+    ``proc_process_aplicar_clonacion`` aplica a ``dir_nuevo/``).
+    Esto hace el ciclo preview re-arrancable sin intervencion
+    manual del operario.
     """
     if ctx.dir_plantilla_copia.exists():
-        raise RuntimeError(
-            f"dir_plantilla_copia ya existe: {ctx.dir_plantilla_copia}. "
-            f"Limpia el staging de "
-            f"{ctx.dir_plantilla_copia.parent.parent} antes de reintentar."
-        )
+        await asyncio.to_thread(shutil.rmtree, ctx.dir_plantilla_copia)
+    # NO hacemos mkdir aqui: ``shutil.copytree`` crea el destino
+    # destino el solo (``dirs_exist_ok=False`` requiere que NO exista).
 
     await asyncio.to_thread(
         shutil.copytree,

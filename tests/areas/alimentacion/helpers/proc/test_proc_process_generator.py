@@ -278,6 +278,32 @@ async def test_copiar_a_preview_ok(make_ctx: Any) -> None:
     assert (ctx.dir_plantilla_copia / "Variables PLC" / "003_Procesos" / "50010_TEST.xml").is_file()
 
 
+@pytest.mark.asyncio
+async def test_copiar_a_preview_limpia_si_existe(make_ctx: Any) -> None:
+    """Re-arrancable: si ``dir_plantilla_copia`` ya existe de una
+    corrida previa, la borra antes de re-copiar (regla de retencion
+    2.x, mismo patron que ``ContextCache.clean_preview()``).
+    """
+    ctx = make_ctx()
+    # 1ra corrida: deja la carpeta poblada.
+    await proc_process_copiar_a_preview(ctx)
+    assert (ctx.dir_plantilla_copia / "manifest.json").is_file()
+
+    # Ensuciamos la copia con un archivo fantasma que no deberia
+    # sobrevivir a la 2da corrida.
+    basura = ctx.dir_plantilla_copia / "basura_de_corrida_previa.tmp"
+    basura.write_text("hola", encoding="utf-8")
+
+    # 2da corrida: debe limpiar antes de copiar.
+    await proc_process_copiar_a_preview(ctx)
+
+    assert ctx.dir_plantilla_copia.exists()
+    # El archivo fantasma desaparecio (limpieza OK).
+    assert not basura.exists()
+    # La plantilla volvio a quedar copiada limpia.
+    assert (ctx.dir_plantilla_copia / "manifest.json").is_file()
+
+
 # ── proc_process_extraer_variables_xml ────────────────────────────────
 
 
