@@ -143,7 +143,7 @@ async def test_preview_happy_path_9_ticks(
             "N_MAX_PREAL": 30, "N_MAX_PINT": 30,
             "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
         },
-        plc_blocks_cache=set(),
+        plc_blocks_cache=[],
         # Override del build_cache_root para no contaminar el cwd.
         build_cache_root=tmp_path / ".build_cache",
     )
@@ -216,7 +216,7 @@ async def test_preview_invalid_minimos(
             "N_MAX_PREAL": 1, "N_MAX_PINT": 30,
             "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
         },
-        plc_blocks_cache=set(),
+        plc_blocks_cache=[],
         build_cache_root=tmp_path / ".build_cache",
     )
     assert fb.nStep == fb.n_arrancar  # 10
@@ -259,7 +259,7 @@ async def test_preview_no_plantilla_path(
             "N_MAX_PREAL": 30, "N_MAX_PINT": 30,
             "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
         },
-        plc_blocks_cache=set(),
+        plc_blocks_cache=[],
     )
     assert fb.nStep == fb.n_arrancar  # 10
 

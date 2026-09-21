@@ -22,9 +22,11 @@ Runtime params via ``start(**kwargs)``:
   - ``minimos_usuario`` (dict[str, int]): 4 N_MAX del operario (claves:
     ``N_MAX_PREAL``, ``N_MAX_PINT``, ``N_MAX_ALM``, ``N_MAX_ALM_HMI``).
     Obligatorio.
-  - ``plc_blocks_cache`` (set[str] | None): nombres de bloques que ya
-    existen en el PLC destino. Se cruza por NOMBRE. Si es None, el
-    FB sigue (warning).
+  - ``plc_blocks_cache`` (list[dict] | None): bloques que ya existen
+    en el PLC destino. Cada item es ``{"nombre": str, "numero": int}``.
+    El helper cruza por NOMBRE O por NUMERO contra los bloques
+    post-rename. Si es None, el FB sigue (warning). Set[str] legacy
+    se acepta y se convierte defensivamente a ``[{"nombre": s}]``.
   - ``build_cache_root`` (Path): raiz del BuildCache del area. Si es
     None, usa ``<cwd>/.build_cache``.
 
@@ -121,7 +123,7 @@ class FunctionProcProcessCrearPreview(FunctionBase):
         self._codigo_nuevo: str = ""
         self._nombre_nuevo: str = ""
         self._minimos_usuario: dict[str, int] = {}
-        self._plc_blocks_cache: set[str] | None = None
+        self._plc_blocks_cache: list[dict[str, Any]] | None = None
         # ProcProcessGenContext compartido entre los 8 ticks. Se
         # reinicializa en cada on_start() para no arrastrar estado del
         # run anterior (el FB es re-arrancable).
@@ -185,8 +187,13 @@ class FunctionProcProcessCrearPreview(FunctionBase):
         self._codigo_nuevo = str(codigo_nuevo)
         self._nombre_nuevo = str(nombre_nuevo)
         self._minimos_usuario = dict(minimos_usuario)
+        # ``plc_blocks_cache``: shape preferida ``list[dict{nombre,
+        # numero}]``. Defensivo: aceptar ``set[str]`` / ``list[str]``
+        # legacy convirtiendolo a ``[{"nombre": s, "numero": None}]``
+        # para que el helper encuentre matches por nombre.
         self._plc_blocks_cache = (
-            set(plc_blocks_cache) if plc_blocks_cache is not None else None
+            _coerce_plc_blocks_cache(plc_blocks_cache)
+            if plc_blocks_cache is not None else None
         )
         dir_plantilla = Path(self._plantillas_path) / self._dir_plantilla_nombre
         if not dir_plantilla.exists():
@@ -330,4 +337,30 @@ def _step_summary(ctx: Any, step_nombre: str) -> str:
     return f"{step_nombre}: OK"
 
 
-__all__ = ["FunctionProcProcessCrearPreview"]
+def _coerce_plc_blocks_cache(raw: Any) -> list[dict[str, Any]]:
+    """Normaliza ``plc_blocks_cache`` a ``list[dict{nombre, numero}]``.
+
+    Acepta las 3 shapes que pueden llegar al FB:
+      - ``list[dict]`` (shape preferida; el dict tiene al menos
+        ``nombre`` y opcionalmente ``numero``).
+      - ``list[str]`` / ``set[str]`` (legacy: solo nombres). Se
+        convierte a ``[{"nombre": s, "numero": None}]``.
+
+    Items invalidos (None, tipos raros) se descartan silenciosamente.
+    """
+    out: list[dict[str, Any]] = []
+    if isinstance(raw, (list, tuple, set, frozenset)):
+        for item in raw:
+            if isinstance(item, dict):
+                # Aceptar tanto "nombre" como "name" (compat scanner).
+                nombre = item.get("nombre") or item.get("name") or ""
+                numero = item.get("numero")
+                out.append({"nombre": str(nombre), "numero": numero})
+            elif isinstance(item, str) and item:
+                out.append({"nombre": item, "numero": None})
+    elif isinstance(raw, str) and raw:
+        out.append({"nombre": raw, "numero": None})
+    return out
+
+
+__all__ = ["FunctionProcProcessCrearPreview", "_coerce_plc_blocks_cache"]

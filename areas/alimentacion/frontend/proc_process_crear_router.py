@@ -180,28 +180,45 @@ def _validate_common(body: dict) -> tuple[dict | None, str | None]:
     }
 
     # ``plc_blocks_cache`` es opcional. Acepta dos shapes:
-    #   - ``list[str]`` (recomendado): solo nombres completos de
-    #     bloques que ya existen en el PLC destino.
-    #   - ``list[dict{ nombre }]``: cada item lleva ``nombre``
-    #     (campo ``"name"`` compat). Cualquier item sin nombre se
-    #     ignora (defensivo).
-    # El router convierte a ``set[str]`` y lo pasa al FB como
-    # ``plc_blocks_cache``. El match de colisiones es SOLO por
-    # nombre (consistent con la logica del helper v2).
+    #   - ``list[str]``: solo nombres completos de bloques que ya
+    #     existen en el PLC destino (legacy).
+    #   - ``list[dict{ nombre, numero }]`` (recomendado): cada item
+    #     lleva ``nombre`` (campo ``"name"`` compat) y opcionalmente
+    #     ``numero`` (int). Esto permite que el helper cruce por
+    #     nombre O por numero contra los bloques post-rename. Si el
+    #     scanner del sidebar emite ``numero``, el match detecta
+    #     cross-type (DB60010 vs FB60010).
+    # El router normaliza TODO a ``list[dict{nombre, numero}]``: los
+    # ``str`` legacy se envuelven en ``{nombre, numero: None}``, los
+    # dicts sin nombre se descartan (defensivo). El campo ``numero``
+    # se coerce a ``int`` si llega como string numerico.
     pbc_raw = body.get("plc_blocks_cache")
     if pbc_raw is not None:
         if not isinstance(pbc_raw, list):
             return None, "plc_blocks_cache debe ser list[str|dict] o null"
-        nombres: set[str] = set()
+        bloques_list: list[dict[str, Any]] = []
         for item in pbc_raw:
             if isinstance(item, dict):
-                nm = item.get("nombre") or item.get("name")
-                if nm:
-                    nombres.add(str(nm))
-            elif isinstance(item, str):
-                nombres.add(item)
-        if nombres:
-            validated["plc_blocks_cache"] = nombres
+                nombre = item.get("nombre") or item.get("name") or ""
+                if not nombre:
+                    # Item sin nombre util -> descartar defensivo.
+                    continue
+                numero_raw = item.get("numero")
+                numero: int | None = None
+                if isinstance(numero_raw, bool):  # bool es subclass de int
+                    numero = None
+                elif isinstance(numero_raw, int):
+                    numero = numero_raw
+                elif isinstance(numero_raw, str) and numero_raw.isdigit():
+                    numero = int(numero_raw)
+                bloques_list.append({
+                    "nombre": str(nombre),
+                    "numero": numero,
+                })
+            elif isinstance(item, str) and item:
+                bloques_list.append({"nombre": item, "numero": None})
+        if bloques_list:
+            validated["plc_blocks_cache"] = bloques_list
 
     return validated, None
 

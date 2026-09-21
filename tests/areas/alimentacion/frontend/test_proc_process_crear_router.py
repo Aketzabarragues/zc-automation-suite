@@ -317,9 +317,10 @@ def test_crear_preview_plc_blocks_cache_acepta_strings_y_dicts(
     """``plc_blocks_cache`` acepta ``list[str]`` (recomendado) o
     ``list[dict{ nombre }]``. El router extrae el campo ``nombre``
     de los dicts defensivamente (descarta items sin nombre) y
-    popula ``plc_blocks_cache`` como ``set[str]`` plano
-    (match por nombre unicamente, consistente con la logica
-    del helper v2).
+    popula ``plc_blocks_cache`` como ``list[dict{nombre, numero}]``
+    (match por nombre O por numero, consistente con la logica
+    del helper v2). Strings legacy se envuelven en ``{nombre}``.
+    Items sin nombre se descartan defensivo.
     """
     from areas.alimentacion.frontend.proc_process_crear_router import bp
 
@@ -346,15 +347,23 @@ def test_crear_preview_plc_blocks_cache_acepta_strings_y_dicts(
             {"nombre": "DB70001"},
             # Item sin nombre -> el router lo descarta defensivo.
             {"tipo": "DB", "numero": 60010},
+            # Item con numero como string -> se coerce a int.
+            {"nombre": "DB80001", "numero": "80001"},
         ],
     })
     assert resp.status_code == 200
 
     kwargs = fb_mock.start.await_args.kwargs
-    # El set de nombres acumulados. Items sin nombre y los dicts
-    # mal formados se descartan.
-    assert kwargs["plc_blocks_cache"] == {"DB60010_OTRA", "FB60010", "DB70001"}
+    # Lista dicts ``{nombre, numero}`` normalizada. Strings se
+    # envuelven en ``{nombre, numero: None}``. Items sin nombre y
+    # dicts mal formados se descartan.
+    assert kwargs["plc_blocks_cache"] == [
+        {"nombre": "DB60010_OTRA", "numero": None},
+        {"nombre": "FB60010", "numero": None},
+        {"nombre": "DB70001", "numero": None},
+        {"nombre": "DB80001", "numero": 80001},
+    ], f"plc_blocks_cache={kwargs['plc_blocks_cache']}"
     # Sin campos avanzados: el router NO emite plc_blocks_por_tipo
-    # ni plc_blocks_detalle (helper v2 solo matchea por nombre).
+    # ni plc_blocks_detalle.
     assert "plc_blocks_por_tipo" not in kwargs
     assert "plc_blocks_detalle" not in kwargs

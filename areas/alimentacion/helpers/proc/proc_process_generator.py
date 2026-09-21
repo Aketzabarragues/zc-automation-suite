@@ -63,7 +63,11 @@ class ProcProcessGenContext:
     base_nueva: int
     codigo_nuevo: str
     nombre_nuevo: str
-    plc_blocks_cache: set[str] | None
+    # Lista de bloques existentes en el PLC destino. Cada item es
+    # ``{"nombre": str, "numero": int | None}``; permite cruzar por
+    # nombre O por numero en ``proc_process_detectar_colisiones``.
+    # ``None`` = cache nunca populado (el helper emite warning).
+    plc_blocks_cache: list[dict[str, Any]] | None
     minimos_usuario: dict[str, int]
 
     # ── Resultado de proc_process_leer_manifest ──
@@ -78,6 +82,11 @@ class ProcProcessGenContext:
 
     # ── Resultado de proc_process_detectar_colisiones ──
     colisiones: list[str] = field(default_factory=list)
+    # Mapa ``nombre_nuevo -> identificador del bloque PLC que
+    # colisiona``. La SPA lee este campo para pintar
+    # ``DUPLICADO - <identificador>`` en la celda ESTADO. Si un nombre
+    # no aparece aqui, la SPA solo muestra ``DUPLICADO``.
+    colisiones_con: dict[str, str] = field(default_factory=dict)
 
     # ── Resultado de proc_process_generar_previstos / aplicar ──
     archivos_previstos: list[dict[str, Any]] = field(default_factory=list)
@@ -269,11 +278,22 @@ async def proc_process_construir_diccionarios(ctx: ProcProcessGenContext) -> Non
 
 
 async def proc_process_detectar_colisiones(ctx: ProcProcessGenContext) -> None:
-    """Cruza ``dicc_bloques`` contra ``plc_blocks_cache`` por nombre.
+    """Cruza ``dicc_bloques`` contra ``plc_blocks_cache`` por nombre
+    O por numero.
 
     Cualquier nombre post-rename del diccionario que ya exista como
-    bloque en el PLC es una colision. TIA Portal fallaria el import
-    (UPDATE fallido -> "object already exists").
+    bloque en el PLC es una colision (match por nombre). Tambien
+    detecta colision si el numero del bloque nuevo coincide con un
+    numero de la cache del PLC (match por numero — util cuando el
+    PLC cache tiene dicts ``{nombre, numero}`` y el nombre del
+    nuevo bloque usa un prefijo distinto al que el PLC esperaba).
+    TIA Portal fallaria el import en ambos casos (UPDATE fallido ->
+    "object already exists").
+
+    Adicionalmente popula ``ctx.colisiones_con`` con el
+    identificador del bloque del PLC que produjo la colision
+    (nombre preferred, fallback a ``"<numero>"``). La SPA lo usa
+    para pintar ``DUPLICADO - <id>``.
 
     Si ``plc_blocks_cache`` es ``None`` (cache nunca populado),
     emite un mensaje accionable y devuelve sin abortar.
@@ -289,6 +309,44 @@ async def proc_process_detectar_colisiones(ctx: ProcProcessGenContext) -> None:
         )
         return
 
+    # Normalizar la cache: tolerar tanto ``list[dict{nombre, numero}]``
+    # (shape nuevo) como ``set[str]`` legacy (defensivo: si llega un
+    # set, lo convertimos a lista de dicts con solo ``nombre``).
+    plc_entries: list[dict[str, Any]] = []
+    for item in ctx.plc_blocks_cache:
+        if isinstance(item, dict):
+            plc_entries.append(item)
+        elif isinstance(item, str):
+            plc_entries.append({"nombre": item, "numero": None})
+
+    # Sets de lookup rapido + mapas inversos nombre/numero -> id.
+    plc_nombres: set[str] = set()
+    plc_numeros: set[int] = set()
+    id_por_nombre: dict[str, str] = {}
+    id_por_numero: dict[int, str] = {}
+    for blk in plc_entries:
+        nombre_raw = blk.get("nombre")
+        nombre = str(nombre_raw) if nombre_raw else ""
+        numero_raw = blk.get("numero")
+        if isinstance(numero_raw, bool):  # bool es subclass de int
+            continue
+        if isinstance(numero_raw, int):
+            numero: int | None = numero_raw
+        elif isinstance(numero_raw, str) and numero_raw.isdigit():
+            numero = int(numero_raw)
+        else:
+            numero = None
+        # Identificador visible: nombre preferred, fallback a numero.
+        ident = nombre if nombre else (str(numero) if numero is not None else "")
+        if not ident:
+            continue
+        if nombre and nombre not in plc_nombres:
+            plc_nombres.add(nombre)
+            id_por_nombre[nombre] = ident
+        if numero is not None and numero not in plc_numeros:
+            plc_numeros.add(numero)
+            id_por_numero[numero] = ident
+
     colisiones_vistas: set[str] = set()
     # Filtramos solo nombres post-rename reales (excluimos
     # metadatos TIA, prefijos de base y fallbacks cod/nombre
@@ -300,9 +358,26 @@ async def proc_process_detectar_colisiones(ctx: ProcProcessGenContext) -> None:
             or key.endswith("_")  # prefijos de base (200_, 3200_, 5200_)
         ):
             continue
-        if val in ctx.plc_blocks_cache and val not in colisiones_vistas:
+        if val in colisiones_vistas:
+            continue
+        # Match por nombre (rapido y comun).
+        if val in plc_nombres:
             ctx.colisiones.append(val)
+            ctx.colisiones_con[val] = id_por_nombre[val]
             colisiones_vistas.add(val)
+            continue
+        # Match por numero: extraer el primer run de digitos del stem
+        # precedido por prefijo alfabetico al INICIO del nombre
+        # (``FC60010`` o ``FC60010_EXP_INTERFAZ`` -> ("FC", "60010")).
+        # ``^([A-Za-z]+)(\d+)`` (sin ``$``) captura prefijos+numero
+        # aunque el stem tenga sufijo adicional (e.g. ``_INTERFAZ``).
+        m = re.match(r"^([A-Za-z]+)(\d+)", val)
+        if m:
+            num = int(m.group(2))
+            if num in plc_numeros:
+                ctx.colisiones.append(val)
+                ctx.colisiones_con[val] = id_por_numero[num]
+                colisiones_vistas.add(val)
 
 
 async def proc_process_generar_previstos(ctx: ProcProcessGenContext) -> None:
@@ -341,16 +416,28 @@ async def proc_process_generar_previstos(ctx: ProcProcessGenContext) -> None:
         rel_out = Path(subdir) / f"{nuevo_stem}{suffix}"
 
         # Match contra colisiones post-rename (con y sin sufijo).
-        colisiona = (
-            nuevo_stem in ctx.colisiones
-            or f"{nuevo_stem}{suffix}" in ctx.colisiones
-        )
+        colisiona_nombre = nuevo_stem in ctx.colisiones
+        colisiona_con_sufijo = f"{nuevo_stem}{suffix}" in ctx.colisiones
+        colisiona = colisiona_nombre or colisiona_con_sufijo
+
+        # ``colision_con``: identificador del bloque PLC que produjo
+        # la colision (nombre o numero). Se resuelve desde
+        # ``ctx.colisiones_con`` que pobló
+        # ``proc_process_detectar_colisiones``. La SPA lo lee para
+        # pintar ``DUPLICADO - <id>``. Si no hay match especifico,
+        # queda ``None`` (la SPA pinta ``DUPLICADO`` plano).
+        colision_con: str | None = None
+        if colisiona_nombre:
+            colision_con = ctx.colisiones_con.get(nuevo_stem)
+        elif colisiona_con_sufijo:
+            colision_con = ctx.colisiones_con.get(f"{nuevo_stem}{suffix}")
 
         archivos_previstos.append({
             "rel_in": str(rel_in),
             "rel_out": str(rel_out),
             "kind": kind,
             "colisiona": colisiona,
+            "colision_con": colision_con,
         })
 
     ctx.archivos_previstos = archivos_previstos

@@ -266,7 +266,7 @@ export default {
                 // no se envia, el FB solo detecta 1 colision
                 // genérica "cache no inicializado" y todas las filas
                 // quedan OK en la SPA (falso positivo de OK).
-                plc_blocks_cache: _blocksToNames(plcBlocksCache.value),
+                plc_blocks_cache: _blocksToDicts(plcBlocksCache.value),
             };
             const r = await apiProcesosCrearPreview(params);
             if (r && r.ok && r.data) {
@@ -286,7 +286,7 @@ export default {
                 dir_plantilla_nombre: selectedPlantillaCarpeta.value,
                 proc_uid: Number(props.procUid),
                 plc_name: store.selectedPlc || "",
-                plc_blocks_cache: _blocksToNames(plcBlocksCache.value),
+                plc_blocks_cache: _blocksToDicts(plcBlocksCache.value),
             };
             const r = await apiProcesosCrearAplicar(params);
             aplicacionEstado.value = r && r.ok ? "ok" : "error";
@@ -298,19 +298,35 @@ export default {
         }
 
         // Pasa la lista de bloques del PLC del store al formato
-        // ``list[str]`` que espera el router backend (match por
-        // nombre unicamente, consistente con la logica del helper
-        // v2). Si el scanner envia dicts, los extraemos el campo
-        // ``nombre`` defensivamente.
-        function _blocksToNames(cache) {
+        // ``list[dict{nombre, numero}]`` que espera el router backend
+        // (match por nombre O por numero). Si el scanner envia
+        // strings (legacy), los envolvemos en ``{nombre}``. Si envia
+        // dicts con solo ``number`` (ingles), lo normalizamos a
+        // ``numero``. Cualquier item sin nombre util se descarta
+        // (defensivo: nunca enviamos ``{nombre: ""}`` al backend).
+        function _blocksToDicts(cache) {
             if (!cache || !Array.isArray(cache.blocks)) return [];
-            return cache.blocks
-                .map((b) => {
-                    if (!b) return null;
-                    if (typeof b === "string") return b;
-                    return b.nombre || b.name || null;
-                })
-                .filter(Boolean);
+            const out = [];
+            for (const b of cache.blocks) {
+                if (!b) continue;
+                if (typeof b === "string") {
+                    if (b) out.push({ nombre: b, numero: null });
+                    continue;
+                }
+                const nombre = b.nombre || b.name || "";
+                const numero = (
+                    typeof b.numero === "number" ? b.numero
+                    : typeof b.number === "number" ? b.number
+                    : null
+                );
+                if (nombre) {
+                    out.push({
+                        nombre: String(nombre),
+                        numero: numero !== null ? numero : null,
+                    });
+                }
+            }
+            return out;
         }
 
         // ── Wire al cargarse ───────────────────────────────────
@@ -407,11 +423,23 @@ export default {
             if (!data || !Array.isArray(data.archivos_previstos)) return [];
             const rows = data.archivos_previstos
                 .filter((a) => a && a.rel_in !== undefined && a.rel_out !== undefined)
-                .map((a) => ({
-                    original: a.nombre_original || _pathStem(a.rel_in),
-                    nuevo: a.nombre_nuevo || _pathStem(a.rel_out),
-                    estado: a.colisiona ? "DUPLICADO" : "OK",
-                }));
+                .map((a) => {
+                    // ESTADO: "OK" o "DUPLICADO - <id>" cuando el
+                    // backend anota ``colision_con`` con el bloque
+                    // del PLC que colisiona (por nombre o por numero).
+                    // Si el backend no trae el detalle (legacy /
+                    // colision_con=None), cae a "DUPLICADO" plano.
+                    let estado = "OK";
+                    if (a.colisiona) {
+                        const ident = a.colision_con;
+                        estado = ident ? `DUPLICADO - ${ident}` : "DUPLICADO";
+                    }
+                    return {
+                        original: a.nombre_original || _pathStem(a.rel_in),
+                        nuevo: a.nombre_nuevo || _pathStem(a.rel_out),
+                        estado,
+                    };
+                });
             rows.sort((a, b) => String(a.nuevo).localeCompare(
                 String(b.nuevo), undefined, { sensitivity: "base" }
             ));
@@ -596,7 +624,9 @@ export default {
                      lenguaje visual que DispositivosPanel/ProcesosPanel
                      (sticky header, container bg-surface-raised + border
                      + rounded). ESTADO = OK si el bloque nuevo NO choca
-                     por nombre con la cache del PLC; DUPLICADO si choca. -->
+                     por nombre ni por numero con la cache del PLC;
+                     "DUPLICADO - <id>" si choca, donde <id> es el
+                     nombre (o numero) del bloque del PLC que colisiona. -->
                 <div class="flex-1 overflow-auto table-scroll-x bg-surface-raised border border-line rounded">
                     <table class="w-full text-xs">
                         <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">

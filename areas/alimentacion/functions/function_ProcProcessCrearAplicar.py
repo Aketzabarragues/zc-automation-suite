@@ -28,10 +28,12 @@ Runtime params via ``start(**kwargs)``:
   - ``nombre_nuevo`` (str): nombre humano. Obligatorio.
   - ``minimos_usuario`` (dict[str, int]): 4 N_MAX del operario. Oblig.
   - ``plc_name`` (str): nombre del PLC destino. Obligatorio.
-  - ``plc_blocks_cache`` (set[str] | None): nombres de bloques
-    existentes en el PLC. Se cruza por NOMBRE unico. Si None, el
-    helper emite warning y el FB aborta (no podemos asegurar UPDATE
-    seguro).
+  - ``plc_blocks_cache`` (list[dict] | None): bloques que ya existen
+    en el PLC destino. Cada item es ``{"nombre": str, "numero": int}``.
+    El helper cruza por NOMBRE O por NUMERO contra los bloques
+    post-rename. Si es None, el helper emite warning y el FB aborta.
+    ``set[str]`` / ``list[str]`` legacy se aceptan y se convierten
+    defensivamente a ``[{"nombre": s}]``.
   - ``build_cache_root`` (Path): raiz del BuildCache del area.
 
 El ``self.result`` se popula con la shape esperada por la SPA::
@@ -159,7 +161,7 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
         self._nombre_nuevo: str = ""
         self._minimos_usuario: dict[str, int] = {}
         self._plc_name: str = ""
-        self._plc_blocks_cache: set[str] | None = None
+        self._plc_blocks_cache: list[dict[str, Any]] | None = None
         # Resultados intermedios de los 2 dispatches.
         # ``_import_batch_result``: dict de ``execute_transactional_batch``
         # (``success``, ``operations_executed``, ``details``). El FB no
@@ -243,8 +245,12 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
         self._nombre_nuevo = str(nombre_nuevo)
         self._minimos_usuario = dict(minimos_usuario)
         self._plc_name = str(plc_name)
+        # ``plc_blocks_cache``: shape preferida ``list[dict{nombre,
+        # numero}]``. Defensivo: aceptar ``set[str]`` / ``list[str]``
+        # legacy convirtiendolo a ``[{"nombre": s, "numero": None}]``.
         self._plc_blocks_cache = (
-            set(plc_blocks_cache) if plc_blocks_cache is not None else None
+            _coerce_plc_blocks_cache(plc_blocks_cache)
+            if plc_blocks_cache is not None else None
         )
 
         dir_plantilla = Path(self._plantillas_path) / self._dir_plantilla_nombre
@@ -433,6 +439,32 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
         )
 
 
+def _coerce_plc_blocks_cache(raw: Any) -> list[dict[str, Any]]:
+    """Normaliza ``plc_blocks_cache`` a ``list[dict{nombre, numero}]``.
+
+    Acepta las 3 shapes que pueden llegar al FB:
+      - ``list[dict]`` (shape preferida; el dict tiene al menos
+        ``nombre`` y opcionalmente ``numero``).
+      - ``list[str]`` / ``set[str]`` (legacy: solo nombres). Se
+        convierte a ``[{"nombre": s, "numero": None}]``.
+
+    Items invalidos (None, tipos raros) se descartan silenciosamente.
+    """
+    out: list[dict[str, Any]] = []
+    if isinstance(raw, (list, tuple, set, frozenset)):
+        for item in raw:
+            if isinstance(item, dict):
+                # Aceptar tanto "nombre" como "name" (compat scanner).
+                nombre = item.get("nombre") or item.get("name") or ""
+                numero = item.get("numero")
+                out.append({"nombre": str(nombre), "numero": numero})
+            elif isinstance(item, str) and item:
+                out.append({"nombre": item, "numero": None})
+    elif isinstance(raw, str) and raw:
+        out.append({"nombre": raw, "numero": None})
+    return out
+
+
 def _step_summary(fb: FunctionProcProcessCrearAplicar, step_nombre: str) -> str:
     """Resumen legible del step que acaba de correr (aparece en la SPA)."""
     ctx = fb._ctx  # noqa: SLF001 (mismo patron que FunctionProcSincronizar)
@@ -480,4 +512,4 @@ def _step_summary(fb: FunctionProcProcessCrearAplicar, step_nombre: str) -> str:
     return f"{step_nombre}: OK"
 
 
-__all__ = ["FunctionProcProcessCrearAplicar"]
+__all__ = ["FunctionProcProcessCrearAplicar", "_coerce_plc_blocks_cache"]

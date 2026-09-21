@@ -171,7 +171,7 @@ async def test_apply_happy_path_11_ticks(
             "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
         },
         plc_name="S7-1500",
-        plc_blocks_cache=set(),
+        plc_blocks_cache=[],
         build_cache_root=tmp_path / ".build_cache",
     )
     assert ok is True
@@ -267,7 +267,7 @@ async def test_apply_import_batch_falla(
             "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
         },
         plc_name="S7-1500",
-        plc_blocks_cache=set(),
+        plc_blocks_cache=[],
         build_cache_root=tmp_path / ".build_cache",
     )
     assert fb.nStep == fb.n_arrancar  # 10

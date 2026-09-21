@@ -180,7 +180,7 @@ def make_ctx(tmp_path: Path, plantilla_dummy: Path):
             "base_nueva": 60010,
             "codigo_nuevo": "EXP",
             "nombre_nuevo": "NuevoProceso",
-            "plc_blocks_cache": set(),
+            "plc_blocks_cache": [],
             "minimos_usuario": {
                 "N_MAX_PREAL": 30, "N_MAX_PINT": 30,
                 "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
@@ -360,12 +360,16 @@ async def test_construir_diccionarios_orden_len_desc(make_ctx: Any) -> None:
 @pytest.mark.asyncio
 async def test_detectar_colisiones_match_plc_cache(make_ctx: Any) -> None:
     """Si el cache del PLC contiene un nombre post-rename del helper,
-    se anade a ``ctx.colisiones``. La SPA lo cruza con
-    ``archivos_previstos[i].rel_out`` para marcar el item como
-    DUPLICADO en la columna ESTADO.
+    se anade a ``ctx.colisiones`` y se popula ``ctx.colisiones_con``
+    con el identificador del bloque que colisiona. La SPA lo cruza
+    con ``archivos_previstos[i].rel_out`` para marcar el item como
+    ``DUPLICADO - <id>`` en la columna ESTADO.
     """
     ctx = make_ctx(
-        plc_blocks_cache={"DB60010_EXP_COMENTARIOS"},
+        plc_blocks_cache=[{
+            "nombre": "DB60010_EXP_COMENTARIOS",
+            "numero": None,
+        }],
     )
     await proc_process_copiar_a_preview(ctx)
     await proc_process_leer_manifest(ctx)
@@ -374,6 +378,53 @@ async def test_detectar_colisiones_match_plc_cache(make_ctx: Any) -> None:
 
     # ``DB60010_EXP_COMENTARIOS`` ya estaba en PLC -> colision detectada.
     assert "DB60010_EXP_COMENTARIOS" in ctx.colisiones
+    # ``colisiones_con`` mapea el nombre nuevo al identificador del PLC.
+    assert ctx.colisiones_con["DB60010_EXP_COMENTARIOS"] == (
+        "DB60010_EXP_COMENTARIOS"
+    )
+
+
+@pytest.mark.asyncio
+async def test_detectar_colisiones_match_por_numero(make_ctx: Any) -> None:
+    """Match por NUMERO: si el numero del bloque nuevo esta en la
+    cache del PLC, tambien es colision (util cuando el scanner del
+    PLC cache emite dicts con ``numero`` y el match por nombre no
+    detecta cross-type).
+
+    Tras el rename, los bloques del dummy son:
+      FC50010_TEST_INTERFAZ -> FC60010_EXP_INTERFAZ
+      50010_TEST_COMENTARIOS -> 60010_EXP_COMENTARIOS
+      50010_TEST.xml -> 60010_EXP.xml
+    Sus numeros son 60010 (FC, DB) y el .xml no es un bloque. El
+    match por nombre seria con un bloque que se llame exactamente
+    ``FC60010_EXP_INTERFAZ``. Aqui forzamos match por NUMERO: el
+    PLC cache tiene un bloque con numero 60010 y nombre distinto,
+    asi que solo el camino ``re.match(r"^([A-Za-z]+)(\d+)", val)``
+    contra ``plc_numeros`` puede detectarlo.
+    """
+    ctx = make_ctx(
+        plc_blocks_cache=[{
+            "nombre": "FC60010_OTRO_NOMBRE",  # nombre NO matchea
+            "numero": 60010,                  # numero SI matchea
+        }],
+    )
+    await proc_process_copiar_a_preview(ctx)
+    await proc_process_leer_manifest(ctx)
+    await proc_process_construir_diccionarios(ctx)
+    await proc_process_detectar_colisiones(ctx)
+
+    # Match por numero: el bloque ``FC60010_EXP_INTERFAZ`` del nuevo
+    # proceso empieza por FC + 60010 -> choca con el bloque de
+    # numero 60010 del PLC cache.
+    assert "FC60010_EXP_INTERFAZ" in ctx.colisiones, (
+        f"Esperaba colision FC60010_EXP_INTERFAZ (match por numero 60010); "
+        f"colisiones={ctx.colisiones}"
+    )
+    # ``colisiones_con`` debe apuntar al identificador del PLC (nombre
+    # preferred).
+    assert ctx.colisiones_con["FC60010_EXP_INTERFAZ"] == (
+        "FC60010_OTRO_NOMBRE"
+    ), f"colisiones_con={ctx.colisiones_con}"
 
 
 @pytest.mark.asyncio
@@ -418,7 +469,7 @@ async def test_aplicar_clonacion_preserva_bom_s7res(
         base_nueva=60010,
         codigo_nuevo="EXP",
         nombre_nuevo="NuevoProceso",
-        plc_blocks_cache=set(),
+        plc_blocks_cache=[],
         minimos_usuario={
             "N_MAX_PREAL": 30, "N_MAX_PINT": 30,
             "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
@@ -460,7 +511,7 @@ async def test_aplicar_clonacion_xml_value_update(
         base_nueva=60010,
         codigo_nuevo="EXP",
         nombre_nuevo="NuevoProceso",
-        plc_blocks_cache=set(),
+        plc_blocks_cache=[],
         minimos_usuario={
             # 4 N_MAX del operario. Distintos para verificar que se
             # aplicaron los valores correctos en el orden esperado.
@@ -515,7 +566,7 @@ async def test_aplicar_clonacion_genera_layout_canonico(
         base_nueva=60010,
         codigo_nuevo="EXP",
         nombre_nuevo="NuevoProceso",
-        plc_blocks_cache=set(),
+        plc_blocks_cache=[],
         minimos_usuario={
             "N_MAX_PREAL": 30, "N_MAX_PINT": 30,
             "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
@@ -563,7 +614,7 @@ async def test_escribir_manifest(tmp_path: Path, plantilla_dummy: Path) -> None:
         base_nueva=60010,
         codigo_nuevo="EXP",
         nombre_nuevo="NuevoProceso",
-        plc_blocks_cache=set(),
+        plc_blocks_cache=[],
         minimos_usuario={
             "N_MAX_PREAL": 30, "N_MAX_PINT": 30,
             "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
