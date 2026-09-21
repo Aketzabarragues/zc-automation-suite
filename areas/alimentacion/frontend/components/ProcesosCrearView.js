@@ -437,14 +437,36 @@ export default {
                     // XML de plantilla y del prefijo del stem.
                     // Mostramos todo en columnas separadas: el
                     // operario ve de un vistazo
-                    //   TIPO | BLOQUE ORIGINAL | BLOQUE NUEVO
-                    //   DB   | DB50010_X - 50010 | DB60010_Y - 60010
+                    //   TIPO | BLOQUE ORIGINAL | BLOQUE NUEVO | ESTADO
+                    //   DB   | DB50010_X - 50010 | DB60010_Y - 60010 | OK
+                    //   DB   | DB50010_X - 50010 | DB60010_Y - 60010 | DUPLICADO - DB60010_EXISTENTE
                     const tipoOrig = a.tipo_original || "";
                     const tipoNuevo = a.tipo_nuevo || "";
                     const nombreOrig = a.nombre_original || _pathStem(a.rel_in);
                     const nombreNuevo = a.nombre_nuevo || _pathStem(a.rel_out);
                     const numeroOrig = a.numero_original || 0;
                     const numeroNuevo = a.numero_nuevo || 0;
+                    // ESTADO: si el item colisiona, mostramos "DUPLICADO"
+                    // + bloque del PLC que lo provoca (con tipo y numero
+                    // si estan). Si no, "OK".
+                    let estado = "OK";
+                    let bloquePlcInfo = "";
+                    if (a.colisiona) {
+                        const colCon = a.colision_con;
+                        if (colCon && colCon.nombre) {
+                            const tipoNumPlc =
+                                colCon.tipo && colCon.numero
+                                    ? ` (${colCon.tipo}, ${colCon.numero})`
+                                    : "";
+                            bloquePlcInfo = colCon.nombre + tipoNumPlc;
+                            estado = `DUPLICADO - ${bloquePlcInfo}`;
+                        } else {
+                            // Fallback: el backend no trae detalle
+                            // (compat legacy / tests sin
+                            // ``plc_blocks_detalle``).
+                            estado = "DUPLICADO";
+                        }
+                    }
                     return {
                         tipo: tipoNuevo || tipoOrig,
                         original: numeroOrig > 0
@@ -453,7 +475,8 @@ export default {
                         nuevo: numeroNuevo > 0
                             ? `${nombreNuevo} - ${numeroNuevo}`
                             : nombreNuevo,
-                        estado: a.colisiona ? "NO OK" : "OK",
+                        estado,
+                        colisionCon: a.colision_con || null,
                     };
                 });
             rows.sort((a, b) => String(a.nuevo).localeCompare(

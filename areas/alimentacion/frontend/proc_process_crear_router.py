@@ -136,7 +136,11 @@ def _validate_common(body: dict) -> tuple[dict | None, str | None]:
       nombre_nuevo, minimos_usuario,
       plc_blocks_cache (set[str] opcional),
       plc_blocks_por_tipo (dict[str, set[int]] opcional, derivado
-        de los items dict del body cuando llevan campo tipo).
+        de los items dict del body cuando llevan campo tipo),
+      plc_blocks_detalle (list[dict] opcional, la lista cruda
+        del body sin filtrar — la usa el FB para anotar
+        ``colision_con`` por item con el bloque del PLC concreto
+        que provoca la colision).
     Los campos del proceso (base/codigo/nombre/N_MAX) NO vienen del
     body: los resuelve el router desde el Excel via
     ``_resolve_excel_proc``.
@@ -217,6 +221,12 @@ def _validate_common(body: dict) -> tuple[dict | None, str | None]:
             validated["plc_blocks_por_tipo"] = {
                 k: list(v) for k, v in por_tipo.items()
             }
+        # Lista cruda para que el FB anote ``colision_con`` por
+        # item con el bloque concreto del PLC. Solo items dict
+        # validos (defensivo: ignorar entradas mal formadas).
+        validated["plc_blocks_detalle"] = [
+            item for item in pbc_raw if isinstance(item, dict)
+        ]
 
     return validated, None
 
