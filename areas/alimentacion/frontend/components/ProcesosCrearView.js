@@ -566,8 +566,9 @@ export default {
                     :disabled="!canGenerate"
                     :title="crearCardTooltip"
                     data-testid="procesos-crear-generar-preview"
-                    class="mt-4 px-3 py-1.5 bg-accent text-ink-inverse rounded-md text-xs font-semibold hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed">
-                Generar prevision
+                    class="mt-4 px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
+                <span>🔍</span>
+                <span>Generar Previsión</span>
             </button>
 
             <div v-if="previewData" class="mt-4">
@@ -633,8 +634,9 @@ export default {
                 <button :disabled="aplicacionBotonDisabled"
                         data-testid="procesos-crear-aplicar"
                         @click="aplicar"
-                        class="mt-3 px-3 py-1.5 bg-accent text-ink-inverse rounded-md text-xs font-semibold hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed">
-                    {{ aplicacionEstado === "aplicando" ? "Aplicando..." : "Aplicar al PLC" }}
+                        class="mt-3 w-full py-3 text-accent font-semibold text-sm bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
+                    <span v-if="aplicacionEstado === 'aplicando'">⏳ Aplicando…</span>
+                    <span v-else>✅ Aplicar Cambios en TIA Portal</span>
                 </button>
                 <p v-if="aplicacionEstado === 'ok'" class="text-green-700 text-xs mt-2">
                     Proceso creado OK.
