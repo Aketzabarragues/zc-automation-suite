@@ -33,7 +33,7 @@ El ``self.result`` se popula con la shape esperada por la SPA::
       "manifest_plantilla": dict | None,
       "archivos_previstos": list[dict],
       "colisiones":         list[str],
-      "preview_dir":        str,
+      "plantilla_copia_dir": str,
       "success":            bool,
     }
 
@@ -197,11 +197,11 @@ class FunctionProcProcessCrearPreview(FunctionBase):
                 f"Verifica plantillas_path y dir_plantilla_nombre."
             )
 
-        dir_preview = (
-            Path(build_cache_root) / "alimentacion" / "procesoNuevo" / "preview"
+        dir_plantilla_copia = (
+            Path(build_cache_root) / "alimentacion" / "ProcesoNuevo" / "Plantilla"
         )
-        dir_modified = (
-            Path(build_cache_root) / "alimentacion" / "procesoNuevo" / "modified"
+        dir_nuevo = (
+            Path(build_cache_root) / "alimentacion" / "ProcesoNuevo" / "Nuevo"
         )
 
         # Lazy import para evitar ciclo con helpers/proc/.
@@ -210,8 +210,8 @@ class FunctionProcProcessCrearPreview(FunctionBase):
         )
         self._ctx = ProcProcessGenContext(
             dir_plantilla=dir_plantilla,
-            dir_preview=dir_preview,
-            dir_modified=dir_modified,
+            dir_plantilla_copia=dir_plantilla_copia,
+            dir_nuevo=dir_nuevo,
             base_nueva=self._base_nueva,
             codigo_nuevo=self._codigo_nuevo,
             nombre_nuevo=self._nombre_nuevo,
@@ -291,7 +291,7 @@ class FunctionProcProcessCrearPreview(FunctionBase):
                     "ProcProcessGenContext no inicializado. "
                     "Verifica los parametros del start()."
                 ],
-                "preview_dir": "",
+                "plantilla_copia_dir": "",
                 "manifest_plantilla": None,
             }
             return
@@ -320,7 +320,7 @@ def _step_summary(ctx: Any, step_nombre: str) -> str:
     if step_nombre == "validar_minimos":
         return f"{step_nombre}: N_MAX OK"
     if step_nombre == "copiar_a_preview":
-        return f"{step_nombre}: plantilla copiada a {ctx.dir_preview}"
+        return f"{step_nombre}: plantilla copiada a {ctx.dir_plantilla_copia}"
     if step_nombre == "extraer_variables_xml":
         n = len(ctx.__dict__.get("_variables_xml_exactas", []))
         return f"{step_nombre}: {n} variables exactas"

@@ -4,6 +4,7 @@ Cubre:
   - Happy path: 10 ticks (1 arrancar + 8 steps + 1 finalizar) -> n_done,
     ``self.result`` con shape de preview (archivos_previstos, colisiones,
     preview_dir, manifest_plantilla, success).
+    ``preview_dir`` es el alias historico del campo ``plantilla_copia_dir``
   - Sad path: ``minimos_usuario`` con N_MAX < plantilla -> el FB va a
     ``n_error`` con mensaje mencionando "N_MAX" o "minimos".
   - Sad path: ``plantillas_path=""`` -> el FB va a ``n_error`` con
@@ -179,7 +180,7 @@ async def test_preview_happy_path_10_ticks(
     # vuelca al ``self.result`` por el bug del ``done``. Verificamos
     # que los archivos del preview se clonaron en disco.
     preview_dir = (
-        tmp_path / ".build_cache" / "alimentacion" / "procesoNuevo" / "preview"
+        tmp_path / ".build_cache" / "alimentacion" / "ProcesoNuevo" / "Plantilla"
     )
     assert preview_dir.exists()
     assert (preview_dir / "Bloques de programa" / "FC50010_TEST_INTERFAZ.s7dcl").is_file()

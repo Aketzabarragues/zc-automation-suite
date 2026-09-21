@@ -38,7 +38,7 @@ El ``self.result`` se popula con la shape esperada por la SPA::
       "manifest_plantilla": dict | None,
       "archivos_generados": list[str],
       "colisiones":         list[str],
-      "modified_dir":       str,
+      "nuevo_dir":          str,
       "success":            bool,
       "import_result":      dict | None,
       "compile_result":      dict | None,
@@ -233,11 +233,11 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
                 f"Verifica plantillas_path y dir_plantilla_nombre."
             )
 
-        dir_preview = (
-            Path(build_cache_root) / "alimentacion" / "procesoNuevo" / "preview"
+        dir_plantilla_copia = (
+            Path(build_cache_root) / "alimentacion" / "ProcesoNuevo" / "Plantilla"
         )
-        dir_modified = (
-            Path(build_cache_root) / "alimentacion" / "procesoNuevo" / "modified"
+        dir_nuevo = (
+            Path(build_cache_root) / "alimentacion" / "ProcesoNuevo" / "Nuevo"
         )
 
         # Lazy import para evitar ciclo con helpers/proc/.
@@ -246,8 +246,8 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
         )
         self._ctx = ProcProcessGenContext(
             dir_plantilla=dir_plantilla,
-            dir_preview=dir_preview,
-            dir_modified=dir_modified,
+            dir_plantilla_copia=dir_plantilla_copia,
+            dir_nuevo=dir_nuevo,
             base_nueva=self._base_nueva,
             codigo_nuevo=self._codigo_nuevo,
             nombre_nuevo=self._nombre_nuevo,
@@ -317,7 +317,7 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
                     {
                         "plc_name": self._plc_name,
                         "import_dir": str(
-                            self._ctx.dir_modified / "variables"
+                            self._ctx.dir_nuevo / "variables"
                         ),
                     },
                     timeout_s=600.0,
@@ -334,7 +334,7 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
                     {
                         "plc_name": self._plc_name,
                         "import_dir": str(
-                            self._ctx.dir_modified / "bloques"
+                            self._ctx.dir_nuevo / "bloques"
                         ),
                     },
                     timeout_s=600.0,
@@ -351,7 +351,7 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
                     {
                         "plc_name": self._plc_name,
                         "import_dir": str(
-                            self._ctx.dir_modified / "bloques"
+                            self._ctx.dir_nuevo / "bloques"
                         ),
                     },
                     timeout_s=600.0,
@@ -390,7 +390,7 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
                     "ProcProcessGenContext no inicializado. "
                     "Verifica los parametros del start()."
                 ],
-                "modified_dir": "",
+                "nuevo_dir": "",
                 "manifest_plantilla": None,
                 "import_result": None,
                 "compile_result": None,
@@ -431,7 +431,7 @@ def _step_summary(fb: FunctionProcProcessCrearAplicar, step_nombre: str) -> str:
     if step_nombre == "copiar_a_preview":
         if ctx is None:
             return f"{step_nombre}: sin ctx"
-        return f"{step_nombre}: plantilla copiada a {ctx.dir_preview}"
+        return f"{step_nombre}: plantilla copiada a {ctx.dir_plantilla_copia}"
     if step_nombre == "construir_diccionarios":
         if ctx is None:
             return f"{step_nombre}: sin ctx"

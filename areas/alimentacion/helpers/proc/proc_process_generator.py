@@ -102,15 +102,23 @@ class ProcProcessGenContext:
     disponibles para las funciones posteriores.
 
     Diferencia con ``ProcSyncContext``: este contexto NO toca TIA. Solo
-    opera sobre directorios locales (preview/, modified/). El FB que
-    llama es el responsable de despachar ``import_*`` al PLC cuando
-    aplique.
+    opera sobre directorios locales (ProcesoNuevo/Plantilla/ y
+    ProcesoNuevo/Nuevo/). El FB que llama es el responsable de despachar
+    ``import_*`` al PLC cuando aplique.
+
+    Layout canonico en ``.build_cache/alimentacion/ProcesoNuevo/``:
+
+        Plantilla/    read-only, dump del staging durante el preview
+                       (antiguo ``preview/``)
+        Nuevo/        staging del apply (antiguo ``modified/``);
+                       se limpia antes de cada apply (idem regla de
+                       retencion de dispositivos: el apply parte limpio).
     """
 
     # ── Deps inyectadas ──
     dir_plantilla: Path
-    dir_preview: Path
-    dir_modified: Path
+    dir_plantilla_copia: Path
+    dir_nuevo: Path
     base_nueva: int
     codigo_nuevo: str
     nombre_nuevo: str
@@ -238,23 +246,23 @@ async def proc_process_validar_minimos(
 async def proc_process_copiar_a_preview(
     ctx: ProcProcessGenContext,
 ) -> None:
-    """Copia la plantilla ``dir_plantilla`` a ``dir_preview``.
+    """Copia la plantilla ``dir_plantilla`` a ``dir_plantilla_copia``.
 
     Raises:
-        RuntimeError: si ``dir_preview`` ya existe (el operario debe
-            limpiar el staging antes de reintentar).
+        RuntimeError: si ``dir_plantilla_copia`` ya existe (el operario
+            debe limpiar el staging antes de reintentar).
     """
-    if ctx.dir_preview.exists():
+    if ctx.dir_plantilla_copia.exists():
         raise RuntimeError(
-            f"dir_preview ya existe: {ctx.dir_preview}. "
+            f"dir_plantilla_copia ya existe: {ctx.dir_plantilla_copia}. "
             f"Limpia el staging de "
-            f"{ctx.dir_preview.parent.parent} antes de reintentar."
+            f"{ctx.dir_plantilla_copia.parent.parent} antes de reintentar."
         )
 
     await asyncio.to_thread(
         shutil.copytree,
         ctx.dir_plantilla,
-        ctx.dir_preview,
+        ctx.dir_plantilla_copia,
         dirs_exist_ok=False,
     )
 
@@ -278,7 +286,7 @@ async def proc_process_extraer_variables_xml(
 
     def _walk() -> list[str]:
         result: dict[str, None] = {}
-        for f in ctx.dir_preview.rglob("*.xml"):
+        for f in ctx.dir_plantilla_copia.rglob("*.xml"):
             if not f.is_file():
                 continue
             try:
@@ -330,7 +338,7 @@ async def proc_process_construir_diccionarios(
     variables_xml = ctx.__dict__.get("_variables_xml_exactas") or []
 
     def _walk_and_build() -> None:
-        for item in ctx.dir_preview.rglob("*"):
+        for item in ctx.dir_plantilla_copia.rglob("*"):
             if not item.exists():
                 continue
             nombre_base = item.stem if item.is_file() else item.name
@@ -454,14 +462,14 @@ async def proc_process_detectar_colisiones(
 async def proc_process_generar_previstos(
     ctx: ProcProcessGenContext,
 ) -> None:
-    """Walk ``dir_preview`` y construye la lista de archivos que se
-    generarian en ``dir_modified``.
+    """Walk ``dir_plantilla_copia`` y construye la lista de archivos que
+    se generarian en ``dir_nuevo``.
 
     No escribe nada en disco — solo popula ``ctx.archivos_previstos``
     con ``[{rel_in, rel_out, kind, colisiona}, ...]`` para que la SPA
     muestre el preview al operario antes del apply.
 
-    Layout canonico de salida: ``dir_modified/{variables,bloques}/``.
+    Layout canonico de salida: ``dir_nuevo/{variables,bloques}/``.
     El helper reorganiza los archivos en funcion de su extension
     (``kind="xml"`` -> ``variables/``, ``kind="text"`` -> ``bloques/``,
     resto -> ``otros/``). El nombre de cada archivo se obtiene
@@ -480,12 +488,12 @@ async def proc_process_generar_previstos(
     archivos_previstos: list[dict[str, Any]] = []
 
     def _walk() -> list[Path]:
-        return [p for p in ctx.dir_preview.rglob("*") if p.is_file()]
+        return [p for p in ctx.dir_plantilla_copia.rglob("*") if p.is_file()]
 
     paths = await asyncio.to_thread(_walk)
 
     for in_path in paths:
-        rel_in = in_path.relative_to(ctx.dir_preview)
+        rel_in = in_path.relative_to(ctx.dir_plantilla_copia)
         # Si es el manifest, lo recrea ``proc_process_escribir_manifest``
         # en el apply (no se transporta como archivo "previsto").
         if rel_in.name == "manifest.json":
@@ -493,8 +501,8 @@ async def proc_process_generar_previstos(
 
         # Aplica ``dicc_bloques`` al nombre y a cada path-part.
         # El ``rel_out`` final se aplana a ``{variables|bloques|otros}/<file>``
-        # para que el apply pueda hacer ``import_plc_tags_xml(dir_modified/"variables")``
-        # o ``import_blocks_sd(dir_modified/"bloques")`` directamente.
+        # para que el apply pueda hacer ``import_plc_tags_xml(dir_nuevo/"variables")``
+        # o ``import_blocks_sd(dir_nuevo/"bloques")`` directamente.
         nuevo_stem = _aplicar_diccionario(
             in_path.stem, ctx.dicc_bloques
         )
@@ -531,9 +539,13 @@ async def proc_process_generar_previstos(
 async def proc_process_aplicar_clonacion(
     ctx: ProcProcessGenContext,
 ) -> None:
-    """Aplica la clonacion: walk ``dir_preview`` -> ``dir_modified``.
+    """Aplica la clonacion: walk ``dir_plantilla_copia`` -> ``dir_nuevo``.
 
-    Layout canonico de salida: ``dir_modified/{variables,bloques,otros}/``.
+    Limpia ``dir_nuevo/`` antes de empezar (regla de retencion: cada
+    apply parte limpio, mismo patron que ``ContextCache.clean()`` en
+    dispositivos).
+
+    Layout canonico de salida: ``dir_nuevo/{variables,bloques,otros}/``.
     Los archivos se reorganizan en funcion de su extension:
       - ``.xml``  -> ``variables/`` (TAG tables, importa con
         ``import_plc_tags_xml``).
@@ -556,19 +568,24 @@ async def proc_process_aplicar_clonacion(
     ``manifest.json`` se ignora en el walk (lo regenera
     ``proc_process_escribir_manifest`` justo despues).
     """
-    ctx.dir_modified.mkdir(parents=True, exist_ok=True)
+    # Limpia dir_nuevo/ antes de aplicar (regla de retencion: cada
+    # apply parte limpio). Si no existe, lo crea vacio.
+    if ctx.dir_nuevo.exists():
+        await asyncio.to_thread(shutil.rmtree, ctx.dir_nuevo)
+    ctx.dir_nuevo.mkdir(parents=True, exist_ok=True)
+
     minimos_plantilla = (
         ctx.manifest_plantilla.get("minimos", {}) if ctx.manifest_plantilla else {}
     )
 
     def _walk() -> list[Path]:
-        return [p for p in ctx.dir_preview.rglob("*") if p.is_file()]
+        return [p for p in ctx.dir_plantilla_copia.rglob("*") if p.is_file()]
 
     paths = await asyncio.to_thread(_walk)
     generados: list[str] = []
 
     for in_path in paths:
-        rel_in = in_path.relative_to(ctx.dir_preview)
+        rel_in = in_path.relative_to(ctx.dir_plantilla_copia)
         if rel_in.name == "manifest.json":
             continue
 
@@ -584,7 +601,7 @@ async def proc_process_aplicar_clonacion(
         else:
             subdir = "otros"
 
-        out_path = ctx.dir_modified / subdir / f"{nuevo_stem}{suffix}"
+        out_path = ctx.dir_nuevo / subdir / f"{nuevo_stem}{suffix}"
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
         if suffix == ".s7res":
@@ -612,7 +629,7 @@ async def proc_process_aplicar_clonacion(
         else:
             await asyncio.to_thread(shutil.copy2, in_path, out_path)
 
-        generados.append(str(out_path.relative_to(ctx.dir_modified)))
+        generados.append(str(out_path.relative_to(ctx.dir_nuevo)))
 
     ctx.archivos_generados = generados
 
@@ -620,7 +637,7 @@ async def proc_process_aplicar_clonacion(
 async def proc_process_escribir_manifest(
     ctx: ProcProcessGenContext,
 ) -> None:
-    """Escribe ``<dir_modified>/manifest.json`` con los datos del
+    """Escribe ``<dir_nuevo>/manifest.json`` con los datos del
     proceso nuevo.
 
     Encoding utf-8 puro, ``indent=2`` (legible por el operario si
@@ -628,8 +645,8 @@ async def proc_process_escribir_manifest(
     archivos auxiliares: solo el manifest canonico con
     ``base``/``codigo``/``nombre``/``minimos``.
     """
-    ctx.dir_modified.mkdir(parents=True, exist_ok=True)
-    manifest_path = ctx.dir_modified / "manifest.json"
+    ctx.dir_nuevo.mkdir(parents=True, exist_ok=True)
+    manifest_path = ctx.dir_nuevo / "manifest.json"
     payload = {
         "base": ctx.base_nueva,
         "codigo": ctx.codigo_nuevo,
@@ -656,20 +673,20 @@ async def proc_process_done_summary(
 
     Diferencia preview vs apply:
       - preview (``archivos_previstos`` poblado) -> vuelca la lista de
-        previstos + el ``preview_dir``.
+        previstos + el ``plantilla_copia_dir``.
       - apply (``archivos_generados`` poblado) -> vuelca la lista de
-        generados + el ``modified_dir``.
+        generados + el ``nuevo_dir``.
 
     ``success=True`` solo si no hubo colisiones. Si las hubo,
     ``success=False`` y ``colisiones`` queda como lista para que la
     SPA muestre los bloques que ya existen en el PLC.
     """
     if ctx.archivos_generados:
-        dir_salida = ctx.dir_modified
+        dir_salida = ctx.dir_nuevo
         archivos = list(ctx.archivos_generados)
         campo_archivos = "archivos_generados"
     else:
-        dir_salida = ctx.dir_preview
+        dir_salida = ctx.dir_plantilla_copia
         archivos = list(ctx.archivos_previstos)
         campo_archivos = "archivos_previstos"
 
@@ -678,8 +695,8 @@ async def proc_process_done_summary(
         "manifest_plantilla": ctx.manifest_plantilla,
         campo_archivos: archivos,
         "colisiones": list(ctx.colisiones),
-        "preview_dir" if campo_archivos == "archivos_previstos"
-            else "modified_dir": str(dir_salida),
+        "plantilla_copia_dir" if campo_archivos == "archivos_previstos"
+            else "nuevo_dir": str(dir_salida),
         "success": success,
     }
     return ctx.result

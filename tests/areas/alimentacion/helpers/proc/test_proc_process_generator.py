@@ -9,10 +9,10 @@ Cubre las funciones puras/async del helper (preview + apply):
   - ``proc_process_construir_diccionarios``-> dicc_bloques + dicc_xml
                                             ordenados len desc.
   - ``proc_process_detectar_colisiones``  -> ctx.colisiones poblado.
-  - ``proc_process_aplicar_clonacion``    -> escribe dir_modified con
+  - ``proc_process_aplicar_clonacion``    -> escribe dir_nuevo con
                                             BOM .s7res preservado y
                                             <Value> de N_MAX actualizado.
-  - ``proc_process_escribir_manifest``    -> manifest.json en dir_modified.
+  - ``proc_process_escribir_manifest``    -> manifest.json en dir_nuevo.
 
 Restricciones:
   - NO toca el gateway TIA (helper es offline).
@@ -158,12 +158,12 @@ def make_ctx(tmp_path: Path, plantilla_dummy: Path):
     """
     def _make(**overrides: Any) -> ProcProcessGenContext:
         build_cache_root = tmp_path / ".build_cache"
-        preview = build_cache_root / "alimentacion" / "procesoNuevo" / "preview"
-        modified = build_cache_root / "alimentacion" / "procesoNuevo" / "modified"
+        preview = build_cache_root / "alimentacion" / "ProcesoNuevo" / "Plantilla"
+        modified = build_cache_root / "alimentacion" / "ProcesoNuevo" / "Nuevo"
         defaults: dict[str, Any] = {
             "dir_plantilla": plantilla_dummy,
-            "dir_preview": preview,
-            "dir_modified": modified,
+            "dir_plantilla_copia": preview,
+            "dir_nuevo": modified,
             "base_nueva": 60010,
             "codigo_nuevo": "EXP",
             "nombre_nuevo": "NuevoProceso",
@@ -264,18 +264,18 @@ async def test_validar_minimos_menor_raises(make_ctx: Any) -> None:
 
 @pytest.mark.asyncio
 async def test_copiar_a_preview_ok(make_ctx: Any) -> None:
-    """Copia la plantilla a ``dir_preview`` preservando estructura."""
+    """Copia la plantilla a ``dir_plantilla_copia`` preservando estructura."""
     ctx = make_ctx()
     await proc_process_copiar_a_preview(ctx)
 
-    assert ctx.dir_preview.exists()
+    assert ctx.dir_plantilla_copia.exists()
     # El .s7dcl y el .s7res deberian estar en preview/...
-    assert (ctx.dir_preview / "Bloques de programa" / "FC50010_TEST_INTERFAZ.s7dcl").is_file()
-    assert (ctx.dir_preview / "Bloques de programa" / "50010_TEST_COMENTARIOS.s7res").is_file()
+    assert (ctx.dir_plantilla_copia / "Bloques de programa" / "FC50010_TEST_INTERFAZ.s7dcl").is_file()
+    assert (ctx.dir_plantilla_copia / "Bloques de programa" / "50010_TEST_COMENTARIOS.s7res").is_file()
     # El manifest.json tambien se copia.
-    assert (ctx.dir_preview / "manifest.json").is_file()
+    assert (ctx.dir_plantilla_copia / "manifest.json").is_file()
     # El XML de variables PLC.
-    assert (ctx.dir_preview / "Variables PLC" / "003_Procesos" / "50010_TEST.xml").is_file()
+    assert (ctx.dir_plantilla_copia / "Variables PLC" / "003_Procesos" / "50010_TEST.xml").is_file()
 
 
 # ── proc_process_extraer_variables_xml ────────────────────────────────
@@ -402,12 +402,12 @@ async def test_aplicar_clonacion_preserva_bom_s7res(
     encoding ``utf-8-sig`` lo reintroduce tras el round-trip).
     """
     build_cache_root = tmp_path / ".build_cache"
-    preview = build_cache_root / "alimentacion" / "procesoNuevo" / "preview"
-    modified = build_cache_root / "alimentacion" / "procesoNuevo" / "modified"
+    preview = build_cache_root / "alimentacion" / "ProcesoNuevo" / "Plantilla"
+    modified = build_cache_root / "alimentacion" / "ProcesoNuevo" / "Nuevo"
     ctx = ProcProcessGenContext(
         dir_plantilla=plantilla_dummy,
-        dir_preview=preview,
-        dir_modified=modified,
+        dir_plantilla_copia=preview,
+        dir_nuevo=modified,
         base_nueva=60010,
         codigo_nuevo="EXP",
         nombre_nuevo="NuevoProceso",
@@ -445,12 +445,12 @@ async def test_aplicar_clonacion_xml_value_update(
     del operario (los 4 canonicos), no los de la plantilla.
     """
     build_cache_root = tmp_path / ".build_cache"
-    preview = build_cache_root / "alimentacion" / "procesoNuevo" / "preview"
-    modified = build_cache_root / "alimentacion" / "procesoNuevo" / "modified"
+    preview = build_cache_root / "alimentacion" / "ProcesoNuevo" / "Plantilla"
+    modified = build_cache_root / "alimentacion" / "ProcesoNuevo" / "Nuevo"
     ctx = ProcProcessGenContext(
         dir_plantilla=plantilla_dummy,
-        dir_preview=preview,
-        dir_modified=modified,
+        dir_plantilla_copia=preview,
+        dir_nuevo=modified,
         base_nueva=60010,
         codigo_nuevo="EXP",
         nombre_nuevo="NuevoProceso",
@@ -501,12 +501,12 @@ async def test_aplicar_clonacion_genera_layout_canonico(
       ``proc_process_escribir_manifest`` justo despues).
     """
     build_cache_root = tmp_path / ".build_cache"
-    preview = build_cache_root / "alimentacion" / "procesoNuevo" / "preview"
-    modified = build_cache_root / "alimentacion" / "procesoNuevo" / "modified"
+    preview = build_cache_root / "alimentacion" / "ProcesoNuevo" / "Plantilla"
+    modified = build_cache_root / "alimentacion" / "ProcesoNuevo" / "Nuevo"
     ctx = ProcProcessGenContext(
         dir_plantilla=plantilla_dummy,
-        dir_preview=preview,
-        dir_modified=modified,
+        dir_plantilla_copia=preview,
+        dir_nuevo=modified,
         base_nueva=60010,
         codigo_nuevo="EXP",
         nombre_nuevo="NuevoProceso",
@@ -546,16 +546,16 @@ async def test_aplicar_clonacion_genera_layout_canonico(
 
 @pytest.mark.asyncio
 async def test_escribir_manifest(tmp_path: Path, plantilla_dummy: Path) -> None:
-    """Escribe ``<dir_modified>/manifest.json`` con los datos del
+    """Escribe ``<dir_nuevo>/manifest.json`` con los datos del
     proceso nuevo (base_nueva, codigo_nuevo, nombre_nuevo, minimos_usuario).
     """
     build_cache_root = tmp_path / ".build_cache"
-    preview = build_cache_root / "alimentacion" / "procesoNuevo" / "preview"
-    modified = build_cache_root / "alimentacion" / "procesoNuevo" / "modified"
+    preview = build_cache_root / "alimentacion" / "ProcesoNuevo" / "Plantilla"
+    modified = build_cache_root / "alimentacion" / "ProcesoNuevo" / "Nuevo"
     ctx = ProcProcessGenContext(
         dir_plantilla=plantilla_dummy,
-        dir_preview=preview,
-        dir_modified=modified,
+        dir_plantilla_copia=preview,
+        dir_nuevo=modified,
         base_nueva=60010,
         codigo_nuevo="EXP",
         nombre_nuevo="NuevoProceso",
