@@ -28,8 +28,13 @@ Runtime params via ``start(**kwargs)``:
   - ``minimos_usuario`` (dict[str, int]): 4 N_MAX del operario. Oblig.
   - ``plc_name`` (str): nombre del PLC destino. Obligatorio.
   - ``plc_blocks_cache`` (set[str] | None): nombres de bloques
-    existentes en el PLC. Si None, el helper emite warning y el FB
+    existentes en el PLC. Se cruza por NOMBRE (OR logico con el
+    check por numero). Si None, el helper emite warning y el FB
     aborta (no podemos asegurar UPDATE seguro).
+  - ``plc_blocks_numeros`` (set[int] | None): numeros de bloques
+    existentes en el PLC. Se cruza por NUMERO (``S7_BlockNumber``
+    de la plantilla → numero destino). Optional (compat legacy:
+    si falta, set vacio).
   - ``build_cache_root`` (Path): raiz del BuildCache del area.
 
 El ``self.result`` se popula con la shape esperada por la SPA::
@@ -141,6 +146,7 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
         self._minimos_usuario: dict[str, int] = {}
         self._plc_name: str = ""
         self._plc_blocks_cache: set[str] | None = None
+        self._plc_blocks_numeros: set[int] | None = None
         # Resultados intermedios de los dispatches.
         self._import_tag_result: dict[str, Any] | None = None
         self._import_blocks_dbs_result: dict[str, Any] | None = None
@@ -211,6 +217,7 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
                 "es obligatorio"
             )
         plc_blocks_cache = params.get("plc_blocks_cache")
+        plc_blocks_numeros = params.get("plc_blocks_numeros")
         build_cache_root = params.get(
             "build_cache_root", self._build_cache_root
         )
@@ -224,6 +231,9 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
         self._plc_name = str(plc_name)
         self._plc_blocks_cache = (
             set(plc_blocks_cache) if plc_blocks_cache is not None else None
+        )
+        self._plc_blocks_numeros = (
+            set(plc_blocks_numeros) if plc_blocks_numeros is not None else None
         )
 
         dir_plantilla = Path(self._plantillas_path) / self._dir_plantilla_nombre
@@ -252,6 +262,7 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
             codigo_nuevo=self._codigo_nuevo,
             nombre_nuevo=self._nombre_nuevo,
             plc_blocks_cache=self._plc_blocks_cache,
+            plc_blocks_numeros=self._plc_blocks_numeros,
             minimos_usuario=self._minimos_usuario,
         )
 

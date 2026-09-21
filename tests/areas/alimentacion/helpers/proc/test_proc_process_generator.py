@@ -39,6 +39,7 @@ from areas.alimentacion.helpers.proc.proc_process_generator import (
     proc_process_detectar_colisiones,
     proc_process_escribir_manifest,
     proc_process_extraer_variables_xml,
+    proc_process_generar_previstos,
     proc_process_leer_manifest,
     proc_process_validar_minimos,
 )
@@ -59,6 +60,10 @@ def plantilla_dummy(tmp_path: Path) -> Path:
     bloques = p / "Bloques de programa"
     bloques.mkdir()
     (bloques / "FC50010_TEST_INTERFAZ.s7dcl").write_text(
+        # Cabecera tipica de TIA: lleva ``S7_BlockNumber := "50010";``.
+        # El helper ``_leer_block_number`` lo extrae de ahi para la
+        # deteccion de colisiones por numero.
+        "S7_BlockNumber := \"50010\";\n"
         "FUNCTION_BLOCK FC50010_TEST_INTERFAZ\n",
         encoding="utf-8",
     )
@@ -418,6 +423,71 @@ async def test_detectar_colisiones_cache_none_emite_warning(
 
     assert len(ctx.colisiones) == 1
     assert "Cache de bloques PLC" in ctx.colisiones[0]
+
+
+@pytest.mark.asyncio
+async def test_detectar_colisiones_por_numero(make_ctx: Any) -> None:
+    """Si el PLC tiene un bloque con el mismo numero que el que
+    importariamos (aunque el nombre sea distinto), colision detectada.
+
+    Caso: el PLC tiene FB60010. La plantilla intenta importar DB60010_X.
+    Mismo numero, distinto nombre -> TIA choca. El helper debe
+    emitir una colision con el token ``#60010``.
+
+    ``dicc_xml`` mapea ``str(50010)`` -> ``str(60010)``, asi
+    el numero destino del bloque de plantilla es 60010.
+    """
+    ctx = make_ctx(
+        plc_blocks_cache={"FB60010"},       # NOMBRE distinto
+        plc_blocks_numeros={60010},         # NUMERO que coincide
+    )
+    await proc_process_copiar_a_preview(ctx)
+    await proc_process_leer_manifest(ctx)
+    await proc_process_extraer_variables_xml(ctx)
+    await proc_process_construir_diccionarios(ctx)
+    await proc_process_detectar_colisiones(ctx)
+
+    # El match por NUMERO detecta la colision aunque el nombre
+    # NO coincida (cross-type: FB vs DB).
+    assert "#60010" in ctx.colisiones
+
+
+@pytest.mark.asyncio
+async def test_generar_previstos_pobla_nombre_y_numero(
+    make_ctx: Any,
+) -> None:
+    """Cada item de ``archivos_previstos`` lleva nombre_original,
+    nombre_nuevo, numero_original y numero_nuevo. El numero
+    se extrae del ``S7_BlockNumber := "X"`` del XML de plantilla,
+    NO del stem (puede que el stem no contenga numeros para
+    bloques tipo ``FC_INTERFAZ``).
+    """
+    ctx = make_ctx()  # plc_blocks_cache = set() vacio
+    await proc_process_copiar_a_preview(ctx)
+    await proc_process_leer_manifest(ctx)
+    await proc_process_extraer_variables_xml(ctx)
+    await proc_process_construir_diccionarios(ctx)
+    await proc_process_detectar_colisiones(ctx)
+    await proc_process_generar_previstos(ctx)
+
+    assert ctx.archivos_previstos
+    # Cada item lleva los 4 campos nuevos.
+    for item in ctx.archivos_previstos:
+        if item["kind"] != "xml" and item["kind"] != "text":
+            continue  # binarios (manifest.json procesado aparte)
+        # Para .s7dcl / .scl, el numero debe estar presente (>0)
+        # porque el archivo lleva la cabecera S7_BlockNumber.
+        if item["kind"] == "text" and Path(str(item["rel_in"])).suffix in (
+            ".s7dcl", ".scl", ".awl"
+        ):
+            assert "nombre_original" in item
+            assert "nombre_nuevo" in item
+            assert "numero_original" in item
+            assert "numero_nuevo" in item
+            assert item["numero_original"] > 0, item
+            # numero_nuevo != numero_original (el dicc lo renombro).
+            assert item["numero_nuevo"] > 0, item
+            assert item["numero_nuevo"] != item["numero_original"]
 
 
 # ── proc_process_aplicar_clonacion ────────────────────────────────────

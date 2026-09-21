@@ -23,7 +23,12 @@ Runtime params via ``start(**kwargs)``:
     ``N_MAX_PREAL``, ``N_MAX_PINT``, ``N_MAX_ALM``, ``N_MAX_ALM_HMI``).
     Obligatorio.
   - ``plc_blocks_cache`` (set[str] | None): nombres de bloques que ya
-    existen en el PLC destino. Si es None, el FB sigue (warning).
+    existen en el PLC destino. Se cruza por NOMBRE (OR logico con
+    el check por numero). Si es None, el FB sigue (warning).
+  - ``plc_blocks_numeros`` (set[int] | None): numeros de bloques que
+    ya existen en el PLC destino. Se cruza por NUMERO (``S7_BlockNumber``
+    de la plantilla → numero destino tras aplicar ``dicc_xml``). Optional
+    (compat legacy: si falta, mismo comportamiento que set vacio).
   - ``build_cache_root`` (Path): raiz del BuildCache del area. Si es
     None, usa ``<cwd>/.build_cache``.
 
@@ -123,6 +128,7 @@ class FunctionProcProcessCrearPreview(FunctionBase):
         self._nombre_nuevo: str = ""
         self._minimos_usuario: dict[str, int] = {}
         self._plc_blocks_cache: set[str] | None = None
+        self._plc_blocks_numeros: set[int] | None = None
         # ProcProcessGenContext compartido entre los 8 ticks. Se
         # reinicializa en cada on_start() para no arrastrar estado del
         # run anterior (el FB es re-arrancable).
@@ -176,6 +182,7 @@ class FunctionProcProcessCrearPreview(FunctionBase):
                 "es obligatorio (N_MAX_PREAL/PINT/ALM/ALM_HMI)"
             )
         plc_blocks_cache = params.get("plc_blocks_cache")
+        plc_blocks_numeros = params.get("plc_blocks_numeros")
         build_cache_root = params.get(
             "build_cache_root", self._build_cache_root
         )
@@ -188,6 +195,9 @@ class FunctionProcProcessCrearPreview(FunctionBase):
         self._minimos_usuario = dict(minimos_usuario)
         self._plc_blocks_cache = (
             set(plc_blocks_cache) if plc_blocks_cache is not None else None
+        )
+        self._plc_blocks_numeros = (
+            set(plc_blocks_numeros) if plc_blocks_numeros is not None else None
         )
 
         dir_plantilla = Path(self._plantillas_path) / self._dir_plantilla_nombre
@@ -216,6 +226,7 @@ class FunctionProcProcessCrearPreview(FunctionBase):
             codigo_nuevo=self._codigo_nuevo,
             nombre_nuevo=self._nombre_nuevo,
             plc_blocks_cache=self._plc_blocks_cache,
+            plc_blocks_numeros=self._plc_blocks_numeros,
             minimos_usuario=self._minimos_usuario,
         )
 

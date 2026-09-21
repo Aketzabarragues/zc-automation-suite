@@ -69,6 +69,13 @@ PATRON_XML_VARIABLE = re.compile(r"<Name>(\d+_[a-zA-Z0-9_]+)</Name>")
 # variables. Usado para re-mapear los 4 N_MAX del manifest.
 PATRON_XML_VALUE = re.compile(r"<Value>(\d+)</Value>")
 
+# Regex para el ``S7_BlockNumber := "50010"`` que aparece en la cabecera
+# de los archivos ``.s7dcl`` / ``.scl`` exportados por TIA Portal.
+# Es la fuente de verdad del numero de bloque (no heuristica sobre
+# el stem: un FC50010_INTERFAZ tiene S7_BlockNumber=50010, pero
+# un FC_INTERFAZ podria tener otro numero).
+PATRON_S7_BLOCK_NUMBER = re.compile(r'S7_BlockNumber\s*:=\s*"(\d+)"')
+
 
 class PlantillaMinimosNoCumplidos(ValueError):
     """Lanzada por ``proc_process_validar_minimos`` si los N_MAX del
@@ -124,6 +131,17 @@ class ProcProcessGenContext:
     nombre_nuevo: str
     plc_blocks_cache: set[str] | None
     minimos_usuario: dict[str, int]
+    # Numeros de los bloques del PLC destino. Usado en
+    # ``detectar_colisiones`` para match por numero (no por
+    # nombre): si el bloque que importariamos tiene un numero
+    # que ya existe en el PLC, es una colision INDEPENDIENTE
+    # del nombre. TIA Portal distingue bloques por (tipo +
+    # numero) + nombre; algunos casos (p.ej. crear DB60010_X
+    # cuando el PLC ya tiene un FB60010) NO chocan por nombre
+    # pero SI por numero.
+    # Default None -> compat con tests legacy que solo pasan
+    # ``plc_blocks_cache``.
+    plc_blocks_numeros: set[int] | None = None
 
     # ── Resultado de proc_process_leer_manifest ──
     manifest_plantilla: dict[str, Any] | None = None
@@ -424,16 +442,25 @@ async def proc_process_construir_diccionarios(
 async def proc_process_detectar_colisiones(
     ctx: ProcProcessGenContext,
 ) -> None:
-    """Cruza ``dicc_bloques`` contra el cache de bloques del PLC.
+    """Cruza los bloques previstos contra el cache de bloques del PLC.
 
-    Para cada ``val`` del diccionario que ya exista como bloque en el
-    PLC (``plc_blocks_cache``), añade ``key`` a ``ctx.colisiones``.
-    Asi el FB puede abortar antes de generar archivos que TIA no
-    podra importar (UPDATE fail -> "object already exists").
+    2 modos de comparar (OR logico — si CUALQUIERA coincide, colision):
+      - Por NOMBRE: el bloque que importariamos tiene el mismo
+        nombre completo que uno ya existente en el PLC.
+      - Por NUMERO: el ``S7_BlockNumber`` del bloque que
+        importariamos ya esta usado en el PLC. TIA Portal
+        distingue bloques por (tipo + numero), asi que
+        colisionan incluso si el nombre es distinto
+        (DB60010_X vs FB60010_Y ocupan el mismo slot).
 
-    Si ``plc_blocks_cache`` es ``None`` (cache nunca populado), emite
-    un warning unico en ``ctx.colisiones`` y devuelve sin abortar
-    (el FB decide si abortar o seguir).
+    Appendeamos al ``ctx.colisiones`` los nombres NUEVOS de los
+    bloques que colisionan (por nombre) + los numeros que
+    colisionan (por numero). Asi ``proc_process_generar_previstos``
+    puede marcar ``colisiona`` correctamente por archivo
+    previsto.
+
+    Si ``plc_blocks_cache`` es ``None`` (cache nunca populado),
+    emite un warning unico y devuelve.
     """
     if ctx.plc_blocks_cache is None:
         ctx.colisiones.append(
@@ -446,24 +473,59 @@ async def proc_process_detectar_colisiones(
         )
         return
 
+    nombres_plc: set[str] = ctx.plc_blocks_cache
+    numeros_plc: set[int] = ctx.plc_blocks_numeros or set()
     colisiones_vistas: set[str] = set()
+
+    # Por nombre: cualquier ``val`` del dicc_bloques (que es el
+    # nombre NUEVO de un bloque) que coincida con uno ya existente
+    # en el PLC es una colision.
     for key, val in ctx.dicc_bloques.items():
-        # Solo nos interesan las claves que parecen nombres de bloque
-        # (empiezan por ``DB`` o ``FC`` o contienen ``_`` y son de
-        # tamano razonable). Filtramos ``S7_BlockNumber`` y los
-        # ``str(base)`` que NO son nombres de bloque pero aparecen en
-        # ``dicc_bloques``.
         if key.startswith("S7_BlockNumber") or key.isdigit():
             continue
-        if val in ctx.plc_blocks_cache and val not in colisiones_vistas:
-            # Appendeamos ``val`` (nombre NUEVO del bloque que se
-            # importaria) en lugar de ``key`` (nombre viejo en
-            # ``dicc_bloques``). Asi la SPA puede cruzar
-            # ``colisiones`` con ``archivos_previstos[i].rel_out``
-            # para marcar el ESTADO correcto por fila sin tener
-            # que replicar el cruce en el cliente.
+        if val in nombres_plc and val not in colisiones_vistas:
             ctx.colisiones.append(val)
             colisiones_vistas.add(val)
+
+    # Por numero: cualquier ``numeros_usados`` (los numeros que
+    # TIA tenia asignados a bloques en la plantilla) que, tras
+    # aplicar el dicc_xml, caiga en un numero ya usado por el PLC,
+    # es una colision. ``dicc_xml`` se ordena de mas especifico a
+    # menos por ``len(key)`` en ``proc_process_construir_diccionarios``,
+    # asi que ``dicc_xml[str(num)]`` da el numero destino correcto.
+    for viejo in _numeros_usados_en_dicc(ctx.dicc_bloques):
+        numero_destino_str = _aplicar_diccionario(
+            str(viejo), ctx.dicc_xml
+        )
+        try:
+            numero_destino = int(numero_destino_str)
+        except ValueError:
+            continue
+        if numero_destino in numeros_plc:
+            # Marcamos la colision con un prefijo ``num:`` para
+            # que la SPA distinga visualmente colision-por-nombre
+            # vs colision-por-numero en el aviso.
+            token = f"#{numero_destino}"
+            if token not in colisiones_vistas:
+                ctx.colisiones.append(token)
+                colisiones_vistas.add(token)
+
+
+def _numeros_usados_en_dicc(dicc_bloques: dict[str, str]) -> set[int]:
+    """Extrae los numeros base de las claves ``S7_BlockNumber := "X"``
+    que ``proc_process_construir_diccionarios`` emite en
+    ``dicc_bloques``. Usado para cruzar contra los numeros de
+    bloques del PLC (``plc_blocks_numeros``).
+    """
+    nums: set[int] = set()
+    for key in dicc_bloques.keys():
+        m = PATRON_S7_BLOCK_NUMBER.search(key)
+        if m:
+            try:
+                nums.add(int(m.group(1)))
+            except ValueError:
+                continue
+    return nums
 
 
 async def proc_process_generar_previstos(
@@ -499,6 +561,17 @@ async def proc_process_generar_previstos(
 
     paths = await asyncio.to_thread(_walk)
 
+    # Extraemos los ``S7_BlockNumber`` de los archivos de bloque de
+    # la plantilla una sola vez (cache por path). Lo necesitamos para
+    # saber el NUMERO original de cada bloque (y, aplicando el
+    # diccionario, el numero nuevo que se importaria al PLC). Asi
+    # el preview puede cruzar contra los numeros del PLC destino
+    # (no solo contra los nombres) para detectar colisiones de
+    # numero (DB60010 vs FB60010 ocupan el mismo slot).
+    block_numbers_plantilla = await asyncio.to_thread(
+        _scan_block_numbers, ctx.dir_plantilla_copia
+    )
+
     for in_path in paths:
         rel_in = in_path.relative_to(ctx.dir_plantilla_copia)
         # Si es el manifest, lo recrea ``proc_process_escribir_manifest``
@@ -526,6 +599,21 @@ async def proc_process_generar_previstos(
 
         rel_out = Path(subdir) / f"{nuevo_stem}{suffix}"
 
+        # Numero del bloque: lo extraemos del XML de plantilla
+        # (``S7_BlockNumber := "50010"``), y le aplicamos
+        # ``dicc_xml`` para obtener el numero destino. Si el archivo
+        # no es un bloque TIA (xml de variables o binario), el
+        # numero queda en 0 (defensivo: no es un bloque importable
+        # como DB/FB/FC).
+        numero_original = block_numbers_plantilla.get(rel_in.as_posix(), 0)
+        numero_nuevo = _aplicar_diccionario(
+            str(numero_original), ctx.dicc_xml
+        )
+        try:
+            numero_nuevo = int(numero_nuevo)
+        except ValueError:
+            numero_nuevo = 0
+
         # Deteccion de colision: si la clave nueva del archivo o el
         # ``nuevo_stem`` estan en ``ctx.colisiones``, marca como colision.
         colisiona = (
@@ -538,6 +626,14 @@ async def proc_process_generar_previstos(
             "rel_out": str(rel_out),
             "kind": kind,
             "colisiona": colisiona,
+            # Campos extra para que la SPA muestre nombre + numero
+            # en la tabla BLOQUE ORIGINAL / BLOQUE NUEVO sin tener
+            # que re-parsear el stem (que podria no contener
+            # numeros para bloques tipo FC_INTERFAZ).
+            "nombre_original": in_path.stem,
+            "nombre_nuevo": nuevo_stem,
+            "numero_original": numero_original,
+            "numero_nuevo": numero_nuevo,
         })
 
     ctx.archivos_previstos = archivos_previstos
@@ -719,6 +815,41 @@ def _aplicar_diccionario(texto: str, dicc: dict[str, str]) -> str:
     for viejo, nuevo in dicc.items():
         texto = texto.replace(viejo, nuevo)
     return texto
+
+
+def _leer_block_number(path: Path) -> int:
+    """Lee el ``S7_BlockNumber := "50010"`` de la cabecera de un archivo
+    de bloque TIA (``.s7dcl`` / ``.scl``). Devuelve 0 si no lo encuentra
+    o si el archivo no se puede leer (binarios, XML no bloque, etc.).
+    """
+    if path.suffix.lower() not in (".s7dcl", ".scl", ".awl"):
+        return 0
+    try:
+        texto = _leer_texto(path, "utf-8")
+    except (OSError, UnicodeDecodeError):
+        return 0
+    m = PATRON_S7_BLOCK_NUMBER.search(texto)
+    return int(m.group(1)) if m else 0
+
+
+def _scan_block_numbers(root: Path) -> dict[str, int]:
+    """Walk ``root`` extrayendo el ``S7_BlockNumber`` de cada archivo
+    de bloque. Devuelve un dict ``{rel_path_posix: numero}`` para que
+    ``proc_process_generar_previstos`` pueda consultar el numero de
+    cada archivo sin re-parsear el XML N veces.
+    """
+    result: dict[str, int] = {}
+    if not root.exists():
+        return result
+    for p in root.rglob("*"):
+        if not p.is_file():
+            continue
+        if p.suffix.lower() not in (".s7dcl", ".scl", ".awl"):
+            continue
+        num = _leer_block_number(p)
+        if num:
+            result[p.relative_to(root).as_posix()] = num
+    return result
 
 
 def _leer_texto(path: Path, encoding: str) -> str:
