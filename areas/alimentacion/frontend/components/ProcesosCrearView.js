@@ -110,22 +110,76 @@ export default {
             return Boolean(c) && Array.isArray(c.blocks) && c.blocks.length > 0;
         });
 
+        // Mapeo filas de la tabla N_MAX <-> claves del manifest. Solo
+        // las 4 N_MAX canonicasson las que disparan bloqueo; UID y
+        // CODIGO no tienen minimo que cubrir.
+        const N_MAX_KEYS_BY_ROW = {
+            PREAL: "N_MAX_PREAL",
+            PINT: "N_MAX_PINT",
+            ALM: "N_MAX_ALM",
+            ALM_HMI: "N_MAX_ALM_HMI",
+        };
+
+        // Lista las filas que NO cumplen los minimos (N_MAX del
+        // proceso del Excel < minimo de la plantilla). Usado para
+        // pintar la celda en rojo y para el tooltip del boton.
+        const minimosProblemas = computed(() => {
+            const pl = selectedPlantilla.value;
+            const proc = procesoExcel.value;
+            if (!pl || !proc) return [];
+            const min = pl.minimos || {};
+            const problemas = [];
+            for (const [rowKey, manifestKey] of Object.entries(N_MAX_KEYS_BY_ROW)) {
+                const plantillaVal = Number(min[manifestKey] ?? 0);
+                const usuarioVal = Number(proc[_excelFieldForRow(rowKey)] ?? 0);
+                if (usuarioVal < plantillaVal) {
+                    problemas.push({
+                        row: rowKey,
+                        manifestKey,
+                        plantilla: plantillaVal,
+                        usuario: usuarioVal,
+                    });
+                }
+            }
+            return problemas;
+        });
+        function _excelFieldForRow(rowKey) {
+            // Campo del proceso del Excel que corresponde a la fila
+            // de la tabla N_MAX. Coincide con el orden de las
+            // columnas de ``procesoExcel`` (parser del Excel del
+            // operario).
+            return {
+                PREAL: "preal",
+                PINT: "pint",
+                ALM: "alarmas",
+                ALM_HMI: "alm_hmi",
+            }[rowKey];
+        }
+
+        // ``true`` cuando las 4 N_MAX del proceso del Excel cubren
+        // los minimos de la plantilla. UID/CODIGO no se chequean
+        // (no tienen minimo).
+        const minimosCumplidos = computed(() => minimosProblemas.value.length === 0);
+
         // Botón "Generar prevision": plantilla + Excel/proceso + PLC
-        // con cache de bloques + no estar aplicándose. Mismo
-        // requisito de cache de bloques que el sync de comentarios:
-        // sin esa cache no podemos calcular el ESTADO de cada bloque
-        // previsto, asi que mejor bloquear que avisar a medias.
+        // con cache de bloques + N_MAX cumplidos + no estar
+        // aplicandose. Mismo requisito de cache de bloques que el
+        // sync de comentarios: sin esa cache no podemos calcular el
+        // ESTADO de cada bloque previsto, asi que mejor bloquear que
+        // avisar a medias.
         const canGenerate = computed(
             () =>
                 Boolean(selectedPlantilla.value) &&
                 hayExcel.value &&
                 hasPlcBlocks.value &&
+                minimosCumplidos.value &&
                 aplicacionEstado.value !== "aplicando"
         );
 
         // Tooltip accionable cuando la card esta deshabilitada por
-        // faltar PLC o cache de bloques. Misma estructura que
-        // ``syncCardTooltip`` del padre ``Procesos.js``.
+        // faltar PLC, cache de bloques o N_MAX que no cubren los
+        // minimos. Misma estructura que ``syncCardTooltip`` del
+        // padre ``Procesos.js``.
         const crearCardTooltip = computed(() => {
             if (!hayExcel.value) {
                 return "Carga primero el Excel y pulsa 'Actualizar' en 'Definicion programacion'.";
@@ -135,6 +189,13 @@ export default {
             }
             if (!hasPlcBlocks.value) {
                 return "Selecciona un PLC en el sidebar y espera al escaneo de bloques.";
+            }
+            const problemas = minimosProblemas.value;
+            if (problemas.length) {
+                const lista = problemas
+                    .map((p) => `${p.row}: ${p.usuario} < ${p.plantilla}`)
+                    .join(", ");
+                return `Los N_MAX del proceso no cubren los minimos de la plantilla (${lista}). Cambia el proceso o la plantilla.`;
             }
             return "";
         });
@@ -267,40 +328,54 @@ export default {
         // ``procesoExcel`` cambian. Si uno de los dos falta, su
         // columna muestra "-" (defensivo: el operario aun no
         // selecciono plantilla o Excel).
+        //
+        // Cada fila de N_MAX lleva ``cumple: boolean`` que indica
+        // si el proceso del Excel cubre el minimo de la plantilla.
+        // El template pinta el valor en rojo si !cumple. Las filas
+        // UID/CODIGO no aplican (no tienen minimo).
         const nmaxRows = computed(() => {
             const pl = selectedPlantilla.value;
             const proc = procesoExcel.value;
             const min = (pl && pl.minimos) || {};
+            const problemas = new Set(
+                minimosProblemas.value.map((p) => p.row)
+            );
             return [
                 {
                     dato: "PREAL",
                     plantilla: min.N_MAX_PREAL ?? "-",
                     nuevo: proc ? proc.preal : "-",
+                    cumple: !problemas.has("PREAL"),
                 },
                 {
                     dato: "PINT",
                     plantilla: min.N_MAX_PINT ?? "-",
                     nuevo: proc ? proc.pint : "-",
+                    cumple: !problemas.has("PINT"),
                 },
                 {
                     dato: "ALM",
                     plantilla: min.N_MAX_ALM ?? "-",
                     nuevo: proc ? proc.alarmas : "-",
+                    cumple: !problemas.has("ALM"),
                 },
                 {
                     dato: "ALM_HMI",
                     plantilla: min.N_MAX_ALM_HMI ?? "-",
                     nuevo: proc ? proc.alm_hmi : "-",
+                    cumple: !problemas.has("ALM_HMI"),
                 },
                 {
                     dato: "UID",
                     plantilla: pl ? pl.base : "-",
                     nuevo: proc ? proc.uid : "-",
+                    cumple: true,
                 },
                 {
                     dato: "CODIGO",
                     plantilla: pl ? pl.codigo : "-",
                     nuevo: proc ? proc.codigo : "-",
+                    cumple: true,
                 },
             ];
         });
@@ -351,6 +426,8 @@ export default {
             procedimientoLabel,
             hayExcel,
             nmaxRows,
+            minimosCumplidos,
+            minimosProblemas,
             plcBlocksCache,
             hasPlcBlocks,
             crearCardTooltip,
@@ -467,14 +544,16 @@ export default {
                     <tbody>
                         <tr v-for="row in nmaxRows"
                             :key="row.dato"
-                            class="border-b border-line">
+                            class="border-b border-line"
+                            :class="!row.cumple ? 'bg-red-50' : ''">
                             <td class="px-3 py-1.5 align-top text-ink font-semibold">
                                 {{ row.dato }}
                             </td>
                             <td class="px-3 py-1.5 align-top text-ink font-mono">
                                 {{ row.plantilla }}
                             </td>
-                            <td class="px-3 py-1.5 align-top text-ink font-mono">
+                            <td class="px-3 py-1.5 align-top text-ink font-mono"
+                                :class="!row.cumple ? 'text-red-700 font-bold' : ''">
                                 {{ row.nuevo }}
                             </td>
                         </tr>
