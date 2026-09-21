@@ -134,13 +134,7 @@ def _validate_common(body: dict) -> tuple[dict | None, str | None]:
     El validated_body contiene la forma VIEJA que el FB espera:
       plantillas_path, dir_plantilla_nombre, base_nueva, codigo_nuevo,
       nombre_nuevo, minimos_usuario,
-      plc_blocks_cache (set[str] opcional),
-      plc_blocks_por_tipo (dict[str, set[int]] opcional, derivado
-        de los items dict del body cuando llevan campo tipo),
-      plc_blocks_detalle (list[dict] opcional, la lista cruda
-        del body sin filtrar — la usa el FB para anotar
-        ``colision_con`` por item con el bloque del PLC concreto
-        que provoca la colision).
+      plc_blocks_cache (set[str] opcional, solo match por nombre).
     Los campos del proceso (base/codigo/nombre/N_MAX) NO vienen del
     body: los resuelve el router desde el Excel via
     ``_resolve_excel_proc``.
@@ -186,47 +180,28 @@ def _validate_common(body: dict) -> tuple[dict | None, str | None]:
     }
 
     # ``plc_blocks_cache`` es opcional. Acepta dos shapes:
-    #   - ``list[str]`` (compat legacy): solo nombres, sin numeros.
-    #   - ``list[dict{ nombre, numero [, tipo] }]``: nombres +
-    #     numeros opcionales + tipo opcional (``"DB"``/``"FC"``/
-    #     ``"FB"``/etc). Si el scanner emite tipo, el router
-    #     separa por tipo (TIA distingue DB60010 de FB60010).
+    #   - ``list[str]`` (recomendado): solo nombres completos de
+    #     bloques que ya existen en el PLC destino.
+    #   - ``list[dict{ nombre }]``: cada item lleva ``nombre``
+    #     (campo ``"name"`` compat). Cualquier item sin nombre se
+    #     ignora (defensivo).
+    # El router convierte a ``set[str]`` y lo pasa al FB como
+    # ``plc_blocks_cache``. El match de colisiones es SOLO por
+    # nombre (consistent con la logica del helper v2).
     pbc_raw = body.get("plc_blocks_cache")
     if pbc_raw is not None:
         if not isinstance(pbc_raw, list):
             return None, "plc_blocks_cache debe ser list[str|dict] o null"
         nombres: set[str] = set()
-        por_tipo: dict[str, set[int]] = {}
         for item in pbc_raw:
             if isinstance(item, dict):
                 nm = item.get("nombre") or item.get("name")
                 if nm:
                     nombres.add(str(nm))
-                num_raw = item.get("numero") or item.get("number")
-                tipo = (
-                    item.get("tipo") or item.get("type") or ""
-                ).upper().strip() or None
-                if num_raw is not None and tipo:
-                    try:
-                        num = int(num_raw)
-                    except (TypeError, ValueError):
-                        continue  # Numero invalido, defensivo.
-                    por_tipo.setdefault(tipo, set()).add(num)
-            else:
-                # Item es string -> compat legacy: solo nombre.
-                nombres.add(str(item))
+            elif isinstance(item, str):
+                nombres.add(item)
         if nombres:
             validated["plc_blocks_cache"] = nombres
-        if por_tipo:
-            validated["plc_blocks_por_tipo"] = {
-                k: list(v) for k, v in por_tipo.items()
-            }
-        # Lista cruda para que el FB anote ``colision_con`` por
-        # item con el bloque concreto del PLC. Solo items dict
-        # validos (defensivo: ignorar entradas mal formadas).
-        validated["plc_blocks_detalle"] = [
-            item for item in pbc_raw if isinstance(item, dict)
-        ]
 
     return validated, None
 
