@@ -11,9 +11,17 @@ Endpoints:
           ``plantillas_path``       (str, opcional) ruta base de plantillas.
                                             Si no viene, se toma del
                                             ConfigManager del backend.
-          ``plc_blocks_cache``      (list[str] | null, opcional) nombres de
-                                            bloques que ya existen en el PLC
-                                            destino (para detectar colisiones).
+          ``plc_blocks_cache``      (list[str|dict] | null, opcional) bloques
+                                            que ya existen en el PLC destino.
+                                            Acepta tanto ``list[str]`` (solo
+                                            nombres, compat legacy) como
+                                            ``list[dict{ nombre, numero }]``
+                                            (recomendado — usa match por
+                                            nombre OR por numero). Si el
+                                            scanner del sidebar emite numeros
+                                            (prop ``numero`` del bloque), la
+                                            deteccion por numero detecta
+                                            cross-type (DB60010 vs FB60010).
 
         El router extrae del ``AppState.excel_cache.procesos[uid]`` los
         campos que el FB necesita:
@@ -125,7 +133,9 @@ def _validate_common(body: dict) -> tuple[dict | None, str | None]:
 
     El validated_body contiene la forma VIEJA que el FB espera:
       plantillas_path, dir_plantilla_nombre, base_nueva, codigo_nuevo,
-      nombre_nuevo, minimos_usuario, plc_blocks_cache (opcional).
+      nombre_nuevo, minimos_usuario, plc_blocks_cache (set[str] opcional),
+      plc_blocks_numeros (set[int] opcional, derivado de los numeros
+      de los items dict del body cuando aplica).
     Los campos del proceso (base/codigo/nombre/N_MAX) NO vienen del
     body: los resuelve el router desde el Excel via
     ``_resolve_excel_proc``.
@@ -170,12 +180,35 @@ def _validate_common(body: dict) -> tuple[dict | None, str | None]:
         },
     }
 
-    # ``plc_blocks_cache`` es opcional. Si viene, lo pasamos como set.
+    # ``plc_blocks_cache`` es opcional. Acepta dos shapes:
+    #   - ``list[str]`` (compat legacy): solo nombres, sin numeros.
+    #   - ``list[dict{ nombre, numero }]``: nombres + numeros
+    #     extraidos del scanner del PLC. El router deriva ambos sets.
     pbc_raw = body.get("plc_blocks_cache")
     if pbc_raw is not None:
         if not isinstance(pbc_raw, list):
-            return None, "plc_blocks_cache debe ser list[str] o null"
-        validated["plc_blocks_cache"] = set(str(x) for x in pbc_raw)
+            return None, "plc_blocks_cache debe ser list[str|dict] o null"
+        nombres: set[str] = set()
+        numeros: set[int] = set()
+        for item in pbc_raw:
+            if isinstance(item, dict):
+                nm = item.get("nombre") or item.get("name")
+                if nm:
+                    nombres.add(str(nm))
+                num = item.get("numero") or item.get("number")
+                if num is not None:
+                    try:
+                        numeros.add(int(num))
+                    except (TypeError, ValueError):
+                        # Numero invalido; lo ignoramos (defensivo).
+                        pass
+            else:
+                # Item es string -> compat legacy: solo nombre.
+                nombres.add(str(item))
+        if nombres:
+            validated["plc_blocks_cache"] = nombres
+        if numeros:
+            validated["plc_blocks_numeros"] = numeros
 
     return validated, None
 

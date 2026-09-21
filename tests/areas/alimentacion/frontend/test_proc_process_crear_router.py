@@ -309,3 +309,51 @@ def test_crear_aplicar_fb_rechaza_start_409(plantilla_dummy: Path) -> None:
     data = resp.get_json()
     assert data["ok"] is False
     assert "activo" in data["error"].lower() or "terminal" in data["error"].lower()
+
+
+def test_crear_preview_plc_blocks_cache_dict_y_strings(
+    plantilla_dummy: Path,
+) -> None:
+    """``plc_blocks_cache`` acepta el nuevo shape ``list[dict{ nombre,
+    numero }]`` y el legacy ``list[str]``. El router deriva ambos sets
+    y los pasa al FB.
+    """
+    from areas.alimentacion.frontend.proc_process_crear_router import bp
+
+    engine = MagicMock()
+    fb_mock = _make_mock_fb(result={
+        "success": True, "archivos_previstos": [],
+        "colisiones": [], "manifest_plantilla": {},
+    })
+    engine.get_fb.return_value = fb_mock
+    cm = MagicMock()
+    cm.get_plantillas_path.return_value = str(plantilla_dummy.parent)
+    app_state = _make_mock_app_state(proc_uid=300)
+
+    app = _make_app(engine=engine, app_state=app_state, config_manager=cm)
+    app.register_blueprint(bp)
+    client = app.test_client()
+
+    # Shape NUEVO: list[dict{ nombre, numero }] + 1 item legacy
+    # (string) para verificar que se aceptan ambos en la misma lista.
+    resp = client.post("/api/v1/procesos/crear/preview", json={
+        "dir_plantilla_nombre": "TestPlantilla",
+        "proc_uid": 300,
+        "plc_blocks_cache": [
+            {"nombre": "DB60010_OTRA", "numero": 60010},
+            {"nombre": "FB60010", "numero": 60010},
+            "solo_nombre_legacy",
+            {"nombre": "DB70001", "numero": "numero_invalido"},
+        ],
+    })
+    assert resp.status_code == 200
+
+    # El router derivó ambos sets del body y los paso al FB.
+    kwargs = fb_mock.start.await_args.kwargs
+    # El item con numero invalido conserva el nombre (solo el
+    # numero se descarta defensivo).
+    assert kwargs["plc_blocks_cache"] == {
+        "DB60010_OTRA", "FB60010", "solo_nombre_legacy", "DB70001",
+    }
+    # Solo numeros validos (los invalidos se descartan defensivo).
+    assert kwargs["plc_blocks_numeros"] == {60010}

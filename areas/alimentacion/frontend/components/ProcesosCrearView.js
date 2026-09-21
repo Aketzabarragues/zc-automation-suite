@@ -298,15 +298,29 @@ export default {
         }
 
         // Pasa la lista de bloques del PLC del store al formato
-        // simple (``list[str]`` de nombres) que espera el router
-        // backend. El helper del backend lo convierte en ``set`` y
-        // lo pasa al ctx.plc_blocks_cache. Si el cache esta vacio
-        // o el PLC no esta seleccionado, devuelve array vacio
-        // (defensivo: ``canGenerate`` ya filtra este caso).
+        // ``list[dict{ nombre, numero }]`` que espera el router
+        // backend (desde el commit 10b). El router deriva dos sets:
+        // nombres + numeros. Asi el backend puede detectar
+        // colisiones por nombre O por numero (TIA Portal distingue
+        // bloques por tipo+numero, asi que DB60010 vs FB60010
+        // chocan aunque los nombres sean distintos).
+        // Si el cache esta vacio o el PLC no esta seleccionado,
+        // devuelve array vacio (defensivo: ``canGenerate`` ya
+        // filtra este caso).
         function _blocksToNames(cache) {
             if (!cache || !Array.isArray(cache.blocks)) return [];
             return cache.blocks
-                .map((b) => (b && (b.nombre || b.name)) || null)
+                .map((b) => {
+                    if (!b) return null;
+                    const nombre = b.nombre || b.name;
+                    if (!nombre) return null;
+                    const numero = b.numero != null
+                        ? Number(b.numero)
+                        : (b.number != null ? Number(b.number) : null);
+                    return numero != null && !Number.isNaN(numero)
+                        ? { nombre, numero }
+                        : { nombre };
+                })
                 .filter(Boolean);
         }
 
@@ -404,11 +418,27 @@ export default {
             if (!data || !Array.isArray(data.archivos_previstos)) return [];
             const rows = data.archivos_previstos
                 .filter((a) => a && a.rel_in !== undefined && a.rel_out !== undefined)
-                .map((a) => ({
-                    original: _pathStem(a.rel_in),
-                    nuevo: _pathStem(a.rel_out),
-                    estado: a.colisiona ? "NO OK" : "OK",
-                }));
+                .map((a) => {
+                    // El backend ya devuelve nombre_original,
+                    // nombre_nuevo, numero_original y numero_nuevo
+                    // extraidos del ``S7_BlockNumber := "X"`` del
+                    // XML de plantilla (NO del stem). Mostramos
+                    // ambos concatenados para que el operario vea
+                    // de un vistazo: "FC60010_EXP_INTERFAZ - 60010".
+                    const nombreOrig = a.nombre_original || _pathStem(a.rel_in);
+                    const nombreNuevo = a.nombre_nuevo || _pathStem(a.rel_out);
+                    const numeroOrig = a.numero_original || 0;
+                    const numeroNuevo = a.numero_nuevo || 0;
+                    return {
+                        original: numeroOrig > 0
+                            ? `${nombreOrig} - ${numeroOrig}`
+                            : nombreOrig,
+                        nuevo: numeroNuevo > 0
+                            ? `${nombreNuevo} - ${numeroNuevo}`
+                            : nombreNuevo,
+                        estado: a.colisiona ? "NO OK" : "OK",
+                    };
+                });
             rows.sort((a, b) => String(a.nuevo).localeCompare(
                 String(b.nuevo), undefined, { sensitivity: "base" }
             ));
