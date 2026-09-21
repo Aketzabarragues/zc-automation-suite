@@ -1,10 +1,21 @@
 """FB de area: aplicar la clonacion de un proceso desde plantilla.
 
 State machine sobre el helper ``proc_process_generator``
-(``areas/alimentacion/helpers/proc/proc_process_generator.py``) + 2
-dispatches al worker OT: un lote transaccional (import tag table +
-import bloques bajo una sola transaccion TIA con rollback atomico) y
-un compile del PLC.
+(``areas/alimentacion/helpers/proc/proc_process_generator.py``) + 3
+dispatches al worker OT (import tag table secuencial, wait local,
+import bloques secuencial) y un compile del PLC.
+
+NOTA sobre transacciones (sept-2026): probamos con
+``execute_transactional_batch`` para tener rollback atomico entre
+los 2 imports, pero TIA Openness V21 marca la transaccion como
+corrupta (``OpennessAccessException: Commit is not allowed after
+an exception is thrown``) cuando ``import_blocks_sd`` corre dentro
+de un ``project.start_transaction``/``end_transaction``. El
+operario valido en vivo que el mismo flujo ejecutandose
+secuencialmente (sin transaccion) funciona OK. Asumimos el
+trade-off: si el import de bloques falla, los tags ya estan
+aplicados y el operario debe revertir manualmente (los tags son
+idempotentes, asi que re-aplicar el apply es seguro).
 
 Hereda directo de ``FunctionBase``.
 
@@ -84,6 +95,7 @@ Steps (9):
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from pathlib import Path
@@ -162,10 +174,12 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
         self._minimos_usuario: dict[str, int] = {}
         self._plc_name: str = ""
         self._plc_blocks_cache: list[dict[str, Any]] | None = None
-        # Resultados intermedios de los 2 dispatches.
-        # ``_import_batch_result``: dict de ``execute_transactional_batch``
-        # (``success``, ``operations_executed``, ``details``). El FB no
-        # lo inspecciona — solo lo expone en ``self.result``.
+        # Resultados intermedios de los dispatches (3 ops: tags + wait +
+        # blocks, todas ejecutadas secuencialmente fuera de transaccion
+        # TIA por el quirk CommitOnDispose del V21).
+        # ``_import_batch_result``: shape legacy
+        # (``ok`` bool, ``operations_executed`` int, ``details`` list)
+        # poblado por compat con consumers que leen ``self.result``.
         self._import_batch_result: dict[str, Any] | None = None
         # ``_compile_result``: dict de ``compile_plc`` (con ``ok`` bool).
         self._compile_result: dict[str, Any] | None = None
@@ -331,17 +345,28 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
                     self._ctx
                 )
             case "importar_proceso":
-                # 3 ops bajo una sola transaccion TIA. Si cualquier
-                # op falla, TIA hace rollback de las 3 juntas, dejando
-                # el PLC en el mismo estado previo.
+                # IMPORT secuencial: tags -> wait -> blocks.
+                #
+                # NO usamos ``execute_transactional_batch`` porque
+                # TIA Openness V21 marca la transaccion como corrupta
+                # (error ``OpennessAccessException: Commit of a
+                # Transaction is not allowed after an exception is
+                # thrown``) cuando ``import_blocks_sd`` corre dentro
+                # de un ``project.start_transaction``/``end_transaction``.
+                # El operario valido en vivo que el mismo flujo
+                # ejecutandose secuencialmente (sin transaccion)
+                # funciona OK. Asumimos el trade-off de no tener
+                # rollback atomico entre tags y blocks: si el import
+                # de bloques falla, los tags ya quedaron aplicados en
+                # el PLC. El operario puede revertir los tags
+                # manualmente o reintentar el apply (los tags son
+                # idempotentes, asi que re-aplicarlos es seguro).
                 #
                 # ORDEN CRITICO (sept-2026, validado en vivo por el
                 # operario): ``import_plc_tags_xml`` ANTES de
                 # ``import_blocks_sd``. Si invertimos el orden, TIA
                 # falla al compilar bloques que referencian constantes
-                # o tags todavia no importados: el import UPDATE
-                # queda inconsistente y la transaccion queda "corrupta"
-                # (error ``CommitOnDispose``).
+                # o tags todavia no importados.
                 #
                 # Por que: las plantillas pueden tener bloques
                 # (.s7dcl/.scl) que referencian constantes de usuario
@@ -349,20 +374,9 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
                 # (``Variables PLC/003_Procesos/<base>.xml``). Si
                 # importamos los bloques primero, TIA no encuentra
                 # las constantes y el import UPDATE falla con
-                # ``OpennessAccessException`` que corrompe la
-                # transaccion. Importando tags primero + ``_wait``
-                # para consolidar, los bloques encuentran sus
-                # referencias y el UPDATE procede.
-                #
-                #   1. import_plc_tags_xml sobre ``dir_nuevo`` (TIA
-                #      recurse y procesa ``Variables PLC/**/*.xml``).
-                #   2. _wait 2s (sub-comando local del handler
-                #      ``_h_execute_transactional_batch``: duerme sin
-                #      tocar TIA, dando tiempo a consolidar entre el
-                #      import de tags y el de bloques).
-                #   3. import_blocks_sd sobre ``dir_nuevo`` (TIA
-                #      recurse y procesa ``Bloques de programa/
-                #      **/*.s7dcl|.s7res|.scl|.awl``).
+                # ``OpennessAccessException``. Importando tags
+                # primero + ``_wait`` para consolidar, los bloques
+                # encuentran sus referencias y el UPDATE procede.
                 #
                 # El helper preserva la estructura de carpetas de la
                 # plantilla (ver ``proc_process_aplicar_clonacion``),
@@ -375,47 +389,64 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
                 # ``import_blocks_sd`` se invocan SIN ``target_folder``
                 # (omitiendo el argumento); NUNCA pasar ``""``. Ver
                 # ``tia_handlers._h_import_block``.
-                batch_operations = [
-                    {
-                        "command": "import_plc_tags_xml",
-                        "args": {
-                            "plc_name": self._plc_name,
-                            "import_dir": str(self._ctx.dir_nuevo),
-                        },
-                    },
-                    {
-                        "command": "_wait",
-                        "args": {"seconds": TIA_CONSOLIDATION_SLEEP_S},
-                    },
-                    {
-                        "command": "import_blocks_sd",
-                        "args": {
-                            "plc_name": self._plc_name,
-                            "import_dir": str(self._ctx.dir_nuevo),
-                        },
-                    },
-                ]
-                self._import_batch_result = await dispatch_async(
+
+                # 1. import_plc_tags_xml sobre ``dir_nuevo`` (TIA
+                #    recurse y procesa ``Variables PLC/**/*.xml``).
+                tags_result = await dispatch_async(
                     self._tia_client,
-                    "execute_transactional_batch",
+                    "import_plc_tags_xml",
                     {
-                        "undo_text": "Generar proceso desde plantilla",
-                        "operations": batch_operations,
+                        "plc_name": self._plc_name,
+                        "import_dir": str(self._ctx.dir_nuevo),
                     },
                     timeout_s=600.0,
                 )
-                # CRITICO: si el batch fallo (rollback ejecutado), NO
-                # continuar a ``compilar``. Si lo hicieramos, el
-                # compile correría sobre el PLC sin cambios (rollback)
-                # y el FB reportaría éxito falso. Ademas, si el PLC
-                # quedo en estado "corrupto" por la transaccion TIA
-                # fallida, el compile puede hangear o fallar de forma
-                # confusa.
-                if not self._import_batch_result.get("ok"):
+                if not tags_result.get("ok"):
                     raise RuntimeError(
-                        f"execute_transactional_batch fallo: "
-                        f"{self._import_batch_result.get('error') or '<sin error>'}"
+                        f"import_plc_tags_xml fallo: "
+                        f"{tags_result.get('error') or '<sin error>'}"
                     )
+
+                # 2. ``_wait`` para que TIA consolide la tag table antes
+                #    de procesar los bloques. El handler del wait es
+                #    sync (``time.sleep``); lo llamamos directamente
+                #    sin pasar por el worker OT.
+                await asyncio.sleep(TIA_CONSOLIDATION_SLEEP_S)
+
+                # 3. import_blocks_sd sobre ``dir_nuevo`` (TIA
+                #    recurse y procesa ``Bloques de programa/
+                #    **/*.s7dcl|.s7res|.scl|.awl``).
+                blocks_result = await dispatch_async(
+                    self._tia_client,
+                    "import_blocks_sd",
+                    {
+                        "plc_name": self._plc_name,
+                        "import_dir": str(self._ctx.dir_nuevo),
+                    },
+                    timeout_s=600.0,
+                )
+                if not blocks_result.get("ok"):
+                    raise RuntimeError(
+                        f"import_blocks_sd fallo: "
+                        f"{blocks_result.get('error') or '<sin error>'}"
+                    )
+
+                # ``self._import_batch_result`` se mantiene por
+                # compat con consumers que lo lean (legacy shape del
+                # v1 con execute_transactional_batch). Lo llenamos con
+                # el resultado consolidado.
+                self._import_batch_result = {
+                    "ok": True,
+                    "operations_executed": 2,
+                    "details": [
+                        {"step": 1, "command": "import_plc_tags_xml",
+                         "result": tags_result.get("result")},
+                        {"step": 2, "command": "_wait",
+                         "result": f"sleep {TIA_CONSOLIDATION_SLEEP_S}s"},
+                        {"step": 3, "command": "import_blocks_sd",
+                         "result": blocks_result.get("result")},
+                    ],
+                }
             case "compilar":
                 self._compile_result = await dispatch_async(
                     self._tia_client,
