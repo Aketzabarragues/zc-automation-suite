@@ -608,14 +608,20 @@ def _step_summary(fb: FunctionProcProcessCrearAplicar, step_nombre: str) -> str:
     if step_nombre == "escribir_manifest_modified":
         return f"{step_nombre}: manifest OK"
     if step_nombre == "importar_proceso":
-        # Dict de ``execute_transactional_batch``: ``success`` bool +
-        # ``operations_executed`` int + ``details`` lista de
-        # sub-comandos.
+        # Dispatch async devuelve ``{ok: True, result: <batch>}`` o
+        # ``{ok: False, error: str}``. El batch interno tiene
+        # ``success`` / ``operations_executed`` / ``details``. Hay
+        # que mirar las claves correctas (no las del dispatch wrapper)
+        # para que el summary muestre OK en lugar de FAIL.
         batch = fb._import_batch_result  # noqa: SLF001
         if not batch:
             return f"{step_nombre}: FAIL (sin respuesta del lote)"
-        ok = bool(batch.get("success"))
-        n_ops = batch.get("operations_executed", "?")
+        if not batch.get("ok"):
+            err = batch.get("error") or "<sin detalle>"
+            return f"{step_nombre}: FAIL ({err[:80]})"
+        inner = batch.get("result") or {}
+        ok = bool(inner.get("success"))
+        n_ops = inner.get("operations_executed", "?")
         return f"{step_nombre}: {'OK' if ok else 'FAIL'} ({n_ops} ops)"
     if step_nombre == "compilar":
         ok = fb._compile_result is not None and fb._compile_result.get("ok")  # noqa: SLF001
