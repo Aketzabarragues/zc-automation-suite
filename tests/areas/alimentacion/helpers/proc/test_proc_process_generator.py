@@ -24,6 +24,7 @@ Restricciones:
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -516,8 +517,13 @@ async def test_aplicar_clonacion_preserva_bom_s7res(
 
     # El output .s7res: nombre nuevo es 60010 (base nueva) + EXP
     # (codigo nuevo, reemplazo de "TEST") + _COMENTARIOS (sufijo
-    # preservado del .s7res original).
-    out_s7res = modified / "bloques" / "DB60010_EXP_COMENTARIOS.s7res"
+    # preservado del .s7res original). La estructura de carpetas se
+    # preserva: vive bajo ``Bloques de programa/`` (igual que la
+    # plantilla), NO bajo un ``bloques/`` aplanado.
+    out_s7res = (
+        modified / "Bloques de programa"
+        / "DB60010_EXP_COMENTARIOS.s7res"
+    )
     assert out_s7res.is_file(), f"Output .s7res no existe: {out_s7res}"
     # BOM utf-8-sig == b"\xef\xbb\xbf" en los primeros 3 bytes.
     raw = out_s7res.read_bytes()
@@ -559,8 +565,12 @@ async def test_aplicar_clonacion_xml_value_update(
     await proc_process_aplicar_clonacion(ctx)
 
     # El XML clonado: 50010_TEST.xml -> 60010_EXP.xml (sustituye
-    # 50010->60010 y TEST->EXP).
-    out_xml = modified / "variables" / "60010_EXP.xml"
+    # 50010->60010 y TEST->EXP). La estructura de carpetas se
+    # preserva: vive bajo ``Variables PLC/003_Procesos/`` (igual
+    # que la plantilla), NO bajo un ``variables/`` aplanado.
+    out_xml = (
+        modified / "Variables PLC" / "003_Procesos" / "60010_EXP.xml"
+    )
     assert out_xml.is_file(), f"Output .xml no existe: {out_xml}"
 
     contenido = out_xml.read_text(encoding="utf-8")
@@ -582,13 +592,22 @@ async def test_aplicar_clonacion_genera_layout_canonico(
     tmp_path: Path,
     plantilla_dummy: Path,
 ) -> None:
-    """Output estructurado en ``{variables,bloques,otros}/``.
+    """Preserva la estructura de carpetas de la plantilla.
 
-    - ``.xml`` -> ``variables/``
-    - ``.s7dcl``/``.s7res``/``.scl``/``.awl`` -> ``bloques/``
-    - resto (no hay en este dummy) -> ``otros/``
-    - ``manifest.json`` se ignora (lo escribe
-      ``proc_process_escribir_manifest`` justo despues).
+    La plantilla dummy tiene:
+      ``Bloques de programa/{FC50010_TEST_INTERFAZ.s7dcl,
+        50010_TEST_COMENTARIOS.s7res}``
+      ``Variables PLC/003_Procesos/{50010_TEST.xml}``
+
+    Tras el rename (base 50010 -> 60010, codigo TEST -> EXP) el
+    output debe mantener la misma estructura, solo con los
+    filenames renombrados. Esto permite que el dispatch contra la
+    raiz de ``dir_nuevo`` (``import_plc_tags_xml`` y
+    ``import_blocks_sd`` apuntando a ``dir_nuevo``) haga UPDATE
+    recursivo preservando el subpath en el PLC.
+
+    ``manifest.json`` se ignora (lo regenera
+    ``proc_process_escribir_manifest`` justo despues).
     """
     build_cache_root = tmp_path / ".build_cache"
     preview = build_cache_root / "alimentacion" / "ProcesoNuevo" / "Plantilla"
@@ -611,22 +630,37 @@ async def test_aplicar_clonacion_genera_layout_canonico(
     await proc_process_construir_diccionarios(ctx)
     await proc_process_aplicar_clonacion(ctx)
 
-    # Layout canonico.
-    assert (modified / "variables").is_dir()
-    assert (modified / "bloques").is_dir()
-    # archivos_generados poblado con paths relativos a modified/.
-    # Los paths usan el separador del OS (``\\`` en Windows); usamos
-    # ``os.sep`` o ``in`` con el nombre del archivo final.
+    # Estructura preservada: las subcarpetas originales viven en el
+    # output (NO aplanadas en ``variables/`` o ``bloques/``).
+    assert (modified / "Bloques de programa").is_dir()
+    assert (modified / "Variables PLC" / "003_Procesos").is_dir()
+    # Y NO existen las carpetas aplanadas que se usaban antes del
+    # fix.
+    assert not (modified / "variables").exists()
+    assert not (modified / "bloques").exists()
+    # archivos_generados poblado con paths que respetan el subpath
+    # original (relativos a modified/).
+    rels = ctx.archivos_generados
     assert any(
-        "60010_EXP.xml" in rel for rel in ctx.archivos_generados
-    )
+        rel.endswith("Bloques de programa" + os.sep + "FC60010_EXP_INTERFAZ.s7dcl")
+        for rel in rels
+    ), f"Falta FC60010_EXP_INTERFAZ.s7dcl en subpath correcto: {rels}"
     assert any(
-        "DB60010_EXP_COMENTARIOS.s7res" in rel for rel in ctx.archivos_generados
-    )
-    # manifest.json NO entra como archivo generado del apply (lo escribe
-    # la siguiente funcion ``proc_process_escribir_manifest``).
+        rel.endswith(
+            "Bloques de programa" + os.sep + "DB60010_EXP_COMENTARIOS.s7res"
+        )
+        for rel in rels
+    ), f"Falta DB60010_EXP_COMENTARIOS.s7res en subpath correcto: {rels}"
+    assert any(
+        rel.endswith(
+            "Variables PLC" + os.sep + "003_Procesos" + os.sep + "60010_EXP.xml"
+        )
+        for rel in rels
+    ), f"Falta 60010_EXP.xml en subpath correcto: {rels}"
+    # manifest.json NO entra como archivo generado del apply (lo
+    # escribe la siguiente funcion ``proc_process_escribir_manifest``).
     assert not any(
-        rel.endswith("manifest.json") for rel in ctx.archivos_generados
+        rel.endswith("manifest.json") for rel in rels
     )
 
 

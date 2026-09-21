@@ -334,23 +334,31 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
                 # 3 ops bajo una sola transaccion TIA. Si cualquier
                 # op falla, TIA hace rollback de las 3 juntas, dejando
                 # el PLC en el mismo estado previo.
-                #   1. import_plc_tags_xml sobre dir_nuevo/variables/
+                #   1. import_plc_tags_xml sobre ``dir_nuevo`` (TIA
+                #      recurse y procesa ``Variables PLC/**/*.xml``).
                 #   2. _wait 2s (sub-comando local del handler
                 #      ``_h_execute_transactional_batch``: duerme sin
                 #      tocar TIA, dando tiempo a consolidar entre el
-                #      import de tags y el de bloques)
-                #   3. import_blocks_sd sobre dir_nuevo/bloques/
-                # REGLA (sept-2026): ``import_plc_tags_xml`` se invoca
-                # sin ``target_folder`` (omitiendo el argumento); NUNCA
-                # pasar ``""``. Ver ``tia_handlers._h_import_block``.
+                #      import de tags y el de bloques).
+                #   3. import_blocks_sd sobre ``dir_nuevo`` (TIA
+                #      recurse y procesa ``Bloques de programa/
+                #      **/*.s7dcl|.s7res|.scl|.awl``).
+                # El helper preserva la estructura de carpetas de la
+                # plantilla (ver ``proc_process_aplicar_clonacion``),
+                # asi que el dispatch contra la RAIZ de ``dir_nuevo``
+                # importa respetando el subpath original en el PLC.
+                # ``manifest.json`` se ignora porque TIA solo procesa
+                # extensiones relevantes para cada tipo de import.
+                # REGLA (sept-2026): ``import_plc_tags_xml`` /
+                # ``import_blocks_sd`` se invocan SIN ``target_folder``
+                # (omitiendo el argumento); NUNCA pasar ``""``. Ver
+                # ``tia_handlers._h_import_block``.
                 batch_operations = [
                     {
                         "command": "import_plc_tags_xml",
                         "args": {
                             "plc_name": self._plc_name,
-                            "import_dir": str(
-                                self._ctx.dir_nuevo / "variables"
-                            ),
+                            "import_dir": str(self._ctx.dir_nuevo),
                         },
                     },
                     {
@@ -361,9 +369,7 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
                         "command": "import_blocks_sd",
                         "args": {
                             "plc_name": self._plc_name,
-                            "import_dir": str(
-                                self._ctx.dir_nuevo / "bloques"
-                            ),
+                            "import_dir": str(self._ctx.dir_nuevo),
                         },
                     },
                 ]

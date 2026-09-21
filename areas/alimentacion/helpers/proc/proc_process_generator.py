@@ -416,10 +416,21 @@ async def proc_process_generar_previstos(ctx: ProcProcessGenContext) -> None:
     No escribe en disco — solo popula ``ctx.archivos_previstos``
     para que la SPA muestre el preview.
 
-    Layout canonico de salida: ``dir_nuevo/{variables,bloques}/``.
-    El helper reorganiza por extension (``xml`` -> ``variables/``,
-    resto de ``EXTENSIONES_TEXTO`` -> ``bloques/``, demas ->
-    ``otros/``).
+    PRESERVA LA ESTRUCTURA DE CARPETAS de la plantilla. Para cada
+    archivo calcula ``rel_in`` y ``rel_out`` con el mismo subpath
+    relativo (la unica diferencia es el filename, que se renombra
+    aplicando ``dicc_bloques``). Esto es lo que permite que el
+    import posterior en TIA Portal (``import_plc_tags_xml`` y
+    ``import_blocks_sd`` apuntando a la raiz de ``dir_nuevo``)
+    mantenga la jerarquia del proceso en el PLC.
+
+    ``kind`` indica el tipo de archivo (``xml``, ``text``, ``binary``)
+    para que el apply use el ``diccionario`` y ``encoding``
+    correctos:
+      - ``.xml``: dicc_xml, encoding utf-8.
+      - resto de ``EXTENSIONES_TEXTO``: dicc_bloques, encoding utf-8
+        (utf-8-sig para ``.s7res``).
+      - resto: copia binaria sin tocar.
     """
     archivos_previstos: list[dict[str, Any]] = []
 
@@ -436,13 +447,17 @@ async def proc_process_generar_previstos(ctx: ProcProcessGenContext) -> None:
         nuevo_stem = _aplicar_diccionario(in_path.stem, ctx.dicc_bloques)
         suffix = in_path.suffix.lower()
         if suffix == ".xml":
-            kind, subdir = "xml", "variables"
+            kind = "xml"
         elif suffix in EXTENSIONES_TEXTO:
-            kind, subdir = "text", "bloques"
+            kind = "text"
         else:
-            kind, subdir = "binary", "otros"
+            kind = "binary"
 
-        rel_out = Path(subdir) / f"{nuevo_stem}{suffix}"
+        # rel_out = misma estructura de carpetas, solo cambia el
+        # nombre del archivo (post-rename). El parent path se
+        # preserva tal cual para que el subpath en el PLC coincida
+        # con el de la plantilla.
+        rel_out = rel_in.parent / f"{nuevo_stem}{suffix}"
 
         # Match contra colisiones post-rename (con y sin sufijo).
         colisiona_nombre = nuevo_stem in ctx.colisiones
@@ -479,15 +494,31 @@ async def proc_process_aplicar_clonacion(ctx: ProcProcessGenContext) -> None:
     apply parte limpio, mismo patron que ``ContextCache.clean()`` en
     dispositivos).
 
-    Layout canonico de salida: ``dir_nuevo/{variables,bloques,otros}/``.
-    Los archivos se reorganizan por extension:
-      - ``.xml``: variables/, encoding utf-8, ``dicc_xml``.
-      - ``.s7res``: bloques/, encoding utf-8-sig, ``dicc_bloques``.
-      - ``.s7dcl``/``.scl``/``.awl``: bloques/, encoding utf-8, ``dicc_bloques``.
-      - Resto: otros/, copia binaria (``shutil.copy2``).
+    PRESERVA LA ESTRUCTURA DE CARPETAS de la plantilla. Para cada
+    archivo calcula ``rel = in_path.relative_to(dir_plantilla_copia)``
+    y escribe en ``dir_nuevo / rel`` con el filename renombrado y
+    el contenido actualizado (con ``dicc_bloques`` o ``dicc_xml``
+    segun extension). Esto mantiene el subpath ``Bloques de programa/
+    200_Expedicion/200_Proceso/`` (o el equivalente renombrado) que
+    TIA Portal respeta al hacer UPDATE recursivo del proceso.
+
+    Por extension:
+      - ``.s7res``: ``dicc_bloques``, encoding utf-8-sig.
+      - ``.xml``:   ``dicc_xml``, encoding utf-8 (con override de
+                    N_MAX si el XML contiene PlcUserConstant).
+      - ``.s7dcl``/``.scl``/``.awl``: ``dicc_bloques``, encoding utf-8.
+      - Resto:     copia binaria (``shutil.copy2``) sin tocar.
 
     ``manifest.json`` se ignora (lo regenera
     ``proc_process_escribir_manifest`` justo despues).
+
+    El FB Apply dispara luego ``import_plc_tags_xml`` y
+    ``import_blocks_sd`` apuntando a la RAIZ de ``dir_nuevo``: TIA
+    Portal recurse sobre los subdirectorios preservando el layout
+    en el PLC. NO hace falta (ni se debe) pasar
+    ``target_folder_path``; el handler usa el default ``None`` para
+    que TIA haga UPDATE recursivo (ver
+    ``tia_handlers._h_import_block``).
     """
     if ctx.dir_nuevo.exists():
         await asyncio.to_thread(shutil.rmtree, ctx.dir_nuevo)
@@ -507,21 +538,17 @@ async def proc_process_aplicar_clonacion(ctx: ProcProcessGenContext) -> None:
     generados: list[str] = []
 
     for in_path in paths:
-        rel_in = in_path.relative_to(ctx.dir_plantilla_copia)
-        if rel_in.name == "manifest.json":
+        rel = in_path.relative_to(ctx.dir_plantilla_copia)
+        if rel.name == "manifest.json":
             continue
 
         suffix = in_path.suffix.lower()
         nuevo_stem = _aplicar_diccionario(in_path.stem, ctx.dicc_bloques)
 
-        if suffix == ".xml":
-            subdir = "variables"
-        elif suffix in EXTENSIONES_TEXTO:
-            subdir = "bloques"
-        else:
-            subdir = "otros"
-
-        out_path = ctx.dir_nuevo / subdir / f"{nuevo_stem}{suffix}"
+        # Preservar la estructura de carpetas: ``rel.parent`` se
+        # mantiene identico; solo cambia el filename (post-rename).
+        out_rel = rel.parent / f"{nuevo_stem}{suffix}"
+        out_path = ctx.dir_nuevo / out_rel
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
         if suffix == ".s7res":
@@ -548,7 +575,7 @@ async def proc_process_aplicar_clonacion(ctx: ProcProcessGenContext) -> None:
         else:
             await asyncio.to_thread(shutil.copy2, in_path, out_path)
 
-        generados.append(str(out_path.relative_to(ctx.dir_nuevo)))
+        generados.append(str(out_rel))
 
     ctx.archivos_generados = generados
 
