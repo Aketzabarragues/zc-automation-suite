@@ -133,9 +133,10 @@ def _validate_common(body: dict) -> tuple[dict | None, str | None]:
 
     El validated_body contiene la forma VIEJA que el FB espera:
       plantillas_path, dir_plantilla_nombre, base_nueva, codigo_nuevo,
-      nombre_nuevo, minimos_usuario, plc_blocks_cache (set[str] opcional),
-      plc_blocks_numeros (set[int] opcional, derivado de los numeros
-      de los items dict del body cuando aplica).
+      nombre_nuevo, minimos_usuario,
+      plc_blocks_cache (set[str] opcional),
+      plc_blocks_por_tipo (dict[str, set[int]] opcional, derivado
+        de los items dict del body cuando llevan campo tipo).
     Los campos del proceso (base/codigo/nombre/N_MAX) NO vienen del
     body: los resuelve el router desde el Excel via
     ``_resolve_excel_proc``.
@@ -182,33 +183,40 @@ def _validate_common(body: dict) -> tuple[dict | None, str | None]:
 
     # ``plc_blocks_cache`` es opcional. Acepta dos shapes:
     #   - ``list[str]`` (compat legacy): solo nombres, sin numeros.
-    #   - ``list[dict{ nombre, numero }]``: nombres + numeros
-    #     extraidos del scanner del PLC. El router deriva ambos sets.
+    #   - ``list[dict{ nombre, numero [, tipo] }]``: nombres +
+    #     numeros opcionales + tipo opcional (``"DB"``/``"FC"``/
+    #     ``"FB"``/etc). Si el scanner emite tipo, el router
+    #     separa por tipo (TIA distingue DB60010 de FB60010).
     pbc_raw = body.get("plc_blocks_cache")
     if pbc_raw is not None:
         if not isinstance(pbc_raw, list):
             return None, "plc_blocks_cache debe ser list[str|dict] o null"
         nombres: set[str] = set()
-        numeros: set[int] = set()
+        por_tipo: dict[str, set[int]] = {}
         for item in pbc_raw:
             if isinstance(item, dict):
                 nm = item.get("nombre") or item.get("name")
                 if nm:
                     nombres.add(str(nm))
-                num = item.get("numero") or item.get("number")
-                if num is not None:
+                num_raw = item.get("numero") or item.get("number")
+                tipo = (
+                    item.get("tipo") or item.get("type") or ""
+                ).upper().strip() or None
+                if num_raw is not None and tipo:
                     try:
-                        numeros.add(int(num))
+                        num = int(num_raw)
                     except (TypeError, ValueError):
-                        # Numero invalido; lo ignoramos (defensivo).
-                        pass
+                        continue  # Numero invalido, defensivo.
+                    por_tipo.setdefault(tipo, set()).add(num)
             else:
                 # Item es string -> compat legacy: solo nombre.
                 nombres.add(str(item))
         if nombres:
             validated["plc_blocks_cache"] = nombres
-        if numeros:
-            validated["plc_blocks_numeros"] = numeros
+        if por_tipo:
+            validated["plc_blocks_por_tipo"] = {
+                k: list(v) for k, v in por_tipo.items()
+            }
 
     return validated, None
 

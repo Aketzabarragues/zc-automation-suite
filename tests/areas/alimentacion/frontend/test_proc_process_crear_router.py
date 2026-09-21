@@ -315,8 +315,9 @@ def test_crear_preview_plc_blocks_cache_dict_y_strings(
     plantilla_dummy: Path,
 ) -> None:
     """``plc_blocks_cache`` acepta el nuevo shape ``list[dict{ nombre,
-    numero }]`` y el legacy ``list[str]``. El router deriva ambos sets
-    y los pasa al FB.
+    numero, tipo }]`` y el legacy ``list[str]``. El router separa
+    los items por tipo (TIA distingue DB60010 de FB60010 aunque
+    compartan numero).
     """
     from areas.alimentacion.frontend.proc_process_crear_router import bp
 
@@ -334,26 +335,32 @@ def test_crear_preview_plc_blocks_cache_dict_y_strings(
     app.register_blueprint(bp)
     client = app.test_client()
 
-    # Shape NUEVO: list[dict{ nombre, numero }] + 1 item legacy
-    # (string) para verificar que se aceptan ambos en la misma lista.
     resp = client.post("/api/v1/procesos/crear/preview", json={
         "dir_plantilla_nombre": "TestPlantilla",
         "proc_uid": 300,
         "plc_blocks_cache": [
-            {"nombre": "DB60010_OTRA", "numero": 60010},
-            {"nombre": "FB60010", "numero": 60010},
+            {"nombre": "DB60010_OTRA", "tipo": "DB", "numero": 60010},
+            {"nombre": "FB60010", "tipo": "FB", "numero": 60010},
             "solo_nombre_legacy",
-            {"nombre": "DB70001", "numero": "numero_invalido"},
+            # Sin tipo -> el router no lo cuenta por (tipo, numero)
+            {"nombre": "DB70001", "numero": 70001},
+            # Numero invalido + tipo OK -> se descarta defensivo.
+            {"nombre": "DB70002", "tipo": "DB", "numero": "no_int"},
         ],
     })
     assert resp.status_code == 200
 
-    # El router derivó ambos sets del body y los paso al FB.
     kwargs = fb_mock.start.await_args.kwargs
-    # El item con numero invalido conserva el nombre (solo el
-    # numero se descarta defensivo).
+    # Nombres acumulados (todos los validos).
     assert kwargs["plc_blocks_cache"] == {
-        "DB60010_OTRA", "FB60010", "solo_nombre_legacy", "DB70001",
+        "DB60010_OTRA", "FB60010", "solo_nombre_legacy", "DB70001", "DB70002",
     }
-    # Solo numeros validos (los invalidos se descartan defensivo).
-    assert kwargs["plc_blocks_numeros"] == {60010}
+    # plc_blocks_por_tipo discrimina por tipo. DB60010 va al set
+    # "DB", FB60010 va al "FB" — mismo numero, sets distintos.
+    pbt = kwargs["plc_blocks_por_tipo"]
+    assert set(pbt["DB"]) == {60010}
+    assert set(pbt["FB"]) == {60010}
+    # Sin tipo -> no se cuenta.
+    assert "70001" not in {n for nums in pbt.values() for n in nums}
+    # Numero invalido -> no se cuenta.
+    assert "70002" not in {n for nums in pbt.values() for n in nums}

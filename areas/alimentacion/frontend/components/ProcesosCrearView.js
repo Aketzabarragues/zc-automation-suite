@@ -298,12 +298,17 @@ export default {
         }
 
         // Pasa la lista de bloques del PLC del store al formato
-        // ``list[dict{ nombre, numero }]`` que espera el router
-        // backend (desde el commit 10b). El router deriva dos sets:
-        // nombres + numeros. Asi el backend puede detectar
-        // colisiones por nombre O por numero (TIA Portal distingue
-        // bloques por tipo+numero, asi que DB60010 vs FB60010
-        // chocan aunque los nombres sean distintos).
+        // ``list[dict{ nombre, numero, tipo }]`` que espera el router
+        // backend (commit 11b). El router deriva sets separados por
+        // tipo, asi el backend puede detectar colisiones por nombre O
+        // por (tipo + numero). TIA Portal distingue bloques por
+        // tipo+numero (DB60010 vs FB60010 NO chocan entre si).
+        //
+        // Acepta tanto ``b.tipo`` como ``b.type`` del scanner.
+        // Si el bloque no trae tipo (comun en scanners antiguos
+        // que solo emiten nombre+numero), lo emitimos sin tipo
+        // -> el backend lo trata como match por nombre solo.
+        //
         // Si el cache esta vacio o el PLC no esta seleccionado,
         // devuelve array vacio (defensivo: ``canGenerate`` ya
         // filtra este caso).
@@ -314,12 +319,18 @@ export default {
                     if (!b) return null;
                     const nombre = b.nombre || b.name;
                     if (!nombre) return null;
+                    const out = { nombre };
                     const numero = b.numero != null
                         ? Number(b.numero)
                         : (b.number != null ? Number(b.number) : null);
-                    return numero != null && !Number.isNaN(numero)
-                        ? { nombre, numero }
-                        : { nombre };
+                    if (numero != null && !Number.isNaN(numero)) {
+                        out.numero = numero;
+                    }
+                    const tipoRaw = b.tipo || b.type;
+                    if (tipoRaw && typeof tipoRaw === "string") {
+                        out.tipo = tipoRaw.toUpperCase().trim();
+                    }
+                    return out;
                 })
                 .filter(Boolean);
         }
@@ -420,16 +431,22 @@ export default {
                 .filter((a) => a && a.rel_in !== undefined && a.rel_out !== undefined)
                 .map((a) => {
                     // El backend ya devuelve nombre_original,
-                    // nombre_nuevo, numero_original y numero_nuevo
+                    // nombre_nuevo, numero_original, numero_nuevo
+                    // y tipo_original / tipo_nuevo (DB/FC/FB/...)
                     // extraidos del ``S7_BlockNumber := "X"`` del
-                    // XML de plantilla (NO del stem). Mostramos
-                    // ambos concatenados para que el operario vea
-                    // de un vistazo: "FC60010_EXP_INTERFAZ - 60010".
+                    // XML de plantilla y del prefijo del stem.
+                    // Mostramos todo en columnas separadas: el
+                    // operario ve de un vistazo
+                    //   TIPO | BLOQUE ORIGINAL | BLOQUE NUEVO
+                    //   DB   | DB50010_X - 50010 | DB60010_Y - 60010
+                    const tipoOrig = a.tipo_original || "";
+                    const tipoNuevo = a.tipo_nuevo || "";
                     const nombreOrig = a.nombre_original || _pathStem(a.rel_in);
                     const nombreNuevo = a.nombre_nuevo || _pathStem(a.rel_out);
                     const numeroOrig = a.numero_original || 0;
                     const numeroNuevo = a.numero_nuevo || 0;
                     return {
+                        tipo: tipoNuevo || tipoOrig,
                         original: numeroOrig > 0
                             ? `${nombreOrig} - ${numeroOrig}`
                             : nombreOrig,
@@ -619,19 +636,20 @@ export default {
                         Cambia el proceso o plantilla para evitar pisar bloques existentes.
                     </p>
                 </div>
-                <!-- Tabla BLOQUE ORIGINAL / BLOQUE NUEVO / ESTADO.
-                     Mismo lenguaje visual que DispositivosPanel.js
-                     (sticky header, container bg-surface-raised +
-                     border + rounded). ESTADO = OK si el bloque
-                     nuevo NO existe en la cache del PLC activo
-                     (por nombre + numero); NO OK si coincide. La
-                     cache del PLC se carga desde el sidebar; si
-                     el operario ve "?" en la columna deberia
+                <!-- Tabla TIPO / BLOQUE ORIGINAL / BLOQUE NUEVO / ESTADO.
+                     Columnas por tipo explicito (DB/FC/FB/...) porque
+                     TIA Portal distingue bloques por (tipo + numero),
+                     asi que DB60010 y FB60010 ocupan slots distintos.
+                     ESTADO = OK si el bloque nuevo NO choca por nombre
+                     O por (tipo + numero) con la cache del PLC; NO OK
+                     en caso contrario. La cache del PLC se carga desde
+                     el sidebar; si el operario ve "?" deberia
                      recargar el PLC. -->
                 <div class="flex-1 overflow-auto table-scroll-x bg-surface-raised border border-line rounded">
                     <table class="w-full text-xs">
                         <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
                             <tr>
+                                <th class="px-3 py-2 text-left text-ink-muted">TIPO</th>
                                 <th class="px-3 py-2 text-left text-ink-muted">BLOQUE ORIGINAL</th>
                                 <th class="px-3 py-2 text-left text-ink-muted">BLOQUE NUEVO</th>
                                 <th class="px-3 py-2 text-left text-ink-muted">ESTADO</th>
@@ -641,6 +659,9 @@ export default {
                             <tr v-for="row in bloquesConEstado"
                                 :key="row.original + '|' + row.nuevo"
                                 class="border-b border-line">
+                                <td class="px-3 py-1.5 align-top font-mono font-bold text-accent whitespace-nowrap">
+                                    {{ row.tipo }}
+                                </td>
                                 <td class="px-3 py-1.5 align-top font-mono text-ink whitespace-nowrap">
                                     {{ row.original }}
                                 </td>
@@ -653,7 +674,7 @@ export default {
                                 </td>
                             </tr>
                             <tr v-if="bloquesConEstado.length === 0">
-                                <td colspan="3"
+                                <td colspan="4"
                                     class="px-3 py-6 text-center text-ink-muted italic">
                                     (no hay archivos previstos)
                                 </td>
