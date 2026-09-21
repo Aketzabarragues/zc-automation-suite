@@ -488,29 +488,32 @@ async def proc_process_generar_previstos(ctx: ProcProcessGenContext) -> None:
 
 
 async def proc_process_aplicar_clonacion(ctx: ProcProcessGenContext) -> None:
-    """Aplica la clonacion: walk ``dir_plantilla_copia`` -> ``dir_nuevo``.
+    """Aplica la clonacion: ``dir_plantilla_copia`` -> ``dir_nuevo``.
 
     Borra ``dir_nuevo/`` antes de aplicar (regla de retencion: cada
     apply parte limpio, mismo patron que ``ContextCache.clean()`` en
     dispositivos).
 
-    PRESERVA LA ESTRUCTURA DE CARPETAS de la plantilla. Para cada
-    archivo calcula ``rel = in_path.relative_to(dir_plantilla_copia)``
-    y escribe en ``dir_nuevo / rel`` con el filename renombrado y
-    el contenido actualizado (con ``dicc_bloques`` o ``dicc_xml``
-    segun extension). Esto mantiene el subpath ``Bloques de programa/
-    200_Expedicion/200_Proceso/`` (o el equivalente renombrado) que
-    TIA Portal respeta al hacer UPDATE recursivo del proceso.
+    Pipeline:
+      1. ``shutil.copytree(dir_plantilla_copia, dir_nuevo,
+         ignore=manifest)``: copia bulk preservando la estructura de
+         carpetas. Es la primitiva canonica de la stdlib para esto;
+         no reinventamos mkdir + write por archivo.
+      2. Walk de ``dir_nuevo``: para cada archivo se aplica el
+         rename al filename y al contenido segun extension. El
+         subpath (``Bloques de programa/200_Expedicion/200_Proceso/``
+         o el equivalente renombrado) se mantiene identico.
 
     Por extension:
-      - ``.s7res``: ``dicc_bloques``, encoding utf-8-sig.
-      - ``.xml``:   ``dicc_xml``, encoding utf-8 (con override de
-                    N_MAX si el XML contiene PlcUserConstant).
+      - ``.s7res``:           ``dicc_bloques``, encoding utf-8-sig.
+      - ``.xml``:             ``dicc_xml``, encoding utf-8 (con
+                              override de N_MAX si el XML contiene
+                              PlcUserConstant).
       - ``.s7dcl``/``.scl``/``.awl``: ``dicc_bloques``, encoding utf-8.
-      - Resto:     copia binaria (``shutil.copy2``) sin tocar.
+      - Resto (binarios):     sin tocar (ya copiados por copytree).
 
-    ``manifest.json`` se ignora (lo regenera
-    ``proc_process_escribir_manifest`` justo despues).
+    ``manifest.json`` se excluye via el ``ignore`` de copytree (lo
+    regenera ``proc_process_escribir_manifest`` justo despues).
 
     El FB Apply dispara luego ``import_plc_tags_xml`` y
     ``import_blocks_sd`` apuntando a la RAIZ de ``dir_nuevo``: TIA
@@ -522,62 +525,75 @@ async def proc_process_aplicar_clonacion(ctx: ProcProcessGenContext) -> None:
     """
     if ctx.dir_nuevo.exists():
         await asyncio.to_thread(shutil.rmtree, ctx.dir_nuevo)
-    ctx.dir_nuevo.mkdir(parents=True, exist_ok=True)
 
-    minimos_plantilla = (
-        ctx.manifest_plantilla.get("minimos", {})
-        if ctx.manifest_plantilla else {}
+    # 1) Copia bulk preservando estructura. ``ignore`` se invoca
+    # una vez por directorio con la lista de entries; devolvemos
+    # ``manifest.json`` para que NO se copie (lo regenera
+    # ``proc_process_escribir_manifest``).
+    def _ignore_manifest(_dir: str, names: list[str]) -> list[str]:
+        return [n for n in names if n == "manifest.json"]
+
+    await asyncio.to_thread(
+        shutil.copytree,
+        str(ctx.dir_plantilla_copia),
+        str(ctx.dir_nuevo),
+        ignore=_ignore_manifest,
     )
 
-    def _walk() -> list[Path]:
-        return [
-            p for p in ctx.dir_plantilla_copia.rglob("*") if p.is_file()
-        ]
+    # 2) Walk del destino: rename de filename + rewrite de contenido.
+    # ``list(...)`` para snapshot antes de iterar (los ``rename`` que
+    # hacemos a continuacion mutan el directorio, y ``rglob`` no es
+    # seguro para mutacion concurrente).
+    def _rename_and_rewrite() -> list[str]:
+        generated: list[str] = []
+        for path in list(ctx.dir_nuevo.rglob("*")):
+            if not path.is_file():
+                continue
+            rel = path.relative_to(ctx.dir_nuevo)
+            # El subpath es identico en source y destination (copytree
+            # preserva estructura), asi que el archivo original vive
+            # en ``dir_plantilla_copia / rel``. Lo necesitamos para
+            # extraer el stem pre-rename.
+            src = ctx.dir_plantilla_copia / rel
+            if not src.exists():
+                # No deberia pasar: copytree preserva estructura.
+                continue
+            suffix = path.suffix.lower()
+            nuevo_stem = _aplicar_diccionario(src.stem, ctx.dicc_bloques)
 
-    paths = await asyncio.to_thread(_walk)
-    generados: list[str] = []
+            # Rename de filename in-place.
+            new_name = f"{nuevo_stem}{suffix}"
+            if path.name != new_name:
+                renamed = path.with_name(new_name)
+                path.rename(renamed)
+                path = renamed
 
-    for in_path in paths:
-        rel = in_path.relative_to(ctx.dir_plantilla_copia)
-        if rel.name == "manifest.json":
-            continue
+            # Rewrite de contenido segun extension.
+            if suffix == ".s7res":
+                enc = "utf-8-sig"
+                contenido = _leer_texto(path, enc)
+                nuevo = _aplicar_diccionario(contenido, ctx.dicc_bloques)
+                _escribir_texto(path, nuevo, enc)
+            elif suffix == ".xml":
+                enc = "utf-8"
+                contenido = _leer_texto(path, enc)
+                nuevo = _aplicar_diccionario(contenido, ctx.dicc_xml)
+                if "PlcUserConstant" in nuevo and ctx.minimos_usuario:
+                    nuevo = _reemplazar_nmax_en_xml(
+                        nuevo, ctx.base_nueva, ctx.minimos_usuario
+                    )
+                _escribir_texto(path, nuevo, enc)
+            elif suffix in (".s7dcl", ".scl", ".awl"):
+                enc = "utf-8"
+                contenido = _leer_texto(path, enc)
+                nuevo = _aplicar_diccionario(contenido, ctx.dicc_bloques)
+                _escribir_texto(path, nuevo, enc)
+            # else: binarios, ya copiados por shutil.copytree tal cual.
 
-        suffix = in_path.suffix.lower()
-        nuevo_stem = _aplicar_diccionario(in_path.stem, ctx.dicc_bloques)
+            generated.append(str(path.relative_to(ctx.dir_nuevo)))
+        return generated
 
-        # Preservar la estructura de carpetas: ``rel.parent`` se
-        # mantiene identico; solo cambia el filename (post-rename).
-        out_rel = rel.parent / f"{nuevo_stem}{suffix}"
-        out_path = ctx.dir_nuevo / out_rel
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-
-        if suffix == ".s7res":
-            enc = "utf-8-sig"
-            contenido = _leer_texto(in_path, enc)
-            nuevo = _aplicar_diccionario(contenido, ctx.dicc_bloques)
-            _escribir_texto(out_path, nuevo, enc)
-        elif suffix == ".xml":
-            enc = "utf-8"
-            contenido = _leer_texto(in_path, enc)
-            nuevo = _aplicar_diccionario(contenido, ctx.dicc_xml)
-            # Reemplaza los ``<Value>`` de los N_MAX por los del
-            # operario si este XML contiene constantes de usuario.
-            if "PlcUserConstant" in nuevo and ctx.minimos_usuario:
-                nuevo = _reemplazar_nmax_en_xml(
-                    nuevo, ctx.base_nueva, ctx.minimos_usuario
-                )
-            _escribir_texto(out_path, nuevo, enc)
-        elif suffix in (".s7dcl", ".scl", ".awl"):
-            enc = "utf-8"
-            contenido = _leer_texto(in_path, enc)
-            nuevo = _aplicar_diccionario(contenido, ctx.dicc_bloques)
-            _escribir_texto(out_path, nuevo, enc)
-        else:
-            await asyncio.to_thread(shutil.copy2, in_path, out_path)
-
-        generados.append(str(out_rel))
-
-    ctx.archivos_generados = generados
+    ctx.archivos_generados = await asyncio.to_thread(_rename_and_rewrite)
 
 
 async def proc_process_escribir_manifest(ctx: ProcProcessGenContext) -> None:
