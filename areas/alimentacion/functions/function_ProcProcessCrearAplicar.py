@@ -1,9 +1,10 @@
 """FB de area: aplicar la clonacion de un proceso desde plantilla.
 
 State machine sobre el helper ``proc_process_generator``
-(``areas/alimentacion/helpers/proc/proc_process_generator.py``) + 5
-dispatches al worker OT para importar la tabla de variables
-modificada, los bloques ``.s7dcl`` clonados y compilar el PLC.
+(``areas/alimentacion/helpers/proc/proc_process_generator.py``) + 2
+dispatches al worker OT: un lote transaccional (import tag table +
+import bloques bajo una sola transaccion TIA con rollback atomico) y
+un compile del PLC.
 
 Hereda directo de ``FunctionBase``.
 
@@ -42,26 +43,45 @@ El ``self.result`` se popula con la shape esperada por la SPA::
       "nuevo_dir":          str,
       "success":            bool,
       "import_result":      dict | None,
-      "compile_result":      dict | None,
+      "compile_result":     dict | None,
     }
 
-Steps (13):
+``import_result`` es el dict que devuelve
+``execute_transactional_batch``::
+
+    {
+      "success": True,
+      "operations_executed": 3,
+      "details": [
+        {"step": 1, "command": "import_plc_tags_xml", "result": ...},
+        {"step": 2, "command": "_wait", "result": "sleep 2.0s"},
+        {"step": 3, "command": "import_blocks_sd", "result": ...},
+      ],
+    }
+
+Steps (9):
   - leer_manifest             -> helper.proc_process_leer_manifest
   - validar_minimos           -> helper.proc_process_validar_minimos
   - copiar_a_preview          -> helper.proc_process_copiar_a_preview
   - construir_diccionarios    -> helper.proc_process_construir_diccionarios
-  - aplicar_clonacion_strict  -> helper.proc_process_aplicar_clonacion
+  - generar_proceso_nuevo     -> helper.proc_process_aplicar_clonacion
   - escribir_manifest_modified-> helper.proc_process_escribir_manifest
-  - import_tag_table          -> dispatch_async("import_plc_tags_xml")
-  - wait_consolidation        -> sleep 2s para que TIA consolide
-  - import_blocks_dbs         -> dispatch_async("import_blocks_sd")
-  - import_blocks_logicos     -> dispatch_async("import_blocks_sd")
-  - compile_plc               -> dispatch_async("compile_plc")
+  - importar_proceso          -> dispatch_async("execute_transactional_batch")
+                                con 3 ops bajo transaccion TIA:
+                                (1) import_plc_tags_xml,
+                                (2) _wait 2s (sub-comando que duerme
+                                    localmente sin tocar TIA, dentro
+                                    del handler transaccional),
+                                (3) import_blocks_sd
+                                Si cualquier op falla, TIA hace rollback
+                                de las 3 juntas.
+  - compilar                  -> dispatch_async("compile_plc") (fuera de
+                                transaccion; TIA compila todos los
+                                cambios pendientes del PLC).
   - done                      -> vuelco ``ctx.result`` a ``self.result``
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 from pathlib import Path
@@ -74,7 +94,10 @@ logger = logging.getLogger(__name__)
 
 # Mismo sleep que usan ``proc_sincronizar.wait_consolidation`` y
 # ``disp_Sincronizar.wait_consolidation`` tras un import masivo. TIA
-# necesita consolidar internamente antes de aceptar un compile.
+# necesita consolidar internamente antes de aceptar un segundo import.
+# Aqui el sleep vive DENTRO del handler
+# ``_h_execute_transactional_batch`` (sub-comando ``_wait``), no en el
+# FB — el FB solo lo declara como op del lote.
 TIA_CONSOLIDATION_SLEEP_S: float = 2.0
 
 
@@ -85,9 +108,9 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
     # CONFIGURACION ESTATICA DEL FB
     # ==================================================================
 
-    # 5 dispatches al worker OT (3 imports + 1 compile, mas un sleep
-    # de consolidacion). En PLCs grandes el import masivo puede
-    # tardar 1-3 min, el compile hasta 5 min. 600s cubre holgadamente.
+    # 2 dispatches al worker OT (1 lote transaccional + 1 compile).
+    # En PLCs grandes el import masivo puede tardar 1-3 min, el compile
+    # hasta 5 min. 600s cubre holgadamente.
     STEP_TIMEOUT_S: float = 600.0
 
     # ==================================================================
@@ -113,13 +136,10 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
                 {"nombre": "validar_minimos"},
                 {"nombre": "copiar_a_preview"},
                 {"nombre": "construir_diccionarios"},
-                {"nombre": "aplicar_clonacion_strict"},
+                {"nombre": "generar_proceso_nuevo"},
                 {"nombre": "escribir_manifest_modified"},
-                {"nombre": "import_tag_table"},
-                {"nombre": "wait_consolidation"},
-                {"nombre": "import_blocks_dbs"},
-                {"nombre": "import_blocks_logicos"},
-                {"nombre": "compile_plc"},
+                {"nombre": "importar_proceso"},
+                {"nombre": "compilar"},
                 {"nombre": "done"},
             ],
             tracker=tracker,
@@ -140,12 +160,14 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
         self._minimos_usuario: dict[str, int] = {}
         self._plc_name: str = ""
         self._plc_blocks_cache: set[str] | None = None
-        # Resultados intermedios de los dispatches.
-        self._import_tag_result: dict[str, Any] | None = None
-        self._import_blocks_dbs_result: dict[str, Any] | None = None
-        self._import_blocks_logicos_result: dict[str, Any] | None = None
+        # Resultados intermedios de los 2 dispatches.
+        # ``_import_batch_result``: dict de ``execute_transactional_batch``
+        # (``success``, ``operations_executed``, ``details``). El FB no
+        # lo inspecciona — solo lo expone en ``self.result``.
+        self._import_batch_result: dict[str, Any] | None = None
+        # ``_compile_result``: dict de ``compile_plc`` (con ``ok`` bool).
         self._compile_result: dict[str, Any] | None = None
-        # ProcProcessGenContext compartido entre los 13 ticks.
+        # ProcProcessGenContext compartido entre los 11 ticks.
         self._ctx: Any = None
 
     # ==================================================================
@@ -294,7 +316,7 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
                 await proc_process_generator.proc_process_construir_diccionarios(
                     self._ctx
                 )
-            case "aplicar_clonacion_strict":
+            case "generar_proceso_nuevo":
                 await proc_process_generator.proc_process_aplicar_clonacion(
                     self._ctx
                 )
@@ -302,56 +324,53 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
                 await proc_process_generator.proc_process_escribir_manifest(
                     self._ctx
                 )
-            case "import_tag_table":
-                # REGLA CRITICA (sept-2026): pasamos ``target_folder=None``
-                # (omitiendo el argumento). NUNCA ``""``. Ver
-                # ``tia_handlers._h_import_block`` para el detalle del bug.
-                self._import_tag_result = await dispatch_async(
-                    self._tia_client,
-                    "import_plc_tags_xml",
+            case "importar_proceso":
+                # 3 ops bajo una sola transaccion TIA. Si cualquier
+                # op falla, TIA hace rollback de las 3 juntas, dejando
+                # el PLC en el mismo estado previo.
+                #   1. import_plc_tags_xml sobre dir_nuevo/variables/
+                #   2. _wait 2s (sub-comando local del handler
+                #      ``_h_execute_transactional_batch``: duerme sin
+                #      tocar TIA, dando tiempo a consolidar entre el
+                #      import de tags y el de bloques)
+                #   3. import_blocks_sd sobre dir_nuevo/bloques/
+                # REGLA (sept-2026): ``import_plc_tags_xml`` se invoca
+                # sin ``target_folder`` (omitiendo el argumento); NUNCA
+                # pasar ``""``. Ver ``tia_handlers._h_import_block``.
+                batch_operations = [
                     {
-                        "plc_name": self._plc_name,
-                        "import_dir": str(
-                            self._ctx.dir_nuevo / "variables"
-                        ),
+                        "command": "import_plc_tags_xml",
+                        "args": {
+                            "plc_name": self._plc_name,
+                            "import_dir": str(
+                                self._ctx.dir_nuevo / "variables"
+                            ),
+                        },
+                    },
+                    {
+                        "command": "_wait",
+                        "args": {"seconds": TIA_CONSOLIDATION_SLEEP_S},
+                    },
+                    {
+                        "command": "import_blocks_sd",
+                        "args": {
+                            "plc_name": self._plc_name,
+                            "import_dir": str(
+                                self._ctx.dir_nuevo / "bloques"
+                            ),
+                        },
+                    },
+                ]
+                self._import_batch_result = await dispatch_async(
+                    self._tia_client,
+                    "execute_transactional_batch",
+                    {
+                        "undo_text": "Generar proceso desde plantilla",
+                        "operations": batch_operations,
                     },
                     timeout_s=600.0,
                 )
-            case "wait_consolidation":
-                # Sleep 2s para que TIA consolide internamente antes
-                # del compile. Patron paralelo a
-                # ``proc_sincronizar.wait_consolidation``.
-                await asyncio.sleep(TIA_CONSOLIDATION_SLEEP_S)
-            case "import_blocks_dbs":
-                self._import_blocks_dbs_result = await dispatch_async(
-                    self._tia_client,
-                    "import_blocks_sd",
-                    {
-                        "plc_name": self._plc_name,
-                        "import_dir": str(
-                            self._ctx.dir_nuevo / "bloques"
-                        ),
-                    },
-                    timeout_s=600.0,
-                )
-            case "import_blocks_logicos":
-                # Mismo handler ``import_blocks_sd`` que ``dbs``: TIA
-                # escanea recursivamente ``bloques/`` y matchea UPDATE
-                # por nombre de bloque preservando el subpath. No hace
-                # falta distinguir "DB" vs "FC" en el handler; el
-                # ``import_dir`` ya esta filtrado a ``bloques/``.
-                self._import_blocks_logicos_result = await dispatch_async(
-                    self._tia_client,
-                    "import_blocks_sd",
-                    {
-                        "plc_name": self._plc_name,
-                        "import_dir": str(
-                            self._ctx.dir_nuevo / "bloques"
-                        ),
-                    },
-                    timeout_s=600.0,
-                )
-            case "compile_plc":
+            case "compilar":
                 self._compile_result = await dispatch_async(
                     self._tia_client,
                     "compile_plc",
@@ -376,7 +395,7 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
 
     def on_finish(self, **params: Any) -> None:
         """Vuelca ``self.result`` con la shape que la SPA consume,
-        incluyendo los resultados de los 4 dispatches al worker OT."""
+        incluyendo los resultados de los 2 dispatches al worker OT."""
         if self._ctx is None:
             self.result = {
                 "success": False,
@@ -393,13 +412,13 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
             return
 
         base_result = self._ctx.result
+        # ``import_result`` es el dict crudo de
+        # ``execute_transactional_batch`` (``success``,
+        # ``operations_executed``, ``details``). La SPA solo lo
+        # muestra como badge, no inspecciona campos internos.
         self.result = {
             **base_result,
-            "import_result": {
-                "tag_table": self._import_tag_result,
-                "blocks_dbs": self._import_blocks_dbs_result,
-                "blocks_logicos": self._import_blocks_logicos_result,
-            },
+            "import_result": self._import_batch_result,
             "compile_result": self._compile_result,
         }
 
@@ -435,7 +454,7 @@ def _step_summary(fb: FunctionProcProcessCrearAplicar, step_nombre: str) -> str:
             f"{len(ctx.dicc_bloques)} reglas bloques + "
             f"{len(ctx.dicc_xml)} reglas XML"
         )
-    if step_nombre == "aplicar_clonacion_strict":
+    if step_nombre == "generar_proceso_nuevo":
         if ctx is None:
             return f"{step_nombre}: sin ctx"
         return (
@@ -443,22 +462,17 @@ def _step_summary(fb: FunctionProcProcessCrearAplicar, step_nombre: str) -> str:
         )
     if step_nombre == "escribir_manifest_modified":
         return f"{step_nombre}: manifest OK"
-    if step_nombre == "import_tag_table":
-        ok = fb._import_tag_result is not None  # noqa: SLF001
-        return (
-            f"{step_nombre}: "
-            f"{'OK' if ok else 'FAIL'} "
-            f"({len(ctx.archivos_generados) if ctx else 0} prev.)"
-        )
-    if step_nombre == "wait_consolidation":
-        return f"{step_nombre}: {TIA_CONSOLIDATION_SLEEP_S}s sleep OK"
-    if step_nombre == "import_blocks_dbs":
-        ok = fb._import_blocks_dbs_result is not None  # noqa: SLF001
-        return f"{step_nombre}: {'OK' if ok else 'FAIL'}"
-    if step_nombre == "import_blocks_logicos":
-        ok = fb._import_blocks_logicos_result is not None  # noqa: SLF001
-        return f"{step_nombre}: {'OK' if ok else 'FAIL'}"
-    if step_nombre == "compile_plc":
+    if step_nombre == "importar_proceso":
+        # Dict de ``execute_transactional_batch``: ``success`` bool +
+        # ``operations_executed`` int + ``details`` lista de
+        # sub-comandos.
+        batch = fb._import_batch_result  # noqa: SLF001
+        if not batch:
+            return f"{step_nombre}: FAIL (sin respuesta del lote)"
+        ok = bool(batch.get("success"))
+        n_ops = batch.get("operations_executed", "?")
+        return f"{step_nombre}: {'OK' if ok else 'FAIL'} ({n_ops} ops)"
+    if step_nombre == "compilar":
         ok = fb._compile_result is not None and fb._compile_result.get("ok")  # noqa: SLF001
         return f"{step_nombre}: {'OK' if ok else 'FAIL'}"
     if step_nombre == "done":

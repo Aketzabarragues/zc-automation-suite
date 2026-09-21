@@ -1020,6 +1020,22 @@ def _h_execute_transactional_batch(
             cmd = op.get("command", "")
             cmd_args = op.get("args", {})
 
+            # ``_wait`` es un sub-comando especial: sleep bloqueante
+            # local sin tocar TIA. Sirve para dar tiempo a TIA Portal
+            # a consolidar entre un import y otro dentro de la
+            # transaccion (import_tags -> wait -> import_blocks). El
+            # OT worker corre en hilo sync, asi que ``time.sleep`` es
+            # valido (no hay event loop del que salir).
+            if cmd == "_wait":
+                seconds = float(cmd_args.get("seconds", 0))
+                time.sleep(seconds)
+                results_list.append({
+                    "step": idx + 1,
+                    "command": cmd,
+                    "result": f"sleep {seconds}s",
+                })
+                continue
+
             if cmd in _TRANSACTION_FORBIDDEN_COMMANDS:
                 raise ValueError(
                     f"El comando '{cmd}' esta prohibido dentro de un lote "
