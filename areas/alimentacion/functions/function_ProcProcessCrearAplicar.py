@@ -334,6 +334,26 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
                 # 3 ops bajo una sola transaccion TIA. Si cualquier
                 # op falla, TIA hace rollback de las 3 juntas, dejando
                 # el PLC en el mismo estado previo.
+                #
+                # ORDEN CRITICO (sept-2026, validado en vivo por el
+                # operario): ``import_plc_tags_xml`` ANTES de
+                # ``import_blocks_sd``. Si invertimos el orden, TIA
+                # falla al compilar bloques que referencian constantes
+                # o tags todavia no importados: el import UPDATE
+                # queda inconsistente y la transaccion queda "corrupta"
+                # (error ``CommitOnDispose``).
+                #
+                # Por que: las plantillas pueden tener bloques
+                # (.s7dcl/.scl) que referencian constantes de usuario
+                # (``PlcUserConstant``) definidas en la tag table
+                # (``Variables PLC/003_Procesos/<base>.xml``). Si
+                # importamos los bloques primero, TIA no encuentra
+                # las constantes y el import UPDATE falla con
+                # ``OpennessAccessException`` que corrompe la
+                # transaccion. Importando tags primero + ``_wait``
+                # para consolidar, los bloques encuentran sus
+                # referencias y el UPDATE procede.
+                #
                 #   1. import_plc_tags_xml sobre ``dir_nuevo`` (TIA
                 #      recurse y procesa ``Variables PLC/**/*.xml``).
                 #   2. _wait 2s (sub-comando local del handler
@@ -343,12 +363,14 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
                 #   3. import_blocks_sd sobre ``dir_nuevo`` (TIA
                 #      recurse y procesa ``Bloques de programa/
                 #      **/*.s7dcl|.s7res|.scl|.awl``).
+                #
                 # El helper preserva la estructura de carpetas de la
                 # plantilla (ver ``proc_process_aplicar_clonacion``),
                 # asi que el dispatch contra la RAIZ de ``dir_nuevo``
                 # importa respetando el subpath original en el PLC.
                 # ``manifest.json`` se ignora porque TIA solo procesa
                 # extensiones relevantes para cada tipo de import.
+                #
                 # REGLA (sept-2026): ``import_plc_tags_xml`` /
                 # ``import_blocks_sd`` se invocan SIN ``target_folder``
                 # (omitiendo el argumento); NUNCA pasar ``""``. Ver
