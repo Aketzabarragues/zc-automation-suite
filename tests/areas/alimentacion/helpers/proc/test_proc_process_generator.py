@@ -488,6 +488,83 @@ async def test_generar_previstos_colision_por_tipo_numero(
 
 
 @pytest.mark.asyncio
+async def test_generar_previstos_pobla_colision_con(
+    make_ctx: Any,
+) -> None:
+    """Cuando un item colisiona por nombre O por tipo+numero,
+    el backend anota el bloque concreto del PLC en
+    ``colision_con`` (nombre + tipo + numero + tipo de match).
+    La SPA usa esto para mostrar "DUPLICADO - DB100_CPR".
+    """
+    plc_detalle = [
+        {"nombre": "DB60010_EXISTENTE", "tipo": "DB", "numero": 60010},
+        {"nombre": "FC60010_OTRA", "tipo": "FC", "numero": 60010},
+    ]
+    ctx = make_ctx(
+        plc_blocks_cache={"DB60010_EXISTENTE"},
+        plc_blocks_por_tipo={"DB": {60010}, "FC": {60010}},
+        plc_blocks_detalle=plc_detalle,
+    )
+    await proc_process_copiar_a_preview(ctx)
+    await proc_process_leer_manifest(ctx)
+    await proc_process_extraer_variables_xml(ctx)
+    await proc_process_construir_diccionarios(ctx)
+    await proc_process_detectar_colisiones(ctx)
+    await proc_process_generar_previstos(ctx)
+
+    db_items = [i for i in ctx.archivos_previstos if i.get("tipo_nuevo") == "DB"]
+    assert db_items, "Se esperaba items DB"
+    # El DB con numero destino 60010 debe traer colision_con
+    # apuntando al bloque del PLC con mismo (tipo, numero).
+    db_60010 = [i for i in db_items if i.get("numero_nuevo") == 60010]
+    for item in db_60010:
+        assert item["colisiona"] is True, item
+        assert item["colision_con"] is not None, item
+        assert item["colision_con"]["nombre"] == "DB60010_EXISTENTE"
+        assert item["colision_con"]["tipo"] == "DB"
+        assert item["colision_con"]["numero"] == 60010
+        assert item["colision_con"]["por"] in ("nombre", "tipo_numero")
+
+
+@pytest.mark.asyncio
+async def test_generar_previstos_colision_con_prioriza_nombre(
+    make_ctx: Any,
+) -> None:
+    """Si hay colision por nombre Y por (tipo,numero), el
+    backend prefiere match por nombre (mas descriptivo para
+    el operario: el nombre del PLC destino, no solo el slot).
+    """
+    plc_detalle = [
+        # El PLC tiene un DB en el slot 60010 con nombre
+        # "DB60010_NOMBRE_PLC". Colisiona con nuestro DB60010_EXP
+        # por (DB, 60010), pero NO por nombre (nuestro es _EXP).
+        {"nombre": "DB60010_NOMBRE_PLC", "tipo": "DB", "numero": 60010},
+    ]
+    ctx = make_ctx(
+        plc_blocks_cache=set(),  # sin match por nombre
+        plc_blocks_por_tipo={"DB": {60010}},
+        plc_blocks_detalle=plc_detalle,
+    )
+    await proc_process_copiar_a_preview(ctx)
+    await proc_process_leer_manifest(ctx)
+    await proc_process_extraer_variables_xml(ctx)
+    await proc_process_construir_diccionarios(ctx)
+    await proc_process_detectar_colisiones(ctx)
+    await proc_process_generar_previstos(ctx)
+
+    db_items = [i for i in ctx.archivos_previstos
+                if i.get("tipo_nuevo") == "DB"
+                and i.get("numero_nuevo") == 60010]
+    assert db_items, "Se esperaba item DB con numero 60010"
+    # Item colisiona por (tipo, numero) porque el nombre es
+    # distinto. Por tanto colision_con.por == "tipo_numero".
+    item = db_items[0]
+    assert item["colisiona"] is True, item
+    assert item["colision_con"]["por"] == "tipo_numero", item
+    assert item["colision_con"]["nombre"] == "DB60010_NOMBRE_PLC"
+
+
+@pytest.mark.asyncio
 async def test_generar_previstos_pobla_nombre_y_numero(
     make_ctx: Any,
 ) -> None:

@@ -146,6 +146,7 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
         self._plc_name: str = ""
         self._plc_blocks_cache: set[str] | None = None
         self._plc_blocks_por_tipo: dict[str, set[int]] | None = None
+        self._plc_blocks_detalle: list[dict[str, Any]] | None = None
         # Resultados intermedios de los dispatches.
         self._import_tag_result: dict[str, Any] | None = None
         self._import_blocks_dbs_result: dict[str, Any] | None = None
@@ -217,6 +218,7 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
             )
         plc_blocks_cache = params.get("plc_blocks_cache")
         plc_blocks_por_tipo = params.get("plc_blocks_por_tipo")
+        plc_blocks_detalle = params.get("plc_blocks_detalle")
         build_cache_root = params.get(
             "build_cache_root", self._build_cache_root
         )
@@ -242,6 +244,12 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
                 self._plc_blocks_por_tipo = {"_ALL": set(int(x) for x in pbt_raw)}
         else:
             self._plc_blocks_por_tipo = None
+        if isinstance(plc_blocks_detalle, list):
+            self._plc_blocks_detalle = [
+                b for b in plc_blocks_detalle if isinstance(b, dict)
+            ]
+        else:
+            self._plc_blocks_detalle = None
 
         dir_plantilla = Path(self._plantillas_path) / self._dir_plantilla_nombre
         if not dir_plantilla.exists():
@@ -270,6 +278,7 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
             nombre_nuevo=self._nombre_nuevo,
             plc_blocks_cache=self._plc_blocks_cache,
             plc_blocks_por_tipo=self._plc_blocks_por_tipo,
+            plc_blocks_detalle=self._plc_blocks_detalle,
             minimos_usuario=self._minimos_usuario,
         )
 

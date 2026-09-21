@@ -130,6 +130,7 @@ class FunctionProcProcessCrearPreview(FunctionBase):
         self._minimos_usuario: dict[str, int] = {}
         self._plc_blocks_cache: set[str] | None = None
         self._plc_blocks_por_tipo: dict[str, set[int]] | None = None
+        self._plc_blocks_detalle: list[dict[str, Any]] | None = None
         # ProcProcessGenContext compartido entre los 8 ticks. Se
         # reinicializa en cada on_start() para no arrastrar estado del
         # run anterior (el FB es re-arrancable).
@@ -184,6 +185,7 @@ class FunctionProcProcessCrearPreview(FunctionBase):
             )
         plc_blocks_cache = params.get("plc_blocks_cache")
         plc_blocks_por_tipo = params.get("plc_blocks_por_tipo")
+        plc_blocks_detalle = params.get("plc_blocks_detalle")
         build_cache_root = params.get(
             "build_cache_root", self._build_cache_root
         )
@@ -213,6 +215,16 @@ class FunctionProcProcessCrearPreview(FunctionBase):
                 self._plc_blocks_por_tipo = {"_ALL": set(int(x) for x in pbt_raw)}
         else:
             self._plc_blocks_por_tipo = None
+        # Detalle completo del PLC (para anotar ``colision_con``
+        # en cada item). Optional: si falta, los items colisionantes
+        # tendran solo ``colisiona=True`` (compat con tests que no
+        # emiten detalle, solo sets).
+        if isinstance(plc_blocks_detalle, list):
+            self._plc_blocks_detalle = [
+                b for b in plc_blocks_detalle if isinstance(b, dict)
+            ]
+        else:
+            self._plc_blocks_detalle = None
 
         dir_plantilla = Path(self._plantillas_path) / self._dir_plantilla_nombre
         if not dir_plantilla.exists():
@@ -241,6 +253,7 @@ class FunctionProcProcessCrearPreview(FunctionBase):
             nombre_nuevo=self._nombre_nuevo,
             plc_blocks_cache=self._plc_blocks_cache,
             plc_blocks_por_tipo=self._plc_blocks_por_tipo,
+            plc_blocks_detalle=self._plc_blocks_detalle,
             minimos_usuario=self._minimos_usuario,
         )
 

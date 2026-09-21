@@ -150,6 +150,15 @@ class ProcProcessGenContext:
     # Default None -> compat con tests legacy que solo pasan
     # ``plc_blocks_cache``.
     plc_blocks_por_tipo: dict[str, set[int]] | None = None
+    # Detalle completo de los bloques del PLC destino. Lista de
+    # ``{nombre, tipo, numero}``. Se usa en
+    # ``proc_process_generar_previstos`` para ANOTAR cada item
+    # colisionante con el bloque concreto del PLC que lo provoca
+    # (asi la SPA puede mostrar "DUPLICADO - DB100_CPR" en vez
+    # de solo "NO OK"). Derivado de la SPA (mismo shape que el
+    # ``list[dict]`` que viaja en el body). Si es None, no se
+    # intenta anotar ``colision_con`` (compat legacy).
+    plc_blocks_detalle: list[dict[str, Any]] | None = None
 
     # ── Resultado de proc_process_leer_manifest ──
     manifest_plantilla: dict[str, Any] | None = None
@@ -605,6 +614,65 @@ async def proc_process_generar_previstos(
             colisiona_tipo_numero = numero_nuevo in numeros_del_tipo
         colisiona = colisiona_nombre or colisiona_tipo_numero
 
+        # ``colision_con``: el bloque CONCRETO del PLC destino
+        # que provoca la colision. Lo busca el operador en la SPA
+        # para mostrarlo ("DUPLICADO - DB100_CPR"). Prioriza el
+        # match por nombre si hay ambos; si solo hay por tipo+numero
+        # devuelve el primer bloque del PLC con ese (tipo, numero).
+        colision_con: dict[str, Any] | None = None
+        if colisiona and ctx.plc_blocks_detalle:
+            for plc_bloque in ctx.plc_blocks_detalle:
+                if not isinstance(plc_bloque, dict):
+                    continue
+                plc_nombre = str(
+                    plc_bloque.get("nombre") or plc_bloque.get("name") or ""
+                )
+                plc_tipo = str(
+                    plc_bloque.get("tipo") or plc_bloque.get("type") or ""
+                ).upper().strip()
+                plc_num = plc_bloque.get("numero")
+                try:
+                    plc_num_int = int(plc_num) if plc_num is not None else 0
+                except (TypeError, ValueError):
+                    plc_num_int = 0
+                # Match por nombre (prioridad): mismo nombre exacto.
+                if colisiona_nombre and plc_nombre and plc_nombre == nuevo_stem:
+                    colision_con = {
+                        "nombre": plc_nombre,
+                        "tipo": plc_tipo,
+                        "numero": plc_num_int,
+                        "por": "nombre",
+                    }
+                    break
+            # Si no hubo match por nombre pero SI por tipo+numero,
+            # devolvemos el primer bloque del PLC con ese (tipo,numero).
+            if colision_con is None and colisiona_tipo_numero:
+                for plc_bloque in ctx.plc_blocks_detalle:
+                    if not isinstance(plc_bloque, dict):
+                        continue
+                    plc_tipo = str(
+                        plc_bloque.get("tipo")
+                        or plc_bloque.get("type")
+                        or ""
+                    ).upper().strip()
+                    plc_num = plc_bloque.get("numero")
+                    try:
+                        plc_num_int = int(plc_num) if plc_num is not None else 0
+                    except (TypeError, ValueError):
+                        plc_num_int = 0
+                    if plc_tipo == tipo_nuevo and plc_num_int == numero_nuevo:
+                        colision_con = {
+                            "nombre": str(
+                                plc_bloque.get("nombre")
+                                or plc_bloque.get("name")
+                                or ""
+                            ),
+                            "tipo": plc_tipo,
+                            "numero": plc_num_int,
+                            "por": "tipo_numero",
+                        }
+                        break
+
         archivos_previstos.append({
             "rel_in": str(rel_in),
             "rel_out": str(rel_out),
@@ -620,6 +688,10 @@ async def proc_process_generar_previstos(
             "tipo_nuevo": tipo_nuevo,
             "numero_original": numero_original,
             "numero_nuevo": numero_nuevo,
+            # Bloque concreto del PLC que provoca la colision
+            # (None si OK). Lo usa la SPA para mostrar
+            # "DUPLICADO - DB100_CPR" en la columna ESTADO.
+            "colision_con": colision_con,
         })
 
     ctx.archivos_previstos = archivos_previstos
