@@ -385,27 +385,18 @@ async def test_detectar_colisiones_match_plc_cache(make_ctx: Any) -> None:
 
 
 @pytest.mark.asyncio
-async def test_detectar_colisiones_match_por_numero(make_ctx: Any) -> None:
-    """Match por NUMERO: si el numero del bloque nuevo esta en la
-    cache del PLC, tambien es colision (util cuando el scanner del
-    PLC cache emite dicts con ``numero`` y el match por nombre no
-    detecta cross-type).
-
-    Tras el rename, los bloques del dummy son:
-      FC50010_TEST_INTERFAZ -> FC60010_EXP_INTERFAZ
-      50010_TEST_COMENTARIOS -> 60010_EXP_COMENTARIOS
-      50010_TEST.xml -> 60010_EXP.xml
-    Sus numeros son 60010 (FC, DB) y el .xml no es un bloque. El
-    match por nombre seria con un bloque que se llame exactamente
-    ``FC60010_EXP_INTERFAZ``. Aqui forzamos match por NUMERO: el
-    PLC cache tiene un bloque con numero 60010 y nombre distinto,
-    asi que solo el camino ``re.match(r"^([A-Za-z]+)(\d+)", val)``
-    contra ``plc_numeros`` puede detectarlo.
+async def test_detectar_colisiones_match_por_tipo_numero(make_ctx: Any) -> None:
+    """Match por ``(prefijo, numero)``: el nuevo proceso genera
+    ``FC60010_EXP_INTERFAZ``. El PLC cache tiene
+    ``FC60010_OTRO_NOMBRE`` con prefijo FC y numero 60010 (mismo
+    tipo, mismo numero, distinto nombre). Esto ES colision en TIA
+    Portal: dos FC con el mismo numero no pueden coexistir aunque
+    los nombres difieran.
     """
     ctx = make_ctx(
         plc_blocks_cache=[{
-            "nombre": "FC60010_OTRO_NOMBRE",  # nombre NO matchea
-            "numero": 60010,                  # numero SI matchea
+            "nombre": "FC60010_OTRO_NOMBRE",
+            "numero": 60010,
         }],
     )
     await proc_process_copiar_a_preview(ctx)
@@ -413,18 +404,61 @@ async def test_detectar_colisiones_match_por_numero(make_ctx: Any) -> None:
     await proc_process_construir_diccionarios(ctx)
     await proc_process_detectar_colisiones(ctx)
 
-    # Match por numero: el bloque ``FC60010_EXP_INTERFAZ`` del nuevo
-    # proceso empieza por FC + 60010 -> choca con el bloque de
-    # numero 60010 del PLC cache.
+    # Match por (FC, 60010): colision con el bloque FC60010_OTRO_NOMBRE
+    # del PLC.
     assert "FC60010_EXP_INTERFAZ" in ctx.colisiones, (
-        f"Esperaba colision FC60010_EXP_INTERFAZ (match por numero 60010); "
+        f"Esperaba colision FC60010_EXP_INTERFAZ (match por tipo+numero); "
         f"colisiones={ctx.colisiones}"
     )
-    # ``colisiones_con`` debe apuntar al identificador del PLC (nombre
-    # preferred).
+    # ``colisiones_con`` debe apuntar al identificador del PLC.
     assert ctx.colisiones_con["FC60010_EXP_INTERFAZ"] == (
         "FC60010_OTRO_NOMBRE"
     ), f"colisiones_con={ctx.colisiones_con}"
+
+
+@pytest.mark.asyncio
+async def test_detectar_colisiones_mismo_numero_distinto_prefijo_no_colisiona(
+    make_ctx: Any,
+) -> None:
+    """Mismo numero pero distinto prefijo NO es colision.
+
+    En TIA Portal, FC100 y OB100 pueden coexistir (namespaces
+    separados por tipo de bloque: FC, FB, DB, OB viven cada uno
+    en su propio espacio de numeros). Por tanto, un nuevo
+    ``FC100`` no debe marcarse como duplicado solo porque exista
+    un ``OB100`` en el PLC. Solo choca si el tipo Y el numero
+    coinciden (o si el nombre completo coincide).
+    """
+    ctx = make_ctx(
+        plc_blocks_cache=[{
+            "nombre": "OB100_Startup",  # prefijo OB, numero 100
+            "numero": 100,
+        }],
+    )
+    await proc_process_copiar_a_preview(ctx)
+    await proc_process_leer_manifest(ctx)
+    await proc_process_construir_diccionarios(ctx)
+    await proc_process_detectar_colisiones(ctx)
+
+    # ``FC100`` (o ``FC100_<sufijo>``) del nuevo proceso NO debe
+    # colisionar con ``OB100_Startup`` del PLC: mismo numero pero
+    # distinto prefijo (FC vs OB).
+    fc_items = [c for c in ctx.colisiones if c.startswith("FC1")]
+    assert fc_items == [], (
+        f"FC100 no debe colisionar con OB100_Startup (distinto prefijo); "
+        f"colisiones={ctx.colisiones}"
+    )
+    # Y ``DB100`` tampoco (DB vs OB).
+    db_items = [c for c in ctx.colisiones if c.startswith("DB1")]
+    assert db_items == [], (
+        f"DB100 no debe colisionar con OB100_Startup (distinto prefijo); "
+        f"colisiones={ctx.colisiones}"
+    )
+    # Ninguna colision debe quedar (el cache solo tiene OB100_Startup
+    # y los nombres nuevos son distintos).
+    assert ctx.colisiones == [], (
+        f"No esperaba colisiones; obtuve {ctx.colisiones}"
+    )
 
 
 @pytest.mark.asyncio

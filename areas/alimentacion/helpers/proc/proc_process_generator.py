@@ -295,6 +295,13 @@ async def proc_process_detectar_colisiones(ctx: ProcProcessGenContext) -> None:
     (nombre preferred, fallback a ``"<numero>"``). La SPA lo usa
     para pintar ``DUPLICADO - <id>``.
 
+    IMPORTANTE: el match por numero SIEMPRE requiere que el prefijo
+    alfabetico del nombre coincida (e.g. ``FC100`` y ``OB100`` son
+    bloques distintos en TIA Portal: FC/FB/DB/OB/UDT pueden
+    coexistir con el mismo numero porque viven en namespaces
+    distintos). El match real es por la tupla
+    ``(prefijo_upper, numero)``.
+
     Si ``plc_blocks_cache`` es ``None`` (cache nunca populado),
     emite un mensaje accionable y devuelve sin abortar.
     """
@@ -319,11 +326,17 @@ async def proc_process_detectar_colisiones(ctx: ProcProcessGenContext) -> None:
         elif isinstance(item, str):
             plc_entries.append({"nombre": item, "numero": None})
 
-    # Sets de lookup rapido + mapas inversos nombre/numero -> id.
+    # Sets de lookup rapido + mapas inversos:
+    #   - plc_nombres: match exacto por nombre.
+    #   - plc_tipo_numero: match por ``(prefijo_upper, numero)``.
+    #     El prefijo es lo que viene del scanner (``FC100``,
+    #     ``OB100_Startup``, ``DB50010``, ...); uppercased para que
+    #     ``fc100`` y ``FC100`` matcheen identico.
     plc_nombres: set[str] = set()
-    plc_numeros: set[int] = set()
+    plc_tipo_numero: set[tuple[str, int]] = set()
     id_por_nombre: dict[str, str] = {}
-    id_por_numero: dict[int, str] = {}
+    id_por_tipo_numero: dict[tuple[str, int], str] = {}
+    patron_prefijo_num = re.compile(r"^([A-Za-z]+)(\d+)")
     for blk in plc_entries:
         nombre_raw = blk.get("nombre")
         nombre = str(nombre_raw) if nombre_raw else ""
@@ -343,9 +356,24 @@ async def proc_process_detectar_colisiones(ctx: ProcProcessGenContext) -> None:
         if nombre and nombre not in plc_nombres:
             plc_nombres.add(nombre)
             id_por_nombre[nombre] = ident
-        if numero is not None and numero not in plc_numeros:
-            plc_numeros.add(numero)
-            id_por_numero[numero] = ident
+        # Para el match (prefijo, numero) necesitamos ambos campos
+        # del bloque PLC. Los bloques sin ``numero`` explicito lo
+        # extraemos del nombre (e.g. ``OB100_Startup`` -> ("OB", 100)).
+        # Esto cubre bloques que el scanner emite como string sin
+        # numero separado, que es lo tipico.
+        num_para_tipo = numero
+        prefijo_para_tipo: str | None = None
+        if nombre:
+            m_plc = patron_prefijo_num.match(nombre)
+            if m_plc:
+                prefijo_para_tipo = m_plc.group(1).upper()
+                if num_para_tipo is None:
+                    num_para_tipo = int(m_plc.group(2))
+        if prefijo_para_tipo and num_para_tipo is not None:
+            key_tipo_num = (prefijo_para_tipo, num_para_tipo)
+            if key_tipo_num not in plc_tipo_numero:
+                plc_tipo_numero.add(key_tipo_num)
+                id_por_tipo_numero[key_tipo_num] = ident
 
     colisiones_vistas: set[str] = set()
     # Filtramos solo nombres post-rename reales (excluimos
@@ -366,17 +394,18 @@ async def proc_process_detectar_colisiones(ctx: ProcProcessGenContext) -> None:
             ctx.colisiones_con[val] = id_por_nombre[val]
             colisiones_vistas.add(val)
             continue
-        # Match por numero: extraer el primer run de digitos del stem
-        # precedido por prefijo alfabetico al INICIO del nombre
-        # (``FC60010`` o ``FC60010_EXP_INTERFAZ`` -> ("FC", "60010")).
-        # ``^([A-Za-z]+)(\d+)`` (sin ``$``) captura prefijos+numero
-        # aunque el stem tenga sufijo adicional (e.g. ``_INTERFAZ``).
-        m = re.match(r"^([A-Za-z]+)(\d+)", val)
+        # Match por ``(prefijo_upper, numero)``. Crucial: FC100 y
+        # OB100 son bloques distintos en TIA Portal (namespaces
+        # separados por tipo de bloque), asi que el match por numero
+        # aislado seria incorrecto.
+        m = patron_prefijo_num.match(val)
         if m:
+            prefijo = m.group(1).upper()
             num = int(m.group(2))
-            if num in plc_numeros:
+            key_tipo_num = (prefijo, num)
+            if key_tipo_num in plc_tipo_numero:
                 ctx.colisiones.append(val)
-                ctx.colisiones_con[val] = id_por_numero[num]
+                ctx.colisiones_con[val] = id_por_tipo_numero[key_tipo_num]
                 colisiones_vistas.add(val)
 
 
