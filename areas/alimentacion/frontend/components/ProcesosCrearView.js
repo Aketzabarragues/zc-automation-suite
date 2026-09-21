@@ -213,6 +213,50 @@ export default {
             }
         );
 
+        // Filas de la tabla comparativa N_MAX / UID / CODIGO entre
+        // la plantilla seleccionada (manifest) y el proceso del Excel.
+        // Reactivo: cambia cuando ``selectedPlantilla`` o
+        // ``procesoExcel`` cambian. Si uno de los dos falta, su
+        // columna muestra "-" (defensivo: el operario aun no
+        // selecciono plantilla o Excel).
+        const nmaxRows = computed(() => {
+            const pl = selectedPlantilla.value;
+            const proc = procesoExcel.value;
+            const min = (pl && pl.minimos) || {};
+            return [
+                {
+                    dato: "PREAL",
+                    plantilla: min.N_MAX_PREAL ?? "-",
+                    nuevo: proc ? proc.preal : "-",
+                },
+                {
+                    dato: "PINT",
+                    plantilla: min.N_MAX_PINT ?? "-",
+                    nuevo: proc ? proc.pint : "-",
+                },
+                {
+                    dato: "ALM",
+                    plantilla: min.N_MAX_ALM ?? "-",
+                    nuevo: proc ? proc.alarmas : "-",
+                },
+                {
+                    dato: "ALM_HMI",
+                    plantilla: min.N_MAX_ALM_HMI ?? "-",
+                    nuevo: proc ? proc.alm_hmi : "-",
+                },
+                {
+                    dato: "UID",
+                    plantilla: pl ? pl.base : "-",
+                    nuevo: proc ? proc.uid : "-",
+                },
+                {
+                    dato: "CODIGO",
+                    plantilla: pl ? pl.codigo : "-",
+                    nuevo: proc ? proc.codigo : "-",
+                },
+            ];
+        });
+
         return {
             plantillas,
             plantillasLoading,
@@ -223,6 +267,7 @@ export default {
             procesoExcel,
             procedimientoLabel,
             hayExcel,
+            nmaxRows,
             previewData,
             aplicacionEstado,
             aplicacionError,
@@ -315,47 +360,39 @@ export default {
                 </select>
             </div>
 
-            <!-- Grid con los N_MAX del proceso del Excel seleccionado.
-                 Es solo informativo (preview para el operario de lo que
-                 el backend va a usar); los valores reales los resuelve
-                 el backend via ProcGenerateProcExcel en AppState. -->
-            <div v-if="hayExcel" class="mt-3 grid grid-cols-3 gap-2 text-xs">
-                <div class="bg-surface-sunken border border-line rounded px-2 py-1">
-                    <div class="text-ink-muted">PREAL</div>
-                    <div class="font-mono font-bold text-accent text-sm">
-                        {{ procesoExcel.preal }}
-                    </div>
-                </div>
-                <div class="bg-surface-sunken border border-line rounded px-2 py-1">
-                    <div class="text-ink-muted">PINT</div>
-                    <div class="font-mono font-bold text-accent text-sm">
-                        {{ procesoExcel.pint }}
-                    </div>
-                </div>
-                <div class="bg-surface-sunken border border-line rounded px-2 py-1">
-                    <div class="text-ink-muted">ALM</div>
-                    <div class="font-mono font-bold text-accent text-sm">
-                        {{ procesoExcel.alarmas }}
-                    </div>
-                </div>
-                <div class="bg-surface-sunken border border-line rounded px-2 py-1">
-                    <div class="text-ink-muted">ALM HMI</div>
-                    <div class="font-mono font-bold text-accent text-sm">
-                        {{ procesoExcel.alm_hmi }}
-                    </div>
-                </div>
-                <div class="bg-surface-sunken border border-line rounded px-2 py-1">
-                    <div class="text-ink-muted">UID</div>
-                    <div class="font-mono font-bold text-accent text-sm">
-                        {{ procesoExcel.uid }}
-                    </div>
-                </div>
-                <div class="bg-surface-sunken border border-line rounded px-2 py-1">
-                    <div class="text-ink-muted">Codigo</div>
-                    <div class="font-mono font-bold text-accent text-sm">
-                        {{ procesoExcel.codigo }}
-                    </div>
-                </div>
+            <!-- Tabla comparativa N_MAX / UID / CODIGO entre la plantilla
+                 seleccionada (manifest) y el proceso del Excel. Mismo
+                 lenguaje visual que DispositivosPanel/ProcesosPanel
+                 (sticky header, container bg-surface-raised + border
+                 + rounded). Las 6 filas son estaticas (los nombres de
+                 las claves canonicas); los valores son reactivos
+                 (``nmaxRows`` computed). Columna "-" si no hay
+                 plantilla/proceso seleccionado (defensivo). -->
+            <div class="mt-3 flex-1 overflow-auto table-scroll-x bg-surface-raised border border-line rounded">
+                <table class="w-full text-xs">
+                    <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
+                        <tr>
+                            <th class="px-3 py-2 text-left text-ink-muted">DATO</th>
+                            <th class="px-3 py-2 text-left text-ink-muted">PLANTILLA</th>
+                            <th class="px-3 py-2 text-left text-ink-muted">PROCESO NUEVO</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="row in nmaxRows"
+                            :key="row.dato"
+                            class="border-b border-line">
+                            <td class="px-3 py-1.5 align-top text-ink font-semibold">
+                                {{ row.dato }}
+                            </td>
+                            <td class="px-3 py-1.5 align-top text-ink font-mono">
+                                {{ row.plantilla }}
+                            </td>
+                            <td class="px-3 py-1.5 align-top text-ink font-mono">
+                                {{ row.nuevo }}
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
 
             <button type="button"
