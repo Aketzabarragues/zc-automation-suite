@@ -4,10 +4,9 @@ Cubre:
   - Happy path: 11 ticks (1 arrancar + 9 steps + 1 finalizar) -> n_done,
     ``self.result`` con shape de apply (archivos_generados, colisiones,
     nuevo_dir, manifest_plantilla, import_result, compile_result).
-  - Sad path: ``dispatch_async`` retorna ``{"ok": False, "error": "..."}``
-    en ``import_blocks_sd`` (que es el segundo dispatch del step
-    ``importar_proceso``: tags + wait + blocks) -> el FB va a
-    ``n_error``.
+  - Sad path: ``execute_transactional_batch`` retorna
+    ``{"ok": False, ...}`` -> el FB va a ``n_error`` (rollback atomico
+    del lote).
 
 Mockeamos:
   - ``config_manager``, ``app_state``, ``build_cache`` con ``MagicMock``.
@@ -18,14 +17,11 @@ Mockeamos:
 ``progress`` es un ``ProgressTracker`` real (NO mockeado) para verificar
 el flujo de stages.
 
-NOTA (sept-2026): el FB ya NO usa ``execute_transactional_batch``
-porque TIA Openness V21 corrompe la transaccion cuando
-``import_blocks_sd`` corre dentro de un
-``project.start_transaction``/``end_transaction`` (error
-``CommitOnDispose``). El step ``importar_proceso`` ahora hace
-2 dispatches secuenciales (``import_plc_tags_xml`` +
-``import_blocks_sd``) separados por un ``asyncio.sleep`` local. Si
-uno falla, el FB va a ``n_error`` con el mensaje de TIA.
+NOTA (sept-2026): el FB usa ``execute_transactional_batch`` para tener
+rollback atomico entre ``import_plc_tags_xml`` y ``import_blocks_sd``.
+Si TIA V21 corrompe la transaccion (error ``CommitOnDispose`` que
+vimos en commit 8ed8705), el rollback automatico del lote protege
+al PLC. El FB detecta el fallo (lote.ok=False) y va a ``n_error``.
 """
 from __future__ import annotations
 
@@ -158,8 +154,23 @@ async def test_apply_happy_path_11_ticks(
     # ``await dispatch_async(tia_client, command, args, timeout_s)``.
     # Devolvemos un dict de exito para cada comando; ``compile_plc`` y
     # ``execute_transactional_batch`` usan ``result.get("ok")`` para
-    # detectar exito, asi que devolvemos ``{"ok": True, ...}``.
+    # detectar exito, asi que devolvemos ``{"ok": True, ...}``. Para
+    # el lote transaccional devolvemos el shape real con ``operations_executed``
+    # y ``details`` para que el test verifique la forma consolidada.
     async def fake_dispatch(tia_client: Any, command: str, args: dict, **kw: Any) -> dict:
+        if command == "execute_transactional_batch":
+            return {
+                "ok": True,
+                "operations_executed": 3,
+                "details": [
+                    {"step": 1, "command": "import_plc_tags_xml",
+                     "result": {"imported_from": ""}},
+                    {"step": 2, "command": "_wait",
+                     "result": "sleep 2.0s"},
+                    {"step": 3, "command": "import_blocks_sd",
+                     "result": {"imported_from": ""}},
+                ],
+            }
         return {"ok": True, "imported_from": args.get("import_dir", "")}
 
     monkeypatch.setattr(
@@ -224,7 +235,7 @@ async def test_apply_happy_path_11_ticks(
     # ``details``: tags + wait + blocks.
     ir = fb.result["import_result"]
     assert ir["ok"] is True
-    assert ir["operations_executed"] == 2
+    assert ir["operations_executed"] == 3
     assert len(ir["details"]) == 3
     assert ir["details"][0]["command"] == "import_plc_tags_xml"
     assert ir["details"][1]["command"] == "_wait"
@@ -235,48 +246,45 @@ async def test_apply_happy_path_11_ticks(
 
 
 @pytest.mark.asyncio
-async def test_apply_import_blocks_falla(
+async def test_apply_lote_transaccional_falla(
     plantilla_dummy: Path,
     tmp_path: Path,
     progress: ProgressTracker,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``dispatch_async`` retorna ``{"ok": False, ...}`` en
-    ``import_blocks_sd`` -> el FB va a ``n_error``.
+    """``execute_transactional_batch`` retorna ``{ok: False, ...}``
+    -> el FB va a ``n_error``.
 
-    El step ``importar_proceso`` ejecuta 2 dispatches secuenciales:
-    1. ``import_plc_tags_xml`` -> si falla, aborta aqui.
-    2. ``import_blocks_sd`` -> si falla, aborta aqui.
-
-    Aqui forzamos el caso 2 (el bug TIA Openness V21 con
-    CommitOnDispose que vimos en sept-2026): ``import_plc_tags_xml``
-    tiene exito pero ``import_blocks_sd`` retorna
-    ``{"ok": False, "error": "TIA CommitOnDispose..."}``. El FB
-    detecta el fallo y va a ``n_error`` sin ejecutar ``compile_plc``.
+    El step ``importar_proceso`` ejecuta UN SOLO dispatch
+    (``execute_transactional_batch``) que internamente corre las 3
+    ops (tags + wait + blocks) bajo una transaccion TIA. Aqui
+    forzamos que el lote retorne fallo (simula el caso en el que
+    TIA no puede hacer commit del lote por algun motivo:
+    bloque conflictivo, transaccion corrupta, etc.). El FB detecta
+    el fallo y va a ``n_error`` sin ejecutar ``compile_plc``.
     """
     tia = MagicMock()
 
-    dispatch_count = {"import_plc_tags_xml": 0, "import_blocks_sd": 0}
+    dispatch_count = {"execute_transactional_batch": 0}
 
     async def fake_dispatch(
         tia_client: Any, command: str, args: dict, **kw: Any,
     ) -> dict:
-        if command == "import_plc_tags_xml":
-            dispatch_count["import_plc_tags_xml"] += 1
-            return {"ok": True}
-        if command == "import_blocks_sd":
-            dispatch_count["import_blocks_sd"] += 1
+        if command == "execute_transactional_batch":
+            dispatch_count["execute_transactional_batch"] += 1
             return {
                 "ok": False,
                 "error": (
-                    "OpennessAccessException: Error when calling "
-                    "method 'CommitOnDispose' of type "
+                    "Lote abortado en el paso 3 ('import_blocks_sd'). "
+                    "Rollback ejecutado. Motivo: OpennessAccessException: "
+                    "Error when calling method 'CommitOnDispose' of type "
                     "'Siemens.Engineering.Transaction'. Commit of a "
                     "Transaction is not allowed after an exception is "
                     "thrown due to potential project data corruption."
                 ),
             }
-        # No deberia llamarse a ningun otro dispatch.
+        # No deberia llamarse a ningun otro dispatch (los imports
+        # estan dentro del lote).
         raise AssertionError(f"dispatch no esperado: {command!r}")
 
     monkeypatch.setattr(
@@ -310,7 +318,7 @@ async def test_apply_import_blocks_falla(
     #   3: construir_diccionarios
     #   4: generar_proceso_nuevo
     #   5: escribir_manifest_modified
-    #   6: importar_proceso  <- aqui falla import_blocks_sd
+    #   6: importar_proceso  <- aqui falla el lote transaccional
     # Tras 1 arrancar + 6 offline = 7 ticks, estamos en ejecutar.
     for _ in range(7):
         await fb.tick()
@@ -319,17 +327,17 @@ async def test_apply_import_blocks_falla(
         )
     assert fb.nStep == fb.n_ejecutar
 
-    # tick #8: ``importar_proceso`` -> import_tags OK, import_blocks FAIL
-    # -> n_error
+    # tick #8: ``importar_proceso`` -> execute_transactional_batch
+    # retorna ok=False -> n_error
     await fb.tick()
     assert fb.nStep == fb.n_error  # 98
     assert fb.error_msg is not None
-    # El mensaje viene del RuntimeError que lanza el FB cuando
-    # import_blocks_sd retorna ok=False.
-    assert "import_blocks_sd fallo" in fb.error_msg
+    # El mensaje viene del RuntimeError que lanza el FB cuando el
+    # lote transaccional retorna ok=False.
+    assert "execute_transactional_batch fallo" in fb.error_msg
     assert "CommitOnDispose" in fb.error_msg
 
-    # Verificamos que se llamaron los 2 dispatches esperados.
-    assert dispatch_count["import_plc_tags_xml"] == 1
-    assert dispatch_count["import_blocks_sd"] == 1
+    # Verificamos que se llamo el dispatch del lote (solo 1; los
+    # imports viven dentro del lote, no como dispatches separados).
+    assert dispatch_count["execute_transactional_batch"] == 1
     # ``compile_plc`` NUNCA se llamo (el FB aborto antes).
