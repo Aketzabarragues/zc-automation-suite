@@ -53,7 +53,6 @@ Steps (13):
   - validar_minimos           -> helper.proc_process_validar_minimos
   - copiar_a_preview          -> helper.proc_process_copiar_a_preview
   - construir_diccionarios    -> helper.proc_process_construir_diccionarios
-  - extraer_variables_xml     -> helper.proc_process_extraer_variables_xml
   - aplicar_clonacion_strict  -> helper.proc_process_aplicar_clonacion
   - escribir_manifest_modified-> helper.proc_process_escribir_manifest
   - import_tag_table          -> dispatch_async("import_plc_tags_xml")
@@ -117,7 +116,6 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
                 {"nombre": "validar_minimos"},
                 {"nombre": "copiar_a_preview"},
                 {"nombre": "construir_diccionarios"},
-                {"nombre": "extraer_variables_xml"},
                 {"nombre": "aplicar_clonacion_strict"},
                 {"nombre": "escribir_manifest_modified"},
                 {"nombre": "import_tag_table"},
@@ -322,10 +320,6 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
                 await proc_process_generator.proc_process_construir_diccionarios(
                     self._ctx
                 )
-            case "extraer_variables_xml":
-                await proc_process_generator.proc_process_extraer_variables_xml(
-                    self._ctx
-                )
             case "aplicar_clonacion_strict":
                 await proc_process_generator.proc_process_aplicar_clonacion(
                     self._ctx
@@ -467,11 +461,6 @@ def _step_summary(fb: FunctionProcProcessCrearAplicar, step_nombre: str) -> str:
             f"{len(ctx.dicc_bloques)} reglas bloques + "
             f"{len(ctx.dicc_xml)} reglas XML"
         )
-    if step_nombre == "extraer_variables_xml":
-        if ctx is None:
-            return f"{step_nombre}: sin ctx"
-        n = len(ctx.__dict__.get("_variables_xml_exactas", []))
-        return f"{step_nombre}: {n} variables exactas"
     if step_nombre == "aplicar_clonacion_strict":
         if ctx is None:
             return f"{step_nombre}: sin ctx"

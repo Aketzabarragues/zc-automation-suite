@@ -1,37 +1,21 @@
-"""Port de ``clone.py`` a una libreria invocable desde FBs del area
-procesos (generar un proceso completo desde plantilla).
+"""Helper para generar un proceso completo desde una plantilla.
 
 Funciones puras independientes. Cada una toma un
 ``ProcProcessGenContext`` por argumento y muta sus campos con el
 resultado de su trabajo.
 
-Este modulo **no contiene state machine**. La orquestacion de las
-funciones (orden, dependencias entre etapas, mapeo a steps del FB)
-vive exclusivamente en:
+La orquestacion de las funciones vive en los FBs del area:
   - ``areas/alimentacion/functions/function_ProcProcessCrearPreview.py``
   - ``areas/alimentacion/functions/function_ProcProcessCrearAplicar.py``
 
-El helper **NO llama a TIA**. Toda interaccion contra el PLC vive en
-los 2 FBs anteriores (que delegan en ``dispatch_async``). Aqui solo
-se manipulan archivos locales (copytree + regex).
-
-Restricciones arquitectonicas (.clinerules):
-  - NO importa ``siemens_tia_scripting``.
-  - Sin Singletons dentro del helper; todas las deps inyectadas.
-  - Cero rutas hardcodeadas: rutas y carpetas se leen del
-    ``ProcProcessGenContext`` (que el FB construye con el
-    ``build_cache_root`` del area).
-  - El helper NO toca ``progress_tracker``; eso es responsabilidad
-    del FB wrapper.
-  - El helper NO contiene state machine (orden, mapping, dispatch);
-    eso vive en los FBs.
+El helper no llama a TIA. Solo manipula archivos locales
+(copytree + regex).
 """
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
-import os
 import re
 import shutil
 from dataclasses import dataclass, field
@@ -50,85 +34,27 @@ EXTENSIONES_TEXTO: frozenset[str] = frozenset({
     ".s7dcl", ".s7res", ".scl", ".xml", ".awl",
 })
 
-# Rango de numeros que se considera "de este proceso" al escanear XML.
-# Si una variable empieza con un numero fuera de
-# ``[base_vieja, base_vieja + OFFSET_SAFETY_RANGE)``, no se reemplaza.
-OFFSET_SAFETY_RANGE: int = 10_000
-
-# Solo las 4 N_MAX del estandar: las mismas que valida el manifest de
-# plantilla y las que el operario rellena en el form.
+# Las 4 N_MAX del estandar que valida el manifest y rellena el operario.
 N_MAX_KEYS: tuple[str, ...] = (
     "N_MAX_PREAL", "N_MAX_PINT", "N_MAX_ALM", "N_MAX_ALM_HMI",
 )
 
-# Regex para extraer el ``<Name>UID_NOMBRE</Name>`` exacto del XML de
-# variables. Filtra los numeros que estan dentro del rango del proceso.
-PATRON_XML_VARIABLE = re.compile(r"<Name>(\d+_[a-zA-Z0-9_]+)</Name>")
-
-# Regex para extraer todos los <Value>NN</Value> numericos del XML de
-# variables. Usado para re-mapear los 4 N_MAX del manifest.
-PATRON_XML_VALUE = re.compile(r"<Value>(\d+)</Value>")
-
-# Regex para el ``S7_BlockNumber := "50010"`` que aparece en la cabecera
-# de los archivos ``.s7dcl`` / ``.scl`` exportados por TIA Portal.
-# Es la fuente de verdad del numero de bloque (no heuristica sobre
-# el stem: un FC50010_INTERFAZ tiene S7_BlockNumber=50010, pero
-# un FC_INTERFAZ podria tener otro numero).
-PATRON_S7_BLOCK_NUMBER = re.compile(r'S7_BlockNumber\s*:=\s*"(\d+)"')
-
-# Regex para el prefijo de tipo de bloque TIA (``DB``, ``FC``, ``FB``,
-# ``OB``, ``SFB``, ``SFC``, ``UDT``, ``VAT``). Sale del stem del
-# archivo. Los slots de numero son compartidos POR TIPO (DB60010 y
-# FB60010 NO chocan en TIA, aunque el "60010" coincida), asi que
-# la deteccion de colisiones por numero se hace siempre con el
-# par (tipo, numero).
-PATRON_TIPO_BLOQUE = re.compile(r"^(DB|FC|FB|OB|SFB|SFC|UDT|VAT)")
-
 
 class PlantillaMinimosNoCumplidos(ValueError):
-    """Lanzada por ``proc_process_validar_minimos`` si los N_MAX del
-    usuario son menores que los de la plantilla.
-
-    El operario tiene que subir sus N_MAX (en el form) hasta cubrir los
-    minimos que exige la plantilla, o seleccionar otra plantilla.
-    """
+    """Lanzada si los N_MAX del operario son menores que los de la plantilla."""
 
 
 class ManifestInvalido(ValueError):
-    """Lanzada por ``proc_process_leer_manifest`` si el manifest.json
-    de la plantilla no existe o le faltan campos criticos (base o
-    codigo). El nombre puede ser ``""`` (algunas plantillas lo dejan
-    vacio a proposito)."""
+    """Lanzada si el manifest.json de la plantilla no existe o le faltan campos."""
 
 
 # ===========================================================================
-# Contexto mutable (estado compartido entre las funciones del helper)
+# Contexto mutable (estado compartido entre las funciones)
 # ===========================================================================
 
 @dataclass
 class ProcProcessGenContext:
-    """Estado compartido entre las funciones de ``proc_process_generator``.
-
-    Cada funcion toma un ``ProcProcessGenContext`` por argumento, lee las
-    deps inyectadas y los resultados de funciones previas, y muta los
-    campos que representan resultados de su trabajo. Los 2 FBs
-    (``FunctionProcSincronizar`` solo los FB de crear) instancian uno y
-    lo reusan entre sus ticks para que los resultados intermedios esten
-    disponibles para las funciones posteriores.
-
-    Diferencia con ``ProcSyncContext``: este contexto NO toca TIA. Solo
-    opera sobre directorios locales (ProcesoNuevo/Plantilla/ y
-    ProcesoNuevo/Nuevo/). El FB que llama es el responsable de despachar
-    ``import_*`` al PLC cuando aplique.
-
-    Layout canonico en ``.build_cache/alimentacion/ProcesoNuevo/``:
-
-        Plantilla/    read-only, dump del staging durante el preview
-                       (antiguo ``preview/``)
-        Nuevo/        staging del apply (antiguo ``modified/``);
-                       se limpia antes de cada apply (idem regla de
-                       retencion de dispositivos: el apply parte limpio).
-    """
+    """Estado compartido entre las funciones del helper."""
 
     # ── Deps inyectadas ──
     dir_plantilla: Path
@@ -139,26 +65,6 @@ class ProcProcessGenContext:
     nombre_nuevo: str
     plc_blocks_cache: set[str] | None
     minimos_usuario: dict[str, int]
-    # Numeros de los bloques del PLC destino, indexados por tipo
-    # (``{"DB": {60010, 60011}, "FB": {50010}}``). Usado en
-    # ``detectar_colisiones`` para match por (tipo, numero): si el
-    # bloque que importariamos tiene el mismo TIPO + NUMERO que
-    # uno ya existente en el PLC, es una colision INDEPENDIENTE
-    # del nombre. TIA Portal distingue bloques por (tipo + numero),
-    # asi que DB60010_X y FB60010_Y NO chocan entre si aunque
-    # compartan el "60010".
-    # Default None -> compat con tests legacy que solo pasan
-    # ``plc_blocks_cache``.
-    plc_blocks_por_tipo: dict[str, set[int]] | None = None
-    # Detalle completo de los bloques del PLC destino. Lista de
-    # ``{nombre, tipo, numero}``. Se usa en
-    # ``proc_process_generar_previstos`` para ANOTAR cada item
-    # colisionante con el bloque concreto del PLC que lo provoca
-    # (asi la SPA puede mostrar "DUPLICADO - DB100_CPR" en vez
-    # de solo "NO OK"). Derivado de la SPA (mismo shape que el
-    # ``list[dict]`` que viaja en el body). Si es None, no se
-    # intenta anotar ``colision_con`` (compat legacy).
-    plc_blocks_detalle: list[dict[str, Any]] | None = None
 
     # ── Resultado de proc_process_leer_manifest ──
     manifest_plantilla: dict[str, Any] | None = None
@@ -182,25 +88,14 @@ class ProcProcessGenContext:
 
 
 # ===========================================================================
-# Funciones puras/async (cada una muta ``ctx``; sin state machine aqui)
+# Funciones puras/async (cada una muta ``ctx``)
 # ===========================================================================
 
 async def proc_process_leer_manifest(ctx: ProcProcessGenContext) -> None:
-    """Lee ``<dir_plantilla>/manifest.json`` y popula el contexto.
-
-    Fija ``ctx.manifest_plantilla`` y extrae ``base`` (int obligatorio),
-    ``codigo`` (str obligatorio) y ``nombre`` (str, opcional ``""``).
-    Tolerante a claves desconocidas (loggea debug y sigue).
-
-    Raises:
-        ManifestInvalido: si el manifest no existe o faltan ``base`` o
-            ``codigo``.
-    """
     manifest_path = ctx.dir_plantilla / "manifest.json"
     if not manifest_path.exists():
         raise ManifestInvalido(
-            f"No se encontro manifest.json en la plantilla: "
-            f"{ctx.dir_plantilla}"
+            f"No se encontro manifest.json en: {ctx.dir_plantilla}"
         )
 
     try:
@@ -209,56 +104,24 @@ async def proc_process_leer_manifest(ctx: ProcProcessGenContext) -> None:
         )
         manifest = json.loads(manifest_text)
     except (OSError, json.JSONDecodeError) as exc:
-        raise ManifestInvalido(
-            f"manifest.json invalido en {manifest_path}: {exc}"
-        ) from exc
+        raise ManifestInvalido(f"manifest.json invalido: {exc}") from exc
 
     if "base" not in manifest or not isinstance(manifest["base"], int):
-        raise ManifestInvalido(
-            f"manifest.json debe contener 'base' (int). "
-            f"Campos encontrados: {sorted(manifest.keys())}"
-        )
+        raise ManifestInvalido("manifest.json debe contener 'base' (int).")
     if "codigo" not in manifest or not str(manifest["codigo"]).strip():
-        raise ManifestInvalido(
-            f"manifest.json debe contener 'codigo' (str no vacio). "
-            f"Campos encontrados: {sorted(manifest.keys())}"
-        )
+        raise ManifestInvalido("manifest.json debe contener 'codigo' (str).")
 
     ctx.manifest_plantilla = manifest
     ctx.base_vieja = int(manifest["base"])
     ctx.codigo_viejo = str(manifest["codigo"])
     ctx.nombre_viejo = str(manifest.get("nombre", "") or "")
 
-    logger.debug(
-        f"[proc_process_leer_manifest] manifest leido: "
-        f"base={ctx.base_vieja} codigo={ctx.codigo_viejo} "
-        f"nombre={ctx.nombre_viejo!r} minimos="
-        f"{manifest.get('minimos', {})}"
-    )
 
-
-async def proc_process_validar_minimos(
-    ctx: ProcProcessGenContext,
-) -> None:
-    """Valida que los N_MAX del operario cubren los de la plantilla.
-
-    Solo verifica las 4 claves canonicas (``N_MAX_KEYS``). Si el
-    operario relleno menos de las que pide la plantilla en alguna de
-    ellas, lanza ``PlantillaMinimosNoCumplidos`` y el FB aborta con un
-    mensaje accionable.
-
-    Las claves que el operario NO relleno se interpretan como ``0``
-    (peor caso).
-    """
+async def proc_process_validar_minimos(ctx: ProcProcessGenContext) -> None:
     if ctx.manifest_plantilla is None:
-        raise RuntimeError(
-            "proc_process_validar_minimos requiere "
-            "proc_process_leer_manifest previo."
-        )
+        raise RuntimeError("Requiere proc_process_leer_manifest previo.")
 
-    minimos_plantilla = (
-        ctx.manifest_plantilla.get("minimos", {}) or {}
-    )
+    minimos_plantilla = ctx.manifest_plantilla.get("minimos", {}) or {}
     problemas: list[str] = []
 
     for key in N_MAX_KEYS:
@@ -266,35 +129,29 @@ async def proc_process_validar_minimos(
         usuario_val = int(ctx.minimos_usuario.get(key, 0))
         if usuario_val < plantilla_val:
             problemas.append(
-                f"{key}: usuario={usuario_val} < "
-                f"plantilla={plantilla_val}"
+                f"{key}: usuario={usuario_val} < plantilla={plantilla_val}"
             )
 
     if problemas:
         raise PlantillaMinimosNoCumplidos(
-            "Los N_MAX del operario no cubren los minimos de la "
-            "plantilla:\n  - " + "\n  - ".join(problemas) +
-            "\nSube los N_MAX del proceso o elige otra plantilla."
+            "Los N_MAX del operario no cubren los minimos de la plantilla:\n"
+            "  - " + "\n  - ".join(problemas)
         )
 
 
-async def proc_process_copiar_a_preview(
-    ctx: ProcProcessGenContext,
-) -> None:
-    """Copia la plantilla ``dir_plantilla`` a ``dir_plantilla_copia``.
+async def proc_process_copiar_a_preview(ctx: ProcProcessGenContext) -> None:
+    """Copia ``dir_plantilla`` a ``dir_plantilla_copia``.
 
-    Borra ``dir_plantilla_copia/`` antes de copiar (regla de
-    retencion 2.x: cada preview parte limpio, mismo patron que
+    Borra ``dir_plantilla_copia`` antes de copiar (regla de retencion:
+    cada preview parte limpio, mismo patron que
     ``ContextCache.clean_preview()`` en dispositivos y que
     ``proc_process_aplicar_clonacion`` aplica a ``dir_nuevo/``).
-    Esto hace el ciclo preview re-arrancable sin intervencion
-    manual del operario.
+    Re-arrancable sin intervencion manual del operario.
     """
     if ctx.dir_plantilla_copia.exists():
         await asyncio.to_thread(shutil.rmtree, ctx.dir_plantilla_copia)
-    # NO hacemos mkdir aqui: ``shutil.copytree`` crea el destino
-    # destino el solo (``dirs_exist_ok=False`` requiere que NO exista).
-
+    # shutil.copytree crea el destino el solo (``dirs_exist_ok=False``
+    # requiere que NO exista).
     await asyncio.to_thread(
         shutil.copytree,
         ctx.dir_plantilla,
@@ -303,57 +160,26 @@ async def proc_process_copiar_a_preview(
     )
 
 
-async def proc_process_extraer_variables_xml(
-    ctx: ProcProcessGenContext,
-) -> None:
-    """Escanea los XML del preview para encontrar variables exactas
-    ``UID_NOMBRE`` cuyo UID este en ``[base_vieja, base_vieja + 10_000)``.
+async def proc_process_construir_diccionarios(ctx: ProcProcessGenContext) -> None:
+    """Construye los diccionarios de renombrado.
 
-    Devuelve la lista como lista auxiliar (ordenada por orden de
-    aparicion, sin duplicados exactos via ``dict.fromkeys``). La funcion
-    ``proc_process_construir_diccionarios`` es quien la consume.
+    Estrategia:
+      - Bloques: walk del directorio ``dir_plantilla_copia`` con un regex
+        matematico ``(FC|FB|DB)(\\d+)`` -> ``prefijo(num - base_vieja + base_nueva)``.
+        Renombra SOLO los prefijos canonicos TIA (FC/FB/DB), no
+        cualquier secuencia de digitos. Asi referencias a bloques
+        MAESTROS como ``DB1000_ED`` no se tocan (no estan en la
+        lista de prefijos ni matchean las reglas de base).
+      - Variables y carpetas: 3 reglas explicitas por base
+        (``base``, ``base + 3000`` = Params, ``base + 5000`` = Alarmas).
+        NO rango. Cada base genera UNA regla global de prefijo.
+      - Metadatos TIA: ``S7_BlockNumber := "X"`` de las cabeceras de
+        los bloques del proceso.
+      - Fallbacks: codigo y nombre del proceso (siempre).
 
-    Encoding: utf-8-sig (los XML exportados por TIA llevan BOM); fallback
-    a latin-1 si utf-8 falla.
-    """
-    patron = PATRON_XML_VARIABLE
-    rango_bajo = ctx.base_vieja
-    rango_alto = ctx.base_vieja + OFFSET_SAFETY_RANGE
-
-    def _walk() -> list[str]:
-        result: dict[str, None] = {}
-        for f in ctx.dir_plantilla_copia.rglob("*.xml"):
-            if not f.is_file():
-                continue
-            try:
-                texto = f.read_text(encoding="utf-8-sig", errors="strict")
-            except UnicodeDecodeError:
-                texto = f.read_text(encoding="latin-1", errors="ignore")
-            for nombre_var in patron.findall(texto):
-                num_str = nombre_var.split("_", 1)[0]
-                if not num_str.isdigit():
-                    continue
-                num = int(num_str)
-                if rango_bajo <= num < rango_alto:
-                    result[nombre_var] = None
-        return list(result.keys())
-
-    variables = await asyncio.to_thread(_walk)
-    # Las guardamos en el ctx para que ``construir_diccionarios`` las
-    # consuma sin volver a recorrer los XMLs.
-    ctx.__dict__.setdefault("_variables_xml_exactas", variables)
-
-
-async def proc_process_construir_diccionarios(
-    ctx: ProcProcessGenContext,
-) -> None:
-    """Construye ``dicc_bloques`` (codigo fuente) y ``dicc_xml``
-    (prefijos numericos para XML) en cascada, ordenados por ``len(key)``
-    descendente.
-
-    Misma logica que ``clone.py::construir_diccionarios``: el orden
-    descendente garantiza que los reemplazos mas especificos (``50010_``)
-    se aplican antes que los mas genericos (``50010``).
+    Todo se ordena por ``len(key)`` descendente para que las claves
+    mas especificas (e.g. ``200_PRO_STD``) ganen antes que las mas
+    cortas (``200``).
     """
     base_viej = ctx.base_vieja
     base_nuev = ctx.base_nueva
@@ -362,16 +188,11 @@ async def proc_process_construir_diccionarios(
     nom_viej = ctx.nombre_viejo
     nom_nuev = ctx.nombre_nuevo
 
-    offset = base_nuev - base_viej
     dicc_bloques: dict[str, str] = {}
     dicc_xml: dict[str, str] = {}
     numeros_usados: set[int] = set()
 
-    # Variables exactas del XML (UID_NOMBRE). ``construir_diccionarios``
-    # necesita esta lista — si no se ha llamado a
-    # ``extraer_variables_xml`` antes, la extraemos ahora en sync (modo
-    # tolerante: si falla, lista vacia).
-    variables_xml = ctx.__dict__.get("_variables_xml_exactas") or []
+    patron_bloques = re.compile(r"(FC|FB|DB)(\d+)")
 
     def _walk_and_build() -> None:
         for item in ctx.dir_plantilla_copia.rglob("*"):
@@ -379,69 +200,60 @@ async def proc_process_construir_diccionarios(
                 continue
             nombre_base = item.stem if item.is_file() else item.name
 
-            def _repl_num(m: re.Match[str]) -> str:
-                num = int(m.group(0))
-                if base_viej <= num < base_viej + OFFSET_SAFETY_RANGE:
-                    return str(num + offset)
-                return m.group(0)
+            # Bloques: reemplaza SOLO prefijos canonicos (FC/FB/DB).
+            # Las referencias como ``DB1000_ED`` no se tocan en esta
+            # pasada (DB1000 no es del proceso; aparece en codigo SCL
+            # pero el archivo es del proceso, y DC1000 ya esta en el
+            # PLC destino sin necesidad de crearlo).
+            def _repl_bloque(m: re.Match[str]) -> str:
+                prefijo = m.group(1)
+                num_viejo = int(m.group(2))
+                num_nuevo = num_viejo - base_viej + base_nuev
+                return f"{prefijo}{num_nuevo}"
 
-            nuevo_nombre_base = re.sub(r"\d+", _repl_num, nombre_base)
+            nuevo_nombre_base = patron_bloques.sub(_repl_bloque, nombre_base)
+
             if cod_viej:
-                nuevo_nombre_base = nuevo_nombre_base.replace(
-                    cod_viej, cod_nuev
-                )
+                nuevo_nombre_base = nuevo_nombre_base.replace(cod_viej, cod_nuev)
+            if nom_viej and nom_nuev:
+                nuevo_nombre_base = nuevo_nombre_base.replace(nom_viej, nom_nuev)
 
             if nombre_base != nuevo_nombre_base:
                 dicc_bloques[nombre_base] = nuevo_nombre_base
 
-            for num_str in re.findall(r"\d+", nombre_base):
-                num = int(num_str)
-                if base_viej <= num < base_viej + OFFSET_SAFETY_RANGE:
-                    numeros_usados.add(num)
+            for match in patron_bloques.finditer(nombre_base):
+                numeros_usados.add(int(match.group(2)))
 
     await asyncio.to_thread(_walk_and_build)
 
-    # Variables exactas extraidas del XML.
-    for var_vieja in variables_xml:
-        num_viejo_str = var_vieja.split("_", 1)[0]
-        if not num_viejo_str.isdigit():
-            continue
-        num_viejo = int(num_viejo_str)
-        num_nuevo = num_viejo + offset
-        var_nueva = var_vieja.replace(
-            f"{num_viejo}_", f"{num_nuevo}_", 1
-        )
-        dicc_bloques[var_vieja] = var_nueva
-        numeros_usados.add(num_viejo)
+    # Variables y carpetas: solo 3 bases (proceso principal + params
+    # +3000 + alarmas +5000). NO rango, NO por cada numero.
+    bases_viejas = [base_viej, base_viej + 3000, base_viej + 5000]
+    bases_nuevas = [base_nuev, base_nuev + 3000, base_nuev + 5000]
+    for b_vieja, b_nueva in zip(bases_viejas, bases_nuevas):
+        regla_vieja = f"{b_vieja}_"
+        regla_nueva = f"{b_nueva}_"
+        dicc_xml[regla_vieja] = regla_nueva
+        dicc_bloques[regla_vieja] = regla_nueva
 
-    # Metadatos internos TIA Portal: ``S7_BlockNumber := "50010"``.
+    # Metadatos TIA Portal: ``S7_BlockNumber := "X"`` en la cabecera
+    # de los archivos .s7dcl / .scl / .awl. ``numeros_usados`` viene
+    # del walk anterior (solo matchea prefijos FC/FB/DB).
     for num in numeros_usados:
-        nuevo_num = num + offset
-        dicc_bloques[
-            f'S7_BlockNumber := "{num}"'
-        ] = f'S7_BlockNumber := "{nuevo_num}"'
-        dicc_xml[f"{num}_"] = f"{nuevo_num}_"
-
-    # Prefijos de base completa (cubre ``50010_PRO_STD_xxx`` y similares).
-    if nom_viej and nom_nuev:
-        dicc_bloques[f"{base_viej}_{nom_viej}"] = (
-            f"{base_nuev}_{nom_nuev}"
+        nuevo_num = num - base_viej + base_nuev
+        dicc_bloques[f'S7_BlockNumber := "{num}"'] = (
+            f'S7_BlockNumber := "{nuevo_num}"'
         )
-        dicc_xml[f"{base_viej}_{nom_viej}"] = f"{base_nuev}_{nom_nuev}"
-    dicc_bloques[str(base_viej)] = str(base_nuev)
-    dicc_xml[str(base_viej)] = str(base_nuev)
 
-    # Fallbacks: codigo y nombre (siempre; los bloques que solo cambian
-    # de nombre/codigo sin tocar numeros siguen entrando aqui).
+    # Fallbacks: codigo y nombre (siempre; los bloques que solo
+    # cambian de nombre/codigo sin tocar numeros siguen entrando).
     if cod_viej:
-        dicc_bloques[cod_viej] = cod_nuev
         dicc_xml[cod_viej] = cod_nuev
+        dicc_bloques[cod_viej] = cod_nuev
     if nom_viej and nom_nuev:
-        dicc_bloques[nom_viej] = nom_nuev
         dicc_xml[nom_viej] = nom_nuev
+        dicc_bloques[nom_viej] = nom_nuev
 
-    # Orden por longitud descendente: clave mas larga primero, para
-    # que ``50010_PRO_STD_xxx`` se reemplace antes que ``50010``.
     ctx.dicc_bloques = dict(
         sorted(dicc_bloques.items(), key=lambda x: len(x[0]), reverse=True)
     )
@@ -456,25 +268,15 @@ async def proc_process_construir_diccionarios(
     )
 
 
-async def proc_process_detectar_colisiones(
-    ctx: ProcProcessGenContext,
-) -> None:
-    """Cruza ``dicc_bloques`` contra el cache de bloques del PLC.
+async def proc_process_detectar_colisiones(ctx: ProcProcessGenContext) -> None:
+    """Cruza ``dicc_bloques`` contra ``plc_blocks_cache`` por nombre.
 
-    Match por NOMBRE unicamente (cualquier val del dicc_bloques
-    que ya exista como bloque en el PLC por nombre completo es
-    una colision). El match por tipo+numero se aplica por item
-    en ``proc_process_generar_previstos`` (alli sabemos el tipo
-    del bloque concreto que va a importarse; aqui solo tenemos
-    el nombre post-diccionario).
-
-    Appendeamos el ``val`` (nombre NUEVO del bloque) a
-    ``ctx.colisiones`` si choca con el PLC por nombre. Asi
-    ``generar_previstos`` puede marcar ``colisiona`` por archivo
-    cruzando ``ctx.colisiones`` contra ``archivos_previstos``.
+    Cualquier nombre post-rename del diccionario que ya exista como
+    bloque en el PLC es una colision. TIA Portal fallaria el import
+    (UPDATE fallido -> "object already exists").
 
     Si ``plc_blocks_cache`` es ``None`` (cache nunca populado),
-    emite un warning unico y devuelve sin abortar (el FB decide).
+    emite un mensaje accionable y devuelve sin abortar.
     """
     if ctx.plc_blocks_cache is None:
         ctx.colisiones.append(
@@ -487,42 +289,33 @@ async def proc_process_detectar_colisiones(
         )
         return
 
-    nombres_plc: set[str] = ctx.plc_blocks_cache
     colisiones_vistas: set[str] = set()
-
+    # Filtramos solo nombres post-rename reales (excluimos
+    # metadatos TIA, prefijos de base y fallbacks cod/nombre
+    # sin prefijo bloque).
     for key, val in ctx.dicc_bloques.items():
-        if key.startswith("S7_BlockNumber") or key.isdigit():
+        if (
+            key.startswith("S7_BlockNumber")
+            or key.isdigit()
+            or key.endswith("_")  # prefijos de base (200_, 3200_, 5200_)
+        ):
             continue
-        if val in nombres_plc and val not in colisiones_vistas:
+        if val in ctx.plc_blocks_cache and val not in colisiones_vistas:
             ctx.colisiones.append(val)
             colisiones_vistas.add(val)
 
 
-async def proc_process_generar_previstos(
-    ctx: ProcProcessGenContext,
-) -> None:
-    """Walk ``dir_plantilla_copia`` y construye la lista de archivos que
-    se generarian en ``dir_nuevo``.
+async def proc_process_generar_previstos(ctx: ProcProcessGenContext) -> None:
+    """Walk ``dir_plantilla_copia`` y construye la lista de archivos
+    que se generarian en ``dir_nuevo``.
 
-    No escribe nada en disco — solo popula ``ctx.archivos_previstos``
-    con ``[{rel_in, rel_out, kind, colisiona}, ...]`` para que la SPA
-    muestre el preview al operario antes del apply.
+    No escribe en disco — solo popula ``ctx.archivos_previstos``
+    para que la SPA muestre el preview.
 
     Layout canonico de salida: ``dir_nuevo/{variables,bloques}/``.
-    El helper reorganiza los archivos en funcion de su extension
-    (``kind="xml"`` -> ``variables/``, ``kind="text"`` -> ``bloques/``,
-    resto -> ``otros/``). El nombre de cada archivo se obtiene
-    aplicando ``dicc_bloques`` al nombre y a cada path-part del
-    origen; la SPA ve el ``rel_out`` en este layout canonico.
-
-    ``kind``:
-      - ``"xml"`` para ``.xml`` (aplica ``dicc_xml`` en el apply).
-      - ``"text"`` para el resto de ``EXTENSIONES_TEXTO`` (``.s7dcl``,
-        ``.s7res``, ``.scl``, ``.awl`` — aplica ``dicc_bloques``).
-      - ``"binary"`` para todo lo demas (se copia tal cual en el apply).
-
-    ``colisiona`` se calcula intersectando ``ctx.colisiones`` con las
-    claves que se aplicaron al ``rel_out``.
+    El helper reorganiza por extension (``xml`` -> ``variables/``,
+    resto de ``EXTENSIONES_TEXTO`` -> ``bloques/``, demas ->
+    ``otros/``).
     """
     archivos_previstos: list[dict[str, Any]] = []
 
@@ -531,216 +324,68 @@ async def proc_process_generar_previstos(
 
     paths = await asyncio.to_thread(_walk)
 
-    # Extraemos los ``S7_BlockNumber`` de los archivos de bloque de
-    # la plantilla una sola vez (cache por path). Lo necesitamos para
-    # saber el NUMERO original de cada bloque (y, aplicando el
-    # diccionario, el numero nuevo que se importaria al PLC). Asi
-    # el preview puede cruzar contra los numeros del PLC destino
-    # (no solo contra los nombres) para detectar colisiones de
-    # numero (DB60010 vs FB60010 ocupan el mismo slot).
-    block_numbers_plantilla = await asyncio.to_thread(
-        _scan_block_numbers, ctx.dir_plantilla_copia
-    )
-
     for in_path in paths:
         rel_in = in_path.relative_to(ctx.dir_plantilla_copia)
-        # Si es el manifest, lo recrea ``proc_process_escribir_manifest``
-        # en el apply (no se transporta como archivo "previsto").
         if rel_in.name == "manifest.json":
             continue
 
-        # Aplica ``dicc_bloques`` al nombre y a cada path-part.
-        # El ``rel_out`` final se aplana a ``{variables|bloques|otros}/<file>``
-        # para que el apply pueda hacer ``import_plc_tags_xml(dir_nuevo/"variables")``
-        # o ``import_blocks_sd(dir_nuevo/"bloques")`` directamente.
-        nuevo_stem = _aplicar_diccionario(
-            in_path.stem, ctx.dicc_bloques
-        )
+        nuevo_stem = _aplicar_diccionario(in_path.stem, ctx.dicc_bloques)
         suffix = in_path.suffix.lower()
         if suffix == ".xml":
-            kind = "xml"
-            subdir = "variables"
+            kind, subdir = "xml", "variables"
         elif suffix in EXTENSIONES_TEXTO:
-            kind = "text"
-            subdir = "bloques"
+            kind, subdir = "text", "bloques"
         else:
-            kind = "binary"
-            subdir = "otros"
+            kind, subdir = "binary", "otros"
 
         rel_out = Path(subdir) / f"{nuevo_stem}{suffix}"
 
-        # Numero del bloque: lo extraemos del XML de plantilla
-        # (``S7_BlockNumber := "50010"``), y le aplicamos
-        # ``dicc_xml`` para obtener el numero destino. Si el archivo
-        # no es un bloque TIA (xml de variables o binario), el
-        # numero queda en 0 (defensivo: no es un bloque importable
-        # como DB/FB/FC).
-        tipo_orig, numero_original = block_numbers_plantilla.get(
-            rel_in.as_posix(), ("", 0)
-        )
-        # El tipo NO cambia con el rename (los ``dicc_bloques``
-        # renombran el numero, no el prefijo). Lo extraemos del
-        # nuevo_stem para confirmar; si el rename lo perdiera, eso
-        # seria un bug del propio helper de diccionarios.
-        tipo_nuevo = _extraer_tipo_bloque(nuevo_stem) or tipo_orig
-        numero_nuevo = _aplicar_diccionario(
-            str(numero_original), ctx.dicc_xml
-        )
-        try:
-            numero_nuevo = int(numero_nuevo)
-        except ValueError:
-            numero_nuevo = 0
-
-        # Deteccion de colision 2 modos (OR logico):
-        #   1. Por NOMBRE: nuevo_stem (o con extension) en
-        #      ``ctx.colisiones`` (poblado por
-        #      ``proc_process_detectar_colisiones``).
-        #   2. Por TIPO + NUMERO: el ``(tipo_nuevo, numero_nuevo)``
-        #      del item aparece en ``ctx.plc_blocks_por_tipo``.
-        #      Esto es 1-a-1 por item porque aqui sabemos el tipo
-        #      concreto del bloque que va a importarse (mientras
-        #      que ``detectar_colisiones`` solo ve nombres post-dic).
-        colisiona_nombre = (
+        # Match contra colisiones post-rename (con y sin sufijo).
+        colisiona = (
             nuevo_stem in ctx.colisiones
             or f"{nuevo_stem}{suffix}" in ctx.colisiones
         )
-        colisiona_tipo_numero = False
-        if (
-            tipo_nuevo
-            and numero_nuevo > 0
-            and ctx.plc_blocks_por_tipo
-        ):
-            numeros_del_tipo = ctx.plc_blocks_por_tipo.get(tipo_nuevo, set())
-            colisiona_tipo_numero = numero_nuevo in numeros_del_tipo
-        colisiona = colisiona_nombre or colisiona_tipo_numero
-
-        # ``colision_con``: el bloque CONCRETO del PLC destino
-        # que provoca la colision. Lo busca el operador en la SPA
-        # para mostrarlo ("DUPLICADO - DB100_CPR"). Prioriza el
-        # match por nombre si hay ambos; si solo hay por tipo+numero
-        # devuelve el primer bloque del PLC con ese (tipo, numero).
-        colision_con: dict[str, Any] | None = None
-        if colisiona and ctx.plc_blocks_detalle:
-            for plc_bloque in ctx.plc_blocks_detalle:
-                if not isinstance(plc_bloque, dict):
-                    continue
-                plc_nombre = str(
-                    plc_bloque.get("nombre") or plc_bloque.get("name") or ""
-                )
-                plc_tipo = str(
-                    plc_bloque.get("tipo") or plc_bloque.get("type") or ""
-                ).upper().strip()
-                plc_num = plc_bloque.get("numero")
-                try:
-                    plc_num_int = int(plc_num) if plc_num is not None else 0
-                except (TypeError, ValueError):
-                    plc_num_int = 0
-                # Match por nombre (prioridad): mismo nombre exacto.
-                if colisiona_nombre and plc_nombre and plc_nombre == nuevo_stem:
-                    colision_con = {
-                        "nombre": plc_nombre,
-                        "tipo": plc_tipo,
-                        "numero": plc_num_int,
-                        "por": "nombre",
-                    }
-                    break
-            # Si no hubo match por nombre pero SI por tipo+numero,
-            # devolvemos el primer bloque del PLC con ese (tipo,numero).
-            if colision_con is None and colisiona_tipo_numero:
-                for plc_bloque in ctx.plc_blocks_detalle:
-                    if not isinstance(plc_bloque, dict):
-                        continue
-                    plc_tipo = str(
-                        plc_bloque.get("tipo")
-                        or plc_bloque.get("type")
-                        or ""
-                    ).upper().strip()
-                    plc_num = plc_bloque.get("numero")
-                    try:
-                        plc_num_int = int(plc_num) if plc_num is not None else 0
-                    except (TypeError, ValueError):
-                        plc_num_int = 0
-                    if plc_tipo == tipo_nuevo and plc_num_int == numero_nuevo:
-                        colision_con = {
-                            "nombre": str(
-                                plc_bloque.get("nombre")
-                                or plc_bloque.get("name")
-                                or ""
-                            ),
-                            "tipo": plc_tipo,
-                            "numero": plc_num_int,
-                            "por": "tipo_numero",
-                        }
-                        break
 
         archivos_previstos.append({
             "rel_in": str(rel_in),
             "rel_out": str(rel_out),
             "kind": kind,
             "colisiona": colisiona,
-            # Campos extra para que la SPA muestre nombre + numero
-            # en la tabla BLOQUE ORIGINAL / BLOQUE NUEVO sin tener
-            # que re-parsear el stem (que podria no contener
-            # numeros para bloques tipo FC_INTERFAZ).
-            "nombre_original": in_path.stem,
-            "nombre_nuevo": nuevo_stem,
-            "tipo_original": tipo_orig,
-            "tipo_nuevo": tipo_nuevo,
-            "numero_original": numero_original,
-            "numero_nuevo": numero_nuevo,
-            # Bloque concreto del PLC que provoca la colision
-            # (None si OK). Lo usa la SPA para mostrar
-            # "DUPLICADO - DB100_CPR" en la columna ESTADO.
-            "colision_con": colision_con,
         })
 
     ctx.archivos_previstos = archivos_previstos
 
 
-async def proc_process_aplicar_clonacion(
-    ctx: ProcProcessGenContext,
-) -> None:
+async def proc_process_aplicar_clonacion(ctx: ProcProcessGenContext) -> None:
     """Aplica la clonacion: walk ``dir_plantilla_copia`` -> ``dir_nuevo``.
 
-    Limpia ``dir_nuevo/`` antes de empezar (regla de retencion: cada
+    Borra ``dir_nuevo/`` antes de aplicar (regla de retencion: cada
     apply parte limpio, mismo patron que ``ContextCache.clean()`` en
     dispositivos).
 
     Layout canonico de salida: ``dir_nuevo/{variables,bloques,otros}/``.
-    Los archivos se reorganizan en funcion de su extension:
-      - ``.xml``  -> ``variables/`` (TAG tables, importa con
-        ``import_plc_tags_xml``).
-      - ``.s7dcl/.s7res/.scl/.awl`` -> ``bloques/`` (program blocks,
-        importa con ``import_blocks_sd``).
-      - resto -> ``otros/`` (se copia tal cual, no se importa a TIA).
+    Los archivos se reorganizan por extension:
+      - ``.xml``: variables/, encoding utf-8, ``dicc_xml``.
+      - ``.s7res``: bloques/, encoding utf-8-sig, ``dicc_bloques``.
+      - ``.s7dcl``/``.scl``/``.awl``: bloques/, encoding utf-8, ``dicc_bloques``.
+      - Resto: otros/, copia binaria (``shutil.copy2``).
 
-    Por extension:
-      - ``.s7res``: encoding utf-8-sig (BOM), ``dicc_bloques``.
-      - ``.s7dcl`` / ``.scl`` / ``.xml`` / ``.awl``: encoding utf-8
-        puro (NO ``utf-8-sig``). ``.xml`` usa ``dicc_xml`` (prefijos
-        numericos) y el resto usa ``dicc_bloques``. ``newline=''``
-        para preservar ``\r\n``.
-      - Otros: ``shutil.copy2`` en binario.
-
-    Para los ``.xml`` del proceso (los de la tabla de variables)
-    ademas reemplaza los ``<Value>`` de los 4 N_MAX del manifest de
-    plantilla por los del operario (``ctx.minimos_usuario``).
-
-    ``manifest.json`` se ignora en el walk (lo regenera
+    ``manifest.json`` se ignora (lo regenera
     ``proc_process_escribir_manifest`` justo despues).
     """
-    # Limpia dir_nuevo/ antes de aplicar (regla de retencion: cada
-    # apply parte limpio). Si no existe, lo crea vacio.
     if ctx.dir_nuevo.exists():
         await asyncio.to_thread(shutil.rmtree, ctx.dir_nuevo)
     ctx.dir_nuevo.mkdir(parents=True, exist_ok=True)
 
     minimos_plantilla = (
-        ctx.manifest_plantilla.get("minimos", {}) if ctx.manifest_plantilla else {}
+        ctx.manifest_plantilla.get("minimos", {})
+        if ctx.manifest_plantilla else {}
     )
 
     def _walk() -> list[Path]:
-        return [p for p in ctx.dir_plantilla_copia.rglob("*") if p.is_file()]
+        return [
+            p for p in ctx.dir_plantilla_copia.rglob("*") if p.is_file()
+        ]
 
     paths = await asyncio.to_thread(_walk)
     generados: list[str] = []
@@ -751,9 +396,7 @@ async def proc_process_aplicar_clonacion(
             continue
 
         suffix = in_path.suffix.lower()
-        nuevo_stem = _aplicar_diccionario(
-            in_path.stem, ctx.dicc_bloques
-        )
+        nuevo_stem = _aplicar_diccionario(in_path.stem, ctx.dicc_bloques)
 
         if suffix == ".xml":
             subdir = "variables"
@@ -773,11 +416,10 @@ async def proc_process_aplicar_clonacion(
         elif suffix == ".xml":
             enc = "utf-8"
             contenido = _leer_texto(in_path, enc)
-            # Primero aplica ``dicc_xml`` (prefijos numericos).
             nuevo = _aplicar_diccionario(contenido, ctx.dicc_xml)
-            # Despues reemplaza los ``<Value>`` de los N_MAX por los
-            # del operario si este XML contiene constantes de usuario.
-            if "PlcUserConstant" in nuevo and minimos_plantilla:
+            # Reemplaza los ``<Value>`` de los N_MAX por los del
+            # operario si este XML contiene constantes de usuario.
+            if "PlcUserConstant" in nuevo and ctx.minimos_usuario:
                 nuevo = _reemplazar_nmax_en_xml(
                     nuevo, ctx.base_nueva, ctx.minimos_usuario
                 )
@@ -795,16 +437,10 @@ async def proc_process_aplicar_clonacion(
     ctx.archivos_generados = generados
 
 
-async def proc_process_escribir_manifest(
-    ctx: ProcProcessGenContext,
-) -> None:
+async def proc_process_escribir_manifest(ctx: ProcProcessGenContext) -> None:
     """Escribe ``<dir_nuevo>/manifest.json`` con los datos del
-    proceso nuevo.
-
-    Encoding utf-8 puro, ``indent=2`` (legible por el operario si
-    abre el archivo a mano). NO incluye ``requireiments.txt`` ni
-    archivos auxiliares: solo el manifest canonico con
-    ``base``/``codigo``/``nombre``/``minimos``.
+    proceso nuevo (usa la plantilla como base, override con
+    ``base_nueva/codigo/nombre/minimos`` del ctx).
     """
     ctx.dir_nuevo.mkdir(parents=True, exist_ok=True)
     manifest_path = ctx.dir_nuevo / "manifest.json"
@@ -826,9 +462,7 @@ async def proc_process_escribir_manifest(
     ctx.archivos_generados.append("manifest.json")
 
 
-async def proc_process_done_summary(
-    ctx: ProcProcessGenContext,
-) -> dict[str, Any]:
+async def proc_process_done_summary(ctx: ProcProcessGenContext) -> dict[str, Any]:
     """Compone ``ctx.result`` con la shape que el FB vuelca a
     ``self.result``.
 
@@ -838,9 +472,7 @@ async def proc_process_done_summary(
       - apply (``archivos_generados`` poblado) -> vuelca la lista de
         generados + el ``nuevo_dir``.
 
-    ``success=True`` solo si no hubo colisiones. Si las hubo,
-    ``success=False`` y ``colisiones`` queda como lista para que la
-    SPA muestre los bloques que ya existen en el PLC.
+    ``success=True`` solo si no hubo colisiones.
     """
     if ctx.archivos_generados:
         dir_salida = ctx.dir_nuevo
@@ -856,77 +488,27 @@ async def proc_process_done_summary(
         "manifest_plantilla": ctx.manifest_plantilla,
         campo_archivos: archivos,
         "colisiones": list(ctx.colisiones),
-        "plantilla_copia_dir" if campo_archivos == "archivos_previstos"
-            else "nuevo_dir": str(dir_salida),
+        (
+            "plantilla_copia_dir"
+            if campo_archivos == "archivos_previstos"
+            else "nuevo_dir"
+        ): str(dir_salida),
         "success": success,
     }
     return ctx.result
 
 
 # ===========================================================================
-# Helpers internos (sync, solo se envuelven en ``asyncio.to_thread``)
+# Helpers internos (sync)
 # ===========================================================================
 
 def _aplicar_diccionario(texto: str, dicc: dict[str, str]) -> str:
     """Aplica los reemplazos en cascada — el caller garantiza el orden
-    descendente por ``len(key)`` para que los mas especificos ganen."""
+    descendente por ``len(key)`` para que los mas especificos ganen.
+    """
     for viejo, nuevo in dicc.items():
         texto = texto.replace(viejo, nuevo)
     return texto
-
-
-def _leer_block_number(path: Path) -> int:
-    """Lee el ``S7_BlockNumber := "50010"`` de la cabecera de un archivo
-    de bloque TIA (``.s7dcl`` / ``.scl``). Devuelve 0 si no lo encuentra
-    o si el archivo no se puede leer (binarios, XML no bloque, etc.).
-    """
-    if path.suffix.lower() not in (".s7dcl", ".scl", ".awl"):
-        return 0
-    try:
-        texto = _leer_texto(path, "utf-8")
-    except (OSError, UnicodeDecodeError):
-        return 0
-    m = PATRON_S7_BLOCK_NUMBER.search(texto)
-    return int(m.group(1)) if m else 0
-
-
-def _extraer_tipo_bloque(stem: str) -> str:
-    """Extrae el prefijo de tipo del stem (``DB50010_X`` -> ``"DB"``,
-    ``FC_INTERFAZ`` -> ``"FC"``). Devuelve ``""`` si no matchea
-    (p.ej. ``manifest.json``, ``50010_TEST_COMENTARIOS.s7res`` que
-    no tiene prefijo de tipo en el stem — los ``.s7res`` usan
-    numeracion de bloque pero sin prefijo textual en el nombre).
-
-    El tipo SIEMPRE se extrae del stem; el renombrado no lo toca
-    (los ``dicc_bloques`` cambian ``50010`` -> ``60010`` pero
-    el prefijo ``DB`` queda igual).
-    """
-    m = PATRON_TIPO_BLOQUE.match(stem)
-    return m.group(1) if m else ""
-
-
-def _scan_block_numbers(root: Path) -> dict[str, tuple[str, int]]:
-    """Walk ``root`` extrayendo (tipo, S7_BlockNumber) de cada archivo
-    de bloque TIA. Devuelve un dict ``{rel_path_posix: (tipo, numero)}``
-    para que ``proc_process_generar_previstos`` consulte sin re-parsear.
-
-    El tipo se extrae del stem (prefijo DB/FC/FB/OB/...) y el numero
-    del S7_BlockNumber de la cabecera del XML. Si el archivo no es
-    un bloque TIA o falla la lectura, el (tipo, numero) queda vacio.
-    """
-    result: dict[str, tuple[str, int]] = {}
-    if not root.exists():
-        return result
-    for p in root.rglob("*"):
-        if not p.is_file():
-            continue
-        if p.suffix.lower() not in (".s7dcl", ".scl", ".awl"):
-            continue
-        num = _leer_block_number(p)
-        tipo = _extraer_tipo_bloque(p.stem)
-        if num and tipo:
-            result[p.relative_to(root).as_posix()] = (tipo, num)
-    return result
 
 
 def _leer_texto(path: Path, encoding: str) -> str:
@@ -940,7 +522,7 @@ def _leer_texto(path: Path, encoding: str) -> str:
 
 
 def _escribir_texto(path: Path, contenido: str, encoding: str) -> None:
-    """Escribe texto preservando retornos de carro (``newline=''``)."""
+    """Escribe texto preservando retornos de carro (``newline=""``)."""
     with open(path, "w", encoding=encoding, newline="") as f:
         f.write(contenido)
 
@@ -950,23 +532,28 @@ def _reemplazar_nmax_en_xml(
     base_nueva: int,
     minimos_usuario: dict[str, int],
 ) -> str:
-    """Sustituye los <Value> de las constantes N_MAX de forma segura vinculándolos a su <Name>."""
+    """Sustituye los ``<Value>`` de las constantes N_MAX del proceso
+    nuevo de forma segura, vinculandolos a su ``<Name>``.
+
+    Asume que ``contenido`` ya paso por ``_aplicar_diccionario(contenido,
+    dicc_xml)``, asi ``<Name>{base_nueva}_{N_MAX_KEY}</Name>`` esta
+    presente en el XML destino.
+
+    Usa regex DOTALL para saltar de ``<Name>`` a ``<Value>`` adyacente,
+    robusto frente a XML con comentarios / anidamientos.
+    """
     for key in N_MAX_KEYS:
         val_usuario = minimos_usuario.get(key)
         if val_usuario is None:
             continue
-        
-        # Busca la constante exacta (ej: <Name>60010_N_MAX_PINT</Name>) y captura su <Value>
-        # re.DOTALL permite que haya saltos de línea y otras etiquetas entre Name y Value
+
         patron = rf"(<Name>{base_nueva}_{key}</Name>.*?<Value>)(\d+)(</Value>)"
-        
         contenido = re.sub(
             patron,
             lambda m: f"{m.group(1)}{val_usuario}{m.group(3)}",
             contenido,
-            flags=re.DOTALL
+            flags=re.DOTALL,
         )
-        
     return contenido
 
 
@@ -974,9 +561,6 @@ __all__ = [
     "EXTENSIONES_TEXTO",
     "ManifestInvalido",
     "N_MAX_KEYS",
-    "OFFSET_SAFETY_RANGE",
-    "PATRON_XML_VARIABLE",
-    "PATRON_XML_VALUE",
     "PlantillaMinimosNoCumplidos",
     "ProcProcessGenContext",
     "proc_process_aplicar_clonacion",
@@ -985,7 +569,6 @@ __all__ = [
     "proc_process_detectar_colisiones",
     "proc_process_done_summary",
     "proc_process_escribir_manifest",
-    "proc_process_extraer_variables_xml",
     "proc_process_generar_previstos",
     "proc_process_leer_manifest",
     "proc_process_validar_minimos",

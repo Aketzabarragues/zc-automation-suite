@@ -47,7 +47,6 @@ Steps (8):
   - leer_manifest         -> helper.proc_process_leer_manifest
   - validar_minimos       -> helper.proc_process_validar_minimos
   - copiar_a_preview      -> helper.proc_process_copiar_a_preview
-  - extraer_variables_xml -> helper.proc_process_extraer_variables_xml
   - construir_diccionarios-> helper.proc_process_construir_diccionarios
   - detectar_colisiones   -> helper.proc_process_detectar_colisiones
   - generar_previstos     -> helper.proc_process_generar_previstos
@@ -104,7 +103,6 @@ class FunctionProcProcessCrearPreview(FunctionBase):
                 {"nombre": "leer_manifest"},
                 {"nombre": "validar_minimos"},
                 {"nombre": "copiar_a_preview"},
-                {"nombre": "extraer_variables_xml"},
                 {"nombre": "construir_diccionarios"},
                 {"nombre": "detectar_colisiones"},
                 {"nombre": "generar_previstos"},
@@ -292,10 +290,6 @@ class FunctionProcProcessCrearPreview(FunctionBase):
                 await proc_process_generator.proc_process_copiar_a_preview(
                     self._ctx
                 )
-            case "extraer_variables_xml":
-                await proc_process_generator.proc_process_extraer_variables_xml(
-                    self._ctx
-                )
             case "construir_diccionarios":
                 await proc_process_generator.proc_process_construir_diccionarios(
                     self._ctx
@@ -359,9 +353,6 @@ def _step_summary(ctx: Any, step_nombre: str) -> str:
         return f"{step_nombre}: N_MAX OK"
     if step_nombre == "copiar_a_preview":
         return f"{step_nombre}: plantilla copiada a {ctx.dir_plantilla_copia}"
-    if step_nombre == "extraer_variables_xml":
-        n = len(ctx.__dict__.get("_variables_xml_exactas", []))
-        return f"{step_nombre}: {n} variables exactas"
     if step_nombre == "construir_diccionarios":
         return (
             f"{step_nombre}: "
