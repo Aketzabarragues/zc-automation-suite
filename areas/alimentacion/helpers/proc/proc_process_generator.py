@@ -456,7 +456,13 @@ async def proc_process_detectar_colisiones(
         if key.startswith("S7_BlockNumber") or key.isdigit():
             continue
         if val in ctx.plc_blocks_cache and val not in colisiones_vistas:
-            ctx.colisiones.append(key)
+            # Appendeamos ``val`` (nombre NUEVO del bloque que se
+            # importaria) en lugar de ``key`` (nombre viejo en
+            # ``dicc_bloques``). Asi la SPA puede cruzar
+            # ``colisiones`` con ``archivos_previstos[i].rel_out``
+            # para marcar el ESTADO correcto por fila sin tener
+            # que replicar el cruce en el cliente.
+            ctx.colisiones.append(val)
             colisiones_vistas.add(val)
 
 

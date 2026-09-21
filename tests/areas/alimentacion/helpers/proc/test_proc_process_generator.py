@@ -378,7 +378,9 @@ async def test_construir_diccionarios_orden_len_desc(make_ctx: Any) -> None:
 @pytest.mark.asyncio
 async def test_detectar_colisiones_match_plc_cache(make_ctx: Any) -> None:
     """Si el cache del PLC contiene un nombre nuevo generado por el
-    helper (``val`` de dicc_bloques), se anade a ``ctx.colisiones``.
+    helper (``val`` de dicc_bloques), se anade a ``ctx.colisiones``
+    con el nombre NUEVO (no la clave original) — asi la SPA puede
+    cruzar ``colisiones`` con ``archivos_previstos[i].rel_out``.
     """
     ctx = make_ctx(
         # El valor ``val`` de ``dicc_bloques`` para
@@ -394,8 +396,10 @@ async def test_detectar_colisiones_match_plc_cache(make_ctx: Any) -> None:
 
     # ``60010_EXP_COMENTARIOS`` ya estaba en PLC -> colision detectada.
     assert len(ctx.colisiones) >= 1
-    # La clave original que mapeaba al valor conflictivo debe estar.
-    assert "50010_TEST_COMENTARIOS" in ctx.colisiones
+    # Appendeamos ``val`` (nombre NUEVO del bloque que colisionaria)
+    # para que la SPA pueda cruzar ``colisiones`` con
+    # ``archivos_previstos[i].rel_out`` sin replicar el cruce.
+    assert "60010_EXP_COMENTARIOS" in ctx.colisiones
 
 
 @pytest.mark.asyncio

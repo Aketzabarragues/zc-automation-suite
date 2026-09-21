@@ -315,54 +315,25 @@ export default {
             const s = String(p).replace(/\\/g, "/").split("/").pop();
             return s.replace(/\.[^.]+$/, "");
         }
-        // ``_blockNumber``: extrae la primera secuencia de digitos
-        // del stem ("DB50010_PARAM" -> 50010, "FC50010_INTERFAZ" ->
-        // 50010, "manifest" -> 0). Sirve para la comparacion con la
-        // cache de bloques del PLC (que guarda ``numero`` aparte).
-        function _blockNumber(stem) {
-            if (!stem) return 0;
-            const m = String(stem).match(/(\d+)/);
-            return m ? Number(m[1]) : 0;
-        }
-        // ``_bloqueExisteEnPLC``: match por nombre (lowercase, sin
-        // extension) Y por numero. AND logico: si el PLC tiene el
-        // mismo bloque exacto (mismo nombre + mismo numero) -> NO OK
-        // (no se podria importar). Solo ``true`` si AMBOS coinciden.
-        function _bloqueExisteEnPLC(stemNuevo, plcBlocks) {
-            if (!stemNuevo) return false;
-            const targetName = String(stemNuevo).toLowerCase();
-            const targetNum = _blockNumber(stemNuevo);
-            for (const b of plcBlocks) {
-                if (!b) continue;
-                const name = String(b.nombre || b.name || "").toLowerCase();
-                const num = Number(b.numero != null ? b.numero : (b.number != null ? b.number : 0));
-                if (name === targetName && num === targetNum) {
-                    return true;
-                }
-            }
-            return false;
-        }
 
-        // Filas de la tabla de bloques previstos. Cada fila lleva
-        // el nombre original (de la plantilla), el nuevo (con
-        // prefijo renombrado) y el estado segun la cache del PLC.
+        // Filas de la tabla de bloques previstos. Single source of
+        // truth: el backend ya marca ``archivos_previstos[i].colisiona``
+        // cruzando ``dicc_bloques`` (preview lado servidor) contra la
+        // cache de bloques del PLC que la SPA envia en
+        // ``plc_blocks_cache`` (commit 6). Replicar el cruce aqui
+        // duplicaba logica y daba falsos positivos (todo OK) cuando
+        // la SPA no enviaba la cache.
         // Orden estable: por nombre nuevo ascendente (locale-aware).
         const bloquesConEstado = computed(() => {
             const data = previewData.value;
             if (!data || !Array.isArray(data.archivos_previstos)) return [];
-            const cache = plcBlocksCache.value;
-            const plcBlocks = (cache && Array.isArray(cache.blocks)) ? cache.blocks : [];
             const rows = data.archivos_previstos
                 .filter((a) => a && a.rel_in !== undefined && a.rel_out !== undefined)
-                .map((a) => {
-                    const stemIn = _pathStem(a.rel_in);
-                    const stemOut = _pathStem(a.rel_out);
-                    return {
-                        original: stemIn,
-                        nuevo: stemOut,
-                        estado: _bloqueExisteEnPLC(stemOut, plcBlocks) ? "NO OK" : "OK",
-                    };
-                });
+                .map((a) => ({
+                    original: _pathStem(a.rel_in),
+                    nuevo: _pathStem(a.rel_out),
+                    estado: a.colisiona ? "NO OK" : "OK",
+                }));
             rows.sort((a, b) => String(a.nuevo).localeCompare(
                 String(b.nuevo), undefined, { sensitivity: "base" }
             ));
@@ -524,10 +495,20 @@ export default {
                 <h3 class="text-sm font-semibold text-ink mb-2">
                     Archivos a generar ({{ bloquesConEstado.length }})
                 </h3>
-                <p v-if="Array.isArray(previewData.colisiones) && previewData.colisiones.length"
-                   class="text-red-700 text-xs mb-2">
-                    Aviso: {{ previewData.colisiones.length }} colision(es) detectada(s). Cambia el proceso o plantilla para evitar pisar bloques existentes en el PLC.
-                </p>
+                <div v-if="Array.isArray(previewData.colisiones) && previewData.colisiones.length"
+                     class="bg-red-50 border border-red-300 rounded p-2 mb-2 text-xs text-red-800">
+                    <p class="font-semibold mb-1">
+                        Aviso: {{ previewData.colisiones.length }} colision(es) detectada(s) con bloques ya existentes en el PLC.
+                    </p>
+                    <ul class="list-disc list-inside font-mono">
+                        <li v-for="c in previewData.colisiones" :key="c">
+                            {{ c }}
+                        </li>
+                    </ul>
+                    <p class="mt-1 text-red-700">
+                        Cambia el proceso o plantilla para evitar pisar bloques existentes.
+                    </p>
+                </div>
                 <!-- Tabla BLOQUE ORIGINAL / BLOQUE NUEVO / ESTADO.
                      Mismo lenguaje visual que DispositivosPanel.js
                      (sticky header, container bg-surface-raised +
