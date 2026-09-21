@@ -199,6 +199,13 @@ export default {
             const params = {
                 dir_plantilla_nombre: selectedPlantillaCarpeta.value,
                 proc_uid: Number(props.procUid),
+                // Cache de bloques del PLC: el backend la usa para
+                // detectar colisiones reales en ``detectar_colisiones``
+                // y poblar ``archivos_previstos[i].colisiona``. Si
+                // no se envia, el FB solo detecta 1 colision
+                // genérica "cache no inicializado" y todas las filas
+                // quedan OK en la SPA (falso positivo de OK).
+                plc_blocks_cache: _blocksToNames(plcBlocksCache.value),
             };
             const r = await apiProcesosCrearPreview(params);
             if (r && r.ok && r.data) {
@@ -218,6 +225,7 @@ export default {
                 dir_plantilla_nombre: selectedPlantillaCarpeta.value,
                 proc_uid: Number(props.procUid),
                 plc_name: store.selectedPlc || "",
+                plc_blocks_cache: _blocksToNames(plcBlocksCache.value),
             };
             const r = await apiProcesosCrearAplicar(params);
             aplicacionEstado.value = r && r.ok ? "ok" : "error";
@@ -226,6 +234,19 @@ export default {
                     "Apply fallo: " +
                     ((r && r.data && r.data.error) || (r ? r.status : "?"));
             }
+        }
+
+        // Pasa la lista de bloques del PLC del store al formato
+        // simple (``list[str]`` de nombres) que espera el router
+        // backend. El helper del backend lo convierte en ``set`` y
+        // lo pasa al ctx.plc_blocks_cache. Si el cache esta vacio
+        // o el PLC no esta seleccionado, devuelve array vacio
+        // (defensivo: ``canGenerate`` ya filtra este caso).
+        function _blocksToNames(cache) {
+            if (!cache || !Array.isArray(cache.blocks)) return [];
+            return cache.blocks
+                .map((b) => (b && (b.nombre || b.name)) || null)
+                .filter(Boolean);
         }
 
         // ── Wire al cargarse ───────────────────────────────────
