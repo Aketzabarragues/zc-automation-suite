@@ -212,12 +212,18 @@ export default {
          * flag local ``showSyncView`` para que se renderice inline
          * la vista ``<procesos-sync-view>`` debajo de las cards.
          *
+         * Apaga ``showCrearView`` para que el card comun muestre
+         * solo una vista a la vez (sync XOR crear). El operario
+         * puede cambiar de accion cerrando la actual y pulsando la
+         * otra.
+         *
          * NO cambiamos ``store.currentView`` — seguimos en la misma
          * vista "proc", solo expandimos un panel hijo. Esto es
          * intencional: queremos que el selector de proceso siga
          * visible mientras el operario revisa el diff.
          */
         function openSyncView() {
+            showCrearView.value = false;
             showSyncView.value = true;
         }
 
@@ -235,8 +241,12 @@ export default {
          * flag ``showCrearView`` para que se monte inline
          * ``<procesos-crear-view>`` debajo de las cards. Análogo a
          * ``openSyncView``: NO cambia ``store.currentView``.
+         *
+         * Apaga ``showSyncView`` (mutuamente excluyente: solo una
+         * vista visible a la vez en el card comun).
          */
         function openCrearView() {
+            showSyncView.value = false;
             showCrearView.value = true;
         }
 
@@ -346,12 +356,11 @@ export default {
                 </div>
             </div>
 
-            <!-- Vista de sync renderizada INLINE debajo de las cards.
-                 El selector de proceso sigue visible arriba, así
-                 el operario puede cambiar de proceso sin perder
-                 el contexto. El sync view recibe el proc_uid del
-                 selector y emite 'close' cuando el operario
-                 pulsa "Cerrar" dentro de él. -->
+            <!-- Card comun: una vista visible a la vez (sync XOR crear).
+                 Los handlers ``openSyncView`` y ``openCrearView``
+                 apagan el flag de la otra antes de activar el
+                 propio, asi que aqui solo necesitamos un
+                 ``v-if/v-else-if`` por prioridad. -->
             <div v-if="showSyncView && selectedProc"
                  class="mt-4 bg-surface-raised border border-line rounded p-4"
                  data-testid="procesos-sync-inline-host">
@@ -361,13 +370,7 @@ export default {
                 </procesos-sync-view>
             </div>
 
-            <!-- Vista de "crear proceso completo desde plantilla".
-                 Mismo patron que el sync view: inline debajo de
-                 las cards, sin tocar 'store.currentView'.
-                 '<procesos-crear-view>' gestiona su propio
-                 estado (plantillas, form, preview, apply) y
-                 emite 'close' para colapsar. -->
-            <div v-if="showCrearView"
+            <div v-else-if="showCrearView"
                  class="mt-4 bg-surface-raised border border-line rounded p-4"
                  data-testid="procesos-crear-inline-host">
                 <procesos-crear-view
