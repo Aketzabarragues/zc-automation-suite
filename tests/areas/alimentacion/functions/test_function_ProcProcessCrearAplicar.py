@@ -123,18 +123,19 @@ def make_fb(
 
 
 @pytest.mark.asyncio
-async def test_apply_happy_path_15_ticks(
+async def test_apply_happy_path_14_ticks(
     plantilla_dummy: Path,
     tmp_path: Path,
     progress: ProgressTracker,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Happy path: 15 ticks -> n_done, ``self.result`` con shape de apply.
+    """Happy path: 14 ticks -> n_done, ``self.result`` con shape de apply.
 
-    State machine del FunctionBase:
+    State machine del FunctionBase tras quitar el step
+    extraer_variables_xml (no se usa en el helper v2):
       tick #1:  10 -> 20 (on_start + tracker.begin)
-      ticks #2-#14: 20 (13 steps; nStep NO avanza)
-      tick #15: 95 -> 99 (on_finish)
+      ticks #2-#13: 20 (12 steps; nStep NO avanza)
+      tick #14: 95 -> 99 (on_finish)
     """
     tia = MagicMock()
 
@@ -174,15 +175,15 @@ async def test_apply_happy_path_15_ticks(
     await fb.tick()
     assert fb.nStep == fb.n_ejecutar  # 20
 
-    # ticks #2-#14: 13 steps
-    for i in range(13):
+    # ticks #2-#13: 12 steps (sin extraer_variables_xml)
+    for i in range(12):
         await fb.tick()
         assert fb.nStep in (fb.n_ejecutar, fb.n_finalizar), (
             f"tick #{i + 2} salio del loop antes de tiempo: nStep={fb.nStep}"
         )
     assert fb.nStep == fb.n_finalizar  # 95
 
-    # tick #15: finalizar -> done
+    # tick #14: finalizar -> done
     await fb.tick()
     assert fb.nStep == fb.n_done  # 99
     assert fb.is_terminal() is True
@@ -263,18 +264,19 @@ async def test_apply_import_tag_falla(
     )
     assert fb.nStep == fb.n_arrancar  # 10
 
-    # Avanzamos los 7 steps offline (leer_manifest..escribir_manifest_modified).
-    # Cada step es 1 tick. Steps del apply:
+    # Avanzamos los 6 steps offline (leer_manifest..escribir_manifest_modified).
+    # Cada step es 1 tick. Steps del apply (helper v2 sin
+    # extraer_variables_xml):
     #   0: leer_manifest
     #   1: validar_minimos
     #   2: copiar_a_preview
     #   3: construir_diccionarios
-    #   4: extraer_variables_xml
-    #   5: aplicar_clonacion_strict
-    #   6: escribir_manifest_modified
-    #   7: import_tag_table  ← aqui falla
-    # Tras 1 arrancar + 7 offline = 8 ticks, estamos en ejecutar.
-    for _ in range(8):
+    #   4: aplicar_clonacion_strict
+    #   5: escribir_manifest_modified
+    #   6: import_tag_table  ← aqui falla
+    # Tras 1 arrancar + 6 offline = 7 ticks, estamos en ejecutar
+    # (sin extraer_variables_xml).
+    for _ in range(7):
         await fb.tick()
         # Permitimos error tambien (alguno de los offline puede fallar
         # si la plantilla es muy basica; pero con plantilla completa OK).
@@ -283,7 +285,7 @@ async def test_apply_import_tag_falla(
         )
     assert fb.nStep == fb.n_ejecutar
 
-    # tick #9: ``import_tag_table`` -> dispatch falla -> n_error
+    # tick #8: ``import_tag_table`` -> dispatch falla -> n_error
     await fb.tick()
     assert fb.nStep == fb.n_error  # 98
     assert fb.error_msg is not None

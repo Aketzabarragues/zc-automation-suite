@@ -118,17 +118,18 @@ def make_fb(progress: ProgressTracker) -> FunctionProcProcessCrearPreview:
 
 
 @pytest.mark.asyncio
-async def test_preview_happy_path_10_ticks(
+async def test_preview_happy_path_9_ticks(
     plantilla_dummy: Path,
     tmp_path: Path,
     progress: ProgressTracker,
 ) -> None:
-    """Happy path: 10 ticks -> n_done, ``self.result`` con shape de preview.
+    """Happy path: 9 ticks -> n_done, ``self.result`` con shape de preview.
 
-    State machine del FunctionBase:
+    State machine del FunctionBase tras quitar el step
+    extraer_variables_xml (no se usa en el helper v2):
       tick #1:  10 -> 20 (on_start + tracker.begin)
-      ticks #2-#9: 20 (8 steps; nStep NO avanza)
-      tick #10: 95 -> 99 (on_finish)
+      ticks #2-#8: 20 (7 steps; nStep NO avanza)
+      tick #9: 95 -> 99 (on_finish)
     """
     fb = make_fb(progress)
 
@@ -153,15 +154,15 @@ async def test_preview_happy_path_10_ticks(
     await fb.tick()
     assert fb.nStep == fb.n_ejecutar  # 20
 
-    # ticks #2-#9: 8 steps
-    for i in range(8):
+    # ticks #2-#8: 7 steps (sin extraer_variables_xml)
+    for i in range(7):
         await fb.tick()
         assert fb.nStep in (fb.n_ejecutar, fb.n_finalizar), (
             f"tick #{i + 2} salio del loop antes de tiempo: nStep={fb.nStep}"
         )
     assert fb.nStep == fb.n_finalizar  # 95
 
-    # tick #10: finalizar -> done
+    # tick #9: finalizar -> done
     await fb.tick()
     assert fb.nStep == fb.n_done  # 99
     assert fb.is_terminal() is True

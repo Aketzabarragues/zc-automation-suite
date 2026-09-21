@@ -38,7 +38,6 @@ from areas.alimentacion.helpers.proc.proc_process_generator import (
     proc_process_copiar_a_preview,
     proc_process_detectar_colisiones,
     proc_process_escribir_manifest,
-    proc_process_extraer_variables_xml,
     proc_process_generar_previstos,
     proc_process_leer_manifest,
     proc_process_validar_minimos,
@@ -74,7 +73,10 @@ def plantilla_dummy(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     # .s7res con BOM utf-8-sig (caso real TIA Portal V21).
-    (bloques / "50010_TEST_COMENTARIOS.s7res").write_text(
+    # El nombre incluye DB para que el patron_bloques matematico lo
+    # renombre numericamente (200 -> 100 en la v2; con patron
+    # regex aplicado al stem completo del archivo).
+    (bloques / "DB50010_TEST_COMENTARIOS.s7res").write_text(
         "BOM content", encoding="utf-8-sig",
     )
 
@@ -282,7 +284,7 @@ async def test_copiar_a_preview_ok(make_ctx: Any) -> None:
     assert ctx.dir_plantilla_copia.exists()
     # El .s7dcl y el .s7res deberian estar en preview/...
     assert (ctx.dir_plantilla_copia / "Bloques de programa" / "FC50010_TEST_INTERFAZ.s7dcl").is_file()
-    assert (ctx.dir_plantilla_copia / "Bloques de programa" / "50010_TEST_COMENTARIOS.s7res").is_file()
+    assert (ctx.dir_plantilla_copia / "Bloques de programa" / "DB50010_TEST_COMENTARIOS.s7res").is_file()
     # El manifest.json tambien se copia.
     assert (ctx.dir_plantilla_copia / "manifest.json").is_file()
     # El XML de variables PLC.
@@ -315,36 +317,6 @@ async def test_copiar_a_preview_limpia_si_existe(make_ctx: Any) -> None:
     assert (ctx.dir_plantilla_copia / "manifest.json").is_file()
 
 
-# ── proc_process_extraer_variables_xml ────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_extraer_variables_xml_filtra_rango(make_ctx: Any) -> None:
-    """Extrae unicamente variables con UID en [base_vieja, base_vieja+10000).
-
-    - Variables con UID 50010 (en rango) -> extraidas.
-    - ``OTHER_BLOCK_UID_NOMBRE`` no tiene UID numerico prefijo -> no matchea
-      la regex y por tanto no aparece.
-    """
-    ctx = make_ctx()
-    await proc_process_copiar_a_preview(ctx)
-    await proc_process_leer_manifest(ctx)
-    await proc_process_extraer_variables_xml(ctx)
-
-    vars_extraidas = ctx.__dict__.get("_variables_xml_exactas") or []
-
-    # Las 6 con prefijo 50010 (tag table + 5 PlcUserConstants con UID 50010).
-    assert "50010_TEST" in vars_extraidas
-    assert "50010_N_MAX_PINT" in vars_extraidas
-    assert "50010_N_MAX_PREAL" in vars_extraidas
-    assert "50010_N_MAX_ALM" in vars_extraidas
-    assert "50010_N_MAX_ALM_HMI" in vars_extraidas
-    assert "50010_ETAPA_0" in vars_extraidas
-    # OTHER_BLOCK_UID_NOMBRE no empieza por UID numerico -> no matchea
-    # la regex ``\\d+_[a-zA-Z0-9_]+``.
-    assert "OTHER_BLOCK_UID_NOMBRE" not in vars_extraidas
-    # Sin duplicados (la funcion usa ``dict.fromkeys`` para dedupe).
-    assert len(vars_extraidas) == len(set(vars_extraidas))
 
 
 # ── proc_process_construir_diccionarios ───────────────────────────────
@@ -358,7 +330,6 @@ async def test_construir_diccionarios_orden_len_desc(make_ctx: Any) -> None:
     ctx = make_ctx()
     await proc_process_copiar_a_preview(ctx)
     await proc_process_leer_manifest(ctx)
-    await proc_process_extraer_variables_xml(ctx)
     await proc_process_construir_diccionarios(ctx)
 
     # El primer item debe ser la clave mas larga.
@@ -375,12 +346,12 @@ async def test_construir_diccionarios_orden_len_desc(make_ctx: Any) -> None:
     first_xml_key = next(iter(ctx.dicc_xml))
     assert first_xml_key == longest_xml_key
 
-    # Las claves mas largas que `50010_` (prefijo numerico) aparecen antes
-    # que `50010` (la base completa, mas corta).
-    if "50010_" in ctx.dicc_xml:
-        idx_largo = list(ctx.dicc_xml.keys()).index("50010_")
-        idx_corto = list(ctx.dicc_xml.keys()).index("50010")
-        assert idx_largo < idx_corto
+    # dicc_xml lleva solo 3 reglas (proceso, params +3000, alarmas
+    # +5000), todas con prefijo ``base_``. La regla ``{base}`` (sin
+    # sufijo _) ya no se genera; ``str.replace`` se hace con la
+    # clave mas larga disponible y eso basta para el matching.
+    assert "50010_" in ctx.dicc_xml
+    assert "50010" not in ctx.dicc_xml  # v2 ya no genera la regla sin _
 
 
 # ── proc_process_detectar_colisiones ──────────────────────────────────
@@ -388,29 +359,21 @@ async def test_construir_diccionarios_orden_len_desc(make_ctx: Any) -> None:
 
 @pytest.mark.asyncio
 async def test_detectar_colisiones_match_plc_cache(make_ctx: Any) -> None:
-    """Si el cache del PLC contiene un nombre nuevo generado por el
-    helper (``val`` de dicc_bloques), se anade a ``ctx.colisiones``
-    con el nombre NUEVO (no la clave original) — asi la SPA puede
-    cruzar ``colisiones`` con ``archivos_previstos[i].rel_out``.
+    """Si el cache del PLC contiene un nombre post-rename del helper,
+    se anade a ``ctx.colisiones``. La SPA lo cruza con
+    ``archivos_previstos[i].rel_out`` para marcar el item como
+    DUPLICADO en la columna ESTADO.
     """
     ctx = make_ctx(
-        # El valor ``val`` de ``dicc_bloques`` para
-        # ``50010_TEST_COMENTARIOS`` es ``60010_EXP_COMENTARIOS``
-        # (sustituye 50010->60010 y TEST->EXP).
-        plc_blocks_cache={"60010_EXP_COMENTARIOS"},
+        plc_blocks_cache={"DB60010_EXP_COMENTARIOS"},
     )
     await proc_process_copiar_a_preview(ctx)
     await proc_process_leer_manifest(ctx)
-    await proc_process_extraer_variables_xml(ctx)
     await proc_process_construir_diccionarios(ctx)
     await proc_process_detectar_colisiones(ctx)
 
-    # ``60010_EXP_COMENTARIOS`` ya estaba en PLC -> colision detectada.
-    assert len(ctx.colisiones) >= 1
-    # Appendeamos ``val`` (nombre NUEVO del bloque que colisionaria)
-    # para que la SPA pueda cruzar ``colisiones`` con
-    # ``archivos_previstos[i].rel_out`` sin replicar el cruce.
-    assert "60010_EXP_COMENTARIOS" in ctx.colisiones
+    # ``DB60010_EXP_COMENTARIOS`` ya estaba en PLC -> colision detectada.
+    assert "DB60010_EXP_COMENTARIOS" in ctx.colisiones
 
 
 @pytest.mark.asyncio
@@ -423,7 +386,6 @@ async def test_detectar_colisiones_cache_none_emite_warning(
     ctx = make_ctx(plc_blocks_cache=None)
     await proc_process_copiar_a_preview(ctx)
     await proc_process_leer_manifest(ctx)
-    await proc_process_extraer_variables_xml(ctx)
     await proc_process_construir_diccionarios(ctx)
     await proc_process_detectar_colisiones(ctx)
 
@@ -431,175 +393,8 @@ async def test_detectar_colisiones_cache_none_emite_warning(
     assert "Cache de bloques PLC" in ctx.colisiones[0]
 
 
-@pytest.mark.asyncio
-async def test_generar_previstos_colision_por_tipo_numero(
-    make_ctx: Any,
-) -> None:
-    """El item emite ``colisiona=True`` si el ``(tipo_nuevo,
-    numero_nuevo)`` ya existe en ``plc_blocks_por_tipo``.
-
-    Caso 1 (mismo tipo): PLC tiene DB60010. La plantilla
-    importa DB60010_X y DB51010_X. Colisiona SOLO en DB60010
-    (tipo DB + numero 60010), NO en DB51010 (numero distinto).
-
-    Caso 2 (cross-type): PLC tiene FB60010. La plantilla
-    importa DB60010_X y FC60010_X. NO colisiona (tipo DB/FC
-    vs tipo FB, aunque el numero 60010 coincida). Slots TIA
-    separados.
-    """
-    # Caso 1: mismo tipo, colision con DB60010 (no DB51010).
-    ctx = make_ctx(plc_blocks_por_tipo={"DB": {60010}})
-    await proc_process_copiar_a_preview(ctx)
-    await proc_process_leer_manifest(ctx)
-    await proc_process_extraer_variables_xml(ctx)
-    await proc_process_construir_diccionarios(ctx)
-    await proc_process_detectar_colisiones(ctx)
-    await proc_process_generar_previstos(ctx)
-
-    db_items = [
-        i for i in ctx.archivos_previstos
-        if i.get("tipo_nuevo") == "DB"
-    ]
-    assert db_items, "Se esperaba al menos un DB en archivos_previstos"
-    # El DB destino con numero 60010 colisiona; otros no.
-    db_60010 = [i for i in db_items if i.get("numero_nuevo") == 60010]
-    db_otros = [i for i in db_items if i.get("numero_nuevo") != 60010]
-    assert db_60010, "Se esperaba un item DB con numero nuevo 60010"
-    for item in db_60010:
-        assert item["colisiona"] is True, item
-    for item in db_otros:
-        assert item["colisiona"] is False, item
-
-    # Caso 2: cross-type FB60010. NO debe colisionar con
-    # ningun item aunque compartan el numero 60010.
-    ctx2 = make_ctx(plc_blocks_por_tipo={"FB": {60010}})
-    await proc_process_copiar_a_preview(ctx2)
-    await proc_process_leer_manifest(ctx2)
-    await proc_process_extraer_variables_xml(ctx2)
-    await proc_process_construir_diccionarios(ctx2)
-    await proc_process_detectar_colisiones(ctx2)
-    await proc_process_generar_previstos(ctx2)
-
-    for item in ctx2.archivos_previstos:
-        if item.get("numero_nuevo") == 60010:
-            # DB60010_X y FC60010_X NO colisionan con FB60010
-            # (slot TIA separado por tipo).
-            assert item["colisiona"] is False, item
 
 
-@pytest.mark.asyncio
-async def test_generar_previstos_pobla_colision_con(
-    make_ctx: Any,
-) -> None:
-    """Cuando un item colisiona por nombre O por tipo+numero,
-    el backend anota el bloque concreto del PLC en
-    ``colision_con`` (nombre + tipo + numero + tipo de match).
-    La SPA usa esto para mostrar "DUPLICADO - DB100_CPR".
-    """
-    plc_detalle = [
-        {"nombre": "DB60010_EXISTENTE", "tipo": "DB", "numero": 60010},
-        {"nombre": "FC60010_OTRA", "tipo": "FC", "numero": 60010},
-    ]
-    ctx = make_ctx(
-        plc_blocks_cache={"DB60010_EXISTENTE"},
-        plc_blocks_por_tipo={"DB": {60010}, "FC": {60010}},
-        plc_blocks_detalle=plc_detalle,
-    )
-    await proc_process_copiar_a_preview(ctx)
-    await proc_process_leer_manifest(ctx)
-    await proc_process_extraer_variables_xml(ctx)
-    await proc_process_construir_diccionarios(ctx)
-    await proc_process_detectar_colisiones(ctx)
-    await proc_process_generar_previstos(ctx)
-
-    db_items = [i for i in ctx.archivos_previstos if i.get("tipo_nuevo") == "DB"]
-    assert db_items, "Se esperaba items DB"
-    # El DB con numero destino 60010 debe traer colision_con
-    # apuntando al bloque del PLC con mismo (tipo, numero).
-    db_60010 = [i for i in db_items if i.get("numero_nuevo") == 60010]
-    for item in db_60010:
-        assert item["colisiona"] is True, item
-        assert item["colision_con"] is not None, item
-        assert item["colision_con"]["nombre"] == "DB60010_EXISTENTE"
-        assert item["colision_con"]["tipo"] == "DB"
-        assert item["colision_con"]["numero"] == 60010
-        assert item["colision_con"]["por"] in ("nombre", "tipo_numero")
-
-
-@pytest.mark.asyncio
-async def test_generar_previstos_colision_con_prioriza_nombre(
-    make_ctx: Any,
-) -> None:
-    """Si hay colision por nombre Y por (tipo,numero), el
-    backend prefiere match por nombre (mas descriptivo para
-    el operario: el nombre del PLC destino, no solo el slot).
-    """
-    plc_detalle = [
-        # El PLC tiene un DB en el slot 60010 con nombre
-        # "DB60010_NOMBRE_PLC". Colisiona con nuestro DB60010_EXP
-        # por (DB, 60010), pero NO por nombre (nuestro es _EXP).
-        {"nombre": "DB60010_NOMBRE_PLC", "tipo": "DB", "numero": 60010},
-    ]
-    ctx = make_ctx(
-        plc_blocks_cache=set(),  # sin match por nombre
-        plc_blocks_por_tipo={"DB": {60010}},
-        plc_blocks_detalle=plc_detalle,
-    )
-    await proc_process_copiar_a_preview(ctx)
-    await proc_process_leer_manifest(ctx)
-    await proc_process_extraer_variables_xml(ctx)
-    await proc_process_construir_diccionarios(ctx)
-    await proc_process_detectar_colisiones(ctx)
-    await proc_process_generar_previstos(ctx)
-
-    db_items = [i for i in ctx.archivos_previstos
-                if i.get("tipo_nuevo") == "DB"
-                and i.get("numero_nuevo") == 60010]
-    assert db_items, "Se esperaba item DB con numero 60010"
-    # Item colisiona por (tipo, numero) porque el nombre es
-    # distinto. Por tanto colision_con.por == "tipo_numero".
-    item = db_items[0]
-    assert item["colisiona"] is True, item
-    assert item["colision_con"]["por"] == "tipo_numero", item
-    assert item["colision_con"]["nombre"] == "DB60010_NOMBRE_PLC"
-
-
-@pytest.mark.asyncio
-async def test_generar_previstos_pobla_nombre_y_numero(
-    make_ctx: Any,
-) -> None:
-    """Cada item de ``archivos_previstos`` lleva nombre_original,
-    nombre_nuevo, numero_original y numero_nuevo. El numero
-    se extrae del ``S7_BlockNumber := "X"`` del XML de plantilla,
-    NO del stem (puede que el stem no contenga numeros para
-    bloques tipo ``FC_INTERFAZ``).
-    """
-    ctx = make_ctx()  # plc_blocks_cache = set() vacio
-    await proc_process_copiar_a_preview(ctx)
-    await proc_process_leer_manifest(ctx)
-    await proc_process_extraer_variables_xml(ctx)
-    await proc_process_construir_diccionarios(ctx)
-    await proc_process_detectar_colisiones(ctx)
-    await proc_process_generar_previstos(ctx)
-
-    assert ctx.archivos_previstos
-    # Cada item lleva los 4 campos nuevos.
-    for item in ctx.archivos_previstos:
-        if item["kind"] != "xml" and item["kind"] != "text":
-            continue  # binarios (manifest.json procesado aparte)
-        # Para .s7dcl / .scl, el numero debe estar presente (>0)
-        # porque el archivo lleva la cabecera S7_BlockNumber.
-        if item["kind"] == "text" and Path(str(item["rel_in"])).suffix in (
-            ".s7dcl", ".scl", ".awl"
-        ):
-            assert "nombre_original" in item
-            assert "nombre_nuevo" in item
-            assert "numero_original" in item
-            assert "numero_nuevo" in item
-            assert item["numero_original"] > 0, item
-            # numero_nuevo != numero_original (el dicc lo renombro).
-            assert item["numero_nuevo"] > 0, item
-            assert item["numero_nuevo"] != item["numero_original"]
 
 
 # ── proc_process_aplicar_clonacion ────────────────────────────────────
@@ -631,14 +426,13 @@ async def test_aplicar_clonacion_preserva_bom_s7res(
     )
     await proc_process_copiar_a_preview(ctx)
     await proc_process_leer_manifest(ctx)
-    await proc_process_extraer_variables_xml(ctx)
     await proc_process_construir_diccionarios(ctx)
     await proc_process_aplicar_clonacion(ctx)
 
     # El output .s7res: nombre nuevo es 60010 (base nueva) + EXP
     # (codigo nuevo, reemplazo de "TEST") + _COMENTARIOS (sufijo
     # preservado del .s7res original).
-    out_s7res = modified / "bloques" / "60010_EXP_COMENTARIOS.s7res"
+    out_s7res = modified / "bloques" / "DB60010_EXP_COMENTARIOS.s7res"
     assert out_s7res.is_file(), f"Output .s7res no existe: {out_s7res}"
     # BOM utf-8-sig == b"\xef\xbb\xbf" en los primeros 3 bytes.
     raw = out_s7res.read_bytes()
@@ -676,7 +470,6 @@ async def test_aplicar_clonacion_xml_value_update(
     )
     await proc_process_copiar_a_preview(ctx)
     await proc_process_leer_manifest(ctx)
-    await proc_process_extraer_variables_xml(ctx)
     await proc_process_construir_diccionarios(ctx)
     await proc_process_aplicar_clonacion(ctx)
 
@@ -730,7 +523,6 @@ async def test_aplicar_clonacion_genera_layout_canonico(
     )
     await proc_process_copiar_a_preview(ctx)
     await proc_process_leer_manifest(ctx)
-    await proc_process_extraer_variables_xml(ctx)
     await proc_process_construir_diccionarios(ctx)
     await proc_process_aplicar_clonacion(ctx)
 
@@ -744,7 +536,7 @@ async def test_aplicar_clonacion_genera_layout_canonico(
         "60010_EXP.xml" in rel for rel in ctx.archivos_generados
     )
     assert any(
-        "60010_EXP_COMENTARIOS.s7res" in rel for rel in ctx.archivos_generados
+        "DB60010_EXP_COMENTARIOS.s7res" in rel for rel in ctx.archivos_generados
     )
     # manifest.json NO entra como archivo generado del apply (lo escribe
     # la siguiente funcion ``proc_process_escribir_manifest``).

@@ -311,13 +311,15 @@ def test_crear_aplicar_fb_rechaza_start_409(plantilla_dummy: Path) -> None:
     assert "activo" in data["error"].lower() or "terminal" in data["error"].lower()
 
 
-def test_crear_preview_plc_blocks_cache_dict_y_strings(
+def test_crear_preview_plc_blocks_cache_acepta_strings_y_dicts(
     plantilla_dummy: Path,
 ) -> None:
-    """``plc_blocks_cache`` acepta el nuevo shape ``list[dict{ nombre,
-    numero, tipo }]`` y el legacy ``list[str]``. El router separa
-    los items por tipo (TIA distingue DB60010 de FB60010 aunque
-    compartan numero).
+    """``plc_blocks_cache`` acepta ``list[str]`` (recomendado) o
+    ``list[dict{ nombre }]``. El router extrae el campo ``nombre``
+    de los dicts defensivamente (descarta items sin nombre) y
+    popula ``plc_blocks_cache`` como ``set[str]`` plano
+    (match por nombre unicamente, consistente con la logica
+    del helper v2).
     """
     from areas.alimentacion.frontend.proc_process_crear_router import bp
 
@@ -339,28 +341,20 @@ def test_crear_preview_plc_blocks_cache_dict_y_strings(
         "dir_plantilla_nombre": "TestPlantilla",
         "proc_uid": 300,
         "plc_blocks_cache": [
-            {"nombre": "DB60010_OTRA", "tipo": "DB", "numero": 60010},
-            {"nombre": "FB60010", "tipo": "FB", "numero": 60010},
-            "solo_nombre_legacy",
-            # Sin tipo -> el router no lo cuenta por (tipo, numero)
-            {"nombre": "DB70001", "numero": 70001},
-            # Numero invalido + tipo OK -> se descarta defensivo.
-            {"nombre": "DB70002", "tipo": "DB", "numero": "no_int"},
+            "DB60010_OTRA",
+            "FB60010",
+            {"nombre": "DB70001"},
+            # Item sin nombre -> el router lo descarta defensivo.
+            {"tipo": "DB", "numero": 60010},
         ],
     })
     assert resp.status_code == 200
 
     kwargs = fb_mock.start.await_args.kwargs
-    # Nombres acumulados (todos los validos).
-    assert kwargs["plc_blocks_cache"] == {
-        "DB60010_OTRA", "FB60010", "solo_nombre_legacy", "DB70001", "DB70002",
-    }
-    # plc_blocks_por_tipo discrimina por tipo. DB60010 va al set
-    # "DB", FB60010 va al "FB" — mismo numero, sets distintos.
-    pbt = kwargs["plc_blocks_por_tipo"]
-    assert set(pbt["DB"]) == {60010}
-    assert set(pbt["FB"]) == {60010}
-    # Sin tipo -> no se cuenta.
-    assert "70001" not in {n for nums in pbt.values() for n in nums}
-    # Numero invalido -> no se cuenta.
-    assert "70002" not in {n for nums in pbt.values() for n in nums}
+    # El set de nombres acumulados. Items sin nombre y los dicts
+    # mal formados se descartan.
+    assert kwargs["plc_blocks_cache"] == {"DB60010_OTRA", "FB60010", "DB70001"}
+    # Sin campos avanzados: el router NO emite plc_blocks_por_tipo
+    # ni plc_blocks_detalle (helper v2 solo matchea por nombre).
+    assert "plc_blocks_por_tipo" not in kwargs
+    assert "plc_blocks_detalle" not in kwargs
