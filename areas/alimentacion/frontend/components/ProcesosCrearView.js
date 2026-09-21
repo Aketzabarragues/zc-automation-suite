@@ -99,18 +99,45 @@ export default {
                 ) || null
         );
 
-        // Botón "Generar prevision": basta con tener plantilla + Ex-
-        // cel/proceso cargados. NO depende de aplicacionBotonDisabled
-        // (eso es para "Aplicar al PLC", que vive debajo de la
-        // prevision). Si lo condicionamos a "ya hay preview",
-        // el botón queda disabled hasta que se genere la primera
-        // prevision (catch-22).
+        // Cache de bloques del PLC activo (``store.plcBlocksCache``).
+        // Lo necesitamos para calcular el ESTADO de cada bloque
+        // previsto (NO OK si el nombre+numero ya existen en el PLC).
+        const plcBlocksCache = computed(
+            () => store.plcBlocksCache || null
+        );
+        const hasPlcBlocks = computed(() => {
+            const c = plcBlocksCache.value;
+            return Boolean(c) && Array.isArray(c.blocks) && c.blocks.length > 0;
+        });
+
+        // Botón "Generar prevision": plantilla + Excel/proceso + PLC
+        // con cache de bloques + no estar aplicándose. Mismo
+        // requisito de cache de bloques que el sync de comentarios:
+        // sin esa cache no podemos calcular el ESTADO de cada bloque
+        // previsto, asi que mejor bloquear que avisar a medias.
         const canGenerate = computed(
             () =>
                 Boolean(selectedPlantilla.value) &&
                 hayExcel.value &&
+                hasPlcBlocks.value &&
                 aplicacionEstado.value !== "aplicando"
         );
+
+        // Tooltip accionable cuando la card esta deshabilitada por
+        // faltar PLC o cache de bloques. Misma estructura que
+        // ``syncCardTooltip`` del padre ``Procesos.js``.
+        const crearCardTooltip = computed(() => {
+            if (!hayExcel.value) {
+                return "Carga primero el Excel y pulsa 'Actualizar' en 'Definicion programacion'.";
+            }
+            if (!Boolean(selectedPlantilla.value)) {
+                return "Selecciona una plantilla.";
+            }
+            if (!hasPlcBlocks.value) {
+                return "Selecciona un PLC en el sidebar y espera al escaneo de bloques.";
+            }
+            return "";
+        });
 
         const aplicacionBotonDisabled = computed(
             () =>
@@ -257,6 +284,70 @@ export default {
             ];
         });
 
+        // ── Helpers para la tabla de bloques ─────────────────────
+        // ``pathStem``: ruta completa -> nombre sin extension y sin
+        // carpetas. El backend manda ``rel_in`` / ``rel_out`` con
+        // subcarpetas (``variables/`` / ``bloques/``) y el
+        // ``manifest.json`` ya viene filtrado por el helper.
+        function _pathStem(p) {
+            if (!p) return "";
+            const s = String(p).replace(/\\/g, "/").split("/").pop();
+            return s.replace(/\.[^.]+$/, "");
+        }
+        // ``_blockNumber``: extrae la primera secuencia de digitos
+        // del stem ("DB50010_PARAM" -> 50010, "FC50010_INTERFAZ" ->
+        // 50010, "manifest" -> 0). Sirve para la comparacion con la
+        // cache de bloques del PLC (que guarda ``numero`` aparte).
+        function _blockNumber(stem) {
+            if (!stem) return 0;
+            const m = String(stem).match(/(\d+)/);
+            return m ? Number(m[1]) : 0;
+        }
+        // ``_bloqueExisteEnPLC``: match por nombre (lowercase, sin
+        // extension) Y por numero. AND logico: si el PLC tiene el
+        // mismo bloque exacto (mismo nombre + mismo numero) -> NO OK
+        // (no se podria importar). Solo ``true`` si AMBOS coinciden.
+        function _bloqueExisteEnPLC(stemNuevo, plcBlocks) {
+            if (!stemNuevo) return false;
+            const targetName = String(stemNuevo).toLowerCase();
+            const targetNum = _blockNumber(stemNuevo);
+            for (const b of plcBlocks) {
+                if (!b) continue;
+                const name = String(b.nombre || b.name || "").toLowerCase();
+                const num = Number(b.numero != null ? b.numero : (b.number != null ? b.number : 0));
+                if (name === targetName && num === targetNum) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Filas de la tabla de bloques previstos. Cada fila lleva
+        // el nombre original (de la plantilla), el nuevo (con
+        // prefijo renombrado) y el estado segun la cache del PLC.
+        // Orden estable: por nombre nuevo ascendente (locale-aware).
+        const bloquesConEstado = computed(() => {
+            const data = previewData.value;
+            if (!data || !Array.isArray(data.archivos_previstos)) return [];
+            const cache = plcBlocksCache.value;
+            const plcBlocks = (cache && Array.isArray(cache.blocks)) ? cache.blocks : [];
+            const rows = data.archivos_previstos
+                .filter((a) => a && a.rel_in !== undefined && a.rel_out !== undefined)
+                .map((a) => {
+                    const stemIn = _pathStem(a.rel_in);
+                    const stemOut = _pathStem(a.rel_out);
+                    return {
+                        original: stemIn,
+                        nuevo: stemOut,
+                        estado: _bloqueExisteEnPLC(stemOut, plcBlocks) ? "NO OK" : "OK",
+                    };
+                });
+            rows.sort((a, b) => String(a.nuevo).localeCompare(
+                String(b.nuevo), undefined, { sensitivity: "base" }
+            ));
+            return rows;
+        });
+
         return {
             plantillas,
             plantillasLoading,
@@ -268,6 +359,10 @@ export default {
             procedimientoLabel,
             hayExcel,
             nmaxRows,
+            plcBlocksCache,
+            hasPlcBlocks,
+            crearCardTooltip,
+            bloquesConEstado,
             previewData,
             aplicacionEstado,
             aplicacionError,
@@ -398,6 +493,7 @@ export default {
             <button type="button"
                     @click="generarPreview"
                     :disabled="!canGenerate"
+                    :title="crearCardTooltip"
                     data-testid="procesos-crear-generar-preview"
                     class="mt-4 px-3 py-1.5 bg-accent text-ink-inverse rounded-md text-xs font-semibold hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed">
                 Generar prevision
@@ -405,28 +501,54 @@ export default {
 
             <div v-if="previewData" class="mt-4">
                 <h3 class="text-sm font-semibold text-ink mb-2">
-                    Archivos a generar ({{ (previewData.archivos_previstos || []).length }})
+                    Archivos a generar ({{ bloquesConEstado.length }})
                 </h3>
                 <p v-if="Array.isArray(previewData.colisiones) && previewData.colisiones.length"
                    class="text-red-700 text-xs mb-2">
                     Aviso: {{ previewData.colisiones.length }} colision(es) detectada(s). Cambia el proceso o plantilla para evitar pisar bloques existentes en el PLC.
                 </p>
-                <table class="w-full text-xs">
-                    <thead><tr class="text-left text-ink-muted">
-                        <th class="py-1 pr-2">Original</th>
-                        <th class="py-1 pr-2">Nuevo</th>
-                        <th class="py-1 pr-2">Tipo</th>
-                    </tr></thead>
-                    <tbody>
-                        <tr v-for="a in previewData.archivos_previstos"
-                            :key="a.rel_in"
-                            :class="a.colisiona ? 'text-red-700' : 'text-ink'">
-                            <td class="font-mono py-1 pr-2">{{ a.rel_in }}</td>
-                            <td class="font-mono py-1 pr-2">{{ a.rel_out }}</td>
-                            <td class="py-1 pr-2">{{ a.kind }}</td>
-                        </tr>
-                    </tbody>
-                </table>
+                <!-- Tabla BLOQUE ORIGINAL / BLOQUE NUEVO / ESTADO.
+                     Mismo lenguaje visual que DispositivosPanel.js
+                     (sticky header, container bg-surface-raised +
+                     border + rounded). ESTADO = OK si el bloque
+                     nuevo NO existe en la cache del PLC activo
+                     (por nombre + numero); NO OK si coincide. La
+                     cache del PLC se carga desde el sidebar; si
+                     el operario ve "?" en la columna deberia
+                     recargar el PLC. -->
+                <div class="flex-1 overflow-auto table-scroll-x bg-surface-raised border border-line rounded">
+                    <table class="w-full text-xs">
+                        <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
+                            <tr>
+                                <th class="px-3 py-2 text-left text-ink-muted">BLOQUE ORIGINAL</th>
+                                <th class="px-3 py-2 text-left text-ink-muted">BLOQUE NUEVO</th>
+                                <th class="px-3 py-2 text-left text-ink-muted">ESTADO</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="row in bloquesConEstado"
+                                :key="row.original + '|' + row.nuevo"
+                                class="border-b border-line">
+                                <td class="px-3 py-1.5 align-top font-mono text-ink whitespace-nowrap">
+                                    {{ row.original }}
+                                </td>
+                                <td class="px-3 py-1.5 align-top font-mono text-ink whitespace-nowrap">
+                                    {{ row.nuevo }}
+                                </td>
+                                <td class="px-3 py-1.5 align-top font-mono font-bold whitespace-nowrap"
+                                    :class="row.estado === 'NO OK' ? 'text-red-700' : 'text-green-700'">
+                                    {{ row.estado }}
+                                </td>
+                            </tr>
+                            <tr v-if="bloquesConEstado.length === 0">
+                                <td colspan="3"
+                                    class="px-3 py-6 text-center text-ink-muted italic">
+                                    (no hay archivos previstos)
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
                 <button :disabled="aplicacionBotonDisabled"
                         data-testid="procesos-crear-aplicar"
                         @click="aplicar"
