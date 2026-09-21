@@ -461,7 +461,7 @@ export default {
                  (sticky header, container bg-surface-raised + border
                  + rounded). Las 6 filas son estaticas (los nombres de
                  las claves canonicas); los valores son reactivos
-                 (``nmaxRows`` computed). Columna "-" si no hay
+                 (computed nmaxRows). Columna "-" si no hay
                  plantilla/proceso seleccionado (defensivo). -->
             <div class="mt-3 flex-1 overflow-auto table-scroll-x bg-surface-raised border border-line rounded">
                 <table class="w-full text-xs">

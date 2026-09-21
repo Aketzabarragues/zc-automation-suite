@@ -357,10 +357,10 @@ export default {
             </div>
 
             <!-- Card comun: una vista visible a la vez (sync XOR crear).
-                 Los handlers ``openSyncView`` y ``openCrearView``
-                 apagan el flag de la otra antes de activar el
-                 propio, asi que aqui solo necesitamos un
-                 ``v-if/v-else-if`` por prioridad. -->
+                 Los handlers openSyncView y openCrearView apagan
+                 el flag de la otra antes de activar el propio,
+                 asi que aqui solo necesitamos un v-if/v-else-if
+                 por prioridad. -->
             <div v-if="showSyncView && selectedProc"
                  class="mt-4 bg-surface-raised border border-line rounded p-4"
                  data-testid="procesos-sync-inline-host">
