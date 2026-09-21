@@ -76,6 +76,14 @@ PATRON_XML_VALUE = re.compile(r"<Value>(\d+)</Value>")
 # un FC_INTERFAZ podria tener otro numero).
 PATRON_S7_BLOCK_NUMBER = re.compile(r'S7_BlockNumber\s*:=\s*"(\d+)"')
 
+# Regex para el prefijo de tipo de bloque TIA (``DB``, ``FC``, ``FB``,
+# ``OB``, ``SFB``, ``SFC``, ``UDT``, ``VAT``). Sale del stem del
+# archivo. Los slots de numero son compartidos POR TIPO (DB60010 y
+# FB60010 NO chocan en TIA, aunque el "60010" coincida), asi que
+# la deteccion de colisiones por numero se hace siempre con el
+# par (tipo, numero).
+PATRON_TIPO_BLOQUE = re.compile(r"^(DB|FC|FB|OB|SFB|SFC|UDT|VAT)")
+
 
 class PlantillaMinimosNoCumplidos(ValueError):
     """Lanzada por ``proc_process_validar_minimos`` si los N_MAX del
@@ -131,17 +139,17 @@ class ProcProcessGenContext:
     nombre_nuevo: str
     plc_blocks_cache: set[str] | None
     minimos_usuario: dict[str, int]
-    # Numeros de los bloques del PLC destino. Usado en
-    # ``detectar_colisiones`` para match por numero (no por
-    # nombre): si el bloque que importariamos tiene un numero
-    # que ya existe en el PLC, es una colision INDEPENDIENTE
-    # del nombre. TIA Portal distingue bloques por (tipo +
-    # numero) + nombre; algunos casos (p.ej. crear DB60010_X
-    # cuando el PLC ya tiene un FB60010) NO chocan por nombre
-    # pero SI por numero.
+    # Numeros de los bloques del PLC destino, indexados por tipo
+    # (``{"DB": {60010, 60011}, "FB": {50010}}``). Usado en
+    # ``detectar_colisiones`` para match por (tipo, numero): si el
+    # bloque que importariamos tiene el mismo TIPO + NUMERO que
+    # uno ya existente en el PLC, es una colision INDEPENDIENTE
+    # del nombre. TIA Portal distingue bloques por (tipo + numero),
+    # asi que DB60010_X y FB60010_Y NO chocan entre si aunque
+    # compartan el "60010".
     # Default None -> compat con tests legacy que solo pasan
     # ``plc_blocks_cache``.
-    plc_blocks_numeros: set[int] | None = None
+    plc_blocks_por_tipo: dict[str, set[int]] | None = None
 
     # ── Resultado de proc_process_leer_manifest ──
     manifest_plantilla: dict[str, Any] | None = None
@@ -442,25 +450,22 @@ async def proc_process_construir_diccionarios(
 async def proc_process_detectar_colisiones(
     ctx: ProcProcessGenContext,
 ) -> None:
-    """Cruza los bloques previstos contra el cache de bloques del PLC.
+    """Cruza ``dicc_bloques`` contra el cache de bloques del PLC.
 
-    2 modos de comparar (OR logico — si CUALQUIERA coincide, colision):
-      - Por NOMBRE: el bloque que importariamos tiene el mismo
-        nombre completo que uno ya existente en el PLC.
-      - Por NUMERO: el ``S7_BlockNumber`` del bloque que
-        importariamos ya esta usado en el PLC. TIA Portal
-        distingue bloques por (tipo + numero), asi que
-        colisionan incluso si el nombre es distinto
-        (DB60010_X vs FB60010_Y ocupan el mismo slot).
+    Match por NOMBRE unicamente (cualquier val del dicc_bloques
+    que ya exista como bloque en el PLC por nombre completo es
+    una colision). El match por tipo+numero se aplica por item
+    en ``proc_process_generar_previstos`` (alli sabemos el tipo
+    del bloque concreto que va a importarse; aqui solo tenemos
+    el nombre post-diccionario).
 
-    Appendeamos al ``ctx.colisiones`` los nombres NUEVOS de los
-    bloques que colisionan (por nombre) + los numeros que
-    colisionan (por numero). Asi ``proc_process_generar_previstos``
-    puede marcar ``colisiona`` correctamente por archivo
-    previsto.
+    Appendeamos el ``val`` (nombre NUEVO del bloque) a
+    ``ctx.colisiones`` si choca con el PLC por nombre. Asi
+    ``generar_previstos`` puede marcar ``colisiona`` por archivo
+    cruzando ``ctx.colisiones`` contra ``archivos_previstos``.
 
     Si ``plc_blocks_cache`` es ``None`` (cache nunca populado),
-    emite un warning unico y devuelve.
+    emite un warning unico y devuelve sin abortar (el FB decide).
     """
     if ctx.plc_blocks_cache is None:
         ctx.colisiones.append(
@@ -474,58 +479,14 @@ async def proc_process_detectar_colisiones(
         return
 
     nombres_plc: set[str] = ctx.plc_blocks_cache
-    numeros_plc: set[int] = ctx.plc_blocks_numeros or set()
     colisiones_vistas: set[str] = set()
 
-    # Por nombre: cualquier ``val`` del dicc_bloques (que es el
-    # nombre NUEVO de un bloque) que coincida con uno ya existente
-    # en el PLC es una colision.
     for key, val in ctx.dicc_bloques.items():
         if key.startswith("S7_BlockNumber") or key.isdigit():
             continue
         if val in nombres_plc and val not in colisiones_vistas:
             ctx.colisiones.append(val)
             colisiones_vistas.add(val)
-
-    # Por numero: cualquier ``numeros_usados`` (los numeros que
-    # TIA tenia asignados a bloques en la plantilla) que, tras
-    # aplicar el dicc_xml, caiga en un numero ya usado por el PLC,
-    # es una colision. ``dicc_xml`` se ordena de mas especifico a
-    # menos por ``len(key)`` en ``proc_process_construir_diccionarios``,
-    # asi que ``dicc_xml[str(num)]`` da el numero destino correcto.
-    for viejo in _numeros_usados_en_dicc(ctx.dicc_bloques):
-        numero_destino_str = _aplicar_diccionario(
-            str(viejo), ctx.dicc_xml
-        )
-        try:
-            numero_destino = int(numero_destino_str)
-        except ValueError:
-            continue
-        if numero_destino in numeros_plc:
-            # Marcamos la colision con un prefijo ``num:`` para
-            # que la SPA distinga visualmente colision-por-nombre
-            # vs colision-por-numero en el aviso.
-            token = f"#{numero_destino}"
-            if token not in colisiones_vistas:
-                ctx.colisiones.append(token)
-                colisiones_vistas.add(token)
-
-
-def _numeros_usados_en_dicc(dicc_bloques: dict[str, str]) -> set[int]:
-    """Extrae los numeros base de las claves ``S7_BlockNumber := "X"``
-    que ``proc_process_construir_diccionarios`` emite en
-    ``dicc_bloques``. Usado para cruzar contra los numeros de
-    bloques del PLC (``plc_blocks_numeros``).
-    """
-    nums: set[int] = set()
-    for key in dicc_bloques.keys():
-        m = PATRON_S7_BLOCK_NUMBER.search(key)
-        if m:
-            try:
-                nums.add(int(m.group(1)))
-            except ValueError:
-                continue
-    return nums
 
 
 async def proc_process_generar_previstos(
@@ -605,7 +566,14 @@ async def proc_process_generar_previstos(
         # no es un bloque TIA (xml de variables o binario), el
         # numero queda en 0 (defensivo: no es un bloque importable
         # como DB/FB/FC).
-        numero_original = block_numbers_plantilla.get(rel_in.as_posix(), 0)
+        tipo_orig, numero_original = block_numbers_plantilla.get(
+            rel_in.as_posix(), ("", 0)
+        )
+        # El tipo NO cambia con el rename (los ``dicc_bloques``
+        # renombran el numero, no el prefijo). Lo extraemos del
+        # nuevo_stem para confirmar; si el rename lo perdiera, eso
+        # seria un bug del propio helper de diccionarios.
+        tipo_nuevo = _extraer_tipo_bloque(nuevo_stem) or tipo_orig
         numero_nuevo = _aplicar_diccionario(
             str(numero_original), ctx.dicc_xml
         )
@@ -614,12 +582,28 @@ async def proc_process_generar_previstos(
         except ValueError:
             numero_nuevo = 0
 
-        # Deteccion de colision: si la clave nueva del archivo o el
-        # ``nuevo_stem`` estan en ``ctx.colisiones``, marca como colision.
-        colisiona = (
+        # Deteccion de colision 2 modos (OR logico):
+        #   1. Por NOMBRE: nuevo_stem (o con extension) en
+        #      ``ctx.colisiones`` (poblado por
+        #      ``proc_process_detectar_colisiones``).
+        #   2. Por TIPO + NUMERO: el ``(tipo_nuevo, numero_nuevo)``
+        #      del item aparece en ``ctx.plc_blocks_por_tipo``.
+        #      Esto es 1-a-1 por item porque aqui sabemos el tipo
+        #      concreto del bloque que va a importarse (mientras
+        #      que ``detectar_colisiones`` solo ve nombres post-dic).
+        colisiona_nombre = (
             nuevo_stem in ctx.colisiones
             or f"{nuevo_stem}{suffix}" in ctx.colisiones
         )
+        colisiona_tipo_numero = False
+        if (
+            tipo_nuevo
+            and numero_nuevo > 0
+            and ctx.plc_blocks_por_tipo
+        ):
+            numeros_del_tipo = ctx.plc_blocks_por_tipo.get(tipo_nuevo, set())
+            colisiona_tipo_numero = numero_nuevo in numeros_del_tipo
+        colisiona = colisiona_nombre or colisiona_tipo_numero
 
         archivos_previstos.append({
             "rel_in": str(rel_in),
@@ -632,6 +616,8 @@ async def proc_process_generar_previstos(
             # numeros para bloques tipo FC_INTERFAZ).
             "nombre_original": in_path.stem,
             "nombre_nuevo": nuevo_stem,
+            "tipo_original": tipo_orig,
+            "tipo_nuevo": tipo_nuevo,
             "numero_original": numero_original,
             "numero_nuevo": numero_nuevo,
         })
@@ -832,13 +818,31 @@ def _leer_block_number(path: Path) -> int:
     return int(m.group(1)) if m else 0
 
 
-def _scan_block_numbers(root: Path) -> dict[str, int]:
-    """Walk ``root`` extrayendo el ``S7_BlockNumber`` de cada archivo
-    de bloque. Devuelve un dict ``{rel_path_posix: numero}`` para que
-    ``proc_process_generar_previstos`` pueda consultar el numero de
-    cada archivo sin re-parsear el XML N veces.
+def _extraer_tipo_bloque(stem: str) -> str:
+    """Extrae el prefijo de tipo del stem (``DB50010_X`` -> ``"DB"``,
+    ``FC_INTERFAZ`` -> ``"FC"``). Devuelve ``""`` si no matchea
+    (p.ej. ``manifest.json``, ``50010_TEST_COMENTARIOS.s7res`` que
+    no tiene prefijo de tipo en el stem — los ``.s7res`` usan
+    numeracion de bloque pero sin prefijo textual en el nombre).
+
+    El tipo SIEMPRE se extrae del stem; el renombrado no lo toca
+    (los ``dicc_bloques`` cambian ``50010`` -> ``60010`` pero
+    el prefijo ``DB`` queda igual).
     """
-    result: dict[str, int] = {}
+    m = PATRON_TIPO_BLOQUE.match(stem)
+    return m.group(1) if m else ""
+
+
+def _scan_block_numbers(root: Path) -> dict[str, tuple[str, int]]:
+    """Walk ``root`` extrayendo (tipo, S7_BlockNumber) de cada archivo
+    de bloque TIA. Devuelve un dict ``{rel_path_posix: (tipo, numero)}``
+    para que ``proc_process_generar_previstos`` consulte sin re-parsear.
+
+    El tipo se extrae del stem (prefijo DB/FC/FB/OB/...) y el numero
+    del S7_BlockNumber de la cabecera del XML. Si el archivo no es
+    un bloque TIA o falla la lectura, el (tipo, numero) queda vacio.
+    """
+    result: dict[str, tuple[str, int]] = {}
     if not root.exists():
         return result
     for p in root.rglob("*"):
@@ -847,8 +851,9 @@ def _scan_block_numbers(root: Path) -> dict[str, int]:
         if p.suffix.lower() not in (".s7dcl", ".scl", ".awl"):
             continue
         num = _leer_block_number(p)
-        if num:
-            result[p.relative_to(root).as_posix()] = num
+        tipo = _extraer_tipo_bloque(p.stem)
+        if num and tipo:
+            result[p.relative_to(root).as_posix()] = (tipo, num)
     return result
 
 

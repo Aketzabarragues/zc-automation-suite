@@ -67,6 +67,12 @@ def plantilla_dummy(tmp_path: Path) -> Path:
         "FUNCTION_BLOCK FC50010_TEST_INTERFAZ\n",
         encoding="utf-8",
     )
+    # Tambien un DB para verificar el match por tipo+numero.
+    (bloques / "DB50010_TEST.s7dcl").write_text(
+        "S7_BlockNumber := \"50010\";\n"
+        "DATA_BLOCK DB50010_TEST\n",
+        encoding="utf-8",
+    )
     # .s7res con BOM utf-8-sig (caso real TIA Portal V21).
     (bloques / "50010_TEST_COMENTARIOS.s7res").write_text(
         "BOM content", encoding="utf-8-sig",
@@ -426,30 +432,59 @@ async def test_detectar_colisiones_cache_none_emite_warning(
 
 
 @pytest.mark.asyncio
-async def test_detectar_colisiones_por_numero(make_ctx: Any) -> None:
-    """Si el PLC tiene un bloque con el mismo numero que el que
-    importariamos (aunque el nombre sea distinto), colision detectada.
+async def test_generar_previstos_colision_por_tipo_numero(
+    make_ctx: Any,
+) -> None:
+    """El item emite ``colisiona=True`` si el ``(tipo_nuevo,
+    numero_nuevo)`` ya existe en ``plc_blocks_por_tipo``.
 
-    Caso: el PLC tiene FB60010. La plantilla intenta importar DB60010_X.
-    Mismo numero, distinto nombre -> TIA choca. El helper debe
-    emitir una colision con el token ``#60010``.
+    Caso 1 (mismo tipo): PLC tiene DB60010. La plantilla
+    importa DB60010_X y DB51010_X. Colisiona SOLO en DB60010
+    (tipo DB + numero 60010), NO en DB51010 (numero distinto).
 
-    ``dicc_xml`` mapea ``str(50010)`` -> ``str(60010)``, asi
-    el numero destino del bloque de plantilla es 60010.
+    Caso 2 (cross-type): PLC tiene FB60010. La plantilla
+    importa DB60010_X y FC60010_X. NO colisiona (tipo DB/FC
+    vs tipo FB, aunque el numero 60010 coincida). Slots TIA
+    separados.
     """
-    ctx = make_ctx(
-        plc_blocks_cache={"FB60010"},       # NOMBRE distinto
-        plc_blocks_numeros={60010},         # NUMERO que coincide
-    )
+    # Caso 1: mismo tipo, colision con DB60010 (no DB51010).
+    ctx = make_ctx(plc_blocks_por_tipo={"DB": {60010}})
     await proc_process_copiar_a_preview(ctx)
     await proc_process_leer_manifest(ctx)
     await proc_process_extraer_variables_xml(ctx)
     await proc_process_construir_diccionarios(ctx)
     await proc_process_detectar_colisiones(ctx)
+    await proc_process_generar_previstos(ctx)
 
-    # El match por NUMERO detecta la colision aunque el nombre
-    # NO coincida (cross-type: FB vs DB).
-    assert "#60010" in ctx.colisiones
+    db_items = [
+        i for i in ctx.archivos_previstos
+        if i.get("tipo_nuevo") == "DB"
+    ]
+    assert db_items, "Se esperaba al menos un DB en archivos_previstos"
+    # El DB destino con numero 60010 colisiona; otros no.
+    db_60010 = [i for i in db_items if i.get("numero_nuevo") == 60010]
+    db_otros = [i for i in db_items if i.get("numero_nuevo") != 60010]
+    assert db_60010, "Se esperaba un item DB con numero nuevo 60010"
+    for item in db_60010:
+        assert item["colisiona"] is True, item
+    for item in db_otros:
+        assert item["colisiona"] is False, item
+
+    # Caso 2: cross-type FB60010. NO debe colisionar con
+    # ningun item aunque compartan el numero 60010.
+    ctx2 = make_ctx(plc_blocks_por_tipo={"FB": {60010}})
+    await proc_process_copiar_a_preview(ctx2)
+    await proc_process_leer_manifest(ctx2)
+    await proc_process_extraer_variables_xml(ctx2)
+    await proc_process_construir_diccionarios(ctx2)
+    await proc_process_detectar_colisiones(ctx2)
+    await proc_process_generar_previstos(ctx2)
+
+    for item in ctx2.archivos_previstos:
+        if item.get("numero_nuevo") == 60010:
+            # DB60010_X y FC60010_X NO colisionan con FB60010
+            # (slot TIA separado por tipo).
+            assert item["colisiona"] is False, item
 
 
 @pytest.mark.asyncio

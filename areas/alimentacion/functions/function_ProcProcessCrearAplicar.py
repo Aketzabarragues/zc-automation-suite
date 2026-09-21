@@ -28,13 +28,12 @@ Runtime params via ``start(**kwargs)``:
   - ``minimos_usuario`` (dict[str, int]): 4 N_MAX del operario. Oblig.
   - ``plc_name`` (str): nombre del PLC destino. Obligatorio.
   - ``plc_blocks_cache`` (set[str] | None): nombres de bloques
-    existentes en el PLC. Se cruza por NOMBRE (OR logico con el
-    check por numero). Si None, el helper emite warning y el FB
-    aborta (no podemos asegurar UPDATE seguro).
-  - ``plc_blocks_numeros`` (set[int] | None): numeros de bloques
-    existentes en el PLC. Se cruza por NUMERO (``S7_BlockNumber``
-    de la plantilla → numero destino). Optional (compat legacy:
-    si falta, set vacio).
+    existentes en el PLC. Se cruza por NOMBRE. Si None, el helper
+    emite warning y el FB aborta (no podemos asegurar UPDATE seguro).
+  - ``plc_blocks_por_tipo`` (dict[str, set[int]] | None): numeros
+    existentes en el PLC indexados por tipo (``{"DB": {10},
+    "FC": {10}}``). Se cruza por (tipo, numero) destino del
+    bloque que importariamos. Optional (compat legacy: dict vacio).
   - ``build_cache_root`` (Path): raiz del BuildCache del area.
 
 El ``self.result`` se popula con la shape esperada por la SPA::
@@ -146,7 +145,7 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
         self._minimos_usuario: dict[str, int] = {}
         self._plc_name: str = ""
         self._plc_blocks_cache: set[str] | None = None
-        self._plc_blocks_numeros: set[int] | None = None
+        self._plc_blocks_por_tipo: dict[str, set[int]] | None = None
         # Resultados intermedios de los dispatches.
         self._import_tag_result: dict[str, Any] | None = None
         self._import_blocks_dbs_result: dict[str, Any] | None = None
@@ -217,7 +216,7 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
                 "es obligatorio"
             )
         plc_blocks_cache = params.get("plc_blocks_cache")
-        plc_blocks_numeros = params.get("plc_blocks_numeros")
+        plc_blocks_por_tipo = params.get("plc_blocks_por_tipo")
         build_cache_root = params.get(
             "build_cache_root", self._build_cache_root
         )
@@ -232,9 +231,17 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
         self._plc_blocks_cache = (
             set(plc_blocks_cache) if plc_blocks_cache is not None else None
         )
-        self._plc_blocks_numeros = (
-            set(plc_blocks_numeros) if plc_blocks_numeros is not None else None
-        )
+        pbt_raw = plc_blocks_por_tipo
+        if pbt_raw is not None:
+            if isinstance(pbt_raw, dict):
+                self._plc_blocks_por_tipo = {
+                    str(k): set(int(x) for x in v)
+                    for k, v in pbt_raw.items()
+                }
+            else:
+                self._plc_blocks_por_tipo = {"_ALL": set(int(x) for x in pbt_raw)}
+        else:
+            self._plc_blocks_por_tipo = None
 
         dir_plantilla = Path(self._plantillas_path) / self._dir_plantilla_nombre
         if not dir_plantilla.exists():
@@ -262,7 +269,7 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
             codigo_nuevo=self._codigo_nuevo,
             nombre_nuevo=self._nombre_nuevo,
             plc_blocks_cache=self._plc_blocks_cache,
-            plc_blocks_numeros=self._plc_blocks_numeros,
+            plc_blocks_por_tipo=self._plc_blocks_por_tipo,
             minimos_usuario=self._minimos_usuario,
         )
 

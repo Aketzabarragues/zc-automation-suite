@@ -23,12 +23,13 @@ Runtime params via ``start(**kwargs)``:
     ``N_MAX_PREAL``, ``N_MAX_PINT``, ``N_MAX_ALM``, ``N_MAX_ALM_HMI``).
     Obligatorio.
   - ``plc_blocks_cache`` (set[str] | None): nombres de bloques que ya
-    existen en el PLC destino. Se cruza por NOMBRE (OR logico con
-    el check por numero). Si es None, el FB sigue (warning).
-  - ``plc_blocks_numeros`` (set[int] | None): numeros de bloques que
-    ya existen en el PLC destino. Se cruza por NUMERO (``S7_BlockNumber``
-    de la plantilla → numero destino tras aplicar ``dicc_xml``). Optional
-    (compat legacy: si falta, mismo comportamiento que set vacio).
+    existen en el PLC destino. Se cruza por NOMBRE. Si es None, el
+    FB sigue (warning).
+  - ``plc_blocks_por_tipo`` (dict[str, set[int]] | None): numeros
+    existentes en el PLC destino indexados por tipo (``{"DB": {10, 11},
+    "FC": {10}, "FB": {50010}}``). Se cruza por (tipo, numero)
+    destino del bloque que importariamos. Optional (compat legacy:
+    si falta, mismo comportamiento que dict vacio).
   - ``build_cache_root`` (Path): raiz del BuildCache del area. Si es
     None, usa ``<cwd>/.build_cache``.
 
@@ -128,7 +129,7 @@ class FunctionProcProcessCrearPreview(FunctionBase):
         self._nombre_nuevo: str = ""
         self._minimos_usuario: dict[str, int] = {}
         self._plc_blocks_cache: set[str] | None = None
-        self._plc_blocks_numeros: set[int] | None = None
+        self._plc_blocks_por_tipo: dict[str, set[int]] | None = None
         # ProcProcessGenContext compartido entre los 8 ticks. Se
         # reinicializa en cada on_start() para no arrastrar estado del
         # run anterior (el FB es re-arrancable).
@@ -182,7 +183,7 @@ class FunctionProcProcessCrearPreview(FunctionBase):
                 "es obligatorio (N_MAX_PREAL/PINT/ALM/ALM_HMI)"
             )
         plc_blocks_cache = params.get("plc_blocks_cache")
-        plc_blocks_numeros = params.get("plc_blocks_numeros")
+        plc_blocks_por_tipo = params.get("plc_blocks_por_tipo")
         build_cache_root = params.get(
             "build_cache_root", self._build_cache_root
         )
@@ -196,9 +197,22 @@ class FunctionProcProcessCrearPreview(FunctionBase):
         self._plc_blocks_cache = (
             set(plc_blocks_cache) if plc_blocks_cache is not None else None
         )
-        self._plc_blocks_numeros = (
-            set(plc_blocks_numeros) if plc_blocks_numeros is not None else None
-        )
+        # Acepta ``list[list[int]]`` (legacy, una lista plana de
+        # numeros) o ``dict[str, set[int]|list[int]]`` (shape
+        # canonico con claves por tipo). El router ya normaliza
+        # a la segunda forma.
+        pbt_raw = plc_blocks_por_tipo
+        if pbt_raw is not None:
+            if isinstance(pbt_raw, dict):
+                self._plc_blocks_por_tipo = {
+                    str(k): set(int(x) for x in v)
+                    for k, v in pbt_raw.items()
+                }
+            else:
+                # Fallback: tratar como set de numeros global (compat).
+                self._plc_blocks_por_tipo = {"_ALL": set(int(x) for x in pbt_raw)}
+        else:
+            self._plc_blocks_por_tipo = None
 
         dir_plantilla = Path(self._plantillas_path) / self._dir_plantilla_nombre
         if not dir_plantilla.exists():
@@ -226,7 +240,7 @@ class FunctionProcProcessCrearPreview(FunctionBase):
             codigo_nuevo=self._codigo_nuevo,
             nombre_nuevo=self._nombre_nuevo,
             plc_blocks_cache=self._plc_blocks_cache,
-            plc_blocks_numeros=self._plc_blocks_numeros,
+            plc_blocks_por_tipo=self._plc_blocks_por_tipo,
             minimos_usuario=self._minimos_usuario,
         )
 
