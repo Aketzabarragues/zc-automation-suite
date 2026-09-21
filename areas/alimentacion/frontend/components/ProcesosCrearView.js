@@ -692,7 +692,7 @@ export default {
                                     {{ row.nuevo }}
                                 </td>
                                 <td class="px-3 py-1.5 align-top font-mono font-bold whitespace-nowrap"
-                                    :class="row.estado === 'NO OK' ? 'text-red-700' : 'text-green-700'">
+                                    :class="row.estado === 'OK' ? 'text-green-700' : 'text-red-700'">
                                     {{ row.estado }}
                                 </td>
                             </tr>
