@@ -378,26 +378,53 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
                 # primero + ``_wait`` para consolidar, los bloques
                 # encuentran sus referencias y el UPDATE procede.
                 #
-                # El helper preserva la estructura de carpetas de la
-                # plantilla (ver ``proc_process_aplicar_clonacion``),
-                # asi que el dispatch contra la RAIZ de ``dir_nuevo``
-                # importa respetando el subpath original en el PLC.
-                # ``manifest.json`` se ignora porque TIA solo procesa
-                # extensiones relevantes para cada tipo de import.
+                # ``import_root_directory`` (parametro de TIA V21):
+                # apunta al SUBDIRECTORIO ESPECIFICO del grupo TIA,
+                # NO al directorio raiz del proyecto. El ejemplo
+                # oficial del manual:
+                #
+                #   plc.import_blocks(
+                #       import_root_directory =
+                #       "C:\\ws\\importfolder\\PLC_1\\Program blocks"
+                #   )
+                #
+                # TIA lee los archivos del subdirectorio, calcula
+                # el subpath RELATIVO a ``import_root_directory`` y
+                # los coloca bajo el grupo correspondiente del PLC
+                # (preservando la jerarquia). Si pasamos el raiz del
+                # proyecto (como hacia el commit anterior), TIA hace
+                # scan recursivo y AÑADE otra vez el prefijo del
+                # grupo (``Bloques de programa/``) lo que produce un
+                # DOBLE prefijo en el PLC
+                # (``Bloques de programa\\Bloques de programa\\...``).
+                # Tambien el import_plc_tags_xml apuntando al raiz
+                # deja las tag tables sin procesar correctamente.
+                #
+                # Solucion (sept-2026): pasar los subdirectorios
+                # exactos ``Bloques de programa/`` y ``Variables PLC/``
+                # que el helper produce. TIA calcula el subpath
+                # relativo y preserva la estructura del proceso en el
+                # PLC. ``manifest.json`` queda fuera del subdirectorio
+                # asi que TIA lo ignora automaticamente.
                 #
                 # REGLA (sept-2026): ``import_plc_tags_xml`` /
                 # ``import_blocks_sd`` se invocan SIN ``target_folder``
                 # (omitiendo el argumento); NUNCA pasar ``""``. Ver
                 # ``tia_handlers._h_import_block``.
 
-                # 1. import_plc_tags_xml sobre ``dir_nuevo`` (TIA
-                #    recurse y procesa ``Variables PLC/**/*.xml``).
+                # 1. import_plc_tags_xml sobre ``dir_nuevo/Variables PLC``
+                #    (TIA lee ``Variables PLC/**/*.xml`` y los coloca
+                #    bajo el grupo de tag tables del PLC preservando
+                #    el subpath relativo, e.g. ``003_Procesos/100_CPR.xml``
+                #    -> PLC's ``PLC tags/003_Procesos/100_CPR``).
                 tags_result = await dispatch_async(
                     self._tia_client,
                     "import_plc_tags_xml",
                     {
                         "plc_name": self._plc_name,
-                        "import_dir": str(self._ctx.dir_nuevo),
+                        "import_dir": str(
+                            self._ctx.dir_nuevo / "Variables PLC"
+                        ),
                     },
                     timeout_s=600.0,
                 )
@@ -413,15 +440,22 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
                 #    sin pasar por el worker OT.
                 await asyncio.sleep(TIA_CONSOLIDATION_SLEEP_S)
 
-                # 3. import_blocks_sd sobre ``dir_nuevo`` (TIA
-                #    recurse y procesa ``Bloques de programa/
-                #    **/*.s7dcl|.s7res|.scl|.awl``).
+                # 3. import_blocks_sd sobre ``dir_nuevo/Bloques de programa``
+                #    (TIA lee ``Bloques de programa/**/*.s7dcl|.s7res
+                #    |.scl|.awl`` y los coloca bajo el grupo
+                #    ``Bloques de programa/`` del PLC preservando el
+                #    subpath relativo, e.g.
+                #    ``100_CPR/100_Proceso/FC100_CPR.s7dcl`` -> PLC's
+                #    ``Bloques de programa/100_CPR/100_Proceso/
+                #    FC100_CPR``).
                 blocks_result = await dispatch_async(
                     self._tia_client,
                     "import_blocks_sd",
                     {
                         "plc_name": self._plc_name,
-                        "import_dir": str(self._ctx.dir_nuevo),
+                        "import_dir": str(
+                            self._ctx.dir_nuevo / "Bloques de programa"
+                        ),
                     },
                     timeout_s=600.0,
                 )
