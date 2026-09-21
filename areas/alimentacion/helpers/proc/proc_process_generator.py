@@ -499,12 +499,22 @@ async def proc_process_aplicar_clonacion(ctx: ProcProcessGenContext) -> None:
          ignore=manifest)``: copia bulk preservando la estructura de
          carpetas. Es la primitiva canonica de la stdlib para esto;
          no reinventamos mkdir + write por archivo.
-      2. Walk de ``dir_nuevo``: para cada archivo se aplica el
-         rename al filename y al contenido segun extension. El
-         subpath (``Bloques de programa/200_Expedicion/200_Proceso/``
-         o el equivalente renombrado) se mantiene identico.
+      2. Walk de ``dir_nuevo``: para cada path (file O folder) se
+         aplica el rename al nombre del componente aplicando
+         ``_aplicar_diccionario(nombre, dicc_bloques)``. Los folder
+         names siguen las mismas reglas que los file stems porque el
+         helper ya popula ``dicc_bloques`` con las substituciones de
+         base (``200_`` -> ``100_``), codigo (``EXP`` -> ``CPR``) y
+         nombre completo (``Expedicion`` -> ``CPR``). Las dos
+         pasadas se aplican en cascada (sorted by ``len(key)`` desc),
+         asi que ``200_Expedicion`` se resuelve correctamente a
+         ``100_CPR``: primero la base (``200_`` -> ``100_Expedicion``)
+         y luego el codigo/nombre (``Expedicion`` -> ``CPR``).
+      3. Walk final para rewrite de contenido segun extension. Solo
+         los archivos de texto se reescriben; los binarios copiados
+         por copytree quedan tal cual.
 
-    Por extension:
+    Por extension (paso 3):
       - ``.s7res``:           ``dicc_bloques``, encoding utf-8-sig.
       - ``.xml``:             ``dicc_xml``, encoding utf-8 (con
                               override de N_MAX si el XML contiene
@@ -514,6 +524,12 @@ async def proc_process_aplicar_clonacion(ctx: ProcProcessGenContext) -> None:
 
     ``manifest.json`` se excluye via el ``ignore`` de copytree (lo
     regenera ``proc_process_escribir_manifest`` justo despues).
+
+    Para los renames de folder, se procesan en orden de profundidad
+    DESCENDENTE (mas profundo primero) para no romper paths de hijos
+    cuando movemos el padre. Si dos carpetas hermanas tienen el
+    mismo nombre pre-rename, los paths absolutos son distintos asi
+    que no hay colision.
 
     El FB Apply dispara luego ``import_plc_tags_xml`` y
     ``import_blocks_sd`` apuntando a la RAIZ de ``dir_nuevo``: TIA
@@ -540,35 +556,46 @@ async def proc_process_aplicar_clonacion(ctx: ProcProcessGenContext) -> None:
         ignore=_ignore_manifest,
     )
 
-    # 2) Walk del destino: rename de filename + rewrite de contenido.
-    # ``list(...)`` para snapshot antes de iterar (los ``rename`` que
-    # hacemos a continuacion mutan el directorio, y ``rglob`` no es
-    # seguro para mutacion concurrente).
-    def _rename_and_rewrite() -> list[str]:
-        generated: list[str] = []
+    # 2) Rename de filenames Y folder names. Construimos el mapa
+    # completo primero (old_path -> new_path) y aplicamos en orden
+    # de profundidad descendente para no invalidar paths hijos al
+    # mover el padre.
+    def _rename_paths() -> None:
+        renames: list[tuple[Path, Path]] = []
         for path in list(ctx.dir_nuevo.rglob("*")):
+            if path == ctx.dir_nuevo:
+                continue
+            if path.is_file():
+                suffix = path.suffix.lower()
+                nuevo_stem = _aplicar_diccionario(
+                    path.stem, ctx.dicc_bloques
+                )
+                new_name = f"{nuevo_stem}{suffix}"
+            else:
+                new_name = _aplicar_diccionario(
+                    path.name, ctx.dicc_bloques
+                )
+            if path.name != new_name:
+                renames.append((path, path.with_name(new_name)))
+
+        # Profundidad descendente: hojas primero, raiz la ultima.
+        # ``len(parts)`` cuenta los componentes del path absoluto;
+        # mas profundidad = mas parts = mas prioritario.
+        renames.sort(key=lambda pair: -len(pair[0].parts))
+        for old, new in renames:
+            new.parent.mkdir(parents=True, exist_ok=True)
+            old.rename(new)
+
+    await asyncio.to_thread(_rename_paths)
+
+    # 3) Rewrite de contenido segun extension. ``rglob`` sobre el
+    # destino ya con filenames + folder names renombrados.
+    def _rewrite_contents() -> list[str]:
+        generated: list[str] = []
+        for path in ctx.dir_nuevo.rglob("*"):
             if not path.is_file():
                 continue
-            rel = path.relative_to(ctx.dir_nuevo)
-            # El subpath es identico en source y destination (copytree
-            # preserva estructura), asi que el archivo original vive
-            # en ``dir_plantilla_copia / rel``. Lo necesitamos para
-            # extraer el stem pre-rename.
-            src = ctx.dir_plantilla_copia / rel
-            if not src.exists():
-                # No deberia pasar: copytree preserva estructura.
-                continue
             suffix = path.suffix.lower()
-            nuevo_stem = _aplicar_diccionario(src.stem, ctx.dicc_bloques)
-
-            # Rename de filename in-place.
-            new_name = f"{nuevo_stem}{suffix}"
-            if path.name != new_name:
-                renamed = path.with_name(new_name)
-                path.rename(renamed)
-                path = renamed
-
-            # Rewrite de contenido segun extension.
             if suffix == ".s7res":
                 enc = "utf-8-sig"
                 contenido = _leer_texto(path, enc)
@@ -593,7 +620,7 @@ async def proc_process_aplicar_clonacion(ctx: ProcProcessGenContext) -> None:
             generated.append(str(path.relative_to(ctx.dir_nuevo)))
         return generated
 
-    ctx.archivos_generados = await asyncio.to_thread(_rename_and_rewrite)
+    ctx.archivos_generados = await asyncio.to_thread(_rewrite_contents)
 
 
 async def proc_process_escribir_manifest(ctx: ProcProcessGenContext) -> None:

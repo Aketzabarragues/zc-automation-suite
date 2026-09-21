@@ -382,6 +382,18 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
                     },
                     timeout_s=600.0,
                 )
+                # CRITICO: si el batch fallo (rollback ejecutado), NO
+                # continuar a ``compilar``. Si lo hicieramos, el
+                # compile correría sobre el PLC sin cambios (rollback)
+                # y el FB reportaría éxito falso. Ademas, si el PLC
+                # quedo en estado "corrupto" por la transaccion TIA
+                # fallida, el compile puede hangear o fallar de forma
+                # confusa.
+                if not self._import_batch_result.get("ok"):
+                    raise RuntimeError(
+                        f"execute_transactional_batch fallo: "
+                        f"{self._import_batch_result.get('error') or '<sin error>'}"
+                    )
             case "compilar":
                 self._compile_result = await dispatch_async(
                     self._tia_client,

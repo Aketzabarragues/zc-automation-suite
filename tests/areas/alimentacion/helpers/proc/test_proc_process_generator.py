@@ -664,6 +664,205 @@ async def test_aplicar_clonacion_genera_layout_canonico(
     )
 
 
+@pytest.fixture
+def plantilla_dummy_nested(tmp_path: Path) -> Path:
+    """Plantilla con estructura anidada tipo PROCESO_ESTANDAR.
+
+    Layout:
+      Bloques de programa/
+        200_Expedicion/
+          200_Proceso/
+            FC200_EXP_INTERFAZ.s7dcl
+            FC200_EXP_INTERFAZ.s7res
+          3200_Parametros/
+            DB3200_EXP_PARAM.s7dcl
+          5200_Alarmas/
+            DB5200_EXP_ALM.s7dcl
+      Variables PLC/
+        003_Procesos/
+          200_EXP.xml
+      manifest.json (codigo=EXP, nombre=Expedicion)
+    """
+    p = tmp_path / "PROC_ESTANDAR"
+    p.mkdir()
+    bloques = p / "Bloques de programa"
+    bloques.mkdir()
+    # Top folder del proceso (se renombra a 100_CPR tras el apply).
+    proc_folder = bloques / "200_Expedicion"
+    proc_folder.mkdir()
+    # Inner subfolders (se renombran numericamente: 200_Proceso ->
+    # 100_Proceso, etc.; el sufijo NO cambia).
+    (proc_folder / "200_Proceso").mkdir()
+    (proc_folder / "3200_Parametros").mkdir()
+    (proc_folder / "5200_Alarmas").mkdir()
+    # Blocks.
+    (proc_folder / "200_Proceso" / "FC200_EXP_INTERFAZ.s7dcl").write_text(
+        "S7_BlockNumber := \"200\";\n"
+        "FUNCTION_BLOCK FC200_EXP_INTERFAZ\n",
+        encoding="utf-8",
+    )
+    (proc_folder / "200_Proceso" / "FC200_EXP_INTERFAZ.s7res").write_text(
+        "BOM content", encoding="utf-8-sig",
+    )
+    (proc_folder / "3200_Parametros" / "DB3200_EXP_PARAM.s7dcl").write_text(
+        "S7_BlockNumber := \"3200\";\n"
+        "DATA_BLOCK DB3200_EXP_PARAM\n",
+        encoding="utf-8",
+    )
+    (proc_folder / "5200_Alarmas" / "DB5200_EXP_ALM.s7dcl").write_text(
+        "S7_BlockNumber := \"5200\";\n"
+        "DATA_BLOCK DB5200_EXP_ALM\n",
+        encoding="utf-8",
+    )
+    # Variables PLC.
+    (p / "Variables PLC" / "003_Procesos").mkdir(parents=True)
+    (p / "Variables PLC" / "003_Procesos" / "200_EXP.xml").write_text(
+        "<Document><Value>1</Value></Document>\n",
+        encoding="utf-8",
+    )
+    # manifest con codigo y nombre que el helper usa para el rename
+    # de folder names (el sufijo ``Expedicion`` -> ``CPR``).
+    (p / "manifest.json").write_text(
+        json.dumps({
+            "base": 200,
+            "codigo": "EXP",
+            "nombre": "Expedicion",
+            "minimos": {
+                "N_MAX_PREAL": 3, "N_MAX_PINT": 15,
+                "N_MAX_ALM": 16, "N_MAX_ALM_HMI": 3,
+            },
+        }),
+        encoding="utf-8",
+    )
+    return p
+
+
+@pytest.mark.asyncio
+async def test_aplicar_clonacion_renombra_carpetas_anidadas(
+    tmp_path: Path,
+    plantilla_dummy_nested: Path,
+) -> None:
+    """El apply renombra TANTO archivos como carpetas, preservando
+    la estructura anidada de la plantilla.
+
+    Caso real (sept-2026): PROCESO_ESTANDAR tiene
+    ``Bloques de programa/200_Expedicion/{200_Proceso,
+    3200_Parametros, 5200_Alarmas}/...``. Tras el apply (base
+    50010 -> 100, codigo EXP -> CPR, nombre Expedicion -> CPR)
+    el resultado debe ser::
+
+        Bloques de programa/
+          100_CPR/                  <- antes 200_Expedicion
+            100_Proceso/            <- antes 200_Proceso
+              FC100_CPR_INTERFAZ.s7dcl
+              FC100_CPR_INTERFAZ.s7res
+            3100_Parametros/        <- antes 3200_Parametros
+              DB3100_CPR_PARAM.s7dcl
+            5100_Alarmas/           <- antes 5200_Alarmas
+              DB5100_CPR_ALM.s7dcl
+        Variables PLC/
+          003_Procesos/
+            100_CPR.xml             <- antes 200_EXP.xml
+
+    Las reglas clave:
+      - Folder top (id_proceso + _ + nombre_proceso): 200_Expedicion
+        -> 100_CPR. El sufijo ``Expedicion`` se reemplaza por
+        ``CPR`` (regla de nombre). El prefijo ``200_`` se renumera
+        a ``100_`` (regla de base).
+      - Inner folders: solo renumerar. ``200_Proceso`` ->
+        ``100_Proceso`` (prefijo base, sufijo intacto).
+        ``3200_Parametros`` -> ``3100_Parametros``.
+      - Filenames: mismo patron que carpetas (200_EXP_* -> 100_CPR_*).
+
+    Bug pre-fix: el helper solo renombraba filenames, dejando los
+    folder names con el nombre antiguo. Esto provocaba que el
+    import UPDATE de TIA Portal creara los bloques en el subpath
+    con el nombre viejo (e.g. ``Bloques de programa/200_Expedicion/
+    FC100_CPR_INTERFAZ``) en lugar del esperado
+    (``Bloques de programa/100_CPR/FC100_CPR_INTERFAZ``).
+    """
+    build_cache_root = tmp_path / ".build_cache"
+    preview = build_cache_root / "alimentacion" / "ProcesoNuevo" / "Plantilla"
+    modified = build_cache_root / "alimentacion" / "ProcesoNuevo" / "Nuevo"
+    ctx = ProcProcessGenContext(
+        dir_plantilla=plantilla_dummy_nested,
+        dir_plantilla_copia=preview,
+        dir_nuevo=modified,
+        base_nueva=100,
+        codigo_nuevo="CPR",
+        nombre_nuevo="CPR",
+        plc_blocks_cache=[],
+        minimos_usuario={
+            "N_MAX_PREAL": 10, "N_MAX_PINT": 20,
+            "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
+        },
+    )
+    await proc_process_copiar_a_preview(ctx)
+    await proc_process_leer_manifest(ctx)
+    await proc_process_construir_diccionarios(ctx)
+    await proc_process_aplicar_clonacion(ctx)
+
+    # 1) Folder top renombrado: 200_Expedicion -> 100_CPR
+    assert (modified / "Bloques de programa" / "100_CPR").is_dir(), (
+        f"Top folder no renombrado a 100_CPR; "
+        f"contenido de Bloques de programa: "
+        f"{list((modified / 'Bloques de programa').iterdir())}"
+    )
+    assert not (modified / "Bloques de programa" / "200_Expedicion").exists(), (
+        "200_Expedicion no deberia existir despues del rename"
+    )
+
+    # 2) Inner folders renumerados: solo el prefijo cambia, sufijo intacto.
+    assert (modified / "Bloques de programa" / "100_CPR" / "100_Proceso").is_dir()
+    assert (modified / "Bloques de programa" / "100_CPR" / "3100_Parametros").is_dir()
+    assert (modified / "Bloques de programa" / "100_CPR" / "5100_Alarmas").is_dir()
+    assert not (modified / "Bloques de programa" / "100_CPR" / "200_Proceso").exists()
+    assert not (modified / "Bloques de programa" / "100_CPR" / "3200_Parametros").exists()
+    assert not (modified / "Bloques de programa" / "100_CPR" / "5200_Alarmas").exists()
+
+    # 3) Filenames renombrados dentro de cada subfolder.
+    assert (
+        modified / "Bloques de programa" / "100_CPR" / "100_Proceso"
+        / "FC100_CPR_INTERFAZ.s7dcl"
+    ).is_file(), (
+        f"FC100_CPR_INTERFAZ.s7dcl no encontrado; "
+        f"contenido del dir: "
+        f"{list((modified / 'Bloques de programa' / '100_CPR' / '100_Proceso').iterdir())}"
+    )
+    assert (
+        modified / "Bloques de programa" / "100_CPR" / "3100_Parametros"
+        / "DB3100_CPR_PARAM.s7dcl"
+    ).is_file()
+    assert (
+        modified / "Bloques de programa" / "100_CPR" / "5100_Alarmas"
+        / "DB5100_CPR_ALM.s7dcl"
+    ).is_file()
+
+    # 4) Variables PLC (no cambia porque el nombre "200_EXP" no tiene
+    # el patron "200_" como prefijo de base — solo es el filename del
+    # tag table que SI se renombra a "100_CPR").
+    assert (
+        modified / "Variables PLC" / "003_Procesos" / "100_CPR.xml"
+    ).is_file()
+
+    # 5) ``archivos_generados`` poblado con paths relativos que ya
+    # tienen el subpath renombrado completo.
+    rels = ctx.archivos_generados
+    assert any(
+        rel.endswith(
+            "Bloques de programa" + os.sep + "100_CPR" + os.sep
+            + "100_Proceso" + os.sep + "FC100_CPR_INTERFAZ.s7dcl"
+        )
+        for rel in rels
+    ), f"Falta FC100_CPR_INTERFAZ.s7dcl con subpath completo: {rels}"
+    assert any(
+        rel.endswith(
+            "Variables PLC" + os.sep + "003_Procesos" + os.sep + "100_CPR.xml"
+        )
+        for rel in rels
+    ), f"Falta 100_CPR.xml: {rels}"
+
+
 # ── proc_process_escribir_manifest ────────────────────────────────────
 
 
