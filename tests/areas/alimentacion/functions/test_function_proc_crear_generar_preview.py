@@ -1,4 +1,4 @@
-"""Tests del FB ``FunctionProcProcessCrearPreview``.
+"""Tests del FB ``FunctionProcCrearGenerarPreview``.
 
 Cubre:
   - Happy path: 10 ticks (1 arrancar + 8 steps + 1 finalizar) -> n_done,
@@ -25,8 +25,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from areas.alimentacion.functions.function_ProcProcessCrearPreview import (
-    FunctionProcProcessCrearPreview,
+from areas.alimentacion.functions.function_proc_crear_generar_preview import (
+    FunctionProcCrearGenerarPreview,
 )
 from core.runtime.progress_buffer import ProgressTracker
 
@@ -100,12 +100,12 @@ def progress(real_progress: ProgressTracker) -> ProgressTracker:
     return real_progress
 
 
-def make_fb(progress: ProgressTracker) -> FunctionProcProcessCrearPreview:
+def make_fb(progress: ProgressTracker) -> FunctionProcCrearGenerarPreview:
     """Crea un FB con deps mockeadas pero tracker real."""
     config = MagicMock()
     tia = MagicMock()  # el preview NO toca TIA, pero se inyecta por homogeneidad
     build_cache_root = MagicMock()
-    return FunctionProcProcessCrearPreview(
+    return FunctionProcCrearGenerarPreview(
         nombre="proc_process_crear_preview_test",
         config_manager=config,
         tia_client=tia,

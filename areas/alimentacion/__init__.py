@@ -127,8 +127,8 @@ def register(
     from areas.alimentacion.functions.function_ProcSincronizar import (
         FunctionProcSincronizar,
     )
-    from areas.alimentacion.functions.function_ProcProcessCrearPreview import (
-        FunctionProcProcessCrearPreview,
+    from areas.alimentacion.functions.function_proc_crear_generar_preview import (
+        FunctionProcCrearGenerarPreview,
     )
     from areas.alimentacion.functions.function_ProcProcessCrearAplicar import (
         FunctionProcProcessCrearAplicar,
@@ -226,7 +226,7 @@ def register(
     # se resuelve en on_start() desde el singleton TIADataBloqueCache.
     engine.register_fb(
         "proc_process_crear_preview",
-        FunctionProcProcessCrearPreview(
+        FunctionProcCrearGenerarPreview(
             nombre="proc_process_crear_preview",
             config_manager=config_manager,
             tia_client=tia_client,

@@ -62,7 +62,7 @@ from core.composition.plc_function_base import FunctionBase
 logger = logging.getLogger(__name__)
 
 
-class FunctionProcProcessCrearPreview(FunctionBase):
+class FunctionProcCrearGenerarPreview(FunctionBase):
     """FB que genera un preview (read-only) de la clonacion de un
     proceso desde una plantilla TIA."""
 
@@ -143,37 +143,37 @@ class FunctionProcProcessCrearPreview(FunctionBase):
         plantillas_path = params.get("plantillas_path", "")
         if not plantillas_path:
             raise ValueError(
-                "FunctionProcProcessCrearPreview.start(plantillas_path=...) "
+                "FunctionProcCrearGenerarPreview.start(plantillas_path=...) "
                 "es obligatorio"
             )
         dir_plantilla_nombre = params.get("dir_plantilla_nombre", "")
         if not dir_plantilla_nombre:
             raise ValueError(
-                "FunctionProcProcessCrearPreview.start("
+                "FunctionProcCrearGenerarPreview.start("
                 "dir_plantilla_nombre=...) es obligatorio"
             )
         base_nueva = params.get("base_nueva")
         if base_nueva is None or not isinstance(base_nueva, int):
             raise ValueError(
-                "FunctionProcProcessCrearPreview.start(base_nueva=int) "
+                "FunctionProcCrearGenerarPreview.start(base_nueva=int) "
                 "es obligatorio"
             )
         codigo_nuevo = params.get("codigo_nuevo", "")
         if not codigo_nuevo:
             raise ValueError(
-                "FunctionProcProcessCrearPreview.start(codigo_nuevo=...) "
+                "FunctionProcCrearGenerarPreview.start(codigo_nuevo=...) "
                 "es obligatorio"
             )
         nombre_nuevo = params.get("nombre_nuevo", "")
         if not nombre_nuevo:
             raise ValueError(
-                "FunctionProcProcessCrearPreview.start(nombre_nuevo=...) "
+                "FunctionProcCrearGenerarPreview.start(nombre_nuevo=...) "
                 "es obligatorio"
             )
         minimos_usuario = params.get("minimos_usuario", {})
         if not isinstance(minimos_usuario, dict) or not minimos_usuario:
             raise ValueError(
-                "FunctionProcProcessCrearPreview.start(minimos_usuario=dict) "
+                "FunctionProcCrearGenerarPreview.start(minimos_usuario=dict) "
                 "es obligatorio (N_MAX_PREAL/PINT/ALM/ALM_HMI)"
             )
         plc_blocks_cache = params.get("plc_blocks_cache")
@@ -363,4 +363,4 @@ def _coerce_plc_blocks_cache(raw: Any) -> list[dict[str, Any]]:
     return out
 
 
-__all__ = ["FunctionProcProcessCrearPreview", "_coerce_plc_blocks_cache"]
+__all__ = ["FunctionProcCrearGenerarPreview", "_coerce_plc_blocks_cache"]

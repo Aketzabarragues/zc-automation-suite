@@ -5,7 +5,7 @@ Funciones puras independientes. Cada una toma un
 resultado de su trabajo.
 
 La orquestacion de las funciones vive en los FBs del area:
-  - ``areas/alimentacion/functions/function_ProcProcessCrearPreview.py``
+  - ``areas/alimentacion/functions/function_proc_crear_generar_preview.py``
   - ``areas/alimentacion/functions/function_ProcProcessCrearAplicar.py``
 
 El helper no llama a TIA. Solo manipula archivos locales
