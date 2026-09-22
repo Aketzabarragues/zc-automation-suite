@@ -37,9 +37,19 @@ logger = logging.getLogger("zc.tia_loop")
 
 
 def _h_export_blocks_sd(args: dict, tia_client: "SyncTIAClient") -> dict:
-    """Exporta los bloques de programa del PLC como .s7dcl."""
+    """Exporta los bloques de programa del PLC como .s7dcl.
+
+    Args (en ``args``):
+        plc_name (str): nombre del PLC.
+        target_dir (str): directorio destino.
+        keep_folder_structure (bool, opcional, default ``True``): si
+            ``True``, conserva la jerarquia de subcarpetas del PLC en
+            TIA (e.g. ``<target>/2000_Dispositivos/<obj>.s7dcl``). Si
+            ``False``, exporta FLAT a ``<target>/<obj>.s7dcl``.
+    """
     plc_name: str = args.get("plc_name", "")
     target_dir: str = args.get("target_dir", "")
+    keep_folder_structure: bool = args.get("keep_folder_structure", True)
 
     if not plc_name:
         raise ValueError("Se requiere el argumento 'plc_name'.")
@@ -52,13 +62,24 @@ def _h_export_blocks_sd(args: dict, tia_client: "SyncTIAClient") -> dict:
     project = _get_active_project(portal)
     target_plc = _find_plc(project, plc_name)
     target_path = _ensure_target_dir(target_dir)
-    return _export_objects_sd(target_plc, target_path, "program_blocks")
+    return _export_objects_sd(
+        target_plc, target_path, "program_blocks",
+        keep_folder_structure=keep_folder_structure,
+    )
 
 
 def _h_export_udts_sd(args: dict, tia_client: "SyncTIAClient") -> dict:
-    """Exporta los User Data Types del PLC como .s7dcl."""
+    """Exporta los User Data Types del PLC como .s7dcl.
+
+    Args (en ``args``):
+        plc_name (str): nombre del PLC.
+        target_dir (str): directorio destino.
+        keep_folder_structure (bool, opcional, default ``True``): ver
+            ``_h_export_blocks_sd``.
+    """
     plc_name: str = args.get("plc_name", "")
     target_dir: str = args.get("target_dir", "")
+    keep_folder_structure: bool = args.get("keep_folder_structure", True)
 
     if not plc_name:
         raise ValueError("Se requiere el argumento 'plc_name'.")
@@ -71,14 +92,31 @@ def _h_export_udts_sd(args: dict, tia_client: "SyncTIAClient") -> dict:
     project = _get_active_project(portal)
     target_plc = _find_plc(project, plc_name)
     target_path = _ensure_target_dir(target_dir)
-    return _export_objects_sd(target_plc, target_path, "user_data_types")
+    return _export_objects_sd(
+        target_plc, target_path, "user_data_types",
+        keep_folder_structure=keep_folder_structure,
+    )
 
 
 def _h_export_plc_tags_xml(args: dict, tia_client: "SyncTIAClient") -> dict:
-    """Exporta las tablas de variables del PLC como XML SimaticML."""
+    """Exporta las tablas de variables del PLC como XML SimaticML.
+
+    Args (en ``args``):
+        plc_name (str): nombre del PLC.
+        target_dir (str): directorio destino.
+        table_names (list[str], opcional): si se pasa, filtra las
+            tablas a exportar por nombre.
+        keep_folder_structure (bool, opcional, default ``True``): si
+            ``True``, conserva la jerarquia de subcarpetas del PLC en
+            TIA (e.g. ``<target>/2000_Dispositivos/<tabla>.xml``). Si
+            ``False``, exporta FLAT a ``<target>/<tabla>.xml`` (util
+            para preview FLAT donde la info de grupo esta en
+            ``config.json``).
+    """
     plc_name: str = args.get("plc_name", "")
     target_dir: str = args.get("target_dir", "")
     target_table_names = args.get("table_names")
+    keep_folder_structure: bool = args.get("keep_folder_structure", True)
 
     if not plc_name:
         raise ValueError("Se requiere el argumento 'plc_name'.")
@@ -101,7 +139,7 @@ def _h_export_plc_tags_xml(args: dict, tia_client: "SyncTIAClient") -> dict:
                 continue
         table.export(
             target_directory_path=str(target_path),
-            keep_folder_structure=True,
+            keep_folder_structure=keep_folder_structure,
         )
         count += 1
 
@@ -109,10 +147,22 @@ def _h_export_plc_tags_xml(args: dict, tia_client: "SyncTIAClient") -> dict:
 
 
 def _h_export_block(args: dict, tia_client: "SyncTIAClient") -> dict:
-    """Exporta un bloque de programa como SimaticSD (manual §2.10.5)."""
+    """Exporta un bloque de programa como SimaticSD (manual §2.10.5).
+
+    Args (en ``args``):
+        plc_name (str): nombre del PLC.
+        block_name (str): nombre del bloque.
+        target_dir (str): directorio destino.
+        keep_folder_structure (bool, opcional, default ``False``): si
+            ``True``, conserva la jerarquia de subcarpetas del PLC en
+            TIA (e.g. ``<target>/2000_Dispositivos/<DB>.s7dcl``). Si
+            ``False`` (default retro-compat), exporta FLAT a
+            ``<target>/<DB>.s7dcl``.
+    """
     plc_name: str = args.get("plc_name", "")
     block_name: str = args.get("block_name", "")
     target_dir: str = args.get("target_dir", "")
+    keep_folder_structure: bool = args.get("keep_folder_structure", False)
 
     if not plc_name:
         raise ValueError("Se requiere el argumento 'plc_name'.")
@@ -135,7 +185,7 @@ def _h_export_block(args: dict, tia_client: "SyncTIAClient") -> dict:
             block.export(
                 target_directory_path=str(target_path),
                 export_format="SimaticSD",
-                keep_folder_structure=False,
+                keep_folder_structure=keep_folder_structure,
             )
             return {"exported_to": str(target_path), "block_name": block_name}
 
@@ -145,10 +195,21 @@ def _h_export_block(args: dict, tia_client: "SyncTIAClient") -> dict:
 
 
 def _h_export_tag_table(args: dict, tia_client: "SyncTIAClient") -> dict:
-    """Exporta una PlcTagTable como XML SimaticML."""
+    """Exporta una PlcTagTable como XML SimaticML.
+
+    Args (en ``args``):
+        plc_name (str): nombre del PLC.
+        table_name (str): nombre de la tabla.
+        target_dir (str): directorio destino.
+        keep_folder_structure (bool, opcional, default ``False``): si
+            ``True``, conserva la jerarquia de subcarpetas del PLC en
+            TIA. Si ``False`` (default retro-compat), exporta FLAT a
+            ``<target>/<tabla>.xml``.
+    """
     plc_name: str = args.get("plc_name", "")
     table_name: str = args.get("table_name", "")
     target_dir: str = args.get("target_dir", "")
+    keep_folder_structure: bool = args.get("keep_folder_structure", False)
 
     if not plc_name:
         raise ValueError("Se requiere el argumento 'plc_name'.")
@@ -170,7 +231,7 @@ def _h_export_tag_table(args: dict, tia_client: "SyncTIAClient") -> dict:
         if name == table_name:
             table.export(
                 target_directory_path=str(target_path),
-                keep_folder_structure=False,
+                keep_folder_structure=keep_folder_structure,
             )
             return {"exported_to": str(target_path), "table_name": table_name}
 

@@ -226,11 +226,17 @@ def _export_objects_sd(
     target_plc: Any,
     target_path: Path,
     collection_key: str,
+    keep_folder_structure: bool = True,
 ) -> dict:
     """Exporta una coleccion de objetos TIA (Bloques o UDTs) a .s7dcl.
 
     Args:
         collection_key: 'program_blocks' | 'user_data_types'.
+        keep_folder_structure: si ``True`` (default), exporta conservando la
+            jerarquia de subcarpetas del PLC en TIA Portal (e.g.
+            ``<target>/2000_Dispositivos/<obj>.s7dcl``). Si ``False``,
+            exporta FLAT a ``<target>/<obj>.s7dcl``. Por defecto ``True``
+            (compatibilidad con callers existentes).
 
     Returns:
         ``{"exported_to": str, "count": int}``.
@@ -253,7 +259,7 @@ def _export_objects_sd(
         obj.export(
             target_directory_path=str(target_path),
             export_format="SimaticSD",
-            keep_folder_structure=True,
+            keep_folder_structure=keep_folder_structure,
         )
         count += 1
 
