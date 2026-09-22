@@ -1,4 +1,4 @@
-"""Tests del FB ``FunctionProcProcessCrearAplicar``.
+"""Tests del FB ``FunctionProcCrearSincronizar``.
 
 Cubre:
   - Happy path: 11 ticks (1 arrancar + 9 steps + 1 finalizar) -> n_done,
@@ -32,8 +32,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from areas.alimentacion.functions.function_ProcProcessCrearAplicar import (
-    FunctionProcProcessCrearAplicar,
+from areas.alimentacion.functions.function_proc_crear_sincronizar import (
+    FunctionProcCrearSincronizar,
 )
 from core.runtime.progress_buffer import ProgressTracker
 
@@ -116,11 +116,11 @@ def progress(real_progress: ProgressTracker) -> ProgressTracker:
 def make_fb(
     tia_client: MagicMock,
     progress: ProgressTracker,
-) -> FunctionProcProcessCrearAplicar:
+) -> FunctionProcCrearSincronizar:
     """Crea un FB con deps mockeadas pero tracker real."""
     config = MagicMock()
     build_cache_root = MagicMock()
-    return FunctionProcProcessCrearAplicar(
+    return FunctionProcCrearSincronizar(
         nombre="proc_process_crear_aplicar_test",
         config_manager=config,
         tia_client=tia_client,
@@ -174,7 +174,7 @@ async def test_apply_happy_path_11_ticks(
         return {"ok": True, "imported_from": args.get("import_dir", "")}
 
     monkeypatch.setattr(
-        "areas.alimentacion.functions.function_ProcProcessCrearAplicar.dispatch_async",
+        "areas.alimentacion.functions.function_proc_crear_sincronizar.dispatch_async",
         fake_dispatch,
     )
 
@@ -296,7 +296,7 @@ async def test_apply_lote_transaccional_falla(
         raise AssertionError(f"dispatch no esperado: {command!r}")
 
     monkeypatch.setattr(
-        "areas.alimentacion.functions.function_ProcProcessCrearAplicar.dispatch_async",
+        "areas.alimentacion.functions.function_proc_crear_sincronizar.dispatch_async",
         fake_dispatch,
     )
 

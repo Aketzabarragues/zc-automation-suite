@@ -115,7 +115,7 @@ logger = logging.getLogger(__name__)
 TIA_CONSOLIDATION_SLEEP_S: float = 2.0
 
 
-class FunctionProcProcessCrearAplicar(FunctionBase):
+class FunctionProcCrearSincronizar(FunctionBase):
     """FB que clona un proceso desde plantilla TIA y lo importa al PLC."""
 
     # ==================================================================
@@ -201,50 +201,50 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
         """
         if self._tia_client is None:
             raise RuntimeError(
-                "FunctionProcProcessCrearAplicar requiere tia_client. "
+                "FunctionProcCrearSincronizar requiere tia_client. "
                 "Inyectalo en el constructor al registrar el FB."
             )
 
         plantillas_path = params.get("plantillas_path", "")
         if not plantillas_path:
             raise ValueError(
-                "FunctionProcProcessCrearAplicar.start(plantillas_path=...) "
+                "FunctionProcCrearSincronizar.start(plantillas_path=...) "
                 "es obligatorio"
             )
         dir_plantilla_nombre = params.get("dir_plantilla_nombre", "")
         if not dir_plantilla_nombre:
             raise ValueError(
-                "FunctionProcProcessCrearAplicar.start("
+                "FunctionProcCrearSincronizar.start("
                 "dir_plantilla_nombre=...) es obligatorio"
             )
         base_nueva = params.get("base_nueva")
         if base_nueva is None or not isinstance(base_nueva, int):
             raise ValueError(
-                "FunctionProcProcessCrearAplicar.start(base_nueva=int) "
+                "FunctionProcCrearSincronizar.start(base_nueva=int) "
                 "es obligatorio"
             )
         codigo_nuevo = params.get("codigo_nuevo", "")
         if not codigo_nuevo:
             raise ValueError(
-                "FunctionProcProcessCrearAplicar.start(codigo_nuevo=...) "
+                "FunctionProcCrearSincronizar.start(codigo_nuevo=...) "
                 "es obligatorio"
             )
         nombre_nuevo = params.get("nombre_nuevo", "")
         if not nombre_nuevo:
             raise ValueError(
-                "FunctionProcProcessCrearAplicar.start(nombre_nuevo=...) "
+                "FunctionProcCrearSincronizar.start(nombre_nuevo=...) "
                 "es obligatorio"
             )
         minimos_usuario = params.get("minimos_usuario", {})
         if not isinstance(minimos_usuario, dict) or not minimos_usuario:
             raise ValueError(
-                "FunctionProcProcessCrearAplicar.start(minimos_usuario=dict) "
+                "FunctionProcCrearSincronizar.start(minimos_usuario=dict) "
                 "es obligatorio (N_MAX_PREAL/PINT/ALM/ALM_HMI)"
             )
         plc_name = params.get("plc_name", "")
         if not plc_name:
             raise ValueError(
-                "FunctionProcProcessCrearAplicar.start(plc_name=...) "
+                "FunctionProcCrearSincronizar.start(plc_name=...) "
                 "es obligatorio"
             )
         plc_blocks_cache = params.get("plc_blocks_cache")
@@ -599,7 +599,7 @@ def _coerce_plc_blocks_cache(raw: Any) -> list[dict[str, Any]]:
     return out
 
 
-def _step_summary(fb: FunctionProcProcessCrearAplicar, step_nombre: str) -> str:
+def _step_summary(fb: FunctionProcCrearSincronizar, step_nombre: str) -> str:
     """Resumen legible del step que acaba de correr (aparece en la SPA)."""
     ctx = fb._ctx  # noqa: SLF001 (mismo patron que FunctionProcSincronizar)
     if step_nombre == "leer_manifest":
@@ -652,4 +652,4 @@ def _step_summary(fb: FunctionProcProcessCrearAplicar, step_nombre: str) -> str:
     return f"{step_nombre}: OK"
 
 
-__all__ = ["FunctionProcProcessCrearAplicar", "_coerce_plc_blocks_cache"]
+__all__ = ["FunctionProcCrearSincronizar", "_coerce_plc_blocks_cache"]

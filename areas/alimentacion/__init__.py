@@ -130,8 +130,8 @@ def register(
     from areas.alimentacion.functions.function_proc_crear_generar_preview import (
         FunctionProcCrearGenerarPreview,
     )
-    from areas.alimentacion.functions.function_ProcProcessCrearAplicar import (
-        FunctionProcProcessCrearAplicar,
+    from areas.alimentacion.functions.function_proc_crear_sincronizar import (
+        FunctionProcCrearSincronizar,
     )
     from core.composition.plc_function_template import FunctionTemplate
 
@@ -235,7 +235,7 @@ def register(
     )
     engine.register_fb(
         "proc_process_crear_aplicar",
-        FunctionProcProcessCrearAplicar(
+        FunctionProcCrearSincronizar(
             nombre="proc_process_crear_aplicar",
             config_manager=config_manager,
             tia_client=tia_client,
