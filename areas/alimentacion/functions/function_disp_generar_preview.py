@@ -320,60 +320,127 @@ class FunctionDispGenerarPreview(FunctionBase):
             )
 
     async def _stage_2_compute_devices(self) -> None:
-        """Stage 2: calcula el diff de devices entre los XMLs exportados y AppState."""
+        """Stage 2: calcula el diff de devices entre los XMLs exportados y AppState.
+
+        Migrado sept-2026: usa ``compute_diff_table`` (funcion pura,
+        1 hw por llamada) en vez de los helpers legacy
+        (``_build_desired_state_from_app`` + ``_compute_diff_readonly``).
+        El shape del ctx (``added_per_table`` etc.) se conserva para
+        compatibilidad con ``_stage_4_build_response``.
+        """
         assert self._ctx.tags_base is not None, (
             "compute_devices requiere exportar_tags previo"
         )
-        # DIAG: trazas para que el operario vea en vivo si AppState
-        # tiene disp cargados al ejecutar este stage. Bórrese tras fix.
-        _app = self._ctx.app_state
-        _disp_keys = (
-            list(_app._dispositivos.keys())
-            if hasattr(_app, "_dispositivos") else []
+        from areas.alimentacion.helpers.disp.disp_generate_preview import (
+            compute_diff_table,
         )
-        _counts = {
-            hw: len(_app.get_devices(hw)) for hw in _disp_keys
-        }
+
+        added_per_table: dict[str, list[str]] = {}
+        removed_per_table: dict[str, list[str]] = {}
+        renamed_per_table: dict[str, tuple[str, str]] = {}
+        base_state_per_table: dict[str, dict[str, str]] = {}
+        desired_state_per_table: dict[str, dict[str, str]] = {}
+
+        # Itera los hw_types del config (lowercase: ed/ea/sa/v/m/m_vf).
+        # Por cada uno: lee disp del AppState, busca el XML FLAT en
+        # ``preview_disp/<table>.xml``, llama a ``compute_diff_table``.
+        # Bloque syncronico: cada llamada lee 1 XML y es CPU-pura
+        # (parse + set diff). Las 6 ejecuciones se envuelven en 1
+        # ``asyncio.to_thread`` para no bloquear el event loop.
+        def _all_diffs() -> None:
+            for hw in self._ctx.config_manager.list_hw_types_active():
+                cfg = self._ctx.config_manager.get_dispositivo_config(hw)
+                if cfg is None:
+                    continue
+                table_name = cfg.tag_table
+                xml_path = self._ctx.tags_base / f"{table_name}.xml"
+                devices = self._ctx.app_state.get_devices(hw)
+                diff = compute_diff_table(
+                    table_name=table_name,
+                    desired_devices=devices,
+                    xml_path=xml_path,
+                )
+                desired_state_per_table[table_name] = diff.desired
+                base_state_per_table[table_name] = diff.base
+                if diff.added:
+                    added_per_table[table_name] = diff.added
+                if diff.removed:
+                    removed_per_table[table_name] = diff.removed
+                if diff.renamed:
+                    renamed_per_table.update({
+                        f"{table_name}:{uid}": v
+                        for uid, v in diff.renamed.items()
+                    })
+
+        await asyncio.to_thread(_all_diffs)
+
+        self._ctx.desired_state_per_table = desired_state_per_table
+        self._ctx.base_state_per_table = base_state_per_table
+        self._ctx.added_per_table = added_per_table
+        self._ctx.removed_per_table = removed_per_table
+        self._ctx.renamed_per_table = renamed_per_table
+
         logger.debug(
-            f"[DIAG compute_devices] app_state._dispositivos keys={_disp_keys} "
-            f"counts={_counts}"
-        )
-        self._ctx.desired_state_per_table = _build_desired_state_from_app(
-            self._ctx.app_state, self._ctx.config_manager,
-        )
-        logger.debug(
-            f"[DIAG compute_devices] desired_state_per_table keys="
-            f"{list(self._ctx.desired_state_per_table.keys())} "
-            f"total_disp={sum(len(v) for v in self._ctx.desired_state_per_table.values())}"
-        )
-        (
-            self._ctx.added_per_table,
-            self._ctx.removed_per_table,
-            self._ctx.renamed_per_table,
-            self._ctx.base_state_per_table,
-        ) = await asyncio.to_thread(
-            _compute_diff_readonly, self._ctx.tags_base, self._ctx.desired_state_per_table,
-        )
-        logger.debug(
-            f"[DIAG compute_devices] base_state_per_table keys="
-            f"{list(self._ctx.base_state_per_table.keys())} "
-            f"total_base={sum(len(v) for v in self._ctx.base_state_per_table.values())}"
+            f"[compute_devices] added={sum(len(v) for v in added_per_table.values())} "
+            f"removed={sum(len(v) for v in removed_per_table.values())} "
+            f"renamed={len(renamed_per_table)} "
+            f"base_tables={len(base_state_per_table)}"
         )
 
     async def _stage_3_compute_nmax(self) -> None:
-        """Stage 3: calcula el diff de N_MAX entre el TIA (export bulk) y AppState.
+        """Stage 3: calcula el diff de N_MAX entre el TIA (export FLAT) y AppState.
 
-        Layout nuevo (sept-2026): N_MAX vive en ``preview_config/``
-        (FLAT, no en ``tags_base``/``preview_disp/`` donde estan las 6
-        tag tables de devices).
+        Migrado sept-2026: usa ``compute_nmax_diff`` (funcion pura) en
+        vez del helper legacy ``_extract_nmax_diff``.
+
+        Layout nuevo: N_MAX vive en ``preview_config/`` (FLAT). El
+        desired viene de ``app_state.dimensiones``, normalizado al
+        naming de TIA (N_MAX_DISP_ED, etc.) - ver
+        ``_resolve_desired_nmax``.
         """
         assert self._ctx.preview_config_dir is not None, (
             "compute_nmax requiere exportar_tags previo (preview_config_dir)"
         )
-        self._ctx.nmax_block = await asyncio.to_thread(
-            _extract_nmax_diff,
-            self._ctx.preview_config_dir, self._ctx.config_manager, self._ctx.app_state,
+        from areas.alimentacion.helpers.disp.disp_generate_preview import (
+            compute_nmax_diff,
         )
+
+        # Resuelve desired_nmax desde ``app_state.dimensiones`` con el
+        # naming canonico de TIA (N_MAX_DISP_ED). Tambien acepta
+        # lowercase (``num_disp_ed``) por compat con el shape legacy
+        # del Excel (``DimensionesDispositivos.to_api_dict`` emite
+        # lowercase ``num_disp_*``).
+        nmax_table_name = self._ctx.config_manager.get_global_config_table_name()
+        xml_path = self._ctx.preview_config_dir / f"{nmax_table_name}.xml"
+        desired_nmax = _resolve_desired_nmax(
+            self._ctx.app_state.dimensiones or {},
+            self._ctx.config_manager,
+        )
+
+        # Bloque syncronico: parsea 1 XML + computa diff.
+        # Envuelto en to_thread para no bloquear el event loop.
+        def _compute() -> Any:
+            return compute_nmax_diff(
+                table_name=nmax_table_name,
+                desired_nmax=desired_nmax,
+                xml_path=xml_path,
+            )
+
+        nmax = await asyncio.to_thread(_compute)
+
+        # Adaptamos el shape de NmaxDiff al legacy ``nmax_block``
+        # esperado por ``_stage_4_build_response`` (keys ``current``,
+        # ``desired``, ``todos``, ``summary``).
+        self._ctx.nmax_block = {
+            "current": nmax.current,
+            "desired": nmax.desired,
+            "todos": nmax.todos,
+            "summary": nmax.summary,
+            "nmax_error": (
+                f"XML de N_MAX no encontrado en TIA export: {xml_path}"
+                if nmax.missing_xml else None
+            ),
+        }
 
     async def _stage_4_build_response(self) -> None:
         """Stage 4: compone la shape legacy final con todos los resultados intermedios."""
@@ -602,198 +669,67 @@ def _disp_table_names(config_manager: Any, exclude: str | None = None) -> list[s
     return result
 
 
-def _build_desired_state_from_app(
-    app_state: Any,
+def _resolve_desired_nmax(
+    dimensiones_raw: dict[str, Any],
     config_manager: Any,
-) -> dict[str, dict[str, str]]:
-    """Construye ``{tag_table: {uid: plc_tag}}`` desde el AppState."""
-    result: dict[str, dict[str, str]] = {}
-    for hw in config_manager.list_hw_types_active():
-        cfg = config_manager.get_dispositivo_config(hw)
-        if cfg is None:
-            continue
-        # ``DispositivoTIAConfig`` es un dataclass (atributos, NO keys).
-        table_name = cfg.tag_table
-        # API generica del AppState (data-driven, no ligada a
-        # alimentacion). Tras la limpieza de las state extensions
-        # legacy (commit 1513ac1) ya no existen properties
-        # ``dispositivos_<hw>``; ``get_devices(hw)`` es la unica fuente
-        # de verdad (``set_devices`` lo alimenta al subir el Excel).
-        devices = app_state.get_devices(hw) if hasattr(app_state, "get_devices") else []
-        table_dict: dict[str, str] = {}
-        for device in devices:
-            numero = int(getattr(device, "numero", 0) or 0)
-            plc_tag = str(getattr(device, "plc_tag", "") or "")
-            if numero > 0 and plc_tag:
-                table_dict[str(numero)] = plc_tag
-        if table_dict:
-            result[table_name] = table_dict
-    return result
+) -> dict[str, int]:
+    """Normaliza ``app_state.dimensiones`` al naming canonico de TIA.
 
+    El Excel emite ``DimensionesDispositivos.to_api_dict()`` con keys
+    **lowercase**: ``num_disp_ed``, ``num_disp_ea``, etc. Pero el XML
+    de TIA tiene keys **uppercase**: ``N_MAX_DISP_ED``, ``N_MAX_DISP_EA``,
+    etc. Esta funcion hace el mapeo para que ``compute_nmax_diff``
+    compare peras con peras.
 
-def _extract_nmax_diff(
-    tags_base: Path,
-    config_manager: Any,
-    app_state: Any,
-) -> dict[str, Any]:
-    """Calcula el diff de N_MAX entre el TIA (export FLAT) y AppState.
+    Mapeo de legacy lowercase a canonico uppercase (sept-2026):
+      ``num_disp_ed``    -> ``N_MAX_DISP_ED``
+      ``num_disp_ea``    -> ``N_MAX_DISP_EA``
+      ``num_disp_sa``    -> ``N_MAX_DISP_SA``
+      ``num_disp_v``     -> ``N_MAX_DISP_V``
+      ``num_disp_m``     -> ``N_MAX_DISP_M``
+      ``num_disp_m_vf``  -> ``N_MAX_DISP_M_VF``
 
-    Las N_MAX son PlcUserConstant de la tabla ``000_Config_Dispositivos``
-    que siempre existen en TIA (las 6 dimensiones: ED, EA, SA, V, M,
-    M_VF). No se crean ni eliminan: solo se modifica su valor.
+    Si el Excel ya emite keys uppercase (futuro caso en que
+    ``DimensionesDispositivos.to_api_dict`` se actualice), se respeta.
 
-    Layout nuevo (sept-2026): ``tags_base`` apunta a
-    ``preview_config/`` (FLAT). El archivo N_MAX esta en la raiz:
-    ``<tags_base>/<N_MAX_table>.xml``. Antes vivia en
-    ``<tags_base>/<nmax_folder>/<N_MAX_table>.xml`` (estructura TIA
-    preservada); ahora ``keep_folder_structure=False`` lo aplana.
+    Args:
+        dimensiones_raw: el dict que devolvio ``to_api_dict()`` (keys
+            lowercase legacy).
+        config_manager: provee ``list_nmax_active()`` (keys canonicos).
+
+    Returns:
+        ``{nombre_nmax_uppercase: valor_int}`` listo para pasarse a
+        ``compute_nmax_diff``.
     """
-    from core.helpers.simatic_ml import PlcUserConstantParser
-
-    nmax_table = config_manager.get_global_config_table_name()
-    # FLAT: el archivo esta en la raiz de ``tags_base``
-    # (preview_config/), no en una subcarpeta TIA.
-    xml_path = tags_base / f"{nmax_table}.xml"
-
-    current: dict[str, int] = {}
-    nmax_error: str | None = None
-    if xml_path.is_file():
-        try:
-            current = PlcUserConstantParser.parse_user_constants(xml_path)
-        except Exception as e:
-            logger.error(f"[N_MAX] Parse FAIL {xml_path}: {e}")
-            nmax_error = f"parse fail: {e}"
-    else:
-        # Si TIA no devolvio nada, current={} lleva al diff a marcar
-        # TODAS las dims como "actualizar" enmascarando una falla de
-        # export. Marcamos ``nmax_error`` y devolvemos todos=[] para
-        # que la SPA muestre el error en vez de proponer cambios
-        # falsos.
-        logger.warning(f"[N_MAX] XML esperado no encontrado: {xml_path}")
-        nmax_error = (
-            f"XML de N_MAX no encontrado en TIA export: {xml_path}"
-        )
-
-    d = app_state.dimensiones or {}
-    desired: dict[str, int] = {}
-    for nmax_name in config_manager.list_nmax_active():
-        v = d.get(nmax_name)
-        if v is None:
-            v = 0
-        desired[nmax_name] = int(v)
-
-    # Si hubo error de export, NO generamos ``todos``: seria un diff
-    # contra current={} que marcaria TODO como actualizar.
-    if nmax_error is not None:
-        return {
-            "current": {},
-            "desired": desired,
-            "todos": [],
-            "summary": {
-                "actualizar": 0,
-                "sin_cambios": len(desired),
-                "total": len(desired),
-            },
-            "nmax_error": nmax_error,
-        }
-
-    todos: list[dict[str, Any]] = []
-    for name in desired.keys():
-        cur_val = current.get(name)
-        des_val = desired[name]
-        if cur_val is not None and cur_val == des_val:
-            status = "sin_cambios"
-        else:
-            status = "actualizar"
-        todos.append({
-            "name": name,
-            "actual": cur_val,
-            "nuevo": des_val,
-            "status": status,
-        })
-
-    return {
-        "current": current,
-        "desired": desired,
-        "todos": todos,
-        "summary": {
-            "actualizar": sum(
-                1 for r in todos if r["status"] == "actualizar"
-            ),
-            "sin_cambios": sum(
-                1 for r in todos if r["status"] == "sin_cambios"
-            ),
-            "total": len(todos),
-        },
-        "nmax_error": None,
+    # Mapa legacy lowercase -> canonico uppercase.
+    LEGACY_TO_CANONICAL = {
+        "num_disp_ed": "N_MAX_DISP_ED",
+        "num_disp_ea": "N_MAX_DISP_EA",
+        "num_disp_sa": "N_MAX_DISP_SA",
+        "num_disp_v":  "N_MAX_DISP_V",
+        "num_disp_m":  "N_MAX_DISP_M",
+        "num_disp_m_vf": "N_MAX_DISP_M_VF",
     }
-
-
-def _compute_diff_readonly(
-    tags_base: Path,
-    desired_state_per_table: dict[str, dict[str, str]],
-) -> tuple[
-    dict[str, list[str]],
-    dict[str, list[str]],
-    dict[str, tuple[str, str]],
-    dict[str, dict[str, str]],
-]:
-    """Calcula el diff de devices en modo read-only (no modifica XML)."""
-    from core.infrastructure.tia.tia_export_paths import XmlTarget
-    from core.helpers.simatic_ml import PlcUserConstantModifier
-
-    base_state_per_table: dict[str, dict[str, str]] = {}
-    missing_tables: list[str] = []
-    for table_key in desired_state_per_table.keys():
-        try:
-            xml_path = XmlTarget(tags_base, table_key).path
-        except FileNotFoundError:
-            # El XML del tipo de dispositivo no esta en TIA
-            # (ni en ruta directa ni en rglob fallback). Lo
-            # marcamos como "missing" para avisar al operario
-            # en el preview, pero seguimos con los otros tipos.
-            logger.warning(
-                f"[disp preview] XML no encontrado para tabla "
-                f"'{table_key}' en {tags_base}. Se omite del diff."
-            )
-            missing_tables.append(table_key)
+    canonicos = list(config_manager.list_nmax_active())
+    desired: dict[str, int] = {}
+    for canonico in canonicos:
+        # 1. intento: ya viene en canonico (futuro)
+        v = dimensiones_raw.get(canonico)
+        if v is not None:
+            desired[canonico] = int(v)
             continue
-        modifier = PlcUserConstantModifier(xml_path)
-        table_constants: dict[str, str] = {}
-        for value_str, plc_tag in (
-            modifier.read_user_constants_with_uids().items()
-        ):
-            if value_str and plc_tag:
-                table_constants[value_str] = plc_tag
-        if table_constants:
-            base_state_per_table[table_key] = table_constants
-
-    added_per_table: dict[str, list[str]] = {}
-    removed_per_table: dict[str, list[str]] = {}
-    renamed_per_table: dict[str, tuple[str, str]] = {}
-
-    for table_key, desired in desired_state_per_table.items():
-        base = base_state_per_table.get(table_key, {})
-        base_values = set(base.keys())
-        desired_values = set(desired.keys())
-        added = sorted(desired_values - base_values)
-        removed = sorted(base_values - desired_values)
-        renamed: dict[str, tuple[str, str]] = {}
-        for uid in base_values & desired_values:
-            if base[uid] != desired[uid]:
-                renamed[f"{table_key}:{uid}"] = (base[uid], desired[uid])
-        if added:
-            added_per_table[table_key] = added
-        if removed:
-            removed_per_table[table_key] = removed
-        renamed_per_table.update(renamed)
-
-    return (
-        added_per_table,
-        removed_per_table,
-        renamed_per_table,
-        base_state_per_table,
-    )
+        # 2. intento: viene en lowercase legacy
+        legacy_key = next(
+            (k for k, v_upper in LEGACY_TO_CANONICAL.items()
+             if v_upper == canonico),
+            None,
+        )
+        if legacy_key and legacy_key in dimensiones_raw:
+            desired[canonico] = int(dimensiones_raw[legacy_key])
+            continue
+        # 3. intento: el operario no lo puso (Excel vacio para esta dim)
+        desired[canonico] = 0
+    return desired
 
 
 def _step_summary(ctx: Any, step_nombre: str) -> str:
