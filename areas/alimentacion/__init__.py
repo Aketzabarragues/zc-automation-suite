@@ -44,9 +44,6 @@ from areas.alimentacion.frontend.manifest import build as build_manifest
 from areas.alimentacion.helpers.config_defaults import (
     install as install_defaults,
 )
-from areas.alimentacion.helpers.tia.tia_extra_commands import (
-    register_main as register_tia,
-)
 from core.composition.app_area_registry import AreaSpec
 from areas.alimentacion._area_id import AREA_ID  # noqa: E402,F401
 
@@ -80,7 +77,6 @@ AREA_SPEC = AreaSpec(
     contributes_routers=_build_all_routers,
     contributes_config_defaults=install_defaults,
     contributes_catalog=build_alim_catalog,
-    contributes_tia_commands=register_tia,
     contributes_frontend_manifest=build_manifest,
 )
 
@@ -250,7 +246,6 @@ def register(
 
 __all__ = [
     "AREA_SPEC",
-    "register_tia",
     "build_manifest",
     "register",
 ]
