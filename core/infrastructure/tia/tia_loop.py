@@ -13,16 +13,11 @@ Single thread para Openness: el tia-loop es el UNICO dueno del wrapper
 """
 from __future__ import annotations
 
+import itertools
 import logging
 import queue
 import threading
 from typing import Any, Callable
-
-from core.infrastructure.tia.tia_helpers import (
-    _is_com_disconnect,
-    _next_request_id,
-    _try_reattach,
-)
 
 logger = logging.getLogger("zc.tia_loop")
 
@@ -384,6 +379,79 @@ def _execute_one(
             resp_q.put_nowait(result)
         except queue.Full:
             logger.warning("resp_q llena; descartando respuesta de %s.", name)
+
+
+# ---------------------------------------------------------------------------
+# Funciones privadas del loop, movidas desde tia_helpers.py
+# (sept-2026, greenfield/tia-worker-simplification).
+# Solo el tia-loop las usa, asi que viven como top-level privadas aqui.
+# ---------------------------------------------------------------------------
+
+def _is_com_disconnect(exc: BaseException) -> bool:
+    """Heuristica: parece que TIA Portal se cerro y hay que re-attachar.
+
+    Detectar esto de forma exacta no es viable (depende del build del
+    wrapper, de si murio el subproceso o solo el RCW quedo invalido).
+    Aceptamos falsos positivos: re-attachar de mas es mejor que dejar
+    al loop usando un portal muerto.
+    """
+    name = type(exc).__name__
+    if "COM" in name or "RPC" in name:
+        return True
+    if hasattr(exc, "hresult"):
+        return True
+    return False
+
+
+def _try_reattach(client: "SyncTIAClient") -> bool:
+    """Intenta re-attachar al portal si esta muerto.
+
+    Si ``client._wrapper`` ya responde a ``get_process_id()``, retorna
+    True sin tocar nada. Si falla o no hay wrapper, intenta
+    ``ts.attach_portal(AnyUserInterface)`` y deja el wrapper listo.
+    """
+    if client._wrapper is not None:  # noqa: SLF001
+        try:
+            client._wrapper.get_process_id()
+            return True
+        except Exception:
+            client.attach_wrapper(None)
+    ts = client._ts  # noqa: SLF001
+    if ts is None:
+        return False
+    try:
+        new_portal = ts.attach_portal(
+            portal_mode=ts.Enums.PortalMode.AnyUserInterface,
+        )
+    except Exception as exc:
+        logger.warning(
+            "re-attach fallo: %s: %s", type(exc).__name__, exc,
+        )
+        return False
+    if new_portal is None:
+        logger.warning("re-attach fallo: attach_portal retorno None.")
+        return False
+    try:
+        new_portal.get_process_id()
+    except Exception as exc:
+        logger.warning(
+            "re-attach: get_process_id fallo tras attach: %s: %s",
+            type(exc).__name__, exc,
+        )
+        client.attach_wrapper(None)
+        return False
+    client.attach_wrapper(new_portal)
+    logger.info("re-attach OK.")
+    return True
+
+
+# IDs unicos monotonos para correlar request/response del worker.
+_request_id_counter = itertools.count(1)
+
+
+def _next_request_id() -> int:
+    """IDs unicos monotonos para correlar request/response."""
+    return next(_request_id_counter)
 
 
 # Singleton de proceso. Tests pueden sobreescribirlo con un mock.
