@@ -108,8 +108,10 @@ class FunctionScanPlcBlocks(FunctionBase):
     async def run_step(self, idx: int, **params: Any) -> str:
         """CASE de los 2 pasos."""
         # Lazy import para evitar ciclo con core.infrastructure.tia.
-        from core.infrastructure.tia.scan_plc_blocks import scan_plc_blocks
-        from core.infrastructure.tia.tia_bloque_cache import TIADataBloqueCache
+        from core.infrastructure.tia.tia_cache import (
+            TIADataBloqueCache,
+            scan_plc_blocks,
+        )
 
         if self._tia_client is None:
             raise RuntimeError(

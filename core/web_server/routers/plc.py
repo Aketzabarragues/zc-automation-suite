@@ -126,7 +126,7 @@ def _scan_plc_blocks(plc_name: str):
     import asyncio
     import time
 
-    from core.infrastructure.tia.tia_bloque_cache import TIADataBloqueCache
+    from core.infrastructure.tia.tia_cache import TIADataBloqueCache
 
     tia_client = current_app.config.get("TIA_CLIENT")
     if tia_client is None or tia_client.ts is None or tia_client.wrapper is None:
