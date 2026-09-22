@@ -110,22 +110,22 @@ def _patch_helper_fns(fb) -> Any:
     from contextlib import ExitStack
     stack = ExitStack()
     stack.enter_context(
-        patch.object(fb, "proc_check_state", MagicMock(), create=True)
+        patch.object(fb, "_stage_1_check_state", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "proc_check_blocks", MagicMock(), create=True)
+        patch.object(fb, "_stage_2_check_blocks", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "proc_build_slot_maps", MagicMock(), create=True)
+        patch.object(fb, "_stage_3_build_slot_maps", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "proc_compute_nmax", AsyncMock(), create=True)
+        patch.object(fb, "_stage_4_compute_nmax", AsyncMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "proc_export_and_diff", AsyncMock(), create=True)
+        patch.object(fb, "_stage_5_export_and_diff", AsyncMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "proc_compose_response", MagicMock(), create=True)
+        patch.object(fb, "_stage_6_done", MagicMock(), create=True)
     )
     return stack
 
@@ -167,10 +167,10 @@ async def test_proc_generar_preview_happy_path_6_ticks(
         mock_bloques_cache, progress,
     )
     with _patch_helper_fns(fb) as stack:
-        # Sobre-escribimos proc_compose_response con nuestra version.
+        # Sobre-escribimos _stage_6_done con nuestra version.
         stack.enter_context(
             patch.object(
-                fb, "proc_compose_response",
+                fb, "_stage_6_done",
                 side_effect=fake_compose, create=True,
             )
         )
@@ -210,12 +210,12 @@ async def test_proc_generar_preview_happy_path_6_ticks(
         assert fb.result["db_param_name"] == "DB42_CPR_PARAM"
 
         # Cada helper fue llamado 1 vez (los MagicMock auto-trackean).
-        assert fb.proc_check_state.call_count == 1
-        assert fb.proc_check_blocks.call_count == 1
-        assert fb.proc_build_slot_maps.call_count == 1
-        assert fb.proc_compute_nmax.await_count == 1
-        assert fb.proc_export_and_diff.await_count == 1
-        assert fb.proc_compose_response.call_count == 1
+        assert fb._stage_1_check_state.call_count == 1
+        assert fb._stage_2_check_blocks.call_count == 1
+        assert fb._stage_3_build_slot_maps.call_count == 1
+        assert fb._stage_4_compute_nmax.await_count == 1
+        assert fb._stage_5_export_and_diff.await_count == 1
+        assert fb._stage_6_done.call_count == 1
 
 
 # ── Sad paths (pre-flight) ───────────────────────────────────────────
