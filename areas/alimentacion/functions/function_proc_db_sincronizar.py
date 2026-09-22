@@ -46,6 +46,7 @@ from pathlib import Path
 from typing import Any
 
 from core.composition.plc_function_base import FunctionBase
+from core.helpers.tia import dispatch_async
 from core.runtime.app_state import AppState, get_app_state
 
 logger = logging.getLogger(__name__)
