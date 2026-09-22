@@ -62,6 +62,25 @@ class FunctionDispGenerarPreview(FunctionBase):
     # 60s cubre holgadamente.
     STEP_TIMEOUT_S: float = 60.0
 
+    # Tabla declarativa de stages. Cada tupla: (idx, "nombre_step",
+    # "atributo_metodo_en_el_FB"). El ``run_step`` dispatcha contra
+    # esta tabla en vez de un ``match``/``case`` inline, para que el
+    # flujo sea legible arriba de la clase y los tests puedan
+    # mockear ``fb._stage_N_<nombre>`` directamente.
+    #
+    # Convencion:
+    #   - ``idx`` correlativo, 1-based.
+    #   - ``nombre_step`` debe coincidir con ``self.steps[idx]["nombre"]``
+    #     (registrado en __init__). Si cambias uno, cambia el otro.
+    #   - ``atributo_metodo`` es un metodo del FB (no externo): un cambio
+    #     de signatura requiere actualizar este registro.
+    STAGES: list[tuple[int, str, str]] = [
+        (1, "exportar_tags",   "_stage_1_exportar_tags"),
+        (2, "compute_devices", "_stage_2_compute_devices"),
+        (3, "compute_nmax",    "_stage_3_compute_nmax"),
+        (4, "build_response",  "_stage_4_build_response"),
+    ]
+
     # ==================================================================
     # CONSTRUCTOR
     # ==================================================================
@@ -164,20 +183,26 @@ class FunctionDispGenerarPreview(FunctionBase):
             )
 
         step_nombre = self.steps[idx]["nombre"]
-        match step_nombre:
-            case "exportar_tags":
-                await self._stage_exportar_tags(self)
-            case "compute_devices":
-                await self._stage_compute_devices(self)
-            case "compute_nmax":
-                await self._stage_compute_nmax(self)
-            case "build_response":
-                await self._stage_build_response(self)
-            case _:
-                raise ValueError(f"step no soportado: {step_nombre!r}")
-
-        # Resumen legible del step que acaba de correr.
-        return _step_summary(self._ctx, step_nombre)
+        # Dispatch declarativo via tabla ``STAGES``: el orden y los
+        # nombres de los stages se declaran arriba de la clase. Asi el
+        # flujo del FB es visible de un vistazo (modo SFC) y los tests
+        # pueden mockear ``fb._stage_N_<nombre>`` directamente sin
+        # parchear el ``match`` interno.
+        #
+        # El lookup es por ``nombre`` (no por ``idx``) porque
+        # ``FunctionBase._step_ejecutar`` pasa ``idx`` 0-indexed sobre
+        # ``self.steps``. El ``idx`` de la tabla STAGES es 1-based y
+        # solo se usa para logging legible ("paso 3/4").
+        for _s_idx, s_nombre, s_attr in self.STAGES:
+            if s_nombre == step_nombre:
+                handler = getattr(self, s_attr)
+                await handler()
+                # Resumen legible del step que acaba de correr.
+                return _step_summary(self._ctx, s_nombre)
+        raise ValueError(
+            f"step {idx} ({step_nombre!r}) no esta en STAGES "
+            f"de FunctionDispGenerarPreview"
+        )
 
     # ==================================================================
     # HOOK 3: on_finish  (ZONA 5: vuelco del result desde el ctx)
@@ -214,12 +239,182 @@ class FunctionDispGenerarPreview(FunctionBase):
             f"{nmax_summary['actualizar']} N_MAX actualizar"
         )
 
+    # ==================================================================
+    # Stages del FB (ZONA 4: metodos privados numerados).
+    #
+    # Cada ``_stage_N_<nombre>`` corresponde a UNA entrada de la tabla
+    # ``STAGES`` arriba. Si cambias el flujo del stage, cambia la
+    # tabla tambien.
+    # ==================================================================
+
+    async def _stage_1_exportar_tags(self) -> None:
+        """Stage 1: limpia preview/ y exporta las tablas selectivas al snapshot."""
+        from areas.alimentacion.helpers.build_cache import build_cache
+
+        disp_ctx = build_cache(root=self._ctx.build_cache_root).dispositivos
+        disp_ctx.clean_preview()
+        self._ctx.tags_base = disp_ctx.preview_variables
+        self._ctx.selective_tables = _selective_table_names(self._ctx.config_manager)
+        logger.debug(f"workdir (preview): {self._ctx.tags_base}")
+        await dispatch_async(
+            self._ctx.tia_client,
+            "export_plc_tags_xml",
+            {
+                "plc_name": self._ctx.plc_name,
+                "target_dir": str(self._ctx.tags_base),
+                "table_names": self._ctx.selective_tables,
+            },
+        )
+
+    async def _stage_2_compute_devices(self) -> None:
+        """Stage 2: calcula el diff de devices entre los XMLs exportados y AppState."""
+        assert self._ctx.tags_base is not None, (
+            "compute_devices requiere exportar_tags previo"
+        )
+        self._ctx.desired_state_per_table = _build_desired_state_from_app(
+            self._ctx.app_state, self._ctx.config_manager,
+        )
+        (
+            self._ctx.added_per_table,
+            self._ctx.removed_per_table,
+            self._ctx.renamed_per_table,
+            self._ctx.base_state_per_table,
+        ) = await asyncio.to_thread(
+            _compute_diff_readonly, self._ctx.tags_base, self._ctx.desired_state_per_table,
+        )
+
+    async def _stage_3_compute_nmax(self) -> None:
+        """Stage 3: calcula el diff de N_MAX entre el TIA (export bulk) y AppState."""
+        assert self._ctx.tags_base is not None, (
+            "compute_nmax requiere exportar_tags previo"
+        )
+        self._ctx.nmax_block = await asyncio.to_thread(
+            _extract_nmax_diff,
+            self._ctx.tags_base, self._ctx.config_manager, self._ctx.app_state,
+        )
+
+    async def _stage_4_build_response(self) -> None:
+        """Stage 4: compone la shape legacy final con todos los resultados intermedios."""
+        agregados: list[dict[str, Any]] = [
+            {"uid": uid, "table": tk, "plc_tag": td.get(uid, "")}
+            for tk, td in self._ctx.desired_state_per_table.items()
+            for uid in self._ctx.added_per_table.get(tk, []) if uid in td
+        ]
+        eliminados: list[dict[str, Any]] = [
+            {"uid": uid, "table": tk, "plc_tag": tb.get(uid, "")}
+            for tk, tb in self._ctx.base_state_per_table.items()
+            for uid in self._ctx.removed_per_table.get(tk, []) if uid in tb
+        ]
+        renombrados: list[dict[str, Any]] = [
+            {
+                "uid": uid.split(":", 1)[1] if ":" in uid else uid,
+                "table": uid.split(":", 1)[0] if ":" in uid else "",
+                "actual": old,
+                "nuevo": new,
+            }
+            for uid, (old, new) in self._ctx.renamed_per_table.items()
+        ]
+
+        def _type_from_table(table_key: str) -> str:
+            """``2000_Disp_ED`` -> ``"ed"``, ``2000_Disp_M_VF`` -> ``"m_vf"``."""
+            stem = table_key.split("_Disp_", 1)[-1]
+            return stem.lower()
+
+        todos: list[dict[str, Any]] = []
+        for table_key, base in self._ctx.base_state_per_table.items():
+            type_key = _type_from_table(table_key)
+            renamed_for_table: dict[str, str] = {}
+            for uid, (_old, new) in self._ctx.renamed_per_table.items():
+                if uid.startswith(f"{table_key}:"):
+                    renamed_for_table[uid.split(":", 1)[1]] = new
+
+            removed_uids = set(self._ctx.removed_per_table.get(table_key, []))
+
+            for uid_str, plc_tag in base.items():
+                try:
+                    numero = int(uid_str)
+                except (TypeError, ValueError):
+                    numero = 0
+                if uid_str in renamed_for_table:
+                    todos.append({
+                        "table": table_key,
+                        "type": type_key,
+                        "uid": uid_str,
+                        "numero": numero,
+                        "actual": plc_tag,
+                        "nuevo": renamed_for_table[uid_str],
+                        "status": "renombrar",
+                    })
+                elif uid_str in removed_uids:
+                    todos.append({
+                        "table": table_key,
+                        "type": type_key,
+                        "uid": uid_str,
+                        "numero": numero,
+                        "actual": plc_tag,
+                        "nuevo": None,
+                        "status": "eliminar",
+                    })
+                else:
+                    todos.append({
+                        "table": table_key,
+                        "type": type_key,
+                        "uid": uid_str,
+                        "numero": numero,
+                        "actual": plc_tag,
+                        "nuevo": plc_tag,
+                        "status": "sin_cambios",
+                    })
+
+        for table_key, desired in self._ctx.desired_state_per_table.items():
+            type_key = _type_from_table(table_key)
+            for uid_str in self._ctx.added_per_table.get(table_key, []):
+                try:
+                    numero = int(uid_str)
+                except (TypeError, ValueError):
+                    numero = 0
+                todos.append({
+                    "table": table_key,
+                    "type": type_key,
+                    "uid": uid_str,
+                    "numero": numero,
+                    "actual": None,
+                    "nuevo": desired.get(uid_str, ""),
+                    "status": "agregar",
+                })
+
+        todos.sort(
+            key=lambda r: (
+                r["type"],
+                r["numero"] if isinstance(r["numero"], int) else 0,
+            )
+        )
+
+        self._ctx.result = {
+            "agregados": agregados,
+            "eliminados": eliminados,
+            "renombrados": renombrados,
+            "todos": todos,
+            "nmax": self._ctx.nmax_block,
+            "summary": {
+                "agregados": len(agregados),
+                "eliminados": len(eliminados),
+                "renombrados": len(renombrados),
+                "sin_cambios": sum(
+                    1 for r in todos if r["status"] == "sin_cambios"
+                ),
+                "total": len(todos),
+            },
+        }
 
 
 # ============================================================================
 # Codigo absorbido de helpers/disp/disp_generate_preview.py (commit 23, sept-2026).
 # Antes era un orquestador separado que el FB llamaba via ``match step_nombre``.
-# Ahora vive como metodos del FB (mutando ``self._ctx``).
+# Ahora los 4 stages viven como metodos del FB (mutando ``self._ctx``). Solo
+# permanece aqui el ``DispPreviewContext`` (dataclass compartido entre stages)
+# y las helpers puras (``_selective_table_names``, ``_build_desired_state_from_app``,
+# ``_extract_nmax_diff``, ``_compute_diff_readonly``).
 # ============================================================================
 
 @dataclass
@@ -260,177 +455,7 @@ class DispPreviewContext:
 
 
 # ===========================================================================
-# 4 funciones puras (cada una muta ``ctx``; sin state machine aqui)
-# ===========================================================================
-
-
-
-async def _stage_exportar_tags(self) -> None:
-    """Limpia preview/ y exporta las tablas selectivas al snapshot."""
-    from areas.alimentacion.helpers.build_cache import build_cache
-
-    disp_ctx = build_cache(root=self._ctx.build_cache_root).dispositivos
-    disp_ctx.clean_preview()
-    self._ctx.tags_base = disp_ctx.preview_variables
-    self._ctx.selective_tables = _selective_table_names(self._ctx.config_manager)
-    logger.debug(f"workdir (preview): {self._ctx.tags_base}")
-    await dispatch_async(
-        self._ctx.tia_client,
-        "export_plc_tags_xml",
-        {
-            "plc_name": self._ctx.plc_name,
-            "target_dir": str(self._ctx.tags_base),
-            "table_names": self._ctx.selective_tables,
-        },
-    )
-
-
-async def _stage_compute_devices(self) -> None:
-    """Calcula el diff de devices entre los XMLs exportados y AppState."""
-    assert self._ctx.tags_base is not None, (
-        "compute_devices requiere exportar_tags previo"
-    )
-    self._ctx.desired_state_per_table = _build_desired_state_from_app(
-        self._ctx.app_state, self._ctx.config_manager,
-    )
-    (
-        self._ctx.added_per_table,
-        self._ctx.removed_per_table,
-        self._ctx.renamed_per_table,
-        self._ctx.base_state_per_table,
-    ) = await asyncio.to_thread(
-        _compute_diff_readonly, self._ctx.tags_base, self._ctx.desired_state_per_table,
-    )
-
-
-async def _stage_compute_nmax(self) -> None:
-    """Calcula el diff de N_MAX entre el TIA (export bulk) y AppState."""
-    assert self._ctx.tags_base is not None, (
-        "compute_nmax requiere exportar_tags previo"
-    )
-    self._ctx.nmax_block = await asyncio.to_thread(
-        _extract_nmax_diff,
-        self._ctx.tags_base, self._ctx.config_manager, self._ctx.app_state,
-    )
-
-
-async def _stage_build_response(self) -> None:
-    """Compone la shape legacy final con todos los resultados intermedios."""
-    agregados: list[dict[str, Any]] = [
-        {"uid": uid, "table": tk, "plc_tag": td.get(uid, "")}
-        for tk, td in self._ctx.desired_state_per_table.items()
-        for uid in self._ctx.added_per_table.get(tk, []) if uid in td
-    ]
-    eliminados: list[dict[str, Any]] = [
-        {"uid": uid, "table": tk, "plc_tag": tb.get(uid, "")}
-        for tk, tb in self._ctx.base_state_per_table.items()
-        for uid in self._ctx.removed_per_table.get(tk, []) if uid in tb
-    ]
-    renombrados: list[dict[str, Any]] = [
-        {
-            "uid": uid.split(":", 1)[1] if ":" in uid else uid,
-            "table": uid.split(":", 1)[0] if ":" in uid else "",
-            "actual": old,
-            "nuevo": new,
-        }
-        for uid, (old, new) in self._ctx.renamed_per_table.items()
-    ]
-
-    def _type_from_table(table_key: str) -> str:
-        """``2000_Disp_ED`` -> ``"ed"``, ``2000_Disp_M_VF`` -> ``"m_vf"``."""
-        stem = table_key.split("_Disp_", 1)[-1]
-        return stem.lower()
-
-    todos: list[dict[str, Any]] = []
-    for table_key, base in self._ctx.base_state_per_table.items():
-        type_key = _type_from_table(table_key)
-        renamed_for_table: dict[str, str] = {}
-        for uid, (_old, new) in self._ctx.renamed_per_table.items():
-            if uid.startswith(f"{table_key}:"):
-                renamed_for_table[uid.split(":", 1)[1]] = new
-
-        removed_uids = set(self._ctx.removed_per_table.get(table_key, []))
-
-        for uid_str, plc_tag in base.items():
-            try:
-                numero = int(uid_str)
-            except (TypeError, ValueError):
-                numero = 0
-            if uid_str in renamed_for_table:
-                todos.append({
-                    "table": table_key,
-                    "type": type_key,
-                    "uid": uid_str,
-                    "numero": numero,
-                    "actual": plc_tag,
-                    "nuevo": renamed_for_table[uid_str],
-                    "status": "renombrar",
-                })
-            elif uid_str in removed_uids:
-                todos.append({
-                    "table": table_key,
-                    "type": type_key,
-                    "uid": uid_str,
-                    "numero": numero,
-                    "actual": plc_tag,
-                    "nuevo": None,
-                    "status": "eliminar",
-                })
-            else:
-                todos.append({
-                    "table": table_key,
-                    "type": type_key,
-                    "uid": uid_str,
-                    "numero": numero,
-                    "actual": plc_tag,
-                    "nuevo": plc_tag,
-                    "status": "sin_cambios",
-                })
-
-    for table_key, desired in self._ctx.desired_state_per_table.items():
-        type_key = _type_from_table(table_key)
-        for uid_str in self._ctx.added_per_table.get(table_key, []):
-            try:
-                numero = int(uid_str)
-            except (TypeError, ValueError):
-                numero = 0
-            todos.append({
-                "table": table_key,
-                "type": type_key,
-                "uid": uid_str,
-                "numero": numero,
-                "actual": None,
-                "nuevo": desired.get(uid_str, ""),
-                "status": "agregar",
-            })
-
-    todos.sort(
-        key=lambda r: (
-            r["type"],
-            r["numero"] if isinstance(r["numero"], int) else 0,
-        )
-    )
-
-    self._ctx.result = {
-        "agregados": agregados,
-        "eliminados": eliminados,
-        "renombrados": renombrados,
-        "todos": todos,
-        "nmax": self._ctx.nmax_block,
-        "summary": {
-            "agregados": len(agregados),
-            "eliminados": len(eliminados),
-            "renombrados": len(renombrados),
-            "sin_cambios": sum(
-                1 for r in todos if r["status"] == "sin_cambios"
-            ),
-            "total": len(todos),
-        },
-    }
-
-
-# ===========================================================================
-# Helpers internos (privados al modulo)
+# Helpers puros (cada uno opera sobre los finales; sin state machine aqui)
 # ===========================================================================
 
 # Nota: ``dispatch_async`` se importa arriba desde
@@ -635,16 +660,6 @@ def _compute_diff_readonly(
         renamed_per_table,
         base_state_per_table,
     )
-
-
-__all__ = [
-    "DispPreviewContext",
-    # 4 funciones puras (sin state machine, sin orden; eso vive en el FB)
-    "exportar_tags",
-    "compute_devices",
-    "compute_nmax",
-    "build_response",
-]
 
 
 def _step_summary(ctx: Any, step_nombre: str) -> str:
