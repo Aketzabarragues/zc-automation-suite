@@ -2,8 +2,8 @@
 
 **Rama:** `greenfield/tia-worker-simplification`
 **Base:** `main` HEAD = `8ef3982`
-**Commits:** 27 (ver `git log main..HEAD`)
-**Delta:** 78 archivos modificados, +5248 / -7597 líneas (neto **-2349**).
+**Commits:** 35 (ver `git log main..HEAD`)
+**Delta:** 80 archivos modificados, +7.444 / -9.688 líneas (neto **-2.244**).
 
 ## TL;DR
 
@@ -13,7 +13,10 @@
 - `core/infrastructure/tia/tia_bloque_cache.py + scan_plc_blocks.py` fusionados en `tia_cache.py`.
 - 6 orquestadores con lógica embebida del área eliminados. Su lógica absorbida en los FBs.
 - 7 FBs renombrados a snake_case (convención del operario).
-- 4 FBs refactorizados con patrón STAGES (cada `if idx == N:` con nombre legible).
+- **7/7 FBs refactorizados con patrón STAGES** (tabla declarativa arriba de
+  la clase con `(idx, nombre, atributo_metodo)`, dispatch por nombre en
+  `run_step`, métodos `_stage_N_<nombre>(self)` como miembros reales).
+  Total: **48 stages** entre los 7 FBs.
 
 ## Cambios por capa
 
