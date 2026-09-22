@@ -249,23 +249,74 @@ class FunctionDispGenerarPreview(FunctionBase):
     # ==================================================================
 
     async def _stage_1_exportar_tags(self) -> None:
-        """Stage 1: limpia preview/ y exporta las tablas selectivas al snapshot."""
+        """Stage 1: limpia preview/ y exporta las tablas selectivas al snapshot.
+
+        Layout nuevo (sept-2026, ver ``_plan/rutas.md``):
+          - ``preview_config/``     ← N_MAX (1 archivo, FLAT)
+          - ``preview_disp/``       ← 6 tag tables de devices (FLAT)
+
+        Antes (legacy ``WorkdirContextLayout``) tenia todas las 7 tablas
+        en un solo ``preview_variables/``. Ahora la N_MAX se exporta
+        aparte para que ``_stage_3_compute_nmax`` lea directamente del
+        subdirectorio que le corresponde (split preview vs diff).
+
+        2 dispatchs separados (N_MAX + devices) con
+        ``keep_folder_structure=False`` para que TIA exporte FLAT
+        (la info de grupo TIA esta en ``config.json``, no necesitamos
+        replicarla en disco).
+        """
         from areas.alimentacion.helpers.build_cache import build_cache
 
         disp_ctx = build_cache(root=self._ctx.build_cache_root).dispositivos
         disp_ctx.clean_preview()
-        self._ctx.tags_base = disp_ctx.preview_variables
+        self._ctx.preview_config_dir = disp_ctx.preview_config
+        self._ctx.preview_disp_dir = disp_ctx.preview_disp
+        # ``tags_base`` apunta al dir de devices (para ``_compute_diff_readonly``
+        # en ``_stage_2_compute_devices`` y para backwards-compat).
+        self._ctx.tags_base = disp_ctx.preview_disp
         self._ctx.selective_tables = _selective_table_names(self._ctx.config_manager)
-        logger.debug(f"workdir (preview): {self._ctx.tags_base}")
-        await dispatch_async(
-            self._ctx.tia_client,
-            "export_plc_tags_xml",
-            {
-                "plc_name": self._ctx.plc_name,
-                "target_dir": str(self._ctx.tags_base),
-                "table_names": self._ctx.selective_tables,
-            },
+        self._ctx.nmax_table = _nmax_table_name(self._ctx.config_manager)
+        self._ctx.disp_tables = _disp_table_names(
+            self._ctx.config_manager, exclude=self._ctx.nmax_table,
         )
+
+        logger.debug(
+            f"workdir (preview): config={self._ctx.preview_config_dir}, "
+            f"disp={self._ctx.preview_disp_dir}"
+        )
+
+        # 1/2: N_MAX → preview_config/.
+        if self._ctx.nmax_table:
+            await dispatch_async(
+                self._ctx.tia_client,
+                "export_plc_tags_xml",
+                {
+                    "plc_name": self._ctx.plc_name,
+                    "target_dir": str(self._ctx.preview_config_dir),
+                    "table_names": [self._ctx.nmax_table],
+                    "keep_folder_structure": False,
+                },
+            )
+            logger.debug(
+                f"  N_MAX exportada a {self._ctx.preview_config_dir}"
+            )
+
+        # 2/2: 6 tag tables de devices → preview_disp/ (FLAT).
+        if self._ctx.disp_tables:
+            await dispatch_async(
+                self._ctx.tia_client,
+                "export_plc_tags_xml",
+                {
+                    "plc_name": self._ctx.plc_name,
+                    "target_dir": str(self._ctx.preview_disp_dir),
+                    "table_names": self._ctx.disp_tables,
+                    "keep_folder_structure": False,
+                },
+            )
+            logger.debug(
+                f"  {len(self._ctx.disp_tables)} disp tables exportadas a "
+                f"{self._ctx.preview_disp_dir}"
+            )
 
     async def _stage_2_compute_devices(self) -> None:
         """Stage 2: calcula el diff de devices entre los XMLs exportados y AppState."""
@@ -285,13 +336,18 @@ class FunctionDispGenerarPreview(FunctionBase):
         )
 
     async def _stage_3_compute_nmax(self) -> None:
-        """Stage 3: calcula el diff de N_MAX entre el TIA (export bulk) y AppState."""
-        assert self._ctx.tags_base is not None, (
-            "compute_nmax requiere exportar_tags previo"
+        """Stage 3: calcula el diff de N_MAX entre el TIA (export bulk) y AppState.
+
+        Layout nuevo (sept-2026): N_MAX vive en ``preview_config/``
+        (FLAT, no en ``tags_base``/``preview_disp/`` donde estan las 6
+        tag tables de devices).
+        """
+        assert self._ctx.preview_config_dir is not None, (
+            "compute_nmax requiere exportar_tags previo (preview_config_dir)"
         )
         self._ctx.nmax_block = await asyncio.to_thread(
             _extract_nmax_diff,
-            self._ctx.tags_base, self._ctx.config_manager, self._ctx.app_state,
+            self._ctx.preview_config_dir, self._ctx.config_manager, self._ctx.app_state,
         )
 
     async def _stage_4_build_response(self) -> None:
@@ -438,8 +494,15 @@ class DispPreviewContext:
     build_cache_root: Path
 
     # ── Resultados de exportar_tags ──
+    # Layout nuevo (sept-2026): split N_MAX vs disp en 2 subdirs FLAT.
+    preview_config_dir: Path | None = None  # N_MAX (preview/config/)
+    preview_disp_dir: Path | None = None    # 6 disp tables (preview/disp/)
+    # ``tags_base`` apunta al dir de devices (backwards-compat con
+    # ``_compute_diff_readonly``). En el layout nuevo == preview_disp_dir.
     tags_base: Path | None = None
     selective_tables: list[str] = field(default_factory=list)
+    nmax_table: str = ""
+    disp_tables: list[str] = field(default_factory=list)
 
     # ── Resultados de compute_devices ──
     desired_state_per_table: dict[str, dict[str, str]] = field(default_factory=dict)
@@ -466,7 +529,12 @@ class DispPreviewContext:
 
 
 def _selective_table_names(config_manager: Any) -> list[str]:
-    """Lista las tablas que el sync dispositivos toca (data-driven)."""
+    """Lista las tablas que el sync dispositivos toca (data-driven).
+
+    Mantiene la API legacy: devuelve [N_MAX, *6 disp tables]. Usado
+    por ``function_disp_sincronizar`` que sincroniza TODO junto en un
+    unico export (estructura TIA conservada, ver A3).
+    """
     nmax_table = config_manager.get_global_config_table_name()
     device_tables = [
         config_manager.get_tag_table_name(hw)
@@ -474,6 +542,39 @@ def _selective_table_names(config_manager: Any) -> list[str]:
         if config_manager.get_tag_table_name(hw) is not None
     ]
     return [nmax_table, *device_tables]
+
+
+def _nmax_table_name(config_manager: Any) -> str:
+    """Nombre de la tabla N_MAX (1 tabla, no lista)."""
+    return config_manager.get_global_config_table_name()
+
+
+def _disp_table_names(config_manager: Any, exclude: str | None = None) -> list[str]:
+    """Lista de las 6 tag tables de devices (excluyendo N_MAX por default).
+
+    Layout nuevo (sept-2026, ver ``_plan/rutas.md``): las 6 tag tables
+    de devices van al directorio ``preview_disp/`` (FLAT), separadas
+    de la N_MAX que va a ``preview_config/``.
+
+    Args:
+        config_manager: provee ``list_hw_types_active()`` y
+            ``get_tag_table_name(hw)``.
+        exclude: nombre de tabla a excluir (usar el nombre de la
+            N_MAX para split). Default ``None`` (no excluye nada).
+
+    Returns:
+        Lista de nombres de tag tables de devices, sin duplicados,
+        en orden data-driven (orden de ``list_hw_types_active()``).
+    """
+    seen: set[str] = set()
+    result: list[str] = []
+    for hw in config_manager.list_hw_types_active():
+        table = config_manager.get_tag_table_name(hw)
+        if table is None or table == exclude or table in seen:
+            continue
+        seen.add(table)
+        result.append(table)
+    return result
 
 
 def _build_desired_state_from_app(
@@ -510,17 +611,24 @@ def _extract_nmax_diff(
     config_manager: Any,
     app_state: Any,
 ) -> dict[str, Any]:
-    """Calcula el diff de N_MAX entre el TIA (export bulk) y AppState.
+    """Calcula el diff de N_MAX entre el TIA (export FLAT) y AppState.
 
     Las N_MAX son PlcUserConstant de la tabla ``000_Config_Dispositivos``
     que siempre existen en TIA (las 6 dimensiones: ED, EA, SA, V, M,
     M_VF). No se crean ni eliminan: solo se modifica su valor.
+
+    Layout nuevo (sept-2026): ``tags_base`` apunta a
+    ``preview_config/`` (FLAT). El archivo N_MAX esta en la raiz:
+    ``<tags_base>/<N_MAX_table>.xml``. Antes vivia en
+    ``<tags_base>/<nmax_folder>/<N_MAX_table>.xml`` (estructura TIA
+    preservada); ahora ``keep_folder_structure=False`` lo aplana.
     """
     from core.helpers.simatic_ml import PlcUserConstantParser
 
-    nmax_folder = config_manager.get_tia_folder_nmax()
     nmax_table = config_manager.get_global_config_table_name()
-    xml_path = tags_base / nmax_folder / f"{nmax_table}.xml"
+    # FLAT: el archivo esta en la raiz de ``tags_base``
+    # (preview_config/), no en una subcarpeta TIA.
+    xml_path = tags_base / f"{nmax_table}.xml"
 
     current: dict[str, int] = {}
     nmax_error: str | None = None
