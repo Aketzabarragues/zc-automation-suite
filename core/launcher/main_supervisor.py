@@ -229,7 +229,7 @@ class MainServiceSupervisor:
              engine al bus SSE.
         """
         from core.infrastructure.tia.tia_loop import SyncTIAClient
-        from core.infrastructure.tia.tia_handlers import register_core_commands
+        from core.infrastructure.tia.tia_commands_catalog import register_all_commands
         from core.composition.plc_engine import Engine
         from core.runtime.sse.sse_event_bus_sync import EventBusSync
         from core.web_server.app_flask import create_app
