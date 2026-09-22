@@ -1,7 +1,7 @@
 """Router Flask del endpoint ``POST /api/v1/excel/upload``.
 
 Migrado del use case legacy ``application/use_cases/upload_excel.py``. La logica pura vive en ``helpers/excel/excel_upload.py``;
-el FB ``FunctionSubirExcel`` (registrado en el engine como
+el FB ``FunctionExcelCargar`` (registrado en el engine como
 ``subir_excel``) tiene la state machine + tracker; este router solo
 orquesta: recibe el archivo, lo escribe a un tempfile, arranca el
 FB con ``xlsx_path`` y devuelve el ``result``.

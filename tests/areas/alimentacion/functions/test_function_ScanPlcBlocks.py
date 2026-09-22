@@ -81,7 +81,7 @@ def real_progress() -> ProgressTracker:
 @pytest.fixture
 def progress(real_progress: ProgressTracker) -> ProgressTracker:
     """Tracker con ``begin()`` ya invocado (mismo contrato que
-    ``FunctionSubirExcel``: el caller hace ``begin()`` antes).
+    ``FunctionExcelCargar``: el caller hace ``begin()`` antes).
     """
     real_progress.begin(
         operation="scan_plc_blocks_test",

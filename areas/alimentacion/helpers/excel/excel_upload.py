@@ -1,6 +1,6 @@
 """Helpers puros de la carga del Excel corporativo (FB subir_excel).
 
-Extraido del use case legacy ``application/use_cases/upload_excel.py`` para que el FB ``FunctionSubirExcel``
+Extraido del use case legacy ``application/use_cases/upload_excel.py`` para que el FB ``FunctionExcelCargar``
 quede con la state machine sola y delegue la logica aqui.
 
 Funciones puras (sin estado, sin tracker, sin AppState):

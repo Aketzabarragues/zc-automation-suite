@@ -12,5 +12,5 @@ Cada FB:
     wrapper ``tick()`` de la base, transita a ``n_error`` con
     ``error_msg`` poblado,
   - se nombra con prefijo ``function_`` + PascalCase (p. ej.
-    ``function_SubirExcel.py`` → ``FunctionSubirExcel``).
+    ``function_excel_cargar.py`` → ``FunctionExcelCargar``).
 """

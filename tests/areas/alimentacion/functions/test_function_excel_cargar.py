@@ -1,4 +1,4 @@
-"""Tests del FB ``FunctionSubirExcel``.
+"""Tests del FB ``FunctionExcelCargar``.
 
 Fase 2, pasos 2.1.1 + 2.1.2.  Cubren:
   - Happy path: 3 ticks avanzan 10→20→30→99 (``n_done``), ``self.result``
@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from areas.alimentacion.functions.function_SubirExcel import FunctionSubirExcel
+from areas.alimentacion.functions.function_excel_cargar import FunctionExcelCargar
 from core.runtime.log_buffer import LogBuffer
 from core.runtime.progress_buffer import ProgressTracker
 from core.runtime.app_state import AppState
@@ -51,7 +51,7 @@ def progress(real_progress: ProgressTracker) -> ProgressTracker:
     """Tracker con ``begin()`` ya invocado (mismo contrato que el use
     case legacy asume: el caller hace ``begin()`` antes de ``start()``).
 
-    Stages alineados con ``function_SubirExcel._step_parsear`` y
+    Stages alineados con ``function_excel_cargar._step_parsear`` y
     ``_step_volcar_y_result``.
     """
     real_progress.begin(
@@ -108,8 +108,8 @@ def make_fb(
     log: MagicMock,
     loader_factory,
     cache_cls: MagicMock,
-) -> FunctionSubirExcel:
-    return FunctionSubirExcel(
+) -> FunctionExcelCargar:
+    return FunctionExcelCargar(
         nombre="subir_excel_test",
         config_manager=config_manager,
         app_state=state,

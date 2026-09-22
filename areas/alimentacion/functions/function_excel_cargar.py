@@ -30,7 +30,7 @@ from core.runtime.app_state import AppState, get_app_state
 logger = logging.getLogger(__name__)
 
 
-class FunctionSubirExcel(FunctionBase):
+class FunctionExcelCargar(FunctionBase):
     """FB: carga el Excel del operario y popula ``AppState``."""
 
     # ==================================================================
@@ -76,7 +76,7 @@ class FunctionSubirExcel(FunctionBase):
         # Deps especificas
         # ``excel_loader_factory`` y ``excel_cache_cls`` se importan
         # lazily en run_step (ZONA 4) para evitar import circular
-        # entre ``function_SubirExcel`` y ``helpers/excel/excel_upload``.
+        # entre ``function_excel_cargar`` y ``helpers/excel/excel_upload``.
         self._loader_factory = excel_loader_factory
         self._cache_cls = excel_cache_cls
         self._state: AppState = (
@@ -94,7 +94,7 @@ class FunctionSubirExcel(FunctionBase):
         xlsx_path = params.get("xlsx_path")
         if not xlsx_path:
             raise ValueError(
-                "FunctionSubirExcel.start(xlsx_path=...) es obligatorio"
+                "FunctionExcelCargar.start(xlsx_path=...) es obligatorio"
             )
         self._xlsx_path = str(xlsx_path)
         logger.debug(
@@ -119,7 +119,7 @@ class FunctionSubirExcel(FunctionBase):
 
         if self._config is None:
             raise RuntimeError(
-                "FunctionSubirExcel requiere config_manager explicito. "
+                "FunctionExcelCargar requiere config_manager explicito. "
                 "Inyectalo en el constructor al registrar el FB."
             )
 
@@ -223,4 +223,4 @@ class FunctionSubirExcel(FunctionBase):
         }
 
 
-__all__ = ["FunctionSubirExcel"]
+__all__ = ["FunctionExcelCargar"]

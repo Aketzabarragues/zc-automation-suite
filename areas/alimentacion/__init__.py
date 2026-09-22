@@ -114,7 +114,7 @@ def register(
     """
     from core.runtime.app_state import get_app_state
 
-    from areas.alimentacion.functions.function_SubirExcel import FunctionSubirExcel
+    from areas.alimentacion.functions.function_excel_cargar import FunctionExcelCargar
     from areas.alimentacion.functions.function_DispGenerarPreview import (
         FunctionDispGenerarPreview,
     )
@@ -145,7 +145,7 @@ def register(
     # FBs reales migrados al patron plantilla (A.1+).
     engine.register_fb(
         "subir_excel",
-        FunctionSubirExcel(
+        FunctionExcelCargar(
             nombre="subir_excel",
             config_manager=config_manager,
             app_state=app_state,
