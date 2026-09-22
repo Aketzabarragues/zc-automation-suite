@@ -35,6 +35,11 @@ from core.infrastructure.tia.tia_cmd_lifecycle import (  # noqa: F401
     _h_detach_portal,
     _h_open_new_portal,
 )
+from core.infrastructure.tia.tia_cmd_project import (  # noqa: F401
+    _h_open_project,
+    _h_save_project,
+    _h_close_project,
+)
 
 import json as _json  # noqa: E402
 import logging  # noqa: E402
@@ -68,53 +73,10 @@ logger = logging.getLogger("zc.tia_loop")
 # ---------------------------------------------------------------------------
 
 
-def _h_open_project(args: dict, tia_client: "SyncTIAClient") -> dict:
-    """Abre un proyecto TIA Portal desde una ruta.
-
-    Precondicion: portal ya attached. Para cold start, usar open_new_portal.
-    """
-    portal = tia_client.wrapper
-    if portal is None:
-        raise RuntimeError(
-            "No portal attached. Llama a attach_portal primero."
-        )
-    project_file_path: str = args.get("project_file_path", "")
-    if not project_file_path:
-        raise ValueError("Se requiere el argumento 'project_file_path'.")
-    if not os.path.isfile(project_file_path):
-        raise RuntimeError(
-            f"El archivo de proyecto no existe: '{project_file_path}'."
-        )
-    portal.open_project(project_file_path=project_file_path)
-    return {"opened": True, "project_file_path": project_file_path}
-
-
-def _h_save_project(args: dict, tia_client: "SyncTIAClient") -> dict:  # noqa: ARG001
-    """Guarda los cambios pendientes del proyecto activo."""
-    portal = tia_client.wrapper
-    if portal is None:
-        raise RuntimeError(
-            "No portal attached. Llama a attach_portal primero."
-        )
-    project = _get_active_project(portal)
-    project.save()
-    return {"saved": True}
-
-
-def _h_close_project(args: dict, tia_client: "SyncTIAClient") -> dict:  # noqa: ARG001
-    """Cierra el proyecto activo.
-
-    OJO: project.close() destruye los cambios no guardados. El caller
-    debe haber invocado save() antes si la persistencia era necesaria.
-    """
-    portal = tia_client.wrapper
-    if portal is None:
-        raise RuntimeError(
-            "No portal attached. Llama a attach_portal primero."
-        )
-    project = _get_active_project(portal)
-    project.close()
-    return {"closed": True}
+# ---------------------------------------------------------------------------
+# Handlers de proyecto (migrados a tia_cmd_project.py).
+# Los re-exports arriba preservan compat con callers legacy hasta el commit 10.
+# ---------------------------------------------------------------------------
 
 
 def _h_ping(args: dict, tia_client: "SyncTIAClient") -> dict:  # noqa: ARG001
