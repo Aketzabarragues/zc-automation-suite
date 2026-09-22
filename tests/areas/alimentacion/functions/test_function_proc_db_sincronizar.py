@@ -102,36 +102,36 @@ def make_fb(
 def _patch_helper_fns(fb) -> ExitStack:
     """Parchea todas las funciones del helper como no-op.
 
-    El test puede sobre-escribir ``proc_done_summary_commit`` con su
+    El test puede sobre-escribir ``_stage_9_done`` con su
     propio side_effect despues de entrar al contexto.
     """
     stack = ExitStack()
     stack.enter_context(
-        patch.object(fb, "proc_check_state_commit", MagicMock(), create=True)
+        patch.object(fb, "_stage_1_check_state_commit", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "proc_check_blocks_commit", MagicMock(), create=True)
+        patch.object(fb, "_stage_2_check_blocks_commit", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "proc_build_slot_maps_commit", MagicMock(), create=True)
+        patch.object(fb, "_stage_3_build_slot_maps_commit", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "proc_compute_nmax_ops", MagicMock(), create=True)
+        patch.object(fb, "_proc_compute_nmax_ops_inline", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "proc_sync_nmax", AsyncMock(), create=True)
+        patch.object(fb, "_stage_4_sync_nmax", AsyncMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "proc_wait_consolidation", AsyncMock(), create=True)
+        patch.object(fb, "_stage_5_wait_consolidation", AsyncMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "proc_compile_blocks", AsyncMock(), create=True)
+        patch.object(fb, "_stage_6_compile_proc_blocks", AsyncMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "proc_open_transaction", AsyncMock(), create=True)
+        patch.object(fb, "_stage_7_open_transaction", AsyncMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "proc_done_summary_commit", MagicMock(), create=True)
+        patch.object(fb, "_stage_9_done", MagicMock(), create=True)
     )
     return stack
 
@@ -187,17 +187,17 @@ async def test_proc_sincronizar_happy_path_8_ticks(
             mock_config, mock_tia_client, mock_app_state,
             mock_bloques_cache, progress,
         )
-        # Sobre-escribimos ``proc_build_slot_maps_commit`` y
-        # ``proc_done_summary_commit``.
+        # Sobre-escribimos ``_stage_3_build_slot_maps_commit`` y
+        # ``_stage_9_done``.
         stack.enter_context(
             patch.object(
-                fb, "proc_build_slot_maps_commit",
+                fb, "_stage_3_build_slot_maps_commit",
                 side_effect=fake_build_slot_maps, create=True,
             )
         )
         stack.enter_context(
             patch.object(
-                fb, "proc_done_summary_commit",
+                fb, "_stage_9_done",
                 side_effect=fake_done_summary, create=True,
             )
         )
@@ -236,15 +236,15 @@ async def test_proc_sincronizar_happy_path_8_ticks(
         assert fb.result["proc_uid"] == 42
 
         # Cada helper fue llamado 1 vez.
-        assert fb.proc_check_state_commit.call_count == 1
-        assert fb.proc_check_blocks_commit.call_count == 1
-        assert fb.proc_build_slot_maps_commit.call_count == 1
-        assert fb.proc_compute_nmax_ops.call_count == 1
-        assert fb.proc_sync_nmax.await_count == 1
-        assert fb.proc_wait_consolidation.await_count == 1
-        assert fb.proc_compile_blocks.await_count == 1
-        assert fb.proc_open_transaction.await_count == 1
-        assert fb.proc_done_summary_commit.call_count == 1
+        assert fb._stage_1_check_state_commit.call_count == 1
+        assert fb._stage_2_check_blocks_commit.call_count == 1
+        assert fb._stage_3_build_slot_maps_commit.call_count == 1
+        assert fb._proc_compute_nmax_ops_inline.call_count == 1
+        assert fb._stage_4_sync_nmax.await_count == 1
+        assert fb._stage_5_wait_consolidation.await_count == 1
+        assert fb._stage_6_compile_proc_blocks.await_count == 1
+        assert fb._stage_7_open_transaction.await_count == 1
+        assert fb._stage_9_done.call_count == 1
 
 
 # ── Sad paths (pre-flight en on_start) ──────────────────────────────
@@ -362,7 +362,7 @@ async def test_proc_sincronizar_sad_check_state_no_excel(
         )
         stack.enter_context(
             patch.object(
-                fb, "proc_check_state_commit",
+                fb, "_stage_1_check_state_commit",
                 side_effect=bad_check_state, create=True,
             )
         )
@@ -401,7 +401,7 @@ async def test_proc_sincronizar_sad_missing_blocks(
         )
         stack.enter_context(
             patch.object(
-                fb, "proc_build_slot_maps_commit",
+                fb, "_stage_3_build_slot_maps_commit",
                 side_effect=bad_build_slot_maps, create=True,
             )
         )
@@ -442,13 +442,13 @@ async def test_proc_sincronizar_sad_open_transaction_fails(
         )
         stack.enter_context(
             patch.object(
-                fb, "proc_build_slot_maps_commit",
+                fb, "_stage_3_build_slot_maps_commit",
                 side_effect=fake_build_slot_maps, create=True,
             )
         )
         stack.enter_context(
             patch.object(
-                fb, "proc_open_transaction",
+                fb, "_stage_7_open_transaction",
                 side_effect=RuntimeError("Bloque DB42_CPR_PARAM no encontrado"),
                 create=True,
             )
