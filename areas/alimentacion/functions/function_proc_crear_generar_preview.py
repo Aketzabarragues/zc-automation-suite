@@ -75,6 +75,28 @@ class FunctionProcCrearGenerarPreview(FunctionBase):
     # holgadamente el peor caso esperado.
     STEP_TIMEOUT_S: float = 120.0
 
+    # Tabla declarativa de stages. Cada tupla: (idx, "nombre_step",
+    # "atributo_metodo_en_el_FB"). El ``run_step`` dispatcha contra
+    # esta tabla en vez de un ``match``/``case`` inline, para que el
+    # flujo sea legible arriba de la clase y los tests puedan
+    # mockear ``fb._stage_N_<nombre>`` directamente.
+    #
+    # Convencion:
+    #   - ``idx`` correlativo, 1-based.
+    #   - ``nombre_step`` debe coincidir con ``self.steps[idx]["nombre"]``
+    #     (registrado en __init__). Si cambias uno, cambia el otro.
+    #   - ``atributo_metodo`` es un metodo del FB (no externo): un cambio
+    #     de signatura requiere actualizar este registro.
+    STAGES: list[tuple[int, str, str]] = [
+        (1, "leer_manifest",          "_stage_1_leer_manifest"),
+        (2, "validar_minimos",        "_stage_2_validar_minimos"),
+        (3, "copiar_a_preview",       "_stage_3_copiar_a_preview"),
+        (4, "construir_diccionarios", "_stage_4_construir_diccionarios"),
+        (5, "detectar_colisiones",    "_stage_5_detectar_colisiones"),
+        (6, "generar_previstos",      "_stage_6_generar_previstos"),
+        (7, "done",                   "_stage_7_done"),
+    ]
+
     # ==================================================================
     # CONSTRUCTOR
     # ==================================================================
@@ -246,37 +268,25 @@ class FunctionProcCrearGenerarPreview(FunctionBase):
             )
 
         step_nombre = self.steps[idx]["nombre"]
-        match step_nombre:
-            case "leer_manifest":
-                await proc_process_generator.proc_process_leer_manifest(self._ctx)
-            case "validar_minimos":
-                # Si falla, lanza PlantillaMinimosNoCumplidos y el base
-                # va a n_error con error_stage.
-                await proc_process_generator.proc_process_validar_minimos(
-                    self._ctx
-                )
-            case "copiar_a_preview":
-                await proc_process_generator.proc_process_copiar_a_preview(
-                    self._ctx
-                )
-            case "construir_diccionarios":
-                await proc_process_generator.proc_process_construir_diccionarios(
-                    self._ctx
-                )
-            case "detectar_colisiones":
-                await proc_process_generator.proc_process_detectar_colisiones(
-                    self._ctx
-                )
-            case "generar_previstos":
-                await proc_process_generator.proc_process_generar_previstos(
-                    self._ctx
-                )
-            case "done":
-                await proc_process_generator.proc_process_done_summary(self._ctx)
-            case _:
-                raise ValueError(f"step no soportado: {step_nombre!r}")
-
-        return _step_summary(self._ctx, step_nombre)
+        # Dispatch declarativo via tabla ``STAGES``: el orden y los
+        # nombres de los stages se declaran arriba de la clase. Asi el
+        # flujo del FB es visible de un vistazo (modo SFC) y los tests
+        # pueden mockear ``fb._stage_N_<nombre>`` directamente sin
+        # parchear el ``match`` interno.
+        #
+        # El lookup es por ``nombre`` (no por ``idx``) porque
+        # ``FunctionBase._step_ejecutar`` pasa ``idx`` 0-indexed sobre
+        # ``self.steps``. El ``idx`` de la tabla STAGES es 1-based y
+        # solo se usa para logging legible ("paso 3/7").
+        for _s_idx, s_nombre, s_attr in self.STAGES:
+            if s_nombre == step_nombre:
+                handler = getattr(self, s_attr)
+                await handler()
+                return _step_summary(self._ctx, s_nombre)
+        raise ValueError(
+            f"step {idx} ({step_nombre!r}) no esta en STAGES "
+            f"de FunctionProcCrearGenerarPreview"
+        )
 
     # ==================================================================
     # HOOK 3: on_finish  (ZONA 5: vuelco del result desde el ctx)
@@ -307,6 +317,55 @@ class FunctionProcCrearGenerarPreview(FunctionBase):
             f"{n_previstos} archivos previstos, "
             f"{n_colisiones} colision(es)."
         )
+
+    # ==================================================================
+    # Stages del FB (ZONA 4: 7 metodos privados numerados).
+    #
+    # Cada ``_stage_N_<nombre>`` corresponde a UNA entrada de la tabla
+    # ``STAGES`` arriba. Si cambias el flujo del stage, cambia la
+    # tabla tambien. Aqui viven como wrappers que delegan en las
+    # funciones puras de ``proc_process_generator`` (filesystem puro,
+    # sin tocar TIA).
+    # ==================================================================
+
+    async def _stage_1_leer_manifest(self) -> None:
+        """Stage 1: lee el ``manifest.json`` de la plantilla TIA."""
+        from areas.alimentacion.helpers.proc import proc_process_generator
+        await proc_process_generator.proc_process_leer_manifest(self._ctx)
+
+    async def _stage_2_validar_minimos(self) -> None:
+        """Stage 2: valida los N_MIN del operario contra la plantilla.
+
+        Si falla, lanza ``PlantillaMinimosNoCumplidos`` y el base va
+        a ``n_error`` con ``error_stage``.
+        """
+        from areas.alimentacion.helpers.proc import proc_process_generator
+        await proc_process_generator.proc_process_validar_minimos(self._ctx)
+
+    async def _stage_3_copiar_a_preview(self) -> None:
+        """Stage 3: copytree de la plantilla al workdir de preview."""
+        from areas.alimentacion.helpers.proc import proc_process_generator
+        await proc_process_generator.proc_process_copiar_a_preview(self._ctx)
+
+    async def _stage_4_construir_diccionarios(self) -> None:
+        """Stage 4: parsea bloques + XMLs y construye los diccionarios base."""
+        from areas.alimentacion.helpers.proc import proc_process_generator
+        await proc_process_generator.proc_process_construir_diccionarios(self._ctx)
+
+    async def _stage_5_detectar_colisiones(self) -> None:
+        """Stage 5: detecta UIDs/colisiones contra el ``plc_blocks_cache``."""
+        from areas.alimentacion.helpers.proc import proc_process_generator
+        await proc_process_generator.proc_process_detectar_colisiones(self._ctx)
+
+    async def _stage_6_generar_previstos(self) -> None:
+        """Stage 6: aplica las reglas y genera ``archivos_previstos``."""
+        from areas.alimentacion.helpers.proc import proc_process_generator
+        await proc_process_generator.proc_process_generar_previstos(self._ctx)
+
+    async def _stage_7_done(self) -> None:
+        """Stage 7: compone ``ctx.result`` con la shape final del preview."""
+        from areas.alimentacion.helpers.proc import proc_process_generator
+        await proc_process_generator.proc_process_done_summary(self._ctx)
 
 
 def _step_summary(ctx: Any, step_nombre: str) -> str:
