@@ -115,7 +115,7 @@ def register(
     from core.runtime.app_state import get_app_state
 
     from areas.alimentacion.functions.function_excel_cargar import FunctionExcelCargar
-    from areas.alimentacion.functions.function_DispGenerarPreview import (
+    from areas.alimentacion.functions.function_disp_generar_preview import (
         FunctionDispGenerarPreview,
     )
     from areas.alimentacion.functions.function_DispSincronizar import (
