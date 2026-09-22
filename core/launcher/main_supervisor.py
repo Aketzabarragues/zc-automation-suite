@@ -235,7 +235,7 @@ class MainServiceSupervisor:
         from core.web_server.app_flask import create_app
 
         tia_client = SyncTIAClient()
-        register_core_commands(tia_client)
+        register_all_commands(tia_client)
         # Cablear los comandos TIA extra de cada area (transaccionales,
         # comments por hw/proc, commits online/offline de dispositivos,
         # etc). El area aporta el callable via

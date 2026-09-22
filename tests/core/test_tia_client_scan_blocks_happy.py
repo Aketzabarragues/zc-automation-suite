@@ -5,14 +5,13 @@ import re
 from unittest.mock import MagicMock
 
 from core.infrastructure.tia.tia_loop import (
-    SyncTIAClient,
-    register_core_commands,
-)
+    SyncTIAClient)
+from core.infrastructure.tia.tia_commands_catalog import register_all_commands
 
 
 def _client():
     c = SyncTIAClient()
-    register_core_commands(c)
+    register_all_commands(c)
     return c
 
 

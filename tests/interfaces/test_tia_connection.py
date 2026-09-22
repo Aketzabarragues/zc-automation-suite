@@ -6,9 +6,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from core.infrastructure.tia.tia_loop import (
-    SyncTIAClient,
-    register_core_commands,
-)
+    SyncTIAClient)
+from core.infrastructure.tia.tia_commands_catalog import register_all_commands
 from core.composition.plc_engine import Engine
 from core.runtime.sse.sse_event_bus_sync import EventBusSync
 from interfaces.web_server.app_flask import create_app
@@ -17,7 +16,7 @@ from interfaces.web_server.app_flask import create_app
 @pytest.fixture
 def client():
     tia = SyncTIAClient()
-    register_core_commands(tia)  # necesario para dispatch('get_project_info') etc.
+    register_all_commands(tia)  # necesario para dispatch('get_project_info') etc.
     engine = Engine()
     bus = EventBusSync()
     app = create_app(tia_client=tia, engine=engine, event_bus=bus)
@@ -132,7 +131,7 @@ def test_endpoint_paths_use_api_v1_prefix():
     existen devuelven 404.
     """
     tia = SyncTIAClient()
-    register_core_commands(tia)
+    register_all_commands(tia)
     app = create_app(tia_client=tia, engine=Engine(), event_bus=EventBusSync())
     client = app.test_client()
     resp = client.get("/api/v1/tia/connection")

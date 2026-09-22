@@ -1,7 +1,7 @@
 """Tests de los handlers lifecycle de ``core.infrastructure.tia_loop``.
 
 Cubren (Fase 4 / paso 4.1.2a1):
-  - register_core_commands() registra los 4 comandos en el target.
+  - register_all_commands() registra los 4 comandos en el target.
   - open_new_portal: ts ausente / args vacios / archivo no existe / happy path.
   - open_project: wrapper ausente / args vacios / archivo no existe / happy path.
   - save_project: wrapper ausente / sin proyecto / happy path.
@@ -16,15 +16,14 @@ from unittest.mock import MagicMock
 import pytest
 
 from core.infrastructure.tia.tia_loop import (
-    SyncTIAClient,
-    register_core_commands,
-)
+    SyncTIAClient)
+from core.infrastructure.tia.tia_commands_catalog import register_all_commands
 
 
 @pytest.fixture
 def client_with_handlers():
     c = SyncTIAClient()
-    register_core_commands(c)
+    register_all_commands(c)
     return c
 
 
