@@ -322,26 +322,57 @@ class FunctionDispSincronizar(FunctionBase):
         )
 
     async def _stage_2_compute_diff(self) -> None:
-        """Calcula el diff entre los XMLs exportados y el AppState (read-only)."""
+        """Calcula el diff entre los XMLs exportados y el AppState (read-only).
+
+        Migrado sept-2026: usa ``compute_diff_table`` por hw_type
+        (funcion pura del nuevo helper). Mantiene el shape del ctx
+        (``desired_state_per_table`` etc.) para compatibilidad con
+        ``_stage_3_preparar_ops`` y siguientes.
+        """
         assert self._ctx.tags_base is not None, (
             "compute_diff requiere exportar_tags previo"
         )
         from areas.alimentacion.helpers.disp.disp_generate_preview import (
-            _build_desired_state_from_app,
-            _compute_diff_readonly,
+            compute_diff_table,
         )
-        self._ctx.desired_state_per_table = _build_desired_state_from_app(
-            self._ctx.app_state, self._ctx.config_manager,
-        )
-        (
-            self._ctx.added_per_table,
-            self._ctx.removed_per_table,
-            self._ctx.renamed_per_table,
-            self._ctx.base_state_per_table,
-        ) = await asyncio.to_thread(
-            _compute_diff_readonly,
-            self._ctx.tags_base, self._ctx.desired_state_per_table,
-        )
+
+        added_per_table: dict[str, list[str]] = {}
+        removed_per_table: dict[str, list[str]] = {}
+        renamed_per_table: dict[str, tuple[str, str]] = {}
+        base_state_per_table: dict[str, dict[str, str]] = {}
+        desired_state_per_table: dict[str, dict[str, str]] = {}
+
+        def _all_diffs() -> None:
+            for hw in self._ctx.config_manager.list_hw_types_active():
+                cfg = self._ctx.config_manager.get_dispositivo_config(hw)
+                if cfg is None:
+                    continue
+                xml_path = self._ctx.tags_base / f"{cfg.tag_table}.xml"
+                devices = self._ctx.app_state.get_devices(hw)
+                diff = compute_diff_table(
+                    table_name=cfg.tag_table,
+                    desired_devices=devices,
+                    xml_path=xml_path,
+                )
+                desired_state_per_table[cfg.tag_table] = diff.desired
+                base_state_per_table[cfg.tag_table] = diff.base
+                if diff.added:
+                    added_per_table[cfg.tag_table] = diff.added
+                if diff.removed:
+                    removed_per_table[cfg.tag_table] = diff.removed
+                if diff.renamed:
+                    renamed_per_table.update({
+                        f"{cfg.tag_table}:{uid}": v
+                        for uid, v in diff.renamed.items()
+                    })
+
+        await asyncio.to_thread(_all_diffs)
+
+        self._ctx.desired_state_per_table = desired_state_per_table
+        self._ctx.base_state_per_table = base_state_per_table
+        self._ctx.added_per_table = added_per_table
+        self._ctx.removed_per_table = removed_per_table
+        self._ctx.renamed_per_table = renamed_per_table
 
     async def _stage_3_preparar_ops(self) -> None:
         """Calcula nmax_ops + rename_ops + device_changes para los handlers."""
@@ -717,40 +748,175 @@ class FunctionDispSincronizar(FunctionBase):
     async def _stage_99_disp_post_preview(self) -> None:
         """Genera el preview post-sync para que la SPA vea 'todo en sync'.
 
-        Reusa las 4 funciones puras de ``disp_generate_preview``
-        (``exportar_tags``, ``compute_devices``, ``compute_nmax`` y
-        ``build_response``). Crea un ``DispPreviewContext`` con las
-        mismas deps y lo ejecuta en orden. El
-        ``build_response`` final popula ``self._ctx.post_sync_preview`` con la
-        shape legacy (agregados, eliminados, renombrados, todos, nmax,
-        summary).
+        Migrado sept-2026: usa las funciones puras
+        ``compute_diff_table`` + ``compute_nmax_diff`` del nuevo
+        ``disp_generate_preview.py``. Replica el flujo legacy
+        (``exportar_tags`` + ``compute_devices`` + ``compute_nmax`` +
+        ``build_response``) pero sin state machine externa:
+        1. Limpia preview/ + re-exporta FLAT (N_MAX + 6 disp tables).
+        2. ``compute_diff_table`` por hw (6 dispatchs).
+        3. ``compute_nmax_diff`` (1 dispatch).
+        4. Compone ``post_sync_preview`` con shape legacy.
         """
-        from areas.alimentacion.helpers.disp.disp_generate_preview import (
-            DispPreviewContext,
-            build_response as pv_build_response,
-            compute_devices as pv_compute_devices,
-            compute_nmax as pv_compute_nmax,
-            exportar_tags as pv_exportar_tags,
-        )
+        from pathlib import Path
 
-        pv_ctx = DispPreviewContext(
-            plc_name=self._ctx.plc_name,
-            tia_client=self._ctx.tia_client,
-            config_manager=self._ctx.config_manager,
-            app_state=self._ctx.app_state,
-            build_cache_root=self._ctx.build_cache_root,
+        from areas.alimentacion.helpers.build_cache import build_cache
+        from areas.alimentacion.helpers.disp.disp_generate_preview import (
+            compute_diff_table,
+            compute_nmax_diff,
+            resolve_desired_nmax,
         )
+        from core.helpers.simatic_ml import PlcUserConstantParser
+
+        cm = self._ctx.config_manager
+        state = self._ctx.app_state
 
         try:
-            await pv_exportar_tags(pv_ctx)
-            await pv_compute_devices(pv_ctx)
-            await pv_compute_nmax(pv_ctx)
-            await pv_build_response(pv_ctx)
-            self._ctx.post_sync_preview = pv_ctx.result
-        except Exception as exc:
+            # 1/4. Limpia preview/ + re-exporta FLAT.
+            disp_ctx = build_cache(root=self._ctx.build_cache_root).dispositivos
+            disp_ctx.clean_preview()
+            preview_config = disp_ctx.preview_config
+            preview_disp = disp_ctx.preview_disp
+            self._ctx.tags_base = preview_disp
+
+            nmax_table = cm.get_global_config_table_name()
+            nmax_table_names = [nmax_table]
+            disp_table_names = [
+                cm.get_dispositivo_config(hw).tag_table
+                for hw in cm.list_hw_types_active()
+                if cm.get_dispositivo_config(hw) is not None
+            ]
+
+            # 2/4. Exporta N_MAX → preview_config/.
+            await dispatch_async(
+                self._ctx.tia_client,
+                "export_plc_tags_xml",
+                {
+                    "plc_name": self._ctx.plc_name,
+                    "target_dir": str(preview_config),
+                    "table_names": nmax_table_names,
+                    "keep_folder_structure": False,
+                },
+            )
+            # 3/4. Exporta 6 disp tables → preview_disp/.
+            await dispatch_async(
+                self._ctx.tia_client,
+                "export_plc_tags_xml",
+                {
+                    "plc_name": self._ctx.plc_name,
+                    "target_dir": str(preview_disp),
+                    "table_names": disp_table_names,
+                    "keep_folder_structure": False,
+                },
+            )
+
+            # 4/4. Diff por hw.
+            all_added: list[dict[str, Any]] = []
+            all_removed: list[dict[str, Any]] = []
+            all_renamed: list[dict[str, Any]] = []
+            all_todos: list[dict[str, Any]] = []
+            for hw in cm.list_hw_types_active():
+                cfg = cm.get_dispositivo_config(hw)
+                if cfg is None:
+                    continue
+                devices = state.get_devices(hw)
+                xml_path = preview_disp / f"{cfg.tag_table}.xml"
+                diff = compute_diff_table(
+                    table_name=cfg.tag_table,
+                    desired_devices=devices,
+                    xml_path=xml_path,
+                )
+                # Map a shape legacy de la SPA.
+                for uid in diff.added:
+                    all_added.append({
+                        "uid": uid,
+                        "table": cfg.tag_table,
+                        "plc_tag": diff.desired.get(uid, ""),
+                    })
+                for uid in diff.removed:
+                    all_removed.append({
+                        "uid": uid,
+                        "table": cfg.tag_table,
+                        "plc_tag": diff.base.get(uid, ""),
+                    })
+                for uid, (old, new) in diff.renamed.items():
+                    all_renamed.append({
+                        "uid": uid,
+                        "table": cfg.tag_table,
+                        "actual": old,
+                        "nuevo": new,
+                    })
+                # Construir ``todos`` shape legacy (incluye 'sin_cambios').
+                base_uids = set(diff.base.keys())
+                desired_uids = set(diff.desired.keys())
+                for uid in base_uids | desired_uids:
+                    numero = int(uid)
+                    if uid in diff.added:
+                        status, actual, nuevo = "agregar", None, diff.desired[uid]
+                    elif uid in diff.removed:
+                        status, actual, nuevo = "eliminar", diff.base[uid], None
+                    elif uid in diff.renamed:
+                        status, actual, nuevo = "renombrar", *diff.renamed[uid]
+                    else:
+                        status, actual, nuevo = "sin_cambios", diff.base[uid], diff.base[uid]
+                    all_todos.append({
+                        "table": cfg.tag_table,
+                        "type": cfg.tag_name.lower(),
+                        "uid": uid,
+                        "numero": numero,
+                        "actual": actual,
+                        "nuevo": nuevo,
+                        "status": status,
+                    })
+
+            # 5/4. N_MAX.
+            desired_nmax = resolve_desired_nmax(
+                state.dimensiones or {}, cm,
+            )
+            nmax_diff = compute_nmax_diff(
+                table_name=nmax_table,
+                desired_nmax=desired_nmax,
+                xml_path=preview_config / f"{nmax_table}.xml",
+            )
+
+            # 6/4. Componer shape legacy (post_sync_preview).
+            nmax_summary = {
+                "agregados": 0,
+                "eliminados": 0,
+                "renombrados": 0,
+                "sin_cambios": nmax_diff.summary["sin_cambios"],
+                "total": nmax_diff.summary["total"],
+            }
+            self._ctx.post_sync_preview = {
+                "agregados": all_added,
+                "eliminados": all_removed,
+                "renombrados": all_renamed,
+                "todos": all_todos,
+                "nmax": {
+                    "current": nmax_diff.current,
+                    "desired": nmax_diff.desired,
+                    "todos": nmax_diff.todos,
+                    "summary": nmax_diff.summary,
+                    "nmax_error": (
+                        f"XML N_MAX no encontrado en {preview_config}"
+                        if nmax_diff.missing_xml else None
+                    ),
+                },
+                "summary": {
+                    "agregados": len(all_added),
+                    "eliminados": len(all_removed),
+                    "renombrados": len(all_renamed),
+                    "sin_cambios": sum(
+                        1 for r in all_todos if r["status"] == "sin_cambios"
+                    ),
+                    "total": len(all_todos),
+                },
+            }
+        except Exception as exc:  # noqa: BLE001
             logger.warning(
                 f"[{self._ctx.plc_name}] Post-sync preview fallo "
-                f"(commit ya aplicado): {exc}"
+                f"(commit ya aplicado): {exc!r}. "
+                f"El operario puede lanzar preview manual desde la SPA."
             )
             self._ctx.post_sync_preview = None
 

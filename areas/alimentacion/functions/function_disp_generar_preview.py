@@ -403,6 +403,7 @@ class FunctionDispGenerarPreview(FunctionBase):
         )
         from areas.alimentacion.helpers.disp.disp_generate_preview import (
             compute_nmax_diff,
+            resolve_desired_nmax,
         )
 
         # Resuelve desired_nmax desde ``app_state.dimensiones`` con el
@@ -412,7 +413,7 @@ class FunctionDispGenerarPreview(FunctionBase):
         # lowercase ``num_disp_*``).
         nmax_table_name = self._ctx.config_manager.get_global_config_table_name()
         xml_path = self._ctx.preview_config_dir / f"{nmax_table_name}.xml"
-        desired_nmax = _resolve_desired_nmax(
+        desired_nmax = resolve_desired_nmax(
             self._ctx.app_state.dimensiones or {},
             self._ctx.config_manager,
         )
@@ -667,69 +668,6 @@ def _disp_table_names(config_manager: Any, exclude: str | None = None) -> list[s
         seen.add(table)
         result.append(table)
     return result
-
-
-def _resolve_desired_nmax(
-    dimensiones_raw: dict[str, Any],
-    config_manager: Any,
-) -> dict[str, int]:
-    """Normaliza ``app_state.dimensiones`` al naming canonico de TIA.
-
-    El Excel emite ``DimensionesDispositivos.to_api_dict()`` con keys
-    **lowercase**: ``num_disp_ed``, ``num_disp_ea``, etc. Pero el XML
-    de TIA tiene keys **uppercase**: ``N_MAX_DISP_ED``, ``N_MAX_DISP_EA``,
-    etc. Esta funcion hace el mapeo para que ``compute_nmax_diff``
-    compare peras con peras.
-
-    Mapeo de legacy lowercase a canonico uppercase (sept-2026):
-      ``num_disp_ed``    -> ``N_MAX_DISP_ED``
-      ``num_disp_ea``    -> ``N_MAX_DISP_EA``
-      ``num_disp_sa``    -> ``N_MAX_DISP_SA``
-      ``num_disp_v``     -> ``N_MAX_DISP_V``
-      ``num_disp_m``     -> ``N_MAX_DISP_M``
-      ``num_disp_m_vf``  -> ``N_MAX_DISP_M_VF``
-
-    Si el Excel ya emite keys uppercase (futuro caso en que
-    ``DimensionesDispositivos.to_api_dict`` se actualice), se respeta.
-
-    Args:
-        dimensiones_raw: el dict que devolvio ``to_api_dict()`` (keys
-            lowercase legacy).
-        config_manager: provee ``list_nmax_active()`` (keys canonicos).
-
-    Returns:
-        ``{nombre_nmax_uppercase: valor_int}`` listo para pasarse a
-        ``compute_nmax_diff``.
-    """
-    # Mapa legacy lowercase -> canonico uppercase.
-    LEGACY_TO_CANONICAL = {
-        "num_disp_ed": "N_MAX_DISP_ED",
-        "num_disp_ea": "N_MAX_DISP_EA",
-        "num_disp_sa": "N_MAX_DISP_SA",
-        "num_disp_v":  "N_MAX_DISP_V",
-        "num_disp_m":  "N_MAX_DISP_M",
-        "num_disp_m_vf": "N_MAX_DISP_M_VF",
-    }
-    canonicos = list(config_manager.list_nmax_active())
-    desired: dict[str, int] = {}
-    for canonico in canonicos:
-        # 1. intento: ya viene en canonico (futuro)
-        v = dimensiones_raw.get(canonico)
-        if v is not None:
-            desired[canonico] = int(v)
-            continue
-        # 2. intento: viene en lowercase legacy
-        legacy_key = next(
-            (k for k, v_upper in LEGACY_TO_CANONICAL.items()
-             if v_upper == canonico),
-            None,
-        )
-        if legacy_key and legacy_key in dimensiones_raw:
-            desired[canonico] = int(dimensiones_raw[legacy_key])
-            continue
-        # 3. intento: el operario no lo puso (Excel vacio para esta dim)
-        desired[canonico] = 0
-    return desired
 
 
 def _step_summary(ctx: Any, step_nombre: str) -> str:
