@@ -1,68 +1,282 @@
-"""Helper IT: sincronización transaccional de dispositivos vs PLC.
+"""FB de area: sincronizacion transaccional de dispositivos vs PLC.
 
-Funciones puras independientes. Cada función toma un ``DispSyncContext``
-por argumento y muta sus campos con el resultado de su trabajo.
+State machine sobre el helper ``disp_Sincronizar`` (areas/alimentacion/
+helpers/disp/disp_Sincronizar.py). El helper expone funciones independientes
+(``exportar_tags``, ``compute_diff``, ``tx_a_nmax_renames``, etc.) que
+reciben un ``DispSyncContext`` y mutan sus campos. **Aqui en el FB vive
+la state machine**: el orden de las 11 llamadas, el mapping step ->
+funcion del helper, y la instanciacion del ctx.
 
-Este modulo **no contiene state machine**. La orquestacion de las 11
-funciones (orden, dependencias entre etapas, mapeo a steps del FB) vive
-exclusivamente en ``areas/alimentacion/functions/
-function_DispSincronizar.py``. Aqui solo estan las funciones
-puras y la forma del estado compartido (``DispSyncContext``).
+Cada step del FB ejecuta una funcion real del helper contra un
+``DispSyncContext`` compartido. El progressbar muestra 11 etapas
+con trabajo y duracion reales.
 
-Las 11 funciones siguen el orden del legacy:
+Hereda directo de ``FunctionBase`` (no del template). Zona 0 con 4 deps
+comunes + 1 especifica.
 
-  1.  ``exportar_tags``           -> clean modified/ + export 7 tablas.
-  2.  ``compute_diff``             -> diff read-only (CPU en to_thread).
-  3.  ``preparar_ops``              -> ops NMAX + device_changes para apply.
-  4.  ``tx_a_nmax_renames``        -> dispatch ``commit_user_constants_online``
-                                       (online puro, abre/cierra su tx TIA).
-  5.  ``wait_consolidation``       -> sleep 2s para que TIA consolide.
-  6.  ``exportar_post_tx_a``       -> releer XMLs post-Tx A.
-  7.  ``editar_xmls_offline``      -> PlcUserConstantModifier sobre los XMLs.
-  8.  ``tx_b_devices``             -> dispatch ``commit_disp_devices_offline``
-                                       (offline puro, abre/cierra su tx TIA).
-  9.  ``compilar_bloques``         -> dispatch ``compile_blocks`` (fuera de tx).
-  10. ``aplicar_comentarios``      -> reusa ``apply_disp_comments`` de A.4.
-  11. ``disp_post_preview``         -> reusa ``disp_generate_preview`` de A.5
-                                       para que la SPA vea "todo en sync".
+Runtime params via ``start(**kwargs)``:
+  - ``plc_name`` (str): nombre del PLC destino. Obligatorio.
 
-Restricciones arquitectonicas (.clinerules):
-  - NO importa ``siemens_tia_scripting``.
-  - Toda interaccion con TIA Portal pasa por ``tia_client`` (Singleton
-    core, inyectable como kwarg).
-  - Sin Singletons dentro del helper; todas las deps inyectadas.
-  - Cero rutas hardcodeadas; todo via ConfigManager.
-  - El helper NO toca ``progress_tracker``; eso es responsabilidad
-    del FB wrapper (``FunctionDispSincronizar``).
-  - El helper NO contiene state machine (orden, mapping, dispatch);
-    eso vive en el FB.
+El ``self.result`` se popula con la shape legacy esperada por la SPA::
+
+    {
+      'success':         True,
+      'message':         str,
+      'operations':      int,
+      'n_max_updates':   int,
+      'post_sync_preview': dict | None,
+      'compile_ok':      bool,
+      'compile_error':   str | None,
+      'comments_sync':   dict,
+    }
+
+Steps (11, mismo orden que el legacy ``ejecutar_transaccion``):
+  - exportar_tags
+  - compute_diff
+  - preparar_ops
+  - tx_a_nmax_renames
+  - wait_consolidation
+  - exportar_post_tx_a
+  - editar_xmls_offline
+  - tx_b_devices
+  - compilar_bloques
+  - aplicar_comentarios
+  - post_preview
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
-import shutil
-import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from core.helpers.tia import dispatch_async
+from core.composition.plc_function_base import FunctionBase
+from core.runtime.app_state import AppState, get_app_state
+
+logger = logging.getLogger(__name__)
 
 
-logger = logging.getLogger("zc.areas.alimentacion.disp_Sincronizar")
+class FunctionDispSincronizar(FunctionBase):
+    """FB que sincroniza dispositivos contra TIA (11 etapas transaccionales)."""
+
+    # ==================================================================
+    # CONFIGURACION ESTATICA DEL FB
+    # ==================================================================
+
+    # Sync completo: 2 transacciones TIA + compile + apply comentarios
+    # + post preview. TIA V21 puede tardar varios minutos para un PLC
+    # con 200+ bloques y 6 DBs de dispositivos redimensionados.
+    STEP_TIMEOUT_S: float = 600.0
+
+    # ==================================================================
+    # CONSTRUCTOR
+    # ==================================================================
+
+    def __init__(
+        self,
+        nombre: str = "disp_sincronizar",
+        titulo: str = "Sincronizar dispositivos contra PLC",
+        steps: list[dict[str, Any]] | None = None,
+        tracker: Any = None,
+        # ── ZONA 0: deps comunes ──
+        config_manager: Any = None,
+        tia_client: Any = None,
+        build_cache: Any = None,
+        # ── Deps especificas de este FB ──
+        app_state: AppState | None = None,
+    ) -> None:
+        super().__init__(
+            nombre=nombre,
+            titulo=titulo,
+            steps=steps if steps is not None else [
+                {"nombre": "exportar_tags"},
+                {"nombre": "compute_diff"},
+                {"nombre": "preparar_ops"},
+                {"nombre": "tx_a_nmax_renames"},
+                {"nombre": "wait_consolidation"},
+                {"nombre": "exportar_post_tx_a"},
+                {"nombre": "editar_xmls_offline"},
+                {"nombre": "tx_b_devices"},
+                {"nombre": "compilar_bloques"},
+                {"nombre": "aplicar_comentarios"},
+                {"nombre": "post_preview"},
+            ],
+            tracker=tracker,
+        )
+        # ZONA 0: deps inyectadas.
+        self._config = config_manager
+        self._tia_client = tia_client
+        self._build_cache_root: Path = (
+            build_cache if build_cache is not None
+            else Path(os.getcwd()) / ".build_cache"
+        )
+        # Deps especificas.
+        self._state: AppState = (
+            app_state if app_state is not None else get_app_state()
+        )
+        # ZONA 3: estado entre ticks.
+        self._plc_name: str = ""
+        # DispSyncContext compartido entre los 11 ticks. Se reinicializa
+        # en cada on_start() para no arrastrar estado del run anterior.
+        self._ctx: Any = None
+
+    # ==================================================================
+    # HOOK 1: on_start  (ZONA 3: validar params + crear ctx)
+    # ==================================================================
+
+    def on_start(self, **params: Any) -> None:
+        """Validar deps inyectadas + capturar plc_name + crear ctx."""
+        if self._config is None:
+            raise RuntimeError(
+                "FunctionDispSincronizar requiere "
+                "config_manager. Inyectalo en el constructor."
+            )
+        if self._tia_client is None:
+            raise RuntimeError(
+                "FunctionDispSincronizar requiere "
+                "tia_client. Inyectalo en el constructor."
+            )
+        plc_name = params.get("plc_name")
+        if not plc_name:
+            raise ValueError(
+                "FunctionDispSincronizar.start(plc_name=...) "
+                "es obligatorio"
+            )
+        self._plc_name = str(plc_name)
+
+        # Crear el DispSyncContext que las 11 funciones iran mutando.
+        # Lazy import para evitar ciclo con helpers/disp/.
+        self._ctx = DispSyncContext(
+            plc_name=self._plc_name,
+            tia_client=self._tia_client,
+            config_manager=self._config,
+            app_state=self._state,
+            build_cache_root=self._build_cache_root,
+        )
+
+        logger.debug(
+            f"[{self.nombre}] Iniciando sync transaccional para "
+            f"{self._plc_name} (11 etapas)"
+        )
+
+    # ==================================================================
+    # HOOK 2: run_step  (ZONA 4: state machine -> dispatch al helper)
+    # ==================================================================
+
+    async def run_step(self, idx: int, **params: Any) -> str:
+        """Dispatch del FB step ``idx`` a la funcion del helper ``disp_Sincronizar``.
+
+        Aqui vive la state machine: cada step del FB llama a UNA
+        funcion del helper (``exportar_tags``, ``compute_diff``, etc.)
+        contra el ``DispSyncContext`` compartido. El ``case`` es
+        explicito (no dict.get dispatch) para que sea visible en stack
+        traces cuando algo falla.
+        """
+        # Lazy import para evitar ciclo con helpers/disp/.
+        from areas.alimentacion.helpers.disp import disp_Sincronizar as helper
+
+        if self._ctx is None:
+            raise RuntimeError(
+                "DispSyncContext no inicializado. on_start() no se ejecuto "
+                "(o el FB no recibio un plc_name valido)."
+            )
+
+        step_nombre = self.steps[idx]["nombre"]
+        match step_nombre:
+            case "exportar_tags":
+                await self._stage_1_exportar_tags(self._ctx)
+            case "compute_diff":
+                await self._stage_2_compute_diff(self._ctx)
+            case "preparar_ops":
+                await self._stage_3_preparar_ops(self._ctx)
+            case "tx_a_nmax_renames":
+                await self._stage_4_tx_a_nmax_renames(self._ctx)
+            case "wait_consolidation":
+                await self._stage_5_wait_consolidation(self._ctx)
+            case "exportar_post_tx_a":
+                await self._stage_6_exportar_post_tx_a(self._ctx)
+            case "editar_xmls_offline":
+                await self._stage_7_editar_xmls_offline(self._ctx)
+            case "tx_b_devices":
+                await self._stage_8_tx_b_devices(self._ctx)
+            case "compilar_bloques":
+                await self._stage_9_compilar_bloques(self._ctx)
+            case "aplicar_comentarios":
+                await self._stage_10_aplicar_comentarios(self._ctx)
+            case "post_preview":
+                await self._stage_99_disp_post_preview(self._ctx)
+            case _:
+                raise ValueError(f"step no soportado: {step_nombre!r}")
+
+        # Resumen legible del step que acaba de correr (aparece en la SPA).
+        return _step_summary(self._ctx, step_nombre)
+
+    # ==================================================================
+    # HOOK 3: on_finish  (ZONA 5: vuelco del result desde el ctx)
+    # ==================================================================
+
+    def on_finish(self, **params: Any) -> None:
+        """Vuelca ``self.result`` con la shape legacy que espera la SPA.
+
+        Lee los resultados finales del ``DispSyncContext``.
+        """
+        if self._ctx is None:
+            # Error temprano: deps no inyectadas o plc_name ausente.
+            self.result = {
+                "success": False,
+                "message": "FB no llego a ejecutar (deps no inyectadas "
+                           "o plc_name no proporcionado)",
+                "operations": 0,
+                "n_max_updates": 0,
+                "post_sync_preview": None,
+                "compile_ok": False,
+                "compile_error": "FB no ejecutado",
+                "comments_sync": None,
+            }
+            return
+
+        # Componer el shape legacy desde el ctx (mismo calculo que el
+        # helper monolitico: operations_executed = N_MAX + devices).
+        operations_executed = (
+            self._ctx.nmax_result.get("operations_executed", 0)
+            + self._ctx.devices_result.get("operations_executed", 0)
+        )
+        details = (
+            self._ctx.nmax_result.get("details", [])
+            + self._ctx.devices_result.get("details", [])
+        )
+        self.result = {
+            "success": True,
+            "message": (
+                f"Inyeccion completada. Detalles: {details}"
+            ),
+            "operations": operations_executed,
+            "n_max_updates": len(self._ctx.nmax_ops),
+            "post_sync_preview": self._ctx.post_sync_preview,
+            "compile_ok": self._ctx.compile_ok,
+            "compile_error": self._ctx.compile_error,
+            "comments_sync": self._ctx.comments_result,
+        }
+
+        # Log de cierre, igual que el helper monolitico.
+        compile_label = (
+            "OK" if self._ctx.compile_ok else "con errores"
+        )
+        logger.debug(
+            f"[{self.nombre}] sync completo para "
+            f"{self._ctx.plc_name}: {operations_executed} ops "
+            f"({len(self._ctx.nmax_ops)} N_MAX), "
+            f"compile={compile_label}"
+        )
 
 
-# Sincronizacion con TIA V21: tras un commit online, TIA tarda ~2s en
-# consolidar internamente. Sin esta espera, el re-export post-Tx A puede
-# leer XMLs en estado inconsistente y provocar el rollback silencioso.
-TIA_CONSOLIDATION_SLEEP_S: float = 2.0
 
-
-# ===========================================================================
-# Contexto mutable (estado compartido entre las 11 funciones)
-# ===========================================================================
+# ============================================================================
+# Codigo absorbido de helpers/disp/disp_Sincronizar.py (commit 24, sept-2026).
+# Antes era un orquestador separado que el FB llamaba via ``match step_nombre``.
+# Ahora vive como metodos del FB (mutando ``self._ctx``).
+# ============================================================================
 
 @dataclass
 class DispSyncContext:
@@ -120,71 +334,73 @@ class DispSyncContext:
 # 11 funciones puras (cada una muta ``ctx``; sin state machine aqui)
 # ===========================================================================
 
-async def exportar_tags(ctx: DispSyncContext) -> None:
+
+
+async def _stage_1_exportar_tags(self) -> None:
     """Limpia modified/ y exporta las tablas selectivas al snapshot."""
     from areas.alimentacion.helpers.build_cache import build_cache
 
-    disp_ctx = build_cache(root=ctx.build_cache_root).dispositivos
+    disp_ctx = build_cache(root=self._ctx.build_cache_root).dispositivos
     disp_ctx.clean()
     # El snapshot limpio vive en ``exports_variables`` (convencion de 9
     # carpetas). ``modified_variables`` se rellena en ``editar_xmls_offline``
     # via ``shutil.copytree`` filtrado (que excluye ``000_Config_Dispositivos``
     # para no re-importar la N_MAX online en Tx B).
-    ctx.tags_base = disp_ctx.exports_variables
-    ctx.selective_tables = _selective_table_names(ctx.config_manager)
-    logger.debug(f"workdir (exports): {ctx.tags_base}")
+    self._ctx.tags_base = disp_ctx.exports_variables
+    self._ctx.selective_tables = _selective_table_names(self._ctx.config_manager)
+    logger.debug(f"workdir (exports): {self._ctx.tags_base}")
     await dispatch_async(
-        ctx.tia_client,
+        self._ctx.tia_client,
         "export_plc_tags_xml",
         {
-            "plc_name": ctx.plc_name,
-            "target_dir": str(ctx.tags_base),
-            "table_names": ctx.selective_tables,
+            "plc_name": self._ctx.plc_name,
+            "target_dir": str(self._ctx.tags_base),
+            "table_names": self._ctx.selective_tables,
         },
     )
 
 
-async def compute_diff(ctx: DispSyncContext) -> None:
+async def _stage_2_compute_diff(self) -> None:
     """Calcula el diff entre los XMLs exportados y el AppState (read-only)."""
-    assert ctx.tags_base is not None, (
+    assert self._ctx.tags_base is not None, (
         "compute_diff requiere exportar_tags previo"
     )
     from areas.alimentacion.helpers.disp.disp_generate_preview import (
         _build_desired_state_from_app,
         _compute_diff_readonly,
     )
-    ctx.desired_state_per_table = _build_desired_state_from_app(
-        ctx.app_state, ctx.config_manager,
+    self._ctx.desired_state_per_table = _build_desired_state_from_app(
+        self._ctx.app_state, self._ctx.config_manager,
     )
     (
-        ctx.added_per_table,
-        ctx.removed_per_table,
-        ctx.renamed_per_table,
-        ctx.base_state_per_table,
+        self._ctx.added_per_table,
+        self._ctx.removed_per_table,
+        self._ctx.renamed_per_table,
+        self._ctx.base_state_per_table,
     ) = await asyncio.to_thread(
         _compute_diff_readonly,
-        ctx.tags_base, ctx.desired_state_per_table,
+        self._ctx.tags_base, self._ctx.desired_state_per_table,
     )
 
 
-async def preparar_ops(ctx: DispSyncContext) -> None:
+async def _stage_3_preparar_ops(self) -> None:
     """Calcula nmax_ops + rename_ops + device_changes para los handlers."""
-    assert ctx.tags_base is not None, (
+    assert self._ctx.tags_base is not None, (
         "preparar_ops requiere exportar_tags previo"
     )
-    ctx.nmax_ops = _compute_nmax_ops_for_apply(
-        ctx.tags_base, ctx.config_manager, ctx.app_state,
+    self._ctx.nmax_ops = _compute_nmax_ops_for_apply(
+        self._ctx.tags_base, self._ctx.config_manager, self._ctx.app_state,
     )
 
     # Rename ops (shape legacy: {table_name, current_name, new_name}).
     # Tx A las pasa separadas al handler commit_user_constants_online.
-    ctx.rename_ops = [
+    self._ctx.rename_ops = [
         {
             "table_name": uid.split(":", 1)[0],
             "current_name": old,
             "new_name": new,
         }
-        for uid, (old, new) in ctx.renamed_per_table.items()
+        for uid, (old, new) in self._ctx.renamed_per_table.items()
     ]
 
     # Device changes: lista de {table_name, tia_folder, adds, removes}.
@@ -192,49 +408,49 @@ async def preparar_ops(ctx: DispSyncContext) -> None:
     # dentro de modified/variables (e.g. "PLC_Tags" o ""). Se necesita
     # tanto en ``editar_xmls_offline`` (para encontrar el XML a editar)
     # como en el copytree filtrado (Stage 7).
-    ctx.device_changes = []
-    nmax_table = ctx.config_manager.get_global_config_table_name()
-    for table_key in ctx.selective_tables:
+    self._ctx.device_changes = []
+    nmax_table = self._ctx.config_manager.get_global_config_table_name()
+    for table_key in self._ctx.selective_tables:
         if table_key == nmax_table:
             continue  # N_MAX no es device change.
         adds = [
-            {"uid": uid, "plc_tag": ctx.desired_state_per_table[table_key][uid]}
-            for uid in ctx.added_per_table.get(table_key, [])
-            if uid in ctx.desired_state_per_table[table_key]
+            {"uid": uid, "plc_tag": self._ctx.desired_state_per_table[table_key][uid]}
+            for uid in self._ctx.added_per_table.get(table_key, [])
+            if uid in self._ctx.desired_state_per_table[table_key]
         ]
         # ``removes`` debe ser lista de strings (uids), NO lista de dicts:
         # ``PlcUserConstantModifier.remove_user_constants`` espera ``set[str]``.
         # ``adds`` si es lista de dicts (``{"uid", "plc_tag"}``) porque
         # ``add_user_constants_by_table`` los desempaqueta como name+value.
-        removes = list(ctx.removed_per_table.get(table_key, []))
+        removes = list(self._ctx.removed_per_table.get(table_key, []))
         if adds or removes:
-            ctx.device_changes.append({
+            self._ctx.device_changes.append({
                 "table_name": table_key,
-                "tia_folder": _resolve_tia_folder(ctx.config_manager, table_key),
+                "tia_folder": _resolve_tia_folder(self._ctx.config_manager, table_key),
                 "adds": adds,
                 "removes": removes,
             })
 
 
-async def tx_a_nmax_renames(ctx: DispSyncContext) -> None:
+async def _stage_4_tx_a_nmax_renames(self) -> None:
     """Tx A (online puro): dispatch de N_MAX + renames contra TIA."""
-    assert ctx.tags_base is not None, (
+    assert self._ctx.tags_base is not None, (
         "tx_a_nmax_renames requiere exportar_tags previo"
     )
-    if ctx.nmax_ops or ctx.rename_ops:
+    if self._ctx.nmax_ops or self._ctx.rename_ops:
         nmax_result = await dispatch_async(
-            ctx.tia_client,
+            self._ctx.tia_client,
             "commit_user_constants_online",
             {
-                "plc_name": ctx.plc_name,
-                "nmax_ops": ctx.nmax_ops,
+                "plc_name": self._ctx.plc_name,
+                "nmax_ops": self._ctx.nmax_ops,
                 # Key ``rename_ops`` + items con ``table_name``,
                 # ``current_name``, ``new_name``: shape que espera el
                 # handler ``commit_user_constants_online``. Antes
                 # pasabamos ``renames`` con keys ``table`` y
                 # ``current_value``: el handler las ignoraba
                 # silenciosamente y los renames NUNCA se aplicaban.
-                "rename_ops": ctx.rename_ops,
+                "rename_ops": self._ctx.rename_ops,
                 "undo_text": "Sync N_MAX + renames",
             },
             timeout_s=120.0,
@@ -243,23 +459,23 @@ async def tx_a_nmax_renames(ctx: DispSyncContext) -> None:
             raise RuntimeError(
                 f"Tx A (N_MAX renames) fallo: {nmax_result.get('error')}"
             )
-        ctx.nmax_result = nmax_result
+        self._ctx.nmax_result = nmax_result
     else:
-        ctx.nmax_result = {
+        self._ctx.nmax_result = {
             "success": True,
             "operations_executed": 0,
             "details": [],
         }
 
 
-async def wait_consolidation(ctx: DispSyncContext) -> None:
+async def _stage_5_wait_consolidation(self) -> None:
     """Espera 2s para que TIA consolide internamente tras Tx A."""
     await asyncio.to_thread(time.sleep, TIA_CONSOLIDATION_SLEEP_S)
 
 
-async def exportar_post_tx_a(ctx: DispSyncContext) -> None:
+async def _stage_6_exportar_post_tx_a(self) -> None:
     """Relee los XMLs de los devices tras Tx A (estado ya consolidado)."""
-    assert ctx.tags_base is not None, (
+    assert self._ctx.tags_base is not None, (
         "exportar_post_tx_a requiere exportar_tags previo"
     )
     # Re-exportar solo las 6 tablas de devices (NO la N_MAX: ya esta
@@ -267,39 +483,39 @@ async def exportar_post_tx_a(ctx: DispSyncContext) -> None:
     # (snapshot limpio), no ``modified_variables``: el copytree de
     # Stage 7 hace la copia filtrada.
     from areas.alimentacion.helpers.build_cache import build_cache
-    disp_ctx = build_cache(root=ctx.build_cache_root).dispositivos
+    disp_ctx = build_cache(root=self._ctx.build_cache_root).dispositivos
     logger.debug(f"workdir (exports re-read post-TxA): {disp_ctx.exports_variables}")
     await dispatch_async(
-        ctx.tia_client,
+        self._ctx.tia_client,
         "export_plc_tags_xml",
         {
-            "plc_name": ctx.plc_name,
+            "plc_name": self._ctx.plc_name,
             "target_dir": str(disp_ctx.exports_variables),
-            "table_names": [dc["table_name"] for dc in ctx.device_changes],
+            "table_names": [dc["table_name"] for dc in self._ctx.device_changes],
         },
     )
 
 
-async def editar_xmls_offline(ctx: DispSyncContext) -> None:
+async def _stage_7_editar_xmls_offline(self) -> None:
     """Copia filtrada exports->modified + edita XMLs offline (adds/removes)."""
-    assert ctx.tags_base is not None, (
+    assert self._ctx.tags_base is not None, (
         "editar_xmls_offline requiere exportar_tags previo"
     )
     from areas.alimentacion.helpers.build_cache import build_cache
-    disp_ctx = build_cache(root=ctx.build_cache_root).dispositivos
+    disp_ctx = build_cache(root=self._ctx.build_cache_root).dispositivos
     logger.debug(f"workdir (modified): {disp_ctx.modified_variables}")
     await asyncio.to_thread(
         _copy_and_edit_offline,
-        ctx.build_cache_root, ctx.device_changes,
+        self._ctx.build_cache_root, self._ctx.device_changes,
     )
 
 
-async def tx_b_devices(ctx: DispSyncContext) -> None:
+async def _stage_8_tx_b_devices(self) -> None:
     """Tx B (offline puro): dispatch de import_plc_tags_xml contra TIA."""
-    assert ctx.tags_base is not None, (
+    assert self._ctx.tags_base is not None, (
         "tx_b_devices requiere exportar_tags previo"
     )
-    if ctx.device_changes:
+    if self._ctx.device_changes:
         # NO pasamos ``target_folder`` (TIA Portal V21 escanea
         # ``modified_variables/`` recursivamente: si encuentra la
         # estructura interna del PLC (e.g.
@@ -310,13 +526,13 @@ async def tx_b_devices(ctx: DispSyncContext) -> None:
         # ``CommitOnDispose``. Import a RAIZ con ``target_folder=""``
         # (default del handler) es el camino feliz.
         from areas.alimentacion.helpers.build_cache import build_cache
-        disp_ctx = build_cache(root=ctx.build_cache_root).dispositivos
+        disp_ctx = build_cache(root=self._ctx.build_cache_root).dispositivos
         devices_result = await dispatch_async(
-            ctx.tia_client,
+            self._ctx.tia_client,
             "commit_disp_devices_offline",
             {
-                "plc_name": ctx.plc_name,
-                "device_changes": ctx.device_changes,
+                "plc_name": self._ctx.plc_name,
+                "device_changes": self._ctx.device_changes,
                 "modified_dir": str(disp_ctx.modified_variables),
                 "undo_text": "Sync devices",
             },
@@ -326,28 +542,28 @@ async def tx_b_devices(ctx: DispSyncContext) -> None:
             raise RuntimeError(
                 f"Tx B (devices offline) fallo: {devices_result.get('error')}"
             )
-        ctx.devices_result = devices_result
+        self._ctx.devices_result = devices_result
     else:
-        ctx.devices_result = {
+        self._ctx.devices_result = {
             "success": True,
             "operations_executed": 0,
             "details": [],
         }
 
 
-async def compilar_bloques(ctx: DispSyncContext) -> None:
+async def _stage_9_compilar_bloques(self) -> None:
     """Compila los DBs afectados (fuera de tx; el commit ya esta aplicado)."""
-    affected_dbs = _get_affected_dbs_for_compile(ctx.config_manager)
+    affected_dbs = _get_affected_dbs_for_compile(self._ctx.config_manager)
     try:
         compile_result = await dispatch_async(
-            ctx.tia_client,
+            self._ctx.tia_client,
             "compile_blocks",
-            {"plc_name": ctx.plc_name, "block_names": affected_dbs},
+            {"plc_name": self._ctx.plc_name, "block_names": affected_dbs},
             timeout_s=120.0,
         )
         if not compile_result.get("ok"):
-            ctx.compile_ok = False
-            ctx.compile_error = (
+            self._ctx.compile_ok = False
+            self._ctx.compile_error = (
                 compile_result.get("error", "compile_blocks fallo")
             )
             return
@@ -356,11 +572,11 @@ async def compilar_bloques(ctx: DispSyncContext) -> None:
         errors = data.get("errors", [])
         any_had_errors = any(c.get("had_errors") for c in compiled)
         if any_had_errors or errors:
-            ctx.compile_ok = False
+            self._ctx.compile_ok = False
             n_had = sum(1 for c in compiled if c.get("had_errors"))
             n_err = len(errors)
             n_not_found = len(data.get("not_found", []))
-            ctx.compile_error = (
+            self._ctx.compile_error = (
                 f"TIA reporta errores de compilacion: "
                 f"{n_had} bloque(s) con errores, "
                 f"{n_err} excepcion(es), "
@@ -370,25 +586,25 @@ async def compilar_bloques(ctx: DispSyncContext) -> None:
                 f"tras el resize de N_MAX."
             )
             logger.warning(
-                f"[{ctx.plc_name}] Compilacion parcial con errores "
+                f"[{self._ctx.plc_name}] Compilacion parcial con errores "
                 f"(commit ya aplicado): {compile_result}"
             )
         else:
             n_skipped = len(data.get("skipped_unchanged", []))
             logger.info(
-                f"[{ctx.plc_name}] Compilacion OK "
+                f"[{self._ctx.plc_name}] Compilacion OK "
                 f"({len(compiled)} compilados, "
                 f"{n_skipped} saltados por consistentes)."
             )
     except Exception as exc:
-        ctx.compile_ok = False
-        ctx.compile_error = f"Excepcion durante la compilacion: {exc}"
+        self._ctx.compile_ok = False
+        self._ctx.compile_error = f"Excepcion durante la compilacion: {exc}"
         logger.warning(
-            f"[{ctx.plc_name}] Compilacion fallo (commit ya aplicado): {exc}"
+            f"[{self._ctx.plc_name}] Compilacion fallo (commit ya aplicado): {exc}"
         )
 
 
-async def aplicar_comentarios(ctx: DispSyncContext) -> None:
+async def _stage_10_aplicar_comentarios(self) -> None:
     """Stage 10 del sync: aplica los comentarios por instancia a los 6 DBs de disp.
 
     Flujo (replica ``apply_disp_comments`` que vivia en
@@ -401,7 +617,7 @@ async def aplicar_comentarios(ctx: DispSyncContext) -> None:
       4. Exportar 6 DBs a exports/bloques/ (1 dispatch por DB).
       5. Copytree exports/bloques/ -> modified/bloques/.
       6. Una sola tx transaccional con los 6 imports (atomicidad).
-      7. Normalizar return shape en ``ctx.comments_result``.
+      7. Normalizar return shape en ``self._ctx.comments_result``.
 
     Si TIA V21 falla en cualquiera de los 6 imports, rollback atomico.
     """
@@ -409,13 +625,13 @@ async def aplicar_comentarios(ctx: DispSyncContext) -> None:
     from areas.alimentacion.data.data_DispSlotMap import disp_build_slot_maps
 
     # ── 1. Validar AppState ──
-    if not ctx.app_state.all_devices():
+    if not self._ctx.app_state.all_devices():
         warning = (
             "AppState esta vacio. Cargue primero el Excel con "
             "POST /api/v1/excel/upload."
         )
-        ctx.comments_result = {
-            "plc_name": ctx.plc_name,
+        self._ctx.comments_result = {
+            "plc_name": self._ctx.plc_name,
             "success": True,
             "applied": True,
             "operations_executed": 0,
@@ -426,18 +642,18 @@ async def aplicar_comentarios(ctx: DispSyncContext) -> None:
         return
 
     # ── 2. Construir slot_maps ──
-    slot_maps_data = disp_build_slot_maps(ctx.app_state, ctx.config_manager)
+    slot_maps_data = disp_build_slot_maps(self._ctx.app_state, self._ctx.config_manager)
     slot_maps = slot_maps_data.slot_maps
     db_names = slot_maps_data.db_names
     db_array_names = slot_maps_data.db_array_names
     warnings = list(slot_maps_data.warnings)
 
-    target_folder = ctx.config_manager.get_tia_folder_dispositivos()
+    target_folder = self._ctx.config_manager.get_tia_folder_dispositivos()
 
     # ── 3. Limpiar modified/bloques/ ──
     # Aunque Stage 1 del sync ya limpio modified/, forzamos aqui
     # por idempotencia si este stage se invoca standalone.
-    disp_ctx = build_cache(root=ctx.build_cache_root).dispositivos
+    disp_ctx = build_cache(root=self._ctx.build_cache_root).dispositivos
     modified_bloques = disp_ctx.modified_bloques
     if modified_bloques.exists():
         shutil.rmtree(modified_bloques)
@@ -451,10 +667,10 @@ async def aplicar_comentarios(ctx: DispSyncContext) -> None:
     # ── 4. Export UNA VEZ de los 6 DBs a exports/bloques/ ──
     for hw_type, db_name in db_names.items():
         await dispatch_async(
-            ctx.tia_client,
+            self._ctx.tia_client,
             "export_block",
             {
-                "plc_name": ctx.plc_name,
+                "plc_name": self._ctx.plc_name,
                 "block_name": db_name,
                 "target_dir": str(exports_bloques),
             },
@@ -519,18 +735,18 @@ async def aplicar_comentarios(ctx: DispSyncContext) -> None:
     # .s7dcl del directorio modified_bloques en una sola operacion.
     if any_modified:
         await dispatch_async(
-            ctx.tia_client,
+            self._ctx.tia_client,
             "import_block",
             {
-                "plc_name": ctx.plc_name,
+                "plc_name": self._ctx.plc_name,
                 "import_dir": str(modified_bloques),
                 "target_folder": "",  # default: TIA escanea recursivo
             },
             timeout_s=600.0,
         )
 
-    ctx.comments_result = {
-        "plc_name": ctx.plc_name,
+    self._ctx.comments_result = {
+        "plc_name": self._ctx.plc_name,
         "success": True,
         "applied": True,
         "operations_executed": ops_executed,
@@ -546,14 +762,14 @@ async def aplicar_comentarios(ctx: DispSyncContext) -> None:
     }
 
 
-async def disp_post_preview(ctx: DispSyncContext) -> None:
+async def _stage_99_disp_post_preview(self) -> None:
     """Genera el preview post-sync para que la SPA vea 'todo en sync'.
 
     Reusa las 4 funciones puras de ``disp_generate_preview``
     (``exportar_tags``, ``compute_devices``, ``compute_nmax`` y
     ``build_response``). Crea un ``DispPreviewContext`` con las
     mismas deps y lo ejecuta en orden. El
-    ``build_response`` final popula ``ctx.post_sync_preview`` con la
+    ``build_response`` final popula ``self._ctx.post_sync_preview`` con la
     shape legacy (agregados, eliminados, renombrados, todos, nmax,
     summary).
     """
@@ -566,11 +782,11 @@ async def disp_post_preview(ctx: DispSyncContext) -> None:
     )
 
     pv_ctx = DispPreviewContext(
-        plc_name=ctx.plc_name,
-        tia_client=ctx.tia_client,
-        config_manager=ctx.config_manager,
-        app_state=ctx.app_state,
-        build_cache_root=ctx.build_cache_root,
+        plc_name=self._ctx.plc_name,
+        tia_client=self._ctx.tia_client,
+        config_manager=self._ctx.config_manager,
+        app_state=self._ctx.app_state,
+        build_cache_root=self._ctx.build_cache_root,
     )
 
     try:
@@ -578,13 +794,13 @@ async def disp_post_preview(ctx: DispSyncContext) -> None:
         await pv_compute_devices(pv_ctx)
         await pv_compute_nmax(pv_ctx)
         await pv_build_response(pv_ctx)
-        ctx.post_sync_preview = pv_ctx.result
+        self._ctx.post_sync_preview = pv_ctx.result
     except Exception as exc:
         logger.warning(
-            f"[{ctx.plc_name}] Post-sync preview fallo "
+            f"[{self._ctx.plc_name}] Post-sync preview fallo "
             f"(commit ya aplicado): {exc}"
         )
-        ctx.post_sync_preview = None
+        self._ctx.post_sync_preview = None
 
 
 # ===========================================================================
@@ -802,3 +1018,55 @@ __all__ = [
     "aplicar_comentarios",
     "post_preview",
 ]
+
+
+def _step_summary(ctx: Any, step_nombre: str) -> str:
+    """Resumen legible del step que acaba de correr (aparece en la SPA)."""
+    if step_nombre == "exportar_tags":
+        return (
+            f"{step_nombre}: {len(ctx.selective_tables)} tablas exportadas"
+        )
+    if step_nombre == "compute_diff":
+        adds = sum(len(v) for v in ctx.added_per_table.values())
+        rems = sum(len(v) for v in ctx.removed_per_table.values())
+        return (
+            f"{step_nombre}: {adds} adds, {rems} removes, "
+            f"{len(ctx.renamed_per_table)} renames"
+        )
+    if step_nombre == "preparar_ops":
+        return (
+            f"{step_nombre}: {len(ctx.nmax_ops)} N_MAX ops, "
+            f"{len(ctx.device_changes)} tablas con cambios"
+        )
+    if step_nombre == "tx_a_nmax_renames":
+        ops = ctx.nmax_result.get("operations_executed", 0)
+        return f"{step_nombre}: {ops} N_MAX aplicados en TIA"
+    if step_nombre == "wait_consolidation":
+        return (
+            f"{step_nombre}: TIA consolida (2s)"
+        )
+    if step_nombre == "exportar_post_tx_a":
+        return f"{step_nombre}: XMLs releidos post-Tx A"
+    if step_nombre == "editar_xmls_offline":
+        return f"{step_nombre}: XMLs offline editados"
+    if step_nombre == "tx_b_devices":
+        ops = ctx.devices_result.get("operations_executed", 0)
+        return f"{step_nombre}: {ops} tablas importadas a TIA"
+    if step_nombre == "compilar_bloques":
+        label = "OK" if ctx.compile_ok else "WARN"
+        return f"{step_nombre}: compile={label}"
+    if step_nombre == "aplicar_comentarios":
+        # N3: agregados reused/inserted por los 6 DBs de dispositivos.
+        s = ctx.comments_result.get("summary") or {}
+        return (
+            f"{step_nombre}: "
+            f"{s.get('total_reused', 0)} reused + "
+            f"{s.get('total_inserted', 0)} inserted "
+            f"en {s.get('disp_dbs_updated', 0)} DBs"
+        )
+    if step_nombre == "post_preview":
+        return f"{step_nombre}: preview post-sync generado"
+    return f"{step_nombre}: OK"
+
+
+__all__ = ["FunctionDispSincronizar"]
