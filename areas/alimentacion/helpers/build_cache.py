@@ -28,6 +28,10 @@ from functools import cached_property
 from pathlib import Path
 
 from areas.alimentacion._area_id import AREA_ID
+from areas.alimentacion.helpers.disp._workdir_layout import (
+    DispLayout,
+    build_disp_layout,
+)
 from core.infrastructure.tia.tia_workdir_layout import (
     TIAWorkdirLayout,
     WorkdirAreaLayout,
@@ -46,9 +50,30 @@ class AlimentacionAreaLayout(WorkdirAreaLayout):
     """
 
     @cached_property
-    def dispositivos(self) -> WorkdirContextLayout:
-        """Contexto de dispositivos (N_MAX + 6 DBs de devices)."""
-        return WorkdirContextLayout(self.root / "dispositivos")
+    def dispositivos(self) -> DispLayout:
+        """Contexto de dispositivos (DispLayout nuevo, sept-2026).
+
+        Layout::
+
+            .build_cache/alimentacion/disp/
+            +-- preview/
+            |   +-- config/                  # N_MAX (FLAT, 1 archivo)
+            |   +-- disp/                    # 6 tag tables (FLAT)
+            +-- sincronizar/
+                +-- variables/{export,modified}
+                +-- bloques/{export,modified}
+
+        Metodos de limpieza granulares:
+          - clean_preview(): borra preview/.
+          - clean_sincronizar(): borra sincronizar/.
+          - clean_all(): borra todo el disp/.
+
+        Detalle completo: ver _plan/rutas.md.
+        """
+        # DispLayout espera el root <root>/alimentacion/disp/.
+        # self.root aqui ya es el root del area (post-TIAWorkdirLayout
+        # unwrap), asi que pasamos directamente.
+        return build_disp_layout(root=self.root / "disp")
 
     @cached_property
     def procesos(self) -> WorkdirContextLayout:
