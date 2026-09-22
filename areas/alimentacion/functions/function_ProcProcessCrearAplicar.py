@@ -54,6 +54,7 @@ El ``self.result`` se popula con la shape esperada por la SPA::
       "colisiones":         list[str],
       "nuevo_dir":          str,
       "success":            bool,
+      "process_label":      str,       # "100_CPR"; sept-2026
       "import_result":      dict | None,
       "compile_result":     dict | None,
     }
@@ -472,7 +473,17 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
                     self._tia_client,
                     "execute_transactional_batch",
                     {
-                        "undo_text": "Generar proceso desde plantilla",
+                        # ``undo_text`` especifico con el id del proceso
+                        # (base_codigo) para que el Undo de TIA Portal y
+                        # el dialog_text durante la transaccion sean
+                        # trazables al proceso concreto que se esta
+                        # creando (sept-2026: antes era generico
+                        # "Generar proceso desde plantilla" y no se podia
+                        # saber a que proceso correspondia).
+                        "undo_text": (
+                            f"Generando proceso "
+                            f"{self._ctx.base_nueva}_{self._ctx.codigo_nuevo}"
+                        ),
                         "operations": batch_operations,
                     },
                     timeout_s=600.0,
@@ -525,18 +536,28 @@ class FunctionProcProcessCrearAplicar(FunctionBase):
                 ],
                 "nuevo_dir": "",
                 "manifest_plantilla": None,
+                "process_label": "",
                 "import_result": None,
                 "compile_result": None,
             }
             return
 
         base_result = self._ctx.result
+        # ``process_label``: ``"<base_nueva>_<codigo_nuevo>"`` del proceso
+        # que se acaba de crear. La SPA lo lee para mostrar el mensaje
+        # "Proceso XXXX creado correctamente" despues del apply OK
+        # (sept-2026: antes solo tenia ``props.procUid`` y el mensaje
+        # era generico). Tambien sirve para logging trazable.
+        process_label = (
+            f"{self._base_nueva}_{self._codigo_nuevo}"
+        )
         # ``import_result`` es el dict crudo de
         # ``execute_transactional_batch`` (``success``,
         # ``operations_executed``, ``details``). La SPA solo lo
         # muestra como badge, no inspecciona campos internos.
         self.result = {
             **base_result,
+            "process_label": process_label,
             "import_result": self._import_batch_result,
             "compile_result": self._compile_result,
         }

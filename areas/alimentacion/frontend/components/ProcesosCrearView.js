@@ -64,6 +64,12 @@ export default {
         const previewData = ref(null);
         const aplicacionEstado = ref("");          // "" | "aplicando" | "ok" | "error"
         const aplicacionError = ref(null);
+        // Label del proceso que se acaba de crear (p.ej. "100_CPR").
+        // Se popula solo en el caso OK y se usa para el mensaje
+        // final. Una vez poblado, la SPA limpia ``previewData`` para
+        // que no quede informacion stale susceptible de re-aplicar
+        // por accidente (sept-2026).
+        const appliedProcessLabel = ref("");
 
         // ── Estado: modal de la ruta ───────────────────────────
         const showPathModal = ref(false);
@@ -256,6 +262,7 @@ export default {
             if (!canGenerate.value) return;
             aplicacionEstado.value = "";
             aplicacionError.value = null;
+            appliedProcessLabel.value = "";
             previewData.value = null;
             const params = {
                 dir_plantilla_nombre: selectedPlantillaCarpeta.value,
@@ -289,8 +296,23 @@ export default {
                 plc_blocks_cache: _blocksToDicts(plcBlocksCache.value),
             };
             const r = await apiProcesosCrearAplicar(params);
-            aplicacionEstado.value = r && r.ok ? "ok" : "error";
-            if (!r || !r.ok) {
+            if (r && r.ok) {
+                aplicacionEstado.value = "ok";
+                // ``process_label`` viene del FB result
+                // (``"<base_nueva>_<codigo_nuevo>"``, sept-2026).
+                // Fallback al procUid por si el backend no lo
+                // expone todavia.
+                appliedProcessLabel.value =
+                    (r.data && r.data.process_label) ||
+                    String(props.procUid || "");
+                // Limpiamos previewData: ya no debe quedar info
+                // stale en pantalla que pueda dar lugar a un
+                // re-apply por error. El operario tendra que
+                // volver a pulsar "Generar Prevision" si quiere
+                // revisar o re-aplicar.
+                previewData.value = null;
+            } else {
+                aplicacionEstado.value = "error";
                 aplicacionError.value =
                     "Apply fallo: " +
                     ((r && r.data && r.data.error) || (r ? r.status : "?"));
@@ -466,6 +488,7 @@ export default {
             previewData,
             aplicacionEstado,
             aplicacionError,
+            appliedProcessLabel,
             showPathModal,
             pathEditBuffer,
             canGenerate,
@@ -673,6 +696,29 @@ export default {
                 <p v-if="aplicacionEstado === 'error' && aplicacionError"
                    class="text-red-700 text-xs mt-2">
                     {{ aplicacionError }}
+                </p>
+            </div>
+
+            <!-- Banner de apply OK (sept-2026): tras un apply exitoso
+                 limpiamos ``previewData`` (para evitar re-aplicar por
+                 error sobre datos stale) y mostramos un mensaje
+                 trazable con el label del proceso creado
+                 (``process_label`` del FB result). El operario
+                 tendra que volver a pulsar "Generar Prevision" si
+                 quiere revisar o re-aplicar; asi garantizamos
+                 confirmacion explicita antes de cada apply. -->
+            <div v-else-if="appliedProcessLabel"
+                 class="mt-4 p-3 bg-green-50 border border-green-300 rounded">
+                <p class="text-sm font-semibold text-green-800 flex items-center gap-2">
+                    <span>✅</span>
+                    <span>
+                        Proceso {{ appliedProcessLabel }} creado correctamente.
+                    </span>
+                </p>
+                <p class="text-xs text-green-700 mt-1">
+                    Tags + bloques importados en TIA Portal bajo una sola
+                    transaccion. Pulse "Generar Prevision" de nuevo si
+                    necesita revisar o re-aplicar.
                 </p>
             </div>
         </section>

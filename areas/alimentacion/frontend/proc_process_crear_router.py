@@ -391,10 +391,16 @@ def crear_aplicar():
         ((result.get("compile_result") or {}).get("ok"))
         if isinstance(result, dict) else False
     )
+    # ``process_label`` lo emite el FB (``"<base>_<codigo>"``,
+    # sept-2026). Fallback al formato ``base/codigo`` por si el
+    # backend no lo expone todavia (tests viejos, compat).
+    process_label = (
+        (result.get("process_label") if isinstance(result, dict) else None)
+        or f"{validated['base_nueva']}/{validated['codigo_nuevo']}"
+    )
     logger.ok(
-        f"Proceso {validated['base_nueva']}/{validated['codigo_nuevo']} "
-        f"creado en '{validated['plc_name']}': {n_gen} archivos generados, "
-        f"compile={'OK' if compile_ok else 'FAIL'}."
+        f"Proceso {process_label} creado en '{validated['plc_name']}': "
+        f"{n_gen} archivos generados, compile={'OK' if compile_ok else 'FAIL'}."
     )
     return jsonify(result)
 

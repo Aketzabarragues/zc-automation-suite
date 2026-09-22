@@ -228,6 +228,14 @@ async def test_apply_happy_path_11_ticks(
     # poblados por los dispatches mockeados.
     assert "import_result" in fb.result
     assert "compile_result" in fb.result
+    # ``process_label``: ``"<base_nueva>_<codigo_nuevo>"`` del proceso
+    # creado (sept-2026). La SPA lo lee para el mensaje final de OK
+    # tras el apply; el router lo usa en el log. Los tests del FB
+    # verifican que el formato es el correcto.
+    assert "process_label" in fb.result
+    assert fb.result["process_label"] == "60010_EXP", (
+        f"process_label mal formado: {fb.result['process_label']!r}"
+    )
     # Cada dispatch mockeado devolvio ``{"ok": True, "imported_from": ...}``.
     assert fb.result["compile_result"] == {"ok": True, "imported_from": ""}
     # ``import_result`` tiene el shape consolidado del lote (legacy
