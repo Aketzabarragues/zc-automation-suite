@@ -41,6 +41,23 @@ class FunctionExcelCargar(FunctionBase):
     # ~5-10s en cold-start (load + 10 parsers). Holgura a 30s.
     STEP_TIMEOUT_S: float = 30.0
 
+    # Tabla declarativa de stages. Cada tupla: (idx, "nombre_step",
+    # "atributo_metodo_en_el_FB"). El ``run_step`` dispatcha contra
+    # esta tabla en vez de un ``match``/``case`` inline, para que el
+    # flujo sea legible arriba de la clase y los tests puedan
+    # mockear ``fb._stage_N_<nombre>`` directamente.
+    #
+    # Convencion:
+    #   - ``idx`` correlativo, 1-based.
+    #   - ``nombre_step`` debe coincidir con ``self.steps[idx]["nombre"]``
+    #     (registrado en __init__). Si cambias uno, cambia el otro.
+    #   - ``atributo_metodo`` es un metodo del FB (no externo): un cambio de
+    #     signatura requiere actualizar este registro.
+    STAGES: list[tuple[int, str, str]] = [
+        (1, "parsear_excel",    "_stage_1_parsear_excel"),
+        (2, "volcar_appstate",  "_stage_2_volcar_appstate"),
+    ]
+
     # ==================================================================
     # CONSTRUCTOR
     # ==================================================================
@@ -106,7 +123,12 @@ class FunctionExcelCargar(FunctionBase):
     # ==================================================================
 
     async def run_step(self, idx: int, **params: Any) -> str:
-        """CASE de los 2 pasos."""
+        """CASE de los 2 pasos (dispatch declarativo via tabla ``STAGES``).
+
+        Itera la tabla ``STAGES`` declarada arriba de la clase; cada
+        tupla ``(idx, nombre, atributo_metodo)`` mapea el step logico
+        del FB al metodo real ``_stage_N_<nombre>`` que lo implementa.
+        """
         # Lazy import para evitar ciclo con helpers/excel/excel_upload.
         from areas.alimentacion.helpers.excel.excel_upload import (
             dump_cache_to_state,
@@ -123,58 +145,17 @@ class FunctionExcelCargar(FunctionBase):
                 "Inyectalo en el constructor al registrar el FB."
             )
 
-        step_nombre = self.steps[idx]["nombre"]
-        match step_nombre:
-            case "parsear_excel":
-                cache = await parse_excel_to_cache(
-                    config_manager=self._config,
-                    excel_path=self._xlsx_path,
-                    cache_cls=self._cache_cls or ExcelCacheManager,
-                    loader_factory=self._loader_factory or ExcelLoader,
-                )
-                # Guardamos el cache en self._stats para ``on_finish``.
-                total_devs = sum(
-                    len(v) for v in cache.dispositivos.values()
-                )
-                self._stats["parsear_excel"] = {
-                    "xlsx_path": self._xlsx_path,
-                    "total_dispositivos": total_devs,
-                }
-                return f"{total_devs} dispositivos parseados"
-
-            case "volcar_appstate":
-                # Recuperar el cache del cache global (lo puso
-                # ``parse_excel_to_cache`` via ``ExcelCacheManager.put``).
-                # Import desde el submódulo (no del paquete ``excel``
-                # porque su ``__init__.py`` está vacío por convención,
-                # ver b36d147).
-                from areas.alimentacion.helpers.excel.excel_cache_manager import (
-                    ExcelCacheManager,
-                )
-                cache = await ExcelCacheManager.get()
-                if cache is None:
-                    raise RuntimeError(
-                        "cache vacio tras parsear_excel. "
-                        "Esto no deberia ocurrir."
-                    )
-                summary_dict = dump_cache_to_state(
-                    cache=cache,
-                    app_state=self._state,
-                    config_manager=self._config,
-                )
-                self._stats["volcar_appstate"] = {
-                    "summary": summary_dict["summary"],
-                    "total_dispositivos": summary_dict["total_dispositivos"],
-                }
-                # Log de exito del volcado al AppState.
-                logger.debug(
-                    f"[{self.nombre}] Carga: {summary_dict['total_dispositivos']} "
-                    f"dispositivos ({len(summary_dict['summary'])} tipos)"
-                )
-                return "Estado actualizado"
-
-            case _:
-                raise ValueError(f"step no soportado: {step_nombre!r}")
+        # Tabla declarativa de stages: (idx, nombre, atributo_metodo).
+        # Cada stage es un metodo del FB con prefijo ``_stage_N_<nombre>``.
+        # El dispatcher de abajo itera esta tabla; no usamos ``match``
+        # para que el orden sea visible arriba de la clase y los tests
+        # puedan mockear ``fb._stage_N_<nombre>`` directamente.
+        for s_idx, _s_nombre, s_attr in self.STAGES:
+            if s_idx == idx:
+                handler = getattr(self, s_attr)
+                result = await handler()
+                return result
+        raise ValueError(f"step {idx} desconocido en FunctionExcelCargar")
 
     # ==================================================================
     # HOOK 3: on_finish  (ZONA 5: vuelco del result)
@@ -221,6 +202,80 @@ class FunctionExcelCargar(FunctionBase):
             "dimensiones": dimensiones,
             "software": software,
         }
+
+    # ==================================================================
+    # Stages del FB (ZONA 4: metodos privados numerados).
+    #
+    # Cada ``_stage_N_<nombre>`` corresponde a UNA entrada de la tabla
+    # ``STAGES`` arriba. Si cambias el flujo del stage, cambia la
+    # tabla tambien.
+    # ==================================================================
+
+    async def _stage_1_parsear_excel(self) -> str:
+        """Stage 1: parsea el ``.xlsx`` con ``parse_excel_to_cache``.
+
+        Lazy import para evitar ciclo entre este FB y
+        ``helpers/excel/excel_upload``. Devuelve un resumen legible del
+        conteo total de dispositivos parseados.
+        """
+        from areas.alimentacion.helpers.excel.excel_cache_manager import (
+            ExcelCacheManager,
+        )
+        from areas.alimentacion.helpers.excel.excel_loader import ExcelLoader
+        from areas.alimentacion.helpers.excel.excel_upload import (
+            parse_excel_to_cache,
+        )
+
+        cache = await parse_excel_to_cache(
+            config_manager=self._config,
+            excel_path=self._xlsx_path,
+            cache_cls=self._cache_cls or ExcelCacheManager,
+            loader_factory=self._loader_factory or ExcelLoader,
+        )
+        # Guardamos el cache en self._stats para ``on_finish``.
+        total_devs = sum(
+            len(v) for v in cache.dispositivos.values()
+        )
+        self._stats["parsear_excel"] = {
+            "xlsx_path": self._xlsx_path,
+            "total_dispositivos": total_devs,
+        }
+        return f"{total_devs} dispositivos parseados"
+
+    async def _stage_2_volcar_appstate(self) -> str:
+        """Stage 2: vuelca el cache al ``AppState`` con ``dump_cache_to_state``.
+
+        El cache ya esta en memoria del Engine global (lo puso
+        ``parse_excel_to_cache`` via ``ExcelCacheManager.put``). Aqui lo
+        recuperamos y lo copiamos al ``AppState``.
+        """
+        from areas.alimentacion.helpers.excel.excel_cache_manager import (
+            ExcelCacheManager,
+        )
+        from areas.alimentacion.helpers.excel.excel_upload import (
+            dump_cache_to_state,
+        )
+
+        cache = await ExcelCacheManager.get()
+        if cache is None:
+            raise RuntimeError(
+                "cache vacio tras parsear_excel. "
+                "Esto no deberia ocurrir."
+            )
+        summary_dict = dump_cache_to_state(
+            cache=cache,
+            app_state=self._state,
+            config_manager=self._config,
+        )
+        self._stats["volcar_appstate"] = {
+            "summary": summary_dict["summary"],
+            "total_dispositivos": summary_dict["total_dispositivos"],
+        }
+        logger.debug(
+            f"[{self.nombre}] Carga: {summary_dict['total_dispositivos']} "
+            f"dispositivos ({len(summary_dict['summary'])} tipos)"
+        )
+        return "Estado actualizado"
 
 
 __all__ = ["FunctionExcelCargar"]
