@@ -324,8 +324,27 @@ class FunctionDispGenerarPreview(FunctionBase):
         assert self._ctx.tags_base is not None, (
             "compute_devices requiere exportar_tags previo"
         )
+        # DIAG: trazas para que el operario vea en vivo si AppState
+        # tiene disp cargados al ejecutar este stage. Bórrese tras fix.
+        _app = self._ctx.app_state
+        _disp_keys = (
+            list(_app._dispositivos.keys())
+            if hasattr(_app, "_dispositivos") else []
+        )
+        _counts = {
+            hw: len(_app.get_devices(hw)) for hw in _disp_keys
+        }
+        logger.debug(
+            f"[DIAG compute_devices] app_state._dispositivos keys={_disp_keys} "
+            f"counts={_counts}"
+        )
         self._ctx.desired_state_per_table = _build_desired_state_from_app(
             self._ctx.app_state, self._ctx.config_manager,
+        )
+        logger.debug(
+            f"[DIAG compute_devices] desired_state_per_table keys="
+            f"{list(self._ctx.desired_state_per_table.keys())} "
+            f"total_disp={sum(len(v) for v in self._ctx.desired_state_per_table.values())}"
         )
         (
             self._ctx.added_per_table,
@@ -334,6 +353,11 @@ class FunctionDispGenerarPreview(FunctionBase):
             self._ctx.base_state_per_table,
         ) = await asyncio.to_thread(
             _compute_diff_readonly, self._ctx.tags_base, self._ctx.desired_state_per_table,
+        )
+        logger.debug(
+            f"[DIAG compute_devices] base_state_per_table keys="
+            f"{list(self._ctx.base_state_per_table.keys())} "
+            f"total_base={sum(len(v) for v in self._ctx.base_state_per_table.values())}"
         )
 
     async def _stage_3_compute_nmax(self) -> None:
