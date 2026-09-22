@@ -74,6 +74,9 @@ from core.infrastructure.tia.tia_cmd_batch import (  # noqa: F401
     _h_execute_transactional_batch,
     _TRANSACTION_FORBIDDEN_COMMANDS,
 )
+from core.infrastructure.tia.tia_commands_catalog import (  # noqa: F401
+    register_all_commands,
+)
 
 import json as _json  # noqa: E402
 import logging  # noqa: E402
@@ -155,40 +158,14 @@ logger = logging.getLogger("zc.tia_loop")
 
 
 # ---------------------------------------------------------------------------
-# Registry
+# Registry (delegado en tia_commands_catalog.py).
+# El shim ``register_core_commands`` se preserva por compat hasta el commit 10.
 # ---------------------------------------------------------------------------
-def register_core_commands(target: "SyncTIAClient") -> None:
-    """Registra los 26 comandos core en ``target``.
+def register_core_commands(target: "SyncTIAClient") -> None:  # noqa: ARG001
+    """Shim de compat: delega en ``tia_commands_catalog.register_all_commands``.
 
-    Si un comando ya esta registrado, ``register_command()`` lanza
-    ValueError. El caller decide si reinstancia o ignora.
+    Mantenido hasta el commit 10 para no romper callers legacy. Tras ese
+    commit, este shim desaparece junto con ``tia_handlers.py``.
     """
-    target.register_command("attach_portal", _h_attach_portal)
-    target.register_command("detach_portal", _h_detach_portal)
-    target.register_command("open_new_portal", _h_open_new_portal)
-    target.register_command("open_project", _h_open_project)
-    target.register_command("save_project", _h_save_project)
-    target.register_command("close_project", _h_close_project)
-    target.register_command("ping", _h_ping)
-    target.register_command("list_blocks", _h_list_blocks)
-    target.register_command("list_plcs", _h_list_plcs)
-    target.register_command("get_project_info", _h_get_project_info)
-    target.register_command("scan_blocks", _h_scan_blocks)
-    target.register_command("compile_plc", _h_compile_plc)
-    target.register_command("compile_blocks", _h_compile_blocks)
-    target.register_command("export_blocks_sd", _h_export_blocks_sd)
-    target.register_command("export_udts_sd", _h_export_udts_sd)
-    target.register_command("export_plc_tags_xml", _h_export_plc_tags_xml)
-    target.register_command("import_blocks_sd", _h_import_blocks_sd)
-    target.register_command("import_plc_tags_xml", _h_import_plc_tags_xml)
-    target.register_command("export_block", _h_export_block)
-    target.register_command("export_tag_table", _h_export_tag_table)
-    target.register_command("import_tag_table", _h_import_tag_table)
-    target.register_command("import_block", _h_import_block)
-    target.register_command("get_user_constants", _h_get_user_constants)
-    target.register_command("update_user_constant_value", _h_update_user_constant_value)
-    target.register_command("update_user_constant_name", _h_update_user_constant_name)
-    target.register_command("delete_user_constant", _h_delete_user_constant)
-    target.register_command(
-        "execute_transactional_batch", _h_execute_transactional_batch
-    )
+    from core.infrastructure.tia.tia_commands_catalog import register_all_commands
+    register_all_commands(target)
