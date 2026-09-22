@@ -127,6 +127,30 @@ class FunctionProcCrearSincronizar(FunctionBase):
     # hasta 5 min. 600s cubre holgadamente.
     STEP_TIMEOUT_S: float = 600.0
 
+    # Tabla declarativa de stages. Cada tupla: (idx, "nombre_step",
+    # "atributo_metodo_en_el_FB"). El ``run_step`` dispatcha contra
+    # esta tabla en vez de un ``match``/``case`` inline, para que el
+    # flujo sea legible arriba de la clase y los tests puedan
+    # mockear ``fb._stage_N_<nombre>`` directamente.
+    #
+    # Convencion:
+    #   - ``idx`` correlativo, 1-based.
+    #   - ``nombre_step`` debe coincidir con ``self.steps[idx]["nombre"]``
+    #     (registrado en __init__). Si cambias uno, cambia el otro.
+    #   - ``atributo_metodo`` es un metodo del FB (no externo): un cambio
+    #     de signatura requiere actualizar este registro.
+    STAGES: list[tuple[int, str, str]] = [
+        (1, "leer_manifest",              "_stage_1_leer_manifest"),
+        (2, "validar_minimos",            "_stage_2_validar_minimos"),
+        (3, "copiar_a_preview",           "_stage_3_copiar_a_preview"),
+        (4, "construir_diccionarios",     "_stage_4_construir_diccionarios"),
+        (5, "generar_proceso_nuevo",      "_stage_5_generar_proceso_nuevo"),
+        (6, "escribir_manifest_modified", "_stage_6_escribir_manifest_modified"),
+        (7, "importar_proceso",           "_stage_7_importar_proceso"),
+        (8, "compilar",                   "_stage_8_compilar"),
+        (9, "done",                       "_stage_9_done"),
+    ]
+
     # ==================================================================
     # CONSTRUCTOR
     # ==================================================================
@@ -319,205 +343,25 @@ class FunctionProcCrearSincronizar(FunctionBase):
             )
 
         step_nombre = self.steps[idx]["nombre"]
-        match step_nombre:
-            case "leer_manifest":
-                await proc_process_generator.proc_process_leer_manifest(
-                    self._ctx
-                )
-            case "validar_minimos":
-                await proc_process_generator.proc_process_validar_minimos(
-                    self._ctx
-                )
-            case "copiar_a_preview":
-                await proc_process_generator.proc_process_copiar_a_preview(
-                    self._ctx
-                )
-            case "construir_diccionarios":
-                await proc_process_generator.proc_process_construir_diccionarios(
-                    self._ctx
-                )
-            case "generar_proceso_nuevo":
-                await proc_process_generator.proc_process_aplicar_clonacion(
-                    self._ctx
-                )
-            case "escribir_manifest_modified":
-                await proc_process_generator.proc_process_escribir_manifest(
-                    self._ctx
-                )
-            case "importar_proceso":
-                # IMPORT bajo transaccion TIA unica.
-                #
-                # 3 ops en ``execute_transactional_batch``:
-                #   1. import_plc_tags_xml sobre
-                #      ``dir_nuevo/Variables PLC``
-                #      (TIA lee los ``.xml`` y los coloca bajo el
-                #      grupo de tag tables del PLC preservando el
-                #      subpath relativo).
-                #   2. _wait 2s (sub-comando sync del handler
-                #      ``_h_execute_transactional_batch`` que duerme
-                #      sin tocar TIA, dando tiempo a consolidar entre
-                #      el import de tags y el de bloques).
-                #   3. import_blocks_sd sobre
-                #      ``dir_nuevo/Bloques de programa``
-                #      (TIA lee los ``.s7dcl/.s7res/.scl/.awl`` y los
-                #      coloca bajo el grupo ``Bloques de programa/``
-                #      del PLC preservando el subpath relativo).
-                #
-                # Si cualquier op falla, TIA hace rollback atomico
-                # de las 3 juntas, dejando el PLC en el mismo estado
-                # previo al apply.
-                #
-                # ORDEN CRITICO (sept-2026, validado en vivo): tags
-                # ANTES de blocks. Si invertimos, los bloques que
-                # referencian PlcUserConstant de la tag table fallan
-                # al compilar (OpennessAccessException).
-                #
-                # ``import_root_directory`` de TIA V21 (parametro del
-                # manual §2.2.23): apunta al SUBDIRECTORIO del grupo
-                # TIA, NO a la raiz. Si pasamos ``dir_nuevo`` (raiz)
-                # TIA hace scan recursivo y AÑADE otra vez el prefijo
-                # del grupo (``Bloques de programa/``) produciendo
-                # doble prefijo. Apuntamos a
-                # ``dir_nuevo/Bloques de programa`` y
-                # ``dir_nuevo/Variables PLC`` respectivamente.
-                #
-                # REGLA (sept-2026): ``import_plc_tags_xml`` /
-                # ``import_blocks_sd`` se invocan SIN ``target_folder``
-                # (omitiendo el argumento); NUNCA pasar ``""``. Ver
-                # ``tia_handlers._h_import_block``.
-                #
-                # NOTA sobre el ``CommitOnDispose`` que vimos en
-                # commit 8ed8705 (rollback tras el lote): los fixes
-                # ``dde011d`` (target_folder="") y ``6bb0aec``
-                # (subdir especifico en lugar de raiz) atacaron las
-                # posibles causas. Re-introducimos el lote para tener
-                # rollback atomico entre tags y blocks; si TIA V21
-                # sigue marcando la transaccion como corrupta, se
-                # volveria a la version secuencial (commit 3baad2b).
-                #
-                # ORDEN CRITICO (sept-2026, validado en vivo por el
-                # operario): ``import_plc_tags_xml`` ANTES de
-                # ``import_blocks_sd``. Si invertimos el orden, TIA
-                # falla al compilar bloques que referencian constantes
-                # o tags todavia no importados.
-                #
-                # Por que: las plantillas pueden tener bloques
-                # (.s7dcl/.scl) que referencian constantes de usuario
-                # (``PlcUserConstant``) definidas en la tag table
-                # (``Variables PLC/003_Procesos/<base>.xml``). Si
-                # importamos los bloques primero, TIA no encuentra
-                # las constantes y el import UPDATE falla con
-                # ``OpennessAccessException``. Importando tags
-                # primero + ``_wait`` para consolidar, los bloques
-                # encuentran sus referencias y el UPDATE procede.
-                #
-                # ``import_root_directory`` (parametro de TIA V21):
-                # apunta al SUBDIRECTORIO ESPECIFICO del grupo TIA,
-                # NO al directorio raiz del proyecto. El ejemplo
-                # oficial del manual:
-                #
-                #   plc.import_blocks(
-                #       import_root_directory =
-                #       "C:\\ws\\importfolder\\PLC_1\\Program blocks"
-                #   )
-                #
-                # TIA lee los archivos del subdirectorio, calcula
-                # el subpath RELATIVO a ``import_root_directory`` y
-                # los coloca bajo el grupo correspondiente del PLC
-                # (preservando la jerarquia). Si pasamos el raiz del
-                # proyecto (como hacia el commit anterior), TIA hace
-                # scan recursivo y AÑADE otra vez el prefijo del
-                # grupo (``Bloques de programa/``) lo que produce un
-                # DOBLE prefijo en el PLC
-                # (``Bloques de programa\\Bloques de programa\\...``).
-                # Tambien el import_plc_tags_xml apuntando al raiz
-                # deja las tag tables sin procesar correctamente.
-                #
-                # Solucion (sept-2026): pasar los subdirectorios
-                # exactos ``Bloques de programa/`` y ``Variables PLC/``
-                # que el helper produce. TIA calcula el subpath
-                # relativo y preserva la estructura del proceso en el
-                # PLC. ``manifest.json`` queda fuera del subdirectorio
-                # asi que TIA lo ignora automaticamente.
-                #
-                # REGLA (sept-2026): ``import_plc_tags_xml`` /
-                # ``import_blocks_sd`` se invocan SIN ``target_folder``
-                # (omitiendo el argumento); NUNCA pasar ``""``. Ver
-                # ``tia_handlers._h_import_block``.
-
-                batch_operations = [
-                    {
-                        "command": "import_plc_tags_xml",
-                        "args": {
-                            "plc_name": self._plc_name,
-                            "import_dir": str(
-                                self._ctx.dir_nuevo / "Variables PLC"
-                            ),
-                        },
-                    },
-                    {
-                        "command": "_wait",
-                        "args": {"seconds": TIA_CONSOLIDATION_SLEEP_S},
-                    },
-                    {
-                        "command": "import_blocks_sd",
-                        "args": {
-                            "plc_name": self._plc_name,
-                            "import_dir": str(
-                                self._ctx.dir_nuevo / "Bloques de programa"
-                            ),
-                        },
-                    },
-                ]
-                self._import_batch_result = await dispatch_async(
-                    self._tia_client,
-                    "execute_transactional_batch",
-                    {
-                        # ``undo_text`` especifico con el id del proceso
-                        # (base_codigo) para que el Undo de TIA Portal y
-                        # el dialog_text durante la transaccion sean
-                        # trazables al proceso concreto que se esta
-                        # creando (sept-2026: antes era generico
-                        # "Generar proceso desde plantilla" y no se podia
-                        # saber a que proceso correspondia).
-                        "undo_text": (
-                            f"Generando proceso "
-                            f"{self._ctx.base_nueva}_{self._ctx.codigo_nuevo}"
-                        ),
-                        "operations": batch_operations,
-                    },
-                    timeout_s=600.0,
-                )
-                # CRITICO: si el batch fallo (rollback ejecutado), NO
-                # continuar a ``compilar``. Si lo hicieramos, el
-                # compile correría sobre el PLC sin cambios (rollback)
-                # y el FB reportaría éxito falso. Ademas, si el PLC
-                # quedo en estado "corrupto" por la transaccion TIA
-                # fallida, el compile puede hangear o fallar de forma
-                # confusa.
-                if not self._import_batch_result.get("ok"):
-                    raise RuntimeError(
-                        f"execute_transactional_batch fallo: "
-                        f"{self._import_batch_result.get('error') or '<sin error>'}"
-                    )
-            case "compilar":
-                self._compile_result = await dispatch_async(
-                    self._tia_client,
-                    "compile_plc",
-                    {"plc_name": self._plc_name},
-                    timeout_s=600.0,
-                )
-                if not self._compile_result.get("ok"):
-                    raise RuntimeError(
-                        f"compile_plc fallo: "
-                        f"{self._compile_result.get('error') or '<sin error>'}"
-                    )
-            case "done":
-                await proc_process_generator.proc_process_done_summary(self._ctx)
-            case _:
-                raise ValueError(f"step no soportado: {step_nombre!r}")
-
-        return _step_summary(self, step_nombre)
+        # Dispatch declarativo via tabla ``STAGES``: el orden y los
+        # nombres de los 9 stages se declaran arriba de la clase. Asi
+        # el flujo del FB es visible de un vistazo (modo SFC) y los
+        # tests pueden mockear ``fb._stage_N_<nombre>`` directamente sin
+        # parchear el ``match`` interno.
+        #
+        # El lookup es por ``nombre`` (no por ``idx``) porque
+        # ``FunctionBase._step_ejecutar`` pasa ``idx`` 0-indexed sobre
+        # ``self.steps``. El ``idx`` de la tabla STAGES es 1-based y
+        # solo se usa para logging legible ("paso 3/9").
+        for _s_idx, s_nombre, s_attr in self.STAGES:
+            if s_nombre == step_nombre:
+                handler = getattr(self, s_attr)
+                await handler()
+                return _step_summary(self, s_nombre)
+        raise ValueError(
+            f"step {idx} ({step_nombre!r}) no esta en STAGES "
+            f"de FunctionProcCrearSincronizar"
+        )
 
     # ==================================================================
     # HOOK 3: on_finish  (ZONA 5: vuelco del result desde el ctx)
@@ -571,6 +415,144 @@ class FunctionProcCrearSincronizar(FunctionBase):
             f"{n_colisiones} colision(es), compile="
             f"{'OK' if (self._compile_result or {}).get('ok') else 'FAIL'}"
         )
+
+    # ==================================================================
+    # Stages del FB (ZONA 4: 9 metodos privados numerados).
+    #
+    # Cada ``_stage_N_<nombre>`` corresponde a UNA entrada de la tabla
+    # ``STAGES`` arriba. Si cambias el flujo del stage, cambia la
+    # tabla tambien. Aqui viven como wrappers que delegan en las
+    # funciones puras de ``proc_process_generator`` o en dispatchs al
+    # worker OT.
+    # ==================================================================
+
+    async def _stage_1_leer_manifest(self) -> None:
+        """Stage 1: lee el ``manifest.json`` de la plantilla TIA."""
+        from areas.alimentacion.helpers.proc import proc_process_generator
+        await proc_process_generator.proc_process_leer_manifest(self._ctx)
+
+    async def _stage_2_validar_minimos(self) -> None:
+        """Stage 2: valida los N_MIN del operario contra la plantilla."""
+        from areas.alimentacion.helpers.proc import proc_process_generator
+        await proc_process_generator.proc_process_validar_minimos(self._ctx)
+
+    async def _stage_3_copiar_a_preview(self) -> None:
+        """Stage 3: copytree de la plantilla al workdir de preview."""
+        from areas.alimentacion.helpers.proc import proc_process_generator
+        await proc_process_generator.proc_process_copiar_a_preview(self._ctx)
+
+    async def _stage_4_construir_diccionarios(self) -> None:
+        """Stage 4: parsea bloques + XMLs y construye los diccionarios base."""
+        from areas.alimentacion.helpers.proc import proc_process_generator
+        await proc_process_generator.proc_process_construir_diccionarios(self._ctx)
+
+    async def _stage_5_generar_proceso_nuevo(self) -> None:
+        """Stage 5: aplica las reglas y materializa los archivos del proceso nuevo."""
+        from areas.alimentacion.helpers.proc import proc_process_generator
+        await proc_process_generator.proc_process_aplicar_clonacion(self._ctx)
+
+    async def _stage_6_escribir_manifest_modified(self) -> None:
+        """Stage 6: escribe el manifest.json en el workdir ``modified/``."""
+        from areas.alimentacion.helpers.proc import proc_process_generator
+        await proc_process_generator.proc_process_escribir_manifest(self._ctx)
+
+    async def _stage_7_importar_proceso(self) -> None:
+        """Stage 7: IMPORT bajo transaccion TIA unica (3 ops atomicas).
+
+        3 ops en ``execute_transactional_batch``:
+          1. import_plc_tags_xml sobre ``dir_nuevo/Variables PLC``.
+          2. _wait 2s (sub-comando sync del handler
+             ``_h_execute_transactional_batch`` que duerme sin tocar
+             TIA, dando tiempo a consolidar entre el import de tags
+             y el de bloques).
+          3. import_blocks_sd sobre ``dir_nuevo/Bloques de programa``.
+
+        Si cualquier op falla, TIA hace rollback atomico de las 3
+        juntas, dejando el PLC en el mismo estado previo al apply.
+
+        ORDEN CRITICO (sept-2026, validado en vivo): tags ANTES de
+        blocks. Si invertimos, los bloques que referencian
+        PlcUserConstant de la tag table fallan al compilar
+        (``OpennessAccessException``).
+
+        REGLA (sept-2026): ``import_plc_tags_xml`` /
+        ``import_blocks_sd`` se invocan SIN ``target_folder``
+        (omitiendo el argumento); NUNCA pasar ``""``. Ver
+        ``tia_handlers._h_import_block``.
+        """
+        batch_operations = [
+            {
+                "command": "import_plc_tags_xml",
+                "args": {
+                    "plc_name": self._plc_name,
+                    "import_dir": str(
+                        self._ctx.dir_nuevo / "Variables PLC"
+                    ),
+                },
+            },
+            {
+                "command": "_wait",
+                "args": {"seconds": TIA_CONSOLIDATION_SLEEP_S},
+            },
+            {
+                "command": "import_blocks_sd",
+                "args": {
+                    "plc_name": self._plc_name,
+                    "import_dir": str(
+                        self._ctx.dir_nuevo / "Bloques de programa"
+                    ),
+                },
+            },
+        ]
+        self._import_batch_result = await dispatch_async(
+            self._tia_client,
+            "execute_transactional_batch",
+            {
+                # ``undo_text`` especifico con el id del proceso
+                # (base_codigo) para que el Undo de TIA Portal y el
+                # dialog_text durante la transaccion sean trazables
+                # al proceso concreto que se esta creando
+                # (sept-2026: antes era generico "Generar proceso
+                # desde plantilla" y no se podia saber a que proceso
+                # correspondia).
+                "undo_text": (
+                    f"Generando proceso "
+                    f"{self._ctx.base_nueva}_{self._ctx.codigo_nuevo}"
+                ),
+                "operations": batch_operations,
+            },
+            timeout_s=600.0,
+        )
+        # CRITICO: si el batch fallo (rollback ejecutado), NO
+        # continuar a ``compilar``. Si lo hicieramos, el compile
+        # correria sobre el PLC sin cambios (rollback) y el FB
+        # reportaria exito falso. Ademas, si el PLC quedo en estado
+        # "corrupto" por la transaccion TIA fallida, el compile puede
+        # hangear o fallar de forma confusa.
+        if not self._import_batch_result.get("ok"):
+            raise RuntimeError(
+                f"execute_transactional_batch fallo: "
+                f"{self._import_batch_result.get('error') or '<sin error>'}"
+            )
+
+    async def _stage_8_compilar(self) -> None:
+        """Stage 8: dispatch ``compile_plc`` (fuera de transaccion)."""
+        self._compile_result = await dispatch_async(
+            self._tia_client,
+            "compile_plc",
+            {"plc_name": self._plc_name},
+            timeout_s=600.0,
+        )
+        if not self._compile_result.get("ok"):
+            raise RuntimeError(
+                f"compile_plc fallo: "
+                f"{self._compile_result.get('error') or '<sin error>'}"
+            )
+
+    async def _stage_9_done(self) -> None:
+        """Stage 9: compone ``ctx.result`` con la shape final del apply."""
+        from areas.alimentacion.helpers.proc import proc_process_generator
+        await proc_process_generator.proc_process_done_summary(self._ctx)
 
 
 def _coerce_plc_blocks_cache(raw: Any) -> list[dict[str, Any]]:
