@@ -51,6 +51,13 @@ from core.infrastructure.tia.tia_cmd_compile import (  # noqa: F401
     _h_compile_plc,
     _h_compile_blocks,
 )
+from core.infrastructure.tia.tia_cmd_export import (  # noqa: F401
+    _h_export_blocks_sd,
+    _h_export_udts_sd,
+    _h_export_plc_tags_xml,
+    _h_export_block,
+    _h_export_tag_table,
+)
 
 import json as _json  # noqa: E402
 import logging  # noqa: E402
@@ -106,149 +113,9 @@ logger = logging.getLogger("zc.tia_loop")
 
 
 # ---------------------------------------------------------------------------
-# Handlers de export
+# Handlers de export (migrados a tia_cmd_export.py).
+# Los re-exports arriba preservan compat con callers legacy hasta el commit 10.
 # ---------------------------------------------------------------------------
-def _h_export_blocks_sd(args: dict, tia_client: "SyncTIAClient") -> dict:
-    """Exporta los bloques de programa del PLC como .s7dcl."""
-    plc_name: str = args.get("plc_name", "")
-    target_dir: str = args.get("target_dir", "")
-
-    if not plc_name:
-        raise ValueError("Se requiere el argumento 'plc_name'.")
-
-    portal = tia_client.wrapper
-    if portal is None:
-        raise RuntimeError(
-            "No portal attached. Llama a attach_portal primero."
-        )
-    project = _get_active_project(portal)
-    target_plc = _find_plc(project, plc_name)
-    target_path = _ensure_target_dir(target_dir)
-    return _export_objects_sd(target_plc, target_path, "program_blocks")
-
-
-def _h_export_udts_sd(args: dict, tia_client: "SyncTIAClient") -> dict:
-    """Exporta los User Data Types del PLC como .s7dcl."""
-    plc_name: str = args.get("plc_name", "")
-    target_dir: str = args.get("target_dir", "")
-
-    if not plc_name:
-        raise ValueError("Se requiere el argumento 'plc_name'.")
-
-    portal = tia_client.wrapper
-    if portal is None:
-        raise RuntimeError(
-            "No portal attached. Llama a attach_portal primero."
-        )
-    project = _get_active_project(portal)
-    target_plc = _find_plc(project, plc_name)
-    target_path = _ensure_target_dir(target_dir)
-    return _export_objects_sd(target_plc, target_path, "user_data_types")
-
-
-def _h_export_plc_tags_xml(args: dict, tia_client: "SyncTIAClient") -> dict:
-    """Exporta las tablas de variables del PLC como XML SimaticML."""
-    plc_name: str = args.get("plc_name", "")
-    target_dir: str = args.get("target_dir", "")
-    target_table_names = args.get("table_names")
-
-    if not plc_name:
-        raise ValueError("Se requiere el argumento 'plc_name'.")
-
-    portal = tia_client.wrapper
-    if portal is None:
-        raise RuntimeError(
-            "No portal attached. Llama a attach_portal primero."
-        )
-    project = _get_active_project(portal)
-    target_plc = _find_plc(project, plc_name)
-    target_path = _ensure_target_dir(target_dir)
-
-    tag_tables = target_plc.get_plc_tag_tables()
-    count = 0
-    for table in tag_tables:
-        if target_table_names is not None:
-            name = _safe_get_table_name(table)
-            if name not in target_table_names:
-                continue
-        table.export(
-            target_directory_path=str(target_path),
-            keep_folder_structure=True,
-        )
-        count += 1
-
-    return {"exported_to": str(target_path), "count": count}
-
-
-def _h_export_block(args: dict, tia_client: "SyncTIAClient") -> dict:
-    """Exporta un bloque de programa como SimaticSD (manual §2.10.5)."""
-    plc_name: str = args.get("plc_name", "")
-    block_name: str = args.get("block_name", "")
-    target_dir: str = args.get("target_dir", "")
-
-    if not plc_name:
-        raise ValueError("Se requiere el argumento 'plc_name'.")
-    if not block_name:
-        raise ValueError("Se requiere el argumento 'block_name'.")
-
-    portal = tia_client.wrapper
-    if portal is None:
-        raise RuntimeError(
-            "No portal attached. Llama a attach_portal primero."
-        )
-    project = _get_active_project(portal)
-    target_plc = _find_plc(project, plc_name)
-    target_path = _ensure_target_dir(target_dir)
-
-    blocks = target_plc.get_program_blocks()
-    for block in blocks:
-        name = _safe_get_block_name(block)
-        if name == block_name:
-            block.export(
-                target_directory_path=str(target_path),
-                export_format="SimaticSD",
-                keep_folder_structure=False,
-            )
-            return {"exported_to": str(target_path), "block_name": block_name}
-
-    raise RuntimeError(
-        f"Bloque '{block_name}' no encontrado en PLC '{plc_name}'."
-    )
-
-
-def _h_export_tag_table(args: dict, tia_client: "SyncTIAClient") -> dict:
-    """Exporta una PlcTagTable como XML SimaticML."""
-    plc_name: str = args.get("plc_name", "")
-    table_name: str = args.get("table_name", "")
-    target_dir: str = args.get("target_dir", "")
-
-    if not plc_name:
-        raise ValueError("Se requiere el argumento 'plc_name'.")
-    if not table_name:
-        raise ValueError("Se requiere el argumento 'table_name'.")
-
-    portal = tia_client.wrapper
-    if portal is None:
-        raise RuntimeError(
-            "No portal attached. Llama a attach_portal primero."
-        )
-    project = _get_active_project(portal)
-    target_plc = _find_plc(project, plc_name)
-    target_path = _ensure_target_dir(target_dir)
-
-    tag_tables = target_plc.get_plc_tag_tables()
-    for table in tag_tables:
-        name = _safe_get_table_name(table)
-        if name == table_name:
-            table.export(
-                target_directory_path=str(target_path),
-                keep_folder_structure=False,
-            )
-            return {"exported_to": str(target_path), "table_name": table_name}
-
-    raise RuntimeError(
-        f"Tabla '{table_name}' no encontrada en PLC '{plc_name}'."
-    )
 
 
 # ---------------------------------------------------------------------------
