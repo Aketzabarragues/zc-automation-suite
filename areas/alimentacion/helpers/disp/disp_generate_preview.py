@@ -291,18 +291,36 @@ def compute_diff_table(
 # ---------------------------------------------------------------------------
 
 
-# Mapa legacy lowercase (Excel ``DimensionesDispositivos.to_api_dict``)
-# -> canonico uppercase (TIA PlcUserConstant ``<Name>``).
-# Sept-2026: el Excel emite lowercase, TIA emite uppercase. Sin este
-# mapeo, ``d.get('N_MAX_DISP_ED')`` devuelve None y el diff siempre
-# muestra desired=0 (el bug clasico del "30 -> 0" en las cards N_MAX).
+# Mapeo de las 3 variantes de naming del Excel al canonico uppercase de
+# TIA (PlcUserConstant ``<Name>``). Sept-2026.
+#
+#   - lowercase sin prefix:  ``num_disp_ed``  (to_api_dict legacy)
+#   - Title Case sin prefix:  ``Num_Disp_ED``  (extras, parser de
+#                             CONFIGURACION del Excel del operario)
+#   - uppercase con prefix:  ``N_MAX_DISP_ED`` (futuro, si el Excel
+#                             se alinea con TIA)
+#
+# Sin este mapeo, ``d.get('N_MAX_DISP_ED')`` devuelve None y el diff
+# siempre muestra desired=0 (el bug clasico del "30 -> 0" en las
+# cards N_MAX).
 _LEGACY_TO_CANONICAL_NMAX: dict[str, str] = {
+    # lowercase legacy (6 principales).
     "num_disp_ed":    "N_MAX_DISP_ED",
     "num_disp_ea":    "N_MAX_DISP_EA",
     "num_disp_sa":    "N_MAX_DISP_SA",
     "num_disp_v":     "N_MAX_DISP_V",
     "num_disp_m":     "N_MAX_DISP_M",
     "num_disp_m_vf":  "N_MAX_DISP_M_VF",
+    # Title Case sin prefix (extras del Excel del operario).
+    "Num_Disp_ED":    "N_MAX_DISP_ED",
+    "Num_Disp_EA":    "N_MAX_DISP_EA",
+    "Num_Disp_SA":    "N_MAX_DISP_SA",
+    "Num_Disp_V":     "N_MAX_DISP_V",
+    "Num_Disp_M":     "N_MAX_DISP_M",
+    "Num_Disp_M_VF":  "N_MAX_DISP_M_VF",
+    "Num_Disp_M_SINA": "N_MAX_DISP_M_SINA",
+    "Num_Disp_TOT":   "N_MAX_DISP_TOT",
+    "Num_Disp_PID":   "N_MAX_DISP_PID",
 }
 
 
@@ -312,59 +330,99 @@ def resolve_desired_nmax(
 ) -> dict[str, int]:
     """Normaliza ``app_state.dimensiones`` al naming canonico de TIA.
 
-    El Excel emite ``DimensionesDispositivos.to_api_dict()`` con keys
-    **lowercase**: ``num_disp_ed``, ``num_disp_ea``, etc. Pero el XML
-    de TIA tiene keys **uppercase**: ``N_MAX_DISP_ED``, ``N_MAX_DISP_EA``,
-    etc. Esta funcion hace el mapeo para que ``compute_nmax_diff``
-    compare peras con peras.
+    Acepta 3 formatos de input:
+      - ``dict`` con keys lowercase (``num_disp_ed``) o Title Case
+        (``Num_Disp_ED``) — viene de ``DimensionesDispositivos.to_api_dict()``
+        o ``DimensionesDispositivos.extras``.
+      - ``DimensionesDispositivos`` (dataclass) — tiene
+        ``all_nmax()`` que une los 6 canonicos + extras. Lo
+        desempaquetamos y aplicamos el mismo mapeo.
 
-    Mapeo de legacy lowercase a canonico uppercase (sept-2026):
-      ``num_disp_ed``    -> ``N_MAX_DISP_ED``
-      ``num_disp_ea``    -> ``N_MAX_DISP_EA``
-      ``num_disp_sa``    -> ``N_MAX_DISP_SA``
-      ``num_disp_v``     -> ``N_MAX_DISP_V``
-      ``num_disp_m``     -> ``N_MAX_DISP_M``
-      ``num_disp_m_vf``  -> ``N_MAX_DISP_M_VF``
+    La funcion mapea las 3 variantes de naming del Excel al canonico
+    de TIA (uppercase con prefix ``N_MAX_DISP_``):
 
-    Si el Excel ya emite keys uppercase (futuro caso en que
-    ``DimensionesDispositivos.to_api_dict`` se actualice), se respeta.
+      ``num_disp_ed`` / ``Num_Disp_ED`` -> ``N_MAX_DISP_ED``
+      ``num_disp_ea`` / ``Num_Disp_EA`` -> ``N_MAX_DISP_EA``
+      ``num_disp_sa`` / ``Num_Disp_SA`` -> ``N_MAX_DISP_SA``
+      ``num_disp_v``  / ``Num_Disp_V``  -> ``N_MAX_DISP_V``
+      ``num_disp_m``  / ``Num_Disp_M``  -> ``N_MAX_DISP_M``
+      ``num_disp_m_vf``/ ``Num_Disp_M_VF`` -> ``N_MAX_DISP_M_VF``
 
-    Acepta tanto un ``dict`` como un ``DimensionesDispositivos`` (que
-    tiene ``__dict__`` con los campos ``num_disp_ed``, etc.).
+    Si una dim no esta en el Excel (operario no la puso), se
+    inicializa a 0 (cambio explicito a 0).
 
     Args:
-        dimensiones_raw: el dict / dataclass de donde sacar los
-            valores del Excel.
+        dimensiones_raw: dict o ``DimensionesDispositivos`` de donde
+            sacar los valores del Excel.
         config_manager: provee ``list_nmax_active()`` (keys canonicos).
 
     Returns:
         ``{nombre_nmax_uppercase: valor_int}`` listo para pasarse a
         ``compute_nmax_diff``.
     """
-    # Acepta dataclass (DimensionesDispositivos) ademas de dict.
-    if not isinstance(dimensiones_raw, dict):
+    # Acepta dataclass (DimensionesDispositivos). Si tiene
+    # ``all_nmax()``, lo usamos (es la fuente completa: 6 canonicos +
+    # extras unificados con naming consistente).
+    if hasattr(dimensiones_raw, "all_nmax") and callable(
+        getattr(dimensiones_raw, "all_nmax"),
+    ):
+        dimensiones_raw = dimensiones_raw.all_nmax()
+    elif not isinstance(dimensiones_raw, dict):
         dimensiones_raw = vars(dimensiones_raw) if hasattr(
             dimensiones_raw, "__dict__",
         ) else {}
 
     canonicos = list(config_manager.list_nmax_active())
     desired: dict[str, int] = {}
+
+    # Construimos el indice canonico -> [keys alternativas en el dict].
+    # Para cada canonico, buscamos TODAS las keys que mapean a el.
+    canonico_to_alt_keys: dict[str, list[str]] = {c: [] for c in canonicos}
+    for k, v_upper in _LEGACY_TO_CANONICAL_NMAX.items():
+        if v_upper in canonico_to_alt_keys:
+            canonico_to_alt_keys[v_upper].append(k)
+
     for canonico in canonicos:
-        # 1. intento: ya viene en canonico (futuro)
-        v = dimensiones_raw.get(canonico)
-        if v is not None:
-            desired[canonico] = int(v)
-            continue
-        # 2. intento: viene en lowercase legacy
-        legacy_key = next(
-            (k for k, v_upper in _LEGACY_TO_CANONICAL_NMAX.items()
-             if v_upper == canonico),
+        alt_keys = canonico_to_alt_keys[canonico]
+
+        # 1. intento: key canonica directa (``N_MAX_DISP_ED``).
+        # Vale 0 por defecto si ``values()`` la puso; la SOBREESCRIBIREMOS
+        # en intento 2/3 si hay una key Title Case o lowercase con valor real.
+
+        # 2. intento: Title Case (``Num_Disp_ED``) — el naming real del
+        # Excel del operario (parser de la hoja CONFIGURACION).
+        title_key = next(
+            (k for k in alt_keys
+             if k.startswith("Num_Disp_") and not k.startswith("Num_Disp_DISP")),
             None,
         )
-        if legacy_key and legacy_key in dimensiones_raw:
-            desired[canonico] = int(dimensiones_raw[legacy_key])
-            continue
-        # 3. intento: el operario no lo puso (Excel vacio para esta dim)
+        if title_key and title_key in dimensiones_raw:
+            v = dimensiones_raw[title_key]
+            if v is not None:
+                desired[canonico] = int(v)
+                continue
+
+        # 3. intento: lowercase legacy (``num_disp_ed``) — compat con
+        # ``to_api_dict()`` legacy (que solo emite lowercase).
+        lowercase_key = next(
+            (k for k in alt_keys if k.startswith("num_disp_")),
+            None,
+        )
+        if lowercase_key and lowercase_key in dimensiones_raw:
+            v = dimensiones_raw[lowercase_key]
+            if v is not None:
+                desired[canonico] = int(v)
+                continue
+
+        # 4. intento: key canonica directa (si el Excel ya emite
+        # uppercase con prefix, futuro).
+        if canonico in dimensiones_raw:
+            v = dimensiones_raw[canonico]
+            if v is not None:
+                desired[canonico] = int(v)
+                continue
+
+        # 5. intento: el operario no lo puso (Excel vacio para esta dim).
         desired[canonico] = 0
     return desired
 
