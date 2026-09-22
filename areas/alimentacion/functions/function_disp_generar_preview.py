@@ -39,6 +39,7 @@ Steps (4, mismo orden que el legacy ``generar_prevision``):
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from dataclasses import dataclass, field
