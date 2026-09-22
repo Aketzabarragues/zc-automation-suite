@@ -1,4 +1,4 @@
-"""Tests del FB ``FunctionProcGenerarPreview``.
+"""Tests del FB ``FunctionProcDBGenerarPreview``.
 
 Cubre:
   - Happy path: 8 ticks (1 arrancar + 6 steps + 1 finalizar), ``self.result``
@@ -24,10 +24,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from areas.alimentacion.functions.function_ProcGenerarPreview import (
-    FunctionProcGenerarPreview,
+from areas.alimentacion.functions.function_proc_db_generar_preview import (
+    FunctionProcDBGenerarPreview,
 )
-from areas.alimentacion.helpers.proc import proc_generar_preview as helper_mod
 from core.runtime.app_state import AppState
 from core.runtime.progress_buffer import ProgressTracker
 from core.infrastructure.config.config_manager import ConfigManager
@@ -89,8 +88,8 @@ def make_fb(
     app_state: MagicMock,
     bloques_cache: MagicMock,
     progress_tracker: ProgressTracker,
-) -> FunctionProcGenerarPreview:
-    return FunctionProcGenerarPreview(
+) -> FunctionProcDBGenerarPreview:
+    return FunctionProcDBGenerarPreview(
         nombre="proc_generar_preview_test",
         config_manager=config,
         tia_client=tia_client,
@@ -100,33 +99,33 @@ def make_fb(
     )
 
 
-def _patch_helper_fns() -> Any:
-    """Helper: parchea todas las funciones del helper para que sean no-op.
+def _patch_helper_fns(fb) -> Any:
+    """Helper: parchea todas las funciones del FB para que sean no-op.
 
     Devuelve un context manager compuesto que podemos usar con ``with``.
-    Cada funcion del helper se reemplaza por un mock vacio (sync o
+    Cada funcion del FB se reemplaza por un mock vacio (sync o
     async segun corresponda). ``proc_compose_response`` se reemplaza
     por un MagicMock que el test puede sobreescribir.
     """
     from contextlib import ExitStack
     stack = ExitStack()
     stack.enter_context(
-        patch.object(helper_mod, "proc_check_state", MagicMock(), create=True)
+        patch.object(fb, "proc_check_state", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(helper_mod, "proc_check_blocks", MagicMock(), create=True)
+        patch.object(fb, "proc_check_blocks", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(helper_mod, "proc_build_slot_maps", MagicMock(), create=True)
+        patch.object(fb, "proc_build_slot_maps", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(helper_mod, "proc_compute_nmax", AsyncMock(), create=True)
+        patch.object(fb, "proc_compute_nmax", AsyncMock(), create=True)
     )
     stack.enter_context(
-        patch.object(helper_mod, "proc_export_and_diff", AsyncMock(), create=True)
+        patch.object(fb, "proc_export_and_diff", AsyncMock(), create=True)
     )
     stack.enter_context(
-        patch.object(helper_mod, "proc_compose_response", MagicMock(), create=True)
+        patch.object(fb, "proc_compose_response", MagicMock(), create=True)
     )
     return stack
 
@@ -160,21 +159,20 @@ async def test_proc_generar_preview_happy_path_6_ticks(
         "warnings": [],
     }
 
-    def fake_compose(ctx: Any) -> None:
-        ctx.result = dict(fake_result)
+    def fake_compose() -> None:
+        fb._ctx.result = dict(fake_result)
 
-    with _patch_helper_fns() as stack:
+    fb = make_fb(
+        mock_config, mock_tia_client, mock_app_state,
+        mock_bloques_cache, progress,
+    )
+    with _patch_helper_fns(fb) as stack:
         # Sobre-escribimos proc_compose_response con nuestra version.
         stack.enter_context(
             patch.object(
-                helper_mod, "proc_compose_response",
+                fb, "proc_compose_response",
                 side_effect=fake_compose, create=True,
             )
-        )
-
-        fb = make_fb(
-            mock_config, mock_tia_client, mock_app_state,
-            mock_bloques_cache, progress,
         )
 
         ok = await fb.start(plc_name="S7-1500", proc_uid=42)
@@ -212,12 +210,12 @@ async def test_proc_generar_preview_happy_path_6_ticks(
         assert fb.result["db_param_name"] == "DB42_CPR_PARAM"
 
         # Cada helper fue llamado 1 vez (los MagicMock auto-trackean).
-        assert helper_mod.proc_check_state.call_count == 1
-        assert helper_mod.proc_check_blocks.call_count == 1
-        assert helper_mod.proc_build_slot_maps.call_count == 1
-        assert helper_mod.proc_compute_nmax.await_count == 1
-        assert helper_mod.proc_export_and_diff.await_count == 1
-        assert helper_mod.proc_compose_response.call_count == 1
+        assert fb.proc_check_state.call_count == 1
+        assert fb.proc_check_blocks.call_count == 1
+        assert fb.proc_build_slot_maps.call_count == 1
+        assert fb.proc_compute_nmax.await_count == 1
+        assert fb.proc_export_and_diff.await_count == 1
+        assert fb.proc_compose_response.call_count == 1
 
 
 # ── Sad paths (pre-flight) ───────────────────────────────────────────
@@ -231,7 +229,7 @@ async def test_proc_generar_preview_sad_no_config(
     progress: ProgressTracker,
 ) -> None:
     """Sin ``config_manager`` -> primer tick falla con "config_manager"."""
-    fb = FunctionProcGenerarPreview(
+    fb = FunctionProcDBGenerarPreview(
         nombre="no_config_test",
         config_manager=None,
         tia_client=mock_tia_client,
@@ -257,7 +255,7 @@ async def test_proc_generar_preview_sad_no_tia_client(
     progress: ProgressTracker,
 ) -> None:
     """Sin ``tia_client`` -> primer tick falla con "tia_client"."""
-    fb = FunctionProcGenerarPreview(
+    fb = FunctionProcDBGenerarPreview(
         nombre="no_tia_test",
         config_manager=mock_config,
         tia_client=None,

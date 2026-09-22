@@ -108,7 +108,7 @@ def post_proc_sync_preview():
     if err:
         return jsonify({"ok": False, "error": err}), 400
 
-    fb = _get_fb("proc_generar_preview")
+    fb = _get_fb("proc_db_generar_preview")
     if fb is None:
         return jsonify({
             "ok": False,

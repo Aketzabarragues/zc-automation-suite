@@ -121,8 +121,8 @@ def register(
     from areas.alimentacion.functions.function_DispSincronizar import (
         FunctionDispSincronizar,
     )
-    from areas.alimentacion.functions.function_ProcGenerarPreview import (
-        FunctionProcGenerarPreview,
+    from areas.alimentacion.functions.function_proc_db_generar_preview import (
+        FunctionProcDBGenerarPreview,
     )
     from areas.alimentacion.functions.function_ProcSincronizar import (
         FunctionProcSincronizar,
@@ -198,9 +198,9 @@ def register(
     # singleton TIADataBloqueCache (acceso sync al dict de
     # clase) si el FB se registro sin esa dep.
     engine.register_fb(
-        "proc_generar_preview",
-        FunctionProcGenerarPreview(
-            nombre="proc_generar_preview",
+        "proc_db_generar_preview",
+        FunctionProcDBGenerarPreview(
+            nombre="proc_db_generar_preview",
             config_manager=config_manager,
             tia_client=tia_client,
             build_cache=build_cache,
