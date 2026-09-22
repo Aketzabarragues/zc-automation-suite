@@ -174,7 +174,7 @@ def post_proc_sync_commit():
     if err:
         return jsonify({"ok": False, "error": err}), 400
 
-    fb = _get_fb("proc_sincronizar")
+    fb = _get_fb("proc_db_sincronizar")
     if fb is None:
         return jsonify({
             "ok": False,

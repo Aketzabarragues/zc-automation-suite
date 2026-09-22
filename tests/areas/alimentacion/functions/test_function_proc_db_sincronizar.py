@@ -1,4 +1,4 @@
-"""Tests del FB ``FunctionProcSincronizar``.
+"""Tests del FB ``FunctionProcDBSincronizar``.
 
 Cubre:
   - Happy path: 7 ticks (1 arrancar + 4 steps + 1 finalizar + 1 done),
@@ -25,10 +25,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from areas.alimentacion.functions.function_ProcSincronizar import (
-    FunctionProcSincronizar,
+from areas.alimentacion.functions.function_proc_db_sincronizar import (
+    FunctionProcDBSincronizar,
 )
-from areas.alimentacion.helpers.proc import proc_sincronizar as helper_mod
 from core.runtime.app_state import AppState
 from core.runtime.progress_buffer import ProgressTracker
 from core.infrastructure.config.config_manager import ConfigManager
@@ -89,8 +88,8 @@ def make_fb(
     app_state: MagicMock,
     bloques_cache: MagicMock,
     progress_tracker: ProgressTracker,
-) -> FunctionProcSincronizar:
-    return FunctionProcSincronizar(
+) -> FunctionProcDBSincronizar:
+    return FunctionProcDBSincronizar(
         nombre="proc_sincronizar_test",
         config_manager=config,
         tia_client=tia_client,
@@ -100,7 +99,7 @@ def make_fb(
     )
 
 
-def _patch_helper_fns() -> ExitStack:
+def _patch_helper_fns(fb) -> ExitStack:
     """Parchea todas las funciones del helper como no-op.
 
     El test puede sobre-escribir ``proc_done_summary_commit`` con su
@@ -108,31 +107,31 @@ def _patch_helper_fns() -> ExitStack:
     """
     stack = ExitStack()
     stack.enter_context(
-        patch.object(helper_mod, "proc_check_state_commit", MagicMock(), create=True)
+        patch.object(fb, "proc_check_state_commit", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(helper_mod, "proc_check_blocks_commit", MagicMock(), create=True)
+        patch.object(fb, "proc_check_blocks_commit", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(helper_mod, "proc_build_slot_maps_commit", MagicMock(), create=True)
+        patch.object(fb, "proc_build_slot_maps_commit", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(helper_mod, "proc_compute_nmax_ops", MagicMock(), create=True)
+        patch.object(fb, "proc_compute_nmax_ops", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(helper_mod, "proc_sync_nmax", AsyncMock(), create=True)
+        patch.object(fb, "proc_sync_nmax", AsyncMock(), create=True)
     )
     stack.enter_context(
-        patch.object(helper_mod, "proc_wait_consolidation", AsyncMock(), create=True)
+        patch.object(fb, "proc_wait_consolidation", AsyncMock(), create=True)
     )
     stack.enter_context(
-        patch.object(helper_mod, "proc_compile_blocks", AsyncMock(), create=True)
+        patch.object(fb, "proc_compile_blocks", AsyncMock(), create=True)
     )
     stack.enter_context(
-        patch.object(helper_mod, "proc_open_transaction", AsyncMock(), create=True)
+        patch.object(fb, "proc_open_transaction", AsyncMock(), create=True)
     )
     stack.enter_context(
-        patch.object(helper_mod, "proc_done_summary_commit", MagicMock(), create=True)
+        patch.object(fb, "proc_done_summary_commit", MagicMock(), create=True)
     )
     return stack
 
@@ -183,26 +182,26 @@ async def test_proc_sincronizar_happy_path_8_ticks(
     def fake_build_slot_maps(ctx: Any) -> None:
         ctx.slot_map = fake_slot_map
 
-    with _patch_helper_fns() as stack:
+    with _patch_helper_fns(fb) as stack:
+        fb = make_fb(
+            mock_config, mock_tia_client, mock_app_state,
+            mock_bloques_cache, progress,
+        )
         # Sobre-escribimos ``proc_build_slot_maps_commit`` y
         # ``proc_done_summary_commit``.
         stack.enter_context(
             patch.object(
-                helper_mod, "proc_build_slot_maps_commit",
+                fb, "proc_build_slot_maps_commit",
                 side_effect=fake_build_slot_maps, create=True,
             )
         )
         stack.enter_context(
             patch.object(
-                helper_mod, "proc_done_summary_commit",
+                fb, "proc_done_summary_commit",
                 side_effect=fake_done_summary, create=True,
             )
         )
 
-        fb = make_fb(
-            mock_config, mock_tia_client, mock_app_state,
-            mock_bloques_cache, progress,
-        )
 
         ok = await fb.start(plc_name="S7-1500", proc_uid=42)
         assert ok is True
@@ -237,15 +236,15 @@ async def test_proc_sincronizar_happy_path_8_ticks(
         assert fb.result["proc_uid"] == 42
 
         # Cada helper fue llamado 1 vez.
-        assert helper_mod.proc_check_state_commit.call_count == 1
-        assert helper_mod.proc_check_blocks_commit.call_count == 1
-        assert helper_mod.proc_build_slot_maps_commit.call_count == 1
-        assert helper_mod.proc_compute_nmax_ops.call_count == 1
-        assert helper_mod.proc_sync_nmax.await_count == 1
-        assert helper_mod.proc_wait_consolidation.await_count == 1
-        assert helper_mod.proc_compile_blocks.await_count == 1
-        assert helper_mod.proc_open_transaction.await_count == 1
-        assert helper_mod.proc_done_summary_commit.call_count == 1
+        assert fb.proc_check_state_commit.call_count == 1
+        assert fb.proc_check_blocks_commit.call_count == 1
+        assert fb.proc_build_slot_maps_commit.call_count == 1
+        assert fb.proc_compute_nmax_ops.call_count == 1
+        assert fb.proc_sync_nmax.await_count == 1
+        assert fb.proc_wait_consolidation.await_count == 1
+        assert fb.proc_compile_blocks.await_count == 1
+        assert fb.proc_open_transaction.await_count == 1
+        assert fb.proc_done_summary_commit.call_count == 1
 
 
 # ── Sad paths (pre-flight en on_start) ──────────────────────────────
@@ -259,7 +258,7 @@ async def test_proc_sincronizar_sad_no_config(
     progress: ProgressTracker,
 ) -> None:
     """Sin ``config_manager`` -> primer tick falla con "config_manager"."""
-    fb = FunctionProcSincronizar(
+    fb = FunctionProcDBSincronizar(
         nombre="no_config_test",
         config_manager=None,
         tia_client=mock_tia_client,
@@ -283,7 +282,7 @@ async def test_proc_sincronizar_sad_no_tia_client(
     progress: ProgressTracker,
 ) -> None:
     """Sin ``tia_client`` -> primer tick falla con "tia_client"."""
-    fb = FunctionProcSincronizar(
+    fb = FunctionProcDBSincronizar(
         nombre="no_tia_test",
         config_manager=mock_config,
         tia_client=None,
@@ -356,18 +355,18 @@ async def test_proc_sincronizar_sad_check_state_no_excel(
     def bad_check_state(ctx: Any) -> None:
         ctx.excel_loaded = False
 
-    with _patch_helper_fns() as stack:
-        stack.enter_context(
-            patch.object(
-                helper_mod, "proc_check_state_commit",
-                side_effect=bad_check_state, create=True,
-            )
-        )
-
+    with _patch_helper_fns(fb) as stack:
         fb = make_fb(
             mock_config, mock_tia_client, mock_app_state,
             mock_bloques_cache, progress,
         )
+        stack.enter_context(
+            patch.object(
+                fb, "proc_check_state_commit",
+                side_effect=bad_check_state, create=True,
+            )
+        )
+
         await fb.start(plc_name="S7-1500", proc_uid=42)
         await fb.tick()  # 10 -> 20 (on_start)
         await fb.tick()  # 20 -> 98 (check_state falla)
@@ -395,18 +394,18 @@ async def test_proc_sincronizar_sad_missing_blocks(
     def bad_build_slot_maps(ctx: Any) -> None:
         ctx.slot_map = fake_sm
 
-    with _patch_helper_fns() as stack:
-        stack.enter_context(
-            patch.object(
-                helper_mod, "proc_build_slot_maps_commit",
-                side_effect=bad_build_slot_maps, create=True,
-            )
-        )
-
+    with _patch_helper_fns(fb) as stack:
         fb = make_fb(
             mock_config, mock_tia_client, mock_app_state,
             mock_bloques_cache, progress,
         )
+        stack.enter_context(
+            patch.object(
+                fb, "proc_build_slot_maps_commit",
+                side_effect=bad_build_slot_maps, create=True,
+            )
+        )
+
         await fb.start(plc_name="S7-1500", proc_uid=42)
         await fb.tick()  # 10 -> 20
         await fb.tick()  # 20: check_state_commit (excel_loaded=True)
@@ -436,25 +435,25 @@ async def test_proc_sincronizar_sad_open_transaction_fails(
     def fake_build_slot_maps(ctx: Any) -> None:
         ctx.slot_map = fake_slot_map
 
-    with _patch_helper_fns() as stack:
+    with _patch_helper_fns(fb) as stack:
+        fb = make_fb(
+            mock_config, mock_tia_client, mock_app_state,
+            mock_bloques_cache, progress,
+        )
         stack.enter_context(
             patch.object(
-                helper_mod, "proc_build_slot_maps_commit",
+                fb, "proc_build_slot_maps_commit",
                 side_effect=fake_build_slot_maps, create=True,
             )
         )
         stack.enter_context(
             patch.object(
-                helper_mod, "proc_open_transaction",
+                fb, "proc_open_transaction",
                 side_effect=RuntimeError("Bloque DB42_CPR_PARAM no encontrado"),
                 create=True,
             )
         )
 
-        fb = make_fb(
-            mock_config, mock_tia_client, mock_app_state,
-            mock_bloques_cache, progress,
-        )
         await fb.start(plc_name="S7-1500", proc_uid=42)
         await fb.tick()  # 10 -> 20
         await fb.tick()  # 20: check_state_commit

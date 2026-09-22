@@ -124,8 +124,8 @@ def register(
     from areas.alimentacion.functions.function_proc_db_generar_preview import (
         FunctionProcDBGenerarPreview,
     )
-    from areas.alimentacion.functions.function_ProcSincronizar import (
-        FunctionProcSincronizar,
+    from areas.alimentacion.functions.function_proc_db_sincronizar import (
+        FunctionProcDBSincronizar,
     )
     from areas.alimentacion.functions.function_proc_crear_generar_preview import (
         FunctionProcCrearGenerarPreview,
@@ -208,9 +208,9 @@ def register(
         ),
     )
     engine.register_fb(
-        "proc_sincronizar",
-        FunctionProcSincronizar(
-            nombre="proc_sincronizar",
+        "proc_db_sincronizar",
+        FunctionProcDBSincronizar(
+            nombre="proc_db_sincronizar",
             config_manager=config_manager,
             tia_client=tia_client,
             build_cache=build_cache,
