@@ -150,12 +150,21 @@ class FunctionExcelCargar(FunctionBase):
         # El dispatcher de abajo itera esta tabla; no usamos ``match``
         # para que el orden sea visible arriba de la clase y los tests
         # puedan mockear ``fb._stage_N_<nombre>`` directamente.
-        for s_idx, _s_nombre, s_attr in self.STAGES:
-            if s_idx == idx:
+        #
+        # El lookup es por ``nombre`` (no por ``idx``) porque
+        # ``FunctionBase._step_ejecutar`` pasa ``idx`` 0-indexed sobre
+        # ``self.steps``. El ``idx`` de la tabla STAGES es 1-based y
+        # solo se usa para logging legible ("paso 1/2").
+        step_nombre = self.steps[idx]["nombre"]
+        for _s_idx, s_nombre, s_attr in self.STAGES:
+            if s_nombre == step_nombre:
                 handler = getattr(self, s_attr)
                 result = await handler()
                 return result
-        raise ValueError(f"step {idx} desconocido en FunctionExcelCargar")
+        raise ValueError(
+            f"step {idx} ({step_nombre!r}) no esta en STAGES "
+            f"de FunctionExcelCargar"
+        )
 
     # ==================================================================
     # HOOK 3: on_finish  (ZONA 5: vuelco del result)
