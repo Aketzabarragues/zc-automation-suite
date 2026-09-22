@@ -118,7 +118,7 @@ def register(
     from areas.alimentacion.functions.function_disp_generar_preview import (
         FunctionDispGenerarPreview,
     )
-    from areas.alimentacion.functions.function_DispSincronizar import (
+    from areas.alimentacion.functions.function_disp_sincronizar import (
         FunctionDispSincronizar,
     )
     from areas.alimentacion.functions.function_proc_db_generar_preview import (
