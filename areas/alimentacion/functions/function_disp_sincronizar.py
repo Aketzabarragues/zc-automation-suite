@@ -125,17 +125,17 @@ class FunctionDispSincronizar(FunctionBase):
             nombre=nombre,
             titulo=titulo,
             steps=steps if steps is not None else [
-                {"nombre": "exportar_tags"},
-                {"nombre": "compute_diff"},
-                {"nombre": "preparar_ops"},
-                {"nombre": "tx_a_nmax_renames"},
-                {"nombre": "wait_consolidation"},
-                {"nombre": "exportar_post_tx_a"},
-                {"nombre": "editar_xmls_offline"},
-                {"nombre": "tx_b_devices"},
-                {"nombre": "compilar_bloques"},
-                {"nombre": "aplicar_comentarios"},
-                {"nombre": "post_preview"},
+                {"nombre": "Exportar etiquetas"},
+                {"nombre": "Calcular diferencias de dispositivos"},
+                {"nombre": "Preparar operaciones"},
+                {"nombre": "Aplicar N_MAX y renombres"},
+                {"nombre": "Esperar consolidación TIA"},
+                {"nombre": "Re-exportar etiquetas"},
+                {"nombre": "Editar archivos XML"},
+                {"nombre": "Aplicar dispositivos"},
+                {"nombre": "Compilar bloques"},
+                {"nombre": "Aplicar comentarios"},
+                {"nombre": "Generar preview post-sincronización"},
             ],
             tracker=tracker,
         )
@@ -1294,42 +1294,46 @@ def _get_affected_dbs_for_compile(config_manager: Any) -> list[str]:
 
 
 def _step_summary(ctx: Any, step_nombre: str) -> str:
-    """Resumen legible del step que acaba de correr (aparece en la SPA)."""
-    if step_nombre == "exportar_tags":
+    """Resumen legible del step que acaba de correr (aparece en la SPA).
+
+    Mapea cada ``step_nombre`` de la tabla STAGES (humano) a los flags
+    que el stage muta en ``ctx``. Si el nombre no encaja, devuelve un
+    resumen neutro.
+    """
+    if step_nombre == "Exportar etiquetas":
         return (
             f"{step_nombre}: {len(ctx.selective_tables)} tablas exportadas"
         )
-    if step_nombre == "compute_diff":
+    if step_nombre == "Calcular diferencias de dispositivos":
         adds = sum(len(v) for v in ctx.added_per_table.values())
         rems = sum(len(v) for v in ctx.removed_per_table.values())
         return (
             f"{step_nombre}: {adds} adds, {rems} removes, "
             f"{len(ctx.renamed_per_table)} renames"
         )
-    if step_nombre == "preparar_ops":
+    if step_nombre == "Preparar operaciones":
         return (
             f"{step_nombre}: {len(ctx.nmax_ops)} N_MAX ops, "
             f"{len(ctx.device_changes)} tablas con cambios"
         )
-    if step_nombre == "tx_a_nmax_renames":
+    if step_nombre == "Aplicar N_MAX y renombres":
         ops = ctx.nmax_result.get("operations_executed", 0)
         return f"{step_nombre}: {ops} N_MAX aplicados en TIA"
-    if step_nombre == "wait_consolidation":
+    if step_nombre == "Esperar consolidación TIA":
         return (
             f"{step_nombre}: TIA consolida (2s)"
         )
-    if step_nombre == "exportar_post_tx_a":
+    if step_nombre == "Re-exportar etiquetas":
         return f"{step_nombre}: XMLs releidos post-Tx A"
-    if step_nombre == "editar_xmls_offline":
+    if step_nombre == "Editar archivos XML":
         return f"{step_nombre}: XMLs offline editados"
-    if step_nombre == "tx_b_devices":
+    if step_nombre == "Aplicar dispositivos":
         ops = ctx.devices_result.get("operations_executed", 0)
         return f"{step_nombre}: {ops} tablas importadas a TIA"
-    if step_nombre == "compilar_bloques":
+    if step_nombre == "Compilar bloques":
         label = "OK" if ctx.compile_ok else "WARN"
         return f"{step_nombre}: compile={label}"
-    if step_nombre == "aplicar_comentarios":
-        # N3: agregados reused/inserted por los 6 DBs de dispositivos.
+    if step_nombre == "Aplicar comentarios":
         s = ctx.comments_result.get("summary") or {}
         return (
             f"{step_nombre}: "
@@ -1337,7 +1341,7 @@ def _step_summary(ctx: Any, step_nombre: str) -> str:
             f"{s.get('total_inserted', 0)} inserted "
             f"en {s.get('disp_dbs_updated', 0)} DBs"
         )
-    if step_nombre == "post_preview":
+    if step_nombre == "Generar preview post-sincronización":
         return f"{step_nombre}: preview post-sync generado"
     return f"{step_nombre}: OK"
 
