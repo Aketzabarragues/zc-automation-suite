@@ -554,14 +554,21 @@ class FunctionDispSincronizar(FunctionBase):
                 f"[{self._ctx.plc_name}] Tx B (devices offline): "
                 f"import_dir={modified_dir}"
             )
+            # Batch con 1 sola op: ``import_plc_tags_xml`` masivo.
+            # El batch abre su propia ``start_transaction`` y rollback si falla.
             devices_result = await dispatch_async(
                 self._ctx.tia_client,
-                "commit_disp_devices_offline",
+                "execute_transactional_batch",
                 {
-                    "plc_name": self._ctx.plc_name,
-                    "device_changes": self._ctx.device_changes,
-                    "modified_dir": str(modified_dir),
-                    "undo_text": "Sync devices",
+                    "undo_text": "Sync devices (offline)",
+                    "operations": [{
+                        "command": "import_plc_tags_xml",
+                        "args": {
+                            "plc_name": self._ctx.plc_name,
+                            "import_dir": str(modified_dir),
+                            "target_folder": "",
+                        },
+                    }],
                 },
                 timeout_s=180.0,
             )
