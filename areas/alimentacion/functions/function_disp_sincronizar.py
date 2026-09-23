@@ -324,11 +324,18 @@ class FunctionDispSincronizar(FunctionBase):
         )
         await dispatch_async(
             self._ctx.tia_client,
-            "export_plc_tags_xml",
+            "execute_batch",
             {
-                "plc_name": self._ctx.plc_name,
-                "target_dir": str(self._ctx.tags_base),
-                "table_names": self._ctx.selective_tables,
+                "operations": [
+                    {
+                        "command": "export_plc_tags_xml",
+                        "args": {
+                            "plc_name": self._ctx.plc_name,
+                            "target_dir": str(self._ctx.tags_base),
+                            "table_names": self._ctx.selective_tables,
+                        },
+                    }
+                ],
             },
         )
 
@@ -518,11 +525,18 @@ class FunctionDispSincronizar(FunctionBase):
         )
         await dispatch_async(
             self._ctx.tia_client,
-            "export_plc_tags_xml",
+            "execute_batch",
             {
-                "plc_name": self._ctx.plc_name,
-                "target_dir": str(disp_ctx.sync_variables_export),
-                "table_names": [dc["table_name"] for dc in self._ctx.device_changes],
+                "operations": [
+                    {
+                        "command": "export_plc_tags_xml",
+                        "args": {
+                            "plc_name": self._ctx.plc_name,
+                            "target_dir": str(disp_ctx.sync_variables_export),
+                            "table_names": [dc["table_name"] for dc in self._ctx.device_changes],
+                        },
+                    }
+                ],
             },
         )
 
@@ -698,16 +712,25 @@ class FunctionDispSincronizar(FunctionBase):
         )
 
         # ── 4. Export UNA VEZ de los 6 DBs a exports/bloques/ ──
-        for hw_type, db_name in db_names.items():
-            await dispatch_async(
-                self._ctx.tia_client,
-                "export_block",
-                {
-                    "plc_name": self._ctx.plc_name,
-                    "block_name": db_name,
-                    "target_dir": str(exports_bloques),
-                },
-            )
+        # Una sola llamada execute_batch agrupa los 6 export_block
+        # (mismo target_dir, distintos block_name). Modo read-only.
+        await dispatch_async(
+            self._ctx.tia_client,
+            "execute_batch",
+            {
+                "operations": [
+                    {
+                        "command": "export_block",
+                        "args": {
+                            "plc_name": self._ctx.plc_name,
+                            "block_name": db_name,
+                            "target_dir": str(exports_bloques),
+                        },
+                    }
+                    for hw_type, db_name in db_names.items()
+                ],
+            },
+        )
 
         # ── 5. Copytree exports/bloques/ -> modified/bloques/ ──
         if exports_bloques.exists():
@@ -835,26 +858,31 @@ class FunctionDispSincronizar(FunctionBase):
                 if cm.get_dispositivo_config(hw) is not None
             ]
 
-            # 2/4. Exporta N_MAX → preview_config/.
+            # 2/4 + 3/4. Exporta FLAT (N_MAX + 6 disp tables) en un execute_batch.
             await dispatch_async(
                 self._ctx.tia_client,
-                "export_plc_tags_xml",
+                "execute_batch",
                 {
-                    "plc_name": self._ctx.plc_name,
-                    "target_dir": str(preview_config),
-                    "table_names": nmax_table_names,
-                    "keep_folder_structure": False,
-                },
-            )
-            # 3/4. Exporta 6 disp tables → preview_disp/.
-            await dispatch_async(
-                self._ctx.tia_client,
-                "export_plc_tags_xml",
-                {
-                    "plc_name": self._ctx.plc_name,
-                    "target_dir": str(preview_disp),
-                    "table_names": disp_table_names,
-                    "keep_folder_structure": False,
+                    "operations": [
+                        {
+                            "command": "export_plc_tags_xml",
+                            "args": {
+                                "plc_name": self._ctx.plc_name,
+                                "target_dir": str(preview_config),
+                                "table_names": nmax_table_names,
+                                "keep_folder_structure": False,
+                            },
+                        },
+                        {
+                            "command": "export_plc_tags_xml",
+                            "args": {
+                                "plc_name": self._ctx.plc_name,
+                                "target_dir": str(preview_disp),
+                                "table_names": disp_table_names,
+                                "keep_folder_structure": False,
+                            },
+                        },
+                    ],
                 },
             )
 
