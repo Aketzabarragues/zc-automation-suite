@@ -645,18 +645,15 @@ class FunctionDispSincronizar(FunctionBase):
 
         target_folder = self._ctx.config_manager.get_tia_folder_dispositivos()
 
-        # ── 3. Limpiar modified/bloques/ ──
-        # Aunque Stage 1 del sync ya limpio modified/, forzamos aqui
-        # por idempotencia si este stage se invoca standalone.
+        # ── 3. Resolver paths de bloques ──
+        # Stage 1 ya limpio ``sincronizar/`` con ``clean_sincronizar()``;
+        # no hace falta ``rmtree`` + ``mkdir`` aqui.
         disp_ctx = build_cache(root=self._ctx.build_cache_root).dispositivos
-        modified_bloques = disp_ctx.modified_bloques
-        if modified_bloques.exists():
-            shutil.rmtree(modified_bloques)
-        modified_bloques.mkdir(parents=True, exist_ok=True)
-        exports_bloques = disp_ctx.exports_bloques
-        logger.debug(
-            f"workdir (comentarios): exports={exports_bloques}, "
-            f"modified={modified_bloques}"
+        exports_bloques = disp_ctx.sync_bloques_export
+        modified_bloques = disp_ctx.sync_bloques_modified
+        logger.info(
+            f"[{self._ctx.plc_name}] sync bloques: "
+            f"exports={exports_bloques}, modified={modified_bloques}"
         )
 
         # ── 4. Export UNA VEZ de los 6 DBs a exports/bloques/ ──
