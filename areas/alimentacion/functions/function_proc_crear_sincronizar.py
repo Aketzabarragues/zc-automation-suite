@@ -140,15 +140,15 @@ class FunctionProcCrearSincronizar(FunctionBase):
     #   - ``atributo_metodo`` es un metodo del FB (no externo): un cambio
     #     de signatura requiere actualizar este registro.
     STAGES: list[tuple[int, str, str]] = [
-        (1, "leer_manifest",              "_stage_1_leer_manifest"),
-        (2, "validar_minimos",            "_stage_2_validar_minimos"),
-        (3, "copiar_a_preview",           "_stage_3_copiar_a_preview"),
-        (4, "construir_diccionarios",     "_stage_4_construir_diccionarios"),
-        (5, "generar_proceso_nuevo",      "_stage_5_generar_proceso_nuevo"),
-        (6, "escribir_manifest_modified", "_stage_6_escribir_manifest_modified"),
-        (7, "importar_proceso",           "_stage_7_importar_proceso"),
-        (8, "compilar",                   "_stage_8_compilar"),
-        (9, "done",                       "_stage_9_done"),
+        (1, "Leer manifiesto",             "_stage_1_leer_manifest"),
+        (2, "Validar mínimos",             "_stage_2_validar_minimos"),
+        (3, "Copiar a vista previa",       "_stage_3_copiar_a_preview"),
+        (4, "Construir diccionarios",      "_stage_4_construir_diccionarios"),
+        (5, "Generar proceso nuevo",       "_stage_5_generar_proceso_nuevo"),
+        (6, "Escribir manifiesto modificado", "_stage_6_escribir_manifest_modified"),
+        (7, "Importar proceso",            "_stage_7_importar_proceso"),
+        (8, "Compilar bloques",            "_stage_8_compilar"),
+        (9, "Componer respuesta",          "_stage_9_build_response"),
     ]
 
     # ==================================================================
@@ -170,15 +170,15 @@ class FunctionProcCrearSincronizar(FunctionBase):
             nombre=nombre,
             titulo=titulo,
             steps=steps if steps is not None else [
-                {"nombre": "leer_manifest"},
-                {"nombre": "validar_minimos"},
-                {"nombre": "copiar_a_preview"},
-                {"nombre": "construir_diccionarios"},
-                {"nombre": "generar_proceso_nuevo"},
-                {"nombre": "escribir_manifest_modified"},
-                {"nombre": "importar_proceso"},
-                {"nombre": "compilar"},
-                {"nombre": "done"},
+                {"nombre": "Leer manifiesto"},
+                {"nombre": "Validar mínimos"},
+                {"nombre": "Copiar a vista previa"},
+                {"nombre": "Construir diccionarios"},
+                {"nombre": "Generar proceso nuevo"},
+                {"nombre": "Escribir manifiesto modificado"},
+                {"nombre": "Importar proceso"},
+                {"nombre": "Compilar bloques"},
+                {"nombre": "Componer respuesta"},
             ],
             tracker=tracker,
         )
@@ -549,7 +549,7 @@ class FunctionProcCrearSincronizar(FunctionBase):
                 f"{self._compile_result.get('error') or '<sin error>'}"
             )
 
-    async def _stage_9_done(self) -> None:
+    async def _stage_9_build_response(self) -> None:
         """Stage 9: compone ``ctx.result`` con la shape final del apply."""
         from areas.alimentacion.helpers.proc import proc_process_generator
         await proc_process_generator.proc_process_done_summary(self._ctx)
