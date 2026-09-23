@@ -369,28 +369,57 @@ class FunctionProcDBSincronizar(FunctionBase):
         )
 
     async def _stage_4_sync_nmax(self) -> None:
-        """Stage 4: dispatch ``commit_user_constants_online``.
+        """Stage 4: dispatch ``execute_transactional_batch`` con N_MAX ops.
 
         Siempre se ejecuta, aunque ``ctx.nmax_ops=[]`` (requisito del
         operario: el flujo debe correr completo aunque los N_MAX ya
-        estuvieran aplicados).
+        estuvieran aplicados). Si la lista esta vacia, el batch aborta
+        con ``ValueError``; lo capturamos y emitimos un resultado OK
+        con 0 ops ejecutadas para que la state machine continue.
         """
+        operations: list[dict[str, Any]] = []
+        for nmax_op in self._ctx.nmax_ops:
+            operations.append({
+                "command": "update_user_constant_value",
+                "args": {
+                    "plc_name": self._ctx.plc_name,
+                    "table_name": nmax_op["table_name"],
+                    "constant_name": nmax_op["constant_name"],
+                    "new_value": nmax_op["new_value"],
+                },
+            })
+
+        if not operations:
+            # Sin ops: nada que aplicar, logueamos y seguimos.
+            logger.info(
+                f"[proc_db_sync {self._ctx.plc_name} u{self._ctx.proc_uid}] "
+                f"sin N_MAX ops; batch omitido"
+            )
+            self._ctx.nmax_result = {
+                "success": True,
+                "operations_executed": 0,
+                "details": [],
+            }
+            return
+
+        logger.info(
+            f"[proc_db_sync {self._ctx.plc_name} u{self._ctx.proc_uid}] "
+            f"Tx A (online): {len(operations)} N_MAX via batch"
+        )
         nmax_result = await dispatch_async(
             self._ctx.tia_client,
-            "commit_user_constants_online",
+            "execute_transactional_batch",
             {
-                "plc_name": self._ctx.plc_name,
-                "nmax_ops": self._ctx.nmax_ops,
-                "rename_ops": [],
                 "undo_text": (
                     f"Sync N_MAX proceso {self._ctx.proc_uid} "
                     f"({self._ctx.plc_name})"
                 ),
+                "operations": operations,
             },
         )
         if not nmax_result.get("ok"):
             raise RuntimeError(
-                f"commit_user_constants_online fallo: "
+                f"execute_transactional_batch fallo: "
                 f"{nmax_result.get('error') or '<sin error>'}"
             )
         self._ctx.nmax_result = nmax_result.get("result") or {}
