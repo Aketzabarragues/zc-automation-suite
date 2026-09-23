@@ -388,35 +388,24 @@ class FunctionDispGenerarPreview(FunctionBase):
         )
 
     async def _stage_3_compute_nmax(self) -> None:
-        """Stage 3: calcula el diff de N_MAX entre el TIA (export FLAT) y AppState.
-
-        Migrado sept-2026: usa ``compute_nmax_diff`` (funcion pura) en
-        vez del helper legacy ``_extract_nmax_diff``.
-
-        Layout nuevo: N_MAX vive en ``preview_config/`` (FLAT). El
-        desired viene de ``app_state.dimensiones``, normalizado al
-        naming de TIA (N_MAX_DISP_ED, etc.) - ver
-        ``_resolve_desired_nmax``.
-        """
+        """Stage 3: calcula el diff de N_MAX entre el TIA (export FLAT) y AppState."""
         assert self._ctx.preview_config_dir is not None, (
             "compute_nmax requiere exportar_tags previo (preview_config_dir)"
         )
         from areas.alimentacion.helpers.disp.disp_generate_preview import (
             compute_nmax_diff,
-            resolve_desired_nmax,
         )
 
-        # Resuelve desired_nmax desde ``app_state.dimensiones`` con el
-        # naming canonico de TIA (N_MAX_DISP_ED). Tambien acepta
-        # lowercase (``num_disp_ed``) por compat con el shape legacy
-        # del Excel (``DimensionesDispositivos.to_api_dict`` emite
-        # lowercase ``num_disp_*``).
+        # ``DimensionesDispositivos.to_api_dict()`` ya entrega nombres
+        # canonicos de TIA (``N_MAX_DISP_*``).
+        dimensiones = self._ctx.app_state.dimensiones
+        if hasattr(dimensiones, "to_api_dict"):
+            desired_nmax = dimensiones.to_api_dict()
+        else:
+            desired_nmax = dict(dimensiones or {})
+
         nmax_table_name = self._ctx.config_manager.get_global_config_table_name()
         xml_path = self._ctx.preview_config_dir / f"{nmax_table_name}.xml"
-        desired_nmax = resolve_desired_nmax(
-            self._ctx.app_state.dimensiones or {},
-            self._ctx.config_manager,
-        )
 
         # Bloque syncronico: parsea 1 XML + computa diff.
         # Envuelto en to_thread para no bloquear el event loop.

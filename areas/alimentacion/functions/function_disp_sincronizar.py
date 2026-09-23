@@ -764,7 +764,6 @@ class FunctionDispSincronizar(FunctionBase):
         from areas.alimentacion.helpers.disp.disp_generate_preview import (
             compute_diff_table,
             compute_nmax_diff,
-            resolve_desired_nmax,
         )
         from core.helpers.simatic_ml import PlcUserConstantParser
 
@@ -870,9 +869,10 @@ class FunctionDispSincronizar(FunctionBase):
                     })
 
             # 5/4. N_MAX.
-            desired_nmax = resolve_desired_nmax(
-                state.dimensiones or {}, cm,
-            )
+            if hasattr(state.dimensiones, "to_api_dict"):
+                desired_nmax = state.dimensiones.to_api_dict()
+            else:
+                desired_nmax = dict(state.dimensiones or {})
             nmax_diff = compute_nmax_diff(
                 table_name=nmax_table,
                 desired_nmax=desired_nmax,
