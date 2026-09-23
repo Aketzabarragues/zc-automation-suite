@@ -509,23 +509,28 @@ class FunctionDispSincronizar(FunctionBase):
         )
         if self._ctx.device_changes:
             # NO pasamos ``target_folder`` (TIA Portal V21 escanea
-            # ``modified_variables/`` recursivamente: si encuentra la
+            # ``sync/variables/modified`` recursivamente: si encuentra la
             # estructura interna del PLC (e.g.
             # ``2000_Dispositivos/2000_Disp_ED.xml``), hace match
             # automatico con su PLC tag interno y dispara UPDATE (no
             # CREATE). Pasar ``target_folder`` con un valor explicito
-            # fuer.a el match a una sola carpeta, lo rompe y causa
+            # fuerza el match a una sola carpeta, lo rompe y causa
             # ``CommitOnDispose``. Import a RAIZ con ``target_folder=""``
             # (default del handler) es el camino feliz.
             from areas.alimentacion.helpers.build_cache import build_cache
             disp_ctx = build_cache(root=self._ctx.build_cache_root).dispositivos
+            modified_dir = disp_ctx.sync_variables_modified
+            logger.info(
+                f"[{self._ctx.plc_name}] Tx B (devices offline): "
+                f"import_dir={modified_dir}"
+            )
             devices_result = await dispatch_async(
                 self._ctx.tia_client,
                 "commit_disp_devices_offline",
                 {
                     "plc_name": self._ctx.plc_name,
                     "device_changes": self._ctx.device_changes,
-                    "modified_dir": str(disp_ctx.modified_variables),
+                    "modified_dir": str(modified_dir),
                     "undo_text": "Sync devices",
                 },
                 timeout_s=180.0,
