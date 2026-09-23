@@ -39,6 +39,12 @@ from typing import Any
 from core.composition.plc_function_base import FunctionBase
 from core.helpers.tia import dispatch_async
 from core.runtime.app_state import AppState, get_app_state
+from areas.alimentacion.helpers.proc.proc_generar_preview import (
+    compose_arrays,
+    compute_summary,
+    empty_nmax_block,
+    extract_codigo,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -349,13 +355,13 @@ class FunctionProcDBGenerarPreview(FunctionBase):
         abortar el preview.
         """
         if self._ctx.slot_map is None or self._ctx.slot_map_error is not None:
-            self._ctx.nmax_block = _empty_nmax_block()
+            self._ctx.nmax_block = empty_nmax_block()
             return
 
         nmax_names = self._ctx.slot_map.nmax_names
         nmax_desired = self._ctx.slot_map.nmax
         if not nmax_names or not nmax_desired:
-            self._ctx.nmax_block = _empty_nmax_block()
+            self._ctx.nmax_block = empty_nmax_block()
             return
 
         from areas.alimentacion.helpers.build_cache import build_cache
@@ -650,7 +656,7 @@ class FunctionProcDBGenerarPreview(FunctionBase):
         if self._ctx.slot_map.missing_blocks:
             self._ctx.result = {
                 "proc_uid": self._ctx.proc_uid,
-                "proc_codigo": _extract_codigo(self._ctx.slot_map.db_param_name),
+                "proc_codigo": extract_codigo(self._ctx.slot_map.db_param_name),
                 "precondiciones_ok": False,
                 "missing_blocks": self._ctx.slot_map.missing_blocks,
                 "db_param_name": self._ctx.slot_map.db_param_name,
@@ -663,17 +669,17 @@ class FunctionProcDBGenerarPreview(FunctionBase):
             return
 
         # Happy path: compose arrays + summary, merge warnings.
-        arrays = _compose_arrays_internal(
+        arrays = compose_arrays(
             self._ctx.slot_map, self._ctx.preal_current, self._ctx.pint_current, self._ctx.alm_current
         )
-        summary = _compute_summary_internal(arrays)
+        summary = compute_summary(arrays)
         warnings = list(self._ctx.slot_map.warnings)
         if self._ctx.export_error:
             warnings.append(f"Export fallo: {self._ctx.export_error}. current=None.")
 
         self._ctx.result = {
             "proc_uid": self._ctx.proc_uid,
-            "proc_codigo": _extract_codigo(self._ctx.slot_map.db_param_name),
+            "proc_codigo": extract_codigo(self._ctx.slot_map.db_param_name),
             "precondiciones_ok": True,
             "missing_blocks": [],
             "db_param_name": self._ctx.slot_map.db_param_name,
@@ -729,151 +735,6 @@ class ProcPreviewContext:
 
     # ── Resultado de proc_compose_response (shape legacy final) ──
     result: dict[str, Any] = field(default_factory=dict)
-
-
-# ===========================================================================
-# Internals puras (no mutan ctx; reciben los datos como args)
-# ===========================================================================
-
-def _empty_nmax_block() -> dict[str, Any]:
-    """Shape de nmax_block cuando no hay config o falla el slot_map."""
-    return {
-        "current": {},
-        "desired": {},
-        "todos": [],
-        "summary": {
-            "actualizar": 0, "sin_cambios": 0, "total": 0,
-        },
-    }
-
-
-def _extract_codigo(db_param_name: str) -> str:
-    """Extrae el ``codigo`` del nombre de DB (``DB53100_CPR_PARAM``
-    -> ``"CPR"``). Devuelve ``""`` si el formato no encaja."""
-    parts = db_param_name.split("_")
-    if len(parts) >= 2:
-        return parts[1]
-    return ""
-
-
-def _compose_arrays_internal(
-    slot_map: Any,
-    preal_current: "dict[int, str | None] | None",
-    pint_current: "dict[int, str | None] | None",
-    alm_current: "dict[int, str | None] | None",
-) -> dict[str, Any]:
-    """Compone el dict ``arrays`` con los 3 arrays del proceso.
-
-    Para cada slot, generamos una entrada ``{current, desired,
-    action}`` con ``action in {"sin_cambios", "renombrar",
-    "agregar", "eliminar"}``.
-
-    Slots del Excel (``slot_map_dict``):
-      - Si se pasan los mapas ``*_current``: ``current`` es el
-        ``es-ES`` real de TIA y ``action``:
-          - ``"agregar"`` si el slot no existe en TIA (``current
-            is None``) -> el apply lo creara.
-          - ``"renombrar"`` si ``current != desired``.
-          - ``"sin_cambios"`` si ``current == desired``.
-      - Si los mapas son ``None`` (export degradado): ``action``
-        se infiere del desired (``"."`` -> "agregar", otro ->
-        "renombrar").
-
-    Slots de TIA NO en el Excel (``current_dict - slot_map_dict``):
-      - Caso "eliminar". El slot existe en TIA con un comentario
-        historico pero el operario no lo tiene en su Excel
-        (p. ej. compactado de 60 slots donde el Excel solo trae
-        los 20 que el operario quiere gestionar). El apply
-        resetea el comentario a ``"."`` (convencion TIA "sin
-        comentario"). Si el current es ``""`` (ya vacio),
-        ``action = "sin_cambios"``.
-    """
-    arrays: dict[str, Any] = {}
-    satellites_by_array = slot_map.satellites_by_array
-    for arr_name, slot_map_dict, db_name, current_dict in (
-        ("PReal", slot_map.preal, slot_map.db_param_name, preal_current),
-        ("PInt", slot_map.pint, slot_map.db_param_name, pint_current),
-        ("ALM", slot_map.alm, slot_map.db_alm_name, alm_current),
-    ):
-        satellites = satellites_by_array.get(arr_name.lower(), ())
-        slot_map_serialized: dict[str, Any] = {}
-        # Slots del Excel: comparar desired vs current.
-        for slot, desired in slot_map_dict.items():
-            if current_dict is not None:
-                current = current_dict.get(slot)
-                if current is None:
-                    action = "agregar"
-                elif current == desired:
-                    action = "sin_cambios"
-                else:
-                    action = "renombrar"
-            else:
-                current = None
-                action = "agregar" if desired == "." else "renombrar"
-            slot_map_serialized[str(slot)] = {
-                "current": current,
-                "desired": desired,
-                "action": action,
-            }
-        # Slots de TIA NO en el Excel: "eliminar".
-        if current_dict is not None:
-            excel_slots = set(slot_map_dict.keys())
-            tia_slots = set(current_dict.keys())
-            to_remove = sorted(tia_slots - excel_slots)
-            for slot in to_remove:
-                current = current_dict[slot]
-                if current is None or current == "":
-                    # Slot vacio en TIA, no hay nada que borrar.
-                    action = "sin_cambios"
-                else:
-                    action = "eliminar"
-                slot_map_serialized[str(slot)] = {
-                    "current": current,
-                    "desired": None,
-                    "action": action,
-                }
-        arrays[arr_name] = {
-            "db_name": db_name,
-            "array_name": arr_name,
-            "satellite_arrays": satellites,
-            "current_count": len(current_dict) if current_dict is not None else 0,
-            "desired_count": len(slot_map_dict),
-            "slot_map": slot_map_serialized,
-        }
-    return arrays
-
-
-def _compute_summary_internal(arrays: dict[str, Any]) -> dict[str, int]:
-    """Suma el total de slots y cuenta por tipo de accion.
-
-    Shape del dict (alineado con ``sync_dispositivos_instances``):
-    ``agregados``, ``renombrados``, ``eliminados``, ``sin_cambios``,
-    ``total``.
-    """
-    total = 0
-    agregados = 0
-    renombrados = 0
-    eliminados = 0
-    sin_cambios = 0
-    for arr in arrays.values():
-        for entry in arr.get("slot_map", {}).values():
-            total += 1
-            action = entry.get("action")
-            if action == "agregar":
-                agregados += 1
-            elif action == "renombrar":
-                renombrados += 1
-            elif action == "eliminar":
-                eliminados += 1
-            elif action == "sin_cambios":
-                sin_cambios += 1
-    return {
-        "total": total,
-        "agregados": agregados,
-        "renombrados": renombrados,
-        "eliminados": eliminados,
-        "sin_cambios": sin_cambios,
-    }
 
 
 __all__ = ["FunctionProcDBGenerarPreview", "ProcPreviewContext"]
