@@ -41,6 +41,7 @@ from core.helpers.tia import dispatch_async
 from core.runtime.app_state import AppState, get_app_state
 from areas.alimentacion.helpers.proc.proc_generar_preview import (
     compose_arrays,
+    compute_nmax_diff_for_proc,
     compute_summary,
     empty_nmax_block,
     extract_codigo,
@@ -344,10 +345,10 @@ class FunctionProcDBGenerarPreview(FunctionBase):
         Compara el desired (de ``DataProcSlotMap.nmax``, ``len()`` de las
         listas filtradas del Excel) contra el current (exportando la
         tabla del proceso con ``tia_client.export_plc_tags_xml`` y
-        parseando con ``PlcUserConstantParser.parse_user_constants``).
+        delegando en ``compute_nmax_diff_for_proc``).
 
         Mismo shape que el ``nmax_block`` de Dispositivos:
-        ``{"current", "desired", "todos", "summary"}``.
+        ``{"current", "desired", "todos", "summary", "nmax_error"}``.
 
         Si el config no aporta ``procesos.n_max_suffixes`` o no hay
         slot_map (fase previa fallo), devuelve un bloque vacio. Si el
@@ -365,14 +366,12 @@ class FunctionProcDBGenerarPreview(FunctionBase):
             return
 
         from areas.alimentacion.helpers.build_cache import build_cache
-        from core.helpers.simatic_ml import PlcUserConstantParser
         from core.infrastructure.tia.tia_export_paths import XmlTarget
 
         target_dir = build_cache(root=self._ctx.build_cache_root).procesos.preview_variables
         table_name = self._ctx.slot_map.table_name
         plc_name = self._ctx.bloques_cache.plc_name if self._ctx.bloques_cache else ""
 
-        current: dict[str, int] = {}
         try:
             await dispatch_async(
                 self._ctx.tia_client,
@@ -384,49 +383,35 @@ class FunctionProcDBGenerarPreview(FunctionBase):
                 },
                 timeout_s=120.0,
             )
-            try:
-                xml_path = XmlTarget(target_dir, table_name).path
-                current = PlcUserConstantParser.parse_user_constants(xml_path)
-            except FileNotFoundError:
-                logger.warning(
-                    f"[N_MAX procesos] XML esperado no encontrado en "
-                    f"{target_dir} para tabla {table_name}."
-                )
+            xml_path = XmlTarget(target_dir, table_name).path
+            nmax_diff = compute_nmax_diff_for_proc(
+                table_name=table_name,
+                nmax_names=nmax_names,
+                nmax_desired=nmax_desired,
+                xml_path=xml_path,
+            )
+            self._ctx.nmax_block = {
+                "current": nmax_diff.current,
+                "desired": nmax_diff.desired,
+                "todos": nmax_diff.todos,
+                "summary": nmax_diff.summary,
+                "nmax_error": (
+                    f"XML de N_MAX no encontrado en TIA export: {xml_path}"
+                    if nmax_diff.missing_xml else None
+                ),
+            }
+        except FileNotFoundError:
+            logger.warning(
+                f"[N_MAX procesos] XML esperado no encontrado en "
+                f"{target_dir} para tabla {table_name}."
+            )
+            self._ctx.nmax_block = empty_nmax_block()
         except Exception as exc:
             logger.warning(
                 f"[N_MAX procesos] export/parse fallo: {exc}. "
                 f"Devolviendo current={{}} para no romper la SPA."
             )
-            current = {}
-
-        todos: list[dict[str, Any]] = []
-        for kind, name in nmax_names.items():
-            cur_val = current.get(name)
-            des_val = nmax_desired.get(kind, 0)
-            if cur_val is not None and int(cur_val) == int(des_val):
-                status = "sin_cambios"
-            else:
-                status = "actualizar"
-            todos.append({
-                "kind": kind,
-                "name": name,
-                "actual": cur_val,
-                "nuevo": des_val,
-                "status": status,
-            })
-
-        self._ctx.nmax_block = {
-            "current": {nmax_names[k]: v for k, v in current.items()
-                        if k in nmax_names},
-            "desired": {nmax_names[k]: nmax_desired[k] for k in nmax_names
-                        if k in nmax_desired},
-            "todos": todos,
-            "summary": {
-                "actualizar": sum(1 for r in todos if r["status"] == "actualizar"),
-                "sin_cambios": sum(1 for r in todos if r["status"] == "sin_cambios"),
-                "total": len(todos),
-            },
-        }
+            self._ctx.nmax_block = empty_nmax_block()
 
     async def _stage_5_export_and_diff(self) -> None:
         """Exporta los 2 DBs del proceso y lee los ``es-ES`` actuales.

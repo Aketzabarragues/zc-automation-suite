@@ -1,17 +1,23 @@
-"""Helpers puros del FB ``function_proc_db_generar_preview``.
+"""Helpers puros del FB ``function_proc_db_generar_preview`` y del sync.
 
-Funciones sin estado compartido que el FB invoca en sus stages para
-componer el resultado del preview. Ninguna muta el ``ProcPreviewContext``:
-reciben los datos como argumentos y devuelven dicts/valores.
+Funciones sin estado compartido que el FB y su sync invocan para
+componer el resultado del preview. Ninguna muta el
+``ProcPreviewContext``: reciben los datos como argumentos y devuelven
+dataclasses/dicts/valores.
 
 Convencion F11: los helpers puros del area viven en
 ``areas/alimentacion/helpers/<dominio>/`` (no dentro del FB). Esto
 permite tests unitarios focalizados y reutilizacion desde otros FBs
-del mismo dominio.
+del mismo dominio (en particular, desde
+``function_proc_db_sincronizar._stage_8_post_preview``).
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
+
+from core.helpers.simatic_ml import PlcUserConstantParser
 
 
 def empty_nmax_block() -> dict[str, Any]:
@@ -155,4 +161,134 @@ def compute_summary(arrays: dict[str, Any]) -> dict[str, int]:
     }
 
 
-__all__ = ["empty_nmax_block", "extract_codigo", "compose_arrays", "compute_summary"]
+@dataclass(frozen=True)
+class NmaxDiff:
+    """Resultado del diff de N_MAX entre desired (Excel/AppState) y base (TIA).
+
+    Atributos:
+        table_name: nombre de la tabla del proceso (``"100_CPR"``).
+        current: valores del TIA (``{}`` si XML falta).
+        desired: valores del Excel (keys = nombres TIA canonicos).
+        todos: lista de ``{kind, name, actual, nuevo, status}`` por N_MAX.
+        summary: ``{actualizar, sin_cambios, total}``.
+        missing_xml: True si el XML no existia.
+    """
+
+    table_name: str
+    current: dict[str, int]
+    desired: dict[str, int]
+    todos: list[dict[str, Any]]
+    summary: dict[str, int]
+    missing_xml: bool = False
+
+
+def _read_nmax_xml(xml_path: Path) -> tuple[dict[str, int], str | None]:
+    """Lee un XML FLAT con N_MAX de un proceso y devuelve ``(values, error)``.
+
+    Devuelve ``({}, "XML no encontrado...")`` si el XML falta,
+    o ``({}, "parse fail: ...")`` si revienta.
+    """
+    import logging
+
+    if not xml_path.is_file():
+        return {}, f"XML de N_MAX no encontrado en TIA export: {xml_path}"
+    try:
+        values = PlcUserConstantParser.parse_user_constants(xml_path)
+        return dict(values), None
+    except Exception as exc:
+        logging.getLogger(__name__).error(
+            f"[N_MAX proc] Parse FAIL {xml_path}: {exc}"
+        )
+        return {}, f"parse fail: {exc}"
+
+
+def compute_nmax_diff_for_proc(
+    table_name: str,
+    nmax_names: dict[str, str],
+    nmax_desired: dict[str, int],
+    xml_path: Path,
+) -> NmaxDiff:
+    """Calcula el diff de N_MAX de un proceso entre Excel y TIA.
+
+    Args:
+        table_name: nombre de la tabla del proceso (``"100_CPR"``).
+        nmax_names: mapping ``kind -> nombre TIA canonico``
+            (ej: ``{"preal": "100_N_MAX_PREAL"}``).
+        nmax_desired: mapping ``kind -> valor deseado del Excel``
+            (ej: ``{"preal": 30}``).
+        xml_path: ruta al XML FLAT de la tabla del proceso exportada de TIA.
+
+    Returns:
+        ``NmaxDiff`` con ``current``/``desired`` (keys = nombres TIA),
+        ``todos`` con ``{kind, name, actual, nuevo, status}``, y
+        ``summary`` ``{actualizar, sin_cambios, total}``.
+    """
+    raw_current, error_message = _read_nmax_xml(xml_path)
+    missing_xml = error_message is not None
+
+    if missing_xml:
+        desired_filtered: dict[str, int] = {
+            nmax_names[k]: int(nmax_desired[k])
+            for k in nmax_names if k in nmax_desired
+        }
+        return NmaxDiff(
+            table_name=table_name,
+            current={},
+            desired=desired_filtered,
+            todos=[],
+            summary={
+                "actualizar": 0,
+                "sin_cambios": len(desired_filtered),
+                "total": len(desired_filtered),
+            },
+            missing_xml=True,
+        )
+
+    current_filtered: dict[str, int] = {
+        nmax_names[k]: int(v)
+        for k, v in raw_current.items()
+        if k in nmax_names
+    }
+    desired_filtered = {
+        nmax_names[k]: int(nmax_desired[k])
+        for k in nmax_names if k in nmax_desired
+    }
+
+    todos: list[dict[str, Any]] = []
+    for kind, name in nmax_names.items():
+        cur_val = current_filtered.get(name)
+        des_val = desired_filtered.get(name, 0)
+        if cur_val is not None and int(cur_val) == int(des_val):
+            status = "sin_cambios"
+        else:
+            status = "actualizar"
+        todos.append({
+            "kind": kind,
+            "name": name,
+            "actual": cur_val,
+            "nuevo": des_val,
+            "status": status,
+        })
+
+    return NmaxDiff(
+        table_name=table_name,
+        current=current_filtered,
+        desired=desired_filtered,
+        todos=todos,
+        summary={
+            "actualizar": sum(1 for r in todos if r["status"] == "actualizar"),
+            "sin_cambios": sum(1 for r in todos if r["status"] == "sin_cambios"),
+            "total": len(todos),
+        },
+        missing_xml=False,
+    )
+
+
+__all__ = [
+    "NmaxDiff",
+    "empty_nmax_block",
+    "extract_codigo",
+    "compose_arrays",
+    "compute_summary",
+    "compute_nmax_diff_for_proc",
+]
