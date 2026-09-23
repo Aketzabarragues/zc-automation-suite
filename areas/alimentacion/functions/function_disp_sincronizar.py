@@ -61,6 +61,10 @@ from core.runtime.app_state import AppState, get_app_state
 logger = logging.getLogger(__name__)
 
 
+# Sleep para que TIA consolide internamente entre Tx A y Tx B.
+TIA_CONSOLIDATION_SLEEP_S: float = 2.0
+
+
 class FunctionDispSincronizar(FunctionBase):
     """FB que sincroniza dispositivos contra TIA (11 etapas transaccionales)."""
 
