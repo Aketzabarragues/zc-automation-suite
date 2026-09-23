@@ -726,6 +726,13 @@ class FunctionDispSincronizar(FunctionBase):
         # ── 4. Export UNA VEZ de los 6 DBs a exports/bloques/ ──
         # Una sola llamada execute_batch agrupa los 6 export_block
         # (mismo target_dir, distintos block_name). Modo read-only.
+        # IMPORTANTE: ``keep_folder_structure=True`` para preservar la
+        # subcarpeta TIA (e.g. ``<exports>/2000_Dispositivos/DB.s7dcl``).
+        # El stage 10 hace ``import_block`` con ``target_folder=None`` =
+        # recursivo, y TIA V21 hace match UPDATE preservando el subpath
+        # relativo dentro del ``import_root_directory``. Si el .s7dcl
+        # queda FLAT, el relative path es vacio y TIA no sabe en que
+        # subcarpeta del PLC aplicar el UPDATE.
         batch_result = await dispatch_async(
             self._ctx.tia_client,
             "execute_batch",
@@ -737,6 +744,7 @@ class FunctionDispSincronizar(FunctionBase):
                             "plc_name": self._ctx.plc_name,
                             "block_name": db_name,
                             "target_dir": str(exports_bloques),
+                            "keep_folder_structure": True,
                         },
                     }
                     for hw_type, db_name in db_names.items()
