@@ -299,18 +299,25 @@ class FunctionDispSincronizar(FunctionBase):
     # ==================================================================
 
     async def _stage_1_exportar_tags(self) -> None:
-        """Limpia modified/ y exporta las tablas selectivas al snapshot."""
+        """Limpia sync/ y exporta las tablas selectivas al snapshot export."""
         from areas.alimentacion.helpers.build_cache import build_cache
 
         disp_ctx = build_cache(root=self._ctx.build_cache_root).dispositivos
-        disp_ctx.clean()
-        # El snapshot limpio vive en ``exports_variables`` (convencion de 9
-        # carpetas). ``modified_variables`` se rellena en ``editar_xmls_offline``
-        # via ``shutil.copytree`` filtrado (que excluye ``000_Config_Dispositivos``
-        # para no re-importar la N_MAX online en Tx B).
-        self._ctx.tags_base = disp_ctx.exports_variables
+        # Borra ``sincronizar/{variables,bloques}/{export,modified}``.
+        # Conserva ``preview/`` (puede contener artefactos del operario).
+        disp_ctx.clean_sincronizar()
+        # ``sync_variables_export`` = destino de la exportacion. ``modified``
+        # se rellena en ``_stage_7_editar_xmls_offline`` con copytree filtrado.
+        self._ctx.tags_base = disp_ctx.sync_variables_export
+        self._ctx.tags_modified = disp_ctx.sync_variables_modified
         self._ctx.selective_tables = _selective_table_names(self._ctx.config_manager)
-        logger.debug(f"workdir (exports): {self._ctx.tags_base}")
+        logger.info(
+            f"[{self._ctx.plc_name}] sync export dir: {self._ctx.tags_base}"
+        )
+        logger.info(
+            f"[{self._ctx.plc_name}] sync modified dir (rellenado en stage 7): "
+            f"{self._ctx.tags_modified}"
+        )
         await dispatch_async(
             self._ctx.tia_client,
             "export_plc_tags_xml",
@@ -952,6 +959,7 @@ class DispSyncContext:
 
     # ── Resultados de exportar_tags ──
     tags_base: Path | None = None
+    tags_modified: Path | None = None
     selective_tables: list[str] = field(default_factory=list)
 
     # ── Resultados de compute_diff ──
