@@ -909,7 +909,7 @@ class FunctionDispSincronizar(FunctionBase):
                         status, actual, nuevo = "sin_cambios", diff.base[uid], diff.base[uid]
                     all_todos.append({
                         "table": cfg.tag_table,
-                        "type": cfg.tag_name.lower(),
+                        "type": hw,
                         "uid": uid,
                         "numero": numero,
                         "actual": actual,
