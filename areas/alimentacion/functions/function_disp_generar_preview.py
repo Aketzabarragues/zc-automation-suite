@@ -104,10 +104,10 @@ class FunctionDispGenerarPreview(FunctionBase):
             nombre=nombre,
             titulo=titulo,
             steps=steps if steps is not None else [
-                {"nombre": "exportar_tags"},
-                {"nombre": "compute_devices"},
-                {"nombre": "compute_nmax"},
-                {"nombre": "build_response"},
+                {"nombre": "Exportar etiquetas"},
+                {"nombre": "Calcular diferencias de dispositivos"},
+                {"nombre": "Calcular diferencias de N_MAX"},
+                {"nombre": "Componer respuesta"},
             ],
             tracker=tracker,
         )
