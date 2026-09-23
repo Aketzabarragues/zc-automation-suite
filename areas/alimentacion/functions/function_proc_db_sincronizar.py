@@ -714,39 +714,154 @@ class FunctionProcDBSincronizar(FunctionBase):
     async def _stage_8_post_preview(self) -> None:
         """Stage 8: regenera el preview tras el commit.
 
-        Para que la SPA vea "todo en sync" sin pedir preview manual.
-        Si TIA aun esta consolidando Tx B, captura la excepcion y deja
-        ``ctx.post_sync_preview=None`` (warning en log). El operario
-        puede lanzar preview manual.
-        """
-        from areas.alimentacion.helpers.proc.proc_generar_preview import (
-            ProcPreviewContext,
-            proc_build_slot_maps as pv_build_slot_maps,
-            proc_check_blocks as pv_check_blocks,
-            proc_check_state as pv_check_state,
-            proc_compose_response as pv_compose_response,
-            proc_compute_nmax as pv_compute_nmax,
-            proc_export_and_diff as pv_export_and_diff,
-        )
+        Replica el flujo del preview (``generar_prevision``) inline,
+        sin state machine externa, usando las funciones puras del
+        helper ``helpers/proc/proc_generar_preview.py``. Mismo patron
+        que ``_stage_11_disp_post_preview`` de ``function_disp_sincronizar``.
 
-        pv_ctx = ProcPreviewContext(
-            plc_name=self._ctx.plc_name,
-            proc_uid=self._ctx.proc_uid,
-            tia_client=self._ctx.tia_client,
-            config_manager=self._ctx.config_manager,
-            app_state=self._ctx.app_state,
-            build_cache_root=self._ctx.build_cache_root,
-            bloques_cache=self._ctx.bloques_cache,
+        Pasos:
+          1. Limpia ``preview/`` + re-exporta DB_PARAM + DB_ALM + tabla N_MAX.
+          2. ``compute_proc_slot_diff`` (helper) -> preal/pint/alm current.
+          3. ``compute_nmax_diff_for_proc`` (helper) -> N_MAX current.
+          4. ``compose_arrays`` + ``compute_summary`` (helper) -> shape.
+          5. Compone ``post_sync_preview`` con shape legacy esperada
+             por la SPA.
+
+        Si TIA aun consolida Tx B y algun export/parse falla,
+        captura la excepcion y deja ``ctx.post_sync_preview=None``
+        (warning en log). El operario puede lanzar preview manual.
+        """
+        from pathlib import Path
+
+        from areas.alimentacion.helpers.build_cache import build_cache
+        from areas.alimentacion.helpers.proc.proc_generar_preview import (
+            compose_arrays,
+            compute_nmax_diff_for_proc,
+            compute_proc_slot_diff,
+            compute_summary,
         )
+        from core.infrastructure.tia.tia_export_paths import SdPair, XmlTarget
 
         try:
-            pv_check_state(pv_ctx)
-            pv_check_blocks(pv_ctx)
-            pv_build_slot_maps(pv_ctx)
-            await pv_compute_nmax(pv_ctx)
-            await pv_export_and_diff(pv_ctx)
-            pv_compose_response(pv_ctx)
-            self._ctx.post_sync_preview = pv_ctx.result
+            slot_map = self._ctx.slot_map
+            if slot_map is None:
+                raise RuntimeError("slot_map no disponible (sync no llego al stage 3)")
+
+            plc_name = self._ctx.plc_name
+            proc_uid = self._ctx.proc_uid
+
+            # 1/5. Limpia preview/ + exporta 2 DBs + tabla N_MAX.
+            proc_ctx = build_cache(root=self._ctx.build_cache_root).procesos
+            proc_ctx.clean_preview()
+            preview_bloques = proc_ctx.preview_bloques
+            preview_variables = proc_ctx.preview_variables
+
+            await dispatch_async(
+                self._ctx.tia_client,
+                "export_block",
+                {
+                    "plc_name": plc_name,
+                    "block_name": slot_map.db_param_name,
+                    "target_dir": str(preview_bloques),
+                },
+                timeout_s=120.0,
+            )
+            await dispatch_async(
+                self._ctx.tia_client,
+                "export_block",
+                {
+                    "plc_name": plc_name,
+                    "block_name": slot_map.db_alm_name,
+                    "target_dir": str(preview_bloques),
+                },
+                timeout_s=120.0,
+            )
+
+            dcl_param_path = SdPair(preview_bloques, slot_map.db_param_name).dcl
+            res_param_path = SdPair(preview_bloques, slot_map.db_param_name).res
+            dcl_alm_path = SdPair(preview_bloques, slot_map.db_alm_name).dcl
+            res_alm_path = SdPair(preview_bloques, slot_map.db_alm_name).res
+            dcl_param_text = (
+                dcl_param_path.read_text(encoding="utf-8-sig")
+                if dcl_param_path.exists() else ""
+            )
+            res_param_text = (
+                res_param_path.read_text(encoding="utf-8-sig")
+                if res_param_path.exists() else ""
+            )
+            dcl_alm_text = (
+                dcl_alm_path.read_text(encoding="utf-8-sig")
+                if dcl_alm_path.exists() else ""
+            )
+            res_alm_text = (
+                res_alm_path.read_text(encoding="utf-8-sig")
+                if res_alm_path.exists() else ""
+            )
+
+            await dispatch_async(
+                self._ctx.tia_client,
+                "export_plc_tags_xml",
+                {
+                    "plc_name": plc_name,
+                    "target_dir": str(preview_variables),
+                    "table_names": [slot_map.table_name],
+                },
+                timeout_s=120.0,
+            )
+
+            # 2/5. Diff de slots (helper puro).
+            preal_current, pint_current, alm_current = compute_proc_slot_diff(
+                slot_map=slot_map,
+                dcl_param_text=dcl_param_text,
+                res_param_text=res_param_text,
+                dcl_alm_text=dcl_alm_text,
+                res_alm_text=res_alm_text,
+            )
+
+            # 3/5. Diff de N_MAX (helper puro).
+            xml_path = XmlTarget(preview_variables, slot_map.table_name).path
+            nmax_diff = compute_nmax_diff_for_proc(
+                table_name=slot_map.table_name,
+                nmax_names=slot_map.nmax_names,
+                nmax_desired=slot_map.nmax,
+                xml_path=xml_path,
+            )
+
+            # 4/5. Compose arrays + summary (helper puro).
+            arrays = compose_arrays(slot_map, preal_current, pint_current, alm_current)
+            summary = compute_summary(arrays)
+            warnings: list[str] = list(slot_map.warnings)
+            if preal_current is None or pint_current is None:
+                warnings.append("Export DB_PARAM o lectura fallo: PReal/PInt current=None.")
+            if alm_current is None:
+                warnings.append("Export DB_ALM o lectura fallo: ALM current=None.")
+
+            # 5/5. Compone post_sync_preview (shape legacy).
+            from areas.alimentacion.helpers.proc.proc_generar_preview import (
+                extract_codigo,
+            )
+            self._ctx.post_sync_preview = {
+                "proc_uid": proc_uid,
+                "proc_codigo": extract_codigo(slot_map.db_param_name),
+                "precondiciones_ok": True,
+                "missing_blocks": [],
+                "db_param_name": slot_map.db_param_name,
+                "db_alm_name": slot_map.db_alm_name,
+                "table_name": slot_map.table_name,
+                "arrays": arrays,
+                "summary": summary,
+                "nmax": {
+                    "current": nmax_diff.current,
+                    "desired": nmax_diff.desired,
+                    "todos": nmax_diff.todos,
+                    "summary": nmax_diff.summary,
+                    "nmax_error": (
+                        f"XML de N_MAX no encontrado en {xml_path}"
+                        if nmax_diff.missing_xml else None
+                    ),
+                },
+                "warnings": warnings,
+            }
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 f"[{self._ctx.plc_name}/proceso {self._ctx.proc_uid}] "
