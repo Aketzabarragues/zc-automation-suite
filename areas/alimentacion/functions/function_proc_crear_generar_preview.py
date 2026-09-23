@@ -53,11 +53,11 @@ Steps (8):
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
 from typing import Any
 
 from core.composition.plc_function_base import FunctionBase
+from areas.alimentacion.helpers.build_cache import DEFAULT_BUILD_CACHE_ROOT
 
 logger = logging.getLogger(__name__)
 
@@ -134,10 +134,7 @@ class FunctionProcCrearGenerarPreview(FunctionBase):
         # por homogeneidad pero no se usan.
         self._config = config_manager
         self._tia_client = tia_client
-        self._build_cache_root: Path = (
-            build_cache if build_cache is not None
-            else Path(os.getcwd()) / ".build_cache"
-        )
+        self._build_cache_root: Path = build_cache or DEFAULT_BUILD_CACHE_ROOT
         # ZONA 3: estado entre ticks.
         self._plantillas_path: str = ""
         self._dir_plantilla_nombre: str = ""

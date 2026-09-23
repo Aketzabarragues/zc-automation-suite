@@ -47,7 +47,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import shutil
 import time
 from dataclasses import dataclass, field
@@ -57,6 +56,7 @@ from typing import Any
 from core.composition.plc_function_base import FunctionBase
 from core.helpers.tia import dispatch_async, validate_execute_batch_result
 from core.runtime.app_state import AppState, get_app_state
+from areas.alimentacion.helpers.build_cache import DEFAULT_BUILD_CACHE_ROOT
 
 logger = logging.getLogger(__name__)
 
@@ -142,10 +142,7 @@ class FunctionDispSincronizar(FunctionBase):
         # ZONA 0: deps inyectadas.
         self._config = config_manager
         self._tia_client = tia_client
-        self._build_cache_root: Path = (
-            build_cache if build_cache is not None
-            else Path(os.getcwd()) / ".build_cache"
-        )
+        self._build_cache_root: Path = build_cache or DEFAULT_BUILD_CACHE_ROOT
         # Deps especificas.
         self._state: AppState = (
             app_state if app_state is not None else get_app_state()
