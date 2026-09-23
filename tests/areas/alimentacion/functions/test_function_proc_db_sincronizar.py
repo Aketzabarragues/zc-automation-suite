@@ -102,7 +102,7 @@ def make_fb(
 def _patch_helper_fns(fb) -> ExitStack:
     """Parchea todas las funciones del helper como no-op.
 
-    El test puede sobre-escribir ``_stage_9_done`` con su
+    El test puede sobre-escribir ``_stage_9_build_response`` con su
     propio side_effect despues de entrar al contexto.
     """
     stack = ExitStack()
@@ -114,9 +114,6 @@ def _patch_helper_fns(fb) -> ExitStack:
     )
     stack.enter_context(
         patch.object(fb, "_stage_3_build_slot_maps_commit", MagicMock(), create=True)
-    )
-    stack.enter_context(
-        patch.object(fb, "_proc_compute_nmax_ops_inline", MagicMock(), create=True)
     )
     stack.enter_context(
         patch.object(fb, "_stage_4_sync_nmax", AsyncMock(), create=True)
@@ -131,7 +128,10 @@ def _patch_helper_fns(fb) -> ExitStack:
         patch.object(fb, "_stage_7_open_transaction", AsyncMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "_stage_9_done", MagicMock(), create=True)
+        patch.object(fb, "_stage_8_post_preview", AsyncMock(), create=True)
+    )
+    stack.enter_context(
+        patch.object(fb, "_stage_9_build_response", MagicMock(), create=True)
     )
     return stack
 
@@ -169,8 +169,9 @@ async def test_proc_sincronizar_happy_path_8_ticks(
         "warnings": [],
     }
 
-    def fake_done_summary(ctx: Any) -> None:
-        ctx.result = dict(fake_result)
+    def fake_done_summary() -> None:
+        # El dispatcher del FB llama los stages sin args.
+        fb._ctx.result = dict(fake_result)
 
     fake_slot_map = MagicMock()
     fake_slot_map.missing_blocks = []
@@ -179,16 +180,18 @@ async def test_proc_sincronizar_happy_path_8_ticks(
     fake_slot_map.alm = {1: "Alarma 1"}
     fake_slot_map.warnings = []
 
-    def fake_build_slot_maps(ctx: Any) -> None:
-        ctx.slot_map = fake_slot_map
+    def fake_build_slot_maps() -> None:
+        # El dispatcher del FB llama los stages sin args
+        # (handler(), no handler(ctx)).
+        fb._ctx.slot_map = fake_slot_map
 
+    fb = make_fb(
+        mock_config, mock_tia_client, mock_app_state,
+        mock_bloques_cache, progress,
+    )
     with _patch_helper_fns(fb) as stack:
-        fb = make_fb(
-            mock_config, mock_tia_client, mock_app_state,
-            mock_bloques_cache, progress,
-        )
         # Sobre-escribimos ``_stage_3_build_slot_maps_commit`` y
-        # ``_stage_9_done``.
+        # ``_stage_9_build_response``.
         stack.enter_context(
             patch.object(
                 fb, "_stage_3_build_slot_maps_commit",
@@ -197,7 +200,7 @@ async def test_proc_sincronizar_happy_path_8_ticks(
         )
         stack.enter_context(
             patch.object(
-                fb, "_stage_9_done",
+                fb, "_stage_9_build_response",
                 side_effect=fake_done_summary, create=True,
             )
         )
@@ -239,12 +242,11 @@ async def test_proc_sincronizar_happy_path_8_ticks(
         assert fb._stage_1_check_state_commit.call_count == 1
         assert fb._stage_2_check_blocks_commit.call_count == 1
         assert fb._stage_3_build_slot_maps_commit.call_count == 1
-        assert fb._proc_compute_nmax_ops_inline.call_count == 1
         assert fb._stage_4_sync_nmax.await_count == 1
         assert fb._stage_5_wait_consolidation.await_count == 1
         assert fb._stage_6_compile_proc_blocks.await_count == 1
         assert fb._stage_7_open_transaction.await_count == 1
-        assert fb._stage_9_done.call_count == 1
+        assert fb._stage_9_build_response.call_count == 1
 
 
 # ── Sad paths (pre-flight en on_start) ──────────────────────────────
@@ -352,14 +354,16 @@ async def test_proc_sincronizar_sad_check_state_no_excel(
     progress: ProgressTracker,
 ) -> None:
     """Si helper reporta excel no cargado, el primer step ejecutivo falla."""
-    def bad_check_state(ctx: Any) -> None:
-        ctx.excel_loaded = False
+    def bad_check_state() -> None:
+        # El helper real check_state lanza RuntimeError si el
+        # Excel no esta cargado. Simulamos eso.
+        raise RuntimeError("Excel no cargado")
 
-    with _patch_helper_fns(fb) as stack:
-        fb = make_fb(
+    fb = make_fb(
             mock_config, mock_tia_client, mock_app_state,
             mock_bloques_cache, progress,
         )
+    with _patch_helper_fns(fb) as stack:
         stack.enter_context(
             patch.object(
                 fb, "_stage_1_check_state_commit",
@@ -391,14 +395,16 @@ async def test_proc_sincronizar_sad_missing_blocks(
     fake_sm.pint = {1: "Param 1"}
     fake_sm.alm = {1: "Alarma 1"}
 
-    def bad_build_slot_maps(ctx: Any) -> None:
-        ctx.slot_map = fake_sm
+    def bad_build_slot_maps() -> None:
+        # El helper real build_slot_maps lanza RuntimeError si hay
+        # missing_blocks. Simulamos eso.
+        raise RuntimeError("Bloques missing: DB42_CPR_PARAM no esta en el PLC")
 
-    with _patch_helper_fns(fb) as stack:
-        fb = make_fb(
+    fb = make_fb(
             mock_config, mock_tia_client, mock_app_state,
             mock_bloques_cache, progress,
         )
+    with _patch_helper_fns(fb) as stack:
         stack.enter_context(
             patch.object(
                 fb, "_stage_3_build_slot_maps_commit",
@@ -432,14 +438,16 @@ async def test_proc_sincronizar_sad_open_transaction_fails(
     fake_slot_map.pint = {1: "Param 1"}
     fake_slot_map.alm = {1: "Alarma 1"}
 
-    def fake_build_slot_maps(ctx: Any) -> None:
-        ctx.slot_map = fake_slot_map
+    def fake_build_slot_maps() -> None:
+        # El dispatcher del FB llama los stages sin args
+        # (handler(), no handler(ctx)).
+        fb._ctx.slot_map = fake_slot_map
 
-    with _patch_helper_fns(fb) as stack:
-        fb = make_fb(
+    fb = make_fb(
             mock_config, mock_tia_client, mock_app_state,
             mock_bloques_cache, progress,
         )
+    with _patch_helper_fns(fb) as stack:
         stack.enter_context(
             patch.object(
                 fb, "_stage_3_build_slot_maps_commit",

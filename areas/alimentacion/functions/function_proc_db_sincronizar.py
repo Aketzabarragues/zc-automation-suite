@@ -196,10 +196,10 @@ class FunctionProcDBSincronizar(FunctionBase):
             )
 
         # Crear el ProcSyncContext que las 4 funciones iran mutando.
-        # Lazy import para evitar ciclo con helpers/proc/.
-        from areas.alimentacion.helpers.proc.proc_sincronizar import (
-            ProcSyncContext,
-        )
+        # ``ProcSyncContext`` esta definido en este mismo modulo (al
+        # final del archivo); el import legacy desde
+        # ``helpers/proc/proc_sincronizar`` apunta a un modulo que
+        # se elimino en F1-F11 al absorber los orquestadores a los FBs.
         self._ctx = ProcSyncContext(
             plc_name=self._plc_name,
             proc_uid=self._proc_uid,
