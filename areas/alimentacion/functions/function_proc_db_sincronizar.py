@@ -693,15 +693,26 @@ class FunctionProcDBSincronizar(FunctionBase):
                         dirs_exist_ok=True,
                     )
 
-            # Un solo import_block: TIA recorre sync_bloques_modified y hace
-            # match UPDATE por nombre de bloque preservando su subpath.
+            # Un solo import_block bajo execute_transactional_batch para
+            # atomicidad semantica: si TIA falla durante el scaneo
+            # recursivo de sync_bloques_modified, rollback total.
             await dispatch_async(
                 self._ctx.tia_client,
-                "import_block",
+                "execute_transactional_batch",
                 {
-                    "plc_name": plc_name,
-                    "import_dir": str(modified_root),
-                    "target_folder": "",
+                    "undo_text": (
+                        f"Sync proc_db {self._ctx.proc_uid} (Tx B)"
+                    ),
+                    "operations": [
+                        {
+                            "command": "import_block",
+                            "args": {
+                                "plc_name": plc_name,
+                                "import_dir": str(modified_root),
+                                "target_folder": "",
+                            },
+                        },
+                    ],
                 },
                 timeout_s=600.0,
             )
