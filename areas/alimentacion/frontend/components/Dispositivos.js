@@ -154,15 +154,10 @@ export default {
                 const r = await apiGeneratePreview(store.selectedPlc);
                 if (r.ok) {
                     store.previewData = r.data;
-                    pushLog("Previsión generada OK", "success");
                 } else if (r.errorType === "TIAConnectionError") {
                     // TIA Portal no responde: el backend ya invalido
                     // su cache; limpiamos el state del PLC en el SPA
                     // para evitar trabajar con datos stale.
-                    pushLog(
-                        "TIA Portal no responde. Reconecta y vuelve a seleccionar el PLC.",
-                        "error"
-                    );
                     resetPlcState();
                 } else {
                     alert(
@@ -211,10 +206,6 @@ export default {
                     // llamar al endpoint de preview manualmente.
                     if (r.data && r.data.post_sync_preview) {
                         store.previewData = r.data.post_sync_preview;
-                        pushLog(
-                            "Transacción aplicada OK. Vista refrescada con estado post-sync.",
-                            "success"
-                        );
                     } else {
                         // Fallback: re-llamar al preview endpoint.
                         const rp = await apiGeneratePreview(
@@ -227,24 +218,12 @@ export default {
                             // backend ya invalido su cache; limpiamos
                             // el state del SPA para evitar operar con
                             // datos stale.
-                            pushLog(
-                                "TIA Portal no responde. Reconecta y vuelve a seleccionar el PLC.",
-                                "error"
-                            );
                             resetPlcState();
                         }
-                        pushLog(
-                            "Transacción aplicada OK. Preview refrescado (fallback).",
-                            "success"
-                        );
                     }
                 } else if (r.errorType === "TIAConnectionError") {
                     // TIA Portal no responde. Limpiamos el state del
                     // PLC en el SPA (backend ya invalido su cache).
-                    pushLog(
-                        "TIA Portal no responde. Reconecta y vuelve a seleccionar el PLC.",
-                        "error"
-                    );
                     resetPlcState();
                 } else {
                     alert(

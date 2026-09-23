@@ -337,10 +337,6 @@ export default {
                         ?? null;
                     if (newPreview) {
                         store.procesosSync.preview = newPreview;
-                        pushLog(
-                            "Transacción aplicada OK. Vista refrescada con estado post-sync.",
-                            "success",
-                        );
                     } else {
                         const rp = await apiProcesosSyncPreview(
                             props.procUid,
@@ -351,10 +347,6 @@ export default {
                         } else if (rp && rp.errorType === "TIAConnectionError") {
                             resetPlcState();
                         }
-                        pushLog(
-                            "Transacción aplicada OK. Preview refrescado (fallback).",
-                            "success",
-                        );
                     }
                 } else if (r && r.errorType === "TIAConnectionError") {
                     // TIA Portal cerro durante el commit. Limpiamos
