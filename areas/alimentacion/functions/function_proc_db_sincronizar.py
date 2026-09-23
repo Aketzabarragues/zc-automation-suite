@@ -81,15 +81,15 @@ class FunctionProcDBSincronizar(FunctionBase):
     #   - ``atributo_metodo`` es un metodo del FB (no externo): un cambio
     #     de signatura requiere actualizar este registro.
     STAGES: list[tuple[int, str, str]] = [
-        (1, "check_state_commit",    "_stage_1_check_state_commit"),
-        (2, "check_blocks_commit",   "_stage_2_check_blocks_commit"),
-        (3, "build_slot_maps_commit", "_stage_3_build_slot_maps_commit"),
-        (4, "sync_nmax",             "_stage_4_sync_nmax"),
-        (5, "wait_consolidation",    "_stage_5_wait_consolidation"),
-        (6, "compile_proc_blocks",   "_stage_6_compile_proc_blocks"),
-        (7, "open_transaction",      "_stage_7_open_transaction"),
-        (8, "post_preview",          "_stage_8_post_preview"),
-        (9, "done",                  "_stage_9_done"),
+        (1, "Validar estado de TIA",       "_stage_1_check_state_commit"),
+        (2, "Validar bloques",             "_stage_2_check_blocks_commit"),
+        (3, "Construir mapa de slots",     "_stage_3_build_slot_maps_commit"),
+        (4, "Aplicar N_MAX",               "_stage_4_sync_nmax"),
+        (5, "Esperar consolidación TIA",   "_stage_5_wait_consolidation"),
+        (6, "Compilar bloques",            "_stage_6_compile_proc_blocks"),
+        (7, "Abrir transacción TIA",       "_stage_7_open_transaction"),
+        (8, "Generar preview post-sincronización", "_stage_8_post_preview"),
+        (9, "Componer respuesta",          "_stage_9_build_response"),
     ]
 
     # ==================================================================
@@ -114,15 +114,15 @@ class FunctionProcDBSincronizar(FunctionBase):
             nombre=nombre,
             titulo=titulo,
             steps=steps if steps is not None else [
-                {"nombre": "check_state_commit"},
-                {"nombre": "check_blocks_commit"},
-                {"nombre": "build_slot_maps_commit"},
-                {"nombre": "sync_nmax"},
-                {"nombre": "wait_consolidation"},
-                {"nombre": "compile_proc_blocks"},
-                {"nombre": "open_transaction"},
-                {"nombre": "post_preview"},
-                {"nombre": "done"},
+                {"nombre": "Validar estado de TIA"},
+                {"nombre": "Validar bloques"},
+                {"nombre": "Construir mapa de slots"},
+                {"nombre": "Aplicar N_MAX"},
+                {"nombre": "Esperar consolidación TIA"},
+                {"nombre": "Compilar bloques"},
+                {"nombre": "Abrir transacción TIA"},
+                {"nombre": "Generar preview post-sincronización"},
+                {"nombre": "Componer respuesta"},
             ],
             tracker=tracker,
         )
@@ -754,7 +754,7 @@ class FunctionProcDBSincronizar(FunctionBase):
             )
             self._ctx.post_sync_preview = None
 
-    def _stage_9_done(self) -> None:
+    def _stage_9_build_response(self) -> None:
         """Stage 9: compone ``ctx.result`` con la shape legacy de la SPA.
 
         Inspecciona ``ctx.tx_result`` para extraer el resumen del lote
