@@ -785,8 +785,17 @@ class FunctionDispSincronizar(FunctionBase):
             if not db_array_name:
                 continue
             from core.infrastructure.tia.tia_export_paths import SdPair
-            dcl_path = SdPair(Path(modified_bloques), db_name).dcl
-            res_path = SdPair(Path(modified_bloques), db_name).res
+            # El stage 7 exporta con ``keep_folder_structure=True`` para
+            # preservar la subcarpeta TIA
+            # (``<modified>/<tia_folder_dispositivos>/DB.s7dcl``).
+            # Si la carpeta de config esta vacia (``""``), ``Path / ""``
+            # normaliza a la raiz -> FLAT, coherente con el export.
+            dcl_path = SdPair(
+                Path(modified_bloques) / target_folder, db_name,
+            ).dcl
+            res_path = SdPair(
+                Path(modified_bloques) / target_folder, db_name,
+            ).res
             result = commit_array_comments(
                 dcl_path, res_path,
                 array_name=db_array_name,
