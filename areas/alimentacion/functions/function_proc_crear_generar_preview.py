@@ -88,13 +88,13 @@ class FunctionProcCrearGenerarPreview(FunctionBase):
     #   - ``atributo_metodo`` es un metodo del FB (no externo): un cambio
     #     de signatura requiere actualizar este registro.
     STAGES: list[tuple[int, str, str]] = [
-        (1, "leer_manifest",          "_stage_1_leer_manifest"),
-        (2, "validar_minimos",        "_stage_2_validar_minimos"),
-        (3, "copiar_a_preview",       "_stage_3_copiar_a_preview"),
-        (4, "construir_diccionarios", "_stage_4_construir_diccionarios"),
-        (5, "detectar_colisiones",    "_stage_5_detectar_colisiones"),
-        (6, "generar_previstos",      "_stage_6_generar_previstos"),
-        (7, "done",                   "_stage_7_done"),
+        (1, "Leer manifiesto",          "_stage_1_leer_manifest"),
+        (2, "Validar mínimos",          "_stage_2_validar_minimos"),
+        (3, "Copiar a vista previa",    "_stage_3_copiar_a_preview"),
+        (4, "Construir diccionarios",   "_stage_4_construir_diccionarios"),
+        (5, "Detectar colisiones",      "_stage_5_detectar_colisiones"),
+        (6, "Generar previstos",        "_stage_6_generar_previstos"),
+        (7, "Componer respuesta",       "_stage_7_build_response"),
     ]
 
     # ==================================================================
@@ -119,13 +119,13 @@ class FunctionProcCrearGenerarPreview(FunctionBase):
             nombre=nombre,
             titulo=titulo,
             steps=steps if steps is not None else [
-                {"nombre": "leer_manifest"},
-                {"nombre": "validar_minimos"},
-                {"nombre": "copiar_a_preview"},
-                {"nombre": "construir_diccionarios"},
-                {"nombre": "detectar_colisiones"},
-                {"nombre": "generar_previstos"},
-                {"nombre": "done"},
+                {"nombre": "Leer manifiesto"},
+                {"nombre": "Validar mínimos"},
+                {"nombre": "Copiar a vista previa"},
+                {"nombre": "Construir diccionarios"},
+                {"nombre": "Detectar colisiones"},
+                {"nombre": "Generar previstos"},
+                {"nombre": "Componer respuesta"},
             ],
             tracker=tracker,
         )
@@ -362,7 +362,7 @@ class FunctionProcCrearGenerarPreview(FunctionBase):
         from areas.alimentacion.helpers.proc import proc_process_generator
         await proc_process_generator.proc_process_generar_previstos(self._ctx)
 
-    async def _stage_7_done(self) -> None:
+    async def _stage_7_build_response(self) -> None:
         """Stage 7: compone ``ctx.result`` con la shape final del preview."""
         from areas.alimentacion.helpers.proc import proc_process_generator
         await proc_process_generator.proc_process_done_summary(self._ctx)
@@ -391,7 +391,7 @@ def _step_summary(ctx: Any, step_nombre: str) -> str:
         return f"{step_nombre}: {len(ctx.colisiones)} colision(es)"
     if step_nombre == "generar_previstos":
         return f"{step_nombre}: {len(ctx.archivos_previstos)} archivos"
-    if step_nombre == "done":
+    if step_nombre == "Componer respuesta":
         return f"{step_nombre}: preview compuesto"
     return f"{step_nombre}: OK"
 
