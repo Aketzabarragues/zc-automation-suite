@@ -1,25 +1,30 @@
-"""core.infrastructure.tia.tia_cmd_batch - comandos de lote transaccional.
+"""core.infrastructure.tia.tia_cmd_batch - comandos de lote.
 
-Un solo comando:
+Dos comandos:
 
   - execute_transactional_batch: ejecuta N comandos bajo UNA transaccion
     de TIA Portal. Si cualquier handler falla, rollback de toda la cadena.
+  - execute_batch: ejecuta N comandos en serie SIN transaccion. Best-effort:
+    si un sub-comando falla, continua con los siguientes y reporta los
+    errores al final. Pensado para READS (export_*, scan_blocks, list_*,
+    ping, get_user_constants) y para batches grandes donde se prefiere
+    continuidad a atomicidad (p. ej. regenerar un preview).
 
-Ademas expone como PRIVADA del modulo:
-
-  - _TRANSACTION_FORBIDDEN_COMMANDS: frozenset con los comandos que NO
-    pueden ir dentro de un lote (los de lifecycle, los de compile, los
-    de listado, etc.). Si un sub-comando del lote esta en este set,
-    el handler aborta con ValueError antes de abrir la tx.
+Restricciones arquitectonicas:
+  - El sub-comando especial ``_wait`` (sleep bloqueante local) es valido
+    dentro de AMBOS lotes (transaccional y no). Sirve para dar tiempo
+    a TIA Portal a consolidar entre un export y otro dentro del lote.
+  - En ``execute_transactional_batch`` los comandos prohibidos (los de
+    lifecycle, los de compile, los de listado, y el propio batch) se
+    validan en ``_TRANSACTION_FORBIDDEN_COMMANDS`` (visible como privado
+    del modulo para tests).
+  - En ``execute_batch`` NO hay lista de prohibidos: el caller decide
+    que mezcla de comandos envia. Si mete imports/updates, NO habra
+    rollback atómico (usar ``execute_transactional_batch`` para eso).
 
 Cada handler es una FC pura: recibe ``(args: dict, tia_client: SyncTIAClient)``
 y devuelve ``dict``. Acceso a portal via ``tia_client.wrapper`` (single-threaded;
 lo toca el tia-loop).
-
-Restricciones arquitectonicas:
-  - El sub-comando especial ``_wait`` (sleep bloqueante local) solo es
-    valido dentro de un batch. Sirve para dar tiempo a TIA Portal a
-    consolidar entre un import y otro (import_tags -> wait -> import_blocks).
 """
 from __future__ import annotations
 
@@ -154,10 +159,130 @@ def _h_execute_transactional_batch(
         )
 
 
+def _h_execute_batch(
+    args: dict, tia_client: "SyncTIAClient",
+) -> dict:
+    """Ejecuta N comandos en serie SIN transaccion de TIA Portal.
+
+    Best-effort: si un sub-comando falla, se reporta en su entrada de
+    ``details`` pero el lote CONTINUA con los siguientes. El handler
+    final devuelve ``success=False`` si hubo algun fallo, mas nunca
+    aborta a la primera (la idea es que un fallo de export no impida
+    que el resto de exports se ejecuten y la SPA reciba la maxima
+    informacion posible).
+
+    Cada entrada de ``details`` lleva:
+      - ``step``: 1-indexed step number.
+      - ``command``: nombre del sub-comando.
+      - ``ok``: True si el dispatch devolvio ok=True y result != False.
+      - ``result``: dict/valor devuelto por el handler (si ok=True).
+      - ``error``: mensaje de error (si ok=False).
+
+    Sub-comando especial ``_wait``:
+      Misma semantica que en ``_h_execute_transactional_batch``:
+      ``{"command": "_wait", "args": {"seconds": N}}`` produce un
+      sleep bloqueante local sin tocar TIA. Util para consolidar
+      entre exports (export_block -> _wait -> export_plc_tags_xml).
+
+    Restricciones arquitectonicas (deliberadamente mas laxas que
+    ``_h_execute_transactional_batch``):
+      - NO hay lista de prohibidos: el caller envia lo que necesita.
+      - NO se admite nesting del propio ``execute_batch`` (se rechaza
+        para evitar recursion infinita). ``execute_transactional_batch``
+        SI es admisible como sub-comando (anidamiento explicito).
+    """
+    operations: list[dict] = args.get("operations", [])
+
+    if not operations:
+        raise ValueError("La lista de operaciones esta vacia.")
+
+    portal = tia_client.wrapper
+    if portal is None:
+        raise RuntimeError(
+            "No portal attached. Llama a attach_portal primero."
+        )
+
+    details: list[dict] = []
+    any_failed = False
+    cmd: str = ""
+    cmd_args: dict = {}
+
+    for idx, op in enumerate(operations):
+        cmd = op.get("command", "")
+        cmd_args = op.get("args", {})
+
+        if cmd == "execute_batch":
+            details.append({
+                "step": idx + 1,
+                "command": cmd,
+                "ok": False,
+                "error": "execute_batch no admite nesting (recursion).",
+            })
+            any_failed = True
+            continue
+
+        if cmd == "_wait":
+            seconds = float(cmd_args.get("seconds", 0))
+            time.sleep(seconds)
+            details.append({
+                "step": idx + 1,
+                "command": cmd,
+                "ok": True,
+                "result": f"sleep {seconds}s",
+            })
+            continue
+
+        try:
+            dispatch_out = tia_client.dispatch(cmd, cmd_args)
+            if not dispatch_out.get("ok"):
+                details.append({
+                    "step": idx + 1,
+                    "command": cmd,
+                    "ok": False,
+                    "error": dispatch_out.get("error", "?"),
+                })
+                any_failed = True
+                continue
+
+            step_result = dispatch_out.get("result")
+            if step_result is False:
+                details.append({
+                    "step": idx + 1,
+                    "command": cmd,
+                    "ok": False,
+                    "error": f"sub-comando retorno False",
+                })
+                any_failed = True
+                continue
+
+            details.append({
+                "step": idx + 1,
+                "command": cmd,
+                "ok": True,
+                "result": step_result,
+            })
+        except Exception as exc:
+            details.append({
+                "step": idx + 1,
+                "command": cmd,
+                "ok": False,
+                "error": repr(exc)[:500],
+            })
+            any_failed = True
+
+    return {
+        "success": not any_failed,
+        "operations_executed": len(operations),
+        "operations_failed": sum(1 for d in details if not d["ok"]),
+        "details": details,
+    }
+
+
 # Mapa nombre → handler. El registro central (tia_commands_catalog)
-# importará este dict para registrar el comando en el worker.
+# importará este dict para registrar ambos comandos en el worker.
 COMMANDS: dict[str, Any] = {
     "execute_transactional_batch": _h_execute_transactional_batch,
+    "execute_batch": _h_execute_batch,
 }
 
 
@@ -165,4 +290,5 @@ __all__ = [
     "COMMANDS",
     "_TRANSACTION_FORBIDDEN_COMMANDS",
     "_h_execute_transactional_batch",
+    "_h_execute_batch",
 ]
