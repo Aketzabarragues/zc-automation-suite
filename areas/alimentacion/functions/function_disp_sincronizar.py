@@ -493,13 +493,10 @@ class FunctionDispSincronizar(FunctionBase):
         )
 
     async def _stage_7_editar_xmls_offline(self) -> None:
-        """Copia filtrada exports->modified + edita XMLs offline (adds/removes)."""
+        """Copia filtrada sync export->modified + edita XMLs offline."""
         assert self._ctx.tags_base is not None, (
             "editar_xmls_offline requiere exportar_tags previo"
         )
-        from areas.alimentacion.helpers.build_cache import build_cache
-        disp_ctx = build_cache(root=self._ctx.build_cache_root).dispositivos
-        logger.debug(f"workdir (modified): {disp_ctx.modified_variables}")
         await asyncio.to_thread(
             _copy_and_edit_offline,
             self._ctx.build_cache_root, self._ctx.device_changes,
