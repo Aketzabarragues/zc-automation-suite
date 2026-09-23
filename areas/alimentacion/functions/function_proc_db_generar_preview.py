@@ -42,6 +42,7 @@ from core.runtime.app_state import AppState, get_app_state
 from areas.alimentacion.helpers.proc.proc_generar_preview import (
     compose_arrays,
     compute_nmax_diff_for_proc,
+    compute_proc_slot_diff,
     compute_summary,
     empty_nmax_block,
     extract_codigo,
@@ -435,10 +436,6 @@ class FunctionProcDBGenerarPreview(FunctionBase):
             return
 
         from areas.alimentacion.helpers.build_cache import build_cache
-        from core.helpers.simatic_sd import (
-            find_array_slots,
-            read_current_comments,
-        )
         from core.infrastructure.tia.tia_export_paths import SdPair
 
         work_dir = build_cache(root=self._ctx.build_cache_root).procesos.preview_bloques
@@ -538,37 +535,19 @@ class FunctionProcDBGenerarPreview(FunctionBase):
             self._ctx.alm_current = None
             # PARAM: parsear abajo.
 
-        # 3. Parsear comentarios de los DBs que NO fallaron.
+        # 3. Parsear comentarios de los DBs que NO fallaron, via helper puro.
+        preal_current, pint_current, alm_current = compute_proc_slot_diff(
+            slot_map=self._ctx.slot_map,
+            dcl_param_text=dcl_param_text,
+            res_param_text=res_param_text,
+            dcl_alm_text=dcl_alm_text,
+            res_alm_text=res_alm_text,
+        )
         if not param_error:
-            # Slots a leer: los del Excel + los que tienen asignacion
-            # en el ``.s7dcl`` (slots de TIA no en el Excel -> "eliminar"
-            # en el preview). Si el ``.s7dcl`` no existe, ``find_array_slots``
-            # devuelve set() y solo se leen los del Excel (modo degradado).
-            preal_slots = (
-                set(self._ctx.slot_map.preal.keys())
-                | find_array_slots(dcl_param_text, "PReal", "UDT")
-            )
-            pint_slots = (
-                set(self._ctx.slot_map.pint.keys())
-                | find_array_slots(dcl_param_text, "PInt", "UDT")
-            )
-            self._ctx.preal_current = read_current_comments(
-                res_param_text, "PReal", sorted(preal_slots),
-                dcl_param_text, "UDT",
-            )
-            self._ctx.pint_current = read_current_comments(
-                res_param_text, "PInt", sorted(pint_slots),
-                dcl_param_text, "UDT",
-            )
+            self._ctx.preal_current = preal_current
+            self._ctx.pint_current = pint_current
         if not alm_error:
-            alm_slots = (
-                set(self._ctx.slot_map.alm.keys())
-                | find_array_slots(dcl_alm_text, "ALM", "Simple")
-            )
-            self._ctx.alm_current = read_current_comments(
-                res_alm_text, "ALM", sorted(alm_slots),
-                dcl_alm_text, "Simple",
-            )
+            self._ctx.alm_current = alm_current
 
         self._ctx.export_error = None
 

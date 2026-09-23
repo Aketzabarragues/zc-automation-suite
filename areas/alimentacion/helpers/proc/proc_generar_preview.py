@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from core.helpers.simatic_ml import PlcUserConstantParser
+from core.helpers.simatic_sd import find_array_slots, read_current_comments
 
 
 def empty_nmax_block() -> dict[str, Any]:
@@ -289,6 +290,75 @@ __all__ = [
     "empty_nmax_block",
     "extract_codigo",
     "compose_arrays",
+    "compute_proc_slot_diff",
     "compute_summary",
     "compute_nmax_diff_for_proc",
 ]
+
+
+def compute_proc_slot_diff(
+    slot_map: Any,
+    dcl_param_text: str,
+    res_param_text: str,
+    dcl_alm_text: str,
+    res_alm_text: str,
+) -> tuple[
+    "dict[int, str | None] | None",
+    "dict[int, str | None] | None",
+    "dict[int, str | None] | None",
+]:
+    """Lee los comentarios ``es-ES`` de los 3 arrays del proceso desde los .s7dcl/.s7res.
+
+    Para cada array (PReal, PInt, ALM) se leen los slots que devuelve
+    ``read_current_comments`` sobre la union de:
+      - los slots del Excel (del ``slot_map``).
+      - los slots que ``find_array_slots`` detecta en el ``.s7dcl``
+        (slots de TIA no en el Excel -> "eliminar" en el preview).
+
+    Args:
+        slot_map: ``DataProcSlotMap`` con los slots del Excel por array.
+        dcl_param_text: texto del ``.s7dcl`` de DB_PARAM (vacio si DB fallo).
+        res_param_text: texto del ``.s7res`` de DB_PARAM (vacio si DB fallo).
+        dcl_alm_text: texto del ``.s7dcl`` de DB_ALM (vacio si DB fallo).
+        res_alm_text: texto del ``.s7res`` de DB_ALM (vacio si DB fallo).
+
+    Returns:
+        Tupla ``(preal_current, pint_current, alm_current)``. Cada
+        elemento es:
+          - ``dict[int, str | None]`` cuando su DB se exporto OK.
+          - ``None`` cuando su DB fallo (modo degradado). El caller
+            debe emitir warning y continuar.
+    """
+    preal_current: "dict[int, str | None] | None" = None
+    pint_current: "dict[int, str | None] | None" = None
+    alm_current: "dict[int, str | None] | None" = None
+
+    if dcl_param_text and res_param_text:
+        preal_slots = (
+            set(slot_map.preal.keys())
+            | find_array_slots(dcl_param_text, "PReal", "UDT")
+        )
+        pint_slots = (
+            set(slot_map.pint.keys())
+            | find_array_slots(dcl_param_text, "PInt", "UDT")
+        )
+        preal_current = read_current_comments(
+            res_param_text, "PReal", sorted(preal_slots),
+            dcl_param_text, "UDT",
+        )
+        pint_current = read_current_comments(
+            res_param_text, "PInt", sorted(pint_slots),
+            dcl_param_text, "UDT",
+        )
+
+    if dcl_alm_text and res_alm_text:
+        alm_slots = (
+            set(slot_map.alm.keys())
+            | find_array_slots(dcl_alm_text, "ALM", "Simple")
+        )
+        alm_current = read_current_comments(
+            res_alm_text, "ALM", sorted(alm_slots),
+            dcl_alm_text, "Simple",
+        )
+
+    return preal_current, pint_current, alm_current
