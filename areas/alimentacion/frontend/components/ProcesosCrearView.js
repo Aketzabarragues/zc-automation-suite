@@ -700,10 +700,10 @@ export default {
             </div>
 
             <!-- Banner de apply OK (sept-2026): tras un apply exitoso
-                 limpiamos ``previewData`` (para evitar re-aplicar por
+                 limpiamos previewData (para evitar re-aplicar por
                  error sobre datos stale) y mostramos un mensaje
                  trazable con el label del proceso creado
-                 (``process_label`` del FB result). El operario
+                 (process_label del FB result). El operario
                  tendra que volver a pulsar "Generar Prevision" si
                  quiere revisar o re-aplicar; asi garantizamos
                  confirmacion explicita antes de cada apply. -->
