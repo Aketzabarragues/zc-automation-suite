@@ -444,20 +444,41 @@ class FunctionDispSincronizar(FunctionBase):
             "tx_a_nmax_renames requiere exportar_tags previo"
         )
         if self._ctx.nmax_ops or self._ctx.rename_ops:
+            # Construir la lista de ops para ``execute_transactional_batch``.
+            # Cada op es una pareja ``(command, args)`` que el batch
+            # dispatche bajo una sola ``start_transaction`` TIA.
+            operations: list[dict[str, Any]] = []
+            for nmax_op in self._ctx.nmax_ops:
+                operations.append({
+                    "command": "update_user_constant_value",
+                    "args": {
+                        "plc_name": self._ctx.plc_name,
+                        "table_name": nmax_op["table_name"],
+                        "constant_name": nmax_op["constant_name"],
+                        "new_value": nmax_op["new_value"],
+                    },
+                })
+            for rename_op in self._ctx.rename_ops:
+                operations.append({
+                    "command": "update_user_constant_name",
+                    "args": {
+                        "plc_name": self._ctx.plc_name,
+                        "table_name": rename_op["table_name"],
+                        "current_name": rename_op["current_name"],
+                        "new_name": rename_op["new_name"],
+                    },
+                })
+            logger.info(
+                f"[{self._ctx.plc_name}] Tx A (online): "
+                f"{len(self._ctx.nmax_ops)} N_MAX + "
+                f"{len(self._ctx.rename_ops)} renames via batch"
+            )
             nmax_result = await dispatch_async(
                 self._ctx.tia_client,
-                "commit_user_constants_online",
+                "execute_transactional_batch",
                 {
-                    "plc_name": self._ctx.plc_name,
-                    "nmax_ops": self._ctx.nmax_ops,
-                    # Key ``rename_ops`` + items con ``table_name``,
-                    # ``current_name``, ``new_name``: shape que espera el
-                    # handler ``commit_user_constants_online``. Antes
-                    # pasabamos ``renames`` con keys ``table`` y
-                    # ``current_value``: el handler las ignoraba
-                    # silenciosamente y los renames NUNCA se aplicaban.
-                    "rename_ops": self._ctx.rename_ops,
                     "undo_text": "Sync N_MAX + renames",
+                    "operations": operations,
                 },
                 timeout_s=120.0,
             )
