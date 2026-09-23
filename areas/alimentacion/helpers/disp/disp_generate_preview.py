@@ -1,36 +1,8 @@
-"""areas.alimentacion.helpers.disp.disp_generate_preview - funciones puras de diff.
-
-Funciones puras data-driven que comparan la lista de dispositivos
-deseados (Excel del operario) contra el XML exportado de TIA Portal.
-
-Refactor sept-2026: la antigua version de este archivo era un
-orquestador con state machine (``exportar_tags`` + ``compute_devices``
-+ ``compute_nmax`` + ``build_response``) que recibia un
-``DispPreviewContext`` y lo mutaba. Esa logica se movio a los FBs
-(``function_disp_generar_preview._stage_N_*``) y al final se quedo
-un duplicado del codigo que nadie llamaba. Este archivo fue
-sobrescrito en sept-2026 con dos funciones puras, reutilizables y
-testables sin mocks de AppState/config_manager/Context.
-
-Convenio de uso (sept-2026, ``_plan/rutas.md``):
-
-  - El FB ``FunctionDispGenerarPreview`` invoca
-    ``compute_diff_table(table_name, devices, xml_path)`` por cada
-    hw_type (6 veces en ciclo de disp).
-  - El FB invoca ``compute_nmax_diff(desired_nmax, xml_path)`` una
-    sola vez para las N_MAX.
-
-Restricciones arquitectonicas:
-  - Sin imports de ``siemens_tia_scripting``.
-  - Sin Singletons. Sin acceso a AppState ni config_manager.
-  - El caller (FB) construye el ``desired_devices`` y el
-    ``desired_nmax`` y los pasa por argumento; aqui solo se hace el
-    diff puro contra el XML.
-"""
+"""Funciones puras de diff entre desired (Excel) y base (TIA)."""
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -40,17 +12,12 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Protocols (no atan al area; cualquier objeto con estos atributos sirve)
+# Protocol (no ata al area; cualquier objeto con estos atributos sirve)
 # ---------------------------------------------------------------------------
 
 
 class DispositivoLike(Protocol):
-    """Contrato minimo de un dispositivo del Excel.
-
-    Lo que necesitamos para el diff es solo ``numero`` (uid en TIA) y
-    ``plc_tag`` (el nombre humano en TIA). El resto del modelo
-    (descripcion, plc_comentario, ...) no afecta al diff.
-    """
+    """Contrato minimo de un dispositivo del Excel."""
 
     numero: int
     plc_tag: str
@@ -66,24 +33,13 @@ class DiffTable:
     """Resultado del diff entre desired (Excel) y base (TIA) para 1 tabla.
 
     Atributos:
-        table_name: nombre de la tabla TIA (e.g. ``"2000_Disp_ED"``).
-            Solo para logs/debug; no se usa en el diff.
-        base: ``{uid_str: plc_tag}`` del TIA (``PlcTagTable`` exportada).
-            Vacio si el XML no existia (``missing_xml=True``).
-        desired: ``{uid_str: plc_tag}`` del Excel (los disp que quiere
-            el operario). Vacio si el operario no tiene disp de este
-            tipo en el Excel.
-        added: lista de uids en ``desired`` pero NO en ``base``
-            (disp que el operario quiere agregar a TIA).
-        removed: lista de uids en ``base`` pero NO en ``desired``
-            (disp que el operario quiere eliminar de TIA).
-        renamed: ``{uid_str: (plc_tag_TIA, plc_tag_Excel)}`` para
-            uids presentes en ambos pero con plc_tag distinto.
-        missing_xml: ``True`` si el XML de TIA no existia en disco.
-            En ese caso, ``base={}`` y TODOS los desired aparecen en
-            ``added``. El operario ve el warning y puede decidir si
-            continuar (es ambiguo: el XML no existe, no sabemos si TIA
-            tiene esos disp o no).
+        table_name: nombre de la tabla TIA (``"2000_Disp_ED"``).
+        base: ``{uid_str: plc_tag}`` del TIA.
+        desired: ``{uid_str: plc_tag}`` del Excel.
+        added: uids en desired pero no en base.
+        removed: uids en base pero no en desired.
+        renamed: ``{uid: (plc_tag_TIA, plc_tag_Excel)}``.
+        missing_xml: True si el XML de TIA no existia.
     """
 
     table_name: str
@@ -96,7 +52,7 @@ class DiffTable:
 
     @property
     def is_empty(self) -> bool:
-        """True si no hay ningun cambio (desired == base)."""
+        """True si no hay ningun cambio."""
         return not (self.added or self.removed or self.renamed)
 
     @property
@@ -114,25 +70,12 @@ class DiffTable:
 class NmaxDiff:
     """Resultado del diff de N_MAX entre desired (Excel) y base (TIA).
 
-    A diferencia de ``DiffTable`` (devices), las N_MAX son
-    PlcUserConstant que **siempre existen** en TIA: no se crean ni se
-    eliminan, solo se modifica su valor. Por eso el shape del diff
-    aqui es diferente:
-
-      - ``current``: valores del TIA (``{nombre_nmax: valor}``).
-      - ``desired``: valores del Excel (``{nombre_nmax: valor}``).
-      - ``todos``: lista de ``{name, actual, nuevo, status}`` (uno por
-        cada nombre en ``list_nmax_active``). El caller filtra/ordena
-        para la SPA.
-      - ``summary``: ``{actualizar, sin_cambios, total}``.
-      - ``missing_xml``: True si el XML no existia (modo degradado).
-
     Atributos:
-        table_name: nombre de la tabla N_MAX (``"000_Config_Dispositivos"``).
-        current: valores del TIA (puede ser ``{}`` si XML falta).
-        desired: valores del Excel.
-        todos: lista de entries individuales para el preview.
-        summary: contadores.
+        table_name: nombre de la tabla (``"000_Config_Dispositivos"``).
+        current: valores del TIA (``{}`` si XML falta).
+        desired: valores del Excel (nombres canonicos ``N_MAX_DISP_*``).
+        todos: lista de ``{name, actual, nuevo, status}`` por N_MAX.
+        summary: ``{actualizar, sin_cambios, total}``.
         missing_xml: True si el XML no existia.
     """
 
@@ -150,21 +93,7 @@ class NmaxDiff:
 
 
 def _read_devices_from_xml(xml_path: Path) -> dict[str, str]:
-    """Lee un XML FLAT de ``PlcTagTable`` y devuelve ``{uid_str: plc_tag}``.
-
-    Shape: el ``<Value>`` del PlcUserConstant es el uid numerico (clave);
-    el ``<Name>`` es el plc_tag (valor). Filtra constantes no
-    casteables a int (consistente con el parser).
-
-    Args:
-        xml_path: ruta al .xml exportado por ``export_tag_table`` o
-            ``export_plc_tags_xml`` con ``keep_folder_structure=False``
-            (preview FLAT).
-
-    Returns:
-        Dict ``{uid_str: plc_tag}``. Vacio si el archivo no existe o
-        no se pudo parsear (los warnings se loguean desde el caller).
-    """
+    """Lee un XML FLAT de ``PlcTagTable`` y devuelve ``{uid_str: plc_tag}``."""
     if not xml_path.is_file():
         return {}
     try:
@@ -178,23 +107,7 @@ def _read_devices_from_xml(xml_path: Path) -> dict[str, str]:
 
 
 def _read_nmax_from_xml(xml_path: Path) -> tuple[dict[str, int], str | None]:
-    """Lee un XML FLAT de ``PlcTagTable`` con N_MAX y devuelve ``{name: value}``.
-
-    Shape: ``<Name>`` es el nombre del N_MAX (clave), ``<Value>`` es el
-    valor entero. Solo incluye casteables a int (constantes Real/String
-    se descartan automaticamente).
-
-    Args:
-        xml_path: ruta al .xml de la tabla N_MAX
-            (``preview_config/000_Config_Dispositivos.xml``).
-
-    Returns:
-        Tupla ``(values_dict, error_message)``. ``values_dict`` es
-        ``{}`` si el archivo no existe o fallo el parseo. ``error_message``
-        es ``None`` si OK, o un string describiendo el fallo (que el
-        caller rendera en la SPA para que el operario sepa que el diff
-        de N_MAX puede estar incompleto).
-    """
+    """Lee un XML FLAT con N_MAX y devuelve ``(values_dict, error_message)``."""
     if not xml_path.is_file():
         return {}, f"XML de N_MAX no encontrado en TIA export: {xml_path}"
     try:
@@ -217,41 +130,14 @@ def compute_diff_table(
 ) -> DiffTable:
     """Calcula el diff entre desired_devices (Excel) y xml_path (TIA).
 
-    Funcion pura, sin AppState/config_manager. Se puede llamar 1 vez
-    por hw_type (6 en ciclo de disp) o N veces en tests con mocks.
-
     Args:
-        table_name: nombre de la tabla TIA (e.g. ``"2000_Disp_ED"``).
-            Solo se usa en el campo ``table_name`` del resultado, no
-            afecta al calculo del diff. Si pasas ``""`` se asume que
-            quieres el diff anonimo (util en tests).
-        desired_devices: lista de ``DispositivoLike`` (Excel). Acepta
-            cualquier objeto con atributos ``.numero`` (int) y
-            ``.plc_tag`` (str). Si vacia, todos los disp de TIA
-            aparecen como ``removed``.
-        xml_path: ruta al ``.xml`` FLAT exportado de TIA. Si no
-            existe, devuelve ``DiffTable(missing_xml=True)`` con
-            ``base={}`` y todos los desired como ``added``.
+        table_name: nombre de la tabla TIA (solo logs/debug).
+        desired_devices: lista de ``DispositivoLike``.
+        xml_path: ruta al ``.xml`` FLAT exportado de TIA.
 
     Returns:
-        ``DiffTable`` con los 4 vectores del diff + ``base`` para
-        debug. Ver ``DiffTable`` para el detalle de campos.
-
-    Examples:
-        >>> from pathlib import Path
-        >>> diff = compute_diff_table(
-        ...     "2000_Disp_ED",
-        ...     desired_devices=[FakeDevice(numero=1, plc_tag="ED_001")],
-        ...     xml_path=Path("preview_disp/2000_Disp_ED.xml"),
-        ... )
-        >>> diff.added
-        []
-        >>> diff.removed
-        []
-        >>> diff.is_empty
-        True
+        ``DiffTable`` con los 4 vectores del diff + ``base``.
     """
-    # 1. Parse desired: ``{uid_str: plc_tag}``.
     desired: dict[str, str] = {}
     for device in desired_devices:
         numero = int(getattr(device, "numero", 0) or 0)
@@ -259,11 +145,9 @@ def compute_diff_table(
         if numero > 0 and plc_tag:
             desired[str(numero)] = plc_tag
 
-    # 2. Parse base desde el XML de TIA.
     base = _read_devices_from_xml(xml_path)
     missing_xml = not xml_path.is_file()
 
-    # 3. Calcula los 3 vectores del diff.
     base_uids = set(base.keys())
     desired_uids = set(desired.keys())
 
@@ -291,142 +175,6 @@ def compute_diff_table(
 # ---------------------------------------------------------------------------
 
 
-# Mapeo de las 3 variantes de naming del Excel al canonico uppercase de
-# TIA (PlcUserConstant ``<Name>``). Sept-2026.
-#
-#   - lowercase sin prefix:  ``num_disp_ed``  (to_api_dict legacy)
-#   - Title Case sin prefix:  ``Num_Disp_ED``  (extras, parser de
-#                             CONFIGURACION del Excel del operario)
-#   - uppercase con prefix:  ``N_MAX_DISP_ED`` (futuro, si el Excel
-#                             se alinea con TIA)
-#
-# Sin este mapeo, ``d.get('N_MAX_DISP_ED')`` devuelve None y el diff
-# siempre muestra desired=0 (el bug clasico del "30 -> 0" en las
-# cards N_MAX).
-_LEGACY_TO_CANONICAL_NMAX: dict[str, str] = {
-    # lowercase legacy (6 principales).
-    "num_disp_ed":    "N_MAX_DISP_ED",
-    "num_disp_ea":    "N_MAX_DISP_EA",
-    "num_disp_sa":    "N_MAX_DISP_SA",
-    "num_disp_v":     "N_MAX_DISP_V",
-    "num_disp_m":     "N_MAX_DISP_M",
-    "num_disp_m_vf":  "N_MAX_DISP_M_VF",
-    # Title Case sin prefix (extras del Excel del operario).
-    "Num_Disp_ED":    "N_MAX_DISP_ED",
-    "Num_Disp_EA":    "N_MAX_DISP_EA",
-    "Num_Disp_SA":    "N_MAX_DISP_SA",
-    "Num_Disp_V":     "N_MAX_DISP_V",
-    "Num_Disp_M":     "N_MAX_DISP_M",
-    "Num_Disp_M_VF":  "N_MAX_DISP_M_VF",
-    "Num_Disp_M_SINA": "N_MAX_DISP_M_SINA",
-    "Num_Disp_TOT":   "N_MAX_DISP_TOT",
-    "Num_Disp_PID":   "N_MAX_DISP_PID",
-}
-
-
-def resolve_desired_nmax(
-    dimensiones_raw: dict[str, Any] | Any,
-    config_manager: Any,
-) -> dict[str, int]:
-    """Normaliza ``app_state.dimensiones`` al naming canonico de TIA.
-
-    Acepta 3 formatos de input:
-      - ``dict`` con keys lowercase (``num_disp_ed``) o Title Case
-        (``Num_Disp_ED``) — viene de ``DimensionesDispositivos.to_api_dict()``
-        o ``DimensionesDispositivos.extras``.
-      - ``DimensionesDispositivos`` (dataclass) — tiene
-        ``all_nmax()`` que une los 6 canonicos + extras. Lo
-        desempaquetamos y aplicamos el mismo mapeo.
-
-    La funcion mapea las 3 variantes de naming del Excel al canonico
-    de TIA (uppercase con prefix ``N_MAX_DISP_``):
-
-      ``num_disp_ed`` / ``Num_Disp_ED`` -> ``N_MAX_DISP_ED``
-      ``num_disp_ea`` / ``Num_Disp_EA`` -> ``N_MAX_DISP_EA``
-      ``num_disp_sa`` / ``Num_Disp_SA`` -> ``N_MAX_DISP_SA``
-      ``num_disp_v``  / ``Num_Disp_V``  -> ``N_MAX_DISP_V``
-      ``num_disp_m``  / ``Num_Disp_M``  -> ``N_MAX_DISP_M``
-      ``num_disp_m_vf``/ ``Num_Disp_M_VF`` -> ``N_MAX_DISP_M_VF``
-
-    Si una dim no esta en el Excel (operario no la puso), se
-    inicializa a 0 (cambio explicito a 0).
-
-    Args:
-        dimensiones_raw: dict o ``DimensionesDispositivos`` de donde
-            sacar los valores del Excel.
-        config_manager: provee ``list_nmax_active()`` (keys canonicos).
-
-    Returns:
-        ``{nombre_nmax_uppercase: valor_int}`` listo para pasarse a
-        ``compute_nmax_diff``.
-    """
-    # Acepta dataclass (DimensionesDispositivos). Si tiene
-    # ``all_nmax()``, lo usamos (es la fuente completa: 6 canonicos +
-    # extras unificados con naming consistente).
-    if hasattr(dimensiones_raw, "all_nmax") and callable(
-        getattr(dimensiones_raw, "all_nmax"),
-    ):
-        dimensiones_raw = dimensiones_raw.all_nmax()
-    elif not isinstance(dimensiones_raw, dict):
-        dimensiones_raw = vars(dimensiones_raw) if hasattr(
-            dimensiones_raw, "__dict__",
-        ) else {}
-
-    canonicos = list(config_manager.list_nmax_active())
-    desired: dict[str, int] = {}
-
-    # Construimos el indice canonico -> [keys alternativas en el dict].
-    # Para cada canonico, buscamos TODAS las keys que mapean a el.
-    canonico_to_alt_keys: dict[str, list[str]] = {c: [] for c in canonicos}
-    for k, v_upper in _LEGACY_TO_CANONICAL_NMAX.items():
-        if v_upper in canonico_to_alt_keys:
-            canonico_to_alt_keys[v_upper].append(k)
-
-    for canonico in canonicos:
-        alt_keys = canonico_to_alt_keys[canonico]
-
-        # 1. intento: key canonica directa (``N_MAX_DISP_ED``).
-        # Vale 0 por defecto si ``values()`` la puso; la SOBREESCRIBIREMOS
-        # en intento 2/3 si hay una key Title Case o lowercase con valor real.
-
-        # 2. intento: Title Case (``Num_Disp_ED``) — el naming real del
-        # Excel del operario (parser de la hoja CONFIGURACION).
-        title_key = next(
-            (k for k in alt_keys
-             if k.startswith("Num_Disp_") and not k.startswith("Num_Disp_DISP")),
-            None,
-        )
-        if title_key and title_key in dimensiones_raw:
-            v = dimensiones_raw[title_key]
-            if v is not None:
-                desired[canonico] = int(v)
-                continue
-
-        # 3. intento: lowercase legacy (``num_disp_ed``) — compat con
-        # ``to_api_dict()`` legacy (que solo emite lowercase).
-        lowercase_key = next(
-            (k for k in alt_keys if k.startswith("num_disp_")),
-            None,
-        )
-        if lowercase_key and lowercase_key in dimensiones_raw:
-            v = dimensiones_raw[lowercase_key]
-            if v is not None:
-                desired[canonico] = int(v)
-                continue
-
-        # 4. intento: key canonica directa (si el Excel ya emite
-        # uppercase con prefix, futuro).
-        if canonico in dimensiones_raw:
-            v = dimensiones_raw[canonico]
-            if v is not None:
-                desired[canonico] = int(v)
-                continue
-
-        # 5. intento: el operario no lo puso (Excel vacio para esta dim).
-        desired[canonico] = 0
-    return desired
-
-
 def compute_nmax_diff(
     table_name: str,
     desired_nmax: dict[str, int],
@@ -434,41 +182,18 @@ def compute_nmax_diff(
 ) -> NmaxDiff:
     """Calcula el diff de N_MAX entre desired_nmax (Excel) y xml_path (TIA).
 
-    A diferencia de devices, las N_MAX **siempre existen** en TIA: no se
-    crean ni eliminan, solo se modifica su valor. Por eso el diff aqui
-    itera sobre las **keys de desired_nmax** (que es la lista canonica
-    de N_MAX activas del config) y compara cada una contra el current
-    de TIA.
-
     Args:
-        table_name: nombre de la tabla N_MAX
-            (``"000_Config_Dispositivos"``).
-        desired_nmax: ``{nombre_nmax: valor_deseado}`` del Excel. Suele
-            venir de ``DimensionesDispositivos.values()`` o equivalente.
-            Si una key no esta en el XML de TIA, ``current[nombre]``
-            sera ``None`` y el status sera ``"actualizar"``.
-        xml_path: ruta al XML FLAT de TIA con las N_MAX
-            (``preview_config/000_Config_Dispositivos.xml``).
+        table_name: nombre de la tabla N_MAX.
+        desired_nmax: ``{nombre_nmax: valor_deseado}`` del Excel (nombres
+            canonicos ``N_MAX_DISP_*``).
+        xml_path: ruta al XML FLAT de TIA con las N_MAX.
 
     Returns:
-        ``NmaxDiff`` con ``current``/``desired``/``todos``/``summary``
-        para que la SPA renderice la card "30 → 0".
-
-    Examples:
-        >>> diff = compute_nmax_diff(
-        ...     "000_Config_Dispositivos",
-        ...     desired_nmax={"N_MAX_DISP_ED": 50, "N_MAX_DISP_EA": 50},
-        ...     xml_path=Path("preview_config/000_Config_Dispositivos.xml"),
-        ... )
-        >>> diff.summary["actualizar"]
-        2
+        ``NmaxDiff`` con ``current``/``desired``/``todos``/``summary``.
     """
     current, error_message = _read_nmax_from_xml(xml_path)
     missing_xml = error_message is not None
 
-    # Si el XML fallo, devolvemos todos=[] para que la SPA muestre el
-    # error y no proponga diffs contra current={} (que marcaria TODO
-    # como actualizar).
     if missing_xml:
         return NmaxDiff(
             table_name=table_name,
@@ -483,9 +208,6 @@ def compute_nmax_diff(
             missing_xml=True,
         )
 
-    # Calcula los todos contra ``desired_nmax`` (no contra ``current``):
-    # asi detectamos N_MAX que el operario quiere bajar a 0 (que en TIA
-    # estan como 30 pero el Excel dice 0 -> "actualizar").
     todos: list[dict[str, Any]] = []
     for name in desired_nmax.keys():
         cur_val = current.get(name)
@@ -521,5 +243,4 @@ __all__ = [
     "NmaxDiff",
     "compute_diff_table",
     "compute_nmax_diff",
-    "resolve_desired_nmax",
 ]

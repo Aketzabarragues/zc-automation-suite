@@ -149,13 +149,15 @@ def test_load_basico(tmp_path) -> None:
     assert len(cache.parametros_real) == 1
     assert len(cache.parametros_int) == 1
     assert len(cache.alarmas) == 1
-    # N_MAX correcto.
-    assert cache.n_max.num_disp_ed == 10
-    assert cache.n_max.num_disp_ea == 20
-    assert cache.n_max.num_disp_sa == 30
-    assert cache.n_max.num_disp_v == 40
-    assert cache.n_max.num_disp_m == 50
-    assert cache.n_max.num_disp_m_vf == 60
+    # N_MAX correcto (nombres canonicos de TIA).
+    assert cache.n_max.extras == {
+        "N_MAX_DISP_ED": 10,
+        "N_MAX_DISP_EA": 20,
+        "N_MAX_DISP_SA": 30,
+        "N_MAX_DISP_V": 40,
+        "N_MAX_DISP_M": 50,
+        "N_MAX_DISP_M_VF": 60,
+    }
     # Flag.
     assert cache.software_parsers_implemented is True
 
@@ -227,7 +229,7 @@ def test_load_con_hojas_faltantes(tmp_path) -> None:
     assert cache.alarmas == ()
     # N_MAX: defaults (no defined names).
     assert isinstance(cache.n_max, DimensionesDispositivos)
-    assert cache.n_max.num_disp_ed == 0
+    assert dict(cache.n_max.extras) == {}
 
 
 def test_to_dict_serailiza_todo(tmp_path) -> None:
