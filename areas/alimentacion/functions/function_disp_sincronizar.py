@@ -91,17 +91,17 @@ class FunctionDispSincronizar(FunctionBase):
     #   - ``atributo_metodo`` es un metodo del FB (no externo): un cambio
     #     de signatura requiere actualizar este registro.
     STAGES: list[tuple[int, str, str]] = [
-        (1,  "exportar_tags",        "_stage_1_exportar_tags"),
-        (2,  "compute_diff",         "_stage_2_compute_diff"),
-        (3,  "preparar_ops",         "_stage_3_preparar_ops"),
-        (4,  "tx_a_nmax_renames",    "_stage_4_tx_a_nmax_renames"),
-        (5,  "wait_consolidation",   "_stage_5_wait_consolidation"),
-        (6,  "exportar_post_tx_a",   "_stage_6_exportar_post_tx_a"),
-        (7,  "editar_xmls_offline",  "_stage_7_editar_xmls_offline"),
-        (8,  "tx_b_devices",         "_stage_8_tx_b_devices"),
-        (9,  "compilar_bloques",     "_stage_9_compilar_bloques"),
-        (10, "aplicar_comentarios",  "_stage_10_aplicar_comentarios"),
-        (99, "post_preview",         "_stage_99_disp_post_preview"),
+        (1,  "Exportar etiquetas",                 "_stage_1_exportar_tags"),
+        (2,  "Calcular diferencias de dispositivos", "_stage_2_compute_diff"),
+        (3,  "Preparar operaciones",                "_stage_3_preparar_ops"),
+        (4,  "Aplicar N_MAX y renombres",          "_stage_4_tx_a_nmax_renames"),
+        (5,  "Esperar consolidación TIA",          "_stage_5_wait_consolidation"),
+        (6,  "Re-exportar etiquetas",              "_stage_6_exportar_post_tx_a"),
+        (7,  "Editar archivos XML",                "_stage_7_editar_xmls_offline"),
+        (8,  "Aplicar dispositivos",               "_stage_8_tx_b_devices"),
+        (9,  "Compilar bloques",                   "_stage_9_compilar_bloques"),
+        (10, "Aplicar comentarios",                "_stage_10_aplicar_comentarios"),
+        (11, "Generar preview post-sincronización", "_stage_11_disp_post_preview"),
     ]
 
     # ==================================================================
@@ -794,7 +794,7 @@ class FunctionDispSincronizar(FunctionBase):
             "warnings": warnings,
         }
 
-    async def _stage_99_disp_post_preview(self) -> None:
+    async def _stage_11_disp_post_preview(self) -> None:
         """Genera el preview post-sync para que la SPA vea 'todo en sync'.
 
         Migrado sept-2026: usa las funciones puras
