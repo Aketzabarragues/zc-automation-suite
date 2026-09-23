@@ -663,7 +663,7 @@ class FunctionProcDBSincronizar(FunctionBase):
 
         if (param_modified or alm_modified) and plc_name:
             proc_ctx = build_cache(root=self._ctx.build_cache_root).procesos
-            modified_root = proc_ctx.modified_bloques
+            modified_root = proc_ctx.sync_bloques_modified
 
             if param_modified and self._ctx.exports_param_dir is not None:
                 modified_param_dir = (
@@ -691,7 +691,7 @@ class FunctionProcDBSincronizar(FunctionBase):
                         dirs_exist_ok=True,
                     )
 
-            # Un solo import_block: TIA recorre modified_bloques y hace
+            # Un solo import_block: TIA recorre sync_bloques_modified y hace
             # match UPDATE por nombre de bloque preservando su subpath.
             await dispatch_async(
                 self._ctx.tia_client,
@@ -902,9 +902,9 @@ def _proc_tx_b_limpiar(ctx: ProcSyncContext) -> None:
     from areas.alimentacion.helpers.build_cache import build_cache
 
     proc_ctx = build_cache(root=ctx.build_cache_root).procesos
-    proc_ctx.clean()
-    ctx.work_dir = proc_ctx.modified_bloques
-    ctx.exports_subdir = proc_ctx.exports_bloques
+    proc_ctx.clean_sincronizar()
+    ctx.work_dir = proc_ctx.sync_bloques_modified
+    ctx.exports_subdir = proc_ctx.sync_bloques_export
 
 
 async def _proc_tx_b_detectar_eliminar_export(ctx: ProcSyncContext) -> None:
@@ -926,12 +926,12 @@ async def _proc_tx_b_detectar_eliminar_export(ctx: ProcSyncContext) -> None:
     alm_subpath = ctx.slot_map.alm_subpath or ""
 
     exports_param_dir = (
-        str(proc_ctx.exports_bloques / param_subpath)
-        if param_subpath else str(proc_ctx.exports_bloques)
+        str(proc_ctx.sync_bloques_export / param_subpath)
+        if param_subpath else str(proc_ctx.sync_bloques_export)
     )
     exports_alm_dir = (
-        str(proc_ctx.exports_bloques / alm_subpath)
-        if alm_subpath else str(proc_ctx.exports_bloques)
+        str(proc_ctx.sync_bloques_export / alm_subpath)
+        if alm_subpath else str(proc_ctx.sync_bloques_export)
     )
 
     await dispatch_async(
