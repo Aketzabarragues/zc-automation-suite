@@ -245,10 +245,17 @@ def compute_nmax_diff_for_proc(
             missing_xml=True,
         )
 
+    # Filtra los N_MAX del XML por los NOMBRES TIA del config (los
+    # values de ``nmax_names``), NO por las kinds (las keys). El filtro
+    # anterior ``if k in nmax_names`` comparaba nombres TIA con kinds
+    # y siempre daba False → ``current_filtered = {}`` → todos los
+    # ``actual=null`` → SPA renderizaba ``?`` aunque el XML tuviese
+    # los valores correctos.
+    tia_names: set[str] = set(nmax_names.values())
     current_filtered: dict[str, int] = {
-        nmax_names[k]: int(v)
+        k: int(v)
         for k, v in raw_current.items()
-        if k in nmax_names
+        if k in tia_names
     }
     desired_filtered = {
         nmax_names[k]: int(nmax_desired[k])
