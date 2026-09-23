@@ -48,7 +48,7 @@ from pathlib import Path
 from typing import Any
 
 from core.composition.plc_function_base import FunctionBase
-from core.helpers.tia import dispatch_async
+from core.helpers.tia import dispatch_async, validate_execute_batch_result
 from core.runtime.app_state import AppState, get_app_state
 
 logger = logging.getLogger(__name__)
@@ -767,7 +767,7 @@ class FunctionProcDBSincronizar(FunctionBase):
             preview_bloques = proc_ctx.preview_bloques
             preview_variables = proc_ctx.preview_variables
 
-            await dispatch_async(
+            batch_result = await dispatch_async(
                 self._ctx.tia_client,
                 "execute_batch",
                 {
@@ -799,6 +799,12 @@ class FunctionProcDBSincronizar(FunctionBase):
                     ],
                 },
                 timeout_s=120.0,
+            )
+            validate_execute_batch_result(
+                batch_result["result"],
+                undo_text="Preview post-sync proceso",
+                plc_name=plc_name,
+                log=logger,
             )
 
             dcl_param_path = SdPair(preview_bloques, slot_map.db_param_name).dcl
@@ -1064,7 +1070,7 @@ async def _proc_tx_b_detectar_eliminar_export(ctx: ProcSyncContext) -> None:
         if alm_subpath else str(proc_ctx.sync_bloques_export)
     )
 
-    await dispatch_async(
+    batch_result = await dispatch_async(
         ctx.tia_client,
         "execute_batch",
         {
@@ -1088,6 +1094,12 @@ async def _proc_tx_b_detectar_eliminar_export(ctx: ProcSyncContext) -> None:
             ],
         },
         timeout_s=120.0,
+    )
+    validate_execute_batch_result(
+        batch_result["result"],
+        undo_text="Export Tx B (param + alm)",
+        plc_name=plc_name,
+        log=logger,
     )
     ctx.exports_param_dir = exports_param_dir
     ctx.exports_alm_dir = exports_alm_dir
