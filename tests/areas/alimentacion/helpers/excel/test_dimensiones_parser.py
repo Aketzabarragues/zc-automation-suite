@@ -1,13 +1,13 @@
-﻿"""Tests del ``DimensionesParser`` (Fase 5 del plan).
+﻿"""Tests del ``DimensionesParser``.
 
-Cubre:
-  * ExtracciÃƒÂ³n bÃƒÂ¡sica de ``N_MAX_*`` / ``Num_Disp_*`` desde los
-    defined names del workbook.
-  * Defensa ante prefijos invÃƒÂ¡lidos (se ignoran).
-  * N_MAX adicionales del catÃƒÂ¡logo (no legacy) acaban en ``extras``.
-  * Workbook sin ``defined_names`` devuelve instancia vacÃƒÂ­a.
-  * El parser es data-driven: el ``ConfigManager`` opcional
-    construye el ``named_range_map`` desde el catÃƒÂ¡logo.
+Cobertura:
+  - Extraccion basica de ``N_MAX_DISP_X`` (canonico TIA).
+  - Title Case ``Num_Disp_X`` se traduce al canonico.
+  - lowercase ``num_disp_x`` legacy se traduce al canonico.
+  - Defined names con prefijos invalidos se ignoran.
+  - Workbook sin ``defined_names`` devuelve instancia con extras vacios.
+  - Con ``ConfigManager``, el mapeo es data-driven.
+  - Excel del operario (mezcla de los 3 prefijos) -> todos canonicos.
 """
 from __future__ import annotations
 
@@ -22,11 +22,13 @@ from areas.alimentacion.data.data_Dimensiones import DimensionesDispositivos
 from areas.alimentacion.helpers.excel.excel_parser_disp_dimensiones import DimensionesParser
 
 
-# Ã¢â€â‚¬Ã¢â€â‚¬ Helpers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 
 def _write_config(tmp_path: Path) -> Path:
-    """Escribe un config.json mÃƒÂ­nimo con n_max_catalog de 6 hw_types."""
+    """Escribe un config.json minimo con n_max_catalog de 6 hw_types."""
     cfg: dict[str, Any] = {
         "departments": {
             "alimentacion": {
@@ -59,26 +61,25 @@ def _add_named_value(
     name: str,
     value: Any,
 ) -> None:
-    """AÃƒÂ±ade un defined name que apunta a ``sheet!cell`` con ``value``."""
+    """Anade un defined name que apunta a ``sheet!cell`` con ``value``."""
     if sheet_name not in wb.sheetnames:
         ws = wb.create_sheet(sheet_name)
     else:
         ws = wb[sheet_name]
     ws[cell] = value
-    # ``localSheetId=None`` Ã¢â€ â€™ workbook-scoped.
     dn = DefinedName(name=name, attr_text=f"'{sheet_name}'!${cell}")
     wb.defined_names[name] = dn
 
 
-# Ã¢â€â‚¬Ã¢â€â‚¬ Tests Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+# ---------------------------------------------------------------------------
+# Tests de extraccion basica (canonico TIA, ``N_MAX_DISP_*``)
+# ---------------------------------------------------------------------------
 
 
-def test_extrae_n_max_basico(tmp_path) -> None:
-    """Excel con 6 defined names ``N_MAX_DISP_X`` Ã¢â€ â€™ 6 contadores correctos."""
+def test_extrae_canonicos_basicos():
+    """Excel con 6 defined names ``N_MAX_DISP_X`` -> extras canonicos."""
     wb = Workbook()
-    # Quitar la hoja por defecto
     wb.remove(wb.active)
-    # Cada defined name apunta a una celda distinta (A1, A2, ...).
     values = [("ED", 10, "A1"), ("EA", 20, "A2"), ("SA", 30, "A3"),
               ("V", 40, "A4"), ("M", 50, "A5"), ("M_VF", 60, "A6")]
     for hw, val, cell in values:
@@ -86,32 +87,83 @@ def test_extrae_n_max_basico(tmp_path) -> None:
 
     d = DimensionesParser().extraer(wb)
     assert isinstance(d, DimensionesDispositivos)
-    assert d.num_disp_ed == 10
-    assert d.num_disp_ea == 20
-    assert d.num_disp_sa == 30
-    assert d.num_disp_v == 40
-    assert d.num_disp_m == 50
-    assert d.num_disp_m_vf == 60
+    assert d.extras == {
+        "N_MAX_DISP_ED": 10,
+        "N_MAX_DISP_EA": 20,
+        "N_MAX_DISP_SA": 30,
+        "N_MAX_DISP_V": 40,
+        "N_MAX_DISP_M": 50,
+        "N_MAX_DISP_M_VF": 60,
+    }
 
 
-def test_falta_defined_name_devuelve_cero(tmp_path) -> None:
-    """Solo 2 defined names presentes Ã¢â€ â€™ los otros 4 quedan en 0."""
+def test_falta_canonico_aparece_en_extras():
+    """Solo 2 definidos -> los otros 4 quedan fuera del extras (no son 0)."""
     wb = Workbook()
     wb.remove(wb.active)
     _add_named_value(wb, "Config", "A1", "N_MAX_DISP_ED", 7)
     _add_named_value(wb, "Config", "A2", "N_MAX_DISP_V", 8)
 
     d = DimensionesParser().extraer(wb)
-    assert d.num_disp_ed == 7
-    assert d.num_disp_v == 8
-    assert d.num_disp_ea == 0
-    assert d.num_disp_sa == 0
-    assert d.num_disp_m == 0
-    assert d.num_disp_m_vf == 0
+    assert d.extras == {"N_MAX_DISP_ED": 7, "N_MAX_DISP_V": 8}
 
 
-def test_prefijo_invalido_se_ignora(tmp_path) -> None:
-    """Defined names que NO empiezan por ``N_MAX_``/``Num_Disp_`` se ignoran."""
+# ---------------------------------------------------------------------------
+# Tests de Title Case y lowercase legacy
+# ---------------------------------------------------------------------------
+
+
+def test_title_case_se_traduce_a_canonico():
+    """``Num_Disp_X`` (Title Case del Excel del operario) -> ``N_MAX_DISP_X``."""
+    wb = Workbook()
+    wb.remove(wb.active)
+    _add_named_value(wb, "Config", "A1", "Num_Disp_ED", 21)
+    _add_named_value(wb, "Config", "A2", "Num_Disp_M_SINA", 50)
+
+    d = DimensionesParser().extraer(wb)
+    assert d.extras == {
+        "N_MAX_DISP_ED": 21,
+    }
+    # ``Num_Disp_M_SINA`` no esta en el fallback de 6 hw_types -> se descarta.
+    assert "N_MAX_DISP_M_SINA" not in d.extras
+
+
+def test_lowercase_legacy_se_traduce_a_canonico():
+    """``num_disp_x`` (lowercase legacy) -> ``N_MAX_DISP_X``."""
+    wb = Workbook()
+    wb.remove(wb.active)
+    _add_named_value(wb, "Config", "A1", "num_disp_ed", 5)
+
+    d = DimensionesParser().extraer(wb)
+    assert d.extras == {"N_MAX_DISP_ED": 5}
+
+
+def test_excel_operario_mezcla_3_prefijo_todo_canonico():
+    """Mezcla de los 3 prefijos en un mismo Excel -> todos canonicos."""
+    wb = Workbook()
+    wb.remove(wb.active)
+    # Hoja de definicion: canonico TIA.
+    _add_named_value(wb, "Definicion", "A1", "N_MAX_DISP_ED", 10)
+    # Hoja de configuracion: Title Case corporativo.
+    _add_named_value(wb, "Configuracion", "A1", "Num_Disp_EA", 20)
+    # Legacy lowercase.
+    _add_named_value(wb, "Legacy", "A1", "num_disp_v", 30)
+
+    d = DimensionesParser().extraer(wb)
+    assert d.extras == {
+        "N_MAX_DISP_ED": 10,
+        "N_MAX_DISP_EA": 20,
+        "N_MAX_DISP_V": 30,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Tests defensivos
+# ---------------------------------------------------------------------------
+
+
+def test_prefijo_invalido_se_ignora():
+    """Defined names que NO empiezan por prefijo valido se ignoran."""
     wb = Workbook()
     wb.remove(wb.active)
     _add_named_value(wb, "Config", "A1", "N_MAX_DISP_ED", 5)
@@ -119,44 +171,26 @@ def test_prefijo_invalido_se_ignora(tmp_path) -> None:
     _add_named_value(wb, "Config", "A3", "Empresa", "Acme")
 
     d = DimensionesParser().extraer(wb)
-    assert d.num_disp_ed == 5
-    # ``OTRA_COSA`` y ``Empresa`` no acaban en ``extras`` (no tienen
-    # el prefijo correcto).
-    assert "OTRA_COSA" not in d.extras
-    assert "Empresa" not in d.extras
+    assert d.extras == {"N_MAX_DISP_ED": 5}
 
 
-def test_extras_captura_nmax_adicionales(tmp_path) -> None:
-    """Un defined name ``N_MAX_DISP_FF`` (no legacy) acaba en ``extras``."""
+def test_workbook_sin_defined_names_devuelve_extras_vacios():
+    """Workbook sin defined names -> ``DimensionesDispositivos()`` con extras vacios."""
     wb = Workbook()
     wb.remove(wb.active)
-    _add_named_value(wb, "Config", "A1", "N_MAX_DISP_ED", 5)
-    _add_named_value(wb, "Config", "A2", "N_MAX_DISP_FF", 42)
+    wb.create_sheet("Config")
 
     d = DimensionesParser().extraer(wb)
-    assert d.num_disp_ed == 5
-    assert d.extras.get("N_MAX_DISP_FF") == 42
+    assert d.extras == {}
 
 
-def test_workbook_sin_defined_names_devuelve_instancia_vacia(tmp_path) -> None:
-    """Workbook sin defined names Ã¢â€ â€™ ``DimensionesDispositivos()`` vacÃƒÂ­o."""
-    wb = Workbook()
-    wb.remove(wb.active)
-    wb.create_sheet("Config")  # hoja sin defined names
-
-    d = DimensionesParser().extraer(wb)
-    assert d.num_disp_ed == 0
-    assert d.num_disp_ea == 0
-    assert d.num_disp_sa == 0
-    assert d.num_disp_v == 0
-    assert d.num_disp_m == 0
-    assert d.num_disp_m_vf == 0
-    assert dict(d.extras) == {}
+# ---------------------------------------------------------------------------
+# Tests con ConfigManager
+# ---------------------------------------------------------------------------
 
 
-def test_with_config_manager_resolves_data_driven(tmp_path) -> None:
-    """Si se inyecta ``ConfigManager``, las entradas del ``n_max_catalog``
-    se traducen a ``num_disp_<hw>`` data-driven."""
+def test_with_config_manager_resuelve_data_driven(tmp_path):
+    """Con ``ConfigManager``, las entradas del catalogo se resuelven."""
     from core.infrastructure.config.config_manager import ConfigManager
 
     config_path = _write_config(tmp_path)
@@ -164,10 +198,8 @@ def test_with_config_manager_resolves_data_driven(tmp_path) -> None:
 
     wb = Workbook()
     wb.remove(wb.active)
-    # El ConfigManager mapea ``N_MAX_DISP_ED`` (canÃƒÂ³nico en catalog) Ã¢â€ â€™ ``num_disp_ed``.
     _add_named_value(wb, "Config", "A1", "N_MAX_DISP_ED", 11)
     _add_named_value(wb, "Config", "A2", "N_MAX_DISP_V", 33)
 
     d = DimensionesParser(config_manager=cm).extraer(wb)
-    assert d.num_disp_ed == 11
-    assert d.num_disp_v == 33
+    assert d.extras == {"N_MAX_DISP_ED": 11, "N_MAX_DISP_V": 33}

@@ -1,24 +1,22 @@
-﻿"""Parser de ``N_MAX`` (defined names) del Excel corporativo.
+﻿"""Parser de N_MAX del Excel corporativo.
 
-Absorbe la lógica de:
-  - ``core/infrastructure/parsers/excel_parser.py::extraer_dimensiones``
-    (filtra prefijos ``N_MAX_``/``Num_Disp_``, castea a ``int``).
-  - ``AlimentacionExcelParser::extraer_dimensiones`` (puebla
-    ``DimensionesDispositivos`` con ``extras``).
+Lee ``wb.defined_names`` y entrega un ``DimensionesDispositivos`` con
+nombres canonicos de TIA (``N_MAX_DISP_*``).
 
-Diferencias con el legacy:
-    * Recibe el workbook **ya abierto** (``wb: Workbook``). NO abre
-      el archivo: esa responsabilidad es del ``ExcelLoader``.
-    * Si se inyecta un ``ConfigManager``, el ``named_range_map`` se
-      construye data-driven desde
-      ``ConfigManager.list_nmax_active()`` /
-      ``ConfigManager.get_nmax_entry(name)``. Si no, se usa el
-      ``_DEFAULT_NAMED_RANGE_MAP`` (6 legacy).
-    * Sin pandas: openpyxl directo + ``workbook.defined_names``.
-    * Defensivo: defined names que no se puedan resolver se
-      descartan silenciosamente.
+Acepta los 3 prefijos que pueda tener el Excel:
+  - ``N_MAX_DISP_X``  (canonico TIA, alineado con el PLC)
+  - ``Num_Disp_X``    (Title Case, estilo corporativo)
+  - ``num_disp_x``    (lowercase legacy)
 
-Restricción arquitectónica: este módulo es OFFLINE; no importa
+Todos se traducen al canonico. El Excel del operario tiene los 3
+estilos en distintas hojas (definicion vs configuracion); el parser
+los normaliza en una sola pasada.
+
+Si se inyecta un ``ConfigManager``, el ``n_max_catalog`` resuelve el
+nombre canonico de cada hw (data-driven). Si no, se usa un fallback
+hardcoded de 6 hw_types (ED, EA, SA, V, M, M_VF).
+
+Restriccion: este modulo es OFFLINE; no importa
 ``siemens_tia_scripting``.
 """
 from __future__ import annotations
@@ -36,100 +34,75 @@ from areas.alimentacion.helpers.excel._excel_helpers import (
 from core.infrastructure.config.config_manager import ConfigManager
 
 
-# Mapa por defecto de named ranges N_MAX / num_disp_* Ã¢â€ ’ atributo
-# legacy. Se usa como fallback cuando el parser se construye sin
-# ``ConfigManager`` (modo histórico) o cuando ``extraer`` se llama
-# sin ``named_range_map``.
-_DEFAULT_NAMED_RANGE_MAP: dict[str, str] = {
-    "N_MAX_DISP_ED":   "num_disp_ed",
-    "N_MAX_DISP_EA":   "num_disp_ea",
-    "N_MAX_DISP_SA":   "num_disp_sa",
-    "N_MAX_DISP_V":    "num_disp_v",
-    "N_MAX_DISP_M":    "num_disp_m",
-    "N_MAX_DISP_M_VF": "num_disp_m_vf",
-    "num_disp_ed":     "num_disp_ed",
-    "num_disp_ea":     "num_disp_ea",
-    "num_disp_sa":     "num_disp_sa",
-    "num_disp_v":      "num_disp_v",
-    "num_disp_m":      "num_disp_m",
-    "num_disp_m_vf":   "num_disp_m_vf",
+# Fallback hardcoded: nombre canonico TIA por hw_type. Solo se usa si
+# el parser se construye sin ``ConfigManager`` (modo historico o
+# tests sin CM).
+_FALLBACK_HW_TO_CANONICAL: dict[str, str] = {
+    "ed":    "N_MAX_DISP_ED",
+    "ea":    "N_MAX_DISP_EA",
+    "sa":    "N_MAX_DISP_SA",
+    "v":     "N_MAX_DISP_V",
+    "m":     "N_MAX_DISP_M",
+    "m_vf":  "N_MAX_DISP_M_VF",
 }
+
+# Prefijos validos de defined names. El parser acepta los 3 y los
+# normaliza al canonico.
+_PREFIXES: tuple[str, ...] = ("N_MAX_DISP_", "Num_Disp_", "num_disp_")
 
 
 class DimensionesParser:
-    """Parser de los defined names ``N_MAX_*``/``Num_Disp_*`` del Excel.
+    """Parser de defined names N_MAX del Excel.
 
-    Atributos de clase:
-        * ``PREFIXES``: tupla de prefijos válidos para el filtrado
-          defensivo de N_MAX adicionales (``"N_MAX_"`` y
-          ``"Num_Disp_"``).
+    Atributos:
+        ``_hw_to_canonical``: ``{hw_type: nombre_canonico}``. Data-driven
+            si hay ``ConfigManager``, fallback hardcoded si no.
 
-    Política:
-        * Si la hoja/celda del defined name no se puede resolver
-          (``KeyError``, ``TypeError``, ``AttributeError``), se
-          descarta con WARNING.
-        * Si el valor no se puede castear a ``int``, se descarta
-          silenciosamente.
-        * Si el defined name NO está en el ``named_range_map`` Y NO
-          empieza por ``N_MAX_``/``Num_Disp_``, se ignora (no es un
-          N_MAX).
-        * Si el defined name NO está en el ``named_range_map`` pero
-          empieza por ``N_MAX_``/``Num_Disp_``, va a ``extras`` (data
-          driven: futuros N_MAX del catálogo).
-
-    Si se inyecta un ``ConfigManager``, el ``named_range_map`` se
-    construye data-driven desde el ``n_max_catalog`` del config.
+    Politica:
+        - Defined names que no empiecen por ninguno de los 3 prefijos
+          se ignoran silenciosamente.
+        - Defined names cuyo sufijo no se pueda resolver a un hw_type
+          conocido se descartan con WARNING.
+        - Valores no casteables a ``int`` se descartan silenciosamente.
     """
-
-    PREFIXES: tuple[str, ...] = ("N_MAX_", "Num_Disp_")
 
     def __init__(self, config_manager: ConfigManager | None = None) -> None:
         self._config_manager = config_manager
-        self._named_range_map: dict[str, str] = self._build_named_range_map()
+        self._hw_to_canonical: dict[str, str] = self._build_hw_to_canonical()
 
-    def _build_named_range_map(self) -> dict[str, str]:
-        """Devuelve ``{nombre_nmax: nombre_attr_legacy}``.
-
-        Si hay ``ConfigManager``, itera ``list_nmax_active()`` y
-        resuelve ``hw_type`` Ã¢â€ ’ ``num_disp_<hw>``. Si no, usa
-        ``_DEFAULT_NAMED_RANGE_MAP``.
-        """
+    def _build_hw_to_canonical(self) -> dict[str, str]:
+        """``{hw_type: N_MAX_DISP_<hw>}`` desde el ``n_max_catalog`` o fallback."""
         if self._config_manager is None:
-            return dict(_DEFAULT_NAMED_RANGE_MAP)
-        mapping: dict[str, str] = {}
-        for nmax_name in self._config_manager.list_nmax_active():
-            entry = self._config_manager.get_nmax_entry(nmax_name) or {}
-            hw = entry.get("hw_type", "")
-            if not hw:
-                continue
-            attr = f"num_disp_{hw}"
-            mapping[nmax_name] = attr
-            # Aceptamos también la forma legacy (``Num_Disp_X``).
-            excel_nr = entry.get("excel_named_range", "")
-            if excel_nr:
-                mapping[excel_nr] = attr
-            # Y la forma minúscula ``num_disp_x``.
-            mapping[attr] = attr
-        return mapping
+            return dict(_FALLBACK_HW_TO_CANONICAL)
+        result: dict[str, str] = {}
+        for name in self._config_manager.list_nmax_active():
+            entry = self._config_manager.get_nmax_entry(name) or {}
+            hw = str(entry.get("hw_type", "")).strip()
+            if name.startswith("N_MAX_") and hw:
+                result[hw] = name
+        return result or dict(_FALLBACK_HW_TO_CANONICAL)
 
-    def extraer(
-        self,
-        wb: Workbook,
-        named_range_map: dict[str, str] | None = None,
-    ) -> DimensionesDispositivos:
-        """Lee ``wb.defined_names`` y popula ``DimensionesDispositivos``.
-
-        Args:
-            wb: workbook de openpyxl **ya abierto** (no se cierra
-                aquí; la responsabilidad es del ``ExcelLoader``).
-            named_range_map: override opcional del mapeo
-                ``{nombre_nmax: nombre_attr_legacy}``. Si es ``None``,
-                se usa el del ``ConfigManager`` (si se inyectó) o el
-                ``_DEFAULT_NAMED_RANGE_MAP``.
+    def _canonical_from_name(self, name: str) -> str | None:
+        """Traduce un defined name al canonico ``N_MAX_DISP_*``.
 
         Returns:
-            ``DimensionesDispositivos`` con los 6 contadores
-            canónicos + ``extras`` para N_MAX adicionales del Excel.
+            Nombre canonico o ``None`` si no se reconoce.
+        """
+        for prefix in _PREFIXES:
+            if name.startswith(prefix):
+                suffix = name[len(prefix):].lower()
+                return self._hw_to_canonical.get(suffix)
+        return None
+
+    def extraer(self, wb: Workbook) -> DimensionesDispositivos:
+        """Lee ``wb.defined_names`` y devuelve un ``DimensionesDispositivos``.
+
+        Args:
+            wb: workbook de openpyxl ya abierto (no se cierra aqui).
+
+        Returns:
+            ``DimensionesDispositivos`` con ``extras={N_MAX_DISP_X: v}``
+            para cada defined name reconocido.
         """
         defined_names = getattr(wb, "defined_names", None)
         if defined_names is None:
@@ -141,44 +114,26 @@ class DimensionesParser:
             else []
         )
 
-        # Mapa a usar (override > CM > default).
-        if named_range_map is None:
-            named_range_map = self._named_range_map
-
-        result: dict[str, int] = {}
         extras: dict[str, int] = {}
         for name, definition in items:
             if not isinstance(name, str):
                 continue
-            attr = named_range_map.get(name)
-            if attr is not None:
-                value = _safe_int(_resolve_value(definition, wb))
-                result[attr] = value
-            else:
-                # Si el named range no es de los legacy, intentar leerlo
-                # como N_MAX directo (data-driven): p.ej. un Excel que
-                # defina ``N_MAX_DISP_FF`` Ã¢â€ ’ acaba en ``extras``.
-                if any(name.startswith(p) for p in self.PREFIXES):
-                    v = _safe_int(_resolve_value(definition, wb))
-                    if v:
-                        extras[name] = v
+            canonical = self._canonical_from_name(name)
+            if canonical is None:
+                continue
+            value = _safe_int(_resolve_value(definition, wb))
+            if value:
+                extras[canonical] = value
 
-        if result:
-            kwargs = dict(result)
-            if extras:
-                kwargs["extras"] = extras
-            dims = DimensionesDispositivos(**kwargs)
-        elif extras:
-            dims = DimensionesDispositivos(extras=extras)
-        else:
-            dims = DimensionesDispositivos()
         logger.debug(
-            f"Parser[N_MAX]: {len(result)} canonicos + {len(extras)} extras"
+            f"Parser[N_MAX]: {len(extras)} N_MAX canonicos"
         )
-        return dims
+        return DimensionesDispositivos(extras=extras)
 
 
-# Ã¢”â‚¬Ã¢”â‚¬ Helpers de mapeo de named ranges (privados al módulo) Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬
+# ---------------------------------------------------------------------------
+# Resolucion del valor de un DefinedName (privado al modulo).
+# ---------------------------------------------------------------------------
 
 
 def _resolve_value(definition: Any, workbook: Any) -> Any:
@@ -188,8 +143,6 @@ def _resolve_value(definition: Any, workbook: Any) -> Any:
         El valor de la celda referenciada o ``None`` si no se pudo
         resolver la hoja/celda.
     """
-    # Compatibilidad: openpyxl 3.1+ expone ``attr_text``; las
-    # versiones anteriores usaban ``value``. Aceptamos ambos.
     attr_text: Any = (
         getattr(definition, "attr_text", None)
         or getattr(definition, "value", None)
@@ -205,8 +158,6 @@ def _resolve_value(definition: Any, workbook: Any) -> Any:
     except (KeyError, TypeError):
         return None
     try:
-        # ``destinations`` es la API moderna (openpyxl 3.1).
-        # Si está disponible, devuelve (sheet, coord) directamente.
         destinations = getattr(definition, "destinations", None)
         if destinations is not None:
             dest = list(destinations)
@@ -216,7 +167,6 @@ def _resolve_value(definition: Any, workbook: Any) -> Any:
                 if isinstance(cell, tuple):
                     cell = cell[0][0] if isinstance(cell[0], tuple) else cell[0]
                 return getattr(cell, "value", None)
-        # Fallback: parsear ``attr_text``.
         cell = sheet[cell_ref]
     except (KeyError, AttributeError, TypeError):
         return None
