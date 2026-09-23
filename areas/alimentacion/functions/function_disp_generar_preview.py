@@ -77,10 +77,10 @@ class FunctionDispGenerarPreview(FunctionBase):
     #   - ``atributo_metodo`` es un metodo del FB (no externo): un cambio
     #     de signatura requiere actualizar este registro.
     STAGES: list[tuple[int, str, str]] = [
-        (1, "exportar_tags",   "_stage_1_exportar_tags"),
-        (2, "compute_devices", "_stage_2_compute_devices"),
-        (3, "compute_nmax",    "_stage_3_compute_nmax"),
-        (4, "build_response",  "_stage_4_build_response"),
+        (1, "Exportar etiquetas",                   "_stage_1_exportar_tags"),
+        (2, "Calcular diferencias de dispositivos", "_stage_2_compute_devices"),
+        (3, "Calcular diferencias de N_MAX",         "_stage_3_compute_nmax"),
+        (4, "Componer respuesta",                   "_stage_4_build_response"),
     ]
 
     # ==================================================================
