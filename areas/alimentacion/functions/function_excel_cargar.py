@@ -54,8 +54,8 @@ class FunctionExcelCargar(FunctionBase):
     #   - ``atributo_metodo`` es un metodo del FB (no externo): un cambio de
     #     signatura requiere actualizar este registro.
     STAGES: list[tuple[int, str, str]] = [
-        (1, "parsear_excel",    "_stage_1_parsear_excel"),
-        (2, "volcar_appstate",  "_stage_2_volcar_appstate"),
+        (1, "Parsear Excel",                  "_stage_1_parsear_excel"),
+        (2, "Volcar a estado de aplicación",  "_stage_2_volcar_appstate"),
     ]
 
     # ==================================================================
