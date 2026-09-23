@@ -21,6 +21,16 @@ Convenio de uso
     # Contexto de proc_db
     proc = build_cache().procesos
     proc.clean_sincronizar()     # antes del apply
+
+Constantes
+==========
+
+- ``DEFAULT_BUILD_CACHE_ROOT``: ``<cwd>/.build_cache``. Fallback único
+  cuando nadie inyecta ``root=`` o ``build_cache=``. Antes se repetia
+  literalmente en 7 sitios (esta funcion + 6 FBs); ahora vive aqui.
+  Evaluada en import time; el launcher de la app no cambia CWD
+  despues del bootstrap, asi que el valor es estable durante toda
+  la vida del proceso.
 """
 from __future__ import annotations
 
@@ -38,6 +48,9 @@ from areas.alimentacion.helpers.proc._workdir_layout import (
     ProcDbLayout,
     build_proc_db_layout,
 )
+
+
+DEFAULT_BUILD_CACHE_ROOT: Path = Path(os.getcwd()) / ".build_cache"
 
 
 @dataclass(frozen=True)
@@ -118,8 +131,8 @@ def build_cache(root: Path | None = None) -> AlimentacionAreaLayout:
         ``AlimentacionAreaLayout`` con ``.dispositivos`` y ``.procesos``
         listos para usar.
     """
-    base = root if root is not None else Path(os.getcwd()) / ".build_cache"
+    base = root if root is not None else DEFAULT_BUILD_CACHE_ROOT
     return AlimentacionAreaLayout(area_id=AREA_ID, root=base / "alimentacion")
 
 
-__all__ = ["AlimentacionAreaLayout", "build_cache"]
+__all__ = ["AlimentacionAreaLayout", "DEFAULT_BUILD_CACHE_ROOT", "build_cache"]
