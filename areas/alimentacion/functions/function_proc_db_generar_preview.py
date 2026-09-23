@@ -39,7 +39,7 @@ from typing import Any
 from core.composition.plc_function_base import FunctionBase
 from core.helpers.tia import dispatch_async
 from core.runtime.app_state import AppState, get_app_state
-from areas.alimentacion.helpers.proc.proc_generar_preview import (
+from areas.alimentacion.helpers.proc.proc_db_generar_preview import (
     compose_arrays,
     compute_nmax_diff_for_proc,
     compute_proc_slot_diff,

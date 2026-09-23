@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-from areas.alimentacion.helpers.proc.proc_generar_preview import (
+from areas.alimentacion.helpers.proc.proc_db_generar_preview import (
     NmaxDiff,
     compute_nmax_diff_for_proc,
 )
@@ -44,7 +44,7 @@ def test_filtro_xml_con_nmax_match_no_empty_current_filtered():
     nmax_desired = {"preal": 3, "pint": 15, "alm": 64, "alm_hmi": 3}
 
     with patch(
-        "areas.alimentacion.helpers.proc.proc_generar_preview._read_nmax_xml",
+        "areas.alimentacion.helpers.proc.proc_db_generar_preview._read_nmax_xml",
         return_value=(raw, None),
     ):
         diff = compute_nmax_diff_for_proc(
@@ -95,7 +95,7 @@ def test_filtro_xml_con_nmax_mismatch_genera_todos_con_actualizar():
     nmax_desired = {"preal": 3, "pint": 15, "alm": 64, "alm_hmi": 3}
 
     with patch(
-        "areas.alimentacion.helpers.proc.proc_generar_preview._read_nmax_xml",
+        "areas.alimentacion.helpers.proc.proc_db_generar_preview._read_nmax_xml",
         return_value=(raw, None),
     ):
         diff = compute_nmax_diff_for_proc(
@@ -132,7 +132,7 @@ def test_filtro_xml_sin_constantes_genera_todos_con_actual_y_actual_none():
     nmax_desired = {"preal": 3, "pint": 15, "alm": 64, "alm_hmi": 3}
 
     with patch(
-        "areas.alimentacion.helpers.proc.proc_generar_preview._read_nmax_xml",
+        "areas.alimentacion.helpers.proc.proc_db_generar_preview._read_nmax_xml",
         return_value=(raw, None),
     ):
         diff = compute_nmax_diff_for_proc(
@@ -160,7 +160,7 @@ def test_filtro_xml_missing_quiere_decir_todos_empty_con_missing_flag():
     nmax_desired = {"preal": 3}
 
     with patch(
-        "areas.alimentacion.helpers.proc.proc_generar_preview._read_nmax_xml",
+        "areas.alimentacion.helpers.proc.proc_db_generar_preview._read_nmax_xml",
         return_value=({}, "XML de N_MAX no encontrado en TIA export"),
     ):
         diff = compute_nmax_diff_for_proc(
@@ -191,7 +191,7 @@ def test_filtro_no_case_sensitive_en_nombres():
     nmax_desired = {"preal": 3}
 
     with patch(
-        "areas.alimentacion.helpers.proc.proc_generar_preview._read_nmax_xml",
+        "areas.alimentacion.helpers.proc.proc_db_generar_preview._read_nmax_xml",
         return_value=(raw, None),
     ):
         diff = compute_nmax_diff_for_proc(
