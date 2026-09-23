@@ -790,13 +790,26 @@ class FunctionDispSincronizar(FunctionBase):
         # UN SOLO import_block al final: TIA Portal importa todos los
         # .s7dcl del directorio modified_bloques en una sola operacion.
         if any_modified:
+            # WRAP en execute_transactional_batch para atomicidad semantica.
+            # Si el import_block falla, TIA hace rollback de toda la tx
+            # (sin aplicar cambios parciales al PLC). Antes era directo,
+            # lo que dejaba al PLC en estado inconsistente si el import
+            # fallaba a mitad.
             await dispatch_async(
                 self._ctx.tia_client,
-                "import_block",
+                "execute_transactional_batch",
                 {
-                    "plc_name": self._ctx.plc_name,
-                    "import_dir": str(modified_bloques),
-                    "target_folder": "",  # default: TIA escanea recursivo
+                    "undo_text": "Sync devices comentarios (Tx B2)",
+                    "operations": [
+                        {
+                            "command": "import_block",
+                            "args": {
+                                "plc_name": self._ctx.plc_name,
+                                "import_dir": str(modified_bloques),
+                                "target_folder": "",  # default: TIA recursivo
+                            },
+                        },
+                    ],
                 },
                 timeout_s=600.0,
             )
