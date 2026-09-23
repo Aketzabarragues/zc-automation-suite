@@ -758,21 +758,34 @@ class FunctionProcDBSincronizar(FunctionBase):
 
             await dispatch_async(
                 self._ctx.tia_client,
-                "export_block",
+                "execute_batch",
                 {
-                    "plc_name": plc_name,
-                    "block_name": slot_map.db_param_name,
-                    "target_dir": str(preview_bloques),
-                },
-                timeout_s=120.0,
-            )
-            await dispatch_async(
-                self._ctx.tia_client,
-                "export_block",
-                {
-                    "plc_name": plc_name,
-                    "block_name": slot_map.db_alm_name,
-                    "target_dir": str(preview_bloques),
+                    "operations": [
+                        {
+                            "command": "export_block",
+                            "args": {
+                                "plc_name": plc_name,
+                                "block_name": slot_map.db_param_name,
+                                "target_dir": str(preview_bloques),
+                            },
+                        },
+                        {
+                            "command": "export_block",
+                            "args": {
+                                "plc_name": plc_name,
+                                "block_name": slot_map.db_alm_name,
+                                "target_dir": str(preview_bloques),
+                            },
+                        },
+                        {
+                            "command": "export_plc_tags_xml",
+                            "args": {
+                                "plc_name": plc_name,
+                                "target_dir": str(preview_variables),
+                                "table_names": [slot_map.table_name],
+                            },
+                        },
+                    ],
                 },
                 timeout_s=120.0,
             )
@@ -796,17 +809,6 @@ class FunctionProcDBSincronizar(FunctionBase):
             res_alm_text = (
                 res_alm_path.read_text(encoding="utf-8-sig")
                 if res_alm_path.exists() else ""
-            )
-
-            await dispatch_async(
-                self._ctx.tia_client,
-                "export_plc_tags_xml",
-                {
-                    "plc_name": plc_name,
-                    "target_dir": str(preview_variables),
-                    "table_names": [slot_map.table_name],
-                },
-                timeout_s=120.0,
             )
 
             # 2/5. Diff de slots (helper puro).
@@ -1053,21 +1055,26 @@ async def _proc_tx_b_detectar_eliminar_export(ctx: ProcSyncContext) -> None:
 
     await dispatch_async(
         ctx.tia_client,
-        "export_block",
+        "execute_batch",
         {
-            "plc_name": plc_name,
-            "block_name": ctx.slot_map.db_param_name,
-            "target_dir": exports_param_dir,
-        },
-        timeout_s=120.0,
-    )
-    await dispatch_async(
-        ctx.tia_client,
-        "export_block",
-        {
-            "plc_name": plc_name,
-            "block_name": ctx.slot_map.db_alm_name,
-            "target_dir": exports_alm_dir,
+            "operations": [
+                {
+                    "command": "export_block",
+                    "args": {
+                        "plc_name": plc_name,
+                        "block_name": ctx.slot_map.db_param_name,
+                        "target_dir": exports_param_dir,
+                    },
+                },
+                {
+                    "command": "export_block",
+                    "args": {
+                        "plc_name": plc_name,
+                        "block_name": ctx.slot_map.db_alm_name,
+                        "target_dir": exports_alm_dir,
+                    },
+                },
+            ],
         },
         timeout_s=120.0,
     )
