@@ -81,8 +81,8 @@ class FunctionExcelCargar(FunctionBase):
             nombre=nombre,
             titulo=titulo,
             steps=steps if steps is not None else [
-                {"nombre": "parsear_excel"},
-                {"nombre": "volcar_appstate"},
+                {"nombre": "Parsear Excel"},
+                {"nombre": "Volcar a estado de aplicación"},
             ],
             tracker=tracker,
         )
