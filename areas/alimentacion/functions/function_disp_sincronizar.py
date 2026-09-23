@@ -473,19 +473,21 @@ class FunctionDispSincronizar(FunctionBase):
         assert self._ctx.tags_base is not None, (
             "exportar_post_tx_a requiere exportar_tags previo"
         )
-        # Re-exportar solo las 6 tablas de devices (NO la N_MAX: ya esta
-        # consolidada en Tx A). El destino es ``exports_variables``
-        # (snapshot limpio), no ``modified_variables``: el copytree de
-        # Stage 7 hace la copia filtrada.
+        # Re-exportar solo las 6 tablas de devices (NO la N_MAX: ya
+        # consolidada en Tx A). El destino es ``sync_variables_export``
+        # (snapshot limpio); ``modified`` lo rellena Stage 7 con copytree.
         from areas.alimentacion.helpers.build_cache import build_cache
         disp_ctx = build_cache(root=self._ctx.build_cache_root).dispositivos
-        logger.debug(f"workdir (exports re-read post-TxA): {disp_ctx.exports_variables}")
+        logger.info(
+            f"[{self._ctx.plc_name}] sync export re-read post-TxA: "
+            f"{disp_ctx.sync_variables_export}"
+        )
         await dispatch_async(
             self._ctx.tia_client,
             "export_plc_tags_xml",
             {
                 "plc_name": self._ctx.plc_name,
-                "target_dir": str(disp_ctx.exports_variables),
+                "target_dir": str(disp_ctx.sync_variables_export),
                 "table_names": [dc["table_name"] for dc in self._ctx.device_changes],
             },
         )
