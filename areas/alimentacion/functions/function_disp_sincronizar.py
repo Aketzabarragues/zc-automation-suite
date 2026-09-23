@@ -354,7 +354,16 @@ class FunctionDispSincronizar(FunctionBase):
                 cfg = self._ctx.config_manager.get_dispositivo_config(hw)
                 if cfg is None:
                     continue
-                xml_path = self._ctx.tags_base / f"{cfg.tag_table}.xml"
+                # El sync exporta con ``keep_folder_structure=True``
+                # (Stage 7 necesita la subcarpeta para hacer UPDATE
+                # recursivo en TIA V21), asi que el XML vive en
+                # ``tags_base/<tia_folder>/<tag_table>.xml``.
+                tia_folder = _resolve_tia_folder(
+                    self._ctx.config_manager, hw
+                )
+                xml_path = (
+                    self._ctx.tags_base / tia_folder / f"{cfg.tag_table}.xml"
+                )
                 devices = self._ctx.app_state.get_devices(hw)
                 diff = compute_diff_table(
                     table_name=cfg.tag_table,
