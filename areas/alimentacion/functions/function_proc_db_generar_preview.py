@@ -880,18 +880,23 @@ __all__ = ["FunctionProcDBGenerarPreview", "ProcPreviewContext"]
 
 
 def _step_summary(ctx: Any, step_nombre: str) -> str:
-    """Resumen legible del step que acaba de correr (aparece en la SPA)."""
-    if step_nombre == "check_state":
+    """Resumen legible del step que acaba de correr (aparece en la SPA).
+
+    Mapea cada ``step_nombre`` de la tabla STAGES (humano) a los flags
+    que el stage muta en ``ctx``. Si el nombre no encaja, devuelve un
+    resumen neutro (caso nuevo step sin summary dedicado).
+    """
+    if step_nombre == "Validar estado de TIA":
         return (
             f"{step_nombre}: "
             f"{'OK' if ctx.excel_loaded else 'Excel no cargado'}"
         )
-    if step_nombre == "check_blocks":
+    if step_nombre == "Validar bloques":
         return (
             f"{step_nombre}: "
             f"{'OK' if ctx.bloques_loaded else 'Sin cache de bloques'}"
         )
-    if step_nombre == "build_slot_maps":
+    if step_nombre == "Construir mapa de slots":
         if ctx.slot_map is None:
             return (
                 f"{step_nombre}: "
@@ -901,13 +906,13 @@ def _step_summary(ctx: Any, step_nombre: str) -> str:
             f"{step_nombre}: PReal={len(ctx.slot_map.preal)} "
             f"PInt={len(ctx.slot_map.pint)} ALM={len(ctx.slot_map.alm)}"
         )
-    if step_nombre == "compute_nmax":
+    if step_nombre == "Calcular diferencias de N_MAX":
         nmax_summary = ctx.nmax_block.get("summary", {})
         return (
             f"{step_nombre}: {nmax_summary.get('actualizar', 0)} N_MAX "
             f"actualizar, {nmax_summary.get('sin_cambios', 0)} sin cambios"
         )
-    if step_nombre == "export_and_diff":
+    if step_nombre == "Exportar y calcular diferencias":
         if ctx.export_error:
             return f"{step_nombre}: error: {ctx.export_error}"
         s = ctx.result.get("summary", {})
@@ -917,6 +922,6 @@ def _step_summary(ctx: Any, step_nombre: str) -> str:
             f"{s.get('agregados', 0)} agregar, "
             f"{s.get('sin_cambios', 0)} sin cambios"
         )
-    if step_nombre == "done":
+    if step_nombre == "Componer respuesta":
         return f"{step_nombre}: preview compuesto"
     return f"{step_nombre}: OK"
