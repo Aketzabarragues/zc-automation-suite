@@ -1,14 +1,12 @@
-"""Tests para ``areas.alimentacion.data.data_ExcelCache.DataExcelCache``.
+"""Tests de ``DataExcelCache``.
 
-Fase 3, paso 3.2.3.  Cobertura:
+Cobertura:
   - Construccion basica con los campos requeridos.
-  - ``to_dict()`` shape estable: 7 keys, ``parsed_at`` en ISO-8601.
-  - ``to_dict()`` omite los lookups precomputados (son derivables).
-  - ``to_dict()`` invoca ``DimensionesDispositivos.to_api_dict()``
-    para serializar los 6 N_MAX legacy.
-  - ``to_dict()`` serializa cada elemento de las 4 listas via
-    ``dataclasses.asdict``.
-  - ``frozen=True``: no se puede mutar.
+  - ``to_dict()`` shape estable, ``parsed_at`` en ISO-8601.
+  - ``to_dict()`` omite los lookups precomputados.
+  - ``to_dict()`` serializa ``n_max`` con nombres canonicos de TIA.
+  - ``to_dict()`` serializa los 4 listas via ``dataclasses.asdict``.
+  - ``frozen=True``.
 """
 from __future__ import annotations
 
@@ -51,7 +49,7 @@ def test_construccion_minima():
     assert cache.excel_path == "/ruta/al/maestro.xlsx"
     assert cache.excel_mtime_ns == 1700000000_000_000_000
     assert cache.software_parsers_implemented is True
-    assert cache.n_max.num_disp_ed == 0
+    assert dict(cache.n_max.extras) == {}
     assert cache.procesos == ()
 
 
@@ -95,13 +93,16 @@ def test_to_dict_omite_lookups():
 
 
 def test_to_dict_n_max_via_to_api_dict():
-    """``to_dict()`` serializa ``n_max`` via ``to_api_dict()`` (6 legacy)."""
+    """``to_dict()`` serializa ``n_max`` con nombres canonicos de TIA."""
     cache = DataExcelCache(
         excel_path="x",
         excel_mtime_ns=0,
         parsed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
         dispositivos={},
-        n_max=DimensionesDispositivos(num_disp_ed=15, num_disp_v=20),
+        n_max=DimensionesDispositivos(extras={
+            "N_MAX_DISP_ED": 15,
+            "N_MAX_DISP_V": 20,
+        }),
         procesos=(),
         parametros_real=(),
         parametros_int=(),
@@ -113,14 +114,9 @@ def test_to_dict_n_max_via_to_api_dict():
 
     snapshot = cache.to_dict()
 
-    # to_api_dict() emite SOLO los 6 legacy, sin "extras".
     assert snapshot["n_max"] == {
-        "num_disp_ed": 15,
-        "num_disp_ea": 0,
-        "num_disp_sa": 0,
-        "num_disp_v": 20,
-        "num_disp_m": 0,
-        "num_disp_m_vf": 0,
+        "N_MAX_DISP_ED": 15,
+        "N_MAX_DISP_V": 20,
     }
 
 

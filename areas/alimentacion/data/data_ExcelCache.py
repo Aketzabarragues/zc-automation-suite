@@ -1,21 +1,7 @@
-"""Data Block raíz del caché del Excel.
+"""Cache IT del Excel: dispositivos + N_MAX + 4 listas de software.
 
-Esta dataclass ``frozen=True`` agrupa TODOS los datos derivados del
-Excel (10 dominios: 6 dispositivos + N_MAX + 4 software) en una sola
-estructura inmutable.  Es la **unica fuente de verdad** que
-``ExcelCacheManager`` cachea por proceso.
-
-Diseno:
-  - ``dispositivos``: ``dict[hw_type, tuple[Dispositivo, ...]]`` (los 6
-    tipos legacy como ``tuple`` para preservar ``frozen=True``).
-  - ``n_max``: ``DataDimensionesDispositivos`` con los 6 contadores
-    canonicos + ``extras`` para N_MAX adicionales.
-  - ``procesos`` / ``parametros_real`` / ``parametros_int`` / ``alarmas``:
-    las 4 listas de software (tambien ``tuple``).
-  - ``*_by_codigo``: lookups ``Mapping[str, DTO]`` precomputados para
-    evitar O(n) por cada acceso.
-  - ``software_parsers_implemented``: flag para que la SPA detecte si
-    el backend expone los 4 dominios nuevos.
+Fuente de verdad unica que ``ExcelCacheManager`` cachea por proceso.
+``frozen=True`` para que el cache sea inmutable entre lecturas.
 """
 from __future__ import annotations
 
@@ -34,20 +20,18 @@ from areas.alimentacion.data.data_Procesos import DataProcesoPLC
 
 @dataclass(frozen=True)
 class DataExcelCache:
-    """Raiz del cache IT del Excel corporativo.
+    """Cache IT del Excel corporativo. Inmutable.
 
     Atributos:
-      - ``excel_path``: ruta absoluta del Excel actualmente cacheado.
-      - ``excel_mtime_ns``: ``st_mtime_ns`` del Excel (resolucion
-        Windows-safe para invalidacion por mtime).
+      - ``excel_path``: ruta absoluta del Excel cacheado.
+      - ``excel_mtime_ns``: ``st_mtime_ns`` del Excel (Windows-safe).
       - ``parsed_at``: ``datetime`` UTC del parseo.
       - ``dispositivos``: ``{hw_type: tuple[Dispositivo, ...]}``.
-      - ``n_max``: cantidades de dispositivos por tipo.
+      - ``n_max``: ``DimensionesDispositivos`` con nombres canonicos
+        de TIA (``N_MAX_DISP_*``).
       - ``procesos`` / ``parametros_real`` / ``parametros_int`` /
         ``alarmas``: listas de los 4 dominios de software.
-      - ``procesos_by_codigo`` / ``parametros_real_by_codigo`` /
-        ``parametros_int_by_codigo``: lookups precomputados por
-        ``codigo`` (Mapping para preservar ``frozen=True``).
+      - ``*_by_codigo``: lookups ``Mapping[str, DTO]`` precomputados.
       - ``software_parsers_implemented``: flag para la SPA.
     """
 
@@ -66,16 +50,7 @@ class DataExcelCache:
     software_parsers_implemented: bool = True
 
     def to_dict(self) -> dict:
-        """Serializa las 4 listas a JSON (lookups omitidos, son derivables).
-
-        Returns:
-            ``dict`` con ``excel_path``, ``excel_mtime_ns``,
-            ``parsed_at`` (ISO), ``n_max`` (via ``to_api_dict``),
-            las 4 listas de software via ``dataclasses.asdict``, y el
-            flag ``software_parsers_implemented``.  Los lookups
-            precomputados NO se serializan: son derivables iterando
-            las listas.
-        """
+        """Serializa a JSON. Lookups precomputados omitidos (son derivables)."""
         return {
             "excel_path": self.excel_path,
             "excel_mtime_ns": self.excel_mtime_ns,

@@ -195,12 +195,7 @@ class FunctionExcelCargar(FunctionBase):
                 "preal": len(cache.parametros_real),
                 "pint": len(cache.parametros_int),
                 "alarmas": len(cache.alarmas),
-                # El router muestra el conteo de N_MAX en el resumen.
-                # ``cache.n_max`` es un ``DimensionesDispositivos``
-                # (dataclass), no una lista -> usamos ``all_nmax()``
-                # que retorna el dict unificado de N_MAX legacy (6) +
-                # extras (``extras={}`` por defecto).
-                "n_max_total": len(cache.n_max.all_nmax()),
+                "n_max_total": len(cache.n_max.to_api_dict()),
             }
         self.result = {
             "ok": True,
