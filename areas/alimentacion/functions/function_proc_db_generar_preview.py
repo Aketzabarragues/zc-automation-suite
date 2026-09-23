@@ -1,24 +1,12 @@
 """FB de area: preview de comentarios de un proceso vs PLC (diff read-only).
 
-State machine sobre el helper ``proc_generar_preview``
-(areas/alimentacion/helpers/proc/proc_generar_preview.py). El helper
-expone funciones independientes (``proc_check_state``,
-``proc_check_blocks``, ``proc_build_slot_maps``, ``proc_compute_nmax``,
-``proc_export_and_diff``, ``proc_compose_response``) que reciben un
-``ProcPreviewContext`` y mutan sus campos. **Aqui en el FB vive la
-state machine**: el orden de las 6 llamadas, el mapping step ->
-funcion del helper, y la instanciacion del ctx.
+State machine declarativa sobre la tabla ``STAGES``. Cada step ejecuta
+una operacion contra el ``ProcPreviewContext`` compartido entre los 6
+ticks. Helpers puros (``_empty_nmax_block``, ``_extract_codigo``,
+``_compose_arrays_internal``, ``_compute_summary_internal``) viven en
+``areas/alimentacion/helpers/proc/proc_generar_preview.py``.
 
-Antes: 2 use cases legacy monolíticos
-(``generar_prevision`` + ``ejecutar_transaccion``) en
-``application/use_cases/proc_sync_comentarios.py``.
-
-Despues: cada step del FB ejecuta una funcion real del
-helper contra el ``ProcPreviewContext`` compartido entre los 6 ticks.
-
-Hereda directo de ``FunctionBase`` (no del template). Zona 0 con 5
-deps comunes (incluyendo ``bloques_cache`` que el legacy inyectaba
-manualmente).
+Hereda directo de ``FunctionBase``.
 
 Runtime params via ``start(**kwargs)``:
   - ``proc_uid`` (int): uid del proceso a previsualizar. Obligatorio.
@@ -39,14 +27,6 @@ El ``self.result`` se popula con la shape legacy esperada por la SPA::
       "nmax":               dict,
       "warnings":           list[str],
     }
-
-Steps (6, mismo orden que el legacy ``generar_prevision``):
-  - check_state       -> helper.proc_generar_preview.proc_check_state
-  - check_blocks      -> helper.proc_generar_preview.proc_check_blocks
-  - build_slot_maps   -> helper.proc_generar_preview.proc_build_slot_maps
-  - compute_nmax      -> helper.proc_generar_preview.proc_compute_nmax
-  - export_and_diff   -> helper.proc_generar_preview.proc_export_and_diff
-  - done              -> (interno: vuelco ``ctx.result`` a ``self.result``)
 """
 from __future__ import annotations
 
@@ -350,7 +330,7 @@ class FunctionProcDBGenerarPreview(FunctionBase):
     async def _stage_4_compute_nmax(self) -> None:
         """Lee los N_MAX del proceso (cards SOLO VISUALES para la SPA).
 
-        Convencion del operario (2026-09-02): las PlcUserConstant N_MAX de
+        Convencion del operario: las PlcUserConstant N_MAX de
         un proceso viven en la **tabla del proceso** (``<uid>_<codigo>``,
         p. ej. ``100_CPR``), en la carpeta TIA ``003_Procesos/``. NO en
         la tabla ``000_Config_Dispositivos``.
@@ -447,8 +427,7 @@ class FunctionProcDBGenerarPreview(FunctionBase):
 
         Stages internos:
           1. Exporta ``DB_PARAM`` y ``DB_ALM`` a
-             ``<build_cache>/procesos/preview/bloques/``. Esto puede
-             tardar 1-3 min en PLCs grandes.
+             ``<build_cache>/alimentacion/proc_db/preview/bloques/``.
           2. Crea un ``ProcCommentUpdater`` por DB (sin slot_map, solo
              para usar ``read_current_comments``) y consulta el
              ``es-ES`` actual de cada slot.
@@ -708,15 +687,6 @@ class FunctionProcDBGenerarPreview(FunctionBase):
 
 
 
-# ============================================================================
-# Codigo absorbido de helpers/proc/proc_generar_preview.py (commit 21, sept-2026).
-# Antes era un orquestador separado que el FB llamaba via ``match step_nombre``.
-# Ahora los 6 stages viven como metodos del FB (mutando ``self._ctx``). Solo
-# permanece aqui el ``ProcPreviewContext`` (dataclass entre stages) y las
-# helpers puras (``_empty_nmax_block``, ``_extract_codigo``,
-# ``_compose_arrays_internal``, ``_compute_summary_internal``, ``_step_summary``).
-# ============================================================================
-
 @dataclass
 class ProcPreviewContext:
     """Estado compartido entre las funciones de ``proc_generate_preview``.
@@ -906,13 +876,7 @@ def _compute_summary_internal(arrays: dict[str, Any]) -> dict[str, int]:
     }
 
 
-# Nota: ``dispatch_async`` se importa arriba desde
-# ``core.helpers.tia.dispatch_async``. Antes vivia
-# duplicado aqui (4 copias en total: 2 disp + 2 proc); ahora vive
-# como helper compartido.
-
-
-__all__ = ["ProcPreviewContext"]
+__all__ = ["FunctionProcDBGenerarPreview", "ProcPreviewContext"]
 
 
 def _step_summary(ctx: Any, step_nombre: str) -> str:
@@ -956,6 +920,3 @@ def _step_summary(ctx: Any, step_nombre: str) -> str:
     if step_nombre == "done":
         return f"{step_nombre}: preview compuesto"
     return f"{step_nombre}: OK"
-
-
-__all__ = ["FunctionProcDBGenerarPreview"]
