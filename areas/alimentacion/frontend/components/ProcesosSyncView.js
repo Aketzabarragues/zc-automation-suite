@@ -320,24 +320,17 @@ export default {
                         new Date().toISOString();
                     // Tras un commit exitoso, el backend ya re-corre
                     // el preview y lo devuelve en ``post_sync_preview``
-                    // dentro del result del proc_uid. El router lo
-                    // expone como ``results[uid].post_sync_preview``
-                    // (anidado por uid para soportar multiples uids
-                    // en el mismo body). Lo usamos para refrescar la
+                    // (top level del result, mismo patron que
+                    // Dispositivos). Lo usamos para refrescar la
                     // vista directamente: si el sync fue completo,
                     // este preview mostrara 0 cambios (todo en sync).
                     // Si por algun motivo no viene (raro: TIA
                     // consolidando Tx B), hacemos fallback a llamar
                     // al endpoint de preview manualmente.
-                    const newPreview =
-                        r.data?.results?.[String(props.procUid)]
-                            ?.post_sync_preview
-                        ?? r.data?.results?.[props.procUid]
-                            ?.post_sync_preview
-                        ?? null;
-                    if (newPreview) {
-                        store.procesosSync.preview = newPreview;
+                    if (r.data && r.data.post_sync_preview) {
+                        store.procesosSync.preview = r.data.post_sync_preview;
                     } else {
+                        // Fallback: re-llamar al preview endpoint.
                         const rp = await apiProcesosSyncPreview(
                             props.procUid,
                             plcName.value,
