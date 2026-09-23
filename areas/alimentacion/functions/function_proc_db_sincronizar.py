@@ -188,7 +188,7 @@ class FunctionProcDBSincronizar(FunctionBase):
         # en prod (singleton). El FB se re-arranca por cada operacion,
         # asi que un snapshot al start es suficiente.
         if self._bloques_cache is None:
-            from core.infrastructure.tia.tia_bloque_cache import (
+            from core.infrastructure.tia.tia_cache import (
                 TIADataBloqueCache,
             )
             self._bloques_cache = TIADataBloqueCache._caches.get(

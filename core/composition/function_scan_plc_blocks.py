@@ -2,7 +2,7 @@
 
 Encapsula la operacion one-shot "scan de bloques de un PLC". Tras
 ``n_done``, el resultado queda cacheado en ``TIADataBloqueCache``
-(Singleton en ``core.infrastructure.tia.tia_bloque_cache``) y
+(Singleton en ``core.infrastructure.tia.tia_cache``) y
 cualquier caller puede hacer lookups sincronos via ``TIADataBloqueCache.get``.
 
 Hereda directo de ``FunctionBase`` (no del template) porque su logica
