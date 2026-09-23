@@ -353,24 +353,21 @@ class FunctionProcDBSincronizar(FunctionBase):
         )
 
     def _proc_compute_nmax_ops_inline(self) -> None:
-        """Calculo de nmax_ops (movido inline al stage 3).
+        """Calculo de nmax_ops (helper local del stage 3).
 
-        Antes era un metodo ``proc_compute_nmax_ops`` que el match/case
-        invocaba aparte. Como ahora el dispatch del STAGES es por nombre
-        y solo conoce ``_stage_N_*``, este calculo se hace inline en
-        ``_stage_3`` (separar en otro stage huerfano complicaria el
-        tests sin valor).
+        Llama al module-level ``_compute_nmax_ops_for_proc_apply`` con
+        ``self._ctx.tags_base`` (preview variables) y el ``slot_map``
+        construido en stage 3. Se separa del stage 3 para mantener
+        el método del FB delgado y poder loguear el resultado del diff
+        antes de abrir Tx A.
         """
         from areas.alimentacion.helpers.build_cache import build_cache
-        from areas.alimentacion.helpers.proc.proc_compute_nmax_diff import (
-            proc_compute_nmax_diff,
-        )
 
         if self._ctx.tags_base is None:
             proc_ctx = build_cache(root=self._ctx.build_cache_root).procesos
             self._ctx.tags_base = proc_ctx.preview_variables
 
-        self._ctx.nmax_ops = proc_compute_nmax_diff(
+        self._ctx.nmax_ops = _compute_nmax_ops_for_proc_apply(
             self._ctx.tags_base, self._ctx.proc_uid, self._ctx.slot_map,
         )
 
@@ -914,6 +911,111 @@ class FunctionProcDBSincronizar(FunctionBase):
             # pedir un preview manual extra (mismo patron que Dispositivos).
             "post_sync_preview": self._ctx.post_sync_preview,
         }
+
+
+# ============================================================================
+# Helper local del FB: calculo de ops N_MAX del proceso.
+#
+# Patron paralelo a ``_compute_nmax_ops_for_apply`` en
+# ``function_disp_sincronizar.py``: misma firma, misma abstraccion.
+# Vive en este archivo (no en ``helpers/proc/``) porque la logica es
+# especifica del FB proc_db: la tabla de variables del proceso por
+# convencion del operario (sept-2026); el dispatch de disp usa la
+# tabla global de dispositivos.
+# ============================================================================
+
+
+def _compute_nmax_ops_for_proc_apply(
+    tags_base: Path,
+    proc_uid: int,
+    slot_map: Any,
+) -> list[dict[str, Any]]:
+    """Calcula ops de N_MAX contra la tabla de variables del proceso.
+
+    Args:
+        tags_base: Carpeta donde TIA (vía preview) exportó la tabla de
+            variables del proceso (``build_cache.procesos.preview_variables``).
+        proc_uid: UID del proceso (para mensajes accionables).
+        slot_map: ``DataProcSlotMap`` con ``table_name``, ``nmax`` y
+            ``nmax_names``.
+
+    Returns:
+        Lista de ``[{"table_name", "constant_name", "new_value"}]``
+        lista para ``execute_transactional_batch`` con
+        ``update_user_constant_value``. Vacía si todos los N_MAX ya
+        coinciden con el estado exportado.
+
+    Raises:
+        RuntimeError: Si ``slot_map`` es None / ``table_name`` vacío,
+            si no hay ``nmax_names`` en config, o si la tabla no está
+            exportada en ``tags_base`` (preview no se ejecutó).
+    """
+    from core.helpers.simatic_ml import PlcUserConstantParser
+    from core.infrastructure.tia.tia_export_paths import XmlTarget
+
+    if slot_map is None:
+        raise RuntimeError(
+            "_compute_nmax_ops_for_proc_apply: slot_map es None. "
+            "El step 'Construir mapa de slots' no se ejecutó (o falló)."
+        )
+    table_name = getattr(slot_map, "table_name", "") or ""
+    if not table_name:
+        raise RuntimeError(
+            f"_compute_nmax_ops_for_proc_apply: slot_map.table_name "
+            f"vacío. ¿proc_uid={proc_uid} existe en AppState?"
+        )
+    nmax_names: dict[str, str] = (
+        getattr(slot_map, "nmax_names", {}) or {}
+    )
+    if not nmax_names:
+        raise RuntimeError(
+            f"_compute_nmax_ops_for_proc_apply: config_manager no "
+            f"aporta procesos.n_max_suffixes para proc_uid={proc_uid}. "
+            f"Revisa config/defaults.py."
+        )
+
+    try:
+        xml_path = XmlTarget(tags_base, table_name).path
+    except FileNotFoundError:
+        raise RuntimeError(
+            f"Tabla de variables del proceso {proc_uid} no exportada: "
+            f"{tags_base}/{table_name}.xml (ni directo ni con rglob). "
+            f"Ejecuta POST /api/v1/procesos/sync/preview antes del "
+            f"commit, o revisa que el PLC tenga la tabla {table_name}."
+        )
+
+    try:
+        current: dict[str, int] = PlcUserConstantParser.parse_user_constants(
+            xml_path
+        )
+    except Exception as e:
+        raise RuntimeError(
+            f"_compute_nmax_ops_for_proc_apply: parseo de {xml_path} "
+            f"falló: {e!r}. ¿XML corrupto o sin permisos de lectura?"
+        ) from e
+
+    nmax_desired: dict[str, int] = (
+        getattr(slot_map, "nmax", {}) or {}
+    )
+    ops: list[dict[str, Any]] = []
+    for kind, desired_val in nmax_desired.items():
+        full_name = nmax_names.get(kind)
+        if not full_name:
+            logger.warning(
+                f"[proc][N_MAX] kind={kind!r} sin nmax_name declarado. "
+                f"Se ignora."
+            )
+            continue
+        cur_val = current.get(full_name)
+        desired_int = int(desired_val)
+        if cur_val is not None and int(cur_val) == desired_int:
+            continue
+        ops.append({
+            "table_name": table_name,
+            "constant_name": full_name,
+            "new_value": desired_int,
+        })
+    return ops
 
 
 # ============================================================================
