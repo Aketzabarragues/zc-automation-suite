@@ -1119,7 +1119,7 @@ def _copy_and_edit_offline(
     build_cache_root: Path,
     device_changes: list[dict[str, Any]],
 ) -> None:
-    """Stage 7 del sync: copytree filtrado exports→modified + edits.
+    """Stage 7 del sync: copytree filtrado sync export→modified + edits.
 
     El copytree con filtro excluye ``000_Config_Dispositivos.xml``
     (tabla N_MAX online-only) para que Tx B no la re-importe y anule
@@ -1129,60 +1129,66 @@ def _copy_and_edit_offline(
     from core.helpers.simatic_ml import PlcUserConstantModifier
 
     disp_ctx = build_cache(root=build_cache_root).dispositivos
+    src = disp_ctx.sync_variables_export
+    dst = disp_ctx.sync_variables_modified
     device_table_names = {dc["table_name"] for dc in device_changes}
 
-    # 1. Copytree filtrado exports/variables -> modified/variables.
+    logger.info(f"[disp sync] copytree: {src} -> {dst}")
+
+    # 1. Copytree filtrado sync/variables/export -> sync/variables/modified.
     # El filtro es CRITICO: si copiamos la tabla N_MAX, Tx B la
     # re-importaria con sus valores pre-commit, anulando los N_MAX
     # aplicados online en Tx A.
-    if disp_ctx.exports_variables.exists():
+    if src.exists():
         shutil.copytree(
-            disp_ctx.exports_variables,
-            disp_ctx.modified_variables,
+            src,
+            dst,
             ignore=_ignore_non_device_xmls(device_table_names),
             dirs_exist_ok=True,
         )
+    else:
+        logger.warning(
+            f"[disp sync] origen no existe: {src}. "
+            f"Nada que copiar a modified."
+        )
+        return
 
-    # 2. Edit offline de cada tabla en modified_variables.
+    # 2. Edit offline de cada tabla en sync/variables/modified.
     for dc in device_changes:
         table_name = dc["table_name"]
         tia_folder = dc.get("tia_folder") or ""
         adds = dc.get("adds", []) or []
         removes = set(dc.get("removes", []) or [])
         xml_path = (
-            disp_ctx.modified_variables
+            dst
             / tia_folder
             / f"{table_name}.xml"
         )
         if not xml_path.is_file():
-            matches = list(
-                disp_ctx.modified_variables.rglob(f"{table_name}.xml")
-            )
+            matches = list(dst.rglob(f"{table_name}.xml"))
             if matches:
                 xml_path = matches[0]
         if xml_path.is_file():
+            logger.debug(
+                f"[disp sync] edit offline: tabla={table_name}, "
+                f"adds={len(adds)}, removes={len(removes)}, "
+                f"xml={xml_path}"
+            )
             modifier = PlcUserConstantModifier(xml_path)
             modifier.add_user_constants_by_table(table_name, adds)
             modifier.remove_user_constants(removes)
-        else:
-            # El XML del tipo de dispositivo no esta en
-            # modified_variables (ni ruta directa ni rglob
-            # fallback). Saltamos ese tipo pero avisamos al
-            # operario: un FB que reporta "0 adds, 0 removes"
-            # sin este warning podria hacer creer al operario
-            # que ese tipo de dispositivo ya estaba al dia.
-            logger.warning(
-                f"[disp sync] XML no encontrado para tabla "
-                f"'{table_name}' en {disp_ctx.modified_variables}. "
-                f"Se omite del sync."
-            )
-            # NO llamamos ``modifier.regenerate_root_table_id()``:
-            # cambiar el ID del PlcTagTable root de ``0`` a un valor alto
-            # hace que TIA Portal V21 interprete el import como CREATE
-            # (no UPDATE) y reviente con ``CommitOnDispose`` al intentar
-            # commit/rollback. El root debe mantener su ID original.
             if modifier.was_modified():
                 modifier.save(xml_path)
+        else:
+            # El XML del tipo de dispositivo no esta en modified.
+            # Saltamos ese tipo pero avisamos al operario: un FB
+            # que reporta "0 adds, 0 removes" sin este warning
+            # podria hacer creer al operario que ese tipo de
+            # dispositivo ya estaba al dia.
+            logger.warning(
+                f"[disp sync] XML no encontrado para tabla "
+                f"'{table_name}' en {dst}. Se omite del sync."
+            )
 
 
 def _get_affected_dbs_for_compile(config_manager: Any) -> list[str]:
