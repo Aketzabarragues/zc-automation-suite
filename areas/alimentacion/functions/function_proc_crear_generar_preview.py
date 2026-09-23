@@ -705,7 +705,7 @@ async def proc_process_detectar_colisiones(ctx: ProcProcessGenContext) -> None:
             key_tipo_num = (prefijo, num)
             if key_tipo_num in plc_tipo_numero:
                 ctx.colisiones.append(val)
-                ctx.colisiones_con[key_tipo_num] = id_por_tipo_numero[key_tipo_num]
+                ctx.colisiones_con[val] = id_por_tipo_numero[key_tipo_num]
                 colisiones_vistas.add(val)
 
 

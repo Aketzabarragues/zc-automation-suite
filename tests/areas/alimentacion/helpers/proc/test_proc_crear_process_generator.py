@@ -1,6 +1,8 @@
-"""Tests del helper ``proc_crear_process_generator``.
+"""Tests de las funciones puras absorbidas en los FBs ``proc_crear``.
 
-Cubre las funciones puras/async del helper (preview + apply):
+Tras F22-1 (preview) y F22-2 (sync) las funciones puras viven en los
+archivos de los FBs como module-level, debajo del dataclass. Tests
+cubre las funciones puras del pipeline (filesystem puro, sin TIA):
 
   - ``proc_process_leer_manifest``        -> ctx.manifest_plantilla + base_vieja.
   - ``proc_process_validar_minimos``      -> raises si minimos < plantilla.
@@ -15,11 +17,15 @@ Cubre las funciones puras/async del helper (preview + apply):
   - ``proc_process_escribir_manifest``    -> manifest.json en dir_nuevo.
 
 Restricciones:
-  - NO toca el gateway TIA (helper es offline).
+  - NO toca el gateway TIA (helpers son offline).
   - Usa ``tmp_path`` (pytest builtin) para crear una plantilla dummy
     minima + un staging aislado por test.
-  - El helper es **libre de state machine**: cada test llama a UNA o
-    MAS funciones del helper por vez y valida el efecto en el ``ctx``.
+  - Cada test llama a UNA o MAS funciones puras por vez y valida el
+    efecto en el ``ctx``.
+
+Nota (F22): las funciones preview vienen del FB preview, las de apply
+del FB sync. ``ProcProcessGenContext`` y los errores se toman del FB
+preview por conveniencia (el dataclass es identico en ambos).
 """
 from __future__ import annotations
 
@@ -30,18 +36,20 @@ from typing import Any
 
 import pytest
 
-from areas.alimentacion.helpers.proc.proc_crear_process_generator import (
+from areas.alimentacion.functions.function_proc_crear_generar_preview import (
     ManifestInvalido,
     PlantillaMinimosNoCumplidos,
     ProcProcessGenContext,
-    proc_process_aplicar_clonacion,
     proc_process_construir_diccionarios,
     proc_process_copiar_a_preview,
     proc_process_detectar_colisiones,
-    proc_process_escribir_manifest,
     proc_process_generar_previstos,
     proc_process_leer_manifest,
     proc_process_validar_minimos,
+)
+from areas.alimentacion.functions.function_proc_crear_sincronizar import (
+    proc_process_aplicar_clonacion,
+    proc_process_escribir_manifest,
 )
 
 

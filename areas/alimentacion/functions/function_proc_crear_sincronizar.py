@@ -1,10 +1,24 @@
 """FB de area: aplicar la clonacion de un proceso desde plantilla.
 
-State machine sobre el helper ``proc_crear_process_generator``
-(``areas/alimentacion/helpers/proc/proc_crear_process_generator.py``) +
-un dispatch al worker OT (``execute_transactional_batch`` que
-ejecuta 3 ops bajo una sola transaccion TIA: import tag table,
-wait 2s, import bloques) y un compile del PLC.
+State machine sobre el contexto ``ProcProcessGenContext`` (definido al
+final de este archivo). Los 9 stages viven como metodos del FB (mutando
+``self._ctx``); las funciones puras del pipeline viven debajo del
+dataclass en el mismo archivo.
+
+Patron canónico greenfield (sept-2026), mismo que
+``function_disp_sincronizar.py`` y
+``function_proc_db_sincronizar.py``. El orquestador y la dataclass
+permanecen en el archivo del FB; los helpers puros (filesystem puro,
+sin TIA) se exponen como funciones module-level debajo del dataclass.
+
+Ademas, este FB dispara 2 dispatches al worker OT:
+
+  - Stage 7 (importar_proceso): ``execute_transactional_batch`` con 3
+    ops bajo una sola transaccion TIA (import_plc_tags_xml +
+    ``_wait`` 2s + import_blocks_sd). Si cualquier op falla, TIA hace
+    rollback atomico de las 3 juntas.
+  - Stage 8 (compilar): ``compile_plc`` (fuera de transaccion; TIA
+    compila todos los cambios pendientes del PLC).
 
 Si el lote transaccional falla, TIA hace rollback atomico de las
 3 ops juntas, dejando el PLC en el mismo estado previo al apply.
@@ -15,8 +29,6 @@ especifico en lugar de raiz), re-introducimos el lote para tener
 rollback atomico entre tags y blocks. Si TIA V21 sigue marcando
 la transaccion como corrupta, se volveria a la version
 secuencial (commit 3baad2b).
-
-Hereda directo de ``FunctionBase``.
 
 Restricciones CRITICAS del dispatch al worker OT (sept-2026):
   - ``import_plc_tags_xml`` / ``import_blocks_sd`` distinguen entre
@@ -29,6 +41,13 @@ Restricciones CRITICAS del dispatch al worker OT (sept-2026):
     para que el handler use el default ``None`` y TIA haga UPDATE
     correcto. Ver ``tia_handlers._h_import_block`` para detalle.
 
+Codigo absorbido de ``helpers/proc/proc_crear_process_generator.py``
+(commit F22-2, sept-2026). Antes el FB era un wrapper de 1-linea
+sobre las funciones del helper; ahora cada stage hace el trabajo
+inline contra ``self._ctx`` y las funciones puras viven aqui mismo.
+
+Hereda directo de ``FunctionBase``.
+
 Runtime params via ``start(**kwargs)``:
   - ``plantillas_path`` (str): ruta base de las plantillas TIA. Oblig.
   - ``dir_plantilla_nombre`` (str): nombre de la plantilla concreta.
@@ -40,8 +59,8 @@ Runtime params via ``start(**kwargs)``:
   - ``plc_name`` (str): nombre del PLC destino. Obligatorio.
   - ``plc_blocks_cache`` (list[dict] | None): bloques que ya existen
     en el PLC destino. Cada item es ``{"nombre": str, "numero": int}``.
-    El helper cruza por NOMBRE O por NUMERO contra los bloques
-    post-rename. Si es None, el helper emite warning y el FB aborta.
+    Si es None, el helper emite warning; si hay colisiones, el FB
+    aborta en ``detectar_colisiones`` (que SI se llama en este FB).
     ``set[str]`` / ``list[str]`` legacy se aceptan y se convierten
     defensivamente a ``[{"nombre": s}]``.
   - ``build_cache_root`` (Path): raiz del BuildCache del area.
@@ -73,30 +92,24 @@ El ``self.result`` se popula con la shape esperada por la SPA::
     }
 
 Steps (9):
-  - leer_manifest             -> helper.proc_process_leer_manifest
-  - validar_minimos           -> helper.proc_process_validar_minimos
-  - copiar_a_preview          -> helper.proc_process_copiar_a_preview
-  - construir_diccionarios    -> helper.proc_process_construir_diccionarios
-  - generar_proceso_nuevo     -> helper.proc_process_aplicar_clonacion
-  - escribir_manifest_modified-> helper.proc_process_escribir_manifest
-  - importar_proceso          -> dispatch_async("execute_transactional_batch")
-                                con 3 ops bajo transaccion TIA:
-                                (1) import_plc_tags_xml,
-                                (2) _wait 2s (sub-comando que duerme
-                                    localmente sin tocar TIA, dentro
-                                    del handler transaccional),
-                                (3) import_blocks_sd
-                                Si cualquier op falla, TIA hace rollback
-                                de las 3 juntas.
-  - compilar                  -> dispatch_async("compile_plc") (fuera de
-                                transaccion; TIA compila todos los
-                                cambios pendientes del PLC).
-  - done                      -> vuelco ``ctx.result`` a ``self.result``
+  - Leer manifiesto              -> proc_process_leer_manifest (inline)
+  - Validar mínimos              -> proc_process_validar_minimos (inline)
+  - Copiar a vista previa        -> proc_process_copiar_a_preview (inline)
+  - Construir diccionarios       -> proc_process_construir_diccionarios (inline)
+  - Generar proceso nuevo        -> proc_process_aplicar_clonacion (inline)
+  - Escribir manifiesto modified -> proc_process_escribir_manifest (inline)
+  - Importar proceso             -> execute_transactional_batch (3 ops)
+  - Compilar bloques             -> compile_plc (fuera de tx)
+  - Componer respuesta           -> proc_process_done_summary (inline)
 """
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import re
+import shutil
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -115,6 +128,70 @@ logger = logging.getLogger(__name__)
 TIA_CONSOLIDATION_SLEEP_S: float = 2.0
 
 
+# ============================================================================
+# Constantes y errores del pipeline (duplicadas del FB preview por
+# autonomía; cualquier cambio debe replicarse en ambos archivos).
+# ============================================================================
+
+EXTENSIONES_TEXTO: frozenset[str] = frozenset({
+    ".s7dcl", ".s7res", ".scl", ".xml", ".awl",
+})
+
+N_MAX_KEYS: tuple[str, ...] = (
+    "N_MAX_PREAL", "N_MAX_PINT", "N_MAX_ALM", "N_MAX_ALM_HMI",
+)
+
+
+class PlantillaMinimosNoCumplidos(ValueError):
+    """Lanzada si los N_MAX del operario son menores que los de la plantilla."""
+
+
+class ManifestInvalido(ValueError):
+    """Lanzada si el manifest.json de la plantilla no existe o le faltan campos."""
+
+
+@dataclass
+class ProcProcessGenContext:
+    """Estado compartido entre los 9 stages del FB sync.
+
+    Copia local del dataclass en ``function_proc_crear_generar_preview``.
+    Cada FB es autonomo (mismo patron que ``DispPreviewContext`` /
+    ``ProcPreviewContext`` en los FBs del greenfield) — si en el
+    futuro divergen, son contextos distintos.
+    """
+
+    # ── Deps inyectadas ──
+    dir_plantilla: Path
+    dir_plantilla_copia: Path
+    dir_nuevo: Path
+    base_nueva: int
+    codigo_nuevo: str
+    nombre_nuevo: str
+    plc_blocks_cache: list[dict[str, Any]] | None
+    minimos_usuario: dict[str, int]
+
+    # ── Resultado de leer_manifest ──
+    manifest_plantilla: dict[str, Any] | None = None
+    base_vieja: int = 0
+    codigo_viejo: str = ""
+    nombre_viejo: str = ""
+
+    # ── Resultado de construir_diccionarios ──
+    dicc_bloques: dict[str, str] = field(default_factory=dict)
+    dicc_xml: dict[str, str] = field(default_factory=dict)
+
+    # ── Resultado de detectar_colisiones ──
+    colisiones: list[str] = field(default_factory=list)
+    colisiones_con: dict[str, str] = field(default_factory=dict)
+
+    # ── Resultado de aplicar / generar_previstos ──
+    archivos_previstos: list[dict[str, Any]] = field(default_factory=list)
+    archivos_generados: list[str] = field(default_factory=list)
+
+    # ── Resultado final ──
+    result: dict[str, Any] = field(default_factory=dict)
+
+
 class FunctionProcCrearSincronizar(FunctionBase):
     """FB que clona un proceso desde plantilla TIA y lo importa al PLC."""
 
@@ -127,18 +204,6 @@ class FunctionProcCrearSincronizar(FunctionBase):
     # hasta 5 min. 600s cubre holgadamente.
     STEP_TIMEOUT_S: float = 600.0
 
-    # Tabla declarativa de stages. Cada tupla: (idx, "nombre_step",
-    # "atributo_metodo_en_el_FB"). El ``run_step`` dispatcha contra
-    # esta tabla en vez de un ``match``/``case`` inline, para que el
-    # flujo sea legible arriba de la clase y los tests puedan
-    # mockear ``fb._stage_N_<nombre>`` directamente.
-    #
-    # Convencion:
-    #   - ``idx`` correlativo, 1-based.
-    #   - ``nombre_step`` debe coincidir con ``self.steps[idx]["nombre"]``
-    #     (registrado en __init__). Si cambias uno, cambia el otro.
-    #   - ``atributo_metodo`` es un metodo del FB (no externo): un cambio
-    #     de signatura requiere actualizar este registro.
     STAGES: list[tuple[int, str, str]] = [
         (1, "Leer manifiesto",             "_stage_1_leer_manifest"),
         (2, "Validar mínimos",             "_stage_2_validar_minimos"),
@@ -195,17 +260,15 @@ class FunctionProcCrearSincronizar(FunctionBase):
         self._minimos_usuario: dict[str, int] = {}
         self._plc_name: str = ""
         self._plc_blocks_cache: list[dict[str, Any]] | None = None
-        # Resultados intermedios de los dispatches (3 ops: tags + wait +
-        # blocks, todas ejecutadas secuencialmente fuera de transaccion
-        # TIA por el quirk CommitOnDispose del V21).
-        # ``_import_batch_result``: shape legacy
-        # (``ok`` bool, ``operations_executed`` int, ``details`` list)
-        # poblado por compat con consumers que leen ``self.result``.
+        # Resultados intermedios de los 2 dispatches al worker OT.
+        # ``_import_batch_result``: shape ``ok`` bool +
+        # ``operations_executed`` int + ``details`` list (result del
+        # ``execute_transactional_batch`` interno).
         self._import_batch_result: dict[str, Any] | None = None
-        # ``_compile_result``: dict de ``compile_plc`` (con ``ok`` bool).
+        # ``_compile_result``: dict de ``compile_plc``.
         self._compile_result: dict[str, Any] | None = None
-        # ProcProcessGenContext compartido entre los 11 ticks.
-        self._ctx: Any = None
+        # ProcProcessGenContext compartido entre los 9 ticks.
+        self._ctx: ProcProcessGenContext | None = None
 
     # ==================================================================
     # HOOK 1: on_start  (ZONA 3: validar params + crear ctx)
@@ -217,8 +280,7 @@ class FunctionProcCrearSincronizar(FunctionBase):
         A diferencia del preview, este FB NECESITA ``tia_client``
         (obligatorio, lanza RuntimeError si es None) y ``plc_name``.
         ``plc_blocks_cache`` es opcional pero recomendado: si es None,
-        el helper emite warning; si hay colisiones, el FB aborta en
-        ``detectar_colisiones`` (que SI se llama en este FB).
+        el helper emite warning.
         """
         if self._tia_client is None:
             raise RuntimeError(
@@ -280,9 +342,6 @@ class FunctionProcCrearSincronizar(FunctionBase):
         self._nombre_nuevo = str(nombre_nuevo)
         self._minimos_usuario = dict(minimos_usuario)
         self._plc_name = str(plc_name)
-        # ``plc_blocks_cache``: shape preferida ``list[dict{nombre,
-        # numero}]``. Defensivo: aceptar ``set[str]`` / ``list[str]``
-        # legacy convirtiendolo a ``[{"nombre": s, "numero": None}]``.
         self._plc_blocks_cache = (
             _coerce_plc_blocks_cache(plc_blocks_cache)
             if plc_blocks_cache is not None else None
@@ -302,10 +361,8 @@ class FunctionProcCrearSincronizar(FunctionBase):
             Path(build_cache_root) / "alimentacion" / "ProcesoNuevo" / "Nuevo"
         )
 
-        # Lazy import para evitar ciclo con helpers/proc/.
-        from areas.alimentacion.helpers.proc.proc_crear_process_generator import (
-            ProcProcessGenContext,
-        )
+        # ``ProcProcessGenContext`` vive en este archivo (dataclass
+        # local); acceso directo, sin import.
         self._ctx = ProcProcessGenContext(
             dir_plantilla=dir_plantilla,
             dir_plantilla_copia=dir_plantilla_copia,
@@ -324,15 +381,11 @@ class FunctionProcCrearSincronizar(FunctionBase):
         )
 
     # ==================================================================
-    # HOOK 2: run_step  (ZONA 4: state machine -> dispatch al helper)
+    # HOOK 2: run_step  (ZONA 4: state machine -> dispatch al stage)
     # ==================================================================
 
     async def run_step(self, idx: int, **params: Any) -> str:
-        """Dispatch del FB step ``idx`` a la funcion del helper o al
-        worker OT."""
-        # Lazy import para evitar ciclo con helpers/proc/.
-        from areas.alimentacion.helpers.proc import proc_crear_process_generator
-
+        """Dispatch del FB step ``idx`` al metodo ``_stage_N_*``."""
         if self._ctx is None:
             raise RuntimeError(
                 "ProcProcessGenContext no inicializado. on_start() no se "
@@ -340,16 +393,6 @@ class FunctionProcCrearSincronizar(FunctionBase):
             )
 
         step_nombre = self.steps[idx]["nombre"]
-        # Dispatch declarativo via tabla ``STAGES``: el orden y los
-        # nombres de los 9 stages se declaran arriba de la clase. Asi
-        # el flujo del FB es visible de un vistazo (modo SFC) y los
-        # tests pueden mockear ``fb._stage_N_<nombre>`` directamente sin
-        # parchear el ``match`` interno.
-        #
-        # El lookup es por ``nombre`` (no por ``idx``) porque
-        # ``FunctionBase._step_ejecutar`` pasa ``idx`` 0-indexed sobre
-        # ``self.steps``. El ``idx`` de la tabla STAGES es 1-based y
-        # solo se usa para logging legible ("paso 3/9").
         for _s_idx, s_nombre, s_attr in self.STAGES:
             if s_nombre == step_nombre:
                 handler = getattr(self, s_attr)
@@ -386,16 +429,10 @@ class FunctionProcCrearSincronizar(FunctionBase):
         base_result = self._ctx.result
         # ``process_label``: ``"<base_nueva>_<codigo_nuevo>"`` del proceso
         # que se acaba de crear. La SPA lo lee para mostrar el mensaje
-        # "Proceso XXXX creado correctamente" despues del apply OK
-        # (sept-2026: antes solo tenia ``props.procUid`` y el mensaje
-        # era generico). Tambien sirve para logging trazable.
+        # "Proceso XXXX creado correctamente" despues del apply OK.
         process_label = (
             f"{self._base_nueva}_{self._codigo_nuevo}"
         )
-        # ``import_result`` es el dict crudo de
-        # ``execute_transactional_batch`` (``success``,
-        # ``operations_executed``, ``details``). La SPA solo lo
-        # muestra como badge, no inspecciona campos internos.
         self.result = {
             **base_result,
             "process_label": process_label,
@@ -417,41 +454,34 @@ class FunctionProcCrearSincronizar(FunctionBase):
     # Stages del FB (ZONA 4: 9 metodos privados numerados).
     #
     # Cada ``_stage_N_<nombre>`` corresponde a UNA entrada de la tabla
-    # ``STAGES`` arriba. Si cambias el flujo del stage, cambia la
-    # tabla tambien. Aqui viven como wrappers que delegan en las
-    # funciones puras de ``proc_crear_process_generator`` o en dispatchs al
-    # worker OT.
+    # ``STAGES`` arriba. Aqui el stage hace el trabajo inline llamando
+    # a la funcion pura correspondiente (definida mas abajo) sobre
+    # ``self._ctx``, o dispatch al worker OT (stages 7 y 8).
     # ==================================================================
 
     async def _stage_1_leer_manifest(self) -> None:
         """Stage 1: lee el ``manifest.json`` de la plantilla TIA."""
-        from areas.alimentacion.helpers.proc import proc_crear_process_generator
-        await proc_crear_process_generator.proc_process_leer_manifest(self._ctx)
+        await proc_process_leer_manifest(self._ctx)
 
     async def _stage_2_validar_minimos(self) -> None:
         """Stage 2: valida los N_MIN del operario contra la plantilla."""
-        from areas.alimentacion.helpers.proc import proc_crear_process_generator
-        await proc_crear_process_generator.proc_process_validar_minimos(self._ctx)
+        await proc_process_validar_minimos(self._ctx)
 
     async def _stage_3_copiar_a_preview(self) -> None:
         """Stage 3: copytree de la plantilla al workdir de preview."""
-        from areas.alimentacion.helpers.proc import proc_crear_process_generator
-        await proc_crear_process_generator.proc_process_copiar_a_preview(self._ctx)
+        await proc_process_copiar_a_preview(self._ctx)
 
     async def _stage_4_construir_diccionarios(self) -> None:
         """Stage 4: parsea bloques + XMLs y construye los diccionarios base."""
-        from areas.alimentacion.helpers.proc import proc_crear_process_generator
-        await proc_crear_process_generator.proc_process_construir_diccionarios(self._ctx)
+        await proc_process_construir_diccionarios(self._ctx)
 
     async def _stage_5_generar_proceso_nuevo(self) -> None:
         """Stage 5: aplica las reglas y materializa los archivos del proceso nuevo."""
-        from areas.alimentacion.helpers.proc import proc_crear_process_generator
-        await proc_crear_process_generator.proc_process_aplicar_clonacion(self._ctx)
+        await proc_process_aplicar_clonacion(self._ctx)
 
     async def _stage_6_escribir_manifest_modified(self) -> None:
         """Stage 6: escribe el manifest.json en el workdir ``modified/``."""
-        from areas.alimentacion.helpers.proc import proc_crear_process_generator
-        await proc_crear_process_generator.proc_process_escribir_manifest(self._ctx)
+        await proc_process_escribir_manifest(self._ctx)
 
     async def _stage_7_importar_proceso(self) -> None:
         """Stage 7: IMPORT bajo transaccion TIA unica (3 ops atomicas).
@@ -469,8 +499,7 @@ class FunctionProcCrearSincronizar(FunctionBase):
 
         ORDEN CRITICO (sept-2026, validado en vivo): tags ANTES de
         blocks. Si invertimos, los bloques que referencian
-        PlcUserConstant de la tag table fallan al compilar
-        (``OpennessAccessException``).
+        PlcUserConstant de la tag table fallan al compilar.
 
         REGLA (sept-2026): ``import_plc_tags_xml`` /
         ``import_blocks_sd`` se invocan SIN ``target_folder``
@@ -508,10 +537,7 @@ class FunctionProcCrearSincronizar(FunctionBase):
                 # ``undo_text`` especifico con el id del proceso
                 # (base_codigo) para que el Undo de TIA Portal y el
                 # dialog_text durante la transaccion sean trazables
-                # al proceso concreto que se esta creando
-                # (sept-2026: antes era generico "Generar proceso
-                # desde plantilla" y no se podia saber a que proceso
-                # correspondia).
+                # al proceso concreto que se esta creando.
                 "undo_text": (
                     f"Generando proceso "
                     f"{self._ctx.base_nueva}_{self._ctx.codigo_nuevo}"
@@ -523,9 +549,7 @@ class FunctionProcCrearSincronizar(FunctionBase):
         # CRITICO: si el batch fallo (rollback ejecutado), NO
         # continuar a ``compilar``. Si lo hicieramos, el compile
         # correria sobre el PLC sin cambios (rollback) y el FB
-        # reportaria exito falso. Ademas, si el PLC quedo en estado
-        # "corrupto" por la transaccion TIA fallida, el compile puede
-        # hangear o fallar de forma confusa.
+        # reportaria exito falso.
         if not self._import_batch_result.get("ok"):
             raise RuntimeError(
                 f"execute_transactional_batch fallo: "
@@ -548,37 +572,386 @@ class FunctionProcCrearSincronizar(FunctionBase):
 
     async def _stage_9_build_response(self) -> None:
         """Stage 9: compone ``ctx.result`` con la shape final del apply."""
-        from areas.alimentacion.helpers.proc import proc_crear_process_generator
-        await proc_crear_process_generator.proc_process_done_summary(self._ctx)
+        await proc_process_done_summary(self._ctx)
 
 
-def _coerce_plc_blocks_cache(raw: Any) -> list[dict[str, Any]]:
-    """Normaliza ``plc_blocks_cache`` a ``list[dict{nombre, numero}]``.
+# ============================================================================
+# Codigo absorbido de helpers/proc/proc_crear_process_generator.py
+# (commit F22-2, sept-2026). Antes era un orquestador separado que el FB
+# llamaba via ``match step_nombre``. Ahora los 9 stages viven como
+# metodos del FB (mutando ``self._ctx``); las funciones puras del pipeline
+# (filesystem puro, sin TIA) viven aqui mismo, debajo del dataclass.
+#
+# Las 7 funciones puras del preview (leer_manifest, validar_minimos,
+# copiar_a_preview, construir_diccionarios, detectar_colisiones,
+# generar_previstos, done_summary) viven en el archivo del FB preview
+# (``function_proc_crear_generar_preview``) — duplicadas aqui las que
+# el apply necesita (leer_manifest, validar_minimos, copiar_a_preview,
+# construir_diccionarios, done_summary) para autonomia. Aqui van las
+# que SOLO usa el apply: aplicar_clonacion, escribir_manifest.
+# ============================================================================
 
-    Acepta las 3 shapes que pueden llegar al FB:
-      - ``list[dict]`` (shape preferida; el dict tiene al menos
-        ``nombre`` y opcionalmente ``numero``).
-      - ``list[str]`` / ``set[str]`` (legacy: solo nombres). Se
-        convierte a ``[{"nombre": s, "numero": None}]``.
 
-    Items invalidos (None, tipos raros) se descartan silenciosamente.
+async def proc_process_leer_manifest(ctx: ProcProcessGenContext) -> None:
+    """Lee ``manifest.json`` y popula ``ctx.{manifest_plantilla,
+    base_vieja, codigo_viejo, nombre_viejo}``.
+
+    Copia local del helper en ``function_proc_crear_generar_preview``
+    (autonomia del FB; cualquier cambio debe replicarse).
     """
-    out: list[dict[str, Any]] = []
-    if isinstance(raw, (list, tuple, set, frozenset)):
-        for item in raw:
-            if isinstance(item, dict):
-                # Aceptar tanto "nombre" como "name" (compat scanner).
-                nombre = item.get("nombre") or item.get("name") or ""
-                numero = item.get("numero")
-                out.append({"nombre": str(nombre), "numero": numero})
-            elif isinstance(item, str) and item:
-                out.append({"nombre": item, "numero": None})
-    elif isinstance(raw, str) and raw:
-        out.append({"nombre": raw, "numero": None})
-    return out
+    manifest_path = ctx.dir_plantilla / "manifest.json"
+    if not manifest_path.exists():
+        raise ManifestInvalido(
+            f"No se encontro manifest.json en: {ctx.dir_plantilla}"
+        )
+
+    try:
+        manifest_text = await asyncio.to_thread(
+            manifest_path.read_text, encoding="utf-8"
+        )
+        manifest = json.loads(manifest_text)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ManifestInvalido(f"manifest.json invalido: {exc}") from exc
+
+    if "base" not in manifest or not isinstance(manifest["base"], int):
+        raise ManifestInvalido("manifest.json debe contener 'base' (int).")
+    if "codigo" not in manifest or not str(manifest["codigo"]).strip():
+        raise ManifestInvalido("manifest.json debe contener 'codigo' (str).")
+
+    ctx.manifest_plantilla = manifest
+    ctx.base_vieja = int(manifest["base"])
+    ctx.codigo_viejo = str(manifest["codigo"])
+    ctx.nombre_viejo = str(manifest.get("nombre", "") or "")
 
 
-def _step_summary(fb: FunctionProcCrearSincronizar, step_nombre: str) -> str:
+async def proc_process_validar_minimos(ctx: ProcProcessGenContext) -> None:
+    """Valida que los N_MAX del operario cubran los minimos de la plantilla."""
+    if ctx.manifest_plantilla is None:
+        raise RuntimeError("Requiere proc_process_leer_manifest previo.")
+
+    minimos_plantilla = ctx.manifest_plantilla.get("minimos", {}) or {}
+    problemas: list[str] = []
+
+    for key in N_MAX_KEYS:
+        plantilla_val = int(minimos_plantilla.get(key, 0))
+        usuario_val = int(ctx.minimos_usuario.get(key, 0))
+        if usuario_val < plantilla_val:
+            problemas.append(
+                f"{key}: usuario={usuario_val} < plantilla={plantilla_val}"
+            )
+
+    if problemas:
+        raise PlantillaMinimosNoCumplidos(
+            "Los N_MAX del operario no cubren los minimos de la plantilla:\n"
+            "  - " + "\n  - ".join(problemas)
+        )
+
+
+async def proc_process_copiar_a_preview(ctx: ProcProcessGenContext) -> None:
+    """Copia ``dir_plantilla`` a ``dir_plantilla_copia`` (stage 3)."""
+    if ctx.dir_plantilla_copia.exists():
+        await asyncio.to_thread(shutil.rmtree, ctx.dir_plantilla_copia)
+    await asyncio.to_thread(
+        shutil.copytree,
+        ctx.dir_plantilla,
+        ctx.dir_plantilla_copia,
+        dirs_exist_ok=False,
+    )
+
+
+async def proc_process_construir_diccionarios(ctx: ProcProcessGenContext) -> None:
+    """Construye los diccionarios de renombrado (stage 4).
+
+    Copia local del helper en ``function_proc_crear_generar_preview``.
+    Estrategia completa (bloques + variables + metadatos + fallbacks)
+    documentada alli.
+    """
+    base_viej = ctx.base_vieja
+    base_nuev = ctx.base_nueva
+    cod_viej = ctx.codigo_viejo
+    cod_nuev = ctx.codigo_nuevo
+    nom_viej = ctx.nombre_viejo
+    nom_nuev = ctx.nombre_nuevo
+
+    dicc_bloques: dict[str, str] = {}
+    dicc_xml: dict[str, str] = {}
+    numeros_usados: set[int] = set()
+
+    patron_bloques = re.compile(r"(FC|FB|DB)(\d+)")
+
+    def _walk_and_build() -> None:
+        for item in ctx.dir_plantilla_copia.rglob("*"):
+            if not item.exists():
+                continue
+            nombre_base = item.stem if item.is_file() else item.name
+
+            def _repl_bloque(m: re.Match[str]) -> str:
+                prefijo = m.group(1)
+                num_viejo = int(m.group(2))
+                num_nuevo = num_viejo - base_viej + base_nuev
+                return f"{prefijo}{num_nuevo}"
+
+            nuevo_nombre_base = patron_bloques.sub(_repl_bloque, nombre_base)
+
+            if cod_viej:
+                nuevo_nombre_base = nuevo_nombre_base.replace(cod_viej, cod_nuev)
+            if nom_viej and nom_nuev:
+                nuevo_nombre_base = nuevo_nombre_base.replace(nom_viej, nom_nuev)
+
+            if nombre_base != nuevo_nombre_base:
+                dicc_bloques[nombre_base] = nuevo_nombre_base
+
+            for match in patron_bloques.finditer(nombre_base):
+                numeros_usados.add(int(match.group(2)))
+
+    await asyncio.to_thread(_walk_and_build)
+
+    bases_viejas = [base_viej, base_viej + 3000, base_viej + 5000]
+    bases_nuevas = [base_nuev, base_nuev + 3000, base_nuev + 5000]
+    for b_vieja, b_nueva in zip(bases_viejas, bases_nuevas):
+        regla_vieja = f"{b_vieja}_"
+        regla_nueva = f"{b_nueva}_"
+        dicc_xml[regla_vieja] = regla_nueva
+        dicc_bloques[regla_vieja] = regla_nueva
+
+    for num in numeros_usados:
+        nuevo_num = num - base_viej + base_nuev
+        dicc_bloques[f'S7_BlockNumber := "{num}"'] = (
+            f'S7_BlockNumber := "{nuevo_num}"'
+        )
+
+    if cod_viej:
+        dicc_xml[cod_viej] = cod_nuev
+        dicc_bloques[cod_viej] = cod_nuev
+    if nom_viej and nom_nuev:
+        dicc_xml[nom_viej] = nom_nuev
+        dicc_bloques[nom_viej] = nom_nuev
+
+    ctx.dicc_bloques = dict(
+        sorted(dicc_bloques.items(), key=lambda x: len(x[0]), reverse=True)
+    )
+    ctx.dicc_xml = dict(
+        sorted(dicc_xml.items(), key=lambda x: len(x[0]), reverse=True)
+    )
+
+
+async def proc_process_aplicar_clonacion(ctx: ProcProcessGenContext) -> None:
+    """Aplica la clonacion: ``dir_plantilla_copia`` -> ``dir_nuevo``.
+
+    Borra ``dir_nuevo/`` antes de aplicar (regla de retencion: cada
+    apply parte limpio).
+
+    Pipeline:
+      1. ``shutil.copytree(dir_plantilla_copia, dir_nuevo,
+         ignore=manifest)``: copia bulk preservando la estructura de
+         carpetas.
+      2. Walk de ``dir_nuevo``: para cada path (file O folder) se
+         aplica el rename al nombre del componente aplicando
+         ``_aplicar_diccionario(nombre, dicc_bloques)``.
+      3. Walk final para rewrite de contenido segun extension.
+
+    Por extension (paso 3):
+      - ``.s7res``:           ``dicc_bloques``, encoding utf-8-sig.
+      - ``.xml``:             ``dicc_xml``, encoding utf-8 (con
+                              override de N_MAX si el XML contiene
+                              PlcUserConstant).
+      - ``.s7dcl``/``.scl``/``.awl``: ``dicc_bloques``, encoding utf-8.
+      - Resto (binarios):     sin tocar (ya copiados por copytree).
+
+    ``manifest.json`` se excluye via el ``ignore`` de copytree (lo
+    regenera ``proc_process_escribir_manifest`` justo despues).
+
+    Para los renames de folder, se procesan en orden de profundidad
+    DESCENDENTE (mas profundo primero) para no romper paths de hijos
+    cuando movemos el padre.
+    """
+    if ctx.dir_nuevo.exists():
+        await asyncio.to_thread(shutil.rmtree, ctx.dir_nuevo)
+
+    def _ignore_manifest(_dir: str, names: list[str]) -> list[str]:
+        return [n for n in names if n == "manifest.json"]
+
+    await asyncio.to_thread(
+        shutil.copytree,
+        str(ctx.dir_plantilla_copia),
+        str(ctx.dir_nuevo),
+        ignore=_ignore_manifest,
+    )
+
+    def _rename_paths() -> None:
+        renames: list[tuple[Path, Path]] = []
+        for path in list(ctx.dir_nuevo.rglob("*")):
+            if path == ctx.dir_nuevo:
+                continue
+            if path.is_file():
+                suffix = path.suffix.lower()
+                nuevo_stem = _aplicar_diccionario(
+                    path.stem, ctx.dicc_bloques
+                )
+                new_name = f"{nuevo_stem}{suffix}"
+            else:
+                new_name = _aplicar_diccionario(
+                    path.name, ctx.dicc_bloques
+                )
+            if path.name != new_name:
+                renames.append((path, path.with_name(new_name)))
+
+        renames.sort(key=lambda pair: -len(pair[0].parts))
+        for old, new in renames:
+            new.parent.mkdir(parents=True, exist_ok=True)
+            old.rename(new)
+
+    await asyncio.to_thread(_rename_paths)
+
+    def _rewrite_contents() -> list[str]:
+        generated: list[str] = []
+        for path in ctx.dir_nuevo.rglob("*"):
+            if not path.is_file():
+                continue
+            suffix = path.suffix.lower()
+            if suffix == ".s7res":
+                enc = "utf-8-sig"
+                contenido = _leer_texto(path, enc)
+                nuevo = _aplicar_diccionario(contenido, ctx.dicc_bloques)
+                _escribir_texto(path, nuevo, enc)
+            elif suffix == ".xml":
+                enc = "utf-8"
+                contenido = _leer_texto(path, enc)
+                nuevo = _aplicar_diccionario(contenido, ctx.dicc_xml)
+                if "PlcUserConstant" in nuevo and ctx.minimos_usuario:
+                    nuevo = _reemplazar_nmax_en_xml(
+                        nuevo, ctx.base_nueva, ctx.minimos_usuario
+                    )
+                _escribir_texto(path, nuevo, enc)
+            elif suffix in (".s7dcl", ".scl", ".awl"):
+                enc = "utf-8"
+                contenido = _leer_texto(path, enc)
+                nuevo = _aplicar_diccionario(contenido, ctx.dicc_bloques)
+                _escribir_texto(path, nuevo, enc)
+
+            generated.append(str(path.relative_to(ctx.dir_nuevo)))
+        return generated
+
+    ctx.archivos_generados = await asyncio.to_thread(_rewrite_contents)
+
+
+async def proc_process_escribir_manifest(ctx: ProcProcessGenContext) -> None:
+    """Escribe ``<dir_nuevo>/manifest.json`` con los datos del
+    proceso nuevo (usa la plantilla como base, override con
+    ``base_nueva/codigo/nombre/minimos`` del ctx).
+    """
+    ctx.dir_nuevo.mkdir(parents=True, exist_ok=True)
+    manifest_path = ctx.dir_nuevo / "manifest.json"
+    payload = {
+        "base": ctx.base_nueva,
+        "codigo": ctx.codigo_nuevo,
+        "nombre": ctx.nombre_nuevo,
+        "minimos": dict(ctx.minimos_usuario),
+    }
+
+    def _write() -> None:
+        manifest_path.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+            newline="\n",
+        )
+
+    await asyncio.to_thread(_write)
+    ctx.archivos_generados.append("manifest.json")
+
+
+async def proc_process_done_summary(ctx: ProcProcessGenContext) -> dict[str, Any]:
+    """Compone ``ctx.result`` con la shape que el FB vuelca a
+    ``self.result``.
+
+    Diferencia preview vs apply:
+      - preview (``archivos_previstos`` poblado) -> vuelca la lista de
+        previstos + el ``plantilla_copia_dir``.
+      - apply (``archivos_generados`` poblado) -> vuelca la lista de
+        generados + el ``nuevo_dir``.
+
+    ``success=True`` solo si no hubo colisiones.
+    """
+    if ctx.archivos_generados:
+        dir_salida = ctx.dir_nuevo
+        archivos = list(ctx.archivos_generados)
+        campo_archivos = "archivos_generados"
+    else:
+        dir_salida = ctx.dir_plantilla_copia
+        archivos = list(ctx.archivos_previstos)
+        campo_archivos = "archivos_previstos"
+
+    success = len(ctx.colisiones) == 0
+    ctx.result = {
+        "manifest_plantilla": ctx.manifest_plantilla,
+        campo_archivos: archivos,
+        "colisiones": list(ctx.colisiones),
+        (
+            "plantilla_copia_dir"
+            if campo_archivos == "archivos_previstos"
+            else "nuevo_dir"
+        ): str(dir_salida),
+        "success": success,
+    }
+    return ctx.result
+
+
+# ============================================================================
+# Helpers internos (sync).
+# ============================================================================
+
+
+def _aplicar_diccionario(texto: str, dicc: dict[str, str]) -> str:
+    """Aplica los reemplazos en cascada."""
+    for viejo, nuevo in dicc.items():
+        texto = texto.replace(viejo, nuevo)
+    return texto
+
+
+def _leer_texto(path: Path, encoding: str) -> str:
+    """Lee texto con fallback latin-1 si utf-8 falla (caso TIA V21)."""
+    try:
+        with open(path, "r", encoding=encoding, newline="") as f:
+            return f.read()
+    except UnicodeDecodeError:
+        with open(path, "r", encoding="latin-1", newline="") as f:
+            return f.read()
+
+
+def _escribir_texto(path: Path, contenido: str, encoding: str) -> None:
+    """Escribe texto preservando retornos de carro (``newline=""``)."""
+    with open(path, "w", encoding=encoding, newline="") as f:
+        f.write(contenido)
+
+
+def _reemplazar_nmax_en_xml(
+    contenido: str,
+    base_nueva: int,
+    minimos_usuario: dict[str, int],
+) -> str:
+    """Sustituye los ``<Value>`` de las constantes N_MAX del proceso
+    nuevo de forma segura, vinculandolos a su ``<Name>``.
+
+    Asume que ``contenido`` ya paso por ``_aplicar_diccionario(contenido,
+    dicc_xml)``, asi ``<Name>{base_nueva}_{N_MAX_KEY}</Name>`` esta
+    presente en el XML destino.
+    """
+    for key in N_MAX_KEYS:
+        val_usuario = minimos_usuario.get(key)
+        if val_usuario is None:
+            continue
+
+        patron = rf"(<Name>{base_nueva}_{key}</Name>.*?<Value>)(\d+)(</Value>)"
+        contenido = re.sub(
+            patron,
+            lambda m: f"{m.group(1)}{val_usuario}{m.group(3)}",
+            contenido,
+            flags=re.DOTALL,
+        )
+    return contenido
+
+
+def _step_summary(fb: "FunctionProcCrearSincronizar", step_nombre: str) -> str:
     """Resumen legible del step que acaba de correr (aparece en la SPA)."""
     ctx = fb._ctx  # noqa: SLF001 (mismo patron que FunctionProcSincronizar)
     if step_nombre == "leer_manifest":
@@ -608,11 +981,6 @@ def _step_summary(fb: FunctionProcCrearSincronizar, step_nombre: str) -> str:
     if step_nombre == "escribir_manifest_modified":
         return f"{step_nombre}: manifest OK"
     if step_nombre == "importar_proceso":
-        # Dispatch async devuelve ``{ok: True, result: <batch>}`` o
-        # ``{ok: False, error: str}``. El batch interno tiene
-        # ``success`` / ``operations_executed`` / ``details``. Hay
-        # que mirar las claves correctas (no las del dispatch wrapper)
-        # para que el summary muestre OK en lugar de FAIL.
         batch = fb._import_batch_result  # noqa: SLF001
         if not batch:
             return f"{step_nombre}: FAIL (sin respuesta del lote)"
@@ -631,4 +999,43 @@ def _step_summary(fb: FunctionProcCrearSincronizar, step_nombre: str) -> str:
     return f"{step_nombre}: OK"
 
 
-__all__ = ["FunctionProcCrearSincronizar", "_coerce_plc_blocks_cache"]
+def _coerce_plc_blocks_cache(raw: Any) -> list[dict[str, Any]]:
+    """Normaliza ``plc_blocks_cache`` a ``list[dict{nombre, numero}]``."""
+    out: list[dict[str, Any]] = []
+    if isinstance(raw, (list, tuple, set, frozenset)):
+        for item in raw:
+            if isinstance(item, dict):
+                nombre = item.get("nombre") or item.get("name") or ""
+                numero = item.get("numero")
+                out.append({"nombre": str(nombre), "numero": numero})
+            elif isinstance(item, str) and item:
+                out.append({"nombre": item, "numero": None})
+    elif isinstance(raw, str) and raw:
+        out.append({"nombre": raw, "numero": None})
+    return out
+
+
+__all__ = [
+    "EXTENSIONES_TEXTO",
+    "ManifestInvalido",
+    "N_MAX_KEYS",
+    "PlantillaMinimosNoCumplidos",
+    "ProcProcessGenContext",
+    "TIA_CONSOLIDATION_SLEEP_S",
+    "FunctionProcCrearSincronizar",
+    "_coerce_plc_blocks_cache",
+    "_step_summary",
+    # Funciones puras absorbidas (F22-2).
+    "proc_process_leer_manifest",
+    "proc_process_validar_minimos",
+    "proc_process_copiar_a_preview",
+    "proc_process_construir_diccionarios",
+    "proc_process_aplicar_clonacion",
+    "proc_process_escribir_manifest",
+    "proc_process_done_summary",
+    # Helpers internos (puros).
+    "_aplicar_diccionario",
+    "_leer_texto",
+    "_escribir_texto",
+    "_reemplazar_nmax_en_xml",
+]
