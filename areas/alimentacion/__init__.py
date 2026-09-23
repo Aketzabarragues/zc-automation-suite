@@ -220,7 +220,7 @@ def register(
 
     # FBs con I/O mixto (disco local + worker OT): crear un proceso
     # completo desde una plantilla TIA (preview read-only + apply con
-    # import + compile). El helper ``proc_process_generator`` opera
+    # import + compile). El helper ``proc_crear_process_generator`` opera
     # sobre directorios locales; los imports los despachan los FBs
     # via ``core.helpers.tia.dispatch_async``. ``plc_blocks_cache``
     # se resuelve en on_start() desde el singleton TIADataBloqueCache.

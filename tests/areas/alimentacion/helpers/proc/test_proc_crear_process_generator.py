@@ -1,4 +1,4 @@
-"""Tests del helper ``proc_process_generator``.
+"""Tests del helper ``proc_crear_process_generator``.
 
 Cubre las funciones puras/async del helper (preview + apply):
 
@@ -30,7 +30,7 @@ from typing import Any
 
 import pytest
 
-from areas.alimentacion.helpers.proc.proc_process_generator import (
+from areas.alimentacion.helpers.proc.proc_crear_process_generator import (
     ManifestInvalido,
     PlantillaMinimosNoCumplidos,
     ProcProcessGenContext,

@@ -1,7 +1,7 @@
 """FB de area: preview (read-only) de generar un proceso desde plantilla.
 
-State machine sobre el helper ``proc_process_generator``
-(``areas/alimentacion/helpers/proc/proc_process_generator.py``). El
+State machine sobre el helper ``proc_crear_process_generator``
+(``areas/alimentacion/helpers/proc/proc_crear_process_generator.py``). El
 helper expone funciones independientes que reciben un
 ``ProcProcessGenContext`` y mutan sus campos. Aqui en el FB vive la
 state machine: el orden de las llamadas, el mapping step -> funcion del
@@ -232,7 +232,7 @@ class FunctionProcCrearGenerarPreview(FunctionBase):
         )
 
         # Lazy import para evitar ciclo con helpers/proc/.
-        from areas.alimentacion.helpers.proc.proc_process_generator import (
+        from areas.alimentacion.helpers.proc.proc_crear_process_generator import (
             ProcProcessGenContext,
         )
         self._ctx = ProcProcessGenContext(
@@ -259,7 +259,7 @@ class FunctionProcCrearGenerarPreview(FunctionBase):
     async def run_step(self, idx: int, **params: Any) -> str:
         """Dispatch del FB step ``idx`` a la funcion del helper."""
         # Lazy import para evitar ciclo con helpers/proc/.
-        from areas.alimentacion.helpers.proc import proc_process_generator
+        from areas.alimentacion.helpers.proc import proc_crear_process_generator
 
         if self._ctx is None:
             raise RuntimeError(
@@ -324,14 +324,14 @@ class FunctionProcCrearGenerarPreview(FunctionBase):
     # Cada ``_stage_N_<nombre>`` corresponde a UNA entrada de la tabla
     # ``STAGES`` arriba. Si cambias el flujo del stage, cambia la
     # tabla tambien. Aqui viven como wrappers que delegan en las
-    # funciones puras de ``proc_process_generator`` (filesystem puro,
+    # funciones puras de ``proc_crear_process_generator`` (filesystem puro,
     # sin tocar TIA).
     # ==================================================================
 
     async def _stage_1_leer_manifest(self) -> None:
         """Stage 1: lee el ``manifest.json`` de la plantilla TIA."""
-        from areas.alimentacion.helpers.proc import proc_process_generator
-        await proc_process_generator.proc_process_leer_manifest(self._ctx)
+        from areas.alimentacion.helpers.proc import proc_crear_process_generator
+        await proc_crear_process_generator.proc_process_leer_manifest(self._ctx)
 
     async def _stage_2_validar_minimos(self) -> None:
         """Stage 2: valida los N_MIN del operario contra la plantilla.
@@ -339,33 +339,33 @@ class FunctionProcCrearGenerarPreview(FunctionBase):
         Si falla, lanza ``PlantillaMinimosNoCumplidos`` y el base va
         a ``n_error`` con ``error_stage``.
         """
-        from areas.alimentacion.helpers.proc import proc_process_generator
-        await proc_process_generator.proc_process_validar_minimos(self._ctx)
+        from areas.alimentacion.helpers.proc import proc_crear_process_generator
+        await proc_crear_process_generator.proc_process_validar_minimos(self._ctx)
 
     async def _stage_3_copiar_a_preview(self) -> None:
         """Stage 3: copytree de la plantilla al workdir de preview."""
-        from areas.alimentacion.helpers.proc import proc_process_generator
-        await proc_process_generator.proc_process_copiar_a_preview(self._ctx)
+        from areas.alimentacion.helpers.proc import proc_crear_process_generator
+        await proc_crear_process_generator.proc_process_copiar_a_preview(self._ctx)
 
     async def _stage_4_construir_diccionarios(self) -> None:
         """Stage 4: parsea bloques + XMLs y construye los diccionarios base."""
-        from areas.alimentacion.helpers.proc import proc_process_generator
-        await proc_process_generator.proc_process_construir_diccionarios(self._ctx)
+        from areas.alimentacion.helpers.proc import proc_crear_process_generator
+        await proc_crear_process_generator.proc_process_construir_diccionarios(self._ctx)
 
     async def _stage_5_detectar_colisiones(self) -> None:
         """Stage 5: detecta UIDs/colisiones contra el ``plc_blocks_cache``."""
-        from areas.alimentacion.helpers.proc import proc_process_generator
-        await proc_process_generator.proc_process_detectar_colisiones(self._ctx)
+        from areas.alimentacion.helpers.proc import proc_crear_process_generator
+        await proc_crear_process_generator.proc_process_detectar_colisiones(self._ctx)
 
     async def _stage_6_generar_previstos(self) -> None:
         """Stage 6: aplica las reglas y genera ``archivos_previstos``."""
-        from areas.alimentacion.helpers.proc import proc_process_generator
-        await proc_process_generator.proc_process_generar_previstos(self._ctx)
+        from areas.alimentacion.helpers.proc import proc_crear_process_generator
+        await proc_crear_process_generator.proc_process_generar_previstos(self._ctx)
 
     async def _stage_7_build_response(self) -> None:
         """Stage 7: compone ``ctx.result`` con la shape final del preview."""
-        from areas.alimentacion.helpers.proc import proc_process_generator
-        await proc_process_generator.proc_process_done_summary(self._ctx)
+        from areas.alimentacion.helpers.proc import proc_crear_process_generator
+        await proc_crear_process_generator.proc_process_done_summary(self._ctx)
 
 
 def _step_summary(ctx: Any, step_nombre: str) -> str:

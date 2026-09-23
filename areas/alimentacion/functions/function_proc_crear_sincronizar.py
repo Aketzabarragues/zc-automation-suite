@@ -1,7 +1,7 @@
 """FB de area: aplicar la clonacion de un proceso desde plantilla.
 
-State machine sobre el helper ``proc_process_generator``
-(``areas/alimentacion/helpers/proc/proc_process_generator.py``) +
+State machine sobre el helper ``proc_crear_process_generator``
+(``areas/alimentacion/helpers/proc/proc_crear_process_generator.py``) +
 un dispatch al worker OT (``execute_transactional_batch`` que
 ejecuta 3 ops bajo una sola transaccion TIA: import tag table,
 wait 2s, import bloques) y un compile del PLC.
@@ -306,7 +306,7 @@ class FunctionProcCrearSincronizar(FunctionBase):
         )
 
         # Lazy import para evitar ciclo con helpers/proc/.
-        from areas.alimentacion.helpers.proc.proc_process_generator import (
+        from areas.alimentacion.helpers.proc.proc_crear_process_generator import (
             ProcProcessGenContext,
         )
         self._ctx = ProcProcessGenContext(
@@ -334,7 +334,7 @@ class FunctionProcCrearSincronizar(FunctionBase):
         """Dispatch del FB step ``idx`` a la funcion del helper o al
         worker OT."""
         # Lazy import para evitar ciclo con helpers/proc/.
-        from areas.alimentacion.helpers.proc import proc_process_generator
+        from areas.alimentacion.helpers.proc import proc_crear_process_generator
 
         if self._ctx is None:
             raise RuntimeError(
@@ -422,39 +422,39 @@ class FunctionProcCrearSincronizar(FunctionBase):
     # Cada ``_stage_N_<nombre>`` corresponde a UNA entrada de la tabla
     # ``STAGES`` arriba. Si cambias el flujo del stage, cambia la
     # tabla tambien. Aqui viven como wrappers que delegan en las
-    # funciones puras de ``proc_process_generator`` o en dispatchs al
+    # funciones puras de ``proc_crear_process_generator`` o en dispatchs al
     # worker OT.
     # ==================================================================
 
     async def _stage_1_leer_manifest(self) -> None:
         """Stage 1: lee el ``manifest.json`` de la plantilla TIA."""
-        from areas.alimentacion.helpers.proc import proc_process_generator
-        await proc_process_generator.proc_process_leer_manifest(self._ctx)
+        from areas.alimentacion.helpers.proc import proc_crear_process_generator
+        await proc_crear_process_generator.proc_process_leer_manifest(self._ctx)
 
     async def _stage_2_validar_minimos(self) -> None:
         """Stage 2: valida los N_MIN del operario contra la plantilla."""
-        from areas.alimentacion.helpers.proc import proc_process_generator
-        await proc_process_generator.proc_process_validar_minimos(self._ctx)
+        from areas.alimentacion.helpers.proc import proc_crear_process_generator
+        await proc_crear_process_generator.proc_process_validar_minimos(self._ctx)
 
     async def _stage_3_copiar_a_preview(self) -> None:
         """Stage 3: copytree de la plantilla al workdir de preview."""
-        from areas.alimentacion.helpers.proc import proc_process_generator
-        await proc_process_generator.proc_process_copiar_a_preview(self._ctx)
+        from areas.alimentacion.helpers.proc import proc_crear_process_generator
+        await proc_crear_process_generator.proc_process_copiar_a_preview(self._ctx)
 
     async def _stage_4_construir_diccionarios(self) -> None:
         """Stage 4: parsea bloques + XMLs y construye los diccionarios base."""
-        from areas.alimentacion.helpers.proc import proc_process_generator
-        await proc_process_generator.proc_process_construir_diccionarios(self._ctx)
+        from areas.alimentacion.helpers.proc import proc_crear_process_generator
+        await proc_crear_process_generator.proc_process_construir_diccionarios(self._ctx)
 
     async def _stage_5_generar_proceso_nuevo(self) -> None:
         """Stage 5: aplica las reglas y materializa los archivos del proceso nuevo."""
-        from areas.alimentacion.helpers.proc import proc_process_generator
-        await proc_process_generator.proc_process_aplicar_clonacion(self._ctx)
+        from areas.alimentacion.helpers.proc import proc_crear_process_generator
+        await proc_crear_process_generator.proc_process_aplicar_clonacion(self._ctx)
 
     async def _stage_6_escribir_manifest_modified(self) -> None:
         """Stage 6: escribe el manifest.json en el workdir ``modified/``."""
-        from areas.alimentacion.helpers.proc import proc_process_generator
-        await proc_process_generator.proc_process_escribir_manifest(self._ctx)
+        from areas.alimentacion.helpers.proc import proc_crear_process_generator
+        await proc_crear_process_generator.proc_process_escribir_manifest(self._ctx)
 
     async def _stage_7_importar_proceso(self) -> None:
         """Stage 7: IMPORT bajo transaccion TIA unica (3 ops atomicas).
@@ -551,8 +551,8 @@ class FunctionProcCrearSincronizar(FunctionBase):
 
     async def _stage_9_build_response(self) -> None:
         """Stage 9: compone ``ctx.result`` con la shape final del apply."""
-        from areas.alimentacion.helpers.proc import proc_process_generator
-        await proc_process_generator.proc_process_done_summary(self._ctx)
+        from areas.alimentacion.helpers.proc import proc_crear_process_generator
+        await proc_crear_process_generator.proc_process_done_summary(self._ctx)
 
 
 def _coerce_plc_blocks_cache(raw: Any) -> list[dict[str, Any]]:
