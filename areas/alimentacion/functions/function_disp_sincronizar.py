@@ -55,7 +55,7 @@ from pathlib import Path
 from typing import Any
 
 from core.composition.plc_function_base import FunctionBase
-from core.helpers.tia import dispatch_async
+from core.helpers.tia import dispatch_async, validate_execute_batch_result
 from core.runtime.app_state import AppState, get_app_state
 
 logger = logging.getLogger(__name__)
@@ -322,7 +322,7 @@ class FunctionDispSincronizar(FunctionBase):
             f"[{self._ctx.plc_name}] sync modified dir (rellenado en stage 7): "
             f"{self._ctx.tags_modified}"
         )
-        await dispatch_async(
+        batch_result = await dispatch_async(
             self._ctx.tia_client,
             "execute_batch",
             {
@@ -337,6 +337,12 @@ class FunctionDispSincronizar(FunctionBase):
                     }
                 ],
             },
+        )
+        validate_execute_batch_result(
+            batch_result["result"],
+            undo_text="Exportar etiquetas",
+            plc_name=self._ctx.plc_name,
+            log=logger,
         )
 
     async def _stage_2_compute_diff(self) -> None:
@@ -523,7 +529,7 @@ class FunctionDispSincronizar(FunctionBase):
             f"[{self._ctx.plc_name}] sync export re-read post-TxA: "
             f"{disp_ctx.sync_variables_export}"
         )
-        await dispatch_async(
+        batch_result = await dispatch_async(
             self._ctx.tia_client,
             "execute_batch",
             {
@@ -538,6 +544,12 @@ class FunctionDispSincronizar(FunctionBase):
                     }
                 ],
             },
+        )
+        validate_execute_batch_result(
+            batch_result["result"],
+            undo_text="Re-exportar etiquetas (post Tx A)",
+            plc_name=self._ctx.plc_name,
+            log=logger,
         )
 
     async def _stage_7_editar_xmls_offline(self) -> None:
@@ -714,7 +726,7 @@ class FunctionDispSincronizar(FunctionBase):
         # ── 4. Export UNA VEZ de los 6 DBs a exports/bloques/ ──
         # Una sola llamada execute_batch agrupa los 6 export_block
         # (mismo target_dir, distintos block_name). Modo read-only.
-        await dispatch_async(
+        batch_result = await dispatch_async(
             self._ctx.tia_client,
             "execute_batch",
             {
@@ -730,6 +742,12 @@ class FunctionDispSincronizar(FunctionBase):
                     for hw_type, db_name in db_names.items()
                 ],
             },
+        )
+        validate_execute_batch_result(
+            batch_result["result"],
+            undo_text="Exportar 6 DBs (sincronizar/bloques/export)",
+            plc_name=self._ctx.plc_name,
+            log=logger,
         )
 
         # ── 5. Copytree exports/bloques/ -> modified/bloques/ ──
@@ -872,7 +890,7 @@ class FunctionDispSincronizar(FunctionBase):
             ]
 
             # 2/4 + 3/4. Exporta FLAT (N_MAX + 6 disp tables) en un execute_batch.
-            await dispatch_async(
+            batch_result = await dispatch_async(
                 self._ctx.tia_client,
                 "execute_batch",
                 {
@@ -897,6 +915,12 @@ class FunctionDispSincronizar(FunctionBase):
                         },
                     ],
                 },
+            )
+            validate_execute_batch_result(
+                batch_result["result"],
+                undo_text="Preview post-sync (FLAT export)",
+                plc_name=self._ctx.plc_name,
+                log=logger,
             )
 
             # 4/4. Diff por hw.

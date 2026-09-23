@@ -11,6 +11,7 @@ Regla arquitectonica: este paquete NO importa
 from __future__ import annotations
 
 from core.helpers.tia.tia_dispatch_async import dispatch_async
+from core.helpers.tia.tia_validate_batch import validate_execute_batch_result
 
 
-__all__ = ["dispatch_async"]
+__all__ = ["dispatch_async", "validate_execute_batch_result"]
