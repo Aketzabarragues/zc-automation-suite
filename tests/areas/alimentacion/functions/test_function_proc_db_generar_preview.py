@@ -125,7 +125,7 @@ def _patch_helper_fns(fb) -> Any:
         patch.object(fb, "_stage_5_export_and_diff", AsyncMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "_stage_6_done", MagicMock(), create=True)
+        patch.object(fb, "_stage_6_build_response", MagicMock(), create=True)
     )
     return stack
 
@@ -167,10 +167,10 @@ async def test_proc_generar_preview_happy_path_6_ticks(
         mock_bloques_cache, progress,
     )
     with _patch_helper_fns(fb) as stack:
-        # Sobre-escribimos _stage_6_done con nuestra version.
+        # Sobre-escribimos _stage_6_build_response con nuestra version.
         stack.enter_context(
             patch.object(
-                fb, "_stage_6_done",
+                fb, "_stage_6_build_response",
                 side_effect=fake_compose, create=True,
             )
         )
@@ -215,7 +215,7 @@ async def test_proc_generar_preview_happy_path_6_ticks(
         assert fb._stage_3_build_slot_maps.call_count == 1
         assert fb._stage_4_compute_nmax.await_count == 1
         assert fb._stage_5_export_and_diff.await_count == 1
-        assert fb._stage_6_done.call_count == 1
+        assert fb._stage_6_build_response.call_count == 1
 
 
 # ── Sad paths (pre-flight) ───────────────────────────────────────────

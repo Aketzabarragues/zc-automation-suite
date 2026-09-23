@@ -87,12 +87,12 @@ class FunctionProcDBGenerarPreview(FunctionBase):
     #   - ``atributo_metodo`` es un metodo del FB (no externo): un cambio
     #     de signatura requiere actualizar este registro.
     STAGES: list[tuple[int, str, str]] = [
-        (1, "check_state",     "_stage_1_check_state"),
-        (2, "check_blocks",    "_stage_2_check_blocks"),
-        (3, "build_slot_maps", "_stage_3_build_slot_maps"),
-        (4, "compute_nmax",    "_stage_4_compute_nmax"),
-        (5, "export_and_diff", "_stage_5_export_and_diff"),
-        (6, "done",            "_stage_6_done"),
+        (1, "Validar estado de TIA",          "_stage_1_check_state"),
+        (2, "Validar bloques",                "_stage_2_check_blocks"),
+        (3, "Construir mapa de slots",        "_stage_3_build_slot_maps"),
+        (4, "Calcular diferencias de N_MAX",  "_stage_4_compute_nmax"),
+        (5, "Exportar y calcular diferencias", "_stage_5_export_and_diff"),
+        (6, "Componer respuesta",             "_stage_6_build_response"),
     ]
 
     # ==================================================================
@@ -117,12 +117,12 @@ class FunctionProcDBGenerarPreview(FunctionBase):
             nombre=nombre,
             titulo=titulo,
             steps=steps if steps is not None else [
-                {"nombre": "check_state"},
-                {"nombre": "check_blocks"},
-                {"nombre": "build_slot_maps"},
-                {"nombre": "compute_nmax"},
-                {"nombre": "export_and_diff"},
-                {"nombre": "done"},
+                {"nombre": "Validar estado de TIA"},
+                {"nombre": "Validar bloques"},
+                {"nombre": "Construir mapa de slots"},
+                {"nombre": "Calcular diferencias de N_MAX"},
+                {"nombre": "Exportar y calcular diferencias"},
+                {"nombre": "Componer respuesta"},
             ],
             tracker=tracker,
         )
@@ -602,7 +602,7 @@ class FunctionProcDBGenerarPreview(FunctionBase):
 
         self._ctx.export_error = None
 
-    def _stage_6_done(self) -> None:
+    def _stage_6_build_response(self) -> None:
         """Compone el ``self._ctx.result`` con el shape legacy de la SPA.
 
         Inspecciona los flags del ctx (excel_loaded, bloques_loaded,
