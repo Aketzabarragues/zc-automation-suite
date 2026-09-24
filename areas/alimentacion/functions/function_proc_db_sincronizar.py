@@ -410,8 +410,8 @@ class FunctionProcDBSincronizar(FunctionBase):
             "execute_transactional_batch",
             {
                 "undo_text": (
-                    f"Sync N_MAX proceso {self._ctx.proc_uid} "
-                    f"({self._ctx.plc_name})"
+                    f"Actualizando N_MAX proceso {self._ctx.proc_uid} "
+                    f"({self._ctx.plc_name})..."
                 ),
                 "operations": operations,
             },
@@ -524,7 +524,7 @@ class FunctionProcDBSincronizar(FunctionBase):
             else self._ctx.proc_uid
         )
         undo_text = (
-            f"Sync comentarios proceso {codigo} ({self._ctx.plc_name})"
+            f"Sincronizando comentarios proceso {self._ctx.proc_uid} ({self._ctx.plc_name})..."
         )
 
         # Phase 1
@@ -694,7 +694,7 @@ class FunctionProcDBSincronizar(FunctionBase):
                 "execute_transactional_batch",
                 {
                     "undo_text": (
-                        f"Sync proc_db {self._ctx.proc_uid} (Tx B)"
+                        f"Sincronizando proceso {self._ctx.proc_uid} ({self._ctx.plc_name})..."
                     ),
                     "operations": [
                         {
@@ -795,7 +795,7 @@ class FunctionProcDBSincronizar(FunctionBase):
             )
             validate_execute_batch_result(
                 batch_result["result"],
-                undo_text="Preview post-sync proceso",
+                undo_text=f"Generando prevision de proceso {proc_uid} ({plc_name})...",
                 plc_name=plc_name,
                 log=logger,
             )
@@ -1195,7 +1195,7 @@ async def _proc_tx_b_detectar_eliminar_export(ctx: ProcSyncContext) -> None:
     )
     validate_execute_batch_result(
         batch_result["result"],
-        undo_text="Export Tx B (param + alm)",
+        undo_text=f"Exportando bloques de datos de proceso {ctx.proc_uid} ({plc_name})...",
         plc_name=plc_name,
         log=logger,
     )
