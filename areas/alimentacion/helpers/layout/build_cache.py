@@ -3,9 +3,9 @@
 Punto de entrada único para resolver los workdirs del área:
 
   - ``dispositivos``: ciclo de export/modify/import de los DBs de dispositivos del área (data-driven vía ``config.json``).
-    dispositivos + tabla N_MAX (estructura DispLayout, sept-2026).
+    dispositivos + tabla N_MAX (estructura DispLayout).
   - ``procesos``: ciclo análogo para PReal, PInt, ALM (estructura
-    ProcDbLayout, sept-2026).
+    ProcDbLayout).
 
 Convenio de uso
 ===============
@@ -26,11 +26,10 @@ Constantes
 ==========
 
 - ``DEFAULT_BUILD_CACHE_ROOT``: ``<cwd>/.build_cache``. Fallback único
-  cuando nadie inyecta ``root=`` o ``build_cache=``. Antes se repetia
-  literalmente en 7 sitios (esta funcion + 6 FBs); ahora vive aqui.
-  Evaluada en import time; el launcher de la app no cambia CWD
-  despues del bootstrap, asi que el valor es estable durante toda
-  la vida del proceso.
+  cuando nadie inyecta ``root=`` o ``build_cache=``. Evaluada en
+  import time; el launcher de la app no cambia CWD despues del
+  bootstrap, asi que el valor es estable durante toda la vida del
+  proceso.
 """
 from __future__ import annotations
 
