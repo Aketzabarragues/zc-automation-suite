@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from core.infrastructure.tia.tia_loop import (
+    STATE_CONNECTED,
     SyncTIAClient)
 from core.infrastructure.tia.tia_commands_catalog import register_all_commands
 from core.composition.plc_engine import Engine
@@ -24,19 +25,27 @@ def client():
     return app.test_client(), tia
 
 
-def test_get_connection_disconnected_when_no_wrapper(client):
+def test_get_connection_idle_when_no_wrapper(client):
+    """Sin portal attached, /connection devuelve state='idle' (modelo sept-2026)."""
     c, _ = client
     resp = c.get("/api/v1/tia/connection")
     assert resp.status_code == 200
     data = resp.get_json()
-    assert data["state"] == "disconnected"
+    assert data["state"] == "idle"
     assert data["project"] is None
     assert data["plcs"] == []
     assert data["worker_alive"] is True
     assert data["pid"] is None
 
 
-def test_get_connection_connected_with_plcs(client):
+def test_get_connection_connected_with_plcs(client, monkeypatch):
+    """Con portal attached + state=CONNECTED, /connection expone proyecto + PLCs.
+
+    Mockeamos ``submit_and_wait`` para invocar directamente las
+    operaciones contra el portal mockeado (el tia-loop no esta
+    corriendo en estos tests; solo verificamos el wiring del
+    endpoint).
+    """
     c, tia = client
     portal = MagicMock()
     plc1 = MagicMock(); plc1.get_name.return_value = "PLC_1"
@@ -50,6 +59,36 @@ def test_get_connection_connected_with_plcs(client):
     }.get(kw.get("name"))
     portal.get_project.return_value = project
     tia.attach_wrapper(portal)
+    tia._set_state(STATE_CONNECTED)
+
+    def fake_submit_and_wait(command, **_kwargs):
+        if command == "get_project_info":
+            try:
+                project_obj = tia.wrapper.get_project()
+                return {
+                    "ok": True,
+                    "result": {
+                        "name": project_obj.get_property(name="Name"),
+                        "path": project_obj.get_property(name="Path"),
+                        "version": project_obj.get_property(name="Version"),
+                    },
+                }
+            except Exception as exc:  # noqa: BLE001
+                return {"ok": False, "error": str(exc)}
+        if command == "list_plcs":
+            try:
+                plc_list = tia.wrapper.get_project().get_plcs()
+                return {
+                    "ok": True,
+                    "result": {
+                        "plcs": [{"name": p.get_name()} for p in plc_list],
+                    },
+                }
+            except Exception as exc:  # noqa: BLE001
+                return {"ok": False, "error": str(exc)}
+        return {"ok": False, "error": f"unknown command: {command}"}
+
+    monkeypatch.setattr(tia, "submit_and_wait", fake_submit_and_wait)
 
     resp = c.get("/api/v1/tia/connection")
     assert resp.status_code == 200
@@ -71,6 +110,7 @@ def test_get_connection_handles_project_info_failure_gracefully(client):
     project.get_property.side_effect = RuntimeError("TIA closed")
     portal.get_project.return_value = project
     tia.attach_wrapper(portal)
+    tia._set_state(STATE_CONNECTED)
 
     resp = c.get("/api/v1/tia/connection")
     assert resp.status_code == 200
@@ -89,6 +129,7 @@ def test_get_connection_handles_list_plcs_failure_gracefully(client):
     project.get_property.return_value = "MiProyecto"
     portal.get_project.return_value = project
     tia.attach_wrapper(portal)
+    tia._set_state(STATE_CONNECTED)
 
     resp = c.get("/api/v1/tia/connection")
     data = resp.get_json()
@@ -104,21 +145,36 @@ def test_post_connect_without_ts_returns_503(client):
     data = resp.get_json()
     assert data["ok"] is False
     assert "siemens_tia_scripting" in data["error"]
-    assert data["state"] == "disconnected"
+    assert data["state"] == "idle"
 
 
-def test_post_disconnect_clears_wrapper(client):
-    """POST /disconnect hace attach_wrapper(None) -> wrapper cleared."""
+def test_post_disconnect_clears_wrapper(client, monkeypatch):
+    """POST /disconnect hace attach_wrapper(None) -> wrapper cleared.
+
+    Mockeamos ``submit_and_wait`` para que invoque directamente
+    ``detach_portal`` sin pasar por la cola del tia-loop (el loop no
+    esta corriendo en estos tests, solo verificamos el wiring del
+    endpoint).
+    """
     c, tia = client
     portal = MagicMock()
     tia.attach_wrapper(portal)
     assert tia.wrapper is portal
 
+    def fake_submit_and_wait(command, **_kwargs):
+        if command == "detach_portal":
+            tia._wrapper = None
+            tia._set_state("idle")
+            return {"ok": True, "result": {}}
+        return {"ok": False, "error": f"unknown command: {command}"}
+
+    monkeypatch.setattr(tia, "submit_and_wait", fake_submit_and_wait)
+
     resp = c.post("/api/v1/tia/disconnect")
     assert resp.status_code == 200
     data = resp.get_json()
     assert data["ok"] is True
-    assert data["state"] == "disconnected"
+    assert data["state"] == "idle"
     assert tia.wrapper is None
 
 

@@ -9,7 +9,7 @@ from core.web_server.app_flask import create_app
 def _app_with_registry(registry_mock, config_manager=None):
     app = create_app(config_manager=config_manager or MagicMock())
     app.config["TESTING"] = True
-    import core.application.area_registry as ar_mod
+    import core.composition.app_area_registry as ar_mod
     original_discover = ar_mod.AreaRegistry.discover
     ar_mod.AreaRegistry.discover = lambda: registry_mock
     return app.test_client(), ar_mod, original_discover
