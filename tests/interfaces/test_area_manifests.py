@@ -1,9 +1,9 @@
-"""Tests del blueprint area_manifests (Fase 4 / paso 4.4.4)."""
+"""Tests del blueprint area_manifests."""
 from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from interfaces.web_server.app_flask import create_app
+from core.web_server.app_flask import create_app
 
 
 def _app_with_registry(registry_mock):
