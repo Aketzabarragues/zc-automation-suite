@@ -1,4 +1,4 @@
-"""Helpers compartidos por los tests de los 9 disp parsers (Fase 5).
+"""Helpers compartidos por los tests de los disp parsers.
 
 Convención: cada parser (``DispEDParser``, ``DispEAParser``,
 ``DispSAParser``, ``DispVParser``, ``DispMParser``, ``DispM_VFParser``,
