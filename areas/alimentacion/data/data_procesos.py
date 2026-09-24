@@ -14,7 +14,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class DataProcesoPLC:
-    """DTO de un proceso del PLC (hoja ``CONFIGURACION`` -> ``Tabla_Procesos``).
+    """DTO de un proceso del PLC (hoja ``CONFIG`` -> ``Tabla_Procesos``).
 
     Campos (todos enteros/str con defaults tolerantes a celdas vacias):
       - ``uid``: identificador entero unico (1, 2, 3, ...).

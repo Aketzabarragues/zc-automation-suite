@@ -17,7 +17,7 @@ Pipeline (orden de ejecución sobre el mismo ``wb``):
        ``DISP_<HW>``.
     2. 4 parsers de software (``Procesos``/``PReal``/``PInt``/
        ``Alarmas``) Ã¢â‚¬” extraen las ``ListObject`` de las hojas
-       ``CONFIGURACION``/``P_REAL``/``P_INT``/``ALARMAS``.
+       ``CONFIG``/``P_REAL``/``P_INT``/``ALARMAS``.
     3. 1 parser de N_MAX (``DimensionesParser``) Ã¢â‚¬” extrae los
        defined names ``N_MAX_*``/``Num_Disp_*``.
 

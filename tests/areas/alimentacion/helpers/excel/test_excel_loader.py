@@ -100,7 +100,7 @@ def _build_full_xlsx(target: Path) -> Path:
                [["PID_001", 1, "V_PID_001", "Controlador PID 1"]])
 
     # 4 software
-    _add_table(wb, "CONFIGURACION", "Tabla_Procesos",
+    _add_table(wb, "CONFIG", "Tabla_Procesos",
                ["UID", "Nombre", "Codigo", "PReal", "PInt", "Alarmas"],
                [[1, "Proceso 1", "PR1", 1, 1, 16]])
     _add_table(wb, "P_REAL", "Tabla_PReal",
@@ -119,16 +119,16 @@ def _build_full_xlsx(target: Path) -> Path:
                ["UID", "Numero", "Proceso", "Num.DB", "Descripcion", "ComentarioDB"],
                [["AL_1_001", "001", "Proceso 1", 5001, "Alarma 1", "c"]])
 
-    # 1 N_MAX (defined name)
-    _add_named_value(wb, "Config", "A1", "N_MAX_DISP_ED", 10)
-    _add_named_value(wb, "Config", "A2", "N_MAX_DISP_EA", 20)
-    _add_named_value(wb, "Config", "A3", "N_MAX_DISP_SA", 30)
-    _add_named_value(wb, "Config", "A4", "N_MAX_DISP_V", 40)
-    _add_named_value(wb, "Config", "A5", "N_MAX_DISP_M", 50)
-    _add_named_value(wb, "Config", "A6", "N_MAX_DISP_M_VF", 60)
-    _add_named_value(wb, "Config", "A7", "N_MAX_DISP_M_SINA", 70)
-    _add_named_value(wb, "Config", "A8", "N_MAX_DISP_TOT", 80)
-    _add_named_value(wb, "Config", "A9", "N_MAX_DISP_PID", 90)
+    # N_MAX (defined names) — columna H (fuera del rango de Tabla_Procesos A:F).
+    _add_named_value(wb, "CONFIG", "H1", "N_MAX_DISP_ED", 10)
+    _add_named_value(wb, "CONFIG", "H2", "N_MAX_DISP_EA", 20)
+    _add_named_value(wb, "CONFIG", "H3", "N_MAX_DISP_SA", 30)
+    _add_named_value(wb, "CONFIG", "H4", "N_MAX_DISP_V", 40)
+    _add_named_value(wb, "CONFIG", "H5", "N_MAX_DISP_M", 50)
+    _add_named_value(wb, "CONFIG", "H6", "N_MAX_DISP_M_VF", 60)
+    _add_named_value(wb, "CONFIG", "H7", "N_MAX_DISP_M_SINA", 70)
+    _add_named_value(wb, "CONFIG", "H8", "N_MAX_DISP_TOT", 80)
+    _add_named_value(wb, "CONFIG", "H9", "N_MAX_DISP_PID", 90)
 
     wb.save(target)
     return target

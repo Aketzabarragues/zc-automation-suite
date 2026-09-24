@@ -128,7 +128,7 @@ def test_extract_list_object_rows_returns_dicts(tmp_path) -> None:
     """Crea un .xlsx con Table real, lee y verifica shape de dicts."""
     xlsx_path = _make_xlsx_with_table(
         tmp_path,
-        sheet_name="CONFIGURACION",
+        sheet_name="CONFIG",
         table_name="Tabla_Procesos",
         headers=["UID", "Nombre", "Codigo"],
         rows=[
@@ -141,7 +141,7 @@ def test_extract_list_object_rows_returns_dicts(tmp_path) -> None:
 
     wb = load_workbook(xlsx_path)
 
-    rows = extract_list_object_rows(wb, "CONFIGURACION", "Tabla_Procesos")
+    rows = extract_list_object_rows(wb, "CONFIG", "Tabla_Procesos")
     assert len(rows) == 2
     assert rows[0] == {"UID": 1, "Nombre": "Proceso Uno", "Codigo": "PR1"}
     assert rows[1] == {"UID": 2, "Nombre": "Proceso Dos", "Codigo": "PR2"}
@@ -166,7 +166,7 @@ def test_extract_list_object_rows_table_missing_returns_empty(tmp_path) -> None:
     """Si la tabla no existe en la hoja, devuelve [] (no lanza)."""
     xlsx_path = _make_xlsx_with_table(
         tmp_path,
-        sheet_name="CONFIGURACION",
+        sheet_name="CONFIG",
         table_name="Tabla_Procesos",
         headers=["UID"],
         rows=[[1]],
@@ -175,7 +175,7 @@ def test_extract_list_object_rows_table_missing_returns_empty(tmp_path) -> None:
 
     wb = load_workbook(xlsx_path)
     assert (
-        extract_list_object_rows(wb, "CONFIGURACION", "Tabla_No_Existe") == []
+        extract_list_object_rows(wb, "CONFIG", "Tabla_No_Existe") == []
     )
 
 
@@ -183,7 +183,7 @@ def test_extract_list_object_rows_skips_empty_rows(tmp_path) -> None:
     """Filas completamente vacÃ­as se descartan."""
     xlsx_path = _make_xlsx_with_table(
         tmp_path,
-        sheet_name="CONFIGURACION",
+        sheet_name="CONFIG",
         table_name="Tabla_Procesos",
         headers=["UID", "Nombre"],
         rows=[
@@ -195,7 +195,7 @@ def test_extract_list_object_rows_skips_empty_rows(tmp_path) -> None:
     from openpyxl import load_workbook
 
     wb = load_workbook(xlsx_path)
-    rows = extract_list_object_rows(wb, "CONFIGURACION", "Tabla_Procesos")
+    rows = extract_list_object_rows(wb, "CONFIG", "Tabla_Procesos")
     assert len(rows) == 2
     assert rows[0]["UID"] == 1
     assert rows[1]["UID"] == 2

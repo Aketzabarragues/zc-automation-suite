@@ -1,6 +1,6 @@
 ﻿"""Parser de procesos del Excel corporativo.
 
-Extrae la ``ListObject`` ``Tabla_Procesos`` de la hoja ``CONFIGURACION``
+Extrae la ``ListObject`` ``Tabla_Procesos`` de la hoja ``CONFIG``
 del workbook del departamento de alimentación y la mapea a una lista de
 ``DataProcesoPLC`` (DTO inmutable definido en
 ``areas.alimentacion.domain.models.excel_cache``).
@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 
 class ProcesosParser:
-    """Parser de la ``Tabla_Procesos`` (hoja ``CONFIGURACION``).
+    """Parser de la ``Tabla_Procesos`` (hoja ``CONFIG``).
 
     Mapea cada fila de la ``ListObject`` a un ``DataProcesoPLC``. Las
     claves de columna son **literales** (con mayúsculas y, en su
@@ -50,11 +50,11 @@ class ProcesosParser:
     corporativo y como las consumía el legacy.
 
     Atributos de clase:
-        * ``SHEET``: nombre literal de la hoja (``"CONFIGURACION"``).
+        * ``SHEET``: nombre literal de la hoja (``"CONFIG"``).
         * ``TABLE``: nombre de la ``ListObject`` (``"Tabla_Procesos"``).
     """
 
-    SHEET = "CONFIGURACION"
+    SHEET = "CONFIG"
     TABLE = "Tabla_Procesos"
 
     def extraer(self, wb: Workbook) -> list[DataProcesoPLC]:

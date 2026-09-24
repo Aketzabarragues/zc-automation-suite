@@ -1,6 +1,6 @@
 ﻿"""Tests del parser ``ProcesosParser``.
 
-Cubre la extracciÃƒÂ³n de ``Tabla_Procesos`` (hoja ``CONFIGURACION``) y
+Cubre la extracciÃƒÂ³n de ``Tabla_Procesos`` (hoja ``CONFIG``) y
 la fidelidad de los 8 campos del DTO ``DataProcesoPLC`` con el Excel
 corporativo.
 
@@ -27,7 +27,7 @@ def _save_xlsx_with_procesos_table(
     tmp_path,
     rows: list[list] | None,
     *,
-    sheet_name: str = "CONFIGURACION",
+    sheet_name: str = "CONFIG",
     table_name: str = "Tabla_Procesos",
     headers: list[str] | None = None,
 ) -> str:
@@ -37,7 +37,7 @@ def _save_xlsx_with_procesos_table(
         tmp_path: fixture pytest de path temporal.
         rows: lista de filas de datos (``None`` o ``[]`` Ã¢â€ â€™ solo cabeceras,
             ÃƒÂºtil para verificar que la tabla existe pero estÃƒÂ¡ vacÃƒÂ­a).
-        sheet_name: nombre de la hoja (default ``CONFIGURACION``).
+        sheet_name: nombre de la hoja (default ``CONFIG``).
         table_name: nombre de la ``ListObject`` (default
             ``Tabla_Procesos``).
         headers: cabeceras (default: las del Excel legacy del corporativo).
@@ -134,7 +134,7 @@ def test_extrae_procesos_basico(tmp_path) -> None:
 
 
 def test_hoja_inexistente_devuelve_lista_vacia(tmp_path) -> None:
-    """Sheet ``CONFIGURACION`` no existe Ã¢â€ â€™ ``[]`` (no lanza)."""
+    """Sheet ``CONFIG`` no existe Ã no lanza (devuelve ``[]``)."""
     xlsx_path = _save_xlsx_with_procesos_table(
         tmp_path,
         rows=[[1, "P", "P", 0, 0, 0, 0, 0]],
@@ -149,11 +149,11 @@ def test_hoja_inexistente_devuelve_lista_vacia(tmp_path) -> None:
 
 def test_tabla_inexistente_devuelve_lista_vacia(tmp_path) -> None:
     """Sheet existe pero ``Tabla_Procesos`` no Ã¢â€ â€™ ``[]`` (no lanza)."""
-    # Construimos un .xlsx con OTRA tabla en CONFIGURACION.
+    # Construimos un .xlsx con OTRA tabla en CONFIG.
     xlsx_path = tmp_path / "otro.xlsx"
     wb = Workbook()
     ws = wb.active
-    ws.title = "CONFIGURACION"
+    ws.title = "CONFIG"
     ws.append(["X", "Y"])
     ws.append([1, 2])
     table = Table(displayName="Tabla_Otra", ref="A1:B2")
