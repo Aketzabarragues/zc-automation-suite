@@ -337,7 +337,7 @@ class FunctionDispSincronizar(FunctionBase):
         )
         validate_execute_batch_result(
             batch_result["result"],
-            undo_text="Exportar etiquetas",
+            undo_text="Exportando variables de dispositivos...",
             plc_name=self._ctx.plc_name,
             log=logger,
         )
@@ -491,7 +491,7 @@ class FunctionDispSincronizar(FunctionBase):
                 self._ctx.tia_client,
                 "execute_transactional_batch",
                 {
-                    "undo_text": "Sync N_MAX + renames",
+                    "undo_text": "Actualizando N_MAX y renombrando dispositivos...",
                     "operations": operations,
                 },
                 timeout_s=120.0,
@@ -544,7 +544,7 @@ class FunctionDispSincronizar(FunctionBase):
         )
         validate_execute_batch_result(
             batch_result["result"],
-            undo_text="Re-exportar etiquetas (post Tx A)",
+            undo_text="Exportando variables de dispositivos...",
             plc_name=self._ctx.plc_name,
             log=logger,
         )
@@ -587,7 +587,7 @@ class FunctionDispSincronizar(FunctionBase):
                 self._ctx.tia_client,
                 "execute_transactional_batch",
                 {
-                    "undo_text": "Sync devices (offline)",
+                    "undo_text": "Sincronizando dispositivos...",
                     "operations": [{
                         "command": "import_plc_tags_xml",
                         "args": {
@@ -750,7 +750,7 @@ class FunctionDispSincronizar(FunctionBase):
         )
         validate_execute_batch_result(
             batch_result["result"],
-            undo_text="Exportar 6 DBs (sincronizar/bloques/export)",
+            undo_text="Exportando bloques de datos de dispositivos...",
             plc_name=self._ctx.plc_name,
             log=logger,
         )
@@ -831,7 +831,7 @@ class FunctionDispSincronizar(FunctionBase):
                 self._ctx.tia_client,
                 "execute_transactional_batch",
                 {
-                    "undo_text": "Sync devices comentarios (Tx B2)",
+                    "undo_text": "Sincronizando comentarios de dispositivos...",
                     "operations": [
                         {
                             "command": "import_block",
@@ -932,7 +932,7 @@ class FunctionDispSincronizar(FunctionBase):
             )
             validate_execute_batch_result(
                 batch_result["result"],
-                undo_text="Preview post-sync (FLAT export)",
+                undo_text="Generando prevision de dispositivos...",
                 plc_name=self._ctx.plc_name,
                 log=logger,
             )
