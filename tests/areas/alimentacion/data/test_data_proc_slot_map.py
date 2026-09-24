@@ -1,4 +1,4 @@
-"""Tests para ``areas.alimentacion.data.data_ProcSlotMap.DataProcSlotMap``.
+﻿"""Tests para ``areas.alimentacion.data.data_proc_slot_map.DataProcSlotMap``.
 
 Fase 3, paso 3.2.9.  Cobertura:
   - defaults razonables (3 dicts, 3 strs, 2 strs, 2 dicts, 2 lists).
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from areas.alimentacion.data.data_ProcSlotMap import DataProcSlotMap
+from areas.alimentacion.data.data_proc_slot_map import DataProcSlotMap
 
 
 def test_defaults_vacios():
@@ -72,7 +72,7 @@ def test_to_dict_shape():
 
 def test_proc_satellites_by_array_constant():
     """``PROC_SATELLITES_BY_ARRAY`` es la fuente unica de verdad."""
-    from areas.alimentacion.data.data_ProcSlotMap import (
+    from areas.alimentacion.data.data_proc_slot_map import (
         PROC_SATELLITES_BY_ARRAY,
     )
 
@@ -85,7 +85,7 @@ def test_proc_satellites_by_array_constant():
 
 def test_default_satellites_by_array_reflects_constant():
     """``DataProcSlotMap()`` por defecto tiene los satellites de la constante."""
-    from areas.alimentacion.data.data_ProcSlotMap import (
+    from areas.alimentacion.data.data_proc_slot_map import (
         PROC_SATELLITES_BY_ARRAY,
     )
     m = DataProcSlotMap()

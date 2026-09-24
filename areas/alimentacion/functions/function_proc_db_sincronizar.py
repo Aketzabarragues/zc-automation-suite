@@ -1,4 +1,4 @@
-"""FB de area: sincroniza comentarios de un proceso contra TIA Portal.
+﻿"""FB de area: sincroniza comentarios de un proceso contra TIA Portal.
 
 State machine sobre el helper ``proc_sincronizar``
 (areas/alimentacion/helpers/proc/proc_sincronizar.py). El helper
@@ -323,7 +323,7 @@ class FunctionProcDBSincronizar(FunctionBase):
         calcula ``ctx.nmax_ops`` (necesario para stage 4) y loguea el
         conteo.
         """
-        from areas.alimentacion.data.data_ProcSlotMap import proc_build_slot_maps
+        from areas.alimentacion.data.data_proc_slot_map import proc_build_slot_maps
         self._ctx.slot_map = proc_build_slot_maps(
             self._ctx.app_state, self._ctx.config_manager,
             self._ctx.proc_uid, self._ctx.bloques_cache,

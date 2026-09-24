@@ -1,4 +1,4 @@
-"""FB de area: preview de comentarios de un proceso vs PLC (diff read-only).
+﻿"""FB de area: preview de comentarios de un proceso vs PLC (diff read-only).
 
 State machine declarativa sobre la tabla ``STAGES``. Cada step ejecuta
 una operacion contra el ``ProcPreviewContext`` compartido entre los 6
@@ -322,7 +322,7 @@ class FunctionProcDBGenerarPreview(FunctionBase):
         if not self._ctx.excel_loaded or not self._ctx.bloques_loaded:
             # Si ya fallaron checks previos, skip.
             return
-        from areas.alimentacion.data.data_ProcSlotMap import proc_build_slot_maps
+        from areas.alimentacion.data.data_proc_slot_map import proc_build_slot_maps
         try:
             self._ctx.slot_map = proc_build_slot_maps(
                 self._ctx.app_state, self._ctx.config_manager, self._ctx.proc_uid, self._ctx.bloques_cache
