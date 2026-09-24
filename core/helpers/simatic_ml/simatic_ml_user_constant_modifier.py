@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, cast
 
 # Asegura que ``Logger.web/ok`` existen tambien fuera del arranque.
-from core.infrastructure.log_web_bridge import install_web_level
+from core.infrastructure.log.log_web_bridge import install_web_level
 
 from core.helpers.simatic_ml.simatic_ml_constants import (
     COMMENT_TAG,

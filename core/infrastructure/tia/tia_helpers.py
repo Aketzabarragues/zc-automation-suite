@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 from core.data.data_block_plc import DataBloquePLC
-from core.infrastructure.log_web_bridge import WEB_LEVEL
+from core.infrastructure.log.log_web_bridge import WEB_LEVEL
 
 if TYPE_CHECKING:
     from core.infrastructure.tia.tia_loop import SyncTIAClient

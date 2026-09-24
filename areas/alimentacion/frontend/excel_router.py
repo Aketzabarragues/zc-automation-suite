@@ -26,7 +26,7 @@ from typing import Any
 
 from flask import Blueprint, current_app, jsonify, request
 
-from core.infrastructure.log_web_bridge import install_web_level
+from core.infrastructure.log.log_web_bridge import install_web_level
 
 logger = logging.getLogger(__name__)
 # Asegura que ``Logger.web/ok`` existen en tests/scripts (idempotente).

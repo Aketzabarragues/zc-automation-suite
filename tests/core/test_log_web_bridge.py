@@ -18,7 +18,7 @@ import logging
 
 import pytest
 
-from core.infrastructure.log_web_bridge import (
+from core.infrastructure.log.log_web_bridge import (
     LogBufferHandler,
     OK_LEVEL,
     OK_LEVEL_NAME,

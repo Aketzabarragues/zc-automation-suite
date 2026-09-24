@@ -39,7 +39,7 @@ from openpyxl import load_workbook
 # Asegura que ``Logger.web()`` / ``Logger.ok()`` existen aunque el
 # modulo se importe fuera del arranque (tests, scripts). Es
 # idempotente: si ya estan registrados, no hace nada.
-from core.infrastructure.log_web_bridge import install_web_level
+from core.infrastructure.log.log_web_bridge import install_web_level
 install_web_level()
 
 from areas.alimentacion.data.data_ExcelCache import DataExcelCache

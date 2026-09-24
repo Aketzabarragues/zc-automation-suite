@@ -20,7 +20,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from core.infrastructure.log_web_bridge import (
+from core.infrastructure.log.log_web_bridge import (
     install_log_buffer_handler,
     install_web_level,
 )
