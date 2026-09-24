@@ -170,16 +170,17 @@ class FunctionProcDBGenerarPreview(FunctionBase):
         self._plc_name = str(plc_name)
         self._proc_uid = proc_uid
 
-        # Si bloques_cache no se inyecta por constructor, leemos del
-        # singleton sync (acceso directo al dict de clase). Esto permite
-        # que el FB funcione tanto en tests (inyeccion directa) como
-        # en prod (singleton). El FB se re-arranca por cada operacion,
-        # asi que un snapshot al start es suficiente.
-        if self._bloques_cache is None:
-            from core.infrastructure.tia.tia_cache import TIADataBloqueCache
-            self._bloques_cache = TIADataBloqueCache._caches.get(
-                self._plc_name
-            )
+        # ``bloques_cache`` puede inyectarse por constructor (test) o
+        # leerse del singleton ``TIADataBloqueCache._caches`` (acceso
+        # sync al dict de clase). Se prioriza el singleton para que un
+        # refresh manual del cache (boton ↻ del sidebar) se refleje en
+        # el siguiente arranque del FB. La inyeccion por constructor
+        # se respeta solo cuando el singleton esta vacio (tests que
+        # mockean el cache sin popular el singleton global).
+        from core.infrastructure.tia.tia_cache import TIADataBloqueCache
+        singleton_cache = TIADataBloqueCache._caches.get(self._plc_name)
+        if singleton_cache is not None:
+            self._bloques_cache = singleton_cache
 
         # Crear el ProcPreviewContext que las 6 funciones iran mutando.
         # self._ctx esta declarado en __init__ como None; aqui lo
