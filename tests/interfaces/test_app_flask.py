@@ -1,4 +1,4 @@
-"""Tests del Flask app OB1 (Fase 4 / paso 4.4.1)."""
+"""Tests del Flask app OB1."""
 from __future__ import annotations
 
 import json
@@ -10,7 +10,7 @@ import pytest
 
 from core.composition.plc_engine import Engine
 from core.runtime.sse.sse_event_bus_sync import EventBusSync
-from interfaces.web_server.app_flask import create_app
+from core.web_server.app_flask import create_app
 
 
 @pytest.fixture
