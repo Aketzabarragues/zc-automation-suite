@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from interfaces.web_server.app_flask import create_app
+from core.web_server.app_flask import create_app
 
 
 @pytest.fixture
