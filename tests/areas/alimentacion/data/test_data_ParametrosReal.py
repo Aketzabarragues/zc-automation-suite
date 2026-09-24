@@ -1,4 +1,4 @@
-"""Tests para ``areas.alimentacion.data.data_ParametrosReal.DataParamRealPLC``.
+﻿"""Tests para ``areas.alimentacion.data.data_ParametrosReal.DataParamRealPLC``.
 
 Fase 3, paso 3.2.6.  Cobertura:
   - Construccion basica con los 12 campos.
@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from areas.alimentacion.data.data_ParametrosInt import DataParamIntPLC
+from areas.alimentacion.data.data_parametros_int import DataParamIntPLC
 from areas.alimentacion.data.data_ParametrosReal import DataParamRealPLC
 
 

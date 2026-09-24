@@ -47,7 +47,7 @@ import logging
 
 from openpyxl import Workbook
 
-from areas.alimentacion.data.data_ParametrosInt import DataParamIntPLC
+from areas.alimentacion.data.data_parametros_int import DataParamIntPLC
 from areas.alimentacion.helpers.excel._excel_helpers import (
     _safe_int,
     _safe_num_lista,

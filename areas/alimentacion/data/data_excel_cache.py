@@ -1,4 +1,4 @@
-"""Cache IT del Excel: dispositivos + N_MAX + 4 listas de software.
+﻿"""Cache IT del Excel: dispositivos + N_MAX + 4 listas de software.
 
 Fuente de verdad unica que ``ExcelCacheManager`` cachea por proceso.
 ``frozen=True`` para que el cache sea inmutable entre lecturas.
@@ -13,7 +13,7 @@ from typing import Mapping
 from areas.alimentacion.data.data_alarmas import DataAlarmaPLC
 from areas.alimentacion.data.data_dispositivos import Dispositivo
 from areas.alimentacion.data.data_dimensiones import DimensionesDispositivos
-from areas.alimentacion.data.data_ParametrosInt import DataParamIntPLC
+from areas.alimentacion.data.data_parametros_int import DataParamIntPLC
 from areas.alimentacion.data.data_ParametrosReal import DataParamRealPLC
 from areas.alimentacion.data.data_Procesos import DataProcesoPLC
 

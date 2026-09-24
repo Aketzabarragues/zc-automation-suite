@@ -1,4 +1,4 @@
-"""Tests del parser ``PIntParser`` (Fase 3 del plan).
+﻿"""Tests del parser ``PIntParser`` (Fase 3 del plan).
 
 Cubre la extracciÃƒÆ’Ã‚Â³n de ``Tabla_PInt`` (hoja ``P_INT``) y la
 preservaciÃƒÆ’Ã‚Â³n de ``num_lista`` como ``int | str`` (helper
@@ -18,7 +18,7 @@ from __future__ import annotations
 from openpyxl import Workbook
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
-from areas.alimentacion.data.data_ParametrosInt import DataParamIntPLC
+from areas.alimentacion.data.data_parametros_int import DataParamIntPLC
 from areas.alimentacion.data.data_ParametrosReal import DataParamRealPLC
 from areas.alimentacion.helpers.excel.excel_parser_proc_pint import PIntParser
 

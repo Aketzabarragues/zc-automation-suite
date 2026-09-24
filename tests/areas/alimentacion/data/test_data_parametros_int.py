@@ -1,4 +1,4 @@
-"""Tests para ``areas.alimentacion.data.data_ParametrosInt.DataParamIntPLC``.
+﻿"""Tests para ``areas.alimentacion.data.data_parametros_int.DataParamIntPLC``.
 
 Fase 3, paso 3.2.5.  Cobertura:
   - Construccion basica con todos los campos.
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from areas.alimentacion.data.data_ParametrosInt import DataParamIntPLC
+from areas.alimentacion.data.data_parametros_int import DataParamIntPLC
 
 
 def test_construccion_completa():

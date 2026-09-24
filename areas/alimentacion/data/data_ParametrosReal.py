@@ -1,4 +1,4 @@
-"""Data Block de DataParamRealPLC.
+﻿"""Data Block de DataParamRealPLC.
 
 Un **parámetro real** es una variable ``REAL`` (32 bits, IEEE 754) que
 el PLC expone al HMI y que el operario puede ajustar en runtime
@@ -7,7 +7,7 @@ en un DB por proceso: ``DB{num_db}_{codigo}_PREAL`` (uno por proceso,
 contiene varios ``DataParamRealPLC`` consecutivos).
 
 Shape idéntico a ``DataParamIntPLC`` (12 campos, mismos nombres, mismos
-defaults), pero **tipo distinto en Python**: ver ``data_ParametrosInt.py``
+defaults), pero **tipo distinto en Python**: ver ``data_parametros_int.py``
 para la justificación.
 """
 from __future__ import annotations
