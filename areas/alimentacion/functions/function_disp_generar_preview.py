@@ -1,4 +1,4 @@
-"""FB de area: preview de dispositivos vs PLC (diff read-only).
+﻿"""FB de area: preview de dispositivos vs PLC (diff read-only).
 
 State machine sobre el helper ``disp_generate_preview``
 (areas/alimentacion/helpers/disp/disp_generate_preview.py). El helper
@@ -48,7 +48,7 @@ from typing import Any
 from core.composition.plc_function_base import FunctionBase
 from core.helpers.tia import dispatch_async
 from core.runtime.app_state import AppState, get_app_state
-from areas.alimentacion.helpers.build_cache import DEFAULT_BUILD_CACHE_ROOT
+from areas.alimentacion.helpers.layout.build_cache import DEFAULT_BUILD_CACHE_ROOT
 
 logger = logging.getLogger(__name__)
 
@@ -263,7 +263,7 @@ class FunctionDispGenerarPreview(FunctionBase):
         (la info de grupo TIA esta en ``config.json``, no necesitamos
         replicarla en disco).
         """
-        from areas.alimentacion.helpers.build_cache import build_cache
+        from areas.alimentacion.helpers.layout.build_cache import build_cache
 
         disp_ctx = build_cache(root=self._ctx.build_cache_root).dispositivos
         disp_ctx.clean_preview()

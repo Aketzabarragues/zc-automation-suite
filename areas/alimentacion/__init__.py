@@ -1,4 +1,4 @@
-"""Bounded Context: Alimentación.
+﻿"""Bounded Context: Alimentación.
 
 Aporta al core:
   - State extensions de AppState.
@@ -41,7 +41,7 @@ from areas.alimentacion.frontend.proc_sync_router import (
     build_routers as build_proc_sync_routers,
 )
 from areas.alimentacion.frontend.manifest import build as build_manifest
-from areas.alimentacion.helpers.config_defaults import (
+from areas.alimentacion.helpers.config.config_defaults import (
     install as install_defaults,
 )
 from core.composition.app_area_registry import AreaSpec

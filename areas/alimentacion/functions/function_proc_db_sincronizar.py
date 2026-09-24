@@ -49,7 +49,7 @@ from typing import Any
 from core.composition.plc_function_base import FunctionBase
 from core.helpers.tia import dispatch_async, validate_execute_batch_result
 from core.runtime.app_state import AppState, get_app_state
-from areas.alimentacion.helpers.build_cache import DEFAULT_BUILD_CACHE_ROOT
+from areas.alimentacion.helpers.layout.build_cache import DEFAULT_BUILD_CACHE_ROOT
 
 logger = logging.getLogger(__name__)
 
@@ -358,7 +358,7 @@ class FunctionProcDBSincronizar(FunctionBase):
         el método del FB delgado y poder loguear el resultado del diff
         antes de abrir Tx A.
         """
-        from areas.alimentacion.helpers.build_cache import build_cache
+        from areas.alimentacion.helpers.layout.build_cache import build_cache
 
         if self._ctx.tags_base is None:
             proc_ctx = build_cache(root=self._ctx.build_cache_root).procesos
@@ -655,7 +655,7 @@ class FunctionProcDBSincronizar(FunctionBase):
             else ""
         )
         import shutil as _shutil
-        from areas.alimentacion.helpers.build_cache import build_cache
+        from areas.alimentacion.helpers.layout.build_cache import build_cache
 
         if (param_modified or alm_modified) and plc_name:
             proc_ctx = build_cache(root=self._ctx.build_cache_root).procesos
@@ -738,7 +738,7 @@ class FunctionProcDBSincronizar(FunctionBase):
         """
         from pathlib import Path
 
-        from areas.alimentacion.helpers.build_cache import build_cache
+        from areas.alimentacion.helpers.layout.build_cache import build_cache
         from areas.alimentacion.helpers.proc.proc_db_generar_preview import (
             compose_arrays,
             compute_nmax_diff_for_proc,
@@ -1134,7 +1134,7 @@ def _proc_tx_b_limpiar(ctx: ProcSyncContext) -> None:
     runs anteriores (stale = "Import failed because object with name
     X already exists").
     """
-    from areas.alimentacion.helpers.build_cache import build_cache
+    from areas.alimentacion.helpers.layout.build_cache import build_cache
 
     proc_ctx = build_cache(root=ctx.build_cache_root).procesos
     proc_ctx.clean_sincronizar()
@@ -1148,7 +1148,7 @@ async def _proc_tx_b_detectar_eliminar_export(ctx: ProcSyncContext) -> None:
     Si falla, el FB aborta (no tiene sentido continuar sin estado
     actual fiable).
     """
-    from areas.alimentacion.helpers.build_cache import build_cache
+    from areas.alimentacion.helpers.layout.build_cache import build_cache
 
     proc_ctx = build_cache(root=ctx.build_cache_root).procesos
     plc_name = (

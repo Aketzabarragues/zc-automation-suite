@@ -1,4 +1,4 @@
-"""FB de area: preview (read-only) de generar un proceso desde plantilla.
+﻿"""FB de area: preview (read-only) de generar un proceso desde plantilla.
 
 State machine sobre el contexto ``ProcProcessGenContext`` (definido al
 final de este archivo). Los 7 stages viven como metodos del FB (mutando
@@ -72,7 +72,7 @@ from pathlib import Path
 from typing import Any
 
 from core.composition.plc_function_base import FunctionBase
-from areas.alimentacion.helpers.build_cache import DEFAULT_BUILD_CACHE_ROOT
+from areas.alimentacion.helpers.layout.build_cache import DEFAULT_BUILD_CACHE_ROOT
 
 logger = logging.getLogger(__name__)
 

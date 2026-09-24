@@ -38,7 +38,7 @@ from typing import Any
 from core.composition.plc_function_base import FunctionBase
 from core.helpers.tia import dispatch_async
 from core.runtime.app_state import AppState, get_app_state
-from areas.alimentacion.helpers.build_cache import DEFAULT_BUILD_CACHE_ROOT
+from areas.alimentacion.helpers.layout.build_cache import DEFAULT_BUILD_CACHE_ROOT
 from areas.alimentacion.helpers.proc.proc_db_generar_preview import (
     compose_arrays,
     compute_nmax_diff_for_proc,
@@ -363,7 +363,7 @@ class FunctionProcDBGenerarPreview(FunctionBase):
             self._ctx.nmax_block = empty_nmax_block()
             return
 
-        from areas.alimentacion.helpers.build_cache import build_cache
+        from areas.alimentacion.helpers.layout.build_cache import build_cache
         from core.infrastructure.tia.tia_export_paths import XmlTarget
 
         target_dir = build_cache(root=self._ctx.build_cache_root).procesos.preview_variables
@@ -432,7 +432,7 @@ class FunctionProcDBGenerarPreview(FunctionBase):
         if self._ctx.slot_map is None or self._ctx.slot_map_error is not None:
             return
 
-        from areas.alimentacion.helpers.build_cache import build_cache
+        from areas.alimentacion.helpers.layout.build_cache import build_cache
         from core.infrastructure.tia.tia_export_paths import SdPair
 
         work_dir = build_cache(root=self._ctx.build_cache_root).procesos.preview_bloques

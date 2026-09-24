@@ -56,7 +56,7 @@ from typing import Any
 from core.composition.plc_function_base import FunctionBase
 from core.helpers.tia import dispatch_async, validate_execute_batch_result
 from core.runtime.app_state import AppState, get_app_state
-from areas.alimentacion.helpers.build_cache import DEFAULT_BUILD_CACHE_ROOT
+from areas.alimentacion.helpers.layout.build_cache import DEFAULT_BUILD_CACHE_ROOT
 
 logger = logging.getLogger(__name__)
 
@@ -301,7 +301,7 @@ class FunctionDispSincronizar(FunctionBase):
 
     async def _stage_1_exportar_tags(self) -> None:
         """Limpia sync/ y exporta las tablas selectivas al snapshot export."""
-        from areas.alimentacion.helpers.build_cache import build_cache
+        from areas.alimentacion.helpers.layout.build_cache import build_cache
 
         disp_ctx = build_cache(root=self._ctx.build_cache_root).dispositivos
         # Borra ``sincronizar/{variables,bloques}/{export,modified}``.
@@ -520,7 +520,7 @@ class FunctionDispSincronizar(FunctionBase):
         # Re-exportar solo las 6 tablas de devices (NO la N_MAX: ya
         # consolidada en Tx A). El destino es ``sync_variables_export``
         # (snapshot limpio); ``modified`` lo rellena Stage 7 con copytree.
-        from areas.alimentacion.helpers.build_cache import build_cache
+        from areas.alimentacion.helpers.layout.build_cache import build_cache
         disp_ctx = build_cache(root=self._ctx.build_cache_root).dispositivos
         logger.info(
             f"[{self._ctx.plc_name}] sync export re-read post-TxA: "
@@ -574,7 +574,7 @@ class FunctionDispSincronizar(FunctionBase):
             # fuerza el match a una sola carpeta, lo rompe y causa
             # ``CommitOnDispose``. Import a RAIZ con ``target_folder=""``
             # (default del handler) es el camino feliz.
-            from areas.alimentacion.helpers.build_cache import build_cache
+            from areas.alimentacion.helpers.layout.build_cache import build_cache
             disp_ctx = build_cache(root=self._ctx.build_cache_root).dispositivos
             modified_dir = disp_ctx.sync_variables_modified
             logger.info(
@@ -680,7 +680,7 @@ class FunctionDispSincronizar(FunctionBase):
 
         Si TIA V21 falla en cualquiera de los 6 imports, rollback atomico.
         """
-        from areas.alimentacion.helpers.build_cache import build_cache
+        from areas.alimentacion.helpers.layout.build_cache import build_cache
         from areas.alimentacion.data.data_disp_slot_map import disp_build_slot_maps
 
         # ── 1. Validar AppState ──
@@ -877,7 +877,7 @@ class FunctionDispSincronizar(FunctionBase):
         """
         from pathlib import Path
 
-        from areas.alimentacion.helpers.build_cache import build_cache
+        from areas.alimentacion.helpers.layout.build_cache import build_cache
         from areas.alimentacion.helpers.disp.disp_generate_preview import (
             compute_diff_table,
             compute_nmax_diff,
@@ -1246,7 +1246,7 @@ def _copy_and_edit_offline(
     (tabla N_MAX online-only) para que Tx B no la re-importe y anule
     los N_MAX de Tx A.
     """
-    from areas.alimentacion.helpers.build_cache import build_cache
+    from areas.alimentacion.helpers.layout.build_cache import build_cache
     from core.helpers.simatic_ml import PlcUserConstantModifier
 
     disp_ctx = build_cache(root=build_cache_root).dispositivos

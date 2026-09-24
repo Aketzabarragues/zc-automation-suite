@@ -1,4 +1,4 @@
-"""FB de area: aplicar la clonacion de un proceso desde plantilla.
+﻿"""FB de area: aplicar la clonacion de un proceso desde plantilla.
 
 State machine sobre el contexto ``ProcProcessGenContext`` (definido al
 final de este archivo). Los 9 stages viven como metodos del FB (mutando
@@ -115,7 +115,7 @@ from typing import Any
 
 from core.composition.plc_function_base import FunctionBase
 from core.helpers.tia import dispatch_async
-from areas.alimentacion.helpers.build_cache import DEFAULT_BUILD_CACHE_ROOT
+from areas.alimentacion.helpers.layout.build_cache import DEFAULT_BUILD_CACHE_ROOT
 
 logger = logging.getLogger(__name__)
 
