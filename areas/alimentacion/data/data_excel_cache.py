@@ -14,7 +14,7 @@ from areas.alimentacion.data.data_alarmas import DataAlarmaPLC
 from areas.alimentacion.data.data_dispositivos import Dispositivo
 from areas.alimentacion.data.data_dimensiones import DimensionesDispositivos
 from areas.alimentacion.data.data_parametros_int import DataParamIntPLC
-from areas.alimentacion.data.data_ParametrosReal import DataParamRealPLC
+from areas.alimentacion.data.data_parametros_real import DataParamRealPLC
 from areas.alimentacion.data.data_Procesos import DataProcesoPLC
 
 

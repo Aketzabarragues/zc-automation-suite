@@ -23,7 +23,7 @@ from openpyxl.worksheet.table import Table, TableStyleInfo
 from areas.alimentacion.data.data_dimensiones import DimensionesDispositivos
 from areas.alimentacion.data.data_excel_cache import DataExcelCache
 from areas.alimentacion.data.data_parametros_int import DataParamIntPLC
-from areas.alimentacion.data.data_ParametrosReal import DataParamRealPLC
+from areas.alimentacion.data.data_parametros_real import DataParamRealPLC
 from areas.alimentacion.data.data_Procesos import DataProcesoPLC
 from areas.alimentacion.helpers.excel.excel_loader import ExcelLoader
 

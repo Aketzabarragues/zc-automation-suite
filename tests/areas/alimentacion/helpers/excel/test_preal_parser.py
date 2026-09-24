@@ -18,7 +18,7 @@ from __future__ import annotations
 from openpyxl import Workbook
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
-from areas.alimentacion.data.data_ParametrosReal import DataParamRealPLC
+from areas.alimentacion.data.data_parametros_real import DataParamRealPLC
 from areas.alimentacion.helpers.excel._excel_helpers import (
     _safe_num_lista,
 )

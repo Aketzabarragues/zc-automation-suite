@@ -19,7 +19,7 @@ from openpyxl import Workbook
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
 from areas.alimentacion.data.data_parametros_int import DataParamIntPLC
-from areas.alimentacion.data.data_ParametrosReal import DataParamRealPLC
+from areas.alimentacion.data.data_parametros_real import DataParamRealPLC
 from areas.alimentacion.helpers.excel.excel_parser_proc_pint import PIntParser
 
 

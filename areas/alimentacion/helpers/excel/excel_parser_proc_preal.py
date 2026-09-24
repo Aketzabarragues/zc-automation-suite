@@ -1,4 +1,4 @@
-"""Parser de parámetros reales del Excel corporativo.
+﻿"""Parser de parámetros reales del Excel corporativo.
 
 Extrae la ``ListObject`` ``Tabla_PReal`` de la hoja ``P_REAL`` del
 workbook del departamento de alimentación y la mapea a una lista
@@ -41,7 +41,7 @@ import logging
 
 from openpyxl import Workbook
 
-from areas.alimentacion.data.data_ParametrosReal import DataParamRealPLC
+from areas.alimentacion.data.data_parametros_real import DataParamRealPLC
 from areas.alimentacion.helpers.excel._excel_helpers import (
     _safe_int,
     _safe_num_lista,
