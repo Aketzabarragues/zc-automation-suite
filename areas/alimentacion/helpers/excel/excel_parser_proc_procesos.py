@@ -30,7 +30,7 @@ import logging
 
 from openpyxl import Workbook
 
-from areas.alimentacion.data.data_Procesos import DataProcesoPLC
+from areas.alimentacion.data.data_procesos import DataProcesoPLC
 from areas.alimentacion.helpers.excel._excel_helpers import (
     extract_list_object_rows,
     _safe_int,

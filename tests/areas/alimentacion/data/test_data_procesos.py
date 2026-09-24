@@ -1,4 +1,4 @@
-"""Tests para ``areas.alimentacion.data.data_Procesos.DataProcesoPLC``.
+﻿"""Tests para ``areas.alimentacion.data.data_procesos.DataProcesoPLC``.
 
 Fase 3, paso 3.2.4.  Cobertura:
   - Construccion basica con los 3 campos requeridos (uid, nombre, codigo).
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from areas.alimentacion.data.data_Procesos import DataProcesoPLC
+from areas.alimentacion.data.data_procesos import DataProcesoPLC
 
 
 def test_construccion_basica():

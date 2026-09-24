@@ -16,7 +16,7 @@ import pytest
 from openpyxl import Workbook
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
-from areas.alimentacion.data.data_Procesos import DataProcesoPLC
+from areas.alimentacion.data.data_procesos import DataProcesoPLC
 from areas.alimentacion.helpers.excel.excel_parser_proc_procesos import ProcesosParser
 
 
