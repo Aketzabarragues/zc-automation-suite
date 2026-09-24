@@ -7,17 +7,10 @@ final de este archivo). Los 7 stages viven como metodos del FB (mutando
 ``proc_process_validar_minimos``, ...) viven debajo del dataclass en
 el mismo archivo.
 
-Patron canónico greenfield (sept-2026): mismo patron que
-``function_disp_generar_preview.py`` y ``function_proc_db_generar_preview.py``.
 El orquestador y la dataclass permanecen en el archivo del FB; los
 helpers puros (filesystem puro, sin TIA) se exponen como funciones
 module-level debajo del dataclass para que los tests las importen
 directamente sin ciclo.
-
-Codigo absorbido de ``helpers/proc/proc_crear_process_generator.py``
-(commit F22-1, sept-2026). Antes el FB era un wrapper de 1-linea
-sobre las funciones del helper; ahora cada stage hace el trabajo
-inline contra ``self._ctx`` y las funciones puras viven aqui mismo.
 
 Hereda directo de ``FunctionBase``.
 
