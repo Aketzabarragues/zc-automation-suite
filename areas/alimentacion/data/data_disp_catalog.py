@@ -28,7 +28,7 @@ import dataclasses
 from dataclasses import dataclass, field
 from typing import Any
 
-from areas.alimentacion.data.data_Dispositivos import (
+from areas.alimentacion.data.data_dispositivos import (
     DispEA,
     DispED,
     DispM,
@@ -73,7 +73,7 @@ class DataDispCatalog:
 # Tabla canónica ``canonical → Disp*``. Es la única fuente de verdad
 # para el endpoint ``/api/v1/catalog`` y para ``get_columns_for``.
 # Añadir un nuevo tipo (p.ej. ``DispSD``) requiere:
-#   1. Crear la dataclass en ``data/data_Dispositivos.py``.
+#   1. Crear la dataclass en ``data/data_dispositivos.py``.
 #   2. Añadir la entry aquí.
 #   3. Configurar la entry en el ``config.json`` (``Dispositivos``
 #      y opcionalmente ``excel_target``).

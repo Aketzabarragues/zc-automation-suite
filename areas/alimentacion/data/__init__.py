@@ -7,7 +7,7 @@ serializarse a dict y emitirse por SSE al frontend.
 Convención (acordada con el operario):
   - ``data_<Nombre>.py``: el nombre del archivo usa PascalCase
     después del guion bajo para reflejar la clase que contiene
-    (p.ej. ``data_Dispositivos.py`` contiene ``DataDispositivos``).
+    (p.ej. ``data_dispositivos.py`` contiene ``DataDispositivos``).
   - ``@dataclass(frozen=False)``: los campos son reasignables, con
     ``default_factory`` para colecciones.
   - Sin I/O, sin dependencias de TIA. Lógica pura.

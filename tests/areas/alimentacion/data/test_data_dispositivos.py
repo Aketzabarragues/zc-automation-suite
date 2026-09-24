@@ -1,4 +1,4 @@
-"""Tests para ``areas.alimentacion.data.data_Dispositivos``.
+"""Tests para ``areas.alimentacion.data.data_dispositivos``.
 
 Fase 3, paso 3.2.2.  Cobertura:
   - Cada ``Disp*`` se construye con los 5 campos del Protocol y
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from areas.alimentacion.data.data_Dispositivos import (
+from areas.alimentacion.data.data_dispositivos import (
     Dispositivo,
     DispED,
     DispEA,

@@ -1,10 +1,10 @@
-﻿"""Tests del ``DispEAParser`` (Fase 5 del plan).
+"""Tests del ``DispEAParser`` (Fase 5 del plan).
 
-Cubre la extracciÃƒÂ³n de ``Tabla_Disp_EA`` (hoja ``DISP_EA``).
+Cubre la extracciÃ³n de ``Tabla_Disp_EA`` (hoja ``DISP_EA``).
 """
 from __future__ import annotations
 
-from areas.alimentacion.data.data_Dispositivos import DispEA
+from areas.alimentacion.data.data_dispositivos import DispEA
 from areas.alimentacion.helpers.excel.excel_parser_disp_ea import DispEAParser
 
 from tests._disp_parser_test_helpers import (
@@ -15,7 +15,7 @@ from tests._disp_parser_test_helpers import (
 
 
 def test_extrae_disp_ea_basico(tmp_path) -> None:
-    """Excel con 1 fila vÃƒÂ¡lida Ã¢â€ â€™ ``DispEA`` con ``rii``/``rsi`` float."""
+    """Excel con 1 fila vÃ¡lida â†’ ``DispEA`` con ``rii``/``rsi`` float."""
     xlsx_path = save_xlsx_with_disp_table(
         tmp_path, "EA",
         rows=[build_full_row("EA", UID="EA_001", Numero=1,
@@ -38,7 +38,7 @@ def test_extrae_disp_ea_basico(tmp_path) -> None:
 
 def test_unidades_unidades_lowercase_accepted(tmp_path) -> None:
     """Acepta tanto ``UNIDADES`` (legacy) como ``Unidades`` por compat."""
-    # Cabecera con ``Unidades`` minÃƒÂºscula.
+    # Cabecera con ``Unidades`` minÃºscula.
     headers = save_xlsx_with_disp_table(tmp_path, "EA", rows=None)
     # Re-crear con header alternativo
     from openpyxl import Workbook

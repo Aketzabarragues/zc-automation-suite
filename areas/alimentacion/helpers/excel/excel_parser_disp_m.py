@@ -29,7 +29,7 @@ import logging
 
 from openpyxl import Workbook
 
-from areas.alimentacion.data.data_Dispositivos import DispM
+from areas.alimentacion.data.data_dispositivos import DispM
 from areas.alimentacion.helpers.excel._excel_helpers import (
     _safe_int,
     _safe_str,

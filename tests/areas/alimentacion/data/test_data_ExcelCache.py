@@ -16,7 +16,7 @@ from types import MappingProxyType
 import pytest
 
 from areas.alimentacion.data.data_alarmas import DataAlarmaPLC
-from areas.alimentacion.data.data_Dispositivos import DispED
+from areas.alimentacion.data.data_dispositivos import DispED
 from areas.alimentacion.data.data_dimensiones import DimensionesDispositivos
 from areas.alimentacion.data.data_ExcelCache import DataExcelCache
 from areas.alimentacion.data.data_ParametrosInt import DataParamIntPLC
