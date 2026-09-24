@@ -1,4 +1,4 @@
-"""Tests del blueprint plc (Fase 4 / paso 4.4.7)."""
+"""Tests del blueprint plc."""
 from __future__ import annotations
 
 from unittest.mock import MagicMock
@@ -7,7 +7,7 @@ import pytest
 
 from core.composition.plc_engine import Engine
 from core.composition.plc_function_base import FunctionBase
-from interfaces.web_server.app_flask import create_app
+from core.web_server.app_flask import create_app
 
 
 class _CountingFB(FunctionBase):
