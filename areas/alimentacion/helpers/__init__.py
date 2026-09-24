@@ -4,16 +4,17 @@ Adaptadores específicos del área a formatos externos, modificadores
 SimaticML offline y utilidades SD (Source Documents) que operan
 sobre los modelos de dominio del área.
 
-Tras PR 2, esta capa contiene:
-  - ``parsers/`` — adaptadores de Excel corporativo.
+Esta capa contiene:
+  - ``build_cache.py`` — entrada única del workdir layout (DispLayout +
+    ProcDbLayout).
   - ``config_defaults.py`` — defaults defensivos del ConfigManager
     que el área aporta para configs legacy (N_MAX, carpetas TIA,
     tabla global).
-
-Los modificadores SD (``disp_comment_updater``, ``proc_comment_updater``,
-``mlc_registry``) siguen en ``infrastructure/alimentacion/sd/`` y se
-migrarán a esta carpeta en PR 3 junto con el refactor del
-``worker_tia.py``.
+  - ``excel/`` — adaptadores de Excel corporativo (parsers + loaders).
+  - ``disp/`` — modificadores SimaticML y modificadores SD de
+    dispositivos.
+  - ``proc/`` — modificadores SimaticML y modificadores SD de
+    procesos.
 
 Restricción arquitectónica: este paquete es OFFLINE; no importa
 ``siemens_tia_scripting``.
