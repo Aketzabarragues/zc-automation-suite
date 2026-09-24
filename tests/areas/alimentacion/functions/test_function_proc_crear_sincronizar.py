@@ -17,11 +17,9 @@ Mockeamos:
 ``progress`` es un ``ProgressTracker`` real (NO mockeado) para verificar
 el flujo de stages.
 
-NOTA (sept-2026): el FB usa ``execute_transactional_batch`` para tener
-rollback atomico entre ``import_plc_tags_xml`` y ``import_blocks_sd``.
-Si TIA V21 corrompe la transaccion (error ``CommitOnDispose`` que
-vimos en commit 8ed8705), el rollback automatico del lote protege
-al PLC. El FB detecta el fallo (lote.ok=False) y va a ``n_error``.
+Contrato verificado por los tests: el FB detecta ``lote.ok=False`` y va
+a ``n_error``, dejando el PLC en el mismo estado previo al apply
+(rollback atomico del lote transaccional).
 """
 from __future__ import annotations
 
