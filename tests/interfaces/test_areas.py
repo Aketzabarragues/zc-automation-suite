@@ -50,7 +50,7 @@ def test_list_areas_returns_dataclass_list():
 
 def test_list_areas_empty_returns_empty_list():
     cm = MagicMock()
-    import core.application.area_registry as ar_mod
+    import core.composition.app_area_registry as ar_mod
     original_uc = ar_mod.ListAreasUseCase
     ar_mod.ListAreasUseCase = lambda cm: MagicMock(execute=lambda: [])
     try:
