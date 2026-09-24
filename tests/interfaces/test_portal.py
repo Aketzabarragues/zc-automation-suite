@@ -1,12 +1,13 @@
-"""Tests del blueprint portal (Fase 4 / paso 4.4.6)."""
+"""Tests del blueprint portal."""
 from __future__ import annotations
 
 from unittest.mock import MagicMock
 
 import pytest
 
-from core.infrastructure.tia.tia_loop import SyncTIAClient, register_core_commands
-from interfaces.web_server.app_flask import create_app
+from core.infrastructure.tia.tia_loop import SyncTIAClient
+from core.infrastructure.tia.tia_commands_catalog import register_all_commands
+from core.web_server.app_flask import create_app
 
 
 @pytest.fixture
@@ -25,7 +26,7 @@ def client_with_mocks():
 def client_with_core_commands():
     """Fixture con core commands ya registrados (real handlers)."""
     tia = SyncTIAClient()
-    register_core_commands(tia)
+    register_all_commands(tia)
     log = MagicMock()
     app = create_app(tia_client=tia, log_buffer=log)
     app.config["TESTING"] = True
