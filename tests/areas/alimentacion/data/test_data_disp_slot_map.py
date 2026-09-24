@@ -1,4 +1,4 @@
-"""Tests para ``areas.alimentacion.data.data_DispSlotMap.DataDispSlotMap``.
+﻿"""Tests para ``areas.alimentacion.data.data_disp_slot_map.DataDispSlotMap``.
 
 Fase 3, paso 3.2.8.  Cobertura:
   - defaults razonables.
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from areas.alimentacion.data.data_DispSlotMap import DataDispSlotMap
+from areas.alimentacion.data.data_disp_slot_map import DataDispSlotMap
 
 
 def test_defaults_vacios():

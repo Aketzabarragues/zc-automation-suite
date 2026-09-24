@@ -1,4 +1,4 @@
-"""FB de area: sincronizacion transaccional de dispositivos vs PLC.
+﻿"""FB de area: sincronizacion transaccional de dispositivos vs PLC.
 
 State machine sobre el helper ``disp_Sincronizar`` (areas/alimentacion/
 helpers/disp/disp_Sincronizar.py). El helper expone funciones independientes
@@ -681,7 +681,7 @@ class FunctionDispSincronizar(FunctionBase):
         Si TIA V21 falla en cualquiera de los 6 imports, rollback atomico.
         """
         from areas.alimentacion.helpers.build_cache import build_cache
-        from areas.alimentacion.data.data_DispSlotMap import disp_build_slot_maps
+        from areas.alimentacion.data.data_disp_slot_map import disp_build_slot_maps
 
         # ── 1. Validar AppState ──
         if not self._ctx.app_state.all_devices():
