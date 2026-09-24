@@ -1,9 +1,9 @@
 {
   "_comment": "Configuración multi-departamento. Cada departamento encapsula su jerarquía TIA y sus tipos de dispositivo. Para añadir un nuevo departamento, duplicar el bloque 'alimentacion' bajo 'departments' y ajustar los valores. Si en el futuro se añaden más departamentos, el ConfigManager acepta el parámetro 'department' para resolver el bloque correcto.",
-  "_todo_legacy_types": "Los tipos legacy (sd/tq/tq_ae/productos) viven en el PLC real dentro de 2000_Dispositivos/ pero NO se configuran aquí. Se activarán cuando se necesite soporte explícito. Sus entradas viven en 'pending_dispositivos' y los N_MAX asociados en 'pending_nmax' (ver abajo). El tipo 'm_sina' (motor sinamics) está activo: su entry vive en 'Dispositivos' y su N_MAX en 'n_max_catalog'.",
+  "_todo_legacy_types": "Los tipos legacy (sd/tq/tq_ae/productos) viven en el PLC real dentro de 2000_Dispositivos/ pero NO se configuran aquí. Se activarán cuando se necesite soporte explícito. Sus entradas viven en 'pending_dispositivos' y los N_MAX asociados en 'pending_nmax' (ver abajo). Los tipos 'm_sina' (motor sinamics) y 'tot' (totalizador) están activos: sus entries viven en 'Dispositivos' y sus N_MAX en 'n_max_catalog'.",
   "departments": {
     "alimentacion": {
-      "_comment_folders": "Jerarquía TIA del departamento de alimentación: la tabla N_MAX ('000_Config_Dispositivos') vive en tia_folders.nmax (000_Sistema); las tablas de dispositivos viven en tia_folders.dispositivos (2000_Dispositivos). El sync unificado parsea SOLO esos 8 XMLs del árbol exportado por export_plc_tags_xml (7 disp + 1 N_MAX); el resto (003_Procesos/*, 000_Traza_*, 2000_Disp_SD, etc.) se ignora.",
+      "_comment_folders": "Jerarquía TIA del departamento de alimentación: la tabla N_MAX ('000_Config_Dispositivos') vive en tia_folders.nmax (000_Sistema); las tablas de dispositivos viven en tia_folders.dispositivos (2000_Dispositivos). El sync unificado parsea SOLO esos 9 XMLs del árbol exportado por export_plc_tags_xml (8 disp + 1 N_MAX); el resto (003_Procesos/*, 000_Traza_*, 2000_Disp_SD, etc.) se ignora.",
       "_comment_plantillas": "Ruta base donde viven las subcarpetas de plantillas TIA para generar procesos. Cada subcarpeta contiene un manifest.json con ``base``, ``codigo``, ``nombre`` y ``minimos``. Cadena vacia = sin configurar; el operario la configura via ``PUT /api/v1/procesos/plantillas`` desde la SPA (Fase 1 de generar proceso desde plantilla).",
       "global_config_table_name": "000_Config_Dispositivos",
       "plantillas_path": "D:\\Zeus Control\\Proyectos\\GitHub\\zc-automation-suite\\_plan\\Generar_Proceso",
@@ -61,6 +61,13 @@
           "hw_type": "m_sina",
           "plc_tag_table": "2000_Disp_M_SINA",
           "comment": "Numero max. motores sinamics"
+        },
+        {
+          "name": "N_MAX_DISP_TOT",
+          "excel_named_range": "Num_Disp_TOT",
+          "hw_type": "tot",
+          "plc_tag_table": "2000_Disp_TOT",
+          "comment": "Numero max. totalizadores"
         }
       ],
       "pending_nmax": [
@@ -71,7 +78,6 @@
         "N_MAX_DISP_MEDIA_VOLUMEN",
         "N_MAX_DISP_PID",
         "N_MAX_DISP_SD",
-        "N_MAX_DISP_TOT",
         "N_MAX_DISP_TQ",
         "N_MAX_DISP_TQ_AE",
         "N_MAX_DISP_VD",
@@ -138,6 +144,12 @@
           "db_name": "DB2017_M_SINA",
           "db_array_name": "M_SINA",
           "tag_table": "2000_Disp_M_SINA",
+          "config_table": "000_Config_Dispositivos"
+        },
+        "tot": {
+          "db_name": "DB2025_TOT",
+          "db_array_name": "TOT",
+          "tag_table": "2000_Disp_TOT",
           "config_table": "000_Config_Dispositivos"
         }
       },

@@ -272,4 +272,40 @@ class DispMSINA:
     comentario_db: str = ""
 
 
-__all__ = ["Dispositivo", "DispED", "DispEA", "DispSA", "DispV", "DispM", "DispM_VF", "DispMSINA"]
+@dataclass(frozen=True)
+class DispTOT:
+    """Display Totalizador (contador de pulsos con factor de conversion).
+
+    Anade ``tipo`` (clasificacion: litros, kg, m3, ...), ``incxpulso``
+    (incremento por pulso: factor de conversion pulso->unidad) y
+    ``proceso`` (UID del proceso al que pertenece el totalizador).
+    Comparte con ``DispED`` los campos E.Byte/E.Bit pero NO hereda
+    de el (no tiene ``cuadro`` ni ``cfg_grupoalarma``).
+    """
+
+    numero: int
+    plc_tag: str
+    plc_comentario: str
+    descripcion: str
+    uid: str
+    tag: str = ""
+    fat: str = ""
+    tipo: str = ""
+    e_byte: int = 0
+    e_bit: int = 0
+    incxpulso: float = 0.0
+    gr_alarma: int = 0
+    proceso: str = ""
+    observaciones: str = ""
+    plc_tipo: str = ""
+    plc_index: int = 0
+    hmi_index: int = 0
+    hmi_texto: str = ""
+    cfg_habilitar: str = ""
+    cfg_byteentrada: str = ""
+    cfg_bitentrada: str = ""
+    cfg_tipo: str = ""
+    comentario_db: str = ""
+
+
+__all__ = ["Dispositivo", "DispED", "DispEA", "DispSA", "DispV", "DispM", "DispM_VF", "DispMSINA", "DispTOT"]

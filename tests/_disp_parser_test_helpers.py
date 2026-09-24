@@ -1,10 +1,10 @@
-"""Helpers compartidos por los tests de los 7 disp parsers (Fase 5).
+"""Helpers compartidos por los tests de los 8 disp parsers (Fase 5).
 
 Convención: cada parser (``DispEDParser``, ``DispEAParser``,
 ``DispSAParser``, ``DispVParser``, ``DispMParser``, ``DispM_VFParser``,
-``DispMSINAParser``)
+``DispMSINAParser``, ``DispTOTParser``)
 tiene su propio ``test_disp_<hw>_parser.py`` que reutiliza estos
-helpers. La duplicación entre los 7 archivos de tests es mínima
+helpers. La duplicación entre los 8 archivos de tests es mínima
 gracias a este módulo compartido.
 """
 from __future__ import annotations
@@ -79,6 +79,13 @@ _FULL_DISP_HEADERS: dict[str, list[str]] = {
         "PLC.Index", "Hmi.Index", "Hmi.Texto", "Cfg.Habilitar",
         "Cfg.ByteRetornoTermico", "Cfg.BitRetornoTermico", "Cfg.VelMin",
         "Cfg.VelMax", "Cfg.ConstK", "Cfg.GrupoAlarma", "ComentarioDB",
+    ],
+    "TOT": [
+        "UID", "Numero", "PLC.Tag", "PLC.Comentario", "Descripcion",
+        "Tag", "FAT", "Tipo", "E.Byte", "E.Bit", "IncXPulso",
+        "Gr.Alarma", "Proceso", "Observaciones", "PLC.Tipo", "PLC.Index",
+        "Hmi.Index", "Hmi.Texto", "Cfg.Habilitar", "Cfg.ByteEntrada",
+        "Cfg.BitEntrada", "Cfg.Tipo", "ComentarioDB",
     ],
 }
 
@@ -213,6 +220,17 @@ def build_full_row(hw: str, **overrides: Any) -> list:
             "Cfg.VelMin": "cfg_velmin := 0.0;",
             "Cfg.VelMax": "cfg_velmax := 0.0;",
             "Cfg.ConstK": "cfg_constk := 0.0;",
+        })
+    if hw == "TOT":
+        # TOT: contadores de pulsos con factor de conversion.
+        defaults.update({
+            "Tipo": "LITROS",
+            "E.Byte": 0, "E.Bit": 0,
+            "IncXPulso": 0.0,
+            "Proceso": "PR1",
+            "Cfg.ByteEntrada": "cfg_bent := 0;",
+            "Cfg.BitEntrada": "cfg_btent := 0;",
+            "Cfg.Tipo": "cfg_tipo := 'LITROS';",
         })
     # Override.
     for k, v in overrides.items():

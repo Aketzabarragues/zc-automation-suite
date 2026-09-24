@@ -18,6 +18,7 @@ from areas.alimentacion.data.data_dispositivos import (
     DispMSINA,
     DispM_VF,
     DispSA,
+    DispTOT,
     DispV,
 )
 
@@ -183,6 +184,73 @@ def test_disp_msina_no_tiene_campos_digitales():
     assert "sa_byte" not in field_names
 
 
+# ── DispTOT ──────────────────────────────────────────────────────
+
+
+def test_disp_tot_construccion_basica():
+    """DispTOT acepta los 5 campos del Protocol + defaults tolerantes."""
+    d = DispTOT(
+        numero=1,
+        plc_tag="V_TOT_001",
+        plc_comentario="Totalizador 1",
+        descripcion="Contador producto",
+        uid="TOT_001",
+    )
+    assert d.numero == 1
+    assert d.plc_tag == "V_TOT_001"
+    assert d.uid == "TOT_001"
+    # Defaults especificos TOT.
+    assert d.tipo == ""
+    assert d.incxpulso == 0.0
+    assert d.proceso == ""
+    # Defaults digitales.
+    assert d.e_byte == 0
+    assert d.e_bit == 0
+    assert d.gr_alarma == 0
+    assert d.comentario_db == ""
+
+
+def test_disp_tot_campos_especificos_populados():
+    """DispTOT persiste tipo/incxpulso/proceso cuando se setean."""
+    d = DispTOT(
+        1, "tag", "com", "desc", "uid",
+        tipo="LITROS", incxpulso=0.5, proceso="PR1",
+    )
+    assert d.tipo == "LITROS"
+    assert d.incxpulso == 0.5
+    assert d.proceso == "PR1"
+
+
+def test_disp_tot_isinstance_dispositivo():
+    """``Dispositivo`` es ``runtime_checkable``: DispTOT lo satisface."""
+    d = DispTOT(1, "tag", "com", "desc", "uid")
+    assert isinstance(d, Dispositivo)
+
+
+def test_disp_tot_frozen_no_muta():
+    """``frozen=True``: asignar un campo levanta ``FrozenInstanceError``."""
+    from dataclasses import FrozenInstanceError
+
+    d = DispTOT(1, "tag", "com", "desc", "uid")
+    with pytest.raises(FrozenInstanceError):
+        d.numero = 99  # type: ignore[misc]
+
+
+def test_disp_tot_no_tiene_campos_que_no_aplican():
+    """DispTOT NO tiene ``cuadro`` (DispED si) ni ``cfg_grupoalarma``.
+
+    TOT comparte con DispED los campos E.Byte/E.Bit pero NO hereda
+    de el (clase independiente). Verificamos que el campo ``cuadro``
+    que DispED tiene no esta presente en DispTOT.
+    """
+    import dataclasses
+
+    field_names = {f.name for f in dataclasses.fields(DispTOT)}
+    assert "cuadro" not in field_names
+    # cfg_grupoalarma tampoco (el operario no lo incluye en el Excel).
+    assert "cfg_grupoalarma" not in field_names
+
+
 # ── Defaults comunes ─────────────────────────────────────────────────────
 
 
@@ -195,11 +263,11 @@ def test_disp_defaults_str_vacios():
     d_m = DispM(1, "t", "c", "d", "u")
     d_vf = DispM_VF(1, "t", "c", "d", "u")
     d_msina = DispMSINA(1, "t", "c", "d", "u")
+    d_tot = DispTOT(1, "t", "c", "d", "u")
 
-    for d in (d_ed, d_ea, d_sa, d_v, d_m, d_vf, d_msina):
+    for d in (d_ed, d_ea, d_sa, d_v, d_m, d_vf, d_msina, d_tot):
         assert d.tag == ""
         assert d.fat == ""
-        assert d.cuadro == ""
         assert d.comentario_db == ""
 
 
@@ -208,12 +276,14 @@ def test_disp_defaults_int_cero():
     d_ed = DispED(1, "t", "c", "d", "u")
     d_vf = DispM_VF(1, "t", "c", "d", "u")
     d_msina = DispMSINA(1, "t", "c", "d", "u")
+    d_tot = DispTOT(1, "t", "c", "d", "u")
 
     assert d_ed.gr_alarma == 0
     assert d_ed.hmi_index == 0
     assert d_vf.s_byte == 0
     assert d_vf.sa_byte == 0
     assert d_msina.rt_byte == 0
+    assert d_tot.e_byte == 0
 
 
 def test_disp_msina_defaults_float_cero():
@@ -222,3 +292,9 @@ def test_disp_msina_defaults_float_cero():
     assert d_msina.vel_min == 0.0
     assert d_msina.vel_max == 0.0
     assert d_msina.cons_k == 0.0
+
+
+def test_disp_tot_defaults_float_cero():
+    """El campo ``float`` de DispTOT (``incxpulso``) tiene default ``0.0``."""
+    d_tot = DispTOT(1, "t", "c", "d", "u")
+    assert d_tot.incxpulso == 0.0

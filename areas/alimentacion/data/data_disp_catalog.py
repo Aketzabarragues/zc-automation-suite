@@ -35,6 +35,7 @@ from areas.alimentacion.data.data_dispositivos import (
     DispMSINA,
     DispM_VF,
     DispSA,
+    DispTOT,
     DispV,
     Dispositivo,
 )
@@ -86,6 +87,7 @@ _CANONICAL_TO_CLASS: dict[str, type[Dispositivo]] = {
     "DispM":      DispM,
     "DispM_VF":   DispM_VF,
     "DispM_SINA": DispMSINA,
+    "DispTOT":    DispTOT,
 }
 
 
@@ -115,6 +117,9 @@ COLUMN_LABELS: dict[str, str] = {
     "vel_min":         "Vel.Min",
     "vel_max":         "Vel.Max",
     "cons_k":          "ConsK",
+    "tipo":            "Tipo",
+    "incxpulso":       "IncXPulso",
+    "proceso":         "Proceso",
     "unidades":        "Unidades",
     "rii":             "RII",
     "rsi":             "RSI",
