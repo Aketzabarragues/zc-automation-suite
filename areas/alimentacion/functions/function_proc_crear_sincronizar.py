@@ -5,11 +5,9 @@ final de este archivo). Los 9 stages viven como metodos del FB (mutando
 ``self._ctx``); las funciones puras del pipeline viven debajo del
 dataclass en el mismo archivo.
 
-Patron canónico greenfield (sept-2026), mismo que
-``function_disp_sincronizar.py`` y
-``function_proc_db_sincronizar.py``. El orquestador y la dataclass
-permanecen en el archivo del FB; los helpers puros (filesystem puro,
-sin TIA) se exponen como funciones module-level debajo del dataclass.
+El orquestador y la dataclass permanecen en el archivo del FB; los
+helpers puros (filesystem puro, sin TIA) se exponen como funciones
+module-level debajo del dataclass.
 
 Ademas, este FB dispara 2 dispatches al worker OT:
 
@@ -23,14 +21,7 @@ Ademas, este FB dispara 2 dispatches al worker OT:
 Si el lote transaccional falla, TIA hace rollback atomico de las
 3 ops juntas, dejando el PLC en el mismo estado previo al apply.
 
-NOTA sobre el ``CommitOnDispose`` que vimos en sept-2026: tras
-los fixes ``dde011d`` (target_folder="") y ``6bb0aec`` (subdir
-especifico en lugar de raiz), re-introducimos el lote para tener
-rollback atomico entre tags y blocks. Si TIA V21 sigue marcando
-la transaccion como corrupta, se volveria a la version
-secuencial (commit 3baad2b).
-
-Restricciones CRITICAS del dispatch al worker OT (sept-2026):
+Restricciones CRITICAS del dispatch al worker OT:
   - ``import_plc_tags_xml`` / ``import_blocks_sd`` distinguen entre
     ``target_folder_path=None`` (default, NO pasar el argumento; TIA
     hace match UPDATE recursivo preservando el subpath del archivo
@@ -40,11 +31,6 @@ Restricciones CRITICAS del dispatch al worker OT (sept-2026):
   - Por eso en este FB NUNCA pasamos ``target_folder`` — lo omitimos
     para que el handler use el default ``None`` y TIA haga UPDATE
     correcto. Ver ``tia_handlers._h_import_block`` para detalle.
-
-Codigo absorbido de ``helpers/proc/proc_crear_process_generator.py``
-(commit F22-2, sept-2026). Antes el FB era un wrapper de 1-linea
-sobre las funciones del helper; ahora cada stage hace el trabajo
-inline contra ``self._ctx`` y las funciones puras viven aqui mismo.
 
 Hereda directo de ``FunctionBase``.
 
