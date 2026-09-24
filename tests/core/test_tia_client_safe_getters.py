@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from core.infrastructure.tia.tia_loop import (
+from core.infrastructure.tia.tia_helpers import (
     _safe_get_block_name,
     _safe_get_block_path,
     _safe_get_table_name,

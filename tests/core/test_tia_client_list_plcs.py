@@ -9,9 +9,9 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from core.infrastructure.tia.tia_loop import (
-    SyncTIAClient,
-    _safe_short_designation)
+from core.infrastructure.tia.tia_loop import (SyncTIAClient)
+from core.infrastructure.tia.tia_helpers import (_safe_short_designation)
+
 from core.infrastructure.tia.tia_commands_catalog import register_all_commands
 
 
