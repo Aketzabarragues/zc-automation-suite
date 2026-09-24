@@ -664,7 +664,7 @@ class FunctionDispSincronizar(FunctionBase):
             )
 
     async def _stage_10_aplicar_comentarios(self) -> None:
-        """Stage 10 del sync: aplica los comentarios por instancia a los 6 DBs de disp.
+        """Stage 10 del sync: aplica los comentarios por instancia a los DBs de disp del área.
 
         Flujo (replica ``apply_disp_comments`` que vivia en
         ``helpers/sync/disp_comment_sync.py``, borrado al refactorizar A.4

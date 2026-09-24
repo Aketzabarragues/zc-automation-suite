@@ -4,7 +4,7 @@ Antes de PR 1, ``ConfigManager`` exponía constantes de módulo con los
 valores por defecto del departamento de alimentación:
 
   - ``_DEFAULT_DEPARTMENT = "alimentacion"``
-  - ``_DEFAULT_NMAX_CATALOG`` con los 6 N_MAX legacy.
+  - ``_DEFAULT_NMAX_CATALOG`` con los 7 N_MAX legacy.
   - ``_DEFAULT_GLOBAL_CONFIG_TABLE_NAME = "000_Config_Dispositivos"``
   - ``_DEFAULT_TIA_FOLDER_PROCESO = "003_Procesos"``
   - ``_DEFAULT_TIA_FOLDER_DISPOSITIVOS = "2000_Dispositivos"``
@@ -40,17 +40,18 @@ _logger: logging.Logger = logging.getLogger(
 _DEPT_ID: str = "alimentacion"
 
 
-# ── Catálogo N_MAX legacy (6 entradas canónicas del área) ────────────
+# ── Catálogo N_MAX legacy (7 entradas canónicas del área) ────────────
 # Se usan solo si ``n_max_catalog`` no está presente en el bloque del
 # departamento. Mantener sincronizado con la tabla PLC de
 # ``2000_Disp_*`` y con la convención ``N_MAX_DISP_<HW>``.
 _DEFAULT_NMAX_CATALOG: list[dict[str, str]] = [
-    {"name": "N_MAX_DISP_ED",   "excel_named_range": "Num_Disp_ED",   "hw_type": "ed"},
-    {"name": "N_MAX_DISP_EA",   "excel_named_range": "Num_Disp_EA",   "hw_type": "ea"},
-    {"name": "N_MAX_DISP_SA",   "excel_named_range": "Num_Disp_SA",   "hw_type": "sa"},
-    {"name": "N_MAX_DISP_V",    "excel_named_range": "Num_Disp_V",    "hw_type": "v"},
-    {"name": "N_MAX_DISP_M",    "excel_named_range": "Num_Disp_M",    "hw_type": "m"},
-    {"name": "N_MAX_DISP_M_VF", "excel_named_range": "Num_Disp_M_VF", "hw_type": "m_vf"},
+    {"name": "N_MAX_DISP_ED",     "excel_named_range": "Num_Disp_ED",     "hw_type": "ed"},
+    {"name": "N_MAX_DISP_EA",     "excel_named_range": "Num_Disp_EA",     "hw_type": "ea"},
+    {"name": "N_MAX_DISP_SA",     "excel_named_range": "Num_Disp_SA",     "hw_type": "sa"},
+    {"name": "N_MAX_DISP_V",      "excel_named_range": "Num_Disp_V",      "hw_type": "v"},
+    {"name": "N_MAX_DISP_M",      "excel_named_range": "Num_Disp_M",      "hw_type": "m"},
+    {"name": "N_MAX_DISP_M_VF",   "excel_named_range": "Num_Disp_M_VF",   "hw_type": "m_vf"},
+    {"name": "N_MAX_DISP_M_SINA", "excel_named_range": "Num_Disp_M_SINA", "hw_type": "m_sina"},
 ]
 
 
@@ -89,7 +90,7 @@ def install(dept_cfg: dict[str, Any], dept_id: str) -> None:
     ):
         _logger.info(
             "Alimentación: 'n_max_catalog' ausente; se aplican los "
-            "6 N_MAX legacy como defaults defensivos."
+            "7 N_MAX legacy como defaults defensivos."
         )
         dept_cfg["n_max_catalog"] = list(_DEFAULT_NMAX_CATALOG)
 

@@ -1,7 +1,7 @@
 ﻿"""Cargador síncrono del Excel corporativo del subdominio alimentación.
 
 ``ExcelLoader`` abre el workbook UNA sola vez, ejecuta los 11
-parsers que lo componen (6 dispositivos + 4 software + 1 N_MAX) y
+parsers que lo componen (7 dispositivos + 4 software + 1 N_MAX) y
 construye una ``DataExcelCache`` inmutable con los 3 lookups
 precomputados por ``codigo``.
 
@@ -12,7 +12,7 @@ Los callers (router FastAPI, MCP tool) lo invocan con
 loop.
 
 Pipeline (orden de ejecución sobre el mismo ``wb``):
-    1. 6 mini parsers de dispositivos (``DispED``/``EA``/``SA``/``V``
+    1. 7 mini parsers de dispositivos (``DispED``/``EA``/``SA``/``V``
        /``M``/``M_VF``) Ã¢â‚¬” extaen las ``ListObject`` de las hojas
        ``DISP_<HW>``.
     2. 4 parsers de software (``Procesos``/``PReal``/``PInt``/
@@ -50,6 +50,7 @@ from areas.alimentacion.helpers.excel.excel_parser_disp_dimensiones import (
 from areas.alimentacion.helpers.excel.excel_parser_disp_ed import DispEDParser
 from areas.alimentacion.helpers.excel.excel_parser_disp_ea import DispEAParser
 from areas.alimentacion.helpers.excel.excel_parser_disp_m import DispMParser
+from areas.alimentacion.helpers.excel.excel_parser_disp_m_sina import DispMSINAParser
 from areas.alimentacion.helpers.excel.excel_parser_disp_m_vf import DispM_VFParser
 from areas.alimentacion.helpers.excel.excel_parser_disp_sa import DispSAParser
 from areas.alimentacion.helpers.excel.excel_parser_disp_v import DispVParser
@@ -67,19 +68,20 @@ class ExcelLoader:
 
     Atributos:
         _config_manager: ``ConfigManager`` opcional inyectado. Si se
-            pasa, los 6 mini parsers de dispositivos lo usan para
+            pasa, los 7 mini parsers de dispositivos lo usan para
             resolver su ``SHEET``/``TABLE`` data-driven.
     """
 
     def __init__(self, config_manager: ConfigManager | None = None) -> None:
         self._config_manager = config_manager
-        # Los 6 parsers de dispositivos (reciben config_manager).
+        # Los 7 parsers de dispositivos (reciben config_manager).
         self._disp_ed = DispEDParser(config_manager=config_manager)
         self._disp_ea = DispEAParser(config_manager=config_manager)
         self._disp_sa = DispSAParser(config_manager=config_manager)
         self._disp_v = DispVParser(config_manager=config_manager)
         self._disp_m = DispMParser(config_manager=config_manager)
         self._disp_m_vf = DispM_VFParser(config_manager=config_manager)
+        self._disp_m_sina = DispMSINAParser(config_manager=config_manager)
         # Los 4 parsers de software (no necesitan config_manager:
         # sus hojas/tablas son fijas y no se sobreescriben).
         self._procesos = ProcesosParser()
@@ -129,6 +131,7 @@ class ExcelLoader:
             disp_v = self._disp_v.extraer(wb)
             disp_m = self._disp_m.extraer(wb)
             disp_m_vf = self._disp_m_vf.extraer(wb)
+            disp_m_sina = self._disp_m_sina.extraer(wb)
             # Ã¢”â‚¬Ã¢”â‚¬ 4 software Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬
             procesos = self._procesos.extraer(wb)
             preal = self._preal.extraer(wb)
@@ -153,17 +156,18 @@ class ExcelLoader:
             p.codigo: p for p in pint if p.codigo
         }
 
-        # Los 6 tipos concretos (``DispED``/``DispEA``/...) satisfacen
+        # Los 7 tipos concretos (``DispED``/``DispEA``/...) satisfacen
         # estructuralmente el ``Protocol Dispositivo``. Las listas se
         # convierten a tuplas para preservar ``frozen=True`` en el
         # ``DataExcelCache``.
         dispositivos_dict: dict[str, tuple[Dispositivo, ...]] = {
-            "ed":    tuple(disp_ed),
-            "ea":    tuple(disp_ea),
-            "sa":    tuple(disp_sa),
-            "v":     tuple(disp_v),
-            "m":     tuple(disp_m),
-            "m_vf":  tuple(disp_m_vf),
+            "ed":     tuple(disp_ed),
+            "ea":     tuple(disp_ea),
+            "sa":     tuple(disp_sa),
+            "v":      tuple(disp_v),
+            "m":      tuple(disp_m),
+            "m_vf":   tuple(disp_m_vf),
+            "m_sina": tuple(disp_m_sina),
         }
 
         total_disp = sum(len(t) for t in dispositivos_dict.values())

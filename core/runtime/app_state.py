@@ -74,9 +74,9 @@ class AppState:
     ) -> None:
         """Sustituye la lista de dispositivos de ``hw_type``.
 
-        Para los 6 tipos del area de alimentacion, las properties
-        ``state.dispositivos_<hw>`` (aportadas via
-        ``contributes_state_extensions``) devuelven esta misma lista.
+        Las areas que aportan ``contributes_state_extensions``
+        instalan ``state.dispositivos_<hw>`` como sugar que delegan
+        a ``get_devices`` / ``set_devices``.
         """
         self._dispositivos[hw_type] = list(devices)
 

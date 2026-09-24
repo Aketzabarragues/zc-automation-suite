@@ -2,7 +2,7 @@
 
 Punto de entrada único para resolver los workdirs del área:
 
-  - ``dispositivos``: ciclo de export/modify/import de los 6 DBs de
+  - ``dispositivos``: ciclo de export/modify/import de los DBs de dispositivos del área (data-driven vía ``config.json``).
     dispositivos + tabla N_MAX (estructura DispLayout, sept-2026).
   - ``procesos``: ciclo análogo para PReal, PInt, ALM (estructura
     ProcDbLayout, sept-2026).

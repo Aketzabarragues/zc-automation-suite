@@ -16,7 +16,7 @@ class DimensionesDispositivos:
 
     Atributos:
         extras: ``{nombre_canonico: valor}`` con todos los N_MAX del
-            Excel (los 6 principales + cualquier extra del
+            Excel (los principales del área + cualquier extra del
             ``n_max_catalog`` del ConfigManager).
 
     Convenciones:

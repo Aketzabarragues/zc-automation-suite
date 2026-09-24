@@ -14,7 +14,7 @@ los normaliza en una sola pasada.
 
 Si se inyecta un ``ConfigManager``, el ``n_max_catalog`` resuelve el
 nombre canonico de cada hw (data-driven). Si no, se usa un fallback
-hardcoded de 6 hw_types (ED, EA, SA, V, M, M_VF).
+hardcoded de 7 hw_types (ED, EA, SA, V, M, M_VF, M_SINA).
 
 Restriccion: este modulo es OFFLINE; no importa
 ``siemens_tia_scripting``.
@@ -38,12 +38,13 @@ from core.infrastructure.config.config_manager import ConfigManager
 # el parser se construye sin ``ConfigManager`` (modo historico o
 # tests sin CM).
 _FALLBACK_HW_TO_CANONICAL: dict[str, str] = {
-    "ed":    "N_MAX_DISP_ED",
-    "ea":    "N_MAX_DISP_EA",
-    "sa":    "N_MAX_DISP_SA",
-    "v":     "N_MAX_DISP_V",
-    "m":     "N_MAX_DISP_M",
-    "m_vf":  "N_MAX_DISP_M_VF",
+    "ed":     "N_MAX_DISP_ED",
+    "ea":     "N_MAX_DISP_EA",
+    "sa":     "N_MAX_DISP_SA",
+    "v":      "N_MAX_DISP_V",
+    "m":      "N_MAX_DISP_M",
+    "m_vf":   "N_MAX_DISP_M_VF",
+    "m_sina": "N_MAX_DISP_M_SINA",
 }
 
 # Prefijos validos de defined names. El parser acepta los 3 y los

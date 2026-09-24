@@ -234,7 +234,7 @@ class ConfigManager:
 
         Si la clave ``n_max_catalog`` no existe en el JSON, retorna
         ``{}`` (genérico, vacío) y se loggea un warning una sola vez
-        por instancia. Antes de PR 1, retornaba los 6 N_MAX legacy
+        por instancia. Antes de PR 1, retornaba los N_MAX legacy
         como fallback defensivo; ese comportamiento pasa al área
         "alimentación" vía ``contributes_config_defaults`` (PR 2).
         """
@@ -321,7 +321,7 @@ class ConfigManager:
                     spec.id, exc,
                 )
         # Re-indexar caches por si el callback del área añadió entradas
-        # (p. ej. ``n_max_catalog`` con los 6 N_MAX legacy). Permitimos
+        # (p. ej. ``n_max_catalog`` con los N_MAX legacy). Permitimos
         # que la advertencia por "catálogo ausente" se emita de nuevo
         # la próxima vez, ya que ahora la clave SÍ existe.
         self._warned_missing_catalog = False
@@ -406,7 +406,7 @@ class ConfigManager:
                  ``"m"``, ``"m_vf"``).
 
         Returns:
-            ``DispositivoTIAConfig`` con los 6 campos (5 legacy +
+            ``DispositivoTIAConfig`` con los campos del área (5 legacy +
             ``config_constant``), o ``None`` si el tipo no existe.
             Loggea un warning en el segundo caso (NO lanza excepción:
             forward-compatible con tipos futuros aún no configurados).

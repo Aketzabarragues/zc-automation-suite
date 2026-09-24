@@ -36,7 +36,7 @@ async def parse_excel_to_cache(
 
     Args:
         config_manager: ConfigManager del departamento activo (necesario
-            para que los 6 mini parsers resuelvan su SHEET/TABLE
+            para que los mini parsers resuelvan su SHEET/TABLE
             data-driven).
         excel_path: ruta al ``.xlsx`` a parsear.
         cache_cls: clase del cache manager (inyectable para tests).

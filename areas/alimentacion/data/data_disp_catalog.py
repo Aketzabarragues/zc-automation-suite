@@ -32,6 +32,7 @@ from areas.alimentacion.data.data_dispositivos import (
     DispEA,
     DispED,
     DispM,
+    DispMSINA,
     DispM_VF,
     DispSA,
     DispV,
@@ -78,12 +79,13 @@ class DataDispCatalog:
 #   3. Configurar la entry en el ``config.json`` (``Dispositivos``
 #      y opcionalmente ``excel_target``).
 _CANONICAL_TO_CLASS: dict[str, type[Dispositivo]] = {
-    "DispED":   DispED,
-    "DispEA":   DispEA,
-    "DispSA":   DispSA,
-    "DispV":    DispV,
-    "DispM":    DispM,
-    "DispM_VF": DispM_VF,
+    "DispED":     DispED,
+    "DispEA":     DispEA,
+    "DispSA":     DispSA,
+    "DispV":      DispV,
+    "DispM":      DispM,
+    "DispM_VF":   DispM_VF,
+    "DispM_SINA": DispMSINA,
 }
 
 
@@ -110,6 +112,9 @@ COLUMN_LABELS: dict[str, str] = {
     "rm_byte":         "RM.Byte",
     "rm_bit":          "RM.Bit",
     "sa_byte":         "SA.Byte",
+    "vel_min":         "Vel.Min",
+    "vel_max":         "Vel.Max",
+    "cons_k":          "ConsK",
     "unidades":        "Unidades",
     "rii":             "RII",
     "rsi":             "RSI",

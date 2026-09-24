@@ -35,7 +35,7 @@ _logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class DataDispSlotMap:
-    """Slot maps y metadatos TIA para los 6 tipos de dispositivos."""
+    """Slot maps y metadatos TIA para los tipos de dispositivos del área."""
 
     slot_maps: dict[str, dict[int, str]] = field(default_factory=dict)
     db_names: dict[str, str] = field(default_factory=dict)

@@ -15,6 +15,7 @@ from areas.alimentacion.data.data_dispositivos import (
     DispED,
     DispEA,
     DispM,
+    DispMSINA,
     DispM_VF,
     DispSA,
     DispV,
@@ -115,6 +116,73 @@ def test_disp_m_vf_isinstance_dispositivo():
     assert isinstance(d, Dispositivo)
 
 
+# ── DispMSINA ──────────────────────────────────────────────────────
+
+
+def test_disp_msina_construccion_basica():
+    """DispMSINA acepta los 5 campos del Protocol + defaults tolerantes."""
+    d = DispMSINA(
+        numero=1,
+        plc_tag="MSINA_Motor_1",
+        plc_comentario="Motor sinamics 1",
+        descripcion="Variador bomba",
+        uid="MSINA_001",
+    )
+    assert d.numero == 1
+    assert d.plc_tag == "MSINA_Motor_1"
+    assert d.uid == "MSINA_001"
+    # Defaults analogicos.
+    assert d.vel_min == 0.0
+    assert d.vel_max == 0.0
+    assert d.cons_k == 0.0
+    # Defaults digitales (solo RT, no S/RM/SA).
+    assert d.rt_byte == 0
+    assert d.rt_bit == 0
+    # Defaults str vacios.
+    assert d.cfg_vel_min == ""
+    assert d.cfg_vel_max == ""
+    assert d.cfg_cons_k == ""
+    assert d.comentario_db == ""
+
+
+def test_disp_msina_campos_analogicos_populados():
+    """DispMSINA persiste vel_min/vel_max/cons_k cuando se setean."""
+    d = DispMSINA(
+        1, "tag", "com", "desc", "uid",
+        vel_min=10.5, vel_max=50.0, cons_k=0.85,
+    )
+    assert d.vel_min == 10.5
+    assert d.vel_max == 50.0
+    assert d.cons_k == 0.85
+
+
+def test_disp_msina_isinstance_dispositivo():
+    """``Dispositivo`` es ``runtime_checkable``: DispMSINA lo satisface."""
+    d = DispMSINA(1, "tag", "com", "desc", "uid")
+    assert isinstance(d, Dispositivo)
+
+
+def test_disp_msina_frozen_no_muta():
+    """``frozen=True``: asignar un campo levanta ``FrozenInstanceError``."""
+    from dataclasses import FrozenInstanceError
+
+    d = DispMSINA(1, "tag", "com", "desc", "uid")
+    with pytest.raises(FrozenInstanceError):
+        d.numero = 99  # type: ignore[misc]
+
+
+def test_disp_msina_no_tiene_campos_digitales():
+    """DispMSINA NO tiene S/RM/SA: solo RT (sin salida ni confirm. de marcha)."""
+    import dataclasses
+
+    field_names = {f.name for f in dataclasses.fields(DispMSINA)}
+    assert "s_byte" not in field_names
+    assert "s_bit" not in field_names
+    assert "rm_byte" not in field_names
+    assert "rm_bit" not in field_names
+    assert "sa_byte" not in field_names
+
+
 # ── Defaults comunes ─────────────────────────────────────────────────────
 
 
@@ -126,8 +194,9 @@ def test_disp_defaults_str_vacios():
     d_v = DispV(1, "t", "c", "d", "u")
     d_m = DispM(1, "t", "c", "d", "u")
     d_vf = DispM_VF(1, "t", "c", "d", "u")
+    d_msina = DispMSINA(1, "t", "c", "d", "u")
 
-    for d in (d_ed, d_ea, d_sa, d_v, d_m, d_vf):
+    for d in (d_ed, d_ea, d_sa, d_v, d_m, d_vf, d_msina):
         assert d.tag == ""
         assert d.fat == ""
         assert d.cuadro == ""
@@ -138,8 +207,18 @@ def test_disp_defaults_int_cero():
     """Los campos ``int`` tienen default ``0`` en todas las Disp*."""
     d_ed = DispED(1, "t", "c", "d", "u")
     d_vf = DispM_VF(1, "t", "c", "d", "u")
+    d_msina = DispMSINA(1, "t", "c", "d", "u")
 
     assert d_ed.gr_alarma == 0
     assert d_ed.hmi_index == 0
     assert d_vf.s_byte == 0
     assert d_vf.sa_byte == 0
+    assert d_msina.rt_byte == 0
+
+
+def test_disp_msina_defaults_float_cero():
+    """Los campos ``float`` de DispMSINA tienen default ``0.0``."""
+    d_msina = DispMSINA(1, "t", "c", "d", "u")
+    assert d_msina.vel_min == 0.0
+    assert d_msina.vel_max == 0.0
+    assert d_msina.cons_k == 0.0

@@ -234,4 +234,42 @@ class DispM_VF:
     cfg_byteanalogica: str = ""
 
 
-__all__ = ["Dispositivo", "DispED", "DispEA", "DispSA", "DispV", "DispM", "DispM_VF"]
+@dataclass(frozen=True)
+class DispMSINA:
+    """Display Motor Sinamics (variador analogico sin E/S digital).
+
+    Anade ``vel_min``/``vel_max``/``cons_k`` (parametros analogicos
+    del variador) + sus 3 ``cfg_*`` SCL. NO comparte activacion
+    digital (S/RM) ni consigna analogica (SA) con ``DispM_VF``.
+    """
+
+    numero: int
+    plc_tag: str
+    plc_comentario: str
+    descripcion: str
+    uid: str
+    tag: str = ""
+    fat: str = ""
+    rt_byte: int = 0
+    rt_bit: int = 0
+    vel_min: float = 0.0
+    vel_max: float = 0.0
+    cons_k: float = 0.0
+    gr_alarma: int = 0
+    cuadro: str = ""
+    observaciones: str = ""
+    plc_tipo: str = ""
+    plc_index: int = 0
+    hmi_index: int = 0
+    hmi_texto: str = ""
+    cfg_habilitar: str = ""
+    cfg_byteretornotermico: str = ""
+    cfg_bitretornotermico: str = ""
+    cfg_vel_min: str = ""
+    cfg_vel_max: str = ""
+    cfg_cons_k: str = ""
+    cfg_grupo_alarma: str = ""
+    comentario_db: str = ""
+
+
+__all__ = ["Dispositivo", "DispED", "DispEA", "DispSA", "DispV", "DispM", "DispM_VF", "DispMSINA"]

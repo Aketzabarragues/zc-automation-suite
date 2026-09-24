@@ -1,7 +1,7 @@
 ﻿"""Data Block de slot maps de procesos.
 
 Slot maps y metadatos TIA para un proceso. Es el hermano "procesos"
-de ``DataDispSlotMap`` que cubre los 6 DBs de dispositivos
+de ``DataDispSlotMap`` que cubre los DBs de dispositivos del área
 ED/EA/SA/V/M/M_VF. Las diferencias:
   - Sin slot 0.  Los arrays de proceso empiezan en 1.
   - Parametrizado por array (no por hw_type).

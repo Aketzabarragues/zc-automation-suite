@@ -114,7 +114,12 @@ def test_falta_canonico_aparece_en_extras():
 
 
 def test_title_case_se_traduce_a_canonico():
-    """``Num_Disp_X`` (Title Case del Excel del operario) -> ``N_MAX_DISP_X``."""
+    """``Num_Disp_X`` (Title Case del Excel del operario) -> ``N_MAX_DISP_X``.
+
+    Cubre los prefijos Title Case de tipos ya activos (ED) y tipos
+    añadidos recientemente (M_SINA). El caso "tipo pendiente" se
+    valida en ``test_title_case_tipo_pendiente_se_descarta``.
+    """
     wb = Workbook()
     wb.remove(wb.active)
     _add_named_value(wb, "Config", "A1", "Num_Disp_ED", 21)
@@ -123,9 +128,25 @@ def test_title_case_se_traduce_a_canonico():
     d = DimensionesParser().extraer(wb)
     assert d.extras == {
         "N_MAX_DISP_ED": 21,
+        "N_MAX_DISP_M_SINA": 50,
     }
-    # ``Num_Disp_M_SINA`` no esta en el fallback de 6 hw_types -> se descarta.
-    assert "N_MAX_DISP_M_SINA" not in d.extras
+
+
+def test_title_case_tipo_pendiente_se_descarta():
+    """``Num_Disp_X`` con X no declarado en el catálogo -> se descarta.
+
+    Tipos pendientes (p. ej. AGRUP) viven en ``pending_nmax`` del
+    config pero NO en el ``_FALLBACK_HW_TO_CANONICAL`` ni en el
+    ``n_max_catalog`` activo, así que su defined name se ignora.
+    """
+    wb = Workbook()
+    wb.remove(wb.active)
+    _add_named_value(wb, "Config", "A1", "Num_Disp_ED", 21)
+    _add_named_value(wb, "Config", "A2", "Num_Disp_AGRUP", 99)
+
+    d = DimensionesParser().extraer(wb)
+    assert d.extras == {"N_MAX_DISP_ED": 21}
+    assert "N_MAX_DISP_AGRUP" not in d.extras
 
 
 def test_lowercase_legacy_se_traduce_a_canonico():

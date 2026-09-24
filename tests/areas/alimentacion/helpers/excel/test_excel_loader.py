@@ -70,7 +70,7 @@ def _build_full_xlsx(target: Path) -> Path:
     wb = Workbook()
     wb.remove(wb.active)
 
-    # 6 dispositivos
+    # 7 dispositivos
     _add_table(wb, "DISP_ED", "Tabla_Disp_ED",
                ["UID", "Numero", "PLC.Tag", "Descripcion"],
                [["ED_001", 1, "V_ED_001", "Entrada digital 1"]])
@@ -89,6 +89,9 @@ def _build_full_xlsx(target: Path) -> Path:
     _add_table(wb, "DISP_M_VF", "Tabla_Disp_M_VF",
                ["UID", "Numero", "PLC.Tag", "Descripcion"],
                [["MVF_001", 1, "V_MVF_001", "Motor VF 1"]])
+    _add_table(wb, "DISP_M_SINA", "Tabla_Disp_M_SINA",
+               ["UID", "Numero", "PLC.Tag", "Descripcion"],
+               [["MSINA_001", 1, "V_MSINA_001", "Motor Sinamics 1"]])
 
     # 4 software
     _add_table(wb, "CONFIGURACION", "Tabla_Procesos",
@@ -117,6 +120,7 @@ def _build_full_xlsx(target: Path) -> Path:
     _add_named_value(wb, "Config", "A4", "N_MAX_DISP_V", 40)
     _add_named_value(wb, "Config", "A5", "N_MAX_DISP_M", 50)
     _add_named_value(wb, "Config", "A6", "N_MAX_DISP_M_VF", 60)
+    _add_named_value(wb, "Config", "A7", "N_MAX_DISP_M_SINA", 70)
 
     wb.save(target)
     return target
@@ -137,13 +141,14 @@ def test_load_basico(tmp_path) -> None:
     assert cache.excel_mtime_ns > 0
     # parsed_at es un datetime UTC.
     assert cache.parsed_at.tzinfo is not None
-    # Los 6 tipos de dispositivos tienen 1 elemento.
+    # Los 7 tipos de dispositivos tienen 1 elemento.
     assert len(cache.dispositivos["ed"]) == 1
     assert len(cache.dispositivos["ea"]) == 1
     assert len(cache.dispositivos["sa"]) == 1
     assert len(cache.dispositivos["v"]) == 1
     assert len(cache.dispositivos["m"]) == 1
     assert len(cache.dispositivos["m_vf"]) == 1
+    assert len(cache.dispositivos["m_sina"]) == 1
     # Las 4 listas de software tienen 1 elemento.
     assert len(cache.procesos) == 1
     assert len(cache.parametros_real) == 1
@@ -157,6 +162,7 @@ def test_load_basico(tmp_path) -> None:
         "N_MAX_DISP_V": 40,
         "N_MAX_DISP_M": 50,
         "N_MAX_DISP_M_VF": 60,
+        "N_MAX_DISP_M_SINA": 70,
     }
     # Flag.
     assert cache.software_parsers_implemented is True

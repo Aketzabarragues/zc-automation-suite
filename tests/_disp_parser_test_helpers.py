@@ -1,9 +1,10 @@
-"""Helpers compartidos por los tests de los 6 disp parsers (Fase 5).
+"""Helpers compartidos por los tests de los 7 disp parsers (Fase 5).
 
 Convención: cada parser (``DispEDParser``, ``DispEAParser``,
-``DispSAParser``, ``DispVParser``, ``DispMParser``, ``DispM_VFParser``)
+``DispSAParser``, ``DispVParser``, ``DispMParser``, ``DispM_VFParser``,
+``DispMSINAParser``)
 tiene su propio ``test_disp_<hw>_parser.py`` que reutiliza estos
-helpers. La duplicación entre los 6 archivos de tests es mínima
+helpers. La duplicación entre los 7 archivos de tests es mínima
 gracias a este módulo compartido.
 """
 from __future__ import annotations
@@ -70,6 +71,14 @@ _FULL_DISP_HEADERS: dict[str, list[str]] = {
         "Cfg.ByteActivacion", "Cfg.BitActivacion", "Cfg.ByteAnalogica",
         "Cfg.HabRetTermico", "Cfg.HabRetConfMarcha", "Cfg.GrupoAlarma",
         "ComentarioDB",
+    ],
+    "M_SINA": [
+        "UID", "Numero", "PLC.Tag", "PLC.Comentario", "Descripcion",
+        "Tag", "FAT", "RT.Byte", "RT.Bit", "Vel.Min", "Vel.Max",
+        "ConsK", "Gr.Alarma", "Cuadro", "Observaciones", "PLC.Tipo",
+        "PLC.Index", "Hmi.Index", "Hmi.Texto", "Cfg.Habilitar",
+        "Cfg.ByteRetornoTermico", "Cfg.BitRetornoTermico", "Cfg.VelMin",
+        "Cfg.VelMax", "Cfg.ConstK", "Cfg.GrupoAlarma", "ComentarioDB",
     ],
 }
 
@@ -195,6 +204,15 @@ def build_full_row(hw: str, **overrides: Any) -> list:
         defaults.update({
             "SA.Byte": 0,
             "Cfg.ByteAnalogica": "cfg_ana := 0;",
+        })
+    if hw == "M_SINA":
+        # M_SINA NO tiene S/RM/SA; solo RT + parametros analogicos.
+        defaults.update({
+            "RT.Byte": 0, "RT.Bit": 0,
+            "Vel.Min": 0.0, "Vel.Max": 0.0, "ConsK": 0.0,
+            "Cfg.VelMin": "cfg_velmin := 0.0;",
+            "Cfg.VelMax": "cfg_velmax := 0.0;",
+            "Cfg.ConstK": "cfg_constk := 0.0;",
         })
     # Override.
     for k, v in overrides.items():
