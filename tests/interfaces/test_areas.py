@@ -26,7 +26,7 @@ def test_list_areas_returns_dataclass_list():
 
     cm = MagicMock()
     # Mockeamos ListAreasUseCase para evitar tocar el registro real.
-    import core.application.area_registry as ar_mod
+    import core.composition.app_area_registry as ar_mod
     original_uc = ar_mod.ListAreasUseCase
     ar_mod.ListAreasUseCase = lambda cm: MagicMock(
         execute=lambda: [

@@ -10,7 +10,7 @@ def _app_with_registry(registry_mock):
     app = create_app()
     app.config["TESTING"] = True
     # Monkey-patch del AreaRegistry.discover() via sys.modules.
-    import core.application.area_registry as ar_mod
+    import core.composition.app_area_registry as ar_mod
     original_discover = ar_mod.AreaRegistry.discover
     ar_mod.AreaRegistry.discover = lambda: registry_mock
     return app.test_client(), ar_mod, original_discover
