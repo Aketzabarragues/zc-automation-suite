@@ -1,4 +1,4 @@
-"""Tests end-to-end del ``ExcelLoader`` (Fase 5 del plan).
+﻿"""Tests end-to-end del ``ExcelLoader`` (Fase 5 del plan).
 
 Cubre:
   * ``load`` abre el workbook UNA vez y construye el ``DataExcelCache``.
@@ -21,7 +21,7 @@ from openpyxl import Workbook
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
 from areas.alimentacion.data.data_dimensiones import DimensionesDispositivos
-from areas.alimentacion.data.data_ExcelCache import DataExcelCache
+from areas.alimentacion.data.data_excel_cache import DataExcelCache
 from areas.alimentacion.data.data_ParametrosInt import DataParamIntPLC
 from areas.alimentacion.data.data_ParametrosReal import DataParamRealPLC
 from areas.alimentacion.data.data_Procesos import DataProcesoPLC

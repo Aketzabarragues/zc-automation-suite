@@ -42,7 +42,7 @@ from openpyxl import load_workbook
 from core.infrastructure.log.log_web_bridge import install_web_level
 install_web_level()
 
-from areas.alimentacion.data.data_ExcelCache import DataExcelCache
+from areas.alimentacion.data.data_excel_cache import DataExcelCache
 from areas.alimentacion.helpers.excel.excel_parser_proc_alarmas import AlarmasParser
 from areas.alimentacion.helpers.excel.excel_parser_disp_dimensiones import (
     DimensionesParser,

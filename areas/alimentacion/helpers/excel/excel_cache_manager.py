@@ -1,4 +1,4 @@
-"""Singleton IT del cache del Excel corporativo del subdominio alimentación.
+﻿"""Singleton IT del cache del Excel corporativo del subdominio alimentación.
 
 Este módulo aporta el ``ExcelCacheManager``, equivalente IT del
 ``BloqueCacheManager`` de ``core`` (ver ``core/infrastructure/cache/
@@ -34,7 +34,7 @@ import asyncio
 import logging
 from typing import ClassVar
 
-from areas.alimentacion.data.data_ExcelCache import DataExcelCache
+from areas.alimentacion.data.data_excel_cache import DataExcelCache
 
 
 _logger = logging.getLogger(__name__)

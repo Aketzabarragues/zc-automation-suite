@@ -1,4 +1,4 @@
-"""Tests de ``DataExcelCache``.
+﻿"""Tests de ``DataExcelCache``.
 
 Cobertura:
   - Construccion basica con los campos requeridos.
@@ -18,7 +18,7 @@ import pytest
 from areas.alimentacion.data.data_alarmas import DataAlarmaPLC
 from areas.alimentacion.data.data_dispositivos import DispED
 from areas.alimentacion.data.data_dimensiones import DimensionesDispositivos
-from areas.alimentacion.data.data_ExcelCache import DataExcelCache
+from areas.alimentacion.data.data_excel_cache import DataExcelCache
 from areas.alimentacion.data.data_ParametrosInt import DataParamIntPLC
 from areas.alimentacion.data.data_ParametrosReal import DataParamRealPLC
 from areas.alimentacion.data.data_Procesos import DataProcesoPLC

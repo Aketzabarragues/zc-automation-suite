@@ -1,4 +1,4 @@
-"""Helpers puros de la carga del Excel corporativo (FB subir_excel).
+﻿"""Helpers puros de la carga del Excel corporativo (FB subir_excel).
 
 Extraido del use case legacy ``application/use_cases/upload_excel.py`` para que el FB ``FunctionExcelCargar``
 quede con la state machine sola y delegue la logica aqui.
@@ -17,7 +17,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from areas.alimentacion.data.data_ExcelCache import DataExcelCache
+from areas.alimentacion.data.data_excel_cache import DataExcelCache
 from areas.alimentacion.helpers.excel.excel_cache_manager import (
     ExcelCacheManager,
 )

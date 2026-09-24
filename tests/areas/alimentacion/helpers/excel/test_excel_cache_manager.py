@@ -1,4 +1,4 @@
-"""Tests del ``ExcelCacheManager`` (singleton IT del cache del Excel).
+﻿"""Tests del ``ExcelCacheManager`` (singleton IT del cache del Excel).
 
 Cubre la API pÃƒÂºblica:
   * ``get`` / ``put`` / ``clear``.
@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 import pytest
 import pytest_asyncio
 
-from areas.alimentacion.data.data_ExcelCache import (
+from areas.alimentacion.data.data_excel_cache import (
     DataExcelCache,
     DimensionesDispositivos,
 )
