@@ -1,10 +1,10 @@
-"""Helpers compartidos por los tests de los 8 disp parsers (Fase 5).
+"""Helpers compartidos por los tests de los 9 disp parsers (Fase 5).
 
 Convención: cada parser (``DispEDParser``, ``DispEAParser``,
 ``DispSAParser``, ``DispVParser``, ``DispMParser``, ``DispM_VFParser``,
-``DispMSINAParser``, ``DispTOTParser``)
+``DispMSINAParser``, ``DispTOTParser``, ``DispPIDParser``)
 tiene su propio ``test_disp_<hw>_parser.py`` que reutiliza estos
-helpers. La duplicación entre los 8 archivos de tests es mínima
+helpers. La duplicación entre los 9 archivos de tests es mínima
 gracias a este módulo compartido.
 """
 from __future__ import annotations
@@ -86,6 +86,12 @@ _FULL_DISP_HEADERS: dict[str, list[str]] = {
         "Gr.Alarma", "Proceso", "Observaciones", "PLC.Tipo", "PLC.Index",
         "Hmi.Index", "Hmi.Texto", "Cfg.Habilitar", "Cfg.ByteEntrada",
         "Cfg.BitEntrada", "Cfg.Tipo", "ComentarioDB",
+    ],
+    "PID": [
+        "UID", "Numero", "PLC.Tag", "PLC.Comentario", "Descripcion",
+        "Tag", "FAT", "Proceso", "PV", "Disp.Tipo", "Disp.Tag",
+        "Observaciones", "PLC.Tipo", "PLC.Index", "Hmi.Index",
+        "Hmi.Texto", "Cfg.Habilitar", "ComentarioDB",
     ],
 }
 
@@ -231,6 +237,14 @@ def build_full_row(hw: str, **overrides: Any) -> list:
             "Cfg.ByteEntrada": "cfg_bent := 0;",
             "Cfg.BitEntrada": "cfg_btent := 0;",
             "Cfg.Tipo": "cfg_tipo := 'LITROS';",
+        })
+    if hw == "PID":
+        # PID: regulador de proceso, solo configuracion textual.
+        defaults.update({
+            "Proceso": "PR1",
+            "PV": "V_TEMP_001",
+            "Disp.Tipo": "TEND",
+            "Disp.Tag": "TEMP_PV",
         })
     # Override.
     for k, v in overrides.items():

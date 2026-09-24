@@ -308,4 +308,35 @@ class DispTOT:
     comentario_db: str = ""
 
 
-__all__ = ["Dispositivo", "DispED", "DispEA", "DispSA", "DispV", "DispM", "DispM_VF", "DispMSINA", "DispTOT"]
+@dataclass(frozen=True)
+class DispPID:
+    """Display Controlador PID (regulador de proceso).
+
+    NO tiene E/S digital ni campos analogicos directos: solo
+    configuracion textual. Anade ``proceso`` (UID del proceso al
+    que pertenece el PID), ``pv`` (process variable: nombre de la
+    variable que se lee), ``disp_tipo`` y ``disp_tag`` (tipo/tag
+    del display HMI del controlador).
+    """
+
+    numero: int
+    plc_tag: str
+    plc_comentario: str
+    descripcion: str
+    uid: str
+    tag: str = ""
+    fat: str = ""
+    proceso: str = ""
+    pv: str = ""
+    disp_tipo: str = ""
+    disp_tag: str = ""
+    observaciones: str = ""
+    plc_tipo: str = ""
+    plc_index: int = 0
+    hmi_index: int = 0
+    hmi_texto: str = ""
+    cfg_habilitar: str = ""
+    comentario_db: str = ""
+
+
+__all__ = ["Dispositivo", "DispED", "DispEA", "DispSA", "DispV", "DispM", "DispM_VF", "DispMSINA", "DispTOT", "DispPID"]

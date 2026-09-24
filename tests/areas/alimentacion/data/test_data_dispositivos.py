@@ -17,6 +17,7 @@ from areas.alimentacion.data.data_dispositivos import (
     DispM,
     DispMSINA,
     DispM_VF,
+    DispPID,
     DispSA,
     DispTOT,
     DispV,
@@ -251,6 +252,80 @@ def test_disp_tot_no_tiene_campos_que_no_aplican():
     assert "cfg_grupoalarma" not in field_names
 
 
+# ── DispPID ──────────────────────────────────────────────────────
+
+
+def test_disp_pid_construccion_basica():
+    """DispPID acepta los 5 campos del Protocol + defaults tolerantes."""
+    d = DispPID(
+        numero=1,
+        plc_tag="V_PID_001",
+        plc_comentario="PID temperatura",
+        descripcion="Regulador temperatura reactor",
+        uid="PID_001",
+    )
+    assert d.numero == 1
+    assert d.plc_tag == "V_PID_001"
+    assert d.uid == "PID_001"
+    # Defaults especificos PID.
+    assert d.proceso == ""
+    assert d.pv == ""
+    assert d.disp_tipo == ""
+    assert d.disp_tag == ""
+    assert d.comentario_db == ""
+
+
+def test_disp_pid_campos_especificos_populados():
+    """DispPID persiste proceso/pv/disp_tipo/disp_tag cuando se setean."""
+    d = DispPID(
+        1, "tag", "com", "desc", "uid",
+        proceso="PR3", pv="V_TEMP_001",
+        disp_tipo="TEND", disp_tag="TEMP_PV",
+    )
+    assert d.proceso == "PR3"
+    assert d.pv == "V_TEMP_001"
+    assert d.disp_tipo == "TEND"
+    assert d.disp_tag == "TEMP_PV"
+
+
+def test_disp_pid_isinstance_dispositivo():
+    """``Dispositivo`` es ``runtime_checkable``: DispPID lo satisface."""
+    d = DispPID(1, "tag", "com", "desc", "uid")
+    assert isinstance(d, Dispositivo)
+
+
+def test_disp_pid_frozen_no_muta():
+    """``frozen=True``: asignar un campo levanta ``FrozenInstanceError``."""
+    from dataclasses import FrozenInstanceError
+
+    d = DispPID(1, "tag", "com", "desc", "uid")
+    with pytest.raises(FrozenInstanceError):
+        d.numero = 99  # type: ignore[misc]
+
+
+def test_disp_pid_no_tiene_campos_digitales():
+    """DispPID NO tiene E/S digital ni analogica: solo configuracion textual.
+
+    Verifica que el regulador no expone ``e_byte``, ``e_bit``, ``tipo``,
+    ``incxpulso``, ``sa_byte``, ``s_byte``, ``rt_byte``, ``rm_byte``.
+    """
+    import dataclasses
+
+    field_names = {f.name for f in dataclasses.fields(DispPID)}
+    forbidden = (
+        "e_byte", "e_bit",
+        "s_byte", "s_bit", "rm_byte", "rm_bit",
+        "rt_byte", "rt_bit",
+        "sa_byte", "rii", "rsi",
+        "tipo", "incxpulso",
+        "gr_alarma", "cuadro",
+    )
+    for f_name in forbidden:
+        assert f_name not in field_names, (
+            f"DispPID no deberia tener {f_name}"
+        )
+
+
 # ── Defaults comunes ─────────────────────────────────────────────────────
 
 
@@ -264,8 +339,9 @@ def test_disp_defaults_str_vacios():
     d_vf = DispM_VF(1, "t", "c", "d", "u")
     d_msina = DispMSINA(1, "t", "c", "d", "u")
     d_tot = DispTOT(1, "t", "c", "d", "u")
+    d_pid = DispPID(1, "t", "c", "d", "u")
 
-    for d in (d_ed, d_ea, d_sa, d_v, d_m, d_vf, d_msina, d_tot):
+    for d in (d_ed, d_ea, d_sa, d_v, d_m, d_vf, d_msina, d_tot, d_pid):
         assert d.tag == ""
         assert d.fat == ""
         assert d.comentario_db == ""
@@ -277,6 +353,7 @@ def test_disp_defaults_int_cero():
     d_vf = DispM_VF(1, "t", "c", "d", "u")
     d_msina = DispMSINA(1, "t", "c", "d", "u")
     d_tot = DispTOT(1, "t", "c", "d", "u")
+    d_pid = DispPID(1, "t", "c", "d", "u")
 
     assert d_ed.gr_alarma == 0
     assert d_ed.hmi_index == 0
@@ -284,6 +361,8 @@ def test_disp_defaults_int_cero():
     assert d_vf.sa_byte == 0
     assert d_msina.rt_byte == 0
     assert d_tot.e_byte == 0
+    assert d_pid.plc_index == 0
+    assert d_pid.hmi_index == 0
 
 
 def test_disp_msina_defaults_float_cero():

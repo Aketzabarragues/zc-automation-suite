@@ -1,7 +1,7 @@
 ﻿"""Cargador síncrono del Excel corporativo del subdominio alimentación.
 
 ``ExcelLoader`` abre el workbook UNA sola vez, ejecuta los 11
-parsers que lo componen (8 dispositivos + 4 software + 1 N_MAX) y
+parsers que lo componen (9 dispositivos + 4 software + 1 N_MAX) y
 construye una ``DataExcelCache`` inmutable con los 3 lookups
 precomputados por ``codigo``.
 
@@ -12,7 +12,7 @@ Los callers (router FastAPI, MCP tool) lo invocan con
 loop.
 
 Pipeline (orden de ejecución sobre el mismo ``wb``):
-    1. 8 mini parsers de dispositivos (``DispED``/``EA``/``SA``/``V``
+    1. 9 mini parsers de dispositivos (``DispED``/``EA``/``SA``/``V``
        /``M``/``M_VF``) Ã¢â‚¬” extaen las ``ListObject`` de las hojas
        ``DISP_<HW>``.
     2. 4 parsers de software (``Procesos``/``PReal``/``PInt``/
@@ -52,6 +52,7 @@ from areas.alimentacion.helpers.excel.excel_parser_disp_ea import DispEAParser
 from areas.alimentacion.helpers.excel.excel_parser_disp_m import DispMParser
 from areas.alimentacion.helpers.excel.excel_parser_disp_m_sina import DispMSINAParser
 from areas.alimentacion.helpers.excel.excel_parser_disp_m_vf import DispM_VFParser
+from areas.alimentacion.helpers.excel.excel_parser_disp_pid import DispPIDParser
 from areas.alimentacion.helpers.excel.excel_parser_disp_sa import DispSAParser
 from areas.alimentacion.helpers.excel.excel_parser_disp_tot import DispTOTParser
 from areas.alimentacion.helpers.excel.excel_parser_disp_v import DispVParser
@@ -69,13 +70,13 @@ class ExcelLoader:
 
     Atributos:
         _config_manager: ``ConfigManager`` opcional inyectado. Si se
-            pasa, los 8 mini parsers de dispositivos lo usan para
+            pasa, los 9 mini parsers de dispositivos lo usan para
             resolver su ``SHEET``/``TABLE`` data-driven.
     """
 
     def __init__(self, config_manager: ConfigManager | None = None) -> None:
         self._config_manager = config_manager
-        # Los 8 parsers de dispositivos (reciben config_manager).
+        # Los 9 parsers de dispositivos (reciben config_manager).
         self._disp_ed = DispEDParser(config_manager=config_manager)
         self._disp_ea = DispEAParser(config_manager=config_manager)
         self._disp_sa = DispSAParser(config_manager=config_manager)
@@ -84,6 +85,7 @@ class ExcelLoader:
         self._disp_m_vf = DispM_VFParser(config_manager=config_manager)
         self._disp_m_sina = DispMSINAParser(config_manager=config_manager)
         self._disp_tot = DispTOTParser(config_manager=config_manager)
+        self._disp_pid = DispPIDParser(config_manager=config_manager)
         # Los 4 parsers de software (no necesitan config_manager:
         # sus hojas/tablas son fijas y no se sobreescriben).
         self._procesos = ProcesosParser()
@@ -135,6 +137,7 @@ class ExcelLoader:
             disp_m_vf = self._disp_m_vf.extraer(wb)
             disp_m_sina = self._disp_m_sina.extraer(wb)
             disp_tot = self._disp_tot.extraer(wb)
+            disp_pid = self._disp_pid.extraer(wb)
             # Ã¢”â‚¬Ã¢”â‚¬ 4 software Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬
             procesos = self._procesos.extraer(wb)
             preal = self._preal.extraer(wb)
@@ -159,7 +162,7 @@ class ExcelLoader:
             p.codigo: p for p in pint if p.codigo
         }
 
-        # Los 8 tipos concretos (``DispED``/``DispEA``/...) satisfacen
+        # Los 9 tipos concretos (``DispED``/``DispEA``/...) satisfacen
         # estructuralmente el ``Protocol Dispositivo``. Las listas se
         # convierten a tuplas para preservar ``frozen=True`` en el
         # ``DataExcelCache``.
@@ -172,6 +175,7 @@ class ExcelLoader:
             "m_vf":   tuple(disp_m_vf),
             "m_sina": tuple(disp_m_sina),
             "tot":    tuple(disp_tot),
+            "pid":    tuple(disp_pid),
         }
 
         total_disp = sum(len(t) for t in dispositivos_dict.values())

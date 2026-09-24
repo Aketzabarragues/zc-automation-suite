@@ -70,7 +70,7 @@ def _build_full_xlsx(target: Path) -> Path:
     wb = Workbook()
     wb.remove(wb.active)
 
-    # 8 dispositivos
+    # 9 dispositivos
     _add_table(wb, "DISP_ED", "Tabla_Disp_ED",
                ["UID", "Numero", "PLC.Tag", "Descripcion"],
                [["ED_001", 1, "V_ED_001", "Entrada digital 1"]])
@@ -95,6 +95,9 @@ def _build_full_xlsx(target: Path) -> Path:
     _add_table(wb, "DISP_TOT", "Tabla_Disp_TOT",
                ["UID", "Numero", "PLC.Tag", "Descripcion"],
                [["TOT_001", 1, "V_TOT_001", "Totalizador 1"]])
+    _add_table(wb, "DISP_PID", "Tabla_Disp_PID",
+               ["UID", "Numero", "PLC.Tag", "Descripcion"],
+               [["PID_001", 1, "V_PID_001", "Controlador PID 1"]])
 
     # 4 software
     _add_table(wb, "CONFIGURACION", "Tabla_Procesos",
@@ -125,6 +128,7 @@ def _build_full_xlsx(target: Path) -> Path:
     _add_named_value(wb, "Config", "A6", "N_MAX_DISP_M_VF", 60)
     _add_named_value(wb, "Config", "A7", "N_MAX_DISP_M_SINA", 70)
     _add_named_value(wb, "Config", "A8", "N_MAX_DISP_TOT", 80)
+    _add_named_value(wb, "Config", "A9", "N_MAX_DISP_PID", 90)
 
     wb.save(target)
     return target
@@ -145,7 +149,7 @@ def test_load_basico(tmp_path) -> None:
     assert cache.excel_mtime_ns > 0
     # parsed_at es un datetime UTC.
     assert cache.parsed_at.tzinfo is not None
-    # Los 8 tipos de dispositivos tienen 1 elemento.
+    # Los 9 tipos de dispositivos tienen 1 elemento.
     assert len(cache.dispositivos["ed"]) == 1
     assert len(cache.dispositivos["ea"]) == 1
     assert len(cache.dispositivos["sa"]) == 1
@@ -154,6 +158,7 @@ def test_load_basico(tmp_path) -> None:
     assert len(cache.dispositivos["m_vf"]) == 1
     assert len(cache.dispositivos["m_sina"]) == 1
     assert len(cache.dispositivos["tot"]) == 1
+    assert len(cache.dispositivos["pid"]) == 1
     # Las 4 listas de software tienen 1 elemento.
     assert len(cache.procesos) == 1
     assert len(cache.parametros_real) == 1
@@ -169,6 +174,7 @@ def test_load_basico(tmp_path) -> None:
         "N_MAX_DISP_M_VF": 60,
         "N_MAX_DISP_M_SINA": 70,
         "N_MAX_DISP_TOT": 80,
+        "N_MAX_DISP_PID": 90,
     }
     # Flag.
     assert cache.software_parsers_implemented is True

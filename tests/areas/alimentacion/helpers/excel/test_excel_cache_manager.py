@@ -33,7 +33,7 @@ def _make_cache(path: str = "/tmp/a.xlsx", mtime_ns: int = 1) -> DataExcelCache:
         parsed_at=datetime(2026, 9, 1, 12, 0, 0, tzinfo=timezone.utc),
         dispositivos={
             "ed": (), "ea": (), "sa": (),
-            "v": (),  "m": (),  "m_vf": (), "m_sina": (), "tot": (),
+            "v": (),  "m": (),  "m_vf": (), "m_sina": (), "tot": (), "pid": (),
         },
         n_max=DimensionesDispositivos(),
         procesos=(), parametros_real=(), parametros_int=(), alarmas=(),
