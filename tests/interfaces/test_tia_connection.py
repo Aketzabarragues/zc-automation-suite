@@ -1,4 +1,4 @@
-"""Tests del blueprint tia_connection (Fase 4 / paso 4.4.2)."""
+"""Tests del blueprint tia_connection."""
 from __future__ import annotations
 
 from unittest.mock import MagicMock
@@ -10,7 +10,7 @@ from core.infrastructure.tia.tia_loop import (
 from core.infrastructure.tia.tia_commands_catalog import register_all_commands
 from core.composition.plc_engine import Engine
 from core.runtime.sse.sse_event_bus_sync import EventBusSync
-from interfaces.web_server.app_flask import create_app
+from core.web_server.app_flask import create_app
 
 
 @pytest.fixture
