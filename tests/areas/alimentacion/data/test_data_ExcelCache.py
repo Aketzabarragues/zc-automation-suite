@@ -17,7 +17,7 @@ import pytest
 
 from areas.alimentacion.data.data_alarmas import DataAlarmaPLC
 from areas.alimentacion.data.data_Dispositivos import DispED
-from areas.alimentacion.data.data_Dimensiones import DimensionesDispositivos
+from areas.alimentacion.data.data_dimensiones import DimensionesDispositivos
 from areas.alimentacion.data.data_ExcelCache import DataExcelCache
 from areas.alimentacion.data.data_ParametrosInt import DataParamIntPLC
 from areas.alimentacion.data.data_ParametrosReal import DataParamRealPLC

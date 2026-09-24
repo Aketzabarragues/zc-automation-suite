@@ -1,7 +1,7 @@
 """Data Blocks de dispositivos.
 
 Agrupa SOLO la familia "Dispositivos" en data pura (Protocol + 6 Disp*).
-``DimensionesDispositivos`` migra a su propio archivo ``data_Dimensiones.py``
+``DimensionesDispositivos`` migra a su propio archivo ``data_dimensiones.py``
 para mantener cada archivo < 200 líneas según la regla del operario.
 
 Migrado de ``areas/alimentacion/domain/models/excel_cache.py``.

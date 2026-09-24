@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from areas.alimentacion.data.data_Dimensiones import DimensionesDispositivos
+from areas.alimentacion.data.data_dimensiones import DimensionesDispositivos
 
 
 def test_defaults_extras_vacio():

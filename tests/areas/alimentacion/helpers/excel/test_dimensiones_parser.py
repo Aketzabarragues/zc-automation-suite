@@ -18,7 +18,7 @@ from typing import Any
 from openpyxl import Workbook
 from openpyxl.workbook.defined_name import DefinedName
 
-from areas.alimentacion.data.data_Dimensiones import DimensionesDispositivos
+from areas.alimentacion.data.data_dimensiones import DimensionesDispositivos
 from areas.alimentacion.helpers.excel.excel_parser_disp_dimensiones import DimensionesParser
 
 

@@ -12,7 +12,7 @@ from typing import Mapping
 
 from areas.alimentacion.data.data_alarmas import DataAlarmaPLC
 from areas.alimentacion.data.data_Dispositivos import Dispositivo
-from areas.alimentacion.data.data_Dimensiones import DimensionesDispositivos
+from areas.alimentacion.data.data_dimensiones import DimensionesDispositivos
 from areas.alimentacion.data.data_ParametrosInt import DataParamIntPLC
 from areas.alimentacion.data.data_ParametrosReal import DataParamRealPLC
 from areas.alimentacion.data.data_Procesos import DataProcesoPLC
