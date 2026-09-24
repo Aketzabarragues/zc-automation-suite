@@ -14,7 +14,7 @@ class _CountingFB(FunctionBase):
     """FB que cuenta start() para verificar el wiring."""
 
     def __init__(self, nombre: str = "test_fb"):
-        super().__init__(nombre=nombre)
+        super().__init__(nombre=nombre, titulo="test fb", steps=[])
         self.start_count = 0
 
     async def start(self, **_kwargs) -> bool:
