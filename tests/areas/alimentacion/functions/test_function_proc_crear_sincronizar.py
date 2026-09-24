@@ -133,7 +133,7 @@ def make_fb(
 
 
 @pytest.mark.asyncio
-async def test_apply_happy_path_11_ticks(
+async def test_apply_happy_path_12_ticks(
     plantilla_dummy: Path,
     tmp_path: Path,
     progress: ProgressTracker,
@@ -201,8 +201,8 @@ async def test_apply_happy_path_11_ticks(
     await fb.tick()
     assert fb.nStep == fb.n_ejecutar  # 20
 
-    # ticks #2-#10: 9 steps del apply
-    for i in range(9):
+    # ticks #2-#11: 10 steps del apply (incluye Refrescar BloqueCache)
+    for i in range(10):
         await fb.tick()
         assert fb.nStep in (fb.n_ejecutar, fb.n_finalizar), (
             f"tick #{i + 2} salio del loop antes de tiempo: nStep={fb.nStep}"

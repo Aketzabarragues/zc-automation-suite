@@ -213,7 +213,8 @@ class FunctionProcCrearSincronizar(FunctionBase):
         (6, "Escribir manifiesto modificado", "_stage_6_escribir_manifest_modified"),
         (7, "Importar proceso",            "_stage_7_importar_proceso"),
         (8, "Compilar bloques",            "_stage_8_compilar"),
-        (9, "Componer respuesta",          "_stage_9_build_response"),
+        (9, "Refrescar BloqueCache",       "_stage_9_refresh_cache"),
+        (10, "Componer respuesta",         "_stage_10_build_response"),
     ]
 
     # ==================================================================
@@ -243,6 +244,7 @@ class FunctionProcCrearSincronizar(FunctionBase):
                 {"nombre": "Escribir manifiesto modificado"},
                 {"nombre": "Importar proceso"},
                 {"nombre": "Compilar bloques"},
+                {"nombre": "Refrescar BloqueCache"},
                 {"nombre": "Componer respuesta"},
             ],
             tracker=tracker,
@@ -570,8 +572,41 @@ class FunctionProcCrearSincronizar(FunctionBase):
                 f"{self._compile_result.get('error') or '<sin error>'}"
             )
 
-    async def _stage_9_build_response(self) -> None:
-        """Stage 9: compone ``ctx.result`` con la shape final del apply."""
+    async def _stage_9_refresh_cache(self) -> None:
+        """Stage 9: reescanea el PLC y repuebla ``TIADataBloqueCache``.
+
+        Tras el apply exitoso del nuevo proceso, el singleton del
+        backend (``TIADataBloqueCache._caches[plc_name]``) contiene el
+        snapshot anterior a la creacion. Sin este refresh, el siguiente
+        preview/sync del proceso nuevo veria ``missing_blocks`` aunque
+        los bloques ya existan en TIA, y el operario tendria que pulsar
+        manualmente el boton ↻ del sidebar.
+
+        Tolerancia a fallos: si el scan falla (TIA no responde, etc.),
+        no abortamos el apply (ya fue exitoso). Loggeamos warning y el
+        operario puede refrescar manualmente.
+        """
+        from core.infrastructure.tia.tia_cache import scan_plc_blocks
+        try:
+            await scan_plc_blocks(
+                self._plc_name,
+                force_refresh=True,
+                tia_client=self._tia_client,
+            )
+            logger.debug(
+                f"[{self.nombre}] BloqueCache refrescado para "
+                f"'{self._plc_name}' tras apply "
+                f"{self._base_nueva}/{self._codigo_nuevo}"
+            )
+        except Exception as exc:
+            logger.warning(
+                f"[{self.nombre}] Refresh de BloqueCache tras apply fallo: "
+                f"{exc}. El operario puede refrescar manualmente con ↻ "
+                "del sidebar."
+            )
+
+    async def _stage_10_build_response(self) -> None:
+        """Stage 10: compone ``ctx.result`` con la shape final del apply."""
         await proc_process_done_summary(self._ctx)
 
 
