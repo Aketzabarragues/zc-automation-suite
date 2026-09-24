@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Mapping
 
-from areas.alimentacion.data.data_Alarmas import DataAlarmaPLC
+from areas.alimentacion.data.data_alarmas import DataAlarmaPLC
 from areas.alimentacion.data.data_Dispositivos import Dispositivo
 from areas.alimentacion.data.data_Dimensiones import DimensionesDispositivos
 from areas.alimentacion.data.data_ParametrosInt import DataParamIntPLC

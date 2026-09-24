@@ -58,7 +58,7 @@ import logging
 
 from openpyxl import Workbook
 
-from areas.alimentacion.data.data_Alarmas import DataAlarmaPLC
+from areas.alimentacion.data.data_alarmas import DataAlarmaPLC
 from areas.alimentacion.helpers.excel._excel_helpers import (
     _safe_int,
     _safe_str,

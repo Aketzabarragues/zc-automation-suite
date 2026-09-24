@@ -1,4 +1,4 @@
-"""Tests para ``areas.alimentacion.data.data_Alarmas.DataAlarmaPLC``.
+"""Tests para ``areas.alimentacion.data.data_alarmas.DataAlarmaPLC``.
 
 Fase 3, paso 3.2.7.  Cobertura:
   - Construccion basica con los 6 campos.
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from areas.alimentacion.data.data_Alarmas import DataAlarmaPLC
+from areas.alimentacion.data.data_alarmas import DataAlarmaPLC
 
 
 def test_construccion_completa():

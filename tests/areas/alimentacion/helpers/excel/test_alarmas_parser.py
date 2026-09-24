@@ -22,7 +22,7 @@ from dataclasses import fields
 from openpyxl import Workbook
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
-from areas.alimentacion.data.data_Alarmas import DataAlarmaPLC
+from areas.alimentacion.data.data_alarmas import DataAlarmaPLC
 from areas.alimentacion.helpers.excel.excel_parser_proc_alarmas import AlarmasParser
 
 
