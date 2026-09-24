@@ -1,4 +1,4 @@
-"""Tests para ``areas.alimentacion.data.data_DispCatalog.DataDispCatalog``.
+"""Tests para ``areas.alimentacion.data.data_disp_catalog.DataDispCatalog``.
 
 Fase 3, paso 3.2.1.  Cobertura:
   - defaults razonables al instanciar sin argumentos (5 campos
@@ -12,7 +12,7 @@ Fase 3, paso 3.2.1.  Cobertura:
 """
 from __future__ import annotations
 
-from areas.alimentacion.data.data_DispCatalog import DataDispCatalog
+from areas.alimentacion.data.data_disp_catalog import DataDispCatalog
 
 
 def test_defaults_vacios():
