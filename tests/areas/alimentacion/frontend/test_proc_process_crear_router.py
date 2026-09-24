@@ -1,9 +1,8 @@
 """Tests del router Flask ``proc_process_crear_router``.
 
-Tras Commit 51 (sept-2026, rediseño conceptual) el Excel del
-operario es la fuente de verdad para los datos del proceso nuevo.
-La SPA solo envia ``dir_plantilla_nombre + proc_uid`` y el router
-los resuelve desde ``AppState.excel_cache.procesos``.
+El Excel del operario es la fuente de verdad para los datos del
+proceso nuevo. La SPA solo envia ``dir_plantilla_nombre + proc_uid``
+y el router los resuelve desde ``AppState.excel_cache.procesos``.
 
 Tests:
   - ``test_crear_preview_ok_con_plantilla``:
