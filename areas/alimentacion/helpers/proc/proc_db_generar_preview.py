@@ -85,6 +85,12 @@ def compose_arrays(
         slot_map_serialized: dict[str, Any] = {}
         # Slots del Excel: comparar desired vs current.
         for slot, desired in slot_map_dict.items():
+            # Slot 0 es el placeholder "NO USAR" (inyectado por el
+            # slot_map builder, ver ``_build_slot_map``). Mismo patron
+            # que ``disp_*``: el placeholder existe en TIA pero NO
+            # aparece en la preview (lo gestiona ``commit_array_comments``).
+            if slot == 0:
+                continue
             if current_dict is not None:
                 current = current_dict.get(slot)
                 if current is None:
