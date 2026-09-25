@@ -82,6 +82,11 @@ def listar_plcs():
     """Lista PLCs del TIA Portal conectado (best-effort: no tumba el server)."""
     tia = _tia()
     log = _log()
+    # Plan living TRAZABILIDAD_LOGGING: web al iniciar la operacion para
+    # que el operario vea progreso si tarda (TIA Portal listar PLCs puede
+    # tardar varios segundos). El OK con el conteo va al final, despues
+    # del dispatch.
+    logger.web("Leyendo lista de PLCs...")
     out = tia.dispatch("list_plcs")
     if not out.get("ok"):
         log.error(f"[portal/plcs] Fallo: {out.get('error', '?')}")
@@ -94,6 +99,7 @@ def listar_plcs():
             "detail": out.get("error", "?"),
         })
     plcs = out.get("result", {}).get("plcs", [])
+    logger.ok(f"{len(plcs)} PLCs encontrados.")
     return jsonify({"ok": True, "plcs": plcs})
 
 
