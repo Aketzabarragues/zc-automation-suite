@@ -21,7 +21,7 @@ Formato .s7dcl esperado (TIA V21 export):
   DATA_BLOCK DB...
       VAR RETAIN
           { S7_MLC := "MLC_q2"; }
-          PReal : Array[1..N] of _.UDT_ZC_PREAL;
+          PReal : Array[0..N] of _.UDT_ZC_PREAL;  <-- slot 0 = "NO USAR" (placeholder)
       END_VAR
       ...
       PReal[1].Valor := 50.0;        <-- Seccion A (inline / inicializacion)
@@ -266,9 +266,12 @@ def commit_array_comments(
         res_path: ruta al .s7res del DB.
         array_name: nombre del array (p.ej. ``"PReal"``,
             ``"PReal_Vis"``, ``"Aux.PReal_ValorAnterior"``).
-        slot_map: dict ``{slot: texto_comentario}``. Slot es 1-based
-            (proc) o 0-based (disp, depende del caller). Texto vacio
-            ``""`` = eliminar el comentario existente.
+        slot_map: dict ``{slot: texto_comentario}``. Slot es 0-based
+            con slot 0 = "NO USAR" como placeholder (proc y disp,
+            mismo patron que ``disp_build_slot_map_for_hw``). El PLC
+            debe estar dimensionado ``Array[0..N]`` y el codigo del
+            PLC omite el slot 0. Texto vacio ``""`` = eliminar el
+            comentario existente.
         array_type: ``"UDT"`` para arrays de UDT (PReal, PInt),
             ``"Simple"`` (o cualquier otro) para escalares (Bool,
             Int, Real, etc.).

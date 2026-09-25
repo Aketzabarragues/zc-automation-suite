@@ -19,12 +19,12 @@ import json
 import pytest
 
 from core.runtime.progress_buffer import ProgressTracker
-from core.sse.event_bus import EventBus
-from core.sse.progress_subscribe import (
+from core.runtime.sse.event_bus import EventBus
+from core.runtime.sse.progress_subscribe import (
     hook_progress_tracker_to_bus,
     make_progress_publisher,
 )
-from core.sse.stream import _stream
+from core.runtime.sse.stream import _stream
 
 
 def _parse_sse_payload(raw: bytes) -> dict:

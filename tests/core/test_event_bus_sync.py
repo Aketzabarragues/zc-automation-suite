@@ -125,7 +125,7 @@ def test_subscriber_can_be_unsubscribed_multiple_times():
 
 def test_event_bus_sync_is_independent_from_async_one():
     """Verifica que EventBusSync es una clase aparte, no comparte estado."""
-    from core.sse.event_bus import EventBus
+    from core.runtime.sse.event_bus import EventBus
 
     sync_bus = EventBusSync()
     async_bus = EventBus()

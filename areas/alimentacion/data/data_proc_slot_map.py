@@ -162,7 +162,12 @@ def _resolve_num_db(
 def _build_slot_map(
     parametros: list, proc_field: str, proc_value: str, warnings: list[str]
 ) -> dict[int, str]:
-    """Construye ``{i+1: comentario_db}`` 1-based.
+    """Construye ``{0: 'NO USAR', i+1: comentario_db}`` 0-based con placeholder.
+
+    Slot 0 es el placeholder "NO USAR" (estandar ``disp_*``, ver
+    ``disp_build_slot_map_for_hw``). Slots 1..N contienen los datos
+    reales del Excel. Si no hay parametros del proceso, el slot_map
+    queda ``{0: 'NO USAR'}`` solamente.
 
     Politica de comentarios vacios: si ``comentario_db`` es "" o
     ``None``, se mapea a ``"."`` (convencion TIA "sin comentario")
@@ -174,7 +179,8 @@ def _build_slot_map(
         filtered = [
             p for p in parametros if getattr(p, "proceso", "") == proc_value
         ]
-    slot_map: dict[int, str] = {}
+    # Slot 0 reservado como placeholder (mismo patron que ``disp_*``).
+    slot_map: dict[int, str] = {0: "NO USAR"}
     for i, p in enumerate(filtered):
         comentario = str(getattr(p, "comentario_db", "") or "")
         # Sept-2026 DRY: ``strip_enclosing_quotes`` ya no es necesario
@@ -313,9 +319,10 @@ def proc_build_slot_maps(
     nmax_desired: dict[str, int] = {}
     nmax_names: dict[str, str] = {}
     if suffixes:
-        nmax_desired["preal"] = len(preal)
-        nmax_desired["pint"] = len(pint)
-        nmax_desired["alm"] = len(alm)
+        # N_MAX = datos reales (sin slot 0 placeholder "NO USAR").
+        nmax_desired["preal"] = sum(1 for slot in preal if slot > 0)
+        nmax_desired["pint"] = sum(1 for slot in pint if slot > 0)
+        nmax_desired["alm"] = sum(1 for slot in alm if slot > 0)
         # Sept-2026: ``alm_hmi`` viene del campo del Excel (no de un
         # slot_map, porque la HMI no genera arrays reales en el DB).
         # Solo se anyade al dict si el campo esta declarado en el

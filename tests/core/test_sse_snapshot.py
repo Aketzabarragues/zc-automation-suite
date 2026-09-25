@@ -12,7 +12,7 @@ import asyncio
 
 from core.composition.plc_engine import Engine
 from core.composition.plc_function_base import FunctionBase
-from core.sse.stream import _build_snapshot
+from core.runtime.sse.stream import _build_snapshot
 
 
 def test_build_snapshot_sin_engine_devuelve_placeholder() -> None:

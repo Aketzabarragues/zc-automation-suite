@@ -11,8 +11,8 @@ import json
 
 import pytest
 
-from core.sse.event_bus import EventBus
-from core.sse.stream import _stream
+from core.runtime.sse.event_bus import EventBus
+from core.runtime.sse.stream import _stream
 
 
 @pytest.mark.asyncio

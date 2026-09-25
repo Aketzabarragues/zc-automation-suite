@@ -18,12 +18,12 @@ from unittest.mock import AsyncMock
 import pytest
 
 from core.infrastructure._pendiente.gateway import TIAProcessGateway
-from core.sse.cache_subscribe import (
+from core.runtime.sse.cache_subscribe import (
     hook_tia_gateway_cache_to_bus,
     make_cache_publisher,
 )
-from core.sse.event_bus import EventBus
-from core.sse.stream import _stream
+from core.runtime.sse.event_bus import EventBus
+from core.runtime.sse.stream import _stream
 
 
 def _parse_sse_payload(raw: bytes) -> dict:

@@ -19,7 +19,7 @@ import pytest
 
 from core.composition.plc_engine import Engine
 from core.composition.plc_function_base import FunctionBase
-from core.sse.event_bus import EventBus
+from core.runtime.sse.event_bus import EventBus
 
 
 # ---------------------------------------------------------------------

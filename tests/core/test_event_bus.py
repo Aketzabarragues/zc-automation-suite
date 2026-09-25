@@ -17,7 +17,7 @@ import threading
 
 import pytest
 
-from core.sse.event_bus import EventBus
+from core.runtime.sse.event_bus import EventBus
 
 
 def test_publish_llega_a_un_subscriber() -> None:

@@ -16,9 +16,9 @@ import json
 import pytest
 
 from core.infrastructure._pendiente.gateway import TIAProcessGateway
-from core.sse.event_bus import EventBus
-from core.sse.stream import _stream
-from core.sse.tia_state_subscribe import (
+from core.runtime.sse.event_bus import EventBus
+from core.runtime.sse.stream import _stream
+from core.runtime.sse.tia_state_subscribe import (
     hook_tia_gateway_to_bus,
     make_tia_state_publisher,
 )
