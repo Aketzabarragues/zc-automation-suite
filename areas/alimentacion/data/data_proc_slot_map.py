@@ -319,15 +319,17 @@ def proc_build_slot_maps(
     nmax_desired: dict[str, int] = {}
     nmax_names: dict[str, str] = {}
     if suffixes:
-        # N_MAX = datos reales (sin slot 0 placeholder "NO USAR").
-        nmax_desired["preal"] = sum(1 for slot in preal if slot > 0)
-        nmax_desired["pint"] = sum(1 for slot in pint if slot > 0)
-        nmax_desired["alm"] = sum(1 for slot in alm if slot > 0)
-        # Sept-2026: ``alm_hmi`` viene del campo del Excel (no de un
-        # slot_map, porque la HMI no genera arrays reales en el DB).
-        # Solo se anyade al dict si el campo esta declarado en el
-        # Excel (no es 0 por defecto en filas legacy).
-        nmax_desired["alm_hmi"] = proc.alm_hmi
+        # N_MAX son PlcUserConstant del PLC: su valor viene del campo
+        # del proceso en el Excel (no del conteo de filas de las
+        # tablas PReal/PInt/Alarmas). El slot_map es para los
+        # comentarios por instancia; dimensionar el array via
+        # ``len(slot_map)`` desfasaba N_MAX cuando el Excel tenia filas
+        # extra o cambios en el conteo que no se reflejaban en la
+        # celda ``PReal``/``PInt``/``Alarmas`` del proceso.
+        nmax_desired["preal"] = int(proc.preal)
+        nmax_desired["pint"] = int(proc.pint)
+        nmax_desired["alm"] = int(proc.alarmas)
+        nmax_desired["alm_hmi"] = int(proc.alm_hmi)
         for kind, suffix in suffixes.items():
             nmax_names[kind] = f"{proc_uid}_N_MAX_{suffix}"
 
