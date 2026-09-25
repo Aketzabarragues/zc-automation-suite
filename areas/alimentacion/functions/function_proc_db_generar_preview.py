@@ -725,9 +725,20 @@ def _step_summary(ctx: Any, step_nombre: str) -> str:
                 f"{step_nombre}: "
                 f"error: {ctx.slot_map_error or 'sin slot_map'}"
             )
+        # slot_map_size incluye el slot 0 placeholder "NO USAR"
+        # (1 + N_MAX reales). N_MAX es el dato del Excel (sin el
+        # placeholder). Mostrar ambos evita confusion: el operario
+        # espera N_MAX=PReal (el campo del proceso), no el tamano
+        # del slot_map.
+        sm = ctx.slot_map
+        nmax = getattr(sm, "nmax", {}) or {}
         return (
-            f"{step_nombre}: PReal={len(ctx.slot_map.preal)} "
-            f"PInt={len(ctx.slot_map.pint)} ALM={len(ctx.slot_map.alm)}"
+            f"{step_nombre}: "
+            f"slot_map(PReal={len(sm.preal)}, PInt={len(sm.pint)}, "
+            f"ALM={len(sm.alm)}) "
+            f"N_MAX(PReal={nmax.get('preal', '?')}, "
+            f"PInt={nmax.get('pint', '?')}, "
+            f"ALM={nmax.get('alm', '?')})"
         )
     if step_nombre == "Calcular diferencias de N_MAX":
         nmax_summary = ctx.nmax_block.get("summary", {})
