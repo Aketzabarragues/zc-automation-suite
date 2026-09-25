@@ -179,6 +179,16 @@ def _build_slot_map(
         filtered = [
             p for p in parametros if getattr(p, "proceso", "") == proc_value
         ]
+    # Filtrar filas con ``comentario_db == "NO USAR"`` (mismo patron
+    # que ``disp_*``: las filas Numero=0 del Excel se descartan y se
+    # sustituyen por el placeholder {0: 'NO USAR'} del slot_map builder).
+    # Sin este filtro, la primera fila del Excel Compacto (PR_100_000
+    # con comentario_db='NO USAR') se inyectaria como slot 1, y los
+    # reales empezarian en slot 2 (desplazamiento de 1).
+    filtered = [
+        p for p in filtered
+        if str(getattr(p, "comentario_db", "") or "").strip().upper() != "NO USAR"
+    ]
     # Slot 0 reservado como placeholder (mismo patron que ``disp_*``).
     slot_map: dict[int, str] = {0: "NO USAR"}
     for i, p in enumerate(filtered):
