@@ -341,6 +341,10 @@ class FunctionProcCrearSincronizar(FunctionBase):
         # NOTA: este FB no recibe ``app_state`` por constructor, asi que
         # la propagacion de ``selected_plc`` se hace desde el endpoint
         # que invoca este FB (responsabilidad del caller, D6 stateless).
+        # La validacion contra el Excel (``validate_plc_in_excel``) se
+        # ejecuta en el endpoint ``proc_process_crear_router.crear_aplicar``
+        # antes del ``with_plc``, ya que ahi si tenemos acceso al
+        # ``AppState`` singleton.
 
         dir_plantilla = Path(self._plantillas_path) / self._dir_plantilla_nombre
         if not dir_plantilla.exists():

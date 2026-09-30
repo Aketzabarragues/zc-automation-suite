@@ -82,10 +82,33 @@ def _make_mock_excel_cache(proc_uid: int = 300) -> MagicMock:
 
 
 def _make_mock_app_state(proc_uid: int = 300) -> MagicMock:
-    """Crea un ``AppState`` mockeado con un Excel cacheado."""
+    """Crea un ``AppState`` mockeado con un Excel cacheado.
+
+    Sept-2026 multi-PLC: el endpoint ``crear_aplicar`` ahora valida
+    ``plc_name in excel_cache_full.plcs`` antes de invocar el FB.
+    Por defecto mockeamos un cache con PLCs ``["S7-1500"]``.
+    """
     state = MagicMock()
     state.excel_cache = _make_mock_excel_cache(proc_uid)
+    # excel_cache_full es lo que mira ``validate_plc_in_excel``.
+    # Lo hacemos identico a ``excel_cache`` para que el plc_name de los
+    # tests (``"S7-1500"``) pase la validacion.
+    state.excel_cache_full = _make_mock_excel_cache_with_plcs(
+        proc_uid=proc_uid, plc_names=("S7-1500",)
+    )
     return state
+
+
+def _make_mock_excel_cache_with_plcs(
+    proc_uid: int, plc_names: tuple[str, ...]
+) -> MagicMock:
+    """Cache fake con un set concreto de PLCs en ``Tabla_PLC``.
+
+    Usado para que ``validate_plc_in_excel`` acepte el plc_name del body.
+    """
+    cache = MagicMock()
+    cache.plcs = [MagicMock(plc=p, uid=i) for i, p in enumerate(plc_names)]
+    return cache
 
 
 def _make_mock_fb(

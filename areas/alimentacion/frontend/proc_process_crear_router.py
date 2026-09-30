@@ -67,6 +67,7 @@ from typing import Any
 from flask import Blueprint, current_app, jsonify, request
 
 from core.helpers.tia.with_plc import with_plc
+from core.helpers.tia.validate_plc_in_excel import validate_plc_in_excel
 
 logger = logging.getLogger(__name__)
 
@@ -357,6 +358,15 @@ def crear_aplicar():
     # ``function_proc_crear_sincronizar`` no recibe ``app_state`` por
     # constructor, asi que el endpoint es responsable de propagarlo).
     with_plc(_get_app_state(), validated["plc_name"])
+
+    # Validar contra el Excel cargado (sept-2026 multi-PLC). El FB no
+    # lo hace porque no tiene acceso al AppState. Fail-fast aqui
+    # permite que el operario reciba 500 inmediato en lugar de
+    # esperar al progress tracker.
+    try:
+        validate_plc_in_excel(_get_app_state(), validated["plc_name"])
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
 
     import asyncio
     logger.web(
