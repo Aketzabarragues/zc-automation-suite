@@ -1,16 +1,14 @@
 ﻿"""Helpers puros de la carga del Excel corporativo (FB subir_excel).
 
-Extraido del use case legacy ``application/use_cases/upload_excel.py`` para que el FB ``FunctionExcelCargar``
-quede con la state machine sola y delegue la logica aqui.
-
 Funciones puras (sin estado, sin tracker, sin AppState):
   - ``parse_excel_to_cache``: lee el ``.xlsx`` y guarda el resultado
     en el ``ExcelCacheManager`` global.
   - ``dump_cache_to_state``: volca el cache al ``AppState`` y devuelve
     el ``summary`` con la shape legacy.
 
-El FB orquesta las 2 funciones en 2 steps (``parsear_excel`` /
-``volcar_appstate``) y emite los progress events via el ``tracker``.
+El FB ``FunctionExcelCargar`` orquesta las 2 funciones en 2 steps
+(``parsear_excel`` / ``volcar_appstate``) y emite los progress events
+via el ``tracker``.
 """
 from __future__ import annotations
 

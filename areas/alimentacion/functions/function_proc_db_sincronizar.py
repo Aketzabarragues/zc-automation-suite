@@ -286,7 +286,7 @@ class FunctionProcDBSincronizar(FunctionBase):
 
         self.result = self._ctx.result
 
-        # Log de cierre, igual que hacia el use case legacy.
+        # Log de cierre con el mismo formato que el resto de FBs.
         ops_executed = self.result.get("operations_executed", 0)
         logger.debug(
             f"[{self.nombre}] sync completo para proceso "

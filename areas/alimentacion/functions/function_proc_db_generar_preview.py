@@ -274,7 +274,7 @@ class FunctionProcDBGenerarPreview(FunctionBase):
 
         self.result = self._ctx.result
 
-        # Log de cierre, igual que hacia el use case legacy.
+        # Log de cierre con el mismo formato que el resto de FBs.
         s = self._ctx.result.get("summary", {})
         nmax_summary = self._ctx.result.get("nmax", {}).get("summary", {})
         logger.debug(

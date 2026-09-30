@@ -2,10 +2,15 @@
 
 Cobertura:
   - ``cache=None`` -> ``None`` (no rompe).
-  - ``plc_name=""`` -> copia sin filtrar (legacy single-PLC).
+  - ``plc_name=""`` -> cache sin filtrar (modo "sin filtro": el
+    cache activo coincide con el completo; el caller es responsable
+    de pasar plc_name valido si quiere filtrar).
   - ``plc_name="PLC1"`` -> solo filas con ``plc_name == "PLC1"``.
   - Las listas informativas (``plcs``, lookups, ``excel_path``) NO se filtran.
-  - El cache original NO se muta (es frozen).
+  - El cache original NO se muta (es frozen, ``dataclasses.replace``
+    crea una copia).
+  - Dispositivos sin ``plc_name`` (DTO legacy) NO matchean ningun PLC:
+    si bien es comportamiento intencional del strict equality D11.
 """
 from __future__ import annotations
 
@@ -142,7 +147,7 @@ def test_cache_none_devuelve_none():
 
 
 def test_plc_name_vacio_devuelve_cache_sin_filtrar():
-    """``plc_name=""`` -> copia sin filtrar (legacy single-PLC)."""
+    """``plc_name=""`` -> cache sin filtrar (modo sin filtro)."""
     cache = _make_cache()
     result = filter_cache_by_plc(cache, "")
     # Mismo cache (no se duplica si no hay filtro).
@@ -236,10 +241,11 @@ def test_excel_path_y_mtime_se_preservan():
 
 
 def test_filtra_disp_sin_plc_name_como_vacios():
-    """Dispositivos sin ``plc_name`` (legacy) NO matchean ningun PLC.
+    """DTOs sin ``plc_name`` no matchean ningun PLC (strict equality D11).
 
-    Solo cuando ``plc_name == ""`` (modo legacy) el cache completo
-    pasa. Si hay filtro, los legacy quedan fuera.
+    Si el Excel tiene disp legacy sin plc_name, quedan fuera del
+    filtro. La SPA exige que cada disp lleve su ``plc_name`` (regla
+    multi-PLC); un Excel con DTOs legacy esta mal formado.
     """
     cache = _FakeCache(
         excel_path="x", excel_mtime_ns=0, parsed_at=datetime(2026, 1, 1),
