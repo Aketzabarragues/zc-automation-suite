@@ -297,19 +297,17 @@ class FunctionProcDBGenerarPreview(FunctionBase):
     def _stage_1_check_state(self) -> None:
         """Valida que el cache del Excel esta cargado.
 
-        Multi-PLC (sept-2026): chequea ``excel_cache_active`` (filtrado
-        por PLC). Fallback a ``excel_cache`` legacy si no esta seteado.
+        Multi-PLC: chequea ``excel_cache_active`` (filtrado por PLC).
 
         Si no lo esta, marca ``self._ctx.excel_loaded = False``. El FB
         inspecciona este flag para devolver el shape de error
         correspondiente (``precondiciones_ok=False``,
         ``missing_blocks=[...]``) en ``_stage_6_done``.
         """
-        cache = None
-        if self._ctx.app_state is not None:
-            cache = getattr(self._ctx.app_state, "excel_cache_active", None)
-            if cache is None:
-                cache = getattr(self._ctx.app_state, "excel_cache", None)
+        cache = (
+            self._ctx.app_state.excel_cache_active
+            if self._ctx.app_state is not None else None
+        )
         if cache is None:
             self._ctx.excel_loaded = False
             return

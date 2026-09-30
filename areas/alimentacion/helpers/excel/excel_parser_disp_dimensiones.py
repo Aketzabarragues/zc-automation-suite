@@ -62,9 +62,9 @@ class DimensionesParser:
     """Parser de la tabla N_MAX multi-PLC.
 
     Atributos:
-        ``_config_manager``: ``ConfigManager`` opcional. Si se pasa,
-            ``excel_column`` del catalog es data-driven. Si no, fallback
-            a derivar ``N_Max_<HW>`` desde ``hw_type``.
+        ``_config_manager``: ``ConfigManager`` (obligatorio).
+            ``excel_column`` del catalog es data-driven via el
+            ConfigManager del departamento.
 
     Politica:
         - Filas sin ``PLC`` se descartan con WARNING.
@@ -73,7 +73,7 @@ class DimensionesParser:
         - Dos columnas que normalizan al mismo canonico -> WARNING + usa la ultima.
     """
 
-    def __init__(self, config_manager: ConfigManager | None = None) -> None:
+    def __init__(self, config_manager: ConfigManager) -> None:
         self._config_manager = config_manager
 
     def extraer(self, wb: Workbook) -> DimensionesDispositivos:
@@ -108,15 +108,6 @@ class DimensionesParser:
             canonico = self._canonical_from_hw(hw)
             if canonico:
                 excel_to_canonico[excel_col] = canonico
-        # Fallback: si no hay config_manager, derivar N_Max_<X> de hw_type
-        # de las entradas del catalog. Si tampoco hay catalog,
-        # no leemos nada (modo strict sin fallback).
-        if not excel_to_canonico and self._config_manager is None:
-            logger.debug(
-                "DimensionesParser sin config_manager y sin columnas del "
-                "catalog: ninguna columna N_Max_* se leera"
-            )
-            return DimensionesDispositivos()
 
         # Index normalizado de las cabeceras del Excel: {cabecera_normalizada: cabecera_original}.
         # Asi matcheamos aunque el operario haya mezclado casing (N_Max_Ed vs N_Max_ED).
@@ -168,11 +159,9 @@ class DimensionesParser:
     def _resolve_columnas_catalog(self) -> dict[str, str]:
         """``{excel_column: hw_type}`` desde el catalog del config_manager.
 
-        Si no hay config_manager o el catalog esta vacio, devuelve ``{}``.
+        Si el catalog esta vacio, devuelve ``{}``.
         Solo se incluyen entradas que tengan ``excel_column`` no vacio.
         """
-        if self._config_manager is None:
-            return {}
         result: dict[str, str] = {}
         for name in self._config_manager.list_nmax_active():
             entry = self._config_manager.get_nmax_entry(name)
@@ -186,7 +175,7 @@ class DimensionesParser:
 
     @staticmethod
     def _canonical_from_hw(hw: str) -> str:
-        """``ed`` -> ``N_MAX_DISP_ED`` (mismo patron que legacy)."""
+        """``ed`` -> ``N_MAX_DISP_ED``."""
         suffix = hw.upper()
         return f"N_MAX_DISP_{suffix}" if suffix else ""
 

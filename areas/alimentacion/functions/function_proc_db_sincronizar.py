@@ -305,18 +305,16 @@ class FunctionProcDBSincronizar(FunctionBase):
     def _stage_1_check_state_commit(self) -> None:
         """Stage 1: valida que el cache del Excel esta cargado.
 
-        Multi-PLC (sept-2026): chequea ``excel_cache_active`` (filtrado
-        por PLC). Fallback a ``excel_cache`` legacy si no esta seteado.
+        Multi-PLC: chequea ``excel_cache_active`` (filtrado por PLC).
         """
-        cache = None
-        if self._ctx.app_state is not None:
-            cache = getattr(self._ctx.app_state, "excel_cache_active", None)
-            if cache is None:
-                cache = getattr(self._ctx.app_state, "excel_cache", None)
+        cache = (
+            self._ctx.app_state.excel_cache_active
+            if self._ctx.app_state is not None else None
+        )
         self._ctx.excel_loaded = cache is not None
         if not self._ctx.excel_loaded:
             raise RuntimeError(
-                "AppState.excel_cache esta vacio. "
+                "AppState.excel_cache_active esta vacio. "
                 "Cargue el Excel con POST /api/v1/excel/upload."
             )
 

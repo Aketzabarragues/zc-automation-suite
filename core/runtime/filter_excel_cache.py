@@ -1,13 +1,12 @@
 """Filtro de ``DataExcelCache`` por PLC.
 
-Sept-2026 (multi-PLC, propuesta simplificada del operario): cuando el
-operario selecciona un PLC en la UI, el backend regenera una copia del
-cache del Excel con solo los datos de ese PLC. Esa copia
-(``state.excel_cache_active``) es la que los FB consumen.
+Cuando el operario selecciona un PLC en la UI, el backend regenera
+una copia del cache del Excel con solo los datos de ese PLC. Esa
+copia (``state.excel_cache_active``) es la que los FB consumen.
 
-Este helper puro, sin I/O ni estado mutable, realiza ese filtro. Si
-``plc_name == ""`` (legacy single-PLC o sin selección), devuelve una
-copia identica al cache completo (sin filtrar).
+Este helper puro, sin I/O ni estado mutable, realiza ese filtro.
+Si ``plc_name == ""`` (sin seleccion), devuelve el cache tal cual
+(el cache activo coincide con el completo en ese caso).
 """
 from __future__ import annotations
 
@@ -15,17 +14,14 @@ import dataclasses
 from typing import Any
 
 
-def filter_cache_by_plc(
-    cache: Any,
-    plc_name: str,
-) -> Any:
+def filter_cache_by_plc(cache: Any, plc_name: str) -> Any:
     """Devuelve una COPIA de ``cache`` con solo los datos de ``plc_name``.
 
     Args:
         cache: ``DataExcelCache`` (dataclass frozen). Si es ``None``,
-            devuelve ``None``.
+            devuelve ``None`` (sin cache cargado).
         plc_name: nombre del PLC (strict equality, D11). Si esta vacio,
-            devuelve una copia sin filtrar.
+            devuelve el cache sin filtrar.
 
     Returns:
         ``DataExcelCache`` con los mismos campos excepto
@@ -33,18 +29,10 @@ def filter_cache_by_plc(
         ``parametros_int`` y ``alarmas`` que se filtran por ``plc_name``.
         ``plcs`` (lista informativa de Tabla_PLC) NO se filtra — es
         siempre el conjunto completo del Excel.
-        ``excel_path``, ``excel_mtime_ns``, ``parsed_at`` y lookups se
-        preservan sin cambios.
     """
     if cache is None:
         return None
     if not plc_name:
-        # Sin filtro: devolvemos el cache tal cual (es frozen, no se muta).
-        return cache
-    # Defensivo: si ``cache`` no es un dataclass (p. ej. MagicMock en
-    # tests legacy), no podemos filtrar. Devolvemos el cache tal cual.
-    # Esto evita romper tests que mockean ``excel_cache_full``.
-    if not dataclasses.is_dataclass(cache):
         return cache
 
     return dataclasses.replace(
@@ -68,7 +56,7 @@ def filter_cache_by_plc(
             p for p in cache.parametros_int if p.plc_name == plc_name
         ),
         alarmas=tuple(
-            a for a in cache.alarmas if a.plc_name == plc_name
+            a for a in cache.alarmas if getattr(a, "plc_name", "") == plc_name
         ),
     )
 

@@ -38,7 +38,14 @@ def mock_config() -> MagicMock:
 
 @pytest.fixture
 def mock_state() -> MagicMock:
-    return MagicMock(spec=AppState)
+    state = MagicMock(spec=AppState)
+    # ``MagicMock(spec=)`` no respeta los class-attribute defaults:
+    # expone atributos que son MagicMock (truthy) en lugar de ``""``.
+    # Seteamos ``selected_plc = ""`` para que ``filter_cache_by_plc``
+    # entre en la rama "sin filtro" y no intente ``dataclasses.replace``
+    # sobre el cache (que es MagicMock, no dataclass).
+    state.selected_plc = ""
+    return state
 
 
 @pytest.fixture

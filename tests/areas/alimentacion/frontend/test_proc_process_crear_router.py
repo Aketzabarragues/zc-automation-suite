@@ -308,6 +308,7 @@ def test_crear_aplicar_fb_no_registrado() -> None:
 
 def test_crear_aplicar_fb_rechaza_start_409(plantilla_dummy: Path) -> None:
     """Si fb.start retorna False -> 409."""
+    from unittest.mock import patch
     from areas.alimentacion.frontend.proc_process_crear_router import bp
 
     engine = MagicMock()
@@ -321,11 +322,17 @@ def test_crear_aplicar_fb_rechaza_start_409(plantilla_dummy: Path) -> None:
     app.register_blueprint(bp)
     client = app.test_client()
 
-    resp = client.post("/api/v1/procesos/crear/aplicar", json={
-        "dir_plantilla_nombre": "TestPlantilla",
-        "proc_uid": 300,
-        "plc_name": "S7-1500",
-    })
+    # ``with_plc`` opera sobre ``excel_cache_full`` (dataclass frozen).
+    # En este test mockeamos el cache entero (MagicMock), asi que
+    # parchamos el helper para que sea no-op.
+    with patch(
+        "areas.alimentacion.frontend.proc_process_crear_router.with_plc"
+    ):
+        resp = client.post("/api/v1/procesos/crear/aplicar", json={
+            "dir_plantilla_nombre": "TestPlantilla",
+            "proc_uid": 300,
+            "plc_name": "S7-1500",
+        })
     assert resp.status_code == 409
     data = resp.get_json()
     assert data["ok"] is False
