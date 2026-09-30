@@ -259,6 +259,7 @@ class ConfigManager:
             indexed[name] = {
                 "name":              name,
                 "excel_named_range": str(entry.get("excel_named_range", "")),
+                "excel_column":      str(entry.get("excel_column", "")),
                 "hw_type":           str(entry.get("hw_type", "")),
                 "plc_tag_table":     str(entry.get("plc_tag_table", "")),
                 "comment":           str(entry.get("comment", "")),
@@ -443,7 +444,9 @@ class ConfigManager:
         Orden de prioridad:
           1. Override explícito en ``d["config_constant"]``.
           2. Entrada del ``n_max_catalog`` con ``hw_type == key``.
-          3. Heurístico legacy: ``f"N_MAX_{key.upper()}"``.
+          3. Heurístico: ``f"N_MAX_DISP_{key.upper()}"`` (sept-2026:
+             antes era ``N_MAX_<KEY>`` sin ``_DISP_``, bug latente
+             que solo no rompe porque el catalog siempre override).
         """
         override = d.get("config_constant")
         if isinstance(override, str) and override.strip():
@@ -451,7 +454,7 @@ class ConfigManager:
         nmax_for_hw = self.get_nmax_for_hw_type(key)
         if nmax_for_hw:
             return nmax_for_hw
-        return f"N_MAX_{key.upper()}"
+        return f"N_MAX_DISP_{key.upper()}"
 
     def get_tag_table_name(self, key: str) -> str | None:
         """Devuelve el nombre de la PlcTagTable del dispositivo o None."""

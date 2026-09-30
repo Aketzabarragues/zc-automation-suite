@@ -49,11 +49,11 @@ def test_unidades_unidades_lowercase_accepted(tmp_path) -> None:
     ws = wb.active
     ws.title = "DISP_EA"
     headers_alt = [
-        "UID", "Numero", "PLC.Tag", "Unidades", "RII", "RSI",
+        "PLC", "UID", "Numero", "PLC.Tag", "Unidades", "RII", "RSI",
         "Descripcion",
     ]
     ws.append(headers_alt)
-    ws.append(["EA_001", 1, "V_EA_001", "KG", 2.0, 20.0, "d"])
+    ws.append(["PLC1", "EA_001", 1, "V_EA_001", "KG", 2.0, 20.0, "d"])
     last_col_letter = chr(ord("A") + len(headers_alt) - 1)
     ref = f"A1:{last_col_letter}2"
     table = Table(displayName="Tabla_Disp_EA", ref=ref)

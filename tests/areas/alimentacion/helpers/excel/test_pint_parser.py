@@ -67,6 +67,15 @@ def _save_xlsx_with_pint_table(
         ]
     if rows is None:
         rows = []
+    # Inyectar PLC si falta (sept-2026, multi-PLC).
+    if "PLC" not in headers:
+        headers = ["PLC"] + list(headers)
+        rows = [["PLC1"] + list(r) for r in rows]
+
+    # Inyectar PLC si falta (sept-2026, multi-PLC).
+    if "PLC" not in headers:
+        headers = ["PLC"] + list(headers)
+        rows = [["PLC1"] + list(r) for r in rows]
 
     xlsx_path = tmp_path / f"{table_name}.xlsx"
     wb = Workbook()
