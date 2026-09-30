@@ -14,67 +14,67 @@
       },
       "n_max_catalog": [
         {
-          "name": "N_MAX_DISP_ED",
-          "excel_named_range": "Num_Disp_ED",
-          "hw_type": "ed",
-          "plc_tag_table": "2000_Disp_ED",
-          "comment": "Numero max. entrada digital"
-        },
-        {
           "name": "N_MAX_DISP_EA",
-          "excel_named_range": "Num_Disp_EA",
           "hw_type": "ea",
           "plc_tag_table": "2000_Disp_EA",
-          "comment": "Numero max. entradas analogicas"
+          "comment": "Numero max. entradas analogicas",
+          "excel_column": "N_Max_EA"
         },
         {
-          "name": "N_MAX_DISP_SA",
-          "excel_named_range": "Num_Disp_SA",
-          "hw_type": "sa",
-          "plc_tag_table": "2000_Disp_SA",
-          "comment": "Numero max. salidas analogicas"
-        },
-        {
-          "name": "N_MAX_DISP_V",
-          "excel_named_range": "Num_Disp_V",
-          "hw_type": "v",
-          "plc_tag_table": "2000_Disp_V",
-          "comment": "Numero max. valvulas"
+          "name": "N_MAX_DISP_ED",
+          "hw_type": "ed",
+          "plc_tag_table": "2000_Disp_ED",
+          "comment": "Numero max. entrada digital",
+          "excel_column": "N_Max_ED"
         },
         {
           "name": "N_MAX_DISP_M",
-          "excel_named_range": "Num_Disp_M",
           "hw_type": "m",
           "plc_tag_table": "2000_Disp_M",
-          "comment": "Numero max. motores"
-        },
-        {
-          "name": "N_MAX_DISP_M_VF",
-          "excel_named_range": "Num_Disp_M_VF",
-          "hw_type": "m_vf",
-          "plc_tag_table": "2000_Disp_M_VF",
-          "comment": "Numero max. motores con variador"
+          "comment": "Numero max. motores",
+          "excel_column": "N_Max_M"
         },
         {
           "name": "N_MAX_DISP_M_SINA",
-          "excel_named_range": "Num_Disp_M_SINA",
           "hw_type": "m_sina",
           "plc_tag_table": "2000_Disp_M_SINA",
-          "comment": "Numero max. motores sinamics"
+          "comment": "Numero max. motores sinamics",
+          "excel_column": "N_Max_M_SINA"
         },
         {
-          "name": "N_MAX_DISP_TOT",
-          "excel_named_range": "Num_Disp_TOT",
-          "hw_type": "tot",
-          "plc_tag_table": "2000_Disp_TOT",
-          "comment": "Numero max. totalizadores"
+          "name": "N_MAX_DISP_M_VF",
+          "hw_type": "m_vf",
+          "plc_tag_table": "2000_Disp_M_VF",
+          "comment": "Numero max. motores con variador",
+          "excel_column": "N_Max_M_VF"
         },
         {
           "name": "N_MAX_DISP_PID",
-          "excel_named_range": "Num_Disp_PID",
           "hw_type": "pid",
           "plc_tag_table": "2000_Disp_PID",
-          "comment": "Numero max. controladores PID"
+          "comment": "Numero max. controladores PID",
+          "excel_column": "N_Max_PID"
+        },
+        {
+          "name": "N_MAX_DISP_SA",
+          "hw_type": "sa",
+          "plc_tag_table": "2000_Disp_SA",
+          "comment": "Numero max. salidas analogicas",
+          "excel_column": "N_Max_SA"
+        },
+        {
+          "name": "N_MAX_DISP_TOT",
+          "hw_type": "tot",
+          "plc_tag_table": "2000_Disp_TOT",
+          "comment": "Numero max. totalizadores",
+          "excel_column": "N_Max_TOT"
+        },
+        {
+          "name": "N_MAX_DISP_V",
+          "hw_type": "v",
+          "plc_tag_table": "2000_Disp_V",
+          "comment": "Numero max. valvulas",
+          "excel_column": "N_Max_V"
         }
       ],
       "pending_nmax": [
