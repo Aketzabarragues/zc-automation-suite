@@ -26,6 +26,17 @@ export default {
     name: "ConfiguracionPanel",
     setup() {
         /**
+         * True solo cuando hay Excel cargado (memoryState no nulo).
+         * Mismo patron que ``DispositivosPanel`` y ``ProcesosPanel``:
+         * cuando NO hay Excel, este panel pinta el "Inspector vacio"
+         * identico al resto de tabs (coherencia visual).
+         */
+        const hasMemory = computed(
+            () => store.memoryState !== null
+                && store.memoryState !== undefined
+        );
+
+        /**
          * Lista de PLCs (filas). Cada item: ``{ plc_name, extras: {...} }``.
          * Viene de ``store.memoryState.dimensiones`` (dict
          * ``{plc_name: {nmax_name: int}}``). Lo pasamos a una lista
@@ -51,17 +62,23 @@ export default {
             return Object.keys(rows[0].extras);
         });
 
-        const hasData = computed(() => plcRows.value.length > 0);
+        const hasDimensiones = computed(() => plcRows.value.length > 0);
 
         return {
             plcRows,
             nmaxColumns,
-            hasData,
+            hasMemory,
+            hasDimensiones,
         };
     },
     template: /* html */ `
         <div class="flex-1 overflow-auto bg-surface-raised border border-line rounded">
-            <div v-if="!hasData" class="px-6 py-12 text-center text-ink-muted">
+            <div v-if="!hasMemory" class="px-6 py-12 text-center text-ink-muted">
+                <div class="text-5xl mb-3 opacity-40">📊</div>
+                <p class="mb-2">La cache del excel está vacía.</p>
+                <p class="text-xs">Sube un Excel y pulsa <strong class="text-accent">"Actualizar"</strong>.</p>
+            </div>
+            <div v-else-if="!hasDimensiones" class="px-6 py-12 text-center text-ink-muted">
                 <div class="text-base mb-2">
                     No hay <span class="font-mono">Tabla_Dispositivos</span> en el Excel cargado.
                 </div>

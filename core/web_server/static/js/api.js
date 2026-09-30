@@ -163,7 +163,7 @@ export const apiGeneratePreview = (plcName) =>
     // MEDIUM: hace un export masivo de las 7 tablas del PLC + diff
     // IT-only. En S7-1500 con 200+ bloques el export puede tardar
     // 30-60s. 2 min cubre holgadamente.
-    _request("POST", "/api/v1/sync/preview", { plc_name: plcName }, MEDIUM_TIMEOUT_MS);
+    _request("POST", "/api/v1/plcs", { plc_name: plcName }, MEDIUM_TIMEOUT_MS);
 
 /** Aplica el Diff completo (N_MAX + devices) en UNA transacción COM única. */
 export const apiCommit = (plcName, prevision) =>
