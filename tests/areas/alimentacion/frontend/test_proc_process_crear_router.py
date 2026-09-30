@@ -310,6 +310,44 @@ def test_crear_aplicar_fb_rechaza_start_409(plantilla_dummy: Path) -> None:
     assert "activo" in data["error"].lower() or "terminal" in data["error"].lower()
 
 
+def test_crear_aplicar_sincroniza_selected_plc(plantilla_dummy: Path) -> None:
+    """El endpoint invoca ``with_plc`` con (app_state, plc_name) antes
+    del ``fb.start`` (D6 stateless: el FB
+    ``function_proc_crear_sincronizar`` no recibe ``app_state`` por
+    constructor, asi que el endpoint propaga ``selected_plc``).
+    """
+    from unittest.mock import patch
+    from areas.alimentacion.frontend.proc_process_crear_router import bp
+
+    engine = MagicMock()
+    fb_mock = _make_mock_fb(result={
+        "success": True, "archivos_generados": [],
+        "colisiones": [], "manifest_plantilla": {},
+        "import_result": {"success": True},
+        "compile_result": {"ok": True},
+    })
+    engine.get_fb.return_value = fb_mock
+    cm = MagicMock()
+    cm.get_plantillas_path.return_value = str(plantilla_dummy.parent)
+    app_state = _make_mock_app_state(proc_uid=300)
+
+    app = _make_app(engine=engine, app_state=app_state, config_manager=cm)
+    app.register_blueprint(bp)
+    client = app.test_client()
+
+    with patch(
+        "areas.alimentacion.frontend.proc_process_crear_router.with_plc"
+    ) as with_plc_mock:
+        resp = client.post("/api/v1/procesos/crear/aplicar", json={
+            "dir_plantilla_nombre": "TestPlantilla",
+            "proc_uid": 300,
+            "plc_name": "S7-1500",
+        })
+
+    assert resp.status_code == 200
+    with_plc_mock.assert_called_once_with(app_state, "S7-1500")
+
+
 def test_crear_preview_plc_blocks_cache_acepta_strings_y_dicts(
     plantilla_dummy: Path,
 ) -> None:

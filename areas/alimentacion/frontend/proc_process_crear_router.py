@@ -66,6 +66,8 @@ from typing import Any
 
 from flask import Blueprint, current_app, jsonify, request
 
+from core.helpers.tia.with_plc import with_plc
+
 logger = logging.getLogger(__name__)
 
 bp = Blueprint(
@@ -349,6 +351,12 @@ def crear_aplicar():
             "ok": False,
             "error": "FB 'proc_process_crear_aplicar' no registrado en el engine",
         }), 500
+
+    # Sincronizar AppState.selected_plc con el plc_name del body antes
+    # de invocar el FB (D6 stateless: el FB
+    # ``function_proc_crear_sincronizar`` no recibe ``app_state`` por
+    # constructor, asi que el endpoint es responsable de propagarlo).
+    with_plc(_get_app_state(), validated["plc_name"])
 
     import asyncio
     logger.web(
