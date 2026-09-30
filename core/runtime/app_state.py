@@ -17,6 +17,12 @@ Diseno extensible:
 ``get_app_state()`` itera el ``AreaRegistry`` y, para cada spec con
 ``contributes_state_extensions``, invoca el callable pasando la instancia
 Singleton.
+
+Sept-2026 (multi-PLC): AppState anade ``selected_plc: str`` que filtra
+las lecturas (``get_devices``, ``get_dimensiones_activas``, ``procesos``,
+``parametros_*``, ``alarmas``) por el valor de ``plc_name`` en cada DTO.
+El ``plc_name`` es el nombre real del PLC en TIA Portal (no confundir
+con la lista visual ``plcs`` que viene de ``Tabla_PLC``).
 """
 from __future__ import annotations
 
@@ -40,15 +46,20 @@ class AppState:
             configuracion). Se rellena tras un upload de Excel.
             ``{}`` = "el operario aun no ha subido Excel" = preview sin
             cambios N_MAX (renderiza vacio, no explota).
-        excel_cache: Any con default ``None``. Cache IT del Excel.
-            Anotado ``Any`` para no importar el area desde ``core/``.
-            Lo puebla ``POST /api/v1/excel/upload`` tras un load OK.
+        excel_cache: DEPRECATED. Anotado ``Any`` para no importar el
+            area desde ``core``. Lo puebla ``POST /api/v1/excel/upload``
+            tras un load OK. **Sera eliminado en PR4-final**; mientras
+            tanto, los callers deben migrar a ``ExcelCacheManager.get()``.
         excel_path: str | None. Ruta absoluta del Excel cacheado,
             o ``None`` si no hay ninguno. Sirve para invalidacion por
             mtime sin re-leer el cache.
         plcs: tuple con default ``()``. Lista canonica de PLCs del Excel
             (``Tabla_PLC``). Sept-2026 (multi-PLC): lo usa el selector de
             PLCs en la vista de definicion programacion.
+        selected_plc: str con default ``""``. Nombre del PLC activo
+            (multi-PLC, sept-2026). ``get_devices`` y
+            ``get_dimensiones_activas`` filtran por este valor. ``""``
+            significa "sin filtro" (devuelve todos los PLCs).
     """
 
     def __init__(self) -> None:
@@ -56,6 +67,7 @@ class AppState:
         self._dispositivos: dict[str, list[Any]] = {}
         self.dimensiones: dict[str, Any] = {}
         self.plcs: tuple = ()
+        self.selected_plc: str = ""  # NUEVO (PR4)
         self.excel_cache: Any = None
         self.excel_path: str | None = None
 
@@ -65,13 +77,25 @@ class AppState:
         """Vacia todas las listas (util para tests)."""
         for hw in list(self._dispositivos.keys()):
             self.set_devices(hw, [])
+        self.selected_plc = ""
 
     def get_devices(self, hw_type: str) -> list[Any]:
         """Devuelve la lista de dispositivos de ``hw_type``.
 
-        Lista vacia si el tipo aun no tiene entradas.
+        Si ``selected_plc`` esta set, filtra los dispositivos cuyo
+        ``plc_name`` coincide (strict equality, sept-2026 D11). Si no,
+        devuelve la lista completa (modo legacy single-PLC).
+
+        Lista vacia si el tipo aun no tiene entradas o si no hay
+        dispositivos del PLC seleccionado.
         """
-        return self._dispositivos.get(hw_type, [])
+        all_devices = self._dispositivos.get(hw_type, [])
+        if not self.selected_plc:
+            return list(all_devices)
+        return [
+            d for d in all_devices
+            if getattr(d, "plc_name", "") == self.selected_plc
+        ]
 
     def set_devices(
         self, hw_type: str, devices: list[Any]
