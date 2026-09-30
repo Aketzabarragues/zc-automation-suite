@@ -18,6 +18,10 @@ def app_with_stubs():
     app_state.dimensiones = None
     app_state.get_devices.return_value = []
     app_state.excel_cache = None
+    # Multi-PLC (sept-2026): los caches nuevo y activo son None por
+    # defecto. El router cae al legacy ``excel_cache``.
+    app_state.excel_cache_full = None
+    app_state.excel_cache_active = None
 
     config_manager = MagicMock()
     config_manager.list_hw_types_active.return_value = []
