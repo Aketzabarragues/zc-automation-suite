@@ -56,6 +56,7 @@ from areas.alimentacion.helpers.excel.excel_parser_disp_pid import DispPIDParser
 from areas.alimentacion.helpers.excel.excel_parser_disp_sa import DispSAParser
 from areas.alimentacion.helpers.excel.excel_parser_disp_tot import DispTOTParser
 from areas.alimentacion.helpers.excel.excel_parser_disp_v import DispVParser
+from areas.alimentacion.helpers.excel.excel_parser_plc import PLCListParser
 from areas.alimentacion.helpers.excel.excel_parser_proc_pint import PIntParser
 from areas.alimentacion.helpers.excel.excel_parser_proc_preal import PRealParser
 from areas.alimentacion.helpers.excel.excel_parser_proc_procesos import ProcesosParser
@@ -94,6 +95,8 @@ class ExcelLoader:
         self._alarmas = AlarmasParser()
         # El parser de N_MAX (puede usar el config_manager).
         self._dimensiones = DimensionesParser(config_manager=config_manager)
+        # El parser de la lista canonica de PLCs (sept-2026).
+        self._plcs = PLCListParser()
 
     def load(self, excel_path: str | Path) -> DataExcelCache:
         """Carga el workbook UNA vez, ejecuta los 11 parsers, construye el cache.
@@ -145,6 +148,8 @@ class ExcelLoader:
             alarmas = self._alarmas.extraer(wb)
             # Ã¢”â‚¬Ã¢”â‚¬ 1 N_MAX Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬
             n_max = self._dimensiones.extraer(wb)
+            # 1 lista canonica de PLCs (sept-2026).
+            plcs = tuple(self._plcs.extraer(wb))
         finally:
             wb.close()
 
@@ -191,6 +196,7 @@ class ExcelLoader:
             parsed_at=datetime.now(timezone.utc),
             dispositivos=dispositivos_dict,
             n_max=n_max,
+            plcs=plcs,
             procesos=tuple(procesos),
             parametros_real=tuple(preal),
             parametros_int=tuple(pint),

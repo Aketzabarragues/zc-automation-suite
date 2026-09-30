@@ -46,12 +46,16 @@ class AppState:
         excel_path: str | None. Ruta absoluta del Excel cacheado,
             o ``None`` si no hay ninguno. Sirve para invalidacion por
             mtime sin re-leer el cache.
+        plcs: tuple con default ``()``. Lista canonica de PLCs del Excel
+            (``Tabla_PLC``). Sept-2026 (multi-PLC): lo usa el selector de
+            PLCs en la vista de definicion programacion.
     """
 
     def __init__(self) -> None:
         # Storage generico (data-driven): unica fuente de verdad.
         self._dispositivos: dict[str, list[Any]] = {}
         self.dimensiones: dict[str, Any] = {}
+        self.plcs: tuple = ()
         self.excel_cache: Any = None
         self.excel_path: str | None = None
 

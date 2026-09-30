@@ -38,12 +38,13 @@ bp = Blueprint(
 
 
 def _extract_software_from_cache(state: Any) -> dict[str, Any]:
-    """Extrae 4 dominios de software + flag desde el DataExcelCache del AppState."""
+    """Extrae 4 dominios de software + flag + plcs desde el DataExcelCache del AppState."""
     empty: dict[str, Any] = {
         "procesos": [],
         "parametros_int": [],
         "parametros_real": [],
         "alarmas": [],
+        "plcs": [],
         "software_parsers_implemented": False,
     }
     cache = getattr(state, "excel_cache", None)
@@ -55,6 +56,7 @@ def _extract_software_from_cache(state: Any) -> dict[str, Any]:
             "parametros_int": [dataclasses.asdict(p) for p in cache.parametros_int],
             "parametros_real": [dataclasses.asdict(p) for p in cache.parametros_real],
             "alarmas": [dataclasses.asdict(a) for a in cache.alarmas],
+            "plcs": [dataclasses.asdict(p) for p in cache.plcs],
             "software_parsers_implemented": bool(
                 getattr(cache, "software_parsers_implemented", False)
             ),

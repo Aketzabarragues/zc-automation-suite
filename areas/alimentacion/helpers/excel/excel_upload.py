@@ -81,6 +81,7 @@ def dump_cache_to_state(
     for hw, devices_tuple in cache.dispositivos.items():
         app_state.set_devices(hw, list(devices_tuple))
     app_state.dimensiones = cache.n_max
+    app_state.plcs = cache.plcs
     # El cache vive en el area de alimentacion, pero AppState lo expone
     # como placeholder ``Any`` (ver ``state.py``).
     app_state.excel_cache = cache

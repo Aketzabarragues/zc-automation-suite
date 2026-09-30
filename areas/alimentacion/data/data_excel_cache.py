@@ -15,6 +15,7 @@ from areas.alimentacion.data.data_dispositivos import Dispositivo
 from areas.alimentacion.data.data_dimensiones import DimensionesDispositivos
 from areas.alimentacion.data.data_parametros_int import DataParamIntPLC
 from areas.alimentacion.data.data_parametros_real import DataParamRealPLC
+from areas.alimentacion.data.data_plc import DataPLC
 from areas.alimentacion.data.data_procesos import DataProcesoPLC
 
 
@@ -29,6 +30,7 @@ class DataExcelCache:
       - ``dispositivos``: ``{hw_type: tuple[Dispositivo, ...]}``.
       - ``n_max``: ``DimensionesDispositivos`` con nombres canonicos
         de TIA (``N_MAX_DISP_*``).
+      - ``plcs``: lista canonica de PLCs del Excel (``Tabla_PLC``).
       - ``procesos`` / ``parametros_real`` / ``parametros_int`` /
         ``alarmas``: listas de los 4 dominios de software.
       - ``*_by_codigo``: lookups ``Mapping[str, DTO]`` precomputados.
@@ -40,6 +42,7 @@ class DataExcelCache:
     parsed_at: datetime
     dispositivos: dict[str, tuple[Dispositivo, ...]]
     n_max: DimensionesDispositivos
+    plcs: tuple[DataPLC, ...]
     procesos: tuple[DataProcesoPLC, ...]
     parametros_real: tuple[DataParamRealPLC, ...]
     parametros_int: tuple[DataParamIntPLC, ...]
@@ -72,6 +75,7 @@ class DataExcelCache:
             "parametros_real": [dataclasses.asdict(p) for p in self.parametros_real],
             "parametros_int": [dataclasses.asdict(p) for p in self.parametros_int],
             "alarmas": [dataclasses.asdict(a) for a in self.alarmas],
+            "plcs": [dataclasses.asdict(p) for p in self.plcs],
             "software_parsers_implemented": self.software_parsers_implemented,
         }
 

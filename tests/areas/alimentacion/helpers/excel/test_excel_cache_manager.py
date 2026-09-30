@@ -36,6 +36,7 @@ def _make_cache(path: str = "/tmp/a.xlsx", mtime_ns: int = 1) -> DataExcelCache:
             "v": (),  "m": (),  "m_vf": (), "m_sina": (), "tot": (), "pid": (),
         },
         n_max=DimensionesDispositivos(),
+        plcs=(),
         procesos=(), parametros_real=(), parametros_int=(), alarmas=(),
         procesos_by_codigo={}, parametros_real_by_codigo={},
         parametros_int_by_codigo={},
