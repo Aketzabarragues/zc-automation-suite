@@ -40,8 +40,8 @@ bp = Blueprint(
 def _extract_software_from_cache(state: Any) -> dict[str, Any]:
     """Extrae 4 dominios de software + flag + plcs desde ``excel_cache_full``.
 
-    Sept-2026 (multi-PLC): la pagina "definicion programacion" recibe el
-    cache COMPLETO (sin filtrar), no el cache activo. Asi el operario
+    Multi-PLC: la pagina "definicion programacion" recibe el cache
+    COMPLETO (sin filtrar), no el cache activo. Asi el operario
     puede analizar todos los PLCs del Excel a la vez.
     """
     empty: dict[str, Any] = {
@@ -52,9 +52,7 @@ def _extract_software_from_cache(state: Any) -> dict[str, Any]:
         "plcs": [],
         "software_parsers_implemented": False,
     }
-    # ``excel_cache_full`` es el cache COMPLETO. Fallback a ``excel_cache``
-    # por back-compat con tests que solo setean el alias legacy.
-    cache = getattr(state, "excel_cache_full", None) or getattr(state, "excel_cache", None)
+    cache = state.excel_cache_full
     if cache is None:
         return empty
     try:
@@ -93,10 +91,7 @@ def state_dispositivos():
     state = _get_app_state()
     config_manager = _get_config_manager()
 
-    cache_full = (
-        getattr(state, "excel_cache_full", None)
-        or getattr(state, "excel_cache", None)
-    )
+    cache_full = state.excel_cache_full
     cache_dispositivos: dict = (
         cache_full.dispositivos if cache_full is not None else {}
     )

@@ -23,8 +23,8 @@ Endpoints:
                                             deteccion por numero detecta
                                             cross-type (DB60010 vs FB60010).
 
-        El router extrae del ``AppState.excel_cache.procesos[uid]`` los
-        campos que el FB necesita:
+        El router extrae del ``AppState.excel_cache_full.procesos[uid]``
+        los campos que el FB necesita:
           ``base``       = ``proceso.uid``
           ``codigo``     = ``proceso.codigo``
           ``nombre``     = ``proceso.nombre``
@@ -108,15 +108,19 @@ def _get_app_state():
 def _resolve_excel_proc(app_state, proc_uid: int):
     """Busca el proceso del Excel por UID y lo devuelve.
 
-    Lanza ``ValueError`` accionable si no hay excel_cache o si el
-    proceso no esta. Mantener el mensaje humano para que la SPA
+    Lee del ``excel_cache_full`` (cache completo, todos los PLCs):
+    el router es pre-validacion PLC-especifica; ``validate_plc_in_excel``
+    luego confirma que el plc_name del body esta entre los PLCs del Excel.
+
+    Lanza ``ValueError`` accionable si no hay excel_cache_full o si
+    el proceso no esta. Mantener el mensaje humano para que la SPA
     sepa que tiene que subir el Excel o seleccionar otro proceso.
     """
-    cache = getattr(app_state, "excel_cache", None)
+    cache = app_state.excel_cache_full
     if cache is None:
         raise ValueError(
-            "AppState.excel_cache esta vacio. Cargue primero el Excel "
-            "con POST /api/v1/excel/upload."
+            "AppState.excel_cache_full esta vacio. Cargue primero el "
+            "Excel con POST /api/v1/excel/upload."
         )
     for p in cache.procesos:
         if int(p.uid) == int(proc_uid):

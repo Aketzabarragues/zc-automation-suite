@@ -96,20 +96,24 @@ def disp_build_slot_maps(
 def disp_build_slot_map_for_hw(app_state: AppState, hw_type: str) -> dict[int, str]:
     """Slot map para un tipo: ``{0: 'NO USAR', i: comentario_db para cada device con numero==i}``.
 
-    Sept-2026 (multi-PLC): lee devices del ``excel_cache_active``
-    (filtrado por el PLC seleccionado). Fallback a ``get_devices`` legacy
-    si el cache activo no esta disponible (tests con ``set_devices``).
+    Multi-PLC: lee devices del ``excel_cache_active`` (filtrado por
+    el PLC seleccionado en ``dump_cache_to_state`` / ``with_plc``).
 
     Devices con ``numero <= 0`` o duplicados se ignoran (warning en logs).
     El slot 0 siempre esta presente con texto ``"NO USAR"``.
+
+    Raises:
+        RuntimeError: si ``app_state.excel_cache_active`` es ``None``.
     """
+    cache = app_state.excel_cache_active
+    if cache is None:
+        raise RuntimeError(
+            "excel_cache_active es None. Cargue primero el Excel con "
+            "POST /api/v1/excel/upload."
+        )
+    devices_iter = cache.dispositivos.get(hw_type, ())
     slot_map: dict[int, str] = {0: "NO USAR"}
     seen: set[int] = set()
-    cache = getattr(app_state, "excel_cache_active", None)
-    if cache is not None:
-        devices_iter = cache.dispositivos.get(hw_type, ())
-    else:
-        devices_iter = app_state.get_devices(hw_type)
     for device in devices_iter:
         numero = int(getattr(device, "numero", 0) or 0)
         if numero <= 0:

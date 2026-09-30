@@ -65,7 +65,6 @@ class AreaSpec:
     contributes_tia_commands: Callable[[Any], None] | None = None
     contributes_mcp_tools: Callable[[Any], None] | None = None
     contributes_frontend_manifest: Callable[[], "AreaFrontendManifest"] | None = None
-    contributes_state_extensions: Callable[[Any], None] | None = None
     contributes_config_defaults: Callable[[dict], None] | None = None
     contributes_catalog: Callable[[Any], dict] | None = None
 

@@ -2,14 +2,14 @@
 
 El Excel del operario es la fuente de verdad para los datos del
 proceso nuevo. La SPA solo envia ``dir_plantilla_nombre + proc_uid``
-y el router los resuelve desde ``AppState.excel_cache.procesos``.
+y el router los resuelve desde ``AppState.excel_cache_full.procesos``.
 
 Tests:
   - ``test_crear_preview_ok_con_plantilla``:
     Body valido (minimal) + Excel con proc_uid=300 + plantillas_path OK
     + FB mockeado que arranca OK -> 200 con el ``fb.result``.
   - ``test_crear_preview_sin_excel``:
-    AppState.excel_cache=None -> 400 (accionable: "Cargue el Excel").
+    AppState.excel_cache_full=None -> 400 (accionable: "Cargue el Excel").
   - ``test_crear_preview_proc_uid_inexistente``:
     proc_uid=999 que no esta en el Excel -> 400 con mensaje accionable.
   - ``test_crear_preview_body_incompleto``:
@@ -75,7 +75,7 @@ def _make_mock_proc_excel(uid: int = 300) -> MagicMock:
 
 
 def _make_mock_excel_cache(proc_uid: int = 300) -> MagicMock:
-    """Crea un mock del ``excel_cache`` con un proceso del Excel."""
+    """Crea un mock del ``excel_cache_full`` con un proceso del Excel."""
     cache = MagicMock()
     cache.procesos = [_make_mock_proc_excel(proc_uid)]
     return cache
@@ -84,15 +84,11 @@ def _make_mock_excel_cache(proc_uid: int = 300) -> MagicMock:
 def _make_mock_app_state(proc_uid: int = 300) -> MagicMock:
     """Crea un ``AppState`` mockeado con un Excel cacheado.
 
-    Sept-2026 multi-PLC: el endpoint ``crear_aplicar`` ahora valida
+    Multi-PLC: el endpoint ``crear_aplicar`` ahora valida
     ``plc_name in excel_cache_full.plcs`` antes de invocar el FB.
     Por defecto mockeamos un cache con PLCs ``["S7-1500"]``.
     """
     state = MagicMock()
-    state.excel_cache = _make_mock_excel_cache(proc_uid)
-    # excel_cache_full es lo que mira ``validate_plc_in_excel``.
-    # Lo hacemos identico a ``excel_cache`` para que el plc_name de los
-    # tests (``"S7-1500"``) pase la validacion.
     state.excel_cache_full = _make_mock_excel_cache_with_plcs(
         proc_uid=proc_uid, plc_names=("S7-1500",)
     )
@@ -102,12 +98,15 @@ def _make_mock_app_state(proc_uid: int = 300) -> MagicMock:
 def _make_mock_excel_cache_with_plcs(
     proc_uid: int, plc_names: tuple[str, ...]
 ) -> MagicMock:
-    """Cache fake con un set concreto de PLCs en ``Tabla_PLC``.
+    """Cache fake con un set concreto de PLCs en ``Tabla_PLC`` y un
+    proceso para que ``_resolve_excel_proc`` lo encuentre.
 
-    Usado para que ``validate_plc_in_excel`` acepte el plc_name del body.
+    Usado para que ``validate_plc_in_excel`` acepte el plc_name del body
+    Y para que el lookup por proc_uid no lance ``ValueError``.
     """
     cache = MagicMock()
     cache.plcs = [MagicMock(plc=p, uid=i) for i, p in enumerate(plc_names)]
+    cache.procesos = [_make_mock_proc_excel(proc_uid)]
     return cache
 
 
@@ -210,12 +209,12 @@ def test_crear_preview_ok_con_plantilla(plantilla_dummy: Path) -> None:
 
 
 def test_crear_preview_sin_excel() -> None:
-    """AppState.excel_cache=None -> 400 accionable."""
+    """AppState.excel_cache_full=None -> 400 accionable."""
     from areas.alimentacion.frontend.proc_process_crear_router import bp
 
     engine = MagicMock()
     state = MagicMock()
-    state.excel_cache = None
+    state.excel_cache_full = None
     cm = MagicMock()
     cm.get_plantillas_path.return_value = "C:/plantillas"
 

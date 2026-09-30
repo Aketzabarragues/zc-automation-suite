@@ -743,21 +743,19 @@ class FunctionDispSincronizar(FunctionBase):
         from areas.alimentacion.data.data_disp_slot_map import disp_build_slot_maps
 
         # ── 1. Validar AppState ──
-        # Multi-PLC (sept-2026): si el cache activo esta vacio O si
-        # ``excel_cache_active`` no tiene disp del PLC seleccionado,
-        # no hay nada que sincronizar. Fallback a ``all_devices()``
-        # legacy si ``excel_cache_active`` es None.
-        cache_active = getattr(self._ctx.app_state, "excel_cache_active", None)
-        if cache_active is not None:
-            has_devices = any(
-                cache_active.dispositivos.get(hw) for hw in cache_active.dispositivos
+        cache_active = self._ctx.app_state.excel_cache_active
+        if cache_active is None:
+            raise RuntimeError(
+                "excel_cache_active es None. Cargue primero el Excel con "
+                "POST /api/v1/excel/upload."
             )
-        else:
-            has_devices = bool(self._ctx.app_state.all_devices())
+        has_devices = any(
+            cache_active.dispositivos.get(hw) for hw in cache_active.dispositivos
+        )
         if not has_devices:
             warning = (
-                "AppState esta vacio. Cargue primero el Excel con "
-                "POST /api/v1/excel/upload."
+                f"PLC '{self._ctx.plc_name}' no tiene dispositivos en el Excel "
+                "cargado. Nada que sincronizar."
             )
             self._ctx.comments_result = {
                 "plc_name": self._ctx.plc_name,

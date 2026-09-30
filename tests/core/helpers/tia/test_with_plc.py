@@ -1,245 +1,89 @@
-"""Tests del helper ``with_plc`` (PR5, multi-PLC)."""
+"""Tests del helper ``with_plc`` (multi-PLC, sept-2026).
+
+``with_plc(state, plc_name)``:
+  - setea ``state.selected_plc = plc_name``.
+  - regenera ``state.excel_cache_active`` filtrado por ese PLC.
+  - es idempotente: si el PLC ya esta activo, no hace nada.
+
+Si ``plc_name`` es vacio, emite un warning y NO modifica nada
+(el caller deberia pasar un plc_name valido). Si no hay
+``excel_cache_full`` cargado, NO falla: simplemente deja el cache
+activo tal como estaba (el caller es responsable de la precondicion).
+"""
 from __future__ import annotations
 
-import logging
+from unittest.mock import MagicMock, patch
 
 from core.helpers.tia.with_plc import with_plc
-from core.runtime.app_state import AppState
 
 
-def test_with_plc_setea_selected_plc():
-    """with_plc setea selected_plc en el AppState."""
-    state = AppState()
-    with_plc(state, "PLC1")
+def _make_state(
+    full: object | None = object(),
+    active: object | None = None,
+    selected: str = "",
+) -> MagicMock:
+    """Mock ``AppState`` con caches y PLC activo inyectados."""
+    state = MagicMock()
+    state.excel_cache_full = full
+    state.excel_cache_active = active
+    state.selected_plc = selected
+    return state
+
+
+def test_with_plc_setea_selected_plc_y_regenera_cache():
+    """Caso feliz: setea selected_plc y regenera el cache activo."""
+    full = MagicMock(name="full_cache")
+    state = _make_state(full=full, selected="")
+
+    with patch("core.runtime.filter_excel_cache.filter_cache_by_plc") as filt:
+        filt.return_value = "FILTERED"
+        with_plc(state, "PLC1")
+
     assert state.selected_plc == "PLC1"
+    assert state.excel_cache_active == "FILTERED"
+    filt.assert_called_once_with(full, "PLC1")
 
 
-def test_with_plc_idempotente():
-    """Llamar con el mismo plc_name varias veces es no-op."""
-    state = AppState()
-    with_plc(state, "PLC1")
-    with_plc(state, "PLC1")
-    with_plc(state, "PLC1")
-    assert state.selected_plc == "PLC1"
+def test_with_plc_idempotente_si_mismo_plc():
+    """Llamar dos veces con el mismo PLC no regenera el cache."""
+    state = _make_state(full=object(), active="ALREADY", selected="PLC1")
+    with patch("core.runtime.filter_excel_cache.filter_cache_by_plc") as filt:
+        with_plc(state, "PLC1")
+        # selected_plc ya era "PLC1": no se regenera.
+        filt.assert_not_called()
+    # El cache activo queda intacto (no se sobreescribe).
+    assert state.excel_cache_active == "ALREADY"
 
 
-def test_with_plc_cambia_seleccion():
-    """Llamar con otro plc_name cambia selected_plc."""
-    state = AppState()
-    with_plc(state, "PLC1")
-    with_plc(state, "PLC2")
+def test_with_plc_cambia_de_plc_regenera_cache():
+    """Cambiar de PLC regenera el cache activo."""
+    full = MagicMock(name="full_cache")
+    state = _make_state(full=full, active="ACTIVE_OLD", selected="PLC1")
+    with patch("core.runtime.filter_excel_cache.filter_cache_by_plc") as filt:
+        filt.return_value = "ACTIVE_NEW"
+        with_plc(state, "PLC2")
+
     assert state.selected_plc == "PLC2"
+    assert state.excel_cache_active == "ACTIVE_NEW"
+    filt.assert_called_once_with(full, "PLC2")
 
 
-def test_with_plc_plc_vacio_no_modifica(caplog):
-    """plc_name='' no modifica selected_plc (warning)."""
-    state = AppState()
-    state.selected_plc = "PLC1"
-    with caplog.at_level(logging.WARNING):
+def test_with_plc_sin_full_no_regenera():
+    """Si no hay cache completo, no regenera (no falla)."""
+    state = _make_state(full=None, active=None, selected="")
+    with patch("core.runtime.filter_excel_cache.filter_cache_by_plc") as filt:
+        with_plc(state, "PLC1")
+        filt.assert_not_called()
+    # selected_plc SI se setea (eso SI es responsabilidad del helper).
+    assert state.selected_plc == "PLC1"
+
+
+def test_with_plc_plc_vacio_no_modifica():
+    """plc_name vacio: warning y return, sin tocar el estado."""
+    state = _make_state(full=object(), active="ACTIVE", selected="PLC_PREV")
+    with patch("core.runtime.filter_excel_cache.filter_cache_by_plc") as filt:
         with_plc(state, "")
-    assert state.selected_plc == "PLC1"
-    assert "vacio" in caplog.text.lower()
-
-
-def test_with_plc_filtra_get_devices():
-    """with_plc activa el filtro de get_devices."""
-    state = AppState()
-    # Crear devices simulados con plc_name
-    from dataclasses import dataclass
-    @dataclass(frozen=True)
-    class FakeDispo:
-        numero: int
-        plc_name: str = ""
-    state.set_devices("ed", [
-        FakeDispo(numero=1, plc_name="PLC1"),
-        FakeDispo(numero=2, plc_name="PLC2"),
-    ])
-    # Sin filtro: ambos
-    assert len(state.get_devices("ed")) == 2
-    # Con filtro PLC1: solo 1
-    with_plc(state, "PLC1")
-    devices = state.get_devices("ed")
-    assert len(devices) == 1
-    assert devices[0].plc_name == "PLC1"
-
-
-# ---------------------------------------------------------------------------
-# Regeneracion de excel_cache_active (sept-2026)
-# ---------------------------------------------------------------------------
-
-
-def test_with_plc_regenera_excel_cache_active():
-    """``with_plc`` regenera ``excel_cache_active`` desde ``excel_cache_full``
-    filtrado por el nuevo plc_name.
-    """
-    from dataclasses import dataclass, field
-    from datetime import datetime
-
-    @dataclass(frozen=True)
-    class _Dispo:
-        numero: int
-        plc_name: str = ""
-
-    @dataclass(frozen=True)
-    class _DimPLC:
-        plc_name: str
-        extras: dict = field(default_factory=dict)
-
-    @dataclass(frozen=True)
-    class _Dims:
-        por_plc: tuple = ()
-
-    @dataclass(frozen=True)
-    class _FakeCache:
-        excel_path: str
-        excel_mtime_ns: int
-        parsed_at: datetime
-        dispositivos: dict
-        n_max: _Dims
-        plcs: tuple
-        procesos: tuple
-        parametros_real: tuple
-        parametros_int: tuple
-        alarmas: tuple
-
-    cache = _FakeCache(
-        excel_path="x", excel_mtime_ns=0, parsed_at=datetime(2026, 1, 1),
-        dispositivos={
-            "ed": (
-                _Dispo(numero=1, plc_name="PLC1"),
-                _Dispo(numero=2, plc_name="PLC2"),
-            ),
-        },
-        n_max=_Dims(por_plc=(
-            _DimPLC(plc_name="PLC1", extras={"N_MAX_DISP_ED": 50}),
-            _DimPLC(plc_name="PLC2", extras={"N_MAX_DISP_ED": 200}),
-        )),
-        plcs=(),
-        procesos=(),
-        parametros_real=(),
-        parametros_int=(),
-        alarmas=(),
-    )
-
-    state = AppState()
-    state.excel_cache_full = cache
-    # Sin filtro: active == full (filter_cache_by_plc devuelve el mismo cache
-    # si plc_name="").
-    state.excel_cache_active = cache
-    # Cambiamos al PLC1.
-    with_plc(state, "PLC1")
-    assert state.selected_plc == "PLC1"
-    assert state.excel_cache_active is not cache  # copia filtrada
-    assert len(state.excel_cache_active.dispositivos["ed"]) == 1
-    assert state.excel_cache_active.dispositivos["ed"][0].plc_name == "PLC1"
-    # N_MAX del PLC1 solamente.
-    assert len(state.excel_cache_active.n_max.por_plc) == 1
-    assert state.excel_cache_active.n_max.por_plc[0].extras == {"N_MAX_DISP_ED": 50}
-
-
-def test_with_plc_idempotente_no_regenera_cache():
-    """Llamar con el mismo plc_name NO regenera el cache (objeto identico)."""
-    from dataclasses import dataclass, field
-    from datetime import datetime
-
-    @dataclass(frozen=True)
-    class _Dispo:
-        numero: int
-        plc_name: str = ""
-
-    @dataclass(frozen=True)
-    class _Dims:
-        por_plc: tuple = ()
-
-    @dataclass(frozen=True)
-    class _FakeCache:
-        excel_path: str
-        excel_mtime_ns: int
-        parsed_at: datetime
-        dispositivos: dict
-        n_max: _Dims
-        plcs: tuple
-        procesos: tuple
-        parametros_real: tuple
-        parametros_int: tuple
-        alarmas: tuple
-
-    cache = _FakeCache(
-        excel_path="x", excel_mtime_ns=0, parsed_at=datetime(2026, 1, 1),
-        dispositivos={"ed": (_Dispo(numero=1, plc_name="PLC1"),)},
-        n_max=_Dims(), plcs=(), procesos=(),
-        parametros_real=(), parametros_int=(), alarmas=(),
-    )
-    state = AppState()
-    state.excel_cache_full = cache
-    state.excel_cache_active = cache
-    with_plc(state, "PLC1")
-    first = state.excel_cache_active
-    # Segunda llamada con el mismo plc_name: no regenera.
-    with_plc(state, "PLC1")
-    assert state.excel_cache_active is first
-
-
-def test_with_plc_cambio_plc_regenera_cache():
-    """Cambiar de PLC1 a PLC2 regenera el cache."""
-    state = AppState()
-    from dataclasses import dataclass, field
-    from datetime import datetime
-
-    @dataclass(frozen=True)
-    class _Dispo:
-        numero: int
-        plc_name: str = ""
-
-    @dataclass(frozen=True)
-    class _Dims:
-        por_plc: tuple = ()
-
-    @dataclass(frozen=True)
-    class _FakeCache:
-        excel_path: str
-        excel_mtime_ns: int
-        parsed_at: datetime
-        dispositivos: dict
-        n_max: _Dims
-        plcs: tuple
-        procesos: tuple
-        parametros_real: tuple
-        parametros_int: tuple
-        alarmas: tuple
-
-    cache = _FakeCache(
-        excel_path="x", excel_mtime_ns=0, parsed_at=datetime(2026, 1, 1),
-        dispositivos={
-            "ed": (
-                _Dispo(numero=1, plc_name="PLC1"),
-                _Dispo(numero=2, plc_name="PLC2"),
-            ),
-        },
-        n_max=_Dims(),
-        plcs=(),
-        procesos=(),
-        parametros_real=(),
-        parametros_int=(),
-        alarmas=(),
-    )
-    state.excel_cache_full = cache
-    with_plc(state, "PLC1")
-    active_plc1 = state.excel_cache_active
-    assert active_plc1.dispositivos["ed"][0].plc_name == "PLC1"
-    with_plc(state, "PLC2")
-    active_plc2 = state.excel_cache_active
-    assert active_plc2 is not active_plc1
-    assert active_plc2.dispositivos["ed"][0].plc_name == "PLC2"
-
-
-def test_with_plc_sin_excel_cache_full_no_falla():
-    """Si excel_cache_full es None (no se ha cargado Excel), with_plc no falla."""
-    state = AppState()
-    state.excel_cache_full = None
-    state.excel_cache_active = None
-    # No debe lanzar excepcion.
-    with_plc(state, "PLC1")
-    assert state.selected_plc == "PLC1"
-    # excel_cache_active sigue None (nada que filtrar).
-    assert state.excel_cache_active is None
+        filt.assert_not_called()
+    # selected_plc NO cambia (helper lo deja como estaba).
+    assert state.selected_plc == "PLC_PREV"
+    assert state.excel_cache_active == "ACTIVE"
