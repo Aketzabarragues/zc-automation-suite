@@ -55,6 +55,7 @@ class DataParamIntPLC:
     visibilidad: str
     num_lista: int | str
     txt_lista: str
+    plc_name: str = ""
 
 
 __all__ = ["DataParamIntPLC"]

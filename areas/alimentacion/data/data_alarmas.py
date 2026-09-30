@@ -42,6 +42,7 @@ class DataAlarmaPLC:
     num_db: int
     descripcion: str
     comentario_db: str
+    plc_name: str = ""
 
 
 __all__ = ["DataAlarmaPLC"]
