@@ -56,6 +56,7 @@ class DispED:
     cfg_bit_entrada: str = ""
     cfg_grupo_alarma: str = ""
     comentario_db: str = ""
+    plc_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -86,6 +87,7 @@ class DispEA:
     cfg_escaladomax: str = ""
     cfg_grupo_alarma: str = ""
     comentario_db: str = ""
+    plc_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -116,6 +118,7 @@ class DispSA:
     cfg_escaladomax: str = ""
     cfg_grupo_alarma: str = ""
     comentario_db: str = ""
+    plc_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -153,6 +156,7 @@ class DispV:
     cfg_habitrtrabajo: str = ""
     cfg_grupoalarma: str = ""
     comentario_db: str = ""
+    plc_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -190,6 +194,7 @@ class DispM:
     cfg_habretconfmarcha: str = ""
     cfg_grupoalarma: str = ""
     comentario_db: str = ""
+    plc_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -232,6 +237,7 @@ class DispM_VF:
     comentario_db: str = ""
     sa_byte: int = 0
     cfg_byteanalogica: str = ""
+    plc_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -270,6 +276,7 @@ class DispMSINA:
     cfg_cons_k: str = ""
     cfg_grupo_alarma: str = ""
     comentario_db: str = ""
+    plc_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -306,6 +313,7 @@ class DispTOT:
     cfg_bitentrada: str = ""
     cfg_tipo: str = ""
     comentario_db: str = ""
+    plc_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -337,6 +345,7 @@ class DispPID:
     hmi_texto: str = ""
     cfg_habilitar: str = ""
     comentario_db: str = ""
+    plc_name: str = ""
 
 
 __all__ = ["Dispositivo", "DispED", "DispEA", "DispSA", "DispV", "DispM", "DispM_VF", "DispMSINA", "DispTOT", "DispPID"]
