@@ -55,6 +55,39 @@ from areas.alimentacion.helpers.layout.build_cache import DEFAULT_BUILD_CACHE_RO
 logger = logging.getLogger(__name__)
 
 
+def _devices_from_active_cache(state: Any, hw: str) -> list:
+    """Lee los devices del PLC activo desde ``state.excel_cache_active``.
+
+    Multi-PLC (sept-2026): el cache activo ya viene filtrado por
+    ``selected_plc``. Fallback a ``state.get_devices(hw)`` si
+    ``excel_cache_active`` es ``None`` (tests legacy).
+    """
+    cache = getattr(state, "excel_cache_active", None)
+    if cache is not None:
+        return list(cache.dispositivos.get(hw, ()))
+    return list(getattr(state, "get_devices", lambda _: [])(hw))
+
+
+def _nmax_from_active_cache(state: Any) -> dict[str, int]:
+    """Lee el dict de N_MAX del PLC activo desde
+    ``state.excel_cache_active``. Fallback a ``state.dimensiones`` legacy.
+    """
+    cache = getattr(state, "excel_cache_active", None)
+    if cache is not None:
+        por_plc = getattr(getattr(cache, "n_max", None), "por_plc", ())
+        if len(por_plc) == 1:
+            return dict(por_plc[0].extras)
+        if por_plc:
+            return dict(por_plc[0].extras)
+        return {}
+    legacy = getattr(state, "dimensiones", None)
+    if legacy is None:
+        return {}
+    if hasattr(legacy, "to_api_dict"):
+        return legacy.to_api_dict()
+    return dict(legacy or {})
+
+
 class FunctionDispGenerarPreview(FunctionBase):
     """FB que calcula el diff completo (N_MAX + devices) de un PLC."""
 
@@ -358,7 +391,7 @@ class FunctionDispGenerarPreview(FunctionBase):
                     continue
                 table_name = cfg.tag_table
                 xml_path = self._ctx.tags_base / f"{table_name}.xml"
-                devices = self._ctx.app_state.get_devices(hw)
+                devices = _devices_from_active_cache(self._ctx.app_state, hw)
                 diff = compute_diff_table(
                     table_name=table_name,
                     desired_devices=devices,
@@ -400,13 +433,8 @@ class FunctionDispGenerarPreview(FunctionBase):
             compute_nmax_diff,
         )
 
-        # ``DimensionesDispositivos.to_api_dict()`` ya entrega nombres
-        # canonicos de TIA (``N_MAX_DISP_*``).
-        dimensiones = self._ctx.app_state.dimensiones
-        if hasattr(dimensiones, "to_api_dict"):
-            desired_nmax = dimensiones.to_api_dict()
-        else:
-            desired_nmax = dict(dimensiones or {})
+        # Multi-PLC: N_MAX del PLC activo (ya filtrado en cache_active).
+        desired_nmax = _nmax_from_active_cache(self._ctx.app_state)
 
         nmax_table_name = self._ctx.config_manager.get_global_config_table_name()
         xml_path = self._ctx.preview_config_dir / f"{nmax_table_name}.xml"
