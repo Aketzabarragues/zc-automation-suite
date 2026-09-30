@@ -55,6 +55,18 @@ def mock_tia_client() -> MagicMock:
 
 
 @pytest.fixture
+def patch_validate_plc_in_excel():
+    """Mockea ``validate_plc_in_excel`` para tests que no quieren
+    validar contra el Excel (solo validar la state machine del FB).
+    """
+    with patch(
+        "areas.alimentacion.functions.function_proc_db_generar_preview"
+        ".validate_plc_in_excel"
+    ) as mocked:
+        yield mocked
+
+
+@pytest.fixture
 def mock_app_state() -> MagicMock:
     return MagicMock()
 
@@ -142,6 +154,7 @@ async def test_proc_generar_preview_happy_path_6_ticks(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
     mock_app_state: MagicMock,
+    patch_validate_plc_in_excel: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
