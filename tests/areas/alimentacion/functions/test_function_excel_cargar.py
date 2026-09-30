@@ -213,6 +213,10 @@ async def test_subir_excel_happy_path_3_ticks(
     assert mock_state.dimensiones == fake_cache.n_max
     assert mock_state.excel_cache == fake_cache
     assert mock_state.excel_path == "/fake/path.xlsx"
+    # Multi-PLC (sept-2026): excel_cache_full y excel_cache_active
+    # se setean desde el cache. Sin selected_plc, active == full.
+    assert mock_state.excel_cache_full is fake_cache
+    assert mock_state.excel_cache_active is fake_cache
 
 
 @pytest.mark.asyncio

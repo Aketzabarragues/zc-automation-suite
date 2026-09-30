@@ -78,9 +78,25 @@ def dump_cache_to_state(
     """
     # Back-compat con la SPA: poblar ``state.dispositivos_<hw>`` desde
     # ``cache.dispositivos`` (la SPA espera ``list``, no ``tuple``).
+    # NOTA: esto se eliminara cuando los FB y routers dejen de usar
+    # ``state.get_devices(hw)`` y pasen a ``state.excel_cache_active``.
     for hw, devices_tuple in cache.dispositivos.items():
         app_state.set_devices(hw, list(devices_tuple))
     app_state.dimensiones = cache.n_max
+
+    # Cache COMPLETO (datos UI / "definicion programacion"). Siempre
+    # sin filtrar; lo consume el endpoint ``/api/v1/state/dispositivos``
+    # para mostrar TODO el Excel al operario.
+    app_state.excel_cache_full = cache
+    # Cache FILTRADO por selected_plc (datos que consumen los FB). Si
+    # selected_plc == "" es identico al completo. Se regenera tambien
+    # en cada ``with_plc()`` cuando cambia la seleccion.
+    from core.runtime.filter_excel_cache import filter_cache_by_plc
+    # ``getattr(..., "")`` defensivo: tests con MagicMock(spec=AppState)
+    # no exponen ``selected_plc`` (es atributo de instancia, no de clase).
+    selected_plc = getattr(app_state, "selected_plc", "")
+    app_state.excel_cache_active = filter_cache_by_plc(cache, selected_plc)
+
     # ``cache.plcs`` es la lista INFORMATIVA de PLCs del Excel (hoja
     # CONFIG, Tabla_PLC). NO se vuelca a ``app_state.plcs``: la fuente
     # de verdad para la selección de PLC es TIA Portal (``list_plcs``
