@@ -48,6 +48,8 @@ from typing import Any
 
 from core.composition.plc_function_base import FunctionBase
 from core.helpers.tia import dispatch_async, validate_execute_batch_result
+from core.helpers.tia.validate_plc_in_tia import validate_plc_in_tia
+from core.helpers.tia.with_plc import with_plc
 from core.runtime.app_state import AppState, get_app_state
 from areas.alimentacion.helpers.layout.build_cache import DEFAULT_BUILD_CACHE_ROOT
 
@@ -180,6 +182,11 @@ class FunctionProcDBSincronizar(FunctionBase):
             )
         self._plc_name = str(plc_name)
         self._proc_uid = proc_uid
+
+        # Validar contra TIA Portal (fail-late, PR5 D4/D11).
+        validate_plc_in_tia(self._tia_client, self._plc_name)
+        # Propagar al AppState (defensa redundante con el endpoint).
+        with_plc(self._state, self._plc_name)
 
         # ``bloques_cache`` puede inyectarse por constructor (test) o
         # leerse del singleton ``TIADataBloqueCache._caches`` (acceso

@@ -101,6 +101,7 @@ from typing import Any
 
 from core.composition.plc_function_base import FunctionBase
 from core.helpers.tia import dispatch_async
+from core.helpers.tia.validate_plc_in_tia import validate_plc_in_tia
 from areas.alimentacion.helpers.layout.build_cache import DEFAULT_BUILD_CACHE_ROOT
 
 logger = logging.getLogger(__name__)
@@ -334,6 +335,12 @@ class FunctionProcCrearSincronizar(FunctionBase):
             _coerce_plc_blocks_cache(plc_blocks_cache)
             if plc_blocks_cache is not None else None
         )
+
+        # Validar contra TIA Portal (fail-late, PR5 D4/D11).
+        validate_plc_in_tia(self._tia_client, self._plc_name)
+        # NOTA: este FB no recibe ``app_state`` por constructor, asi que
+        # la propagacion de ``selected_plc`` se hace desde el endpoint
+        # que invoca este FB (responsabilidad del caller, D6 stateless).
 
         dir_plantilla = Path(self._plantillas_path) / self._dir_plantilla_nombre
         if not dir_plantilla.exists():

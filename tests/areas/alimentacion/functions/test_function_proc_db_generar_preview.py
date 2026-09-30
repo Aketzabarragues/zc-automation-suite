@@ -45,6 +45,10 @@ def mock_tia_client() -> MagicMock:
     """Gateway mockeado. Los export_* son AsyncMock; no se llaman en
     este test porque parcheamos el helper."""
     client = MagicMock()
+    # Mock list_plcs para validate_plc_in_tia (PR5).
+    client.submit_and_wait = MagicMock(
+        return_value={"ok": True, "result": {"plcs": [{"name": "S7-1500"}]}}
+    )
     client.export_plc_tags_xml = AsyncMock(return_value=None)
     client.export_block = AsyncMock(return_value=None)
     return client
