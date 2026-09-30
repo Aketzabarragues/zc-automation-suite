@@ -57,6 +57,50 @@ from core.composition.plc_function_base import FunctionBase
 from core.helpers.tia import dispatch_async, validate_execute_batch_result
 from core.helpers.tia.validate_plc_in_tia import validate_plc_in_tia
 from core.helpers.tia.with_plc import with_plc
+
+
+def _devices_from_active_cache(state: Any, hw: str) -> list:
+    """Lee los devices del PLC activo desde ``state.excel_cache_active``.
+
+    Sept-2026 (multi-PLC): el cache activo ya viene filtrado por
+    ``selected_plc`` (regenerado en cada ``with_plc``). Esto evita
+    tener que filtrar en runtime.
+
+    Fallback a ``state.get_devices(hw)`` si ``excel_cache_active`` es
+    ``None`` (tests legacy que usan ``set_devices`` directamente).
+    """
+    cache = getattr(state, "excel_cache_active", None)
+    if cache is not None:
+        return list(cache.dispositivos.get(hw, ()))
+    return list(getattr(state, "get_devices", lambda _: [])(hw))
+
+
+def _nmax_from_active_cache(state: Any) -> dict[str, int]:
+    """Lee el dict de N_MAX del PLC activo desde
+    ``state.excel_cache_active``.
+
+    Si el cache activo tiene exactamente un ``DataDimensionesPLC``
+    (caso normal cuando selected_plc esta seteado), devuelve sus
+    ``extras``. Si no, intenta un fallback defensivo a
+    ``state.dimensiones`` (legacy).
+    """
+    cache = getattr(state, "excel_cache_active", None)
+    if cache is not None:
+        por_plc = getattr(getattr(cache, "n_max", None), "por_plc", ())
+        if len(por_plc) == 1:
+            return dict(por_plc[0].extras)
+        # Sin PLC activo o varios PLCs (modo legacy): devolvemos los
+        # extras del primero si existe, si no dict vacio.
+        if por_plc:
+            return dict(por_plc[0].extras)
+        return {}
+    # Fallback legacy.
+    legacy = getattr(state, "dimensiones", None)
+    if legacy is None:
+        return {}
+    if hasattr(legacy, "to_api_dict"):
+        return legacy.to_api_dict()
+    return dict(legacy or {})
 from core.runtime.app_state import AppState, get_app_state
 from areas.alimentacion.helpers.layout.build_cache import DEFAULT_BUILD_CACHE_ROOT
 
@@ -386,7 +430,7 @@ class FunctionDispSincronizar(FunctionBase):
                 xml_path = (
                     self._ctx.tags_base / tia_folder / f"{cfg.tag_table}.xml"
                 )
-                devices = self._ctx.app_state.get_devices(hw)
+                devices = _devices_from_active_cache(self._ctx.app_state, hw)
                 diff = compute_diff_table(
                     table_name=cfg.tag_table,
                     desired_devices=devices,
@@ -692,7 +736,18 @@ class FunctionDispSincronizar(FunctionBase):
         from areas.alimentacion.data.data_disp_slot_map import disp_build_slot_maps
 
         # ── 1. Validar AppState ──
-        if not self._ctx.app_state.all_devices():
+        # Multi-PLC (sept-2026): si el cache activo esta vacio O si
+        # ``excel_cache_active`` no tiene disp del PLC seleccionado,
+        # no hay nada que sincronizar. Fallback a ``all_devices()``
+        # legacy si ``excel_cache_active`` es None.
+        cache_active = getattr(self._ctx.app_state, "excel_cache_active", None)
+        if cache_active is not None:
+            has_devices = any(
+                cache_active.dispositivos.get(hw) for hw in cache_active.dispositivos
+            )
+        else:
+            has_devices = bool(self._ctx.app_state.all_devices())
+        if not has_devices:
             warning = (
                 "AppState esta vacio. Cargue primero el Excel con "
                 "POST /api/v1/excel/upload."
@@ -954,7 +1009,7 @@ class FunctionDispSincronizar(FunctionBase):
                 cfg = cm.get_dispositivo_config(hw)
                 if cfg is None:
                     continue
-                devices = state.get_devices(hw)
+                devices = _devices_from_active_cache(state, hw)
                 xml_path = preview_disp / f"{cfg.tag_table}.xml"
                 diff = compute_diff_table(
                     table_name=cfg.tag_table,
@@ -1004,11 +1059,8 @@ class FunctionDispSincronizar(FunctionBase):
                         "status": status,
                     })
 
-            # 5/4. N_MAX.
-            if hasattr(state.dimensiones, "to_api_dict"):
-                desired_nmax = state.dimensiones.to_api_dict()
-            else:
-                desired_nmax = dict(state.dimensiones or {})
+            # 5/4. N_MAX (multi-PLC: del cache activo, ya filtrado por PLC).
+            desired_nmax = _nmax_from_active_cache(state)
             nmax_diff = compute_nmax_diff(
                 table_name=nmax_table,
                 desired_nmax=desired_nmax,
@@ -1189,7 +1241,7 @@ def _compute_nmax_ops_for_apply(
             f"[N_MAX] XML esperado no encontrado (sync): {xml_path}"
         )
 
-    d = app_state.dimensiones or {}
+    d = _nmax_from_active_cache(app_state)
     desired: dict[str, int] = {}
     for nmax_name in config_manager.list_nmax_active():
         v = d.get(nmax_name)
