@@ -56,6 +56,7 @@ from typing import Any
 from core.composition.plc_function_base import FunctionBase
 from core.helpers.tia import dispatch_async, validate_execute_batch_result
 from core.helpers.tia.validate_plc_in_tia import validate_plc_in_tia
+from core.helpers.tia.validate_plc_in_excel import validate_plc_in_excel
 from core.helpers.tia.with_plc import with_plc
 
 
@@ -226,6 +227,12 @@ class FunctionDispSincronizar(FunctionBase):
         # Validar contra TIA Portal (fail-late, PR5 D4/D11).
         # Si el PLC no existe en TIA, raise ValueError claro.
         validate_plc_in_tia(self._tia_client, self._plc_name)
+        # Validar contra el Excel cargado (sept-2026 multi-PLC):
+        # si el operario selecciono un PLC de TIA que NO esta en la
+        # Tabla_PLC del Excel, el cache activo quedaria vacio y el sync
+        # atacaria TIA para borrar TODO. Fail-late con lista de PLCs
+        # disponibles en el Excel.
+        validate_plc_in_excel(self._state, self._plc_name)
         # Propagar al AppState (defensa redundante con el endpoint).
         with_plc(self._state, self._plc_name)
 
