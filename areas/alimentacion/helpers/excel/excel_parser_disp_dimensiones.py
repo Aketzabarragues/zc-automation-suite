@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 # Se busca en ``global_config_table_name`` (config.json). Si la tabla no
 # existe o el nombre difiere, el parser devuelve ``DimensionesDispositivos``
 # con ``por_plc=()`` (estado vacio, no rompe la carga).
-N_MAX_TABLE_NAME = "Tabla_N_Max"
+N_MAX_TABLE_NAME = "Tabla_Dispositivos"
 
 
 class DimensionesParser:

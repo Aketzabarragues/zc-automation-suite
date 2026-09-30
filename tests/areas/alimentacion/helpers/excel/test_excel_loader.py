@@ -86,7 +86,7 @@ def _add_n_max_table(
     last_col_letter = chr(ord("A") + len(headers) - 1)
     last_row = ws.max_row
     ref = f"A1:{last_col_letter}{last_row}"
-    table = Table(displayName="Tabla_N_Max", ref=ref)
+    table = Table(displayName="Tabla_Dispositivos", ref=ref)
     table.tableStyleInfo = TableStyleInfo(
         name="TableStyleMedium2", showFirstColumn=False,
         showLastColumn=False, showRowStripes=True, showColumnStripes=False,
