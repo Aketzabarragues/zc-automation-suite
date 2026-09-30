@@ -5,16 +5,12 @@
  * cuando ``store.currentView === 'proc'``.
  *
  * Estructura:
- *   1. Cabecera: icono + título + descripción corta.
- *   2. Banner ámbar si NO hay Excel cargado o si
- *      ``store.memoryState.procesos`` está vacío.
- *   3. Selector de proceso (``<select>`` con
- *      ``store.memoryState.procesos``). Cada item muestra
- *      ``codigo`` y ``nombre``. (Antes se mostraba también un
- *      sub-caption con UID + nombres simbólicos de DB; eliminado
- *      por ser legacy — el UID ya viene en el selector y los
- *      nombres de DB los computa el use case internamente).
- *   4. 2 cards de acción:
+ *   1. Banner ámbar si NO hay Excel cargado, NO hay PLC seleccionado
+ *      en el topbar, o el PLC seleccionado no tiene procesos.
+ *   2. Selector de proceso (``<select>`` con los procesos del PLC
+ *      seleccionado en ``store.selectedPlc``). Cada item muestra
+ *      ``codigo`` y ``nombre``.
+ *   3. 2 cards de acción:
  *        - "Crear proceso completo" (expande la vista
  *          ``<procesos-crear-view>`` INLINE debajo de las cards,
  *          sin cambiar ``store.currentView``).
@@ -96,13 +92,20 @@ export default {
         const showCrearView = ref(false);
 
         /**
-         * Lista de procesos del Excel cacheado. Defensivo: si el
-         * operario aún no ha subido Excel o el backend aún no expone
-         * el campo, devuelve ``[]``. Mismo patrón que
-         * ``ProcesosPanel.js:45-47``.
+         * Lista de procesos del Excel cacheado, filtrada por el PLC
+         * seleccionado en el topbar (``store.selectedPlc``). Si no
+         * hay PLC seleccionado, devuelve ``[]`` (la UI mostrará un
+         * banner pidiendo selección). Defensivo: si el operario aún
+         * no ha subido Excel o el backend aún no expone el campo,
+         * devuelve ``[]``.
          */
         const procesos = computed(
-            () => (store.memoryState && store.memoryState.procesos) || []
+            () => {
+                const all = (store.memoryState && store.memoryState.procesos) || [];
+                const plc = store.selectedPlc || "";
+                if (!plc) return [];
+                return all.filter((p) => (p.plc_name || "") === plc);
+            }
         );
 
         /**
@@ -120,7 +123,13 @@ export default {
             () => store.memoryState !== null && store.memoryState !== undefined
         );
 
-        /** ``true`` cuando hay al menos un proceso en el cache. */
+        /**
+         * ``true`` cuando hay un PLC seleccionado en el topbar.
+         * Sin PLC, la vista no puede operar (los FBs requieren uno).
+         */
+        const hasPlc = computed(() => !!store.selectedPlc);
+
+        /** ``true`` cuando hay al menos un proceso del PLC seleccionado. */
         const hasProcesos = computed(() => procesos.value.length > 0);
 
         /**
@@ -262,6 +271,7 @@ export default {
         return {
             procesos,
             hasExcel,
+            hasPlc,
             hasProcesos,
             selectedProcUid,
             selectedProc,
@@ -286,18 +296,25 @@ export default {
                  falta repetir el icono + título + descripción dentro
                  del contenido. -->
 
-            <!-- Banner ámbar: cubre los 2 casos "no operable" del flujo.
-                 Aparece cuando NO hay Excel cargado O cuando el
-                 Excel existe pero su hoja de procesos está vacía. -->
-            <div v-if="!hasExcel || !hasProcesos"
+            <!-- Banner ámbar: cubre los 3 casos "no operable" del flujo.
+                 Aparece cuando NO hay Excel cargado, NO hay PLC
+                 seleccionado en el topbar, o el PLC seleccionado no
+                 tiene procesos definidos en el Excel. -->
+            <div v-if="!hasExcel || !hasPlc || !hasProcesos"
                  class="mb-4 px-3 py-2 bg-amber-100 border border-amber-300 rounded text-xs text-amber-800">
                 <span v-if="!hasExcel">
                     ⚠️ No hay Excel cargado. Sube un Excel y pulsa
                     <strong class="text-accent">"Actualizar"</strong>
                     en "Definición programación".
                 </span>
+                <span v-else-if="!hasPlc">
+                    ⚠️ Selecciona un PLC en el
+                    <strong class="text-accent">topbar</strong>
+                    para ver sus procesos.
+                </span>
                 <span v-else>
-                    ⚠️ El Excel cargado no tiene procesos definidos.
+                    ⚠️ El PLC <strong>{{ store.selectedPlc }}</strong>
+                    no tiene procesos definidos en el Excel cargado.
                 </span>
             </div>
 
