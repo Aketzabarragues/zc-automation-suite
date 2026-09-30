@@ -83,6 +83,10 @@ class DispPIDParser:
         for row in rows:
             if not _safe_str(row.get("UID")) and not _safe_str(row.get("Numero")):
                 continue
+            plc_name = _safe_str(row.get("PLC"))
+            if not plc_name:
+                logger.warning("Fila sin PLC en %s: descartada", self.TABLE)
+                continue
             try:
                 result.append(
                     DispPID(
@@ -104,6 +108,7 @@ class DispPIDParser:
                         hmi_texto=_safe_str(row.get("Hmi.Texto")),
                         cfg_habilitar=_safe_str(row.get("Cfg.Habilitar")),
                         comentario_db=_safe_str(row.get("ComentarioDB")),
+                        plc_name=plc_name,
                     )
                 )
             except Exception as exc:  # defensivo: nunca romper la tabla
