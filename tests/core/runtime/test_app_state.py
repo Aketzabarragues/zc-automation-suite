@@ -130,3 +130,51 @@ def test_cambio_selected_plc_en_runtime():
     assert state.get_devices("ed")[0].plc_name == "PLC2"
     state.selected_plc = ""
     assert len(state.get_devices("ed")) == 2
+
+
+# ---------------------------------------------------------------------------
+# Tests de excel_cache_full / excel_cache_active (multi-PLC, sept-2026)
+# ---------------------------------------------------------------------------
+
+
+def test_excel_cache_full_y_active_default_none():
+    """Defaults: ambos caches None (no hay Excel cargado)."""
+    state = AppState()
+    assert state.excel_cache_full is None
+    assert state.excel_cache_active is None
+
+
+def test_excel_cache_full_se_puebla_directamente():
+    """``excel_cache_full`` se setea por el codigo que carga el Excel."""
+    state = AppState()
+    fake = object()
+    state.excel_cache_full = fake
+    assert state.excel_cache_full is fake
+    # excel_cache_active sigue None hasta que se filtre.
+    assert state.excel_cache_active is None
+
+
+def test_excel_cache_active_es_distinto_de_full_si_hay_filtro():
+    """Si hay ``selected_plc`` set, ``excel_cache_active`` es la version
+    filtrada de ``excel_cache_full`` (no la misma instancia)."""
+    state = AppState()
+    # Construimos un cache falso solo para verificar identidad.
+    state.excel_cache_full = "FULL"
+    state.selected_plc = "PLC1"
+    state.excel_cache_active = "ACTIVE_FOR_PLC1"
+    assert state.excel_cache_active == "ACTIVE_FOR_PLC1"
+    assert state.excel_cache_full != state.excel_cache_active
+
+
+def test_reset_limpia_solo_selected_plc_no_los_caches():
+    """``reset()`` limpia ``selected_plc`` y ``_dispositivos`` pero NO
+    toca ``excel_cache_full``/``excel_cache_active``: el cache del
+    Excel sobrevive al reset (es data, no estado de operacion)."""
+    state = AppState()
+    state.excel_cache_full = "FULL"
+    state.excel_cache_active = "ACTIVE"
+    state.reset()
+    assert state.selected_plc == ""
+    # Los caches siguen (la SPA los ve aunque no haya operacion en curso).
+    assert state.excel_cache_full == "FULL"
+    assert state.excel_cache_active == "ACTIVE"

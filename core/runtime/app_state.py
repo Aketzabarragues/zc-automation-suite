@@ -76,6 +76,13 @@ class AppState:
         self.selected_plc: str = ""  # NUEVO (PR4)
         self.excel_cache: Any = None
         self.excel_path: str | None = None
+        # Cache COMPLETO del Excel (datos UI / "definicion programacion").
+        # Siempre sin filtrar; nunca mutado. Lo puebla ``dump_cache_to_state``.
+        self.excel_cache_full: Any = None
+        # Cache FILTRADO por selected_plc (datos que consumen los FB).
+        # Se regenera cada vez que selected_plc cambia. Si
+        # selected_plc == "" es identico a excel_cache_full.
+        self.excel_cache_active: Any = None
 
     # -- API data-driven (publico, no ligado a alimentacion) -------
 
