@@ -5,7 +5,9 @@ Este módulo aporta el ``ExcelCacheManager``, equivalente IT del
 bloque_cache_manager.py``) pero con tres diferencias clave:
 
   1. Cachea **una sola entrada** (``DataExcelCache``) por proceso, no un
-     ``dict[plc_name, cache]`` por PLC.
+     ```` por PLC. Multi-PLC (sept-2026): el
+     ``DataExcelCache`` contiene internamente N PLCs (cada DTO lleva
+     su ``plc_name``).
   2. Aporta ``wait_for_first_load(timeout)`` con ``asyncio.Event``
      (D4 del operario) para que coroutines puedan esperar al primer
      load del Excel sin polling.

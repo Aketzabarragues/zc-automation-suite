@@ -57,7 +57,7 @@ def test_construccion_minima():
 
 
 def test_to_dict_shape_minimo():
-    """``to_dict()`` emite las 7 keys del shape estable."""
+    """``to_dict()`` emite las 9 keys del shape estable (multi-PLC)."""
     cache = _cache_minimo()
     snapshot = cache.to_dict()
 
@@ -65,6 +65,7 @@ def test_to_dict_shape_minimo():
         "excel_path",
         "excel_mtime_ns",
         "parsed_at",
+        "dispositivos",
         "n_max",
         "procesos",
         "parametros_real",

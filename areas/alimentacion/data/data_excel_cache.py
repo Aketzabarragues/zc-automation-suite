@@ -50,11 +50,23 @@ class DataExcelCache:
     software_parsers_implemented: bool = True
 
     def to_dict(self) -> dict:
-        """Serializa a JSON. Lookups precomputados omitidos (son derivables)."""
+        """Serializa a JSON. Lookups precomputados omitidos (son derivables).
+
+        Shape multi-PLC (sept-2026):
+          - ``dispositivos``: ``{hw_type: [{...dispo...}]}`` donde cada
+            ``dispo`` lleva ``plc_name``.
+          - ``n_max``: ``{plc_name: {nmax_name: int}}`` anidado.
+          - ``procesos``/``parametros_*``/``alarmas``: listas planas de
+            DTOs, cada uno con su ``plc_name``.
+        """
         return {
             "excel_path": self.excel_path,
             "excel_mtime_ns": self.excel_mtime_ns,
             "parsed_at": self.parsed_at.isoformat(),
+            "dispositivos": {
+                hw: [dataclasses.asdict(d) for d in disp_tuple]
+                for hw, disp_tuple in self.dispositivos.items()
+            },
             "n_max": self.n_max.to_api_dict(),
             "procesos": [dataclasses.asdict(p) for p in self.procesos],
             "parametros_real": [dataclasses.asdict(p) for p in self.parametros_real],
