@@ -81,7 +81,12 @@ def dump_cache_to_state(
     for hw, devices_tuple in cache.dispositivos.items():
         app_state.set_devices(hw, list(devices_tuple))
     app_state.dimensiones = cache.n_max
-    app_state.plcs = cache.plcs
+    # ``cache.plcs`` es la lista INFORMATIVA de PLCs del Excel (hoja
+    # CONFIG, Tabla_PLC). NO se vuelca a ``app_state.plcs``: la fuente
+    # de verdad para la selección de PLC es TIA Portal (``list_plcs``
+    # vía /api/v1/tia/connection), que la SPA ya consume directamente.
+    # Mantener ``app_state.plcs`` poblado desde el Excel contaminaba
+    # el backend con una lista que nadie leía (código muerto).
     # El cache vive en el area de alimentacion, pero AppState lo expone
     # como placeholder ``Any`` (ver ``state.py``).
     app_state.excel_cache = cache

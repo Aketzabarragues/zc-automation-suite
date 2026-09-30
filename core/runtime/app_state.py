@@ -53,9 +53,11 @@ class AppState:
         excel_path: str | None. Ruta absoluta del Excel cacheado,
             o ``None`` si no hay ninguno. Sirve para invalidacion por
             mtime sin re-leer el cache.
-        plcs: tuple con default ``()``. Lista canonica de PLCs del Excel
-            (``Tabla_PLC``). Sept-2026 (multi-PLC): lo usa el selector de
-            PLCs en la vista de definicion programacion.
+        plcs: tuple con default ``()``. **DEPRECATED** desde PR7 (sept-2026):
+            la lista de PLCs para el selector de la UI la entrega TIA Portal
+            (``list_plcs`` vía ``/api/v1/tia/connection``) y la SPA la cachea
+            directamente en ``store.plcs``. Este atributo se mantiene solo
+            por back-compat con tests legacy; NO poblar desde el Excel.
         selected_plc: str con default ``""``. Nombre del PLC activo
             (multi-PLC, sept-2026). ``get_devices`` y
             ``get_dimensiones_activas`` filtran por este valor. ``""``
@@ -66,6 +68,10 @@ class AppState:
         # Storage generico (data-driven): unica fuente de verdad.
         self._dispositivos: dict[str, list[Any]] = {}
         self.dimensiones: dict[str, Any] = {}
+        # ``plcs`` ya no se popula desde el Excel. La fuente de verdad
+        # es TIA Portal (vía /api/v1/tia/connection). Se deja el
+        # atributo para no romper tests legacy que lo inicializan a
+        # ``tuple``. Sera eliminado en PR-limpieza.
         self.plcs: tuple = ()
         self.selected_plc: str = ""  # NUEVO (PR4)
         self.excel_cache: Any = None
