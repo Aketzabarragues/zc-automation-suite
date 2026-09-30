@@ -41,6 +41,11 @@ def filter_cache_by_plc(
     if not plc_name:
         # Sin filtro: devolvemos el cache tal cual (es frozen, no se muta).
         return cache
+    # Defensivo: si ``cache`` no es un dataclass (p. ej. MagicMock en
+    # tests legacy), no podemos filtrar. Devolvemos el cache tal cual.
+    # Esto evita romper tests que mockean ``excel_cache_full``.
+    if not dataclasses.is_dataclass(cache):
+        return cache
 
     return dataclasses.replace(
         cache,

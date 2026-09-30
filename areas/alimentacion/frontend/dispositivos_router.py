@@ -38,7 +38,12 @@ bp = Blueprint(
 
 
 def _extract_software_from_cache(state: Any) -> dict[str, Any]:
-    """Extrae 4 dominios de software + flag + plcs desde el DataExcelCache del AppState."""
+    """Extrae 4 dominios de software + flag + plcs desde ``excel_cache_full``.
+
+    Sept-2026 (multi-PLC): la pagina "definicion programacion" recibe el
+    cache COMPLETO (sin filtrar), no el cache activo. Asi el operario
+    puede analizar todos los PLCs del Excel a la vez.
+    """
     empty: dict[str, Any] = {
         "procesos": [],
         "parametros_int": [],
@@ -47,7 +52,9 @@ def _extract_software_from_cache(state: Any) -> dict[str, Any]:
         "plcs": [],
         "software_parsers_implemented": False,
     }
-    cache = getattr(state, "excel_cache", None)
+    # ``excel_cache_full`` es el cache COMPLETO. Fallback a ``excel_cache``
+    # por back-compat con tests que solo setean el alias legacy.
+    cache = getattr(state, "excel_cache_full", None) or getattr(state, "excel_cache", None)
     if cache is None:
         return empty
     try:
@@ -76,9 +83,23 @@ def _get_config_manager():
 
 @bp.get("/state/dispositivos")
 def state_dispositivos():
-    """Vuelca AppState a JSON para el Inspector IT del area."""
+    """Vuelca AppState a JSON para el Inspector IT del area.
+
+    Sept-2026 (multi-PLC): los dispositivos y dimensiones vienen del
+    cache COMPLETO (``excel_cache_full``), NO del cache activo. Asi el
+    operario ve TODO el Excel en la pagina "definicion programacion",
+    independientemente del PLC que tenga seleccionado.
+    """
     state = _get_app_state()
     config_manager = _get_config_manager()
+
+    cache_full = (
+        getattr(state, "excel_cache_full", None)
+        or getattr(state, "excel_cache", None)
+    )
+    cache_dispositivos: dict = (
+        cache_full.dispositivos if cache_full is not None else {}
+    )
 
     dispositivos_payload: dict[str, list[dict[str, Any]]] = {}
     for hw in config_manager.list_hw_types_active():
@@ -89,16 +110,16 @@ def state_dispositivos():
         if not canonica:
             continue
         dispositivos_payload[canonica] = [
-            dataclasses.asdict(d) for d in state.get_devices(hw)
+            dataclasses.asdict(d) for d in cache_dispositivos.get(hw, ())
         ]
+
+    dimensiones_dict: dict = {}
+    if cache_full is not None and getattr(cache_full, "n_max", None) is not None:
+        dimensiones_dict = cache_full.n_max.to_api_dict()
 
     return jsonify({
         "ok": True,
-        "dimensiones": (
-            state.dimensiones.to_api_dict()
-            if state.dimensiones is not None
-            else {}
-        ),
+        "dimensiones": dimensiones_dict,
         "dispositivos": dispositivos_payload,
         **_extract_software_from_cache(state),
     })
