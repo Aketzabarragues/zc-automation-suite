@@ -35,7 +35,18 @@ def _add_table(
     headers: list[str],
     rows: list[list],
 ) -> None:
-    """Anade una ListObject con la columna PLC auto-inyectada."""
+    """Anade una ListObject con la columna PLC auto-inyectada.
+
+    La tabla se inserta al final del contenido actual de la hoja
+    (``ws.max_row + 1``), no siempre en ``A1``. Si la hoja ya tiene
+    otra tabla (p. ej. ``Tabla_Dispositivos`` en ``CONFIG``), calcular
+    ``ref`` desde ``A1`` haria que la nueva tabla colisione con la
+    previa: openpyxl acepta las dos referencias pero al recargar el
+    workbook la lectura de filas por ``range_boundaries`` cae en la
+    primera tabla y devuelve sus datos. Por eso el parser ve la fila
+    N_MAX en lugar de la fila Procesos, y la descarta por falta de
+    columna ``PLC``.
+    """
     if sheet_name not in wb.sheetnames:
         ws = wb.create_sheet(sheet_name)
     else:
@@ -43,12 +54,17 @@ def _add_table(
     if "PLC" not in headers:
         headers = ["PLC"] + list(headers)
         rows = [["PLC1"] + list(r) for r in rows]
-    ws.append(headers)
-    for row in rows:
-        ws.append(row)
+    # Insertar al final de la hoja: 1 fila de cabecera + N filas de datos.
+    start_row = ws.max_row + 1
+    ws.cell(row=start_row, column=1, value=headers[0])
+    for col_idx, header in enumerate(headers[1:], start=2):
+        ws.cell(row=start_row, column=col_idx, value=header)
+    for row_offset, row in enumerate(rows, start=1):
+        for col_idx, value in enumerate(row, start=1):
+            ws.cell(row=start_row + row_offset, column=col_idx, value=value)
     last_col_letter = chr(ord("A") + len(headers) - 1)
-    last_row = 1 + len(rows)
-    ref = f"A1:{last_col_letter}{last_row}"
+    last_row = start_row + len(rows)
+    ref = f"A{start_row}:{last_col_letter}{last_row}"
     table = Table(displayName=table_name, ref=ref)
     table.tableStyleInfo = TableStyleInfo(
         name="TableStyleMedium2", showFirstColumn=False,
@@ -99,10 +115,11 @@ def _build_full_xlsx(target: Path) -> Path:
     wb = Workbook()
     wb.remove(wb.active)
 
-    # N_MAX (tabla Tabla_N_Max, multi-PLC, sept-2026).
-    # Vive en una hoja separada (la misma que apunta tia_folders["nmax"])
-    # para no chocar con Tabla_Procesos de la hoja CONFIG.
-    _add_n_max_table(wb, "000_Sistema", "PLC1", {
+    # N_MAX (tabla Tabla_Dispositivos, multi-PLC, sept-2026).
+    # Vive en la hoja CONFIG (igual que ``Tabla_PLC`` y
+    # ``Tabla_Procesos``). Sept-2026: el parser se alinea con los otros
+    # parsers, hardcoded a ``"CONFIG"``.
+    _add_n_max_table(wb, "CONFIG", "PLC1", {
         "N_Max_ED": 10, "N_Max_EA": 20, "N_Max_SA": 30, "N_Max_V": 40,
         "N_Max_M": 50, "N_Max_M_VF": 60, "N_Max_M_SINA": 70,
         "N_Max_TOT": 80, "N_Max_PID": 90,
@@ -139,8 +156,8 @@ def _build_full_xlsx(target: Path) -> Path:
 
     # 4 software
     _add_table(wb, "CONFIG", "Tabla_Procesos",
-               ["UID", "Nombre", "Codigo", "PReal", "PInt", "Alarmas"],
-               [[1, "Proceso 1", "PR1", 1, 1, 16]])
+               ["UID", "PLC", "Nombre", "Codigo", "PReal", "PInt", "Alarmas"],
+               [[1, "PLC1", "Proceso 1", "PR1", 1, 1, 16]])
     _add_table(wb, "P_REAL", "Tabla_PReal",
                ["UID", "Numero", "Proceso", "Codigo", "Num.DB",
                 "Producto", "Tipo", "Descripcion", "ComentarioDB",

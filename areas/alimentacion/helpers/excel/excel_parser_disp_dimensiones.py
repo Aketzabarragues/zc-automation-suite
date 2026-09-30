@@ -44,10 +44,18 @@ logger = logging.getLogger(__name__)
 
 
 # Nombre literal de la tabla N_MAX dentro de la hoja de configuracion.
-# Se busca en ``global_config_table_name`` (config.json). Si la tabla no
-# existe o el nombre difiere, el parser devuelve ``DimensionesDispositivos``
-# con ``por_plc=()`` (estado vacio, no rompe la carga).
+# Si la tabla no existe o el nombre difiere, el parser devuelve
+# ``DimensionesDispositivos`` con ``por_plc=()`` (estado vacio, no
+# rompe la carga).
 N_MAX_TABLE_NAME = "Tabla_Dispositivos"
+
+# Hoja del Excel donde vive la tabla (igual que ``PLCListParser`` y
+# ``ProcesosParser``, hardcoded a ``"CONFIG"``). NO usar
+# ``tia_folders.nmax`` del ``ConfigManager`` (eso es el path TIA
+# donde estan los XMLs exportados, p.ej. ``"000_Sistema"``; son DOS
+# cosas distintas: hoja del Excel donde escribe el operario vs.
+# directorio del PLC donde TIA guarda los datos).
+SHEET = "CONFIG"
 
 
 class DimensionesParser:
@@ -78,9 +86,9 @@ class DimensionesParser:
             ``DimensionesDispositivos`` con un ``DataDimensionesPLC`` por
             PLC del Excel. Vacio si la tabla no existe.
         """
-        # Resolver la hoja: config_manager > default.
-        sheet_name = self._resolve_sheet_name()
-        rows = extract_list_object_rows(wb, sheet_name, N_MAX_TABLE_NAME)
+        # Resolver la hoja: hardcoded a ``"CONFIG"`` (mismo patron que
+        # ``PLCListParser`` y ``ProcesosParser``).
+        rows = extract_list_object_rows(wb, SHEET, N_MAX_TABLE_NAME)
         if not rows:
             # Tabla no existe o esta vacia: no es error, es estado normal
             # si el operario aun no ha creado la tabla. Emitimos un debug
@@ -88,7 +96,7 @@ class DimensionesParser:
             logger.debug(
                 "Tabla N_MAX '%s' no encontrada en hoja '%s': "
                 "devolviendo contenedor vacio",
-                N_MAX_TABLE_NAME, sheet_name,
+                N_MAX_TABLE_NAME, SHEET,
             )
             return DimensionesDispositivos()
 
@@ -157,22 +165,6 @@ class DimensionesParser:
 
     # --- helpers ---------------------------------------------------------
 
-    def _resolve_sheet_name(self) -> str:
-        """Devuelve la hoja donde vive la tabla N_MAX.
-
-        Prioridad: ``tia_folders["nmax"]`` del config_manager si existe,
-        si no ``global_config_table_name``. Si no hay CM, cadena vacia.
-        """
-        if self._config_manager is not None:
-            tia_folders = self._config_manager._department_config.get(
-                "tia_folders", {}
-            ) or {}
-            nmax_folder = tia_folders.get("nmax")
-            if nmax_folder:
-                return str(nmax_folder)
-            return self._config_manager.get_global_config_table_name()
-        return ""
-
     def _resolve_columnas_catalog(self) -> dict[str, str]:
         """``{excel_column: hw_type}`` desde el catalog del config_manager.
 
@@ -207,4 +199,4 @@ class DimensionesParser:
         return h.strip().upper() if h else ""
 
 
-__all__ = ["DimensionesParser", "N_MAX_TABLE_NAME"]
+__all__ = ["DimensionesParser", "N_MAX_TABLE_NAME", "SHEET"]
