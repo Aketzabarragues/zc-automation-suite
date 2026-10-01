@@ -84,19 +84,44 @@ export default {
         );
 
         /**
-         * Filas (items) del sub-tab activo, leidas del cache del
-         * Excel (``store.memoryState``).
+         * Items por dominio, leidos del cache del Excel.
+         * Fuente unica para ``counts`` (los 4 counts del sub-tab)
+         * y para ``rows`` (items del sub-tab activo).
          */
-        const rows = computed(() => {
-            if (!store.memoryState) return [];
-            switch (activeSoftwareTab.value) {
-                case "procesos":        return store.memoryState.procesos        || [];
-                case "parametros_int":  return store.memoryState.parametros_int  || [];
-                case "parametros_real": return store.memoryState.parametros_real || [];
-                case "alarmas":         return store.memoryState.alarmas         || [];
-                default:                return [];
+        const itemsByDomain = computed(() => {
+            if (!store.memoryState) {
+                return {
+                    procesos:        [],
+                    parametros_int:  [],
+                    parametros_real: [],
+                    alarmas:         [],
+                };
             }
+            return {
+                procesos:        store.memoryState.procesos        || [],
+                parametros_int:  store.memoryState.parametros_int  || [],
+                parametros_real: store.memoryState.parametros_real || [],
+                alarmas:         store.memoryState.alarmas         || [],
+            };
         });
+
+        /**
+         * Count por dominio, para pintar junto al label del sub-tab.
+         * Cada tab ve SU count (no el del tab activo).
+         */
+        const counts = computed(() => ({
+            procesos:        itemsByDomain.value.procesos.length,
+            parametros_int:  itemsByDomain.value.parametros_int.length,
+            parametros_real: itemsByDomain.value.parametros_real.length,
+            alarmas:         itemsByDomain.value.alarmas.length,
+        }));
+
+        /**
+         * Filas (items) del sub-tab activo.
+         */
+        const rows = computed(
+            () => itemsByDomain.value[activeSoftwareTab.value] || []
+        );
 
         const emptyLabel = computed(() => {
             const t = tabs.find((x) => x.key === activeSoftwareTab.value);
@@ -126,6 +151,7 @@ export default {
             tabs,
             activeSoftwareTab,
             columns,
+            counts,
             rows,
             hasMemory,
             displayValue,
@@ -146,7 +172,7 @@ export default {
                     :class="['tab-btn px-4 py-2 text-xs font-medium border-r border-line whitespace-nowrap',
                              activeSoftwareTab === t.key ? 'active' : 'bg-surface-raised text-ink-muted hover:bg-surface-sunken']">
                     {{ t.label }}
-                    <span class="ml-1 text-[10px] opacity-70">({{ rows.length }})</span>
+                    <span class="ml-1 text-[10px] opacity-70">({{ counts[t.key] }})</span>
                 </button>
             </div>
 
