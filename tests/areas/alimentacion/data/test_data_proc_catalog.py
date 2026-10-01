@@ -19,6 +19,7 @@ Cobertura:
 from __future__ import annotations
 
 import dataclasses
+from unittest.mock import MagicMock
 
 from areas.alimentacion.data.data_alarmas import DataAlarmaPLC
 from areas.alimentacion.data.data_parametros_int import DataParamIntPLC
@@ -183,3 +184,78 @@ def test_build_software_catalog_serializable_a_json() -> None:
     """``json.dumps(build_software_catalog())`` no levanta."""
     import json
     json.dumps(build_software_catalog())
+
+
+def test_build_software_catalog_sin_config_manager_devuelve_defaults() -> None:
+    """Sin ``config_manager``, el display_order es ``DISPLAY_ORDER`` tal cual."""
+    payload = build_software_catalog()
+    assert payload["proc_display_order"] == {
+        dom: list(cols) for dom, cols in DISPLAY_ORDER.items()
+    }
+
+
+def test_build_software_catalog_con_config_manager_sin_override_devuelve_defaults() -> None:
+    """``config_manager`` sin override -> defaults."""
+    cm = MagicMock()
+    cm.get_proc_display_order_override.return_value = {}
+    payload = build_software_catalog(cm)
+    assert payload["proc_display_order"] == {
+        dom: list(cols) for dom, cols in DISPLAY_ORDER.items()
+    }
+
+
+def test_build_software_catalog_override_reemplaza_dominio() -> None:
+    """Override por dominio reemplaza la entrada completa."""
+    cm = MagicMock()
+    cm.get_proc_display_order_override.return_value = {
+        "procesos": ["uid", "codigo", "nombre"],   # solo 3, sin preal/pint/alarmas/alm_hmi
+    }
+    payload = build_software_catalog(cm)
+    assert payload["proc_display_order"]["procesos"] == ["uid", "codigo", "nombre"]
+    # Los demas dominios quedan con su default.
+    assert payload["proc_display_order"]["parametros_int"] == DISPLAY_ORDER["parametros_int"]
+
+
+def test_build_software_catalog_override_ignora_dominios_desconocidos() -> None:
+    """Dominios que no existen en el catalog se descartan con warning."""
+    cm = MagicMock()
+    cm.get_proc_display_order_override.return_value = {
+        "procesos": ["uid", "codigo"],
+        "inventado": ["x", "y"],  # dominio desconocido
+    }
+    payload = build_software_catalog(cm)
+    assert "procesos" in payload["proc_display_order"]
+    assert "inventado" not in payload["proc_display_order"]
+
+
+def test_build_software_catalog_override_ignora_columnas_inexistentes() -> None:
+    """Columnas que no son campo del DTO se descartan con warning."""
+    cm = MagicMock()
+    cm.get_proc_display_order_override.return_value = {
+        "procesos": ["uid", "codigo", "fantasma"],  # 'fantasma' no es campo
+    }
+    payload = build_software_catalog(cm)
+    assert payload["proc_display_order"]["procesos"] == ["uid", "codigo"]
+
+
+def test_build_software_catalog_override_solo_columnas_validas_si_todas_malas() -> None:
+    """Si TODAS las columnas del override son invalidas, el dominio queda sin override."""
+    cm = MagicMock()
+    cm.get_proc_display_order_override.return_value = {
+        "procesos": ["x", "y", "z"],  # ninguna es campo real
+    }
+    payload = build_software_catalog(cm)
+    # Falla suave: el dominio queda con el default.
+    assert payload["proc_display_order"]["procesos"] == DISPLAY_ORDER["procesos"]
+
+
+def test_build_software_catalog_override_preserva_orden() -> None:
+    """El override determina el orden visible (no se reordena a default)."""
+    cm = MagicMock()
+    cm.get_proc_display_order_override.return_value = {
+        "alarmas": ["comentario_db", "descripcion", "uid"],  # orden inverso
+    }
+    payload = build_software_catalog(cm)
+    assert payload["proc_display_order"]["alarmas"] == [
+        "comentario_db", "descripcion", "uid",
+    ]

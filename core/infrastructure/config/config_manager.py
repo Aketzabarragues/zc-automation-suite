@@ -557,6 +557,39 @@ class ConfigManager:
             )
         return str(plantillas)
 
+    def get_proc_display_order_override(self) -> dict[str, list[str]]:
+        """Override data-driven de ``proc_catalog.display_order``.
+
+        Estructura esperada en ``config.json`` del departamento::
+
+            proc_catalog:
+              display_order:
+                procesos:        [uid, codigo, nombre, ...]
+                parametros_int:  [uid, numero, codigo, ...]
+                parametros_real: [uid, numero, codigo, ...]
+                alarmas:         [uid, numero, proceso, ...]
+
+        Un override por dominio reemplaza su entrada por completo
+        (visibilidad explicita: el operario pone la lista completa).
+        Claves invalidas (dominios o campos inexistentes) se
+        ignoran con warning; ver
+        ``data_proc_catalog._get_override``.
+
+        Si la clave no existe, devuelve ``{}`` (la SPA usa
+        ``DEFAULT_DISPLAY_ORDER`` del modulo ``data_proc_catalog``).
+        """
+        proc_catalog = self._department_config.get("proc_catalog")
+        if not isinstance(proc_catalog, dict):
+            return {}
+        raw = proc_catalog.get("display_order")
+        if not isinstance(raw, dict):
+            return {}
+        out: dict[str, list[str]] = {}
+        for domain, cols in raw.items():
+            if isinstance(cols, list):
+                out[str(domain)] = [c for c in cols if isinstance(c, str)]
+        return out
+
     def get_proc_nmax_suffixes(self) -> dict[str, str]:
         """Sufijos de las PlcUserConstant N_MAX de los arrays de proceso.
 

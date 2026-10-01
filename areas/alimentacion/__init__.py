@@ -32,7 +32,7 @@ def _build_alim_catalog_combined(config_manager):
     """
     return {
         **build_alim_catalog(config_manager),
-        **build_software_catalog(),
+        **build_software_catalog(config_manager),
     }
 from areas.alimentacion.frontend.dispositivos_router import (
     build_routers as build_dispositivos_routers,

@@ -180,20 +180,68 @@ def build_proc_catalog() -> dict:
     }
 
 
-def build_software_catalog() -> dict:
+def build_software_catalog(config_manager=None) -> dict:
     """Wrapper con prefijo ``proc_`` para fusionar con el catalog de disp.
 
     El endpoint ``GET /api/v1/catalog`` hace flat merge de las areas,
     por lo que las claves del catalog de disp y del de software no
     pueden colisionar. Se prefijan con ``proc_``.
+
+    Si se pasa ``config_manager``, aplica el override de
+    ``display_order`` desde el ``config.json`` (ver
+    ``ConfigManager.get_proc_display_order_override``). Un override
+    por dominio reemplaza su entrada en ``DISPLAY_ORDER`` (visibilidad
+    explicita: el operario pone la lista completa que quiere ver).
     """
     raw = build_proc_catalog()
+    display_order = raw["display_order"]
+    if config_manager is not None:
+        override = _get_override(config_manager)
+        if override:
+            display_order = {**display_order, **override}
     return {
         "proc_model_columns": raw["model_columns"],
         "proc_col_labels":    raw["col_labels"],
         "proc_mono_cols":     raw["mono_cols"],
-        "proc_display_order": raw["display_order"],
+        "proc_display_order": display_order,
     }
+
+
+def _get_override(config_manager) -> dict[str, list[str]]:
+    """Lee y valida el override de ``display_order`` del config_manager.
+
+    Devuelve ``{domain: [col, ...]}`` solo con entradas validas. Las
+    claves desconocidas (dominios que no existen o columnas que no
+    son campos del DTO) se descartan con warning.
+    """
+    raw = config_manager.get_proc_display_order_override()
+    if not raw or not isinstance(raw, dict):
+        return {}
+    out: dict[str, list[str]] = {}
+    for domain, cols in raw.items():
+        if domain not in _DOMAIN_TO_CLASS:
+            import logging
+            logging.getLogger(__name__).warning(
+                "proc_display_order override: dominio '%s' desconocido; "
+                "se ignora. Dominios validos: %s",
+                domain, sorted(_DOMAIN_TO_CLASS),
+            )
+            continue
+        if not isinstance(cols, list):
+            continue
+        dto_fields = {f.name for f in dataclasses.fields(_DOMAIN_TO_CLASS[domain])}
+        cols_validos = [c for c in cols if isinstance(c, str) and c in dto_fields]
+        descartados = [c for c in cols if c not in dto_fields]
+        if descartados:
+            import logging
+            logging.getLogger(__name__).warning(
+                "proc_display_order override: dominio '%s' ignora columnas "
+                "desconocidas %s (campos validos: %s)",
+                domain, descartados, sorted(dto_fields),
+            )
+        if cols_validos:
+            out[domain] = cols_validos
+    return out
 
 
 __all__ = [
