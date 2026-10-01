@@ -62,11 +62,13 @@ const _comps = {
     // ``views`` (no es sub-vista top-level del area).
     "ProcesosCrearView":       () => import("./components/ProcesosCrearView.js"),
     // Sub-componentes del rediseño de "Definición programación"
-    // (tabs principales Dispositivos | Software). Se registran
-    // como componentes globales para que ``DefinicionProgramacion``
-    // los monte en su template (``<main-tabs>``, ``<dispositivos-panel>``,
+    // (tabs principales Configuracion | Dispositivos | Software).
+    // Se registran como componentes globales para que
+    // ``DefinicionProgramacion`` los monte en su template
+    // (``<main-tabs>``, ``<configuracion-panel>``, ``<dispositivos-panel>``,
     // ``<procesos-panel>``).
     "MainTabs":                () => import("./components/MainTabs.js"),
+    "ConfiguracionPanel":      () => import("./components/ConfiguracionPanel.js"),
     "DispositivosPanel":       () => import("./components/DispositivosPanel.js"),
     "ProcesosPanel":           () => import("./components/ProcesosPanel.js"),
 };

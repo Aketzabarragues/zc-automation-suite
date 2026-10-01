@@ -153,7 +153,7 @@ export const store = reactive({
      * del strip. Centralizado aquí para que ``DefinicionProgramacion``
      * pueda decidir el panel a pintar leyendo este único flag.
      */
-    activeMainTab: "dispositivos",
+    activeMainTab: "configuracion",
 
     /** Flag de operación en curso (deshabilita botones). */
     busy: false,
@@ -454,7 +454,11 @@ export function goToSubview(key) {
  * correspondiente.
  */
 export function goToMainTab(key) {
-    if (key !== "dispositivos" && key !== "procesos") return;
+    if (
+        key !== "dispositivos"
+        && key !== "procesos"
+        && key !== "configuracion"
+    ) return;
     store.activeMainTab = key;
 }
 

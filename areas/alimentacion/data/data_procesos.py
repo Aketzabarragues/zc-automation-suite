@@ -39,6 +39,7 @@ class DataProcesoPLC:
     index_pint: int = 0
     alarmas: int = 0
     alm_hmi: int = 0
+    plc_name: str = ""
 
 
 __all__ = ["DataProcesoPLC"]

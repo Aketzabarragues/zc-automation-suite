@@ -124,7 +124,12 @@ def save_xlsx_with_disp_table(
     table_name: str | None = None,
     headers: list[str] | None = None,
 ) -> str:
-    """Crea un .xlsx sintético con la ``Tabla_Disp_<hw>``."""
+    """Crea un .xlsx sintético con la ``Tabla_Disp_<hw>``.
+
+    Sept-2026 (multi-PLC): inyecta automaticamente la columna ``PLC`` con
+    valor ``"PLC1"`` si el caller no la incluye en ``headers``. Asi los
+    tests legacy siguen funcionando sin tener que tocar cada uno.
+    """
     if sheet_name is None:
         sheet_name = f"DISP_{hw}"
     if table_name is None:
@@ -133,6 +138,11 @@ def save_xlsx_with_disp_table(
         headers = get_headers_for_hw(hw)
     if rows is None:
         rows = []
+
+    # Inyectar columna PLC si falta (politica del refactor multi-PLC).
+    if "PLC" not in headers:
+        headers = ["PLC"] + list(headers)
+        rows = [["PLC1"] + list(r) for r in rows]
 
     xlsx_path = tmp_path / f"{table_name}.xlsx"
     wb = Workbook()

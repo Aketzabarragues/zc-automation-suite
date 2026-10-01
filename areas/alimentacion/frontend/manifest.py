@@ -118,6 +118,7 @@ def build() -> "AreaFrontendManifest":
             # registran como loaders pero NO como sub-vistas del
             # Sidebar: solo ``DefinicionProgramacion`` los usa.
             "MainTabs":                f"{_STATIC_PREFIX}/components/MainTabs.js",
+            "ConfiguracionPanel":      f"{_STATIC_PREFIX}/components/ConfiguracionPanel.js",
             "DispositivosPanel":       f"{_STATIC_PREFIX}/components/DispositivosPanel.js",
             "ProcesosPanel":           f"{_STATIC_PREFIX}/components/ProcesosPanel.js",
         },

@@ -48,6 +48,9 @@ from typing import Any
 
 from core.composition.plc_function_base import FunctionBase
 from core.helpers.tia import dispatch_async, validate_execute_batch_result
+from core.helpers.tia.validate_plc_in_tia import validate_plc_in_tia
+from core.helpers.tia.validate_plc_in_excel import validate_plc_in_excel
+from core.helpers.tia.with_plc import with_plc
 from core.runtime.app_state import AppState, get_app_state
 from areas.alimentacion.helpers.layout.build_cache import DEFAULT_BUILD_CACHE_ROOT
 
@@ -181,6 +184,13 @@ class FunctionProcDBSincronizar(FunctionBase):
         self._plc_name = str(plc_name)
         self._proc_uid = proc_uid
 
+        # Validar contra TIA Portal (fail-late, PR5 D4/D11).
+        validate_plc_in_tia(self._tia_client, self._plc_name)
+        # Validar contra el Excel cargado (sept-2026 multi-PLC).
+        validate_plc_in_excel(self._state, self._plc_name)
+        # Propagar al AppState (defensa redundante con el endpoint).
+        with_plc(self._state, self._plc_name)
+
         # ``bloques_cache`` puede inyectarse por constructor (test) o
         # leerse del singleton ``TIADataBloqueCache._caches`` (acceso
         # sync al dict de clase). Se prioriza el singleton para que un
@@ -276,7 +286,7 @@ class FunctionProcDBSincronizar(FunctionBase):
 
         self.result = self._ctx.result
 
-        # Log de cierre, igual que hacia el use case legacy.
+        # Log de cierre con el mismo formato que el resto de FBs.
         ops_executed = self.result.get("operations_executed", 0)
         logger.debug(
             f"[{self.nombre}] sync completo para proceso "
@@ -293,14 +303,18 @@ class FunctionProcDBSincronizar(FunctionBase):
     # ==================================================================
 
     def _stage_1_check_state_commit(self) -> None:
-        """Stage 1: valida que ``AppState.excel_cache`` esta cargado."""
-        self._ctx.excel_loaded = (
-            self._ctx.app_state is not None
-            and self._ctx.app_state.excel_cache is not None
+        """Stage 1: valida que el cache del Excel esta cargado.
+
+        Multi-PLC: chequea ``excel_cache_active`` (filtrado por PLC).
+        """
+        cache = (
+            self._ctx.app_state.excel_cache_active
+            if self._ctx.app_state is not None else None
         )
+        self._ctx.excel_loaded = cache is not None
         if not self._ctx.excel_loaded:
             raise RuntimeError(
-                "AppState.excel_cache esta vacio. "
+                "AppState.excel_cache_active esta vacio. "
                 "Cargue el Excel con POST /api/v1/excel/upload."
             )
 

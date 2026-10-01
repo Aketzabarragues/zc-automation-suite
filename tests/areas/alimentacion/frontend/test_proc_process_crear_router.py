@@ -2,14 +2,14 @@
 
 El Excel del operario es la fuente de verdad para los datos del
 proceso nuevo. La SPA solo envia ``dir_plantilla_nombre + proc_uid``
-y el router los resuelve desde ``AppState.excel_cache.procesos``.
+y el router los resuelve desde ``AppState.excel_cache_full.procesos``.
 
 Tests:
   - ``test_crear_preview_ok_con_plantilla``:
     Body valido (minimal) + Excel con proc_uid=300 + plantillas_path OK
     + FB mockeado que arranca OK -> 200 con el ``fb.result``.
   - ``test_crear_preview_sin_excel``:
-    AppState.excel_cache=None -> 400 (accionable: "Cargue el Excel").
+    AppState.excel_cache_full=None -> 400 (accionable: "Cargue el Excel").
   - ``test_crear_preview_proc_uid_inexistente``:
     proc_uid=999 que no esta en el Excel -> 400 con mensaje accionable.
   - ``test_crear_preview_body_incompleto``:
@@ -75,17 +75,39 @@ def _make_mock_proc_excel(uid: int = 300) -> MagicMock:
 
 
 def _make_mock_excel_cache(proc_uid: int = 300) -> MagicMock:
-    """Crea un mock del ``excel_cache`` con un proceso del Excel."""
+    """Crea un mock del ``excel_cache_full`` con un proceso del Excel."""
     cache = MagicMock()
     cache.procesos = [_make_mock_proc_excel(proc_uid)]
     return cache
 
 
 def _make_mock_app_state(proc_uid: int = 300) -> MagicMock:
-    """Crea un ``AppState`` mockeado con un Excel cacheado."""
+    """Crea un ``AppState`` mockeado con un Excel cacheado.
+
+    Multi-PLC: el endpoint ``crear_aplicar`` ahora valida
+    ``plc_name in excel_cache_full.plcs`` antes de invocar el FB.
+    Por defecto mockeamos un cache con PLCs ``["S7-1500"]``.
+    """
     state = MagicMock()
-    state.excel_cache = _make_mock_excel_cache(proc_uid)
+    state.excel_cache_full = _make_mock_excel_cache_with_plcs(
+        proc_uid=proc_uid, plc_names=("S7-1500",)
+    )
     return state
+
+
+def _make_mock_excel_cache_with_plcs(
+    proc_uid: int, plc_names: tuple[str, ...]
+) -> MagicMock:
+    """Cache fake con un set concreto de PLCs en ``Tabla_PLC`` y un
+    proceso para que ``_resolve_excel_proc`` lo encuentre.
+
+    Usado para que ``validate_plc_in_excel`` acepte el plc_name del body
+    Y para que el lookup por proc_uid no lance ``ValueError``.
+    """
+    cache = MagicMock()
+    cache.plcs = [MagicMock(plc=p, uid=i) for i, p in enumerate(plc_names)]
+    cache.procesos = [_make_mock_proc_excel(proc_uid)]
+    return cache
 
 
 def _make_mock_fb(
@@ -187,12 +209,12 @@ def test_crear_preview_ok_con_plantilla(plantilla_dummy: Path) -> None:
 
 
 def test_crear_preview_sin_excel() -> None:
-    """AppState.excel_cache=None -> 400 accionable."""
+    """AppState.excel_cache_full=None -> 400 accionable."""
     from areas.alimentacion.frontend.proc_process_crear_router import bp
 
     engine = MagicMock()
     state = MagicMock()
-    state.excel_cache = None
+    state.excel_cache_full = None
     cm = MagicMock()
     cm.get_plantillas_path.return_value = "C:/plantillas"
 
@@ -286,6 +308,7 @@ def test_crear_aplicar_fb_no_registrado() -> None:
 
 def test_crear_aplicar_fb_rechaza_start_409(plantilla_dummy: Path) -> None:
     """Si fb.start retorna False -> 409."""
+    from unittest.mock import patch
     from areas.alimentacion.frontend.proc_process_crear_router import bp
 
     engine = MagicMock()
@@ -299,15 +322,59 @@ def test_crear_aplicar_fb_rechaza_start_409(plantilla_dummy: Path) -> None:
     app.register_blueprint(bp)
     client = app.test_client()
 
-    resp = client.post("/api/v1/procesos/crear/aplicar", json={
-        "dir_plantilla_nombre": "TestPlantilla",
-        "proc_uid": 300,
-        "plc_name": "S7-1500",
-    })
+    # ``with_plc`` opera sobre ``excel_cache_full`` (dataclass frozen).
+    # En este test mockeamos el cache entero (MagicMock), asi que
+    # parchamos el helper para que sea no-op.
+    with patch(
+        "areas.alimentacion.frontend.proc_process_crear_router.with_plc"
+    ):
+        resp = client.post("/api/v1/procesos/crear/aplicar", json={
+            "dir_plantilla_nombre": "TestPlantilla",
+            "proc_uid": 300,
+            "plc_name": "S7-1500",
+        })
     assert resp.status_code == 409
     data = resp.get_json()
     assert data["ok"] is False
     assert "activo" in data["error"].lower() or "terminal" in data["error"].lower()
+
+
+def test_crear_aplicar_sincroniza_selected_plc(plantilla_dummy: Path) -> None:
+    """El endpoint invoca ``with_plc`` con (app_state, plc_name) antes
+    del ``fb.start`` (D6 stateless: el FB
+    ``function_proc_crear_sincronizar`` no recibe ``app_state`` por
+    constructor, asi que el endpoint propaga ``selected_plc``).
+    """
+    from unittest.mock import patch
+    from areas.alimentacion.frontend.proc_process_crear_router import bp
+
+    engine = MagicMock()
+    fb_mock = _make_mock_fb(result={
+        "success": True, "archivos_generados": [],
+        "colisiones": [], "manifest_plantilla": {},
+        "import_result": {"success": True},
+        "compile_result": {"ok": True},
+    })
+    engine.get_fb.return_value = fb_mock
+    cm = MagicMock()
+    cm.get_plantillas_path.return_value = str(plantilla_dummy.parent)
+    app_state = _make_mock_app_state(proc_uid=300)
+
+    app = _make_app(engine=engine, app_state=app_state, config_manager=cm)
+    app.register_blueprint(bp)
+    client = app.test_client()
+
+    with patch(
+        "areas.alimentacion.frontend.proc_process_crear_router.with_plc"
+    ) as with_plc_mock:
+        resp = client.post("/api/v1/procesos/crear/aplicar", json={
+            "dir_plantilla_nombre": "TestPlantilla",
+            "proc_uid": 300,
+            "plc_name": "S7-1500",
+        })
+
+    assert resp.status_code == 200
+    with_plc_mock.assert_called_once_with(app_state, "S7-1500")
 
 
 def test_crear_preview_plc_blocks_cache_acepta_strings_y_dicts(

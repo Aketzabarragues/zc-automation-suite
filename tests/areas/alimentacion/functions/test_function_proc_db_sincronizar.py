@@ -47,7 +47,28 @@ def mock_tia_client() -> MagicMock:
     client.execute_transactional_batch = AsyncMock(
         return_value={"operations_executed": 2, "details": []}
     )
+    # Mock list_plcs para validate_plc_in_tia (PR5).
+    client.submit_and_wait = MagicMock(
+        return_value={"ok": True, "result": {"plcs": [{"name": "S7-1500"}]}}
+    )
     return client
+
+
+@pytest.fixture
+def patch_validate_plc_in_excel():
+    """Mockea ``validate_plc_in_excel`` para los tests del FB que no
+    quieren validar contra el Excel (solo validar la state machine).
+
+    Sept-2026: con el helper nuevo, los tests fallan si el
+    ``mock_app_state.excel_cache_full`` no tiene el PLC en
+    ``plcs``. Parcheamos el helper a no-op para que los tests se
+    enfoquen solo en la logica del FB.
+    """
+    with patch(
+        "areas.alimentacion.functions.function_proc_db_sincronizar"
+        ".validate_plc_in_excel"
+    ) as mocked:
+        yield mocked
 
 
 @pytest.fixture
@@ -106,6 +127,15 @@ def _patch_helper_fns(fb) -> ExitStack:
     propio side_effect despues de entrar al contexto.
     """
     stack = ExitStack()
+    # ``with_plc`` requiere ``state.excel_cache_full`` real (dataclass
+    # frozen). En estos tests mockeamos el state entero (MagicMock),
+    # asi que parchamos el helper para evitar el path de filtro.
+    stack.enter_context(
+        patch(
+            "areas.alimentacion.functions.function_proc_db_sincronizar"
+            ".with_plc"
+        )
+    )
     stack.enter_context(
         patch.object(fb, "_stage_1_check_state_commit", MagicMock(), create=True)
     )
@@ -143,6 +173,7 @@ def _patch_helper_fns(fb) -> ExitStack:
 async def test_proc_sincronizar_happy_path_8_ticks(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
+    patch_validate_plc_in_excel: MagicMock,
     mock_app_state: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
@@ -384,6 +415,7 @@ async def test_proc_sincronizar_sad_check_state_no_excel(
 async def test_proc_sincronizar_sad_missing_blocks(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
+    patch_validate_plc_in_excel: MagicMock,
     mock_app_state: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
@@ -427,6 +459,7 @@ async def test_proc_sincronizar_sad_missing_blocks(
 async def test_proc_sincronizar_sad_open_transaction_fails(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
+    patch_validate_plc_in_excel: MagicMock,
     mock_app_state: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,

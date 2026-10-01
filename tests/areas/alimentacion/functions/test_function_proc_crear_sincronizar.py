@@ -118,6 +118,10 @@ def make_fb(
     """Crea un FB con deps mockeadas pero tracker real."""
     config = MagicMock()
     build_cache_root = MagicMock()
+    # Mock list_plcs para validate_plc_in_tia (PR5).
+    tia_client.submit_and_wait = MagicMock(
+        return_value={"ok": True, "result": {"plcs": [{"name": "S7-1500"}]}}
+    )
     return FunctionProcCrearSincronizar(
         nombre="proc_process_crear_aplicar_test",
         config_manager=config,

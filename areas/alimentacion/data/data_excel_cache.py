@@ -15,6 +15,7 @@ from areas.alimentacion.data.data_dispositivos import Dispositivo
 from areas.alimentacion.data.data_dimensiones import DimensionesDispositivos
 from areas.alimentacion.data.data_parametros_int import DataParamIntPLC
 from areas.alimentacion.data.data_parametros_real import DataParamRealPLC
+from areas.alimentacion.data.data_plc import DataPLC
 from areas.alimentacion.data.data_procesos import DataProcesoPLC
 
 
@@ -29,6 +30,7 @@ class DataExcelCache:
       - ``dispositivos``: ``{hw_type: tuple[Dispositivo, ...]}``.
       - ``n_max``: ``DimensionesDispositivos`` con nombres canonicos
         de TIA (``N_MAX_DISP_*``).
+      - ``plcs``: lista canonica de PLCs del Excel (``Tabla_PLC``).
       - ``procesos`` / ``parametros_real`` / ``parametros_int`` /
         ``alarmas``: listas de los 4 dominios de software.
       - ``*_by_codigo``: lookups ``Mapping[str, DTO]`` precomputados.
@@ -40,6 +42,7 @@ class DataExcelCache:
     parsed_at: datetime
     dispositivos: dict[str, tuple[Dispositivo, ...]]
     n_max: DimensionesDispositivos
+    plcs: tuple[DataPLC, ...]
     procesos: tuple[DataProcesoPLC, ...]
     parametros_real: tuple[DataParamRealPLC, ...]
     parametros_int: tuple[DataParamIntPLC, ...]
@@ -50,16 +53,29 @@ class DataExcelCache:
     software_parsers_implemented: bool = True
 
     def to_dict(self) -> dict:
-        """Serializa a JSON. Lookups precomputados omitidos (son derivables)."""
+        """Serializa a JSON. Lookups precomputados omitidos (son derivables).
+
+        Shape multi-PLC (sept-2026):
+          - ``dispositivos``: ``{hw_type: [{...dispo...}]}`` donde cada
+            ``dispo`` lleva ``plc_name``.
+          - ``n_max``: ``{plc_name: {nmax_name: int}}`` anidado.
+          - ``procesos``/``parametros_*``/``alarmas``: listas planas de
+            DTOs, cada uno con su ``plc_name``.
+        """
         return {
             "excel_path": self.excel_path,
             "excel_mtime_ns": self.excel_mtime_ns,
             "parsed_at": self.parsed_at.isoformat(),
+            "dispositivos": {
+                hw: [dataclasses.asdict(d) for d in disp_tuple]
+                for hw, disp_tuple in self.dispositivos.items()
+            },
             "n_max": self.n_max.to_api_dict(),
             "procesos": [dataclasses.asdict(p) for p in self.procesos],
             "parametros_real": [dataclasses.asdict(p) for p in self.parametros_real],
             "parametros_int": [dataclasses.asdict(p) for p in self.parametros_int],
             "alarmas": [dataclasses.asdict(a) for a in self.alarmas],
+            "plcs": [dataclasses.asdict(p) for p in self.plcs],
             "software_parsers_implemented": self.software_parsers_implemented,
         }
 

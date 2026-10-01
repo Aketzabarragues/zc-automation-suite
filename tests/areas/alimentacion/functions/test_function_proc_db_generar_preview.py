@@ -45,9 +45,25 @@ def mock_tia_client() -> MagicMock:
     """Gateway mockeado. Los export_* son AsyncMock; no se llaman en
     este test porque parcheamos el helper."""
     client = MagicMock()
+    # Mock list_plcs para validate_plc_in_tia (PR5).
+    client.submit_and_wait = MagicMock(
+        return_value={"ok": True, "result": {"plcs": [{"name": "S7-1500"}]}}
+    )
     client.export_plc_tags_xml = AsyncMock(return_value=None)
     client.export_block = AsyncMock(return_value=None)
     return client
+
+
+@pytest.fixture
+def patch_validate_plc_in_excel():
+    """Mockea ``validate_plc_in_excel`` para tests que no quieren
+    validar contra el Excel (solo validar la state machine del FB).
+    """
+    with patch(
+        "areas.alimentacion.functions.function_proc_db_generar_preview"
+        ".validate_plc_in_excel"
+    ) as mocked:
+        yield mocked
 
 
 @pytest.fixture
@@ -109,6 +125,15 @@ def _patch_helper_fns(fb) -> Any:
     """
     from contextlib import ExitStack
     stack = ExitStack()
+    # ``with_plc`` requiere ``state.excel_cache_full`` real (dataclass
+    # frozen). En estos tests mockeamos el state entero (MagicMock),
+    # asi que parchamos el helper para evitar el path de filtro.
+    stack.enter_context(
+        patch(
+            "areas.alimentacion.functions.function_proc_db_generar_preview"
+            ".with_plc"
+        )
+    )
     stack.enter_context(
         patch.object(fb, "_stage_1_check_state", MagicMock(), create=True)
     )
@@ -138,6 +163,7 @@ async def test_proc_generar_preview_happy_path_6_ticks(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
     mock_app_state: MagicMock,
+    patch_validate_plc_in_excel: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:

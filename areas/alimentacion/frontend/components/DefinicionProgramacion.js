@@ -97,8 +97,25 @@ export default {
          * aquí (no en MainTabs) para que los conteos reflejen
          * ``store.memoryState`` sin acoplar MainTabs al shape
          * de la AppState.
+         *
+         * Sept-2026 multi-PLC: se anade el tab "Configuracion"
+         * (primero, antes de Dispositivos). Muestra la
+         * ``Tabla_Dispositivos`` del Excel con shape multi-PLC
+         * (una fila por PLC).
          */
+        const configuracionCount = computed(() => {
+            const d = store.memoryState && store.memoryState.dimensiones;
+            if (!d || typeof d !== "object") return 0;
+            return Object.keys(d).length;
+        });
+
         const mainTabsData = computed(() => [
+            {
+                key: "configuracion",
+                label: "Configuracion",
+                icon: "⚙",
+                badge: configuracionCount.value,
+            },
             {
                 key: "dispositivos",
                 label: "Dispositivos",
@@ -108,7 +125,7 @@ export default {
             {
                 key: "procesos",
                 label: "Procesos",
-                icon: "⚙️",
+                icon: "📋",
                 badge: procesosCount.value,
             },
         ]);
@@ -240,7 +257,8 @@ export default {
                      data-testid="def-programacion-card-tablas">
                 <main-tabs v-if="hasMemory" :tabs="mainTabsData" />
                 <div class="flex-1 mt-3 flex flex-col overflow-hidden">
-                    <dispositivos-panel v-if="store.activeMainTab === 'dispositivos'" />
+                    <configuracion-panel v-if="store.activeMainTab === 'configuracion'" />
+                    <dispositivos-panel v-else-if="store.activeMainTab === 'dispositivos'" />
                     <procesos-panel v-else />
                 </div>
             </section>

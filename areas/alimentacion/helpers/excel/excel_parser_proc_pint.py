@@ -106,6 +106,10 @@ class PIntParser:
             # ``"null"`` a ``""``.
             if _safe_str(row.get("UID")) == "":
                 continue
+            plc_name = _safe_str(row.get("PLC"))
+            if not plc_name:
+                logger.warning("Fila sin PLC en %s: descartada", self.TABLE)
+                continue
             try:
                 result.append(
                     DataParamIntPLC(
@@ -121,6 +125,7 @@ class PIntParser:
                         visibilidad=_safe_str(row.get("Visibilidad")),
                         num_lista=_safe_num_lista(row.get("Num.Lista")),
                         txt_lista=_safe_str(row.get("Txt.Lista")),
+                        plc_name=plc_name,
                     )
                 )
             except Exception as exc:  # defensivo: nunca romper la tabla

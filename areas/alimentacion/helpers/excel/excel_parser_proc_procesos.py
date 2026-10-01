@@ -85,6 +85,10 @@ class ProcesosParser:
             # ``""``. Un UID ``"0"`` o ``0`` pasa el filtro (es válido).
             if _safe_str(row.get("UID")) == "":
                 continue
+            plc_name = _safe_str(row.get("PLC"))
+            if not plc_name:
+                logger.warning("Fila sin PLC en %s: descartada", self.TABLE)
+                continue
             try:
                 result.append(
                     DataProcesoPLC(
@@ -103,6 +107,7 @@ class ProcesosParser:
                         # baja el N_MAX en TIA. Opcion A confirmada
                         # por el operario: 'el Excel es la verdad'.
                         alm_hmi=_safe_int(row.get("Alarmas_Hmi")),
+                        plc_name=plc_name,
                     )
                 )
             except Exception as exc:  # defensivo: nunca romper la tabla

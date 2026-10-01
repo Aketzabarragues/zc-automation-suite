@@ -55,6 +55,12 @@ from typing import Any
 
 from core.composition.plc_function_base import FunctionBase
 from core.helpers.tia import dispatch_async, validate_execute_batch_result
+from core.helpers.tia.validate_plc_in_tia import validate_plc_in_tia
+from core.helpers.tia.validate_plc_in_excel import validate_plc_in_excel
+from core.helpers.tia.with_plc import with_plc
+from core.helpers.tia.active_cache import get_devices, get_nmax
+
+
 from core.runtime.app_state import AppState, get_app_state
 from areas.alimentacion.helpers.layout.build_cache import DEFAULT_BUILD_CACHE_ROOT
 
@@ -176,6 +182,18 @@ class FunctionDispSincronizar(FunctionBase):
                 "es obligatorio"
             )
         self._plc_name = str(plc_name)
+
+        # Validar contra TIA Portal (fail-late, PR5 D4/D11).
+        # Si el PLC no existe en TIA, raise ValueError claro.
+        validate_plc_in_tia(self._tia_client, self._plc_name)
+        # Validar contra el Excel cargado (sept-2026 multi-PLC):
+        # si el operario selecciono un PLC de TIA que NO esta en la
+        # Tabla_PLC del Excel, el cache activo quedaria vacio y el sync
+        # atacaria TIA para borrar TODO. Fail-late con lista de PLCs
+        # disponibles en el Excel.
+        validate_plc_in_excel(self._state, self._plc_name)
+        # Propagar al AppState (defensa redundante con el endpoint).
+        with_plc(self._state, self._plc_name)
 
         # Crear el DispSyncContext que las 11 funciones iran mutando.
         # Lazy import para evitar ciclo con helpers/disp/.
@@ -378,7 +396,7 @@ class FunctionDispSincronizar(FunctionBase):
                 xml_path = (
                     self._ctx.tags_base / tia_folder / f"{cfg.tag_table}.xml"
                 )
-                devices = self._ctx.app_state.get_devices(hw)
+                devices = get_devices(self._ctx.app_state, hw)
                 diff = compute_diff_table(
                     table_name=cfg.tag_table,
                     desired_devices=devices,
@@ -684,10 +702,19 @@ class FunctionDispSincronizar(FunctionBase):
         from areas.alimentacion.data.data_disp_slot_map import disp_build_slot_maps
 
         # ── 1. Validar AppState ──
-        if not self._ctx.app_state.all_devices():
-            warning = (
-                "AppState esta vacio. Cargue primero el Excel con "
+        cache_active = self._ctx.app_state.excel_cache_active
+        if cache_active is None:
+            raise RuntimeError(
+                "excel_cache_active es None. Cargue primero el Excel con "
                 "POST /api/v1/excel/upload."
+            )
+        has_devices = any(
+            cache_active.dispositivos.get(hw) for hw in cache_active.dispositivos
+        )
+        if not has_devices:
+            warning = (
+                f"PLC '{self._ctx.plc_name}' no tiene dispositivos en el Excel "
+                "cargado. Nada que sincronizar."
             )
             self._ctx.comments_result = {
                 "plc_name": self._ctx.plc_name,
@@ -946,7 +973,7 @@ class FunctionDispSincronizar(FunctionBase):
                 cfg = cm.get_dispositivo_config(hw)
                 if cfg is None:
                     continue
-                devices = state.get_devices(hw)
+                devices = get_devices(state, hw)
                 xml_path = preview_disp / f"{cfg.tag_table}.xml"
                 diff = compute_diff_table(
                     table_name=cfg.tag_table,
@@ -996,11 +1023,8 @@ class FunctionDispSincronizar(FunctionBase):
                         "status": status,
                     })
 
-            # 5/4. N_MAX.
-            if hasattr(state.dimensiones, "to_api_dict"):
-                desired_nmax = state.dimensiones.to_api_dict()
-            else:
-                desired_nmax = dict(state.dimensiones or {})
+            # 5/4. N_MAX (multi-PLC: del cache activo, ya filtrado por PLC).
+            desired_nmax = get_nmax(state)
             nmax_diff = compute_nmax_diff(
                 table_name=nmax_table,
                 desired_nmax=desired_nmax,
@@ -1181,7 +1205,7 @@ def _compute_nmax_ops_for_apply(
             f"[N_MAX] XML esperado no encontrado (sync): {xml_path}"
         )
 
-    d = app_state.dimensiones or {}
+    d = get_nmax(app_state)
     desired: dict[str, int] = {}
     for nmax_name in config_manager.list_nmax_active():
         v = d.get(nmax_name)

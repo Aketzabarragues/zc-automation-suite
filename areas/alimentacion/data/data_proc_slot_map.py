@@ -216,11 +216,12 @@ def proc_build_slot_maps(
     """Cruza Excel + DataBloqueCache + config para producir los slot maps.
 
     Raises:
-        RuntimeError: si ``app_state.excel_cache`` es ``None`` o si
-                      ``proc_uid`` no esta en ``excel_cache.procesos``.
-                      Mensaje accionable: "Cargue primero el Excel
-                      con POST /api/v1/excel/upload" o
-                      "El proceso {uid} no esta en el Excel cargado".
+        RuntimeError: si ``app_state.excel_cache_active`` es ``None``
+                      o si ``proc_uid`` no esta en
+                      ``excel_cache_active.procesos``. Mensaje
+                      accionable: "Cargue primero el Excel con
+                      POST /api/v1/excel/upload" o "El proceso
+                      {uid} no esta en el Excel cargado".
 
     Politica de precondiciones:
       - Si falta alguno de los 3 bloques (DB_PARAM, DB_ALM, tabla)
@@ -228,10 +229,10 @@ def proc_build_slot_maps(
         ``missing_blocks`` y retorna con los 3 dicts vacios
         (NO lanza). La SPA pinta el aviso y bloquea la vista de diff.
     """
-    excel_cache = app_state.excel_cache
+    excel_cache = app_state.excel_cache_active
     if excel_cache is None:
         raise RuntimeError(
-            "excel_cache esta vacio. Cargue primero el Excel con "
+            "excel_cache_active esta vacio. Cargue primero el Excel con "
             "POST /api/v1/excel/upload."
         )
 

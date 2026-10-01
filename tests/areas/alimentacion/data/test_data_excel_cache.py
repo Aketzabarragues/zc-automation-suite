@@ -17,7 +17,10 @@ import pytest
 
 from areas.alimentacion.data.data_alarmas import DataAlarmaPLC
 from areas.alimentacion.data.data_dispositivos import DispED
-from areas.alimentacion.data.data_dimensiones import DimensionesDispositivos
+from areas.alimentacion.data.data_dimensiones import (
+    DataDimensionesPLC,
+    DimensionesDispositivos,
+)
 from areas.alimentacion.data.data_excel_cache import DataExcelCache
 from areas.alimentacion.data.data_parametros_int import DataParamIntPLC
 from areas.alimentacion.data.data_parametros_real import DataParamRealPLC
@@ -32,6 +35,7 @@ def _cache_minimo() -> DataExcelCache:
         parsed_at=datetime(2026, 9, 10, 12, 0, 0, tzinfo=timezone.utc),
         dispositivos={},
         n_max=DimensionesDispositivos(),
+        plcs=(),
         procesos=(),
         parametros_real=(),
         parametros_int=(),
@@ -49,12 +53,12 @@ def test_construccion_minima():
     assert cache.excel_path == "/ruta/al/maestro.xlsx"
     assert cache.excel_mtime_ns == 1700000000_000_000_000
     assert cache.software_parsers_implemented is True
-    assert dict(cache.n_max.extras) == {}
+    assert cache.n_max.por_plc == ()
     assert cache.procesos == ()
 
 
 def test_to_dict_shape_minimo():
-    """``to_dict()`` emite las 7 keys del shape estable."""
+    """``to_dict()`` emite las 9 keys del shape estable (multi-PLC)."""
     cache = _cache_minimo()
     snapshot = cache.to_dict()
 
@@ -62,7 +66,9 @@ def test_to_dict_shape_minimo():
         "excel_path",
         "excel_mtime_ns",
         "parsed_at",
+        "dispositivos",
         "n_max",
+        "plcs",
         "procesos",
         "parametros_real",
         "parametros_int",
@@ -93,16 +99,19 @@ def test_to_dict_omite_lookups():
 
 
 def test_to_dict_n_max_via_to_api_dict():
-    """``to_dict()`` serializa ``n_max`` con nombres canonicos de TIA."""
+    """``to_dict()`` serializa ``n_max`` con shape multi-PLC anidado."""
     cache = DataExcelCache(
         excel_path="x",
         excel_mtime_ns=0,
         parsed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
         dispositivos={},
-        n_max=DimensionesDispositivos(extras={
-            "N_MAX_DISP_ED": 15,
-            "N_MAX_DISP_V": 20,
-        }),
+        n_max=DimensionesDispositivos(por_plc=(
+            DataDimensionesPLC(plc_name="PLC1", extras={
+                "N_MAX_DISP_ED": 15,
+                "N_MAX_DISP_V": 20,
+            }),
+        )),
+        plcs=(),
         procesos=(),
         parametros_real=(),
         parametros_int=(),
@@ -114,9 +123,12 @@ def test_to_dict_n_max_via_to_api_dict():
 
     snapshot = cache.to_dict()
 
+    # Shape multi-PLC: {plc_name: {nmax_name: int}}.
     assert snapshot["n_max"] == {
-        "N_MAX_DISP_ED": 15,
-        "N_MAX_DISP_V": 20,
+        "PLC1": {
+            "N_MAX_DISP_ED": 15,
+            "N_MAX_DISP_V": 20,
+        },
     }
 
 
@@ -144,6 +156,7 @@ def test_to_dict_listas_via_asdict():
         parsed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
         dispositivos={"ed": (DispED(1, "t", "c", "d", "u"),)},
         n_max=DimensionesDispositivos(),
+        plcs=(),
         procesos=(proc,),
         parametros_real=(preal,),
         parametros_int=(pint,),

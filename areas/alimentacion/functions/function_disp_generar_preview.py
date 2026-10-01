@@ -47,6 +47,10 @@ from typing import Any
 
 from core.composition.plc_function_base import FunctionBase
 from core.helpers.tia import dispatch_async
+from core.helpers.tia.validate_plc_in_tia import validate_plc_in_tia
+from core.helpers.tia.validate_plc_in_excel import validate_plc_in_excel
+from core.helpers.tia.with_plc import with_plc
+from core.helpers.tia.active_cache import get_devices, get_nmax
 from core.runtime.app_state import AppState, get_app_state
 from areas.alimentacion.helpers.layout.build_cache import DEFAULT_BUILD_CACHE_ROOT
 
@@ -148,6 +152,13 @@ class FunctionDispGenerarPreview(FunctionBase):
                 "FunctionDispGenerarPreview.start(plc_name=...) es obligatorio"
             )
         self._plc_name = str(plc_name)
+
+        # Validar contra TIA Portal (fail-late, PR5 D4/D11).
+        validate_plc_in_tia(self._tia_client, self._plc_name)
+        # Validar contra el Excel cargado (sept-2026 multi-PLC).
+        validate_plc_in_excel(self._state, self._plc_name)
+        # Propagar al AppState (defensa redundante con el endpoint).
+        with_plc(self._state, self._plc_name)
 
         # Crear el DispPreviewContext que las 4 funciones iran mutando.
         # Lazy import para evitar ciclo con helpers/sync/.
@@ -351,7 +362,7 @@ class FunctionDispGenerarPreview(FunctionBase):
                     continue
                 table_name = cfg.tag_table
                 xml_path = self._ctx.tags_base / f"{table_name}.xml"
-                devices = self._ctx.app_state.get_devices(hw)
+                devices = get_devices(self._ctx.app_state, hw)
                 diff = compute_diff_table(
                     table_name=table_name,
                     desired_devices=devices,
@@ -393,13 +404,8 @@ class FunctionDispGenerarPreview(FunctionBase):
             compute_nmax_diff,
         )
 
-        # ``DimensionesDispositivos.to_api_dict()`` ya entrega nombres
-        # canonicos de TIA (``N_MAX_DISP_*``).
-        dimensiones = self._ctx.app_state.dimensiones
-        if hasattr(dimensiones, "to_api_dict"):
-            desired_nmax = dimensiones.to_api_dict()
-        else:
-            desired_nmax = dict(dimensiones or {})
+        # Multi-PLC: N_MAX del PLC activo (ya filtrado en cache_active).
+        desired_nmax = get_nmax(self._ctx.app_state)
 
         nmax_table_name = self._ctx.config_manager.get_global_config_table_name()
         xml_path = self._ctx.preview_config_dir / f"{nmax_table_name}.xml"

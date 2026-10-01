@@ -113,6 +113,10 @@ class AlarmasParser:
             # ``"null"`` a ``""``.
             if _safe_str(row.get("UID")) == "":
                 continue
+            plc_name = _safe_str(row.get("PLC"))
+            if not plc_name:
+                logger.warning("Fila sin PLC en %s: descartada", self.TABLE)
+                continue
             try:
                 result.append(
                     DataAlarmaPLC(
@@ -122,6 +126,7 @@ class AlarmasParser:
                         num_db=_safe_int(row.get("Num.DB")),
                         descripcion=_safe_str(row.get("Descripcion")),
                         comentario_db=_safe_str(row.get("ComentarioDB")),
+                        plc_name=plc_name,
                     )
                 )
             except Exception as exc:  # defensivo: nunca romper la tabla

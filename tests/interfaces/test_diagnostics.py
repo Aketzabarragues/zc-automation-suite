@@ -15,9 +15,9 @@ from core.web_server.app_flask import create_app
 @pytest.fixture
 def app_with_stubs():
     app_state = MagicMock()
-    app_state.dimensiones = None
-    app_state.get_devices.return_value = []
-    app_state.excel_cache = None
+    app_state.excel_cache_full = None
+    app_state.excel_cache_active = None
+    app_state.selected_plc = ""
 
     config_manager = MagicMock()
     config_manager.list_hw_types_active.return_value = []
@@ -70,9 +70,6 @@ def test_state_dispositivos_iterates_active_hw_types(app_with_stubs):
         "ed": {"canonical": "DispED"},
         "ea": {"canonical": "DispEA"},
     }.get(hw)
-
-    state = stubs["app_state"]
-    state.get_devices.return_value = []
 
     resp = c.get("/api/v1/state/dispositivos")
     data = resp.get_json()

@@ -1,16 +1,14 @@
 ﻿"""Helpers puros de la carga del Excel corporativo (FB subir_excel).
 
-Extraido del use case legacy ``application/use_cases/upload_excel.py`` para que el FB ``FunctionExcelCargar``
-quede con la state machine sola y delegue la logica aqui.
-
 Funciones puras (sin estado, sin tracker, sin AppState):
   - ``parse_excel_to_cache``: lee el ``.xlsx`` y guarda el resultado
     en el ``ExcelCacheManager`` global.
   - ``dump_cache_to_state``: volca el cache al ``AppState`` y devuelve
     el ``summary`` con la shape legacy.
 
-El FB orquesta las 2 funciones en 2 steps (``parsear_excel`` /
-``volcar_appstate``) y emite los progress events via el ``tracker``.
+El FB ``FunctionExcelCargar`` orquesta las 2 funciones en 2 steps
+(``parsear_excel`` / ``volcar_appstate``) y emite los progress events
+via el ``tracker``.
 """
 from __future__ import annotations
 
@@ -76,14 +74,17 @@ def dump_cache_to_state(
                 "dimensiones": <api_dict de n_max>,
             }
     """
-    # Back-compat con la SPA: poblar ``state.dispositivos_<hw>`` desde
-    # ``cache.dispositivos`` (la SPA espera ``list``, no ``tuple``).
-    for hw, devices_tuple in cache.dispositivos.items():
-        app_state.set_devices(hw, list(devices_tuple))
-    app_state.dimensiones = cache.n_max
-    # El cache vive en el area de alimentacion, pero AppState lo expone
-    # como placeholder ``Any`` (ver ``state.py``).
-    app_state.excel_cache = cache
+    # Cache COMPLETO (datos UI / "definicion programacion"). Siempre
+    # sin filtrar; lo consume el endpoint ``/api/v1/state/dispositivos``
+    # para mostrar TODO el Excel al operario.
+    app_state.excel_cache_full = cache
+    # Cache FILTRADO por selected_plc (datos que consumen los FB). Si
+    # selected_plc == "" es identico al completo. Se regenera tambien
+    # en cada ``with_plc()`` cuando cambia la seleccion.
+    from core.runtime.filter_excel_cache import filter_cache_by_plc
+    app_state.excel_cache_active = filter_cache_by_plc(
+        cache, app_state.selected_plc
+    )
     app_state.excel_path = cache.excel_path
 
     # Summary con la shape legacy: ``{tipo_canonica: count}``.

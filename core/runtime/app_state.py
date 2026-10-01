@@ -4,110 +4,65 @@ Single-tenant: asume un unico usuario departamental concurrente. Si
 se requiere multi-tenancy, sustituir este Singleton por un contexto
 por sesion / usuario.
 
-Diseno extensible:
-  - ``AppState`` es TRANSVERSAL: no sabe de areas concretas. Mantiene
-    un ``_dispositivos: dict[str, list[Any]]`` indexado por ``hw_type``.
-  - Las areas aportan propiedades adicionales (back-compat) via
-    ``AreaSpec.contributes_state_extensions``. El area "alimentacion"
-    instala ``dispositivos_ed/ea/sa/v/m/m_vf`` como sugar que delegan
-    a ``get_devices`` / ``set_devices``.
-  - API data-driven: ``get_devices``, ``set_devices``, ``list_hw_types``,
-    ``all_devices``, ``reset``, ``__iter__``, ``__contains__``.
-
-``get_app_state()`` itera el ``AreaRegistry`` y, para cada spec con
-``contributes_state_extensions``, invoca el callable pasando la instancia
-Singleton.
+Multi-PLC (sept-2026): el estado es minimo. Solo expone los caches
+del Excel (completo y filtrado por PLC) y el PLC activo. Los FB y
+routers leen de ahi directamente. No hay API data-driven sobre
+``_dispositivos``: el contrato es "cache del Excel cargado, leo de
+alli". Antes existia un API ``set_devices``/``get_devices`` con un
+dict ``_dispositivos`` interno que duplicaba los datos del cache;
+se elimino en esta limpieza (sept-2026) por ser codigo muerto y
+back-compat no deseado.
 """
 from __future__ import annotations
 
 from threading import Lock
-from typing import Any, Iterator
+from typing import Any
 
 
 class AppState:
-    """Estado global generico (data-driven), no ligado a alimentacion.
-
-    Mantiene las listas de dispositivos indexadas por ``hw_type`` y se
-    expone via ``get_app_state()`` (Singleton thread-safe).
-
-    Las listas son mutables para admitir actualizaciones del operario,
-    pero los dispositivos individuales son ``frozen=True``: para
-    "modificar" uno se crea uno nuevo y se sustituye en la lista.
+    """Estado global minimo: caches del Excel + PLC activo.
 
     Attributes:
-        dimensiones: dict[str, Any] con default ``{}``. N_MAX
-            (dimensiones de los PlcUserConstant de la tabla de
-            configuracion). Se rellena tras un upload de Excel.
-            ``{}`` = "el operario aun no ha subido Excel" = preview sin
-            cambios N_MAX (renderiza vacio, no explota).
-        excel_cache: Any con default ``None``. Cache IT del Excel.
-            Anotado ``Any`` para no importar el area desde ``core/``.
-            Lo puebla ``POST /api/v1/excel/upload`` tras un load OK.
-        excel_path: str | None. Ruta absoluta del Excel cacheado,
-            o ``None`` si no hay ninguno. Sirve para invalidacion por
+        excel_path: str | None. Ruta absoluta del Excel cacheado, o
+            ``None`` si no hay ninguno. Sirve para invalidacion por
             mtime sin re-leer el cache.
+        excel_cache_full: DataExcelCache o ``None``. Cache COMPLETO
+            del Excel (datos UI / "definicion programacion"). Nunca
+            filtrado; nunca mutado. Lo puebla ``dump_cache_to_state``.
+        excel_cache_active: DataExcelCache o ``None``. Cache FILTRADO
+            por ``selected_plc`` (datos que consumen los FB). Se
+            regenera en cada ``with_plc`` cuando cambia la seleccion.
+            Si ``selected_plc == ""`` es identico a ``excel_cache_full``.
+        selected_plc: str. Nombre del PLC activo (multi-PLC). Lo
+            setea ``with_plc`` cuando el endpoint recibe el plc_name
+            del body. ``""`` = "sin filtro" = el cache activo es
+            igual al completo.
     """
 
+    # Class-attribute defaults. Sirven para que ``MagicMock(spec=AppState)``
+    # los exponga (spec= solo ve atributos declarados en la clase, no los
+    # asignados en __init__). ``__init__`` los reasigna para que cada
+    # instancia tenga su propio slot (no se comparta el class-attribute).
+    excel_path: str | None = None
+    excel_cache_full: Any = None
+    excel_cache_active: Any = None
+    selected_plc: str = ""
+
     def __init__(self) -> None:
-        # Storage generico (data-driven): unica fuente de verdad.
-        self._dispositivos: dict[str, list[Any]] = {}
-        self.dimensiones: dict[str, Any] = {}
-        self.excel_cache: Any = None
-        self.excel_path: str | None = None
-
-    # -- API data-driven (publico, no ligado a alimentacion) -------
-
-    def reset(self) -> None:
-        """Vacia todas las listas (util para tests)."""
-        for hw in list(self._dispositivos.keys()):
-            self.set_devices(hw, [])
-
-    def get_devices(self, hw_type: str) -> list[Any]:
-        """Devuelve la lista de dispositivos de ``hw_type``.
-
-        Lista vacia si el tipo aun no tiene entradas.
-        """
-        return self._dispositivos.get(hw_type, [])
-
-    def set_devices(
-        self, hw_type: str, devices: list[Any]
-    ) -> None:
-        """Sustituye la lista de dispositivos de ``hw_type``.
-
-        Las areas que aportan ``contributes_state_extensions``
-        instalan ``state.dispositivos_<hw>`` como sugar que delegan
-        a ``get_devices`` / ``set_devices``.
-        """
-        self._dispositivos[hw_type] = list(devices)
-
-    def list_hw_types(self) -> list[str]:
-        """Devuelve los hw_types que tienen al menos un dispositivo cargado."""
-        return [hw for hw, lst in self._dispositivos.items() if lst]
-
-    def all_devices(self) -> list[Any]:
-        """Aplana todas las listas en una unica lista heterogenea."""
-        out: list[Any] = []
-        for lst in self._dispositivos.values():
-            out.extend(lst)
-        return out
-
-    def __iter__(self) -> Iterator[tuple[str, list[Any]]]:
-        """Permite iterar ``for hw, devices in state: ...``."""
-        return iter(self._dispositivos.items())
-
-    def __contains__(self, hw_type: str) -> bool:
-        return hw_type in self._dispositivos
-
-    # -- Magic para inspeccion / debugging --------------------------
+        # Reasignar para tener slots de instancia independientes.
+        self.excel_path = None
+        self.excel_cache_full = None
+        self.excel_cache_active = None
+        self.selected_plc = ""
 
     def __repr__(self) -> str:
-        counts = {
-            hw: len(lst) for hw, lst in self._dispositivos.items() if lst
-        }
-        return f"AppState(dispositivos={counts})"
+        return (
+            f"AppState(selected_plc={self.selected_plc!r}, "
+            f"excel_loaded={self.excel_cache_full is not None})"
+        )
 
 
-# -- Singleton thread-safe (inicializacion perezosa) ---------------------
+# -- Singleton thread-safe (inicializacion perezosa) --------------------
 
 
 _state: AppState | None = None
@@ -115,24 +70,12 @@ _state_lock: Lock = Lock()
 
 
 def get_app_state() -> AppState:
-    """Devuelve la instancia Singleton de ``AppState`` (thread-safe).
-
-    Tras crear el Singleton, invoca el ``contributes_state_extensions``
-    de cada area registrada para que pueda aportar properties legacy
-    sobre la CLASE ``AppState`` (con efecto en todas las instancias
-    presentes y futuras). El hook se ejecuta una sola vez por proceso:
-    instalarlo en cada llamada seria redundante y gastaria un ``setattr``
-    por acceso.
-    """
+    """Devuelve la instancia Singleton de ``AppState`` (thread-safe)."""
     global _state
     if _state is None:
         with _state_lock:
             if _state is None:
                 _state = AppState()
-                from core.composition.app_area_registry import AreaRegistry
-                for spec in AreaRegistry.discover().all():
-                    if spec.contributes_state_extensions is not None:
-                        spec.contributes_state_extensions(_state)
     return _state
 
 

@@ -81,6 +81,10 @@ class DispEDParser:
             # Política legacy: descartar filas sin UID ni Numero.
             if not _safe_str(row.get("UID")) and not _safe_str(row.get("Numero")):
                 continue
+            plc_name = _safe_str(row.get("PLC"))
+            if not plc_name:
+                logger.warning("Fila sin PLC en %s: descartada", self.TABLE)
+                continue
             try:
                 result.append(
                     DispED(
@@ -105,6 +109,7 @@ class DispEDParser:
                         cfg_bit_entrada=_safe_str(row.get("Cfg.BitEntrada")),
                         cfg_grupo_alarma=_safe_str(row.get("Cfg.GrupoAlarma")),
                         comentario_db=_safe_str(row.get("ComentarioDB")),
+                        plc_name=plc_name,
                     )
                 )
             except Exception as exc:  # defensivo: nunca romper la tabla

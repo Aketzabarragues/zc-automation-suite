@@ -1,9 +1,10 @@
 """Tests del FB ``FunctionExcelCargar``.
 
-Fase 2, pasos 2.1.1 + 2.1.2.  Cubren:
-  - Happy path: 3 ticks avanzan 10→20→30→99 (``n_done``), ``self.result``
-    con la shape legacy, AppState populado, cache ``put()`` llamado,
-    log de éxito emitido, progress stages completos.
+Cubren:
+  - Happy path: 4 ticks avanzan 10→20→95→99 (``n_done``),
+    ``self.result`` con la shape multi-PLC, AppState con
+    ``excel_cache_full`` y ``excel_cache_active`` poblados,
+    cache ``put()`` llamado.
   - Sad path 1: sin ``config_manager`` → nStep=98 (``n_error``) con
     ``error_msg`` mencionando "config_manager".
   - Sad path 2: el loader lanza ``ValueError`` (xlsx corrupto) →
@@ -37,7 +38,14 @@ def mock_config() -> MagicMock:
 
 @pytest.fixture
 def mock_state() -> MagicMock:
-    return MagicMock(spec=AppState)
+    state = MagicMock(spec=AppState)
+    # ``MagicMock(spec=)`` no respeta los class-attribute defaults:
+    # expone atributos que son MagicMock (truthy) en lugar de ``""``.
+    # Seteamos ``selected_plc = ""`` para que ``filter_cache_by_plc``
+    # entre en la rama "sin filtro" y no intente ``dataclasses.replace``
+    # sobre el cache (que es MagicMock, no dataclass).
+    state.selected_plc = ""
+    return state
 
 
 @pytest.fixture
@@ -203,16 +211,11 @@ async def test_subir_excel_happy_path_3_ticks(
     finally:
         excel_cache_manager.ExcelCacheManager._cache = original_cache
 
-    # AppState populado con la shape legacy (list de device-tuples).
-    # ``cache.dispositivos[hw]`` es un tuple de devices, cada device
-    # es un tuple de campos (tag, type, hw_type, ...).  El FB hace
-    # ``list(devices_tuple)`` para la SPA.
-    mock_state.set_devices.assert_called_once_with(
-        "disp_ed", [("dev1",), ("dev2",)]
-    )
-    assert mock_state.dimensiones == fake_cache.n_max
-    assert mock_state.excel_cache == fake_cache
+    # AppState: cache completo y activo seteados desde el fake_cache.
+    # Sin selected_plc previo, active == full.
     assert mock_state.excel_path == "/fake/path.xlsx"
+    assert mock_state.excel_cache_full is fake_cache
+    assert mock_state.excel_cache_active is fake_cache
 
 
 @pytest.mark.asyncio
