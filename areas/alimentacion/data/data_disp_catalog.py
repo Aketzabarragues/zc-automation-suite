@@ -256,14 +256,63 @@ def build_catalog(cm: ConfigManager) -> dict[str, Any]:
           "col_labels":      {col_name: "Label humano", ...},
           "mono_cols":       ["uid", "plc_tag", ...]
         }
+
+    Si ``cm`` aporta un override de ``display_order`` para disp
+    (ver ``ConfigManager.get_disp_display_order_override``), se
+    aplica por canonical. Override por canonical = reemplazo
+    completo de la lista (visibilidad explicita por ausencia,
+    mismo contrato que ``proc_catalog.display_order``).
     """
+    model_columns = get_model_columns_map()
+    if cm is not None:
+        override = _get_disp_override(cm)
+        if override:
+            model_columns = {**model_columns, **override}
     return {
         "device_tabs":   build_device_tabs(cm),
         "nmax":          build_nmax_view(cm),
-        "model_columns": get_model_columns_map(),
+        "model_columns": model_columns,
         "col_labels":    dict(COLUMN_LABELS),
         "mono_cols":     sorted(MONO_COLUMNS),
     }
+
+
+def _get_disp_override(cm: ConfigManager) -> dict[str, list[str]]:
+    """Lee y valida el override de ``display_order`` para disp.
+
+    Devuelve ``{canonical: [col, ...]}`` solo con entradas validas.
+    Canonical desconocido o columnas inexistentes se descartan con
+    warning. Si TODAS las columnas de un canonical son invalidas,
+    ese canonical cae al default (``get_columns_for(canonical)``).
+    """
+    raw = cm.get_disp_display_order_override()
+    if not raw or not isinstance(raw, dict):
+        return {}
+    out: dict[str, list[str]] = {}
+    for canonical, cols in raw.items():
+        if canonical not in _CANONICAL_TO_CLASS:
+            import logging
+            logging.getLogger(__name__).warning(
+                "disp_display_order override: canonical '%s' desconocido; "
+                "se ignora. Canonicals validos: %s",
+                canonical, sorted(_CANONICAL_TO_CLASS),
+            )
+            continue
+        if not isinstance(cols, list):
+            continue
+        campos_validos_set = set(get_columns_for(canonical))
+        cols_validos = [c for c in cols if isinstance(c, str) and c in campos_validos_set]
+        descartados = [c for c in cols if c not in campos_validos_set]
+        if descartados:
+            import logging
+            logging.getLogger(__name__).warning(
+                "disp_display_order override: canonical '%s' ignora columnas "
+                "desconocidas %s (campos validos: %s)",
+                canonical, descartados, sorted(campos_validos_set),
+            )
+        if cols_validos:
+            out[canonical] = cols_validos
+    return out
 
 
 # ── Helpers puros ────────────────────────────────────────────────────
