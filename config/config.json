@@ -173,6 +173,29 @@
           "alm": "ALM",
           "alm_hmi": "ALM_HMI"
         }
+      },
+      "disp_catalog": {
+        "_comment_display_order": "Override data-driven de las columnas visibles en el panel de dispositivos. Override por canonical = reemplazo completo (visibilidad explicita por ausencia: las columnas que omitas no aparecen). Sin override, el backend usa el default (TODOS los campos visibles del DTO). Para volver al default, borra todo este bloque ``disp_catalog``. Si en el futuro se añade un campo nuevo al DTO y quieres seguir viendolo, añadelo aqui tambien.",
+        "display_order": {
+          "DispED":     ["numero", "plc_tag", "plc_comentario", "descripcion", "uid", "tag", "fat", "e_byte", "e_bit", "gr_alarma", "cuadro", "observaciones", "plc_tipo", "plc_index", "hmi_index", "hmi_texto", "comentario_db", "plc_name"],
+          "DispEA":     ["numero", "plc_tag", "plc_comentario", "descripcion", "uid", "tag", "fat", "e_byte", "unidades", "rii", "rsi", "gr_alarma", "cuadro", "observaciones", "plc_tipo", "plc_index", "hmi_index", "hmi_texto", "comentario_db", "plc_name"],
+          "DispSA":     ["numero", "plc_tag", "plc_comentario", "descripcion", "uid", "tag", "fat", "e_byte", "unidades", "rii", "rsi", "gr_alarma", "cuadro", "observaciones", "plc_tipo", "plc_index", "hmi_index", "hmi_texto", "comentario_db", "plc_name"],
+          "DispV":      ["numero", "plc_tag", "plc_comentario", "descripcion", "uid", "tag", "fat", "s_byte", "s_bit", "rr_byte", "rr_bit", "rt_byte", "rt_bit", "gr_alarma", "cuadro", "observaciones", "plc_tipo", "plc_index", "hmi_index", "hmi_texto", "comentario_db", "plc_name"],
+          "DispM":      ["numero", "plc_tag", "plc_comentario", "descripcion", "uid", "tag", "fat", "s_byte", "s_bit", "rt_byte", "rt_bit", "rm_byte", "rm_bit", "gr_alarma", "cuadro", "observaciones", "plc_tipo", "plc_index", "hmi_index", "hmi_texto", "comentario_db", "plc_name"],
+          "DispM_VF":   ["numero", "plc_tag", "plc_comentario", "descripcion", "uid", "tag", "fat", "s_byte", "s_bit", "rt_byte", "rt_bit", "rm_byte", "rm_bit", "gr_alarma", "cuadro", "observaciones", "plc_tipo", "plc_index", "hmi_index", "hmi_texto", "comentario_db", "sa_byte", "plc_name"],
+          "DispM_SINA": ["numero", "plc_tag", "plc_comentario", "descripcion", "uid", "tag", "fat", "rt_byte", "rt_bit", "vel_min", "vel_max", "cons_k", "gr_alarma", "cuadro", "observaciones", "plc_tipo", "plc_index", "hmi_index", "hmi_texto", "comentario_db", "plc_name"],
+          "DispTOT":    ["numero", "plc_tag", "plc_comentario", "descripcion", "uid", "tag", "fat", "tipo", "e_byte", "e_bit", "incxpulso", "gr_alarma", "proceso", "observaciones", "plc_tipo", "plc_index", "hmi_index", "hmi_texto", "comentario_db", "plc_name"],
+          "DispPID":    ["numero", "plc_tag", "plc_comentario", "descripcion", "uid", "tag", "fat", "proceso", "pv", "disp_tipo", "disp_tag", "observaciones", "plc_tipo", "plc_index", "hmi_index", "hmi_texto", "comentario_db", "plc_name"]
+        }
+      },
+      "proc_catalog": {
+        "_comment_display_order": "Override data-driven de las columnas visibles en el panel de software (Procesos / PInt / PReal / Alarmas). Misma politica que ``disp_catalog.display_order``: override por dominio = reemplazo completo (visibilidad explicita por ausencia). Sin override, el backend usa el default ``DISPLAY_ORDER`` de ``data_proc_catalog``. Para volver al default, borra todo este bloque ``proc_catalog``.",
+        "display_order": {
+          "procesos":        ["uid", "codigo", "nombre", "preal", "pint", "alarmas", "alm_hmi"],
+          "parametros_int":  ["uid", "numero", "codigo", "num_db", "num_lista", "txt_lista", "descripcion"],
+          "parametros_real": ["uid", "numero", "codigo", "num_db", "num_lista", "txt_lista", "descripcion"],
+          "alarmas":         ["uid", "numero", "proceso", "num_db", "descripcion", "comentario_db"]
+        }
       }
     }
   }
