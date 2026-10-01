@@ -19,6 +19,21 @@ para activar la plantilla + FBs migrados.
 from __future__ import annotations
 
 from areas.alimentacion.data.data_disp_catalog import build_catalog as build_alim_catalog
+from areas.alimentacion.data.data_proc_catalog import build_software_catalog
+
+
+def _build_alim_catalog_combined(config_manager):
+    """Fusiona catalog de dispositivos y de software para el endpoint ``/api/v1/catalog``.
+
+    Las claves del catalog de disp (``device_tabs``, ``nmax``,
+    ``model_columns``, ``col_labels``, ``mono_cols``) viven en el
+    top-level. Las del catalog de software se prefijan con ``proc_``
+    (``proc_model_columns``, etc.) para no colisionar.
+    """
+    return {
+        **build_alim_catalog(config_manager),
+        **build_software_catalog(config_manager),
+    }
 from areas.alimentacion.frontend.dispositivos_router import (
     build_routers as build_dispositivos_routers,
 )
@@ -76,7 +91,7 @@ AREA_SPEC = AreaSpec(
     config_block="alimentacion",
     contributes_routers=_build_all_routers,
     contributes_config_defaults=install_defaults,
-    contributes_catalog=build_alim_catalog,
+    contributes_catalog=_build_alim_catalog_combined,
     contributes_frontend_manifest=build_manifest,
 )
 
