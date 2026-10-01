@@ -180,9 +180,26 @@ def build_proc_catalog() -> dict:
     }
 
 
+def build_software_catalog() -> dict:
+    """Wrapper con prefijo ``proc_`` para fusionar con el catalog de disp.
+
+    El endpoint ``GET /api/v1/catalog`` hace flat merge de las areas,
+    por lo que las claves del catalog de disp y del de software no
+    pueden colisionar. Se prefijan con ``proc_``.
+    """
+    raw = build_proc_catalog()
+    return {
+        "proc_model_columns": raw["model_columns"],
+        "proc_col_labels":    raw["col_labels"],
+        "proc_mono_cols":     raw["mono_cols"],
+        "proc_display_order": raw["display_order"],
+    }
+
+
 __all__ = [
     "DataProcCatalog",
     "build_proc_catalog",
+    "build_software_catalog",
     "get_columns_for",
     "get_model_columns_map",
     "COLUMN_LABELS",

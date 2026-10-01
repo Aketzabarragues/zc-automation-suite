@@ -107,3 +107,41 @@ def test_get_catalog_later_area_overrides_earlier_key():
         assert data["catalog"]["nmax"] == [{"name": "SECOND"}]
     finally:
         _restore(ar_mod, original)
+
+
+def test_get_catalog_expone_claves_proc_para_software():
+    """El area ``alimentacion`` aporta ademas las 4 claves ``proc_*``
+    (catalog de software: procesos / parametros_int / parametros_real /
+    alarmas). El endpoint las fusiona en el top-level del payload.
+    """
+    from areas.alimentacion import _build_alim_catalog_combined
+
+    registry = MagicMock()
+    spec_alim = MagicMock()
+    spec_alim.contributes_catalog = _build_alim_catalog_combined
+    registry.all.return_value = [spec_alim]
+
+    cm = MagicMock()
+    client, ar_mod, original = _app_with_registry(registry, config_manager=cm)
+    try:
+        resp = client.get("/api/v1/catalog")
+        data = resp.get_json()
+        assert resp.status_code == 200
+        catalog = data["catalog"]
+        # 4 claves nuevas del catalog de software.
+        for key in (
+            "proc_model_columns",
+            "proc_col_labels",
+            "proc_mono_cols",
+            "proc_display_order",
+        ):
+            assert key in catalog, f"falta {key}"
+        # Las 4 cubren los 4 dominios canonicos.
+        assert set(catalog["proc_model_columns"].keys()) == {
+            "procesos", "parametros_int", "parametros_real", "alarmas",
+        }
+        assert set(catalog["proc_display_order"].keys()) == {
+            "procesos", "parametros_int", "parametros_real", "alarmas",
+        }
+    finally:
+        _restore(ar_mod, original)

@@ -30,6 +30,7 @@ from areas.alimentacion.data.data_proc_catalog import (
     MONO_COLUMNS,
     DataProcCatalog,
     build_proc_catalog,
+    build_software_catalog,
     get_columns_for,
     get_model_columns_map,
 )
@@ -155,3 +156,30 @@ def test_display_order_alarmas_replica_la_tabla_actual() -> None:
     assert DISPLAY_ORDER["alarmas"] == [
         "uid", "numero", "proceso", "num_db", "descripcion", "comentario_db",
     ]
+
+
+def test_build_software_catalog_prefija_con_proc() -> None:
+    """``build_software_catalog`` expone las 4 claves con prefijo ``proc_``."""
+    payload = build_software_catalog()
+    assert set(payload.keys()) == {
+        "proc_model_columns",
+        "proc_col_labels",
+        "proc_mono_cols",
+        "proc_display_order",
+    }
+
+
+def test_build_software_catalog_contiene_los_mismos_datos_que_build_proc_catalog() -> None:
+    """Las claves ``proc_*`` envuelven el output de ``build_proc_catalog`` sin alterarlo."""
+    raw = build_proc_catalog()
+    pref = build_software_catalog()
+    assert pref["proc_model_columns"] == raw["model_columns"]
+    assert pref["proc_col_labels"]    == raw["col_labels"]
+    assert pref["proc_mono_cols"]     == raw["mono_cols"]
+    assert pref["proc_display_order"] == raw["display_order"]
+
+
+def test_build_software_catalog_serializable_a_json() -> None:
+    """``json.dumps(build_software_catalog())`` no levanta."""
+    import json
+    json.dumps(build_software_catalog())
