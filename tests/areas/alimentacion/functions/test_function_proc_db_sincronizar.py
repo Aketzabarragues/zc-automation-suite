@@ -120,12 +120,47 @@ def make_fb(
     )
 
 
-def _patch_helper_fns(fb) -> ExitStack:
-    """Parchea todas las funciones del helper como no-op.
+def _patch_helper_fns_except_stage_3(fb) -> ExitStack:
+    """Parchea todos los stages MENOS ``_stage_3_build_slot_maps_commit``.
 
-    El test puede sobre-escribir ``_stage_9_build_response`` con su
-    propio side_effect despues de entrar al contexto.
+    Usado por los tests del stage 3 que quieren ejecutar el codigo
+    real del stage (con ``proc_build_slot_maps`` mockeado).
     """
+    stack = ExitStack()
+    stack.enter_context(
+        patch(
+            "areas.alimentacion.functions.function_proc_db_sincronizar"
+            ".with_plc"
+        )
+    )
+    stack.enter_context(
+        patch.object(fb, "_stage_1_check_state_commit", MagicMock(), create=True)
+    )
+    stack.enter_context(
+        patch.object(fb, "_stage_2_check_blocks_commit", MagicMock(), create=True)
+    )
+    stack.enter_context(
+        patch.object(fb, "_stage_4_sync_nmax", AsyncMock(), create=True)
+    )
+    stack.enter_context(
+        patch.object(fb, "_stage_5_wait_consolidation", AsyncMock(), create=True)
+    )
+    stack.enter_context(
+        patch.object(fb, "_stage_6_compile_proc_blocks", AsyncMock(), create=True)
+    )
+    stack.enter_context(
+        patch.object(fb, "_stage_7_open_transaction", AsyncMock(), create=True)
+    )
+    stack.enter_context(
+        patch.object(fb, "_stage_8_post_preview", AsyncMock(), create=True)
+    )
+    stack.enter_context(
+        patch.object(fb, "_stage_9_build_response", MagicMock(), create=True)
+    )
+    return stack
+
+
+def _patch_helper_fns(fb) -> ExitStack:
     stack = ExitStack()
     # ``with_plc`` requiere ``state.excel_cache_full`` real (dataclass
     # frozen). En estos tests mockeamos el state entero (MagicMock),
@@ -532,3 +567,343 @@ async def test_proc_sincronizar_terminal_no_avanza_mas(
 
     await fb.tick()
     assert fb.nStep == n_step_before
+
+
+# ── 3 escenarios en stage 3 (politica table_present / db_missing) ──
+
+
+def _make_slot_map(
+    table_present: bool,
+    db_param_name: str = "DB3000_CPR_PARAM",
+    db_alm_name: str = "DB3001_CPR_ALM",
+    table_name: str = "100_CPR",
+    db_missing: list[str] | None = None,
+) -> MagicMock:
+    sm = MagicMock()
+    sm.table_present = table_present
+    sm.db_param_name = db_param_name
+    sm.db_alm_name = db_alm_name
+    sm.table_name = table_name
+    sm.db_missing = list(db_missing) if db_missing is not None else []
+    sm.warnings = []
+    return sm
+
+
+@pytest.mark.asyncio
+async def test_stage_3_aborta_si_tabla_ausente(
+    mock_config: MagicMock,
+    mock_tia_client: MagicMock,
+    patch_validate_plc_in_excel: MagicMock,
+    mock_app_state: MagicMock,
+    mock_bloques_cache: MagicMock,
+    progress: ProgressTracker,
+) -> None:
+    """``table_present=False`` -> stage 3 aborta con RuntimeError claro.
+
+    Estrategia: parchear ``proc_build_slot_maps`` en su modulo de
+    origen para que retorne un slot_map con ``table_present=False``.
+    El stage 3 corre entero y aborta con su mensaje accionable.
+    """
+    fake_sm = _make_slot_map(table_present=False)
+
+    fb = make_fb(
+        mock_config, mock_tia_client, mock_app_state,
+        mock_bloques_cache, progress,
+    )
+    with _patch_helper_fns_except_stage_3(fb), patch(
+        "areas.alimentacion.data.data_proc_slot_map.proc_build_slot_maps",
+        return_value=fake_sm,
+    ):
+        await fb.start(plc_name="S7-1500", proc_uid=42)
+        await fb.tick()  # 10 -> 20
+        await fb.tick()  # 20: check_state_commit
+        await fb.tick()  # 20: check_blocks_commit
+        await fb.tick()  # 20 -> 98 (stage_3 aborta con tabla_missing)
+
+    assert fb.nStep == fb.n_error
+    assert fb.error_msg is not None
+    assert "Tabla de variables" in fb.error_msg
+    assert "100_CPR" in fb.error_msg
+
+
+@pytest.mark.asyncio
+async def test_stage_3_aborta_si_ambos_dbs_ausentes(
+    mock_config: MagicMock,
+    mock_tia_client: MagicMock,
+    patch_validate_plc_in_excel: MagicMock,
+    mock_app_state: MagicMock,
+    mock_bloques_cache: MagicMock,
+    progress: ProgressTracker,
+) -> None:
+    """Tabla presente + ambos DBs ausentes -> stage 3 aborta con
+    RuntimeError claro."""
+    fake_sm = _make_slot_map(
+        table_present=True,
+        db_missing=["DB3000_CPR_PARAM", "DB3001_CPR_ALM"],
+    )
+
+    fb = make_fb(
+        mock_config, mock_tia_client, mock_app_state,
+        mock_bloques_cache, progress,
+    )
+    with _patch_helper_fns_except_stage_3(fb), patch(
+        "areas.alimentacion.data.data_proc_slot_map.proc_build_slot_maps",
+        return_value=fake_sm,
+    ):
+        await fb.start(plc_name="S7-1500", proc_uid=42)
+        await fb.tick()  # 10 -> 20
+        await fb.tick()  # 20: check_state_commit
+        await fb.tick()  # 20: check_blocks_commit
+        await fb.tick()  # 20 -> 98 (stage_3 aborta con 0 dbs)
+
+    assert fb.nStep == fb.n_error
+    assert fb.error_msg is not None
+    assert "no hay nada que aplicar" in fb.error_msg
+    assert "DB3000_CPR_PARAM" in fb.error_msg
+    assert "DB3001_CPR_ALM" in fb.error_msg
+
+
+@pytest.mark.asyncio
+async def test_stage_3_sigue_con_un_db_ausente_y_avisa(
+    mock_config: MagicMock,
+    mock_tia_client: MagicMock,
+    patch_validate_plc_in_excel: MagicMock,
+    mock_app_state: MagicMock,
+    mock_bloques_cache: MagicMock,
+    progress: ProgressTracker,
+) -> None:
+    """Tabla + DB_PARAM presentes, DB_ALM ausente: stage 3 NO aborta
+    y añade el warning del DB omitido a ``slot_map.warnings``."""
+    fake_sm = _make_slot_map(
+        table_present=True,
+        db_missing=["DB3001_CPR_ALM"],
+    )
+
+    fb = make_fb(
+        mock_config, mock_tia_client, mock_app_state,
+        mock_bloques_cache, progress,
+    )
+    with _patch_helper_fns_except_stage_3(fb), patch(
+        "areas.alimentacion.data.data_proc_slot_map.proc_build_slot_maps",
+        return_value=fake_sm,
+    ), patch.object(
+        fb, "_proc_compute_nmax_ops_inline", MagicMock(), create=True,
+    ):
+        await fb.start(plc_name="S7-1500", proc_uid=42)
+        await fb.tick()  # 10 -> 20
+        await fb.tick()  # 20: check_state_commit
+        await fb.tick()  # 20: check_blocks_commit
+        await fb.tick()  # 20: build_slot_maps_commit (no aborta)
+
+    assert fb.nStep == 20
+    assert fb.error_msg is None
+    assert any(
+        "DB3001_CPR_ALM" in w and "alarmas" in w
+        for w in fake_sm.warnings
+    )
+
+
+# ── Filtrado de DBs ausentes en compile y fase 2 de Tx B ──
+
+
+def test_proc_discover_compile_dbs_omite_db_ausente(
+    mock_config: MagicMock,
+    mock_tia_client: MagicMock,
+    mock_app_state: MagicMock,
+    mock_bloques_cache: MagicMock,
+    progress: ProgressTracker,
+) -> None:
+    """``_proc_discover_compile_dbs_inline`` excluye los DBs en
+    ``slot_map.db_missing``."""
+    fb = make_fb(
+        mock_config, mock_tia_client, mock_app_state,
+        mock_bloques_cache, progress,
+    )
+    fb._ctx = MagicMock()
+    fb._ctx.slot_map = _make_slot_map(
+        table_present=True,
+        db_missing=["DB3001_CPR_ALM"],
+    )
+
+    result = fb._proc_discover_compile_dbs_inline()
+
+    assert result == ["DB3000_CPR_PARAM"]
+
+
+def test_proc_discover_compile_dbs_devuelve_vacio_si_todos_ausentes(
+    mock_config: MagicMock,
+    mock_tia_client: MagicMock,
+    mock_app_state: MagicMock,
+    mock_bloques_cache: MagicMock,
+    progress: ProgressTracker,
+) -> None:
+    """Con ambos DBs ausentes, ``_proc_discover_compile_dbs_inline``
+    retorna ``[]`` (stage 6 marca ``compile_ok=False`` con su
+    mensaje defensivo)."""
+    fb = make_fb(
+        mock_config, mock_tia_client, mock_app_state,
+        mock_bloques_cache, progress,
+    )
+    fb._ctx = MagicMock()
+    fb._ctx.slot_map = _make_slot_map(
+        table_present=True,
+        db_missing=["DB3000_CPR_PARAM", "DB3001_CPR_ALM"],
+    )
+
+    assert fb._proc_discover_compile_dbs_inline() == []
+
+
+@pytest.mark.asyncio
+async def test_proc_tx_b_detectar_eliminar_export_filtra_por_db_missing(
+    progress: ProgressTracker,
+    tmp_path,
+) -> None:
+    """Fase 2 envia solo el export del DB presente y deja
+    ``exports_alm_dir=None`` cuando DB_ALM esta en ``db_missing``.
+
+    ``validate_execute_batch_result`` aborta si una op esperada
+    falla, asi que mockeamos el dispatch para devolver un batch OK
+    con las ops enviadas. El test verifica la shape de las ops.
+    """
+    from areas.alimentacion.functions.function_proc_db_sincronizar import (
+        _proc_tx_b_detectar_eliminar_export,
+        ProcSyncContext,
+    )
+
+    bloques_cache = MagicMock()
+    bloques_cache.plc_name = "S7-1500"
+
+    slot_map = _make_slot_map(
+        table_present=True,
+        db_missing=["DB3001_CPR_ALM"],
+    )
+
+    ctx = ProcSyncContext(
+        plc_name="S7-1500",
+        proc_uid=42,
+        tia_client=MagicMock(),
+        config_manager=MagicMock(),
+        app_state=MagicMock(),
+        build_cache_root=MagicMock(),
+        bloques_cache=bloques_cache,
+    )
+    ctx.slot_map = slot_map
+
+    dispatched_ops: list[dict] = []
+
+    async def fake_dispatch(tia_client, command, args, **kwargs):
+        if command == "execute_batch":
+            for op in args.get("operations", []):
+                dispatched_ops.append(op)
+            return {
+                "result": {
+                    "success": True,
+                    "operations_executed": len(args.get("operations", [])),
+                    "operations_failed": 0,
+                    "details": [
+                        {"step": i + 1, "command": op["command"], "ok": True}
+                        for i, op in enumerate(args.get("operations", []))
+                    ],
+                },
+            }
+        return {"ok": True, "result": {}}
+
+    # ``build_cache`` expone un proceso sync_bloques_export real
+    # (Path) para que el operador ``/`` funcione.
+    sync_export_root = tmp_path / "exports"
+    sync_export_root.mkdir()
+    proc_ctx_mock = MagicMock()
+    proc_ctx_mock.sync_bloques_export = sync_export_root
+
+    with patch(
+        "areas.alimentacion.helpers.layout.build_cache.build_cache",
+        return_value=MagicMock(procesos=proc_ctx_mock),
+    ), patch(
+        "areas.alimentacion.functions.function_proc_db_sincronizar"
+        ".dispatch_async",
+        side_effect=fake_dispatch,
+    ):
+        await _proc_tx_b_detectar_eliminar_export(ctx)
+
+    # Solo 1 op: el export de DB_PARAM. DB_ALM esta en db_missing y
+    # no se envia al worker.
+    assert len(dispatched_ops) == 1
+    assert dispatched_ops[0]["command"] == "export_block"
+    assert (
+        dispatched_ops[0]["args"]["block_name"] == "DB3000_CPR_PARAM"
+    )
+    # ctx.exports_param_dir conserva el path; ctx.exports_alm_dir
+    # queda None (DB_ALM omitido).
+    assert ctx.exports_param_dir is not None
+    assert ctx.exports_alm_dir is None
+
+
+@pytest.mark.asyncio
+async def test_proc_tx_b_detectar_eliminar_export_envuelve_ambos_si_no_falta(
+    progress: ProgressTracker,
+    tmp_path,
+) -> None:
+    """Sin db_missing, la fase 2 envia las 2 ops (DB_PARAM + DB_ALM)
+    y ambos ``exports_*_dir`` quedan con path."""
+    from areas.alimentacion.functions.function_proc_db_sincronizar import (
+        _proc_tx_b_detectar_eliminar_export,
+        ProcSyncContext,
+    )
+
+    bloques_cache = MagicMock()
+    bloques_cache.plc_name = "S7-1500"
+
+    slot_map = _make_slot_map(table_present=True, db_missing=[])
+
+    ctx = ProcSyncContext(
+        plc_name="S7-1500",
+        proc_uid=42,
+        tia_client=MagicMock(),
+        config_manager=MagicMock(),
+        app_state=MagicMock(),
+        build_cache_root=MagicMock(),
+        bloques_cache=bloques_cache,
+    )
+    ctx.slot_map = slot_map
+
+    dispatched_ops: list[dict] = []
+
+    async def fake_dispatch(tia_client, command, args, **kwargs):
+        if command == "execute_batch":
+            for op in args.get("operations", []):
+                dispatched_ops.append(op)
+            return {
+                "result": {
+                    "success": True,
+                    "operations_executed": 2,
+                    "operations_failed": 0,
+                    "details": [
+                        {"step": 1, "command": "export_block", "ok": True},
+                        {"step": 2, "command": "export_block", "ok": True},
+                    ],
+                },
+            }
+        return {"ok": True, "result": {}}
+
+    sync_export_root = tmp_path / "exports"
+    sync_export_root.mkdir()
+    proc_ctx_mock = MagicMock()
+    proc_ctx_mock.sync_bloques_export = sync_export_root
+
+    with patch(
+        "areas.alimentacion.helpers.layout.build_cache.build_cache",
+        return_value=MagicMock(procesos=proc_ctx_mock),
+    ), patch(
+        "areas.alimentacion.functions.function_proc_db_sincronizar"
+        ".dispatch_async",
+        side_effect=fake_dispatch,
+    ):
+        await _proc_tx_b_detectar_eliminar_export(ctx)
+
+    assert len(dispatched_ops) == 2
+    assert {op["args"]["block_name"] for op in dispatched_ops} == {
+        "DB3000_CPR_PARAM",
+        "DB3001_CPR_ALM",
+    }
+    assert ctx.exports_param_dir is not None
+    assert ctx.exports_alm_dir is not None
