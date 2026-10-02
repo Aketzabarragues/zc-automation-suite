@@ -331,10 +331,16 @@ class FunctionProcDBSincronizar(FunctionBase):
     def _stage_3_build_slot_maps_commit(self) -> None:
         """Stage 3: recalcula slot maps + calcula N_MAX ops.
 
-        Si falla (``RuntimeError`` por uid inexistente, PLC sin bloques,
-        etc.), se propaga al FB que aborta. Tras construir slot_maps,
-        calcula ``ctx.nmax_ops`` (necesario para stage 4) y loguea el
-        conteo.
+        Politica de 3 escenarios sobre ``slot_map``:
+          - ``table_present=False``: abort con mensaje claro ("Tabla
+            de variables del proceso no existe en el PLC").
+          - Tabla presente + 0 DBs (``db_param_name`` y ``db_alm_name``
+            ambos en ``db_missing``): abort ("no hay nada que aplicar").
+          - Tabla presente + 1 DB ausente: warning al operario y
+            sigue (Tx B omitira el DB ausente via ``db_missing``).
+
+        Tras la validacion, calcula ``ctx.nmax_ops`` (necesario para
+        stage 4) y loguea el conteo.
         """
         from areas.alimentacion.data.data_proc_slot_map import proc_build_slot_maps
         self._ctx.slot_map = proc_build_slot_maps(
@@ -346,11 +352,38 @@ class FunctionProcDBSincronizar(FunctionBase):
                 "proc_build_slot_maps_commit no inicializo "
                 "ctx.slot_map. El helper fallo silenciosamente."
             )
-        if self._ctx.slot_map.missing_blocks:
+
+        sm = self._ctx.slot_map
+
+        if not sm.table_present:
             raise RuntimeError(
-                f"Faltan bloques en el PLC: "
-                f"{self._ctx.slot_map.missing_blocks}"
+                f"Tabla de variables del proceso {self._ctx.proc_uid} "
+                f"no existe en el PLC. Crea la tabla '{sm.table_name}' "
+                f"en TIA Portal antes de sincronizar."
             )
+
+        if (
+            sm.db_param_name in sm.db_missing
+            and sm.db_alm_name in sm.db_missing
+        ):
+            raise RuntimeError(
+                f"Faltan DB_PARAM ({sm.db_param_name}) y DB_ALM "
+                f"({sm.db_alm_name}) del proceso {self._ctx.proc_uid}; "
+                f"no hay nada que aplicar."
+            )
+
+        for missing_db in sm.db_missing:
+            kind = (
+                "parametros"
+                if missing_db == sm.db_param_name else "alarmas"
+            )
+            msg = (
+                f"DB de {kind} no existe en el PLC; "
+                f"se omite esa sincronización: {missing_db}"
+            )
+            sm.warnings.append(msg)
+            logger.warning(f"[{self.nombre}] {msg}")
+
         # Calcular nmax_ops ANTES del step sync_nmax. El helper
         # necesita slot_map (resuelto arriba) y dimensiones (en
         # app_state). Separamos el calculo del dispatch para poder
@@ -507,17 +540,20 @@ class FunctionProcDBSincronizar(FunctionBase):
     def _proc_discover_compile_dbs_inline(self) -> list[str]:
         """Lista de DBs a compilar (helper de ``_stage_6``).
 
-        Para proc son los 2 DBs del proceso actual (param + alm).
-        Si ``ctx.slot_map`` no esta inicializado, retorna ``[]``.
-        El stage 6 se ejecuta DESPUES de ``_stage_3`` asi que
-        normalmente siempre hay slot_map.
+        Filtra los DBs que ``slot_map.db_missing`` reporta como
+        ausentes en el PLC: si un DB no existe, ``compile_blocks``
+        falla, por eso lo sacamos del listado antes del dispatch.
+        Retorna ``[]`` si ``ctx.slot_map`` no esta inicializado.
         """
         if self._ctx.slot_map is None:
             return []
-        return [
-            self._ctx.slot_map.db_param_name,
-            self._ctx.slot_map.db_alm_name,
-        ]
+        sm = self._ctx.slot_map
+        result: list[str] = []
+        if sm.db_param_name not in sm.db_missing:
+            result.append(sm.db_param_name)
+        if sm.db_alm_name not in sm.db_missing:
+            result.append(sm.db_alm_name)
+        return result
 
     async def _stage_7_open_transaction(self) -> None:
         """Stage 7: Tx B (comentarios) - orquesta 5 fases + commit final.
@@ -1156,10 +1192,16 @@ def _proc_tx_b_limpiar(ctx: ProcSyncContext) -> None:
 
 
 async def _proc_tx_b_detectar_eliminar_export(ctx: ProcSyncContext) -> None:
-    """Fase re-exporta los 2 DBs a ``exports/<subpath>/``.
+    """Fase re-exporta los DBs presentes a ``exports/<subpath>/``.
 
-    Si falla, el FB aborta (no tiene sentido continuar sin estado
-    actual fiable).
+    Filtra las ops por ``slot_map.db_missing`` antes del dispatch:
+    los DBs que ya sabemos que faltan no se envian al worker. Para
+    los DBs omitidos, ``ctx.exports_*_dir`` queda ``None`` y el
+    stage 7 los salta con su ``if ctx.exports_*_dir is not None``.
+
+    ``validate_execute_batch_result`` aborta si una op esperada
+    falla (RB desynchronizado, permisos, etc.). No usar si se
+    esperan fallos (filtrarlos en Python antes del dispatch).
     """
     from areas.alimentacion.helpers.layout.build_cache import build_cache
 
@@ -1182,29 +1224,40 @@ async def _proc_tx_b_detectar_eliminar_export(ctx: ProcSyncContext) -> None:
         if alm_subpath else str(proc_ctx.sync_bloques_export)
     )
 
+    operations: list[dict] = []
+    if ctx.slot_map.db_param_name not in ctx.slot_map.db_missing:
+        operations.append({
+            "command": "export_block",
+            "args": {
+                "plc_name": plc_name,
+                "block_name": ctx.slot_map.db_param_name,
+                "target_dir": exports_param_dir,
+            },
+        })
+    else:
+        exports_param_dir = None
+    if ctx.slot_map.db_alm_name not in ctx.slot_map.db_missing:
+        operations.append({
+            "command": "export_block",
+            "args": {
+                "plc_name": plc_name,
+                "block_name": ctx.slot_map.db_alm_name,
+                "target_dir": exports_alm_dir,
+            },
+        })
+    else:
+        exports_alm_dir = None
+
+    if not operations:
+        raise RuntimeError(
+            "_proc_tx_b_detectar_eliminar_export: sin ops a despachar "
+            "(ambos DBs faltan). stage 3 debio abortar antes."
+        )
+
     batch_result = await dispatch_async(
         ctx.tia_client,
         "execute_batch",
-        {
-            "operations": [
-                {
-                    "command": "export_block",
-                    "args": {
-                        "plc_name": plc_name,
-                        "block_name": ctx.slot_map.db_param_name,
-                        "target_dir": exports_param_dir,
-                    },
-                },
-                {
-                    "command": "export_block",
-                    "args": {
-                        "plc_name": plc_name,
-                        "block_name": ctx.slot_map.db_alm_name,
-                        "target_dir": exports_alm_dir,
-                    },
-                },
-            ],
-        },
+        {"operations": operations},
         timeout_s=120.0,
     )
     validate_execute_batch_result(
