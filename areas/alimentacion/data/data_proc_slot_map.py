@@ -65,6 +65,8 @@ class DataProcSlotMap:
     db_param_name: str = ""
     db_alm_name: str = ""
     table_name: str = ""
+    table_present: bool = True
+    db_missing: list[str] = field(default_factory=list)
     param_subpath: str = ""
     alm_subpath: str = ""
     nmax: dict[str, int] = field(default_factory=dict)
@@ -87,6 +89,8 @@ class DataProcSlotMap:
             "db_param_name": self.db_param_name,
             "db_alm_name": self.db_alm_name,
             "table_name": self.table_name,
+            "table_present": self.table_present,
+            "db_missing": list(self.db_missing),
             "param_subpath": self.param_subpath,
             "alm_subpath": self.alm_subpath,
             "nmax": dict(self.nmax),
@@ -224,10 +228,17 @@ def proc_build_slot_maps(
                       {uid} no esta en el Excel cargado".
 
     Politica de precondiciones:
-      - Si falta alguno de los 3 bloques (DB_PARAM, DB_ALM, tabla)
-        en el ``DataBloqueCache``, la funcion añade el nombre a
-        ``missing_blocks`` y retorna con los 3 dicts vacios
-        (NO lanza). La SPA pinta el aviso y bloquea la vista de diff.
+      - Detecta la presencia de cada bloque por separado
+        (``table_present`` para la tabla, ``db_missing`` para los DBs).
+      - Si la tabla del proceso no esta (``table_present=False``):
+        retorna con slot maps y N_MAX vacios. El caller aborta con
+        un mensaje claro ("Tabla no existe en el PLC").
+      - Si la tabla esta pero faltan DBs: retorna con slot maps y
+        N_MAX poblados y ``db_missing=[...]``. El caller decide que
+        hacer con cada DB ausente (sincronizarlo u omitirlo).
+      - ``missing_blocks`` se reconstruye desde los dos anteriores
+        para mantener la shape que consume el preview FB
+        (``function_proc_db_generar_preview._stage_6_done``).
     """
     excel_cache = app_state.excel_cache_active
     if excel_cache is None:
@@ -274,13 +285,26 @@ def proc_build_slot_maps(
 
     table_name = f"{proc_uid}_{proc.codigo}"
 
+    param_key = DataBloquePLC.normalize_name(db_param_name)
+    alm_key = DataBloquePLC.normalize_name(db_alm_name)
+    table_key = DataBloquePLC.normalize_name(table_name)
+
+    table_present = table_key in bloques_cache.tag_tables
+    db_missing: list[str] = []
+    if param_key not in bloques_cache.blocks:
+        db_missing.append(db_param_name)
+    if alm_key not in bloques_cache.blocks:
+        db_missing.append(db_alm_name)
+
+    # ``missing_blocks`` se reconstruye desde ``table_present`` y
+    # ``db_missing`` para mantener la shape que consume el preview FB.
     missing_blocks: list[str] = []
-    if DataBloquePLC.normalize_name(db_param_name) not in bloques_cache.blocks:
-        missing_blocks.append(f"DB de parametros: {db_param_name}")
-    if DataBloquePLC.normalize_name(db_alm_name) not in bloques_cache.blocks:
-        missing_blocks.append(f"DB de alarmas: {db_alm_name}")
-    if DataBloquePLC.normalize_name(table_name) not in bloques_cache.tag_tables:
+    if not table_present:
         missing_blocks.append(f"Tabla de variables: {table_name}")
+    if db_param_name in db_missing:
+        missing_blocks.append(f"DB de parametros: {db_param_name}")
+    if db_alm_name in db_missing:
+        missing_blocks.append(f"DB de alarmas: {db_alm_name}")
 
     def _extract_subpath(key: str) -> str:
         val = bloques_cache.blocks.get(key, "")
@@ -288,12 +312,10 @@ def proc_build_slot_maps(
             return val
         return getattr(val, "ruta", "")
 
-    param_key = DataBloquePLC.normalize_name(db_param_name)
     param_subpath = _extract_subpath(param_key)
-    alm_key = DataBloquePLC.normalize_name(db_alm_name)
     alm_subpath = _extract_subpath(alm_key)
 
-    if missing_blocks:
+    if not table_present:
         return DataProcSlotMap(
             preal={}, pint={}, alm={},
             db_param_name=db_param_name,
@@ -301,6 +323,8 @@ def proc_build_slot_maps(
             table_name=table_name,
             param_subpath=param_subpath,
             alm_subpath=alm_subpath,
+            table_present=False,
+            db_missing=list(db_missing),
             missing_blocks=missing_blocks,
             warnings=warnings,
         )
@@ -353,6 +377,8 @@ def proc_build_slot_maps(
         alm_subpath=alm_subpath,
         nmax=nmax_desired,
         nmax_names=nmax_names,
+        table_present=True,
+        db_missing=db_missing,
         missing_blocks=missing_blocks,
         warnings=warnings,
     )

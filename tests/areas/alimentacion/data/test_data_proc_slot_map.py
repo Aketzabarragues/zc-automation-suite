@@ -56,6 +56,7 @@ def test_to_dict_shape():
     assert set(snapshot.keys()) == {
         "preal", "pint", "alm",
         "db_param_name", "db_alm_name", "table_name",
+        "table_present", "db_missing",
         "param_subpath", "alm_subpath",
         "nmax", "nmax_names",
         "missing_blocks", "warnings",
