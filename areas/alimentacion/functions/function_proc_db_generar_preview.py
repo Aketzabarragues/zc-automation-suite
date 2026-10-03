@@ -654,9 +654,9 @@ class FunctionProcDBGenerarPreview(FunctionBase):
             }
             return
 
-        # Caso recuperable (1 DB ausente) o happy path: compose arrays,
-        # summary y warnings. Los DBs en ``db_missing`` se anaden a
-        # warnings para que la SPA muestre el aviso al operario.
+        # 1 DB ausente (recuperable) o ambos presentes: compose arrays,
+        # summary y warnings. ``sm.db_missing`` se anade a ``warnings``
+        # para que la SPA muestre el aviso al operario.
         from areas.alimentacion.data.data_proc_slot_map import (
             format_missing_db_message,
         )
