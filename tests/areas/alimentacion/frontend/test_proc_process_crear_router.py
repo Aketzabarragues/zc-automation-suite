@@ -171,9 +171,11 @@ def test_crear_preview_ok_con_plantilla(plantilla_dummy: Path) -> None:
         "success": True,
         "manifest_plantilla": {"base": 300, "codigo": "EXP"},
         "archivos_previstos": [
-            {"rel_in": "Bloques de programa/FC50010.s7dcl",
-             "rel_out": "bloques/FC60010_EXP.s7dcl",
-             "kind": "text", "colisiona": False},
+            {
+                "nombre_original": "FC50010_TEST_INTERFAZ",
+                "nombre_nuevo": "FC60010_EXP_INTERFAZ",
+                "estado": "OK",
+            },
         ],
         "colisiones": [],
         "preview_dir": str(plantilla_dummy.parent / "preview"),
