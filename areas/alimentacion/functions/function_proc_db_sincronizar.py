@@ -1194,14 +1194,16 @@ def _proc_tx_b_limpiar(ctx: ProcSyncContext) -> None:
 async def _proc_tx_b_detectar_eliminar_export(ctx: ProcSyncContext) -> None:
     """Fase re-exporta los DBs presentes a ``exports/<subpath>/``.
 
-    Filtra las ops por ``slot_map.db_missing`` antes del dispatch:
-    los DBs que ya sabemos que faltan no se envian al worker. Para
-    los DBs omitidos, ``ctx.exports_*_dir`` queda ``None`` y el
-    stage 7 los salta con su ``if ctx.exports_*_dir is not None``.
+    Dos capas de defensa para tolerar la cache del PLC desfasada:
 
-    ``validate_execute_batch_result`` aborta si una op esperada
-    falla (RB desynchronizado, permisos, etc.). No usar si se
-    esperan fallos (filtrarlos en Python antes del dispatch).
+      1. Filtra las ops por ``slot_map.db_missing`` antes del dispatch
+         (los DBs que ya sabemos que faltan no se envian al worker).
+      2. Despues del dispatch, valida ``details`` per-op: si una op
+         esperada falla con "no encontrado" (cache desfasada o DB
+         borrado tras el ultimo escaneo), se acepta como caso
+         esperado y se omite ese DB con warning + ``exports_*_dir=None``.
+         Si falla por otra causa (RB desynchronizado, permisos), raise
+         para abortar el sync.
     """
     from areas.alimentacion.helpers.layout.build_cache import build_cache
 
@@ -1225,6 +1227,7 @@ async def _proc_tx_b_detectar_eliminar_export(ctx: ProcSyncContext) -> None:
     )
 
     operations: list[dict] = []
+    op_block_names: list[str] = []
     if ctx.slot_map.db_param_name not in ctx.slot_map.db_missing:
         operations.append({
             "command": "export_block",
@@ -1234,6 +1237,7 @@ async def _proc_tx_b_detectar_eliminar_export(ctx: ProcSyncContext) -> None:
                 "target_dir": exports_param_dir,
             },
         })
+        op_block_names.append(ctx.slot_map.db_param_name)
     else:
         exports_param_dir = None
     if ctx.slot_map.db_alm_name not in ctx.slot_map.db_missing:
@@ -1245,6 +1249,7 @@ async def _proc_tx_b_detectar_eliminar_export(ctx: ProcSyncContext) -> None:
                 "target_dir": exports_alm_dir,
             },
         })
+        op_block_names.append(ctx.slot_map.db_alm_name)
     else:
         exports_alm_dir = None
 
@@ -1260,12 +1265,38 @@ async def _proc_tx_b_detectar_eliminar_export(ctx: ProcSyncContext) -> None:
         {"operations": operations},
         timeout_s=120.0,
     )
-    validate_execute_batch_result(
-        batch_result["result"],
-        undo_text=f"Exportando bloques de datos de proceso {ctx.proc_uid} ({plc_name})...",
-        plc_name=plc_name,
-        log=logger,
-    )
+    result = batch_result.get("result") or {}
+    details = result.get("details") or []
+
+    for idx, d in enumerate(details):
+        if d.get("ok"):
+            continue
+        error_str = str(d.get("error", "")).lower()
+        block_name = (
+            op_block_names[idx] if idx < len(op_block_names) else ""
+        )
+        if "no encontrado" in error_str or "not found" in error_str:
+            kind = (
+                "parametros"
+                if block_name == ctx.slot_map.db_param_name
+                else "alarmas"
+            )
+            msg = (
+                f"DB de {kind} no existe en el PLC; "
+                f"se omite esa sincronización: {block_name}"
+            )
+            if block_name == ctx.slot_map.db_param_name:
+                exports_param_dir = None
+            elif block_name == ctx.slot_map.db_alm_name:
+                exports_alm_dir = None
+            ctx.slot_map.warnings.append(msg)
+            logger.warning(f"[{ctx.plc_name}] {msg}")
+        else:
+            raise RuntimeError(
+                f"execute_batch fallo en op {idx+1}: "
+                f"{d.get('error')}"
+            )
+
     ctx.exports_param_dir = exports_param_dir
     ctx.exports_alm_dir = exports_alm_dir
 
