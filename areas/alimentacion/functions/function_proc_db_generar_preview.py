@@ -631,27 +631,48 @@ class FunctionProcDBGenerarPreview(FunctionBase):
             }
             return
 
-        if self._ctx.slot_map.missing_blocks:
+        sm = self._ctx.slot_map
+        fatal_missing = (
+            not sm.table_present
+            or (
+                sm.db_param_name in sm.db_missing
+                and sm.db_alm_name in sm.db_missing
+            )
+        )
+        if fatal_missing:
             self._ctx.result = {
                 "proc_uid": self._ctx.proc_uid,
-                "proc_codigo": extract_codigo(self._ctx.slot_map.db_param_name),
+                "proc_codigo": extract_codigo(sm.db_param_name),
                 "precondiciones_ok": False,
-                "missing_blocks": self._ctx.slot_map.missing_blocks,
-                "db_param_name": self._ctx.slot_map.db_param_name,
-                "db_alm_name": self._ctx.slot_map.db_alm_name,
-                "table_name": self._ctx.slot_map.table_name,
+                "missing_blocks": sm.missing_blocks,
+                "db_param_name": sm.db_param_name,
+                "db_alm_name": sm.db_alm_name,
+                "table_name": sm.table_name,
                 "arrays": {},
                 "summary": dict(empty_summary),
-                "warnings": self._ctx.slot_map.warnings,
+                "warnings": sm.warnings,
             }
             return
 
-        # Happy path: compose arrays + summary, merge warnings.
+        # Recuperable (1 DB ausente) o happy path: compose arrays +
+        # summary, merge warnings. En el caso recuperable, los DBs
+        # ausentes van a ``warnings`` para que la SPA los muestre como
+        # aviso sin bloquear el boton de aplicar.
         arrays = compose_arrays(
-            self._ctx.slot_map, self._ctx.preal_current, self._ctx.pint_current, self._ctx.alm_current
+            sm, self._ctx.preal_current, self._ctx.pint_current, self._ctx.alm_current
         )
         summary = compute_summary(arrays)
-        warnings = list(self._ctx.slot_map.warnings)
+        warnings = list(sm.warnings)
+        if sm.db_missing:
+            for missing_db in sm.db_missing:
+                kind = (
+                    "parametros" if missing_db == sm.db_param_name
+                    else "alarmas"
+                )
+                warnings.append(
+                    f"DB de {kind} no existe en el PLC; "
+                    f"se omitira esa sincronizacion: {missing_db}"
+                )
         if self._ctx.export_error:
             warnings.append(f"Export fallo: {self._ctx.export_error}. current=None.")
 
