@@ -569,7 +569,7 @@ async def test_proc_sincronizar_terminal_no_avanza_mas(
     assert fb.nStep == n_step_before
 
 
-# ── 3 escenarios en stage 3 (politica table_present / db_missing) ──
+# ── Stage 3: cobertura de abort / warning segun table_present y db_missing ──
 
 
 def _make_slot_map(

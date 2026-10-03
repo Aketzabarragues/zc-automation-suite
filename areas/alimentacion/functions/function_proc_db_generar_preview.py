@@ -654,25 +654,19 @@ class FunctionProcDBGenerarPreview(FunctionBase):
             }
             return
 
-        # Recuperable (1 DB ausente) o happy path: compose arrays +
-        # summary, merge warnings. En el caso recuperable, los DBs
-        # ausentes van a ``warnings`` para que la SPA los muestre como
-        # aviso sin bloquear el boton de aplicar.
+        # Caso recuperable (1 DB ausente) o happy path: compose arrays,
+        # summary y warnings. Los DBs en ``db_missing`` se anaden a
+        # warnings para que la SPA muestre el aviso al operario.
+        from areas.alimentacion.data.data_proc_slot_map import (
+            format_missing_db_message,
+        )
         arrays = compose_arrays(
             sm, self._ctx.preal_current, self._ctx.pint_current, self._ctx.alm_current
         )
         summary = compute_summary(arrays)
         warnings = list(sm.warnings)
-        if sm.db_missing:
-            for missing_db in sm.db_missing:
-                kind = (
-                    "parametros" if missing_db == sm.db_param_name
-                    else "alarmas"
-                )
-                warnings.append(
-                    f"DB de {kind} no existe en el PLC; "
-                    f"se omitira esa sincronizacion: {missing_db}"
-                )
+        for missing_db in sm.db_missing:
+            warnings.append(format_missing_db_message(sm, missing_db))
         if self._ctx.export_error:
             warnings.append(f"Export fallo: {self._ctx.export_error}. current=None.")
 

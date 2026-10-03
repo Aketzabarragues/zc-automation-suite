@@ -227,18 +227,22 @@ def proc_build_slot_maps(
                       POST /api/v1/excel/upload" o "El proceso
                       {uid} no esta en el Excel cargado".
 
-    Politica de precondiciones:
-      - Detecta la presencia de cada bloque por separado
-        (``table_present`` para la tabla, ``db_missing`` para los DBs).
-      - Si la tabla del proceso no esta (``table_present=False``):
-        retorna con slot maps y N_MAX vacios. El caller aborta con
-        un mensaje claro ("Tabla no existe en el PLC").
-      - Si la tabla esta pero faltan DBs: retorna con slot maps y
-        N_MAX poblados y ``db_missing=[...]``. El caller decide que
-        hacer con cada DB ausente (sincronizarlo u omitirlo).
-      - ``missing_blocks`` se reconstruye desde los dos anteriores
-        para mantener la shape que consume el preview FB
-        (``function_proc_db_generar_preview._stage_6_done``).
+    Atributos de presencia en el PLC:
+      - ``table_present``: True si la tabla ``{proc_uid}_{proc.codigo}``
+        existe en el PLC.
+      - ``db_missing``: lista de DBs (DB_PARAM / DB_ALM) que NO existen
+        en el PLC. Vacia si ambos existen.
+
+    Contrato de retorno segun presencia:
+      - Tabla ausente: ``preal/pint/alm={}``, ``nmax={}``, ``table_present=False``.
+        El FB de sync aborta con un mensaje claro.
+      - Tabla presente + ambos DBs: slot maps y N_MAX poblados.
+      - Tabla presente + DBs opcionales ausentes: slot maps y N_MAX
+        poblados, ``db_missing`` con los nombres de los DBs ausentes.
+        El FB de sync omite los commits sobre esos DBs.
+
+    ``missing_blocks`` se reconstruye desde ``table_present`` y
+    ``db_missing`` para que el preview FB distinga bloque faltante.
     """
     excel_cache = app_state.excel_cache_active
     if excel_cache is None:
@@ -296,8 +300,7 @@ def proc_build_slot_maps(
     if alm_key not in bloques_cache.blocks:
         db_missing.append(db_alm_name)
 
-    # ``missing_blocks`` se reconstruye desde ``table_present`` y
-    # ``db_missing`` para mantener la shape que consume el preview FB.
+    # missing_blocks se reconstruye desde table_present + db_missing.
     missing_blocks: list[str] = []
     if not table_present:
         missing_blocks.append(f"Tabla de variables: {table_name}")
@@ -384,4 +387,22 @@ def proc_build_slot_maps(
     )
 
 
-__all__ = ["DataProcSlotMap", "proc_build_slot_maps"]
+def format_missing_db_message(slot_map: DataProcSlotMap, db_name: str) -> str:
+    """Mensaje estandar cuando un DB esta ausente en el PLC.
+
+    Usado por el sync (stage 3 + fase 2 de Tx B) y por el preview
+    (stage 6) para que el operario vea el mismo texto en ambos lados.
+    """
+    if db_name == slot_map.db_param_name:
+        kind = "parametros"
+    elif db_name == slot_map.db_alm_name:
+        kind = "alarmas"
+    else:
+        kind = "?"
+    return (
+        f"DB de {kind} no existe en el PLC; "
+        f"se omite esa sincronizacion: {db_name}"
+    )
+
+
+__all__ = ["DataProcSlotMap", "proc_build_slot_maps", "format_missing_db_message"]

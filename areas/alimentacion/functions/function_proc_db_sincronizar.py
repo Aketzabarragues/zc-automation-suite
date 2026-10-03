@@ -331,18 +331,22 @@ class FunctionProcDBSincronizar(FunctionBase):
     def _stage_3_build_slot_maps_commit(self) -> None:
         """Stage 3: recalcula slot maps + calcula N_MAX ops.
 
-        Politica de 3 escenarios sobre ``slot_map``:
-          - ``table_present=False``: abort con mensaje claro ("Tabla
-            de variables del proceso no existe en el PLC").
-          - Tabla presente + 0 DBs (``db_param_name`` y ``db_alm_name``
-            ambos en ``db_missing``): abort ("no hay nada que aplicar").
-          - Tabla presente + 1 DB ausente: warning al operario y
-            sigue (Tx B omitira el DB ausente via ``db_missing``).
+        Contrato de abort sobre ``slot_map``:
+          - ``table_present=False``: abort ("Tabla de variables del
+            proceso no existe en el PLC").
+          - Tabla presente + ambos DBs en ``db_missing``: abort
+            ("no hay nada que aplicar").
+
+        Si solo 1 DB esta en ``db_missing``, emite warning al operario
+        y sigue: Tx B omitira el DB ausente en la fase 2.
 
         Tras la validacion, calcula ``ctx.nmax_ops`` (necesario para
         stage 4) y loguea el conteo.
         """
-        from areas.alimentacion.data.data_proc_slot_map import proc_build_slot_maps
+        from areas.alimentacion.data.data_proc_slot_map import (
+            format_missing_db_message,
+            proc_build_slot_maps,
+        )
         self._ctx.slot_map = proc_build_slot_maps(
             self._ctx.app_state, self._ctx.config_manager,
             self._ctx.proc_uid, self._ctx.bloques_cache,
@@ -373,14 +377,7 @@ class FunctionProcDBSincronizar(FunctionBase):
             )
 
         for missing_db in sm.db_missing:
-            kind = (
-                "parametros"
-                if missing_db == sm.db_param_name else "alarmas"
-            )
-            msg = (
-                f"DB de {kind} no existe en el PLC; "
-                f"se omite esa sincronización: {missing_db}"
-            )
+            msg = format_missing_db_message(sm, missing_db)
             sm.warnings.append(msg)
             logger.warning(f"[{self.nombre}] {msg}")
 
@@ -540,9 +537,8 @@ class FunctionProcDBSincronizar(FunctionBase):
     def _proc_discover_compile_dbs_inline(self) -> list[str]:
         """Lista de DBs a compilar (helper de ``_stage_6``).
 
-        Filtra los DBs que ``slot_map.db_missing`` reporta como
-        ausentes en el PLC: si un DB no existe, ``compile_blocks``
-        falla, por eso lo sacamos del listado antes del dispatch.
+        Excluye los DBs en ``slot_map.db_missing`` porque
+        ``compile_blocks`` aborta si recibe un bloque inexistente.
         Retorna ``[]`` si ``ctx.slot_map`` no esta inicializado.
         """
         if self._ctx.slot_map is None:
@@ -1194,18 +1190,16 @@ def _proc_tx_b_limpiar(ctx: ProcSyncContext) -> None:
 async def _proc_tx_b_detectar_eliminar_export(ctx: ProcSyncContext) -> None:
     """Fase re-exporta los DBs presentes a ``exports/<subpath>/``.
 
-    Dos capas de defensa para tolerar la cache del PLC desfasada:
-
-      1. Filtra las ops por ``slot_map.db_missing`` antes del dispatch
-         (los DBs que ya sabemos que faltan no se envian al worker).
-      2. Despues del dispatch, valida ``details`` per-op: si una op
-         esperada falla con "no encontrado" (cache desfasada o DB
-         borrado tras el ultimo escaneo), se acepta como caso
-         esperado y se omite ese DB con warning + ``exports_*_dir=None``.
-         Si falla por otra causa (RB desynchronizado, permisos), raise
-         para abortar el sync.
+    Construye la lista de ops filtrando por ``slot_map.db_missing`` y
+    las despacha en un solo ``execute_batch``. Tras el dispatch, valida
+    ``details`` per-op: si una op falla con "no encontrado", omite ese
+    DB (``exports_*_dir=None`` + warning). Si falla por otra causa
+    raise (mantiene la semantica del sync ante errores no esperados).
     """
     from areas.alimentacion.helpers.layout.build_cache import build_cache
+    from areas.alimentacion.data.data_proc_slot_map import (
+        format_missing_db_message,
+    )
 
     proc_ctx = build_cache(root=ctx.build_cache_root).procesos
     plc_name = (
@@ -1276,15 +1270,7 @@ async def _proc_tx_b_detectar_eliminar_export(ctx: ProcSyncContext) -> None:
             op_block_names[idx] if idx < len(op_block_names) else ""
         )
         if "no encontrado" in error_str or "not found" in error_str:
-            kind = (
-                "parametros"
-                if block_name == ctx.slot_map.db_param_name
-                else "alarmas"
-            )
-            msg = (
-                f"DB de {kind} no existe en el PLC; "
-                f"se omite esa sincronización: {block_name}"
-            )
+            msg = format_missing_db_message(ctx.slot_map, block_name)
             if block_name == ctx.slot_map.db_param_name:
                 exports_param_dir = None
             elif block_name == ctx.slot_map.db_alm_name:

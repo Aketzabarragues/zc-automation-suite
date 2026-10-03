@@ -154,7 +154,8 @@ def test_listas_entre_instancias_son_independientes():
 
 
 # ─────────────────────────────────────────────────────────────────────
-# Tests de ``proc_build_slot_maps``: politica de 3 escenarios.
+# Tests de ``proc_build_slot_maps``: cobertura de ``table_present``
+# y ``db_missing`` segun el estado de la cache de bloques.
 # ─────────────────────────────────────────────────────────────────────
 
 
