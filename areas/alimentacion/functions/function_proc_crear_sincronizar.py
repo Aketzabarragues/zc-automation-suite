@@ -172,7 +172,13 @@ class ProcProcessGenContext:
     colisiones_con: dict[str, str] = field(default_factory=dict)
 
     # ── Resultado de aplicar / generar_previstos ──
-    archivos_previstos: list[dict[str, Any]] = field(default_factory=list)
+    # Una entry por BLOQUE (no por archivo): un bloque TIA vive en
+    # 2 archivos (.s7dcl + .s7res, mismo stem). Cada dict lleva
+    # ``nombre_original``, ``nombre_nuevo`` y ``estado`` ("OK" |
+    # "DUPLICADO - <id>" | "DUPLICADO").
+    # El apply FB no popula este campo: vuelca ``archivos_generados``
+    # (lista de paths absolutos de los archivos clonados).
+    archivos_previstos: list[dict[str, str]] = field(default_factory=list)
     archivos_generados: list[str] = field(default_factory=list)
 
     # ── Resultado final ──

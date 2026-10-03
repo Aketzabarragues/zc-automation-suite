@@ -79,6 +79,15 @@ EXTENSIONES_TEXTO: frozenset[str] = frozenset({
     ".s7dcl", ".s7res", ".scl", ".xml", ".awl",
 })
 
+# Extensiones que identifican archivos de BLOQUE TIA. Un bloque
+# vive en 2 archivos (mismo stem): uno con esta extension y otro
+# con la otra. El preview emite 1 entry por bloque (agrupadas por
+# stem); el resto de archivos no-bloque (.xml de variables PLC,
+# .scl, .awl) NO aparecen en el preview.
+EXTENSIONES_BLOQUE: frozenset[str] = frozenset({
+    ".s7dcl", ".s7res",
+})
+
 # Las 4 N_MAX del estandar que valida el manifest y rellena el operario.
 N_MAX_KEYS: tuple[str, ...] = (
     "N_MAX_PREAL", "N_MAX_PINT", "N_MAX_ALM", "N_MAX_ALM_HMI",
@@ -138,7 +147,11 @@ class ProcProcessGenContext:
     colisiones_con: dict[str, str] = field(default_factory=dict)
 
     # ── Resultado de generar_previstos / aplicar ──
-    archivos_previstos: list[dict[str, Any]] = field(default_factory=list)
+    # Una entry por BLOQUE (no por archivo): un bloque TIA vive en
+    # 2 archivos (.s7dcl + .s7res, mismo stem). Cada dict lleva
+    # ``nombre_original``, ``nombre_nuevo`` y ``estado`` ("OK" |
+    # "DUPLICADO - <id>" | "DUPLICADO").
+    archivos_previstos: list[dict[str, str]] = field(default_factory=list)
     archivos_generados: list[str] = field(default_factory=list)
 
     # ── Resultado final (vuelco a ``self.result``) ──
@@ -429,12 +442,10 @@ class FunctionProcCrearGenerarPreview(FunctionBase):
 
 
 # ============================================================================
-# Codigo absorbido de helpers/proc/proc_crear_process_generator.py
-# (commit F22-1, sept-2026). Antes era un orquestador separado que el FB
-# llamaba via ``match step_nombre``. Ahora los 7 stages viven como
-# metodos del FB (mutando ``self._ctx``); las funciones puras del pipeline
-# (filesystem puro, sin tocar TIA) viven aqui mismo, debajo del
-# dataclass. Los tests pueden importarlas directamente desde este modulo.
+# Pipeline del FB. Los 7 stages viven como metodos del FB arriba;
+# las funciones puras (filesystem puro, sin TIA) viven aqui mismo
+# para que los tests las importen directamente sin pasar por el
+# orquestador.
 # ============================================================================
 
 
@@ -703,18 +714,27 @@ async def proc_process_detectar_colisiones(ctx: ProcProcessGenContext) -> None:
 
 
 async def proc_process_generar_previstos(ctx: ProcProcessGenContext) -> None:
-    """Walk ``dir_plantilla_copia`` y construye la lista de archivos
-    que se generarian en ``dir_nuevo``.
+    """Walk ``dir_plantilla_copia`` y construye la lista de BLOQUES
+    que se generarian al aplicar la plantilla.
 
-    No escribe en disco — solo popula ``ctx.archivos_previstos``
-    para que la SPA muestre el preview.
+    Una entry por bloque. Como cada bloque TIA vive en 2 archivos
+    (.s7dcl + .s7res, mismo stem), se agrupan en una sola entry:
+    el nombre canonico del bloque (sin extension) es la clave.
 
-    PRESERVA LA ESTRUCTURA DE CARPETAS de la plantilla. Para cada
-    archivo calcula ``rel_in`` y ``rel_out`` con el mismo subpath
-    relativo (la unica diferencia es el filename, que se renombra
-    aplicando ``dicc_bloques``).
+    Solo se emiten archivos de bloque TIA (.s7dcl / .s7res,
+    ``EXTENSIONES_BLOQUE``). El XML de variables PLC, .scl y .awl
+    NO aparecen: no son bloques.
+
+    No escribe en disco - solo popula ``ctx.archivos_previstos``.
+
+    Output: lista de dicts ``{nombre_original, nombre_nuevo,
+    estado}`` ordenados por ``nombre_nuevo`` ascendente (casefold).
+    ``estado`` se calcula cruzando ``nombre_nuevo`` contra
+    ``ctx.colisiones``: si esta, ``"DUPLICADO - <id>"`` (o
+    ``"DUPLICADO"`` si no hay detalle); si no, ``"OK"``. Single
+    source of truth para que la SPA no recalcule.
     """
-    archivos_previstos: list[dict[str, Any]] = []
+    archivos_por_stem: dict[str, list[Path]] = {}
 
     def _walk() -> list[Path]:
         return [p for p in ctx.dir_plantilla_copia.rglob("*") if p.is_file()]
@@ -725,37 +745,26 @@ async def proc_process_generar_previstos(ctx: ProcProcessGenContext) -> None:
         rel_in = in_path.relative_to(ctx.dir_plantilla_copia)
         if rel_in.name == "manifest.json":
             continue
-
-        nuevo_stem = _aplicar_diccionario(in_path.stem, ctx.dicc_bloques)
         suffix = in_path.suffix.lower()
-        if suffix == ".xml":
-            kind = "xml"
-        elif suffix in EXTENSIONES_TEXTO:
-            kind = "text"
+        if suffix not in EXTENSIONES_BLOQUE:
+            continue
+        archivos_por_stem.setdefault(in_path.stem, []).append(in_path)
+
+    bloques: list[dict[str, str]] = []
+    for stem_viejo in sorted(archivos_por_stem, key=str.casefold):
+        nuevo_stem = _aplicar_diccionario(stem_viejo, ctx.dicc_bloques)
+        if nuevo_stem in ctx.colisiones:
+            ident = ctx.colisiones_con.get(nuevo_stem) or ""
+            estado = f"DUPLICADO - {ident}" if ident else "DUPLICADO"
         else:
-            kind = "binary"
-
-        rel_out = rel_in.parent / f"{nuevo_stem}{suffix}"
-
-        colisiona_nombre = nuevo_stem in ctx.colisiones
-        colisiona_con_sufijo = f"{nuevo_stem}{suffix}" in ctx.colisiones
-        colisiona = colisiona_nombre or colisiona_con_sufijo
-
-        colision_con: str | None = None
-        if colisiona_nombre:
-            colision_con = ctx.colisiones_con.get(nuevo_stem)
-        elif colisiona_con_sufijo:
-            colision_con = ctx.colisiones_con.get(f"{nuevo_stem}{suffix}")
-
-        archivos_previstos.append({
-            "rel_in": str(rel_in),
-            "rel_out": str(rel_out),
-            "kind": kind,
-            "colisiona": colisiona,
-            "colision_con": colision_con,
+            estado = "OK"
+        bloques.append({
+            "nombre_original": stem_viejo,
+            "nombre_nuevo": nuevo_stem,
+            "estado": estado,
         })
 
-    ctx.archivos_previstos = archivos_previstos
+    ctx.archivos_previstos = bloques
 
 
 async def proc_process_done_summary(ctx: ProcProcessGenContext) -> dict[str, Any]:
@@ -764,9 +773,12 @@ async def proc_process_done_summary(ctx: ProcProcessGenContext) -> dict[str, Any
 
     Diferencia preview vs apply:
       - preview (``archivos_previstos`` poblado) -> vuelca la lista de
-        previstos + el ``plantilla_copia_dir``.
+        bloques previstos + el ``plantilla_copia_dir``. Cada entry es
+        ``{nombre_original, nombre_nuevo, estado}`` (1 entry por
+        bloque TIA, ya agrupados por stem en
+        ``proc_process_generar_previstos``).
       - apply (``archivos_generados`` poblado) -> vuelca la lista de
-        generados + el ``nuevo_dir``.
+        archivos generados (paths absolutos) + el ``nuevo_dir``.
 
     ``success=True`` solo si no hubo colisiones.
     """
@@ -846,7 +858,7 @@ def _step_summary(ctx: ProcProcessGenContext, step_nombre: str) -> str:
     if step_nombre == "detectar_colisiones":
         return f"{step_nombre}: {len(ctx.colisiones)} colision(es)"
     if step_nombre == "generar_previstos":
-        return f"{step_nombre}: {len(ctx.archivos_previstos)} archivos"
+        return f"{step_nombre}: {len(ctx.archivos_previstos)} bloques"
     if step_nombre == "Componer respuesta":
         return f"{step_nombre}: preview compuesto"
     return f"{step_nombre}: OK"
@@ -879,6 +891,7 @@ def _coerce_plc_blocks_cache(raw: Any) -> list[dict[str, Any]]:
 
 
 __all__ = [
+    "EXTENSIONES_BLOQUE",
     "EXTENSIONES_TEXTO",
     "ManifestInvalido",
     "N_MAX_KEYS",
@@ -887,9 +900,6 @@ __all__ = [
     "FunctionProcCrearGenerarPreview",
     "_coerce_plc_blocks_cache",
     "_step_summary",
-    # Funciones puras absorbidas (F22-1). Re-exportadas para que los
-    # tests las importen directamente desde este modulo sin pasar por
-    # el helper.
     "proc_process_leer_manifest",
     "proc_process_validar_minimos",
     "proc_process_copiar_a_preview",

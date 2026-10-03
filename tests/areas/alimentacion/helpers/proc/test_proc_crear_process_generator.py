@@ -906,3 +906,136 @@ async def test_escribir_manifest(tmp_path: Path, plantilla_dummy: Path) -> None:
     assert data["minimos"]["N_MAX_PINT"] == 30
     assert data["minimos"]["N_MAX_ALM_HMI"] == 5
     assert "manifest.json" in ctx.archivos_generados
+
+
+# ── proc_process_generar_previstos ────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_generar_previstos_1_entry_por_bloque(make_ctx: Any) -> None:
+    """Cada bloque TIA vive en 2 archivos (.s7dcl + .s7res, mismo
+    stem); el helper emite 1 sola entry por bloque agrupando ambos.
+
+    El dummy tiene 3 stems de bloque: ``FC50010_TEST_INTERFAZ``,
+    ``DB50010_TEST``, ``DB50010_TEST_COMENTARIOS``. Esperado: 3
+    entries (no 4 archivos sueltos).
+    """
+    ctx = make_ctx()
+    await proc_process_copiar_a_preview(ctx)
+    await proc_process_leer_manifest(ctx)
+    await proc_process_construir_diccionarios(ctx)
+    await proc_process_generar_previstos(ctx)
+
+    # 3 stems de bloque en el dummy -> 3 entries (no 4 archivos).
+    assert len(ctx.archivos_previstos) == 3, (
+        f"esperaba 3 entries (1 por bloque), "
+        f"obtuve {len(ctx.archivos_previstos)}: {ctx.archivos_previstos}"
+    )
+    # Cada entry lleva exactamente 3 keys canonicas.
+    for entry in ctx.archivos_previstos:
+        assert set(entry.keys()) == {
+            "nombre_original", "nombre_nuevo", "estado"
+        }, f"keys inesperadas: {set(entry.keys())}"
+    # Los stems del dummy estan todos presentes.
+    originales = {e["nombre_original"] for e in ctx.archivos_previstos}
+    assert originales == {
+        "FC50010_TEST_INTERFAZ",
+        "DB50010_TEST",
+        "DB50010_TEST_COMENTARIOS",
+    }
+
+
+@pytest.mark.asyncio
+async def test_generar_previstos_filtra_no_bloque(make_ctx: Any) -> None:
+    """El XML de variables PLC, .scl y .awl NO aparecen en el
+    preview: no son bloques TIA.
+
+    El dummy tiene 1 ``.xml`` (``50010_TEST.xml``) en
+    ``Variables PLC/003_Procesos/``. Tras el helper, ese archivo
+    no debe figurar en ``archivos_previstos``.
+    """
+    ctx = make_ctx()
+    await proc_process_copiar_a_preview(ctx)
+    await proc_process_leer_manifest(ctx)
+    await proc_process_construir_diccionarios(ctx)
+    await proc_process_generar_previstos(ctx)
+
+    for entry in ctx.archivos_previstos:
+        # Ningun nombre contiene ``.xml`` ni ``.scl`` ni ``.awl``.
+        nombre = entry["nombre_original"]
+        assert not nombre.endswith(".xml"), f"XML filtrado: {nombre!r}"
+        assert not nombre.endswith(".scl"), f"SCL filtrado: {nombre!r}"
+        assert not nombre.endswith(".awl"), f"AWL filtrado: {nombre!r}"
+
+
+@pytest.mark.asyncio
+async def test_generar_previstos_estado_ok_sin_colision(make_ctx: Any) -> None:
+    """Si ``plc_blocks_cache`` esta vacia, todos los bloques quedan
+    con ``estado="OK"``.
+    """
+    ctx = make_ctx(plc_blocks_cache=[])
+    await proc_process_copiar_a_preview(ctx)
+    await proc_process_leer_manifest(ctx)
+    await proc_process_construir_diccionarios(ctx)
+    await proc_process_detectar_colisiones(ctx)
+    await proc_process_generar_previstos(ctx)
+
+    assert ctx.colisiones == []
+    assert all(
+        e["estado"] == "OK" for e in ctx.archivos_previstos
+    ), f"alguno no es OK: {ctx.archivos_previstos}"
+
+
+@pytest.mark.asyncio
+async def test_generar_previstos_estado_duplicado_con_ident(make_ctx: Any) -> None:
+    """Si el cache del PLC tiene un bloque que matchea por
+    (prefijo, numero) con uno de los bloques post-rename, su
+    entry queda con ``estado="DUPLICADO - <id>"`` donde ``<id>``
+    es el identificador del bloque del PLC que colisiona.
+
+    Cache del PLC: ``FC60010_OTRO_NOMBRE`` con prefijo FC y
+    numero 60010. Solo colisiona el ``FC60010_EXP_INTERFAZ`` del
+    dummy (por (FC, 60010)); los DB no se ven afectados porque
+    usan prefijo DB (namespaces distintos en TIA Portal).
+    """
+    ctx = make_ctx(plc_blocks_cache=[{
+        "nombre": "FC60010_OTRO_NOMBRE", "numero": 60010,
+    }])
+    await proc_process_copiar_a_preview(ctx)
+    await proc_process_leer_manifest(ctx)
+    await proc_process_construir_diccionarios(ctx)
+    await proc_process_detectar_colisiones(ctx)
+    await proc_process_generar_previstos(ctx)
+
+    # Solo 1 bloque colisiona: el ``FC60010_EXP_INTERFAZ``.
+    colisionados = [
+        e for e in ctx.archivos_previstos
+        if e["estado"].startswith("DUPLICADO")
+    ]
+    assert len(colisionados) == 1, (
+        f"esperaba 1 colision, obtuve {len(colisionados)}: "
+        f"{ctx.archivos_previstos}"
+    )
+    assert colisionados[0]["nombre_nuevo"] == "FC60010_EXP_INTERFAZ"
+    assert colisionados[0]["estado"] == (
+        "DUPLICADO - FC60010_OTRO_NOMBRE"
+    )
+
+
+@pytest.mark.asyncio
+async def test_generar_previstos_orden_por_nombre_nuevo(
+    make_ctx: Any,
+) -> None:
+    """Los entries salen ordenados por ``nombre_nuevo`` ascendente
+    (casefold) para que la SPA los pinte estables entre renders.
+    """
+    ctx = make_ctx()
+    await proc_process_copiar_a_preview(ctx)
+    await proc_process_leer_manifest(ctx)
+    await proc_process_construir_diccionarios(ctx)
+    await proc_process_generar_previstos(ctx)
+
+    nombres = [e["nombre_nuevo"] for e in ctx.archivos_previstos]
+    assert nombres == sorted(nombres, key=str.casefold), (
+        f"orden no estable: {nombres}"
+    )
