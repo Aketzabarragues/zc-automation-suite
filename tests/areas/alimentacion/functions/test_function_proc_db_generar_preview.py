@@ -26,6 +26,7 @@ import pytest
 
 from areas.alimentacion.functions.function_proc_db_generar_preview import (
     FunctionProcDBGenerarPreview,
+    ProcPreviewContext,
 )
 from core.runtime.app_state import AppState
 from core.runtime.progress_buffer import ProgressTracker
@@ -113,6 +114,232 @@ def make_fb(
         bloques_cache=bloques_cache,
         tracker=progress_tracker,
     )
+
+
+# ── Tests directos de _stage_6_build_response (db_present / table_present) ──
+
+
+def _make_minimal_slot_map(
+    *,
+    table_present: bool,
+    db_missing: list[str],
+) -> MagicMock:
+    """Slot map mockeado con los atributos minimos que
+    ``_stage_6_build_response`` lee.
+    """
+    sm = MagicMock()
+    sm.db_param_name = "DB3100_CPR1_PARAM"
+    sm.db_alm_name = "DB5100_CPR1_ALM"
+    sm.table_name = "100_CPR1"
+    sm.table_present = table_present
+    sm.db_missing = list(db_missing)
+    sm.missing_blocks = [
+        f"DB de parametros: {n}" for n in db_missing
+    ] + ([] if table_present else ["Tabla de variables: 100_CPR1"])
+    sm.warnings = []
+    return sm
+
+
+def test_stage_6_build_response_happy_path_flags_presentes(
+    mock_config: MagicMock,
+    mock_tia_client: MagicMock,
+    mock_app_state: MagicMock,
+    mock_bloques_cache: MagicMock,
+    progress: ProgressTracker,
+) -> None:
+    """Happy path (sin DBs ausentes, tabla presente):
+    ``db_present={"param": True, "alm": True}`` y ``table_present=True``.
+    """
+    fb = make_fb(
+        mock_config, mock_tia_client, mock_app_state,
+        mock_bloques_cache, progress,
+    )
+    fb._ctx = ProcPreviewContext(
+        plc_name="S7-1500",
+        proc_uid=42,
+        tia_client=mock_tia_client,
+        config_manager=mock_config,
+        app_state=mock_app_state,
+        build_cache_root=mock_config.build_cache_root if hasattr(
+            mock_config, "build_cache_root"
+        ) else None,
+        bloques_cache=mock_bloques_cache,
+        excel_loaded=True,
+        bloques_loaded=True,
+        slot_map=_make_minimal_slot_map(table_present=True, db_missing=[]),
+        slot_map_error=None,
+        nmax_block={},
+        preal_current={},
+        pint_current={},
+        alm_current={},
+        export_error=None,
+    )
+
+    with patch(
+        "areas.alimentacion.functions.function_proc_db_generar_preview"
+        ".compose_arrays", return_value={}
+    ), patch(
+        "areas.alimentacion.functions.function_proc_db_generar_preview"
+        ".compute_summary", return_value={
+            "total": 0, "agregados": 0, "renombrados": 0,
+            "eliminados": 0, "sin_cambios": 0,
+        }
+    ):
+        fb._stage_6_build_response()
+
+    assert fb._ctx.result["db_present"] == {"param": True, "alm": True}
+    assert fb._ctx.result["table_present"] is True
+    assert fb._ctx.result["precondiciones_ok"] is True
+
+
+def test_stage_6_build_response_db_param_ausente_marca_solo_param(
+    mock_config: MagicMock,
+    mock_tia_client: MagicMock,
+    mock_app_state: MagicMock,
+    mock_bloques_cache: MagicMock,
+    progress: ProgressTracker,
+) -> None:
+    """Solo DB PARAM ausente (recuperable, no fatal):
+    ``db_present={"param": False, "alm": True}``, ``table_present=True``,
+    ``precondiciones_ok=True``.
+    """
+    fb = make_fb(
+        mock_config, mock_tia_client, mock_app_state,
+        mock_bloques_cache, progress,
+    )
+    fb._ctx = ProcPreviewContext(
+        plc_name="S7-1500",
+        proc_uid=42,
+        tia_client=mock_tia_client,
+        config_manager=mock_config,
+        app_state=mock_app_state,
+        build_cache_root=mock_config.build_cache_root if hasattr(
+            mock_config, "build_cache_root"
+        ) else None,
+        bloques_cache=mock_bloques_cache,
+        excel_loaded=True,
+        bloques_loaded=True,
+        slot_map=_make_minimal_slot_map(
+            table_present=True, db_missing=["DB3100_CPR1_PARAM"],
+        ),
+        slot_map_error=None,
+        nmax_block={},
+        preal_current={},
+        pint_current={},
+        alm_current={},
+        export_error=None,
+    )
+
+    with patch(
+        "areas.alimentacion.functions.function_proc_db_generar_preview"
+        ".compose_arrays", return_value={}
+    ), patch(
+        "areas.alimentacion.functions.function_proc_db_generar_preview"
+        ".compute_summary", return_value={
+            "total": 0, "agregados": 0, "renombrados": 0,
+            "eliminados": 0, "sin_cambios": 0,
+        }
+    ):
+        fb._stage_6_build_response()
+
+    assert fb._ctx.result["db_present"] == {"param": False, "alm": True}
+    assert fb._ctx.result["table_present"] is True
+    assert fb._ctx.result["precondiciones_ok"] is True
+
+
+def test_stage_6_build_response_ambos_dbs_ausentes_marca_fatal(
+    mock_config: MagicMock,
+    mock_tia_client: MagicMock,
+    mock_app_state: MagicMock,
+    mock_bloques_cache: MagicMock,
+    progress: ProgressTracker,
+) -> None:
+    """Ambos DBs ausentes (fatal): ``db_present={False, False}``,
+    ``table_present=True``, ``precondiciones_ok=False``.
+    """
+    fb = make_fb(
+        mock_config, mock_tia_client, mock_app_state,
+        mock_bloques_cache, progress,
+    )
+    fb._ctx = ProcPreviewContext(
+        plc_name="S7-1500",
+        proc_uid=42,
+        tia_client=mock_tia_client,
+        config_manager=mock_config,
+        app_state=mock_app_state,
+        build_cache_root=mock_config.build_cache_root if hasattr(
+            mock_config, "build_cache_root"
+        ) else None,
+        bloques_cache=mock_bloques_cache,
+        excel_loaded=True,
+        bloques_loaded=True,
+        slot_map=_make_minimal_slot_map(
+            table_present=True,
+            db_missing=["DB3100_CPR1_PARAM", "DB5100_CPR1_ALM"],
+        ),
+        slot_map_error=None,
+        nmax_block={},
+        preal_current={},
+        pint_current={},
+        alm_current={},
+        export_error=None,
+    )
+
+    fb._stage_6_build_response()
+
+    assert fb._ctx.result["db_present"] == {"param": False, "alm": False}
+    assert fb._ctx.result["table_present"] is True
+    assert fb._ctx.result["precondiciones_ok"] is False
+    assert fb._ctx.result["arrays"] == {}
+
+
+def test_stage_6_build_response_tabla_ausente_marca_solo_tabla(
+    mock_config: MagicMock,
+    mock_tia_client: MagicMock,
+    mock_app_state: MagicMock,
+    mock_bloques_cache: MagicMock,
+    progress: ProgressTracker,
+) -> None:
+    """Tabla ausente (fatal, sin importar DBs):
+    ``table_present=False``, ``db_present`` refleja solo los DBs que
+    falten (en este test ambos presentes).
+    """
+    fb = make_fb(
+        mock_config, mock_tia_client, mock_app_state,
+        mock_bloques_cache, progress,
+    )
+    fb._ctx = ProcPreviewContext(
+        plc_name="S7-1500",
+        proc_uid=42,
+        tia_client=mock_tia_client,
+        config_manager=mock_config,
+        app_state=mock_app_state,
+        build_cache_root=mock_config.build_cache_root if hasattr(
+            mock_config, "build_cache_root"
+        ) else None,
+        bloques_cache=mock_bloques_cache,
+        excel_loaded=True,
+        bloques_loaded=True,
+        slot_map=_make_minimal_slot_map(
+            table_present=False, db_missing=[],
+        ),
+        slot_map_error=None,
+        nmax_block={},
+        preal_current={},
+        pint_current={},
+        alm_current={},
+        export_error=None,
+    )
+
+    fb._stage_6_build_response()
+
+    assert fb._ctx.result["db_present"] == {"param": True, "alm": True}
+    assert fb._ctx.result["table_present"] is False
+    assert fb._ctx.result["precondiciones_ok"] is False
+    assert fb._ctx.result["arrays"] == {}
+
+
+# ── Helper / fixture para tests de state machine ─────────────────────
 
 
 def _patch_helper_fns(fb) -> Any:

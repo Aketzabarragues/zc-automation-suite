@@ -22,6 +22,8 @@ El ``self.result`` se popula con la shape legacy esperada por la SPA::
       "db_param_name":      str,
       "db_alm_name":        str,
       "table_name":         str,
+      "db_present":         {"param": bool, "alm": bool},
+      "table_present":      bool,
       "arrays":             dict,
       "summary":            dict,
       "nmax":               dict,
@@ -631,27 +633,51 @@ class FunctionProcDBGenerarPreview(FunctionBase):
             }
             return
 
-        if self._ctx.slot_map.missing_blocks:
+        sm = self._ctx.slot_map
+        fatal_missing = (
+            not sm.table_present
+            or (
+                sm.db_param_name in sm.db_missing
+                and sm.db_alm_name in sm.db_missing
+            )
+        )
+        # Flags estructurados de presencia en el PLC. La SPA los usa
+        # para marcar visualmente que un nombre concreto falta, sin
+        # tener que parsear ``missing_blocks`` (strings formateados).
+        db_present = {
+            "param": sm.db_param_name not in sm.db_missing,
+            "alm": sm.db_alm_name not in sm.db_missing,
+        }
+        if fatal_missing:
             self._ctx.result = {
                 "proc_uid": self._ctx.proc_uid,
-                "proc_codigo": extract_codigo(self._ctx.slot_map.db_param_name),
+                "proc_codigo": extract_codigo(sm.db_param_name),
                 "precondiciones_ok": False,
-                "missing_blocks": self._ctx.slot_map.missing_blocks,
-                "db_param_name": self._ctx.slot_map.db_param_name,
-                "db_alm_name": self._ctx.slot_map.db_alm_name,
-                "table_name": self._ctx.slot_map.table_name,
+                "missing_blocks": sm.missing_blocks,
+                "db_param_name": sm.db_param_name,
+                "db_alm_name": sm.db_alm_name,
+                "table_name": sm.table_name,
+                "db_present": db_present,
+                "table_present": sm.table_present,
                 "arrays": {},
                 "summary": dict(empty_summary),
-                "warnings": self._ctx.slot_map.warnings,
+                "warnings": sm.warnings,
             }
             return
 
-        # Happy path: compose arrays + summary, merge warnings.
+        # 1 DB ausente (recuperable) o ambos presentes: compose arrays,
+        # summary y warnings. ``sm.db_missing`` se anade a ``warnings``
+        # para que la SPA muestre el aviso al operario.
+        from areas.alimentacion.data.data_proc_slot_map import (
+            format_missing_db_message,
+        )
         arrays = compose_arrays(
-            self._ctx.slot_map, self._ctx.preal_current, self._ctx.pint_current, self._ctx.alm_current
+            sm, self._ctx.preal_current, self._ctx.pint_current, self._ctx.alm_current
         )
         summary = compute_summary(arrays)
-        warnings = list(self._ctx.slot_map.warnings)
+        warnings = list(sm.warnings)
+        for missing_db in sm.db_missing:
+            warnings.append(format_missing_db_message(sm, missing_db))
         if self._ctx.export_error:
             warnings.append(f"Export fallo: {self._ctx.export_error}. current=None.")
 
@@ -663,6 +689,8 @@ class FunctionProcDBGenerarPreview(FunctionBase):
             "db_param_name": self._ctx.slot_map.db_param_name,
             "db_alm_name": self._ctx.slot_map.db_alm_name,
             "table_name": self._ctx.slot_map.table_name,
+            "db_present": db_present,
+            "table_present": self._ctx.slot_map.table_present,
             "arrays": arrays,
             "summary": summary,
             "nmax": self._ctx.nmax_block,

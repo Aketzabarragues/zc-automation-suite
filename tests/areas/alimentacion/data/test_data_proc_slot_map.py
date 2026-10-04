@@ -9,9 +9,19 @@ Fase 3, paso 3.2.9.  Cobertura:
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+from unittest.mock import MagicMock
+
 import pytest
 
-from areas.alimentacion.data.data_proc_slot_map import DataProcSlotMap
+from areas.alimentacion.data.data_proc_slot_map import (
+    DataProcSlotMap,
+    proc_build_slot_maps,
+)
+from core.runtime.app_state import AppState
+from core.infrastructure.config.config_manager import ConfigManager
+from core.data.data_block_cache import DataBloqueCache
+from core.data.data_block_plc import DataBloquePLC
 
 
 def test_defaults_vacios():
@@ -56,6 +66,7 @@ def test_to_dict_shape():
     assert set(snapshot.keys()) == {
         "preal", "pint", "alm",
         "db_param_name", "db_alm_name", "table_name",
+        "table_present", "db_missing",
         "param_subpath", "alm_subpath",
         "nmax", "nmax_names",
         "missing_blocks", "warnings",
@@ -140,3 +151,229 @@ def test_listas_entre_instancias_son_independientes():
     m1.warnings.append("solo en m1")
     assert m2.missing_blocks == []
     assert m2.warnings == []
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Tests de ``proc_build_slot_maps``: cobertura de ``table_present``
+# y ``db_missing`` segun el estado de la cache de bloques.
+# ─────────────────────────────────────────────────────────────────────
+
+
+@dataclass
+class _FakeProc:
+    uid: int = 100
+    codigo: str = "CPR"
+    nombre: str = "Compresor"
+    preal: int = 3
+    pint: int = 2
+    alarmas: int = 1
+    alm_hmi: int = 1
+
+
+@dataclass
+class _FakeParamRow:
+    codigo: str = "CPR"
+    numero: int = 1
+    num_db: int = 100
+    comentario_db: str = ""
+
+
+@dataclass
+class _FakeAlarmaRow:
+    proceso: str = "Compresor"
+    numero: int = 1
+    num_db: int = 100
+    comentario_db: str = ""
+
+
+def _make_excel_cache(proc=None, params=None, ints=None, alarms=None) -> MagicMock:
+    cache = MagicMock()
+    cache.procesos = [proc or _FakeProc()]
+    cache.parametros_real = list(params or [_FakeParamRow(comentario_db="real 1")])
+    cache.parametros_int = list(ints or [_FakeParamRow(comentario_db="int 1")])
+    cache.alarmas = list(alarms or [_FakeAlarmaRow(comentario_db="alm 1")])
+    return cache
+
+
+def _make_bloques_cache(blocks_present: set[str], tag_tables_present: set[str]) -> MagicMock:
+    """``blocks_present`` y ``tag_tables_present`` son sets con nombres ya normalizados."""
+    cache = MagicMock(spec=DataBloqueCache)
+    cache.blocks = {n: MagicMock(spec=DataBloquePLC) for n in blocks_present}
+    cache.tag_tables = {n: MagicMock(spec=DataBloquePLC) for n in tag_tables_present}
+    return cache
+
+
+def _make_config_manager() -> MagicMock:
+    cfg = MagicMock(spec=ConfigManager)
+    cfg.get_proc_nmax_suffixes.return_value = {
+        "preal": "PREAL",
+        "pint": "PINT",
+        "alm": "ALM",
+        "alm_hmi": "ALM_HMI",
+    }
+    return cfg
+
+
+def test_proc_build_slot_maps_happy_path():
+    """Tabla + DB_PARAM + DB_ALM presentes: slot maps y nmax poblados."""
+    from core.data.data_block_plc import DataBloquePLC
+
+    state = MagicMock(spec=AppState)
+    state.excel_cache_active = _make_excel_cache()
+    bloques = _make_bloques_cache(
+        blocks_present={
+            DataBloquePLC.normalize_name("DB100_CPR_PARAM"),
+            DataBloquePLC.normalize_name("DB100_CPR_ALM"),
+        },
+        tag_tables_present={
+            DataBloquePLC.normalize_name("100_CPR"),
+        },
+    )
+
+    sm = proc_build_slot_maps(state, _make_config_manager(), 100, bloques)
+
+    assert sm.table_present is True
+    assert sm.db_missing == []
+    assert sm.db_param_name == "DB100_CPR_PARAM"
+    assert sm.db_alm_name == "DB100_CPR_ALM"
+    assert sm.table_name == "100_CPR"
+    assert sm.preal == {0: "NO USAR", 1: "real 1"}
+    assert sm.pint == {0: "NO USAR", 1: "int 1"}
+    assert sm.alm == {0: "NO USAR", 1: "alm 1"}
+    assert sm.nmax == {"preal": 3, "pint": 2, "alm": 1, "alm_hmi": 1}
+    assert sm.nmax_names == {
+        "preal": "100_N_MAX_PREAL",
+        "pint": "100_N_MAX_PINT",
+        "alm": "100_N_MAX_ALM",
+        "alm_hmi": "100_N_MAX_ALM_HMI",
+    }
+    assert sm.missing_blocks == []
+
+
+def test_proc_build_slot_maps_tabla_ausente():
+    """Tabla del proceso no esta: slot maps y nmax vacios, table_present=False."""
+    from core.data.data_block_plc import DataBloquePLC
+
+    state = MagicMock(spec=AppState)
+    state.excel_cache_active = _make_excel_cache()
+    bloques = _make_bloques_cache(
+        blocks_present={
+            DataBloquePLC.normalize_name("DB100_CPR_PARAM"),
+            DataBloquePLC.normalize_name("DB100_CPR_ALM"),
+        },
+        tag_tables_present=set(),  # tabla ausente
+    )
+
+    sm = proc_build_slot_maps(state, _make_config_manager(), 100, bloques)
+
+    assert sm.table_present is False
+    assert sm.db_missing == []
+    assert sm.preal == {}
+    assert sm.pint == {}
+    assert sm.alm == {}
+    assert sm.nmax == {}
+    assert sm.nmax_names == {}
+    # missing_blocks reporta la tabla (forma que consume el preview FB).
+    assert sm.missing_blocks == ["Tabla de variables: 100_CPR"]
+
+
+def test_proc_build_slot_maps_solo_db_alm_ausente():
+    """Tabla + DB_PARAM presentes, DB_ALM ausente: slot maps poblados, db_missing=[db_alm]."""
+    from core.data.data_block_plc import DataBloquePLC
+
+    state = MagicMock(spec=AppState)
+    state.excel_cache_active = _make_excel_cache()
+    bloques = _make_bloques_cache(
+        blocks_present={
+            DataBloquePLC.normalize_name("DB100_CPR_PARAM"),  # solo DB_PARAM
+        },
+        tag_tables_present={
+            DataBloquePLC.normalize_name("100_CPR"),
+        },
+    )
+
+    sm = proc_build_slot_maps(state, _make_config_manager(), 100, bloques)
+
+    assert sm.table_present is True
+    assert sm.db_missing == ["DB100_CPR_ALM"]
+    assert sm.db_alm_name == "DB100_CPR_ALM"
+    # slot maps siguen poblados (los comentarios del Excel existen).
+    assert sm.preal == {0: "NO USAR", 1: "real 1"}
+    assert sm.pint == {0: "NO USAR", 1: "int 1"}
+    assert sm.alm == {0: "NO USAR", 1: "alm 1"}
+    # nmax se calcula siempre que la tabla este presente.
+    assert sm.nmax == {"preal": 3, "pint": 2, "alm": 1, "alm_hmi": 1}
+    # missing_blocks reporta solo DB_ALM.
+    assert sm.missing_blocks == ["DB de alarmas: DB100_CPR_ALM"]
+
+
+def test_proc_build_slot_maps_solo_db_param_ausente():
+    """Tabla + DB_ALM presentes, DB_PARAM ausente: simetrico al anterior."""
+    from core.data.data_block_plc import DataBloquePLC
+
+    state = MagicMock(spec=AppState)
+    state.excel_cache_active = _make_excel_cache()
+    bloques = _make_bloques_cache(
+        blocks_present={
+            DataBloquePLC.normalize_name("DB100_CPR_ALM"),  # solo DB_ALM
+        },
+        tag_tables_present={
+            DataBloquePLC.normalize_name("100_CPR"),
+        },
+    )
+
+    sm = proc_build_slot_maps(state, _make_config_manager(), 100, bloques)
+
+    assert sm.table_present is True
+    assert sm.db_missing == ["DB100_CPR_PARAM"]
+    assert sm.db_param_name == "DB100_CPR_PARAM"
+    assert sm.preal == {0: "NO USAR", 1: "real 1"}
+    assert sm.missing_blocks == ["DB de parametros: DB100_CPR_PARAM"]
+
+
+def test_proc_build_slot_maps_ambos_dbs_ausentes_tabla_presente():
+    """Tabla presente + 0 DBs: slot maps y nmax poblados, db_missing=[ambos]."""
+    from core.data.data_block_plc import DataBloquePLC
+
+    state = MagicMock(spec=AppState)
+    state.excel_cache_active = _make_excel_cache()
+    bloques = _make_bloques_cache(
+        blocks_present=set(),  # ni DB_PARAM ni DB_ALM
+        tag_tables_present={
+            DataBloquePLC.normalize_name("100_CPR"),
+        },
+    )
+
+    sm = proc_build_slot_maps(state, _make_config_manager(), 100, bloques)
+
+    assert sm.table_present is True
+    assert set(sm.db_missing) == {"DB100_CPR_PARAM", "DB100_CPR_ALM"}
+    # slot maps poblados: el stage 3 del FB aborta con "no hay nada
+    # que aplicar" ANTES de usarlos.
+    assert sm.preal == {0: "NO USAR", 1: "real 1"}
+    assert sm.nmax == {"preal": 3, "pint": 2, "alm": 1, "alm_hmi": 1}
+    # missing_blocks reporta los 2 DBs.
+    assert set(sm.missing_blocks) == {
+        "DB de parametros: DB100_CPR_PARAM",
+        "DB de alarmas: DB100_CPR_ALM",
+    }
+
+
+def test_proc_build_slot_maps_excel_no_cargado():
+    """Sin excel_cache_active: RuntimeError claro."""
+    state = MagicMock(spec=AppState)
+    state.excel_cache_active = None
+    bloques = _make_bloques_cache(set(), set())
+
+    with pytest.raises(RuntimeError, match="excel_cache_active"):
+        proc_build_slot_maps(state, _make_config_manager(), 100, bloques)
+
+
+def test_proc_build_slot_maps_proc_uid_no_existe():
+    """proc_uid no esta en excel_cache_active.procesos: RuntimeError claro."""
+    state = MagicMock(spec=AppState)
+    state.excel_cache_active = _make_excel_cache()
+    bloques = _make_bloques_cache(set(), set())
+
+    with pytest.raises(RuntimeError, match="uid=999"):
+        proc_build_slot_maps(state, _make_config_manager(), 999, bloques)

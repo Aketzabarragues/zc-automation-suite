@@ -421,51 +421,22 @@ export default {
             ];
         });
 
-        // ── Helpers para la tabla de bloques ─────────────────────
-        // ``pathStem``: ruta completa -> nombre sin extension y sin
-        // carpetas. El backend manda ``rel_in`` / ``rel_out`` con
-        // subcarpetas (``variables/`` / ``bloques/``) y el
-        // ``manifest.json`` ya viene filtrado por el helper.
-        function _pathStem(p) {
-            if (!p) return "";
-            const s = String(p).replace(/\\/g, "/").split("/").pop();
-            return s.replace(/\.[^.]+$/, "");
-        }
-
-        // Filas de la tabla de bloques previstos. Single source of
-        // truth: el backend ya marca ``archivos_previstos[i].colisiona``
-        // cruzando ``dicc_bloques`` (preview lado servidor) contra la
-        // cache de bloques del PLC que la SPA envia en
-        // ``plc_blocks_cache`` (commit 6). Replicar el cruce aqui
-        // duplicaba logica y daba falsos positivos (todo OK) cuando
-        // la SPA no enviaba la cache.
-        // Orden estable: por nombre nuevo ascendente (locale-aware).
+        // Filas de la tabla de bloques previstos. El backend emite 1
+        // entry por bloque (commit 6b7d92b) con shape canonico
+        // ``{nombre_original, nombre_nuevo, estado}`` ya ordenado por
+        // ``nombre_nuevo`` ascendente (casefold). La SPA solo mapea
+        // 1:1 y proyecta los nombres de campo al lenguaje del template.
         const bloquesConEstado = computed(() => {
             const data = previewData.value;
             if (!data || !Array.isArray(data.archivos_previstos)) return [];
-            const rows = data.archivos_previstos
-                .filter((a) => a && a.rel_in !== undefined && a.rel_out !== undefined)
-                .map((a) => {
-                    // ESTADO: "OK" o "DUPLICADO - <id>" cuando el
-                    // backend anota ``colision_con`` con el bloque
-                    // del PLC que colisiona (por nombre o por numero).
-                    // Si el backend no trae el detalle (legacy /
-                    // colision_con=None), cae a "DUPLICADO" plano.
-                    let estado = "OK";
-                    if (a.colisiona) {
-                        const ident = a.colision_con;
-                        estado = ident ? `DUPLICADO - ${ident}` : "DUPLICADO";
-                    }
-                    return {
-                        original: a.nombre_original || _pathStem(a.rel_in),
-                        nuevo: a.nombre_nuevo || _pathStem(a.rel_out),
-                        estado,
-                    };
-                });
-            rows.sort((a, b) => String(a.nuevo).localeCompare(
-                String(b.nuevo), undefined, { sensitivity: "base" }
-            ));
-            return rows;
+            return data.archivos_previstos
+                .filter((a) => a && a.nombre_original && a.nombre_nuevo
+                    && a.estado !== undefined)
+                .map((a) => ({
+                    original: a.nombre_original,
+                    nuevo: a.nombre_nuevo,
+                    estado: a.estado,
+                }));
         });
 
         return {
@@ -627,7 +598,7 @@ export default {
 
             <div v-if="previewData" class="mt-4">
                 <h3 class="text-sm font-semibold text-ink mb-2">
-                    Archivos a generar ({{ bloquesConEstado.length }})
+                    Bloques a generar ({{ bloquesConEstado.length }})
                 </h3>
                 <div v-if="Array.isArray(previewData.colisiones) && previewData.colisiones.length"
                      class="bg-red-50 border border-red-300 rounded p-2 mb-2 text-xs text-red-800">
@@ -677,7 +648,7 @@ export default {
                             <tr v-if="bloquesConEstado.length === 0">
                                 <td colspan="3"
                                     class="px-3 py-6 text-center text-ink-muted italic">
-                                    (no hay archivos previstos)
+                                    (no hay bloques previstos)
                                 </td>
                             </tr>
                         </tbody>

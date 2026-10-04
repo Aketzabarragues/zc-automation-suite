@@ -65,6 +65,8 @@ class DataProcSlotMap:
     db_param_name: str = ""
     db_alm_name: str = ""
     table_name: str = ""
+    table_present: bool = True
+    db_missing: list[str] = field(default_factory=list)
     param_subpath: str = ""
     alm_subpath: str = ""
     nmax: dict[str, int] = field(default_factory=dict)
@@ -87,6 +89,8 @@ class DataProcSlotMap:
             "db_param_name": self.db_param_name,
             "db_alm_name": self.db_alm_name,
             "table_name": self.table_name,
+            "table_present": self.table_present,
+            "db_missing": list(self.db_missing),
             "param_subpath": self.param_subpath,
             "alm_subpath": self.alm_subpath,
             "nmax": dict(self.nmax),
@@ -223,11 +227,22 @@ def proc_build_slot_maps(
                       POST /api/v1/excel/upload" o "El proceso
                       {uid} no esta en el Excel cargado".
 
-    Politica de precondiciones:
-      - Si falta alguno de los 3 bloques (DB_PARAM, DB_ALM, tabla)
-        en el ``DataBloqueCache``, la funcion añade el nombre a
-        ``missing_blocks`` y retorna con los 3 dicts vacios
-        (NO lanza). La SPA pinta el aviso y bloquea la vista de diff.
+    Atributos de presencia en el PLC:
+      - ``table_present``: True si la tabla ``{proc_uid}_{proc.codigo}``
+        existe en el PLC.
+      - ``db_missing``: lista de DBs (DB_PARAM / DB_ALM) que NO existen
+        en el PLC. Vacia si ambos existen.
+
+    Contrato de retorno segun presencia:
+      - Tabla ausente: ``preal/pint/alm={}``, ``nmax={}``, ``table_present=False``.
+        El FB de sync aborta con un mensaje claro.
+      - Tabla presente + ambos DBs: slot maps y N_MAX poblados.
+      - Tabla presente + DBs opcionales ausentes: slot maps y N_MAX
+        poblados, ``db_missing`` con los nombres de los DBs ausentes.
+        El FB de sync omite los commits sobre esos DBs.
+
+    ``missing_blocks`` se reconstruye desde ``table_present`` y
+    ``db_missing`` para que el preview FB distinga bloque faltante.
     """
     excel_cache = app_state.excel_cache_active
     if excel_cache is None:
@@ -274,13 +289,25 @@ def proc_build_slot_maps(
 
     table_name = f"{proc_uid}_{proc.codigo}"
 
+    param_key = DataBloquePLC.normalize_name(db_param_name)
+    alm_key = DataBloquePLC.normalize_name(db_alm_name)
+    table_key = DataBloquePLC.normalize_name(table_name)
+
+    table_present = table_key in bloques_cache.tag_tables
+    db_missing: list[str] = []
+    if param_key not in bloques_cache.blocks:
+        db_missing.append(db_param_name)
+    if alm_key not in bloques_cache.blocks:
+        db_missing.append(db_alm_name)
+
+    # missing_blocks se reconstruye desde table_present + db_missing.
     missing_blocks: list[str] = []
-    if DataBloquePLC.normalize_name(db_param_name) not in bloques_cache.blocks:
-        missing_blocks.append(f"DB de parametros: {db_param_name}")
-    if DataBloquePLC.normalize_name(db_alm_name) not in bloques_cache.blocks:
-        missing_blocks.append(f"DB de alarmas: {db_alm_name}")
-    if DataBloquePLC.normalize_name(table_name) not in bloques_cache.tag_tables:
+    if not table_present:
         missing_blocks.append(f"Tabla de variables: {table_name}")
+    if db_param_name in db_missing:
+        missing_blocks.append(f"DB de parametros: {db_param_name}")
+    if db_alm_name in db_missing:
+        missing_blocks.append(f"DB de alarmas: {db_alm_name}")
 
     def _extract_subpath(key: str) -> str:
         val = bloques_cache.blocks.get(key, "")
@@ -288,12 +315,10 @@ def proc_build_slot_maps(
             return val
         return getattr(val, "ruta", "")
 
-    param_key = DataBloquePLC.normalize_name(db_param_name)
     param_subpath = _extract_subpath(param_key)
-    alm_key = DataBloquePLC.normalize_name(db_alm_name)
     alm_subpath = _extract_subpath(alm_key)
 
-    if missing_blocks:
+    if not table_present:
         return DataProcSlotMap(
             preal={}, pint={}, alm={},
             db_param_name=db_param_name,
@@ -301,6 +326,8 @@ def proc_build_slot_maps(
             table_name=table_name,
             param_subpath=param_subpath,
             alm_subpath=alm_subpath,
+            table_present=False,
+            db_missing=list(db_missing),
             missing_blocks=missing_blocks,
             warnings=warnings,
         )
@@ -353,9 +380,29 @@ def proc_build_slot_maps(
         alm_subpath=alm_subpath,
         nmax=nmax_desired,
         nmax_names=nmax_names,
+        table_present=True,
+        db_missing=db_missing,
         missing_blocks=missing_blocks,
         warnings=warnings,
     )
 
 
-__all__ = ["DataProcSlotMap", "proc_build_slot_maps"]
+def format_missing_db_message(slot_map: DataProcSlotMap, db_name: str) -> str:
+    """Mensaje estandar cuando un DB esta ausente en el PLC.
+
+    Usado por el sync (stage 3 + fase 2 de Tx B) y por el preview
+    (stage 6) para que el operario vea el mismo texto en ambos lados.
+    """
+    if db_name == slot_map.db_param_name:
+        kind = "parametros"
+    elif db_name == slot_map.db_alm_name:
+        kind = "alarmas"
+    else:
+        kind = "?"
+    return (
+        f"DB de {kind} no existe en el PLC; "
+        f"se omite esa sincronizacion: {db_name}"
+    )
+
+
+__all__ = ["DataProcSlotMap", "proc_build_slot_maps", "format_missing_db_message"]
