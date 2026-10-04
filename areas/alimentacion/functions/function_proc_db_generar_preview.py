@@ -22,6 +22,8 @@ El ``self.result`` se popula con la shape legacy esperada por la SPA::
       "db_param_name":      str,
       "db_alm_name":        str,
       "table_name":         str,
+      "db_present":         {"param": bool, "alm": bool},
+      "table_present":      bool,
       "arrays":             dict,
       "summary":            dict,
       "nmax":               dict,
@@ -639,6 +641,13 @@ class FunctionProcDBGenerarPreview(FunctionBase):
                 and sm.db_alm_name in sm.db_missing
             )
         )
+        # Flags estructurados de presencia en el PLC. La SPA los usa
+        # para marcar visualmente que un nombre concreto falta, sin
+        # tener que parsear ``missing_blocks`` (strings formateados).
+        db_present = {
+            "param": sm.db_param_name not in sm.db_missing,
+            "alm": sm.db_alm_name not in sm.db_missing,
+        }
         if fatal_missing:
             self._ctx.result = {
                 "proc_uid": self._ctx.proc_uid,
@@ -648,6 +657,8 @@ class FunctionProcDBGenerarPreview(FunctionBase):
                 "db_param_name": sm.db_param_name,
                 "db_alm_name": sm.db_alm_name,
                 "table_name": sm.table_name,
+                "db_present": db_present,
+                "table_present": sm.table_present,
                 "arrays": {},
                 "summary": dict(empty_summary),
                 "warnings": sm.warnings,
@@ -678,6 +689,8 @@ class FunctionProcDBGenerarPreview(FunctionBase):
             "db_param_name": self._ctx.slot_map.db_param_name,
             "db_alm_name": self._ctx.slot_map.db_alm_name,
             "table_name": self._ctx.slot_map.table_name,
+            "db_present": db_present,
+            "table_present": self._ctx.slot_map.table_present,
             "arrays": arrays,
             "summary": summary,
             "nmax": self._ctx.nmax_block,
