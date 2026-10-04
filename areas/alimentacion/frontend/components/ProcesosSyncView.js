@@ -527,8 +527,9 @@ export default {
             </div>
 
             <!-- Nombres TIA resueltos. Marca en rojo los que faltan en
-                 el PLC segun ``nombresTiaConEstado.existe`` (backend,
-                 commit 5854bc1). -->
+                 el PLC segun ``nombresTiaConEstado.existe === false``
+                 (backend, commit 5854bc1). Si existe, el nombre se
+                 queda sin marca (degrada al estado original). -->
             <div v-if="preview && preview.db_param_name"
                  class="mb-3 bg-surface-raised border border-line rounded p-3 text-xs">
                 <div class="text-ink-muted mb-1 font-semibold">Bloques TIA objetivo</div>
@@ -539,8 +540,6 @@ export default {
                     <span class="font-semibold">{{ row.nombre }}</span>
                     <span v-if="row.existe === false"
                           class="ml-1 text-[10px] text-red-600">(no existe en PLC)</span>
-                    <span v-else-if="row.existe === true"
-                          class="ml-1 text-[10px] text-green-600">(en PLC)</span>
                 </div>
             </div>
 
