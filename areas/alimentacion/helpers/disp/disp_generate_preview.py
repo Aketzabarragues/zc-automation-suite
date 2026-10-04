@@ -142,7 +142,7 @@ def compute_diff_table(
     for device in desired_devices:
         numero = int(getattr(device, "numero", 0) or 0)
         plc_tag = str(getattr(device, "plc_tag", "") or "")
-        if numero > 0 and plc_tag:
+        if numero >= 0 and plc_tag:
             desired[str(numero)] = plc_tag
 
     base = _read_devices_from_xml(xml_path)
