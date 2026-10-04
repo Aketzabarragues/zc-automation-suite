@@ -134,6 +134,42 @@ export default {
         });
 
         /**
+         * Filas del bloque "Bloques TIA objetivo" con el flag de
+         * presencia en el PLC (``existe: true | false | null``).
+         *
+         * Backend emite ``db_present: {param, alm}`` y
+         * ``table_present: bool`` en el preview (commit 5854bc1).
+         * Si el preview no los trae (versiones antiguas o returns
+         * tempranos sin slot_map), ``existe`` queda ``null`` y el
+         * template pinta el nombre sin marca.
+         */
+        const nombresTiaConEstado = computed(() => {
+            const p = preview.value;
+            if (!p || !p.db_param_name) return [];
+            const dp = p.db_present;
+            return [
+                    {
+                        label: "DB parámetros",
+                        nombre: p.db_param_name,
+                        existe: (dp && typeof dp.param === "boolean")
+                            ? dp.param : null,
+                    },
+                    {
+                        label: "DB alarmas",
+                        nombre: p.db_alm_name,
+                        existe: (dp && typeof dp.alm === "boolean")
+                            ? dp.alm : null,
+                    },
+                    {
+                        label: "Tabla de variables",
+                        nombre: p.table_name,
+                        existe: typeof p.table_present === "boolean"
+                            ? p.table_present : null,
+                    },
+                ];
+        });
+
+        /**
          * Filas de la pestaña activa (formato uniforme para la
          * tabla). Para cada slot del array, devuelve:
          *   { slot, current, desired, action }
@@ -420,6 +456,7 @@ export default {
             canApply,
             flowError,
             precondError,
+            nombresTiaConEstado,
             isWorking,
             statusMeta: STATUS_META,
             handleGeneratePreview,
@@ -489,18 +526,21 @@ export default {
                 ⚠️ Precondiciones no cumplidas: {{ precondError }}
             </div>
 
-            <!-- Nombres TIA resueltos -->
+            <!-- Nombres TIA resueltos. Marca en rojo los que faltan en
+                 el PLC segun ``nombresTiaConEstado.existe`` (backend,
+                 commit 5854bc1). -->
             <div v-if="preview && preview.db_param_name"
                  class="mb-3 bg-surface-raised border border-line rounded p-3 text-xs">
                 <div class="text-ink-muted mb-1 font-semibold">Bloques TIA objetivo</div>
-                <div class="font-mono text-ink">
-                    DB parámetros: <span class="font-semibold">{{ preview.db_param_name }}</span>
-                </div>
-                <div class="font-mono text-ink">
-                    DB alarmas: <span class="font-semibold">{{ preview.db_alm_name }}</span>
-                </div>
-                <div class="font-mono text-ink">
-                    Tabla de variables: <span class="font-semibold">{{ preview.table_name }}</span>
+                <div v-for="row in nombresTiaConEstado" :key="row.label"
+                     class="font-mono"
+                     :class="row.existe === false ? 'text-red-700' : 'text-ink'">
+                    {{ row.label }}:
+                    <span class="font-semibold">{{ row.nombre }}</span>
+                    <span v-if="row.existe === false"
+                          class="ml-1 text-[10px] text-red-600">(no existe en PLC)</span>
+                    <span v-else-if="row.existe === true"
+                          class="ml-1 text-[10px] text-green-600">(en PLC)</span>
                 </div>
             </div>
 
