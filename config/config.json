@@ -1,17 +1,16 @@
 {
-  "_comment": "Configuración multi-departamento. Cada departamento encapsula su jerarquía TIA y sus tipos de dispositivo. Para añadir un nuevo departamento, duplicar el bloque 'alimentacion' bajo 'departments' y ajustar los valores. Si en el futuro se añaden más departamentos, el ConfigManager acepta el parámetro 'department' para resolver el bloque correcto.",
-  "_todo_legacy_types": "Los tipos legacy (sd/tq/tq_ae/productos) viven en el PLC real dentro de 2000_Dispositivos/ pero NO se configuran aquí. Se activarán cuando se necesite soporte explícito. Sus entradas viven en 'pending_dispositivos' y los N_MAX asociados en 'pending_nmax' (ver abajo). Los tipos 'm_sina' (motor sinamics), 'tot' (totalizador) y 'pid' (controlador PID) están activos: sus entries viven en 'Dispositivos' y sus N_MAX en 'n_max_catalog'.",
+  "_comment": "Multi-departamento: cada bloque bajo 'departments.<area_id>' encapsula su jerarquia TIA. Para anadir un area, duplicar el de 'alimentacion' y ajustar los valores.",
   "departments": {
     "alimentacion": {
-      "_comment_folders": "Jerarquía TIA del departamento de alimentación: la tabla N_MAX ('000_Config_Dispositivos') vive en tia_folders.nmax (000_Sistema); las tablas de dispositivos viven en tia_folders.dispositivos (2000_Dispositivos). El sync unificado parsea SOLO esos 10 XMLs del árbol exportado por export_plc_tags_xml (9 disp + 1 N_MAX); el resto (003_Procesos/*, 000_Traza_*, 2000_Disp_SD, etc.) se ignora.",
-      "_comment_plantillas": "Ruta base donde viven las subcarpetas de plantillas TIA para generar procesos. Cada subcarpeta contiene un manifest.json con ``base``, ``codigo``, ``nombre`` y ``minimos``. Cadena vacia = sin configurar; el operario la configura via ``PUT /api/v1/procesos/plantillas`` desde la SPA (Fase 1 de generar proceso desde plantilla).",
+      "_comment_folders": "Carpetas TIA: 'nmax' es la tabla global de N_MAX; 'dispositivos' son las tag tables de los Disp*. El sync unificado parsea SOLO esos 10 XMLs.",
+      "_comment_plantillas": "Ruta base de plantillas TIA para generar procesos. Cada subcarpeta contiene un manifest.json con base/codigo/nombre/minimos. Cadena vacia = sin configurar; el operario la configura via PUT /api/v1/procesos/plantillas desde la SPA.",
       "global_config_table_name": "000_Config_Dispositivos",
       "plantillas_path": "D:\\Zeus Control\\Proyectos\\GitHub\\zc-automation-suite\\_plan\\Generar_Proceso",
       "tia_folders": {
-        "proceso": "003_Procesos",
+        "proceso": "0_Procesos",
         "dispositivos": "2000_Dispositivos",
-        "nmax": "000_Sistema",
-        "entidades_config": "000_Sistema",
+        "nmax": "0_Sistema",
+        "entidades_config": "0_Sistema",
         "entidades_tags": "6_Entidades"
       },
       "n_max_catalog": [
@@ -168,7 +167,7 @@
         }
       },
       "procesos": {
-        "_comment_nmax": "Sufijos de las PlcUserConstant N_MAX de los arrays de proceso. El nombre completo se computa como ``f\"{proc.uid}_N_MAX_{suffix}\"`` (p. ej. ``100_N_MAX_PREAL`` para el proceso uid=100 y array PReal). Las 4 constantes viven en la misma tabla del proceso (``<uid>_<codigo>``, p. ej. ``100_CPR``) en el folder TIA de la tabla del proceso (sept-2026, antes estaban en la tabla global ``000_Config_Dispositivos``; ver plan del sync de procesos). Se exponen como cards SOLO VISUALES en el preview de procesos; el sync las aplica via ``commit_user_constants_online`` en la Tx A previa al commit de comentarios (sept-2026).",
+        "_comment_nmax": "Sufijos N_MAX de procesos: el nombre completo se computa como f'{proc.uid}_N_MAX_{suffix}' (p. ej. '100_N_MAX_PREAL'). Las constantes viven en la tabla del proceso (<uid>_<codigo>, p. ej. '100_CPR'). Si el departamento no define este bloque, no hay cards N_MAX en el preview de procesos.",
         "n_max_suffixes": {
           "preal": "PREAL",
           "pint": "PINT",
@@ -177,7 +176,7 @@
         }
       },
       "disp_catalog": {
-        "_comment_display_order": "Override data-driven de las columnas visibles en el panel de dispositivos. Override por canonical = reemplazo completo (visibilidad explicita por ausencia: las columnas que omitas no aparecen). Sin override, el backend usa el default (TODOS los campos visibles del DTO). Para volver al default, borra todo este bloque ``disp_catalog``. Si en el futuro se añade un campo nuevo al DTO y quieres seguir viendolo, añadelo aqui tambien.",
+        "_comment_display_order": "Override data-driven de columnas visibles en el panel de dispositivos. Override por canonical = reemplazo total (visibilidad explicita por ausencia). Sin override, el backend usa el default (TODOS los campos del DTO).",
         "display_order": {
           "DispED": [
             "plc_name",
@@ -312,7 +311,7 @@
         }
       },
       "proc_catalog": {
-        "_comment_display_order": "Override data-driven de las columnas visibles en el panel de software (Procesos / PInt / PReal / Alarmas). Misma politica que ``disp_catalog.display_order``: override por dominio = reemplazo completo (visibilidad explicita por ausencia). Sin override, el backend usa el default ``DISPLAY_ORDER`` de ``data_proc_catalog``. Para volver al default, borra todo este bloque ``proc_catalog``.",
+        "_comment_display_order": "Override data-driven de columnas visibles en el panel de software (Procesos / PInt / PReal / Alarmas). Misma politica que disp_catalog.display_order.",
         "display_order": {
           "procesos": [
             "plc_name",
@@ -350,9 +349,10 @@
       "entidades": {
         "db_name": "DB6_ENT",
         "db_array_name": "ENT",
-        "tag_table": "000_Entidades",
-        "config_table": "000_Config_Generales"
-      }
+        "tag_table": "6_Entidades",
+        "config_table": "0_Config_Generales"
+      },
+      "_todo_legacy_types": "Tipos legacy (sd/tq/tq_ae/productos) NO activos. Sus N_MAX viven en 'pending_nmax' y sus entries en 'pending_dispositivos'."
     }
   }
 }
