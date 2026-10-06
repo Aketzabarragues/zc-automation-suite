@@ -53,6 +53,10 @@ const _comps = {
     // ``ProcesosPanel`` solo se monta dentro del tab "Procesos" de
     // ``DefinicionProgramacion``. Ambas coexisten en el área.
     "Procesos":                () => import("./components/Procesos.js"),
+    // Sub-vista top-level "Entidades" (gemela de Dispositivos y
+    // Procesos en el sidebar). En B.0 solo monta ``<entidades-panel>``;
+    // las cards de accion iran en D.
+    "Entidades":              () => import("./components/Entidades.js"),
     // Sub-vista "Sync comentarios de DB" (preview + diff + apply).
     // Accesible desde la card de Procesos.js (key: "proc_sync").
     "ProcesosSyncView":        () => import("./components/ProcesosSyncView.js"),
@@ -98,20 +102,22 @@ export function build() {
             // perdida (ya no tiene sentido sin el proceso del
             // selector).
             views: {
-                "landing": "AreaLanding",
-                "def":     "DefinicionProgramacion",
-                "disp":    "Dispositivos",
-                "proc":    "Procesos",
+                "landing":   "AreaLanding",
+                "def":       "DefinicionProgramacion",
+                "disp":      "Dispositivos",
+                "proc":      "Procesos",
+                "entidades": "Entidades",
             },
             // Labels humanos del breadcrumb y de los items de la nav.
             // El shell los lee para mostrar texto friendly en vez de
             // la key cruda. Si no se aportan, el shell hace
             // fallback a la key capitalizada.
             viewLabels: {
-                "landing": "Inicio",
-                "def":     "Definición programación",
-                "disp":    "Dispositivos",
-                "proc":    "Procesos",
+                "landing":   "Inicio",
+                "def":       "Definición programación",
+                "disp":      "Dispositivos",
+                "proc":      "Procesos",
+                "entidades": "Entidades",
             },
         },
         loaders: _comps,

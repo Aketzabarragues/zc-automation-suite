@@ -76,20 +76,22 @@ def build() -> "AreaFrontendManifest":
             # perdida (ya no tiene sentido sin el proceso del
             # selector).
             "views": {
-                "landing": "AreaLanding",
-                "def":     "DefinicionProgramacion",
-                "disp":    "Dispositivos",
-                "proc":    "Procesos",
+                "landing":   "AreaLanding",
+                "def":       "DefinicionProgramacion",
+                "disp":      "Dispositivos",
+                "proc":      "Procesos",
+                "entidades": "Entidades",
             },
             # Labels humanos del breadcrumb y de los items de la nav.
             # El shell los lee para mostrar texto friendly en vez de
             # la key cruda. Si no se aportan, el shell hace fallback
             # a la key capitalizada.
             "viewLabels": {
-                "landing": "Inicio",
-                "def":     "Definición programación",
-                "disp":    "Dispositivos",
-                "proc":    "Procesos",
+                "landing":   "Inicio",
+                "def":       "Definición programación",
+                "disp":      "Dispositivos",
+                "proc":      "Procesos",
+                "entidades": "Entidades",
             },
         },
         "loaders": {
@@ -102,6 +104,10 @@ def build() -> "AreaFrontendManifest":
             # (``key: "proc"``), mientras que ``ProcesosPanel`` solo
             # se monta dentro del tab "Procesos" de Definicion.
             "Procesos":                f"{_STATIC_PREFIX}/components/Procesos.js",
+            # Sub-vista top-level "Entidades" (gemela de Dispositivos
+            # y Procesos en el sidebar). En B.0 solo monta
+            # ``<entidades-panel />``; las cards de accion iran en D.
+            "Entidades":              f"{_STATIC_PREFIX}/components/Entidades.js",
             # ``ProcesosSyncView``: renderizado INLINE dentro de
             # ``Procesos.js`` (no como sub-vista top-level). El shell
             # SPA necesita el loader para registrar el componente y
