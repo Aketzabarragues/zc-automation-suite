@@ -66,18 +66,20 @@ def _add_n_max_table(
     sheet_name: str,
     rows: list[dict[str, Any]],
 ) -> None:
-    """Anade (o reemplaza) la tabla ``Tabla_Dispositivos`` en ``sheet_name``.
+    """Anade (o reemplaza) la tabla ``Tabla_Dimensiones`` en ``sheet_name``.
 
-    Sept-2026: la tabla vive en la hoja ``CONFIG`` (igual que ``Tabla_PLC``
-    y ``Tabla_Procesos``). Anteriormente vivia en ``000_Sistema``.
+    La tabla vive en la hoja ``CONFIG`` (igual que ``Tabla_PLC``
+    y ``Tabla_Procesos``). Anteriormente el nombre era ``Tabla_Dispositivos``
+    (rename operativo al integrar N_MAX_ENT en la misma hoja).
     """
     if sheet_name not in wb.sheetnames:
         ws = wb.create_sheet(sheet_name)
     else:
         ws = wb[sheet_name]
-    # Cabecera canonica + PLC + 6 columnas.
+    # Cabecera canonica + PLC + 6 columnas + N_Max_ENT (entregada
+    # al final para tests legacy que no la setean: queda en None -> 0).
     headers = ["PLC", "N_Max_ED", "N_Max_EA", "N_Max_SA",
-               "N_Max_V", "N_Max_M", "N_Max_M_VF"]
+               "N_Max_V", "N_Max_M", "N_Max_M_VF", "N_Max_ENT"]
     # Borrar contenido previo (incluyendo cualquier cabecera previa).
     if ws.max_row > 0:
         ws.delete_rows(1, ws.max_row)
@@ -228,7 +230,108 @@ def test_to_api_dict_shape_anidado(tmp_path):
     assert "PLC2" in api
     assert api["PLC1"]["N_MAX_DISP_ED"] == 10
     assert api["PLC1"]["N_MAX_DISP_EA"] == 20
+    assert api["PLC1"]["N_MAX_ENTIDAD"] == 0  # sin setear -> 0
     assert api["PLC2"]["N_MAX_DISP_ED"] == 100
+    assert api["PLC2"]["N_MAX_ENTIDAD"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Tests de N_MAX_ENTIDADES (columna ``N_Max_ENT``)
+# ---------------------------------------------------------------------------
+
+
+def test_n_max_entidades_se_popula_por_plc(tmp_path):
+    """Columna ``N_Max_ENT`` se popula en ``n_max_entidades`` del DTO."""
+    wb = Workbook()
+    wb.remove(wb.active)
+    _add_n_max_table(wb, "CONFIG", [
+        {"PLC": "PLC1", "N_Max_ED": 10, "N_Max_ENT": 50},
+        {"PLC": "PLC2", "N_Max_ED": 100, "N_Max_ENT": 75},
+    ])
+    cm = _config_manager_for_tests(tmp_path)
+    parser = DimensionesParser(config_manager=cm)
+    result = parser.extraer(wb)
+
+    by_plc = {d.plc_name: d for d in result.por_plc}
+    assert by_plc["PLC1"].n_max_entidades == 50
+    assert by_plc["PLC2"].n_max_entidades == 75
+    # Sanity: la columna N_MAX_ENT NO se filtra por el catalog.
+    assert "N_MAX_ENTIDAD" not in by_plc["PLC1"].extras
+
+
+def test_n_max_entidades_celda_vacia_es_cero(tmp_path):
+    """Celda ``N_Max_ENT`` vacia -> ``n_max_entidades=0`` (back-compat)."""
+    wb = Workbook()
+    wb.remove(wb.active)
+    _add_n_max_table(wb, "CONFIG", [
+        {"PLC": "PLC1", "N_Max_ED": 10},
+    ])
+    cm = _config_manager_for_tests(tmp_path)
+    parser = DimensionesParser(config_manager=cm)
+    result = parser.extraer(wb)
+
+    assert len(result.por_plc) == 1
+    assert result.por_plc[0].n_max_entidades == 0
+
+
+def test_n_max_entidades_to_api_dict_incluye_por_plc(tmp_path):
+    """``to_api_dict()`` emite ``N_MAX_ENTIDAD`` por PLC."""
+    wb = Workbook()
+    wb.remove(wb.active)
+    _add_n_max_table(wb, "CONFIG", [
+        {"PLC": "PLC1", "N_Max_ED": 10, "N_Max_ENT": 50},
+        {"PLC": "PLC2", "N_Max_ENT": 75},
+    ])
+    cm = _config_manager_for_tests(tmp_path)
+    parser = DimensionesParser(config_manager=cm)
+    result = parser.extraer(wb)
+    api = result.to_api_dict()
+
+    assert api["PLC1"]["N_MAX_ENTIDAD"] == 50
+    assert api["PLC2"]["N_MAX_ENTIDAD"] == 75
+
+
+def test_n_max_entidades_se_ignora_si_ausente_en_excel(tmp_path):
+    """Si la columna ``N_Max_ENT`` no esta, ``n_max_entidades=0``.
+
+    Back-compat con Excels legacy sin la columna ``N_Max_ENT``.
+    """
+    wb = Workbook()
+    wb.remove(wb.active)
+    # Construimos una tabla SIN la columna N_Max_ENT.
+    headers = ["PLC", "N_Max_ED", "N_Max_EA"]
+    ws = wb.create_sheet("CONFIG")
+    ws.append(headers)
+    ws.append(["PLC1", 10, 20])
+    last_col_letter = chr(ord("A") + len(headers) - 1)
+    from openpyxl.worksheet.table import Table
+    table = Table(displayName="Tabla_Dimensiones",
+                  ref=f"A1:{last_col_letter}{ws.max_row}")
+    ws.add_table(table)
+
+    cm = _config_manager_for_tests(tmp_path)
+    parser = DimensionesParser(config_manager=cm)
+    result = parser.extraer(wb)
+
+    assert len(result.por_plc) == 1
+    assert result.por_plc[0].n_max_entidades == 0
+
+
+def test_n_max_entidades_0_no_se_ignora(tmp_path):
+    """Operario pone ``N_Max_ENT=0`` explicitamente (reset): se respeta."""
+    wb = Workbook()
+    wb.remove(wb.active)
+    _add_n_max_table(wb, "CONFIG", [
+        {"PLC": "PLC1", "N_Max_ED": 10, "N_Max_ENT": 0},
+    ])
+    cm = _config_manager_for_tests(tmp_path)
+    parser = DimensionesParser(config_manager=cm)
+    result = parser.extraer(wb)
+
+    assert result.por_plc[0].n_max_entidades == 0
+    # to_api_dict lo emite siempre (incluido 0) para que el
+    # consumidor no tenga que distinguir "ausente" vs "valor 0".
+    assert result.to_api_dict()["PLC1"]["N_MAX_ENTIDAD"] == 0
 
 
 def test_data_dimensiones_plc_inmutable(tmp_path):

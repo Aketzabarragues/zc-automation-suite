@@ -39,7 +39,7 @@ def _add_table(
 
     La tabla se inserta al final del contenido actual de la hoja
     (``ws.max_row + 1``), no siempre en ``A1``. Si la hoja ya tiene
-    otra tabla (p. ej. ``Tabla_Dispositivos`` en ``CONFIG``), calcular
+    otra tabla (p. ej. ``Tabla_Dimensiones`` en ``CONFIG``), calcular
     ``ref`` desde ``A1`` haria que la nueva tabla colisione con la
     previa: openpyxl acepta las dos referencias pero al recargar el
     workbook la lectura de filas por ``range_boundaries`` cae en la
@@ -102,7 +102,7 @@ def _add_n_max_table(
     last_col_letter = chr(ord("A") + len(headers) - 1)
     last_row = ws.max_row
     ref = f"A1:{last_col_letter}{last_row}"
-    table = Table(displayName="Tabla_Dispositivos", ref=ref)
+    table = Table(displayName="Tabla_Dimensiones", ref=ref)
     table.tableStyleInfo = TableStyleInfo(
         name="TableStyleMedium2", showFirstColumn=False,
         showLastColumn=False, showRowStripes=True, showColumnStripes=False,
@@ -115,9 +115,9 @@ def _build_full_xlsx(target: Path) -> Path:
     wb = Workbook()
     wb.remove(wb.active)
 
-    # N_MAX (tabla Tabla_Dispositivos, multi-PLC, sept-2026).
+    # N_MAX (tabla Tabla_Dimensiones, multi-PLC).
     # Vive en la hoja CONFIG (igual que ``Tabla_PLC`` y
-    # ``Tabla_Procesos``). Sept-2026: el parser se alinea con los otros
+    # ``Tabla_Procesos``). El parser se alinea con los otros
     # parsers, hardcoded a ``"CONFIG"``.
     _add_n_max_table(wb, "CONFIG", "PLC1", {
         "N_Max_ED": 10, "N_Max_EA": 20, "N_Max_SA": 30, "N_Max_V": 40,

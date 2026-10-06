@@ -1,23 +1,29 @@
-﻿"""Parser de N_MAX del Excel corporativo (multi-PLC, sept-2026).
+﻿"""Parser de N_MAX del Excel corporativo (multi-PLC).
 
 Lee una **tabla** dentro de la hoja de configuracion global
 (``global_config_table_name``, tipicamente ``"000_Config_Dispositivos"``)
 con la siguiente estructura::
 
-    UID | PLC | N_Max_ED | N_Max_EA | N_Max_SD | ... | N_Max_M_TQ_AE
+    UID | PLC | N_Max_ED | N_Max_EA | N_Max_SD | ... | N_Max_ENT
 
 Una fila por PLC del Excel. Cada columna ``N_Max_<hw>`` se traduce al
 canonico TIA ``N_MAX_DISP_<SUFFIX>`` y se agrupa por PLC en un
-``DataDimensionesPLC``. El resultado es un ``DimensionesDispositivos``
-con ``por_plc: tuple[DataDimensionesPLC, ...]``.
+``DataDimensionesPLC``. La columna ``N_Max_ENT`` se traduce al
+canonico TIA ``N_MAX_ENTIDAD`` y vive en el campo tipado
+``n_max_entidades`` del DTO (no en ``extras``). El resultado es un
+``DimensionesDispositivos`` con ``por_plc: tuple[DataDimensionesPLC, ...]``.
 
 Modo strict: solo se leen las columnas listadas en
 ``n_max_catalog[*].excel_column``. Columnas ``N_Max_*`` no listadas se
 ignoran con WARNING (typo atrapado). Entradas del catalog sin columna
 en el Excel se omiten (valor 0 por defecto al consultar).
 
+Excepcion: ``N_Max_ENT`` se lee SIEMPRE si la columna aparece en la
+tabla, sin depender del catalog (su entrada en ``n_max_catalog``
+tiene ``hw_type=""`` y no entra en el loop del catalog).
+
 Celdas vacias o no numericas: ``_safe_int(..., default=0)``. Validacion
-soft (D9 del plan): N_MAX=0 silencioso, sin error duro.
+soft: N_MAX=0 silencioso, sin error duro.
 
 Restriccion arquitectonica: este modulo es OFFLINE; no importa
 ``siemens_tia_scripting``.
@@ -47,7 +53,7 @@ logger = logging.getLogger(__name__)
 # Si la tabla no existe o el nombre difiere, el parser devuelve
 # ``DimensionesDispositivos`` con ``por_plc=()`` (estado vacio, no
 # rompe la carga).
-N_MAX_TABLE_NAME = "Tabla_Dispositivos"
+N_MAX_TABLE_NAME = "Tabla_Dimensiones"
 
 # Hoja del Excel donde vive la tabla (igual que ``PLCListParser`` y
 # ``ProcesosParser``, hardcoded a ``"CONFIG"``). NO usar
@@ -56,6 +62,12 @@ N_MAX_TABLE_NAME = "Tabla_Dispositivos"
 # cosas distintas: hoja del Excel donde escribe el operario vs.
 # directorio del PLC donde TIA guarda los datos).
 SHEET = "CONFIG"
+
+# Columna ``N_Max_ENT`` del Excel (N_MAX de entidades) se lee por
+# hardcoded porque su entrada en ``n_max_catalog`` no tiene ``hw_type``.
+# Si la columna no esta presente en el Excel (Excel legacy), ``n_max_entidades=0``.
+N_MAX_ENT_EXCEL_COL = "N_Max_ENT"
+N_MAX_ENT_CANONICO = "N_MAX_ENTIDAD"
 
 
 class DimensionesParser:
@@ -69,6 +81,7 @@ class DimensionesParser:
     Politica:
         - Filas sin ``PLC`` se descartan con WARNING.
         - Columnas ``N_Max_*`` no listadas en catalog se ignoran con WARNING.
+        - ``N_Max_ENT`` se lee siempre si esta presente (hardcoded).
         - Celdas vacias o no numericas -> ``0`` (validacion silenciosa).
         - Dos columnas que normalizan al mismo canonico -> WARNING + usa la ultima.
     """
@@ -116,7 +129,15 @@ class DimensionesParser:
             for h in (rows[0].keys() if rows else [])
         }
 
+        # Columna N_MAX_ENTIDADES: se busca por header literal del Excel
+        # (no requiere entrada en el catalog porque no es de disp).
+        ent_header = headers_normalized.get(
+            self._normalize_header(N_MAX_ENT_EXCEL_COL)
+        )
+
         por_plc: dict[str, dict[str, int]] = {}
+        # ``n_max_entidades_por_plc`` se llena en el mismo loop (mismo row).
+        n_max_entidades_por_plc: dict[str, int] = {}
         for row in rows:
             plc_name = str(row.get("PLC") or "").strip()
             if not plc_name:
@@ -133,7 +154,7 @@ class DimensionesParser:
                 if excel_header is None:
                     continue  # columna no presente en este Excel
                 raw = row.get(excel_header)
-                # Celda vacia o None -> 0 (validacion soft, D9 del plan).
+                # Celda vacia o None -> 0 (validacion soft).
                 value = _safe_int(raw, default=0)
                 if canonico in extras and extras[canonico] != value:
                     logger.warning(
@@ -141,16 +162,24 @@ class DimensionesParser:
                         canonico, extras[canonico], value,
                     )
                 extras[canonico] = value
+            # N_MAX_ENTIDADES del mismo row (mismo PLC).
+            if ent_header is not None:
+                raw = row.get(ent_header)
+                n_max_entidades_por_plc[plc_name] = _safe_int(raw, default=0)
             # Solo emitir DataDimensionesPLC si tenemos al menos un N_MAX leido.
-            if extras:
+            if extras or plc_name in n_max_entidades_por_plc:
                 prev = por_plc.get(plc_name, {})
                 prev.update(extras)
                 por_plc[plc_name] = prev
 
         return DimensionesDispositivos(
             por_plc=tuple(
-                DataDimensionesPLC(plc_name=p, extras=e)
-                for p, e in por_plc.items()
+                DataDimensionesPLC(
+                    plc_name=p,
+                    extras=por_plc.get(p, {}),
+                    n_max_entidades=n_max_entidades_por_plc.get(p, 0),
+                )
+                for p in sorted(set(por_plc) | set(n_max_entidades_por_plc))
             )
         )
 
@@ -161,6 +190,8 @@ class DimensionesParser:
 
         Si el catalog esta vacio, devuelve ``{}``.
         Solo se incluyen entradas que tengan ``excel_column`` no vacio.
+        La entrada ``N_MAX_ENTIDAD`` (``hw_type=""``) NO se incluye
+        aqui: se lee por hardcoded con la constante ``N_MAX_ENT_EXCEL_COL``.
         """
         result: dict[str, str] = {}
         for name in self._config_manager.list_nmax_active():

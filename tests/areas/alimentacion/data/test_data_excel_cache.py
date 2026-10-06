@@ -126,10 +126,12 @@ def test_to_dict_n_max_via_to_api_dict():
     snapshot = cache.to_dict()
 
     # Shape multi-PLC: {plc_name: {nmax_name: int}}.
+    # ``N_MAX_ENTIDAD`` aparece con valor 0 si no se setea (back-compat).
     assert snapshot["n_max"] == {
         "PLC1": {
             "N_MAX_DISP_ED": 15,
             "N_MAX_DISP_V": 20,
+            "N_MAX_ENTIDAD": 0,
         },
     }
 

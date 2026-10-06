@@ -76,6 +76,13 @@
           "plc_tag_table": "2000_Disp_V",
           "comment": "Numero max. valvulas",
           "excel_column": "N_Max_V"
+        },
+        {
+          "name": "N_MAX_ENTIDAD",
+          "hw_type": "",
+          "plc_tag_table": "0_Config_Generales",
+          "comment": "Numero max. entidades (dimension del array ENT de DB6_ENT)",
+          "excel_column": "N_Max_ENT"
         }
       ],
       "pending_nmax": [
