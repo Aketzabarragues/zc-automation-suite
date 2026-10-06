@@ -237,6 +237,8 @@ def test_load_basico(tmp_path) -> None:
     assert len(cache.parametros_int) == 1
     assert len(cache.alarmas) == 1
     assert cache.procesos[0].plc_name == "PLC1"
+    # Entidades: vacio porque el xlsx sintetico no incluye hoja ENTIDADES.
+    assert cache.entidades == ()
     # N_MAX: shape multi-PLC con 1 entrada (PLC1).
     assert isinstance(cache.n_max, DimensionesDispositivos)
     plc1 = cache.n_max.get_for_plc("PLC1")
@@ -331,3 +333,33 @@ def test_load_with_config_manager(tmp_path) -> None:
     xlsx = _build_full_xlsx(tmp_path / "full.xlsx")
     cache = ExcelLoader(config_manager=cm).load(xlsx)
     assert isinstance(cache, DataExcelCache)
+
+
+def test_load_puebla_entidades_desde_hoja_ENTIDADES(tmp_path) -> None:
+    """xlsx con Tabla_Entidades -> ``cache.entidades`` queda poblada.
+
+    Validates the integration EntidadesParser -> ExcelLoader ->
+    DataExcelCache.entidades. No requiere config_manager porque la
+    hoja ``ENTIDADES`` y la tabla ``Tabla_Entidades`` son fijas.
+    """
+    from areas.alimentacion.data.data_entidades import Entidad
+
+    wb = Workbook()
+    wb.remove(wb.active)
+    # Tabla minima con las 7 columnas que el parser lee.
+    _add_table(
+        wb, "ENTIDADES", "Tabla_Entidades",
+        ["Numero", "PLC.Tag"],
+        [
+            [1, "ent_001"],
+            [2, "ent_002"],
+        ],
+    )
+    xlsx = tmp_path / "with_entidades.xlsx"
+    wb.save(xlsx)
+
+    cache = ExcelLoader().load(xlsx)
+
+    assert len(cache.entidades) == 2
+    assert cache.entidades[0] == Entidad(numero=1, plc_name="PLC1", plc_tag="ent_001")
+    assert cache.entidades[1] == Entidad(numero=2, plc_name="PLC1", plc_tag="ent_002")
