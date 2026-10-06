@@ -259,7 +259,7 @@ export default {
                 </div>
 
                 <!-- ★ Tabla reactiva multi-PLC con los 7 campos del
-                     DTO ``Entidad``. ★ -->
+                     DTO Entidad. ★ -->
                 <div class="flex-1 overflow-auto table-scroll-x bg-surface-raised border border-line rounded">
                     <table v-if="hasMemory" class="w-full text-xs">
                         <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
