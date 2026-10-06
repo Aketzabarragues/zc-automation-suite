@@ -47,6 +47,8 @@ _DEFAULT_GLOBAL_CONFIG_TABLE_NAME = ""
 _DEFAULT_TIA_FOLDER_PROCESO = ""
 _DEFAULT_TIA_FOLDER_DISPOSITIVOS = ""
 _DEFAULT_TIA_FOLDER_NMAX = ""
+_DEFAULT_TIA_FOLDER_ENTIDADES_CONFIG = ""
+_DEFAULT_TIA_FOLDER_ENTIDADES_TAGS = ""
 
 
 @dataclass(frozen=True)
@@ -540,6 +542,58 @@ class ConfigManager:
         """
         folders = self._department_config.get("tia_folders", {})
         return str(folders.get("nmax", _DEFAULT_TIA_FOLDER_NMAX))
+
+    def get_tia_folder_entidades_config(self) -> str:
+        """Ruta de la carpeta TIA donde reside ``000_Config_Generales``.
+
+        Tabla que aloja la PlcUserConstant ``N_MAX_ENTIDAD``. Por
+        defecto ``""`` (genérico).
+        """
+        folders = self._department_config.get("tia_folders", {})
+        return str(
+            folders.get(
+                "entidades_config",
+                _DEFAULT_TIA_FOLDER_ENTIDADES_CONFIG,
+            )
+        )
+
+    def get_tia_folder_entidades_tags(self) -> str:
+        """Ruta de la carpeta TIA donde reside la tag table de entidades.
+
+        Sub-folder con las PlcTags ``ent_<uid>`` (1 PlcTag por entidad).
+        Por defecto ``""`` (genérico).
+        """
+        folders = self._department_config.get("tia_folders", {})
+        return str(
+            folders.get(
+                "entidades_tags",
+                _DEFAULT_TIA_FOLDER_ENTIDADES_TAGS,
+            )
+        )
+
+    def get_entidades_config(self) -> dict[str, str]:
+        """Config TIA del DB y tablas del feature ENTIDADES.
+
+        Devuelve el bloque ``entidades`` del departamento activo con
+        las 4 keys:
+
+        * ``db_name``       (ej. ``"DB6_ENT"``)
+        * ``db_array_name`` (ej. ``"ENT"``)
+        * ``tag_table``     (ej. ``"000_Entidades"``)
+        * ``config_table``  (ej. ``"000_Config_Generales"``)
+
+        Si el departamento no define ``entidades``, devuelve ``{}``.
+        NO lanza: el caller trata dict vacio como "no configurado".
+        """
+        ent = self._department_config.get("entidades")
+        if not isinstance(ent, dict):
+            return {}
+        return {
+            "db_name":       str(ent.get("db_name", "")),
+            "db_array_name": str(ent.get("db_array_name", "")),
+            "tag_table":     str(ent.get("tag_table", "")),
+            "config_table":  str(ent.get("config_table", "")),
+        }
 
     def get_plantillas_path(self) -> str:
         """Ruta base donde viven las subcarpetas de plantillas TIA.

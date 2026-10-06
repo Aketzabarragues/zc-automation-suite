@@ -10,7 +10,9 @@
       "tia_folders": {
         "proceso": "003_Procesos",
         "dispositivos": "2000_Dispositivos",
-        "nmax": "000_Sistema"
+        "nmax": "000_Sistema",
+        "entidades_config": "000_Sistema",
+        "entidades_tags": "6_Entidades"
       },
       "n_max_catalog": [
         {
@@ -177,25 +179,179 @@
       "disp_catalog": {
         "_comment_display_order": "Override data-driven de las columnas visibles en el panel de dispositivos. Override por canonical = reemplazo completo (visibilidad explicita por ausencia: las columnas que omitas no aparecen). Sin override, el backend usa el default (TODOS los campos visibles del DTO). Para volver al default, borra todo este bloque ``disp_catalog``. Si en el futuro se añade un campo nuevo al DTO y quieres seguir viendolo, añadelo aqui tambien.",
         "display_order": {
-          "DispED":     ["plc_name", "numero", "tag", "descripcion", "fat", "e_byte", "e_bit", "gr_alarma", "cuadro", "observaciones"],
-          "DispEA":     ["plc_name", "numero", "tag", "descripcion", "fat", "e_byte", "unidades", "rii", "rsi", "gr_alarma", "cuadro", "observaciones"],
-          "DispSA":     ["plc_name", "numero", "tag", "descripcion", "fat", "e_byte", "unidades", "rii", "rsi", "gr_alarma", "cuadro", "observaciones"],
-          "DispV":      ["plc_name", "numero", "tag", "descripcion", "fat", "s_byte", "s_bit", "rr_byte", "rr_bit", "rt_byte", "rt_bit", "gr_alarma", "cuadro", "observaciones"],
-          "DispM":      ["plc_name", "numero", "tag", "descripcion", "fat", "s_byte", "s_bit", "rt_byte", "rt_bit", "rm_byte", "rm_bit", "gr_alarma", "cuadro", "observaciones"],
-          "DispM_VF":   ["plc_name", "numero", "tag", "descripcion", "fat", "s_byte", "s_bit", "rt_byte", "rt_bit", "rm_byte", "rm_bit", "sa_byte", "gr_alarma", "cuadro", "observaciones"],
-          "DispM_SINA": ["plc_name", "numero", "tag", "descripcion", "fat", "rt_byte", "rt_bit", "vel_min", "vel_max", "cons_k", "gr_alarma", "cuadro", "observaciones"],
-          "DispTOT":    ["plc_name", "numero", "tag", "descripcion", "fat", "tipo", "e_byte", "e_bit", "incxpulso", "gr_alarma", "proceso", "observaciones"],
-          "DispPID":    ["plc_name", "numero", "tag", "descripcion", "fat", "pv", "disp_tipo", "disp_tag", "proceso", "observaciones"]
+          "DispED": [
+            "plc_name",
+            "numero",
+            "tag",
+            "descripcion",
+            "fat",
+            "e_byte",
+            "e_bit",
+            "gr_alarma",
+            "cuadro",
+            "observaciones"
+          ],
+          "DispEA": [
+            "plc_name",
+            "numero",
+            "tag",
+            "descripcion",
+            "fat",
+            "e_byte",
+            "unidades",
+            "rii",
+            "rsi",
+            "gr_alarma",
+            "cuadro",
+            "observaciones"
+          ],
+          "DispSA": [
+            "plc_name",
+            "numero",
+            "tag",
+            "descripcion",
+            "fat",
+            "e_byte",
+            "unidades",
+            "rii",
+            "rsi",
+            "gr_alarma",
+            "cuadro",
+            "observaciones"
+          ],
+          "DispV": [
+            "plc_name",
+            "numero",
+            "tag",
+            "descripcion",
+            "fat",
+            "s_byte",
+            "s_bit",
+            "rr_byte",
+            "rr_bit",
+            "rt_byte",
+            "rt_bit",
+            "gr_alarma",
+            "cuadro",
+            "observaciones"
+          ],
+          "DispM": [
+            "plc_name",
+            "numero",
+            "tag",
+            "descripcion",
+            "fat",
+            "s_byte",
+            "s_bit",
+            "rt_byte",
+            "rt_bit",
+            "rm_byte",
+            "rm_bit",
+            "gr_alarma",
+            "cuadro",
+            "observaciones"
+          ],
+          "DispM_VF": [
+            "plc_name",
+            "numero",
+            "tag",
+            "descripcion",
+            "fat",
+            "s_byte",
+            "s_bit",
+            "rt_byte",
+            "rt_bit",
+            "rm_byte",
+            "rm_bit",
+            "sa_byte",
+            "gr_alarma",
+            "cuadro",
+            "observaciones"
+          ],
+          "DispM_SINA": [
+            "plc_name",
+            "numero",
+            "tag",
+            "descripcion",
+            "fat",
+            "rt_byte",
+            "rt_bit",
+            "vel_min",
+            "vel_max",
+            "cons_k",
+            "gr_alarma",
+            "cuadro",
+            "observaciones"
+          ],
+          "DispTOT": [
+            "plc_name",
+            "numero",
+            "tag",
+            "descripcion",
+            "fat",
+            "tipo",
+            "e_byte",
+            "e_bit",
+            "incxpulso",
+            "gr_alarma",
+            "proceso",
+            "observaciones"
+          ],
+          "DispPID": [
+            "plc_name",
+            "numero",
+            "tag",
+            "descripcion",
+            "fat",
+            "pv",
+            "disp_tipo",
+            "disp_tag",
+            "proceso",
+            "observaciones"
+          ]
         }
       },
       "proc_catalog": {
         "_comment_display_order": "Override data-driven de las columnas visibles en el panel de software (Procesos / PInt / PReal / Alarmas). Misma politica que ``disp_catalog.display_order``: override por dominio = reemplazo completo (visibilidad explicita por ausencia). Sin override, el backend usa el default ``DISPLAY_ORDER`` de ``data_proc_catalog``. Para volver al default, borra todo este bloque ``proc_catalog``.",
         "display_order": {
-          "procesos":        ["plc_name", "codigo", "nombre", "preal", "pint", "alarmas", "alm_hmi"],
-          "parametros_int":  ["plc_name", "numero", "codigo", "num_db", "descripcion"],
-          "parametros_real": ["plc_name", "numero", "codigo", "num_db", "descripcion"],
-          "alarmas":         ["plc_name", "numero", "proceso", "num_db", "descripcion", "comentario_db"]
+          "procesos": [
+            "plc_name",
+            "codigo",
+            "nombre",
+            "preal",
+            "pint",
+            "alarmas",
+            "alm_hmi"
+          ],
+          "parametros_int": [
+            "plc_name",
+            "numero",
+            "codigo",
+            "num_db",
+            "descripcion"
+          ],
+          "parametros_real": [
+            "plc_name",
+            "numero",
+            "codigo",
+            "num_db",
+            "descripcion"
+          ],
+          "alarmas": [
+            "plc_name",
+            "numero",
+            "proceso",
+            "num_db",
+            "descripcion",
+            "comentario_db"
+          ]
         }
+      },
+      "entidades": {
+        "db_name": "DB6_ENT",
+        "db_array_name": "ENT",
+        "tag_table": "000_Entidades",
+        "config_table": "000_Config_Generales"
       }
     }
   }
