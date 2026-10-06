@@ -71,7 +71,7 @@ const _comps = {
     "ConfiguracionPanel":      () => import("./components/ConfiguracionPanel.js"),
     "DispositivosPanel":       () => import("./components/DispositivosPanel.js"),
     "ProcesosPanel":           () => import("./components/ProcesosPanel.js"),
-    // Feature ENTIDADES (sept-2026). Inline dentro del tab "Entidades"
+    // Feature ENTIDADES. Inline dentro del tab "Entidades"
     // de ``DefinicionProgramacion`` (NO sub-vista top-level). El shell
     // SPA necesita el loader para registrar el componente y que
     // ``<entidades-panel>`` y ``<entidades-configuracion>`` funcionen

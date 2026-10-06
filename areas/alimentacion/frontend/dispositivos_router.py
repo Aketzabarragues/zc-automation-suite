@@ -45,7 +45,7 @@ def _extract_software_from_cache(state: Any) -> dict[str, Any]:
     COMPLETO (sin filtrar), no el cache activo. Asi el operario
     puede analizar todos los PLCs del Excel a la vez.
 
-    El campo ``entidades`` (sept-2026) se vuelca igual que los 4
+    El campo ``entidades`` se vuelca igual que los 4
     dominios de software: lista plana de ``Entidad`` (multi-PLC,
     cada DTO lleva su ``plc_name``). El filtro por PLC vive en la
     SPA (no aqui).

@@ -20,7 +20,7 @@ Pipeline (orden de ejecución sobre el mismo ``wb``):
        ``CONFIG``/``P_REAL``/``P_INT``/``ALARMAS``.
     3. 1 parser de N_MAX (``DimensionesParser``) — extrae los
        defined names ``N_MAX_*``/``Num_Disp_*``.
-    4. 1 parser de entidades (``EntidadesParser``, sept-2026) —
+    4. 1 parser de entidades (``EntidadesParser``) —
        extrae la ``Tabla_Entidades`` de la hoja ``ENTIDADES``.
        Multi-PLC (cada ``Entidad`` lleva su ``plc_name``); el
        filtrado por PLC vive en AppState, no aqui.
@@ -155,7 +155,7 @@ class ExcelLoader:
             n_max = self._dimensiones.extraer(wb)
             # 1 lista canonica de PLCs (sept-2026).
             plcs = tuple(self._plcs.extraer(wb))
-            # 1 entidades (sept-2026, Tabla_Entidades en hoja ENTIDADES).
+            # 1 entidades (Tabla_Entidades en hoja ENTIDADES).
             # Instantiation inline porque EntidadesParser captura el
             # workbook en __init__ (a diferencia de los disp parsers,
             # que reciben wb por ``extraer(wb)``). Multi-PLC.
