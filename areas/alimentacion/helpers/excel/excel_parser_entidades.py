@@ -87,10 +87,9 @@ class EntidadesParser:
                     )},
                     exc,
                 )
-        logger.info(
-            "EntidadesParser: %d entidades cargadas de %d filas",
-            len(out),
-            len(raw_rows),
+        logger.debug(
+            f"Parser[{self.SHEET}/{self.TABLE}]: "
+            f"{len(raw_rows)} filas -> {len(out)} extraidas"
         )
         return out
 

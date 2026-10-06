@@ -444,10 +444,10 @@ export function goToSubview(key) {
  * componente lo toque directamente (mismo patrón que ``goToSubview``
  * para ``store.currentView``).
  *
- * Si ``key`` no es uno de los dos valores conocidos (``'dispositivos'``
- * o ``'software'``), se ignora silenciosamente. Esto evita que un
- * input corrupto (typo, valor antiguo tras un rename) deje la SPA
- * en estado inconsistente.
+ * Si ``key`` no es uno de los 4 valores conocidos (``'configuracion'``,
+ * ``'dispositivos'``, ``'procesos'``, ``'entidades'``), se ignora
+ * silenciosamente. Esto evita que un input corrupto (typo, valor
+ * antiguo tras un rename) deje la SPA en estado inconsistente.
  *
  * Llamado por ``MainTabs`` al hacer click. ``DefinicionProgramacion``
  * lee ``store.activeMainTab`` reactivamente y pinta el panel
@@ -458,6 +458,7 @@ export function goToMainTab(key) {
         key !== "dispositivos"
         && key !== "procesos"
         && key !== "configuracion"
+        && key !== "entidades"
     ) return;
     store.activeMainTab = key;
 }
