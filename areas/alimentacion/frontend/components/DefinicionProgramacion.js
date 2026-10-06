@@ -26,6 +26,11 @@
  *   - ``ProcesosPanel.js`` (sub-tabs Procesos|PInt|PReal|Alarmas
  *     + 4 tablas; reemplaza los ``<details>`` plegables).
  *
+ * NOTA: el feature ENTIDADES NO vive aquí. Aketza pidió que la
+ * vista de entidades sea top-level (gemela de Dispositivos y
+ * Procesos en el sidebar), con su propia card + tabla + botones
+ * de preview/sync. Vive en ``Entidades.js`` (componente top-level).
+ *
  * @event refresh  El componente padre debe llamar a la API que
  *                 recarga ``store.memoryState``. Lo consume ``main.js``
  *                 para llamar a ``apiFetchMemory``.
@@ -78,19 +83,6 @@ export default {
         });
 
         /**
-         * Conteo de entidades del feature ENTIDADES. Se computa
-         * reactivamente al cambiar ``memoryState`` (subida de Excel,
-         * refresco, etc.). Si ``store.memoryState.entidades`` no
-         * existe (Excel sin hoja ENTIDADES), devuelve 0.
-         */
-        const entidadesCount = computed(() => {
-            const ms = store.memoryState;
-            if (!ms) return 0;
-            const lst = ms.entidades;
-            return Array.isArray(lst) ? lst.length : 0;
-        });
-
-        /**
          * ``true`` solo cuando hay Excel cargado (AppState no nulo).
          * Mismo patron que ``DispositivosPanel`` y ``ProcesosPanel``
          * para coherencia total: cuando NO hay datos, los tabs
@@ -140,12 +132,6 @@ export default {
                 label: "Procesos",
                 icon: "📋",
                 badge: procesosCount.value,
-            },
-            {
-                key: "entidades",
-                label: "Entidades",
-                icon: "🗂️",
-                badge: entidadesCount.value,
             },
         ]);
 
@@ -228,7 +214,6 @@ export default {
             mainTabsData,
             handleExcel,
             handleActualizar,
-            entidadesCount,
         };
     },
     template: /* html */ `
@@ -280,7 +265,6 @@ export default {
                     <configuracion-panel v-if="store.activeMainTab === 'configuracion'" />
                     <dispositivos-panel v-else-if="store.activeMainTab === 'dispositivos'" />
                     <procesos-panel v-else-if="store.activeMainTab === 'procesos'" />
-                    <entidades-panel v-else-if="store.activeMainTab === 'entidades'" />
                     <procesos-panel v-else />
                 </div>
             </section>
