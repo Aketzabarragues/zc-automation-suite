@@ -13,6 +13,7 @@ from typing import Mapping
 from areas.alimentacion.data.data_alarmas import DataAlarmaPLC
 from areas.alimentacion.data.data_dispositivos import Dispositivo
 from areas.alimentacion.data.data_dimensiones import DimensionesDispositivos
+from areas.alimentacion.data.data_entidades import Entidad
 from areas.alimentacion.data.data_parametros_int import DataParamIntPLC
 from areas.alimentacion.data.data_parametros_real import DataParamRealPLC
 from areas.alimentacion.data.data_plc import DataPLC
@@ -33,6 +34,9 @@ class DataExcelCache:
       - ``plcs``: lista canonica de PLCs del Excel (``Tabla_PLC``).
       - ``procesos`` / ``parametros_real`` / ``parametros_int`` /
         ``alarmas``: listas de los 4 dominios de software.
+      - ``entidades``: lista de ``Entidad`` (DB6_ENT), multi-PLC.
+        Cada elemento lleva ``plc_name``; el filtrado por PLC vive en
+        AppState (``entidades_active``), no aqui.
       - ``*_by_codigo``: lookups ``Mapping[str, DTO]`` precomputados.
       - ``software_parsers_implemented``: flag para la SPA.
     """
@@ -50,6 +54,7 @@ class DataExcelCache:
     procesos_by_codigo: Mapping[str, DataProcesoPLC]
     parametros_real_by_codigo: Mapping[str, DataParamRealPLC]
     parametros_int_by_codigo: Mapping[str, DataParamIntPLC]
+    entidades: tuple[Entidad, ...] = ()
     software_parsers_implemented: bool = True
 
     def to_dict(self) -> dict:
@@ -75,6 +80,7 @@ class DataExcelCache:
             "parametros_real": [dataclasses.asdict(p) for p in self.parametros_real],
             "parametros_int": [dataclasses.asdict(p) for p in self.parametros_int],
             "alarmas": [dataclasses.asdict(a) for a in self.alarmas],
+            "entidades": [dataclasses.asdict(e) for e in self.entidades],
             "plcs": [dataclasses.asdict(p) for p in self.plcs],
             "software_parsers_implemented": self.software_parsers_implemented,
         }

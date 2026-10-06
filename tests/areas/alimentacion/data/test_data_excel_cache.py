@@ -21,6 +21,7 @@ from areas.alimentacion.data.data_dimensiones import (
     DataDimensionesPLC,
     DimensionesDispositivos,
 )
+from areas.alimentacion.data.data_entidades import Entidad
 from areas.alimentacion.data.data_excel_cache import DataExcelCache
 from areas.alimentacion.data.data_parametros_int import DataParamIntPLC
 from areas.alimentacion.data.data_parametros_real import DataParamRealPLC
@@ -58,7 +59,7 @@ def test_construccion_minima():
 
 
 def test_to_dict_shape_minimo():
-    """``to_dict()`` emite las 9 keys del shape estable (multi-PLC)."""
+    """``to_dict()`` emite las 10 keys del shape estable (multi-PLC)."""
     cache = _cache_minimo()
     snapshot = cache.to_dict()
 
@@ -73,6 +74,7 @@ def test_to_dict_shape_minimo():
         "parametros_real",
         "parametros_int",
         "alarmas",
+        "entidades",
         "software_parsers_implemented",
     }
 
@@ -191,3 +193,110 @@ def test_frozen_no_muta():
     cache = _cache_minimo()
     with pytest.raises(FrozenInstanceError):
         cache.excel_path = "/otro.xlsx"  # type: ignore[misc]
+
+
+# ── Entidades (commit 3) ─────────────────────────────────────────────────
+
+
+def test_entidades_default_es_tupla_vacia():
+    """Si no se pasa ``entidades``, el cache lo deja como ``()``.
+
+    Mantiene backward compat: tests existentes que construyen
+    ``DataExcelCache(...)`` sin ``entidades=`` siguen funcionando.
+    El loader (commit 4) lo rellenara con ``tuple(Entidad, ...)``.
+    """
+    cache = _cache_minimo()
+    assert cache.entidades == ()
+
+
+def test_entidades_se_puede_inyectar_explicitamente():
+    """``entidades`` acepta cualquier ``tuple[Entidad, ...]``."""
+    cache = DataExcelCache(
+        excel_path="x",
+        excel_mtime_ns=0,
+        parsed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        dispositivos={},
+        n_max=DimensionesDispositivos(),
+        plcs=(),
+        procesos=(),
+        parametros_real=(),
+        parametros_int=(),
+        alarmas=(),
+        entidades=(
+            Entidad(numero=1, plc_name="PLC1", plc_tag="ent_001"),
+            Entidad(numero=2, plc_name="PLC1", plc_tag="ent_002"),
+        ),
+        procesos_by_codigo=MappingProxyType({}),
+        parametros_real_by_codigo=MappingProxyType({}),
+        parametros_int_by_codigo=MappingProxyType({}),
+    )
+    assert len(cache.entidades) == 2
+    assert cache.entidades[0].plc_tag == "ent_001"
+
+
+def test_to_dict_entidades_via_asdict():
+    """``to_dict()`` serializa ``entidades`` con la misma regla que las otras listas."""
+    cache = DataExcelCache(
+        excel_path="x",
+        excel_mtime_ns=0,
+        parsed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        dispositivos={},
+        n_max=DimensionesDispositivos(),
+        plcs=(),
+        procesos=(),
+        parametros_real=(),
+        parametros_int=(),
+        alarmas=(),
+        entidades=(
+            Entidad(
+                numero=1,
+                plc_name="PLC1",
+                plc_tag="ent_001",
+                descripcion="Valvula",
+                plc_comentario="// slot 1",
+            ),
+        ),
+        procesos_by_codigo=MappingProxyType({}),
+        parametros_real_by_codigo=MappingProxyType({}),
+        parametros_int_by_codigo=MappingProxyType({}),
+    )
+    snapshot = cache.to_dict()
+
+    assert len(snapshot["entidades"]) == 1
+    assert snapshot["entidades"][0]["numero"] == 1
+    assert snapshot["entidades"][0]["plc_name"] == "PLC1"
+    assert snapshot["entidades"][0]["plc_tag"] == "ent_001"
+    assert snapshot["entidades"][0]["descripcion"] == "Valvula"
+    assert snapshot["entidades"][0]["plc_comentario"] == "// slot 1"
+
+
+def test_to_dict_entidades_vacia_sigue_siendo_lista():
+    """``to_dict()`` con ``entidades=()`` emite ``[]`` (lista, no tupla)."""
+    snapshot = _cache_minimo().to_dict()
+    assert snapshot["entidades"] == []
+    assert isinstance(snapshot["entidades"], list)
+
+
+def test_entidades_multi_PLC_en_una_lista():
+    """El cache guarda TODAS las entidades multi-PLC; el filtro vive en AppState."""
+    cache = DataExcelCache(
+        excel_path="x",
+        excel_mtime_ns=0,
+        parsed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        dispositivos={},
+        n_max=DimensionesDispositivos(),
+        plcs=(),
+        procesos=(),
+        parametros_real=(),
+        parametros_int=(),
+        alarmas=(),
+        entidades=(
+            Entidad(numero=1, plc_name="PLC1", plc_tag="a"),
+            Entidad(numero=2, plc_name="PLC2", plc_tag="b"),
+            Entidad(numero=3, plc_name="PLC1", plc_tag="c"),
+        ),
+        procesos_by_codigo=MappingProxyType({}),
+        parametros_real_by_codigo=MappingProxyType({}),
+        parametros_int_by_codigo=MappingProxyType({}),
+    )
+    assert [e.plc_name for e in cache.entidades] == ["PLC1", "PLC2", "PLC1"]
