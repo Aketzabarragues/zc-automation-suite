@@ -55,6 +55,9 @@ from areas.alimentacion.frontend.proc_process_crear_router import (
 from areas.alimentacion.frontend.proc_sync_router import (
     build_routers as build_proc_sync_routers,
 )
+from areas.alimentacion.frontend.entidades_router import (
+    build_routers as build_entidades_routers,
+)
 from areas.alimentacion.frontend.manifest import build as build_manifest
 from areas.alimentacion.helpers.config.config_defaults import (
     install as install_defaults,
@@ -82,6 +85,7 @@ def _build_all_routers(app) -> None:
     build_proc_plantillas_routers(app)
     build_proc_process_crear_routers(app)
     build_proc_sync_routers(app)
+    build_entidades_routers(app)
 
 
 AREA_SPEC = AreaSpec(
