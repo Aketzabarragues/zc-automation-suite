@@ -458,6 +458,7 @@ export function goToMainTab(key) {
         key !== "dispositivos"
         && key !== "procesos"
         && key !== "configuracion"
+        && key !== "entidades"
     ) return;
     store.activeMainTab = key;
 }

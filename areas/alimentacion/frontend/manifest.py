@@ -127,6 +127,10 @@ def build() -> "AreaFrontendManifest":
             "ConfiguracionPanel":      f"{_STATIC_PREFIX}/components/ConfiguracionPanel.js",
             "DispositivosPanel":       f"{_STATIC_PREFIX}/components/DispositivosPanel.js",
             "ProcesosPanel":           f"{_STATIC_PREFIX}/components/ProcesosPanel.js",
+            # Feature ENTIDADES. Inline dentro del tab
+            # "Entidades" de ``DefinicionProgramacion``. NO es
+            # sub-vista top-level: solo el panel padre lo monta.
+            "EntidadesPanel":          f"{_STATIC_PREFIX}/components/EntidadesPanel.js",
         },
     }
     return _manifest
