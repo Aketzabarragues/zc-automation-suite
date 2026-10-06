@@ -77,7 +77,6 @@ const _comps = {
     // ``<entidades-panel>`` y ``<entidades-configuracion>`` funcionen
     // como etiquetas en el template del padre.
     "EntidadesPanel":          () => import("./components/EntidadesPanel.js"),
-    "EntidadesConfiguracion":  () => import("./components/EntidadesConfiguracion.js"),
 };
 
 export function build() {

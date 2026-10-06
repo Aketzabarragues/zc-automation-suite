@@ -125,7 +125,6 @@ def build() -> "AreaFrontendManifest":
             # "Entidades" de ``DefinicionProgramacion``. NO es
             # sub-vista top-level: solo el panel padre lo monta.
             "EntidadesPanel":          f"{_STATIC_PREFIX}/components/EntidadesPanel.js",
-            "EntidadesConfiguracion":  f"{_STATIC_PREFIX}/components/EntidadesConfiguracion.js",
         },
     }
     return _manifest
