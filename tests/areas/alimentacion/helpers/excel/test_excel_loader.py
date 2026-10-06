@@ -3,7 +3,7 @@
 Sept-2026 (multi-PLC): los tests inyectan la columna ``PLC`` con valor
 ``"PLC1"`` en cada tabla de dispositivos/software y la tabla N_MAX
 ``Tabla_N_Max`` con los N_MAX por PLC. Aserciones adaptadas al shape
-multi-PLC de ``DimensionesDispositivos.por_plc``.
+multi-PLC de ``DimensionesPLC.por_plc``.
 """
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ import pytest
 from openpyxl import Workbook
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
-from areas.alimentacion.data.data_dimensiones import DimensionesDispositivos
+from areas.alimentacion.data.data_dimensiones import DimensionesPLC
 from areas.alimentacion.data.data_excel_cache import DataExcelCache
 from areas.alimentacion.data.data_parametros_int import DataParamIntPLC
 from areas.alimentacion.data.data_parametros_real import DataParamRealPLC
@@ -240,7 +240,7 @@ def test_load_basico(tmp_path) -> None:
     # Entidades: vacio porque el xlsx sintetico no incluye hoja ENTIDADES.
     assert cache.entidades == ()
     # N_MAX: shape multi-PLC con 1 entrada (PLC1).
-    assert isinstance(cache.n_max, DimensionesDispositivos)
+    assert isinstance(cache.n_max, DimensionesPLC)
     plc1 = cache.n_max.get_for_plc("PLC1")
     assert plc1 is not None
     assert plc1.get("N_MAX_DISP_ED") == 10
@@ -312,7 +312,7 @@ def test_load_con_hojas_faltantes(tmp_path) -> None:
     assert cache.parametros_int == ()
     assert cache.alarmas == ()
     # N_MAX: defaults (sin tabla).
-    assert isinstance(cache.n_max, DimensionesDispositivos)
+    assert isinstance(cache.n_max, DimensionesPLC)
     assert cache.n_max.por_plc == ()
 
 

@@ -1,9 +1,9 @@
-"""Tests de ``DimensionesDispositivos`` y ``DataDimensionesPLC``.
+"""Tests de ``DimensionesPLC`` y ``DataDimensionesPLC``.
 
 Cobertura (multi-PLC):
   - ``DataDimensionesPLC``: instanciar, ``get(nmax_name)``, ``to_api_dict()``,
     ``n_max_entidades`` (default 0, back-compat con Excels legacy).
-  - ``DimensionesDispositivos``: contenedor con ``por_plc``,
+  - ``DimensionesPLC``: contenedor con ``por_plc``,
     ``get_for_plc(plc_name)``, ``to_api_dict()`` con shape anidado.
 """
 from __future__ import annotations
@@ -14,7 +14,7 @@ import pytest
 
 from areas.alimentacion.data.data_dimensiones import (
     DataDimensionesPLC,
-    DimensionesDispositivos,
+    DimensionesPLC,
 )
 
 
@@ -117,13 +117,13 @@ def test_data_dimensiones_plc_equality_con_n_max_entidades():
 
 
 # ---------------------------------------------------------------------------
-# DimensionesDispositivos (contenedor)
+# DimensionesPLC (contenedor)
 # ---------------------------------------------------------------------------
 
 
 def test_dimensiones_default_por_plc_vacio():
     """Sin argumentos, contenedor vacio."""
-    d = DimensionesDispositivos()
+    d = DimensionesPLC()
     assert d.por_plc == ()
 
 
@@ -131,7 +131,7 @@ def test_dimensiones_get_for_plc_existente():
     """``get_for_plc("PLC1")`` devuelve el DataDimensionesPLC exacto."""
     p1 = DataDimensionesPLC(plc_name="PLC1", extras={"N_MAX_DISP_ED": 32})
     p2 = DataDimensionesPLC(plc_name="PLC2", extras={"N_MAX_DISP_ED": 64})
-    d = DimensionesDispositivos(por_plc=(p1, p2))
+    d = DimensionesPLC(por_plc=(p1, p2))
     assert d.get_for_plc("PLC1") is p1
     assert d.get_for_plc("PLC2") is p2
 
@@ -139,7 +139,7 @@ def test_dimensiones_get_for_plc_existente():
 def test_dimensiones_get_for_plc_inexistente():
     """``get_for_plc("PLC_FOO")`` devuelve None si no existe."""
     p1 = DataDimensionesPLC(plc_name="PLC1")
-    d = DimensionesDispositivos(por_plc=(p1,))
+    d = DimensionesPLC(por_plc=(p1,))
     assert d.get_for_plc("PLC_FOO") is None
 
 
@@ -147,7 +147,7 @@ def test_dimensiones_to_api_dict_shape_anidado():
     """``to_api_dict()`` retorna ``{plc: {nmax: int}}`` (shape multi-PLC)."""
     p1 = DataDimensionesPLC(plc_name="PLC1", extras={"N_MAX_DISP_ED": 32})
     p2 = DataDimensionesPLC(plc_name="PLC2", extras={"N_MAX_DISP_ED": 64})
-    d = DimensionesDispositivos(por_plc=(p1, p2))
+    d = DimensionesPLC(por_plc=(p1, p2))
     assert d.to_api_dict() == {
         "PLC1": {"N_MAX_DISP_ED": 32, "N_MAX_ENTIDAD": 0},
         "PLC2": {"N_MAX_DISP_ED": 64, "N_MAX_ENTIDAD": 0},
@@ -166,7 +166,7 @@ def test_dimensiones_to_api_dict_con_n_max_entidades():
         extras={"N_MAX_DISP_ED": 64},
         n_max_entidades=50,
     )
-    d = DimensionesDispositivos(por_plc=(p1, p2))
+    d = DimensionesPLC(por_plc=(p1, p2))
     assert d.to_api_dict() == {
         "PLC1": {"N_MAX_DISP_ED": 32, "N_MAX_ENTIDAD": 15},
         "PLC2": {"N_MAX_DISP_ED": 64, "N_MAX_ENTIDAD": 50},
@@ -175,6 +175,6 @@ def test_dimensiones_to_api_dict_con_n_max_entidades():
 
 def test_dimensiones_frozen():
     """``frozen=True``: asignar un campo levanta FrozenInstanceError."""
-    d = DimensionesDispositivos()
+    d = DimensionesPLC()
     with pytest.raises(FrozenInstanceError):
         d.por_plc = ()  # type: ignore[misc]

@@ -2,7 +2,7 @@
 canonicos de TIA.
 
 Modulo multi-PLC: cada PLC del Excel tiene su propio
-``DataDimensionesPLC`` con sus N_MAX. ``DimensionesDispositivos`` es
+``DataDimensionesPLC`` con sus N_MAX. ``DimensionesPLC`` es
 el contenedor simetrico con ``DataProcesoPLC`` y ``Disp*``.
 
 Convencion: las 9 N_MAX de dispositivos viven en ``extras`` (dict
@@ -68,7 +68,7 @@ class DataDimensionesPLC:
 
 
 @dataclass(frozen=True)
-class DimensionesDispositivos:
+class DimensionesPLC:
     """Contenedor: una entrada por PLC del Excel.
 
     Reemplaza el shape pre-multi-PLC (``Mapping[nmax_name, int]`` global).
@@ -99,4 +99,4 @@ class DimensionesDispositivos:
         return {d.plc_name: d.to_api_dict() for d in self.por_plc}
 
 
-__all__ = ["DataDimensionesPLC", "DimensionesDispositivos"]
+__all__ = ["DataDimensionesPLC", "DimensionesPLC"]

@@ -11,7 +11,7 @@ canonico TIA ``N_MAX_DISP_<SUFFIX>`` y se agrupa por PLC en un
 ``DataDimensionesPLC``. La columna ``N_Max_ENT`` se traduce al
 canonico TIA ``N_MAX_ENTIDAD`` y vive en el campo tipado
 ``n_max_entidades`` del DTO (no en ``extras``). El resultado es un
-``DimensionesDispositivos`` con ``por_plc: tuple[DataDimensionesPLC, ...]``.
+``DimensionesPLC`` con ``por_plc: tuple[DataDimensionesPLC, ...]``.
 
 Modo strict: solo se leen las columnas listadas en
 ``n_max_catalog[*].excel_column``. Columnas ``N_Max_*`` no listadas se
@@ -37,7 +37,7 @@ from openpyxl import Workbook
 
 from areas.alimentacion.data.data_dimensiones import (
     DataDimensionesPLC,
-    DimensionesDispositivos,
+    DimensionesPLC,
 )
 from areas.alimentacion.helpers.excel._excel_helpers import (
     _safe_int,
@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 
 # Nombre literal de la tabla N_MAX dentro de la hoja de configuracion.
 # Si la tabla no existe o el nombre difiere, el parser devuelve
-# ``DimensionesDispositivos`` con ``por_plc=()`` (estado vacio, no
+# ``DimensionesPLC`` con ``por_plc=()`` (estado vacio, no
 # rompe la carga).
 N_MAX_TABLE_NAME = "Tabla_Dimensiones"
 
@@ -89,14 +89,14 @@ class DimensionesParser:
     def __init__(self, config_manager: ConfigManager) -> None:
         self._config_manager = config_manager
 
-    def extraer(self, wb: Workbook) -> DimensionesDispositivos:
-        """Lee la tabla N_MAX y devuelve un ``DimensionesDispositivos``.
+    def extraer(self, wb: Workbook) -> DimensionesPLC:
+        """Lee la tabla N_MAX y devuelve un ``DimensionesPLC``.
 
         Args:
             wb: workbook de openpyxl ya abierto (no se cierra aqui).
 
         Returns:
-            ``DimensionesDispositivos`` con un ``DataDimensionesPLC`` por
+            ``DimensionesPLC`` con un ``DataDimensionesPLC`` por
             PLC del Excel. Vacio si la tabla no existe.
         """
         # Resolver la hoja: hardcoded a ``"CONFIG"`` (mismo patron que
@@ -111,7 +111,7 @@ class DimensionesParser:
                 "devolviendo contenedor vacio",
                 N_MAX_TABLE_NAME, SHEET,
             )
-            return DimensionesDispositivos()
+            return DimensionesPLC()
 
         # Columnas a leer: las listadas en n_max_catalog.excel_column.
         columnas_catalog: dict[str, str] = self._resolve_columnas_catalog()
@@ -172,7 +172,7 @@ class DimensionesParser:
                 prev.update(extras)
                 por_plc[plc_name] = prev
 
-        return DimensionesDispositivos(
+        return DimensionesPLC(
             por_plc=tuple(
                 DataDimensionesPLC(
                     plc_name=p,

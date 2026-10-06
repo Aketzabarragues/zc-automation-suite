@@ -12,7 +12,7 @@ from typing import Mapping
 
 from areas.alimentacion.data.data_alarmas import DataAlarmaPLC
 from areas.alimentacion.data.data_dispositivos import Dispositivo
-from areas.alimentacion.data.data_dimensiones import DimensionesDispositivos
+from areas.alimentacion.data.data_dimensiones import DimensionesPLC
 from areas.alimentacion.data.data_entidades import Entidad
 from areas.alimentacion.data.data_parametros_int import DataParamIntPLC
 from areas.alimentacion.data.data_parametros_real import DataParamRealPLC
@@ -29,7 +29,7 @@ class DataExcelCache:
       - ``excel_mtime_ns``: ``st_mtime_ns`` del Excel (Windows-safe).
       - ``parsed_at``: ``datetime`` UTC del parseo.
       - ``dispositivos``: ``{hw_type: tuple[Dispositivo, ...]}``.
-      - ``n_max``: ``DimensionesDispositivos`` con nombres canonicos
+      - ``n_max``: ``DimensionesPLC`` con nombres canonicos
         de TIA (``N_MAX_DISP_*``).
       - ``plcs``: lista canonica de PLCs del Excel (``Tabla_PLC``).
       - ``procesos`` / ``parametros_real`` / ``parametros_int`` /
@@ -45,7 +45,7 @@ class DataExcelCache:
     excel_mtime_ns: int
     parsed_at: datetime
     dispositivos: dict[str, tuple[Dispositivo, ...]]
-    n_max: DimensionesDispositivos
+    n_max: DimensionesPLC
     plcs: tuple[DataPLC, ...]
     procesos: tuple[DataProcesoPLC, ...]
     parametros_real: tuple[DataParamRealPLC, ...]

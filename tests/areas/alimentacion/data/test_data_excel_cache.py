@@ -19,7 +19,7 @@ from areas.alimentacion.data.data_alarmas import DataAlarmaPLC
 from areas.alimentacion.data.data_dispositivos import DispED
 from areas.alimentacion.data.data_dimensiones import (
     DataDimensionesPLC,
-    DimensionesDispositivos,
+    DimensionesPLC,
 )
 from areas.alimentacion.data.data_entidades import Entidad
 from areas.alimentacion.data.data_excel_cache import DataExcelCache
@@ -35,7 +35,7 @@ def _cache_minimo() -> DataExcelCache:
         excel_mtime_ns=1700000000_000_000_000,
         parsed_at=datetime(2026, 9, 10, 12, 0, 0, tzinfo=timezone.utc),
         dispositivos={},
-        n_max=DimensionesDispositivos(),
+        n_max=DimensionesPLC(),
         plcs=(),
         procesos=(),
         parametros_real=(),
@@ -107,7 +107,7 @@ def test_to_dict_n_max_via_to_api_dict():
         excel_mtime_ns=0,
         parsed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
         dispositivos={},
-        n_max=DimensionesDispositivos(por_plc=(
+        n_max=DimensionesPLC(por_plc=(
             DataDimensionesPLC(plc_name="PLC1", extras={
                 "N_MAX_DISP_ED": 15,
                 "N_MAX_DISP_V": 20,
@@ -159,7 +159,7 @@ def test_to_dict_listas_via_asdict():
         excel_mtime_ns=0,
         parsed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
         dispositivos={"ed": (DispED(1, "t", "c", "d", "u"),)},
-        n_max=DimensionesDispositivos(),
+        n_max=DimensionesPLC(),
         plcs=(),
         procesos=(proc,),
         parametros_real=(preal,),
@@ -218,7 +218,7 @@ def test_entidades_se_puede_inyectar_explicitamente():
         excel_mtime_ns=0,
         parsed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
         dispositivos={},
-        n_max=DimensionesDispositivos(),
+        n_max=DimensionesPLC(),
         plcs=(),
         procesos=(),
         parametros_real=(),
@@ -243,7 +243,7 @@ def test_to_dict_entidades_via_asdict():
         excel_mtime_ns=0,
         parsed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
         dispositivos={},
-        n_max=DimensionesDispositivos(),
+        n_max=DimensionesPLC(),
         plcs=(),
         procesos=(),
         parametros_real=(),
@@ -286,7 +286,7 @@ def test_entidades_multi_PLC_en_una_lista():
         excel_mtime_ns=0,
         parsed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
         dispositivos={},
-        n_max=DimensionesDispositivos(),
+        n_max=DimensionesPLC(),
         plcs=(),
         procesos=(),
         parametros_real=(),

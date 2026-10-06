@@ -1,7 +1,7 @@
 ﻿"""Tests del parser de N_MAX multi-PLC.
 
 Cobertura:
-  - 1 fila por PLC -> DimensionesDispositivos con por_plc poblado.
+  - 1 fila por PLC -> DimensionesPLC con por_plc poblado.
   - Sufijos ``N_Max_<HW>`` se traducen al canonico ``N_MAX_DISP_<HW>``.
   - Filas sin PLC se descartan.
   - Celdas vacias / no numericas -> 0 (validacion soft, sin error).
@@ -18,7 +18,7 @@ import pytest
 from openpyxl import Workbook
 
 from areas.alimentacion.data.data_dimensiones import (
-    DimensionesDispositivos,
+    DimensionesPLC,
 )
 from areas.alimentacion.helpers.excel.excel_parser_disp_dimensiones import (
     N_MAX_TABLE_NAME,
@@ -104,7 +104,7 @@ def _add_n_max_table(
 
 
 def test_extrae_una_fila_por_plc(tmp_path):
-    """Tabla con 2 PLCs -> DimensionesDispositivos con 2 DataDimensionesPLC."""
+    """Tabla con 2 PLCs -> DimensionesPLC con 2 DataDimensionesPLC."""
     wb = Workbook()
     wb.remove(wb.active)
     _add_n_max_table(wb, "CONFIG", [
@@ -179,7 +179,7 @@ def test_celda_vacia_o_no_numerica_es_cero(tmp_path):
 
 
 def test_tabla_inexistente_devuelve_contenedor_vacio(tmp_path):
-    """Excel sin la tabla -> DimensionesDispositivos() con por_plc vacio (no rompe)."""
+    """Excel sin la tabla -> DimensionesPLC() con por_plc vacio (no rompe)."""
     wb = Workbook()
     wb.remove(wb.active)
     ws = wb.create_sheet("CONFIG")
@@ -187,7 +187,7 @@ def test_tabla_inexistente_devuelve_contenedor_vacio(tmp_path):
     cm = _config_manager_for_tests(tmp_path)
     parser = DimensionesParser(config_manager=cm)
     result = parser.extraer(wb)
-    assert isinstance(result, DimensionesDispositivos)
+    assert isinstance(result, DimensionesPLC)
     assert result.por_plc == ()
 
 
