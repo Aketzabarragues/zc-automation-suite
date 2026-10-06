@@ -241,7 +241,7 @@ def test_to_api_dict_shape_anidado(tmp_path):
 
 
 def test_n_max_entidades_se_popula_por_plc(tmp_path):
-    """Columna ``N_Max_ENT`` se popula en ``n_max_entidades`` del DTO."""
+    """Columna ``N_MAX_ENTIDAD`` se popula en ``n_max_entidades`` del DTO."""
     wb = Workbook()
     wb.remove(wb.active)
     _add_n_max_table(wb, "CONFIG", [
@@ -256,11 +256,11 @@ def test_n_max_entidades_se_popula_por_plc(tmp_path):
     assert by_plc["PLC1"].n_max_entidades == 50
     assert by_plc["PLC2"].n_max_entidades == 75
     # Sanity: la columna N_MAX_ENT NO se filtra por el catalog.
-    assert "N_MAX_ENTIDAD" not in by_plc["PLC1"].extras
+    assert "N_Max_ENT" not in by_plc["PLC1"].extras
 
 
 def test_n_max_entidades_celda_vacia_es_cero(tmp_path):
-    """Celda ``N_Max_ENT`` vacia -> ``n_max_entidades=0`` (back-compat)."""
+    """Celda ``N_MAX_ENTIDAD`` vacia -> ``n_max_entidades=0`` (back-compat)."""
     wb = Workbook()
     wb.remove(wb.active)
     _add_n_max_table(wb, "CONFIG", [
@@ -318,7 +318,7 @@ def test_n_max_entidades_se_ignora_si_ausente_en_excel(tmp_path):
 
 
 def test_n_max_entidades_0_no_se_ignora(tmp_path):
-    """Operario pone ``N_Max_ENT=0`` explicitamente (reset): se respeta."""
+    """Operario pone ``N_MAX_ENTIDAD=0`` explicitamente (reset): se respeta."""
     wb = Workbook()
     wb.remove(wb.active)
     _add_n_max_table(wb, "CONFIG", [
