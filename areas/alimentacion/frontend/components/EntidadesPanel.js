@@ -112,9 +112,9 @@ export default {
             <entidades-configuracion v-if="hasMemory && activeSubTab === 'configuracion'" />
 
             <!-- Sub-vista Entidades: tabla reactiva con las 7 columnas
-                 del DTO ``Entidad``. Multi-PLC: la columna plc_name se
+                 del DTO Entidad. Multi-PLC: la columna plc_name se
                  muestra siempre; el filtro por PLC vive en el preview
-                 del PLC concreto (igual que ``DispositivosPanel``). -->
+                 del PLC concreto (igual que DispositivosPanel). -->
             <div v-if="hasMemory && activeSubTab === 'entidades'"
                 class="flex-1 overflow-auto table-scroll-x mt-2 bg-surface-raised border border-line rounded">
                 <table class="w-full text-xs">
@@ -157,7 +157,7 @@ export default {
                         <tr v-if="entities.length === 0">
                             <td colspan="7"
                                 class="px-3 py-6 text-center text-ink-muted italic">
-                                ⚠️ La pestana "Entidades" no contiene entidades. Verifique que la hoja ``ENTIDADES`` exista y la ``Tabla_Entidades`` tenga filas validas.
+                                ⚠️ La pestana "Entidades" no contiene entidades. Verifique que la hoja ENTIDADES exista y la Tabla_Entidades tenga filas validas.
                             </td>
                         </tr>
                     </tbody>
@@ -166,7 +166,7 @@ export default {
 
             <!-- Empty state global: cuando NO hay memoria cargada
                  (operario aun no ha subido Excel). Mismo patron que
-                 ``DispositivosPanel``. -->
+                 DispositivosPanel. -->
             <div v-if="!hasMemory"
                 class="flex-1 flex items-center justify-center p-10 text-center text-ink-muted">
                 <div>
