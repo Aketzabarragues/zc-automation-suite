@@ -9,7 +9,7 @@
  *      coloreados (agregar / renombrar / eliminar / sin_cambios)
  *      + boton "🔍 Generar Prevision". SIEMPRE se renderiza: si no
  *      hay preview, los 4 contadores se quedan en 0 (gemelo Disp).
- *      Contador total etiquetado "X items analizados" (C.22: no
+ *      Contador total etiquetado "X entidades analizadas" (C.22: no
  *      segmentar por constantes vs comentarios; un solo total).
  *   2. Card "tabla": sub-card de N_MAX_ENTIDAD arriba (estilo sub-cards
  *      de Dispositivos) + tabla unica con 6 columnas
@@ -217,7 +217,7 @@ export default {
                  data-testid="entidades-card-info">
                 <p v-if="hasPreview" class="text-xs text-ink-muted"
                    data-testid="entidades-preview-summary">
-                    {{ summary.total }} items analizados —
+                    {{ summary.total }} entidades analizadas —
                     <span class="text-accent">{{ summary.agregados }} a agregar</span> ·
                     <span class="text-amber-700">{{ summary.renombrados }} a renombrar</span> ·
                     <span class="text-red-700">{{ summary.eliminados }} a eliminar</span> ·
