@@ -36,21 +36,21 @@ def _cm_with_overrides(display_order=None, col_labels=None):
 
 
 def test_build_catalog_sin_override_devuelve_todos_los_campos() -> None:
-    """Sin override, ``model_columns`` es la lista completa del DTO."""
+    """Sin override, ``ent_model_columns`` es la lista completa del DTO."""
     cm = _cm_with_overrides()
     payload = build_entidades_catalog(cm)
-    assert payload["model_columns"] == get_model_columns_map()
+    assert payload["ent_model_columns"] == get_model_columns_map()
     # Sanity: el unico dominio es ``entidades`` y tiene los 7 campos.
-    assert set(payload["model_columns"].keys()) == {"entidades"}
-    assert len(payload["model_columns"]["entidades"]) == 7
+    assert set(payload["ent_model_columns"].keys()) == {"entidades"}
+    assert len(payload["ent_model_columns"]["entidades"]) == 7
 
 
 def test_build_catalog_sin_config_manager_devuelve_defaults() -> None:
     """``config_manager`` ausente -> defaults (compat tests sin cm)."""
     payload = build_entidades_catalog()
-    assert payload["model_columns"] == get_model_columns_map()
-    assert payload["col_labels"] == dict(COLUMN_LABELS)
-    assert payload["display_order"] == {
+    assert payload["ent_model_columns"] == get_model_columns_map()
+    assert payload["ent_col_labels"] == dict(COLUMN_LABELS)
+    assert payload["ent_display_order"] == {
         dom: list(cols) for dom, cols in DISPLAY_ORDER.items()
     }
 
@@ -62,9 +62,9 @@ def test_build_catalog_override_display_order_reemplaza_dominio() -> None:
     }
     cm = _cm_with_overrides(display_order=override)
     payload = build_entidades_catalog(cm)
-    assert payload["display_order"]["entidades"] == override["entidades"]
-    # ``model_columns`` sigue siendo el universo total.
-    assert len(payload["model_columns"]["entidades"]) == 7
+    assert payload["ent_display_order"]["entidades"] == override["entidades"]
+    # ``ent_model_columns`` sigue siendo el universo total.
+    assert len(payload["ent_model_columns"]["entidades"]) == 7
 
 
 def test_build_catalog_override_preserva_orden_indicado() -> None:
@@ -74,7 +74,7 @@ def test_build_catalog_override_preserva_orden_indicado() -> None:
     }
     cm = _cm_with_overrides(display_order=override)
     payload = build_entidades_catalog(cm)
-    assert payload["display_order"]["entidades"] == [
+    assert payload["ent_display_order"]["entidades"] == [
         "plc_comentario", "plc_tag", "numero", "plc_name",
     ]
 
@@ -87,8 +87,8 @@ def test_build_catalog_override_con_dominio_desconocido_se_descarta() -> None:
     }
     cm = _cm_with_overrides(display_order=override)
     payload = build_entidades_catalog(cm)
-    assert "entidades" in payload["display_order"]
-    assert "fantasma" not in payload["display_order"]
+    assert "entidades" in payload["ent_display_order"]
+    assert "fantasma" not in payload["ent_display_order"]
 
 
 def test_build_catalog_override_con_columnas_inexistentes_se_descartan() -> None:
@@ -98,7 +98,7 @@ def test_build_catalog_override_con_columnas_inexistentes_se_descartan() -> None
     }
     cm = _cm_with_overrides(display_order=override)
     payload = build_entidades_catalog(cm)
-    assert payload["display_order"]["entidades"] == ["numero", "plc_tag"]
+    assert payload["ent_display_order"]["entidades"] == ["numero", "plc_tag"]
 
 
 def test_build_catalog_override_con_todas_columnas_invalidas_cae_al_default() -> None:
@@ -108,7 +108,7 @@ def test_build_catalog_override_con_todas_columnas_invalidas_cae_al_default() ->
     }
     cm = _cm_with_overrides(display_order=override)
     payload = build_entidades_catalog(cm)
-    assert payload["display_order"]["entidades"] == DISPLAY_ORDER["entidades"]
+    assert payload["ent_display_order"]["entidades"] == DISPLAY_ORDER["entidades"]
 
 
 def test_build_catalog_override_col_labels_reemplaza_etiqueta() -> None:
@@ -119,10 +119,10 @@ def test_build_catalog_override_col_labels_reemplaza_etiqueta() -> None:
     }
     cm = _cm_with_overrides(col_labels=override)
     payload = build_entidades_catalog(cm)
-    assert payload["col_labels"]["numero"] == "Slot"
-    assert payload["col_labels"]["plc_tag"] == "Tag Name"
+    assert payload["ent_col_labels"]["numero"] == "Slot"
+    assert payload["ent_col_labels"]["plc_tag"] == "Tag Name"
     # Las etiquetas no overriden se mantienen.
-    assert payload["col_labels"]["descripcion"] == COLUMN_LABELS["descripcion"]
+    assert payload["ent_col_labels"]["descripcion"] == COLUMN_LABELS["descripcion"]
 
 
 def test_build_catalog_override_col_labels_con_columna_desconocida_se_descarta() -> None:
@@ -133,8 +133,8 @@ def test_build_catalog_override_col_labels_con_columna_desconocida_se_descarta()
     }
     cm = _cm_with_overrides(col_labels=override)
     payload = build_entidades_catalog(cm)
-    assert payload["col_labels"]["numero"] == "Slot"
-    assert "no_existe" not in payload["col_labels"]
+    assert payload["ent_col_labels"]["numero"] == "Slot"
+    assert "no_existe" not in payload["ent_col_labels"]
 
 
 def test_build_catalog_override_col_labels_con_label_vacio_se_descarta() -> None:
@@ -147,17 +147,32 @@ def test_build_catalog_override_col_labels_con_label_vacio_se_descarta() -> None
     }
     cm = _cm_with_overrides(col_labels=override)
     payload = build_entidades_catalog(cm)
-    assert payload["col_labels"]["numero"] == "Slot"
-    assert payload["col_labels"]["plc_tag"] == COLUMN_LABELS["plc_tag"]
-    assert payload["col_labels"]["plc_tipo"] == COLUMN_LABELS["plc_tipo"]
-    assert payload["col_labels"]["plc_index"] == COLUMN_LABELS["plc_index"]
+    assert payload["ent_col_labels"]["numero"] == "Slot"
+    assert payload["ent_col_labels"]["plc_tag"] == COLUMN_LABELS["plc_tag"]
+    assert payload["ent_col_labels"]["plc_tipo"] == COLUMN_LABELS["plc_tipo"]
+    assert payload["ent_col_labels"]["plc_index"] == COLUMN_LABELS["plc_index"]
+
+
+def test_build_catalog_override_col_labels_con_clave_subguion_se_ignora() -> None:
+    """Claves que empiezan por ``_`` (e.g. ``_comment``) se ignoran silenciosamente."""
+    override = {
+        "_comment":   "este es el docstring",
+        "_cualquier": "x",
+        "numero":     "Slot",
+    }
+    cm = _cm_with_overrides(col_labels=override)
+    payload = build_entidades_catalog(cm)
+    assert "_comment" not in payload["ent_col_labels"]
+    assert "_cualquier" not in payload["ent_col_labels"]
+    assert payload["ent_col_labels"]["numero"] == "Slot"
 
 
 def test_build_catalog_payload_keys_son_las_cuatro_ent() -> None:
     """El payload expone las 4 claves con prefijo ``ent_*``."""
     payload = build_entidades_catalog()
     assert set(payload.keys()) == {
-        "model_columns", "col_labels", "mono_cols", "display_order",
+        "ent_model_columns", "ent_col_labels",
+        "ent_mono_cols", "ent_display_order",
     }
 
 

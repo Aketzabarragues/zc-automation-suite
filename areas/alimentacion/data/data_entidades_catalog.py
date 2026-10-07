@@ -111,16 +111,21 @@ def get_model_columns_map() -> dict[str, list[str]]:
 
 
 def build_entidades_catalog(config_manager=None) -> dict:
-    """Empaqueta el payload del catalog de entidades.
+    """Empaqueta el payload del catalog de entidades con prefijo ``ent_``.
+
+    El endpoint ``GET /api/v1/catalog`` hace flat merge de las areas,
+    por lo que las claves del catalog de disp (sin prefijo), del de
+    software (con prefijo ``proc_``) y del de entidades no pueden
+    colisionar. Aqui se anteponen ``ent_``.
 
     Shape (estable; la SPA hace fallback por clave ausente si el
     backend no la expone todavia):
 
         {
-          "model_columns": {domain: [field_name, ...], ...},
-          "col_labels":    {col_name: "Label humano", ...},
-          "mono_cols":     ["numero", "plc_tag", ...],
-          "display_order": {domain: [col_name_in_order, ...], ...},
+          "ent_model_columns": {domain: [field_name, ...], ...},
+          "ent_col_labels":    {col_name: "Label humano", ...},
+          "ent_mono_cols":     ["numero", "plc_tag", ...],
+          "ent_display_order": {domain: [col_name_in_order, ...], ...},
         }
 
     Si se aporta, ``config_manager`` aplica los overrides de
@@ -142,10 +147,10 @@ def build_entidades_catalog(config_manager=None) -> dict:
         if override_cl:
             col_labels = {**col_labels, **override_cl}
     return {
-        "model_columns": get_model_columns_map(),
-        "col_labels":    col_labels,
-        "mono_cols":     sorted(MONO_COLUMNS),
-        "display_order": display_order,
+        "ent_model_columns": get_model_columns_map(),
+        "ent_col_labels":    col_labels,
+        "ent_mono_cols":     sorted(MONO_COLUMNS),
+        "ent_display_order": display_order,
     }
 
 
@@ -191,6 +196,9 @@ def _get_col_labels_override(config_manager) -> dict[str, str]:
 
     Devuelve ``{col_name: "Label humano"}`` solo con entradas validas
     (la clave debe ser un campo del DTO y el valor un string no vacio).
+    Las claves que empiezan por ``_`` se ignoran silenciosamente:
+    convencion para meter docstrings (``_comment``) en el ``config.json``
+    sin contaminar el dict de overrides.
     """
     raw = config_manager.get_entidades_col_labels_override()
     if not raw or not isinstance(raw, dict):
@@ -201,7 +209,11 @@ def _get_col_labels_override(config_manager) -> dict[str, str]:
     }
     out: dict[str, str] = {}
     for col, label in raw.items():
-        if not isinstance(col, str) or col not in all_dto_fields:
+        if not isinstance(col, str):
+            continue
+        if col.startswith("_"):
+            continue
+        if col not in all_dto_fields:
             import logging
             logging.getLogger(__name__).warning(
                 "entidades_col_labels override: columna '%s' desconocida; "
