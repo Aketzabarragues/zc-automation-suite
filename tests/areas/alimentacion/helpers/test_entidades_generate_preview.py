@@ -390,7 +390,7 @@ def test_compute_unified_diff_match_1_1_sin_cambios() -> None:
         table_name="6_Entidades",
         base={"ENT_000": 0, "ENT_001": 1, "ENT_002": 2},
         desired={"ENT_000": 0, "ENT_001": 1, "ENT_002": 2},
-        added=set(), removed=set(), renamed={},
+        added=[], removed=[], renamed={},
     )
     diff_com = DiffComments(
         db_name="DB6_ENT",
@@ -403,19 +403,20 @@ def test_compute_unified_diff_match_1_1_sin_cambios() -> None:
 
     rows = compute_unified_diff_entities(diff_ent, diff_com)
 
-    assert [r["numero"] for r in rows] == [0, 1, 2]
+    plc_tags = [r["plc_tag"] for r in rows]
+    assert plc_tags == ["ENT_000", "ENT_001", "ENT_002"]
     assert all(r["status"] == "sin_cambios" for r in rows)
-    assert all(r["plc_tag_tia"] == r["plc_tag_excel"] for r in rows)
+    assert all(r["numero_tia"] == r["numero_excel"] for r in rows)
     assert all(r["comment_tia"] == r["comment_excel"] for r in rows)
 
 
 def test_compute_unified_diff_agregar() -> None:
-    """Slot en Excel sin PlcUserConstant en TIA: ``agregar``."""
+    """plc_tag en Excel sin PlcUserConstant en TIA: ``agregar``."""
     diff_ent = DiffEntities(
         table_name="6_Entidades",
-        base={"ENT_000": 0},  # solo ENT_000 existe en TIA
-        desired={"ENT_000": 0, "ENT_005": 5, "ENT_010": 10},  # Excel tiene 3
-        added={"ENT_005", "ENT_010"}, removed=set(), renamed={},
+        base={"ENT_000": 0},
+        desired={"ENT_000": 0, "ENT_005": 5, "ENT_010": 10},
+        added=["ENT_005", "ENT_010"], removed=[], renamed={},
     )
     diff_com = DiffComments(
         db_name="DB6_ENT",
@@ -428,21 +429,21 @@ def test_compute_unified_diff_agregar() -> None:
 
     rows = compute_unified_diff_entities(diff_ent, diff_com)
 
-    by_num = {r["numero"]: r for r in rows}
-    assert by_num[0]["status"] == "sin_cambios"
-    assert by_num[5]["status"] == "agregar"
-    assert by_num[5]["plc_tag_tia"] is None
-    assert by_num[5]["comment_tia"] is None
-    assert by_num[10]["status"] == "agregar"
+    by_plc_tag = {r["plc_tag"]: r for r in rows}
+    assert by_plc_tag["ENT_000"]["status"] == "sin_cambios"
+    assert by_plc_tag["ENT_005"]["status"] == "agregar"
+    assert by_plc_tag["ENT_005"]["numero_tia"] is None
+    assert by_plc_tag["ENT_005"]["comment_tia"] is None
+    assert by_plc_tag["ENT_010"]["status"] == "agregar"
 
 
 def test_compute_unified_diff_renombrar() -> None:
-    """Comentario distinto entre TIA y Excel: ``renombrar``."""
+    """plc_tag en ambos + comment distinto: ``renombrar``."""
     diff_ent = DiffEntities(
         table_name="6_Entidades",
         base={"ENT_000": 0},
         desired={"ENT_000": 0},
-        added=set(), removed=set(), renamed={},
+        added=[], removed=[], renamed={},
     )
     diff_com = DiffComments(
         db_name="DB6_ENT",
@@ -462,12 +463,12 @@ def test_compute_unified_diff_renombrar() -> None:
 
 
 def test_compute_unified_diff_eliminar() -> None:
-    """Slot en TIA con comment, no en Excel: ``eliminar`` (visibilidad, no sync)."""
+    """plc_tag solo en TIA con comment: ``eliminar`` (visibilidad, no sync)."""
     diff_ent = DiffEntities(
         table_name="6_Entidades",
-        base={"ENT_000": 0, "ENT_001": 1},  # TIA tiene 2
-        desired={"ENT_000": 0},  # Excel solo tiene 1
-        added=set(), removed={"ENT_001"}, renamed={},
+        base={"ENT_000": 0, "ENT_001": 1},
+        desired={"ENT_000": 0},
+        added=[], removed=["ENT_001"], renamed={},
     )
     diff_com = DiffComments(
         db_name="DB6_ENT",
@@ -480,27 +481,29 @@ def test_compute_unified_diff_eliminar() -> None:
 
     rows = compute_unified_diff_entities(diff_ent, diff_com)
 
-    by_num = {r["numero"]: r for r in rows}
-    assert by_num[0]["status"] == "sin_cambios"
-    assert by_num[1]["status"] == "eliminar"
-    assert by_num[1]["plc_tag_excel"] is None
-    assert by_num[1]["comment_excel"] is None
-    assert by_num[1]["plc_tag_tia"] == "ENT_001"
-    assert by_num[1]["comment_tia"] == "b"
+    by_plc_tag = {r["plc_tag"]: r for r in rows}
+    assert by_plc_tag["ENT_000"]["status"] == "sin_cambios"
+    assert by_plc_tag["ENT_001"]["status"] == "eliminar"
+    assert by_plc_tag["ENT_001"]["numero_excel"] is None
+    assert by_plc_tag["ENT_001"]["comment_excel"] is None
+    assert by_plc_tag["ENT_001"]["numero_tia"] == 1
+    assert by_plc_tag["ENT_001"]["comment_tia"] == "b"
 
 
-def test_compute_unified_diff_eliminar_sin_comment_no_aparece() -> None:
-    """Slot en TIA sin comment no se muestra (no hay nada que representar)."""
+def test_compute_unified_diff_eliminar_sin_comment_si_aparece() -> None:
+    """plc_tag solo en TIA sin comment en slot: aparece como ``eliminar``
+    (C.22: ya no se filtra). El operador ve la PlcConstant aunque no
+    tenga comment inicializado en el .s7dcl."""
     diff_ent = DiffEntities(
         table_name="6_Entidades",
         base={"ENT_000": 0, "ENT_001": 1},
         desired={"ENT_000": 0},
-        added=set(), removed={"ENT_001"}, renamed={},
+        added=[], removed=["ENT_001"], renamed={},
     )
     diff_com = DiffComments(
         db_name="DB6_ENT",
         array_name="ENT",
-        slots_tia={0},  # solo slot 0 tiene comment, slot 1 sin comment
+        slots_tia={0},  # solo slot 0 tiene comment
         current={0: "a"},
         desired={0: "a"},
         added=[], removed=[], updated=[], unchanged=[0],
@@ -508,7 +511,43 @@ def test_compute_unified_diff_eliminar_sin_comment_no_aparece() -> None:
 
     rows = compute_unified_diff_entities(diff_ent, diff_com)
 
-    assert [r["numero"] for r in rows] == [0]
+    plc_tags = [r["plc_tag"] for r in rows]
+    assert plc_tags == ["ENT_000", "ENT_001"]
+    row_eliminar = next(r for r in rows if r["plc_tag"] == "ENT_001")
+    assert row_eliminar["status"] == "eliminar"
+    assert row_eliminar["comment_tia"] is None  # sin comment
+
+
+def test_compute_unified_diff_mismo_plc_tag_distinto_value_split() -> None:
+    """plc_tag en ambos pero con DISTINTO value (numero): el sync va a
+    borrar el viejo y crear el nuevo. Resultado: 2 filas separadas
+    (C.22)."""
+    diff_ent = DiffEntities(
+        table_name="6_Entidades",
+        base={"ENT_001": 3},  # TIA tiene ENT_001 con value=3
+        desired={"ENT_001": 1},  # Excel tiene ENT_001 con value=1
+        added=[], removed=[], renamed={},
+    )
+    diff_com = DiffComments(
+        db_name="DB6_ENT",
+        array_name="ENT",
+        slots_tia={1, 3},
+        current={1: "", 3: "valor 3"},
+        desired={1: "valor 1", 3: ""},
+        added=[1], removed=[3], updated=[], unchanged=[],
+    )
+
+    rows = compute_unified_diff_entities(diff_ent, diff_com)
+
+    # 2 filas: una eliminar (value viejo 3) y otra agregar (value nuevo 1).
+    plc_tags = sorted(r["plc_tag"] for r in rows)
+    assert plc_tags == ["ENT_001", "ENT_001"]
+    eliminar = next(r for r in rows if r["status"] == "eliminar")
+    agregar = next(r for r in rows if r["status"] == "agregar")
+    assert eliminar["numero_tia"] == 3
+    assert eliminar["numero_excel"] is None
+    assert agregar["numero_tia"] is None
+    assert agregar["numero_excel"] == 1
 
 
 def test_compute_unified_diff_plc_tag_no_canonico_no_matchea() -> None:
@@ -538,22 +577,17 @@ def test_compute_unified_diff_plc_tag_no_canonico_no_matchea() -> None:
     rows = compute_unified_diff_entities(diff_ent, diff_com)
 
     # ENT_000 matchea con su propio plc_tag.
-    row_ent000 = next(r for r in rows if r["plc_tag_excel"] == "ENT_000")
-    assert row_ent000["plc_tag_tia"] == "ENT_000"
+    row_ent000 = next(r for r in rows if r["plc_tag"] == "ENT_000")
     assert row_ent000["status"] == "renombrar"
     # ENT_004 (Excel) no matchea con nada en TIA -> agregar.
-    row_ent004 = next(r for r in rows if r["plc_tag_excel"] == "ENT_004")
-    assert row_ent004["plc_tag_tia"] is None
+    row_ent004 = next(r for r in rows if r["plc_tag"] == "ENT_004")
+    assert row_ent004["numero_tia"] is None
     assert row_ent004["status"] == "agregar"
     # Constant_1 (TIA) no matchea con nada en Excel -> eliminar.
-    row_constant = next(r for r in rows if r["plc_tag_tia"] == "Constant_1")
-    assert row_constant["plc_tag_excel"] is None
+    row_constant = next(r for r in rows if r["plc_tag"] == "Constant_1")
+    assert row_constant["numero_excel"] is None
     assert row_constant["comment_tia"] == "comentario slot 4"
     assert row_constant["status"] == "eliminar"
-    # No se han colisionado en numero=4: hay 2 filas (ENT_004 agregar,
-    # Constant_1 eliminar), el operador las ve lado a lado.
-    nums_in_rows = sorted(r["numero"] for r in rows)
-    assert nums_in_rows == [0, 4, 4]
 
 
 def test_detect_inconsistencias_plc_tags_warning() -> None:

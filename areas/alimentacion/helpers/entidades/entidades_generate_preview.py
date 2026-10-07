@@ -415,94 +415,131 @@ def compute_unified_diff_entities(
     diff_entities: DiffEntities,
     diff_comments: DiffComments,
 ) -> list[dict[str, Any]]:
-    """Combina diff de constantes + diff de comentarios en una lista unificada.
+    """Combina diff de PlcUserConstants + diff de comments en una lista unificada.
 
-    Match key: **plc_tag literal** (C.21, antes era por numero).
-    El cambio es por union con PostSmoke: si TIA tiene un plc_tag
-    ``Constant_1`` con value=4 y el Excel tiene ``ENT_004`` con numero=4,
-    el matching por numero los emparejaba falsamente. Ahora son 2 filas
-    separadas (Constant_1 como ``eliminar``, ENT_004 como ``agregar``).
+    Match key: ``plc_tag`` (string canonico del Excel, key estable).
+    El comentario se busca por ``numero`` (= slot del array ``ENT[]``).
 
-    Match comment: por ``numero`` (= slot del array ``ENT[]``). Es la
-    unica coordenada estable entre PlcUserConstants (value=N) y el slot
-    del array que tiene el comment. Si el plc_tag no es canonico
-    (``ENT_<X>``), el helper lo detecta via ``detect_inconsistencias_plc_tags``.
+    Reglas (C.22, simplificadas del PostSmoke):
 
-    Status por row (4 vectores, mismo set que ``STATUS_META``):
-      - ``agregar``: plc_tag en Excel, no en TIA (o TIA sin comment en slot).
-      - ``renombrar``: plc_tag en ambos, comentarios distintos.
-      - ``sin_cambios``: plc_tag en ambos, comentarios identicos.
-      - ``eliminar``: plc_tag en TIA con comment, no en el Excel.
-        Se muestra para visibilidad; el sync lo trata como
-        preservar-no-borrar (misma politica que ``compute_comments_diff``).
+      - plc_tag solo en Excel:
+          ``agregar``. Comment TIA = None.
+      - plc_tag en ambos + mismo numero:
+          ``sin_cambios`` si comment es identico.
+          ``renombrar`` si comment es distinto.
+          ``agregar`` si TIA no tiene comment en el slot del Excel.
+      - plc_tag en ambos + **distinto** numero:
+          2 filas separadas: ``eliminar`` (numero TIA) + ``agregar``
+          (numero Excel). El sync borra el viejo y crea el nuevo.
+      - plc_tag solo en TIA:
+          ``eliminar``. Se muestra SIEMPRE, con o sin comment (el
+          slot puede estar vacio en .s7dcl pero la PlcConstant
+          existe en ``6_Entidades``; el operador la ve).
 
-    Output shape por row (mismo que consume la SPA desde C.20):
+    Output shape por row (post-C.22, simplificado):
 
-        numero         : int
-        plc_tag_tia    : str | None
-        comment_tia    : str | None
-        plc_tag_excel  : str
-        comment_excel  : str | None
-        status         : "agregar" | "renombrar" | "sin_cambios" | "eliminar"
+        plc_tag       : str     (la key estable del Excel; TIA y Excel
+                                  usan la misma si matchean).
+        numero_tia    : int | None   (None si TIA no tiene la plc_tag).
+        comment_tia   : str | None   (None si el slot TIA no tiene comment).
+        numero_excel  : int | None   (None si el Excel no tiene la plc_tag).
+        comment_excel : str | None   (None si el Excel no tiene comment).
+        status        : "agregar" | "renombrar" | "sin_cambios" | "eliminar"
+
+    Sin campos ``plc_tag_tia`` / ``plc_tag_excel``: solo hay un ``plc_tag``
+    por fila (es el identificador estable, comun al lado y fila).
+    Sort por ``plc_tag`` ascendente (string stable).
 
     Args:
-        diff_entities: resultado de ``compute_diff_entities`` sobre
-            ``6_Entidades.xml``. ``desired`` y ``base`` son
-            ``{plc_tag: numero}``.
-        diff_comments: resultado de ``compute_comments_diff`` sobre
-            ``DB6_ENT.s7dcl`` + ``.s7res``. ``current`` y ``desired``
-            son ``{slot: comment}`` (slot == numero del Excel).
+        diff_entities: ``desired`` y ``base`` son ``{plc_tag: numero}``.
+        diff_comments: ``current`` y ``desired`` son ``{slot: comment}``
+            (slot == numero del Excel).
 
     Returns:
-        Lista de dicts ordenada por ``numero``. NO incluye filas en TIA
-        sin comment en el slot (no hay nada que representar).
+        Lista de dicts ordenada por ``plc_tag``.
     """
     base_by_plc_tag: dict[str, int] = dict(diff_entities.base)
 
     rows: list[dict[str, Any]] = []
 
-    for plc_tag, numero in sorted(
-        diff_entities.desired.items(), key=lambda kv: kv[1]
-    ):
-        comment_tia = diff_comments.current.get(numero)
-        comment_excel = diff_comments.desired.get(numero)
-        plc_tag_tia: str | None = plc_tag if plc_tag in base_by_plc_tag else None
+    for plc_tag in sorted(diff_entities.desired.keys()):
+        numero_excel = diff_entities.desired[plc_tag]
+        comment_excel = diff_comments.desired.get(numero_excel)
 
-        if plc_tag_tia is None or comment_tia is None:
-            status = "agregar"
-        elif comment_tia == comment_excel:
-            status = "sin_cambios"
-        else:
-            status = "renombrar"
+        if plc_tag in base_by_plc_tag:
+            numero_tia = base_by_plc_tag[plc_tag]
+            comment_tia = diff_comments.current.get(numero_tia)
 
+            if numero_tia != numero_excel:
+                # plc_tag en ambos + distinto value: 2 filas.
+                # Fila PLC (eliminar) con el value viejo.
+                rows.append({
+                    "plc_tag":       plc_tag,
+                    "numero_tia":    numero_tia,
+                    "comment_tia":   comment_tia,
+                    "numero_excel":  None,
+                    "comment_excel": None,
+                    "status":        "eliminar",
+                })
+                # Fila Excel (agregar) y el value nuevo.
+                rows.append({
+                    "plc_tag":       plc_tag,
+                    "numero_tia":    None,
+                    "comment_tia":   None,
+                    "numero_excel":  numero_excel,
+                    "comment_excel": comment_excel,
+                    "status":        "agregar",
+                })
+                continue
+
+            # plc_tag en ambos + mismo value: status por comment.
+            if comment_tia is None and comment_excel is None:
+                # Ningun lado tiene comment -> sin cambios
+                # (el slot del array esta sin inicializar; eso esta OK).
+                status = "sin_cambios"
+            elif comment_tia is None:
+                # TIA sin comment, Excel con comment -> agregar comment al slot.
+                status = "agregar"
+            elif comment_tia == comment_excel:
+                status = "sin_cambios"
+            else:
+                status = "renombrar"
+
+            rows.append({
+                "plc_tag":       plc_tag,
+                "numero_tia":    numero_tia,
+                "comment_tia":   comment_tia,
+                "numero_excel":  numero_excel,
+                "comment_excel": comment_excel,
+                "status":        status,
+            })
+            continue
+
+        # plc_tag solo en Excel: agregar.
         rows.append({
-            "numero":        numero,
-            "plc_tag_tia":   plc_tag_tia,
-            "comment_tia":   comment_tia,
-            "plc_tag_excel": plc_tag,
+            "plc_tag":       plc_tag,
+            "numero_tia":    None,
+            "comment_tia":   None,
+            "numero_excel":  numero_excel,
             "comment_excel": comment_excel,
-            "status":        status,
+            "status":        "agregar",
         })
 
+    # plc_tag solo en TIA: eliminar (siempre, con o sin comment).
     excel_plc_tags = set(diff_entities.desired.keys())
-    for plc_tag in sorted(
-        set(diff_entities.base.keys()) - excel_plc_tags,
-        key=lambda pt: diff_entities.base[pt],
-    ):
-        numero = diff_entities.base[plc_tag]
-        comment_tia = diff_comments.current.get(numero)
-        if comment_tia is None:
-            continue
+    for plc_tag in sorted(set(diff_entities.base.keys()) - excel_plc_tags):
+        numero_tia = diff_entities.base[plc_tag]
+        comment_tia = diff_comments.current.get(numero_tia)
+
         rows.append({
-            "numero":        numero,
-            "plc_tag_tia":   plc_tag,
+            "plc_tag":       plc_tag,
+            "numero_tia":    numero_tia,
             "comment_tia":   comment_tia,
-            "plc_tag_excel": None,
+            "numero_excel":  None,
             "comment_excel": None,
             "status":        "eliminar",
         })
 
-    rows.sort(key=lambda r: r["numero"])
     return rows
 
 
@@ -523,8 +560,8 @@ def detect_inconsistencias_plc_tags(
     PlcUserConstant de TIA que NO la cumpla es un error del operador.
 
     Output: lista de warnings legibles (1 por inconsistencia). El caller
-    los anyade a ``result["warnings"]`` del FB. La SPA los rendera como
-    banner.
+    los anyade a ``result["warnings"]`` del FB. Sin banner visual en
+    la SPA (solo en el JSON).
 
     Args:
         diff_entities: resultado de ``compute_diff_entities``.
@@ -536,7 +573,6 @@ def detect_inconsistencias_plc_tags(
     for plc_tag, numero in diff_entities.base.items():
         canonico = f"ENT_{numero:03d}"
         if plc_tag != canonico:
-            # Busca si ese numero existe en el Excel con el plc_tag canonico.
             excel_plc_tag = None
             for t, n in diff_entities.desired.items():
                 if n == numero:
