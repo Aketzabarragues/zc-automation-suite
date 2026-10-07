@@ -10,15 +10,15 @@
  *      + boton "🔍 Generar Prevision". SIEMPRE se renderiza: si no
  *      hay preview, los 4 contadores se quedan en 0 (gemelo Disp).
  *   2. Card "tabla": sub-card de N_MAX_ENTIDAD arriba (estilo sub-cards
- *      de Dispositivos) + tabla unica con 4 columnas
- *      (# / Actual (TIA) / Deseado (Excel) / Estado) + boton
- *      "✅ Aplicar Cambios en TIA Portal" abajo.
+ *      de Dispositivos) + tabla unica con 6 columnas
+ *      (# / Tag Actual (TIA) / Comentario Actual (TIA)
+ *       / Tag Deseado (Excel) / Comentario Deseado (Excel) / Estado)
+ *      + boton "✅ Aplicar Cambios en TIA Portal" abajo.
  *
- * Columnas de la tabla (orden post C.16, oct-2026):
- *   #             -> row.nuevo (value del Excel). null si eliminar.
- *   Actual (TIA)  -> row.plc_tag_tia (TAG del PLC). null si agregar.
- *   Deseado (Exc) -> row.plc_tag_excel (TAG del Excel). null si eliminar.
- *   Estado        -> status (agregar/renombrar/eliminar/sin_cambios).
+ * Las 6 columnas reflejan el "diff unificado" (C.18): un solo match
+ * por ``numero`` (regla canonica ``ENT_<X>`` con value=X) cruza
+ * PlcUserConstants de TIA con PlcUserConstants del Excel y comentarios
+ * del slot del array con comentarios del Excel.
  *
  * Estado del preview: lee/escribe directo ``store.previewData`` (mismo
  * slot que Dispositivos). Asi, al navegar away y volver, el preview
@@ -70,17 +70,18 @@ export default {
         );
 
         /**
-         * 4 contadores de status agregados desde ``constants.todos``
-         * (patron Dispositivos.js). SIEMPRE devuelven un dict con
-         * los 4 keys, aunque no haya preview (los 4 counters en 0).
-         * Esto permite que la card 1 siempre renderice el mismo
-         * patron visual sin empty-state "Sin prevision".
+         * 4 contadores de status agregados desde ``unified.todos``
+         * (diff unificado de C.18, patron Dispositivos.js). SIEMPRE
+         * devuelve un dict con los 4 keys, aunque no haya preview
+         * (los 4 counters en 0). Esto permite que la card 1 siempre
+         * renderice el mismo patron visual sin empty-state "Sin
+         * prevision".
          */
         const summary = computed(() => {
             if (!hasPreview.value) {
                 return { agregados: 0, renombrados: 0, eliminados: 0, sin_cambios: 0, total: 0 };
             }
-            const all = (store.previewData.constants && store.previewData.constants.todos) || [];
+            const all = (store.previewData.unified && store.previewData.unified.todos) || [];
             const agregados = all.filter((r) => r.status === "agregar").length;
             const renombrados = all.filter((r) => r.status === "renombrar").length;
             const eliminados = all.filter((r) => r.status === "eliminar").length;
@@ -108,20 +109,20 @@ export default {
         });
 
         /**
-         * Filas del diff de PlcUserConstants ``ent_<plc_tag>``.
-         * Directo desde ``store.previewData.constants.todos``.
+         * Filas del diff unificado (C.18). Directo desde
+         * ``store.previewData.unified.todos``.
          *
-         * El FB garantiza el shape ``{plc_tag, plc_tag_tia, plc_tag_excel,
-         * actual, nuevo, status}`` por entry. Sort por ``plc_tag``
-         * ascendente (string stable).
+         * El FB garantiza el shape ``{numero, plc_tag_tia, comment_tia,
+         * plc_tag_excel, comment_excel, status}`` por entry. Sort por
+         * ``numero`` ascendente (numerico estable).
          */
         const activeRows = computed(() => {
             if (!hasPreview.value) return [];
-            const all = (store.previewData.constants && store.previewData.constants.todos) || [];
+            const all = (store.previewData.unified && store.previewData.unified.todos) || [];
             return all.slice().sort((a, b) => {
-                const an = String(a.plc_tag || "");
-                const bn = String(b.plc_tag || "");
-                return an.localeCompare(bn);
+                const an = typeof a.numero === "number" ? a.numero : 0;
+                const bn = typeof b.numero === "number" ? b.numero : 0;
+                return an - bn;
             });
         });
 
@@ -206,7 +207,7 @@ export default {
                  data-testid="entidades-card-info">
                 <p v-if="hasPreview" class="text-xs text-ink-muted"
                    data-testid="entidades-preview-summary">
-                    {{ summary.total }} entidades analizadas —
+                    {{ summary.total }} comentarios analizados —
                     <span class="text-accent">{{ summary.agregados }} a agregar</span> ·
                     <span class="text-amber-700">{{ summary.renombrados }} a renombrar</span> ·
                     <span class="text-red-700">{{ summary.eliminados }} a eliminar</span> ·
@@ -263,8 +264,10 @@ export default {
                         <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
                             <tr>
                                 <th class="px-3 py-2 text-left text-ink-muted w-14">#</th>
-                                <th class="px-3 py-2 text-left text-ink-muted">Actual (TIA)</th>
-                                <th class="px-3 py-2 text-left text-ink-muted">Deseado (Excel)</th>
+                                <th class="px-3 py-2 text-left text-ink-muted">Tag Actual (TIA)</th>
+                                <th class="px-3 py-2 text-left text-ink-muted">Comentario Actual (TIA)</th>
+                                <th class="px-3 py-2 text-left text-ink-muted">Tag Deseado (Excel)</th>
+                                <th class="px-3 py-2 text-left text-ink-muted">Comentario Deseado (Excel)</th>
                                 <th class="px-3 py-2 text-left text-ink-muted">Estado</th>
                             </tr>
                         </thead>
@@ -272,24 +275,38 @@ export default {
                             <tr v-for="(row, idx) in activeRows" :key="idx"
                                 class="border-b border-line"
                                 :class="statusMeta[row.status]?.cls">
-                                <!-- #: value del Excel (nuevo).
+                                <!-- #: numero del Excel (value).
                                      null para status=eliminar. -->
                                 <td class="px-3 py-1.5 font-mono text-xs text-ink-muted">
-                                    {{ row.nuevo === null || row.nuevo === undefined ? '—' : row.nuevo }}
+                                    {{ row.numero === null || row.numero === undefined ? '—' : row.numero }}
                                 </td>
-                                <!-- Actual (TIA): plc_tag del PLC.
+                                <!-- Tag Actual (TIA): nombre del TAG del PLC.
                                      null para status=agregar. -->
                                 <td class="px-3 py-1.5 font-mono text-xs"
                                     :class="row.status === 'eliminar' ? 'text-red-700 line-through' : 'text-ink'">
                                     {{ row.plc_tag_tia === null || row.plc_tag_tia === undefined ? '—' : row.plc_tag_tia }}
                                 </td>
-                                <!-- Deseado (Excel): plc_tag del Excel.
+                                <!-- Comentario Actual (TIA): comment del PLC.
+                                     null para status=agregar. -->
+                                <td class="px-3 py-1.5 text-xs"
+                                    :class="row.status === 'eliminar' ? 'text-red-700 line-through' : 'text-ink'">
+                                    {{ row.comment_tia === null || row.comment_tia === undefined ? '—' : row.comment_tia }}
+                                </td>
+                                <!-- Tag Deseado (Excel): nombre del TAG del Excel.
                                      null para status=eliminar. -->
                                 <td class="px-3 py-1.5 font-mono text-xs"
                                     :class="row.status === 'agregar' ? 'text-accent' :
                                             row.status === 'renombrar' ? 'text-amber-800' :
                                             'text-ink-muted'">
                                     {{ row.plc_tag_excel === null || row.plc_tag_excel === undefined ? '—' : row.plc_tag_excel }}
+                                </td>
+                                <!-- Comentario Deseado (Excel): descripcion.
+                                     null para status=eliminar. -->
+                                <td class="px-3 py-1.5 text-xs"
+                                    :class="row.status === 'agregar' ? 'text-accent' :
+                                            row.status === 'renombrar' ? 'text-amber-800' :
+                                            'text-ink-muted'">
+                                    {{ row.comment_excel === null || row.comment_excel === undefined ? '—' : row.comment_excel }}
                                 </td>
                                 <td class="px-3 py-1.5 text-xs whitespace-nowrap"
                                     :class="row.status === 'agregar' ? 'text-accent font-semibold' :
@@ -300,7 +317,7 @@ export default {
                                 </td>
                             </tr>
                             <tr v-if="activeRows.length === 0">
-                                <td colspan="4" class="px-3 py-6 text-center text-ink-muted italic">
+                                <td colspan="6" class="px-3 py-6 text-center text-ink-muted italic">
                                     Sin cambios pendientes.
                                 </td>
                             </tr>
