@@ -1,25 +1,32 @@
 """Funciones puras de diff entre desired (Excel) y base (TIA) para ENTIDADES.
 
 El feature ENTIDADES sincroniza 1 sola coleccion multi-PLC contra TIA. Aqui
-hay 3 lados del diff, todos filtrados por el PLC activo:
+hay 4 lados del diff, todos filtrados por el PLC activo:
 
   1. **N_MAX_ENTIDAD** (1 PlcUserConstant en ``0_Config_Generales``).
      Re-uso de ``compute_nmax_diff`` del helper de dispositivos
      (``areas/alimentacion/helpers/disp/disp_generate_preview.py``).
 
-  2. **Constantes ``ent_<plc_tag>``** en ``6_Entidades`` (tabla de tags).
-     Diff por ``plc_tag`` (string), value = ``numero``. NO por uid numerico
-     como en dispositivos.
+  2. **Constantes PlcUserConstant** en ``6_Entidades`` (tabla de tags).
+     Diff por ``plc_tag`` (string canonico ``ENT_<X>``), value = ``numero``.
 
   3. **Comentarios ``DB6_ENT.ENT[i]``** (array UDT).
      Diff por ``slot`` (i). Re-uso de ``find_array_slots`` +
      ``read_current_comments`` del helper de SimaticSD.
 
+  4. **Diff unificado** (C.18): cruza (2) + (3) en una sola lista
+     indexada por ``numero`` (regla canonica del feature: el plc_tag es
+     ``ENT_<X>`` con value=X, donde X coincide con el slot del array
+     ``ENT[]``). Es lo que consume la SPA.
+
 Convenciones del feature:
-  - El ``plc_tag`` se deriva como ``f"ent_{entidad.plc_tag}"`` en TIA,
-    donde ``entidad.plc_tag`` es el nombre canonico del Excel.
-  - El ``numero`` es el slot del array ``ENT[]`` + el ``value`` de la
-    PlcUserConstant.
+  - El ``plc_tag`` canonico es ``ENT_<X>`` en MAYUSCULAS, donde ``X`` es
+    el ordinal del Excel (regla confirmada por el operario, oct-2026).
+    Pre-C.10 se asumia prefijo ``ent_`` (minusculas); eso cambio tras
+    ver el XML real de TIA que exporta ``ENT_000``, ``ENT_001``, etc.
+  - El ``numero`` del Excel coincide con el value de la PlcUserConstant
+    TIA y con el slot del array. Si en algun PLC no se cumple la regla,
+    es error del operario.
 
 Restricciones arquitectonicas:
   - Sin estado mutable, sin dataclasses mutables, sin I/O fuera de la
@@ -399,11 +406,113 @@ def compute_summary(
     }
 
 
+# ---------------------------------------------------------------------------
+# API publica: compute_unified_diff_entities
+# ---------------------------------------------------------------------------
+
+
+def compute_unified_diff_entities(
+    diff_entities: DiffEntities,
+    diff_comments: DiffComments,
+) -> list[dict[str, Any]]:
+    """Combina diff de constantes + diff de comentarios en una lista unificada.
+
+    Match key por ``numero`` (regla canonica del feature: el plc_tag es
+    ``ENT_<X>`` con value=X, donde X coincide con el slot del array
+    ``ENT[]`` de ``DB6_ENT``). Cruza los 2 diffs:
+
+      - ``desired[n]`` del lado desired: plc_tag del Excel, comentario del Excel.
+      - ``current[n]`` del lado actual: plc_tag del TIA (si la PlcUserConstant
+        existe con value=n), comentario del slot (si esta inicializado).
+
+    Status por row (4 vectores, mismo set que ``STATUS_META``):
+      - ``agregar``: el row esta en el Excel, no en TIA (o TIA no tiene
+        comentario en el slot).
+      - ``renombrar``: ambos tienen comentario en el slot, son distintos.
+      - ``sin_cambios``: comentarios identicos.
+      - ``eliminar``: el row esta en TIA con comentario, no en el Excel.
+        Se muestra para visibilidad; el sync lo trata como preset-no-borrar.
+
+    Output shape por row (mismo que consumia la SPA via ``constants.todos``
+    antes de C.18, ampliado con los campos de comment):
+
+        numero         : int
+        plc_tag_tia    : str | None
+        comment_tia    : str | None
+        plc_tag_excel  : str
+        comment_excel  : str | None
+        status         : "agregar" | "renombrar" | "sin_cambios" | "eliminar"
+
+    Args:
+        diff_entities: resultado de ``compute_diff_entities`` sobre
+            ``6_Entidades.xml``. ``desired`` y ``base`` son
+            ``{plc_tag: numero}``.
+        diff_comments: resultado de ``compute_comments_diff`` sobre
+            ``DB6_ENT.s7dcl`` + ``.s7res``. ``current`` y ``desired``
+            son ``{slot: comment}`` (slot == numero del Excel).
+
+    Returns:
+        Lista de dicts ordenada por ``numero``. NO incluye filas en TIA
+        sin comment en el slot (no hay nada que representar).
+    """
+    tia_by_numero: dict[int, str] = {
+        numero: plc_tag
+        for plc_tag, numero in diff_entities.base.items()
+    }
+
+    rows: list[dict[str, Any]] = []
+
+    for plc_tag, numero in sorted(
+        diff_entities.desired.items(), key=lambda kv: kv[1]
+    ):
+        comment_tia = diff_comments.current.get(numero)
+        comment_excel = diff_comments.desired.get(numero)
+        plc_tag_tia = tia_by_numero.get(numero)
+
+        if plc_tag_tia is None or comment_tia is None:
+            status = "agregar"
+        elif comment_tia == comment_excel:
+            status = "sin_cambios"
+        else:
+            status = "renombrar"
+
+        rows.append({
+            "numero":        numero,
+            "plc_tag_tia":   plc_tag_tia,
+            "comment_tia":   comment_tia,
+            "plc_tag_excel": plc_tag,
+            "comment_excel": comment_excel,
+            "status":        status,
+        })
+
+    excel_plc_tags = set(diff_entities.desired.keys())
+    for plc_tag in sorted(
+        set(diff_entities.base.keys()) - excel_plc_tags,
+        key=lambda pt: diff_entities.base[pt],
+    ):
+        numero = diff_entities.base[plc_tag]
+        comment_tia = diff_comments.current.get(numero)
+        if comment_tia is None:
+            continue
+        rows.append({
+            "numero":        numero,
+            "plc_tag_tia":   plc_tag,
+            "comment_tia":   comment_tia,
+            "plc_tag_excel": None,
+            "comment_excel": None,
+            "status":        "eliminar",
+        })
+
+    rows.sort(key=lambda r: r["numero"])
+    return rows
+
+
 __all__ = [
     "DiffEntities",
     "DiffComments",
     "compute_diff_entities",
     "compute_nmax_diff_entidades",
     "compute_comments_diff",
+    "compute_unified_diff_entities",
     "compute_summary",
 ]

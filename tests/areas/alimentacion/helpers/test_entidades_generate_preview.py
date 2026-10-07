@@ -23,6 +23,7 @@ from areas.alimentacion.helpers.entidades.entidades_generate_preview import (
     compute_comments_diff,
     compute_diff_entities,
     compute_summary,
+    compute_unified_diff_entities,
 )
 
 
@@ -375,6 +376,138 @@ def test_compute_comments_diff_missing_xml() -> None:
     assert diff.missing_xml is True
     assert diff.slots_tia == set()
     assert diff.current == {}
+
+
+# ---------------------------------------------------------------------------
+# Tests de compute_unified_diff_entities
+# ---------------------------------------------------------------------------
+
+
+def test_compute_unified_diff_match_1_1_sin_cambios() -> None:
+    """Match 1:1 entre Excel y TIA con comentarios identicos: todos ``sin_cambios``."""
+    diff_ent = DiffEntities(
+        table_name="6_Entidades",
+        base={"ENT_000": 0, "ENT_001": 1, "ENT_002": 2},
+        desired={"ENT_000": 0, "ENT_001": 1, "ENT_002": 2},
+        added=set(), removed=set(), renamed={},
+    )
+    diff_com = DiffComments(
+        db_name="DB6_ENT",
+        array_name="ENT",
+        slots_tia={0, 1, 2},
+        current={0: "a", 1: "b", 2: "c"},
+        desired={0: "a", 1: "b", 2: "c"},
+        added=[], removed=[], updated=[], unchanged=[0, 1, 2],
+    )
+
+    rows = compute_unified_diff_entities(diff_ent, diff_com)
+
+    assert [r["numero"] for r in rows] == [0, 1, 2]
+    assert all(r["status"] == "sin_cambios" for r in rows)
+    assert all(r["plc_tag_tia"] == r["plc_tag_excel"] for r in rows)
+    assert all(r["comment_tia"] == r["comment_excel"] for r in rows)
+
+
+def test_compute_unified_diff_agregar() -> None:
+    """Slot en Excel sin PlcUserConstant en TIA: ``agregar``."""
+    diff_ent = DiffEntities(
+        table_name="6_Entidades",
+        base={"ENT_000": 0},  # solo ENT_000 existe en TIA
+        desired={"ENT_000": 0, "ENT_005": 5, "ENT_010": 10},  # Excel tiene 3
+        added={"ENT_005", "ENT_010"}, removed=set(), renamed={},
+    )
+    diff_com = DiffComments(
+        db_name="DB6_ENT",
+        array_name="ENT",
+        slots_tia={0},
+        current={0: "a"},
+        desired={0: "a", 5: "x", 10: "y"},
+        added=[5, 10], removed=[], updated=[], unchanged=[0],
+    )
+
+    rows = compute_unified_diff_entities(diff_ent, diff_com)
+
+    by_num = {r["numero"]: r for r in rows}
+    assert by_num[0]["status"] == "sin_cambios"
+    assert by_num[5]["status"] == "agregar"
+    assert by_num[5]["plc_tag_tia"] is None
+    assert by_num[5]["comment_tia"] is None
+    assert by_num[10]["status"] == "agregar"
+
+
+def test_compute_unified_diff_renombrar() -> None:
+    """Comentario distinto entre TIA y Excel: ``renombrar``."""
+    diff_ent = DiffEntities(
+        table_name="6_Entidades",
+        base={"ENT_000": 0},
+        desired={"ENT_000": 0},
+        added=set(), removed=set(), renamed={},
+    )
+    diff_com = DiffComments(
+        db_name="DB6_ENT",
+        array_name="ENT",
+        slots_tia={0},
+        current={0: "comentario viejo"},
+        desired={0: "comentario nuevo"},
+        added=[], removed=[], updated=[0], unchanged=[],
+    )
+
+    rows = compute_unified_diff_entities(diff_ent, diff_com)
+
+    assert len(rows) == 1
+    assert rows[0]["status"] == "renombrar"
+    assert rows[0]["comment_tia"] == "comentario viejo"
+    assert rows[0]["comment_excel"] == "comentario nuevo"
+
+
+def test_compute_unified_diff_eliminar() -> None:
+    """Slot en TIA con comment, no en Excel: ``eliminar`` (visibilidad, no sync)."""
+    diff_ent = DiffEntities(
+        table_name="6_Entidades",
+        base={"ENT_000": 0, "ENT_001": 1},  # TIA tiene 2
+        desired={"ENT_000": 0},  # Excel solo tiene 1
+        added=set(), removed={"ENT_001"}, renamed={},
+    )
+    diff_com = DiffComments(
+        db_name="DB6_ENT",
+        array_name="ENT",
+        slots_tia={0, 1},
+        current={0: "a", 1: "b"},
+        desired={0: "a"},
+        added=[], removed=[], updated=[], unchanged=[0],
+    )
+
+    rows = compute_unified_diff_entities(diff_ent, diff_com)
+
+    by_num = {r["numero"]: r for r in rows}
+    assert by_num[0]["status"] == "sin_cambios"
+    assert by_num[1]["status"] == "eliminar"
+    assert by_num[1]["plc_tag_excel"] is None
+    assert by_num[1]["comment_excel"] is None
+    assert by_num[1]["plc_tag_tia"] == "ENT_001"
+    assert by_num[1]["comment_tia"] == "b"
+
+
+def test_compute_unified_diff_eliminar_sin_comment_no_aparece() -> None:
+    """Slot en TIA sin comment no se muestra (no hay nada que representar)."""
+    diff_ent = DiffEntities(
+        table_name="6_Entidades",
+        base={"ENT_000": 0, "ENT_001": 1},
+        desired={"ENT_000": 0},
+        added=set(), removed={"ENT_001"}, renamed={},
+    )
+    diff_com = DiffComments(
+        db_name="DB6_ENT",
+        array_name="ENT",
+        slots_tia={0},  # solo slot 0 tiene comment, slot 1 sin comment
+        current={0: "a"},
+        desired={0: "a"},
+        added=[], removed=[], updated=[], unchanged=[0],
+    )
+
+    rows = compute_unified_diff_entities(diff_ent, diff_com)
+
+    assert [r["numero"] for r in rows] == [0]
 
 
 # ---------------------------------------------------------------------------
