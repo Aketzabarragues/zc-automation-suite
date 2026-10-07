@@ -93,6 +93,14 @@ def build() -> "AreaFrontendManifest":
                 "proc":      "Procesos",
                 "entidades": "Entidades",
             },
+            # Override del sidebar-icon por key. El shell define
+            # ``DEFAULT_ICONS`` en ``ShellSidebar.js`` (landing/plc/
+            # def/disp/proc/cache). Aqui se anade el icono del
+            # feature ENTIDADES (gemela top-level de Dispositivos y
+            # Procesos en el sidebar del shell SPA).
+            "navIcons": {
+                "entidades": "🗂️",
+            },
         },
         "loaders": {
             "AreaLanding":             f"{_STATIC_PREFIX}/components/AreaLanding.js",
@@ -105,8 +113,9 @@ def build() -> "AreaFrontendManifest":
             # se monta dentro del tab "Procesos" de Definicion.
             "Procesos":                f"{_STATIC_PREFIX}/components/Procesos.js",
             # Sub-vista top-level "Entidades" (gemela de Dispositivos
-            # y Procesos en el sidebar). En B.0 solo monta
-            # ``<entidades-panel />``; las cards de accion iran en D.
+            # y Procesos en el sidebar). Vista completa estilo
+            # Dispositivos.js: card info vacia + tabla filtrada
+            # por PLC + boton "Aplicar Cambios en TIA Portal".
             "Entidades":              f"{_STATIC_PREFIX}/components/Entidades.js",
             # ``ProcesosSyncView``: renderizado INLINE dentro de
             # ``Procesos.js`` (no como sub-vista top-level). El shell

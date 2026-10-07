@@ -199,7 +199,7 @@ export default {
                     :disabled="!plcName || isWorking"
                     data-testid="entidades-apply-btn"
                     class="mt-3 w-full py-3 text-accent font-semibold text-sm bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
-                    ✅ Aplicar en TIA Portal
+                    ✅ Aplicar Cambios en TIA Portal
                 </button>
             </div>
         </section>

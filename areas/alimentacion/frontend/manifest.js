@@ -32,6 +32,7 @@
  *       landing: "AreaLanding",
  *       views:    { "landing": "AreaLanding", "def": "...", "disp": "...", "proc": "..." },
  *       viewLabels: { "landing": "Inicio", "def": "...", "disp": "...", "proc": "..." },
+ *       navIcons:    { "<key>": "<emoji>" },
  *     },
  *     loaders: { "<ComponentName>": () => import("./components/<File>.js") },
  *   }
@@ -54,8 +55,9 @@ const _comps = {
     // ``DefinicionProgramacion``. Ambas coexisten en el área.
     "Procesos":                () => import("./components/Procesos.js"),
     // Sub-vista top-level "Entidades" (gemela de Dispositivos y
-    // Procesos en el sidebar). En B.0 solo monta ``<entidades-panel>``;
-    // las cards de accion iran en D.
+    // Procesos en el sidebar). Vista completa estilo Dispositivos.js:
+    // card info vacia + tabla filtrada por PLC + boton "Aplicar
+    // Cambios en TIA Portal".
     "Entidades":              () => import("./components/Entidades.js"),
     // Sub-vista "Sync comentarios de DB" (preview + diff + apply).
     // Accesible desde la card de Procesos.js (key: "proc_sync").
@@ -118,6 +120,14 @@ export function build() {
                 "disp":      "Dispositivos",
                 "proc":      "Procesos",
                 "entidades": "Entidades",
+            },
+            // Override del sidebar-icon por key. El shell define
+            // ``DEFAULT_ICONS`` en ``ShellSidebar.js`` (landing/plc/
+            // def/disp/proc/cache). Aqui se anade el icono del
+            // feature ENTIDADES (gemela top-level de Dispositivos y
+            // Procesos en el sidebar del shell SPA).
+            navIcons: {
+                "entidades": "🗂️",
             },
         },
         loaders: _comps,
