@@ -204,7 +204,7 @@ export default {
                  (en Disp tampoco esta). ★ -->
             <div class="mb-4 bg-surface-raised border border-line rounded p-4 flex justify-between items-center"
                  data-testid="entidades-card-info">
-                <p class="text-xs text-ink-muted"
+                <p v-if="hasPreview" class="text-xs text-ink-muted"
                    data-testid="entidades-preview-summary">
                     {{ summary.total }} entidades analizadas —
                     <span class="text-accent">{{ summary.agregados }} a agregar</span> ·
@@ -212,6 +212,7 @@ export default {
                     <span class="text-red-700">{{ summary.eliminados }} a eliminar</span> ·
                     <span class="text-ink-muted">{{ summary.sin_cambios }} sin cambios</span>
                 </p>
+                <span v-else></span>
                 <button @click="handlePreview"
                     :disabled="!plcName || isWorking"
                     data-testid="entidades-preview-btn"
