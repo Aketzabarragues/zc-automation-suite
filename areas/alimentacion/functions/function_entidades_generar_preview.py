@@ -625,37 +625,65 @@ def _step_summary(ctx: Any, step_nombre: str) -> str:
 
 
 def _build_constants_todos(diff_ent: Any) -> list[dict[str, Any]]:
-    """Lista unificada de entries de la tabla de constantes para la SPA."""
+    """Lista unificada de entries de la tabla de constantes para la SPA.
+
+    Shape por entry (post C.16, oct-2026):
+        plc_tag       : str. SIEMPRE la key del match (mismo nombre
+                        en TIA y Excel cuando la entry matchea).
+        plc_tag_tia   : str o None. plc_tag que tiene TIA (None si la
+                        entry NO existe en TIA, p.ej. status=agregar).
+        plc_tag_excel : str o None. plc_tag que tiene Excel (None si la
+                        entry NO existe en Excel, p.ej. status=eliminar).
+        actual        : int o None. value (numero) en TIA, None si no existe.
+        nuevo         : int o None. value (numero) en Excel, None si no existe.
+        status        : "agregar" | "renombrar" | "eliminar" | "sin_cambios".
+
+    Los nuevos campos ``plc_tag_tia`` y ``plc_tag_excel`` son aditivos
+    respecto a la version anterior (C.5..C.15). Sirven para que la SPA
+    pueda renderizar 2 columnas independientes (TAG que tiene TIA y TAG
+    que tiene Excel), una por lado, en lugar de mezclar ambas en
+    una sola columna ``plc_tag`` redundante.
+    """
     rows: list[dict[str, Any]] = []
     for plc_tag, numero in diff_ent.base.items():
+        # plc_tag SIEMPRE viene de base.keys() aqui -> existe en TIA.
         if plc_tag in diff_ent.renamed:
             old, new = diff_ent.renamed[plc_tag]
             rows.append({
-                "plc_tag": plc_tag,
-                "actual":  old,
-                "nuevo":   new,
-                "status":  "renombrar",
+                "plc_tag":       plc_tag,
+                "plc_tag_tia":   plc_tag,
+                "plc_tag_excel": plc_tag,
+                "actual":        old,
+                "nuevo":         new,
+                "status":        "renombrar",
             })
         elif plc_tag in diff_ent.removed:
             rows.append({
-                "plc_tag": plc_tag,
-                "actual":  numero,
-                "nuevo":   None,
-                "status":  "eliminar",
+                "plc_tag":       plc_tag,
+                "plc_tag_tia":   plc_tag,
+                "plc_tag_excel": None,
+                "actual":        numero,
+                "nuevo":         None,
+                "status":        "eliminar",
             })
         elif plc_tag in diff_ent.desired:
             rows.append({
-                "plc_tag": plc_tag,
-                "actual":  numero,
-                "nuevo":   diff_ent.desired[plc_tag],
-                "status":  "sin_cambios",
+                "plc_tag":       plc_tag,
+                "plc_tag_tia":   plc_tag,
+                "plc_tag_excel": plc_tag,
+                "actual":        numero,
+                "nuevo":         diff_ent.desired[plc_tag],
+                "status":        "sin_cambios",
             })
     for plc_tag in diff_ent.added:
+        # plc_tag SOLO existe en Excel (added = desired - base).
         rows.append({
-            "plc_tag": plc_tag,
-            "actual":  None,
-            "nuevo":   diff_ent.desired[plc_tag],
-            "status":  "agregar",
+            "plc_tag":       plc_tag,
+            "plc_tag_tia":   None,
+            "plc_tag_excel": plc_tag,
+            "actual":        None,
+            "nuevo":         diff_ent.desired[plc_tag],
+            "status":        "agregar",
         })
     return rows
 

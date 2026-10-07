@@ -5,20 +5,30 @@
  * SPA. Se muestra cuando ``store.currentView === 'entidades'``.
  *
  * Estructura (2 cards, mismo patron que Dispositivos.js):
- *   1. Card "info": summary del ultimo preview (counts de constants)
- *      + boton "🔍 Generar Prevision".
+ *   1. Card "info": summary del ultimo preview con 4 contadores
+ *      coloreados (agregar / renombrar / eliminar / sin_cambios)
+ *      + boton "🔍 Generar Prevision". SIEMPRE se renderiza: si no
+ *      hay preview, los 4 contadores se quedan en 0 (gemelo Disp).
  *   2. Card "tabla": sub-card de N_MAX_ENTIDAD arriba (estilo sub-cards
- *      de Dispositivos) + tabla unica con 4 columnas (# / Actual (TIA)
- *      / Deseado (Excel) / Estado) + boton "✅ Aplicar Cambios en TIA
- *      Portal" abajo.
+ *      de Dispositivos) + tabla unica con 4 columnas
+ *      (# / Actual (TIA) / Deseado (Excel) / Estado) + boton
+ *      "✅ Aplicar Cambios en TIA Portal" abajo.
+ *
+ * Columnas de la tabla (orden post C.16, oct-2026):
+ *   #             -> row.nuevo (value del Excel). null si eliminar.
+ *   Actual (TIA)  -> row.plc_tag_tia (TAG del PLC). null si agregar.
+ *   Deseado (Exc) -> row.plc_tag_excel (TAG del Excel). null si eliminar.
+ *   Estado        -> status (agregar/renombrar/eliminar/sin_cambios).
  *
  * Estado del preview: lee/escribe directo ``store.previewData`` (mismo
  * slot que Dispositivos). Asi, al navegar away y volver, el preview
  * se mantiene (consistente con Dispositivos).
  *
  * IMPORTANTE sobre templates Vue: el compilador en runtime de
- * ``vue.esm-browser.prod.js`` NO acepta string literals multi-linea
- * dentro de arrays de ``:class``. Cada literal va en una sola linea.
+ * ``vue.esm-browser.prod.js`` NO acepta CUALQUIER baktill (doble o
+ * simple) dentro de ``template: `...` `` (ver C.13 + C.15). Cero
+ * baktilts dentro del template. Para "comillas tipograficas" usar
+ * comillas rectas o entidades HTML.
  */
 import { computed, ref } from "/js/vendor/vue.esm-browser.prod.js";
 import { store, resetPlcState } from "/js/store.js";
@@ -60,6 +70,26 @@ export default {
         );
 
         /**
+         * 4 contadores de status agregados desde ``constants.todos``
+         * (patron Dispositivos.js). SIEMPRE devuelven un dict con
+         * los 4 keys, aunque no haya preview (los 4 counters en 0).
+         * Esto permite que la card 1 siempre renderice el mismo
+         * patron visual sin empty-state "Sin prevision".
+         */
+        const summary = computed(() => {
+            if (!hasPreview.value) {
+                return { agregados: 0, renombrados: 0, eliminados: 0, sin_cambios: 0, total: 0 };
+            }
+            const all = (store.previewData.constants && store.previewData.constants.todos) || [];
+            const agregados = all.filter((r) => r.status === "agregar").length;
+            const renombrados = all.filter((r) => r.status === "renombrar").length;
+            const eliminados = all.filter((r) => r.status === "eliminar").length;
+            const sin_cambios = all.filter((r) => r.status === "sin_cambios").length;
+            const total = all.length;
+            return { agregados, renombrados, eliminados, sin_cambios, total };
+        });
+
+        /**
          * N_MAX_ENTIDAD como sub-card (estilo sub-cards de
          * Dispositivos). Si no hay preview o el XML no existia,
          * lista vacia.
@@ -79,12 +109,11 @@ export default {
 
         /**
          * Filas del diff de PlcUserConstants ``ent_<plc_tag>``.
-         * Directo desde ``store.previewData.constants.todos``
-         * (mismo patron que ``Dispositivos.js`` consume
-         * ``store.previewData.todos``).
+         * Directo desde ``store.previewData.constants.todos``.
          *
-         * El FB garantiza el shape ``{plc_tag, actual, nuevo, status}``
-         * por entry. Sort por ``plc_tag`` ascendente (string stable).
+         * El FB garantiza el shape ``{plc_tag, plc_tag_tia, plc_tag_excel,
+         * actual, nuevo, status}`` por entry. Sort por ``plc_tag``
+         * ascendente (string stable).
          */
         const activeRows = computed(() => {
             if (!hasPreview.value) return [];
@@ -97,32 +126,15 @@ export default {
         });
 
         /**
-         * Summary legible del ultimo preview para la cabecera. Si no
-         * hay preview o el preview fallo, devuelve "Sin prevision"
-         * (mismo patron que ``Dispositivos.js``).
-         */
-        const previewSummary = computed(() => {
-            const p = store.previewData;
-            if (!p || !p.precondiciones_ok) return "Sin prevision";
-            const s = p.summary || {};
-            return (
-                `${s.constants_agregados || 0} const adds · `
-                + `${s.constants_renombrados || 0} const renames · `
-                + `${s.constants_eliminados || 0} const removes`
-            );
-        });
-
-        /**
          * Total de cambios pendientes (constantes + NMAX), para el
          * badge del boton "Aplicar Cambios".
          */
         const totalChanges = computed(() => {
             if (!hasPreview.value) return 0;
-            const s = store.previewData.summary || {};
             return (
-                (s.constants_agregados || 0)
-                + (s.constants_eliminados || 0)
-                + (s.constants_renombrados || 0)
+                summary.value.agregados
+                + summary.value.eliminados
+                + summary.value.renombrados
                 + (nmaxSummary.value.actualizar || 0)
             );
         });
@@ -170,11 +182,11 @@ export default {
             plcName,
             isWorking,
             hasPreview,
+            summary,
             nmaxCards,
             nmaxLabel: nmaxLabelEntidades,
             nmaxSummary,
             activeRows,
-            previewSummary,
             totalChanges,
             statusMeta: STATUS_META,
             handlePreview,
@@ -184,14 +196,21 @@ export default {
     template: /* html */ `
         <section class="flex-1 flex flex-col overflow-hidden">
 
-            <!-- ★ Card "info" (estilo Dispositivos.js): summary del
-                 ultimo preview (o vacio) + boton "🔍 Generar
-                 Prevision". ★ -->
+            <!-- ★ Card "info" (estilo Dispositivos.js): SIEMPRE se
+                 renderiza con los 4 contadores (en 0 si no hay
+                 preview). Colores por segmento (agregar=accent,
+                 renombrar=amber, eliminar=red, sin_cambios=ink-muted),
+                 mismo lenguaje que Disp. No hay literal "Sin prevision"
+                 (en Disp tampoco esta). ★ -->
             <div class="mb-4 bg-surface-raised border border-line rounded p-4 flex justify-between items-center"
                  data-testid="entidades-card-info">
                 <p class="text-xs text-ink-muted"
                    data-testid="entidades-preview-summary">
-                    {{ previewSummary }}
+                    {{ summary.total }} entidades analizadas —
+                    <span class="text-accent">{{ summary.agregados }} a agregar</span> ·
+                    <span class="text-amber-700">{{ summary.renombrados }} a renombrar</span> ·
+                    <span class="text-red-700">{{ summary.eliminados }} a eliminar</span> ·
+                    <span class="text-ink-muted">{{ summary.sin_cambios }} sin cambios</span>
                 </p>
                 <button @click="handlePreview"
                     :disabled="!plcName || isWorking"
@@ -242,7 +261,7 @@ export default {
                     <table v-if="hasPreview" class="w-full text-xs" data-testid="entidades-diff-table">
                         <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
                             <tr>
-                                <th class="px-3 py-2 text-left text-ink-muted w-40">PLC Tag</th>
+                                <th class="px-3 py-2 text-left text-ink-muted w-14">#</th>
                                 <th class="px-3 py-2 text-left text-ink-muted">Actual (TIA)</th>
                                 <th class="px-3 py-2 text-left text-ink-muted">Deseado (Excel)</th>
                                 <th class="px-3 py-2 text-left text-ink-muted">Estado</th>
@@ -252,18 +271,24 @@ export default {
                             <tr v-for="(row, idx) in activeRows" :key="idx"
                                 class="border-b border-line"
                                 :class="statusMeta[row.status]?.cls">
-                                <td class="px-3 py-1.5 font-mono text-xs text-ink">
-                                    {{ row.plc_tag }}
+                                <!-- #: value del Excel (nuevo).
+                                     null para status=eliminar. -->
+                                <td class="px-3 py-1.5 font-mono text-xs text-ink-muted">
+                                    {{ row.nuevo === null || row.nuevo === undefined ? '—' : row.nuevo }}
                                 </td>
+                                <!-- Actual (TIA): plc_tag del PLC.
+                                     null para status=agregar. -->
                                 <td class="px-3 py-1.5 font-mono text-xs"
                                     :class="row.status === 'eliminar' ? 'text-red-700 line-through' : 'text-ink'">
-                                    {{ row.actual === null || row.actual === undefined ? '—' : row.actual }}
+                                    {{ row.plc_tag_tia === null || row.plc_tag_tia === undefined ? '—' : row.plc_tag_tia }}
                                 </td>
+                                <!-- Deseado (Excel): plc_tag del Excel.
+                                     null para status=eliminar. -->
                                 <td class="px-3 py-1.5 font-mono text-xs"
                                     :class="row.status === 'agregar' ? 'text-accent' :
                                             row.status === 'renombrar' ? 'text-amber-800' :
                                             'text-ink-muted'">
-                                    {{ row.nuevo === null || row.nuevo === undefined ? '—' : row.nuevo }}
+                                    {{ row.plc_tag_excel === null || row.plc_tag_excel === undefined ? '—' : row.plc_tag_excel }}
                                 </td>
                                 <td class="px-3 py-1.5 text-xs whitespace-nowrap"
                                     :class="row.status === 'agregar' ? 'text-accent font-semibold' :
