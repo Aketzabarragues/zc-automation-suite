@@ -63,6 +63,9 @@ from areas.alimentacion.frontend.proc_sync_router import (
 from areas.alimentacion.frontend.entidades_router import (
     build_routers as build_entidades_routers,
 )
+from areas.alimentacion.frontend.entidades_preview_router import (
+    build_routers as build_entidades_preview_routers,
+)
 from areas.alimentacion.frontend.manifest import build as build_manifest
 from areas.alimentacion.helpers.config.config_defaults import (
     install as install_defaults,
@@ -90,6 +93,7 @@ def _build_all_routers(app) -> None:
     build_proc_plantillas_routers(app)
     build_proc_process_crear_routers(app)
     build_proc_sync_routers(app)
+    build_entidades_preview_routers(app)
     build_entidades_routers(app)
 
 
@@ -156,6 +160,9 @@ def register(
     )
     from areas.alimentacion.functions.function_proc_crear_sincronizar import (
         FunctionProcCrearSincronizar,
+    )
+    from areas.alimentacion.functions.function_entidades_generar_preview import (
+        FunctionEntidadesGenerarPreview,
     )
     from core.composition.plc_function_template import FunctionTemplate
 
@@ -264,6 +271,20 @@ def register(
             config_manager=config_manager,
             tia_client=tia_client,
             build_cache=build_cache,
+        ),
+    )
+
+    # FB con I/O contra TIA: preview de entidades vs PLC (export bulk
+    # + 3 dispatches al worker OT: 2 export_plc_tags_xml + 1 export_block).
+    # Reemplaza el stub ``entidades_router.preview`` (commit B.0). STEP_TIMEOUT_S=60s.
+    engine.register_fb(
+        "entidades_generar_preview",
+        FunctionEntidadesGenerarPreview(
+            nombre="entidades_generar_preview",
+            config_manager=config_manager,
+            tia_client=tia_client,
+            build_cache=build_cache,
+            app_state=app_state,
         ),
     )
 
