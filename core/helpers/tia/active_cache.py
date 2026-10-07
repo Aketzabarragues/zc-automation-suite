@@ -11,6 +11,8 @@ Helpers publicos:
   - ``get_devices(state, hw)``: lista de devices del cache activo
     para el ``hw_type`` dado.
   - ``get_nmax(state)``: dict ``{N_Max_<X>: value}`` del PLC activo.
+  - ``get_nmax_entidades(state)``: dict ``{"N_MAX_ENTIDAD": value}``
+    del PLC activo (la dimension del array ``ENT`` de ``DB6_ENT``).
   - ``get_entidades(state, plc_name)``: lista de entidades del cache
     activo filtradas por plc_name (la lista plana del cache activo
     incluye entidades de TODOS los PLCs).
@@ -79,6 +81,42 @@ def get_nmax(state: Any) -> dict[str, int]:
     return merged
 
 
+def get_nmax_entidades(state: Any) -> dict[str, int]:
+    """Dict ``{"N_MAX_ENTIDAD": value}`` del PLC activo.
+
+    La dimension del array ``ENT`` de ``DB6_ENT`` vive en el campo
+    ``n_max_entidades`` del ``DataDimensionesPLC`` (separado del
+    dict ``extras`` porque su entrada en ``n_max_catalog`` tiene
+    ``hw_type=""``). Por eso ``get_nmax`` NO lo expone: hay un helper
+    dedicado para el FB de entidades.
+
+    Si el cache activo tiene exactamente un ``DataDimensionesPLC``
+    (caso normal con ``selected_plc``), devuelve
+    ``{"N_MAX_ENTIDAD": por_plc[0].n_max_entidades}``. Si tiene
+    varios (>1 PLC sin filtro), toma el primero (mismo criterio que
+    ``get_nmax``). Si ``por_plc`` esta vacio, devuelve ``{}`` (el
+    PLC activo no tiene entrada en ``Tabla_Dimensiones``: el sync
+    de entidades no podra comparar contra el Excel, solo contra
+    TIA).
+
+    Raises:
+        RuntimeError: si ``state.excel_cache_active`` es ``None``.
+    """
+    cache = state.excel_cache_active
+    if cache is None:
+        raise RuntimeError(
+            "excel_cache_active es None. Cargue primero el Excel con "
+            "POST /api/v1/excel/upload."
+        )
+    n_max = getattr(cache, "n_max", None)
+    if n_max is None:
+        return {}
+    por_plc = getattr(n_max, "por_plc", ())
+    if not por_plc:
+        return {}
+    return {"N_MAX_ENTIDAD": int(por_plc[0].n_max_entidades)}
+
+
 def get_entidades(state: Any, plc_name: str) -> list:
     """Entidades del PLC activo filtradas por ``plc_name``.
 
@@ -109,4 +147,9 @@ def get_entidades(state: Any, plc_name: str) -> list:
     return [e for e in all_entidades if getattr(e, "plc_name", "") == plc_name]
 
 
-__all__ = ["get_devices", "get_nmax", "get_entidades"]
+__all__ = [
+    "get_devices",
+    "get_nmax",
+    "get_nmax_entidades",
+    "get_entidades",
+]
