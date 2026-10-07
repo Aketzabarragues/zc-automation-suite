@@ -5,20 +5,16 @@
  * SPA. Se muestra cuando ``store.currentView === 'entidades'``.
  *
  * Estructura (2 cards, mismo patron que Dispositivos.js):
- *   1. Card "info": summary del ultimo preview (counts de constants +
- *      comments) + boton "🔍 Generar Prevision".
- *   2. Card "tabla": N_MAX_ENTIDAD (sub-card arriba) + strip de 2 tabs
- *      ("Constantes" | "Comentarios") + tabla con 4 columnas
- *      (# / Actual (TIA) / Deseado (Excel) / Estado) + boton
- *      "✅ Aplicar Cambios en TIA Portal" abajo.
+ *   1. Card "info": summary del ultimo preview (counts de constants)
+ *      + boton "🔍 Generar Prevision".
+ *   2. Card "tabla": sub-card de N_MAX_ENTIDAD arriba (estilo sub-cards
+ *      de Dispositivos) + tabla unica con 4 columnas (# / Actual (TIA)
+ *      / Deseado (Excel) / Estado) + boton "✅ Aplicar Cambios en TIA
+ *      Portal" abajo.
  *
- * El handler ``handlePreview`` consume ``/api/v1/entidades/preview``
- * que dispara el FB ``entidades_generar_preview``. El ``result`` se
- * guarda en ``lastPreview`` (ref local + ``store.entidadesLastPreview``)
- * y se renderiza en la card 2.
- *
- * El handler ``handleApply`` consume ``/api/v1/entidades/sincronizar``
- * (sigue siendo stub en commit D).
+ * Estado del preview: lee/escribe directo ``store.previewData`` (mismo
+ * slot que Dispositivos). Asi, al navegar away y volver, el preview
+ * se mantiene (consistente con Dispositivos).
  *
  * IMPORTANTE sobre templates Vue: el compilador en runtime de
  * ``vue.esm-browser.prod.js`` NO acepta string literals multi-linea
@@ -55,137 +51,78 @@ export default {
         const isWorking = ref(false);
 
         /**
-         * Resultado del ultimo ``/api/v1/entidades/preview``.
-         * ``null`` o dict con la shape completa del FB. La card 1 lo
-         * muestra como summary (counts) y la card 2 lo renderiza como
-         * tabla de diff.
-         */
-        const lastPreview = ref(null);
-
-        /**
-         * True si hay un preview con precondiciones OK. Equivalente a
-         * ``hasPreview`` de Dispositivos.js pero particularizado para
-         * el shape del FB de entidades (``precondiciones_ok`` en lugar
-         * de chequear ``store.previewData.todos``).
+         * True si hay preview con precondiciones OK. Mismo patron
+         * que Dispositivos.js pero particularizado para el shape
+         * del FB de entidades (``precondiciones_ok``).
          */
         const hasPreview = computed(
-            () => !!lastPreview.value && lastPreview.value.precondiciones_ok === true
+            () => !!store.previewData && store.previewData.precondiciones_ok === true
         );
 
         /**
-         * N_MAX_ENTIDAD como sub-card (estilo sub-cards de Dispositivos).
-         * Si no hay preview o el XML no existia, lista vacia (la
-         * sub-card simplemente no se renderiza).
+         * N_MAX_ENTIDAD como sub-card (estilo sub-cards de
+         * Dispositivos). Si no hay preview o el XML no existia,
+         * lista vacia.
          */
         const nmaxCards = computed(() => {
             if (!hasPreview.value) return [];
-            return (lastPreview.value.nmax && lastPreview.value.nmax.todos) || [];
+            return (store.previewData.nmax && store.previewData.nmax.todos) || [];
         });
 
         const nmaxSummary = computed(() => {
             if (!hasPreview.value) {
                 return { actualizar: 0, sin_cambios: 0, total: 0 };
             }
-            return (lastPreview.value.nmax && lastPreview.value.nmax.summary)
+            return (store.previewData.nmax && store.previewData.nmax.summary)
                 || { actualizar: 0, sin_cambios: 0, total: 0 };
         });
 
         /**
-         * Strip de 2 tabs: "Constantes" (tabla de PlcUserConstants
-         * ``ent_<plc_tag>`` en ``6_Entidades``) y "Comentarios"
-         * (tabla de comentarios del array ``ENT[]`` de ``DB6_ENT``).
-         */
-        const tabs = computed(() => [
-            { key: "constantes",  label: "Constantes" },
-            { key: "comentarios", label: "Comentarios" },
-        ]);
-
-        const activeTab = ref("constantes");
-
-        /**
-         * Filas de la tab activa:
-         *   - "constantes"  -> ``constants.todos`` del FB
-         *     (``{plc_tag, actual, nuevo, status}``).
-         *   - "comentarios" -> ``arrays.ENT`` del FB
-         *     (``{slot, actual, nuevo, status}``).
+         * Filas del diff de PlcUserConstants ``ent_<plc_tag>``.
+         * Directo desde ``store.previewData.constants.todos``
+         * (mismo patron que ``Dispositivos.js`` consume
+         * ``store.previewData.todos``).
          *
-         * Las constantes se ordenan por ``plc_tag`` ascendente
-         * (string compare estable). Los comentarios por ``slot``
-         * numerico ascendente.
+         * El FB garantiza el shape ``{plc_tag, actual, nuevo, status}``
+         * por entry. Sort por ``plc_tag`` ascendente (string stable).
          */
         const activeRows = computed(() => {
             if (!hasPreview.value) return [];
-            const p = lastPreview.value;
-            if (activeTab.value === "constantes") {
-                const todos = (p.constants && p.constants.todos) || [];
-                return todos.slice().sort((a, b) => {
-                    const an = String(a.plc_tag || "");
-                    const bn = String(b.plc_tag || "");
-                    return an.localeCompare(bn);
-                });
-            }
-            if (activeTab.value === "comentarios") {
-                const arr = (p.arrays && p.arrays.ENT) || [];
-                return arr.slice().sort((a, b) => {
-                    const an = typeof a.slot === "number" ? a.slot : 0;
-                    const bn = typeof b.slot === "number" ? b.slot : 0;
-                    return an - bn;
-                });
-            }
-            return [];
+            const all = (store.previewData.constants && store.previewData.constants.todos) || [];
+            return all.slice().sort((a, b) => {
+                const an = String(a.plc_tag || "");
+                const bn = String(b.plc_tag || "");
+                return an.localeCompare(bn);
+            });
         });
 
         /**
-         * Contadores por tab para los badges del strip.
-         * Suma solo estados "relevantes" (agregar/renombrar/eliminar)
-         * para que el badge indique volumen de cambios pendientes.
-         */
-        const tabCounts = computed(() => {
-            if (!hasPreview.value) return { constantes: 0, comentarios: 0 };
-            const p = lastPreview.value;
-            const constants = (p.constants && p.constants.todos) || [];
-            const arraysEnt = (p.arrays && p.arrays.ENT) || [];
-            const countChanges = (rows) => rows.filter(
-                (r) => r.status === "agregar"
-                    || r.status === "renombrar"
-                    || r.status === "eliminar"
-            ).length;
-            return {
-                constantes:  countChanges(constants),
-                comentarios: countChanges(arraysEnt),
-            };
-        });
-
-        /**
-         * Summary legible del ultimo preview para la cabecera.
-         * Si no hay preview o el preview fallo, devuelve
-         * "Sin prevision" (mismo patron que ``Dispositivos.js``).
+         * Summary legible del ultimo preview para la cabecera. Si no
+         * hay preview o el preview fallo, devuelve "Sin prevision"
+         * (mismo patron que ``Dispositivos.js``).
          */
         const previewSummary = computed(() => {
-            const p = lastPreview.value;
+            const p = store.previewData;
             if (!p || !p.precondiciones_ok) return "Sin prevision";
             const s = p.summary || {};
             return (
                 `${s.constants_agregados || 0} const adds · `
-                + `${s.comments_added || 0} comments adds · `
-                + `${s.comments_updated || 0} comments updates`
+                + `${s.constants_renombrados || 0} const renames · `
+                + `${s.constants_eliminados || 0} const removes`
             );
         });
 
         /**
-         * Total de cambios pendientes (todos los vectores), para el
-         * badge del boton "Aplicar Cambios". Es la suma de constants
-         * adds/renames/removes + comments adds/updates.
+         * Total de cambios pendientes (constantes + NMAX), para el
+         * badge del boton "Aplicar Cambios".
          */
         const totalChanges = computed(() => {
             if (!hasPreview.value) return 0;
-            const s = lastPreview.value.summary || {};
+            const s = store.previewData.summary || {};
             return (
                 (s.constants_agregados || 0)
                 + (s.constants_eliminados || 0)
                 + (s.constants_renombrados || 0)
-                + (s.comments_added || 0)
-                + (s.comments_updated || 0)
                 + (nmaxSummary.value.actualizar || 0)
             );
         });
@@ -194,7 +131,6 @@ export default {
             if (isWorking.value || !plcName.value) return;
             isWorking.value = true;
             store.busy = true;
-            lastPreview.value = null;
             try {
                 const r = await apiEntidadesPreview(plcName.value);
                 if (r && r.errorType === "TIAConnectionError") {
@@ -202,8 +138,7 @@ export default {
                     return;
                 }
                 if (r && r.ok && r.data) {
-                    lastPreview.value = r.data;
-                    store.entidadesLastPreview = r.data;
+                    store.previewData = r.data;
                 }
             } finally {
                 isWorking.value = false;
@@ -221,8 +156,8 @@ export default {
                     resetPlcState();
                     return;
                 }
-                if (r && r.ok) {
-                    store.entidadesLastApply = r.data;
+                if (r && r.ok && r.data && r.data.post_sync_preview) {
+                    store.previewData = r.data.post_sync_preview;
                 }
             } finally {
                 isWorking.value = false;
@@ -234,15 +169,11 @@ export default {
             store,
             plcName,
             isWorking,
-            lastPreview,
             hasPreview,
             nmaxCards,
             nmaxLabel: nmaxLabelEntidades,
             nmaxSummary,
-            tabs,
-            activeTab,
             activeRows,
-            tabCounts,
             previewSummary,
             totalChanges,
             statusMeta: STATUS_META,
@@ -271,7 +202,9 @@ export default {
             </div>
 
             <!-- ★ Card "tabla" (estilo Dispositivos.js): NMAX_ENTIDAD
-                 + strip de tabs + tabla de diff + boton aplicar. ★ -->
+                 + tabla unica de diff + boton aplicar. Sin tabs:
+                 solo hay 1 tipo de entidad (``ENT``), no hace falta
+                 el strip de tabs como en Disp. ★ -->
             <div class="flex-1 bg-surface-raised border border-line rounded p-4 mb-4 flex flex-col overflow-hidden"
                  data-testid="entidades-card-tabla">
 
@@ -302,20 +235,6 @@ export default {
                     </div>
                 </div>
 
-                <!-- Strip de tabs "Constantes" | "Comentarios". Mismo
-                     lenguaje que Dispositivos.js (bg-surface-sunken,
-                     border-b border-line, tab-btn class). -->
-                <div v-if="hasPreview" class="flex border-b border-line bg-surface-sunken overflow-x-auto mb-3">
-                    <button v-for="t in tabs" :key="t.key"
-                        @click="activeTab = t.key"
-                        data-testid="entidades-tab-btn"
-                        :class="['tab-btn px-4 py-2 text-xs font-medium border-r border-line whitespace-nowrap',
-                                 activeTab === t.key ? 'active' : 'bg-surface-raised text-ink-muted hover:bg-surface-sunken']">
-                        {{ t.label }}
-                        <span class="ml-1 text-[10px] opacity-70">({{ tabCounts[t.key] }})</span>
-                    </button>
-                </div>
-
                 <!-- Area de scroll: contiene la tabla unica de diff o
                      el empty-state "Sin prevision generada". Mismo
                      lenguaje de card que Dispositivos.js. -->
@@ -323,7 +242,7 @@ export default {
                     <table v-if="hasPreview" class="w-full text-xs" data-testid="entidades-diff-table">
                         <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
                             <tr>
-                                <th class="px-3 py-2 text-left text-ink-muted w-14">#</th>
+                                <th class="px-3 py-2 text-left text-ink-muted w-40">PLC Tag</th>
                                 <th class="px-3 py-2 text-left text-ink-muted">Actual (TIA)</th>
                                 <th class="px-3 py-2 text-left text-ink-muted">Deseado (Excel)</th>
                                 <th class="px-3 py-2 text-left text-ink-muted">Estado</th>
@@ -333,13 +252,8 @@ export default {
                             <tr v-for="(row, idx) in activeRows" :key="idx"
                                 class="border-b border-line"
                                 :class="statusMeta[row.status]?.cls">
-                                <td class="px-3 py-1.5 font-mono text-xs text-ink-muted">
-                                    <template v-if="activeTab === 'comentarios'">
-                                        {{ row.slot }}
-                                    </template>
-                                    <template v-else>
-                                        {{ row.plc_tag }}
-                                    </template>
+                                <td class="px-3 py-1.5 font-mono text-xs text-ink">
+                                    {{ row.plc_tag }}
                                 </td>
                                 <td class="px-3 py-1.5 font-mono text-xs"
                                     :class="row.status === 'eliminar' ? 'text-red-700 line-through' : 'text-ink'">
@@ -361,7 +275,7 @@ export default {
                             </tr>
                             <tr v-if="activeRows.length === 0">
                                 <td colspan="4" class="px-3 py-6 text-center text-ink-muted italic">
-                                    ⚠️ Sin entradas para "{{ tabs.find((t) => t.key === activeTab)?.label }}".
+                                    Sin cambios pendientes.
                                 </td>
                             </tr>
                         </tbody>
