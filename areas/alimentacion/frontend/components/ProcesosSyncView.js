@@ -339,7 +339,7 @@ export default {
             if (!canApply.value) return;
             if (!plcName.value) {
                 store.procesosSync.error =
-                    "Selecciona un PLC en el sidebar antes de aplicar.";
+                    "Selecciona un PLC antes de aplicar.";
                 return;
             }
             isWorking.value = true;
@@ -686,7 +686,7 @@ export default {
                 </div>
                 <button @click="handleApply"
                     :disabled="!canApply"
-                    :title="!plcName ? 'Selecciona un PLC en el sidebar primero' : (totalOps === 0 ? 'No hay cambios que aplicar' : '')"
+                    :title="!plcName ? 'Selecciona un PLC primero' : (totalOps === 0 ? 'No hay cambios que aplicar' : '')"
                     data-testid="proc-sync-apply"
                     class="w-full py-3 text-accent font-semibold text-sm bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
                     <span v-if="isWorking">⏳ Aplicando…</span>

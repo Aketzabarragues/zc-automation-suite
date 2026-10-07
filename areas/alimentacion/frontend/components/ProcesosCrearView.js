@@ -194,7 +194,7 @@ export default {
                 return "Selecciona una plantilla.";
             }
             if (!hasPlcBlocks.value) {
-                return "Selecciona un PLC en el sidebar y espera al escaneo de bloques.";
+                return "Selecciona un PLC y espera al escaneo de bloques.";
             }
             const problemas = minimosProblemas.value;
             if (problemas.length) {
