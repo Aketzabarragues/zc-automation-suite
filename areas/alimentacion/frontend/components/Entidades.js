@@ -9,16 +9,21 @@
  *      coloreados (agregar / renombrar / eliminar / sin_cambios)
  *      + boton "🔍 Generar Prevision". SIEMPRE se renderiza: si no
  *      hay preview, los 4 contadores se quedan en 0 (gemelo Disp).
+ *      Contador total etiquetado "X items analizados" (C.22: no
+ *      segmentar por constantes vs comentarios; un solo total).
  *   2. Card "tabla": sub-card de N_MAX_ENTIDAD arriba (estilo sub-cards
  *      de Dispositivos) + tabla unica con 6 columnas
  *      (# / Tag Actual (TIA) / Comentario Actual (TIA)
  *       / Tag Deseado (Excel) / Comentario Deseado (Excel) / Estado)
  *      + boton "✅ Aplicar Cambios en TIA Portal" abajo.
  *
- * Las 6 columnas reflejan el "diff unificado" (C.18): un solo match
- * por ``numero`` (regla canonica ``ENT_<X>`` con value=X) cruza
- * PlcUserConstants de TIA con PlcUserConstants del Excel y comentarios
- * del slot del array con comentarios del Excel.
+ * Las 6 columnas reflejan el diff unificado de C.22 (regla
+ * "Excel manda"): un solo match por ``plc_tag`` literal cruza TIA con
+ * Excel. Shape del row:
+ *   ``{plc_tag, numero_tia, comment_tia, numero_excel, comment_excel, status}``
+ * Mismo plc_tag + mismo value: comparar comments. Mismo plc_tag +
+ * distinto value: 2 filas separadas (eliminar TIA + agregar Excel).
+ * plc_tag solo en TIA: eliminar. plc_tag solo en Excel: agregar.
  *
  * Estado del preview: lee/escribe directo ``store.previewData`` (mismo
  * slot que Dispositivos). Asi, al navegar away y volver, el preview
@@ -109,20 +114,25 @@ export default {
         });
 
         /**
-         * Filas del diff unificado (C.18). Directo desde
+         * Filas del diff unificado (C.22). Directo desde
          * ``store.previewData.unified.todos``.
          *
-         * El FB garantiza el shape ``{numero, plc_tag_tia, comment_tia,
-         * plc_tag_excel, comment_excel, status}`` por entry. Sort por
-         * ``numero`` ascendente (numerico estable).
+         * El FB garantiza el shape ``{plc_tag, numero_tia, comment_tia,
+         * numero_excel, comment_excel, status}`` por entry. Sort por
+         * ``plc_tag`` (string) ascendente; tie-breaker por status para
+         * agrupar pares eliminar/agregar del mismo plc_tag (caso "mismo
+         * plc_tag + distinto value" produce 2 filas: eliminar primero,
+         * agregar despues).
          */
         const activeRows = computed(() => {
             if (!hasPreview.value) return [];
             const all = (store.previewData.unified && store.previewData.unified.todos) || [];
+            const statusOrder = { eliminar: 0, renombrar: 1, sin_cambios: 2, agregar: 3 };
             return all.slice().sort((a, b) => {
-                const an = typeof a.numero === "number" ? a.numero : 0;
-                const bn = typeof b.numero === "number" ? b.numero : 0;
-                return an - bn;
+                const at = (a.plc_tag || "").toString();
+                const bt = (b.plc_tag || "").toString();
+                if (at !== bt) return at.localeCompare(bt);
+                return (statusOrder[a.status] ?? 9) - (statusOrder[b.status] ?? 9);
             });
         });
 
@@ -207,7 +217,7 @@ export default {
                  data-testid="entidades-card-info">
                 <p v-if="hasPreview" class="text-xs text-ink-muted"
                    data-testid="entidades-preview-summary">
-                    {{ summary.total }} comentarios analizados —
+                    {{ summary.total }} items analizados —
                     <span class="text-accent">{{ summary.agregados }} a agregar</span> ·
                     <span class="text-amber-700">{{ summary.renombrados }} a renombrar</span> ·
                     <span class="text-red-700">{{ summary.eliminados }} a eliminar</span> ·
@@ -275,33 +285,36 @@ export default {
                             <tr v-for="(row, idx) in activeRows" :key="idx"
                                 class="border-b border-line"
                                 :class="statusMeta[row.status]?.cls">
-                                <!-- #: numero del Excel (value).
-                                     null para status=eliminar. -->
+                                <!-- # (C.22): Excel manda. Preferimos
+                                     numero_excel; si no hay (eliminar)
+                                     mostramos numero_tia. -->
                                 <td class="px-3 py-1.5 font-mono text-xs text-ink-muted">
-                                    {{ row.numero === null || row.numero === undefined ? '—' : row.numero }}
+                                    {{ (row.numero_excel ?? row.numero_tia) === null ? '—' : (row.numero_excel ?? row.numero_tia) }}
                                 </td>
-                                <!-- Tag Actual (TIA): nombre del TAG del PLC.
-                                     null para status=agregar. -->
+                                <!-- Tag Actual (TIA): row.plc_tag si TIA
+                                     lo tiene (status !== 'agregar'),
+                                     si no guion. -->
                                 <td class="px-3 py-1.5 font-mono text-xs"
                                     :class="row.status === 'eliminar' ? 'text-red-700 line-through' : 'text-ink'">
-                                    {{ row.plc_tag_tia === null || row.plc_tag_tia === undefined ? '—' : row.plc_tag_tia }}
+                                    {{ row.status === 'agregar' ? '—' : row.plc_tag }}
                                 </td>
-                                <!-- Comentario Actual (TIA): comment del PLC.
-                                     null para status=agregar. -->
+                                <!-- Comentario Actual (TIA): comment_tia
+                                     si TIA lo tiene. -->
                                 <td class="px-3 py-1.5 text-xs"
                                     :class="row.status === 'eliminar' ? 'text-red-700 line-through' : 'text-ink'">
                                     {{ row.comment_tia === null || row.comment_tia === undefined ? '—' : row.comment_tia }}
                                 </td>
-                                <!-- Tag Deseado (Excel): nombre del TAG del Excel.
-                                     null para status=eliminar. -->
+                                <!-- Tag Deseado (Excel): row.plc_tag si
+                                     Excel lo tiene (status !== 'eliminar'),
+                                     si no guion. -->
                                 <td class="px-3 py-1.5 font-mono text-xs"
                                     :class="row.status === 'agregar' ? 'text-accent' :
                                             row.status === 'renombrar' ? 'text-amber-800' :
                                             'text-ink-muted'">
-                                    {{ row.plc_tag_excel === null || row.plc_tag_excel === undefined ? '—' : row.plc_tag_excel }}
+                                    {{ row.status === 'eliminar' ? '—' : row.plc_tag }}
                                 </td>
-                                <!-- Comentario Deseado (Excel): descripcion.
-                                     null para status=eliminar. -->
+                                <!-- Comentario Deseado (Excel): comment_excel
+                                     si Excel lo tiene. -->
                                 <td class="px-3 py-1.5 text-xs"
                                     :class="row.status === 'agregar' ? 'text-accent' :
                                             row.status === 'renombrar' ? 'text-amber-800' :
