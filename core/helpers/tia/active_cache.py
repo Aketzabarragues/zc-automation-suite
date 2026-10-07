@@ -11,6 +11,9 @@ Helpers publicos:
   - ``get_devices(state, hw)``: lista de devices del cache activo
     para el ``hw_type`` dado.
   - ``get_nmax(state)``: dict ``{N_Max_<X>: value}`` del PLC activo.
+  - ``get_entidades(state, plc_name)``: lista de entidades del cache
+    activo filtradas por plc_name (la lista plana del cache activo
+    incluye entidades de TODOS los PLCs).
 
 Si el cache activo es ``None``, lanzan ``RuntimeError`` accionable.
 El caller es responsable de la precondicion (debe haber Excel
@@ -76,4 +79,34 @@ def get_nmax(state: Any) -> dict[str, int]:
     return merged
 
 
-__all__ = ["get_devices", "get_nmax"]
+def get_entidades(state: Any, plc_name: str) -> list:
+    """Entidades del PLC activo filtradas por ``plc_name``.
+
+    El cache activo expone ``cache.entidades`` como lista plana
+    multi-PLC (``tuple[Entidad, ...]``). Esta funcion filtra por el
+    ``plc_name`` del FB para que el diff en el FB
+    ``entidades_generar_preview`` opere solo sobre las entidades
+    del PLC activo.
+
+    Args:
+        state: AppState (debe tener ``excel_cache_active``).
+        plc_name: nombre del PLC destino (e.g. ``"PLC_S1500"``).
+
+    Raises:
+        RuntimeError: si ``state.excel_cache_active`` es ``None``.
+
+    Returns:
+        Lista de ``Entidad`` del PLC ``plc_name``. Si el PLC no
+        tiene entidades, devuelve ``[]``.
+    """
+    cache = state.excel_cache_active
+    if cache is None:
+        raise RuntimeError(
+            "excel_cache_active es None. Cargue primero el Excel con "
+            "POST /api/v1/excel/upload."
+        )
+    all_entidades = getattr(cache, "entidades", ()) or ()
+    return [e for e in all_entidades if getattr(e, "plc_name", "") == plc_name]
+
+
+__all__ = ["get_devices", "get_nmax", "get_entidades"]
