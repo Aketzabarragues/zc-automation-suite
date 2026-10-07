@@ -677,6 +677,67 @@ class ConfigManager:
                 out[str(canonical)] = [c for c in cols if isinstance(c, str)]
         return out
 
+    def get_entidades_display_order_override(self) -> dict[str, list[str]]:
+        """Override data-driven de ``entidades_catalog.display_order``.
+
+        Estructura esperada en ``config.json`` del departamento::
+
+            entidades_catalog:
+              display_order:
+                entidades: [plc_name, numero, descripcion, ...]
+
+        Misma politica que ``get_disp_display_order_override`` y
+        ``get_proc_display_order_override``: override por dominio
+        reemplaza la entrada completa (visibilidad explicita). Claves
+        invalidas (dominios o campos inexistentes) se ignoran con
+        warning; ver ``data_entidades_catalog._get_display_order_override``.
+
+        Si la clave no existe, devuelve ``{}`` (la SPA usa el default
+        de ``DISPLAY_ORDER`` del modulo ``data_entidades_catalog``).
+        """
+        ent_catalog = self._department_config.get("entidades_catalog")
+        if not isinstance(ent_catalog, dict):
+            return {}
+        raw = ent_catalog.get("display_order")
+        if not isinstance(raw, dict):
+            return {}
+        out: dict[str, list[str]] = {}
+        for domain, cols in raw.items():
+            if isinstance(cols, list):
+                out[str(domain)] = [c for c in cols if isinstance(c, str)]
+        return out
+
+    def get_entidades_col_labels_override(self) -> dict[str, str]:
+        """Override data-driven de las etiquetas humanas de entidades.
+
+        Estructura esperada en ``config.json`` del departamento::
+
+            entidades_catalog:
+              col_labels:
+                numero:   "Slot"
+                plc_tag: "Tag Name"
+
+        Un override por columna reemplaza su entrada por completo.
+        Columnas inexistentes o labels vacios / no-string se
+        descartan con warning; ver
+        ``data_entidades_catalog._get_col_labels_override``.
+
+        Si la clave no existe, devuelve ``{}`` (la SPA usa los
+        defaults de ``COLUMN_LABELS`` del modulo
+        ``data_entidades_catalog``).
+        """
+        ent_catalog = self._department_config.get("entidades_catalog")
+        if not isinstance(ent_catalog, dict):
+            return {}
+        raw = ent_catalog.get("col_labels")
+        if not isinstance(raw, dict):
+            return {}
+        out: dict[str, str] = {}
+        for col, label in raw.items():
+            if isinstance(col, str) and isinstance(label, str):
+                out[col] = label
+        return out
+
     def get_proc_nmax_suffixes(self) -> dict[str, str]:
         """Sufijos de las PlcUserConstant N_MAX de los arrays de proceso.
 

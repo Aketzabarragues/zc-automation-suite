@@ -359,6 +359,30 @@
         "tag_table": "6_Entidades",
         "config_table": "0_Config_Generales"
       },
+      "entidades_catalog": {
+        "_comment_display_order": "Override data-driven de las columnas visibles de la SPA para el DTO Entidad. Override por dominio = reemplazo total (visibilidad explicita por ausencia). Las columnas invalidas (descendientes no en el DTO) se descartan con warning; ver areas/alimentacion/data/data_entidades_catalog.py._get_display_order_override.",
+        "display_order": {
+          "entidades": [
+            "plc_name",
+            "numero",
+            "descripcion",
+            "plc_tag",
+            "plc_tipo",
+            "plc_index",
+            "plc_comentario"
+          ]
+        },
+        "col_labels": {
+          "_comment": "Override data-driven de las etiquetas humanas de las columnas. Si una clave esta ausente, se usa el valor por defecto de areas/alimentacion/data/data_entidades_catalog.COLUMN_LABELS.",
+          "numero":         "Numero",
+          "plc_name":       "PLC",
+          "plc_tag":        "PLC.Tag",
+          "plc_tipo":       "PLC.Tipo",
+          "plc_index":      "PLC.Index",
+          "plc_comentario": "PLC.Comentario",
+          "descripcion":    "Descripcion"
+        }
+      },
       "_todo_legacy_types": "Tipos legacy (sd/tq/tq_ae/productos) NO activos. Sus N_MAX viven en 'pending_nmax' y sus entries en 'pending_dispositivos'."
     }
   }

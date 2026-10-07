@@ -20,19 +20,24 @@ from __future__ import annotations
 
 from areas.alimentacion.data.data_disp_catalog import build_catalog as build_alim_catalog
 from areas.alimentacion.data.data_proc_catalog import build_software_catalog
+from areas.alimentacion.data.data_entidades_catalog import (
+    build_entidades_catalog,
+)
 
 
 def _build_alim_catalog_combined(config_manager):
-    """Fusiona catalog de dispositivos y de software para el endpoint ``/api/v1/catalog``.
+    """Fusiona catalog de dispositivos, software y entidades para el endpoint ``/api/v1/catalog``.
 
     Las claves del catalog de disp (``device_tabs``, ``nmax``,
     ``model_columns``, ``col_labels``, ``mono_cols``) viven en el
     top-level. Las del catalog de software se prefijan con ``proc_``
-    (``proc_model_columns``, etc.) para no colisionar.
+    (``proc_model_columns``, etc.) y las de entidades con ``ent_`` para
+    no colisionar.
     """
     return {
         **build_alim_catalog(config_manager),
         **build_software_catalog(config_manager),
+        **build_entidades_catalog(config_manager),
     }
 from areas.alimentacion.frontend.dispositivos_router import (
     build_routers as build_dispositivos_routers,
