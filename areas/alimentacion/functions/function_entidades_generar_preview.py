@@ -441,8 +441,16 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
             )
             self._ctx.warnings.append(warning)
 
-    def _stage_5_build_response(self) -> None:
-        """Stage 5: compone la shape final con todos los resultados intermedios."""
+    async def _stage_5_build_response(self) -> None:
+        """Stage 5: compone la shape final con todos los resultados intermedios.
+
+        Marcado como ``async`` aunque internamente no haga ``await``: el
+        ``run_step`` dispatcha con ``await handler()``, y un metodo sync
+        retorna ``None``, lo que reventaba con ``TypeError: object
+        NoneType can't be used in 'await' expression`` cuando el FB
+        llegaba a este stage (caso real del smoke del operario con
+        DB6_ENT renombrado en TIA V21).
+        """
         from areas.alimentacion.helpers.entidades.entidades_generate_preview import (
             compute_summary,
             DiffEntities,

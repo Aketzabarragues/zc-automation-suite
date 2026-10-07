@@ -210,6 +210,69 @@ def test_run_step_falla_si_step_desconocido() -> None:
         asyncio.run(fb.run_step(0))
 
 
+def test_run_step_stage_5_no_revienta_await_none() -> None:
+    """Reproduce el bug del smoke del operario (oct-2026).
+
+    Caso real: el FB llega al stage 5 (Componer respuesta). ``run_step``
+    hace ``getattr(self, s_attr)`` y luego ``await handler()``. Si el
+    handler esta declarado como ``def`` (sync), ``handler()`` retorna
+    ``None`` y ``await None`` revienta con ``TypeError: object NoneType
+    can't be used in 'await' expression``.
+
+    Tras C.8 (``_stage_5_build_response`` es ``async def``), el handler
+    retorna una corutina valida y ``run_step`` puede ejecutarlo.
+
+    Verificacion en 2 partes:
+      1. ``inspect.iscoroutinefunction`` del metodo declarado: si falla,
+         el fix esta ausente.
+      2. ``run_step(4)`` corre end-to-end con los 4 stages previos
+         mockeados; el stage 5 se ejecuta real y compone
+         ``self._ctx.result`` correctamente.
+    """
+    import asyncio
+    import inspect
+
+    assert inspect.iscoroutinefunction(
+        FunctionEntidadesGenerarPreview._stage_5_build_response
+    ), (
+        "_stage_5_build_response debe ser ``async def``; "
+        "si es ``def`` sync, run_step() explota con "
+        "TypeError: object NoneType can't be used in 'await' expression"
+    )
+
+    from unittest.mock import patch as _patch
+    fb = _make_fb_with_ctx()
+    fb._ctx.db_name = "DB6_ENT"
+    fb._ctx.db_array_name = "ENT"
+    fb._ctx.tag_table = "6_Entidades"
+    fb._ctx.config_table = "0_Config_Generales"
+    fb._ctx.nmax_block = {
+        "current": {}, "desired": {}, "todos": [],
+        "summary": {"actualizar": 0, "sin_cambios": 0, "total": 0},
+        "nmax_error": None,
+    }
+    fb._ctx.entities_block = {
+        "base": {}, "desired": {}, "added": [], "removed": [],
+        "renamed": {}, "missing_xml": False,
+    }
+    fb._ctx.comments_block = {
+        "slots_tia": [], "current": {}, "desired": {},
+        "added": [], "removed": [], "updated": [],
+        "unchanged": [], "missing_xml": False,
+    }
+    fb._ctx.warnings = []
+
+    with _patch.object(fb, "_stage_1_exportar", new=AsyncMock()), \
+         _patch.object(fb, "_stage_2_compute_nmax", new=AsyncMock()), \
+         _patch.object(fb, "_stage_3_compute_entidades", new=AsyncMock()), \
+         _patch.object(fb, "_stage_4_compute_comentarios", new=AsyncMock()):
+        # El stage 5 NO se mockea: queremos ejercitar el metodo real.
+        result = asyncio.run(fb.run_step(4))
+
+    assert "Componer respuesta" in result
+    assert fb._ctx.result.get("db_name") == "DB6_ENT"
+
+
 # ---------------------------------------------------------------------------
 # Tests de stages individuales (con mocks)
 # ---------------------------------------------------------------------------
@@ -372,7 +435,8 @@ def test_stage_5_build_response_compose_shape() -> None:
     }
     fb._ctx.warnings = []
 
-    fb._stage_5_build_response()
+    import asyncio
+    asyncio.run(fb._stage_5_build_response())
 
     r = fb._ctx.result
     assert r["precondiciones_ok"] is True
@@ -394,7 +458,8 @@ def test_stage_5_build_response_stages_previos_fallaron() -> None:
     fb._ctx.entities_block = None
     fb._ctx.comments_block = None
 
-    fb._stage_5_build_response()
+    import asyncio
+    asyncio.run(fb._stage_5_build_response())
 
     assert fb._ctx.result["precondiciones_ok"] is False
     assert "Stages previos no completaron" in fb._ctx.result["missing_blocks"][0]
@@ -431,7 +496,8 @@ def test_stage_5_build_response_missing_xml_table() -> None:
     }
     fb._ctx.warnings = []
 
-    fb._stage_5_build_response()
+    import asyncio
+    asyncio.run(fb._stage_5_build_response())
 
     assert fb._ctx.result["table_present"] is False
     assert fb._ctx.result["db_present"] is True
