@@ -36,7 +36,7 @@ Restricciones arquitectonicas:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -86,6 +86,13 @@ class DiffEntities:
             pero el ``numero`` (value) es distinto. El sync debe decidir
             entre ``update_user_constant_value`` (cambia value) y
             ``update_user_constant_name`` + delete+create.
+        base_comments: ``{plc_tag: comment_o_None}`` leido del XML
+            TIA de la user constants table (per-constant comment).
+            ``None`` si la constant existe sin comment o con comment
+            vacio. Usado por el diff unificado para preferir el
+            comment per-constant sobre el comment del slot del DB
+            (C.25: el operario normalmente configura el comment en
+            la tabla, no en el slot del DB).
         missing_xml: True si el XML de TIA no existia.
     """
 
@@ -95,6 +102,7 @@ class DiffEntities:
     added: list[str]
     removed: list[str]
     renamed: dict[str, tuple[int, int]]
+    base_comments: dict[str, str | None] = field(default_factory=dict)
     missing_xml: bool = False
 
     @property
@@ -153,43 +161,48 @@ class DiffComments:
 # ---------------------------------------------------------------------------
 
 
-def _read_entities_from_xml(xml_path: Path) -> dict[str, int]:
-    """Lee un XML FLAT de ``6_Entidades`` y devuelve ``{plc_tag: numero}``.
+def _read_entities_from_xml(xml_path: Path) -> tuple[dict[str, int], dict[str, str | None]]:
+    """Lee un XML FLAT de ``6_Entidades`` y devuelve ``(base, base_comments)``.
 
-    El XML exporta ``{value: name}`` (``PlcUserConstantModifier
-    .read_user_constants_with_uids``). En TIA la tabla ``6_Entidades``
-    SOLO contiene PlcUserConstants de entidades (el operario las mete
-    a mano con el nombre canonico ``ENT_000``, ``ENT_001``, etc., en
-    MAYUSCULAS por convencion Siemens), asi que no hay que filtrar
-    por prefijo: la tabla ya viene pre-filtrada.
+    El XML exporta ``{value: {"name": str, "comment": str|None}}``
+    (``PlcUserConstantModifier.read_user_constants_with_comments``).
+    En TIA la tabla ``6_Entidades`` SOLO contiene PlcUserConstants de
+    entidades (el operario las mete a mano con el nombre canonico
+    ``ENT_000``, ``ENT_001``, etc., en MAYUSCULAS por convencion Siemens),
+    asi que no hay que filtrar por prefijo: la tabla ya viene
+    pre-filtrada.
 
     Invirtiendo: ``name`` (string) = ``plc_tag`` del Excel,
-    ``value`` (int via ``uid_str``) = ``numero``.
+    ``value`` (int via ``uid_str``) = ``numero``,
+    ``comment`` (str o ``None``) = comment per-constant del TIA
+    (C.25; se prefiere este al comment del slot del DB).
 
-    Si el XML no existe o falla el parse, devuelve ``{}``.
+    Si el XML no existe o falla el parse, devuelve ``({}, {})``.
     """
     if not xml_path.is_file():
-        return {}
+        return {}, {}
     try:
         from core.helpers.simatic_ml import PlcUserConstantModifier
         modifier = PlcUserConstantModifier(xml_path)
-        raw = dict(modifier.read_user_constants_with_uids())
+        raw = dict(modifier.read_user_constants_with_comments())
     except Exception as exc:
         logger.warning(
             f"[diff] No se pudo cargar XML de entidades '{xml_path.name}': {exc}"
         )
-        return {}
-    out: dict[str, int] = {}
-    for uid_str, name in raw.items():
-        plc_tag = str(name).strip()
+        return {}, {}
+    base: dict[str, int] = {}
+    base_comments: dict[str, str | None] = {}
+    for uid_str, payload in raw.items():
+        plc_tag = str(payload.get("name", "")).strip()
         if not plc_tag:
             continue
         try:
             numero = int(str(uid_str).strip())
         except (TypeError, ValueError):
             continue
-        out[plc_tag] = numero
-    return out
+        base[plc_tag] = numero
+        base_comments[plc_tag] = payload.get("comment")
+    return base, base_comments
 
 
 # ---------------------------------------------------------------------------
@@ -219,7 +232,7 @@ def compute_diff_entities(
         if plc_tag and numero >= 0:
             desired[plc_tag] = numero
 
-    base = _read_entities_from_xml(xml_path)
+    base, base_comments = _read_entities_from_xml(xml_path)
     missing_xml = not xml_path.is_file()
 
     base_keys = set(base.keys())
@@ -240,6 +253,7 @@ def compute_diff_entities(
         added=added,
         removed=removed,
         renamed=renamed,
+        base_comments=base_comments,
         missing_xml=missing_xml,
     )
 
@@ -418,9 +432,13 @@ def compute_unified_diff_entities(
     """Combina diff de PlcUserConstants + diff de comments en una lista unificada.
 
     Match key: ``plc_tag`` (string canonico del Excel, key estable).
-    El comentario se busca por ``numero`` (= slot del array ``ENT[]``).
+    El comment TIA por plc_tag se resuelve con prioridad (C.25):
+    primero ``base_comments[plc_tag]`` (comment per-constant leido del
+    XML de la user constants table); si esta vacio o ``None``, cae al
+    ``diff_comments.current[numero_tia]`` (comment del slot del array
+    ``ENT[]`` en ``DB6_ENT``).
 
-    Reglas (C.22, simplificadas del PostSmoke):
+    Reglas (C.22, simplificado):
 
       - plc_tag solo en Excel:
           ``agregar``. Comment TIA = None.
@@ -441,7 +459,8 @@ def compute_unified_diff_entities(
         plc_tag       : str     (la key estable del Excel; TIA y Excel
                                   usan la misma si matchean).
         numero_tia    : int | None   (None si TIA no tiene la plc_tag).
-        comment_tia   : str | None   (None si el slot TIA no tiene comment).
+        comment_tia   : str | None   (None si la constant TIA no tiene
+                                  comment; tampoco el slot del DB).
         numero_excel  : int | None   (None si el Excel no tiene la plc_tag).
         comment_excel : str | None   (None si el Excel no tiene comment).
         status        : "agregar" | "renombrar" | "sin_cambios" | "eliminar"
@@ -451,7 +470,8 @@ def compute_unified_diff_entities(
     Sort por ``plc_tag`` ascendente (string stable).
 
     Args:
-        diff_entities: ``desired`` y ``base`` son ``{plc_tag: numero}``.
+        diff_entities: ``desired`` y ``base`` son ``{plc_tag: numero}``;
+            ``base_comments`` es ``{plc_tag: comment_o_None}``.
         diff_comments: ``current`` y ``desired`` son ``{slot: comment}``
             (slot == numero del Excel).
 
@@ -459,6 +479,22 @@ def compute_unified_diff_entities(
         Lista de dicts ordenada por ``plc_tag``.
     """
     base_by_plc_tag: dict[str, int] = dict(diff_entities.base)
+    base_comments_by_plc_tag: dict[str, str | None] = dict(
+        getattr(diff_entities, "base_comments", {}) or {}
+    )
+
+    def _comment_tia(plc_tag: str, numero_tia: int) -> str | None:
+        """Priority resolver: user-constant comment > DB slot comment.
+
+        ``base_comments[plc_tag]`` es la fuente canonica del comment
+        per-constant (C.25): si esta seteado y no es vacio, gana.
+        Solo si la constant existe sin comment (None o "") cae al
+        comment del slot del array en DB6_ENT.
+        """
+        const_comment = base_comments_by_plc_tag.get(plc_tag)
+        if const_comment:
+            return const_comment
+        return diff_comments.current.get(numero_tia)
 
     rows: list[dict[str, Any]] = []
 
@@ -468,7 +504,7 @@ def compute_unified_diff_entities(
 
         if plc_tag in base_by_plc_tag:
             numero_tia = base_by_plc_tag[plc_tag]
-            comment_tia = diff_comments.current.get(numero_tia)
+            comment_tia = _comment_tia(plc_tag, numero_tia)
 
             if numero_tia != numero_excel:
                 # plc_tag en ambos + distinto value: 2 filas.
@@ -495,7 +531,7 @@ def compute_unified_diff_entities(
             # plc_tag en ambos + mismo value: status por comment.
             if comment_tia is None and comment_excel is None:
                 # Ningun lado tiene comment -> sin cambios
-                # (el slot del array esta sin inicializar; eso esta OK).
+                # (la constant y el slot del array estan sin inicializar).
                 status = "sin_cambios"
             elif comment_tia is None:
                 # TIA sin comment, Excel con comment -> agregar comment al slot.
@@ -529,7 +565,7 @@ def compute_unified_diff_entities(
     excel_plc_tags = set(diff_entities.desired.keys())
     for plc_tag in sorted(set(diff_entities.base.keys()) - excel_plc_tags):
         numero_tia = diff_entities.base[plc_tag]
-        comment_tia = diff_comments.current.get(numero_tia)
+        comment_tia = _comment_tia(plc_tag, numero_tia)
 
         rows.append({
             "plc_tag":       plc_tag,

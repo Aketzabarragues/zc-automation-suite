@@ -63,6 +63,12 @@ def _mock_modifier_with_constants(plc_tag_to_numero: dict[str, int]) -> MagicMoc
         for plc_tag, numero in plc_tag_to_numero.items()
     }
     modifier.read_user_constants_with_uids.return_value = raw
+    # C.25: nuevo metodo con comments. Por defecto None para que los
+    # tests no rompan al no tener el campo base_comments.
+    modifier.read_user_constants_with_comments.return_value = {
+        str(numero): {"name": plc_tag, "comment": None}
+        for plc_tag, numero in plc_tag_to_numero.items()
+    }
     return modifier
 
 
@@ -588,6 +594,86 @@ def test_compute_unified_diff_plc_tag_no_canonico_no_matchea() -> None:
     assert row_constant["numero_excel"] is None
     assert row_constant["comment_tia"] == "comentario slot 4"
     assert row_constant["status"] == "eliminar"
+
+
+def test_compute_unified_diff_comment_per_constante_gana_al_slot() -> None:
+    """C.25: comment per-constant en ``base_comments`` tiene prioridad
+    sobre el comment del slot del DB.
+
+    Caso real del operario (PostSmoke, oct-2026): el XML de
+    ``6_Entidades.xml`` exportado por TIA tiene PlcUserConstants con
+    comment per-constant (p.ej. ENT_001 con comment="d"), mientras el
+    slot del array ``DB6_ENT.ENT[1]`` esta sin comment. Excel quiere
+    ``ENT_001`` con comment "Linea 1". El helper debe reportarlo como
+    ``renombrar`` (no ``agregar``): el comment per-constant es la
+    fuente canonica de "lo que TIA tiene hoy" para esa plc_tag.
+
+    Antes del fix (C.25): el helper solo usaba del slot del DB, asi que
+    veia comment_tia=None y status=agregar. El PlcConstant existia
+    pero el diff lo ignoraba.
+    """
+    diff_ent = DiffEntities(
+        table_name="6_Entidades",
+        base={"ENT_000": 0, "ENT_001": 1},
+        desired={"ENT_000": 0, "ENT_001": 1},
+        added=[], removed=[], renamed={},
+        base_comments={"ENT_000": None, "ENT_001": "d"},
+    )
+    diff_com = DiffComments(
+        db_name="DB6_ENT",
+        array_name="ENT",
+        slots_tia={0, 1},
+        # Slot[0] tiene comment "NO SE USA" en DB; slot[1] esta vacio.
+        current={0: "NO SE USA", 1: None},
+        desired={0: "NO USAR. NO ELIMINAR.", 1: "Linea 1"},
+        added=[], removed=[], updated=[0], unchanged=[],
+    )
+
+    rows = compute_unified_diff_entities(diff_ent, diff_com)
+    by_plc_tag = {r["plc_tag"]: r for r in rows}
+
+    # ENT_000: user constant comment es None -> cae al DB slot "NO SE USA".
+    # Excel quiere "NO USAR. NO ELIMINAR." -> renombrar.
+    row_000 = by_plc_tag["ENT_000"]
+    assert row_000["status"] == "renombrar"
+    assert row_000["comment_tia"] == "NO SE USA"
+    assert row_000["comment_excel"] == "NO USAR. NO ELIMINAR."
+
+    # ENT_001: user constant comment es "d" (prioridad C.25). Excel
+    # quiere "Linea 1" -> renombrar (NO agregar como antes del fix).
+    row_001 = by_plc_tag["ENT_001"]
+    assert row_001["status"] == "renombrar"
+    assert row_001["comment_tia"] == "d"
+    assert row_001["comment_excel"] == "Linea 1"
+
+
+def test_compute_unified_diff_comment_per_constante_vacio_cae_al_slot() -> None:
+    """C.25: si ``base_comments[plc_tag]`` es ``None`` o vacio, cae al
+    slot del DB. Mantiene compat con el caso del operario donde solo
+    el slot del DB tiene comment (no la constant table)."""
+    diff_ent = DiffEntities(
+        table_name="6_Entidades",
+        base={"ENT_000": 0},
+        desired={"ENT_000": 0},
+        added=[], removed=[], renamed={},
+        # ENT_000 existe en TIA con comment per-constant = vacio
+        base_comments={"ENT_000": ""},
+    )
+    diff_com = DiffComments(
+        db_name="DB6_ENT",
+        array_name="ENT",
+        slots_tia={0},
+        current={0: "solo en slot"},  # unico lado con comment
+        desired={0: "Linea 0"},
+        added=[], removed=[], updated=[], unchanged=[],
+    )
+
+    rows = compute_unified_diff_entities(diff_ent, diff_com)
+    assert len(rows) == 1
+    row = rows[0]
+    # Fallback al slot porque per-constant es vacio.
+    assert row["comment_tia"] == "solo en slot"
+    assert row["status"] == "renombrar"
 
 
 def test_detect_inconsistencias_plc_tags_warning() -> None:

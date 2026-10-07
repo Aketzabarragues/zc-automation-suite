@@ -391,12 +391,13 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
         diff = await asyncio.to_thread(_compute)
 
         self._ctx.entities_block = {
-            "base":        diff.base,
-            "desired":     diff.desired,
-            "added":       diff.added,
-            "removed":     diff.removed,
-            "renamed":     diff.renamed,
-            "missing_xml": diff.missing_xml,
+            "base":         diff.base,
+            "base_comments": diff.base_comments,
+            "desired":      diff.desired,
+            "added":        diff.added,
+            "removed":      diff.removed,
+            "renamed":      diff.renamed,
+            "missing_xml":  diff.missing_xml,
         }
 
     async def _stage_4_compute_comentarios(self) -> None:
@@ -479,6 +480,7 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
             added=self._ctx.entities_block["added"],
             removed=self._ctx.entities_block["removed"],
             renamed=self._ctx.entities_block["renamed"],
+            base_comments=self._ctx.entities_block.get("base_comments", {}),
             missing_xml=self._ctx.entities_block["missing_xml"],
         )
         diff_com = DiffComments(

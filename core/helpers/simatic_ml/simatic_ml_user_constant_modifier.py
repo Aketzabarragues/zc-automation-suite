@@ -115,6 +115,45 @@ class PlcUserConstantModifier:
             result[value] = name
         return result
 
+    def read_user_constants_with_comments(self) -> dict[str, dict[str, str | None]]:
+        """Itera PlcUserConstants y devuelve ``{value_str: {"name", "comment"}}``.
+
+        Igual que ``read_user_constants_with_uids`` pero captura
+        tambien el ``<Comment>`` per-constant (primer
+        ``<MultilingualTextItem>/<Text>``). ``comment`` es ``None`` si
+        la constant existe sin comment inicializado o con texto vacio.
+
+        Usado por el preview de entidades (C.25): el comment per-constant
+        tiene prioridad sobre el comment del slot del DB a la hora de
+        comparar TIA vs Excel en el diff unificado. El operario suele
+        configurar el comment en la tabla de constantes, no en el slot
+        del array del DB.
+        """
+        result: dict[str, dict[str, str | None]] = {}
+        for const in self._root.findall(f".//{USER_CONSTANT_TAG}"):
+            name_el = const.find(f".//{NAME_TAG}")
+            value_el = const.find(f".//{VALUE_TAG}")
+            if name_el is None or value_el is None:
+                continue
+            name = (name_el.text or "").strip()
+            value = (value_el.text or "").strip()
+            if not name or not value:
+                continue
+            try:
+                int(value)
+            except ValueError:
+                continue
+            comment: str | None = None
+            mlti = const.find(".//{*}MultilingualTextItem")
+            if mlti is not None:
+                text_el = mlti.find(".//{*}Text")
+                if text_el is not None and text_el.text:
+                    stripped = text_el.text.strip()
+                    if stripped:
+                        comment = stripped
+            result[value] = {"name": name, "comment": comment}
+        return result
+
     def _find_template_user_constant(self) -> ET.Element | None:
         """Devuelve el primer PlcUserConstant del documento como plantilla."""
         tags = self._root.findall(f".//{USER_CONSTANT_TAG}")
