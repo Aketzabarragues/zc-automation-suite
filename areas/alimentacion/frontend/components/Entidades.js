@@ -188,9 +188,9 @@ export default {
 
                     <div v-else class="flex-1 flex items-center justify-center p-10 text-center text-ink-muted">
                         <div>
-                            <div class="text-5xl mb-3 opacity-40">🗂️</div>
-                            <p class="mb-2">Sin entidades para este PLC.</p>
-                            <p class="text-xs">Sube un Excel con la hoja <strong class="text-accent">ENTIDADES</strong> y pulsa <strong class="text-accent">"Actualizar"</strong>.</p>
+                            <div class="text-5xl mb-3 opacity-40">⚡</div>
+                            <p class="mb-2">Sin prevision generada.</p>
+                            <p class="text-xs">Pulsa <strong class="text-accent">"🔍 Generar Previsión"</strong> para ver el diff completo.</p>
                         </div>
                     </div>
                 </div>
