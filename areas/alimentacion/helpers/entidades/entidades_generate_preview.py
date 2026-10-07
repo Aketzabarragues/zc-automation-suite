@@ -417,24 +417,26 @@ def compute_unified_diff_entities(
 ) -> list[dict[str, Any]]:
     """Combina diff de constantes + diff de comentarios en una lista unificada.
 
-    Match key por ``numero`` (regla canonica del feature: el plc_tag es
-    ``ENT_<X>`` con value=X, donde X coincide con el slot del array
-    ``ENT[]`` de ``DB6_ENT``). Cruza los 2 diffs:
+    Match key: **plc_tag literal** (C.21, antes era por numero).
+    El cambio es por union con PostSmoke: si TIA tiene un plc_tag
+    ``Constant_1`` con value=4 y el Excel tiene ``ENT_004`` con numero=4,
+    el matching por numero los emparejaba falsamente. Ahora son 2 filas
+    separadas (Constant_1 como ``eliminar``, ENT_004 como ``agregar``).
 
-      - ``desired[n]`` del lado desired: plc_tag del Excel, comentario del Excel.
-      - ``current[n]`` del lado actual: plc_tag del TIA (si la PlcUserConstant
-        existe con value=n), comentario del slot (si esta inicializado).
+    Match comment: por ``numero`` (= slot del array ``ENT[]``). Es la
+    unica coordenada estable entre PlcUserConstants (value=N) y el slot
+    del array que tiene el comment. Si el plc_tag no es canonico
+    (``ENT_<X>``), el helper lo detecta via ``detect_inconsistencias_plc_tags``.
 
     Status por row (4 vectores, mismo set que ``STATUS_META``):
-      - ``agregar``: el row esta en el Excel, no en TIA (o TIA no tiene
-        comentario en el slot).
-      - ``renombrar``: ambos tienen comentario en el slot, son distintos.
-      - ``sin_cambios``: comentarios identicos.
-      - ``eliminar``: el row esta en TIA con comentario, no en el Excel.
-        Se muestra para visibilidad; el sync lo trata como preset-no-borrar.
+      - ``agregar``: plc_tag en Excel, no en TIA (o TIA sin comment en slot).
+      - ``renombrar``: plc_tag en ambos, comentarios distintos.
+      - ``sin_cambios``: plc_tag en ambos, comentarios identicos.
+      - ``eliminar``: plc_tag en TIA con comment, no en el Excel.
+        Se muestra para visibilidad; el sync lo trata como
+        preservar-no-borrar (misma politica que ``compute_comments_diff``).
 
-    Output shape por row (mismo que consumia la SPA via ``constants.todos``
-    antes de C.18, ampliado con los campos de comment):
+    Output shape por row (mismo que consume la SPA desde C.20):
 
         numero         : int
         plc_tag_tia    : str | None
@@ -455,10 +457,7 @@ def compute_unified_diff_entities(
         Lista de dicts ordenada por ``numero``. NO incluye filas en TIA
         sin comment en el slot (no hay nada que representar).
     """
-    tia_by_numero: dict[int, str] = {
-        numero: plc_tag
-        for plc_tag, numero in diff_entities.base.items()
-    }
+    base_by_plc_tag: dict[str, int] = dict(diff_entities.base)
 
     rows: list[dict[str, Any]] = []
 
@@ -467,7 +466,7 @@ def compute_unified_diff_entities(
     ):
         comment_tia = diff_comments.current.get(numero)
         comment_excel = diff_comments.desired.get(numero)
-        plc_tag_tia = tia_by_numero.get(numero)
+        plc_tag_tia: str | None = plc_tag if plc_tag in base_by_plc_tag else None
 
         if plc_tag_tia is None or comment_tia is None:
             status = "agregar"
@@ -507,6 +506,52 @@ def compute_unified_diff_entities(
     return rows
 
 
+# ---------------------------------------------------------------------------
+# API publica: detect_inconsistencias_plc_tags
+# ---------------------------------------------------------------------------
+
+
+def detect_inconsistencias_plc_tags(
+    diff_entities: DiffEntities,
+) -> list[str]:
+    """Detecta PlcUserConstants de TIA con plc_tag NO canonico (``ENT_<X>``).
+
+    Caso real (PostSmoke, oct-2026): el operador metio a mano una
+    constante llamada ``Constant_1`` con value=4 en TIA, mientras que
+    el Excel tiene ``ENT_004`` con numero=4. La regla canonica del
+    feature es que el plc_tag sea ``ENT_<X>`` con X = numero. Cualquier
+    PlcUserConstant de TIA que NO la cumpla es un error del operador.
+
+    Output: lista de warnings legibles (1 por inconsistencia). El caller
+    los anyade a ``result["warnings"]`` del FB. La SPA los rendera como
+    banner.
+
+    Args:
+        diff_entities: resultado de ``compute_diff_entities``.
+
+    Returns:
+        Lista de strings con warnings. Vacia si no hay inconsistencias.
+    """
+    warnings: list[str] = []
+    for plc_tag, numero in diff_entities.base.items():
+        canonico = f"ENT_{numero:03d}"
+        if plc_tag != canonico:
+            # Busca si ese numero existe en el Excel con el plc_tag canonico.
+            excel_plc_tag = None
+            for t, n in diff_entities.desired.items():
+                if n == numero:
+                    excel_plc_tag = t
+                    break
+            if excel_plc_tag is not None:
+                warnings.append(
+                    f"TIA tiene PlcUserConstant '{plc_tag}' con value={numero}, "
+                    f"pero el Excel tiene '{excel_plc_tag}' con el mismo numero. "
+                    f"La regla canonica es plc_tag = ENT_<X> con X = numero. "
+                    f"Quita una o renombra."
+                )
+    return warnings
+
+
 __all__ = [
     "DiffEntities",
     "DiffComments",
@@ -514,5 +559,6 @@ __all__ = [
     "compute_nmax_diff_entidades",
     "compute_comments_diff",
     "compute_unified_diff_entities",
+    "detect_inconsistencias_plc_tags",
     "compute_summary",
 ]

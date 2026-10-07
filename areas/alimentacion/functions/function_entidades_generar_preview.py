@@ -456,6 +456,7 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
         from areas.alimentacion.helpers.entidades.entidades_generate_preview import (
             compute_summary,
             compute_unified_diff_entities,
+            detect_inconsistencias_plc_tags,
             DiffEntities,
             DiffComments,
         )
@@ -504,11 +505,15 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
         # Tabla unificada "arrays.ENT" (formato SPA legacy).
         arrays_ent = _build_arrays_ent(diff_com)
 
-        # Tabla unificada "unified.todos" (C.18): cruza constants +
-        # comments en una sola tabla indexada por ``numero`` con 6
-        # columnas (Tag/Comment Actual TIA + Tag/Comment Deseado
-        # Excel + Status). Es lo que consume la SPA desde C.20.
+        # Tabla unificada "unified.todos" (C.18): match por plc_tag
+        # literal (C.21). 6 columnas para la SPA.
         unified_todos = compute_unified_diff_entities(diff_ent, diff_com)
+
+        # Warnings de plc_tags NO canonicos (C.21): TIA tiene
+        # ``Constant_1`` con value=4 mientras el Excel tiene
+        # ``ENT_004`` con numero=4. El sync no puede decidir por si
+        # solo; el operador debe resolver manualmente.
+        inconsistencies = detect_inconsistencias_plc_tags(diff_ent)
 
         self._ctx.result = {
             "precondiciones_ok": True,
@@ -548,7 +553,7 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
             },
             "nmax":    self._ctx.nmax_block,
             "summary": summary,
-            "warnings": list(self._ctx.warnings),
+            "warnings": list(self._ctx.warnings) + inconsistencies,
         }
 
 

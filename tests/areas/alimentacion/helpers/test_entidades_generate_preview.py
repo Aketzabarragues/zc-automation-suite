@@ -24,6 +24,7 @@ from areas.alimentacion.helpers.entidades.entidades_generate_preview import (
     compute_diff_entities,
     compute_summary,
     compute_unified_diff_entities,
+    detect_inconsistencias_plc_tags,
 )
 
 
@@ -508,6 +509,99 @@ def test_compute_unified_diff_eliminar_sin_comment_no_aparece() -> None:
     rows = compute_unified_diff_entities(diff_ent, diff_com)
 
     assert [r["numero"] for r in rows] == [0]
+
+
+def test_compute_unified_diff_plc_tag_no_canonico_no_matchea() -> None:
+    """TIA tiene ``Constant_1`` con value=4 + Excel tiene ``ENT_004`` con
+    numero=4. El match por plc_tag literal NO los empareja: son 2 filas
+    separadas (C.21, post smoke real del operario).
+
+    Antes del fix (C.18 con match por numero), el helper emparejaba
+    ambos por value=4 y los mostraba como 1 sola fila
+    (``plc_tag_tia='Constant_1'``). Eso era el bug que reporto Aketza.
+    """
+    diff_ent = DiffEntities(
+        table_name="6_Entidades",
+        base={"ENT_000": 0, "Constant_1": 4},  # plc_tag NO canonico
+        desired={"ENT_000": 0, "ENT_004": 4},
+        added=["ENT_004"], removed=[], renamed={},
+    )
+    diff_com = DiffComments(
+        db_name="DB6_ENT",
+        array_name="ENT",
+        slots_tia={0, 4},
+        current={0: "no se usa", 4: "comentario slot 4"},
+        desired={0: "no usar. no no no", 4: "linea 4"},
+        added=[4], removed=[], updated=[0], unchanged=[],
+    )
+
+    rows = compute_unified_diff_entities(diff_ent, diff_com)
+
+    # ENT_000 matchea con su propio plc_tag.
+    row_ent000 = next(r for r in rows if r["plc_tag_excel"] == "ENT_000")
+    assert row_ent000["plc_tag_tia"] == "ENT_000"
+    assert row_ent000["status"] == "renombrar"
+    # ENT_004 (Excel) no matchea con nada en TIA -> agregar.
+    row_ent004 = next(r for r in rows if r["plc_tag_excel"] == "ENT_004")
+    assert row_ent004["plc_tag_tia"] is None
+    assert row_ent004["status"] == "agregar"
+    # Constant_1 (TIA) no matchea con nada en Excel -> eliminar.
+    row_constant = next(r for r in rows if r["plc_tag_tia"] == "Constant_1")
+    assert row_constant["plc_tag_excel"] is None
+    assert row_constant["comment_tia"] == "comentario slot 4"
+    assert row_constant["status"] == "eliminar"
+    # No se han colisionado en numero=4: hay 2 filas (ENT_004 agregar,
+    # Constant_1 eliminar), el operador las ve lado a lado.
+    nums_in_rows = sorted(r["numero"] for r in rows)
+    assert nums_in_rows == [0, 4, 4]
+
+
+def test_detect_inconsistencias_plc_tags_warning() -> None:
+    """PlcUserConstant con plc_tag != ``ENT_<X>`` genera un warning accionable."""
+    diff_ent = DiffEntities(
+        table_name="6_Entidades",
+        base={"ENT_000": 0, "Constant_1": 4},
+        desired={"ENT_000": 0, "ENT_004": 4},
+        added=[], removed=[], renamed={},
+    )
+
+    w = detect_inconsistencias_plc_tags(diff_ent)
+
+    assert len(w) == 1
+    msg = w[0]
+    assert "Constant_1" in msg
+    assert "ENT_004" in msg
+    assert "value=4" in msg
+    assert "regla canonica" in msg
+
+
+def test_detect_inconsistencias_plc_tags_sin_inconsistencias() -> None:
+    """PlcUserConstants canonicas (``ENT_<X>`` con X=numero) -> no warnings."""
+    diff_ent = DiffEntities(
+        table_name="6_Entidades",
+        base={"ENT_000": 0, "ENT_001": 1},
+        desired={"ENT_000": 0, "ENT_001": 1},
+        added=[], removed=[], renamed={},
+    )
+
+    w = detect_inconsistencias_plc_tags(diff_ent)
+
+    assert w == []
+
+
+def test_detect_inconsistencias_plc_tags_sin_excel_no_warning() -> None:
+    """TIA con plc_tag no canonico pero sin match en Excel: NO warning
+    (es solo "eliminar"; el operador lo borrara igual)."""
+    diff_ent = DiffEntities(
+        table_name="6_Entidades",
+        base={"Constant_1": 4},  # solo en TIA
+        desired={},
+        added=[], removed=[], renamed={},
+    )
+
+    w = detect_inconsistencias_plc_tags(diff_ent)
+
+    assert w == []
 
 
 # ---------------------------------------------------------------------------
