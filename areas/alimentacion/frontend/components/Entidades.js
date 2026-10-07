@@ -6,22 +6,20 @@
  * de Dispositivos y Procesos en el sidebar del shell SPA.
  *
  * Estructura (estilo Dispositivos.js, 2 cards):
- *   1. Card "info": vacio por defecto (mismo patron que
- *      ``Dispositivos.js``: ``<span v-else></span>``) + boton
- *      "🔍 Generar Prevision".
+ *   1. Card "info": summary del ultimo preview (o vacio) + boton
+ *      "🔍 Generar Prevision". Si el ultimo preview fallo
+ *      (precondiciones_ok=False), la cabecera muestra el motivo.
  *   2. Card "tabla": tabla plana con los 7 campos del DTO ``Entidad``
- *      filtrada por el PLC del store + boton "✅ Aplicar en TIA Portal"
- *      abajo.
+ *      filtrada por el PLC del store + boton "✅ Aplicar Cambios en
+ *      TIA Portal" abajo.
  *
- * Stub (commit B.0): los botones llaman a ``apiEntidadesPreview`` /
- * ``apiEntidadesSync`` que devuelven ``status: "preview_stub" /
- * "sincronizar_stub"``. En commit B (FB Preview real) el backend
- * devuelve el diff Excel vs TIA online. En commit C (FB Sync real)
- * aplica los cambios transaccionalmente. Este componente no se
- * toca en B/C: solo se sustituye el backend.
+ * El handler ``handlePreview`` consume ``/api/v1/entidades/preview``
+ * que dispara el FB ``entidades_generar_preview`` (commit C). El
+ * resultado se guarda en ``lastPreview`` y se muestra en la card 1.
  *
- * Tema: Industrial Claro. Solo tokens semanticos
- * (``bg-surface*``, ``border-line*``, ``text-ink*``, ``text-accent``).
+ * El handler ``handleApply`` consume ``/api/v1/entidades/sincronizar``
+ * (sigue siendo stub en commit D). Cuando se implemente el FB sync,
+ * se aplicaran los cambios de ``lastPreview`` (constants + comments).
  *
  * IMPORTANTE sobre templates Vue: el compilador en runtime de
  * ``vue.esm-browser.prod.js`` NO acepta string literals multi-linea
@@ -69,6 +67,14 @@ export default {
         const isWorking = ref(false);
 
         /**
+         * Resultado del ultimo ``/api/v1/entidades/preview`` (commit C).
+         * ``null`` o dict con shape completa del FB. La card 1 lo
+         * muestra como summary (counts) o como error (si
+         * ``precondiciones_ok`` es False).
+         */
+        const lastPreview = ref(null);
+
+        /**
          * Helper UX: ``displayValue`` muestra ``-`` para
          * ``null/undefined/""`` en vez de celdas vacias feas.
          */
@@ -78,17 +84,47 @@ export default {
             return String(value);
         }
 
+        /**
+         * Summary legible del ultimo preview para la cabecera.
+         * Si no hay preview -> "Sin prevision".
+         */
+        const previewSummary = computed(() => {
+            const p = lastPreview.value;
+            if (!p) return "Sin prevision";
+            if (!p.precondiciones_ok) return "Preview incompleto";
+            const s = p.summary || {};
+            return (
+                `${s.constants_agregados || 0} const adds · `
+                + `${s.comments_added || 0} comments adds · `
+                + `${s.comments_updated || 0} comments updates`
+            );
+        });
+
+        /**
+         * Lista de motivos si el ultimo preview fallo
+         * (precondiciones_ok=False). Lista vacia si no fallo o si
+         * no hay preview.
+         */
+        const previewMissingBlocks = computed(() => {
+            const p = lastPreview.value;
+            if (!p || p.precondiciones_ok) return [];
+            const mb = p.missing_blocks || [];
+            return Array.isArray(mb) ? mb : [];
+        });
+
         async function handlePreview() {
             if (isWorking.value || !plcName.value) return;
             isWorking.value = true;
             store.busy = true;
+            lastPreview.value = null;
             try {
                 const r = await apiEntidadesPreview(plcName.value);
                 if (r && r.errorType === "TIAConnectionError") {
                     resetPlcState();
                     return;
                 }
-                if (r && r.ok) {
+                if (r && r.ok && r.data) {
+                    lastPreview.value = r.data;
                     store.entidadesLastPreview = r.data;
                 }
             } finally {
@@ -122,6 +158,9 @@ export default {
             entities,
             hasMemory,
             isWorking,
+            lastPreview,
+            previewSummary,
+            previewMissingBlocks,
             displayValue,
             handlePreview,
             handleApply,
@@ -130,22 +169,40 @@ export default {
     template: /* html */ `
         <section class="flex-1 flex flex-col overflow-hidden">
 
-            <!-- ★ Card "info" (estilo Dispositivos.js): vacio si no
-                 hay prevision + boton "🔍 Generar Prevision". ★ -->
-            <div class="mb-4 bg-surface-raised border border-line rounded p-4 flex justify-between items-center"
+            <!-- ★ Card "info" (estilo Dispositivos.js): summary del
+                 ultimo preview (o vacio) + banner de error si
+                 precondiciones_ok=False + boton "🔍 Generar Prevision". ★ -->
+            <div class="mb-4 bg-surface-raised border border-line rounded p-4"
                  data-testid="entidades-card-info">
-                <span></span>
-                <button @click="handlePreview"
-                    :disabled="!plcName || isWorking"
-                    data-testid="entidades-preview-btn"
-                    class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
-                    🔍 Generar Prevision
-                </button>
+                <div class="flex justify-between items-start gap-3">
+                    <p class="text-xs text-ink-muted"
+                       data-testid="entidades-preview-summary">
+                        {{ previewSummary }}
+                    </p>
+                    <button @click="handlePreview"
+                        :disabled="!plcName || isWorking"
+                        data-testid="entidades-preview-btn"
+                        class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
+                        🔍 Generar Prevision
+                    </button>
+                </div>
+
+                <!-- ★ Banner rojo si el preview fallo. ★ -->
+                <div v-if="previewMissingBlocks.length > 0"
+                     data-testid="entidades-preview-errors"
+                     class="mt-3 bg-red-50 border border-red-300 rounded p-3 text-xs text-red-700">
+                    <div class="font-semibold mb-1">Preview incompleto:</div>
+                    <ul class="list-disc list-inside space-y-0.5">
+                        <li v-for="(msg, idx) in previewMissingBlocks" :key="idx">
+                            {{ msg }}
+                        </li>
+                    </ul>
+                </div>
             </div>
 
             <!-- ★ Card "tabla" (estilo Dispositivos.js): tabla plana
                  con las entidades del PLC seleccionado + boton
-                 "✅ Aplicar en TIA Portal" abajo. ★ -->
+                 "✅ Aplicar Cambios en TIA Portal" abajo. ★ -->
             <div class="flex-1 bg-surface-raised border border-line rounded p-4 mb-4 flex flex-col overflow-hidden"
                  data-testid="entidades-card-tabla">
 

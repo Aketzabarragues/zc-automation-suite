@@ -446,8 +446,9 @@ export const apiProcesosCrearAplicar = (params) =>
  * @returns {Promise<{ok, status, data}>}
  */
 export const apiEntidadesPreview = (plcName) =>
-    // MEDIUM: con el FB real sera un export bulk + diff contra
-    // el DB6_ENT online + PlcUserConstants. De momento stub <1s.
+    // MEDIUM: export bulk + 3 dispatches al worker OT (2 export_plc_tags_xml
+    // + 1 export_block). STEP_TIMEOUT_S del FB = 60s; el cliente debe
+    // esperar MAS (5 min cubre S7-1500 grandes).
     _request(
         "POST",
         "/api/v1/entidades/preview",
