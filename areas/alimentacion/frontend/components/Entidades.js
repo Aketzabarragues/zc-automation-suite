@@ -203,7 +203,7 @@ export default {
 
             <!-- ★ Card "tabla" (estilo Dispositivos.js): NMAX_ENTIDAD
                  + tabla unica de diff + boton aplicar. Sin tabs:
-                 solo hay 1 tipo de entidad (`ENT`), no hace falta
+                 solo hay 1 tipo de entidad (ENT), no hace falta
                  el strip de tabs como en Disp. ★ -->
             <div class="flex-1 bg-surface-raised border border-line rounded p-4 mb-4 flex flex-col overflow-hidden"
                  data-testid="entidades-card-tabla">
