@@ -450,6 +450,15 @@ def test_stage_5_build_response_compose_shape() -> None:
     assert r["summary"]["constants_agregados"] == 1
     assert r["summary"]["comments_updated"] == 1
     assert r["nmax"]["summary"]["sin_cambios"] == 1
+    # C.19: unified.todos con la nueva shape (6 columnas).
+    unified = r["unified"]["todos"]
+    assert len(unified) >= 1
+    for row in unified:
+        assert set(row.keys()) >= {
+            "numero", "plc_tag_tia", "comment_tia",
+            "plc_tag_excel", "comment_excel", "status",
+        }
+        assert row["status"] in {"agregar", "renombrar", "sin_cambios", "eliminar"}
 
 
 def test_stage_5_build_response_stages_previos_fallaron() -> None:

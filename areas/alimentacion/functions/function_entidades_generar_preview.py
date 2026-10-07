@@ -455,6 +455,7 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
         """
         from areas.alimentacion.helpers.entidades.entidades_generate_preview import (
             compute_summary,
+            compute_unified_diff_entities,
             DiffEntities,
             DiffComments,
         )
@@ -494,14 +495,20 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
 
         summary = compute_summary(diff_ent, diff_com)
 
-        # Tabla unificada "constants.todos" (formato SPA): una fila por
-        # plc_tag con status agregado (agregados / eliminados / renombrados /
-        # sin_cambios).
+        # Tabla unificada "constants.todos" (formato SPA legacy, C.16):
+        # una fila por plc_tag con status agregado (agregados /
+        # eliminados / renombrados / sin_cambios). Mantenido por
+        # compat con consumers que ya lo leen.
         constants_todos = _build_constants_todos(diff_ent)
 
-        # Tabla unificada "arrays.ENT" (formato SPA): una fila por slot
-        # del array con status (added / sin_cambios / updated).
+        # Tabla unificada "arrays.ENT" (formato SPA legacy).
         arrays_ent = _build_arrays_ent(diff_com)
+
+        # Tabla unificada "unified.todos" (C.18): cruza constants +
+        # comments en una sola tabla indexada por ``numero`` con 6
+        # columnas (Tag/Comment Actual TIA + Tag/Comment Deseado
+        # Excel + Status). Es lo que consume la SPA desde C.20.
+        unified_todos = compute_unified_diff_entities(diff_ent, diff_com)
 
         self._ctx.result = {
             "precondiciones_ok": True,
@@ -535,6 +542,9 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
                     for plc_tag, (old, new) in diff_ent.renamed.items()
                 ],
                 "todos": constants_todos,
+            },
+            "unified": {
+                "todos": unified_todos,
             },
             "nmax":    self._ctx.nmax_block,
             "summary": summary,
