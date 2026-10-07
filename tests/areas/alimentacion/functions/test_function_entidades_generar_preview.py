@@ -218,6 +218,9 @@ def test_run_step_falla_si_step_desconocido() -> None:
 def _make_fb_with_ctx() -> FunctionEntidadesGenerarPreview:
     """Crea un FB con deps inyectadas + ctx inicializado."""
     from pathlib import Path
+    from areas.alimentacion.functions.function_entidades_generar_preview import (
+        EntidadesPreviewContext,
+    )
     fb = FunctionEntidadesGenerarPreview(
         nombre="test",
         config_manager=_make_config_manager(),
@@ -226,12 +229,15 @@ def _make_fb_with_ctx() -> FunctionEntidadesGenerarPreview:
         build_cache=Path("/tmp/build_cache"),
     )
     fb._plc_name = "PLC_S1500"
-    fb._ctx = MagicMock()
-    fb._ctx.plc_name = "PLC_S1500"
-    fb._ctx.tia_client = fb._tia_client
-    fb._ctx.config_manager = fb._config
-    fb._ctx.app_state = fb._state
-    fb._ctx.build_cache_root = Path("/tmp/build_cache")
+    # Ctx real (dataclass) para que las mutaciones (warnings, blocks)
+    # persistan correctamente. MagicMock auto-generado rompe esto.
+    fb._ctx = EntidadesPreviewContext(
+        plc_name="PLC_S1500",
+        tia_client=fb._tia_client,
+        config_manager=fb._config,
+        app_state=fb._state,
+        build_cache_root=Path("/tmp/build_cache"),
+    )
     return fb
 
 
@@ -243,7 +249,7 @@ def test_stage_1_exportar_llama_dispatch_async() -> None:
     with patch(
         "areas.alimentacion.functions.function_entidades_generar_preview."
         "dispatch_async",
-        new=AsyncMock(),
+        new=AsyncMock(return_value={"ok": True}),
     ) as mock_dispatch, patch(
         "areas.alimentacion.helpers.layout.build_cache.build_cache"
     ) as mock_layout:
@@ -260,6 +266,41 @@ def test_stage_1_exportar_llama_dispatch_async() -> None:
     second_call_args = mock_dispatch.call_args_list[1].args
     assert first_call_args[1] == "export_plc_tags_xml"
     assert second_call_args[1] == "export_block"
+    # Sin warnings en happy path.
+    assert fb._ctx.warnings == []
+
+
+def test_stage_1_exportar_si_worker_falla_sigue_con_warnings() -> None:
+    """Si el worker TIA falla (None), el FB sigue + acumula warnings.
+
+    Caso real: operario aun no creo DB6_ENT en TIA. El preview debe
+    degradarse gracioso y NO abortar con TypeError.
+    """
+    from pathlib import Path
+    fb = _make_fb_with_ctx()
+
+    # Mockeamos dispatch_async para que retorne None (simula
+    # dispatch_failed del worker TIA: TIA no encuentra el bloque).
+    with patch(
+        "areas.alimentacion.functions.function_entidades_generar_preview."
+        "dispatch_async",
+        new=AsyncMock(return_value=None),
+    ), patch(
+        "areas.alimentacion.helpers.layout.build_cache.build_cache"
+    ) as mock_layout:
+        mock_layout.return_value.entidades.preview_config = Path("/tmp/cfg")
+        mock_layout.return_value.entidades.preview_disp = Path("/tmp/disp")
+        mock_layout.return_value.entidades.preview_bloques = Path("/tmp/blq")
+
+        import asyncio
+        # NO debe lanzar TypeError.
+        asyncio.run(fb._stage_1_exportar())
+
+    # 2 warnings acumulados (tags + block).
+    assert len(fb._ctx.warnings) == 2
+    assert "export_plc_tags_xml fallo" in fb._ctx.warnings[0]
+    assert "DB6_ENT" in fb._ctx.warnings[1]
+    assert "no encontrado" in fb._ctx.warnings[1]
 
 
 def test_stage_2_compute_nmax_usa_n_max_del_cache() -> None:

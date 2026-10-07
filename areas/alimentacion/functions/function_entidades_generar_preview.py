@@ -238,6 +238,18 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
           - config/         0_Config_Generales.xml (N_MAX_ENTIDAD)
           - disp/           6_Entidades.xml (ent_<plc_tag>)
           - bloques/        DB6_ENT.s7dcl + DB6_ENT.s7res
+
+        Politica ante fallos del worker TIA (comportamiento mismo
+        que proc_db_preview): si una tabla o el DB no existen en
+        TIA (caso real del operario que aun no creo DB6_ENT), el FB
+        **NO** aborta: marca el bloque como ``missing_xml`` / emite un
+        warning y los stages posteriores (compute_nmax / entidades /
+        comentarios) devolveran diff vacio para ese lado. El operario
+        sigue viendo el preview de las partes que SI existen.
+
+        Antes (legacy): si el worker TIA falla, retornaba None en lugar
+        de raise, y el FB hacia ``await None`` con TypeError. Eso se
+        veia en el smoke del operario con DB6_ENT inexistente.
         """
         from areas.alimentacion.helpers.layout.build_cache import build_cache
 
@@ -265,7 +277,11 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
         self._ctx.config_table = config_table
 
         # 2/3: export_plc_tags_xml (2 tablas) en 1 dispatch FLAT.
-        await dispatch_async(
+        # Si el worker falla (Tia puede no tener las tablas aun),
+        # ``dispatch_async`` retorna None (no raise). Capturamos y
+        # seguimos: compute_* vera ``missing_xml=True`` y devolvera
+        # diff vacio para esa parte.
+        tags_result = await dispatch_async(
             self._ctx.tia_client,
             "export_plc_tags_xml",
             {
@@ -275,13 +291,22 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
                 "keep_folder_structure": False,
             },
         )
-        logger.debug(
-            f"  {config_table} + {tag_table} exportadas a "
-            f"{self._ctx.preview_disp_dir}"
-        )
+        if tags_result is None:
+            warning = (
+                f"export_plc_tags_xml fallo (Tia puede no tener "
+                f"'{config_table}' o '{tag_table}' todavia). "
+                f"Tablas entities marcadas como missing_xml."
+            )
+            logger.warning(warning)
+            self._ctx.warnings.append(warning)
+        else:
+            logger.debug(
+                f"  {config_table} + {tag_table} exportadas a "
+                f"{self._ctx.preview_disp_dir}"
+            )
 
         # 3/3: export_block (DB6_ENT) a preview/bloques/.
-        await dispatch_async(
+        block_result = await dispatch_async(
             self._ctx.tia_client,
             "export_block",
             {
@@ -291,9 +316,18 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
             },
             timeout_s=60.0,
         )
-        logger.debug(
-            f"  {db_name} exportado a {self._ctx.preview_bloques_dir}"
-        )
+        if block_result is None:
+            warning = (
+                f"export_block fallo: bloque '{db_name}' no encontrado "
+                f"en PLC '{self._ctx.plc_name}'. "
+                f"Comments diff no disponible."
+            )
+            logger.warning(warning)
+            self._ctx.warnings.append(warning)
+        else:
+            logger.debug(
+                f"  {db_name} exportado a {self._ctx.preview_bloques_dir}"
+            )
 
     async def _stage_2_compute_nmax(self) -> None:
         """Stage 2: calcula el diff de N_MAX_ENTIDAD."""
