@@ -149,9 +149,15 @@ class DiffComments:
 def _read_entities_from_xml(xml_path: Path) -> dict[str, int]:
     """Lee un XML FLAT de ``6_Entidades`` y devuelve ``{plc_tag: numero}``.
 
-    Las PlcUserConstants ``ent_<plc_tag>`` se almacenan en el XML con
-    ``name`` = ``ent_<plc_tag>`` y ``value`` = ``numero``. Aqui devolvemos
-    ``{plc_tag: numero}`` (sin prefijo ``ent_``) para matchear el Excel.
+    El XML exporta ``{value: name}`` (``PlcUserConstantModifier
+    .read_user_constants_with_uids``). En TIA la tabla ``6_Entidades``
+    SOLO contiene PlcUserConstants de entidades (el operario las mete
+    a mano con el nombre canonico ``ENT_000``, ``ENT_001``, etc., en
+    MAYUSCULAS por convencion Siemens), asi que no hay que filtrar
+    por prefijo: la tabla ya viene pre-filtrada.
+
+    Invirtiendo: ``name`` (string) = ``plc_tag`` del Excel,
+    ``value`` (int via ``uid_str``) = ``numero``.
 
     Si el XML no existe o falla el parse, devuelve ``{}``.
     """
@@ -168,11 +174,9 @@ def _read_entities_from_xml(xml_path: Path) -> dict[str, int]:
         return {}
     out: dict[str, int] = {}
     for uid_str, name in raw.items():
-        # El ``uid_str`` es el value (numero) y ``name`` es el nombre
-        # canonico ``ent_<plc_tag>``. Invirtiendo:
-        if not name.startswith("ent_"):
+        plc_tag = str(name).strip()
+        if not plc_tag:
             continue
-        plc_tag = name[len("ent_"):]
         try:
             numero = int(str(uid_str).strip())
         except (TypeError, ValueError):

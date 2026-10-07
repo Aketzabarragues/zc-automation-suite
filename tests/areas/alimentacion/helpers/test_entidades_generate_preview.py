@@ -50,11 +50,14 @@ class FakeEntidad:
 def _mock_modifier_with_constants(plc_tag_to_numero: dict[str, int]) -> MagicMock:
     """Crea un mock de PlcUserConstantModifier con ``read_user_constants_with_uids``.
 
-    Devuelve ``{str(numero): "ent_<plc_tag>"}`` (formato real del parser).
+    Devuelve ``{str(numero): "<plc_tag>"}`` (formato real del parser
+    tras C.10: el helper ya no quita prefijo ``ent_`` porque la tabla
+    ``6_Entidades`` viene pre-filtrada por el operario y los nombres
+    son canonicos en MAYUSCULAS, p.ej. ``ENT_000``).
     """
     modifier = MagicMock()
     raw = {
-        str(numero): f"ent_{plc_tag}"
+        str(numero): plc_tag
         for plc_tag, numero in plc_tag_to_numero.items()
     }
     modifier.read_user_constants_with_uids.return_value = raw
