@@ -86,30 +86,18 @@ export default {
 
         /**
          * Summary legible del ultimo preview para la cabecera.
-         * Si no hay preview -> "Sin prevision".
+         * Si no hay preview o el preview fallo, devuelve
+         * "Sin prevision" (mismo patron que ``Dispositivos.js``).
          */
         const previewSummary = computed(() => {
             const p = lastPreview.value;
-            if (!p) return "Sin prevision";
-            if (!p.precondiciones_ok) return "Preview incompleto";
+            if (!p || !p.precondiciones_ok) return "Sin prevision";
             const s = p.summary || {};
             return (
                 `${s.constants_agregados || 0} const adds · `
                 + `${s.comments_added || 0} comments adds · `
                 + `${s.comments_updated || 0} comments updates`
             );
-        });
-
-        /**
-         * Lista de motivos si el ultimo preview fallo
-         * (precondiciones_ok=False). Lista vacia si no fallo o si
-         * no hay preview.
-         */
-        const previewMissingBlocks = computed(() => {
-            const p = lastPreview.value;
-            if (!p || p.precondiciones_ok) return [];
-            const mb = p.missing_blocks || [];
-            return Array.isArray(mb) ? mb : [];
         });
 
         async function handlePreview() {
@@ -160,7 +148,6 @@ export default {
             isWorking,
             lastPreview,
             previewSummary,
-            previewMissingBlocks,
             displayValue,
             handlePreview,
             handleApply,
@@ -170,34 +157,20 @@ export default {
         <section class="flex-1 flex flex-col overflow-hidden">
 
             <!-- ★ Card "info" (estilo Dispositivos.js): summary del
-                 ultimo preview (o vacio) + banner de error si
-                 precondiciones_ok=False + boton "🔍 Generar Prevision". ★ -->
-            <div class="mb-4 bg-surface-raised border border-line rounded p-4"
+                 ultimo preview (o vacio) + boton "🔍 Generar
+                 Prevision". ★ -->
+            <div class="mb-4 bg-surface-raised border border-line rounded p-4 flex justify-between items-center"
                  data-testid="entidades-card-info">
-                <div class="flex justify-between items-start gap-3">
-                    <p class="text-xs text-ink-muted"
-                       data-testid="entidades-preview-summary">
-                        {{ previewSummary }}
-                    </p>
-                    <button @click="handlePreview"
-                        :disabled="!plcName || isWorking"
-                        data-testid="entidades-preview-btn"
-                        class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
-                        🔍 Generar Prevision
-                    </button>
-                </div>
-
-                <!-- ★ Banner rojo si el preview fallo. ★ -->
-                <div v-if="previewMissingBlocks.length > 0"
-                     data-testid="entidades-preview-errors"
-                     class="mt-3 bg-red-50 border border-red-300 rounded p-3 text-xs text-red-700">
-                    <div class="font-semibold mb-1">Preview incompleto:</div>
-                    <ul class="list-disc list-inside space-y-0.5">
-                        <li v-for="(msg, idx) in previewMissingBlocks" :key="idx">
-                            {{ msg }}
-                        </li>
-                    </ul>
-                </div>
+                <p class="text-xs text-ink-muted"
+                   data-testid="entidades-preview-summary">
+                    {{ previewSummary }}
+                </p>
+                <button @click="handlePreview"
+                    :disabled="!plcName || isWorking"
+                    data-testid="entidades-preview-btn"
+                    class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
+                    🔍 Generar Prevision
+                </button>
             </div>
 
             <!-- ★ Card "tabla" (estilo Dispositivos.js): tabla plana
