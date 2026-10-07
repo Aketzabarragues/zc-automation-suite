@@ -50,7 +50,11 @@ from typing import Any
 
 from core.composition.plc_function_base import FunctionBase
 from core.helpers.tia import dispatch_async
-from core.helpers.tia.active_cache import get_entidades, get_nmax
+from core.helpers.tia.active_cache import (
+    get_entidades,
+    get_nmax,
+    get_nmax_entidades,
+)
 from core.helpers.tia.validate_plc_in_excel import validate_plc_in_excel
 from core.helpers.tia.validate_plc_in_tia import validate_plc_in_tia
 from core.helpers.tia.with_plc import with_plc
@@ -337,13 +341,11 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
         )
 
         # N_MAX_ENTIDAD vive en 0_Config_Generales. El cache del PLC
-        # activo expone ``extras`` con TODAS las N_MAX del PLC
-        # (``N_MAX_DISP_*`` + ``N_MAX_ENTIDAD``); filtramos solo la
-        # entry del feature entidades.
-        nmax_full = get_nmax(self._ctx.app_state)
-        desired_nmax = {
-            "N_MAX_ENTIDAD": nmax_full["N_MAX_ENTIDAD"],
-        } if "N_MAX_ENTIDAD" in nmax_full else {}
+        # activo lo expone en ``DataDimensionesPLC.n_max_entidades``
+        # (campo separado de ``extras``: su entrada en ``n_max_catalog``
+        # tiene ``hw_type=""`` y por eso ``get_nmax`` NO lo incluye).
+        # Usamos el helper dedicado ``get_nmax_entidades``.
+        desired_nmax = get_nmax_entidades(self._ctx.app_state)
 
         # El export bulk del Stage 1 copio AMBAS tablas a preview_disp/
         # (FLAT). El de 0_Config_Generales esta entre ellos.
