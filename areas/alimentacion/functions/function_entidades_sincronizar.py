@@ -425,7 +425,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
             "desired":     nmax_dm.desired,
             "todos":       nmax_dm.todos,
             "summary":     nmax_dm.summary,
-            "nmax_error":  nmax_dm.nmax_error,
+            "missing_xml": nmax_dm.missing_xml,
         }
 
         # Comments: lee .s7dcl/.s7res de sincronizar/bloques/export/.
