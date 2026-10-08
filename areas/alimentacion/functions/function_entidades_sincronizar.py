@@ -315,7 +315,10 @@ class FunctionEntidadesSincronizar(FunctionBase):
         self._ctx.tag_table = tag_table
         self._ctx.config_table = config_table
 
-        # 2/3: export_plc_tags_xml (2 tablas) en 1 dispatch FLAT.
+        # 2/3: export_plc_tags_xml (2 tablas) preservando estructura TIA.
+        # C.7.6: keep_folder_structure=True (mirror Disp) para que
+        # import_plc_tags_xml en Tx B pueda matchear UPDATE por nombre
+        # + ruta relativa consistente con TIA Portal.
         tags_result = await dispatch_async(
             self._ctx.tia_client,
             "export_plc_tags_xml",
@@ -323,7 +326,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
                 "plc_name": self._ctx.plc_name,
                 "target_dir": str(self._ctx.sync_variables_export),
                 "table_names": [config_table, tag_table],
-                "keep_folder_structure": False,
+                "keep_folder_structure": True,
             },
         )
         if tags_result is None:
@@ -341,7 +344,11 @@ class FunctionEntidadesSincronizar(FunctionBase):
                 f"{self._ctx.sync_variables_export}"
             )
 
-        # 3/3: export_block (DB6_ENT) a sincronizar/bloques/export/.
+        # 3/3: export_block (DB6_ENT) preservando estructura TIA.
+        # C.7.6: keep_folder_structure=True (mirror Disp) — sin esto,
+        # import_block en Tx C falla con "Import failed because an
+        # object with the name 'DB6_ENT' already exists" porque TIA
+        # no puede determinar la subcarpeta destino del UPDATE.
         block_result = await dispatch_async(
             self._ctx.tia_client,
             "export_block",
@@ -349,6 +356,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
                 "plc_name": self._ctx.plc_name,
                 "block_name": db_name,
                 "target_dir": str(self._ctx.sync_bloques_export),
+                "keep_folder_structure": True,
             },
             timeout_s=60.0,
         )
@@ -669,7 +677,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
                 "plc_name": self._ctx.plc_name,
                 "target_dir": str(self._ctx.sync_variables_export),
                 "table_names": [self._ctx.config_table, self._ctx.tag_table],
-                "keep_folder_structure": False,
+                "keep_folder_structure": True,
             },
         )
         if tags_result is None:
@@ -688,6 +696,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
                 "plc_name": self._ctx.plc_name,
                 "block_name": self._ctx.db_name,
                 "target_dir": str(self._ctx.sync_bloques_export),
+                "keep_folder_structure": True,
             },
             timeout_s=60.0,
         )
@@ -875,11 +884,14 @@ class FunctionEntidadesSincronizar(FunctionBase):
                     "operations": [
                         {
                             "command": "import_plc_tags_xml",
+                            # C.7.7: el handler espera ``import_dir`` (no
+                            # ``target_dir``); target_folder="" (string vacio)
+                            # activa la rama default del handler que omite el
+                            # argumento en TIA y mantiene match UPDATE.
                             "args": {
-                                "plc_name": self._ctx.plc_name,
-                                "target_dir": str(modified_dir),
-                                "table_names": [self._ctx.tag_table],
-                                "keep_folder_structure": False,
+                                "plc_name":      self._ctx.plc_name,
+                                "import_dir":    str(modified_dir),
+                                "target_folder": "",
                             },
                         }
                     ],
@@ -1158,7 +1170,7 @@ async def _stage_11_post_preview(self) -> None:
             "plc_name": self._ctx.plc_name,
             "target_dir": str(ent_ctx.preview_disp),
             "table_names": [self._ctx.config_table, self._ctx.tag_table],
-            "keep_folder_structure": False,
+            "keep_folder_structure": True,
         },
     )
     block_result = await dispatch_async(
@@ -1168,6 +1180,7 @@ async def _stage_11_post_preview(self) -> None:
             "plc_name": self._ctx.plc_name,
             "block_name": self._ctx.db_name,
             "target_dir": str(ent_ctx.preview_bloques),
+            "keep_folder_structure": True,
         },
         timeout_s=60.0,
     )
