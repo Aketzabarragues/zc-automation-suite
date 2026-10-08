@@ -128,6 +128,27 @@ def test_stage_3_preparar_ops_sin_ops_no_genera_op() -> None:
     assert fb._ctx.constant_ops == []
 
 
+def test_stage_3_preparar_ops_sin_cambios_es_noop() -> None:
+    """D.8.12: op ``sin_cambios`` es informativa; el sync FB no la aplica
+    (constant_ops y comment_ops quedan vacias para esa entity).
+    """
+    fb = _make_fb()
+    _bootstrap_fb(fb)
+    fb._ctx.entities_ops = [
+        {"kind": "sin_cambios", "plc_tag": "ENT_001", "value_tia": 1},
+        {"kind": "sin_cambios", "plc_tag": "ENT_002", "value_tia": 2},
+    ]
+    fb._ctx.desired_entities = ()  # sin entities del Excel -> comment_ops vacias
+    fb._ctx.nmax_block = {"todos": [], "summary": {}}
+
+    import asyncio
+    asyncio.run(fb._stage_3_preparar_ops())
+
+    # El sync ignora las ops sin_cambios: 0 ops de constant ni comment.
+    assert fb._ctx.constant_ops == []
+    assert fb._ctx.comment_ops == []
+
+
 def test_stage_3_preparar_ops_mismo_plc_tag_distinto_value_split() -> None:
     """delete + add (mismo plc_tag, value distinto) en entities_ops -> 2 const ops."""
     fb = _make_fb()

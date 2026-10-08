@@ -106,9 +106,12 @@ class DiffEntities:
               - ``{"kind": "update_comment", "plc_tag": str, "value_tia": int,
                                              "comment_tia": str|None,
                                              "comment_excel": str|None}``
+              - ``{"kind": "sin_cambios",    "plc_tag": str, "value_tia": int}``
 
             El sync FB itera esta lista en orden; el preview FB la
-            muestra al operario en una sola vista.
+            muestra al operario en una sola vista. Las ops
+            ``sin_cambios`` son informativas (la SPA las pinta como
+            ``✓ OK``); el sync FB las ignora (no toca TIA).
     """
 
     table_name: str
@@ -419,6 +422,8 @@ def compute_diff_entities(
     for plc_tag in common_keys:
         if base[plc_tag] != desired[plc_tag]:
             continue  # ya manejado (delete+add) o rename
+        if plc_tag in renamed_tia_tags:
+            continue  # cubierto por rename (Bug 2 fix abajo)
         cur = (base_comments.get(plc_tag) or "").strip()
         des = (desired_comments.get(plc_tag) or "").strip()
         if cur == des:
@@ -431,12 +436,50 @@ def compute_diff_entities(
             "comment_excel": desired_comments[plc_tag],
         })
 
+    # Bug 2 fix (D.8.12): para cada rename (TIA plc_tag -> plc_tag_new
+    # por value), emitir tambien un update_comment con el plc_tag_new y
+    # el comment del Excel. Sin esto, el primer sync renombra la constant
+    # pero deja su comment legacy del TIA; se necesitarian 2 syncs para
+    # dejarlo todo OK (el 2do sync ya ve el plc_tag_new en common_keys).
+    for plc_tag_tia, value, plc_tag_new in renames:
+        excel_comment = desired_comments.get(plc_tag_new)
+        cur_comment = base_comments.get(plc_tag_new)
+        if cur_comment == excel_comment:
+            continue
+        ops_update_comment.append({
+            "kind":         "update_comment",
+            "plc_tag":      plc_tag_new,
+            "value_tia":    value,
+            "comment_tia":  cur_comment,
+            "comment_excel": excel_comment,
+        })
+
+    # D.8.12: ops ``sin_cambios`` para entities que ya estan en sync
+    # (mismo plc_tag, mismo value, mismo comment). La SPA las pinta
+    # como ``✓ OK`` en la tabla unica; el sync FB las ignora (no-op).
+    ops_sin_cambios: list[dict[str, Any]] = []
+    for plc_tag in common_keys:
+        if plc_tag in renamed_tia_tags:
+            continue  # cubierto por rename (+ update_comment Bug 2 fix)
+        if base[plc_tag] != desired[plc_tag]:
+            continue  # cubierto por delete+add
+        cur = (base_comments.get(plc_tag) or "").strip()
+        des = (desired_comments.get(plc_tag) or "").strip()
+        if cur != des:
+            continue  # cubierto por update_comment
+        ops_sin_cambios.append({
+            "kind":      "sin_cambios",
+            "plc_tag":   plc_tag,
+            "value_tia": base[plc_tag],
+        })
+
     ops = (
         ops_delete_olds
         + ops_renames
         + ops_delete_add
         + ops_adds
         + ops_update_comment
+        + ops_sin_cambios
     )
 
     return DiffEntities(

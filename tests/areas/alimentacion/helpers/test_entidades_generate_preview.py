@@ -71,6 +71,31 @@ def _mock_modifier_with_constants(plc_tag_to_numero: dict[str, int]) -> MagicMoc
     return modifier
 
 
+def _mock_modifier_with_comments(
+    plc_tag_to_numero: dict[str, int],
+    plc_tag_to_comment: dict[str, str | None],
+) -> MagicMock:
+    """Mock con comments per-constant (D.8.12 tests).
+
+    ``plc_tag_to_comment`` es un dict separado para poder asignar
+    comentarios distintos por plc_tag (None = constant sin comment).
+    """
+    modifier = MagicMock()
+    raw = {
+        str(numero): plc_tag
+        for plc_tag, numero in plc_tag_to_numero.items()
+    }
+    modifier.read_user_constants_with_uids.return_value = raw
+    modifier.read_user_constants_with_comments.return_value = {
+        str(numero): {
+            "name": plc_tag,
+            "comment": plc_tag_to_comment.get(plc_tag),
+        }
+        for plc_tag, numero in plc_tag_to_numero.items()
+    }
+    return modifier
+
+
 # ---------------------------------------------------------------------------
 # Tests de compute_diff_entities
 # ---------------------------------------------------------------------------
@@ -259,6 +284,115 @@ def test_compute_diff_entities_n_total_changes(tmp_path: Path) -> None:
         diff = compute_diff_entities("6_Entidades", desired, xml)
 
     assert diff.n_total_changes == 2  # 1 added + 1 renamed
+
+
+# ---------------------------------------------------------------------------
+# Tests de ops sin_cambios + rename+update_comment (D.8.12)
+# ---------------------------------------------------------------------------
+
+
+def test_compute_diff_entities_emite_sin_cambios_para_en_sync(tmp_path: Path) -> None:
+    """Entities en sync (mismo plc_tag + mismo value + mismo comment)
+    emiten ops ``sin_cambios`` (D.8.12).
+
+    El sync FB las ignora; la SPA las pinta como ``✓ OK``.
+    """
+    xml = tmp_path / "6_Entidades.xml"
+    xml.write_text("<dummy/>", encoding="utf-8")
+
+    modifier = _mock_modifier_with_comments(
+        plc_tag_to_numero={"ENT_000": 0, "ENT_001": 1, "ENT_002": 2},
+        plc_tag_to_comment={
+            "ENT_000": "NO USAR. NO ELIMINAR.",
+            "ENT_001": "Linea 1",
+            "ENT_002": "Linea 2",
+        },
+    )
+    desired = [
+        FakeEntidad(numero=0, plc_tag="ENT_000", plc_comentario="NO USAR. NO ELIMINAR."),
+        FakeEntidad(numero=1, plc_tag="ENT_001", plc_comentario="Linea 1"),
+        FakeEntidad(numero=2, plc_tag="ENT_002", plc_comentario="Linea 2"),
+    ]
+    with patch(
+        "core.helpers.simatic_ml.PlcUserConstantModifier",
+        return_value=modifier,
+    ):
+        diff = compute_diff_entities("6_Entidades", desired, xml)
+
+    # 3 entities en sync -> 3 ops sin_cambios, sin adds/renames.
+    sin_cambios_ops = [op for op in diff.ops if op["kind"] == "sin_cambios"]
+    assert len(sin_cambios_ops) == 3
+    assert {op["plc_tag"] for op in sin_cambios_ops} == {"ENT_000", "ENT_001", "ENT_002"}
+    assert all(op["value_tia"] == op["value_tia"] for op in sin_cambios_ops)  # shape
+    assert diff.added == []
+    assert diff.renamed == {}
+
+
+def test_compute_diff_entities_NO_sin_cambios_si_comment_distinto(tmp_path: Path) -> None:
+    """Si comment difiere entre TIA y Excel, emite ``update_comment``
+    (no ``sin_cambios``). El sync debe aplicar el comment del Excel.
+    """
+    xml = tmp_path / "6_Entidades.xml"
+    xml.write_text("<dummy/>", encoding="utf-8")
+
+    modifier = _mock_modifier_with_comments(
+        plc_tag_to_numero={"ENT_001": 1},
+        plc_tag_to_comment={"ENT_001": "comment legacy"},
+    )
+    desired = [
+        FakeEntidad(numero=1, plc_tag="ENT_001", plc_comentario="Linea 1"),
+    ]
+    with patch(
+        "core.helpers.simatic_ml.PlcUserConstantModifier",
+        return_value=modifier,
+    ):
+        diff = compute_diff_entities("6_Entidades", desired, xml)
+
+    sin_cambios_ops = [op for op in diff.ops if op["kind"] == "sin_cambios"]
+    update_comment_ops = [op for op in diff.ops if op["kind"] == "update_comment"]
+    assert sin_cambios_ops == []
+    assert len(update_comment_ops) == 1
+    assert update_comment_ops[0]["plc_tag"] == "ENT_001"
+    assert update_comment_ops[0]["comment_tia"] == "comment legacy"
+    assert update_comment_ops[0]["comment_excel"] == "Linea 1"
+
+
+def test_compute_diff_entities_rename_incluye_update_comment_bug2_fix(tmp_path: Path) -> None:
+    """Bug 2 fix (D.8.12): un rename TIA ENT_11 -> Excel ENT_003 (mismo
+    value=3) emite tambien un ``update_comment`` con ``plc_tag=ENT_003``
+    y el comment del Excel. Asi el primer sync deja el comment OK
+    (antes se necesitaban 2 syncs).
+    """
+    xml = tmp_path / "6_Entidades.xml"
+    xml.write_text("<dummy/>", encoding="utf-8")
+
+    modifier = _mock_modifier_with_comments(
+        plc_tag_to_numero={"ENT_11": 3},
+        plc_tag_to_comment={"ENT_11": "comment legacy TIA"},
+    )
+    desired = [
+        FakeEntidad(numero=3, plc_tag="ENT_003", plc_comentario="Linea 3"),
+    ]
+    with patch(
+        "core.helpers.simatic_ml.PlcUserConstantModifier",
+        return_value=modifier,
+    ):
+        diff = compute_diff_entities("6_Entidades", desired, xml)
+
+    rename_ops = [op for op in diff.ops if op["kind"] == "rename"]
+    update_comment_ops = [op for op in diff.ops if op["kind"] == "update_comment"]
+    sin_cambios_ops = [op for op in diff.ops if op["kind"] == "sin_cambios"]
+
+    # Rename presente.
+    assert len(rename_ops) == 1
+    assert rename_ops[0]["plc_tag_tia"] == "ENT_11"
+    assert rename_ops[0]["plc_tag_new"] == "ENT_003"
+    # Update_comment adicional con plc_tag_new (Bug 2 fix).
+    assert len(update_comment_ops) == 1
+    assert update_comment_ops[0]["plc_tag"] == "ENT_003"
+    assert update_comment_ops[0]["comment_excel"] == "Linea 3"
+    # No sin_cambios (el rename es un cambio real).
+    assert sin_cambios_ops == []
 
 
 # ---------------------------------------------------------------------------

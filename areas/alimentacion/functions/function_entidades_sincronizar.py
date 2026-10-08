@@ -570,7 +570,11 @@ class FunctionEntidadesSincronizar(FunctionBase):
                     "plc_tag":     op["plc_tag"],
                     "new_comment": op.get("comment_excel") or "",
                 })
-            # delete/add/rename/update_comment cubrios; no hay mas kinds.
+            elif kind == "sin_cambios":
+                # D.8.12: op informativa (la SPA pinta ✓ OK). El sync
+                # FB no toca TIA: la constant ya esta en sync.
+                pass
+            # delete/add/rename/update_comment/sin_cambios cubiertos.
 
         # ── 3/3 Comment ops (slot del array ENT[]) ──
         # SIEMPRE actualizar con el comment del Excel (politica

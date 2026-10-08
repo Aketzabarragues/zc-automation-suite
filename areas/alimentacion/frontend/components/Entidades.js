@@ -170,6 +170,18 @@ export default {
                         comment_excel: op.comment_excel || null,
                     };
                 }
+                if (op.kind === "sin_cambios") {
+                    // D.8.12: op informativa; el STATUS_META tiene
+                    // sin_cambios con label "✓ OK" (compartido con Disp).
+                    return {
+                        plc_tag:      op.plc_tag,
+                        status:       "sin_cambios",
+                        numero_tia:   op.value_tia,
+                        comment_tia:  null,
+                        numero_excel: op.value_tia,
+                        comment_excel: null,
+                    };
+                }
                 return null;
             }).filter((r) => r !== null);
             return rows.sort((a, b) => {
@@ -371,11 +383,6 @@ export default {
                                             row.status === 'eliminar' ? 'text-red-700 font-semibold' :
                                             'text-ink-muted'">
                                     {{ statusMeta[row.status]?.label || row.status }}
-                                </td>
-                            </tr>
-                            <tr v-if="activeRows.length === 0">
-                                <td colspan="6" class="px-3 py-6 text-center text-ink-muted italic">
-                                    Sin cambios pendientes.
                                 </td>
                             </tr>
                         </tbody>
