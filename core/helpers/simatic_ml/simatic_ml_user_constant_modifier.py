@@ -24,7 +24,10 @@ from core.infrastructure.log.log_web_bridge import install_web_level
 
 from core.helpers.simatic_ml.simatic_ml_constants import (
     COMMENT_TAG,
+    MULTI_LINGUAL_TEXT_TAG,
     NAME_TAG,
+    OBJECT_LIST_TAG,
+    TEXT_TAG,
     USER_CONSTANT_TAG,
     VALUE_TAG,
 )
@@ -434,27 +437,135 @@ class PlcUserConstantModifier:
     def _inject_multilingual_comment(
         self, const: ET.Element, text: str
     ) -> None:
-        """Inyecta la estructura canonica Siemens MultilingualText como Comment."""
-        comment_local_name = COMMENT_TAG.split("}", 1)[-1]
-        comment_el = const.find(comment_local_name)
-        if comment_el is None:
-            comment_el = ET.SubElement(const, comment_local_name)
-        for child in list(comment_el):
-            comment_el.remove(child)
-        mlt = ET.SubElement(
-            comment_el,
-            "MultiLanguageText",
-            {"Lang": "es-ES", "CompositionName": "Comment"},
-        )
-        mlt_ol = ET.SubElement(mlt, "ObjectList")
-        mlti = ET.SubElement(
-            mlt_ol,
-            "MultilingualTextItem",
-            {"CompositionName": "Items"},
-        )
-        mlti_al = ET.SubElement(mlti, "AttributeList")
-        ET.SubElement(mlti_al, "Culture").text = "es-ES"
-        ET.SubElement(mlti_al, "Text").text = text
+        """Inyecta/actualiza el comment per-constant en la jerarquia canonica Siemens.
+
+        TIA V21 espera el comment DENTRO del ``<ObjectList>`` del
+        ``PlcUserConstant``, NO como hijo directo. Estructura canonica:
+
+            <PlcUserConstant>
+              <AttributeList>...</AttributeList>
+              <ObjectList>
+                <MultilingualText CompositionName="Comment">
+                  <ObjectList>
+                    <MultilingualTextItem>
+                      <AttributeList>
+                        <Culture>es-ES</Culture>
+                        <Text>{text}</Text>
+                      </AttributeList>
+                    </MultilingualTextItem>
+                  </ObjectList>
+                </MultilingualText>
+              </ObjectList>
+            </PlcUserConstant>
+
+        Antes del fix (C.7.9), el helper creaba un ``<Comment>`` hermano
+        de ``<AttributeList>`` y ``<ObjectList>`` — eso es XML
+        estructuralmente invalido para V21, que rechaza con
+        ``OpennessAccessException: CommitOnDispose`` al hacer el
+        ``import_plc_tags_xml``.
+
+        Comportamiento:
+          - Si el constant ya tiene un ``<MultilingualText
+            CompositionName="Comment">`` dentro de su ``<ObjectList>``:
+            reemplaza el ``<Text>`` del primer
+            ``<MultilingualTextItem>`` (preserva el resto de la
+            estructura).
+          - Si no lo tiene: crea la estructura canonica DENTRO del
+            ``<ObjectList>`` existente.
+          - ``text`` vacio ``""``: deja ``<Text />`` (vacio, no elimina
+          la entrada).
+
+        Raises:
+          RuntimeError: si el constant no tiene ``<ObjectList>``
+            (estructura corrupta del template).
+        """
+        object_list_local = OBJECT_LIST_TAG.split("}", 1)[-1]
+        multi_text_local = MULTI_LINGUAL_TEXT_TAG.split("}", 1)[-1]
+        text_local = TEXT_TAG.split("}", 1)[-1]
+
+        # Buscar <ObjectList> hijo directo. element.find() requiere el
+        # nombre con namespace completo; usamos XPath wildcard para
+        # soportar tanto ``{*}ObjectList`` como ``{ns}ObjectList``.
+        object_list = const.find(f"./{OBJECT_LIST_TAG}")
+        if object_list is None:
+            # Tolerar template sin ObjectList (e.g. tests): crearlo
+            # antes de inyectar el comment. En TIA real los constants
+            # SIEMPRE tienen ObjectList; esto es solo defensa.
+            name_text = ""
+            name_el = const.find(NAME_TAG)
+            if name_el is not None:
+                name_text = str(name_el.text or "")
+            # Usar el mismo namespace que el padre.
+            local_ns = (
+                const.tag.split("}", 1)[0] + "}"
+                if "}" in const.tag else ""
+            )
+            object_list = ET.SubElement(const, local_ns + object_list_local)
+            _logger.debug(
+                f"PlcUserConstantModifier._inject_multilingual_comment: "
+                f"constant '{name_text}' no tenia <ObjectList>; creado"
+            )
+
+        # Buscar/crear <MultilingualText CompositionName="Comment">
+        # DENTRO de <ObjectList>. child.tag incluye el namespace
+        # completo (e.g. ``{http://...}MultilingualText``); comparar
+        # solo el local name (parte tras ``}``) o usar wildcard XPath.
+        mlt = None
+        for child in object_list:
+            local = child.tag.split("}", 1)[-1] if "}" in child.tag else child.tag
+            if local == multi_text_local and child.get(
+                "CompositionName", ""
+            ) == "Comment":
+                mlt = child
+                break
+
+        if mlt is None:
+            # Crear la estructura canonica DENTRO de <ObjectList>.
+            # Usar el mismo namespace que el padre para consistencia.
+            local_ns = (
+                object_list.tag.split("}", 1)[0] + "}"
+                if "}" in object_list.tag else ""
+            )
+            mlt = ET.SubElement(
+                object_list,
+                local_ns + multi_text_local,
+                {"CompositionName": "Comment"},
+            )
+            mlt_inner_ol = ET.SubElement(mlt, local_ns + object_list_local)
+            mlti = ET.SubElement(
+                mlt_inner_ol,
+                local_ns + "MultilingualTextItem",
+                {"CompositionName": "Items"},
+            )
+            mlti_al = ET.SubElement(mlti, local_ns + "AttributeList")
+            ET.SubElement(mlti_al, local_ns + "Culture").text = "es-ES"
+            text_el = ET.SubElement(mlti_al, local_ns + text_local)
+        else:
+            # Reusar el primer <MultilingualTextItem> existente.
+            # Usar wildcard XPath porque element.find() requiere el
+            # nombre con namespace completo para matchear.
+            mlti = mlt.find(f"{OBJECT_LIST_TAG}/MultilingualTextItem")
+            if mlti is None:
+                # Tag local: usar el mismo namespace que mlt (heredado).
+                local_ns = mlt.tag.split("}", 1)[0] + "}" if "}" in mlt.tag else ""
+                mlt_inner_ol = ET.SubElement(mlt, local_ns + object_list_local)
+                mlti = ET.SubElement(
+                    mlt_inner_ol,
+                    local_ns + "MultilingualTextItem",
+                    {"CompositionName": "Items"},
+                )
+                mlti_al = ET.SubElement(mlti, local_ns + "AttributeList")
+                ET.SubElement(mlti_al, local_ns + "Culture").text = "es-ES"
+                text_el = ET.SubElement(mlti_al, local_ns + text_local)
+            else:
+                text_el = mlti.find(f"AttributeList/{TEXT_TAG}")
+                if text_el is None:
+                    text_el = ET.SubElement(
+                        mlti.find(f"AttributeList"),
+                        text_local,
+                    )
+        # Actualizar el texto (string vacio = limpiar).
+        text_el.text = text if text else None
 
     def _append_after_last_user_constant(self, new_const: ET.Element) -> None:
         """Inserta ``new_const`` tras el ultimo PlcUserConstant hermano si existe."""
