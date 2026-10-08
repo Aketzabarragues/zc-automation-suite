@@ -560,8 +560,9 @@ class ConfigManager:
     def get_tia_folder_entidades_tags(self) -> str:
         """Ruta de la carpeta TIA donde reside la tag table de entidades.
 
-        Sub-folder con las PlcTags ``ent_<uid>`` (1 PlcTag por entidad).
-        Por defecto ``""`` (genérico).
+        Sub-folder con las PlcTags ``ENT_<X>`` MAYUSCULAS con ``X =
+        numero`` del slot (1 PlcTag por entidad, p.ej. ``ENT_000``,
+        ``ENT_001``). Por defecto ``""`` (generico).
         """
         folders = self._department_config.get("tia_folders", {})
         return str(

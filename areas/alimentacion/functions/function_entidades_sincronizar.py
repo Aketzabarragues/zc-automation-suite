@@ -339,7 +339,6 @@ class FunctionEntidadesSincronizar(FunctionBase):
             logger.warning(warning)
             self._ctx.warnings.append(warning)
         else:
-            self._ctx.tags_export = tags_result
             logger.debug(
                 f"  {config_table} + {tag_table} exportadas a "
                 f"{self._ctx.sync_variables_export}"
@@ -370,7 +369,6 @@ class FunctionEntidadesSincronizar(FunctionBase):
             logger.warning(warning)
             self._ctx.warnings.append(warning)
         else:
-            self._ctx.db_export = block_result
             logger.debug(
                 f"  {db_name} exportado a {self._ctx.sync_bloques_export}"
             )
@@ -632,7 +630,6 @@ class FunctionEntidadesSincronizar(FunctionBase):
             },
             timeout_s=60.0,
         )
-        self._ctx.nmax_result = result
 
         if result is None:
             raise RuntimeError(
@@ -640,6 +637,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
                 "resultado. TIA Portal puede no estar conectado o el "
                 "PLC no tiene la tabla de configuracion."
             )
+        self._ctx.nmax_result = result
 
         # Compile defensivo post-Tx-A. Si TIA rechaza o retorna None,
         # log warning y sigue: stage 9 compila de nuevo tras Tx C.
@@ -947,7 +945,6 @@ class FunctionEntidadesSincronizar(FunctionBase):
                 },
                 timeout_s=300.0,
             )
-            self._ctx.devices_result = batch_result
             validate_execute_batch_result(
                 batch_result,
                 undo_text=f"Tx B constantes ({self._ctx.tag_table})",
@@ -1043,30 +1040,23 @@ class EntidadesSyncContext:
     sync_bloques_export: Path | None = None
     sync_bloques_modified: Path | None = None
 
-    # ── Resultados de exportar (stage 1) ──
-    tags_export: dict[str, Any] | None = None
-    db_export: dict[str, Any] | None = None
-
     # ── Resultados de compute_diff (stage 2) ──
     entities_block: dict[str, Any] = field(default_factory=dict)
     comments_block: dict[str, Any] = field(default_factory=dict)
     nmax_block: dict[str, Any] = field(default_factory=dict)
-    # Lista unica de ops a aplicar (5 pasadas de Aketza, en orden
-    # de aplicacion por el sync). Stage 3 dispatcha por kind.
+    # Lista unica de ops a aplicar por el sync. Stage 3 dispatcha por kind.
     entities_ops: list[dict[str, Any]] = field(default_factory=list)
     # Entities del Excel (para generar comment_ops del slot del DB:
     # SIEMPRE actualizar, sin diff).
     desired_entities: list[Any] = field(default_factory=list)
 
-    # ── Resultados de preparar_ops (stage 3, D.2) ──
+    # ── Resultados de Tx A (stage 4) ──
+    nmax_result: dict[str, Any] | None = None
+
+    # ── Resultados de preparar_ops (stage 3) ──
     nmax_op: dict[str, Any] | None = None
     constant_ops: list[dict[str, Any]] = field(default_factory=list)
     comment_ops: list[dict[str, Any]] = field(default_factory=list)
-
-    # ── Resultados de Tx A / B / C (stages 4/8/10) ──
-    nmax_result: dict[str, Any] | None = None
-    devices_result: dict[str, Any] | None = None
-    comments_result: dict[str, Any] | None = None
 
     # ── Compile (stage 9) ──
     compile_ok: bool = True
@@ -1189,7 +1179,6 @@ async def _stage_10_tx_c_comments(self) -> None:
         },
         timeout_s=600.0,
     )
-    self._ctx.comments_result = batch_result
     validate_execute_batch_result(
         batch_result,
         undo_text=f"Tx C comentarios ({self._ctx.db_name})",

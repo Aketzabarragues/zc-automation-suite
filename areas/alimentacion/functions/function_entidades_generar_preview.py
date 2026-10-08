@@ -259,7 +259,6 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
 
         ent_ctx = build_cache(root=self._ctx.build_cache_root).entidades
         ent_ctx.clean_preview()
-        self._ctx.preview_config_dir = ent_ctx.preview_config
         self._ctx.preview_disp_dir = ent_ctx.preview_disp
         self._ctx.preview_bloques_dir = ent_ctx.preview_bloques
 
@@ -592,7 +591,6 @@ class EntidadesPreviewContext:
     config_table: str = "0_Config_Generales"
 
     # ── Resultados de exportar (stage 1) ──
-    preview_config_dir: Path | None = None
     preview_disp_dir: Path | None = None
     preview_bloques_dir: Path | None = None
 
