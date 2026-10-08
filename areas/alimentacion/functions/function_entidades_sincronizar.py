@@ -626,6 +626,325 @@ class FunctionEntidadesSincronizar(FunctionBase):
                 "PLC no tiene la tabla de configuracion."
             )
 
+    async def _stage_5_wait_consolidation(self) -> None:
+        """Stage 5: sleep para que TIA consolide el NMAX update de Tx A.
+
+        Constante ``TIA_CONSOLIDATION_SLEEP_S = 2.0s`` (mismo patron que
+        FunctionDispSincronizar). Tras el ``update_user_constant_value``
+        online (Tx A), TIA necesita tiempo para redimensionar el array
+        ENT[] en DB6_ENT internamente. Sin el sleep, stage 6 re-exportaria
+        con el tamanyo antiguo.
+
+        Si no hubo NMAX op (no hay cambios), el stage es no-op.
+        """
+        if not self._ctx.nmax_op:
+            return
+        logger.debug(
+            f"[{self.nombre}] Esperando consolidacion TIA tras Tx A "
+            f"({TIA_CONSOLIDATION_SLEEP_S}s)..."
+        )
+        await asyncio.to_thread(time.sleep, TIA_CONSOLIDATION_SLEEP_S)
+
+    async def _stage_6_exportar_post_tx_a(self) -> None:
+        """Stage 6: re-export FLAT tras Tx A (DB6_ENT con tamanyo actualizado).
+
+        Mismo patron que stage 1 pero llamado despues de Tx A + wait.
+        Sobrescribe los archivos en ``sync_variables_export/`` y
+        ``sync_bloques_export/`` con el estado actual del PLC tras el
+        NMAX update.
+
+        Si Tx A fue no-op (no hubo NMAX op), el stage es no-op.
+        """
+        if not self._ctx.nmax_op:
+            return
+
+        logger.debug(
+            f"[{self.nombre}] Re-exportando tras Tx A NMAX..."
+        )
+
+        tags_result = await dispatch_async(
+            self._ctx.tia_client,
+            "export_plc_tags_xml",
+            {
+                "plc_name": self._ctx.plc_name,
+                "target_dir": str(self._ctx.sync_variables_export),
+                "table_names": [self._ctx.config_table, self._ctx.tag_table],
+                "keep_folder_structure": False,
+            },
+        )
+        if tags_result is None:
+            warning = (
+                f"Re-export post Tx A fallo (export_plc_tags_xml). "
+                f"Sync continuara con snapshot pre-Tx-A."
+            )
+            logger.warning(warning)
+            self._ctx.warnings.append(warning)
+            return
+
+        block_result = await dispatch_async(
+            self._ctx.tia_client,
+            "export_block",
+            {
+                "plc_name": self._ctx.plc_name,
+                "block_name": self._ctx.db_name,
+                "target_dir": str(self._ctx.sync_bloques_export),
+            },
+            timeout_s=60.0,
+        )
+        if block_result is None:
+            warning = (
+                f"Re-export post Tx A fallo (export_block {self._ctx.db_name})."
+            )
+            logger.warning(warning)
+            self._ctx.warnings.append(warning)
+
+
+    async def _stage_7_editar_xmls_offline(self) -> None:
+        """Stage 7: edita XMLs offline (constants + slot comments).
+
+        Pre-condiciones: stage 1 exporto a ``sync_variables_export/`` y
+        ``sync_bloques_export/``. Stage 6 (si Tx A tuvo NMAX) los re-exporto
+        con el tamanyo actualizado. Aqui:
+
+          1. ``copytree`` filtrado ``sync_variables_export/`` ->
+            ``sync_variables_modified/``. Excluimos ``0_Config_Generales.xml``
+            (la tabla NMAX) porque el NMAX ya se aplico online en Tx A;
+            Tx B re-importaria los valores pre-commit y anularia Tx A.
+
+          2. Edicion offline de ``6_Entidades.xml`` en ``modified/`` con
+            las ``constant_ops`` de stage 3 (remove/add/rename_comment).
+
+          3. ``copytree`` simple ``sync_bloques_export/`` ->
+            ``sync_bloques_modified/`` (DBs FLAT).
+
+          4. ``commit_array_comments`` sobre
+            ``sync_bloques_modified/DB6_ENT.{s7dcl,s7res}`` con las
+            ``comment_ops`` de stage 3 (update_comment por slot).
+
+        Si no hay constant_ops ni comment_ops, los pasos 1-2 y 4 son
+        no-ops (no editamos nada en ``modified/``).
+        """
+        import shutil
+        from core.helpers.simatic_ml import PlcUserConstantModifier
+        from core.helpers.simatic_sd.simatic_sd_db_array_comment_updater import (
+            commit_array_comments,
+        )
+
+        src_vars = self._ctx.sync_variables_export
+        dst_vars = self._ctx.sync_variables_modified
+        src_bloq = self._ctx.sync_bloques_export
+        dst_bloq = self._ctx.sync_bloques_modified
+
+        # ── 1/4: copytree filtrado variables ──
+        if src_vars and src_vars.exists():
+            # Filtro: excluye 0_Config_Generales.xml (NMAX online-only).
+            def _ignore(src: str, names: list[str]) -> list[str]:
+                return [
+                    n for n in names
+                    if n == f"{self._ctx.config_table}.xml"
+                ]
+
+            dst_vars.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(src_vars, dst_vars, ignore=_ignore, dirs_exist_ok=True)
+            logger.debug(
+                f"[{self.nombre}] copytree {src_vars} -> {dst_vars} "
+                f"(filtrado: {self._ctx.config_table}.xml excluido)"
+            )
+        else:
+            logger.warning(
+                f"[{self.nombre}] origen variables no existe: {src_vars}."
+            )
+
+        # ── 2/4: edit offline de 6_Entidades.xml ──
+        if self._ctx.constant_ops and dst_vars:
+            xml_path = dst_vars / f"{self._ctx.tag_table}.xml"
+            if xml_path.is_file():
+                modifier = PlcUserConstantModifier(xml_path)
+                adds = [
+                    {"plc_tag": op["plc_tag"], "uid": op["uid"], "comment": op.get("comment", "")}
+                    for op in self._ctx.constant_ops if op["kind"] == "add"
+                ]
+                removes = {
+                    op["plc_tag"] for op in self._ctx.constant_ops if op["kind"] == "remove"
+                }
+                renames = [
+                    (op["plc_tag"], op["new_comment"])
+                    for op in self._ctx.constant_ops if op["kind"] == "rename_comment"
+                ]
+
+                if adds:
+                    modifier.add_user_constants_by_table(
+                        self._ctx.tag_table,
+                        [{"plc_tag": a["plc_tag"], "uid": str(a["uid"]), "comment": a["comment"]}
+                         for a in adds],
+                    )
+                if removes:
+                    modifier.remove_user_constants_by_name(removes)
+                for plc_tag, new_comment in renames:
+                    modifier.update_user_constant_comment(plc_tag, new_comment)
+
+                if modifier.was_modified():
+                    modifier.save(xml_path)
+                    logger.debug(
+                        f"[{self.nombre}] edit offline {xml_path}: "
+                        f"{len(adds)} adds, {len(removes)} removes, "
+                        f"{len(renames)} renames"
+                    )
+            else:
+                warning = (
+                    f"XML '{xml_path.name}' no esta en {dst_vars}. "
+                    f"Const ops omitidas del sync."
+                )
+                logger.warning(warning)
+                self._ctx.warnings.append(warning)
+
+        # ── 3/4: copytree simple bloques ──
+        if src_bloq and src_bloq.exists():
+            dst_bloq.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(src_bloq, dst_bloq, dirs_exist_ok=True)
+            logger.debug(
+                f"[{self.nombre}] copytree {src_bloq} -> {dst_bloq}"
+            )
+        else:
+            logger.warning(
+                f"[{self.nombre}] origen bloques no existe: {src_bloq}."
+            )
+
+        # ── 4/4: edit offline de DB6_ENT.{s7dcl,s7res} ──
+        if self._ctx.comment_ops and dst_bloq:
+            from core.infrastructure.tia.tia_export_paths import SdPair
+            sdpair = SdPair(dst_bloq, self._ctx.db_name)
+            slot_map = {
+                op["slot"]: op["new_comment"]
+                for op in self._ctx.comment_ops
+                if op["kind"] == "update_comment"
+            }
+            if slot_map and sdpair.dcl.exists() and sdpair.res.exists():
+                commit_array_comments(
+                    dcl_path=sdpair.dcl,
+                    res_path=sdpair.res,
+                    array_name=self._ctx.db_array_name,
+                    slot_map=slot_map,
+                    array_type="UDT",
+                    write_to_original=True,
+                )
+                logger.debug(
+                    f"[{self.nombre}] edit offline {self._ctx.db_name}: "
+                    f"{len(slot_map)} slot comments actualizados"
+                )
+
+
+    async def _stage_8_tx_b_constants(self) -> None:
+            """Stage 8: Tx B (offline puro) - importa constantes modificadas.
+
+            ``import_plc_tags_xml`` con el ``sync_variables_modified/`` que
+            stage 7 produjo. Solo se importa ``6_Entidades.xml`` (NMAX ya
+            se aplico online en Tx A — excluido del copytree en stage 7).
+
+            Wrap en ``execute_transactional_batch`` para atomicidad
+            semantica. Si falla, TIA hace rollback.
+
+            Si no hay constant_ops (no hay adds/removes/renames), el stage
+            es no-op.
+            """
+            if not self._ctx.constant_ops:
+                return
+
+            from core.helpers.tia import validate_execute_batch_result
+
+            modified_dir = self._ctx.sync_variables_modified
+            if not modified_dir or not modified_dir.is_dir():
+                warning = (
+                    f"sync_variables_modified/ no existe ({modified_dir}). "
+                    f"Tx B omitida."
+                )
+                logger.warning(warning)
+                self._ctx.warnings.append(warning)
+                return
+
+            logger.debug(
+                f"[{self.nombre}] Tx B constants: import {self._ctx.tag_table}.xml "
+                f"desde {modified_dir}"
+            )
+
+            batch_result = await dispatch_async(
+                self._ctx.tia_client,
+                "execute_transactional_batch",
+                {
+                    "undo_text": "Sincronizando constantes de entidades...",
+                    "operations": [
+                        {
+                            "command": "import_plc_tags_xml",
+                            "args": {
+                                "plc_name": self._ctx.plc_name,
+                                "target_dir": str(modified_dir),
+                                "table_names": [self._ctx.tag_table],
+                                "keep_folder_structure": False,
+                            },
+                        }
+                    ],
+                },
+                timeout_s=300.0,
+            )
+            self._ctx.devices_result = batch_result
+            validate_execute_batch_result(
+                batch_result,
+                undo_text=f"Tx B constantes ({self._ctx.tag_table})",
+            )
+
+    async def _stage_9_compilar_bloques(self) -> None:
+        """Stage 9: compila DB6_ENT (cambia de tamanyo tras Tx A NMAX update).
+
+        Tx A redimensiona el array ENT[] en DB6_ENT. Sin recompilar,
+        el DB tiene estructura nueva pero references/code viejos:
+        inconsistencia. ``compile_blocks`` consolida la estructura.
+
+        Solo compila si Tx A tuvo NMAX op (el tamanyo del array cambio).
+        Si no hubo NMAX update, el stage es no-op.
+
+        Wrap en try/except: si Tia rechaza el compile, marcamos
+        ``compile_ok=False`` pero NO raise — el sync sigue para que
+        el FB pueda reportar el error al operario via ``compile_error``.
+        """
+        if not self._ctx.nmax_op:
+            return
+
+        try:
+            compile_result = await dispatch_async(
+                self._ctx.tia_client,
+                "compile_blocks",
+                {
+                    "plc_name": self._ctx.plc_name,
+                    "block_names": [self._ctx.db_name],
+                },
+                timeout_s=300.0,
+            )
+            if compile_result is None:
+                self._ctx.compile_ok = False
+                self._ctx.compile_error = (
+                    f"compile_blocks retorno None para {self._ctx.db_name}"
+                )
+                logger.warning(
+                    f"[{self.nombre}] compile_blocks no devolvio "
+                    f"resultado. Sync continuara."
+                )
+            else:
+                self._ctx.compile_ok = compile_result.get("success", True)
+                if not self._ctx.compile_ok:
+                    self._ctx.compile_error = compile_result.get(
+                        "error", "compile_blocks reporto fallo"
+                    )
+                    logger.warning(
+                        f"[{self.nombre}] compile fallo: {self._ctx.compile_error}"
+                    )
+        except Exception as exc:
+            self._ctx.compile_ok = False
+            self._ctx.compile_error = str(exc)
+            logger.warning(
+                f"[{self.nombre}] compile exception: {exc}. "
+                f"Sync continuara sin abortar."
+            )
+
 
 # ============================================================================
 # Estado compartido entre los 11 stages
@@ -636,7 +955,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
 class EntidadesSyncContext:
     """Estado mutable compartido entre los 11 stages del FB.
 
-    Cada stage toma este context por argumento (vía ``self._ctx``), lee
+    Cada stage toma este context por argumento (via ``self._ctx``), lee
     las deps inyectadas + resultados de stages previos, y muta los
     campos que representan resultados de su trabajo.
     """
@@ -751,52 +1070,179 @@ def _empty_result() -> dict[str, Any]:
     }
 
 
-# Stages 5-11 declarados como stubs vacios; se implementan en commits
-# D.3-D.6. Mantenerlos aqui (no-op) para que la tabla ``STAGES`` se
-# valide al instanciar el FB.
-async def _stage_5_wait_consolidation(self: Any) -> None:  # noqa: D401
-    """Stage 5: implementar en D.3."""
-    raise NotImplementedError("Stage 5 implementado en D.3")
+async def _stage_10_tx_c_comments(self) -> None:
+    """Stage 10: Tx C (offline puro) - importa DB6_ENT modificado.
+
+    ``import_block`` con el ``sync_bloques_modified/`` que stage 7 produjo
+    (ya tiene los slot comments aplicados via ``commit_array_comments``).
+
+    Wrap en ``execute_transactional_batch`` para atomicidad semantica.
+    Si falla, TIA hace rollback del import.
+
+    Si no hay comment_ops (no hay updates de slot comments), el stage
+    es no-op.
+    """
+    if not self._ctx.comment_ops:
+        return
+
+    from core.helpers.tia import validate_execute_batch_result
+
+    modified_dir = self._ctx.sync_bloques_modified
+    if not modified_dir or not modified_dir.is_dir():
+        warning = (
+            f"sync_bloques_modified/ no existe ({modified_dir}). "
+            f"Tx C omitida."
+        )
+        logger.warning(warning)
+        self._ctx.warnings.append(warning)
+        return
+
+    logger.debug(
+        f"[{self.nombre}] Tx C comments: import {self._ctx.db_name} "
+        f"desde {modified_dir}"
+    )
+
+    batch_result = await dispatch_async(
+        self._ctx.tia_client,
+        "execute_transactional_batch",
+        {
+            "undo_text": "Sincronizando comentarios del array ENT[]...",
+            "operations": [
+                {
+                    "command": "import_block",
+                    "args": {
+                        "plc_name": self._ctx.plc_name,
+                        "import_dir": str(modified_dir),
+                        "target_folder": "",  # TIA escanea recursivo
+                    },
+                }
+            ],
+        },
+        timeout_s=600.0,
+    )
+    self._ctx.comments_result = batch_result
+    validate_execute_batch_result(
+        batch_result,
+        undo_text=f"Tx C comentarios ({self._ctx.db_name})",
+    )
+
+    # Resumen legacy-compatible con Disp.
+    if self._ctx.result is None or not isinstance(self._ctx.result, dict):
+        self._ctx.result = _empty_result()
+    self._ctx.result["comments_sync"] = {
+        "added":   sum(1 for op in self._ctx.comment_ops if op["kind"] == "update_comment"),
+        "updated": 0,
+        "unchanged": 0,
+    }
+
+async def _stage_11_post_preview(self) -> None:
+    """Stage 11: genera preview post-sync (la SPA ve 'todo en sync').
+
+    Re-exporta FLAT (N_MAX + entidades + DB6_ENT) tras Tx A/B/C, recalcula
+    el diff unificado y compone ``post_sync_preview`` con la misma shape
+    que el preview FB. Asi, la SPA muestra "0 entidades analizadas" o
+    solo los warnings de inconsistencias restantes.
+
+    Si el re-export falla (TIA en estado invalido tras rollback), emite
+    warning pero NO aborta (post_sync_preview=None).
+    """
+    from areas.alimentacion.helpers.layout.build_cache import build_cache
+
+    ent_ctx = build_cache(root=self._ctx.build_cache_root).entidades
+    ent_ctx.clean_preview()
+
+    tags_result = await dispatch_async(
+        self._ctx.tia_client,
+        "export_plc_tags_xml",
+        {
+            "plc_name": self._ctx.plc_name,
+            "target_dir": str(ent_ctx.preview_disp),
+            "table_names": [self._ctx.config_table, self._ctx.tag_table],
+            "keep_folder_structure": False,
+        },
+    )
+    block_result = await dispatch_async(
+        self._ctx.tia_client,
+        "export_block",
+        {
+            "plc_name": self._ctx.plc_name,
+            "block_name": self._ctx.db_name,
+            "target_dir": str(ent_ctx.preview_bloques),
+        },
+        timeout_s=60.0,
+    )
+    if tags_result is None or block_result is None:
+        warning = (
+            "Re-export post-sync fallo. post_sync_preview sera None."
+        )
+        logger.warning(warning)
+        self._ctx.warnings.append(warning)
+        self._ctx.post_sync_preview = None
+        return
+
+    # Reusa el helper puro del preview FB para componer el shape.
+    from areas.alimentacion.helpers.entidades.entidades_generate_preview import (
+        compute_comments_diff,
+        compute_diff_entities,
+        compute_nmax_diff_entidades,
+        compute_unified_diff_entities,
+        DiffComments,
+        DiffEntities,
+    )
+
+    desired = get_entidades(self._ctx.app_state, self._ctx.plc_name)
+    variables_xml = ent_ctx.preview_disp / f"{self._ctx.tag_table}.xml"
+    config_xml = ent_ctx.preview_disp / f"{self._ctx.config_table}.xml"
+    from core.infrastructure.tia.tia_export_paths import SdPair
+    sdpair = SdPair(ent_ctx.preview_bloques, self._ctx.db_name)
+    dcl_text = sdpair.dcl.read_text(encoding="utf-8-sig") if sdpair.dcl.exists() else ""
+    res_text = sdpair.res.read_text(encoding="utf-8-sig") if sdpair.res.exists() else ""
+
+    def _recompute() -> dict[str, Any]:
+        diff_ent = compute_diff_entities(
+            table_name=self._ctx.tag_table,
+            desired_entities=desired,
+            xml_path=variables_xml,
+        )
+        nmax = compute_nmax_diff_entidades(
+            table_name=self._ctx.config_table,
+            desired_nmax=get_nmax_entidades(self._ctx.app_state),
+            xml_path=config_xml,
+        )
+        diff_com = compute_comments_diff(
+            db_name=self._ctx.db_name,
+            array_name=self._ctx.db_array_name,
+            desired_entities=desired,
+            dcl_text=dcl_text,
+            res_text=res_text,
+        )
+        unified = compute_unified_diff_entities(diff_ent, diff_com)
+        return {
+            "precondiciones_ok": True,
+            "db_name": self._ctx.db_name,
+            "tag_table": self._ctx.tag_table,
+            "config_table": self._ctx.config_table,
+            "db_present": not diff_com.missing_xml,
+            "table_present": not diff_ent.missing_xml,
+            "unified": {"todos": unified},
+            "nmax": {
+                "todos": nmax.todos,
+                "summary": nmax.summary,
+            },
+            "warnings": list(self._ctx.warnings),
+        }
+
+    self._ctx.post_sync_preview = await asyncio.to_thread(_recompute)
+
+    if self._ctx.result is None or not isinstance(self._ctx.result, dict):
+        self._ctx.result = _empty_result()
+    self._ctx.result["post_sync_preview"] = self._ctx.post_sync_preview
+    self._ctx.result["success"] = True
+    self._ctx.result["message"] = "Sincronización completada"
 
 
-async def _stage_6_exportar_post_tx_a(self: Any) -> None:  # noqa: D401
-    """Stage 6: implementar en D.3."""
-    raise NotImplementedError("Stage 6 implementado en D.3")
-
-
-async def _stage_7_editar_xmls_offline(self: Any) -> None:  # noqa: D401
-    """Stage 7: implementar en D.4."""
-    raise NotImplementedError("Stage 7 implementado en D.4")
-
-
-async def _stage_8_tx_b_constants(self: Any) -> None:  # noqa: D401
-    """Stage 8: implementar en D.5."""
-    raise NotImplementedError("Stage 8 implementado en D.5")
-
-
-async def _stage_9_compilar_bloques(self: Any) -> None:  # noqa: D401
-    """Stage 9: implementar en D.5."""
-    raise NotImplementedError("Stage 9 implementado en D.5")
-
-
-async def _stage_10_tx_c_comments(self: Any) -> None:  # noqa: D401
-    """Stage 10: implementar en D.6."""
-    raise NotImplementedError("Stage 10 implementado en D.6")
-
-
-async def _stage_11_post_preview(self: Any) -> None:  # noqa: D401
-    """Stage 11: implementar en D.6."""
-    raise NotImplementedError("Stage 11 implementado en D.6")
-
-
-# Inyectar los stubs como metodos del FB (para que el STAGES dispatch los
-# encuentre). Stages 3-4 ya son metodos reales en la clase; se
-# sobreescribiran en commits D.3-D.6 los stages 5-11.
-FunctionEntidadesSincronizar._stage_5_wait_consolidation = _stage_5_wait_consolidation  # type: ignore[attr-defined]
-FunctionEntidadesSincronizar._stage_6_exportar_post_tx_a = _stage_6_exportar_post_tx_a  # type: ignore[attr-defined]
-FunctionEntidadesSincronizar._stage_7_editar_xmls_offline = _stage_7_editar_xmls_offline  # type: ignore[attr-defined]
-FunctionEntidadesSincronizar._stage_8_tx_b_constants = _stage_8_tx_b_constants  # type: ignore[attr-defined]
-FunctionEntidadesSincronizar._stage_9_compilar_bloques = _stage_9_compilar_bloques  # type: ignore[attr-defined]
+# Inyectar los stubs como metodos del FB (para que el STAGES dispatch
+# los encuentre). Stages 3-11 ya son metodos reales (en la clase o aqui).
 FunctionEntidadesSincronizar._stage_10_tx_c_comments = _stage_10_tx_c_comments  # type: ignore[attr-defined]
 FunctionEntidadesSincronizar._stage_11_post_preview = _stage_11_post_preview  # type: ignore[attr-defined]
 
