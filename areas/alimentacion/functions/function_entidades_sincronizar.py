@@ -315,12 +315,14 @@ class FunctionEntidadesSincronizar(FunctionBase):
         self._ctx.tag_table = tag_table
         self._ctx.config_table = config_table
 
-        # 2/3: export_plc_tags_xml (2 tablas) FLAT.
-        # C.7.8: revertido a keep_folder_structure=False. Las tag
-        # tables se importan por nombre en Tx B (import_plc_tags_xml
-        # matchea por table_name, NO por subpath relativo) — la
-        # estructura de carpetas TIA no aporta nada al import y
-        # rompe stage 7 (que espera el XML FLAT en sync_variables_export).
+        # 2/3: export_plc_tags_xml (2 tablas) CON subcarpeta TIA.
+        # D.8.4: keep_folder_structure=True (mirror Disp). El import
+        # recursivo de TIA V21 (Tx B con target_folder="" por defecto)
+        # escanea el import_dir y matchea por subpath. Sin la
+        # subcarpeta ``6_Entidades/`` el archivo queda FLAT y TIA
+        # rollbackea silenciosamente (el operario ve "no da error pero
+        # no importa nada"). Aketza lo verifico con un script Python
+        # directo: paso el archivo con subcarpeta y funciono.
         tags_result = await dispatch_async(
             self._ctx.tia_client,
             "export_plc_tags_xml",
@@ -328,7 +330,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
                 "plc_name": self._ctx.plc_name,
                 "target_dir": str(self._ctx.sync_variables_export),
                 "table_names": [config_table, tag_table],
-                "keep_folder_structure": False,
+                "keep_folder_structure": True,
             },
         )
         if tags_result is None:
@@ -399,8 +401,28 @@ class FunctionEntidadesSincronizar(FunctionBase):
         )
 
         desired = get_entidades(self._ctx.app_state, self._ctx.plc_name)
-        variables_xml = self._ctx.sync_variables_export / f"{self._ctx.tag_table}.xml"
-        config_xml = self._ctx.sync_variables_export / f"{self._ctx.config_table}.xml"
+        # D.8.4: stage 1 exporta con keep_folder_structure=True, asi
+        # que los XML viven en subcarpeta TIA dentro de export/:
+        # ``<export>/6_Entidades/6_Entidades.xml`` y
+        # ``<export>/0_Sistema/0_Config_Generales.xml``. Los getters
+        # ``get_tia_folder_entidades_tags`` y ``get_tia_folder_entidades_config``
+        # devuelven los nombres de subcarpeta desde config.json.
+        tia_folder_tags = (
+            self._ctx.config_manager.get_tia_folder_entidades_tags()
+        )
+        tia_folder_config = (
+            self._ctx.config_manager.get_tia_folder_entidades_config()
+        )
+        variables_xml = (
+            self._ctx.sync_variables_export
+            / tia_folder_tags
+            / f"{self._ctx.tag_table}.xml"
+        )
+        config_xml = (
+            self._ctx.sync_variables_export
+            / tia_folder_config
+            / f"{self._ctx.config_table}.xml"
+        )
 
         def _compute_constants() -> Any:
             return compute_diff_entities(
@@ -716,10 +738,10 @@ class FunctionEntidadesSincronizar(FunctionBase):
                 "plc_name": self._ctx.plc_name,
                 "target_dir": str(self._ctx.sync_variables_export),
                 "table_names": [self._ctx.config_table, self._ctx.tag_table],
-                # C.7.8: revertido a False — tag tables se importan por
-                # nombre en Tx B, no necesitan estructura TIA. Ver
-                # comentario equivalente en stage 1.
-                "keep_folder_structure": False,
+                # D.8.4: keep_folder_structure=True (mirror Disp). TIA
+                # V21 matchea import recursivo por subpath TIA; sin la
+                # subcarpeta, hace rollback silencioso. Ver stage 1.
+                "keep_folder_structure": True,
             },
         )
         if tags_result is None:
@@ -807,8 +829,13 @@ class FunctionEntidadesSincronizar(FunctionBase):
             )
 
         # ── 2/4: edit offline de 6_Entidades.xml ──
+        # D.8.4: el XML vive en la subcarpeta TIA (mirror Disp). El
+        # copytree de 1/4 preserva la estructura export/ → modified/.
         if self._ctx.constant_ops and dst_vars:
-            xml_path = dst_vars / f"{self._ctx.tag_table}.xml"
+            tia_folder_tags = (
+                self._ctx.config_manager.get_tia_folder_entidades_tags()
+            )
+            xml_path = dst_vars / tia_folder_tags / f"{self._ctx.tag_table}.xml"
             if xml_path.is_file():
                 modifier = PlcUserConstantModifier(xml_path)
                 adds = [
@@ -918,22 +945,18 @@ class FunctionEntidadesSincronizar(FunctionBase):
                 f"desde {modified_dir}"
             )
 
-            # D.8.2: Tx B con `execute_batch` (sin transaccion TIA Portal).
-            # TIA V21 rechaza `import_plc_tags_xml` con constants que llevan
-            # `<MultilingualText CompositionName="Comment">` DENTRO de
-            # `<ObjectList>` cuando la importacion corre dentro de
-            # `start_transaction`/`end_transaction` (rechaza el commit con
-            # `OpennessAccessException: CommitOnDispose`, porque la
-            # reconstruccion del arbol de comments dispara un compile-like
-            # interno que el manual de Openness prohibe en transacciones).
-            # `execute_batch` no abre transaccion, asi que el import se
-            # ejecuta como operacion autonoma y TIA lo acepta. El operario
-            # ya hace Save manual al final; un fallo a mitad deja el PLC
-            # dirty igual que con la transaccion que rollbackea.
+            # D.8.4: revertido a ``execute_transactional_batch``. El bug
+            # NO era la transaccion (D.8.2) ni la falta de compile
+            # intermedio (D.8.3) — era el path FLAT del export (C.7.8).
+            # TIA V21 hace match UPDATE recursivo por subpath TIA; con
+            # ``keep_folder_structure=True`` en el export (mirror Disp),
+            # el modified queda en ``<modified>/6_Entidades/6_Entidades.xml``
+            # y TIA V21 lo matchea correctamente.
             batch_result = await dispatch_async(
                 self._ctx.tia_client,
-                "execute_batch",
+                "execute_transactional_batch",
                 {
+                    "undo_text": "Sincronizando constantes de entidades...",
                     "operations": [
                         {
                             "command": "import_plc_tags_xml",

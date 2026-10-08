@@ -172,8 +172,19 @@ def test_stage_7_copytree_filtrado_excluye_nmax(tmp_path: Path) -> None:
     _bootstrap_fb(fb)
     _make_sync_dirs(fb, tmp_path)
 
+    # D.8.4: stage 1 exporta con keep_folder_structure=True, asi que
+    # los XML viven en subcarpeta TIA (mirror Disp).
+    tags_folder = (
+        fb._ctx.config_manager.get_tia_folder_entidades_tags.return_value
+    )
+    config_folder = (
+        fb._ctx.config_manager.get_tia_folder_entidades_config.return_value
+    )
+    (fb._ctx.sync_variables_export / tags_folder).mkdir(parents=True)
+    (fb._ctx.sync_variables_export / config_folder).mkdir(parents=True)
+
     # Crear 6_Entidades.xml + 0_Config_Generales.xml en export.
-    (fb._ctx.sync_variables_export / "6_Entidades.xml").write_text(
+    (fb._ctx.sync_variables_export / tags_folder / "6_Entidades.xml").write_text(
         "<Document><SW.Tags.PlcTagTable><ObjectList>"
         "<SW.Tags.PlcUserConstant><AttributeList>"
         "<Name>ENT_001</Name><Value>1</Value></AttributeList>"
@@ -181,7 +192,7 @@ def test_stage_7_copytree_filtrado_excluye_nmax(tmp_path: Path) -> None:
         "</ObjectList></SW.Tags.PlcTagTable></Document>",
         encoding="utf-8",
     )
-    (fb._ctx.sync_variables_export / "0_Config_Generales.xml").write_text(
+    (fb._ctx.sync_variables_export / config_folder / "0_Config_Generales.xml").write_text(
         "<Document/>", encoding="utf-8",
     )
     # Crear DB en bloques export.
@@ -201,9 +212,12 @@ def test_stage_7_copytree_filtrado_excluye_nmax(tmp_path: Path) -> None:
 
     asyncio.run(fb._stage_7_editar_xmls_offline())
 
-    # modified/ debe tener 6_Entidades.xml pero NO 0_Config_Generales.xml.
-    assert (fb._ctx.sync_variables_modified / "6_Entidades.xml").exists()
-    assert not (fb._ctx.sync_variables_modified / "0_Config_Generales.xml").exists()
+    # modified/ debe tener 6_Entidades.xml (en su subcarpeta TIA) pero
+    # NO 0_Config_Generales.xml.
+    assert (fb._ctx.sync_variables_modified / tags_folder / "6_Entidades.xml").exists()
+    assert not (
+        fb._ctx.sync_variables_modified / config_folder / "0_Config_Generales.xml"
+    ).exists()
 
 
 def test_stage_7_aplica_constant_ops_al_xml(tmp_path: Path) -> None:
@@ -212,6 +226,14 @@ def test_stage_7_aplica_constant_ops_al_xml(tmp_path: Path) -> None:
     _bootstrap_fb(fb)
     _make_sync_dirs(fb, tmp_path)
 
+    # D.8.4: stage 1 exporta con subcarpeta TIA. Crear el XML en su
+    # carpeta para que el copytree + PlcUserConstantModifier lo
+    # encuentre.
+    tags_folder = (
+        fb._ctx.config_manager.get_tia_folder_entidades_tags.return_value
+    )
+    (fb._ctx.sync_variables_export / tags_folder).mkdir(parents=True)
+
     xml_content = (
         "<Document><SW.Tags.PlcTagTable><ObjectList>"
         "<SW.Tags.PlcUserConstant><AttributeList>"
@@ -219,7 +241,7 @@ def test_stage_7_aplica_constant_ops_al_xml(tmp_path: Path) -> None:
         "</SW.Tags.PlcUserConstant>"
         "</ObjectList></SW.Tags.PlcTagTable></Document>"
     )
-    (fb._ctx.sync_variables_export / "6_Entidades.xml").write_text(
+    (fb._ctx.sync_variables_export / tags_folder / "6_Entidades.xml").write_text(
         xml_content, encoding="utf-8",
     )
 
@@ -231,8 +253,10 @@ def test_stage_7_aplica_constant_ops_al_xml(tmp_path: Path) -> None:
 
     asyncio.run(fb._stage_7_editar_xmls_offline())
 
-    # Verificar que el XML modified tiene solo ENT_005.
-    modified_xml = fb._ctx.sync_variables_modified / "6_Entidades.xml"
+    # Verificar que el XML modified (en su subcarpeta TIA) tiene solo ENT_005.
+    modified_xml = (
+        fb._ctx.sync_variables_modified / tags_folder / "6_Entidades.xml"
+    )
     assert modified_xml.exists()
     content = modified_xml.read_text(encoding="utf-8")
     assert "ENT_005" in content
@@ -261,14 +285,13 @@ def test_stage_8_sin_constant_ops_no_llama_dispatch(tmp_path: Path) -> None:
 
 
 def test_stage_8_con_constant_ops_llama_execute_batch(tmp_path: Path) -> None:
-    """Con constant_ops, stage 8 llama execute_batch con import_plc_tags_xml.
+    """Con constant_ops, stage 8 llama execute_transactional_batch con
+    import_plc_tags_xml.
 
-    D.8.2: Tx B usa ``execute_batch`` (sin transaccion TIA Portal) en
-    lugar de ``execute_transactional_batch``. TIA V21 rechaza el
-    commit de un import que re-construye el arbol de comments
-    MultilingualText dentro de una transaccion (compile-like interno
-    que el manual Openness prohibe en tx). Sin transaccion, el import
-    se ejecuta como operacion autonoma y TIA lo acepta.
+    D.8.4: revertido a ``execute_transactional_batch``. El bug NO era la
+    transaccion (D.8.2); era el path FLAT del export (C.7.8). Con
+    ``keep_folder_structure=True`` en el export (mirror Disp), TIA V21
+    matchea correctamente el modified y acepta el commit.
     """
     fb = _make_fb()
     _bootstrap_fb(fb)
@@ -286,7 +309,7 @@ def test_stage_8_con_constant_ops_llama_execute_batch(tmp_path: Path) -> None:
 
     assert dispatch_mock.await_count == 1
     call = dispatch_mock.await_args_list[0]
-    assert call.args[1] == "execute_batch"
+    assert call.args[1] == "execute_transactional_batch"
     assert "operations" in call.args[2]
     assert call.args[2]["operations"][0]["command"] == "import_plc_tags_xml"
 

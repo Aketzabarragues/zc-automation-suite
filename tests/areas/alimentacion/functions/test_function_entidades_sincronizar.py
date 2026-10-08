@@ -241,6 +241,14 @@ def test_stage_1_exportar_llama_dispatch_async_2_veces() -> None:
             "tag_table": "6_Entidades",
             "config_table": "0_Config_Generales",
         }
+        # D.8.4: stage 1 exporta con subcarpeta TIA. Mockeamos los
+        # getters de los folders.
+        fb._ctx.config_manager.get_tia_folder_entidades_tags.return_value = (
+            "6_Entidades"
+        )
+        fb._ctx.config_manager.get_tia_folder_entidades_config.return_value = (
+            "0_Sistema"
+        )
 
         import asyncio
         asyncio.run(fb._stage_1_exportar())
@@ -250,6 +258,10 @@ def test_stage_1_exportar_llama_dispatch_async_2_veces() -> None:
     call1 = dispatch_mock.await_args_list[0]
     assert call1.args[1] == "export_plc_tags_xml"
     assert "0_Config_Generales" in call1.args[2]["table_names"]
+    # D.8.4: keep_folder_structure=True (mirror Disp) para que TIA V21
+    # matchee el import recursivo por subpath TIA. Sin esto, el modified
+    # queda FLAT y TIA rollbackea silenciosamente.
+    assert call1.args[2]["keep_folder_structure"] is True
     # Segundo call: export_block.
     call2 = dispatch_mock.await_args_list[1]
     assert call2.args[1] == "export_block"
