@@ -315,10 +315,12 @@ class FunctionEntidadesSincronizar(FunctionBase):
         self._ctx.tag_table = tag_table
         self._ctx.config_table = config_table
 
-        # 2/3: export_plc_tags_xml (2 tablas) preservando estructura TIA.
-        # C.7.6: keep_folder_structure=True (mirror Disp) para que
-        # import_plc_tags_xml en Tx B pueda matchear UPDATE por nombre
-        # + ruta relativa consistente con TIA Portal.
+        # 2/3: export_plc_tags_xml (2 tablas) FLAT.
+        # C.7.8: revertido a keep_folder_structure=False. Las tag
+        # tables se importan por nombre en Tx B (import_plc_tags_xml
+        # matchea por table_name, NO por subpath relativo) — la
+        # estructura de carpetas TIA no aporta nada al import y
+        # rompe stage 7 (que espera el XML FLAT en sync_variables_export).
         tags_result = await dispatch_async(
             self._ctx.tia_client,
             "export_plc_tags_xml",
@@ -326,7 +328,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
                 "plc_name": self._ctx.plc_name,
                 "target_dir": str(self._ctx.sync_variables_export),
                 "table_names": [config_table, tag_table],
-                "keep_folder_structure": True,
+                "keep_folder_structure": False,
             },
         )
         if tags_result is None:
@@ -677,7 +679,10 @@ class FunctionEntidadesSincronizar(FunctionBase):
                 "plc_name": self._ctx.plc_name,
                 "target_dir": str(self._ctx.sync_variables_export),
                 "table_names": [self._ctx.config_table, self._ctx.tag_table],
-                "keep_folder_structure": True,
+                # C.7.8: revertido a False — tag tables se importan por
+                # nombre en Tx B, no necesitan estructura TIA. Ver
+                # comentario equivalente en stage 1.
+                "keep_folder_structure": False,
             },
         )
         if tags_result is None:
@@ -1170,7 +1175,9 @@ async def _stage_11_post_preview(self) -> None:
             "plc_name": self._ctx.plc_name,
             "target_dir": str(ent_ctx.preview_disp),
             "table_names": [self._ctx.config_table, self._ctx.tag_table],
-            "keep_folder_structure": True,
+            # C.7.8: stage 11 re-export debe ser FLAT tambien porque
+            # el preview FB espera archivos FLAT para parsearlos.
+            "keep_folder_structure": False,
         },
     )
     block_result = await dispatch_async(
