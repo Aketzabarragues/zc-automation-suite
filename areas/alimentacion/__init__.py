@@ -288,6 +288,23 @@ def register(
         ),
     )
 
+    # FB con I/O contra TIA: sync transaccional de entidades vs PLC (11
+    # stages: exportar + diff + Tx A NMAX online + Tx B constants + compile +
+    # Tx C comments + post preview). STEP_TIMEOUT_S=600s.
+    from areas.alimentacion.functions.function_entidades_sincronizar import (
+        FunctionEntidadesSincronizar,
+    )
+    engine.register_fb(
+        "entidades_sincronizar",
+        FunctionEntidadesSincronizar(
+            nombre="entidades_sincronizar",
+            config_manager=config_manager,
+            tia_client=tia_client,
+            build_cache=build_cache,
+            app_state=app_state,
+        ),
+    )
+
 
 __all__ = [
     "AREA_SPEC",
