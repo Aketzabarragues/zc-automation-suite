@@ -9,17 +9,17 @@
  *      coloreados (agregar / renombrar / eliminar / sin_cambios)
  *      + boton "🔍 Generar Prevision". SIEMPRE se renderiza: si no
  *      hay preview, los 4 contadores se quedan en 0 (gemelo Disp).
- *      Contador total etiquetado "X entidades analizadas" (C.22: no
- *      segmentar por constantes vs comentarios; un solo total).
+ *      Contador total etiquetado "X entidades analizadas"
+ *      (un solo total; no segmentar constantes vs comentarios).
  *   2. Card "tabla": sub-card de N_MAX_ENTIDAD arriba (estilo sub-cards
  *      de Dispositivos) + tabla unica con 6 columnas
  *      (# / Tag Actual (TIA) / Comentario Actual (TIA)
  *       / Tag Deseado (Excel) / Comentario Deseado (Excel) / Estado)
  *      + boton "✅ Aplicar Cambios en TIA Portal" abajo.
  *
- * Las 6 columnas reflejan el diff unificado de C.22 (regla
- * "Excel manda"): un solo match por ``plc_tag`` literal cruza TIA con
- * Excel. Shape del row:
+ * Las 6 columnas reflejan el diff unificado (regla "Excel manda"):
+ * un solo match por ``plc_tag`` literal cruza TIA con Excel.
+ * Shape del row:
  *   ``{plc_tag, numero_tia, comment_tia, numero_excel, comment_excel, status}``
  * Mismo plc_tag + mismo value: comparar comments. Mismo plc_tag +
  * distinto value: 2 filas separadas (eliminar TIA + agregar Excel).
@@ -31,9 +31,9 @@
  *
  * IMPORTANTE sobre templates Vue: el compilador en runtime de
  * ``vue.esm-browser.prod.js`` NO acepta CUALQUIER baktill (doble o
- * simple) dentro de ``template: `...` `` (ver C.13 + C.15). Cero
- * baktilts dentro del template. Para "comillas tipograficas" usar
- * comillas rectas o entidades HTML.
+ * simple) dentro de ``template: `...` ``. Cero baktilts dentro del
+ * template. Para "comillas tipograficas" usar comillas rectas o
+ * entidades HTML.
  */
 import { computed, ref } from "/js/vendor/vue.esm-browser.prod.js";
 import { store, resetPlcState } from "/js/store.js";
@@ -75,11 +75,11 @@ export default {
         );
 
         /**
-         * 4 contadores de status agregados desde ``data.ops`` (lista
-         * unica de 5 pasadas de Aketza). SIEMPRE devuelve un dict con
-         * los 4 keys, aunque no haya preview (los 4 counters en 0).
-         * Esto permite que la card 1 siempre renderice el mismo patron
-         * visual sin empty-state "Sin prevision".
+         * 4 contadores de status agregados desde ``data.ops``.
+         * SIEMPRE devuelve un dict con los 4 keys, aunque no haya
+         * preview (los 4 counters en 0). Esto permite que la card 1
+         * siempre renderice el mismo patron visual sin empty-state
+         * "Sin prevision".
          */
         const summary = computed(() => {
             if (!hasPreview.value) {
@@ -117,8 +117,8 @@ export default {
         });
 
         /**
-         * Filas de la tabla principal: ops del sync (5 pasadas de
-         * Aketza). Cada op se proyecta a un row con shape uniforme:
+         * Filas de la tabla principal: ops del sync. Cada op se
+         * proyecta a un row con shape uniforme:
          *   - ``{plc_tag, status, value_tia, value_excel, comment_tia, comment_excel}``.
          *
          * El status se deriva del kind: delete, add, rename, update_comment.
@@ -171,7 +171,7 @@ export default {
                     };
                 }
                 if (op.kind === "sin_cambios") {
-                    // D.8.12: op informativa; el STATUS_META tiene
+                    // Op informativa; el STATUS_META tiene
                     // sin_cambios con label "✓ OK" (compartido con Disp).
                     return {
                         plc_tag:      op.plc_tag,
@@ -341,7 +341,7 @@ export default {
                             <tr v-for="(row, idx) in activeRows" :key="idx"
                                 class="border-b border-line"
                                 :class="statusMeta[row.status]?.cls">
-                                <!-- # (C.22): Excel manda. Preferimos
+                                <!-- Excel manda. Preferimos
                                      numero_excel; si no hay (eliminar)
                                      mostramos numero_tia. -->
                                 <td class="px-3 py-1.5 font-mono text-xs text-ink-muted">

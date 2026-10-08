@@ -376,8 +376,8 @@ class FunctionEntidadesSincronizar(FunctionBase):
     async def _stage_2_compute_diff(self) -> None:
         """Stage 2: calcula el diff completo (NMAX + constantes + comments).
 
-        Reutiliza los helpers ``compute_diff_entities`` (5 pasadas de
-        Aketza, devuelve ``ops: list[dict]`` en orden de aplicacion),
+        Reutiliza los helpers ``compute_diff_entities`` (devuelve
+        ``ops: list[dict]`` en orden de aplicacion),
         ``compute_nmax_diff_entidades`` y ``compute_comments_diff`` del
         preview FB. Stage 3 (preparar_ops) dispatcha las ops por kind.
         """
@@ -438,8 +438,8 @@ class FunctionEntidadesSincronizar(FunctionBase):
             "renamed":      diff_ent_dm.renamed,
             "missing_xml":  diff_ent_dm.missing_xml,
         }
-        # Lista unica de ops a aplicar (5 pasadas de Aketza, en orden
-        # de aplicacion por el sync). Stage 3 dispatcha por kind.
+        # Lista unica de ops a aplicar por el sync (orden de aplicacion).
+        # Stage 3 dispatcha por kind.
         self._ctx.entities_ops = list(diff_ent_dm.ops)
         # Entities del Excel (para generar comment_ops del slot del DB
         # en stage 3 bucle 3/3: SIEMPRE actualizar, no diff).
@@ -529,8 +529,8 @@ class FunctionEntidadesSincronizar(FunctionBase):
                 break
 
         # ── 2/3 Constant ops (per-constant) ──
-        # Itera ``entities_ops`` (lista unica de 5 pasadas) y traduce
-        # a ``constant_ops`` con el shape que espera el stage 7 (el
+        # Itera ``entities_ops`` (lista unica de ops) y traduce a
+        # ``constant_ops`` con el shape que espera el stage 7 (el
         # ``PlcUserConstantModifier`` offline) y el TX B (import XML).
         for op in self._ctx.entities_ops:
             kind = op.get("kind")

@@ -14,16 +14,15 @@ hay 4 lados del diff, todos filtrados por el PLC activo:
      Diff por ``slot`` (i). Re-uso de ``find_array_slots`` +
      ``read_current_comments`` del helper de SimaticSD.
 
-  4. **Diff unificado** (C.18): cruza (2) + (3) en una sola lista
+  4. **Diff unificado**: cruza (2) + (3) en una sola lista
      indexada por ``numero`` (regla canonica del feature: el plc_tag es
      ``ENT_<X>`` con value=X, donde X coincide con el slot del array
      ``ENT[]``). Es lo que consume la SPA.
 
 Convenciones del feature:
   - El ``plc_tag`` canonico es ``ENT_<X>`` en MAYUSCULAS, donde ``X`` es
-    el ordinal del Excel (regla confirmada por el operario, oct-2026).
-    Pre-C.10 se asumia prefijo ``ent_`` (minusculas); eso cambio tras
-    ver el XML real de TIA que exporta ``ENT_000``, ``ENT_001``, etc.
+    el ordinal del Excel. El XML real de TIA exporta ``ENT_000``,
+    ``ENT_001``, etc.
   - El ``numero`` del Excel coincide con el value de la PlcUserConstant
     TIA y con el slot del array. Si en algun PLC no se cumple la regla,
     es error del operario.
@@ -91,12 +90,12 @@ class DiffEntities:
             ``None`` si la constant existe sin comment o con comment
             vacio. Usado por el diff unificado para preferir el
             comment per-constant sobre el comment del slot del DB
-            (C.25: el operario normalmente configura el comment en
-            la tabla, no en el slot del DB).
+            (el operario normalmente configura el comment en la tabla,
+            no en el slot del DB).
         missing_xml: True si el XML de TIA no existia.
         ops: lista plana de operaciones a aplicar por el sync, en
-            orden de ejecucion (post-5-pasadas de Aketza). Cada op
-            tiene un ``kind`` y los campos que necesita:
+            orden de ejecucion. Cada op tiene un ``kind`` y los
+            campos que necesita:
 
               - ``{"kind": "delete",         "plc_tag": str, "value_tia": int}``
               - ``{"kind": "add",            "plc_tag": str, "value_excel": int,
@@ -194,7 +193,7 @@ def _read_entities_from_xml(xml_path: Path) -> tuple[dict[str, int], dict[str, s
     Invirtiendo: ``name`` (string) = ``plc_tag`` del Excel,
     ``value`` (int via ``uid_str``) = ``numero``,
     ``comment`` (str o ``None``) = comment per-constant del TIA
-    (C.25; se prefiere este al comment del slot del DB).
+    (se prefiere al comment del slot del DB).
 
     Si el XML no existe o falla el parse, devuelve ``({}, {})``.
     """
@@ -236,19 +235,19 @@ def compute_diff_entities(
 ) -> DiffEntities:
     """Calcula el diff entre desired_entities (Excel) y xml_path (TIA).
 
-    Deteccion en 2 fases (orden no afecta al resultado, solo al sync):
+    Deteccion en 2 pasos (orden no afecta al resultado, solo al sync):
 
-      Fase A — detectar renames por value:
+      Paso 1 — renames por value:
         Para cada TIA plc_tag, si su value matchea con un Excel
         plc_tag DISTINTO, hay un rename. TIA conserva el value, el
         sync cambia el ``Name`` al plc_tag del Excel.
 
-      Fase B — sobre lo que queda, calcular delete / add / update_comment:
+      Paso 2 — delete / add / update_comment sobre lo que queda:
         - TIA plc_tag sin match en Excel        -> delete.
         - TIA plc_tag matchea Excel plc_tag distinto value -> delete + add.
         - TIA plc_tag matchea Excel plc_tag mismo value, comment distinto -> update_comment.
         - Excel plc_tag sin match en TIA         -> add.
-        - Excel plc_tag matcheado por rename (Fase A) -> no aparece como add
+        - Excel plc_tag matcheado por rename -> no aparece como add
           (la constant TIA sigue existiendo, solo cambia de name).
 
     Args:
@@ -258,7 +257,7 @@ def compute_diff_entities(
 
     Returns:
         ``DiffEntities`` con la lista ``ops`` (orden de aplicacion
-        para el sync) y los vectores legacy ``added``/``removed``/
+        para el sync) y los vectores ``added``/``removed``/
         ``renamed``/``base``/``desired``/``base_comments`` para
         mantener compat con el preview FB.
     """
@@ -397,11 +396,9 @@ def compute_diff_entities(
             "comment_excel": desired_comments[plc_tag],
         })
 
-    # Bug 2 fix (D.8.12): para cada rename (TIA plc_tag -> plc_tag_new
-    # por value), emitir tambien un update_comment con el plc_tag_new y
-    # el comment del Excel. Sin esto, el primer sync renombra la constant
-    # pero deja su comment legacy del TIA; se necesitarian 2 syncs para
-    # dejarlo todo OK (el 2do sync ya ve el plc_tag_new en common_keys).
+    # Para cada rename (TIA plc_tag -> plc_tag_new por value), emitir
+    # tambien un update_comment con el plc_tag_new y el comment del
+    # Excel. Asi el primer sync aplica el comment sin esperar al 2do.
     for plc_tag_tia, value, plc_tag_new in renames:
         excel_comment = desired_comments.get(plc_tag_new)
         cur_comment = base_comments.get(plc_tag_new)
@@ -622,11 +619,11 @@ def detect_inconsistencias_plc_tags(
 ) -> list[str]:
     """Detecta PlcUserConstants de TIA con plc_tag NO canonico (``ENT_<X>``).
 
-    Caso real (PostSmoke, oct-2026): el operador metio a mano una
-    constante llamada ``Constant_1`` con value=4 en TIA, mientras que
-    el Excel tiene ``ENT_004`` con numero=4. La regla canonica del
-    feature es que el plc_tag sea ``ENT_<X>`` con X = numero. Cualquier
-    PlcUserConstant de TIA que NO la cumpla es un error del operador.
+    Caso real: el operador metio a mano una constante llamada
+    ``Constant_1`` con value=4 en TIA, mientras que el Excel tiene
+    ``ENT_004`` con numero=4. La regla canonica del feature es que
+    el plc_tag sea ``ENT_<X>`` con X = numero. Cualquier PlcUserConstant
+    de TIA que NO la cumpla es un error del operador.
 
     Output: lista de warnings legibles (1 por inconsistencia). El caller
     los anyade a ``result["warnings"]`` del FB. Sin banner visual en

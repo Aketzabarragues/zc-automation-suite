@@ -245,15 +245,15 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
 
         Politica ante fallos del worker TIA (comportamiento mismo
         que proc_db_preview): si una tabla o el DB no existen en
-        TIA (caso real del operario que aun no creo DB6_ENT), el FB
-        **NO** aborta: marca el bloque como ``missing_xml`` / emite un
-        warning y los stages posteriores (compute_nmax / entidades /
+        TIA (caso del operario que aun no creo DB6_ENT), el FB **NO**
+        aborta: marca el bloque como ``missing_xml`` / emite un warning
+        y los stages posteriores (compute_nmax / entidades /
         comentarios) devolveran diff vacio para ese lado. El operario
         sigue viendo el preview de las partes que SI existen.
 
-        Antes (legacy): si el worker TIA falla, retornaba None en lugar
-        de raise, y el FB hacia ``await None`` con TypeError. Eso se
-        veia en el smoke del operario con DB6_ENT inexistente.
+        Si el worker TIA retorna ``None`` en ``dispatch_async``, se
+        lanza ``RuntimeError`` con mensaje accionable (no se hace
+        ``await None`` con TypeError).
         """
         from areas.alimentacion.helpers.layout.build_cache import build_cache
 
@@ -398,9 +398,8 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
             "renamed":      diff.renamed,
             "missing_xml":  diff.missing_xml,
         }
-        # Lista unica de ops a aplicar (5 pasadas de Aketza). El
-        # preview FB la reusa en stage 5 (shape nueva) y la SPA la
-        # consume directamente desde ``data.ops``.
+        # Lista unica de ops a aplicar por el sync. El preview FB la
+        # reusa en stage 5; la SPA la consume desde ``data.ops``.
         self._ctx.entities_ops = list(diff.ops)
 
     async def _stage_4_compute_comentarios(self) -> None:
@@ -503,19 +502,18 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
 
         summary = compute_summary(diff_ent, diff_com)
 
-        # Tabla unificada "constants.todos" (formato SPA legacy, C.16):
-        # una fila por plc_tag con status agregado (agregados /
-        # eliminados / renombrados / sin_cambios). Mantenido por
-        # compat con consumers que ya lo leen.
+        # Tabla unificada "constants.todos": una fila por plc_tag con
+        # status agregado (agregados / eliminados / renombrados /
+        # sin_cambios). Mantenido por compat con consumers que ya lo leen.
         constants_todos = _build_constants_todos(diff_ent)
 
-        # Tabla unificada "arrays.ENT" (formato SPA legacy).
+        # Tabla unificada "arrays.ENT" (compat con consumers externos).
         arrays_ent = _build_arrays_ent(diff_com)
 
-        # Warnings de plc_tags NO canonicos (C.21): TIA tiene
-        # ``Constant_1`` con value=4 mientras el Excel tiene
-        # ``ENT_004`` con numero=4. El sync no puede decidir por si
-        # solo; el operador debe resolver manualmente.
+        # Warnings de plc_tags NO canonicos: TIA tiene ``Constant_1``
+        # con value=4 mientras el Excel tiene ``ENT_004`` con numero=4.
+        # El sync no puede decidir por si solo; el operador debe
+        # resolver manualmente.
         inconsistencies = detect_inconsistencias_plc_tags(diff_ent)
 
         self._ctx.result = {
@@ -530,11 +528,10 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
             "arrays": {
                 self._ctx.db_array_name: arrays_ent,
             },
-            # Lista unica de ops a aplicar (5 pasadas de Aketza, en
-            # orden de aplicacion por el sync FB). La SPA consume
-            # ``data.ops`` directamente; las 5 keys legacy abajo
-            # (``constants`` / ``unified``) se mantienen por compat
-            # hasta migrar la SPA a ``ops``.
+            # Lista unica de ops a aplicar por el sync (orden de
+            # aplicacion del sync FB). La SPA consume ``data.ops``
+            # directamente; las keys legacy (``constants`` / ``unified``)
+            # se mantienen por compat con consumers externos.
             "ops": list(diff_ent.ops),
             "constants": {
                 "agregados": [
@@ -647,7 +644,7 @@ def _step_summary(ctx: Any, step_nombre: str) -> str:
 def _build_constants_todos(diff_ent: Any) -> list[dict[str, Any]]:
     """Lista unificada de entries de la tabla de constantes para la SPA.
 
-    Shape por entry (post C.16, oct-2026):
+    Shape por entry:
         plc_tag       : str. SIEMPRE la key del match (mismo nombre
                         en TIA y Excel cuando la entry matchea).
         plc_tag_tia   : str o None. plc_tag que tiene TIA (None si la
@@ -658,11 +655,10 @@ def _build_constants_todos(diff_ent: Any) -> list[dict[str, Any]]:
         nuevo         : int o None. value (numero) en Excel, None si no existe.
         status        : "agregar" | "renombrar" | "eliminar" | "sin_cambios".
 
-    Los nuevos campos ``plc_tag_tia`` y ``plc_tag_excel`` son aditivos
-    respecto a la version anterior (C.5..C.15). Sirven para que la SPA
-    pueda renderizar 2 columnas independientes (TAG que tiene TIA y TAG
-    que tiene Excel), una por lado, en lugar de mezclar ambas en
-    una sola columna ``plc_tag`` redundante.
+    Los campos ``plc_tag_tia`` y ``plc_tag_excel`` permiten a la SPA
+    renderizar 2 columnas independientes (TAG que tiene TIA y TAG que
+    tiene Excel), una por lado, en lugar de mezclar ambas en una sola
+    columna ``plc_tag`` redundante.
     """
     rows: list[dict[str, Any]] = []
     for plc_tag, numero in diff_ent.base.items():

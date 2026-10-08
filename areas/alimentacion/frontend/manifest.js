@@ -8,7 +8,7 @@
  * importa estáticamente desde el shell SPA: la SPA es multi-área
  * sin build step.
  *
- * Tras el refactor de areas (sept-2026), este manifest ya no
+ * Tras el refactor de areas, este manifest ya no
  * declara nada del shell comun. El ShellSidebar, el ShellTopbar,
  * el ProgressIndicator, la ConsolaLogs y el plcpanelview son del
  * core (``core/web_server/static/js/components/``) y NO aparecen
@@ -21,7 +21,7 @@
  *
  * El boton "PLC" comun de la sidebar enruta a currentView="plc"
  * que renderiza el plcpanelview del shell. ``"cache"`` que existia
- * en el manifest legacy se elimino: ya no es una sub-vista del
+ * en el manifest anterior se elimino: ya no es una sub-vista del
  * area sino una vista comun del shell.
  *
  * Shape del manifest:
@@ -37,7 +37,7 @@
  *     loaders: { "<ComponentName>": () => import("./components/<File>.js") },
  *   }
  *
- * ``viewLabels`` es nuevo (sept-2026). El shell lee las labels
+ * ``viewLabels`` es nuevo. El shell lee las labels
  * humanas del breadcrumb y de los items de la nav desde aquí (en
  * lugar de tener un VIEW_LABELS hardcoded en el shell). Si el area
  * no aporta viewLabels, el shell hace fallback a la key
