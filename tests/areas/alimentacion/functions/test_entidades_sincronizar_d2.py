@@ -294,7 +294,7 @@ def test_stage_4_tx_a_nmax_sin_op_es_noop() -> None:
 
 def test_stage_4_tx_a_nmax_llama_execute_transactional_batch() -> None:
     """Con nmax_op, stage 4 llama execute_transactional_batch con 1 op y
-    luego compile_blocks (D.8.3 compile intermedio) sobre el DB."""
+    luego compile_blocks defensivo sobre el DB."""
     fb = _make_fb()
     _bootstrap_fb(fb)
     fb._ctx.nmax_op = {
@@ -315,7 +315,7 @@ def test_stage_4_tx_a_nmax_llama_execute_transactional_batch() -> None:
         import asyncio
         asyncio.run(fb._stage_4_tx_a_nmax())
 
-    # Tx A + compile intermedio (D.8.3).
+    # Tx A + compile defensivo.
     assert dispatch_mock.await_count == 2
     tx_a_call = dispatch_mock.await_args_list[0]
     assert tx_a_call.args[1] == "execute_transactional_batch"
@@ -328,8 +328,8 @@ def test_stage_4_tx_a_nmax_llama_execute_transactional_batch() -> None:
     assert fb._ctx.nmax_result == {"updated": True, "constant": "N_MAX_ENTIDAD", "value": 20}
 
 
-def test_stage_4_tx_a_nmax_compile_intermedio_si_falla_sigue() -> None:
-    """D.8.3: si compile intermedio lanza excepcion, stage 4 no rompe
+def test_stage_4_tx_a_nmax_compile_defensivo_si_falla_sigue() -> None:
+    """Si el compile defensivo lanza excepcion, stage 4 no rompe
     (log warning y sigue). Stage 9 compila de nuevo tras Tx C."""
     fb = _make_fb()
     _bootstrap_fb(fb)

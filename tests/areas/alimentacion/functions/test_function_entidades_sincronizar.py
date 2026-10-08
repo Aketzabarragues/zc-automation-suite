@@ -241,8 +241,8 @@ def test_stage_1_exportar_llama_dispatch_async_2_veces() -> None:
             "tag_table": "6_Entidades",
             "config_table": "0_Config_Generales",
         }
-        # D.8.4: stage 1 exporta con subcarpeta TIA. Mockeamos los
-        # getters de los folders.
+        # Stage 1 exporta con subcarpeta TIA. Mockeamos los getters
+        # de los folders.
         fb._ctx.config_manager.get_tia_folder_entidades_tags.return_value = (
             "6_Entidades"
         )
@@ -258,9 +258,9 @@ def test_stage_1_exportar_llama_dispatch_async_2_veces() -> None:
     call1 = dispatch_mock.await_args_list[0]
     assert call1.args[1] == "export_plc_tags_xml"
     assert "0_Config_Generales" in call1.args[2]["table_names"]
-    # D.8.4: keep_folder_structure=True (mirror Disp) para que TIA V21
-    # matchee el import recursivo por subpath TIA. Sin esto, el modified
-    # queda FLAT y TIA rollbackea silenciosamente.
+    # keep_folder_structure=True (mirror Disp): TIA V21 matchea el
+    # import recursivo por subpath TIA. Sin esto, el modified queda
+    # FLAT y TIA no encuentra la ruta esperada al re-importar.
     assert call1.args[2]["keep_folder_structure"] is True
     # Segundo call: export_block.
     call2 = dispatch_mock.await_args_list[1]

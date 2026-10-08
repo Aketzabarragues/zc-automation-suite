@@ -172,8 +172,8 @@ def test_stage_7_copytree_filtrado_excluye_nmax(tmp_path: Path) -> None:
     _bootstrap_fb(fb)
     _make_sync_dirs(fb, tmp_path)
 
-    # D.8.4: stage 1 exporta con keep_folder_structure=True, asi que
-    # los XML viven en subcarpeta TIA (mirror Disp).
+    # Stage 1 exporta con keep_folder_structure=True, asi que los
+    # XML viven en subcarpeta TIA (mirror Disp).
     tags_folder = (
         fb._ctx.config_manager.get_tia_folder_entidades_tags.return_value
     )
@@ -226,9 +226,8 @@ def test_stage_7_aplica_constant_ops_al_xml(tmp_path: Path) -> None:
     _bootstrap_fb(fb)
     _make_sync_dirs(fb, tmp_path)
 
-    # D.8.4: stage 1 exporta con subcarpeta TIA. Crear el XML en su
-    # carpeta para que el copytree + PlcUserConstantModifier lo
-    # encuentre.
+    # Stage 1 exporta con subcarpeta TIA. Crear el XML en su carpeta
+    # para que el copytree + PlcUserConstantModifier lo encuentre.
     tags_folder = (
         fb._ctx.config_manager.get_tia_folder_entidades_tags.return_value
     )
@@ -286,12 +285,7 @@ def test_stage_8_sin_constant_ops_no_llama_dispatch(tmp_path: Path) -> None:
 
 def test_stage_8_con_constant_ops_llama_execute_batch(tmp_path: Path) -> None:
     """Con constant_ops, stage 8 llama execute_transactional_batch con
-    import_plc_tags_xml.
-
-    D.8.4: revertido a ``execute_transactional_batch``. El bug NO era la
-    transaccion (D.8.2); era el path FLAT del export (C.7.8). Con
-    ``keep_folder_structure=True`` en el export (mirror Disp), TIA V21
-    matchea correctamente el modified y acepta el commit.
+    import_plc_tags_xml (transaccional, atomicidad semantica).
     """
     fb = _make_fb()
     _bootstrap_fb(fb)
@@ -319,11 +313,13 @@ def test_stage_8_con_constant_ops_llama_execute_batch(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_stage_9_sin_nmax_op_no_compila() -> None:
-    """Sin NMAX op, stage 9 no compila (tamanyo del array no cambio)."""
+def test_stage_9_sin_ops_no_compila() -> None:
+    """Sin NMAX op ni comment ops, stage 9 no compila (no hay cambios
+    estructurales que consolidar en el DB)."""
     fb = _make_fb()
     _bootstrap_fb(fb)
     fb._ctx.nmax_op = None
+    fb._ctx.comment_ops = []
 
     with patch(
         "areas.alimentacion.functions.function_entidades_sincronizar"
@@ -352,6 +348,30 @@ def test_stage_9_con_nmax_op_compila_db6_ent() -> None:
     assert call.args[1] == "compile_blocks"
     assert call.args[2]["block_names"] == ["DB6_ENT"]
     assert fb._ctx.compile_ok is True
+
+
+def test_stage_9_con_comment_ops_sin_nmax_compila_db6_ent() -> None:
+    """Sin NMAX op pero con comment ops, stage 9 compila igualmente
+    (Tx C va a importar el DB con slot comments modificados; el
+    compile consolida la estructura del array antes del import)."""
+    fb = _make_fb()
+    _bootstrap_fb(fb)
+    fb._ctx.nmax_op = None
+    fb._ctx.comment_ops = [
+        {"kind": "update_comment", "slot": 1, "new_comment": "Linea 1"},
+    ]
+
+    with patch(
+        "areas.alimentacion.functions.function_entidades_sincronizar"
+        ".dispatch_async",
+        new=AsyncMock(return_value={"success": True}),
+    ) as dispatch_mock:
+        asyncio.run(fb._stage_9_compilar_bloques())
+
+    assert dispatch_mock.await_count == 1
+    call = dispatch_mock.await_args_list[0]
+    assert call.args[1] == "compile_blocks"
+    assert call.args[2]["block_names"] == ["DB6_ENT"]
 
 
 def test_stage_9_compile_falla_sin_abortar() -> None:

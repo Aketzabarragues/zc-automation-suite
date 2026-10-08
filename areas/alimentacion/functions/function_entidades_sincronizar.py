@@ -9,7 +9,7 @@ y mutan sus campos. **Aqui en el FB vive la state machine**: el orden de
 las 11 llamadas, el mapping step -> funcion del helper, y la
 instanciacion del ctx.
 
-Mirror 1:1 del patron ``FunctionDispSincronizar`` (11 stages):
+Replica el patron de ``FunctionDispSincronizar`` (11 stages):
   - Tx A online puro para el NMAX update (redimensiona el array ENT[]).
   - Wait consolidacion 2s (TIA internaliza el redimensionado).
   - Re-exportar tras Tx A (el DB ya tiene el nuevo tamanyo).
@@ -19,9 +19,9 @@ Mirror 1:1 del patron ``FunctionDispSincronizar`` (11 stages):
   - Tx C offline para comentarios del array (commit_array_comments).
   - Preview post-sync (re-export + re-run preview).
 
-SIN save_project (decision humana; la politica del repo es "Save manual
-en TIA Portal tras sync"). Con save_required=False en el resultado
-(1:1 con Disp; el operario ya sabe la politica).
+Sin ``save_project``: politica del repo, el operario hace Save manual
+en TIA Portal tras validar el sync. ``save_required=False`` en el
+resultado (1:1 con Disp; el operario ya sabe la politica).
 
 Hereda directo de ``FunctionBase``. Zona 0 con 4 deps comunes + 1
 especifica (``app_state``).
@@ -315,14 +315,11 @@ class FunctionEntidadesSincronizar(FunctionBase):
         self._ctx.tag_table = tag_table
         self._ctx.config_table = config_table
 
-        # 2/3: export_plc_tags_xml (2 tablas) CON subcarpeta TIA.
-        # D.8.4: keep_folder_structure=True (mirror Disp). El import
-        # recursivo de TIA V21 (Tx B con target_folder="" por defecto)
-        # escanea el import_dir y matchea por subpath. Sin la
-        # subcarpeta ``6_Entidades/`` el archivo queda FLAT y TIA
-        # rollbackea silenciosamente (el operario ve "no da error pero
-        # no importa nada"). Aketza lo verifico con un script Python
-        # directo: paso el archivo con subcarpeta y funciono.
+        # 2/3: export_plc_tags_xml (2 tablas) con subcarpeta TIA.
+        # keep_folder_structure=True (mirror Disp): TIA V21 hace
+        # match UPDATE recursivo por subpath TIA en el import. Sin
+        # la subcarpeta, el archivo queda FLAT y TIA no encuentra
+        # la ruta esperada al re-importar.
         tags_result = await dispatch_async(
             self._ctx.tia_client,
             "export_plc_tags_xml",
@@ -349,7 +346,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
             )
 
         # 3/3: export_block (DB6_ENT) preservando estructura TIA.
-        # C.7.6: keep_folder_structure=True (mirror Disp) — sin esto,
+        # keep_folder_structure=True (mirror Disp): sin esto,
         # import_block en Tx C falla con "Import failed because an
         # object with the name 'DB6_ENT' already exists" porque TIA
         # no puede determinar la subcarpeta destino del UPDATE.
@@ -401,12 +398,8 @@ class FunctionEntidadesSincronizar(FunctionBase):
         )
 
         desired = get_entidades(self._ctx.app_state, self._ctx.plc_name)
-        # D.8.4: stage 1 exporta con keep_folder_structure=True, asi
-        # que los XML viven en subcarpeta TIA dentro de export/:
-        # ``<export>/6_Entidades/6_Entidades.xml`` y
-        # ``<export>/0_Sistema/0_Config_Generales.xml``. Los getters
-        # ``get_tia_folder_entidades_tags`` y ``get_tia_folder_entidades_config``
-        # devuelven los nombres de subcarpeta desde config.json.
+        # Stage 1 exporta con keep_folder_structure=True, asi que
+        # los XML viven en subcarpeta TIA dentro de export/.
         tia_folder_tags = (
             self._ctx.config_manager.get_tia_folder_entidades_tags()
         )
@@ -616,30 +609,26 @@ class FunctionEntidadesSincronizar(FunctionBase):
             })
 
     async def _stage_4_tx_a_nmax(self) -> None:
-        """Stage 4: Tx A online puro para el NMAX update + compile intermedio.
+        """Stage 4: Tx A online puro para el NMAX update.
 
-        El NMAX_ENTIDAD controla el tamanyo del array ENT[] en DB6_ENT.
-        Cambiar el value online hace que TIA redimensione el array
-        internamente. Despues (stage 5) esperamos la consolidacion y
-        (stage 6) re-exportamos para que Tx B (import_plc_tags_xml)
-        opere con la estructura ya actualizada.
+        Cambia el value de la PlcUserConstant ``N_MAX_ENTIDAD`` en
+        ``0_Config_Generales`` (e.g. 4 -> 15). Esto redimensiona el
+        array ``ENT[]`` del ``DB6_ENT`` en la sesion de TIA Portal.
+        Stage 5 espera la consolidacion interna y stage 6 re-exporta
+        para que Tx B opere con la estructura ya actualizada.
 
-        Wrap en ``execute_transactional_batch`` (mismo patron que Disp
-        stage 4): atomicidad semantica. Si falla, TIA hace rollback del
-        NMAX update.
+        Wrap en ``execute_transactional_batch`` para atomicidad. Si
+        falla, TIA hace rollback del NMAX update.
 
-        D.8.3: tras el commit de Tx A se ejecuta ``compile_blocks`` sobre
-        DB6_ENT SIN transaccion. Esto fuerza a TIA a regenerar la
-        estructura interna del array ENT[] (15 slots) y estabilizar los
-        punteros en memoria. Sin este compile, el ``import_plc_tags_xml``
-        posterior (Tx B) detecta que el PLC tiene cambios pending del
-        ``set_property`` de Tx A y hace rollback silencioso del import
-        (sintoma: "no da error pero no importa nada").
+        Tras el commit se dispara un ``compile_blocks`` defensivo sobre
+        el DB para forzar a TIA a regenerar la estructura del array
+        redimensionado. Si falla, log warning y sigue: stage 9 compila
+        de nuevo tras Tx C.
 
         Sin ``save_project``: los cambios quedan en memoria de TIA
         Portal. El operario pulsa Save manual tras validar el resultado.
 
-        Si no hay NMAX op (no hay cambios), el stage es no-op.
+        Stage no-op si no hay NMAX op.
         """
         if not self._ctx.nmax_op:
             return
@@ -666,10 +655,8 @@ class FunctionEntidadesSincronizar(FunctionBase):
                 "PLC no tiene la tabla de configuracion."
             )
 
-        # Compile intermedio (D.8.3) — sin transaccion, fuerza a TIA
-        # a regenerar la estructura del array ENT[] antes del import
-        # posterior. Si TIA rechaza el compile, marcamos warning y
-        # seguimos: stage 9 compila de nuevo tras Tx C.
+        # Compile defensivo post-Tx-A. Si TIA rechaza o retorna None,
+        # log warning y sigue: stage 9 compila de nuevo tras Tx C.
         try:
             compile_result = await dispatch_async(
                 self._ctx.tia_client,
@@ -682,16 +669,16 @@ class FunctionEntidadesSincronizar(FunctionBase):
             )
             if compile_result is None:
                 logger.warning(
-                    f"[{self.nombre}] compile intermedio (post-Tx-A) no "
+                    f"[{self.nombre}] compile defensivo post-Tx-A no "
                     f"devolvio resultado. Stage 9 compila de nuevo."
                 )
             else:
                 logger.debug(
-                    f"[{self.nombre}] compile intermedio OK: {compile_result}"
+                    f"[{self.nombre}] compile defensivo post-Tx-A OK"
                 )
         except Exception as exc:
             logger.warning(
-                f"[{self.nombre}] compile intermedio fallo: {exc}. "
+                f"[{self.nombre}] compile defensivo post-Tx-A fallo: {exc}. "
                 f"Stage 9 compila de nuevo."
             )
 
@@ -738,9 +725,6 @@ class FunctionEntidadesSincronizar(FunctionBase):
                 "plc_name": self._ctx.plc_name,
                 "target_dir": str(self._ctx.sync_variables_export),
                 "table_names": [self._ctx.config_table, self._ctx.tag_table],
-                # D.8.4: keep_folder_structure=True (mirror Disp). TIA
-                # V21 matchea import recursivo por subpath TIA; sin la
-                # subcarpeta, hace rollback silencioso. Ver stage 1.
                 "keep_folder_structure": True,
             },
         )
@@ -829,8 +813,8 @@ class FunctionEntidadesSincronizar(FunctionBase):
             )
 
         # ── 2/4: edit offline de 6_Entidades.xml ──
-        # D.8.4: el XML vive en la subcarpeta TIA (mirror Disp). El
-        # copytree de 1/4 preserva la estructura export/ → modified/.
+        # El XML vive en la subcarpeta TIA (mirror Disp). El copytree
+        # de 1/4 preserva la estructura export/ → modified/.
         if self._ctx.constant_ops and dst_vars:
             tia_folder_tags = (
                 self._ctx.config_manager.get_tia_folder_entidades_tags()
@@ -889,12 +873,11 @@ class FunctionEntidadesSincronizar(FunctionBase):
             )
 
         # ── 4/4: edit offline de DB6_ENT.{s7dcl,s7res} ──
-        # D.8.5: stage 1 exporta el bloque con keep_folder_structure=True,
-        # asi que ``<dst_bloq>/<tia_folder>/DB6_ENT.s7dcl`` (no FLAT).
-        # El SdPair debe construirse con la subcarpeta TIA, igual que
-        # Disp hace con ``Path(modified_bloques) / target_folder``. Sin
-        # esto, ``sdpair.dcl.exists()`` es False, commit_array_comments
-        # se salta y el modified queda identico al export.
+        # Stage 1 exporta el bloque con keep_folder_structure=True,
+        # asi que el archivo esta en
+        # ``<dst_bloq>/<tia_folder>/DB6_ENT.s7dcl`` (no FLAT). El
+        # SdPair debe construirse con la subcarpeta TIA, igual que
+        # Disp hace con ``Path(modified_bloques) / target_folder``.
         if self._ctx.comment_ops and dst_bloq:
             from core.infrastructure.tia.tia_export_paths import SdPair
             tia_folder_bloques = (
@@ -956,13 +939,6 @@ class FunctionEntidadesSincronizar(FunctionBase):
                 f"desde {modified_dir}"
             )
 
-            # D.8.4: revertido a ``execute_transactional_batch``. El bug
-            # NO era la transaccion (D.8.2) ni la falta de compile
-            # intermedio (D.8.3) — era el path FLAT del export (C.7.8).
-            # TIA V21 hace match UPDATE recursivo por subpath TIA; con
-            # ``keep_folder_structure=True`` en el export (mirror Disp),
-            # el modified queda en ``<modified>/6_Entidades/6_Entidades.xml``
-            # y TIA V21 lo matchea correctamente.
             batch_result = await dispatch_async(
                 self._ctx.tia_client,
                 "execute_transactional_batch",
@@ -971,10 +947,10 @@ class FunctionEntidadesSincronizar(FunctionBase):
                     "operations": [
                         {
                             "command": "import_plc_tags_xml",
-                            # C.7.7: el handler espera ``import_dir`` (no
-                            # ``target_dir``); target_folder="" (string vacio)
-                            # activa la rama default del handler que omite el
-                            # argumento en TIA y mantiene match UPDATE.
+                            # target_folder="" (string vacio) activa la
+                            # rama default del handler que omite el
+                            # argumento en TIA y mantiene match UPDATE
+                            # recursivo por subpath.
                             "args": {
                                 "plc_name":      self._ctx.plc_name,
                                 "import_dir":    str(modified_dir),
@@ -992,20 +968,23 @@ class FunctionEntidadesSincronizar(FunctionBase):
             )
 
     async def _stage_9_compilar_bloques(self) -> None:
-        """Stage 9: compila DB6_ENT (cambia de tamanyo tras Tx A NMAX update).
+        """Stage 9: compila DB6_ENT para consolidar cambios estructurales.
 
-        Tx A redimensiona el array ENT[] en DB6_ENT. Sin recompilar,
-        el DB tiene estructura nueva pero references/code viejos:
-        inconsistencia. ``compile_blocks`` consolida la estructura.
+        Compila tras Tx B (constants importadas) y antes de Tx C
+        (import del DB modificado). Necesario cuando:
+          - Tx A redimensiona el array ``ENT[]`` (NMAX cambio), o
+          - hay ``comment_ops`` que Tx C va a importar al DB.
+        Sin recompilar entre Tx B y Tx C, TIA puede tener la tabla
+        de constantes y el DB con estructuras inconsistentes.
 
-        Solo compila si Tx A tuvo NMAX op (el tamanyo del array cambio).
-        Si no hubo NMAX update, el stage es no-op.
+        Stage no-op si no hay NMAX op ni comment ops (solo cambian
+        PlcUserConstants del tag table, sin tocar el DB).
 
-        Wrap en try/except: si Tia rechaza el compile, marcamos
-        ``compile_ok=False`` pero NO raise — el sync sigue para que
-        el FB pueda reportar el error al operario via ``compile_error``.
+        Wrap en try/except: si TIA rechaza el compile, marcamos
+        ``compile_ok=False`` pero NO raise. El sync sigue y el FB
+        reporta el error al operario via ``compile_error``.
         """
-        if not self._ctx.nmax_op:
+        if not self._ctx.nmax_op and not self._ctx.comment_ops:
             return
 
         try:
@@ -1257,8 +1236,9 @@ async def _stage_11_post_preview(self) -> None:
             "plc_name": self._ctx.plc_name,
             "target_dir": str(ent_ctx.preview_disp),
             "table_names": [self._ctx.config_table, self._ctx.tag_table],
-            # C.7.8: stage 11 re-export debe ser FLAT tambien porque
-            # el preview FB espera archivos FLAT para parsearlos.
+            # FLAT: el preview FB parsea ``<preview_disp>/6_Entidades.xml``
+            # y ``<preview_disp>/0_Config_Generales.xml`` en el root
+            # (no espera subcarpeta TIA).
             "keep_folder_structure": False,
         },
     )
