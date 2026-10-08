@@ -889,9 +889,20 @@ class FunctionEntidadesSincronizar(FunctionBase):
             )
 
         # ── 4/4: edit offline de DB6_ENT.{s7dcl,s7res} ──
+        # D.8.5: stage 1 exporta el bloque con keep_folder_structure=True,
+        # asi que ``<dst_bloq>/<tia_folder>/DB6_ENT.s7dcl`` (no FLAT).
+        # El SdPair debe construirse con la subcarpeta TIA, igual que
+        # Disp hace con ``Path(modified_bloques) / target_folder``. Sin
+        # esto, ``sdpair.dcl.exists()`` es False, commit_array_comments
+        # se salta y el modified queda identico al export.
         if self._ctx.comment_ops and dst_bloq:
             from core.infrastructure.tia.tia_export_paths import SdPair
-            sdpair = SdPair(dst_bloq, self._ctx.db_name)
+            tia_folder_bloques = (
+                self._ctx.config_manager.get_tia_folder_entidades_tags()
+            )
+            sdpair = SdPair(
+                dst_bloq / tia_folder_bloques, self._ctx.db_name,
+            )
             slot_map = {
                 op["slot"]: op["new_comment"]
                 for op in self._ctx.comment_ops
