@@ -1,7 +1,7 @@
 """Tests para stage 3 (preparar_ops) y stage 4 (tx_a_nmax) del FB entities_sincronizar.
 
 Cubre:
-  - stage_3_preparar_ops: walk unified_todos + nmax_block → 3 listas
+  - stage_3_preparar_ops: walk entities_ops + nmax_block → 3 listas
   - stage_4_tx_a_nmax: dispatch_async con execute_transactional_batch (no-op si no hay op)
 """
 from __future__ import annotations
@@ -180,7 +180,7 @@ def test_stage_3_preparar_ops_nmax_op_si_hay_actualizar() -> None:
     """Si nmax_block.todos tiene 1 entry con status='actualizar', nmax_op se popula."""
     fb = _make_fb()
     _bootstrap_fb(fb)
-    fb._ctx.unified_todos = []
+    fb._ctx.entities_ops = []
     fb._ctx.nmax_block = {
         "todos": [
             {"name": "N_MAX_ENTIDAD", "status": "actualizar", "nuevo": 20, "actual": 16},
@@ -202,7 +202,7 @@ def test_stage_3_preparar_ops_nmax_op_none_si_sin_cambios() -> None:
     """Si nmax_block.todos esta vacio o sin 'actualizar', nmax_op es None."""
     fb = _make_fb()
     _bootstrap_fb(fb)
-    fb._ctx.unified_todos = []
+    fb._ctx.entities_ops = []
     fb._ctx.nmax_block = {
         "todos": [{"name": "N_MAX_ENTIDAD", "status": "sin_cambios", "nuevo": 16, "actual": 16}],
         "summary": {"actualizar": 0, "sin_cambios": 1},

@@ -3,11 +3,10 @@
 State machine sobre el helper ``entidades_generate_preview``
 (areas/alimentacion/helpers/entidades/entidades_generate_preview.py).
 El helper expone funciones independientes (``compute_diff_entities``,
-``compute_nmax_diff_entidades``, ``compute_comments_diff``,
-``compute_unified_diff_entities``) que reciben un ``EntidadesSyncContext``
-y mutan sus campos. **Aqui en el FB vive la state machine**: el orden de
-las 11 llamadas, el mapping step -> funcion del helper, y la
-instanciacion del ctx.
+``compute_nmax_diff_entidades``, ``compute_comments_diff``) que reciben
+un ``EntidadesSyncContext`` y mutan sus campos. **Aqui en el FB vive
+la state machine**: el orden de las 11 llamadas, el mapping step ->
+funcion del helper, y la instanciacion del ctx.
 
 Replica el patron de ``FunctionDispSincronizar`` (11 stages):
   - Tx A online puro para el NMAX update (redimensiona el array ENT[]).
@@ -481,7 +480,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
         }
 
     async def _stage_3_preparar_ops(self) -> None:
-        """Stage 3: walk ``unified_todos`` y agrupa ops para Tx A / B / C.
+        """Stage 3: walk ``entities_ops`` y agrupa ops para Tx A / B / C.
 
         Output (mutaciones de ``self._ctx``):
           - ``nmax_op``: dict o None con la op del NMAX_ENTIDAD (si cambia)

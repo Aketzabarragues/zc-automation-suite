@@ -316,7 +316,7 @@ def test_stage_1_exportar_si_worker_falla_sigue_con_warnings() -> None:
 
 def test_stage_2_compute_diff_llama_helpers_de_preview() -> None:
     """Stage 2 reusa compute_diff_entities + compute_nmax_diff_entidades +
-    compute_comments_diff (sin compute_unified_diff_entities: ya no se usa)."""
+    compute_comments_diff."""
     fb = _make_fb()
     with patch(
         "areas.alimentacion.functions.function_entidades_sincronizar"

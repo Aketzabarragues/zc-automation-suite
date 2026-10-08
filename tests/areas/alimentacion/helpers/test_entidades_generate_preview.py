@@ -49,21 +49,13 @@ class FakeEntidad:
 
 
 def _mock_modifier_with_constants(plc_tag_to_numero: dict[str, int]) -> MagicMock:
-    """Crea un mock de PlcUserConstantModifier con ``read_user_constants_with_uids``.
+    """Crea un mock de PlcUserConstantModifier.
 
-    Devuelve ``{str(numero): "<plc_tag>"}`` (formato real del parser
-    tras C.10: el helper ya no quita prefijo ``ent_`` porque la tabla
-    ``6_Entidades`` viene pre-filtrada por el operario y los nombres
-    son canonicos en MAYUSCULAS, p.ej. ``ENT_000``).
+    Devuelve ``{str(numero): {"name": "<plc_tag>", "comment": None}}``
+    (formato del helper ``read_user_constants_with_comments``). Los
+    plc_tags son canonicos en MAYUSCULAS (``ENT_000``, ``ENT_001``...).
     """
     modifier = MagicMock()
-    raw = {
-        str(numero): plc_tag
-        for plc_tag, numero in plc_tag_to_numero.items()
-    }
-    modifier.read_user_constants_with_uids.return_value = raw
-    # C.25: nuevo metodo con comments. Por defecto None para que los
-    # tests no rompan al no tener el campo base_comments.
     modifier.read_user_constants_with_comments.return_value = {
         str(numero): {"name": plc_tag, "comment": None}
         for plc_tag, numero in plc_tag_to_numero.items()
@@ -81,11 +73,6 @@ def _mock_modifier_with_comments(
     comentarios distintos por plc_tag (None = constant sin comment).
     """
     modifier = MagicMock()
-    raw = {
-        str(numero): plc_tag
-        for plc_tag, numero in plc_tag_to_numero.items()
-    }
-    modifier.read_user_constants_with_uids.return_value = raw
     modifier.read_user_constants_with_comments.return_value = {
         str(numero): {
             "name": plc_tag,
