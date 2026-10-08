@@ -594,7 +594,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
             })
 
     async def _stage_4_tx_a_nmax(self) -> None:
-        """Stage 4: Tx A online puro para el NMAX update.
+        """Stage 4: Tx A online puro para el NMAX update + compile intermedio.
 
         El NMAX_ENTIDAD controla el tamanyo del array ENT[] en DB6_ENT.
         Cambiar el value online hace que TIA redimensione el array
@@ -605,6 +605,14 @@ class FunctionEntidadesSincronizar(FunctionBase):
         Wrap en ``execute_transactional_batch`` (mismo patron que Disp
         stage 4): atomicidad semantica. Si falla, TIA hace rollback del
         NMAX update.
+
+        D.8.3: tras el commit de Tx A se ejecuta ``compile_blocks`` sobre
+        DB6_ENT SIN transaccion. Esto fuerza a TIA a regenerar la
+        estructura interna del array ENT[] (15 slots) y estabilizar los
+        punteros en memoria. Sin este compile, el ``import_plc_tags_xml``
+        posterior (Tx B) detecta que el PLC tiene cambios pending del
+        ``set_property`` de Tx A y hace rollback silencioso del import
+        (sintoma: "no da error pero no importa nada").
 
         Sin ``save_project``: los cambios quedan en memoria de TIA
         Portal. El operario pulsa Save manual tras validar el resultado.
@@ -634,6 +642,35 @@ class FunctionEntidadesSincronizar(FunctionBase):
                 "Tx A (NMAX update) fallo: el worker TIA no devolvio "
                 "resultado. TIA Portal puede no estar conectado o el "
                 "PLC no tiene la tabla de configuracion."
+            )
+
+        # Compile intermedio (D.8.3) — sin transaccion, fuerza a TIA
+        # a regenerar la estructura del array ENT[] antes del import
+        # posterior. Si TIA rechaza el compile, marcamos warning y
+        # seguimos: stage 9 compila de nuevo tras Tx C.
+        try:
+            compile_result = await dispatch_async(
+                self._ctx.tia_client,
+                "compile_blocks",
+                {
+                    "plc_name":   self._ctx.plc_name,
+                    "block_names": [self._ctx.db_name],
+                },
+                timeout_s=120.0,
+            )
+            if compile_result is None:
+                logger.warning(
+                    f"[{self.nombre}] compile intermedio (post-Tx-A) no "
+                    f"devolvio resultado. Stage 9 compila de nuevo."
+                )
+            else:
+                logger.debug(
+                    f"[{self.nombre}] compile intermedio OK: {compile_result}"
+                )
+        except Exception as exc:
+            logger.warning(
+                f"[{self.nombre}] compile intermedio fallo: {exc}. "
+                f"Stage 9 compila de nuevo."
             )
 
     async def _stage_5_wait_consolidation(self) -> None:
