@@ -261,7 +261,15 @@ def test_stage_8_sin_constant_ops_no_llama_dispatch(tmp_path: Path) -> None:
 
 
 def test_stage_8_con_constant_ops_llama_execute_batch(tmp_path: Path) -> None:
-    """Con constant_ops, stage 8 llama execute_transactional_batch con import_plc_tags_xml."""
+    """Con constant_ops, stage 8 llama execute_batch con import_plc_tags_xml.
+
+    D.8.2: Tx B usa ``execute_batch`` (sin transaccion TIA Portal) en
+    lugar de ``execute_transactional_batch``. TIA V21 rechaza el
+    commit de un import que re-construye el arbol de comments
+    MultilingualText dentro de una transaccion (compile-like interno
+    que el manual Openness prohibe en tx). Sin transaccion, el import
+    se ejecuta como operacion autonoma y TIA lo acepta.
+    """
     fb = _make_fb()
     _bootstrap_fb(fb)
     _make_sync_dirs(fb, tmp_path)
@@ -278,7 +286,7 @@ def test_stage_8_con_constant_ops_llama_execute_batch(tmp_path: Path) -> None:
 
     assert dispatch_mock.await_count == 1
     call = dispatch_mock.await_args_list[0]
-    assert call.args[1] == "execute_transactional_batch"
+    assert call.args[1] == "execute_batch"
     assert "operations" in call.args[2]
     assert call.args[2]["operations"][0]["command"] == "import_plc_tags_xml"
 

@@ -881,11 +881,22 @@ class FunctionEntidadesSincronizar(FunctionBase):
                 f"desde {modified_dir}"
             )
 
+            # D.8.2: Tx B con `execute_batch` (sin transaccion TIA Portal).
+            # TIA V21 rechaza `import_plc_tags_xml` con constants que llevan
+            # `<MultilingualText CompositionName="Comment">` DENTRO de
+            # `<ObjectList>` cuando la importacion corre dentro de
+            # `start_transaction`/`end_transaction` (rechaza el commit con
+            # `OpennessAccessException: CommitOnDispose`, porque la
+            # reconstruccion del arbol de comments dispara un compile-like
+            # interno que el manual de Openness prohibe en transacciones).
+            # `execute_batch` no abre transaccion, asi que el import se
+            # ejecuta como operacion autonoma y TIA lo acepta. El operario
+            # ya hace Save manual al final; un fallo a mitad deja el PLC
+            # dirty igual que con la transaccion que rollbackea.
             batch_result = await dispatch_async(
                 self._ctx.tia_client,
-                "execute_transactional_batch",
+                "execute_batch",
                 {
-                    "undo_text": "Sincronizando constantes de entidades...",
                     "operations": [
                         {
                             "command": "import_plc_tags_xml",
