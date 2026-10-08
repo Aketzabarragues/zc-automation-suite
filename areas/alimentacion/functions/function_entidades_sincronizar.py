@@ -484,6 +484,148 @@ class FunctionEntidadesSincronizar(FunctionBase):
             diff_ent_recon, diff_com_recon
         )
 
+    async def _stage_3_preparar_ops(self) -> None:
+        """Stage 3: walk ``unified_todos`` y agrupa ops para Tx A / B / C.
+
+        Output (mutaciones de ``self._ctx``):
+          - ``nmax_op``: dict o None con la op del NMAX_ENTIDAD (si cambia)
+            -> ira a Tx A (stage 4, online puro).
+          - ``constant_ops``: lista de dicts con ops de PlcUserConstants
+            (add/remove/rename) -> iran a Tx B (stage 8, offline puro,
+            via ``import_plc_tags_xml`` del XML FLAT modificado en stage 7).
+          - ``comment_ops``: lista de dicts con ops de slot comments
+            (add/update) -> iran a Tx C (stage 10, offline puro,
+            via ``commit_array_comments``).
+
+        El caso "mismo plc_tag + distinto value" del diff unificado
+        produce 2 filas separadas (eliminar PLC + agregar Excel). Aqui
+        se traducen a 2 ops: un remove + un add, en ese orden (el remove
+        se ejecuta primero para evitar colision de plc_tags en el XML).
+
+        Sin ``save_project`` (politica del repo): el FB deja los cambios
+        en memoria de TIA Portal; el operario pulsa Save manual.
+        """
+        if not self._ctx.unified_todos and not self._ctx.nmax_block.get("todos"):
+            # Sin filas en unified_todos ni NMAX update que aplicar: stage no-op.
+            return
+
+        # ── 1/3 NMAX op ──
+        # El NMAX_ENTIDAD solo cambia si hay 1+ entradas en
+        # ``nmax_block.todos`` con status="actualizar".
+        for entry in self._ctx.nmax_block.get("todos", []):
+            if entry.get("status") == "actualizar":
+                self._ctx.nmax_op = {
+                    "command": "update_user_constant_value",
+                    "args": {
+                        "plc_name":   self._ctx.plc_name,
+                        "table_name": self._ctx.config_table,
+                        "constant_name": entry["name"],
+                        "new_value":  int(entry["nuevo"]),
+                    },
+                }
+                break
+
+        # ── 2/3 Constant ops ──
+        for row in self._ctx.unified_todos:
+            plc_tag = row.get("plc_tag", "")
+            status = row.get("status", "")
+            numero_tia = row.get("numero_tia")
+            numero_excel = row.get("numero_excel")
+            comment_tia = row.get("comment_tia")
+            comment_excel = row.get("comment_excel")
+
+            if status == "eliminar":
+                # plc_tag solo en TIA: borrar PlcUserConstant.
+                self._ctx.constant_ops.append({
+                    "kind":     "remove",
+                    "plc_tag": plc_tag,
+                })
+            elif status == "agregar":
+                # plc_tag solo en Excel (o mismo plc_tag + distinto value
+                # del split): crear PlcUserConstant.
+                self._ctx.constant_ops.append({
+                    "kind":     "add",
+                    "plc_tag": plc_tag,
+                    "uid":      numero_excel,
+                    "comment":  comment_excel or "",
+                })
+            elif status == "renombrar":
+                # plc_tag en ambos + mismo value + distinto comment:
+                # actualizar el comment per-constant.
+                self._ctx.constant_ops.append({
+                    "kind":     "rename_comment",
+                    "plc_tag": plc_tag,
+                    "new_comment": comment_excel or "",
+                })
+            # sin_cambios: skip (no op).
+
+        # ── 3/3 Comment ops (slot del array ENT[]) ──
+        # Cada slot con comment_excel distinto de None genera una op.
+        # Slots con comment_excel=None (eliminar slot del Excel) se
+        # ignoran defensivamente (politica preservacion: el sync no
+        # borra slot comments online, ver helper compute_comments_diff).
+        # Solo filas con cambios sin_cambios se saltan (político: no
+        # inyectamos comentarios que ya están iguales).
+        for row in self._ctx.unified_todos:
+            if row.get("status") == "sin_cambios":
+                continue
+            slot = row.get("numero_excel")
+            new_comment = row.get("comment_excel")
+            if slot is None:
+                # Sin slot Excel (eliminar PLC). Skip: preservacion.
+                continue
+            if new_comment is None:
+                # Slot Excel sin comment (no pedimos crear comment).
+                continue
+            self._ctx.comment_ops.append({
+                "kind":        "update_comment",
+                "slot":        int(slot),
+                "new_comment": new_comment,
+            })
+
+    async def _stage_4_tx_a_nmax(self) -> None:
+        """Stage 4: Tx A online puro para el NMAX update.
+
+        El NMAX_ENTIDAD controla el tamanyo del array ENT[] en DB6_ENT.
+        Cambiar el value online hace que TIA redimensione el array
+        internamente. Despues (stage 5) esperamos la consolidacion y
+        (stage 6) re-exportamos para que Tx B (import_plc_tags_xml)
+        opere con la estructura ya actualizada.
+
+        Wrap en ``execute_transactional_batch`` (mismo patron que Disp
+        stage 4): atomicidad semantica. Si falla, TIA hace rollback del
+        NMAX update.
+
+        Sin ``save_project``: los cambios quedan en memoria de TIA
+        Portal. El operario pulsa Save manual tras validar el resultado.
+
+        Si no hay NMAX op (no hay cambios), el stage es no-op.
+        """
+        if not self._ctx.nmax_op:
+            return
+
+        logger.debug(
+            f"[{self.nombre}] Tx A online: {self._ctx.nmax_op}"
+        )
+
+        result = await dispatch_async(
+            self._ctx.tia_client,
+            "execute_transactional_batch",
+            {
+                "undo_text": "Actualizando N_MAX_ENTIDAD (redimensiona array ENT[])...",
+                "operations": [self._ctx.nmax_op],
+            },
+            timeout_s=60.0,
+        )
+        self._ctx.nmax_result = result
+
+        if result is None:
+            raise RuntimeError(
+                "Tx A (NMAX update) fallo: el worker TIA no devolvio "
+                "resultado. TIA Portal puede no estar conectado o el "
+                "PLC no tiene la tabla de configuracion."
+            )
+
 
 # ============================================================================
 # Estado compartido entre los 11 stages
@@ -577,6 +719,21 @@ def _step_summary(ctx: Any, step_nombre: str) -> str:
             f"{renames} renames; {c_adds} comments adds, "
             f"{c_updates} comments updates; NMAX={nmax_update}"
         )
+    if step_nombre == "Preparar operaciones":
+        n_const = len(ctx.constant_ops)
+        n_com = len(ctx.comment_ops)
+        n_nmax = 1 if ctx.nmax_op else 0
+        return (
+            f"{step_nombre}: {n_const} const ops + "
+            f"{n_com} comment ops + {n_nmax} NMAX op"
+        )
+    if step_nombre == "Aplicar NMAX online (Tx A)":
+        if ctx.nmax_op:
+            return (
+                f"{step_nombre}: {ctx.nmax_op['args']['constant_name']} "
+                f"value -> {ctx.nmax_op['args']['new_value']}"
+            )
+        return f"{step_nombre}: sin cambios"
     return f"{step_nombre}: OK"
 
 
@@ -594,19 +751,9 @@ def _empty_result() -> dict[str, Any]:
     }
 
 
-# Stage 5/6/7/8/9/10/11 declarados como stubs vacios; se implementan
-# en commits D.2-D.6. Mantenerlos aqui (no-op) para que la tabla
-# ``STAGES`` se valide al instanciar el FB.
-async def _stage_3_preparar_ops(self: Any) -> None:  # noqa: D401
-    """Stage 3: implementar en D.2."""
-    raise NotImplementedError("Stage 3 implementado en D.2")
-
-
-async def _stage_4_tx_a_nmax(self: Any) -> None:  # noqa: D401
-    """Stage 4: implementar en D.2."""
-    raise NotImplementedError("Stage 4 implementado en D.2")
-
-
+# Stages 5-11 declarados como stubs vacios; se implementan en commits
+# D.3-D.6. Mantenerlos aqui (no-op) para que la tabla ``STAGES`` se
+# valide al instanciar el FB.
 async def _stage_5_wait_consolidation(self: Any) -> None:  # noqa: D401
     """Stage 5: implementar en D.3."""
     raise NotImplementedError("Stage 5 implementado en D.3")
@@ -643,9 +790,8 @@ async def _stage_11_post_preview(self: Any) -> None:  # noqa: D401
 
 
 # Inyectar los stubs como metodos del FB (para que el STAGES dispatch los
-# encuentre). Se sobreescribiran en commits D.2-D.6.
-FunctionEntidadesSincronizar._stage_3_preparar_ops = _stage_3_preparar_ops  # type: ignore[attr-defined]
-FunctionEntidadesSincronizar._stage_4_tx_a_nmax = _stage_4_tx_a_nmax  # type: ignore[attr-defined]
+# encuentre). Stages 3-4 ya son metodos reales en la clase; se
+# sobreescribiran en commits D.3-D.6 los stages 5-11.
 FunctionEntidadesSincronizar._stage_5_wait_consolidation = _stage_5_wait_consolidation  # type: ignore[attr-defined]
 FunctionEntidadesSincronizar._stage_6_exportar_post_tx_a = _stage_6_exportar_post_tx_a  # type: ignore[attr-defined]
 FunctionEntidadesSincronizar._stage_7_editar_xmls_offline = _stage_7_editar_xmls_offline  # type: ignore[attr-defined]

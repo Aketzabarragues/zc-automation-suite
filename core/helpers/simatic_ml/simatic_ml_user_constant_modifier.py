@@ -318,6 +318,113 @@ class PlcUserConstantModifier:
         )
         return removed
 
+    def remove_user_constants_by_name(self, names_to_remove: set[str]) -> int:
+        """Elimina PlcUserConstants cuyo ``<Name>`` esta en ``names_to_remove``.
+
+        Variante de ``remove_user_constants`` (que opera por <Value>):
+        aqui el match es por el plc_tag canonico del Excel. Usado por
+        el sync de entidades (D.2) para borrar las PlcConstants
+        marcadas como ``eliminar`` en el diff unificado.
+
+        Returns:
+            Numero de PlcUserConstants eliminados.
+        """
+        if not names_to_remove:
+            return 0
+        _logger.debug(
+            f"PlcUserConstantModifier.remove_user_constants_by_name: "
+            f"{len(names_to_remove)} names a eliminar de '{self._path.name}'"
+        )
+        removed = 0
+        for const in list(self._root.findall(f".//{USER_CONSTANT_TAG}")):
+            name_el = const.find(f".//{NAME_TAG}")
+            if name_el is None or name_el.text is None:
+                continue
+            if name_el.text.strip() not in names_to_remove:
+                continue
+            parent = self._find_parent_of(const)
+            if parent is not None:
+                parent.remove(const)
+                removed += 1
+        if removed > 0:
+            self._modified = True
+        _logger.debug(
+            f"PlcUserConstantModifier.remove_user_constants_by_name: "
+            f"-{removed} eliminados de '{self._path.name}'"
+        )
+        return removed
+
+    def update_user_constant_comment(self, plc_name: str, comment: str) -> bool:
+        """Actualiza el ``<Comment>`` per-constant del PlcUserConstant.
+
+        True si encontro y modifico la constant. False si no existe.
+        Wrapper publico de ``_inject_multilingual_comment`` para uso
+        desde los FBs de sync (D.2).
+
+        Args:
+            plc_name: ``<Name>`` de la PlcUserConstant a actualizar.
+            comment: nuevo texto (string vacio ``""`` = limpiar comment).
+
+        Returns:
+            True si modifico la constant, False si no la encontro.
+        """
+        for const in self._root.findall(f".//{USER_CONSTANT_TAG}"):
+            name_el = const.find(f".//{NAME_TAG}")
+            if name_el is None or name_el.text is None:
+                continue
+            if name_el.text.strip() != plc_name:
+                continue
+            self._inject_multilingual_comment(const, comment)
+            self._modified = True
+            _logger.debug(
+                f"PlcUserConstantModifier.update_user_constant_comment: "
+                f"'{plc_name}' comment actualizado en '{self._path.name}'"
+            )
+            return True
+        _logger.warning(
+            f"PlcUserConstantModifier.update_user_constant_comment: "
+            f"'{plc_name}' no encontrado en '{self._path.name}'"
+        )
+        return False
+
+    def update_user_constant_value_by_name(self, plc_name: str, new_value: int) -> bool:
+        """Actualiza el ``<Value>`` del PlcUserConstant identificado por ``<Name>``.
+
+        True si encontro y modifico la constant. False si no existe.
+        Variante offline de ``_h_update_user_constant_value`` (TIA Portal
+        online): opera directamente en el XML FLAT. Usado por stage 7
+        (D.4) del sync de entidades para el NMAX (aunque el NMAX
+        normalmente va por Tx A online en stage 4).
+
+        Args:
+            plc_name: ``<Name>`` de la PlcUserConstant a actualizar.
+            new_value: nuevo ``<Value>``.
+
+        Returns:
+            True si modifico, False si no encontro.
+        """
+        for const in self._root.findall(f".//{USER_CONSTANT_TAG}"):
+            name_el = const.find(f".//{NAME_TAG}")
+            if name_el is None or name_el.text is None:
+                continue
+            if name_el.text.strip() != plc_name:
+                continue
+            value_el = const.find(f".//{VALUE_TAG}")
+            if value_el is None:
+                continue
+            value_el.text = str(int(new_value))
+            self._modified = True
+            _logger.debug(
+                f"PlcUserConstantModifier.update_user_constant_value_by_name: "
+                f"'{plc_name}' value -> {new_value} en '{self._path.name}'"
+            )
+            return True
+        _logger.warning(
+            f"PlcUserConstantModifier.update_user_constant_value_by_name: "
+            f"'{plc_name}' no encontrado en '{self._path.name}'"
+        )
+        return False
+
     @staticmethod
     def _copy_element(elem: ET.Element) -> ET.Element:
         """Devuelve una copia profunda de un Element."""
