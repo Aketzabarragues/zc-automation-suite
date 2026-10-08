@@ -423,6 +423,10 @@ def test_stage_5_build_response_compose_shape() -> None:
         "renamed":     {},
         "missing_xml": False,
     }
+    fb._ctx.entities_ops = [
+        {"kind": "add", "plc_tag": "BBB", "value_excel": 2,
+         "comment_excel": None},
+    ]
     fb._ctx.comments_block = {
         "slots_tia":   [0],
         "current":     {0: "old"},
@@ -450,16 +454,12 @@ def test_stage_5_build_response_compose_shape() -> None:
     assert r["summary"]["constants_agregados"] == 1
     assert r["summary"]["comments_updated"] == 1
     assert r["nmax"]["summary"]["sin_cambios"] == 1
-    # C.22: unified.todos con shape simplificado (Excel manda,
-    # un solo plc_tag por fila, numero_tia/numero_excel separados).
-    unified = r["unified"]["todos"]
-    assert len(unified) >= 1
-    for row in unified:
-        assert set(row.keys()) >= {
-            "plc_tag", "numero_tia", "comment_tia",
-            "numero_excel", "comment_excel", "status",
-        }
-        assert row["status"] in {"agregar", "renombrar", "sin_cambios", "eliminar"}
+    # Lista unica de ops a aplicar (5 pasadas de Aketza).
+    ops = r["ops"]
+    assert len(ops) >= 1
+    for op in ops:
+        assert "kind" in op
+        assert op["kind"] in {"delete", "add", "rename", "update_comment"}
 
 
 def test_stage_5_build_response_stages_previos_fallaron() -> None:

@@ -94,6 +94,21 @@ class DiffEntities:
             (C.25: el operario normalmente configura el comment en
             la tabla, no en el slot del DB).
         missing_xml: True si el XML de TIA no existia.
+        ops: lista plana de operaciones a aplicar por el sync, en
+            orden de ejecucion (post-5-pasadas de Aketza). Cada op
+            tiene un ``kind`` y los campos que necesita:
+
+              - ``{"kind": "delete",         "plc_tag": str, "value_tia": int}``
+              - ``{"kind": "add",            "plc_tag": str, "value_excel": int,
+                                             "comment_excel": str|None}``
+              - ``{"kind": "rename",         "plc_tag_tia": str, "value_tia": int,
+                                             "plc_tag_new": str}``
+              - ``{"kind": "update_comment", "plc_tag": str, "value_tia": int,
+                                             "comment_tia": str|None,
+                                             "comment_excel": str|None}``
+
+            El sync FB itera esta lista en orden; el preview FB la
+            muestra al operario en una sola vista.
     """
 
     table_name: str
@@ -104,6 +119,7 @@ class DiffEntities:
     renamed: dict[str, tuple[int, int]]
     base_comments: dict[str, str | None] = field(default_factory=dict)
     missing_xml: bool = False
+    ops: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def is_empty(self) -> bool:
@@ -217,34 +233,211 @@ def compute_diff_entities(
 ) -> DiffEntities:
     """Calcula el diff entre desired_entities (Excel) y xml_path (TIA).
 
+    Deteccion en 2 fases (orden no afecta al resultado, solo al sync):
+
+      Fase A — detectar renames por value:
+        Para cada TIA plc_tag, si su value matchea con un Excel
+        plc_tag DISTINTO, hay un rename. TIA conserva el value, el
+        sync cambia el ``Name`` al plc_tag del Excel.
+
+      Fase B — sobre lo que queda, calcular delete / add / update_comment:
+        - TIA plc_tag sin match en Excel        -> delete.
+        - TIA plc_tag matchea Excel plc_tag distinto value -> delete + add.
+        - TIA plc_tag matchea Excel plc_tag mismo value, comment distinto -> update_comment.
+        - Excel plc_tag sin match en TIA         -> add.
+        - Excel plc_tag matcheado por rename (Fase A) -> no aparece como add
+          (la constant TIA sigue existiendo, solo cambia de name).
+
     Args:
         table_name: nombre de la tabla TIA (``"6_Entidades"``).
         desired_entities: lista de ``EntidadLike``.
         xml_path: ruta al ``.xml`` FLAT exportado de TIA.
 
     Returns:
-        ``DiffEntities`` con los 4 vectores del diff + ``base``/``desired``.
+        ``DiffEntities`` con la lista ``ops`` (orden de aplicacion
+        para el sync) y los vectores legacy ``added``/``removed``/
+        ``renamed``/``base``/``desired``/``base_comments`` para
+        mantener compat con el preview FB.
     """
     desired: dict[str, int] = {}
+    desired_comments: dict[str, str | None] = {}
     for entidad in desired_entities:
         plc_tag = str(getattr(entidad, "plc_tag", "") or "")
         numero = int(getattr(entidad, "numero", 0) or 0)
+        comment = str(getattr(entidad, "plc_comentario", "") or "") or None
         if plc_tag and numero >= 0:
             desired[plc_tag] = numero
+            desired_comments[plc_tag] = comment
 
     base, base_comments = _read_entities_from_xml(xml_path)
     missing_xml = not xml_path.is_file()
 
     base_keys = set(base.keys())
     desired_keys = set(desired.keys())
+    common_keys = base_keys & desired_keys
 
-    added = sorted(desired_keys - base_keys)
-    removed = sorted(base_keys - desired_keys)
-    renamed: dict[str, tuple[int, int]] = {
+    # Fase A: renames por value (calcular antes de los vectores
+    # legacy para que removed/added no incluyan los renames).
+    base_por_value: dict[int, list[str]] = {}
+    for plc_tag, value in base.items():
+        base_por_value.setdefault(value, []).append(plc_tag)
+
+    desired_por_value: dict[int, list[str]] = {}
+    for plc_tag, value in desired.items():
+        desired_por_value.setdefault(value, []).append(plc_tag)
+
+    renames: list[tuple[str, int, str]] = []  # (plc_tag_tia, value, plc_tag_new)
+    used_excel_tags: set[str] = set()
+    for plc_tag_tia in sorted(base.keys()):
+        value = base[plc_tag_tia]
+        candidates = [
+            t for t in desired_por_value.get(value, [])
+            if t != plc_tag_tia and t not in used_excel_tags
+        ]
+        if not candidates:
+            continue
+        if plc_tag_tia in common_keys and base[plc_tag_tia] == desired.get(plc_tag_tia):
+            continue
+        plc_tag_new = sorted(candidates)[0]
+        renames.append((plc_tag_tia, value, plc_tag_new))
+        used_excel_tags.add(plc_tag_new)
+
+    renamed_tia_tags: set[str] = {r[0] for r in renames}
+    renamed_excel_tags: set[str] = {r[2] for r in renames}
+
+    # Vectores legacy corregidos: los renames NO cuentan como
+    # removed/added (la constant existe, solo cambia de name).
+    added = sorted(desired_keys - base_keys - renamed_excel_tags)
+    removed = sorted(base_keys - desired_keys - renamed_tia_tags)
+    renamed_legacy: dict[str, tuple[int, int]] = {
         plc_tag: (base[plc_tag], desired[plc_tag])
-        for plc_tag in (base_keys & desired_keys)
+        for plc_tag in common_keys
         if base[plc_tag] != desired[plc_tag]
     }
+
+    # ----------------------------------------------------------------
+    # Fase A: renames por value.
+    #   TIA plc_tag que matchea con Excel plc_tag DISTINTO por value.
+    #   TIA conserva el value, el sync cambia el ``Name`` al plc_tag
+    #   del Excel. Limitamos a 1-a-1 (no 2 TIA al mismo Excel plc_tag).
+    # ----------------------------------------------------------------
+    base_por_value: dict[int, list[str]] = {}
+    for plc_tag, value in base.items():
+        base_por_value.setdefault(value, []).append(plc_tag)
+
+    desired_por_value: dict[int, list[str]] = {}
+    for plc_tag, value in desired.items():
+        desired_por_value.setdefault(value, []).append(plc_tag)
+
+    renames: list[tuple[str, int, str]] = []  # (plc_tag_tia, value, plc_tag_new)
+    used_excel_tags: set[str] = set()
+    # Orden estable: iteramos TIA por plc_tag.
+    for plc_tag_tia in sorted(base.keys()):
+        value = base[plc_tag_tia]
+        candidates = [
+            t for t in desired_por_value.get(value, [])
+            if t != plc_tag_tia and t not in used_excel_tags
+        ]
+        if not candidates:
+            continue
+        # Si el Excel tiene el mismo plc_tag (comun, mismo value), no
+        # es un rename (es sin_cambios o update_comment). Saltamos.
+        if plc_tag_tia in common_keys and base[plc_tag_tia] == desired.get(plc_tag_tia):
+            continue
+        # Tomamos el primer candidato disponible.
+        plc_tag_new = sorted(candidates)[0]
+        renames.append((plc_tag_tia, value, plc_tag_new))
+        used_excel_tags.add(plc_tag_new)
+
+    # ----------------------------------------------------------------
+    # Fase B: delete / add / update_comment sobre lo que queda.
+    # ----------------------------------------------------------------
+    # Tags de TIA que se renombran (siguen existiendo, solo cambia name).
+    renamed_tia_tags: set[str] = {r[0] for r in renames}
+    # Tags de Excel que matchearon por rename (NO se agregan: la
+    # constant TIA se renombra, no se duplica).
+    renamed_excel_tags: set[str] = {r[2] for r in renames}
+
+    # Construimos las ops por fase, luego las encadenamos en el
+    # orden de aplicacion del sync:
+    #   1. delete olds (plc_tag solo en TIA).
+    #   2. renames (TIA conserva el value, cambia name).
+    #   3. delete + add por value distinto (plc_tag comun, mismo
+    #      plc_tag, value distinto).
+    #   4. adds nuevos (Excel sin match en TIA, excluyendo los
+    #      matcheados por rename).
+    #   5. update_comment.
+
+    ops_delete_olds: list[dict[str, Any]] = []
+    for plc_tag in sorted(removed):
+        ops_delete_olds.append({
+            "kind":      "delete",
+            "plc_tag":   plc_tag,
+            "value_tia": base[plc_tag],
+        })
+
+    ops_renames: list[dict[str, Any]] = [
+        {
+            "kind":        "rename",
+            "plc_tag_tia": plc_tag_tia,
+            "value_tia":   value,
+            "plc_tag_new": plc_tag_new,
+        }
+        for plc_tag_tia, value, plc_tag_new in renames
+    ]
+
+    ops_delete_add: list[dict[str, Any]] = []
+    for plc_tag in common_keys:
+        if base[plc_tag] == desired[plc_tag]:
+            continue
+        if plc_tag in renamed_tia_tags:
+            continue  # cubierto por rename
+        ops_delete_add.append({
+            "kind":      "delete",
+            "plc_tag":   plc_tag,
+            "value_tia": base[plc_tag],
+        })
+        ops_delete_add.append({
+            "kind":         "add",
+            "plc_tag":      plc_tag,
+            "value_excel":  desired[plc_tag],
+            "comment_excel": desired_comments[plc_tag],
+        })
+
+    ops_adds: list[dict[str, Any]] = []
+    for plc_tag in sorted(added):
+        if plc_tag in renamed_excel_tags:
+            continue  # cubierto por rename
+        ops_adds.append({
+            "kind":         "add",
+            "plc_tag":      plc_tag,
+            "value_excel":  desired[plc_tag],
+            "comment_excel": desired_comments[plc_tag],
+        })
+
+    ops_update_comment: list[dict[str, Any]] = []
+    for plc_tag in common_keys:
+        if base[plc_tag] != desired[plc_tag]:
+            continue  # ya manejado (delete+add) o rename
+        cur = (base_comments.get(plc_tag) or "").strip()
+        des = (desired_comments.get(plc_tag) or "").strip()
+        if cur == des:
+            continue
+        ops_update_comment.append({
+            "kind":         "update_comment",
+            "plc_tag":      plc_tag,
+            "value_tia":    base[plc_tag],
+            "comment_tia":  base_comments.get(plc_tag),
+            "comment_excel": desired_comments[plc_tag],
+        })
+
+    ops = (
+        ops_delete_olds
+        + ops_renames
+        + ops_delete_add
+        + ops_adds
+        + ops_update_comment
+    )
 
     return DiffEntities(
         table_name=table_name,
@@ -252,9 +445,10 @@ def compute_diff_entities(
         desired=desired,
         added=added,
         removed=removed,
-        renamed=renamed,
+        renamed=renamed_legacy,
         base_comments=base_comments,
         missing_xml=missing_xml,
+        ops=ops,
     )
 
 
@@ -419,171 +613,6 @@ def compute_summary(
         ),
     }
 
-
-# ---------------------------------------------------------------------------
-# API publica: compute_unified_diff_entities
-# ---------------------------------------------------------------------------
-
-
-def compute_unified_diff_entities(
-    diff_entities: DiffEntities,
-    diff_comments: DiffComments,
-) -> list[dict[str, Any]]:
-    """Combina diff de PlcUserConstants + diff de comments en una lista unificada.
-
-    Match key: ``plc_tag`` (string canonico del Excel, key estable).
-    El comment TIA por plc_tag se resuelve con prioridad (C.25):
-    primero ``base_comments[plc_tag]`` (comment per-constant leido del
-    XML de la user constants table); si esta vacio o ``None``, cae al
-    ``diff_comments.current[numero_tia]`` (comment del slot del array
-    ``ENT[]`` en ``DB6_ENT``).
-
-    Reglas (C.22, simplificado):
-
-      - plc_tag solo en Excel:
-          ``agregar``. Comment TIA = None.
-      - plc_tag en ambos + mismo numero:
-          ``sin_cambios`` si comment es identico.
-          ``renombrar`` si comment es distinto.
-          ``agregar`` si TIA no tiene comment en el slot del Excel.
-      - plc_tag en ambos + **distinto** numero:
-          2 filas separadas: ``eliminar`` (numero TIA) + ``agregar``
-          (numero Excel). El sync borra el viejo y crea el nuevo.
-      - plc_tag solo en TIA:
-          ``eliminar``. Se muestra SIEMPRE, con o sin comment (el
-          slot puede estar vacio en .s7dcl pero la PlcConstant
-          existe en ``6_Entidades``; el operador la ve).
-
-    Output shape por row (post-C.22, simplificado):
-
-        plc_tag       : str     (la key estable del Excel; TIA y Excel
-                                  usan la misma si matchean).
-        numero_tia    : int | None   (None si TIA no tiene la plc_tag).
-        comment_tia   : str | None   (None si la constant TIA no tiene
-                                  comment; tampoco el slot del DB).
-        numero_excel  : int | None   (None si el Excel no tiene la plc_tag).
-        comment_excel : str | None   (None si el Excel no tiene comment).
-        status        : "agregar" | "renombrar" | "sin_cambios" | "eliminar"
-
-    Sin campos ``plc_tag_tia`` / ``plc_tag_excel``: solo hay un ``plc_tag``
-    por fila (es el identificador estable, comun al lado y fila).
-    Sort por ``plc_tag`` ascendente (string stable).
-
-    Args:
-        diff_entities: ``desired`` y ``base`` son ``{plc_tag: numero}``;
-            ``base_comments`` es ``{plc_tag: comment_o_None}``.
-        diff_comments: ``current`` y ``desired`` son ``{slot: comment}``
-            (slot == numero del Excel).
-
-    Returns:
-        Lista de dicts ordenada por ``plc_tag``.
-    """
-    base_by_plc_tag: dict[str, int] = dict(diff_entities.base)
-    base_comments_by_plc_tag: dict[str, str | None] = dict(
-        getattr(diff_entities, "base_comments", {}) or {}
-    )
-
-    def _comment_tia(plc_tag: str, numero_tia: int) -> str | None:
-        """Priority resolver: user-constant comment > DB slot comment.
-
-        ``base_comments[plc_tag]`` es la fuente canonica del comment
-        per-constant (C.25): si esta seteado y no es vacio, gana.
-        Solo si la constant existe sin comment (None o "") cae al
-        comment del slot del array en DB6_ENT.
-        """
-        const_comment = base_comments_by_plc_tag.get(plc_tag)
-        if const_comment:
-            return const_comment
-        return diff_comments.current.get(numero_tia)
-
-    rows: list[dict[str, Any]] = []
-
-    for plc_tag in sorted(diff_entities.desired.keys()):
-        numero_excel = diff_entities.desired[plc_tag]
-        comment_excel = diff_comments.desired.get(numero_excel)
-
-        if plc_tag in base_by_plc_tag:
-            numero_tia = base_by_plc_tag[plc_tag]
-            comment_tia = _comment_tia(plc_tag, numero_tia)
-
-            if numero_tia != numero_excel:
-                # plc_tag en ambos + distinto value: 2 filas.
-                # Fila PLC (eliminar) con el value viejo.
-                rows.append({
-                    "plc_tag":       plc_tag,
-                    "numero_tia":    numero_tia,
-                    "comment_tia":   comment_tia,
-                    "numero_excel":  None,
-                    "comment_excel": None,
-                    "status":        "eliminar",
-                })
-                # Fila Excel (agregar) y el value nuevo.
-                rows.append({
-                    "plc_tag":       plc_tag,
-                    "numero_tia":    None,
-                    "comment_tia":   None,
-                    "numero_excel":  numero_excel,
-                    "comment_excel": comment_excel,
-                    "status":        "agregar",
-                })
-                continue
-
-            # plc_tag en ambos + mismo value: status por comment.
-            if comment_tia is None and comment_excel is None:
-                # Ningun lado tiene comment -> sin cambios
-                # (la constant y el slot del array estan sin inicializar).
-                status = "sin_cambios"
-            elif comment_tia is None:
-                # TIA sin comment, Excel con comment -> agregar comment al slot.
-                status = "agregar"
-            elif comment_tia == comment_excel:
-                status = "sin_cambios"
-            else:
-                status = "renombrar"
-
-            rows.append({
-                "plc_tag":       plc_tag,
-                "numero_tia":    numero_tia,
-                "comment_tia":   comment_tia,
-                "numero_excel":  numero_excel,
-                "comment_excel": comment_excel,
-                "status":        status,
-            })
-            continue
-
-        # plc_tag solo en Excel: agregar.
-        rows.append({
-            "plc_tag":       plc_tag,
-            "numero_tia":    None,
-            "comment_tia":   None,
-            "numero_excel":  numero_excel,
-            "comment_excel": comment_excel,
-            "status":        "agregar",
-        })
-
-    # plc_tag solo en TIA: eliminar (siempre, con o sin comment).
-    excel_plc_tags = set(diff_entities.desired.keys())
-    for plc_tag in sorted(set(diff_entities.base.keys()) - excel_plc_tags):
-        numero_tia = diff_entities.base[plc_tag]
-        comment_tia = _comment_tia(plc_tag, numero_tia)
-
-        rows.append({
-            "plc_tag":       plc_tag,
-            "numero_tia":    numero_tia,
-            "comment_tia":   comment_tia,
-            "numero_excel":  None,
-            "comment_excel": None,
-            "status":        "eliminar",
-        })
-
-    return rows
-
-
-# ---------------------------------------------------------------------------
-# API publica: detect_inconsistencias_plc_tags
-# ---------------------------------------------------------------------------
-
-
 def detect_inconsistencias_plc_tags(
     diff_entities: DiffEntities,
 ) -> list[str]:
@@ -630,7 +659,6 @@ __all__ = [
     "compute_diff_entities",
     "compute_nmax_diff_entidades",
     "compute_comments_diff",
-    "compute_unified_diff_entities",
     "detect_inconsistencias_plc_tags",
     "compute_summary",
 ]

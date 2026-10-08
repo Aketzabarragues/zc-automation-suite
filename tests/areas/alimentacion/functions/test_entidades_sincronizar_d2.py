@@ -44,17 +44,15 @@ def _bootstrap_fb(fb: "FunctionEntidadesSincronizar") -> None:
 
 
 def test_stage_3_preparar_ops_constante_agregar() -> None:
-    """Fila agregar en unified_todos → 1 const op (add)."""
+    """Op add en entities_ops → 1 const op (add)."""
     fb = _make_fb()
     _bootstrap_fb(fb)
-    fb._ctx.unified_todos = [
+    fb._ctx.entities_ops = [
         {
-            "plc_tag":       "ENT_001",
-            "numero_tia":    None,
-            "comment_tia":   None,
-            "numero_excel":  1,
+            "kind":         "add",
+            "plc_tag":      "ENT_001",
+            "value_excel":  1,
             "comment_excel": "Linea 1",
-            "status":        "agregar",
         },
     ]
     fb._ctx.nmax_block = {"todos": [], "summary": {}}
@@ -71,17 +69,14 @@ def test_stage_3_preparar_ops_constante_agregar() -> None:
 
 
 def test_stage_3_preparar_ops_constante_eliminar() -> None:
-    """Fila eliminar en unified_todos → 1 const op (remove)."""
+    """Op delete en entities_ops → 1 const op (remove)."""
     fb = _make_fb()
     _bootstrap_fb(fb)
-    fb._ctx.unified_todos = [
+    fb._ctx.entities_ops = [
         {
-            "plc_tag":       "Constant_1",
-            "numero_tia":    4,
-            "comment_tia":   None,
-            "numero_excel":  None,
-            "comment_excel": None,
-            "status":        "eliminar",
+            "kind":      "delete",
+            "plc_tag":   "Constant_1",
+            "value_tia": 4,
         },
     ]
     fb._ctx.nmax_block = {"todos": [], "summary": {}}
@@ -96,17 +91,16 @@ def test_stage_3_preparar_ops_constante_eliminar() -> None:
 
 
 def test_stage_3_preparar_ops_constante_renombrar() -> None:
-    """Fila renombrar (mismo plc_tag + mismo value + distinto comment) → 1 op."""
+    """Op update_comment en entities_ops → 1 const op (rename_comment)."""
     fb = _make_fb()
     _bootstrap_fb(fb)
-    fb._ctx.unified_todos = [
+    fb._ctx.entities_ops = [
         {
+            "kind":          "update_comment",
             "plc_tag":       "ENT_000",
-            "numero_tia":    0,
+            "value_tia":     0,
             "comment_tia":   "NO SE USA",
-            "numero_excel":  0,
             "comment_excel": "NO USAR. NO ELIMINAR.",
-            "status":        "renombrar",
         },
     ]
     fb._ctx.nmax_block = {"todos": [], "summary": {}}
@@ -121,49 +115,30 @@ def test_stage_3_preparar_ops_constante_renombrar() -> None:
     assert op["new_comment"] == "NO USAR. NO ELIMINAR."
 
 
-def test_stage_3_preparar_ops_sin_cambios_no_genera_op() -> None:
-    """Fila sin_cambios → 0 const ops."""
+def test_stage_3_preparar_ops_sin_ops_no_genera_op() -> None:
+    """Sin entities_ops → 0 const ops."""
     fb = _make_fb()
     _bootstrap_fb(fb)
-    fb._ctx.unified_todos = [
-        {
-            "plc_tag":       "ENT_005",
-            "numero_tia":    5,
-            "comment_tia":   "igual",
-            "numero_excel":  5,
-            "comment_excel": "igual",
-            "status":        "sin_cambios",
-        },
-    ]
+    fb._ctx.entities_ops = []
     fb._ctx.nmax_block = {"todos": [], "summary": {}}
 
     import asyncio
     asyncio.run(fb._stage_3_preparar_ops())
 
     assert fb._ctx.constant_ops == []
-    assert fb._ctx.comment_ops == []
 
 
 def test_stage_3_preparar_ops_mismo_plc_tag_distinto_value_split() -> None:
-    """Caso split: mismo plc_tag + distinto value → 2 filas → 2 const ops."""
+    """delete + add (mismo plc_tag, value distinto) en entities_ops -> 2 const ops."""
     fb = _make_fb()
     _bootstrap_fb(fb)
-    fb._ctx.unified_todos = [
+    fb._ctx.entities_ops = [
+        {"kind": "delete", "plc_tag": "ENT_001", "value_tia": 3},
         {
+            "kind":          "add",
             "plc_tag":       "ENT_001",
-            "numero_tia":    3,
-            "comment_tia":   None,
-            "numero_excel":  None,
-            "comment_excel": None,
-            "status":        "eliminar",  # PLC value=3, Excel no
-        },
-        {
-            "plc_tag":       "ENT_001",
-            "numero_tia":    None,
-            "comment_tia":   None,
-            "numero_excel":  1,
+            "value_excel":   1,
             "comment_excel": "Linea 1",
-            "status":        "agregar",  # Excel value=1
         },
     ]
     fb._ctx.nmax_block = {"todos": [], "summary": {}}
@@ -219,26 +194,21 @@ def test_stage_3_preparar_ops_nmax_op_none_si_sin_cambios() -> None:
 
 
 def test_stage_3_preparar_ops_comment_ops_para_slot_con_valor() -> None:
-    """Filas con comment_excel != None y numero_excel != None → comment ops."""
+    """Entities del Excel con plc_comentario no vacio -> 1 comment op por entity."""
+    from dataclasses import dataclass
+
+    @dataclass
+    class _Ent:
+        plc_tag: str
+        numero: int
+        plc_comentario: str = ""
+
     fb = _make_fb()
     _bootstrap_fb(fb)
-    fb._ctx.unified_todos = [
-        {
-            "plc_tag":       "ENT_001",
-            "numero_tia":    1,
-            "comment_tia":   "d",
-            "numero_excel":  1,
-            "comment_excel": "Linea 1",
-            "status":        "renombrar",
-        },
-        {
-            "plc_tag":       "ENT_004",
-            "numero_tia":    None,
-            "comment_tia":   None,
-            "numero_excel":  4,
-            "comment_excel": "Linea 4",
-            "status":        "agregar",
-        },
+    fb._ctx.entities_ops = []
+    fb._ctx.desired_entities = [
+        _Ent("ENT_001", 1, "Linea 1"),
+        _Ent("ENT_004", 4, "Linea 4"),
     ]
     fb._ctx.nmax_block = {"todos": [], "summary": {}}
 
@@ -251,26 +221,27 @@ def test_stage_3_preparar_ops_comment_ops_para_slot_con_valor() -> None:
 
 
 def test_stage_3_preparar_ops_ignora_slot_sin_comment_excel() -> None:
-    """Slots donde comment_excel es None no generan comment op (preservacion)."""
+    """Entities sin plc_comentario (vacio) no generan comment op (preservacion)."""
+    from dataclasses import dataclass
+
+    @dataclass
+    class _Ent:
+        plc_tag: str
+        numero: int
+        plc_comentario: str = ""
+
     fb = _make_fb()
     _bootstrap_fb(fb)
-    fb._ctx.unified_todos = [
-        {
-            "plc_tag":       "ENT_011",
-            "numero_tia":    None,
-            "comment_tia":   None,
-            "numero_excel":  11,
-            "comment_excel": None,  # Excel no tiene comment
-            "status":        "agregar",
-        },
+    fb._ctx.entities_ops = []
+    fb._ctx.desired_entities = [
+        _Ent("ENT_011", 11, ""),  # sin comment
     ]
     fb._ctx.nmax_block = {"todos": [], "summary": {}}
 
     import asyncio
     asyncio.run(fb._stage_3_preparar_ops())
 
-    # Const op si (agregar), pero comment op no.
-    assert len(fb._ctx.constant_ops) == 1
+    assert fb._ctx.constant_ops == []
     assert fb._ctx.comment_ops == []
 
 

@@ -378,12 +378,10 @@ class FunctionEntidadesSincronizar(FunctionBase):
     async def _stage_2_compute_diff(self) -> None:
         """Stage 2: calcula el diff completo (NMAX + constantes + comments).
 
-        Reutiliza los helpers ``compute_diff_entities``,
+        Reutiliza los helpers ``compute_diff_entities`` (5 pasadas de
+        Aketza, devuelve ``ops: list[dict]`` en orden de aplicacion),
         ``compute_nmax_diff_entidades`` y ``compute_comments_diff`` del
-        preview FB. Tambien computa ``compute_unified_diff_entities``
-        para que stages 3+ (preparar_ops) tenga la lista consolidada
-        con shape {plc_tag, numero_tia, comment_tia, numero_excel,
-        comment_excel, status}.
+        preview FB. Stage 3 (preparar_ops) dispatcha las ops por kind.
         """
         assert self._ctx.sync_variables_export is not None
         assert self._ctx.sync_bloques_export is not None
@@ -392,9 +390,6 @@ class FunctionEntidadesSincronizar(FunctionBase):
             compute_comments_diff,
             compute_diff_entities,
             compute_nmax_diff_entidades,
-            compute_unified_diff_entities,
-            DiffComments,
-            DiffEntities,
         )
 
         desired = get_entidades(self._ctx.app_state, self._ctx.plc_name)
@@ -445,6 +440,12 @@ class FunctionEntidadesSincronizar(FunctionBase):
             "renamed":      diff_ent_dm.renamed,
             "missing_xml":  diff_ent_dm.missing_xml,
         }
+        # Lista unica de ops a aplicar (5 pasadas de Aketza, en orden
+        # de aplicacion por el sync). Stage 3 dispatcha por kind.
+        self._ctx.entities_ops = list(diff_ent_dm.ops)
+        # Entities del Excel (para generar comment_ops del slot del DB
+        # en stage 3 bucle 3/3: SIEMPRE actualizar, no diff).
+        self._ctx.desired_entities = list(desired)
         self._ctx.nmax_block = {
             "current":     nmax_dm.current,
             "desired":     nmax_dm.desired,
@@ -481,34 +482,6 @@ class FunctionEntidadesSincronizar(FunctionBase):
             "missing_xml": diff_com.missing_xml,
         }
 
-        # Diff unificado (C.22) con shape simplificado (C.25: base_comments).
-        # Stage 3 (preparar_ops) leera de ``unified_todos``.
-        diff_ent_recon = DiffEntities(
-            table_name=self._ctx.tag_table,
-            base=self._ctx.entities_block["base"],
-            desired=self._ctx.entities_block["desired"],
-            added=self._ctx.entities_block["added"],
-            removed=self._ctx.entities_block["removed"],
-            renamed=self._ctx.entities_block["renamed"],
-            base_comments=self._ctx.entities_block["base_comments"],
-            missing_xml=self._ctx.entities_block["missing_xml"],
-        )
-        diff_com_recon = DiffComments(
-            db_name=self._ctx.db_name,
-            array_name=self._ctx.db_array_name,
-            slots_tia=set(self._ctx.comments_block["slots_tia"]),
-            current=self._ctx.comments_block["current"],
-            desired=self._ctx.comments_block["desired"],
-            added=self._ctx.comments_block["added"],
-            removed=self._ctx.comments_block["removed"],
-            updated=self._ctx.comments_block["updated"],
-            unchanged=self._ctx.comments_block["unchanged"],
-            missing_xml=self._ctx.comments_block["missing_xml"],
-        )
-        self._ctx.unified_todos = compute_unified_diff_entities(
-            diff_ent_recon, diff_com_recon
-        )
-
     async def _stage_3_preparar_ops(self) -> None:
         """Stage 3: walk ``unified_todos`` y agrupa ops para Tx A / B / C.
 
@@ -530,8 +503,15 @@ class FunctionEntidadesSincronizar(FunctionBase):
         Sin ``save_project`` (politica del repo): el FB deja los cambios
         en memoria de TIA Portal; el operario pulsa Save manual.
         """
-        if not self._ctx.unified_todos and not self._ctx.nmax_block.get("todos"):
-            # Sin filas en unified_todos ni NMAX update que aplicar: stage no-op.
+        has_comment_op = any(
+            getattr(e, "plc_comentario", "") for e in self._ctx.desired_entities
+        )
+        if (
+            not self._ctx.entities_ops
+            and not self._ctx.nmax_block.get("todos")
+            and not has_comment_op
+        ):
+            # Sin ops de entities, NMAX update ni comment ops: stage no-op.
             return
 
         # ── 1/3 NMAX op ──
@@ -550,62 +530,64 @@ class FunctionEntidadesSincronizar(FunctionBase):
                 }
                 break
 
-        # ── 2/3 Constant ops ──
-        for row in self._ctx.unified_todos:
-            plc_tag = row.get("plc_tag", "")
-            status = row.get("status", "")
-            numero_tia = row.get("numero_tia")
-            numero_excel = row.get("numero_excel")
-            comment_tia = row.get("comment_tia")
-            comment_excel = row.get("comment_excel")
-
-            if status == "eliminar":
-                # plc_tag solo en TIA: borrar PlcUserConstant.
+        # ── 2/3 Constant ops (per-constant) ──
+        # Itera ``entities_ops`` (lista unica de 5 pasadas) y traduce
+        # a ``constant_ops`` con el shape que espera el stage 7 (el
+        # ``PlcUserConstantModifier`` offline) y el TX B (import XML).
+        for op in self._ctx.entities_ops:
+            kind = op.get("kind")
+            if kind == "delete":
                 self._ctx.constant_ops.append({
                     "kind":     "remove",
-                    "plc_tag": plc_tag,
+                    "plc_tag": op["plc_tag"],
                 })
-            elif status == "agregar":
-                # plc_tag solo en Excel (o mismo plc_tag + distinto value
-                # del split): crear PlcUserConstant.
+            elif kind == "add":
                 self._ctx.constant_ops.append({
                     "kind":     "add",
-                    "plc_tag": plc_tag,
-                    "uid":      numero_excel,
-                    "comment":  comment_excel or "",
+                    "plc_tag": op["plc_tag"],
+                    "uid":      op["value_excel"],
+                    "comment":  op.get("comment_excel") or "",
                 })
-            elif status == "renombrar":
-                # plc_tag en ambos + mismo value + distinto comment:
-                # actualizar el comment per-constant.
+            elif kind == "rename":
+                # TIA conserva el value, cambia el ``Name`` al plc_tag
+                # del Excel. Stage 7 hace un remove + add con el
+                # mismo value (es la unica forma de "renombrar" una
+                # PlcUserConstant: delete la vieja, add la nueva con
+                # el mismo value).
                 self._ctx.constant_ops.append({
-                    "kind":     "rename_comment",
-                    "plc_tag": plc_tag,
-                    "new_comment": comment_excel or "",
+                    "kind":     "remove",
+                    "plc_tag": op["plc_tag_tia"],
                 })
-            # sin_cambios: skip (no op).
+                self._ctx.constant_ops.append({
+                    "kind":     "add",
+                    "plc_tag": op["plc_tag_new"],
+                    "uid":      op["value_tia"],
+                    "comment":  "",
+                })
+            elif kind == "update_comment":
+                self._ctx.constant_ops.append({
+                    "kind":        "rename_comment",
+                    "plc_tag":     op["plc_tag"],
+                    "new_comment": op.get("comment_excel") or "",
+                })
+            # delete/add/rename/update_comment cubrios; no hay mas kinds.
 
         # ── 3/3 Comment ops (slot del array ENT[]) ──
-        # Cada slot con comment_excel distinto de None genera una op.
-        # Slots con comment_excel=None (eliminar slot del Excel) se
-        # ignoran defensivamente (politica preservacion: el sync no
-        # borra slot comments online, ver helper compute_comments_diff).
-        # Solo filas con cambios sin_cambios se saltan (político: no
-        # inyectamos comentarios que ya están iguales).
-        for row in self._ctx.unified_todos:
-            if row.get("status") == "sin_cambios":
+        # SIEMPRE actualizar con el comment del Excel (politica
+        # Aketza: Excel manda). Para cada entity del Excel con
+        # comment no vacio, 1 op update_comment con slot=numero
+        # y new_comment=plc_comentario.
+        for entidad in self._ctx.desired_entities:
+            slot = getattr(entidad, "numero", None)
+            comment = getattr(entidad, "plc_comentario", "") or ""
+            if not comment:
                 continue
-            slot = row.get("numero_excel")
-            new_comment = row.get("comment_excel")
             if slot is None:
-                # Sin slot Excel (eliminar PLC). Skip: preservacion.
-                continue
-            if new_comment is None:
-                # Slot Excel sin comment (no pedimos crear comment).
                 continue
             self._ctx.comment_ops.append({
                 "kind":        "update_comment",
                 "slot":        int(slot),
-                "new_comment": new_comment,
+                "new_comment": comment,
             })
 
     async def _stage_4_tx_a_nmax(self) -> None:
@@ -1065,7 +1047,12 @@ class EntidadesSyncContext:
     entities_block: dict[str, Any] = field(default_factory=dict)
     comments_block: dict[str, Any] = field(default_factory=dict)
     nmax_block: dict[str, Any] = field(default_factory=dict)
-    unified_todos: list[dict[str, Any]] = field(default_factory=list)
+    # Lista unica de ops a aplicar (5 pasadas de Aketza, en orden
+    # de aplicacion por el sync). Stage 3 dispatcha por kind.
+    entities_ops: list[dict[str, Any]] = field(default_factory=list)
+    # Entities del Excel (para generar comment_ops del slot del DB:
+    # SIEMPRE actualizar, sin diff).
+    desired_entities: list[Any] = field(default_factory=list)
 
     # ── Resultados de preparar_ops (stage 3, D.2) ──
     nmax_op: dict[str, Any] | None = None
@@ -1267,7 +1254,6 @@ async def _stage_11_post_preview(self) -> None:
         compute_comments_diff,
         compute_diff_entities,
         compute_nmax_diff_entidades,
-        compute_unified_diff_entities,
         DiffComments,
         DiffEntities,
     )
@@ -1298,7 +1284,6 @@ async def _stage_11_post_preview(self) -> None:
             dcl_text=dcl_text,
             res_text=res_text,
         )
-        unified = compute_unified_diff_entities(diff_ent, diff_com)
         return {
             "precondiciones_ok": True,
             "db_name": self._ctx.db_name,
@@ -1306,7 +1291,7 @@ async def _stage_11_post_preview(self) -> None:
             "config_table": self._ctx.config_table,
             "db_present": not diff_com.missing_xml,
             "table_present": not diff_ent.missing_xml,
-            "unified": {"todos": unified},
+            "ops": list(diff_ent.ops),
             "nmax": {
                 "todos": nmax.todos,
                 "summary": nmax.summary,

@@ -399,6 +399,10 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
             "renamed":      diff.renamed,
             "missing_xml":  diff.missing_xml,
         }
+        # Lista unica de ops a aplicar (5 pasadas de Aketza). El
+        # preview FB la reusa en stage 5 (shape nueva) y la SPA la
+        # consume directamente desde ``data.ops``.
+        self._ctx.entities_ops = list(diff.ops)
 
     async def _stage_4_compute_comentarios(self) -> None:
         """Stage 4: calcula el diff de comentarios del array ``ENT[]`` de ``DB6_ENT``."""
@@ -456,7 +460,6 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
         """
         from areas.alimentacion.helpers.entidades.entidades_generate_preview import (
             compute_summary,
-            compute_unified_diff_entities,
             detect_inconsistencias_plc_tags,
             DiffEntities,
             DiffComments,
@@ -473,6 +476,8 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
             return
 
         # Reconstruir dataclasses frozen para reusar compute_summary().
+        # Si el caller ya computo entities_ops (sync FB, preview FB
+        # via stage 3), lo respetamos; si no, queda vacio.
         diff_ent = DiffEntities(
             table_name=self._ctx.tag_table,
             base=self._ctx.entities_block["base"],
@@ -482,6 +487,7 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
             renamed=self._ctx.entities_block["renamed"],
             base_comments=self._ctx.entities_block.get("base_comments", {}),
             missing_xml=self._ctx.entities_block["missing_xml"],
+            ops=list(getattr(self._ctx, "entities_ops", []) or []),
         )
         diff_com = DiffComments(
             db_name=self._ctx.db_name,
@@ -507,10 +513,6 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
         # Tabla unificada "arrays.ENT" (formato SPA legacy).
         arrays_ent = _build_arrays_ent(diff_com)
 
-        # Tabla unificada "unified.todos" (C.18): match por plc_tag
-        # literal (C.21). 6 columnas para la SPA.
-        unified_todos = compute_unified_diff_entities(diff_ent, diff_com)
-
         # Warnings de plc_tags NO canonicos (C.21): TIA tiene
         # ``Constant_1`` con value=4 mientras el Excel tiene
         # ``ENT_004`` con numero=4. El sync no puede decidir por si
@@ -529,6 +531,12 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
             "arrays": {
                 self._ctx.db_array_name: arrays_ent,
             },
+            # Lista unica de ops a aplicar (5 pasadas de Aketza, en
+            # orden de aplicacion por el sync FB). La SPA consume
+            # ``data.ops`` directamente; las 5 keys legacy abajo
+            # (``constants`` / ``unified``) se mantienen por compat
+            # hasta migrar la SPA a ``ops``.
+            "ops": list(diff_ent.ops),
             "constants": {
                 "agregados": [
                     {"plc_tag": plc_tag, "numero": diff_ent.desired[plc_tag],
@@ -549,9 +557,6 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
                     for plc_tag, (old, new) in diff_ent.renamed.items()
                 ],
                 "todos": constants_todos,
-            },
-            "unified": {
-                "todos": unified_todos,
             },
             "nmax":    self._ctx.nmax_block,
             "summary": summary,

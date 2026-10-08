@@ -316,7 +316,7 @@ def test_stage_1_exportar_si_worker_falla_sigue_con_warnings() -> None:
 
 def test_stage_2_compute_diff_llama_helpers_de_preview() -> None:
     """Stage 2 reusa compute_diff_entities + compute_nmax_diff_entidades +
-    compute_comments_diff + compute_unified_diff_entities."""
+    compute_comments_diff (sin compute_unified_diff_entities: ya no se usa)."""
     fb = _make_fb()
     with patch(
         "areas.alimentacion.functions.function_entidades_sincronizar"
@@ -346,7 +346,7 @@ def test_stage_2_compute_diff_llama_helpers_de_preview() -> None:
         ".compute_diff_entities",
         return_value=MagicMock(
             base={}, base_comments={}, desired={}, added=[], removed=[],
-            renamed={}, missing_xml=False,
+            renamed={}, missing_xml=False, ops=[],
         ),
     ) as cd, patch(
         "areas.alimentacion.helpers.entidades.entidades_generate_preview"
@@ -364,10 +364,6 @@ def test_stage_2_compute_diff_llama_helpers_de_preview() -> None:
             added=[], removed=[], updated=[], unchanged=[], missing_xml=False,
         ),
     ) as cc, patch(
-        "areas.alimentacion.helpers.entidades.entidades_generate_preview"
-        ".compute_unified_diff_entities",
-        return_value=[{"plc_tag": "ENT_001", "status": "agregar"}],
-    ) as cu, patch(
         "core.infrastructure.tia.tia_export_paths.SdPair",
     ) as sdpair:
         sdpair.return_value.dcl.exists.return_value = False
@@ -379,8 +375,7 @@ def test_stage_2_compute_diff_llama_helpers_de_preview() -> None:
     assert cd.called
     assert cnm.called
     assert cc.called
-    assert cu.called
-    assert len(fb._ctx.unified_todos) == 1
+    assert fb._ctx.entities_ops == []
     assert fb._ctx.entities_block["missing_xml"] is False
     assert fb._ctx.nmax_block["summary"]["actualizar"] == 1
 

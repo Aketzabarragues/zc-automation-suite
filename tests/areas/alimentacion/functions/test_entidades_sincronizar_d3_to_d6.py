@@ -438,8 +438,8 @@ def test_stage_10_con_comment_ops_llama_import_block(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_stage_11_post_preview_recompila_unified(tmp_path: Path) -> None:
-    """Stage 11 re-exporta FLAT + recomputa unified diff, asigna post_sync_preview."""
+def test_stage_11_post_preview_recompila_ops(tmp_path: Path) -> None:
+    """Stage 11 re-exporta FLAT + recomputa ops, asigna post_sync_preview."""
     fb = _make_fb()
     _bootstrap_fb(fb)
     _make_sync_dirs(fb, tmp_path)
@@ -472,6 +472,6 @@ def test_stage_11_post_preview_recompila_unified(tmp_path: Path) -> None:
             asyncio.run(fb._stage_11_post_preview())
 
     assert fb._ctx.post_sync_preview is not None
-    assert "unified" in fb._ctx.post_sync_preview
+    assert "ops" in fb._ctx.post_sync_preview
     assert fb._ctx.result.get("success") is True
     assert fb._ctx.result.get("post_sync_preview") is not None

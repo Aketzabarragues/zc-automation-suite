@@ -75,24 +75,27 @@ export default {
         );
 
         /**
-         * 4 contadores de status agregados desde ``unified.todos``
-         * (diff unificado de C.18, patron Dispositivos.js). SIEMPRE
-         * devuelve un dict con los 4 keys, aunque no haya preview
-         * (los 4 counters en 0). Esto permite que la card 1 siempre
-         * renderice el mismo patron visual sin empty-state "Sin
-         * prevision".
+         * 4 contadores de status agregados desde ``data.ops`` (lista
+         * unica de 5 pasadas de Aketza). SIEMPRE devuelve un dict con
+         * los 4 keys, aunque no haya preview (los 4 counters en 0).
+         * Esto permite que la card 1 siempre renderice el mismo patron
+         * visual sin empty-state "Sin prevision".
          */
         const summary = computed(() => {
             if (!hasPreview.value) {
                 return { agregados: 0, renombrados: 0, eliminados: 0, sin_cambios: 0, total: 0 };
             }
-            const all = (store.previewData.unified && store.previewData.unified.todos) || [];
-            const agregados = all.filter((r) => r.status === "agregar").length;
-            const renombrados = all.filter((r) => r.status === "renombrar").length;
-            const eliminados = all.filter((r) => r.status === "eliminar").length;
-            const sin_cambios = all.filter((r) => r.status === "sin_cambios").length;
-            const total = all.length;
-            return { agregados, renombrados, eliminados, sin_cambios, total };
+            const ops = store.previewData.ops || [];
+            const eliminados = ops.filter((o) => o.kind === "delete").length;
+            const agregados = ops.filter((o) => o.kind === "add").length;
+            const renombrados = ops.filter(
+                (o) => o.kind === "rename" || o.kind === "update_comment"
+            ).length;
+            const desired = (store.previewData.entities_block && store.previewData.entities_block.desired)
+                ? store.previewData.entities_block.desired
+                : null;
+            const total = desired ? Object.keys(desired).length : 0;
+            return { agregados, renombrados, eliminados, sin_cambios: total, total };
         });
 
         /**
@@ -114,21 +117,62 @@ export default {
         });
 
         /**
-         * Filas del diff unificado (C.22). Directo desde
-         * ``store.previewData.unified.todos``.
+         * Filas de la tabla principal: ops del sync (5 pasadas de
+         * Aketza). Cada op se proyecta a un row con shape uniforme:
+         *   - ``{plc_tag, status, value_tia, value_excel, comment_tia, comment_excel}``.
          *
-         * El FB garantiza el shape ``{plc_tag, numero_tia, comment_tia,
-         * numero_excel, comment_excel, status}`` por entry. Sort por
-         * ``plc_tag`` (string) ascendente; tie-breaker por status para
-         * agrupar pares eliminar/agregar del mismo plc_tag (caso "mismo
-         * plc_tag + distinto value" produce 2 filas: eliminar primero,
-         * agregar despues).
+         * El status se deriva del kind: delete, add, rename, update_comment.
+         * Sort por plc_tag (string) ascendente; tie-breaker por status
+         * para agrupar pares delete/add del mismo plc_tag.
          */
         const activeRows = computed(() => {
             if (!hasPreview.value) return [];
-            const all = (store.previewData.unified && store.previewData.unified.todos) || [];
-            const statusOrder = { eliminar: 0, renombrar: 1, sin_cambios: 2, agregar: 3 };
-            return all.slice().sort((a, b) => {
+            const ops = store.previewData.ops || [];
+            const statusOrder = { delete: 0, rename: 1, update_comment: 2, add: 3 };
+            const rows = ops.map((op) => {
+                if (op.kind === "delete") {
+                    return {
+                        plc_tag:      op.plc_tag,
+                        status:       "eliminar",
+                        numero_tia:   op.value_tia,
+                        comment_tia:  null,
+                        numero_excel: null,
+                        comment_excel: null,
+                    };
+                }
+                if (op.kind === "add") {
+                    return {
+                        plc_tag:      op.plc_tag,
+                        status:       "agregar",
+                        numero_tia:   null,
+                        comment_tia:  null,
+                        numero_excel: op.value_excel,
+                        comment_excel: op.comment_excel || null,
+                    };
+                }
+                if (op.kind === "rename") {
+                    return {
+                        plc_tag:      `${op.plc_tag_tia} -> ${op.plc_tag_new}`,
+                        status:       "renombrar",
+                        numero_tia:   op.value_tia,
+                        comment_tia:  null,
+                        numero_excel: op.value_tia,
+                        comment_excel: null,
+                    };
+                }
+                if (op.kind === "update_comment") {
+                    return {
+                        plc_tag:      op.plc_tag,
+                        status:       "renombrar",
+                        numero_tia:   op.value_tia,
+                        comment_tia:  op.comment_tia || null,
+                        numero_excel: op.value_tia,
+                        comment_excel: op.comment_excel || null,
+                    };
+                }
+                return null;
+            }).filter((r) => r !== null);
+            return rows.sort((a, b) => {
                 const at = (a.plc_tag || "").toString();
                 const bt = (b.plc_tag || "").toString();
                 if (at !== bt) return at.localeCompare(bt);
