@@ -279,8 +279,11 @@ def compute_diff_entities(
     desired_keys = set(desired.keys())
     common_keys = base_keys & desired_keys
 
-    # Fase A: renames por value (calcular antes de los vectores
-    # legacy para que removed/added no incluyan los renames).
+    # ----------------------------------------------------------------
+    # Renames por value: TIA plc_tag con mismo value que Excel plc_tag
+    # distinto. TIA conserva el value, el sync cambia el ``Name``. 1-a-1
+    # (no 2 TIA al mismo Excel plc_tag).
+    # ----------------------------------------------------------------
     base_por_value: dict[int, list[str]] = {}
     for plc_tag, value in base.items():
         base_por_value.setdefault(value, []).append(plc_tag)
@@ -305,11 +308,12 @@ def compute_diff_entities(
         renames.append((plc_tag_tia, value, plc_tag_new))
         used_excel_tags.add(plc_tag_new)
 
+    # ----------------------------------------------------------------
+    # delete / add / update_comment sobre lo que queda tras los renames.
+    # ----------------------------------------------------------------
     renamed_tia_tags: set[str] = {r[0] for r in renames}
     renamed_excel_tags: set[str] = {r[2] for r in renames}
 
-    # Vectores legacy corregidos: los renames NO cuentan como
-    # removed/added (la constant existe, solo cambia de name).
     added = sorted(desired_keys - base_keys - renamed_excel_tags)
     removed = sorted(base_keys - desired_keys - renamed_tia_tags)
     renamed_legacy: dict[str, tuple[int, int]] = {
@@ -317,49 +321,6 @@ def compute_diff_entities(
         for plc_tag in common_keys
         if base[plc_tag] != desired[plc_tag]
     }
-
-    # ----------------------------------------------------------------
-    # Fase A: renames por value.
-    #   TIA plc_tag que matchea con Excel plc_tag DISTINTO por value.
-    #   TIA conserva el value, el sync cambia el ``Name`` al plc_tag
-    #   del Excel. Limitamos a 1-a-1 (no 2 TIA al mismo Excel plc_tag).
-    # ----------------------------------------------------------------
-    base_por_value: dict[int, list[str]] = {}
-    for plc_tag, value in base.items():
-        base_por_value.setdefault(value, []).append(plc_tag)
-
-    desired_por_value: dict[int, list[str]] = {}
-    for plc_tag, value in desired.items():
-        desired_por_value.setdefault(value, []).append(plc_tag)
-
-    renames: list[tuple[str, int, str]] = []  # (plc_tag_tia, value, plc_tag_new)
-    used_excel_tags: set[str] = set()
-    # Orden estable: iteramos TIA por plc_tag.
-    for plc_tag_tia in sorted(base.keys()):
-        value = base[plc_tag_tia]
-        candidates = [
-            t for t in desired_por_value.get(value, [])
-            if t != plc_tag_tia and t not in used_excel_tags
-        ]
-        if not candidates:
-            continue
-        # Si el Excel tiene el mismo plc_tag (comun, mismo value), no
-        # es un rename (es sin_cambios o update_comment). Saltamos.
-        if plc_tag_tia in common_keys and base[plc_tag_tia] == desired.get(plc_tag_tia):
-            continue
-        # Tomamos el primer candidato disponible.
-        plc_tag_new = sorted(candidates)[0]
-        renames.append((plc_tag_tia, value, plc_tag_new))
-        used_excel_tags.add(plc_tag_new)
-
-    # ----------------------------------------------------------------
-    # Fase B: delete / add / update_comment sobre lo que queda.
-    # ----------------------------------------------------------------
-    # Tags de TIA que se renombran (siguen existiendo, solo cambia name).
-    renamed_tia_tags: set[str] = {r[0] for r in renames}
-    # Tags de Excel que matchearon por rename (NO se agregan: la
-    # constant TIA se renombra, no se duplica).
-    renamed_excel_tags: set[str] = {r[2] for r in renames}
 
     # Construimos las ops por fase, luego las encadenamos en el
     # orden de aplicacion del sync:
