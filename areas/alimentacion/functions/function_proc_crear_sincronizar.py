@@ -162,6 +162,8 @@ class ProcProcessGenContext:
     base_vieja: int = 0
     codigo_viejo: str = ""
     nombre_viejo: str = ""
+    descripcion: str = ""
+    dependencias: list[str] = field(default_factory=list)
 
     # ── Resultado de construir_diccionarios ──
     dicc_bloques: dict[str, str] = field(default_factory=dict)
@@ -655,11 +657,27 @@ async def proc_process_leer_manifest(ctx: ProcProcessGenContext) -> None:
         raise ManifestInvalido("manifest.json debe contener 'base' (int).")
     if "codigo" not in manifest or not str(manifest["codigo"]).strip():
         raise ManifestInvalido("manifest.json debe contener 'codigo' (str).")
+    if "descripcion" not in manifest or not str(manifest["descripcion"]).strip():
+        raise ManifestInvalido(
+            "manifest.json debe contener 'descripcion' (str no vacio). "
+            "Es obligatorio para mostrar la plantilla en la SPA."
+        )
+    if "dependencias" not in manifest or not isinstance(manifest["dependencias"], list):
+        raise ManifestInvalido(
+            "manifest.json debe contener 'dependencias' (list[str]). "
+            "Es obligatorio para validar bloques externos en el PLC."
+        )
+    if not all(isinstance(d, str) and d.strip() for d in manifest["dependencias"]):
+        raise ManifestInvalido(
+            "manifest.json 'dependencias' debe ser una lista de strings no vacios."
+        )
 
     ctx.manifest_plantilla = manifest
     ctx.base_vieja = int(manifest["base"])
     ctx.codigo_viejo = str(manifest["codigo"])
     ctx.nombre_viejo = str(manifest.get("nombre", "") or "")
+    ctx.descripcion = str(manifest["descripcion"]).strip()
+    ctx.dependencias = [str(d).strip() for d in manifest["dependencias"]]
 
 
 async def proc_process_validar_minimos(ctx: ProcProcessGenContext) -> None:
@@ -906,6 +924,8 @@ async def proc_process_escribir_manifest(ctx: ProcProcessGenContext) -> None:
         "base": ctx.base_nueva,
         "codigo": ctx.codigo_nuevo,
         "nombre": ctx.nombre_nuevo,
+        "descripcion": ctx.descripcion,
+        "dependencias": list(ctx.dependencias),
         "minimos": dict(ctx.minimos_usuario),
     }
 

@@ -71,6 +71,8 @@ def plantilla_dummy(tmp_path: Path) -> Path:
     (p / "manifest.json").write_text(
         json.dumps({
             "base": 50010, "codigo": "TEST", "nombre": "ProcesoTest",
+            "descripcion": "Proceso de tests con 1 FC y 1 DB",
+            "dependencias": ["DB1_SYS"],
             "minimos": {
                 "N_MAX_PREAL": 3, "N_MAX_PINT": 15,
                 "N_MAX_ALM": 16, "N_MAX_ALM_HMI": 3,

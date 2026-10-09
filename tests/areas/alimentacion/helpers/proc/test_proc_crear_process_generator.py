@@ -162,6 +162,11 @@ def plantilla_dummy(tmp_path: Path) -> Path:
             "base": 50010,
             "codigo": "TEST",
             "nombre": "ProcesoTest",
+            "descripcion": "Proceso de tests con 1 FC y 1 DB",
+            "dependencias": [
+                "DB1_SYS",
+                "FC15151_ZC_MARCHA_PARO_SEC",
+            ],
             "minimos": {
                 "N_MAX_PREAL": 3, "N_MAX_PINT": 15,
                 "N_MAX_ALM": 16, "N_MAX_ALM_HMI": 3,
@@ -247,6 +252,171 @@ async def test_leer_manifest_sin_base(
 
     with pytest.raises(ManifestInvalido):
         await proc_process_leer_manifest(ctx)
+
+
+@pytest.mark.asyncio
+async def test_leer_manifest_sin_descripcion_raises(
+    tmp_path: Path,
+    make_ctx: Any,
+) -> None:
+    """``descripcion`` es obligatorio. Sin el, ``ManifestInvalido``.
+    La SPA lo usa para mostrar la plantilla en el selector.
+    """
+    p = tmp_path / "TestSinDescripcion"
+    p.mkdir()
+    (p / "manifest.json").write_text(
+        json.dumps({
+            "base": 50010,
+            "codigo": "TEST",
+            "nombre": "X",
+            "dependencias": ["DB1_SYS"],
+            "minimos": {
+                "N_MAX_PREAL": 3, "N_MAX_PINT": 15,
+                "N_MAX_ALM": 16, "N_MAX_ALM_HMI": 3,
+            },
+        }),
+        encoding="utf-8",
+    )
+    ctx = make_ctx(dir_plantilla=p)
+
+    with pytest.raises(ManifestInvalido, match="descripcion"):
+        await proc_process_leer_manifest(ctx)
+
+
+@pytest.mark.asyncio
+async def test_leer_manifest_descripcion_vacia_raises(
+    tmp_path: Path,
+    make_ctx: Any,
+) -> None:
+    """``descripcion`` debe ser string no vacio. Cadena vacia
+    o solo-whitespace tambien falla (no aporta nada a la SPA).
+    """
+    p = tmp_path / "TestDescVacia"
+    p.mkdir()
+    (p / "manifest.json").write_text(
+        json.dumps({
+            "base": 50010,
+            "codigo": "TEST",
+            "nombre": "X",
+            "descripcion": "   ",
+            "dependencias": ["DB1_SYS"],
+            "minimos": {
+                "N_MAX_PREAL": 3, "N_MAX_PINT": 15,
+                "N_MAX_ALM": 16, "N_MAX_ALM_HMI": 3,
+            },
+        }),
+        encoding="utf-8",
+    )
+    ctx = make_ctx(dir_plantilla=p)
+
+    with pytest.raises(ManifestInvalido, match="descripcion"):
+        await proc_process_leer_manifest(ctx)
+
+
+@pytest.mark.asyncio
+async def test_leer_manifest_sin_dependencias_raises(
+    tmp_path: Path,
+    make_ctx: Any,
+) -> None:
+    """``dependencias`` es obligatorio. Sin el, ``ManifestInvalido``.
+    El check contra el PLC lo requiere (bloqueante si falta).
+    """
+    p = tmp_path / "TestSinDeps"
+    p.mkdir()
+    (p / "manifest.json").write_text(
+        json.dumps({
+            "base": 50010,
+            "codigo": "TEST",
+            "nombre": "X",
+            "descripcion": "Test",
+            "minimos": {
+                "N_MAX_PREAL": 3, "N_MAX_PINT": 15,
+                "N_MAX_ALM": 16, "N_MAX_ALM_HMI": 3,
+            },
+        }),
+        encoding="utf-8",
+    )
+    ctx = make_ctx(dir_plantilla=p)
+
+    with pytest.raises(ManifestInvalido, match="dependencias"):
+        await proc_process_leer_manifest(ctx)
+
+
+@pytest.mark.asyncio
+async def test_leer_manifest_dependencias_no_lista_raises(
+    tmp_path: Path,
+    make_ctx: Any,
+) -> None:
+    """``dependencias`` debe ser ``list``. Strings, dicts, ints
+    fallan con ``ManifestInvalido``.
+    """
+    p = tmp_path / "TestDepsNoLista"
+    p.mkdir()
+    (p / "manifest.json").write_text(
+        json.dumps({
+            "base": 50010,
+            "codigo": "TEST",
+            "nombre": "X",
+            "descripcion": "Test",
+            "dependencias": "DB1_SYS",
+            "minimos": {
+                "N_MAX_PREAL": 3, "N_MAX_PINT": 15,
+                "N_MAX_ALM": 16, "N_MAX_ALM_HMI": 3,
+            },
+        }),
+        encoding="utf-8",
+    )
+    ctx = make_ctx(dir_plantilla=p)
+
+    with pytest.raises(ManifestInvalido, match="dependencias"):
+        await proc_process_leer_manifest(ctx)
+
+
+@pytest.mark.asyncio
+async def test_leer_manifest_dependencias_strings_vacias_raises(
+    tmp_path: Path,
+    make_ctx: Any,
+) -> None:
+    """Items de ``dependencias`` deben ser strings no vacios.
+    ``[""]`` o ``["  "]`` fallan (un nombre vacio no es un bloque).
+    """
+    p = tmp_path / "TestDepsVacios"
+    p.mkdir()
+    (p / "manifest.json").write_text(
+        json.dumps({
+            "base": 50010,
+            "codigo": "TEST",
+            "nombre": "X",
+            "descripcion": "Test",
+            "dependencias": ["DB1_SYS", "   "],
+            "minimos": {
+                "N_MAX_PREAL": 3, "N_MAX_PINT": 15,
+                "N_MAX_ALM": 16, "N_MAX_ALM_HMI": 3,
+            },
+        }),
+        encoding="utf-8",
+    )
+    ctx = make_ctx(dir_plantilla=p)
+
+    with pytest.raises(ManifestInvalido, match="dependencias"):
+        await proc_process_leer_manifest(ctx)
+
+
+@pytest.mark.asyncio
+async def test_leer_manifest_happy_campos_nuevos(
+    make_ctx: Any,
+) -> None:
+    """Happy path: ``descripcion`` y ``dependencias`` se populan en el
+    ctx. ``dependencias`` se trimea por entrada.
+    """
+    ctx = make_ctx()
+    await proc_process_leer_manifest(ctx)
+
+    assert ctx.descripcion == "Proceso de tests con 1 FC y 1 DB"
+    assert ctx.dependencias == [
+        "DB1_SYS",
+        "FC15151_ZC_MARCHA_PARO_SEC",
+    ]
 
 
 # ── proc_process_validar_minimos ──────────────────────────────────────
@@ -735,6 +905,12 @@ def plantilla_dummy_nested(tmp_path: Path) -> Path:
             "base": 200,
             "codigo": "EXP",
             "nombre": "Expedicion",
+            "descripcion": "Proceso estandar de expedicion con subcarpetas anidadas",
+            "dependencias": [
+                "DB1_SYS",
+                "DB2000_ED",
+                "FC15151_ZC_MARCHA_PARO_SEC",
+            ],
             "minimos": {
                 "N_MAX_PREAL": 3, "N_MAX_PINT": 15,
                 "N_MAX_ALM": 16, "N_MAX_ALM_HMI": 3,
@@ -1076,6 +1252,12 @@ async def test_construir_diccionarios_renombra_carpeta_base_custom(
             "base": 200,
             "codigo": "EXP",
             "nombre": "Expedicion",
+            "descripcion": "Proceso estandar de expedicion (dummy)",
+            "dependencias": [
+                "DB1_SYS",
+                "DB2000_ED",
+                "FC15151_ZC_MARCHA_PARO_SEC",
+            ],
             "minimos": {
                 "N_MAX_PREAL": 3, "N_MAX_PINT": 15,
                 "N_MAX_ALM": 16, "N_MAX_ALM_HMI": 3,
@@ -1154,6 +1336,12 @@ async def test_construir_diccionarios_renombra_subcarpeta_anidada_custom(
             "base": 200,
             "codigo": "EXP",
             "nombre": "Expedicion",
+            "descripcion": "Proceso estandar de expedicion (dummy)",
+            "dependencias": [
+                "DB1_SYS",
+                "DB2000_ED",
+                "FC15151_ZC_MARCHA_PARO_SEC",
+            ],
             "minimos": {
                 "N_MAX_PREAL": 3, "N_MAX_PINT": 15,
                 "N_MAX_ALM": 16, "N_MAX_ALM_HMI": 3,
@@ -1220,6 +1408,12 @@ async def test_construir_diccionarios_sin_carpetas_prefijadas(
             "base": 200,
             "codigo": "EXP",
             "nombre": "Expedicion",
+            "descripcion": "Proceso estandar de expedicion (dummy)",
+            "dependencias": [
+                "DB1_SYS",
+                "DB2000_ED",
+                "FC15151_ZC_MARCHA_PARO_SEC",
+            ],
             "minimos": {
                 "N_MAX_PREAL": 3, "N_MAX_PINT": 15,
                 "N_MAX_ALM": 16, "N_MAX_ALM_HMI": 3,
@@ -1281,6 +1475,12 @@ async def test_construir_diccionarios_carpeta_prefijo_fc_db(
             "base": 200,
             "codigo": "EXP",
             "nombre": "Expedicion",
+            "descripcion": "Proceso estandar de expedicion (dummy)",
+            "dependencias": [
+                "DB1_SYS",
+                "DB2000_ED",
+                "FC15151_ZC_MARCHA_PARO_SEC",
+            ],
             "minimos": {
                 "N_MAX_PREAL": 3, "N_MAX_PINT": 15,
                 "N_MAX_ALM": 16, "N_MAX_ALM_HMI": 3,
