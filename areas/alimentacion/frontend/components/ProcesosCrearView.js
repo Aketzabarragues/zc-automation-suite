@@ -629,43 +629,6 @@ export default {
                 </table>
             </div>
 
-            <!-- Tabla de DEPENDENCIAS declaradas en el manifest de la
-                 plantilla. Solo se muestra tras pulsar "Generar
-                 Prevision"; la fuente es previewData.dependencias_ok
-                 y previewData.dependencias_faltantes. Las faltantes
-                 salen en rojo y bloquean el boton "Aplicar". -->
-            <div v-if="previewData"
-                 data-testid="procesos-crear-dependencias"
-                 class="mt-3 flex-1 overflow-auto table-scroll-x bg-surface-raised border border-line rounded">
-                <table class="w-full text-xs">
-                    <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
-                        <tr>
-                            <th class="px-3 py-2 text-left text-ink-muted">DEPENDENCIA PLC</th>
-                            <th class="px-3 py-2 text-left text-ink-muted">ESTADO</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr v-for="row in dependenciasTabla"
-                            :key="row.nombre"
-                            class="border-b border-line">
-                            <td class="px-3 py-1.5 align-top font-mono text-ink whitespace-nowrap">
-                                {{ row.nombre }}
-                            </td>
-                            <td class="px-3 py-1.5 align-top font-mono font-bold whitespace-nowrap"
-                                :class="row.falta ? 'text-red-700' : 'text-green-700'">
-                                {{ row.estado }}
-                            </td>
-                        </tr>
-                        <tr v-if="dependenciasTabla.length === 0">
-                            <td colspan="2"
-                                class="px-3 py-4 text-center text-ink-muted italic">
-                                (la plantilla no declara dependencias externas)
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-
             <button type="button"
                     @click="generarPreview"
                     :disabled="!canGenerate"
@@ -729,6 +692,43 @@ export default {
                                 <td colspan="3"
                                     class="px-3 py-6 text-center text-ink-muted italic">
                                     (no hay bloques previstos)
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <!-- Tabla de DEPENDENCIAS declaradas en el manifest. La
+                     fuente es previewData.dependencias_ok y
+                     previewData.dependencias_faltantes; las faltantes
+                     salen en rojo y bloquean el boton "Aplicar". -->
+                <h3 class="text-sm font-semibold text-ink mt-4 mb-2">
+                    Dependencias ({{ dependenciasTabla.length }})
+                </h3>
+                <div data-testid="procesos-crear-dependencias"
+                     class="flex-1 overflow-auto table-scroll-x bg-surface-raised border border-line rounded">
+                    <table class="w-full text-xs">
+                        <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
+                            <tr>
+                                <th class="px-3 py-2 text-left text-ink-muted">DEPENDENCIA PLC</th>
+                                <th class="px-3 py-2 text-left text-ink-muted">ESTADO</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="row in dependenciasTabla"
+                                :key="row.nombre"
+                                class="border-b border-line">
+                                <td class="px-3 py-1.5 align-top font-mono text-ink whitespace-nowrap">
+                                    {{ row.nombre }}
+                                </td>
+                                <td class="px-3 py-1.5 align-top font-mono font-bold whitespace-nowrap"
+                                    :class="row.falta ? 'text-red-700' : 'text-green-700'">
+                                    {{ row.estado }}
+                                </td>
+                            </tr>
+                            <tr v-if="dependenciasTabla.length === 0">
+                                <td colspan="2"
+                                    class="px-3 py-4 text-center text-ink-muted italic">
+                                    (la plantilla no declara dependencias externas)
                                 </td>
                             </tr>
                         </tbody>
