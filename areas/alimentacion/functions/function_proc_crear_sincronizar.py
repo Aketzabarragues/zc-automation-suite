@@ -165,6 +165,14 @@ class ProcProcessGenContext:
     descripcion: str = ""
     dependencias: list[str] = field(default_factory=list)
 
+    # ── Resultado de validar_dependencias ──
+    # El sync FB no re-valida: las deps las cruza el preview FB en
+    # su stage 6 y la SPA bloquea el boton "Aplicar" si hay
+    # faltantes. Los campos viven en el ctx del sync para que un
+    # futuro stage los pueda exponer sin tocar la dataclass.
+    dependencias_ok: list[str] = field(default_factory=list)
+    dependencias_faltantes: list[str] = field(default_factory=list)
+
     # ── Resultado de construir_diccionarios ──
     dicc_bloques: dict[str, str] = field(default_factory=dict)
     dicc_xml: dict[str, str] = field(default_factory=dict)
@@ -964,6 +972,9 @@ async def proc_process_done_summary(ctx: ProcProcessGenContext) -> dict[str, Any
     success = len(ctx.colisiones) == 0
     ctx.result = {
         "manifest_plantilla": ctx.manifest_plantilla,
+        "descripcion": ctx.descripcion,
+        "dependencias_ok": list(ctx.dependencias_ok),
+        "dependencias_faltantes": list(ctx.dependencias_faltantes),
         campo_archivos: archivos,
         "colisiones": list(ctx.colisiones),
         (

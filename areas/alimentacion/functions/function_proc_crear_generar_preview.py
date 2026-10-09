@@ -104,14 +104,14 @@ class ManifestInvalido(ValueError):
 
 @dataclass
 class ProcProcessGenContext:
-    """Estado compartido entre los 7 stages del FB preview.
+    """Estado compartido entre los 8 stages del FB preview.
 
     Cada stage del FB muta uno o varios campos con el resultado de su
     trabajo. Los stages posteriores leen los resultados de los
     anteriores.
 
     El FB ``FunctionProcCrearGenerarPreview`` instancia uno y lo reusa
-    entre sus 7 ticks para que los resultados intermedios esten
+    entre sus 8 ticks para que los resultados intermedios esten
     disponibles para los stages posteriores.
     """
 
@@ -136,6 +136,13 @@ class ProcProcessGenContext:
     nombre_viejo: str = ""
     descripcion: str = ""
     dependencias: list[str] = field(default_factory=list)
+
+    # ── Resultado de validar_dependencias ──
+    # ``dependencias`` declaradas en el manifest cruzadas contra el
+    # ``plc_blocks_cache``. La SPA pinta en rojo las faltantes y
+    # bloquea el boton "Aplicar" si la lista no esta vacia.
+    dependencias_ok: list[str] = field(default_factory=list)
+    dependencias_faltantes: list[str] = field(default_factory=list)
 
     # ── Resultado de construir_diccionarios ──
     dicc_bloques: dict[str, str] = field(default_factory=dict)
@@ -189,8 +196,9 @@ class FunctionProcCrearGenerarPreview(FunctionBase):
         (3, "Copiar a vista previa",    "_stage_3_copiar_a_preview"),
         (4, "Construir diccionarios",   "_stage_4_construir_diccionarios"),
         (5, "Detectar colisiones",      "_stage_5_detectar_colisiones"),
-        (6, "Generar previstos",        "_stage_6_generar_previstos"),
-        (7, "Componer respuesta",       "_stage_7_build_response"),
+        (6, "Validar dependencias",     "_stage_6_validar_dependencias"),
+        (7, "Generar previstos",        "_stage_7_generar_previstos"),
+        (8, "Componer respuesta",       "_stage_8_build_response"),
     ]
 
     # ==================================================================
@@ -220,6 +228,7 @@ class FunctionProcCrearGenerarPreview(FunctionBase):
                 {"nombre": "Copiar a vista previa"},
                 {"nombre": "Construir diccionarios"},
                 {"nombre": "Detectar colisiones"},
+                {"nombre": "Validar dependencias"},
                 {"nombre": "Generar previstos"},
                 {"nombre": "Componer respuesta"},
             ],
@@ -239,7 +248,7 @@ class FunctionProcCrearGenerarPreview(FunctionBase):
         self._nombre_nuevo: str = ""
         self._minimos_usuario: dict[str, int] = {}
         self._plc_blocks_cache: list[dict[str, Any]] | None = None
-        # ProcProcessGenContext compartido entre los 7 ticks. Se
+        # ProcProcessGenContext compartido entre los 8 ticks. Se
         # reinicializa en cada on_start() para no arrastrar estado del
         # run anterior (el FB es re-arrancable).
         self._ctx: ProcProcessGenContext | None = None
@@ -434,12 +443,22 @@ class FunctionProcCrearGenerarPreview(FunctionBase):
         """Stage 5: detecta UIDs/colisiones contra el ``plc_blocks_cache``."""
         await proc_process_detectar_colisiones(self._ctx)
 
-    async def _stage_6_generar_previstos(self) -> None:
-        """Stage 6: aplica las reglas y genera ``archivos_previstos``."""
+    async def _stage_6_validar_dependencias(self) -> None:
+        """Stage 6: cruza ``ctx.dependencias`` contra ``plc_blocks_cache``.
+
+        Rellena ``ctx.dependencias_ok`` y ``ctx.dependencias_faltantes``.
+        La SPA pinta las faltantes en rojo y bloquea "Aplicar" si la
+        lista no esta vacia. Nunca aborta: el preview sigue aunque
+        falten dependencias (mensaje accionable en logs).
+        """
+        await proc_process_validar_dependencias(self._ctx)
+
+    async def _stage_7_generar_previstos(self) -> None:
+        """Stage 7: aplica las reglas y genera ``archivos_previstos``."""
         await proc_process_generar_previstos(self._ctx)
 
-    async def _stage_7_build_response(self) -> None:
-        """Stage 7: compone ``ctx.result`` con la shape final del preview."""
+    async def _stage_8_build_response(self) -> None:
+        """Stage 8: compone ``ctx.result`` con la shape final del preview."""
         await proc_process_done_summary(self._ctx)
 
 
@@ -756,6 +775,63 @@ async def proc_process_detectar_colisiones(ctx: ProcProcessGenContext) -> None:
                 colisiones_vistas.add(val)
 
 
+async def proc_process_validar_dependencias(ctx: ProcProcessGenContext) -> None:
+    """Cruza ``ctx.dependencias`` contra ``plc_blocks_cache`` por nombre
+    exacto.
+
+    Cada dependencia declarada en el ``manifest.json`` debe coincidir
+    con el nombre de un bloque ya existente en el PLC (match case-
+    sensitive). Las que coinciden van a ``ctx.dependencias_ok``; las
+    que NO van a ``ctx.dependencias_faltantes``. La SPA pinta las
+    faltantes en rojo y bloquea el boton "Aplicar" cuando la lista
+    no esta vacia.
+
+    Match por nombre exacto y NO por prefijo+numero (distinto de
+    ``detectar_colisiones``): el operario declara bloques externos
+    que ya estan en el PLC con su nombre completo canonico TIA
+    (``DB1_SYS``, ``FC15151_ZC_MARCHA_PARO_SEC``...). TIA Portal
+    resuelve imports por nombre completo del bloque, no por tipo+num.
+
+    Comportamiento por estado del ctx:
+      - ``dependencias`` vacio: noop silencioso. Una plantilla sin
+        dependencias externas (caso raro) no requiere validacion.
+      - ``plc_blocks_cache is None``: emite warning con mensaje
+        accionable y rellena ``dependencias_faltantes`` con TODAS las
+        dependencias declaradas. Razon: el operario debe saber que el
+        portal no esta attached y "Aplicar" quedara bloqueado en la
+        SPA hasta que escanee el PLC.
+    """
+    if not ctx.dependencias:
+        return
+
+    if ctx.plc_blocks_cache is None:
+        logger.warning(
+            "[proc_process_validar_dependencias] "
+            "plc_blocks_cache=None; "
+            "todas las dependencias iran a 'faltantes'."
+        )
+        ctx.dependencias_ok = []
+        ctx.dependencias_faltantes = list(ctx.dependencias)
+        return
+
+    plc_nombres: set[str] = set()
+    for item in ctx.plc_blocks_cache:
+        if isinstance(item, dict):
+            nombre_raw = item.get("nombre")
+            if isinstance(nombre_raw, str) and nombre_raw:
+                plc_nombres.add(nombre_raw)
+        elif isinstance(item, str) and item:
+            plc_nombres.add(item)
+
+    ctx.dependencias_ok = []
+    ctx.dependencias_faltantes = []
+    for dep in ctx.dependencias:
+        if dep in plc_nombres:
+            ctx.dependencias_ok.append(dep)
+        else:
+            ctx.dependencias_faltantes.append(dep)
+
+
 async def proc_process_generar_previstos(ctx: ProcProcessGenContext) -> None:
     """Walk ``dir_plantilla_copia`` y construye la lista de BLOQUES
     que se generarian al aplicar la plantilla.
@@ -837,6 +913,9 @@ async def proc_process_done_summary(ctx: ProcProcessGenContext) -> dict[str, Any
     success = len(ctx.colisiones) == 0
     ctx.result = {
         "manifest_plantilla": ctx.manifest_plantilla,
+        "descripcion": ctx.descripcion,
+        "dependencias_ok": list(ctx.dependencias_ok),
+        "dependencias_faltantes": list(ctx.dependencias_faltantes),
         campo_archivos: archivos,
         "colisiones": list(ctx.colisiones),
         (
@@ -900,6 +979,12 @@ def _step_summary(ctx: ProcProcessGenContext, step_nombre: str) -> str:
         )
     if step_nombre == "detectar_colisiones":
         return f"{step_nombre}: {len(ctx.colisiones)} colision(es)"
+    if step_nombre == "validar_dependencias":
+        return (
+            f"{step_nombre}: "
+            f"{len(ctx.dependencias_ok)} OK, "
+            f"{len(ctx.dependencias_faltantes)} faltantes"
+        )
     if step_nombre == "generar_previstos":
         return f"{step_nombre}: {len(ctx.archivos_previstos)} bloques"
     if step_nombre == "Componer respuesta":
@@ -948,6 +1033,7 @@ __all__ = [
     "proc_process_copiar_a_preview",
     "proc_process_construir_diccionarios",
     "proc_process_detectar_colisiones",
+    "proc_process_validar_dependencias",
     "proc_process_generar_previstos",
     "proc_process_done_summary",
     # Helpers internos (puros).

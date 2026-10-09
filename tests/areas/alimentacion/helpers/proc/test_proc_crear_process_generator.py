@@ -45,6 +45,7 @@ from areas.alimentacion.functions.function_proc_crear_generar_preview import (
     proc_process_detectar_colisiones,
     proc_process_generar_previstos,
     proc_process_leer_manifest,
+    proc_process_validar_dependencias,
     proc_process_validar_minimos,
 )
 from areas.alimentacion.functions.function_proc_crear_sincronizar import (
@@ -417,6 +418,89 @@ async def test_leer_manifest_happy_campos_nuevos(
         "DB1_SYS",
         "FC15151_ZC_MARCHA_PARO_SEC",
     ]
+
+
+# ── proc_process_validar_dependencias ────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_validar_dependencias_ok(make_ctx: Any) -> None:
+    """``plc_blocks_cache`` contiene TODAS las deps del manifest -> ok.
+
+    La plantilla dummy declara ``["DB1_SYS", "FC15151_ZC_MARCHA_PARO_SEC"]``.
+    Si la cache los tiene ambos, ``dependencias_ok`` los contiene y
+    ``dependencias_faltantes`` queda vacia.
+    """
+    ctx = make_ctx(
+        plc_blocks_cache=[
+            {"nombre": "DB1_SYS", "numero": 1},
+            {"nombre": "FC15151_ZC_MARCHA_PARO_SEC", "numero": 15151},
+        ],
+    )
+    await proc_process_leer_manifest(ctx)
+    await proc_process_validar_dependencias(ctx)
+
+    assert ctx.dependencias_ok == [
+        "DB1_SYS", "FC15151_ZC_MARCHA_PARO_SEC",
+    ]
+    assert ctx.dependencias_faltantes == []
+
+
+@pytest.mark.asyncio
+async def test_validar_dependencias_mitad(make_ctx: Any) -> None:
+    """``plc_blocks_cache`` solo tiene la mitad -> mitad OK, mitad
+    faltantes.
+
+    Verifica que el cruce es exacto: una dependencia en la cache va
+    a OK, la otra a faltantes. La SPA pinta SOLO las faltantes en
+    rojo, asi que esta separacion es la regla de bloqueo.
+    """
+    ctx = make_ctx(
+        plc_blocks_cache=[
+            {"nombre": "DB1_SYS", "numero": 1},
+        ],
+    )
+    await proc_process_leer_manifest(ctx)
+    await proc_process_validar_dependencias(ctx)
+
+    assert ctx.dependencias_ok == ["DB1_SYS"]
+    assert ctx.dependencias_faltantes == ["FC15151_ZC_MARCHA_PARO_SEC"]
+
+
+@pytest.mark.asyncio
+async def test_validar_dependencias_todas_faltan(make_ctx: Any) -> None:
+    """``plc_blocks_cache`` sin ninguna dep -> todas a faltantes."""
+    ctx = make_ctx(
+        plc_blocks_cache=[
+            {"nombre": "OTRO_BLOQUE", "numero": 99},
+        ],
+    )
+    await proc_process_leer_manifest(ctx)
+    await proc_process_validar_dependencias(ctx)
+
+    assert ctx.dependencias_ok == []
+    assert set(ctx.dependencias_faltantes) == {
+        "DB1_SYS", "FC15151_ZC_MARCHA_PARO_SEC",
+    }
+
+
+@pytest.mark.asyncio
+async def test_validar_dependencias_sin_cache(make_ctx: Any) -> None:
+    """``plc_blocks_cache is None`` -> todas las deps a faltantes.
+
+    Misma regla que ``detectar_colisiones``: si el operario no ha
+    escaneado el PLC todavia, las dependencias se reportan como
+    faltantes para que la SPA pueda bloquear "Aplicar" hasta que
+    se escanee.
+    """
+    ctx = make_ctx(plc_blocks_cache=None)
+    await proc_process_leer_manifest(ctx)
+    await proc_process_validar_dependencias(ctx)
+
+    assert ctx.dependencias_ok == []
+    assert set(ctx.dependencias_faltantes) == {
+        "DB1_SYS", "FC15151_ZC_MARCHA_PARO_SEC",
+    }
 
 
 # ── proc_process_validar_minimos ──────────────────────────────────────
