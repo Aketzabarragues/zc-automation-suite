@@ -210,6 +210,51 @@ def test_crear_preview_ok_con_plantilla(plantilla_dummy: Path) -> None:
     assert kwargs["minimos_usuario"]["N_MAX_PREAL"] == 30
 
 
+def test_crear_preview_expone_descripcion_y_dependencias(plantilla_dummy: Path) -> None:
+    """El router ``/preview`` vuelca ``descripcion``,
+    ``dependencias_ok`` y ``dependencias_faltantes`` del
+    ``fb.result`` en el JSON response para que la SPA los pueda
+    renderizar y bloquear el boton "Aplicar" si hay faltantes.
+
+    El router hace ``jsonify(fb.result)`` literal: cualquier campo
+    que el helper ``done_summary`` anada al ``ctx.result`` sale
+    automatico. Este test fija el contrato para detectar
+    refactors que rompan la propagacion.
+    """
+    from areas.alimentacion.frontend.proc_process_crear_router import bp
+
+    engine = MagicMock()
+    fb_mock = _make_mock_fb(result={
+        "success": True,
+        "manifest_plantilla": {"base": 300, "codigo": "EXP"},
+        "descripcion": "Proceso estandar de expedicion",
+        "dependencias_ok": ["DB1_SYS"],
+        "dependencias_faltantes": ["FC15151_ZC_MARCHA_PARO_SEC"],
+        "archivos_previstos": [],
+        "colisiones": [],
+        "preview_dir": str(plantilla_dummy.parent / "preview"),
+    })
+    engine.get_fb.return_value = fb_mock
+
+    cm = MagicMock()
+    cm.get_plantillas_path.return_value = str(plantilla_dummy.parent)
+    app_state = _make_mock_app_state(proc_uid=300)
+
+    app = _make_app(engine=engine, app_state=app_state, config_manager=cm)
+    app.register_blueprint(bp)
+    client = app.test_client()
+
+    resp = client.post("/api/v1/procesos/crear/preview", json={
+        "dir_plantilla_nombre": "TestPlantilla",
+        "proc_uid": 300,
+    })
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["descripcion"] == "Proceso estandar de expedicion"
+    assert data["dependencias_ok"] == ["DB1_SYS"]
+    assert data["dependencias_faltantes"] == ["FC15151_ZC_MARCHA_PARO_SEC"]
+
+
 def test_crear_preview_sin_excel() -> None:
     """AppState.excel_cache_full=None -> 400 accionable."""
     from areas.alimentacion.frontend.proc_process_crear_router import bp
