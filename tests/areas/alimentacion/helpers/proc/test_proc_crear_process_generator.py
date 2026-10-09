@@ -40,13 +40,15 @@ from areas.alimentacion.functions.function_proc_crear_generar_preview import (
     ManifestInvalido,
     PlantillaMinimosNoCumplidos,
     ProcProcessGenContext,
-    proc_process_construir_diccionarios,
     proc_process_copiar_a_preview,
     proc_process_detectar_colisiones,
     proc_process_generar_previstos,
     proc_process_leer_manifest,
     proc_process_validar_dependencias,
     proc_process_validar_minimos,
+)
+from areas.alimentacion.helpers.proc.proc_process_construir_diccionarios import (
+    proc_process_construir_diccionarios,
 )
 from areas.alimentacion.functions.function_proc_crear_sincronizar import (
     proc_process_aplicar_clonacion,
