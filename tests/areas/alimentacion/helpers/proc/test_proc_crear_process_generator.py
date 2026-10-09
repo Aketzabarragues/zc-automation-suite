@@ -47,11 +47,13 @@ from areas.alimentacion.functions.function_proc_crear_generar_preview import (
     proc_process_validar_dependencias,
     proc_process_validar_minimos,
 )
+from areas.alimentacion.helpers.proc.proc_process_aplicar_clonacion import (
+    proc_process_aplicar_clonacion,
+)
 from areas.alimentacion.helpers.proc.proc_process_construir_diccionarios import (
     proc_process_construir_diccionarios,
 )
 from areas.alimentacion.functions.function_proc_crear_sincronizar import (
-    proc_process_aplicar_clonacion,
     proc_process_escribir_manifest,
 )
 
