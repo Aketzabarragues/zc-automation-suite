@@ -1039,3 +1039,92 @@ async def test_generar_previstos_orden_por_nombre_nuevo(
     assert nombres == sorted(nombres, key=str.casefold), (
         f"orden no estable: {nombres}"
     )
+
+
+# ── proc_process_construir_diccionarios: folder rename con base custom ──
+
+
+@pytest.mark.asyncio
+async def test_construir_diccionarios_renombra_carpeta_base_custom(
+    tmp_path: Path,
+) -> None:
+    """Una carpeta con prefijo numerico que NO es ninguna de las 3
+    bases hardcoded (``base``, ``base+3000``, ``base+5000``) debe
+    recibir su propia regla de rename, derivada del walk.
+
+    Caso real (CIP, oct-2026): el proyecto tiene 12 subcarpetas
+    con bases 50500, 50510, 50520, 50530, 50540, 50560, 50565,
+    50570, 50575, 50590, 53500, 55500. Solo las 3 estandar se
+    renombraban; las 9 custom quedaban intactas, con bloques
+    renombrados dentro (mismatch estructural con TIA Portal al
+    hacer import UPDATE).
+
+    Este test cubre el caso custom. La subcarpeta ``600_Custom``
+    (offset +400 sobre base=200) debe recibir una regla
+    ``600_`` -> ``500_`` (offset preservado tras el shift
+    base 200 -> 100).
+    """
+    build_cache_root = tmp_path / ".build_cache"
+    preview = build_cache_root / "alimentacion" / "ProcesoNuevo" / "Plantilla"
+    modified = build_cache_root / "alimentacion" / "ProcesoNuevo" / "Nuevo"
+    plantilla = tmp_path / "PROC_CUSTOM_BASES"
+    plantilla.mkdir()
+    (plantilla / "Bloques de programa").mkdir()
+    (plantilla / "Variables PLC").mkdir()
+    (plantilla / "manifest.json").write_text(
+        json.dumps({
+            "base": 200,
+            "codigo": "EXP",
+            "nombre": "Expedicion",
+            "minimos": {
+                "N_MAX_PREAL": 3, "N_MAX_PINT": 15,
+                "N_MAX_ALM": 16, "N_MAX_ALM_HMI": 3,
+            },
+        }),
+        encoding="utf-8",
+    )
+    # Subcarpeta con base custom (offset +400; no es ninguno de
+    # los 3 estandar 0/3000/5000) y un bloque dentro.
+    custom_folder = plantilla / "Bloques de programa" / "600_Custom"
+    custom_folder.mkdir()
+    (custom_folder / "DB600_EXP_CUSTOM.s7dcl").write_text(
+        'S7_BlockNumber := "600";\n'
+        "DATA_BLOCK DB600_EXP_CUSTOM\n",
+        encoding="utf-8",
+    )
+
+    ctx = ProcProcessGenContext(
+        dir_plantilla=plantilla,
+        dir_plantilla_copia=preview,
+        dir_nuevo=modified,
+        base_nueva=100,
+        codigo_nuevo="CPR",
+        nombre_nuevo="CPR",
+        plc_blocks_cache=[],
+        minimos_usuario={
+            "N_MAX_PREAL": 10, "N_MAX_PINT": 20,
+            "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
+        },
+    )
+    await proc_process_copiar_a_preview(ctx)
+    await proc_process_leer_manifest(ctx)
+    await proc_process_construir_diccionarios(ctx)
+    await proc_process_aplicar_clonacion(ctx)
+
+    # La subcarpeta custom debe haberse renombrado: 600_ -> 500_
+    # (offset +400 preservado tras el shift base 200 -> 100).
+    assert (modified / "Bloques de programa" / "500_Custom").is_dir(), (
+        "La subcarpeta con base custom (600_) no se renombro. "
+        "dicc_bloques deberia contener la regla '600_' -> '500_'."
+    )
+    assert not (modified / "Bloques de programa" / "600_Custom").exists(), (
+        "La subcarpeta con el nombre viejo no deberia existir tras el apply."
+    )
+    # El bloque dentro tambien se renombra via la regex de bloques.
+    assert (
+        modified / "Bloques de programa" / "500_Custom"
+        / "DB500_CPR_CUSTOM.s7dcl"
+    ).is_file(), (
+        "El bloque dentro de la subcarpeta custom no se renombro "
+        "consistentemente con el prefijo del folder."
+    )
