@@ -1611,3 +1611,124 @@ async def test_construir_diccionarios_carpeta_prefijo_fc_db(
         "El bloque dentro de la carpeta FC no se renombro "
         "consistentemente con el prefijo del folder."
     )
+
+
+@pytest.mark.asyncio
+async def test_construir_diccionarios_prefijo_num_en_stem_de_archivo(
+    tmp_path: Path,
+) -> None:
+    """Archivos FC/FB/DB con un prefijo numerico que NO es prefijo de
+    carpeta deben generar una regla ``<num>_ -> <num_nuevo>_`` en
+    el dicc, para que el helper renombre ese numero en el contenido
+    de ``.s7dcl`` / ``.s7res`` / ``.scl`` / ``.awl``.
+
+    Caso real (C.16, sept-2026 / oct-2026): la plantilla CIP tiene
+    ``FC50501_CIP1_ORDENES_R_L1.s7dcl`` dentro de la carpeta
+    ``50500_Principal\\``. El nombre de archivo lleva el sufijo
+    ``_L1`` al final; el ``FUNCTION "FC50501_CIP1_L1_ORDENES_R"``
+    del cuerpo lo lleva en medio (formato distinto). Sin la regla
+    ``50501_ -> 501_`` en el dicc, el ``str.replace`` falla en esa
+    cadena y TIA Portal muestra ``FC50501_*`` en lugar del nombre
+    renombrado (lo lee del ``.s7res`` por la entrada
+    ``MLC_<id> -> es-ES: ...``).
+    """
+    build_cache_root = tmp_path / ".build_cache"
+    preview = build_cache_root / "alimentacion" / "ProcesoNuevo" / "Plantilla"
+    modified = build_cache_root / "alimentacion" / "ProcesoNuevo" / "Nuevo"
+    plantilla = tmp_path / "PROC_STEM_PREFIX"
+    plantilla.mkdir()
+    (plantilla / "Bloques de programa" / "50500_CIP1" / "50500_Principal").mkdir(
+        parents=True,
+    )
+    (plantilla / "Variables PLC").mkdir()
+    (plantilla / "manifest.json").write_text(
+        json.dumps({
+            "base": 50500,
+            "codigo": "CIP1",
+            "nombre": "CIP1",
+            "descripcion": "Proceso CIP dummy",
+            "dependencias": ["DB1_SYS"],
+            "minimos": {
+                "N_MAX_PREAL": 3, "N_MAX_PINT": 15,
+                "N_MAX_ALM": 16, "N_MAX_ALM_HMI": 3,
+            },
+        }),
+        encoding="utf-8",
+    )
+    s7dcl = (
+        plantilla / "Bloques de programa" / "50500_CIP1"
+        / "50500_Principal" / "FC50501_CIP1_ORDENES_R_L1.s7dcl"
+    )
+    s7dcl.write_text(
+        'S7_BlockNumber := "5501";\n'
+        'FUNCTION "FC50501_CIP1_L1_ORDENES_R" : Void\n',
+        encoding="utf-8",
+    )
+    s7res = s7dcl.with_suffix(".s7res")
+    s7res.write_text(
+        "MultiLingualTexts:\n"
+        "  - id: MLC_X\n"
+        "    es-ES: FC50501_CIP1_L1_ORDENES_R\n",
+        encoding="utf-8",
+    )
+
+    # base_nueva=500 (offset -50000). El prefijo 50501 es de archivo,
+    # no de carpeta: si no se anade al walk, no hay regla 50501_ ->
+    # 501_ y el contenido del .s7dcl/.s7res conserva el 50501.
+    ctx = ProcProcessGenContext(
+        dir_plantilla=plantilla,
+        dir_plantilla_copia=preview,
+        dir_nuevo=modified,
+        base_nueva=500,
+        codigo_nuevo="ENTRADA",
+        nombre_nuevo="ENTRADA",
+        plc_blocks_cache=[],
+        minimos_usuario={
+            "N_MAX_PREAL": 10, "N_MAX_PINT": 20,
+            "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
+        },
+    )
+    await proc_process_copiar_a_preview(ctx)
+    await proc_process_leer_manifest(ctx)
+    await proc_process_construir_diccionarios(ctx)
+    await proc_process_aplicar_clonacion(ctx)
+
+    # Regla del prefijo de archivo presente en el dicc.
+    assert ctx.dicc_bloques.get("50501_") == "501_", (
+        "Falta la regla 50501_ -> 501_ en el dicc de renombre. "
+        f"Entradas actuales: {sorted(ctx.dicc_bloques.keys())!r}"
+    )
+
+    # Contenido del .s7dcl reescrito: 50501 -> 501 y codigo -> nuevo.
+    # El output conserva la estructura interna del bloque (L1 en
+    # medio, como en el ``FUNCTION "..."``); el helper reemplaza
+    # tokens, no reordena.
+    s7dcl_nuevo = (
+        modified / "Bloques de programa" / "500_ENTRADA"
+        / "500_Principal" / "FC501_ENTRADA_ORDENES_R_L1.s7dcl"
+    )
+    assert s7dcl_nuevo.is_file(), (
+        f"El .s7dcl renombrado no existe en la ruta esperada. "
+        f"Dir nuevo contiene: {sorted(p.name for p in modified.rglob('*'))!r}"
+    )
+    contenido = s7dcl_nuevo.read_text(encoding="utf-8")
+    assert "FC501_ENTRADA_L1_ORDENES_R" in contenido, (
+        "El .s7dcl conserva FC50501 en su FUNCTION \"...\", "
+        f"el rename no alcanzo el contenido. Contenido: {contenido!r}"
+    )
+    assert "FC50501" not in contenido, (
+        f"Todavia quedan referencias a FC50501 en el .s7dcl: {contenido!r}"
+    )
+
+    # Contenido del .s7res reescrito (mismo bug historico: TIA
+    # Portal lee el nombre del bloque de aqui, via el mapeo
+    # ``MLC_<id> -> es-ES: ...``).
+    s7res_nuevo = s7dcl_nuevo.with_suffix(".s7res")
+    contenido_res = s7res_nuevo.read_text(encoding="utf-8")
+    assert "FC501_ENTRADA_L1_ORDENES_R" in contenido_res, (
+        "El .s7res conserva FC50501 en su mapeo MLC_<id>, "
+        f"el rename no alcanzo el contenido. Contenido: {contenido_res!r}"
+    )
+    assert "FC50501" not in contenido_res, (
+        f"Todavia quedan referencias a FC50501 en el .s7res: {contenido_res!r}"
+    )

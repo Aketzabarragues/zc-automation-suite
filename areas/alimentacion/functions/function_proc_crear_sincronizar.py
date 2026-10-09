@@ -740,10 +740,11 @@ async def proc_process_construir_diccionarios(ctx: ProcProcessGenContext) -> Non
     dicc_bloques: dict[str, str] = {}
     dicc_xml: dict[str, str] = {}
     numeros_usados: set[int] = set()
-    prefijos_carpeta: set[int] = set()
+    prefijos_walk: set[int] = set()
 
     patron_bloques = re.compile(r"(FC|FB|DB)(\d+)")
     patron_prefijo_carpeta = re.compile(r"^(\d+)_")
+    patron_prefijo_stem = re.compile(r"^(FC|FB|DB)(\d+)_")
 
     def _walk_and_build() -> None:
         bloques_raiz = ctx.dir_plantilla_copia / "Bloques de programa"
@@ -759,7 +760,23 @@ async def proc_process_construir_diccionarios(ctx: ProcProcessGenContext) -> Non
             ):
                 m_prefijo = patron_prefijo_carpeta.match(item.name)
                 if m_prefijo:
-                    prefijos_carpeta.add(int(m_prefijo.group(1)))
+                    prefijos_walk.add(int(m_prefijo.group(1)))
+
+            # Prefijos numericos de stems de archivos (FC/FB/DB).
+            # Cubre bloques cuyo numero no aparece como prefijo de
+            # carpeta (e.g. FC50501 dentro de 50500_Principal\): sin
+            # esta entrada no hay regla 50501_ -> 501_ en el dicc y
+            # el numero se queda intacto en el contenido de
+            # .s7dcl / .s7res / .scl / .awl. La app cliente (TIA
+            # Portal) muestra el nombre del bloque desde el mapeo
+            # ``MLC_<id> -> <texto>`` del .s7res, asi que una regla
+            # faltante aqui deja el FC50501 visible en TIA aunque
+            # el .s7dcl/.s7res se hayan renombrado a nivel de
+            # archivo.
+            if item.is_file():
+                m_stem = patron_prefijo_stem.match(item.stem)
+                if m_stem:
+                    prefijos_walk.add(int(m_stem.group(2)))
 
             def _repl_bloque(m: re.Match[str]) -> str:
                 prefijo = m.group(1)
@@ -782,7 +799,7 @@ async def proc_process_construir_diccionarios(ctx: ProcProcessGenContext) -> Non
 
     await asyncio.to_thread(_walk_and_build)
 
-    for prefijo_v in sorted(prefijos_carpeta):
+    for prefijo_v in sorted(prefijos_walk):
         prefijo_n = prefijo_v - base_viej + base_nuev
         if prefijo_v == prefijo_n:
             continue
