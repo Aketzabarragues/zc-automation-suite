@@ -521,15 +521,18 @@ async def proc_process_construir_diccionarios(ctx: ProcProcessGenContext) -> Non
       - Bloques: walk del directorio ``dir_plantilla_copia`` con un regex
         matematico ``(FC|FB|DB)(\\d+)`` -> ``prefijo(num - base_vieja + base_nueva)``.
         Renombra SOLO los prefijos canonicos TIA (FC/FB/DB).
-      - Variables y carpetas: 3 reglas explicitas por base
-        (``base``, ``base + 3000`` = Params, ``base + 5000`` = Alarmas).
+      - Carpetas: data-driven. Por cada carpeta con prefijo numerico
+        ``r"^(\\d+)_"`` se anade una regla ``{prefijo}_`` ->
+        ``{prefijo - base_vieja + base_nueva}_`` a ``dicc_bloques`` y
+        ``dicc_xml``. Cubre cualquier offset (las 3 bases
+        estandar del proyecto y las custom de la plantilla).
       - Metadatos TIA: ``S7_BlockNumber := "X"`` de las cabeceras de
         los bloques del proceso.
       - Fallbacks: codigo y nombre del proceso (siempre).
 
     Todo se ordena por ``len(key)`` descendente para que las claves
-    mas especificas (e.g. ``200_PRO_STD``) ganen antes que las mas
-    cortas (``200``).
+    mas especificas (e.g. ``DB50500_CIP1_INTERFAZ``) ganen antes que
+    las del prefijo (``50500_``).
     """
     base_viej = ctx.base_vieja
     base_nuev = ctx.base_nueva
@@ -541,14 +544,26 @@ async def proc_process_construir_diccionarios(ctx: ProcProcessGenContext) -> Non
     dicc_bloques: dict[str, str] = {}
     dicc_xml: dict[str, str] = {}
     numeros_usados: set[int] = set()
+    prefijos_carpeta: set[int] = set()
 
     patron_bloques = re.compile(r"(FC|FB|DB)(\d+)")
+    patron_prefijo_carpeta = re.compile(r"^(\d+)_")
 
     def _walk_and_build() -> None:
+        bloques_raiz = ctx.dir_plantilla_copia / "Bloques de programa"
         for item in ctx.dir_plantilla_copia.rglob("*"):
             if not item.exists():
                 continue
             nombre_base = item.stem if item.is_file() else item.name
+
+            if (
+                item.is_dir()
+                and bloques_raiz in item.parents
+                and item != bloques_raiz
+            ):
+                m_prefijo = patron_prefijo_carpeta.match(item.name)
+                if m_prefijo:
+                    prefijos_carpeta.add(int(m_prefijo.group(1)))
 
             def _repl_bloque(m: re.Match[str]) -> str:
                 prefijo = m.group(1)
@@ -571,13 +586,23 @@ async def proc_process_construir_diccionarios(ctx: ProcProcessGenContext) -> Non
 
     await asyncio.to_thread(_walk_and_build)
 
-    bases_viejas = [base_viej, base_viej + 3000, base_viej + 5000]
-    bases_nuevas = [base_nuev, base_nuev + 3000, base_nuev + 5000]
-    for b_vieja, b_nueva in zip(bases_viejas, bases_nuevas):
-        regla_vieja = f"{b_vieja}_"
-        regla_nueva = f"{b_nueva}_"
+    for prefijo_v in sorted(prefijos_carpeta):
+        prefijo_n = prefijo_v - base_viej + base_nuev
+        if prefijo_v == prefijo_n:
+            continue
+        regla_vieja = f"{prefijo_v}_"
+        regla_nueva = f"{prefijo_n}_"
         dicc_xml[regla_vieja] = regla_nueva
         dicc_bloques[regla_vieja] = regla_nueva
+
+    for b_vieja, b_nueva in zip(
+        [base_viej, base_viej + 3000, base_viej + 5000],
+        [base_nuev, base_nuev + 3000, base_nuev + 5000],
+    ):
+        regla_vieja = f"{b_vieja}_"
+        regla_nueva = f"{b_nueva}_"
+        dicc_xml.setdefault(regla_vieja, regla_nueva)
+        dicc_bloques.setdefault(regla_vieja, regla_nueva)
 
     for num in numeros_usados:
         nuevo_num = num - base_viej + base_nuev
