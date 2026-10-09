@@ -1128,3 +1128,202 @@ async def test_construir_diccionarios_renombra_carpeta_base_custom(
         "El bloque dentro de la subcarpeta custom no se renombro "
         "consistentemente con el prefijo del folder."
     )
+
+
+@pytest.mark.asyncio
+async def test_construir_diccionarios_renombra_subcarpeta_anidada_custom(
+    tmp_path: Path,
+) -> None:
+    """Una subcarpeta con prefijo custom en nivel 2 (dentro de la
+    carpeta de proceso) tambien debe recibir su regla de rename.
+
+    Cubre el caso CIP donde cada subcarpeta (Linea_1, Linea_2, ...)
+    vive anidada bajo ``50500_CIP1``. Si el ``rglob`` no recoge
+    carpetas anidadas, la regla no se genera y la subcarpeta
+    queda intacta.
+    """
+    build_cache_root = tmp_path / ".build_cache"
+    preview = build_cache_root / "alimentacion" / "ProcesoNuevo" / "Plantilla"
+    modified = build_cache_root / "alimentacion" / "ProcesoNuevo" / "Nuevo"
+    plantilla = tmp_path / "PROC_NESTED"
+    plantilla.mkdir()
+    (plantilla / "Bloques de programa").mkdir()
+    (plantilla / "Variables PLC").mkdir()
+    (plantilla / "manifest.json").write_text(
+        json.dumps({
+            "base": 200,
+            "codigo": "EXP",
+            "nombre": "Expedicion",
+            "minimos": {
+                "N_MAX_PREAL": 3, "N_MAX_PINT": 15,
+                "N_MAX_ALM": 16, "N_MAX_ALM_HMI": 3,
+            },
+        }),
+        encoding="utf-8",
+    )
+    # Top folder + subcarpeta custom anidada.
+    proc_folder = plantilla / "Bloques de programa" / "200_Expedicion"
+    proc_folder.mkdir()
+    nested_custom = proc_folder / "700_Nested_Custom"
+    nested_custom.mkdir()
+    (nested_custom / "DB700_EXP_NESTED.s7dcl").write_text(
+        'S7_BlockNumber := "700";\n',
+        encoding="utf-8",
+    )
+
+    ctx = ProcProcessGenContext(
+        dir_plantilla=plantilla,
+        dir_plantilla_copia=preview,
+        dir_nuevo=modified,
+        base_nueva=100,
+        codigo_nuevo="CPR",
+        nombre_nuevo="CPR",
+        plc_blocks_cache=[],
+        minimos_usuario={
+            "N_MAX_PREAL": 10, "N_MAX_PINT": 20,
+            "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
+        },
+    )
+    await proc_process_copiar_a_preview(ctx)
+    await proc_process_leer_manifest(ctx)
+    await proc_process_construir_diccionarios(ctx)
+    await proc_process_aplicar_clonacion(ctx)
+
+    # Subcarpeta anidada con base custom (offset +500) debe
+    # quedar como ``600_Nested_Custom`` (offset preservado). El
+    # top folder ``200_Expedicion`` se renombra a ``100_CPR``.
+    assert (
+        modified / "Bloques de programa" / "100_CPR" / "600_Nested_Custom"
+    ).is_dir(), (
+        "La subcarpeta anidada con prefijo custom (700_) no se renombro."
+    )
+
+
+@pytest.mark.asyncio
+async def test_construir_diccionarios_sin_carpetas_prefijadas(
+    tmp_path: Path,
+) -> None:
+    """Si la plantilla no tiene carpetas con prefijo numerico
+    bajo ``Bloques de programa/``, el dicc solo lleva las 3
+    reglas estandar y las del walk de archivos (sanity, no-op
+    para folder rules).
+    """
+    build_cache_root = tmp_path / ".build_cache"
+    preview = build_cache_root / "alimentacion" / "ProcesoNuevo" / "Plantilla"
+    modified = build_cache_root / "alimentacion" / "ProcesoNuevo" / "Nuevo"
+    plantilla = tmp_path / "PROC_NO_FOLDERS"
+    plantilla.mkdir()
+    (plantilla / "Bloques de programa").mkdir()
+    (plantilla / "Variables PLC").mkdir()
+    (plantilla / "manifest.json").write_text(
+        json.dumps({
+            "base": 200,
+            "codigo": "EXP",
+            "nombre": "Expedicion",
+            "minimos": {
+                "N_MAX_PREAL": 3, "N_MAX_PINT": 15,
+                "N_MAX_ALM": 16, "N_MAX_ALM_HMI": 3,
+            },
+        }),
+        encoding="utf-8",
+    )
+    # Solo archivos directamente bajo Bloques de programa/, sin
+    # subcarpetas prefijadas.
+    (plantilla / "Bloques de programa" / "DB200_EXP.s7dcl").write_text(
+        'S7_BlockNumber := "200";\n',
+        encoding="utf-8",
+    )
+
+    ctx = ProcProcessGenContext(
+        dir_plantilla=plantilla,
+        dir_plantilla_copia=preview,
+        dir_nuevo=modified,
+        base_nueva=100,
+        codigo_nuevo="CPR",
+        nombre_nuevo="CPR",
+        plc_blocks_cache=[],
+        minimos_usuario={
+            "N_MAX_PREAL": 10, "N_MAX_PINT": 20,
+            "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
+        },
+    )
+    await proc_process_copiar_a_preview(ctx)
+    await proc_process_leer_manifest(ctx)
+    await proc_process_construir_diccionarios(ctx)
+
+    # Las 3 reglas estandar siguen en dicc_xml (XML puede
+    # referenciarlas aunque no haya carpeta con ese prefijo).
+    assert "200_" in ctx.dicc_xml
+    assert "3200_" in ctx.dicc_xml
+    assert "5200_" in ctx.dicc_xml
+
+
+@pytest.mark.asyncio
+async def test_construir_diccionarios_carpeta_prefijo_fc_db(
+    tmp_path: Path,
+) -> None:
+    """Una carpeta con prefijo FC/FB/DB (raro pero posible, e.g.
+    ``FC100_Grouping``) genera DOS entradas en el dicc: la del
+    prefijo numerico (``100_``) y la del bloque si hay un
+    ``FC100_*.s7dcl`` dentro. El sort ``len(key) DESC`` del
+    dicc garantiza que la regla especifica del bloque (mas
+    larga) gana al aplicar.
+    """
+    build_cache_root = tmp_path / ".build_cache"
+    preview = build_cache_root / "alimentacion" / "ProcesoNuevo" / "Plantilla"
+    modified = build_cache_root / "alimentacion" / "ProcesoNuevo" / "Nuevo"
+    plantilla = tmp_path / "PROC_FC_FOLDER"
+    plantilla.mkdir()
+    (plantilla / "Bloques de programa").mkdir()
+    (plantilla / "Variables PLC").mkdir()
+    (plantilla / "manifest.json").write_text(
+        json.dumps({
+            "base": 200,
+            "codigo": "EXP",
+            "nombre": "Expedicion",
+            "minimos": {
+                "N_MAX_PREAL": 3, "N_MAX_PINT": 15,
+                "N_MAX_ALM": 16, "N_MAX_ALM_HMI": 3,
+            },
+        }),
+        encoding="utf-8",
+    )
+    # Carpeta con prefijo FC y un bloque dentro.
+    fc_folder = plantilla / "Bloques de programa" / "FC100_Grouping"
+    fc_folder.mkdir()
+    (fc_folder / "FC100_EXP_GRP.s7dcl").write_text(
+        'S7_BlockNumber := "100";\n',
+        encoding="utf-8",
+    )
+
+    # base_nuev=400 para evitar prefijos negativos (100 - 200 + 400 = 300).
+    ctx = ProcProcessGenContext(
+        dir_plantilla=plantilla,
+        dir_plantilla_copia=preview,
+        dir_nuevo=modified,
+        base_nueva=400,
+        codigo_nuevo="CPR",
+        nombre_nuevo="CPR",
+        plc_blocks_cache=[],
+        minimos_usuario={
+            "N_MAX_PREAL": 10, "N_MAX_PINT": 20,
+            "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
+        },
+    )
+    await proc_process_copiar_a_preview(ctx)
+    await proc_process_leer_manifest(ctx)
+    await proc_process_construir_diccionarios(ctx)
+    await proc_process_aplicar_clonacion(ctx)
+
+    # FC folder (sin top folder): FC100_Grouping -> FC300_Grouping
+    # (offset +100 preservado). El bloque dentro se renombra por
+    # la regex FC/FB/DB + la regla del prefijo del dicc.
+    target_folder = modified / "Bloques de programa" / "FC300_Grouping"
+    assert target_folder.is_dir(), (
+        f"La carpeta FC100_Grouping no se renombro a FC300_Grouping. "
+        f"Existe el viejo: {(modified / 'Bloques de programa' / 'FC100_Grouping').exists()}"
+    )
+    assert (target_folder / "FC300_CPR_GRP.s7dcl").is_file(), (
+        "El bloque dentro de la carpeta FC no se renombro "
+        "consistentemente con el prefijo del folder."
+    )
