@@ -20,7 +20,7 @@ import pytest_asyncio
 
 from areas.alimentacion.data.data_excel_cache import (
     DataExcelCache,
-    DimensionesDispositivos,
+    DimensionesPLC,
 )
 from areas.alimentacion.helpers.excel.excel_cache_manager import ExcelCacheManager
 
@@ -35,7 +35,7 @@ def _make_cache(path: str = "/tmp/a.xlsx", mtime_ns: int = 1) -> DataExcelCache:
             "ed": (), "ea": (), "sa": (),
             "v": (),  "m": (),  "m_vf": (), "m_sina": (), "tot": (), "pid": (),
         },
-        n_max=DimensionesDispositivos(),
+        n_max=DimensionesPLC(),
         plcs=(),
         procesos=(), parametros_real=(), parametros_int=(), alarmas=(),
         procesos_by_codigo={}, parametros_real_by_codigo={},

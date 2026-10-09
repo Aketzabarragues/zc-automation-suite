@@ -854,7 +854,7 @@ export default {
                     <div>
                         <div class="text-5xl mb-3 opacity-40">📦</div>
                         <p v-if="!store.selectedPlc" class="mb-2">
-                            Selecciona un PLC en el topbar.
+                            Selecciona un PLC primero.
                         </p>
                         <p v-else class="mb-2">
                             El cache de bloques está vacío.

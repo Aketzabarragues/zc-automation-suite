@@ -38,17 +38,24 @@ bp = Blueprint(
 
 
 def _extract_software_from_cache(state: Any) -> dict[str, Any]:
-    """Extrae 4 dominios de software + flag + plcs desde ``excel_cache_full``.
+    """Extrae 4 dominios de software + entidades + plcs desde
+    ``excel_cache_full``.
 
     Multi-PLC: la pagina "definicion programacion" recibe el cache
     COMPLETO (sin filtrar), no el cache activo. Asi el operario
     puede analizar todos los PLCs del Excel a la vez.
+
+    El campo ``entidades`` se vuelca igual que los 4
+    dominios de software: lista plana de ``Entidad`` (multi-PLC,
+    cada DTO lleva su ``plc_name``). El filtro por PLC vive en la
+    SPA (no aqui).
     """
     empty: dict[str, Any] = {
         "procesos": [],
         "parametros_int": [],
         "parametros_real": [],
         "alarmas": [],
+        "entidades": [],
         "plcs": [],
         "software_parsers_implemented": False,
     }
@@ -61,6 +68,7 @@ def _extract_software_from_cache(state: Any) -> dict[str, Any]:
             "parametros_int": [dataclasses.asdict(p) for p in cache.parametros_int],
             "parametros_real": [dataclasses.asdict(p) for p in cache.parametros_real],
             "alarmas": [dataclasses.asdict(a) for a in cache.alarmas],
+            "entidades": [dataclasses.asdict(e) for e in cache.entidades],
             "plcs": [dataclasses.asdict(p) for p in cache.plcs],
             "software_parsers_implemented": bool(
                 getattr(cache, "software_parsers_implemented", False)

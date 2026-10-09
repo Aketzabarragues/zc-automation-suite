@@ -76,20 +76,30 @@ def build() -> "AreaFrontendManifest":
             # perdida (ya no tiene sentido sin el proceso del
             # selector).
             "views": {
-                "landing": "AreaLanding",
-                "def":     "DefinicionProgramacion",
-                "disp":    "Dispositivos",
-                "proc":    "Procesos",
+                "landing":   "AreaLanding",
+                "def":       "DefinicionProgramacion",
+                "disp":      "Dispositivos",
+                "proc":      "Procesos",
+                "entidades": "Entidades",
             },
             # Labels humanos del breadcrumb y de los items de la nav.
             # El shell los lee para mostrar texto friendly en vez de
             # la key cruda. Si no se aportan, el shell hace fallback
             # a la key capitalizada.
             "viewLabels": {
-                "landing": "Inicio",
-                "def":     "Definición programación",
-                "disp":    "Dispositivos",
-                "proc":    "Procesos",
+                "landing":   "Inicio",
+                "def":       "Definición programación",
+                "disp":      "Dispositivos",
+                "proc":      "Procesos",
+                "entidades": "Entidades",
+            },
+            # Override del sidebar-icon por key. El shell define
+            # ``DEFAULT_ICONS`` en ``ShellSidebar.js`` (landing/plc/
+            # def/disp/proc/cache). Aqui se anade el icono del
+            # feature ENTIDADES (gemela top-level de Dispositivos y
+            # Procesos en el sidebar del shell SPA).
+            "navIcons": {
+                "entidades": "🗂️",
             },
         },
         "loaders": {
@@ -102,6 +112,11 @@ def build() -> "AreaFrontendManifest":
             # (``key: "proc"``), mientras que ``ProcesosPanel`` solo
             # se monta dentro del tab "Procesos" de Definicion.
             "Procesos":                f"{_STATIC_PREFIX}/components/Procesos.js",
+            # Sub-vista top-level "Entidades" (gemela de Dispositivos
+            # y Procesos en el sidebar). Vista completa estilo
+            # Dispositivos.js: card info vacia + tabla filtrada
+            # por PLC + boton "Aplicar Cambios en TIA Portal".
+            "Entidades":              f"{_STATIC_PREFIX}/components/Entidades.js",
             # ``ProcesosSyncView``: renderizado INLINE dentro de
             # ``Procesos.js`` (no como sub-vista top-level). El shell
             # SPA necesita el loader para registrar el componente y
@@ -121,6 +136,10 @@ def build() -> "AreaFrontendManifest":
             "ConfiguracionPanel":      f"{_STATIC_PREFIX}/components/ConfiguracionPanel.js",
             "DispositivosPanel":       f"{_STATIC_PREFIX}/components/DispositivosPanel.js",
             "ProcesosPanel":           f"{_STATIC_PREFIX}/components/ProcesosPanel.js",
+            # Feature ENTIDADES. Inline dentro del tab
+            # "Entidades" de ``DefinicionProgramacion``. NO es
+            # sub-vista top-level: solo el panel padre lo monta.
+            "EntidadesPanel":          f"{_STATIC_PREFIX}/components/EntidadesPanel.js",
         },
     }
     return _manifest

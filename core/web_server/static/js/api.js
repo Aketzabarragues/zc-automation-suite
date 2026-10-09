@@ -431,3 +431,49 @@ export const apiProcesosCrearAplicar = (params) =>
         params,
         SLOW_TIMEOUT_MS,
     );
+
+/**
+ * Preview (read-only) de "sincronizar entidades contra TIA".
+ * Endpoint: POST /api/v1/entidades/preview.
+ *
+ * Stub (commit B.0): solo valida que el body trae ``plc_name``.
+ * Devuelve ``{ok: True, status: "preview_stub", ...}``. La
+ * implementacion real (commit B) lanza el FB
+ * ``function_entidades_generar_preview`` y devuelve el diff
+ * Excel <-> TIA online.
+ *
+ * @param {string} plcName - nombre del PLC destino.
+ * @returns {Promise<{ok, status, data}>}
+ */
+export const apiEntidadesPreview = (plcName) =>
+    // MEDIUM: export bulk + 3 dispatches al worker OT (2 export_plc_tags_xml
+    // + 1 export_block). STEP_TIMEOUT_S del FB = 60s; el cliente debe
+    // esperar MAS (5 min cubre S7-1500 grandes).
+    _request(
+        "POST",
+        "/api/v1/entidades/preview",
+        { plc_name: plcName || "" },
+        MEDIUM_TIMEOUT_MS,
+    );
+
+/**
+ * Sincroniza entidades contra TIA Portal (commit transaccional).
+ * Endpoint: POST /api/v1/entidades/sincronizar.
+ *
+ * Stub (commit B.0): solo valida que el body trae ``plc_name``.
+ * Devuelve ``{ok: True, status: "sincronizar_stub", ...}``. La
+ * implementacion real (commit C) lanza el FB
+ * ``function_entidades_sincronizar`` y aplica los cambios en TIA.
+ *
+ * @param {string} plcName - nombre del PLC destino.
+ * @returns {Promise<{ok, status, data}>}
+ */
+export const apiEntidadesSync = (plcName) =>
+    // SLOW: con el FB real sera un commit transaccional (export,
+    // 2 tx, compile, post-preview). De momento stub <1s.
+    _request(
+        "POST",
+        "/api/v1/entidades/sincronizar",
+        { plc_name: plcName || "" },
+        SLOW_TIMEOUT_MS,
+    );

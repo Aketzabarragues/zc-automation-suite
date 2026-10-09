@@ -3,7 +3,7 @@
 Sept-2026 (multi-PLC): los tests inyectan la columna ``PLC`` con valor
 ``"PLC1"`` en cada tabla de dispositivos/software y la tabla N_MAX
 ``Tabla_N_Max`` con los N_MAX por PLC. Aserciones adaptadas al shape
-multi-PLC de ``DimensionesDispositivos.por_plc``.
+multi-PLC de ``DimensionesPLC.por_plc``.
 """
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ import pytest
 from openpyxl import Workbook
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
-from areas.alimentacion.data.data_dimensiones import DimensionesDispositivos
+from areas.alimentacion.data.data_dimensiones import DimensionesPLC
 from areas.alimentacion.data.data_excel_cache import DataExcelCache
 from areas.alimentacion.data.data_parametros_int import DataParamIntPLC
 from areas.alimentacion.data.data_parametros_real import DataParamRealPLC
@@ -39,7 +39,7 @@ def _add_table(
 
     La tabla se inserta al final del contenido actual de la hoja
     (``ws.max_row + 1``), no siempre en ``A1``. Si la hoja ya tiene
-    otra tabla (p. ej. ``Tabla_Dispositivos`` en ``CONFIG``), calcular
+    otra tabla (p. ej. ``Tabla_Dimensiones`` en ``CONFIG``), calcular
     ``ref`` desde ``A1`` haria que la nueva tabla colisione con la
     previa: openpyxl acepta las dos referencias pero al recargar el
     workbook la lectura de filas por ``range_boundaries`` cae en la
@@ -102,7 +102,7 @@ def _add_n_max_table(
     last_col_letter = chr(ord("A") + len(headers) - 1)
     last_row = ws.max_row
     ref = f"A1:{last_col_letter}{last_row}"
-    table = Table(displayName="Tabla_Dispositivos", ref=ref)
+    table = Table(displayName="Tabla_Dimensiones", ref=ref)
     table.tableStyleInfo = TableStyleInfo(
         name="TableStyleMedium2", showFirstColumn=False,
         showLastColumn=False, showRowStripes=True, showColumnStripes=False,
@@ -115,9 +115,9 @@ def _build_full_xlsx(target: Path) -> Path:
     wb = Workbook()
     wb.remove(wb.active)
 
-    # N_MAX (tabla Tabla_Dispositivos, multi-PLC, sept-2026).
+    # N_MAX (tabla Tabla_Dimensiones, multi-PLC).
     # Vive en la hoja CONFIG (igual que ``Tabla_PLC`` y
-    # ``Tabla_Procesos``). Sept-2026: el parser se alinea con los otros
+    # ``Tabla_Procesos``). El parser se alinea con los otros
     # parsers, hardcoded a ``"CONFIG"``.
     _add_n_max_table(wb, "CONFIG", "PLC1", {
         "N_Max_ED": 10, "N_Max_EA": 20, "N_Max_SA": 30, "N_Max_V": 40,
@@ -237,8 +237,10 @@ def test_load_basico(tmp_path) -> None:
     assert len(cache.parametros_int) == 1
     assert len(cache.alarmas) == 1
     assert cache.procesos[0].plc_name == "PLC1"
+    # Entidades: vacio porque el xlsx sintetico no incluye hoja ENTIDADES.
+    assert cache.entidades == ()
     # N_MAX: shape multi-PLC con 1 entrada (PLC1).
-    assert isinstance(cache.n_max, DimensionesDispositivos)
+    assert isinstance(cache.n_max, DimensionesPLC)
     plc1 = cache.n_max.get_for_plc("PLC1")
     assert plc1 is not None
     assert plc1.get("N_MAX_DISP_ED") == 10
@@ -310,7 +312,7 @@ def test_load_con_hojas_faltantes(tmp_path) -> None:
     assert cache.parametros_int == ()
     assert cache.alarmas == ()
     # N_MAX: defaults (sin tabla).
-    assert isinstance(cache.n_max, DimensionesDispositivos)
+    assert isinstance(cache.n_max, DimensionesPLC)
     assert cache.n_max.por_plc == ()
 
 
@@ -331,3 +333,33 @@ def test_load_with_config_manager(tmp_path) -> None:
     xlsx = _build_full_xlsx(tmp_path / "full.xlsx")
     cache = ExcelLoader(config_manager=cm).load(xlsx)
     assert isinstance(cache, DataExcelCache)
+
+
+def test_load_puebla_entidades_desde_hoja_ENTIDADES(tmp_path) -> None:
+    """xlsx con Tabla_Entidades -> ``cache.entidades`` queda poblada.
+
+    Validates the integration EntidadesParser -> ExcelLoader ->
+    DataExcelCache.entidades. No requiere config_manager porque la
+    hoja ``ENTIDADES`` y la tabla ``Tabla_Entidades`` son fijas.
+    """
+    from areas.alimentacion.data.data_entidades import Entidad
+
+    wb = Workbook()
+    wb.remove(wb.active)
+    # Tabla minima con las 7 columnas que el parser lee.
+    _add_table(
+        wb, "ENTIDADES", "Tabla_Entidades",
+        ["Numero", "PLC.Tag"],
+        [
+            [1, "ent_001"],
+            [2, "ent_002"],
+        ],
+    )
+    xlsx = tmp_path / "with_entidades.xlsx"
+    wb.save(xlsx)
+
+    cache = ExcelLoader().load(xlsx)
+
+    assert len(cache.entidades) == 2
+    assert cache.entidades[0] == Entidad(numero=1, plc_name="PLC1", plc_tag="ent_001")
+    assert cache.entidades[1] == Entidad(numero=2, plc_name="PLC1", plc_tag="ent_002")

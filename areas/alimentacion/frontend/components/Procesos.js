@@ -196,7 +196,7 @@ export default {
             }
             const cache = plcBlocksCache.value;
             if (!cache || !Array.isArray(cache.blocks) || cache.blocks.length === 0) {
-                return "Selecciona un PLC en el sidebar y espera al escaneo de bloques.";
+                return "Selecciona un PLC y espera al escaneo de bloques.";
             }
             return "";
         });

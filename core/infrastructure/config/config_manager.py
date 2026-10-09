@@ -47,6 +47,8 @@ _DEFAULT_GLOBAL_CONFIG_TABLE_NAME = ""
 _DEFAULT_TIA_FOLDER_PROCESO = ""
 _DEFAULT_TIA_FOLDER_DISPOSITIVOS = ""
 _DEFAULT_TIA_FOLDER_NMAX = ""
+_DEFAULT_TIA_FOLDER_ENTIDADES_CONFIG = ""
+_DEFAULT_TIA_FOLDER_ENTIDADES_TAGS = ""
 
 
 @dataclass(frozen=True)
@@ -541,6 +543,59 @@ class ConfigManager:
         folders = self._department_config.get("tia_folders", {})
         return str(folders.get("nmax", _DEFAULT_TIA_FOLDER_NMAX))
 
+    def get_tia_folder_entidades_config(self) -> str:
+        """Ruta de la carpeta TIA donde reside ``000_Config_Generales``.
+
+        Tabla que aloja la PlcUserConstant ``N_MAX_ENTIDAD``. Por
+        defecto ``""`` (genérico).
+        """
+        folders = self._department_config.get("tia_folders", {})
+        return str(
+            folders.get(
+                "entidades_config",
+                _DEFAULT_TIA_FOLDER_ENTIDADES_CONFIG,
+            )
+        )
+
+    def get_tia_folder_entidades_tags(self) -> str:
+        """Ruta de la carpeta TIA donde reside la tag table de entidades.
+
+        Sub-folder con las PlcTags ``ENT_<X>`` MAYUSCULAS con ``X =
+        numero`` del slot (1 PlcTag por entidad, p.ej. ``ENT_000``,
+        ``ENT_001``). Por defecto ``""`` (generico).
+        """
+        folders = self._department_config.get("tia_folders", {})
+        return str(
+            folders.get(
+                "entidades_tags",
+                _DEFAULT_TIA_FOLDER_ENTIDADES_TAGS,
+            )
+        )
+
+    def get_entidades_config(self) -> dict[str, str]:
+        """Config TIA del DB y tablas del feature ENTIDADES.
+
+        Devuelve el bloque ``entidades`` del departamento activo con
+        las 4 keys:
+
+        * ``db_name``       (ej. ``"DB6_ENT"``)
+        * ``db_array_name`` (ej. ``"ENT"``)
+        * ``tag_table``     (ej. ``"000_Entidades"``)
+        * ``config_table``  (ej. ``"000_Config_Generales"``)
+
+        Si el departamento no define ``entidades``, devuelve ``{}``.
+        NO lanza: el caller trata dict vacio como "no configurado".
+        """
+        ent = self._department_config.get("entidades")
+        if not isinstance(ent, dict):
+            return {}
+        return {
+            "db_name":       str(ent.get("db_name", "")),
+            "db_array_name": str(ent.get("db_array_name", "")),
+            "tag_table":     str(ent.get("tag_table", "")),
+            "config_table":  str(ent.get("config_table", "")),
+        }
+
     def get_plantillas_path(self) -> str:
         """Ruta base donde viven las subcarpetas de plantillas TIA.
 
@@ -621,6 +676,67 @@ class ConfigManager:
         for canonical, cols in raw.items():
             if isinstance(cols, list):
                 out[str(canonical)] = [c for c in cols if isinstance(c, str)]
+        return out
+
+    def get_entidades_display_order_override(self) -> dict[str, list[str]]:
+        """Override data-driven de ``entidades_catalog.display_order``.
+
+        Estructura esperada en ``config.json`` del departamento::
+
+            entidades_catalog:
+              display_order:
+                entidades: [plc_name, numero, descripcion, ...]
+
+        Misma politica que ``get_disp_display_order_override`` y
+        ``get_proc_display_order_override``: override por dominio
+        reemplaza la entrada completa (visibilidad explicita). Claves
+        invalidas (dominios o campos inexistentes) se ignoran con
+        warning; ver ``data_entidades_catalog._get_display_order_override``.
+
+        Si la clave no existe, devuelve ``{}`` (la SPA usa el default
+        de ``DISPLAY_ORDER`` del modulo ``data_entidades_catalog``).
+        """
+        ent_catalog = self._department_config.get("entidades_catalog")
+        if not isinstance(ent_catalog, dict):
+            return {}
+        raw = ent_catalog.get("display_order")
+        if not isinstance(raw, dict):
+            return {}
+        out: dict[str, list[str]] = {}
+        for domain, cols in raw.items():
+            if isinstance(cols, list):
+                out[str(domain)] = [c for c in cols if isinstance(c, str)]
+        return out
+
+    def get_entidades_col_labels_override(self) -> dict[str, str]:
+        """Override data-driven de las etiquetas humanas de entidades.
+
+        Estructura esperada en ``config.json`` del departamento::
+
+            entidades_catalog:
+              col_labels:
+                numero:   "Slot"
+                plc_tag: "Tag Name"
+
+        Un override por columna reemplaza su entrada por completo.
+        Columnas inexistentes o labels vacios / no-string se
+        descartan con warning; ver
+        ``data_entidades_catalog._get_col_labels_override``.
+
+        Si la clave no existe, devuelve ``{}`` (la SPA usa los
+        defaults de ``COLUMN_LABELS`` del modulo
+        ``data_entidades_catalog``).
+        """
+        ent_catalog = self._department_config.get("entidades_catalog")
+        if not isinstance(ent_catalog, dict):
+            return {}
+        raw = ent_catalog.get("col_labels")
+        if not isinstance(raw, dict):
+            return {}
+        out: dict[str, str] = {}
+        for col, label in raw.items():
+            if isinstance(col, str) and isinstance(label, str):
+                out[col] = label
         return out
 
     def get_proc_nmax_suffixes(self) -> dict[str, str]:

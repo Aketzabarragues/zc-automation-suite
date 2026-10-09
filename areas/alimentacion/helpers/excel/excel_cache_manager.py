@@ -79,13 +79,14 @@ class ExcelCacheManager:
             cls._first_load_event.set()
         _logger.info(
             "Cache IT del Excel actualizado: '%s' "
-            "(%d procesos, %d PReal, %d PInt, %d alarmas, "
+            "(%d procesos, %d PReal, %d PInt, %d alarmas, %d entidades, "
             "%d tipos de dispositivos).",
             cache.excel_path,
             len(cache.procesos),
             len(cache.parametros_real),
             len(cache.parametros_int),
             len(cache.alarmas),
+            len(cache.entidades),
             len(cache.dispositivos),
         )
 

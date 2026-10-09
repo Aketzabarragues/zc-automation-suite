@@ -1,9 +1,11 @@
-"""Workdir layout del área alimentación: dispositivos y procesos.
+"""Workdir layout del área alimentación: dispositivos, entidades y procesos.
 
 Punto de entrada único para resolver los workdirs del área:
 
   - ``dispositivos``: ciclo de export/modify/import de los DBs de dispositivos del área (data-driven vía ``config.json``).
     dispositivos + tabla N_MAX (estructura DispLayout).
+  - ``entidades``: ciclo análogo para el feature ENTIDADES (estructura
+    EntidadesLayout: DB6_ENT + PlcUserConstants).
   - ``procesos``: ciclo análogo para PReal, PInt, ALM (estructura
     ProcDbLayout).
 
@@ -43,6 +45,10 @@ from areas.alimentacion.helpers.disp._workdir_layout import (
     DispLayout,
     build_disp_layout,
 )
+from areas.alimentacion.helpers.entidades._workdir_layout import (
+    EntidadesLayout,
+    build_entidades_layout,
+)
 from areas.alimentacion.helpers.proc._workdir_layout import (
     ProcDbLayout,
     build_proc_db_layout,
@@ -62,6 +68,7 @@ class AlimentacionAreaLayout:
 
     Propiedades:
         dispositivos: ``DispLayout`` apuntando a ``<root>/disp/``.
+        entidades:    ``EntidadesLayout`` apuntando a ``<root>/entidades/``.
         procesos:     ``ProcDbLayout`` apuntando a ``<root>/proc_db/``.
     """
 
@@ -88,6 +95,28 @@ class AlimentacionAreaLayout:
           - clean_all(): borra todo el disp/.
         """
         return build_disp_layout(root=self.root / "disp")
+
+    @cached_property
+    def entidades(self) -> EntidadesLayout:
+        """Contexto del feature ENTIDADES (EntidadesLayout).
+
+        Layout::
+
+            .build_cache/alimentacion/entidades/
+            +-- preview/
+            |   +-- config/         # 0_Config_Generales (N_MAX_ENTIDAD) FLAT
+            |   +-- disp/           # 6_Entidades (ent_<plc_tag>) FLAT
+            |   +-- bloques/        # DB6_ENT (.s7dcl + .s7res) FLAT
+            +-- sincronizar/
+                +-- variables/{export,modified}
+                +-- bloques/{export,modified}
+
+        Metodos de limpieza granulares:
+          - clean_preview(): borra preview/.
+          - clean_sincronizar(): borra sincronizar/.
+          - clean_all(): borra todo el entidades/.
+        """
+        return build_entidades_layout(root=self.root / "entidades")
 
     @cached_property
     def procesos(self) -> ProcDbLayout:

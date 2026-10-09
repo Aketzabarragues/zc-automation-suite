@@ -10,6 +10,12 @@ Atributos:
     NAME_TAG: XPath para el slot ``<Name>`` dentro de AttributeList.
     VALUE_TAG: XPath para el slot ``<Value>`` dentro de AttributeList.
     COMMENT_TAG: XPath para el slot ``<Comment>`` dentro de AttributeList.
+    OBJECT_LIST_TAG: XPath para ``<ObjectList>`` (contenedor de
+        sub-elementos, p.ej. ``<MultilingualText>`` para comments).
+    MULTI_LINGUAL_TEXT_TAG: XPath para ``<MultilingualText>``
+        (estructura del comment per-constant en TIA V21).
+    TEXT_TAG: XPath para ``<Text>`` dentro de AttributeList del
+        ``<MultilingualTextItem>``.
 """
 from __future__ import annotations
 
@@ -17,6 +23,9 @@ USER_CONSTANT_TAG: str = "{*}SW.Tags.PlcUserConstant"
 NAME_TAG: str = "{*}Name"
 VALUE_TAG: str = "{*}Value"
 COMMENT_TAG: str = "{*}Comment"
+OBJECT_LIST_TAG: str = "{*}ObjectList"
+MULTI_LINGUAL_TEXT_TAG: str = "{*}MultilingualText"
+TEXT_TAG: str = "{*}Text"
 
 
 __all__ = [
@@ -24,4 +33,7 @@ __all__ = [
     "NAME_TAG",
     "VALUE_TAG",
     "COMMENT_TAG",
+    "OBJECT_LIST_TAG",
+    "MULTI_LINGUAL_TEXT_TAG",
+    "TEXT_TAG",
 ]

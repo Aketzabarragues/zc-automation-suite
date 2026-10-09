@@ -20,19 +20,24 @@ from __future__ import annotations
 
 from areas.alimentacion.data.data_disp_catalog import build_catalog as build_alim_catalog
 from areas.alimentacion.data.data_proc_catalog import build_software_catalog
+from areas.alimentacion.data.data_entidades_catalog import (
+    build_entidades_catalog,
+)
 
 
 def _build_alim_catalog_combined(config_manager):
-    """Fusiona catalog de dispositivos y de software para el endpoint ``/api/v1/catalog``.
+    """Fusiona catalog de dispositivos, software y entidades para el endpoint ``/api/v1/catalog``.
 
     Las claves del catalog de disp (``device_tabs``, ``nmax``,
     ``model_columns``, ``col_labels``, ``mono_cols``) viven en el
     top-level. Las del catalog de software se prefijan con ``proc_``
-    (``proc_model_columns``, etc.) para no colisionar.
+    (``proc_model_columns``, etc.) y las de entidades con ``ent_`` para
+    no colisionar.
     """
     return {
         **build_alim_catalog(config_manager),
         **build_software_catalog(config_manager),
+        **build_entidades_catalog(config_manager),
     }
 from areas.alimentacion.frontend.dispositivos_router import (
     build_routers as build_dispositivos_routers,
@@ -54,6 +59,12 @@ from areas.alimentacion.frontend.proc_process_crear_router import (
 )
 from areas.alimentacion.frontend.proc_sync_router import (
     build_routers as build_proc_sync_routers,
+)
+from areas.alimentacion.frontend.entidades_router import (
+    build_routers as build_entidades_routers,
+)
+from areas.alimentacion.frontend.entidades_preview_router import (
+    build_routers as build_entidades_preview_routers,
 )
 from areas.alimentacion.frontend.manifest import build as build_manifest
 from areas.alimentacion.helpers.config.config_defaults import (
@@ -82,6 +93,8 @@ def _build_all_routers(app) -> None:
     build_proc_plantillas_routers(app)
     build_proc_process_crear_routers(app)
     build_proc_sync_routers(app)
+    build_entidades_preview_routers(app)
+    build_entidades_routers(app)
 
 
 AREA_SPEC = AreaSpec(
@@ -147,6 +160,9 @@ def register(
     )
     from areas.alimentacion.functions.function_proc_crear_sincronizar import (
         FunctionProcCrearSincronizar,
+    )
+    from areas.alimentacion.functions.function_entidades_generar_preview import (
+        FunctionEntidadesGenerarPreview,
     )
     from core.composition.plc_function_template import FunctionTemplate
 
@@ -255,6 +271,37 @@ def register(
             config_manager=config_manager,
             tia_client=tia_client,
             build_cache=build_cache,
+        ),
+    )
+
+    # FB con I/O contra TIA: preview de entidades vs PLC (export bulk
+    # + 3 dispatches al worker OT: 2 export_plc_tags_xml + 1 export_block).
+    # Reemplaza el stub ``entidades_router.preview`` (commit B.0). STEP_TIMEOUT_S=60s.
+    engine.register_fb(
+        "entidades_generar_preview",
+        FunctionEntidadesGenerarPreview(
+            nombre="entidades_generar_preview",
+            config_manager=config_manager,
+            tia_client=tia_client,
+            build_cache=build_cache,
+            app_state=app_state,
+        ),
+    )
+
+    # FB con I/O contra TIA: sync transaccional de entidades vs PLC (11
+    # stages: exportar + diff + Tx A NMAX online + Tx B constants + compile +
+    # Tx C comments + post preview). STEP_TIMEOUT_S=600s.
+    from areas.alimentacion.functions.function_entidades_sincronizar import (
+        FunctionEntidadesSincronizar,
+    )
+    engine.register_fb(
+        "entidades_sincronizar",
+        FunctionEntidadesSincronizar(
+            nombre="entidades_sincronizar",
+            config_manager=config_manager,
+            tia_client=tia_client,
+            build_cache=build_cache,
+            app_state=app_state,
         ),
     )
 

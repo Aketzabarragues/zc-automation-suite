@@ -1,8 +1,8 @@
 ﻿"""Cargador síncrono del Excel corporativo del subdominio alimentación.
 
 ``ExcelLoader`` abre el workbook UNA sola vez, ejecuta los 11
-parsers que lo componen (9 dispositivos + 4 software + 1 N_MAX) y
-construye una ``DataExcelCache`` inmutable con los 3 lookups
+parsers que lo componen (9 dispositivos + 4 software + 1 N_MAX)
+y construye una ``DataExcelCache`` inmutable con los 3 lookups
 precomputados por ``codigo``.
 
 Es **síncrono** (no async) porque la apertura del workbook con
@@ -13,13 +13,17 @@ loop.
 
 Pipeline (orden de ejecución sobre el mismo ``wb``):
     1. 9 mini parsers de dispositivos (``DispED``/``EA``/``SA``/``V``
-       /``M``/``M_VF``) Ã¢â‚¬” extaen las ``ListObject`` de las hojas
+       /``M``/``M_VF``) — extraen las ``ListObject`` de las hojas
        ``DISP_<HW>``.
     2. 4 parsers de software (``Procesos``/``PReal``/``PInt``/
-       ``Alarmas``) Ã¢â‚¬” extraen las ``ListObject`` de las hojas
+       ``Alarmas``) — extraen las ``ListObject`` de las hojas
        ``CONFIG``/``P_REAL``/``P_INT``/``ALARMAS``.
-    3. 1 parser de N_MAX (``DimensionesParser``) Ã¢â‚¬” extrae los
+    3. 1 parser de N_MAX (``DimensionesParser``) — extrae los
        defined names ``N_MAX_*``/``Num_Disp_*``.
+    4. 1 parser de entidades (``EntidadesParser``) —
+       extrae la ``Tabla_Entidades`` de la hoja ``ENTIDADES``.
+       Multi-PLC (cada ``Entidad`` lleva su ``plc_name``); el
+       filtrado por PLC vive en AppState, no aqui.
 
 Tras el parseo, construye los lookups ``*_by_codigo`` filtrando
 filas sin ``codigo`` para evitar colisiones con la clave vacía.
@@ -56,6 +60,7 @@ from areas.alimentacion.helpers.excel.excel_parser_disp_pid import DispPIDParser
 from areas.alimentacion.helpers.excel.excel_parser_disp_sa import DispSAParser
 from areas.alimentacion.helpers.excel.excel_parser_disp_tot import DispTOTParser
 from areas.alimentacion.helpers.excel.excel_parser_disp_v import DispVParser
+from areas.alimentacion.helpers.excel.excel_parser_entidades import EntidadesParser
 from areas.alimentacion.helpers.excel.excel_parser_plc import PLCListParser
 from areas.alimentacion.helpers.excel.excel_parser_proc_pint import PIntParser
 from areas.alimentacion.helpers.excel.excel_parser_proc_preal import PRealParser
@@ -150,6 +155,11 @@ class ExcelLoader:
             n_max = self._dimensiones.extraer(wb)
             # 1 lista canonica de PLCs (sept-2026).
             plcs = tuple(self._plcs.extraer(wb))
+            # 1 entidades (Tabla_Entidades en hoja ENTIDADES).
+            # Instantiation inline porque EntidadesParser captura el
+            # workbook en __init__ (a diferencia de los disp parsers,
+            # que reciben wb por ``extraer(wb)``). Multi-PLC.
+            entidades = tuple(EntidadesParser(wb).parse())
         finally:
             wb.close()
 
@@ -201,6 +211,7 @@ class ExcelLoader:
             parametros_real=tuple(preal),
             parametros_int=tuple(pint),
             alarmas=tuple(alarmas),
+            entidades=entidades,
             procesos_by_codigo=procesos_by_codigo,
             parametros_real_by_codigo=preal_by_codigo,
             parametros_int_by_codigo=pint_by_codigo,

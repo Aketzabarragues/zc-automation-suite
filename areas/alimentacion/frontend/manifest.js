@@ -8,7 +8,7 @@
  * importa estáticamente desde el shell SPA: la SPA es multi-área
  * sin build step.
  *
- * Tras el refactor de areas (sept-2026), este manifest ya no
+ * Tras el refactor de areas, este manifest ya no
  * declara nada del shell comun. El ShellSidebar, el ShellTopbar,
  * el ProgressIndicator, la ConsolaLogs y el plcpanelview son del
  * core (``core/web_server/static/js/components/``) y NO aparecen
@@ -21,7 +21,7 @@
  *
  * El boton "PLC" comun de la sidebar enruta a currentView="plc"
  * que renderiza el plcpanelview del shell. ``"cache"`` que existia
- * en el manifest legacy se elimino: ya no es una sub-vista del
+ * en el manifest anterior se elimino: ya no es una sub-vista del
  * area sino una vista comun del shell.
  *
  * Shape del manifest:
@@ -32,11 +32,12 @@
  *       landing: "AreaLanding",
  *       views:    { "landing": "AreaLanding", "def": "...", "disp": "...", "proc": "..." },
  *       viewLabels: { "landing": "Inicio", "def": "...", "disp": "...", "proc": "..." },
+ *       navIcons:    { "<key>": "<emoji>" },
  *     },
  *     loaders: { "<ComponentName>": () => import("./components/<File>.js") },
  *   }
  *
- * ``viewLabels`` es nuevo (sept-2026). El shell lee las labels
+ * ``viewLabels`` es nuevo. El shell lee las labels
  * humanas del breadcrumb y de los items de la nav desde aquí (en
  * lugar de tener un VIEW_LABELS hardcoded en el shell). Si el area
  * no aporta viewLabels, el shell hace fallback a la key
@@ -53,6 +54,11 @@ const _comps = {
     // ``ProcesosPanel`` solo se monta dentro del tab "Procesos" de
     // ``DefinicionProgramacion``. Ambas coexisten en el área.
     "Procesos":                () => import("./components/Procesos.js"),
+    // Sub-vista top-level "Entidades" (gemela de Dispositivos y
+    // Procesos en el sidebar). Vista completa estilo Dispositivos.js:
+    // card info vacia + tabla filtrada por PLC + boton "Aplicar
+    // Cambios en TIA Portal".
+    "Entidades":              () => import("./components/Entidades.js"),
     // Sub-vista "Sync comentarios de DB" (preview + diff + apply).
     // Accesible desde la card de Procesos.js (key: "proc_sync").
     "ProcesosSyncView":        () => import("./components/ProcesosSyncView.js"),
@@ -71,6 +77,12 @@ const _comps = {
     "ConfiguracionPanel":      () => import("./components/ConfiguracionPanel.js"),
     "DispositivosPanel":       () => import("./components/DispositivosPanel.js"),
     "ProcesosPanel":           () => import("./components/ProcesosPanel.js"),
+    // Feature ENTIDADES. Inline dentro del tab "Entidades"
+    // de ``DefinicionProgramacion`` (NO sub-vista top-level). El shell
+    // SPA necesita el loader para registrar el componente y que
+    // ``<entidades-panel>`` funcione como etiqueta en el template
+    // del padre.
+    "EntidadesPanel":          () => import("./components/EntidadesPanel.js"),
 };
 
 export function build() {
@@ -92,20 +104,30 @@ export function build() {
             // perdida (ya no tiene sentido sin el proceso del
             // selector).
             views: {
-                "landing": "AreaLanding",
-                "def":     "DefinicionProgramacion",
-                "disp":    "Dispositivos",
-                "proc":    "Procesos",
+                "landing":   "AreaLanding",
+                "def":       "DefinicionProgramacion",
+                "disp":      "Dispositivos",
+                "proc":      "Procesos",
+                "entidades": "Entidades",
             },
             // Labels humanos del breadcrumb y de los items de la nav.
             // El shell los lee para mostrar texto friendly en vez de
             // la key cruda. Si no se aportan, el shell hace
             // fallback a la key capitalizada.
             viewLabels: {
-                "landing": "Inicio",
-                "def":     "Definición programación",
-                "disp":    "Dispositivos",
-                "proc":    "Procesos",
+                "landing":   "Inicio",
+                "def":       "Definición programación",
+                "disp":      "Dispositivos",
+                "proc":      "Procesos",
+                "entidades": "Entidades",
+            },
+            // Override del sidebar-icon por key. El shell define
+            // ``DEFAULT_ICONS`` en ``ShellSidebar.js`` (landing/plc/
+            // def/disp/proc/cache). Aqui se anade el icono del
+            // feature ENTIDADES (gemela top-level de Dispositivos y
+            // Procesos en el sidebar del shell SPA).
+            navIcons: {
+                "entidades": "🗂️",
             },
         },
         loaders: _comps,
