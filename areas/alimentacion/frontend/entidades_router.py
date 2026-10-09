@@ -123,13 +123,10 @@ def post_entidades_sincronizar():
         "message": "FB termino sin result",
         "plc_name": plc_name,
     }
-    s = (result.get("operations") or 0) if isinstance(result, dict) else 0
-    nmax_u = (result.get("n_max_updates") or 0) if isinstance(result, dict) else 0
-    compile_ok = result.get("compile_ok") if isinstance(result, dict) else None
     logger.ok(
-        f"Sincronizacion de entidades de '{plc_name}': "
-        f"{s} ops, {nmax_u} NMAX updates, compile_ok={compile_ok}. "
-        f"Recordar Save manual en TIA Portal."
+        f"Sincronizacion completa en '{plc_name}': "
+        f"{result.get('operations', 0)} ops, "
+        f"{result.get('n_max_updates', 0)} N_MAX"
     )
     return jsonify(result)
 
