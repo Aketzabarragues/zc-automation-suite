@@ -57,6 +57,8 @@ def plantillas_dir(tmp_path: Path) -> Path:
                 "base": base,
                 "codigo": code,
                 "nombre": f"Test_{code}",
+                "descripcion": f"Plantilla dummy {code} para tests",
+                "dependencias": ["DB1_SYS"],
                 "minimos": {
                     "N_MAX_PREAL": 3 if code == "A" else 5,
                     "N_MAX_PINT": 15 if code == "A" else 20,
@@ -139,8 +141,17 @@ def test_listar_plantillas_ok(plantillas_dir: Path) -> None:
         assert "base" in p
         assert "codigo" in p
         assert "nombre" in p
+        assert "descripcion" in p
         assert "minimos" in p
         # El ``minimos`` viene tal cual del manifest (dict con las
         # 4 claves canonicas).
         for key in ("N_MAX_PREAL", "N_MAX_PINT", "N_MAX_ALM", "N_MAX_ALM_HMI"):
             assert key in p["minimos"]
+
+    # La ``descripcion`` viene del manifest: la SPA la muestra en el
+    # selector y debajo del titulo de la vista.
+    descripciones = {p["descripcion"] for p in data["plantillas"]}
+    assert descripciones == {
+        "Plantilla dummy A para tests",
+        "Plantilla dummy B para tests",
+    }

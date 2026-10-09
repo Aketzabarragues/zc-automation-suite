@@ -211,7 +211,42 @@ export default {
                 !previewData.value ||
                 (Array.isArray(previewData.value.colisiones) &&
                     previewData.value.colisiones.length > 0) ||
+                (Array.isArray(previewData.value.dependencias_faltantes) &&
+                    previewData.value.dependencias_faltantes.length > 0) ||
                 aplicacionEstado.value === "aplicando"
+        );
+
+        // ── Dependencias declaradas en el manifest ─────────────
+        // Filas para la tabla DEPENDENCIA / ESTADO. La fuente es el
+        // preview response (``ctx.result``): ``dependencias_ok`` y
+        // ``dependencias_faltantes``. Antes del preview, la lista
+        // queda vacia y la tabla muestra un placeholder.
+        const dependenciasTabla = computed(() => {
+            const data = previewData.value;
+            if (!data) return [];
+            const ok = Array.isArray(data.dependencias_ok)
+                ? data.dependencias_ok : [];
+            const faltan = Array.isArray(data.dependencias_faltantes)
+                ? data.dependencias_faltantes : [];
+            const filas = [];
+            for (const d of ok) {
+                filas.push({ nombre: d, estado: "OK", falta: false });
+            }
+            for (const d of faltan) {
+                filas.push({ nombre: d, estado: "FALTA", falta: true });
+            }
+            return filas;
+        });
+        const dependenciasFaltan = computed(
+            () => dependenciasTabla.value.some((f) => f.falta)
+        );
+        // Descripcion larga de la plantilla actualmente seleccionada
+        // (para el placeholder que aparece debajo del selector).
+        const descripcionPlantillaSeleccionada = computed(
+            () => {
+                const pl = selectedPlantilla.value;
+                return pl ? String(pl.descripcion || "").trim() : "";
+            }
         );
 
         // ── Funciones ──────────────────────────────────────────
@@ -464,6 +499,9 @@ export default {
             pathEditBuffer,
             canGenerate,
             aplicacionBotonDisabled,
+            dependenciasTabla,
+            dependenciasFaltan,
+            descripcionPlantillaSeleccionada,
             loadPlantillas,
             guardarPath,
             generarPreview,
@@ -547,6 +585,11 @@ export default {
                         {{ p.codigo }} - {{ p.nombre }} (base {{ p.base }})
                     </option>
                 </select>
+                <p v-if="descripcionPlantillaSeleccionada"
+                   data-testid="procesos-crear-plantilla-descripcion"
+                   class="mt-1 text-xs text-ink-muted italic">
+                    {{ descripcionPlantillaSeleccionada }}
+                </p>
             </div>
 
             <!-- Tabla comparativa N_MAX / UID / CODIGO entre la plantilla
@@ -580,6 +623,43 @@ export default {
                             <td class="px-3 py-1.5 align-top text-ink font-mono"
                                 :class="!row.cumple ? 'text-red-700 font-bold' : ''">
                                 {{ row.nuevo }}
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Tabla de DEPENDENCIAS declaradas en el manifest de la
+                 plantilla. Solo se muestra tras pulsar "Generar
+                 Prevision"; la fuente es previewData.dependencias_ok
+                 y previewData.dependencias_faltantes. Las faltantes
+                 salen en rojo y bloquean el boton "Aplicar". -->
+            <div v-if="previewData"
+                 data-testid="procesos-crear-dependencias"
+                 class="mt-3 flex-1 overflow-auto table-scroll-x bg-surface-raised border border-line rounded">
+                <table class="w-full text-xs">
+                    <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
+                        <tr>
+                            <th class="px-3 py-2 text-left text-ink-muted">DEPENDENCIA PLC</th>
+                            <th class="px-3 py-2 text-left text-ink-muted">ESTADO</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="row in dependenciasTabla"
+                            :key="row.nombre"
+                            class="border-b border-line">
+                            <td class="px-3 py-1.5 align-top font-mono text-ink whitespace-nowrap">
+                                {{ row.nombre }}
+                            </td>
+                            <td class="px-3 py-1.5 align-top font-mono font-bold whitespace-nowrap"
+                                :class="row.falta ? 'text-red-700' : 'text-green-700'">
+                                {{ row.estado }}
+                            </td>
+                        </tr>
+                        <tr v-if="dependenciasTabla.length === 0">
+                            <td colspan="2"
+                                class="px-3 py-4 text-center text-ink-muted italic">
+                                (la plantilla no declara dependencias externas)
                             </td>
                         </tr>
                     </tbody>
