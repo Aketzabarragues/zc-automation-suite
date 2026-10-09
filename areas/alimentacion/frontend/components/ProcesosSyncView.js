@@ -664,7 +664,7 @@ export default {
             <div v-else-if="!preview"
                  class="flex-1 flex items-center justify-center p-10 text-center text-ink-muted bg-surface-raised border border-line rounded">
                 <div>
-                    <div class="text-5xl mb-3 opacity-40">⚡</div>
+                    <div class="text-5xl mb-3 opacity-40">⚙️</div>
                     <p class="mb-2">Sin prevision generada.</p>
                     <p class="text-xs">Pulsa <strong class="text-accent">"🔍 Generar Previsión"</strong> para ver el diff completo.</p>
                 </div>
