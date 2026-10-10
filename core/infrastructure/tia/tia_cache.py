@@ -49,6 +49,7 @@ def plc_blocks_put(
         lambda s: dataclasses.replace(
             s, plc_blocks={**s.plc_blocks, plc_name: cache},
         ),
+        slot="plc_blocks",
     )
     logger.info(
         "Cache IT de bloques actualizado: PLC '%s' (%d bloques, %d tablas).",
@@ -73,7 +74,7 @@ def plc_blocks_clear(
     if plc_name is None:
         snapshot = list(state.plc_blocks.keys())
         total = len(state.plc_blocks)
-        app_cache.mutate(lambda s: dataclasses.replace(s, plc_blocks={}))
+        app_cache.mutate(lambda s: dataclasses.replace(s, plc_blocks={}), slot="plc_blocks")
         if total == 0:
             logger.info("Cache IT de bloques: vacio (nada que borrar).")
         else:
@@ -97,7 +98,7 @@ def plc_blocks_clear(
         d.pop(plc_name, None)
         return dataclasses.replace(s, plc_blocks=d)
 
-    app_cache.mutate(_clear)
+    app_cache.mutate(_clear, slot="plc_blocks")
     logger.info(
         "Invalidando cache de bloques para PLC '%s' (%d bloques, %d tablas)",
         plc_name,

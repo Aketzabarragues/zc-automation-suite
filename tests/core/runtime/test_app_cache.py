@@ -262,11 +262,17 @@ def test_app_state_tiene_app_cache() -> None:
     assert isinstance(state.app_cache, AppCache)
 
 
-def test_app_state_no_comparte_app_cache_entre_instancias() -> None:
-    """Cada ``AppState()`` recibe su propia ``AppCache``."""
-    s1 = AppState()
-    s2 = AppState()
-    assert s1.app_cache is not s2.app_cache
+def test_app_state_comparte_app_cache_con_singleton() -> None:
+    """``AppState().app_cache`` es el mismo Singleton que ``get_app_cache()``.
+
+    Las areas se registran en boot en la instancia Singleton del
+    ``AppCache``; los FBs escriben sobre la misma instancia. Si
+    ``AppState()`` creara un ``AppCache()`` propio, los FBs verian
+    un area no registrada (``KeyError`` al primer ``excel_set_full()``).
+    Por contrato, ``state.app_cache is get_app_cache()``.
+    """
+    state = AppState()
+    assert state.app_cache is get_app_cache()
 
 
 def test_plc_info_y_plc_project_son_frozen() -> None:

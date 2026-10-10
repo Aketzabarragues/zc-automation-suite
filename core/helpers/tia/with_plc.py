@@ -77,7 +77,7 @@ def with_plc(
     def _mutate(s):
         return dataclasses.replace(s, selected_plc=plc_name)
 
-    app_cache.mutate(_mutate)
+    app_cache.mutate(_mutate, slot="selected_plc")
 
     derived = derive_excel_active(app_cache, area_id, plc_name)
     if derived is not None:

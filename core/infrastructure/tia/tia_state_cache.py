@@ -33,12 +33,13 @@ def plc_list_set(
     payload = tuple(plcs)
     app_cache.mutate(
         lambda s: dataclasses.replace(s, plc_list=payload),
+        slot="plc_list",
     )
 
 
 def plc_list_clear(app_cache: AppCache) -> None:
     """Vacia la lista de PLCs."""
-    app_cache.mutate(lambda s: dataclasses.replace(s, plc_list=()))
+    app_cache.mutate(lambda s: dataclasses.replace(s, plc_list=()), slot="plc_list")
 
 
 # plc_project -------------------------------------------------------------
@@ -62,6 +63,7 @@ def plc_project_set(
             s,
             plc_project={**s.plc_project, plc_name: project},
         ),
+        slot="plc_project",
     )
 
 
@@ -77,6 +79,7 @@ def plc_project_clear(
     if plc_name is None:
         app_cache.mutate(
             lambda s: dataclasses.replace(s, plc_project={}),
+            slot="plc_project",
         )
         return
 
@@ -85,7 +88,7 @@ def plc_project_clear(
         d.pop(plc_name, None)
         return dataclasses.replace(state, plc_project=d)
 
-    app_cache.mutate(_clear)
+    app_cache.mutate(_clear, slot="plc_project")
 
 
 # plc_user_constants ------------------------------------------------------
@@ -109,6 +112,7 @@ def plc_user_constants_set(
             s,
             plc_user_constants={**s.plc_user_constants, plc_name: dict(constants)},
         ),
+        slot="plc_user_constants",
     )
 
 
@@ -124,6 +128,7 @@ def plc_user_constants_clear(
     if plc_name is None:
         app_cache.mutate(
             lambda s: dataclasses.replace(s, plc_user_constants={}),
+            slot="plc_user_constants",
         )
         return
 
@@ -132,7 +137,7 @@ def plc_user_constants_clear(
         d.pop(plc_name, None)
         return dataclasses.replace(state, plc_user_constants=d)
 
-    app_cache.mutate(_clear)
+    app_cache.mutate(_clear, slot="plc_user_constants")
 
 
 __all__ = [

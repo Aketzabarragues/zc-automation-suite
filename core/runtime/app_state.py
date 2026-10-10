@@ -32,8 +32,13 @@ class AppState:
     app_cache: AppCache = AppCache()
 
     def __init__(self) -> None:
-        # Reasignar para tener slots de instancia independientes.
-        self.app_cache = AppCache()
+        # Lazy import: evita ciclo app_state <-> app_cache y garantiza
+        # que ``state.app_cache`` es la misma instancia Singleton que
+        # ``get_app_cache()``. Asi los FBs (que reciben ``app_cache`` por
+        # wiring) escriben en la misma instancia donde las areas se
+        # registran en boot.
+        from core.runtime.app_cache import get_app_cache
+        self.app_cache: AppCache = get_app_cache()
 
     def __repr__(self) -> str:
         return (

@@ -295,3 +295,94 @@ def test_snapshots_no_se_afectan_por_mutaciones(
 
     assert snapshot.excel_full is c1
     assert excel_get_full(cache_with_alim, "alimentacion") is c2
+
+
+# ── slot= emite on_change ───────────────────────────────────────────────
+
+
+def test_set_full_emite_on_change_con_slot_excel_full(
+    cache_with_alim: AppCache,
+) -> None:
+    """``excel_set_full`` dispara ``on_change`` con ``slot="excel_full"``."""
+    captured: list[tuple[str, str | None, str | None, object]] = []
+
+    def cb(slot, area_id, plc_name, value):
+        captured.append((slot, area_id, plc_name, value))
+
+    cache_with_alim.on_change(cb)
+    try:
+        c = _make_cache(path="/x.xlsx")
+        excel_set_full(cache_with_alim, "alimentacion", c)
+    finally:
+        cache_with_alim.on_change(None)
+
+    assert len(captured) == 1
+    slot, area_id, plc_name, value = captured[0]
+    assert slot == "excel_full"
+    assert area_id == "alimentacion"
+    assert plc_name is None
+    assert value is c
+
+
+def test_clear_full_emite_on_change_con_slot_excel_full(
+    cache_with_two_areas: AppCache,
+) -> None:
+    """``excel_clear_full(area_id)`` dispara ``on_change(slot="excel_full")``."""
+    excel_set_full(cache_with_two_areas, "alimentacion", _make_cache())
+
+    captured: list[tuple[str, str | None, str | None, object]] = []
+
+    def cb(slot, area_id, plc_name, value):
+        captured.append((slot, area_id, plc_name, value))
+
+    cache_with_two_areas.on_change(cb)
+    try:
+        excel_clear_full(cache_with_two_areas, "alimentacion")
+    finally:
+        cache_with_two_areas.on_change(None)
+
+    assert any(c[0] == "excel_full" for c in captured)
+
+
+def test_set_active_emite_on_change_con_slot_excel_active(
+    cache_with_alim: AppCache,
+) -> None:
+    """``excel_set_active`` dispara ``on_change`` con ``slot="excel_active"``."""
+    captured: list[tuple[str, str | None, str | None, object]] = []
+
+    def cb(slot, area_id, plc_name, value):
+        captured.append((slot, area_id, plc_name, value))
+
+    cache_with_alim.on_change(cb)
+    try:
+        c = _make_cache(path="/act.xlsx")
+        excel_set_active(cache_with_alim, "alimentacion", c)
+    finally:
+        cache_with_alim.on_change(None)
+
+    assert len(captured) == 1
+    slot, area_id, plc_name, value = captured[0]
+    assert slot == "excel_active"
+    assert area_id == "alimentacion"
+    assert plc_name is None
+    assert value is c
+
+
+def test_clear_active_emite_on_change_con_slot_excel_active(
+    cache_with_two_areas: AppCache,
+) -> None:
+    """``excel_clear_active(area_id)`` dispara ``on_change(slot="excel_active")``."""
+    excel_set_active(cache_with_two_areas, "alimentacion", _make_cache())
+
+    captured: list[tuple[str, str | None, str | None, object]] = []
+
+    def cb(slot, area_id, plc_name, value):
+        captured.append((slot, area_id, plc_name, value))
+
+    cache_with_two_areas.on_change(cb)
+    try:
+        excel_clear_active(cache_with_two_areas, "alimentacion")
+    finally:
+        cache_with_two_areas.on_change(None)
+
+    assert any(c[0] == "excel_active" for c in captured)

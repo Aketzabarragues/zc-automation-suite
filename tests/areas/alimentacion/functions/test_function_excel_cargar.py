@@ -23,6 +23,24 @@ from core.runtime.app_state import AppState
 from core.infrastructure.config.config_manager import ConfigManager
 
 
+@pytest.fixture(autouse=True)
+def _reset_app_singletons():
+    """Reset de los Singletons ``AppState`` y ``AppCache`` entre tests.
+
+    El nuevo contrato de ``AppState()`` es que su ``app_cache`` es la
+    misma instancia Singleton de ``get_app_cache()``. Sin reset, el
+    ``register_area("alimentacion", ...)`` de un test contamina al
+    siguiente con ``ValueError: area 'alimentacion' ya registrada``.
+    """
+    import core.runtime.app_cache as _cache_mod
+    import core.runtime.app_state as _state_mod
+    _cache_mod._app_cache = None
+    _state_mod._state = None
+    yield
+    _cache_mod._app_cache = None
+    _state_mod._state = None
+
+
 # ── Fixtures ─────────────────────────────────────────────────────────
 
 

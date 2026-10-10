@@ -19,6 +19,24 @@ from areas.alimentacion.functions.function_entidades_generar_preview import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _reset_app_singletons():
+    """Reset de los Singletons ``AppState`` y ``AppCache`` entre tests.
+
+    El nuevo contrato de ``AppState()`` es que su ``app_cache`` es la
+    misma instancia Singleton de ``get_app_cache()``. Sin reset, el
+    ``register_area("alimentacion", ...)`` de un test contamina al
+    siguiente con ``ValueError: area 'alimentacion' ya registrada``.
+    """
+    import core.runtime.app_cache as _cache_mod
+    import core.runtime.app_state as _state_mod
+    _cache_mod._app_cache = None
+    _state_mod._state = None
+    yield
+    _cache_mod._app_cache = None
+    _state_mod._state = None
+
+
 # ---------------------------------------------------------------------------
 # Helpers de fixtures
 # ---------------------------------------------------------------------------
@@ -59,7 +77,8 @@ def _make_app_state(entidades: list | None = None, n_max_entidades: dict | None 
     from areas.alimentacion.state.area_cache import AlimentacionAreaCache
 
     state = AppState()
-    state.app_cache.register_area("alimentacion", AlimentacionAreaCache())
+    if "alimentacion" not in state.app_cache._areas:  # noqa: SLF001 (test helper)
+        state.app_cache.register_area("alimentacion", AlimentacionAreaCache())
     cache = DataExcelCache(
         excel_path="/x.xlsx",
         excel_mtime_ns=1,

@@ -24,6 +24,24 @@ from core.data.data_block_cache import DataBloqueCache
 from core.data.data_block_plc import DataBloquePLC
 
 
+@pytest.fixture(autouse=True)
+def _reset_app_singletons():
+    """Reset de los Singletons ``AppState`` y ``AppCache`` entre tests.
+
+    El nuevo contrato de ``AppState()`` es que su ``app_cache`` es la
+    misma instancia Singleton de ``get_app_cache()``. Sin reset, el
+    ``register_area("alimentacion", ...)`` de un test contamina al
+    siguiente con ``ValueError: area 'alimentacion' ya registrada``.
+    """
+    import core.runtime.app_cache as _cache_mod
+    import core.runtime.app_state as _state_mod
+    _cache_mod._app_cache = None
+    _state_mod._state = None
+    yield
+    _cache_mod._app_cache = None
+    _state_mod._state = None
+
+
 def test_defaults_vacios():
     """DataProcSlotMap() da todos los campos a su valor por defecto."""
     m = DataProcSlotMap()

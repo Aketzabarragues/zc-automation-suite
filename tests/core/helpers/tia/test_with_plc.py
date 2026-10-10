@@ -115,3 +115,50 @@ def test_with_plc_plc_vacio_no_modifica(app_cache: AppCache):
     assert state.selected_plc == "PLC_PREV"
     # El cache activo queda intacto.
     assert app_cache.area("alimentacion").excel_active is not None
+
+
+def test_with_plc_emite_on_change_con_slot_selected_plc(
+    app_cache: AppCache,
+) -> None:
+    """``with_plc`` dispara ``on_change(slot="selected_plc")`` cuando cambia PLC."""
+    excel_set_full(app_cache, "alimentacion", _make_full())
+
+    captured: list[tuple[str, str | None, str | None, object]] = []
+
+    def cb(slot, area_id, plc_name, value):
+        captured.append((slot, area_id, plc_name, value))
+
+    app_cache.on_change(cb)
+    try:
+        with_plc(app_cache, "PLC1", "alimentacion")
+    finally:
+        app_cache.on_change(None)
+
+    # El primer evento es la mutacion de ``selected_plc`` (el segundo,
+    # si lo hay, es la rederivacion de ``excel_active``).
+    selected_plc_events = [c for c in captured if c[0] == "selected_plc"]
+    assert len(selected_plc_events) == 1
+    slot, area_id, plc_name, value = selected_plc_events[0]
+    assert slot == "selected_plc"
+    assert area_id is None
+    assert plc_name is None
+    assert value == "PLC1"
+
+
+def test_with_plc_idempotente_no_re_emite_on_change(app_cache: AppCache):
+    """Llamar dos veces con el mismo PLC solo emite 1 vez ``on_change``."""
+    excel_set_full(app_cache, "alimentacion", _make_full())
+    with_plc(app_cache, "PLC1", "alimentacion")  # emite 1 vez
+
+    captured: list[tuple[str, str | None, str | None, object]] = []
+
+    def cb(slot, area_id, plc_name, value):
+        captured.append((slot, area_id, plc_name, value))
+
+    app_cache.on_change(cb)
+    try:
+        with_plc(app_cache, "PLC1", "alimentacion")  # idempotente: nada
+    finally:
+        app_cache.on_change(None)
+
+    assert captured == []

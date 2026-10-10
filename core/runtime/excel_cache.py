@@ -62,7 +62,7 @@ def excel_set_full(
     """
     def _mutate(area):
         return dataclasses.replace(area, excel_full=cache)
-    app_cache.mutate_area(area_id, _mutate)
+    app_cache.mutate_area(area_id, _mutate, slot="excel_full")
 
 
 def excel_clear_full(
@@ -81,6 +81,7 @@ def excel_clear_full(
             app_cache.mutate_area(
                 area_id,
                 lambda area: dataclasses.replace(area, excel_full=None),
+                slot="excel_full",
             )
         except KeyError:
             return
@@ -91,6 +92,7 @@ def excel_clear_full(
             app_cache.mutate_area(
                 registered_id,
                 lambda area: dataclasses.replace(area, excel_full=None),
+                slot="excel_full",
             )
         except KeyError:
             continue
@@ -117,7 +119,7 @@ def excel_set_active(
     """Almacena el cache activo (filtrado por PLC) para ``area_id``."""
     def _mutate(area):
         return dataclasses.replace(area, excel_active=cache)
-    app_cache.mutate_area(area_id, _mutate)
+    app_cache.mutate_area(area_id, _mutate, slot="excel_active")
 
 
 def excel_clear_active(
@@ -136,6 +138,7 @@ def excel_clear_active(
             app_cache.mutate_area(
                 area_id,
                 lambda area: dataclasses.replace(area, excel_active=None),
+                slot="excel_active",
             )
         except KeyError:
             return
@@ -146,6 +149,7 @@ def excel_clear_active(
             app_cache.mutate_area(
                 registered_id,
                 lambda area: dataclasses.replace(area, excel_active=None),
+                slot="excel_active",
             )
         except KeyError:
             continue
