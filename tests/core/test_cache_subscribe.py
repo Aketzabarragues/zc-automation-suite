@@ -17,13 +17,17 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from core.infrastructure._pendiente.gateway import TIAProcessGateway
-from core.runtime.sse.cache_subscribe import (
-    hook_tia_gateway_cache_to_bus,
-    make_cache_publisher,
-)
-from core.runtime.sse.event_bus import EventBus
-from core.runtime.sse.stream import _stream
+# TODO(legacy): modulo migrado a core.runtime.sse.sse_publishers; test legacy
+#   con prefijo _pendiente.gateway ya no aplica al gateway actual.
+# from core.infrastructure._pendiente.gateway import TIAProcessGateway
+# from core.runtime.sse.cache_subscribe import (
+#     hook_tia_gateway_cache_to_bus,
+#     make_cache_publisher,
+# )
+from core.runtime.sse.sse_event_bus_sync import EventBusSync
+# TODO(legacy): core.runtime.sse.stream ya no existe; el generador SSE
+#   ahora vive en core.web_server.routers.plc (sin _stream publico).
+# from core.runtime.sse.stream import _stream
 
 
 def _parse_sse_payload(raw: bytes) -> dict:

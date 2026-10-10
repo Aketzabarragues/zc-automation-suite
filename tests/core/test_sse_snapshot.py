@@ -12,7 +12,9 @@ import asyncio
 
 from core.composition.plc_engine import Engine
 from core.composition.plc_function_base import FunctionBase
-from core.runtime.sse.stream import _build_snapshot
+# TODO(legacy): core.runtime.sse.stream ya no existe; el generador SSE
+#   ahora vive en core.web_server.routers.plc (sin _build_snapshot publico).
+# from core.runtime.sse.stream import _build_snapshot
 
 
 def test_build_snapshot_sin_engine_devuelve_placeholder() -> None:

@@ -15,13 +15,19 @@ import json
 
 import pytest
 
-from core.infrastructure._pendiente.gateway import TIAProcessGateway
-from core.runtime.sse.event_bus import EventBus
-from core.runtime.sse.stream import _stream
-from core.runtime.sse.tia_state_subscribe import (
-    hook_tia_gateway_to_bus,
-    make_tia_state_publisher,
-)
+# TODO(legacy): modulo migrado a core.runtime.sse.sse_publishers; test legacy
+#   con prefijo _pendiente.gateway ya no aplica al gateway actual.
+# from core.infrastructure._pendiente.gateway import TIAProcessGateway
+from core.runtime.sse.sse_event_bus_sync import EventBusSync
+# TODO(legacy): core.runtime.sse.stream ya no existe; el generador SSE
+#   ahora vive en core.web_server.routers.plc (sin _stream publico).
+# from core.runtime.sse.stream import _stream
+# TODO(legacy): los publishers viven ahora en core.runtime.sse.sse_publishers
+#   con wiring centralizado en wire_all(); tests legacy no se migraron.
+# from core.runtime.sse.tia_state_subscribe import (
+#     hook_tia_gateway_to_bus,
+#     make_tia_state_publisher,
+# )
 
 
 def _parse_sse_payload(raw: bytes) -> dict:

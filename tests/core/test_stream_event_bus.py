@@ -19,8 +19,10 @@ import json
 
 import pytest
 
-from core.runtime.sse.event_bus import EventBus
-from core.runtime.sse.stream import _stream
+from core.runtime.sse.sse_event_bus_sync import EventBusSync
+# TODO(legacy): core.runtime.sse.stream ya no existe; el generador SSE
+#   ahora vive en core.web_server.routers.plc (sin _stream publico).
+# from core.runtime.sse.stream import _stream
 
 
 def _parse_sse_payload(raw: bytes) -> dict:

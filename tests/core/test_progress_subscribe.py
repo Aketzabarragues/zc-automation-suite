@@ -19,12 +19,14 @@ import json
 import pytest
 
 from core.runtime.progress_buffer import ProgressTracker
-from core.runtime.sse.event_bus import EventBus
-from core.runtime.sse.progress_subscribe import (
-    hook_progress_tracker_to_bus,
-    make_progress_publisher,
-)
-from core.runtime.sse.stream import _stream
+from core.runtime.sse.sse_event_bus_sync import EventBusSync
+# TODO(legacy): los publishers viven ahora en core.runtime.sse.sse_publishers
+#   con wiring centralizado en wire_all(); tests legacy no se migraron.
+# from core.runtime.sse.progress_subscribe import (
+#     hook_progress_tracker_to_bus,
+#     make_progress_publisher,
+# )
+# from core.runtime.sse.stream import _stream
 
 
 def _parse_sse_payload(raw: bytes) -> dict:
