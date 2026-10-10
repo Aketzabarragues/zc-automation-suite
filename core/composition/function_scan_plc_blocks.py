@@ -1,9 +1,9 @@
 """FB core: escanear bloques/tag tables/UDTs de un PLC contra TIA Portal.
 
 Encapsula la operacion one-shot "scan de bloques de un PLC". Tras
-``n_done``, el resultado queda cacheado en ``TIADataBloqueCache``
-(Singleton en ``core.infrastructure.tia.tia_cache``) y
-cualquier caller puede hacer lookups sincronos via ``TIADataBloqueCache.get``.
+``n_done``, el resultado queda cacheado en ``app_cache.plc_blocks``
+(contenedor unico en ``core.runtime.app_cache``) y cualquier caller
+puede hacer lookups sincronos via ``plc_blocks_get(app_cache, plc_name)``.
 
 Hereda directo de ``FunctionBase`` (no del template) porque su logica
 es especifica y no aporta Zona 0 generica.
@@ -29,7 +29,7 @@ import logging
 from typing import Any
 
 from core.composition.plc_function_base import FunctionBase
-from core.runtime.app_state import AppState, get_app_state
+from core.runtime.app_cache import AppCache, get_app_cache
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +60,7 @@ class FunctionScanPlcBlocks(FunctionBase):
         tia_client: Any = None,
         build_cache: Any = None,
         # ── Deps especificas de este FB ──
-        app_state: AppState | None = None,
+        app_cache: AppCache | None = None,
     ) -> None:
         super().__init__(
             nombre=nombre,
@@ -76,8 +76,8 @@ class FunctionScanPlcBlocks(FunctionBase):
         self._tia_client = tia_client
         self._build_cache = build_cache  # No usado en este FB.
         # Deps especificas.
-        self._state: AppState = (
-            app_state if app_state is not None else get_app_state()
+        self._app_cache: AppCache = (
+            app_cache if app_cache is not None else get_app_cache()
         )
         # ZONA 3: estado entre ticks.
         self._plc_name: str = ""
@@ -109,7 +109,7 @@ class FunctionScanPlcBlocks(FunctionBase):
         """CASE de los 2 pasos."""
         # Lazy import para evitar ciclo con core.infrastructure.tia.
         from core.infrastructure.tia.tia_cache import (
-            TIADataBloqueCache,
+            plc_blocks_get,
             scan_plc_blocks,
         )
 
@@ -125,10 +125,9 @@ class FunctionScanPlcBlocks(FunctionBase):
                 # Si la cache esta fresca y no force_refresh, saltamos
                 # al segundo paso sin re-escanear (el helper hara clear
                 # si force_refresh=True). Para "fresh" usamos el TTL
-                # del singleton TIADataBloqueCache; si no hay entrada,
-                # seguimos al escaneo.
+                # del app_cache; si no hay entrada, seguimos al escaneo.
                 if not self._force_refresh:
-                    cached = await TIADataBloqueCache.get(self._plc_name)
+                    cached = plc_blocks_get(self._app_cache, self._plc_name)
                     if cached is not None:
                         self._stats["cache_hit"] = {
                             "plc_name": self._plc_name,
@@ -143,6 +142,7 @@ class FunctionScanPlcBlocks(FunctionBase):
                     self._plc_name,
                     force_refresh=self._force_refresh,
                     tia_client=self._tia_client,
+                    app_cache=self._app_cache,
                     timeout_s=self.STEP_TIMEOUT_S,
                 )
                 self._stats["escanear"] = {

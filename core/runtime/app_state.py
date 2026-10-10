@@ -4,19 +4,16 @@ Single-tenant: asume un unico usuario departamental concurrente. Si
 se requiere multi-tenancy, sustituir este Singleton por un contexto
 por sesion / usuario.
 
-Multi-PLC (sept-2026): el estado es minimo. Solo expone los caches
-del Excel (completo y filtrado por PLC) y el PLC activo. Los FB y
-routers leen de ahi directamente. No hay API data-driven sobre
-``_dispositivos``: el contrato es "cache del Excel cargado, leo de
-alli". Antes existia un API ``set_devices``/``get_devices`` con un
-dict ``_dispositivos`` interno que duplicaba los datos del cache;
-se elimino en esta limpieza (sept-2026) por ser codigo muerto y
-back-compat no deseado.
+Conserva los caches del Excel (completo + filtrado por PLC) y el PLC
+activo. ``app_cache`` (``core.runtime.app_cache``) es el nuevo
+contenedor del proceso; los caches del Excel migraran al a el.
 """
 from __future__ import annotations
 
 from threading import Lock
 from typing import Any
+
+from core.runtime.app_cache import AppCache
 
 
 class AppState:
@@ -37,6 +34,8 @@ class AppState:
             setea ``with_plc`` cuando el endpoint recibe el plc_name
             del body. ``""`` = "sin filtro" = el cache activo es
             igual al completo.
+        app_cache: AppCache. Contenedor del proceso (ver
+            ``core.runtime.app_cache``).
     """
 
     # Class-attribute defaults. Sirven para que ``MagicMock(spec=AppState)``
@@ -47,6 +46,7 @@ class AppState:
     excel_cache_full: Any = None
     excel_cache_active: Any = None
     selected_plc: str = ""
+    app_cache: AppCache = AppCache()
 
     def __init__(self) -> None:
         # Reasignar para tener slots de instancia independientes.
@@ -54,6 +54,7 @@ class AppState:
         self.excel_cache_full = None
         self.excel_cache_active = None
         self.selected_plc = ""
+        self.app_cache = AppCache()
 
     def __repr__(self) -> str:
         return (

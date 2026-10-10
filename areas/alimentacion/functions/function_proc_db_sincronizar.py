@@ -192,14 +192,14 @@ class FunctionProcDBSincronizar(FunctionBase):
         with_plc(self._state, self._plc_name)
 
         # ``bloques_cache`` puede inyectarse por constructor (test) o
-        # leerse del singleton ``TIADataBloqueCache._caches`` (acceso
-        # sync al dict de clase). Se prioriza el singleton para que un
-        # refresh manual del cache (boton ↻ del sidebar) se refleje en
-        # el siguiente arranque del FB. La inyeccion por constructor
-        # se respeta solo cuando el singleton esta vacio (tests que
-        # mockean el cache sin popular el singleton global).
-        from core.infrastructure.tia.tia_cache import TIADataBloqueCache
-        singleton_cache = TIADataBloqueCache._caches.get(self._plc_name)
+        # leerse del AppCache (acceso sync al dict de estado). Se
+        # prioriza el AppCache para que un refresh manual del cache
+        # (boton ↻ del sidebar) se refleje en el siguiente arranque del
+        # FB. La inyeccion por constructor se respeta solo cuando el
+        # AppCache esta vacio (tests que mockean el cache sin popular
+        # el contenedor global).
+        from core.infrastructure.tia.tia_cache import plc_blocks_get
+        singleton_cache = plc_blocks_get(self._state.app_cache, self._plc_name)
         if singleton_cache is not None:
             self._bloques_cache = singleton_cache
 

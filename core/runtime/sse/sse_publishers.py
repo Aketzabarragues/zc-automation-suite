@@ -57,7 +57,11 @@ def make_progress_publisher(bus: Any) -> Callable[..., None]:
 # 3. SyncTIAClient state machine -> {type: "tia_state", state, ...}
 # ─────────────────────────────────────────────────────────────────────
 
-def make_tia_state_publisher(bus: Any, tia_client: Any) -> Callable[[], None]:
+def make_tia_state_publisher(
+    bus: Any,
+    tia_client: Any,
+    app_cache: Any | None = None,
+) -> Callable[[], None]:
     """Devuelve un callback que publica el state + project + plcs.
 
     Hook: tia_client.on_state_change (se anade en tia_loop.py).
@@ -66,20 +70,34 @@ def make_tia_state_publisher(bus: Any, tia_client: Any) -> Callable[[], None]:
         {"type": "tia_state", "state": <str>, "project": <dict|None>, "plcs": <list>}
     """
     def publish() -> None:
-        wrapper = tia_client.wrapper
+        # Local imports: evita import cycle sse_publishers -> tia_loop
+        # en boot si el caller no necesita project.
+        from core.infrastructure.tia.tia_state_cache import (
+            plc_list_get,
+            plc_project_get,
+        )
+        from core.runtime.app_cache import get_app_cache
+
+        cache = app_cache if app_cache is not None else get_app_cache()
+        plc_info_list = plc_list_get(cache)
+        plcs = [
+            {"name": p.name, "type": p.type, "ip": p.ip}
+            for p in plc_info_list
+        ]
+        # ``project`` se elige desde el primer PLC conocido. Si el
+        # operario aun no ha hecho scan, queda a ``None``. Los datos
+        # vienen del AppCache (cacheados por el gateway en su scan),
+        # no del wrapper .NET directo.
         project: dict[str, Any] | None = None
-        plcs: list[dict[str, Any]] = []
-        if wrapper is not None:
-            try:
-                proj_obj = wrapper.get_project()
-                if proj_obj is not None:
-                    project = {
-                        "name": getattr(proj_obj, "Name", None),
-                        "path": getattr(proj_obj, "Path", None),
-                        "version": getattr(proj_obj, "Version", None),
-                    }
-            except Exception as exc:  # noqa: BLE001
-                logger.debug("tia_state_publisher: get_project fallo: %s", exc)
+        if plc_info_list:
+            plc_name_activo = plc_info_list[0].name
+            proj = plc_project_get(cache, plc_name_activo)
+            if proj is not None:
+                project = {
+                    "name": proj.name,
+                    "path": proj.path,
+                    "version": proj.version,
+                }
         event: dict[str, Any] = {
             "type": "tia_state",
             "state": tia_client.state,
@@ -157,6 +175,7 @@ def wire_all(
     tia_client: Any,
     engine: Any,
     bus: Any,
+    app_cache: Any | None = None,
 ) -> None:
     """Conecta los 5 publishers al bus. Se llama una vez al arrancar.
 
@@ -164,6 +183,10 @@ def wire_all(
     on_state_change todavia), se loggea warning y sigue con los
     demas. Asi wire_all() puede correr desde el paso 1 sin esperar
     a los hooks de los pasos 2/3.
+
+    ``app_cache`` se inyecta al publisher de ``tia_state`` para que
+    lea la lista de PLCs y el proyecto del cache IT; el wrapper .NET
+    no se expone directamente al SSE.
     """
     # 1. LogBuffer
     if log_buffer is not None and hasattr(log_buffer, "_on_publish"):
@@ -181,7 +204,9 @@ def wire_all(
 
     # 3. SyncTIAClient state
     if hasattr(tia_client, "on_state_change"):
-        tia_client.on_state_change = make_tia_state_publisher(bus, tia_client)
+        tia_client.on_state_change = make_tia_state_publisher(
+            bus, tia_client, app_cache,
+        )
         logger.debug("publishers: SyncTIAClient.on_state_change cableado.")
     else:
         logger.debug("publishers: SyncTIAClient.on_state_change aun no existe; saltando.")

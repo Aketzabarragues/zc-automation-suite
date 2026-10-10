@@ -40,6 +40,7 @@ def create_app(
     config_manager: Any = None,
     log_buffer: Any = None,
     progress_tracker: Any = None,
+    app_cache: Any = None,
 ) -> Flask:
     """Crea la Flask app con endpoints base + blueprints + SPA estática.
 
@@ -50,6 +51,9 @@ def create_app(
         app_state / config_manager / log_buffer / progress_tracker:
             legacy singletons. Si None, lazy al primer uso desde
             los endpoints (sin forzar import en ``create_app``).
+        app_cache: AppCache contenedor del proceso. Default: lazy
+            ``get_app_cache()``. Los routers lo leen via
+            ``current_app.config['APP_CACHE']``.
     """
     app = Flask(__name__, static_folder=None)  # servimos manualmente
     # Preservar el orden de insercion de los dicts al serializar a JSON.
@@ -94,6 +98,16 @@ def create_app(
         progress_tracker,
         "core.runtime.progress_buffer",
         "get_progress_tracker",
+    )
+    # AppCache: contenedor del proceso. Si no se inyecta, lazy al
+    # singleton ``get_app_cache()``. Los routers acceden via
+    # ``current_app.config['APP_CACHE']`` y los publishers SSE ya lo
+    # reciben del supervisor en ``wire_all(..., app_cache)``.
+    app.config["APP_CACHE"] = (
+        app_cache if app_cache is not None
+        else _resolve_lazy(
+            None, "core.runtime.app_cache", "get_app_cache",
+        )
     )
 
     @app.get("/ping")
