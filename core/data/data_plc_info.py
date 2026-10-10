@@ -16,6 +16,9 @@ class PlcInfo:
     type: str
     ip: str
 
+    def to_dict(self) -> dict:
+        return {"name": self.name, "type": self.type, "ip": self.ip}
+
 
 @dataclass(frozen=True)
 class PlcProject:
@@ -23,6 +26,13 @@ class PlcProject:
     name: str | None
     path: str | None
     version: str | None
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "path": self.path,
+            "version": self.version,
+        }
 
 
 __all__ = ["PlcInfo", "PlcProject"]

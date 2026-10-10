@@ -32,7 +32,8 @@
  *     ``@close="showSyncView = false"`` cuando el operario pulsa
  *     el botón "Cerrar" de la cabecera del sync view (que emite
  *   - No llama a ``api.js`` ni a ningún endpoint: la UI es
- *     completamente pasiva, se alimenta de ``store.memoryState``.
+ *     completamente pasiva, se alimenta de
+ *     ``store.appCache.areas["alimentacion"].excel_full``.
  *   - Reactividad in-view: si el operario sube un Excel y refresca
  *     la memoria mientras está aquí, el computed ``procesos`` se
  *     actualiza y el selector se repobla automáticamente.
@@ -99,9 +100,14 @@ export default {
          * no ha subido Excel o el backend aún no expone el campo,
          * devuelve ``[]``.
          */
+        // ``excel_full`` reactivo desde el AppCache del area activa.
+        const excelFull = computed(
+            () => store.appCache?.areas?.alimentacion?.excel_full || null
+        );
+
         const procesos = computed(
             () => {
-                const all = (store.memoryState && store.memoryState.procesos) || [];
+                const all = (excelFull.value && excelFull.value.procesos) || [];
                 const plc = store.selectedPlc || "";
                 if (!plc) return [];
                 return all.filter((p) => (p.plc_name || "") === plc);
@@ -109,19 +115,17 @@ export default {
         );
 
         /**
-         * ``true`` solo cuando hay ``memoryState`` cargado (no
+         * ``true`` solo cuando hay ``excel_full`` cargado (no
          * ``null`` ni ``undefined``). Mismo patrón que
          * ``ProcesosPanel.js:79-81``. Distingue 2 estados:
-         *   1. ``store.memoryState === null``: estado virgen
+         *   1. ``excel_full.value === null``: estado virgen
          *      pre-upload. Banner ámbar + selector deshabilitado.
-         *   2. ``store.memoryState`` es un objeto (incluso con
+         *   2. ``excel_full.value`` es un objeto (incluso con
          *      ``procesos: []``): ya hay cache; si la lista está
          *      vacía, banner ámbar explica que el Excel no tiene
          *      procesos definidos.
          */
-        const hasExcel = computed(
-            () => store.memoryState !== null && store.memoryState !== undefined
-        );
+        const hasExcel = computed(() => excelFull.value != null);
 
         /**
          * ``true`` cuando hay un PLC seleccionado en el topbar.
@@ -159,7 +163,11 @@ export default {
          * el escaneo).
          */
         const plcBlocksCache = computed(
-            () => store.plcBlocksCache || null
+            () => {
+                const plc = store.selectedPlc;
+                if (!plc) return null;
+                return store.appCache?.plc_blocks?.[plc] || null;
+            }
         );
         const canOpenSync = computed(() => {
             if (!canAct.value) return false;

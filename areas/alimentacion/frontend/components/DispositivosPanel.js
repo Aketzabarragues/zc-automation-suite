@@ -16,9 +16,9 @@
  * tab "Configuracion" (Tabla_Dispositivos cruda del Excel) y en el
  * preview del PLC concreto (``Dispositivos.js``).
  *
- * Si ``store.memoryState`` está vacío (operario aún no ha subido
- * Excel), pinta el mensaje "Inspector de Memoria está vacío" en
- * lugar de la tabla.
+ * Si ``store.appCache.areas["alimentacion"].excel_full`` está
+ * vacío (operario aún no ha subido Excel), pinta el mensaje
+ * "Inspector de Memoria está vacío" en lugar de la tabla.
  *
  * Tema: Industrial Claro. Solo tokens semánticos
  * (``bg-surface*``, ``border-line*``, ``text-ink*``, ``text-accent``).
@@ -93,18 +93,24 @@ export default {
             () => modelColumns.value[activeSubTab.value] || []
         );
 
+        // ``excel_full`` reactivo desde el AppCache del area activa.
+        const excelFull = computed(
+            () => store.appCache?.areas?.alimentacion?.excel_full || null
+        );
+
         const activeDevices = computed(() => {
-            if (!store.memoryState || !store.memoryState.dispositivos) return [];
-            return store.memoryState.dispositivos[activeSubTab.value] || [];
+            const ms = excelFull.value;
+            if (!ms || !ms.dispositivos) return [];
+            return ms.dispositivos[activeSubTab.value] || [];
         });
 
         const hasMemory = computed(
             () => {
                 // ``hasMemory`` distingue 2 estados visuales:
-                //   1. ``store.memoryState === null``: operario no ha
+                //   1. ``excelFull.value === null``: operario no ha
                 //      hecho nunca un fetch (estado "virgen"). Se
                 //      muestra el "Inspector vacío" centrado.
-                //   2. ``store.memoryState`` es un objeto (incluso con
+                //   2. ``excelFull.value`` es un objeto (incluso con
                 //      dicts vacios, p.ej. tras "Refrescar" sin
                 //      Excel): se muestran las tablas. Cada tabla
                 //      pinta su propio mensaje "La pestaña X no
@@ -112,10 +118,9 @@ export default {
                 //      vacia (eso lo hace el ``<tr v-if="...">``).
                 // El operario quiere que tras "Refrescar" se vean
                 // las tablas (no el "Inspector vacío"), asi que
-                // hasMemory es true en cuanto hay memoryState
+                // hasMemory es true en cuanto hay excel_full
                 // (incluso si no trae datos).
-                return store.memoryState !== null
-                    && store.memoryState !== undefined;
+                return excelFull.value != null;
             }
         );
 
@@ -127,7 +132,7 @@ export default {
 
         /**
          * Conteo de dispositivos por sub-tab (DispED, DispEA, ...).
-         * Encapsula el acceso a ``store.memoryState.dispositivos`` para
+         * Encapsula el acceso a ``excelFull.dispositivos`` para
          * que el template no toque ``store`` directamente (lo cual es
          * inalcanzable desde el template en Vue 3 con template compiler
          * en runtime: las variables importadas a nivel de módulo NO se
@@ -136,7 +141,8 @@ export default {
          */
         const deviceCountsByTab = computed(() => {
             const out = {};
-            const disp = store.memoryState && store.memoryState.dispositivos;
+            const ms = excelFull.value;
+            const disp = ms && ms.dispositivos;
             if (!disp || typeof disp !== "object") return out;
             for (const [key, lst] of Object.entries(disp)) {
                 out[key] = Array.isArray(lst) ? lst.length : 0;

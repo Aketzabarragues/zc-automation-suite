@@ -22,8 +22,8 @@
  * la red (CDN) o desde ``/js/`` servido por FastAPI.
  */
 import { createApp, computed, nextTick } from "/js/vendor/vue.esm-browser.prod.js";
-import { store, goToArea, goToSubview, loadCatalog } from "./store.js";
-import { apiFetchMemory } from "./api.js";
+import { applyCacheChange, applyCacheSnapshot,
+    goToArea, goToSubview, loadCatalog, store } from "./store.js";
 import { loadArea, mountArea } from "./area-loader.js";
 import Welcome from "./components/Welcome.js";
 import ConsolaLogs from "./components/ConsolaLogs.js";
@@ -48,16 +48,14 @@ const App = {
          * Mantenemos la lógica de la API en ``main.js`` (no en el
          * componente) para preservar el principio de "componente
          * tonto" y poder mockear la API en tests.
+         *
+         * El estado del backend vive en ``store.appCache.areas[<area>]
+         * .excel_full``, hidratado por SSE (``cache_snapshot`` al
+         * conectar + ``cache_changed`` en cada mutacion). El boton
+         * "Refrescar" re-dispara el parser Excel contra el backend
+         * (POST /api/v1/excel/upload) y el resultado se publica via
+         * SSE; no hace falta re-fetchear un endpoint "memory".
          */
-        async function refreshMemory() {
-            store.busy = true;
-            try {
-                const r = await apiFetchMemory();
-                if (r.ok && r.data && r.data.ok) {
-                    store.memoryState = r.data;
-                }
-            } finally {
-                store.busy = false;
             }
         }
         /**
@@ -88,15 +86,23 @@ const App = {
          */
         async function onAreaSelected(key) {
             if (!key) return;
-            // Reset selectivo (sept-2026, pedido operario): solo se
-            // limpia la prevision y la info del proyecto TIA. Mantenemos
-            // plcs, selectedPlc, uploadSummary y lastExcelFile para que
-            // sobrevivan a una salida + re-entrada al area. Coincide con
-            // ``store.goToArea`` (la version async del helper).
+            // Reset selectivo: solo se limpia la prevision (que
+            // pertenece al area) y la info del proyecto TIA. El
+            // resto del ``store.appCache`` se mantiene (los PLCs
+            // detectados, los snapshots de bloques y los Excels
+            // cargados son compartidos entre re-entradas del operario).
+            // Coincide con ``store.goToArea``.
             store.selectedArea = key;
             store.currentView = "landing";
             store.projectInfo = null;
-            store.previewData = null;
+            if (
+                store.appCache
+                && store.appCache.areas
+                && store.appCache.areas[key]
+            ) {
+                store.appCache.areas[key].preview_disp = null;
+                store.appCache.areas[key].preview_proc = null;
+            }
             try {
                 // ``mountArea`` ya hace ``loadArea`` internamente + registra
                 // los componentes del area en la app Vue. Devuelve el manifest
@@ -324,6 +330,22 @@ sse.onmessage = (e) => {
             store.progress = snapshot;
             break;
         }
+        case "cache_snapshot":
+            // Snapshot completo del AppCache al suscribirse. Merge por
+            // clave top-level (no reasignacion completa) para no
+            // invalidar refs que los ``computed`` ya hubiesen
+            // cacheado. Tambien sincroniza los slots espejo
+            // ``store.plcs`` / ``store.selectedPlc`` para que la UI
+            // legacy siga funcionando.
+            applyCacheSnapshot(event.data);
+            break;
+        case "cache_changed":
+            // Delta incremental disparado por ``AppCache.on_change``
+            // tras cada ``mutate/mutate_area`` con ``slot=``. El
+            // helper parchea ``store.appCache`` segun ``area_id`` /
+            // ``plc_name`` (ver ``applyCacheChange``).
+            applyCacheChange(event);
+            break;
         case "tia_state":
             // Solo cambia el state; el resto de campos de
             // tiaConnection (``project``, ``plcs``, ``last_ping_ok_unix``,

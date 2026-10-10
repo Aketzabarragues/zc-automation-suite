@@ -9,8 +9,8 @@
  * (multi-PLC rompe la utilidad de cards mezcladas por PLC: la info
  * por PLC vive en el preview del PLC concreto, en ``Dispositivos.js``).
  *
- * Shape del backend (vía ``GET /api/v1/state/dispositivos``):
- *   store.memoryState.dimensiones = {
+ * Shape del backend (en el slot ``excel_full`` del AppCache):
+ *   store.appCache.areas["alimentacion"].excel_full.dimensiones = {
  *       "ZC_PLC_STD": { "N_MAX_DISP_ED": 50, "N_MAX_DISP_EA": 30, ... },
  *       "PLC_CPR":    { "N_MAX_DISP_ED": 200, ... }
  *   }
@@ -25,25 +25,27 @@ import { store } from "/js/store.js";
 export default {
     name: "ConfiguracionPanel",
     setup() {
+        // ``excel_full`` reactivo desde el AppCache del area activa.
+        const excelFull = computed(
+            () => store.appCache?.areas?.alimentacion?.excel_full || null
+        );
+
         /**
-         * True solo cuando hay Excel cargado (memoryState no nulo).
+         * True solo cuando hay Excel cargado (``excel_full`` no nulo).
          * Mismo patron que ``DispositivosPanel`` y ``ProcesosPanel``:
          * cuando NO hay Excel, este panel pinta el "Inspector vacio"
          * identico al resto de tabs (coherencia visual).
          */
-        const hasMemory = computed(
-            () => store.memoryState !== null
-                && store.memoryState !== undefined
-        );
+        const hasMemory = computed(() => excelFull.value != null);
 
         /**
          * Lista de PLCs (filas). Cada item: ``{ plc_name, extras: {...} }``.
-         * Viene de ``store.memoryState.dimensiones`` (dict
+         * Viene de ``excel_full.dimensiones`` (dict
          * ``{plc_name: {nmax_name: int}}``). Lo pasamos a una lista
          * ordenada para iterar en el template.
          */
         const plcRows = computed(() => {
-            const d = store.memoryState && store.memoryState.dimensiones;
+            const d = excelFull.value && excelFull.value.dimensiones;
             if (!d || typeof d !== "object") return [];
             return Object.entries(d).map(([plc_name, extras]) => ({
                 plc_name,

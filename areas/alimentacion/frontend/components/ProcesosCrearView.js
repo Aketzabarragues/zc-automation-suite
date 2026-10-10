@@ -77,15 +77,20 @@ export default {
 
         // ── Computed ────────────────────────────────────────────
 
-        // Proceso del Excel seleccionado (lo busca del store por uid).
+        // ``excel_full`` reactivo desde el AppCache del area activa
+        // (``store.appCache.areas["alimentacion"].excel_full``,
+        // hidratado por SSE ``cache_snapshot`` al conectar +
+        // ``cache_changed`` en cada ``excel_set_full`` del backend).
+        const excelFull = computed(
+            () => store.appCache?.areas?.alimentacion?.excel_full || null
+        );
+
+        // Proceso del Excel seleccionado (lo busca del cache por uid).
         // La fuente de verdad son los 8 campos del Excel: uid, nombre,
         // codigo, preal, pint, index_preal, index_pint, alarmas, alm_hmi.
         const procesoExcel = computed(
             () => {
-                const procs =
-                    (store.memoryState &&
-                        store.memoryState.procesos) ||
-                    [];
+                const procs = (excelFull.value && excelFull.value.procesos) || [];
                 return (
                     procs.find(
                         (p) => Number(p.uid) === Number(props.procUid)
@@ -95,7 +100,7 @@ export default {
         );
 
         const hayExcel = computed(
-            () => Boolean(store.memoryState) && procesoExcel.value !== null
+            () => Boolean(excelFull.value) && procesoExcel.value !== null
         );
 
         const selectedPlantilla = computed(
@@ -105,11 +110,15 @@ export default {
                 ) || null
         );
 
-        // Cache de bloques del PLC activo (``store.plcBlocksCache``).
-        // Lo necesitamos para calcular el ESTADO de cada bloque
-        // previsto (NO OK si el nombre+numero ya existen en el PLC).
+        // Cache de bloques del PLC activo (keyed por plc_name en el
+        // AppCache). Lo necesitamos para calcular el ESTADO de cada
+        // bloque previsto (NO OK si el nombre+numero ya existen en el PLC).
         const plcBlocksCache = computed(
-            () => store.plcBlocksCache || null
+            () => {
+                const plc = store.selectedPlc;
+                if (!plc) return null;
+                return store.appCache?.plc_blocks?.[plc] || null;
+            }
         );
         const hasPlcBlocks = computed(() => {
             const c = plcBlocksCache.value;

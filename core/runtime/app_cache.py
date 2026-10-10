@@ -20,7 +20,8 @@ import dataclasses
 import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Protocol, runtime_checkable
+from datetime import datetime
+from typing import Any, Protocol, runtime_checkable
 
 from core.data.data_block_cache import DataBloqueCache
 from core.data.data_plc_info import PlcInfo, PlcProject
@@ -60,6 +61,24 @@ class AppCache:
         self._lock = threading.RLock()
         self._state = _AppCacheState()
         self._areas: dict[str, AreaCacheProtocol] = {}
+        self._on_change: (
+            Callable[[str, str | None, str | None, Any], None] | None
+        ) = None
+
+    def on_change(
+        self,
+        callback: Callable[[str, str | None, str | None, Any], None] | None,
+    ) -> None:
+        """Registra el callback invocado tras cada mutacion.
+
+        Firma: ``callback(slot, area_id, plc_name, value)``. ``area_id``
+        y ``plc_name`` son ``None`` para slots globales; ``value`` es
+        el dict nuevo del slot cuando aplica (o ``None`` para resets).
+        Usado por el publisher SSE ``cache_changed`` para emitir un
+        delta al frontend.
+        """
+        with self._lock:
+            self._on_change = callback
 
     def get_state(self) -> _AppCacheState:
         """Snapshot consistente del estado."""
@@ -69,10 +88,22 @@ class AppCache:
     def mutate(
         self,
         fn: Callable[[_AppCacheState], _AppCacheState],
+        *,
+        slot: str | None = None,
     ) -> None:
-        """Aplica ``fn`` al estado y reemplaza atomicamente."""
+        """Aplica ``fn`` al estado y reemplaza atomicamente.
+
+        ``slot`` identifica el campo mutado (clave publica del
+        AppCache, p.ej. ``"plc_blocks"``). Si se pasa y hay un
+        ``on_change`` registrado, se invoca tras el reemplazo bajo el
+        mismo lock con ``(slot, None, None, nuevo_valor)``.
+        """
         with self._lock:
-            self._state = fn(self._state)
+            new_state = fn(self._state)
+            self._state = new_state
+            if slot is not None and self._on_change is not None:
+                value = getattr(new_state, slot, None)
+                self._on_change(slot, None, None, value)
 
     def reset(self) -> None:
         """Limpia TODO el estado. Llamado al desconectar TIA o cambiar proyecto.
@@ -116,12 +147,19 @@ class AppCache:
         self,
         area_id: str,
         fn: Callable[[AreaCacheProtocol], AreaCacheProtocol],
+        *,
+        slot: str | None = None,
     ) -> None:
         """Aplica ``fn`` al area y reemplaza atomicamente.
 
         ``fn`` recibe el area actual y DEBE retornar un reemplazo
         (típicamente via ``dataclasses.replace(area, ...)``). La
         sustituccion es atomica bajo ``self._lock``.
+
+        ``slot`` identifica el campo del area mutado (p.ej.
+        ``"preview_disp"``). Si se pasa y hay un ``on_change``
+        registrado, se invoca tras el reemplazo bajo el mismo lock
+        con ``(slot, area_id, None, nuevo_valor)``.
         """
         with self._lock:
             if area_id not in self._areas:
@@ -130,6 +168,75 @@ class AppCache:
             d = dict(self._areas)
             d[area_id] = fn(current)
             self._areas = d
+            if slot is not None and self._on_change is not None:
+                value = getattr(d[area_id], slot, None)
+                self._on_change(slot, area_id, None, value)
+
+    def to_api_dict(self) -> dict[str, Any]:
+        """Snapshot JSON-serializable del AppCache completo.
+
+        Se envia al frontend en el SSE ``cache_snapshot`` al
+        suscribirse. Compone 2 capas:
+
+        - Capa global (PLC): ``selected_plc``, ``plc_list``,
+          ``plc_blocks`` (keyed por plc_name), ``plc_project``,
+          ``plc_user_constants``.
+        - Capa por area: ``areas[<area_id>]`` con todos los slots
+          del ``AreaCacheProtocol`` concreto. Si el dataclass del
+          area expone ``to_dict()`` o ``to_api_dict()``, se usa;
+          si no, ``dataclasses.asdict``. Los ``datetime`` se
+          serializan en ISO-8601.
+        """
+        with self._lock:
+            state = self._state
+            areas_snapshot = dict(self._areas)
+
+        plc_blocks = {
+            name: (
+                cache.to_dict() if hasattr(cache, "to_dict")
+                else dataclasses.asdict(cache)
+            )
+            for name, cache in state.plc_blocks.items()
+        }
+        plc_project = {
+            name: (
+                proj.to_dict() if hasattr(proj, "to_dict")
+                else dataclasses.asdict(proj)
+            )
+            for name, proj in state.plc_project.items()
+        }
+        plc_list = [
+            info.to_dict() if hasattr(info, "to_dict")
+            else dataclasses.asdict(info)
+            for info in state.plc_list
+        ]
+
+        areas_payload: dict[str, dict[str, Any]] = {}
+        for area_id, area in areas_snapshot.items():
+            fields = dataclasses.fields(area)
+            row: dict[str, Any] = {}
+            for f in fields:
+                v = getattr(area, f.name)
+                if isinstance(v, datetime):
+                    row[f.name] = v.isoformat()
+                elif hasattr(v, "to_dict"):
+                    row[f.name] = v.to_dict()
+                elif hasattr(v, "to_api_dict"):
+                    row[f.name] = v.to_api_dict()
+                else:
+                    row[f.name] = v
+            areas_payload[area_id] = row
+
+        return {
+            "selected_plc": state.selected_plc,
+            "plc_list": plc_list,
+            "plc_blocks": plc_blocks,
+            "plc_project": plc_project,
+            "plc_user_constants": {
+                name: dict(v) for name, v in state.plc_user_constants.items()
+            },
+            "areas": areas_payload,
+        }
 
 
 _app_cache: AppCache | None = None

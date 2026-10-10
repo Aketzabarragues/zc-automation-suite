@@ -82,7 +82,11 @@ export default {
         const isRefreshing = ref(false);
 
         /** Snapshot cacheado del PLC activo (o ``null`` si aún no hay). */
-        const cache = computed(() => store.plcBlocksCache);
+        const cache = computed(() => {
+            const plc = store.selectedPlc;
+            if (!plc) return null;
+            return store.appCache?.plc_blocks?.[plc] || null;
+        });
 
         /** Listas normalizadas del snapshot (arrays vacíos si falta el campo). */
         const blocks = computed(() =>
@@ -250,11 +254,14 @@ export default {
 
         /**
          * Click en "↻ Refrescar". Dispara el re-scan contra TIA
-         * Portal y, cuando vuelve, actualiza ``store.plcBlocksCache``
-         * con la snapshot nueva. El feedback visual de "la operación
-         * está corriendo" lo da el ``ProgressIndicator`` del
-         * sidebar (la task "Cache de bloques de <plc>" es la misma
-         * que dispara el ``@change`` del desplegable PLC).
+         * Portal; cuando vuelve, el backend reescribe
+         * ``store.appCache.plc_blocks[<plc>]`` y emite SSE
+         * ``cache_changed`` con ``slot="plc_blocks"``. La
+         * reactividad de ``cache`` (computed) propaga el cambio a
+         * la vista. El feedback visual de "la operación está
+         * corriendo" lo da el ``ProgressIndicator`` del sidebar (la
+         * task "Cache de bloques de <plc>" es la misma que dispara
+         * el ``@change`` del desplegable PLC).
          *
          * El flag local ``isRefreshing`` solo deshabilita el botón
          * para evitar doble-click; NO es la fuente de verdad del
@@ -283,7 +290,7 @@ export default {
          */
         onMounted(() => {
             const current = store.selectedPlc;
-            const cached = store.plcBlocksCache;
+            const cached = cache.value;
             if (current && (!cached || cached.plc_name !== current)) {
                 loadAndApplyPlcBlocks(current);
             }
@@ -297,19 +304,18 @@ export default {
          *
          * Guard: NO recargar si la cache ya está sincronizada con
          * el PLC nuevo. Sin este guard, ``loadAndApplyPlcBlocks``
-         * setea ``store.selectedPlc = plcName`` (store.js:585, fix
-         * del bug "Cache no disponible sin tocar dropdown" en
-         * ``ce9f892``) y este watch se vuelve a disparar, causando
-         * un bucle garantizado de doble ``scan_blocks`` por cada
-         * selección de PLC. El doble scan mantiene TIA ocupado
-         * ~40s y provocaba rollback silencioso en el primer commit
-         * (smoke test sept-2026).
+         * setea ``store.selectedPlc = plcName`` (store.js, fix
+         * del bug "Cache no disponible sin tocar dropdown") y este
+         * watch se vuelve a disparar, causando un bucle garantizado
+         * de doble ``scan_blocks`` por cada selección de PLC. El
+         * doble scan mantiene TIA ocupado ~40s y provocaba
+         * rollback silencioso en el primer commit (smoke test).
          */
         watch(
             () => store.selectedPlc,
             (newPlc) => {
                 if (!newPlc) return;
-                const cached = store.plcBlocksCache;
+                const cached = cache.value;
                 if (cached && cached.plc_name === newPlc) return;
                 loadAndApplyPlcBlocks(newPlc);
             }

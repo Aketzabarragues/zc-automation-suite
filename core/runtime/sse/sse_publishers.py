@@ -9,6 +9,13 @@ en ``main_supervisor._build_components``):
   4. FunctionBase       -> {type: "fb_state", name, nStep, is_terminal, result}
   5. TIA-loop lifecycle -> {type: "tia_loop_status", running, thread_name}
 
+Adicionalmente el AppCache aporta 2 publishers:
+
+  6. AppCache snapshot  -> {type: "cache_snapshot", data: <to_api_dict()>}
+                           (se envia 1 vez a cada suscriptor nuevo).
+  7. AppCache delta     -> {type: "cache_changed", slot, area_id, plc_name, data}
+                           (broadcast tras cada ``mutate/mutate_area``).
+
 Cualquier cambio se retransmite como evento SSE a todos los suscriptores
 del bus.
 
@@ -166,7 +173,86 @@ def make_tia_loop_status_publisher(
 
 
 # ─────────────────────────────────────────────────────────────────────
-# wire_all — cablea los 5 publishers en una sola llamada
+# 6. AppCache snapshot -> {type: "cache_snapshot", data: ...}
+# ─────────────────────────────────────────────────────────────────────
+
+def make_cache_snapshot_publisher(
+    bus: Any,
+    app_cache: Any,
+) -> Callable[[Any], None]:
+    """Registra el callback de snapshot en el bus al suscribirse.
+
+    Usa ``EventBusSync.set_on_subscribe`` para inyectar el snapshot
+    del AppCache DIRECTAMENTE en la cola del suscriptor que se acaba
+    de conectar (no via ``publish`` broadcast, que iria a todos).
+
+    Payload:
+        {"type": "cache_snapshot", "data": app_cache.to_api_dict()}
+
+    Devuelve un callable ``no_op`` (no hay cleanup; el hook vive en
+    el bus mientras este viva).
+    """
+    def on_subscribe(q: Any) -> None:
+        try:
+            q.put_nowait({
+                "type": "cache_snapshot",
+                "data": app_cache.to_api_dict(),
+            })
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "cache_snapshot_publisher: no se pudo encolar snapshot: %s",
+                exc,
+            )
+    bus.set_on_subscribe(on_subscribe)
+    return lambda: None
+
+
+# ─────────────────────────────────────────────────────────────────────
+# 7. AppCache delta -> {type: "cache_changed", slot, ...}
+# ─────────────────────────────────────────────────────────────────────
+
+def make_cache_change_publisher(
+    bus: Any,
+    app_cache: Any,
+) -> Callable[[], None]:
+    """Cablea ``app_cache.on_change`` para emitir deltas ``cache_changed``.
+
+    Tras cada ``mutate/mutate_area`` el AppCache invoca el callback
+    con ``(slot, area_id, plc_name, value)``. Esta factory envuelve
+    esa llamada en un ``bus.publish`` broadcast, de modo que todos
+    los suscriptores del SSE reciben el delta y pueden parchear su
+    copia local del cache sin re-suscribirse.
+
+    Payload:
+        {"type": "cache_changed",
+         "slot":      <str>,
+         "area_id":   <str|None>,
+         "plc_name":  <str|None>,
+         "data":      <Any>}
+
+    Devuelve un callable ``no_op`` (no hay cleanup; el hook vive
+    en el AppCache mientras este viva).
+    """
+    def on_change(
+        slot: str,
+        area_id: str | None,
+        plc_name: str | None,
+        value: Any,
+    ) -> None:
+        bus.publish({
+            "type": "cache_changed",
+            "slot": slot,
+            "area_id": area_id,
+            "plc_name": plc_name,
+            "data": value,
+        })
+
+    app_cache.on_change(on_change)
+    return lambda: None
+
+
+# ─────────────────────────────────────────────────────────────────────
+# wire_all — cablea los publishers en una sola llamada
 # ─────────────────────────────────────────────────────────────────────
 
 def wire_all(
@@ -177,7 +263,7 @@ def wire_all(
     bus: Any,
     app_cache: Any | None = None,
 ) -> None:
-    """Conecta los 5 publishers al bus. Se llama una vez al arrancar.
+    """Conecta los 5+2 publishers al bus. Se llama una vez al arrancar.
 
     Si algun publisher no esta disponible (p. ej. tia_client sin
     on_state_change todavia), se loggea warning y sigue con los
@@ -186,7 +272,10 @@ def wire_all(
 
     ``app_cache`` se inyecta al publisher de ``tia_state`` para que
     lea la lista de PLCs y el proyecto del cache IT; el wrapper .NET
-    no se expone directamente al SSE.
+    no se expone directamente al SSE. Tambien cablea los 2 publishers
+    del AppCache (``cache_snapshot`` + ``cache_changed``) si
+    ``bus.set_on_subscribe`` y ``app_cache.on_change`` estan
+    disponibles.
     """
     # 1. LogBuffer
     if log_buffer is not None and hasattr(log_buffer, "_on_publish"):
@@ -256,7 +345,27 @@ def wire_all(
                     fb_name, exc,
                 )
 
-    logger.info("publishers: wire_all() completado (5 publishers).")
+    # 6. AppCache snapshot: enqueue el snapshot del AppCache en la
+    # cola del nuevo suscriptor al hacer subscribe(). Asi el frontend
+    # recibe el estado completo en cuanto abre el EventSource, sin
+    # esperar al primer delta.
+    if app_cache is not None and hasattr(bus, "set_on_subscribe"):
+        make_cache_snapshot_publisher(bus, app_cache)
+        logger.debug("publishers: cache_snapshot cableado.")
+    else:
+        logger.debug("publishers: bus sin set_on_subscribe o app_cache ausente; saltando cache_snapshot.")
+
+    # 7. AppCache delta: hookea app_cache.on_change de modo que cada
+    # mutate/mutate_area con ``slot=`` emita un evento cache_changed
+    # broadcast. Asi el frontend aplica parches incrementales sin
+    # re-suscribirse.
+    if app_cache is not None and hasattr(app_cache, "on_change"):
+        make_cache_change_publisher(bus, app_cache)
+        logger.debug("publishers: cache_changed cableado.")
+    else:
+        logger.debug("publishers: app_cache sin on_change; saltando cache_changed.")
+
+    logger.info("publishers: wire_all() completado.")
 
 
 __all__ = [
@@ -265,5 +374,7 @@ __all__ = [
     "make_tia_state_publisher",
     "make_fb_state_publisher",
     "make_tia_loop_status_publisher",
+    "make_cache_snapshot_publisher",
+    "make_cache_change_publisher",
     "wire_all",
 ]

@@ -89,11 +89,28 @@ export default {
         const isWorking = ref(false);
 
         /**
+         * ``excel_full`` reactivo desde el AppCache del area activa.
+         */
+        const excelFull = computed(
+            () => store.appCache?.areas?.alimentacion?.excel_full || null
+        );
+
+        /**
+         * ``preview_proc`` reactivo desde el AppCache del area activa.
+         * Equivalente al antiguo ``store.procesosSync.preview``.
+         * El backend lo reescribe via SSE ``cache_changed`` tras cada
+         * ``apiProcesosSyncPreview`` / ``apiProcesosSyncCommit``.
+         */
+        const previewProc = computed(
+            () => store.appCache?.areas?.alimentacion?.preview_proc || null
+        );
+
+        /**
          * Local view of the preview; sincronizado con
-         * ``store.procesosSync.preview`` cuando el proc_uid coincide.
+         * ``preview_proc`` del AppCache cuando el proc_uid coincide.
          */
         const preview = computed(() => {
-            const p = store.procesosSync && store.procesosSync.preview;
+            const p = previewProc.value;
             if (!p) return null;
             if (props.procUid == null) return null;
             if (p.proc_uid !== props.procUid) return null;
@@ -106,7 +123,7 @@ export default {
          * selector de proceso del padre.
          */
         const selectedProc = computed(() => {
-            const ms = store.memoryState;
+            const ms = excelFull.value;
             if (!ms || !Array.isArray(ms.procesos)) return null;
             if (props.procUid == null) return null;
             return ms.procesos.find(
@@ -306,7 +323,10 @@ export default {
                     plcName.value
                 );
                 if (r && r.ok) {
-                    store.procesosSync.preview = r.data;
+                    // El backend ya escribio ``preview_proc`` en el
+                    // AppCache y emitio ``cache_changed`` por SSE. La
+                    // reactividad de ``previewProc`` propaga el
+                    // cambio a la tabla.
                     if (r.data && r.data.precondiciones_ok) {
                         // preview OK: el backend emite logger.web si quiere
                         // que el operario lo vea en la consola.
@@ -354,29 +374,12 @@ export default {
                 if (r && r.ok) {
                     store.procesosSync.lastAppliedAt =
                         new Date().toISOString();
-                    // Tras un commit exitoso, el backend ya re-corre
-                    // el preview y lo devuelve en ``post_sync_preview``
-                    // (top level del result, mismo patron que
-                    // Dispositivos). Lo usamos para refrescar la
-                    // vista directamente: si el sync fue completo,
-                    // este preview mostrara 0 cambios (todo en sync).
-                    // Si por algun motivo no viene (raro: TIA
-                    // consolidando Tx B), hacemos fallback a llamar
-                    // al endpoint de preview manualmente.
-                    if (r.data && r.data.post_sync_preview) {
-                        store.procesosSync.preview = r.data.post_sync_preview;
-                    } else {
-                        // Fallback: re-llamar al preview endpoint.
-                        const rp = await apiProcesosSyncPreview(
-                            props.procUid,
-                            plcName.value,
-                        );
-                        if (rp && rp.ok) {
-                            store.procesosSync.preview = rp.data;
-                        } else if (rp && rp.errorType === "TIAConnectionError") {
-                            resetPlcState();
-                        }
-                    }
+                    // El backend ya re-corrio el preview, lo publico
+                    // en el AppCache y emitio ``cache_changed`` por
+                    // SSE. No necesitamos re-fetchear: la
+                    // reactividad de ``previewProc`` actualiza la
+                    // tabla. Si el sync fue completo, mostrara 0
+                    // cambios (todo en sync).
                 } else if (r && r.errorType === "TIAConnectionError") {
                     // TIA Portal cerro durante el commit. Limpiamos
                     // el state del PLC en el SPA (backend ya invalido
@@ -423,7 +426,16 @@ export default {
                     // Cambio de proceso: reset del estado del sync
                     // para que el operario tenga que regenerar el
                     // preview (si quiere) contra el nuevo proceso.
-                    store.procesosSync.preview = null;
+                    // ``preview_proc`` vive en el AppCache del area
+                    // (``store.appCache.areas["alimentacion"]
+                    // .preview_proc``); lo limpiamos ahi.
+                    if (
+                        store.appCache
+                        && store.appCache.areas
+                        && store.appCache.areas.alimentacion
+                    ) {
+                        store.appCache.areas.alimentacion.preview_proc = null;
+                    }
                     store.procesosSync.error = null;
                     // Reset de la pestaña activa a la primera, por
                     // consistencia visual.

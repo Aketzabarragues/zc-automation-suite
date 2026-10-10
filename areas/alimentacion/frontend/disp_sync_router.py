@@ -124,6 +124,22 @@ def post_disp_sync_commit():
         }), 500
 
     result = fb.result or {"ok": True, "plc_name": plc_name}
+    # Publica el resumen del commit en AppCache (slots
+    # last_disp_commit_summary + last_sync_disp_at) y refresca el
+    # preview post-sync si viene en la respuesta.
+    from core.runtime.area_preview_cache import (
+        area_set_disp_commit_summary,
+        area_set_preview_disp,
+    )
+    from core.runtime.app_cache import get_app_cache
+    app_cache = get_app_cache()
+    area_set_disp_commit_summary(app_cache, "alimentacion", result)
+    post_sync_preview = (
+        result.get("post_sync_preview")
+        if isinstance(result, dict) else None
+    )
+    if post_sync_preview is not None:
+        area_set_preview_disp(app_cache, "alimentacion", post_sync_preview)
     # Plan living §5 (operacion 5): OK con resumen del sync.
     # Operario decidio NO incluir compile=OK/ERR (lo mantiene el
     # errors/warnings automaticos si falla).
