@@ -402,13 +402,14 @@ def test_crear_aplicar_fb_rechaza_start_409(plantilla_dummy: Path) -> None:
 
 
 def test_crear_aplicar_sincroniza_selected_plc(plantilla_dummy: Path) -> None:
-    """El endpoint invoca ``with_plc`` con (app_state, plc_name) antes
-    del ``fb.start`` (D6 stateless: el FB
+    """El endpoint invoca ``with_plc`` con (app_state, plc_name, area_id)
+    antes del ``fb.start`` (D6 stateless: el FB
     ``function_proc_crear_sincronizar`` no recibe ``app_state`` por
     constructor, asi que el endpoint propaga ``selected_plc``).
     """
     from unittest.mock import patch
     from areas.alimentacion.frontend.proc_process_crear_router import bp
+    from areas.alimentacion._area_id import AREA_ID
 
     engine = MagicMock()
     fb_mock = _make_mock_fb(result={
@@ -437,7 +438,7 @@ def test_crear_aplicar_sincroniza_selected_plc(plantilla_dummy: Path) -> None:
 
     assert resp.status_code == 200
     with_plc_mock.assert_called_once_with(
-        app_state.app_cache, "S7-1500",
+        app_state.app_cache, "S7-1500", AREA_ID,
     )
 
 

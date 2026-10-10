@@ -1,13 +1,13 @@
 """Tests de los helpers ``core.helpers.tia.active_cache``.
 
 Cubre los 4 helpers publicos:
-  - ``get_devices(state, hw)``
-  - ``get_nmax(state)``
-  - ``get_nmax_entidades(state)``
-  - ``get_entidades(state, plc_name)``
+  - ``get_devices(state, hw, area_id)``
+  - ``get_nmax(state, area_id)``
+  - ``get_nmax_entidades(state, area_id)``
+  - ``get_entidades(state, plc_name, area_id)``
 
 Los helpers leen de ``state.app_cache`` via ``excel_get_active``
-(area ``"alimentacion"``).
+sobre el ``area_id`` que el caller pasa.
 """
 from __future__ import annotations
 
@@ -84,20 +84,20 @@ def test_get_devices_happy_path():
     """Happy path: 1 hw con 3 devices."""
     devs = (object(), object(), object())
     state = _make_state(_make_active(dispositivos={"ed": devs}))
-    assert get_devices(state, "ed") == list(devs)
+    assert get_devices(state, "ed", "alimentacion") == list(devs)
 
 
 def test_get_devices_hw_inexistente_devuelve_vacio():
     """Si el hw no esta en el cache, devuelve lista vacia."""
     state = _make_state(_make_active(dispositivos={"ed": (object(),)}))
-    assert get_devices(state, "ea") == []
+    assert get_devices(state, "ea", "alimentacion") == []
 
 
 def test_get_devices_cache_none_raise():
     """Sin cache activo, RuntimeError accionable."""
     state = _make_state(None)
     with pytest.raises(RuntimeError, match="Cargue primero el Excel"):
-        get_devices(state, "ed")
+        get_devices(state, "ed", "alimentacion")
 
 
 # ============================================================================
@@ -110,7 +110,7 @@ def test_get_nmax_un_plc_devuelve_extras():
     dim = _make_dim("PLC1", {"N_MAX_DISP_ED": 11, "N_MAX_DISP_EA": 7})
     state = _make_state(_make_active(por_plc=(dim,)))
 
-    assert get_nmax(state) == {"N_MAX_DISP_ED": 11, "N_MAX_DISP_EA": 7}
+    assert get_nmax(state, "alimentacion") == {"N_MAX_DISP_ED": 11, "N_MAX_DISP_EA": 7}
 
 
 def test_get_nmax_multi_plc_une_poblacion():
@@ -120,7 +120,7 @@ def test_get_nmax_multi_plc_une_poblacion():
     state = _make_state(_make_active(por_plc=(dim1, dim2)))
 
     # Primero gana en caso de colision.
-    assert get_nmax(state) == {"N_MAX_DISP_ED": 11, "N_MAX_DISP_EA": 7}
+    assert get_nmax(state, "alimentacion") == {"N_MAX_DISP_ED": 11, "N_MAX_DISP_EA": 7}
 
 
 def test_get_nmax_sin_nmax_field_raise():
@@ -130,7 +130,7 @@ def test_get_nmax_sin_nmax_field_raise():
     state = _make_state(active)
 
     with pytest.raises(RuntimeError, match="Excel sin Tabla_Dispositivos"):
-        get_nmax(state)
+        get_nmax(state, "alimentacion")
 
 
 # ============================================================================
@@ -143,7 +143,7 @@ def test_get_nmax_entidades_un_plc_devuelve_entidades():
     dim = _make_dim("PLC1", {"N_MAX_DISP_ED": 11}, n_max_entidades=10)
     state = _make_state(_make_active(por_plc=(dim,)))
 
-    assert get_nmax_entidades(state) == {"N_MAX_ENTIDAD": 10}
+    assert get_nmax_entidades(state, "alimentacion") == {"N_MAX_ENTIDAD": 10}
 
 
 def test_get_nmax_entidades_multi_plc_toma_primero():
@@ -152,14 +152,14 @@ def test_get_nmax_entidades_multi_plc_toma_primero():
     dim2 = _make_dim("PLC2", extras={}, n_max_entidades=20)
     state = _make_state(_make_active(por_plc=(dim1, dim2)))
 
-    assert get_nmax_entidades(state) == {"N_MAX_ENTIDAD": 10}
+    assert get_nmax_entidades(state, "alimentacion") == {"N_MAX_ENTIDAD": 10}
 
 
 def test_get_nmax_entidades_por_plc_vacio_devuelve_vacio():
     """por_plc vacio (PLC sin fila en Tabla_Dimensiones): ``{}``."""
     state = _make_state(_make_active(por_plc=()))
 
-    assert get_nmax_entidades(state) == {}
+    assert get_nmax_entidades(state, "alimentacion") == {}
 
 
 def test_get_nmax_entidades_cache_sin_nmax_devuelve_vacio():
@@ -168,14 +168,14 @@ def test_get_nmax_entidades_cache_sin_nmax_devuelve_vacio():
     active = _dc.replace(_make_active(), n_max=None)
     state = _make_state(active)
 
-    assert get_nmax_entidades(state) == {}
+    assert get_nmax_entidades(state, "alimentacion") == {}
 
 
 def test_get_nmax_entidades_cache_none_raise():
     """Sin cache activo, RuntimeError accionable."""
     state = _make_state(None)
     with pytest.raises(RuntimeError, match="Cargue primero el Excel"):
-        get_nmax_entidades(state)
+        get_nmax_entidades(state, "alimentacion")
 
 
 # ============================================================================
@@ -190,13 +190,13 @@ def test_get_entidades_filtra_por_plc_name():
     e3 = SimpleNamespace(plc_name="PLC1")
     state = _make_state(_make_active(entidades=(e1, e2, e3)))
 
-    assert get_entidades(state, "PLC1") == [e1, e3]
-    assert get_entidades(state, "PLC2") == [e2]
-    assert get_entidades(state, "PLC_NOPE") == []
+    assert get_entidades(state, "PLC1", "alimentacion") == [e1, e3]
+    assert get_entidades(state, "PLC2", "alimentacion") == [e2]
+    assert get_entidades(state, "PLC_NOPE", "alimentacion") == []
 
 
 def test_get_entidades_cache_none_raise():
     """Sin cache activo, RuntimeError accionable."""
     state = _make_state(None)
     with pytest.raises(RuntimeError, match="Cargue primero el Excel"):
-        get_entidades(state, "PLC1")
+        get_entidades(state, "PLC1", "alimentacion")

@@ -62,6 +62,7 @@ from core.helpers.tia.active_cache import get_devices, get_nmax
 
 
 from core.runtime.app_state import AppState, get_app_state
+from areas.alimentacion._area_id import AREA_ID
 from areas.alimentacion.helpers.layout.build_cache import DEFAULT_BUILD_CACHE_ROOT
 
 logger = logging.getLogger(__name__)
@@ -191,9 +192,9 @@ class FunctionDispSincronizar(FunctionBase):
         # Tabla_PLC del Excel, el cache activo quedaria vacio y el sync
         # atacaria TIA para borrar TODO. Fail-late con lista de PLCs
         # disponibles en el Excel.
-        validate_plc_in_excel(self._state, self._plc_name)
+        validate_plc_in_excel(self._state, self._plc_name, AREA_ID)
         # Propagar al AppState (defensa redundante con el endpoint).
-        with_plc(self._state.app_cache, self._plc_name)
+        with_plc(self._state.app_cache, self._plc_name, AREA_ID)
 
         # Crear el DispSyncContext que las 11 funciones iran mutando.
         # Lazy import para evitar ciclo con helpers/disp/.
@@ -396,7 +397,7 @@ class FunctionDispSincronizar(FunctionBase):
                 xml_path = (
                     self._ctx.tags_base / tia_folder / f"{cfg.tag_table}.xml"
                 )
-                devices = get_devices(self._ctx.app_state, hw)
+                devices = get_devices(self._ctx.app_state, hw, AREA_ID)
                 diff = compute_diff_table(
                     table_name=cfg.tag_table,
                     desired_devices=devices,
@@ -974,7 +975,7 @@ class FunctionDispSincronizar(FunctionBase):
                 cfg = cm.get_dispositivo_config(hw)
                 if cfg is None:
                     continue
-                devices = get_devices(state, hw)
+                devices = get_devices(state, hw, AREA_ID)
                 xml_path = preview_disp / f"{cfg.tag_table}.xml"
                 diff = compute_diff_table(
                     table_name=cfg.tag_table,
@@ -1025,7 +1026,7 @@ class FunctionDispSincronizar(FunctionBase):
                     })
 
             # 5/4. N_MAX (multi-PLC: del cache activo, ya filtrado por PLC).
-            desired_nmax = get_nmax(state)
+            desired_nmax = get_nmax(state, AREA_ID)
             nmax_diff = compute_nmax_diff(
                 table_name=nmax_table,
                 desired_nmax=desired_nmax,
@@ -1206,7 +1207,7 @@ def _compute_nmax_ops_for_apply(
             f"[N_MAX] XML esperado no encontrado (sync): {xml_path}"
         )
 
-    d = get_nmax(app_state)
+    d = get_nmax(app_state, AREA_ID)
     desired: dict[str, int] = {}
     for nmax_name in config_manager.list_nmax_active():
         v = d.get(nmax_name)

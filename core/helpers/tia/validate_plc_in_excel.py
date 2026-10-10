@@ -29,13 +29,14 @@ from core.runtime.excel_cache import excel_get_full
 _logger = logging.getLogger(__name__)
 
 
-def validate_plc_in_excel(state: Any, plc_name: str) -> None:
+def validate_plc_in_excel(state: Any, plc_name: str, area_id: str) -> None:
     """Valida que ``plc_name`` esta en la ``Tabla_PLC`` del Excel cargado.
 
     Args:
         state: objeto con ``app_cache`` (tipicamente ``AppState``).
             Tambien acepta un ``AppCache`` directo (legacy callers).
         plc_name: nombre del PLC (strict equality, D11).
+        area_id: area del cache a leer. Obligatorio.
 
     Raises:
         ValueError: si no hay Excel cargado, si ``plc_name`` esta
@@ -53,7 +54,7 @@ def validate_plc_in_excel(state: Any, plc_name: str) -> None:
         raise ValueError(
             "validate_plc_in_excel: state no expone app_cache"
         )
-    cache = excel_get_full(app_cache, "alimentacion")
+    cache = excel_get_full(app_cache, area_id)
     if cache is None:
         raise ValueError(
             "No hay Excel cargado. Sube primero el archivo con "

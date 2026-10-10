@@ -70,6 +70,7 @@ from core.helpers.tia.validate_plc_in_excel import validate_plc_in_excel
 from core.helpers.tia.validate_plc_in_tia import validate_plc_in_tia
 from core.helpers.tia.with_plc import with_plc
 from core.runtime.app_state import AppState, get_app_state
+from areas.alimentacion._area_id import AREA_ID
 from areas.alimentacion.helpers.layout.build_cache import DEFAULT_BUILD_CACHE_ROOT
 
 logger = logging.getLogger(__name__)
@@ -187,9 +188,9 @@ class FunctionEntidadesSincronizar(FunctionBase):
         # Validar contra TIA Portal (fail-late).
         validate_plc_in_tia(self._tia_client, self._plc_name)
         # Validar contra el Excel cargado.
-        validate_plc_in_excel(self._state, self._plc_name)
+        validate_plc_in_excel(self._state, self._plc_name, AREA_ID)
         # Propagar al AppState.
-        with_plc(self._state.app_cache, self._plc_name)
+        with_plc(self._state.app_cache, self._plc_name, AREA_ID)
 
         # Crear el EntidadesSyncContext que las 11 funciones iran mutando.
         self._ctx = EntidadesSyncContext(
@@ -389,7 +390,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
             compute_nmax_diff_entidades,
         )
 
-        desired = get_entidades(self._ctx.app_state, self._ctx.plc_name)
+        desired = get_entidades(self._ctx.app_state, self._ctx.plc_name, AREA_ID)
         # Stage 1 exporta con keep_folder_structure=True, asi que
         # los XML viven en subcarpeta TIA dentro de export/.
         tia_folder_tags = (
@@ -419,7 +420,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
         def _compute_nmax() -> Any:
             return compute_nmax_diff_entidades(
                 table_name=self._ctx.config_table,
-                desired_nmax=get_nmax_entidades(self._ctx.app_state),
+                desired_nmax=get_nmax_entidades(self._ctx.app_state, AREA_ID),
                 xml_path=config_xml,
             )
 
@@ -1250,7 +1251,7 @@ async def _stage_11_post_preview(self) -> None:
         DiffEntities,
     )
 
-    desired = get_entidades(self._ctx.app_state, self._ctx.plc_name)
+    desired = get_entidades(self._ctx.app_state, self._ctx.plc_name, AREA_ID)
     variables_xml = ent_ctx.preview_disp / f"{self._ctx.tag_table}.xml"
     config_xml = ent_ctx.preview_disp / f"{self._ctx.config_table}.xml"
     from core.infrastructure.tia.tia_export_paths import SdPair
@@ -1266,7 +1267,7 @@ async def _stage_11_post_preview(self) -> None:
         )
         nmax = compute_nmax_diff_entidades(
             table_name=self._ctx.config_table,
-            desired_nmax=get_nmax_entidades(self._ctx.app_state),
+            desired_nmax=get_nmax_entidades(self._ctx.app_state, AREA_ID),
             xml_path=config_xml,
         )
         diff_com = compute_comments_diff(

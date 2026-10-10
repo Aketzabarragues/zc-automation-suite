@@ -2,7 +2,7 @@
 
 Contrato que fija este test (commit 4a, feature/app-cache-unico):
 
-  ``with_plc(app_cache: AppCache, plc_name: str, area_id: str = "alimentacion")``
+  ``with_plc(app_cache: AppCache, plc_name: str, area_id: str)``
   espera que el primer argumento sea un ``AppCache`` (con ``.get_state()``
   y ``.mutate()``).
 
@@ -174,7 +174,7 @@ def test_on_start_pasa_appcache_a_with_plc(
 def test_with_plc_real_ejecuta_sin_error(app_cache: AppCache) -> None:
     """Smoke test del helper ``with_plc`` con un AppCache real.
 
-    Confirma que la firma ``with_plc(app_cache, plc_name)`` funciona
+    Confirma que la firma ``with_plc(app_cache, plc_name, area_id)`` funciona
     con el AppCache real (no MagicMock). Si este test pasa y los
     6 tests parametrizados fallan con el bug reintroducido, sabemos
     que el problema es de wiring del FB (pasa ``self._state`` en vez
@@ -185,6 +185,6 @@ def test_with_plc_real_ejecuta_sin_error(app_cache: AppCache) -> None:
     excel_set_full(app_cache, "alimentacion", _make_excel_cache_with_plc("S7-1500"))
 
     # No debe lanzar.
-    with_plc(app_cache, "S7-1500")
+    with_plc(app_cache, "S7-1500", "alimentacion")
 
     assert app_cache.get_state().selected_plc == "S7-1500"

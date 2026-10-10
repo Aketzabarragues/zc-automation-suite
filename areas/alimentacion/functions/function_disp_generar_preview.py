@@ -52,6 +52,7 @@ from core.helpers.tia.validate_plc_in_excel import validate_plc_in_excel
 from core.helpers.tia.with_plc import with_plc
 from core.helpers.tia.active_cache import get_devices, get_nmax
 from core.runtime.app_state import AppState, get_app_state
+from areas.alimentacion._area_id import AREA_ID
 from areas.alimentacion.helpers.layout.build_cache import DEFAULT_BUILD_CACHE_ROOT
 
 logger = logging.getLogger(__name__)
@@ -156,9 +157,9 @@ class FunctionDispGenerarPreview(FunctionBase):
         # Validar contra TIA Portal (fail-late, PR5 D4/D11).
         validate_plc_in_tia(self._tia_client, self._plc_name)
         # Validar contra el Excel cargado (sept-2026 multi-PLC).
-        validate_plc_in_excel(self._state, self._plc_name)
+        validate_plc_in_excel(self._state, self._plc_name, AREA_ID)
         # Propagar al AppState (defensa redundante con el endpoint).
-        with_plc(self._state.app_cache, self._plc_name)
+        with_plc(self._state.app_cache, self._plc_name, AREA_ID)
 
         # Crear el DispPreviewContext que las 4 funciones iran mutando.
         # Lazy import para evitar ciclo con helpers/sync/.
@@ -362,7 +363,7 @@ class FunctionDispGenerarPreview(FunctionBase):
                     continue
                 table_name = cfg.tag_table
                 xml_path = self._ctx.tags_base / f"{table_name}.xml"
-                devices = get_devices(self._ctx.app_state, hw)
+                devices = get_devices(self._ctx.app_state, hw, AREA_ID)
                 diff = compute_diff_table(
                     table_name=table_name,
                     desired_devices=devices,
@@ -405,7 +406,7 @@ class FunctionDispGenerarPreview(FunctionBase):
         )
 
         # Multi-PLC: N_MAX del PLC activo (ya filtrado en cache_active).
-        desired_nmax = get_nmax(self._ctx.app_state)
+        desired_nmax = get_nmax(self._ctx.app_state, AREA_ID)
 
         nmax_table_name = self._ctx.config_manager.get_global_config_table_name()
         xml_path = self._ctx.preview_config_dir / f"{nmax_table_name}.xml"

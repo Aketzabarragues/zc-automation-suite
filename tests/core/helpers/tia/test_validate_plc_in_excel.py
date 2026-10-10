@@ -60,7 +60,7 @@ def test_plc_name_vacio_lanza_value_error():
     """plc_name='' -> ValueError claro."""
     state = _make_state(plcs=("PLC1",))
     with pytest.raises(ValueError, match="plc_name vacio"):
-        validate_plc_in_excel(state, "")
+        validate_plc_in_excel(state, "", "alimentacion")
 
 
 def _make_app_cache_with_alim() -> AppCache:
@@ -75,7 +75,7 @@ def test_sin_excel_lanzado_lanza_value_error():
     """Si excel completo es None -> ValueError claro."""
     state = _make_state(plcs=None)
     with pytest.raises(ValueError, match="No hay Excel cargado"):
-        validate_plc_in_excel(state, "PLC1")
+        validate_plc_in_excel(state, "PLC1", "alimentacion")
 
 
 def test_plc_en_excel_ok():
@@ -84,8 +84,8 @@ def test_plc_en_excel_ok():
         _FakePLC(plc="PLC1", uid=0),
         _FakePLC(plc="PLC2", uid=1),
     ))
-    validate_plc_in_excel(state, "PLC1")
-    validate_plc_in_excel(state, "PLC2")
+    validate_plc_in_excel(state, "PLC1", "alimentacion")
+    validate_plc_in_excel(state, "PLC2", "alimentacion")
 
 
 def test_plc_no_en_excel_lanza_value_error():
@@ -95,7 +95,7 @@ def test_plc_no_en_excel_lanza_value_error():
         _FakePLC(plc="PLC2", uid=1),
     ))
     with pytest.raises(ValueError) as exc_info:
-        validate_plc_in_excel(state, "PLC_FANTASMA")
+        validate_plc_in_excel(state, "PLC_FANTASMA", "alimentacion")
     msg = str(exc_info.value)
     assert "PLC_FANTASMA" in msg
     assert "PLC1" in msg
@@ -107,14 +107,14 @@ def test_strict_equality_no_normaliza():
     """Strict equality (D11): 'plc1' != 'PLC1'."""
     state = _make_state(plcs=(_FakePLC(plc="PLC1", uid=0),))
     with pytest.raises(ValueError, match="no esta en el Excel"):
-        validate_plc_in_excel(state, "plc1")
+        validate_plc_in_excel(state, "plc1", "alimentacion")
 
 
 def test_excel_con_plcs_vacias_lanza():
     """Excel con Tabla_PLC vacia -> cualquier plc_name falla."""
     state = _make_state(plcs=())
     with pytest.raises(ValueError, match=r"\[\]"):
-        validate_plc_in_excel(state, "PLC1")
+        validate_plc_in_excel(state, "PLC1", "alimentacion")
 
 
 def test_acepta_app_cache_directo():
@@ -123,4 +123,4 @@ def test_acepta_app_cache_directo():
     excel_set_full(cache, "alimentacion", _make_cache(
         (_FakePLC(plc="PLC1", uid=0),),
     ))
-    validate_plc_in_excel(cache, "PLC1")
+    validate_plc_in_excel(cache, "PLC1", "alimentacion")

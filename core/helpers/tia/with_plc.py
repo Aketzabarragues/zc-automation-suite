@@ -19,7 +19,7 @@ Uso:
     def commit():
         body = request.get_json()
         plc_name = body.get("plc_name", "")
-        with_plc(app_state.app_cache, plc_name)
+        with_plc(app_state.app_cache, plc_name, "alimentacion")
         fb = engine.syn_fb("disp_sincronizar")
         fb.start(plc_name=plc_name)
 """
@@ -42,7 +42,7 @@ _logger = logging.getLogger(__name__)
 def with_plc(
     app_cache: AppCache,
     plc_name: str,
-    area_id: str = "alimentacion",
+    area_id: str,
 ) -> None:
     """Setea el PLC activo y regenera el cache activo del area.
 
@@ -55,8 +55,8 @@ def with_plc(
             Si esta vacio, NO modifica ``selected_plc`` (mantiene el
             valor que ya estaba; el caller deberia asegurarse de pasar
             un plc_name valido).
-        area_id: area del cache a regenerar. Default ``"alimentacion"``
-            (compat minima con callers que solo tienen un area).
+        area_id: area del cache a regenerar. Obligatorio (el core no
+            conoce nombres de areas; el caller lo aporta).
     """
     if not plc_name:
         _logger.warning(

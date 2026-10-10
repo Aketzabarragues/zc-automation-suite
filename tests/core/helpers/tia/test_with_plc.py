@@ -1,6 +1,6 @@
 """Tests del helper ``with_plc`` (multi-PLC).
 
-``with_plc(app_cache, plc_name, area_id="alimentacion")``:
+``with_plc(app_cache, plc_name, area_id)``:
   - setea ``app_cache.selected_plc = plc_name``.
   - regenera ``excel_active`` del ``AreaCache`` de ``area_id`` filtrado
     por ese PLC.
@@ -60,7 +60,7 @@ def test_with_plc_setea_selected_plc_y_regenera_cache(app_cache: AppCache):
     """Caso feliz: setea selected_plc y regenera el cache activo."""
     excel_set_full(app_cache, "alimentacion", _make_full())
 
-    with_plc(app_cache, "PLC1")
+    with_plc(app_cache, "PLC1", "alimentacion")
 
     state = app_cache.get_state()
     assert state.selected_plc == "PLC1"
@@ -71,11 +71,11 @@ def test_with_plc_setea_selected_plc_y_regenera_cache(app_cache: AppCache):
 def test_with_plc_idempotente_si_mismo_plc(app_cache: AppCache):
     """Llamar dos veces con el mismo PLC no regenera el cache."""
     excel_set_full(app_cache, "alimentacion", _make_full())
-    with_plc(app_cache, "PLC1")
+    with_plc(app_cache, "PLC1", "alimentacion")
 
     # Capturar la instancia actual del cache activo.
     first = app_cache.area("alimentacion").excel_active
-    with_plc(app_cache, "PLC1")
+    with_plc(app_cache, "PLC1", "alimentacion")
     second = app_cache.area("alimentacion").excel_active
 
     # La misma instancia (no se regenera).
@@ -85,10 +85,10 @@ def test_with_plc_idempotente_si_mismo_plc(app_cache: AppCache):
 def test_with_plc_cambia_de_plc_regenera_cache(app_cache: AppCache):
     """Cambiar de PLC regenera el cache activo."""
     excel_set_full(app_cache, "alimentacion", _make_full())
-    with_plc(app_cache, "PLC1")
+    with_plc(app_cache, "PLC1", "alimentacion")
     first = app_cache.area("alimentacion").excel_active
 
-    with_plc(app_cache, "PLC2")
+    with_plc(app_cache, "PLC2", "alimentacion")
     second = app_cache.area("alimentacion").excel_active
 
     assert app_cache.get_state().selected_plc == "PLC2"
@@ -98,7 +98,7 @@ def test_with_plc_cambia_de_plc_regenera_cache(app_cache: AppCache):
 
 def test_with_plc_sin_full_no_regenera(app_cache: AppCache):
     """Si no hay cache completo, no regenera (no falla)."""
-    with_plc(app_cache, "PLC1")
+    with_plc(app_cache, "PLC1", "alimentacion")
     state = app_cache.get_state()
     assert state.selected_plc == "PLC1"
     assert app_cache.area("alimentacion").excel_active is None
@@ -107,9 +107,9 @@ def test_with_plc_sin_full_no_regenera(app_cache: AppCache):
 def test_with_plc_plc_vacio_no_modifica(app_cache: AppCache):
     """plc_name vacio: warning y return, sin tocar el estado."""
     excel_set_full(app_cache, "alimentacion", _make_full())
-    with_plc(app_cache, "PLC_PREV")
+    with_plc(app_cache, "PLC_PREV", "alimentacion")
 
-    with_plc(app_cache, "")
+    with_plc(app_cache, "", "alimentacion")
 
     state = app_cache.get_state()
     assert state.selected_plc == "PLC_PREV"

@@ -59,6 +59,7 @@ from core.helpers.tia.validate_plc_in_excel import validate_plc_in_excel
 from core.helpers.tia.validate_plc_in_tia import validate_plc_in_tia
 from core.helpers.tia.with_plc import with_plc
 from core.runtime.app_state import AppState, get_app_state
+from areas.alimentacion._area_id import AREA_ID
 from areas.alimentacion.helpers.layout.build_cache import DEFAULT_BUILD_CACHE_ROOT
 
 logger = logging.getLogger(__name__)
@@ -159,9 +160,9 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
         # Validar contra TIA Portal (fail-late).
         validate_plc_in_tia(self._tia_client, self._plc_name)
         # Validar contra el Excel cargado.
-        validate_plc_in_excel(self._state, self._plc_name)
+        validate_plc_in_excel(self._state, self._plc_name, AREA_ID)
         # Propagar al AppState (defensa redundante con el endpoint).
-        with_plc(self._state.app_cache, self._plc_name)
+        with_plc(self._state.app_cache, self._plc_name, AREA_ID)
 
         # Crear el EntidadesPreviewContext que las 5 funciones iran mutando.
         self._ctx = EntidadesPreviewContext(
@@ -344,7 +345,7 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
         # (campo separado de ``extras``: su entrada en ``n_max_catalog``
         # tiene ``hw_type=""`` y por eso ``get_nmax`` NO lo incluye).
         # Usamos el helper dedicado ``get_nmax_entidades``.
-        desired_nmax = get_nmax_entidades(self._ctx.app_state)
+        desired_nmax = get_nmax_entidades(self._ctx.app_state, AREA_ID)
 
         # El export bulk del Stage 1 copio AMBAS tablas a preview_disp/
         # (FLAT). El de 0_Config_Generales esta entre ellos.
@@ -377,7 +378,7 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
             compute_diff_entities,
         )
 
-        desired = get_entidades(self._ctx.app_state, self._ctx.plc_name)
+        desired = get_entidades(self._ctx.app_state, self._ctx.plc_name, AREA_ID)
         xml_path = self._ctx.preview_disp_dir / f"{self._ctx.tag_table}.xml"
 
         def _compute() -> Any:
@@ -410,7 +411,7 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
             compute_comments_diff,
         )
 
-        desired = get_entidades(self._ctx.app_state, self._ctx.plc_name)
+        desired = get_entidades(self._ctx.app_state, self._ctx.plc_name, AREA_ID)
 
         dcl_path = SdPair(self._ctx.preview_bloques_dir, self._ctx.db_name).dcl
         res_path = SdPair(self._ctx.preview_bloques_dir, self._ctx.db_name).res
