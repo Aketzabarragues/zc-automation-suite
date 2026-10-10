@@ -54,6 +54,9 @@ def test_state_starts_empty() -> None:
     assert state.plc_list == ()
     assert state.plc_user_constants == {}
     assert state.plc_project == {}
+    assert state.selected_plc == ""
+    assert state.excel_full_by_area == {}
+    assert state.excel_active_by_area == {}
 
 
 def test_mutate_replaces_state_atomically() -> None:

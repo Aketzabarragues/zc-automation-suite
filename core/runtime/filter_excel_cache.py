@@ -2,7 +2,8 @@
 
 Cuando el operario selecciona un PLC en la UI, el backend regenera
 una copia del cache del Excel con solo los datos de ese PLC. Esa
-copia (``state.excel_cache_active``) es la que los FB consumen.
+copia (``app_cache.excel_active_by_area[area_id]``) es la que los FB
+leen via ``excel_get_active``.
 
 Este helper puro, sin I/O ni estado mutable, realiza ese filtro.
 Si ``plc_name == ""`` (sin seleccion), devuelve el cache tal cual

@@ -46,12 +46,41 @@ def _make_config_manager() -> MagicMock:
 
 
 def _make_app_state(entidades: list | None = None, n_max_entidades: dict | None = None) -> AppState:
-    """Crea un AppState con entidades + N_MAX_ENTIDAD."""
-    state = MagicMock(spec=AppState)
-    state.excel_cache_active = MagicMock()
-    state.excel_cache_active.entidades = entidades or []
-    state.excel_cache_active.n_max = MagicMock()
-    state.excel_cache_active.n_max.por_plc = (MagicMock(extras=n_max_entidades or {}),)
+    """Crea un AppState con entidades + N_MAX_ENTIDAD.
+
+    El cache activo vive en ``app_cache.excel_active_by_area[
+    "alimentacion"]``. Lo inyectamos via ``excel_set_active``.
+    """
+    from core.runtime.excel_cache import excel_set_active
+    from types import MappingProxyType
+    from datetime import datetime, timezone
+
+    from core.data.data_excel_cache import DataExcelCache
+
+    state = AppState()
+    cache = DataExcelCache(
+        excel_path="/x.xlsx",
+        excel_mtime_ns=1,
+        parsed_at=datetime(2026, 9, 1, tzinfo=timezone.utc),
+        dispositivos={},
+        n_max=type("NMax", (), {
+            "por_plc": (
+                type("Dim", (), {"extras": n_max_entidades or {},
+                                 "n_max_entidades": 0})(),
+            ),
+            "to_api_dict": lambda self: {},
+        })(),
+        plcs=(),
+        procesos=(),
+        parametros_real=(),
+        parametros_int=(),
+        alarmas=(),
+        entidades=tuple(entidades) if entidades else (),
+        procesos_by_codigo=MappingProxyType({}),
+        parametros_real_by_codigo=MappingProxyType({}),
+        parametros_int_by_codigo=MappingProxyType({}),
+    )
+    excel_set_active(state.app_cache, "alimentacion", cache)
     return state
 
 

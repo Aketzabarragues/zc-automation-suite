@@ -28,6 +28,8 @@ from typing import Any
 
 from flask import Blueprint, current_app, jsonify
 
+from core.runtime.excel_cache import excel_get_full
+
 logger = logging.getLogger(__name__)
 
 bp = Blueprint(
@@ -38,8 +40,8 @@ bp = Blueprint(
 
 
 def _extract_software_from_cache(state: Any) -> dict[str, Any]:
-    """Extrae 4 dominios de software + entidades + plcs desde
-    ``excel_cache_full``.
+    """Extrae 4 dominios de software + entidades + plcs desde el cache
+    completo del area.
 
     Multi-PLC: la pagina "definicion programacion" recibe el cache
     COMPLETO (sin filtrar), no el cache activo. Asi el operario
@@ -59,7 +61,7 @@ def _extract_software_from_cache(state: Any) -> dict[str, Any]:
         "plcs": [],
         "software_parsers_implemented": False,
     }
-    cache = state.excel_cache_full
+    cache = excel_get_full(state.app_cache, "alimentacion")
     if cache is None:
         return empty
     try:
@@ -99,7 +101,7 @@ def state_dispositivos():
     state = _get_app_state()
     config_manager = _get_config_manager()
 
-    cache_full = state.excel_cache_full
+    cache_full = excel_get_full(state.app_cache, "alimentacion")
     cache_dispositivos: dict = (
         cache_full.dispositivos if cache_full is not None else {}
     )

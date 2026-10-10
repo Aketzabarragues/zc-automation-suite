@@ -352,9 +352,10 @@ def _patch_helper_fns(fb) -> Any:
     """
     from contextlib import ExitStack
     stack = ExitStack()
-    # ``with_plc`` requiere ``state.excel_cache_full`` real (dataclass
-    # frozen). En estos tests mockeamos el state entero (MagicMock),
-    # asi que parchamos el helper para evitar el path de filtro.
+    # ``with_plc`` opera sobre ``state.app_cache`` (dataclass frozen
+    # con ``excel_full_by_area``). En estos tests mockeamos el state
+    # entero (MagicMock), asi que parchamos el helper para evitar el
+    # path de filtro.
     stack.enter_context(
         patch(
             "areas.alimentacion.functions.function_proc_db_generar_preview"

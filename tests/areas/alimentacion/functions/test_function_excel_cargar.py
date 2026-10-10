@@ -37,14 +37,16 @@ def mock_config() -> MagicMock:
 
 
 @pytest.fixture
-def mock_state() -> MagicMock:
-    state = MagicMock(spec=AppState)
-    # ``MagicMock(spec=)`` no respeta los class-attribute defaults:
-    # expone atributos que son MagicMock (truthy) en lugar de ``""``.
-    # Seteamos ``selected_plc = ""`` para que ``filter_cache_by_plc``
-    # entre en la rama "sin filtro" y no intente ``dataclasses.replace``
-    # sobre el cache (que es MagicMock, no dataclass).
-    state.selected_plc = ""
+def mock_state() -> AppState:
+    """AppState real (no MagicMock): la nueva API escribe via
+    ``excel_set_full`` sobre ``app_cache``."""
+    state = AppState()
+    # ``selected_plc`` = "" -> filtro by_plc cae en rama "sin filtro".
+    state.app_cache.mutate(
+        lambda s: __import__("dataclasses", fromlist=["replace"]).replace(
+            s, selected_plc="",
+        ),
+    )
     return state
 
 
@@ -111,7 +113,7 @@ def mock_cache_cls() -> MagicMock:
 
 def make_fb(
     config_manager: ConfigManager | None,
-    state: MagicMock,
+    state: AppState,
     progress: ProgressTracker,
     log: MagicMock,
     loader_factory,
@@ -133,7 +135,7 @@ def make_fb(
 @pytest.mark.asyncio
 async def test_subir_excel_happy_path_3_ticks(
     mock_config: MagicMock,
-    mock_state: MagicMock,
+    mock_state: AppState,
     progress: ProgressTracker,
     mock_log: MagicMock,
     happy_loader_factory,
@@ -211,16 +213,20 @@ async def test_subir_excel_happy_path_3_ticks(
     finally:
         excel_cache_manager.ExcelCacheManager._cache = original_cache
 
-    # AppState: cache completo y activo seteados desde el fake_cache.
-    # Sin selected_plc previo, active == full.
-    assert mock_state.excel_path == "/fake/path.xlsx"
-    assert mock_state.excel_cache_full is fake_cache
-    assert mock_state.excel_cache_active is fake_cache
+    # AppState: cache completo y activo seteados desde el ``fake_cache``
+    # via ``excel_set_full`` + ``derive_excel_active``. ``excel_path``
+    # ya no vive en AppState: vive en el cache mismo.
+    from core.runtime.excel_cache import excel_get_active, excel_get_full
+    full = excel_get_full(mock_state.app_cache, "alimentacion")
+    active = excel_get_active(mock_state.app_cache, "alimentacion")
+    assert full is fake_cache
+    assert active is fake_cache
+    assert full.excel_path == "/fake/path.xlsx"
 
 
 @pytest.mark.asyncio
 async def test_subir_excel_sad_no_config(
-    mock_state: MagicMock,
+    mock_state: AppState,
     progress: ProgressTracker,
     mock_log: MagicMock,
 ) -> None:
@@ -257,7 +263,7 @@ async def test_subir_excel_sad_no_config(
 @pytest.mark.asyncio
 async def test_subir_excel_sad_parse_fails(
     mock_config: MagicMock,
-    mock_state: MagicMock,
+    mock_state: AppState,
     progress: ProgressTracker,
     mock_log: MagicMock,
 ) -> None:
@@ -298,7 +304,7 @@ async def test_subir_excel_sad_parse_fails(
 @pytest.mark.asyncio
 async def test_subir_excel_terminal_no_avanza_mas(
     mock_config: MagicMock,
-    mock_state: MagicMock,
+    mock_state: AppState,
     progress: ProgressTracker,
     mock_log: MagicMock,
     happy_loader_factory,

@@ -18,10 +18,10 @@ from datetime import datetime, timezone
 import pytest
 import pytest_asyncio
 
-from areas.alimentacion.data.data_excel_cache import (
+from core.data.data_excel_cache import (
     DataExcelCache,
-    DimensionesPLC,
 )
+from areas.alimentacion.data.data_dimensiones import DimensionesPLC
 from areas.alimentacion.helpers.excel.excel_cache_manager import ExcelCacheManager
 
 

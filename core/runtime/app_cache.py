@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from core.data.data_block_cache import DataBloqueCache
+from core.data.data_excel_cache import DataExcelCache
 from core.data.data_plc_info import PlcInfo, PlcProject
 
 
@@ -33,12 +34,14 @@ class _AppCacheState:
         default_factory=dict,
     )
     plc_project: dict[str, PlcProject] = field(default_factory=dict)
+    selected_plc: str = ""
 
-    # Capa 2: Datos per-area (keyed por area_id). Commit 1: vacio.
-    # El commit 3 (ExcelCacheManager per-area) los anade.
+    # Capa 2: Datos per-area (keyed por area_id).
+    excel_full_by_area: dict[str, DataExcelCache] = field(default_factory=dict)
+    excel_active_by_area: dict[str, DataExcelCache] = field(default_factory=dict)
 
     # Capa 3: Estado de operacion (transitorio, per-area + per-PLC).
-    # Commit 1: vacio. El commit 3 los anade.
+    # Commit 2: vacio. El commit 3 los anade.
 
 
 class AreaCacheProtocol(Protocol):

@@ -87,11 +87,17 @@ def _make_mock_app_state(proc_uid: int = 300) -> MagicMock:
     Multi-PLC: el endpoint ``crear_aplicar`` ahora valida
     ``plc_name in excel_cache_full.plcs`` antes de invocar el FB.
     Por defecto mockeamos un cache con PLCs ``["S7-1500"]``.
+
+    El router lee del ``app_cache`` via ``excel_get_full`` (area
+    ``"alimentacion"``).
     """
     state = MagicMock()
-    state.excel_cache_full = _make_mock_excel_cache_with_plcs(
+    cache = _make_mock_excel_cache_with_plcs(
         proc_uid=proc_uid, plc_names=("S7-1500",)
     )
+    state.app_cache.get_state.return_value.excel_full_by_area = {
+        "alimentacion": cache,
+    }
     return state
 
 
@@ -261,7 +267,7 @@ def test_crear_preview_sin_excel() -> None:
 
     engine = MagicMock()
     state = MagicMock()
-    state.excel_cache_full = None
+    state.app_cache.get_state.return_value.excel_full_by_area = {}
     cm = MagicMock()
     cm.get_plantillas_path.return_value = "C:/plantillas"
 
@@ -421,7 +427,9 @@ def test_crear_aplicar_sincroniza_selected_plc(plantilla_dummy: Path) -> None:
         })
 
     assert resp.status_code == 200
-    with_plc_mock.assert_called_once_with(app_state, "S7-1500")
+    with_plc_mock.assert_called_once_with(
+        app_state.app_cache, "S7-1500",
+    )
 
 
 def test_crear_preview_plc_blocks_cache_acepta_strings_y_dicts(

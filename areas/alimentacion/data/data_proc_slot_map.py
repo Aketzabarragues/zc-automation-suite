@@ -220,10 +220,9 @@ def proc_build_slot_maps(
     """Cruza Excel + DataBloqueCache + config para producir los slot maps.
 
     Raises:
-        RuntimeError: si ``app_state.excel_cache_active`` es ``None``
-                      o si ``proc_uid`` no esta en
-                      ``excel_cache_active.procesos``. Mensaje
-                      accionable: "Cargue primero el Excel con
+        RuntimeError: si el cache activo del area es ``None`` o si
+                      ``proc_uid`` no esta en ``cache.procesos``.
+                      Mensaje accionable: "Cargue primero el Excel con
                       POST /api/v1/excel/upload" o "El proceso
                       {uid} no esta en el Excel cargado".
 
@@ -244,11 +243,12 @@ def proc_build_slot_maps(
     ``missing_blocks`` se reconstruye desde ``table_present`` y
     ``db_missing`` para que el preview FB distinga bloque faltante.
     """
-    excel_cache = app_state.excel_cache_active
+    from core.runtime.excel_cache import excel_get_active
+    excel_cache = excel_get_active(app_state.app_cache, "alimentacion")
     if excel_cache is None:
         raise RuntimeError(
-            "excel_cache_active esta vacio. Cargue primero el Excel con "
-            "POST /api/v1/excel/upload."
+            "app_cache.excel_active_by_area['alimentacion'] esta vacio. "
+            "Cargue primero el Excel con POST /api/v1/excel/upload."
         )
 
     proc = None

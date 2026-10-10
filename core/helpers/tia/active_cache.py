@@ -2,10 +2,7 @@
 
 Los FB de alimentacion leen del ``excel_cache_active`` (cache ya
 filtrado por ``selected_plc`` en ``dump_cache_to_state`` /
-``with_plc``). Antes cada FB tenia sus propios helpers
-``_devices_from_active_cache`` / ``_nmax_from_active_cache``
-duplicados, con fallbacks "tests legacy" que ahora ya no aplican
-(el ``AppState`` limpio no expone atributos legacy).
+``with_plc``).
 
 Helpers publicos:
   - ``get_devices(state, hw)``: lista de devices del cache activo
@@ -20,23 +17,35 @@ Helpers publicos:
 Si el cache activo es ``None``, lanzan ``RuntimeError`` accionable.
 El caller es responsable de la precondicion (debe haber Excel
 cargado y PLC seleccionado).
+
+El ``state`` puede ser un ``AppState`` (compat legacy) o un objeto
+con ``app_cache``; la lectura va via ``excel_get_active`` sobre
+``app_cache`` con ``area_id="alimentacion"``.
 """
 from __future__ import annotations
 
 from typing import Any
 
+from core.runtime.excel_cache import excel_get_active
+
+
+def _resolve_active_cache(state: Any):
+    """Lee el cache activo del ``app_cache`` del state."""
+    app_cache = getattr(state, "app_cache", None)
+    if app_cache is None:
+        return None
+    return excel_get_active(app_cache, "alimentacion")
+
 
 def get_devices(state: Any, hw: str) -> list:
     """Devices del PLC activo para ``hw``.
 
-    Lee de ``state.excel_cache_active.dispositivos[hw]``. Cache
-    activo es el cache completo filtrado por ``selected_plc`` en
-    ``dump_cache_to_state`` / ``with_plc``.
+    Lee del cache activo del ``app_cache`` del ``state``.
 
     Raises:
-        RuntimeError: si ``state.excel_cache_active`` es ``None``.
+        RuntimeError: si el cache activo es ``None``.
     """
-    cache = state.excel_cache_active
+    cache = _resolve_active_cache(state)
     if cache is None:
         raise RuntimeError(
             "excel_cache_active es None. Cargue primero el Excel con "
@@ -54,10 +63,10 @@ def get_nmax(state: Any) -> dict[str, int]:
     (caso "sin filtro", varios PLCs en cache activo).
 
     Raises:
-        RuntimeError: si ``state.excel_cache_active`` es ``None``
-                      o si ``cache.n_max`` es ``None``.
+        RuntimeError: si el cache activo es ``None`` o si
+                      ``cache.n_max`` es ``None``.
     """
-    cache = state.excel_cache_active
+    cache = _resolve_active_cache(state)
     if cache is None:
         raise RuntimeError(
             "excel_cache_active es None. Cargue primero el Excel con "
@@ -100,9 +109,9 @@ def get_nmax_entidades(state: Any) -> dict[str, int]:
     TIA).
 
     Raises:
-        RuntimeError: si ``state.excel_cache_active`` es ``None``.
+        RuntimeError: si el cache activo es ``None``.
     """
-    cache = state.excel_cache_active
+    cache = _resolve_active_cache(state)
     if cache is None:
         raise RuntimeError(
             "excel_cache_active es None. Cargue primero el Excel con "
@@ -127,17 +136,17 @@ def get_entidades(state: Any, plc_name: str) -> list:
     del PLC activo.
 
     Args:
-        state: AppState (debe tener ``excel_cache_active``).
+        state: objeto con ``app_cache`` (típicamente ``AppState``).
         plc_name: nombre del PLC destino (e.g. ``"PLC_S1500"``).
 
     Raises:
-        RuntimeError: si ``state.excel_cache_active`` es ``None``.
+        RuntimeError: si el cache activo es ``None``.
 
     Returns:
         Lista de ``Entidad`` del PLC ``plc_name``. Si el PLC no
         tiene entidades, devuelve ``[]``.
     """
-    cache = state.excel_cache_active
+    cache = _resolve_active_cache(state)
     if cache is None:
         raise RuntimeError(
             "excel_cache_active es None. Cargue primero el Excel con "

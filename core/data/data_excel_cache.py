@@ -2,6 +2,12 @@
 
 Fuente de verdad unica que ``ExcelCacheManager`` cachea por proceso.
 ``frozen=True`` para que el cache sea inmutable entre lecturas.
+
+Las anotaciones referencian DTOs de ``areas.alimentacion.data.*`` que
+solo se evaluan en runtime si se instancia la clase con valores que
+necesiten la coercion. Con ``from __future__ import annotations``
+activo, las type hints son strings; no se importan en runtime para
+evitar ciclos (``areas/__init__`` -> ``core/data``).
 """
 from __future__ import annotations
 
@@ -9,15 +15,6 @@ import dataclasses
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Mapping
-
-from areas.alimentacion.data.data_alarmas import DataAlarmaPLC
-from areas.alimentacion.data.data_dispositivos import Dispositivo
-from areas.alimentacion.data.data_dimensiones import DimensionesPLC
-from areas.alimentacion.data.data_entidades import Entidad
-from areas.alimentacion.data.data_parametros_int import DataParamIntPLC
-from areas.alimentacion.data.data_parametros_real import DataParamRealPLC
-from areas.alimentacion.data.data_plc import DataPLC
-from areas.alimentacion.data.data_procesos import DataProcesoPLC
 
 
 @dataclass(frozen=True)

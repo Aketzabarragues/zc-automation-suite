@@ -700,13 +700,16 @@ class FunctionDispSincronizar(FunctionBase):
         """
         from areas.alimentacion.helpers.layout.build_cache import build_cache
         from areas.alimentacion.data.data_disp_slot_map import disp_build_slot_maps
+        from core.runtime.excel_cache import excel_get_active
 
         # ── 1. Validar AppState ──
-        cache_active = self._ctx.app_state.excel_cache_active
+        cache_active = excel_get_active(
+            self._ctx.app_state.app_cache, "alimentacion",
+        )
         if cache_active is None:
             raise RuntimeError(
-                "excel_cache_active es None. Cargue primero el Excel con "
-                "POST /api/v1/excel/upload."
+                "app_cache.excel_active_by_area['alimentacion'] es None. "
+                "Cargue primero el Excel con POST /api/v1/excel/upload."
             )
         has_devices = any(
             cache_active.dispositivos.get(hw) for hw in cache_active.dispositivos

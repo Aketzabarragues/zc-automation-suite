@@ -214,12 +214,20 @@ def _make_config_manager() -> MagicMock:
     return cfg
 
 
+def _make_state_with_active(active_cache) -> AppState:
+    """Construye un ``AppState`` con el cache activo del area seteado."""
+    from core.runtime.excel_cache import excel_set_active
+    state = AppState()
+    if active_cache is not None:
+        excel_set_active(state.app_cache, "alimentacion", active_cache)
+    return state
+
+
 def test_proc_build_slot_maps_happy_path():
     """Tabla + DB_PARAM + DB_ALM presentes: slot maps y nmax poblados."""
     from core.data.data_block_plc import DataBloquePLC
 
-    state = MagicMock(spec=AppState)
-    state.excel_cache_active = _make_excel_cache()
+    state = _make_state_with_active(_make_excel_cache())
     bloques = _make_bloques_cache(
         blocks_present={
             DataBloquePLC.normalize_name("DB100_CPR_PARAM"),
@@ -254,8 +262,7 @@ def test_proc_build_slot_maps_tabla_ausente():
     """Tabla del proceso no esta: slot maps y nmax vacios, table_present=False."""
     from core.data.data_block_plc import DataBloquePLC
 
-    state = MagicMock(spec=AppState)
-    state.excel_cache_active = _make_excel_cache()
+    state = _make_state_with_active(_make_excel_cache())
     bloques = _make_bloques_cache(
         blocks_present={
             DataBloquePLC.normalize_name("DB100_CPR_PARAM"),
@@ -281,8 +288,7 @@ def test_proc_build_slot_maps_solo_db_alm_ausente():
     """Tabla + DB_PARAM presentes, DB_ALM ausente: slot maps poblados, db_missing=[db_alm]."""
     from core.data.data_block_plc import DataBloquePLC
 
-    state = MagicMock(spec=AppState)
-    state.excel_cache_active = _make_excel_cache()
+    state = _make_state_with_active(_make_excel_cache())
     bloques = _make_bloques_cache(
         blocks_present={
             DataBloquePLC.normalize_name("DB100_CPR_PARAM"),  # solo DB_PARAM
@@ -311,8 +317,7 @@ def test_proc_build_slot_maps_solo_db_param_ausente():
     """Tabla + DB_ALM presentes, DB_PARAM ausente: simetrico al anterior."""
     from core.data.data_block_plc import DataBloquePLC
 
-    state = MagicMock(spec=AppState)
-    state.excel_cache_active = _make_excel_cache()
+    state = _make_state_with_active(_make_excel_cache())
     bloques = _make_bloques_cache(
         blocks_present={
             DataBloquePLC.normalize_name("DB100_CPR_ALM"),  # solo DB_ALM
@@ -335,8 +340,7 @@ def test_proc_build_slot_maps_ambos_dbs_ausentes_tabla_presente():
     """Tabla presente + 0 DBs: slot maps y nmax poblados, db_missing=[ambos]."""
     from core.data.data_block_plc import DataBloquePLC
 
-    state = MagicMock(spec=AppState)
-    state.excel_cache_active = _make_excel_cache()
+    state = _make_state_with_active(_make_excel_cache())
     bloques = _make_bloques_cache(
         blocks_present=set(),  # ni DB_PARAM ni DB_ALM
         tag_tables_present={
@@ -360,19 +364,17 @@ def test_proc_build_slot_maps_ambos_dbs_ausentes_tabla_presente():
 
 
 def test_proc_build_slot_maps_excel_no_cargado():
-    """Sin excel_cache_active: RuntimeError claro."""
-    state = MagicMock(spec=AppState)
-    state.excel_cache_active = None
+    """Sin cache activo: RuntimeError claro."""
+    state = _make_state_with_active(None)
     bloques = _make_bloques_cache(set(), set())
 
-    with pytest.raises(RuntimeError, match="excel_cache_active"):
+    with pytest.raises(RuntimeError, match="alimentacion"):
         proc_build_slot_maps(state, _make_config_manager(), 100, bloques)
 
 
 def test_proc_build_slot_maps_proc_uid_no_existe():
-    """proc_uid no esta en excel_cache_active.procesos: RuntimeError claro."""
-    state = MagicMock(spec=AppState)
-    state.excel_cache_active = _make_excel_cache()
+    """proc_uid no esta en cache.procesos: RuntimeError claro."""
+    state = _make_state_with_active(_make_excel_cache())
     bloques = _make_bloques_cache(set(), set())
 
     with pytest.raises(RuntimeError, match="uid=999"):

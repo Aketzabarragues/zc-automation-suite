@@ -3,8 +3,8 @@
 Funciones puras (sin estado, sin tracker, sin AppState):
   - ``parse_excel_to_cache``: lee el ``.xlsx`` y guarda el resultado
     en el ``ExcelCacheManager`` global.
-  - ``dump_cache_to_state``: volca el cache al ``AppState`` y devuelve
-    el ``summary`` con la shape legacy.
+  - ``dump_cache_to_state``: volca el cache al ``app_cache`` del area
+    ``"alimentacion"`` y devuelve el ``summary`` con la shape legacy.
 
 El FB ``FunctionExcelCargar`` orquesta las 2 funciones en 2 steps
 (``parsear_excel`` / ``volcar_appstate``) y emite los progress events
@@ -15,13 +15,17 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from areas.alimentacion.data.data_excel_cache import DataExcelCache
+from core.data.data_excel_cache import DataExcelCache
 from areas.alimentacion.helpers.excel.excel_cache_manager import (
     ExcelCacheManager,
 )
 from areas.alimentacion.helpers.excel.excel_loader import ExcelLoader
 from core.infrastructure.config.config_manager import ConfigManager
 from core.runtime.app_state import AppState
+from core.runtime.excel_cache import (
+    derive_excel_active,
+    excel_set_full,
+)
 
 
 async def parse_excel_to_cache(
@@ -56,7 +60,7 @@ def dump_cache_to_state(
     app_state: AppState,
     config_manager: ConfigManager,
 ) -> dict[str, Any]:
-    """Volca el cache al ``AppState`` y devuelve el ``summary`` legacy.
+    """Volca el cache al ``app_cache`` del area y devuelve el ``summary`` legacy.
 
     Args:
         cache: ``DataExcelCache`` parseado.
@@ -77,15 +81,19 @@ def dump_cache_to_state(
     # Cache COMPLETO (datos UI / "definicion programacion"). Siempre
     # sin filtrar; lo consume el endpoint ``/api/v1/state/dispositivos``
     # para mostrar TODO el Excel al operario.
-    app_state.excel_cache_full = cache
+    excel_set_full(app_state.app_cache, "alimentacion", cache)
     # Cache FILTRADO por selected_plc (datos que consumen los FB). Si
     # selected_plc == "" es identico al completo. Se regenera tambien
     # en cada ``with_plc()`` cuando cambia la seleccion.
-    from core.runtime.filter_excel_cache import filter_cache_by_plc
-    app_state.excel_cache_active = filter_cache_by_plc(
-        cache, app_state.selected_plc
+    derived = derive_excel_active(
+        app_state.app_cache, "alimentacion", app_state.app_cache.get_state().selected_plc,
     )
-    app_state.excel_path = cache.excel_path
+    if derived is not None:
+        from core.runtime.excel_cache import excel_set_active
+        excel_set_active(app_state.app_cache, "alimentacion", derived)
+    # ``excel_path`` ya no vive en AppState: el path esta en
+    # ``app_cache.excel_full_by_area["alimentacion"].excel_path`` si
+    # el caller lo necesita.
 
     # Summary con la shape legacy: ``{tipo_canonica: count}``.
     # Derivamos las claves canonicas desde el config_manager

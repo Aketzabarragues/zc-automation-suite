@@ -15,9 +15,12 @@ from core.web_server.app_flask import create_app
 @pytest.fixture
 def app_with_stubs():
     app_state = MagicMock()
-    app_state.excel_cache_full = None
-    app_state.excel_cache_active = None
-    app_state.selected_plc = ""
+    # ``AppState`` solo expone ``app_cache`` ahora. ``excel_cache_full``
+    # y ``excel_cache_active`` se leen via ``excel_get_full`` sobre
+    # ``app_cache`` (area ``"alimentacion"``).
+    app_state.app_cache.get_state.return_value.excel_full_by_area = {}
+    app_state.app_cache.get_state.return_value.excel_active_by_area = {}
+    app_state.app_cache.get_state.return_value.selected_plc = ""
 
     config_manager = MagicMock()
     config_manager.list_hw_types_active.return_value = []

@@ -37,7 +37,7 @@ import asyncio
 import logging
 from typing import ClassVar
 
-from areas.alimentacion.data.data_excel_cache import DataExcelCache
+from core.data.data_excel_cache import DataExcelCache
 
 
 _logger = logging.getLogger(__name__)

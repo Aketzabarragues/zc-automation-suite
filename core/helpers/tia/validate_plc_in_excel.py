@@ -1,9 +1,8 @@
 """Helper para validar que el PLC seleccionado de TIA existe en el Excel.
 
-Sept-2026 (multi-PLC, propuesta del operario): si el operario
-selecciona un PLC de TIA (vía ``PlcPanelView``) cuyo nombre no esta
-en la ``Tabla_PLC`` del Excel cargado, el ``excel_cache_active`` (ya
-filtrado por plc_name) queda vacio y el sync atacaria TIA para
+Si el operario selecciona un PLC de TIA (vía ``PlcPanelView``) cuyo
+nombre no esta en la ``Tabla_PLC`` del Excel cargado, el cache activo
+(ya filtrado por plc_name) queda vacio y el sync atacaria TIA para
 borrarlo TODO sin sentido.
 
 Este helper se invoca en ``on_start`` de cada FB (igual que
@@ -23,6 +22,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from core.runtime.app_cache import AppCache
+from core.runtime.excel_cache import excel_get_full
+
 
 _logger = logging.getLogger(__name__)
 
@@ -31,19 +33,27 @@ def validate_plc_in_excel(state: Any, plc_name: str) -> None:
     """Valida que ``plc_name`` esta en la ``Tabla_PLC`` del Excel cargado.
 
     Args:
-        state: instancia Singleton de AppState (o cualquier objeto con
-            atributo ``excel_cache_full`` de tipo ``DataExcelCache``).
+        state: objeto con ``app_cache`` (tipicamente ``AppState``).
+            Tambien acepta un ``AppCache`` directo (legacy callers).
         plc_name: nombre del PLC (strict equality, D11).
 
     Raises:
-        ValueError: si no hay Excel cargado, si ``plc_name`` esta vacio,
-            o si ``plc_name`` no esta en ``excel_cache_full.plcs``.
+        ValueError: si no hay Excel cargado, si ``plc_name`` esta
+            vacio, o si ``plc_name`` no esta en
+            ``cache.plcs``.
     """
     if not plc_name:
         raise ValueError(
             "validate_plc_in_excel: plc_name vacio"
         )
-    cache = getattr(state, "excel_cache_full", None)
+    app_cache: AppCache | None = getattr(state, "app_cache", None)
+    if app_cache is None and isinstance(state, AppCache):
+        app_cache = state
+    if app_cache is None:
+        raise ValueError(
+            "validate_plc_in_excel: state no expone app_cache"
+        )
+    cache = excel_get_full(app_cache, "alimentacion")
     if cache is None:
         raise ValueError(
             "No hay Excel cargado. Sube primero el archivo con "

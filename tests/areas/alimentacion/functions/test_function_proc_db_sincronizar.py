@@ -59,10 +59,8 @@ def patch_validate_plc_in_excel():
     """Mockea ``validate_plc_in_excel`` para los tests del FB que no
     quieren validar contra el Excel (solo validar la state machine).
 
-    Sept-2026: con el helper nuevo, los tests fallan si el
-    ``mock_app_state.excel_cache_full`` no tiene el PLC en
-    ``plcs``. Parcheamos el helper a no-op para que los tests se
-    enfoquen solo en la logica del FB.
+    Parcheamos el helper a no-op para que los tests se enfoquen solo
+    en la logica del FB.
     """
     with patch(
         "areas.alimentacion.functions.function_proc_db_sincronizar"
@@ -162,9 +160,10 @@ def _patch_helper_fns_except_stage_3(fb) -> ExitStack:
 
 def _patch_helper_fns(fb) -> ExitStack:
     stack = ExitStack()
-    # ``with_plc`` requiere ``state.excel_cache_full`` real (dataclass
-    # frozen). En estos tests mockeamos el state entero (MagicMock),
-    # asi que parchamos el helper para evitar el path de filtro.
+    # ``with_plc`` opera sobre ``state.app_cache`` (dataclass frozen
+    # con ``excel_full_by_area``). En estos tests mockeamos el state
+    # entero (MagicMock), asi que parchamos el helper para evitar el
+    # path de filtro.
     stack.enter_context(
         patch(
             "areas.alimentacion.functions.function_proc_db_sincronizar"
