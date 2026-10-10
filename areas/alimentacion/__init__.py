@@ -97,6 +97,17 @@ def _build_all_routers(app) -> None:
     build_entidades_routers(app)
 
 
+def _contributes_caches(app_cache) -> None:
+    """Registra el ``AlimentacionAreaCache`` del area en ``app_cache``.
+
+    Llamado por ``core.launcher.main_supervisor`` al arrancar la app.
+    Lazy import del dataclass para evitar ciclos en el discovery.
+    """
+    from areas.alimentacion.state.area_cache import AlimentacionAreaCache
+
+    app_cache.register_area("alimentacion", AlimentacionAreaCache())
+
+
 AREA_SPEC = AreaSpec(
     id=AREA_ID,
     label="Área de alimentación",
@@ -106,6 +117,7 @@ AREA_SPEC = AreaSpec(
     contributes_config_defaults=install_defaults,
     contributes_catalog=_build_alim_catalog_combined,
     contributes_frontend_manifest=build_manifest,
+    contributes_caches=_contributes_caches,
 )
 
 

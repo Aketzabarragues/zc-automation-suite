@@ -56,8 +56,10 @@ def _make_app_state(entidades: list | None = None, n_max_entidades: dict | None 
     from datetime import datetime, timezone
 
     from core.data.data_excel_cache import DataExcelCache
+    from areas.alimentacion.state.area_cache import AlimentacionAreaCache
 
     state = AppState()
+    state.app_cache.register_area("alimentacion", AlimentacionAreaCache())
     cache = DataExcelCache(
         excel_path="/x.xlsx",
         excel_mtime_ns=1,

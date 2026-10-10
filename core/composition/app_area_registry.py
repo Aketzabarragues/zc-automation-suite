@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any, Callable, TypedDict
 
 if TYPE_CHECKING:
     from core.infrastructure.config.config_manager import ConfigManager
+    from core.runtime.app_cache import AppCache
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,7 @@ class AreaSpec:
     contributes_frontend_manifest: Callable[[], "AreaFrontendManifest"] | None = None
     contributes_config_defaults: Callable[[dict], None] | None = None
     contributes_catalog: Callable[[Any], dict] | None = None
+    contributes_caches: Callable[["AppCache"], None] | None = None
 
 
 class AreaRegistry:

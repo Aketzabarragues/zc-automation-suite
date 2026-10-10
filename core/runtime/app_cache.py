@@ -6,7 +6,9 @@ No hay referencias a singletons externos: los datos viven dentro.
 
 Regla de actualizacion: el ``_state`` se REEMPLAZA entero atomicamente
 bajo ``self._lock``. Los lectores reciben siempre un snapshot consistente.
-El lock es re-entrante para casos como ``reset()`` anidados.
+Las areas registradas se REEMPLAZAN tambien atomicamente, llamando al
+metodo ``reset()`` del Protocol para producir una nueva instancia con
+defaults. El lock es re-entrante para casos como ``reset()`` anidados.
 
 Regla de inicializacion: las areas se registran en boot desde
 ``AreaSpec.contributes_caches``; viven en ``self._areas``, separado del
@@ -14,14 +16,28 @@ Regla de inicializacion: las areas se registran en boot desde
 """
 from __future__ import annotations
 
+import dataclasses
 import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from core.data.data_block_cache import DataBloqueCache
-from core.data.data_excel_cache import DataExcelCache
 from core.data.data_plc_info import PlcInfo, PlcProject
+
+
+@runtime_checkable
+class AreaCacheProtocol(Protocol):
+    """Contrato que cumple cada cache per-area.
+
+    ``reset`` retorna una NUEVA instancia con defaults. La sustitucion
+    atomica es responsabilidad de ``AppCache`` (bajo lock); este
+    metodo NO muta in-place.
+    """
+
+    def reset(self) -> "AreaCacheProtocol":
+        """Nueva instancia con todos los campos en default."""
+        ...
 
 
 @dataclass(frozen=True)
@@ -35,21 +51,6 @@ class _AppCacheState:
     )
     plc_project: dict[str, PlcProject] = field(default_factory=dict)
     selected_plc: str = ""
-
-    # Capa 2: Datos per-area (keyed por area_id).
-    excel_full_by_area: dict[str, DataExcelCache] = field(default_factory=dict)
-    excel_active_by_area: dict[str, DataExcelCache] = field(default_factory=dict)
-
-    # Capa 3: Estado de operacion (transitorio, per-area + per-PLC).
-    # Commit 2: vacio. El commit 3 los anade.
-
-
-class AreaCacheProtocol(Protocol):
-    """Contrato que cumple cada cache per-area."""
-
-    def reset(self) -> None:
-        """Limpia el estado interno del area."""
-        ...
 
 
 class AppCache:
@@ -74,11 +75,18 @@ class AppCache:
             self._state = fn(self._state)
 
     def reset(self) -> None:
-        """Limpia TODO el estado. Llamado al desconectar TIA o cambiar proyecto."""
+        """Limpia TODO el estado. Llamado al desconectar TIA o cambiar proyecto.
+
+        El ``_state`` se reemplaza entero. Cada area se reemplaza llamando
+        a su ``reset()`` del Protocol bajo el lock; las areas registradas
+        siguen apuntando al mismo ``area_id``.
+        """
         with self._lock:
             self._state = _AppCacheState()
-        for area in self._areas.values():
-            area.reset()
+            d = dict(self._areas)
+            for area_id in d:
+                d[area_id] = d[area_id].reset()
+            self._areas = d
 
     def register_area(
         self,
@@ -94,8 +102,34 @@ class AppCache:
             self._areas[area_id] = area_cache
 
     def area(self, area_id: str) -> AreaCacheProtocol:
-        """Devuelve el cache del area o ``KeyError``."""
-        return self._areas[area_id]
+        """Devuelve el cache del area o ``KeyError``.
+
+        El retorno es la instancia bajo lock; los lectores deben tratarla
+        como inmutable (los ``AreaCache`` son frozen dataclass).
+        """
+        with self._lock:
+            if area_id not in self._areas:
+                raise KeyError(area_id)
+            return self._areas[area_id]
+
+    def mutate_area(
+        self,
+        area_id: str,
+        fn: Callable[[AreaCacheProtocol], AreaCacheProtocol],
+    ) -> None:
+        """Aplica ``fn`` al area y reemplaza atomicamente.
+
+        ``fn`` recibe el area actual y DEBE retornar un reemplazo
+        (típicamente via ``dataclasses.replace(area, ...)``). La
+        sustituccion es atomica bajo ``self._lock``.
+        """
+        with self._lock:
+            if area_id not in self._areas:
+                raise KeyError(area_id)
+            current = self._areas[area_id]
+            d = dict(self._areas)
+            d[area_id] = fn(current)
+            self._areas = d
 
 
 _app_cache: AppCache | None = None

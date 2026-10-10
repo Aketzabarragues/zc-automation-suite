@@ -8,18 +8,23 @@ API:
       sobre el cache completo y devuelve el derivado.
 
 Las funciones operan sobre ``AppCache`` (no ``AppState``). Las areas
-llaman con su ``area_id`` para acceder a su cache per-area
-(``excel_full_by_area[area_id]``).
+llaman con su ``area_id`` para acceder a su cache per-area, expuesto
+como atributo del ``AreaCache`` correspondiente en
+``app_cache.area(area_id).excel_full`` / ``excel_active``.
 
-Los ``area_id`` admitidos son los declarados en ``AreaSpec`` (ej:
-``"alimentacion"``). ``excel_clear_*`` acepta ``area_id=None`` para
-borrar todos los entries (cabeza cuando el operario hace reset global).
+Los ``area_id`` admitidos son los declarados en ``AreaSpec``
+(``AlimentacionAreaCache`` para ``"alimentacion"``). Para mutaciones
+sobre areas que no registran un ``AreaCache`` (legado o tests de un
+solo caso), ``mutate_area`` lanza ``KeyError`` -- los callers pueden
+saltarse el area o registrarla antes.
+
+``excel_clear_*`` admite borrado total cuando ``area_id=None``:
+recorre todas las areas registradas y limpia los campos de Excel.
 """
 from __future__ import annotations
 
 import dataclasses
 import logging
-from collections.abc import Callable
 
 from core.data.data_excel_cache import DataExcelCache
 from core.runtime.app_cache import AppCache
@@ -33,8 +38,16 @@ def excel_get_full(
     app_cache: AppCache,
     area_id: str,
 ) -> DataExcelCache | None:
-    """Devuelve el cache completo del Excel para ``area_id`` o ``None``."""
-    return app_cache.get_state().excel_full_by_area.get(area_id)
+    """Devuelve el cache completo del Excel para ``area_id`` o ``None``.
+
+    ``None`` si el area no tiene un ``AreaCache`` registrado.
+    """
+    try:
+        area = app_cache.area(area_id)
+    except KeyError:
+        return None
+    excel_full = getattr(area, "excel_full", None)
+    return excel_full  # type: ignore[no-any-return]
 
 
 def excel_set_full(
@@ -44,14 +57,12 @@ def excel_set_full(
 ) -> None:
     """Almacena el cache completo del Excel para ``area_id``.
 
-    No invalida ``excel_active_by_area``: el caller decide cuando
-    rederivar el activo (normalmente ``with_plc`` al cambiar de PLC).
+    No invalida ``excel_active``: el caller decide cuando rederivar
+    el activo (normalmente ``with_plc`` al cambiar de PLC).
     """
-    def _mutate(state):
-        full = dict(state.excel_full_by_area)
-        full[area_id] = cache
-        return dataclasses.replace(state, excel_full_by_area=full)
-    app_cache.mutate(_mutate)
+    def _mutate(area):
+        return dataclasses.replace(area, excel_full=cache)
+    app_cache.mutate_area(area_id, _mutate)
 
 
 def excel_clear_full(
@@ -61,16 +72,28 @@ def excel_clear_full(
     """Limpia el cache completo del Excel.
 
     Args:
-        area_id: si se da, borra solo el de ese area. Si ``None``,
-            borra TODOS los caches completos de todas las areas.
+        area_id: si se da, limpia solo el de ese area. Si ``None``,
+            limpia TODOS los caches completos de todas las areas
+            registradas que tengan el atributo ``excel_full``.
     """
-    def _mutate(state):
-        if area_id is None:
-            return dataclasses.replace(state, excel_full_by_area={})
-        full = dict(state.excel_full_by_area)
-        full.pop(area_id, None)
-        return dataclasses.replace(state, excel_full_by_area=full)
-    app_cache.mutate(_mutate)
+    if area_id is not None:
+        try:
+            app_cache.mutate_area(
+                area_id,
+                lambda area: dataclasses.replace(area, excel_full=None),
+            )
+        except KeyError:
+            return
+        return
+
+    for registered_id in list(app_cache._areas):  # noqa: SLF001 (intentional)
+        try:
+            app_cache.mutate_area(
+                registered_id,
+                lambda area: dataclasses.replace(area, excel_full=None),
+            )
+        except KeyError:
+            continue
 
 
 def excel_get_active(
@@ -78,7 +101,12 @@ def excel_get_active(
     area_id: str,
 ) -> DataExcelCache | None:
     """Devuelve el cache activo (filtrado por PLC) o ``None``."""
-    return app_cache.get_state().excel_active_by_area.get(area_id)
+    try:
+        area = app_cache.area(area_id)
+    except KeyError:
+        return None
+    excel_active = getattr(area, "excel_active", None)
+    return excel_active  # type: ignore[no-any-return]
 
 
 def excel_set_active(
@@ -87,11 +115,9 @@ def excel_set_active(
     cache: DataExcelCache,
 ) -> None:
     """Almacena el cache activo (filtrado por PLC) para ``area_id``."""
-    def _mutate(state):
-        active = dict(state.excel_active_by_area)
-        active[area_id] = cache
-        return dataclasses.replace(state, excel_active_by_area=active)
-    app_cache.mutate(_mutate)
+    def _mutate(area):
+        return dataclasses.replace(area, excel_active=cache)
+    app_cache.mutate_area(area_id, _mutate)
 
 
 def excel_clear_active(
@@ -101,16 +127,28 @@ def excel_clear_active(
     """Limpia el cache activo.
 
     Args:
-        area_id: si se da, borra solo el de ese area. Si ``None``,
-            borra TODOS los caches activos de todas las areas.
+        area_id: si se da, limpia solo el de ese area. Si ``None``,
+            limpia TODOS los caches activos de todas las areas
+            registradas que tengan el atributo ``excel_active``.
     """
-    def _mutate(state):
-        if area_id is None:
-            return dataclasses.replace(state, excel_active_by_area={})
-        active = dict(state.excel_active_by_area)
-        active.pop(area_id, None)
-        return dataclasses.replace(state, excel_active_by_area=active)
-    app_cache.mutate(_mutate)
+    if area_id is not None:
+        try:
+            app_cache.mutate_area(
+                area_id,
+                lambda area: dataclasses.replace(area, excel_active=None),
+            )
+        except KeyError:
+            return
+        return
+
+    for registered_id in list(app_cache._areas):  # noqa: SLF001 (intentional)
+        try:
+            app_cache.mutate_area(
+                registered_id,
+                lambda area: dataclasses.replace(area, excel_active=None),
+            )
+        except KeyError:
+            continue
 
 
 def excel_needs_reload(

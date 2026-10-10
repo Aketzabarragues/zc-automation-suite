@@ -17,9 +17,12 @@ def app_with_stubs():
     app_state = MagicMock()
     # ``AppState`` solo expone ``app_cache`` ahora. ``excel_cache_full``
     # y ``excel_cache_active`` se leen via ``excel_get_full`` sobre
-    # ``app_cache`` (area ``"alimentacion"``).
-    app_state.app_cache.get_state.return_value.excel_full_by_area = {}
-    app_state.app_cache.get_state.return_value.excel_active_by_area = {}
+    # ``app_cache`` (area ``"alimentacion"``). Mockeamos el ``area()``
+    # para devolver un objeto con ``excel_full`` / ``excel_active`` ``None``.
+    area_mock = MagicMock()
+    area_mock.excel_full = None
+    area_mock.excel_active = None
+    app_state.app_cache.area.return_value = area_mock
     app_state.app_cache.get_state.return_value.selected_plc = ""
 
     config_manager = MagicMock()

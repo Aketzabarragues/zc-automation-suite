@@ -66,7 +66,10 @@ def _make_active(
 
 def _make_state(active: DataExcelCache | None) -> AppState:
     """Construye un ``AppState`` con cache activo inyectado."""
+    from areas.alimentacion.state.area_cache import AlimentacionAreaCache
+
     state = AppState()
+    state.app_cache.register_area("alimentacion", AlimentacionAreaCache())
     if active is not None:
         excel_set_active(state.app_cache, "alimentacion", active)
     return state

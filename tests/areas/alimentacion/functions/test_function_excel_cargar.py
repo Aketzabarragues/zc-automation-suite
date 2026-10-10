@@ -40,7 +40,10 @@ def mock_config() -> MagicMock:
 def mock_state() -> AppState:
     """AppState real (no MagicMock): la nueva API escribe via
     ``excel_set_full`` sobre ``app_cache``."""
+    from areas.alimentacion.state.area_cache import AlimentacionAreaCache
+
     state = AppState()
+    state.app_cache.register_area("alimentacion", AlimentacionAreaCache())
     # ``selected_plc`` = "" -> filtro by_plc cae en rama "sin filtro".
     state.app_cache.mutate(
         lambda s: __import__("dataclasses", fromlist=["replace"]).replace(

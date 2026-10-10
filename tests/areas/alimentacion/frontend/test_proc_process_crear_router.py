@@ -89,15 +89,19 @@ def _make_mock_app_state(proc_uid: int = 300) -> MagicMock:
     Por defecto mockeamos un cache con PLCs ``["S7-1500"]``.
 
     El router lee del ``app_cache`` via ``excel_get_full`` (area
-    ``"alimentacion"``).
+    ``"alimentacion"``). La nueva API vive en
+    ``app_cache.area("alimentacion").excel_full``.
     """
     state = MagicMock()
     cache = _make_mock_excel_cache_with_plcs(
         proc_uid=proc_uid, plc_names=("S7-1500",)
     )
-    state.app_cache.get_state.return_value.excel_full_by_area = {
-        "alimentacion": cache,
-    }
+    # Mockeamos el area cache: ``app_cache.area("alimentacion")``
+    # devuelve un objeto con atributo ``excel_full``.
+    area_mock = MagicMock()
+    area_mock.excel_full = cache
+    area_mock.excel_active = cache
+    state.app_cache.area.return_value = area_mock
     return state
 
 
@@ -267,7 +271,11 @@ def test_crear_preview_sin_excel() -> None:
 
     engine = MagicMock()
     state = MagicMock()
-    state.app_cache.get_state.return_value.excel_full_by_area = {}
+    # Mock del ``AreaCache`` con ``excel_full=None``.
+    area_mock = MagicMock()
+    area_mock.excel_full = None
+    area_mock.excel_active = None
+    state.app_cache.area.return_value = area_mock
     cm = MagicMock()
     cm.get_plantillas_path.return_value = "C:/plantillas"
 

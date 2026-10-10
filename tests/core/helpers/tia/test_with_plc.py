@@ -2,7 +2,8 @@
 
 ``with_plc(app_cache, plc_name, area_id="alimentacion")``:
   - setea ``app_cache.selected_plc = plc_name``.
-  - regenera ``excel_active_by_area[area_id]`` filtrado por ese PLC.
+  - regenera ``excel_active`` del ``AreaCache`` de ``area_id`` filtrado
+    por ese PLC.
   - es idempotente: si el PLC ya esta activo Y hay cache activo, no
     hace nada.
 
@@ -17,10 +18,19 @@ from types import MappingProxyType
 
 import pytest
 
+from areas.alimentacion.state.area_cache import AlimentacionAreaCache
 from core.data.data_excel_cache import DataExcelCache
 from core.helpers.tia.with_plc import with_plc
 from core.runtime.app_cache import AppCache
 from core.runtime.excel_cache import excel_set_full
+
+
+@pytest.fixture
+def app_cache() -> AppCache:
+    """AppCache con el area ``alimentacion`` registrada."""
+    cache = AppCache()
+    cache.register_area("alimentacion", AlimentacionAreaCache())
+    return cache
 
 
 def _make_full(path: str = "/x.xlsx") -> DataExcelCache:
@@ -46,67 +56,62 @@ class _NMaxStub:
         self.por_plc = por_plc
 
 
-def test_with_plc_setea_selected_plc_y_regenera_cache():
+def test_with_plc_setea_selected_plc_y_regenera_cache(app_cache: AppCache):
     """Caso feliz: setea selected_plc y regenera el cache activo."""
-    cache = AppCache()
-    excel_set_full(cache, "alimentacion", _make_full())
+    excel_set_full(app_cache, "alimentacion", _make_full())
 
-    with_plc(cache, "PLC1")
+    with_plc(app_cache, "PLC1")
 
-    state = cache.get_state()
+    state = app_cache.get_state()
     assert state.selected_plc == "PLC1"
-    active = state.excel_active_by_area["alimentacion"]
+    active = app_cache.area("alimentacion").excel_active
     assert active is not None
 
 
-def test_with_plc_idempotente_si_mismo_plc():
+def test_with_plc_idempotente_si_mismo_plc(app_cache: AppCache):
     """Llamar dos veces con el mismo PLC no regenera el cache."""
-    cache = AppCache()
-    excel_set_full(cache, "alimentacion", _make_full())
-    with_plc(cache, "PLC1")
+    excel_set_full(app_cache, "alimentacion", _make_full())
+    with_plc(app_cache, "PLC1")
 
     # Capturar la instancia actual del cache activo.
-    first = cache.get_state().excel_active_by_area["alimentacion"]
-    with_plc(cache, "PLC1")
-    second = cache.get_state().excel_active_by_area["alimentacion"]
+    first = app_cache.area("alimentacion").excel_active
+    with_plc(app_cache, "PLC1")
+    second = app_cache.area("alimentacion").excel_active
 
     # La misma instancia (no se regenera).
     assert first is second
 
 
-def test_with_plc_cambia_de_plc_regenera_cache():
+def test_with_plc_cambia_de_plc_regenera_cache(app_cache: AppCache):
     """Cambiar de PLC regenera el cache activo."""
-    cache = AppCache()
-    excel_set_full(cache, "alimentacion", _make_full())
-    with_plc(cache, "PLC1")
-    first = cache.get_state().excel_active_by_area["alimentacion"]
+    excel_set_full(app_cache, "alimentacion", _make_full())
+    with_plc(app_cache, "PLC1")
+    first = app_cache.area("alimentacion").excel_active
 
-    with_plc(cache, "PLC2")
-    second = cache.get_state().excel_active_by_area["alimentacion"]
+    with_plc(app_cache, "PLC2")
+    second = app_cache.area("alimentacion").excel_active
 
-    assert cache.get_state().selected_plc == "PLC2"
+    assert app_cache.get_state().selected_plc == "PLC2"
     # El cache activo se rederiva: instancia nueva.
     assert second is not first or second is None
 
 
-def test_with_plc_sin_full_no_regenera():
+def test_with_plc_sin_full_no_regenera(app_cache: AppCache):
     """Si no hay cache completo, no regenera (no falla)."""
-    cache = AppCache()
-    with_plc(cache, "PLC1")
-    state = cache.get_state()
+    with_plc(app_cache, "PLC1")
+    state = app_cache.get_state()
     assert state.selected_plc == "PLC1"
-    assert state.excel_active_by_area == {}
+    assert app_cache.area("alimentacion").excel_active is None
 
 
-def test_with_plc_plc_vacio_no_modifica():
+def test_with_plc_plc_vacio_no_modifica(app_cache: AppCache):
     """plc_name vacio: warning y return, sin tocar el estado."""
-    cache = AppCache()
-    excel_set_full(cache, "alimentacion", _make_full())
-    with_plc(cache, "PLC_PREV")
+    excel_set_full(app_cache, "alimentacion", _make_full())
+    with_plc(app_cache, "PLC_PREV")
 
-    with_plc(cache, "")
+    with_plc(app_cache, "")
 
-    state = cache.get_state()
+    state = app_cache.get_state()
     assert state.selected_plc == "PLC_PREV"
     # El cache activo queda intacto.
-    assert "alimentacion" in state.excel_active_by_area
+    assert app_cache.area("alimentacion").excel_active is not None

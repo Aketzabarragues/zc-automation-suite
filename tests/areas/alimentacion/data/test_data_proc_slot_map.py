@@ -217,7 +217,9 @@ def _make_config_manager() -> MagicMock:
 def _make_state_with_active(active_cache) -> AppState:
     """Construye un ``AppState`` con el cache activo del area seteado."""
     from core.runtime.excel_cache import excel_set_active
+    from areas.alimentacion.state.area_cache import AlimentacionAreaCache
     state = AppState()
+    state.app_cache.register_area("alimentacion", AlimentacionAreaCache())
     if active_cache is not None:
         excel_set_active(state.app_cache, "alimentacion", active_cache)
     return state

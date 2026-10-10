@@ -55,8 +55,6 @@ def test_state_starts_empty() -> None:
     assert state.plc_user_constants == {}
     assert state.plc_project == {}
     assert state.selected_plc == ""
-    assert state.excel_full_by_area == {}
-    assert state.excel_active_by_area == {}
 
 
 def test_mutate_replaces_state_atomically() -> None:
@@ -97,14 +95,15 @@ def test_get_state_returns_snapshot() -> None:
 
 
 def test_reset_clears_state_and_areas() -> None:
-    """``reset()`` limpia el estado y dispara ``reset()`` en cada area."""
+    """``reset()`` limpia el estado y reemplaza cada area con su ``reset()``."""
 
     class _FakeArea:
         def __init__(self) -> None:
             self.reset_called = False
 
-        def reset(self) -> None:
+        def reset(self) -> "_FakeArea":
             self.reset_called = True
+            return self
 
     cache = AppCache()
     fake = _FakeArea()
@@ -120,6 +119,87 @@ def test_reset_clears_state_and_areas() -> None:
 
     assert cache.get_state().plc_list == ()
     assert fake.reset_called is True
+
+
+def test_register_area_lanza_valueerror_si_duplicado() -> None:
+    """``register_area`` con mismo ``area_id`` -> ``ValueError``."""
+
+    class _Area:
+        def reset(self) -> "_Area":
+            return self
+
+    cache = AppCache()
+    cache.register_area("test", _Area())
+    with pytest.raises(ValueError, match="ya registrada"):
+        cache.register_area("test", _Area())
+
+
+def test_area_lanza_keyerror_si_no_existe() -> None:
+    """``area(area_id)`` retorna el area o ``KeyError``."""
+    cache = AppCache()
+    with pytest.raises(KeyError):
+        cache.area("nope")
+
+
+def test_area_retorna_el_objeto_registrado() -> None:
+    """``area(area_id)`` retorna el mismo objeto que se registro."""
+
+    class _Area:
+        def reset(self) -> "_Area":
+            return self
+
+    cache = AppCache()
+    fake = _Area()
+    cache.register_area("test", fake)
+    assert cache.area("test") is fake
+
+
+def test_mutate_area_reemplaza_atomicamente() -> None:
+    """``mutate_area`` aplica ``fn`` y reemplaza la instancia bajo lock."""
+
+    class _Area:
+        def __init__(self, value: int = 0) -> None:
+            self.value = value
+
+        def reset(self) -> "_Area":
+            return _Area()
+
+    cache = AppCache()
+    area = _Area(value=7)
+    cache.register_area("test", area)
+
+    def _incr(current: _Area) -> _Area:
+        return _Area(value=current.value + 3)
+
+    cache.mutate_area("test", _incr)
+
+    assert cache.area("test").value == 10
+
+
+def test_mutate_area_lanza_keyerror_si_no_existe() -> None:
+    """``mutate_area`` sobre area inexistente -> ``KeyError``."""
+
+    class _Area:
+        def reset(self) -> "_Area":
+            return self
+
+    cache = AppCache()
+    with pytest.raises(KeyError):
+        cache.mutate_area("nope", lambda a: a)
+
+
+def test_reset_no_pierde_las_areas_registradas() -> None:
+    """Tras ``reset()`` las areas siguen registradas (accesibles)."""
+
+    class _Area:
+        def reset(self) -> "_Area":
+            return _Area()
+
+    cache = AppCache()
+    cache.register_area("test", _Area())
+    cache.reset()
+    # ``area`` debe seguir accesible: el reset no la elimina.
+    assert cache.area("test") is not None
 
 
 def test_register_area_lanza_valueerror_si_duplicado() -> None:

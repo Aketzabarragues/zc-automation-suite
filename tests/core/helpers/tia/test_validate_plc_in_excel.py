@@ -47,7 +47,10 @@ def _make_cache(plcs: tuple) -> DataExcelCache:
 
 
 def _make_state(plcs: tuple | None = None) -> AppState:
+    from areas.alimentacion.state.area_cache import AlimentacionAreaCache
+
     state = AppState()
+    state.app_cache.register_area("alimentacion", AlimentacionAreaCache())
     if plcs is not None:
         excel_set_full(state.app_cache, "alimentacion", _make_cache(plcs))
     return state
@@ -58,6 +61,14 @@ def test_plc_name_vacio_lanza_value_error():
     state = _make_state(plcs=("PLC1",))
     with pytest.raises(ValueError, match="plc_name vacio"):
         validate_plc_in_excel(state, "")
+
+
+def _make_app_cache_with_alim() -> AppCache:
+    from areas.alimentacion.state.area_cache import AlimentacionAreaCache
+
+    cache = AppCache()
+    cache.register_area("alimentacion", AlimentacionAreaCache())
+    return cache
 
 
 def test_sin_excel_lanzado_lanza_value_error():
@@ -108,7 +119,7 @@ def test_excel_con_plcs_vacias_lanza():
 
 def test_acepta_app_cache_directo():
     """El helper tambien acepta un ``AppCache`` directo (legacy)."""
-    cache = AppCache()
+    cache = _make_app_cache_with_alim()
     excel_set_full(cache, "alimentacion", _make_cache(
         (_FakePLC(plc="PLC1", uid=0),),
     ))
