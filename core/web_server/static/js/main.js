@@ -56,8 +56,6 @@ const App = {
          * (POST /api/v1/excel/upload) y el resultado se publica via
          * SSE; no hace falta re-fetchear un endpoint "memory".
          */
-            }
-        }
         /**
          * Manejador del ``select`` emitido por ``Welcome``. El
          * ``Welcome`` ya validó que el área está ``available``.
@@ -158,6 +156,13 @@ const App = {
             store.selectedArea = "";
             store.currentView = "landing";
         }
+        /**
+         * Stub para el ``refresh`` emitido por sub-componentes
+         * (``DefinicionProgramacion``). El docstring al inicio de
+         * ``setup()`` documenta la logica completa que tendra este
+         * handler; mientras tanto devuelve undefined (no-op).
+         */
+        function refreshMemory() {}
         /**
          * Nombre del componente de la sub-vista activa para keys
          * del area (es decir, todo lo que NO es ``"plc"`` que es del
