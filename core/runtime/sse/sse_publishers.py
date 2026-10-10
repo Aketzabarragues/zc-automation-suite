@@ -29,6 +29,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
+from core.runtime.sse._serialize import to_jsonable
+
 logger = logging.getLogger(__name__)
 
 
@@ -139,7 +141,7 @@ def make_fb_state_publisher(bus: Any, engine: Any) -> Callable[[str, Any], None]
             "name": name,
             "nStep": fb.nStep,
             "is_terminal": fb.is_terminal(),
-            "result": fb.result,
+            "result": to_jsonable(fb.result),
             "error_msg": fb.error_msg,
         })
     return publish
@@ -244,7 +246,7 @@ def make_cache_change_publisher(
             "slot": slot,
             "area_id": area_id,
             "plc_name": plc_name,
-            "data": value,
+            "data": to_jsonable(value),
         })
 
     app_cache.on_change(on_change)
