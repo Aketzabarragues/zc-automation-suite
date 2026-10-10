@@ -110,6 +110,7 @@ def listar_plantillas():
             "base": data.get("base", 0),
             "codigo": data.get("codigo", ""),
             "nombre": data.get("nombre", ""),
+            "descripcion": str(data.get("descripcion", "") or ""),
             "minimos": data.get("minimos", {}),
         })
 

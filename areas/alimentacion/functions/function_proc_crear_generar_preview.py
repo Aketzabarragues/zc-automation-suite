@@ -48,7 +48,7 @@ Steps (7):
   - Leer manifiesto         -> proc_process_leer_manifest (inline)
   - Validar mínimos         -> proc_process_validar_minimos (inline)
   - Copiar a vista previa   -> proc_process_copiar_a_preview (inline)
-  - Construir diccionarios  -> proc_process_construir_diccionarios (inline)
+  - Construir diccionarios  -> proc_process_construir_diccionarios (helper compartido)
   - Detectar colisiones     -> proc_process_detectar_colisiones (inline)
   - Generar previstos       -> proc_process_generar_previstos (inline)
   - Componer respuesta      -> proc_process_done_summary (inline)
@@ -66,6 +66,9 @@ from typing import Any
 
 from core.composition.plc_function_base import FunctionBase
 from areas.alimentacion.helpers.layout.build_cache import DEFAULT_BUILD_CACHE_ROOT
+from areas.alimentacion.helpers.proc.proc_process_construir_diccionarios import (
+    proc_process_construir_diccionarios,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -104,14 +107,14 @@ class ManifestInvalido(ValueError):
 
 @dataclass
 class ProcProcessGenContext:
-    """Estado compartido entre los 7 stages del FB preview.
+    """Estado compartido entre los 8 stages del FB preview.
 
     Cada stage del FB muta uno o varios campos con el resultado de su
     trabajo. Los stages posteriores leen los resultados de los
     anteriores.
 
     El FB ``FunctionProcCrearGenerarPreview`` instancia uno y lo reusa
-    entre sus 7 ticks para que los resultados intermedios esten
+    entre sus 8 ticks para que los resultados intermedios esten
     disponibles para los stages posteriores.
     """
 
@@ -134,6 +137,15 @@ class ProcProcessGenContext:
     base_vieja: int = 0
     codigo_viejo: str = ""
     nombre_viejo: str = ""
+    descripcion: str = ""
+    dependencias: list[str] = field(default_factory=list)
+
+    # ── Resultado de validar_dependencias ──
+    # ``dependencias`` declaradas en el manifest cruzadas contra el
+    # ``plc_blocks_cache``. La SPA pinta en rojo las faltantes y
+    # bloquea el boton "Aplicar" si la lista no esta vacia.
+    dependencias_ok: list[str] = field(default_factory=list)
+    dependencias_faltantes: list[str] = field(default_factory=list)
 
     # ── Resultado de construir_diccionarios ──
     dicc_bloques: dict[str, str] = field(default_factory=dict)
@@ -187,8 +199,9 @@ class FunctionProcCrearGenerarPreview(FunctionBase):
         (3, "Copiar a vista previa",    "_stage_3_copiar_a_preview"),
         (4, "Construir diccionarios",   "_stage_4_construir_diccionarios"),
         (5, "Detectar colisiones",      "_stage_5_detectar_colisiones"),
-        (6, "Generar previstos",        "_stage_6_generar_previstos"),
-        (7, "Componer respuesta",       "_stage_7_build_response"),
+        (6, "Validar dependencias",     "_stage_6_validar_dependencias"),
+        (7, "Generar previstos",        "_stage_7_generar_previstos"),
+        (8, "Componer respuesta",       "_stage_8_build_response"),
     ]
 
     # ==================================================================
@@ -218,6 +231,7 @@ class FunctionProcCrearGenerarPreview(FunctionBase):
                 {"nombre": "Copiar a vista previa"},
                 {"nombre": "Construir diccionarios"},
                 {"nombre": "Detectar colisiones"},
+                {"nombre": "Validar dependencias"},
                 {"nombre": "Generar previstos"},
                 {"nombre": "Componer respuesta"},
             ],
@@ -237,7 +251,7 @@ class FunctionProcCrearGenerarPreview(FunctionBase):
         self._nombre_nuevo: str = ""
         self._minimos_usuario: dict[str, int] = {}
         self._plc_blocks_cache: list[dict[str, Any]] | None = None
-        # ProcProcessGenContext compartido entre los 7 ticks. Se
+        # ProcProcessGenContext compartido entre los 8 ticks. Se
         # reinicializa en cada on_start() para no arrastrar estado del
         # run anterior (el FB es re-arrancable).
         self._ctx: ProcProcessGenContext | None = None
@@ -432,12 +446,22 @@ class FunctionProcCrearGenerarPreview(FunctionBase):
         """Stage 5: detecta UIDs/colisiones contra el ``plc_blocks_cache``."""
         await proc_process_detectar_colisiones(self._ctx)
 
-    async def _stage_6_generar_previstos(self) -> None:
-        """Stage 6: aplica las reglas y genera ``archivos_previstos``."""
+    async def _stage_6_validar_dependencias(self) -> None:
+        """Stage 6: cruza ``ctx.dependencias`` contra ``plc_blocks_cache``.
+
+        Rellena ``ctx.dependencias_ok`` y ``ctx.dependencias_faltantes``.
+        La SPA pinta las faltantes en rojo y bloquea "Aplicar" si la
+        lista no esta vacia. Nunca aborta: el preview sigue aunque
+        falten dependencias (mensaje accionable en logs).
+        """
+        await proc_process_validar_dependencias(self._ctx)
+
+    async def _stage_7_generar_previstos(self) -> None:
+        """Stage 7: aplica las reglas y genera ``archivos_previstos``."""
         await proc_process_generar_previstos(self._ctx)
 
-    async def _stage_7_build_response(self) -> None:
-        """Stage 7: compone ``ctx.result`` con la shape final del preview."""
+    async def _stage_8_build_response(self) -> None:
+        """Stage 8: compone ``ctx.result`` con la shape final del preview."""
         await proc_process_done_summary(self._ctx)
 
 
@@ -468,11 +492,27 @@ async def proc_process_leer_manifest(ctx: ProcProcessGenContext) -> None:
         raise ManifestInvalido("manifest.json debe contener 'base' (int).")
     if "codigo" not in manifest or not str(manifest["codigo"]).strip():
         raise ManifestInvalido("manifest.json debe contener 'codigo' (str).")
+    if "descripcion" not in manifest or not str(manifest["descripcion"]).strip():
+        raise ManifestInvalido(
+            "manifest.json debe contener 'descripcion' (str no vacio). "
+            "Es obligatorio para mostrar la plantilla en la SPA."
+        )
+    if "dependencias" not in manifest or not isinstance(manifest["dependencias"], list):
+        raise ManifestInvalido(
+            "manifest.json debe contener 'dependencias' (list[str]). "
+            "Es obligatorio para validar bloques externos en el PLC."
+        )
+    if not all(isinstance(d, str) and d.strip() for d in manifest["dependencias"]):
+        raise ManifestInvalido(
+            "manifest.json 'dependencias' debe ser una lista de strings no vacios."
+        )
 
     ctx.manifest_plantilla = manifest
     ctx.base_vieja = int(manifest["base"])
     ctx.codigo_viejo = str(manifest["codigo"])
     ctx.nombre_viejo = str(manifest.get("nombre", "") or "")
+    ctx.descripcion = str(manifest["descripcion"]).strip()
+    ctx.dependencias = [str(d).strip() for d in manifest["dependencias"]]
 
 
 async def proc_process_validar_minimos(ctx: ProcProcessGenContext) -> None:
@@ -511,123 +551,6 @@ async def proc_process_copiar_a_preview(ctx: ProcProcessGenContext) -> None:
         ctx.dir_plantilla,
         ctx.dir_plantilla_copia,
         dirs_exist_ok=False,
-    )
-
-
-async def proc_process_construir_diccionarios(ctx: ProcProcessGenContext) -> None:
-    """Construye los diccionarios de renombrado.
-
-    Estrategia:
-      - Bloques: walk del directorio ``dir_plantilla_copia`` con un regex
-        matematico ``(FC|FB|DB)(\\d+)`` -> ``prefijo(num - base_vieja + base_nueva)``.
-        Renombra SOLO los prefijos canonicos TIA (FC/FB/DB).
-      - Carpetas: data-driven. Por cada carpeta con prefijo numerico
-        ``r"^(\\d+)_"`` se anade una regla ``{prefijo}_`` ->
-        ``{prefijo - base_vieja + base_nueva}_`` a ``dicc_bloques`` y
-        ``dicc_xml``. Cubre cualquier offset (las 3 bases
-        estandar del proyecto y las custom de la plantilla).
-      - Metadatos TIA: ``S7_BlockNumber := "X"`` de las cabeceras de
-        los bloques del proceso.
-      - Fallbacks: codigo y nombre del proceso (siempre).
-
-    Todo se ordena por ``len(key)`` descendente para que las claves
-    mas especificas (e.g. ``DB50500_CIP1_INTERFAZ``) ganen antes que
-    las del prefijo (``50500_``).
-    """
-    base_viej = ctx.base_vieja
-    base_nuev = ctx.base_nueva
-    cod_viej = ctx.codigo_viejo
-    cod_nuev = ctx.codigo_nuevo
-    nom_viej = ctx.nombre_viejo
-    nom_nuev = ctx.nombre_nuevo
-
-    dicc_bloques: dict[str, str] = {}
-    dicc_xml: dict[str, str] = {}
-    numeros_usados: set[int] = set()
-    prefijos_carpeta: set[int] = set()
-
-    patron_bloques = re.compile(r"(FC|FB|DB)(\d+)")
-    patron_prefijo_carpeta = re.compile(r"^(\d+)_")
-
-    def _walk_and_build() -> None:
-        bloques_raiz = ctx.dir_plantilla_copia / "Bloques de programa"
-        for item in ctx.dir_plantilla_copia.rglob("*"):
-            if not item.exists():
-                continue
-            nombre_base = item.stem if item.is_file() else item.name
-
-            if (
-                item.is_dir()
-                and bloques_raiz in item.parents
-                and item != bloques_raiz
-            ):
-                m_prefijo = patron_prefijo_carpeta.match(item.name)
-                if m_prefijo:
-                    prefijos_carpeta.add(int(m_prefijo.group(1)))
-
-            def _repl_bloque(m: re.Match[str]) -> str:
-                prefijo = m.group(1)
-                num_viejo = int(m.group(2))
-                num_nuevo = num_viejo - base_viej + base_nuev
-                return f"{prefijo}{num_nuevo}"
-
-            nuevo_nombre_base = patron_bloques.sub(_repl_bloque, nombre_base)
-
-            if cod_viej:
-                nuevo_nombre_base = nuevo_nombre_base.replace(cod_viej, cod_nuev)
-            if nom_viej and nom_nuev:
-                nuevo_nombre_base = nuevo_nombre_base.replace(nom_viej, nom_nuev)
-
-            if nombre_base != nuevo_nombre_base:
-                dicc_bloques[nombre_base] = nuevo_nombre_base
-
-            for match in patron_bloques.finditer(nombre_base):
-                numeros_usados.add(int(match.group(2)))
-
-    await asyncio.to_thread(_walk_and_build)
-
-    for prefijo_v in sorted(prefijos_carpeta):
-        prefijo_n = prefijo_v - base_viej + base_nuev
-        if prefijo_v == prefijo_n:
-            continue
-        regla_vieja = f"{prefijo_v}_"
-        regla_nueva = f"{prefijo_n}_"
-        dicc_xml[regla_vieja] = regla_nueva
-        dicc_bloques[regla_vieja] = regla_nueva
-
-    for b_vieja, b_nueva in zip(
-        [base_viej, base_viej + 3000, base_viej + 5000],
-        [base_nuev, base_nuev + 3000, base_nuev + 5000],
-    ):
-        regla_vieja = f"{b_vieja}_"
-        regla_nueva = f"{b_nueva}_"
-        dicc_xml.setdefault(regla_vieja, regla_nueva)
-        dicc_bloques.setdefault(regla_vieja, regla_nueva)
-
-    for num in numeros_usados:
-        nuevo_num = num - base_viej + base_nuev
-        dicc_bloques[f'S7_BlockNumber := "{num}"'] = (
-            f'S7_BlockNumber := "{nuevo_num}"'
-        )
-
-    if cod_viej:
-        dicc_xml[cod_viej] = cod_nuev
-        dicc_bloques[cod_viej] = cod_nuev
-    if nom_viej and nom_nuev:
-        dicc_xml[nom_viej] = nom_nuev
-        dicc_bloques[nom_viej] = nom_nuev
-
-    ctx.dicc_bloques = dict(
-        sorted(dicc_bloques.items(), key=lambda x: len(x[0]), reverse=True)
-    )
-    ctx.dicc_xml = dict(
-        sorted(dicc_xml.items(), key=lambda x: len(x[0]), reverse=True)
-    )
-
-    logger.debug(
-        f"[proc_process_construir_diccionarios] "
-        f"{len(ctx.dicc_bloques)} reglas bloques + "
-        f"{len(ctx.dicc_xml)} reglas XML."
     )
 
 
@@ -738,6 +661,63 @@ async def proc_process_detectar_colisiones(ctx: ProcProcessGenContext) -> None:
                 colisiones_vistas.add(val)
 
 
+async def proc_process_validar_dependencias(ctx: ProcProcessGenContext) -> None:
+    """Cruza ``ctx.dependencias`` contra ``plc_blocks_cache`` por nombre
+    exacto.
+
+    Cada dependencia declarada en el ``manifest.json`` debe coincidir
+    con el nombre de un bloque ya existente en el PLC (match case-
+    sensitive). Las que coinciden van a ``ctx.dependencias_ok``; las
+    que NO van a ``ctx.dependencias_faltantes``. La SPA pinta las
+    faltantes en rojo y bloquea el boton "Aplicar" cuando la lista
+    no esta vacia.
+
+    Match por nombre exacto y NO por prefijo+numero (distinto de
+    ``detectar_colisiones``): el operario declara bloques externos
+    que ya estan en el PLC con su nombre completo canonico TIA
+    (``DB1_SYS``, ``FC15151_ZC_MARCHA_PARO_SEC``...). TIA Portal
+    resuelve imports por nombre completo del bloque, no por tipo+num.
+
+    Comportamiento por estado del ctx:
+      - ``dependencias`` vacio: noop silencioso. Una plantilla sin
+        dependencias externas (caso raro) no requiere validacion.
+      - ``plc_blocks_cache is None``: emite warning con mensaje
+        accionable y rellena ``dependencias_faltantes`` con TODAS las
+        dependencias declaradas. Razon: el operario debe saber que el
+        portal no esta attached y "Aplicar" quedara bloqueado en la
+        SPA hasta que escanee el PLC.
+    """
+    if not ctx.dependencias:
+        return
+
+    if ctx.plc_blocks_cache is None:
+        logger.warning(
+            "[proc_process_validar_dependencias] "
+            "plc_blocks_cache=None; "
+            "todas las dependencias iran a 'faltantes'."
+        )
+        ctx.dependencias_ok = []
+        ctx.dependencias_faltantes = list(ctx.dependencias)
+        return
+
+    plc_nombres: set[str] = set()
+    for item in ctx.plc_blocks_cache:
+        if isinstance(item, dict):
+            nombre_raw = item.get("nombre")
+            if isinstance(nombre_raw, str) and nombre_raw:
+                plc_nombres.add(nombre_raw)
+        elif isinstance(item, str) and item:
+            plc_nombres.add(item)
+
+    ctx.dependencias_ok = []
+    ctx.dependencias_faltantes = []
+    for dep in ctx.dependencias:
+        if dep in plc_nombres:
+            ctx.dependencias_ok.append(dep)
+        else:
+            ctx.dependencias_faltantes.append(dep)
+
+
 async def proc_process_generar_previstos(ctx: ProcProcessGenContext) -> None:
     """Walk ``dir_plantilla_copia`` y construye la lista de BLOQUES
     que se generarian al aplicar la plantilla.
@@ -819,6 +799,9 @@ async def proc_process_done_summary(ctx: ProcProcessGenContext) -> dict[str, Any
     success = len(ctx.colisiones) == 0
     ctx.result = {
         "manifest_plantilla": ctx.manifest_plantilla,
+        "descripcion": ctx.descripcion,
+        "dependencias_ok": list(ctx.dependencias_ok),
+        "dependencias_faltantes": list(ctx.dependencias_faltantes),
         campo_archivos: archivos,
         "colisiones": list(ctx.colisiones),
         (
@@ -882,6 +865,12 @@ def _step_summary(ctx: ProcProcessGenContext, step_nombre: str) -> str:
         )
     if step_nombre == "detectar_colisiones":
         return f"{step_nombre}: {len(ctx.colisiones)} colision(es)"
+    if step_nombre == "validar_dependencias":
+        return (
+            f"{step_nombre}: "
+            f"{len(ctx.dependencias_ok)} OK, "
+            f"{len(ctx.dependencias_faltantes)} faltantes"
+        )
     if step_nombre == "generar_previstos":
         return f"{step_nombre}: {len(ctx.archivos_previstos)} bloques"
     if step_nombre == "Componer respuesta":
@@ -930,6 +919,7 @@ __all__ = [
     "proc_process_copiar_a_preview",
     "proc_process_construir_diccionarios",
     "proc_process_detectar_colisiones",
+    "proc_process_validar_dependencias",
     "proc_process_generar_previstos",
     "proc_process_done_summary",
     # Helpers internos (puros).

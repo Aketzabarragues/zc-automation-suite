@@ -40,15 +40,20 @@ from areas.alimentacion.functions.function_proc_crear_generar_preview import (
     ManifestInvalido,
     PlantillaMinimosNoCumplidos,
     ProcProcessGenContext,
-    proc_process_construir_diccionarios,
     proc_process_copiar_a_preview,
     proc_process_detectar_colisiones,
     proc_process_generar_previstos,
     proc_process_leer_manifest,
+    proc_process_validar_dependencias,
     proc_process_validar_minimos,
 )
-from areas.alimentacion.functions.function_proc_crear_sincronizar import (
+from areas.alimentacion.helpers.proc.proc_process_aplicar_clonacion import (
     proc_process_aplicar_clonacion,
+)
+from areas.alimentacion.helpers.proc.proc_process_construir_diccionarios import (
+    proc_process_construir_diccionarios,
+)
+from areas.alimentacion.functions.function_proc_crear_sincronizar import (
     proc_process_escribir_manifest,
 )
 
@@ -162,6 +167,11 @@ def plantilla_dummy(tmp_path: Path) -> Path:
             "base": 50010,
             "codigo": "TEST",
             "nombre": "ProcesoTest",
+            "descripcion": "Proceso de tests con 1 FC y 1 DB",
+            "dependencias": [
+                "DB1_SYS",
+                "FC15151_ZC_MARCHA_PARO_SEC",
+            ],
             "minimos": {
                 "N_MAX_PREAL": 3, "N_MAX_PINT": 15,
                 "N_MAX_ALM": 16, "N_MAX_ALM_HMI": 3,
@@ -247,6 +257,254 @@ async def test_leer_manifest_sin_base(
 
     with pytest.raises(ManifestInvalido):
         await proc_process_leer_manifest(ctx)
+
+
+@pytest.mark.asyncio
+async def test_leer_manifest_sin_descripcion_raises(
+    tmp_path: Path,
+    make_ctx: Any,
+) -> None:
+    """``descripcion`` es obligatorio. Sin el, ``ManifestInvalido``.
+    La SPA lo usa para mostrar la plantilla en el selector.
+    """
+    p = tmp_path / "TestSinDescripcion"
+    p.mkdir()
+    (p / "manifest.json").write_text(
+        json.dumps({
+            "base": 50010,
+            "codigo": "TEST",
+            "nombre": "X",
+            "dependencias": ["DB1_SYS"],
+            "minimos": {
+                "N_MAX_PREAL": 3, "N_MAX_PINT": 15,
+                "N_MAX_ALM": 16, "N_MAX_ALM_HMI": 3,
+            },
+        }),
+        encoding="utf-8",
+    )
+    ctx = make_ctx(dir_plantilla=p)
+
+    with pytest.raises(ManifestInvalido, match="descripcion"):
+        await proc_process_leer_manifest(ctx)
+
+
+@pytest.mark.asyncio
+async def test_leer_manifest_descripcion_vacia_raises(
+    tmp_path: Path,
+    make_ctx: Any,
+) -> None:
+    """``descripcion`` debe ser string no vacio. Cadena vacia
+    o solo-whitespace tambien falla (no aporta nada a la SPA).
+    """
+    p = tmp_path / "TestDescVacia"
+    p.mkdir()
+    (p / "manifest.json").write_text(
+        json.dumps({
+            "base": 50010,
+            "codigo": "TEST",
+            "nombre": "X",
+            "descripcion": "   ",
+            "dependencias": ["DB1_SYS"],
+            "minimos": {
+                "N_MAX_PREAL": 3, "N_MAX_PINT": 15,
+                "N_MAX_ALM": 16, "N_MAX_ALM_HMI": 3,
+            },
+        }),
+        encoding="utf-8",
+    )
+    ctx = make_ctx(dir_plantilla=p)
+
+    with pytest.raises(ManifestInvalido, match="descripcion"):
+        await proc_process_leer_manifest(ctx)
+
+
+@pytest.mark.asyncio
+async def test_leer_manifest_sin_dependencias_raises(
+    tmp_path: Path,
+    make_ctx: Any,
+) -> None:
+    """``dependencias`` es obligatorio. Sin el, ``ManifestInvalido``.
+    El check contra el PLC lo requiere (bloqueante si falta).
+    """
+    p = tmp_path / "TestSinDeps"
+    p.mkdir()
+    (p / "manifest.json").write_text(
+        json.dumps({
+            "base": 50010,
+            "codigo": "TEST",
+            "nombre": "X",
+            "descripcion": "Test",
+            "minimos": {
+                "N_MAX_PREAL": 3, "N_MAX_PINT": 15,
+                "N_MAX_ALM": 16, "N_MAX_ALM_HMI": 3,
+            },
+        }),
+        encoding="utf-8",
+    )
+    ctx = make_ctx(dir_plantilla=p)
+
+    with pytest.raises(ManifestInvalido, match="dependencias"):
+        await proc_process_leer_manifest(ctx)
+
+
+@pytest.mark.asyncio
+async def test_leer_manifest_dependencias_no_lista_raises(
+    tmp_path: Path,
+    make_ctx: Any,
+) -> None:
+    """``dependencias`` debe ser ``list``. Strings, dicts, ints
+    fallan con ``ManifestInvalido``.
+    """
+    p = tmp_path / "TestDepsNoLista"
+    p.mkdir()
+    (p / "manifest.json").write_text(
+        json.dumps({
+            "base": 50010,
+            "codigo": "TEST",
+            "nombre": "X",
+            "descripcion": "Test",
+            "dependencias": "DB1_SYS",
+            "minimos": {
+                "N_MAX_PREAL": 3, "N_MAX_PINT": 15,
+                "N_MAX_ALM": 16, "N_MAX_ALM_HMI": 3,
+            },
+        }),
+        encoding="utf-8",
+    )
+    ctx = make_ctx(dir_plantilla=p)
+
+    with pytest.raises(ManifestInvalido, match="dependencias"):
+        await proc_process_leer_manifest(ctx)
+
+
+@pytest.mark.asyncio
+async def test_leer_manifest_dependencias_strings_vacias_raises(
+    tmp_path: Path,
+    make_ctx: Any,
+) -> None:
+    """Items de ``dependencias`` deben ser strings no vacios.
+    ``[""]`` o ``["  "]`` fallan (un nombre vacio no es un bloque).
+    """
+    p = tmp_path / "TestDepsVacios"
+    p.mkdir()
+    (p / "manifest.json").write_text(
+        json.dumps({
+            "base": 50010,
+            "codigo": "TEST",
+            "nombre": "X",
+            "descripcion": "Test",
+            "dependencias": ["DB1_SYS", "   "],
+            "minimos": {
+                "N_MAX_PREAL": 3, "N_MAX_PINT": 15,
+                "N_MAX_ALM": 16, "N_MAX_ALM_HMI": 3,
+            },
+        }),
+        encoding="utf-8",
+    )
+    ctx = make_ctx(dir_plantilla=p)
+
+    with pytest.raises(ManifestInvalido, match="dependencias"):
+        await proc_process_leer_manifest(ctx)
+
+
+@pytest.mark.asyncio
+async def test_leer_manifest_happy_campos_nuevos(
+    make_ctx: Any,
+) -> None:
+    """Happy path: ``descripcion`` y ``dependencias`` se populan en el
+    ctx. ``dependencias`` se trimea por entrada.
+    """
+    ctx = make_ctx()
+    await proc_process_leer_manifest(ctx)
+
+    assert ctx.descripcion == "Proceso de tests con 1 FC y 1 DB"
+    assert ctx.dependencias == [
+        "DB1_SYS",
+        "FC15151_ZC_MARCHA_PARO_SEC",
+    ]
+
+
+# ── proc_process_validar_dependencias ────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_validar_dependencias_ok(make_ctx: Any) -> None:
+    """``plc_blocks_cache`` contiene TODAS las deps del manifest -> ok.
+
+    La plantilla dummy declara ``["DB1_SYS", "FC15151_ZC_MARCHA_PARO_SEC"]``.
+    Si la cache los tiene ambos, ``dependencias_ok`` los contiene y
+    ``dependencias_faltantes`` queda vacia.
+    """
+    ctx = make_ctx(
+        plc_blocks_cache=[
+            {"nombre": "DB1_SYS", "numero": 1},
+            {"nombre": "FC15151_ZC_MARCHA_PARO_SEC", "numero": 15151},
+        ],
+    )
+    await proc_process_leer_manifest(ctx)
+    await proc_process_validar_dependencias(ctx)
+
+    assert ctx.dependencias_ok == [
+        "DB1_SYS", "FC15151_ZC_MARCHA_PARO_SEC",
+    ]
+    assert ctx.dependencias_faltantes == []
+
+
+@pytest.mark.asyncio
+async def test_validar_dependencias_mitad(make_ctx: Any) -> None:
+    """``plc_blocks_cache`` solo tiene la mitad -> mitad OK, mitad
+    faltantes.
+
+    Verifica que el cruce es exacto: una dependencia en la cache va
+    a OK, la otra a faltantes. La SPA pinta SOLO las faltantes en
+    rojo, asi que esta separacion es la regla de bloqueo.
+    """
+    ctx = make_ctx(
+        plc_blocks_cache=[
+            {"nombre": "DB1_SYS", "numero": 1},
+        ],
+    )
+    await proc_process_leer_manifest(ctx)
+    await proc_process_validar_dependencias(ctx)
+
+    assert ctx.dependencias_ok == ["DB1_SYS"]
+    assert ctx.dependencias_faltantes == ["FC15151_ZC_MARCHA_PARO_SEC"]
+
+
+@pytest.mark.asyncio
+async def test_validar_dependencias_todas_faltan(make_ctx: Any) -> None:
+    """``plc_blocks_cache`` sin ninguna dep -> todas a faltantes."""
+    ctx = make_ctx(
+        plc_blocks_cache=[
+            {"nombre": "OTRO_BLOQUE", "numero": 99},
+        ],
+    )
+    await proc_process_leer_manifest(ctx)
+    await proc_process_validar_dependencias(ctx)
+
+    assert ctx.dependencias_ok == []
+    assert set(ctx.dependencias_faltantes) == {
+        "DB1_SYS", "FC15151_ZC_MARCHA_PARO_SEC",
+    }
+
+
+@pytest.mark.asyncio
+async def test_validar_dependencias_sin_cache(make_ctx: Any) -> None:
+    """``plc_blocks_cache is None`` -> todas las deps a faltantes.
+
+    Misma regla que ``detectar_colisiones``: si el operario no ha
+    escaneado el PLC todavia, las dependencias se reportan como
+    faltantes para que la SPA pueda bloquear "Aplicar" hasta que
+    se escanee.
+    """
+    ctx = make_ctx(plc_blocks_cache=None)
+    await proc_process_leer_manifest(ctx)
+    await proc_process_validar_dependencias(ctx)
+
+    assert ctx.dependencias_ok == []
+    assert set(ctx.dependencias_faltantes) == {
+        "DB1_SYS", "FC15151_ZC_MARCHA_PARO_SEC",
+    }
 
 
 # ── proc_process_validar_minimos ──────────────────────────────────────
@@ -735,6 +993,12 @@ def plantilla_dummy_nested(tmp_path: Path) -> Path:
             "base": 200,
             "codigo": "EXP",
             "nombre": "Expedicion",
+            "descripcion": "Proceso estandar de expedicion con subcarpetas anidadas",
+            "dependencias": [
+                "DB1_SYS",
+                "DB2000_ED",
+                "FC15151_ZC_MARCHA_PARO_SEC",
+            ],
             "minimos": {
                 "N_MAX_PREAL": 3, "N_MAX_PINT": 15,
                 "N_MAX_ALM": 16, "N_MAX_ALM_HMI": 3,
@@ -1076,6 +1340,12 @@ async def test_construir_diccionarios_renombra_carpeta_base_custom(
             "base": 200,
             "codigo": "EXP",
             "nombre": "Expedicion",
+            "descripcion": "Proceso estandar de expedicion (dummy)",
+            "dependencias": [
+                "DB1_SYS",
+                "DB2000_ED",
+                "FC15151_ZC_MARCHA_PARO_SEC",
+            ],
             "minimos": {
                 "N_MAX_PREAL": 3, "N_MAX_PINT": 15,
                 "N_MAX_ALM": 16, "N_MAX_ALM_HMI": 3,
@@ -1154,6 +1424,12 @@ async def test_construir_diccionarios_renombra_subcarpeta_anidada_custom(
             "base": 200,
             "codigo": "EXP",
             "nombre": "Expedicion",
+            "descripcion": "Proceso estandar de expedicion (dummy)",
+            "dependencias": [
+                "DB1_SYS",
+                "DB2000_ED",
+                "FC15151_ZC_MARCHA_PARO_SEC",
+            ],
             "minimos": {
                 "N_MAX_PREAL": 3, "N_MAX_PINT": 15,
                 "N_MAX_ALM": 16, "N_MAX_ALM_HMI": 3,
@@ -1220,6 +1496,12 @@ async def test_construir_diccionarios_sin_carpetas_prefijadas(
             "base": 200,
             "codigo": "EXP",
             "nombre": "Expedicion",
+            "descripcion": "Proceso estandar de expedicion (dummy)",
+            "dependencias": [
+                "DB1_SYS",
+                "DB2000_ED",
+                "FC15151_ZC_MARCHA_PARO_SEC",
+            ],
             "minimos": {
                 "N_MAX_PREAL": 3, "N_MAX_PINT": 15,
                 "N_MAX_ALM": 16, "N_MAX_ALM_HMI": 3,
@@ -1281,6 +1563,12 @@ async def test_construir_diccionarios_carpeta_prefijo_fc_db(
             "base": 200,
             "codigo": "EXP",
             "nombre": "Expedicion",
+            "descripcion": "Proceso estandar de expedicion (dummy)",
+            "dependencias": [
+                "DB1_SYS",
+                "DB2000_ED",
+                "FC15151_ZC_MARCHA_PARO_SEC",
+            ],
             "minimos": {
                 "N_MAX_PREAL": 3, "N_MAX_PINT": 15,
                 "N_MAX_ALM": 16, "N_MAX_ALM_HMI": 3,
@@ -1326,4 +1614,125 @@ async def test_construir_diccionarios_carpeta_prefijo_fc_db(
     assert (target_folder / "FC300_CPR_GRP.s7dcl").is_file(), (
         "El bloque dentro de la carpeta FC no se renombro "
         "consistentemente con el prefijo del folder."
+    )
+
+
+@pytest.mark.asyncio
+async def test_construir_diccionarios_prefijo_num_en_stem_de_archivo(
+    tmp_path: Path,
+) -> None:
+    """Archivos FC/FB/DB con un prefijo numerico que NO es prefijo de
+    carpeta deben generar una regla ``<num>_ -> <num_nuevo>_`` en
+    el dicc, para que el helper renombre ese numero en el contenido
+    de ``.s7dcl`` / ``.s7res`` / ``.scl`` / ``.awl``.
+
+    Caso real (C.16, sept-2026 / oct-2026): la plantilla CIP tiene
+    ``FC50501_CIP1_ORDENES_R_L1.s7dcl`` dentro de la carpeta
+    ``50500_Principal\\``. El nombre de archivo lleva el sufijo
+    ``_L1`` al final; el ``FUNCTION "FC50501_CIP1_L1_ORDENES_R"``
+    del cuerpo lo lleva en medio (formato distinto). Sin la regla
+    ``50501_ -> 501_`` en el dicc, el ``str.replace`` falla en esa
+    cadena y TIA Portal muestra ``FC50501_*`` en lugar del nombre
+    renombrado (lo lee del ``.s7res`` por la entrada
+    ``MLC_<id> -> es-ES: ...``).
+    """
+    build_cache_root = tmp_path / ".build_cache"
+    preview = build_cache_root / "alimentacion" / "ProcesoNuevo" / "Plantilla"
+    modified = build_cache_root / "alimentacion" / "ProcesoNuevo" / "Nuevo"
+    plantilla = tmp_path / "PROC_STEM_PREFIX"
+    plantilla.mkdir()
+    (plantilla / "Bloques de programa" / "50500_CIP1" / "50500_Principal").mkdir(
+        parents=True,
+    )
+    (plantilla / "Variables PLC").mkdir()
+    (plantilla / "manifest.json").write_text(
+        json.dumps({
+            "base": 50500,
+            "codigo": "CIP1",
+            "nombre": "CIP1",
+            "descripcion": "Proceso CIP dummy",
+            "dependencias": ["DB1_SYS"],
+            "minimos": {
+                "N_MAX_PREAL": 3, "N_MAX_PINT": 15,
+                "N_MAX_ALM": 16, "N_MAX_ALM_HMI": 3,
+            },
+        }),
+        encoding="utf-8",
+    )
+    s7dcl = (
+        plantilla / "Bloques de programa" / "50500_CIP1"
+        / "50500_Principal" / "FC50501_CIP1_ORDENES_R_L1.s7dcl"
+    )
+    s7dcl.write_text(
+        'S7_BlockNumber := "5501";\n'
+        'FUNCTION "FC50501_CIP1_L1_ORDENES_R" : Void\n',
+        encoding="utf-8",
+    )
+    s7res = s7dcl.with_suffix(".s7res")
+    s7res.write_text(
+        "MultiLingualTexts:\n"
+        "  - id: MLC_X\n"
+        "    es-ES: FC50501_CIP1_L1_ORDENES_R\n",
+        encoding="utf-8",
+    )
+
+    # base_nueva=500 (offset -50000). El prefijo 50501 es de archivo,
+    # no de carpeta: si no se anade al walk, no hay regla 50501_ ->
+    # 501_ y el contenido del .s7dcl/.s7res conserva el 50501.
+    ctx = ProcProcessGenContext(
+        dir_plantilla=plantilla,
+        dir_plantilla_copia=preview,
+        dir_nuevo=modified,
+        base_nueva=500,
+        codigo_nuevo="ENTRADA",
+        nombre_nuevo="ENTRADA",
+        plc_blocks_cache=[],
+        minimos_usuario={
+            "N_MAX_PREAL": 10, "N_MAX_PINT": 20,
+            "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
+        },
+    )
+    await proc_process_copiar_a_preview(ctx)
+    await proc_process_leer_manifest(ctx)
+    await proc_process_construir_diccionarios(ctx)
+    await proc_process_aplicar_clonacion(ctx)
+
+    # Regla del prefijo de archivo presente en el dicc.
+    assert ctx.dicc_bloques.get("50501_") == "501_", (
+        "Falta la regla 50501_ -> 501_ en el dicc de renombre. "
+        f"Entradas actuales: {sorted(ctx.dicc_bloques.keys())!r}"
+    )
+
+    # Contenido del .s7dcl reescrito: 50501 -> 501 y codigo -> nuevo.
+    # El output conserva la estructura interna del bloque (L1 en
+    # medio, como en el ``FUNCTION "..."``); el helper reemplaza
+    # tokens, no reordena.
+    s7dcl_nuevo = (
+        modified / "Bloques de programa" / "500_ENTRADA"
+        / "500_Principal" / "FC501_ENTRADA_ORDENES_R_L1.s7dcl"
+    )
+    assert s7dcl_nuevo.is_file(), (
+        f"El .s7dcl renombrado no existe en la ruta esperada. "
+        f"Dir nuevo contiene: {sorted(p.name for p in modified.rglob('*'))!r}"
+    )
+    contenido = s7dcl_nuevo.read_text(encoding="utf-8")
+    assert "FC501_ENTRADA_L1_ORDENES_R" in contenido, (
+        "El .s7dcl conserva FC50501 en su FUNCTION \"...\", "
+        f"el rename no alcanzo el contenido. Contenido: {contenido!r}"
+    )
+    assert "FC50501" not in contenido, (
+        f"Todavia quedan referencias a FC50501 en el .s7dcl: {contenido!r}"
+    )
+
+    # Contenido del .s7res reescrito (mismo bug historico: TIA
+    # Portal lee el nombre del bloque de aqui, via el mapeo
+    # ``MLC_<id> -> es-ES: ...``).
+    s7res_nuevo = s7dcl_nuevo.with_suffix(".s7res")
+    contenido_res = s7res_nuevo.read_text(encoding="utf-8")
+    assert "FC501_ENTRADA_L1_ORDENES_R" in contenido_res, (
+        "El .s7res conserva FC50501 en su mapeo MLC_<id>, "
+        f"el rename no alcanzo el contenido. Contenido: {contenido_res!r}"
+    )
+    assert "FC50501" not in contenido_res, (
+        f"Todavia quedan referencias a FC50501 en el .s7res: {contenido_res!r}"
     )

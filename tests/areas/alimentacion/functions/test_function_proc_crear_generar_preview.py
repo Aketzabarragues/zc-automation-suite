@@ -1,7 +1,7 @@
 """Tests del FB ``FunctionProcCrearGenerarPreview``.
 
 Cubre:
-  - Happy path: 10 ticks (1 arrancar + 8 steps + 1 finalizar) -> n_done,
+  - Happy path: 11 ticks (1 arrancar + 9 steps + 1 finalizar) -> n_done,
     ``self.result`` con shape de preview (archivos_previstos, colisiones,
     preview_dir, manifest_plantilla, success).
     ``preview_dir`` es el alias historico del campo ``plantilla_copia_dir``
@@ -71,6 +71,8 @@ def plantilla_dummy(tmp_path: Path) -> Path:
     (p / "manifest.json").write_text(
         json.dumps({
             "base": 50010, "codigo": "TEST", "nombre": "ProcesoTest",
+            "descripcion": "Proceso de tests con 1 FC y 1 DB",
+            "dependencias": ["DB1_SYS"],
             "minimos": {
                 "N_MAX_PREAL": 3, "N_MAX_PINT": 15,
                 "N_MAX_ALM": 16, "N_MAX_ALM_HMI": 3,
@@ -118,18 +120,18 @@ def make_fb(progress: ProgressTracker) -> FunctionProcCrearGenerarPreview:
 
 
 @pytest.mark.asyncio
-async def test_preview_happy_path_9_ticks(
+async def test_preview_happy_path_10_ticks(
     plantilla_dummy: Path,
     tmp_path: Path,
     progress: ProgressTracker,
 ) -> None:
-    """Happy path: 9 ticks -> n_done, ``self.result`` con shape de preview.
+    """Happy path: 10 ticks -> n_done, ``self.result`` con shape de preview.
 
-    State machine del FunctionBase tras quitar el step
-    extraer_variables_xml (no se usa en el helper v2):
+    State machine del FunctionBase tras añadir el step
+    validar_dependencias (8 stages totales):
       tick #1:  10 -> 20 (on_start + tracker.begin)
-      ticks #2-#8: 20 (7 steps; nStep NO avanza)
-      tick #9: 95 -> 99 (on_finish)
+      ticks #2-#9: 20 (8 steps; nStep NO avanza)
+      tick #10: 95 -> 99 (on_finish)
     """
     fb = make_fb(progress)
 
@@ -154,15 +156,15 @@ async def test_preview_happy_path_9_ticks(
     await fb.tick()
     assert fb.nStep == fb.n_ejecutar  # 20
 
-    # ticks #2-#8: 7 steps (sin extraer_variables_xml)
-    for i in range(7):
+    # ticks #2-#9: 8 steps (incluye validar_dependencias)
+    for i in range(8):
         await fb.tick()
         assert fb.nStep in (fb.n_ejecutar, fb.n_finalizar), (
             f"tick #{i + 2} salio del loop antes de tiempo: nStep={fb.nStep}"
         )
     assert fb.nStep == fb.n_finalizar  # 95
 
-    # tick #9: finalizar -> done
+    # tick #10: finalizar -> done
     await fb.tick()
     assert fb.nStep == fb.n_done  # 99
     assert fb.is_terminal() is True

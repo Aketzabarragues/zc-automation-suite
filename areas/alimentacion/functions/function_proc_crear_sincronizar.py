@@ -81,8 +81,8 @@ Steps (9):
   - Leer manifiesto              -> proc_process_leer_manifest (inline)
   - Validar mínimos              -> proc_process_validar_minimos (inline)
   - Copiar a vista previa        -> proc_process_copiar_a_preview (inline)
-  - Construir diccionarios       -> proc_process_construir_diccionarios (inline)
-  - Generar proceso nuevo        -> proc_process_aplicar_clonacion (inline)
+  - Construir diccionarios       -> proc_process_construir_diccionarios (helper compartido)
+  - Generar proceso nuevo        -> proc_process_aplicar_clonacion (helper compartido)
   - Escribir manifiesto modified -> proc_process_escribir_manifest (inline)
   - Importar proceso             -> execute_transactional_batch (3 ops)
   - Compilar bloques             -> compile_plc (fuera de tx)
@@ -93,7 +93,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -103,6 +102,12 @@ from core.composition.plc_function_base import FunctionBase
 from core.helpers.tia import dispatch_async
 from core.helpers.tia.validate_plc_in_tia import validate_plc_in_tia
 from areas.alimentacion.helpers.layout.build_cache import DEFAULT_BUILD_CACHE_ROOT
+from areas.alimentacion.helpers.proc.proc_process_aplicar_clonacion import (
+    proc_process_aplicar_clonacion,
+)
+from areas.alimentacion.helpers.proc.proc_process_construir_diccionarios import (
+    proc_process_construir_diccionarios,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -162,6 +167,16 @@ class ProcProcessGenContext:
     base_vieja: int = 0
     codigo_viejo: str = ""
     nombre_viejo: str = ""
+    descripcion: str = ""
+    dependencias: list[str] = field(default_factory=list)
+
+    # ── Resultado de validar_dependencias ──
+    # El sync FB no re-valida: las deps las cruza el preview FB en
+    # su stage 6 y la SPA bloquea el boton "Aplicar" si hay
+    # faltantes. Los campos viven en el ctx del sync para que un
+    # futuro stage los pueda exponer sin tocar la dataclass.
+    dependencias_ok: list[str] = field(default_factory=list)
+    dependencias_faltantes: list[str] = field(default_factory=list)
 
     # ── Resultado de construir_diccionarios ──
     dicc_bloques: dict[str, str] = field(default_factory=dict)
@@ -655,11 +670,27 @@ async def proc_process_leer_manifest(ctx: ProcProcessGenContext) -> None:
         raise ManifestInvalido("manifest.json debe contener 'base' (int).")
     if "codigo" not in manifest or not str(manifest["codigo"]).strip():
         raise ManifestInvalido("manifest.json debe contener 'codigo' (str).")
+    if "descripcion" not in manifest or not str(manifest["descripcion"]).strip():
+        raise ManifestInvalido(
+            "manifest.json debe contener 'descripcion' (str no vacio). "
+            "Es obligatorio para mostrar la plantilla en la SPA."
+        )
+    if "dependencias" not in manifest or not isinstance(manifest["dependencias"], list):
+        raise ManifestInvalido(
+            "manifest.json debe contener 'dependencias' (list[str]). "
+            "Es obligatorio para validar bloques externos en el PLC."
+        )
+    if not all(isinstance(d, str) and d.strip() for d in manifest["dependencias"]):
+        raise ManifestInvalido(
+            "manifest.json 'dependencias' debe ser una lista de strings no vacios."
+        )
 
     ctx.manifest_plantilla = manifest
     ctx.base_vieja = int(manifest["base"])
     ctx.codigo_viejo = str(manifest["codigo"])
     ctx.nombre_viejo = str(manifest.get("nombre", "") or "")
+    ctx.descripcion = str(manifest["descripcion"]).strip()
+    ctx.dependencias = [str(d).strip() for d in manifest["dependencias"]]
 
 
 async def proc_process_validar_minimos(ctx: ProcProcessGenContext) -> None:
@@ -697,202 +728,8 @@ async def proc_process_copiar_a_preview(ctx: ProcProcessGenContext) -> None:
     )
 
 
-async def proc_process_construir_diccionarios(ctx: ProcProcessGenContext) -> None:
-    """Construye los diccionarios de renombrado (stage 4).
-
-    Copia local del helper en ``function_proc_crear_generar_preview``.
-    Estrategia completa (bloques + variables + metadatos + fallbacks)
-    documentada alli.
-    """
-    base_viej = ctx.base_vieja
-    base_nuev = ctx.base_nueva
-    cod_viej = ctx.codigo_viejo
-    cod_nuev = ctx.codigo_nuevo
-    nom_viej = ctx.nombre_viejo
-    nom_nuev = ctx.nombre_nuevo
-
-    dicc_bloques: dict[str, str] = {}
-    dicc_xml: dict[str, str] = {}
-    numeros_usados: set[int] = set()
-    prefijos_carpeta: set[int] = set()
-
-    patron_bloques = re.compile(r"(FC|FB|DB)(\d+)")
-    patron_prefijo_carpeta = re.compile(r"^(\d+)_")
-
-    def _walk_and_build() -> None:
-        bloques_raiz = ctx.dir_plantilla_copia / "Bloques de programa"
-        for item in ctx.dir_plantilla_copia.rglob("*"):
-            if not item.exists():
-                continue
-            nombre_base = item.stem if item.is_file() else item.name
-
-            if (
-                item.is_dir()
-                and bloques_raiz in item.parents
-                and item != bloques_raiz
-            ):
-                m_prefijo = patron_prefijo_carpeta.match(item.name)
-                if m_prefijo:
-                    prefijos_carpeta.add(int(m_prefijo.group(1)))
-
-            def _repl_bloque(m: re.Match[str]) -> str:
-                prefijo = m.group(1)
-                num_viejo = int(m.group(2))
-                num_nuevo = num_viejo - base_viej + base_nuev
-                return f"{prefijo}{num_nuevo}"
-
-            nuevo_nombre_base = patron_bloques.sub(_repl_bloque, nombre_base)
-
-            if cod_viej:
-                nuevo_nombre_base = nuevo_nombre_base.replace(cod_viej, cod_nuev)
-            if nom_viej and nom_nuev:
-                nuevo_nombre_base = nuevo_nombre_base.replace(nom_viej, nom_nuev)
-
-            if nombre_base != nuevo_nombre_base:
-                dicc_bloques[nombre_base] = nuevo_nombre_base
-
-            for match in patron_bloques.finditer(nombre_base):
-                numeros_usados.add(int(match.group(2)))
-
-    await asyncio.to_thread(_walk_and_build)
-
-    for prefijo_v in sorted(prefijos_carpeta):
-        prefijo_n = prefijo_v - base_viej + base_nuev
-        if prefijo_v == prefijo_n:
-            continue
-        regla_vieja = f"{prefijo_v}_"
-        regla_nueva = f"{prefijo_n}_"
-        dicc_xml[regla_vieja] = regla_nueva
-        dicc_bloques[regla_vieja] = regla_nueva
-
-    for b_vieja, b_nueva in zip(
-        [base_viej, base_viej + 3000, base_viej + 5000],
-        [base_nuev, base_nuev + 3000, base_nuev + 5000],
-    ):
-        regla_vieja = f"{b_vieja}_"
-        regla_nueva = f"{b_nueva}_"
-        dicc_xml.setdefault(regla_vieja, regla_nueva)
-        dicc_bloques.setdefault(regla_vieja, regla_nueva)
-
-    for num in numeros_usados:
-        nuevo_num = num - base_viej + base_nuev
-        dicc_bloques[f'S7_BlockNumber := "{num}"'] = (
-            f'S7_BlockNumber := "{nuevo_num}"'
-        )
-
-    if cod_viej:
-        dicc_xml[cod_viej] = cod_nuev
-        dicc_bloques[cod_viej] = cod_nuev
-    if nom_viej and nom_nuev:
-        dicc_xml[nom_viej] = nom_nuev
-        dicc_bloques[nom_viej] = nom_nuev
-
-    ctx.dicc_bloques = dict(
-        sorted(dicc_bloques.items(), key=lambda x: len(x[0]), reverse=True)
-    )
-    ctx.dicc_xml = dict(
-        sorted(dicc_xml.items(), key=lambda x: len(x[0]), reverse=True)
-    )
-
-
-async def proc_process_aplicar_clonacion(ctx: ProcProcessGenContext) -> None:
-    """Aplica la clonacion: ``dir_plantilla_copia`` -> ``dir_nuevo``.
-
-    Borra ``dir_nuevo/`` antes de aplicar (regla de retencion: cada
-    apply parte limpio).
-
-    Pipeline:
-      1. ``shutil.copytree(dir_plantilla_copia, dir_nuevo,
-         ignore=manifest)``: copia bulk preservando la estructura de
-         carpetas.
-      2. Walk de ``dir_nuevo``: para cada path (file O folder) se
-         aplica el rename al nombre del componente aplicando
-         ``_aplicar_diccionario(nombre, dicc_bloques)``.
-      3. Walk final para rewrite de contenido segun extension.
-
-    Por extension (paso 3):
-      - ``.s7res``:           ``dicc_bloques``, encoding utf-8-sig.
-      - ``.xml``:             ``dicc_xml``, encoding utf-8 (con
-                              override de N_MAX si el XML contiene
-                              PlcUserConstant).
-      - ``.s7dcl``/``.scl``/``.awl``: ``dicc_bloques``, encoding utf-8.
-      - Resto (binarios):     sin tocar (ya copiados por copytree).
-
-    ``manifest.json`` se excluye via el ``ignore`` de copytree (lo
-    regenera ``proc_process_escribir_manifest`` justo despues).
-
-    Para los renames de folder, se procesan en orden de profundidad
-    DESCENDENTE (mas profundo primero) para no romper paths de hijos
-    cuando movemos el padre.
-    """
-    if ctx.dir_nuevo.exists():
-        await asyncio.to_thread(shutil.rmtree, ctx.dir_nuevo)
-
-    def _ignore_manifest(_dir: str, names: list[str]) -> list[str]:
-        return [n for n in names if n == "manifest.json"]
-
-    await asyncio.to_thread(
-        shutil.copytree,
-        str(ctx.dir_plantilla_copia),
-        str(ctx.dir_nuevo),
-        ignore=_ignore_manifest,
-    )
-
-    def _rename_paths() -> None:
-        renames: list[tuple[Path, Path]] = []
-        for path in list(ctx.dir_nuevo.rglob("*")):
-            if path == ctx.dir_nuevo:
-                continue
-            if path.is_file():
-                suffix = path.suffix.lower()
-                nuevo_stem = _aplicar_diccionario(
-                    path.stem, ctx.dicc_bloques
-                )
-                new_name = f"{nuevo_stem}{suffix}"
-            else:
-                new_name = _aplicar_diccionario(
-                    path.name, ctx.dicc_bloques
-                )
-            if path.name != new_name:
-                renames.append((path, path.with_name(new_name)))
-
-        renames.sort(key=lambda pair: -len(pair[0].parts))
-        for old, new in renames:
-            new.parent.mkdir(parents=True, exist_ok=True)
-            old.rename(new)
-
-    await asyncio.to_thread(_rename_paths)
-
-    def _rewrite_contents() -> list[str]:
-        generated: list[str] = []
-        for path in ctx.dir_nuevo.rglob("*"):
-            if not path.is_file():
-                continue
-            suffix = path.suffix.lower()
-            if suffix == ".s7res":
-                enc = "utf-8-sig"
-                contenido = _leer_texto(path, enc)
-                nuevo = _aplicar_diccionario(contenido, ctx.dicc_bloques)
-                _escribir_texto(path, nuevo, enc)
-            elif suffix == ".xml":
-                enc = "utf-8"
-                contenido = _leer_texto(path, enc)
-                nuevo = _aplicar_diccionario(contenido, ctx.dicc_xml)
-                if "PlcUserConstant" in nuevo and ctx.minimos_usuario:
-                    nuevo = _reemplazar_nmax_en_xml(
-                        nuevo, ctx.base_nueva, ctx.minimos_usuario
-                    )
-                _escribir_texto(path, nuevo, enc)
-            elif suffix in (".s7dcl", ".scl", ".awl"):
-                enc = "utf-8"
-                contenido = _leer_texto(path, enc)
-                nuevo = _aplicar_diccionario(contenido, ctx.dicc_bloques)
-                _escribir_texto(path, nuevo, enc)
-
-            generated.append(str(path.relative_to(ctx.dir_nuevo)))
-        return generated
-
-    ctx.archivos_generados = await asyncio.to_thread(_rewrite_contents)
+# ``proc_process_aplicar_clonacion`` vive en
+# ``areas/alimentacion/helpers/proc/proc_process_aplicar_clonacion.py``.
 
 
 async def proc_process_escribir_manifest(ctx: ProcProcessGenContext) -> None:
@@ -906,6 +743,8 @@ async def proc_process_escribir_manifest(ctx: ProcProcessGenContext) -> None:
         "base": ctx.base_nueva,
         "codigo": ctx.codigo_nuevo,
         "nombre": ctx.nombre_nuevo,
+        "descripcion": ctx.descripcion,
+        "dependencias": list(ctx.dependencias),
         "minimos": dict(ctx.minimos_usuario),
     }
 
@@ -944,6 +783,9 @@ async def proc_process_done_summary(ctx: ProcProcessGenContext) -> dict[str, Any
     success = len(ctx.colisiones) == 0
     ctx.result = {
         "manifest_plantilla": ctx.manifest_plantilla,
+        "descripcion": ctx.descripcion,
+        "dependencias_ok": list(ctx.dependencias_ok),
+        "dependencias_faltantes": list(ctx.dependencias_faltantes),
         campo_archivos: archivos,
         "colisiones": list(ctx.colisiones),
         (
@@ -959,56 +801,6 @@ async def proc_process_done_summary(ctx: ProcProcessGenContext) -> dict[str, Any
 # ============================================================================
 # Helpers internos (sync).
 # ============================================================================
-
-
-def _aplicar_diccionario(texto: str, dicc: dict[str, str]) -> str:
-    """Aplica los reemplazos en cascada."""
-    for viejo, nuevo in dicc.items():
-        texto = texto.replace(viejo, nuevo)
-    return texto
-
-
-def _leer_texto(path: Path, encoding: str) -> str:
-    """Lee texto con fallback latin-1 si utf-8 falla (caso TIA V21)."""
-    try:
-        with open(path, "r", encoding=encoding, newline="") as f:
-            return f.read()
-    except UnicodeDecodeError:
-        with open(path, "r", encoding="latin-1", newline="") as f:
-            return f.read()
-
-
-def _escribir_texto(path: Path, contenido: str, encoding: str) -> None:
-    """Escribe texto preservando retornos de carro (``newline=""``)."""
-    with open(path, "w", encoding=encoding, newline="") as f:
-        f.write(contenido)
-
-
-def _reemplazar_nmax_en_xml(
-    contenido: str,
-    base_nueva: int,
-    minimos_usuario: dict[str, int],
-) -> str:
-    """Sustituye los ``<Value>`` de las constantes N_MAX del proceso
-    nuevo de forma segura, vinculandolos a su ``<Name>``.
-
-    Asume que ``contenido`` ya paso por ``_aplicar_diccionario(contenido,
-    dicc_xml)``, asi ``<Name>{base_nueva}_{N_MAX_KEY}</Name>`` esta
-    presente en el XML destino.
-    """
-    for key in N_MAX_KEYS:
-        val_usuario = minimos_usuario.get(key)
-        if val_usuario is None:
-            continue
-
-        patron = rf"(<Name>{base_nueva}_{key}</Name>.*?<Value>)(\d+)(</Value>)"
-        contenido = re.sub(
-            patron,
-            lambda m: f"{m.group(1)}{val_usuario}{m.group(3)}",
-            contenido,
-            flags=re.DOTALL,
-        )
-    return contenido
 
 
 def _step_summary(fb: "FunctionProcCrearSincronizar", step_nombre: str) -> str:
@@ -1093,9 +885,4 @@ __all__ = [
     "proc_process_aplicar_clonacion",
     "proc_process_escribir_manifest",
     "proc_process_done_summary",
-    # Helpers internos (puros).
-    "_aplicar_diccionario",
-    "_leer_texto",
-    "_escribir_texto",
-    "_reemplazar_nmax_en_xml",
 ]
