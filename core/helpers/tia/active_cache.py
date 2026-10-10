@@ -1,7 +1,7 @@
 """Lectura del cache activo del Excel (filtrado por PLC).
 
 Los FB de alimentacion leen del ``excel_cache_active`` (cache ya
-filtrado por ``selected_plc`` en ``dump_cache_to_state`` /
+filtrado por ``selected_plc`` en ``parse_excel_to_cache`` /
 ``with_plc``).
 
 Helpers publicos:

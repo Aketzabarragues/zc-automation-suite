@@ -1,7 +1,8 @@
 ﻿"""Cache IT del Excel: dispositivos + N_MAX + 4 listas de software.
 
-Fuente de verdad unica que ``ExcelCacheManager`` cachea por proceso.
-``frozen=True`` para que el cache sea inmutable entre lecturas.
+``frozen=True`` para que el cache sea inmutable entre lecturas. La
+fuente de verdad del cache vivo vive en ``app_cache.area(area_id).excel_full``
+(ver ``core.runtime.excel_cache``).
 
 Las anotaciones referencian DTOs de ``areas.alimentacion.data.*`` que
 solo se evaluan en runtime si se instancia la clase con valores que

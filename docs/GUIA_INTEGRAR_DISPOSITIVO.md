@@ -200,11 +200,7 @@ Réplica de `test_disp_m_vf_parser.py`:
 - En `test_load_basico`: assert `len(cache.dispositivos["<hw_type>"]) == 1`
   y `cache.n_max.extras["N_MAX_DISP_<HW>"] == N`.
 
-**e) `tests/areas/alimentacion/helpers/excel/test_excel_cache_manager.py`:**
-
-- En `_make_cache`: añade `"<hw_type>": ()` al dict.
-
-**f) `tests/areas/alimentacion/helpers/excel/test_dimensiones_parser.py`:**
+**e) `tests/areas/alimentacion/helpers/excel/test_dimensiones_parser.py`:**
 
 - Si tenías un test que asumía que el hw_type se descartaba (estaba en
   `pending_*`), inviértelo: ahora SÍ entra. Renómbralo a

@@ -97,7 +97,7 @@ def disp_build_slot_map_for_hw(app_state: AppState, hw_type: str) -> dict[int, s
     """Slot map para un tipo: ``{0: 'NO USAR', i: comentario_db para cada device con numero==i}``.
 
     Multi-PLC: lee devices del cache activo del area (filtrado por el
-    PLC seleccionado en ``dump_cache_to_state`` / ``with_plc``).
+    PLC seleccionado en ``parse_excel_to_cache`` / ``with_plc``).
 
     Devices con ``numero <= 0`` o duplicados se ignoran (warning en logs).
     El slot 0 siempre esta presente con texto ``"NO USAR"``.

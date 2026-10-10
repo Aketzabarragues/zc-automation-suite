@@ -1,10 +1,9 @@
 """Tests del FB ``FunctionExcelCargar``.
 
 Cubren:
-  - Happy path: 4 ticks avanzan 10→20→95→99 (``n_done``),
-    ``self.result`` con la shape multi-PLC, AppState con
-    ``excel_cache_full`` y ``excel_cache_active`` poblados,
-    cache ``put()`` llamado.
+  - Happy path: 3 ticks avanzan 10→20→95→99 (``n_done``),
+    ``self.result`` con la shape multi-PLC, ``AppCache`` con
+    ``excel_full`` y ``excel_active`` poblados.
   - Sad path 1: sin ``config_manager`` → nStep=98 (``n_error``) con
     ``error_msg`` mencionando "config_manager".
   - Sad path 2: el loader lanza ``ValueError`` (xlsx corrupto) →
@@ -13,7 +12,7 @@ Cubren:
 """
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -64,13 +63,12 @@ def progress(real_progress: ProgressTracker) -> ProgressTracker:
     """Tracker con ``begin()`` ya invocado (mismo contrato que el use
     case legacy asume: el caller hace ``begin()`` antes de ``start()``).
 
-    Stages alineados con los nombres de ``STAGES`` del FB
-    (en lenguaje humano, ver F11).
+    Stages alineados con el STAGES del FB (1 unico step tras commit 4c).
     """
     real_progress.begin(
         operation="subir_excel_test",
         label="Subir Excel (test)",
-        stages=["Parsear Excel", "Volcar a estado de aplicación"],
+        stages=["Parsear y volcar Excel"],
     )
     return real_progress
 
@@ -106,21 +104,12 @@ def happy_loader_factory(fake_cache: MagicMock):
     return factory
 
 
-@pytest.fixture
-def mock_cache_cls() -> MagicMock:
-    """Clase de cache con ``put`` async mockeado."""
-    cls = MagicMock()
-    cls.put = AsyncMock()
-    return cls
-
-
 def make_fb(
     config_manager: ConfigManager | None,
     state: AppState,
     progress: ProgressTracker,
     log: MagicMock,
     loader_factory,
-    cache_cls: MagicMock,
 ) -> FunctionExcelCargar:
     return FunctionExcelCargar(
         nombre="subir_excel_test",
@@ -128,7 +117,6 @@ def make_fb(
         app_state=state,
         tracker=progress,
         excel_loader_factory=loader_factory,
-        excel_cache_cls=cache_cls,
     )
 
 
@@ -142,83 +130,60 @@ async def test_subir_excel_happy_path_3_ticks(
     progress: ProgressTracker,
     mock_log: MagicMock,
     happy_loader_factory,
-    mock_cache_cls: MagicMock,
     fake_cache: MagicMock,
 ) -> None:
-    """Happy path: start + 4 ticks → nStep=n_done (99).
+    """Happy path: start + 3 ticks → nStep=n_done (99).
 
     State machine real (ver ``plc_function_base.py`` docstring):
       nStep=10 (arrancar) → 20 (ejecutar, primer tick pre-flight)
-        → 20 (sigue ejecutando stages, _step_idx avanza por su cuenta)
-        → 95 (finalizar, cuando _step_idx >= len(steps))
+        → 95 (finalizar, _step_idx >= len(steps) tras el unico stage)
         → 99 (done, terminal).
-    El FB tiene 2 stages (parsear + volcar), asi que hacen falta
-    start + 4 ticks para llegar a n_done (incluyendo el tick de
+    El FB tiene 1 stage (parsear + volcar), asi que hacen falta
+    start + 3 ticks para llegar a n_done (incluyendo el tick de
     finalizar que mueve de 95 a 99).
     """
     fb = make_fb(
         mock_config, mock_state, progress, mock_log,
-        happy_loader_factory, mock_cache_cls,
+        happy_loader_factory,
     )
 
     ok = await fb.start(xlsx_path="/fake/path.xlsx")
     assert ok is True
     assert fb.nStep == 10  # arrancar
 
-    # Patch: el FB recupera el cache global en stage 2 via
-    # ``ExcelCacheManager.get``. El ``parse_excel_to_cache`` real lo
-    # pone ahi, pero en el test mockeamos ``put`` directamente.
-    # Tambien parchamos ``on_finish`` que lee ``ExcelCacheManager._cache``
-    # (atributo de clase directo, no via ``get``).
-    from areas.alimentacion.helpers.excel import excel_cache_manager
-    original_cache = excel_cache_manager.ExcelCacheManager._cache
-    excel_cache_manager.ExcelCacheManager._cache = fake_cache
-    try:
-        with patch(
-            "areas.alimentacion.helpers.excel.excel_cache_manager.ExcelCacheManager.get",
-            new=AsyncMock(return_value=fake_cache),
-        ):
-            # Tick #1: pre-flight (10 → 20)
-            await fb.tick()
-            assert fb.nStep == 20
+    # Tick #1: pre-flight (10 → 20)
+    await fb.tick()
+    assert fb.nStep == 20
 
-            # Tick #2: ejecuta stage 0 (parsear) — nStep se queda en 20
-            # mientras _step_idx < len(steps).
-            await fb.tick()
-            assert fb.nStep == 20
-            mock_cache_cls.put.assert_awaited_once_with(fake_cache)
+    # Tick #2: ejecuta stage 0 (parsear + volcar) — _step_idx == len(steps)
+    # asi que transiciona a 95 (finalizar).
+    await fb.tick()
+    assert fb.nStep == 95
 
-            # Tick #3: ejecuta stage 1 (volcar) — _step_idx == len(steps)
-            # asi que transiciona a 95 (finalizar).
-            await fb.tick()
-            assert fb.nStep == 95
+    # Tick #3: ejecutar ``_step_finalizar`` (on_finish + finish tracker).
+    await fb.tick()
+    assert fb.nStep == fb.n_done  # 99
+    assert fb.is_terminal() is True
+    assert fb.error_msg is None
 
-            # Tick #4: ejecutar ``_step_finalizar`` (on_finish + finish tracker).
-            await fb.tick()
-            assert fb.nStep == fb.n_done  # 99
-            assert fb.is_terminal() is True
-            assert fb.error_msg is None
-
-            # Result con la shape actual del FB.
-            assert fb.result == {
-                "ok": True,
-                "summary": {"DispED": 2},
-                "total_dispositivos": 2,
-                "dimensiones": {"max1": 10},
-                "software": {
-                    "procesos": 0,
-                    "preal": 0,
-                    "pint": 0,
-                    "alarmas": 0,
-                    "n_max_total": 1,
-                },
-            }
-    finally:
-        excel_cache_manager.ExcelCacheManager._cache = original_cache
+    # Result con la shape actual del FB.
+    assert fb.result == {
+        "ok": True,
+        "summary": {"DispED": 2},
+        "total_dispositivos": 2,
+        "dimensiones": {"max1": 10},
+        "software": {
+            "procesos": 0,
+            "preal": 0,
+            "pint": 0,
+            "alarmas": 0,
+            "n_max_total": 1,
+        },
+    }
 
     # AppState: cache completo y activo seteados desde el ``fake_cache``
     # via ``excel_set_full`` + ``derive_excel_active``. ``excel_path``
-    # ya no vive en AppState: vive en el cache mismo.
+    # vive en el cache mismo.
     from core.runtime.excel_cache import excel_get_active, excel_get_full
     full = excel_get_full(mock_state.app_cache, "alimentacion")
     active = excel_get_active(mock_state.app_cache, "alimentacion")
@@ -246,7 +211,6 @@ async def test_subir_excel_sad_no_config(
         progress=progress,
         log=mock_log,
         loader_factory=MagicMock(),
-        cache_cls=MagicMock(),
     )
     await fb.start(xlsx_path="/fake.xlsx")
     assert fb.nStep == 10
@@ -274,19 +238,16 @@ async def test_subir_excel_sad_parse_fails(
 
     El FB llega a nStep=20 (pre-flight OK), el segundo tick falla,
     el wrapper pone el FB en ``n_error`` con el mensaje del loader
-    en ``error_msg``.  El cache ``put()`` NO se llama.
+    en ``error_msg``. El cache de ``AppCache`` NO se escribe.
     """
     def bad_factory(config_manager: ConfigManager) -> MagicMock:
         loader = MagicMock()
         loader.load = MagicMock(side_effect=ValueError("xlsx corrupto"))
         return loader
 
-    cache_cls = MagicMock()
-    cache_cls.put = AsyncMock()
-
     fb = make_fb(
         mock_config, mock_state, progress, mock_log,
-        bad_factory, cache_cls,
+        bad_factory,
     )
     await fb.start(xlsx_path="/fake/bad.xlsx")
 
@@ -300,8 +261,10 @@ async def test_subir_excel_sad_parse_fails(
     assert "xlsx corrupto" in fb.error_msg
     assert fb.is_terminal() is True
 
-    # El cache.put NO se llamó porque loader.load lanzó antes
-    cache_cls.put.assert_not_called()
+    # El AppCache queda vacio porque loader.load lanzó antes de la
+    # escritura via ``excel_set_full``.
+    from core.runtime.excel_cache import excel_get_full
+    assert excel_get_full(mock_state.app_cache, "alimentacion") is None
 
 
 @pytest.mark.asyncio
@@ -311,31 +274,20 @@ async def test_subir_excel_terminal_no_avanza_mas(
     progress: ProgressTracker,
     mock_log: MagicMock,
     happy_loader_factory,
-    mock_cache_cls: MagicMock,
-    fake_cache: MagicMock,
 ) -> None:
     """Una vez en ``n_done``, ticks adicionales son no-op (guarda de la base)."""
     fb = make_fb(
         mock_config, mock_state, progress, mock_log,
-        happy_loader_factory, mock_cache_cls,
+        happy_loader_factory,
     )
     await fb.start(xlsx_path="/fake.xlsx")
 
-    # Mismo patch que el happy path: stage 2 y on_finish leen
-    # ``ExcelCacheManager._cache`` (atributo de clase).
-    from areas.alimentacion.helpers.excel import excel_cache_manager
-    original_cache = excel_cache_manager.ExcelCacheManager._cache
-    excel_cache_manager.ExcelCacheManager._cache = fake_cache
-    try:
-        # Avanzar al estado done: start + 4 ticks.
-        await fb.tick()  # 10 → 20 (pre-flight)
-        await fb.tick()  # ejecuta stage 0 (parsear)
-        await fb.tick()  # ejecuta stage 1 (volcar) → 95 (finalizar)
-        await fb.tick()  # ejecuta _step_finalizar → 99 (done)
-        assert fb.nStep == fb.n_done
+    # Avanzar al estado done: start + 3 ticks (1 stage + finalizar).
+    await fb.tick()  # 10 → 20 (pre-flight)
+    await fb.tick()  # ejecuta stage 0 (parsear + volcar) → 95
+    await fb.tick()  # ejecuta _step_finalizar → 99 (done)
+    assert fb.nStep == fb.n_done
 
-        n_step_before = fb.nStep
-        await fb.tick()
-        assert fb.nStep == n_step_before  # no avanza
-    finally:
-        excel_cache_manager.ExcelCacheManager._cache = original_cache
+    n_step_before = fb.nStep
+    await fb.tick()
+    assert fb.nStep == n_step_before  # no avanza

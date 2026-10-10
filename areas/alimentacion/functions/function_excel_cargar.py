@@ -1,8 +1,8 @@
-"""FB que sube el Excel del operario y popula ``AppState``.
+"""FB que sube el Excel del operario y popula ``AppCache``.
 
-Hereda de ``FunctionTemplate`` (plantilla con Zona 0 de inyeccion
-de deps). La logica pura vive en ``helpers/excel/excel_upload.py``;
-aqui solo esta la state machine + tracker + 2 pasos.
+Hereda de ``FunctionBase`` (plantilla con Zona 0 de inyeccion de
+deps). La logica pura vive en ``helpers/excel/excel_upload.py``;
+aqui solo esta la state machine + tracker + 1 paso.
 
 Runtime params via ``start(**kwargs)``:
   - ``xlsx_path`` (``str | Path``): ruta al ``.xlsx`` a parsear.
@@ -16,12 +16,12 @@ legacy::
         "summary": {"DispED": N, "DispEA": M, ...},
         "total_dispositivos": int,
         "dimensiones": {...},  # cache.n_max.to_api_dict()
+        "software": {...},
     }
 """
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import Any
 
 from core.composition.plc_function_base import FunctionBase
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 class FunctionExcelCargar(FunctionBase):
-    """FB: carga el Excel del operario y popula ``AppState``."""
+    """FB: carga el Excel del operario y popula ``AppCache``."""
 
     # ==================================================================
     # CONFIGURACION ESTATICA DEL FB
@@ -40,6 +40,10 @@ class FunctionExcelCargar(FunctionBase):
     # TOCAR Zona 1: timeout por step. Parsear el Excel puede tardar
     # ~5-10s en cold-start (load + 10 parsers). Holgura a 30s.
     STEP_TIMEOUT_S: float = 30.0
+
+    # Area fija: este FB solo opera sobre ``alimentacion``. Cualquier
+    # cambio requiere refactor a un ``area_id`` inyectable.
+    AREA_ID: str = "alimentacion"
 
     # Tabla declarativa de stages. Cada tupla: (idx, "nombre_step",
     # "atributo_metodo_en_el_FB"). El ``run_step`` dispatcha contra
@@ -54,8 +58,7 @@ class FunctionExcelCargar(FunctionBase):
     #   - ``atributo_metodo`` es un metodo del FB (no externo): un cambio de
     #     signatura requiere actualizar este registro.
     STAGES: list[tuple[int, str, str]] = [
-        (1, "Parsear Excel",                  "_stage_1_parsear_excel"),
-        (2, "Volcar a estado de aplicación",  "_stage_2_volcar_appstate"),
+        (1, "Parsear y volcar Excel",       "_stage_1_parsear_y_volcar"),
     ]
 
     # ==================================================================
@@ -74,15 +77,13 @@ class FunctionExcelCargar(FunctionBase):
         build_cache: Any = None,
         # ── Deps especificas de este FB ──
         excel_loader_factory: type = None,
-        excel_cache_cls: type = None,
         app_state: AppState | None = None,
     ) -> None:
         super().__init__(
             nombre=nombre,
             titulo=titulo,
             steps=steps if steps is not None else [
-                {"nombre": "Parsear Excel"},
-                {"nombre": "Volcar a estado de aplicación"},
+                {"nombre": "Parsear y volcar Excel"},
             ],
             tracker=tracker,
         )
@@ -91,11 +92,10 @@ class FunctionExcelCargar(FunctionBase):
         self._tia_client = tia_client  # No usado en este FB.
         self._build_cache = build_cache  # No usado en este FB.
         # Deps especificas
-        # ``excel_loader_factory`` y ``excel_cache_cls`` se importan
-        # lazily en run_step (ZONA 4) para evitar import circular
-        # entre ``function_excel_cargar`` y ``helpers/excel/excel_upload``.
+        # ``excel_loader_factory`` se importa lazy en run_step (ZONA 4)
+        # para evitar import circular entre ``function_excel_cargar`` y
+        # ``helpers/excel/excel_upload``.
         self._loader_factory = excel_loader_factory
-        self._cache_cls = excel_cache_cls
         self._state: AppState = (
             app_state if app_state is not None else get_app_state()
         )
@@ -123,7 +123,7 @@ class FunctionExcelCargar(FunctionBase):
     # ==================================================================
 
     async def run_step(self, idx: int, **params: Any) -> str:
-        """CASE de los 2 pasos (dispatch declarativo via tabla ``STAGES``).
+        """CASE del unico paso (dispatch declarativo via tabla ``STAGES``).
 
         Itera la tabla ``STAGES`` declarada arriba de la clase; cada
         tupla ``(idx, nombre, atributo_metodo)`` mapea el step logico
@@ -131,11 +131,7 @@ class FunctionExcelCargar(FunctionBase):
         """
         # Lazy import para evitar ciclo con helpers/excel/excel_upload.
         from areas.alimentacion.helpers.excel.excel_upload import (
-            dump_cache_to_state,
             parse_excel_to_cache,
-        )
-        from areas.alimentacion.helpers.excel.excel_cache_manager import (
-            ExcelCacheManager,
         )
         from areas.alimentacion.helpers.excel.excel_loader import ExcelLoader
 
@@ -145,16 +141,6 @@ class FunctionExcelCargar(FunctionBase):
                 "Inyectalo en el constructor al registrar el FB."
             )
 
-        # Tabla declarativa de stages: (idx, nombre, atributo_metodo).
-        # Cada stage es un metodo del FB con prefijo ``_stage_N_<nombre>``.
-        # El dispatcher de abajo itera esta tabla; no usamos ``match``
-        # para que el orden sea visible arriba de la clase y los tests
-        # puedan mockear ``fb._stage_N_<nombre>`` directamente.
-        #
-        # El lookup es por ``nombre`` (no por ``idx``) porque
-        # ``FunctionBase._step_ejecutar`` pasa ``idx`` 0-indexed sobre
-        # ``self.steps``. El ``idx`` de la tabla STAGES es 1-based y
-        # solo se usa para logging legible ("paso 1/2").
         step_nombre = self.steps[idx]["nombre"]
         for _s_idx, s_nombre, s_attr in self.STAGES:
             if s_nombre == step_nombre:
@@ -172,22 +158,12 @@ class FunctionExcelCargar(FunctionBase):
 
     def on_finish(self, **params: Any) -> None:
         """Vuelca ``self.result`` con la shape legacy del endpoint."""
-        # Recuperamos el cache para devolver las ``dimensiones``.
-        from areas.alimentacion.helpers.excel.excel_cache_manager import (
-            ExcelCacheManager,
-        )
-        # NOTA: en un FB async esto seria await, pero ``on_finish``
-        # es sync. El cache ya esta en memoria del Engine global
-        # asi que lo recuperamos sync via el ``cache_cls`` directo.
-        # NOTA: en un FB async esto seria await, pero ``on_finish``
-        # Recuperamos el cache via la ClassVar publica
-        # ``ExcelCacheManager._cache``. El atributo ``_state`` no
-        # existe y daba None, lo que mostraba '0 proc' aunque el
-        # cache tuviera datos.
-        cache = ExcelCacheManager._cache
+        # Lectura sincronica del cache desde AppCache (la fuente de
+        # verdad vive en ``app_cache.area(area_id).excel_full``; este
+        # FB la escribio en el stage unico via ``parse_excel_to_cache``).
+        from core.runtime.excel_cache import excel_get_full
+        cache = excel_get_full(self._state.app_cache, self.AREA_ID)
         dimensiones = cache.n_max.to_api_dict() if cache else None
-        # Conteos de software para el resumen completo en la consola
-        # web (procesos, preal, pint, alarmas, n_max).
         software = None
         if cache is not None:
             software = {
@@ -199,8 +175,8 @@ class FunctionExcelCargar(FunctionBase):
             }
         self.result = {
             "ok": True,
-            "summary": self._stats.get("volcar_appstate", {}).get("summary", {}),
-            "total_dispositivos": self._stats.get("volcar_appstate", {}).get(
+            "summary": self._stats.get("parsear_excel", {}).get("summary", {}),
+            "total_dispositivos": self._stats.get("parsear_excel", {}).get(
                 "total_dispositivos", 0
             ),
             "dimensiones": dimensiones,
@@ -215,16 +191,15 @@ class FunctionExcelCargar(FunctionBase):
     # tabla tambien.
     # ==================================================================
 
-    async def _stage_1_parsear_excel(self) -> str:
-        """Stage 1: parsea el ``.xlsx`` con ``parse_excel_to_cache``.
+    async def _stage_1_parsear_y_volcar(self) -> str:
+        """Stage 1: parsea el ``.xlsx`` y lo escribe al ``AppCache``.
 
         Lazy import para evitar ciclo entre este FB y
-        ``helpers/excel/excel_upload``. Devuelve un resumen legible del
-        conteo total de dispositivos parseados.
+        ``helpers/excel/excel_upload``. ``parse_excel_to_cache``
+        escribe el cache completo y rederiva el activo en el
+        ``AppCache`` del area; este stage solo calcula el ``summary``
+        con la shape legacy (claves canonicas desde el config).
         """
-        from areas.alimentacion.helpers.excel.excel_cache_manager import (
-            ExcelCacheManager,
-        )
         from areas.alimentacion.helpers.excel.excel_loader import ExcelLoader
         from areas.alimentacion.helpers.excel.excel_upload import (
             parse_excel_to_cache,
@@ -233,53 +208,36 @@ class FunctionExcelCargar(FunctionBase):
         cache = await parse_excel_to_cache(
             config_manager=self._config,
             excel_path=self._xlsx_path,
-            cache_cls=self._cache_cls or ExcelCacheManager,
+            app_cache=self._state.app_cache,
+            area_id=self.AREA_ID,
             loader_factory=self._loader_factory or ExcelLoader,
         )
-        # Guardamos el cache en self._stats para ``on_finish``.
         total_devs = sum(
             len(v) for v in cache.dispositivos.values()
         )
+        # ``summary`` con la shape legacy: ``{tipo_canonica: count}``.
+        # Las claves canonicas vienen del config_manager (el cache no
+        # expone directamente ``DispED``, ``DispEA``, ...).
+        summary: dict[str, int] = {}
+        for hw in self._config.list_hw_types_active():
+            target = self._config.get_excel_target_for(hw)
+            if target is None:
+                continue
+            canonica = target.get("canonical", "")
+            if not canonica:
+                continue
+            devices_tuple = cache.dispositivos.get(hw, ())
+            summary[canonica] = len(devices_tuple)
         self._stats["parsear_excel"] = {
             "xlsx_path": self._xlsx_path,
             "total_dispositivos": total_devs,
-        }
-        return f"{total_devs} dispositivos parseados"
-
-    async def _stage_2_volcar_appstate(self) -> str:
-        """Stage 2: vuelca el cache al ``AppState`` con ``dump_cache_to_state``.
-
-        El cache ya esta en memoria del Engine global (lo puso
-        ``parse_excel_to_cache`` via ``ExcelCacheManager.put``). Aqui lo
-        recuperamos y lo copiamos al ``AppState``.
-        """
-        from areas.alimentacion.helpers.excel.excel_cache_manager import (
-            ExcelCacheManager,
-        )
-        from areas.alimentacion.helpers.excel.excel_upload import (
-            dump_cache_to_state,
-        )
-
-        cache = await ExcelCacheManager.get()
-        if cache is None:
-            raise RuntimeError(
-                "cache vacio tras parsear_excel. "
-                "Esto no deberia ocurrir."
-            )
-        summary_dict = dump_cache_to_state(
-            cache=cache,
-            app_state=self._state,
-            config_manager=self._config,
-        )
-        self._stats["volcar_appstate"] = {
-            "summary": summary_dict["summary"],
-            "total_dispositivos": summary_dict["total_dispositivos"],
+            "summary": summary,
         }
         logger.debug(
-            f"[{self.nombre}] Carga: {summary_dict['total_dispositivos']} "
-            f"dispositivos ({len(summary_dict['summary'])} tipos)"
+            f"[{self.nombre}] Carga: {total_devs} dispositivos "
+            f"({len(summary)} tipos)"
         )
-        return "Estado actualizado"
+        return f"{total_devs} dispositivos parseados"
 
 
 __all__ = ["FunctionExcelCargar"]
