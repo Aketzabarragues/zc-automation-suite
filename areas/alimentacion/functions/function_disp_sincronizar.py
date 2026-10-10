@@ -193,7 +193,7 @@ class FunctionDispSincronizar(FunctionBase):
         # disponibles en el Excel.
         validate_plc_in_excel(self._state, self._plc_name)
         # Propagar al AppState (defensa redundante con el endpoint).
-        with_plc(self._state, self._plc_name)
+        with_plc(self._state.app_cache, self._plc_name)
 
         # Crear el DispSyncContext que las 11 funciones iran mutando.
         # Lazy import para evitar ciclo con helpers/disp/.
@@ -684,9 +684,7 @@ class FunctionDispSincronizar(FunctionBase):
     async def _stage_10_aplicar_comentarios(self) -> None:
         """Stage 10 del sync: aplica los comentarios por instancia a los DBs de disp del área.
 
-        Flujo (replica ``apply_disp_comments`` que vivia en
-        ``helpers/sync/disp_comment_sync.py``, borrado al refactorizar A.4
-        para consolidarlo aqui):
+        Flujo (aplica comentarios por instancia a los DBs de disp del area):
 
           1. Validar AppState.
           2. Construir slot_maps (disp_build_slot_maps).

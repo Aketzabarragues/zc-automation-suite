@@ -189,7 +189,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
         # Validar contra el Excel cargado.
         validate_plc_in_excel(self._state, self._plc_name)
         # Propagar al AppState.
-        with_plc(self._state, self._plc_name)
+        with_plc(self._state.app_cache, self._plc_name)
 
         # Crear el EntidadesSyncContext que las 11 funciones iran mutando.
         self._ctx = EntidadesSyncContext(

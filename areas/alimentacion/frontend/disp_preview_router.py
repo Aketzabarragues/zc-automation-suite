@@ -1,10 +1,9 @@
 """Router Flask del endpoint ``POST /api/v1/plcs/<name>/preview``.
 
-Migrado del metodo legacy ``DispSyncInstancesUseCase.generar_prevision``. El
-helper vive en ``areas/alimentacion/helpers/sync/disp_generate_preview.py``;
-el FB ``FunctionDispGenerarPreview`` (registrado en el engine como
-``disp_generar_preview``) tiene la state machine + tracker; este
-router solo orquesta: arranca el FB y devuelve el ``result``.
+Orquesta: arranca el FB ``disp_generar_preview`` y devuelve su
+``result``. El helper vive en
+``areas/alimentacion/helpers/sync/disp_generate_preview.py``; el FB
+tiene la state machine + tracker.
 
 Endpoint:
   POST /api/v1/plcs/<plc_name>/preview

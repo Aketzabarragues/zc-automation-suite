@@ -87,9 +87,7 @@ class ConfigManager:
         department:  Nombre del departamento a resolver. Si es ``""`` o
                      el departamento no existe, se usa el primer
                      departamento disponible (forward-compatible con
-                     configs multi-área incompletas). Antes de PR 1
-                     el default era ``"alimentacion"``; ahora es
-                     cadena vacía → primer departamento disponible.
+                     configs multi-área incompletas).
 
     API:
       - **Tabla global N_MAX**: ``get_global_config_table_name()``.
@@ -110,10 +108,9 @@ class ConfigManager:
       - **Listado**: ``list_keys()``,
         ``list_hw_types_active()`` (recomendado),
         ``list_hw_types_pending()``.
-      - **Defaults por área (PR 1)**: ``apply_defaults(dept_cfg)`` —
+      - **Defaults por área**: ``apply_defaults(dept_cfg)`` —
         delega en las áreas registradas para rellenar claves
-        ausentes. Es no-op si no hay áreas registradas (caso actual
-        antes de PR 2).
+        ausentes. Es no-op si no hay áreas registradas.
 
     Política de fallback: si una clave no existe, se retorna el valor
     por defecto (cadena vacía o ``[]``) con un ``logger.warning``
@@ -236,9 +233,7 @@ class ConfigManager:
 
         Si la clave ``n_max_catalog`` no existe en el JSON, retorna
         ``{}`` (genérico, vacío) y se loggea un warning una sola vez
-        por instancia. Antes de PR 1, retornaba los N_MAX legacy
-        como fallback defensivo; ese comportamiento pasa al área
-        "alimentación" vía ``contributes_config_defaults`` (PR 2).
+        por instancia.
         """
         raw = self._department_config.get("n_max_catalog")
         if raw is None:
@@ -247,7 +242,7 @@ class ConfigManager:
                     "Bloque 'n_max_catalog' ausente en config.json; "
                     "el catálogo queda vacío (genérico). El área "
                     "activa puede aportar defaults vía "
-                    "contributes_config_defaults (PR 2)."
+                    "contributes_config_defaults."
                 )
                 self._warned_missing_catalog = True
             raw = []
@@ -269,7 +264,7 @@ class ConfigManager:
         return indexed
 
     def apply_defaults(self, dept_cfg: dict[str, Any] | None = None) -> None:
-        """Hook PR 1+2: delega en las áreas registradas para rellenar
+        """Delega en las áreas registradas para rellenar
         claves ausentes en la sub-config del departamento activo.
 
         Recorre ``AreaRegistry.discover().all()`` y, para cada
@@ -277,11 +272,11 @@ class ConfigManager:
         invoca pasando ``(dept_cfg, dept_id)``. El callable del área
         muta ``dept_cfg`` in-place para añadir las claves que falten.
 
-        Detección de firma (PR 2): los ``contributes_config_defaults``
-        se invocan con la firma nueva ``(dept_cfg, dept_id)``. Por
-        back-compat, si un callable solo acepta ``(dept_cfg)``
-        (p. ej. tests internos que mockean el ``AreaSpec``), se
-        llama sin ``dept_id`` usando ``inspect.signature``.
+        Los ``contributes_config_defaults`` se invocan con la firma
+        ``(dept_cfg, dept_id)``. Por back-compat, si un callable solo
+        acepta ``(dept_cfg)`` (p. ej. tests internos que mockean el
+        ``AreaSpec``), se llama sin ``dept_id`` usando
+        ``inspect.signature``.
 
         Tras invocar todos los callbacks, **re-indexa** los caches
         internos (``_nmax_by_name`` / ``_nmax_by_hw``) por si el
@@ -538,7 +533,7 @@ class ConfigManager:
         """Ruta de la carpeta TIA donde reside la tabla de N_MAX.
 
         Por defecto ``""`` (genérico). Si el área aporta su carpeta
-        N_MAX vía ``contributes_config_defaults`` (PR 2), se respeta.
+        N_MAX vía ``contributes_config_defaults``, se respeta.
         """
         folders = self._department_config.get("tia_folders", {})
         return str(folders.get("nmax", _DEFAULT_TIA_FOLDER_NMAX))
@@ -602,8 +597,7 @@ class ConfigManager:
         Cada subcarpeta debe contener un ``manifest.json`` con
         ``base``, ``codigo``, ``nombre`` y ``minimos``. Por defecto
         cadena vacia (sin configurar); el operario la configura via
-        ``PUT /api/v1/procesos/plantillas`` desde la SPA (Fase 1
-        de generar proceso desde plantilla).
+        ``PUT /api/v1/procesos/plantillas`` desde la SPA.
         """
         plantillas = self._department_config.get("plantillas_path", "")
         if not plantillas:

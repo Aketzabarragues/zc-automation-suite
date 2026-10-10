@@ -158,7 +158,7 @@ class FunctionDispGenerarPreview(FunctionBase):
         # Validar contra el Excel cargado (sept-2026 multi-PLC).
         validate_plc_in_excel(self._state, self._plc_name)
         # Propagar al AppState (defensa redundante con el endpoint).
-        with_plc(self._state, self._plc_name)
+        with_plc(self._state.app_cache, self._plc_name)
 
         # Crear el DispPreviewContext que las 4 funciones iran mutando.
         # Lazy import para evitar ciclo con helpers/sync/.

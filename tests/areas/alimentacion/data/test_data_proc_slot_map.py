@@ -1,6 +1,6 @@
 ﻿"""Tests para ``areas.alimentacion.data.data_proc_slot_map.DataProcSlotMap``.
 
-Fase 3, paso 3.2.9.  Cobertura:
+Cobertura:
   - defaults razonables (3 dicts, 3 strs, 2 strs, 2 dicts, 2 lists).
   - ``frozen=True``: no se puede mutar.
   - ``to_dict()`` shape estable: 12 keys.

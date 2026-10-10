@@ -390,8 +390,9 @@ def proc_build_slot_maps(
 def format_missing_db_message(slot_map: DataProcSlotMap, db_name: str) -> str:
     """Mensaje estandar cuando un DB esta ausente en el PLC.
 
-    Usado por el sync (stage 3 + fase 2 de Tx B) y por el preview
-    (stage 6) para que el operario vea el mismo texto en ambos lados.
+    Usado por el sync (stage 3 + segunda transaccion de bloques) y por
+    el preview (stage 6) para que el operario vea el mismo texto en
+    ambos lados.
     """
     if db_name == slot_map.db_param_name:
         kind = "parametros"

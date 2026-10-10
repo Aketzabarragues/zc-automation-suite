@@ -189,7 +189,7 @@ class FunctionProcDBSincronizar(FunctionBase):
         # Validar contra el Excel cargado (sept-2026 multi-PLC).
         validate_plc_in_excel(self._state, self._plc_name)
         # Propagar al AppState (defensa redundante con el endpoint).
-        with_plc(self._state, self._plc_name)
+        with_plc(self._state.app_cache, self._plc_name)
 
         # ``bloques_cache`` puede inyectarse por constructor (test) o
         # leerse del AppCache (acceso sync al dict de estado). Se

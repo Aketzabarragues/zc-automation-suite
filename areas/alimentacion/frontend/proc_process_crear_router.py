@@ -1,5 +1,10 @@
 """Router Flask del feature "Crear proceso completo desde plantilla TIA".
 
+Orquesta: recibe plantilla + proc_uid del Excel, dispara el FB y
+devuelve su ``result``. Los FBs tienen la state machine + tracker;
+los helpers (``areas/alimentacion/helpers/proc/``) tienen la logica
+pura.
+
 Endpoints:
   POST /api/v1/procesos/crear/preview
         Body JSON (minimalista — el Excel es la fuente de verdad):
@@ -23,7 +28,7 @@ Endpoints:
                                             deteccion por numero detecta
                                             cross-type (DB60010 vs FB60010).
 
-        El router extrae del ``AppState.excel_cache_full.procesos[uid]``
+        El router extrae del ``app_cache.area("alimentacion").excel_full.procesos[uid]``
         los campos que el FB necesita:
           ``base``       = ``proceso.uid``
           ``codigo``     = ``proceso.codigo``
@@ -121,8 +126,8 @@ def _resolve_excel_proc(app_state, proc_uid: int):
     cache = excel_get_full(app_state.app_cache, "alimentacion")
     if cache is None:
         raise ValueError(
-            "AppState.excel_cache_full esta vacio. Cargue primero el "
-            "Excel con POST /api/v1/excel/upload."
+            "Excel no cargado en el area. Cargue primero el archivo con "
+            "POST /api/v1/excel/upload."
         )
     for p in cache.procesos:
         if int(p.uid) == int(proc_uid):

@@ -2,14 +2,15 @@
 
 El Excel del operario es la fuente de verdad para los datos del
 proceso nuevo. La SPA solo envia ``dir_plantilla_nombre + proc_uid``
-y el router los resuelve desde ``AppState.excel_cache_full.procesos``.
+y el router los resuelve desde
+``app_cache.area("alimentacion").excel_full.procesos``.
 
 Tests:
   - ``test_crear_preview_ok_con_plantilla``:
     Body valido (minimal) + Excel con proc_uid=300 + plantillas_path OK
     + FB mockeado que arranca OK -> 200 con el ``fb.result``.
   - ``test_crear_preview_sin_excel``:
-    AppState.excel_cache_full=None -> 400 (accionable: "Cargue el Excel").
+    app_cache sin excel_full -> 400 (accionable: "Cargue el Excel").
   - ``test_crear_preview_proc_uid_inexistente``:
     proc_uid=999 que no esta en el Excel -> 400 con mensaje accionable.
   - ``test_crear_preview_body_incompleto``:
@@ -266,7 +267,7 @@ def test_crear_preview_expone_descripcion_y_dependencias(plantilla_dummy: Path) 
 
 
 def test_crear_preview_sin_excel() -> None:
-    """AppState.excel_cache_full=None -> 400 accionable."""
+    """Excel no cargado en app_cache -> 400 accionable."""
     from areas.alimentacion.frontend.proc_process_crear_router import bp
 
     engine = MagicMock()

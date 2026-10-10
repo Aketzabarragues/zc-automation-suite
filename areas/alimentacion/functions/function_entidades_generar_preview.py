@@ -161,7 +161,7 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
         # Validar contra el Excel cargado.
         validate_plc_in_excel(self._state, self._plc_name)
         # Propagar al AppState (defensa redundante con el endpoint).
-        with_plc(self._state, self._plc_name)
+        with_plc(self._state.app_cache, self._plc_name)
 
         # Crear el EntidadesPreviewContext que las 5 funciones iran mutando.
         self._ctx = EntidadesPreviewContext(
