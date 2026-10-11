@@ -1,22 +1,24 @@
 /**
  * ConfiguracionPanel — Tab "Configuracion" dentro de "Definicion programacion".
  *
- * Sept-2026 (multi-PLC, propuesta del operario): muestra la
- * ``Tabla_Dispositivos`` del Excel como tabla cruda (no como cards
- * de N_MAX). Cada fila es un PLC con sus N_MAX_DISP_* en columnas.
+ * Muestra la ``Tabla_Dimensiones`` del Excel como tabla cruda (no
+ * como cards de N_MAX): cada fila es un PLC con sus ``N_MAX_DISP_*``
+ * en columnas. Multi-PLC: si el operario tiene varios PLCs, ve una
+ * fila por PLC.
  *
  * Sustituye a las N_MAX cards que vivían en ``DispositivosPanel``
  * (multi-PLC rompe la utilidad de cards mezcladas por PLC: la info
  * por PLC vive en el preview del PLC concreto, en ``Dispositivos.js``).
  *
- * Shape del backend (en el slot ``excel_full`` del AppCache):
- *   store.appCache.areas["alimentacion"].excel_full.dimensiones = {
+ * Shape del backend (slot ``excel_full`` del AppCache, vía
+ * ``DimensionesPLC.to_api_dict()``):
+ *   store.appCache.areas["alimentacion"].excel_full.n_max = {
  *       "ZC_PLC_STD": { "N_MAX_DISP_ED": 50, "N_MAX_DISP_EA": 30, ... },
  *       "PLC_CPR":    { "N_MAX_DISP_ED": 200, ... }
  *   }
  *
  * Columnas derivadas dinámicamente del primer PLC (orden estable).
- * Si el Excel no tiene ``Tabla_Dispositivos``, el contenedor viene
+ * Si el Excel no tiene ``Tabla_Dimensiones``, el contenedor viene
  * vacio y mostramos un empty state claro.
  */
 import { computed } from "/js/vendor/vue.esm-browser.prod.js";
@@ -40,12 +42,11 @@ export default {
 
         /**
          * Lista de PLCs (filas). Cada item: ``{ plc_name, extras: {...} }``.
-         * Viene de ``excel_full.dimensiones`` (dict
-         * ``{plc_name: {nmax_name: int}}``). Lo pasamos a una lista
-         * ordenada para iterar en el template.
+         * Viene de ``excel_full.n_max`` (dict ``{plc_name: {nmax_name: int}}``
+         * producido por ``DimensionesPLC.to_api_dict()``).
          */
         const plcRows = computed(() => {
-            const d = excelFull.value && excelFull.value.dimensiones;
+            const d = excelFull.value && excelFull.value.n_max;
             if (!d || typeof d !== "object") return [];
             return Object.entries(d).map(([plc_name, extras]) => ({
                 plc_name,
@@ -82,7 +83,7 @@ export default {
             </div>
             <div v-else-if="!hasDimensiones" class="px-6 py-12 text-center text-ink-muted">
                 <div class="text-base mb-2">
-                    No hay <span class="font-mono">Tabla_Dispositivos</span> en el Excel cargado.
+                    No hay <span class="font-mono">Tabla_Dimensiones</span> en el Excel cargado.
                 </div>
                 <div class="text-xs">
                     Anade una hoja con la tabla de N_MAX (columnas

@@ -172,6 +172,10 @@ class DimensionesParser:
                 prev.update(extras)
                 por_plc[plc_name] = prev
 
+        logger.debug(
+            f"Parser[{SHEET}/{N_MAX_TABLE_NAME}]: "
+            f"{len(rows)} filas -> {len(por_plc)} PLCs extraidos"
+        )
         return DimensionesPLC(
             por_plc=tuple(
                 DataDimensionesPLC(
