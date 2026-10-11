@@ -10,11 +10,22 @@
  *      contenedor ``bg-surface-raised border border-line rounded``
  *      para coherencia visual con ``ProcesosPanel.js``.
  *
- * Sept-2026 multi-PLC: las N_MAX cards (antes aquí) se han movido a
+ * Multi-PLC: las N_MAX cards (antes aquí) se han movido a
  * ``ConfiguracionPanel`` (tab "Configuracion"). Multi-PLC rompe la
  * utilidad de cards mezcladas por PLC: la info por PLC vive en el
  * tab "Configuracion" (Tabla_Dispositivos cruda del Excel) y en el
  * preview del PLC concreto (``Dispositivos.js``).
+ *
+ * **Convención de keys:**
+ *   - ``tab.key``     = ``t.canonical`` (``"DispED"``): indexa
+ *     ``store.catalog.model_columns`` (el backend lo construye
+ *     con canonical como clave, no con ``hw_type``).
+ *   - ``tab.hwType``  = ``t.hw_type`` (``"ed"``): indexa
+ *     ``store.appCache.areas.alimentacion.excel_full.dispositivos``
+ *     (el backend ``excel_loader.py`` produce el dict con keys
+ *     ``hw_type`` lowercase).
+ * Mezclar ambas keys da ``undefined`` y la pestaña muestra el
+ * empty-state "no contiene dispositivos" aunque el cache esté lleno.
  *
  * Si ``store.appCache.areas["alimentacion"].excel_full`` está
  * vacío (operario aún no ha subido Excel), pinta el mensaje
@@ -35,14 +46,16 @@ export default {
     setup() {
         /**
          * Sub-tabs data-driven desde el catalog del backend.
-         * Mantiene la forma ``{key, label}`` que ya consumía el
-         * template original.
+         * Mantiene la forma ``{key, hwType, label}``: ``key`` es el
+         * canonical (para ``modelColumns``), ``hwType`` es el
+         * ``hw_type`` lowercase (para ``excel_full.dispositivos``).
          */
         const tabs = computed(() => {
             const c = store.catalog;
             if (!c || !Array.isArray(c.device_tabs)) return [];
             return c.device_tabs.map((t) => ({
                 key: t.canonical,
+                hwType: t.hw_type,
                 label: t.label,
             }));
         });
@@ -98,10 +111,24 @@ export default {
             () => store.appCache?.areas?.alimentacion?.excel_full || null
         );
 
+        // ``hwTypeByKey`` traduce ``activeSubTab`` (canonical, p.ej.
+        // ``"DispED"``) al ``hw_type`` (``"ed"``) con el que el
+        // backend keyed ``excel_full.dispositivos``. Sin este mapeo
+        // el lookup devuelve ``undefined`` y la SPA pinta el
+        // empty-state "no contiene dispositivos" aunque el cache
+        // tenga disp cargados.
+        const hwTypeByKey = computed(() => {
+            const m = {};
+            for (const t of tabs.value) m[t.key] = t.hwType;
+            return m;
+        });
+
         const activeDevices = computed(() => {
             const ms = excelFull.value;
             if (!ms || !ms.dispositivos) return [];
-            return ms.dispositivos[activeSubTab.value] || [];
+            const hw = hwTypeByKey.value[activeSubTab.value];
+            if (!hw) return [];
+            return ms.dispositivos[hw] || [];
         });
 
         const hasMemory = computed(
@@ -137,15 +164,19 @@ export default {
          * inalcanzable desde el template en Vue 3 con template compiler
          * en runtime: las variables importadas a nivel de módulo NO se
          * exponen automáticamente al template; solo lo retornado del
-         * setup()).
+         * setup()). Las keys del dict resultante son ``tab.key``
+         * (canonical, ``DispED``) porque el template itera sobre
+         * ``tabs`` y hace ``deviceCountsByTab[t.key]``; los valores
+         * se leen del backend con ``hwType`` (``t.hwType``).
          */
         const deviceCountsByTab = computed(() => {
             const out = {};
             const ms = excelFull.value;
             const disp = ms && ms.dispositivos;
             if (!disp || typeof disp !== "object") return out;
-            for (const [key, lst] of Object.entries(disp)) {
-                out[key] = Array.isArray(lst) ? lst.length : 0;
+            for (const t of tabs.value) {
+                const v = disp[t.hwType];
+                out[t.key] = Array.isArray(v) ? v.length : 0;
             }
             return out;
         });
