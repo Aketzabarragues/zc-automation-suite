@@ -83,13 +83,19 @@ export default {
             () => displayOrder.value[activeSoftwareTab.value] || []
         );
 
+        // ``excel_full`` reactivo desde el AppCache del area activa.
+        const excelFull = computed(
+            () => store.appCache?.areas?.alimentacion?.excel_full || null
+        );
+
         /**
          * Items por dominio, leidos del cache del Excel.
          * Fuente unica para ``counts`` (los 4 counts del sub-tab)
          * y para ``rows`` (items del sub-tab activo).
          */
         const itemsByDomain = computed(() => {
-            if (!store.memoryState) {
+            const ms = excelFull.value;
+            if (!ms) {
                 return {
                     procesos:        [],
                     parametros_int:  [],
@@ -98,10 +104,10 @@ export default {
                 };
             }
             return {
-                procesos:        store.memoryState.procesos        || [],
-                parametros_int:  store.memoryState.parametros_int  || [],
-                parametros_real: store.memoryState.parametros_real || [],
-                alarmas:         store.memoryState.alarmas         || [],
+                procesos:        ms.procesos        || [],
+                parametros_int:  ms.parametros_int  || [],
+                parametros_real: ms.parametros_real || [],
+                alarmas:         ms.alarmas         || [],
             };
         });
 
@@ -132,10 +138,7 @@ export default {
          * ``true`` cuando hay Excel cargado (mismo patron que
          * ``DispositivosPanel``: distinto null vs objeto vacio).
          */
-        const hasMemory = computed(
-            () => store.memoryState !== null
-                && store.memoryState !== undefined
-        );
+        const hasMemory = computed(() => excelFull.value != null);
 
         /**
          * Formatea un valor de celda: ``null|undefined|""`` se

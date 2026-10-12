@@ -1,10 +1,8 @@
 """Data Blocks de dispositivos.
 
 Agrupa SOLO la familia "Dispositivos" en data pura (Protocol + 6 Disp*).
-``DimensionesPLC`` migra a su propio archivo ``data_dimensiones.py``
+``DimensionesPLC`` vive en su propio archivo ``data_dimensiones.py``
 para mantener cada archivo < 200 líneas según la regla del operario.
-
-Migrado de ``areas/alimentacion/domain/models/excel_cache.py``.
 
 Convencion: ``frozen=True``, sin I/O, sin imports de
 ``siemens_tia_scripting`` u openpyxl.  ``str`` -> default ``""``,

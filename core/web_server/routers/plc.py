@@ -116,8 +116,8 @@ def _scan_plc_blocks(plc_name: str):
 
     Devuelve ``(status_code, body)``. ``body.ok`` es True si el FB
     termino OK; ``body.snapshot`` trae el shape ``{ plc_name,
-    blocks, tag_tables, udts, scanned_at }`` reconstruido desde
-    ``TIADataBloqueCache``.
+    blocks, tag_tables, udts, scanned_at }`` reconstruido desde el
+    ``AppCache`` (contenedor unico ``core.runtime.app_cache``).
 
     Si el portal no esta attached, devuelve 503 + X-Error-Type
     (mismo contrato que la version pre-FB) para que el SPA distinga
@@ -125,8 +125,6 @@ def _scan_plc_blocks(plc_name: str):
     """
     import asyncio
     import time
-
-    from core.infrastructure.tia.tia_cache import TIADataBloqueCache
 
     tia_client = current_app.config.get("TIA_CLIENT")
     if tia_client is None or tia_client.ts is None or tia_client.wrapper is None:
@@ -204,7 +202,12 @@ def _scan_plc_blocks(plc_name: str):
 
     # OK: leer la cache IT (que el FB relleno via el helper) y
     # devolver el snapshot con la shape que espera la SPA.
-    cache = asyncio.run(TIADataBloqueCache.get(plc_name))
+    from core.infrastructure.tia.tia_cache import plc_blocks_get
+    app_cache = current_app.config.get("APP_CACHE")
+    if app_cache is None:
+        cache = None
+    else:
+        cache = plc_blocks_get(app_cache, plc_name)
     if cache is None:
         # Caso raro: el FB reporto OK pero la cache esta vacia.
         # Devolvemos un snapshot vacio pero valido.

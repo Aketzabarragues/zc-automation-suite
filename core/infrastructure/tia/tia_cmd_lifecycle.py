@@ -27,6 +27,33 @@ if TYPE_CHECKING:
 logger = logging.getLogger("zc.tia_loop")
 
 
+def _reset_app_cache_on_detach() -> None:
+    """Limpia el ``AppCache`` al cerrar el portal.
+
+    El operario puede desconectar TIA Portal y abrir otro proyecto. Los
+    snapshots del proyecto anterior (``plc_list``, ``plc_project``,
+    ``plc_blocks``, ``plc_user_constants``, ``excel_full``,
+    ``excel_active``, previews y commit summaries) quedan stale si
+    se reutiliza el nombre de PLC o si se reabre un proyecto distinto.
+
+    ``AppCache.reset()`` limpia slots globales y per-area (cada
+    ``AreaCacheProtocol.reset()``). Emite un ``cache_changed`` por
+    slot limpiado, que la SPA recibe via SSE y aplica a su store
+    (``applyCacheChange``). El operario ve la SPA hidratada de cero.
+
+    Best-effort: si el reset lanza, se loggea y se sigue (el
+    ``detach_portal`` es idempotente por contrato).
+    """
+    try:
+        from core.runtime.app_cache import get_app_cache
+        get_app_cache().reset()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "app_cache.reset() best-effort fallo en detach: %s: %s",
+            type(exc).__name__, exc,
+        )
+
+
 def _h_attach_portal(args: dict, tia_client: "SyncTIAClient") -> dict:
     """Attach a un portal TIA Portal ya abierto (persistente).
 
@@ -106,6 +133,10 @@ def _h_detach_portal(args: dict, tia_client: "SyncTIAClient") -> dict:  # noqa: 
 
     Si ``portal.detach()`` falla (TIA ya cerrado o RCW stale) se loggea
     como warning pero no se propaga: idempotente.
+
+    Tras cerrar el wrapper, limpia el ``AppCache`` (slate limpio para
+    que el operario pueda abrir otro proyecto sin arrastrar datos
+    stale keyed por ``plc_name``).
     """
     if tia_client.wrapper is None:
         return {"detached": False}
@@ -120,6 +151,7 @@ def _h_detach_portal(args: dict, tia_client: "SyncTIAClient") -> dict:  # noqa: 
         )
         detach_error = exc
     tia_client.attach_wrapper(None)
+    _reset_app_cache_on_detach()
     detach_ms = round((time.monotonic() - detach_start) * 1000)
     if detach_error is None:
         logger.info("detach OK (%.0fms).", detach_ms)

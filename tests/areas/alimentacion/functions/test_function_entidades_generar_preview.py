@@ -13,10 +13,24 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from core.runtime.app_state import AppState
+from core.runtime.app_cache import AppCache
 from areas.alimentacion.functions.function_entidades_generar_preview import (
     FunctionEntidadesGenerarPreview,
 )
+
+
+@pytest.fixture(autouse=True)
+def _reset_app_singletons():
+    """Reset del Singleton ``AppCache`` entre tests.
+
+    Sin reset, el ``register_area("alimentacion", ...)`` de un test
+    contamina al siguiente con ``ValueError: area 'alimentacion' ya
+    registrada``.
+    """
+    import core.runtime.app_cache as _cache_mod
+    _cache_mod._app_cache = None
+    yield
+    _cache_mod._app_cache = None
 
 
 # ---------------------------------------------------------------------------
@@ -45,14 +59,46 @@ def _make_config_manager() -> MagicMock:
     return cm
 
 
-def _make_app_state(entidades: list | None = None, n_max_entidades: dict | None = None) -> AppState:
-    """Crea un AppState con entidades + N_MAX_ENTIDAD."""
-    state = MagicMock(spec=AppState)
-    state.excel_cache_active = MagicMock()
-    state.excel_cache_active.entidades = entidades or []
-    state.excel_cache_active.n_max = MagicMock()
-    state.excel_cache_active.n_max.por_plc = (MagicMock(extras=n_max_entidades or {}),)
-    return state
+def _make_app_cache(entidades: list | None = None, n_max_entidades: dict | None = None) -> AppCache:
+    """Crea un AppCache con entidades + N_MAX_ENTIDAD.
+
+    El cache activo vive en ``excel_active_by_area["alimentacion"]``.
+    Lo inyectamos via ``excel_set_active``.
+    """
+    from core.runtime.excel_cache import excel_set_active
+    from types import MappingProxyType
+    from datetime import datetime, timezone
+
+    from core.data.data_excel_cache import DataExcelCache
+    from areas.alimentacion.state.area_cache import AlimentacionAreaCache
+
+    cache = AppCache()
+    if "alimentacion" not in cache._areas:  # noqa: SLF001 (test helper)
+        cache.register_area("alimentacion", AlimentacionAreaCache())
+    excel = DataExcelCache(
+        excel_path="/x.xlsx",
+        excel_mtime_ns=1,
+        parsed_at=datetime(2026, 9, 1, tzinfo=timezone.utc),
+        dispositivos={},
+        n_max=type("NMax", (), {
+            "por_plc": (
+                type("Dim", (), {"extras": n_max_entidades or {},
+                                 "n_max_entidades": 0})(),
+            ),
+            "to_api_dict": lambda self: {},
+        })(),
+        plcs=(),
+        procesos=(),
+        parametros_real=(),
+        parametros_int=(),
+        alarmas=(),
+        entidades=tuple(entidades) if entidades else (),
+        procesos_by_codigo=MappingProxyType({}),
+        parametros_real_by_codigo=MappingProxyType({}),
+        parametros_int_by_codigo=MappingProxyType({}),
+    )
+    excel_set_active(cache, "alimentacion", excel)
+    return cache
 
 
 # ---------------------------------------------------------------------------
@@ -83,7 +129,7 @@ def test_on_start_falla_si_plc_name_vacio() -> None:
         nombre="test",
         config_manager=_make_config_manager(),
         tia_client=MagicMock(),
-        app_state=_make_app_state(),
+        app_cache=_make_app_cache(),
     )
     with pytest.raises(ValueError, match="plc_name"):
         fb.on_start(plc_name="")
@@ -93,7 +139,7 @@ def test_on_start_crea_ctx_con_deps_inyectadas() -> None:
     """Happy path: deps inyectadas + plc_name -> EntidadesPreviewContext creado."""
     cm = _make_config_manager()
     tia = MagicMock()
-    state = _make_app_state(entidades=[FakeEntidad(0, "AAA")])
+    state = _make_app_cache(entidades=[FakeEntidad(0, "AAA")])
 
     with patch(
         "areas.alimentacion.functions.function_entidades_generar_preview."
@@ -109,7 +155,7 @@ def test_on_start_crea_ctx_con_deps_inyectadas() -> None:
             nombre="test",
             config_manager=cm,
             tia_client=tia,
-            app_state=state,
+            app_cache=state,
         )
         fb.on_start(plc_name="PLC_S1500")
 
@@ -118,7 +164,7 @@ def test_on_start_crea_ctx_con_deps_inyectadas() -> None:
     assert fb._ctx.plc_name == "PLC_S1500"
     assert fb._ctx.config_manager is cm
     assert fb._ctx.tia_client is tia
-    assert fb._ctx.app_state is state
+    assert fb._ctx.app_cache is state
 
 
 # ---------------------------------------------------------------------------
@@ -146,7 +192,7 @@ def test_on_finish_vuelca_ctx_result() -> None:
         nombre="test",
         config_manager=_make_config_manager(),
         tia_client=MagicMock(),
-        app_state=_make_app_state(),
+        app_cache=_make_app_cache(),
     )
     fb._ctx = MagicMock()
     fb._ctx.plc_name = "PLC_S1500"
@@ -201,7 +247,7 @@ def test_run_step_falla_si_step_desconocido() -> None:
         nombre="test",
         config_manager=_make_config_manager(),
         tia_client=MagicMock(),
-        app_state=_make_app_state(),
+        app_cache=_make_app_cache(),
     )
     fb._ctx = MagicMock()
     fb.steps = [{"nombre": "step inventado"}]
@@ -288,7 +334,7 @@ def _make_fb_with_ctx() -> FunctionEntidadesGenerarPreview:
         nombre="test",
         config_manager=_make_config_manager(),
         tia_client=MagicMock(),
-        app_state=_make_app_state(),
+        app_cache=_make_app_cache(),
         build_cache=Path("/tmp/build_cache"),
     )
     fb._plc_name = "PLC_S1500"
@@ -298,7 +344,7 @@ def _make_fb_with_ctx() -> FunctionEntidadesGenerarPreview:
         plc_name="PLC_S1500",
         tia_client=fb._tia_client,
         config_manager=fb._config,
-        app_state=fb._state,
+        app_cache=fb._app_cache,
         build_cache_root=Path("/tmp/build_cache"),
     )
     return fb
@@ -370,8 +416,8 @@ def test_stage_2_compute_nmax_usa_n_max_del_cache() -> None:
     """Stage 2 extrae ``N_MAX_ENTIDAD`` del cache y lo pasa al helper."""
     from pathlib import Path
     fb = _make_fb_with_ctx()
-    fb._state = _make_app_state(n_max_entidades={"N_MAX_ENTIDAD": 5})
-    fb._ctx.app_state = fb._state
+    fb._app_cache = _make_app_cache(n_max_entidades={"N_MAX_ENTIDAD": 5})
+    fb._ctx.app_cache = fb._app_cache
     fb._ctx.preview_disp_dir = Path("/tmp/disp")
 
     fake_diff = MagicMock()
@@ -386,6 +432,12 @@ def test_stage_2_compute_nmax_usa_n_max_del_cache() -> None:
         "areas.alimentacion.helpers.entidades.entidades_generate_preview."
         "compute_nmax_diff_entidades",
         return_value=fake_diff,
+    ), patch(
+        # Parchamos el binding del FB para devolver el N_MAX deseado
+        # sin tocar el helper ``get_nmax_entidades``.
+        "areas.alimentacion.functions.function_entidades_generar_preview."
+        "get_nmax_entidades",
+        return_value={"N_MAX_ENTIDAD": 5},
     ):
         import asyncio
         asyncio.run(fb._stage_2_compute_nmax())

@@ -111,6 +111,12 @@ def post_entidades_preview():
         }), 500
 
     result = fb.result or {"ok": True, "plc_name": plc_name}
+    # Publica el preview en AppCache (mismo slot preview_disp que
+    # disp_preview_router: ambos bounded context operan sobre la misma
+    # "prevision de disp").
+    from core.runtime.area_preview_cache import area_set_preview_disp
+    from core.runtime.app_cache import get_app_cache
+    area_set_preview_disp(get_app_cache(), "alimentacion", result)
     # Plan living §5 (operacion 4): OK con resumen del diff.
     s = (result.get("summary") or {}) if isinstance(result, dict) else {}
     logger.ok(

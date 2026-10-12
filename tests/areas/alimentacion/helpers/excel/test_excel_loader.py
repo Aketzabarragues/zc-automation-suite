@@ -16,7 +16,7 @@ from openpyxl import Workbook
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
 from areas.alimentacion.data.data_dimensiones import DimensionesPLC
-from areas.alimentacion.data.data_excel_cache import DataExcelCache
+from core.data.data_excel_cache import DataExcelCache
 from areas.alimentacion.data.data_parametros_int import DataParamIntPLC
 from areas.alimentacion.data.data_parametros_real import DataParamRealPLC
 from areas.alimentacion.data.data_procesos import DataProcesoPLC

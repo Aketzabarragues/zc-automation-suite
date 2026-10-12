@@ -359,13 +359,13 @@ class FunctionProcCrearSincronizar(FunctionBase):
 
         # Validar contra TIA Portal (fail-late, PR5 D4/D11).
         validate_plc_in_tia(self._tia_client, self._plc_name)
-        # NOTA: este FB no recibe ``app_state`` por constructor, asi que
-        # la propagacion de ``selected_plc`` se hace desde el endpoint
+        # NOTA: este FB no opera sobre ``app_cache`` directamente, asi
+        # que la propagacion de ``selected_plc`` se hace desde el endpoint
         # que invoca este FB (responsabilidad del caller, D6 stateless).
         # La validacion contra el Excel (``validate_plc_in_excel``) se
         # ejecuta en el endpoint ``proc_process_crear_router.crear_aplicar``
         # antes del ``with_plc``, ya que ahi si tenemos acceso al
-        # ``AppState`` singleton.
+        # ``app_cache`` del proceso.
 
         dir_plantilla = Path(self._plantillas_path) / self._dir_plantilla_nombre
         if not dir_plantilla.exists():
@@ -591,14 +591,14 @@ class FunctionProcCrearSincronizar(FunctionBase):
             )
 
     async def _stage_9_refresh_cache(self) -> None:
-        """Stage 9: reescanea el PLC y repuebla ``TIADataBloqueCache``.
+        """Stage 9: reescanea el PLC y repuebla ``app_cache.plc_blocks``.
 
-        Tras el apply exitoso del nuevo proceso, el singleton del
-        backend (``TIADataBloqueCache._caches[plc_name]``) contiene el
-        snapshot anterior a la creacion. Sin este refresh, el siguiente
-        preview/sync del proceso nuevo veria ``missing_blocks`` aunque
-        los bloques ya existan en TIA, y el operario tendria que pulsar
-        manualmente el boton ↻ del sidebar.
+        Tras el apply exitoso del nuevo proceso, el slot
+        ``app_cache.plc_blocks[plc_name]`` contiene el snapshot anterior
+        a la creacion. Sin este refresh, el siguiente preview/sync del
+        proceso nuevo veria ``missing_blocks`` aunque los bloques ya
+        existan en TIA, y el operario tendria que pulsar manualmente
+        el boton ↻ del sidebar.
 
         Tolerancia a fallos: si el scan falla (TIA no responde, etc.),
         no abortamos el apply (ya fue exitoso). Loggeamos warning y el

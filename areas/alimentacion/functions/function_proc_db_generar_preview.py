@@ -42,7 +42,8 @@ from core.helpers.tia import dispatch_async
 from core.helpers.tia.validate_plc_in_tia import validate_plc_in_tia
 from core.helpers.tia.validate_plc_in_excel import validate_plc_in_excel
 from core.helpers.tia.with_plc import with_plc
-from core.runtime.app_state import AppState, get_app_state
+from core.runtime.app_cache import AppCache, get_app_cache
+from areas.alimentacion._area_id import AREA_ID
 from areas.alimentacion.helpers.layout.build_cache import DEFAULT_BUILD_CACHE_ROOT
 from areas.alimentacion.helpers.proc.proc_db_generar_preview import (
     compose_arrays,
@@ -103,7 +104,7 @@ class FunctionProcDBGenerarPreview(FunctionBase):
         tia_client: Any = None,
         build_cache: Any = None,
         # ── Deps especificas de este FB ──
-        app_state: AppState | None = None,
+        app_cache: AppCache | None = None,
         bloques_cache: Any = None,
     ) -> None:
         super().__init__(
@@ -124,8 +125,8 @@ class FunctionProcDBGenerarPreview(FunctionBase):
         self._tia_client = tia_client
         self._build_cache_root: Path = build_cache or DEFAULT_BUILD_CACHE_ROOT
         # Deps especificas.
-        self._state: AppState = (
-            app_state if app_state is not None else get_app_state()
+        self._app_cache: AppCache = (
+            app_cache if app_cache is not None else get_app_cache()
         )
         # ``bloques_cache`` viene del gateway (``_bloques_cache`` del
         # TIAProcessGateway, poblado por ``scan_plc_blocks``). El router
@@ -147,10 +148,9 @@ class FunctionProcDBGenerarPreview(FunctionBase):
     def on_start(self, **params: Any) -> None:
         """Validar deps inyectadas + capturar plc_name + proc_uid + crear ctx.
 
-        ``bloques_cache`` puede inyectarse por constructor (test) o
-        leerse del singleton ``TIADataBloqueCache._caches`` (dict de
-        clase, acceso sync) si el FB se registro en el engine sin esa
-        dep (caso comun en prod).
+        ``bloques_cache`` se inyecta por constructor (test) o se lee
+        de ``app_cache.plc_blocks`` via ``plc_blocks_get`` si el FB
+        se registro en el engine sin esa dep (caso comun en prod).
         """
         if self._config is None:
             raise RuntimeError(
@@ -178,19 +178,19 @@ class FunctionProcDBGenerarPreview(FunctionBase):
         # Validar contra TIA Portal (fail-late, PR5 D4/D11).
         validate_plc_in_tia(self._tia_client, self._plc_name)
         # Validar contra el Excel cargado (sept-2026 multi-PLC).
-        validate_plc_in_excel(self._state, self._plc_name)
-        # Propagar al AppState (defensa redundante con el endpoint).
-        with_plc(self._state, self._plc_name)
+        validate_plc_in_excel(self._app_cache, self._plc_name, AREA_ID)
+        # Propagar al AppCache (defensa redundante con el endpoint).
+        with_plc(self._app_cache, self._plc_name, AREA_ID)
 
         # ``bloques_cache`` puede inyectarse por constructor (test) o
-        # leerse del singleton ``TIADataBloqueCache._caches`` (acceso
-        # sync al dict de clase). Se prioriza el singleton para que un
-        # refresh manual del cache (boton ↻ del sidebar) se refleje en
-        # el siguiente arranque del FB. La inyeccion por constructor
-        # se respeta solo cuando el singleton esta vacio (tests que
-        # mockean el cache sin popular el singleton global).
-        from core.infrastructure.tia.tia_cache import TIADataBloqueCache
-        singleton_cache = TIADataBloqueCache._caches.get(self._plc_name)
+        # leerse del AppCache (acceso sync al dict de estado). Se
+        # prioriza el AppCache para que un refresh manual del cache
+        # (boton ↻ del sidebar) se refleje en el siguiente arranque del
+        # FB. La inyeccion por constructor se respeta solo cuando el
+        # AppCache esta vacio (tests que mockean el cache sin popular
+        # el contenedor global).
+        from core.infrastructure.tia.tia_cache import plc_blocks_get
+        singleton_cache = plc_blocks_get(self._app_cache, self._plc_name)
         if singleton_cache is not None:
             self._bloques_cache = singleton_cache
 
@@ -202,7 +202,7 @@ class FunctionProcDBGenerarPreview(FunctionBase):
             proc_uid=self._proc_uid,
             tia_client=self._tia_client,
             config_manager=self._config,
-            app_state=self._state,
+            app_cache=self._app_cache,
             build_cache_root=self._build_cache_root,
             bloques_cache=self._bloques_cache,
         )
@@ -299,16 +299,17 @@ class FunctionProcDBGenerarPreview(FunctionBase):
     def _stage_1_check_state(self) -> None:
         """Valida que el cache del Excel esta cargado.
 
-        Multi-PLC: chequea ``excel_cache_active`` (filtrado por PLC).
+        Multi-PLC: chequea el cache activo del area (filtrado por PLC).
 
         Si no lo esta, marca ``self._ctx.excel_loaded = False``. El FB
         inspecciona este flag para devolver el shape de error
         correspondiente (``precondiciones_ok=False``,
         ``missing_blocks=[...]``) en ``_stage_6_done``.
         """
+        from core.runtime.excel_cache import excel_get_active
         cache = (
-            self._ctx.app_state.excel_cache_active
-            if self._ctx.app_state is not None else None
+            excel_get_active(self._ctx.app_cache, "alimentacion")
+            if self._ctx.app_cache is not None else None
         )
         if cache is None:
             self._ctx.excel_loaded = False
@@ -344,7 +345,7 @@ class FunctionProcDBGenerarPreview(FunctionBase):
         from areas.alimentacion.data.data_proc_slot_map import proc_build_slot_maps
         try:
             self._ctx.slot_map = proc_build_slot_maps(
-                self._ctx.app_state, self._ctx.config_manager, self._ctx.proc_uid, self._ctx.bloques_cache
+                self._ctx.app_cache, self._ctx.config_manager, self._ctx.proc_uid, self._ctx.bloques_cache
             )
             self._ctx.slot_map_error = None
         except RuntimeError as exc:
@@ -596,7 +597,7 @@ class FunctionProcDBGenerarPreview(FunctionBase):
                 "proc_uid": self._ctx.proc_uid,
                 "precondiciones_ok": False,
                 "missing_blocks": [
-                    "AppState no tiene Excel cargado. Cargue el Excel con "
+                    "AppCache no tiene Excel cargado para el area. Cargue el Excel con "
                     "POST /api/v1/excel/upload."
                 ],
                 "arrays": {},
@@ -716,7 +717,7 @@ class ProcPreviewContext:
     proc_uid: int
     tia_client: Any
     config_manager: Any
-    app_state: Any
+    app_cache: AppCache
     build_cache_root: Path
     bloques_cache: Any  # DataBloqueCache o None
 

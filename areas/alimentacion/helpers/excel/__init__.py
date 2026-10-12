@@ -2,8 +2,8 @@
 
 Submódulos:
   - ``excel_loader``: abre el workbook y construye el ``DataExcelCache``.
-  - ``excel_cache_manager``: Singleton por proceso del caché.
   - ``_excel_helpers``: utilidades compartidas (``_safe_int``, ``extract_list_object_rows``).
+  - ``excel_upload``: helpers puros (``parse_excel_to_cache``).
   - ``excel_parser_*``: parsers de las 11 tablas del Excel corporativo.
 
 Restricción arquitectónica: este paquete NO importa ``siemens_tia_scripting``.

@@ -1,9 +1,8 @@
 """Helper para validar que el PLC seleccionado de TIA existe en el Excel.
 
-Sept-2026 (multi-PLC, propuesta del operario): si el operario
-selecciona un PLC de TIA (vía ``PlcPanelView``) cuyo nombre no esta
-en la ``Tabla_PLC`` del Excel cargado, el ``excel_cache_active`` (ya
-filtrado por plc_name) queda vacio y el sync atacaria TIA para
+Si el operario selecciona un PLC de TIA (vía ``PlcPanelView``) cuyo
+nombre no esta en la ``Tabla_PLC`` del Excel cargado, el cache activo
+(ya filtrado por plc_name) queda vacio y el sync atacaria TIA para
 borrarlo TODO sin sentido.
 
 Este helper se invoca en ``on_start`` de cada FB (igual que
@@ -21,29 +20,32 @@ duplicar la validacion en el endpoint (no es scope de este helper).
 from __future__ import annotations
 
 import logging
-from typing import Any
+
+from core.runtime.app_cache import AppCache
+from core.runtime.excel_cache import excel_get_full
 
 
 _logger = logging.getLogger(__name__)
 
 
-def validate_plc_in_excel(state: Any, plc_name: str) -> None:
+def validate_plc_in_excel(app_cache: AppCache, plc_name: str, area_id: str) -> None:
     """Valida que ``plc_name`` esta en la ``Tabla_PLC`` del Excel cargado.
 
     Args:
-        state: instancia Singleton de AppState (o cualquier objeto con
-            atributo ``excel_cache_full`` de tipo ``DataExcelCache``).
+        app_cache: contenedor del proceso (``AppCache``).
         plc_name: nombre del PLC (strict equality, D11).
+        area_id: area del cache a leer. Obligatorio.
 
     Raises:
-        ValueError: si no hay Excel cargado, si ``plc_name`` esta vacio,
-            o si ``plc_name`` no esta en ``excel_cache_full.plcs``.
+        ValueError: si no hay Excel cargado, si ``plc_name`` esta
+            vacio, o si ``plc_name`` no esta en
+            ``cache.plcs``.
     """
     if not plc_name:
         raise ValueError(
             "validate_plc_in_excel: plc_name vacio"
         )
-    cache = getattr(state, "excel_cache_full", None)
+    cache = excel_get_full(app_cache, area_id)
     if cache is None:
         raise ValueError(
             "No hay Excel cargado. Sube primero el archivo con "

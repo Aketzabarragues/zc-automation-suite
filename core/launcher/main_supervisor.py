@@ -231,6 +231,7 @@ class MainServiceSupervisor:
         from core.infrastructure.tia.tia_loop import SyncTIAClient
         from core.infrastructure.tia.tia_commands_catalog import register_all_commands
         from core.composition.plc_engine import Engine
+        from core.runtime.app_cache import get_app_cache
         from core.runtime.sse.sse_event_bus_sync import EventBusSync
         from core.web_server.app_flask import create_app
 
@@ -268,12 +269,25 @@ class MainServiceSupervisor:
                 config_manager=self.config_manager,
                 tia_client=tia_client,
             )
+        # AppCache unico: contenedor del proceso. Los publishers SSE y
+        # los routers Flask lo leen via ``current_app.config['APP_CACHE']``
+        # / ``wire_all(..., app_cache)``.
+        app_cache = get_app_cache()
+        # Cablear las areas via ``contributes_caches``. Cada area aporta
+        # su propio ``AreaCache`` (e.g. ``AlimentacionAreaCache``) y lo
+        # registra en ``app_cache``. Tras este bucle, las areas estan
+        # disponibles para los routers y FBs.
+        from core.composition.app_area_registry import AreaRegistry
+        for spec in AreaRegistry.discover().all():
+            if spec.contributes_caches is not None:
+                spec.contributes_caches(app_cache)
         event_bus = self.event_bus if self.event_bus is not None else EventBusSync()
         flask_app = create_app(
             tia_client=tia_client,
             engine=engine,
             event_bus=event_bus,
             config_manager=self.config_manager,
+            app_cache=app_cache,
         )
         # Cablea los 5 publishers al bus ANTES de arrancar el tia-loop
         # para que ``on_loop_status`` capture el evento "running=true"
@@ -287,6 +301,7 @@ class MainServiceSupervisor:
             tia_client=tia_client,
             engine=engine,
             bus=event_bus,
+            app_cache=app_cache,
         )
         # tia-loop arranca ultimo: si la carga del wrapper falla, los
         # publishers ya estan cableados (al menos log+progress), y el

@@ -113,7 +113,7 @@ Los 4 de `test_function_proc_db_sincronizar.py` son **debidos al reorder automá
 ```bash
 POST /api/v1/excel/upload  (con un .xlsx de pruebas)
 ```
-- Esperado: `app_state.excel_cache` poblado.
+- Esperado: `app_cache.area("alimentacion").excel_full` poblado.
 - Estado: pendiente (test pre-existente falla, smoke sí debería funcionar).
 
 ### 2. Generar preview de dispositivos

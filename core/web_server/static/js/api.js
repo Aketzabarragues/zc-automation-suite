@@ -146,9 +146,6 @@ export const apiOpenNewPortal = (projectFilePath) =>
     // pero el arranque del TIA Portal puede sumar 30-60s mas.
     _request("POST", "/api/v1/portal/open-new", { project_file_path: projectFilePath }, MEDIUM_TIMEOUT_MS);
 
-/** Vuelca el ``AppState`` (IT-only) para alimentar el Inspector. */
-export const apiFetchMemory = () => _request("GET", "/api/v1/state/dispositivos");
-
 /**
  * Devuelve el catálogo de presentación: device_tabs, nmax,
  * model_columns, col_labels, mono_cols. La SPA lo cachea en

@@ -1,8 +1,7 @@
 """core.infrastructure.tia.tia_commands_catalog - registro central de comandos.
 
 Punto unico de verdad sobre que comandos expone el worker OT y como
-registrarlos en un ``SyncTIAClient``. Reemplaza al antiguo
-``register_core_commands`` que vivia en ``tia_handlers.py``.
+registrarlos en un ``SyncTIAClient``.
 
 Catalogo actual (26 comandos core + N comandos del area):
 

@@ -62,7 +62,7 @@ contrato IPC, state machine y comandos de ciclo de vida están en
 2. El shell Flask (`core/web_server/app_flask.py::create_app`)
   Descubre los routers del área vía `AreaRegistry.for_each("contributes_routers", app=app)`.
 3. Inyecta dependencias vía los decoradores de Flask (o llamadas
-   explícitas a `get_gateway | get_app_state | get_logger |
+   explícitas a `get_gateway | get_app_cache | get_logger |
    get_progress_tracker`). NUNCA importes globales directamente
    en el router.
 4. Si la operación es >500 ms, inyecta `ProgressTracker` y emite
@@ -180,7 +180,7 @@ Replica su estructura. Cubre los 5 gotchas conocidos.
    clase + `nombre` canónico, ajustar Zona 0/3 y los hooks
    `on_start` / `run_step` / `on_finish`.
 4. Registrar en `areas/<area>/__init__.py::register_<area>(engine,
-   *, config_manager, tia_client, build_cache, log, app_state)`.
+   *, config_manager, tia_client, build_cache, log, app_cache)`.
 5. Endpoint en `frontend/<use_case>_router.py`, montar en
    `_build_all_routers(app)`. Propagar `started=False` como 409.
 6. Smoke en vivo + `git rm application/use_cases/<use_case>.py`.

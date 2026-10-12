@@ -25,9 +25,10 @@
  * distinto value: 2 filas separadas (eliminar TIA + agregar Excel).
  * plc_tag solo en TIA: eliminar. plc_tag solo en Excel: agregar.
  *
- * Estado del preview: lee/escribe directo ``store.previewData`` (mismo
- * slot que Dispositivos). Asi, al navegar away y volver, el preview
- * se mantiene (consistente con Dispositivos).
+ * Estado del preview: lee directo
+ * ``store.appCache.areas["alimentacion"].preview_disp`` (mismo slot
+ * que Dispositivos). Asi, al navegar away y volver, el preview se
+ * mantiene (consistente con Dispositivos).
  *
  * IMPORTANTE sobre templates Vue: el compilador en runtime de
  * ``vue.esm-browser.prod.js`` NO acepta CUALQUIER baktill (doble o
@@ -57,7 +58,7 @@ function nmaxLabelEntidades(name) {
 export default {
     name: "Entidades",
     setup() {
-        const plcName = computed(() => store.selectedPlc || "");
+        const plcName = computed(() => store.appCache?.selected_plc || "");
 
         /**
          * True mientras hay un request al backend en vuelo (preview
@@ -66,12 +67,22 @@ export default {
         const isWorking = ref(false);
 
         /**
+         * ``preview_disp`` reactivo desde el AppCache del area
+         * activa. El feature entidades comparte el slot con
+         * dispositivos (``preview_disp``): ambos bounded context
+         * operan sobre la misma "prevision de disp".
+         */
+        const previewData = computed(
+            () => store.appCache?.areas?.alimentacion?.preview_disp || null
+        );
+
+        /**
          * True si hay preview con precondiciones OK. Mismo patron
          * que Dispositivos.js pero particularizado para el shape
          * del FB de entidades (``precondiciones_ok``).
          */
         const hasPreview = computed(
-            () => !!store.previewData && store.previewData.precondiciones_ok === true
+            () => !!previewData.value && previewData.value.precondiciones_ok === true
         );
 
         /**
@@ -85,14 +96,14 @@ export default {
             if (!hasPreview.value) {
                 return { agregados: 0, renombrados: 0, eliminados: 0, sin_cambios: 0, total: 0 };
             }
-            const ops = store.previewData.ops || [];
+            const ops = previewData.value.ops || [];
             const eliminados = ops.filter((o) => o.kind === "delete").length;
             const agregados = ops.filter((o) => o.kind === "add").length;
             const renombrados = ops.filter(
                 (o) => o.kind === "rename" || o.kind === "update_comment"
             ).length;
-            const desired = (store.previewData.entities_block && store.previewData.entities_block.desired)
-                ? store.previewData.entities_block.desired
+            const desired = (previewData.value.entities_block && previewData.value.entities_block.desired)
+                ? previewData.value.entities_block.desired
                 : null;
             const total = desired ? Object.keys(desired).length : 0;
             return { agregados, renombrados, eliminados, sin_cambios: total, total };
@@ -105,14 +116,14 @@ export default {
          */
         const nmaxCards = computed(() => {
             if (!hasPreview.value) return [];
-            return (store.previewData.nmax && store.previewData.nmax.todos) || [];
+            return (previewData.value.nmax && previewData.value.nmax.todos) || [];
         });
 
         const nmaxSummary = computed(() => {
             if (!hasPreview.value) {
                 return { actualizar: 0, sin_cambios: 0, total: 0 };
             }
-            return (store.previewData.nmax && store.previewData.nmax.summary)
+            return (previewData.value.nmax && previewData.value.nmax.summary)
                 || { actualizar: 0, sin_cambios: 0, total: 0 };
         });
 
@@ -127,7 +138,7 @@ export default {
          */
         const activeRows = computed(() => {
             if (!hasPreview.value) return [];
-            const ops = store.previewData.ops || [];
+            const ops = previewData.value.ops || [];
             const statusOrder = { delete: 0, rename: 1, update_comment: 2, add: 3 };
             const rows = ops.map((op) => {
                 if (op.kind === "delete") {
@@ -216,9 +227,10 @@ export default {
                     resetPlcState();
                     return;
                 }
-                if (r && r.ok && r.data) {
-                    store.previewData = r.data;
-                }
+                // El backend ya escribio ``preview_disp`` en el
+                // AppCache y emitio ``cache_changed`` por SSE. La
+                // reactividad de ``previewData`` propaga el cambio
+                // a la tabla.
             } finally {
                 isWorking.value = false;
                 store.busy = false;
@@ -235,9 +247,10 @@ export default {
                     resetPlcState();
                     return;
                 }
-                if (r && r.ok && r.data && r.data.post_sync_preview) {
-                    store.previewData = r.data.post_sync_preview;
-                }
+                // El backend ya re-corrio el preview, lo publico
+                // en el AppCache y emitio ``cache_changed`` por
+                // SSE. La reactividad de ``previewData`` actualiza
+                // la tabla.
             } finally {
                 isWorking.value = false;
                 store.busy = false;
@@ -248,6 +261,7 @@ export default {
             store,
             plcName,
             isWorking,
+            previewData,
             hasPreview,
             summary,
             nmaxCards,

@@ -28,7 +28,6 @@ from areas.alimentacion.functions.function_proc_db_generar_preview import (
     FunctionProcDBGenerarPreview,
     ProcPreviewContext,
 )
-from core.runtime.app_state import AppState
 from core.runtime.progress_buffer import ProgressTracker
 from core.infrastructure.config.config_manager import ConfigManager
 
@@ -110,7 +109,7 @@ def make_fb(
         nombre="proc_generar_preview_test",
         config_manager=config,
         tia_client=tia_client,
-        app_state=app_state,
+        app_cache=app_state,
         bloques_cache=bloques_cache,
         tracker=progress_tracker,
     )
@@ -159,7 +158,7 @@ def test_stage_6_build_response_happy_path_flags_presentes(
         proc_uid=42,
         tia_client=mock_tia_client,
         config_manager=mock_config,
-        app_state=mock_app_state,
+        app_cache=mock_app_state,
         build_cache_root=mock_config.build_cache_root if hasattr(
             mock_config, "build_cache_root"
         ) else None,
@@ -212,7 +211,7 @@ def test_stage_6_build_response_db_param_ausente_marca_solo_param(
         proc_uid=42,
         tia_client=mock_tia_client,
         config_manager=mock_config,
-        app_state=mock_app_state,
+        app_cache=mock_app_state,
         build_cache_root=mock_config.build_cache_root if hasattr(
             mock_config, "build_cache_root"
         ) else None,
@@ -266,7 +265,7 @@ def test_stage_6_build_response_ambos_dbs_ausentes_marca_fatal(
         proc_uid=42,
         tia_client=mock_tia_client,
         config_manager=mock_config,
-        app_state=mock_app_state,
+        app_cache=mock_app_state,
         build_cache_root=mock_config.build_cache_root if hasattr(
             mock_config, "build_cache_root"
         ) else None,
@@ -313,7 +312,7 @@ def test_stage_6_build_response_tabla_ausente_marca_solo_tabla(
         proc_uid=42,
         tia_client=mock_tia_client,
         config_manager=mock_config,
-        app_state=mock_app_state,
+        app_cache=mock_app_state,
         build_cache_root=mock_config.build_cache_root if hasattr(
             mock_config, "build_cache_root"
         ) else None,
@@ -352,9 +351,10 @@ def _patch_helper_fns(fb) -> Any:
     """
     from contextlib import ExitStack
     stack = ExitStack()
-    # ``with_plc`` requiere ``state.excel_cache_full`` real (dataclass
-    # frozen). En estos tests mockeamos el state entero (MagicMock),
-    # asi que parchamos el helper para evitar el path de filtro.
+    # ``with_plc`` opera sobre ``state.app_cache`` (dataclass frozen
+    # con ``excel_full_by_area``). En estos tests mockeamos el state
+    # entero (MagicMock), asi que parchamos el helper para evitar el
+    # path de filtro.
     stack.enter_context(
         patch(
             "areas.alimentacion.functions.function_proc_db_generar_preview"
@@ -486,7 +486,7 @@ async def test_proc_generar_preview_sad_no_config(
         nombre="no_config_test",
         config_manager=None,
         tia_client=mock_tia_client,
-        app_state=mock_app_state,
+        app_cache=mock_app_state,
         bloques_cache=mock_bloques_cache,
         tracker=progress,
     )
@@ -512,7 +512,7 @@ async def test_proc_generar_preview_sad_no_tia_client(
         nombre="no_tia_test",
         config_manager=mock_config,
         tia_client=None,
-        app_state=mock_app_state,
+        app_cache=mock_app_state,
         bloques_cache=mock_bloques_cache,
         tracker=progress,
     )

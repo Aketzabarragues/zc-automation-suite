@@ -68,58 +68,45 @@ export const store = reactive({
      */
     projectInfo: null,
 
-    /** Resumen devuelto por ``POST /api/v1/excel/upload``. */
-    uploadSummary: null,
+    /**
+     * Resumen devuelto por ``POST /api/v1/excel/upload``. Volatil:
+     * vive solo lo que dura la promesa del POST; al resolverse se
+     * lee para pintar el toast/banner y luego se descarta. NO se
+     * guarda en el store: la fuente de verdad post-upload es
+     * ``store.appCache.areas["alimentacion"].excel_full``, que el
+     * backend reescribe y emite via SSE ``cache_changed``.
+     */
 
     /**
      * Referencia al último ``File`` Excel subido por el operario.
-     * Vive en el store (no como ``ref`` local del componente) para
-     * que el caption "📎 Último archivo: ..." y el botón "🔄
-     * Actualizar" de ``DefinicionProgramacion.js`` mantengan el
-     * contexto cuando el operario navega a otra sub-vista del área
-     * y vuelve. Se resetea al cambiar de área (ver ``goToArea`` y
-     * el reset equivalente en ``main.js::onAreaSelected``), igual
-     * que ``uploadSummary``.
-     *
-     * NO sobrevive a un F5: un ``File`` no se puede serializar a
-     * ``localStorage`` sin perderlo. Si tras un F5 el operario
-     * quiere re-leer el archivo, debe volver a seleccionarlo del
-     * picker; mientras tanto, el botón "🔄 Actualizar" cae al
-     * fallback ``emit("refresh")`` (refresco de memoria sin
-     * re-upload).
+     * Volatil: vive solo en el closure del handler de upload. NO
+     * se guarda en el store: el backend ya cachea el archivo en
+     * ``appCache.areas["alimentacion"].excel_full`` y lo republica
+     * via SSE tras cada cambio. Si el operario quiere "ver el
+     * nombre del ultimo archivo", se lee de ahi (campo
+     * ``source_filename``).
      */
-    lastExcelFile: null,
 
     /**
      * Estado del ``AppState`` volcado por la API
-     * ``GET /api/v1/state/dispositivos``.
+     * ``GET /api/v1/state/dispositivos``. Reemplazado por
+     * ``store.appCache.areas["alimentacion"].excel_full``
+     * (snapshot Excel completo, incluye ``dispositivos``,
+     * ``dimensiones``, ``procesos``, ``parametros_int``,
+     * ``parametros_real``, ``alarmas``, ``software_parsers_implemented``,
+     * etc.).
      *
-     * Shape (estable):
-     *   {
-     *     ok: true,
-     *     dimensiones: { num_disp_ed: int, ... },
-     *     dispositivos: { "DispED": [...], ... },
-     *     // 4 dominios de software (cada uno [] si no hay Excel).
-     *     procesos:             Array<ProcesoPLC>,
-     *     parametros_int:       Array<ParamIntPLC>,
-     *     parametros_real:      Array<ParamRealPLC>,
-     *     alarmas:              Array<AlarmaPLC>,
-     *     // Flag: si es false, la SPA pinta banner "Datos de software pendientes".
-     *     software_parsers_implemented: boolean,
-     *   }
-     *
-     * El flag ``software_parsers_implemented`` permite a la SPA
-     * funcionar en modo degradado (banner ámbar) si el backend aún
-     * no trae los 4 nuevos campos (back-compat con versiones
-     * anteriores).
+     * Los consumidores (DefinicionProgramacion, Dispositivos,
+     * Entidades, ProcesosCrearView, ProcesosSyncView) leen
+     * directamente de ``store.appCache.areas["alimentacion"]``.
      */
-    memoryState: null,
 
     /**
      * Previsión de cambios actual generada por
-     * ``POST /api/v1/sync/preview``.
+     * ``POST /api/v1/sync/preview``. Reemplazado por
+     * ``store.appCache.areas["alimentacion"].preview_disp`` (mismo
+     * dict, fuente backend via SSE).
      */
-    previewData: null,
 
     /**
      * Catálogo de presentación cargado al arrancar desde
@@ -188,56 +175,99 @@ export const store = reactive({
 
     /**
      * Snapshot cacheado de la estructura del PLC activo
-     * (bloques + tag tables + UDTs). Alimentado por el helper
-     * unificado ``loadAndApplyPlcBlocks`` desde los endpoints
-     * ``GET / POST /api/v1/plcs/<plc>/blocks[/refresh]``.
-     *
-     * Estructura (defensiva: cualquier campo puede faltar):
-     *   {
-     *     plc_name:   string,
-     *     blocks:     Array<{ name, type, number, path, ... }>,
-     *     tag_tables: Array<{ name, path, ... }>,
-     *     udts:       Array<{ name, type, number, path, ... }>,
-     *     scanned_at: string (ISO timestamp),
-     *   }
-     *
-     * La vista ``BloquesCacheView`` lo consume en modo solo
-     * lectura: 3 pestañas (Bloques / Variables / UDT) y un
-     * botón "Refrescar" que dispara el helper de refresh.
-     *
-     * ``null`` antes del primer fetch o cuando el operario
-     * deselecciona el PLC.
-     *
-     * El progreso de la operación larga (escaneo contra TIA)
-     * NO vive aquí: lo emite el ``ProgressTracker`` backend
-     * y lo pinta el ``ProgressIndicator`` del sidebar. Esta
-     * slot es **solo datos**.
+     * (bloques + tag tables + UDTs). Reemplazado por
+     * ``store.appCache.plc_blocks[<plc_name>]`` (keyed por PLC).
+     * El backend escribe el snapshot cuando el worker TIA lo
+     * escanea y emite SSE ``cache_changed`` con ``slot="plc_blocks"``
+     * (el ``data`` es el dict completo ``{<plc>: snapshot}``). El
+     * helper ``loadAndApplyPlcBlocks`` se reduce a disparar el
+     * refresh via HTTP; la reactivacion del store la hace el SSE.
      */
-    plcBlocksCache: null,
 
     /**
      * Estado del flujo "Sync comentarios DB de procesos".
-     * Consumido por ``ProcesosSyncView.js`` y escrito por los
-     * handlers de Procesos.js (openSyncView) y los botones de la
-     * propia vista (generar preview / aplicar).
+     * Consumido por ``ProcesosSyncView.js``. El ``preview`` vive
+     * en ``store.appCache.areas["alimentacion"].preview_proc``
+     * (mismo dict, fuente backend via SSE). Aqui solo queda el
+     * estado UI del flujo.
      *
      * Shape:
-     *   - ``preview``: ``null`` o el dict devuelto por
-     *     ``apiProcesosSyncPreview`` (con ``arrays``, ``summary``,
-     *     ``missing_blocks``, etc.).
      *   - ``applying``: ``true`` mientras hay una operación larga
      *     en vuelo (preview o commit). El ``ProgressIndicator``
      *     del sidebar lee su propio tracker, así que este flag es
      *     solo para deshabilitar botones.
      *   - ``error``: ``null`` o mensaje de error accionable.
      *   - ``lastAppliedAt``: ``null`` o ISO timestamp del último
-     *     commit exitoso.
+     *     commit exitoso (espejo de
+     *     ``store.appCache.areas["alimentacion"].last_sync_proc_at``,
+     *     conservado aqui para no acoplar la UI a la forma del
+     *     area-cache).
      */
     procesosSync: {
-        preview: null,
         applying: false,
         error: null,
         lastAppliedAt: null,
+    },
+
+    /**
+     * Cache unico del proceso, rehidratado por SSE al conectar.
+     *
+     * El backend lo serializa con ``AppCache.to_api_dict()`` y lo
+     * emite como evento ``{"type": "cache_snapshot", "data": {...}}``
+     * cuando un cliente se suscribe a ``/stream``. Tras la
+     * suscripcion inicial, los cambios (``mutate/mutate_area`` con
+     * ``slot=``) llegan como ``{"type": "cache_changed",
+     * "slot", "area_id", "plc_name", "data"}`` y se aplican
+     * via ``applyCacheChange`` (ver final del archivo).
+     *
+     * Estructura (alineada con ``AppCache.to_api_dict``):
+     *   {
+     *     // capa PLC (TIA worker + cache de bloques)
+     *     selected_plc: "",
+     *     plc_list: [],
+     *     plc_blocks: { <plc_name>: snapshot, ... },
+     *     plc_project: { <plc_name>: {name, path, version}, ... },
+     *     plc_user_constants: { <plc_name>: {...}, ... },
+     *
+     *     // capa per-area: cada bounded context tiene su
+     *     // ``AreaCacheProtocol`` (ver ``areas/<area>/state/area_cache.py``)
+     *     areas: {
+     *       "<area_id>": {
+     *         excel_full:                    null,
+     *         excel_active:                  null,
+     *         preview_disp:                  null,
+     *         preview_proc:                  null,
+     *         last_sync_disp_at:             null,
+     *         last_sync_proc_at:             null,
+     *         last_disp_commit_summary:      null,
+     *         last_proc_commit_summary:      null,
+     *       },
+     *     },
+     *   }
+     *
+     * Los slots globales (``selected_plc``, ``plc_list``) los
+     * consumen las vistas directamente; la reactividad ante
+     * attach/detach del worker TIA llega via SSE
+     * (``cache_snapshot`` + ``cache_changed``).
+     */
+    appCache: {
+        selected_plc: "",
+        plc_list: [],
+        plc_blocks: {},
+        plc_project: {},
+        plc_user_constants: {},
+        areas: {
+            alimentacion: {
+                excel_full: null,
+                excel_active: null,
+                preview_disp: null,
+                preview_proc: null,
+                last_sync_disp_at: null,
+                last_sync_proc_at: null,
+                last_disp_commit_summary: null,
+                last_proc_commit_summary: null,
+            },
+        },
     },
 
     /**
@@ -354,9 +384,10 @@ export const store = reactive({
  * directamente.
  *
  * Al entrar a un área, se hace **reset suave** del estado operativo
- * (plcs, uploadSummary, previewData) para que la nueva área no
- * arrastre datos de otra. El ``AppState`` real (``memoryState``) NO
- * se borra: la API lo recalibra con el siguiente fetch.
+ * (plcs, ``appCache.areas["alimentacion"].preview_*``) para que la
+ * nueva área no arrastre datos de otra. El resto del ``appCache``
+ * se mantiene (los PLCs detectados, los snapshots de bloques y los
+ * Excels cargados son compartidos).
  */
 export function goToWelcome() {
     store.topLevelView = "welcome";
@@ -378,9 +409,10 @@ export function goToWelcome() {
  * navegable (volver a welcome con el botón "←" del sidebar) y
  * ningún componente crashea.
  *
- * La **transición de estado** (reset suave de plcs / selectedPlc /
- * uploadSummary / previewData) se hace antes de la carga del
- * manifest para que la UI no parpadee con datos del área anterior.
+ * La **transición de estado** (reset selectivo del area-cache del
+ * área objetivo: solo los previews y la ``projectInfo`` del TIA)
+ * se hace antes de la carga del manifest para que la UI no
+ * parpadee con datos del área anterior.
  *
  * Async porque depende de un fetch al backend. El handler del
  * shell (``main.js::onAreaSelected``) hace ``await`` y encadena
@@ -390,15 +422,20 @@ export async function goToArea(key) {
     if (!key) return;
     store.selectedArea = key;
     store.currentView = "landing";   // arrancar siempre en el landing del área.
-    // Reset selectivo (sept-2026, pedido operario): solo se limpia
-    // la prevision (que se regenera cada vez) y la info del proyecto
-    // TIA (re-fetch via connectTia). Mantenemos plcs, selectedPlc,
-    // uploadSummary y lastExcelFile porque son contexto persistente
-    // entre re-entradas del operario: la lista de PLCs y la seleccion
-    // del PLC activo, asi como el Excel cargado, deben sobrevivir a
-    // una salida y re-entrada al area (sept-2026, plan living §B).
+    // Reset selectivo del slot per-area: solo los previews y la
+    // ``projectInfo`` del TIA (que se re-fetch via connectTia). El
+    // Excel (``excel_full``/``excel_active``) y los resumenes de
+    // commit (``last_*_commit_summary``) sobreviven a la re-entrada:
+    // son contexto persistente entre re-entradas del operario.
+    if (
+        store.appCache
+        && store.appCache.areas
+        && store.appCache.areas[key]
+    ) {
+        store.appCache.areas[key].preview_disp = null;
+        store.appCache.areas[key].preview_proc = null;
+    }
     store.projectInfo = null;
-    store.previewData = null;
     // Cargar el manifest del área antes de cambiar ``topLevelView``.
     // Si falla, log warning y continuar (modo degradado).
     try {
@@ -520,8 +557,9 @@ export async function loadCatalog() {
  * y el reload reactivo de la vista) y un solo round-trip HTTP
  * por cambio de PLC.
  *
- *   * ``plcName`` vacío → vacía ``store.plcBlocksCache``
- *     (operario deseleccionó el PLC).
+ *   * ``plcName`` vacío → no hace nada (el operario deseleccionó
+ *     el PLC; el cache del backend conserva el snapshot anterior
+ *     por si re-selecciona otro PLC más tarde).
  *   * ``force=false`` (default) → ``GET /blocks``. El backend
  *     decide si re-escanear o servir desde su cache (TTL 5 min).
  *   * ``force=true`` → ``POST /blocks/refresh`` (fuerza re-scan
@@ -534,12 +572,14 @@ export async function loadCatalog() {
  * ``main.js``); esta función no mantiene estado local de
  * progreso.
  *
- * En éxito aplica la respuesta al slot ``store.plcBlocksCache``
- * vía ``_applyBlocksSnapshot``. En error o excepción loggea vía
+ * El snapshot NO se aplica al store aqui: el backend lo escribe
+ * en ``AppCache.plc_blocks[<plc>]`` y emite un ``cache_changed``
+ * via SSE. ``main.js`` aplica el delta al store (``applyCacheChange``).
+ * Esta función solo dispara el refresh HTTP y sincroniza
+ * ``selectedPlc`` para que la UI sepa qué PLC está activo.
  */
 export async function loadAndApplyPlcBlocks(plcName, { force = false } = {}) {
     if (!plcName) {
-        store.plcBlocksCache = null;
         return;
     }
     const { apiScanPlcBlocks, apiRefreshPlcBlocks } = await import("./api.js");
@@ -548,18 +588,13 @@ export async function loadAndApplyPlcBlocks(plcName, { force = false } = {}) {
             ? await apiRefreshPlcBlocks(plcName)
             : await apiScanPlcBlocks(plcName);
         if (r.ok) {
-            _applyBlocksSnapshot(plcName, r.data);
-            // Sincronizar ``selectedPlc`` con el PLC que acabamos de
-            // escanear. Asi, las vistas que dependen de
-            // ``store.selectedPlc`` (p.ej. ``ProcesosSyncView`` y la
-            // card "PLC activo" de ``BloquesCacheView``) saben qué PLC
-            // está activo sin depender de que el operario haya tocado
-            // el dropdown despues del escaneo. Antes de este fix, el
-            // escaneo dejaba ``selectedPlc`` intacto (potencialmente
-            // vacio o stale), y el preview de Procesos pasaba
-            // ``plc_name=""`` al backend → "Cache de bloques no
-            // disponible" aunque la cache existiera en memoria.
-            store.selectedPlc = plcName;
+            // Sincronizar ``appCache.selected_plc`` con el PLC que
+            // acabamos de escanear. Asi, las vistas que dependen de
+            // la seleccion (p.ej. ``ProcesosSyncView`` y la card
+            // "PLC activo" del panel comun) saben qué PLC está
+            // activo sin depender de que el operario haya tocado
+            // el dropdown despues del escaneo.
+            store.appCache.selected_plc = plcName;
         } else if (r.errorType === "TIAConnectionError") {
             // TIA Portal no responde. El backend ya invalido su
             // cache; el frontend debe hacer lo propio para que
@@ -577,30 +612,33 @@ export async function loadAndApplyPlcBlocks(plcName, { force = false } = {}) {
 }
 
 /**
- * Aplica la respuesta del endpoint de bloques al slot
- * ``store.plcBlocksCache``. Helper privado: normaliza los
- * nombres de campos (``snapshot`` envoltorio o datos directos) y
- * rellena con arrays vacíos cualquier campo que falte, para que
- * la vista ``BloquesCacheView`` no tenga que hacer defensiva
- * extra en cada ``computed``.
+ * Normaliza un snapshot de bloques a la forma estable del cache.
  *
- * Si la respuesta está vacía o malformada, deja el cache como
- * está (mejor no pisar un snapshot válido que ya teníamos con
- * un ``null`` accidental).
+ * Helper privado expuesto al dispatcher SSE de ``main.js``
+ * (``applyCacheChange``) por si un endpoint HTTP devuelve un
+ * snapshot suelto que el frontend quiere inyectar en el cache sin
+ * esperar al delta SSE. Hoy NO se llama desde el store; queda
+ * documentado para futuros call-sites que necesiten el shape
+ * estable.
+ *
+ * @param {string} plcName
+ * @param {object} payload  - respuesta cruda del endpoint ``/blocks``
+ * @returns {object|null}   - snapshot normalizado, o ``null`` si
+ *                            el payload estaba vacio / malformado.
  */
-function _applyBlocksSnapshot(plcName, payload) {
-    if (!plcName || !payload || typeof payload !== "object") return;
+export function normalizeBlocksSnapshot(plcName, payload) {
+    if (!plcName || !payload || typeof payload !== "object") return null;
     const snap = (payload.snapshot && typeof payload.snapshot === "object")
         ? payload.snapshot
         : payload;
-    if (!snap || typeof snap !== "object") return;
-    store.plcBlocksCache = {
+    if (!snap || typeof snap !== "object") return null;
+    return {
         plc_name: snap.plc_name || plcName,
         blocks: Array.isArray(snap.blocks) ? snap.blocks : [],
-        tag_tables: Array.isArray(snap.tag_tables) ? snap.tag_tables : [],
         // ``udts`` puede no estar si el backend aún no lo expone
         // (PR paralelo de tia-ot-worker); la vista lo trata como
         // lista vacía.
+        tag_tables: Array.isArray(snap.tag_tables) ? snap.tag_tables : [],
         udts: Array.isArray(snap.udts) ? snap.udts : [],
         scanned_at: snap.scanned_at || new Date().toISOString(),
     };
@@ -621,26 +659,44 @@ function _applyBlocksSnapshot(plcName, payload) {
  *
  * Slots que se resetean:
  *   - ``selectedPlc``        → ``""`` (dropdown a "Selecciona un PLC").
- *   - ``plcBlocksCache``     → ``null`` (sin snapshot de bloques).
- *   - ``plcs``               → ``[]`` (lista de PLCs disponibles).
- *   - ``previewData``        → ``null`` (preview de dispositivos N_MAX+devices).
- *   - ``procesosSync.preview``     → ``null`` (preview de comentarios de procesos).
+ *   - ``appCache.plc_blocks[plc]`` → ``null`` (sin snapshot de bloques del PLC activo).
+ *   - ``appCache.plc_list``        → ``[]`` (lista de PLCs disponibles).
+ *   - ``appCache.areas[*].preview_disp`` → ``null`` (preview disp. stale).
+ *   - ``appCache.areas[*].preview_proc`` → ``null`` (preview proc. stale).
  *   - ``procesosSync.applying``    → ``false`` (sin operación en vuelo).
  *   - ``procesosSync.error``       → mensaje accionable para el operario.
  *   - ``procesosSync.lastAppliedAt`` → ``null`` (ultimo commit perdido).
  *
  * NO se toca ``store.projectInfo`` (se reintentara en el siguiente
- * "Buscar PLCs") ni ``store.uploadSummary`` / ``store.lastExcelFile``
- * (datos del Excel son independientes de TIA). El Excel sigue siendo
- * la fuente maestra; el operario puede re-disparar el sync tras
- * reconectar.
+ * "Buscar PLCs") ni el slot ``excel_full`` del área (datos del
+ * Excel son independientes de TIA). El Excel sigue siendo la fuente
+ * maestra; el operario puede re-disparar el sync tras reconectar.
  */
 export function resetPlcState() {
-    store.selectedPlc = "";
-    store.plcBlocksCache = null;
-    store.plcs = [];
-    store.previewData = null;
-    store.procesosSync.preview = null;
+    // El cache del backend sigue siendo la fuente de verdad: en
+    // cuanto el worker TIA re-conecte y emita un cache_snapshot,
+    // el SSE hidratara de nuevo ``appCache.plc_blocks`` /
+    // ``appCache.plc_list``. Aqui solo limpiamos los slots locales
+    // (UI state) para que el operario no vea datos stale entre el
+    // detach y el proximo attach.
+    if (store.appCache && store.appCache.plc_blocks) {
+        store.appCache.plc_blocks = {};
+    }
+    if (store.appCache && store.appCache.plc_list) {
+        store.appCache.plc_list = [];
+    }
+    if (store.appCache && typeof store.appCache.selected_plc === "string") {
+        store.appCache.selected_plc = "";
+    }
+    if (store.appCache && store.appCache.areas) {
+        for (const areaId of Object.keys(store.appCache.areas)) {
+            const area = store.appCache.areas[areaId];
+            if (area) {
+                area.preview_disp = null;
+                area.preview_proc = null;
+            }
+        }
+    }
     store.procesosSync.applying = false;
     store.procesosSync.lastAppliedAt = null;
     store.procesosSync.error =
@@ -764,34 +820,41 @@ function _clearAllPlcStateOnTiaLoss() {
      * (cierre externo o error del worker). Pensada para que el
      * operario NO vea caches stale en la SPA tras un incidente.
      *
-     * Slots limpiados (sept-2026, pedido operario):
-     *   - ``store.plcs``               → ``[]`` (lista de PLCs stale)
-     *   - ``store.selectedPlc``        → ``""`` (dropdown a placeholder)
-     *   - ``store.plcBlocksCache``     → ``null`` (snapshot bloques stale)
+     * Slots limpiados:
+     *   - ``store.appCache.plc_list``  → ``[]`` (lista de PLCs stale)
+     *   - ``store.appCache.selected_plc`` → ``""`` (dropdown a placeholder)
+     *   - ``store.appCache.plc_blocks`` → ``{}`` (snapshots de bloques stale)
      *   - ``store.projectInfo``        → ``null`` (caption proyecto stale)
-     *   - ``store.previewData``        → ``null`` (prevision disp. stale)
-     *   - ``store.procesosSync.preview``       → ``null``
+     *   - ``store.appCache.areas[*].preview_disp`` → ``null``
+     *   - ``store.appCache.areas[*].preview_proc`` → ``null``
      *   - ``store.procesosSync.applying``      → ``false``
      *   - ``store.procesosSync.lastAppliedAt`` → ``null``
      *   - ``store.procesosSync.error``         → ``null``
      *   - ``store.tiaConnection.project``     → ``null``
      *
      * Slots que NO se limpian (son ortogonales a TIA):
-     *   - ``store.uploadSummary``, ``store.lastExcelFile``: datos
-     *     del Excel cargado, independientes del attach a TIA.
-     *   - ``store.memoryState``: snapshot del ``AppState`` backend
-     *     (dispositivos y constantes), independiente.
+     *   - ``store.appCache.areas[*].excel_full``: datos del Excel
+     *     cargado, independientes del attach a TIA.
      *
-     * Misma politica que ``disconnectTia`` post-sept-2026 (que
-     * antes NO limpiaba previewData/procesosSync por diseno y
-     * ahora si, para que ambos caminos sean consistentes).
+     * Misma politica que ``disconnectTia``: si TIA esta muerto, la
+     * prevision no se puede aplicar, asi que es preferible limpiarla
+     * a mostrarla stale y susceptible de "Aplicar" fallido.
      */
-    store.plcs = [];
-    store.selectedPlc = "";
-    store.plcBlocksCache = null;
+    if (store.appCache) {
+        store.appCache.plc_list = [];
+        store.appCache.selected_plc = "";
+        store.appCache.plc_blocks = {};
+    }
     store.projectInfo = null;
-    store.previewData = null;
-    store.procesosSync.preview = null;
+    if (store.appCache && store.appCache.areas) {
+        for (const areaId of Object.keys(store.appCache.areas)) {
+            const area = store.appCache.areas[areaId];
+            if (area) {
+                area.preview_disp = null;
+                area.preview_proc = null;
+            }
+        }
+    }
     store.procesosSync.applying = false;
     store.procesosSync.lastAppliedAt = null;
     store.procesosSync.error = null;
@@ -997,15 +1060,17 @@ export async function connectTia() {
             if (tiaDown) {
                 resetPlcState();
             } else if (plcsResp && plcsResp.ok && Array.isArray(plcsResp.data && plcsResp.data.plcs)) {
-                store.plcs = plcsResp.data.plcs;
+                if (store.appCache) {
+                    store.appCache.plc_list = plcsResp.data.plcs;
+                }
                 store.tiaConnection = {
                     ...store.tiaConnection,
                     plcs: plcsResp.data.plcs,
                 };
             } else if (plcsResp && plcsResp.ok === false) {
-                // Conservar store.plcs previo en error (defensivo).
+                // Conservar el plc_list previo en error (defensivo).
                 // Si tampoco habia previo, queda como [] (initial
-                // state).
+                // state) por el default del store.
             }
         } catch (e) {
             // eslint-disable-next-line no-console
@@ -1052,10 +1117,15 @@ export async function connectTia() {
  * Tras el éxito del detach (sept-2026, refactor state machine),
  * limpia tambien los slots del SPA relacionados con la selección
  * y cache de PLCs:
- *   - ``plcs``            → ``[]`` (lista de PLCs, ya no aplica).
- *   - ``selectedPlc``     → ``""`` (dropdown a "Selecciona un PLC").
- *   - ``plcBlocksCache``  → ``null`` (snapshot de bloques stale).
- *   - ``projectInfo``     → ``null`` (caption del proyecto arriba).
+ *   - ``plcs``                              → ``[]`` (lista de PLCs stale).
+ *   - ``selectedPlc``                       → ``""`` (dropdown a placeholder).
+ *   - ``appCache.plc_blocks``               → ``{}`` (snapshots de bloques stale).
+ *   - ``appCache.areas[*].preview_disp``    → ``null``
+ *   - ``appCache.areas[*].preview_proc``    → ``null``
+ *   - ``projectInfo``                       → ``null`` (caption del proyecto arriba).
+ *   - ``procesosSync.applying``             → ``false``
+ *   - ``procesosSync.lastAppliedAt``        → ``null``
+ *   - ``procesosSync.error``                → ``null``
  *
  * Sin esta limpieza, tras un "Conectar / Desconectar" rápido, el
  * topbar seguiría mostrando la lista de PLCs del attach anterior
@@ -1064,11 +1134,9 @@ export async function connectTia() {
  * ``TiaConnectionIndicator`` pero el ``<select>`` con PLCs
  * "viejos" y el nombre del proyecto anterior en el caption.
  *
- * NO tocamos ``previewData`` ni ``procesosSync`` (slots de sync
- * de dispositivos / comentarios de procesos: son ortogonales al
- * attach a TIA Portal; el operario puede querer ver el último
- * preview tras un detach temporal). Si el operario quiere
- * limpieza total, ya tiene el botón "Limpiar" del sync.
+ * Los slots ``excel_full``/``excel_active`` del área NO se limpian
+ * (son ortogonales al attach a TIA Portal; el operario puede querer
+ * ver el último Excel cargado tras un detach temporal).
  *
  * La limpieza se hace SIEMPRE que la respuesta del backend sea
  * OK (i.e. el detach funciono), aunque el ``_applyTiaSnapshot``
@@ -1142,5 +1210,100 @@ Object.assign(store, {
     connectTia,
     disconnectTia,
 });
+
+/**
+ * Aplica un evento ``cache_changed`` del SSE al ``store.appCache``.
+ *
+ * Llamado por el dispatcher SSE de ``main.js`` cuando llega un
+ * evento ``{"type": "cache_changed", slot, area_id, plc_name, data}``.
+ * Parchea el slot correspondiente sin re-asignar ``store.appCache``
+ * completo (asi se preserva la reactividad de Vue 3 con arrays /
+ * objetos anidados; cualquier ``computed`` que tuviese una ref al
+ * objeto antiguo sigue actualizandose).
+ *
+ * Distribucion por ``area_id``:
+ *
+ *   - ``area_id`` set → slot per-area: ``areas[area_id][slot] = data``
+ *     (cubre ``excel_full``, ``excel_active``, ``preview_disp``,
+ *     ``preview_proc``, ``last_sync_disp_at``, ``last_sync_proc_at``,
+ *     ``last_disp_commit_summary``, ``last_proc_commit_summary``).
+ *   - ``plc_name`` set → slot keyed por PLC: ``<slot>[plc_name] = data``
+ *     (cubre ``plc_blocks`` / ``plc_project`` / ``plc_user_constants``
+ *     si el backend emitiera deltas por PLC; hoy emite el dict
+ *     completo, asi que cae en el caso "global" y machaca la entrada
+ *     de TODOS los PLCs — comportamiento consistente con el snapshot
+ *     inicial).
+ *   - ambos ``null`` → slot global: ``appCache[slot] = data``
+ *     (cubre ``selected_plc`` y ``plc_list``).
+ *
+ * Si el area o el dict raiz no existen todavia en ``appCache``,
+ * los inicializa con defaults antes de parchear. Asi la primera
+ * conexion de un area nueva (registrada por el backend tras el
+ * primer cache_changed del area) no falla.
+ *
+ * @param {{slot: string, area_id: string|null, plc_name: string|null, data: any}} event
+ */
+export function applyCacheChange(event) {
+    if (!event || typeof event !== "object") return;
+    const { slot, area_id, plc_name, data } = event;
+    if (!slot) return;
+    if (!store.appCache || typeof store.appCache !== "object") {
+        store.appCache = {};
+    }
+    const cache = store.appCache;
+    if (area_id) {
+        // Slot per-area.
+        if (!cache.areas || typeof cache.areas !== "object") {
+            cache.areas = {};
+        }
+        if (!cache.areas[area_id]) {
+            cache.areas[area_id] = {};
+        }
+        cache.areas[area_id][slot] = data;
+    } else if (plc_name) {
+        // Slot keyed por PLC: inicializa el dict si hace falta
+        // y luego escribe solo la entrada de este PLC. Asi no
+        // pisamos caches de otros PLCs en paralelo.
+        if (!cache[slot] || typeof cache[slot] !== "object") {
+            cache[slot] = {};
+        }
+        cache[slot][plc_name] = data;
+    } else {
+        // Slot global: reasignacion directa.
+        cache[slot] = data;
+    }
+}
+
+/**
+ * Aplica el snapshot inicial ``cache_snapshot`` del SSE al store.
+ *
+ * Llamado por ``main.js`` al recibir el primer evento tras
+ * ``EventSource`` abrir ``/stream``. Hace merge por clave
+ * top-level (``selected_plc``, ``plc_list``, ``plc_blocks``,
+ * ``plc_project``, ``plc_user_constants``, ``areas``) en vez
+ * de reasignar el objeto entero: asi no se invalidan refs que
+ * los ``computed`` ya tuviesen cacheadas.
+ *
+ * @param {object} snapshot - payload ``event.data`` del cache_snapshot
+ */
+export function applyCacheSnapshot(snapshot) {
+    if (!snapshot || typeof snapshot !== "object") return;
+    if (!store.appCache || typeof store.appCache !== "object") {
+        store.appCache = {};
+    }
+    const cache = store.appCache;
+    for (const key of [
+        "selected_plc",
+        "plc_list",
+        "plc_blocks",
+        "plc_project",
+        "plc_user_constants",
+        "areas",
+    ]) {
+        if (Object.prototype.hasOwnProperty.call(snapshot, key)) {
+            cache[key] = snapshot[key];
+        }
+    }
+}
 
 export default store;

@@ -406,7 +406,7 @@ _tracker_lock: Lock = Lock()
 def get_progress_tracker() -> ProgressTracker:
     """Devuelve la instancia Singleton de ``ProgressTracker`` (thread-safe).
 
-    Mismo patrón que ``get_log_buffer()`` y ``get_app_state()``.
+    Mismo patrón que ``get_log_buffer()``.
     """
     global _tracker
     if _tracker is None:

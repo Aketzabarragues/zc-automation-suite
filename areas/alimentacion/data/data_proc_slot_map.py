@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
-from core.runtime.app_state import AppState
+from core.runtime.app_cache import AppCache
 from core.infrastructure.config.config_manager import ConfigManager
 from core.infrastructure.tia.tia_export_paths import EMPTY_TEXT
 from core.data.data_block_cache import DataBloqueCache
@@ -212,7 +212,7 @@ def _build_slot_map(
 
 
 def proc_build_slot_maps(
-    app_state: AppState,
+    app_cache: AppCache,
     config_manager: ConfigManager,
     proc_uid: int,
     bloques_cache: DataBloqueCache,
@@ -220,10 +220,9 @@ def proc_build_slot_maps(
     """Cruza Excel + DataBloqueCache + config para producir los slot maps.
 
     Raises:
-        RuntimeError: si ``app_state.excel_cache_active`` es ``None``
-                      o si ``proc_uid`` no esta en
-                      ``excel_cache_active.procesos``. Mensaje
-                      accionable: "Cargue primero el Excel con
+        RuntimeError: si el cache activo del area es ``None`` o si
+                      ``proc_uid`` no esta en ``cache.procesos``.
+                      Mensaje accionable: "Cargue primero el Excel con
                       POST /api/v1/excel/upload" o "El proceso
                       {uid} no esta en el Excel cargado".
 
@@ -244,11 +243,12 @@ def proc_build_slot_maps(
     ``missing_blocks`` se reconstruye desde ``table_present`` y
     ``db_missing`` para que el preview FB distinga bloque faltante.
     """
-    excel_cache = app_state.excel_cache_active
+    from core.runtime.excel_cache import excel_get_active
+    excel_cache = excel_get_active(app_cache, "alimentacion")
     if excel_cache is None:
         raise RuntimeError(
-            "excel_cache_active esta vacio. Cargue primero el Excel con "
-            "POST /api/v1/excel/upload."
+            "app_cache.excel_active_by_area['alimentacion'] esta vacio. "
+            "Cargue primero el Excel con POST /api/v1/excel/upload."
         )
 
     proc = None
@@ -390,8 +390,9 @@ def proc_build_slot_maps(
 def format_missing_db_message(slot_map: DataProcSlotMap, db_name: str) -> str:
     """Mensaje estandar cuando un DB esta ausente en el PLC.
 
-    Usado por el sync (stage 3 + fase 2 de Tx B) y por el preview
-    (stage 6) para que el operario vea el mismo texto en ambos lados.
+    Usado por el sync (stage 3 + segunda transaccion de bloques) y por
+    el preview (stage 6) para que el operario vea el mismo texto en
+    ambos lados.
     """
     if db_name == slot_map.db_param_name:
         kind = "parametros"

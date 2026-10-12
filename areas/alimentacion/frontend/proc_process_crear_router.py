@@ -1,5 +1,10 @@
 """Router Flask del feature "Crear proceso completo desde plantilla TIA".
 
+Orquesta: recibe plantilla + proc_uid del Excel, dispara el FB y
+devuelve su ``result``. Los FBs tienen la state machine + tracker;
+los helpers (``areas/alimentacion/helpers/proc/``) tienen la logica
+pura.
+
 Endpoints:
   POST /api/v1/procesos/crear/preview
         Body JSON (minimalista — el Excel es la fuente de verdad):
@@ -23,7 +28,7 @@ Endpoints:
                                             deteccion por numero detecta
                                             cross-type (DB60010 vs FB60010).
 
-        El router extrae del ``AppState.excel_cache_full.procesos[uid]``
+        El router extrae del ``app_cache.area("alimentacion").excel_full.procesos[uid]``
         los campos que el FB necesita:
           ``base``       = ``proceso.uid``
           ``codigo``     = ``proceso.codigo``
@@ -68,6 +73,8 @@ from flask import Blueprint, current_app, jsonify, request
 
 from core.helpers.tia.with_plc import with_plc
 from core.helpers.tia.validate_plc_in_excel import validate_plc_in_excel
+from core.runtime.excel_cache import excel_get_full
+from areas.alimentacion._area_id import AREA_ID
 
 logger = logging.getLogger(__name__)
 
@@ -101,26 +108,27 @@ def _get_config_manager():
     return current_app.config["CONFIG_MANAGER"]
 
 
-def _get_app_state():
-    return current_app.config["_LAZY_APP_STATE"]()
+def _get_app_cache():
+    return current_app.config["APP_CACHE"]
 
 
-def _resolve_excel_proc(app_state, proc_uid: int):
+def _resolve_excel_proc(app_cache, proc_uid: int):
     """Busca el proceso del Excel por UID y lo devuelve.
 
-    Lee del ``excel_cache_full`` (cache completo, todos los PLCs):
-    el router es pre-validacion PLC-especifica; ``validate_plc_in_excel``
-    luego confirma que el plc_name del body esta entre los PLCs del Excel.
+    Lee del cache completo del Excel (area ``"alimentacion"``): el
+    router es pre-validacion PLC-especifica; ``validate_plc_in_excel``
+    luego confirma que el plc_name del body esta entre los PLCs del
+    Excel.
 
     Lanza ``ValueError`` accionable si no hay excel_cache_full o si
     el proceso no esta. Mantener el mensaje humano para que la SPA
     sepa que tiene que subir el Excel o seleccionar otro proceso.
     """
-    cache = app_state.excel_cache_full
+    cache = excel_get_full(app_cache, "alimentacion")
     if cache is None:
         raise ValueError(
-            "AppState.excel_cache_full esta vacio. Cargue primero el "
-            "Excel con POST /api/v1/excel/upload."
+            "Excel no cargado en el area. Cargue primero el archivo con "
+            "POST /api/v1/excel/upload."
         )
     for p in cache.procesos:
         if int(p.uid) == int(proc_uid):
@@ -167,8 +175,8 @@ def _validate_common(body: dict) -> tuple[dict | None, str | None]:
     # Lookup del proceso del Excel. Aqui es donde el body deja de
     # mentir: si dice proc_uid=300 pero en el Excel no existe, error.
     try:
-        app_state = _get_app_state()
-        proc = _resolve_excel_proc(app_state, body["proc_uid"])
+        app_cache = _get_app_cache()
+        proc = _resolve_excel_proc(app_cache, body["proc_uid"])
     except ValueError as exc:
         return None, str(exc)
 
@@ -357,18 +365,18 @@ def crear_aplicar():
             "error": "FB 'proc_process_crear_aplicar' no registrado en el engine",
         }), 500
 
-    # Sincronizar AppState.selected_plc con el plc_name del body antes
-    # de invocar el FB (D6 stateless: el FB
-    # ``function_proc_crear_sincronizar`` no recibe ``app_state`` por
+    # Sincronizar app_cache.selected_plc con el plc_name del body
+    # antes de invocar el FB (D6 stateless: el FB
+    # ``function_proc_crear_sincronizar`` no recibe ``app_cache`` por
     # constructor, asi que el endpoint es responsable de propagarlo).
-    with_plc(_get_app_state(), validated["plc_name"])
+    with_plc(_get_app_cache(), validated["plc_name"], AREA_ID)
 
-    # Validar contra el Excel cargado (sept-2026 multi-PLC). El FB no
-    # lo hace porque no tiene acceso al AppState. Fail-fast aqui
-    # permite que el operario reciba 500 inmediato en lugar de
-    # esperar al progress tracker.
+    # Validar contra el Excel cargado (multi-PLC). El FB no lo hace
+    # porque no tiene acceso al AppCache. Fail-fast aqui permite que
+    # el operario reciba 500 inmediato en lugar de esperar al
+    # progress tracker.
     try:
-        validate_plc_in_excel(_get_app_state(), validated["plc_name"])
+        validate_plc_in_excel(_get_app_cache(), validated["plc_name"], AREA_ID)
     except ValueError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
 
@@ -413,9 +421,9 @@ def crear_aplicar():
         ((result.get("compile_result") or {}).get("ok"))
         if isinstance(result, dict) else False
     )
-    # ``process_label`` lo emite el FB (``"<base>_<codigo>"``,
-    # sept-2026). Fallback al formato ``base/codigo`` por si el
-    # backend no lo expone todavia (tests viejos, compat).
+    # ``process_label`` lo emite el FB (``"<base>_<codigo>"``).
+    # Fallback al formato ``base/codigo`` por si el backend no lo
+    # expone todavia (tests viejos, compat).
     process_label = (
         (result.get("process_label") if isinstance(result, dict) else None)
         or f"{validated['base_nueva']}/{validated['codigo_nuevo']}"

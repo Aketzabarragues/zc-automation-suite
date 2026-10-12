@@ -1,7 +1,14 @@
 ﻿"""Cache IT del Excel: dispositivos + N_MAX + 4 listas de software.
 
-Fuente de verdad unica que ``ExcelCacheManager`` cachea por proceso.
-``frozen=True`` para que el cache sea inmutable entre lecturas.
+``frozen=True`` para que el cache sea inmutable entre lecturas. La
+fuente de verdad del cache vivo vive en ``app_cache.area(area_id).excel_full``
+(ver ``core.runtime.excel_cache``).
+
+Las anotaciones referencian DTOs de ``areas.alimentacion.data.*`` que
+solo se evaluan en runtime si se instancia la clase con valores que
+necesiten la coercion. Con ``from __future__ import annotations``
+activo, las type hints son strings; no se importan en runtime para
+evitar ciclos (``areas/__init__`` -> ``core/data``).
 """
 from __future__ import annotations
 
@@ -9,15 +16,6 @@ import dataclasses
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Mapping
-
-from areas.alimentacion.data.data_alarmas import DataAlarmaPLC
-from areas.alimentacion.data.data_dispositivos import Dispositivo
-from areas.alimentacion.data.data_dimensiones import DimensionesPLC
-from areas.alimentacion.data.data_entidades import Entidad
-from areas.alimentacion.data.data_parametros_int import DataParamIntPLC
-from areas.alimentacion.data.data_parametros_real import DataParamRealPLC
-from areas.alimentacion.data.data_plc import DataPLC
-from areas.alimentacion.data.data_procesos import DataProcesoPLC
 
 
 @dataclass(frozen=True)
@@ -36,7 +34,7 @@ class DataExcelCache:
         ``alarmas``: listas de los 4 dominios de software.
       - ``entidades``: lista de ``Entidad`` (DB6_ENT), multi-PLC.
         Cada elemento lleva ``plc_name``; el filtrado por PLC vive en
-        AppState (``entidades_active``), no aqui.
+        el ``excel_active`` derivado, no aqui.
       - ``*_by_codigo``: lookups ``Mapping[str, DTO]`` precomputados.
       - ``software_parsers_implemented``: flag para la SPA.
     """

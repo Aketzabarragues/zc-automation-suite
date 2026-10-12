@@ -36,10 +36,10 @@ def create_app(
     tia_client: Any = None,
     engine: Engine | None = None,
     event_bus: EventBusSync | None = None,
-    app_state: Any = None,
     config_manager: Any = None,
     log_buffer: Any = None,
     progress_tracker: Any = None,
+    app_cache: Any = None,
 ) -> Flask:
     """Crea la Flask app con endpoints base + blueprints + SPA estática.
 
@@ -47,9 +47,12 @@ def create_app(
         tia_client: SyncTIAClient. Default: singleton global.
         engine: Engine. Default: se crea uno nuevo.
         event_bus: EventBusSync. Default: se crea uno nuevo.
-        app_state / config_manager / log_buffer / progress_tracker:
-            legacy singletons. Si None, lazy al primer uso desde
-            los endpoints (sin forzar import en ``create_app``).
+        config_manager / log_buffer / progress_tracker: legacy
+            singletons. Si None, lazy al primer uso desde los
+            endpoints (sin forzar import en ``create_app``).
+        app_cache: AppCache contenedor del proceso. Default: lazy
+            ``get_app_cache()``. Los routers lo leen via
+            ``current_app.config['APP_CACHE']``.
     """
     app = Flask(__name__, static_folder=None)  # servimos manualmente
     # Preservar el orden de insercion de los dicts al serializar a JSON.
@@ -82,9 +85,6 @@ def create_app(
     if config_manager is None:
         config_manager = ConfigManager()
     app.config["CONFIG_MANAGER"] = config_manager
-    app.config["_LAZY_APP_STATE"] = lambda: _resolve_lazy(
-        app_state, "core.runtime.app_state", "get_app_state"
-    )
     app.config["_LAZY_LOG_BUFFER"] = lambda: _resolve_lazy(
         log_buffer,
         "core.runtime.log_buffer",
@@ -94,6 +94,16 @@ def create_app(
         progress_tracker,
         "core.runtime.progress_buffer",
         "get_progress_tracker",
+    )
+    # AppCache: contenedor del proceso. Si no se inyecta, lazy al
+    # singleton ``get_app_cache()``. Los routers acceden via
+    # ``current_app.config['APP_CACHE']`` y los publishers SSE ya lo
+    # reciben del supervisor en ``wire_all(..., app_cache)``.
+    app.config["APP_CACHE"] = (
+        app_cache if app_cache is not None
+        else _resolve_lazy(
+            None, "core.runtime.app_cache", "get_app_cache",
+        )
     )
 
     @app.get("/ping")
@@ -179,7 +189,7 @@ def create_app(
 
     # ── Routers aportados por las areas (AreaSpec.contributes_routers)
     # Cada area registra su blueprint aqui (ej. alimentacion expone
-    # /api/v1/state/dispositivos desde su ``dispositivos_router``).
+    # ``/api/v1/excel/upload`` desde su ``excel_router``).
     # El shell no sabe que areas concretas existen; el AreaRegistry
     # las descubre y les pasa la ``app``.
     from core.composition.app_area_registry import AreaRegistry

@@ -1,7 +1,7 @@
-"""Tests del blueprint diagnostics (Fase 4 / paso 4.4.3).
+"""Tests del blueprint diagnostics.
 
-Tests basicos con stubs (no se importan AppState / LogBuffer / etc.
-reales — los mocks son suficiente para verificar el wiring).
+Tests basicos con stubs (no se importan LogBuffer / etc. reales — los
+mocks son suficiente para verificar el wiring).
 """
 from __future__ import annotations
 
@@ -14,14 +14,7 @@ from core.web_server.app_flask import create_app
 
 @pytest.fixture
 def app_with_stubs():
-    app_state = MagicMock()
-    app_state.excel_cache_full = None
-    app_state.excel_cache_active = None
-    app_state.selected_plc = ""
-
     config_manager = MagicMock()
-    config_manager.list_hw_types_active.return_value = []
-    config_manager.get_excel_target_for.return_value = None
 
     log_buffer = MagicMock()
     log_buffer.snapshot.return_value = []
@@ -36,60 +29,16 @@ def app_with_stubs():
     progress_tracker.clear = MagicMock()
 
     app = create_app(
-        app_state=app_state,
         config_manager=config_manager,
         log_buffer=log_buffer,
         progress_tracker=progress_tracker,
     )
     app.config["TESTING"] = True
     return app.test_client(), {
-        "app_state": app_state,
         "config_manager": config_manager,
         "log_buffer": log_buffer,
         "progress_tracker": progress_tracker,
     }
-
-
-def test_state_dispositivos_returns_ok_with_empty_payload(app_with_stubs):
-    c, stubs = app_with_stubs
-    resp = c.get("/api/v1/state/dispositivos")
-    assert resp.status_code == 200
-    data = resp.get_json()
-    assert data["ok"] is True
-    assert data["dimensiones"] == {}
-    assert data["dispositivos"] == {}
-    assert data["software_parsers_implemented"] is False
-    assert data["procesos"] == []
-
-
-def test_state_dispositivos_iterates_active_hw_types(app_with_stubs):
-    c, stubs = app_with_stubs
-    cm = stubs["config_manager"]
-    cm.list_hw_types_active.return_value = ["ed", "ea"]
-    cm.get_excel_target_for.side_effect = lambda hw: {
-        "ed": {"canonical": "DispED"},
-        "ea": {"canonical": "DispEA"},
-    }.get(hw)
-
-    resp = c.get("/api/v1/state/dispositivos")
-    data = resp.get_json()
-    assert "DispED" in data["dispositivos"]
-    assert "DispEA" in data["dispositivos"]
-
-
-def test_state_dispositivos_skips_hw_without_canonical(app_with_stubs):
-    c, stubs = app_with_stubs
-    cm = stubs["config_manager"]
-    cm.list_hw_types_active.return_value = ["good", "bad"]
-    cm.get_excel_target_for.side_effect = lambda hw: {
-        "good": {"canonical": "DispOK"},
-        "bad": {"canonical": ""},
-    }.get(hw)
-
-    resp = c.get("/api/v1/state/dispositivos")
-    data = resp.get_json()
-    assert "DispOK" in data["dispositivos"]
-    assert "" not in data["dispositivos"]
 
 
 def test_get_logs_returns_buffer_snapshot(app_with_stubs):

@@ -1,7 +1,7 @@
 ﻿"""Bounded Context: Alimentación.
 
 Aporta al core:
-  - State extensions de AppState.
+  - State extensions de AppCache.
   - Catálogo de presentación (consumido por /api/v1/catalog).
   - TIA commands del área (registrados por el tia-loop).
   - Frontend manifest (Vue 3 ESM del área).
@@ -39,9 +39,6 @@ def _build_alim_catalog_combined(config_manager):
         **build_software_catalog(config_manager),
         **build_entidades_catalog(config_manager),
     }
-from areas.alimentacion.frontend.dispositivos_router import (
-    build_routers as build_dispositivos_routers,
-)
 from areas.alimentacion.frontend.excel_router import (
     build_routers as build_excel_routers,
 )
@@ -86,7 +83,6 @@ def _build_all_routers(app) -> None:
          blueprint ``bp`` y un hook ``build_routers(app)``.
       2. Importar aqui y llamar ``<modulo>_routers.build_routers(app)``.
     """
-    build_dispositivos_routers(app)
     build_excel_routers(app)
     build_disp_preview_routers(app)
     build_disp_sync_routers(app)
@@ -95,6 +91,17 @@ def _build_all_routers(app) -> None:
     build_proc_sync_routers(app)
     build_entidades_preview_routers(app)
     build_entidades_routers(app)
+
+
+def _contributes_caches(app_cache) -> None:
+    """Registra el ``AlimentacionAreaCache`` del area en ``app_cache``.
+
+    Llamado por ``core.launcher.main_supervisor`` al arrancar la app.
+    Lazy import del dataclass para evitar ciclos en el discovery.
+    """
+    from areas.alimentacion.state.area_cache import AlimentacionAreaCache
+
+    app_cache.register_area("alimentacion", AlimentacionAreaCache())
 
 
 AREA_SPEC = AreaSpec(
@@ -106,6 +113,7 @@ AREA_SPEC = AreaSpec(
     contributes_config_defaults=install_defaults,
     contributes_catalog=_build_alim_catalog_combined,
     contributes_frontend_manifest=build_manifest,
+    contributes_caches=_contributes_caches,
 )
 
 
@@ -115,7 +123,7 @@ def register(
     config_manager=None,
     tia_client=None,
     build_cache=None,
-    app_state=None,
+    app_cache=None,
 ) -> None:
     """Registra los FBs del area en el engine.
 
@@ -129,8 +137,8 @@ def register(
         FBs que ejecutan comandos contra TIA.
       - ``build_cache``: ``BuildCache`` del area. Obligatorio para FBs
         que exportan a ``.build_cache/<area>/<contexto>/...``.
-      - ``app_state``: ``AppState`` del core. Si es ``None``, se usa
-        el Singleton global (vía ``get_app_state()``).
+      - ``app_cache``: ``AppCache`` del core. Si es ``None``, se usa
+        el Singleton global (vía ``get_app_cache()``).
 
     Los FBs usan ``logger = logging.getLogger(__name__)`` directamente
     tras el commit del bridge (``5840a0b``), ya no se inyecta
@@ -140,7 +148,7 @@ def register(
     que la plantilla FB). Si un FB NECESITA una dep y se le olvida
     inyectarla, su ``on_start`` o ``run_step`` lanzara ``RuntimeError``.
     """
-    from core.runtime.app_state import get_app_state
+    from core.runtime.app_cache import get_app_cache
 
     from areas.alimentacion.functions.function_excel_cargar import FunctionExcelCargar
     from areas.alimentacion.functions.function_disp_generar_preview import (
@@ -167,7 +175,7 @@ def register(
     from core.composition.plc_function_template import FunctionTemplate
 
     # Defaults a Singleton global (mismo patron que la plantilla FB).
-    app_state = app_state if app_state is not None else get_app_state()
+    app_cache = app_cache if app_cache is not None else get_app_cache()
 
     # Plantilla FB registrada como ``plantilla``: 10 pasos dummy para
     # validar el engine y el progress tracker como faceplate SSE.
@@ -179,12 +187,12 @@ def register(
         FunctionExcelCargar(
             nombre="subir_excel",
             config_manager=config_manager,
-            app_state=app_state,
+            app_cache=app_cache,
         ),
     )
 
     # FB con I/O contra TIA: necesita config_manager + tia_client +
-    # build_cache (raiz del BuildCache del area) + log + app_state.
+    # build_cache (raiz del BuildCache del area) + app_cache.
     # Hace export + copytree + 6 dispatches al worker OT. Puede
     # tardar varios minutos (STEP_TIMEOUT_S=300s).
     # (Eliminado A.4: FB ``sincronizar_disp_comentarios``. La logica
@@ -201,7 +209,7 @@ def register(
             config_manager=config_manager,
             tia_client=tia_client,
             build_cache=build_cache,
-            app_state=app_state,
+            app_cache=app_cache,
         ),
     )
 
@@ -216,7 +224,7 @@ def register(
             config_manager=config_manager,
             tia_client=tia_client,
             build_cache=build_cache,
-            app_state=app_state,
+            app_cache=app_cache,
         ),
     )
 
@@ -225,9 +233,9 @@ def register(
     # metodos legacy del use case ProcSyncComentariosUseCase
     # (``generar_prevision`` + ``ejecutar_transaccion``). 6 + 5
     # etapas. STEP_TIMEOUT_S=180s (preview) y 300s (sync).
-    # ``bloques_cache`` se resuelve en on_start() desde el
-    # singleton TIADataBloqueCache (acceso sync al dict de
-    # clase) si el FB se registro sin esa dep.
+    # ``bloques_cache`` se resuelve en on_start() desde
+    # ``app_cache.plc_blocks`` via ``plc_blocks_get`` si el FB se
+    # registro sin esa dep.
     engine.register_fb(
         "proc_db_generar_preview",
         FunctionProcDBGenerarPreview(
@@ -235,7 +243,7 @@ def register(
             config_manager=config_manager,
             tia_client=tia_client,
             build_cache=build_cache,
-            app_state=app_state,
+            app_cache=app_cache,
         ),
     )
     engine.register_fb(
@@ -245,7 +253,7 @@ def register(
             config_manager=config_manager,
             tia_client=tia_client,
             build_cache=build_cache,
-            app_state=app_state,
+            app_cache=app_cache,
         ),
     )
 
@@ -254,7 +262,8 @@ def register(
     # import + compile). El helper ``proc_crear_process_generator`` opera
     # sobre directorios locales; los imports los despachan los FBs
     # via ``core.helpers.tia.dispatch_async``. ``plc_blocks_cache``
-    # se resuelve en on_start() desde el singleton TIADataBloqueCache.
+    # se resuelve en on_start() desde ``app_cache.plc_blocks`` via
+    # ``plc_blocks_get``.
     engine.register_fb(
         "proc_process_crear_preview",
         FunctionProcCrearGenerarPreview(
@@ -284,7 +293,7 @@ def register(
             config_manager=config_manager,
             tia_client=tia_client,
             build_cache=build_cache,
-            app_state=app_state,
+            app_cache=app_cache,
         ),
     )
 
@@ -301,7 +310,7 @@ def register(
             config_manager=config_manager,
             tia_client=tia_client,
             build_cache=build_cache,
-            app_state=app_state,
+            app_cache=app_cache,
         ),
     )
 

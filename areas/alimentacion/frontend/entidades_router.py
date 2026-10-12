@@ -123,6 +123,22 @@ def post_entidades_sincronizar():
         "message": "FB termino sin result",
         "plc_name": plc_name,
     }
+    # Publica el resumen del commit en AppCache (mismo slot que
+    # disp_sync_router: last_disp_commit_summary cubre disp + entidades
+    # en el mismo bounded context).
+    from core.runtime.area_preview_cache import (
+        area_set_disp_commit_summary,
+        area_set_preview_disp,
+    )
+    from core.runtime.app_cache import get_app_cache
+    app_cache = get_app_cache()
+    area_set_disp_commit_summary(app_cache, "alimentacion", result)
+    post_sync_preview = (
+        result.get("post_sync_preview")
+        if isinstance(result, dict) else None
+    )
+    if post_sync_preview is not None:
+        area_set_preview_disp(app_cache, "alimentacion", post_sync_preview)
     logger.ok(
         f"Sincronizacion completa en '{plc_name}': "
         f"{result.get('operations', 0)} ops, "

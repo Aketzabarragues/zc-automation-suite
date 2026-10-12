@@ -26,9 +26,12 @@
  *   - ``ProcesosPanel.js`` (sub-tabs Procesos|PInt|PReal|Alarmas
  *     + 4 tablas; reemplaza los ``<details>`` plegables).
  *
- * @event refresh  El componente padre debe llamar a la API que
- *                 recarga ``store.memoryState``. Lo consume ``main.js``
- *                 para llamar a ``apiFetchMemory``.
+ * Los datos del Excel viven en
+ * ``store.appCache.areas["alimentacion"].excel_full`` (hidratado
+ * por SSE ``cache_snapshot`` + ``cache_changed``). El ``@event
+ * refresh`` se conserva por compat con el template del shell pero
+ * ya NO dispara una llamada HTTP: el backend empuja el cache via
+ * SSE al subir el archivo.
  *
  * Tema: Industrial Claro. Solo tokens semánticos
  * (``bg-surface*``, ``border-line*``, ``text-ink*``, ``text-accent``,
@@ -41,25 +44,39 @@
 import { computed, ref } from "/js/vendor/vue.esm-browser.prod.js";
 // Imports absolutos: ver nota en ``Sidebar.js``.
 import { store } from "/js/store.js";
-import { apiUploadExcel, apiFetchMemory } from "/js/api.js";
+import { apiUploadExcel } from "/js/api.js";
 
 export default {
     name: "DefinicionProgramacion",
     emits: ["refresh"],
     setup(_, { emit }) {
         const fileInput = ref(null);
-        // El cache del último File subido vive en el store
-        // (``store.lastExcelFile``) para que persista entre
-        // sub-vistas del área. Antes era un ``ref`` local y se
-        // perdía al navegar a otra sub-vista.
+        // Estado local UI: el nombre del ultimo archivo Excel
+        // subido por el operario (referencia browser-side, efimera).
+        // El backend ya cachea el archivo en
+        // ``store.appCache.areas["alimentacion"].excel_full`` con
+        // su ``source_filename``; aqui solo guardamos el ``File``
+        // para que el boton "Volver a seleccionar" funcione
+        // (reset del input + re-trigger del picker).
+        const lastFileName = ref(null);
 
         /**
-         * Conteos para los badges de los 2 tabs principales.
-         * Se recalculan reactivamente al cambiar ``memoryState``
-         * (subida de Excel, refresco, etc.).
+         * ``excel_full`` reactivo desde el AppCache del area activa
+         * (``store.appCache.areas["alimentacion"].excel_full``,
+         * hidratado por SSE ``cache_snapshot`` al conectar +
+         * ``cache_changed`` en cada ``excel_set_full`` del backend).
+         */
+        const excelFull = computed(
+            () => store.appCache?.areas?.alimentacion?.excel_full || null
+        );
+
+        /**
+         * Conteos para los badges de los 4 tabs principales.
+         * Se recalculan reactivamente al cambiar ``excel_full``
+         * (subida de Excel, refresco SSE, etc.).
          */
         const dispositivosCount = computed(() => {
-            const d = store.memoryState && store.memoryState.dispositivos;
+            const d = excelFull.value && excelFull.value.dispositivos;
             if (!d || typeof d !== "object") return 0;
             return Object.values(d).reduce(
                 (sum, lst) => sum + (Array.isArray(lst) ? lst.length : 0),
@@ -68,7 +85,7 @@ export default {
         });
 
         const procesosCount = computed(() => {
-            const ms = store.memoryState;
+            const ms = excelFull.value;
             if (!ms) return 0;
             const n = (Array.isArray(ms.procesos) ? ms.procesos.length : 0)
                 + (Array.isArray(ms.parametros_int) ? ms.parametros_int.length : 0)
@@ -79,45 +96,37 @@ export default {
 
         /**
          * Conteo de entidades del feature ENTIDADES. Se computa
-         * reactivamente al cambiar ``memoryState`` (subida de Excel,
-         * refresco, etc.). Si ``store.memoryState.entidades`` no
-         * existe (Excel sin hoja ENTIDADES), devuelve 0.
+         * reactivamente al cambiar ``excel_full`` (subida de Excel,
+         * refresco, etc.). Si el Excel no tiene hoja ENTIDADES,
+         * devuelve 0.
          */
         const entidadesCount = computed(() => {
-            const ms = store.memoryState;
+            const ms = excelFull.value;
             if (!ms) return 0;
             const lst = ms.entidades;
             return Array.isArray(lst) ? lst.length : 0;
         });
 
         /**
-         * ``true`` solo cuando hay Excel cargado (AppState no nulo).
-         * Mismo patron que ``DispositivosPanel`` y ``ProcesosPanel``
-         * para coherencia total: cuando NO hay datos, los tabs
-         * ``<main-tabs>`` se ocultan (no tiene sentido navegar entre
-         * Dispositivos/Procesos si ambos mostrarian el mismo empty
-         * state) y solo se ve el "La cache del excel esta vacia"
-         * del panel activo. Cuando hay datos, los tabs aparecen
-         * y el operario puede alternar entre las dos sub-vistas.
+         * ``true`` solo cuando hay Excel cargado (``excel_full`` no
+         * nulo). Mismo patron que ``DispositivosPanel`` y
+         * ``ProcesosPanel``: sin datos, los tabs ``<main-tabs>`` se
+         * ocultan y solo se ve el "La cache del excel esta vacia"
+         * del panel activo.
          */
-        const hasMemory = computed(
-            () => store.memoryState !== null
-                && store.memoryState !== undefined
-        );
+        const hasMemory = computed(() => excelFull.value != null);
 
         /**
          * Datos que se pasan al ``<main-tabs>``. Se computan
          * aquí (no en MainTabs) para que los conteos reflejen
-         * ``store.memoryState`` sin acoplar MainTabs al shape
-         * de la AppState.
+         * ``excel_full`` sin acoplar MainTabs al shape
+         * del dataclass.
          *
-         * Sept-2026 multi-PLC: se anade el tab "Configuracion"
-         * (primero, antes de Dispositivos). Muestra la
-         * ``Tabla_Dispositivos`` del Excel con shape multi-PLC
-         * (una fila por PLC).
+         * El tab "Configuracion" muestra la ``Tabla_Dimensiones``
+         * del Excel con shape multi-PLC (una fila por PLC).
          */
         const configuracionCount = computed(() => {
-            const d = store.memoryState && store.memoryState.dimensiones;
+            const d = excelFull.value && excelFull.value.n_max;
             if (!d || typeof d !== "object") return 0;
             return Object.keys(d).length;
         });
@@ -150,15 +159,12 @@ export default {
         ]);
 
         /**
-         * Sube el .xlsm al backend. Si OK, refresca la memoria
-         * automáticamente (para que las cards de N_MAX y la tabla
-         * se rellenen sin que el usuario tenga que pulsar
-         * "Actualizar").
-         *
-         * Antes vivía en el Sidebar.js; se mudó aquí porque el
-         * flujo natural del usuario es: subir Excel → ver
-         * inmediatamente su contenido en la tabla de esta misma
-         * vista.
+         * Sube el .xlsm al backend. Si OK, el backend reescribe
+         * ``excel_full`` en el AppCache y emite SSE
+         * ``cache_changed`` (slot="excel_full", area=alimentacion).
+         * La reactividad de ``excelFull`` (computed) propaga el
+         * cambio a las cards de N_MAX y la tabla sin que el
+         * usuario tenga que pulsar "Actualizar".
          */
         async function handleExcel(ev) {
             const file = ev.target.files && ev.target.files[0];
@@ -167,12 +173,7 @@ export default {
             try {
                 const r = await apiUploadExcel(file);
                 if (r.ok) {
-                    store.uploadSummary = r.data.summary || {};
-                    store.lastExcelFile = file;
-                    const mem = await apiFetchMemory();
-                    if (mem.ok && mem.data && mem.data.ok) {
-                        store.memoryState = mem.data;
-                    }
+                    lastFileName.value = file.name;
                 } else {
                     alert("Error cargando Excel: " + (r.data.detail || r.status));
                 }
@@ -190,24 +191,20 @@ export default {
          * ``apiUploadExcel`` (mismo flujo que la primera carga).
          *
          * Por que esto y no un "reload" que re-lea desde la ruta
-         * del archivo original (sept-2026, pedido operario):
-         * los navegadores **NO exponen la ruta completa del archivo
-         * original** (restriccion W3C de seguridad: el File API
-         * solo expone basename, size y tipo). Por tanto, no
-         * podemos re-leer el archivo del operario desde disco sin
-         * su intervencion. La unica forma honesta de "refrescar"
-         * es pedirle que re-seleccione, asi que el boton hace
-         * exactamente eso. Si en el futuro Chrome/Edge dominan
-         * el parque, se puede migrar a File System Access API sin
-         * romper a Safari/Firefox (mantenemos este fallback).
+         * del archivo original: los navegadores NO exponen la ruta
+         * completa del archivo original (restriccion W3C de
+         * seguridad: el File API solo expone basename, size y tipo).
+         * Por tanto, no podemos re-leer el archivo del operario
+         * desde disco sin su intervencion. La unica forma honesta
+         * de "refrescar" es pedirle que re-seleccione, asi que el
+         * boton hace exactamente eso.
          *
-         * Si no hay ``lastExcelFile`` (operario acaba de arrancar
-         * o cambio de area, lo que resetea el slot), pedimos al
-         * padre que dispare ``apiFetchMemory`` via el evento
-         * ``refresh`` (mismo patron legacy que antes).
+         * Si no hay ``lastFileName`` (operario acaba de arrancar
+         * o cambio de area), pedimos al padre que emita el evento
+         * ``refresh`` (compat con el contrato del componente).
          */
         function handleActualizar() {
-            if (!store.lastExcelFile) {
+            if (!lastFileName.value) {
                 emit("refresh");
                 return;
             }
@@ -224,11 +221,13 @@ export default {
         return {
             store,
             fileInput,
+            excelFull,
             hasMemory,
             mainTabsData,
             handleExcel,
             handleActualizar,
             entidadesCount,
+            lastFileName,
         };
     },
     template: /* html */ `
@@ -252,11 +251,11 @@ export default {
                         🔄 Volver a seleccionar
                     </button>
                 </div>
-                <div v-if="store.uploadSummary" class="mt-2 text-xs text-ink-muted">
+                <div v-if="excelFull" class="mt-2 text-xs text-ink-muted">
                     <div class="text-accent">✅ Excel cargado</div>
                 </div>
-                <div v-if="store.lastExcelFile" class="mt-2 text-xs text-ink-muted">
-                    <div class="text-ink-muted">📎 Último archivo: <span class="font-mono text-ink">{{ store.lastExcelFile.name }}</span></div>
+                <div v-if="lastFileName" class="mt-2 text-xs text-ink-muted">
+                    <div class="text-ink-muted">📎 Último archivo: <span class="font-mono text-ink">{{ lastFileName }}</span></div>
                 </div>
             </section>
 

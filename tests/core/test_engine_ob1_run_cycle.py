@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from core.composition.plc_engine import Engine
 from core.composition.plc_function_base import FunctionBase
 
@@ -173,3 +175,25 @@ def test_fb_survives_multiple_asyncio_run_loops():
 
     asyncio.run(_drive_to_done("run3"))
     assert fb.result and len(fb.result["visits"]) == 12, fb.result
+
+
+@pytest.mark.asyncio
+async def test_start_y_stop_loop_son_idempotentes() -> None:
+    """``start_loop()`` arranca el task, ``stop_loop()`` lo cancela.
+
+    Ambos se pueden llamar dos veces seguidas sin error. Cubre el
+    contrato async del Engine legado, que sigue expuesto junto a
+    ``run_cycle()`` sync de OB1.
+    """
+    engine = Engine(tick_period_s=0.01)
+    await engine.start_loop()
+    assert engine._task is not None and not engine._task.done()
+
+    await engine.stop_loop()
+    assert engine._task is None
+
+    # Segundo stop_loop() no falla (idempotente)
+    await engine.stop_loop()
+    # Y un start_loop() tras stop funciona (no se queda colgado)
+    await engine.start_loop()
+    await engine.stop_loop()

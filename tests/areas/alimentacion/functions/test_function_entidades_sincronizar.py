@@ -28,7 +28,7 @@ def _make_fb(
         config_manager=config_manager or MagicMock(),
         tia_client=tia_client or MagicMock(),
         build_cache=Path("."),
-        app_state=app_state or MagicMock(),
+        app_cache=app_state or MagicMock(),
     )
 
 
@@ -389,7 +389,7 @@ def test_entidades_sync_context_defaults() -> None:
         plc_name="X",
         tia_client=MagicMock(),
         config_manager=MagicMock(),
-        app_state=MagicMock(),
+        app_cache=MagicMock(),
         build_cache_root=Path("."),
     )
     assert ctx.db_name == "DB6_ENT"

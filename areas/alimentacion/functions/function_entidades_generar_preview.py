@@ -10,7 +10,7 @@ sus campos. **Aqui en el FB vive la state machine**: el orden de las
 del ctx.
 
 Hereda directo de ``FunctionBase`` (no del template). Zona 0 con 4 deps
-comunes + 1 especifica (``app_state``).
+comunes + 1 especifica (``app_cache``).
 
 Runtime params via ``start(**kwargs)``:
   - ``plc_name`` (str): nombre del PLC destino. Obligatorio.
@@ -58,7 +58,8 @@ from core.helpers.tia.active_cache import (
 from core.helpers.tia.validate_plc_in_excel import validate_plc_in_excel
 from core.helpers.tia.validate_plc_in_tia import validate_plc_in_tia
 from core.helpers.tia.with_plc import with_plc
-from core.runtime.app_state import AppState, get_app_state
+from core.runtime.app_cache import AppCache, get_app_cache
+from areas.alimentacion._area_id import AREA_ID
 from areas.alimentacion.helpers.layout.build_cache import DEFAULT_BUILD_CACHE_ROOT
 
 logger = logging.getLogger(__name__)
@@ -104,7 +105,7 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
         tia_client: Any = None,
         build_cache: Any = None,
         # ── Deps especificas de este FB ──
-        app_state: AppState | None = None,
+        app_cache: AppCache | None = None,
     ) -> None:
         super().__init__(
             nombre=nombre,
@@ -123,8 +124,8 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
         self._tia_client = tia_client
         self._build_cache_root: Path = build_cache or DEFAULT_BUILD_CACHE_ROOT
         # Deps especificas.
-        self._state: AppState = (
-            app_state if app_state is not None else get_app_state()
+        self._app_cache: AppCache = (
+            app_cache if app_cache is not None else get_app_cache()
         )
         # ZONA 3: estado entre ticks.
         self._plc_name: str = ""
@@ -159,16 +160,16 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
         # Validar contra TIA Portal (fail-late).
         validate_plc_in_tia(self._tia_client, self._plc_name)
         # Validar contra el Excel cargado.
-        validate_plc_in_excel(self._state, self._plc_name)
-        # Propagar al AppState (defensa redundante con el endpoint).
-        with_plc(self._state, self._plc_name)
+        validate_plc_in_excel(self._app_cache, self._plc_name, AREA_ID)
+        # Propagar al AppCache (defensa redundante con el endpoint).
+        with_plc(self._app_cache, self._plc_name, AREA_ID)
 
         # Crear el EntidadesPreviewContext que las 5 funciones iran mutando.
         self._ctx = EntidadesPreviewContext(
             plc_name=self._plc_name,
             tia_client=self._tia_client,
             config_manager=self._config,
-            app_state=self._state,
+            app_cache=self._app_cache,
             build_cache_root=self._build_cache_root,
         )
 
@@ -344,7 +345,7 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
         # (campo separado de ``extras``: su entrada en ``n_max_catalog``
         # tiene ``hw_type=""`` y por eso ``get_nmax`` NO lo incluye).
         # Usamos el helper dedicado ``get_nmax_entidades``.
-        desired_nmax = get_nmax_entidades(self._ctx.app_state)
+        desired_nmax = get_nmax_entidades(self._ctx.app_cache, AREA_ID)
 
         # El export bulk del Stage 1 copio AMBAS tablas a preview_disp/
         # (FLAT). El de 0_Config_Generales esta entre ellos.
@@ -377,7 +378,7 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
             compute_diff_entities,
         )
 
-        desired = get_entidades(self._ctx.app_state, self._ctx.plc_name)
+        desired = get_entidades(self._ctx.app_cache, self._ctx.plc_name, AREA_ID)
         xml_path = self._ctx.preview_disp_dir / f"{self._ctx.tag_table}.xml"
 
         def _compute() -> Any:
@@ -410,7 +411,7 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
             compute_comments_diff,
         )
 
-        desired = get_entidades(self._ctx.app_state, self._ctx.plc_name)
+        desired = get_entidades(self._ctx.app_cache, self._ctx.plc_name, AREA_ID)
 
         dcl_path = SdPair(self._ctx.preview_bloques_dir, self._ctx.db_name).dcl
         res_path = SdPair(self._ctx.preview_bloques_dir, self._ctx.db_name).res
@@ -578,7 +579,7 @@ class EntidadesPreviewContext:
     plc_name: str
     tia_client: Any
     config_manager: Any
-    app_state: Any
+    app_cache: AppCache
     build_cache_root: Path
 
     # ── Estado del config ──

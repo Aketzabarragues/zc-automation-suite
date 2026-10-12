@@ -355,3 +355,62 @@ def test_data_dimensiones_plc_inmutable(tmp_path):
     with pytest.raises(FrozenInstanceError):
         dim_plc.plc_name = "OTRO"
     # extras es Mapping (inmutable por diseño).
+
+
+def test_extraer_logea_debug_en_exito(caplog):
+    """El parser emite ``logger.debug`` al terminar con exito (oct-2026).
+
+    Antes solo logueaba cuando la tabla no existia; el caso normal
+    (tabla existe, se extraen PLCs) quedaba silencioso y el operario
+    no podia saber si el parser se ejecutaba o no. Mismo formato que
+    los otros parsers (disp_sa.py:130, disp_ea.py:131).
+    """
+    import logging
+    wb = Workbook()
+    wb.remove(wb.active)
+    _add_n_max_table(wb, "CONFIG", [
+        {"PLC": "PLC1", "N_Max_ED": 10},
+        {"PLC": "PLC2", "N_Max_ED": 20},
+    ])
+    cm = _config_manager_for_tests(None)
+    parser = DimensionesParser(config_manager=cm)
+    with caplog.at_level(
+        logging.DEBUG,
+        logger="areas.alimentacion.helpers.excel.excel_parser_disp_dimensiones",
+    ):
+        result = parser.extraer(wb)
+    assert any(
+        "Tabla_Dimensiones" in r.message and "2 filas" in r.message
+        and "2 PLCs" in r.message
+        for r in caplog.records
+    ), (
+        "El parser deberia emitir un logger.debug con formato "
+        "'Parser[CONFIG/Tabla_Dimensiones]: 2 filas -> 2 PLCs "
+        "extraidos'. Sin este log, el operario no puede saber si el "
+        "parser se ejecuto o no (bug oct-2026)."
+    )
+    assert len(result.por_plc) == 2
+
+
+def test_extraer_logea_debug_cuando_tabla_no_existe(caplog):
+    """Si la tabla no existe, el log de debug sigue siendo consistente.
+
+    Misma ruta que el resto de parsers que avisa con WARNING/DEBUG
+    cuando la ``ListObject`` no esta presente.
+    """
+    import logging
+    wb = Workbook()
+    wb.remove(wb.active)
+    wb.create_sheet("CONFIG")  # sin tabla
+    cm = _config_manager_for_tests(None)
+    parser = DimensionesParser(config_manager=cm)
+    with caplog.at_level(
+        logging.DEBUG,
+        logger="areas.alimentacion.helpers.excel.excel_parser_disp_dimensiones",
+    ):
+        result = parser.extraer(wb)
+    assert any(
+        "Tabla_Dimensiones" in r.message and "no encontrada" in r.message
+        for r in caplog.records
+    )
+    assert result.por_plc == ()

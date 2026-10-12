@@ -1,10 +1,9 @@
 """Router Flask de los endpoints ``POST /api/v1/procesos/sync/{preview,commit}``.
 
-Migrado del use case legacy ``proc_sync_comentarios``. Los helpers viven en
-``areas/alimentacion/helpers/proc/``; los FBs
-(registrados en el engine con esos nombres) tienen la state machine
-+ tracker; este router solo orquesta: arranca el FB y devuelve el
-``result``.
+Orquesta: arranca el FB correspondiente y devuelve su ``result``.
+Los helpers (``areas/alimentacion/helpers/proc/``) tienen la logica
+pura; los FBs (registrados en el engine con esos nombres) tienen la
+state machine + tracker.
 
 Endpoints:
   POST /api/v1/procesos/sync/preview
@@ -140,6 +139,10 @@ def post_proc_sync_preview():
         }), 500
 
     result = fb.result or {"ok": True, "plc_name": plc_name, "proc_uid": proc_uid}
+    # Publica el preview en AppCache (slot preview_proc).
+    from core.runtime.area_preview_cache import area_set_preview_proc
+    from core.runtime.app_cache import get_app_cache
+    area_set_preview_proc(get_app_cache(), "alimentacion", result)
     # Plan living §5: OK con resumen del preview.
     s = (result.get("summary") or {}) if isinstance(result, dict) else {}
     nmax = (
@@ -206,6 +209,22 @@ def post_proc_sync_commit():
         }), 500
 
     result = fb.result or {"ok": True, "plc_name": plc_name, "proc_uid": proc_uid}
+    # Publica el resumen del commit en AppCache (slots
+    # last_proc_commit_summary + last_sync_proc_at) y refresca el
+    # preview post-sync si viene en la respuesta.
+    from core.runtime.area_preview_cache import (
+        area_set_proc_commit_summary,
+        area_set_preview_proc,
+    )
+    from core.runtime.app_cache import get_app_cache
+    app_cache = get_app_cache()
+    area_set_proc_commit_summary(app_cache, "alimentacion", result)
+    post_sync_preview = (
+        result.get("post_sync_preview")
+        if isinstance(result, dict) else None
+    )
+    if post_sync_preview is not None:
+        area_set_preview_proc(app_cache, "alimentacion", post_sync_preview)
     # Plan living §5: OK con resumen del sync.
     ops = result.get("operations_executed", 0) if isinstance(result, dict) else 0
     logger.ok(

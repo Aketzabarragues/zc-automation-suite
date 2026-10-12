@@ -10,15 +10,26 @@
  *      contenedor ``bg-surface-raised border border-line rounded``
  *      para coherencia visual con ``ProcesosPanel.js``.
  *
- * Sept-2026 multi-PLC: las N_MAX cards (antes aquí) se han movido a
+ * Multi-PLC: las N_MAX cards (antes aquí) se han movido a
  * ``ConfiguracionPanel`` (tab "Configuracion"). Multi-PLC rompe la
  * utilidad de cards mezcladas por PLC: la info por PLC vive en el
  * tab "Configuracion" (Tabla_Dispositivos cruda del Excel) y en el
  * preview del PLC concreto (``Dispositivos.js``).
  *
- * Si ``store.memoryState`` está vacío (operario aún no ha subido
- * Excel), pinta el mensaje "Inspector de Memoria está vacío" en
- * lugar de la tabla.
+ * **Convención de keys:**
+ *   - ``tab.key``     = ``t.canonical`` (``"DispED"``): indexa
+ *     ``store.catalog.model_columns`` (el backend lo construye
+ *     con canonical como clave, no con ``hw_type``).
+ *   - ``tab.hwType``  = ``t.hw_type`` (``"ed"``): indexa
+ *     ``store.appCache.areas.alimentacion.excel_full.dispositivos``
+ *     (el backend ``excel_loader.py`` produce el dict con keys
+ *     ``hw_type`` lowercase).
+ * Mezclar ambas keys da ``undefined`` y la pestaña muestra el
+ * empty-state "no contiene dispositivos" aunque el cache esté lleno.
+ *
+ * Si ``store.appCache.areas["alimentacion"].excel_full`` está
+ * vacío (operario aún no ha subido Excel), pinta el mensaje
+ * "Inspector de Memoria está vacío" en lugar de la tabla.
  *
  * Tema: Industrial Claro. Solo tokens semánticos
  * (``bg-surface*``, ``border-line*``, ``text-ink*``, ``text-accent``).
@@ -35,14 +46,16 @@ export default {
     setup() {
         /**
          * Sub-tabs data-driven desde el catalog del backend.
-         * Mantiene la forma ``{key, label}`` que ya consumía el
-         * template original.
+         * Mantiene la forma ``{key, hwType, label}``: ``key`` es el
+         * canonical (para ``modelColumns``), ``hwType`` es el
+         * ``hw_type`` lowercase (para ``excel_full.dispositivos``).
          */
         const tabs = computed(() => {
             const c = store.catalog;
             if (!c || !Array.isArray(c.device_tabs)) return [];
             return c.device_tabs.map((t) => ({
                 key: t.canonical,
+                hwType: t.hw_type,
                 label: t.label,
             }));
         });
@@ -93,18 +106,38 @@ export default {
             () => modelColumns.value[activeSubTab.value] || []
         );
 
+        // ``excel_full`` reactivo desde el AppCache del area activa.
+        const excelFull = computed(
+            () => store.appCache?.areas?.alimentacion?.excel_full || null
+        );
+
+        // ``hwTypeByKey`` traduce ``activeSubTab`` (canonical, p.ej.
+        // ``"DispED"``) al ``hw_type`` (``"ed"``) con el que el
+        // backend keyed ``excel_full.dispositivos``. Sin este mapeo
+        // el lookup devuelve ``undefined`` y la SPA pinta el
+        // empty-state "no contiene dispositivos" aunque el cache
+        // tenga disp cargados.
+        const hwTypeByKey = computed(() => {
+            const m = {};
+            for (const t of tabs.value) m[t.key] = t.hwType;
+            return m;
+        });
+
         const activeDevices = computed(() => {
-            if (!store.memoryState || !store.memoryState.dispositivos) return [];
-            return store.memoryState.dispositivos[activeSubTab.value] || [];
+            const ms = excelFull.value;
+            if (!ms || !ms.dispositivos) return [];
+            const hw = hwTypeByKey.value[activeSubTab.value];
+            if (!hw) return [];
+            return ms.dispositivos[hw] || [];
         });
 
         const hasMemory = computed(
             () => {
                 // ``hasMemory`` distingue 2 estados visuales:
-                //   1. ``store.memoryState === null``: operario no ha
+                //   1. ``excelFull.value === null``: operario no ha
                 //      hecho nunca un fetch (estado "virgen"). Se
                 //      muestra el "Inspector vacío" centrado.
-                //   2. ``store.memoryState`` es un objeto (incluso con
+                //   2. ``excelFull.value`` es un objeto (incluso con
                 //      dicts vacios, p.ej. tras "Refrescar" sin
                 //      Excel): se muestran las tablas. Cada tabla
                 //      pinta su propio mensaje "La pestaña X no
@@ -112,10 +145,9 @@ export default {
                 //      vacia (eso lo hace el ``<tr v-if="...">``).
                 // El operario quiere que tras "Refrescar" se vean
                 // las tablas (no el "Inspector vacío"), asi que
-                // hasMemory es true en cuanto hay memoryState
+                // hasMemory es true en cuanto hay excel_full
                 // (incluso si no trae datos).
-                return store.memoryState !== null
-                    && store.memoryState !== undefined;
+                return excelFull.value != null;
             }
         );
 
@@ -127,19 +159,24 @@ export default {
 
         /**
          * Conteo de dispositivos por sub-tab (DispED, DispEA, ...).
-         * Encapsula el acceso a ``store.memoryState.dispositivos`` para
+         * Encapsula el acceso a ``excelFull.dispositivos`` para
          * que el template no toque ``store`` directamente (lo cual es
          * inalcanzable desde el template en Vue 3 con template compiler
          * en runtime: las variables importadas a nivel de módulo NO se
          * exponen automáticamente al template; solo lo retornado del
-         * setup()).
+         * setup()). Las keys del dict resultante son ``tab.key``
+         * (canonical, ``DispED``) porque el template itera sobre
+         * ``tabs`` y hace ``deviceCountsByTab[t.key]``; los valores
+         * se leen del backend con ``hwType`` (``t.hwType``).
          */
         const deviceCountsByTab = computed(() => {
             const out = {};
-            const disp = store.memoryState && store.memoryState.dispositivos;
+            const ms = excelFull.value;
+            const disp = ms && ms.dispositivos;
             if (!disp || typeof disp !== "object") return out;
-            for (const [key, lst] of Object.entries(disp)) {
-                out[key] = Array.isArray(lst) ? lst.length : 0;
+            for (const t of tabs.value) {
+                const v = disp[t.hwType];
+                out[t.key] = Array.isArray(v) ? v.length : 0;
             }
             return out;
         });

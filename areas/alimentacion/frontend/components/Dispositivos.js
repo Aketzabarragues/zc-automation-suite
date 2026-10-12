@@ -89,35 +89,50 @@ export default {
             tabs.value.length > 0 ? tabs.value[0].key : ""
         );
 
-        const hasPreview = computed(
-            () => !!store.previewData && Array.isArray(store.previewData.todos)
+        const hasPreview = computed(() => {
+            const p = previewData.value;
+            return !!p && Array.isArray(p.todos);
+        });
+
+        /**
+         * ``preview_disp`` reactivo desde el AppCache del area
+         * activa (``store.appCache.areas["alimentacion"]
+         * .preview_disp``, hidratado por SSE ``cache_snapshot`` al
+         * conectar + ``cache_changed`` tras cada
+         * ``apiGeneratePreview`` o ``apiCommit`` del backend).
+         */
+        const previewData = computed(
+            () => store.appCache?.areas?.alimentacion?.preview_disp || null
         );
 
         const summary = computed(() => {
-            if (!hasPreview.value) {
+            const p = previewData.value;
+            if (!p || !Array.isArray(p.todos)) {
                 return { agregados: 0, renombrados: 0, eliminados: 0, sin_cambios: 0, total: 0 };
             }
-            const s = store.previewData.summary || {};
+            const s = p.summary || {};
             return {
-                agregados:   s.agregados   ?? (store.previewData.agregados   || []).length,
-                renombrados: s.renombrados ?? (store.previewData.renombrados || []).length,
-                eliminados:  s.eliminados  ?? (store.previewData.eliminados  || []).length,
+                agregados:   s.agregados   ?? (p.agregados   || []).length,
+                renombrados: s.renombrados ?? (p.renombrados || []).length,
+                eliminados:  s.eliminados  ?? (p.eliminados  || []).length,
                 sin_cambios: s.sin_cambios ?? 0,
-                total:       s.total       ?? (store.previewData.todos || []).length,
+                total:       s.total       ?? (p.todos || []).length,
             };
         });
 
         // N_MAX como cards (estética compartida con DefinicionProgramacion).
         const nmaxCards = computed(() => {
-            if (!hasPreview.value) return [];
-            return store.previewData.nmax?.todos || [];
+            const p = previewData.value;
+            if (!p) return [];
+            return p.nmax?.todos || [];
         });
 
         const nmaxSummary = computed(() => {
-            if (!hasPreview.value) {
+            const p = previewData.value;
+            if (!p) {
                 return { actualizar: 0, sin_cambios: 0, total: 0 };
             }
-            return store.previewData.nmax?.summary || {
+            return p.nmax?.summary || {
                 actualizar: 0, sin_cambios: 0, total: 0,
             };
         });
@@ -127,8 +142,9 @@ export default {
         // (``"ed"``, ``"ea"``, ...), por eso filtramos por el
         // ``key`` de la tab (NO por el ``canonical``).
         const activeRows = computed(() => {
-            if (!hasPreview.value) return [];
-            return (store.previewData.todos || [])
+            const p = previewData.value;
+            if (!p) return [];
+            return (p.todos || [])
                 .filter((r) => r.type === activeTab.value)
                 .sort((a, b) => {
                     const an = typeof a.numero === "number" ? a.numero : 0;
@@ -140,20 +156,24 @@ export default {
         // Contador por pestaña de devices.
         const tabCounts = computed(() => {
             const counts = Object.fromEntries(tabs.value.map((t) => [t.key, 0]));
-            if (!hasPreview.value) return counts;
-            for (const r of store.previewData.todos || []) {
+            const p = previewData.value;
+            if (!p) return counts;
+            for (const r of p.todos || []) {
                 if (counts[r.type] !== undefined) counts[r.type] += 1;
             }
             return counts;
         });
 
         async function generarPreview() {
-            if (!store.selectedPlc) return;
+            if (!store.appCache?.selected_plc) return;
             store.busy = true;
             try {
-                const r = await apiGeneratePreview(store.selectedPlc);
+                const r = await apiGeneratePreview(store.appCache.selected_plc);
                 if (r.ok) {
-                    store.previewData = r.data;
+                    // El backend ya escribio ``preview_disp`` en el
+                    // AppCache y emitio ``cache_changed`` por SSE.
+                    // La reactividad de ``previewData`` propaga el
+                    // cambio a la tabla.
                 } else if (r.errorType === "TIAConnectionError") {
                     // TIA Portal no responde: el backend ya invalido
                     // su cache; limpiamos el state del PLC en el SPA
@@ -171,7 +191,8 @@ export default {
         }
 
         async function ejecutarCommit() {
-            if (!store.previewData) return;
+            const p = previewData.value;
+            if (!p) return;
             const total = summary.value.agregados +
                           summary.value.renombrados +
                           summary.value.eliminados +
@@ -194,33 +215,16 @@ export default {
             store.busy = true;
             try {
                 const r = await apiCommit(
-                    store.selectedPlc,
-                    store.previewData
+                    store.appCache.selected_plc,
+                    p
                 );
                 if (r.ok) {
-                    // Tras un commit exitoso, el backend ya re-corre el
-                    // preview y lo devuelve en `post_sync_preview`. Lo usamos
-                    // para refrescar la vista directamente: si el sync fue
-                    // completo, este preview mostrara 0 cambios (todo en sync).
-                    // Si por algun motivo no viene (raro), hacemos fallback a
-                    // llamar al endpoint de preview manualmente.
-                    if (r.data && r.data.post_sync_preview) {
-                        store.previewData = r.data.post_sync_preview;
-                    } else {
-                        // Fallback: re-llamar al preview endpoint.
-                        const rp = await apiGeneratePreview(
-                            store.selectedPlc
-                        );
-                        if (rp.ok) {
-                            store.previewData = rp.data;
-                        } else if (rp.errorType === "TIAConnectionError") {
-                            // TIA Portal cerro durante el commit. El
-                            // backend ya invalido su cache; limpiamos
-                            // el state del SPA para evitar operar con
-                            // datos stale.
-                            resetPlcState();
-                        }
-                    }
+                    // El backend ya re-corrio el preview, lo publico
+                    // en el AppCache y emitio ``cache_changed`` por
+                    // SSE. No necesitamos re-fetchear: la
+                    // reactividad de ``previewData`` actualiza la
+                    // tabla. Si el sync fue completo, mostrara 0
+                    // cambios (todo en sync).
                 } else if (r.errorType === "TIAConnectionError") {
                     // TIA Portal no responde. Limpiamos el state del
                     // PLC en el SPA (backend ya invalido su cache).
@@ -240,6 +244,7 @@ export default {
             tabs,
             statusMeta: STATUS_META,
             nmaxLabel,
+            previewData,
             hasPreview,
             summary,
             nmaxCards,
@@ -268,7 +273,7 @@ export default {
                 </p>
                 <span v-else></span>
                 <button @click="generarPreview"
-                    :disabled="!store.selectedPlc || store.busy"
+                    :disabled="!store.appCache?.selected_plc || store.busy"
                     data-testid="dispositivos-generar-prevision"
                     class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
                     🔍 Generar Previsión

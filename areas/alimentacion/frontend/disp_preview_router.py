@@ -1,10 +1,9 @@
 """Router Flask del endpoint ``POST /api/v1/plcs/<name>/preview``.
 
-Migrado del metodo legacy ``DispSyncInstancesUseCase.generar_prevision``. El
-helper vive en ``areas/alimentacion/helpers/sync/disp_generate_preview.py``;
-el FB ``FunctionDispGenerarPreview`` (registrado en el engine como
-``disp_generar_preview``) tiene la state machine + tracker; este
-router solo orquesta: arranca el FB y devuelve el ``result``.
+Orquesta: arranca el FB ``disp_generar_preview`` y devuelve su
+``result``. El helper vive en
+``areas/alimentacion/helpers/sync/disp_generate_preview.py``; el FB
+tiene la state machine + tracker.
 
 Endpoint:
   POST /api/v1/plcs/<plc_name>/preview
@@ -114,6 +113,13 @@ def post_disp_preview():
         }), 500
 
     result = fb.result or {"ok": True, "plc_name": plc_name}
+    # Publica el preview en AppCache (slot preview_disp) para que el
+    # frontend lo reciba por SSE (cache_snapshot inicial + cache_changed
+    # delta). El slot es compartido con entidades_preview_router (mismo
+    # bounded context, misma "prevision de disp").
+    from core.runtime.area_preview_cache import area_set_preview_disp
+    from core.runtime.app_cache import get_app_cache
+    area_set_preview_disp(get_app_cache(), "alimentacion", result)
     # Plan living §5 (operacion 4): OK con resumen del diff + N_MAX.
     s = (result.get("summary") or {}) if isinstance(result, dict) else {}
     nmax = (

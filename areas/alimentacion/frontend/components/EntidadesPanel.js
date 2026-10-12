@@ -3,7 +3,8 @@
  *
  * Panel que se muestra cuando ``store.activeMainTab === 'entidades'``.
  * Contiene la tabla reactiva con las columnas del DTO ``Entidad``,
- * leidas de ``store.memoryState.entidades``.
+ * leidas de
+ * ``store.appCache.areas["alimentacion"].excel_full.entidades``.
  *
  * Las columnas visibles las dicta el catalog data-driven del backend
  * (``store.catalog.ent_display_order.entidades``). El orden y la
@@ -15,7 +16,7 @@
  * de todos los PLCs. La columna ``plc_name`` se incluye en el
  * display_order y la SPA la pinta siempre que el backend la liste.
  *
- * Si ``store.memoryState`` esta vacio, pinta el empty state global
+ * Si ``excel_full.value`` esta vacio, pinta el empty state global
  * (mismo patron que ``DispositivosPanel`` / ``ProcesosPanel``).
  *
  * Tema: Industrial Claro. Solo tokens semanticos
@@ -27,14 +28,20 @@ import { store } from "/js/store.js";
 export default {
     name: "EntidadesPanel",
     setup() {
+        // ``excel_full`` reactivo desde el AppCache del area activa.
+        const excelFull = computed(
+            () => store.appCache?.areas?.alimentacion?.excel_full || null
+        );
+
         /**
-         * Filas de la tabla: ``store.memoryState.entidades``
+         * Filas de la tabla: ``excel_full.entidades``
          * (lista plana multi-PLC del DTO ``Entidad``). Si la lista
-         * esta vacia o ``memoryState`` es null, devolvemos ``[]``.
+         * esta vacia o el cache es null, devolvemos ``[]``.
          */
         const entities = computed(() => {
-            if (!store.memoryState) return [];
-            const lst = store.memoryState.entidades;
+            const ms = excelFull.value;
+            if (!ms) return [];
+            const lst = ms.entidades;
             return Array.isArray(lst) ? lst : [];
         });
 
@@ -42,10 +49,7 @@ export default {
          * ``true`` si hay Excel cargado. Mismo patron que
          * ``DispositivosPanel``: empty state global si no hay memoria.
          */
-        const hasMemory = computed(
-            () => store.memoryState !== null
-                && store.memoryState !== undefined
-        );
+        const hasMemory = computed(() => excelFull.value != null);
 
         /**
          * Columnas visibles del DTO ``Entidad`` (en el orden que el

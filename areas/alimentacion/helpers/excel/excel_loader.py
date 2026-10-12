@@ -23,7 +23,7 @@ Pipeline (orden de ejecución sobre el mismo ``wb``):
     4. 1 parser de entidades (``EntidadesParser``) —
        extrae la ``Tabla_Entidades`` de la hoja ``ENTIDADES``.
        Multi-PLC (cada ``Entidad`` lleva su ``plc_name``); el
-       filtrado por PLC vive en AppState, no aqui.
+       filtrado por PLC vive en el ``excel_active`` derivado, no aqui.
 
 Tras el parseo, construye los lookups ``*_by_codigo`` filtrando
 filas sin ``codigo`` para evitar colisiones con la clave vacía.
@@ -46,7 +46,7 @@ from openpyxl import load_workbook
 from core.infrastructure.log.log_web_bridge import install_web_level
 install_web_level()
 
-from areas.alimentacion.data.data_excel_cache import DataExcelCache
+from core.data.data_excel_cache import DataExcelCache
 from areas.alimentacion.helpers.excel.excel_parser_proc_alarmas import AlarmasParser
 from areas.alimentacion.helpers.excel.excel_parser_disp_dimensiones import (
     DimensionesParser,
