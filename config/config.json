@@ -64,11 +64,32 @@
           "excel_column": "N_Max_SA"
         },
         {
+          "name": "N_MAX_DISP_SD",
+          "hw_type": "sd",
+          "plc_tag_table": "2000_Disp_SD",
+          "comment": "Numero max. salidas digitales",
+          "excel_column": "N_Max_SD"
+        },
+        {
           "name": "N_MAX_DISP_TOT",
           "hw_type": "tot",
           "plc_tag_table": "2000_Disp_TOT",
           "comment": "Numero max. totalizadores",
           "excel_column": "N_Max_TOT"
+        },
+        {
+          "name": "N_MAX_DISP_TQ",
+          "hw_type": "tq",
+          "plc_tag_table": "2000_Disp_TQ",
+          "comment": "Numero max. tanques (sensor analogico de nivel)",
+          "excel_column": "N_Max_TQ"
+        },
+        {
+          "name": "N_MAX_DISP_TQ_AE",
+          "hw_type": "tq_ae",
+          "plc_tag_table": "2000_Disp_TQ_AE",
+          "comment": "Numero max. tanques aire esteril (sensor analogico)",
+          "excel_column": "N_Max_TQ_AE"
         },
         {
           "name": "N_MAX_DISP_V",
@@ -91,32 +112,13 @@
         "N_MAX_DISP_FF_SEC",
         "N_MAX_DISP_MEDIA",
         "N_MAX_DISP_MEDIA_VOLUMEN",
-        "N_MAX_DISP_SD",
-        "N_MAX_DISP_TQ",
-        "N_MAX_DISP_TQ_AE",
         "N_MAX_DISP_VD",
         "N_MAX_DISP_TOF",
         "N_MAX_DISP_TON",
         "N_MAX_DISP_TONR",
         "N_MAX_DISP_TP"
       ],
-      "pending_dispositivos": {
-        "sd": {
-          "db_name": "DB2002_SD",
-          "db_array_name": "SD",
-          "tag_table": "2000_Disp_SD"
-        },
-        "tq": {
-          "db_name": "DB2018_TQ",
-          "db_array_name": "TQ",
-          "tag_table": "2000_Disp_TQ"
-        },
-        "tq_ae": {
-          "db_name": "DB2019_TQ_AE",
-          "db_array_name": "TQ_AE",
-          "tag_table": "2000_Disp_TQ_AE"
-        }
-      },
+      "pending_dispositivos": {},
       "Dispositivos": {
         "ed": {
           "db_name": "DB2000_ED",
@@ -135,6 +137,17 @@
           "db_array_name": "SA",
           "tag_table": "2000_Disp_SA",
           "config_table": "0_Config_Dispositivos"
+        },
+        "sd": {
+          "db_name": "DB2002_SD",
+          "db_array_name": "SD",
+          "tag_table": "2000_Disp_SD",
+          "config_table": "0_Config_Dispositivos",
+          "excel_target": {
+            "sheet": "DISP_SD",
+            "table": "Tabla_Disp_SD",
+            "canonical": "DispSD"
+          }
         },
         "v": {
           "db_name": "DB2010_V",
@@ -159,6 +172,28 @@
           "db_array_name": "M_SINA",
           "tag_table": "2000_Disp_M_SINA",
           "config_table": "0_Config_Dispositivos"
+        },
+        "tq": {
+          "db_name": "DB2018_TQ",
+          "db_array_name": "TQ",
+          "tag_table": "2000_Disp_TQ",
+          "config_table": "0_Config_Dispositivos",
+          "excel_target": {
+            "sheet": "DISP_TQ",
+            "table": "Tabla_Disp_TQ",
+            "canonical": "DispTQ"
+          }
+        },
+        "tq_ae": {
+          "db_name": "DB2019_TQ_AE",
+          "db_array_name": "TQ_AE",
+          "tag_table": "2000_Disp_TQ_AE",
+          "config_table": "0_Config_Dispositivos",
+          "excel_target": {
+            "sheet": "DISP_TQ_AE",
+            "table": "Tabla_Disp_TQ_AE",
+            "canonical": "DispTQ_AE"
+          }
         },
         "tot": {
           "db_name": "DB2025_TOT",
@@ -314,6 +349,32 @@
             "disp_tag",
             "proceso",
             "observaciones"
+          ],
+          "DispSD": [
+            "plc_name",
+            "numero",
+            "tag",
+            "descripcion",
+            "fat",
+            "s_byte",
+            "s_bit",
+            "gr_alarma",
+            "cuadro",
+            "observaciones"
+          ],
+          "DispTQ": [
+            "plc_name",
+            "numero",
+            "tag",
+            "descripcion",
+            "observaciones"
+          ],
+          "DispTQ_AE": [
+            "plc_name",
+            "numero",
+            "tag",
+            "descripcion",
+            "observaciones"
           ]
         }
       },
@@ -383,7 +444,7 @@
           "descripcion":    "Descripcion"
         }
       },
-      "_todo_legacy_types": "Tipos legacy (sd/tq/tq_ae/productos) NO activos. Sus N_MAX viven en 'pending_nmax' y sus entries en 'pending_dispositivos'."
+      "_todo_legacy_types": "Tipos legacy (agrup/ff/ff_sec/media/media_volumen/vd/tof/ton/tonr/tp) NO activos. Sus N_MAX viven en 'pending_nmax'."
     }
   }
 }
