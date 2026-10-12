@@ -1,18 +1,18 @@
 """Regression: los 6 FBs de sync/preview deben pasar ``AppCache`` a ``with_plc``.
 
-Contrato que fija este test (commit 4a, feature/app-cache-unico):
+Contrato que fija este test (commit 5, feature/cleanup-final):
 
   ``with_plc(app_cache: AppCache, plc_name: str, area_id: str)``
   espera que el primer argumento sea un ``AppCache`` (con ``.get_state()``
   y ``.mutate()``).
 
-Los 6 FBs tienen ``self._state: AppState`` y DEBEN llamar a
-``with_plc(self._state.app_cache, ...)`` — no ``with_plc(self._state, ...)``.
-``AppState`` no expone ``get_state()``; pasar ``self._state`` lanzaba
-``AttributeError`` en produccion al disparar sync/preview.
+Los 6 FBs tienen ``self._app_cache: AppCache`` y DEBEN llamar a
+``with_plc(self._app_cache, ...)`` — no ``with_plc(self._app_cache.app_cache, ...)``.
+``AppCache`` no expone ``app_cache``; pasar ``self._app_cache.app_cache``
+lanzaba ``AttributeError`` en produccion al disparar sync/preview.
 
 Los tests existentes mockean ``with_plc`` y no detectaban el bug. Este
-test NO mockea ``with_plc``: lo deja pasar al real para que ``self._state``
+test NO mockea ``with_plc``: lo deja pasar al real para que ``self._app_cache``
 sea del tipo equivocado y el bug, si vuelve, explote.
 
 Falsos positivos que este test evita:
@@ -114,8 +114,8 @@ def app_cache() -> AppCache:
 def app_cache_fixture(app_cache: AppCache) -> AppCache:
     """AppCache real con un Excel cargado en el area ``alimentacion``.
 
-    El FB guarda ``self._app_cache`` directamente (sin wrapper
-    ``AppState``). Pasamos el AppCache real: si el FB hiciera
+    El FB guarda ``self._app_cache: AppCache`` directamente (sin
+    wrapper ``AppState``). Pasamos el AppCache real: si el FB hiciera
     ``with_plc(self._app_cache.app_cache, ...)`` como en el contrato
     legacy, fallaria con ``AttributeError: AppCache has no
     attribute 'app_cache'``.

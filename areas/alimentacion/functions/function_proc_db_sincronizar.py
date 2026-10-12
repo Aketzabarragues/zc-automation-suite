@@ -29,7 +29,7 @@ El ``self.result`` se popula con la shape esperada por la SPA::
 Steps (9, Tx A N_MAX + compile + Tx B + post-preview):
   - check_state_commit       -> valida excel_cache cargado
   - check_blocks_commit      -> valida bloques_cache cargado
-  - build_slot_maps_commit   -> recalcula slot maps desde AppState
+  - build_slot_maps_commit   -> recalcula slot maps desde AppCache
   - sync_nmax                -> Tx A online (incluso si nmax_ops=[])
   - wait_consolidation       -> sleep 2s para que TIA consolide
   - compile_proc_blocks      -> compila PARAM + ALM tras el resize
@@ -188,7 +188,7 @@ class FunctionProcDBSincronizar(FunctionBase):
         validate_plc_in_tia(self._tia_client, self._plc_name)
         # Validar contra el Excel cargado (sept-2026 multi-PLC).
         validate_plc_in_excel(self._app_cache, self._plc_name, AREA_ID)
-        # Propagar al AppState (defensa redundante con el endpoint).
+        # Propagar al AppCache (defensa redundante con el endpoint).
         with_plc(self._app_cache, self._plc_name, AREA_ID)
 
         # ``bloques_cache`` puede inyectarse por constructor (test) o
@@ -213,7 +213,7 @@ class FunctionProcDBSincronizar(FunctionBase):
             proc_uid=self._proc_uid,
             tia_client=self._tia_client,
             config_manager=self._config,
-            app_state=self._app_cache,
+            app_cache=self._app_cache,
             build_cache_root=self._build_cache_root,
             bloques_cache=self._bloques_cache,
         )
@@ -309,8 +309,8 @@ class FunctionProcDBSincronizar(FunctionBase):
         """
         from core.runtime.excel_cache import excel_get_active
         cache = (
-            excel_get_active(self._ctx.app_state.app_cache, "alimentacion")
-            if self._ctx.app_state is not None else None
+            excel_get_active(self._ctx.app_cache, "alimentacion")
+            if self._ctx.app_cache is not None else None
         )
         self._ctx.excel_loaded = cache is not None
         if not self._ctx.excel_loaded:
@@ -349,7 +349,7 @@ class FunctionProcDBSincronizar(FunctionBase):
             proc_build_slot_maps,
         )
         self._ctx.slot_map = proc_build_slot_maps(
-            self._ctx.app_state, self._ctx.config_manager,
+            self._ctx.app_cache, self._ctx.config_manager,
             self._ctx.proc_uid, self._ctx.bloques_cache,
         )
         if self._ctx.slot_map is None:
@@ -384,7 +384,7 @@ class FunctionProcDBSincronizar(FunctionBase):
 
         # Calcular nmax_ops ANTES del step sync_nmax. El helper
         # necesita slot_map (resuelto arriba) y dimensiones (en
-        # app_state). Separamos el calculo del dispatch para poder
+        # app_cache). Separamos el calculo del dispatch para poder
         # loguear el resultado del diff y abortar si falla el parser,
         # sin abrir Tx A.
         self._proc_compute_nmax_ops_inline()
@@ -1005,7 +1005,7 @@ def _compute_nmax_ops_for_proc_apply(
     if not table_name:
         raise RuntimeError(
             f"_compute_nmax_ops_for_proc_apply: slot_map.table_name "
-            f"vacío. ¿proc_uid={proc_uid} existe en AppState?"
+            f"vacío. ¿proc_uid={proc_uid} existe en el AppCache?"
         )
     nmax_names: dict[str, str] = (
         getattr(slot_map, "nmax_names", {}) or {}
@@ -1088,7 +1088,7 @@ class ProcSyncContext:
     proc_uid: int
     tia_client: Any
     config_manager: Any
-    app_state: Any
+    app_cache: AppCache
     build_cache_root: Path
     bloques_cache: Any  # DataBloqueCache o None
 

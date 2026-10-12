@@ -20,7 +20,6 @@ duplicar la validacion en el endpoint (no es scope de este helper).
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from core.runtime.app_cache import AppCache
 from core.runtime.excel_cache import excel_get_full
@@ -29,12 +28,11 @@ from core.runtime.excel_cache import excel_get_full
 _logger = logging.getLogger(__name__)
 
 
-def validate_plc_in_excel(state: Any, plc_name: str, area_id: str) -> None:
+def validate_plc_in_excel(app_cache: AppCache, plc_name: str, area_id: str) -> None:
     """Valida que ``plc_name`` esta en la ``Tabla_PLC`` del Excel cargado.
 
     Args:
-        state: objeto con ``app_cache`` (tipicamente ``AppState``).
-            Tambien acepta un ``AppCache`` directo (legacy callers).
+        app_cache: contenedor del proceso (``AppCache``).
         plc_name: nombre del PLC (strict equality, D11).
         area_id: area del cache a leer. Obligatorio.
 
@@ -46,13 +44,6 @@ def validate_plc_in_excel(state: Any, plc_name: str, area_id: str) -> None:
     if not plc_name:
         raise ValueError(
             "validate_plc_in_excel: plc_name vacio"
-        )
-    app_cache: AppCache | None = getattr(state, "app_cache", None)
-    if app_cache is None and isinstance(state, AppCache):
-        app_cache = state
-    if app_cache is None:
-        raise ValueError(
-            "validate_plc_in_excel: state no expone app_cache"
         )
     cache = excel_get_full(app_cache, area_id)
     if cache is None:

@@ -1,4 +1,4 @@
-﻿"""Tests del FB ``FunctionProcDBSincronizar``.
+"""Tests del FB ``FunctionProcDBSincronizar``.
 
 Cubre:
   - Happy path: 7 ticks (1 arrancar + 4 steps + 1 finalizar + 1 done),
@@ -33,7 +33,7 @@ from core.runtime.progress_buffer import ProgressTracker
 from core.infrastructure.config.config_manager import ConfigManager
 
 
-# â”€â”€ Fixtures â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Fixtures ─────────────────────────────────────────────────────────
 
 
 @pytest.fixture
@@ -200,7 +200,7 @@ def _patch_helper_fns(fb) -> ExitStack:
     return stack
 
 
-# â”€â”€ Happy path â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Happy path ──────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -314,7 +314,7 @@ async def test_proc_sincronizar_happy_path_8_ticks(
         assert fb._stage_9_build_response.call_count == 1
 
 
-# â”€â”€ Sad paths (pre-flight en on_start) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Sad paths (pre-flight en on_start) ──────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -407,7 +407,7 @@ async def test_proc_sincronizar_sad_no_proc_uid(
     assert "proc_uid" in fb.error_msg
 
 
-# â”€â”€ Sad paths (en ticks ejecutivos) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Sad paths (en ticks ejecutivos) ────────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -498,7 +498,7 @@ async def test_proc_sincronizar_sad_open_transaction_fails(
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
-    """Si el gateway falla, el 4Âº step ejecutivo falla (rollback atomico)."""
+    """Si el gateway falla, el 4º step ejecutivo falla (rollback atomico)."""
     fake_slot_map = MagicMock()
     fake_slot_map.missing_blocks = []
     fake_slot_map.preal = {1: "Bomba 1"}
@@ -543,7 +543,7 @@ async def test_proc_sincronizar_sad_open_transaction_fails(
     assert "DB42_CPR_PARAM" in fb.error_msg
 
 
-# â”€â”€ Terminal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Terminal ─────────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -568,7 +568,7 @@ async def test_proc_sincronizar_terminal_no_avanza_mas(
     assert fb.nStep == n_step_before
 
 
-# â”€â”€ Stage 3: cobertura de abort / warning segun table_present y db_missing â”€â”€
+# ── Stage 3: cobertura de abort / warning segun table_present y db_missing ──
 
 
 def _make_slot_map(
@@ -672,7 +672,7 @@ async def test_stage_3_sigue_con_un_db_ausente_y_avisa(
     progress: ProgressTracker,
 ) -> None:
     """Tabla + DB_PARAM presentes, DB_ALM ausente: stage 3 NO aborta
-    y aÃ±ade el warning del DB omitido a ``slot_map.warnings``."""
+    y añade el warning del DB omitido a ``slot_map.warnings``."""
     fake_sm = _make_slot_map(
         table_present=True,
         db_missing=["DB3001_CPR_ALM"],
@@ -702,7 +702,7 @@ async def test_stage_3_sigue_con_un_db_ausente_y_avisa(
     )
 
 
-# â”€â”€ Filtrado de DBs ausentes en compile y fase 2 de Tx B â”€â”€
+# ── Filtrado de DBs ausentes en compile y fase 2 de Tx B ──
 
 
 def test_proc_discover_compile_dbs_omite_db_ausente(
@@ -782,7 +782,7 @@ async def test_proc_tx_b_detectar_eliminar_export_filtra_por_db_missing(
         proc_uid=42,
         tia_client=MagicMock(),
         config_manager=MagicMock(),
-        app_state=MagicMock(),
+        app_cache=MagicMock(),
         build_cache_root=MagicMock(),
         bloques_cache=bloques_cache,
     )
@@ -859,7 +859,7 @@ async def test_proc_tx_b_detectar_eliminar_export_envuelve_ambos_si_no_falta(
         proc_uid=42,
         tia_client=MagicMock(),
         config_manager=MagicMock(),
-        app_state=MagicMock(),
+        app_cache=MagicMock(),
         build_cache_root=MagicMock(),
         bloques_cache=bloques_cache,
     )

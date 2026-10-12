@@ -389,7 +389,7 @@ def test_entidades_sync_context_defaults() -> None:
         plc_name="X",
         tia_client=MagicMock(),
         config_manager=MagicMock(),
-        app_state=MagicMock(),
+        app_cache=MagicMock(),
         build_cache_root=Path("."),
     )
     assert ctx.db_name == "DB6_ENT"

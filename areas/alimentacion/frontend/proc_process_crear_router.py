@@ -376,7 +376,7 @@ def crear_aplicar():
     # permite que el operario reciba 500 inmediato en lugar de
     # esperar al progress tracker.
     try:
-        validate_plc_in_excel(_get_app_state(), validated["plc_name"], AREA_ID)
+        validate_plc_in_excel(_get_app_state().app_cache, validated["plc_name"], AREA_ID)
     except ValueError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
 

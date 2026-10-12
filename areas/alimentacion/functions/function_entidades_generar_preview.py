@@ -10,7 +10,7 @@ sus campos. **Aqui en el FB vive la state machine**: el orden de las
 del ctx.
 
 Hereda directo de ``FunctionBase`` (no del template). Zona 0 con 4 deps
-comunes + 1 especifica (``app_state``).
+comunes + 1 especifica (``app_cache``).
 
 Runtime params via ``start(**kwargs)``:
   - ``plc_name`` (str): nombre del PLC destino. Obligatorio.
@@ -161,7 +161,7 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
         validate_plc_in_tia(self._tia_client, self._plc_name)
         # Validar contra el Excel cargado.
         validate_plc_in_excel(self._app_cache, self._plc_name, AREA_ID)
-        # Propagar al AppState (defensa redundante con el endpoint).
+        # Propagar al AppCache (defensa redundante con el endpoint).
         with_plc(self._app_cache, self._plc_name, AREA_ID)
 
         # Crear el EntidadesPreviewContext que las 5 funciones iran mutando.
@@ -169,7 +169,7 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
             plc_name=self._plc_name,
             tia_client=self._tia_client,
             config_manager=self._config,
-            app_state=self._app_cache,
+            app_cache=self._app_cache,
             build_cache_root=self._build_cache_root,
         )
 
@@ -345,7 +345,7 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
         # (campo separado de ``extras``: su entrada en ``n_max_catalog``
         # tiene ``hw_type=""`` y por eso ``get_nmax`` NO lo incluye).
         # Usamos el helper dedicado ``get_nmax_entidades``.
-        desired_nmax = get_nmax_entidades(self._ctx.app_state, AREA_ID)
+        desired_nmax = get_nmax_entidades(self._ctx.app_cache, AREA_ID)
 
         # El export bulk del Stage 1 copio AMBAS tablas a preview_disp/
         # (FLAT). El de 0_Config_Generales esta entre ellos.
@@ -378,7 +378,7 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
             compute_diff_entities,
         )
 
-        desired = get_entidades(self._ctx.app_state, self._ctx.plc_name, AREA_ID)
+        desired = get_entidades(self._ctx.app_cache, self._ctx.plc_name, AREA_ID)
         xml_path = self._ctx.preview_disp_dir / f"{self._ctx.tag_table}.xml"
 
         def _compute() -> Any:
@@ -411,7 +411,7 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
             compute_comments_diff,
         )
 
-        desired = get_entidades(self._ctx.app_state, self._ctx.plc_name, AREA_ID)
+        desired = get_entidades(self._ctx.app_cache, self._ctx.plc_name, AREA_ID)
 
         dcl_path = SdPair(self._ctx.preview_bloques_dir, self._ctx.db_name).dcl
         res_path = SdPair(self._ctx.preview_bloques_dir, self._ctx.db_name).res
@@ -579,7 +579,7 @@ class EntidadesPreviewContext:
     plc_name: str
     tia_client: Any
     config_manager: Any
-    app_state: Any
+    app_cache: AppCache
     build_cache_root: Path
 
     # ── Estado del config ──

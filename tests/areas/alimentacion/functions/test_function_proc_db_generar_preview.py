@@ -159,7 +159,7 @@ def test_stage_6_build_response_happy_path_flags_presentes(
         proc_uid=42,
         tia_client=mock_tia_client,
         config_manager=mock_config,
-        app_state=mock_app_state,
+        app_cache=mock_app_state,
         build_cache_root=mock_config.build_cache_root if hasattr(
             mock_config, "build_cache_root"
         ) else None,
@@ -212,7 +212,7 @@ def test_stage_6_build_response_db_param_ausente_marca_solo_param(
         proc_uid=42,
         tia_client=mock_tia_client,
         config_manager=mock_config,
-        app_state=mock_app_state,
+        app_cache=mock_app_state,
         build_cache_root=mock_config.build_cache_root if hasattr(
             mock_config, "build_cache_root"
         ) else None,
@@ -266,7 +266,7 @@ def test_stage_6_build_response_ambos_dbs_ausentes_marca_fatal(
         proc_uid=42,
         tia_client=mock_tia_client,
         config_manager=mock_config,
-        app_state=mock_app_state,
+        app_cache=mock_app_state,
         build_cache_root=mock_config.build_cache_root if hasattr(
             mock_config, "build_cache_root"
         ) else None,
@@ -313,7 +313,7 @@ def test_stage_6_build_response_tabla_ausente_marca_solo_tabla(
         proc_uid=42,
         tia_client=mock_tia_client,
         config_manager=mock_config,
-        app_state=mock_app_state,
+        app_cache=mock_app_state,
         build_cache_root=mock_config.build_cache_root if hasattr(
             mock_config, "build_cache_root"
         ) else None,

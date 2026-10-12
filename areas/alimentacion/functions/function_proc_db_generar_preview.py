@@ -179,7 +179,7 @@ class FunctionProcDBGenerarPreview(FunctionBase):
         validate_plc_in_tia(self._tia_client, self._plc_name)
         # Validar contra el Excel cargado (sept-2026 multi-PLC).
         validate_plc_in_excel(self._app_cache, self._plc_name, AREA_ID)
-        # Propagar al AppState (defensa redundante con el endpoint).
+        # Propagar al AppCache (defensa redundante con el endpoint).
         with_plc(self._app_cache, self._plc_name, AREA_ID)
 
         # ``bloques_cache`` puede inyectarse por constructor (test) o
@@ -202,7 +202,7 @@ class FunctionProcDBGenerarPreview(FunctionBase):
             proc_uid=self._proc_uid,
             tia_client=self._tia_client,
             config_manager=self._config,
-            app_state=self._app_cache,
+            app_cache=self._app_cache,
             build_cache_root=self._build_cache_root,
             bloques_cache=self._bloques_cache,
         )
@@ -308,8 +308,8 @@ class FunctionProcDBGenerarPreview(FunctionBase):
         """
         from core.runtime.excel_cache import excel_get_active
         cache = (
-            excel_get_active(self._ctx.app_state.app_cache, "alimentacion")
-            if self._ctx.app_state is not None else None
+            excel_get_active(self._ctx.app_cache, "alimentacion")
+            if self._ctx.app_cache is not None else None
         )
         if cache is None:
             self._ctx.excel_loaded = False
@@ -345,7 +345,7 @@ class FunctionProcDBGenerarPreview(FunctionBase):
         from areas.alimentacion.data.data_proc_slot_map import proc_build_slot_maps
         try:
             self._ctx.slot_map = proc_build_slot_maps(
-                self._ctx.app_state, self._ctx.config_manager, self._ctx.proc_uid, self._ctx.bloques_cache
+                self._ctx.app_cache, self._ctx.config_manager, self._ctx.proc_uid, self._ctx.bloques_cache
             )
             self._ctx.slot_map_error = None
         except RuntimeError as exc:
@@ -597,7 +597,7 @@ class FunctionProcDBGenerarPreview(FunctionBase):
                 "proc_uid": self._ctx.proc_uid,
                 "precondiciones_ok": False,
                 "missing_blocks": [
-                    "AppState no tiene Excel cargado. Cargue el Excel con "
+                    "AppCache no tiene Excel cargado para el area. Cargue el Excel con "
                     "POST /api/v1/excel/upload."
                 ],
                 "arrays": {},
@@ -717,7 +717,7 @@ class ProcPreviewContext:
     proc_uid: int
     tia_client: Any
     config_manager: Any
-    app_state: Any
+    app_cache: AppCache
     build_cache_root: Path
     bloques_cache: Any  # DataBloqueCache o None
 

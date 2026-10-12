@@ -2,12 +2,12 @@
 
 Consolida:
   - El dataclass ``DataDispSlotMap``.
-  - La función ``disp_build_slot_maps`` y ``disp_build_slot_map_for_hw``
+  - La funcion ``disp_build_slot_maps`` y ``disp_build_slot_map_for_hw``
     (antes en ``application/disp_slot_map_builder.py``).
 
-Une los datos de AppState (``comentario_db`` de cada dispositivo) con la
-configuracion TIA (``db_name``, ``db_array_name``) para producir el
-resultado que el gateway envia a TIA.
+Une los datos del ``AppCache`` (``comentario_db`` de cada dispositivo)
+con la configuracion TIA (``db_name``, ``db_array_name``) para producir
+el resultado que el gateway envia a TIA.
 
 Reutilizado por:
   - ``DispComentariosSyncUseCase`` (endpoint ``/aplicar-comentarios-disp``).
@@ -26,7 +26,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
-from core.runtime.app_state import AppState
+from core.runtime.app_cache import AppCache
 from core.infrastructure.config.config_manager import ConfigManager
 
 
@@ -56,7 +56,7 @@ class DataDispSlotMap:
 
 
 def disp_build_slot_maps(
-    app_state: AppState,
+    app_cache: AppCache,
     config_manager: ConfigManager,
 ) -> DataDispSlotMap:
     """Construye los slot_maps para todos los tipos activos del departamento.
@@ -83,7 +83,7 @@ def disp_build_slot_maps(
             continue
         db_names[hw_type] = cfg.db_name
         db_array_names[hw_type] = cfg.db_array_name
-        slot_maps[hw_type] = disp_build_slot_map_for_hw(app_state, hw_type)
+        slot_maps[hw_type] = disp_build_slot_map_for_hw(app_cache, hw_type)
 
     return DataDispSlotMap(
         slot_maps=slot_maps,
@@ -93,7 +93,7 @@ def disp_build_slot_maps(
     )
 
 
-def disp_build_slot_map_for_hw(app_state: AppState, hw_type: str) -> dict[int, str]:
+def disp_build_slot_map_for_hw(app_cache: AppCache, hw_type: str) -> dict[int, str]:
     """Slot map para un tipo: ``{0: 'NO USAR', i: comentario_db para cada device con numero==i}``.
 
     Multi-PLC: lee devices del cache activo del area (filtrado por el
@@ -106,7 +106,7 @@ def disp_build_slot_map_for_hw(app_state: AppState, hw_type: str) -> dict[int, s
         RuntimeError: si el cache activo del area es ``None``.
     """
     from core.runtime.excel_cache import excel_get_active
-    cache = excel_get_active(app_state.app_cache, "alimentacion")
+    cache = excel_get_active(app_cache, "alimentacion")
     if cache is None:
         raise RuntimeError(
             "app_cache.excel_active_by_area['alimentacion'] es None. "

@@ -164,7 +164,7 @@ def test_on_start_crea_ctx_con_deps_inyectadas() -> None:
     assert fb._ctx.plc_name == "PLC_S1500"
     assert fb._ctx.config_manager is cm
     assert fb._ctx.tia_client is tia
-    assert fb._ctx.app_state is state
+    assert fb._ctx.app_cache is state
 
 
 # ---------------------------------------------------------------------------
@@ -344,7 +344,7 @@ def _make_fb_with_ctx() -> FunctionEntidadesGenerarPreview:
         plc_name="PLC_S1500",
         tia_client=fb._tia_client,
         config_manager=fb._config,
-        app_state=fb._app_cache,
+        app_cache=fb._app_cache,
         build_cache_root=Path("/tmp/build_cache"),
     )
     return fb
@@ -417,7 +417,7 @@ def test_stage_2_compute_nmax_usa_n_max_del_cache() -> None:
     from pathlib import Path
     fb = _make_fb_with_ctx()
     fb._app_cache = _make_app_cache(n_max_entidades={"N_MAX_ENTIDAD": 5})
-    fb._ctx.app_state = fb._app_cache
+    fb._ctx.app_cache = fb._app_cache
     fb._ctx.preview_disp_dir = Path("/tmp/disp")
 
     fake_diff = MagicMock()
