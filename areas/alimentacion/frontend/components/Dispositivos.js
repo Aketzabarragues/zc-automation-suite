@@ -165,10 +165,10 @@ export default {
         });
 
         async function generarPreview() {
-            if (!store.selectedPlc) return;
+            if (!store.appCache?.selected_plc) return;
             store.busy = true;
             try {
-                const r = await apiGeneratePreview(store.selectedPlc);
+                const r = await apiGeneratePreview(store.appCache.selected_plc);
                 if (r.ok) {
                     // El backend ya escribio ``preview_disp`` en el
                     // AppCache y emitio ``cache_changed`` por SSE.
@@ -215,7 +215,7 @@ export default {
             store.busy = true;
             try {
                 const r = await apiCommit(
-                    store.selectedPlc,
+                    store.appCache.selected_plc,
                     p
                 );
                 if (r.ok) {
@@ -273,7 +273,7 @@ export default {
                 </p>
                 <span v-else></span>
                 <button @click="generarPreview"
-                    :disabled="!store.selectedPlc || store.busy"
+                    :disabled="!store.appCache?.selected_plc || store.busy"
                     data-testid="dispositivos-generar-prevision"
                     class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
                     🔍 Generar Previsión

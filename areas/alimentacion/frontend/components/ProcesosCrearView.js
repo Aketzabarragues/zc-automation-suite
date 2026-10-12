@@ -115,7 +115,7 @@ export default {
         // bloque previsto (NO OK si el nombre+numero ya existen en el PLC).
         const plcBlocksCache = computed(
             () => {
-                const plc = store.selectedPlc;
+                const plc = store.appCache?.selected_plc;
                 if (!plc) return null;
                 return store.appCache?.plc_blocks?.[plc] || null;
             }
@@ -336,7 +336,7 @@ export default {
             const params = {
                 dir_plantilla_nombre: selectedPlantillaCarpeta.value,
                 proc_uid: Number(props.procUid),
-                plc_name: store.selectedPlc || "",
+                plc_name: store.appCache?.selected_plc || "",
                 plc_blocks_cache: _blocksToDicts(plcBlocksCache.value),
             };
             const r = await apiProcesosCrearAplicar(params);

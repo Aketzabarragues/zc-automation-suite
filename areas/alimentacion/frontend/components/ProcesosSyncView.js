@@ -292,7 +292,7 @@ export default {
          * Nombre del PLC activo (viene del store). Si está vacío,
          * el botón Aplicar se deshabilita con tooltip.
          */
-        const plcName = computed(() => store.selectedPlc || "");
+        const plcName = computed(() => store.appCache?.selected_plc || "");
 
         /**
          * Si podemos aplicar: hay preview, hay PLC, hay ops > 0,
