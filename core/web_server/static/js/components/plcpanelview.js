@@ -88,6 +88,16 @@ export default {
             return store.appCache?.plc_blocks?.[plc] || null;
         });
 
+        /**
+         * Lista de PLCs disponibles. Leida del AppCache unificado
+         * (``store.appCache.plc_list``). Devuelve ``[]`` mientras el
+         * primer ``cache_snapshot`` no haya llegado; el store
+         * inicializa el slot a ``[]`` por defecto.
+         */
+        const plcList = computed(
+            () => store.appCache?.plc_list || []
+        );
+
         /** Listas normalizadas del snapshot (arrays vacíos si falta el campo). */
         const blocks = computed(() =>
             cache.value && Array.isArray(cache.value.blocks)
@@ -461,6 +471,7 @@ export default {
             activeTab,
             isRefreshing,
             hasCache,
+            plcList,
             blocks,
             variables,
             udts,
@@ -644,33 +655,33 @@ export default {
                          "Seleccionado" (sin check).
                          Click -> store.selectedPlc = p.name; el watch
                          existente dispara loadAndApplyPlcBlocks. -->
-                    <div v-if="Array.isArray(store.plcs) && store.plcs.length > 0"
+                    <div v-if="plcList.length > 0"
                          class="flex flex-col gap-3"
                          data-testid="bloques-cache-plc-list">
-                        <button v-for="p in store.plcs" :key="p && p.name ? p.name : p"
+                        <button v-for="p in plcList" :key="p.name"
                             type="button"
                             @click="selectPlc(p)"
-                            :data-testid="'bloques-cache-plc-card-' + (p && p.name ? p.name : p)"
-                            :data-active="(p && p.name) === store.selectedPlc"
+                            :data-testid="'bloques-cache-plc-card-' + p.name"
+                            :data-active="p.name === store.selectedPlc"
                             :class="['w-full flex items-center justify-between gap-4 p-4 rounded-xl border shadow-sm transition-all duration-200 group text-left',
-                                     (p && p.name) === store.selectedPlc
+                                     p.name === store.selectedPlc
                                          ? 'border-green-500 bg-green-50 ring-1 ring-green-500'
                                          : 'border-line bg-surface-sunken hover:border-accent hover:bg-accent-subtle']">
                             <!-- IZQUIERDA: icono + nombre + modelo -->
                             <div class="flex items-center gap-4 min-w-0 flex-1">
                                 <div :class="['w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0 transition-colors',
-                                               (p && p.name) === store.selectedPlc
+                                               p.name === store.selectedPlc
                                                    ? 'bg-green-500 text-white'
                                                    : 'bg-surface-raised text-ink-muted group-hover:bg-accent-subtle group-hover:text-accent']">
                                     <span aria-hidden="true">&#128187;</span>
                                 </div>
                                 <div class="text-left min-w-0 flex-1">
                                     <h4 :class="['font-mono font-bold text-sm leading-none mb-1 truncate',
-                                                 (p && p.name) === store.selectedPlc ? 'text-green-800' : 'text-ink']">
-                                        {{ p && p.name ? p.name : p }}
+                                                 p.name === store.selectedPlc ? 'text-green-800' : 'text-ink']">
+                                        {{ p.name }}
                                     </h4>
                                     <p class="text-xs text-ink-muted truncate">
-                                        {{ p && p.short_designation ? p.short_designation : 'modelo no disponible' }}
+                                        {{ p.short_designation || 'modelo no disponible' }}
                                     </p>
                                 </div>
                             </div>
@@ -678,15 +689,15 @@ export default {
                                  (label visual, no es <button> anidado: el
                                  padre ya es <button> y seria HTML invalido) -->
                             <div :class="['px-5 py-2 rounded-full text-xs font-bold border shrink-0 transition-colors',
-                                          (p && p.name) === store.selectedPlc
+                                          p.name === store.selectedPlc
                                               ? 'bg-surface-raised border-green-300 text-green-700'
                                               : 'bg-surface-sunken border-line text-ink-muted group-hover:border-accent group-hover:text-accent group-hover:bg-accent-subtle']">
-                                {{ (p && p.name) === store.selectedPlc ? 'Seleccionado' : 'Seleccionar' }}
+                                {{ p.name === store.selectedPlc ? 'Seleccionado' : 'Seleccionar' }}
                             </div>
                         </button>
                     </div>
 
-                    <!-- Empty state: store.plcs vacio o no es array. -->
+                    <!-- Empty state: plcList vacio. -->
                     <div v-else
                          class="flex items-center justify-center p-6 text-center text-ink-muted text-xs italic border border-dashed border-line rounded"
                          data-testid="bloques-cache-plc-list-empty">
