@@ -67,7 +67,7 @@ def patch_validate_plc_in_excel():
 
 
 @pytest.fixture
-def mock_app_state() -> MagicMock:
+def mock_app_cache() -> MagicMock:
     return MagicMock()
 
 
@@ -101,7 +101,7 @@ def progress(real_progress: ProgressTracker) -> ProgressTracker:
 def make_fb(
     config: MagicMock,
     tia_client: MagicMock,
-    app_state: MagicMock,
+    app_cache: MagicMock,
     bloques_cache: MagicMock,
     progress_tracker: ProgressTracker,
 ) -> FunctionProcDBGenerarPreview:
@@ -109,7 +109,7 @@ def make_fb(
         nombre="proc_generar_preview_test",
         config_manager=config,
         tia_client=tia_client,
-        app_cache=app_state,
+        app_cache=app_cache,
         bloques_cache=bloques_cache,
         tracker=progress_tracker,
     )
@@ -142,7 +142,7 @@ def _make_minimal_slot_map(
 def test_stage_6_build_response_happy_path_flags_presentes(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
-    mock_app_state: MagicMock,
+    mock_app_cache: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
@@ -150,7 +150,7 @@ def test_stage_6_build_response_happy_path_flags_presentes(
     ``db_present={"param": True, "alm": True}`` y ``table_present=True``.
     """
     fb = make_fb(
-        mock_config, mock_tia_client, mock_app_state,
+        mock_config, mock_tia_client, mock_app_cache,
         mock_bloques_cache, progress,
     )
     fb._ctx = ProcPreviewContext(
@@ -158,7 +158,7 @@ def test_stage_6_build_response_happy_path_flags_presentes(
         proc_uid=42,
         tia_client=mock_tia_client,
         config_manager=mock_config,
-        app_cache=mock_app_state,
+        app_cache=mock_app_cache,
         build_cache_root=mock_config.build_cache_root if hasattr(
             mock_config, "build_cache_root"
         ) else None,
@@ -194,7 +194,7 @@ def test_stage_6_build_response_happy_path_flags_presentes(
 def test_stage_6_build_response_db_param_ausente_marca_solo_param(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
-    mock_app_state: MagicMock,
+    mock_app_cache: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
@@ -203,7 +203,7 @@ def test_stage_6_build_response_db_param_ausente_marca_solo_param(
     ``precondiciones_ok=True``.
     """
     fb = make_fb(
-        mock_config, mock_tia_client, mock_app_state,
+        mock_config, mock_tia_client, mock_app_cache,
         mock_bloques_cache, progress,
     )
     fb._ctx = ProcPreviewContext(
@@ -211,7 +211,7 @@ def test_stage_6_build_response_db_param_ausente_marca_solo_param(
         proc_uid=42,
         tia_client=mock_tia_client,
         config_manager=mock_config,
-        app_cache=mock_app_state,
+        app_cache=mock_app_cache,
         build_cache_root=mock_config.build_cache_root if hasattr(
             mock_config, "build_cache_root"
         ) else None,
@@ -249,7 +249,7 @@ def test_stage_6_build_response_db_param_ausente_marca_solo_param(
 def test_stage_6_build_response_ambos_dbs_ausentes_marca_fatal(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
-    mock_app_state: MagicMock,
+    mock_app_cache: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
@@ -257,7 +257,7 @@ def test_stage_6_build_response_ambos_dbs_ausentes_marca_fatal(
     ``table_present=True``, ``precondiciones_ok=False``.
     """
     fb = make_fb(
-        mock_config, mock_tia_client, mock_app_state,
+        mock_config, mock_tia_client, mock_app_cache,
         mock_bloques_cache, progress,
     )
     fb._ctx = ProcPreviewContext(
@@ -265,7 +265,7 @@ def test_stage_6_build_response_ambos_dbs_ausentes_marca_fatal(
         proc_uid=42,
         tia_client=mock_tia_client,
         config_manager=mock_config,
-        app_cache=mock_app_state,
+        app_cache=mock_app_cache,
         build_cache_root=mock_config.build_cache_root if hasattr(
             mock_config, "build_cache_root"
         ) else None,
@@ -295,7 +295,7 @@ def test_stage_6_build_response_ambos_dbs_ausentes_marca_fatal(
 def test_stage_6_build_response_tabla_ausente_marca_solo_tabla(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
-    mock_app_state: MagicMock,
+    mock_app_cache: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
@@ -304,7 +304,7 @@ def test_stage_6_build_response_tabla_ausente_marca_solo_tabla(
     falten (en este test ambos presentes).
     """
     fb = make_fb(
-        mock_config, mock_tia_client, mock_app_state,
+        mock_config, mock_tia_client, mock_app_cache,
         mock_bloques_cache, progress,
     )
     fb._ctx = ProcPreviewContext(
@@ -312,7 +312,7 @@ def test_stage_6_build_response_tabla_ausente_marca_solo_tabla(
         proc_uid=42,
         tia_client=mock_tia_client,
         config_manager=mock_config,
-        app_cache=mock_app_state,
+        app_cache=mock_app_cache,
         build_cache_root=mock_config.build_cache_root if hasattr(
             mock_config, "build_cache_root"
         ) else None,
@@ -389,7 +389,7 @@ def _patch_helper_fns(fb) -> Any:
 async def test_proc_generar_preview_happy_path_6_ticks(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
-    mock_app_state: MagicMock,
+    mock_app_cache: MagicMock,
     patch_validate_plc_in_excel: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
@@ -416,7 +416,7 @@ async def test_proc_generar_preview_happy_path_6_ticks(
         fb._ctx.result = dict(fake_result)
 
     fb = make_fb(
-        mock_config, mock_tia_client, mock_app_state,
+        mock_config, mock_tia_client, mock_app_cache,
         mock_bloques_cache, progress,
     )
     with _patch_helper_fns(fb) as stack:
@@ -477,7 +477,7 @@ async def test_proc_generar_preview_happy_path_6_ticks(
 @pytest.mark.asyncio
 async def test_proc_generar_preview_sad_no_config(
     mock_tia_client: MagicMock,
-    mock_app_state: MagicMock,
+    mock_app_cache: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
@@ -486,7 +486,7 @@ async def test_proc_generar_preview_sad_no_config(
         nombre="no_config_test",
         config_manager=None,
         tia_client=mock_tia_client,
-        app_cache=mock_app_state,
+        app_cache=mock_app_cache,
         bloques_cache=mock_bloques_cache,
         tracker=progress,
     )
@@ -503,7 +503,7 @@ async def test_proc_generar_preview_sad_no_config(
 @pytest.mark.asyncio
 async def test_proc_generar_preview_sad_no_tia_client(
     mock_config: MagicMock,
-    mock_app_state: MagicMock,
+    mock_app_cache: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
@@ -512,7 +512,7 @@ async def test_proc_generar_preview_sad_no_tia_client(
         nombre="no_tia_test",
         config_manager=mock_config,
         tia_client=None,
-        app_cache=mock_app_state,
+        app_cache=mock_app_cache,
         bloques_cache=mock_bloques_cache,
         tracker=progress,
     )
@@ -529,13 +529,13 @@ async def test_proc_generar_preview_sad_no_tia_client(
 async def test_proc_generar_preview_sad_no_plc_name(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
-    mock_app_state: MagicMock,
+    mock_app_cache: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
     """``start()`` sin ``plc_name`` -> primer tick falla con ValueError."""
     fb = make_fb(
-        mock_config, mock_tia_client, mock_app_state,
+        mock_config, mock_tia_client, mock_app_cache,
         mock_bloques_cache, progress,
     )
     await fb.start(proc_uid=42)  # sin plc_name
@@ -552,13 +552,13 @@ async def test_proc_generar_preview_sad_no_plc_name(
 async def test_proc_generar_preview_sad_no_proc_uid(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
-    mock_app_state: MagicMock,
+    mock_app_cache: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
     """``start()`` sin ``proc_uid`` -> primer tick falla con ValueError."""
     fb = make_fb(
-        mock_config, mock_tia_client, mock_app_state,
+        mock_config, mock_tia_client, mock_app_cache,
         mock_bloques_cache, progress,
     )
     await fb.start(plc_name="S7-1500")  # sin proc_uid
@@ -575,13 +575,13 @@ async def test_proc_generar_preview_sad_no_proc_uid(
 async def test_proc_generar_preview_sad_proc_uid_not_int(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
-    mock_app_state: MagicMock,
+    mock_app_cache: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
     """``start()`` con ``proc_uid`` no-int -> primer tick falla con ValueError."""
     fb = make_fb(
-        mock_config, mock_tia_client, mock_app_state,
+        mock_config, mock_tia_client, mock_app_cache,
         mock_bloques_cache, progress,
     )
     await fb.start(plc_name="S7-1500", proc_uid="42")  # string, no int
@@ -601,13 +601,13 @@ async def test_proc_generar_preview_sad_proc_uid_not_int(
 async def test_proc_generar_preview_terminal_no_avanza_mas(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
-    mock_app_state: MagicMock,
+    mock_app_cache: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
     """Una vez en ``n_done``, ticks adicionales son no-op (guarda de la base)."""
     fb = make_fb(
-        mock_config, mock_tia_client, mock_app_state,
+        mock_config, mock_tia_client, mock_app_cache,
         mock_bloques_cache, progress,
     )
     await fb.start(plc_name="S7-1500", proc_uid=42)

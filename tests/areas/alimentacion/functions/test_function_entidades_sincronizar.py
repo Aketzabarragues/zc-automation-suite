@@ -19,7 +19,7 @@ def _make_fb(
     *,
     config_manager: MagicMock | None = None,
     tia_client: MagicMock | None = None,
-    app_state: MagicMock | None = None,
+    app_cache: MagicMock | None = None,
 ) -> "FunctionEntidadesSincronizar":
     from areas.alimentacion.functions.function_entidades_sincronizar import (
         FunctionEntidadesSincronizar,
@@ -28,7 +28,7 @@ def _make_fb(
         config_manager=config_manager or MagicMock(),
         tia_client=tia_client or MagicMock(),
         build_cache=Path("."),
-        app_cache=app_state or MagicMock(),
+        app_cache=app_cache or MagicMock(),
     )
 
 

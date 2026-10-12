@@ -69,7 +69,7 @@ def patch_validate_plc_in_excel():
 
 
 @pytest.fixture
-def mock_app_state() -> MagicMock:
+def mock_app_cache() -> MagicMock:
     return MagicMock()
 
 
@@ -103,7 +103,7 @@ def progress(real_progress: ProgressTracker) -> ProgressTracker:
 def make_fb(
     config: MagicMock,
     tia_client: MagicMock,
-    app_state: MagicMock,
+    app_cache: MagicMock,
     bloques_cache: MagicMock,
     progress_tracker: ProgressTracker,
 ) -> FunctionProcDBSincronizar:
@@ -111,7 +111,7 @@ def make_fb(
         nombre="proc_sincronizar_test",
         config_manager=config,
         tia_client=tia_client,
-        app_cache=app_state,
+        app_cache=app_cache,
         bloques_cache=bloques_cache,
         tracker=progress_tracker,
     )
@@ -207,7 +207,7 @@ async def test_proc_sincronizar_happy_path_8_ticks(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
     patch_validate_plc_in_excel: MagicMock,
-    mock_app_state: MagicMock,
+    mock_app_cache: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
@@ -250,7 +250,7 @@ async def test_proc_sincronizar_happy_path_8_ticks(
         fb._ctx.slot_map = fake_slot_map
 
     fb = make_fb(
-        mock_config, mock_tia_client, mock_app_state,
+        mock_config, mock_tia_client, mock_app_cache,
         mock_bloques_cache, progress,
     )
     with _patch_helper_fns(fb) as stack:
@@ -319,7 +319,7 @@ async def test_proc_sincronizar_happy_path_8_ticks(
 @pytest.mark.asyncio
 async def test_proc_sincronizar_sad_no_config(
     mock_tia_client: MagicMock,
-    mock_app_state: MagicMock,
+    mock_app_cache: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
@@ -328,7 +328,7 @@ async def test_proc_sincronizar_sad_no_config(
         nombre="no_config_test",
         config_manager=None,
         tia_client=mock_tia_client,
-        app_cache=mock_app_state,
+        app_cache=mock_app_cache,
         bloques_cache=mock_bloques_cache,
         tracker=progress,
     )
@@ -343,7 +343,7 @@ async def test_proc_sincronizar_sad_no_config(
 @pytest.mark.asyncio
 async def test_proc_sincronizar_sad_no_tia_client(
     mock_config: MagicMock,
-    mock_app_state: MagicMock,
+    mock_app_cache: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
@@ -352,7 +352,7 @@ async def test_proc_sincronizar_sad_no_tia_client(
         nombre="no_tia_test",
         config_manager=mock_config,
         tia_client=None,
-        app_cache=mock_app_state,
+        app_cache=mock_app_cache,
         bloques_cache=mock_bloques_cache,
         tracker=progress,
     )
@@ -368,13 +368,13 @@ async def test_proc_sincronizar_sad_no_tia_client(
 async def test_proc_sincronizar_sad_no_plc_name(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
-    mock_app_state: MagicMock,
+    mock_app_cache: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
     """``start()`` sin ``plc_name`` -> primer tick falla con ValueError."""
     fb = make_fb(
-        mock_config, mock_tia_client, mock_app_state,
+        mock_config, mock_tia_client, mock_app_cache,
         mock_bloques_cache, progress,
     )
     await fb.start(proc_uid=42)
@@ -389,13 +389,13 @@ async def test_proc_sincronizar_sad_no_plc_name(
 async def test_proc_sincronizar_sad_no_proc_uid(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
-    mock_app_state: MagicMock,
+    mock_app_cache: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
     """``start()`` sin ``proc_uid`` -> primer tick falla con ValueError."""
     fb = make_fb(
-        mock_config, mock_tia_client, mock_app_state,
+        mock_config, mock_tia_client, mock_app_cache,
         mock_bloques_cache, progress,
     )
     await fb.start(plc_name="S7-1500")
@@ -413,7 +413,7 @@ async def test_proc_sincronizar_sad_no_proc_uid(
 async def test_proc_sincronizar_sad_check_state_no_excel(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
-    mock_app_state: MagicMock,
+    mock_app_cache: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
@@ -424,7 +424,7 @@ async def test_proc_sincronizar_sad_check_state_no_excel(
         raise RuntimeError("Excel no cargado")
 
     fb = make_fb(
-            mock_config, mock_tia_client, mock_app_state,
+            mock_config, mock_tia_client, mock_app_cache,
             mock_bloques_cache, progress,
         )
     with _patch_helper_fns(fb) as stack:
@@ -449,7 +449,7 @@ async def test_proc_sincronizar_sad_missing_blocks(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
     patch_validate_plc_in_excel: MagicMock,
-    mock_app_state: MagicMock,
+    mock_app_cache: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
@@ -466,7 +466,7 @@ async def test_proc_sincronizar_sad_missing_blocks(
         raise RuntimeError("Bloques missing: DB42_CPR_PARAM no esta en el PLC")
 
     fb = make_fb(
-            mock_config, mock_tia_client, mock_app_state,
+            mock_config, mock_tia_client, mock_app_cache,
             mock_bloques_cache, progress,
         )
     with _patch_helper_fns(fb) as stack:
@@ -493,7 +493,7 @@ async def test_proc_sincronizar_sad_open_transaction_fails(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
     patch_validate_plc_in_excel: MagicMock,
-    mock_app_state: MagicMock,
+    mock_app_cache: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
@@ -510,7 +510,7 @@ async def test_proc_sincronizar_sad_open_transaction_fails(
         fb._ctx.slot_map = fake_slot_map
 
     fb = make_fb(
-            mock_config, mock_tia_client, mock_app_state,
+            mock_config, mock_tia_client, mock_app_cache,
             mock_bloques_cache, progress,
         )
     with _patch_helper_fns(fb) as stack:
@@ -549,13 +549,13 @@ async def test_proc_sincronizar_sad_open_transaction_fails(
 async def test_proc_sincronizar_terminal_no_avanza_mas(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
-    mock_app_state: MagicMock,
+    mock_app_cache: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
     """Una vez en ``n_done``, ticks adicionales son no-op."""
     fb = make_fb(
-        mock_config, mock_tia_client, mock_app_state,
+        mock_config, mock_tia_client, mock_app_cache,
         mock_bloques_cache, progress,
     )
     await fb.start(plc_name="S7-1500", proc_uid=42)
@@ -592,7 +592,7 @@ async def test_stage_3_aborta_si_tabla_ausente(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
     patch_validate_plc_in_excel: MagicMock,
-    mock_app_state: MagicMock,
+    mock_app_cache: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
@@ -605,7 +605,7 @@ async def test_stage_3_aborta_si_tabla_ausente(
     fake_sm = _make_slot_map(table_present=False)
 
     fb = make_fb(
-        mock_config, mock_tia_client, mock_app_state,
+        mock_config, mock_tia_client, mock_app_cache,
         mock_bloques_cache, progress,
     )
     with _patch_helper_fns_except_stage_3(fb), patch(
@@ -629,7 +629,7 @@ async def test_stage_3_aborta_si_ambos_dbs_ausentes(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
     patch_validate_plc_in_excel: MagicMock,
-    mock_app_state: MagicMock,
+    mock_app_cache: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
@@ -641,7 +641,7 @@ async def test_stage_3_aborta_si_ambos_dbs_ausentes(
     )
 
     fb = make_fb(
-        mock_config, mock_tia_client, mock_app_state,
+        mock_config, mock_tia_client, mock_app_cache,
         mock_bloques_cache, progress,
     )
     with _patch_helper_fns_except_stage_3(fb), patch(
@@ -666,7 +666,7 @@ async def test_stage_3_sigue_con_un_db_ausente_y_avisa(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
     patch_validate_plc_in_excel: MagicMock,
-    mock_app_state: MagicMock,
+    mock_app_cache: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
@@ -678,7 +678,7 @@ async def test_stage_3_sigue_con_un_db_ausente_y_avisa(
     )
 
     fb = make_fb(
-        mock_config, mock_tia_client, mock_app_state,
+        mock_config, mock_tia_client, mock_app_cache,
         mock_bloques_cache, progress,
     )
     with _patch_helper_fns_except_stage_3(fb), patch(
@@ -707,14 +707,14 @@ async def test_stage_3_sigue_con_un_db_ausente_y_avisa(
 def test_proc_discover_compile_dbs_omite_db_ausente(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
-    mock_app_state: MagicMock,
+    mock_app_cache: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
     """``_proc_discover_compile_dbs_inline`` excluye los DBs en
     ``slot_map.db_missing``."""
     fb = make_fb(
-        mock_config, mock_tia_client, mock_app_state,
+        mock_config, mock_tia_client, mock_app_cache,
         mock_bloques_cache, progress,
     )
     fb._ctx = MagicMock()
@@ -731,7 +731,7 @@ def test_proc_discover_compile_dbs_omite_db_ausente(
 def test_proc_discover_compile_dbs_devuelve_vacio_si_todos_ausentes(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
-    mock_app_state: MagicMock,
+    mock_app_cache: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
@@ -739,7 +739,7 @@ def test_proc_discover_compile_dbs_devuelve_vacio_si_todos_ausentes(
     retorna ``[]`` (stage 6 marca ``compile_ok=False`` con su
     mensaje defensivo)."""
     fb = make_fb(
-        mock_config, mock_tia_client, mock_app_state,
+        mock_config, mock_tia_client, mock_app_cache,
         mock_bloques_cache, progress,
     )
     fb._ctx = MagicMock()
