@@ -69,7 +69,7 @@ from core.helpers.tia.active_cache import get_entidades, get_nmax_entidades
 from core.helpers.tia.validate_plc_in_excel import validate_plc_in_excel
 from core.helpers.tia.validate_plc_in_tia import validate_plc_in_tia
 from core.helpers.tia.with_plc import with_plc
-from core.runtime.app_state import AppState, get_app_state
+from core.runtime.app_cache import AppCache, get_app_cache
 from areas.alimentacion._area_id import AREA_ID
 from areas.alimentacion.helpers.layout.build_cache import DEFAULT_BUILD_CACHE_ROOT
 
@@ -127,7 +127,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
         tia_client: Any = None,
         build_cache: Any = None,
         # ── Deps especificas de este FB ──
-        app_state: AppState | None = None,
+        app_cache: AppCache | None = None,
     ) -> None:
         super().__init__(
             nombre=nombre,
@@ -152,8 +152,8 @@ class FunctionEntidadesSincronizar(FunctionBase):
         self._tia_client = tia_client
         self._build_cache_root: Path = build_cache or DEFAULT_BUILD_CACHE_ROOT
         # Deps especificas.
-        self._state: AppState = (
-            app_state if app_state is not None else get_app_state()
+        self._app_cache: AppCache = (
+            app_cache if app_cache is not None else get_app_cache()
         )
         # ZONA 3: estado entre ticks.
         self._plc_name: str = ""
@@ -188,16 +188,16 @@ class FunctionEntidadesSincronizar(FunctionBase):
         # Validar contra TIA Portal (fail-late).
         validate_plc_in_tia(self._tia_client, self._plc_name)
         # Validar contra el Excel cargado.
-        validate_plc_in_excel(self._state, self._plc_name, AREA_ID)
+        validate_plc_in_excel(self._app_cache, self._plc_name, AREA_ID)
         # Propagar al AppState.
-        with_plc(self._state.app_cache, self._plc_name, AREA_ID)
+        with_plc(self._app_cache, self._plc_name, AREA_ID)
 
         # Crear el EntidadesSyncContext que las 11 funciones iran mutando.
         self._ctx = EntidadesSyncContext(
             plc_name=self._plc_name,
             tia_client=self._tia_client,
             config_manager=self._config,
-            app_state=self._state,
+            app_state=self._app_cache,
             build_cache_root=self._build_cache_root,
         )
 

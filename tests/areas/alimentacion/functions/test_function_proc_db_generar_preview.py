@@ -110,7 +110,7 @@ def make_fb(
         nombre="proc_generar_preview_test",
         config_manager=config,
         tia_client=tia_client,
-        app_state=app_state,
+        app_cache=app_state,
         bloques_cache=bloques_cache,
         tracker=progress_tracker,
     )
@@ -487,7 +487,7 @@ async def test_proc_generar_preview_sad_no_config(
         nombre="no_config_test",
         config_manager=None,
         tia_client=mock_tia_client,
-        app_state=mock_app_state,
+        app_cache=mock_app_state,
         bloques_cache=mock_bloques_cache,
         tracker=progress,
     )
@@ -513,7 +513,7 @@ async def test_proc_generar_preview_sad_no_tia_client(
         nombre="no_tia_test",
         config_manager=mock_config,
         tia_client=None,
-        app_state=mock_app_state,
+        app_cache=mock_app_state,
         bloques_cache=mock_bloques_cache,
         tracker=progress,
     )

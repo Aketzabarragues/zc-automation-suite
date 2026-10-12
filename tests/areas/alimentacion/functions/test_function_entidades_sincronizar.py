@@ -28,7 +28,7 @@ def _make_fb(
         config_manager=config_manager or MagicMock(),
         tia_client=tia_client or MagicMock(),
         build_cache=Path("."),
-        app_state=app_state or MagicMock(),
+        app_cache=app_state or MagicMock(),
     )
 
 

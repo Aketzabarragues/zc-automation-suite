@@ -42,7 +42,7 @@ from core.helpers.tia import dispatch_async
 from core.helpers.tia.validate_plc_in_tia import validate_plc_in_tia
 from core.helpers.tia.validate_plc_in_excel import validate_plc_in_excel
 from core.helpers.tia.with_plc import with_plc
-from core.runtime.app_state import AppState, get_app_state
+from core.runtime.app_cache import AppCache, get_app_cache
 from areas.alimentacion._area_id import AREA_ID
 from areas.alimentacion.helpers.layout.build_cache import DEFAULT_BUILD_CACHE_ROOT
 from areas.alimentacion.helpers.proc.proc_db_generar_preview import (
@@ -104,7 +104,7 @@ class FunctionProcDBGenerarPreview(FunctionBase):
         tia_client: Any = None,
         build_cache: Any = None,
         # ── Deps especificas de este FB ──
-        app_state: AppState | None = None,
+        app_cache: AppCache | None = None,
         bloques_cache: Any = None,
     ) -> None:
         super().__init__(
@@ -125,8 +125,8 @@ class FunctionProcDBGenerarPreview(FunctionBase):
         self._tia_client = tia_client
         self._build_cache_root: Path = build_cache or DEFAULT_BUILD_CACHE_ROOT
         # Deps especificas.
-        self._state: AppState = (
-            app_state if app_state is not None else get_app_state()
+        self._app_cache: AppCache = (
+            app_cache if app_cache is not None else get_app_cache()
         )
         # ``bloques_cache`` viene del gateway (``_bloques_cache`` del
         # TIAProcessGateway, poblado por ``scan_plc_blocks``). El router
@@ -178,9 +178,9 @@ class FunctionProcDBGenerarPreview(FunctionBase):
         # Validar contra TIA Portal (fail-late, PR5 D4/D11).
         validate_plc_in_tia(self._tia_client, self._plc_name)
         # Validar contra el Excel cargado (sept-2026 multi-PLC).
-        validate_plc_in_excel(self._state, self._plc_name, AREA_ID)
+        validate_plc_in_excel(self._app_cache, self._plc_name, AREA_ID)
         # Propagar al AppState (defensa redundante con el endpoint).
-        with_plc(self._state.app_cache, self._plc_name, AREA_ID)
+        with_plc(self._app_cache, self._plc_name, AREA_ID)
 
         # ``bloques_cache`` puede inyectarse por constructor (test) o
         # leerse del AppCache (acceso sync al dict de estado). Se
@@ -190,7 +190,7 @@ class FunctionProcDBGenerarPreview(FunctionBase):
         # AppCache esta vacio (tests que mockean el cache sin popular
         # el contenedor global).
         from core.infrastructure.tia.tia_cache import plc_blocks_get
-        singleton_cache = plc_blocks_get(self._state.app_cache, self._plc_name)
+        singleton_cache = plc_blocks_get(self._app_cache, self._plc_name)
         if singleton_cache is not None:
             self._bloques_cache = singleton_cache
 
@@ -202,7 +202,7 @@ class FunctionProcDBGenerarPreview(FunctionBase):
             proc_uid=self._proc_uid,
             tia_client=self._tia_client,
             config_manager=self._config,
-            app_state=self._state,
+            app_state=self._app_cache,
             build_cache_root=self._build_cache_root,
             bloques_cache=self._bloques_cache,
         )
