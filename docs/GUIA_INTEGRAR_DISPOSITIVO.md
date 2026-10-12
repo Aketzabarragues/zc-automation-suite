@@ -226,7 +226,6 @@ Sitios habituales a revisar:
 - `areas/alimentacion/helpers/excel/excel_upload.py` — "los N mini parsers".
 - `areas/alimentacion/helpers/excel/excel_loader.py` — docstrings + comentarios.
 - `core/infrastructure/config/config_manager.py` — algunos docstrings.
-- `core/runtime/app_state.py` — set_devices docstring.
 - `config/config.json` — `_comment_folders` (suele decir "las N tablas").
 - `tests/_disp_parser_test_helpers.py` — docstring del módulo.
 

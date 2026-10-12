@@ -1,18 +1,18 @@
 """Regression: los 6 FBs de sync/preview deben pasar ``AppCache`` a ``with_plc``.
 
-Contrato que fija este test (commit 4a, feature/app-cache-unico):
+Contrato que fija este test (commit 5, feature/cleanup-final):
 
   ``with_plc(app_cache: AppCache, plc_name: str, area_id: str)``
   espera que el primer argumento sea un ``AppCache`` (con ``.get_state()``
   y ``.mutate()``).
 
-Los 6 FBs tienen ``self._state: AppState`` y DEBEN llamar a
-``with_plc(self._state.app_cache, ...)`` — no ``with_plc(self._state, ...)``.
-``AppState`` no expone ``get_state()``; pasar ``self._state`` lanzaba
-``AttributeError`` en produccion al disparar sync/preview.
+Los 6 FBs tienen ``self._app_cache: AppCache`` y DEBEN llamar a
+``with_plc(self._app_cache, ...)`` — no ``with_plc(self._app_cache.app_cache, ...)``.
+``AppCache`` no expone ``app_cache``; pasar ``self._app_cache.app_cache``
+lanzaba ``AttributeError`` en produccion al disparar sync/preview.
 
 Los tests existentes mockean ``with_plc`` y no detectaban el bug. Este
-test NO mockea ``with_plc``: lo deja pasar al real para que ``self._state``
+test NO mockea ``with_plc``: lo deja pasar al real para que ``self._app_cache``
 sea del tipo equivocado y el bug, si vuelve, explote.
 
 Falsos positivos que este test evita:
@@ -111,17 +111,16 @@ def app_cache() -> AppCache:
 
 
 @pytest.fixture
-def app_state(app_cache: AppCache):
-    """AppState real con un Excel cargado en el area ``alimentacion``.
+def app_cache_fixture(app_cache: AppCache) -> AppCache:
+    """AppCache real con un Excel cargado en el area ``alimentacion``.
 
-    Devolvemos un ``MagicMock`` que expone ``.app_cache`` con el real:
-    asi el FB ve un AppState de verdad (no MagicMock) pero evitamos
-    contaminar el singleton global.
+    Pasamos el AppCache real: si el FB hiciera
+    ``with_plc(self._app_cache.app_cache, ...)`` (patron legacy),
+    fallaria con ``AttributeError: AppCache has no attribute
+    'app_cache'``.
     """
     excel_set_full(app_cache, "alimentacion", _make_excel_cache_with_plc("S7-1500"))
-    state = MagicMock()
-    state.app_cache = app_cache
-    return state
+    return app_cache
 
 
 @pytest.mark.parametrize(
@@ -137,7 +136,7 @@ def app_state(app_cache: AppCache):
     ],
 )
 def test_on_start_pasa_appcache_a_with_plc(
-    app_state,
+    app_cache_fixture: AppCache,
     fb_path: str,
     with_plc_path: str,
     validate_tia_path: str,
@@ -146,9 +145,10 @@ def test_on_start_pasa_appcache_a_with_plc(
 ) -> None:
     """El FB no debe lanzar ``AttributeError`` cuando ``with_plc`` es REAL.
 
-    Si un FB pasa ``self._state`` (AppState) en vez de ``self._state.app_cache``
-    (AppCache), el primer acceso dentro de ``with_plc`` (``app_cache.get_state()``)
-    falla con ``AttributeError: 'AppState' object has no attribute 'get_state'``.
+    El FB guarda ``self._app_cache: AppCache`` y debe llamar a
+    ``with_plc(self._app_cache, ...)``. Si en su lugar pasara
+    ``self._app_cache.app_cache`` (patron legacy), fallaria con
+    ``AttributeError: AppCache has no attribute 'app_cache'``.
     """
     import importlib
 
@@ -160,7 +160,7 @@ def test_on_start_pasa_appcache_a_with_plc(
         nombre="regression_test",
         config_manager=MagicMock(),
         tia_client=MagicMock(),
-        app_state=app_state,
+        app_cache=app_cache_fixture,
     )
 
     with patch(validate_tia_path), patch(validate_excel_path):

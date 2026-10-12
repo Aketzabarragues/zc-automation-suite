@@ -25,7 +25,7 @@ import logging
 from typing import Any
 
 from core.composition.plc_function_base import FunctionBase
-from core.runtime.app_state import AppState, get_app_state
+from core.runtime.app_cache import AppCache, get_app_cache
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +77,7 @@ class FunctionExcelCargar(FunctionBase):
         build_cache: Any = None,
         # ── Deps especificas de este FB ──
         excel_loader_factory: type = None,
-        app_state: AppState | None = None,
+        app_cache: AppCache | None = None,
     ) -> None:
         super().__init__(
             nombre=nombre,
@@ -96,8 +96,8 @@ class FunctionExcelCargar(FunctionBase):
         # para evitar import circular entre ``function_excel_cargar`` y
         # ``helpers/excel/excel_upload``.
         self._loader_factory = excel_loader_factory
-        self._state: AppState = (
-            app_state if app_state is not None else get_app_state()
+        self._app_cache: AppCache = (
+            app_cache if app_cache is not None else get_app_cache()
         )
         # ZONA 3: estado entre ticks
         self._xlsx_path: str = ""
@@ -162,7 +162,7 @@ class FunctionExcelCargar(FunctionBase):
         # verdad vive en ``app_cache.area(area_id).excel_full``; este
         # FB la escribio en el stage unico via ``parse_excel_to_cache``).
         from core.runtime.excel_cache import excel_get_full
-        cache = excel_get_full(self._state.app_cache, self.AREA_ID)
+        cache = excel_get_full(self._app_cache, self.AREA_ID)
         dimensiones = cache.n_max.to_api_dict() if cache else None
         software = None
         if cache is not None:
@@ -208,7 +208,7 @@ class FunctionExcelCargar(FunctionBase):
         cache = await parse_excel_to_cache(
             config_manager=self._config,
             excel_path=self._xlsx_path,
-            app_cache=self._state.app_cache,
+            app_cache=self._app_cache,
             area_id=self.AREA_ID,
             loader_factory=self._loader_factory or ExcelLoader,
         )

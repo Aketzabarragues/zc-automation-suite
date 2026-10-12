@@ -51,7 +51,7 @@ from core.helpers.tia.validate_plc_in_tia import validate_plc_in_tia
 from core.helpers.tia.validate_plc_in_excel import validate_plc_in_excel
 from core.helpers.tia.with_plc import with_plc
 from core.helpers.tia.active_cache import get_devices, get_nmax
-from core.runtime.app_state import AppState, get_app_state
+from core.runtime.app_cache import AppCache, get_app_cache
 from areas.alimentacion._area_id import AREA_ID
 from areas.alimentacion.helpers.layout.build_cache import DEFAULT_BUILD_CACHE_ROOT
 
@@ -103,7 +103,7 @@ class FunctionDispGenerarPreview(FunctionBase):
         tia_client: Any = None,
         build_cache: Any = None,
         # ── Deps especificas de este FB ──
-        app_state: AppState | None = None,
+        app_cache: AppCache | None = None,
     ) -> None:
         super().__init__(
             nombre=nombre,
@@ -121,8 +121,8 @@ class FunctionDispGenerarPreview(FunctionBase):
         self._tia_client = tia_client
         self._build_cache_root: Path = build_cache or DEFAULT_BUILD_CACHE_ROOT
         # Deps especificas.
-        self._state: AppState = (
-            app_state if app_state is not None else get_app_state()
+        self._app_cache: AppCache = (
+            app_cache if app_cache is not None else get_app_cache()
         )
         # ZONA 3: estado entre ticks.
         self._plc_name: str = ""
@@ -157,9 +157,9 @@ class FunctionDispGenerarPreview(FunctionBase):
         # Validar contra TIA Portal (fail-late, PR5 D4/D11).
         validate_plc_in_tia(self._tia_client, self._plc_name)
         # Validar contra el Excel cargado (sept-2026 multi-PLC).
-        validate_plc_in_excel(self._state, self._plc_name, AREA_ID)
-        # Propagar al AppState (defensa redundante con el endpoint).
-        with_plc(self._state.app_cache, self._plc_name, AREA_ID)
+        validate_plc_in_excel(self._app_cache, self._plc_name, AREA_ID)
+        # Propagar al AppCache (defensa redundante con el endpoint).
+        with_plc(self._app_cache, self._plc_name, AREA_ID)
 
         # Crear el DispPreviewContext que las 4 funciones iran mutando.
         # Lazy import para evitar ciclo con helpers/sync/.
@@ -167,7 +167,7 @@ class FunctionDispGenerarPreview(FunctionBase):
             plc_name=self._plc_name,
             tia_client=self._tia_client,
             config_manager=self._config,
-            app_state=self._state,
+            app_cache=self._app_cache,
             build_cache_root=self._build_cache_root,
         )
 
@@ -329,7 +329,7 @@ class FunctionDispGenerarPreview(FunctionBase):
             )
 
     async def _stage_2_compute_devices(self) -> None:
-        """Stage 2: calcula el diff de devices entre los XMLs exportados y AppState.
+        """Stage 2: calcula el diff de devices entre los XMLs exportados y AppCache.
 
         Migrado sept-2026: usa ``compute_diff_table`` (funcion pura,
         1 hw por llamada) en vez de los helpers legacy
@@ -351,7 +351,7 @@ class FunctionDispGenerarPreview(FunctionBase):
         desired_state_per_table: dict[str, dict[str, str]] = {}
 
         # Itera los hw_types del config (lowercase: ed/ea/sa/v/m/m_vf).
-        # Por cada uno: lee disp del AppState, busca el XML FLAT en
+        # Por cada uno: lee disp del AppCache, busca el XML FLAT en
         # ``preview_disp/<table>.xml``, llama a ``compute_diff_table``.
         # Bloque syncronico: cada llamada lee 1 XML y es CPU-pura
         # (parse + set diff). Las 6 ejecuciones se envuelven en 1
@@ -363,7 +363,7 @@ class FunctionDispGenerarPreview(FunctionBase):
                     continue
                 table_name = cfg.tag_table
                 xml_path = self._ctx.tags_base / f"{table_name}.xml"
-                devices = get_devices(self._ctx.app_state, hw, AREA_ID)
+                devices = get_devices(self._ctx.app_cache, hw, AREA_ID)
                 diff = compute_diff_table(
                     table_name=table_name,
                     desired_devices=devices,
@@ -397,7 +397,7 @@ class FunctionDispGenerarPreview(FunctionBase):
         )
 
     async def _stage_3_compute_nmax(self) -> None:
-        """Stage 3: calcula el diff de N_MAX entre el TIA (export FLAT) y AppState."""
+        """Stage 3: calcula el diff de N_MAX entre el TIA (export FLAT) y AppCache."""
         assert self._ctx.preview_config_dir is not None, (
             "compute_nmax requiere exportar_tags previo (preview_config_dir)"
         )
@@ -406,7 +406,7 @@ class FunctionDispGenerarPreview(FunctionBase):
         )
 
         # Multi-PLC: N_MAX del PLC activo (ya filtrado en cache_active).
-        desired_nmax = get_nmax(self._ctx.app_state, AREA_ID)
+        desired_nmax = get_nmax(self._ctx.app_cache, AREA_ID)
 
         nmax_table_name = self._ctx.config_manager.get_global_config_table_name()
         xml_path = self._ctx.preview_config_dir / f"{nmax_table_name}.xml"
@@ -576,7 +576,7 @@ class DispPreviewContext:
     plc_name: str
     tia_client: Any
     config_manager: Any
-    app_state: Any
+    app_cache: AppCache
     build_cache_root: Path
 
     # ── Resultados de exportar_tags ──

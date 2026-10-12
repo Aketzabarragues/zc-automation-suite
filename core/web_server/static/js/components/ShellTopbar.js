@@ -66,10 +66,16 @@ export default {
             return capitalize(key);
         });
 
+        /** Nombre del PLC activo desde el AppCache unificado. */
+        const selectedPlcName = computed(
+            () => store.appCache?.selected_plc || "—"
+        );
+
         return {
             store,
             areaLabel,
             currentViewLabel,
+            selectedPlcName,
         };
     },
     template: /* html */ `
@@ -82,7 +88,7 @@ export default {
             <div class="inline-flex items-center gap-2 bg-surface-sunken border border-line rounded-md px-3 py-1.5 text-xs"
                  data-testid="topbar-plc-text">
                 <span class="text-ink-muted">PLC:</span>
-                <span class="font-mono font-semibold text-accent">{{ store.selectedPlc || '—' }}</span>
+                <span class="font-mono font-semibold text-accent">{{ selectedPlcName }}</span>
             </div>
         </header>
     `,

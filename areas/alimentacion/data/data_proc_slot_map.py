@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
-from core.runtime.app_state import AppState
+from core.runtime.app_cache import AppCache
 from core.infrastructure.config.config_manager import ConfigManager
 from core.infrastructure.tia.tia_export_paths import EMPTY_TEXT
 from core.data.data_block_cache import DataBloqueCache
@@ -212,7 +212,7 @@ def _build_slot_map(
 
 
 def proc_build_slot_maps(
-    app_state: AppState,
+    app_cache: AppCache,
     config_manager: ConfigManager,
     proc_uid: int,
     bloques_cache: DataBloqueCache,
@@ -244,7 +244,7 @@ def proc_build_slot_maps(
     ``db_missing`` para que el preview FB distinga bloque faltante.
     """
     from core.runtime.excel_cache import excel_get_active
-    excel_cache = excel_get_active(app_state.app_cache, "alimentacion")
+    excel_cache = excel_get_active(app_cache, "alimentacion")
     if excel_cache is None:
         raise RuntimeError(
             "app_cache.excel_active_by_area['alimentacion'] esta vacio. "

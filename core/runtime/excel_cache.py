@@ -7,7 +7,7 @@ API:
     - ``derive_excel_active(plc_name)`` aplica ``filter_cache_by_plc``
       sobre el cache completo y devuelve el derivado.
 
-Las funciones operan sobre ``AppCache`` (no ``AppState``). Las areas
+Las funciones operan sobre ``AppCache``. Las areas
 llaman con su ``area_id`` para acceder a su cache per-area, expuesto
 como atributo del ``AreaCache`` correspondiente en
 ``app_cache.area(area_id).excel_full`` / ``excel_active``.

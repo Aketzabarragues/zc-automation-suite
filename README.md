@@ -79,7 +79,7 @@ zc-automation-suite/
 │   ├── helpers/
 │   │   ├── simatic_sd/         # Helpers transversales SimaticSD (DRY)
 │   │   └── tia/                # Helpers TIA (validate_plc_in_tia, validate_plc_in_excel, etc.)
-│   └── runtime/                # AppState, ProgressTracker, SSE event bus
+│   └── runtime/                # AppCache, ProgressTracker, SSE event bus
 ├── areas/
 │   └── alimentacion/           # Bounded Context "alimentación"
 │       ├── data/               # DTOs del dominio + catalogs (disp_catalog, proc_catalog)

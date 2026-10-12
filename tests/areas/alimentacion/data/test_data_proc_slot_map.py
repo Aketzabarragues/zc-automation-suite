@@ -1,4 +1,4 @@
-﻿"""Tests para ``areas.alimentacion.data.data_proc_slot_map.DataProcSlotMap``.
+"""Tests para ``areas.alimentacion.data.data_proc_slot_map.DataProcSlotMap``.
 
 Cobertura:
   - defaults razonables (3 dicts, 3 strs, 2 strs, 2 dicts, 2 lists).
@@ -18,7 +18,7 @@ from areas.alimentacion.data.data_proc_slot_map import (
     DataProcSlotMap,
     proc_build_slot_maps,
 )
-from core.runtime.app_state import AppState
+from core.runtime.app_cache import AppCache
 from core.infrastructure.config.config_manager import ConfigManager
 from core.data.data_block_cache import DataBloqueCache
 from core.data.data_block_plc import DataBloquePLC
@@ -26,20 +26,16 @@ from core.data.data_block_plc import DataBloquePLC
 
 @pytest.fixture(autouse=True)
 def _reset_app_singletons():
-    """Reset de los Singletons ``AppState`` y ``AppCache`` entre tests.
+    """Reset del Singleton ``AppCache`` entre tests.
 
-    El nuevo contrato de ``AppState()`` es que su ``app_cache`` es la
-    misma instancia Singleton de ``get_app_cache()``. Sin reset, el
-    ``register_area("alimentacion", ...)`` de un test contamina al
-    siguiente con ``ValueError: area 'alimentacion' ya registrada``.
+    Sin reset, el ``register_area("alimentacion", ...)`` de un test
+    contamina al siguiente con
+    ``ValueError: area 'alimentacion' ya registrada``.
     """
     import core.runtime.app_cache as _cache_mod
-    import core.runtime.app_state as _state_mod
     _cache_mod._app_cache = None
-    _state_mod._state = None
     yield
     _cache_mod._app_cache = None
-    _state_mod._state = None
 
 
 def test_defaults_vacios():
@@ -171,10 +167,10 @@ def test_listas_entre_instancias_son_independientes():
     assert m2.warnings == []
 
 
-# ─────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------
 # Tests de ``proc_build_slot_maps``: cobertura de ``table_present``
 # y ``db_missing`` segun el estado de la cache de bloques.
-# ─────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------
 
 
 @dataclass
@@ -232,22 +228,22 @@ def _make_config_manager() -> MagicMock:
     return cfg
 
 
-def _make_state_with_active(active_cache) -> AppState:
-    """Construye un ``AppState`` con el cache activo del area seteado."""
+def _make_app_cache_with_active(active_cache) -> AppCache:
+    """Construye un ``AppCache`` con el cache activo del area seteado."""
     from core.runtime.excel_cache import excel_set_active
     from areas.alimentacion.state.area_cache import AlimentacionAreaCache
-    state = AppState()
-    state.app_cache.register_area("alimentacion", AlimentacionAreaCache())
+    cache = AppCache()
+    cache.register_area("alimentacion", AlimentacionAreaCache())
     if active_cache is not None:
-        excel_set_active(state.app_cache, "alimentacion", active_cache)
-    return state
+        excel_set_active(cache, "alimentacion", active_cache)
+    return cache
 
 
 def test_proc_build_slot_maps_happy_path():
     """Tabla + DB_PARAM + DB_ALM presentes: slot maps y nmax poblados."""
     from core.data.data_block_plc import DataBloquePLC
 
-    state = _make_state_with_active(_make_excel_cache())
+    app_cache = _make_app_cache_with_active(_make_excel_cache())
     bloques = _make_bloques_cache(
         blocks_present={
             DataBloquePLC.normalize_name("DB100_CPR_PARAM"),
@@ -258,7 +254,7 @@ def test_proc_build_slot_maps_happy_path():
         },
     )
 
-    sm = proc_build_slot_maps(state, _make_config_manager(), 100, bloques)
+    sm = proc_build_slot_maps(app_cache, _make_config_manager(), 100, bloques)
 
     assert sm.table_present is True
     assert sm.db_missing == []
@@ -282,7 +278,7 @@ def test_proc_build_slot_maps_tabla_ausente():
     """Tabla del proceso no esta: slot maps y nmax vacios, table_present=False."""
     from core.data.data_block_plc import DataBloquePLC
 
-    state = _make_state_with_active(_make_excel_cache())
+    app_cache = _make_app_cache_with_active(_make_excel_cache())
     bloques = _make_bloques_cache(
         blocks_present={
             DataBloquePLC.normalize_name("DB100_CPR_PARAM"),
@@ -291,7 +287,7 @@ def test_proc_build_slot_maps_tabla_ausente():
         tag_tables_present=set(),  # tabla ausente
     )
 
-    sm = proc_build_slot_maps(state, _make_config_manager(), 100, bloques)
+    sm = proc_build_slot_maps(app_cache, _make_config_manager(), 100, bloques)
 
     assert sm.table_present is False
     assert sm.db_missing == []
@@ -308,7 +304,7 @@ def test_proc_build_slot_maps_solo_db_alm_ausente():
     """Tabla + DB_PARAM presentes, DB_ALM ausente: slot maps poblados, db_missing=[db_alm]."""
     from core.data.data_block_plc import DataBloquePLC
 
-    state = _make_state_with_active(_make_excel_cache())
+    app_cache = _make_app_cache_with_active(_make_excel_cache())
     bloques = _make_bloques_cache(
         blocks_present={
             DataBloquePLC.normalize_name("DB100_CPR_PARAM"),  # solo DB_PARAM
@@ -318,7 +314,7 @@ def test_proc_build_slot_maps_solo_db_alm_ausente():
         },
     )
 
-    sm = proc_build_slot_maps(state, _make_config_manager(), 100, bloques)
+    sm = proc_build_slot_maps(app_cache, _make_config_manager(), 100, bloques)
 
     assert sm.table_present is True
     assert sm.db_missing == ["DB100_CPR_ALM"]
@@ -337,7 +333,7 @@ def test_proc_build_slot_maps_solo_db_param_ausente():
     """Tabla + DB_ALM presentes, DB_PARAM ausente: simetrico al anterior."""
     from core.data.data_block_plc import DataBloquePLC
 
-    state = _make_state_with_active(_make_excel_cache())
+    app_cache = _make_app_cache_with_active(_make_excel_cache())
     bloques = _make_bloques_cache(
         blocks_present={
             DataBloquePLC.normalize_name("DB100_CPR_ALM"),  # solo DB_ALM
@@ -347,7 +343,7 @@ def test_proc_build_slot_maps_solo_db_param_ausente():
         },
     )
 
-    sm = proc_build_slot_maps(state, _make_config_manager(), 100, bloques)
+    sm = proc_build_slot_maps(app_cache, _make_config_manager(), 100, bloques)
 
     assert sm.table_present is True
     assert sm.db_missing == ["DB100_CPR_PARAM"]
@@ -360,7 +356,7 @@ def test_proc_build_slot_maps_ambos_dbs_ausentes_tabla_presente():
     """Tabla presente + 0 DBs: slot maps y nmax poblados, db_missing=[ambos]."""
     from core.data.data_block_plc import DataBloquePLC
 
-    state = _make_state_with_active(_make_excel_cache())
+    app_cache = _make_app_cache_with_active(_make_excel_cache())
     bloques = _make_bloques_cache(
         blocks_present=set(),  # ni DB_PARAM ni DB_ALM
         tag_tables_present={
@@ -368,7 +364,7 @@ def test_proc_build_slot_maps_ambos_dbs_ausentes_tabla_presente():
         },
     )
 
-    sm = proc_build_slot_maps(state, _make_config_manager(), 100, bloques)
+    sm = proc_build_slot_maps(app_cache, _make_config_manager(), 100, bloques)
 
     assert sm.table_present is True
     assert set(sm.db_missing) == {"DB100_CPR_PARAM", "DB100_CPR_ALM"}
@@ -385,17 +381,17 @@ def test_proc_build_slot_maps_ambos_dbs_ausentes_tabla_presente():
 
 def test_proc_build_slot_maps_excel_no_cargado():
     """Sin cache activo: RuntimeError claro."""
-    state = _make_state_with_active(None)
+    app_cache = _make_app_cache_with_active(None)
     bloques = _make_bloques_cache(set(), set())
 
     with pytest.raises(RuntimeError, match="alimentacion"):
-        proc_build_slot_maps(state, _make_config_manager(), 100, bloques)
+        proc_build_slot_maps(app_cache, _make_config_manager(), 100, bloques)
 
 
 def test_proc_build_slot_maps_proc_uid_no_existe():
     """proc_uid no esta en cache.procesos: RuntimeError claro."""
-    state = _make_state_with_active(_make_excel_cache())
+    app_cache = _make_app_cache_with_active(_make_excel_cache())
     bloques = _make_bloques_cache(set(), set())
 
     with pytest.raises(RuntimeError, match="uid=999"):
-        proc_build_slot_maps(state, _make_config_manager(), 999, bloques)
+        proc_build_slot_maps(app_cache, _make_config_manager(), 999, bloques)

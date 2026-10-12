@@ -36,22 +36,21 @@ from flask import Flask
 
 def _make_app(
     engine: MagicMock | None = None,
-    app_state: MagicMock | None = None,
+    app_cache: MagicMock | None = None,
     config_manager: MagicMock | None = None,
 ) -> Flask:
-    """Crea una app Flask minima con el ``Engine`` y ``APP_STATE`` mockeados.
+    """Crea una app Flask minima con el ``Engine`` y ``APP_CACHE`` mockeados.
 
-    ``_LAZY_APP_STATE`` es la convencion actual del shell Flask
-    (``core/web_server/app_flask.py``): el resolver es una lambda
-    que devuelve el AppState perezoso. Los routers lo invocan al
-    vuelo, no se cachea en startup.
+    ``APP_CACHE`` es la convencion actual del shell Flask
+    (``core/web_server/app_flask.py``): el contenedor del proceso
+    se inyecta como un mock directo.
     """
     app = Flask(__name__)
     app.config["TESTING"] = True
     if engine is not None:
         app.config["ENGINE"] = engine
-    if app_state is not None:
-        app.config["_LAZY_APP_STATE"] = lambda: app_state
+    if app_cache is not None:
+        app.config["APP_CACHE"] = app_cache
     if config_manager is not None:
         app.config["CONFIG_MANAGER"] = config_manager
     else:
@@ -82,18 +81,18 @@ def _make_mock_excel_cache(proc_uid: int = 300) -> MagicMock:
     return cache
 
 
-def _make_mock_app_state(proc_uid: int = 300) -> MagicMock:
-    """Crea un ``AppState`` mockeado con un Excel cacheado.
+def _make_mock_app_cache(proc_uid: int = 300) -> MagicMock:
+    """Crea un ``AppCache`` mockeado con un Excel cacheado.
 
     Multi-PLC: el endpoint ``crear_aplicar`` ahora valida
     ``plc_name in excel_cache_full.plcs`` antes de invocar el FB.
     Por defecto mockeamos un cache con PLCs ``["S7-1500"]``.
 
     El router lee del ``app_cache`` via ``excel_get_full`` (area
-    ``"alimentacion"``). La nueva API vive en
+    ``"alimentacion"``). La API vive en
     ``app_cache.area("alimentacion").excel_full``.
     """
-    state = MagicMock()
+    app_cache = MagicMock()
     cache = _make_mock_excel_cache_with_plcs(
         proc_uid=proc_uid, plc_names=("S7-1500",)
     )
@@ -102,8 +101,8 @@ def _make_mock_app_state(proc_uid: int = 300) -> MagicMock:
     area_mock = MagicMock()
     area_mock.excel_full = cache
     area_mock.excel_active = cache
-    state.app_cache.area.return_value = area_mock
-    return state
+    app_cache.area.return_value = area_mock
+    return app_cache
 
 
 def _make_mock_excel_cache_with_plcs(
@@ -196,9 +195,9 @@ def test_crear_preview_ok_con_plantilla(plantilla_dummy: Path) -> None:
     cm = MagicMock()
     cm.get_plantillas_path.return_value = str(plantilla_dummy.parent)
 
-    app_state = _make_mock_app_state(proc_uid=300)
+    app_cache = _make_mock_app_cache(proc_uid=300)
 
-    app = _make_app(engine=engine, app_state=app_state, config_manager=cm)
+    app = _make_app(engine=engine, app_cache=app_cache, config_manager=cm)
     app.register_blueprint(bp)
     client = app.test_client()
 
@@ -249,9 +248,9 @@ def test_crear_preview_expone_descripcion_y_dependencias(plantilla_dummy: Path) 
 
     cm = MagicMock()
     cm.get_plantillas_path.return_value = str(plantilla_dummy.parent)
-    app_state = _make_mock_app_state(proc_uid=300)
+    app_cache = _make_mock_app_cache(proc_uid=300)
 
-    app = _make_app(engine=engine, app_state=app_state, config_manager=cm)
+    app = _make_app(engine=engine, app_cache=app_cache, config_manager=cm)
     app.register_blueprint(bp)
     client = app.test_client()
 
@@ -271,16 +270,16 @@ def test_crear_preview_sin_excel() -> None:
     from areas.alimentacion.frontend.proc_process_crear_router import bp
 
     engine = MagicMock()
-    state = MagicMock()
+    app_cache = MagicMock()
     # Mock del ``AreaCache`` con ``excel_full=None``.
     area_mock = MagicMock()
     area_mock.excel_full = None
     area_mock.excel_active = None
-    state.app_cache.area.return_value = area_mock
+    app_cache.area.return_value = area_mock
     cm = MagicMock()
     cm.get_plantillas_path.return_value = "C:/plantillas"
 
-    app = _make_app(engine=engine, app_state=state, config_manager=cm)
+    app = _make_app(engine=engine, app_cache=app_cache, config_manager=cm)
     app.register_blueprint(bp)
     client = app.test_client()
 
@@ -300,9 +299,9 @@ def test_crear_preview_proc_uid_inexistente() -> None:
     engine = MagicMock()
     cm = MagicMock()
     cm.get_plantillas_path.return_value = "C:/plantillas"
-    app_state = _make_mock_app_state(proc_uid=300)  # El Excel solo tiene uid=300
+    app_cache = _make_mock_app_cache(proc_uid=300)  # El Excel solo tiene uid=300
 
-    app = _make_app(engine=engine, app_state=app_state, config_manager=cm)
+    app = _make_app(engine=engine, app_cache=app_cache, config_manager=cm)
     app.register_blueprint(bp)
     client = app.test_client()
 
@@ -351,9 +350,9 @@ def test_crear_aplicar_fb_no_registrado() -> None:
     engine.get_fb.return_value = None
     cm = MagicMock()
     cm.get_plantillas_path.return_value = "C:/plantillas"
-    app_state = _make_mock_app_state(proc_uid=300)
+    app_cache = _make_mock_app_cache(proc_uid=300)
 
-    app = _make_app(engine=engine, app_state=app_state, config_manager=cm)
+    app = _make_app(engine=engine, app_cache=app_cache, config_manager=cm)
     app.register_blueprint(bp)
     client = app.test_client()
 
@@ -378,9 +377,9 @@ def test_crear_aplicar_fb_rechaza_start_409(plantilla_dummy: Path) -> None:
     engine.get_fb.return_value = fb_mock
     cm = MagicMock()
     cm.get_plantillas_path.return_value = str(plantilla_dummy.parent)
-    app_state = _make_mock_app_state(proc_uid=300)
+    app_cache = _make_mock_app_cache(proc_uid=300)
 
-    app = _make_app(engine=engine, app_state=app_state, config_manager=cm)
+    app = _make_app(engine=engine, app_cache=app_cache, config_manager=cm)
     app.register_blueprint(bp)
     client = app.test_client()
 
@@ -402,9 +401,9 @@ def test_crear_aplicar_fb_rechaza_start_409(plantilla_dummy: Path) -> None:
 
 
 def test_crear_aplicar_sincroniza_selected_plc(plantilla_dummy: Path) -> None:
-    """El endpoint invoca ``with_plc`` con (app_state, plc_name, area_id)
+    """El endpoint invoca ``with_plc`` con (app_cache, plc_name, area_id)
     antes del ``fb.start`` (D6 stateless: el FB
-    ``function_proc_crear_sincronizar`` no recibe ``app_state`` por
+    ``function_proc_crear_sincronizar`` no recibe ``app_cache`` por
     constructor, asi que el endpoint propaga ``selected_plc``).
     """
     from unittest.mock import patch
@@ -421,9 +420,9 @@ def test_crear_aplicar_sincroniza_selected_plc(plantilla_dummy: Path) -> None:
     engine.get_fb.return_value = fb_mock
     cm = MagicMock()
     cm.get_plantillas_path.return_value = str(plantilla_dummy.parent)
-    app_state = _make_mock_app_state(proc_uid=300)
+    app_cache = _make_mock_app_cache(proc_uid=300)
 
-    app = _make_app(engine=engine, app_state=app_state, config_manager=cm)
+    app = _make_app(engine=engine, app_cache=app_cache, config_manager=cm)
     app.register_blueprint(bp)
     client = app.test_client()
 
@@ -438,7 +437,7 @@ def test_crear_aplicar_sincroniza_selected_plc(plantilla_dummy: Path) -> None:
 
     assert resp.status_code == 200
     with_plc_mock.assert_called_once_with(
-        app_state.app_cache, "S7-1500", AREA_ID,
+        app_cache, "S7-1500", AREA_ID,
     )
 
 
@@ -463,9 +462,9 @@ def test_crear_preview_plc_blocks_cache_acepta_strings_y_dicts(
     engine.get_fb.return_value = fb_mock
     cm = MagicMock()
     cm.get_plantillas_path.return_value = str(plantilla_dummy.parent)
-    app_state = _make_mock_app_state(proc_uid=300)
+    app_cache = _make_mock_app_cache(proc_uid=300)
 
-    app = _make_app(engine=engine, app_state=app_state, config_manager=cm)
+    app = _make_app(engine=engine, app_cache=app_cache, config_manager=cm)
     app.register_blueprint(bp)
     client = app.test_client()
 

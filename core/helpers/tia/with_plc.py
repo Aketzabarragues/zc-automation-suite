@@ -19,7 +19,7 @@ Uso:
     def commit():
         body = request.get_json()
         plc_name = body.get("plc_name", "")
-        with_plc(app_state.app_cache, plc_name, "alimentacion")
+        with_plc(app_cache, plc_name, "alimentacion")
         fb = engine.syn_fb("disp_sincronizar")
         fb.start(plc_name=plc_name)
 """

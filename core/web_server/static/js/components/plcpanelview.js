@@ -83,10 +83,20 @@ export default {
 
         /** Snapshot cacheado del PLC activo (o ``null`` si aún no hay). */
         const cache = computed(() => {
-            const plc = store.selectedPlc;
+            const plc = store.appCache?.selected_plc;
             if (!plc) return null;
             return store.appCache?.plc_blocks?.[plc] || null;
         });
+
+        /**
+         * Lista de PLCs disponibles. Leida del AppCache unificado
+         * (``store.appCache.plc_list``). Devuelve ``[]`` mientras el
+         * primer ``cache_snapshot`` no haya llegado; el store
+         * inicializa el slot a ``[]`` por defecto.
+         */
+        const plcList = computed(
+            () => store.appCache?.plc_list || []
+        );
 
         /** Listas normalizadas del snapshot (arrays vacíos si falta el campo). */
         const blocks = computed(() =>
@@ -124,7 +134,7 @@ export default {
          */
         const plcName = computed(() => {
             if (cache.value && cache.value.plc_name) return cache.value.plc_name;
-            return store.selectedPlc || "";
+            return store.appCache?.selected_plc || "";
         });
 
         /** True si hay un snapshot cargado (no null). */
@@ -268,10 +278,10 @@ export default {
          * progreso (eso es el ProgressTracker backend).
          */
         async function handleRefresh() {
-            if (!store.selectedPlc || isRefreshing.value) return;
+            if (!store.appCache?.selected_plc || isRefreshing.value) return;
             isRefreshing.value = true;
             try {
-                await loadAndApplyPlcBlocks(store.selectedPlc, { force: true });
+                await loadAndApplyPlcBlocks(store.appCache?.selected_plc, { force: true });
             } catch (e) {
                 // El error real lo emite el backend via logger.warning;
                 // pushLog local era ruido que el polling sobrescribia.
@@ -289,7 +299,7 @@ export default {
          * cache se quedó con un PLC anterior".
          */
         onMounted(() => {
-            const current = store.selectedPlc;
+            const current = store.appCache?.selected_plc;
             const cached = cache.value;
             if (current && (!cached || cached.plc_name !== current)) {
                 loadAndApplyPlcBlocks(current);
@@ -304,7 +314,7 @@ export default {
          *
          * Guard: NO recargar si la cache ya está sincronizada con
          * el PLC nuevo. Sin este guard, ``loadAndApplyPlcBlocks``
-         * setea ``store.selectedPlc = plcName`` (store.js, fix
+         * setea ``store.appCache?.selected_plc = plcName`` (store.js, fix
          * del bug "Cache no disponible sin tocar dropdown") y este
          * watch se vuelve a disparar, causando un bucle garantizado
          * de doble ``scan_blocks`` por cada selección de PLC. El
@@ -312,7 +322,7 @@ export default {
          * rollback silencioso en el primer commit (smoke test).
          */
         watch(
-            () => store.selectedPlc,
+            () => store.appCache?.selected_plc,
             (newPlc) => {
                 if (!newPlc) return;
                 const cached = cache.value;
@@ -447,13 +457,13 @@ export default {
 
         /**
          * Click en un card de la grid "PLC DISPONIBLES" (v3.1).
-         * Setea ``store.selectedPlc`` y el ``watch`` existente (en
+         * Setea ``store.appCache?.selected_plc`` y el ``watch`` existente (en
          * ``onMounted``) dispara ``loadAndApplyPlcBlocks`` que carga
          * el snapshot de bloques+tag_tables+UDTs del PLC nuevo.
          */
         function selectPlc(plc) {
             if (!plc || !plc.name) return;
-            store.selectedPlc = plc.name;
+            store.appCache.selected_plc = plc.name;
         }
 
         return {
@@ -461,6 +471,7 @@ export default {
             activeTab,
             isRefreshing,
             hasCache,
+            plcList,
             blocks,
             variables,
             udts,
@@ -598,7 +609,7 @@ export default {
                 <!-- Zona B: PLC DISPONIBLES (v3.1, sept-2026 round 3).
                      Grid responsive de cards (uno por PLC) con
                      nombre + modelo (ShortDesignation de TIA).
-                     Click en un card -> store.selectedPlc = p.name
+                     Click en un card -> store.appCache?.selected_plc = p.name
                      (el watch existente dispara loadAndApplyPlcBlocks
                      que carga el snapshot de bloques del PLC nuevo).
                      El card del PLC activo se marca con border +
@@ -612,7 +623,7 @@ export default {
                             PLC disponibles
                         </h4>
                         <button @click="handleRefresh"
-                            :disabled="!store.selectedPlc || isRefreshing"
+                            :disabled="!store.appCache?.selected_plc || isRefreshing"
                             data-testid="bloques-cache-actualizar"
                             class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
                             <span v-if="isRefreshing" class="animate-spin">↻</span>
@@ -642,35 +653,35 @@ export default {
                          (feedback operario: el estado TIA es global,
                          no por PLC). Pill texto: "Seleccionar" /
                          "Seleccionado" (sin check).
-                         Click -> store.selectedPlc = p.name; el watch
+                         Click -> store.appCache?.selected_plc = p.name; el watch
                          existente dispara loadAndApplyPlcBlocks. -->
-                    <div v-if="Array.isArray(store.plcs) && store.plcs.length > 0"
+                    <div v-if="plcList.length > 0"
                          class="flex flex-col gap-3"
                          data-testid="bloques-cache-plc-list">
-                        <button v-for="p in store.plcs" :key="p && p.name ? p.name : p"
+                        <button v-for="p in plcList" :key="p.name"
                             type="button"
                             @click="selectPlc(p)"
-                            :data-testid="'bloques-cache-plc-card-' + (p && p.name ? p.name : p)"
-                            :data-active="(p && p.name) === store.selectedPlc"
+                            :data-testid="'bloques-cache-plc-card-' + p.name"
+                            :data-active="p.name === store.appCache?.selected_plc"
                             :class="['w-full flex items-center justify-between gap-4 p-4 rounded-xl border shadow-sm transition-all duration-200 group text-left',
-                                     (p && p.name) === store.selectedPlc
+                                     p.name === store.appCache?.selected_plc
                                          ? 'border-green-500 bg-green-50 ring-1 ring-green-500'
                                          : 'border-line bg-surface-sunken hover:border-accent hover:bg-accent-subtle']">
                             <!-- IZQUIERDA: icono + nombre + modelo -->
                             <div class="flex items-center gap-4 min-w-0 flex-1">
                                 <div :class="['w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0 transition-colors',
-                                               (p && p.name) === store.selectedPlc
+                                               p.name === store.appCache?.selected_plc
                                                    ? 'bg-green-500 text-white'
                                                    : 'bg-surface-raised text-ink-muted group-hover:bg-accent-subtle group-hover:text-accent']">
                                     <span aria-hidden="true">&#128187;</span>
                                 </div>
                                 <div class="text-left min-w-0 flex-1">
                                     <h4 :class="['font-mono font-bold text-sm leading-none mb-1 truncate',
-                                                 (p && p.name) === store.selectedPlc ? 'text-green-800' : 'text-ink']">
-                                        {{ p && p.name ? p.name : p }}
+                                                 p.name === store.appCache?.selected_plc ? 'text-green-800' : 'text-ink']">
+                                        {{ p.name }}
                                     </h4>
                                     <p class="text-xs text-ink-muted truncate">
-                                        {{ p && p.short_designation ? p.short_designation : 'modelo no disponible' }}
+                                        {{ p.short_designation || 'modelo no disponible' }}
                                     </p>
                                 </div>
                             </div>
@@ -678,15 +689,15 @@ export default {
                                  (label visual, no es <button> anidado: el
                                  padre ya es <button> y seria HTML invalido) -->
                             <div :class="['px-5 py-2 rounded-full text-xs font-bold border shrink-0 transition-colors',
-                                          (p && p.name) === store.selectedPlc
+                                          p.name === store.appCache?.selected_plc
                                               ? 'bg-surface-raised border-green-300 text-green-700'
                                               : 'bg-surface-sunken border-line text-ink-muted group-hover:border-accent group-hover:text-accent group-hover:bg-accent-subtle']">
-                                {{ (p && p.name) === store.selectedPlc ? 'Seleccionado' : 'Seleccionar' }}
+                                {{ p.name === store.appCache?.selected_plc ? 'Seleccionado' : 'Seleccionar' }}
                             </div>
                         </button>
                     </div>
 
-                    <!-- Empty state: store.plcs vacio o no es array. -->
+                    <!-- Empty state: plcList vacio. -->
                     <div v-else
                          class="flex items-center justify-center p-6 text-center text-ink-muted text-xs italic border border-dashed border-line rounded"
                          data-testid="bloques-cache-plc-list-empty">
@@ -859,7 +870,7 @@ export default {
                 <div v-else class="flex-1 flex items-center justify-center bg-surface-raised border border-dashed border-line rounded p-10 text-center text-ink-muted">
                     <div>
                         <div class="text-5xl mb-3 opacity-40">📦</div>
-                        <p v-if="!store.selectedPlc" class="mb-2">
+                        <p v-if="!store.appCache?.selected_plc" class="mb-2">
                             Selecciona un PLC primero.
                         </p>
                         <p v-else class="mb-2">

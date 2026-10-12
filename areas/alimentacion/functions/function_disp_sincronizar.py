@@ -61,7 +61,7 @@ from core.helpers.tia.with_plc import with_plc
 from core.helpers.tia.active_cache import get_devices, get_nmax
 
 
-from core.runtime.app_state import AppState, get_app_state
+from core.runtime.app_cache import AppCache, get_app_cache
 from areas.alimentacion._area_id import AREA_ID
 from areas.alimentacion.helpers.layout.build_cache import DEFAULT_BUILD_CACHE_ROOT
 
@@ -126,7 +126,7 @@ class FunctionDispSincronizar(FunctionBase):
         tia_client: Any = None,
         build_cache: Any = None,
         # ── Deps especificas de este FB ──
-        app_state: AppState | None = None,
+        app_cache: AppCache | None = None,
     ) -> None:
         super().__init__(
             nombre=nombre,
@@ -151,8 +151,8 @@ class FunctionDispSincronizar(FunctionBase):
         self._tia_client = tia_client
         self._build_cache_root: Path = build_cache or DEFAULT_BUILD_CACHE_ROOT
         # Deps especificas.
-        self._state: AppState = (
-            app_state if app_state is not None else get_app_state()
+        self._app_cache: AppCache = (
+            app_cache if app_cache is not None else get_app_cache()
         )
         # ZONA 3: estado entre ticks.
         self._plc_name: str = ""
@@ -192,9 +192,9 @@ class FunctionDispSincronizar(FunctionBase):
         # Tabla_PLC del Excel, el cache activo quedaria vacio y el sync
         # atacaria TIA para borrar TODO. Fail-late con lista de PLCs
         # disponibles en el Excel.
-        validate_plc_in_excel(self._state, self._plc_name, AREA_ID)
-        # Propagar al AppState (defensa redundante con el endpoint).
-        with_plc(self._state.app_cache, self._plc_name, AREA_ID)
+        validate_plc_in_excel(self._app_cache, self._plc_name, AREA_ID)
+        # Propagar al AppCache (defensa redundante con el endpoint).
+        with_plc(self._app_cache, self._plc_name, AREA_ID)
 
         # Crear el DispSyncContext que las 11 funciones iran mutando.
         # Lazy import para evitar ciclo con helpers/disp/.
@@ -202,7 +202,7 @@ class FunctionDispSincronizar(FunctionBase):
             plc_name=self._plc_name,
             tia_client=self._tia_client,
             config_manager=self._config,
-            app_state=self._state,
+            app_cache=self._app_cache,
             build_cache_root=self._build_cache_root,
         )
 
@@ -362,7 +362,7 @@ class FunctionDispSincronizar(FunctionBase):
         )
 
     async def _stage_2_compute_diff(self) -> None:
-        """Calcula el diff entre los XMLs exportados y el AppState (read-only).
+        """Calcula el diff entre los XMLs exportados y el AppCache (read-only).
 
         Migrado sept-2026: usa ``compute_diff_table`` por hw_type
         (funcion pura del nuevo helper). Mantiene el shape del ctx
@@ -397,7 +397,7 @@ class FunctionDispSincronizar(FunctionBase):
                 xml_path = (
                     self._ctx.tags_base / tia_folder / f"{cfg.tag_table}.xml"
                 )
-                devices = get_devices(self._ctx.app_state, hw, AREA_ID)
+                devices = get_devices(self._ctx.app_cache, hw, AREA_ID)
                 diff = compute_diff_table(
                     table_name=cfg.tag_table,
                     desired_devices=devices,
@@ -429,7 +429,7 @@ class FunctionDispSincronizar(FunctionBase):
             "preparar_ops requiere exportar_tags previo"
         )
         self._ctx.nmax_ops = _compute_nmax_ops_for_apply(
-            self._ctx.tags_base, self._ctx.config_manager, self._ctx.app_state,
+            self._ctx.tags_base, self._ctx.config_manager, self._ctx.app_cache,
         )
 
         # Rename ops (shape legacy: {table_name, current_name, new_name}).
@@ -687,7 +687,7 @@ class FunctionDispSincronizar(FunctionBase):
 
         Flujo (aplica comentarios por instancia a los DBs de disp del area):
 
-          1. Validar AppState.
+          1. Validar AppCache.
           2. Construir slot_maps (disp_build_slot_maps).
           3. Limpiar modified/bloques/ (defensivo).
           4. Exportar 6 DBs a exports/bloques/ (1 dispatch por DB).
@@ -701,9 +701,9 @@ class FunctionDispSincronizar(FunctionBase):
         from areas.alimentacion.data.data_disp_slot_map import disp_build_slot_maps
         from core.runtime.excel_cache import excel_get_active
 
-        # ── 1. Validar AppState ──
+        # ── 1. Validar AppCache ──
         cache_active = excel_get_active(
-            self._ctx.app_state.app_cache, "alimentacion",
+            self._ctx.app_cache, "alimentacion",
         )
         if cache_active is None:
             raise RuntimeError(
@@ -730,7 +730,7 @@ class FunctionDispSincronizar(FunctionBase):
             return
 
         # ── 2. Construir slot_maps ──
-        slot_maps_data = disp_build_slot_maps(self._ctx.app_state, self._ctx.config_manager)
+        slot_maps_data = disp_build_slot_maps(self._ctx.app_cache, self._ctx.config_manager)
         slot_maps = slot_maps_data.slot_maps
         db_names = slot_maps_data.db_names
         db_array_names = slot_maps_data.db_array_names
@@ -914,7 +914,7 @@ class FunctionDispSincronizar(FunctionBase):
         from core.helpers.simatic_ml import PlcUserConstantParser
 
         cm = self._ctx.config_manager
-        state = self._ctx.app_state
+        app_cache = self._ctx.app_cache
 
         try:
             # 1/4. Limpia preview/ + re-exporta FLAT.
@@ -975,7 +975,7 @@ class FunctionDispSincronizar(FunctionBase):
                 cfg = cm.get_dispositivo_config(hw)
                 if cfg is None:
                     continue
-                devices = get_devices(state, hw, AREA_ID)
+                devices = get_devices(app_cache, hw, AREA_ID)
                 xml_path = preview_disp / f"{cfg.tag_table}.xml"
                 diff = compute_diff_table(
                     table_name=cfg.tag_table,
@@ -1026,7 +1026,7 @@ class FunctionDispSincronizar(FunctionBase):
                     })
 
             # 5/4. N_MAX (multi-PLC: del cache activo, ya filtrado por PLC).
-            desired_nmax = get_nmax(state, AREA_ID)
+            desired_nmax = get_nmax(app_cache, AREA_ID)
             nmax_diff = compute_nmax_diff(
                 table_name=nmax_table,
                 desired_nmax=desired_nmax,
@@ -1101,7 +1101,7 @@ class DispSyncContext:
     plc_name: str
     tia_client: Any
     config_manager: Any
-    app_state: Any
+    app_cache: AppCache
     build_cache_root: Path
 
     # ── Resultados de exportar_tags ──
@@ -1178,7 +1178,7 @@ def _selective_table_names(config_manager: Any) -> list[str]:
 def _compute_nmax_ops_for_apply(
     tags_base: Path,
     config_manager: Any,
-    app_state: Any,
+    app_cache: AppCache,
 ) -> list[dict[str, Any]]:
     """Calcula la lista de ops N_MAX para el handler online.
 
@@ -1207,7 +1207,7 @@ def _compute_nmax_ops_for_apply(
             f"[N_MAX] XML esperado no encontrado (sync): {xml_path}"
         )
 
-    d = get_nmax(app_state, AREA_ID)
+    d = get_nmax(app_cache, AREA_ID)
     desired: dict[str, int] = {}
     for nmax_name in config_manager.list_nmax_active():
         v = d.get(nmax_name)

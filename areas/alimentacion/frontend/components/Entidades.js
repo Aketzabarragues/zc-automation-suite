@@ -58,7 +58,7 @@ function nmaxLabelEntidades(name) {
 export default {
     name: "Entidades",
     setup() {
-        const plcName = computed(() => store.selectedPlc || "");
+        const plcName = computed(() => store.appCache?.selected_plc || "");
 
         /**
          * True mientras hay un request al backend en vuelo (preview

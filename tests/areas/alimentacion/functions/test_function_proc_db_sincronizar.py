@@ -28,7 +28,6 @@ import pytest
 from areas.alimentacion.functions.function_proc_db_sincronizar import (
     FunctionProcDBSincronizar,
 )
-from core.runtime.app_state import AppState
 from core.runtime.progress_buffer import ProgressTracker
 from core.infrastructure.config.config_manager import ConfigManager
 
@@ -112,7 +111,7 @@ def make_fb(
         nombre="proc_sincronizar_test",
         config_manager=config,
         tia_client=tia_client,
-        app_state=app_state,
+        app_cache=app_state,
         bloques_cache=bloques_cache,
         tracker=progress_tracker,
     )
@@ -329,7 +328,7 @@ async def test_proc_sincronizar_sad_no_config(
         nombre="no_config_test",
         config_manager=None,
         tia_client=mock_tia_client,
-        app_state=mock_app_state,
+        app_cache=mock_app_state,
         bloques_cache=mock_bloques_cache,
         tracker=progress,
     )
@@ -353,7 +352,7 @@ async def test_proc_sincronizar_sad_no_tia_client(
         nombre="no_tia_test",
         config_manager=mock_config,
         tia_client=None,
-        app_state=mock_app_state,
+        app_cache=mock_app_state,
         bloques_cache=mock_bloques_cache,
         tracker=progress,
     )
@@ -782,7 +781,7 @@ async def test_proc_tx_b_detectar_eliminar_export_filtra_por_db_missing(
         proc_uid=42,
         tia_client=MagicMock(),
         config_manager=MagicMock(),
-        app_state=MagicMock(),
+        app_cache=MagicMock(),
         build_cache_root=MagicMock(),
         bloques_cache=bloques_cache,
     )
@@ -859,7 +858,7 @@ async def test_proc_tx_b_detectar_eliminar_export_envuelve_ambos_si_no_falta(
         proc_uid=42,
         tia_client=MagicMock(),
         config_manager=MagicMock(),
-        app_state=MagicMock(),
+        app_cache=MagicMock(),
         build_cache_root=MagicMock(),
         bloques_cache=bloques_cache,
     )
@@ -906,3 +905,4 @@ async def test_proc_tx_b_detectar_eliminar_export_envuelve_ambos_si_no_falta(
     }
     assert ctx.exports_param_dir is not None
     assert ctx.exports_alm_dir is not None
+

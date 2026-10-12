@@ -76,7 +76,7 @@ def test_register_alimentacion_signature_expected_kwargs() -> None:
     from areas.alimentacion import register as register_alimentacion
 
     sig = inspect.signature(register_alimentacion)
-    expected = {"engine", "config_manager", "tia_client", "build_cache", "app_state"}
+    expected = {"engine", "config_manager", "tia_client", "build_cache", "app_cache"}
     actual = set(sig.parameters.keys())
     assert actual == expected, (
         f"Firma de register_alimentacion cambio. "

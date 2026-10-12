@@ -336,12 +336,10 @@ sse.onmessage = (e) => {
             break;
         }
         case "cache_snapshot":
-            // Snapshot completo del AppCache al suscribirse. Merge por
-            // clave top-level (no reasignacion completa) para no
-            // invalidar refs que los ``computed`` ya hubiesen
-            // cacheado. Tambien sincroniza los slots espejo
-            // ``store.plcs`` / ``store.selectedPlc`` para que la UI
-            // legacy siga funcionando.
+            // Snapshot completo del AppCache al suscribirse.
+            // Merge por clave top-level (no reasignacion
+            // completa) para no invalidar refs que los
+            // ``computed`` ya hubiesen cacheado.
             applyCacheSnapshot(event.data);
             break;
         case "cache_changed":
@@ -360,12 +358,12 @@ sse.onmessage = (e) => {
             store.tiaConnection.state = event.state;
             break;
         case "plcs":
-            // Cache: ``event.data = [{name, short_designation}, ...]``.
-            // ``tiaConnection.plcs`` espera ``string[]`` (compat con
-            // el shape que ya consume la SPA); ``store.plcs`` recibe
-            // la lista completa con metadatos.
+            // ``event.data = [{name, short_designation}, ...]``.
+            // ``tiaConnection.plcs`` espera ``string[]`` (compat
+            // con el shape legado de ``store.tiaConnection``);
+            // el AppCache ya tiene su propio ``plc_list`` con la
+            // lista completa con metadatos.
             store.tiaConnection.plcs = event.data.map(p => p.name);
-            store.plcs = event.data;
             break;
         case "project_info":
             // Cache: ``event.data = {name, path, author, ...}``.
