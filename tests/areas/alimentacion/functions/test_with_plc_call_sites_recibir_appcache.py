@@ -114,11 +114,10 @@ def app_cache() -> AppCache:
 def app_cache_fixture(app_cache: AppCache) -> AppCache:
     """AppCache real con un Excel cargado en el area ``alimentacion``.
 
-    El FB guarda ``self._app_cache: AppCache`` directamente (sin
-    wrapper ``AppState``). Pasamos el AppCache real: si el FB hiciera
-    ``with_plc(self._app_cache.app_cache, ...)`` como en el contrato
-    legacy, fallaria con ``AttributeError: AppCache has no
-    attribute 'app_cache'``.
+    Pasamos el AppCache real: si el FB hiciera
+    ``with_plc(self._app_cache.app_cache, ...)`` (patron legacy),
+    fallaria con ``AttributeError: AppCache has no attribute
+    'app_cache'``.
     """
     excel_set_full(app_cache, "alimentacion", _make_excel_cache_with_plc("S7-1500"))
     return app_cache
@@ -148,7 +147,7 @@ def test_on_start_pasa_appcache_a_with_plc(
 
     El FB guarda ``self._app_cache: AppCache`` y debe llamar a
     ``with_plc(self._app_cache, ...)``. Si en su lugar pasara
-    ``self._app_cache.app_cache`` (legacy AppState), fallaria con
+    ``self._app_cache.app_cache`` (patron legacy), fallaria con
     ``AttributeError: AppCache has no attribute 'app_cache'``.
     """
     import importlib

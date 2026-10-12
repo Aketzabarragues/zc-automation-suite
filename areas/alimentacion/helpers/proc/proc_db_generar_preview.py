@@ -170,7 +170,7 @@ def compute_summary(arrays: dict[str, Any]) -> dict[str, int]:
 
 @dataclass(frozen=True)
 class NmaxDiff:
-    """Resultado del diff de N_MAX entre desired (Excel/AppState) y base (TIA).
+    """Resultado del diff de N_MAX entre desired (Excel) y base (TIA).
 
     Atributos:
         table_name: nombre de la tabla del proceso (``"100_CPR"``).

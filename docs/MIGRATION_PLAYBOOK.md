@@ -63,7 +63,7 @@ registro en el engine).
 ### 4. Registrar el FB en el engine
 
 En `areas/<area>/__init__.py::register_<area>(engine, *,
-config_manager, tia_client, build_cache, log, app_state)` anadir:
+config_manager, tia_client, build_cache, log, app_cache)` anadir:
 
 ```python
 engine.register_fb(
@@ -73,7 +73,7 @@ engine.register_fb(
         tia_client=tia_client,
         build_cache=build_cache,
         log=log,
-        app_state=app_state,
+        app_cache=app_cache,
         # ... deps especificas si las hay
     ),
 )

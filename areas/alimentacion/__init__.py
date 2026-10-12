@@ -1,7 +1,7 @@
 ﻿"""Bounded Context: Alimentación.
 
 Aporta al core:
-  - State extensions de AppState.
+  - State extensions de AppCache.
   - Catálogo de presentación (consumido por /api/v1/catalog).
   - TIA commands del área (registrados por el tia-loop).
   - Frontend manifest (Vue 3 ESM del área).

@@ -23,7 +23,7 @@ Pipeline (orden de ejecución sobre el mismo ``wb``):
     4. 1 parser de entidades (``EntidadesParser``) —
        extrae la ``Tabla_Entidades`` de la hoja ``ENTIDADES``.
        Multi-PLC (cada ``Entidad`` lleva su ``plc_name``); el
-       filtrado por PLC vive en AppState, no aqui.
+       filtrado por PLC vive en el ``excel_active`` derivado, no aqui.
 
 Tras el parseo, construye los lookups ``*_by_codigo`` filtrando
 filas sin ``codigo`` para evitar colisiones con la clave vacía.

@@ -101,7 +101,6 @@ class ConfigManager:
         ``get_tag_table_name(key)``, ``get_db_name(key)``,
         ``get_db_array_name(key)``.
       - **Resolución cross-capa** (data-driven):
-        ``get_app_state_attr_for(hw)`` (→ ``"dispositivos_<hw>"``),
         ``get_excel_target_for(hw)`` (→ ``{sheet, table, canonical}``).
       - **Carpetas TIA**: ``get_tia_folder_proceso()``,
         ``get_tia_folder_dispositivos()``, ``get_tia_folder_nmax()``.

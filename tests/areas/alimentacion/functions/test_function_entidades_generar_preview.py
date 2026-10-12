@@ -433,10 +433,8 @@ def test_stage_2_compute_nmax_usa_n_max_del_cache() -> None:
         "compute_nmax_diff_entidades",
         return_value=fake_diff,
     ), patch(
-        # ``get_nmax_entidades`` lee ``state.app_cache`` (compat legacy
-        # AppState). Commit 5 migrara el helper a aceptar AppCache
-        # directo; mientras tanto parchamos el binding del FB para
-        # devolver el N_MAX deseado sin tocar el helper.
+        # Parchamos el binding del FB para devolver el N_MAX deseado
+        # sin tocar el helper ``get_nmax_entidades``.
         "areas.alimentacion.functions.function_entidades_generar_preview."
         "get_nmax_entidades",
         return_value={"N_MAX_ENTIDAD": 5},

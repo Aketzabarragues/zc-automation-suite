@@ -34,7 +34,7 @@ class DataExcelCache:
         ``alarmas``: listas de los 4 dominios de software.
       - ``entidades``: lista de ``Entidad`` (DB6_ENT), multi-PLC.
         Cada elemento lleva ``plc_name``; el filtrado por PLC vive en
-        AppState (``entidades_active``), no aqui.
+        el ``excel_active`` derivado, no aqui.
       - ``*_by_codigo``: lookups ``Mapping[str, DTO]`` precomputados.
       - ``software_parsers_implemented``: flag para la SPA.
     """

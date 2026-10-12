@@ -28,7 +28,6 @@ from areas.alimentacion.functions.function_proc_db_generar_preview import (
     FunctionProcDBGenerarPreview,
     ProcPreviewContext,
 )
-from core.runtime.app_state import AppState
 from core.runtime.progress_buffer import ProgressTracker
 from core.infrastructure.config.config_manager import ConfigManager
 

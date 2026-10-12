@@ -43,7 +43,7 @@ def _make_app(
 
     ``APP_CACHE`` es la convencion actual del shell Flask
     (``core/web_server/app_flask.py``): el contenedor del proceso
-    se inyecta como un mock directo (sin wrapper ``AppState``).
+    se inyecta como un mock directo.
     """
     app = Flask(__name__)
     app.config["TESTING"] = True

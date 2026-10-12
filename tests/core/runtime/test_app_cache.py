@@ -23,7 +23,6 @@ from core.runtime.app_cache import (
     _AppCacheState,  # noqa: PLC2701 (test del modulo interno)
     get_app_cache,
 )
-from core.runtime.app_state import AppState
 
 
 @pytest.fixture(autouse=True)
@@ -251,28 +250,6 @@ def test_get_app_cache_thread_safe() -> None:
     assert errors == []
     assert len(results) == 8
     assert all(r is results[0] for r in results)
-
-
-def test_app_state_tiene_app_cache() -> None:
-    """``AppState.app_cache`` existe como atributo de clase y de instancia."""
-    # Class-level (MagicMock spec= lo necesita).
-    assert "app_cache" in dir(AppState)
-    state = AppState()
-    assert state.app_cache is not None
-    assert isinstance(state.app_cache, AppCache)
-
-
-def test_app_state_comparte_app_cache_con_singleton() -> None:
-    """``AppState().app_cache`` es el mismo Singleton que ``get_app_cache()``.
-
-    Las areas se registran en boot en la instancia Singleton del
-    ``AppCache``; los FBs escriben sobre la misma instancia. Si
-    ``AppState()`` creara un ``AppCache()`` propio, los FBs verian
-    un area no registrada (``KeyError`` al primer ``excel_set_full()``).
-    Por contrato, ``state.app_cache is get_app_cache()``.
-    """
-    state = AppState()
-    assert state.app_cache is get_app_cache()
 
 
 def test_plc_info_y_plc_project_son_frozen() -> None:

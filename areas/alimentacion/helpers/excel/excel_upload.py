@@ -1,6 +1,6 @@
 ﻿"""Helpers puros de la carga del Excel corporativo (FB subir_excel).
 
-Funciones puras (sin estado, sin tracker, sin AppState):
+Funciones puras (sin estado, sin tracker):
   - ``parse_excel_to_cache``: lee el ``.xlsx``, lo escribe al
     ``AppCache`` del area indicado y devuelve el ``DataExcelCache``.
 

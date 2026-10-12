@@ -284,7 +284,7 @@ async def test_subir_excel_sad_parse_fails(
 @pytest.mark.asyncio
 async def test_subir_excel_terminal_no_avanza_mas(
     mock_config: MagicMock,
-    mock_state: AppState,
+    mock_state: AppCache,
     progress: ProgressTracker,
     mock_log: MagicMock,
     happy_loader_factory,
