@@ -36,7 +36,6 @@ def create_app(
     tia_client: Any = None,
     engine: Engine | None = None,
     event_bus: EventBusSync | None = None,
-    app_state: Any = None,
     config_manager: Any = None,
     log_buffer: Any = None,
     progress_tracker: Any = None,
@@ -48,9 +47,9 @@ def create_app(
         tia_client: SyncTIAClient. Default: singleton global.
         engine: Engine. Default: se crea uno nuevo.
         event_bus: EventBusSync. Default: se crea uno nuevo.
-        app_state / config_manager / log_buffer / progress_tracker:
-            legacy singletons. Si None, lazy al primer uso desde
-            los endpoints (sin forzar import en ``create_app``).
+        config_manager / log_buffer / progress_tracker: legacy
+            singletons. Si None, lazy al primer uso desde los
+            endpoints (sin forzar import en ``create_app``).
         app_cache: AppCache contenedor del proceso. Default: lazy
             ``get_app_cache()``. Los routers lo leen via
             ``current_app.config['APP_CACHE']``.
@@ -86,9 +85,6 @@ def create_app(
     if config_manager is None:
         config_manager = ConfigManager()
     app.config["CONFIG_MANAGER"] = config_manager
-    app.config["_LAZY_APP_STATE"] = lambda: _resolve_lazy(
-        app_state, "core.runtime.app_state", "get_app_state"
-    )
     app.config["_LAZY_LOG_BUFFER"] = lambda: _resolve_lazy(
         log_buffer,
         "core.runtime.log_buffer",

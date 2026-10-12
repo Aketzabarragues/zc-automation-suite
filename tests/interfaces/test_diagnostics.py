@@ -1,7 +1,7 @@
-"""Tests del blueprint diagnostics (Fase 4 / paso 4.4.3).
+"""Tests del blueprint diagnostics.
 
-Tests basicos con stubs (no se importan AppState / LogBuffer / etc.
-reales — los mocks son suficiente para verificar el wiring).
+Tests basicos con stubs (no se importan LogBuffer / etc. reales — los
+mocks son suficiente para verificar el wiring).
 """
 from __future__ import annotations
 
@@ -14,9 +14,6 @@ from core.web_server.app_flask import create_app
 
 @pytest.fixture
 def app_with_stubs():
-    app_state = MagicMock()
-    app_state.app_cache.get_state.return_value.selected_plc = ""
-
     config_manager = MagicMock()
 
     log_buffer = MagicMock()
@@ -32,14 +29,12 @@ def app_with_stubs():
     progress_tracker.clear = MagicMock()
 
     app = create_app(
-        app_state=app_state,
         config_manager=config_manager,
         log_buffer=log_buffer,
         progress_tracker=progress_tracker,
     )
     app.config["TESTING"] = True
     return app.test_client(), {
-        "app_state": app_state,
         "config_manager": config_manager,
         "log_buffer": log_buffer,
         "progress_tracker": progress_tracker,
