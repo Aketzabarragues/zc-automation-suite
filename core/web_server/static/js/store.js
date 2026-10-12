@@ -245,11 +245,10 @@ export const store = reactive({
      *     },
      *   }
      *
-     * Los slots globales (``selected_plc``, ``plc_list``) son
-     * espejo reactivo de ``store.selectedPlc`` / ``store.plcs``,
-     * mantenidos en sync via SSE; las vistas leen preferentemente
-     * de ahi para tener reactividad automatica ante attach/detach
-     * del worker TIA.
+     * Los slots globales (``selected_plc``, ``plc_list``) los
+     * consumen las vistas directamente; la reactividad ante
+     * attach/detach del worker TIA llega via SSE
+     * (``cache_snapshot`` + ``cache_changed``).
      */
     appCache: {
         selected_plc: "",
@@ -589,13 +588,13 @@ export async function loadAndApplyPlcBlocks(plcName, { force = false } = {}) {
             ? await apiRefreshPlcBlocks(plcName)
             : await apiScanPlcBlocks(plcName);
         if (r.ok) {
-            // Sincronizar ``selectedPlc`` con el PLC que acabamos de
-            // escanear. Asi, las vistas que dependen de
-            // ``store.selectedPlc`` (p.ej. ``ProcesosSyncView`` y la
-            // card "PLC activo" de ``BloquesCacheView``) saben qué PLC
-            // está activo sin depender de que el operario haya tocado
+            // Sincronizar ``appCache.selected_plc`` con el PLC que
+            // acabamos de escanear. Asi, las vistas que dependen de
+            // la seleccion (p.ej. ``ProcesosSyncView`` y la card
+            // "PLC activo" del panel comun) saben qué PLC está
+            // activo sin depender de que el operario haya tocado
             // el dropdown despues del escaneo.
-            store.selectedPlc = plcName;
+            store.appCache.selected_plc = plcName;
         } else if (r.errorType === "TIAConnectionError") {
             // TIA Portal no responde. El backend ya invalido su
             // cache; el frontend debe hacer lo propio para que
@@ -674,7 +673,6 @@ export function normalizeBlocksSnapshot(plcName, payload) {
  * maestra; el operario puede re-disparar el sync tras reconectar.
  */
 export function resetPlcState() {
-    store.selectedPlc = "";
     // El cache del backend sigue siendo la fuente de verdad: en
     // cuanto el worker TIA re-conecte y emita un cache_snapshot,
     // el SSE hidratara de nuevo ``appCache.plc_blocks`` /
@@ -687,6 +685,9 @@ export function resetPlcState() {
     if (store.appCache && store.appCache.plc_list) {
         store.appCache.plc_list = [];
     }
+    if (store.appCache && typeof store.appCache.selected_plc === "string") {
+        store.appCache.selected_plc = "";
+    }
     if (store.appCache && store.appCache.areas) {
         for (const areaId of Object.keys(store.appCache.areas)) {
             const area = store.appCache.areas[areaId];
@@ -696,7 +697,6 @@ export function resetPlcState() {
             }
         }
     }
-    store.plcs = [];
     store.procesosSync.applying = false;
     store.procesosSync.lastAppliedAt = null;
     store.procesosSync.error =
@@ -821,8 +821,8 @@ function _clearAllPlcStateOnTiaLoss() {
      * operario NO vea caches stale en la SPA tras un incidente.
      *
      * Slots limpiados:
-     *   - ``store.plcs``               → ``[]`` (lista de PLCs stale)
-     *   - ``store.selectedPlc``        → ``""`` (dropdown a placeholder)
+     *   - ``store.appCache.plc_list``  → ``[]`` (lista de PLCs stale)
+     *   - ``store.appCache.selected_plc`` → ``""`` (dropdown a placeholder)
      *   - ``store.appCache.plc_blocks`` → ``{}`` (snapshots de bloques stale)
      *   - ``store.projectInfo``        → ``null`` (caption proyecto stale)
      *   - ``store.appCache.areas[*].preview_disp`` → ``null``
@@ -840,9 +840,9 @@ function _clearAllPlcStateOnTiaLoss() {
      * prevision no se puede aplicar, asi que es preferible limpiarla
      * a mostrarla stale y susceptible de "Aplicar" fallido.
      */
-    store.plcs = [];
-    store.selectedPlc = "";
-    if (store.appCache && store.appCache.plc_blocks) {
+    if (store.appCache) {
+        store.appCache.plc_list = [];
+        store.appCache.selected_plc = "";
         store.appCache.plc_blocks = {};
     }
     store.projectInfo = null;
@@ -1060,15 +1060,17 @@ export async function connectTia() {
             if (tiaDown) {
                 resetPlcState();
             } else if (plcsResp && plcsResp.ok && Array.isArray(plcsResp.data && plcsResp.data.plcs)) {
-                store.plcs = plcsResp.data.plcs;
+                if (store.appCache) {
+                    store.appCache.plc_list = plcsResp.data.plcs;
+                }
                 store.tiaConnection = {
                     ...store.tiaConnection,
                     plcs: plcsResp.data.plcs,
                 };
             } else if (plcsResp && plcsResp.ok === false) {
-                // Conservar store.plcs previo en error (defensivo).
+                // Conservar el plc_list previo en error (defensivo).
                 // Si tampoco habia previo, queda como [] (initial
-                // state).
+                // state) por el default del store.
             }
         } catch (e) {
             // eslint-disable-next-line no-console
@@ -1276,16 +1278,11 @@ export function applyCacheChange(event) {
  * Aplica el snapshot inicial ``cache_snapshot`` del SSE al store.
  *
  * Llamado por ``main.js`` al recibir el primer evento tras
- * ``EventSource`` abrir ``/stream``. Hace merge por clave top-level
- * (``selected_plc``, ``plc_list``, ``plc_blocks``, ``plc_project``,
- * ``plc_user_constants``, ``areas``) en vez de reasignar el objeto
- * entero, para no invalidar refs que los ``computed`` ya hubiesen
- * cacheado.
- *
- * Tambien sincroniza ``store.plcs`` y ``store.selectedPlc`` con
- * los slots globales del cache (espejo reactivo para que la UI
- * pueda seguir leyendo de ``store.plcs`` / ``store.selectedPlc``
- * sin acoplarse a la forma nueva del cache).
+ * ``EventSource`` abrir ``/stream``. Hace merge por clave
+ * top-level (``selected_plc``, ``plc_list``, ``plc_blocks``,
+ * ``plc_project``, ``plc_user_constants``, ``areas``) en vez
+ * de reasignar el objeto entero: asi no se invalidan refs que
+ * los ``computed`` ya tuviesen cacheadas.
  *
  * @param {object} snapshot - payload ``event.data`` del cache_snapshot
  */
@@ -1306,16 +1303,6 @@ export function applyCacheSnapshot(snapshot) {
         if (Object.prototype.hasOwnProperty.call(snapshot, key)) {
             cache[key] = snapshot[key];
         }
-    }
-    // Espejos reactivos para los slots que el resto de la SPA ya
-    // lee de ``store.plcs`` / ``store.selectedPlc``.
-    if (Array.isArray(snapshot.plc_list)) {
-        store.plcs = snapshot.plc_list.map((x) =>
-            (x && typeof x === "object" && "name" in x) ? x.name : x
-        );
-    }
-    if (typeof snapshot.selected_plc === "string") {
-        store.selectedPlc = snapshot.selected_plc;
     }
 }
 
