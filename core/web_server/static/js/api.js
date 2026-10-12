@@ -271,10 +271,10 @@ export function apiProcesosSyncPreview(procUid, plcName) {
  * transacción TIA atómica (con rollback si algo falla).
  * Endpoint: POST /api/v1/procesos/sync/commit
  *
- * El backend recalcula el diff desde el AppState (NO usa la
- * ``prevision`` del body para evitar race conditions con cambios
- * de Excel entre el preview y el commit). El ``plc_name`` es
- * obligatorio.
+ * El backend recalcula el diff desde el cache del proceso
+ * (NO usa la ``prevision`` del body para evitar race conditions
+ * con cambios de Excel entre el preview y el commit). El
+ * ``plc_name`` es obligatorio.
  *
  * @param {number} procUid - uid del ProcesoPLC seleccionado.
  * @param {string} plcName - nombre del PLC activo.

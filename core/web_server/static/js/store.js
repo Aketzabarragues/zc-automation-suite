@@ -88,13 +88,12 @@ export const store = reactive({
      */
 
     /**
-     * Estado del ``AppState`` volcado por la API
-     * ``GET /api/v1/state/dispositivos``. Reemplazado por
-     * ``store.appCache.areas["alimentacion"].excel_full``
-     * (snapshot Excel completo, incluye ``dispositivos``,
-     * ``dimensiones``, ``procesos``, ``parametros_int``,
-     * ``parametros_real``, ``alarmas``, ``software_parsers_implemented``,
-     * etc.).
+     * Contrato del slot ``excel_full`` dentro de
+     * ``store.appCache.areas["alimentacion"]``: snapshot Excel
+     * completo, hidrata por SSE ``cache_changed`` al subir un
+     * Excel. Incluye ``dispositivos``, ``n_max``, ``procesos``,
+     * ``parametros_int``, ``parametros_real``, ``alarmas``,
+     * ``entidades``, ``plcs`` (PLC info del Excel).
      *
      * Los consumidores (DefinicionProgramacion, Dispositivos,
      * Entidades, ProcesosCrearView, ProcesosSyncView) leen
