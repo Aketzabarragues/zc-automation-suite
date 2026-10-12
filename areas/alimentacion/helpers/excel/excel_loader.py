@@ -58,7 +58,12 @@ from areas.alimentacion.helpers.excel.excel_parser_disp_m_sina import DispMSINAP
 from areas.alimentacion.helpers.excel.excel_parser_disp_m_vf import DispM_VFParser
 from areas.alimentacion.helpers.excel.excel_parser_disp_pid import DispPIDParser
 from areas.alimentacion.helpers.excel.excel_parser_disp_sa import DispSAParser
+from areas.alimentacion.helpers.excel.excel_parser_disp_sd import DispSDParser
 from areas.alimentacion.helpers.excel.excel_parser_disp_tot import DispTOTParser
+from areas.alimentacion.helpers.excel.excel_parser_disp_tq import DispTQParser
+from areas.alimentacion.helpers.excel.excel_parser_disp_tq_ae import (
+    DispTQ_AEParser,
+)
 from areas.alimentacion.helpers.excel.excel_parser_disp_v import DispVParser
 from areas.alimentacion.helpers.excel.excel_parser_entidades import EntidadesParser
 from areas.alimentacion.helpers.excel.excel_parser_plc import PLCListParser
@@ -82,14 +87,17 @@ class ExcelLoader:
 
     def __init__(self, config_manager: ConfigManager | None = None) -> None:
         self._config_manager = config_manager
-        # Los 9 parsers de dispositivos (reciben config_manager).
+        # Los 12 parsers de dispositivos (reciben config_manager).
         self._disp_ed = DispEDParser(config_manager=config_manager)
         self._disp_ea = DispEAParser(config_manager=config_manager)
         self._disp_sa = DispSAParser(config_manager=config_manager)
+        self._disp_sd = DispSDParser(config_manager=config_manager)
         self._disp_v = DispVParser(config_manager=config_manager)
         self._disp_m = DispMParser(config_manager=config_manager)
         self._disp_m_vf = DispM_VFParser(config_manager=config_manager)
         self._disp_m_sina = DispMSINAParser(config_manager=config_manager)
+        self._disp_tq = DispTQParser(config_manager=config_manager)
+        self._disp_tq_ae = DispTQ_AEParser(config_manager=config_manager)
         self._disp_tot = DispTOTParser(config_manager=config_manager)
         self._disp_pid = DispPIDParser(config_manager=config_manager)
         # Los 4 parsers de software (no necesitan config_manager:
@@ -140,10 +148,13 @@ class ExcelLoader:
             disp_ed = self._disp_ed.extraer(wb)
             disp_ea = self._disp_ea.extraer(wb)
             disp_sa = self._disp_sa.extraer(wb)
+            disp_sd = self._disp_sd.extraer(wb)
             disp_v = self._disp_v.extraer(wb)
             disp_m = self._disp_m.extraer(wb)
             disp_m_vf = self._disp_m_vf.extraer(wb)
             disp_m_sina = self._disp_m_sina.extraer(wb)
+            disp_tq = self._disp_tq.extraer(wb)
+            disp_tq_ae = self._disp_tq_ae.extraer(wb)
             disp_tot = self._disp_tot.extraer(wb)
             disp_pid = self._disp_pid.extraer(wb)
             # Ã¢”â‚¬Ã¢”â‚¬ 4 software Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬
@@ -185,10 +196,13 @@ class ExcelLoader:
             "ed":     tuple(disp_ed),
             "ea":     tuple(disp_ea),
             "sa":     tuple(disp_sa),
+            "sd":     tuple(disp_sd),
             "v":      tuple(disp_v),
             "m":      tuple(disp_m),
             "m_vf":   tuple(disp_m_vf),
             "m_sina": tuple(disp_m_sina),
+            "tq":     tuple(disp_tq),
+            "tq_ae":  tuple(disp_tq_ae),
             "tot":    tuple(disp_tot),
             "pid":    tuple(disp_pid),
         }
