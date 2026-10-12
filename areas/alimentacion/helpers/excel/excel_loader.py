@@ -1,7 +1,7 @@
 ﻿"""Cargador síncrono del Excel corporativo del subdominio alimentación.
 
 ``ExcelLoader`` abre el workbook UNA sola vez, ejecuta los 11
-parsers que lo componen (9 dispositivos + 4 software + 1 N_MAX)
+parsers que lo componen (12 dispositivos + 4 software + 1 N_MAX)
 y construye una ``DataExcelCache`` inmutable con los 3 lookups
 precomputados por ``codigo``.
 
@@ -112,7 +112,7 @@ class ExcelLoader:
         self._plcs = PLCListParser()
 
     def load(self, excel_path: str | Path) -> DataExcelCache:
-        """Carga el workbook UNA vez, ejecuta los 11 parsers, construye el cache.
+        """Carga el workbook UNA vez, ejecuta los 17 parsers, construye el cache.
 
         Args:
             excel_path: ruta al ``.xlsx`` a parsear (absoluta o
