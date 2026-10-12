@@ -346,4 +346,94 @@ class DispPID:
     plc_name: str = ""
 
 
-__all__ = ["Dispositivo", "DispED", "DispEA", "DispSA", "DispV", "DispM", "DispM_VF", "DispMSINA", "DispTOT", "DispPID"]
+@dataclass(frozen=True)
+class DispSD:
+    """Display Salidas Digitales (bits de salida).
+
+    Espejo digital de ``DispED``: campos compartidos (S.Byte/S.Bit
+    como direccionamiento, Gr.Alarma, Cuadro, Observaciones) y
+    bloque ``cfg_*`` propio para configurar el bit de activacion
+    y el grupo de alarma. NO comparte campos analogicos
+    (esos viven en ``DispSA``).
+    """
+
+    numero: int
+    plc_tag: str
+    plc_comentario: str
+    descripcion: str
+    uid: str
+    tag: str = ""
+    fat: str = ""
+    s_byte: int = 0
+    s_bit: int = 0
+    gr_alarma: int = 0
+    cuadro: str = ""
+    observaciones: str = ""
+    plc_tipo: str = ""
+    plc_index: int = 0
+    hmi_index: int = 0
+    hmi_texto: str = ""
+    cfg_habilitar: str = ""
+    cfg_byte_entrada: str = ""
+    cfg_bit_entrada: str = ""
+    cfg_grupo_alarma: str = ""
+    comentario_db: str = ""
+    plc_name: str = ""
+
+
+@dataclass(frozen=True)
+class DispTQ:
+    """Display Tanque (sensor analogico de nivel).
+
+    Subtipo de ``DispEA`` sin escalado (RII/RSI ni
+    ``cfg_escaladomin/max``): solo config textual de habilitacion
+    y comentarios. Conserva los 5 campos base (numero/plc_tag/
+    plc_comentario/descripcion/uid) y los metadatos PLC/HMI.
+    """
+
+    numero: int
+    plc_tag: str
+    plc_comentario: str
+    descripcion: str
+    uid: str
+    tag: str = ""
+    fat: str = ""
+    observaciones: str = ""
+    plc_tipo: str = ""
+    plc_index: int = 0
+    hmi_index: int = 0
+    hmi_texto: str = ""
+    cfg_habilitar: str = ""
+    comentario_db: str = ""
+    plc_name: str = ""
+
+
+@dataclass(frozen=True)
+class DispTQ_AE:
+    """Display Tanque Aire Esteril (sensor analogico).
+
+    DTO paralelo a ``DispTQ`` (mismos campos) con su propio
+    ``canonical`` ``DispTQ_AE`` para no mezclar lecturas de aire
+    esteril con lecturas de tanques normales en la SPA ni en el
+    catalogo. Comparten los campos base y la estructura de los
+    ``cfg_*`` con ``DispTQ``.
+    """
+
+    numero: int
+    plc_tag: str
+    plc_comentario: str
+    descripcion: str
+    uid: str
+    tag: str = ""
+    fat: str = ""
+    observaciones: str = ""
+    plc_tipo: str = ""
+    plc_index: int = 0
+    hmi_index: int = 0
+    hmi_texto: str = ""
+    cfg_habilitar: str = ""
+    comentario_db: str = ""
+    plc_name: str = ""
+
+
+__all__ = ["Dispositivo", "DispED", "DispEA", "DispSA", "DispV", "DispM", "DispM_VF", "DispMSINA", "DispTOT", "DispPID", "DispSD", "DispTQ", "DispTQ_AE"]
