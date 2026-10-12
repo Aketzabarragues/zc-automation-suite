@@ -15,19 +15,9 @@ from core.web_server.app_flask import create_app
 @pytest.fixture
 def app_with_stubs():
     app_state = MagicMock()
-    # ``AppState`` solo expone ``app_cache`` ahora. ``excel_cache_full``
-    # y ``excel_cache_active`` se leen via ``excel_get_full`` sobre
-    # ``app_cache`` (area ``"alimentacion"``). Mockeamos el ``area()``
-    # para devolver un objeto con ``excel_full`` / ``excel_active`` ``None``.
-    area_mock = MagicMock()
-    area_mock.excel_full = None
-    area_mock.excel_active = None
-    app_state.app_cache.area.return_value = area_mock
     app_state.app_cache.get_state.return_value.selected_plc = ""
 
     config_manager = MagicMock()
-    config_manager.list_hw_types_active.return_value = []
-    config_manager.get_excel_target_for.return_value = None
 
     log_buffer = MagicMock()
     log_buffer.snapshot.return_value = []
@@ -54,48 +44,6 @@ def app_with_stubs():
         "log_buffer": log_buffer,
         "progress_tracker": progress_tracker,
     }
-
-
-def test_state_dispositivos_returns_ok_with_empty_payload(app_with_stubs):
-    c, stubs = app_with_stubs
-    resp = c.get("/api/v1/state/dispositivos")
-    assert resp.status_code == 200
-    data = resp.get_json()
-    assert data["ok"] is True
-    assert data["dimensiones"] == {}
-    assert data["dispositivos"] == {}
-    assert data["software_parsers_implemented"] is False
-    assert data["procesos"] == []
-
-
-def test_state_dispositivos_iterates_active_hw_types(app_with_stubs):
-    c, stubs = app_with_stubs
-    cm = stubs["config_manager"]
-    cm.list_hw_types_active.return_value = ["ed", "ea"]
-    cm.get_excel_target_for.side_effect = lambda hw: {
-        "ed": {"canonical": "DispED"},
-        "ea": {"canonical": "DispEA"},
-    }.get(hw)
-
-    resp = c.get("/api/v1/state/dispositivos")
-    data = resp.get_json()
-    assert "DispED" in data["dispositivos"]
-    assert "DispEA" in data["dispositivos"]
-
-
-def test_state_dispositivos_skips_hw_without_canonical(app_with_stubs):
-    c, stubs = app_with_stubs
-    cm = stubs["config_manager"]
-    cm.list_hw_types_active.return_value = ["good", "bad"]
-    cm.get_excel_target_for.side_effect = lambda hw: {
-        "good": {"canonical": "DispOK"},
-        "bad": {"canonical": ""},
-    }.get(hw)
-
-    resp = c.get("/api/v1/state/dispositivos")
-    data = resp.get_json()
-    assert "DispOK" in data["dispositivos"]
-    assert "" not in data["dispositivos"]
 
 
 def test_get_logs_returns_buffer_snapshot(app_with_stubs):

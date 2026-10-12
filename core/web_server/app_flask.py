@@ -193,7 +193,7 @@ def create_app(
 
     # ── Routers aportados por las areas (AreaSpec.contributes_routers)
     # Cada area registra su blueprint aqui (ej. alimentacion expone
-    # /api/v1/state/dispositivos desde su ``dispositivos_router``).
+    # ``/api/v1/excel/upload`` desde su ``excel_router``).
     # El shell no sabe que areas concretas existen; el AreaRegistry
     # las descubre y les pasa la ``app``.
     from core.composition.app_area_registry import AreaRegistry

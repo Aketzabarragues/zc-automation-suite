@@ -148,10 +148,9 @@ class FunctionProcDBGenerarPreview(FunctionBase):
     def on_start(self, **params: Any) -> None:
         """Validar deps inyectadas + capturar plc_name + proc_uid + crear ctx.
 
-        ``bloques_cache`` puede inyectarse por constructor (test) o
-        leerse del singleton ``TIADataBloqueCache._caches`` (dict de
-        clase, acceso sync) si el FB se registro en el engine sin esa
-        dep (caso comun en prod).
+        ``bloques_cache`` se inyecta por constructor (test) o se lee
+        de ``app_cache.plc_blocks`` via ``plc_blocks_get`` si el FB
+        se registro en el engine sin esa dep (caso comun en prod).
         """
         if self._config is None:
             raise RuntimeError(

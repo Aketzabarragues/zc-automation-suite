@@ -7,12 +7,6 @@ Endpoints:
   GET  /api/v1/progress/current  -> snapshot de ProgressTracker.
   POST /api/v1/progress/clear    -> resetea ProgressTracker.
 
-El endpoint ``/api/v1/state/dispositivos`` (vuelco del DataExcelCache
-del AppState) era de este modulo, pero es especifico del area de
-alimentacion. Se movio a
-``areas/alimentacion/frontend/dispositivos_router.py`` y se monta
-via ``AreaSpec.contributes_routers``.
-
 Las dependencias se inyectan via ``current_app.config['_LAZY_*']``
 (lazy resolvers). Ver ``core/web_server/app_flask.create_app``.
 """

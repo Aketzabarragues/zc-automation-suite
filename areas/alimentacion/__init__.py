@@ -39,9 +39,6 @@ def _build_alim_catalog_combined(config_manager):
         **build_software_catalog(config_manager),
         **build_entidades_catalog(config_manager),
     }
-from areas.alimentacion.frontend.dispositivos_router import (
-    build_routers as build_dispositivos_routers,
-)
 from areas.alimentacion.frontend.excel_router import (
     build_routers as build_excel_routers,
 )
@@ -86,7 +83,6 @@ def _build_all_routers(app) -> None:
          blueprint ``bp`` y un hook ``build_routers(app)``.
       2. Importar aqui y llamar ``<modulo>_routers.build_routers(app)``.
     """
-    build_dispositivos_routers(app)
     build_excel_routers(app)
     build_disp_preview_routers(app)
     build_disp_sync_routers(app)
@@ -237,9 +233,9 @@ def register(
     # metodos legacy del use case ProcSyncComentariosUseCase
     # (``generar_prevision`` + ``ejecutar_transaccion``). 6 + 5
     # etapas. STEP_TIMEOUT_S=180s (preview) y 300s (sync).
-    # ``bloques_cache`` se resuelve en on_start() desde el
-    # singleton TIADataBloqueCache (acceso sync al dict de
-    # clase) si el FB se registro sin esa dep.
+    # ``bloques_cache`` se resuelve en on_start() desde
+    # ``app_cache.plc_blocks`` via ``plc_blocks_get`` si el FB se
+    # registro sin esa dep.
     engine.register_fb(
         "proc_db_generar_preview",
         FunctionProcDBGenerarPreview(
@@ -266,7 +262,8 @@ def register(
     # import + compile). El helper ``proc_crear_process_generator`` opera
     # sobre directorios locales; los imports los despachan los FBs
     # via ``core.helpers.tia.dispatch_async``. ``plc_blocks_cache``
-    # se resuelve en on_start() desde el singleton TIADataBloqueCache.
+    # se resuelve en on_start() desde ``app_cache.plc_blocks`` via
+    # ``plc_blocks_get``.
     engine.register_fb(
         "proc_process_crear_preview",
         FunctionProcCrearGenerarPreview(

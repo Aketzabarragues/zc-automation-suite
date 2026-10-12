@@ -157,10 +157,9 @@ class FunctionProcDBSincronizar(FunctionBase):
     def on_start(self, **params: Any) -> None:
         """Validar deps inyectadas + capturar plc_name + proc_uid + crear ctx.
 
-        ``bloques_cache`` puede inyectarse por constructor (test) o
-        leerse del singleton ``TIADataBloqueCache._caches`` (dict de
-        clase, acceso sync) si el FB se registro en el engine sin esa
-        dep (caso comun en prod).
+        ``bloques_cache`` se inyecta por constructor (test) o se lee
+        de ``app_cache.plc_blocks`` via ``plc_blocks_get`` si el FB
+        se registro en el engine sin esa dep (caso comun en prod).
         """
         if self._config is None:
             raise RuntimeError(
@@ -1131,33 +1130,6 @@ class ProcSyncContext:
     post_sync_preview: dict[str, Any] | None = None
 
     result: dict[str, Any] = field(default_factory=dict)
-
-
-
-# Wrappers legacy. Conservados para compat con callers / tests que
-# importaban estos nombres. Usar las 4 fases publicas de Tx B.
-
-
-async def _compute_apply_maps(
-    ctx: ProcSyncContext,
-) -> "tuple[dict[str, str], dict[str, str], dict[str, str]]":
-    """DEPRECATED. Usar ``proc_tx_b_*`` directamente."""
-    if not hasattr(ctx, "exports_param_dir"):
-        await proc_tx_b_detectar_eliminar_export(ctx)
-    current_preal, current_pint, current_alm = (
-        await proc_tx_b_detectar_eliminar_read(ctx)
-    )
-    return proc_tx_b_calcular_apply_maps(
-        ctx, current_preal, current_pint, current_alm
-    )
-
-
-async def _re_export_current(  # noqa: D401 - legacy shim
-    ctx: ProcSyncContext,
-) -> "tuple[dict[int, str | None], dict[int, str | None], dict[int, str | None]]":
-    """DEPRECATED. Usar ``proc_tx_b_detectar_eliminar_export/read``."""
-    await proc_tx_b_detectar_eliminar_export(ctx)
-    return await proc_tx_b_detectar_eliminar_read(ctx)
 
 
 __all__ = [

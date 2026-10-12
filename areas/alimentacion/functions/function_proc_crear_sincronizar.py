@@ -591,14 +591,14 @@ class FunctionProcCrearSincronizar(FunctionBase):
             )
 
     async def _stage_9_refresh_cache(self) -> None:
-        """Stage 9: reescanea el PLC y repuebla ``TIADataBloqueCache``.
+        """Stage 9: reescanea el PLC y repuebla ``app_cache.plc_blocks``.
 
-        Tras el apply exitoso del nuevo proceso, el singleton del
-        backend (``TIADataBloqueCache._caches[plc_name]``) contiene el
-        snapshot anterior a la creacion. Sin este refresh, el siguiente
-        preview/sync del proceso nuevo veria ``missing_blocks`` aunque
-        los bloques ya existan en TIA, y el operario tendria que pulsar
-        manualmente el boton ↻ del sidebar.
+        Tras el apply exitoso del nuevo proceso, el slot
+        ``app_cache.plc_blocks[plc_name]`` contiene el snapshot anterior
+        a la creacion. Sin este refresh, el siguiente preview/sync del
+        proceso nuevo veria ``missing_blocks`` aunque los bloques ya
+        existan en TIA, y el operario tendria que pulsar manualmente
+        el boton ↻ del sidebar.
 
         Tolerancia a fallos: si el scan falla (TIA no responde, etc.),
         no abortamos el apply (ya fue exitoso). Loggeamos warning y el
