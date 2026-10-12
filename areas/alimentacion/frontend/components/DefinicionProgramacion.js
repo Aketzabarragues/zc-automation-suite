@@ -122,11 +122,11 @@ export default {
          * ``excel_full`` sin acoplar MainTabs al shape
          * del dataclass.
          *
-         * El tab "Configuracion" muestra la ``Tabla_Dispositivos``
+         * El tab "Configuracion" muestra la ``Tabla_Dimensiones``
          * del Excel con shape multi-PLC (una fila por PLC).
          */
         const configuracionCount = computed(() => {
-            const d = excelFull.value && excelFull.value.dimensiones;
+            const d = excelFull.value && excelFull.value.n_max;
             if (!d || typeof d !== "object") return 0;
             return Object.keys(d).length;
         });

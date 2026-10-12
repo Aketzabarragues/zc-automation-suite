@@ -54,6 +54,23 @@ class _FakeNestedDC:
     when: datetime
 
 
+@dataclass(frozen=True)
+class _FakeDCWithToDict:
+    """Stub de dataclass que TAMBIEN expone ``to_dict()``.
+
+    Reproduce la condicion real de ``DataExcelCache``: dataclass
+    frozen con ``to_dict()`` que devuelve una shape de dominio
+    diferente a ``asdict`` (p.ej. ``{plc_name: {nmax: int}}`` en
+    lugar de ``{n_max: {por_plc: [...]}}``).
+    """
+
+    plc_name: str
+    nmax: dict[str, int]
+
+    def to_dict(self) -> dict:
+        return {self.plc_name: dict(self.nmax)}
+
+
 class _HasToDict:
     """Stub que expone ``to_dict()`` pero NO es dataclass."""
 
@@ -153,6 +170,31 @@ def test_to_jsonable_dataclass_simple() -> None:
     """Una dataclass simple sin campos no triviales."""
     out = to_jsonable(_FakeDC(42, "z"))
     assert out == {"a": 42, "b": "z"}
+
+
+def test_to_jsonable_dataclass_con_to_dict_usa_to_dict() -> None:
+    """``to_dict()`` tiene prioridad sobre ``asdict`` en dataclasses.
+
+    Caso real: ``DataExcelCache`` es dataclass frozen y expone
+    ``to_dict()`` que aplana la estructura (``n_max`` se serializa
+    como ``{plc_name: {nmax_name: int}}``, no como
+    ``{n_max: {por_plc: [...]}}`` que produciria ``asdict``).
+    Antes del fix, ``to_jsonable`` aplicaba ``asdict`` ANTES de
+    ``to_dict``, dando shape incorrecta al ``cache_changed`` que
+    rompia la SPA (la tabla de Configuracion veia ``por_plc`` como
+    columna).
+    """
+    dc = _FakeDCWithToDict(
+        plc_name="PLC_X",
+        nmax={"N_MAX_DISP_ED": 50, "N_MAX_DISP_EA": 30},
+    )
+    out = to_jsonable(dc)
+    # Shape plana del dominio, NO ``asdict(dc)``.
+    assert out == {"PLC_X": {"N_MAX_DISP_ED": 50, "N_MAX_DISP_EA": 30}}
+    # ``asdict`` hubiera producido la shape con la key del campo
+    # ``plc_name`` y ``nmax`` como dict anidado.
+    assert "por_plc" not in out
+    assert "plc_name" not in out
 
 
 # ─────────────────────────────────────────────────────────────────────

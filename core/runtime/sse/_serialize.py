@@ -10,9 +10,12 @@ Reglas (en orden):
   2. ``datetime`` -> ``isoformat()``.
   3. ``tuple`` / ``list`` -> recursivo sobre cada elemento.
   4. ``dict`` -> recursivo sobre cada valor (claves se mantienen).
-  5. ``dataclass`` (vía ``dataclasses.is_dataclass``) -> ``asdict()``
+  5. objeto con metodo ``to_dict()`` -> llamada y luego recursivo
+     (tiene prioridad sobre ``asdict`` para que un dataclass que
+     expone ``to_dict()`` use la shape plana del dominio en lugar
+     de la estructura interna de la dataclass).
+  6. ``dataclass`` (vía ``dataclasses.is_dataclass``) -> ``asdict()``
      y luego recursivo.
-  6. objeto con metodo ``to_dict()`` -> llamada y luego recursivo.
   7. resto -> ``repr()`` como fallback (mejor que un TypeError en
      el generador SSE).
 
@@ -50,14 +53,19 @@ def to_jsonable(value: Any) -> Any:
         return [to_jsonable(v) for v in value]
     if isinstance(value, dict):
         return {k: to_jsonable(v) for k, v in value.items()}
-    if is_dataclass(value):
-        return to_jsonable(asdict(value))
+    # Regla 5: ``to_dict()`` tiene prioridad sobre ``asdict`` para que
+    # un dataclass que expone ``to_dict()`` (``DataExcelCache``,
+    # ``PlcInfo``, ``PlcProject``) use la shape plana del dominio y
+    # no la estructura interna de la dataclass.
     to_dict = getattr(value, "to_dict", None)
     if callable(to_dict):
         try:
             return to_jsonable(to_dict())
         except Exception:  # noqa: BLE001
             return repr(value)
+    # Regla 6: dataclass sin ``to_dict()`` -> ``asdict``.
+    if is_dataclass(value):
+        return to_jsonable(asdict(value))
     return repr(value)
 
 
