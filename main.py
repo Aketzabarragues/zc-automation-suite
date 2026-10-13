@@ -145,7 +145,6 @@ def main() -> int:
         config_manager=config_manager,
     )
     log.info("Supervisor creado: %s:%d (tick=100ms).", WEB_HOST, WEB_PORT)
-    log.info("Esperando que el operario elija Iniciar web desde el menu.")
 
     try:
         from core.launcher.tray_app import run_tray

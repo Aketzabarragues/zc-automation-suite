@@ -6,6 +6,14 @@ Menú (click derecho):
   - Estado              ← balloon tip con info del supervisor
   - Salir               ← para web + cierra icono
 
+Auto-arranque: al crear el icono, la web (Flask + supervisor +
+TIA loop) se arranca automáticamente para evitar que el operario
+tenga que hacer "click derecho -> Iniciar web" tras el doble
+click inicial. El navegador NO se abre; el operario debe
+hacer "click derecho -> Abrir panel web" cuando quiera ver la SPA.
+``web.start()`` es idempotente, así que pulsar "Iniciar web" tras
+el auto-arranque es no-op.
+
 Icon.run() bloquea el main thread (pystray lo requiere así).
 El supervisor vive en hilos daemon separados.
 """
@@ -18,6 +26,8 @@ from pathlib import Path
 from typing import Callable
 
 from PIL import Image, ImageDraw, ImageFont
+
+from core.runtime.log_buffer import get_log_buffer
 
 APP_NAME = "ZC Automation Suite"
 
@@ -107,17 +117,44 @@ def run_tray(
     icon_img = _load_icon_image(icon_path, log)
     icon_ref: dict[str, object] = {"icon": None}
 
+    def start_web() -> None:
+        """Arranca la web + espera a que Flask bindee. Idempotente.
+
+        Llamado desde el auto-arranque (sin chequeo de estado) y
+        desde ``on_toggle_web`` en la rama "Iniciar web". El
+        supervisor garantiza idempotencia (``_is_running()``),
+        asi que si el operario pulsa "Iniciar web" tras el
+        auto-arranque, sale en silencio.
+
+        Si tras 10s Flask no está vivo (puerto ocupado, TIA no
+        carga, etc.), inyecta el error al ``LogBuffer`` de la SPA
+        para que el operario lo vea al abrir el panel.
+        """
+        log.info("Iniciando web (start_web).")
+        web.start()
+        deadline = time.time() + 10.0
+        while time.time() < deadline and not web.is_alive():
+            time.sleep(0.2)
+        if web.is_alive():
+            log.info("Web alive=True tras auto-arranque.")
+        else:
+            log.error("Web alive=False tras 10s. Revisa zc.log.")
+            try:
+                get_log_buffer().error(
+                    "Auto-arranque del launcher fallo: Flask no bindeo "
+                    "el puerto %s:%d en 10s. Revisa zc.log para detalles."
+                    % (web.host, web.port)
+                )
+            except Exception as exc:  # noqa: BLE001
+                log.warning("get_log_buffer() no disponible: %s", exc)
+
     def on_toggle_web(_icon, _item) -> None:
         if web.is_alive():
             log.info("Menu -> Parar web")
             web.stop(timeout=5.0)
         else:
             log.info("Menu -> Iniciar web")
-            web.start()
-            # Da tiempo al Flask daemon a bindear.
-            deadline = time.time() + 10.0
-            while time.time() < deadline and not web.is_alive():
-                time.sleep(0.2)
+            start_web()
         log.info("Web alive=%s", web.is_alive())
         _refresh_menu(icon_ref["icon"])
 
@@ -169,6 +206,13 @@ def run_tray(
         menu=menu,
     )
     icon_ref["icon"] = icon
+    # Auto-arranque: el operario no deberia tener que clickar
+    # "Iniciar web" cada vez que abre el .exe. Se invoca ANTES de
+    # icon.run() para que el Flask daemon arranque en paralelo con
+    # el message loop de pystray. Si falla, el helper lo loguea al
+    # LogBuffer de la SPA para que el operario se entere al abrir
+    # el panel.
+    start_web()
     log.info("Icono de bandeja mostrado. Click derecho -> menu.")
     icon.run()
     log.info("Bucle del icono de bandeja terminado.")
