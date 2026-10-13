@@ -19,6 +19,7 @@ import os
 import shutil
 import sys
 from pathlib import Path
+from logging.handlers import RotatingFileHandler
 
 from core.infrastructure.log.log_web_bridge import (
     install_log_buffer_handler,
@@ -336,7 +337,13 @@ def setup_logging(mode: str = "default") -> Path:
 
     # FileHandler: append mode (multiples procesos al mismo archivo
     # OK con lock). UTF-8 para tildes y emojis de logs.
-    file_handler = logging.FileHandler(log_file, mode="a", encoding="utf-8")
+    file_handler = RotatingFileHandler(
+        log_file,
+        mode="a",
+        maxBytes=10_000_000,  # 10 MB por fichero
+        backupCount=3,         # 3 backups: zc.log.1, zc.log.2, zc.log.3
+        encoding="utf-8",
+    )
     file_handler.setFormatter(formatter)
     file_handler.setLevel(file_level)
     logging.root.addHandler(file_handler)
