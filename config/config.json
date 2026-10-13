@@ -139,7 +139,7 @@
           "config_table": "0_Config_Dispositivos"
         },
         "sd": {
-          "db_name": "DB2002_SD",
+          "db_name": "DB2005_SD",
           "db_array_name": "SD",
           "tag_table": "2000_Disp_SD",
           "config_table": "0_Config_Dispositivos",
@@ -174,7 +174,7 @@
           "config_table": "0_Config_Dispositivos"
         },
         "tq": {
-          "db_name": "DB2018_TQ",
+          "db_name": "DB2040_TQ",
           "db_array_name": "TQ",
           "tag_table": "2000_Disp_TQ",
           "config_table": "0_Config_Dispositivos",
@@ -185,7 +185,7 @@
           }
         },
         "tq_ae": {
-          "db_name": "DB2019_TQ_AE",
+          "db_name": "DB2041_TQ_AE",
           "db_array_name": "TQ_AE",
           "tag_table": "2000_Disp_TQ_AE",
           "config_table": "0_Config_Dispositivos",

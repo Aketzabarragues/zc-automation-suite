@@ -806,7 +806,7 @@ def report_artifact(exit_code: int) -> int:
         print()
         print("[NEXT STEPS]")
         print("  1. Doble-clic sobre el .exe → aparece icono de bandeja.")
-        print("  2. Click-derecho → Iniciar web → uvicorn en :8000.")
+        print("  2. Click-derecho → Iniciar web → uvicorn en :9484.")
         print("  3. Probar worker: "
               f"echo {{\"command\":\"list_plcs\",\"args\":{{}}}} | {artifact.name} --worker")
         return 0
