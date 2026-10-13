@@ -26,8 +26,7 @@ arquitectónicas del proyecto):
     con ``ImportError`` al cargar ``siemens_tia_scripting``.
 
   - **Entry = ``main.py``**: el ``.exe`` arranca como bandeja
-    + web supervisor (``console=False``, windowed). MCP queda
-    dev-only y se invoca con ``python main.py --mcp`` en el repo.
+    + web supervisor (``console=False``, windowed).
     ``main.py`` despacha ``--worker`` internamente para que el
     gateway legacy pueda re-invocar el ``.exe`` como subproceso OT
     efímero (cuando el gateway async legacy se invoque, el .exe
@@ -282,14 +281,6 @@ SPEC_TEMPLATE = dedent(
         hiddenimports=[
             # ── Siemens / Pythonnet (worker OT, llamado por --worker) ──
             'siemens_tia_scripting', 'pythonnet', 'clr',
-            # ── Web server (interfaces/web_server/) ──
-            'fastapi', 'fastapi.staticfiles', 'starlette',
-            'starlette.staticfiles', 'uvicorn', 'uvicorn.lifespan',
-            'uvicorn.lifespan.on', 'uvicorn.loops', 'uvicorn.loops.auto',
-            'uvicorn.protocols', 'uvicorn.protocols.http',
-            'uvicorn.protocols.http.auto', 'uvicorn.protocols.websockets',
-            'uvicorn.protocols.websockets.auto', 'uvicorn.server',
-            'uvicorn.main', 'uvicorn.config', 'uvicorn.importer',
             # ── Excel (parsers + use cases) ──
             'openpyxl', 'openpyxl.cell._writer',
             # ── Tray (launcher/) ──
@@ -310,10 +301,6 @@ SPEC_TEMPLATE = dedent(
             {hiddenimports_areas_py}
         ],
         excludes=[
-            # MCP/FastMCP NO entran en el .exe (es dev-only);
-            # excluidos explícitamente para no inflar el bundle.
-            'mcp', 'fastmcp', 'fastmcp.server', 'fastmcp.tools',
-            'mcp.server', 'mcp.server.stdio',
             # main.py se incluye via ENTRY_SCRIPT (entry del .exe);
             # PyInstaller lo empaqueta automáticamente. No excluir.
             # El comentario antiguo era engañoso (main.py es el entry).
@@ -806,7 +793,7 @@ def report_artifact(exit_code: int) -> int:
         print()
         print("[NEXT STEPS]")
         print("  1. Doble-clic sobre el .exe → aparece icono de bandeja.")
-        print("  2. Click-derecho → Iniciar web → uvicorn en :9484.")
+        print("  2. Click-derecho → Iniciar web → Flask en :9484.")
         print("  3. Probar worker: "
               f"echo {{\"command\":\"list_plcs\",\"args\":{{}}}} | {artifact.name} --worker")
         return 0
