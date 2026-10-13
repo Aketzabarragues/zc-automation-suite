@@ -65,6 +65,18 @@ class MainServiceSupervisor:
                 return
             self._stop_event.clear()
             self._healthy.clear()
+            # Cleanup de .build_cache/<area>/ al arrancar (simetrico con
+            # stop()). Un fallo aqui NO aborta el supervisor: la app
+            # debe poder arrancar aunque el cleanup falle para que el
+            # operario vea el error en consola.
+            if self.config_manager is not None:
+                try:
+                    self._cleanup_build_cache()
+                except Exception as exc:  # noqa: BLE001
+                    self.log.warning(
+                        "start: _cleanup_build_cache() fallo (no aborta arranque): %s",
+                        exc,
+                    )
             try:
                 self._components = self._build_components()
             except Exception as exc:  # noqa: BLE001

@@ -75,6 +75,20 @@ def stage_vendor_assets(pyd_path: Path) -> Path:
     Raises:
         OSError: Si no se puede crear el tempdir o copiar los archivos.
     """
+    # Startup cleanup: purga tempdirs zc_vendor_* huerfanos de
+    # sesiones anteriores (cerradas limpia o abruptamente). Cada
+    # sesion que arranca asume que es la unica en disco.
+    _tmp_root = Path(tempfile.gettempdir())
+    for _stale in _tmp_root.glob("zc_vendor_*"):
+        if _stale.is_dir():
+            try:
+                shutil.rmtree(_stale, ignore_errors=True)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "No se pudo borrar tempdir huerfano %s: %s",
+                    _stale, exc,
+                )
+
     staging_root = Path(tempfile.mkdtemp(prefix="zc_vendor_"))
     vendor_dir = staging_root / "vendor"
     vendor_dir.mkdir(parents=True, exist_ok=True)
