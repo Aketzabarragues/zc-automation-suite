@@ -119,6 +119,25 @@ class AppCache:
                 d[area_id] = d[area_id].reset()
             self._areas = d
 
+    def clear(self) -> None:
+        """Limpia TODO: state + areas + on_change.
+
+        Llamado por ``MainServiceSupervisor.stop()`` para que el siguiente
+        ``start()`` arranque con estado limpio (las areas se re-registran
+        via ``AreaSpec.contributes_caches``).
+
+        Complementa a ``reset()``: ``reset()`` mantiene las areas y solo
+        limpia sus valores (pensado para desconexion TIA dentro de la
+        misma sesion); ``clear()`` borra todo (fin de sesion del
+        supervisor).
+
+        Thread-safe bajo ``self._lock``.
+        """
+        with self._lock:
+            self._state = _AppCacheState()
+            self._areas = {}
+            self._on_change = None
+
     def register_area(
         self,
         area_id: str,
