@@ -201,6 +201,50 @@ def test_reset_no_pierde_las_areas_registradas() -> None:
     assert cache.area("test") is not None
 
 
+def test_clear_wipes_state_areas_and_on_change() -> None:
+    """``clear()`` es el fin-de-sesion del supervisor.
+
+    Complementa a ``reset()``: ``reset()`` mantiene las keys de las
+    areas y solo limpia valores; ``clear()`` borra TODO (state +
+    areas + on_change) para que el siguiente ``start()`` del
+    supervisor arranque limpio.
+    """
+    from areas.alimentacion.state.area_cache import AlimentacionAreaCache
+
+    cache = AppCache()
+
+    def callback(slot, area_id, plc_name, value):
+        pass
+
+    cache.on_change(callback)
+    cache.register_area("alimentacion", AlimentacionAreaCache())
+    cache.mutate(lambda s: dataclasses.replace(s, selected_plc="S7-1500"))
+
+    # Sanity: state + area + on_change registrados.
+    state = cache.get_state()
+    assert state.selected_plc == "S7-1500"
+    assert "alimentacion" in list(cache._areas)  # noqa: SLF001
+    assert cache._on_change is not None  # noqa: SLF001
+
+    cache.clear()
+
+    # Tras ``clear()`` todo vuelve a defaults: sin state, sin areas,
+    # sin callback. El siguiente ``register_area`` con el mismo id
+    # NO debe lanzar ``ValueError``.
+    state_after = cache.get_state()
+    assert state_after.selected_plc == ""
+    assert state_after.plc_blocks == {}
+    assert state_after.plc_list == ()
+    assert cache._areas == {}  # noqa: SLF001
+    assert cache._on_change is None  # noqa: SLF001
+
+    # Re-registrar tras ``clear()`` debe funcionar (el bug original
+    # del supervisor: "area 'alimentacion' ya registrada" en el 2do
+    # start).
+    cache.register_area("alimentacion", AlimentacionAreaCache())
+    assert cache.area("alimentacion") is not None
+
+
 def test_register_area_lanza_valueerror_si_duplicado() -> None:
     """``register_area`` con mismo ``area_id`` -> ``ValueError``."""
 

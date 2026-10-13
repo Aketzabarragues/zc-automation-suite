@@ -135,6 +135,19 @@ class MainServiceSupervisor:
         # ``alimentacion``; ``trazabilidad``, ``recetas``, etc. entran
         # solas).
         self._cleanup_build_cache()
+        # Limpia el AppCache global: la proxima invocacion de ``start()``
+        # re-registrara las areas via ``AreaSpec.contributes_caches`` (que
+        # llama ``app_cache.register_area(...)``). Sin esto, el 2do start
+        # del ciclo Parar web / Iniciar web revienta con
+        # ``area 'alimentacion' ya registrada``.
+        try:
+            from core.runtime.app_cache import get_app_cache
+            get_app_cache().clear()
+        except Exception as exc:  # noqa: BLE001
+            self.log.warning(
+                "stop: get_app_cache().clear() fallo (no aborta): %s",
+                exc,
+            )
         self._healthy.clear()
         self._flask_thread = None
         self._loop_thread = None
