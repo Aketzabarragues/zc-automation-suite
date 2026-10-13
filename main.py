@@ -120,6 +120,36 @@ def main() -> int:
     ``on_before_exit`` para el web server antes de quitar el icono.
     Si pystray falla, el web queda vivo hasta Ctrl+C.
     """
+    # Lock file: evita 2 instancias simultaneas del .exe. Si ya hay
+    # una corriendo, este proceso sale con exit code 1 y un mensaje
+    # claro en el log. Solo Windows (msvcrt.locking); en dev Linux/Mac
+    # el bloque es no-op.
+    if sys.platform == "win32":
+        import os
+        import atexit
+        import msvcrt
+        lock_path = Path(os.path.expanduser("~")) / ".zc_automation_suite.lock"
+        try:
+            lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o644)
+        except OSError as exc:
+            log.error("No se pudo crear lock file %s: %s", lock_path, exc)
+            return 1
+        try:
+            msvcrt.locking(lock_fd, msvcrt.LK_NBLCK, 1)
+        except OSError:
+            # El lock no se pudo obtener: otra instancia ya esta corriendo.
+            os.close(lock_fd)
+            log.error(
+                "Otra instancia de zc-automation-suite esta corriendo "
+                "(lock file ocupado: %s). Cierra la otra instancia o "
+                "espera unos segundos y reintenta.",
+                lock_path,
+            )
+            return 1
+        atexit.register(msvcrt.locking, lock_fd, msvcrt.LK_UNLCK, 1)
+        atexit.register(os.close, lock_fd)
+        log.info("Lock file adquirido: %s", lock_path)
+
     _force_utf8_streams()
 
     log.info("=" * 60)
