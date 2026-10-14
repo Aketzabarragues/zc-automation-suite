@@ -8,7 +8,7 @@
 
 ## TL;DR del state machine OT (sept-2026)
 
-El worker de TIA Portal (`core/infrastructure/tia/worker_tia.py`) corre
+El worker de TIA Portal (comandos en `core/infrastructure/tia/tia_commands_catalog.py`) corre
 como subproceso **persistente**: arranca en `idle` (sin portal attached),
 el gateway le envía un `attach_portal` explícito cuando el operario pulsa
 "Conectar" desde la topbar, y un `detach_portal` cuando pulsa "Desconectar".
@@ -30,9 +30,12 @@ contrato IPC, state machine y comandos de ciclo de vida están en
 ### 1. Nueva operación contra TIA Portal
 1. Decide si la operación es **genérica** (la usan todas las áreas
    futuras) o **específica del área**:
-   - **Genérica:** edita `core/infrastructure/tia/worker_tia.py`,
-     añade handler con firma `(portal, ts, args) -> Any` y regístralo
-     en `COMMAND_REGISTRY`.
+   - **Genérica:** edita `core/infrastructure/tia/tia_commands_catalog.py`
+     (o el submódulo de la categoría correspondiente: `tia_cmd_lifecycle`,
+     `tia_cmd_project`, `tia_cmd_inspect`, `tia_cmd_compile`, `tia_cmd_export`,
+     `tia_cmd_import_`, `tia_cmd_user_consts`, `tia_cmd_batch`), añade
+     handler con firma `(args: dict, tia_client: SyncTIAClient) -> dict`
+     (alias `HandlerSig`) y regístralo en `CATALOGO`.
    - **Específica de un área:** edita
      `areas/<area>/infrastructure/tia/extra_commands.py`, implementa
      el handler y regístralo en la función `register(registry)`. El
@@ -49,7 +52,8 @@ contrato IPC, state machine y comandos de ciclo de vida están en
    llama al gateway, y emite progress.
 6. El router Flask expone el endpoint con la dependencia
    `get_gateway`. Los routers genéricos viven en
-   `core/web_server/routers/`; los del área en `areas/<area>/interfaces/web/ (futuro)`.
+   `core/web_server/routers/`; los del área en `areas/<area>/frontend/`
+   (routers Flask del área, ej. `alimentacion/frontend/excel_router.py`).
 7. Tests: mockea el gateway con `MagicMock(spec=TIAProcessGateway)`,
    nunca el worker directamente.
 
@@ -91,11 +95,14 @@ contrato IPC, state machine y comandos de ciclo de vida están en
    nuevas clases se detectan automáticamente.
 
 ### 4. Nuevo campo / tipo de dispositivo (data-driven, en el área)
-1. `areas/alimentacion/domain/disp_catalog.py`: añade dataclass.
-2. `core/infrastructure/config_manager.py`: añade mapeo `hw_type` → tabla PLC.
-3. `core/infrastructure/parsers/excel_parser.py`: añade parser base
-   (si es genérico) o `areas/alimentacion/infrastructure/parsers/`
-   (si es específico del área).
+1. Catálogo del área: añade el dataclass en
+   `areas/<área>/__init__.py` (ver `_build_alim_catalog_combined` como
+   referencia en `alimentacion/__init__.py`).
+2. `core/infrastructure/config/config_manager.py`: añade mapeo
+   `hw_type` → tabla PLC.
+3. Parser Excel: `areas/<área>/helpers/excel/excel_parser_<tipo>.py`
+   (uno por tipo de dispositivo; ver `alimentacion/helpers/excel/`
+   como referencia; no hay parser Excel genérico en core hoy).
 4. El `GET /api/v1/catalog` lo recoge automáticamente (data-driven).
 5. NO tocar nada en la SPA: aparece solo en el sidebar/tabs.
 
@@ -119,7 +126,7 @@ contrato IPC, state machine y comandos de ciclo de vida están en
 ### 6. Cómo añadir una nueva área
 1. Crear `areas/<area_id>/` con `__init__.py` que defina
    `AREA_SPEC = AreaSpec(...)` (dataclass frozen en
-   `core/application/area_registry.py`).
+   `core/composition/app_area_registry.py`).
 2. Si el área tiene modelos de dominio: `areas/<area>/domain/`.
 3. Si tiene casos de uso: `areas/<area>/application/use_cases/`.
 4. Si tiene adaptadores (parsers, modificadores, etc.):
@@ -127,8 +134,9 @@ contrato IPC, state machine y comandos de ciclo de vida están en
    son específicos de cada área y viven aquí (NO en `core/`), por
    ejemplo `areas/<area>/infrastructure/xml/disp_tag_table_modifier.py`
    y `areas/<area>/infrastructure/sd/` (modificadores de `.s7dcl`).
-   `core/` solo aporta el gateway y los parsers base genéricos
-   (p. ej. `core/infrastructure/parsers/excel_parser.py`).
+   `core/` solo aporta el gateway y los parsers base genéricos (si los
+   hubiera; hoy no hay parser Excel genérico, los específicos viven
+   en `areas/<área>/helpers/excel/`).
 5. Si tiene comandos TIA transaccionales:
    `areas/<area>/infrastructure/tia/extra_commands.py` con
    `register(registry)`.
@@ -266,7 +274,9 @@ commit).
   QA manual con `?demo=1` y servidor de pruebas.
 
 ### Command loader del worker OT
-- `core/infrastructure/tia/worker_tia.py` contiene los comandos
+- `core/infrastructure/tia/tia_commands_catalog.py` (unión de los 8
+  catálogos por categoría: lifecycle, project, inspect, compile,
+  export, import, user_consts, batch) contiene los comandos
   **genéricos** del `COMMAND_REGISTRY`:
   - Ciclo de vida de proyecto: `open_new_portal`, `open_project`,
     `save_project`, `close_project`.
@@ -319,10 +329,10 @@ commit).
 ### Paths de export/modificación (workdirs)
 - Los workdirs de export/modificación siguen la convención:
   `.build_cache/<área>/<contexto>/{exports,modified,preview}`.
-  `BuildCache` en `core/infrastructure/build_cache.py` es el punto
-  de entrada (parametrizado por `area_id`); `SdPair` y `XmlTarget`
-  en `core/infrastructure/tia/export_paths.py` resuelven paths de
-  archivos individuales.
+  `BuildCache` en `areas/<área>/helpers/layout/build_cache.py` es
+  el punto de entrada (parametrizado por `area_id`); `SdPair` y
+  `XmlTarget` en `core/infrastructure/tia/tia_export_paths.py`
+  resuelven paths de archivos individuales.
 - Es convención de la app, NO config del proyecto. No hay
   `ZC_BUILD_CACHE_DIR` todavía (YAGNI; ver
   `_plan/08_routes_standardization.md` §5). Si lo necesitas, replica
@@ -335,7 +345,7 @@ commit).
 ### Path del config.json del usuario
 - Patrón "template bundleado + copia writable al lado del .exe":
   `ConfigManager()` sin argumentos delega en
-  `core/infrastructure/config_paths.py:resolve_config_path()`.
+  `core/infrastructure/config/config_paths.py:resolve_config_path()`.
 - Resolución: `$ZC_CONFIG_DIR/config.json` (override) →
   frozen: `<exe_dir>/config/config.json` (se copia del bundleado en
   primera ejecución) → dev: `<cwd>/config/config.json` (el
