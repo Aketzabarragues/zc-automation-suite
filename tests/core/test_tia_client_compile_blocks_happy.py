@@ -62,6 +62,11 @@ def test_compile_blocks_happy_path_mixed_consistent_and_inconsistent():
             "skipped_unchanged": ["DB1"],
             "not_found": [],
             "errors": [],
+            "n_compiled_ok": 1,
+            "n_compiled_err": 1,
+            "n_skipped": 1,
+            "n_not_found": 0,
+            "n_errors": 0,
         },
     }
 
@@ -89,6 +94,11 @@ def test_compile_blocks_skips_not_found():
             "skipped_unchanged": [],
             "not_found": ["DB_FAKE"],
             "errors": [],
+            "n_compiled_ok": 1,
+            "n_compiled_err": 0,
+            "n_skipped": 0,
+            "n_not_found": 1,
+            "n_errors": 0,
         },
     }
 
@@ -122,6 +132,11 @@ def test_compile_blocks_captures_block_compile_exception():
             "skipped_unchanged": [],
             "not_found": [],
             "errors": [{"name": "DB_BAD", "error": "RuntimeError: syntax error"}],
+            "n_compiled_ok": 0,
+            "n_compiled_err": 1,
+            "n_skipped": 0,
+            "n_not_found": 0,
+            "n_errors": 1,
         },
     }
 
@@ -156,6 +171,11 @@ def test_compile_blocks_is_consistent_exception_treated_as_inconsistent():
             "skipped_unchanged": [],
             "not_found": [],
             "errors": [],
+            "n_compiled_ok": 1,
+            "n_compiled_err": 0,
+            "n_skipped": 0,
+            "n_not_found": 0,
+            "n_errors": 0,
         },
     }
 
