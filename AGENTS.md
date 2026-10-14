@@ -67,14 +67,20 @@ contrato IPC, state machine y comandos de ciclo de vida están en
 
 ### 2. Nuevo endpoint REST
 1. Añade el handler en el router correspondiente:
-   - Genérico: `core/web_server/routers/<area>.py` con
-     un `APIRouter`.
-   - Del área: `areas/<area>/interfaces/web/ (futuro)<router>.py` y declara
-     `register_routers(app)` en el `__init__.py` del paquete.
+   - Genérico: `core/web_server/routers/<recurso>.py` con un
+     `Blueprint` de Flask (no `APIRouter`; el shell es Flask, no
+     FastAPI). Ejemplos: `portal.py`, `plc.py`, `diagnostics.py`.
+   - Del área: `areas/<área>/frontend/<x>_router.py` con un
+     `Blueprint` Flask. Ejemplos en alimentación: `excel_router.py`,
+     `disp_sync_router.py`, `proc_process_crear_router.py`.
 2. El shell Flask (`core/web_server/app_flask.py::create_app`)
-  Descubre los routers del área vía `AreaRegistry.for_each("contributes_routers", app=app)`.
+   descubre los blueprints de las áreas vía
+   `AreaRegistry.discover().for_each("contributes_routers", app=app)`.
+   Cada área monta sus routers desde su callable
+   `contributes_routers` (en `alimentacion` se llama
+   `_build_all_routers(app)`).
 3. Inyecta dependencias vía los decoradores de Flask (o llamadas
-   explícitas a `get_gateway | get_app_cache | get_logger |
+   explícitas a `get_tia_client | get_app_cache | get_logger |
    get_progress_tracker`). NUNCA importes globales directamente
    en el router.
 4. Si la operación es >500 ms, inyecta `ProgressTracker` y emite
@@ -269,9 +275,8 @@ Replica su estructura.
   del navegador.
 - **Mismatched client/server**: el timeout del cliente debe ser
   siempre MAYOR que el `dynamic_timeout` que calcula el gateway
-  para ese comando. Si reduces el `ZC_GATEWAY_TIMEOUT` o el
-  `per_op_seconds`, asegúrate de que el cliente sigue siendo
-  mayor (sube el bucket FAST/MEDIUM/SLOW si hace falta).
+  para ese comando. Si lo reduces, asegúrate de que el cliente
+  sigue siendo mayor (sube el bucket FAST/MEDIUM/SLOW si hace falta).
 
 ### ProgressTracker — API completa
 ```
@@ -290,7 +295,7 @@ internamente desde `ejecutar_transaccion` (no pisar el tracker del
 commit).
 
 ### Tests
-- **Backend:** `pytest tests/` corre TODOS los tests. 837 tests
+- **Backend:** `pytest tests/` corre TODOS los tests. 130 tests
   actualmente (acumulado histórico: PR 0-6 originales + state machine
   del worker persistente + A2-A9 robustness + tests E2E del worker
   real). Deben pasar todos antes de commit.
