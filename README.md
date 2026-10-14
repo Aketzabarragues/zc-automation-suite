@@ -33,11 +33,8 @@ pip install -r requirements.txt
 # Lanzar la app (bandeja + web embebido)
 .\run_app.bat
 
-# O solo el servidor web (sin bandeja) en http://127.0.0.1:8000
-python main.py --web 127.0.0.1:8000
-
-# Solo el servidor MCP (integraciones con Cline / Claude Desktop)
-python main.py --mcp
+# O solo el servidor web (sin bandeja) en http://127.0.0.1:9484
+python main.py --web 127.0.0.1:9484
 
 # Tests
 python -m pytest tests/ -v
@@ -46,18 +43,18 @@ python -m pytest tests/ -v
 python build_exe.py
 ```
 
-El primer arranque crea `<exe_dir>/config/config.json` (copia del bundleado). La SPA está en `http://127.0.0.1:8000/`. Para QA sin TIA Portal: `?demo=1`.
+El primer arranque crea `<exe_dir>/config/config.json` (copia del bundleado). La SPA está en `http://127.0.0.1:9484/`. Para QA sin TIA Portal: `?demo=1`.
 
 ## 3. Stack y arquitectura
 
 | Capa | Tecnología | Por qué |
 |---|---|---|
-| Backend | Python 3.12+, Flask (uvicorn embebido) | Tipado estático, ecosistema maduro, sync encaja con la naturaleza I/O-bound del worker OT |
-| Worker OT | Subproceso persistente con TIA Scripting Python (COM/.NET) | TIA Openness API no es thread-safe con los RCW; un proceso por sesión evita crashes |
+| Backend | Python 3.12+, Flask (sync) | Tipado estático, sync encaja con la naturaleza I/O-bound del worker OT |
+| Worker OT | Hilo persistente TIA Scripting Python (COM/.NET) + cola FIFO + 6 estados | TIA Openness API no es thread-safe con los RCW; un hilo por sesion evita crashes |
 | Excel | `.xlsm` maestro + `excel_cache.py` + parsers por dominio | El Excel es la fuente de verdad de dispositivos, parámetros y `N_MAX` |
 | SPA | Vue 3 ESM sin build step, Tailwind v4 offline | Cero CDN = deploy offline = no se rompe sin red |
 | Empaquetado | PyInstaller + `tempfile.mkdtemp()` para `.pyd`/`.dll` de Siemens | `.exe` único portable en máquinas Windows con TIA Portal |
-| MCP | FastMCP stdio | Integración con Cline / Claude Desktop para operario técnico |
+| MCP | (planificado, no implementado aun) | Integracion con Cline / Claude Desktop para operario tecnico |
 
 El `core/` contiene todo transversal sin saber de áreas. Cada `areas/<area>/` es un Bounded Context autocontenido que se autodescribe vía `AreaSpec` (ver `AGENTS.md`).
 
@@ -65,38 +62,36 @@ El `core/` contiene todo transversal sin saber de áreas. Cada `areas/<area>/` e
 
 ```
 zc-automation-suite/
-├── main.py                     # Entry point: --web / --mcp / bandeja
+├── main.py                     # Entry point: --web (bandeja + web embebido)
 ├── config/                     # config.json (template bundleado + copia writable)
 ├── core/
-│   ├── composition/            # plc_engine.py + plc_function_base.py (FBs)
-│   ├── application/            # area_registry.py (AreaSpec) + setup_logging
+│   ├── composition/            # plc_engine.py + plc_function_base.py (FBs) + app_area_registry.py
+│   ├── runtime/                # AppCache, ProgressTracker, SSE event bus, area_preview_cache
 │   ├── infrastructure/
-│   │   ├── tia/                # worker_tia.py + tia_handlers.py + tia_loop.py (subproceso persistente)
+│   │   ├── tia/                # tia_loop.py + tia_client.py + 8 catalogos de comandos
 │   │   ├── config/             # config_manager.py + config_paths.py
-│   │   └── launchers/          # main_supervisor.py + tray_app.py (bandeja)
+│   │   └── ...                 # log_buffer, app_cache, etc.
 │   ├── web_server/             # Flask + routers + static/js (SPA)
-│   ├── data/                   # DTOs puros (DataBloqueCache, DataBloquePLC)
-│   ├── helpers/
-│   │   ├── simatic_sd/         # Helpers transversales SimaticSD (DRY)
-│   │   └── tia/                # Helpers TIA (validate_plc_in_tia, validate_plc_in_excel, etc.)
-│   └── runtime/                # AppCache, ProgressTracker, SSE event bus
+│   ├── helpers/                # simatic_sd/ + simatic_ml/ + tia/ (DRY transversal)
+│   └── launcher/               # main_supervisor.py + tray_app.py (bandeja)
 ├── areas/
 │   └── alimentacion/           # Bounded Context "alimentación"
 │       ├── data/               # DTOs del dominio + catalogs (disp_catalog, proc_catalog)
 │       ├── helpers/excel/      # excel_parser_*.py + excel_upload.py
 │       ├── functions/          # function_*.py (FBs del área: sync, preview, etc.)
-│       ├── frontend/           # SPA components + manifest.js + routers
-│       ├── __init__.py         # AREA_SPEC (AreaSpec) + register_alimentacion
+│       ├── frontend/           # SPA components + manifest.js + routers Flask
+│       ├── __init__.py         # AREA_SPEC + register_alimentacion
 │       └── ...
+├── vendor/                     # assets propietarios (TIA Scripting SDK v1.4.3)
 ├── tests/
 │   ├── areas/alimentacion/     # tests del área (data, functions, frontend, helpers/excel)
-│   ├── core/                   # tests del core (composition, helpers, runtime, web_server)
-│   └── interfaces/             # tests de routers Flask
-├── docs/                       # MIGRATION_PLAYBOOK.md, etc.
+│   ├── core/                   # tests del core (composition, infrastructure, helpers, runtime)
+│   └── ...
+├── docs/                       # MIGRATION_PLAYBOOK.md, REFACTOR_SUMMARY.md, HOWTO_*.md
 ├── build_exe.py                # PyInstaller
 ├── run_app.bat                 # Lanzar app (bandeja)
 ├── run_tailwind.bat            # Recompilar Tailwind
-└── pytest.ini, AGENTS.md, README.md
+└── pytest.ini, AGENTS.md, README.md, .clinerules, .opencode/
 ```
 
 ## 5. Conceptos clave
@@ -137,7 +132,7 @@ python -m pytest tests/areas/alimentacion/ tests/core/ tests/interfaces/ -v
 La SPA tiene `?demo=1` para QA sin TIA Portal:
 
 ```
-http://127.0.0.1:8000/?demo=1
+http://127.0.0.1:9484/?demo=1
 ```
 
 Esto evita el flujo de attach al worker OT y usa un cliente TIA mockeado.
