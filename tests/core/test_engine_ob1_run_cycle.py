@@ -13,7 +13,7 @@ class _CountingFB(FunctionBase):
     """FB que cuenta ticks para verificar que run_cycle() tickea."""
 
     def __init__(self, nombre: str = "counter"):
-        super().__init__(nombre=nombre)
+        super().__init__(nombre=nombre, titulo=nombre, steps=["s1"])
         self.tick_count = 0
 
     async def tick(self) -> None:
@@ -76,7 +76,7 @@ def test_run_cycle_publishes_fb_changed_via_event_bus():
 
     class _ChangingFB(FunctionBase):
         def __init__(self):
-            super().__init__(nombre="changer")
+            super().__init__(nombre="changer", titulo="Changer", steps=["s1"])
             self.first = True
 
         async def tick(self) -> None:
