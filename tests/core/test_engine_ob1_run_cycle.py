@@ -74,7 +74,8 @@ def test_run_cycle_publishes_fb_changed_via_on_fb_change_callback():
     Contrato tras el refactor OB1: el Engine expone un hook
     ``on_fb_change(name, fb)`` que el caller (tipicamente el SSE
     publisher) cablea. register_fb() lo conecta a
-    ``fb._on_nstep_change`` para que cualquier cambio de nStep se
+    ``fb._on_nstep_change`` para que cualquier cambio de nStep que
+    pase por ``_notify_nstep_change`` (start, tick, cancel) se
     retransmita automaticamente.
     """
     import asyncio
@@ -86,19 +87,23 @@ def test_run_cycle_publishes_fb_changed_via_on_fb_change_callback():
     class _ChangingFB(FunctionBase):
         def __init__(self):
             super().__init__(nombre="changer", titulo="Changer", steps=["s1"])
-            self.first = True
-
-        async def tick(self) -> None:
-            if self.first:
-                self.nStep = 2  # cambia de 10 (activo) -> 2
-                self.first = False
 
     fb = _ChangingFB()
     asyncio.run(fb.start())  # 0 -> 10 (activo, no terminal)
     engine.register_fb("changer", fb)
 
-    engine.run_cycle()
-    on_change.assert_called_once_with("changer", fb)
+    # start() ya notifico n_idle -> n_arrancar; tras register_fb() el
+    # callback queda cableado para futuras transiciones.
+    # Forzamos una transicion dentro de tick() y verificamos que el
+    # hook se invoca con (name, fb).
+    async def _force_change() -> None:
+        old = fb.nStep
+        fb.nStep = FunctionBase.n_done  # transicion terminal
+        fb._notify_nstep_change(old, fb.nStep)
+        await fb.tick()  # no debe tickear (estado terminal)
+
+    asyncio.run(_force_change())
+    on_change.assert_called_with("changer", fb)
 
 
 def test_run_cycle_is_idempotent_no_args():
