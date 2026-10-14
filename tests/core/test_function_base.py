@@ -54,12 +54,19 @@ async def test_start_concurrente_solo_una_gana() -> None:
 
 
 @pytest.mark.asyncio
-async def test_start_locked_sin_lock_dispara_assert() -> None:
-    """Llamar ``_start_locked()`` sin ``self._lock`` viola el contrato
-    del assert del greenfield y debe lanzar ``AssertionError``."""
+async def test_tick_locked_sin_lock_dispara_assert() -> None:
+    """Llamar ``_tick_locked()`` sin ``self._lock`` viola el contrato
+    del assert del greenfield y debe lanzar ``AssertionError``.
+
+    Antes del refactor, el patron se aplicaba a ``_start_locked()``.
+    Tras el refactor OB1, ``start()`` no se separa en wrapper/locked
+    (no requiere lock) y solo ``_tick_locked()`` mantiene el assert
+    del lock. Este test verifica que el patron se sigue cumpliendo
+    en el unico metodo que lo conserva.
+    """
     fb = FunctionBase("test_fb", "Test FB", ["s1"])
-    with pytest.raises(AssertionError, match="requiere self._lock cogido"):
-        await fb._start_locked()
+    with pytest.raises(AssertionError):
+        await fb._tick_locked()
 
 
 # ---------------------------------------------------------------------
@@ -97,13 +104,25 @@ async def test_tick_exception_runtime_pone_fb_en_n_error() -> None:
 
 
 @pytest.mark.asyncio
-async def test_tick_notimplemented_propagates() -> None:
+async def test_tick_run_step_sin_override_propagates_notimplemented() -> None:
     """``NotImplementedError`` es error de programación: ``tick()`` la
     deja propagar para que el dev lo vea claro en consola/tests
-    (no se silencia con el best-effort)."""
-    fb = FunctionBase("stub", "Stub", ["s1"])  # NO overridea _tick_locked
-    await fb.start()
+    (no se silencia con el best-effort).
 
-    with pytest.raises(NotImplementedError, match="_tick_locked"):
+    Tras el refactor OB1, ``on_start`` / ``on_finish`` tienen
+    implementacion por defecto (no-op), pero ``run_step(idx)`` sigue
+    siendo abstracto: si la subclase olvido overridearlo, el primer
+    ``tick()`` del state machine ``n_ejecutar`` lo lanza y
+    ``tick()`` lo propaga (best-effort solo captura ``Exception``,
+    no ``NotImplementedError`` ni ``AssertionError``).
+    """
+    fb = FunctionBase("stub", "Stub", ["s1"])  # NO overridea run_step
+    await fb.start()
+    # Primer tick: ejecuta _step_arrancar (on_start, no run_step).
+    await fb.tick()
+    assert fb.nStep == FunctionBase.n_ejecutar  # 20
+
+    # Segundo tick: ejecuta _step_ejecutar (run_step -> NotImplementedError).
+    with pytest.raises(NotImplementedError, match="run_step"):
         await fb.tick()
 
