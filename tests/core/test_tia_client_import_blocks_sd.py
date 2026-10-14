@@ -93,10 +93,10 @@ def test_import_blocks_sd_happy_path():
         )
 
     assert out == {"ok": True, "result": {"imported_from": tmp}}
-    plc.import_blocks.assert_called_once_with(
-        import_root_directory=tmp,
-        target_folder_path="",
-    )
+    # target_folder omitido por el caller: el handler NO debe pasar
+    # target_folder_path a TIA (pasaria '' y romperia el match UPDATE
+    # en V21; ver tia_cmd_import_._h_import_blocks_sd docstring).
+    plc.import_blocks.assert_called_once_with(import_root_directory=tmp)
 
 
 def test_import_blocks_sd_passes_target_folder_when_provided():
@@ -126,8 +126,15 @@ def test_import_blocks_sd_passes_target_folder_when_provided():
     )
 
 
-def test_import_blocks_sd_coerces_none_target_folder_to_empty_string():
-    """TIA Portal V21: el wrapper .NET rechaza None; coercemos a ''."""
+def test_import_blocks_sd_omits_target_folder_when_none():
+    """target_folder=None por el caller: el handler NO debe pasar
+    target_folder_path a TIA (default = None, match UPDATE recursivo).
+
+    La implementacion anterior coercima a "" pero el "" rompe el
+    match UPDATE en V21; el fix documentado en tia_cmd_import_.
+    _h_import_blocks_sd omite el parametro cuando target_folder es
+    None o vacio.
+    """
     plc = MagicMock()
     plc.get_name.return_value = "PLC_1"
     project = MagicMock()
@@ -148,7 +155,4 @@ def test_import_blocks_sd_coerces_none_target_folder_to_empty_string():
             },
         )
 
-    plc.import_blocks.assert_called_once_with(
-        import_root_directory=tmp,
-        target_folder_path="",
-    )
+    plc.import_blocks.assert_called_once_with(import_root_directory=tmp)
