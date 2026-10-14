@@ -156,7 +156,7 @@ Detalles:
 |---|---|
 | Estilo código | PEP 8 + type hints. PowerShell estricto (no `&&`, usar `;`). |
 | Commits | 1-2 archivos por commit, mensajes en archivo (PowerShell con `-m` multilínea falla). Usar `git commit -F <archivo>`. |
-| Borrado | `mavis-trash` (recuperable), nunca `rm` directo. |
+| Borrado | Papelera de reciclaje (Windows) o `rm --` (que el runtime enruta a `mavis-trash` si esta disponible). |
 | Tests | `python -m pytest tests/ -v` antes de cada commit. |
 | Tema UI | "Industrial Claro": `bg-accent` azul Siemens `rgb(0 52 102)`. |
 | Naming | Prefijos `disp_*` / `proc_*` primero en helpers (regla del operario). |
