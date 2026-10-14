@@ -230,6 +230,17 @@ _source/
 _plan/
 # Stubs de siemens_tia_scripting (defensivo; build_exe los resuelve dinamicamente)
 *.pyd
+# Excepcion: el .pyd canonico de vendor/ ES necesario en runtime
+# (loader OT en core/infrastructure/tia). Se trackea pese a *.pyd.
+!/vendor/siemens_tia_scripting.pyd
+# vendor/ contiene assets propietarios de Siemens. Excluir artefactos
+# de build innecesarios para runtime (debug symbols, linkado,
+# documentacion PDF externa, metadata de build).
+vendor/*.pdb
+vendor/*.exp
+vendor/*.lib
+vendor/*.pyd.metagen
+vendor/docs/
 # Cuarentena temporal con archivos movidos para borrado manual por el operario
 _trash_temp/
 # Artefactos del runtime de Mavis (plans de mavis-team, logs de orquestacion, etc.)

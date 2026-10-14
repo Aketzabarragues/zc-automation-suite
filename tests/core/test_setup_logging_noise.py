@@ -96,6 +96,12 @@ def test_setup_logging_invoca_silence_noisy_loggers(
 
     Usa ``monkeypatch.setattr`` con un ``MagicMock`` para detectar la
     llamada sin tener que re-parsear todo el archivo.
+
+    Nota: ``setup_logging()`` tiene un flag ``_setup_done`` que lo hace
+    idempotente (la segunda llamada es no-op). Si otro test de la
+    suite ya invoco ``setup_logging()`` antes que nosotros, nuestro
+    call al monkeypatch nunca se ejecuta. Reseteamos ``_setup_done``
+    aqui para forzar la re-inicializacion.
     """
     from unittest.mock import MagicMock
 
@@ -103,6 +109,7 @@ def test_setup_logging_invoca_silence_noisy_loggers(
 
     mock_silence = MagicMock(wraps=cfg.silence_noisy_loggers)
     monkeypatch.setattr(cfg, "silence_noisy_loggers", mock_silence)
+    monkeypatch.setattr(cfg, "_setup_done", False)
 
     setup_logging(mode="default")
 

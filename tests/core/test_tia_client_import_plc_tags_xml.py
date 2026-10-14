@@ -93,7 +93,7 @@ def test_import_plc_tags_xml_happy_path():
         )
 
     assert out == {"ok": True, "result": {"imported_from": tmp}}
-    plc.import_plc_tags.assert_called_once_with(
-        import_root_directory=tmp,
-        target_folder_path="",
-    )
+    # target_folder omitido por el caller: el handler NO debe pasar
+    # target_folder_path a TIA (mismo fix que _h_import_blocks_sd;
+    # ver docstring de tia_cmd_import_._h_import_plc_tags_xml).
+    plc.import_plc_tags.assert_called_once_with(import_root_directory=tmp)

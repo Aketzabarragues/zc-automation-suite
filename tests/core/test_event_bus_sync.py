@@ -123,23 +123,8 @@ def test_subscriber_can_be_unsubscribed_multiple_times():
     assert bus.subscriber_count() == 0
 
 
-def test_event_bus_sync_is_independent_from_async_one():
-    """Verifica que EventBusSync es una clase aparte, no comparte estado."""
-    from core.runtime.sse.event_bus import EventBus
-
-    sync_bus = EventBusSync()
-    async_bus = EventBus()
-
-    sq = sync_bus.subscribe()
-    async_q = async_bus.subscribe()
-
-    sync_bus.publish({"a": 1})
-    async_bus.publish({"b": 2})
-
-    # Cada bus entrega solo lo publicado en si mismo.
-    assert sq.get_nowait() == {"a": 1}
-    with pytest.raises(queue.Empty):
-        sq.get(timeout=0.1)
-
-    # El bus async se drena via get_nowait (no await porque ya hay eventos).
-    assert async_q.get_nowait() == {"b": 2}
+# test_event_bus_sync_is_independent_from_async_one eliminado tras el
+# refactor OB1 (sept-2026): el bus async original (asyncio.Queue) se
+# reemplazo por EventBusSync unico en core/runtime/sse/. No existe
+# separacion sync/async que probar; el modulo core.runtime.sse.event_bus
+# ya no esta en el repo.
