@@ -38,18 +38,26 @@ contrato IPC, state machine y comandos de ciclo de vida están en
      (alias `HandlerSig`) y regístralo en `CATALOGO`.
    - **Específica de un área:** edita
      `areas/<area>/infrastructure/tia/extra_commands.py`, implementa
-     el handler y regístralo en la función `register(registry)`. El
-     command loader del worker (`load_extra_commands`) lo descubre
-     automáticamente al arrancar (ver `.clinerules` §1).
+     `def register(tia_client: SyncTIAClient) -> None` que registra
+     N comandos vía `tia_client.register_command(name, handler)`. El
+     supervisor (`core/launcher/main_supervisor._build_components()`)
+     invoca `spec.contributes_tia_commands(tia_client)` tras
+     `register_all_commands(tia_client)` en el arranque del web.
+     Patrón declarado en `AreaSpec` pero ningún área del repo lo ha
+     materializado todavía (la lógica transaccional se compone hoy con
+     `execute_transactional_batch` desde los FBs).
 2. Si es transaccional, respeta el ciclo `start_transaction` /
    `end_transaction` (rollback atómico con `end_transaction(rollback=True)`).
 3. Mapea objetos nativos (.NET) a primitivos Python antes de emitir JSON
    (ver `.clinerules` §3).
 4. El gateway expone un método async que delega al worker vía
    `self._dispatch_worker("nombre_comando", args)`.
-5. El use case (en `core/application/use_cases/` si es genérico o en
-   `areas/<area>/application/use_cases/` si es del área) orquesta,
-   llama al gateway, y emite progress.
+5. La lógica se implementa como **FB** (Function Block, state machine
+   con `on_start` / `run_step` / `on_finish`) en
+   `areas/<área>/functions/function_<x>.py`. El FB registra su
+   progreso vía `ProgressTracker` y delega al gateway con
+   `submit_and_wait("comando", args)` o `dispatch_async(...)` para
+   lotes transaccionales (`execute_transactional_batch`).
 6. El router Flask expone el endpoint con la dependencia
    `get_gateway`. Los routers genéricos viven en
    `core/web_server/routers/`; los del área en `areas/<area>/frontend/`
@@ -106,20 +114,29 @@ contrato IPC, state machine y comandos de ciclo de vida están en
 4. El `GET /api/v1/catalog` lo recoge automáticamente (data-driven).
 5. NO tocar nada en la SPA: aparece solo en el sidebar/tabs.
 
-### 5. Nuevo comando MCP (FastMCP)
+### 5. Tools MCP (FastMCP) — NO IMPLEMENTADO TODAVÍA
+
+> Estado: el campo `contributes_mcp_tools: Callable[[Any], None] | None`
+> está declarado en `AreaSpec` (`core/composition/app_area_registry.py`)
+> pero **ningún área del repo lo usa** y no hay tools MCP wired up al
+> shell. Esta sección documenta el patrón previsto; cuando se
+> materialice, sigue estas reglas.
+
 1. Decide si el tool es **genérico** o **del área**:
-   - **Genérico:** edita `core/interfaces/mcp_server.py`, añade
-     `@mcp.tool()` decorador en el closure del shell.
-   - **Del área:** edita `areas/<area>/interfaces/mcp/tools.py`,
+   - **Genérico:** el módulo del shell MCP no existe todavía;
+     cuando se cree vivirá en `core/interfaces/mcp_server.py`
+     (pendiente, no figura en `main.py` como `--mcp`).
+   - **Del área:** crea `areas/<área>/interfaces/mcp/tools.py` (la
+     carpeta `interfaces/` tampoco existe en `alimentacion/` aún),
      implementa `register(mcp)` y dentro declara los `@mcp.tool()`.
-     El shell MCP descubre los tools del área vía
+     El shell MCP descubriría los tools del área vía
      `AreaRegistry.for_each("contributes_mcp_tools", mcp=mcp)`.
 2. El handler debe ser async, recibir argumentos tipados, llamar al
-   use case correspondiente y devolver dict.
+   FB correspondiente y devolver dict.
 3. La descripción del tool es el contrato con el LLM. Sé claro y
    específico (parámetros, retorno, errores esperados).
 4. Las tools del área **NO replican lógica de negocio**: delegan en
-   los mismos use cases que los routers web.
+   los mismos FBs que los routers web.
 5. Test: tests automatizados con `MagicMock` cubriendo cada tool.
    QA manual con cliente MCP real (Cline, Claude Desktop).
 
@@ -127,71 +144,83 @@ contrato IPC, state machine y comandos de ciclo de vida están en
 1. Crear `areas/<area_id>/` con `__init__.py` que defina
    `AREA_SPEC = AreaSpec(...)` (dataclass frozen en
    `core/composition/app_area_registry.py`).
-2. Si el área tiene modelos de dominio: `areas/<area>/domain/`.
-3. Si tiene casos de uso: `areas/<area>/application/use_cases/`.
-4. Si tiene adaptadores (parsers, modificadores, etc.):
-   `areas/<area>/infrastructure/`. Los **modificadores SimaticML/SD**
-   son específicos de cada área y viven aquí (NO en `core/`), por
-   ejemplo `areas/<area>/infrastructure/xml/disp_tag_table_modifier.py`
-   y `areas/<area>/infrastructure/sd/` (modificadores de `.s7dcl`).
-   `core/` solo aporta el gateway y los parsers base genéricos (si los
-   hubiera; hoy no hay parser Excel genérico, los específicos viven
-   en `areas/<área>/helpers/excel/`).
-5. Si tiene comandos TIA transaccionales:
-   `areas/<area>/infrastructure/tia/extra_commands.py` con
-   `register(registry)`.
-6. Si tiene routers Flask: `areas/<area>/interfaces/web/ (futuro)` con
-   `register_routers(app)` en el `__init__.py` del paquete. Los routers
-   genéricos viven en `core/web_server/routers/`.
-7. Si tiene tools MCP: `areas/<area>/interfaces/mcp/tools.py` con
-   `register(mcp)`.
-8. Si tiene UI: `areas/<area>/frontend/components/` +
-   `areas/<area>/frontend/manifest.js` (un `build()` que devuelve
-   `{ components, routes, sidebar, landing, loaders }`).
-9. Añadir el bloque en `config/config.json` bajo
+2. Layout real del área (ver `alimentacion/` como referencia):
+   - `data/`: artefactos cacheados (Excel cache, etc.).
+   - `helpers/`: lógica pura del área (sub-paquetes por dominio:
+     `excel/`, `layout/`, `sync/`, etc.).
+   - `state/`: estado del área (`area_cache.py`, modelos
+     congelados para `AppCache.register_area(...)`).
+   - `functions/`: FBs (Function Blocks) — un módulo por FB,
+     clase + `FunctionBase.__init__` + hooks `on_start` /
+     `run_step` / `on_finish`.
+   - `frontend/`: SPA del área (componentes Vue 3 ESM en
+     `components/`, `manifest.js` con `build()` que devuelve
+     `{ components, routes, sidebar, landing, loaders }`,
+     routers Flask del área como `<x>_router.py`).
+   - `_area_id.py`: constante `AREA_ID = "<area_id>"` (convenio).
+3. Catálogo del área: `contributes_catalog` en `AREA_SPEC` (ver
+   `_build_alim_catalog_combined` como referencia). `GET /api/v1/catalog`
+   lo recoge automáticamente (data-driven).
+4. Si aporta comandos TIA extra:
+   `areas/<área>/infrastructure/tia/extra_commands.py` con
+   `def register(tia_client: SyncTIAClient) -> None` (que llama
+   `tia_client.register_command(...)`). El supervisor lo invoca
+   una vez al arrancar el web. Patrón documentado pero ningún
+   área lo ha materializado todavía.
+5. Si aporta tools MCP: `contributes_mcp_tools` en `AREA_SPEC` —
+   declarado pero NO implementado en el repo. Ver §5.
+6. `register(engine, *, config_manager=None, tia_client=None,
+   build_cache=None, app_cache=None)` en
+   `areas/<área>/__init__.py` registra los FBs en el engine.
+   `log` no se inyecta: usa `logging.getLogger(__name__)`.
+7. Añadir el bloque en `config/config.json` bajo
    `departments.<area_id>`.
-10. Tests: `tests/test_area_<area_id>_*.py` siguiendo el patrón
-    existente (mockear gateway con `MagicMock(spec=TIAProcessGateway)`).
+8. Tests: `tests/areas/<area_id>/test_<feature>.py` (ver
+   `tests/areas/alimentacion/...` como referencia; mockear
+   gateway con `MagicMock(spec=TIAProcessGateway)`).
 
 Convenciones:
 - Las áreas **NO importan** `siemens_tia_scripting` directamente
   (regla `.clinerules` §1). Solo aportan `Callable` que el worker
   invocará en su proceso. Los handlers extra pueden usar comandos
-  genéricos del registry (`COMMAND_REGISTRY["export_block"](...)`)
-  para participar de transacciones atómicas con ellos.
+  genéricos del catálogo (`CATALOGO["export_block"](...)`) para
+  participar de transacciones atómicas con ellos.
 - El worker OT se mantiene 100% genérico; las áreas aportan comandos
-  vía `AreaSpec.contributes_tia_commands` (el command loader los
-  descubre al arrancar).
+  vía `AreaSpec.contributes_tia_commands`. El wiring está en
+  `core/launcher/main_supervisor._build_components()` (no hay
+  command loader separado).
 - El shell SPA NO importa componentes de áreas directamente. Todo
   se carga vía `area-loader.js` + manifest.
 - `store.areaManifest` guarda el manifest del área activa.
   `store.currentView` se valida contra `store.areaManifest.routes`.
 
-### 7. Migrar un use case legacy a FB (playbook)
+### 7. FB template y playbook de creación
 
-> Checklist operacional para mover un use case de
-> `areas/<area>/application/use_cases/` a un FB usando
-> `function_template.py` como base. Aplica a los 5 use cases
-> restantes de alimentación (A.2-A.6) y a futuras áreas.
-> Detalle completo en `docs/MIGRATION_PLAYBOOK.md`.
+> Patrón de creación de un FB nuevo en el área. Aplica a todas las
+> áreas y a cualquier lógica transaccional que necesite steps
+> secuenciales con progreso visible. Detalle histórico del refactor
+> A.1 en `docs/MIGRATION_PLAYBOOK.md` (congelado como referencia;
+> la realidad actual difiere en los paths).
 
-**Referencia canónica**: FB `subir_excel`
-(`areas/alimentacion/functions/function_SubirExcel.py` +
-`helpers/sync/upload_excel.py` + `frontend/excel_router.py`).
-Replica su estructura. Cubre los 5 gotchas conocidos.
+**Referencia canónica**: FB `excel_cargar`
+(`areas/alimentacion/functions/function_excel_cargar.py` +
+`helpers/excel/excel_upload.py` + `frontend/excel_router.py`).
+Replica su estructura.
 
-**6 pasos por migración**:
-1. Identificar el use case origen en `application/use_cases/`.
-2. Extraer la lógica pura a `helpers/sync/<use_case>.py` (kwargs
-   explícitos, sin Singletons).
-3. Crear el FB copiando `function_SubirExcel.py`, renombrar
-   clase + `nombre` canónico, ajustar Zona 0/3 y los hooks
-   `on_start` / `run_step` / `on_finish`.
-4. Registrar en `areas/<area>/__init__.py::register_<area>(engine,
-   *, config_manager, tia_client, build_cache, log, app_cache)`.
-5. Endpoint en `frontend/<use_case>_router.py`, montar en
-   `_build_all_routers(app)`. Propagar `started=False` como 409.
-6. Smoke en vivo + `git rm application/use_cases/<use_case>.py`.
+**5 pasos para añadir un FB nuevo**:
+1. Lógica pura: `helpers/<dominio>/<use_case>.py` con kwargs
+   explícitos, sin Singletons.
+2. FB: `functions/function_<x>.py`, copia la plantilla de
+   `function_excel_cargar.py`. Renombra clase y `nombre` canónico;
+   define Zona 0/3 y los hooks `on_start` / `run_step` / `on_finish`.
+3. Registrar el FB en
+   `areas/<área>/__init__.py::register(engine, *, config_manager=None,
+   tia_client=None, build_cache=None, app_cache=None)`. No se
+   inyecta `log`: usa `logging.getLogger(__name__)`.
+4. Router Flask: `frontend/<use_case>_router.py`; montar desde
+   `__init__.py::_build_all_routers(app)`. Propagar `started=False`
+   como 409 cuando ya hay un FB corriendo.
+5. Smoke en vivo + tests en `tests/areas/<área>/...`.
 
 **Gotchas** (detalle en `docs/MIGRATION_PLAYBOOK.md`):
 - `LogBuffer.info(message)` solo acepta 1 arg. Usar f-strings.
@@ -273,39 +302,45 @@ commit).
 - **Frontend:** sin tests automatizados (SPA ESM sin build step).
   QA manual con `?demo=1` y servidor de pruebas.
 
-### Command loader del worker OT
-- `core/infrastructure/tia/tia_commands_catalog.py` (unión de los 8
-  catálogos por categoría: lifecycle, project, inspect, compile,
-  export, import, user_consts, batch) contiene los comandos
-  **genéricos** del `COMMAND_REGISTRY`:
-  - Ciclo de vida de proyecto: `open_new_portal`, `open_project`,
-    `save_project`, `close_project`.
-  - Inspección: `list_plcs`, `get_project_info`, `list_blocks`,
-    `scan_blocks`.
-  - Mutación / compilación: `compile_plc`.
-  - Export masivo SimaticSD: `export_blocks_sd`, `export_udts_sd`.
-  - Export masivo SimaticML (XML): `export_plc_tags_xml`.
-  - Import masivo desde disco: `import_blocks_sd`, `import_plc_tags_xml`.
-  - Bloques y tablas granulares: `export_block`, `import_block`,
-    `export_tag_table`, `import_tag_table`.
-  - Constantes de usuario (N_MAX): `get_user_constants`,
-    `update_user_constant_value`, `update_user_constant_name`,
-    `delete_user_constant`.
-  - Lotes transaccionales: `execute_transactional_batch`.
-  - Health check: `ping`.
-- Los comandos del **state machine** (`attach_portal`, `detach_portal`)
-  NO están en el registry: los gestiona `main_persistent_loop` en
-  línea (ver `.clinerules` §2.2). Si los añades al registry, rompes
-  el ciclo de vida.
+### Catálogo de comandos del worker OT
+
+- `core/infrastructure/tia/tia_commands_catalog.py` es el punto único
+  de verdad. Unión de los 8 catálogos por categoría:
+
+  | Categoría | Módulo | Comandos |
+  |---|---|---|
+  | Lifecycle (3) | `tia_cmd_lifecycle` | `attach_portal`, `detach_portal`, `open_new_portal` |
+  | Project (3) | `tia_cmd_project` | `open_project`, `save_project`, `close_project` |
+  | Inspect (5) | `tia_cmd_inspect` | `ping`, `list_plcs`, `list_blocks`, `get_project_info`, `scan_blocks` |
+  | Compile (2) | `tia_cmd_compile` | `compile_plc`, `compile_blocks` |
+  | Export (5) | `tia_cmd_export` | `export_blocks_sd`, `export_udts_sd`, `export_plc_tags_xml`, `export_block`, `export_tag_table` |
+  | Import (4) | `tia_cmd_import_` | `import_blocks_sd`, `import_plc_tags_xml`, `import_tag_table`, `import_block` |
+  | User consts (4) | `tia_cmd_user_consts` | `get_user_constants`, `delete_user_constant`, `update_user_constant_value`, `update_user_constant_name` |
+  | Batch (1) | `tia_cmd_batch` | `execute_transactional_batch` |
+
+  Total: **27 comandos core** registrados en `CATALOGO` y cargados
+  en el `SyncTIAClient` por `register_all_commands(client)` en el
+  arranque del worker (no hay command loader separado).
+- **No añadas** comandos del state machine (`attach_portal`,
+  `detach_portal`) en otro catálogo; los gestiona
+  `tia_loop.main_persistent_loop` directamente. Duplicarlos rompe el
+  ciclo de vida.
 - Las áreas aportan comandos adicionales vía
-  `areas/<area>/infrastructure/tia/extra_commands.py::register(registry)`.
-  El `load_extra_commands()` del command loader los descubre
-  automáticamente al arrancar el worker (ver `.clinerules` §1).
+  `areas/<área>/infrastructure/tia/extra_commands.py::register(tia_client)`
+  — callable `(tia_client: SyncTIAClient) -> None` que llama
+  `tia_client.register_command(name, handler)`. El supervisor
+  (`core/launcher/main_supervisor._build_components()`) lo invoca
+  tras `register_all_commands(tia_client)`. Patrón documentado pero
+  ningún área del repo lo ha materializado todavía.
+- **Firma de handler:** `Callable[[dict, SyncTIAClient], dict]`
+  (alias `HandlerSig` en `tia_loop.py`). Acceso a `portal`/`ts`
+  via `tia_client.wrapper` / `tia_client.ts` (single-threaded;
+  los toca el `tia_loop`).
 - **CRÍTICO:** los handlers extra NO importan `siemens_tia_scripting`
-  directamente. Reciben `(portal, ts, args)` del worker y operan
-  sobre el `portal` ya inicializado en su proceso.
-- **Sí pueden** usar comandos genéricos del registry
-  (`COMMAND_REGISTRY["export_block"](...)`) para participar de
+  directamente — ya está cargado en el proceso del worker y
+  accesible via `tia_client.wrapper`.
+- **Sí pueden** usar comandos genéricos del catálogo
+  (`CATALOGO["export_block"](...)`) para participar de
   transacciones atómicas con ellos.
 
 ### Build / Empaquetado
