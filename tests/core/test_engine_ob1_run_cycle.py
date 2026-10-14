@@ -68,11 +68,20 @@ def test_run_cycle_skips_terminal_fbs():
     assert fb.tick_count == count_after_terminal
 
 
-def test_run_cycle_publishes_fb_changed_via_event_bus():
-    """run_cycle() publica al event_bus cuando un FB cambia nStep."""
+def test_run_cycle_publishes_fb_changed_via_on_fb_change_callback():
+    """run_cycle() invoca on_fb_change cuando un FB cambia nStep.
+
+    Contrato tras el refactor OB1: el Engine expone un hook
+    ``on_fb_change(name, fb)`` que el caller (tipicamente el SSE
+    publisher) cablea. register_fb() lo conecta a
+    ``fb._on_nstep_change`` para que cualquier cambio de nStep se
+    retransmita automaticamente.
+    """
     import asyncio
 
-    engine = Engine(tick_period_s=10.0, event_bus=MagicMock())
+    on_change = MagicMock()
+    engine = Engine(tick_period_s=10.0)
+    engine.on_fb_change = on_change
 
     class _ChangingFB(FunctionBase):
         def __init__(self):
@@ -89,11 +98,7 @@ def test_run_cycle_publishes_fb_changed_via_event_bus():
     engine.register_fb("changer", fb)
 
     engine.run_cycle()
-    engine._event_bus.publish.assert_called_once()
-    event = engine._event_bus.publish.call_args[0][0]
-    assert event["type"] == "fb_changed"
-    assert event["name"] == "changer"
-    assert event["nStep"] == 2
+    on_change.assert_called_once_with("changer", fb)
 
 
 def test_run_cycle_is_idempotent_no_args():
