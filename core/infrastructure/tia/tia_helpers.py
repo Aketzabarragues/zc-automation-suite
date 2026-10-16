@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 from core.data.data_block_plc import DataBloquePLC
+from core.helpers.tia.tia_block_classifier import classify_block
 from core.infrastructure.log.log_web_bridge import WEB_LEVEL
 
 if TYPE_CHECKING:
@@ -180,7 +181,7 @@ def _scan_block_group_recursive(group_or_blocks: Any) -> list[dict]:
         if not nombre:
             continue
         ruta = _safe_get_block_path(block)
-        tipo = DataBloquePLC.detect_tipo(nombre)
+        tipo = classify_block(block)
         match = re.match(r"^(DB|FB|FC|OB|UDT)(\d+)", nombre, re.IGNORECASE)
         numero = int(match.group(2)) if match else 0
         out.append(

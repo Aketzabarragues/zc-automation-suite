@@ -16,8 +16,42 @@ def _client():
 
 
 def _block(nombre: str):
-    b = MagicMock(spec=["get_name"])
+    """Mock de bloque TIA con la spec necesaria para el heuristico de clasificacion.
+
+    Configura ``get_property("ProgrammingLanguage")`` y
+    ``get_properties()`` segun el prefijo del nombre (smoke oct-2026).
+    Para nombres sin prefijo estandar, deja props vacias (clasifica OTHER).
+    """
+    import re as _re
+    b = MagicMock(spec=["get_name", "get_property", "get_properties"])
     b.get_name.return_value = nombre
+    prefijo = _re.match(r"^(DB|FB|FC|OB|UDT)(\d+)", nombre, _re.IGNORECASE)
+    if prefijo:
+        p = prefijo.group(1).upper()
+        if p == "DB":
+            b.get_property.return_value = "DB"
+            b.get_properties.return_value = []
+        elif p == "OB":
+            b.get_property.return_value = "LAD"
+            b.get_properties.return_value = ["SecondaryType"]
+        elif p == "FB":
+            # FB tiene ISMultiInstanceCapable (unica discriminante vs FC).
+            b.get_property.return_value = "SCL"
+            b.get_properties.return_value = ["ISMultiInstanceCapable"]
+        elif p == "UDT":
+            # UDTs tienen clase Python UserDataType (smoke oct-2026).
+            b = MagicMock(spec=["get_name", "get_property", "get_properties"])
+            b.__class__ = type("UserDataType_subclass", (object,), {})
+            b.get_name.return_value = nombre
+            b.get_property.return_value = None
+            b.get_properties.return_value = []
+            return b
+        else:  # FC
+            b.get_property.return_value = "SCL"
+            b.get_properties.return_value = []
+    else:
+        b.get_property.return_value = None
+        b.get_properties.return_value = []
     return b
 
 

@@ -26,6 +26,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from core.data.data_block_plc import DataBloquePLC
+from core.helpers.tia.tia_block_classifier import classify_block
 from core.infrastructure.tia.tia_helpers import (
     _find_plc,
     _get_active_project,
@@ -158,7 +159,7 @@ def _scan_block_group_recursive(group_or_blocks: Any) -> list[dict]:
         if not nombre:
             continue
         ruta = _safe_get_block_path(block)
-        tipo = DataBloquePLC.detect_tipo(nombre)
+        tipo = classify_block(block)
         match = re.match(r"^(DB|FB|FC|OB|UDT)(\d+)", nombre, re.IGNORECASE)
         numero = int(match.group(2)) if match else 0
         out.append(
