@@ -274,24 +274,42 @@ export default {
             }
         }
 
-        // Iconos nativos TIA Portal (mini-SVG) por tipo de bloque. Cada uno
-        // representa el bloque con sus patitas de entradas/salidas y la
-        // etiqueta corta centrada, replicando el look del arbol de TIA.
-        // Los colores son los identitarios de Siemens (rgb por tipo).
-        // Si en el futuro se decide llevarlos a tailwind.config.js como
-        // tokens, hay un unico punto de extraccion.
-        const TIA_TYPE_ICONS = Object.freeze({
-            OB:  '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="16" viewBox="0 0 28 16" data-tipo="OB"><rect x="4" y="1" width="20" height="14" rx="2" fill="rgb(190, 30, 247)"/><line x1="1" y1="4" x2="4" y2="4" stroke="#5b5b5b" stroke-width="1"/><line x1="1" y1="12" x2="4" y2="12" stroke="#5b5b5b" stroke-width="1"/><line x1="24" y1="4" x2="27" y2="4" stroke="#5b5b5b" stroke-width="1"/><line x1="24" y1="12" x2="27" y2="12" stroke="#5b5b5b" stroke-width="1"/><text x="14" y="11" text-anchor="middle" font-family="Arial,sans-serif" font-size="8" font-weight="700" fill="white">OB</text></svg>',
-            DB:  '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="16" viewBox="0 0 28 16" data-tipo="DB"><rect x="4" y="1" width="20" height="14" rx="2" fill="rgb(63, 80, 235)"/><line x1="1" y1="4" x2="4" y2="4" stroke="#5b5b5b" stroke-width="1"/><line x1="1" y1="12" x2="4" y2="12" stroke="#5b5b5b" stroke-width="1"/><line x1="24" y1="4" x2="27" y2="4" stroke="#5b5b5b" stroke-width="1"/><line x1="24" y1="12" x2="27" y2="12" stroke="#5b5b5b" stroke-width="1"/><text x="14" y="11" text-anchor="middle" font-family="Arial,sans-serif" font-size="8" font-weight="700" fill="white">DB</text></svg>',
-            FB:  '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="16" viewBox="0 0 28 16" data-tipo="FB"><rect x="4" y="1" width="20" height="14" rx="2" fill="rgb(19, 154, 241)"/><line x1="1" y1="4" x2="4" y2="4" stroke="#5b5b5b" stroke-width="1"/><line x1="1" y1="12" x2="4" y2="12" stroke="#5b5b5b" stroke-width="1"/><line x1="24" y1="4" x2="27" y2="4" stroke="#5b5b5b" stroke-width="1"/><line x1="24" y1="12" x2="27" y2="12" stroke="#5b5b5b" stroke-width="1"/><text x="14" y="11" text-anchor="middle" font-family="Arial,sans-serif" font-size="8" font-weight="700" fill="white">FB</text></svg>',
-            FC:  '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="16" viewBox="0 0 28 16" data-tipo="FC"><rect x="4" y="1" width="20" height="14" rx="2" fill="rgb(34, 184, 32)"/><line x1="1" y1="4" x2="4" y2="4" stroke="#5b5b5b" stroke-width="1"/><line x1="1" y1="12" x2="4" y2="12" stroke="#5b5b5b" stroke-width="1"/><line x1="24" y1="4" x2="27" y2="4" stroke="#5b5b5b" stroke-width="1"/><line x1="24" y1="12" x2="27" y2="12" stroke="#5b5b5b" stroke-width="1"/><text x="14" y="11" text-anchor="middle" font-family="Arial,sans-serif" font-size="8" font-weight="700" fill="white">FC</text></svg>',
-            UDT: '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="16" viewBox="0 0 28 16" data-tipo="UDT"><rect x="4" y="1" width="20" height="14" rx="2" fill="rgb(224, 237, 243)"/><line x1="1" y1="4" x2="4" y2="4" stroke="#5b5b5b" stroke-width="1"/><line x1="1" y1="12" x2="4" y2="12" stroke="#5b5b5b" stroke-width="1"/><line x1="24" y1="4" x2="27" y2="4" stroke="#5b5b5b" stroke-width="1"/><line x1="24" y1="12" x2="27" y2="12" stroke="#5b5b5b" stroke-width="1"/><text x="14" y="11" text-anchor="middle" font-family="Arial,sans-serif" font-size="8" font-weight="700" fill="rgb(40, 50, 70)">UDT</text></svg>',
+        // Colores oficiales TIA Portal para el icono-pastilla de cada tipo.
+        // Documentados como constantes para que cualquier ajuste futuro
+        // (cambio de tonalidad entre versiones TIA) sea de un solo punto.
+        const TIA_TYPE_COLORS = Object.freeze({
+            OB:    { bg: "rgb(190, 30, 247)", fg: "rgb(255, 255, 255)" },
+            DB:    { bg: "rgb(63, 80, 235)",  fg: "rgb(255, 255, 255)" },
+            FB:    { bg: "rgb(19, 154, 241)", fg: "rgb(255, 255, 255)" },
+            FC:    { bg: "rgb(34, 184, 32)",  fg: "rgb(255, 255, 255)" },
+            UDT:   { bg: "rgb(224, 237, 243)", fg: "rgb(40, 50, 70)"   },
         });
-        const TIA_DEFAULT_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="16" viewBox="0 0 28 16" data-tipo="OTHER"><rect x="4" y="1" width="20" height="14" rx="2" fill="rgb(180, 180, 180)"/><line x1="1" y1="4" x2="4" y2="4" stroke="#5b5b5b" stroke-width="1"/><line x1="1" y1="12" x2="4" y2="12" stroke="#5b5b5b" stroke-width="1"/><line x1="24" y1="4" x2="27" y2="4" stroke="#5b5b5b" stroke-width="1"/><line x1="24" y1="12" x2="27" y2="12" stroke="#5b5b5b" stroke-width="1"/><text x="14" y="11" text-anchor="middle" font-family="Arial,sans-serif" font-size="8" font-weight="700" fill="white">??</text></svg>';
+        const TIA_DEFAULT_COLOR = Object.freeze({ bg: "rgb(180, 180, 180)", fg: "rgb(255, 255, 255)" });
 
-        function typeIconSvg(tipo) {
+        function typeStyle(tipo) {
             const key = String(tipo || "OTHER").toUpperCase();
-            return TIA_TYPE_ICONS[key] || TIA_DEFAULT_ICON;
+            const c = TIA_TYPE_COLORS[key] || TIA_DEFAULT_COLOR;
+            return {
+                backgroundColor: c.bg,
+                color: c.fg,
+                display: "inline-block",
+                minWidth: "26px",
+                height: "16px",
+                lineHeight: "16px",
+                paddingLeft: "4px",
+                paddingRight: "4px",
+                textAlign: "center",
+                fontSize: "9px",
+                fontWeight: "700",
+                fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+                borderRadius: "2px",
+                letterSpacing: "0.5px",
+            };
+        }
+        function tipoLabel(tipo) {
+            const key = String(tipo || "OTHER").toUpperCase();
+            if (key === "OTHER") return "??";
+            return key;
         }
         function isFolderFullySelected(folderNode) {
             const blocks = folderNode.descendantBlocks || [];
@@ -324,7 +342,8 @@ export default {
             collapseAll,
             clearSelection,
             typeIcon,
-            typeIconSvg,
+            typeStyle,
+            tipoLabel,
             isFolderFullySelected,
             isFolderPartiallySelected,
         };
@@ -369,7 +388,7 @@ export default {
                         <input v-if="node.kind === 'folder'" type="checkbox" :checked="isFolderFullySelected(node)" :indeterminate.prop="isFolderPartiallySelected(node)" @change="toggleSelectFolder(node)" :data-testid="'block-editor-folder-select-' + node.fullPath" class="shrink-0" />
                         <input v-else type="checkbox" :checked="selectedKeys.has(node.block.nombre)" @change="toggleSelect(node.block.nombre)" :data-testid="'block-editor-row-' + node.block.nombre" class="shrink-0" />
                         <!-- Icono + nombre -->
-                        <span v-if="node.kind === 'block'" class="shrink-0 inline-flex items-center" v-html="typeIconSvg(node.block.tipo)"></span>
+                        <span v-if="node.kind === 'block'" :style="typeStyle(node.block.tipo)" class="shrink-0" :data-tipo="node.block.tipo" :title="node.block.tipo">{{ tipoLabel(node.block.tipo) }}</span>
                         <span v-else class="w-4 text-center shrink-0" aria-hidden="true">{{ node.expanded ? '📂' : '📁' }}</span>
                         <span :class="node.kind === 'folder' ? 'font-semibold text-ink' : 'font-mono text-ink'" class="truncate">{{ node.name }}</span>
                         <!-- Metadatos (bloques: numero + tipo + ruta; carpetas: contador) -->
