@@ -3,9 +3,18 @@
  *
  * Vista shell transversal, read-only sobre la cache
  * ``store.appCache.plc_blocks[<plc>]``. Muestra el arbol jerarquico
- * agrupado por el primer segmento de ``b.ruta`` (split por ``\``)
- * con seleccion multiple de bloques (``selectedKeys`` = Set de
- * ``b.nombre``).
+ * MULTI-NIVEL estilo TIA Portal: un unico arbol con indentacion
+ * progresiva, expansion/colapso por categoria, seleccion multiple
+ * por bloque y por carpeta (recursivo sobre descendientes).
+ *
+ * Construccion del arbol:
+ *   - Las rutas de los bloques (``b.ruta``) son strings con
+ *     separador ``\`` que representan la jerarquia TIA Portal.
+ *   - Cada segmento se interpreta como una carpeta. Un bloque con
+ *     ``ruta = "0_Sistema\DBs"`` vive dentro de la carpeta
+ *     ``0_Sistema\DBs`` (que es hijo de ``0_Sistema``).
+ *   - El arbol se aplana a una lista de ``nodes`` (carpetas y
+ *     bloques) segun ``expandedFolders``.
  *
  * 4 empty states secuenciales (prioridad estricta):
  *   1. TIA no connected               (icono "🔌")
@@ -68,45 +77,135 @@ export default {
             return { show: false, icon: "", title: "", hint: "" };
         });
 
-        function folderOf(block) {
-            const ruta = (block && block.ruta) || "";
-            if (!ruta) return ROOT_FOLDER;
-            const head = ruta.split("\\")[0];
-            return head || ROOT_FOLDER;
-        }
-
         function tipoKey(block) {
             const t = String((block && block.tipo) || "OTHER").toUpperCase();
             return _TIPO_ORDER.includes(t) ? t : "OTHER";
         }
 
-        const tree = computed(() => {
-            const list = Array.isArray(blocks.value) ? blocks.value : [];
-            const buckets = new Map();
+        function compareBlocks(a, b) {
+            const tc = _TIPO_ORDER.indexOf(tipoKey(a)) - _TIPO_ORDER.indexOf(tipoKey(b));
+            if (tc !== 0) return tc;
+            const an = String(a.nombre || "");
+            const bn = String(b.nombre || "");
+            return an.localeCompare(bn, undefined, { sensitivity: "base", numeric: true });
+        }
+
+        function buildFolderTree(list) {
+            const root = { name: ROOT_FOLDER, fullPath: "", blocks: [], children: new Map() };
             for (const b of list) {
                 if (!b) continue;
-                const folder = folderOf(b);
-                if (!buckets.has(folder)) buckets.set(folder, []);
-                buckets.get(folder).push(b);
+                const ruta = String(b.ruta || "").trim();
+                if (!ruta) { root.blocks.push(b); continue; }
+                const segs = ruta.split("\\").filter((s) => s.length > 0);
+                let cur = root;
+                let curPath = "";
+                for (let i = 0; i < segs.length; i++) {
+                    const seg = segs[i];
+                    curPath = curPath ? curPath + "\\" + seg : seg;
+                    if (!cur.children.has(seg)) {
+                        cur.children.set(seg, {
+                            name: seg,
+                            fullPath: curPath,
+                            blocks: [],
+                            children: new Map(),
+                        });
+                    }
+                    cur = cur.children.get(seg);
+                }
+                cur.blocks.push(b);
             }
-            for (const arr of buckets.values()) {
-                arr.sort((a, b) => {
-                    const tc = _TIPO_ORDER.indexOf(tipoKey(a)) - _TIPO_ORDER.indexOf(tipoKey(b));
-                    if (tc !== 0) return tc;
-                    const an = String(a.nombre || a.name || "");
-                    const bn = String(b.nombre || b.name || "");
-                    const cmp = an.localeCompare(bn, undefined, { sensitivity: "base", numeric: true });
-                    if (cmp !== 0) return cmp;
-                    return String(a.ruta || "").localeCompare(String(b.ruta || ""));
+            function sortFolder(folder) {
+                const sortedChildren = [...folder.children.entries()].sort(([a], [b]) =>
+                    a.localeCompare(b, undefined, { sensitivity: "base", numeric: true })
+                );
+                folder.children = new Map(sortedChildren);
+                for (const child of folder.children.values()) sortFolder(child);
+                folder.blocks.sort(compareBlocks);
+            }
+            sortFolder(root);
+            return root;
+        }
+
+        function collectDescendantBlocks(folder) {
+            let arr = [...folder.blocks];
+            for (const child of folder.children.values()) {
+                arr = arr.concat(collectDescendantBlocks(child));
+            }
+            return arr;
+        }
+
+        function countDescendantBlocks(folder) {
+            let n = folder.blocks.length;
+            for (const child of folder.children.values()) n += countDescendantBlocks(child);
+            return n;
+        }
+
+        function flattenFolderTree(root, expandedSet) {
+            const nodes = [];
+            const rootPath = root.fullPath;
+            function visit(folder, depth, parentExpanded) {
+                if (depth === 0) {
+                    // Raiz visual: NO se renderiza como fila, solo emite sus hijos.
+                    for (const child of folder.children.values()) visit(child, depth + 1, true);
+                    for (const b of folder.blocks) {
+                        nodes.push({ kind: "block", id: "block:" + b.nombre, depth, block: b, name: b.nombre });
+                    }
+                    return;
+                }
+                const isExpanded = parentExpanded && expandedSet.has(folder.fullPath);
+                const descendantCount = countDescendantBlocks(folder);
+                const descendantBlocks = collectDescendantBlocks(folder);
+                nodes.push({
+                    kind: "folder",
+                    id: "folder:" + folder.fullPath,
+                    name: folder.name,
+                    fullPath: folder.fullPath,
+                    depth,
+                    hasChildren: folder.children.size > 0 || folder.blocks.length > 0,
+                    expanded: isExpanded,
+                    descendantCount,
+                    descendantBlocks,
                 });
+                if (!isExpanded) return;
+                for (const child of folder.children.values()) visit(child, depth + 1, true);
+                for (const b of folder.blocks) {
+                    nodes.push({ kind: "block", id: "block:" + b.nombre, depth: depth + 1, block: b, name: b.nombre });
+                }
             }
-            const folderNames = Array.from(buckets.keys()).sort((a, b) =>
-                a.localeCompare(b, undefined, { sensitivity: "base", numeric: true })
-            );
-            return {
-                folders: folderNames.map((name) => ({ name, blocks: buckets.get(name) })),
-                totalBlocks: list.length,
-            };
+            visit(root, 0, true);
+            return nodes;
+        }
+
+        const expandedFolders = ref(new Set());
+        const allFolderPaths = computed(() => {
+            const list = Array.isArray(blocks.value) ? blocks.value : [];
+            const root = buildFolderTree(list);
+            const paths = [];
+            function visit(folder) {
+                if (folder.fullPath) paths.push(folder.fullPath);
+                for (const child of folder.children.values()) visit(child);
+            }
+            visit(root);
+            return paths;
+        });
+        function expandAll() {
+            expandedFolders.value = new Set(allFolderPaths.value);
+        }
+        function collapseAll() {
+            expandedFolders.value = new Set();
+        }
+        function toggleFolder(fullPath) {
+            const next = new Set(expandedFolders.value);
+            if (next.has(fullPath)) next.delete(fullPath);
+            else next.add(fullPath);
+            expandedFolders.value = next;
+        }
+
+        const tree = computed(() => {
+            const list = Array.isArray(blocks.value) ? blocks.value : [];
+            const root = buildFolderTree(list);
+            const nodes = flattenFolderTree(root, expandedFolders.value);
+            return { nodes, totalBlocks: list.length, root };
         });
 
         const selectedKeys = ref(new Set());
@@ -122,27 +221,49 @@ export default {
         function clearSelection() {
             selectedKeys.value = new Set();
         }
-        function toggleSelectAllInFolder(folderName) {
-            const folder = tree.value.folders.find((f) => f.name === folderName);
-            if (!folder) return;
+        function toggleSelectAll() {
+            const list = tree.value.root.blocks;
+            if (list.length === 0 && tree.value.root.children.size === 0) return;
             const next = new Set(selectedKeys.value);
-            const allSelected = folder.blocks.every((b) => next.has(b.nombre));
-            for (const b of folder.blocks) {
+            const allBlocks = collectDescendantBlocks(tree.value.root);
+            if (allBlocks.length === 0) return;
+            const allSelected = allBlocks.every((b) => next.has(b.nombre));
+            for (const b of allBlocks) {
                 if (allSelected) next.delete(b.nombre);
                 else next.add(b.nombre);
             }
             selectedKeys.value = next;
         }
-        function toggleSelectAll() {
-            const all = tree.value.folders.flatMap((f) => f.blocks);
-            if (all.length === 0) return;
+        function toggleSelectFolder(folderNode) {
+            const blocks = folderNode.descendantBlocks || [];
+            if (blocks.length === 0) return;
             const next = new Set(selectedKeys.value);
-            const allSelected = all.every((b) => next.has(b.nombre));
-            for (const b of all) {
+            const allSelected = blocks.every((b) => next.has(b.nombre));
+            for (const b of blocks) {
                 if (allSelected) next.delete(b.nombre);
                 else next.add(b.nombre);
             }
             selectedKeys.value = next;
+        }
+        function typeIcon(tipo) {
+            switch (String(tipo || "OTHER").toUpperCase()) {
+                case "OB": return "\ud83d\udfe3";  // large purple circle
+                case "DB": return "\ud83d\udd37";  // large blue diamond
+                case "FB": return "\ud83d\udfe9";  // large green square
+                case "FC": return "\ud83d\udfe8";  // large yellow square
+                case "UDT": return "\ud83d\udfe7";  // large orange square
+                default: return "\u2b1c";          // white square
+            }
+        }
+        function isFolderFullySelected(folderNode) {
+            const blocks = folderNode.descendantBlocks || [];
+            return blocks.length > 0 && blocks.every((b) => selectedKeys.value.has(b.nombre));
+        }
+        function isFolderPartiallySelected(folderNode) {
+            const blocks = folderNode.descendantBlocks || [];
+            const some = blocks.some((b) => selectedKeys.value.has(b.nombre));
+            const all = blocks.every((b) => selectedKeys.value.has(b.nombre));
+            return some && !all;
         }
 
         return {
@@ -153,13 +274,20 @@ export default {
             isStale,
             emptyState,
             tree,
+            expandedFolders,
             selectedKeys,
             totalSelected,
             canContinue,
             toggleSelect,
-            toggleSelectAllInFolder,
             toggleSelectAll,
+            toggleSelectFolder,
+            toggleFolder,
+            expandAll,
+            collapseAll,
             clearSelection,
+            typeIcon,
+            isFolderFullySelected,
+            isFolderPartiallySelected,
         };
     },
     template: /* html */ `
@@ -181,41 +309,37 @@ export default {
             </div>
             <!-- Árbol de carpetas + bloques (solo si NO empty state) -->
             <div v-else class="flex-1 min-h-0 flex flex-col gap-3">
-                <!-- Strip de acciones: maestro + clear -->
-                <div class="flex items-center gap-3 text-xs">
+                <!-- Strip de acciones: maestro + expand/collapse + clear -->
+                <div class="flex items-center gap-3 text-xs flex-wrap">
                     <label class="flex items-center gap-2">
                         <input type="checkbox" :checked="totalSelected === tree.totalBlocks" :indeterminate.prop="totalSelected > 0 && totalSelected < tree.totalBlocks" @change="toggleSelectAll" data-testid="block-editor-select-all" />
                         <span>Seleccionar todos ({{ tree.totalBlocks }} bloques)</span>
                     </label>
-                    <button v-if="totalSelected > 0" @click="clearSelection" class="text-xs text-ink-muted hover:text-ink underline">Limpiar selección</button>
+                    <button @click="expandAll" class="text-xs text-ink-muted hover:text-ink underline" data-testid="block-editor-expand-all">Expandir todo</button>
+                    <button @click="collapseAll" class="text-xs text-ink-muted hover:text-ink underline" data-testid="block-editor-collapse-all">Colapsar todo</button>
+                    <button v-if="totalSelected > 0" @click="clearSelection" class="text-xs text-ink-muted hover:text-ink underline ml-auto">Limpiar selección</button>
                 </div>
-                <!-- Una card por carpeta -->
-                <div v-for="folder in tree.folders" :key="folder.name" class="bg-surface-raised border border-line rounded p-3" :data-testid="'block-editor-folder-' + folder.name">
-                    <header class="flex items-center gap-2 mb-2">
-                        <input type="checkbox" :checked="folder.blocks.every(b =&gt; selectedKeys.has(b.nombre))" :indeterminate.prop="folder.blocks.some(b =&gt; selectedKeys.has(b.nombre)) &amp;&amp; !folder.blocks.every(b =&gt; selectedKeys.has(b.nombre))" @change="toggleSelectAllInFolder(folder.name)" :data-testid="'block-editor-folder-select-' + folder.name" />
-                        <h3 class="text-sm font-bold text-ink">{{ folder.name }}</h3>
-                        <span class="text-xs text-ink-muted">({{ folder.blocks.length }} bloques)</span>
-                    </header>
-                    <table class="w-full text-xs">
-                        <thead class="text-ink-muted">
-                            <tr>
-                                <th class="w-8"></th>
-                                <th class="text-left px-2 py-1">Nombre</th>
-                                <th class="text-right px-2 py-1 w-20">Número</th>
-                                <th class="text-left px-2 py-1 w-16">Tipo</th>
-                                <th class="text-left px-2 py-1">Ruta completa</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr v-for="b in folder.blocks" :key="b.nombre" :data-testid="'block-editor-row-' + b.nombre" class="border-t border-line">
-                                <td class="px-2 py-1"><input type="checkbox" :checked="selectedKeys.has(b.nombre)" @change="toggleSelect(b.nombre)" /></td>
-                                <td class="px-2 py-1 font-mono text-ink">{{ b.nombre }}</td>
-                                <td class="px-2 py-1 text-right text-ink-muted">{{ b.numero || "—" }}</td>
-                                <td class="px-2 py-1 text-ink-muted">{{ b.tipo }}</td>
-                                <td class="px-2 py-1 text-ink-muted font-mono">{{ b.ruta || "—" }}</td>
-                            </tr>
-                        </tbody>
-                    </table>
+                <!-- Árbol único vertical estilo TIA Portal -->
+                <div class="flex-1 min-h-0 overflow-y-auto bg-surface-raised border border-line rounded text-xs" data-testid="block-editor-tree">
+                    <div v-for="node in tree.nodes" :key="node.id" class="flex items-center gap-2 px-2 py-0.5 hover:bg-surface-sunken" :style="{ paddingLeft: (node.depth * 16 + 4) + 'px' }" :data-testid="'block-editor-' + node.kind + '-' + (node.kind === 'folder' ? node.fullPath : node.block.nombre)">
+                        <!-- Chevron para carpetas con hijos -->
+                        <span v-if="node.kind === 'folder' && node.hasChildren" class="cursor-pointer select-none w-4 inline-flex items-center justify-center text-ink-muted hover:text-ink" @click="toggleFolder(node.fullPath)">{{ node.expanded ? '▼' : '▶' }}</span>
+                        <span v-else-if="node.kind === 'folder'" class="w-4"></span>
+                        <span v-else class="w-4"></span>
+                        <!-- Checkbox -->
+                        <input v-if="node.kind === 'folder'" type="checkbox" :checked="isFolderFullySelected(node)" :indeterminate.prop="isFolderPartiallySelected(node)" @change="toggleSelectFolder(node)" :data-testid="'block-editor-folder-select-' + node.fullPath" class="shrink-0" />
+                        <input v-else type="checkbox" :checked="selectedKeys.has(node.block.nombre)" @change="toggleSelect(node.block.nombre)" :data-testid="'block-editor-row-' + node.block.nombre" class="shrink-0" />
+                        <!-- Icono + nombre -->
+                        <span class="w-4 text-center shrink-0" aria-hidden="true">{{ node.kind === 'folder' ? (node.expanded ? '📂' : '📁') : typeIcon(node.block.tipo) }}</span>
+                        <span :class="node.kind === 'folder' ? 'font-semibold text-ink' : 'font-mono text-ink'" class="truncate">{{ node.name }}</span>
+                        <!-- Metadatos (bloques: numero + tipo + ruta; carpetas: contador) -->
+                        <template v-if="node.kind === 'block'">
+                            <span class="ml-auto text-ink-muted font-mono w-12 text-right">{{ node.block.numero || '—' }}</span>
+                            <span class="text-ink-muted w-10 text-center">{{ node.block.tipo }}</span>
+                            <span class="text-ink-muted font-mono truncate max-w-xs" :title="node.block.ruta || ''">{{ node.block.ruta || '' }}</span>
+                        </template>
+                        <span v-else-if="node.hasChildren" class="ml-auto text-ink-muted">({{ node.descendantCount }} bloques)</span>
+                    </div>
                 </div>
                 <!-- Footer: botón "Continuar a edición" -->
                 <footer class="flex justify-end pt-3 border-t border-line">
