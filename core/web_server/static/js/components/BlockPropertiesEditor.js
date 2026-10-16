@@ -246,14 +246,54 @@ export default {
             selectedKeys.value = next;
         }
         function typeIcon(tipo) {
+            // Mantenido por retro-compat con cualquier consumidor externo;
+            // el render del template usa typeStyle + tipoLabel.
             switch (String(tipo || "OTHER").toUpperCase()) {
-                case "OB": return "\ud83d\udfe3";  // large purple circle
-                case "DB": return "\ud83d\udd37";  // large blue diamond
-                case "FB": return "\ud83d\udfe9";  // large green square
-                case "FC": return "\ud83d\udfe8";  // large yellow square
-                case "UDT": return "\ud83d\udfe7";  // large orange square
-                default: return "\u2b1c";          // white square
+                case "OB": return "OB";
+                case "DB": return "DB";
+                case "FB": return "FB";
+                case "FC": return "FC";
+                case "UDT": return "UDT";
+                default: return "??";
             }
+        }
+
+        // Colores oficiales TIA Portal para el icono-pastilla de cada tipo.
+        // Documentados como constantes para que cualquier ajuste futuro
+        // (cambio de tonalidad entre versiones TIA) sea de un solo punto.
+        const TIA_TYPE_COLORS = Object.freeze({
+            OB:    { bg: "rgb(190, 30, 247)", fg: "rgb(255, 255, 255)" },
+            DB:    { bg: "rgb(63, 80, 235)",  fg: "rgb(255, 255, 255)" },
+            FB:    { bg: "rgb(19, 154, 241)", fg: "rgb(255, 255, 255)" },
+            FC:    { bg: "rgb(34, 184, 32)",  fg: "rgb(255, 255, 255)" },
+            UDT:   { bg: "rgb(224, 237, 243)", fg: "rgb(40, 50, 70)"   },
+        });
+        const TIA_DEFAULT_COLOR = Object.freeze({ bg: "rgb(180, 180, 180)", fg: "rgb(255, 255, 255)" });
+
+        function typeStyle(tipo) {
+            const key = String(tipo || "OTHER").toUpperCase();
+            const c = TIA_TYPE_COLORS[key] || TIA_DEFAULT_COLOR;
+            return {
+                backgroundColor: c.bg,
+                color: c.fg,
+                display: "inline-block",
+                minWidth: "26px",
+                height: "16px",
+                lineHeight: "16px",
+                paddingLeft: "4px",
+                paddingRight: "4px",
+                textAlign: "center",
+                fontSize: "9px",
+                fontWeight: "700",
+                fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+                borderRadius: "2px",
+                letterSpacing: "0.5px",
+            };
+        }
+        function tipoLabel(tipo) {
+            const key = String(tipo || "OTHER").toUpperCase();
+            if (key === "OTHER") return "??";
+            return key;
         }
         function isFolderFullySelected(folderNode) {
             const blocks = folderNode.descendantBlocks || [];
@@ -286,6 +326,8 @@ export default {
             collapseAll,
             clearSelection,
             typeIcon,
+            typeStyle,
+            tipoLabel,
             isFolderFullySelected,
             isFolderPartiallySelected,
         };
@@ -330,7 +372,8 @@ export default {
                         <input v-if="node.kind === 'folder'" type="checkbox" :checked="isFolderFullySelected(node)" :indeterminate.prop="isFolderPartiallySelected(node)" @change="toggleSelectFolder(node)" :data-testid="'block-editor-folder-select-' + node.fullPath" class="shrink-0" />
                         <input v-else type="checkbox" :checked="selectedKeys.has(node.block.nombre)" @change="toggleSelect(node.block.nombre)" :data-testid="'block-editor-row-' + node.block.nombre" class="shrink-0" />
                         <!-- Icono + nombre -->
-                        <span class="w-4 text-center shrink-0" aria-hidden="true">{{ node.kind === 'folder' ? (node.expanded ? '📂' : '📁') : typeIcon(node.block.tipo) }}</span>
+                        <span v-if="node.kind === 'block'" :style="typeStyle(node.block.tipo)" class="shrink-0" :data-tipo="node.block.tipo" :title="node.block.tipo">{{ tipoLabel(node.block.tipo) }}</span>
+                        <span v-else class="w-4 text-center shrink-0" aria-hidden="true">{{ node.expanded ? '📂' : '📁' }}</span>
                         <span :class="node.kind === 'folder' ? 'font-semibold text-ink' : 'font-mono text-ink'" class="truncate">{{ node.name }}</span>
                         <!-- Metadatos (bloques: numero + tipo + ruta; carpetas: contador) -->
                         <template v-if="node.kind === 'block'">
