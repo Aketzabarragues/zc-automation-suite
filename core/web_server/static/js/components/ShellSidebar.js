@@ -158,6 +158,19 @@ export default {
                         <span class="text-base opacity-90" aria-hidden="true">🔌</span>
                         <span class="truncate">PLC</span>
                     </button>
+                    <!-- Botón nuevo (FASE 1): editor de bloques del PLC.
+                         Misma seccion visual que PLC, sin header nuevo.
+                         Key reservada "block-editor" del shell (no del manifest). -->
+                    <button @click="navigate('block-editor')"
+                            data-testid="sidebar-block-editor-button"
+                            :data-active="store.currentView === 'block-editor'"
+                            :class="[
+                                'w-full text-left flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors duration-150 border-l-2 mt-1',
+                                itemClass(store.currentView === 'block-editor')
+                            ]">
+                        <span class="text-base opacity-90" aria-hidden="true">🔧</span>
+                        <span class="truncate">Editor de bloques</span>
+                    </button>
                 </div>
 
                 <!-- Navegacion del area (sub-vistas, viene del manifest).

@@ -31,6 +31,7 @@ import ProgressIndicator from "./components/ProgressIndicator.js";
 import ShellTopbar from "./components/ShellTopbar.js";
 import ShellSidebar from "./components/ShellSidebar.js";
 import plcpanelview from "./components/plcpanelview.js";
+import blockpropertieseditor from "./components/BlockPropertiesEditor.js";
 
 /** Componente raíz: enrutador top-level (welcome) + layout de área. */
 const App = {
@@ -41,6 +42,7 @@ const App = {
         ShellTopbar,
         ShellSidebar,
         plcpanelview,
+        blockpropertieseditor,
     },
     setup() {
         /**
@@ -143,6 +145,15 @@ const App = {
                 store.currentView = "plc";
                 return;
             }
+            // ``"block-editor"`` es la segunda key reservada del shell
+            // (boton nuevo de la FASE 1 del editor de bloques del PLC).
+            // Tampoco esta en el manifest del area, asi que tampoco pasa
+            // por ``goToSubview`` (que validaria contra views y la
+            // rechazaria silenciosamente).
+            if (key === "block-editor") {
+                store.currentView = "block-editor";
+                return;
+            }
             // Para el resto de keys validamos contra el manifest.
             goToSubview(key);
         }
@@ -181,6 +192,12 @@ const App = {
          * entre ``<plcpanelview />`` y ``<component :is="currentViewComponent" />``.
          */
         const isPlcView = computed(() => store.currentView === "plc");
+        /**
+         * True si la sub-vista activa es ``"block-editor"`` (FASE 1
+         * del editor de bloques del PLC). Tambien reservada del shell,
+         * gemela de ``isPlcView``.
+         */
+        const isBlockEditorView = computed(() => store.currentView === "block-editor");
         /**
          * Flag derivado: estamos en un área cuyo manifest no se pudo
          * cargar (endpoint no existe, loaders vacíos o red caída). Lo
@@ -221,6 +238,7 @@ const App = {
             onShellBack,
             currentViewComponent,
             isPlcView,
+            isBlockEditorView,
             areaManifestEmpty,
             topbarArea,
         };
@@ -259,6 +277,7 @@ const App = {
                             </div>
                         </div>
                         <plcpanelview v-else-if="isPlcView" data-testid="shell-plc-panel" />
+                        <blockpropertieseditor v-else-if="isBlockEditorView" data-testid="shell-block-editor-panel" />
                         <component v-else-if="currentViewComponent"
                             :is="currentViewComponent"
                             @select="onSubviewSelected"
