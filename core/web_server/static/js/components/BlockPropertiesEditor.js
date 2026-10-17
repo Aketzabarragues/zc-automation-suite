@@ -33,7 +33,7 @@ import {
 import { store } from "/js/store.js";
 
 const STALE_AFTER_MS = 5 * 60 * 1000;
-const _TIPO_ORDER = ["OB", "DB", "FB", "FC", "UDT", "OTHER"];
+const _TIPO_ORDER = ["OB", "FC", "FB", "DB", "UDT", "OTHER"];
 const ROOT_FOLDER = "(raiz)";
 
 export default {
@@ -145,11 +145,13 @@ export default {
             const rootPath = root.fullPath;
             function visit(folder, depth, parentExpanded) {
                 if (depth === 0) {
-                    // Raiz visual: NO se renderiza como fila, solo emite sus hijos.
-                    for (const child of folder.children.values()) visit(child, depth + 1, true);
+                    // Raíz visual: NO se renderiza como fila, solo emite bloques sueltos
+                    // y carpetas (hijos). Bloques primero (orden OB/FC/FB/DB), carpetas
+                    // después, replicando el orden del árbol de TIA Portal.
                     for (const b of folder.blocks) {
                         nodes.push({ kind: "block", id: "block:" + b.nombre, depth, block: b, name: b.nombre });
                     }
+                    for (const child of folder.children.values()) visit(child, depth + 1, true);
                     return;
                 }
                 const isExpanded = parentExpanded && expandedSet.has(folder.fullPath);
@@ -167,10 +169,11 @@ export default {
                     descendantBlocks,
                 });
                 if (!isExpanded) return;
-                for (const child of folder.children.values()) visit(child, depth + 1, true);
+                // Bloques sueltos primero (orden OB/FC/FB/DB), carpetas (hijos) después.
                 for (const b of folder.blocks) {
                     nodes.push({ kind: "block", id: "block:" + b.nombre, depth: depth + 1, block: b, name: b.nombre });
                 }
+                for (const child of folder.children.values()) visit(child, depth + 1, true);
             }
             visit(root, 0, true);
             return nodes;
