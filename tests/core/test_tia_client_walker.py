@@ -79,17 +79,29 @@ def _block(nombre: str, ruta: str = ""):
         b.get_path.return_value = ruta
 
     prefijo = re.match(r"^(DB|FB|FC|OB|UDT)(\d+)", nombre, re.IGNORECASE)
+
+    # `_extract_extended_properties` lee 5 propiedades via
+    # ``get_property(name=...)``. Para que el mock no devuelva el mismo
+    # valor en todas las llamadas (que es lo que hace ``return_value``),
+    # usamos ``side_effect`` con un callable que solo devuelve el valor
+    # esperado para ``ProgrammingLanguage`` (lo que ``classify_block``
+    # lee) y ``None`` para el resto.
+    def _prop_getter(v):
+        def _get(name, **kw):
+            return v if name == "ProgrammingLanguage" else None
+        return _get
+
     if prefijo:
         p = prefijo.group(1).upper()
         if p == "DB":
-            b.get_property.return_value = "DB"
+            b.get_property.side_effect = _prop_getter("DB")
             b.get_properties.return_value = []
         elif p == "OB":
-            b.get_property.return_value = "LAD"
+            b.get_property.side_effect = _prop_getter("LAD")
             b.get_properties.return_value = ["SecondaryType"]
         elif p == "FB":
             # FB tiene ISMultiInstanceCapable (unica discriminante vs FC).
-            b.get_property.return_value = _LANG_POR_PREF[p]
+            b.get_property.side_effect = _prop_getter(_LANG_POR_PREF[p])
             b.get_properties.return_value = ["ISMultiInstanceCapable"]
         elif p == "UDT":
             # UDTs tienen clase Python UserDataType (smoke oct-2026).
@@ -98,7 +110,7 @@ def _block(nombre: str, ruta: str = ""):
             # protege su ``__class__`` y no se puede asignar).
             return _make_block_with_class("UserDataType_subclass", nombre, ruta)
         else:  # FC
-            b.get_property.return_value = _LANG_POR_PREF[p]
+            b.get_property.side_effect = _prop_getter(_LANG_POR_PREF[p])
             b.get_properties.return_value = []
     else:
         # Nombre sin prefijo estandar (smoke oct-2026: _borrar, Documentacion).
@@ -106,7 +118,7 @@ def _block(nombre: str, ruta: str = ""):
         # dejamos como "no clasificado" (OTHER) porque son casos viejos del
         # regex que ahora son defensivos. Tests especificos de la
         # clasificacion real viven en test_tia_block_classifier.py.
-        b.get_property.return_value = None
+        b.get_property.side_effect = _prop_getter(None)
         b.get_properties.return_value = []
     return b
 
@@ -141,7 +153,7 @@ def test_walker_returns_dicts_in_bloque_plc_shape():
             "comment": None,
             "author": None,
             "version": None,
-            "programming_language": None,
+            "programming_language": "DB",
             "memory_layout": None,
         },
         {
@@ -153,7 +165,7 @@ def test_walker_returns_dicts_in_bloque_plc_shape():
             "comment": None,
             "author": None,
             "version": None,
-            "programming_language": None,
+            "programming_language": "SCL",
             "memory_layout": None,
         },
         {
@@ -165,7 +177,7 @@ def test_walker_returns_dicts_in_bloque_plc_shape():
             "comment": None,
             "author": None,
             "version": None,
-            "programming_language": None,
+            "programming_language": "LAD",
             "memory_layout": None,
         },
     ]
@@ -232,7 +244,7 @@ def test_walker_skips_blocks_with_unicode_decode_error_in_name():
             "comment": None,
             "author": None,
             "version": None,
-            "programming_language": None,
+            "programming_language": "DB",
             "memory_layout": None,
         }
     ]
