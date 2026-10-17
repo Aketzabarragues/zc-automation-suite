@@ -256,6 +256,87 @@ def _scan_block_group_recursive(group_or_blocks: Any) -> list[dict]:
     return out
 
 
+def _find_block_in_plc(plc: Any, block_name: str, block_path: str) -> Any:
+    """Resuelve un PlcBlock por nombre + jerarquía dentro de un PLC.
+
+    Itera recursivamente sobre el árbol de bloques/grupos del PLC buscando
+    un bloque cuyo ``name`` coincida con ``block_name``. Si ``block_path``
+    es vacío, busca solo en el nivel raíz; si tiene segmentos separados
+    por ``"\\"``, navega primero por la jerarquía de grupos.
+
+    Args:
+        plc: instancia ``Plc`` (objeto nativo TIA vía ``siemens_tia_scripting``).
+        block_name: nombre del bloque SIN ruta (e.g. ``"DB1"``).
+        block_path: jerarquía TIA con separador ``"\\"``. ``""`` si está
+            en el nivel raíz del PLC.
+
+    Returns:
+        El ``PlcBlock`` encontrado.
+
+    Raises:
+        RuntimeError: si el bloque no se encuentra o el path no resuelve.
+            El handler ``update_block_property`` confía en este raise para
+            hacer rollback de la transacción.
+    """
+    def _norm(s: str) -> str:
+        return (s or "").replace("/", "\\").strip()
+
+    target_path = _norm(block_path)
+
+    candidates_groups: list[Any] = [plc]
+
+    if target_path:
+        for segment in target_path.split("\\"):
+            segment = segment.strip()
+            if not segment:
+                continue
+            next_groups: list[Any] = []
+            for grp in candidates_groups:
+                try:
+                    sub = grp.get_groups() if hasattr(grp, "get_groups") else []
+                except Exception:
+                    sub = []
+                for g in sub:
+                    name = getattr(g, "name", None)
+                    if name is None:
+                        try:
+                            name = str(g.Name)
+                        except Exception:
+                            name = None
+                    if name == segment:
+                        next_groups.append(g)
+                        break
+            if not next_groups:
+                raise RuntimeError(
+                    f"_find_block_in_plc: no se encontró grupo "
+                    f"{segment!r} en path {block_path!r}"
+                )
+            candidates_groups = next_groups
+
+    for grp in candidates_groups:
+        try:
+            blocks = grp.get_program_blocks() if hasattr(grp, "get_program_blocks") else (
+                grp.get_blocks() if hasattr(grp, "get_blocks") else []
+            )
+        except Exception:
+            blocks = []
+
+        for b in blocks:
+            name = getattr(b, "name", None)
+            if name is None:
+                try:
+                    name = str(b.Name)
+                except Exception:
+                    continue
+            if name == block_name:
+                return b
+
+    raise RuntimeError(
+        f"_find_block_in_plc: no se encontró bloque {block_name!r} "
+        f"en path {block_path!r}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Helpers de export
 # ---------------------------------------------------------------------------

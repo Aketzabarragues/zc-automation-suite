@@ -20,6 +20,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from core.infrastructure.tia.tia_helpers import (
+    _find_block_in_plc,
     _find_plc,
     _get_active_project,
 )
@@ -32,18 +33,6 @@ logger = logging.getLogger("zc.tia_loop")
 
 # Whitelist de propiedades editables via set_property.
 _EDITABLE_PROPERTY_NAMES: frozenset[str] = frozenset({"Name", "Number"})
-
-
-def _find_block_in_plc(plc: Any, block_name: str, block_path: str) -> Any:
-    """Stub temporal del helper ``_find_block_in_plc``.
-
-    Se materializa como helper compartido en ``tia_helpers.py`` en commit
-    3 de FASE 2. Mantenido inline aqui para que este modulo sea
-    commiteable sin esperar al helper real.
-    """
-    raise NotImplementedError(
-        "_find_block_in_plc helper se materializa en commit 3 de FASE 2"
-    )
 
 
 def _h_update_block_property(args: dict, tia_client: "SyncTIAClient") -> dict:
