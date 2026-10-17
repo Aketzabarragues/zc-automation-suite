@@ -158,12 +158,23 @@ def _safe_get_table_name(table: Any) -> str | None:
 # Recursion sobre arbol de bloques
 # ---------------------------------------------------------------------------
 def _extract_extended_properties(block: Any) -> dict[str, Optional[str]]:
-    """Lee las 6 propiedades extendidas del bloque via ``PlcBlock.get_properties()``.
+    """Lee las 6 propiedades extendidas del bloque via ``get_properties()``.
 
-    Si la llamada lanza (COM transitorio, propiedad no soportada en este
-    tipo de bloque, etc.) devuelve todos los campos como ``None``.
-    Los valores se convierten a ``str`` y los vacios se normalizan a
-    ``None`` para que el JSON del IPC sea uniforme.
+    El manual TIA (§2.29.11) confirma que ``ProgramBlock.get_properties()``
+    existe pero NO documenta la shape exacta del retorno: puede ser un
+    objeto con atributos directos (``props.Title``), un dict
+    (``props["Title"]``), o un objeto con propiedades anidadas. Esta
+    implementacion es defensiva y prueba multiples paths antes de rendirse.
+
+    Estrategia de acceso por propiedad:
+      1. ``getattr(props, candidate, None)`` (objeto con atributos).
+      2. ``props.get(candidate, None)`` si ``props`` expone un ``get``
+         callable (dict-like o atributo custom).
+
+    Si ``get_properties()`` lanza, devuelve todos los campos a ``None``
+    pero loggea el tipo de excepcion en debug para que el operario sepa
+    que ha pasado. En la primera llamada de la sesion loggea ademas las
+    claves disponibles para guiar el siguiente commit de mapeo.
 
     Keys (snake_case): ``title``, ``comment``, ``author``, ``version``,
     ``programming_language``, ``memory_layout``.
@@ -171,36 +182,120 @@ def _extract_extended_properties(block: Any) -> dict[str, Optional[str]]:
     fields = ("title", "comment", "author", "version",
               "programming_language", "memory_layout")
     empty: dict[str, Optional[str]] = {k: None for k in fields}
+
     getter = getattr(block, "get_properties", None)
     if getter is None:
         return empty
     try:
         props = getter()
-    except Exception:
+    except Exception as exc:
+        logger.debug(
+            f"[extended_props] get_properties() lanzo {type(exc).__name__}: {exc}"
+        )
         return empty
     if props is None:
         return empty
-    tia_names = {
-        "title": "Title",
-        "comment": "Comment",
-        "author": "Author",
-        "version": "Version",
-        "programming_language": "ProgrammingLanguage",
-        "memory_layout": "MemoryLayout",
+
+    # Diagnostico: una vez por sesion, loggear que keys expone realmente
+    # el objeto devuelto por get_properties(). Asi el operario puede ver
+    # en logs si la shape es distinta de la esperada.
+    if not getattr(_extract_extended_properties, "_logged_keys", False):
+        try:
+            if hasattr(props, "__dict__") and props.__dict__:
+                available = sorted(vars(props).keys())
+            elif hasattr(props, "keys"):
+                available = sorted(props.keys())
+            else:
+                available = f"tipo_desconocido:{type(props).__name__}"
+            logger.debug(
+                f"[extended_props] Primer get_properties() de la sesion. "
+                f"Tipo: {type(props).__name__}. Claves disponibles: {available}"
+            )
+        except Exception:
+            logger.debug(
+                "[extended_props] No se pudo introspeccionar la shape de props"
+            )
+        _extract_extended_properties._logged_keys = True
+
+    # Mapeo principal (PascalCase -> snake_case) y variantes alternativas
+    # por si la shape real usa otro casing o separador.
+    tia_to_py = {
+        "Title": "title",
+        "Comment": "comment",
+        "Author": "author",
+        "Version": "version",
+        "ProgrammingLanguage": "programming_language",
+        "MemoryLayout": "memory_layout",
     }
-    out: dict[str, Optional[str]] = {}
-    for snake, tia_name in tia_names.items():
-        raw = getattr(props, tia_name, None)
-        if raw is None:
-            out[snake] = None
-            continue
+    alt_candidates: dict[str, list[str]] = {
+        "title": ["title"],
+        "comment": ["comment"],
+        "author": ["author"],
+        "version": ["version"],
+        "programming_language": ["programmingLanguage", "programming_language"],
+        "memory_layout": ["memoryLayout", "memory_layout"],
+    }
+
+    def _read(tia_name: str, py_name: str) -> Optional[str]:
+        """Lee una propiedad probando getattr y luego dict-style.
+
+        Semantica:
+          - El main candidate (PascalCase) tiene prioridad absoluta.
+          - Si el main devuelve ``None`` (atributo no presente), se
+            prueban alt candidates (camelCase / snake_case) y dict.
+          - Si el main devuelve ``""`` se respeta como valor valido
+            (no se buscan alts): un bloque con comentario vacio NO
+            debe caer al path camelCase ni auto-crear nada.
+          - El path dict-like solo se prueba si ``props`` es realmente
+            un ``dict`` (no cualquier callable ``.get``) para evitar
+            falsos positivos con ``MagicMock`` u objetos que exponen
+            ``.get`` por巧合.
+        """
+        candidates = [tia_name] + alt_candidates.get(py_name, [])
+        props_is_dict = isinstance(props, dict)
+
+        raw: Any = None
+
+        # 1. Main candidate: primero atributo, luego dict.
+        try:
+            raw = getattr(props, tia_name, None)
+        except Exception:
+            raw = None
+        if raw is None and props_is_dict:
+            try:
+                raw = props.get(tia_name)
+            except Exception:
+                raw = None
+
+        # 2. Solo si el main no estaba, buscar en alt candidates.
+        if raw is None and len(candidates) > 1:
+            for candidate in candidates[1:]:
+                try:
+                    raw = getattr(props, candidate, None)
+                except Exception:
+                    raw = None
+                if raw is not None:
+                    break
+                if props_is_dict:
+                    try:
+                        raw = props.get(candidate)
+                    except Exception:
+                        raw = None
+                    if raw is not None:
+                        break
+
+        if raw is None or raw == "":
+            return None
         try:
             s = str(raw).strip()
         except Exception:
-            out[snake] = None
-            continue
-        out[snake] = s if s else None
-    return out
+            return None
+        return s if s else None
+
+    return {
+        py_name: _read(tia_name, py_name)
+        for tia_name, py_name in tia_to_py.items()
+    }
 
 
 def _scan_block_group_recursive(group_or_blocks: Any) -> list[dict]:
