@@ -132,9 +132,42 @@ def test_walker_returns_dicts_in_bloque_plc_shape():
     result = _scan_block_group_recursive(_group(blocks))
 
     assert result == [
-        {"nombre": "DB1", "numero": 1, "tipo": "DB", "ruta": ""},
-        {"nombre": "FB2", "numero": 2, "tipo": "FB", "ruta": "/ruta/FB2"},
-        {"nombre": "OB1", "numero": 1, "tipo": "OB", "ruta": ""},
+        {
+            "nombre": "DB1",
+            "numero": 1,
+            "tipo": "DB",
+            "ruta": "",
+            "title": None,
+            "comment": None,
+            "author": None,
+            "version": None,
+            "programming_language": None,
+            "memory_layout": None,
+        },
+        {
+            "nombre": "FB2",
+            "numero": 2,
+            "tipo": "FB",
+            "ruta": "/ruta/FB2",
+            "title": None,
+            "comment": None,
+            "author": None,
+            "version": None,
+            "programming_language": None,
+            "memory_layout": None,
+        },
+        {
+            "nombre": "OB1",
+            "numero": 1,
+            "tipo": "OB",
+            "ruta": "",
+            "title": None,
+            "comment": None,
+            "author": None,
+            "version": None,
+            "programming_language": None,
+            "memory_layout": None,
+        },
     ]
 
 
@@ -189,7 +222,20 @@ def test_walker_skips_blocks_with_unicode_decode_error_in_name():
     block_good = _block("DB1")
 
     result = _scan_block_group_recursive(_group([block_bad, block_good]))
-    assert result == [{"nombre": "DB1", "numero": 1, "tipo": "DB", "ruta": ""}]
+    assert result == [
+        {
+            "nombre": "DB1",
+            "numero": 1,
+            "tipo": "DB",
+            "ruta": "",
+            "title": None,
+            "comment": None,
+            "author": None,
+            "version": None,
+            "programming_language": None,
+            "memory_layout": None,
+        }
+    ]
 
 
 def test_walker_returns_empty_when_get_blocks_raises():

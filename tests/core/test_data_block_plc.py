@@ -1,7 +1,7 @@
 """Tests para ``core.data.data_bloque_plc.DataBloquePLC``.
 
 Fase 3, paso 3.1.3.  Cobertura:
-  - Construccion basica con los 4 campos.
+  - Construccion basica con los 4 campos basicos.
   - ``frozen=True``: no se puede mutar (intentar asignar lanza
     ``FrozenInstanceError``).
   - ``normalize_name`` cubre NBSP, espacios, mayusculas/minusculas
@@ -10,7 +10,7 @@ Fase 3, paso 3.1.3.  Cobertura:
     se mantienen distintos.
   - ``detect_tipo`` reconoce ``DB/FB/FC/OB/UDT`` (case-insensitive)
     y devuelve ``"OTHER"`` en cualquier otro caso.
-  - ``to_dict()`` emite exactamente los 4 campos.
+  - ``to_dict()`` emite los 10 campos (4 basicos + 6 extendidos).
 """
 from __future__ import annotations
 
@@ -89,16 +89,26 @@ def test_detect_tipo_other_para_nombres_sin_prefijo_estandar():
 
 
 def test_to_dict_shape():
-    """``to_dict()`` emite exactamente los 4 campos primitivos."""
+    """``to_dict()`` emite los 4 campos basicos + 6 extendidos (default None)."""
     b = DataBloquePLC("FB_Main", 42, "FB", "Programa\\FB_Main")
     snapshot = b.to_dict()
 
-    assert set(snapshot.keys()) == {"nombre", "numero", "tipo", "ruta"}
+    assert set(snapshot.keys()) == {
+        "nombre", "numero", "tipo", "ruta",
+        "title", "comment", "author", "version",
+        "programming_language", "memory_layout",
+    }
     assert snapshot == {
         "nombre": "FB_Main",
         "numero": 42,
         "tipo": "FB",
         "ruta": "Programa\\FB_Main",
+        "title": None,
+        "comment": None,
+        "author": None,
+        "version": None,
+        "programming_language": None,
+        "memory_layout": None,
     }
 
 

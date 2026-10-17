@@ -106,7 +106,20 @@ def test_scan_blocks_tag_tables_failure_returns_empty_not_error():
 
     out = c.dispatch("scan_blocks", {"plc_name": "PLC_1"})
     assert out["ok"] is True
-    assert out["result"]["blocks"] == [{"nombre": "DB1", "numero": 1, "tipo": "DB", "ruta": ""}]
+    assert out["result"]["blocks"] == [
+        {
+            "nombre": "DB1",
+            "numero": 1,
+            "tipo": "DB",
+            "ruta": "",
+            "title": None,
+            "comment": None,
+            "author": None,
+            "version": None,
+            "programming_language": None,
+            "memory_layout": None,
+        }
+    ]
     assert out["result"]["tag_tables"] == []
     assert out["result"]["udts"] == []
 

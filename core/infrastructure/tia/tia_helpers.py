@@ -20,7 +20,7 @@ import logging
 import re
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from core.data.data_block_plc import DataBloquePLC
 from core.helpers.tia.tia_block_classifier import classify_block
@@ -157,6 +157,52 @@ def _safe_get_table_name(table: Any) -> str | None:
 # ---------------------------------------------------------------------------
 # Recursion sobre arbol de bloques
 # ---------------------------------------------------------------------------
+def _extract_extended_properties(block: Any) -> dict[str, Optional[str]]:
+    """Lee las 6 propiedades extendidas del bloque via ``PlcBlock.get_properties()``.
+
+    Si la llamada lanza (COM transitorio, propiedad no soportada en este
+    tipo de bloque, etc.) devuelve todos los campos como ``None``.
+    Los valores se convierten a ``str`` y los vacios se normalizan a
+    ``None`` para que el JSON del IPC sea uniforme.
+
+    Keys (snake_case): ``title``, ``comment``, ``author``, ``version``,
+    ``programming_language``, ``memory_layout``.
+    """
+    fields = ("title", "comment", "author", "version",
+              "programming_language", "memory_layout")
+    empty: dict[str, Optional[str]] = {k: None for k in fields}
+    getter = getattr(block, "get_properties", None)
+    if getter is None:
+        return empty
+    try:
+        props = getter()
+    except Exception:
+        return empty
+    if props is None:
+        return empty
+    tia_names = {
+        "title": "Title",
+        "comment": "Comment",
+        "author": "Author",
+        "version": "Version",
+        "programming_language": "ProgrammingLanguage",
+        "memory_layout": "MemoryLayout",
+    }
+    out: dict[str, Optional[str]] = {}
+    for snake, tia_name in tia_names.items():
+        raw = getattr(props, tia_name, None)
+        if raw is None:
+            out[snake] = None
+            continue
+        try:
+            s = str(raw).strip()
+        except Exception:
+            out[snake] = None
+            continue
+        out[snake] = s if s else None
+    return out
+
+
 def _scan_block_group_recursive(group_or_blocks: Any) -> list[dict]:
     """Recorre recursivamente un grupo o coleccion de bloques -> DTOs dict.
 
@@ -184,12 +230,14 @@ def _scan_block_group_recursive(group_or_blocks: Any) -> list[dict]:
         tipo = classify_block(block)
         match = re.match(r"^(DB|FB|FC|OB|UDT)(\d+)", nombre, re.IGNORECASE)
         numero = int(match.group(2)) if match else 0
+        extended = _extract_extended_properties(block)
         out.append(
             DataBloquePLC(
                 nombre=str(nombre),
                 numero=numero,
                 tipo=tipo,
                 ruta=ruta,
+                **extended,
             ).to_dict()
         )
 
