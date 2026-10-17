@@ -3,7 +3,7 @@
 Punto unico de verdad sobre que comandos expone el worker OT y como
 registrarlos en un ``SyncTIAClient``.
 
-Catalogo actual (26 comandos core + N comandos del area):
+Catalogo actual (27 comandos core + N comandos del area):
 
   -  3 lifecycle:        attach_portal, detach_portal, open_new_portal
   -  3 project:          open_project, save_project, close_project
@@ -16,6 +16,7 @@ Catalogo actual (26 comandos core + N comandos del area):
   -  4 user_consts:      get_user_constants, delete_user_constant,
                           update_user_constant_value, update_user_constant_name
   -  1 batch:            execute_transactional_batch
+  -  1 blocks:           update_block_property
 
 Las areas aportan comandos adicionales via ``AreaSpec.contributes_tia_commands``
 (registrados en su propio modulo, no en este catalogo).
@@ -25,6 +26,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from core.infrastructure.tia.tia_cmd_batch import COMMANDS as BATCH_COMMANDS
+from core.infrastructure.tia.tia_cmd_blocks import BLOCKS_COMMANDS
 from core.infrastructure.tia.tia_cmd_compile import COMMANDS as COMPILE_COMMANDS
 from core.infrastructure.tia.tia_cmd_export import COMMANDS as EXPORT_COMMANDS
 from core.infrastructure.tia.tia_cmd_import_ import COMMANDS as IMPORT_COMMANDS
@@ -39,7 +41,7 @@ if TYPE_CHECKING:
     from core.infrastructure.tia.tia_loop import SyncTIAClient
 
 
-# Fuente unica de verdad: union de los 8 catalogos por categoria.
+# Fuente unica de verdad: union de los 9 catalogos por categoria.
 CATALOGO: dict[str, Any] = {
     **LIFECYCLE_COMMANDS,    # 3
     **PROJECT_COMMANDS,      # 3
@@ -49,11 +51,12 @@ CATALOGO: dict[str, Any] = {
     **IMPORT_COMMANDS,       # 4
     **USER_CONSTS_COMMANDS,  # 4
     **BATCH_COMMANDS,        # 1
+    **BLOCKS_COMMANDS,       # 1
 }
 
 
 def register_all_commands(client: "SyncTIAClient") -> None:
-    """Carga los 26 comandos core en ``client._handlers``.
+    """Carga los 27 comandos core en ``client._handlers``.
 
     Llamado desde ``tia_loop.start_tia_loop()`` en el arranque del worker.
     Si un comando ya esta registrado, ``register_command()`` lanza
