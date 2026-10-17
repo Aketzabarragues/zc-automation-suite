@@ -365,45 +365,55 @@ export default {
                     <p class="text-xs">{{ emptyState.hint }}</p>
                 </div>
             </div>
-            <!-- Árbol de carpetas + bloques (solo si NO empty state) -->
-            <div v-else class="flex-1 min-h-0 flex flex-col gap-3">
-                <!-- Strip de acciones: maestro + expand/collapse + clear -->
-                <div class="flex items-center gap-3 text-xs flex-wrap">
-                    <label class="flex items-center gap-2">
-                        <input type="checkbox" :checked="totalSelected === tree.totalBlocks" :indeterminate.prop="totalSelected > 0 && totalSelected < tree.totalBlocks" @change="toggleSelectAll" data-testid="block-editor-select-all" />
-                        <span>Seleccionar todos ({{ tree.totalBlocks }} bloques)</span>
-                    </label>
-                    <button @click="expandAll" class="text-xs text-ink-muted hover:text-ink underline" data-testid="block-editor-expand-all">Expandir todo</button>
-                    <button @click="collapseAll" class="text-xs text-ink-muted hover:text-ink underline" data-testid="block-editor-collapse-all">Colapsar todo</button>
-                    <button v-if="totalSelected > 0" @click="clearSelection" class="text-xs text-ink-muted hover:text-ink underline ml-auto">Limpiar selección</button>
-                </div>
-                <!-- Árbol único vertical estilo TIA Portal -->
-                <div class="flex-1 min-h-0 overflow-y-auto bg-surface-raised border border-line rounded text-xs" data-testid="block-editor-tree">
-                    <div v-for="node in tree.nodes" :key="node.id" class="flex items-center gap-2 px-2 py-0.5 hover:bg-surface-sunken" :style="{ paddingLeft: (node.depth * 16 + 4) + 'px' }" :data-testid="'block-editor-' + node.kind + '-' + (node.kind === 'folder' ? node.fullPath : node.block.nombre)">
-                        <!-- Chevron para carpetas con hijos -->
-                        <span v-if="node.kind === 'folder' && node.hasChildren" class="cursor-pointer select-none w-4 inline-flex items-center justify-center text-gray-500 hover:text-gray-700" @click="toggleFolder(node.fullPath)">{{ node.expanded ? '▼' : '▶' }}</span>
-                        <span v-else-if="node.kind === 'folder'" class="w-4"></span>
-                        <span v-else class="w-4"></span>
-                        <!-- Checkbox -->
-                        <input v-if="node.kind === 'folder'" type="checkbox" :checked="isFolderFullySelected(node)" :indeterminate.prop="isFolderPartiallySelected(node)" @change="toggleSelectFolder(node)" :data-testid="'block-editor-folder-select-' + node.fullPath" class="shrink-0" />
-                        <input v-else type="checkbox" :checked="selectedKeys.has(node.block.nombre)" @change="toggleSelect(node.block.nombre)" :data-testid="'block-editor-row-' + node.block.nombre" class="shrink-0" />
-                        <!-- Icono + nombre -->
-                        <span v-if="node.kind === 'block'" :style="typeStyle(node.block.tipo)" class="shrink-0" :data-tipo="node.block.tipo" :title="node.block.tipo">{{ tipoLabel(node.block.tipo) }}</span>
-                        <span v-else class="w-4 text-center shrink-0" aria-hidden="true">{{ node.expanded ? '📂' : '📁' }}</span>
-                        <span :class="node.kind === 'folder' ? 'font-semibold text-ink' : 'font-mono text-ink'" class="truncate">{{ node.name }}</span>
-                        <!-- Metadatos (bloques: numero + tipo + ruta; carpetas: contador) -->
-                        <template v-if="node.kind === 'block'">
-                            <span class="ml-auto text-ink-muted font-mono w-12 text-right">{{ node.block.numero || '—' }}</span>
-                            <span class="text-ink-muted w-10 text-center">{{ node.block.tipo }}</span>
-                            <span class="text-ink-muted font-mono truncate max-w-xs" :title="node.block.ruta || ''">{{ node.block.ruta || '' }}</span>
-                        </template>
-                        <span v-else-if="node.hasChildren" class="ml-auto text-ink-muted">({{ node.descendantCount }} bloques)</span>
+            <!-- Árbol + card edición: layout 2 columnas (1/3 + 2/3) -->
+            <div v-else class="flex-1 min-h-0 grid grid-cols-3 gap-4">
+                <!-- Columna izquierda 1/3: árbol compacto (sin columnas de metadata) -->
+                <div class="col-span-1 flex flex-col gap-3 min-h-0">
+                    <!-- Strip de acciones: maestro + expand/collapse + clear -->
+                    <div class="flex items-center gap-3 text-xs flex-wrap">
+                        <label class="flex items-center gap-2">
+                            <input type="checkbox" :checked="totalSelected === tree.totalBlocks" :indeterminate.prop="totalSelected > 0 && totalSelected < tree.totalBlocks" @change="toggleSelectAll" data-testid="block-editor-select-all" />
+                            <span>Seleccionar todos ({{ tree.totalBlocks }} bloques)</span>
+                        </label>
+                        <button @click="expandAll" class="text-xs text-ink-muted hover:text-ink underline" data-testid="block-editor-expand-all">Expandir todo</button>
+                        <button @click="collapseAll" class="text-xs text-ink-muted hover:text-ink underline" data-testid="block-editor-collapse-all">Colapsar todo</button>
+                        <button v-if="totalSelected > 0" @click="clearSelection" class="text-xs text-ink-muted hover:text-ink underline ml-auto">Limpiar selección</button>
+                    </div>
+                    <!-- Árbol único vertical estilo TIA Portal (compactado: solo pastilla + nombre) -->
+                    <div class="flex-1 min-h-0 overflow-y-auto bg-surface-raised border border-line rounded text-xs" data-testid="block-editor-tree">
+                        <div v-for="node in tree.nodes" :key="node.id" class="flex items-center gap-2 px-2 py-0.5 hover:bg-surface-sunken" :style="{ paddingLeft: (node.depth * 16 + 4) + 'px' }" :data-testid="'block-editor-' + node.kind + '-' + (node.kind === 'folder' ? node.fullPath : node.block.nombre)">
+                            <!-- Chevron para carpetas con hijos -->
+                            <span v-if="node.kind === 'folder' && node.hasChildren" class="cursor-pointer select-none w-4 inline-flex items-center justify-center text-gray-500 hover:text-gray-700" @click="toggleFolder(node.fullPath)">{{ node.expanded ? '▼' : '▶' }}</span>
+                            <span v-else-if="node.kind === 'folder'" class="w-4"></span>
+                            <span v-else class="w-4"></span>
+                            <!-- Checkbox -->
+                            <input v-if="node.kind === 'folder'" type="checkbox" :checked="isFolderFullySelected(node)" :indeterminate.prop="isFolderPartiallySelected(node)" @change="toggleSelectFolder(node)" :data-testid="'block-editor-folder-select-' + node.fullPath" class="shrink-0" />
+                            <input v-else type="checkbox" :checked="selectedKeys.has(node.block.nombre)" @change="toggleSelect(node.block.nombre)" :data-testid="'block-editor-row-' + node.block.nombre" class="shrink-0" />
+                            <!-- Icono pastilla + nombre (sin columnas de numero/tipo/ruta) -->
+                            <span v-if="node.kind === 'block'" :style="typeStyle(node.block.tipo)" class="shrink-0" :data-tipo="node.block.tipo" :title="node.block.tipo">{{ tipoLabel(node.block.tipo) }}</span>
+                            <span v-else class="w-4 text-center shrink-0" aria-hidden="true">{{ node.expanded ? '📂' : '📁' }}</span>
+                            <span :class="node.kind === 'folder' ? 'font-semibold text-ink' : 'font-mono text-ink'" class="truncate">{{ node.name }}</span>
+                            <span v-if="node.kind === 'folder' && node.hasChildren" class="text-ink-muted">({{ node.descendantCount }} bloques)</span>
+                        </div>
                     </div>
                 </div>
-                <!-- Footer: botón "Continuar a edición" -->
-                <footer class="flex justify-end pt-3 border-t border-line">
-                    <button :disabled="!canContinue" class="px-4 py-2 rounded text-sm font-semibold transition-colors" :class="canContinue ? 'bg-accent text-ink-inverse hover:bg-accent-hover' : 'bg-surface-sunken text-ink-muted cursor-not-allowed'" data-testid="block-editor-continue">Continuar a edición ({{ totalSelected }})</button>
-                </footer>
+                <!-- Columna derecha 2/3: card edición (placeholder FASE 2) -->
+                <div class="col-span-2 flex flex-col bg-surface-raised border border-line rounded p-5 gap-3 min-h-0" data-testid="block-editor-edit-card">
+                    <div>
+                        <h3 class="text-sm font-bold text-ink">Edición de propiedades</h3>
+                        <p class="text-xs text-ink-muted mt-1">FASE 2 — edición transaccional pendiente.</p>
+                    </div>
+                    <div class="flex-1 min-h-0 flex flex-col items-center justify-center border border-dashed border-line rounded bg-surface-sunken text-xs text-ink-muted gap-2 p-6 text-center">
+                        <span class="text-3xl opacity-40">🛠️</span>
+                        <p>
+                            <span v-if="totalSelected > 0">{{ totalSelected }} bloques seleccionados. La edición transaccional se implementará en FASE 2.</span>
+                            <span v-else>Selecciona bloques en el árbol para empezar.</span>
+                        </p>
+                    </div>
+                    <div class="flex justify-end pt-3 border-t border-line">
+                        <button disabled class="px-4 py-2 rounded text-sm font-semibold bg-surface-sunken text-ink-muted cursor-not-allowed" data-testid="block-editor-apply">Aplicar (FASE 2)</button>
+                    </div>
+                </div>
             </div>
         </section>
     `,
