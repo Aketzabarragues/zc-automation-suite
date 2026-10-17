@@ -231,6 +231,31 @@ export default {
         const totalSelected = computed(() => selectedKeys.value.size);
         const canContinue = computed(() => totalSelected.value > 0);
 
+        // Modo del card derecho: "idle" muestra el placeholder FASE 1;
+        // "editing" muestra la tabla read-only con los bloques seleccionados.
+        const editMode = ref("idle");
+        const canEdit = computed(
+            () => totalSelected.value > 0 && editMode.value === "idle"
+        );
+        const selectedBlocks = computed(() => {
+            const t = tree.value;
+            if (!t || !Array.isArray(t.nodes)) return [];
+            const sel = selectedKeys.value;
+            const out = [];
+            for (const node of t.nodes) {
+                if (node.kind === "block" && sel.has(node.block.nombre)) {
+                    out.push(node.block);
+                }
+            }
+            return out;
+        });
+        function startEdit() {
+            editMode.value = "editing";
+        }
+        function cancelEdit() {
+            editMode.value = "idle";
+        }
+
         function toggleSelect(key) {
             const next = new Set(selectedKeys.value);
             if (next.has(key)) next.delete(key);
@@ -337,6 +362,11 @@ export default {
             selectedKeys,
             totalSelected,
             canContinue,
+            editMode,
+            canEdit,
+            selectedBlocks,
+            startEdit,
+            cancelEdit,
             toggleSelect,
             toggleSelectAll,
             toggleSelectFolder,
@@ -411,24 +441,79 @@ export default {
                     </div>
                     <!-- Footer: botón "Editar" (placeholder FASE 2, simétrico con "Aplicar" der) -->
                     <div class="flex justify-end pt-3 border-t border-line">
-                        <button disabled class="px-4 py-2 rounded text-sm font-semibold bg-surface-sunken text-ink-muted cursor-not-allowed" data-testid="block-editor-edit">Editar (FASE 2)</button>
+                        <button :disabled="!canEdit" @click="startEdit" :class="canEdit ? 'bg-accent text-ink-inverse hover:bg-accent-hover cursor-pointer' : 'bg-surface-sunken text-ink-muted cursor-not-allowed'" class="px-4 py-2 rounded text-sm font-semibold" data-testid="block-editor-edit">Editar (FASE 2)</button>
                     </div>
                 </div>
-                <!-- Columna derecha 2/3: card edición (placeholder FASE 2) -->
+                <!-- Columna derecha 2/3: card edición (idle: placeholder; editing: tabla read-only) -->
                 <div class="col-span-2 flex flex-col bg-surface-raised border border-line rounded p-5 gap-3 min-h-0" data-testid="block-editor-edit-card">
-                    <div>
-                        <h3 class="text-sm font-bold text-ink">Edición de propiedades</h3>
-                        <p class="text-xs text-ink-muted mt-1">FASE 2 — edición transaccional pendiente.</p>
+                    <!-- Modo idle: placeholder FASE 1 -->
+                    <div v-if="editMode === 'idle'" class="flex-1 min-h-0 flex flex-col" data-testid="block-editor-edit-placeholder">
+                        <div>
+                            <h3 class="text-sm font-bold text-ink">Edición de propiedades</h3>
+                            <p class="text-xs text-ink-muted mt-1">FASE 2 — edición transaccional pendiente.</p>
+                        </div>
+                        <div class="flex-1 min-h-0 flex flex-col items-center justify-center border border-dashed border-line rounded bg-surface-sunken text-xs text-ink-muted gap-2 p-6 text-center">
+                            <span class="text-3xl opacity-40">🛠️</span>
+                            <p>
+                                <span v-if="totalSelected > 0">{{ totalSelected }} bloques seleccionados. La edición transaccional se implementará en FASE 2.</span>
+                                <span v-else>Selecciona bloques en el árbol para empezar.</span>
+                            </p>
+                        </div>
+                        <div class="flex justify-end pt-3 border-t border-line">
+                            <button disabled class="px-4 py-2 rounded text-sm font-semibold bg-surface-sunken text-ink-muted cursor-not-allowed" data-testid="block-editor-apply">Aplicar (FASE 2)</button>
+                        </div>
                     </div>
-                    <div class="flex-1 min-h-0 flex flex-col items-center justify-center border border-dashed border-line rounded bg-surface-sunken text-xs text-ink-muted gap-2 p-6 text-center">
-                        <span class="text-3xl opacity-40">🛠️</span>
-                        <p>
-                            <span v-if="totalSelected > 0">{{ totalSelected }} bloques seleccionados. La edición transaccional se implementará en FASE 2.</span>
-                            <span v-else>Selecciona bloques en el árbol para empezar.</span>
-                        </p>
-                    </div>
-                    <div class="flex justify-end pt-3 border-t border-line">
-                        <button disabled class="px-4 py-2 rounded text-sm font-semibold bg-surface-sunken text-ink-muted cursor-not-allowed" data-testid="block-editor-apply">Aplicar (FASE 2)</button>
+                    <!-- Modo editing: tabla read-only con bloques seleccionados -->
+                    <div v-else class="flex-1 min-h-0 flex flex-col gap-3" data-testid="block-editor-edit-table">
+                        <div>
+                            <h3 class="text-sm font-bold text-ink">Edición de propiedades</h3>
+                            <p class="text-xs text-ink-muted mt-1">
+                                FASE 2 — selección actual: <strong class="text-ink">{{ totalSelected }}</strong> bloques.
+                                Aplicación pendiente de wiring.
+                            </p>
+                        </div>
+                        <div class="flex-1 min-h-0 overflow-auto border border-line rounded">
+                            <table class="min-w-full text-xs">
+                                <thead class="sticky top-0 bg-surface-raised text-ink-muted">
+                                    <tr>
+                                        <th class="px-2 py-1 text-left">Tipo</th>
+                                        <th class="px-2 py-1 text-right">#orig</th>
+                                        <th class="px-2 py-1 text-left">Name</th>
+                                        <th class="px-2 py-1 text-right">Number</th>
+                                        <th class="px-2 py-1 text-left">Title</th>
+                                        <th class="px-2 py-1 text-left">Comment</th>
+                                        <th class="px-2 py-1 text-left">Author</th>
+                                        <th class="px-2 py-1 text-left">Version</th>
+                                        <th class="px-2 py-1 text-left">Lang</th>
+                                        <th class="px-2 py-1 text-left">MemLayout</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr v-for="block in selectedBlocks" :key="block.nombre" class="border-t border-line" :data-testid="'block-editor-row-' + block.nombre">
+                                        <td class="px-2 py-1">
+                                            <span :style="typeStyle(block.tipo)" class="shrink-0" :data-tipo="block.tipo" :title="block.tipo">{{ tipoLabel(block.tipo) }}</span>
+                                        </td>
+                                        <td class="px-2 py-1 text-right font-mono text-ink-muted">{{ block.numero ?? '—' }}</td>
+                                        <td class="px-2 py-1">
+                                            <input type="text" :value="block.nombre" disabled class="font-mono bg-surface-sunken text-ink-muted px-1 py-0.5 rounded w-full" />
+                                        </td>
+                                        <td class="px-2 py-1">
+                                            <input type="number" :value="block.numero ?? ''" disabled class="font-mono bg-surface-sunken text-ink-muted px-1 py-0.5 rounded w-full text-right" />
+                                        </td>
+                                        <td class="px-2 py-1 font-mono text-ink-muted truncate max-w-xs" :title="block.title || ''">{{ block.title || '—' }}</td>
+                                        <td class="px-2 py-1 font-mono text-ink-muted truncate max-w-xs" :title="block.comment || ''">{{ block.comment || '—' }}</td>
+                                        <td class="px-2 py-1 text-ink-muted truncate max-w-xs" :title="block.author || ''">{{ block.author || '—' }}</td>
+                                        <td class="px-2 py-1 text-ink-muted truncate max-w-xs" :title="block.version || ''">{{ block.version || '—' }}</td>
+                                        <td class="px-2 py-1 text-ink-muted truncate max-w-xs">{{ block.programming_language || '—' }}</td>
+                                        <td class="px-2 py-1 text-ink-muted truncate max-w-xs">{{ block.memory_layout || '—' }}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="flex justify-between pt-3 border-t border-line">
+                            <button @click="cancelEdit" class="text-ink-muted hover:text-ink underline text-sm" data-testid="block-editor-edit-cancel">Cancelar</button>
+                            <button disabled class="px-4 py-2 rounded text-sm font-semibold bg-surface-sunken text-ink-muted cursor-not-allowed" data-testid="block-editor-edit-apply">Aplicar (FASE 2)</button>
+                        </div>
                     </div>
                 </div>
             </div>
