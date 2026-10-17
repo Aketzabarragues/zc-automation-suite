@@ -406,6 +406,10 @@ export default {
                             <span v-if="node.kind === 'folder' && node.hasChildren" class="text-ink-muted">({{ node.descendantCount }} bloques)</span>
                         </div>
                     </div>
+                    <!-- Footer: botón "Editar" (placeholder FASE 2, simétrico con "Aplicar" der) -->
+                    <div class="flex justify-end pt-3 border-t border-line">
+                        <button disabled class="px-4 py-2 rounded text-sm font-semibold bg-surface-sunken text-ink-muted cursor-not-allowed" data-testid="block-editor-edit">Editar (FASE 2)</button>
+                    </div>
                 </div>
                 <!-- Columna derecha 2/3: card edición (placeholder FASE 2) -->
                 <div class="col-span-2 flex flex-col bg-surface-raised border border-line rounded p-5 gap-3 min-h-0" data-testid="block-editor-edit-card">
