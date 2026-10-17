@@ -369,11 +369,18 @@ export default {
             <div v-else class="flex-1 min-h-0 grid grid-cols-3 gap-4">
                 <!-- Columna izquierda 1/3: árbol compacto (sin columnas de metadata) -->
                 <div class="col-span-1 flex flex-col bg-surface-raised border border-line rounded p-5 gap-3 min-h-0" data-testid="block-editor-tree-card">
-                    <div>
-                        <h3 class="text-sm font-bold text-ink">Selección de bloques</h3>
-                        <p class="text-xs text-ink-muted mt-1">FASE 1 — selección read-only.</p>
+                    <!-- Header: titulo+subtitulo (izq) | contador+limpiar (der) -->
+                    <div class="flex items-start justify-between gap-3">
+                        <div>
+                            <h3 class="text-sm font-bold text-ink">Selección de bloques</h3>
+                            <p class="text-xs text-ink-muted mt-1">FASE 1 — selección read-only.</p>
+                        </div>
+                        <div class="flex items-center gap-3 text-xs shrink-0">
+                            <span class="text-ink-muted">{{ totalSelected }} seleccionados</span>
+                            <button v-if="totalSelected > 0" @click="clearSelection" class="text-ink-muted hover:text-ink underline">Limpiar</button>
+                        </div>
                     </div>
-                    <!-- Strip de acciones: maestro + expand/collapse + clear -->
+                    <!-- Strip de acciones: maestro + expand/collapse -->
                     <div class="flex items-center gap-3 text-xs flex-wrap">
                         <label class="flex items-center gap-2">
                             <input type="checkbox" :checked="totalSelected === tree.totalBlocks" :indeterminate.prop="totalSelected > 0 && totalSelected < tree.totalBlocks" @change="toggleSelectAll" data-testid="block-editor-select-all" />
@@ -381,8 +388,6 @@ export default {
                         </label>
                         <button @click="expandAll" class="text-xs text-ink-muted hover:text-ink underline" data-testid="block-editor-expand-all">Expandir todo</button>
                         <button @click="collapseAll" class="text-xs text-ink-muted hover:text-ink underline" data-testid="block-editor-collapse-all">Colapsar todo</button>
-                        <span class="ml-auto text-ink-muted">{{ totalSelected }} seleccionados</span>
-                        <button v-if="totalSelected > 0" @click="clearSelection" class="text-xs text-ink-muted hover:text-ink underline">Limpiar selección</button>
                     </div>
                     <!-- Árbol único vertical estilo TIA Portal (compactado: solo pastilla + nombre) -->
                     <div class="flex-1 min-h-0 overflow-y-auto bg-surface-raised border border-line rounded text-xs" data-testid="block-editor-tree">
