@@ -2,33 +2,33 @@
 
 Cubre:
 
-  - Happy path: 3 bloques -> 5 steps (validar, leer_tia, exportar_sd,
-    parsear_scl, merge_cache) -> ``app_cache.block_edit_prepared`` con
-    3 entries y los 10 campos del DTO ``DataBloquePLC``.
+  - Happy path: 3 bloques pre-poblados en ``app_cache.plc_blocks`` -> 5
+    steps -> 3 DTOs con los 10 campos del DTO ``DataBloquePLC`` en
+    ``app_cache.block_edit_prepared``.
   - Seleccion vacia -> ``ValueError`` fail-fast en ``on_start``.
-  - ``get_property`` lanza para 1 bloque -> los otros 2 entran al
-    cache, el bloque afectado NO (warning en logger).
+  - Bloque seleccionado no esta en ``plc_blocks.blocks`` -> skip con
+    warning, dispatch NO se llama, merge con 0 entries.
+  - PLC sin cache (``plc_blocks`` no tiene el plc_name) -> ``RuntimeError``
+    fail-fast en ``leer_tia``.
   - ``export_block`` retorna ``ok=False`` para 1 bloque -> ese bloque
     queda con ``title=None, comment=None``; los otros 2 mantienen
     title/comment parseados del SCL.
-  - ``tia_client.wrapper = None`` -> ``run_step`` propaga
-    ``RuntimeError``.
-  - ``tia_client = None`` -> ``run_step`` propaga ``RuntimeError``.
+  - Inyeccion de ``layout=BlocksEditLayout(root=tmp_path)`` -> los
+    exports SD van a ``tmp_path/preview/<plc_name>/``.
+  - El ``target_dir`` pasado a ``dispatch`` es un path absoluto (no
+    contiene ``..`` ni empieza con ``./``).
 
 Mockeamos:
 
-  - ``tia_client`` con ``MagicMock(spec=SyncTIAClient)``. Su ``wrapper``
-    expone ``get_project()`` -> mock_project -> ``get_plcs()`` ->
-    ``mock_plc`` -> ``get_program_blocks()`` -> 3 ``mock_block``.
-  - ``dispatch`` retorna ``{"ok": True, "result": {"exported_to": ...}}``
-    para ``export_block`` y ``{"ok": False, "error": "..."}`` en los
-    sad paths.
+  - ``tia_client`` con ``MagicMock(spec=SyncTIAClient)``. Su ``dispatch``
+    retorna ``{"ok": True}`` o ``{"ok": False}`` segun el test. NO se
+    accede a ``wrapper`` (el FB no navega el arbol TIA).
+  - ``app_cache`` es un ``AppCache`` real con ``plc_blocks[plc_name]``
+    pre-poblado via ``plc_blocks_put`` (mismo patron que usa el worker
+    OT tras un ``scan_blocks``).
 
-Usamos ``AppCache`` real (no ``MagicMock``) para que el FB pueda
-adjuntar el slot ``block_edit_prepared`` sin restricciones de spec.
-
-El progress tracker es real (``ProgressTracker()``) para verificar
-que el flujo de stages dispara las señales correctas.
+El progress tracker es real (``ProgressTracker()``) para verificar que
+el flujo de stages dispara las señales correctas.
 """
 from __future__ import annotations
 
@@ -43,7 +43,10 @@ import pytest
 from core.composition.function_block_edit_prepare import (
     FunctionBlockEditPrepare,
 )
+from core.data.data_block_cache import DataBloqueCache
 from core.data.data_block_plc import DataBloquePLC
+from core.helpers.blocks_edit._workdir_layout import BlocksEditLayout
+from core.infrastructure.tia.tia_cache import plc_blocks_put
 from core.infrastructure.tia.tia_loop import SyncTIAClient
 from core.runtime.app_cache import AppCache
 from core.runtime.progress_buffer import ProgressTracker
@@ -54,51 +57,62 @@ FIXTURES_BLOQUES = Path(__file__).resolve().parent.parent.parent / "fixtures" / 
 # ── Helpers ─────────────────────────────────────────────────────────
 
 
-def _make_block_mock(
+def _make_cached_dto(
     name: str,
     number: int,
-    header_name: str = "",
-    header_author: str = "",
-    header_version: str = "0.1",
-    programming_language: str = "SCL",
-    memory_layout: str = "Optimized",
-    raise_on_property: str | None = None,
-) -> MagicMock:
-    """Mock de ``ProgramBlock`` con props extendidas configurables."""
-    block = MagicMock()
-    block.name = name
-    block.Name = name
-    block.get_name.return_value = name
+    tipo: str = "DB",
+    ruta: str = "",
+    author: str | None = "HCR",
+    version: str | None = "1.0",
+    programming_language: str | None = "SCL",
+    memory_layout: str | None = "Optimized",
+) -> DataBloquePLC:
+    """DTO pre-poblado simulando lo que ``scan_blocks`` dejaria en el cache.
 
-    def _prop(name: str) -> Any:
-        if raise_on_property and name == raise_on_property:
-            raise RuntimeError(f"{name} no soportado")
-        return {
-            "Number": number,
-            "HeaderName": header_name,
-            "HeaderAuthor": header_author,
-            "HeaderVersion": header_version,
-            "ProgrammingLanguage": programming_language,
-            "MemoryLayout": memory_layout,
-        }.get(name)
-
-    block.get_property.side_effect = _prop
-    return block
+    ``comment`` siempre ``None`` (el scan no lo expone); ``title`` queda
+    ``None`` tambien para que el parser SCL sea quien lo popule. Las otras
+    4 props extendidas ya vienen del scan (via ``_extract_extended_properties``).
+    """
+    return DataBloquePLC(
+        nombre=name,
+        numero=number,
+        tipo=tipo,
+        ruta=ruta,
+        title=None,
+        comment=None,
+        author=author,
+        version=version,
+        programming_language=programming_language,
+        memory_layout=memory_layout,
+    )
 
 
-def _make_tia_client_with_blocks(
+def _seed_plc_blocks(
+    app_cache: AppCache,
     plc_name: str,
-    blocks: list[MagicMock],
+    blocks: list[DataBloquePLC],
+) -> DataBloqueCache:
+    """Pre-popula ``app_cache.plc_blocks[plc_name]`` con la lista de DTOs.
+
+    Mismo patron que ``scan_plc_blocks`` despues de un escaneo: delega
+    en ``plc_blocks_put`` para que el slot se actualice de forma atomica
+    bajo el lock del ``AppCache``.
+    """
+    cache = DataBloqueCache(
+        plc_name=plc_name,
+        blocks={
+            DataBloquePLC.normalize_name(b.nombre): b for b in blocks
+        },
+    )
+    plc_blocks_put(app_cache, plc_name, cache)
+    return cache
+
+
+def _make_tia_client(
     export_dispatch: Any | None = None,
 ) -> MagicMock:
-    """Mock de ``SyncTIAClient`` con wrapper y dispatch configurados."""
+    """Mock de ``SyncTIAClient`` con ``dispatch`` configurable."""
     tia_client = MagicMock(spec=SyncTIAClient)
-    mock_project = MagicMock()
-    mock_plc = MagicMock()
-    mock_plc.get_name.return_value = plc_name
-    mock_plc.get_program_blocks.return_value = blocks
-    mock_project.get_plcs.return_value = [mock_plc]
-    tia_client.wrapper.get_project.return_value = mock_project
     tia_client.dispatch.side_effect = (
         export_dispatch
         if export_dispatch is not None
@@ -110,12 +124,20 @@ def _make_tia_client_with_blocks(
     return tia_client
 
 
-def _copy_s7dcl(block_name: str, dst_dir: Path) -> Path:
-    """Copia el ``.s7dcl`` del fixture al ``dst_dir``. Devuelve destino."""
-    src = FIXTURES_BLOQUES / f"{block_name}.s7dcl"
-    dst = dst_dir / f"{block_name}.s7dcl"
-    shutil.copy(src, dst)
-    return dst
+def _copy_s7dcl_export(cmd: str, args: dict[str, Any]) -> dict:
+    """Dispatch que materializa el ``.s7dcl`` del fixture en ``target_dir``.
+
+    Simula al worker OT: dado ``args`` con ``block_name`` y ``target_dir``,
+    copia el ``<block_name>.s7dcl`` del fixture al directorio destino.
+    Asi el parser SCL del step ``parsear_scl`` puede leer el archivo
+    real y devolver los MLC IDs correctos.
+    """
+    target = Path(args["target_dir"])
+    src = FIXTURES_BLOQUES / f"{args['block_name']}.s7dcl"
+    if not src.exists():
+        return {"ok": False, "error": f"fixture no existe: {src}"}
+    shutil.copy(src, target / f"{args['block_name']}.s7dcl")
+    return {"ok": True, "result": {"exported_to": str(target)}}
 
 
 @pytest.fixture
@@ -134,51 +156,55 @@ def _make_fb(
     app_cache: AppCache,
     tia_client: MagicMock | None,
     progress: ProgressTracker,
+    layout: BlocksEditLayout | None = None,
 ) -> FunctionBlockEditPrepare:
     return FunctionBlockEditPrepare(
         nombre="block_edit_prepare",
         tia_client=tia_client,
         app_cache=app_cache,
         tracker=progress,
+        layout=layout,
     )
+
+
+def _run_fb(fb: FunctionBlockEditPrepare, **start_kwargs: Any) -> None:
+    """Helper: arranca + 5 steps + finalizar = 7 ticks.
+
+    El FB ejecuta ``validar`` -> ``leer_tia`` -> ``exportar_sd`` ->
+    ``parsear_scl`` -> ``merge_cache`` y termina. El primer tick pasa de
+    ``arrancar`` a ``ejecutar``; los 5 siguientes avanzan por cada step;
+    el septimo tick ejecuta ``finalizar`` y deja el FB en ``n_done``.
+    """
+    asyncio.run(fb.start(**start_kwargs))
+    for _ in range(7):
+        asyncio.run(fb.tick())
 
 
 # ── 1. Happy path ──────────────────────────────────────────────────
 
 
-def test_block_edit_prepare_happy_path_3_bloques(
+def test_happy_path_3_bloques_usa_cache_plc_blocks(
     app_cache: AppCache,
     real_progress: ProgressTracker,
-    tmp_path: Path,
 ) -> None:
-    """3 bloques a root -> 5 steps -> 3 DTOs con 10 campos poblados."""
+    """3 bloques pre-poblados en ``plc_blocks`` -> 3 DTOs mergeados.
+
+    Verifica que el FB itera ``app_cache.plc_blocks`` (no navega el
+    arbol TIA): el mock de ``tia_client`` solo expone ``dispatch`` y NO
+    tiene ``wrapper`` accesible (el spec del mock se cumple aunque
+    ``wrapper`` sea un MagicMock auto-creado, pero el FB no lo usa).
+    """
     blocks = [
-        _make_block_mock("DB2000_ED", 2000, "title_db", "HCR", "1.0", "SCL", "Optimized"),
-        _make_block_mock("FC2000_ZC_ED", 2000, "title_fc", "HCR", "1.0", "SCL", "Optimized"),
-        _make_block_mock("OB1_MAIN", 1, "title_ob", "ABH", "0.1", "LAD", "Standard"),
+        _make_cached_dto("DB2000_ED", 2000, "DB", "DB2000_ED"),
+        _make_cached_dto("FC2000_ZC_ED", 2000, "FC", "FC2000_ZC_ED"),
+        _make_cached_dto("OB1_MAIN", 1, "OB", "OB1_MAIN"),
     ]
-    tia_client = _make_tia_client_with_blocks("PLC_1", blocks)
+    _seed_plc_blocks(app_cache, "PLC_1", blocks)
+    tia_client = _make_tia_client(_copy_s7dcl_export)
     fb = _make_fb(app_cache, tia_client, real_progress)
 
-    # El export handler mock escribe a tmp_path con el nombre del bloque.
-    def _export_dispatch(cmd: str, args: dict) -> dict:
-        target = Path(args["target_dir"])
-        src = FIXTURES_BLOQUES / f"{args['block_name']}.s7dcl"
-        shutil.copy(src, target / f"{args['block_name']}.s7dcl")
-        return {"ok": True, "result": {"exported_to": str(target)}}
-
-    tia_client.dispatch.side_effect = _export_dispatch
-
     selected = ["DB2000_ED", "FC2000_ZC_ED", "OB1_MAIN"]
-    ok = asyncio.run(fb.start(plc_name="PLC_1", selected_block_paths=selected))
-    assert ok is True
-
-    # Ejecuta los 5 steps (1 arrancar + 5 steps + 1 finalizar = 7 ticks).
-    for tick_idx in range(7):
-        asyncio.run(fb.tick())
-        assert fb.nStep in (
-            fb.n_arrancar, fb.n_ejecutar, fb.n_finalizar, fb.n_done,
-        ), f"tick #{tick_idx + 1} salio del loop: nStep={fb.nStep}"
+    _run_fb(fb, plc_name="PLC_1", selected_block_paths=selected)
 
     assert fb.nStep == fb.n_done
     assert fb.is_terminal() is True
@@ -208,10 +234,10 @@ def test_block_edit_prepare_happy_path_3_bloques(
         assert d["title"] is not None  # del SCL (todos tienen S7_BlockTitle)
         if path in has_comment:
             assert d["comment"] is not None
-        assert d["author"] in ("HCR", "ABH")
-        assert d["version"] in ("1.0", "0.1")
-        assert d["programming_language"] in ("SCL", "LAD")
-        assert d["memory_layout"] in ("Optimized", "Standard")
+        assert d["author"] == "HCR"
+        assert d["version"] == "1.0"
+        assert d["programming_language"] == "SCL"
+        assert d["memory_layout"] == "Optimized"
 
 
 # ── 2. Seleccion vacia -> ValueError ────────────────────────────────
@@ -224,9 +250,10 @@ def test_block_edit_prepare_empty_selection_raises_value_error(
     """``selected_block_paths=[]`` -> ``on_start`` lanza ValueError.
 
     El primer ``tick()`` captura el raise y pone el FB en ``n_error``
-    con ``error_msg`` poblado (patrón ``FunctionBase``).
+    con ``error_msg`` poblado (patron ``FunctionBase``).
     """
-    tia_client = _make_tia_client_with_blocks("PLC_1", [])
+    _seed_plc_blocks(app_cache, "PLC_1", [])
+    tia_client = _make_tia_client()
     fb = _make_fb(app_cache, tia_client, real_progress)
 
     asyncio.run(fb.start(plc_name="PLC_1", selected_block_paths=[]))
@@ -237,85 +264,121 @@ def test_block_edit_prepare_empty_selection_raises_value_error(
     assert "selected_block_paths" in fb.error_msg
 
 
-# ── 3. get_property raise para 1 bloque ─────────────────────────────
+# ── 3. Bloque no esta en el cache -> skip silencioso ────────────────
 
 
-def test_block_edit_prepare_get_property_raises_continues_with_others(
+def test_no_op_sin_bloques_en_cache(
     app_cache: AppCache,
     real_progress: ProgressTracker,
-    tmp_path: Path,
 ) -> None:
-    """El bloque con ``get_property`` raise se skipea; los otros 2 pasan."""
-    blocks = [
-        _make_block_mock("DB2000_ED", 2000, "title_db", "HCR", "1.0", "SCL", "Optimized"),
-        # Bloque del medio: ``HeaderAuthor`` lanza.
-        _make_block_mock(
-            "FC2000_ZC_ED", 2000, "title_fc", "HCR", "1.0", "SCL", "Optimized",
-            raise_on_property="HeaderAuthor",
-        ),
-        _make_block_mock("OB1_MAIN", 1, "title_ob", "ABH", "0.1", "LAD", "Standard"),
-    ]
-    tia_client = _make_tia_client_with_blocks("PLC_1", blocks)
+    """El bloque seleccionado no esta en ``plc_blocks.blocks`` -> skip.
 
-    def _export_dispatch(cmd: str, args: dict) -> dict:
-        target = Path(args["target_dir"])
-        src = FIXTURES_BLOQUES / f"{args['block_name']}.s7dcl"
-        shutil.copy(src, target / f"{args['block_name']}.s7dcl")
-        return {"ok": True, "result": {"exported_to": str(target)}}
-
-    tia_client.dispatch.side_effect = _export_dispatch
+    El operario puede tener bloques en la UI que no esten escaneados
+    (race condition tras un re-scan). El FB no falla: emite un warning
+    por bloque no encontrado y merge con 0 entries. ``dispatch`` NO se
+    invoca (no hay nada que exportar).
+    """
+    _seed_plc_blocks(
+        app_cache, "PLC_1",
+        [_make_cached_dto("DB9999_FOO", 9999, "DB", "DB9999_FOO")],
+    )
+    tia_client = _make_tia_client(_copy_s7dcl_export)
     fb = _make_fb(app_cache, tia_client, real_progress)
 
-    selected = ["DB2000_ED", "FC2000_ZC_ED", "OB1_MAIN"]
-    asyncio.run(fb.start(plc_name="PLC_1", selected_block_paths=selected))
-
-    for _ in range(7):
-        asyncio.run(fb.tick())
+    _run_fb(
+        fb,
+        plc_name="PLC_1",
+        selected_block_paths=["DB2000_ED"],  # NO esta en el cache.
+    )
 
     assert fb.nStep == fb.n_done
-    cached = app_cache.block_edit_prepared["PLC_1"]
-    # El bloque del medio NO entra al cache (fallo en leer_tia).
-    assert "FC2000_ZC_ED" not in cached
-    assert "DB2000_ED" in cached
-    assert "OB1_MAIN" in cached
-    assert len(cached) == 2
+    assert fb.error_msg is None
+    assert fb.result["n_blocks"] == 0
+    assert fb.result["plc_name"] == "PLC_1"
+
+    # dispatch NO se llamo (no hay bloques para exportar).
+    tia_client.dispatch.assert_not_called()
+    # Cache del prepare: plc_name presente pero dict vacio.
+    assert app_cache.block_edit_prepared["PLC_1"] == {}
 
 
-# ── 4. export_block falla para 1 bloque ────────────────────────────
+# ── 4. PLC sin cache en plc_blocks -> RuntimeError ──────────────────
 
 
-def test_block_edit_prepare_export_raises_continues_with_others(
+def test_sin_cache_plc_blocks_raises(
     app_cache: AppCache,
     real_progress: ProgressTracker,
-    tmp_path: Path,
 ) -> None:
-    """``export_block`` retorna ``ok=False`` para FC: queda sin title/comment."""
+    """``plc_blocks`` no tiene entrada para el plc -> ``RuntimeError``.
+
+    El operario debe ejecutar ``scan_blocks`` antes de ``prepare``.
+    Sin cache, el FB fail-fas en ``leer_tia`` con un mensaje claro
+    (incluye el nombre del PLC) y NO toca TIA (no hace dispatch).
+    """
+    tia_client = _make_tia_client()
+    fb = _make_fb(app_cache, tia_client, real_progress)
+
+    asyncio.run(fb.start(
+        plc_name="PLC_1",
+        selected_block_paths=["DB2000_ED"],
+    ))
+
+    # tick #1: arrancar -> ejecutar (on_start OK).
+    asyncio.run(fb.tick())
+    assert fb.nStep == fb.n_ejecutar
+
+    # tick #2: validar (ok, retorna string).
+    asyncio.run(fb.tick())
+    assert fb.nStep == fb.n_ejecutar
+
+    # tick #3: leer_tia falla con RuntimeError.
+    asyncio.run(fb.tick())
+
+    assert fb.nStep == fb.n_error
+    assert fb.error_msg is not None
+    assert "plc_blocks no cacheado" in fb.error_msg
+    assert "PLC_1" in fb.error_msg
+    # El FB fail-fast antes de tocar TIA.
+    tia_client.dispatch.assert_not_called()
+
+
+# ── 5. export_block falla para 1 bloque ────────────────────────────
+
+
+def test_export_raises_continues_with_others(
+    app_cache: AppCache,
+    real_progress: ProgressTracker,
+) -> None:
+    """``export_block`` retorna ``ok=False`` para FC: queda sin title/comment.
+
+    El bloque afectado se queda en el cache con ``title=None`` y
+    ``comment=None`` (no se pudo parsear SCL). Los otros props
+    extendidos (vienen del cache IT) se mantienen. El resto de bloques
+    pasan al cache con todos los campos poblados.
+    """
     blocks = [
-        _make_block_mock("DB2000_ED", 2000, "title_db", "HCR", "1.0", "SCL", "Optimized"),
-        _make_block_mock("FC2000_ZC_ED", 2000, "title_fc", "HCR", "1.0", "SCL", "Optimized"),
-        _make_block_mock("OB1_MAIN", 1, "title_ob", "ABH", "0.1", "LAD", "Standard"),
+        _make_cached_dto("DB2000_ED", 2000, "DB", "DB2000_ED"),
+        _make_cached_dto("FC2000_ZC_ED", 2000, "FC", "FC2000_ZC_ED"),
+        _make_cached_dto("OB1_MAIN", 1, "OB", "OB1_MAIN"),
     ]
-    tia_client = _make_tia_client_with_blocks("PLC_1", blocks)
+    _seed_plc_blocks(app_cache, "PLC_1", blocks)
 
     fail_targets = {"FC2000_ZC_ED"}
 
     def _export_dispatch(cmd: str, args: dict) -> dict:
-        target = Path(args["target_dir"])
         bname = args["block_name"]
         if bname in fail_targets:
             return {"ok": False, "error": "TIA no responde"}
-        src = FIXTURES_BLOQUES / f"{bname}.s7dcl"
-        shutil.copy(src, target / f"{bname}.s7dcl")
-        return {"ok": True, "result": {"exported_to": str(target)}}
+        return _copy_s7dcl_export(cmd, args)
 
-    tia_client.dispatch.side_effect = _export_dispatch
+    tia_client = _make_tia_client(_export_dispatch)
     fb = _make_fb(app_cache, tia_client, real_progress)
 
-    selected = ["DB2000_ED", "FC2000_ZC_ED", "OB1_MAIN"]
-    asyncio.run(fb.start(plc_name="PLC_1", selected_block_paths=selected))
-
-    for _ in range(7):
-        asyncio.run(fb.tick())
+    _run_fb(
+        fb,
+        plc_name="PLC_1",
+        selected_block_paths=["DB2000_ED", "FC2000_ZC_ED", "OB1_MAIN"],
+    )
 
     assert fb.nStep == fb.n_done
     cached = app_cache.block_edit_prepared["PLC_1"]
@@ -333,70 +396,102 @@ def test_block_edit_prepare_export_raises_continues_with_others(
     fc_dto = cached["FC2000_ZC_ED"]
     assert fc_dto.title is None
     assert fc_dto.comment is None
-    # El resto de campos extendidos (vía get_property) sí están.
+    # El resto de campos extendidos (vienen del cache IT) sí están.
     assert fc_dto.author == "HCR"
     assert fc_dto.version == "1.0"
     assert fc_dto.programming_language == "SCL"
     assert fc_dto.memory_layout == "Optimized"
 
 
-# ── 5. wrapper=None -> RuntimeError ────────────────────────────────
+# ── 6. layout injection: exports van a tmp_path/preview/PLC_1/ ──────
 
 
-def test_block_edit_prepare_missing_portal_raises(
+def test_layout_injection(
     app_cache: AppCache,
     real_progress: ProgressTracker,
+    tmp_path: Path,
 ) -> None:
-    """``tia_client.wrapper = None`` -> ``run_step`` propaga RuntimeError.
+    """``layout=BlocksEditLayout(root=tmp_path)`` -> exports a tmp_path.
 
-    El FB llega a ``n_error`` con ``error_msg`` mencionando "portal attached".
+    Verifica que el ``layout`` inyectado via constructor se usa para
+    resolver el directorio de exports. El SD exportado (via dispatch
+    que copia del fixture) termina en ``tmp_path/preview/<plc_name>/``
+    tal como dicta la convencion de ``BlocksEditLayout.preview_for_plc``.
     """
-    tia_client = MagicMock(spec=SyncTIAClient)
-    tia_client.wrapper = None  # Explicitly None.
-    fb = _make_fb(app_cache, tia_client, real_progress)
+    _seed_plc_blocks(
+        app_cache, "PLC_1",
+        [_make_cached_dto("DB2000_ED", 2000, "DB", "DB2000_ED")],
+    )
+    layout = BlocksEditLayout(root=tmp_path)
+    tia_client = _make_tia_client(_copy_s7dcl_export)
+    fb = _make_fb(app_cache, tia_client, real_progress, layout=layout)
 
-    asyncio.run(fb.start(
+    _run_fb(
+        fb,
         plc_name="PLC_1",
         selected_block_paths=["DB2000_ED"],
-    ))
+    )
 
-    # tick #1: arrancar -> ejecutar (on_start OK).
-    asyncio.run(fb.tick())
-    assert fb.nStep == fb.n_ejecutar
+    assert fb.nStep == fb.n_done
+    assert fb.error_msg is None
 
-    # tick #2: leer_tia valida wrapper y lanza RuntimeError.
-    asyncio.run(fb.tick())
+    # El SD exportado esta en tmp_path/preview/PLC_1/DB2000_ED.s7dcl
+    expected = tmp_path / "preview" / "PLC_1" / "DB2000_ED.s7dcl"
+    assert expected.exists(), (
+        f"SD no se exporto al path inyectado: {expected}"
+    )
 
-    assert fb.nStep == fb.n_error
-    assert fb.error_msg is not None
-    assert "portal attached" in fb.error_msg
+    # El cache del prepare tiene el DTO mergeado.
+    dto = app_cache.block_edit_prepared["PLC_1"]["DB2000_ED"]
+    assert isinstance(dto, DataBloquePLC)
+    assert dto.title is not None  # parser SCL lo populo.
 
 
-# ── 6. tia_client=None -> RuntimeError ─────────────────────────────
+# ── 7. dispatch target_dir es absoluto ─────────────────────────────
 
 
-def test_block_edit_prepare_tia_client_required(
+def test_dispatch_args_usan_path_absoluto(
     app_cache: AppCache,
     real_progress: ProgressTracker,
+    tmp_path: Path,
 ) -> None:
-    """``tia_client = None`` -> ``run_step`` propaga RuntimeError.
+    """El ``target_dir`` pasado a ``export_block`` es un path absoluto.
 
-    El FB llega a ``n_error`` con ``error_msg`` mencionando "requiere tia_client".
+    Requisito del SDK Openness de TIA: ``directoryInfo cannot be a
+    relative path``. El layout (default o inyectado) garantiza paths
+    absolutos via ``os.getcwd()`` al construir el root.
     """
-    fb = _make_fb(app_cache, None, real_progress)
+    _seed_plc_blocks(
+        app_cache, "PLC_1",
+        [_make_cached_dto("DB2000_ED", 2000, "DB", "DB2000_ED")],
+    )
+    layout = BlocksEditLayout(root=tmp_path)
+    tia_client = _make_tia_client(_copy_s7dcl_export)
+    fb = _make_fb(app_cache, tia_client, real_progress, layout=layout)
 
-    asyncio.run(fb.start(
+    _run_fb(
+        fb,
         plc_name="PLC_1",
         selected_block_paths=["DB2000_ED"],
-    ))
+    )
 
-    # tick #1: arrancar -> ejecutar (on_start OK).
-    asyncio.run(fb.tick())
-    assert fb.nStep == fb.n_ejecutar
-
-    # tick #2: leer_tia valida tia_client y lanza RuntimeError.
-    asyncio.run(fb.tick())
-
-    assert fb.nStep == fb.n_error
-    assert fb.error_msg is not None
-    assert "requiere tia_client" in fb.error_msg
+    # dispatch fue llamado una vez con el export de DB2000_ED.
+    assert tia_client.dispatch.call_count >= 1
+    # Buscar la call a export_block.
+    found = False
+    for call in tia_client.dispatch.call_args_list:
+        args_dict = call.args[1] if len(call.args) > 1 else call.kwargs.get("args", {})
+        if args_dict.get("block_name") == "DB2000_ED":
+            target_dir = args_dict["target_dir"]
+            p = Path(target_dir)
+            assert p.is_absolute(), (
+                f"target_dir no es absoluto: {target_dir!r}"
+            )
+            assert ".." not in p.parts, (
+                f"target_dir contiene '..': {target_dir!r}"
+            )
+            assert not str(p).startswith("./"), (
+                f"target_dir empieza con './': {target_dir!r}"
+            )
+            found = True
+    assert found, "no se encontro la call a dispatch('export_block', ...)"

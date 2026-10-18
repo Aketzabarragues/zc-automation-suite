@@ -2,16 +2,19 @@
 
 Operacion READ-ONLY. Para cada path seleccionado:
 
-  1. Resuelve el bloque en TIA via ``_find_block_in_plc``.
-  2. Lee las 5 props extendidas via ``get_property(name=...)``
-     (``HeaderName`` / ``HeaderAuthor`` / ``HeaderVersion`` /
-     ``ProgrammingLanguage`` / ``MemoryLayout``) y la prop ``Number``.
-  3. Exporta el bloque a ``.s7dcl`` en un tempdir (via dispatch del
-     comando OT ``export_block``).
-  4. Parsea el header SCL del ``.s7dcl`` para extraer ``S7_BlockTitle``
-     y ``S7_BlockComment`` (NO expuestos por ``get_property``).
-  5. Cruza las 2 fuentes en un ``DataBloquePLC`` de 10 campos y lo
-     guarda en ``app_cache.block_edit_prepared[plc_name][block_path]``.
+  1. Busca el bloque en ``app_cache.plc_blocks[plc_name].blocks`` (cache IT
+     ya poblado por ``scan_blocks``). NO navega el arbol .NET de TIA.
+  2. Extrae las 6 props extendidas que ya trae el cache (``title`` /
+     ``comment`` / ``author`` / ``version`` / ``programming_language`` /
+     ``memory_layout``; ``comment`` siempre ``None`` en el cache).
+  3. Exporta el bloque a ``.s7dcl`` en
+     ``layout.preview_for_plc(plc_name)`` via dispatch del comando OT
+     ``export_block``.
+  4. Parsea el header SCL del ``.s7dcl`` para extraer ``S7_BlockTitle`` y
+     ``S7_BlockComment`` (los unicos que ``get_property`` NO expone y el
+     scan no captura).
+  5. Cruza las 2 fuentes en un ``DataBloquePLC`` de 10 campos y lo guarda
+     en ``app_cache.block_edit_prepared[plc_name][path]``.
 
 Los exports SD se escriben en ``./.build_cache/blocks_edit/preview/<plc>/``
 para que el operario pueda inspeccionarlos tras un bug de parseo. No
@@ -41,19 +44,28 @@ Runtime params via ``start(**kwargs)``:
 from __future__ import annotations
 
 import logging
-import os
-from pathlib import Path
 from typing import Any
 
 from core.composition.plc_function_base import FunctionBase
 from core.data.data_block_plc import DataBloquePLC
+from core.helpers.blocks_edit._workdir_layout import (
+    BlocksEditLayout,
+    blocks_edit_cache,
+)
+from core.infrastructure.tia.tia_export_paths import SdPair
 from core.runtime.app_cache import AppCache, get_app_cache
 
 logger = logging.getLogger(__name__)
 
 
 class FunctionBlockEditPrepare(FunctionBase):
-    """FB core: preparar los 10 campos extendidos del DTO de bloques."""
+    """FB core: preparar los 10 campos extendidos del DTO de bloques.
+
+    NO navega el arbol de TIA Portal (no usa ``_find_block_in_plc``):
+    sigue el mismo patron que ``entidades_generar_preview`` y
+    ``proc_db_generar_preview``, que iteran ``app_cache.plc_blocks``
+    (cache IT del scan) y usan ``SdPair`` para los paths de los SD.
+    """
 
     # Cada export ``export_block`` puede tardar ~5-10s en cold-start.
     # Holgura generosa para un lote de N bloques.
@@ -68,9 +80,10 @@ class FunctionBlockEditPrepare(FunctionBase):
         # ── ZONA 0: deps comunes ──
         config_manager: Any = None,
         tia_client: Any = None,
-        build_cache: Any = None,
+        build_cache: Any = None,  # legacy; ignorado si ``layout`` presente
         # ── Deps especificas de este FB ──
         app_cache: AppCache | None = None,
+        layout: BlocksEditLayout | None = None,
     ) -> None:
         super().__init__(
             nombre=nombre,
@@ -87,16 +100,19 @@ class FunctionBlockEditPrepare(FunctionBase):
         # ZONA 0: deps inyectadas.
         self._config = config_manager  # No usado en este FB.
         self._tia_client = tia_client
-        self._build_cache = build_cache  # No usado en este FB.
+        self._build_cache = build_cache  # legacy; ignorado si layout presente.
         # Deps especificas.
         self._app_cache: AppCache = (
             app_cache if app_cache is not None else get_app_cache()
         )
+        # Workdir de exports SD. Si el caller no lo inyecta, usamos el
+        # default (``.build_cache/blocks_edit/``, absoluto via ``os.getcwd``
+        # dentro del layout).
+        self._layout: BlocksEditLayout = layout or blocks_edit_cache()
         # ZONA 3: estado entre ticks.
         self._plc_name: str = ""
         self._selected_block_paths: list[str] = []
         self._blocks_data: list[dict[str, Any]] = []
-        self._prepared_dir: Path | None = None
 
     # ==================================================================
     # HOOK 1: on_start  (ZONA 3: validar params)
@@ -130,23 +146,11 @@ class FunctionBlockEditPrepare(FunctionBase):
 
     async def run_step(self, idx: int, **params: Any) -> str:
         """CASE de los 5 pasos."""
-        # Lazy imports para evitar ciclos con core.infrastructure.tia.
+        # Lazy import para evitar ciclo con core.infrastructure.tia.
+        from core.infrastructure.tia.tia_cache import plc_blocks_get
         from core.infrastructure.tia.tia_helpers import (
-            _find_plc,
-            _get_active_project,
             parse_extended_props_from_sd,
         )
-
-        if self._tia_client is None:
-            raise RuntimeError(
-                "FunctionBlockEditPrepare requiere tia_client explicito. "
-                "Inyectalo en el constructor al registrar el FB."
-            )
-        if self._tia_client.wrapper is None:
-            raise RuntimeError(
-                "FunctionBlockEditPrepare requiere tia_client con portal "
-                "attached. Llama a attach_portal antes de ejecutar el FB."
-            )
 
         step_nombre = self.steps[idx]["nombre"]
         match step_nombre:
@@ -159,38 +163,65 @@ class FunctionBlockEditPrepare(FunctionBase):
                 )
 
             case "leer_tia":
-                portal = self._tia_client.wrapper
-                project = _get_active_project(portal)
-                plc = _find_plc(project, self._plc_name)
+                # Lee del cache IT poblado por ``scan_blocks``. NO navega
+                # el arbol TIA (mismo patron que entidades/proc preview).
+                plc_cache = plc_blocks_get(self._app_cache, self._plc_name)
+                if plc_cache is None:
+                    raise RuntimeError(
+                        f"plc_blocks no cacheado para '{self._plc_name}'; "
+                        "ejecuta scan_blocks primero"
+                    )
+                cached_blocks = plc_cache.blocks
 
                 read_count = 0
                 for path in self._selected_block_paths:
-                    entry = self._read_one_block(path, plc)
-                    if entry is not None:
-                        # ``tipo`` se deriva del nombre (prefijo DB/FB/
-                        # FC/OB/UDT) via ``DataBloquePLC.detect_tipo``.
-                        # Evita guardar referencias .NET en ``entry``.
-                        entry["tipo"] = classify_block_for_entry(entry)
-                        self._blocks_data.append(entry)
-                        read_count += 1
+                    block_name = path.rsplit("/", 1)[-1].strip('"')
+                    if not block_name:
+                        continue
+                    cached = cached_blocks.get(
+                        DataBloquePLC.normalize_name(block_name)
+                    )
+                    if cached is None:
+                        logger.warning(
+                            f"[{self.nombre}] '{block_name}' no esta en "
+                            f"plc_blocks[{self._plc_name}].blocks; skip"
+                        )
+                        continue
+                    entry = {
+                        "path": path,
+                        "name": cached.nombre,
+                        "number": cached.numero,
+                        "tipo": (
+                            cached.tipo
+                            or DataBloquePLC.detect_tipo(cached.nombre)
+                        ),
+                        "base_props": {
+                            "title": cached.title,
+                            "comment": cached.comment,
+                            "author": cached.author,
+                            "version": cached.version,
+                            "programming_language": cached.programming_language,
+                            "memory_layout": cached.memory_layout,
+                        },
+                    }
+                    self._blocks_data.append(entry)
+                    read_count += 1
 
-                return f"leidos {read_count} bloques via get_property"
+                return f"leidos {read_count} bloques via app_cache.plc_blocks"
 
             case "exportar_sd":
-                # Directorio de exports SD bajo .build_cache/blocks_edit/preview/<plc>/
-                # (consistente con la convencion del repo; visible para
-                # inspeccion post-mortem del operario). Usa ``os.getcwd()``
-                # para path ABSOLUTO, requisito del SDK Openness de TIA
-                # (``directoryInfo cannot be a relative path``).
-                if self._prepared_dir is None:
-                    self._prepared_dir = (
-                        Path(os.getcwd())
-                        / ".build_cache" / "blocks_edit" / "preview"
-                        / self._plc_name
+                # ``tia_client`` solo se necesita aqui para dispatch del
+                # comando OT ``export_block``. NO se usa para navegar el
+                # arbol TIA (eso lo hace el worker OT internamente).
+                if self._tia_client is None:
+                    raise RuntimeError(
+                        "FunctionBlockEditPrepare requiere tia_client "
+                        "para dispatch de export_block."
                     )
-                    self._prepared_dir.mkdir(parents=True, exist_ok=True)
-                elif not self._prepared_dir.exists():
-                    self._prepared_dir.mkdir(parents=True, exist_ok=True)
+                # Directorio de exports SD via layout (path absoluto,
+                # requisito del SDK Openness de TIA).
+                plc_dir = self._layout.preview_for_plc(self._plc_name)
+                plc_dir.mkdir(parents=True, exist_ok=True)
 
                 exported_count = 0
                 for entry in self._blocks_data:
@@ -203,14 +234,15 @@ class FunctionBlockEditPrepare(FunctionBase):
                             {
                                 "plc_name": self._plc_name,
                                 "block_name": block_name,
-                                "target_dir": str(self._prepared_dir),
+                                "target_dir": str(plc_dir),
                                 "keep_folder_structure": False,
                             },
                         )
                     except Exception as exc:
                         logger.warning(
                             f"[{self.nombre}] export_block exception "
-                            f"para '{block_name}': {type(exc).__name__}: {exc}"
+                            f"para '{block_name}': "
+                            f"{type(exc).__name__}: {exc}"
                         )
                         continue
                     if not isinstance(dispatch_result, dict) or not dispatch_result.get("ok"):
@@ -220,10 +252,10 @@ class FunctionBlockEditPrepare(FunctionBase):
                             f"{dispatch_result.get('error') if isinstance(dispatch_result, dict) else dispatch_result}"
                         )
                         continue
-                    entry["sd_path"] = self._prepared_dir / f"{block_name}.s7dcl"
+                    entry["sd_path"] = SdPair(plc_dir, block_name).dcl
                     exported_count += 1
 
-                return f"exportados {exported_count} bloques SD"
+                return f"exportados {exported_count} bloques SD a {plc_dir}"
 
             case "parsear_scl":
                 parsed_count = 0
@@ -255,6 +287,9 @@ class FunctionBlockEditPrepare(FunctionBase):
 
             case "merge_cache":
                 # Inicializar el slot global en app_cache si no existe.
+                # (Commit A.3 declarara el slot formalmente en AppCache;
+                # este commit lo crea ad-hoc para mantener compat con el
+                # FB ``block_edit_apply`` y el router ``blocks_edit``.)
                 if not hasattr(self._app_cache, "block_edit_prepared"):
                     self._app_cache.block_edit_prepared = {}
                 target = self._app_cache.block_edit_prepared.setdefault(
@@ -296,106 +331,12 @@ class FunctionBlockEditPrepare(FunctionBase):
                 raise ValueError(f"step no soportado: {step_nombre!r}")
 
     # ==================================================================
-    # Helpers internos
-    # ==================================================================
-
-    def _read_one_block(
-        self, path: str, plc: Any,
-    ) -> dict[str, Any] | None:
-        """Lee las props TIA de UN bloque. None si falla alguna lectura.
-
-        Si ``get_property(name=...)`` lanza para CUALQUIER prop extendida
-        (HeaderAuthor, HeaderVersion, ProgrammingLanguage, MemoryLayout,
-        Number) o para ``get_name()``, el bloque se skipea entero. Asi
-        la SPA nunca ve un DTO a medio poblar: o todo, o nada.
-        """
-        from core.infrastructure.tia.tia_helpers import (
-            _find_block_in_plc,
-        )
-
-        # Parsear path: ultimo segmento = nombre; resto = jerarquia.
-        parts = path.split("/")
-        block_name = parts[-1].strip('"') if parts else ""
-        block_path = "/".join(parts[:-1]).replace("/", "\\")
-
-        try:
-            block = _find_block_in_plc(plc, block_name, block_path)
-        except Exception as exc:
-            logger.warning(
-                f"[{self.nombre}] _find_block_in_plc no encontro "
-                f"'{path}': {type(exc).__name__}: {exc}"
-            )
-            return None
-
-        # Nombre del bloque (sin try/except: si falla, skip).
-        try:
-            bname = block.get_name()
-        except Exception as exc:
-            logger.warning(
-                f"[{self.nombre}] get_name() fallo para '{path}': "
-                f"{type(exc).__name__}: {exc}"
-            )
-            return None
-        bname = (str(bname).strip('"') if bname else block_name) or ""
-
-        # Numero (skip si falla).
-        bnumber = 0
-        try:
-            raw = block.get_property(name="Number")
-            bnumber = int(raw) if raw is not None else 0
-        except Exception as exc:
-            logger.warning(
-                f"[{self.nombre}] get_property(Number) fallo para '{path}': "
-                f"{type(exc).__name__}: {exc}"
-            )
-            return None
-
-        # 4 props extendidas criticas. Cualquier raise -> skip del bloque.
-        # ``title`` y ``comment`` NO se leen aqui (vienen del SCL).
-        field_map = {
-            "HeaderAuthor": "author",
-            "HeaderVersion": "version",
-            "ProgrammingLanguage": "programming_language",
-            "MemoryLayout": "memory_layout",
-        }
-        base_props = {
-            "title": None,
-            "comment": None,
-            "author": None,
-            "version": None,
-            "programming_language": None,
-            "memory_layout": None,
-        }
-        for tia_name, py_name in field_map.items():
-            try:
-                raw = block.get_property(name=tia_name)
-            except Exception as exc:
-                logger.warning(
-                    f"[{self.nombre}] get_property({tia_name}) fallo "
-                    f"para '{path}': {type(exc).__name__}: {exc} -- skip"
-                )
-                return None
-            if raw is None or raw == "":
-                continue
-            try:
-                base_props[py_name] = str(raw).strip() or None
-            except Exception:
-                continue
-
-        return {
-            "path": path,
-            "name": bname,
-            "number": bnumber,
-            "base_props": base_props,
-        }
-
-    # ==================================================================
     # HOOK 3: on_finish  (ZONA 5: vuelco del result)
     # ==================================================================
 
     def on_finish(self, **params: Any) -> None:
-        """Vuelca ``self.result``. No limpia exports SD: quedan en disco
-        bajo ``./.build_cache/blocks_edit/preview/<plc>/`` para inspeccion."""
+        """Vuelca ``self.result``. Los SD quedan en ``layout.preview`` para
+        inspeccion post-mortem del operario (NO hay cleanup automatico)."""
         merge_stats = self._stats.get("merge_cache", {})
         n_blocks = merge_stats.get("n_blocks", len(self._blocks_data))
         self.result = {
@@ -405,23 +346,6 @@ class FunctionBlockEditPrepare(FunctionBase):
             "n_with_title": merge_stats.get("n_with_title", 0),
             "n_with_comment": merge_stats.get("n_with_comment", 0),
         }
-        # Los exports SD quedan en disco bajo
-        # ``./.build_cache/blocks_edit/preview/<plc>/`` para inspeccion
-        # post-mortem del operario. No hay cleanup automatico.
-
-
-# ==================================================================
-# Helper libre (evita un mock-block proxy dentro de run_step)
-# ==================================================================
-def classify_block_for_entry(entry: dict[str, Any]) -> str:
-    """Devuelve ``tipo`` derivandolo del nombre del bloque.
-
-    No toca el SDK .NET (el bloque original se ha liberado tras
-    ``_read_one_block``): usa el patron del prefijo del nombre,
-    identico a ``DataBloquePLC.detect_tipo``.
-    """
-    nombre = entry.get("name") or ""
-    return DataBloquePLC.detect_tipo(nombre)
 
 
 __all__ = ["FunctionBlockEditPrepare"]
