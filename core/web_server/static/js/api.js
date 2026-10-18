@@ -474,3 +474,85 @@ export const apiEntidadesSync = (plcName) =>
         { plc_name: plcName || "" },
         SLOW_TIMEOUT_MS,
     );
+
+/**
+ * Prepara datos de edicion de N bloques (re-lee TIA + exporta SD
+ * + parsea SCL). Dispara el FB ``block_edit_prepare``.
+ * Endpoint: POST /api/v1/blocks/edit/prepare.
+ *
+ * El backend guarda ``DataBloquePLC`` keyed por path con
+ * separador ``/`` en ``app_cache.block_edit_prepared[plc_name]``;
+ * tras este 200, la SPA hace ``apiGetPreparedBlocks(plcName)`` para
+ * recuperar el snapshot y pintar la tabla editable.
+ *
+ * @param {string} plcName - nombre del PLC destino.
+ * @param {string[]} blockPaths - rutas TIA con separador ``/``
+ *                                (``"2000_Dispositivos/DB2000_ED"``).
+ * @returns {Promise<{ok, status, data}>}
+ */
+export const apiBlockEditPrepare = (plcName, blockPaths) =>
+    // MEDIUM: export N bloques a ``.s7dcl`` puede tardar 30-60s
+    // con N grande (S7-1500 con 50+ bloques). 5 min cubre holgadamente.
+    _request(
+        "POST",
+        "/api/v1/blocks/edit/prepare",
+        {
+            plc_name: plcName,
+            selected_block_paths: blockPaths,
+        },
+        MEDIUM_TIMEOUT_MS,
+    );
+
+/**
+ * Aplica los cambios de Name/Number via FB transaccional
+ * (``execute_transactional_batch`` con ``update_block_property``
+ * por bloque, todo en una sola tx COM atomica).
+ * Endpoint: POST /api/v1/blocks/edit/apply.
+ *
+ * Tras commit OK, el FB refresca ``app_cache.plc_blocks[plc_name]``
+ * (con ``force_refresh=True``) y limpia ``block_edit_prepared``.
+ * La SPA debe re-leer el snapshot del PLC para repintar el arbol.
+ *
+ * El backend acepta solo keys ``"name"`` y/o ``"number"`` por
+ * entrada; cualquier otra key produce 400 fail-fast.
+ *
+ * @param {string} plcName - nombre del PLC destino.
+ * @param {object} edits - ``{path: {name?: str, number?: int}, ...}``.
+ * @returns {Promise<{ok, status, data}>}
+ */
+export const apiBlockEditApply = (plcName, edits) =>
+    // SLOW: transaccion sobre N bloques; backend dynamic_timeout
+    // (``5s x n_ops``) puede ser alto. 10 min cubre S7-1500 con
+    // 50+ bloques.
+    _request(
+        "POST",
+        "/api/v1/blocks/edit/apply",
+        {
+            plc_name: plcName,
+            edits: edits,
+        },
+        SLOW_TIMEOUT_MS,
+    );
+
+/**
+ * Lee los bloques preparados actualmente cacheados en
+ * ``app_cache.block_edit_prepared[plc_name]`` (poblado por el
+ * ultimo ``POST /prepare``).
+ * Endpoint: GET /api/v1/blocks/edit/{plc_name}/prepared.
+ *
+ * Devuelve ``{ok: True, prepared: {path: dto_dict, ...}, plc_name}``.
+ * Si no hay cache todavia, ``prepared`` es ``{}`` y ``ok`` sigue
+ * siendo ``True`` (no es error: el operario aun no ha pulsado
+ * "Editar").
+ *
+ * Lectura pura (no toca TIA). Bucket FAST (lectura del cache
+ * in-memory del backend).
+ *
+ * @param {string} plcName - nombre del PLC destino.
+ * @returns {Promise<{ok, status, data}>}
+ */
+export const apiGetPreparedBlocks = (plcName) =>
+    _request(
+        "GET",
+        `/api/v1/blocks/edit/${encodeURIComponent(plcName)}/prepared`,
+    );

@@ -1,11 +1,22 @@
 /**
  * Componente ``blockpropertieseditor``.
  *
- * Vista shell transversal, read-only sobre la cache
+ * Vista shell transversal sobre la cache
  * ``store.appCache.plc_blocks[<plc>]``. Muestra el arbol jerarquico
  * MULTI-NIVEL estilo TIA Portal: un unico arbol con indentacion
  * progresiva, expansion/colapso por categoria, seleccion multiple
  * por bloque y por carpeta (recursivo sobre descendientes).
+ *
+ * FASE 2 (commit 8): al pulsar "Editar" llama a
+ * ``apiBlockEditPrepare`` (FB ``block_edit_prepare``), que
+ * re-lee TIA + exporta SD + parsea SCL y rellena
+ * ``app_cache.block_edit_prepared[plc_name]`` con DTOs de 10
+ * campos. Tras el OK, ``apiGetPreparedBlocks`` devuelve el cache
+ * y la SPA pinta la tabla editable inline para Name + Number.
+ * El boton "Aplicar" envia ``apiBlockEditApply`` (FB
+ * ``block_edit_apply``, transaccion atomica con rollback) y al
+ * terminar refresca el snapshot del PLC via ``apiScanPlcBlocks``
+ * para que el arbol refleje los nuevos nombres/numeros.
  *
  * Construccion del arbol:
  *   - Las rutas de los bloques (``b.ruta``) son strings con
@@ -15,6 +26,14 @@
  *     ``0_Sistema\DBs`` (que es hijo de ``0_Sistema``).
  *   - El arbol se aplana a una lista de ``nodes`` (carpetas y
  *     bloques) segun ``expandedFolders``.
+ *
+ * Convencion de paths (sept-2026):
+ *   - Tree blocks (``b.ruta``) usan separador Windows ``\``.
+ *   - Backend FBs ``block_edit_prepare`` / ``block_edit_apply``
+ *     usan separador ``/`` (param ``selected_block_paths`` y
+ *     keys del dict ``edits``).
+ *   - El helper ``toBackendPath(ruta)`` hace la conversion en
+ *     una sola direccion al cruzar la frontera IT/OT.
  *
  * 4 empty states secuenciales (prioridad estricta):
  *   1. TIA no connected               (icono "🔌")
@@ -28,9 +47,16 @@
 
 import {
     computed,
+    reactive,
     ref,
 } from "/js/vendor/vue.esm-browser.prod.js";
 import { store } from "/js/store.js";
+import {
+    apiBlockEditApply,
+    apiBlockEditPrepare,
+    apiGetPreparedBlocks,
+    apiScanPlcBlocks,
+} from "../api.js";
 
 const STALE_AFTER_MS = 5 * 60 * 1000;
 const _TIPO_ORDER = ["OB", "FC", "FB", "DB", "UDT", "OTHER"];
@@ -232,7 +258,8 @@ export default {
         const canContinue = computed(() => totalSelected.value > 0);
 
         // Modo del card derecho: "idle" muestra el placeholder FASE 1;
-        // "editing" muestra la tabla read-only con los bloques seleccionados.
+        // "preparing" muestra spinner mientras /prepare corre;
+        // "editing" muestra la tabla editable inline con los 10 campos del DTO.
         const editMode = ref("idle");
         const canEdit = computed(
             () => totalSelected.value > 0 && editMode.value === "idle"
@@ -249,11 +276,200 @@ export default {
             }
             return out;
         });
-        function startEdit() {
-            editMode.value = "editing";
+
+        // Conversion de paths IT (separador "\\") a paths del backend FB
+        // (separador "/"). El FB ``block_edit_prepare`` parsea con
+        // ``path.split("/")``: el ultimo segmento es el nombre del bloque
+        // y el resto es la jerarquia de grupos. Si le llega "\\" se queda
+        // como un solo segmento y la busqueda en TIA falla.
+        function toBackendPath(ruta) {
+            return String(ruta || "").replace(/\\/g, "/");
         }
+
+        // DTOs recibidos del endpoint GET /prepared, en el mismo orden
+        // que ``selectedBlocks``. Cada entrada tiene los 10 campos del
+        // ``DataBloquePLC`` (``nombre``, ``numero``, ``tipo``, ``ruta``,
+        // ``title``, ``comment``, ``author``, ``version``,
+        // ``programming_language``, ``memory_layout``) + ``path``
+        // (key del dict backend, separador "/").
+        const preparedBlocks = ref([]);
+        const preparedBlocksByPath = computed(() => {
+            const map = {};
+            for (const b of preparedBlocks.value) {
+                if (b && b.path) map[b.path] = b;
+            }
+            return map;
+        });
+
+        // Pendientes de Name/Number keyed por path backend ("/").
+        // Estructura: ``{ "<path>": { name?: str, number?: int } }``.
+        // Solo se anade una key cuando el operario edita; los inputs
+        // que coinciden con el original NO contaminan el dict, asi
+        // el apply solo envia diffs reales. Las keys coinciden con
+        // la whitelist del FB ``block_edit_apply`` (name/number),
+        // por lo que ``pendingEdits`` se envia tal cual al endpoint.
+        const pendingEdits = reactive({});
+
+        const pendingChangesCount = computed(
+            () => Object.keys(pendingEdits).length
+        );
+        const hasChanges = computed(
+            () => pendingChangesCount.value > 0
+        );
+
+        // Estado de las llamadas async contra los 2 FBs.
+        // ``operationStatus`` separa preparing/applying del resto para
+        // que el template pueda mostrar spinners / deshabilitar botones
+        // independientes en cada fase.
+        const operationStatus = ref("idle");  // "idle" | "preparing" | "applying" | "error"
+        const operationError = ref("");
+
+        function resetEditState() {
+            preparedBlocks.value = [];
+            // ``pendingEdits`` es reactive: borramos keys explicitamente
+            // (no se puede reasignar ``pendingEdits = {}`` sin perder
+            // la reactividad).
+            for (const k of Object.keys(pendingEdits)) delete pendingEdits[k];
+            operationStatus.value = "idle";
+            operationError.value = "";
+        }
+
+        async function startEdit() {
+            const blocks = selectedBlocks.value;
+            if (!blocks || blocks.length === 0) return;
+            const plc = selectedPlc.value;
+            if (!plc) return;
+            // Conversion IT ("\\") -> backend ("/") una sola vez.
+            const paths = blocks.map((b) => toBackendPath(b.ruta));
+
+            editMode.value = "editing";
+            operationStatus.value = "preparing";
+            operationError.value = "";
+            preparedBlocks.value = [];
+
+            const resp = await apiBlockEditPrepare(plc, paths);
+            if (!resp.ok || !resp.data || !resp.data.ok) {
+                operationStatus.value = "error";
+                operationError.value =
+                    (resp.data && resp.data.error) ||
+                    `HTTP ${resp.status} en /prepare`;
+                return;
+            }
+
+            // Pull del cache ``block_edit_prepared[plc]`` (NO viene en
+            // el body de /prepare: solo trae resumenes).
+            const preparedResp = await apiGetPreparedBlocks(plc);
+            if (!preparedResp.ok || !preparedResp.data || !preparedResp.data.ok) {
+                operationStatus.value = "error";
+                operationError.value =
+                    (preparedResp.data && preparedResp.data.error) ||
+                    `HTTP ${preparedResp.status} en /prepared`;
+                return;
+            }
+            const preparedMap = preparedResp.data.prepared || {};
+            // Convertir dict (keyed por path) a array con ``path`` inyectado
+            // como campo (necesario para iterar en la tabla y para usarlo
+            // como key de ``pendingEdits``).
+            const arr = [];
+            for (const path of Object.keys(preparedMap)) {
+                const dto = preparedMap[path] || {};
+                arr.push({ path, ...dto });
+            }
+            preparedBlocks.value = arr;
+            operationStatus.value = "idle";
+        }
+
         function cancelEdit() {
             editMode.value = "idle";
+            resetEditState();
+        }
+
+        /**
+         * Getter/setter virtual sobre ``pendingEdits[path][field]``.
+         *
+         * Reglas:
+         *   - Si ``value`` coincide con el original del DTO preparado
+         *     -> borra la key del dict (no es un cambio real).
+         *   - Si difiere -> guarda ``{name|number: value}``.
+         *   - Si tras borrar el campo el dict de la path queda vacio
+         *     -> borra tambien la entrada ``pendingEdits[path]``.
+         *
+         * Usado por los ``:value`` / ``@input`` de los inputs Name/Number
+         * para que el ``pendingChangesCount`` y ``hasChanges`` reflejen
+         * solo diffs reales (no "edite y volvi al mismo valor").
+         */
+        function getPendingValue(path, field) {
+            const original = preparedBlocksByPath.value[path];
+            if (!original) return "";
+            const pending = pendingEdits[path];
+            if (pending && Object.prototype.hasOwnProperty.call(pending, field)) {
+                return pending[field];
+            }
+            return original[field] ?? "";
+        }
+        function setPendingValue(path, field, value) {
+            const original = preparedBlocksByPath.value[path];
+            if (!original) return;
+            const origVal = original[field];
+            // Comparar normalizando: number puede venir como int vs string
+            // desde el input HTML (los ``<input type="number">`` siempre
+            // emiten string, hay que convertir).
+            const isSame = field === "number"
+                ? Number(value) === Number(origVal)
+                : String(value) === String(origVal ?? "");
+            if (isSame) {
+                if (pendingEdits[path]) {
+                    delete pendingEdits[path][field];
+                    if (Object.keys(pendingEdits[path]).length === 0) {
+                        delete pendingEdits[path];
+                    }
+                }
+                return;
+            }
+            if (!pendingEdits[path]) pendingEdits[path] = {};
+            pendingEdits[path][field] = field === "number" ? Number(value) : String(value);
+        }
+
+        async function applyEdits() {
+            const plc = selectedPlc.value;
+            if (!plc) return;
+            if (!hasChanges.value) return;
+            // Snapshot del dict reactivo (las keys se borran en
+            // cancelEdit / startEdit, copiamos para que el await no
+            // vea mutaciones).
+            const edits = {};
+            for (const path of Object.keys(pendingEdits)) {
+                edits[path] = { ...pendingEdits[path] };
+            }
+
+            operationStatus.value = "applying";
+            operationError.value = "";
+
+            const resp = await apiBlockEditApply(plc, edits);
+            if (!resp.ok || !resp.data || !resp.data.ok) {
+                operationStatus.value = "error";
+                operationError.value =
+                    (resp.data && resp.data.error) ||
+                    `HTTP ${resp.status} en /apply`;
+                return;
+            }
+
+            // Refrescar cache del PLC para que el arbol refleje los
+            // nuevos nombres/numeros. Esto ademas limpia
+            // ``block_edit_prepared[plc]`` (lo hace el FB en
+            // ``refresh_cache``); la SPA tambien lo borra localmente
+            // para no mostrar cache obsoleto si el operario re-edita.
+            const scan = await apiScanPlcBlocks(plc);
+            if (!scan.ok || !scan.data || !scan.data.ok) {
+                operationStatus.value = "error";
+                operationError.value =
+                    (scan.data && scan.data.error) ||
+                    `HTTP ${scan.status} refrescando cache del PLC`;
+                return;
+            }
+
+            editMode.value = "idle";
+            resetEditState();
         }
 
         function toggleSelect(key) {
@@ -365,8 +581,18 @@ export default {
             editMode,
             canEdit,
             selectedBlocks,
+            preparedBlocks,
+            preparedBlocksByPath,
+            pendingEdits,
+            pendingChangesCount,
+            hasChanges,
+            operationStatus,
+            operationError,
             startEdit,
             cancelEdit,
+            applyEdits,
+            getPendingValue,
+            setPendingValue,
             toggleSelect,
             toggleSelectAll,
             toggleSelectFolder,
@@ -444,32 +670,44 @@ export default {
                         <button :disabled="!canEdit" @click="startEdit" :class="canEdit ? 'bg-accent text-ink-inverse hover:bg-accent-hover cursor-pointer' : 'bg-surface-sunken text-ink-muted cursor-not-allowed'" class="px-4 py-2 rounded text-sm font-semibold" data-testid="block-editor-edit">Editar (FASE 2)</button>
                     </div>
                 </div>
-                <!-- Columna derecha 2/3: card edición (idle: placeholder; editing: tabla read-only) -->
+                <!-- Columna derecha 2/3: card edición (idle: placeholder; preparing: spinner; editing: tabla editable) -->
                 <div class="col-span-2 flex flex-col bg-surface-raised border border-line rounded p-5 gap-3 min-h-0" data-testid="block-editor-edit-card">
-                    <!-- Modo idle: placeholder FASE 1 -->
+                    <!-- Modo idle: placeholder -->
                     <div v-if="editMode === 'idle'" class="flex-1 min-h-0 flex flex-col" data-testid="block-editor-edit-placeholder">
                         <div>
                             <h3 class="text-sm font-bold text-ink">Edición de propiedades</h3>
-                            <p class="text-xs text-ink-muted mt-1">FASE 2 — edición transaccional pendiente.</p>
+                            <p class="text-xs text-ink-muted mt-1">FASE 2 — edición transaccional de Name / Number.</p>
                         </div>
                         <div class="flex-1 min-h-0 flex flex-col items-center justify-center border border-dashed border-line rounded bg-surface-sunken text-xs text-ink-muted gap-2 p-6 text-center">
                             <span class="text-3xl opacity-40">🛠️</span>
                             <p>
-                                <span v-if="totalSelected > 0">{{ totalSelected }} bloques seleccionados. La edición transaccional se implementará en FASE 2.</span>
+                                <span v-if="totalSelected > 0">{{ totalSelected }} bloques seleccionados. Pulsa &quot;Editar&quot; para preparar los datos contra TIA.</span>
                                 <span v-else>Selecciona bloques en el árbol para empezar.</span>
                             </p>
                         </div>
                         <div class="flex justify-end pt-3 border-t border-line">
-                            <button disabled class="px-4 py-2 rounded text-sm font-semibold bg-surface-sunken text-ink-muted cursor-not-allowed" data-testid="block-editor-apply">Aplicar (FASE 2)</button>
+                            <button disabled class="px-4 py-2 rounded text-sm font-semibold bg-surface-sunken text-ink-muted cursor-not-allowed" data-testid="block-editor-apply">Aplicar</button>
                         </div>
                     </div>
-                    <!-- Modo editing: tabla read-only con bloques seleccionados -->
+                    <!-- Modo preparing: spinner mientras /prepare corre -->
+                    <div v-else-if="editMode === 'editing' && operationStatus === 'preparing'" class="flex-1 min-h-0 flex flex-col items-center justify-center gap-3 text-xs text-ink-muted" data-testid="block-editor-preparing">
+                        <span class="inline-block animate-spin text-3xl text-accent">↻</span>
+                        <p>Preparando {{ selectedBlocks.length }} bloques contra TIA Portal…</p>
+                        <p class="text-[10px]">Exporta SD + parsea SCL + cachea DTOs. Puede tardar 30-90s.</p>
+                    </div>
+                    <!-- Modo editing: tabla editable inline con los 10 campos del DTO -->
                     <div v-else class="flex-1 min-h-0 flex flex-col gap-3" data-testid="block-editor-edit-table">
                         <div>
                             <h3 class="text-sm font-bold text-ink">Edición de propiedades</h3>
                             <p class="text-xs text-ink-muted mt-1">
-                                FASE 2 — selección actual: <strong class="text-ink">{{ totalSelected }}</strong> bloques.
-                                Aplicación pendiente de wiring.
+                                Edita <strong class="text-ink">Name</strong> y/o <strong class="text-ink">Number</strong> inline. Aplicar transacciona contra TIA Portal.
+                            </p>
+                            <p v-if="operationStatus === 'applying'" class="text-xs text-accent mt-1" data-testid="block-editor-applying">
+                                <span class="inline-block animate-spin mr-1">↻</span>
+                                Aplicando cambios en TIA Portal (transacción atómica, puede tardar minutos)…
+                            </p>
+                            <p v-if="operationStatus === 'error'" class="text-xs text-red-600 mt-1" data-testid="block-editor-error">
+                                ✗ {{ operationError }}
                             </p>
                         </div>
                         <div class="flex-1 min-h-0 overflow-auto border border-line rounded">
@@ -478,8 +716,8 @@ export default {
                                     <tr>
                                         <th class="px-2 py-1 text-left">Tipo</th>
                                         <th class="px-2 py-1 text-right">#orig</th>
-                                        <th class="px-2 py-1 text-left">Name</th>
-                                        <th class="px-2 py-1 text-right">Number</th>
+                                        <th class="px-2 py-1 text-left">Name*</th>
+                                        <th class="px-2 py-1 text-right">Number*</th>
                                         <th class="px-2 py-1 text-left">Title</th>
                                         <th class="px-2 py-1 text-left">Comment</th>
                                         <th class="px-2 py-1 text-left">Author</th>
@@ -489,16 +727,26 @@ export default {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <tr v-for="block in selectedBlocks" :key="block.nombre" class="border-t border-line" :data-testid="'block-editor-row-' + block.nombre">
+                                    <tr v-for="block in preparedBlocks" :key="block.path" class="border-t border-line" :data-testid="'block-editor-edit-row-' + block.nombre">
                                         <td class="px-2 py-1">
                                             <span :style="typeStyle(block.tipo)" class="shrink-0" :data-tipo="block.tipo" :title="block.tipo">{{ tipoLabel(block.tipo) }}</span>
                                         </td>
                                         <td class="px-2 py-1 text-right font-mono text-ink-muted">{{ block.numero ?? '—' }}</td>
                                         <td class="px-2 py-1">
-                                            <input type="text" :value="block.nombre" disabled class="font-mono bg-surface-sunken text-ink-muted px-1 py-0.5 rounded w-full" />
+                                            <input type="text"
+                                                :value="getPendingValue(block.path, 'name')"
+                                                @input="setPendingValue(block.path, 'name', $event.target.value)"
+                                                :disabled="operationStatus === 'applying'"
+                                                class="font-mono px-1 py-0.5 rounded w-full border border-line bg-surface-raised text-ink focus:outline-none focus:border-line-strong"
+                                                :data-testid="'block-editor-input-name-' + block.nombre" />
                                         </td>
                                         <td class="px-2 py-1">
-                                            <input type="number" :value="block.numero ?? ''" disabled class="font-mono bg-surface-sunken text-ink-muted px-1 py-0.5 rounded w-full text-right" />
+                                            <input type="number"
+                                                :value="getPendingValue(block.path, 'number')"
+                                                @input="setPendingValue(block.path, 'number', $event.target.value)"
+                                                :disabled="operationStatus === 'applying'"
+                                                class="font-mono px-1 py-0.5 rounded w-full text-right border border-line bg-surface-raised text-ink focus:outline-none focus:border-line-strong"
+                                                :data-testid="'block-editor-input-number-' + block.nombre" />
                                         </td>
                                         <td class="px-2 py-1 font-mono text-ink-muted truncate max-w-xs" :title="block.title || ''">{{ block.title || '—' }}</td>
                                         <td class="px-2 py-1 font-mono text-ink-muted truncate max-w-xs" :title="block.comment || ''">{{ block.comment || '—' }}</td>
@@ -511,8 +759,16 @@ export default {
                             </table>
                         </div>
                         <div class="flex justify-between pt-3 border-t border-line">
-                            <button @click="cancelEdit" class="text-ink-muted hover:text-ink underline text-sm" data-testid="block-editor-edit-cancel">Cancelar</button>
-                            <button disabled class="px-4 py-2 rounded text-sm font-semibold bg-surface-sunken text-ink-muted cursor-not-allowed" data-testid="block-editor-edit-apply">Aplicar (FASE 2)</button>
+                            <button @click="cancelEdit"
+                                :disabled="operationStatus === 'applying'"
+                                :class="operationStatus === 'applying' ? 'text-ink-muted cursor-not-allowed' : 'text-ink-muted hover:text-ink underline'"
+                                class="text-sm"
+                                data-testid="block-editor-edit-cancel">Cancelar</button>
+                            <button @click="applyEdits"
+                                :disabled="!hasChanges || operationStatus === 'applying'"
+                                :class="(!hasChanges || operationStatus === 'applying') ? 'bg-surface-sunken text-ink-muted cursor-not-allowed' : 'bg-accent text-ink-inverse hover:bg-accent-hover cursor-pointer'"
+                                class="px-4 py-2 rounded text-sm font-semibold"
+                                data-testid="block-editor-edit-apply">Aplicar ({{ pendingChangesCount }})</button>
                         </div>
                     </div>
                 </div>

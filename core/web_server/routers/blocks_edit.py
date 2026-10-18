@@ -197,6 +197,58 @@ def apply_edit():
     })
 
 
+@bp.get("/<plc_name>/prepared")
+def get_prepared_blocks(plc_name: str):
+    """Devuelve el cache de bloques preparados para ``plc_name``.
+
+    Lee de ``app_cache.block_edit_prepared[plc_name]`` (slot que el
+    FB ``block_edit_prepare`` rellena con ``DataBloquePLC`` keyed
+    por path con separador ``/``). Cada bloque expone los 10 campos
+    del DTO via ``DataBloquePLC.to_dict()``.
+
+    La SPA usa este endpoint justo despues de ``POST /prepare``
+    para pintar la tabla con los 10 campos y permitir editar
+    inline Name/Number. Devuelve ``ok: True`` aunque no haya
+    cache todavia (caso ``prepared: {}``).
+    """
+    app_cache = current_app.config.get("APP_CACHE")
+    if app_cache is None:
+        return jsonify({
+            "ok": False,
+            "error": "app_cache no inicializado",
+        }), 503
+    prepared = getattr(app_cache, "block_edit_prepared", None)
+    if not prepared or plc_name not in prepared:
+        return jsonify({
+            "ok": True,
+            "prepared": {},
+            "plc_name": plc_name,
+        })
+    raw = prepared[plc_name]
+    serialized = {}
+    for path, dto in raw.items():
+        try:
+            serialized[path] = dto.to_dict()
+        except AttributeError:
+            serialized[path] = {
+                "nombre": dto.nombre,
+                "numero": dto.numero,
+                "tipo": dto.tipo,
+                "ruta": dto.ruta,
+                "title": dto.title,
+                "comment": dto.comment,
+                "author": dto.author,
+                "version": dto.version,
+                "programming_language": dto.programming_language,
+                "memory_layout": dto.memory_layout,
+            }
+    return jsonify({
+        "ok": True,
+        "prepared": serialized,
+        "plc_name": plc_name,
+    })
+
+
 @bp.get("/<name>/status")
 def get_fb_status(name: str):
     """Estado actual del FB (nStep, is_terminal, error_msg, result)."""

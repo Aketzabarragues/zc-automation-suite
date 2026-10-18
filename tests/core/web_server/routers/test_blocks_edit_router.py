@@ -329,3 +329,125 @@ def test_apply_endpoint_returns_500_when_fb_not_registered():
     assert resp.status_code == 500
     assert "no registrado" in resp.get_json()["error"]
     engine.get_fb.assert_called_once_with("block_edit_apply")
+
+
+# ─── 11. GET /<plc_name>/prepared (commit 8) ────────────────────────────
+# Cubre:
+#   - Empty cache -> 200 + ``{"ok": True, "prepared": {}, ...}``.
+#   - Cache con DTOs -> 200 + ``prepared`` serializado con ``to_dict()``.
+#   - Sin ``app_cache`` en config -> 503.
+#   - DTO sin ``to_dict`` -> fallback al dict con 10 keys.
+
+
+def _make_flask_app_with_app_cache(engine, app_cache):
+    """Igual que ``_make_flask_app`` pero inyecta ``APP_CACHE``."""
+    app = Flask("test_blocks_edit")
+    app.config["ENGINE"] = engine
+    app.config["APP_CACHE"] = app_cache
+    app.config["TESTING"] = True
+    app.register_blueprint(bp)
+    return app
+
+
+def test_get_prepared_returns_empty_when_no_cache():
+    """Sin ``block_edit_prepared`` en app_cache -> 200 + ``prepared: {}``."""
+    from core.runtime.app_cache import AppCache
+
+    engine = MagicMock()
+    app_cache = AppCache()
+    app = _make_flask_app_with_app_cache(engine, app_cache)
+    client = app.test_client()
+
+    resp = client.get("/api/v1/blocks/edit/PLC_1/prepared")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+    assert data["prepared"] == {}
+    assert data["plc_name"] == "PLC_1"
+
+
+def test_get_prepared_serializes_dtos_via_to_dict():
+    """DTOs en cache se serializan con ``DataBloquePLC.to_dict()``."""
+    from core.data.data_block_plc import DataBloquePLC
+    from core.runtime.app_cache import AppCache
+
+    dto = DataBloquePLC(
+        nombre="DB2000_ED",
+        numero=2000,
+        tipo="DB",
+        ruta="2000_Dispositivos\\DB2000_ED",
+        title="Entradas digitales",
+        comment="Comentario DB ED",
+        author="Aketza",
+        version="1.0",
+        programming_language="DB",
+        memory_layout="Optimized",
+    )
+
+    engine = MagicMock()
+    app_cache = AppCache()
+    app_cache.block_edit_prepared = {
+        "PLC_1": {"2000_Dispositivos/DB2000_ED": dto},
+    }
+    app = _make_flask_app_with_app_cache(engine, app_cache)
+    client = app.test_client()
+
+    resp = client.get("/api/v1/blocks/edit/PLC_1/prepared")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+    assert data["plc_name"] == "PLC_1"
+    assert "2000_Dispositivos/DB2000_ED" in data["prepared"]
+    serialized = data["prepared"]["2000_Dispositivos/DB2000_ED"]
+    assert serialized["nombre"] == "DB2000_ED"
+    assert serialized["numero"] == 2000
+    assert serialized["title"] == "Entradas digitales"
+    assert serialized["programming_language"] == "DB"
+
+
+def test_get_prepared_returns_503_without_app_cache():
+    """Sin ``APP_CACHE`` en config -> 503."""
+    engine = MagicMock()
+    app = Flask("test_blocks_edit")
+    app.config["ENGINE"] = engine
+    # NO inyectamos APP_CACHE.
+    app.config["TESTING"] = True
+    app.register_blueprint(bp)
+    client = app.test_client()
+
+    resp = client.get("/api/v1/blocks/edit/PLC_1/prepared")
+    assert resp.status_code == 503
+    assert "app_cache" in resp.get_json()["error"]
+
+
+def test_get_prepared_falls_back_when_dto_lacks_to_dict():
+    """DTO sin ``to_dict()`` -> fallback al dict inline con 10 keys."""
+    from core.runtime.app_cache import AppCache
+
+    class FakeDto:
+        """DTO fake SIN ``to_dict`` (simula un dataclass externo)."""
+
+        nombre = "FB1"
+        numero = 1
+        tipo = "FB"
+        ruta = "FBs\\FB1"
+        title = "T"
+        comment = "C"
+        author = "A"
+        version = "1"
+        programming_language = "SCL"
+        memory_layout = "Standard"
+
+    engine = MagicMock()
+    app_cache = AppCache()
+    app_cache.block_edit_prepared = {"PLC_1": {"FBs/FB1": FakeDto()}}
+    app = _make_flask_app_with_app_cache(engine, app_cache)
+    client = app.test_client()
+
+    resp = client.get("/api/v1/blocks/edit/PLC_1/prepared")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    serialized = data["prepared"]["FBs/FB1"]
+    assert serialized["nombre"] == "FB1"
+    assert serialized["programming_language"] == "SCL"
+    assert serialized["memory_layout"] == "Standard"
