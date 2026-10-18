@@ -286,16 +286,10 @@ class FunctionBlockEditPrepare(FunctionBase):
                 return f"parseados {parsed_count} headers SCL"
 
             case "merge_cache":
-                # Inicializar el slot global en app_cache si no existe.
-                # (Commit A.3 declarara el slot formalmente en AppCache;
-                # este commit lo crea ad-hoc para mantener compat con el
-                # FB ``block_edit_apply`` y el router ``blocks_edit``.)
-                if not hasattr(self._app_cache, "block_edit_prepared"):
-                    self._app_cache.block_edit_prepared = {}
-                target = self._app_cache.block_edit_prepared.setdefault(
-                    self._plc_name, {},
-                )
-
+                # Slot ``block_edit_prepared`` declarado formalmente en
+                # ``AppCache`` (commit A.3); helper set/get/clear usan
+                # ``mutate(slot=...)`` para reemplazar atomicamente.
+                prepared: dict[str, DataBloquePLC] = {}
                 merged_count = 0
                 for entry in self._blocks_data:
                     ext = entry.get("extended_props") or {}
@@ -311,8 +305,12 @@ class FunctionBlockEditPrepare(FunctionBase):
                         programming_language=ext.get("programming_language"),
                         memory_layout=ext.get("memory_layout"),
                     )
-                    target[entry["path"]] = dto
+                    prepared[entry["path"]] = dto
                     merged_count += 1
+
+                self._app_cache.set_block_edit_prepared(
+                    self._plc_name, prepared,
+                )
 
                 self._stats["merge_cache"] = {
                     "n_blocks": merged_count,

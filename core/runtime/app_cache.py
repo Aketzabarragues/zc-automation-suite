@@ -24,6 +24,7 @@ from datetime import datetime
 from typing import Any, Protocol, runtime_checkable
 
 from core.data.data_block_cache import DataBloqueCache
+from core.data.data_block_plc import DataBloquePLC
 from core.data.data_plc_info import PlcInfo, PlcProject
 
 
@@ -52,6 +53,12 @@ class _AppCacheState:
     )
     plc_project: dict[str, PlcProject] = field(default_factory=dict)
     selected_plc: str = ""
+
+    # Capa 2: Slots de feature (FBs core que cachean por plc).
+    # Llave externa = plc_name. Llave interna = path de bloque.
+    block_edit_prepared: dict[str, dict[str, DataBloquePLC]] = field(
+        default_factory=dict,
+    )
 
 
 class AppCache:
@@ -104,6 +111,49 @@ class AppCache:
             if slot is not None and self._on_change is not None:
                 value = getattr(new_state, slot, None)
                 self._on_change(slot, None, None, value)
+
+    # ------------------------------------------------------------------
+    # Slots de feature (FASE 2 block-editor): block_edit_prepared
+    # Cacheado por FB block_edit_prepare (commit A.2) y consumido por
+    # block_edit_apply + el router GET /prepared. Sustituye el antiguo
+    # slot ad-hoc que se creaba con hasattr + setattr.
+    # ------------------------------------------------------------------
+    def set_block_edit_prepared(
+        self,
+        plc_name: str,
+        blocks_dict: dict[str, DataBloquePLC],
+    ) -> None:
+        """Reemplaza atomicamente los bloques preparados para ``plc_name``.
+
+        ``blocks_dict`` keyed por path completo (jerarquia + nombre,
+        separador ``/``). ``mutate(slot="block_edit_prepared", ...)``
+        garantiza consistencia bajo el lock.
+        """
+        def _replace(state: _AppCacheState) -> _AppCacheState:
+            new_dict = dict(state.block_edit_prepared)
+            new_dict[plc_name] = dict(blocks_dict)
+            return dataclasses.replace(state, block_edit_prepared=new_dict)
+        self.mutate(_replace, slot="block_edit_prepared")
+
+    def get_block_edit_prepared(
+        self,
+        plc_name: str,
+    ) -> dict[str, DataBloquePLC]:
+        """Snapshot de los bloques preparados para ``plc_name``. Vacio si no hay."""
+        with self._lock:
+            return dict(self._state.block_edit_prepared.get(plc_name, {}))
+
+    def clear_block_edit_prepared(self, plc_name: str) -> None:
+        """Limpia los bloques preparados para ``plc_name``.
+
+        Llamado por el FB ``block_edit_apply`` despues de un commit
+        exitoso para forzar re-lectura en el proximo ``block_edit_prepare``.
+        """
+        def _remove(state: _AppCacheState) -> _AppCacheState:
+            new_dict = dict(state.block_edit_prepared)
+            new_dict.pop(plc_name, None)
+            return dataclasses.replace(state, block_edit_prepared=new_dict)
+        self.mutate(_remove, slot="block_edit_prepared")
 
     def reset(self) -> None:
         """Limpia TODO el estado. Llamado al desconectar TIA o cambiar proyecto.

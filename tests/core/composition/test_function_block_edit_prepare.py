@@ -217,8 +217,7 @@ def test_happy_path_3_bloques_usa_cache_plc_blocks(
     assert fb.result["n_blocks"] == 3
 
     # Cache con los 3 bloques.
-    assert "PLC_1" in app_cache.block_edit_prepared
-    cached = app_cache.block_edit_prepared["PLC_1"]
+    cached = app_cache.get_block_edit_prepared("PLC_1")
     assert len(cached) == 3
 
     # Cada DTO con los 10 campos poblados.
@@ -299,7 +298,7 @@ def test_no_op_sin_bloques_en_cache(
     # dispatch NO se llamo (no hay bloques para exportar).
     tia_client.dispatch.assert_not_called()
     # Cache del prepare: plc_name presente pero dict vacio.
-    assert app_cache.block_edit_prepared["PLC_1"] == {}
+    assert app_cache.get_block_edit_prepared("PLC_1") == {}
 
 
 # ── 4. PLC sin cache en plc_blocks -> RuntimeError ──────────────────
@@ -381,7 +380,7 @@ def test_export_raises_continues_with_others(
     )
 
     assert fb.nStep == fb.n_done
-    cached = app_cache.block_edit_prepared["PLC_1"]
+    cached = app_cache.get_block_edit_prepared("PLC_1")
 
     # DB y OB mantienen title/comment del SCL.
     db_dto = cached["DB2000_ED"]
@@ -442,7 +441,7 @@ def test_layout_injection(
     )
 
     # El cache del prepare tiene el DTO mergeado.
-    dto = app_cache.block_edit_prepared["PLC_1"]["DB2000_ED"]
+    dto = app_cache.get_block_edit_prepared("PLC_1")["DB2000_ED"]
     assert isinstance(dto, DataBloquePLC)
     assert dto.title is not None  # parser SCL lo populo.
 

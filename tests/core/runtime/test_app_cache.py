@@ -356,3 +356,59 @@ def test_estado_per_plc_set_get_clear() -> None:
     plc_user_constants_set(cache, "B", {"N_MAX_X": 99})
     plc_user_constants_clear(cache)
     assert plc_user_constants_get(cache, "B") == {}
+
+
+def _fake_dto():
+    """Helper: DTO minimo para tests del slot ``block_edit_prepared``."""
+    from core.data.data_block_plc import DataBloquePLC
+    return DataBloquePLC(
+        nombre="DB1",
+        numero=1,
+        tipo="DB",
+        ruta="foo/DB1",
+        title=None,
+        comment=None,
+        author=None,
+        version=None,
+        programming_language=None,
+        memory_layout=None,
+    )
+
+
+def test_set_block_edit_prepared_replaces_atomically() -> None:
+    """``set_block_edit_prepared`` reemplaza el dict del PLC bajo lock."""
+    cache = AppCache()
+    dto = _fake_dto()
+    cache.set_block_edit_prepared("PLC_1", {"foo/DB1": dto})
+    assert cache.get_block_edit_prepared("PLC_1") == {"foo/DB1": dto}
+
+
+def test_get_block_edit_prepared_empty_returns_empty_dict() -> None:
+    """``get_block_edit_prepared`` sobre PLC ausente retorna ``{}`` (no ``None``)."""
+    cache = AppCache()
+    assert cache.get_block_edit_prepared("PLC_1") == {}
+
+
+def test_clear_block_edit_prepared_removes_plc() -> None:
+    """``clear_block_edit_prepared`` borra el dict del PLC."""
+    cache = AppCache()
+    cache.set_block_edit_prepared("PLC_1", {"x": _fake_dto()})
+    cache.clear_block_edit_prepared("PLC_1")
+    assert cache.get_block_edit_prepared("PLC_1") == {}
+
+
+def test_set_block_edit_prepared_isolates_between_plcs() -> None:
+    """``set_block_edit_prepared`` sobre PLC distinto no contamina el resto."""
+    cache = AppCache()
+    cache.set_block_edit_prepared("PLC_1", {"x": _fake_dto()})
+    cache.set_block_edit_prepared("PLC_2", {"y": _fake_dto()})
+    assert "y" not in cache.get_block_edit_prepared("PLC_1")
+    assert "x" not in cache.get_block_edit_prepared("PLC_2")
+
+
+def test_reset_clears_block_edit_prepared() -> None:
+    """``reset()`` limpia tambien el slot ``block_edit_prepared``."""
+    cache = AppCache()
+    cache.set_block_edit_prepared("PLC_1", {"x": _fake_dto()})
+    cache.reset()
+    assert cache.get_block_edit_prepared("PLC_1") == {}

@@ -386,9 +386,9 @@ def test_get_prepared_serializes_dtos_via_to_dict():
 
     engine = MagicMock()
     app_cache = AppCache()
-    app_cache.block_edit_prepared = {
-        "PLC_1": {"2000_Dispositivos/DB2000_ED": dto},
-    }
+    app_cache.set_block_edit_prepared(
+        "PLC_1", {"2000_Dispositivos/DB2000_ED": dto},
+    )
     app = _make_flask_app_with_app_cache(engine, app_cache)
     client = app.test_client()
 
@@ -440,7 +440,9 @@ def test_get_prepared_falls_back_when_dto_lacks_to_dict():
 
     engine = MagicMock()
     app_cache = AppCache()
-    app_cache.block_edit_prepared = {"PLC_1": {"FBs/FB1": FakeDto()}}
+    app_cache.set_block_edit_prepared(
+        "PLC_1", {"FBs/FB1": FakeDto()},
+    )
     app = _make_flask_app_with_app_cache(engine, app_cache)
     client = app.test_client()
 

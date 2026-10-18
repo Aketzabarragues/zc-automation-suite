@@ -217,14 +217,7 @@ def get_prepared_blocks(plc_name: str):
             "ok": False,
             "error": "app_cache no inicializado",
         }), 503
-    prepared = getattr(app_cache, "block_edit_prepared", None)
-    if not prepared or plc_name not in prepared:
-        return jsonify({
-            "ok": True,
-            "prepared": {},
-            "plc_name": plc_name,
-        })
-    raw = prepared[plc_name]
+    raw = app_cache.get_block_edit_prepared(plc_name)
     serialized = {}
     for path, dto in raw.items():
         try:

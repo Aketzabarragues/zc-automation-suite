@@ -198,17 +198,12 @@ class FunctionBlockEditApply(FunctionBase):
                 )
 
             case "diff":
-                # Leer cache de prepare. Si no existe -> fail-fast.
-                if not hasattr(self._app_cache, "block_edit_prepared"):
-                    raise RuntimeError(
-                        f"FunctionBlockEditApply: app_cache no tiene "
-                        f"cache de prepare. Ejecuta block_edit_prepare "
-                        f"primero sobre PLC '{self._plc_name}'."
-                    )
-                prepared = self._app_cache.block_edit_prepared.get(
+                # Leer cache de prepare via helper (slot declarado en
+                # ``AppCache``, commit A.3). Si vacio -> fail-fast.
+                prepared = self._app_cache.get_block_edit_prepared(
                     self._plc_name,
                 )
-                if prepared is None:
+                if not prepared:
                     raise RuntimeError(
                         f"FunctionBlockEditApply: PLC '{self._plc_name}' "
                         f"no esta en app_cache.block_edit_prepared. "
@@ -330,10 +325,7 @@ class FunctionBlockEditApply(FunctionBase):
                 )
                 # El cache de prepare queda obsoleto (DTOs con valores
                 # pre-commit). Forzar re-lectura en el siguiente Editar.
-                if hasattr(self._app_cache, "block_edit_prepared"):
-                    self._app_cache.block_edit_prepared.pop(
-                        self._plc_name, None,
-                    )
+                self._app_cache.clear_block_edit_prepared(self._plc_name)
                 return f"refresh OK: {len(cache.blocks)} bloques re-escaneados"
 
             case _:

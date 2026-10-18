@@ -65,12 +65,10 @@ def _seed_cache(
     plc_name: str,
     blocks: list[DataBloquePLC],
 ) -> None:
-    """Inicializa ``app_cache.block_edit_prepared[plc_name]`` con la lista."""
-    if not hasattr(app_cache, "block_edit_prepared"):
-        app_cache.block_edit_prepared = {}
-    app_cache.block_edit_prepared[plc_name] = {
-        b.nombre: b for b in blocks
-    }
+    """Inicializa ``app_cache`` con los bloques preparados via helper."""
+    app_cache.set_block_edit_prepared(
+        plc_name, {b.nombre: b for b in blocks},
+    )
 
 
 def _make_tia_client(wrapper_present: bool = True) -> MagicMock:
@@ -221,7 +219,7 @@ def test_apply_happy_path_3_blocks(
     assert scan_kwargs.get("app_cache") is app_cache
 
     # El cache de prepare quedo limpio tras refresh_cache.
-    assert "PLC_1" not in app_cache.block_edit_prepared
+    assert app_cache.get_block_edit_prepared("PLC_1") == {}
 
 
 # ── 2. No-op: cambios que ya coinciden con cache ───────────────────
