@@ -41,6 +41,7 @@ Runtime params via ``start(**kwargs)``:
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -176,12 +177,15 @@ class FunctionBlockEditPrepare(FunctionBase):
                 return f"leidos {read_count} bloques via get_property"
 
             case "exportar_sd":
-                # Directorio de exports SD bajo .build_cache/blocks_edit/preview/
+                # Directorio de exports SD bajo .build_cache/blocks_edit/preview/<plc>/
                 # (consistente con la convencion del repo; visible para
-                # inspeccion post-mortem del operario).
+                # inspeccion post-mortem del operario). Usa ``os.getcwd()``
+                # para path ABSOLUTO, requisito del SDK Openness de TIA
+                # (``directoryInfo cannot be a relative path``).
                 if self._prepared_dir is None:
                     self._prepared_dir = (
-                        Path("./.build_cache/blocks_edit/preview")
+                        Path(os.getcwd())
+                        / ".build_cache" / "blocks_edit" / "preview"
                         / self._plc_name
                     )
                     self._prepared_dir.mkdir(parents=True, exist_ok=True)
