@@ -315,12 +315,9 @@ def _find_block_in_plc(plc: Any, block_name: str, block_path: str) -> Any:
                 except Exception:
                     sub = []
                 for g in sub:
-                    name = getattr(g, "name", None)
+                    name = _safe_get_block_name(g)
                     if name is None:
-                        try:
-                            name = str(g.Name)
-                        except Exception:
-                            name = None
+                        continue
                     if name == segment:
                         next_groups.append(g)
                         break
