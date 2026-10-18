@@ -282,8 +282,19 @@ export default {
         // ``path.split("/")``: el ultimo segmento es el nombre del bloque
         // y el resto es la jerarquia de grupos. Si le llega "\\" se queda
         // como un solo segmento y la busqueda en TIA falla.
-        function toBackendPath(ruta) {
-            return String(ruta || "").replace(/\\/g, "/");
+        function toBackendPath(ruta, nombre) {
+            // El FB ``block_edit_prepare`` parsea el path con
+            // ``split("/")``: el ultimo segmento es el nombre del bloque y
+            // el resto es la jerarquia de grupos. ``b.ruta`` del arbol
+            // solo contiene la jerarquia (vacia para bloques en raiz); si
+            // no concatenamos el nombre, el parser se queda con parts=[""]
+            // y ``_find_block_in_plc`` falla con name="" y path="".
+            const normRuta = String(ruta || "")
+                .replace(/\\/g, "/")
+                .replace(/^\/+|\/+$/g, "");
+            const nombreNorm = String(nombre || "").trim();
+            if (!nombreNorm) return normRuta;
+            return normRuta ? `${normRuta}/${nombreNorm}` : nombreNorm;
         }
 
         // DTOs recibidos del endpoint GET /prepared, en el mismo orden
@@ -340,7 +351,7 @@ export default {
             const plc = selectedPlc.value;
             if (!plc) return;
             // Conversion IT ("\\") -> backend ("/") una sola vez.
-            const paths = blocks.map((b) => toBackendPath(b.ruta));
+            const paths = blocks.map((b) => toBackendPath(b.ruta, b.nombre));
 
             editMode.value = "editing";
             operationStatus.value = "preparing";
