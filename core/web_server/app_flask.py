@@ -218,6 +218,7 @@ def _register_blueprints(app: Flask) -> None:
         "catalog",
         "portal",
         "plc",
+        "blocks_edit",
         "areas",
     ]
     for name in blueprint_modules:
