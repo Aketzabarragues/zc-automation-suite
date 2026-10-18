@@ -31,6 +31,11 @@ bp = Blueprint("blocks_edit", __name__, url_prefix="/api/v1/blocks/edit")
 # el lote puede tardar 60-90s. 120s cubre holgadamente.
 PREPARE_TIMEOUT_S = 120.0
 
+# Timeout backend para el ``block_edit_apply``: el batch transaccional
+# ejecuta ``update_block_property`` por bloque dentro de una sola
+# transaccion atomica. ~5-15s por bloque; 600s cubre holgadamente N~50.
+APPLY_TIMEOUT_S = 600.0
+
 # Poll bloqueante del FB en el handler sync de Flask.
 _POLL_INTERVAL_S = 0.05
 
@@ -115,10 +120,81 @@ def prepare_edit():
 
 @bp.post("/apply")
 def apply_edit():
-    """Placeholder 501: el endpoint ``/apply`` se entregara en commit 7."""
+    """Aplica los cambios de Name/Number via FB ``block_edit_apply``.
+
+    Body JSON esperado::
+
+        {
+            "plc_name": str,
+            "edits": {"<block_path>": {"name"?: str, "number"?: int}, ...}
+        }
+
+    Returns:
+        - 200 + ``{"ok": True, "result": ..., "nStep": ...}`` si OK.
+        - 400 si faltan ``plc_name`` o ``edits``.
+        - 400 si ``start()`` raise ``ValueError`` (whitelist de keys).
+        - 409 si el FB ya esta corriendo (o terminal reciente).
+        - 500 si el FB no esta registrado o ``start`` raise inesperado.
+        - 504 si timeout.
+        - 500 si el FB termina en error.
+    """
+    import asyncio
+    import time
+
+    engine = _engine()
+    fb = engine.get_fb("block_edit_apply")
+    if fb is None:
+        return jsonify({
+            "error": "FB 'block_edit_apply' no registrado en el engine",
+        }), 500
+
+    body = request.get_json(silent=True) or {}
+    plc_name = body.get("plc_name")
+    edits = body.get("edits") or {}
+    if not plc_name or not edits:
+        return jsonify({
+            "error": "plc_name y edits son obligatorios",
+        }), 400
+
+    try:
+        started = asyncio.run(fb.start(plc_name=plc_name, edits=edits))
+    except ValueError as exc:
+        return jsonify({"error": f"args invalidos: {exc}"}), 400
+    except Exception as exc:
+        return jsonify({
+            "error": f"start fallo: {type(exc).__name__}: {exc}",
+        }), 500
+    if not started:
+        return jsonify({
+            "error": "FB 'block_edit_apply' ya activo o terminal. "
+                     "Haz /disconnect y reintenta.",
+        }), 409
+
+    # Poll bloqueante hasta que el FB entre en estado terminal.
+    elapsed = 0.0
+    while not fb.is_terminal() and elapsed < APPLY_TIMEOUT_S:
+        time.sleep(_POLL_INTERVAL_S)
+        elapsed += _POLL_INTERVAL_S
+
+    if not fb.is_terminal():
+        try:
+            asyncio.run(fb.cancel(f"timeout en /apply ({APPLY_TIMEOUT_S:.0f}s)"))
+        except Exception:
+            pass
+        return jsonify({
+            "error": f"timeout tras {APPLY_TIMEOUT_S:.0f}s sin terminar",
+        }), 504
+
+    if fb.nStep == fb.n_error:
+        return jsonify({
+            "error": fb.error_msg or "FB termino en error",
+        }), 500
+
     return jsonify({
-        "error": "endpoint pendiente commit 7",
-    }), 501
+        "ok": True,
+        "result": fb.result,
+        "nStep": fb.nStep,
+    })
 
 
 @bp.get("/<name>/status")

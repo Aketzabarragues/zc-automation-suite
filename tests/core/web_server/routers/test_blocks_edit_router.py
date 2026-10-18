@@ -165,18 +165,167 @@ def test_prepare_endpoint_returns_500_when_fb_not_registered():
 
 
 # ── 5. POST /apply -> 501 placeholder ──────────────────────────────
+# Removido en commit 7: el stub 501 se sustituyo por la implementacion
+# real del FB ``block_edit_apply``. Los 5 tests de abajo cubren el
+# contrato nuevo (200/400/409/500/504).
 
 
-def test_apply_endpoint_returns_501_not_implemented():
-    """``POST /apply`` devuelve 501 con JSON explicativo (commit 7)."""
+# ── 6. POST /apply happy path ──────────────────────────────────────
+
+
+def test_apply_endpoint_returns_ok():
+    """POST /apply con args validos arranca el FB y devuelve 200 + result."""
+    fb = MagicMock()
+    fb.start = AsyncMock(return_value=True)
+    fb.is_terminal.return_value = True
+    fb.nStep = 99  # n_done
+    fb.n_error = 98
+    fb.result = {
+        "ok": True,
+        "plc_name": "PLC_1",
+        "n_ops": 2,
+        "operations_executed": 2,
+        "no_op": False,
+    }
+
     engine = MagicMock()
+    engine.get_fb.return_value = fb
+
     app = _make_flask_app(engine)
     client = app.test_client()
 
     resp = client.post(
         "/api/v1/blocks/edit/apply",
-        json={"plc_name": "PLC_1", "edits": {"a/DB1": {"name": "X"}}},
+        json={
+            "plc_name": "PLC_1",
+            "edits": {
+                "2000_Dispositivos/DB2000_ED": {"name": "DB_Entradas"},
+                "2000_Dispositivos/DB2001_SAL": {"number": 201},
+            },
+        },
     )
-    assert resp.status_code == 501
+    assert resp.status_code == 200
     data = resp.get_json()
-    assert "pendiente commit 7" in data["error"]
+    assert data["ok"] is True
+    assert data["result"]["plc_name"] == "PLC_1"
+    assert data["result"]["n_ops"] == 2
+    assert data["nStep"] == 99
+    # El FB arranco con plc_name y edits.
+    fb.start.assert_awaited_once_with(
+        plc_name="PLC_1",
+        edits={
+            "2000_Dispositivos/DB2000_ED": {"name": "DB_Entradas"},
+            "2000_Dispositivos/DB2001_SAL": {"number": 201},
+        },
+    )
+
+
+# ── 7. 400 por args faltantes ───────────────────────────────────────
+
+
+def test_apply_endpoint_returns_400_on_missing_args():
+    """POST /apply sin ``plc_name`` o sin ``edits`` -> 400."""
+    engine = MagicMock()
+    engine.get_fb.return_value = MagicMock()
+    app = _make_flask_app(engine)
+    client = app.test_client()
+
+    # Sin ``plc_name``.
+    resp = client.post(
+        "/api/v1/blocks/edit/apply",
+        json={"edits": {"a/DB1": {"name": "X"}}},
+    )
+    assert resp.status_code == 400
+    assert "obligatorios" in resp.get_json()["error"]
+
+    # Sin ``edits``.
+    resp = client.post(
+        "/api/v1/blocks/edit/apply",
+        json={"plc_name": "PLC_1"},
+    )
+    assert resp.status_code == 400
+    assert "obligatorios" in resp.get_json()["error"]
+
+    # Dict vacio -> tambien 400.
+    resp = client.post(
+        "/api/v1/blocks/edit/apply",
+        json={"plc_name": "PLC_1", "edits": {}},
+    )
+    assert resp.status_code == 400
+
+
+# ── 8. 400 si el FB raise ValueError (whitelist de keys) ──────────
+
+
+def test_apply_endpoint_returns_400_on_value_error_from_fb():
+    """``fb.start()`` raise ``ValueError`` -> 400 con mensaje."""
+    fb = MagicMock()
+    fb.start = AsyncMock(
+        side_effect=ValueError(
+            "edits['a/DB1'] contiene key 'title' no permitida. "
+            "Solo se admiten ['name', 'number']."
+        )
+    )
+    engine = MagicMock()
+    engine.get_fb.return_value = fb
+
+    app = _make_flask_app(engine)
+    client = app.test_client()
+
+    resp = client.post(
+        "/api/v1/blocks/edit/apply",
+        json={
+            "plc_name": "PLC_1",
+            "edits": {"a/DB1": {"title": "Foo"}},
+        },
+    )
+    assert resp.status_code == 400
+    data = resp.get_json()
+    assert "args invalidos" in data["error"]
+    assert "title" in data["error"]
+
+
+# ── 9. 409 si el FB ya esta corriendo ──────────────────────────────
+
+
+def test_apply_endpoint_returns_409_when_fb_already_running():
+    """``fb.start()`` retorna False (FB ya activo/terminal) -> 409."""
+    fb = MagicMock()
+    fb.start = AsyncMock(return_value=False)
+    engine = MagicMock()
+    engine.get_fb.return_value = fb
+
+    app = _make_flask_app(engine)
+    client = app.test_client()
+
+    resp = client.post(
+        "/api/v1/blocks/edit/apply",
+        json={
+            "plc_name": "PLC_1",
+            "edits": {"a/DB1": {"name": "X"}},
+        },
+    )
+    assert resp.status_code == 409
+    assert "ya activo" in resp.get_json()["error"]
+
+
+# ── 10. 500 si el FB no esta registrado ────────────────────────────
+
+
+def test_apply_endpoint_returns_500_when_fb_not_registered():
+    """``engine.get_fb('block_edit_apply')`` retorna None -> 500."""
+    engine = MagicMock()
+    engine.get_fb.return_value = None
+    app = _make_flask_app(engine)
+    client = app.test_client()
+
+    resp = client.post(
+        "/api/v1/blocks/edit/apply",
+        json={
+            "plc_name": "PLC_1",
+            "edits": {"a/DB1": {"name": "X"}},
+        },
+    )
+    assert resp.status_code == 500
+    assert "no registrado" in resp.get_json()["error"]
+    engine.get_fb.assert_called_once_with("block_edit_apply")
