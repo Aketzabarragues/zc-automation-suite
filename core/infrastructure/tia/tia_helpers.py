@@ -340,12 +340,9 @@ def _find_block_in_plc(plc: Any, block_name: str, block_path: str) -> Any:
             blocks = []
 
         for b in blocks:
-            name = getattr(b, "name", None)
+            name = _safe_get_block_name(b)
             if name is None:
-                try:
-                    name = str(b.Name)
-                except Exception:
-                    continue
+                continue
             if name == block_name:
                 return b
 

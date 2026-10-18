@@ -14,6 +14,11 @@ from core.infrastructure.tia.tia_helpers import _find_block_in_plc
 
 def _make_block(name):
     b = MagicMock()
+    # ``_find_block_in_plc`` lee ``b.get_name()`` via ``_safe_get_block_name``
+    # (consistente con ``_h_export_block`` y ``_scan_block_group_recursive``).
+    # El atributo ``.name`` queda como fallback legacy para wrappers que
+    # lo expongan directamente sin el metodo SDK.
+    b.get_name.return_value = name
     b.name = name
     return b
 
