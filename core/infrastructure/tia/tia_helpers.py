@@ -470,3 +470,45 @@ def _summarize_result(result: dict) -> str:
         else:
             parts.append(f"{k}={str(v)[:40]}")
     return ", ".join(parts) or "ok"
+
+
+# ---------------------------------------------------------------------------
+# Cruce de propiedades extendidas TIA + header SCL del .s7dcl
+# ---------------------------------------------------------------------------
+def parse_extended_props_from_sd(
+    sd_path: Path | str | None,
+    base_props: dict[str, Any],
+) -> dict[str, Any]:
+    """Overridea ``title`` y ``comment`` de ``base_props`` desde el header SCL.
+
+    ``base_props`` proviene de ``_extract_extended_properties`` (titulo,
+    autor, version, programming_language, memory_layout leidos via
+    ``get_property(name=...)``). Title y Comment NO los expone la API
+    .NET del wrapper, asi que se obtienen del header ``{...}`` del
+    ``.s7dcl`` exportado via ``export_block``.
+
+    Comportamiento:
+      - ``sd_path`` inexistente o ``None``: retorna copia de ``base_props``
+        sin tocar (no propaga ``FileNotFoundError``).
+      - Si el header SCL contiene ``S7_BlockTitle``, overridea ``title``.
+      - Si el header SCL contiene ``S7_BlockComment``, overridea ``comment``.
+      - Los demas campos (author, version, programming_language,
+        memory_layout) se preservan tal cual vienen de ``base_props``.
+
+    Returns:
+        Nuevo dict (no muta ``base_props``) con los campos actualizados.
+    """
+    from core.infrastructure.tia.sd_block_parser import parse_block_header
+
+    out = dict(base_props)
+    if sd_path is None:
+        return out
+    path = Path(sd_path)
+    if not path.exists():
+        return out
+    header = parse_block_header(path)
+    if "S7_BlockTitle" in header:
+        out["title"] = header["S7_BlockTitle"]
+    if "S7_BlockComment" in header:
+        out["comment"] = header["S7_BlockComment"]
+    return out
