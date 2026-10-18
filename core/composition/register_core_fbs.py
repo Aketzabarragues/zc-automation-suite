@@ -48,5 +48,20 @@ def register(engine, *, tia_client=None) -> None:
         "core: FB 'scan_plc_blocks' registrado (FunctionScanPlcBlocks)."
     )
 
+    from core.composition.function_block_edit_prepare import (
+        FunctionBlockEditPrepare,
+    )
+
+    engine.register_fb(
+        "block_edit_prepare",
+        FunctionBlockEditPrepare(
+            nombre="block_edit_prepare",
+            tia_client=tia_client,
+        ),
+    )
+    logger.info(
+        "core: FB 'block_edit_prepare' registrado (FunctionBlockEditPrepare)."
+    )
+
 
 __all__ = ["register"]
