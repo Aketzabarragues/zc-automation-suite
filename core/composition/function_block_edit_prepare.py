@@ -13,8 +13,10 @@ Operacion READ-ONLY. Para cada path seleccionado:
   5. Cruza las 2 fuentes en un ``DataBloquePLC`` de 10 campos y lo
      guarda en ``app_cache.block_edit_prepared[plc_name][block_path]``.
 
-El tempdir se elimina en ``on_finish`` (best-effort). No hay
-transaccion: si TIA falla en cualquier punto del lote, los bloques
+Los exports SD se escriben en ``./.build_cache/blocks_edit/preview/<plc>/``
+para que el operario pueda inspeccionarlos tras un bug de parseo. No
+hay limpieza automatica en ``on_finish``: los archivos quedan en disco.
+No hay transaccion: si TIA falla en cualquier punto del lote, los bloques
 ya preparados siguen en ``app_cache`` (la SPA los muestra aunque el
 batch no haya completado).
 
@@ -39,8 +41,6 @@ Runtime params via ``start(**kwargs)``:
 from __future__ import annotations
 
 import logging
-import shutil
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -176,12 +176,15 @@ class FunctionBlockEditPrepare(FunctionBase):
                 return f"leidos {read_count} bloques via get_property"
 
             case "exportar_sd":
-                # Crear tempdir una sola vez; reusar si ya existe
-                # (p. ej. re-arranque del FB a mitad de lote).
+                # Directorio de exports SD bajo .build_cache/blocks_edit/preview/
+                # (consistente con la convencion del repo; visible para
+                # inspeccion post-mortem del operario).
                 if self._prepared_dir is None:
-                    self._prepared_dir = Path(
-                        tempfile.mkdtemp(prefix="bep_")
+                    self._prepared_dir = (
+                        Path("./.build_cache/blocks_edit/preview")
+                        / self._plc_name
                     )
+                    self._prepared_dir.mkdir(parents=True, exist_ok=True)
                 elif not self._prepared_dir.exists():
                     self._prepared_dir.mkdir(parents=True, exist_ok=True)
 
@@ -383,11 +386,12 @@ class FunctionBlockEditPrepare(FunctionBase):
         }
 
     # ==================================================================
-    # HOOK 3: on_finish  (ZONA 5: vuelco del result + cleanup)
+    # HOOK 3: on_finish  (ZONA 5: vuelco del result)
     # ==================================================================
 
     def on_finish(self, **params: Any) -> None:
-        """Vuelca ``self.result`` y limpia el tempdir (best-effort)."""
+        """Vuelca ``self.result``. No limpia exports SD: quedan en disco
+        bajo ``./.build_cache/blocks_edit/preview/<plc>/`` para inspeccion."""
         merge_stats = self._stats.get("merge_cache", {})
         n_blocks = merge_stats.get("n_blocks", len(self._blocks_data))
         self.result = {
@@ -397,16 +401,9 @@ class FunctionBlockEditPrepare(FunctionBase):
             "n_with_title": merge_stats.get("n_with_title", 0),
             "n_with_comment": merge_stats.get("n_with_comment", 0),
         }
-        # Cleanup del tempdir de exports SD.
-        if self._prepared_dir is not None:
-            try:
-                shutil.rmtree(self._prepared_dir, ignore_errors=True)
-            except Exception as exc:
-                logger.debug(
-                    f"[{self.nombre}] cleanup tempdir fallo: {exc}"
-                )
-            finally:
-                self._prepared_dir = None
+        # Los exports SD quedan en disco bajo
+        # ``./.build_cache/blocks_edit/preview/<plc>/`` para inspeccion
+        # post-mortem del operario. No hay cleanup automatico.
 
 
 # ==================================================================
