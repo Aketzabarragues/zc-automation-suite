@@ -362,7 +362,7 @@ class FunctionProcDBGenerarPreview(FunctionBase):
 
         Compara el desired (de ``DataProcSlotMap.nmax``, ``len()`` de las
         listas filtradas del Excel) contra el current (exportando la
-        tabla del proceso con ``tia_client.export_plc_tags_xml`` y
+        tabla del proceso con ``tia_client.export_tables`` y
         delegando en ``compute_nmax_diff_for_proc``).
 
         Mismo shape que el ``nmax_block`` de Dispositivos:

@@ -9,7 +9,7 @@ Operacion READ-ONLY. Para cada path seleccionado:
      ``memory_layout``; ``comment`` siempre ``None`` en el cache).
   3. Exporta el bloque a ``.s7dcl`` en
      ``layout.preview_for_plc(plc_name)`` via dispatch del comando OT
-     ``export_block``.
+     ``export_blocks`` (1 IPC con whitelist de todos los nombres).
   4. Parsea el header SCL del ``.s7dcl`` para extraer ``S7_BlockTitle`` y
      ``S7_BlockComment`` (los unicos que ``get_property`` NO expone y el
      scan no captura).
@@ -71,7 +71,8 @@ class FunctionBlockEditPrepare(FunctionBase):
     (cache IT del scan) y usan ``SdPair`` para los paths de los SD.
     """
 
-    # Cada export ``export_block`` puede tardar ~5-10s en cold-start.
+    # Cada export ``export_blocks`` puede tardar ~5-10s en cold-start por
+    # bloque (los N bloques se exportan en serie dentro del worker OT).
     # Holgura generosa para un lote de N bloques.
     STEP_TIMEOUT_S: float = 60.0
 

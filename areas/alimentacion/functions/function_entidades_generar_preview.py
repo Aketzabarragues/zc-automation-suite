@@ -34,7 +34,7 @@ El ``self.result`` se popula con la shape::
     }
 
 Steps (5):
-  - exportar              -> export_plc_tags_xml + export_block
+  - exportar              -> export_tables + export_blocks
   - compute_nmax          -> compute_nmax_diff_entidades
   - compute_entidades     -> compute_diff_entities
   - compute_comentarios   -> compute_comments_diff
@@ -72,7 +72,7 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
     # CONFIGURACION ESTATICA DEL FB
     # ==================================================================
 
-    # export_plc_tags_xml (2 tablas) + export_block (1 DB con UDT array
+    # export_tables (2 tablas) + export_blocks (1 DB con UDT array
     # de N_MAX_ENTIDAD slots) puede tardar ~30-60s en S7-1500 grandes.
     # 60s cubre holgadamente.
     STEP_TIMEOUT_S: float = 60.0

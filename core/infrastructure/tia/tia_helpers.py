@@ -436,7 +436,7 @@ def parse_extended_props_from_sd(
     autor, version, programming_language, memory_layout leidos via
     ``get_property(name=...)``). Title y Comment NO los expone la API
     .NET del wrapper, asi que se obtienen del header ``{...}`` del
-    ``.s7dcl`` exportado via ``export_block``.
+    ``.s7dcl`` exportado via ``export_blocks``.
 
     Tras extraer los MLC IDs (``S7_BlockTitle := "MLC_xxx"``) del
     ``.s7dcl``, intenta resolverlos al texto en espanol via el archivo

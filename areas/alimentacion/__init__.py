@@ -284,7 +284,7 @@ def register(
     )
 
     # FB con I/O contra TIA: preview de entidades vs PLC (export bulk
-    # + 3 dispatches al worker OT: 2 export_plc_tags_xml + 1 export_block).
+    # + 2 dispatches al worker OT: 1 export_tables + 1 export_blocks).
     # Reemplaza el stub ``entidades_router.preview`` (commit B.0). STEP_TIMEOUT_S=60s.
     engine.register_fb(
         "entidades_generar_preview",

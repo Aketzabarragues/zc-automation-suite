@@ -750,8 +750,8 @@ class FunctionDispSincronizar(FunctionBase):
         )
 
         # ── 4. Export UNA VEZ de los 6 DBs a exports/bloques/ ──
-        # Una sola llamada execute_batch agrupa los 6 export_block
-        # (mismo target_dir, distintos block_name). Modo read-only.
+        # Una sola llamada execute_batch agrupa 1 export_blocks (con
+        # whitelist de los 6 nombres) en mismo target_dir. Modo read-only.
         # IMPORTANTE: ``keep_folder_structure=True`` para preservar la
         # subcarpeta TIA (e.g. ``<exports>/2000_Dispositivos/DB.s7dcl``).
         # El stage 10 hace ``import_block`` con ``target_folder=None`` =

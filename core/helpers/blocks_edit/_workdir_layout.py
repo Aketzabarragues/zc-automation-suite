@@ -22,7 +22,7 @@ class BlocksEditLayout:
     """Layout inmutable del workdir de exports SD para el editor de bloques.
 
     Un solo nivel ``preview/<plc_name>/`` con archivos ``<block_name>.s7dcl``
-    (FLAT, ``keep_folder_structure=False`` en ``export_block``).
+    (FLAT, ``keep_folder_structure=False`` en ``export_blocks``).
 
     A diferencia de los layouts de alimentacion (que tienen preview/sincronizar),
     aqui solo hay preview: el editor de bloques es READ-then-WRITE, no genera

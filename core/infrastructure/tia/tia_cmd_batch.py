@@ -182,7 +182,7 @@ def _h_execute_batch(
       Misma semantica que en ``_h_execute_transactional_batch``:
       ``{"command": "_wait", "args": {"seconds": N}}`` produce un
       sleep bloqueante local sin tocar TIA. Util para consolidar
-      entre exports (export_block -> _wait -> export_plc_tags_xml).
+      entre exports (export_blocks -> _wait -> export_tables).
 
     Restricciones arquitectonicas (deliberadamente mas laxas que
     ``_h_execute_transactional_batch``):

@@ -65,7 +65,7 @@ class FunctionDispGenerarPreview(FunctionBase):
     # CONFIGURACION ESTATICA DEL FB
     # ==================================================================
 
-    # export_plc_tags_xml sobre 7 tablas puede tardar ~10-30s en S7-1500.
+    # export_tables sobre 7 tablas puede tardar ~10-30s en S7-1500.
     # 60s cubre holgadamente.
     STEP_TIMEOUT_S: float = 60.0
 

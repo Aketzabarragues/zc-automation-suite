@@ -21,8 +21,12 @@ Uso::
     # 1 comando sin transaccion
     result = await dispatch_async(
         tia_client,
-        "export_block",
-        {"plc_name": plc_name, "block_name": db_name, "target_dir": target_dir},
+        "export_blocks",
+        {
+            "plc_name": plc_name,
+            "target_dir": target_dir,
+            "block_names": [db_name],
+        },
         timeout_s=120.0,
     )
 
