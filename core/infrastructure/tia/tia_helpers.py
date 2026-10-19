@@ -481,11 +481,19 @@ def parse_extended_props_from_sd(
     .NET del wrapper, asi que se obtienen del header ``{...}`` del
     ``.s7dcl`` exportado via ``export_block``.
 
+    Tras extraer los MLC IDs (``S7_BlockTitle := "MLC_xxx"``) del
+    ``.s7dcl``, intenta resolverlos al texto en espanol via el archivo
+    ``.s7res`` hermano (mismo nombre, extension ``.s7res``). Si el
+    ``.s7res`` existe y el MLC esta en su mapping ``MultiLingualTexts``,
+    el campo pasa a contener el string ``es-ES``; si no, queda el MLC
+    ID como fallback (la SPA o el siguiente paso del flow lo mostrara
+    literal).
+
     Comportamiento:
       - ``sd_path`` inexistente o ``None``: retorna copia de ``base_props``
         sin tocar (no propaga ``FileNotFoundError``).
-      - Si el header SCL contiene ``S7_BlockTitle``, overridea ``title``.
-      - Si el header SCL contiene ``S7_BlockComment``, overridea ``comment``.
+      - Sin ``.s7res`` hermano: title/comment = MLC ID (fallback).
+      - Con ``.s7res`` hermano y MLC en lookup: title/comment = texto.
       - Los demas campos (author, version, programming_language,
         memory_layout) se preservan tal cual vienen de ``base_props``.
 
@@ -505,4 +513,23 @@ def parse_extended_props_from_sd(
         out["title"] = header["S7_BlockTitle"]
     if "S7_BlockComment" in header:
         out["comment"] = header["S7_BlockComment"]
+
+    # Resolver MLC IDs a texto en espanol via .s7res hermano (si existe).
+    # Solo overridea si el campo actual es un MLC ID (string que empieza
+    # por "MLC_"); si ya es texto libre, lo deja intacto.
+    res_path = path.with_suffix(".s7res")
+    if res_path.exists():
+        from core.helpers.simatic_sd.simatic_sd_mlc_generator import (
+            parse_mlc_lookup,
+        )
+        try:
+            lookup = parse_mlc_lookup(res_path.read_text(encoding="utf-8"))
+        except Exception:
+            lookup = {}
+        for key in ("title", "comment"):
+            val = out.get(key)
+            if isinstance(val, str) and val.startswith("MLC_"):
+                resolved = lookup.get(val)
+                if resolved:
+                    out[key] = resolved
     return out
