@@ -393,7 +393,7 @@ class FunctionProcDBGenerarPreview(FunctionBase):
         try:
             await dispatch_async(
                 self._ctx.tia_client,
-                "export_plc_tags_xml",
+                "export_tables",
                 {
                     "plc_name": plc_name,
                     "target_dir": str(target_dir),
@@ -477,51 +477,39 @@ class FunctionProcDBGenerarPreview(FunctionBase):
         dcl_alm_text = ""
         res_alm_text = ""
 
-        # 1a. Export + read DB_PARAM.
+        # 1. Export + read DB_PARAM y DB_ALM (1 dispatch unificado).
+        param_name = self._ctx.slot_map.db_param_name
+        alm_name = self._ctx.slot_map.db_alm_name
         try:
             await dispatch_async(
                 self._ctx.tia_client,
-                "export_block",
+                "export_blocks",
                 {
                     "plc_name": plc_name,
-                    "block_name": self._ctx.slot_map.db_param_name,
                     "target_dir": str(work_dir),
+                    "block_names": [param_name, alm_name],
                 },
                 timeout_s=120.0,
             )
-            dcl_param_path = SdPair(work_dir, self._ctx.slot_map.db_param_name).dcl
-            res_param_path = SdPair(work_dir, self._ctx.slot_map.db_param_name).res
+            dcl_param_path = SdPair(work_dir, param_name).dcl
+            res_param_path = SdPair(work_dir, param_name).res
             dcl_param_text = dcl_param_path.read_text(encoding="utf-8-sig") \
                 if dcl_param_path.exists() else ""
             res_param_text = res_param_path.read_text(encoding="utf-8-sig") \
                 if res_param_path.exists() else ""
             if not dcl_param_text or not res_param_text:
-                param_error = f"export OK pero archivos vacios para {self._ctx.slot_map.db_param_name}"
-        except Exception as exc:
-            param_error = f"export/parse {self._ctx.slot_map.db_param_name}: {exc}"
-
-        # 1b. Export + read DB_ALM.
-        try:
-            await dispatch_async(
-                self._ctx.tia_client,
-                "export_block",
-                {
-                    "plc_name": plc_name,
-                    "block_name": self._ctx.slot_map.db_alm_name,
-                    "target_dir": str(work_dir),
-                },
-                timeout_s=120.0,
-            )
-            dcl_alm_path = SdPair(work_dir, self._ctx.slot_map.db_alm_name).dcl
-            res_alm_path = SdPair(work_dir, self._ctx.slot_map.db_alm_name).res
+                param_error = f"export OK pero archivos vacios para {param_name}"
+            dcl_alm_path = SdPair(work_dir, alm_name).dcl
+            res_alm_path = SdPair(work_dir, alm_name).res
             dcl_alm_text = dcl_alm_path.read_text(encoding="utf-8-sig") \
                 if dcl_alm_path.exists() else ""
             res_alm_text = res_alm_path.read_text(encoding="utf-8-sig") \
                 if res_alm_path.exists() else ""
             if not dcl_alm_text or not res_alm_text:
-                alm_error = f"export OK pero archivos vacios para {self._ctx.slot_map.db_alm_name}"
+                alm_error = f"export OK pero archivos vacios para {alm_name}"
         except Exception as exc:
-            alm_error = f"export/parse {self._ctx.slot_map.db_alm_name}: {exc}"
+            param_error = f"export/parse {param_name}: {exc}"
+            alm_error = f"export/parse {alm_name}: {exc}"
 
         # 2. Decidir que reportar segun cuantos DBs fallaron.
         if param_error and alm_error:
