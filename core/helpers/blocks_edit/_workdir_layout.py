@@ -4,8 +4,8 @@ Sigue la convencion del repo (AGENTS.md): workdirs congelados como
 dataclass frozen con paths absolutos derivados de DEFAULT_BUILD_CACHE_ROOT.
 Mismo patron que ``SdPair`` / ``XmlTarget`` en ``core/infrastructure/tia/tia_export_paths.py``.
 
-El FB ``block_edit_prepare`` consumira este layout via inyeccion (Zona 0 deps),
-en lugar del path hardcoded que tenia el commit 8b (bee21af).
+El FB ``block_edit_prepare`` consume este layout via inyeccion
+(Zona 0 deps), no via path hardcoded.
 """
 from __future__ import annotations
 

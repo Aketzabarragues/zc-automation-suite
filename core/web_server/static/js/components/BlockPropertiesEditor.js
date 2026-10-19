@@ -7,9 +7,9 @@
  * progresiva, expansion/colapso por categoria, seleccion multiple
  * por bloque y por carpeta (recursivo sobre descendientes).
  *
- * FASE 2 (commit 8): al pulsar "Editar" llama a
- * ``apiBlockEditPrepare`` (FB ``block_edit_prepare``), que
- * re-lee TIA + exporta SD + parsea SCL y rellena
+ * Al pulsar "Editar" llama a ``apiBlockEditPrepare``
+ * (FB ``block_edit_prepare``), que re-lee TIA + exporta SD +
+ * parsea SCL y rellena
  * ``app_cache.block_edit_prepared[plc_name]`` con DTOs de 10
  * campos. Tras el OK, ``apiGetPreparedBlocks`` devuelve el cache
  * y la SPA pinta la tabla editable inline para Name + Number.

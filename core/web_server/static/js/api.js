@@ -373,7 +373,7 @@ export const apiUpdatePlantillasPath = (plantillasPath) =>
  * El Excel del operario es la fuente de verdad: el backend resuelve
  * los datos del proceso (uid, codigo, nombre, N_MAX_*) a partir del
  * ``proc_uid`` enviado, mirando el cache de procesos del Excel. La
- * SPA no envia los 6 campos manuales (commit 51, sept-2026).
+ * SPA no envia los 6 campos manuales.
  *
  * Devuelve el ``result`` con shape::
  *

@@ -11,10 +11,10 @@ Aporta al core:
     progress tracker como faceplate SSE. Sirve también como
     molde para migrar los FBs reales del área.
 
-Los routers web, los use cases legacy, las tools MCP y los FBs no-
-template siguen existiendo en el área pero no se montan. El
-Composition Root (main_supervisor) llama a ``register(engine, ...)``
-para activar la plantilla + FBs migrados.
+Los routers web, los use cases previos, las tools MCP y los FBs no
+basados en plantilla siguen existiendo en el área pero no se montan.
+El Composition Root (``main_supervisor``) llama a ``register(engine, ...)``
+para activar la plantilla + los FBs del área.
 """
 from __future__ import annotations
 
@@ -141,8 +141,7 @@ def register(
         el Singleton global (vía ``get_app_cache()``).
 
     Los FBs usan ``logger = logging.getLogger(__name__)`` directamente
-    tras el commit del bridge (``5840a0b``), ya no se inyecta
-    ``log=`` por constructor.
+    (``log=`` ya no se inyecta por constructor).
 
     Si un FB no recibe su dep, cae al Singleton global (mismo patron
     que la plantilla FB). Si un FB NECESITA una dep y se le olvida
@@ -181,7 +180,7 @@ def register(
     # validar el engine y el progress tracker como faceplate SSE.
     engine.register_fb("plantilla", FunctionTemplate(nombre="plantilla"))
 
-    # FBs reales migrados al patron plantilla (A.1+).
+    # FBs del area basados en plantilla (FunctionBase con steps).
     engine.register_fb(
         "subir_excel",
         FunctionExcelCargar(
@@ -191,17 +190,8 @@ def register(
         ),
     )
 
-    # FB con I/O contra TIA: necesita config_manager + tia_client +
-    # build_cache (raiz del BuildCache del area) + app_cache.
-    # Hace export + copytree + 6 dispatches al worker OT. Puede
-    # tardar varios minutos (STEP_TIMEOUT_S=300s).
-    # (Eliminado A.4: FB ``sincronizar_disp_comentarios``. La logica
-    # vive ahora en ``disp_Sincronizar.aplicar_comentarios`` stage 10.)
-    # engine.register_fb(...) — borrado.
-
     # FB con I/O contra TIA: preview de dispositivos vs PLC (export
-    # bulk + diff read-only). Reemplaza el legacy generar_prevision
-    # del use case DispSyncInstancesUseCase. STEP_TIMEOUT_S=60s.
+    # bulk + diff read-only). STEP_TIMEOUT_S=60s.
     engine.register_fb(
         "disp_generar_preview",
         FunctionDispGenerarPreview(
@@ -214,9 +204,8 @@ def register(
     )
 
     # FB con I/O contra TIA: sync transaccional de dispositivos vs PLC.
-    # Reemplaza el legacy ejecutar_transaccion del use case
-    # DispSyncInstancesUseCase. 11 etapas (export, 2 tx, compile,
-    # apply comentarios, post_preview). STEP_TIMEOUT_S=600s.
+    # 11 etapas (export, 2 tx, compile, apply comentarios, post_preview).
+    # STEP_TIMEOUT_S=600s.
     engine.register_fb(
         "disp_sincronizar",
         FunctionDispSincronizar(
@@ -229,13 +218,8 @@ def register(
     )
 
     # FBs con I/O contra TIA: preview + sync de comentarios de
-    # procesos vs PLC (DB_PARAM + DB_ALM). Reemplazan los 2
-    # metodos legacy del use case ProcSyncComentariosUseCase
-    # (``generar_prevision`` + ``ejecutar_transaccion``). 6 + 5
-    # etapas. STEP_TIMEOUT_S=180s (preview) y 300s (sync).
-    # ``bloques_cache`` se resuelve en on_start() desde
-    # ``app_cache.plc_blocks`` via ``plc_blocks_get`` si el FB se
-    # registro sin esa dep.
+    # procesos vs PLC (DB_PARAM + DB_ALM). 6 + 5 etapas.
+    # STEP_TIMEOUT_S=180s (preview) y 300s (sync).
     engine.register_fb(
         "proc_db_generar_preview",
         FunctionProcDBGenerarPreview(
@@ -285,7 +269,7 @@ def register(
 
     # FB con I/O contra TIA: preview de entidades vs PLC (export bulk
     # + 2 dispatches al worker OT: 1 export_tables + 1 export_blocks).
-    # Reemplaza el stub ``entidades_router.preview`` (commit B.0). STEP_TIMEOUT_S=60s.
+    # STEP_TIMEOUT_S=60s.
     engine.register_fb(
         "entidades_generar_preview",
         FunctionEntidadesGenerarPreview(

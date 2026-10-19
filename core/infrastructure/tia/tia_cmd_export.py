@@ -1,7 +1,7 @@
 """core.infrastructure.tia.tia_cmd_export - comandos de export (TIA -> disco).
 
-Tres comandos unificados (FASE 2.6) que aceptan ``1`` o ``N`` elementos via
-``*_names`` (whitelist opcional; ``None`` = todos):
+Tres comandos que aceptan ``1`` o ``N`` elementos via ``*_names``
+(whitelist opcional; ``None`` = todos):
 
   - export_blocks:  exporta bloques de programa como .s7dcl.
   - export_udts:    exporta los User Data Types como .s7dcl.
@@ -13,8 +13,9 @@ lo toca el tia-loop).
 
 Cada handler conoce su ``objects_iter`` (que ``get_xxx()`` llamar a TIA) y su
 ``export_kwargs`` (que formato pasar al wrapper TIA). El bucle de filtrado +
-export vive inline (mismo patron en los 3; ~17 lineas identicas aceptadas
-conscientemente para mantener self-contained; ver plan canónico).
+export vive inline en cada handler; ~17 lineas identicas entre los 3 (mismo
+patron de "filtrar por whitelist + llamar a ``obj.export(**kwargs)``"), aceptadas
+conscientemente para mantener cada handler self-contained sin helper comun.
 
 Restricciones arquitectónicas:
   - Solo lectura del PLC. Escribe archivos en disco.

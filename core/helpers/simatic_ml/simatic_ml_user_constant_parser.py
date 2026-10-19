@@ -38,8 +38,8 @@ class PlcUserConstantParser:
         """Lee un .xml SimaticML y devuelve ``{nombre: valor_int}``.
 
         Args:
-            xml_file_path: ruta al archivo .xml exportado por
-                ``TIAProcessGateway.export_tag_table`` (legacy, borrado en FASE 2.6 commit 12).
+            xml_file_path: ruta al archivo .xml exportado por TIA
+                Portal (formato SimaticML) sobre una PlcTagTable.
 
         Returns:
             ``dict[str, int]`` con pares ``{nombre: valor}``. El valor

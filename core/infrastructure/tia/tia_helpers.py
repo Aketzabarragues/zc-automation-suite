@@ -355,8 +355,8 @@ def _find_block_in_plc(plc: Any, block_name: str, block_path: str) -> Any:
 def _ensure_target_dir(target_dir: str) -> Path:
     """Valida target_dir y devuelve la ruta resuelta (crea el dir si falta).
 
-    Usado por los 3 handlers de export unificados (FASE 2.6):
-    ``_h_export_blocks``, ``_h_export_udts``, ``_h_export_tables``.
+    Usado por ``_h_export_blocks``, ``_h_export_udts``, ``_h_export_tables``
+    en ``core.infrastructure.tia.tia_cmd_export``.
     """
     if not target_dir:
         raise ValueError("Se requiere el argumento 'target_dir'.")

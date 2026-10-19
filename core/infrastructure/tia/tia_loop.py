@@ -460,12 +460,8 @@ tia_client = SyncTIAClient()
 
 # ---------------------------------------------------------------------------
 # Re-exports para compat con callers que importaban handlers _h_* desde
-# core.infrastructure.tia.tia_loop (tests legacy y callers internos).
-#
-# NOTA (sept-2026, greenfield/tia-worker-simplification): los _h_* viven
-# ahora en core.infrastructure.tia.tia_cmd_*. Este re-export sigue
-# activo por compat hasta el commit 11 de la rama, cuando se eliminara
-# tia_handlers.py y los callers deberan actualizar a los nuevos paths.
+# ``core.infrastructure.tia.tia_loop``. Los _h_* viven ahora en
+# ``core.infrastructure.tia.tia_cmd_*``.
 # ---------------------------------------------------------------------------
 from core.infrastructure.tia.tia_commands_catalog import (  # noqa: E402, F401
     register_all_commands,

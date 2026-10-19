@@ -71,9 +71,8 @@ class FunctionBlockEditPrepare(FunctionBase):
     (cache IT del scan) y usan ``SdPair`` para los paths de los SD.
     """
 
-    # Cada export ``export_blocks`` puede tardar ~5-10s en cold-start por
-    # bloque (los N bloques se exportan en serie dentro del worker OT).
-    # Holgura generosa para un lote de N bloques.
+    # Cada bloque exportado puede tardar ~5-10s en cold-start. Los N
+    # bloques se exportan en serie dentro de un unico dispatch al worker OT.
     STEP_TIMEOUT_S: float = 60.0
 
     def __init__(
@@ -85,7 +84,7 @@ class FunctionBlockEditPrepare(FunctionBase):
         # ── ZONA 0: deps comunes ──
         config_manager: Any = None,
         tia_client: Any = None,
-        build_cache: Any = None,  # legacy; ignorado si ``layout`` presente
+        build_cache: Any = None,  # ignorado si ``layout`` presente
         # ── Deps especificas de este FB ──
         app_cache: AppCache | None = None,
         layout: BlocksEditLayout | None = None,
@@ -105,7 +104,7 @@ class FunctionBlockEditPrepare(FunctionBase):
         # ZONA 0: deps inyectadas.
         self._config = config_manager  # No usado en este FB.
         self._tia_client = tia_client
-        self._build_cache = build_cache  # legacy; ignorado si layout presente.
+        self._build_cache = build_cache  # ignorado si layout presente.
         # Deps especificas.
         self._app_cache: AppCache = (
             app_cache if app_cache is not None else get_app_cache()
@@ -231,8 +230,8 @@ class FunctionBlockEditPrepare(FunctionBase):
                 self._layout.clean_preview(self._plc_name)
                 plc_dir = self._layout.preview_for_plc(self._plc_name)
 
-                # Whitelist consolidada: 1 dispatch IPC con TODOS los bloques
-                # seleccionados en vez de N dispatchs en serie (commit 3 FASE 2.6).
+                # 1 dispatch con TODOS los bloques seleccionados en vez de N
+                # dispatchs en serie.
                 block_names = [
                     (entry.get("name") or "")
                     for entry in self._blocks_data
