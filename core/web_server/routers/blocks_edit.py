@@ -81,6 +81,10 @@ def prepare_edit():
             "error": "plc_name y selected_block_paths son obligatorios",
         }), 400
 
+    logger.web(
+        f"Preparando {len(selected)} bloques en PLC '{plc_name}' "
+        f"(exporta SD + parsea SCL + cachea DTOs)..."
+    )
     started = asyncio.run(fb.start(
         plc_name=plc_name,
         selected_block_paths=selected,
@@ -111,6 +115,14 @@ def prepare_edit():
             "error": fb.error_msg or "FB termino en error",
         }), 500
 
+    result = fb.result or {}
+    n_blocks = result.get("n_blocks", 0)
+    n_with_title = result.get("n_with_title", 0)
+    n_with_comment = result.get("n_with_comment", 0)
+    logger.ok(
+        f"Bloques preparados en PLC '{plc_name}': {n_blocks} bloques "
+        f"(con title: {n_with_title}, con comment: {n_with_comment})"
+    )
     return jsonify({
         "ok": True,
         "result": fb.result,
@@ -156,6 +168,10 @@ def apply_edit():
             "error": "plc_name y edits son obligatorios",
         }), 400
 
+    logger.web(
+        f"Aplicando {len(edits)} ediciones en PLC '{plc_name}' "
+        f"(transaccion atomica contra TIA Portal)..."
+    )
     try:
         started = asyncio.run(fb.start(plc_name=plc_name, edits=edits))
     except ValueError as exc:
@@ -190,6 +206,20 @@ def apply_edit():
             "error": fb.error_msg or "FB termino en error",
         }), 500
 
+    result = fb.result or {}
+    n_ops = result.get("n_ops", 0)
+    operations_executed = result.get("operations_executed", 0)
+    no_op = result.get("no_op", False)
+    if no_op:
+        logger.ok(
+            f"Aplicacion sin cambios en PLC '{plc_name}': "
+            f"cache == edits (0 ops ejecutadas)"
+        )
+    else:
+        logger.ok(
+            f"Aplicacion OK en PLC '{plc_name}': "
+            f"{operations_executed}/{n_ops} ops ejecutadas"
+        )
     return jsonify({
         "ok": True,
         "result": fb.result,
