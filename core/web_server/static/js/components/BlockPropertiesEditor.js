@@ -28,12 +28,14 @@
  *     bloques) segun ``expandedFolders``.
  *
  * Convencion de paths (sept-2026):
- *   - Tree blocks (``b.ruta``) usan separador Windows ``\``.
+ *   - Tree blocks (``b.ruta``) pueden llegar con ``\``, ``/`` o
+ *     mezcla (TIA SDK inconsistente entre jerarquias).
+ *     ``buildFolderTree`` normaliza a ``/`` antes de splitear.
  *   - Backend FBs ``block_edit_prepare`` / ``block_edit_apply``
  *     usan separador ``/`` (param ``selected_block_paths`` y
  *     keys del dict ``edits``).
- *   - El helper ``toBackendPath(ruta)`` hace la conversion en
- *     una sola direccion al cruzar la frontera IT/OT.
+ *   - El helper ``toBackendPath(ruta)`` hace la conversion
+ *     defensiva en una sola direccion al cruzar la frontera IT/OT.
  *
  * 4 empty states secuenciales (prioridad estricta):
  *   1. TIA no connected               (icono "🔌")
@@ -120,14 +122,22 @@ export default {
             const root = { name: ROOT_FOLDER, fullPath: "", blocks: [], children: new Map() };
             for (const b of list) {
                 if (!b) continue;
-                const ruta = String(b.ruta || "").trim();
+                // Normaliza el separador: TIA SDK puede devolver paths
+                // con ``/`` o ``\`` segun la jerarquia. Sin esto,
+                // ``split("\\")`` deja ``"ZC_Estandar_Alimentacion/000..."``
+                // como un solo segmento y el arbol no anida (se ve como
+                // carpeta con ``/`` literal en el nombre).
+                const ruta = String(b.ruta || "")
+                    .replace(/\\/g, "/")
+                    .replace(/^\/+|\/+$/g, "")
+                    .trim();
                 if (!ruta) { root.blocks.push(b); continue; }
-                const segs = ruta.split("\\").filter((s) => s.length > 0);
+                const segs = ruta.split("/").filter((s) => s.length > 0);
                 let cur = root;
                 let curPath = "";
                 for (let i = 0; i < segs.length; i++) {
                     const seg = segs[i];
-                    curPath = curPath ? curPath + "\\" + seg : seg;
+                    curPath = curPath ? curPath + "/" + seg : seg;
                     if (!cur.children.has(seg)) {
                         cur.children.set(seg, {
                             name: seg,
