@@ -57,6 +57,11 @@ logger = logging.getLogger(__name__)
 # Whitelist de keys aceptadas en ``edits``. Debe coincidir con la del
 # handler ``_h_update_block_property`` (``frozenset({"Name", "Number"})``).
 # Sincronizar si Aketza ampla la whitelist del handler.
+#
+# FASE 2.6 commit 2: auditado que este FB NO usa ``export_*`` (solo
+# ``update_block_property``). Sin cambios necesarios en este archivo;
+# el borrado de los legacy ``export_block`` etc. en commits 4, 6, 12
+# no afecta a FunctionBlockEditApply.
 _ALLOWED_EDIT_KEYS: frozenset[str] = frozenset({"name", "number"})
 
 
