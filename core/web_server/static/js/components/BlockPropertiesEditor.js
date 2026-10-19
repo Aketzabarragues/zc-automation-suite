@@ -425,7 +425,7 @@ export default {
             // Comparar normalizando: number puede venir como int vs string
             // desde el input HTML (los ``<input type="number">`` siempre
             // emiten string, hay que convertir).
-            const isSame = field === "number"
+            const isSame = field === "numero"
                 ? Number(value) === Number(origVal)
                 : String(value) === String(origVal ?? "");
             if (isSame) {
@@ -438,7 +438,7 @@ export default {
                 return;
             }
             if (!pendingEdits[path]) pendingEdits[path] = {};
-            pendingEdits[path][field] = field === "number" ? Number(value) : String(value);
+            pendingEdits[path][field] = field === "numero" ? Number(value) : String(value);
         }
 
         async function applyEdits() {
@@ -745,16 +745,16 @@ export default {
                                         <td class="px-2 py-1 text-right font-mono text-ink-muted">{{ block.numero ?? '—' }}</td>
                                         <td class="px-2 py-1">
                                             <input type="text"
-                                                :value="getPendingValue(block.path, 'name')"
-                                                @input="setPendingValue(block.path, 'name', $event.target.value)"
+                                                :value="getPendingValue(block.path, 'nombre')"
+                                                @input="setPendingValue(block.path, 'nombre', $event.target.value)"
                                                 :disabled="operationStatus === 'applying'"
                                                 class="font-mono px-1 py-0.5 rounded w-full border border-line bg-surface-raised text-ink focus:outline-none focus:border-line-strong"
                                                 :data-testid="'block-editor-input-name-' + block.nombre" />
                                         </td>
                                         <td class="px-2 py-1">
                                             <input type="number"
-                                                :value="getPendingValue(block.path, 'number')"
-                                                @input="setPendingValue(block.path, 'number', $event.target.value)"
+                                                :value="getPendingValue(block.path, 'numero')"
+                                                @input="setPendingValue(block.path, 'numero', $event.target.value)"
                                                 :disabled="operationStatus === 'applying'"
                                                 class="font-mono px-1 py-0.5 rounded w-full text-right border border-line bg-surface-raised text-ink focus:outline-none focus:border-line-strong"
                                                 :data-testid="'block-editor-input-number-' + block.nombre" />
