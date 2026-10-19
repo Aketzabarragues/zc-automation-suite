@@ -351,7 +351,7 @@ def _make_fb_with_ctx() -> FunctionEntidadesGenerarPreview:
 
 
 def test_stage_1_exportar_llama_dispatch_async() -> None:
-    """Stage 1 llama a ``dispatch_async`` para ``export_plc_tags_xml`` + ``export_block``."""
+    """Stage 1 llama a ``dispatch_async`` para ``export_tables`` + ``export_blocks``."""
     from pathlib import Path
     fb = _make_fb_with_ctx()
 
@@ -369,12 +369,12 @@ def test_stage_1_exportar_llama_dispatch_async() -> None:
         import asyncio
         asyncio.run(fb._stage_1_exportar())
 
-    # 2 dispatchs: export_plc_tags_xml + export_block.
+    # 2 dispatchs: export_tables + export_blocks.
     assert mock_dispatch.call_count == 2
     first_call_args = mock_dispatch.call_args_list[0].args
     second_call_args = mock_dispatch.call_args_list[1].args
-    assert first_call_args[1] == "export_plc_tags_xml"
-    assert second_call_args[1] == "export_block"
+    assert first_call_args[1] == "export_tables"
+    assert second_call_args[1] == "export_blocks"
     # Sin warnings en happy path.
     assert fb._ctx.warnings == []
 
@@ -407,7 +407,7 @@ def test_stage_1_exportar_si_worker_falla_sigue_con_warnings() -> None:
 
     # 2 warnings acumulados (tags + block).
     assert len(fb._ctx.warnings) == 2
-    assert "export_plc_tags_xml fallo" in fb._ctx.warnings[0]
+    assert "export_tables fallo" in fb._ctx.warnings[0]
     assert "DB6_ENT" in fb._ctx.warnings[1]
     assert "no encontrado" in fb._ctx.warnings[1]
 
