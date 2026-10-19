@@ -21,36 +21,49 @@ def _block(nombre: str):
     Configura ``get_property("ProgrammingLanguage")`` y
     ``get_properties()`` segun el prefijo del nombre (smoke oct-2026).
     Para nombres sin prefijo estandar, deja props vacias (clasifica OTHER).
+
+    Importante: usa ``side_effect`` para ``get_property`` (no ``return_value``
+    crudo) porque ``_extract_extended_properties`` llama con varios nombres
+    (``HeaderName``/``HeaderAuthor``/etc). Solo devolvemos valor para
+    ``ProgrammingLanguage`` (la unica que el heuristico de ``classify_block``
+    lee); el resto retorna ``None`` (header nunca release), igual que el
+    walker test de ``test_tia_client_walker.py``.
     """
     import re as _re
     b = MagicMock(spec=["get_name", "get_property", "get_properties"])
     b.get_name.return_value = nombre
     prefijo = _re.match(r"^(DB|FB|FC|OB|UDT)(\d+)", nombre, _re.IGNORECASE)
+
+    def _prop_getter(v):
+        def _get(name, **kw):
+            return v if name == "ProgrammingLanguage" else None
+        return _get
+
     if prefijo:
         p = prefijo.group(1).upper()
         if p == "DB":
-            b.get_property.return_value = "DB"
+            b.get_property.side_effect = _prop_getter("DB")
             b.get_properties.return_value = []
         elif p == "OB":
-            b.get_property.return_value = "LAD"
+            b.get_property.side_effect = _prop_getter("LAD")
             b.get_properties.return_value = ["SecondaryType"]
         elif p == "FB":
             # FB tiene ISMultiInstanceCapable (unica discriminante vs FC).
-            b.get_property.return_value = "SCL"
+            b.get_property.side_effect = _prop_getter("SCL")
             b.get_properties.return_value = ["ISMultiInstanceCapable"]
         elif p == "UDT":
             # UDTs tienen clase Python UserDataType (smoke oct-2026).
             b = MagicMock(spec=["get_name", "get_property", "get_properties"])
             b.__class__ = type("UserDataType_subclass", (object,), {})
             b.get_name.return_value = nombre
-            b.get_property.return_value = None
+            b.get_property.side_effect = _prop_getter(None)
             b.get_properties.return_value = []
             return b
         else:  # FC
-            b.get_property.return_value = "SCL"
+            b.get_property.side_effect = _prop_getter("SCL")
             b.get_properties.return_value = []
     else:
-        b.get_property.return_value = None
+        b.get_property.side_effect = _prop_getter(None)
         b.get_properties.return_value = []
     return b
 
@@ -116,7 +129,7 @@ def test_scan_blocks_tag_tables_failure_returns_empty_not_error():
             "comment": None,
             "author": None,
             "version": None,
-            "programming_language": None,
+            "programming_language": "DB",
             "memory_layout": None,
         }
     ]
@@ -169,3 +182,53 @@ def test_scan_blocks_empty_plc_returns_empty_lists():
     assert out["result"]["blocks"] == []
     assert out["result"]["tag_tables"] == []
     assert out["result"]["udts"] == []
+
+
+def test_scan_blocks_extrae_5_props_extendidas_desde_get_property():
+    """El scan extrae las 5 props extendidas via ``_extract_extended_properties``.
+
+    Caso real (smoke oct-2026): un bloque DB1_SYS con Author/Version/Lang/
+    MemLayout pobladas en TIA debe llegar al payload con esas 5 props
+    NO-Nulas. Antes del fix, el handler ``_h_scan_blocks`` usaba una
+    copia de ``_scan_block_group_recursive`` que omitia esa llamada;
+    las 4 props salian como ``None`` y la UI mostraba ``---``.
+    """
+    block_real = MagicMock(spec=["get_name", "get_property", "get_properties"])
+    block_real.get_name.return_value = "DB1_SYS"
+    # ``_extract_extended_properties`` llama con name=HeaderName/
+    # HeaderAuthor/HeaderVersion/ProgrammingLanguage/MemoryLayout.
+    props = {
+        "HeaderName": "Datos de sistema",
+        "HeaderAuthor": "ABH",
+        "HeaderVersion": "0.1",
+        "ProgrammingLanguage": "LAD",
+        "MemoryLayout": "Optimized",
+    }
+    block_real.get_property.side_effect = lambda name, **kw: props.get(name)
+    block_real.get_properties.return_value = []
+
+    target_plc = MagicMock()
+    target_plc.get_program_blocks.return_value = [block_real]
+    target_plc.get_plc_tag_tables.return_value = []
+    target_plc.get_user_data_types.return_value = []
+
+    project = MagicMock()
+    project.get_plcs.return_value = [target_plc]
+    target_plc.get_name.return_value = "PLC_1"
+
+    portal = MagicMock()
+    portal.get_project.return_value = project
+
+    c = _client()
+    c.attach_wrapper(portal)
+
+    out = c.dispatch("scan_blocks", {"plc_name": "PLC_1"})
+    assert out["ok"] is True
+
+    block = out["result"]["blocks"][0]
+    assert block["nombre"] == "DB1_SYS"
+    assert block["author"] == "ABH"
+    assert block["version"] == "0.1"
+    assert block["programming_language"] == "LAD"
+    assert block["memory_layout"] == "Optimized"
+    assert block["title"] == "Datos de sistema"

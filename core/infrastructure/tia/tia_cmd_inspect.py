@@ -34,6 +34,7 @@ from core.infrastructure.tia.tia_helpers import (
     _safe_get_block_path,
     _safe_get_table_name,
     _safe_short_designation,
+    _scan_block_group_recursive,
 )
 
 if TYPE_CHECKING:
@@ -133,57 +134,12 @@ def _h_get_project_info(args: dict, tia_client: "SyncTIAClient") -> dict:  # noq
 
 
 # ---------------------------------------------------------------------------
-# Helper privado del modulo: recorrido recursivo de bloques
+# Helper reusado: recorrido recursivo de bloques (definido en tia_helpers
+# para que _h_scan_blocks y el walker de pruebas compartan UNA implementacion).
+# Antes habia una copia local incompleta que omitia las props extendidas
+# (Author/Version/Lang/MemLayout), haciendo que la UI mostrara "---" para
+# esos 4 campos en bloques cacheados tras un scan fresco.
 # ---------------------------------------------------------------------------
-def _scan_block_group_recursive(group_or_blocks: Any) -> list[dict]:
-    """Recorre recursivamente un grupo o coleccion de bloques -> DTOs dict.
-
-    Returns:
-        Lista de dicts con shape DataBloquePLC.to_dict(). Bloques con
-        nombre inaccesible (UnicodeDecodeError) se omiten.
-    """
-    blocks_iter: list = []
-    try:
-        if hasattr(group_or_blocks, "get_blocks"):
-            blocks_iter = list(group_or_blocks.get_blocks() or [])
-        elif hasattr(group_or_blocks, "Blocks"):
-            blocks_iter = list(group_or_blocks.Blocks or [])
-        elif hasattr(group_or_blocks, "__iter__"):
-            blocks_iter = list(group_or_blocks)
-    except Exception:
-        blocks_iter = []
-
-    out: list[dict] = []
-    for block in blocks_iter:
-        nombre = _safe_get_block_name(block)
-        if not nombre:
-            continue
-        ruta = _safe_get_block_path(block)
-        tipo = classify_block(block)
-        match = re.match(r"^(DB|FB|FC|OB|UDT)(\d+)", nombre, re.IGNORECASE)
-        numero = int(match.group(2)) if match else 0
-        out.append(
-            DataBloquePLC(
-                nombre=str(nombre),
-                numero=numero,
-                tipo=tipo,
-                ruta=ruta,
-            ).to_dict()
-        )
-
-    groups: list = []
-    try:
-        if hasattr(group_or_blocks, "get_groups"):
-            groups = list(group_or_blocks.get_groups() or [])
-        elif hasattr(group_or_blocks, "Groups"):
-            groups = list(group_or_blocks.Groups or [])
-    except Exception:
-        groups = []
-
-    for sub in groups:
-        out.extend(_scan_block_group_recursive(sub))
-
-    return out
 
 
 def _h_scan_blocks(args: dict, tia_client: "SyncTIAClient") -> dict:
