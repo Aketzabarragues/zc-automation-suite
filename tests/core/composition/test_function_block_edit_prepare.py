@@ -111,14 +111,24 @@ def _seed_plc_blocks(
 def _make_tia_client(
     export_dispatch: Any | None = None,
 ) -> MagicMock:
-    """Mock de ``SyncTIAClient`` con ``dispatch`` configurable."""
+    """Mock de ``SyncTIAClient`` con ``dispatch`` configurable.
+
+    El default simula el handler unificado ``export_blocks`` (FASE 2.6):
+    retorna ``exported_names`` con los nombres pasados en ``block_names``
+    para que el FB prepare pueda resolver ``sd_path`` por cada bloque.
+    """
     tia_client = MagicMock(spec=SyncTIAClient)
     tia_client.dispatch.side_effect = (
         export_dispatch
         if export_dispatch is not None
         else lambda cmd, args: {
             "ok": True,
-            "result": {"exported_to": args.get("target_dir", "")},
+            "result": {
+                "exported_to": args.get("target_dir", ""),
+                "count": len(args.get("block_names", [])),
+                "exported_names": list(args.get("block_names", [])),
+                "skipped_names": [],
+            },
         }
     )
     return tia_client
@@ -127,17 +137,35 @@ def _make_tia_client(
 def _copy_s7dcl_export(cmd: str, args: dict[str, Any]) -> dict:
     """Dispatch que materializa el ``.s7dcl`` del fixture en ``target_dir``.
 
-    Simula al worker OT: dado ``args`` con ``block_name`` y ``target_dir``,
-    copia el ``<block_name>.s7dcl`` del fixture al directorio destino.
-    Asi el parser SCL del step ``parsear_scl`` puede leer el archivo
-    real y devolver los MLC IDs correctos.
+    Simula al handler unificado ``export_blocks`` (FASE 2.6): dado
+    ``args`` con ``block_names`` (lista) y ``target_dir``, copia cada
+    ``<name>.s7dcl`` del fixture al directorio destino. Asi el parser
+    SCL del step ``parsear_scl`` puede leer los archivos reales y
+    devolver los MLC IDs correctos.
+
+    Bloques cuyo ``.s7dcl`` no exista en el fixture se reportan en
+    ``skipped_names`` (mismo comportamiento que el handler real).
     """
     target = Path(args["target_dir"])
-    src = FIXTURES_BLOQUES / f"{args['block_name']}.s7dcl"
-    if not src.exists():
-        return {"ok": False, "error": f"fixture no existe: {src}"}
-    shutil.copy(src, target / f"{args['block_name']}.s7dcl")
-    return {"ok": True, "result": {"exported_to": str(target)}}
+    block_names = args.get("block_names") or []
+    exported = []
+    skipped = []
+    for name in block_names:
+        src = FIXTURES_BLOQUES / f"{name}.s7dcl"
+        if not src.exists():
+            skipped.append(name)
+            continue
+        shutil.copy(src, target / f"{name}.s7dcl")
+        exported.append(name)
+    return {
+        "ok": True,
+        "result": {
+            "exported_to": str(target),
+            "count": len(exported),
+            "exported_names": exported,
+            "skipped_names": skipped,
+        },
+    }
 
 
 @pytest.fixture
@@ -365,10 +393,30 @@ def test_export_raises_continues_with_others(
     fail_targets = {"FC2000_ZC_ED"}
 
     def _export_dispatch(cmd: str, args: dict) -> dict:
-        bname = args["block_name"]
-        if bname in fail_targets:
-            return {"ok": False, "error": "TIA no responde"}
-        return _copy_s7dcl_export(cmd, args)
+        # Simula el handler real: exporta los que TIA acepta y reporta los
+        # fallidos en ``skipped_names``. ``ok=True`` global aunque algun
+        # bloque falle (mismo comportamiento que ``_h_export_blocks``).
+        # Ademas materializa los ``.s7dcl`` de los exportados para que
+        # ``parsear_scl`` pueda leerlos del workdir.
+        wanted = list(args.get("block_names", []))
+        exported = [n for n in wanted if n not in fail_targets]
+        skipped = [n for n in wanted if n in fail_targets]
+        # Materializa los SD de los bloques exportados en target_dir.
+        target = Path(args.get("target_dir", ""))
+        target.mkdir(parents=True, exist_ok=True)
+        for name in exported:
+            src = FIXTURES_BLOQUES / f"{name}.s7dcl"
+            if src.exists():
+                shutil.copy(src, target / f"{name}.s7dcl")
+        return {
+            "ok": True,
+            "result": {
+                "exported_to": str(target),
+                "count": len(exported),
+                "exported_names": exported,
+                "skipped_names": skipped,
+            },
+        }
 
     tia_client = _make_tia_client(_export_dispatch)
     fb = _make_fb(app_cache, tia_client, real_progress)
@@ -474,13 +522,13 @@ def test_dispatch_args_usan_path_absoluto(
         selected_block_paths=["DB2000_ED"],
     )
 
-    # dispatch fue llamado una vez con el export de DB2000_ED.
+    # dispatch fue llamado una vez con el export de DB2000_ED (1 IPC, no N).
     assert tia_client.dispatch.call_count >= 1
-    # Buscar la call a export_block.
+    # Buscar la call a export_blocks.
     found = False
     for call in tia_client.dispatch.call_args_list:
         args_dict = call.args[1] if len(call.args) > 1 else call.kwargs.get("args", {})
-        if args_dict.get("block_name") == "DB2000_ED":
+        if "DB2000_ED" in args_dict.get("block_names", []):
             target_dir = args_dict["target_dir"]
             p = Path(target_dir)
             assert p.is_absolute(), (
@@ -493,7 +541,7 @@ def test_dispatch_args_usan_path_absoluto(
                 f"target_dir empieza con './': {target_dir!r}"
             )
             found = True
-    assert found, "no se encontro la call a dispatch('export_block', ...)"
+    assert found, "no se encontro la call a dispatch('export_blocks', ...)"
 
 
 # ── 8. clean_preview al inicio de exportar_sd ──────────────────────

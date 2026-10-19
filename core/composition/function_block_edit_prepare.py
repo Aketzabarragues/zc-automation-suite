@@ -215,12 +215,12 @@ class FunctionBlockEditPrepare(FunctionBase):
 
             case "exportar_sd":
                 # ``tia_client`` solo se necesita aqui para dispatch del
-                # comando OT ``export_block``. NO se usa para navegar el
+                # comando OT ``export_blocks``. NO se usa para navegar el
                 # arbol TIA (eso lo hace el worker OT internamente).
                 if self._tia_client is None:
                     raise RuntimeError(
                         "FunctionBlockEditPrepare requiere tia_client "
-                        "para dispatch de export_block."
+                        "para dispatch de export_blocks."
                     )
                 # Directorio de exports SD via layout (path absoluto,
                 # requisito del SDK Openness de TIA). Limpiamos exports
@@ -230,37 +230,53 @@ class FunctionBlockEditPrepare(FunctionBase):
                 self._layout.clean_preview(self._plc_name)
                 plc_dir = self._layout.preview_for_plc(self._plc_name)
 
+                # Whitelist consolidada: 1 dispatch IPC con TODOS los bloques
+                # seleccionados en vez de N dispatchs en serie (commit 3 FASE 2.6).
+                block_names = [
+                    (entry.get("name") or "")
+                    for entry in self._blocks_data
+                ]
+                block_names = [n for n in block_names if n]
+
+                if not block_names:
+                    return f"exportados 0 bloques SD a {plc_dir} (sin seleccion)"
+
+                try:
+                    dispatch_result = self._tia_client.dispatch(
+                        "export_blocks",
+                        {
+                            "plc_name": self._plc_name,
+                            "target_dir": str(plc_dir),
+                            "block_names": block_names,
+                            "keep_folder_structure": False,
+                        },
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        f"[{self.nombre}] export_blocks exception: "
+                        f"{type(exc).__name__}: {exc}"
+                    )
+                    return f"exportados 0 bloques SD a {plc_dir} (exception)"
+
+                if not isinstance(dispatch_result, dict) or not dispatch_result.get("ok"):
+                    logger.warning(
+                        f"[{self.nombre}] export_blocks fallo: "
+                        f"{dispatch_result.get('error') if isinstance(dispatch_result, dict) else dispatch_result}"
+                    )
+                    return f"exportados 0 bloques SD a {plc_dir} (fallo)"
+
+                # El handler retorna ``exported_names`` (subconjunto OK).
+                # Solo los que vienen en esa lista reciben ``sd_path``; los
+                # skipped (p.ej. bloques no encontrados en TIA) quedan sin
+                # sd_path y se omiten del merge.
+                result = dispatch_result["result"]
+                exported_set = set(result.get("exported_names", []))
                 exported_count = 0
                 for entry in self._blocks_data:
-                    block_name = entry.get("name") or ""
-                    if not block_name:
-                        continue
-                    try:
-                        dispatch_result = self._tia_client.dispatch(
-                            "export_block",
-                            {
-                                "plc_name": self._plc_name,
-                                "block_name": block_name,
-                                "target_dir": str(plc_dir),
-                                "keep_folder_structure": False,
-                            },
-                        )
-                    except Exception as exc:
-                        logger.warning(
-                            f"[{self.nombre}] export_block exception "
-                            f"para '{block_name}': "
-                            f"{type(exc).__name__}: {exc}"
-                        )
-                        continue
-                    if not isinstance(dispatch_result, dict) or not dispatch_result.get("ok"):
-                        logger.warning(
-                            f"[{self.nombre}] export_block fallo para "
-                            f"'{block_name}': "
-                            f"{dispatch_result.get('error') if isinstance(dispatch_result, dict) else dispatch_result}"
-                        )
-                        continue
-                    entry["sd_path"] = SdPair(plc_dir, block_name).dcl
-                    exported_count += 1
+                    name = entry.get("name") or ""
+                    if name in exported_set:
+                        entry["sd_path"] = SdPair(plc_dir, name).dcl
+                        exported_count += 1
 
                 return f"exportados {exported_count} bloques SD a {plc_dir}"
 
