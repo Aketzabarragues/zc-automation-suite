@@ -299,7 +299,7 @@ class FunctionDispGenerarPreview(FunctionBase):
         if self._ctx.nmax_table:
             await dispatch_async(
                 self._ctx.tia_client,
-                "export_plc_tags_xml",
+                "export_tables",
                 {
                     "plc_name": self._ctx.plc_name,
                     "target_dir": str(self._ctx.preview_config_dir),
@@ -315,7 +315,7 @@ class FunctionDispGenerarPreview(FunctionBase):
         if self._ctx.disp_tables:
             await dispatch_async(
                 self._ctx.tia_client,
-                "export_plc_tags_xml",
+                "export_tables",
                 {
                     "plc_name": self._ctx.plc_name,
                     "target_dir": str(self._ctx.preview_disp_dir),
