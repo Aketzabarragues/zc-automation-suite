@@ -315,14 +315,14 @@ class FunctionEntidadesSincronizar(FunctionBase):
         self._ctx.tag_table = tag_table
         self._ctx.config_table = config_table
 
-        # 2/3: export_plc_tags_xml (2 tablas) con subcarpeta TIA.
+        # 2/3: export_tables (2 tablas) con subcarpeta TIA.
         # keep_folder_structure=True (mirror Disp): TIA V21 hace
         # match UPDATE recursivo por subpath TIA en el import. Sin
         # la subcarpeta, el archivo queda FLAT y TIA no encuentra
         # la ruta esperada al re-importar.
         tags_result = await dispatch_async(
             self._ctx.tia_client,
-            "export_plc_tags_xml",
+            "export_tables",
             {
                 "plc_name": self._ctx.plc_name,
                 "target_dir": str(self._ctx.sync_variables_export),
@@ -332,7 +332,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
         )
         if tags_result is None:
             warning = (
-                f"export_plc_tags_xml fallo (Tia puede no tener "
+                f"export_tables fallo (Tia puede no tener "
                 f"'{config_table}' o '{tag_table}' todavia). "
                 f"Variables marcadas como missing_xml."
             )
@@ -344,25 +344,25 @@ class FunctionEntidadesSincronizar(FunctionBase):
                 f"{self._ctx.sync_variables_export}"
             )
 
-        # 3/3: export_block (DB6_ENT) preservando estructura TIA.
+        # 3/3: export_blocks (DB6_ENT) preservando estructura TIA.
         # keep_folder_structure=True (mirror Disp): sin esto,
         # import_block en Tx C falla con "Import failed because an
         # object with the name 'DB6_ENT' already exists" porque TIA
         # no puede determinar la subcarpeta destino del UPDATE.
         block_result = await dispatch_async(
             self._ctx.tia_client,
-            "export_block",
+            "export_blocks",
             {
                 "plc_name": self._ctx.plc_name,
-                "block_name": db_name,
                 "target_dir": str(self._ctx.sync_bloques_export),
+                "block_names": [db_name],
                 "keep_folder_structure": True,
             },
             timeout_s=60.0,
         )
         if block_result is None:
             warning = (
-                f"export_block fallo: bloque '{db_name}' no encontrado "
+                f"export_blocks fallo: bloque '{db_name}' no encontrado "
                 f"en PLC '{self._ctx.plc_name}'. "
                 f"Bloques marcados como missing_xml."
             )
@@ -704,7 +704,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
 
         tags_result = await dispatch_async(
             self._ctx.tia_client,
-            "export_plc_tags_xml",
+            "export_tables",
             {
                 "plc_name": self._ctx.plc_name,
                 "target_dir": str(self._ctx.sync_variables_export),
@@ -714,7 +714,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
         )
         if tags_result is None:
             warning = (
-                f"Re-export post Tx A fallo (export_plc_tags_xml). "
+                f"Re-export post Tx A fallo (export_tables). "
                 f"Sync continuara con snapshot pre-Tx-A."
             )
             logger.warning(warning)
@@ -723,18 +723,18 @@ class FunctionEntidadesSincronizar(FunctionBase):
 
         block_result = await dispatch_async(
             self._ctx.tia_client,
-            "export_block",
+            "export_blocks",
             {
                 "plc_name": self._ctx.plc_name,
-                "block_name": self._ctx.db_name,
                 "target_dir": str(self._ctx.sync_bloques_export),
+                "block_names": [self._ctx.db_name],
                 "keep_folder_structure": True,
             },
             timeout_s=60.0,
         )
         if block_result is None:
             warning = (
-                f"Re-export post Tx A fallo (export_block {self._ctx.db_name})."
+                f"Re-export post Tx A fallo (export_blocks {self._ctx.db_name})."
             )
             logger.warning(warning)
             self._ctx.warnings.append(warning)
@@ -1211,7 +1211,7 @@ async def _stage_11_post_preview(self) -> None:
 
     tags_result = await dispatch_async(
         self._ctx.tia_client,
-        "export_plc_tags_xml",
+        "export_tables",
         {
             "plc_name": self._ctx.plc_name,
             "target_dir": str(ent_ctx.preview_disp),
@@ -1224,11 +1224,11 @@ async def _stage_11_post_preview(self) -> None:
     )
     block_result = await dispatch_async(
         self._ctx.tia_client,
-        "export_block",
+        "export_blocks",
         {
             "plc_name": self._ctx.plc_name,
-            "block_name": self._ctx.db_name,
             "target_dir": str(ent_ctx.preview_bloques),
+            "block_names": [self._ctx.db_name],
             "keep_folder_structure": True,
         },
         timeout_s=60.0,

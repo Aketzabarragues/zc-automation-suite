@@ -199,7 +199,7 @@ def test_run_step_dispatch_via_STAGES_table() -> None:
 
 
 def test_stage_1_exportar_llama_dispatch_async_2_veces() -> None:
-    """Stage 1 llama dispatch_async 2 veces (export_plc_tags_xml + export_block)."""
+    """Stage 1 llama dispatch_async 2 veces (export_tables + export_blocks)."""
     fb = _make_fb()
     with patch(
         "areas.alimentacion.functions.function_entidades_sincronizar"
@@ -254,18 +254,18 @@ def test_stage_1_exportar_llama_dispatch_async_2_veces() -> None:
         asyncio.run(fb._stage_1_exportar())
 
     assert dispatch_mock.await_count == 2
-    # Primer call: export_plc_tags_xml.
+    # Primer call: export_tables.
     call1 = dispatch_mock.await_args_list[0]
-    assert call1.args[1] == "export_plc_tags_xml"
+    assert call1.args[1] == "export_tables"
     assert "0_Config_Generales" in call1.args[2]["table_names"]
     # keep_folder_structure=True (mirror Disp): TIA V21 matchea el
     # import recursivo por subpath TIA. Sin esto, el modified queda
     # FLAT y TIA no encuentra la ruta esperada al re-importar.
     assert call1.args[2]["keep_folder_structure"] is True
-    # Segundo call: export_block.
+    # Segundo call: export_blocks.
     call2 = dispatch_mock.await_args_list[1]
-    assert call2.args[1] == "export_block"
-    assert call2.args[2]["block_name"] == "DB6_ENT"
+    assert call2.args[1] == "export_blocks"
+    assert call2.args[2]["block_names"] == ["DB6_ENT"]
 
 
 def test_stage_1_exportar_si_worker_falla_sigue_con_warnings() -> None:
@@ -308,10 +308,10 @@ def test_stage_1_exportar_si_worker_falla_sigue_con_warnings() -> None:
         import asyncio
         asyncio.run(fb._stage_1_exportar())
 
-    # 2 warnings: 1 por export_plc_tags_xml, 1 por export_block.
+    # 2 warnings: 1 por export_tables, 1 por export_blocks.
     assert len(fb._ctx.warnings) == 2
-    assert any("export_plc_tags_xml fallo" in w for w in fb._ctx.warnings)
-    assert any("export_block fallo" in w for w in fb._ctx.warnings)
+    assert any("export_tables fallo" in w for w in fb._ctx.warnings)
+    assert any("export_blocks fallo" in w for w in fb._ctx.warnings)
 
 
 def test_stage_2_compute_diff_llama_helpers_de_preview() -> None:

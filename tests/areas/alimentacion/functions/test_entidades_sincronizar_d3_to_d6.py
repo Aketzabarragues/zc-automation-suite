@@ -140,8 +140,8 @@ def test_stage_6_con_nmax_op_llama_dispatch_async_2_veces() -> None:
     ) as dispatch_mock:
         asyncio.run(fb._stage_6_exportar_post_tx_a())
     assert dispatch_mock.await_count == 2
-    assert dispatch_mock.await_args_list[0].args[1] == "export_plc_tags_xml"
-    assert dispatch_mock.await_args_list[1].args[1] == "export_block"
+    assert dispatch_mock.await_args_list[0].args[1] == "export_tables"
+    assert dispatch_mock.await_args_list[1].args[1] == "export_blocks"
 
 
 def test_stage_6_si_worker_falla_sigue_con_warnings() -> None:
