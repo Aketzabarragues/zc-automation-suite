@@ -355,57 +355,14 @@ def _find_block_in_plc(plc: Any, block_name: str, block_path: str) -> Any:
 def _ensure_target_dir(target_dir: str) -> Path:
     """Valida target_dir y devuelve la ruta resuelta (crea el dir si falta).
 
-    Usado por export_blocks_sd, export_udts_sd, export_plc_tags_xml.
+    Usado por los 3 handlers de export unificados (FASE 2.6):
+    ``_h_export_blocks``, ``_h_export_udts``, ``_h_export_tables``.
     """
     if not target_dir:
         raise ValueError("Se requiere el argumento 'target_dir'.")
     target_path = Path(target_dir)
     target_path.mkdir(parents=True, exist_ok=True)
     return target_path
-
-
-def _export_objects_sd(
-    target_plc: Any,
-    target_path: Path,
-    collection_key: str,
-    keep_folder_structure: bool = True,
-) -> dict:
-    """Exporta una coleccion de objetos TIA (Bloques o UDTs) a .s7dcl.
-
-    Args:
-        collection_key: 'program_blocks' | 'user_data_types'.
-        keep_folder_structure: si ``True`` (default), exporta conservando la
-            jerarquia de subcarpetas del PLC en TIA Portal (e.g.
-            ``<target>/2000_Dispositivos/<obj>.s7dcl``). Si ``False``,
-            exporta FLAT a ``<target>/<obj>.s7dcl``. Por defecto ``True``
-            (compatibilidad con callers existentes).
-
-    Returns:
-        ``{"exported_to": str, "count": int}``.
-
-    TIA Portal V17+ emite archivos .s7dcl cuando se pasa
-    ``export_format='SimaticSD'``.
-    """
-    if collection_key == "program_blocks":
-        objects = target_plc.get_program_blocks()
-    elif collection_key == "user_data_types":
-        objects = target_plc.get_user_data_types()
-    else:
-        raise ValueError(
-            f"collection_key desconocido: '{collection_key}'. "
-            "Use 'program_blocks' o 'user_data_types'."
-        )
-
-    count = 0
-    for obj in objects:
-        obj.export(
-            target_directory_path=str(target_path),
-            export_format="SimaticSD",
-            keep_folder_structure=keep_folder_structure,
-        )
-        count += 1
-
-    return {"exported_to": str(target_path), "count": count}
 
 
 # ---------------------------------------------------------------------------

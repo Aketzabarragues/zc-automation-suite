@@ -39,7 +39,7 @@ class PlcUserConstantParser:
 
         Args:
             xml_file_path: ruta al archivo .xml exportado por
-                ``TIAProcessGateway.export_tag_table``.
+                ``TIAProcessGateway.export_tag_table`` (legacy, borrado en FASE 2.6 commit 12).
 
         Returns:
             ``dict[str, int]`` con pares ``{nombre: valor}``. El valor

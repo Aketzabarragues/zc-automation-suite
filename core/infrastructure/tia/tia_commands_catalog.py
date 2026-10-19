@@ -9,8 +9,7 @@ Catalogo actual (27 comandos core + N comandos del area):
   -  3 project:          open_project, save_project, close_project
   -  5 inspect:          ping, list_plcs, list_blocks, get_project_info, scan_blocks
   -  2 compile:          compile_plc, compile_blocks
-  -  5 export:           export_blocks_sd, export_udts_sd, export_plc_tags_xml,
-                          export_block, export_tag_table
+  -  3 export:           export_blocks, export_udts, export_tables
   -  4 import:           import_blocks_sd, import_plc_tags_xml, import_tag_table,
                           import_block
   -  4 user_consts:      get_user_constants, delete_user_constant,
