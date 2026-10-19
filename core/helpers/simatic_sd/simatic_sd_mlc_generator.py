@@ -1,7 +1,4 @@
-"""Generador de IDs MLC unicos para archivos SimaticSD (.s7res).
-
- refactor: reemplaza al ``MLCRegistry`` (viejo, con state
-machine + reserve/next_mlc_id) por funciones puras mas simples.
+"""Generador y parser de MLCs en archivos SimaticSD (.s7res).
 
 TIA Portal V21 espera que cada bloque ``{ S7_MLC := "MLC_xxx"; }`` en
 el .s7dcl tenga su entrada correspondiente en el .s7res:
@@ -13,16 +10,21 @@ El ID es un string de 4-5 caracteres alfanumericos (TIA acepta cualquier
 combinacion; hemos visto ``MLC_q2``, ``MLC_Dz8``, ``MLC_hsVUv`` etc.
 mezclando may/min con numeros). El prefijo ``MLC_`` es obligatorio.
 
-Este modulo ofrece dos funciones puras:
+Funciones puras expuestas:
   - ``collect_existing_mlc_ids(res_text)``: extrae todos los IDs
     MLC referenciados en el .s7res.
   - ``next_mlc_id(used_ids)``: genera un ID nuevo que no colisiona
     con los existentes.
+  - ``parse_mlc_lookup(res_text)``: devuelve el mapping
+    ``MLC_id -> texto es-ES`` para resolver IDs a texto en espanol.
 
-El consumidor (commit_array_comments, etc.) es responsable de:
+El consumidor (commit_array_comments, editor de bloques, etc.) es
+responsable de:
   1. Llamar ``collect_existing_mlc_ids`` para obtener el set actual.
   2. Llamar ``next_mlc_id(used)`` cada vez que necesite uno nuevo.
   3. Anadir el ID nuevo al set usado para las siguientes llamadas.
+  4. Usar ``parse_mlc_lookup`` para resolver IDs del ``.s7dcl`` al
+     texto visible en TIA.
 """
 from __future__ import annotations
 
@@ -93,7 +95,69 @@ def next_mlc_id(used_ids: set[str]) -> str:
     )
 
 
+def parse_mlc_lookup(res_text: str) -> dict[str, str]:
+    """Parsea un ``.s7res`` y devuelve el mapping ``MLC_id -> texto es-ES``.
+
+    El ``.s7res`` de TIA V21 tiene un bloque ``MultiLingualTexts:`` con
+    entradas ``- id: MLC_xxx`` y campos por idioma (``es-ES``, ``en-US``,
+    ``de-DE``). Esta funcion extrae el ``id`` y el texto ``es-ES`` (con
+    fallback a ``en-US``/``de-DE`` si falta) en un dict plano para
+    busqueda O(1).
+
+    Pensada para:
+      - el helper ``commit_array_comments`` (resuelve el MLC del slot).
+      - el editor de bloques TIA (resuelve ``S7_BlockTitle`` y
+        ``S7_BlockComment`` del ``.s7dcl`` a texto en espanol del
+        ``.s7res``).
+      - cualquier feature que necesite mapear ``MLC_id`` a texto.
+
+    Args:
+        res_text: contenido completo del archivo ``.s7res`` (UTF-8,
+            plano YAML). Si esta vacio o ``None``, retorna dict vacio.
+
+    Returns:
+        ``dict[str, str]`` con keys ``MLC_xxx`` y values con el texto
+        ``es-ES`` (fallback a ``en-US`` o ``de-DE``). Filtra entradas
+        sin ``id`` o que no empiecen por ``MLC_``.
+
+    Notes:
+        - Usa ``yaml.safe_load`` (no ``yaml.load``) por seguridad.
+        - Si el YAML esta corrupto o no tiene ``MultiLingualTexts``,
+          retorna ``{}`` (no raise). El caller decide si falla.
+        - IDs repetidos: mantiene el ultimo.
+    """
+    import yaml  # Lazy: el modulo ya importa 're' y 'uuid'; anadir yaml
+                # al top-level penaliza el coste de import de callers que
+                # solo necesitan ``next_mlc_id`` o ``collect_existing_mlc_ids``.
+
+    if not res_text:
+        return {}
+
+    try:
+        res_data = yaml.safe_load(res_text) or {}
+    except yaml.YAMLError:
+        return {}
+
+    textos = res_data.get("MultiLingualTexts", []) or []
+    out: dict[str, str] = {}
+    for entry in textos:
+        if not isinstance(entry, dict):
+            continue
+        mlc_id = entry.get("id", "")
+        if not mlc_id or not mlc_id.startswith("MLC_"):
+            continue
+        text = (
+            entry.get("es-ES")
+            or entry.get("en-US")
+            or entry.get("de-DE")
+            or ""
+        )
+        out[mlc_id] = text
+    return out
+
+
 __all__ = [
     "collect_existing_mlc_ids",
     "next_mlc_id",
+    "parse_mlc_lookup",
 ]

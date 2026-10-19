@@ -1,14 +1,16 @@
 """Tests de ``simatic_sd_mlc_generator`` .
 
-Cubre las dos funciones puras del modulo:
+Cubre las funciones puras del modulo:
 - ``collect_existing_mlc_ids``: extrae IDs del .s7res.
 - ``next_mlc_id``: genera IDs sin colision.
+- ``parse_mlc_lookup``: devuelve el mapping MLC_id -> texto es-ES.
 """
 from __future__ import annotations
 
 from core.helpers.simatic_sd.simatic_sd_mlc_generator import (
     collect_existing_mlc_ids,
     next_mlc_id,
+    parse_mlc_lookup,
 )
 
 
@@ -119,3 +121,69 @@ def test_next_mlc_id_formato_hex() -> None:
         suffix = new_id[len("MLC_"):]
         assert len(suffix) == 5
         assert all(c in "0123456789abcdef" for c in suffix)
+
+
+# ── parse_mlc_lookup ────────────────────────────────────────────────
+
+def test_parse_mlc_lookup_basic() -> None:
+    """Caso feliz: un .s7res con varias entradas MLC devuelve el mapping.
+
+    Cada entrada ``- id: MLC_xxx`` con campo ``es-ES`` aparece como
+    ``{MLC_xxx: "texto es-ES"}`` en el dict resultante."""
+    res = (
+        "MultiLingualTexts:\n"
+        "  - id: MLC_q2\n    es-ES: PRINCIPAL\n"
+        "  - id: MLC_Dz8\n    es-ES: SECUNDARIO\n"
+        "  - id: MLC_hsVUv\n    es-ES: auxiliar\n"
+    )
+    assert parse_mlc_lookup(res) == {
+        "MLC_q2": "PRINCIPAL",
+        "MLC_Dz8": "SECUNDARIO",
+        "MLC_hsVUv": "auxiliar",
+    }
+
+
+def test_parse_mlc_lookup_fallback_otros_idiomas() -> None:
+    """Sin ``es-ES``, cae a ``en-US`` y luego ``de-DE``.
+
+    Caso real: bloques importados de proyectos alemanes donde solo
+    existe ``de-DE``. La utilidad prioriza espanol, luego los demas."""
+    res = (
+        "MultiLingualTexts:\n"
+        "  - id: MLC_a\n    en-US: english text\n"
+        "  - id: MLC_b\n    de-DE: deutscher text\n"
+        "  - id: MLC_c\n    es-ES: espanol\n"
+    )
+    assert parse_mlc_lookup(res) == {
+        "MLC_a": "english text",
+        "MLC_b": "deutscher text",
+        "MLC_c": "espanol",
+    }
+
+
+def test_parse_mlc_lookup_inputs_vacios() -> None:
+    """``""`` y ``None`` retornan dict vacio sin raise.
+
+    El caller decide si falla o no; la utility no es defensiva."""
+    assert parse_mlc_lookup("") == {}
+    assert parse_mlc_lookup(None) == {}  # type: ignore[arg-type]
+
+
+def test_parse_mlc_lookup_filtra_entradas_no_mlc() -> None:
+    """Solo conserva entradas con ``id`` que empieza por ``MLC_``.
+
+    Ignora entradas sin ``id``, con ``id`` vacio, o con otro prefijo.
+    Esto evita contaminar el lookup con IDs que el caller nunca
+    buscara (los MLCs del .s7dcl siempre tienen prefijo ``MLC_``)."""
+    res = (
+        "MultiLingualTexts:\n"
+        "  - id: MLC_keep\n    es-ES: keep me\n"
+        "  - id: NO_MLC_skip\n    es-ES: skip me\n"
+        "  - other: NO_ID_FIELD\n    es-ES: skip me too\n"
+        "  - id: ''\n    es-ES: empty id, skip\n"
+        "  - id: MLC_also_keep\n    es-ES: keep me 2\n"
+    )
+    assert parse_mlc_lookup(res) == {
+        "MLC_keep": "keep me",
+        "MLC_also_keep": "keep me 2",
+    }

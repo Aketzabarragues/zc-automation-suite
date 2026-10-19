@@ -69,6 +69,7 @@ import yaml
 from core.helpers.simatic_sd.simatic_sd_mlc_generator import (
     collect_existing_mlc_ids,
     next_mlc_id,
+    parse_mlc_lookup,
 )
 
 _logger = logging.getLogger(__name__)
@@ -217,15 +218,7 @@ def read_current_comments(
     Usado por el preview para mostrar el texto actual de TIA
     (con el que se compara el Excel en el diff).
     """
-    res_data = yaml.safe_load(res_text) or {}
-    textos: list[dict[str, str]] = list(
-        res_data.get("MultiLingualTexts", []) or []
-    )
-    id_to_text: dict[str, str] = {
-        t.get("id", ""): t.get("es-ES", "")
-        for t in textos
-        if t.get("id")
-    }
+    id_to_text = parse_mlc_lookup(res_text)
 
     result: dict[int, str | None] = {}
     for slot in slots:
@@ -290,10 +283,15 @@ def commit_array_comments(
     dcl_text = dcl_path.read_text(encoding=SD_ENCODING)
     res_text = res_path.read_text(encoding=SD_ENCODING)
 
+    # ``res_data`` se reusa al final para preservar el resto de claves
+    # top-level del .s7res original al re-dumplear. ``textos_mlc`` se
+    # construye desde la utility compartida para garantizar que solo
+    # contiene entradas ``MLC_*`` con ``id`` + ``es-ES``.
     res_data = yaml.safe_load(res_text) or {}
-    textos_mlc: list[dict[str, str]] = list(
-        res_data.get("MultiLingualTexts", []) or []
-    )
+    textos_mlc: list[dict[str, str]] = [
+        {"id": k, "es-ES": v}
+        for k, v in parse_mlc_lookup(res_text).items()
+    ]
     ids_a_eliminar: set[str] = set()
     used_ids = collect_existing_mlc_ids(res_text)
 
