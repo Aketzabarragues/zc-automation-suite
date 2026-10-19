@@ -29,6 +29,14 @@ from werkzeug.serving import make_server
 from core.runtime.log_buffer import get_log_buffer
 
 
+# Subdirs de ``<cwd>/.build_cache/`` que NO son areas registradas
+# (viven en ``core/``) y aun asi deben limpiarse al cerrar la app.
+# Coinciden 1:1 con el ``area_id`` del ``_workdir_layout`` correspondiente.
+_CORE_BUILD_CACHE_SUBDIRS: tuple[str, ...] = (
+    "blocks_edit",
+)
+
+
 class MainServiceSupervisor:
     """Flask daemon + main loop en hilos daemon; auto-restart con backoff."""
 
@@ -164,7 +172,7 @@ class MainServiceSupervisor:
         )
 
     def _cleanup_build_cache(self) -> None:
-        """Borra ``<cwd>/.build_cache/<area_id>/`` para todas las areas.
+        """Borra ``<cwd>/.build_cache/<subdir>/`` para areas + core dirs.
 
         Lo llama ``stop()`` al apagar la app. Idempotente: si el
         directorio no existe (sesion nunca hizo export), ``rmtree``
@@ -173,7 +181,7 @@ class MainServiceSupervisor:
         La raiz ``.build_cache/`` se preserva (puede contener otras
         areas que aun no se han apagado, o artefactos historicos que
         el operario quiera inspeccionar). Solo borramos las
-        subcarpetas por area.
+        subcarpetas por area/core.
 
         Por que NO usamos ``WorkdirContextLayout.clean()``:
         ``clean()`` borra solo ``exports/`` y ``modified/`` y deja
@@ -181,6 +189,10 @@ class MainServiceSupervisor:
         no acumular exports de sesiones pasadas en el repo. Si el
         operario quiere mantener preview historico, basta con no
         llamar a ``stop()`` (o comentar este metodo).
+
+        ``_CORE_BUILD_CACHE_SUBDIRS`` agrupa subdirs no-registrados
+        como areas (ej. ``blocks_edit`` del editor de bloques).
+        Mismo patron que las areas: ``.build_cache/<subdir>/``.
         """
         import os
         import shutil
@@ -204,11 +216,14 @@ class MainServiceSupervisor:
             )
             return
 
-        if not area_ids:
+        # Unico cleanup: areas + subdirs core. ``blocks_edit`` vive en
+        # core/ y por tanto NO aparece en AreaRegistry.
+        subdirs = list(area_ids) + list(_CORE_BUILD_CACHE_SUBDIRS)
+        if not subdirs:
             return
 
-        for area_id in area_ids:
-            area_dir = root / area_id
+        for subdir in subdirs:
+            area_dir = root / subdir
             if not area_dir.exists():
                 continue
             try:
