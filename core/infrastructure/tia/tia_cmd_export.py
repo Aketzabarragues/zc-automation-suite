@@ -7,11 +7,12 @@ Tres comandos unificados (FASE 2.6) que aceptan ``1`` o ``N`` elementos via
   - export_udts:    exporta los User Data Types como .s7dcl.
   - export_tables:  exporta tablas de tags como XML SimaticML.
 
-Cinco legacy coexisten durante la migración y se borran progresivamente:
+Cinco legacy coexisten durante la migración y se borran en commit 12
+(tras migrar los FBs consumidores en commits 5-11):
   - export_blocks_sd:     plural sin filtro (legacy, sin consumidores).
   - export_udts_sd:       plural sin filtro (legacy, sin consumidores).
   - export_plc_tags_xml:  plural con ``table_names`` opcional (legacy, usado).
-  - export_block:         singular (legacy, usado por core + 6 FBs del area).
+  - export_block:         singular (legacy, usado por 6 FBs del area).
   - export_tag_table:     singular (legacy, sin consumidores).
 
 Cada handler es una FC pura: recibe ``(args: dict, tia_client: SyncTIAClient)``
@@ -154,6 +155,11 @@ def _h_export_plc_tags_xml(args: dict, tia_client: "SyncTIAClient") -> dict:
 
 def _h_export_block(args: dict, tia_client: "SyncTIAClient") -> dict:
     """Exporta un bloque de programa como SimaticSD (manual §2.10.5).
+
+    LEGACY FASE 2.6: se borrara en commit 12 tras la migracion de los 6
+    FBs del area que aun lo usan (disp_sincronizar, entidades_*,
+    proc_db_*). Reemplazado por ``_h_export_blocks`` (plural con
+    ``block_names`` whitelist opcional). No usar en codigo nuevo.
 
     Args (en ``args``):
         plc_name (str): nombre del PLC.
@@ -437,7 +443,8 @@ def _h_export_tables(args: dict, tia_client: "SyncTIAClient") -> dict:
 
 # Mapa nombre → handler. El registro central (tia_commands_catalog)
 # importará este dict para registrar los 8 comandos (3 nuevos + 5 legacy)
-# en el worker durante la migración. Los legacy se borran en commits 4, 6, 12.
+# en el worker durante la migración. Los legacy se borran todos en commit 12
+# (consolidado: tras migrar los 6 FBs del area que los consumen en commits 5-11).
 COMMANDS: dict[str, Any] = {
     # Legacy (FASE 2.6 commit 12: borrar los 5).
     "export_blocks_sd": _h_export_blocks_sd,
