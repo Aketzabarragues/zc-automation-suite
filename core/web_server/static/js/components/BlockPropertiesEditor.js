@@ -216,7 +216,6 @@ export default {
         }
 
         const expandedFolders = ref(new Set());
-        const hasInitializedExpansion = ref(false);
         const allFolderPaths = computed(() => {
             const list = Array.isArray(blocks.value) ? blocks.value : [];
             const root = buildFolderTree(list);
@@ -244,21 +243,10 @@ export default {
         const tree = computed(() => {
             const list = Array.isArray(blocks.value) ? blocks.value : [];
             const root = buildFolderTree(list);
-            // Auto-expand inicial: en la primera carga con bloques
-            // disponibles, expandir TODAS las carpetas. Asi el operario
-            // ve el arbol completo de un vistazo (como TIA Portal). Las
-            // elecciones manuales posteriores del operario (colapsar /
-            // expandir individuales) se respetan en renders siguientes.
-            if (!hasInitializedExpansion.value && list.length > 0) {
-                const allPaths = [];
-                function visit(f) {
-                    if (f.fullPath) allPaths.push(f.fullPath);
-                    for (const c of f.children.values()) visit(c);
-                }
-                visit(root);
-                expandedFolders.value = new Set(allPaths);
-                hasInitializedExpansion.value = true;
-            }
+            // Arbol colapsado por defecto: el operario pulsa "Expandir
+            // todo" o clica cada chevron. ``expandedFolders`` parte
+            // vacio; cualquier eleccion manual posterior (chevron click
+            // o expandAll) se respeta en renders siguientes.
             const nodes = flattenFolderTree(root, expandedFolders.value);
             return { nodes, totalBlocks: list.length, root };
         });
