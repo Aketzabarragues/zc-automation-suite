@@ -494,3 +494,62 @@ def test_dispatch_args_usan_path_absoluto(
             )
             found = True
     assert found, "no se encontro la call a dispatch('export_block', ...)"
+
+
+# ── 8. clean_preview al inicio de exportar_sd ──────────────────────
+
+
+def test_segundo_prepare_limpia_huerfanos_del_anterior(
+    app_cache: AppCache,
+    real_progress: ProgressTracker,
+    tmp_path: Path,
+) -> None:
+    """Un 2º ``prepare`` con menos bloques borra los ``.s7dcl`` huerfanos.
+
+    Caso: el operario prepara A, B, C. Luego elimina C de TIA Portal
+    (o deselecciona bloques) y vuelve a preparar solo A. Sin el
+    ``clean_preview(plc_name)`` al inicio de ``exportar_sd``, C.s7dcl
+    quedaria en disco contaminando cualquier inspeccion posterior.
+
+    Verifica que tras el 2º ``prepare`` con seleccion reducida, el
+    directorio ``preview/<plc>/`` contiene SOLO los bloques del nuevo
+    prepare.
+    """
+    layout = BlocksEditLayout(root=tmp_path)
+    blocks_3 = [
+        _make_cached_dto("DB2000_ED", 2000, "DB", "DB2000_ED"),
+        _make_cached_dto("FC2000_ZC_ED", 2000, "FC", "FC2000_ZC_ED"),
+        _make_cached_dto("OB1_MAIN", 1, "OB", "OB1_MAIN"),
+    ]
+    _seed_plc_blocks(app_cache, "PLC_1", blocks_3)
+    tia_client = _make_tia_client(_copy_s7dcl_export)
+
+    # ── 1er prepare: A, B, C ──
+    fb1 = _make_fb(app_cache, tia_client, real_progress, layout=layout)
+    _run_fb(
+        fb1,
+        plc_name="PLC_1",
+        selected_block_paths=["DB2000_ED", "FC2000_ZC_ED", "OB1_MAIN"],
+    )
+    assert fb1.nStep == fb1.n_done
+
+    plc_dir = layout.preview_for_plc("PLC_1")
+    assert (plc_dir / "DB2000_ED.s7dcl").exists()
+    assert (plc_dir / "FC2000_ZC_ED.s7dcl").exists()
+    assert (plc_dir / "OB1_MAIN.s7dcl").exists()
+
+    # ── 2º prepare: solo A (B y C quedan fuera) ──
+    _seed_plc_blocks(app_cache, "PLC_1", [blocks_3[0]])  # solo DB en cache
+    fb2 = _make_fb(app_cache, tia_client, real_progress, layout=layout)
+    _run_fb(
+        fb2,
+        plc_name="PLC_1",
+        selected_block_paths=["DB2000_ED"],
+    )
+    assert fb2.nStep == fb2.n_done
+
+    # Solo A.s7dcl esta; B.s7dcl y C.s7dcl fueron barridos por clean_preview.
+    remaining = sorted(p.name for p in plc_dir.iterdir())
+    assert remaining == ["DB2000_ED.s7dcl"], (
+        f"se esperaban solo DB2000_ED.s7dcl, hay: {remaining}"
+    )

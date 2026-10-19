@@ -10,6 +10,7 @@ en lugar del path hardcoded que tenia el commit 8b (bee21af).
 from __future__ import annotations
 
 import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -37,6 +38,38 @@ class BlocksEditLayout:
     def preview_for_plc(self, plc_name: str) -> Path:
         """Directorio de exports SD para un PLC concreto."""
         return self.preview_dir / plc_name
+
+    def clean_preview(self, plc_name: str | None = None) -> None:
+        """Borra y recrea ``preview/`` (o ``preview/<plc_name>/`` si se pasa).
+
+        Sin ``plc_name``: borra ``preview/`` completo y deja un dir vacio
+        listo para nuevos exports (mismo patron que ``DispLayout.clean_preview``
+        del area alimentacion).
+
+        Con ``plc_name``: borra solo ``preview/<plc_name>/`` y deja el dir
+        vacio. Util para limpiar el workdir de un PLC concreto sin tocar
+        los exports de otros PLCs (preparar 2 PLCs preserva sus SD por
+        separado).
+
+        El FB ``block_edit_prepare`` invoca la variante con ``plc_name``
+        al inicio de ``exportar_sd`` para que cada prepare parta de un
+        workdir limpio: si en un prepare previo se exportaron bloques
+        que ya no existen en TIA, sus ``.s7dcl``/``.s7res`` no contaminan
+        el siguiente prepare.
+        """
+        if plc_name is not None:
+            target = self.preview_dir / plc_name
+        else:
+            target = self.preview_dir
+        if target.exists():
+            shutil.rmtree(target)
+        target.mkdir(parents=True, exist_ok=True)
+
+    def clean_all(self) -> None:
+        """Borra todo el layout (``root``) y deja ``preview/`` vacio."""
+        if self.root.exists():
+            shutil.rmtree(self.root)
+        self.preview_dir.mkdir(parents=True, exist_ok=True)
 
 
 def blocks_edit_cache(root: Path | None = None) -> BlocksEditLayout:

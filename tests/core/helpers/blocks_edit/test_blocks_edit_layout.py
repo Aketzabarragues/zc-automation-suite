@@ -47,3 +47,65 @@ def test_blocks_edit_cache_accepts_injected_root() -> None:
     (p.ej. ``tmp_path`` de pytest) sin tocar ``DEFAULT_BLOCKS_EDIT_ROOT``."""
     layout = blocks_edit_cache(root=Path("/tmp/inject"))
     assert layout.preview_for_plc("PLC_1") == Path("/tmp/inject") / "preview" / "PLC_1"
+
+
+# ── Limpieza (clean_preview / clean_all) ───────────────────────────
+
+
+def test_clean_preview_sin_plc_borra_todo(tmp_path: Path) -> None:
+    """``clean_preview()`` (sin plc_name) borra ``preview/`` entero."""
+    layout = BlocksEditLayout(root=tmp_path)
+    # Sembramos 2 PLCs con archivos.
+    (layout.preview_dir / "PLC_A").mkdir(parents=True)
+    (layout.preview_dir / "PLC_A" / "A.s7dcl").write_text("x")
+    (layout.preview_dir / "PLC_B").mkdir(parents=True)
+    (layout.preview_dir / "PLC_B" / "B.s7dcl").write_text("x")
+
+    layout.clean_preview()
+
+    # preview/ existe pero vacio (no quedan subdirs).
+    assert layout.preview_dir.exists()
+    assert list(layout.preview_dir.iterdir()) == []
+
+
+def test_clean_preview_con_plc_borra_solo_ese_plc(tmp_path: Path) -> None:
+    """``clean_preview(plc_name)`` borra solo ``preview/<plc_name>/``."""
+    layout = BlocksEditLayout(root=tmp_path)
+    (layout.preview_dir / "PLC_A").mkdir(parents=True)
+    (layout.preview_dir / "PLC_A" / "A.s7dcl").write_text("x")
+    (layout.preview_dir / "PLC_B").mkdir(parents=True)
+    (layout.preview_dir / "PLC_B" / "B.s7dcl").write_text("x")
+
+    layout.clean_preview("PLC_A")
+
+    # PLC_A limpio y vacio, PLC_B intacto.
+    assert layout.preview_dir.exists()
+    assert (layout.preview_dir / "PLC_A").exists()
+    assert list((layout.preview_dir / "PLC_A").iterdir()) == []
+    assert (layout.preview_dir / "PLC_B" / "B.s7dcl").exists()
+
+
+def test_clean_preview_con_plc_inexistente_no_falla(tmp_path: Path) -> None:
+    """``clean_preview(plc_name)`` sobre un PLC sin dir previo no rompe."""
+    layout = BlocksEditLayout(root=tmp_path)
+    # No hay PLC_X todavia.
+    layout.clean_preview("PLC_X")
+    # El dir se crea vacio (siguiente export puede escribir directamente).
+    assert (layout.preview_dir / "PLC_X").exists()
+    assert list((layout.preview_dir / "PLC_X").iterdir()) == []
+
+
+def test_clean_all_borra_root_y_recrea_preview(tmp_path: Path) -> None:
+    """``clean_all()`` borra ``root`` y deja ``preview/`` vacio."""
+    layout = BlocksEditLayout(root=tmp_path)
+    (layout.preview_dir / "PLC_A").mkdir(parents=True)
+    (layout.preview_dir / "PLC_A" / "A.s7dcl").write_text("x")
+    # Un archivo suelto en ``root`` que NO deberia sobrevivir.
+    (tmp_path / "extra.txt").write_text("noise")
+
+    layout.clean_all()
+
+    assert layout.root.exists()
+    assert layout.preview_dir.exists()
+    assert list(layout.preview_dir.iterdir()) == []
+    assert not (tmp_path / "extra.txt").exists()

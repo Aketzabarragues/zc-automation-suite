@@ -17,8 +17,12 @@ Operacion READ-ONLY. Para cada path seleccionado:
      en ``app_cache.block_edit_prepared[plc_name][path]``.
 
 Los exports SD se escriben en ``./.build_cache/blocks_edit/preview/<plc>/``
-para que el operario pueda inspeccionarlos tras un bug de parseo. No
-hay limpieza automatica en ``on_finish``: los archivos quedan en disco.
+para que el operario pueda inspeccionarlos tras un bug de parseo. El
+step ``exportar_sd`` invoca ``layout.clean_preview(plc_name)`` al
+inicio para borrar exports previos del mismo PLC (asi un bloque que
+dejo de existir en TIA no contamina el siguiente prepare). Los archivos
+del prepare actual quedan en disco hasta el siguiente ``prepare`` del
+mismo PLC.
 No hay transaccion: si TIA falla en cualquier punto del lote, los bloques
 ya preparados siguen en ``app_cache`` (la SPA los muestra aunque el
 batch no haya completado).
@@ -219,9 +223,12 @@ class FunctionBlockEditPrepare(FunctionBase):
                         "para dispatch de export_block."
                     )
                 # Directorio de exports SD via layout (path absoluto,
-                # requisito del SDK Openness de TIA).
+                # requisito del SDK Openness de TIA). Limpiamos exports
+                # previos del mismo PLC para que el workdir contenga solo
+                # los SD del prepare actual (si un bloque dejo de existir
+                # en TIA, su ``.s7dcl``/``.s7res`` no contamina el nuevo).
+                self._layout.clean_preview(self._plc_name)
                 plc_dir = self._layout.preview_for_plc(self._plc_name)
-                plc_dir.mkdir(parents=True, exist_ok=True)
 
                 exported_count = 0
                 for entry in self._blocks_data:
@@ -333,8 +340,10 @@ class FunctionBlockEditPrepare(FunctionBase):
     # ==================================================================
 
     def on_finish(self, **params: Any) -> None:
-        """Vuelca ``self.result``. Los SD quedan en ``layout.preview`` para
-        inspeccion post-mortem del operario (NO hay cleanup automatico)."""
+        """Vuelca ``self.result``. Los SD quedan en
+        ``layout.preview_for_plc(plc)`` para inspeccion post-mortem del
+        operario hasta el siguiente ``prepare`` del mismo PLC
+        (``exportar_sd`` invoca ``clean_preview`` al inicio)."""
         merge_stats = self._stats.get("merge_cache", {})
         n_blocks = merge_stats.get("n_blocks", len(self._blocks_data))
         self.result = {
