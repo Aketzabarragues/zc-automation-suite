@@ -7,20 +7,20 @@ Operacion READ-ONLY. Para cada path seleccionado:
   2. Extrae las 6 props extendidas que ya trae el cache (``title`` /
      ``comment`` / ``author`` / ``version`` / ``programming_language`` /
      ``memory_layout``; ``comment`` siempre ``None`` en el cache).
-  3. Exporta el bloque a ``.s7dcl`` en
-     ``layout.preview_for_plc(plc_name)`` via dispatch del comando OT
-     ``export_blocks`` (1 IPC con whitelist de todos los nombres).
+  3. Exporta el bloque a ``.s7dcl`` en ``layout.preview_dir`` via
+     dispatch del comando OT ``export_blocks`` (1 IPC con whitelist
+     de todos los nombres).
   4. Parsea el header SCL del ``.s7dcl`` para extraer ``S7_BlockTitle`` y
      ``S7_BlockComment`` (los unicos que ``get_property`` NO expone y el
      scan no captura).
   5. Cruza las 2 fuentes en un ``DataBloquePLC`` de 10 campos y lo guarda
      en ``app_cache.block_edit_prepared[plc_name][path]``.
 
-Los exports SD se escriben en ``./.build_cache/blocks_edit/preview/<plc>/``
-para que el operario pueda inspeccionarlos tras un bug de parseo. El
-step ``exportar_sd`` invoca ``layout.clean_preview(plc_name)`` al
-inicio para borrar exports previos del mismo PLC (asi un bloque que
-dejo de existir en TIA no contamina el siguiente prepare). Los archivos
+Los exports SD se escriben en ``./.build_cache/blocks_edit/preview/``
+(FLAT) para que el operario pueda inspeccionarlos tras un bug de parseo.
+El step ``exportar_sd`` invoca ``layout.clean_preview()`` al inicio para
+borrar exports previos (asi un bloque que dejo de existir en TIA no
+contamina el siguiente prepare). Los archivos
 del prepare actual quedan en disco hasta el siguiente ``prepare`` del
 mismo PLC.
 No hay transaccion: si TIA falla en cualquier punto del lote, los bloques
@@ -224,11 +224,11 @@ class FunctionBlockEditPrepare(FunctionBase):
                     )
                 # Directorio de exports SD via layout (path absoluto,
                 # requisito del SDK Openness de TIA). Limpiamos exports
-                # previos del mismo PLC para que el workdir contenga solo
-                # los SD del prepare actual (si un bloque dejo de existir
-                # en TIA, su ``.s7dcl``/``.s7res`` no contamina el nuevo).
-                self._layout.clean_preview(self._plc_name)
-                plc_dir = self._layout.preview_for_plc(self._plc_name)
+                # previos para que el workdir contenga solo los SD del
+                # prepare actual (si un bloque dejo de existir en TIA, su
+                # ``.s7dcl``/``.s7res`` no contamina el nuevo).
+                self._layout.clean_preview()
+                plc_dir = self._layout.preview_dir
 
                 # 1 dispatch con TODOS los bloques seleccionados en vez de N
                 # dispatchs en serie.
@@ -357,9 +357,9 @@ class FunctionBlockEditPrepare(FunctionBase):
 
     def on_finish(self, **params: Any) -> None:
         """Vuelca ``self.result``. Los SD quedan en
-        ``layout.preview_for_plc(plc)`` para inspeccion post-mortem del
-        operario hasta el siguiente ``prepare`` del mismo PLC
-        (``exportar_sd`` invoca ``clean_preview`` al inicio)."""
+        ``layout.preview_dir`` para inspeccion post-mortem del
+        operario hasta el siguiente ``prepare`` (``exportar_sd``
+        invoca ``clean_preview`` al inicio)."""
         merge_stats = self._stats.get("merge_cache", {})
         n_blocks = merge_stats.get("n_blocks", len(self._blocks_data))
         self.result = {

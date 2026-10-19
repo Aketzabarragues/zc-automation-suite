@@ -14,7 +14,7 @@ Cubre:
     queda con ``title=None, comment=None``; los otros 2 mantienen
     title/comment parseados del SCL.
   - Inyeccion de ``layout=BlocksEditLayout(root=tmp_path)`` -> los
-    exports SD van a ``tmp_path/preview/<plc_name>/``.
+    exports SD van a ``tmp_path/preview/`` (plano, sin subdir por PLC).
   - El ``target_dir`` pasado a ``dispatch`` es un path absoluto (no
     contiene ``..`` ni empieza con ``./``).
 
@@ -450,7 +450,7 @@ def test_export_raises_continues_with_others(
     assert fc_dto.memory_layout == "Optimized"
 
 
-# ── 6. layout injection: exports van a tmp_path/preview/PLC_1/ ──────
+# ── 6. layout injection: exports van a tmp_path/preview/ (plano) ──────
 
 
 def test_layout_injection(
@@ -462,8 +462,9 @@ def test_layout_injection(
 
     Verifica que el ``layout`` inyectado via constructor se usa para
     resolver el directorio de exports. El SD exportado (via dispatch
-    que copia del fixture) termina en ``tmp_path/preview/<plc_name>/``
-    tal como dicta la convencion de ``BlocksEditLayout.preview_for_plc``.
+    que copia del fixture) termina en ``tmp_path/preview/`` plano,
+    tal como dicta la convencion de ``BlocksEditLayout.preview_dir``
+    (sin subdir por PLC, mismo patron que las areas).
     """
     _seed_plc_blocks(
         app_cache, "PLC_1",
@@ -482,8 +483,8 @@ def test_layout_injection(
     assert fb.nStep == fb.n_done
     assert fb.error_msg is None
 
-    # El SD exportado esta en tmp_path/preview/PLC_1/DB2000_ED.s7dcl
-    expected = tmp_path / "preview" / "PLC_1" / "DB2000_ED.s7dcl"
+    # El SD exportado esta en tmp_path/preview/DB2000_ED.s7dcl (PLANO).
+    expected = tmp_path / "preview" / "DB2000_ED.s7dcl"
     assert expected.exists(), (
         f"SD no se exporto al path inyectado: {expected}"
     )
@@ -547,21 +548,23 @@ def test_dispatch_args_usan_path_absoluto(
 # ── 8. clean_preview al inicio de exportar_sd ──────────────────────
 
 
-def test_segundo_prepare_limpia_huerfanos_del_anterior(
+def test_segundo_prepare_borra_sd_previos(
     app_cache: AppCache,
     real_progress: ProgressTracker,
     tmp_path: Path,
 ) -> None:
-    """Un 2º ``prepare`` con menos bloques borra los ``.s7dcl`` huerfanos.
+    """Un 2º ``prepare`` borra los ``.s7dcl`` del prepare anterior.
 
     Caso: el operario prepara A, B, C. Luego elimina C de TIA Portal
     (o deselecciona bloques) y vuelve a preparar solo A. Sin el
-    ``clean_preview(plc_name)`` al inicio de ``exportar_sd``, C.s7dcl
-    quedaria en disco contaminando cualquier inspeccion posterior.
+    ``clean_preview()`` al inicio de ``exportar_sd``, B.s7dcl y
+    C.s7dcl quedarían en disco contaminando cualquier inspección
+    posterior.
 
-    Verifica que tras el 2º ``prepare`` con seleccion reducida, el
-    directorio ``preview/<plc>/`` contiene SOLO los bloques del nuevo
-    prepare.
+    Como el layout es plano (``preview/`` sin subdir por PLC), el
+    ``clean_preview()`` borra TODO el directorio: tras el 2º prepare
+    con seleccion reducida, ``preview/`` contiene SOLO los bloques
+    del nuevo prepare.
     """
     layout = BlocksEditLayout(root=tmp_path)
     blocks_3 = [
@@ -581,10 +584,10 @@ def test_segundo_prepare_limpia_huerfanos_del_anterior(
     )
     assert fb1.nStep == fb1.n_done
 
-    plc_dir = layout.preview_for_plc("PLC_1")
-    assert (plc_dir / "DB2000_ED.s7dcl").exists()
-    assert (plc_dir / "FC2000_ZC_ED.s7dcl").exists()
-    assert (plc_dir / "OB1_MAIN.s7dcl").exists()
+    preview_dir = layout.preview_dir
+    assert (preview_dir / "DB2000_ED.s7dcl").exists()
+    assert (preview_dir / "FC2000_ZC_ED.s7dcl").exists()
+    assert (preview_dir / "OB1_MAIN.s7dcl").exists()
 
     # ── 2º prepare: solo A (B y C quedan fuera) ──
     _seed_plc_blocks(app_cache, "PLC_1", [blocks_3[0]])  # solo DB en cache
@@ -597,7 +600,7 @@ def test_segundo_prepare_limpia_huerfanos_del_anterior(
     assert fb2.nStep == fb2.n_done
 
     # Solo A.s7dcl esta; B.s7dcl y C.s7dcl fueron barridos por clean_preview.
-    remaining = sorted(p.name for p in plc_dir.iterdir())
+    remaining = sorted(p.name for p in preview_dir.iterdir())
     assert remaining == ["DB2000_ED.s7dcl"], (
         f"se esperaban solo DB2000_ED.s7dcl, hay: {remaining}"
     )
