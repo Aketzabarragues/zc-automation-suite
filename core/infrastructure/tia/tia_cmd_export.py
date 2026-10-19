@@ -108,6 +108,11 @@ def _h_export_udts_sd(args: dict, tia_client: "SyncTIAClient") -> dict:
 def _h_export_plc_tags_xml(args: dict, tia_client: "SyncTIAClient") -> dict:
     """Exporta las tablas de variables del PLC como XML SimaticML.
 
+    LEGACY FASE 2.6: se borrara en commit 12 tras la migracion de los 5
+    FBs del area que aun lo usan (disp_generar_preview, entidades_*,
+    proc_db_*). Reemplazado por ``_h_export_tables`` (plural con
+    ``table_names`` whitelist opcional; mismo comportamiento).
+
     Args (en ``args``):
         plc_name (str): nombre del PLC.
         target_dir (str): directorio destino.
