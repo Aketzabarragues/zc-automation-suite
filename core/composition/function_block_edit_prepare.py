@@ -93,11 +93,11 @@ class FunctionBlockEditPrepare(FunctionBase):
             nombre=nombre,
             titulo=titulo,
             steps=steps if steps is not None else [
-                {"nombre": "validar"},
-                {"nombre": "leer_tia"},
-                {"nombre": "exportar_sd"},
-                {"nombre": "parsear_scl"},
-                {"nombre": "merge_cache"},
+                {"nombre": "Validar selección"},
+                {"nombre": "Leer bloques desde cache"},
+                {"nombre": "Exportar bloques SD"},
+                {"nombre": "Parsear headers SCL"},
+                {"nombre": "Combinar DTOs en cache"},
             ],
             tracker=tracker,
         )
@@ -158,15 +158,19 @@ class FunctionBlockEditPrepare(FunctionBase):
 
         step_nombre = self.steps[idx]["nombre"]
         match step_nombre:
-            case "validar":
+            case "Validar selección":
                 # Validacion ya en on_start (fuerza fail-fast antes de
                 # tocar TIA). Aqui solo retornamos un detalle.
-                return (
+                detail = (
                     f"seleccion valida: {len(self._selected_block_paths)} "
                     f"bloques en PLC '{self._plc_name}'"
                 )
+                logger.info(
+                    f"[{self.nombre}] {self._plc_name}: {detail}"
+                )
+                return detail
 
-            case "leer_tia":
+            case "Leer bloques desde cache":
                 # Lee del cache IT poblado por ``scan_blocks``. NO navega
                 # el arbol TIA (mismo patron que entidades/proc preview).
                 plc_cache = plc_blocks_get(self._app_cache, self._plc_name)
@@ -211,9 +215,15 @@ class FunctionBlockEditPrepare(FunctionBase):
                     self._blocks_data.append(entry)
                     read_count += 1
 
-                return f"leidos {read_count} bloques via app_cache.plc_blocks"
+                detail = (
+                    f"leidos {read_count} bloques via app_cache.plc_blocks"
+                )
+                logger.info(
+                    f"[{self.nombre}] {self._plc_name}: {detail}"
+                )
+                return detail
 
-            case "exportar_sd":
+            case "Exportar bloques SD":
                 # ``tia_client`` solo se necesita aqui para dispatch del
                 # comando OT ``export_blocks``. NO se usa para navegar el
                 # arbol TIA (eso lo hace el worker OT internamente).
@@ -278,9 +288,16 @@ class FunctionBlockEditPrepare(FunctionBase):
                         entry["sd_path"] = SdPair(plc_dir, name).dcl
                         exported_count += 1
 
-                return f"exportados {exported_count} bloques SD a {plc_dir}"
+                detail = (
+                    f"exportados {exported_count}/{len(block_names)} "
+                    f"bloques SD a {plc_dir}"
+                )
+                logger.info(
+                    f"[{self.nombre}] {self._plc_name}: {detail}"
+                )
+                return detail
 
-            case "parsear_scl":
+            case "Parsear headers SCL":
                 parsed_count = 0
                 for entry in self._blocks_data:
                     sd_path = entry.get("sd_path")
@@ -306,9 +323,13 @@ class FunctionBlockEditPrepare(FunctionBase):
                     entry["extended_props"] = extended
                     parsed_count += 1
 
-                return f"parseados {parsed_count} headers SCL"
+                detail = f"parseados {parsed_count} headers SCL"
+                logger.info(
+                    f"[{self.nombre}] {self._plc_name}: {detail}"
+                )
+                return detail
 
-            case "merge_cache":
+            case "Combinar DTOs en cache":
                 # Slot ``block_edit_prepared`` declarado formalmente en
                 # ``AppCache`` (commit A.3); helper set/get/clear usan
                 # ``mutate(slot=...)`` para reemplazar atomicamente.
@@ -346,7 +367,13 @@ class FunctionBlockEditPrepare(FunctionBase):
                         if (e.get("extended_props") or {}).get("comment")
                     ),
                 }
-                return f"merge OK: {merged_count} bloques en app_cache"
+                detail = (
+                    f"merge OK: {merged_count} bloques en app_cache"
+                )
+                logger.info(
+                    f"[{self.nombre}] {self._plc_name}: {detail}"
+                )
+                return detail
 
             case _:
                 raise ValueError(f"step no soportado: {step_nombre!r}")
