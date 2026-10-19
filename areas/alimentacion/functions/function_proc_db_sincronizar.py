@@ -813,23 +813,18 @@ class FunctionProcDBSincronizar(FunctionBase):
                 {
                     "operations": [
                         {
-                            "command": "export_block",
+                            "command": "export_blocks",
                             "args": {
                                 "plc_name": plc_name,
-                                "block_name": slot_map.db_param_name,
                                 "target_dir": str(preview_bloques),
+                                "block_names": [
+                                    slot_map.db_param_name,
+                                    slot_map.db_alm_name,
+                                ],
                             },
                         },
                         {
-                            "command": "export_block",
-                            "args": {
-                                "plc_name": plc_name,
-                                "block_name": slot_map.db_alm_name,
-                                "target_dir": str(preview_bloques),
-                            },
-                        },
-                        {
-                            "command": "export_plc_tags_xml",
+                            "command": "export_tables",
                             "args": {
                                 "plc_name": plc_name,
                                 "target_dir": str(preview_variables),
@@ -1198,11 +1193,11 @@ async def _proc_tx_b_detectar_eliminar_export(ctx: ProcSyncContext) -> None:
     op_block_names: list[str] = []
     if ctx.slot_map.db_param_name not in ctx.slot_map.db_missing:
         operations.append({
-            "command": "export_block",
+            "command": "export_blocks",
             "args": {
                 "plc_name": plc_name,
-                "block_name": ctx.slot_map.db_param_name,
                 "target_dir": exports_param_dir,
+                "block_names": [ctx.slot_map.db_param_name],
             },
         })
         op_block_names.append(ctx.slot_map.db_param_name)
@@ -1210,11 +1205,11 @@ async def _proc_tx_b_detectar_eliminar_export(ctx: ProcSyncContext) -> None:
         exports_param_dir = None
     if ctx.slot_map.db_alm_name not in ctx.slot_map.db_missing:
         operations.append({
-            "command": "export_block",
+            "command": "export_blocks",
             "args": {
                 "plc_name": plc_name,
-                "block_name": ctx.slot_map.db_alm_name,
                 "target_dir": exports_alm_dir,
+                "block_names": [ctx.slot_map.db_alm_name],
             },
         })
         op_block_names.append(ctx.slot_map.db_alm_name)

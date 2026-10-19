@@ -826,9 +826,9 @@ async def test_proc_tx_b_detectar_eliminar_export_filtra_por_db_missing(
     # Solo 1 op: el export de DB_PARAM. DB_ALM esta en db_missing y
     # no se envia al worker.
     assert len(dispatched_ops) == 1
-    assert dispatched_ops[0]["command"] == "export_block"
+    assert dispatched_ops[0]["command"] == "export_blocks"
     assert (
-        dispatched_ops[0]["args"]["block_name"] == "DB3000_CPR_PARAM"
+        dispatched_ops[0]["args"]["block_names"] == ["DB3000_CPR_PARAM"]
     )
     # ctx.exports_param_dir conserva el path; ctx.exports_alm_dir
     # queda None (DB_ALM omitido).
@@ -899,7 +899,7 @@ async def test_proc_tx_b_detectar_eliminar_export_envuelve_ambos_si_no_falta(
         await _proc_tx_b_detectar_eliminar_export(ctx)
 
     assert len(dispatched_ops) == 2
-    assert {op["args"]["block_name"] for op in dispatched_ops} == {
+    assert {op["args"]["block_names"][0] for op in dispatched_ops} == {
         "DB3000_CPR_PARAM",
         "DB3001_CPR_ALM",
     }
