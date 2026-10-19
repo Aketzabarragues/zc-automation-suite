@@ -280,14 +280,14 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
         self._ctx.tag_table = tag_table
         self._ctx.config_table = config_table
 
-        # 2/3: export_plc_tags_xml (2 tablas) en 1 dispatch FLAT.
+        # 2/3: export_tables (2 tablas) en 1 dispatch FLAT.
         # Si el worker falla (Tia puede no tener las tablas aun),
         # ``dispatch_async`` retorna None (no raise). Capturamos y
         # seguimos: compute_* vera ``missing_xml=True`` y devolvera
         # diff vacio para esa parte.
         tags_result = await dispatch_async(
             self._ctx.tia_client,
-            "export_plc_tags_xml",
+            "export_tables",
             {
                 "plc_name": self._ctx.plc_name,
                 "target_dir": str(self._ctx.preview_disp_dir),
@@ -297,7 +297,7 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
         )
         if tags_result is None:
             warning = (
-                f"export_plc_tags_xml fallo (Tia puede no tener "
+                f"export_tables fallo (Tia puede no tener "
                 f"'{config_table}' o '{tag_table}' todavia). "
                 f"Tablas entities marcadas como missing_xml."
             )
@@ -309,20 +309,20 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
                 f"{self._ctx.preview_disp_dir}"
             )
 
-        # 3/3: export_block (DB6_ENT) a preview/bloques/.
+        # 3/3: export_blocks (DB6_ENT) a preview/bloques/.
         block_result = await dispatch_async(
             self._ctx.tia_client,
-            "export_block",
+            "export_blocks",
             {
                 "plc_name": self._ctx.plc_name,
-                "block_name": db_name,
                 "target_dir": str(self._ctx.preview_bloques_dir),
+                "block_names": [db_name],
             },
             timeout_s=60.0,
         )
         if block_result is None:
             warning = (
-                f"export_block fallo: bloque '{db_name}' no encontrado "
+                f"export_blocks fallo: bloque '{db_name}' no encontrado "
                 f"en PLC '{self._ctx.plc_name}'. "
                 f"Comments diff no disponible."
             )
