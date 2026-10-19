@@ -604,3 +604,60 @@ def test_segundo_prepare_borra_sd_previos(
     assert remaining == ["DB2000_ED.s7dcl"], (
         f"se esperaban solo DB2000_ED.s7dcl, hay: {remaining}"
     )
+
+
+# ── 9. 2º prepare reemplaza cache, no acumula entries del 1er ───────
+
+
+def test_segundo_prepare_reemplaza_cache_sin_acumular(
+    app_cache: AppCache,
+    real_progress: ProgressTracker,
+) -> None:
+    """2º prepare con bloques distintos: el cache NO acumula entries.
+
+    Reproduce el bug reportado por el operario: tras un 1er prepare
+    con un bloque y un 2º prepare con un bloque diferente (sobre la
+    MISMA instancia del FB reusada por el supervisor, no una nueva),
+    el cache ``block_edit_prepared[plc_name]`` debe contener SOLO
+    los del 2º prepare.
+
+    Si el FB arrastra ``self._blocks_data`` entre llamadas (no se
+    limpia en on_start al re-arrancar), merge_cache itera sobre los
+    entries viejos + nuevos y los mete todos: el operario ve bloques
+    del prepare anterior que no selecciono.
+    """
+    block_db = _make_cached_dto("DB2000_ED", 2000, "DB", "DB2000_ED")
+    block_fc = _make_cached_dto(
+        "FC2000_ZC_ED", 2000, "FC", "FC2000_ZC_ED",
+    )
+    tia_client = _make_tia_client(_copy_s7dcl_export)
+
+    # UNA sola instancia del FB reusada entre los dos prepares (mismo
+    # patron que el supervisor real: FB re-arrancable, no instanciado
+    # de nuevo).
+    fb = _make_fb(app_cache, tia_client, real_progress)
+
+    # 1er prepare: solo DB2000_ED.
+    _seed_plc_blocks(app_cache, "PLC_1", [block_db])
+    _run_fb(fb, plc_name="PLC_1", selected_block_paths=["DB2000_ED"])
+    assert fb.nStep == fb.n_done
+
+    cached_after_first = app_cache.get_block_edit_prepared("PLC_1")
+    assert set(cached_after_first.keys()) == {"DB2000_ED"}
+
+    # 2º prepare sobre la MISMA instancia del FB: solo FC2000_ZC_ED
+    # (distinto del 1er).
+    _seed_plc_blocks(app_cache, "PLC_1", [block_fc])
+    _run_fb(fb, plc_name="PLC_1", selected_block_paths=["FC2000_ZC_ED"])
+    assert fb.nStep == fb.n_done
+
+    cached_after_second = app_cache.get_block_edit_prepared("PLC_1")
+    assert "FC2000_ZC_ED" in cached_after_second
+    assert "DB2000_ED" not in cached_after_second, (
+        "BUG: el cache arrastra el bloque del 1er prepare. "
+        "self._blocks_data deberia limpiarse en on_start al re-arrancar "
+        "para que merge_cache itere solo sobre el prepare actual."
+    )
+    assert fb.result["n_blocks"] == 1, (
+        f"result.n_blocks deberia ser 1 (solo FC), no {fb.result['n_blocks']}"
+    )

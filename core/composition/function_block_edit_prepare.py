@@ -139,6 +139,13 @@ class FunctionBlockEditPrepare(FunctionBase):
         self._selected_block_paths = [
             str(p) for p in selected_block_paths
         ]
+        # FB re-arrancable: una sola instancia se reusa entre prepares.
+        # ``self._blocks_data`` se popula en ``Leer bloques desde cache``
+        # y se consume en los stages siguientes; si arrastra entries del
+        # prepare anterior, merge_cache itera sobre ellos y el cache
+        # ``block_edit_prepared[plc_name]`` acaba con bloques que el
+        # operario NO selecciono en este prepare.
+        self._blocks_data = []
         logger.debug(
             f"[{self.nombre}] Iniciando preparacion de "
             f"{len(self._selected_block_paths)} bloques en '{self._plc_name}'"
