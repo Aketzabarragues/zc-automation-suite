@@ -671,8 +671,14 @@ export default {
                     <!-- Árbol único vertical estilo TIA Portal (compactado: solo pastilla + nombre) -->
                     <div class="flex-1 min-h-0 overflow-y-auto bg-surface-raised border border-line rounded text-xs" data-testid="block-editor-tree">
                         <div v-for="node in tree.nodes" :key="node.id" class="flex items-center gap-2 px-2 py-0.5 hover:bg-surface-sunken" :style="{ paddingLeft: (node.depth * 16 + 4) + 'px' }" :data-testid="'block-editor-' + node.kind + '-' + (node.kind === 'folder' ? node.fullPath : node.block.nombre)">
-                            <!-- Chevron para carpetas con hijos -->
-                            <span v-if="node.kind === 'folder' && node.hasChildren" class="cursor-pointer select-none w-4 inline-flex items-center justify-center text-gray-500 hover:text-gray-700" @click="toggleFolder(node.fullPath)">{{ node.expanded ? '▼' : '▶' }}</span>
+                            <!-- Chevron para carpetas con hijos.
+                                \uFE0E = variation selector 15 (text presentation):
+                                fuerza al navegador a pintar el glifo como
+                                texto plano (gris/negro, sin fondo). Sin el
+                                VS-15, U+25B6 lo renderiza como emoji con
+                                fondo cuadrado azul + flecha blanca en
+                                algunos fonts del sistema. -->
+                            <span v-if="node.kind === 'folder' && node.hasChildren" class="cursor-pointer select-none w-4 inline-flex items-center justify-center text-gray-500 hover:text-gray-700" @click="toggleFolder(node.fullPath)">{{ node.expanded ? '\u25BC\uFE0E' : '\u25B6\uFE0E' }}</span>
                             <span v-else-if="node.kind === 'folder'" class="w-4"></span>
                             <span v-else class="w-4"></span>
                             <!-- Checkbox -->
