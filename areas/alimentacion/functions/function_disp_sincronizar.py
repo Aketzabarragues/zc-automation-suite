@@ -344,7 +344,7 @@ class FunctionDispSincronizar(FunctionBase):
             {
                 "operations": [
                     {
-                        "command": "export_plc_tags_xml",
+                        "command": "export_tables",
                         "args": {
                             "plc_name": self._ctx.plc_name,
                             "target_dir": str(self._ctx.tags_base),
@@ -551,7 +551,7 @@ class FunctionDispSincronizar(FunctionBase):
             {
                 "operations": [
                     {
-                        "command": "export_plc_tags_xml",
+                        "command": "export_tables",
                         "args": {
                             "plc_name": self._ctx.plc_name,
                             "target_dir": str(disp_ctx.sync_variables_export),
@@ -765,15 +765,14 @@ class FunctionDispSincronizar(FunctionBase):
             {
                 "operations": [
                     {
-                        "command": "export_block",
+                        "command": "export_blocks",
                         "args": {
                             "plc_name": self._ctx.plc_name,
-                            "block_name": db_name,
                             "target_dir": str(exports_bloques),
+                            "block_names": list(db_names.values()),
                             "keep_folder_structure": True,
                         },
                     }
-                    for hw_type, db_name in db_names.items()
                 ],
             },
         )
@@ -939,7 +938,7 @@ class FunctionDispSincronizar(FunctionBase):
                 {
                     "operations": [
                         {
-                            "command": "export_plc_tags_xml",
+                            "command": "export_tables",
                             "args": {
                                 "plc_name": self._ctx.plc_name,
                                 "target_dir": str(preview_config),
@@ -948,7 +947,7 @@ class FunctionDispSincronizar(FunctionBase):
                             },
                         },
                         {
-                            "command": "export_plc_tags_xml",
+                            "command": "export_tables",
                             "args": {
                                 "plc_name": self._ctx.plc_name,
                                 "target_dir": str(preview_disp),
