@@ -265,13 +265,22 @@ export default {
             () => totalSelected.value > 0 && editMode.value === "idle"
         );
         const selectedBlocks = computed(() => {
-            const t = tree.value;
-            if (!t || !Array.isArray(t.nodes)) return [];
+            // Itera sobre TODOS los bloques del cache (``blocks.value``),
+            // NO sobre ``tree.value.nodes``. Los nodos visibles son solo
+            // un subconjunto (carpetas colapsadas ocultan sus hijos);
+            // si el operario selecciona una carpeta colapsada,
+            // ``selectedKeys`` contiene los descendientes pero no aparecen
+            // en ``tree.nodes``. Filtrar por ``blocks.value`` mantiene
+            // coherencia con ``totalSelected`` (``selectedKeys.size``) y
+            // permite que ``startEdit`` envie al backend todos los
+            // bloques seleccionados.
             const sel = selectedKeys.value;
+            const list = blocks.value;
+            if (!Array.isArray(list) || list.length === 0) return [];
             const out = [];
-            for (const node of t.nodes) {
-                if (node.kind === "block" && sel.has(node.block.nombre)) {
-                    out.push(node.block);
+            for (const b of list) {
+                if (b && sel.has(b.nombre)) {
+                    out.push(b);
                 }
             }
             return out;
