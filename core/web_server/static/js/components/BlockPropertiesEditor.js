@@ -257,7 +257,11 @@ export default {
 
         // Modo del card derecho: "idle" muestra el placeholder FASE 1;
         // "preparing" muestra spinner mientras /prepare corre;
-        // "editing" muestra la tabla editable inline con los 10 campos del DTO.
+        // "editing" muestra la tabla editable inline con los 7 campos
+        // visibles del DTO (Tipo, Name, Number, Title, Comment, Author,
+        // Version). Los otros 3 (``programming_language``,
+        // ``memory_layout``, ``ruta``) vienen en el DTO pero no se
+        // renderizan en la UI.
         const editMode = ref("idle");
         const canEdit = computed(
             () => totalSelected.value > 0 && editMode.value === "idle"
@@ -309,7 +313,11 @@ export default {
         // ``DataBloquePLC`` (``nombre``, ``numero``, ``tipo``, ``ruta``,
         // ``title``, ``comment``, ``author``, ``version``,
         // ``programming_language``, ``memory_layout``) + ``path``
-        // (key del dict backend, separador "/").
+        // (key del dict backend, separador "/"). La UI renderiza 7
+        // columnas (Tipo, Name*, Number*, Title, Comment, Author,
+        // Version); los otros 3 (``ruta``, ``programming_language``,
+        // ``memory_layout``) quedan en el dict para uso interno /
+        // debug y no se muestran.
         const preparedBlocks = ref([]);
         const preparedBlocksByPath = computed(() => {
             const map = {};
@@ -719,7 +727,8 @@ export default {
                         <p>Preparando {{ selectedBlocks.length }} bloques contra TIA Portal…</p>
                         <p class="text-[10px]">Exporta SD + parsea SCL + cachea DTOs. Puede tardar 30-90s.</p>
                     </div>
-                    <!-- Modo editing: tabla editable inline con los 10 campos del DTO -->
+                    <!-- Modo editing: tabla editable inline con 7 columnas (Tipo, Name,
+                         Number, Title, Comment, Author, Version). -->
                     <div v-else class="flex-1 min-h-0 flex flex-col gap-3" data-testid="block-editor-edit-table">
                         <div>
                             <h3 class="text-sm font-bold text-ink">Edición de propiedades</h3>
@@ -739,15 +748,12 @@ export default {
                                 <thead class="sticky top-0 bg-surface-raised text-ink-muted">
                                     <tr>
                                         <th class="px-2 py-1 text-left">Tipo</th>
-                                        <th class="px-2 py-1 text-right">#orig</th>
                                         <th class="px-2 py-1 text-left">Name*</th>
                                         <th class="px-2 py-1 text-right">Number*</th>
                                         <th class="px-2 py-1 text-left">Title</th>
                                         <th class="px-2 py-1 text-left">Comment</th>
                                         <th class="px-2 py-1 text-left">Author</th>
                                         <th class="px-2 py-1 text-left">Version</th>
-                                        <th class="px-2 py-1 text-left">Lang</th>
-                                        <th class="px-2 py-1 text-left">MemLayout</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -755,7 +761,6 @@ export default {
                                         <td class="px-2 py-1">
                                             <span :style="typeStyle(block.tipo)" class="shrink-0" :data-tipo="block.tipo" :title="block.tipo">{{ tipoLabel(block.tipo) }}</span>
                                         </td>
-                                        <td class="px-2 py-1 text-right font-mono text-ink-muted">{{ block.numero ?? '—' }}</td>
                                         <td class="px-2 py-1">
                                             <input type="text"
                                                 :value="getPendingValue(block.path, 'nombre')"
@@ -776,8 +781,6 @@ export default {
                                         <td class="px-2 py-1 font-mono text-ink-muted truncate max-w-xs" :title="block.comment || ''">{{ block.comment || '—' }}</td>
                                         <td class="px-2 py-1 text-ink-muted truncate max-w-xs" :title="block.author || ''">{{ block.author || '—' }}</td>
                                         <td class="px-2 py-1 text-ink-muted truncate max-w-xs" :title="block.version || ''">{{ block.version || '—' }}</td>
-                                        <td class="px-2 py-1 text-ink-muted truncate max-w-xs">{{ block.programming_language || '—' }}</td>
-                                        <td class="px-2 py-1 text-ink-muted truncate max-w-xs">{{ block.memory_layout || '—' }}</td>
                                     </tr>
                                 </tbody>
                             </table>
