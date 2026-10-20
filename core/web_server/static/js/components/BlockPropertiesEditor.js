@@ -802,8 +802,8 @@ export default {
                                             <textarea
                                                 :value="block.comment ?? ''"
                                                 readonly
-                                                rows="1"
                                                 title="Comment: pendiente de soporte backend (whitelist actual: name, number)"
+                                                style="min-height: 24px; min-width: 160px;"
                                                 class="font-mono px-1 py-0.5 rounded w-full border border-line bg-surface-sunken text-ink-muted"
                                                 :data-testid="'block-editor-input-comment-' + block.nombre"></textarea>
                                         </td>
