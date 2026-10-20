@@ -275,77 +275,82 @@ def _scan_block_group_recursive(group_or_blocks: Any) -> list[dict]:
 
 
 def _find_block_in_plc(plc: Any, block_name: str, block_path: str) -> Any:
-    """Resuelve un PlcBlock por nombre + jerarquía dentro de un PLC.
+    """Resuelve un PlcBlock por nombre dentro de un PLC (búsqueda recursiva).
 
-    Itera recursivamente sobre el árbol de bloques/grupos del PLC buscando
-    un bloque cuyo ``name`` coincida con ``block_name``. Si ``block_path``
-    es vacío, busca solo en el nivel raíz; si tiene segmentos separados
-    por ``"\\"``, navega primero por la jerarquía de grupos.
+    TIA exige nombres de bloque únicos dentro de un PLC, así que el nombre
+    basta para identificar el bloque de forma unívoca. Por eso el lookup
+    es una caminata recursiva sobre grupos + bloques comparando solo
+    ``get_name()``.
+
+    ``block_path`` se acepta por compatibilidad de firma pero NO se usa
+    para navegar: ``DataBloquePLC.ruta`` proviene de ``ProgramBlock.get_path()``,
+    cuyo formato no es una jerarquía de grupos (puede devolver el nombre
+    del propio bloque, o una ruta relativa al contenedor inmediato).
+    Interpretarlo como grupos fallaba con
+    ``RuntimeError: no se encontró grupo 'X' en path 'X'`` cuando el
+    bloque vivía en la raíz del PLC.
 
     Args:
         plc: instancia ``Plc`` (objeto nativo TIA vía ``siemens_tia_scripting``).
-        block_name: nombre del bloque SIN ruta (e.g. ``"DB1"``).
-        block_path: jerarquía TIA con separador ``"\\"``. ``""`` si está
-            en el nivel raíz del PLC.
+        block_name: nombre del bloque (e.g. ``"DB1"``).
+        block_path: ignorado en la búsqueda (ver docstring). Se mantiene
+            como parámetro porque la firma la consume el handler
+            ``update_block_property``.
 
     Returns:
         El ``PlcBlock`` encontrado.
 
     Raises:
-        RuntimeError: si el bloque no se encuentra o el path no resuelve.
-            El handler ``update_block_property`` confía en este raise para
-            hacer rollback de la transacción.
+        RuntimeError: si el bloque no existe en el PLC. El handler
+            ``update_block_property`` confía en este raise para hacer
+            rollback de la transacción.
     """
-    def _norm(s: str) -> str:
-        return (s or "").replace("/", "\\").strip()
-
-    target_path = _norm(block_path)
-
-    candidates_groups: list[Any] = [plc]
-
-    if target_path:
-        for segment in target_path.split("\\"):
-            segment = segment.strip()
-            if not segment:
-                continue
-            next_groups: list[Any] = []
-            for grp in candidates_groups:
-                try:
-                    sub = grp.get_groups() if hasattr(grp, "get_groups") else []
-                except Exception:
-                    sub = []
-                for g in sub:
-                    name = _safe_get_block_name(g)
-                    if name is None:
-                        continue
-                    if name == segment:
-                        next_groups.append(g)
-                        break
-            if not next_groups:
-                raise RuntimeError(
-                    f"_find_block_in_plc: no se encontró grupo "
-                    f"{segment!r} en path {block_path!r}"
-                )
-            candidates_groups = next_groups
-
-    for grp in candidates_groups:
+    def _blocks_of(node: Any) -> list[Any]:
         try:
-            blocks = grp.get_program_blocks() if hasattr(grp, "get_program_blocks") else (
-                grp.get_blocks() if hasattr(grp, "get_blocks") else []
-            )
+            if hasattr(node, "get_program_blocks"):
+                return list(node.get_program_blocks() or [])
+            if hasattr(node, "get_blocks"):
+                return list(node.get_blocks() or [])
         except Exception:
-            blocks = []
+            return []
+        return []
 
-        for b in blocks:
-            name = _safe_get_block_name(b)
-            if name is None:
-                continue
-            if name == block_name:
+    def _groups_of(node: Any) -> list[Any]:
+        try:
+            if hasattr(node, "get_groups"):
+                return list(node.get_groups() or [])
+            if hasattr(node, "Groups"):
+                return list(node.Groups or [])
+        except Exception:
+            return []
+        return []
+
+    visited: set[int] = set()
+
+    def visit(node: Any) -> Any:
+        node_id = id(node)
+        if node_id in visited:
+            return None
+        visited.add(node_id)
+
+        for b in _blocks_of(node):
+            if _safe_get_block_name(b) == block_name:
                 return b
+
+        for g in _groups_of(node):
+            found = visit(g)
+            if found is not None:
+                return found
+        return None
+
+    found = visit(plc)
+    if found is not None:
+        return found
 
     raise RuntimeError(
         f"_find_block_in_plc: no se encontró bloque {block_name!r} "
-        f"en path {block_path!r}"
+        f"en el PLC (busqueda recursiva por nombre). block_path "
+        f"recibido: {block_path!r}"
     )
 
 
