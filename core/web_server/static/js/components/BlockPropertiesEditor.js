@@ -14,9 +14,10 @@
  * campos. Tras el OK, ``apiGetPreparedBlocks`` devuelve el cache
  * y la SPA pinta la tabla editable inline para Name + Number.
  * El boton "Aplicar" envia ``apiBlockEditApply`` (FB
- * ``block_edit_apply``, transaccion atomica con rollback) y al
- * terminar refresca el snapshot del PLC via ``apiScanPlcBlocks``
- * para que el arbol refleje los nuevos nombres/numeros.
+ * ``block_edit_apply``, transaccion atomica con rollback). El FB
+ * refresca el snapshot del PLC en su ultimo step y limpia
+ * ``block_edit_prepared[plc]``; tras el OK la SPA vuelve a ``idle``
+ * y el operario pulsa "Editar" de nuevo para un prepare fresco.
  *
  * Construccion del arbol:
  *   - Las rutas de los bloques (``b.ruta``) son strings con
@@ -57,7 +58,6 @@ import {
     apiBlockEditApply,
     apiBlockEditPrepare,
     apiGetPreparedBlocks,
-    apiScanPlcBlocks,
 } from "../api.js";
 
 const STALE_AFTER_MS = 5 * 60 * 1000;
@@ -509,20 +509,31 @@ export default {
                 return;
             }
 
-            // Refrescar cache del PLC para que el arbol refleje los
-            // nuevos nombres/numeros. Esto ademas limpia
-            // ``block_edit_prepared[plc]`` (lo hace el FB en
-            // ``refresh_cache``); la SPA tambien lo borra localmente
-            // para no mostrar cache obsoleto si el operario re-edita.
-            const scan = await apiScanPlcBlocks(plc);
-            if (!scan.ok || !scan.data || !scan.data.ok) {
-                operationStatus.value = "error";
-                operationError.value =
-                    (scan.data && scan.data.error) ||
-                    `HTTP ${scan.status} refrescando cache del PLC`;
-                return;
-            }
-
+            // No hay que re-escanear aqui: el ultimo step del FB
+            // (``Refrescar cache``) ya llama a
+            // ``scan_plc_blocks(force_refresh=True)`` y ademas limpia
+            // ``block_edit_prepared[plc]``. Repetirlo desde la SPA
+            // costaba un segundo scan completo de 15-26s sobre el PLC
+            // (173 bloques) por cada apply.
+            //
+            // Tras un apply el estado en TIA cambio (nombres/numeros
+            // nuevos), asi que la seleccion del arbol y los
+            // ``pendingEdits`` keyed por ``path`` (que codifica el
+            // nombre viejo) quedaron invalidos. Se vuelve a ``idle``
+            // y el operario tiene que pulsar "Editar" de nuevo para
+            // un ``prepare`` fresco contra el estado real de TIA.
+            //
+            // ``clearSelection`` es obligatorio, no cosmetico:
+            // ``selectedKeys`` guarda NOMBRES de bloque. Si el apply
+            // renombro ``test`` -> ``FC11_TEST``, la cache ya tiene el
+            // nombre nuevo pero ``selectedKeys`` sigue teniendo
+            // ``test``. El siguiente ``startEdit`` calcula
+            // ``selectedBlocks`` filtrando ``blocks.value`` por
+            // ``selectedKeys``, no encuentra match y aborta en
+            // silencio ("no hace nada"). En vivo:
+            //   _find_block_in_plc: no se encontro bloque 'test'
+            // tras haberlo renombrado en el apply anterior.
+            clearSelection();
             editMode.value = "idle";
             resetEditState();
         }
