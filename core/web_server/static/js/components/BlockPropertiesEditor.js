@@ -643,7 +643,7 @@ export default {
         };
     },
     template: /* html */ `
-        <section class="flex-1 flex flex-col p-5 gap-4" data-testid="block-editor-root">
+        <section class="flex-1 flex flex-col overflow-hidden gap-4" data-testid="block-editor-root">
             <!-- Empty state (cualquiera de los 4 casos) -->
             <div v-if="emptyState.show" class="flex-1 flex items-center justify-center bg-surface-raised border border-dashed border-line rounded p-10 text-center text-ink-muted">
                 <div>
