@@ -472,9 +472,29 @@ export default {
             // Snapshot del dict reactivo (las keys se borran en
             // cancelEdit / startEdit, copiamos para que el await no
             // vea mutaciones).
+            //
+            // Traduccion DTO -> contrato de edicion: los inputs usan los
+            // nombres de campo del DTO (``nombre``/``numero``, español,
+            // ver ``DataBloquePLC``), pero el endpoint ``POST /apply``
+            // espera las keys del contrato de edicion (``name``/``number``,
+            // inglés, que es lo que valida el FB contra
+            // ``_ALLOWED_EDIT_KEYS``). Sin esta traduccion el FB rechaza
+            // el payload con ``ValueError: key 'nombre' no permitida``.
+            // El mapeo field->property vive aqui (borde IT/OT), no en
+            // el backend: asi el API habla un solo vocabulario.
             const edits = {};
             for (const path of Object.keys(pendingEdits)) {
-                edits[path] = { ...pendingEdits[path] };
+                const src = pendingEdits[path];
+                const dst = {};
+                if (Object.prototype.hasOwnProperty.call(src, "nombre")) {
+                    dst.name = src.nombre;
+                }
+                if (Object.prototype.hasOwnProperty.call(src, "numero")) {
+                    dst.number = src.numero;
+                }
+                if (Object.keys(dst).length > 0) {
+                    edits[path] = dst;
+                }
             }
 
             operationStatus.value = "applying";
