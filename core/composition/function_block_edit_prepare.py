@@ -35,6 +35,18 @@ Runtime params via ``start(**kwargs)``:
     segmento es el nombre del bloque; el resto es la jerarquia de
     grupos. Obligatorio (no vacio).
 
+Dos conceptos que no son intercambiables:
+
+  - ``path``: clave de la fila dentro de
+    ``app_cache.block_edit_prepared``. Es el elemento de
+    ``selected_block_paths`` verbatim (``ruta + "/" + nombre``, o
+    ``nombre`` si el bloque esta en la raiz). La SPA la construye asi y
+    la devuelve en ``edits`` al aplicar.
+  - ``ruta`` (``DataBloquePLC.ruta``): jerarquia de GRUPOS tal como la
+    devuelve TIA (``ProgramBlock.get_path()``): ``""`` en la raiz del
+    PLC, ``"Grupo/Subgrupo"`` anidado, separador ``"/"``. Nunca incluye
+    el nombre del bloque.
+
 ``self.result`` se popula con la shape::
 
     {
@@ -204,6 +216,14 @@ class FunctionBlockEditPrepare(FunctionBase):
                         continue
                     entry = {
                         "path": path,
+                        # ``ruta`` es la JERARQUIA DE GRUPOS tal como la
+                        # devuelve TIA (``ProgramBlock.get_path()``,
+                        # separador "/"): "" para bloques en la raiz del
+                        # PLC, "Grupo/Subgrupo" para los anidados. NO
+                        # confundir con ``path``, que es la clave que
+                        # identifica la fila en este cache y que la SPA
+                        # construye como ``ruta + "/" + nombre``.
+                        "ruta": cached.ruta,
                         "name": cached.nombre,
                         "number": cached.numero,
                         "tipo": (
@@ -348,7 +368,7 @@ class FunctionBlockEditPrepare(FunctionBase):
                         nombre=entry.get("name", "") or "",
                         numero=int(entry.get("number", 0) or 0),
                         tipo=entry.get("tipo", "OTHER") or "OTHER",
-                        ruta=entry.get("path", "") or "",
+                        ruta=entry.get("ruta", "") or "",
                         title=ext.get("title"),
                         comment=ext.get("comment"),
                         author=ext.get("author"),

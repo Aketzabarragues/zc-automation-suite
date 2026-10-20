@@ -223,15 +223,19 @@ def test_happy_path_3_bloques_usa_cache_plc_blocks(
     ``wrapper`` sea un MagicMock auto-creado, pero el FB no lo usa).
     """
     blocks = [
-        _make_cached_dto("DB2000_ED", 2000, "DB", "DB2000_ED"),
-        _make_cached_dto("FC2000_ZC_ED", 2000, "FC", "FC2000_ZC_ED"),
-        _make_cached_dto("OB1_MAIN", 1, "OB", "OB1_MAIN"),
+        _make_cached_dto("DB2000_ED", 2000, "DB", "2000_Dispositivos"),
+        _make_cached_dto("FC2000_ZC_ED", 2000, "FC", "ZC_Controles"),
+        _make_cached_dto("OB1_MAIN", 1, "OB", ""),
     ]
     _seed_plc_blocks(app_cache, "PLC_1", blocks)
     tia_client = _make_tia_client(_copy_s7dcl_export)
     fb = _make_fb(app_cache, tia_client, real_progress)
 
-    selected = ["DB2000_ED", "FC2000_ZC_ED", "OB1_MAIN"]
+    selected = [
+        "2000_Dispositivos/DB2000_ED",
+        "ZC_Controles/FC2000_ZC_ED",
+        "OB1_MAIN",
+    ]
     _run_fb(fb, plc_name="PLC_1", selected_block_paths=selected)
 
     assert fb.nStep == fb.n_done
@@ -244,19 +248,26 @@ def test_happy_path_3_bloques_usa_cache_plc_blocks(
     assert fb.result["plc_name"] == "PLC_1"
     assert fb.result["n_blocks"] == 3
 
-    # Cache con los 3 bloques.
+    # Cache con los 3 bloques, indexado por el ``path`` de la SPA.
     cached = app_cache.get_block_edit_prepared("PLC_1")
     assert len(cached) == 3
+    assert set(cached.keys()) == set(selected)
 
     # Cada DTO con los 10 campos poblados.
     # OB1_MAIN no tiene S7_BlockComment en su header SCL (es valido).
     has_comment = {"DB2000_ED", "FC2000_ZC_ED"}
+    expected_ruta = {
+        "2000_Dispositivos/DB2000_ED": "2000_Dispositivos",
+        "ZC_Controles/FC2000_ZC_ED": "ZC_Controles",
+        "OB1_MAIN": "",
+    }
     for path in selected:
         dto = cached[path]
         assert isinstance(dto, DataBloquePLC)
         d = dto.to_dict()
         assert d["nombre"] in ("DB2000_ED", "FC2000_ZC_ED", "OB1_MAIN")
-        assert d["ruta"] == path
+        # ``ruta`` es la jerarquia de GRUPOS del cache, no el ``path``.
+        assert d["ruta"] == expected_ruta[path]
         assert d["tipo"] in ("DB", "FC", "OB")
         assert d["title"] is not None  # del SCL (todos tienen S7_BlockTitle)
         if path in has_comment:
@@ -265,6 +276,37 @@ def test_happy_path_3_bloques_usa_cache_plc_blocks(
         assert d["version"] == "1.0"
         assert d["programming_language"] == "SCL"
         assert d["memory_layout"] == "Optimized"
+
+
+def test_ruta_conserva_jerarquia_de_grupos_del_cache(
+    app_cache: AppCache,
+    real_progress: ProgressTracker,
+) -> None:
+    """``prepared[path].ruta`` viene del DTO cacheado, no del ``path``.
+
+    El ``path`` que la SPA manda es ``ruta + "/" + nombre``. Si el merge
+    copiase esa clave al campo ``ruta`` del DTO, ``ruta`` contendria el
+    nombre del bloque y el worker recibiria una "ruta" que no existe
+    como grupo en TIA.
+    """
+    _seed_plc_blocks(
+        app_cache, "PLC_1",
+        [_make_cached_dto(
+            "FB15051_Cambio", 15051, "FB", "ZC_Controles/3_EnDesarrollo",
+        )],
+    )
+    tia_client = _make_tia_client(_copy_s7dcl_export)
+    fb = _make_fb(app_cache, tia_client, real_progress)
+
+    path = "ZC_Controles/3_EnDesarrollo/FB15051_Cambio"
+    _run_fb(fb, plc_name="PLC_1", selected_block_paths=[path])
+
+    assert fb.nStep == fb.n_done
+    cached = app_cache.get_block_edit_prepared("PLC_1")
+    dto = cached[path]
+    assert dto.ruta == "ZC_Controles/3_EnDesarrollo"
+    # El nombre del bloque NO puede colarse en la ruta.
+    assert dto.nombre not in dto.ruta
 
 
 # ── 2. Seleccion vacia -> ValueError ────────────────────────────────
