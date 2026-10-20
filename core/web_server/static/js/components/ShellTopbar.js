@@ -58,6 +58,7 @@ export default {
             const key = store.currentView;
             if (!key) return "—";
             if (key === "plc") return "PLC";
+            if (key === "block-editor") return "Editor de bloques";
             const m = store.areaManifest;
             if (m && m.components && m.components.viewLabels) {
                 const lbl = m.components.viewLabels[key];
