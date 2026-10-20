@@ -8,8 +8,10 @@ Campos basicos (siempre presentes):
   - numero (int): ordinal numerico (parte tras el prefijo DB/FB/FC/OB/UDT).
     0 si el nombre no encaja en ninguno de esos prefijos.
   - tipo (str): familia normalizada. Uno de ``"DB" | "FB" | "FC" | "OB" | "UDT" | "OTHER"``.
-  - ruta (str): jerarquia TIA con separador ``"\\"``. Vacia si TIA no
-    pudo resolver la ruta (defensivo).
+  - ruta (str): jerarquia de GRUPOS dentro del PLC, separador ``"/"``
+    (lo que devuelve ``ProgramBlock.get_path()``). Vacia para un bloque
+    en la raiz del PLC. No incluye el nombre del bloque. Vacia tambien
+    si TIA no pudo resolver la ruta (defensivo).
 
 Campos extendidos (opcionales, default ``None``). Se populan desde
 TIA via ``PlcBlock.get_properties()`` durante el scan:

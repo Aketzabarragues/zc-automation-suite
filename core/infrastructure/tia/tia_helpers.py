@@ -130,7 +130,11 @@ def _safe_get_block_name(block: Any) -> str | None:
 
 
 def _safe_get_block_path(block: Any) -> str:
-    """Lee la ruta jerarquica de un bloque tolerando COM exceptions.
+    """Lee la jerarquia de GRUPOS de un bloque tolerando COM exceptions.
+
+    ``ProgramBlock.get_path()`` devuelve ``""`` para un bloque en la raiz
+    del PLC y ``"Grupo"`` o ``"Grupo/Subgrupo"`` para los anidados, con
+    separador ``"/"``. No incluye el nombre del bloque.
 
     Devuelve "" si falla (el bloque sigue siendo cacheado con su nombre).
     """
