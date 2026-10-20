@@ -266,12 +266,14 @@ export default {
         const canEdit = computed(
             () => totalSelected.value > 0 && editMode.value === "idle"
         );
-        // El arbol (checkboxes + botones Seleccionar/Limpiar) se bloquea
-        // en cuanto el operario abandona el modo idle (preparando,
-        // editing, applying, error). Asi no puede modificar la
-        // seleccion mientras ``preparedBlocks`` esta fijado en el FB.
-        // Los chevrons siguen funcionando para expandir/colapsar
-        // subcarpetas y leer contexto.
+        // El card del arbol se bloquea en cuanto el operario abandona el
+        // modo idle (preparando, editing, applying, error). Asi no
+        // puede modificar la seleccion mientras ``preparedBlocks``
+        // esta fijado en el FB. Se aplica ``pointer-events-none`` +
+        // ``opacity-50`` al card completo (no a controles
+        // individuales): un solo sitio, un solo estado, una sola
+        // pista visual. El card gris + no-clickable deja claro que
+        // la seleccion esta fijada hasta que termine la operacion.
         const treeLocked = computed(() => editMode.value !== "idle");
         const selectedBlocks = computed(() => {
             // Itera sobre TODOS los bloques del cache (``blocks.value``),
@@ -660,7 +662,7 @@ export default {
             <!-- Árbol + card edición: layout 2 columnas (1/3 + 2/3) -->
             <div v-else class="flex-1 min-h-0 grid grid-cols-3 gap-4">
                 <!-- Columna izquierda 1/3: árbol compacto (sin columnas de metadata) -->
-                <div class="col-span-1 flex flex-col bg-surface-raised border border-line rounded p-5 gap-3 min-h-0" data-testid="block-editor-tree-card">
+                <div class="col-span-1 flex flex-col bg-surface-raised border border-line rounded p-5 gap-3 min-h-0" :class="treeLocked ? 'pointer-events-none opacity-50' : ''" data-testid="block-editor-tree-card">
                     <!-- Header: titulo+subtitulo (izq) | contador+limpiar (der) -->
                     <div class="flex items-start justify-between gap-3">
                         <div>
@@ -669,13 +671,13 @@ export default {
                         </div>
                         <div class="flex items-center gap-3 text-xs shrink-0">
                             <span class="text-ink-muted">{{ totalSelected }} seleccionados</span>
-                            <button v-if="totalSelected > 0" @click="clearSelection" :disabled="treeLocked" :class="treeLocked ? 'text-ink-muted/40 cursor-not-allowed' : 'text-ink-muted hover:text-ink underline'">Limpiar</button>
+                            <button v-if="totalSelected > 0" @click="clearSelection" class="text-ink-muted hover:text-ink underline">Limpiar</button>
                         </div>
                     </div>
                     <!-- Strip de acciones: maestro + expand/collapse -->
                     <div class="flex items-center gap-3 text-xs flex-wrap">
                         <label class="flex items-center gap-2">
-                            <input type="checkbox" :checked="totalSelected === tree.totalBlocks" :indeterminate.prop="totalSelected > 0 && totalSelected < tree.totalBlocks" @change="toggleSelectAll" :disabled="treeLocked" data-testid="block-editor-select-all" />
+                            <input type="checkbox" :checked="totalSelected === tree.totalBlocks" :indeterminate.prop="totalSelected > 0 && totalSelected < tree.totalBlocks" @change="toggleSelectAll" data-testid="block-editor-select-all" />
                             <span>Seleccionar todos ({{ tree.totalBlocks }} bloques)</span>
                         </label>
                         <button @click="expandAll" class="text-xs text-ink-muted hover:text-ink underline" data-testid="block-editor-expand-all">Expandir todo</button>
@@ -695,8 +697,8 @@ export default {
                             <span v-else-if="node.kind === 'folder'" class="w-4"></span>
                             <span v-else class="w-4"></span>
                             <!-- Checkbox -->
-                            <input v-if="node.kind === 'folder'" type="checkbox" :checked="isFolderFullySelected(node)" :indeterminate.prop="isFolderPartiallySelected(node)" @change="toggleSelectFolder(node)" :disabled="treeLocked" :data-testid="'block-editor-folder-select-' + node.fullPath" class="shrink-0" />
-                            <input v-else type="checkbox" :checked="selectedKeys.has(node.block.nombre)" @change="toggleSelect(node.block.nombre)" :disabled="treeLocked" :data-testid="'block-editor-row-' + node.block.nombre" class="shrink-0" />
+                            <input v-if="node.kind === 'folder'" type="checkbox" :checked="isFolderFullySelected(node)" :indeterminate.prop="isFolderPartiallySelected(node)" @change="toggleSelectFolder(node)" :data-testid="'block-editor-folder-select-' + node.fullPath" class="shrink-0" />
+                            <input v-else type="checkbox" :checked="selectedKeys.has(node.block.nombre)" @change="toggleSelect(node.block.nombre)" :data-testid="'block-editor-row-' + node.block.nombre" class="shrink-0" />
                             <!-- Icono pastilla + nombre (sin columnas de numero/tipo/ruta) -->
                             <span v-if="node.kind === 'block'" :style="typeStyle(node.block.tipo)" class="shrink-0" :data-tipo="node.block.tipo" :title="node.block.tipo">{{ tipoLabel(node.block.tipo) }}</span>
                             <span v-else class="w-4 text-center shrink-0" aria-hidden="true">{{ node.expanded ? '📂' : '📁' }}</span>
