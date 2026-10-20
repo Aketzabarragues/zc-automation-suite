@@ -644,13 +644,6 @@ export default {
     },
     template: /* html */ `
         <section class="flex-1 flex flex-col p-5 gap-4" data-testid="block-editor-root">
-            <!-- Cabecera -->
-            <header class="flex items-center gap-3">
-                <h2 class="text-lg font-bold text-ink">Editor de bloques</h2>
-                <span class="text-xs text-ink-muted">PLC: <strong class="text-ink">{{ selectedPlc || "—" }}</strong></span>
-                <span class="ml-auto text-xs text-ink-muted">{{ totalSelected }} seleccionados</span>
-                <span v-if="isStale" class="text-xs px-2 py-1 rounded bg-amber-100 text-amber-800 border border-amber-300">Cache obsoleta</span>
-            </header>
             <!-- Empty state (cualquiera de los 4 casos) -->
             <div v-if="emptyState.show" class="flex-1 flex items-center justify-center bg-surface-raised border border-dashed border-line rounded p-10 text-center text-ink-muted">
                 <div>
