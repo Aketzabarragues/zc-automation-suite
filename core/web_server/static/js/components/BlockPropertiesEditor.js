@@ -740,7 +740,7 @@ export default {
                         <div>
                             <h3 class="text-sm font-bold text-ink">Edición de propiedades</h3>
                             <p class="text-xs text-ink-muted mt-1">
-                                Edita <strong class="text-ink">Name</strong> y/o <strong class="text-ink">Number</strong> inline. Aplicar transacciona contra TIA Portal.
+                                <strong class="text-ink">Name</strong> y <strong class="text-ink">Number</strong> son editables y se aplican contra TIA Portal. <strong class="text-ink">Title</strong>, <strong class="text-ink">Comment</strong>, <strong class="text-ink">Author</strong> y <strong class="text-ink">Version</strong> son solo lectura por ahora (backend pendiente de ampliar whitelist).
                             </p>
                             <p v-if="operationStatus === 'applying'" class="text-xs text-accent mt-1" data-testid="block-editor-applying">
                                 <span class="inline-block animate-spin mr-1">↻</span>
@@ -754,20 +754,22 @@ export default {
                             <table class="min-w-full text-xs">
                                 <thead class="sticky top-0 bg-surface-raised text-ink-muted">
                                     <tr>
-                                        <th class="px-2 py-1 text-left">Tipo</th>
-                                        <th class="px-2 py-1 text-left">Name*</th>
-                                        <th class="px-2 py-1 text-right">Number*</th>
-                                        <th class="px-2 py-1 text-left">Title</th>
-                                        <th class="px-2 py-1 text-left">Comment</th>
-                                        <th class="px-2 py-1 text-left">Author</th>
-                                        <th class="px-2 py-1 text-left">Version</th>
+                                        <th class="px-2 py-1 text-left whitespace-nowrap">Tipo</th>
+                                        <th class="px-2 py-1 text-left whitespace-nowrap">Name*</th>
+                                        <th class="px-2 py-1 text-right whitespace-nowrap">Number*</th>
+                                        <th class="px-2 py-1 text-left whitespace-nowrap">Title</th>
+                                        <th class="px-2 py-1 text-left whitespace-nowrap">Comment</th>
+                                        <th class="px-2 py-1 text-left whitespace-nowrap">Author</th>
+                                        <th class="px-2 py-1 text-left whitespace-nowrap">Version</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <tr v-for="block in preparedBlocks" :key="block.path" class="border-t border-line" :data-testid="'block-editor-edit-row-' + block.nombre">
-                                        <td class="px-2 py-1">
+                                        <!-- Tipo: badge compacto. No se expande. -->
+                                        <td class="px-2 py-1 whitespace-nowrap">
                                             <span :style="typeStyle(block.tipo)" class="shrink-0" :data-tipo="block.tipo" :title="block.tipo">{{ tipoLabel(block.tipo) }}</span>
                                         </td>
+                                        <!-- Name / Number: editables (backend los aplica via whitelist). -->
                                         <td class="px-2 py-1">
                                             <input type="text"
                                                 :value="getPendingValue(block.path, 'nombre')"
@@ -784,10 +786,44 @@ export default {
                                                 class="font-mono px-1 py-0.5 rounded w-full text-right border border-line bg-surface-raised text-ink focus:outline-none focus:border-line-strong"
                                                 :data-testid="'block-editor-input-number-' + block.nombre" />
                                         </td>
-                                        <td class="px-2 py-1 font-mono text-ink-muted truncate max-w-xs" :title="block.title || ''">{{ block.title || '—' }}</td>
-                                        <td class="px-2 py-1 font-mono text-ink-muted truncate max-w-xs" :title="block.comment || ''">{{ block.comment || '—' }}</td>
-                                        <td class="px-2 py-1 text-ink-muted truncate max-w-xs" :title="block.author || ''">{{ block.author || '—' }}</td>
-                                        <td class="px-2 py-1 text-ink-muted truncate max-w-xs" :title="block.version || ''">{{ block.version || '—' }}</td>
+                                        <!-- Title: input preparado. disabled: backend solo soporta name/number. -->
+                                        <td class="px-2 py-1">
+                                            <input type="text"
+                                                :value="block.title ?? ''"
+                                                disabled
+                                                title="Title: pendiente de soporte backend (whitelist actual: name, number)"
+                                                class="font-mono px-1 py-0.5 rounded w-full border border-line bg-surface-sunken text-ink-muted cursor-not-allowed"
+                                                :data-testid="'block-editor-input-title-' + block.nombre" />
+                                        </td>
+                                        <!-- Comment: textarea readonly con resize vertical.
+                                             El handle de la esquina inferior derecha sigue
+                                             funcional pese al readonly. -->
+                                        <td class="px-2 py-1">
+                                            <textarea
+                                                :value="block.comment ?? ''"
+                                                readonly
+                                                rows="1"
+                                                title="Comment: pendiente de soporte backend (whitelist actual: name, number)"
+                                                class="font-mono px-1 py-0.5 rounded w-full border border-line bg-surface-sunken text-ink-muted"
+                                                :data-testid="'block-editor-input-comment-' + block.nombre"></textarea>
+                                        </td>
+                                        <!-- Author / Version: inputs preparados. disabled: idem Title. -->
+                                        <td class="px-2 py-1">
+                                            <input type="text"
+                                                :value="block.author ?? ''"
+                                                disabled
+                                                title="Author: pendiente de soporte backend (whitelist actual: name, number)"
+                                                class="px-1 py-0.5 rounded w-full border border-line bg-surface-sunken text-ink-muted cursor-not-allowed"
+                                                :data-testid="'block-editor-input-author-' + block.nombre" />
+                                        </td>
+                                        <td class="px-2 py-1">
+                                            <input type="text"
+                                                :value="block.version ?? ''"
+                                                disabled
+                                                title="Version: pendiente de soporte backend (whitelist actual: name, number)"
+                                                class="font-mono px-1 py-0.5 rounded w-full border border-line bg-surface-sunken text-ink-muted cursor-not-allowed"
+                                                :data-testid="'block-editor-input-version-' + block.nombre" />
+                                        </td>
                                     </tr>
                                 </tbody>
                             </table>
