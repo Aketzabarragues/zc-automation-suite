@@ -157,6 +157,53 @@ def _safe_get_table_name(table: Any) -> str | None:
 # ---------------------------------------------------------------------------
 # Recursion sobre arbol de bloques
 # ---------------------------------------------------------------------------
+def _safe_get_block_number(block: Any, block_name: str) -> int:
+    """Lee el numero real del bloque desde TIA (no lo deduce del nombre).
+
+    Orden de resolucion:
+
+      1. ``get_property(name="Number")`` -- valor real en TIA Portal.
+      2. Atributo ``.Number`` (mocks / wrappers sin ``get_property``).
+      3. Regex ``^(DB|FB|FC|OB|UDT)(\\d+)`` sobre el nombre (ultimo
+         recurso, solo para bloques cuyo nombre siga la convencion
+         numerica y que TIA no exponga numero).
+
+    El paso 3 NO es fuente de verdad: un bloque legitimo puede llamarse
+    ``"Documentacion"`` (FC) o ``"Documentacion"`` y aun asi tener un
+    numero asignado en TIA. Deducirlo del nombre devolvia ``0`` para
+    esos bloques y contaminaba ``DataBloquePLC.numero`` (que la SPA
+    muestra en la columna Number y que el FB apply compara para el
+    diff).
+
+    Returns:
+        El numero del bloque, o ``0`` si TIA no lo expone y el nombre
+        no sigue la convencion numerica.
+    """
+    getter = getattr(block, "get_property", None)
+    if getter is not None:
+        try:
+            raw = getter(name="Number")
+        except Exception:
+            raw = None
+        if raw is not None:
+            try:
+                return int(str(raw).strip())
+            except (TypeError, ValueError):
+                pass
+
+    raw_attr = getattr(block, "Number", None)
+    if raw_attr is not None:
+        try:
+            return int(str(raw_attr).strip())
+        except (TypeError, ValueError):
+            pass
+
+    match = re.match(r"^(DB|FB|FC|OB|UDT)(\d+)", block_name or "", re.IGNORECASE)
+    if match:
+        return int(match.group(2))
+    return 0
+
+
 def _extract_extended_properties(block: Any) -> dict[str, Optional[str]]:
     """Lee las propiedades extendidas del bloque via ``get_property(name=...)``.
 
@@ -246,8 +293,7 @@ def _scan_block_group_recursive(group_or_blocks: Any) -> list[dict]:
             continue
         ruta = _safe_get_block_path(block)
         tipo = classify_block(block)
-        match = re.match(r"^(DB|FB|FC|OB|UDT)(\d+)", nombre, re.IGNORECASE)
-        numero = int(match.group(2)) if match else 0
+        numero = _safe_get_block_number(block, nombre)
         extended = _extract_extended_properties(block)
         out.append(
             DataBloquePLC(
