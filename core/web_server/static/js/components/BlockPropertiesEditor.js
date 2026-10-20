@@ -615,6 +615,7 @@ export default {
             canContinue,
             editMode,
             canEdit,
+            treeLocked,
             selectedBlocks,
             preparedBlocks,
             preparedBlocksByPath,
