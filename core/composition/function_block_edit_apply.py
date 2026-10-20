@@ -86,11 +86,11 @@ class FunctionBlockEditApply(FunctionBase):
             nombre=nombre,
             titulo=titulo,
             steps=steps if steps is not None else [
-                {"nombre": "validar"},
-                {"nombre": "diff"},
-                {"nombre": "transaccion"},
-                {"nombre": "verificar"},
-                {"nombre": "refresh_cache"},
+                {"nombre": "Validar edits"},
+                {"nombre": "Calcular diff"},
+                {"nombre": "Aplicar transaccion"},
+                {"nombre": "Verificar resultado"},
+                {"nombre": "Refrescar cache"},
             ],
             tracker=tracker,
         )
@@ -189,15 +189,19 @@ class FunctionBlockEditApply(FunctionBase):
 
         step_nombre = self.steps[idx]["nombre"]
         match step_nombre:
-            case "validar":
+            case "Validar edits":
                 # Validacion ya en on_start (fuerza fail-fast antes de
                 # tocar TIA). Aqui solo retornamos un detalle.
-                return (
+                detail = (
                     f"edits validados: {len(self._edits)} paths en "
                     f"PLC '{self._plc_name}'"
                 )
+                logger.info(
+                    f"[{self.nombre}] {self._plc_name}: {detail}"
+                )
+                return detail
 
-            case "diff":
+            case "Calcular diff":
                 # Leer cache de prepare via helper (slot declarado en
                 # ``AppCache``, commit A.3). Si vacio -> fail-fast.
                 prepared = self._app_cache.get_block_edit_prepared(
@@ -252,14 +256,18 @@ class FunctionBlockEditApply(FunctionBase):
 
                 if not self._ops:
                     logger.info(
-                        f"[{self.nombre}] no-op: ningun edit produce "
-                        f"diff real contra el cache"
+                        f"[{self.nombre}] {self._plc_name}: no-op, "
+                        f"ningun edit produce diff real contra el cache"
                     )
                     self._noop_mode = True
 
-                return f"diff: {len(self._ops)} ops a aplicar"
+                detail = f"diff: {len(self._ops)} ops a aplicar"
+                logger.info(
+                    f"[{self.nombre}] {self._plc_name}: {detail}"
+                )
+                return detail
 
-            case "transaccion":
+            case "Aplicar transaccion":
                 if self._noop_mode:
                     return "transaccion omitida (no-op)"
 
@@ -295,9 +303,13 @@ class FunctionBlockEditApply(FunctionBase):
 
                 self._batch_result = inner
                 executed = inner.get("operations_executed", 0)
-                return f"transaccion OK: {executed} ops"
+                detail = f"transaccion OK: {executed} ops"
+                logger.info(
+                    f"[{self.nombre}] {self._plc_name}: {detail}"
+                )
+                return detail
 
-            case "verificar":
+            case "Verificar resultado":
                 if self._noop_mode:
                     return "verificacion omitida (no-op)"
                 if self._batch_result is None:
@@ -313,9 +325,13 @@ class FunctionBlockEditApply(FunctionBase):
                 executed = self._batch_result.get(
                     "operations_executed", 0,
                 )
-                return f"verificado: {executed} ops ejecutadas"
+                detail = f"verificado: {executed} ops ejecutadas"
+                logger.info(
+                    f"[{self.nombre}] {self._plc_name}: {detail}"
+                )
+                return detail
 
-            case "refresh_cache":
+            case "Refrescar cache":
                 cache = await scan_plc_blocks(
                     self._plc_name,
                     force_refresh=True,
@@ -326,7 +342,13 @@ class FunctionBlockEditApply(FunctionBase):
                 # El cache de prepare queda obsoleto (DTOs con valores
                 # pre-commit). Forzar re-lectura en el siguiente Editar.
                 self._app_cache.clear_block_edit_prepared(self._plc_name)
-                return f"refresh OK: {len(cache.blocks)} bloques re-escaneados"
+                detail = (
+                    f"refresh OK: {len(cache.blocks)} bloques re-escaneados"
+                )
+                logger.info(
+                    f"[{self.nombre}] {self._plc_name}: {detail}"
+                )
+                return detail
 
             case _:
                 raise ValueError(f"step no soportado: {step_nombre!r}")
