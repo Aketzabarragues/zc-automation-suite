@@ -36,7 +36,7 @@ def block_factory(monkeypatch):
     monkeypatch.setattr(
         tia_cmd_blocks,
         "_find_block_in_plc",
-        lambda _plc, _block_name, _block_path: block,
+        lambda _plc, _block_name: block,
     )
 
     tia_client = MagicMock()
@@ -55,7 +55,6 @@ def test_happy_path_name(block_factory):
         args={
             "plc_name": "PLC_1500",
             "block_name": "DB1",
-            "block_path": "",
             "property_name": "Name",
             "new_value": "DB1_NEW",
         },
@@ -64,7 +63,6 @@ def test_happy_path_name(block_factory):
 
     assert result == {
         "block_name": "DB1",
-        "block_path": "",
         "property_name": "Name",
         "new_value": "DB1_NEW",
     }
@@ -83,7 +81,6 @@ def test_happy_path_number(block_factory):
         args={
             "plc_name": "PLC_1500",
             "block_name": "DB1",
-            "block_path": "Sistema",
             "property_name": "Number",
             "new_value": 42,
         },
@@ -92,11 +89,39 @@ def test_happy_path_number(block_factory):
 
     assert result == {
         "block_name": "DB1",
-        "block_path": "Sistema",
         "property_name": "Number",
         "new_value": 42,
     }
     block.set_property.assert_called_once_with(name="Number", value="42")
+
+
+def test_block_path_ya_no_forma_parte_del_contrato(block_factory):
+    """Un ``block_path`` residual en ``args`` se ignora y no se devuelve.
+
+    El worker localiza el bloque por ``block_name`` (los nombres son
+    unicos dentro de un PLC), asi que la ruta no aporta nada. Este test
+    fija que el handler no la lee ni la devuelve, para que no vuelva a
+    colarse en el payload.
+    """
+    tia_client, block = block_factory
+    block.set_property.return_value = 0
+    block.get_property.return_value = "DB1_NEW"
+
+    result = tia_cmd_blocks._h_update_block_property(
+        args={
+            "plc_name": "PLC_1500",
+            "block_name": "DB1",
+            "block_path": "2000_Dispositivos/DB1",
+            "property_name": "Name",
+            "new_value": "DB1_NEW",
+        },
+        tia_client=tia_client,
+    )
+
+    assert "block_path" not in result
+    assert set(result.keys()) == {
+        "block_name", "property_name", "new_value",
+    }
 
 
 # ------------------------------------------------------------- casos de error
@@ -110,7 +135,6 @@ def test_rc_nonzero_raises_runtime_error(block_factory):
             args={
                 "plc_name": "PLC_1500",
                 "block_name": "DB1",
-                "block_path": "",
                 "property_name": "Name",
                 "new_value": "X",
             },
@@ -129,7 +153,6 @@ def test_reread_mismatch_raises_runtime_error(block_factory):
             args={
                 "plc_name": "PLC_1500",
                 "block_name": "DB1",
-                "block_path": "",
                 "property_name": "Name",
                 "new_value": "NEW_VALUE",
             },
@@ -147,7 +170,6 @@ def test_property_name_invalido_raises_value_error():
             args={
                 "plc_name": "PLC_1500",
                 "block_name": "DB1",
-                "block_path": "",
                 "property_name": "Title",
                 "new_value": "X",
             },
@@ -165,7 +187,6 @@ def test_plc_name_missing_raises_value_error():
             args={
                 "plc_name": "",
                 "block_name": "DB1",
-                "block_path": "",
                 "property_name": "Name",
                 "new_value": "X",
             },

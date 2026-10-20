@@ -320,28 +320,24 @@ def _scan_block_group_recursive(group_or_blocks: Any) -> list[dict]:
     return out
 
 
-def _find_block_in_plc(plc: Any, block_name: str, block_path: str) -> Any:
+def _find_block_in_plc(plc: Any, block_name: str) -> Any:
     """Resuelve un PlcBlock por nombre dentro de un PLC (búsqueda recursiva).
 
-    TIA exige nombres de bloque únicos dentro de un PLC, así que el nombre
-    basta para identificar el bloque de forma unívoca. Por eso el lookup
+    TIA garantiza nombres de bloque únicos dentro de un PLC, así que el
+    nombre basta para identificar el bloque de forma unívoca. El lookup
     es una caminata recursiva sobre grupos + bloques comparando solo
-    ``get_name()``.
+    ``get_name()``, y no navega por ruta.
 
-    ``block_path`` se acepta por compatibilidad de firma pero NO se usa
-    para navegar: ``DataBloquePLC.ruta`` proviene de ``ProgramBlock.get_path()``,
-    cuyo formato no es una jerarquía de grupos (puede devolver el nombre
-    del propio bloque, o una ruta relativa al contenedor inmediato).
-    Interpretarlo como grupos fallaba con
-    ``RuntimeError: no se encontró grupo 'X' en path 'X'`` cuando el
-    bloque vivía en la raíz del PLC.
+    ``ProgramBlock.get_path()`` devuelve la jerarquía de GRUPOS con
+    separador ``"/"``: ``""`` para un bloque en la raíz del PLC,
+    ``"Grupo"`` en un grupo, ``"Grupo/Subgrupo"`` anidado. El nombre del
+    bloque va aparte. Una implementación anterior tomaba ese valor como
+    si fueran grupos y fallaba con ``RuntimeError: no se encontró grupo
+    'X' en path 'X'``.
 
     Args:
         plc: instancia ``Plc`` (objeto nativo TIA vía ``siemens_tia_scripting``).
         block_name: nombre del bloque (e.g. ``"DB1"``).
-        block_path: ignorado en la búsqueda (ver docstring). Se mantiene
-            como parámetro porque la firma la consume el handler
-            ``update_block_property``.
 
     Returns:
         El ``PlcBlock`` encontrado.
@@ -395,8 +391,7 @@ def _find_block_in_plc(plc: Any, block_name: str, block_path: str) -> Any:
 
     raise RuntimeError(
         f"_find_block_in_plc: no se encontró bloque {block_name!r} "
-        f"en el PLC (busqueda recursiva por nombre). block_path "
-        f"recibido: {block_path!r}"
+        f"en el PLC (busqueda recursiva por nombre)"
     )
 
 

@@ -138,8 +138,11 @@ def apply_edit():
 
         {
             "plc_name": str,
-            "edits": {"<block_path>": {"name"?: str, "number"?: int}, ...}
+            "edits": {"<path>": {"name"?: str, "number"?: int}, ...}
         }
+
+    ``<path>`` es la clave de fila que ``POST /prepare`` devolvio (la
+    jerarquia de grupos mas el nombre del bloque, separados por ``"/"``).
 
     Returns:
         - 200 + ``{"ok": True, "result": ..., "nStep": ...}`` si OK.

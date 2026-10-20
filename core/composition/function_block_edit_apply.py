@@ -14,7 +14,9 @@ fallar rapido antes de tocar TIA si el payload trae keys no soportadas.
 Estado del FB (Zona 3):
 
   - ``_plc_name``: PLC destino (de ``params["plc_name"]``).
-  - ``_edits``: ``{block_path: {"name"?: str, "number"?: int}}``.
+  - ``_edits``: ``{path: {"name"?: str, "number"?: int}}``, donde
+    ``path`` es la clave que la SPA uso en ``/prepare``
+    (``block_edit_prepared``).
   - ``_ops``: lista de ``{"command", "args"}`` para el batch (vacia si no hay diff).
   - ``_batch_result``: payload ``{"success", "operations_executed", "details"}``
     retornado por ``dispatch_batch_async``. ``None`` si no se llego a ejecutar.
@@ -24,8 +26,9 @@ Estado del FB (Zona 3):
 Runtime params via ``start(**kwargs)``:
 
   - ``plc_name`` (str): nombre del PLC. Obligatorio.
-  - ``edits`` (dict[str, dict[str, Any]]): ``{block_path: {name?, number?}}``.
-    Solo keys ``"name"`` y/o ``"number"`` admitidas. Obligatorio (no vacio).
+  - ``edits`` (dict[str, dict[str, Any]]): ``{path: {name?, number?}}``.
+    ``path`` es la clave de fila devuelta por ``/prepare``. Solo keys
+    ``"name"`` y/o ``"number"`` admitidas. Obligatorio (no vacio).
 
 Tras commit OK: refresca ``app_cache.plc_blocks[plc_name]`` via
 ``scan_plc_blocks(force_refresh=True)`` para que el arbol refleje los
@@ -216,12 +219,12 @@ class FunctionBlockEditApply(FunctionBase):
 
                 # Para cada edit, comparar contra DTO cacheado y
                 # construir la op solo si hay diff real.
-                for block_path, new_props in self._edits.items():
-                    cached_dto = prepared.get(block_path)
+                for path, new_props in self._edits.items():
+                    cached_dto = prepared.get(path)
                     if cached_dto is None:
                         raise RuntimeError(
                             f"FunctionBlockEditApply: bloque "
-                            f"{block_path!r} no preparado en "
+                            f"{path!r} no preparado en "
                             f"app_cache.block_edit_prepared['"
                             f"{self._plc_name}']. Ejecuta "
                             f"block_edit_prepare de nuevo."
@@ -235,7 +238,6 @@ class FunctionBlockEditApply(FunctionBase):
                             "args": {
                                 "plc_name": self._plc_name,
                                 "block_name": cached_dto.nombre,
-                                "block_path": cached_dto.ruta,
                                 "property_name": "Name",
                                 "new_value": str(new_props["name"]),
                             },
@@ -248,7 +250,6 @@ class FunctionBlockEditApply(FunctionBase):
                             "args": {
                                 "plc_name": self._plc_name,
                                 "block_name": cached_dto.nombre,
-                                "block_path": cached_dto.ruta,
                                 "property_name": "Number",
                                 "new_value": int(new_props["number"]),
                             },

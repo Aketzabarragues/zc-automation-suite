@@ -198,6 +198,10 @@ def test_apply_happy_path_3_blocks(
         assert op["command"] == "update_block_property"
         assert op["args"]["plc_name"] == "PLC_1"
         assert op["args"]["property_name"] in ("Name", "Number")
+        # El worker localiza el bloque por nombre: la ruta no viaja.
+        assert set(op["args"].keys()) == {
+            "plc_name", "block_name", "property_name", "new_value",
+        }
 
     # Ops concretas (shape matching por pares property/value).
     pairs = sorted(

@@ -40,9 +40,10 @@ def _h_update_block_property(args: dict, tia_client: "SyncTIAClient") -> dict:
 
     Args (dict ``args``):
         plc_name (str): nombre del PLC (e.g. ``"PLC_1500_01"``).
-        block_name (str): nombre del bloque SIN ruta (e.g. ``"DB1"``).
-        block_path (str): jerarquia TIA con separador ``"\\"``. Vacia
-            (``""``) si el bloque esta en la raiz del PLC.
+        block_name (str): nombre del bloque (e.g. ``"DB1"``). Dentro de
+            un PLC los nombres de bloque son unicos, asi que basta para
+            localizarlo: el handler recorre grupos y bloques comparando
+            ``get_name()``.
         property_name (str): uno de ``"Name" | "Number"``.
         new_value (str | int): nuevo valor a aplicar.
 
@@ -51,8 +52,7 @@ def _h_update_block_property(args: dict, tia_client: "SyncTIAClient") -> dict:
             atachado al portal activo.
 
     Returns:
-        ``dict`` con ``block_name``, ``block_path``, ``property_name``
-        y ``new_value``.
+        ``dict`` con ``block_name``, ``property_name`` y ``new_value``.
 
     Raises:
         ValueError: si ``property_name`` no esta en la whitelist o si
@@ -62,7 +62,6 @@ def _h_update_block_property(args: dict, tia_client: "SyncTIAClient") -> dict:
     """
     plc_name: str = args.get("plc_name", "")
     block_name: str = args.get("block_name", "")
-    block_path: str = args.get("block_path", "") or ""
     property_name: str = args.get("property_name", "")
     new_value = args.get("new_value")
 
@@ -83,12 +82,12 @@ def _h_update_block_property(args: dict, tia_client: "SyncTIAClient") -> dict:
         )
     project = _get_active_project(portal)
     target_plc = _find_plc(project, plc_name)
-    block = _find_block_in_plc(target_plc, block_name, block_path)
+    block = _find_block_in_plc(target_plc, block_name)
 
     logger.debug(
-        "[update_block_property] plc=%r block=%r path=%r "
+        "[update_block_property] plc=%r block=%r "
         "property=%r new_value=%r",
-        plc_name, block_name, block_path, property_name, new_value,
+        plc_name, block_name, property_name, new_value,
     )
 
     rc = block.set_property(name=property_name, value=str(new_value))
@@ -108,7 +107,6 @@ def _h_update_block_property(args: dict, tia_client: "SyncTIAClient") -> dict:
 
     return {
         "block_name": block_name,
-        "block_path": block_path,
         "property_name": property_name,
         "new_value": new_value,
     }
