@@ -26,7 +26,11 @@ def client():
 
 
 def test_get_connection_idle_when_no_wrapper(client):
-    """Sin portal attached, /connection devuelve state='idle' (modelo sept-2026)."""
+    """Sin portal attached, /connection devuelve state='idle'.
+
+    ``worker_alive`` refleja el hilo dedicado, que en este fixture no
+    arranca: debe reportar ``False`` en vez de un literal.
+    """
     c, _ = client
     resp = c.get("/api/v1/tia/connection")
     assert resp.status_code == 200
@@ -34,8 +38,31 @@ def test_get_connection_idle_when_no_wrapper(client):
     assert data["state"] == "idle"
     assert data["project"] is None
     assert data["plcs"] == []
-    assert data["worker_alive"] is True
+    assert data["worker_alive"] is False
     assert data["pid"] is None
+
+
+def test_get_connection_reports_loop_running_and_portal_pid(client):
+    """``worker_alive`` = hilo dedicado vivo; ``pid`` = proceso TIA.
+
+    Si el wrapper .NET ya no responde a ``get_process_id()`` (TIA
+    cerrado por el operario), ``pid`` cae a ``None`` sin tumbar el
+    endpoint.
+    """
+    c, tia = client
+    portal = MagicMock()
+    portal.get_process_id.return_value = 4321
+    tia.attach_wrapper(portal)
+    tia._loop_running = True
+
+    data = c.get("/api/v1/tia/connection").get_json()
+    assert data["worker_alive"] is True
+    assert data["pid"] == 4321
+
+    portal.get_process_id.side_effect = RuntimeError("TIA closed")
+    resp = c.get("/api/v1/tia/connection")
+    assert resp.status_code == 200
+    assert resp.get_json()["pid"] is None
 
 
 def test_get_connection_connected_with_plcs(client, monkeypatch):

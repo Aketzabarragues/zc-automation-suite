@@ -23,6 +23,21 @@ bp = Blueprint("tia_connection", __name__, url_prefix="/api/v1/tia")
 ATTACH_TIMEOUT_S = 10.0
 
 
+def _portal_pid(tia_client) -> int | None:
+    """PID del proceso TIA Portal, o None si no hay wrapper o no responde.
+
+    Un RCW .NET muerto (TIA cerrado por el operario) lanza al pedir
+    ``get_process_id()``; en ese caso el PID no es fiable y se reporta None.
+    """
+    if tia_client.wrapper is None:
+        return None
+    try:
+        return int(tia_client.wrapper.get_process_id())
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("get_tia_connection: get_process_id fallo: %s", exc)
+        return None
+
+
 @bp.get("/connection")
 def get_tia_connection() -> Any:
     """Estado del subsistema TIA: state, project (si conectado), plcs."""
@@ -64,8 +79,8 @@ def get_tia_connection() -> Any:
         "last_ping_ok_unix": None,
         "last_error": None,
         "project_changed": False,
-        "worker_alive": True,   # mismo proceso
-        "pid": None,
+        "worker_alive": tia_client.loop_running,
+        "pid": _portal_pid(tia_client),
     })
 
 
@@ -94,14 +109,14 @@ def post_tia_connect():
             "ok": True,
             "state": tia_client.state,
             "pid": result["result"].get("pid"),
-            "worker_alive": True,
+            "worker_alive": tia_client.loop_running,
             "portal_mode": result["result"].get("portal_mode"),
         })
     return jsonify({
         "ok": False,
         "state": tia_client.state,
         "error": result.get("error", "unknown"),
-        "worker_alive": True,
+        "worker_alive": tia_client.loop_running,
     }), 500
 
 
@@ -122,7 +137,7 @@ def post_tia_disconnect():
     return jsonify({
         "ok": result.get("ok", False),
         "state": tia_client.state,
-        "worker_alive": True,
+        "worker_alive": tia_client.loop_running,
     })
 
 

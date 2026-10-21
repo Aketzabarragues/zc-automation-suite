@@ -45,6 +45,7 @@ class SyncTIAClient:
       - submit_and_wait / submit_batch: encolar commands y obtener respuesta.
       - start_tia_loop / stop_tia_loop: arrancar/parar el hilo dedicado.
       - state: propiedad de solo lectura (IDLE, CONNECTED, BUSY, ...).
+      - loop_running: propiedad de solo lectura (hilo dedicado vivo).
     """
 
     def __init__(self) -> None:
@@ -78,6 +79,15 @@ class SyncTIAClient:
         """Estado actual del subsistema TIA (thread-safe)."""
         with self._state_lock:
             return self._state
+
+    @property
+    def loop_running(self) -> bool:
+        """True si el hilo dedicado esta vivo (ver ``_loop_running``).
+
+        Es mas fiable que ``_tia_thread.is_alive()``: el join() puede
+        retornar antes de que el finally del hilo publiques el flag.
+        """
+        return self._loop_running
 
     def _set_state(self, new_state: str) -> None:
         """Transiciona el estado (solo el tia-loop debe llamarlo)."""

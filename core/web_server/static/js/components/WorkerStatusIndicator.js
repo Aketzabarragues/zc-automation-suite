@@ -1,25 +1,22 @@
 /**
  * Componente WorkerStatusIndicator.
  *
- * Circulo pequeño (verde/gris) en el ``ShellTopbar`` que indica si
- * el subproceso del worker OT persistente esta vivo o no. Es
- * ORTOGONAL al ``TiaConnectionIndicator`` (que muestra el estado
- * de attach a TIA Portal: connected/connecting/disconnected/error).
+ * Circulo pequeño (verde/gris) en el ``ShellTopbar`` que indica si el
+ * hilo dedicado del subsistema TIA (``tia-loop``) esta vivo o no. Ese
+ * hilo es un ``threading.Thread`` daemon en el MISMO proceso que
+ * Flask: no hay subproceso ni IPC.
  *
- * Por que son distintos:
- *   - ``TiaConnectionIndicator`` refleja el attach a TIA: el
- *     subproceso puede estar vivo y tener un attach fallido (3
- *     pings sin respuesta). Eso es "desconectado" para la
- *     conexion, pero el subproceso SIGUE vivo.
- *   - ``WorkerStatusIndicator`` refleja solo el subproceso:
- *     "vivo" = ``_worker_proc is not None and returncode is None``.
- *     "muerto" = el subproceso termino (o nunca se lanzo, en modo
- *     1-shot del MCP).
+ * ``worker_alive`` lo emite ``GET /api/v1/tia/connection`` a partir de
+ * ``SyncTIAClient.loop_running``, que el cliente mantiene en True al
+ * arrancar el hilo y en False al pararlo o al morir por crash.
  *
- * Esto permite al operario ver de un vistazo dos cosas distintas:
- *   - Circulo grande (TiaConnectionIndicator): "estoy conectado a TIA?"
- *   - Circulo pequeño (WorkerStatusIndicator): "el subproceso del
- *     worker esta en marcha?"
+ * Es ORTOGONAL al ``TiaConnectionIndicator`` (que muestra el estado de
+ * attach a TIA Portal: connected/connecting/disconnected/error):
+ *   - ``TiaConnectionIndicator`` refleja el attach a TIA: el hilo puede
+ *     estar vivo y tener un attach fallido. Eso es "desconectado" para
+ *     la conexion, pero el hilo SIGUE vivo.
+ *   - ``WorkerStatusIndicator`` refleja solo el hilo:
+ *     "vivo" = ``loop_running``; "muerto" = nunca arranco o ya termino.
  *
  * REGLA Vue 3 sin build step: el template NO tiene acceso directo
  * a ``store`` (los ``import`` a nivel de modulo son invisibles para
@@ -37,8 +34,7 @@ export default {
         // ``worker_alive`` lo escribe el backend en
         // ``GET /api/v1/tia/connection`` (campo ``worker_alive``)
         // y el store lo expone como ``store.tiaConnection.worker_alive``.
-        // En modo 1-shot (MCP), el gateway expone siempre ``False`` y
-        // este indicador se queda gris ("sin worker persistente").
+        // False significa que el hilo dedicado no arranco (o termino).
         const alive = computed(() => {
             const tc = store.tiaConnection;
             return Boolean(tc && tc.worker_alive);
@@ -53,10 +49,6 @@ export default {
         });
 
         const tooltip = computed(() => {
-            // Textos armonizados sept-2026: tono serio y
-            // consistente en castellano. Antes: "en marcha" /
-            // "detenido" (coloquial). Ahora: "activo" /
-            // "inactivo" (formal, neutro).
             return alive.value
                 ? "Worker OT: activo"
                 : "Worker OT: inactivo";
