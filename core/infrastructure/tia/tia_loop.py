@@ -362,7 +362,7 @@ def _execute_one(
             client._set_state(STATE_IDLE)
     elif name == "detach_portal":
         client._set_state(STATE_IDLE)
-    elif client.state == STATE_BUSY:
+    else:
         if client._wrapper is not None:
             client._set_state(STATE_CONNECTED)
         else:
