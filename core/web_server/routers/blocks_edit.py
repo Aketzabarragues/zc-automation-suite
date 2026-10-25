@@ -2,7 +2,8 @@
 
 Endpoints:
   POST /api/v1/blocks/edit/prepare -> arranca FB ``block_edit_prepare``.
-  POST /api/v1/blocks/edit/apply    -> placeholder 501.
+  POST /api/v1/blocks/edit/apply    -> arranca FB ``block_edit_apply``.
+  GET  /api/v1/blocks/edit/<plc_name>/prepared -> cache de preparados.
   GET  /api/v1/blocks/edit/<name>/status -> estado actual del FB.
 
 Engine se lee de ``current_app.config['ENGINE']`` (inyectado por
