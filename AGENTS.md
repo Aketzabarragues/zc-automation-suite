@@ -6,16 +6,20 @@
 > Reglas arquitectónicas críticas en `.clinerules` (corto, se carga siempre).
 > Convenciones operativas y "cómo extender" están aquí (medio, se consulta).
 
-## TL;DR del state machine OT (sept-2026)
+## TL;DR del state machine OT
 
 El worker de TIA Portal (comandos en `core/infrastructure/tia/tia_commands_catalog.py`) corre
-como subproceso **persistente**: arranca en `idle` (sin portal attached),
-el gateway le envía un `attach_portal` explícito cuando el operario pulsa
-"Conectar" desde la topbar, y un `detach_portal` cuando pulsa "Desconectar".
-El subproceso NO muere entre comandos — eso elimina pagar el coste de
-arranque del CLR + attach (~5s) en cada operación. Los detalles del
-contrato IPC, state machine y comandos de ciclo de vida están en
-`.clinerules` §2.2.
+como **hilo dedicado** dentro del mismo proceso Python que Flask: `threading.Thread`
+daemon + `queue.Queue` (`core/infrastructure/tia/tia_loop.py`). Arranca en `idle`
+(sin portal attached), y el frontend le envía un `attach_portal` explícito cuando el
+operario pulsa "Conectar" desde la topbar, y un `detach_portal` cuando pulsa
+"Desconectar". El hilo NO muere entre comandos — eso elimina pagar el coste de
+arranque del CLR + attach (~5s) en cada operación.
+
+El hilo dedicado no es opcional: los RCW de .NET no son thread-safe y Flask corre
+con `threaded=True`, así que sin él varios requests entrarían al portal a la vez.
+Los detalles del contrato, state machine y comandos de ciclo de vida están en
+`.clinerules` §2.
 
 ---
 
@@ -50,19 +54,20 @@ contrato IPC, state machine y comandos de ciclo de vida están en
    `end_transaction` (rollback atómico con `end_transaction(rollback=True)`).
 3. Mapea objetos nativos (.NET) a primitivos Python antes de emitir JSON
    (ver `.clinerules` §3).
-4. El gateway expone un método async que delega al worker vía
-   `self._dispatch_worker("nombre_comando", args)`.
+4. El cliente del worker expone `submit_and_wait("nombre_comando", args)`
+   (sync, mismo proceso). Para no bloquear el event loop, los FBs
+   async lo envuelven en `core.helpers.tia.tia_dispatch_async.dispatch_async`.
 5. La lógica se implementa como **FB** (Function Block, state machine
    con `on_start` / `run_step` / `on_finish`) en
    `areas/<área>/functions/function_<x>.py`. El FB registra su
-   progreso vía `ProgressTracker` y delega al gateway con
+   progreso vía `ProgressTracker` y delega al worker con
    `submit_and_wait("comando", args)` o `dispatch_async(...)` para
    lotes transaccionales (`execute_transactional_batch`).
-6. El router Flask expone el endpoint con la dependencia
-   `get_gateway`. Los routers genéricos viven en
+6. El router Flask expone el endpoint y toma el cliente de
+   `current_app.config["TIA_CLIENT"]`. Los routers genéricos viven en
    `core/web_server/routers/`; los del área en `areas/<area>/frontend/`
    (routers Flask del área, ej. `alimentacion/frontend/excel_router.py`).
-7. Tests: mockea el gateway con `MagicMock(spec=TIAProcessGateway)`,
+7. Tests: mockea el cliente con `MagicMock(spec=SyncTIAClient)`,
    nunca el worker directamente.
 
 ### 2. Nuevo endpoint REST
@@ -86,7 +91,7 @@ contrato IPC, state machine y comandos de ciclo de vida están en
 4. Si la operación es >500 ms, inyecta `ProgressTracker` y emite
    `begin/start_stage/finish_stage/finish`.
 5. Devuelve siempre un dict (Flask lo serializa a JSON con `jsonify`).
-6. Test: usa `TestClient` de Flask con `MagicMock(spec=TIAProcessGateway)`,
+6. Test: usa `TestClient` de Flask con `MagicMock(spec=SyncTIAClient)`,
    mismo patrón que `tests/test_areas_endpoint.py`.
 
 ### 3. Nueva vista en la SPA
@@ -182,14 +187,14 @@ contrato IPC, state machine y comandos de ciclo de vida están en
 7. Añadir el bloque en `config/config.json` bajo
    `departments.<area_id>`.
 8. Tests: `tests/areas/<area_id>/test_<feature>.py` (ver
-   `tests/areas/alimentacion/...` como referencia; mockear
-   gateway con `MagicMock(spec=TIAProcessGateway)`).
+   `tests/areas/alimentacion/...` como referencia; mockear el
+   cliente con `MagicMock(spec=SyncTIAClient)`).
 
 Convenciones:
 - Las áreas **NO importan** `siemens_tia_scripting` directamente
   (regla `.clinerules` §1). Solo aportan `Callable` que el worker
   invocará en su proceso. Los handlers extra pueden usar comandos
-  genéricos del catálogo (`CATALOGO["export_block"](...)`) para
+  genéricos del catálogo (`CATALOGO["export_blocks"](...)`) para
   participar de transacciones atómicas con ellos.
 - El worker OT se mantiene 100% genérico; las áreas aportan comandos
   vía `AreaSpec.contributes_tia_commands`. El wiring está en
@@ -239,15 +244,16 @@ Replica su estructura.
 
 ## Convenciones operativas
 
-### Polling frontend
-- **Logs:** 1000 ms. `apiFetchLogs()` cada 1s mientras el operario
-  está en un área. Solo lectura.
-- **Progreso:** 500 ms. `apiFetchProgress()`. **SIEMPRE incondicional**
-  (sin guard de estado) para evitar chicken-and-egg. 2 req/s idle
-  es trivial para Flask.
+### Push frontend (SSE)
+- **Logs y progreso llegan por SSE**, no por polling: el navegador abre
+  `GET /stream` (`core/web_server/app_flask.py`) y consume los eventos
+  `log`, `progress`, `tia_state`, `fb_state`, `cache_changed` y
+  `cache_snapshot` en `core/web_server/static/js/main.js`.
 - El frontend SOLO lee el tracker (nunca escribe). El backend es
   la única fuente de verdad. El operario limpia explícitamente con
   `apiClearProgress()` cuando quiere.
+- `GET /api/v1/progress/current` existe en `diagnostics.py` pero **no
+  tiene consumidor**: no lo uses como si fuera el mecanismo vigente.
 
 ### Timeouts de fetch (cliente)
 - **3 buckets** definidos en `core/web_server/static/js/api.js`:
@@ -259,10 +265,11 @@ Replica su estructura.
     upload Excel, connect. Tocan TIA Portal en cold-start o hacen
     export masivo.
   - `SLOW_TIMEOUT_MS = 600_000` (10 min): commits transaccionales
-    (sync dispositivos, sync procesos). El backend usa
-    `dynamic_timeout = max(default, 5s × n_ops)` y el cliente debe
-    esperar MÁS, si no el navegador aborta antes de que TIA termine
-    y el operario ve un `AbortError` falso.
+    (sync dispositivos, sync procesos). El backend usa el
+    `STEP_TIMEOUT_S` del FB (o el `timeout_s` que pase el router a
+    `submit_and_wait`) y el cliente debe esperar MÁS, si no el
+    navegador aborta antes de que TIA termine y el operario ve un
+    `AbortError` falso.
 - **Regla nueva al añadir endpoint**: clasificar el endpoint en uno
   de los 3 buckets y pasar el `timeoutMs` correspondiente al
   `_request()`. Si dudas, empieza por MEDIUM y sube si Aketza
@@ -274,8 +281,8 @@ Replica su estructura.
   operario debe ver algo accionable, no un `DOMException` interno
   del navegador.
 - **Mismatched client/server**: el timeout del cliente debe ser
-  siempre MAYOR que el `dynamic_timeout` que calcula el gateway
-  para ese comando. Si lo reduces, asegúrate de que el cliente
+  siempre MAYOR que el `timeout_s` que el router calcula y pasa a
+  `submit_and_wait`. Si lo reduces, asegúrate de que el cliente
   sigue siendo mayor (sube el bucket FAST/MEDIUM/SLOW si hace falta).
 
 ### ProgressTracker — API completa
@@ -295,13 +302,11 @@ internamente desde `ejecutar_transaccion` (no pisar el tracker del
 commit).
 
 ### Tests
-- **Backend:** `pytest tests/` corre TODOS los tests. 130 tests
-  actualmente (acumulado histórico: PR 0-6 originales + state machine
-  del worker persistente + A2-A9 robustness + tests E2E del worker
-  real). Deben pasar todos antes de commit.
+- **Backend:** `pytest tests/` corre TODOS los tests. 1281 tests
+  actualmente (3 skipped). Deben pasar todos antes de commit.
 - **Naming:** `tests/test_<modulo>.py`. Mismo nombre que el archivo
   que prueban. Para áreas, `tests/test_area_<area>_<feature>.py`.
-- **Mockear gateway** con `MagicMock(spec=TIAProcessGateway)`.
+- **Mockear el cliente del worker** con `MagicMock(spec=SyncTIAClient)`.
   Para ProgressTracker, instanciar uno limpio (`ProgressTracker()`)
   y pasarlo al use case (no mockear el tracker).
 - **Frontend:** sin tests automatizados (SPA ESM sin build step).
@@ -310,7 +315,7 @@ commit).
 ### Catálogo de comandos del worker OT
 
 - `core/infrastructure/tia/tia_commands_catalog.py` es el punto único
-  de verdad. Unión de los 8 catálogos por categoría:
+  de verdad. Unión de los 9 módulos por categoría:
 
   | Categoría | Módulo | Comandos |
   |---|---|---|
@@ -318,18 +323,18 @@ commit).
   | Project (3) | `tia_cmd_project` | `open_project`, `save_project`, `close_project` |
   | Inspect (5) | `tia_cmd_inspect` | `ping`, `list_plcs`, `list_blocks`, `get_project_info`, `scan_blocks` |
   | Compile (2) | `tia_cmd_compile` | `compile_plc`, `compile_blocks` |
-  | Export (5) | `tia_cmd_export` | `export_blocks_sd`, `export_udts_sd`, `export_plc_tags_xml`, `export_block`, `export_tag_table` |
+  | Export (3) | `tia_cmd_export` | `export_blocks`, `export_udts`, `export_tables` |
   | Import (4) | `tia_cmd_import_` | `import_blocks_sd`, `import_plc_tags_xml`, `import_tag_table`, `import_block` |
   | User consts (4) | `tia_cmd_user_consts` | `get_user_constants`, `delete_user_constant`, `update_user_constant_value`, `update_user_constant_name` |
-  | Batch (1) | `tia_cmd_batch` | `execute_transactional_batch` |
+  | Blocks (1) | `tia_cmd_blocks` | `update_block_property` |
+  | Batch (2) | `tia_cmd_batch` | `execute_batch`, `execute_transactional_batch` |
 
   Total: **27 comandos core** registrados en `CATALOGO` y cargados
   en el `SyncTIAClient` por `register_all_commands(client)` en el
   arranque del worker (no hay command loader separado).
-- **No añadas** comandos del state machine (`attach_portal`,
-  `detach_portal`) en otro catálogo; los gestiona
-  `tia_loop.main_persistent_loop` directamente. Duplicarlos rompe el
-  ciclo de vida.
+- Los comandos de ciclo de vida (`attach_portal`, `detach_portal`) viven
+  en `tia_cmd_lifecycle` y reasignan el portal con
+  `tia_client.attach_wrapper(...)`. No los dupliques en otro módulo.
 - Las áreas aportan comandos adicionales vía
   `areas/<área>/infrastructure/tia/extra_commands.py::register(tia_client)`
   — callable `(tia_client: SyncTIAClient) -> None` que llama
@@ -345,7 +350,7 @@ commit).
   directamente — ya está cargado en el proceso del worker y
   accesible via `tia_client.wrapper`.
 - **Sí pueden** usar comandos genéricos del catálogo
-  (`CATALOGO["export_block"](...)`) para participar de
+  (`CATALOGO["export_blocks"](...)`) para participar de
   transacciones atómicas con ellos.
 
 ### Build / Empaquetado
@@ -364,7 +369,8 @@ commit).
 - **SIEMPRE** mapear a `dict` / `list` / `str` / `bool` / `int` en el
   worker, antes de emitir JSON.
 - **Cachear** lecturas pesadas (PLCs, bloques, user constants) en
-  `gateway._cache` con `force_refresh=True` para bypass explícito.
+  `AppCache` (`core/runtime/app_cache.py`) con `force_refresh=True`
+  para bypass explícito.
 
 ### Paths de export/modificación (workdirs)
 - Los workdirs de export/modificación siguen la convención:
@@ -494,7 +500,7 @@ ni cargar skills manualmente: el routing es automático.
 
 | Tarea | Agente |
 |---|---|
-| Cambios en TIA worker, modificadores XML/SD, parsers Excel, gateway OT | `tia-ot-worker` |
+| Cambios en TIA worker, modificadores XML/SD, parsers Excel, worker OT | `tia-ot-worker` |
 | Routers Flask, use cases, `app.py`, dependencias, tools MCP | `backend-api` |
 | Componentes Vue, store, api.js, tema, recompilar Tailwind | `frontend-spa` |
 | `build_exe.py`, launcher, tests pytest, `.bat` | `build-and-tests` |
