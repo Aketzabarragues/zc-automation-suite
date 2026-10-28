@@ -11,11 +11,12 @@ from core.web_server.app_flask import create_app
 
 
 class _CountingFB(FunctionBase):
-    """FB que cuenta start() para verificar el wiring."""
+    """FB que cuenta las ejecuciones para verificar el wiring."""
 
     def __init__(self, nombre: str = "test_fb"):
         super().__init__(nombre=nombre, titulo="test fb", steps=[])
         self.start_count = 0
+        self.execute_count = 0
 
     async def start(self, **_kwargs) -> bool:
         self.start_count += 1
@@ -24,6 +25,11 @@ class _CountingFB(FunctionBase):
 
     async def tick(self) -> None:
         pass
+
+    def execute(self, **params):
+        self.execute_count += 1
+        self.nStep = 10
+        return {"ok": True}
 
 
 @pytest.fixture
@@ -54,17 +60,28 @@ def test_get_status_404_for_unknown_fb(client):
     assert "no registrado" in resp.get_json()["error"]
 
 
-def test_start_fb_calls_start_with_params(client):
-    c, _, fb = client
+def test_start_fb_encola_el_trabajo(client):
+    """POST /start encola el trabajo en el OB1 y devuelve 202 + job_id."""
+    c, engine, fb = client
     resp = c.post(
         "/api/v1/plc/fb/subir_excel/start",
         json={"params": {"plc_name": "PLC_1", "xlsx_path": "C:/x.xlsx"}},
     )
-    assert resp.status_code == 200
+    assert resp.status_code == 202
     data = resp.get_json()
-    assert data["started"] is True
-    assert data["nStep"] == 10
-    assert fb.start_count == 1
+    assert data["ok"] is True
+    job_id = data["job_id"]
+    assert job_id
+
+    # El trabajo quedo encolado con sus params, para el FB correcto.
+    job = engine.get_job(job_id)
+    assert job is not None
+    assert job.fb_name == "subir_excel"
+    assert job.params == {"plc_name": "PLC_1", "xlsx_path": "C:/x.xlsx"}
+    assert job.status == "queued"
+    # El router no arranca el FB: eso es cosa del dispatcher.
+    assert fb.start_count == 0
+    assert fb.execute_count == 0
 
 
 def test_start_fb_404_for_unknown_fb(client):

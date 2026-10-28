@@ -2,23 +2,25 @@
 
 Cubre:
 
-  - ``POST /prepare`` happy path (200 + ``result``).
+  - ``POST /prepare`` happy path (202 + ``job_id``).
   - ``POST /prepare`` 400 si faltan ``plc_name`` o ``selected_block_paths``.
-  - ``POST /prepare`` 409 si el FB ya esta corriendo.
+  - ``POST /prepare`` 409 si el FB ya tiene un trabajo en curso.
   - ``POST /prepare`` 500 si el FB no esta registrado en el engine.
-  - ``POST /apply`` 501 placeholder (commit 7).
+  - ``POST /apply`` 202 + ``job_id`` en el happy path.
+  - ``POST /apply`` 400/409/500 en los casos de error.
+  - ``GET /<plc_name>/prepared`` (cache de preparados).
 
-Mockeamos el engine con ``MagicMock`` y configuramos ``get_fb`` +
-``fb.start`` (como ``AsyncMock`` para soportar ``asyncio.run``) +
-``fb.is_terminal`` + ``fb.nStep`` + ``fb.n_error`` + ``fb.result`` +
-``fb.error_msg``.
+El router no bloquea: encola el trabajo en el OB1 con ``engine.submit``
+y devuelve ``202`` con el ``job_id``. El resultado llega al HMI por el
+evento SSE ``fb_state``.
 """
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 from flask import Flask
 
+from core.composition.plc_engine import FBBusyError
 from core.web_server.routers.blocks_edit import bp
 
 
@@ -43,16 +45,10 @@ def _make_flask_app(engine: MagicMock) -> Flask:
 
 
 def test_prepare_endpoint_returns_ok():
-    """POST /prepare con args validos arranca el FB y devuelve 200 + result."""
-    fb = MagicMock()
-    fb.start = AsyncMock(return_value=True)
-    fb.is_terminal.return_value = True
-    fb.nStep = 99  # n_done
-    fb.n_error = 98
-    fb.result = {"ok": True, "plc_name": "PLC_1", "n_blocks": 3}
-
+    """POST /prepare con args validos encola el trabajo y devuelve 202."""
     engine = MagicMock()
-    engine.get_fb.return_value = fb
+    engine.get_fb.return_value = MagicMock()
+    engine.submit.return_value = "job-abc123"
 
     app = _make_flask_app(engine)
     client = app.test_client()
@@ -67,15 +63,13 @@ def test_prepare_endpoint_returns_ok():
             ],
         },
     )
-    assert resp.status_code == 200
+    assert resp.status_code == 202
     data = resp.get_json()
     assert data["ok"] is True
-    assert data["result"] == {
-        "ok": True, "plc_name": "PLC_1", "n_blocks": 3,
-    }
-    assert data["nStep"] == 99
-    # El FB arranco con plc_name y selected_block_paths.
-    fb.start.assert_awaited_once_with(
+    assert data["job_id"] == "job-abc123"
+    # El trabajo se encolo para el FB correcto, con sus params.
+    engine.submit.assert_called_once_with(
+        "block_edit_prepare",
         plc_name="PLC_1",
         selected_block_paths=[
             "2000_Dispositivos/DB2000_ED",
@@ -122,11 +116,10 @@ def test_prepare_endpoint_returns_400_on_missing_args():
 
 
 def test_prepare_endpoint_returns_409_when_fb_already_running():
-    """``fb.start()`` retorna False (FB ya activo/terminal) -> 409."""
-    fb = MagicMock()
-    fb.start = AsyncMock(return_value=False)
+    """``engine.submit`` levanta ``FBBusyError`` -> 409."""
     engine = MagicMock()
-    engine.get_fb.return_value = fb
+    engine.get_fb.return_value = MagicMock()
+    engine.submit.side_effect = FBBusyError("ya tiene trabajo")
 
     app = _make_flask_app(engine)
     client = app.test_client()
@@ -139,7 +132,7 @@ def test_prepare_endpoint_returns_409_when_fb_already_running():
         },
     )
     assert resp.status_code == 409
-    assert "ya activo" in resp.get_json()["error"]
+    assert "trabajo en curso" in resp.get_json()["error"]
 
 
 # ── 4. 500 si el FB no esta registrado ─────────────────────────────
@@ -174,22 +167,10 @@ def test_prepare_endpoint_returns_500_when_fb_not_registered():
 
 
 def test_apply_endpoint_returns_ok():
-    """POST /apply con args validos arranca el FB y devuelve 200 + result."""
-    fb = MagicMock()
-    fb.start = AsyncMock(return_value=True)
-    fb.is_terminal.return_value = True
-    fb.nStep = 99  # n_done
-    fb.n_error = 98
-    fb.result = {
-        "ok": True,
-        "plc_name": "PLC_1",
-        "n_ops": 2,
-        "operations_executed": 2,
-        "no_op": False,
-    }
-
+    """POST /apply con args validos encola el trabajo y devuelve 202."""
     engine = MagicMock()
-    engine.get_fb.return_value = fb
+    engine.get_fb.return_value = MagicMock()
+    engine.submit.return_value = "job-abc123"
 
     app = _make_flask_app(engine)
     client = app.test_client()
@@ -204,14 +185,13 @@ def test_apply_endpoint_returns_ok():
             },
         },
     )
-    assert resp.status_code == 200
+    assert resp.status_code == 202
     data = resp.get_json()
     assert data["ok"] is True
-    assert data["result"]["plc_name"] == "PLC_1"
-    assert data["result"]["n_ops"] == 2
-    assert data["nStep"] == 99
-    # El FB arranco con plc_name y edits.
-    fb.start.assert_awaited_once_with(
+    assert data["job_id"] == "job-abc123"
+    # El trabajo se encolo para el FB correcto, con sus params.
+    engine.submit.assert_called_once_with(
+        "block_edit_apply",
         plc_name="PLC_1",
         edits={
             "2000_Dispositivos/DB2000_ED": {"name": "DB_Entradas"},
@@ -258,16 +238,13 @@ def test_apply_endpoint_returns_400_on_missing_args():
 
 
 def test_apply_endpoint_returns_400_on_value_error_from_fb():
-    """``fb.start()`` raise ``ValueError`` -> 400 con mensaje."""
-    fb = MagicMock()
-    fb.start = AsyncMock(
-        side_effect=ValueError(
-            "edits['a/DB1'] contiene key 'title' no permitida. "
-            "Solo se admiten ['name', 'number']."
-        )
-    )
+    """``engine.submit`` levanta ``ValueError`` -> 400 con mensaje."""
     engine = MagicMock()
-    engine.get_fb.return_value = fb
+    engine.get_fb.return_value = MagicMock()
+    engine.submit.side_effect = ValueError(
+        "edits['a/DB1'] contiene key 'title' no permitida. "
+        "Solo se admiten ['name', 'number']."
+    )
 
     app = _make_flask_app(engine)
     client = app.test_client()
@@ -285,15 +262,14 @@ def test_apply_endpoint_returns_400_on_value_error_from_fb():
     assert "title" in data["error"]
 
 
-# ── 9. 409 si el FB ya esta corriendo ──────────────────────────────
+# ── 9. 409 si el FB ya tiene un trabajo en curso ──────────────────────
 
 
 def test_apply_endpoint_returns_409_when_fb_already_running():
-    """``fb.start()`` retorna False (FB ya activo/terminal) -> 409."""
-    fb = MagicMock()
-    fb.start = AsyncMock(return_value=False)
+    """``engine.submit`` levanta ``FBBusyError`` -> 409."""
     engine = MagicMock()
-    engine.get_fb.return_value = fb
+    engine.get_fb.return_value = MagicMock()
+    engine.submit.side_effect = FBBusyError("ya tiene trabajo")
 
     app = _make_flask_app(engine)
     client = app.test_client()
@@ -306,7 +282,7 @@ def test_apply_endpoint_returns_409_when_fb_already_running():
         },
     )
     assert resp.status_code == 409
-    assert "ya activo" in resp.get_json()["error"]
+    assert "trabajo en curso" in resp.get_json()["error"]
 
 
 # ── 10. 500 si el FB no esta registrado ────────────────────────────
