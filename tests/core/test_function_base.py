@@ -180,8 +180,13 @@ def test_execute_emite_el_tracker_por_etapa() -> None:
     assert snap.active is False
 
 
-def test_execute_resuelve_run_step_async_legacy() -> None:
-    """El shim resuelve un ``run_step`` que aun es async (FB legacy)."""
+def test_execute_rechaza_un_run_step_async() -> None:
+    """Un ``run_step`` async es un error de programacion: lo dice claro.
+
+    Los FBs se ejecutan en el hilo del dispatcher del OB1, sin event
+    loop. Si el ``run_step`` devuelve una corrutina, ``execute()`` lo
+    dice explicitamente en vez de propagar la corrutina sin ejecutar.
+    """
     class _AsyncFB(FunctionBase):
         async def run_step(self, idx: int, **params: Any) -> str:
             return f"async {idx}"
@@ -189,8 +194,9 @@ def test_execute_resuelve_run_step_async_legacy() -> None:
     fb = _AsyncFB("legacy", "Legacy", ["p1"], tracker=ProgressTracker())
     fb.execute()
 
-    assert fb.nStep == fb.n_done
-    assert fb.error_msg is None
+    assert fb.nStep == fb.n_error
+    assert "corrutina" in (fb.error_msg or "")
+    assert "deben ser sync" in (fb.error_msg or "")
 
 
 def test_execute_excepcion_pone_fb_en_n_error() -> None:

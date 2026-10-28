@@ -146,12 +146,15 @@ class FunctionBase:
         """
         pass
 
-    async def run_step(self, idx: int, **params: Any) -> str:
+    def run_step(self, idx: int, **params: Any) -> str:
         """Logica del step ``idx``. Devuelve un detail (string) para el HMI.
 
         Default: ``NotImplementedError`` (la subclase olvido overridear).
         Lanzar cualquier excepcion aborta el step actual; el base
         emite ``tracker.error_stage(...)`` y transiciona a ``n_error``.
+
+        Es sync: el FB se ejecuta en el hilo del dispatcher del OB1, sin
+        event loop.
         """
         raise NotImplementedError(
             f"FB {self.nombre}: run_step() debe ser implementado por la subclase"
@@ -360,16 +363,19 @@ class FunctionBase:
             self.nStep = self.n_finalizar
 
     def _invoke_step_sync(self, idx: int) -> str:
-        """Invoca ``run_step`` y resuelve el detail.
+        """Invoca ``run_step`` y devuelve el detail.
 
-        Shim de migracion: un ``run_step`` que devuelve una corrutina
-        (FB legacy todavia async) se resuelve con ``asyncio.run`` (el
-        hilo del step no tiene event loop). Un ``run_step`` ya sync
-        devuelve el detail directamente.
+        ``run_step`` es sync: el FB se ejecuta en el hilo del dispatcher
+        del OB1, sin event loop. Si devuelve una corrutina es un error
+        de programacion y se dice explicitamente, en vez de propagar
+        una corrutina sin ejecutar.
         """
         outcome = self.run_step(idx, **self._params)
         if inspect.isawaitable(outcome):
-            outcome = asyncio.run(outcome)
+            raise TypeError(
+                "run_step devuelve una corrutina: los FBs deben ser sync "
+                "(se ejecutan en el hilo del dispatcher del OB1)"
+            )
         return outcome
 
     def _run_step_with_timeout(self, idx: int) -> str:
