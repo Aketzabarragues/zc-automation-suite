@@ -41,9 +41,9 @@ def test_cycle_count_returns_zero_for_fresh_engine(client):
 
 
 def test_cycle_count_reflects_engine_state(app_with_injections):
-    """Si incrementamos el counter del engine, /cycle_count lo refleja."""
+    """Si el dispatcher proeso un trabajo, /cycle_count lo refleja."""
     app, engine, _ = app_with_injections
-    engine.cycle_count = 42
+    engine.jobs_processed = 42
     resp = app.test_client().get("/cycle_count")
     assert resp.get_json() == {"cycles": 42}
 

@@ -113,11 +113,15 @@ def create_app(
 
     @app.get("/cycle_count")
     def cycle_count():
-        """Counter del engine del main loop.
+        """Ciclos del OB1: trabajos procesados por el dispatcher.
+
+        Cada trabajo que el dispatcher del OB1 lleva a estado terminal
+        cuenta como un ciclo. Antes contaba los ticks del main loop
+        legacy, que ya no ejecuta trabajo ninguno.
 
         Lectura cross-thread de un int es GIL-atomic en CPython.
         """
-        return jsonify({"cycles": _engine.cycle_count})
+        return jsonify({"cycles": _engine.jobs_processed})
 
     @app.get("/stream")
     def stream():

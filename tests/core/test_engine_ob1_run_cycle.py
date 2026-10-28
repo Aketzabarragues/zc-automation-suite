@@ -425,3 +425,39 @@ def test_current_job_for_devuelve_el_job_en_curso_y_luego_none():
 
     _wait_terminal(engine, job_id)
     assert engine.current_job_for("fb_a") is None
+
+
+def test_jobs_processed_cuenta_los_trabajos_cerrados():
+    """Cada trabajo que el dispatcher lleva a terminal cuenta un ciclo."""
+    engine = Engine()
+    engine.register_fb("fb_a", _mock_fb(result="listo"))
+
+    assert engine.jobs_processed == 0
+
+    job_id = engine.submit("fb_a")
+    engine.start_ob1()
+    try:
+        job = _wait_terminal(engine, job_id)
+    finally:
+        engine.stop_ob1()
+
+    assert job is not None
+    assert job.status == "done"
+    assert engine.jobs_processed == 1
+
+
+def test_jobs_processed_cuenta_tambien_los_trabajos_fallidos():
+    """Un trabajo que termina en error tambien es un ciclo del OB1."""
+    engine = Engine()
+    engine.register_fb("fb_a", _mock_fb(error_msg="boom"))
+
+    job_id = engine.submit("fb_a")
+    engine.start_ob1()
+    try:
+        job = _wait_terminal(engine, job_id)
+    finally:
+        engine.stop_ob1()
+
+    assert job is not None
+    assert job.status == "error"
+    assert engine.jobs_processed == 1

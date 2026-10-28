@@ -79,6 +79,9 @@ class Engine:
         self._task: asyncio.Task[None] | None = None
         self._tick_period_s: float = tick_period_s
         self.cycle_count: int = 0
+        # Trabajos cerrados por el dispatcher del OB1. Es el contador de
+        # ciclos del OB1: cada trabajo procesado es un ciclo.
+        self.jobs_processed: int = 0
         # Estado del dispatcher OB1: cola de trabajos + hilo ejecutor.
         self._jobs: dict[str, Job] = {}
         self._job_queue: queue.Queue[str] = queue.Queue()
@@ -394,3 +397,4 @@ class Engine:
                 job.result = result
         finally:
             job.finished_at = time.monotonic()
+            self.jobs_processed += 1
