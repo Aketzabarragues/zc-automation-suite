@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import threading
 import time
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -234,10 +235,24 @@ def _mock_fb(*, result: object = "ok", error_msg: str | None = None) -> MagicMoc
     return fb
 
 
+class _RealFB(FunctionBase):
+    """FB de verdad (no mock) para comprobar el cableado del hook.
+
+    Un ``MagicMock(spec=FunctionBase)`` no ejecuta el metodo real, asi
+    que para comprobar que la notificacion de cambios llega al bus
+    hace falta un FB de verdad.
+    """
+
+    def __init__(self, nombre: str = "real_fb") -> None:
+        super().__init__(nombre=nombre, titulo="FB real", steps=["p1"])
+
+    def run_step(self, idx: int, **params: Any) -> str:
+        return f"paso {idx}"
+
+
 def _wait_until(
     engine: Engine,
-    job_id: str,
-    predicate,
+    job_id: str,    predicate,
     timeout_s: float = 5.0,
 ):
     """Polling: espera a que el job cumpla ``predicate``.
@@ -461,3 +476,39 @@ def test_jobs_processed_cuenta_tambien_los_trabajos_fallidos():
     assert job is not None
     assert job.status == "error"
     assert engine.jobs_processed == 1
+
+
+def test_on_fb_change_asignado_tarde_cablea_los_fbs_ya_registrados():
+    """El bus SSE se cablea DESPUES de registrar los FBs.
+
+    Ese es el orden del arranque real: si el hook no se re-cablea al
+    asignarlo, ningun cambio de nStep llega al bus y el push del
+    resultado no funciona.
+    """
+    engine = Engine()
+    fb = _RealFB()
+    engine.register_fb("fb_a", fb)
+
+    cambios: list[str] = []
+    engine.on_fb_change = lambda name, _fb: cambios.append(name)
+
+    fb.nStep = fb.n_ejecutar
+    fb._notify_nstep_change(fb.n_idle, fb.n_ejecutar)
+
+    assert cambios == ["fb_a"]
+
+
+def test_on_fb_change_a_none_desconecta_los_fbs():
+    """Poner el hook a None deja de notificar."""
+    engine = Engine()
+    fb = _RealFB()
+    engine.register_fb("fb_a", fb)
+
+    cambios: list[str] = []
+    engine.on_fb_change = lambda name, _fb: cambios.append(name)
+    engine.on_fb_change = None
+
+    fb.nStep = fb.n_ejecutar
+    fb._notify_nstep_change(fb.n_idle, fb.n_ejecutar)
+
+    assert cambios == []

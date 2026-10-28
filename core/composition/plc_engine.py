@@ -88,8 +88,36 @@ class Engine:
         self._ob1_thread: threading.Thread | None = None
         self._ob1_stop = threading.Event()
         # Hook opcional: callable(name, fb) invocado tras cada cambio
-        # de nStep de cualquier FB. Lo cablea publishers.wire_all() en el arranque.
-        self.on_fb_change: Callable[[str, FunctionBase], None] | None = None
+        # de nStep de cualquier FB. Lo cablea publishers.wire_all() en el
+        # arranque, DESPUES de registrar los FBs: por eso es una
+        # property que re-cablea los FBs ya registrados.
+        self._on_fb_change: Callable[[str, FunctionBase], None] | None = None
+
+    @property
+    def on_fb_change(self) -> Callable[[str, FunctionBase], None] | None:
+        """Hook de notificacion de cambios de nStep de los FBs."""
+        return self._on_fb_change
+
+    @on_fb_change.setter
+    def on_fb_change(
+        self, value: Callable[[str, FunctionBase], None] | None,
+    ) -> None:
+        self._on_fb_change = value
+        self._wire_fb_hooks()
+
+    def _wire_fb_hooks(self) -> None:
+        """Conecta (o desconecta) el hook de cambio de nStep en los FBs.
+
+        Los FBs se registran antes de que exista el bus SSE, asi que el
+        cableado tiene que poder rehacerse cuando el hook se asigna.
+        """
+        for name, fb in self._fbs.items():
+            if self._on_fb_change is None:
+                fb._on_nstep_change = None
+                continue
+            fb._on_nstep_change = (
+                lambda old, new, _n=name, _fb=fb: self._on_fb_change(_n, _fb)
+            )
 
     # ------------------------------------------------------------------
     # Registro de FBs
@@ -98,9 +126,9 @@ class Engine:
     def register_fb(self, name: str, fb: FunctionBase) -> None:
         """Registra ``fb`` bajo ``name``. Si ya existe, lo pisa con warning.
 
-        Si ``self.on_fb_change`` esta definido, lo cablea como
-        ``fb._on_nstep_change`` para que cada cambio de nStep se
-        retransmita automaticamente.
+        El hook de cambio de nStep se cablea al registrar: si todavia
+        no hay hook (el bus SSE se cablea despues), se cablea cuando se
+        asigne.
         """
         if name in self._fbs:
             logger.warning(
@@ -109,10 +137,7 @@ class Engine:
                 type(fb).__name__,
             )
         self._fbs[name] = fb
-        if self.on_fb_change is not None:
-            fb._on_nstep_change = (
-                lambda old, new, _n=name, _fb=fb: self.on_fb_change(_n, _fb)
-            )
+        self._wire_fb_hooks()
         logger.info("Engine: FB registrado '%s' (%s)", name, type(fb).__name__)
 
     def get_fb(self, name: str) -> FunctionBase | None:
