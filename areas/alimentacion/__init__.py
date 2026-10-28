@@ -6,15 +6,12 @@ Aporta al core:
   - TIA commands del área (registrados por el tia-loop).
   - Frontend manifest (Vue 3 ESM del área).
   - Config defaults del ConfigManager.
-  - FunctionBlock Template (``FunctionTemplate``) registrado como
-    ``plantilla``: 10 pasos dummy para validar el engine y el
-    progress tracker como faceplate SSE. Sirve también como
-    molde para migrar los FBs reales del área.
+  - FunctionBlocks del área (registrados en el engine del core).
 
 Los routers web, los use cases previos, las tools MCP y los FBs no
 basados en plantilla siguen existiendo en el área pero no se montan.
 El Composition Root (``main_supervisor``) llama a ``register(engine, ...)``
-para activar la plantilla + los FBs del área.
+para activar los FBs del área.
 """
 from __future__ import annotations
 
@@ -171,16 +168,11 @@ def register(
     from areas.alimentacion.functions.function_entidades_generar_preview import (
         FunctionEntidadesGenerarPreview,
     )
-    from core.composition.plc_function_template import FunctionTemplate
 
-    # Defaults a Singleton global (mismo patron que la plantilla FB).
+    # Defaults a Singleton global.
     app_cache = app_cache if app_cache is not None else get_app_cache()
 
-    # Plantilla FB registrada como ``plantilla``: 10 pasos dummy para
-    # validar el engine y el progress tracker como faceplate SSE.
-    engine.register_fb("plantilla", FunctionTemplate(nombre="plantilla"))
-
-    # FBs del area basados en plantilla (FunctionBase con steps).
+    # FBs del area basados en FunctionBase (con steps).
     engine.register_fb(
         "subir_excel",
         FunctionExcelCargar(
