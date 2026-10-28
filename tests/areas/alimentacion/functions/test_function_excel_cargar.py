@@ -1,14 +1,18 @@
 """Tests del FB ``FunctionExcelCargar``.
 
+Camino sync: el FB se conduce con ``fb.execute(**params)``, una sola
+llamada que recorre la state machine completa (10→20→95→99).
+
 Cubren:
-  - Happy path: 3 ticks avanzan 10→20→95→99 (``n_done``),
+  - Happy path: ``execute()`` avanza 10→20→95→99 (``n_done``),
     ``self.result`` con la shape multi-PLC, ``AppCache`` con
     ``excel_full`` y ``excel_active`` poblados.
   - Sad path 1: sin ``config_manager`` → nStep=98 (``n_error``) con
     ``error_msg`` mencionando "config_manager".
   - Sad path 2: el loader lanza ``ValueError`` (xlsx corrupto) →
     nStep=98 con ``error_msg`` conteniendo el mensaje original.
-  - Estado terminal: ticks extra sobre ``n_done`` no avanzan.
+  - Estado terminal: un ``execute()`` extra sobre ``n_done`` deja el FB
+    terminal en ``n_done``.
 """
 from __future__ import annotations
 
@@ -112,7 +116,8 @@ def happy_loader_factory(fake_cache: MagicMock):
     """Factoría que devuelve un loader cuyo ``.load()`` retorna ``fake_cache``."""
     def factory(config_manager: ConfigManager) -> MagicMock:
         loader = MagicMock()
-        # ``.load`` es sync; ``asyncio.to_thread`` lo envuelve.
+        # ``.load`` es sync y el FB lo llama directamente (no hay
+        # event loop ni hilo extra).
         loader.load = MagicMock(return_value=fake_cache)
         return loader
     return factory
@@ -137,8 +142,7 @@ def make_fb(
 # ── Tests ────────────────────────────────────────────────────────────
 
 
-@pytest.mark.asyncio
-async def test_subir_excel_happy_path_3_ticks(
+def test_subir_excel_happy_path_3_ticks(
     mock_config: MagicMock,
     mock_state: AppCache,
     progress: ProgressTracker,
@@ -146,36 +150,25 @@ async def test_subir_excel_happy_path_3_ticks(
     happy_loader_factory,
     fake_cache: MagicMock,
 ) -> None:
-    """Happy path: start + 3 ticks → nStep=n_done (99).
+    """Happy path: ``execute()`` → nStep=n_done (99).
 
     State machine real (ver ``plc_function_base.py`` docstring):
-      nStep=10 (arrancar) → 20 (ejecutar, primer tick pre-flight)
-        → 95 (finalizar, _step_idx >= len(steps) tras el unico stage)
-        → 99 (done, terminal).
-    El FB tiene 1 stage (parsear + volcar), asi que hacen falta
-    start + 3 ticks para llegar a n_done (incluyendo el tick de
-    finalizar que mueve de 95 a 99).
+      nStep=10 (arrancar) → 20 (ejecutar) → 95 (finalizar) → 99 (done).
+    En el camino sync una sola llamada las recorre todas; las
+    transiciones se capturan con el hook ``_on_nstep_change``.
     """
     fb = make_fb(
         mock_config, mock_state, progress, mock_log,
         happy_loader_factory,
     )
+    transiciones: list[int] = []
+    fb._on_nstep_change = lambda _old, new: transiciones.append(new)
 
-    ok = await fb.start(xlsx_path="/fake/path.xlsx")
-    assert ok is True
-    assert fb.nStep == 10  # arrancar
+    fb.execute(xlsx_path="/fake/path.xlsx")
 
-    # Tick #1: pre-flight (10 → 20)
-    await fb.tick()
-    assert fb.nStep == 20
-
-    # Tick #2: ejecuta stage 0 (parsear + volcar) — _step_idx == len(steps)
-    # asi que transiciona a 95 (finalizar).
-    await fb.tick()
-    assert fb.nStep == 95
-
-    # Tick #3: ejecutar ``_step_finalizar`` (on_finish + finish tracker).
-    await fb.tick()
+    assert transiciones == [
+        fb.n_arrancar, fb.n_ejecutar, fb.n_finalizar, fb.n_done,
+    ]
     assert fb.nStep == fb.n_done  # 99
     assert fb.is_terminal() is True
     assert fb.error_msg is None
@@ -206,8 +199,7 @@ async def test_subir_excel_happy_path_3_ticks(
     assert full.excel_path == "/fake/path.xlsx"
 
 
-@pytest.mark.asyncio
-async def test_subir_excel_sad_no_config(
+def test_subir_excel_sad_no_config(
     mock_state: AppCache,
     progress: ProgressTracker,
     mock_log: MagicMock,
@@ -216,8 +208,8 @@ async def test_subir_excel_sad_no_config(
     y el wrapper de la base pone el FB en ``n_error`` con ``error_msg``
     que menciona "config_manager".
 
-    State machine: tick #1 ejecuta el pre-flight (10→20), tick #2
-    ejecuta el primer stage que falla por falta de config.
+    ``execute()`` captura la excepcion de runtime (no la propaga): el
+    FB queda en ``n_error`` con el mensaje en ``error_msg``.
     """
     fb = make_fb(
         config_manager=None,
@@ -226,33 +218,25 @@ async def test_subir_excel_sad_no_config(
         log=mock_log,
         loader_factory=MagicMock(),
     )
-    await fb.start(xlsx_path="/fake.xlsx")
-    assert fb.nStep == 10
+    fb.execute(xlsx_path="/fake.xlsx")
 
-    # Tick #1: pre-flight (10 → 20)
-    await fb.tick()
-    assert fb.nStep == 20
-
-    # Tick #2: ejecuta stage 0 → RuntimeError → n_error
-    await fb.tick()
     assert fb.nStep == fb.n_error  # 98
     assert fb.error_msg is not None
     assert "config_manager" in fb.error_msg
     assert fb.is_terminal() is True
 
 
-@pytest.mark.asyncio
-async def test_subir_excel_sad_parse_fails(
+def test_subir_excel_sad_parse_fails(
     mock_config: MagicMock,
     mock_state: AppCache,
     progress: ProgressTracker,
     mock_log: MagicMock,
 ) -> None:
-    """El loader lanza ``ValueError`` (xlsx corrupto) en nStep=20.
+    """El loader lanza ``ValueError`` (xlsx corrupto) al parsear.
 
-    El FB llega a nStep=20 (pre-flight OK), el segundo tick falla,
-    el wrapper pone el FB en ``n_error`` con el mensaje del loader
-    en ``error_msg``. El cache de ``AppCache`` NO se escribe.
+    ``execute()`` captura la excepcion de runtime y deja el FB en
+    ``n_error`` con el mensaje del loader en ``error_msg``. El cache de
+    ``AppCache`` NO se escribe.
     """
     def bad_factory(config_manager: ConfigManager) -> MagicMock:
         loader = MagicMock()
@@ -263,14 +247,8 @@ async def test_subir_excel_sad_parse_fails(
         mock_config, mock_state, progress, mock_log,
         bad_factory,
     )
-    await fb.start(xlsx_path="/fake/bad.xlsx")
+    fb.execute(xlsx_path="/fake/bad.xlsx")
 
-    # Tick #1: pre-flight OK (10 → 20)
-    await fb.tick()
-    assert fb.nStep == 20
-
-    # Tick #2: parse falla (20 → 98)
-    await fb.tick()
     assert fb.nStep == fb.n_error
     assert "xlsx corrupto" in fb.error_msg
     assert fb.is_terminal() is True
@@ -281,27 +259,24 @@ async def test_subir_excel_sad_parse_fails(
     assert excel_get_full(mock_state, "alimentacion") is None
 
 
-@pytest.mark.asyncio
-async def test_subir_excel_terminal_no_avanza_mas(
+def test_subir_excel_terminal_no_avanza_mas(
     mock_config: MagicMock,
     mock_state: AppCache,
     progress: ProgressTracker,
     mock_log: MagicMock,
     happy_loader_factory,
 ) -> None:
-    """Una vez en ``n_done``, ticks adicionales son no-op (guarda de la base)."""
+    """En ``n_done`` el FB queda terminal; un ``execute()`` extra lo
+    re-ejecuta y vuelve a ``n_done`` (no queda en estado activo).
+    """
     fb = make_fb(
         mock_config, mock_state, progress, mock_log,
         happy_loader_factory,
     )
-    await fb.start(xlsx_path="/fake.xlsx")
-
-    # Avanzar al estado done: start + 3 ticks (1 stage + finalizar).
-    await fb.tick()  # 10 → 20 (pre-flight)
-    await fb.tick()  # ejecuta stage 0 (parsear + volcar) → 95
-    await fb.tick()  # ejecuta _step_finalizar → 99 (done)
+    fb.execute(xlsx_path="/fake.xlsx")
     assert fb.nStep == fb.n_done
 
     n_step_before = fb.nStep
-    await fb.tick()
-    assert fb.nStep == n_step_before  # no avanza
+    fb.execute(xlsx_path="/fake.xlsx")
+    assert fb.nStep == n_step_before  # sigue terminal en n_done
+    assert fb.is_terminal() is True

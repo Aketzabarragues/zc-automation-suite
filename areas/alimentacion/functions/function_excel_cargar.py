@@ -122,7 +122,7 @@ class FunctionExcelCargar(FunctionBase):
     # HOOK 2: run_step  (ZONA 4: CASE por etapa)
     # ==================================================================
 
-    async def run_step(self, idx: int, **params: Any) -> str:
+    def run_step(self, idx: int, **params: Any) -> str:
         """CASE del unico paso (dispatch declarativo via tabla ``STAGES``).
 
         Itera la tabla ``STAGES`` declarada arriba de la clase; cada
@@ -145,7 +145,7 @@ class FunctionExcelCargar(FunctionBase):
         for _s_idx, s_nombre, s_attr in self.STAGES:
             if s_nombre == step_nombre:
                 handler = getattr(self, s_attr)
-                result = await handler()
+                result = handler()
                 return result
         raise ValueError(
             f"step {idx} ({step_nombre!r}) no esta en STAGES "
@@ -191,7 +191,7 @@ class FunctionExcelCargar(FunctionBase):
     # tabla tambien.
     # ==================================================================
 
-    async def _stage_1_parsear_y_volcar(self) -> str:
+    def _stage_1_parsear_y_volcar(self) -> str:
         """Stage 1: parsea el ``.xlsx`` y lo escribe al ``AppCache``.
 
         Lazy import para evitar ciclo entre este FB y
@@ -205,7 +205,7 @@ class FunctionExcelCargar(FunctionBase):
             parse_excel_to_cache,
         )
 
-        cache = await parse_excel_to_cache(
+        cache = parse_excel_to_cache(
             config_manager=self._config,
             excel_path=self._xlsx_path,
             app_cache=self._app_cache,

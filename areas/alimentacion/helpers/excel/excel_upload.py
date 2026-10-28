@@ -17,7 +17,6 @@ endpoint, helper) lee via ``excel_get_full`` / ``excel_get_active``.
 """
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 
 from core.data.data_excel_cache import DataExcelCache
@@ -31,7 +30,7 @@ from core.runtime.excel_cache import (
 )
 
 
-async def parse_excel_to_cache(
+def parse_excel_to_cache(
     config_manager: ConfigManager,
     excel_path: str | Path,
     app_cache: AppCache,
@@ -61,7 +60,7 @@ async def parse_excel_to_cache(
         ``DataExcelCache`` ya escrito en ``app_cache.area(area_id).excel_full``.
     """
     loader = loader_factory(config_manager=config_manager)
-    cache = await asyncio.to_thread(loader.load, excel_path)
+    cache = loader.load(excel_path)
     excel_set_full(app_cache, area_id, cache)
     derived = derive_excel_active(
         app_cache, area_id, app_cache.get_state().selected_plc,
