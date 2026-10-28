@@ -22,7 +22,7 @@
  * la red (CDN) o desde ``/js/`` servido por FastAPI.
  */
 import { createApp, computed, nextTick } from "/js/vendor/vue.esm-browser.prod.js";
-import { applyCacheChange, applyCacheSnapshot,
+import { applyCacheChange, applyCacheSnapshot, applyFbState,
     goToArea, goToSubview, loadCatalog, store } from "./store.js";
 import { loadArea, mountArea } from "./area-loader.js";
 import Welcome from "./components/Welcome.js";
@@ -367,6 +367,14 @@ sse.onmessage = (e) => {
             // helper parchea ``store.appCache`` segun ``area_id`` /
             // ``plc_name`` (ver ``applyCacheChange``).
             applyCacheChange(event);
+            break;
+        case "fb_state":
+            // Estado de un FB tras cada cambio de su state machine.
+            // Es el canal de push del resultado: el router devuelve
+            // ``202 {job_id}`` y aqui llega el ``result`` cuando el FB
+            // pasa a terminal. El ``job_id`` correlaciona el evento
+            // con el trabajo que pidio el HMI.
+            applyFbState(event);
             break;
         case "tia_state":
             // Solo cambia el state; el resto de campos de

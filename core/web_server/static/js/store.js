@@ -173,6 +173,20 @@ export const store = reactive({
     },
 
     /**
+     * Estado de los FBs, indexado por nombre de FB.
+     *
+     * El backend lo empuja por SSE con el evento ``fb_state``
+     * (``{name, nStep, is_terminal, job_id, result, error_msg}``).
+     * Cada entrada tiene esa misma forma mas ``updatedAt``.
+     *
+     * Es el canal de push del resultado de un trabajo: el router
+     * devuelve ``202 {job_id}`` y el resultado llega aqui cuando el
+     * FB pasa a terminal. El ``job_id`` permite correlacionar el
+     * evento con el trabajo que el HMI pidio.
+     */
+    fbStates: {},
+
+    /**
      * Snapshot cacheado de la estructura del PLC activo
      * (bloques + tag tables + UDTs). Reemplazado por
      * ``store.appCache.plc_blocks[<plc_name>]`` (keyed por PLC).
@@ -1303,6 +1317,34 @@ export function applyCacheSnapshot(snapshot) {
             cache[key] = snapshot[key];
         }
     }
+}
+
+/**
+ * Aplica un evento ``fb_state`` del SSE al store.
+ *
+ * Escribe la entrada del FB en ``store.fbStates[<name>]``. Un FB que
+ * ya estaba en el store se reasigna entero (la forma del estado es
+ * plana y no tiene refs anidadas que invalidar).
+ *
+ * @param {{name: string, nStep: number, is_terminal: boolean,
+ *          job_id: string|null, result: any, error_msg: string|null}} event
+ */
+export function applyFbState(event) {
+    if (!event || typeof event !== "object") return;
+    const name = event.name;
+    if (!name) return;
+    if (!store.fbStates || typeof store.fbStates !== "object") {
+        store.fbStates = {};
+    }
+    store.fbStates[name] = {
+        name: name,
+        nStep: event.nStep,
+        is_terminal: !!event.is_terminal,
+        job_id: event.job_id ?? null,
+        result: event.result ?? null,
+        error_msg: event.error_msg ?? null,
+        updatedAt: Date.now(),
+    };
 }
 
 export default store;
