@@ -9,7 +9,7 @@
 
 Antes de empezar, lee estos 4 archivos en este orden:
 
-1. `areas/alimentacion/functions/function_template.py` — plantilla con Zona 0.
+1. `core/composition/plc_function_base.py` — la `FunctionBase` (Zona 0).
 2. `areas/alimentacion/functions/function_SubirExcel.py` — FB migrado.
 3. `areas/alimentacion/helpers/sync/upload_excel.py` — helper puro.
 4. `areas/alimentacion/frontend/excel_router.py` — endpoint POST.
@@ -112,8 +112,7 @@ llamada al `build_routers(app)` del nuevo modulo.
    (commits `cb24d40`, `85cfb62`).
 
 2. **`_stats` lo inicializa `FunctionBase.__init__`.** No
-   redeclararlo en el FB a menos que heredes de `FunctionTemplate`
-   (que lo hace en su Zona 3).
+   redeclararlo en el FB.
 
 3. **El FB es reusable.** `start()` acepta re-arranque desde
    `n_done`/`n_error` (commit `8c30ed0`). El operario puede

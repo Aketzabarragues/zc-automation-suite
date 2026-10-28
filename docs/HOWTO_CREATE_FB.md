@@ -20,8 +20,6 @@ endpoint Flask síncrono).
 ## 2. Pre-requisitos
 
 - Leer `core/composition/plc_function_base.py` (la `FunctionBase`).
-- Leer `core/composition/plc_function_template.py` (la plantilla
-  con Zona 0/1/2/3).
 - Conocer el FB de referencia: `areas/alimentacion/functions/function_excel_cargar.py`.
 
 ## 3. Estructura de 4 zonas
