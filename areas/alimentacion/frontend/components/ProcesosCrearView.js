@@ -30,7 +30,7 @@
  * template (cierran prematuramente el string template JS).
  */
 import { computed, ref } from "/js/vendor/vue.esm-browser.prod.js";
-import { store } from "/js/store.js";
+import { store, waitForFbJob } from "/js/store.js";
 import {
     apiListPlantillas,
     apiUpdatePlantillasPath,
@@ -320,9 +320,21 @@ export default {
                 plc_blocks_cache: _blocksToDicts(plcBlocksCache.value),
             };
             const r = await apiProcesosCrearPreview(params);
-            if (r && r.ok && r.data) {
-                previewData.value = r.data;
+            if (r && r.ok && r.data && r.data.job_id) {
+                // El router encolo el trabajo en el OB1 y devolvio
+                // 202: el preview llega por SSE (evento fb_state).
+                const st = await _esperarJob(
+                    r.data.job_id,
+                    "proc_process_crear_preview"
+                );
+                if (st.error_msg) {
+                    aplicacionEstado.value = "error";
+                    aplicacionError.value = "Preview fallo: " + st.error_msg;
+                } else {
+                    previewData.value = st.result || null;
+                }
             } else {
+                aplicacionEstado.value = "error";
                 aplicacionError.value =
                     "Preview fallo: " +
                     ((r && r.data && r.data.error) || (r ? r.status : "?"));
@@ -340,26 +352,50 @@ export default {
                 plc_blocks_cache: _blocksToDicts(plcBlocksCache.value),
             };
             const r = await apiProcesosCrearAplicar(params);
-            if (r && r.ok) {
-                aplicacionEstado.value = "ok";
-                // ``process_label`` viene del FB result
-                // (``"<base_nueva>_<codigo_nuevo>"``, sept-2026).
-                // Fallback al procUid por si el backend no lo
-                // expone todavia.
-                appliedProcessLabel.value =
-                    (r.data && r.data.process_label) ||
-                    String(props.procUid || "");
-                // Limpiamos previewData: ya no debe quedar info
-                // stale en pantalla que pueda dar lugar a un
-                // re-apply por error. El operario tendra que
-                // volver a pulsar "Generar Prevision" si quiere
-                // revisar o re-aplicar.
-                previewData.value = null;
+            if (r && r.ok && r.data && r.data.job_id) {
+                // El router encolo el trabajo en el OB1 y devolvio
+                // 202: el resultado del apply llega por SSE (fb_state).
+                const st = await _esperarJob(
+                    r.data.job_id,
+                    "proc_process_crear_aplicar"
+                );
+                if (st.error_msg) {
+                    aplicacionEstado.value = "error";
+                    aplicacionError.value = "Apply fallo: " + st.error_msg;
+                } else {
+                    aplicacionEstado.value = "ok";
+                    // ``process_label`` viene del result del FB
+                    // (``"<base_nueva>_<codigo_nuevo>"``). Fallback al
+                    // procUid por si el backend no lo expone todavia.
+                    appliedProcessLabel.value =
+                        (st.result && st.result.process_label) ||
+                        String(props.procUid || "");
+                    // Limpiamos previewData: ya no debe quedar info
+                    // stale en pantalla que pueda dar lugar a un
+                    // re-apply por error. El operario tendra que
+                    // volver a pulsar "Generar Prevision" si quiere
+                    // revisar o re-aplicar.
+                    previewData.value = null;
+                }
             } else {
                 aplicacionEstado.value = "error";
                 aplicacionError.value =
                     "Apply fallo: " +
                     ((r && r.data && r.data.error) || (r ? r.status : "?"));
+            }
+        }
+
+        // Espera al trabajo encolado por el router y devuelve el
+        // estado terminal del FB. Si el FB termino con error o si se
+        // agoto el timeout de la espera, devuelve un estado con
+        // ``error_msg`` para que el caller lo muestre al operario.
+        async function _esperarJob(jobId, fbName) {
+            try {
+                return await waitForFbJob(jobId, fbName);
+            } catch (e) {
+                return {
+                    error_msg: String(e && e.message ? e.message : e),
+                };
             }
         }
 
@@ -647,6 +683,16 @@ export default {
                 <span>🔍</span>
                 <span>Generar Previsión</span>
             </button>
+
+            <!-- Error del preview: el FB termino con error (o el
+                 router no pudo encolar el trabajo). Sin preview no
+                 hay bloque donde pintar el error, asi que se muestra
+                 aqui. El error del apply se muestra mas abajo,
+                 dentro del bloque del preview. -->
+            <p v-if="aplicacionEstado === 'error' && aplicacionError && !previewData"
+               class="text-red-700 text-xs mt-2">
+                {{ aplicacionError }}
+            </p>
 
             <div v-if="previewData" class="mt-4">
                 <h3 class="text-sm font-semibold text-ink mb-2">

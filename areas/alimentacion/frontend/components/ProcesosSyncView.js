@@ -340,7 +340,7 @@ export default {
                     // para evitar trabajar con datos stale.
                     resetPlcState();
                 } else {
-                    const detail = (r && r.data && r.data.detail) ||
+                    const detail = (r && r.data && (r.data.error || r.data.detail)) ||
                                     "Error generando preview";
                     store.procesosSync.error = detail;
                 }
@@ -386,7 +386,7 @@ export default {
                     // su cache).
                     resetPlcState();
                 } else {
-                    const detail = (r && r.data && r.data.detail) ||
+                    const detail = (r && r.data && (r.data.error || r.data.detail)) ||
                                     "Error aplicando comentarios";
                     store.procesosSync.error = detail;
                 }

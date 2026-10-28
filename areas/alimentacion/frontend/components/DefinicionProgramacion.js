@@ -43,7 +43,7 @@
  */
 import { computed, ref } from "/js/vendor/vue.esm-browser.prod.js";
 // Imports absolutos: ver nota en ``Sidebar.js``.
-import { store } from "/js/store.js";
+import { store, waitForFbJob } from "/js/store.js";
 import { apiUploadExcel } from "/js/api.js";
 
 export default {
@@ -165,6 +165,11 @@ export default {
          * La reactividad de ``excelFull`` (computed) propaga el
          * cambio a las cards de N_MAX y la tabla sin que el
          * usuario tenga que pulsar "Actualizar".
+         *
+         * El router no bloquea: devuelve 202 con el ``job_id`` del
+         * trabajo encolado en el OB1. El resultado llega por SSE
+         * (evento ``fb_state``), asi que aqui esperamos al terminal
+         * del FB ``subir_excel`` para distinguir exito de error.
          */
         async function handleExcel(ev) {
             const file = ev.target.files && ev.target.files[0];
@@ -172,10 +177,31 @@ export default {
             store.busy = true;
             try {
                 const r = await apiUploadExcel(file);
-                if (r.ok) {
-                    lastFileName.value = file.name;
+                if (r && r.ok && r.data && r.data.job_id) {
+                    // El Excel ya viaja al AppCache (``excel_full``),
+                    // asi que la vista se refresca sola por SSE.
+                    // Aqui solo esperamos al terminal del trabajo.
+                    let st = null;
+                    try {
+                        st = await waitForFbJob(r.data.job_id, "subir_excel");
+                    } catch (e) {
+                        st = {
+                            error_msg: String(
+                                e && e.message ? e.message : e
+                            ),
+                        };
+                    }
+                    if (st.error_msg) {
+                        alert("Error cargando Excel: " + st.error_msg);
+                    } else {
+                        lastFileName.value = file.name;
+                    }
                 } else {
-                    alert("Error cargando Excel: " + (r.data.detail || r.status));
+                    alert(
+                        "Error cargando Excel: " +
+                        ((r && r.data && (r.data.error || r.data.detail)) ||
+                            (r ? r.status : "?"))
+                    );
                 }
             } finally {
                 store.busy = false;
