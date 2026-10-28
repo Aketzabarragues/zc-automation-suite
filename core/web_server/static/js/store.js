@@ -1347,4 +1347,38 @@ export function applyFbState(event) {
     };
 }
 
+/**
+ * Espera a que un trabajo del OB1 termine y devuelve su estado final.
+ *
+ * El router responde ``202 {job_id}`` y el resultado llega por SSE en
+ * el evento ``fb_state``. Esta funcion correlaciona ambos: espera a que
+ * llegue el estado terminal del FB cuyo ``job_id`` sea el del trabajo
+ * pedido, y lo devuelve.
+ *
+ * @param {string} jobId   job_id devuelto por el router
+ * @param {string} fbName  nombre del FB (clave en ``store.fbStates``)
+ * @param {number} timeoutMs  timeout de espera en ms
+ * @returns {Promise<object>} el estado terminal del FB
+ */
+export function waitForFbJob(jobId, fbName, timeoutMs = 900_000) {
+    return new Promise((resolve, reject) => {
+        const startedAt = Date.now();
+        const check = () => {
+            const st = store.fbStates ? store.fbStates[fbName] : null;
+            if (st && st.job_id === jobId && st.is_terminal) {
+                resolve(st);
+                return;
+            }
+            if (Date.now() - startedAt > timeoutMs) {
+                reject(new Error(
+                    "timeout esperando el resultado del trabajo " + jobId
+                ));
+                return;
+            }
+            setTimeout(check, 150);
+        };
+        check();
+    });
+}
+
 export default store;
