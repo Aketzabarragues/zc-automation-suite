@@ -39,7 +39,6 @@ Steps (9, Tx A N_MAX + compile + Tx B + post-preview):
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
@@ -47,7 +46,7 @@ from pathlib import Path
 from typing import Any
 
 from core.composition.plc_function_base import FunctionBase
-from core.helpers.tia import dispatch_async, validate_execute_batch_result
+from core.helpers.tia import validate_execute_batch_result
 from core.helpers.tia.validate_plc_in_tia import validate_plc_in_tia
 from core.helpers.tia.validate_plc_in_excel import validate_plc_in_excel
 from core.helpers.tia.with_plc import with_plc
@@ -227,7 +226,7 @@ class FunctionProcDBSincronizar(FunctionBase):
     # HOOK 2: run_step  (ZONA 4: state machine -> dispatch al helper)
     # ==================================================================
 
-    async def run_step(self, idx: int, **params: Any) -> str:
+    def run_step(self, idx: int, **params: Any) -> str:
         """Dispatch del FB step ``idx`` a la funcion del helper ``proc_sincronizar``.
 
         Aqui vive la state machine: cada step del FB llama a UNA
@@ -255,9 +254,7 @@ class FunctionProcDBSincronizar(FunctionBase):
         for _s_idx, s_nombre, s_attr in self.STAGES:
             if s_nombre == step_nombre:
                 handler = getattr(self, s_attr)
-                result = handler()
-                if hasattr(result, "__await__"):
-                    await result
+                handler()
                 return _step_summary(self._ctx, s_nombre)
         raise ValueError(
             f"step {idx} ({step_nombre!r}) no esta en STAGES "
@@ -412,7 +409,7 @@ class FunctionProcDBSincronizar(FunctionBase):
             self._ctx.tags_base, self._ctx.proc_uid, self._ctx.slot_map,
         )
 
-    async def _stage_4_sync_nmax(self) -> None:
+    def _stage_4_sync_nmax(self) -> None:
         """Stage 4: dispatch ``execute_transactional_batch`` con N_MAX ops.
 
         Siempre se ejecuta, aunque ``ctx.nmax_ops=[]`` (requisito del
@@ -450,8 +447,7 @@ class FunctionProcDBSincronizar(FunctionBase):
             f"[proc_db_sync {self._ctx.plc_name} u{self._ctx.proc_uid}] "
             f"Tx A (online): {len(operations)} N_MAX via batch"
         )
-        nmax_result = await dispatch_async(
-            self._ctx.tia_client,
+        nmax_result = self._ctx.tia_client.submit_and_wait(
             "execute_transactional_batch",
             {
                 "undo_text": (
@@ -460,6 +456,7 @@ class FunctionProcDBSincronizar(FunctionBase):
                 ),
                 "operations": operations,
             },
+            timeout=60.0,
         )
         if not nmax_result.get("ok"):
             raise RuntimeError(
@@ -468,11 +465,11 @@ class FunctionProcDBSincronizar(FunctionBase):
             )
         self._ctx.nmax_result = nmax_result.get("result") or {}
 
-    async def _stage_5_wait_consolidation(self) -> None:
+    def _stage_5_wait_consolidation(self) -> None:
         """Stage 5: sleep 2s para que TIA consolide tras Tx A."""
-        await asyncio.to_thread(time.sleep, TIA_CONSOLIDATION_SLEEP_S)
+        time.sleep(TIA_CONSOLIDATION_SLEEP_S)
 
-    async def _stage_6_compile_proc_blocks(self) -> None:
+    def _stage_6_compile_proc_blocks(self) -> None:
         """Stage 6: compila los DBs PARAM + ALM del proceso actual.
 
         Patron paralelo a ``disp_Sincronizar.compilar_bloques``:
@@ -490,14 +487,13 @@ class FunctionProcDBSincronizar(FunctionBase):
             return
 
         try:
-            compile_result = await dispatch_async(
-                self._ctx.tia_client,
+            compile_result = self._ctx.tia_client.submit_and_wait(
                 "compile_blocks",
                 {
                     "plc_name": self._ctx.plc_name,
                     "block_names": block_names,
                 },
-                timeout_s=120.0,
+                timeout=120.0,
             )
         except Exception as e:
             self._ctx.compile_ok = False
@@ -552,7 +548,7 @@ class FunctionProcDBSincronizar(FunctionBase):
             result.append(sm.db_alm_name)
         return result
 
-    async def _stage_7_open_transaction(self) -> None:
+    def _stage_7_open_transaction(self) -> None:
         """Stage 7: Tx B (comentarios) - orquesta 5 fases + commit final.
 
         Fases (delegadas en helpers module-level ``_proc_tx_b_*``):
@@ -583,9 +579,9 @@ class FunctionProcDBSincronizar(FunctionBase):
         # sin detectar "eliminar"). El operario lo vera como
         # "renombrar / agregar", no "eliminar".
         try:
-            await _proc_tx_b_detectar_eliminar_export(self._ctx)
+            _proc_tx_b_detectar_eliminar_export(self._ctx)
             current_preal, current_pint, current_alm = (
-                await _proc_tx_b_detectar_eliminar_read(self._ctx)
+                _proc_tx_b_detectar_eliminar_read(self._ctx)
             )
         except Exception as exc:
             logger.warning(
@@ -736,8 +732,7 @@ class FunctionProcDBSincronizar(FunctionBase):
             # Un solo import_block bajo execute_transactional_batch para
             # atomicidad semantica: si TIA falla durante el scaneo
             # recursivo de sync_bloques_modified, rollback total.
-            await dispatch_async(
-                self._ctx.tia_client,
+            self._ctx.tia_client.submit_and_wait(
                 "execute_transactional_batch",
                 {
                     "undo_text": (
@@ -754,7 +749,7 @@ class FunctionProcDBSincronizar(FunctionBase):
                         },
                     ],
                 },
-                timeout_s=600.0,
+                timeout=600.0,
             )
 
         self._ctx.tx_result = {
@@ -762,7 +757,7 @@ class FunctionProcDBSincronizar(FunctionBase):
             "details": details,
         }
 
-    async def _stage_8_post_preview(self) -> None:
+    def _stage_8_post_preview(self) -> None:
         """Stage 8: regenera el preview tras el commit.
 
         Replica el flujo del preview (``generar_prevision``) inline,
@@ -807,8 +802,7 @@ class FunctionProcDBSincronizar(FunctionBase):
             preview_bloques = proc_ctx.preview_bloques
             preview_variables = proc_ctx.preview_variables
 
-            batch_result = await dispatch_async(
-                self._ctx.tia_client,
+            batch_result = self._ctx.tia_client.submit_and_wait(
                 "execute_batch",
                 {
                     "operations": [
@@ -833,7 +827,7 @@ class FunctionProcDBSincronizar(FunctionBase):
                         },
                     ],
                 },
-                timeout_s=120.0,
+                timeout=120.0,
             )
             validate_execute_batch_result(
                 batch_result["result"],
@@ -1156,7 +1150,7 @@ def _proc_tx_b_limpiar(ctx: ProcSyncContext) -> None:
     ctx.exports_subdir = proc_ctx.sync_bloques_export
 
 
-async def _proc_tx_b_detectar_eliminar_export(ctx: ProcSyncContext) -> None:
+def _proc_tx_b_detectar_eliminar_export(ctx: ProcSyncContext) -> None:
     """Fase re-exporta los DBs presentes a ``exports/<subpath>/``.
 
     Construye la lista de ops filtrando por ``slot_map.db_missing`` y
@@ -1222,11 +1216,10 @@ async def _proc_tx_b_detectar_eliminar_export(ctx: ProcSyncContext) -> None:
             "(ambos DBs faltan). stage 3 debio abortar antes."
         )
 
-    batch_result = await dispatch_async(
-        ctx.tia_client,
+    batch_result = ctx.tia_client.submit_and_wait(
         "execute_batch",
         {"operations": operations},
-        timeout_s=120.0,
+        timeout=120.0,
     )
     result = batch_result.get("result") or {}
     details = result.get("details") or []
@@ -1256,7 +1249,7 @@ async def _proc_tx_b_detectar_eliminar_export(ctx: ProcSyncContext) -> None:
     ctx.exports_alm_dir = exports_alm_dir
 
 
-async def _proc_tx_b_detectar_eliminar_read(
+def _proc_tx_b_detectar_eliminar_read(
     ctx: ProcSyncContext,
 ) -> "tuple[dict[int, str | None], dict[int, str | None], dict[int, str | None]]":
     """Fase lee los comentarios ``es-ES`` actuales de cada array.

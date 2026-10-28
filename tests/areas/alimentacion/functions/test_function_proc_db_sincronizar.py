@@ -1,17 +1,18 @@
 """Tests del FB ``FunctionProcDBSincronizar``.
 
 Cubre:
-  - Happy path: 7 ticks (1 arrancar + 4 steps + 1 finalizar + 1 done),
-    ``self.result`` con la shape legacy, helper llamado 1 vez por step.
+  - Happy path: ``execute()`` (camino sync: on_start + 9 steps +
+    on_finish) -> nStep=99, ``self.result`` con la shape legacy, helper
+    llamado 1 vez por step.
   - Sad path 1: sin ``config_manager`` -> nStep=98 con "config_manager".
   - Sad path 2: sin ``tia_client`` -> nStep=98 con "tia_client".
-  - Sad path 3: ``start()`` sin ``plc_name`` -> ValueError.
-  - Sad path 4: ``start()`` sin ``proc_uid`` -> ValueError.
+  - Sad path 3: ``execute()`` sin ``plc_name`` -> nStep=98.
+  - Sad path 4: ``execute()`` sin ``proc_uid`` -> nStep=98.
   - Sad path 5: helper ``proc_check_state_commit`` reporta excel no
-    cargado -> primer tick ejecutivo falla con RuntimeError.
+    cargado -> primer step ejecutivo falla con RuntimeError.
   - Sad path 6: helper ``proc_build_slot_maps_commit`` reporta
-    missing_blocks -> tercer tick ejecutivo falla con RuntimeError.
-  - Estado terminal: ticks extra sobre ``n_done`` son no-op.
+    missing_blocks -> tercer step ejecutivo falla con RuntimeError.
+  - Estado terminal: una llamada extra del driver no avanza el FB.
 
 Mockeamos el helper ``proc_sincronizar`` (sus funciones) para validar
 SOLO la state machine del FB (no la logica del helper; eso tiene su
@@ -21,7 +22,7 @@ from __future__ import annotations
 
 from contextlib import ExitStack
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -43,7 +44,7 @@ def mock_config() -> MagicMock:
 @pytest.fixture
 def mock_tia_client() -> MagicMock:
     client = MagicMock()
-    client.execute_transactional_batch = AsyncMock(
+    client.execute_transactional_batch = MagicMock(
         return_value={"operations_executed": 2, "details": []}
     )
     # Mock list_plcs para validate_plc_in_tia (PR5).
@@ -137,19 +138,19 @@ def _patch_helper_fns_except_stage_3(fb) -> ExitStack:
         patch.object(fb, "_stage_2_check_blocks_commit", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "_stage_4_sync_nmax", AsyncMock(), create=True)
+        patch.object(fb, "_stage_4_sync_nmax", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "_stage_5_wait_consolidation", AsyncMock(), create=True)
+        patch.object(fb, "_stage_5_wait_consolidation", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "_stage_6_compile_proc_blocks", AsyncMock(), create=True)
+        patch.object(fb, "_stage_6_compile_proc_blocks", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "_stage_7_open_transaction", AsyncMock(), create=True)
+        patch.object(fb, "_stage_7_open_transaction", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "_stage_8_post_preview", AsyncMock(), create=True)
+        patch.object(fb, "_stage_8_post_preview", MagicMock(), create=True)
     )
     stack.enter_context(
         patch.object(fb, "_stage_9_build_response", MagicMock(), create=True)
@@ -179,19 +180,19 @@ def _patch_helper_fns(fb) -> ExitStack:
         patch.object(fb, "_stage_3_build_slot_maps_commit", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "_stage_4_sync_nmax", AsyncMock(), create=True)
+        patch.object(fb, "_stage_4_sync_nmax", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "_stage_5_wait_consolidation", AsyncMock(), create=True)
+        patch.object(fb, "_stage_5_wait_consolidation", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "_stage_6_compile_proc_blocks", AsyncMock(), create=True)
+        patch.object(fb, "_stage_6_compile_proc_blocks", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "_stage_7_open_transaction", AsyncMock(), create=True)
+        patch.object(fb, "_stage_7_open_transaction", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "_stage_8_post_preview", AsyncMock(), create=True)
+        patch.object(fb, "_stage_8_post_preview", MagicMock(), create=True)
     )
     stack.enter_context(
         patch.object(fb, "_stage_9_build_response", MagicMock(), create=True)
@@ -202,8 +203,7 @@ def _patch_helper_fns(fb) -> ExitStack:
 # ── Happy path ──────────────────────────────────────────────────────
 
 
-@pytest.mark.asyncio
-async def test_proc_sincronizar_happy_path_8_ticks(
+def test_proc_sincronizar_happy_path_8_ticks(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
     patch_validate_plc_in_excel: MagicMock,
@@ -211,14 +211,11 @@ async def test_proc_sincronizar_happy_path_8_ticks(
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
-    """Happy path: 10 ticks -> nStep=99, todas las funciones del helper
+    """Happy path: ``execute()`` -> nStep=99, todas las funciones del helper
     llamadas una vez, ``self.result`` con la shape legacy.
 
-    : el FB ahora tiene 8 steps (3 nuevos: sync_nmax,
-    wait_consolidation, compile_proc_blocks), por lo que el flujo es:
-      tick #1:  10 -> 20 (on_start + tracker.begin)
-      ticks #2-9: 20 (8 steps; nStep NO avanza)
-      tick #10: 95 -> 99 (on_finish)
+    Camino sync: ``execute()`` corre el FB entero (on_start + 9 steps +
+    on_finish) en una sola llamada y devuelve ``self.result``.
     """
     fake_result = {
         "proc_uid": 42,
@@ -270,30 +267,10 @@ async def test_proc_sincronizar_happy_path_8_ticks(
         )
 
 
-        ok = await fb.start(plc_name="S7-1500", proc_uid=42)
-        assert ok is True
-        assert fb.nStep == 10
+        result = fb.execute(plc_name="S7-1500", proc_uid=42)
 
-        # State machine del FunctionBase:
-        #   tick #1: 10 -> 20 (on_start + tracker.begin)
-        #   ticks #2-10: 20 (corren los 9 steps; nStep NO avanza)
-        #   tick #11: 95 -> 99 (on_finish)
-        n_ticks_done = 0
-        await fb.tick()
-        n_ticks_done += 1
-        assert fb.nStep == 20
-
-        for _ in range(9):
-            await fb.tick()
-            n_ticks_done += 1
-            assert fb.nStep in (20, 95)
-        assert fb.nStep == 95
-
-        await fb.tick()
-        n_ticks_done += 1
-        assert fb.nStep == 99
-        assert n_ticks_done == 11
-
+        assert fb.nStep == fb.n_done
+        assert result is fb.result
         assert fb.is_terminal() is True
         assert fb.error_msg is None
         assert fb.result is not None
@@ -306,24 +283,24 @@ async def test_proc_sincronizar_happy_path_8_ticks(
         assert fb._stage_1_check_state_commit.call_count == 1
         assert fb._stage_2_check_blocks_commit.call_count == 1
         assert fb._stage_3_build_slot_maps_commit.call_count == 1
-        assert fb._stage_4_sync_nmax.await_count == 1
-        assert fb._stage_5_wait_consolidation.await_count == 1
-        assert fb._stage_6_compile_proc_blocks.await_count == 1
-        assert fb._stage_7_open_transaction.await_count == 1
+        assert fb._stage_4_sync_nmax.call_count == 1
+        assert fb._stage_5_wait_consolidation.call_count == 1
+        assert fb._stage_6_compile_proc_blocks.call_count == 1
+        assert fb._stage_7_open_transaction.call_count == 1
+        assert fb._stage_8_post_preview.call_count == 1
         assert fb._stage_9_build_response.call_count == 1
 
 
 # ── Sad paths (pre-flight en on_start) ──────────────────────────────
 
 
-@pytest.mark.asyncio
-async def test_proc_sincronizar_sad_no_config(
+def test_proc_sincronizar_sad_no_config(
     mock_tia_client: MagicMock,
     mock_app_cache: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
-    """Sin ``config_manager`` -> primer tick falla con "config_manager"."""
+    """Sin ``config_manager`` -> ``execute()`` deja el FB en n_error."""
     fb = FunctionProcDBSincronizar(
         nombre="no_config_test",
         config_manager=None,
@@ -332,22 +309,19 @@ async def test_proc_sincronizar_sad_no_config(
         bloques_cache=mock_bloques_cache,
         tracker=progress,
     )
-    await fb.start(plc_name="S7-1500", proc_uid=42)
-    assert fb.nStep == 10
+    fb.execute(plc_name="S7-1500", proc_uid=42)
 
-    await fb.tick()  # 10 -> 98
     assert fb.nStep == fb.n_error
     assert "config_manager" in fb.error_msg
 
 
-@pytest.mark.asyncio
-async def test_proc_sincronizar_sad_no_tia_client(
+def test_proc_sincronizar_sad_no_tia_client(
     mock_config: MagicMock,
     mock_app_cache: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
-    """Sin ``tia_client`` -> primer tick falla con "tia_client"."""
+    """Sin ``tia_client`` -> ``execute()`` deja el FB en n_error."""
     fb = FunctionProcDBSincronizar(
         nombre="no_tia_test",
         config_manager=mock_config,
@@ -356,52 +330,44 @@ async def test_proc_sincronizar_sad_no_tia_client(
         bloques_cache=mock_bloques_cache,
         tracker=progress,
     )
-    await fb.start(plc_name="S7-1500", proc_uid=42)
-    assert fb.nStep == 10
+    fb.execute(plc_name="S7-1500", proc_uid=42)
 
-    await fb.tick()  # 10 -> 98
     assert fb.nStep == fb.n_error
     assert "tia_client" in fb.error_msg
 
 
-@pytest.mark.asyncio
-async def test_proc_sincronizar_sad_no_plc_name(
+def test_proc_sincronizar_sad_no_plc_name(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
     mock_app_cache: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
-    """``start()`` sin ``plc_name`` -> primer tick falla con ValueError."""
+    """``execute()`` sin ``plc_name`` -> el FB queda en n_error."""
     fb = make_fb(
         mock_config, mock_tia_client, mock_app_cache,
         mock_bloques_cache, progress,
     )
-    await fb.start(proc_uid=42)
-    assert fb.nStep == 10
+    fb.execute(proc_uid=42)
 
-    await fb.tick()  # 10 -> 98
     assert fb.nStep == fb.n_error
     assert "plc_name" in fb.error_msg
 
 
-@pytest.mark.asyncio
-async def test_proc_sincronizar_sad_no_proc_uid(
+def test_proc_sincronizar_sad_no_proc_uid(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
     mock_app_cache: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
-    """``start()`` sin ``proc_uid`` -> primer tick falla con ValueError."""
+    """``execute()`` sin ``proc_uid`` -> el FB queda en n_error."""
     fb = make_fb(
         mock_config, mock_tia_client, mock_app_cache,
         mock_bloques_cache, progress,
     )
-    await fb.start(plc_name="S7-1500")
-    assert fb.nStep == 10
+    fb.execute(plc_name="S7-1500")
 
-    await fb.tick()  # 10 -> 98
     assert fb.nStep == fb.n_error
     assert "proc_uid" in fb.error_msg
 
@@ -409,8 +375,7 @@ async def test_proc_sincronizar_sad_no_proc_uid(
 # ── Sad paths (en ticks ejecutivos) ────────────────────────────────
 
 
-@pytest.mark.asyncio
-async def test_proc_sincronizar_sad_check_state_no_excel(
+def test_proc_sincronizar_sad_check_state_no_excel(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
     mock_app_cache: MagicMock,
@@ -435,17 +400,14 @@ async def test_proc_sincronizar_sad_check_state_no_excel(
             )
         )
 
-        await fb.start(plc_name="S7-1500", proc_uid=42)
-        await fb.tick()  # 10 -> 20 (on_start)
-        await fb.tick()  # 20 -> 98 (check_state falla)
+        fb.execute(plc_name="S7-1500", proc_uid=42)
 
     assert fb.nStep == fb.n_error
     assert fb.error_msg is not None
     assert "Excel" in fb.error_msg
 
 
-@pytest.mark.asyncio
-async def test_proc_sincronizar_sad_missing_blocks(
+def test_proc_sincronizar_sad_missing_blocks(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
     patch_validate_plc_in_excel: MagicMock,
@@ -477,19 +439,14 @@ async def test_proc_sincronizar_sad_missing_blocks(
             )
         )
 
-        await fb.start(plc_name="S7-1500", proc_uid=42)
-        await fb.tick()  # 10 -> 20
-        await fb.tick()  # 20: check_state_commit (excel_loaded=True)
-        await fb.tick()  # 20: check_blocks_commit (bloques_loaded=True)
-        await fb.tick()  # 20 -> 98 (build_slot_maps con missing)
+        fb.execute(plc_name="S7-1500", proc_uid=42)
 
     assert fb.nStep == fb.n_error
     assert fb.error_msg is not None
     assert "missing" in fb.error_msg.lower() or "faltan" in fb.error_msg.lower()
 
 
-@pytest.mark.asyncio
-async def test_proc_sincronizar_sad_open_transaction_fails(
+def test_proc_sincronizar_sad_open_transaction_fails(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
     patch_validate_plc_in_excel: MagicMock,
@@ -528,15 +485,7 @@ async def test_proc_sincronizar_sad_open_transaction_fails(
             )
         )
 
-        await fb.start(plc_name="S7-1500", proc_uid=42)
-        await fb.tick()  # 10 -> 20
-        await fb.tick()  # 20: check_state_commit
-        await fb.tick()  # 20: check_blocks_commit
-        await fb.tick()  # 20: build_slot_maps_commit (+ calc nmax)
-        await fb.tick()  # 20: sync_nmax
-        await fb.tick()  # 20: wait_consolidation
-        await fb.tick()  # 20: compile_proc_blocks
-        await fb.tick()  # 20 -> 98 (open_transaction falla)
+        fb.execute(plc_name="S7-1500", proc_uid=42)
 
     assert fb.nStep == fb.n_error
     assert "DB42_CPR_PARAM" in fb.error_msg
@@ -545,26 +494,29 @@ async def test_proc_sincronizar_sad_open_transaction_fails(
 # ── Terminal ─────────────────────────────────────────────────────────
 
 
-@pytest.mark.asyncio
-async def test_proc_sincronizar_terminal_no_avanza_mas(
+def test_proc_sincronizar_terminal_no_avanza_mas(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
     mock_app_cache: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
-    """Una vez en ``n_done``, ticks adicionales son no-op."""
+    """Una llamada extra del driver no avanza el FB.
+
+    Camino sync: el driver llama a ``execute()``. Con el FB ya activo
+    (``n_ejecutar``) la llamada se ignora y ``nStep`` no cambia.
+    """
     fb = make_fb(
         mock_config, mock_tia_client, mock_app_cache,
         mock_bloques_cache, progress,
     )
-    await fb.start(plc_name="S7-1500", proc_uid=42)
-
-    fb.nStep = fb.n_done
+    fb.nStep = fb.n_ejecutar
     n_step_before = fb.nStep
 
-    await fb.tick()
+    fb.execute(plc_name="S7-1500", proc_uid=42)
+
     assert fb.nStep == n_step_before
+    assert fb.result is None
 
 
 # ── Stage 3: cobertura de abort / warning segun table_present y db_missing ──
@@ -587,8 +539,7 @@ def _make_slot_map(
     return sm
 
 
-@pytest.mark.asyncio
-async def test_stage_3_aborta_si_tabla_ausente(
+def test_stage_3_aborta_si_tabla_ausente(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
     patch_validate_plc_in_excel: MagicMock,
@@ -612,11 +563,7 @@ async def test_stage_3_aborta_si_tabla_ausente(
         "areas.alimentacion.data.data_proc_slot_map.proc_build_slot_maps",
         return_value=fake_sm,
     ):
-        await fb.start(plc_name="S7-1500", proc_uid=42)
-        await fb.tick()  # 10 -> 20
-        await fb.tick()  # 20: check_state_commit
-        await fb.tick()  # 20: check_blocks_commit
-        await fb.tick()  # 20 -> 98 (stage_3 aborta con tabla_missing)
+        fb.execute(plc_name="S7-1500", proc_uid=42)
 
     assert fb.nStep == fb.n_error
     assert fb.error_msg is not None
@@ -624,8 +571,7 @@ async def test_stage_3_aborta_si_tabla_ausente(
     assert "100_CPR" in fb.error_msg
 
 
-@pytest.mark.asyncio
-async def test_stage_3_aborta_si_ambos_dbs_ausentes(
+def test_stage_3_aborta_si_ambos_dbs_ausentes(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
     patch_validate_plc_in_excel: MagicMock,
@@ -648,11 +594,7 @@ async def test_stage_3_aborta_si_ambos_dbs_ausentes(
         "areas.alimentacion.data.data_proc_slot_map.proc_build_slot_maps",
         return_value=fake_sm,
     ):
-        await fb.start(plc_name="S7-1500", proc_uid=42)
-        await fb.tick()  # 10 -> 20
-        await fb.tick()  # 20: check_state_commit
-        await fb.tick()  # 20: check_blocks_commit
-        await fb.tick()  # 20 -> 98 (stage_3 aborta con 0 dbs)
+        fb.execute(plc_name="S7-1500", proc_uid=42)
 
     assert fb.nStep == fb.n_error
     assert fb.error_msg is not None
@@ -661,8 +603,7 @@ async def test_stage_3_aborta_si_ambos_dbs_ausentes(
     assert "DB3001_CPR_ALM" in fb.error_msg
 
 
-@pytest.mark.asyncio
-async def test_stage_3_sigue_con_un_db_ausente_y_avisa(
+def test_stage_3_sigue_con_un_db_ausente_y_avisa(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
     patch_validate_plc_in_excel: MagicMock,
@@ -687,13 +628,9 @@ async def test_stage_3_sigue_con_un_db_ausente_y_avisa(
     ), patch.object(
         fb, "_proc_compute_nmax_ops_inline", MagicMock(), create=True,
     ):
-        await fb.start(plc_name="S7-1500", proc_uid=42)
-        await fb.tick()  # 10 -> 20
-        await fb.tick()  # 20: check_state_commit
-        await fb.tick()  # 20: check_blocks_commit
-        await fb.tick()  # 20: build_slot_maps_commit (no aborta)
+        fb.execute(plc_name="S7-1500", proc_uid=42)
 
-    assert fb.nStep == 20
+    assert fb.nStep == fb.n_done
     assert fb.error_msg is None
     assert any(
         "DB3001_CPR_ALM" in w and "alarmas" in w
@@ -751,8 +688,7 @@ def test_proc_discover_compile_dbs_devuelve_vacio_si_todos_ausentes(
     assert fb._proc_discover_compile_dbs_inline() == []
 
 
-@pytest.mark.asyncio
-async def test_proc_tx_b_detectar_eliminar_export_filtra_por_db_missing(
+def test_proc_tx_b_detectar_eliminar_export_filtra_por_db_missing(
     progress: ProgressTracker,
     tmp_path,
 ) -> None:
@@ -760,8 +696,8 @@ async def test_proc_tx_b_detectar_eliminar_export_filtra_por_db_missing(
     ``exports_alm_dir=None`` cuando DB_ALM esta en ``db_missing``.
 
     ``validate_execute_batch_result`` aborta si una op esperada
-    falla, asi que mockeamos el dispatch para devolver un batch OK
-    con las ops enviadas. El test verifica la shape de las ops.
+    falla, asi que mockeamos ``submit_and_wait`` para devolver un batch
+    OK con las ops enviadas. El test verifica la shape de las ops.
     """
     from areas.alimentacion.functions.function_proc_db_sincronizar import (
         _proc_tx_b_detectar_eliminar_export,
@@ -789,22 +725,25 @@ async def test_proc_tx_b_detectar_eliminar_export_filtra_por_db_missing(
 
     dispatched_ops: list[dict] = []
 
-    async def fake_dispatch(tia_client, command, args, **kwargs):
+    def fake_submit_and_wait(command, args=None, timeout=30.0):
+        ops = (args or {}).get("operations", [])
         if command == "execute_batch":
-            for op in args.get("operations", []):
+            for op in ops:
                 dispatched_ops.append(op)
             return {
                 "result": {
                     "success": True,
-                    "operations_executed": len(args.get("operations", [])),
+                    "operations_executed": len(ops),
                     "operations_failed": 0,
                     "details": [
                         {"step": i + 1, "command": op["command"], "ok": True}
-                        for i, op in enumerate(args.get("operations", []))
+                        for i, op in enumerate(ops)
                     ],
                 },
             }
         return {"ok": True, "result": {}}
+
+    ctx.tia_client.submit_and_wait.side_effect = fake_submit_and_wait
 
     # ``build_cache`` expone un proceso sync_bloques_export real
     # (Path) para que el operador ``/`` funcione.
@@ -816,12 +755,8 @@ async def test_proc_tx_b_detectar_eliminar_export_filtra_por_db_missing(
     with patch(
         "areas.alimentacion.helpers.layout.build_cache.build_cache",
         return_value=MagicMock(procesos=proc_ctx_mock),
-    ), patch(
-        "areas.alimentacion.functions.function_proc_db_sincronizar"
-        ".dispatch_async",
-        side_effect=fake_dispatch,
     ):
-        await _proc_tx_b_detectar_eliminar_export(ctx)
+        _proc_tx_b_detectar_eliminar_export(ctx)
 
     # Solo 1 op: el export de DB_PARAM. DB_ALM esta en db_missing y
     # no se envia al worker.
@@ -836,8 +771,7 @@ async def test_proc_tx_b_detectar_eliminar_export_filtra_por_db_missing(
     assert ctx.exports_alm_dir is None
 
 
-@pytest.mark.asyncio
-async def test_proc_tx_b_detectar_eliminar_export_envuelve_ambos_si_no_falta(
+def test_proc_tx_b_detectar_eliminar_export_envuelve_ambos_si_no_falta(
     progress: ProgressTracker,
     tmp_path,
 ) -> None:
@@ -866,9 +800,10 @@ async def test_proc_tx_b_detectar_eliminar_export_envuelve_ambos_si_no_falta(
 
     dispatched_ops: list[dict] = []
 
-    async def fake_dispatch(tia_client, command, args, **kwargs):
+    def fake_submit_and_wait(command, args=None, timeout=30.0):
+        ops = (args or {}).get("operations", [])
         if command == "execute_batch":
-            for op in args.get("operations", []):
+            for op in ops:
                 dispatched_ops.append(op)
             return {
                 "result": {
@@ -883,6 +818,8 @@ async def test_proc_tx_b_detectar_eliminar_export_envuelve_ambos_si_no_falta(
             }
         return {"ok": True, "result": {}}
 
+    ctx.tia_client.submit_and_wait.side_effect = fake_submit_and_wait
+
     sync_export_root = tmp_path / "exports"
     sync_export_root.mkdir()
     proc_ctx_mock = MagicMock()
@@ -891,12 +828,8 @@ async def test_proc_tx_b_detectar_eliminar_export_envuelve_ambos_si_no_falta(
     with patch(
         "areas.alimentacion.helpers.layout.build_cache.build_cache",
         return_value=MagicMock(procesos=proc_ctx_mock),
-    ), patch(
-        "areas.alimentacion.functions.function_proc_db_sincronizar"
-        ".dispatch_async",
-        side_effect=fake_dispatch,
     ):
-        await _proc_tx_b_detectar_eliminar_export(ctx)
+        _proc_tx_b_detectar_eliminar_export(ctx)
 
     assert len(dispatched_ops) == 2
     assert {op["args"]["block_names"][0] for op in dispatched_ops} == {
