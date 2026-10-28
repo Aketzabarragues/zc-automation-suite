@@ -14,7 +14,6 @@ from __future__ import annotations
 import dataclasses
 import logging
 from datetime import datetime
-from functools import partial
 from typing import Any
 
 from core.data.data_block_cache import DataBloqueCache
@@ -199,13 +198,11 @@ def scan_plc_blocks(
         f"helper[scan_plc_blocks] plc={plc_name!r} "
         f"force_refresh={force_refresh}"
     )
-    dispatch = partial(
-        client.submit_and_wait,
+    resp = client.submit_and_wait(
         "scan_blocks",
         {"plc_name": plc_name},
-        timeout_s,
+        timeout=timeout_s,
     )
-    resp = dispatch()
 
     if not resp.get("ok"):
         raise RuntimeError(resp.get("error", "scan_blocks failed"))
