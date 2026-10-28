@@ -67,9 +67,13 @@ from core.helpers.tia.active_cache import get_entidades, get_nmax_entidades
 from core.helpers.tia.validate_plc_in_excel import validate_plc_in_excel
 from core.helpers.tia.validate_plc_in_tia import validate_plc_in_tia
 from core.helpers.tia.with_plc import with_plc
+from core.infrastructure.log.log_web_bridge import install_web_level
 from core.runtime.app_cache import AppCache, get_app_cache
 from areas.alimentacion._area_id import AREA_ID
 from areas.alimentacion.helpers.layout.build_cache import DEFAULT_BUILD_CACHE_ROOT
+
+# Asegura que ``Logger.web/ok`` existen (idempotente).
+install_web_level()
 
 logger = logging.getLogger(__name__)
 
@@ -244,6 +248,10 @@ class FunctionEntidadesSincronizar(FunctionBase):
         (compute post Tx A / Tx B / Tx C) mutan ``ctx.result``; si el FB
         fallo antes de llegar a on_finish, el helper dejara el result
         parcial con ``success=False``.
+
+        Al terminar, publica el resultado en el AppCache (canal de
+        datos hacia la SPA). El router solo encola el trabajo, asi que
+        la publicacion ocurre aqui.
         """
         if self._ctx is None:
             self.result = _empty_result()
@@ -265,6 +273,36 @@ class FunctionEntidadesSincronizar(FunctionBase):
             f"{len(self._ctx.warnings)} warnings, "
             f"compile_ok={self._ctx.compile_ok}"
         )
+
+        self._publish_result_to_cache()
+        logger.ok(
+            f"Sincronizacion completa en '{self._ctx.plc_name}': "
+            f"{operations} ops, "
+            f"{self.result.get('n_max_updates', 0)} N_MAX"
+        )
+
+    def _publish_result_to_cache(self) -> None:
+        """Publica el resultado del sync de entidades en el AppCache.
+
+        El AppCache es el canal por el que la SPA se entera: lee estos
+        slots y los recibe por SSE (``cache_changed``). El router solo
+        encola el trabajo, asi que la publicacion tiene que ocurrir
+        aqui, cuando el FB ha terminado.
+        """
+        from core.runtime.app_cache import get_app_cache
+        from core.runtime.area_preview_cache import (
+            area_set_disp_commit_summary,
+            area_set_preview_disp,
+        )
+
+        if not isinstance(self.result, dict):
+            return
+
+        app_cache = get_app_cache()
+        area_set_disp_commit_summary(app_cache, "alimentacion", self.result)
+        post_sync_preview = self.result.get("post_sync_preview")
+        if post_sync_preview is not None:
+            area_set_preview_disp(app_cache, "alimentacion", post_sync_preview)
 
     # ==================================================================
     # Stages del FB (ZONA 4: 11 metodos privados numerados).
