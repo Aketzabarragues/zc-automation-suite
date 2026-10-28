@@ -1,17 +1,17 @@
 """Tests del FB ``FunctionProcDBGenerarPreview``.
 
 Cubre:
-  - Happy path: 8 ticks (1 arrancar + 6 steps + 1 finalizar), ``self.result``
+  - Happy path: ``execute()`` corre los 6 steps, ``self.result``
     con la shape legacy, helper llamado 1 vez por step, progress stages
     completos.
   - Sad path 1: sin ``config_manager`` -> nStep=98 con ``error_msg``
     mencionando "config_manager".
   - Sad path 2: sin ``tia_client`` -> nStep=98 con ``error_msg``
     mencionando "tia_client".
-  - Sad path 3: ``start()`` sin ``plc_name`` o con valor invalido ->
+  - Sad path 3: ``execute()`` sin ``plc_name`` o con valor invalido ->
     ValueError.
-  - Sad path 4: ``start()`` sin ``proc_uid`` o no-int -> ValueError.
-  - Estado terminal: ticks extra sobre ``n_done`` son no-op.
+  - Sad path 4: ``execute()`` sin ``proc_uid`` o no-int -> ValueError.
+  - Guard del base: ``execute()`` sobre un FB activo es no-op.
 
 Mockeamos el helper ``proc_generar_preview`` (sus funciones) para
 validar SOLO la state machine del FB (no la logica del helper; eso
@@ -20,7 +20,7 @@ tiene su propio test en ``test_proc_generar_preview.py``).
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -42,15 +42,15 @@ def mock_config() -> MagicMock:
 
 @pytest.fixture
 def mock_tia_client() -> MagicMock:
-    """Gateway mockeado. Los export_* son AsyncMock; no se llaman en
+    """Gateway mockeado. Los export_* son MagicMock; no se llaman en
     este test porque parcheamos el helper."""
     client = MagicMock()
     # Mock list_plcs para validate_plc_in_tia (PR5).
     client.submit_and_wait = MagicMock(
         return_value={"ok": True, "result": {"plcs": [{"name": "S7-1500"}]}}
     )
-    client.export_plc_tags_xml = AsyncMock(return_value=None)
-    client.export_block = AsyncMock(return_value=None)
+    client.export_plc_tags_xml = MagicMock(return_value=None)
+    client.export_block = MagicMock(return_value=None)
     return client
 
 
@@ -345,8 +345,8 @@ def _patch_helper_fns(fb) -> Any:
     """Helper: parchea todas las funciones del FB para que sean no-op.
 
     Devuelve un context manager compuesto que podemos usar con ``with``.
-    Cada funcion del FB se reemplaza por un mock vacio (sync o
-    async segun corresponda). ``proc_compose_response`` se reemplaza
+    Cada funcion del FB se reemplaza por un mock vacio (sync, como el
+    FB ya convertido). ``proc_compose_response`` se reemplaza
     por un MagicMock que el test puede sobreescribir.
     """
     from contextlib import ExitStack
@@ -371,10 +371,10 @@ def _patch_helper_fns(fb) -> Any:
         patch.object(fb, "_stage_3_build_slot_maps", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "_stage_4_compute_nmax", AsyncMock(), create=True)
+        patch.object(fb, "_stage_4_compute_nmax", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "_stage_5_export_and_diff", AsyncMock(), create=True)
+        patch.object(fb, "_stage_5_export_and_diff", MagicMock(), create=True)
     )
     stack.enter_context(
         patch.object(fb, "_stage_6_build_response", MagicMock(), create=True)
@@ -385,8 +385,7 @@ def _patch_helper_fns(fb) -> Any:
 # ── Happy path ──────────────────────────────────────────────────────
 
 
-@pytest.mark.asyncio
-async def test_proc_generar_preview_happy_path_6_ticks(
+def test_proc_generar_preview_happy_path_6_ticks(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
     mock_app_cache: MagicMock,
@@ -394,7 +393,7 @@ async def test_proc_generar_preview_happy_path_6_ticks(
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
-    """Happy path: 8 ticks -> nStep=99, todas las funciones del helper
+    """Happy path: ``execute()`` -> nStep=99, todas las funciones del helper
     llamadas una vez, ``self.result`` con la shape legacy."""
     fake_result = {
         "proc_uid": 42,
@@ -428,36 +427,13 @@ async def test_proc_generar_preview_happy_path_6_ticks(
             )
         )
 
-        ok = await fb.start(plc_name="S7-1500", proc_uid=42)
-        assert ok is True
-        assert fb.nStep == 10
+        result = fb.execute(plc_name="S7-1500", proc_uid=42)
 
-        # State machine del FunctionBase:
-        #   tick #1: 10 -> 20 (on_start + tracker.begin)
-        #   ticks #2-7: 20 (corren los 6 steps; nStep NO avanza)
-        #   tick #8: 95 -> 99 (on_finish)
-        n_ticks_done = 0
-        # Tick #1: arrancar (10 -> 20).
-        await fb.tick()
-        n_ticks_done += 1
-        assert fb.nStep == 20
-
-        # Ticks #2-7: ejecutar 6 steps (nStep se mantiene en 20, luego 95).
-        for _ in range(6):
-            await fb.tick()
-            n_ticks_done += 1
-            assert fb.nStep in (20, 95)
-        assert fb.nStep == 95
-
-        # Tick #8: on_finish -> 99.
-        await fb.tick()
-        n_ticks_done += 1
-        assert fb.nStep == 99
-        assert n_ticks_done == 8
-
+        assert fb.nStep == fb.n_done
         assert fb.is_terminal() is True
         assert fb.error_msg is None
         assert fb.result is not None
+        assert result is fb.result
         assert fb.result["precondiciones_ok"] is True
         assert fb.result["proc_uid"] == 42
         assert fb.result["db_param_name"] == "DB42_CPR_PARAM"
@@ -466,22 +442,21 @@ async def test_proc_generar_preview_happy_path_6_ticks(
         assert fb._stage_1_check_state.call_count == 1
         assert fb._stage_2_check_blocks.call_count == 1
         assert fb._stage_3_build_slot_maps.call_count == 1
-        assert fb._stage_4_compute_nmax.await_count == 1
-        assert fb._stage_5_export_and_diff.await_count == 1
+        assert fb._stage_4_compute_nmax.call_count == 1
+        assert fb._stage_5_export_and_diff.call_count == 1
         assert fb._stage_6_build_response.call_count == 1
 
 
 # ── Sad paths (pre-flight) ───────────────────────────────────────────
 
 
-@pytest.mark.asyncio
-async def test_proc_generar_preview_sad_no_config(
+def test_proc_generar_preview_sad_no_config(
     mock_tia_client: MagicMock,
     mock_app_cache: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
-    """Sin ``config_manager`` -> primer tick falla con "config_manager"."""
+    """Sin ``config_manager`` -> ``execute()`` falla con "config_manager"."""
     fb = FunctionProcDBGenerarPreview(
         nombre="no_config_test",
         config_manager=None,
@@ -490,24 +465,20 @@ async def test_proc_generar_preview_sad_no_config(
         bloques_cache=mock_bloques_cache,
         tracker=progress,
     )
-    await fb.start(plc_name="S7-1500", proc_uid=42)
-    assert fb.nStep == 10
-
-    await fb.tick()  # 10 -> 98
+    fb.execute(plc_name="S7-1500", proc_uid=42)
 
     assert fb.nStep == fb.n_error
     assert fb.error_msg is not None
     assert "config_manager" in fb.error_msg
 
 
-@pytest.mark.asyncio
-async def test_proc_generar_preview_sad_no_tia_client(
+def test_proc_generar_preview_sad_no_tia_client(
     mock_config: MagicMock,
     mock_app_cache: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
-    """Sin ``tia_client`` -> primer tick falla con "tia_client"."""
+    """Sin ``tia_client`` -> ``execute()`` falla con "tia_client"."""
     fb = FunctionProcDBGenerarPreview(
         nombre="no_tia_test",
         config_manager=mock_config,
@@ -516,78 +487,63 @@ async def test_proc_generar_preview_sad_no_tia_client(
         bloques_cache=mock_bloques_cache,
         tracker=progress,
     )
-    await fb.start(plc_name="S7-1500", proc_uid=42)
-    assert fb.nStep == 10
-
-    await fb.tick()  # 10 -> 98
+    fb.execute(plc_name="S7-1500", proc_uid=42)
 
     assert fb.nStep == fb.n_error
     assert "tia_client" in fb.error_msg
 
 
-@pytest.mark.asyncio
-async def test_proc_generar_preview_sad_no_plc_name(
+def test_proc_generar_preview_sad_no_plc_name(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
     mock_app_cache: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
-    """``start()`` sin ``plc_name`` -> primer tick falla con ValueError."""
+    """``execute()`` sin ``plc_name`` -> falla con ValueError."""
     fb = make_fb(
         mock_config, mock_tia_client, mock_app_cache,
         mock_bloques_cache, progress,
     )
-    await fb.start(proc_uid=42)  # sin plc_name
-    assert fb.nStep == 10
-
-    await fb.tick()  # 10 -> 98
+    fb.execute(proc_uid=42)  # sin plc_name
 
     assert fb.nStep == fb.n_error
     assert fb.error_msg is not None
     assert "plc_name" in fb.error_msg
 
 
-@pytest.mark.asyncio
-async def test_proc_generar_preview_sad_no_proc_uid(
+def test_proc_generar_preview_sad_no_proc_uid(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
     mock_app_cache: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
-    """``start()`` sin ``proc_uid`` -> primer tick falla con ValueError."""
+    """``execute()`` sin ``proc_uid`` -> falla con ValueError."""
     fb = make_fb(
         mock_config, mock_tia_client, mock_app_cache,
         mock_bloques_cache, progress,
     )
-    await fb.start(plc_name="S7-1500")  # sin proc_uid
-    assert fb.nStep == 10
-
-    await fb.tick()  # 10 -> 98
+    fb.execute(plc_name="S7-1500")  # sin proc_uid
 
     assert fb.nStep == fb.n_error
     assert fb.error_msg is not None
     assert "proc_uid" in fb.error_msg
 
 
-@pytest.mark.asyncio
-async def test_proc_generar_preview_sad_proc_uid_not_int(
+def test_proc_generar_preview_sad_proc_uid_not_int(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
     mock_app_cache: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
-    """``start()`` con ``proc_uid`` no-int -> primer tick falla con ValueError."""
+    """``execute()`` con ``proc_uid`` no-int -> falla con ValueError."""
     fb = make_fb(
         mock_config, mock_tia_client, mock_app_cache,
         mock_bloques_cache, progress,
     )
-    await fb.start(plc_name="S7-1500", proc_uid="42")  # string, no int
-    assert fb.nStep == 10
-
-    await fb.tick()  # 10 -> 98
+    fb.execute(plc_name="S7-1500", proc_uid="42")  # string, no int
 
     assert fb.nStep == fb.n_error
     assert fb.error_msg is not None
@@ -597,24 +553,31 @@ async def test_proc_generar_preview_sad_proc_uid_not_int(
 # ── Terminal ─────────────────────────────────────────────────────────
 
 
-@pytest.mark.asyncio
-async def test_proc_generar_preview_terminal_no_avanza_mas(
+def test_proc_generar_preview_activo_execute_ignorado(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
     mock_app_cache: MagicMock,
     mock_bloques_cache: MagicMock,
     progress: ProgressTracker,
 ) -> None:
-    """Una vez en ``n_done``, ticks adicionales son no-op (guarda de la base)."""
+    """Con el FB activo, ``execute()`` no hace nada (guarda de la base).
+
+    En el camino sync no hay ``tick()``: el guard equivalente es el
+    ``execute()`` ignorado cuando el FB ya esta en curso. Un FB en
+    estado terminal, en cambio, se re-arranca (el base lo documenta:
+    el FB es reusable).
+    """
     fb = make_fb(
         mock_config, mock_tia_client, mock_app_cache,
         mock_bloques_cache, progress,
     )
-    await fb.start(plc_name="S7-1500", proc_uid=42)
-
-    # Forzar n_done (sin esperar 8 ticks).
-    fb.nStep = fb.n_done
+    # Forzar estado activo (20) sin esperar el ciclo completo.
+    fb.nStep = fb.n_ejecutar
     n_step_before = fb.nStep
 
-    await fb.tick()
-    assert fb.nStep == n_step_before  # no avanza
+    with _patch_helper_fns(fb):
+        fb.execute(plc_name="S7-1500", proc_uid=42)
+
+        assert fb.nStep == n_step_before  # no avanza
+        assert fb.result is None
+        assert fb._stage_1_check_state.call_count == 0

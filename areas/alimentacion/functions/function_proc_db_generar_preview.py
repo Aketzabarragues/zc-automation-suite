@@ -38,7 +38,6 @@ from pathlib import Path
 from typing import Any
 
 from core.composition.plc_function_base import FunctionBase
-from core.helpers.tia import dispatch_async
 from core.helpers.tia.validate_plc_in_tia import validate_plc_in_tia
 from core.helpers.tia.validate_plc_in_excel import validate_plc_in_excel
 from core.helpers.tia.with_plc import with_plc
@@ -216,7 +215,7 @@ class FunctionProcDBGenerarPreview(FunctionBase):
     # HOOK 2: run_step  (ZONA 4: state machine -> dispatch al helper)
     # ==================================================================
 
-    async def run_step(self, idx: int, **params: Any) -> str:
+    def run_step(self, idx: int, **params: Any) -> str:
         """Dispatch del FB step ``idx`` a la funcion del helper ``proc_generar_preview``.
 
         Aqui vive la state machine: cada step del FB llama a UNA
@@ -244,9 +243,7 @@ class FunctionProcDBGenerarPreview(FunctionBase):
         for _s_idx, s_nombre, s_attr in self.STAGES:
             if s_nombre == step_nombre:
                 handler = getattr(self, s_attr)
-                result = handler()
-                if hasattr(result, "__await__"):
-                    await result
+                handler()
                 return _step_summary(self._ctx, s_nombre)
         raise ValueError(
             f"step {idx} ({step_nombre!r}) no esta en STAGES "
@@ -352,7 +349,7 @@ class FunctionProcDBGenerarPreview(FunctionBase):
             self._ctx.slot_map = None
             self._ctx.slot_map_error = str(exc)
 
-    async def _stage_4_compute_nmax(self) -> None:
+    def _stage_4_compute_nmax(self) -> None:
         """Lee los N_MAX del proceso (cards SOLO VISUALES para la SPA).
 
         Convencion del operario: las PlcUserConstant N_MAX de
@@ -391,15 +388,14 @@ class FunctionProcDBGenerarPreview(FunctionBase):
         plc_name = self._ctx.bloques_cache.plc_name if self._ctx.bloques_cache else ""
 
         try:
-            await dispatch_async(
-                self._ctx.tia_client,
+            self._ctx.tia_client.submit_and_wait(
                 "export_tables",
                 {
                     "plc_name": plc_name,
                     "target_dir": str(target_dir),
                     "table_names": [table_name],
                 },
-                timeout_s=120.0,
+                timeout=120.0,
             )
             xml_path = XmlTarget(target_dir, table_name).path
             nmax_diff = compute_nmax_diff_for_proc(
@@ -431,7 +427,7 @@ class FunctionProcDBGenerarPreview(FunctionBase):
             )
             self._ctx.nmax_block = empty_nmax_block()
 
-    async def _stage_5_export_and_diff(self) -> None:
+    def _stage_5_export_and_diff(self) -> None:
         """Exporta los 2 DBs del proceso y lee los ``es-ES`` actuales.
 
         Stages internos:
@@ -481,15 +477,14 @@ class FunctionProcDBGenerarPreview(FunctionBase):
         param_name = self._ctx.slot_map.db_param_name
         alm_name = self._ctx.slot_map.db_alm_name
         try:
-            await dispatch_async(
-                self._ctx.tia_client,
+            self._ctx.tia_client.submit_and_wait(
                 "export_blocks",
                 {
                     "plc_name": plc_name,
                     "target_dir": str(work_dir),
                     "block_names": [param_name, alm_name],
                 },
-                timeout_s=120.0,
+                timeout=120.0,
             )
             dcl_param_path = SdPair(work_dir, param_name).dcl
             res_param_path = SdPair(work_dir, param_name).res
