@@ -1,14 +1,23 @@
 """Validacion de plc_name contra los PLCs reales en TIA Portal.
 
-Sept-2026 (multi-PLC): cada FB que ataca TIA recibe un ``plc_name`` y
-debe verificar que ese PLC existe en TIA antes de operar. Este helper
-encapsula la llamada a ``list_plcs`` y la comprobacion strict equality.
+Cada FB que ataca TIA recibe un ``plc_name`` y debe verificar que ese PLC
+existe en TIA antes de operar. Este helper encapsula la llamada a
+``list_plcs`` y la comprobacion strict equality.
 
 Uso:
     from core.helpers.tia.validate_plc_in_tia import validate_plc_in_tia
 
     # en on_start de un FB:
     validate_plc_in_tia(self._tia_client, plc_name)
+
+Contrato de fallos:
+    - ``ValueError``: ``plc_name`` vacio, o no esta entre los PLCs de TIA.
+    - ``RuntimeError``: TIA respondio con error, o no devolvio ningun PLC.
+    - Timeout del worker TIA: NO es un fallo. La cola del worker es FIFO
+      y de un solo hilo, asi que ``list_plcs`` expira si el worker esta
+      ocupado con otra operacion. Eso no dice nada sobre si el PLC existe,
+      asi que la validacion se omite y el FB sigue; el error real (si lo
+      hay) aparece en el primer comando TIA del FB, con su mensaje propio.
 """
 from __future__ import annotations
 
@@ -24,6 +33,9 @@ def validate_plc_in_tia(tia_client: Any, plc_name: str, timeout: float = 2.0) ->
 
     Llama a ``list_plcs`` con timeout corto y comprueba strict equality
     contra los nombres de PLC del proyecto TIA activo.
+
+    Si el worker TIA esta ocupado y la llamada expira, no se aborta: se
+    loggea un warning y la validacion se omite (ver docstring del modulo).
 
     Args:
         tia_client: instancia de ``SyncTIAClient`` (TIA loop).
@@ -41,7 +53,17 @@ def validate_plc_in_tia(tia_client: Any, plc_name: str, timeout: float = 2.0) ->
         raise ValueError("validate_plc_in_tia: plc_name vacio")
 
     # 1. Llamar a list_plcs (bloqueante, con timeout).
-    response = tia_client.submit_and_wait("list_plcs", timeout=timeout)
+    try:
+        response = tia_client.submit_and_wait("list_plcs", timeout=timeout)
+    except TimeoutError:
+        _logger.warning(
+            "validate_plc_in_tia: list_plcs no respondio en %ss "
+            "(worker TIA ocupado). Se omite la validacion del PLC '%s'.",
+            timeout,
+            plc_name,
+        )
+        return
+
     if not response.get("ok", False):
         error = response.get("error", "unknown")
         raise RuntimeError(

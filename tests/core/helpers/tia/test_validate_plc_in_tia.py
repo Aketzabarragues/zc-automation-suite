@@ -58,6 +58,27 @@ def test_validate_plc_in_tia_tia_no_responde():
     assert "timeout" in str(exc_info.value)
 
 
+def test_validate_plc_in_tia_timeout_no_aborta():
+    """Worker TIA ocupado (timeout): no aborta el FB, solo avisa.
+
+    La cola del worker es FIFO y de un solo hilo: si esta ocupada,
+    ``list_plcs`` expira. Eso no dice nada sobre si el PLC existe, asi
+    que la validacion se omite en vez de fallar con un falso "PLC no
+    existe".
+    """
+    client = MagicMock()
+    client.submit_and_wait.side_effect = TimeoutError("submit_and_wait supero el timeout")
+    validate_plc_in_tia(client, "PLC1")  # no raise
+
+
+def test_validate_plc_in_tia_timeout_no_consulta_mas():
+    """Tras un timeout solo se hace UNA llamada a list_plcs."""
+    client = MagicMock()
+    client.submit_and_wait.side_effect = TimeoutError("timeout")
+    validate_plc_in_tia(client, "PLC1")
+    assert client.submit_and_wait.call_count == 1
+
+
 def test_validate_plc_in_tia_plc_vacio():
     """plc_name vacio: lanza ValueError inmediato."""
     client = _mock_tia_client(["PLC1"])
