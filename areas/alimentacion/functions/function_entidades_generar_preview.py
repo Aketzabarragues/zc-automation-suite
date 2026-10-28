@@ -42,14 +42,12 @@ Steps (5):
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from core.composition.plc_function_base import FunctionBase
-from core.helpers.tia import dispatch_async
 from core.helpers.tia.active_cache import (
     get_entidades,
     get_nmax,
@@ -181,7 +179,7 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
     # HOOK 2: run_step  (ZONA 4: state machine -> dispatch al helper)
     # ==================================================================
 
-    async def run_step(self, idx: int, **params: Any) -> str:
+    def run_step(self, idx: int, **params: Any) -> str:
         """Dispatch del FB step ``idx`` a la funcion del helper ``entidades_generate_preview``.
 
         Aqui vive la state machine: cada step del FB llama a UNA
@@ -199,7 +197,7 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
         for _s_idx, s_nombre, s_attr in self.STAGES:
             if s_nombre == step_nombre:
                 handler = getattr(self, s_attr)
-                await handler()
+                handler()
                 return _step_summary(self._ctx, s_nombre)
         raise ValueError(
             f"step {idx} ({step_nombre!r}) no esta en STAGES "
@@ -236,7 +234,7 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
     # tabla tambien.
     # ==================================================================
 
-    async def _stage_1_exportar(self) -> None:
+    def _stage_1_exportar(self) -> None:
         """Stage 1: limpia preview/ y exporta las 2 tablas selectivas + el DB.
 
         Layout nuevo (.build_cache/alimentacion/entidades/preview/):
@@ -252,9 +250,8 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
         comentarios) devolveran diff vacio para ese lado. El operario
         sigue viendo el preview de las partes que SI existen.
 
-        Si el worker TIA retorna ``None`` en ``dispatch_async``, se
-        lanza ``RuntimeError`` con mensaje accionable (no se hace
-        ``await None`` con TypeError).
+        Si el worker TIA retorna ``None``, el stage NO aborta:
+        marca el bloque como ``missing_xml`` y continua.
         """
         from areas.alimentacion.helpers.layout.build_cache import build_cache
 
@@ -282,11 +279,10 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
 
         # 2/3: export_tables (2 tablas) en 1 dispatch FLAT.
         # Si el worker falla (Tia puede no tener las tablas aun),
-        # ``dispatch_async`` retorna None (no raise). Capturamos y
+        # el comando retorna None (no raise). Capturamos y
         # seguimos: compute_* vera ``missing_xml=True`` y devolvera
         # diff vacio para esa parte.
-        tags_result = await dispatch_async(
-            self._ctx.tia_client,
+        tags_result = self._ctx.tia_client.submit_and_wait(
             "export_tables",
             {
                 "plc_name": self._ctx.plc_name,
@@ -294,6 +290,7 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
                 "table_names": [config_table, tag_table],
                 "keep_folder_structure": False,
             },
+            timeout=60.0,
         )
         if tags_result is None:
             warning = (
@@ -310,15 +307,14 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
             )
 
         # 3/3: export_blocks (DB6_ENT) a preview/bloques/.
-        block_result = await dispatch_async(
-            self._ctx.tia_client,
+        block_result = self._ctx.tia_client.submit_and_wait(
             "export_blocks",
             {
                 "plc_name": self._ctx.plc_name,
                 "target_dir": str(self._ctx.preview_bloques_dir),
                 "block_names": [db_name],
             },
-            timeout_s=60.0,
+            timeout=60.0,
         )
         if block_result is None:
             warning = (
@@ -333,7 +329,7 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
                 f"  {db_name} exportado a {self._ctx.preview_bloques_dir}"
             )
 
-    async def _stage_2_compute_nmax(self) -> None:
+    def _stage_2_compute_nmax(self) -> None:
         """Stage 2: calcula el diff de N_MAX_ENTIDAD."""
         assert self._ctx.preview_disp_dir is not None
         from areas.alimentacion.helpers.entidades.entidades_generate_preview import (
@@ -358,7 +354,7 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
                 xml_path=xml_path,
             )
 
-        nmax_diff = await asyncio.to_thread(_compute)
+        nmax_diff = _compute()
 
         self._ctx.nmax_block = {
             "current":   nmax_diff.current,
@@ -371,7 +367,7 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
             ),
         }
 
-    async def _stage_3_compute_entidades(self) -> None:
+    def _stage_3_compute_entidades(self) -> None:
         """Stage 3: calcula el diff de PlcUserConstants ``ent_<plc_tag>``."""
         assert self._ctx.preview_disp_dir is not None
         from areas.alimentacion.helpers.entidades.entidades_generate_preview import (
@@ -388,7 +384,7 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
                 xml_path=xml_path,
             )
 
-        diff = await asyncio.to_thread(_compute)
+        diff = _compute()
 
         self._ctx.entities_block = {
             "base":         diff.base,
@@ -403,7 +399,7 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
         # reusa en stage 5; la SPA la consume desde ``data.ops``.
         self._ctx.entities_ops = list(diff.ops)
 
-    async def _stage_4_compute_comentarios(self) -> None:
+    def _stage_4_compute_comentarios(self) -> None:
         """Stage 4: calcula el diff de comentarios del array ``ENT[]`` de ``DB6_ENT``."""
         assert self._ctx.preview_bloques_dir is not None
         from core.infrastructure.tia.tia_export_paths import SdPair
@@ -427,7 +423,7 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
                 res_text=res_text,
             )
 
-        diff = await asyncio.to_thread(_compute)
+        diff = _compute()
 
         self._ctx.comments_block = {
             "slots_tia":   list(diff.slots_tia),
@@ -447,15 +443,11 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
             )
             self._ctx.warnings.append(warning)
 
-    async def _stage_5_build_response(self) -> None:
+    def _stage_5_build_response(self) -> None:
         """Stage 5: compone la shape final con todos los resultados intermedios.
 
-        Marcado como ``async`` aunque internamente no haga ``await``: el
-        ``run_step`` dispatcha con ``await handler()``, y un metodo sync
-        retorna ``None``, lo que reventaba con ``TypeError: object
-        NoneType can't be used in 'await' expression`` cuando el FB
-        llegaba a este stage (caso real del smoke del operario con
-        DB6_ENT renombrado en TIA V21).
+        Metodo sync: ``run_step`` lo invoca como ``handler()`` y usa su
+        propio summary, no el retorno del handler.
         """
         from areas.alimentacion.helpers.entidades.entidades_generate_preview import (
             compute_summary,

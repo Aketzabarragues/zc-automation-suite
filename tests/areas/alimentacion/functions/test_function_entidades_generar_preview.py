@@ -1,7 +1,7 @@
 """Tests del FB ``FunctionEntidadesGenerarPreview``.
 
 Cubre la logica del FB (validaciones, state machine, composicion del
-response). Mockeamos el worker TIA (dispatch_async) y los parsers de
+response). Mockeamos el worker TIA (``submit_and_wait``) y los parsers de
 disco para que el test sea rapido y determinista.
 
 Los tests de las funciones puras (compute_diff_entities, etc.) viven en
@@ -9,7 +9,7 @@ Los tests de las funciones puras (compute_diff_entities, etc.) viven en
 """
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -237,8 +237,7 @@ def test_run_step_falla_si_ctx_no_inicializado() -> None:
         tia_client=MagicMock(),
     )
     with pytest.raises(RuntimeError, match="EntidadesPreviewContext"):
-        import asyncio
-        asyncio.run(fb.run_step(0))
+        fb.run_step(0)
 
 
 def test_run_step_falla_si_step_desconocido() -> None:
@@ -252,38 +251,37 @@ def test_run_step_falla_si_step_desconocido() -> None:
     fb._ctx = MagicMock()
     fb.steps = [{"nombre": "step inventado"}]
     with pytest.raises(ValueError, match="no esta en STAGES"):
-        import asyncio
-        asyncio.run(fb.run_step(0))
+        fb.run_step(0)
 
 
-def test_run_step_stage_5_no_revienta_await_none() -> None:
-    """Reproduce el bug del smoke del operario (oct-2026).
+def test_run_step_stage_5_sync_ejecuta_el_stage_real() -> None:
+    """``run_step`` (sync) invoca el stage 5 real sin romper el retorno.
 
-    Caso real: el FB llega al stage 5 (Componer respuesta). ``run_step``
-    hace ``getattr(self, s_attr)`` y luego ``await handler()``. Si el
-    handler esta declarado como ``def`` (sync), ``handler()`` retorna
-    ``None`` y ``await None`` revienta con ``TypeError: object NoneType
-    can't be used in 'await' expression``.
-
-    Tras C.8 (``_stage_5_build_response`` es ``async def``), el handler
-    retorna una corutina valida y ``run_step`` puede ejecutarlo.
+    El bug original (smoke del operario, oct-2026) era que un handler
+    sync devolvia ``None`` y el dispatch lo-awaited con ``await None``,
+    reventando con ``TypeError: object NoneType can't be used in 'await'
+    expression``. Con el FB sync, ``run_step`` invoca ``handler()``
+    directamente y descarta su retorno: el stage 5 se ejecuta real y
+    compone ``self._ctx.result`` correctamente.
 
     Verificacion en 2 partes:
-      1. ``inspect.iscoroutinefunction`` del metodo declarado: si falla,
-         el fix esta ausente.
+      1. El metodo NO es corrutina (la conversion esta presente).
       2. ``run_step(4)`` corre end-to-end con los 4 stages previos
          mockeados; el stage 5 se ejecuta real y compone
          ``self._ctx.result`` correctamente.
     """
-    import asyncio
     import inspect
 
-    assert inspect.iscoroutinefunction(
+    assert not inspect.iscoroutinefunction(
         FunctionEntidadesGenerarPreview._stage_5_build_response
     ), (
-        "_stage_5_build_response debe ser ``async def``; "
-        "si es ``def`` sync, run_step() explota con "
-        "TypeError: object NoneType can't be used in 'await' expression"
+        "_stage_5_build_response debe ser sync; "
+        "un handler sync no se puede await-ear"
+    )
+    assert not inspect.iscoroutinefunction(
+        FunctionEntidadesGenerarPreview.run_step
+    ), (
+        "run_step debe ser sync; el FB ya no corre en un event loop"
     )
 
     from unittest.mock import patch as _patch
@@ -308,15 +306,86 @@ def test_run_step_stage_5_no_revienta_await_none() -> None:
     }
     fb._ctx.warnings = []
 
-    with _patch.object(fb, "_stage_1_exportar", new=AsyncMock()), \
-         _patch.object(fb, "_stage_2_compute_nmax", new=AsyncMock()), \
-         _patch.object(fb, "_stage_3_compute_entidades", new=AsyncMock()), \
-         _patch.object(fb, "_stage_4_compute_comentarios", new=AsyncMock()):
+    with _patch.object(fb, "_stage_1_exportar", new=MagicMock()), \
+         _patch.object(fb, "_stage_2_compute_nmax", new=MagicMock()), \
+         _patch.object(fb, "_stage_3_compute_entidades", new=MagicMock()), \
+         _patch.object(fb, "_stage_4_compute_comentarios", new=MagicMock()):
         # El stage 5 NO se mockea: queremos ejercitar el metodo real.
-        result = asyncio.run(fb.run_step(4))
+        result = fb.run_step(4)
 
     assert "Componer respuesta" in result
     assert fb._ctx.result.get("db_name") == "DB6_ENT"
+
+
+def test_execute_sync_completa_el_preview() -> None:
+    """``execute()`` (camino del OB1) corre los 5 stages y deja el FB en ``n_done``.
+
+    El hilo del OB1 ejecuta los FBs con ``fb.execute(**params)`` sin
+    event loop: el FB no puede ser una corrutina. Este test cubre el
+    camino sync completo (on_start -> 5 steps -> on_finish).
+    """
+    from pathlib import Path
+    from unittest.mock import patch as _patch
+
+    from core.composition.plc_function_base import FunctionBase
+
+    fb = _make_fb_with_ctx()
+
+    def _stage_1() -> None:
+        fb._ctx.preview_disp_dir = Path("/tmp/disp")
+        fb._ctx.preview_bloques_dir = Path("/tmp/blq")
+
+    def _stage_2() -> None:
+        fb._ctx.nmax_block = {
+            "current": {"N_MAX_ENTIDAD": 5},
+            "desired": {"N_MAX_ENTIDAD": 5},
+            "todos": [],
+            "summary": {"actualizar": 0, "sin_cambios": 1, "total": 1},
+            "nmax_error": None,
+        }
+
+    def _stage_3() -> None:
+        fb._ctx.entities_block = {
+            "base": {}, "base_comments": {}, "desired": {"AAA": 1},
+            "added": ["AAA"], "removed": [], "renamed": {},
+            "missing_xml": False,
+        }
+        fb._ctx.entities_ops = []
+
+    def _stage_4() -> None:
+        fb._ctx.comments_block = {
+            "slots_tia": [0], "current": {0: "old"}, "desired": {0: "new"},
+            "added": [], "removed": [], "updated": [0], "unchanged": [],
+            "missing_xml": False,
+        }
+
+    with _patch(
+        "areas.alimentacion.functions.function_entidades_generar_preview."
+        "validate_plc_in_tia",
+    ), _patch(
+        "areas.alimentacion.functions.function_entidades_generar_preview."
+        "validate_plc_in_excel",
+    ), _patch(
+        "areas.alimentacion.functions.function_entidades_generar_preview."
+        "with_plc",
+    ), _patch.object(
+        fb, "_stage_1_exportar", new=MagicMock(side_effect=_stage_1),
+    ), _patch.object(
+        fb, "_stage_2_compute_nmax", new=MagicMock(side_effect=_stage_2),
+    ), _patch.object(
+        fb, "_stage_3_compute_entidades", new=MagicMock(side_effect=_stage_3),
+    ), _patch.object(
+        fb, "_stage_4_compute_comentarios", new=MagicMock(side_effect=_stage_4),
+    ):
+        # El stage 5 NO se mockea: queremos ejercitar el metodo real.
+        result = fb.execute(plc_name="PLC_S1500")
+
+    assert fb.error_msg is None
+    assert fb.nStep == FunctionBase.n_done
+    assert result["precondiciones_ok"] is True
+    assert result["db_name"] == "DB6_ENT"
+    assert result["summary"]["constants_agregados"] == 1
+    assert result["summary"]["comments_updated"] == 1
 
 
 # ---------------------------------------------------------------------------
@@ -350,31 +419,31 @@ def _make_fb_with_ctx() -> FunctionEntidadesGenerarPreview:
     return fb
 
 
-def test_stage_1_exportar_llama_dispatch_async() -> None:
-    """Stage 1 llama a ``dispatch_async`` para ``export_tables`` + ``export_blocks``."""
+def test_stage_1_exportar_llama_submit_and_wait() -> None:
+    """Stage 1 llama a ``submit_and_wait`` para ``export_tables`` + ``export_blocks``."""
     from pathlib import Path
     fb = _make_fb_with_ctx()
+    fb._ctx.tia_client.submit_and_wait.return_value = {"ok": True}
 
     with patch(
-        "areas.alimentacion.functions.function_entidades_generar_preview."
-        "dispatch_async",
-        new=AsyncMock(return_value={"ok": True}),
-    ) as mock_dispatch, patch(
         "areas.alimentacion.helpers.layout.build_cache.build_cache"
     ) as mock_layout:
         mock_layout.return_value.entidades.preview_config = Path("/tmp/cfg")
         mock_layout.return_value.entidades.preview_disp = Path("/tmp/disp")
         mock_layout.return_value.entidades.preview_bloques = Path("/tmp/blq")
 
-        import asyncio
-        asyncio.run(fb._stage_1_exportar())
+        fb._stage_1_exportar()
 
-    # 2 dispatchs: export_tables + export_blocks.
-    assert mock_dispatch.call_count == 2
-    first_call_args = mock_dispatch.call_args_list[0].args
-    second_call_args = mock_dispatch.call_args_list[1].args
-    assert first_call_args[1] == "export_tables"
-    assert second_call_args[1] == "export_blocks"
+    # 2 comandos: export_tables + export_blocks.
+    mock_submit = fb._ctx.tia_client.submit_and_wait
+    assert mock_submit.call_count == 2
+    first_call_args = mock_submit.call_args_list[0].args
+    second_call_args = mock_submit.call_args_list[1].args
+    assert first_call_args[0] == "export_tables"
+    assert second_call_args[0] == "export_blocks"
+    # Timeout explicito en los 2 (nunca el default de 30s del cliente).
+    assert mock_submit.call_args_list[0].kwargs["timeout"] == 60.0
+    assert mock_submit.call_args_list[1].kwargs["timeout"] == 60.0
     # Sin warnings en happy path.
     assert fb._ctx.warnings == []
 
@@ -388,22 +457,19 @@ def test_stage_1_exportar_si_worker_falla_sigue_con_warnings() -> None:
     from pathlib import Path
     fb = _make_fb_with_ctx()
 
-    # Mockeamos dispatch_async para que retorne None (simula
+    # Mockeamos submit_and_wait para que retorne None (simula
     # dispatch_failed del worker TIA: TIA no encuentra el bloque).
+    fb._ctx.tia_client.submit_and_wait.return_value = None
+
     with patch(
-        "areas.alimentacion.functions.function_entidades_generar_preview."
-        "dispatch_async",
-        new=AsyncMock(return_value=None),
-    ), patch(
         "areas.alimentacion.helpers.layout.build_cache.build_cache"
     ) as mock_layout:
         mock_layout.return_value.entidades.preview_config = Path("/tmp/cfg")
         mock_layout.return_value.entidades.preview_disp = Path("/tmp/disp")
         mock_layout.return_value.entidades.preview_bloques = Path("/tmp/blq")
 
-        import asyncio
         # NO debe lanzar TypeError.
-        asyncio.run(fb._stage_1_exportar())
+        fb._stage_1_exportar()
 
     # 2 warnings acumulados (tags + block).
     assert len(fb._ctx.warnings) == 2
@@ -439,8 +505,7 @@ def test_stage_2_compute_nmax_usa_n_max_del_cache() -> None:
         "get_nmax_entidades",
         return_value={"N_MAX_ENTIDAD": 5},
     ):
-        import asyncio
-        asyncio.run(fb._stage_2_compute_nmax())
+        fb._stage_2_compute_nmax()
 
     assert fb._ctx.nmax_block["current"] == {"N_MAX_ENTIDAD": 5}
     assert fb._ctx.nmax_block["summary"]["sin_cambios"] == 1
@@ -491,8 +556,7 @@ def test_stage_5_build_response_compose_shape() -> None:
     }
     fb._ctx.warnings = []
 
-    import asyncio
-    asyncio.run(fb._stage_5_build_response())
+    fb._stage_5_build_response()
 
     r = fb._ctx.result
     assert r["precondiciones_ok"] is True
@@ -520,8 +584,7 @@ def test_stage_5_build_response_stages_previos_fallaron() -> None:
     fb._ctx.entities_block = None
     fb._ctx.comments_block = None
 
-    import asyncio
-    asyncio.run(fb._stage_5_build_response())
+    fb._stage_5_build_response()
 
     assert fb._ctx.result["precondiciones_ok"] is False
     assert "Stages previos no completaron" in fb._ctx.result["missing_blocks"][0]
@@ -558,8 +621,7 @@ def test_stage_5_build_response_missing_xml_table() -> None:
     }
     fb._ctx.warnings = []
 
-    import asyncio
-    asyncio.run(fb._stage_5_build_response())
+    fb._stage_5_build_response()
 
     assert fb._ctx.result["table_present"] is False
     assert fb._ctx.result["db_present"] is True
