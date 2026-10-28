@@ -31,6 +31,9 @@ El ``self.result`` se popula con la shape legacy esperada por la SPA::
       'summary':     dict,
     }
 
+Al terminar, ``on_finish`` publica ese dict en el AppCache (slot
+``preview_disp``), que es el canal por el que la SPA lo recibe.
+
 Steps (4, mismo orden que el legacy ``generar_prevision``):
   - exportar_tags      -> helper.disp_generate_preview.exportar_tags
   - compute_devices    -> helper.disp_generate_preview.compute_devices
@@ -49,9 +52,13 @@ from core.helpers.tia.validate_plc_in_tia import validate_plc_in_tia
 from core.helpers.tia.validate_plc_in_excel import validate_plc_in_excel
 from core.helpers.tia.with_plc import with_plc
 from core.helpers.tia.active_cache import get_devices, get_nmax
+from core.infrastructure.log.log_web_bridge import install_web_level
 from core.runtime.app_cache import AppCache, get_app_cache
 from areas.alimentacion._area_id import AREA_ID
 from areas.alimentacion.helpers.layout.build_cache import DEFAULT_BUILD_CACHE_ROOT
+
+# Asegura que ``Logger.web/ok`` existen (idempotente).
+install_web_level()
 
 logger = logging.getLogger(__name__)
 
@@ -218,7 +225,13 @@ class FunctionDispGenerarPreview(FunctionBase):
     # ==================================================================
 
     def on_finish(self, **params: Any) -> None:
-        """Vuelca ``self.result`` con la shape legacy que espera la SPA."""
+        """Vuelca ``self.result`` con la shape legacy que espera la SPA.
+
+        Ademas publica el resultado en el AppCache (slot
+        ``preview_disp``): el router solo encola el trabajo en el OB1,
+        asi que la publicacion tiene que ocurrir aqui, cuando el FB ha
+        terminado.
+        """
         if self._ctx is None:
             # Error temprano: deps no inyectadas o plc_name ausente.
             self.result = {
@@ -247,6 +260,28 @@ class FunctionDispGenerarPreview(FunctionBase):
             f"{s['renombrados']} renombrados, "
             f"{nmax_summary['actualizar']} N_MAX actualizar"
         )
+
+        self._publish_result_to_cache()
+        logger.ok(
+            f"Prevision de '{self._ctx.plc_name}': "
+            f"{s.get('agregados', 0)} adds, {s.get('eliminados', 0)} removes, "
+            f"{s.get('renombrados', 0)} renames, "
+            f"{nmax_summary.get('actualizar', 0)} N_MAX"
+        )
+
+    def _publish_result_to_cache(self) -> None:
+        """Publica el preview de dispositivos en el AppCache.
+
+        El AppCache es el canal por el que la SPA se entera: lee este
+        slot y lo recibe por SSE (``cache_changed``). El router solo
+        encola el trabajo, asi que la publicacion tiene que ocurrir
+        aqui, cuando el FB ha terminado.
+        """
+        from core.runtime.app_cache import get_app_cache
+        from core.runtime.area_preview_cache import area_set_preview_disp
+
+        app_cache = get_app_cache()
+        area_set_preview_disp(app_cache, "alimentacion", self.result)
 
     # ==================================================================
     # Stages del FB (ZONA 4: metodos privados numerados).
