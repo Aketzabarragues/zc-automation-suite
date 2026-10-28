@@ -164,8 +164,7 @@ def test_plc_blocks_clear_un_plc_emite_on_change_con_slot(
 # ── scan_plc_blocks (integration) ─────────────────────────────────────
 
 
-@pytest.mark.asyncio
-async def test_scan_plc_blocks_llama_worker_y_puebla_cache(
+def test_scan_plc_blocks_llama_worker_y_puebla_cache(
     cache: AppCache,
 ) -> None:
     """``scan_plc_blocks`` despacha ``scan_blocks`` al worker y almacena el resultado."""
@@ -186,7 +185,7 @@ async def test_scan_plc_blocks_llama_worker_y_puebla_cache(
         "core.infrastructure.tia.tia_loop.tia_client",
         fake_client,
     ):
-        result = await scan_plc_blocks(
+        result = scan_plc_blocks(
             "S7-1500",
             tia_client=fake_client,
             app_cache=cache,
@@ -200,8 +199,7 @@ async def test_scan_plc_blocks_llama_worker_y_puebla_cache(
     assert call_args[0][1] == {"plc_name": "S7-1500"}
 
 
-@pytest.mark.asyncio
-async def test_scan_plc_blocks_fuerza_refresh_invalida_antes(
+def test_scan_plc_blocks_fuerza_refresh_invalida_antes(
     cache: AppCache,
 ) -> None:
     """``force_refresh=True`` invalida la entry antes de escanear."""
@@ -223,7 +221,7 @@ async def test_scan_plc_blocks_fuerza_refresh_invalida_antes(
         "core.infrastructure.tia.tia_loop.tia_client",
         fake_client,
     ):
-        await scan_plc_blocks(
+        scan_plc_blocks(
             "S7-1500",
             force_refresh=True,
             tia_client=fake_client,
@@ -235,8 +233,7 @@ async def test_scan_plc_blocks_fuerza_refresh_invalida_antes(
     assert fresh.plc_name == "S7-1500"
 
 
-@pytest.mark.asyncio
-async def test_scan_plc_blocks_worker_falla_lanza_runtime_error(
+def test_scan_plc_blocks_worker_falla_lanza_runtime_error(
     cache: AppCache,
 ) -> None:
     """Si el worker responde ``ok=False``, ``RuntimeError`` accionable."""
@@ -251,7 +248,7 @@ async def test_scan_plc_blocks_worker_falla_lanza_runtime_error(
         fake_client,
     ):
         with pytest.raises(RuntimeError, match="TIA Portal no responde"):
-            await scan_plc_blocks(
+            scan_plc_blocks(
                 "S7-1500",
                 tia_client=fake_client,
                 app_cache=cache,

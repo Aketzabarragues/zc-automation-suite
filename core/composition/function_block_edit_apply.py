@@ -333,7 +333,7 @@ class FunctionBlockEditApply(FunctionBase):
                 return detail
 
             case "Refrescar cache":
-                cache = await scan_plc_blocks(
+                cache = scan_plc_blocks(
                     self._plc_name,
                     force_refresh=True,
                     tia_client=self._tia_client,

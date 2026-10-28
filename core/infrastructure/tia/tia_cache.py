@@ -11,7 +11,6 @@ Restricciones arquitectonicas:
 """
 from __future__ import annotations
 
-import asyncio
 import dataclasses
 import logging
 from datetime import datetime
@@ -157,7 +156,7 @@ def _reconstruct_cache(result: dict[str, Any]) -> DataBloqueCache:
     )
 
 
-async def scan_plc_blocks(
+def scan_plc_blocks(
     plc_name: str,
     *,
     force_refresh: bool = False,
@@ -194,9 +193,8 @@ async def scan_plc_blocks(
     if force_refresh:
         plc_blocks_clear(cache, plc_name)
 
-    # ``submit_and_wait`` es sync (bloquea el thread). Lo envolvemos
-    # en ``to_thread`` para no bloquear el event loop de asyncio.
-    # El comando OT 'scan_blocks' ya queda loggeado por el wrapper.
+    # ``submit_and_wait`` es sync (bloquea el hilo que lo llama). El
+    # comando OT 'scan_blocks' ya queda loggeado por el wrapper.
     logger.debug(
         f"helper[scan_plc_blocks] plc={plc_name!r} "
         f"force_refresh={force_refresh}"
@@ -207,7 +205,7 @@ async def scan_plc_blocks(
         {"plc_name": plc_name},
         timeout_s,
     )
-    resp = await asyncio.to_thread(dispatch)
+    resp = dispatch()
 
     if not resp.get("ok"):
         raise RuntimeError(resp.get("error", "scan_blocks failed"))

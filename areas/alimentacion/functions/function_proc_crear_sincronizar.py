@@ -606,7 +606,7 @@ class FunctionProcCrearSincronizar(FunctionBase):
         """
         from core.infrastructure.tia.tia_cache import scan_plc_blocks
         try:
-            await scan_plc_blocks(
+            scan_plc_blocks(
                 self._plc_name,
                 force_refresh=True,
                 tia_client=self._tia_client,

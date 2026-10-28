@@ -138,7 +138,7 @@ class FunctionScanPlcBlocks(FunctionBase):
                 return "cache no fresco o force_refresh: re-escaneando"
 
             case "escanear":
-                cache = await scan_plc_blocks(
+                cache = scan_plc_blocks(
                     self._plc_name,
                     force_refresh=self._force_refresh,
                     tia_client=self._tia_client,
