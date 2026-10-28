@@ -45,7 +45,6 @@ Steps (11, mismo orden que el legacy ``ejecutar_transaccion``):
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import shutil
 import time
@@ -54,7 +53,7 @@ from pathlib import Path
 from typing import Any
 
 from core.composition.plc_function_base import FunctionBase
-from core.helpers.tia import dispatch_async, validate_execute_batch_result
+from core.helpers.tia import validate_execute_batch_result
 from core.helpers.tia.validate_plc_in_tia import validate_plc_in_tia
 from core.helpers.tia.validate_plc_in_excel import validate_plc_in_excel
 from core.helpers.tia.with_plc import with_plc
@@ -215,7 +214,7 @@ class FunctionDispSincronizar(FunctionBase):
     # HOOK 2: run_step  (ZONA 4: state machine -> dispatch al helper)
     # ==================================================================
 
-    async def run_step(self, idx: int, **params: Any) -> str:
+    def run_step(self, idx: int, **params: Any) -> str:
         """Dispatch del FB step ``idx`` a la funcion del helper ``disp_Sincronizar``.
 
         Aqui vive la state machine: cada step del FB llama a UNA
@@ -244,7 +243,7 @@ class FunctionDispSincronizar(FunctionBase):
         for _s_idx, s_nombre, s_attr in self.STAGES:
             if s_nombre == step_nombre:
                 handler = getattr(self, s_attr)
-                await handler()
+                handler()
                 # Resumen legible del step que acaba de correr (aparece en la SPA).
                 return _step_summary(self._ctx, s_nombre)
         raise ValueError(
@@ -318,7 +317,7 @@ class FunctionDispSincronizar(FunctionBase):
     # tabla tambien.
     # ==================================================================
 
-    async def _stage_1_exportar_tags(self) -> None:
+    def _stage_1_exportar_tags(self) -> None:
         """Limpia sync/ y exporta las tablas selectivas al snapshot export."""
         from areas.alimentacion.helpers.layout.build_cache import build_cache
 
@@ -338,8 +337,7 @@ class FunctionDispSincronizar(FunctionBase):
             f"[{self._ctx.plc_name}] sync modified dir (rellenado en stage 7): "
             f"{self._ctx.tags_modified}"
         )
-        batch_result = await dispatch_async(
-            self._ctx.tia_client,
+        batch_result = self._ctx.tia_client.submit_and_wait(
             "execute_batch",
             {
                 "operations": [
@@ -353,6 +351,7 @@ class FunctionDispSincronizar(FunctionBase):
                     }
                 ],
             },
+            timeout=60.0,
         )
         validate_execute_batch_result(
             batch_result["result"],
@@ -361,7 +360,7 @@ class FunctionDispSincronizar(FunctionBase):
             log=logger,
         )
 
-    async def _stage_2_compute_diff(self) -> None:
+    def _stage_2_compute_diff(self) -> None:
         """Calcula el diff entre los XMLs exportados y el AppCache (read-only).
 
         Migrado sept-2026: usa ``compute_diff_table`` por hw_type
@@ -415,7 +414,7 @@ class FunctionDispSincronizar(FunctionBase):
                         for uid, v in diff.renamed.items()
                     })
 
-        await asyncio.to_thread(_all_diffs)
+        _all_diffs()
 
         self._ctx.desired_state_per_table = desired_state_per_table
         self._ctx.base_state_per_table = base_state_per_table
@@ -423,7 +422,7 @@ class FunctionDispSincronizar(FunctionBase):
         self._ctx.removed_per_table = removed_per_table
         self._ctx.renamed_per_table = renamed_per_table
 
-    async def _stage_3_preparar_ops(self) -> None:
+    def _stage_3_preparar_ops(self) -> None:
         """Calcula nmax_ops + rename_ops + device_changes para los handlers."""
         assert self._ctx.tags_base is not None, (
             "preparar_ops requiere exportar_tags previo"
@@ -472,7 +471,7 @@ class FunctionDispSincronizar(FunctionBase):
                     "removes": removes,
                 })
 
-    async def _stage_4_tx_a_nmax_renames(self) -> None:
+    def _stage_4_tx_a_nmax_renames(self) -> None:
         """Tx A (online puro): dispatch de N_MAX + renames contra TIA."""
         assert self._ctx.tags_base is not None, (
             "tx_a_nmax_renames requiere exportar_tags previo"
@@ -507,14 +506,13 @@ class FunctionDispSincronizar(FunctionBase):
                 f"{len(self._ctx.nmax_ops)} N_MAX + "
                 f"{len(self._ctx.rename_ops)} renames via batch"
             )
-            nmax_result = await dispatch_async(
-                self._ctx.tia_client,
+            nmax_result = self._ctx.tia_client.submit_and_wait(
                 "execute_transactional_batch",
                 {
                     "undo_text": "Actualizando N_MAX y renombrando dispositivos...",
                     "operations": operations,
                 },
-                timeout_s=120.0,
+                timeout=120.0,
             )
             if not nmax_result.get("ok"):
                 raise RuntimeError(
@@ -528,11 +526,11 @@ class FunctionDispSincronizar(FunctionBase):
                 "details": [],
             }
 
-    async def _stage_5_wait_consolidation(self) -> None:
+    def _stage_5_wait_consolidation(self) -> None:
         """Espera 2s para que TIA consolide internamente tras Tx A."""
-        await asyncio.to_thread(time.sleep, TIA_CONSOLIDATION_SLEEP_S)
+        time.sleep(TIA_CONSOLIDATION_SLEEP_S)
 
-    async def _stage_6_exportar_post_tx_a(self) -> None:
+    def _stage_6_exportar_post_tx_a(self) -> None:
         """Relee los XMLs de los devices tras Tx A (estado ya consolidado)."""
         assert self._ctx.tags_base is not None, (
             "exportar_post_tx_a requiere exportar_tags previo"
@@ -546,8 +544,7 @@ class FunctionDispSincronizar(FunctionBase):
             f"[{self._ctx.plc_name}] sync export re-read post-TxA: "
             f"{disp_ctx.sync_variables_export}"
         )
-        batch_result = await dispatch_async(
-            self._ctx.tia_client,
+        batch_result = self._ctx.tia_client.submit_and_wait(
             "execute_batch",
             {
                 "operations": [
@@ -561,6 +558,7 @@ class FunctionDispSincronizar(FunctionBase):
                     }
                 ],
             },
+            timeout=60.0,
         )
         validate_execute_batch_result(
             batch_result["result"],
@@ -569,17 +567,16 @@ class FunctionDispSincronizar(FunctionBase):
             log=logger,
         )
 
-    async def _stage_7_editar_xmls_offline(self) -> None:
+    def _stage_7_editar_xmls_offline(self) -> None:
         """Copia filtrada sync export->modified + edita XMLs offline."""
         assert self._ctx.tags_base is not None, (
             "editar_xmls_offline requiere exportar_tags previo"
         )
-        await asyncio.to_thread(
-            _copy_and_edit_offline,
+        _copy_and_edit_offline(
             self._ctx.build_cache_root, self._ctx.device_changes,
         )
 
-    async def _stage_8_tx_b_devices(self) -> None:
+    def _stage_8_tx_b_devices(self) -> None:
         """Tx B (offline puro): dispatch de import_plc_tags_xml contra TIA."""
         assert self._ctx.tags_base is not None, (
             "tx_b_devices requiere exportar_tags previo"
@@ -603,8 +600,7 @@ class FunctionDispSincronizar(FunctionBase):
             )
             # Batch con 1 sola op: ``import_plc_tags_xml`` masivo.
             # El batch abre su propia ``start_transaction`` y rollback si falla.
-            devices_result = await dispatch_async(
-                self._ctx.tia_client,
+            devices_result = self._ctx.tia_client.submit_and_wait(
                 "execute_transactional_batch",
                 {
                     "undo_text": "Sincronizando dispositivos...",
@@ -617,7 +613,7 @@ class FunctionDispSincronizar(FunctionBase):
                         },
                     }],
                 },
-                timeout_s=180.0,
+                timeout=180.0,
             )
             if not devices_result.get("ok"):
                 raise RuntimeError(
@@ -631,15 +627,14 @@ class FunctionDispSincronizar(FunctionBase):
                 "details": [],
             }
 
-    async def _stage_9_compilar_bloques(self) -> None:
+    def _stage_9_compilar_bloques(self) -> None:
         """Compila los DBs afectados (fuera de tx; el commit ya esta aplicado)."""
         affected_dbs = _get_affected_dbs_for_compile(self._ctx.config_manager)
         try:
-            compile_result = await dispatch_async(
-                self._ctx.tia_client,
+            compile_result = self._ctx.tia_client.submit_and_wait(
                 "compile_blocks",
                 {"plc_name": self._ctx.plc_name, "block_names": affected_dbs},
-                timeout_s=120.0,
+                timeout=120.0,
             )
             if not compile_result.get("ok"):
                 self._ctx.compile_ok = False
@@ -683,7 +678,7 @@ class FunctionDispSincronizar(FunctionBase):
                 f"[{self._ctx.plc_name}] Compilacion fallo (commit ya aplicado): {exc}"
             )
 
-    async def _stage_10_aplicar_comentarios(self) -> None:
+    def _stage_10_aplicar_comentarios(self) -> None:
         """Stage 10 del sync: aplica los comentarios por instancia a los DBs de disp del área.
 
         Flujo (aplica comentarios por instancia a los DBs de disp del area):
@@ -760,8 +755,7 @@ class FunctionDispSincronizar(FunctionBase):
         # relativo dentro del ``import_root_directory``. Si el .s7dcl
         # queda FLAT, el relative path es vacio y TIA no sabe en que
         # subcarpeta del PLC aplicar el UPDATE.
-        batch_result = await dispatch_async(
-            self._ctx.tia_client,
+        batch_result = self._ctx.tia_client.submit_and_wait(
             "execute_batch",
             {
                 "operations": [
@@ -776,6 +770,7 @@ class FunctionDispSincronizar(FunctionBase):
                     }
                 ],
             },
+            timeout=60.0,
         )
         validate_execute_batch_result(
             batch_result["result"],
@@ -856,8 +851,7 @@ class FunctionDispSincronizar(FunctionBase):
             # (sin aplicar cambios parciales al PLC). Antes era directo,
             # lo que dejaba al PLC en estado inconsistente si el import
             # fallaba a mitad.
-            await dispatch_async(
-                self._ctx.tia_client,
+            self._ctx.tia_client.submit_and_wait(
                 "execute_transactional_batch",
                 {
                     "undo_text": "Sincronizando comentarios de dispositivos...",
@@ -872,7 +866,7 @@ class FunctionDispSincronizar(FunctionBase):
                         },
                     ],
                 },
-                timeout_s=600.0,
+                timeout=600.0,
             )
 
         self._ctx.comments_result = {
@@ -891,7 +885,7 @@ class FunctionDispSincronizar(FunctionBase):
             "warnings": warnings,
         }
 
-    async def _stage_11_disp_post_preview(self) -> None:
+    def _stage_11_disp_post_preview(self) -> None:
         """Genera el preview post-sync para que la SPA vea 'todo en sync'.
 
         Migrado sept-2026: usa las funciones puras
@@ -933,8 +927,7 @@ class FunctionDispSincronizar(FunctionBase):
             ]
 
             # 2/4 + 3/4. Exporta FLAT (N_MAX + 6 disp tables) en un execute_batch.
-            batch_result = await dispatch_async(
-                self._ctx.tia_client,
+            batch_result = self._ctx.tia_client.submit_and_wait(
                 "execute_batch",
                 {
                     "operations": [
@@ -958,6 +951,7 @@ class FunctionDispSincronizar(FunctionBase):
                         },
                     ],
                 },
+                timeout=60.0,
             )
             validate_execute_batch_result(
                 batch_result["result"],
@@ -1152,11 +1146,6 @@ class DispSyncContext:
 # ===========================================================================
 # Helpers internos privados al modulo
 # ===========================================================================
-
-# Nota: ``dispatch_async`` se importa arriba desde
-# ``core.helpers.tia.dispatch_async``. Antes vivia
-# duplicado aqui (4 copias en total: 2 disp + 2 proc); ahora vive
-# como helper compartido.
 
 
 def _selective_table_names(config_manager: Any) -> list[str]:
