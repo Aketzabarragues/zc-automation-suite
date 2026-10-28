@@ -167,7 +167,7 @@ class FunctionBlockEditPrepare(FunctionBase):
     # HOOK 2: run_step  (ZONA 4: CASE por etapa)
     # ==================================================================
 
-    async def run_step(self, idx: int, **params: Any) -> str:
+    def run_step(self, idx: int, **params: Any) -> str:
         """CASE de los 5 pasos."""
         # Lazy import para evitar ciclo con core.infrastructure.tia.
         from core.infrastructure.tia.tia_cache import plc_blocks_get
