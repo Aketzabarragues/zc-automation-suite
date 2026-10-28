@@ -29,9 +29,12 @@ import logging
 from typing import Any
 
 from core.composition.plc_function_base import FunctionBase
+from core.infrastructure.log.log_web_bridge import install_web_level
 from core.runtime.app_cache import AppCache, get_app_cache
 
 logger = logging.getLogger(__name__)
+# Asegura que ``Logger.web/ok`` existen en tests/scripts (idempotente).
+install_web_level()
 
 
 class FunctionScanPlcBlocks(FunctionBase):
@@ -172,7 +175,12 @@ class FunctionScanPlcBlocks(FunctionBase):
     # ==================================================================
 
     def on_finish(self, **params: Any) -> None:
-        """Vuelca ``self.result`` con la shape del FB."""
+        """Vuelca ``self.result`` con la shape del FB.
+
+        El resumen del scan lo emite aqui: el router ya respondio
+        ``202`` cuando el scan todavia no habia terminado.
+        """
+        self._log_resumen()
         scan_stats = self._stats.get("escanear", {})
         cache_hit_stats = self._stats.get("cache_hit", {})
         # Si venimos de cache_hit, ``escanear`` no se ejecuto.
@@ -206,6 +214,16 @@ class FunctionScanPlcBlocks(FunctionBase):
                 "scanned_at": None,
                 "from_cache": False,
             }
+
+    def _log_resumen(self) -> None:
+        """Emite el resumen del scan para la consola del operario."""
+        stats = self._stats.get("escanear") or self._stats.get("cache_hit") or {}
+        logger.ok(
+            f"PLC '{self._plc_name}' cache: "
+            f"{stats.get('n_blocks', 0)} bloques, "
+            f"{stats.get('n_tag_tables', 0)} tablas, "
+            f"{stats.get('n_udts', 0)} UDTs"
+        )
 
 
 __all__ = ["FunctionScanPlcBlocks"]
