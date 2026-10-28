@@ -2,7 +2,7 @@
 
 Cubre:
   - stage_5_wait_consolidation: sleep solo si hay NMAX op.
-  - stage_6_exportar_post_tx_a: re-export 2 dispatch_async solo si hay NMAX op.
+  - stage_6_exportar_post_tx_a: re-export 2 submit_and_wait solo si hay NMAX op.
   - stage_7_editar_xmls_offline: copytree + PlcUserConstantModifier + commit_array_comments.
   - stage_8_tx_b_constants: execute_transactional_batch con import_plc_tags_xml.
   - stage_9_compilar_bloques: compile_blocks solo si hubo NMAX op.
@@ -11,11 +11,10 @@ Cubre:
 """
 from __future__ import annotations
 
-import asyncio
 import shutil
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -76,7 +75,7 @@ def _make_sync_dirs(fb: "FunctionEntidadesSincronizar", tmp: Path) -> None:
 
 
 def test_stage_5_sin_nmax_op_no_llama_sleep() -> None:
-    """Sin NMAX op, stage 5 no llama asyncio.sleep (no-op)."""
+    """Sin NMAX op, stage 5 no llama time.sleep (no-op)."""
     fb = _make_fb()
     _bootstrap_fb(fb)
     fb._ctx.nmax_op = None
@@ -85,12 +84,12 @@ def test_stage_5_sin_nmax_op_no_llama_sleep() -> None:
         "areas.alimentacion.functions.function_entidades_sincronizar"
         ".time.sleep",
     ) as sleep_mock:
-        asyncio.run(fb._stage_5_wait_consolidation())
+        fb._stage_5_wait_consolidation()
     sleep_mock.assert_not_called()
 
 
 def test_stage_5_con_nmax_op_llama_sleep_2s() -> None:
-    """Con NMAX op, stage 5 llama asyncio.to_thread(time.sleep, 2.0)."""
+    """Con NMAX op, stage 5 llama time.sleep(2.0)."""
     fb = _make_fb()
     _bootstrap_fb(fb)
     fb._ctx.nmax_op = {"command": "update_user_constant_value", "args": {}}
@@ -99,7 +98,7 @@ def test_stage_5_con_nmax_op_llama_sleep_2s() -> None:
         "areas.alimentacion.functions.function_entidades_sincronizar"
         ".time.sleep",
     ) as sleep_mock:
-        asyncio.run(fb._stage_5_wait_consolidation())
+        fb._stage_5_wait_consolidation()
     sleep_mock.assert_called_once_with(2.0)
 
 
@@ -109,23 +108,19 @@ def test_stage_5_con_nmax_op_llama_sleep_2s() -> None:
 
 
 def test_stage_6_sin_nmax_op_no_re_exporta() -> None:
-    """Sin NMAX op, stage 6 no llama dispatch_async."""
+    """Sin NMAX op, stage 6 no llama submit_and_wait."""
     fb = _make_fb()
     _bootstrap_fb(fb)
     fb._ctx.nmax_op = None
     fb._ctx.sync_variables_export = Path("sync_vars_export")
     fb._ctx.sync_bloques_export = Path("sync_bloques_export")
 
-    with patch(
-        "areas.alimentacion.functions.function_entidades_sincronizar"
-        ".dispatch_async",
-        new=AsyncMock(),
-    ) as dispatch_mock:
-        asyncio.run(fb._stage_6_exportar_post_tx_a())
-    assert dispatch_mock.await_count == 0
+    fb._ctx.tia_client.submit_and_wait.reset_mock()
+    fb._stage_6_exportar_post_tx_a()
+    assert fb._ctx.tia_client.submit_and_wait.call_count == 0
 
 
-def test_stage_6_con_nmax_op_llama_dispatch_async_2_veces() -> None:
+def test_stage_6_con_nmax_op_llama_submit_and_wait_2_veces() -> None:
     """Con NMAX op, stage 6 re-exporta tags + block."""
     fb = _make_fb()
     _bootstrap_fb(fb)
@@ -133,31 +128,24 @@ def test_stage_6_con_nmax_op_llama_dispatch_async_2_veces() -> None:
     fb._ctx.sync_variables_export = Path("sync_vars_export")
     fb._ctx.sync_bloques_export = Path("sync_bloques_export")
 
-    with patch(
-        "areas.alimentacion.functions.function_entidades_sincronizar"
-        ".dispatch_async",
-        new=AsyncMock(return_value={"ok": True}),
-    ) as dispatch_mock:
-        asyncio.run(fb._stage_6_exportar_post_tx_a())
-    assert dispatch_mock.await_count == 2
-    assert dispatch_mock.await_args_list[0].args[1] == "export_tables"
-    assert dispatch_mock.await_args_list[1].args[1] == "export_blocks"
+    dispatch_mock = fb._ctx.tia_client.submit_and_wait
+    dispatch_mock.return_value = {"ok": True}
+    fb._stage_6_exportar_post_tx_a()
+    assert dispatch_mock.call_count == 2
+    assert dispatch_mock.call_args_list[0].args[0] == "export_tables"
+    assert dispatch_mock.call_args_list[1].args[0] == "export_blocks"
 
 
 def test_stage_6_si_worker_falla_sigue_con_warnings() -> None:
-    """Si dispatch_async retorna None, stage 6 emite warning y sigue."""
+    """Si submit_and_wait retorna None, stage 6 emite warning y sigue."""
     fb = _make_fb()
     _bootstrap_fb(fb)
     fb._ctx.nmax_op = {"command": "update_user_constant_value", "args": {}}
     fb._ctx.sync_variables_export = Path("sync_vars_export")
     fb._ctx.sync_bloques_export = Path("sync_bloques_export")
 
-    with patch(
-        "areas.alimentacion.functions.function_entidades_sincronizar"
-        ".dispatch_async",
-        new=AsyncMock(return_value=None),
-    ):
-        asyncio.run(fb._stage_6_exportar_post_tx_a())
+    fb._ctx.tia_client.submit_and_wait.return_value = None
+    fb._stage_6_exportar_post_tx_a()
     assert any("Re-export post Tx A fallo" in w for w in fb._ctx.warnings)
 
 
@@ -210,7 +198,7 @@ def test_stage_7_copytree_filtrado_excluye_nmax(tmp_path: Path) -> None:
         {"kind": "update_comment", "slot": 5, "new_comment": "Linea 5"},
     ]
 
-    asyncio.run(fb._stage_7_editar_xmls_offline())
+    fb._stage_7_editar_xmls_offline()
 
     # modified/ debe tener 6_Entidades.xml (en su subcarpeta TIA) pero
     # NO 0_Config_Generales.xml.
@@ -250,7 +238,7 @@ def test_stage_7_aplica_constant_ops_al_xml(tmp_path: Path) -> None:
     ]
     fb._ctx.comment_ops = []
 
-    asyncio.run(fb._stage_7_editar_xmls_offline())
+    fb._stage_7_editar_xmls_offline()
 
     # Verificar que el XML modified (en su subcarpeta TIA) tiene solo ENT_005.
     modified_xml = (
@@ -274,13 +262,9 @@ def test_stage_8_sin_constant_ops_no_llama_dispatch(tmp_path: Path) -> None:
     _make_sync_dirs(fb, tmp_path)
     fb._ctx.constant_ops = []
 
-    with patch(
-        "areas.alimentacion.functions.function_entidades_sincronizar"
-        ".dispatch_async",
-        new=AsyncMock(),
-    ) as dispatch_mock:
-        asyncio.run(fb._stage_8_tx_b_constants())
-    assert dispatch_mock.await_count == 0
+    fb._ctx.tia_client.submit_and_wait.reset_mock()
+    fb._stage_8_tx_b_constants()
+    assert fb._ctx.tia_client.submit_and_wait.call_count == 0
 
 
 def test_stage_8_con_constant_ops_llama_execute_batch(tmp_path: Path) -> None:
@@ -294,18 +278,15 @@ def test_stage_8_con_constant_ops_llama_execute_batch(tmp_path: Path) -> None:
         {"kind": "add", "plc_tag": "ENT_005", "uid": 5, "comment": "x"},
     ]
 
-    with patch(
-        "areas.alimentacion.functions.function_entidades_sincronizar"
-        ".dispatch_async",
-        new=AsyncMock(return_value={"ok": True, "result": "OK"}),
-    ) as dispatch_mock:
-        asyncio.run(fb._stage_8_tx_b_constants())
+    dispatch_mock = fb._ctx.tia_client.submit_and_wait
+    dispatch_mock.return_value = {"ok": True, "result": "OK"}
+    fb._stage_8_tx_b_constants()
 
-    assert dispatch_mock.await_count == 1
-    call = dispatch_mock.await_args_list[0]
-    assert call.args[1] == "execute_transactional_batch"
-    assert "operations" in call.args[2]
-    assert call.args[2]["operations"][0]["command"] == "import_plc_tags_xml"
+    assert dispatch_mock.call_count == 1
+    call = dispatch_mock.call_args_list[0]
+    assert call.args[0] == "execute_transactional_batch"
+    assert "operations" in call.args[1]
+    assert call.args[1]["operations"][0]["command"] == "import_plc_tags_xml"
 
 
 # ---------------------------------------------------------------------------
@@ -321,13 +302,9 @@ def test_stage_9_sin_ops_no_compila() -> None:
     fb._ctx.nmax_op = None
     fb._ctx.comment_ops = []
 
-    with patch(
-        "areas.alimentacion.functions.function_entidades_sincronizar"
-        ".dispatch_async",
-        new=AsyncMock(),
-    ) as dispatch_mock:
-        asyncio.run(fb._stage_9_compilar_bloques())
-    assert dispatch_mock.await_count == 0
+    fb._ctx.tia_client.submit_and_wait.reset_mock()
+    fb._stage_9_compilar_bloques()
+    assert fb._ctx.tia_client.submit_and_wait.call_count == 0
 
 
 def test_stage_9_con_nmax_op_compila_db6_ent() -> None:
@@ -336,17 +313,14 @@ def test_stage_9_con_nmax_op_compila_db6_ent() -> None:
     _bootstrap_fb(fb)
     fb._ctx.nmax_op = {"command": "update_user_constant_value", "args": {}}
 
-    with patch(
-        "areas.alimentacion.functions.function_entidades_sincronizar"
-        ".dispatch_async",
-        new=AsyncMock(return_value={"success": True}),
-    ) as dispatch_mock:
-        asyncio.run(fb._stage_9_compilar_bloques())
+    dispatch_mock = fb._ctx.tia_client.submit_and_wait
+    dispatch_mock.return_value = {"success": True}
+    fb._stage_9_compilar_bloques()
 
-    assert dispatch_mock.await_count == 1
-    call = dispatch_mock.await_args_list[0]
-    assert call.args[1] == "compile_blocks"
-    assert call.args[2]["block_names"] == ["DB6_ENT"]
+    assert dispatch_mock.call_count == 1
+    call = dispatch_mock.call_args_list[0]
+    assert call.args[0] == "compile_blocks"
+    assert call.args[1]["block_names"] == ["DB6_ENT"]
     assert fb._ctx.compile_ok is True
 
 
@@ -361,17 +335,14 @@ def test_stage_9_con_comment_ops_sin_nmax_compila_db6_ent() -> None:
         {"kind": "update_comment", "slot": 1, "new_comment": "Linea 1"},
     ]
 
-    with patch(
-        "areas.alimentacion.functions.function_entidades_sincronizar"
-        ".dispatch_async",
-        new=AsyncMock(return_value={"success": True}),
-    ) as dispatch_mock:
-        asyncio.run(fb._stage_9_compilar_bloques())
+    dispatch_mock = fb._ctx.tia_client.submit_and_wait
+    dispatch_mock.return_value = {"success": True}
+    fb._stage_9_compilar_bloques()
 
-    assert dispatch_mock.await_count == 1
-    call = dispatch_mock.await_args_list[0]
-    assert call.args[1] == "compile_blocks"
-    assert call.args[2]["block_names"] == ["DB6_ENT"]
+    assert dispatch_mock.call_count == 1
+    call = dispatch_mock.call_args_list[0]
+    assert call.args[0] == "compile_blocks"
+    assert call.args[1]["block_names"] == ["DB6_ENT"]
 
 
 def test_stage_9_compile_falla_sin_abortar() -> None:
@@ -380,12 +351,8 @@ def test_stage_9_compile_falla_sin_abortar() -> None:
     _bootstrap_fb(fb)
     fb._ctx.nmax_op = {"command": "update_user_constant_value", "args": {}}
 
-    with patch(
-        "areas.alimentacion.functions.function_entidades_sincronizar"
-        ".dispatch_async",
-        new=AsyncMock(return_value={"success": False, "error": "x"}),
-    ):
-        asyncio.run(fb._stage_9_compilar_bloques())
+    fb._ctx.tia_client.submit_and_wait.return_value = {"success": False, "error": "x"}
+    fb._stage_9_compilar_bloques()
     assert fb._ctx.compile_ok is False
     assert fb._ctx.compile_error == "x"
 
@@ -402,13 +369,9 @@ def test_stage_10_sin_comment_ops_no_llama_dispatch(tmp_path: Path) -> None:
     _make_sync_dirs(fb, tmp_path)
     fb._ctx.comment_ops = []
 
-    with patch(
-        "areas.alimentacion.functions.function_entidades_sincronizar"
-        ".dispatch_async",
-        new=AsyncMock(),
-    ) as dispatch_mock:
-        asyncio.run(fb._stage_10_tx_c_comments())
-    assert dispatch_mock.await_count == 0
+    fb._ctx.tia_client.submit_and_wait.reset_mock()
+    fb._stage_10_tx_c_comments()
+    assert fb._ctx.tia_client.submit_and_wait.call_count == 0
 
 
 def test_stage_10_con_comment_ops_llama_import_block(tmp_path: Path) -> None:
@@ -420,17 +383,14 @@ def test_stage_10_con_comment_ops_llama_import_block(tmp_path: Path) -> None:
         {"kind": "update_comment", "slot": 1, "new_comment": "Linea 1"},
     ]
 
-    with patch(
-        "areas.alimentacion.functions.function_entidades_sincronizar"
-        ".dispatch_async",
-        new=AsyncMock(return_value={"ok": True, "result": "OK"}),
-    ) as dispatch_mock:
-        asyncio.run(fb._stage_10_tx_c_comments())
+    dispatch_mock = fb._ctx.tia_client.submit_and_wait
+    dispatch_mock.return_value = {"ok": True, "result": "OK"}
+    fb._stage_10_tx_c_comments()
 
-    assert dispatch_mock.await_count == 1
-    call = dispatch_mock.await_args_list[0]
-    assert call.args[1] == "execute_transactional_batch"
-    assert call.args[2]["operations"][0]["command"] == "import_block"
+    assert dispatch_mock.call_count == 1
+    call = dispatch_mock.call_args_list[0]
+    assert call.args[0] == "execute_transactional_batch"
+    assert call.args[1]["operations"][0]["command"] == "import_block"
 
 
 # ---------------------------------------------------------------------------
@@ -445,10 +405,6 @@ def test_stage_11_post_preview_recompila_ops(tmp_path: Path) -> None:
     _make_sync_dirs(fb, tmp_path)
 
     with patch(
-        "areas.alimentacion.functions.function_entidades_sincronizar"
-        ".dispatch_async",
-        new=AsyncMock(return_value={"ok": True}),
-    ) as dispatch_mock, patch(
         "areas.alimentacion.helpers.layout.build_cache.build_cache"
     ) as bc_mock:
         ent_ctx = MagicMock()
@@ -469,8 +425,11 @@ def test_stage_11_post_preview_recompila_ops(tmp_path: Path) -> None:
             "areas.alimentacion.functions.function_entidades_sincronizar.get_nmax_entidades",
             return_value={"N_MAX_ENTIDAD": 16},
         ):
-            asyncio.run(fb._stage_11_post_preview())
+            fb._ctx.tia_client.submit_and_wait.return_value = {"ok": True}
+            fb._stage_11_post_preview()
 
+    dispatch_mock = fb._ctx.tia_client.submit_and_wait
+    assert dispatch_mock.call_count == 2
     assert fb._ctx.post_sync_preview is not None
     assert "ops" in fb._ctx.post_sync_preview
     assert fb._ctx.result.get("success") is True

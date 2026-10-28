@@ -6,11 +6,13 @@ Cubre:
   - on_finish con/sin ctx.
   - Dispatch de run_step via la tabla STAGES.
   - Stages 1-2 (export + compute_diff) con tia_client y app_state mockeados.
+  - Camino sync: ``execute()`` recorre las 11 etapas sin event loop.
 """
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -150,8 +152,7 @@ def test_run_step_falla_si_ctx_no_inicializado() -> None:
     """Sin on_start, run_step raise RuntimeError claro."""
     fb = _make_fb()
     with pytest.raises(RuntimeError, match="EntidadesSyncContext no inicializado"):
-        import asyncio
-        asyncio.run(fb.run_step(0))
+        fb.run_step(0)
 
 
 def test_run_step_falla_si_step_desconocido() -> None:
@@ -169,9 +170,8 @@ def test_run_step_falla_si_step_desconocido() -> None:
         fb.on_start(plc_name="ZC_PLC_STD")
     # Inyectar un step fantasma en la lista de steps.
     fb.steps = [{"nombre": "Step inventado"}]
-    import asyncio
     with pytest.raises(ValueError, match="no esta en STAGES"):
-        asyncio.run(fb.run_step(0))
+        fb.run_step(0)
 
 
 def test_run_step_dispatch_via_STAGES_table() -> None:
@@ -189,17 +189,16 @@ def test_run_step_dispatch_via_STAGES_table() -> None:
         fb.on_start(plc_name="ZC_PLC_STD")
 
     # Mockear _stage_1_exportar y verificar que run_step(idx=0) lo llama.
-    fb._stage_1_exportar = AsyncMock()  # type: ignore[method-assign]
+    fb._stage_1_exportar = MagicMock()  # type: ignore[method-assign]
 
-    import asyncio
-    summary = asyncio.run(fb.run_step(0))
+    summary = fb.run_step(0)
 
-    fb._stage_1_exportar.assert_awaited_once()
+    fb._stage_1_exportar.assert_called_once()
     assert "Exportar etiquetas y DB" in summary
 
 
-def test_stage_1_exportar_llama_dispatch_async_2_veces() -> None:
-    """Stage 1 llama dispatch_async 2 veces (export_tables + export_blocks)."""
+def test_stage_1_exportar_llama_submit_and_wait_2_veces() -> None:
+    """Stage 1 llama submit_and_wait 2 veces (export_tables + export_blocks)."""
     fb = _make_fb()
     with patch(
         "areas.alimentacion.functions.function_entidades_sincronizar"
@@ -212,12 +211,8 @@ def test_stage_1_exportar_llama_dispatch_async_2_veces() -> None:
     ):
         fb.on_start(plc_name="ZC_PLC_STD")
 
-    # Mockear dispatch_async para que devuelva dicts no-None.
+    # Mockear submit_and_wait para que devuelva dicts no-None.
     with patch(
-        "areas.alimentacion.functions.function_entidades_sincronizar"
-        ".dispatch_async",
-        new=AsyncMock(return_value={"ok": True, "files": []}),
-    ) as dispatch_mock, patch(
         "areas.alimentacion.helpers.layout.build_cache.build_cache"
     ) as build_cache_mock:
         # Mock del EntidadesLayout que devuelve paths.
@@ -250,26 +245,27 @@ def test_stage_1_exportar_llama_dispatch_async_2_veces() -> None:
             "0_Sistema"
         )
 
-        import asyncio
-        asyncio.run(fb._stage_1_exportar())
+        fb._ctx.tia_client.submit_and_wait.return_value = {"ok": True, "files": []}
+        fb._stage_1_exportar()
 
-    assert dispatch_mock.await_count == 2
+    dispatch_mock = fb._ctx.tia_client.submit_and_wait
+    assert dispatch_mock.call_count == 2
     # Primer call: export_tables.
-    call1 = dispatch_mock.await_args_list[0]
-    assert call1.args[1] == "export_tables"
-    assert "0_Config_Generales" in call1.args[2]["table_names"]
+    call1 = dispatch_mock.call_args_list[0]
+    assert call1.args[0] == "export_tables"
+    assert "0_Config_Generales" in call1.args[1]["table_names"]
     # keep_folder_structure=True (mirror Disp): TIA V21 matchea el
     # import recursivo por subpath TIA. Sin esto, el modified queda
     # FLAT y TIA no encuentra la ruta esperada al re-importar.
-    assert call1.args[2]["keep_folder_structure"] is True
+    assert call1.args[1]["keep_folder_structure"] is True
     # Segundo call: export_blocks.
-    call2 = dispatch_mock.await_args_list[1]
-    assert call2.args[1] == "export_blocks"
-    assert call2.args[2]["block_names"] == ["DB6_ENT"]
+    call2 = dispatch_mock.call_args_list[1]
+    assert call2.args[0] == "export_blocks"
+    assert call2.args[1]["block_names"] == ["DB6_ENT"]
 
 
 def test_stage_1_exportar_si_worker_falla_sigue_con_warnings() -> None:
-    """Si dispatch_async retorna None (worker TIA falla), stage 1 emite
+    """Si submit_and_wait retorna None (worker TIA falla), stage 1 emite
     warning y continua (degradacion graciosa)."""
     fb = _make_fb()
     with patch(
@@ -284,10 +280,6 @@ def test_stage_1_exportar_si_worker_falla_sigue_con_warnings() -> None:
         fb.on_start(plc_name="ZC_PLC_STD")
 
     with patch(
-        "areas.alimentacion.functions.function_entidades_sincronizar"
-        ".dispatch_async",
-        new=AsyncMock(return_value=None),
-    ), patch(
         "areas.alimentacion.helpers.layout.build_cache.build_cache"
     ) as build_cache_mock:
         ent_ctx = MagicMock()
@@ -305,8 +297,8 @@ def test_stage_1_exportar_si_worker_falla_sigue_con_warnings() -> None:
             "config_table": "0_Config_Generales",
         }
 
-        import asyncio
-        asyncio.run(fb._stage_1_exportar())
+        fb._ctx.tia_client.submit_and_wait.return_value = None
+        fb._stage_1_exportar()
 
     # 2 warnings: 1 por export_tables, 1 por export_blocks.
     assert len(fb._ctx.warnings) == 2
@@ -369,8 +361,7 @@ def test_stage_2_compute_diff_llama_helpers_de_preview() -> None:
         sdpair.return_value.dcl.exists.return_value = False
         sdpair.return_value.res.exists.return_value = False
 
-        import asyncio
-        asyncio.run(fb._stage_2_compute_diff())
+        fb._stage_2_compute_diff()
 
     assert cd.called
     assert cnm.called
@@ -401,3 +392,49 @@ def test_entidades_sync_context_defaults() -> None:
     assert ctx.warnings == []
     assert ctx.compile_ok is True
     assert ctx.post_sync_preview is None
+
+
+def test_run_step_es_sync_no_coroutine() -> None:
+    """El FB ya no es una corrutina: run_step es sync (camino OB1)."""
+    fb = _make_fb()
+    assert not inspect.iscoroutinefunction(fb.run_step)
+    assert not inspect.iscoroutinefunction(fb._stage_1_exportar)
+    assert not inspect.iscoroutinefunction(fb._stage_11_post_preview)
+
+
+def test_execute_sync_recorre_las_11_etapas() -> None:
+    """``execute()`` (camino sync del OB1) recorre las 11 etapas y termina
+    en ``n_done`` sin event loop."""
+    from core.runtime.progress_buffer import ProgressTracker
+    from areas.alimentacion.functions.function_entidades_sincronizar import (
+        FunctionEntidadesSincronizar,
+    )
+
+    fb = FunctionEntidadesSincronizar(
+        config_manager=MagicMock(),
+        tia_client=MagicMock(),
+        build_cache=Path("."),
+        app_cache=MagicMock(),
+        tracker=ProgressTracker(),
+    )
+    with patch(
+        "areas.alimentacion.functions.function_entidades_sincronizar"
+        ".validate_plc_in_tia"
+    ), patch(
+        "areas.alimentacion.functions.function_entidades_sincronizar"
+        ".validate_plc_in_excel"
+    ), patch(
+        "areas.alimentacion.functions.function_entidades_sincronizar.with_plc"
+    ):
+        # Mockear los 11 handlers: el test verifica el ciclo del
+        # state machine, no la logica de cada stage.
+        for _idx, _nombre, attr in FunctionEntidadesSincronizar.STAGES:
+            setattr(fb, attr, MagicMock())
+
+        fb.execute(plc_name="ZC_PLC_STD")
+
+    assert fb.nStep == fb.n_done
+    assert fb.error_msg is None
+    assert fb.result is not None
+    assert fb.result["operations"] == 0
+    assert fb.result["n_max_updates"] == 0

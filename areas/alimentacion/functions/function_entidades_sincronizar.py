@@ -56,7 +56,6 @@ Steps (11):
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
@@ -64,7 +63,6 @@ from pathlib import Path
 from typing import Any
 
 from core.composition.plc_function_base import FunctionBase
-from core.helpers.tia import dispatch_async
 from core.helpers.tia.active_cache import get_entidades, get_nmax_entidades
 from core.helpers.tia.validate_plc_in_excel import validate_plc_in_excel
 from core.helpers.tia.validate_plc_in_tia import validate_plc_in_tia
@@ -210,7 +208,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
     # HOOK 2: run_step  (ZONA 4: state machine -> dispatch al helper)
     # ==================================================================
 
-    async def run_step(self, idx: int, **params: Any) -> str:
+    def run_step(self, idx: int, **params: Any) -> str:
         """Dispatch del FB step ``idx`` a su handler en este FB.
 
         Aqui vive la state machine: cada step llama a UN metodo del FB
@@ -228,7 +226,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
         for _s_idx, s_nombre, s_attr in self.STAGES:
             if s_nombre == step_nombre:
                 handler = getattr(self, s_attr)
-                await handler()
+                handler()
                 return _step_summary(self._ctx, s_nombre)
         raise ValueError(
             f"step {idx} ({step_nombre!r}) no esta en STAGES "
@@ -276,7 +274,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
     # tabla tambien.
     # ==================================================================
 
-    async def _stage_1_exportar(self) -> None:
+    def _stage_1_exportar(self) -> None:
         """Stage 1: limpia ``sincronizar/`` y exporta las 2 tablas + el DB.
 
         Layout usado (.build_cache/alimentacion/entidades/sincronizar/):
@@ -320,8 +318,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
         # match UPDATE recursivo por subpath TIA en el import. Sin
         # la subcarpeta, el archivo queda FLAT y TIA no encuentra
         # la ruta esperada al re-importar.
-        tags_result = await dispatch_async(
-            self._ctx.tia_client,
+        tags_result = self._ctx.tia_client.submit_and_wait(
             "export_tables",
             {
                 "plc_name": self._ctx.plc_name,
@@ -329,6 +326,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
                 "table_names": [config_table, tag_table],
                 "keep_folder_structure": True,
             },
+            timeout=60.0,
         )
         if tags_result is None:
             warning = (
@@ -349,8 +347,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
         # import_block en Tx C falla con "Import failed because an
         # object with the name 'DB6_ENT' already exists" porque TIA
         # no puede determinar la subcarpeta destino del UPDATE.
-        block_result = await dispatch_async(
-            self._ctx.tia_client,
+        block_result = self._ctx.tia_client.submit_and_wait(
             "export_blocks",
             {
                 "plc_name": self._ctx.plc_name,
@@ -358,7 +355,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
                 "block_names": [db_name],
                 "keep_folder_structure": True,
             },
-            timeout_s=60.0,
+            timeout=60.0,
         )
         if block_result is None:
             warning = (
@@ -373,7 +370,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
                 f"  {db_name} exportado a {self._ctx.sync_bloques_export}"
             )
 
-    async def _stage_2_compute_diff(self) -> None:
+    def _stage_2_compute_diff(self) -> None:
         """Stage 2: calcula el diff completo (NMAX + constantes + comments).
 
         Reutiliza los helpers ``compute_diff_entities`` (devuelve
@@ -424,10 +421,8 @@ class FunctionEntidadesSincronizar(FunctionBase):
                 xml_path=config_xml,
             )
 
-        diff_ent_dm, nmax_dm = await asyncio.gather(
-            asyncio.to_thread(_compute_constants),
-            asyncio.to_thread(_compute_nmax),
-        )
+        diff_ent_dm = _compute_constants()
+        nmax_dm = _compute_nmax()
 
         self._ctx.entities_block = {
             "base":         diff_ent_dm.base,
@@ -468,7 +463,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
                 res_text=res_text,
             )
 
-        diff_com = await asyncio.to_thread(_compute_comments)
+        diff_com = _compute_comments()
         self._ctx.comments_block = {
             "slots_tia":   diff_com.slots_tia,
             "current":     diff_com.current,
@@ -480,7 +475,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
             "missing_xml": diff_com.missing_xml,
         }
 
-    async def _stage_3_preparar_ops(self) -> None:
+    def _stage_3_preparar_ops(self) -> None:
         """Stage 3: walk ``entities_ops`` y agrupa ops para Tx A / B / C.
 
         Output (mutaciones de ``self._ctx``):
@@ -592,7 +587,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
                 "new_comment": comment,
             })
 
-    async def _stage_4_tx_a_nmax(self) -> None:
+    def _stage_4_tx_a_nmax(self) -> None:
         """Stage 4: Tx A online puro para el NMAX update.
 
         Cambia el value de la PlcUserConstant ``N_MAX_ENTIDAD`` en
@@ -621,14 +616,13 @@ class FunctionEntidadesSincronizar(FunctionBase):
             f"[{self.nombre}] Tx A online: {self._ctx.nmax_op}"
         )
 
-        result = await dispatch_async(
-            self._ctx.tia_client,
+        result = self._ctx.tia_client.submit_and_wait(
             "execute_transactional_batch",
             {
                 "undo_text": "Actualizando N_MAX_ENTIDAD (redimensiona array ENT[])...",
                 "operations": [self._ctx.nmax_op],
             },
-            timeout_s=60.0,
+            timeout=60.0,
         )
 
         if result is None:
@@ -642,14 +636,13 @@ class FunctionEntidadesSincronizar(FunctionBase):
         # Compile defensivo post-Tx-A. Si TIA rechaza o retorna None,
         # log warning y sigue: stage 9 compila de nuevo tras Tx C.
         try:
-            compile_result = await dispatch_async(
-                self._ctx.tia_client,
+            compile_result = self._ctx.tia_client.submit_and_wait(
                 "compile_blocks",
                 {
                     "plc_name":   self._ctx.plc_name,
                     "block_names": [self._ctx.db_name],
                 },
-                timeout_s=120.0,
+                timeout=120.0,
             )
             if compile_result is None:
                 logger.warning(
@@ -666,7 +659,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
                 f"Stage 9 compila de nuevo."
             )
 
-    async def _stage_5_wait_consolidation(self) -> None:
+    def _stage_5_wait_consolidation(self) -> None:
         """Stage 5: sleep para que TIA consolide el NMAX update de Tx A.
 
         Constante ``TIA_CONSOLIDATION_SLEEP_S = 2.0s`` (mismo patron que
@@ -683,9 +676,9 @@ class FunctionEntidadesSincronizar(FunctionBase):
             f"[{self.nombre}] Esperando consolidacion TIA tras Tx A "
             f"({TIA_CONSOLIDATION_SLEEP_S}s)..."
         )
-        await asyncio.to_thread(time.sleep, TIA_CONSOLIDATION_SLEEP_S)
+        time.sleep(TIA_CONSOLIDATION_SLEEP_S)
 
-    async def _stage_6_exportar_post_tx_a(self) -> None:
+    def _stage_6_exportar_post_tx_a(self) -> None:
         """Stage 6: re-export FLAT tras Tx A (DB6_ENT con tamanyo actualizado).
 
         Mismo patron que stage 1 pero llamado despues de Tx A + wait.
@@ -702,8 +695,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
             f"[{self.nombre}] Re-exportando tras Tx A NMAX..."
         )
 
-        tags_result = await dispatch_async(
-            self._ctx.tia_client,
+        tags_result = self._ctx.tia_client.submit_and_wait(
             "export_tables",
             {
                 "plc_name": self._ctx.plc_name,
@@ -711,6 +703,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
                 "table_names": [self._ctx.config_table, self._ctx.tag_table],
                 "keep_folder_structure": True,
             },
+            timeout=60.0,
         )
         if tags_result is None:
             warning = (
@@ -721,8 +714,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
             self._ctx.warnings.append(warning)
             return
 
-        block_result = await dispatch_async(
-            self._ctx.tia_client,
+        block_result = self._ctx.tia_client.submit_and_wait(
             "export_blocks",
             {
                 "plc_name": self._ctx.plc_name,
@@ -730,7 +722,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
                 "block_names": [self._ctx.db_name],
                 "keep_folder_structure": True,
             },
-            timeout_s=60.0,
+            timeout=60.0,
         )
         if block_result is None:
             warning = (
@@ -740,7 +732,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
             self._ctx.warnings.append(warning)
 
 
-    async def _stage_7_editar_xmls_offline(self) -> None:
+    def _stage_7_editar_xmls_offline(self) -> None:
         """Stage 7: edita XMLs offline (constants + slot comments).
 
         Pre-condiciones: stage 1 exporto a ``sync_variables_export/`` y
@@ -890,7 +882,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
                 )
 
 
-    async def _stage_8_tx_b_constants(self) -> None:
+    def _stage_8_tx_b_constants(self) -> None:
             """Stage 8: Tx B (offline puro) - importa constantes modificadas.
 
             ``import_plc_tags_xml`` con el ``sync_variables_modified/`` que
@@ -923,8 +915,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
                 f"desde {modified_dir}"
             )
 
-            batch_result = await dispatch_async(
-                self._ctx.tia_client,
+            batch_result = self._ctx.tia_client.submit_and_wait(
                 "execute_transactional_batch",
                 {
                     "undo_text": "Sincronizando constantes de entidades...",
@@ -943,14 +934,14 @@ class FunctionEntidadesSincronizar(FunctionBase):
                         }
                     ],
                 },
-                timeout_s=300.0,
+                timeout=300.0,
             )
             validate_execute_batch_result(
                 batch_result,
                 undo_text=f"Tx B constantes ({self._ctx.tag_table})",
             )
 
-    async def _stage_9_compilar_bloques(self) -> None:
+    def _stage_9_compilar_bloques(self) -> None:
         """Stage 9: compila DB6_ENT para consolidar cambios estructurales.
 
         Compila tras Tx B (constants importadas) y antes de Tx C
@@ -971,14 +962,13 @@ class FunctionEntidadesSincronizar(FunctionBase):
             return
 
         try:
-            compile_result = await dispatch_async(
-                self._ctx.tia_client,
+            compile_result = self._ctx.tia_client.submit_and_wait(
                 "compile_blocks",
                 {
                     "plc_name": self._ctx.plc_name,
                     "block_names": [self._ctx.db_name],
                 },
-                timeout_s=300.0,
+                timeout=300.0,
             )
             if compile_result is None:
                 self._ctx.compile_ok = False
@@ -1129,7 +1119,7 @@ def _empty_result() -> dict[str, Any]:
     }
 
 
-async def _stage_10_tx_c_comments(self) -> None:
+def _stage_10_tx_c_comments(self) -> None:
     """Stage 10: Tx C (offline puro) - importa DB6_ENT modificado.
 
     ``import_block`` con el ``sync_bloques_modified/`` que stage 7 produjo
@@ -1161,8 +1151,7 @@ async def _stage_10_tx_c_comments(self) -> None:
         f"desde {modified_dir}"
     )
 
-    batch_result = await dispatch_async(
-        self._ctx.tia_client,
+    batch_result = self._ctx.tia_client.submit_and_wait(
         "execute_transactional_batch",
         {
             "undo_text": "Sincronizando comentarios del array ENT[]...",
@@ -1177,7 +1166,7 @@ async def _stage_10_tx_c_comments(self) -> None:
                 }
             ],
         },
-        timeout_s=600.0,
+        timeout=600.0,
     )
     validate_execute_batch_result(
         batch_result,
@@ -1193,7 +1182,7 @@ async def _stage_10_tx_c_comments(self) -> None:
         "unchanged": 0,
     }
 
-async def _stage_11_post_preview(self) -> None:
+def _stage_11_post_preview(self) -> None:
     """Stage 11: genera preview post-sync (la SPA ve 'todo en sync').
 
     Re-exporta FLAT (N_MAX + entidades + DB6_ENT) tras Tx A/B/C, recalcula
@@ -1209,8 +1198,7 @@ async def _stage_11_post_preview(self) -> None:
     ent_ctx = build_cache(root=self._ctx.build_cache_root).entidades
     ent_ctx.clean_preview()
 
-    tags_result = await dispatch_async(
-        self._ctx.tia_client,
+    tags_result = self._ctx.tia_client.submit_and_wait(
         "export_tables",
         {
             "plc_name": self._ctx.plc_name,
@@ -1221,9 +1209,9 @@ async def _stage_11_post_preview(self) -> None:
             # (no espera subcarpeta TIA).
             "keep_folder_structure": False,
         },
+        timeout=60.0,
     )
-    block_result = await dispatch_async(
-        self._ctx.tia_client,
+    block_result = self._ctx.tia_client.submit_and_wait(
         "export_blocks",
         {
             "plc_name": self._ctx.plc_name,
@@ -1231,7 +1219,7 @@ async def _stage_11_post_preview(self) -> None:
             "block_names": [self._ctx.db_name],
             "keep_folder_structure": True,
         },
-        timeout_s=60.0,
+        timeout=60.0,
     )
     if tags_result is None or block_result is None:
         warning = (
@@ -1292,7 +1280,7 @@ async def _stage_11_post_preview(self) -> None:
             "warnings": list(self._ctx.warnings),
         }
 
-    self._ctx.post_sync_preview = await asyncio.to_thread(_recompute)
+    self._ctx.post_sync_preview = _recompute()
 
     if self._ctx.result is None or not isinstance(self._ctx.result, dict):
         self._ctx.result = _empty_result()

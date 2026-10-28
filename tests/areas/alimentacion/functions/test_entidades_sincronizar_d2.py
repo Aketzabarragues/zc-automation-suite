@@ -2,12 +2,12 @@
 
 Cubre:
   - stage_3_preparar_ops: walk entities_ops + nmax_block → 3 listas
-  - stage_4_tx_a_nmax: dispatch_async con execute_transactional_batch (no-op si no hay op)
+  - stage_4_tx_a_nmax: submit_and_wait con execute_transactional_batch (no-op si no hay op)
 """
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -57,8 +57,7 @@ def test_stage_3_preparar_ops_constante_agregar() -> None:
     ]
     fb._ctx.nmax_block = {"todos": [], "summary": {}}
 
-    import asyncio
-    asyncio.run(fb._stage_3_preparar_ops())
+    fb._stage_3_preparar_ops()
 
     assert len(fb._ctx.constant_ops) == 1
     op = fb._ctx.constant_ops[0]
@@ -81,8 +80,7 @@ def test_stage_3_preparar_ops_constante_eliminar() -> None:
     ]
     fb._ctx.nmax_block = {"todos": [], "summary": {}}
 
-    import asyncio
-    asyncio.run(fb._stage_3_preparar_ops())
+    fb._stage_3_preparar_ops()
 
     assert len(fb._ctx.constant_ops) == 1
     op = fb._ctx.constant_ops[0]
@@ -105,8 +103,7 @@ def test_stage_3_preparar_ops_constante_renombrar() -> None:
     ]
     fb._ctx.nmax_block = {"todos": [], "summary": {}}
 
-    import asyncio
-    asyncio.run(fb._stage_3_preparar_ops())
+    fb._stage_3_preparar_ops()
 
     assert len(fb._ctx.constant_ops) == 1
     op = fb._ctx.constant_ops[0]
@@ -122,8 +119,7 @@ def test_stage_3_preparar_ops_sin_ops_no_genera_op() -> None:
     fb._ctx.entities_ops = []
     fb._ctx.nmax_block = {"todos": [], "summary": {}}
 
-    import asyncio
-    asyncio.run(fb._stage_3_preparar_ops())
+    fb._stage_3_preparar_ops()
 
     assert fb._ctx.constant_ops == []
 
@@ -141,8 +137,7 @@ def test_stage_3_preparar_ops_sin_cambios_es_noop() -> None:
     fb._ctx.desired_entities = ()  # sin entities del Excel -> comment_ops vacias
     fb._ctx.nmax_block = {"todos": [], "summary": {}}
 
-    import asyncio
-    asyncio.run(fb._stage_3_preparar_ops())
+    fb._stage_3_preparar_ops()
 
     # El sync ignora las ops sin_cambios: 0 ops de constant ni comment.
     assert fb._ctx.constant_ops == []
@@ -164,8 +159,7 @@ def test_stage_3_preparar_ops_mismo_plc_tag_distinto_value_split() -> None:
     ]
     fb._ctx.nmax_block = {"todos": [], "summary": {}}
 
-    import asyncio
-    asyncio.run(fb._stage_3_preparar_ops())
+    fb._stage_3_preparar_ops()
 
     assert len(fb._ctx.constant_ops) == 2
     # Orden: remove primero, add después (evita colision de plc_tag en el XML).
@@ -188,8 +182,7 @@ def test_stage_3_preparar_ops_nmax_op_si_hay_actualizar() -> None:
         "summary": {"actualizar": 1, "sin_cambios": 0},
     }
 
-    import asyncio
-    asyncio.run(fb._stage_3_preparar_ops())
+    fb._stage_3_preparar_ops()
 
     assert fb._ctx.nmax_op is not None
     assert fb._ctx.nmax_op["command"] == "update_user_constant_value"
@@ -208,8 +201,7 @@ def test_stage_3_preparar_ops_nmax_op_none_si_sin_cambios() -> None:
         "summary": {"actualizar": 0, "sin_cambios": 1},
     }
 
-    import asyncio
-    asyncio.run(fb._stage_3_preparar_ops())
+    fb._stage_3_preparar_ops()
 
     assert fb._ctx.nmax_op is None
 
@@ -233,8 +225,7 @@ def test_stage_3_preparar_ops_comment_ops_para_slot_con_valor() -> None:
     ]
     fb._ctx.nmax_block = {"todos": [], "summary": {}}
 
-    import asyncio
-    asyncio.run(fb._stage_3_preparar_ops())
+    fb._stage_3_preparar_ops()
 
     assert len(fb._ctx.comment_ops) == 2
     assert fb._ctx.comment_ops[0] == {"kind": "update_comment", "slot": 1, "new_comment": "Linea 1"}
@@ -259,28 +250,22 @@ def test_stage_3_preparar_ops_ignora_slot_sin_comment_excel() -> None:
     ]
     fb._ctx.nmax_block = {"todos": [], "summary": {}}
 
-    import asyncio
-    asyncio.run(fb._stage_3_preparar_ops())
+    fb._stage_3_preparar_ops()
 
     assert fb._ctx.constant_ops == []
     assert fb._ctx.comment_ops == []
 
 
 def test_stage_4_tx_a_nmax_sin_op_es_noop() -> None:
-    """Sin nmax_op, stage 4 no llama dispatch_async (no hay cambios)."""
+    """Sin nmax_op, stage 4 no llama submit_and_wait (no hay cambios)."""
     fb = _make_fb()
     _bootstrap_fb(fb)
     fb._ctx.nmax_op = None
 
-    with patch(
-        "areas.alimentacion.functions.function_entidades_sincronizar"
-        ".dispatch_async",
-        new=AsyncMock(),
-    ) as dispatch_mock:
-        import asyncio
-        asyncio.run(fb._stage_4_tx_a_nmax())
+    fb._ctx.tia_client.submit_and_wait.reset_mock()
+    fb._stage_4_tx_a_nmax()
 
-    assert dispatch_mock.await_count == 0
+    assert fb._ctx.tia_client.submit_and_wait.call_count == 0
     assert fb._ctx.nmax_result is None
 
 
@@ -299,24 +284,22 @@ def test_stage_4_tx_a_nmax_llama_execute_transactional_batch() -> None:
         },
     }
 
-    with patch(
-        "areas.alimentacion.functions.function_entidades_sincronizar"
-        ".dispatch_async",
-        new=AsyncMock(return_value={"updated": True, "constant": "N_MAX_ENTIDAD", "value": 20}),
-    ) as dispatch_mock:
-        import asyncio
-        asyncio.run(fb._stage_4_tx_a_nmax())
+    dispatch_mock = fb._ctx.tia_client.submit_and_wait
+    dispatch_mock.return_value = {
+        "updated": True, "constant": "N_MAX_ENTIDAD", "value": 20,
+    }
+    fb._stage_4_tx_a_nmax()
 
     # Tx A + compile defensivo.
-    assert dispatch_mock.await_count == 2
-    tx_a_call = dispatch_mock.await_args_list[0]
-    assert tx_a_call.args[1] == "execute_transactional_batch"
-    assert "operations" in tx_a_call.args[2]
-    assert len(tx_a_call.args[2]["operations"]) == 1
-    assert tx_a_call.args[2]["operations"][0]["command"] == "update_user_constant_value"
-    compile_call = dispatch_mock.await_args_list[1]
-    assert compile_call.args[1] == "compile_blocks"
-    assert compile_call.args[2]["block_names"] == ["DB6_ENT"]
+    assert dispatch_mock.call_count == 2
+    tx_a_call = dispatch_mock.call_args_list[0]
+    assert tx_a_call.args[0] == "execute_transactional_batch"
+    assert "operations" in tx_a_call.args[1]
+    assert len(tx_a_call.args[1]["operations"]) == 1
+    assert tx_a_call.args[1]["operations"][0]["command"] == "update_user_constant_value"
+    compile_call = dispatch_mock.call_args_list[1]
+    assert compile_call.args[0] == "compile_blocks"
+    assert compile_call.args[1]["block_names"] == ["DB6_ENT"]
     assert fb._ctx.nmax_result == {"updated": True, "constant": "N_MAX_ENTIDAD", "value": 20}
 
 
@@ -336,24 +319,18 @@ def test_stage_4_tx_a_nmax_compile_defensivo_si_falla_sigue() -> None:
     }
 
     # Primer dispatch (Tx A) OK, segundo (compile) lanza excepcion.
-    side_effects = [
+    fb._ctx.tia_client.submit_and_wait.side_effect = [
         {"updated": True, "constant": "N_MAX_ENTIDAD", "value": 20},
         RuntimeError("compile rejected"),
     ]
-    with patch(
-        "areas.alimentacion.functions.function_entidades_sincronizar"
-        ".dispatch_async",
-        new=AsyncMock(side_effect=side_effects),
-    ):
-        import asyncio
-        asyncio.run(fb._stage_4_tx_a_nmax())
+    fb._stage_4_tx_a_nmax()
 
     # No raise, sigue. fb._ctx.nmax_result queda con el dict del Tx A OK.
     assert fb._ctx.nmax_result == {"updated": True, "constant": "N_MAX_ENTIDAD", "value": 20}
 
 
 def test_stage_4_tx_a_nmax_si_worker_falla_raise() -> None:
-    """Si dispatch_async retorna None (worker TIA falla), raise RuntimeError."""
+    """Si submit_and_wait retorna None (worker TIA falla), raise RuntimeError."""
     fb = _make_fb()
     _bootstrap_fb(fb)
     fb._ctx.nmax_op = {
@@ -366,14 +343,9 @@ def test_stage_4_tx_a_nmax_si_worker_falla_raise() -> None:
         },
     }
 
-    with patch(
-        "areas.alimentacion.functions.function_entidades_sincronizar"
-        ".dispatch_async",
-        new=AsyncMock(return_value=None),
-    ):
-        import asyncio
-        with pytest.raises(RuntimeError, match="Tx A .NMAX update"):
-            asyncio.run(fb._stage_4_tx_a_nmax())
+    fb._ctx.tia_client.submit_and_wait.return_value = None
+    with pytest.raises(RuntimeError, match="Tx A .NMAX update"):
+        fb._stage_4_tx_a_nmax()
 
 
 # ============================================================================
