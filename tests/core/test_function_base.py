@@ -208,10 +208,62 @@ def test_execute_excepcion_pone_fb_en_n_error() -> None:
 
 
 def test_execute_notimplemented_propagates() -> None:
-    """``NotImplementedError`` es error de programacion: no se silencia."""
+    """``NotImplementedError`` es error de programacion: no se silencia.
+
+    Pero el FB NO debe quedar bricked en ``n_ejecutar``: se marca
+    terminal para que no se re-intente en bucle.
+    """
     fb = FunctionBase("stub", "Stub", ["p1"], tracker=ProgressTracker())
     with pytest.raises(NotImplementedError, match="run_step"):
         fb.execute()
+    assert fb.nStep == fb.n_error
+    assert fb.is_terminal() is True
+
+
+def test_execute_notifica_la_transicion_a_error() -> None:
+    """La transicion a ``n_error`` se publica (el HMI la ve por SSE)."""
+    events: list[tuple[int, int]] = []
+
+    class _BoomFB(FunctionBase):
+        def run_step(self, idx: int, **params: Any) -> str:
+            raise RuntimeError("boom")
+
+    fb = _BoomFB("boom", "Boom", ["p1"], tracker=ProgressTracker())
+    fb._on_nstep_change = lambda old, new: events.append((old, new))
+    fb.execute()
+
+    assert (fb.n_ejecutar, fb.n_error) in events
+
+
+def test_execute_y_tick_no_se_solapan() -> None:
+    """El engine legacy no puede tickear un FB que se esta ejecutando.
+
+    Sin exclusion mutua, el step corria dos veces y el FB se quedaba en
+    ``n_finalizar`` (no terminal): el engine lo re-tickeaba para siempre.
+    """
+    started = threading.Event()
+    gate = threading.Event()
+    calls: list[int] = []
+
+    class _BlockingFB(FunctionBase):
+        def run_step(self, idx: int, **params: Any) -> str:
+            calls.append(idx)
+            started.set()
+            gate.wait(timeout=5)
+            return "ok"
+
+    fb = _BlockingFB("bloquea", "Bloquea", ["p1", "p2"], tracker=ProgressTracker())
+
+    runner = threading.Thread(target=lambda: fb.execute())
+    runner.start()
+    started.wait(timeout=5)
+
+    asyncio.run(fb.tick())  # el engine legacy intenta tickear: se omite
+    gate.set()
+    runner.join(timeout=5)
+
+    assert calls == [0, 1]  # ningun step duplicado
+    assert fb.nStep == fb.n_done
 
 
 def test_execute_timeout_de_step() -> None:
@@ -281,4 +333,25 @@ def test_execute_ignorado_si_el_fb_esta_activo() -> None:
 
     assert fb.calls == []
     assert fb.nStep == fb.n_ejecutar
+
+
+@pytest.mark.asyncio
+async def test_tick_legacy_con_run_step_sync() -> None:
+    """El camino legacy (``tick()``) tambien admite un ``run_step`` sync.
+
+    Durante la migracion coexisten FBs async (legacy) y FBs sync (ya
+    migrados), y el engine legacy los tickea a todos. Un ``run_step``
+    sync no se puede pasar a ``asyncio.wait_for`` (no es corrutina):
+    el base lo ejecuta en un hilo daemon con el timeout del base.
+    """
+    fb = _SyncFB("sync_fb", "Sync FB", ["p1"], tracker=ProgressTracker())
+
+    await fb.start()
+    await fb.tick()  # arrancar  (10 -> 20)
+    await fb.tick()  # ejecutar  (20 -> 95)
+    await fb.tick()  # finalizar (95 -> 99)
+
+    assert fb.calls == [0]
+    assert fb.nStep == fb.n_done
+    assert fb.error_msg is None
 

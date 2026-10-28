@@ -119,6 +119,12 @@ class FunctionBase:
         # ``on_finish`` consulta para construir ``self.result``.
         self._stats: dict[str, Any] = {}
         self._lock = asyncio.Lock()
+        # Exclusion mutua entre los dos caminos de ejecucion: el legacy
+        # (``tick()``, engine) y el nuevo (``execute()``, OB1). Sin esto,
+        # un FB registrado en el engine podia ser tickeado mientras el
+        # OB1 lo ejecutaba: el step corria dos veces y el FB se quedaba
+        # en un estado incoherente (n_finalizar, no terminal).
+        self._exec_lock = threading.Lock()
         # Hook opcional: invocado tras cada cambio de nStep con
         # (old_nStep, new_nStep). No-op si None. Lo cablea publishers
         # para retransmitir fb_state al bus SSE.
@@ -245,11 +251,25 @@ class FunctionBase:
         ``error_msg``, cierra el tracker con ``success=False`` y
         transiciona a ``n_error`` (mismo contrato que ``tick()``).
         ``NotImplementedError`` y ``AssertionError`` si propagan
-        (errores de programacion, no se silencian).
+        (errores de programacion, no se silencian), pero el FB queda
+        en estado terminal para que no se re-intente en bucle.
 
-        Si el FB ya esta activo, no hace nada y devuelve ``self.result``
-        tal cual.
+        Si el FB ya esta activo, o hay otra ejecucion en curso, no hace
+        nada y devuelve ``self.result`` tal cual.
         """
+        if not self._exec_lock.acquire(blocking=False):
+            logger.warning(
+                "FB %s: execute() ignorado, ya hay una ejecucion en curso",
+                self.nombre,
+            )
+            return self.result
+        try:
+            return self._execute_locked(**params)
+        finally:
+            self._exec_lock.release()
+
+    def _execute_locked(self, **params: Any) -> Any:
+        """Cuerpo de ``execute()``. Asume ``self._exec_lock`` cogido."""
         if not self.is_terminal():
             logger.warning(
                 "FB %s: execute() ignorado, FB activo (nStep=%d)",
@@ -279,11 +299,20 @@ class FunctionBase:
                 before = self.nStep
                 self._step_finalizar()
                 self._notify_nstep_change(before, self.nStep)
-        except (NotImplementedError, AssertionError):
+        except (NotImplementedError, AssertionError) as e:
+            # Error de programacion: se propaga para que el dev lo vea
+            # claro, pero el FB NO se queda en n_ejecutar (bricked, se
+            # re-intentaria en bucle). Se marca terminal.
+            self.error_msg = f"{type(e).__name__}: {e}"
+            before = self.nStep
+            self._close_tracker_on_error()
+            self.nStep = self.n_error
+            self._notify_nstep_change(before, self.nStep)
             raise
         except Exception as e:
+            before = self.nStep
             self._fail_with(e, "execute()")
-            self._notify_nstep_change(self.nStep, self.n_error)
+            self._notify_nstep_change(before, self.nStep)
 
         return self.result
 
@@ -344,9 +373,14 @@ class FunctionBase:
         """Ejecuta el step ``idx`` con el timeout de ``STEP_TIMEOUT_S``.
 
         El step corre en un hilo daemon: si expira, el hilo se abandona
-        (no se puede matar un hilo) y el error se propaga al caller. Es
-        el equivalente sync del ``asyncio.wait_for`` del camino legacy,
-        que tampoco puede matar el hilo de un ``to_thread``.
+        (no se puede matar un hilo) y el error se propaga al caller.
+
+        Riesgo asumido: el hilo abandonado puede seguir mutando el
+        estado del FB (``_stats``) despues del timeout. El camino
+        legacy tiene el mismo riesgo: ``asyncio.wait_for`` cancela la
+        corrutina, pero el hilo de un ``to_thread`` sigue vivo y
+        mutando. La diferencia es que aqui no hay ninguna corrutiva
+        viva que dependa del hilo abandonado.
         """
         box: dict[str, Any] = {}
 
@@ -441,17 +475,29 @@ class FunctionBase:
         ``tracker.finish(success=False)`` y transita a ``n_error``.
         ``NotImplementedError`` y ``AssertionError`` propagan (errores
         de programacion, no se silencian).
+
+        Si hay una ejecucion sync en curso (``execute()``), el tick se
+        omite: los dos caminos no pueden tocar el FB a la vez.
         """
         self._ensure_loop_objects()
-        async with self._lock:
-            n_before = self.nStep
-            try:
-                await self._tick_locked()
-            except (NotImplementedError, AssertionError):
-                raise
-            except Exception as e:
-                self._fail_with(e, "tick()")
-            self._notify_nstep_change(n_before, self.nStep)
+        if not self._exec_lock.acquire(blocking=False):
+            logger.debug(
+                "FB %s: tick() omitido, hay una ejecucion en curso",
+                self.nombre,
+            )
+            return
+        try:
+            async with self._lock:
+                n_before = self.nStep
+                try:
+                    await self._tick_locked()
+                except (NotImplementedError, AssertionError):
+                    raise
+                except Exception as e:
+                    self._fail_with(e, "tick()")
+                self._notify_nstep_change(n_before, self.nStep)
+        finally:
+            self._exec_lock.release()
 
     async def cancel(self, reason: str = "cancelled") -> None:
         """Paro cooperativo. Marca flag y transiciona a ``n_error``.
@@ -521,10 +567,17 @@ class FunctionBase:
         logger.debug(f"{step_nombre}: entrando...")
         _t0 = time.monotonic()
         try:
-            detail = await asyncio.wait_for(
-                self.run_step(idx, **self._params),
-                timeout=self._step_timeout_s,
-            )
+            if inspect.iscoroutinefunction(self.run_step):
+                detail = await asyncio.wait_for(
+                    self.run_step(idx, **self._params),
+                    timeout=self._step_timeout_s,
+                )
+            else:
+                # ``run_step`` ya es sync (FB migrado): se ejecuta en un
+                # hilo daemon con el timeout del base, igual que hace
+                # el camino sync. NO se puede pasar a ``wait_for``
+                # porque su valor de retorno no es una corrutina.
+                detail = await asyncio.to_thread(self._run_step_with_timeout, idx)
         except TimeoutError:
             self._tracker.error_stage(
                 step_nombre, f"timeout >{self._step_timeout_s}s",
