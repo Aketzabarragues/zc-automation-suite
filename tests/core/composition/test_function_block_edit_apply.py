@@ -15,7 +15,8 @@ Mockeamos:
   - ``core.composition.function_block_edit_apply.dispatch_batch_async``
     con ``AsyncMock`` que devuelve la shape del worker OT.
   - ``core.composition.function_block_edit_apply.scan_plc_blocks``
-    con ``AsyncMock`` que devuelve un cache mock con ``.blocks``.
+    con ``MagicMock`` que devuelve un cache mock con ``.blocks``
+    (la funcion es sync).
 
 Usamos ``AppCache`` real + ``ProgressTracker`` real (mismo patron que
 el test del FB ``block_edit_prepare``) para verificar el flujo de
@@ -96,11 +97,14 @@ def _make_dispatch_mock(
     return AsyncMock(return_value={"ok": ok, "result": inner})
 
 
-def _make_scan_mock(n_blocks: int = 3) -> AsyncMock:
-    """Mock de ``scan_plc_blocks`` que devuelve un cache con N bloques."""
+def _make_scan_mock(n_blocks: int = 3) -> MagicMock:
+    """Mock de ``scan_plc_blocks`` que devuelve un cache con N bloques.
+
+    ``scan_plc_blocks`` es sync: el FB la invoca sin await.
+    """
     cache = MagicMock()
     cache.blocks = [MagicMock() for _ in range(n_blocks)]
-    return AsyncMock(return_value=cache)
+    return MagicMock(return_value=cache)
 
 
 @pytest.fixture
@@ -351,7 +355,7 @@ def test_apply_rollback_when_batch_returns_success_false(
     assert "success=False" in fb.error_msg or "rollback" in fb.error_msg
 
     # scan_plc_blocks NO se invoca tras el rollback.
-    assert scan_mock.await_count == 0
+    assert scan_mock.call_count == 0
 
 
 # ── 5. edits contiene key no permitida -> ValueError ────────────────

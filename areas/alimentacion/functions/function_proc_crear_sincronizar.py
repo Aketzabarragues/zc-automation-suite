@@ -493,11 +493,11 @@ class FunctionProcCrearSincronizar(FunctionBase):
 
     async def _stage_4_construir_diccionarios(self) -> None:
         """Stage 4: parsea bloques + XMLs y construye los diccionarios base."""
-        await proc_process_construir_diccionarios(self._ctx)
+        proc_process_construir_diccionarios(self._ctx)
 
     async def _stage_5_generar_proceso_nuevo(self) -> None:
         """Stage 5: aplica las reglas y materializa los archivos del proceso nuevo."""
-        await proc_process_aplicar_clonacion(self._ctx)
+        proc_process_aplicar_clonacion(self._ctx)
 
     async def _stage_6_escribir_manifest_modified(self) -> None:
         """Stage 6: escribe el manifest.json en el workdir ``modified/``."""
