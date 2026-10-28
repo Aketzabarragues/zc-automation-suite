@@ -1,46 +1,42 @@
-"""Router Flask del feature ENTIDADES: sync contra TIA Portal (D).
+"""Router Flask del endpoint ``POST /api/v1/entidades/sincronizar``.
 
-El endpoint de preview ``/api/v1/entidades/preview`` vive en
-``entidades_preview_router.py`` (commit C).
-
-Este router implementa el commit transaccional de entidades contra
-TIA Portal. El FB ``FunctionEntidadesSincronizar`` (registrado en el
-engine como ``entidades_sincronizar``) tiene la state machine de 11
-etapas; este router solo orquesta: arranca el FB y devuelve el
-``result`` con shape legacy-compatible con Disp.
+El helper vive en ``areas/alimentacion/helpers/entidades/``.
+El FB ``FunctionEntidadesSincronizar`` tiene la state machine de 11
+etapas + tracker. Este router solo orquesta: encola el trabajo en el
+OB1 y devuelve el ``job_id``; el resultado llega al HMI por push (SSE).
 
 Endpoint:
   POST /api/v1/entidades/sincronizar
     Body JSON: ``{plc_name: str}``. ``plc_name`` obligatorio.
 
-    Dispara el FB ``entidades_sincronizar`` (11 etapas transaccionales:
-    Tx A NMAX online + wait + re-export + edit XMLs + Tx B constantes +
-    compile + Tx C comentarios + post preview). Bloquea el hilo de Flask
-    hasta que el FB termina (``STEP_TIMEOUT_S=600s``). Cuando entra en
-    estado terminal (``done`` o ``error``), devuelve el ``result`` con
-    shape ``{success, message, operations, n_max_updates,
-    post_sync_preview, compile_ok, compile_error, comments_sync}``.
+    Encola el FB ``entidades_sincronizar`` y devuelve ``202`` con
+    ``{"ok": true, "job_id": "<hex>"}``. El resultado del sync (shape
+    legacy completa: ``{success, message, operations, n_max_updates,
+    post_sync_preview, compile_ok, compile_error, comments_sync}``)
+    llega por el evento SSE ``fb_state`` y por los slots del AppCache
+    que publica el FB al terminar.
 
-    Returns:
-      200 con shape completa (success=True + summary).
-      400 si falta ``plc_name`` en el body.
-      409 si el FB ya esta activo o terminal.
-      500 si el FB no esta registrado o termino en error.
-      504 si timeout.
+Notas de timing:
+  - Operacion PESADA: 11 etapas transaccionales (Tx A NMAX online,
+    Tx B constantes, Tx C comentarios) + compile + post preview.
+  - TIA V21 puede tardar 1-10 minutos para un PLC con el array ENT[]
+    redimensionado.
+  - STEP_TIMEOUT_S del FB: 600s (10 min).
+  - El request NO bloquea: el router responde 202 de inmediato y el
+    trabajo lo ejecuta el hilo del OB1.
 """
 from __future__ import annotations
 
 import logging
-import time
 
 from flask import Blueprint, current_app, jsonify, request
 
+from core.composition.plc_engine import FBBusyError
 from core.infrastructure.log.log_web_bridge import install_web_level
 
 logger = logging.getLogger(__name__)
-# Asegura ``Logger.web/ok`` en tests/scripts (idempotente).
+# Asegura que ``Logger.web/ok`` existen en tests/scripts (idempotente).
 install_web_level()
-
 
 bp = Blueprint(
     "area_alimentacion_entidades_sync",
@@ -53,22 +49,26 @@ def _get_engine():
     return current_app.config["ENGINE"]
 
 
-def _get_fb(name: str):
-    return _get_engine().get_fb(name)
-
-
 @bp.post("/sincronizar")
 def post_entidades_sincronizar():
-    """Dispara el FB ``entidades_sincronizar`` para el ``plc_name`` del body.
+    """Encola el FB ``entidades_sincronizar`` para el ``plc_name`` del body.
 
-    Bloquea el hilo de Flask hasta que el FB termina (max ~600s,
-    ``STEP_TIMEOUT_S`` del FB). Cuando el FB entra en estado terminal
-    (``done`` o ``error``), devuelve el ``result``.
+    El request NO bloquea: encola el trabajo en el OB1 y devuelve
+    ``202`` con el ``job_id``. El FB se ejecuta en el hilo del OB1 y
+    su resultado llega al HMI por el evento SSE ``fb_state`` (con el
+    mismo ``job_id``) y por los slots del AppCache que el FB publica
+    al terminar.
 
     Importante: el FB NO hace ``save_project`` (politica del repo).
     El proyecto queda dirty en memoria de TIA Portal; el operario
     pulsa Save manual tras ver el resultado. La SPA muestra el hint
     en el message del result.
+
+    Returns:
+        202 con ``{"ok": true, "job_id": "<hex>"}``.
+        400 si falta ``plc_name`` en el body.
+        409 si el FB ya tiene un trabajo en curso.
+        500 si el FB no esta registrado en el engine.
     """
     body = request.get_json(silent=True) or {}
     plc_name = body.get("plc_name")
@@ -78,73 +78,38 @@ def post_entidades_sincronizar():
             "error": "plc_name (str) es obligatorio en el body",
         }), 400
 
-    fb = _get_fb("entidades_sincronizar")
-    if fb is None:
+    engine = _get_engine()
+    if engine is None:
+        return jsonify({
+            "ok": False,
+            "error": "Engine no disponible",
+        }), 500
+
+    if engine.get_fb("entidades_sincronizar") is None:
         return jsonify({
             "ok": False,
             "error": "FB 'entidades_sincronizar' no registrado en el engine",
         }), 500
 
-    import asyncio
-    logger.web(f"Sincronizando entidades de '{plc_name}' (11 etapas)...")
-    started = asyncio.run(fb.start(plc_name=plc_name))
-    if not started:
+    logger.web(f"Sincronizando entidades en '{plc_name}'...")
+    try:
+        job_id = engine.submit("entidades_sincronizar", plc_name=plc_name)
+    except FBBusyError as exc:
         return jsonify({
             "ok": False,
-            "error": "FB 'entidades_sincronizar' ya activo o terminal. "
-                     "Haz /disconnect y reintenta.",
+            "error": (
+                f"FB 'entidades_sincronizar' ya tiene un trabajo en curso. "
+                f"Espera a que termine y reintenta. ({exc})"
+            ),
         }), 409
-
-    # ── Poll bloqueante ──
-    poll_interval_s = 0.05
-    elapsed = 0.0
-    fb_step_timeout = getattr(fb, "STEP_TIMEOUT_S", 600.0)
-    while not fb.is_terminal() and elapsed < fb_step_timeout:
-        time.sleep(poll_interval_s)
-        elapsed += poll_interval_s
-
-    # ── Devolver el resultado ──
-    if not fb.is_terminal():
-        fb.cancel("timeout en /api/v1/entidades/sincronizar")
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("dispatch: no se pudo encolar el sync de entidades")
         return jsonify({
             "ok": False,
-            "error": f"timeout tras {fb_step_timeout:.1f}s sin terminar",
-        }), 504
-
-    if fb.nStep == fb.n_error:
-        return jsonify({
-            "ok": False,
-            "error": fb.error_msg or "FB termino en error",
-            "nStep": fb.nStep,
+            "error": f"no se pudo encolar el trabajo: {exc}",
         }), 500
 
-    result = fb.result or {
-        "success": False,
-        "message": "FB termino sin result",
-        "plc_name": plc_name,
-    }
-    # Publica el resumen del commit en AppCache (mismo slot que
-    # disp_sync_router: last_disp_commit_summary cubre disp + entidades
-    # en el mismo bounded context).
-    from core.runtime.area_preview_cache import (
-        area_set_disp_commit_summary,
-        area_set_preview_disp,
-    )
-    from core.runtime.app_cache import get_app_cache
-    app_cache = get_app_cache()
-    area_set_disp_commit_summary(app_cache, "alimentacion", result)
-    post_sync_preview = (
-        result.get("post_sync_preview")
-        if isinstance(result, dict) else None
-    )
-    if post_sync_preview is not None:
-        area_set_preview_disp(app_cache, "alimentacion", post_sync_preview)
-    logger.ok(
-        f"Sincronizacion completa en '{plc_name}': "
-        f"{result.get('operations', 0)} ops, "
-        f"{result.get('n_max_updates', 0)} N_MAX"
-    )
-    return jsonify(result)
+    return jsonify({"ok": True, "job_id": job_id}), 202
 
 
 def build_routers(app) -> None:
