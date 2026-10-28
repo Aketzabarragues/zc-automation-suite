@@ -19,7 +19,8 @@ Estado del FB (Zona 3):
     (``block_edit_prepared``).
   - ``_ops``: lista de ``{"command", "args"}`` para el batch (vacia si no hay diff).
   - ``_batch_result``: payload ``{"success", "operations_executed", "details"}``
-    retornado por ``dispatch_batch_async``. ``None`` si no se llego a ejecutar.
+    retornado por el worker OT en el batch transaccional. ``None`` si no
+    se llego a ejecutar.
   - ``_noop_mode``: ``True`` si el diff quedo vacio (cache == edits); en ese
     caso los steps ``transaccion`` y ``verificar`` se saltean sin dispatch.
 
@@ -51,7 +52,6 @@ import logging
 from typing import Any
 
 from core.composition.plc_function_base import FunctionBase
-from core.helpers.tia.tia_dispatch_async import dispatch_batch_async
 from core.infrastructure.tia.tia_cache import scan_plc_blocks
 from core.runtime.app_cache import AppCache, get_app_cache
 
@@ -177,7 +177,7 @@ class FunctionBlockEditApply(FunctionBase):
     # HOOK 2: run_step  (ZONA 4: CASE por etapa)
     # ==================================================================
 
-    async def run_step(self, idx: int, **params: Any) -> str:
+    def run_step(self, idx: int, **params: Any) -> str:
         """CASE de los 5 pasos."""
         if self._tia_client is None:
             raise RuntimeError(
@@ -272,10 +272,10 @@ class FunctionBlockEditApply(FunctionBase):
                 if self._noop_mode:
                     return "transaccion omitida (no-op)"
 
-                result = await dispatch_batch_async(
-                    self._tia_client,
-                    self._ops,
-                    timeout_s=self.STEP_TIMEOUT_S,
+                result = self._tia_client.submit_and_wait(
+                    "execute_transactional_batch",
+                    {"operations": self._ops},
+                    timeout=self.STEP_TIMEOUT_S,
                 )
                 # Shape esperada: ``{"ok": bool, "result": {"success": bool,
                 # "operations_executed": int, "details": [...]}}``.

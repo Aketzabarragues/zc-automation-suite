@@ -9,11 +9,14 @@ Cubre:
   - ``edits`` con key no permitida (``"title"``) -> ``ValueError`` en ``on_start``.
   - PLC sin cache de prepare -> ``RuntimeError`` con mensaje claro.
   - ``tia_client=None`` -> ``RuntimeError`` en el primer step.
+  - ``run_step`` es sync (contrato del hilo OB1) y ``execute()`` completa
+    el FB sin event loop.
 
 Mockeamos:
 
-  - ``core.composition.function_block_edit_apply.dispatch_batch_async``
-    con ``AsyncMock`` que devuelve la shape del worker OT.
+  - ``tia_client.submit_and_wait`` con ``MagicMock`` que devuelve la
+    shape del worker OT (el FB es sync: llama al worker OT directamente,
+    sin event loop).
   - ``core.composition.function_block_edit_apply.scan_plc_blocks``
     con ``MagicMock`` que devuelve un cache mock con ``.blocks``
     (la funcion es sync).
@@ -25,8 +28,9 @@ states y stages sin necesidad de mockear internals.
 from __future__ import annotations
 
 import asyncio
+import inspect
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -79,14 +83,14 @@ def _make_tia_client(wrapper_present: bool = True) -> MagicMock:
     return client
 
 
-def _make_dispatch_mock(
+def _make_submit_and_wait_mock(
     ok: bool = True,
     success: bool = True,
     operations_executed: int = 0,
     details: list[dict[str, Any]] | None = None,
     error: str | None = None,
-) -> AsyncMock:
-    """Mock de ``dispatch_batch_async`` con la shape del worker OT."""
+) -> MagicMock:
+    """Mock de ``tia_client.submit_and_wait`` con la shape del worker OT."""
     inner: dict[str, Any] = {
         "success": success,
         "operations_executed": operations_executed,
@@ -94,7 +98,7 @@ def _make_dispatch_mock(
     }
     if error is not None:
         inner["error"] = error
-    return AsyncMock(return_value={"ok": ok, "result": inner})
+    return MagicMock(return_value={"ok": ok, "result": inner})
 
 
 def _make_scan_mock(n_blocks: int = 3) -> MagicMock:
@@ -159,17 +163,15 @@ def test_apply_happy_path_3_blocks(
     tia_client = _make_tia_client(wrapper_present=True)
     fb = _make_fb(app_cache, tia_client, real_progress)
 
-    dispatch_mock = _make_dispatch_mock(
+    submit_mock = _make_submit_and_wait_mock(
         ok=True, success=True, operations_executed=3,
         details=[{"step": i + 1, "command": "update_block_property"}
                  for i in range(3)],
     )
+    tia_client.submit_and_wait = submit_mock
     scan_mock = _make_scan_mock(n_blocks=3)
 
     with patch(
-        "core.composition.function_block_edit_apply.dispatch_batch_async",
-        new=dispatch_mock,
-    ), patch(
         "core.composition.function_block_edit_apply.scan_plc_blocks",
         new=scan_mock,
     ):
@@ -193,10 +195,13 @@ def test_apply_happy_path_3_blocks(
     assert fb.result["operations_executed"] == 3
     assert fb.result["no_op"] is False
 
-    # dispatch_batch_async recibio 3 ops, todas ``update_block_property``.
-    assert dispatch_mock.await_count == 1
-    args, _ = dispatch_mock.call_args
-    ops = args[1]  # positional: tia_client, ops, timeout_s
+    # submit_and_wait recibio 1 batch transaccional con 3 ops, todas
+    # ``update_block_property``.
+    assert submit_mock.call_count == 1
+    args, kwargs = submit_mock.call_args
+    assert args[0] == "execute_transactional_batch"
+    ops = args[1]["operations"]
+    assert kwargs.get("timeout") == fb.STEP_TIMEOUT_S
     assert len(ops) == 3
     for op in ops:
         assert op["command"] == "update_block_property"
@@ -243,13 +248,11 @@ def test_apply_no_op_when_no_changes(
     tia_client = _make_tia_client()
     fb = _make_fb(app_cache, tia_client, real_progress)
 
-    dispatch_mock = _make_dispatch_mock()
+    submit_mock = _make_submit_and_wait_mock()
+    tia_client.submit_and_wait = submit_mock
     scan_mock = _make_scan_mock()
 
     with patch(
-        "core.composition.function_block_edit_apply.dispatch_batch_async",
-        new=dispatch_mock,
-    ), patch(
         "core.composition.function_block_edit_apply.scan_plc_blocks",
         new=scan_mock,
     ):
@@ -263,7 +266,7 @@ def test_apply_no_op_when_no_changes(
     assert fb.result["no_op"] is True
     assert fb.result["n_ops"] == 0
     assert fb.result["operations_executed"] == 0
-    assert dispatch_mock.await_count == 0  # NO se llamo
+    assert submit_mock.call_count == 0  # NO se llamo
 
 
 # ── 3. Mixto: 5 bloques, 2 sin cambios, 3 con cambios ──────────────
@@ -282,15 +285,13 @@ def test_apply_mixed_some_changes_some_no_changes(
     tia_client = _make_tia_client()
     fb = _make_fb(app_cache, tia_client, real_progress)
 
-    dispatch_mock = _make_dispatch_mock(
+    submit_mock = _make_submit_and_wait_mock(
         ok=True, success=True, operations_executed=3,
     )
+    tia_client.submit_and_wait = submit_mock
     scan_mock = _make_scan_mock(n_blocks=5)
 
     with patch(
-        "core.composition.function_block_edit_apply.dispatch_batch_async",
-        new=dispatch_mock,
-    ), patch(
         "core.composition.function_block_edit_apply.scan_plc_blocks",
         new=scan_mock,
     ):
@@ -310,8 +311,8 @@ def test_apply_mixed_some_changes_some_no_changes(
     assert fb.result["n_ops"] == 3
     assert fb.result["operations_executed"] == 3
 
-    args, _ = dispatch_mock.call_args
-    ops = args[1]
+    args, _ = submit_mock.call_args
+    ops = args[1]["operations"]
     assert len(ops) == 3
     block_names = sorted(op["args"]["block_name"] for op in ops)
     assert block_names == ["BLOCK_1", "BLOCK_3", "BLOCK_4"]
@@ -330,16 +331,14 @@ def test_apply_rollback_when_batch_returns_success_false(
     tia_client = _make_tia_client()
     fb = _make_fb(app_cache, tia_client, real_progress)
 
-    dispatch_mock = _make_dispatch_mock(
+    submit_mock = _make_submit_and_wait_mock(
         ok=True, success=False, operations_executed=0,
         error="rollback: Number colisiona con DB2001",
     )
+    tia_client.submit_and_wait = submit_mock
     scan_mock = _make_scan_mock()
 
     with patch(
-        "core.composition.function_block_edit_apply.dispatch_batch_async",
-        new=dispatch_mock,
-    ), patch(
         "core.composition.function_block_edit_apply.scan_plc_blocks",
         new=scan_mock,
     ):
@@ -396,13 +395,11 @@ def test_apply_raises_when_plc_not_in_prepared_cache(
     tia_client = _make_tia_client()
     fb = _make_fb(app_cache, tia_client, real_progress)
 
-    dispatch_mock = _make_dispatch_mock()
+    submit_mock = _make_submit_and_wait_mock()
+    tia_client.submit_and_wait = submit_mock
     scan_mock = _make_scan_mock()
 
     with patch(
-        "core.composition.function_block_edit_apply.dispatch_batch_async",
-        new=dispatch_mock,
-    ), patch(
         "core.composition.function_block_edit_apply.scan_plc_blocks",
         new=scan_mock,
     ):
@@ -420,7 +417,7 @@ def test_apply_raises_when_plc_not_in_prepared_cache(
             or "block_edit_prepare" in fb.error_msg)
 
     # Sin dispatch ni scan.
-    assert dispatch_mock.await_count == 0
+    assert submit_mock.call_count == 0
 
 
 # ── 7. tia_client=None -> RuntimeError en el primer step ────────────
@@ -450,3 +447,52 @@ def test_apply_requires_tia_client(
     assert fb.nStep == fb.n_error
     assert fb.error_msg is not None
     assert "requiere tia_client" in fb.error_msg
+
+
+# ── 8. Contrato sync para el hilo del OB1 ─────────────────────────
+
+
+def test_apply_run_step_is_not_a_coroutine() -> None:
+    """``run_step`` es sync: el hilo del OB1 lo invoca sin event loop."""
+    assert not inspect.iscoroutinefunction(FunctionBlockEditApply.run_step)
+
+
+def test_apply_executes_via_sync_ob1_path(
+    app_cache: AppCache,
+    real_progress: ProgressTracker,
+) -> None:
+    """``execute()`` (camino sync del OB1) completa el FB de punta a punta."""
+    blocks = [_make_dto("DB2000_ED", 2000)]
+    _seed_cache(app_cache, "PLC_1", blocks)
+    tia_client = _make_tia_client()
+    fb = _make_fb(app_cache, tia_client, real_progress)
+
+    submit_mock = _make_submit_and_wait_mock(
+        ok=True, success=True, operations_executed=1,
+    )
+    tia_client.submit_and_wait = submit_mock
+    scan_mock = _make_scan_mock(n_blocks=1)
+
+    with patch(
+        "core.composition.function_block_edit_apply.scan_plc_blocks",
+        new=scan_mock,
+    ):
+        fb.execute(
+            plc_name="PLC_1",
+            edits={"DB2000_ED": {"number": 2001}},
+        )
+
+    assert fb.nStep == fb.n_done
+    assert fb.error_msg is None
+    assert fb.result is not None
+    assert fb.result["ok"] is True
+    assert fb.result["n_ops"] == 1
+    assert fb.result["operations_executed"] == 1
+    assert fb.result["no_op"] is False
+
+    # El worker OT se llamo una vez, con el batch transaccional.
+    assert submit_mock.call_count == 1
+    args, kwargs = submit_mock.call_args
+    assert args[0] == "execute_transactional_batch"
+    assert len(args[1]["operations"]) == 1
+    assert kwargs.get("timeout") == fb.STEP_TIMEOUT_S
