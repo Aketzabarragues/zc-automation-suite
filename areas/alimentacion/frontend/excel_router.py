@@ -1,31 +1,43 @@
 """Router Flask del endpoint ``POST /api/v1/excel/upload``.
 
-Orquesta: recibe el archivo, lo escribe a un tempfile, arranca el
-FB con ``xlsx_path`` y devuelve el ``result``. Los helpers
-(``helpers/excel/excel_upload.py``) tienen la logica pura; el FB
-``FunctionExcelCargar`` (registrado en el engine como ``subir_excel``)
-tiene la state machine + tracker.
+Orquesta: recibe el archivo, lo escribe a un tempfile y encola el
+trabajo en el OB1 para el FB ``subir_excel``
+(``FunctionExcelCargar``). Los helpers
+(``helpers/excel/excel_upload.py``) tienen la logica pura; el FB tiene
+la state machine + tracker.
 
 Montado por el shell Flask a traves del hook
 ``AreaSpec.contributes_routers`` de alimentacion.
 
 Endpoint:
   POST /api/v1/excel/upload     -> multipart/form-data con campo
-                                   ``file``. Dispara el FB
-                                   ``subir_excel`` y devuelve su
-                                   ``result`` cuando termina.
+                                   ``file``. Encola el FB
+                                   ``subir_excel`` y devuelve ``202``
+                                   con ``{"ok": true, "job_id":
+                                   "<hex>"}``. El resultado del parseo
+                                   llega al HMI por push (SSE
+                                   ``fb_state``, con el mismo
+                                   ``job_id``) y el Excel ya parseado se
+                                   publica en el slot ``excel_full``
+                                   del AppCache que reescribe el FB.
+
+Notas de timing:
+  - El request NO bloquea: el router responde 202 de inmediato y el
+    trabajo lo ejecuta el hilo del OB1.
+  - El temporal que escribe el router lo borra el FB (es quien lo
+    lee): el router solo lo borra si NO ha conseguido encolar el
+    trabajo, caso en el que el FB nunca lo va a leer.
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 import tempfile
 from pathlib import Path
-from typing import Any
 
 from flask import Blueprint, current_app, jsonify, request
 
+from core.composition.plc_engine import FBBusyError
 from core.infrastructure.log.log_web_bridge import install_web_level
 
 logger = logging.getLogger(__name__)
@@ -43,23 +55,34 @@ def _get_engine():
     return current_app.config["ENGINE"]
 
 
-def _get_fb(name: str):
-    return _get_engine().get_fb(name)
+def _borrar_temporal(path: Path) -> None:
+    """Borra el tempfile del upload. No revienta si ya no esta."""
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
 
 
 @bp.post("/upload")
 def upload_excel():
-    """Recibe un ``.xlsx`` y dispara el FB ``subir_excel``.
+    """Recibe un ``.xlsx`` y encola el FB ``subir_excel``.
 
-    Bloquea el hilo de Flask hasta que el FB termina (max ~30s,
-    ``STEP_TIMEOUT_S`` del FB). Cuando el FB entra en estado
-    terminal (``done`` o ``error``), devuelve el ``result``.
+    Escribe el archivo a un tempfile y encola el trabajo en el OB1.
+    El request NO bloquea: devuelve ``202`` con el ``job_id`` y el
+    FB se ejecuta despues, en el hilo del OB1. El resultado del
+    parseo llega al HMI por el evento SSE ``fb_state`` (con el mismo
+    ``job_id``) y por el slot ``excel_full`` del AppCache que
+    publica el FB al terminar.
+
+    El temporal lo borra el FB (es quien lo lee). Este router solo lo
+    borra si el trabajo NO llega a encolarse, porque en ese caso el
+    FB nunca lo va a leer.
 
     Returns:
-        200 con ``{"ok": True, "summary": ..., "total_dispositivos":
-        N, "dimensiones": {...}}`` si todo OK.
-        400 si falta el archivo, no es .xlsx, o el FB fallo.
-        500 si el FB no esta registrado en el engine.
+        202 con ``{"ok": True, "job_id": "<hex>"}``.
+        400 si falta el archivo o no es ``.xlsx``/``.xlsm``.
+        409 si el FB ya tiene un trabajo en curso.
+        500 si no hay engine o el FB no esta registrado en el engine.
     """
     if "file" not in request.files:
         return jsonify({
@@ -76,6 +99,10 @@ def upload_excel():
         }), 400
 
     # ── 1. Escribir el archivo a un tempfile ──
+    # ``delete=False`` es necesario porque el archivo se lee FUERA del
+    # bloque ``with`` (el FB lo abre con el path que le pasamos). El
+    # borrado lo hace el FB al terminar: si el trabajo llega a
+    # encolarse, el FB es el dueno del fichero.
     with tempfile.NamedTemporaryFile(
         delete=False, suffix=suffix, prefix="zcupload_"
     ) as tmp:
@@ -89,79 +116,57 @@ def upload_excel():
     # Plan living TRAZABILIDAD_LOGGING §5 (operación 1): 1 web + 1 ok
     # con el resumen completo del Excel. El operario ve en la consola
     # web "Cargando Excel ... -> Excel cargado: N disp + N proc + ...".
+    # El "ok" lo emite el FB al terminar: el router ya ha respondido
+    # antes de que el Excel este cargado.
     logger.web(
         f"Cargando Excel '{file.filename}' "
         f"({tmp_path.stat().st_size} bytes)..."
     )
 
-    # Cleanup garantizado al final de CUALQUIER camino (normal, FB
-    # fallo, timeout, excepcion). ``delete=False`` es necesario porque
-    # el archivo se lee fuera del bloque ``with tempfile`` (el FB se
-    # ejecuta con el path), pero tenemos que borrarlo manualmente al
-    # terminar para no ensuciar el %TEMP% de Windows.
+    # ── 2. Encolar el trabajo en el OB1 ──
+    # ``encolado`` decide el destino del temporal: si el trabajo llega
+    # a la cola, lo borra el FB; si no, lo borramos aqui (el FB nunca
+    # lo va a leer).
+    encolado = False
     try:
-        # ── 2. Arrancar el FB ──
-        fb = _get_fb("subir_excel")
-        if fb is None:
+        engine = _get_engine()
+        if engine is None:
+            return jsonify({
+                "ok": False,
+                "error": "Engine no disponible",
+            }), 500
+
+        if engine.get_fb("subir_excel") is None:
             return jsonify({
                 "ok": False,
                 "error": "FB 'subir_excel' no registrado en el engine",
             }), 500
 
-        started = asyncio.run(fb.start(xlsx_path=str(tmp_path)))
-        if not started:
+        try:
+            job_id = engine.submit("subir_excel", xlsx_path=str(tmp_path))
+        except FBBusyError as exc:
             return jsonify({
                 "ok": False,
-                "error": "FB 'subir_excel' ya activo o terminal. "
-                         "Haz /disconnect y reintenta.",
+                "error": (
+                    f"FB 'subir_excel' ya tiene un trabajo en curso. "
+                    f"Espera a que termine y reintenta. ({exc})"
+                ),
             }), 409
-
-        # ── 3. Esperar al resultado (poll bloqueante) ──
-        # El engine tickea el FB cada 100ms. Esperamos a que entre en
-        # estado terminal (done/error), con timeout = STEP_TIMEOUT_S del FB.
-        poll_interval_s = 0.05  # 50ms
-        import time
-        elapsed = 0.0
-        fb_step_timeout = getattr(fb, "STEP_TIMEOUT_S", 30.0)
-        while not fb.is_terminal() and elapsed < fb_step_timeout:
-            time.sleep(poll_interval_s)
-            elapsed += poll_interval_s
-
-        # ── 4. Devolver el resultado ──
-        if not fb.is_terminal():
-            # Timeout: cancelar el FB para no dejarlo colgado.
-            fb.cancel("timeout en /api/v1/excel/upload")
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "dispatch: no se pudo encolar la carga del Excel"
+            )
             return jsonify({
                 "ok": False,
-                "error": f"timeout tras {fb_step_timeout:.1f}s sin terminar",
-            }), 504
-
-        if fb.nStep == fb.n_error:
-            return jsonify({
-                "ok": False,
-                "error": fb.error_msg or "FB termino en error",
-                "nStep": fb.nStep,
+                "error": f"no se pudo encolar el trabajo: {exc}",
             }), 500
 
-        result = fb.result or {"ok": True}
-        # OK con resumen completo: dispositivos + software + N_MAX.
-        sw = (result.get("software") or {}) if isinstance(result, dict) else {}
-        logger.ok(
-            f"Excel cargado: {result.get('total_dispositivos', 0)} disp + "
-            f"{sw.get('procesos', 0)} proc + "
-            f"{sw.get('preal', 0)} preal + "
-            f"{sw.get('pint', 0)} pint + "
-            f"{sw.get('alarmas', 0)} alm + "
-            f"{sw.get('n_max_total', 0)} N_MAX"
-        )
-        return jsonify(result)
+        encolado = True
+        return jsonify({"ok": True, "job_id": job_id}), 202
     finally:
-        # Cleanup garantizado del tempfile. ``missing_ok=True`` por si
-        # ya fue borrado o nunca se llego a crear el archivo fisico.
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+        # Cleanup del tempfile SOLO si el trabajo no llego a encolarse.
+        if not encolado:
+            _borrar_temporal(tmp_path)
 
 
 def build_routers(app) -> None:
