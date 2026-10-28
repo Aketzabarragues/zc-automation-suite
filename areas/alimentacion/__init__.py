@@ -235,11 +235,13 @@ def register(
 
     # FBs con I/O mixto (disco local + worker OT): crear un proceso
     # completo desde una plantilla TIA (preview read-only + apply con
-    # import + compile). El helper ``proc_crear_process_generator`` opera
-    # sobre directorios locales; los imports los despachan los FBs
-    # via ``core.helpers.tia.dispatch_async``. ``plc_blocks_cache``
-    # se resuelve en on_start() desde ``app_cache.plc_blocks`` via
-    # ``plc_blocks_get``.
+    # import + compile). El preview no toca TIA: solo trabaja sobre
+    # directorios locales. El apply construye el proceso en disco y
+    # despacha el import al worker OT con
+    # ``tia_client.submit_and_wait("execute_transactional_batch", ...)``
+    # (bloqueante, desde el hilo del dispatcher del OB1), seguido de
+    # ``submit_and_wait("compile_plc", ...)``. ``plc_blocks_cache``
+    # llega como param de runtime desde el router.
     engine.register_fb(
         "proc_process_crear_preview",
         FunctionProcCrearGenerarPreview(

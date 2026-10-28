@@ -5,6 +5,13 @@
 > `function_template.py` como base. Aplica a los 5 use cases
 > restantes de alimentacion (A.2-A.6) y a futuras areas.
 
+> **Documento congelado (referencia historica).** Describe el modelo de
+> FBs async (`asyncio.run(fb.start(...))` + router con poll bloqueante) y
+> rutas de ficheros que ya no existen en el repo. El modelo vigente esta
+> documentado en `HOWTO_CREATE_FB.md`: el router encola con
+> `engine.submit(...)`, responde `202` con el `job_id` y el resultado llega
+> al HMI por push (SSE `fb_state`).
+
 ## Referencia canonica: subir_excel
 
 Antes de empezar, lee estos 4 archivos en este orden:

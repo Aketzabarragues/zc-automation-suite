@@ -20,8 +20,8 @@ Uso:
         body = request.get_json()
         plc_name = body.get("plc_name", "")
         with_plc(app_cache, plc_name, "alimentacion")
-        fb = engine.syn_fb("disp_sincronizar")
-        fb.start(plc_name=plc_name)
+        job_id = engine.submit("disp_sincronizar", plc_name=plc_name)
+        return jsonify({"ok": True, "job_id": job_id}), 202
 """
 from __future__ import annotations
 
