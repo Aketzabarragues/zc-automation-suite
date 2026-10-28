@@ -6,20 +6,42 @@
 > Reglas arquitectónicas críticas en `.clinerules` (corto, se carga siempre).
 > Convenciones operativas y "cómo extender" están aquí (medio, se consulta).
 
-## TL;DR del state machine OT
+## TL;DR del modelo de tres pilares
 
-El worker de TIA Portal (comandos en `core/infrastructure/tia/tia_commands_catalog.py`) corre
-como **hilo dedicado** dentro del mismo proceso Python que Flask: `threading.Thread`
-daemon + `queue.Queue` (`core/infrastructure/tia/tia_loop.py`). Arranca en `idle`
-(sin portal attached), y el frontend le envía un `attach_portal` explícito cuando el
-operario pulsa "Conectar" desde la topbar, y un `detach_portal` cuando pulsa
-"Desconectar". El hilo NO muere entre comandos — eso elimina pagar el coste de
-arranque del CLR + attach (~5s) en cada operación.
+El flujo del operario es siempre el mismo:
 
-El hilo dedicado no es opcional: los RCW de .NET no son thread-safe y Flask corre
-con `threaded=True`, así que sin él varios requests entrarían al portal a la vez.
-Los detalles del contrato, state machine y comandos de ciclo de vida están en
-`.clinerules` §2.
+```
+HMI --> pulsador --> OB1 --> FB --> WORKER (TIA)
+```
+
+- **HMI** = la web (Flask + SPA Vue 3 sin build step). El pulsador hace un
+  POST al router y el router no espera al resultado.
+- **OB1** = el dispatcher. Es el `Engine` (`core/composition/plc_engine.py`):
+  una cola de trabajos + un hilo dedicado (`plc-ob1`) que consume la cola y
+  ejecuta cada FB completo. `engine.submit(fb_name, **params)` encola el
+  trabajo y devuelve un `job_id`; el router responde `202` con ese id.
+- **FB** = la unidad de trabajo (`core/composition/plc_function_base.py`).
+  Son **sync**: `run_step(self, idx: int, **params: Any) -> str`. El hilo del
+  OB1 los ejecuta con `fb.execute(**params)`.
+- **WORKER** = el hilo dedicado de TIA Portal
+  (`core/infrastructure/tia/tia_loop.py`): `threading.Thread` daemon +
+  `queue.Queue`. Es el único lugar autorizado para tocar los RCW de .NET.
+  Arranca en `idle` (sin portal attached), y el frontend le envía un
+  `attach_portal` explícito cuando el operario pulsa "Conectar" desde la
+  topbar, y un `detach_portal` cuando pulsa "Desconectar". El hilo NO muere
+  entre comandos — eso elimina pagar el coste de arranque del CLR + attach
+  (~5s) en cada operación.
+
+El resultado **no vuelve en el body del HTTP**: vuelve por push. El FB
+publica su estado por SSE (evento `fb_state`) y deja el resultado en los slots
+del `AppCache` en su `on_finish` (la SPA los lee por SSE `cache_changed`).
+
+Hay dos hilos dedicados, no uno: el OB1 ejecuta FBs y el worker TIA ejecuta
+comandos contra el portal. El hilo del worker no es opcional: los RCW de .NET
+no son thread-safe y Flask corre con `threaded=True`, así que sin él varios
+requests entrarían al portal a la vez. El dispatcher OB1 se documenta en
+`.clinerules` §1; el worker (state machine de 6 estados y comandos de ciclo de
+vida) en `.clinerules` §2.
 
 ---
 
@@ -54,19 +76,26 @@ Los detalles del contrato, state machine y comandos de ciclo de vida están en
    `end_transaction` (rollback atómico con `end_transaction(rollback=True)`).
 3. Mapea objetos nativos (.NET) a primitivos Python antes de emitir JSON
    (ver `.clinerules` §3).
-4. El cliente del worker expone `submit_and_wait("nombre_comando", args)`
-   (sync, mismo proceso). Para no bloquear el event loop, los FBs
-   async lo envuelven en `core.helpers.tia.tia_dispatch_async.dispatch_async`.
+4. El cliente del worker expone
+   `submit_and_wait(command, args=None, timeout=30.0)`: encola el comando
+   en el worker y **bloquea** hasta tener respuesta. El bloqueo es
+   intencionado: el FB corre en el hilo del OB1, que existe para eso. El
+   `timeout` es la espera de la respuesta del worker; el timeout del step
+   vive aparte, en `FunctionBase.STEP_TIMEOUT_S`.
 5. La lógica se implementa como **FB** (Function Block, state machine
    con `on_start` / `run_step` / `on_finish`) en
-   `areas/<área>/functions/function_<x>.py`. El FB registra su
+   `areas/<área>/functions/function_<x>.py`. Los tres hooks son **sync**:
+   `def run_step(self, idx: int, **params: Any) -> str`. El FB registra su
    progreso vía `ProgressTracker` y delega al worker con
-   `submit_and_wait("comando", args)` o `dispatch_async(...)` para
-   lotes transaccionales (`execute_transactional_batch`).
-6. El router Flask expone el endpoint y toma el cliente de
-   `current_app.config["TIA_CLIENT"]`. Los routers genéricos viven en
-   `core/web_server/routers/`; los del área en `areas/<area>/frontend/`
-   (routers Flask del área, ej. `alimentacion/frontend/excel_router.py`).
+   `self._tia_client.submit_and_wait("comando", args, timeout=T)` — sin
+   wrappers: el FB ya corre en un hilo dedicado. Para lotes transaccionales
+   el comando es `execute_transactional_batch`.
+6. El router Flask expone el endpoint, toma el engine de
+   `current_app.config["ENGINE"]` y encola el trabajo con
+   `engine.submit("<nombre_fb>", **params)`. No espera al resultado. Los
+   routers genéricos viven en `core/web_server/routers/`; los del área en
+   `areas/<area>/frontend/` (routers Flask del área, ej.
+   `alimentacion/frontend/excel_router.py`).
 7. Tests: mockea el cliente con `MagicMock(spec=SyncTIAClient)`,
    nunca el worker directamente.
 
@@ -84,14 +113,20 @@ Los detalles del contrato, state machine y comandos de ciclo de vida están en
    Cada área monta sus routers desde su callable
    `contributes_routers` (en `alimentacion` se llama
    `_build_all_routers(app)`).
-3. Inyecta dependencias vía los decoradores de Flask (o llamadas
-   explícitas a `get_tia_client | get_app_cache | get_logger |
-   get_progress_tracker`). NUNCA importes globales directamente
+3. Lee las dependencias de `current_app.config` (`ENGINE`, `TIA_CLIENT`,
+   `EVENT_BUS`, `_LAZY_*`) o de los singletons (`get_app_cache()`,
+   `get_progress_tracker()`). NUNCA importes globales directamente
    en el router.
-4. Si la operación es >500 ms, inyecta `ProgressTracker` y emite
-   `begin/start_stage/finish_stage/finish`.
+4. Si la operación es >500 ms, la emite un FB con `ProgressTracker`
+   (`begin/start_stage/finish_stage/finish`): el router solo encola.
 5. Devuelve siempre un dict (Flask lo serializa a JSON con `jsonify`).
-6. Test: usa `TestClient` de Flask con `MagicMock(spec=SyncTIAClient)`,
+6. Si el endpoint encola un trabajo, el contrato de respuesta es:
+   - `202` + `{"ok": True, "job_id": "<hex>"}`: encolado.
+   - `400`: validacion de entrada (faltan parametros obligatorios).
+   - `409`: el FB ya tiene un trabajo en curso (`FBBusyError`).
+   - `500`: el FB no esta registrado en el engine, o no se pudo encolar.
+   El resultado NO va en el body: llega al HMI por SSE (`fb_state`).
+7. Test: usa `TestClient` de Flask con `MagicMock(spec=SyncTIAClient)`,
    mismo patrón que `tests/test_areas_endpoint.py`.
 
 ### 3. Nueva vista en la SPA
@@ -229,14 +264,18 @@ Replica su estructura.
    tia_client=None, build_cache=None, app_cache=None)`. No se
    inyecta `log`: usa `logging.getLogger(__name__)`.
 4. Router Flask: `frontend/<use_case>_router.py`; montar desde
-   `__init__.py::_build_all_routers(app)`. Propagar `started=False`
-   como 409 cuando ya hay un FB corriendo.
+   `__init__.py::_build_all_routers(app)`. Encolar con
+   `engine.submit("<nombre_fb>", **params)` y responder `202` con el
+   `job_id`; propagar `FBBusyError` como 409.
 5. Smoke en vivo + tests en `tests/areas/<área>/...`.
 
 **Gotchas** (detalle en `docs/MIGRATION_PLAYBOOK.md`):
 - `LogBuffer.info(message)` solo acepta 1 arg. Usar f-strings.
 - `_stats` lo inicializa `FunctionBase.__init__`; no redeclararlo.
-- FB re-arrancable: `start()` acepta desde `n_done`/`n_error`.
+- FB re-arrancable: `execute()` acepta desde `n_done`/`n_error` y limpia
+  el estado por llamada (`_stats`, `error_msg`, `result`, `_step_idx`).
+- `run_step` es sync: si devuelve una corrutina, el base lanza
+  `TypeError` (los FBs se ejecutan en el hilo del OB1).
 - Lazy import del helper dentro de `run_step` (evita ciclos).
 - Mapear objetos nativos TIA a primitivos antes de `self.result`.
 
@@ -249,11 +288,48 @@ Replica su estructura.
   `GET /stream` (`core/web_server/app_flask.py`) y consume los eventos
   `log`, `progress`, `tia_state`, `fb_state`, `cache_changed` y
   `cache_snapshot` en `core/web_server/static/js/main.js`.
+- **El resultado de un trabajo vuelve por push, no en el body del POST.**
+  El router responde `202` con el `job_id` y el estado del FB llega por
+  el evento SSE `fb_state`, con payload
+  `{name, nStep, is_terminal, job_id, result, error_msg}`. El `job_id`
+  permite correlacionar el evento con el trabajo que pidio el HMI.
+- **Los datos del resultado viven en el `AppCache`**: el FB los publica en
+  su `on_finish` y la SPA los lee por SSE `cache_changed`.
+- En el SPA, `store.fbStates` guarda el ultimo estado de cada FB y
+  `waitForFbJob(jobId, fbName, timeoutMs)` (en `/js/store.js`) espera al
+  estado terminal del trabajo y lo devuelve.
 - El frontend SOLO lee el tracker (nunca escribe). El backend es
   la única fuente de verdad. El operario limpia explícitamente con
   `apiClearProgress()` cuando quiere.
 - `GET /api/v1/progress/current` existe en `diagnostics.py` pero **no
   tiene consumidor**: no lo uses como si fuera el mecanismo vigente.
+
+### Dispatcher OB1 (`core/composition/plc_engine.py`)
+- `Engine` es el OB1: cola de trabajos + hilo dedicado `plc-ob1`. El hilo
+  NO usa asyncio; ejecuta cada trabajo con `fb.execute(**params)`.
+- `engine.submit(fb_name, **params) -> job_id`: encola el trabajo y
+  devuelve el id. Lanza `FBBusyError` si el FB no existe o ya tiene un
+  trabajo en curso (el router lo traduce a 409).
+- `engine.cancel_job(job_id, reason)`: cancela el trabajo en cola o pide
+  la cancelacion cooperativa al FB en curso.
+- `engine.get_job(job_id)` / `list_jobs()` / `current_job_for(fb_name)`:
+  consulta del estado de los trabajos.
+- `engine.start_ob1()` / `stop_ob1(timeout)` / `ob1_running()`: ciclo de
+  vida del hilo. Los arranca y detiene el supervisor
+  (`core/launcher/main_supervisor.py`); el OB1 se para antes que el worker
+  TIA, para que un trabajo en curso pueda terminar.
+- Un FB solo admite un trabajo en curso. Un fallo de un FB no mata el
+  dispatcher: el error queda en el job y el hilo sigue vivo.
+- `FunctionBase.execute(**params)` es el entry point del dispatcher:
+  ejecuta el FB completo (`on_start` -> steps -> `on_finish`) y devuelve
+  `self.result`. No propaga excepciones de runtime (las captura, las deja
+  en `error_msg` y transiciona a `n_error`); si propaga
+  `NotImplementedError` y `AssertionError`.
+- `FunctionBase.request_cancel(reason)` es la cancelacion cooperativa
+  sync y thread-safe: se puede pedir desde el hilo de Flask mientras el
+  hilo del OB1 se ejecuta dentro de un step.
+- El `ProgressTracker` es single-slot: solo hay un trabajo en curso a la
+  vez.
 
 ### Timeouts de fetch (cliente)
 - **3 buckets** definidos en `core/web_server/static/js/api.js`:
@@ -266,7 +342,7 @@ Replica su estructura.
     export masivo.
   - `SLOW_TIMEOUT_MS = 600_000` (10 min): commits transaccionales
     (sync dispositivos, sync procesos). El backend usa el
-    `STEP_TIMEOUT_S` del FB (o el `timeout_s` que pase el router a
+    `STEP_TIMEOUT_S` del FB (o el `timeout` que el FB pase a
     `submit_and_wait`) y el cliente debe esperar MÁS, si no el
     navegador aborta antes de que TIA termine y el operario ve un
     `AbortError` falso.
@@ -281,9 +357,9 @@ Replica su estructura.
   operario debe ver algo accionable, no un `DOMException` interno
   del navegador.
 - **Mismatched client/server**: el timeout del cliente debe ser
-  siempre MAYOR que el `timeout_s` que el router calcula y pasa a
-  `submit_and_wait`. Si lo reduces, asegúrate de que el cliente
-  sigue siendo mayor (sube el bucket FAST/MEDIUM/SLOW si hace falta).
+  siempre MAYOR que el `timeout` que el FB pase a `submit_and_wait`.
+  Si lo reduces, asegúrate de que el cliente sigue siendo mayor (sube
+  el bucket FAST/MEDIUM/SLOW si hace falta).
 
 ### ProgressTracker — API completa
 ```
@@ -302,8 +378,8 @@ internamente desde `ejecutar_transaccion` (no pisar el tracker del
 commit).
 
 ### Tests
-- **Backend:** `pytest tests/` corre TODOS los tests. 1281 tests
-  actualmente (3 skipped). Deben pasar todos antes de commit.
+- **Backend:** `pytest tests/` corre TODOS los tests. 1449 tests
+  actualmente (1446 pasan, 3 skipped). Deben pasar todos antes de commit.
 - **Naming:** `tests/test_<modulo>.py`. Mismo nombre que el archivo
   que prueban. Para áreas, `tests/test_area_<area>_<feature>.py`.
 - **Mockear el cliente del worker** con `MagicMock(spec=SyncTIAClient)`.
@@ -412,7 +488,8 @@ commit).
   `store` y helpers (`pushLog`, `goToArea`, etc.).
 - **Fetch puro** en `api.js`: cada función devuelve
   `{ ok, status, data }`. NO toca `store` directamente.
-- **Polling** vía `setInterval` en `main.js` (no en componentes).
+- **Actualizaciones del store:** por SSE (`GET /stream`), no por polling.
+  `main.js` no usa `setInterval`; los eventos del bus son la unica fuente.
 - **ProgressIndicator.js** es el ÚNICO componente de feedback de
   operaciones largas. Va anclado al final del `AlimentacionSidebar`
   (`mt-auto`).
@@ -486,6 +563,10 @@ commit).
 5. **Vue 3 template error "string literal multi-línea":** los
    `template: \`...\`` no admiten literales multi-línea dentro de
    arrays `:class`. Cada clase en una sola línea.
+6. **El FB devuelve una corrutina:** `run_step` es sync (el FB corre en el
+   hilo del OB1). Si devuelve una corrutina, el base lanza `TypeError`.
+7. **El router devuelve 409 y el operario no ve nada:** el FB ya tenia un
+   trabajo en curso. Un FB solo admite un trabajo a la vez.
 
 ---
 

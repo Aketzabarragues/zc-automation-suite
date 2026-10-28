@@ -1,18 +1,45 @@
 # DIRECTRICES ARQUITECTÓNICAS: ZC AUTOMATION SUITE
 
-Eres un Arquitecto de Software Senior y Experto en Integración IT/OT. Estás trabajando en un repositorio que interconecta una app web Flask sincrona (con helpers async para operaciones largas) con el entorno nativo y bloqueante de TIA Portal Openness mediante la libreria oficial ``siemens_tia_scripting``.
+Eres un Arquitecto de Software Senior y Experto en Integración IT/OT. Estás trabajando en un repositorio que interconecta una app web Flask sincrona (con un dispatcher OB1 que ejecuta los FBs en un hilo dedicado) con el entorno nativo y bloqueante de TIA Portal Openness mediante la libreria oficial ``siemens_tia_scripting``.
 
-## 1. CONFINAMIENTO POR HILO (NO PROCESS-PER-CALL)
+## 1. CONFINAMIENTO POR HILO: OB1 (DISPATCHER) + WORKER TIA
 
 El ecosistema .NET/COM subyacente de Siemens **NO ES THREAD-SAFE** en el proceso Python. Tienes estrictamente prohibido importar la libreria de Siemens en hilos que no sean el hilo dedicado del worker.
 
-* **Capa IT (proceso principal):** Orquesta, enruta y cachea. Ejecuta ``main.py`` (Flask sync) y los FBs / helpers. **NUNCA** ejecuta ``import siemens_tia_scripting``.
+El flujo del operario es siempre ``HMI --> pulsador --> OB1 --> FB --> WORKER (TIA)``. El resultado vuelve al HMI por push (SSE), no en el body de un HTTP bloqueante.
+
+* **Capa IT (proceso principal):** Orquesta, enruta y cachea. Ejecuta ``main.py`` (Flask sync). Los FBs los ejecuta el hilo del OB1, no el hilo de Flask. **NUNCA** ejecuta ``import siemens_tia_scripting``.
+
+* **Dispatcher OB1:** el ``Engine`` (``core/composition/plc_engine.py``) es el dispatcher de la app: una cola de trabajos + un hilo dedicado (``plc-ob1``) que consume la cola y ejecuta cada FB completo con ``fb.execute(**params)``. El hilo NO usa asyncio. El supervisor lo arranca y lo detiene (``core/launcher/main_supervisor.py``): ``engine.start_ob1()`` / ``engine.stop_ob1(timeout)`` / ``engine.ob1_running()``. El OB1 se para antes que el worker TIA, para que un trabajo en curso pueda terminar.
 
 * **Capa OT (worker dedicado):** ``core/infrastructure/tia/tia_loop.py`` define ``SyncTIAClient``. Su metodo ``_tia_loop_main`` corre en **un hilo dedicado** (``threading.Thread(daemon=True, target=...)``). Ese hilo es el **UNICO** lugar autorizado para interactuar con la API de Siemens.
 
-* **Comunicación IT -> OT:** La capa IT encola comandos via ``SyncTIAClient.submit_and_wait(command, args, timeout_s)``. El hilo dedicado los consume, ejecuta el handler del ``CATALOGO``, y devuelve ``{"ok": bool, "result": ...}``. Los handlers async de los FBs usan ``core.helpers.tia.tia_dispatch_async.dispatch_async`` (wrapper que invoca ``submit_and_wait`` dentro de ``asyncio.to_thread`` para no bloquear el event loop).
+* **Comunicación IT -> OT:** los FBs (sync, ejecutados en el hilo del OB1) encolan comandos via ``SyncTIAClient.submit_and_wait(command, args=None, timeout=30.0)``. El hilo dedicado los consume, ejecuta el handler del ``CATALOGO``, y devuelve ``{"ok": bool, "result": ...}``. ``submit_and_wait`` es bloqueante a proposito: el OB1 es el sitio donde ese bloqueo es seguro.
 
 * **Comandos del worker:** 27 handlers en ``CATALOGO`` (``core/infrastructure/tia/tia_commands_catalog.py``), repartidos en 9 modulos ``tia_cmd_*.py`` (``lifecycle``, ``project``, ``inspect``, ``compile``, ``export``, ``import_``, ``user_consts``, ``blocks``, ``batch``). El supervisor los registra con ``register_all_commands(tia_client)`` (``core/launcher/main_supervisor.py``). Las areas aportan comandos adicionales via ``AreaSpec.contributes_tia_commands(tia_client)`` (``core/composition/app_area_registry.py``); el supervisor lo invoca tras ``register_all_commands``. Patron documentado pero ningun area del repo lo ha materializado todavia.
+
+**API del dispatcher OB1** (``core/composition/plc_engine.py``):
+
+* ``submit(fb_name, **params) -> job_id``: encola el trabajo y devuelve el id. Lanza ``FBBusyError`` si el FB no existe o ya tiene un trabajo en curso (el router lo traduce a HTTP 409).
+* ``cancel_job(job_id, reason)``: cancela el trabajo en cola o pide la cancelacion cooperativa al FB en curso.
+* ``get_job(job_id)`` / ``list_jobs()`` / ``current_job_for(fb_name)``: consulta del estado de los trabajos.
+* Un FB solo admite un trabajo en curso. Un fallo de un FB no mata el dispatcher: el error queda en el job y el hilo sigue vivo.
+
+**Contrato de los FBs** (``core/composition/plc_function_base.py``):
+
+* Los hooks son SYNC: ``on_start(**params)``, ``run_step(self, idx: int, **params: Any) -> str`` y ``on_finish(**params)``. Si ``run_step`` devuelve una corrutina, el base lanza ``TypeError``.
+* ``execute(**params)`` es el entry point del dispatcher: ejecuta el FB completo (``on_start`` -> steps -> ``on_finish``) y devuelve ``self.result``. No propaga excepciones de runtime (las captura, las deja en ``error_msg`` y transiciona a ``n_error``); si propaga ``NotImplementedError`` y ``AssertionError``.
+* ``request_cancel(reason)``: cancelacion cooperativa sync y thread-safe, para pedirla desde el hilo de Flask mientras el hilo del OB1 esta dentro de un step.
+
+**Resultado por push (nunca en el body del HTTP):**
+
+* El router responde ``202`` con ``{"ok": true, "job_id": "<hex>"}``. Contrato: 202 encolado, 400 validacion, 409 FB ocupado, 500 no registrado / fallo al encolar.
+* El estado del FB llega por SSE, evento ``fb_state``, payload ``{name, nStep, is_terminal, job_id, result, error_msg}``.
+* Los datos del resultado los publica el FB en su ``on_finish`` en los slots del ``AppCache``; la SPA los lee por SSE ``cache_changed``.
+* En la SPA, ``store.fbStates`` guarda el ultimo estado de cada FB y ``waitForFbJob(jobId, fbName, timeoutMs)`` (``core/web_server/static/js/store.js``) espera al estado terminal del trabajo.
+* El ``ProgressTracker`` es single-slot: solo hay un trabajo en curso a la vez.
+
+**Camino por tick del Engine:** el Engine conserva tambien el camino por tick (``tick_once()`` / ``run_cycle()``), pero no es el camino de ejecucion: los routers encolan trabajos con ``submit()`` y el hilo del OB1 los ejecuta con ``execute()``.
 
 ## 2. WORKER OT: HILO DEDICADO + COLA + STATE MACHINE (6 ESTADOS)
 
@@ -62,23 +89,24 @@ No inventes metodos. Utiliza estrictamente la API soportada.
 NO existe una carpeta ``_legacy_reference/``. El legacy esta borrado del repo (sept-2026).
 
 * **PERMITIDO:** Reutilizar la logica de helpers en ``core/helpers/simatic_ml/`` (modificadores SimaticML: ``PlcUserConstantParser``, ``PlcUserConstantModifier``) y ``core/helpers/simatic_sd/`` (modificadores SimaticSD: ``commit_array_comments``, ``find_array_slots``, ``read_current_comments``).
-* **PROHIBIDO:** Importar ``siemens_tia_scripting`` desde fuera de ``core/infrastructure/tia/``. Crear nuevos ``asyncio`` wrappers para hablar con TIA (usar ``core.helpers.tia.tia_dispatch_async``). Crear clases nuevas que hereden de wrappers .NET.
+* **PROHIBIDO:** Importar ``siemens_tia_scripting`` desde fuera de ``core/infrastructure/tia/``. Crear wrappers de asyncio para hablar con TIA (los FBs llaman ``submit_and_wait`` directo: ya se ejecutan en el hilo del OB1). Crear clases nuevas que hereden de wrappers .NET.
 
 ## 6. CODIGO LIMPIO Y PYTHON MODERNO
 
 * Aplica tipado estricto (Type Hinting) en todas las firmas de funciones y retornos.
 * Cumple con PEP 8.
-* Para operaciones IT -> OT bloqueantes (export / import pueden tardar 1-3 min): usa ``core.helpers.tia.tia_dispatch_async.dispatch_async`` que envuelve ``submit_and_wait`` en ``asyncio.to_thread``. Asi no bloqueas el event loop.
+* Para operaciones IT -> OT bloqueantes (export / import pueden tardar 1-3 min): llama ``submit_and_wait(command, args, timeout=T)`` desde el FB. El bloqueo es seguro a proposito: el FB corre en el hilo del OB1, dedicado a ese trabajo. No lo envuelvas en asyncio ni lo ejecutes en el hilo de Flask.
 * Si una operacion de lectura implica latencia alta, cachea el resultado en memoria (``SyncTIAClient._cache``). El parametro ``force_refresh=True`` permite bypass.
 
 ## 7. PROGRESS TRACKING (panel SPA en sidebar)
 
 * Toda operacion de >500 ms DEBE emitir progreso a ``core/runtime/progress_buffer.py:ProgressTracker``.
-* El FB recibe el tracker por constructor (``progress: ProgressTracker | None = None``); si no se inyecta, usa el Singleton global.
+* El FB recibe el tracker por constructor (``tracker: ProgressTracker | None = None``); si no se inyecta, usa el Singleton global.
+* El tracker es single-slot: solo hay un trabajo en curso a la vez.
 * Stage order = orden de ejecucion real. NO agrupar ops atomicas en un solo stage.
 * El stage ``open_transaction`` (commit contra TIA) es OPAQUE (puede tardar 1-3 min). Label honesto al operario.
 * Tests instancian un ``ProgressTracker()`` limpio y lo pasan al FB (no mockear el tracker).
-* Frontend: ``core/web_server/static/js/components/ProgressIndicator.js`` (panel fijo en sidebar) lee de ``store.progress`` (espejo reactivo). Polling 500 ms **INCONDICIONAL** (sin guard de estado) para evitar chicken-and-egg.
+* Frontend: ``core/web_server/static/js/components/ProgressIndicator.js`` (panel fijo en sidebar) lee de ``store.progress`` (espejo reactivo). El progreso llega por SSE (evento ``progress``), no por polling.
 
 ## 8. SINGLE-TENANT
 
