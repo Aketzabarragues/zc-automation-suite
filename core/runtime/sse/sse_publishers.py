@@ -6,7 +6,7 @@ en ``main_supervisor._build_components``):
   1. LogBuffer          -> {type: "log", level, message, timestamp}
   2. ProgressTracker    -> {type: "progress", **snapshot.to_dict()}
   3. SyncTIAClient      -> {type: "tia_state", state, project, plcs}
-  4. FunctionBase       -> {type: "fb_state", name, nStep, is_terminal, result}
+  4. FunctionBase       -> {type: "fb_state", name, nStep, is_terminal, job_id, result}
   5. TIA-loop lifecycle -> {type: "tia_loop_status", running, thread_name}
 
 Adicionalmente el AppCache aporta 2 publishers:
@@ -132,15 +132,47 @@ def make_fb_state_publisher(bus: Any, engine: Any) -> Callable[[str, Any], None]
          "name": <str>,
          "nStep": <int>,
          "is_terminal": <bool>,
+         "job_id": <str|None>,
          "result": <Any>,
          "error_msg": <str|None>}
+
+    ``job_id`` es el identificador del trabajo del OB1 en curso para
+    ese FB (``engine.current_job_for(name)``), o ``None`` si no hay
+    ninguno. Permite al HMI correlacionar el evento ``fb_state`` con
+    el ``job_id`` devuelto por ``engine.submit()``. La clave siempre
+    esta presente en el payload (con ``None`` si no se puede resolver),
+    para que el contrato del evento sea estable. Resolver el job_id
+    nunca puede tumbar la retransmision del estado del FB: si el
+    engine no soporta la consulta, o si la consulta falla, se publica
+    el resto del payload con ``job_id=None``.
     """
+    def resolve_job_id(name: str) -> str | None:
+        """Job en curso del FB ``name``, o ``None`` si no se puede resolver."""
+        getter = getattr(engine, "current_job_for", None)
+        if not callable(getter):
+            return None
+        try:
+            job = getter(name)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "fb_state_publisher: no se pudo resolver el job de '%s': %s",
+                name, exc,
+            )
+            return None
+        if job is None:
+            return None
+        job_id = getattr(job, "job_id", None)
+        if job_id is None:
+            return None
+        return job_id if isinstance(job_id, str) else str(job_id)
+
     def publish(name: str, fb: Any) -> None:
         bus.publish({
             "type": "fb_state",
             "name": name,
             "nStep": fb.nStep,
             "is_terminal": fb.is_terminal(),
+            "job_id": resolve_job_id(name),
             "result": to_jsonable(fb.result),
             "error_msg": fb.error_msg,
         })
