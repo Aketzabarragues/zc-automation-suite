@@ -13,27 +13,27 @@
  *   * Mockearlas en tests con ``vi.mock`` o sustituyendo el módulo.
  *   * Localizar el cambio cuando evolucione el endpoint backend.
  *
- * Timeouts (sept-2026, fix AbortError):
+ * Timeouts:
  *   Cada endpoint se clasifica en uno de tres buckets segun cuanto
- *   puede tardar contra TIA Portal (S7-1500 con 200+ bloques es el
- *   peor caso realista). El default es ``FAST_TIMEOUT_MS`` (2 min)
- *   para cubrir holgadamente lecturas tipicas + cold-start del
- *   backend. Las operaciones largas declaran explicitamente
- *   ``MEDIUM_TIMEOUT_MS`` o ``SLOW_TIMEOUT_MS``.
+ *   puede tardar. El default es ``FAST_TIMEOUT_MS`` (2 min) para
+ *   cubrir holgadamente lecturas tipicas + cold-start del backend.
+ *   Las operaciones que tocan TIA declaran explicitamente su bucket.
  *
  *   Reglas practicas:
  *     - FAST (2 min):  default. Lecturas puras (PLC list, logs,
  *       progress, etc) que tipicamente tardan <1s pero pueden
  *       dispararse a 30-60s en cold-start del backend.
- *     - MEDIUM (5 min): attach/open/preview/upload (pueden tocar
- *       TIA Portal en cold-start o hacer export masivo).
- *     - SLOW (10 min): commits transaccionales (N_MAX + devices en
- *       una sola transaccion COM, minutos en S7-1500 grandes).
- *     - El backend (``gateway.execute_transactional_batch`` y
- *       ``gateway.commit_devices_sync``) YA calcula su propio
- *       ``dynamic_timeout = max(default, 5s x num_ops)``. El del
- *       cliente debe ser MAYOR que el del backend, si no el
- *       navegador aborta antes de que TIA termine.
+ *     - MEDIUM (5 min): attach/open/upload y los endpoints que
+ *       encolan un trabajo en el OB1 (responden 202 al instante).
+ *     - SLOW (10 min): reservado para operaciones que sigan
+ *       bloqueando el request. Ningun endpoint lo usa: los commits
+ *       transaccionales (N_MAX + devices en una sola transaccion COM)
+ *       los ejecuta el hilo del dispatcher y llegan al HMI por push.
+ *
+ *   El backend calcula su propio timeout por operacion
+ *   (``dynamic_timeout = max(default, 5s x num_ops)``), pero con el
+ *   dispatcher ese timeout ya no lo ve el cliente: el request
+ *   responde 202 con el ``job_id`` y el resultado llega por SSE.
  */
 const FAST_TIMEOUT_MS = 120_000;
 const MEDIUM_TIMEOUT_MS = 300_000;
@@ -164,12 +164,11 @@ export const apiGeneratePreview = (plcName) =>
 
 /** Aplica el Diff completo (N_MAX + devices) en UNA transacción COM única. */
 export const apiCommit = (plcName, prevision) =>
-    // SLOW: el backend usa ``commit_devices_sync`` con
-    // ``dynamic_timeout = max(default, 5s x estimated_ops)``. Para un
-    // sync de 50 N_MAX + 6 device_changes eso son ~350s. El cliente
-    // debe esperar MAS que el backend, si no aborta antes de que TIA
-    // termine y el operario ve un falso error.
-    _request("POST", "/api/v1/sync/commit", { plc_name: plcName, prevision }, SLOW_TIMEOUT_MS);
+    // MEDIUM: el router encola el trabajo en el OB1 y responde 202 al
+    // instante con el job_id. El sync contra TIA lo ejecuta el hilo
+    // del dispatcher, asi que el request no espera: el timeout solo
+    // tiene que cubrir el cold-start del backend.
+    _request("POST", "/api/v1/sync/commit", { plc_name: plcName, prevision }, MEDIUM_TIMEOUT_MS);
 
 /** Vacía el buffer de logs (botón "Limpiar"). */
 export const apiClearLogs = () => _request("POST", "/api/v1/logs/clear");
@@ -314,10 +313,10 @@ export function apiProcesosSyncCommit(procUid, plcName, prevision) {
         "POST",
         "/api/v1/procesos/sync/commit",
         { proc_uid: procUid, plc_name: plcName, prevision: prevision || {} },
-        // SLOW: commit transaccional sobre DBs de procesos (similar a
-        // apiCommit). El backend calcula su dynamic_timeout; el cliente
-        // debe esperar MAS (10 min cubre S7-1500 grandes).
-        SLOW_TIMEOUT_MS,
+        // MEDIUM: el router encola el trabajo en el OB1 y responde 202
+        // al instante con el job_id. El commit transaccional contra
+        // TIA lo ejecuta el hilo del dispatcher.
+        MEDIUM_TIMEOUT_MS,
     );
 }
 
@@ -419,14 +418,15 @@ export const apiProcesosCrearPreview = (params) =>
  * @returns {Promise<{ok, status, data}>}
  */
 export const apiProcesosCrearAplicar = (params) =>
-    // SLOW: 5 dispatches al worker OT (3 imports + 1 compile + 2s
-    // sleep). STEP_TIMEOUT_S del FB=600s. El backend ya espera eso;
-    // el cliente debe esperar MAS (10 min cubre S7-1500 grandes).
+    // MEDIUM: el router encola el trabajo en el OB1 y responde 202 al
+    // instante con el job_id. Los 5 dispatches al worker OT (3
+    // imports + 1 compile + 2s de sleep) los ejecuta el hilo del
+    // dispatcher; el cliente no los espera.
     _request(
         "POST",
         "/api/v1/procesos/crear/aplicar",
         params,
-        SLOW_TIMEOUT_MS,
+        MEDIUM_TIMEOUT_MS,
     );
 
 /**
@@ -466,13 +466,14 @@ export const apiEntidadesPreview = (plcName) =>
  * @returns {Promise<{ok, status, data}>}
  */
 export const apiEntidadesSync = (plcName) =>
-    // SLOW: con el FB real sera un commit transaccional (export,
-    // 2 tx, compile, post-preview). De momento stub <1s.
+    // MEDIUM: el router encola el trabajo en el OB1 y responde 202 al
+    // instante con el job_id. El commit transaccional (export, 2 tx,
+    // compile, post-preview) lo ejecuta el hilo del dispatcher.
     _request(
         "POST",
         "/api/v1/entidades/sincronizar",
         { plc_name: plcName || "" },
-        SLOW_TIMEOUT_MS,
+        MEDIUM_TIMEOUT_MS,
     );
 
 /**
@@ -521,9 +522,9 @@ export const apiBlockEditPrepare = (plcName, blockPaths) =>
  * @returns {Promise<{ok, status, data}>}
  */
 export const apiBlockEditApply = (plcName, edits) =>
-    // SLOW: transaccion sobre N bloques; backend dynamic_timeout
-    // (``5s x n_ops``) puede ser alto. 10 min cubre S7-1500 con
-    // 50+ bloques.
+    // MEDIUM: el router encola el trabajo en el OB1 y responde 202 al
+    // instante con el job_id. La transaccion sobre N bloques la
+    // ejecuta el hilo del dispatcher.
     _request(
         "POST",
         "/api/v1/blocks/edit/apply",
@@ -531,7 +532,7 @@ export const apiBlockEditApply = (plcName, edits) =>
             plc_name: plcName,
             edits: edits,
         },
-        SLOW_TIMEOUT_MS,
+        MEDIUM_TIMEOUT_MS,
     );
 
 /**
