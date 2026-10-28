@@ -33,6 +33,10 @@ El ``self.result`` se popula con la shape::
       'warnings':           [str],
     }
 
+Al terminar (``on_finish``) publica ese ``result`` en el AppCache
+(slot ``preview_disp``): es el canal por el que la SPA recibe el
+preview (SSE ``cache_changed``). El router solo encola el trabajo.
+
 Steps (5):
   - exportar              -> export_tables + export_blocks
   - compute_nmax          -> compute_nmax_diff_entidades
@@ -56,11 +60,14 @@ from core.helpers.tia.active_cache import (
 from core.helpers.tia.validate_plc_in_excel import validate_plc_in_excel
 from core.helpers.tia.validate_plc_in_tia import validate_plc_in_tia
 from core.helpers.tia.with_plc import with_plc
+from core.infrastructure.log.log_web_bridge import install_web_level
 from core.runtime.app_cache import AppCache, get_app_cache
 from areas.alimentacion._area_id import AREA_ID
 from areas.alimentacion.helpers.layout.build_cache import DEFAULT_BUILD_CACHE_ROOT
 
 logger = logging.getLogger(__name__)
+# Asegura que ``Logger.web/ok`` existen (idempotente).
+install_web_level()
 
 
 class FunctionEntidadesGenerarPreview(FunctionBase):
@@ -209,7 +216,11 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
     # ==================================================================
 
     def on_finish(self, **params: Any) -> None:
-        """Vuelca ``self.result`` con la shape que espera la SPA."""
+        """Vuelca ``self.result`` con la shape que espera la SPA.
+
+        El router solo encola el trabajo, asi que la publicacion del
+        preview en el AppCache ocurre aqui, cuando el FB ha terminado.
+        """
         if self._ctx is None:
             # Error temprano: deps no inyectadas o plc_name ausente.
             self.result = _empty_result()
@@ -225,6 +236,31 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
             f"{s.get('comments_added', 0)} comments adds, "
             f"{s.get('comments_updated', 0)} comments updates"
         )
+
+        self._publish_result_to_cache()
+        logger.ok(
+            f"Prevision de entidades de '{self._ctx.plc_name}': "
+            f"{s.get('constants_agregados', 0)} const adds, "
+            f"{s.get('comments_added', 0)} comments adds, "
+            f"{s.get('comments_updated', 0)} comments updates"
+        )
+
+    def _publish_result_to_cache(self) -> None:
+        """Publica el preview de entidades en el AppCache.
+
+        El AppCache es el canal por el que la SPA se entera: lee este
+        slot y lo recibe por SSE (``cache_changed``). El router solo
+        encola el trabajo, asi que la publicacion tiene que ocurrir
+        aqui, cuando el FB ha terminado.
+
+        Slot: ``preview_disp`` (el mismo que el preview de dispositivos:
+        ambos bounded context operan sobre la misma "prevision de disp").
+        """
+        from core.runtime.app_cache import get_app_cache
+        from core.runtime.area_preview_cache import area_set_preview_disp
+
+        app_cache = get_app_cache()
+        area_set_preview_disp(app_cache, "alimentacion", self.result)
 
     # ==================================================================
     # Stages del FB (ZONA 4: 5 metodos privados numerados).
