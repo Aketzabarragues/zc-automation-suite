@@ -1,9 +1,8 @@
 """Router Flask del feature "Crear proceso completo desde plantilla TIA".
 
-Orquesta: recibe plantilla + proc_uid del Excel, dispara el FB y
-devuelve su ``result``. Los FBs tienen la state machine + tracker;
-los helpers (``areas/alimentacion/helpers/proc/``) tienen la logica
-pura.
+Orquesta: encola el trabajo en el OB1 (dispatcher con cola) y devuelve
+el ``job_id``. Los FBs tienen la state machine + tracker; los helpers
+(``areas/alimentacion/helpers/proc/``) tienen la logica pura.
 
 Endpoints:
   POST /api/v1/procesos/crear/preview
@@ -41,42 +40,48 @@ Endpoints:
         proceso. La SPA solo elige plantilla + proceso del Excel y
         el sistema rellena el resto.
 
-        Dispara el FB ``proc_process_crear_preview`` (read-only:
-        copytree + regex + lista de archivos previstos + colisiones).
-        Devuelve el ``result`` con shape legacy completa.
+        Encola el FB ``proc_process_crear_preview`` (read-only:
+        copytree + regex + lista de archivos previstos + colisiones) y
+        devuelve ``202`` con ``{"ok": true, "job_id": "<hex>"}``. El
+        resultado del preview (shape legacy completa) llega al HMI por
+        el evento SSE ``fb_state``.
 
   POST /api/v1/procesos/crear/aplicar
         Body JSON: igual que ``/preview`` mas:
           ``plc_name``              (str) nombre del PLC destino (oblig).
 
-        Dispara el FB ``proc_process_crear_aplicar`` (5 dispatches al
-        worker OT: import tag table + 2 imports de bloques + compile).
-        Devuelve el ``result`` con shape legacy completa (incluye
-        ``import_result`` y ``compile_result``).
+        Encola el FB ``proc_process_crear_aplicar`` (5 dispatches al
+        worker OT: import tag table + 2 imports de bloques + compile) y
+        devuelve ``202`` con ``{"ok": true, "job_id": "<hex>"}``. El
+        resultado (shape legacy completa, incluye ``import_result`` y
+        ``compile_result``) llega al HMI por el evento SSE ``fb_state``.
 
 Notas de timing:
   - Preview: copytree + regex sobre ~20 archivos pequenos. Tarda
-    tipicamente 5-30s. STEP_TIMEOUT_S=120s en el FB. Cliente: bucket
-    MEDIUM (export equivalente a apiGeneratePreview).
+    tipicamente 5-30s. STEP_TIMEOUT_S=120s en el FB.
   - Apply: 5 dispatches al worker OT (3 imports + 1 compile, mas un
     sleep de consolidacion de 2s). En PLCs grandes el import masivo
     puede tardar 1-3 min, el compile hasta 5 min. STEP_TIMEOUT_S=600s.
-    Cliente: bucket SLOW (igual que apiProcesosSyncCommit).
+  - El request NO bloquea: el router responde 202 de inmediato y el
+    trabajo lo ejecuta el hilo del OB1.
 """
 from __future__ import annotations
 
 import logging
-import time
 from typing import Any
 
 from flask import Blueprint, current_app, jsonify, request
 
+from core.composition.plc_engine import FBBusyError
 from core.helpers.tia.with_plc import with_plc
 from core.helpers.tia.validate_plc_in_excel import validate_plc_in_excel
+from core.infrastructure.log.log_web_bridge import install_web_level
 from core.runtime.excel_cache import excel_get_full
 from areas.alimentacion._area_id import AREA_ID
 
 logger = logging.getLogger(__name__)
+# Asegura que ``Logger.web/ok`` existen en tests/scripts (idempotente).
+install_web_level()
 
 bp = Blueprint(
     "area_alimentacion_proc_process_crear",
@@ -98,10 +103,6 @@ _BODY_REQUIRED_APLICAR: tuple[str, ...] = (
 
 def _get_engine():
     return current_app.config["ENGINE"]
-
-
-def _get_fb(name: str) -> Any:
-    return _get_engine().get_fb(name)
 
 
 def _get_config_manager():
@@ -238,82 +239,69 @@ def _validate_common(body: dict) -> tuple[dict | None, str | None]:
     return validated, None
 
 
-def _poll_until_terminal(fb: Any, poll_interval_s: float = 0.1) -> bool:
-    """Poll bloqueante hasta que el FB entre en estado terminal.
-
-    Returns:
-        True si termino OK (en ``n_done`` o ``n_error``). False si
-        el timeout del FB se agoto sin transicionar.
-    """
-    elapsed = 0.0
-    fb_step_timeout = getattr(fb, "STEP_TIMEOUT_S", 600.0)
-    while not fb.is_terminal() and elapsed < fb_step_timeout:
-        time.sleep(poll_interval_s)
-        elapsed += poll_interval_s
-    if not fb.is_terminal():
-        fb.cancel("timeout en /api/v1/procesos/crear")
-        return False
-    return True
-
-
 @bp.post("/preview")
 def crear_preview():
-    """Dispara el FB ``proc_process_crear_preview`` y devuelve su ``result``.
+    """Encola el FB ``proc_process_crear_preview`` para el proceso del body.
 
     Body JSON (ver docstring del modulo):
       ``dir_plantilla_nombre``, ``proc_uid``, opcional ``plc_blocks_cache``.
 
+    El request NO bloquea: encola el trabajo en el OB1 y devuelve
+    ``202`` con el ``job_id``. El FB se ejecuta en el hilo del OB1 y
+    su resultado llega al HMI por el evento SSE ``fb_state`` (con el
+    mismo ``job_id``).
+
     Returns:
-        200 con el ``result`` completo del FB.
+        202 con ``{"ok": true, "job_id": "<hex>"}``.
         400 si faltan campos obligatorios o proc_uid no esta en el Excel.
-        409 si el FB ya esta activo o terminal.
-        500 si el FB no esta registrado o termino en error.
-        504 si agoto su STEP_TIMEOUT_S sin terminar.
+        409 si el FB ya tiene un trabajo en curso.
+        500 si el FB no esta registrado en el engine.
     """
     body = request.get_json(silent=True) or {}
     validated, err = _validate_common(body)
     if err:
         return jsonify({"ok": False, "error": err}), 400
 
-    fb = _get_fb("proc_process_crear_preview")
+    engine = _get_engine()
+    if engine is None:
+        return jsonify({
+            "ok": False,
+            "error": "Engine no disponible",
+        }), 500
+
+    fb = engine.get_fb("proc_process_crear_preview")
     if fb is None:
         return jsonify({
             "ok": False,
             "error": "FB 'proc_process_crear_preview' no registrado en el engine",
         }), 500
 
-    import asyncio
     logger.web(
         f"Preview: crear proceso {validated['base_nueva']}/"
         f"{validated['codigo_nuevo']} desde plantilla "
         f"{validated['dir_plantilla_nombre']}..."
     )
-    started = asyncio.run(fb.start(**validated))
-    if not started:
+    try:
+        job_id = engine.submit("proc_process_crear_preview", **validated)
+    except FBBusyError as exc:
         return jsonify({
             "ok": False,
             "error": (
-                "FB 'proc_process_crear_preview' ya activo o terminal. "
-                "Espera a que termine y reintenta."
+                f"FB 'proc_process_crear_preview' ya tiene un trabajo en curso. "
+                f"Espera a que termine y reintenta. ({exc})"
             ),
         }), 409
-
-    if not _poll_until_terminal(fb):
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("dispatch: no se pudo encolar el trabajo")
         return jsonify({
             "ok": False,
-            "error": (
-                f"timeout tras {fb.STEP_TIMEOUT_S:.1f}s sin terminar "
-                f"(preview crear proceso)"
-            ),
-        }), 504
-
-    if fb.nStep == fb.n_error:
-        return jsonify({
-            "ok": False,
-            "error": fb.error_msg or "FB termino en error",
-            "nStep": fb.nStep,
+            "error": f"no se pudo encolar el trabajo: {exc}",
         }), 500
 
+    # LIMITACION CONOCIDA: este log de cierre deberia vivir en el FB, al
+    # final de ``execute()``. Aqui se emite al encolar (antes de que el
+    # trabajo termine), asi que los contadores salen del ``result`` que
+    # el FB tenga en ese instante: vacio en la primera ejecucion.
     result = fb.result or {"ok": True}
     n_prev = (
         len(result.get("archivos_previstos", []))
@@ -328,22 +316,26 @@ def crear_preview():
         f"{validated['codigo_nuevo']}: {n_prev} archivos previstos, "
         f"{n_col} colision(es)."
     )
-    return jsonify(result)
+    return jsonify({"ok": True, "job_id": job_id}), 202
 
 
 @bp.post("/aplicar")
 def crear_aplicar():
-    """Dispara el FB ``proc_process_crear_aplicar`` y devuelve su ``result``.
+    """Encola el FB ``proc_process_crear_aplicar`` para el proceso del body.
 
     Body JSON: ``dir_plantilla_nombre``, ``proc_uid``, ``plc_name``
     (obligatorio). Opcional ``plc_blocks_cache``.
 
+    El request NO bloquea: encola el trabajo en el OB1 y devuelve
+    ``202`` con el ``job_id``. El FB se ejecuta en el hilo del OB1 y
+    su resultado llega al HMI por el evento SSE ``fb_state`` (con el
+    mismo ``job_id``).
+
     Returns:
-        200 con el ``result`` completo del FB.
+        202 con ``{"ok": true, "job_id": "<hex>"}``.
         400 si faltan campos o proc_uid no esta en el Excel.
-        409 si el FB ya esta activo o terminal.
-        500 si el FB no esta registrado o termino en error.
-        504 si timeout.
+        409 si el FB ya tiene un trabajo en curso.
+        500 si el FB no esta registrado en el engine.
     """
     body = request.get_json(silent=True) or {}
 
@@ -358,7 +350,14 @@ def crear_aplicar():
         }), 400
     validated["plc_name"] = str(body["plc_name"])
 
-    fb = _get_fb("proc_process_crear_aplicar")
+    engine = _get_engine()
+    if engine is None:
+        return jsonify({
+            "ok": False,
+            "error": "Engine no disponible",
+        }), 500
+
+    fb = engine.get_fb("proc_process_crear_aplicar")
     if fb is None:
         return jsonify({
             "ok": False,
@@ -366,7 +365,7 @@ def crear_aplicar():
         }), 500
 
     # Sincronizar app_cache.selected_plc con el plc_name del body
-    # antes de invocar el FB (D6 stateless: el FB
+    # antes de encolar el FB (D6 stateless: el FB
     # ``function_proc_crear_sincronizar`` no recibe ``app_cache`` por
     # constructor, asi que el endpoint es responsable de propagarlo).
     with_plc(_get_app_cache(), validated["plc_name"], AREA_ID)
@@ -380,38 +379,32 @@ def crear_aplicar():
     except ValueError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
 
-    import asyncio
     logger.web(
         f"Aplicar: crear proceso {validated['base_nueva']}/"
         f"{validated['codigo_nuevo']} en PLC '{validated['plc_name']}' "
         f"desde plantilla {validated['dir_plantilla_nombre']}..."
     )
-    started = asyncio.run(fb.start(**validated))
-    if not started:
+    try:
+        job_id = engine.submit("proc_process_crear_aplicar", **validated)
+    except FBBusyError as exc:
         return jsonify({
             "ok": False,
             "error": (
-                "FB 'proc_process_crear_aplicar' ya activo o terminal. "
-                "Espera a que termine y reintenta."
+                f"FB 'proc_process_crear_aplicar' ya tiene un trabajo en curso. "
+                f"Espera a que termine y reintenta. ({exc})"
             ),
         }), 409
-
-    if not _poll_until_terminal(fb):
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("dispatch: no se pudo encolar el trabajo")
         return jsonify({
             "ok": False,
-            "error": (
-                f"timeout tras {fb.STEP_TIMEOUT_S:.1f}s sin terminar "
-                f"(aplicar crear proceso)"
-            ),
-        }), 504
-
-    if fb.nStep == fb.n_error:
-        return jsonify({
-            "ok": False,
-            "error": fb.error_msg or "FB termino en error",
-            "nStep": fb.nStep,
+            "error": f"no se pudo encolar el trabajo: {exc}",
         }), 500
 
+    # LIMITACION CONOCIDA: este log de cierre deberia vivir en el FB, al
+    # final de ``execute()``. Aqui se emite al encolar (antes de que el
+    # trabajo termine), asi que los contadores salen del ``result`` que
+    # el FB tenga en ese instante: vacio en la primera ejecucion.
     result = fb.result or {"ok": True}
     n_gen = (
         len(result.get("archivos_generados", []))
@@ -432,7 +425,7 @@ def crear_aplicar():
         f"Proceso {process_label} creado en '{validated['plc_name']}': "
         f"{n_gen} archivos generados, compile={'OK' if compile_ok else 'FAIL'}."
     )
-    return jsonify(result)
+    return jsonify({"ok": True, "job_id": job_id}), 202
 
 
 def build_routers(app) -> None:

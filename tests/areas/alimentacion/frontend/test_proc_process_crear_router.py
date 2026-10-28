@@ -5,10 +5,17 @@ proceso nuevo. La SPA solo envia ``dir_plantilla_nombre + proc_uid``
 y el router los resuelve desde
 ``app_cache.area("alimentacion").excel_full.procesos``.
 
+El router ya no bloquea: encola el trabajo en el OB1 (dispatcher con
+cola) y responde ``202`` con el ``job_id``. El resultado del FB
+llega al HMI por push (evento SSE ``fb_state``), no en el cuerpo de
+la respuesta HTTP.
+
 Tests:
   - ``test_crear_preview_ok_con_plantilla``:
     Body valido (minimal) + Excel con proc_uid=300 + plantillas_path OK
-    + FB mockeado que arranca OK -> 200 con el ``fb.result``.
+    -> 202 con ``job_id`` y ``engine.submit`` con los params resueltos.
+  - ``test_crear_preview_expone_descripcion_y_dependencias``:
+    El ``result`` del preview ya no viaja en la respuesta (llega por SSE).
   - ``test_crear_preview_sin_excel``:
     app_cache sin excel_full -> 400 (accionable: "Cargue el Excel").
   - ``test_crear_preview_proc_uid_inexistente``:
@@ -17,18 +24,27 @@ Tests:
     Body sin campos obligatorios -> 400.
   - ``test_crear_aplicar_fb_no_registrado``:
     engine.get_fb(None) -> 500.
-  - ``test_crear_aplicar_fb_rechaza_start_409``:
-    fb.start = False -> 409.
+  - ``test_crear_aplicar_fb_ocupado_409``:
+    ``engine.submit`` lanza ``FBBusyError`` -> 409.
+  - ``test_crear_aplicar_sincroniza_selected_plc``:
+    ``with_plc`` + 202 con ``job_id``.
+  - ``test_crear_preview_plc_blocks_cache_acepta_strings_y_dicts``:
+    ``plc_blocks_cache`` normalizado en los params del ``submit``.
+  - Suite parametrizada de los 2 endpoints: sin engine -> 500, FB no
+    registrado -> 500, FB ocupado -> 409, submit falla -> 500, happy
+    path -> 202 con ``job_id`` y respuesta sin el ``result`` del FB.
 """
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from flask import Flask
+
+from core.composition.plc_engine import FBBusyError
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -81,11 +97,14 @@ def _make_mock_excel_cache(proc_uid: int = 300) -> MagicMock:
     return cache
 
 
-def _make_mock_app_cache(proc_uid: int = 300) -> MagicMock:
+def _make_mock_app_cache(
+    proc_uid: int = 300,
+    plc_names: tuple[str, ...] = ("S7-1500",),
+) -> MagicMock:
     """Crea un ``AppCache`` mockeado con un Excel cacheado.
 
     Multi-PLC: el endpoint ``crear_aplicar`` ahora valida
-    ``plc_name in excel_cache_full.plcs`` antes de invocar el FB.
+    ``plc_name in excel_cache_full.plcs`` antes de encolar el FB.
     Por defecto mockeamos un cache con PLCs ``["S7-1500"]``.
 
     El router lee del ``app_cache`` via ``excel_get_full`` (area
@@ -94,7 +113,7 @@ def _make_mock_app_cache(proc_uid: int = 300) -> MagicMock:
     """
     app_cache = MagicMock()
     cache = _make_mock_excel_cache_with_plcs(
-        proc_uid=proc_uid, plc_names=("S7-1500",)
+        proc_uid=proc_uid, plc_names=plc_names
     )
     # Mockeamos el area cache: ``app_cache.area("alimentacion")``
     # devuelve un objeto con atributo ``excel_full``.
@@ -122,23 +141,20 @@ def _make_mock_excel_cache_with_plcs(
 
 def _make_mock_fb(
     *,
-    started: bool = True,
-    nStep: int = 99,
-    n_error: int = 98,
-    error_msg: str | None = None,
     result: dict | None = None,
     is_terminal_return: bool = True,
-    step_timeout_s: float = 600.0,
 ) -> MagicMock:
-    """Crea un mock del FB que el router consume."""
+    """Crea un mock del FB que el router consume.
+
+    El router ya no arranca el FB ni lo sondea: solo lo mira para
+    comprobar que esta registrado (``engine.get_fb``) y para el log
+    de cierre (``fb.result``). ``is_terminal`` se fija a True porque
+    un ``MagicMock`` sin configurar es truthy y falsearia cualquier
+    comprobacion de estado.
+    """
     fb = MagicMock()
-    fb.start = AsyncMock(return_value=started)
     fb.is_terminal = MagicMock(return_value=is_terminal_return)
-    fb.nStep = nStep
-    fb.n_error = n_error
-    fb.error_msg = error_msg
     fb.result = result
-    fb.STEP_TIMEOUT_S = step_timeout_s
     return fb
 
 
@@ -173,7 +189,7 @@ def plantilla_dummy(tmp_path: Path) -> Path:
 
 def test_crear_preview_ok_con_plantilla(plantilla_dummy: Path) -> None:
     """Body minimal valido (dir_plantilla_nombre + proc_uid) ->
-    200 con el ``fb.result``."""
+    202 con el ``job_id`` (el result llega por SSE ``fb_state``)."""
     from areas.alimentacion.frontend.proc_process_crear_router import bp
 
     engine = MagicMock()
@@ -191,6 +207,7 @@ def test_crear_preview_ok_con_plantilla(plantilla_dummy: Path) -> None:
         "preview_dir": str(plantilla_dummy.parent / "preview"),
     })
     engine.get_fb.return_value = fb_mock
+    engine.submit.return_value = "job-preview-1"
 
     cm = MagicMock()
     cm.get_plantillas_path.return_value = str(plantilla_dummy.parent)
@@ -205,31 +222,30 @@ def test_crear_preview_ok_con_plantilla(plantilla_dummy: Path) -> None:
         "dir_plantilla_nombre": "TestPlantilla",
         "proc_uid": 300,
     })
-    assert resp.status_code == 200
+    assert resp.status_code == 202
     data = resp.get_json()
-    assert data["success"] is True
-    assert len(data["archivos_previstos"]) == 1
+    assert data["ok"] is True
+    assert data["job_id"] == "job-preview-1"
     # El mock FB fue consultado por nombre correcto.
     engine.get_fb.assert_called_with("proc_process_crear_preview")
-    # El start() fue invocado con los kwargs resueltos (uid=300 ->
-    # base=300, codigo=EXP, minimos_usuario={...} del Excel).
-    fb_mock.start.assert_awaited_once()
-    kwargs = fb_mock.start.await_args.kwargs
+    # El trabajo se encola para el FB correcto con los kwargs resueltos
+    # (uid=300 -> base=300, codigo=EXP, minimos_usuario={...} del Excel).
+    engine.submit.assert_called_once()
+    args, kwargs = engine.submit.call_args
+    assert args[0] == "proc_process_crear_preview"
     assert kwargs["base_nueva"] == 300
     assert kwargs["codigo_nuevo"] == "EXP"
     assert kwargs["minimos_usuario"]["N_MAX_PREAL"] == 30
 
 
 def test_crear_preview_expone_descripcion_y_dependencias(plantilla_dummy: Path) -> None:
-    """El router ``/preview`` vuelca ``descripcion``,
-    ``dependencias_ok`` y ``dependencias_faltantes`` del
-    ``fb.result`` en el JSON response para que la SPA los pueda
-    renderizar y bloquear el boton "Aplicar" si hay faltantes.
+    """El ``result`` del preview (``descripcion``,
+    ``dependencias_ok`` y ``dependencias_faltantes``) ya NO viaja en
+    la respuesta HTTP: el router responde 202 con el ``job_id`` y el
+    result llega al HMI por el evento SSE ``fb_state``.
 
-    El router hace ``jsonify(fb.result)`` literal: cualquier campo
-    que el helper ``done_summary`` anada al ``ctx.result`` sale
-    automatico. Este test fija el contrato para detectar
-    refactors que rompan la propagacion.
+    Test historique adaptado al contrato OB1: fija que el router no
+    filtre el result del FB en el body de la respuesta.
     """
     from areas.alimentacion.frontend.proc_process_crear_router import bp
 
@@ -245,6 +261,7 @@ def test_crear_preview_expone_descripcion_y_dependencias(plantilla_dummy: Path) 
         "preview_dir": str(plantilla_dummy.parent / "preview"),
     })
     engine.get_fb.return_value = fb_mock
+    engine.submit.return_value = "job-preview-2"
 
     cm = MagicMock()
     cm.get_plantillas_path.return_value = str(plantilla_dummy.parent)
@@ -258,11 +275,14 @@ def test_crear_preview_expone_descripcion_y_dependencias(plantilla_dummy: Path) 
         "dir_plantilla_nombre": "TestPlantilla",
         "proc_uid": 300,
     })
-    assert resp.status_code == 200
+    assert resp.status_code == 202
     data = resp.get_json()
-    assert data["descripcion"] == "Proceso estandar de expedicion"
-    assert data["dependencias_ok"] == ["DB1_SYS"]
-    assert data["dependencias_faltantes"] == ["FC15151_ZC_MARCHA_PARO_SEC"]
+    assert data == {"ok": True, "job_id": "job-preview-2"}
+    # El result del FB no se filtra en la respuesta (llega por SSE).
+    assert "descripcion" not in data
+    assert "dependencias_ok" not in data
+    assert "dependencias_faltantes" not in data
+    assert "archivos_previstos" not in data
 
 
 def test_crear_preview_sin_excel() -> None:
@@ -367,14 +387,15 @@ def test_crear_aplicar_fb_no_registrado() -> None:
     assert "proc_process_crear_aplicar" in data["error"]
 
 
-def test_crear_aplicar_fb_rechaza_start_409(plantilla_dummy: Path) -> None:
-    """Si fb.start retorna False -> 409."""
+def test_crear_aplicar_fb_ocupado_409(plantilla_dummy: Path) -> None:
+    """Si ``engine.submit`` lanza ``FBBusyError`` (el FB ya tiene un
+    trabajo en curso) -> 409."""
     from unittest.mock import patch
     from areas.alimentacion.frontend.proc_process_crear_router import bp
 
     engine = MagicMock()
-    fb_mock = _make_mock_fb(started=False)
-    engine.get_fb.return_value = fb_mock
+    engine.get_fb.return_value = _make_mock_fb()
+    engine.submit.side_effect = FBBusyError("FB ocupado: ya tiene trabajo")
     cm = MagicMock()
     cm.get_plantillas_path.return_value = str(plantilla_dummy.parent)
     app_cache = _make_mock_app_cache(proc_uid=300)
@@ -397,12 +418,12 @@ def test_crear_aplicar_fb_rechaza_start_409(plantilla_dummy: Path) -> None:
     assert resp.status_code == 409
     data = resp.get_json()
     assert data["ok"] is False
-    assert "activo" in data["error"].lower() or "terminal" in data["error"].lower()
+    assert "trabajo en curso" in data["error"]
 
 
 def test_crear_aplicar_sincroniza_selected_plc(plantilla_dummy: Path) -> None:
     """El endpoint invoca ``with_plc`` con (app_cache, plc_name, area_id)
-    antes del ``fb.start`` (D6 stateless: el FB
+    antes de encolar el FB (D6 stateless: el FB
     ``function_proc_crear_sincronizar`` no recibe ``app_cache`` por
     constructor, asi que el endpoint propaga ``selected_plc``).
     """
@@ -418,6 +439,7 @@ def test_crear_aplicar_sincroniza_selected_plc(plantilla_dummy: Path) -> None:
         "compile_result": {"ok": True},
     })
     engine.get_fb.return_value = fb_mock
+    engine.submit.return_value = "job-aplicar-1"
     cm = MagicMock()
     cm.get_plantillas_path.return_value = str(plantilla_dummy.parent)
     app_cache = _make_mock_app_cache(proc_uid=300)
@@ -435,10 +457,16 @@ def test_crear_aplicar_sincroniza_selected_plc(plantilla_dummy: Path) -> None:
             "plc_name": "S7-1500",
         })
 
-    assert resp.status_code == 200
+    assert resp.status_code == 202
+    assert resp.get_json()["job_id"] == "job-aplicar-1"
     with_plc_mock.assert_called_once_with(
         app_cache, "S7-1500", AREA_ID,
     )
+    # El trabajo se encola para el FB correcto.
+    engine.submit.assert_called_once()
+    args, kwargs = engine.submit.call_args
+    assert args[0] == "proc_process_crear_aplicar"
+    assert kwargs["plc_name"] == "S7-1500"
 
 
 def test_crear_preview_plc_blocks_cache_acepta_strings_y_dicts(
@@ -460,6 +488,7 @@ def test_crear_preview_plc_blocks_cache_acepta_strings_y_dicts(
         "colisiones": [], "manifest_plantilla": {},
     })
     engine.get_fb.return_value = fb_mock
+    engine.submit.return_value = "job-preview-3"
     cm = MagicMock()
     cm.get_plantillas_path.return_value = str(plantilla_dummy.parent)
     app_cache = _make_mock_app_cache(proc_uid=300)
@@ -481,9 +510,9 @@ def test_crear_preview_plc_blocks_cache_acepta_strings_y_dicts(
             {"nombre": "DB80001", "numero": "80001"},
         ],
     })
-    assert resp.status_code == 200
+    assert resp.status_code == 202
 
-    kwargs = fb_mock.start.await_args.kwargs
+    _, kwargs = engine.submit.call_args
     # Lista dicts ``{nombre, numero}`` normalizada. Strings se
     # envuelven en ``{nombre, numero: None}``. Items sin nombre y
     # dicts mal formados se descartan.
@@ -497,3 +526,218 @@ def test_crear_preview_plc_blocks_cache_acepta_strings_y_dicts(
     # ni plc_blocks_detalle.
     assert "plc_blocks_por_tipo" not in kwargs
     assert "plc_blocks_detalle" not in kwargs
+
+
+# ── Suite parametrizada: los 2 endpoints ─────────────────────────────
+
+# (url, nombre del FB encolado, body valido)
+ENDPOINTS = [
+    ("/api/v1/procesos/crear/preview", "proc_process_crear_preview",
+     {"dir_plantilla_nombre": "TestPlantilla", "proc_uid": 300}),
+    ("/api/v1/procesos/crear/aplicar", "proc_process_crear_aplicar",
+     {"dir_plantilla_nombre": "TestPlantilla", "proc_uid": 300,
+      "plc_name": "S7-1500"}),
+]
+IDS = ["preview", "aplicar"]
+
+
+def _make_app_para_endpoint(engine: MagicMock | None = None) -> Flask:
+    """App con Excel cacheado y ``plantillas_path`` valido.
+
+    Los endpoints validan el body ANTES de mirar el engine, asi que
+    para probar los 500/409 hace falta un body valido + Excel. Sin
+    ``engine`` el config se queda sin la clave ``ENGINE`` (el router
+    la lee con ``current_app.config["ENGINE"]``).
+    """
+    app = Flask(__name__)
+    if engine is not None:
+        app.config["ENGINE"] = engine
+    app.config["APP_CACHE"] = _make_mock_app_cache(proc_uid=300)
+    cm = MagicMock()
+    cm.get_plantillas_path.return_value = "C:/plantillas"
+    app.config["CONFIG_MANAGER"] = cm
+    return app
+
+
+@contextmanager
+def _with_plc_noop():
+    """``with_plc`` no-op: el ``app_cache`` de los tests es un mock."""
+    with patch(
+        "areas.alimentacion.frontend.proc_process_crear_router.with_plc"
+    ):
+        yield
+
+
+@pytest.mark.parametrize("url,_fb_name,body", ENDPOINTS, ids=IDS)
+def test_endpoint_body_invalido_devuelve_400(url, _fb_name, body) -> None:
+    """Body incompleto -> 400 (mismo codigo que antes de migrar)."""
+    from areas.alimentacion.frontend.proc_process_crear_router import bp
+
+    engine = MagicMock()
+    engine.get_fb.return_value = _make_mock_fb()
+    app = _make_app_para_endpoint(engine=engine)
+    app.register_blueprint(bp)
+    client = app.test_client()
+
+    resp = client.post(url, json={})
+    assert resp.status_code == 400
+    payload = resp.get_json()
+    assert payload["ok"] is False
+    assert "falta" in payload["error"]
+
+
+def test_crear_aplicar_sin_plc_name_devuelve_400(plantilla_dummy: Path) -> None:
+    """El ``plc_name`` sigue siendo obligatorio en ``/aplicar`` -> 400."""
+    from areas.alimentacion.frontend.proc_process_crear_router import bp
+
+    engine = MagicMock()
+    engine.get_fb.return_value = _make_mock_fb()
+    cm = MagicMock()
+    cm.get_plantillas_path.return_value = str(plantilla_dummy.parent)
+    app_cache = _make_mock_app_cache(proc_uid=300)
+
+    app = _make_app(engine=engine, app_cache=app_cache, config_manager=cm)
+    app.register_blueprint(bp)
+    client = app.test_client()
+
+    resp = client.post("/api/v1/procesos/crear/aplicar", json={
+        "dir_plantilla_nombre": "TestPlantilla",
+        "proc_uid": 300,
+    })
+    assert resp.status_code == 400
+    payload = resp.get_json()
+    assert payload["ok"] is False
+    assert "plc_name" in payload["error"]
+
+
+@pytest.mark.parametrize("url,_fb_name,body", ENDPOINTS, ids=IDS)
+def test_endpoint_sin_engine_devuelve_500(url, _fb_name, body) -> None:
+    """Sin ``ENGINE`` en el config -> KeyError -> 500."""
+    from areas.alimentacion.frontend.proc_process_crear_router import bp
+
+    app = _make_app_para_endpoint(engine=None)
+    app.register_blueprint(bp)
+    with app.test_client() as client:
+        resp = client.post(url, json=body)
+    assert resp.status_code == 500
+
+
+@pytest.mark.parametrize("url,fb_name,body", ENDPOINTS, ids=IDS)
+def test_endpoint_fb_no_registrado_devuelve_500(url, fb_name, body) -> None:
+    """FB no registrado en el engine -> 500."""
+    from areas.alimentacion.frontend.proc_process_crear_router import bp
+
+    engine = MagicMock()
+    engine.get_fb.return_value = None
+    app = _make_app_para_endpoint(engine=engine)
+    app.register_blueprint(bp)
+    with app.test_client() as client:
+        resp = client.post(url, json=body)
+    assert resp.status_code == 500
+    payload = resp.get_json()
+    assert payload["ok"] is False
+    assert "no registrado" in payload["error"]
+    assert fb_name in payload["error"]
+
+
+@pytest.mark.parametrize("url,_fb_name,body", ENDPOINTS, ids=IDS)
+def test_endpoint_fb_ocupado_devuelve_409(url, _fb_name, body) -> None:
+    """``engine.submit`` lanza ``FBBusyError`` -> 409."""
+    from areas.alimentacion.frontend.proc_process_crear_router import bp
+
+    engine = MagicMock()
+    engine.get_fb.return_value = _make_mock_fb()
+    engine.submit.side_effect = FBBusyError("FB ocupado: ya tiene trabajo")
+    app = _make_app_para_endpoint(engine=engine)
+    app.register_blueprint(bp)
+    with app.test_client() as client:
+        with _with_plc_noop():
+            resp = client.post(url, json=body)
+    assert resp.status_code == 409
+    payload = resp.get_json()
+    assert payload["ok"] is False
+    assert "trabajo en curso" in payload["error"]
+
+
+@pytest.mark.parametrize("url,_fb_name,body", ENDPOINTS, ids=IDS)
+def test_endpoint_submit_falla_devuelve_500(url, _fb_name, body) -> None:
+    """``engine.submit`` lanza otra excepcion -> 500."""
+    from areas.alimentacion.frontend.proc_process_crear_router import bp
+
+    engine = MagicMock()
+    engine.get_fb.return_value = _make_mock_fb()
+    engine.submit.side_effect = RuntimeError("boom")
+    app = _make_app_para_endpoint(engine=engine)
+    app.register_blueprint(bp)
+    with app.test_client() as client:
+        with _with_plc_noop():
+            resp = client.post(url, json=body)
+    assert resp.status_code == 500
+    payload = resp.get_json()
+    assert payload["ok"] is False
+    assert "boom" in payload["error"]
+
+
+@pytest.mark.parametrize("url,fb_name,body", ENDPOINTS, ids=IDS)
+def test_endpoint_happy_path_devuelve_202_con_job_id(
+    url, fb_name, body,
+) -> None:
+    """Happy path -> 202 con ``job_id`` y ``submit`` con los params."""
+    from areas.alimentacion.frontend.proc_process_crear_router import bp
+
+    engine = MagicMock()
+    fb_mock = _make_mock_fb()
+    engine.get_fb.return_value = fb_mock
+    engine.submit.return_value = "job-abc123"
+    app = _make_app_para_endpoint(engine=engine)
+    app.register_blueprint(bp)
+    with app.test_client() as client:
+        with _with_plc_noop():
+            resp = client.post(url, json=body)
+    assert resp.status_code == 202
+    payload = resp.get_json()
+    assert payload["ok"] is True
+    assert payload["job_id"] == "job-abc123"
+    # El trabajo se encola para el FB correcto con los params resueltos.
+    engine.submit.assert_called_once()
+    args, kwargs = engine.submit.call_args
+    assert args[0] == fb_name
+    assert kwargs["dir_plantilla_nombre"] == "TestPlantilla"
+    assert kwargs["base_nueva"] == 300
+    assert kwargs["codigo_nuevo"] == "EXP"
+    assert kwargs["minimos_usuario"]["N_MAX_PREAL"] == 30
+    if fb_name == "proc_process_crear_aplicar":
+        assert kwargs["plc_name"] == "S7-1500"
+    # El router no arranca ni sondea el FB (no hay poll bloqueante).
+    fb_mock.start.assert_not_called()
+    fb_mock.is_terminal.assert_not_called()
+
+
+@pytest.mark.parametrize("url,_fb_name,body", ENDPOINTS, ids=IDS)
+def test_endpoint_no_devuelve_el_result_del_fb(url, _fb_name, body) -> None:
+    """El router no bloquea: la respuesta lleva solo ok + job_id."""
+    from areas.alimentacion.frontend.proc_process_crear_router import bp
+
+    engine = MagicMock()
+    engine.get_fb.return_value = _make_mock_fb(result={
+        "success": True,
+        "archivos_previstos": [{"nombre": "FC60010_EXP_INTERFAZ"}],
+        "archivos_generados": [{"nombre": "FC60010_EXP_INTERFAZ"}],
+        "colisiones": [],
+        "import_result": {"success": True},
+        "compile_result": {"ok": True},
+    })
+    engine.submit.return_value = "job-abc123"
+    app = _make_app_para_endpoint(engine=engine)
+    app.register_blueprint(bp)
+    with app.test_client() as client:
+        with _with_plc_noop():
+            resp = client.post(url, json=body)
+    assert resp.status_code == 202
+    payload = resp.get_json()
+    assert payload == {"ok": True, "job_id": "job-abc123"}
+    for key in (
+        "result", "success", "archivos_previstos", "archivos_generados",
+        "colisiones", "import_result", "compile_result",
+    ):
+        assert key not in payload
