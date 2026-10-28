@@ -1,29 +1,38 @@
 """Router Flask de los endpoints ``POST /api/v1/procesos/sync/{preview,commit}``.
 
-Orquesta: arranca el FB correspondiente y devuelve su ``result``.
-Los helpers (``areas/alimentacion/helpers/proc/``) tienen la logica
-pura; los FBs (registrados en el engine con esos nombres) tienen la
-state machine + tracker.
+Orquesta: encola el trabajo correspondiente en el OB1 (dispatcher con
+cola) y devuelve el ``job_id``. Los helpers
+(``areas/alimentacion/helpers/proc/``) tienen la logica pura; los FBs
+(registrados en el engine con esos nombres) tienen la state machine +
+tracker.
 
 Endpoints:
   POST /api/v1/procesos/sync/preview
-    Body JSON: ``{plc_name: str, proc_uid: int}``. Dispara el FB
-    ``proc_generar_preview`` y devuelve su ``result`` con shape
+    Body JSON: ``{plc_name: str, proc_uid: int}``. Encola el FB
+    ``proc_db_generar_preview`` y devuelve ``202`` con
+    ``{"ok": true, "job_id": "<hex>"}``. El resultado del preview (shape
     legacy completa: ``{proc_uid, proc_codigo, precondiciones_ok,
-    missing_blocks, db_param_name, db_alm_name, table_name,
-    arrays, summary, nmax, warnings}``.
+    missing_blocks, db_param_name, db_alm_name, table_name, arrays,
+    summary, nmax, warnings}``) llega por el evento SSE ``fb_state`` y
+    por el slot ``preview_proc`` del AppCache que publica el FB al
+    terminar.
 
   POST /api/v1/procesos/sync/commit
-    Body JSON: ``{plc_name: str, proc_uid: int}``. Dispara el FB
-    ``proc_sincronizar`` y devuelve su ``result`` con shape
+    Body JSON: ``{plc_name: str, proc_uid: int}``. Encola el FB
+    ``proc_db_sincronizar`` y devuelve ``202`` con
+    ``{"ok": true, "job_id": "<hex>"}``. El resultado del commit (shape
     legacy completa: ``{proc_uid, plc_name, success, applied,
-    operations_executed, details, warnings}``.
+    operations_executed, details, warnings}``) llega por el evento SSE
+    ``fb_state`` y por los slots ``last_proc_commit_summary`` /
+    ``preview_proc`` del AppCache que publica el FB al terminar.
 
 Notas de timing:
   - Operacion PESADA: preview exporta 2 DBs + parsea N_MAX;
     commit aplica 2 sub-comandos TIA en 1 sola transaccion.
   - TIA V21 puede tardar 1-3 min en PLCs grandes.
   - STEP_TIMEOUT_S del FB preview: 180s. del FB commit: 300s.
+  - El request NO bloquea: el router responde 202 de inmediato y el
+    trabajo lo ejecuta el hilo del OB1.
   - Cliente API (frontend): debe usar el bucket
     MEDIUM_TIMEOUT_MS (300s, 5 min) en api.js para no abortar
     antes de tiempo.
@@ -31,10 +40,10 @@ Notas de timing:
 from __future__ import annotations
 
 import logging
-import time
 
 from flask import Blueprint, current_app, jsonify, request
 
+from core.composition.plc_engine import FBBusyError
 from core.infrastructure.log.log_web_bridge import install_web_level
 
 logger = logging.getLogger(__name__)
@@ -50,10 +59,6 @@ bp = Blueprint(
 
 def _get_engine():
     return current_app.config["ENGINE"]
-
-
-def _get_fb(name: str):
-    return _get_engine().get_fb(name)
 
 
 def _validate_body(body: dict) -> tuple[str | None, int | None, str | None]:
@@ -72,166 +77,124 @@ def _validate_body(body: dict) -> tuple[str | None, int | None, str | None]:
     return plc_name, proc_uid, None
 
 
-def _poll_until_terminal(fb: Any, poll_interval_s: float = 0.1) -> bool:
-    """Poll bloqueante hasta que el FB entre en estado terminal.
-
-    Returns:
-        True si termino OK, False si timeout.
-    """
-    elapsed = 0.0
-    fb_step_timeout = getattr(fb, "STEP_TIMEOUT_S", 600.0)
-    while not fb.is_terminal() and elapsed < fb_step_timeout:
-        time.sleep(poll_interval_s)
-        elapsed += poll_interval_s
-    if not fb.is_terminal():
-        fb.cancel("timeout en /api/v1/procesos/sync")
-        return False
-    return True
-
-
 @bp.post("/preview")
 def post_proc_sync_preview():
-    """Dispara el FB ``proc_generar_preview`` y devuelve su ``result``.
+    """Encola el FB ``proc_db_generar_preview`` para el proceso del body.
 
     Body JSON: ``{plc_name: str, proc_uid: int}``.
 
+    El request NO bloquea: encola el trabajo en el OB1 y devuelve
+    ``202`` con el ``job_id``. El FB se ejecuta en el hilo del OB1 y
+    su resultado llega al HMI por el evento SSE ``fb_state`` (con el
+    mismo ``job_id``) y por el slot ``preview_proc`` del AppCache que
+    el FB publica al terminar.
+
     Returns:
-        200 con shape legacy completo.
+        202 con ``{"ok": true, "job_id": "<hex>"}``.
         400 si falta ``plc_name`` o ``proc_uid`` en el body.
-        409 si el FB ya esta activo o terminal.
-        500 si el FB no esta registrado o termino en error.
-        504 si timeout.
+        409 si el FB ya tiene un trabajo en curso.
+        500 si el FB no esta registrado en el engine.
     """
     body = request.get_json(silent=True) or {}
     plc_name, proc_uid, err = _validate_body(body)
     if err:
         return jsonify({"ok": False, "error": err}), 400
 
-    fb = _get_fb("proc_db_generar_preview")
-    if fb is None:
+    engine = _get_engine()
+    if engine is None:
         return jsonify({
             "ok": False,
-            "error": "FB 'proc_generar_preview' no registrado en el engine",
+            "error": "Engine no disponible",
         }), 500
 
-    import asyncio
+    if engine.get_fb("proc_db_generar_preview") is None:
+        return jsonify({
+            "ok": False,
+            "error": "FB 'proc_db_generar_preview' no registrado en el engine",
+        }), 500
+
     # Plan living TRAZABILIDAD_LOGGING §5: 1 web explicito al iniciar.
     logger.web(f"Generando prevision de proceso '{proc_uid}' en '{plc_name}'...")
-    started = asyncio.run(fb.start(plc_name=plc_name, proc_uid=proc_uid))
-    if not started:
+    try:
+        job_id = engine.submit(
+            "proc_db_generar_preview", plc_name=plc_name, proc_uid=proc_uid,
+        )
+    except FBBusyError as exc:
         return jsonify({
             "ok": False,
-            "error": "FB 'proc_generar_preview' ya activo o terminal. "
-                     "Haz /disconnect y reintenta.",
+            "error": (
+                f"FB 'proc_db_generar_preview' ya tiene un trabajo en curso. "
+                f"Espera a que termine y reintenta. ({exc})"
+            ),
         }), 409
-
-    if not _poll_until_terminal(fb):
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("dispatch: no se pudo encolar el preview de proceso")
         return jsonify({
             "ok": False,
-            "error": f"timeout tras {fb.STEP_TIMEOUT_S:.1f}s sin terminar",
-        }), 504
-
-    if fb.nStep == fb.n_error:
-        return jsonify({
-            "ok": False,
-            "error": fb.error_msg or "FB termino en error",
-            "nStep": fb.nStep,
+            "error": f"no se pudo encolar el trabajo: {exc}",
         }), 500
 
-    result = fb.result or {"ok": True, "plc_name": plc_name, "proc_uid": proc_uid}
-    # Publica el preview en AppCache (slot preview_proc).
-    from core.runtime.area_preview_cache import area_set_preview_proc
-    from core.runtime.app_cache import get_app_cache
-    area_set_preview_proc(get_app_cache(), "alimentacion", result)
-    # Plan living §5: OK con resumen del preview.
-    s = (result.get("summary") or {}) if isinstance(result, dict) else {}
-    nmax = (
-        (result.get("nmax") or {}).get("summary") or {}
-        if isinstance(result, dict) else {}
-    )
-    logger.ok(
-        f"Prevision de proceso '{proc_uid}' en '{plc_name}': "
-        f"{s.get('agregados', 0)} adds, {s.get('renombrados', 0)} renames, "
-        f"{s.get('eliminados', 0)} removes, "
-        f"{nmax.get('actualizar', 0)} N_MAX"
-    )
-    return jsonify(result)
+    return jsonify({"ok": True, "job_id": job_id}), 202
 
 
 @bp.post("/commit")
 def post_proc_sync_commit():
-    """Dispara el FB ``proc_sincronizar`` y devuelve su ``result``.
+    """Encola el FB ``proc_db_sincronizar`` para el proceso del body.
 
     Body JSON: ``{plc_name: str, proc_uid: int}``.
 
+    El request NO bloquea: encola el trabajo en el OB1 y devuelve
+    ``202`` con el ``job_id``. El FB se ejecuta en el hilo del OB1 y
+    su resultado llega al HMI por el evento SSE ``fb_state`` (con el
+    mismo ``job_id``) y por los slots ``last_proc_commit_summary`` y
+    ``preview_proc`` del AppCache que el FB publica al terminar.
+
     Returns:
-        200 con shape legacy completo (success, applied,
-        operations_executed, details, warnings).
+        202 con ``{"ok": true, "job_id": "<hex>"}``.
         400 si falta ``plc_name`` o ``proc_uid`` en el body.
-        409 si el FB ya esta activo o terminal.
-        500 si el FB no esta registrado o termino en error.
-        504 si timeout.
+        409 si el FB ya tiene un trabajo en curso.
+        500 si el FB no esta registrado en el engine.
     """
     body = request.get_json(silent=True) or {}
     plc_name, proc_uid, err = _validate_body(body)
     if err:
         return jsonify({"ok": False, "error": err}), 400
 
-    fb = _get_fb("proc_db_sincronizar")
-    if fb is None:
+    engine = _get_engine()
+    if engine is None:
         return jsonify({
             "ok": False,
-            "error": "FB 'proc_sincronizar' no registrado en el engine",
+            "error": "Engine no disponible",
         }), 500
 
-    import asyncio
+    if engine.get_fb("proc_db_sincronizar") is None:
+        return jsonify({
+            "ok": False,
+            "error": "FB 'proc_db_sincronizar' no registrado en el engine",
+        }), 500
+
     # Plan living TRAZABILIDAD_LOGGING §5: 1 web explicito al iniciar.
     logger.web(f"Sincronizando comentarios de proceso '{proc_uid}' en '{plc_name}'...")
-    started = asyncio.run(fb.start(plc_name=plc_name, proc_uid=proc_uid))
-    if not started:
+    try:
+        job_id = engine.submit(
+            "proc_db_sincronizar", plc_name=plc_name, proc_uid=proc_uid,
+        )
+    except FBBusyError as exc:
         return jsonify({
             "ok": False,
-            "error": "FB 'proc_sincronizar' ya activo o terminal. "
-                     "Haz /disconnect y reintenta.",
+            "error": (
+                f"FB 'proc_db_sincronizar' ya tiene un trabajo en curso. "
+                f"Espera a que termine y reintenta. ({exc})"
+            ),
         }), 409
-
-    if not _poll_until_terminal(fb):
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("dispatch: no se pudo encolar el sync de proceso")
         return jsonify({
             "ok": False,
-            "error": f"timeout tras {fb.STEP_TIMEOUT_S:.1f}s sin terminar",
-        }), 504
-
-    if fb.nStep == fb.n_error:
-        return jsonify({
-            "ok": False,
-            "error": fb.error_msg or "FB termino en error",
-            "nStep": fb.nStep,
+            "error": f"no se pudo encolar el trabajo: {exc}",
         }), 500
 
-    result = fb.result or {"ok": True, "plc_name": plc_name, "proc_uid": proc_uid}
-    # Publica el resumen del commit en AppCache (slots
-    # last_proc_commit_summary + last_sync_proc_at) y refresca el
-    # preview post-sync si viene en la respuesta.
-    from core.runtime.area_preview_cache import (
-        area_set_proc_commit_summary,
-        area_set_preview_proc,
-    )
-    from core.runtime.app_cache import get_app_cache
-    app_cache = get_app_cache()
-    area_set_proc_commit_summary(app_cache, "alimentacion", result)
-    post_sync_preview = (
-        result.get("post_sync_preview")
-        if isinstance(result, dict) else None
-    )
-    if post_sync_preview is not None:
-        area_set_preview_proc(app_cache, "alimentacion", post_sync_preview)
-    # Plan living §5: OK con resumen del sync.
-    ops = result.get("operations_executed", 0) if isinstance(result, dict) else 0
-    logger.ok(
-        f"Sincronizacion de proceso '{proc_uid}' en '{plc_name}': "
-        f"{ops} ops aplicadas"
-    )
-    return jsonify(result)
+    return jsonify({"ok": True, "job_id": job_id}), 202
 
 
 def build_routers(app) -> None:
