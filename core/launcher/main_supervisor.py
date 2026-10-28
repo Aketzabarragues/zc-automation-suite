@@ -284,8 +284,7 @@ class MainServiceSupervisor:
         # pasandole el ``tia_client`` para que registre sus handlers
         # con ``tia_client.register_command(...)``. Sin este wiring los
         # comandos del area lanzan ``unknown_command:<name>`` al
-        # primer dispatch (ej. ``commit_user_constants_online``
-        # falla en ``/api/v1/sync/commit``).
+        # primer dispatch.
         from core.composition.app_area_registry import AreaRegistry
         for spec in AreaRegistry.discover().all():
             if spec.contributes_tia_commands is not None:

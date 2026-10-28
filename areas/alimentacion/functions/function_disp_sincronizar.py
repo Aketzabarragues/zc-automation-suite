@@ -433,7 +433,8 @@ class FunctionDispSincronizar(FunctionBase):
         )
 
         # Rename ops (shape legacy: {table_name, current_name, new_name}).
-        # Tx A las pasa separadas al handler commit_user_constants_online.
+        # Tx A las dispatchea con ``update_user_constant_name`` dentro del
+        # batch transaccional.
         self._ctx.rename_ops = [
             {
                 "table_name": uid.split(":", 1)[0],
@@ -1179,12 +1180,12 @@ def _compute_nmax_ops_for_apply(
     config_manager: Any,
     app_cache: AppCache,
 ) -> list[dict[str, Any]]:
-    """Calcula la lista de ops N_MAX para el handler online.
+    """Calcula la lista de ops N_MAX para el dispatch online.
 
     Returns:
         Lista de ``[{"table_name": ..., "constant_name": ...,
-        "new_value": int}]`` lista para el dispatch al handler
-        ``commit_user_constants_online``.
+        "new_value": int}]`` lista para dispatchear con
+        ``update_user_constant_value`` dentro del batch transaccional.
     """
     from core.helpers.simatic_ml import PlcUserConstantParser
 
