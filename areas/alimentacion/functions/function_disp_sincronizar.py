@@ -58,6 +58,10 @@ from core.helpers.tia.validate_plc_in_tia import validate_plc_in_tia
 from core.helpers.tia.validate_plc_in_excel import validate_plc_in_excel
 from core.helpers.tia.with_plc import with_plc
 from core.helpers.tia.active_cache import get_devices, get_nmax
+from core.infrastructure.log.log_web_bridge import install_web_level
+
+# Asegura que ``Logger.web/ok`` existen (idempotente).
+install_web_level()
 
 
 from core.runtime.app_cache import AppCache, get_app_cache
@@ -308,6 +312,35 @@ class FunctionDispSincronizar(FunctionBase):
             f"({len(self._ctx.nmax_ops)} N_MAX), "
             f"compile={compile_label}"
         )
+
+        self._publish_result_to_cache()
+        logger.ok(
+            f"Sincronizacion completa en '{self._ctx.plc_name}': "
+            f"{operations_executed} ops, "
+            f"{len(self._ctx.nmax_ops)} N_MAX"
+        )
+
+    def _publish_result_to_cache(self) -> None:
+        """Publica el resumen del sync y el preview post-sync en el AppCache.
+
+        El AppCache es el canal por el que la SPA se entera del commit:
+        lee estos slots y los recibe por SSE (``cache_changed``). El
+        router solo encola el trabajo, asi que la publicacion tiene que
+        ocurrir aqui, cuando el FB ha terminado.
+        """
+        from core.runtime.app_cache import get_app_cache
+        from core.runtime.area_preview_cache import (
+            area_set_disp_commit_summary,
+            area_set_preview_disp,
+        )
+
+        app_cache = get_app_cache()
+        area_set_disp_commit_summary(app_cache, "alimentacion", self.result)
+        post_sync_preview = self.result.get("post_sync_preview")
+        if post_sync_preview is not None:
+            area_set_preview_disp(
+                app_cache, "alimentacion", post_sync_preview,
+            )
 
     # ==================================================================
     # Stages del FB (ZONA 4: 11 metodos privados numerados).
