@@ -10,9 +10,9 @@ Cubre:
 
 Mockeamos:
   - ``config_manager``, ``app_state``, ``build_cache`` con ``MagicMock``.
-  - ``tia_client`` con ``MagicMock``.
-  - ``dispatch_async`` del modulo del FB via ``monkeypatch`` (con una
-    coroutine fake que devuelve un dict de exito o error segun test).
+  - ``tia_client`` con ``MagicMock`` y ``submit_and_wait`` mockeado por
+    comando (el FB ya es sync: llama al worker OT con
+    ``submit_and_wait`` en vez de ``dispatch_async``).
 
 ``progress`` es un ``ProgressTracker`` real (NO mockeado) para verificar
 el flujo de stages.
@@ -23,6 +23,7 @@ a ``n_error``, dejando el PLC en el mismo estado previo al apply
 """
 from __future__ import annotations
 
+import inspect
 import json
 from pathlib import Path
 from typing import Any
@@ -113,6 +114,78 @@ def progress(real_progress: ProgressTracker) -> ProgressTracker:
     return real_progress
 
 
+# Respuestas del worker OT. La shape es la del dispatcher:
+# ``{"ok": True, "result": <dict del handler>}`` o
+# ``{"ok": False, "error": "<msg>"}``.
+LIST_PLCS_OK: dict[str, Any] = {
+    "ok": True,
+    "result": {"plcs": [{"name": "S7-1500"}]},
+}
+
+BATCH_OK: dict[str, Any] = {
+    "ok": True,
+    "result": {
+        "success": True,
+        "operations_executed": 3,
+        "details": [
+            {"step": 1, "command": "import_plc_tags_xml",
+             "result": {"imported_from": ""}},
+            {"step": 2, "command": "_wait",
+             "result": "sleep 2.0s"},
+            {"step": 3, "command": "import_blocks_sd",
+             "result": {"imported_from": ""}},
+        ],
+    },
+}
+
+COMPILE_OK: dict[str, Any] = {
+    "ok": True,
+    "result": {"had_errors": False},
+}
+
+# El refresh del BloqueCache (stage 9) es tolerante a fallos: el FB
+# loggea un warning y continua el apply. En el test no hay TIA, asi que
+# el comando se responde con un error explicito.
+SCAN_BLOCKS_KO: dict[str, Any] = {
+    "ok": False,
+    "error": "scan_blocks no disponible en test offline",
+}
+
+
+def make_tia_client(
+    responses: dict[str, Any],
+    calls: list[str] | None = None,
+) -> MagicMock:
+    """Crea el mock del cliente TIA con ``submit_and_wait`` mockeado.
+
+    ``submit_and_wait`` devuelve la shape del dispatcher del worker OT:
+    ``{"ok": True, "result": <dict del handler>}`` o
+    ``{"ok": False, "error": "<msg>"}``.
+
+    ``responses`` mapea nombre de comando -> respuesta. Un comando sin
+    respuesta mockeada lanza ``AssertionError`` (fallo de test visible,
+    no fallo silencioso del FB). Si se pasa ``calls``, se appende el
+    nombre de cada comando enviado al worker.
+    """
+    tia = MagicMock()
+
+    def _submit_and_wait(
+        command: str,
+        args: dict | None = None,
+        timeout: float = 30.0,
+    ) -> dict:
+        if calls is not None:
+            calls.append(command)
+        if command not in responses:
+            raise AssertionError(
+                f"submit_and_wait no mockeado para el comando {command!r}"
+            )
+        return responses[command]
+
+    tia.submit_and_wait = MagicMock(side_effect=_submit_and_wait)
+    return tia
+
+
 def make_fb(
     tia_client: MagicMock,
     progress: ProgressTracker,
@@ -120,10 +193,6 @@ def make_fb(
     """Crea un FB con deps mockeadas pero tracker real."""
     config = MagicMock()
     build_cache_root = MagicMock()
-    # Mock list_plcs para validate_plc_in_tia (PR5).
-    tia_client.submit_and_wait = MagicMock(
-        return_value={"ok": True, "result": {"plcs": [{"name": "S7-1500"}]}}
-    )
     return FunctionProcCrearSincronizar(
         nombre="proc_process_crear_aplicar_test",
         config_manager=config,
@@ -141,7 +210,6 @@ async def test_apply_happy_path_12_ticks(
     plantilla_dummy: Path,
     tmp_path: Path,
     progress: ProgressTracker,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Happy path: 11 ticks -> n_done, ``self.result`` con shape de apply.
 
@@ -152,35 +220,12 @@ async def test_apply_happy_path_12_ticks(
       ticks #2-#10: 20 (9 steps; nStep NO avanza)
       tick #11: 95 -> 99 (on_finish)
     """
-    tia = MagicMock()
-
-    # Mockear ``dispatch_async`` del modulo del FB. La firma real es
-    # ``await dispatch_async(tia_client, command, args, timeout_s)``.
-    # Devolvemos un dict de exito para cada comando; ``compile_plc`` y
-    # ``execute_transactional_batch`` usan ``result.get("ok")`` para
-    # detectar exito, asi que devolvemos ``{"ok": True, ...}``. Para
-    # el lote transaccional devolvemos el shape real con ``operations_executed``
-    # y ``details`` para que el test verifique la forma consolidada.
-    async def fake_dispatch(tia_client: Any, command: str, args: dict, **kw: Any) -> dict:
-        if command == "execute_transactional_batch":
-            return {
-                "ok": True,
-                "operations_executed": 3,
-                "details": [
-                    {"step": 1, "command": "import_plc_tags_xml",
-                     "result": {"imported_from": ""}},
-                    {"step": 2, "command": "_wait",
-                     "result": "sleep 2.0s"},
-                    {"step": 3, "command": "import_blocks_sd",
-                     "result": {"imported_from": ""}},
-                ],
-            }
-        return {"ok": True, "imported_from": args.get("import_dir", "")}
-
-    monkeypatch.setattr(
-        "areas.alimentacion.functions.function_proc_crear_sincronizar.dispatch_async",
-        fake_dispatch,
-    )
+    tia = make_tia_client({
+        "list_plcs": LIST_PLCS_OK,
+        "execute_transactional_batch": BATCH_OK,
+        "compile_plc": COMPILE_OK,
+        "scan_blocks": SCAN_BLOCKS_KO,
+    })
 
     fb = make_fb(tia, progress)
 
@@ -229,7 +274,7 @@ async def test_apply_happy_path_12_ticks(
     assert fb.result is not None
     assert isinstance(fb.result, dict)
     # import_result y compile_result vienen de los atributos internos,
-    # poblados por los dispatches mockeados.
+    # poblados por los comandos mockeados.
     assert "import_result" in fb.result
     assert "compile_result" in fb.result
     # ``process_label``: ``"<base_nueva>_<codigo_nuevo>"`` del proceso
@@ -240,18 +285,24 @@ async def test_apply_happy_path_12_ticks(
     assert fb.result["process_label"] == "60010_EXP", (
         f"process_label mal formado: {fb.result['process_label']!r}"
     )
-    # Cada dispatch mockeado devolvio ``{"ok": True, "imported_from": ...}``.
-    assert fb.result["compile_result"] == {"ok": True, "imported_from": ""}
-    # ``import_result`` tiene el shape consolidado del lote (legacy
-    # execute_transactional_batch) con ``operations_executed`` y
-    # ``details``: tags + wait + blocks.
+    # ``compile_plc`` mockeado devolvio la shape del dispatcher:
+    # ``{"ok": True, "result": {"had_errors": False}}``.
+    assert fb.result["compile_result"] == {
+        "ok": True,
+        "result": {"had_errors": False},
+    }
+    # ``import_result`` tiene el shape consolidado del lote
+    # (execute_transactional_batch) con ``success``,
+    # ``operations_executed`` y ``details``: tags + wait + blocks.
     ir = fb.result["import_result"]
     assert ir["ok"] is True
-    assert ir["operations_executed"] == 3
-    assert len(ir["details"]) == 3
-    assert ir["details"][0]["command"] == "import_plc_tags_xml"
-    assert ir["details"][1]["command"] == "_wait"
-    assert ir["details"][2]["command"] == "import_blocks_sd"
+    lote = ir["result"]
+    assert lote["success"] is True
+    assert lote["operations_executed"] == 3
+    assert len(lote["details"]) == 3
+    assert lote["details"][0]["command"] == "import_plc_tags_xml"
+    assert lote["details"][1]["command"] == "_wait"
+    assert lote["details"][2]["command"] == "import_blocks_sd"
 
 
 # ── Sad path ─────────────────────────────────────────────────────────
@@ -262,12 +313,11 @@ async def test_apply_lote_transaccional_falla(
     plantilla_dummy: Path,
     tmp_path: Path,
     progress: ProgressTracker,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``execute_transactional_batch`` retorna ``{ok: False, ...}``
     -> el FB va a ``n_error``.
 
-    El step ``importar_proceso`` ejecuta UN SOLO dispatch
+    El step ``importar_proceso`` ejecuta UN SOLO comando
     (``execute_transactional_batch``) que internamente corre las 3
     ops (tags + wait + blocks) bajo una transaccion TIA. Aqui
     forzamos que el lote retorne fallo (simula el caso en el que
@@ -275,16 +325,12 @@ async def test_apply_lote_transaccional_falla(
     bloque conflictivo, transaccion corrupta, etc.). El FB detecta
     el fallo y va a ``n_error`` sin ejecutar ``compile_plc``.
     """
-    tia = MagicMock()
+    comandos: list[str] = []
 
-    dispatch_count = {"execute_transactional_batch": 0}
-
-    async def fake_dispatch(
-        tia_client: Any, command: str, args: dict, **kw: Any,
-    ) -> dict:
-        if command == "execute_transactional_batch":
-            dispatch_count["execute_transactional_batch"] += 1
-            return {
+    tia = make_tia_client(
+        {
+            "list_plcs": LIST_PLCS_OK,
+            "execute_transactional_batch": {
                 "ok": False,
                 "error": (
                     "Lote abortado en el paso 3 ('import_blocks_sd'). "
@@ -294,14 +340,9 @@ async def test_apply_lote_transaccional_falla(
                     "Transaction is not allowed after an exception is "
                     "thrown due to potential project data corruption."
                 ),
-            }
-        # No deberia llamarse a ningun otro dispatch (los imports
-        # estan dentro del lote).
-        raise AssertionError(f"dispatch no esperado: {command!r}")
-
-    monkeypatch.setattr(
-        "areas.alimentacion.functions.function_proc_crear_sincronizar.dispatch_async",
-        fake_dispatch,
+            },
+        },
+        calls=comandos,
     )
 
     fb = make_fb(tia, progress)
@@ -349,7 +390,75 @@ async def test_apply_lote_transaccional_falla(
     assert "execute_transactional_batch fallo" in fb.error_msg
     assert "CommitOnDispose" in fb.error_msg
 
-    # Verificamos que se llamo el dispatch del lote (solo 1; los
-    # imports viven dentro del lote, no como dispatches separados).
-    assert dispatch_count["execute_transactional_batch"] == 1
+    # Verificamos que se llamo al comando del lote (solo 1; los
+    # imports viven dentro del lote, no como comandos separados).
+    assert comandos.count("execute_transactional_batch") == 1
     # ``compile_plc`` NUNCA se llamo (el FB aborto antes).
+    assert "compile_plc" not in comandos
+
+
+# ── Contrato sync (hilo OB1) ─────────────────────────────────────────
+
+
+def test_run_step_es_sync_no_coroutine() -> None:
+    """El FB ya no es una corrutina: se ejecuta en un hilo sync.
+
+    Contrato del hilo OB1: ``run_step`` (y los stages que hablan con
+    el worker OT) son funciones normales, no corrutinas.
+    """
+    assert not inspect.iscoroutinefunction(FunctionProcCrearSincronizar.run_step)
+    assert not inspect.iscoroutinefunction(
+        FunctionProcCrearSincronizar._stage_7_importar_proceso
+    )
+    assert not inspect.iscoroutinefunction(
+        FunctionProcCrearSincronizar._stage_8_compilar
+    )
+
+
+def test_apply_happy_path_sync_execute(
+    plantilla_dummy: Path,
+    tmp_path: Path,
+    progress: ProgressTracker,
+) -> None:
+    """Camino OB1: ``execute()`` sync completa el apply sin event loop."""
+    comandos: list[str] = []
+    tia = make_tia_client(
+        {
+            "list_plcs": LIST_PLCS_OK,
+            "execute_transactional_batch": BATCH_OK,
+            "compile_plc": COMPILE_OK,
+            "scan_blocks": SCAN_BLOCKS_KO,
+        },
+        calls=comandos,
+    )
+    fb = make_fb(tia, progress)
+
+    fb.execute(
+        plantillas_path=str(plantilla_dummy.parent),
+        dir_plantilla_nombre="TestPlantilla",
+        base_nueva=60010,
+        codigo_nuevo="EXP",
+        nombre_nuevo="NuevoProceso",
+        minimos_usuario={
+            "N_MAX_PREAL": 30, "N_MAX_PINT": 30,
+            "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
+        },
+        plc_name="S7-1500",
+        plc_blocks_cache=[],
+        build_cache_root=tmp_path / ".build_cache",
+    )
+
+    assert fb.nStep == fb.n_done
+    assert fb.is_terminal() is True
+    assert fb.error_msg is None
+    assert fb.result["process_label"] == "60010_EXP"
+    assert fb.result["import_result"]["ok"] is True
+    assert fb.result["compile_result"]["ok"] is True
+    # Orden de comandos contra el worker OT: validacion del PLC,
+    # lote transaccional, compile y refresh del BloqueCache.
+    assert comandos == [
+        "list_plcs",
+        "execute_transactional_batch",
+        "compile_plc",
+        "scan_blocks",
+    ]

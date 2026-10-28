@@ -1179,7 +1179,7 @@ async def test_escribir_manifest(tmp_path: Path, plantilla_dummy: Path) -> None:
             "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
         },
     )
-    await proc_process_escribir_manifest(ctx)
+    proc_process_escribir_manifest(ctx)
 
     manifest_path = modified / "manifest.json"
     assert manifest_path.is_file()

@@ -90,7 +90,6 @@ Steps (9):
 """
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import shutil
@@ -99,7 +98,6 @@ from pathlib import Path
 from typing import Any
 
 from core.composition.plc_function_base import FunctionBase
-from core.helpers.tia import dispatch_async
 from core.helpers.tia.validate_plc_in_tia import validate_plc_in_tia
 from areas.alimentacion.helpers.layout.build_cache import DEFAULT_BUILD_CACHE_ROOT
 from areas.alimentacion.helpers.proc.proc_process_aplicar_clonacion import (
@@ -404,7 +402,7 @@ class FunctionProcCrearSincronizar(FunctionBase):
     # HOOK 2: run_step  (ZONA 4: state machine -> dispatch al stage)
     # ==================================================================
 
-    async def run_step(self, idx: int, **params: Any) -> str:
+    def run_step(self, idx: int, **params: Any) -> str:
         """Dispatch del FB step ``idx`` al metodo ``_stage_N_*``."""
         if self._ctx is None:
             raise RuntimeError(
@@ -416,7 +414,7 @@ class FunctionProcCrearSincronizar(FunctionBase):
         for _s_idx, s_nombre, s_attr in self.STAGES:
             if s_nombre == step_nombre:
                 handler = getattr(self, s_attr)
-                await handler()
+                handler()
                 return _step_summary(self, s_nombre)
         raise ValueError(
             f"step {idx} ({step_nombre!r}) no esta en STAGES "
@@ -479,31 +477,31 @@ class FunctionProcCrearSincronizar(FunctionBase):
     # ``self._ctx``, o dispatch al worker OT (stages 7 y 8).
     # ==================================================================
 
-    async def _stage_1_leer_manifest(self) -> None:
+    def _stage_1_leer_manifest(self) -> None:
         """Stage 1: lee el ``manifest.json`` de la plantilla TIA."""
-        await proc_process_leer_manifest(self._ctx)
+        proc_process_leer_manifest(self._ctx)
 
-    async def _stage_2_validar_minimos(self) -> None:
+    def _stage_2_validar_minimos(self) -> None:
         """Stage 2: valida los N_MIN del operario contra la plantilla."""
-        await proc_process_validar_minimos(self._ctx)
+        proc_process_validar_minimos(self._ctx)
 
-    async def _stage_3_copiar_a_preview(self) -> None:
+    def _stage_3_copiar_a_preview(self) -> None:
         """Stage 3: copytree de la plantilla al workdir de preview."""
-        await proc_process_copiar_a_preview(self._ctx)
+        proc_process_copiar_a_preview(self._ctx)
 
-    async def _stage_4_construir_diccionarios(self) -> None:
+    def _stage_4_construir_diccionarios(self) -> None:
         """Stage 4: parsea bloques + XMLs y construye los diccionarios base."""
         proc_process_construir_diccionarios(self._ctx)
 
-    async def _stage_5_generar_proceso_nuevo(self) -> None:
+    def _stage_5_generar_proceso_nuevo(self) -> None:
         """Stage 5: aplica las reglas y materializa los archivos del proceso nuevo."""
         proc_process_aplicar_clonacion(self._ctx)
 
-    async def _stage_6_escribir_manifest_modified(self) -> None:
+    def _stage_6_escribir_manifest_modified(self) -> None:
         """Stage 6: escribe el manifest.json en el workdir ``modified/``."""
-        await proc_process_escribir_manifest(self._ctx)
+        proc_process_escribir_manifest(self._ctx)
 
-    async def _stage_7_importar_proceso(self) -> None:
+    def _stage_7_importar_proceso(self) -> None:
         """Stage 7: IMPORT bajo transaccion TIA unica (3 ops atomicas).
 
         3 ops en ``execute_transactional_batch``:
@@ -550,8 +548,7 @@ class FunctionProcCrearSincronizar(FunctionBase):
                 },
             },
         ]
-        self._import_batch_result = await dispatch_async(
-            self._tia_client,
+        self._import_batch_result = self._tia_client.submit_and_wait(
             "execute_transactional_batch",
             {
                 # ``undo_text`` especifico con el id del proceso
@@ -564,7 +561,7 @@ class FunctionProcCrearSincronizar(FunctionBase):
                 ),
                 "operations": batch_operations,
             },
-            timeout_s=600.0,
+            timeout=600.0,
         )
         # CRITICO: si el batch fallo (rollback ejecutado), NO
         # continuar a ``compilar``. Si lo hicieramos, el compile
@@ -576,13 +573,12 @@ class FunctionProcCrearSincronizar(FunctionBase):
                 f"{self._import_batch_result.get('error') or '<sin error>'}"
             )
 
-    async def _stage_8_compilar(self) -> None:
+    def _stage_8_compilar(self) -> None:
         """Stage 8: dispatch ``compile_plc`` (fuera de transaccion)."""
-        self._compile_result = await dispatch_async(
-            self._tia_client,
+        self._compile_result = self._tia_client.submit_and_wait(
             "compile_plc",
             {"plc_name": self._plc_name},
-            timeout_s=600.0,
+            timeout=600.0,
         )
         if not self._compile_result.get("ok"):
             raise RuntimeError(
@@ -590,7 +586,7 @@ class FunctionProcCrearSincronizar(FunctionBase):
                 f"{self._compile_result.get('error') or '<sin error>'}"
             )
 
-    async def _stage_9_refresh_cache(self) -> None:
+    def _stage_9_refresh_cache(self) -> None:
         """Stage 9: reescanea el PLC y repuebla ``app_cache.plc_blocks``.
 
         Tras el apply exitoso del nuevo proceso, el slot
@@ -623,9 +619,9 @@ class FunctionProcCrearSincronizar(FunctionBase):
                 "del sidebar."
             )
 
-    async def _stage_10_build_response(self) -> None:
+    def _stage_10_build_response(self) -> None:
         """Stage 10: compone ``ctx.result`` con la shape final del apply."""
-        await proc_process_done_summary(self._ctx)
+        proc_process_done_summary(self._ctx)
 
 
 # ============================================================================
@@ -645,7 +641,7 @@ class FunctionProcCrearSincronizar(FunctionBase):
 # ============================================================================
 
 
-async def proc_process_leer_manifest(ctx: ProcProcessGenContext) -> None:
+def proc_process_leer_manifest(ctx: ProcProcessGenContext) -> None:
     """Lee ``manifest.json`` y popula ``ctx.{manifest_plantilla,
     base_vieja, codigo_viejo, nombre_viejo}``.
 
@@ -659,9 +655,7 @@ async def proc_process_leer_manifest(ctx: ProcProcessGenContext) -> None:
         )
 
     try:
-        manifest_text = await asyncio.to_thread(
-            manifest_path.read_text, encoding="utf-8"
-        )
+        manifest_text = manifest_path.read_text(encoding="utf-8")
         manifest = json.loads(manifest_text)
     except (OSError, json.JSONDecodeError) as exc:
         raise ManifestInvalido(f"manifest.json invalido: {exc}") from exc
@@ -693,7 +687,7 @@ async def proc_process_leer_manifest(ctx: ProcProcessGenContext) -> None:
     ctx.dependencias = [str(d).strip() for d in manifest["dependencias"]]
 
 
-async def proc_process_validar_minimos(ctx: ProcProcessGenContext) -> None:
+def proc_process_validar_minimos(ctx: ProcProcessGenContext) -> None:
     """Valida que los N_MAX del operario cubran los minimos de la plantilla."""
     if ctx.manifest_plantilla is None:
         raise RuntimeError("Requiere proc_process_leer_manifest previo.")
@@ -716,12 +710,11 @@ async def proc_process_validar_minimos(ctx: ProcProcessGenContext) -> None:
         )
 
 
-async def proc_process_copiar_a_preview(ctx: ProcProcessGenContext) -> None:
+def proc_process_copiar_a_preview(ctx: ProcProcessGenContext) -> None:
     """Copia ``dir_plantilla`` a ``dir_plantilla_copia`` (stage 3)."""
     if ctx.dir_plantilla_copia.exists():
-        await asyncio.to_thread(shutil.rmtree, ctx.dir_plantilla_copia)
-    await asyncio.to_thread(
-        shutil.copytree,
+        shutil.rmtree(ctx.dir_plantilla_copia)
+    shutil.copytree(
         ctx.dir_plantilla,
         ctx.dir_plantilla_copia,
         dirs_exist_ok=False,
@@ -732,7 +725,7 @@ async def proc_process_copiar_a_preview(ctx: ProcProcessGenContext) -> None:
 # ``areas/alimentacion/helpers/proc/proc_process_aplicar_clonacion.py``.
 
 
-async def proc_process_escribir_manifest(ctx: ProcProcessGenContext) -> None:
+def proc_process_escribir_manifest(ctx: ProcProcessGenContext) -> None:
     """Escribe ``<dir_nuevo>/manifest.json`` con los datos del
     proceso nuevo (usa la plantilla como base, override con
     ``base_nueva/codigo/nombre/minimos`` del ctx).
@@ -755,11 +748,11 @@ async def proc_process_escribir_manifest(ctx: ProcProcessGenContext) -> None:
             newline="\n",
         )
 
-    await asyncio.to_thread(_write)
+    _write()
     ctx.archivos_generados.append("manifest.json")
 
 
-async def proc_process_done_summary(ctx: ProcProcessGenContext) -> dict[str, Any]:
+def proc_process_done_summary(ctx: ProcProcessGenContext) -> dict[str, Any]:
     """Compone ``ctx.result`` con la shape que el FB vuelca a
     ``self.result``.
 
