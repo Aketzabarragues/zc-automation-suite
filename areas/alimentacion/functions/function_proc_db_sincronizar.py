@@ -50,9 +50,13 @@ from core.helpers.tia import validate_execute_batch_result
 from core.helpers.tia.validate_plc_in_tia import validate_plc_in_tia
 from core.helpers.tia.validate_plc_in_excel import validate_plc_in_excel
 from core.helpers.tia.with_plc import with_plc
+from core.infrastructure.log.log_web_bridge import install_web_level
 from core.runtime.app_cache import AppCache, get_app_cache
 from areas.alimentacion._area_id import AREA_ID
 from areas.alimentacion.helpers.layout.build_cache import DEFAULT_BUILD_CACHE_ROOT
+
+# Asegura que ``Logger.web/ok`` existen (idempotente).
+install_web_level()
 
 logger = logging.getLogger(__name__)
 
@@ -266,7 +270,13 @@ class FunctionProcDBSincronizar(FunctionBase):
     # ==================================================================
 
     def on_finish(self, **params: Any) -> None:
-        """Vuelca ``self.result`` con la shape legacy que espera la SPA."""
+        """Vuelca ``self.result`` con la shape legacy que espera la SPA.
+
+        Ademas publica el resultado en el AppCache (slots
+        ``last_proc_commit_summary`` + ``preview_proc``): el router solo
+        encola el trabajo en el OB1, asi que la publicacion tiene que
+        ocurrir aqui, cuando el FB ha terminado.
+        """
         if self._ctx is None:
             # Error temprano: deps no inyectadas o params ausentes.
             self.result = {
@@ -290,6 +300,35 @@ class FunctionProcDBSincronizar(FunctionBase):
             f"{self._ctx.proc_uid} en {self._ctx.plc_name}: "
             f"{ops_executed} ops aplicadas"
         )
+
+        self._publish_result_to_cache()
+        logger.ok(
+            f"Sincronizacion de proceso '{self._ctx.proc_uid}' en "
+            f"'{self._ctx.plc_name}': {ops_executed} ops aplicadas"
+        )
+
+    def _publish_result_to_cache(self) -> None:
+        """Publica el resumen del commit y el preview post-sync en el AppCache.
+
+        El AppCache es el canal por el que la SPA se entera del commit:
+        lee estos slots y los recibe por SSE (``cache_changed``). El
+        router solo encola el trabajo, asi que la publicacion tiene que
+        ocurrir aqui, cuando el FB ha terminado.
+        """
+        from core.runtime.app_cache import get_app_cache
+        from core.runtime.area_preview_cache import (
+            area_set_preview_proc,
+            area_set_proc_commit_summary,
+        )
+
+        app_cache = get_app_cache()
+        area_set_proc_commit_summary(app_cache, "alimentacion", self.result)
+        post_sync_preview = (
+            self.result.get("post_sync_preview")
+            if isinstance(self.result, dict) else None
+        )
+        if post_sync_preview is not None:
+            area_set_preview_proc(app_cache, "alimentacion", post_sync_preview)
 
     # ==================================================================
     # Stages del FB (ZONA 4: 9 metodos privados numerados).

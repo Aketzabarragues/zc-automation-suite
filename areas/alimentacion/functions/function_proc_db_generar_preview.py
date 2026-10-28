@@ -41,6 +41,7 @@ from core.composition.plc_function_base import FunctionBase
 from core.helpers.tia.validate_plc_in_tia import validate_plc_in_tia
 from core.helpers.tia.validate_plc_in_excel import validate_plc_in_excel
 from core.helpers.tia.with_plc import with_plc
+from core.infrastructure.log.log_web_bridge import install_web_level
 from core.runtime.app_cache import AppCache, get_app_cache
 from areas.alimentacion._area_id import AREA_ID
 from areas.alimentacion.helpers.layout.build_cache import DEFAULT_BUILD_CACHE_ROOT
@@ -52,6 +53,9 @@ from areas.alimentacion.helpers.proc.proc_db_generar_preview import (
     empty_nmax_block,
     extract_codigo,
 )
+
+# Asegura que ``Logger.web/ok`` existen (idempotente).
+install_web_level()
 
 logger = logging.getLogger(__name__)
 
@@ -255,7 +259,13 @@ class FunctionProcDBGenerarPreview(FunctionBase):
     # ==================================================================
 
     def on_finish(self, **params: Any) -> None:
-        """Vuelca ``self.result`` con la shape legacy que espera la SPA."""
+        """Vuelca ``self.result`` con la shape legacy que espera la SPA.
+
+        Ademas publica el resultado en el AppCache (slot
+        ``preview_proc``): el router solo encola el trabajo en el OB1,
+        asi que la publicacion tiene que ocurrir aqui, cuando el FB ha
+        terminado.
+        """
         if self._ctx is None:
             # Error temprano: deps no inyectadas o params ausentes.
             self.result = {
@@ -284,6 +294,29 @@ class FunctionProcDBGenerarPreview(FunctionBase):
             f"{s.get('eliminados', 0)} eliminar, "
             f"{nmax_summary.get('actualizar', 0)} N_MAX actualizar"
         )
+
+        self._publish_result_to_cache()
+        logger.ok(
+            f"Prevision de proceso '{self._ctx.proc_uid}' en "
+            f"'{self._ctx.plc_name}': "
+            f"{s.get('agregados', 0)} adds, {s.get('renombrados', 0)} renames, "
+            f"{s.get('eliminados', 0)} removes, "
+            f"{nmax_summary.get('actualizar', 0)} N_MAX"
+        )
+
+    def _publish_result_to_cache(self) -> None:
+        """Publica el preview de procesos en el AppCache.
+
+        El AppCache es el canal por el que la SPA se entera: lee este
+        slot y lo recibe por SSE (``cache_changed``). El router solo
+        encola el trabajo, asi que la publicacion tiene que ocurrir
+        aqui, cuando el FB ha terminado.
+        """
+        from core.runtime.app_cache import get_app_cache
+        from core.runtime.area_preview_cache import area_set_preview_proc
+
+        app_cache = get_app_cache()
+        area_set_preview_proc(app_cache, "alimentacion", self.result)
 
     # ==================================================================
     # Stages del FB (ZONA 4: 6 metodos privados numerados).
