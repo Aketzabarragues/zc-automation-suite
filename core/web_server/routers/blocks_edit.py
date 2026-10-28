@@ -1,8 +1,8 @@
 """Flask blueprint para el editor de propiedades de bloques TIA.
 
 Endpoints:
-  POST /api/v1/blocks/edit/prepare -> arranca FB ``block_edit_prepare``.
-  POST /api/v1/blocks/edit/apply    -> arranca FB ``block_edit_apply``.
+  POST /api/v1/blocks/edit/prepare -> encola FB ``block_edit_prepare``.
+  POST /api/v1/blocks/edit/apply    -> encola FB ``block_edit_apply``.
   GET  /api/v1/blocks/edit/<plc_name>/prepared -> cache de preparados.
   GET  /api/v1/blocks/edit/<name>/status -> estado actual del FB.
 
@@ -10,7 +10,10 @@ Engine se lee de ``current_app.config['ENGINE']`` (inyectado por
 create_app). FB ``block_edit_prepare`` registrado en
 ``core.composition.register_core_fbs.register()``.
 
-Equivalente sync de los endpoints FastAPI del plan FASE 2 (v3.1).
+Los 2 POST no bloquean: encolan el trabajo en el OB1 y devuelven
+``202`` con el ``job_id``. El resultado llega al HMI por el evento SSE
+``fb_state`` y por los slots del AppCache que publica el FB al
+terminar (``block_edit_prepared`` para el prepare).
 """
 from __future__ import annotations
 
@@ -18,6 +21,7 @@ import logging
 
 from flask import Blueprint, current_app, jsonify, request
 
+from core.composition.plc_engine import FBBusyError
 from core.infrastructure.log.log_web_bridge import install_web_level
 
 logger = logging.getLogger(__name__)
@@ -27,18 +31,8 @@ install_web_level()
 bp = Blueprint("blocks_edit", __name__, url_prefix="/api/v1/blocks/edit")
 
 
-# Timeout backend para el ``block_edit_prepare``: el FB exporta N bloques
-# a SD y parsea el ``.s7dcl``. En S7-1500 con 30+ bloques seleccionados
-# el lote puede tardar 60-90s. 120s cubre holgadamente.
-PREPARE_TIMEOUT_S = 120.0
-
-# Timeout backend para el ``block_edit_apply``: el batch transaccional
-# ejecuta ``update_block_property`` por bloque dentro de una sola
-# transaccion atomica. ~5-15s por bloque; 600s cubre holgadamente N~50.
-APPLY_TIMEOUT_S = 600.0
-
-# Poll bloqueante del FB en el handler sync de Flask.
-_POLL_INTERVAL_S = 0.05
+# El timeout de cada trabajo vive en el FB (``STEP_TIMEOUT_S``): el
+# router ya no espera al resultado, solo encola el trabajo.
 
 
 def _engine():
@@ -47,7 +41,7 @@ def _engine():
 
 @bp.post("/prepare")
 def prepare_edit():
-    """Arranca el FB ``block_edit_prepare`` y devuelve el resultado.
+    """Encola el FB ``block_edit_prepare``.
 
     Body JSON esperado::
 
@@ -56,20 +50,19 @@ def prepare_edit():
             "selected_block_paths": ["2000_Dispositivos/DB2000_ED", ...]
         }
 
-    Returns:
-        - 200 + ``{"ok": True, "result": ..., "nStep": ...}`` si OK.
-        - 400 si faltan ``plc_name`` o ``selected_block_paths``.
-        - 409 si el FB ya esta corriendo (o terminal reciente).
-        - 500 si el FB no esta registrado.
-        - 504 si timeout.
-        - 500 si el FB termina en error.
-    """
-    import asyncio
-    import time
+    El request NO bloquea: el trabajo lo ejecuta el hilo del OB1 y el
+    resultado llega al HMI por SSE (``fb_state``) y por el slot
+    ``block_edit_prepared`` del AppCache, que es el que lee
+    ``GET /<plc_name>/prepared``.
 
+    Returns:
+        - 202 + ``{"ok": True, "job_id": "<hex>"}`` si se encolo.
+        - 400 si faltan ``plc_name`` o ``selected_block_paths``.
+        - 409 si el FB ya tiene un trabajo en curso.
+        - 500 si el FB no esta registrado o no se pudo encolar.
+    """
     engine = _engine()
-    fb = engine.get_fb("block_edit_prepare")
-    if fb is None:
+    if engine.get_fb("block_edit_prepare") is None:
         return jsonify({
             "error": "FB 'block_edit_prepare' no registrado en el engine",
         }), 500
@@ -86,54 +79,30 @@ def prepare_edit():
         f"Preparando {len(selected)} bloques en PLC '{plc_name}' "
         f"(exporta SD + parsea SCL + cachea DTOs)..."
     )
-    started = asyncio.run(fb.start(
-        plc_name=plc_name,
-        selected_block_paths=selected,
-    ))
-    if not started:
+    try:
+        job_id = engine.submit(
+            "block_edit_prepare",
+            plc_name=plc_name,
+            selected_block_paths=selected,
+        )
+    except FBBusyError as exc:
         return jsonify({
-            "error": "FB 'block_edit_prepare' ya activo o terminal. "
-                     "Haz /disconnect y reintenta.",
+            "error": (
+                f"FB 'block_edit_prepare' ya tiene un trabajo en curso. "
+                f"Espera a que termine y reintenta. ({exc})"
+            ),
         }), 409
-
-    # Poll bloqueante hasta que el FB entre en estado terminal.
-    elapsed = 0.0
-    while not fb.is_terminal() and elapsed < PREPARE_TIMEOUT_S:
-        time.sleep(_POLL_INTERVAL_S)
-        elapsed += _POLL_INTERVAL_S
-
-    if not fb.is_terminal():
-        try:
-            asyncio.run(fb.cancel(f"timeout en /prepare ({PREPARE_TIMEOUT_S:.0f}s)"))
-        except Exception:
-            pass
+    except Exception as exc:  # noqa: BLE001
         return jsonify({
-            "error": f"timeout tras {PREPARE_TIMEOUT_S:.0f}s sin terminar",
-        }), 504
-
-    if fb.nStep == fb.n_error:
-        return jsonify({
-            "error": fb.error_msg or "FB termino en error",
+            "error": f"no se pudo encolar el trabajo: {exc}",
         }), 500
 
-    result = fb.result or {}
-    n_blocks = result.get("n_blocks", 0)
-    n_with_title = result.get("n_with_title", 0)
-    n_with_comment = result.get("n_with_comment", 0)
-    logger.ok(
-        f"Bloques preparados en PLC '{plc_name}': {n_blocks} bloques "
-        f"(con title: {n_with_title}, con comment: {n_with_comment})"
-    )
-    return jsonify({
-        "ok": True,
-        "result": fb.result,
-        "nStep": fb.nStep,
-    })
+    return jsonify({"ok": True, "job_id": job_id}), 202
 
 
 @bp.post("/apply")
 def apply_edit():
-    """Aplica los cambios de Name/Number via FB ``block_edit_apply``.
+    """Encola el FB ``block_edit_apply``.
 
     Body JSON esperado::
 
@@ -145,21 +114,17 @@ def apply_edit():
     ``<path>`` es la clave de fila que ``POST /prepare`` devolvio (la
     jerarquia de grupos mas el nombre del bloque, separados por ``"/"``).
 
-    Returns:
-        - 200 + ``{"ok": True, "result": ..., "nStep": ...}`` si OK.
-        - 400 si faltan ``plc_name`` o ``edits``.
-        - 400 si ``start()`` raise ``ValueError`` (whitelist de keys).
-        - 409 si el FB ya esta corriendo (o terminal reciente).
-        - 500 si el FB no esta registrado o ``start`` raise inesperado.
-        - 504 si timeout.
-        - 500 si el FB termina en error.
-    """
-    import asyncio
-    import time
+    El request NO bloquea: el trabajo lo ejecuta el hilo del OB1 y el
+    resultado llega al HMI por SSE (``fb_state``).
 
+    Returns:
+        - 202 + ``{"ok": True, "job_id": "<hex>"}`` si se encolo.
+        - 400 si faltan ``plc_name`` o ``edits``.
+        - 409 si el FB ya tiene un trabajo en curso.
+        - 500 si el FB no esta registrado o no se pudo encolar.
+    """
     engine = _engine()
-    fb = engine.get_fb("block_edit_apply")
-    if fb is None:
+    if engine.get_fb("block_edit_apply") is None:
         return jsonify({
             "error": "FB 'block_edit_apply' no registrado en el engine",
         }), 500
@@ -177,58 +142,27 @@ def apply_edit():
         f"(transaccion atomica contra TIA Portal)..."
     )
     try:
-        started = asyncio.run(fb.start(plc_name=plc_name, edits=edits))
+        job_id = engine.submit(
+            "block_edit_apply", plc_name=plc_name, edits=edits,
+        )
+    except FBBusyError as exc:
+        return jsonify({
+            "error": (
+                f"FB 'block_edit_apply' ya tiene un trabajo en curso. "
+                f"Espera a que termine y reintenta. ({exc})"
+            ),
+        }), 409
     except ValueError as exc:
         return jsonify({"error": f"args invalidos: {exc}"}), 400
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return jsonify({
-            "error": f"start fallo: {type(exc).__name__}: {exc}",
-        }), 500
-    if not started:
-        return jsonify({
-            "error": "FB 'block_edit_apply' ya activo o terminal. "
-                     "Haz /disconnect y reintenta.",
-        }), 409
-
-    # Poll bloqueante hasta que el FB entre en estado terminal.
-    elapsed = 0.0
-    while not fb.is_terminal() and elapsed < APPLY_TIMEOUT_S:
-        time.sleep(_POLL_INTERVAL_S)
-        elapsed += _POLL_INTERVAL_S
-
-    if not fb.is_terminal():
-        try:
-            asyncio.run(fb.cancel(f"timeout en /apply ({APPLY_TIMEOUT_S:.0f}s)"))
-        except Exception:
-            pass
-        return jsonify({
-            "error": f"timeout tras {APPLY_TIMEOUT_S:.0f}s sin terminar",
-        }), 504
-
-    if fb.nStep == fb.n_error:
-        return jsonify({
-            "error": fb.error_msg or "FB termino en error",
+            "error": f"no se pudo encolar el trabajo: {exc}",
         }), 500
 
-    result = fb.result or {}
-    n_ops = result.get("n_ops", 0)
-    operations_executed = result.get("operations_executed", 0)
-    no_op = result.get("no_op", False)
-    if no_op:
-        logger.ok(
-            f"Aplicacion sin cambios en PLC '{plc_name}': "
-            f"cache == edits (0 ops ejecutadas)"
-        )
-    else:
-        logger.ok(
-            f"Aplicacion OK en PLC '{plc_name}': "
-            f"{operations_executed}/{n_ops} ops ejecutadas"
-        )
-    return jsonify({
-        "ok": True,
-        "result": fb.result,
-        "nStep": fb.nStep,
-    })
+    # El resumen de la aplicacion (ops ejecutadas, no-op) lo emite el
+    # FB al terminar: el router ya respondio cuando aun no habia
+    # ningun resultado.
+    return jsonify({"ok": True, "job_id": job_id}), 202
 
 
 @bp.get("/<plc_name>/prepared")

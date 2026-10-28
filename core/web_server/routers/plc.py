@@ -1,12 +1,15 @@
 """Flask blueprint para PLC FBs.
 
 Equivalente sync de ``plc.py`` (FastAPI). Endpoints:
-  POST /api/v1/plc/fb/<name>/start       -> arranca FB.
+  POST /api/v1/plc/fb/<name>/start       -> encola el trabajo del FB.
   POST /api/v1/plc/fb/<name>/disconnect -> desregistra FB del engine.
   GET  /api/v1/plc/fb/<name>/status     -> estado actual del FB.
 
 Engine se lee de ``current_app.config['ENGINE']`` (inyectado por
 create_app). FBs se registran en ``composition root`` (4.5.1+).
+
+Los POST no bloquean: encolan el trabajo en el OB1 y devuelven 202 con
+el ``job_id``. El resultado llega al HMI por el evento SSE ``fb_state``.
 
 Los endpoints de cache de bloques del PLC
 (GET /api/v1/plcs/<name>/blocks y POST /api/v1/plcs/<name>/blocks/refresh)
@@ -19,6 +22,7 @@ from typing import Any
 
 from flask import Blueprint, current_app, jsonify, request
 
+from core.composition.plc_engine import FBBusyError
 from core.infrastructure.log.log_web_bridge import install_web_level
 
 logger = logging.getLogger(__name__)
@@ -34,10 +38,19 @@ def _engine():
 
 @bp.post("/<name>/start")
 def start_fb(name: str):
-    """Arranca el FB registrado bajo ``name``."""
+    """Encola el FB registrado bajo ``name``.
+
+    El request NO bloquea: el trabajo lo ejecuta el hilo del OB1 y el
+    resultado llega al HMI por SSE (``fb_state``).
+
+    Returns:
+        - 202 + ``{"ok": True, "job_id": "<hex>"}`` si se encolo.
+        - 404 si el FB no esta registrado en el engine.
+        - 409 si el FB ya tiene un trabajo en curso.
+        - 500 si no se pudo encolar.
+    """
     engine = _engine()
-    fb = engine.get_fb(name)
-    if fb is None:
+    if engine.get_fb(name) is None:
         return jsonify({
             "error": f"FB '{name}' no registrado en el engine",
         }), 404
@@ -45,11 +58,21 @@ def start_fb(name: str):
     body = request.get_json(silent=True) or {}
     params: dict[str, Any] = body.get("params") or {}
 
-    # fb.start() es async; lo corremos via asyncio.run.
-    import asyncio
+    try:
+        job_id = engine.submit(name, **params)
+    except FBBusyError as exc:
+        return jsonify({
+            "error": (
+                f"FB '{name}' ya tiene un trabajo en curso. "
+                f"Espera a que termine y reintenta. ({exc})"
+            ),
+        }), 409
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({
+            "error": f"no se pudo encolar el trabajo: {exc}",
+        }), 500
 
-    started = asyncio.run(fb.start(**params))
-    return jsonify({"started": started, "nStep": fb.nStep})
+    return jsonify({"ok": True, "job_id": job_id}), 202
 
 
 @bp.post("/<name>/disconnect")
@@ -97,35 +120,32 @@ def get_fb_status(name: str):
 # El backend OB1 no tiene cache servidor del PLC: cada llamada escanea
 # TIA Portal directamente. La diferencia entre GET y POST es solo
 # semantica para el operario (el boton ↻ del sidebar dispara la
-# variante POST). Devolvemos ``{ ok, snapshot }`` para que
-# ``store._applyBlocksSnapshot`` parsee limpio sin distinguir entre
-# "snapshot envuelto" y "snapshot directo".
+# variante POST).
+#
+# Ninguno de los 2 devuelve el snapshot: el scan no bloquea, se encola
+# en el OB1 y responde 202 con el job_id. El snapshot llega por SSE
+# (``cache_changed``), que es como la SPA lo consume: ``
+# loadAndApplyPlcBlocks`` dispara el refresh y no lee el body.
 # ---------------------------------------------------------------------------
 
-# Timeout backend para el scan: el comando ``scan_blocks`` recorre
-# todos los bloques, tag tables y UDTs del PLC. En S7-1500 con 200+
-# bloques tarda 30-60s. 120s cubre holgadamente.
-SCAN_TIMEOUT_S = 120.0
-
-# Poll bloqueante del FB en el handler sync de Flask.
-_POLL_INTERVAL_S = 0.05
+# El timeout del scan vive en el FB (``STEP_TIMEOUT_S``): el router no
+# espera al resultado, solo encola el trabajo.
 
 
 def _scan_plc_blocks(plc_name: str):
-    """Helper comun: dispatch via FB ``scan_plc_blocks`` y normaliza la respuesta.
+    """Helper comun: encola el FB ``scan_plc_blocks``.
 
-    Devuelve ``(status_code, body)``. ``body.ok`` es True si el FB
-    termino OK; ``body.snapshot`` trae el shape ``{ plc_name,
-    blocks, tag_tables, udts, scanned_at }`` reconstruido desde el
-    ``AppCache`` (contenedor unico ``core.runtime.app_cache``).
+    Devuelve ``(status_code, body)``.
+
+    El scan NO bloquea: el trabajo lo ejecuta el hilo del OB1. El
+    snapshot no viaja en el body porque la SPA no lo consume ahi: el
+    FB lo escribe en ``AppCache.plc_blocks[<plc>]`` y el delta llega
+    por SSE (``cache_changed``).
 
     Si el portal no esta attached, devuelve 503 + X-Error-Type
     (mismo contrato que la version pre-FB) para que el SPA distinga
     el caso y resetee el state PLC via ``store.loadAndApplyPlcBlocks``.
     """
-    import asyncio
-    import time
-
     tia_client = current_app.config.get("TIA_CLIENT")
     if tia_client is None or tia_client.ts is None or tia_client.wrapper is None:
         # No hay portal attached.
@@ -144,8 +164,7 @@ def _scan_plc_blocks(plc_name: str):
         })
         return 500, resp
 
-    fb = engine.get_fb("scan_plc_blocks")
-    if fb is None:
+    if engine.get_fb("scan_plc_blocks") is None:
         resp = jsonify({
             "ok": False,
             "error": "FB 'scan_plc_blocks' no registrado en el engine",
@@ -162,75 +181,30 @@ def _scan_plc_blocks(plc_name: str):
         f"(force_refresh={force_refresh})..."
     )
 
-    started = asyncio.run(fb.start(
-        plc_name=plc_name,
-        force_refresh=force_refresh,
-    ))
-    if not started:
+    try:
+        job_id = engine.submit(
+            "scan_plc_blocks",
+            plc_name=plc_name,
+            force_refresh=force_refresh,
+        )
+    except FBBusyError as exc:
         # El FB esta corriendo. Devolvemos 409 para que el SPA sepa
         # reintentar cuando termine.
         return 409, jsonify({
             "ok": False,
-            "error": "FB 'scan_plc_blocks' ya activo o terminal. Haz /disconnect y reintenta.",
+            "error": (
+                f"FB 'scan_plc_blocks' ya tiene un trabajo en curso. "
+                f"Espera a que termine y reintenta. ({exc})"
+            ),
         })
-
-    # Poll bloqueante hasta que el FB entre en estado terminal.
-    elapsed = 0.0
-    while not fb.is_terminal() and elapsed < SCAN_TIMEOUT_S:
-        time.sleep(_POLL_INTERVAL_S)
-        elapsed += _POLL_INTERVAL_S
-
-    if not fb.is_terminal():
-        # Timeout: cancelamos el FB y devolvemos 504.
-        try:
-            asyncio.run(fb.cancel("timeout en /api/v1/plcs/<name>/blocks"))
-        except Exception:
-            pass
+    except Exception as exc:  # noqa: BLE001
         resp = jsonify({
             "ok": False,
-            "error": f"timeout tras {SCAN_TIMEOUT_S:.1f}s sin terminar",
+            "error": f"no se pudo encolar el trabajo: {exc}",
         })
-        resp.headers["X-Error-Type"] = "TIAConnectionError"
-        return 504, resp
-
-    if fb.nStep == fb.n_error:
-        err = fb.error_msg or "FB termino en error"
-        resp = jsonify({"ok": False, "error": err})
-        if "no portal" in err.lower() or "no attached" in err.lower():
-            resp.headers["X-Error-Type"] = "TIAConnectionError"
         return 500, resp
 
-    # OK: leer la cache IT (que el FB relleno via el helper) y
-    # devolver el snapshot con la shape que espera la SPA.
-    from core.infrastructure.tia.tia_cache import plc_blocks_get
-    app_cache = current_app.config.get("APP_CACHE")
-    if app_cache is None:
-        cache = None
-    else:
-        cache = plc_blocks_get(app_cache, plc_name)
-    if cache is None:
-        # Caso raro: el FB reporto OK pero la cache esta vacia.
-        # Devolvemos un snapshot vacio pero valido.
-        return 200, jsonify({
-            "ok": True,
-            "snapshot": {
-                "plc_name": plc_name,
-                "blocks": [],
-                "tag_tables": [],
-                "udts": [],
-                "scanned_at": None,
-            },
-        })
-    snapshot = cache.to_dict()
-    # Plan living §5 (operacion 3): OK con resumen del cache.
-    n_bloques = len(snapshot.get("blocks", []))
-    n_tablas = len(snapshot.get("tag_tables", []))
-    n_udts = len(snapshot.get("udts", []))
-    logger.ok(
-        f"PLC '{plc_name}' cache: {n_bloques} bloques, "
-        f"{n_tablas} tablas, {n_udts} UDTs"
-    )
-    return 200, jsonify({"ok": True, "snapshot": snapshot})
+    return 202, jsonify({"ok": True, "job_id": job_id})
 
 
 # Blueprint separado del de FBs para que el ``url_prefix`` pueda ser
@@ -241,10 +215,11 @@ bp_blocks = Blueprint("plc_blocks", __name__, url_prefix="/api/v1/plcs")
 
 @bp_blocks.get("/<plc_name>/blocks")
 def get_plc_blocks(plc_name: str):
-    """Escanea bloques+tag_tables+UDTs del PLC y devuelve el snapshot.
+    """Encola el scan de bloques+tag_tables+UDTs del PLC.
 
-    Lectura con cache cliente (la SPA mantiene el ultimo snapshot en
-    ``store.plcBlocksCache``). Si el operario sospecha que los datos
+    No bloquea: responde 202 con el ``job_id`` del trabajo. El snapshot
+    llega por SSE (``cache_changed``) y la SPA mantiene el ultimo en
+    ``store.plcBlocksCache``. Si el operario sospecha que los datos
     son stale (>5 min), pulsa el boton ↻ para forzar un re-scan via
     ``POST /<plc_name>/blocks/refresh``.
     """
