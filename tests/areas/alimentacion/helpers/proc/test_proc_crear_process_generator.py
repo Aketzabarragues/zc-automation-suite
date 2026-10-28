@@ -220,7 +220,7 @@ async def test_leer_manifest_happy(make_ctx: Any) -> None:
     ``ctx.base_vieja`` + ``ctx.codigo_viejo``.
     """
     ctx = make_ctx()
-    await proc_process_leer_manifest(ctx)
+    proc_process_leer_manifest(ctx)
 
     assert ctx.manifest_plantilla is not None
     assert ctx.manifest_plantilla["base"] == 50010
@@ -238,7 +238,7 @@ async def test_leer_manifest_no_existe(make_ctx: Any) -> None:
     (ctx.dir_plantilla / "manifest.json").unlink()
 
     with pytest.raises(ManifestInvalido):
-        await proc_process_leer_manifest(ctx)
+        proc_process_leer_manifest(ctx)
 
 
 @pytest.mark.asyncio
@@ -257,7 +257,7 @@ async def test_leer_manifest_sin_base(
     ctx = make_ctx(dir_plantilla=p)
 
     with pytest.raises(ManifestInvalido):
-        await proc_process_leer_manifest(ctx)
+        proc_process_leer_manifest(ctx)
 
 
 @pytest.mark.asyncio
@@ -286,7 +286,7 @@ async def test_leer_manifest_sin_descripcion_raises(
     ctx = make_ctx(dir_plantilla=p)
 
     with pytest.raises(ManifestInvalido, match="descripcion"):
-        await proc_process_leer_manifest(ctx)
+        proc_process_leer_manifest(ctx)
 
 
 @pytest.mark.asyncio
@@ -316,7 +316,7 @@ async def test_leer_manifest_descripcion_vacia_raises(
     ctx = make_ctx(dir_plantilla=p)
 
     with pytest.raises(ManifestInvalido, match="descripcion"):
-        await proc_process_leer_manifest(ctx)
+        proc_process_leer_manifest(ctx)
 
 
 @pytest.mark.asyncio
@@ -345,7 +345,7 @@ async def test_leer_manifest_sin_dependencias_raises(
     ctx = make_ctx(dir_plantilla=p)
 
     with pytest.raises(ManifestInvalido, match="dependencias"):
-        await proc_process_leer_manifest(ctx)
+        proc_process_leer_manifest(ctx)
 
 
 @pytest.mark.asyncio
@@ -375,7 +375,7 @@ async def test_leer_manifest_dependencias_no_lista_raises(
     ctx = make_ctx(dir_plantilla=p)
 
     with pytest.raises(ManifestInvalido, match="dependencias"):
-        await proc_process_leer_manifest(ctx)
+        proc_process_leer_manifest(ctx)
 
 
 @pytest.mark.asyncio
@@ -405,7 +405,7 @@ async def test_leer_manifest_dependencias_strings_vacias_raises(
     ctx = make_ctx(dir_plantilla=p)
 
     with pytest.raises(ManifestInvalido, match="dependencias"):
-        await proc_process_leer_manifest(ctx)
+        proc_process_leer_manifest(ctx)
 
 
 @pytest.mark.asyncio
@@ -416,7 +416,7 @@ async def test_leer_manifest_happy_campos_nuevos(
     ctx. ``dependencias`` se trimea por entrada.
     """
     ctx = make_ctx()
-    await proc_process_leer_manifest(ctx)
+    proc_process_leer_manifest(ctx)
 
     assert ctx.descripcion == "Proceso de tests con 1 FC y 1 DB"
     assert ctx.dependencias == [
@@ -442,8 +442,8 @@ async def test_validar_dependencias_ok(make_ctx: Any) -> None:
             {"nombre": "FC15151_ZC_MARCHA_PARO_SEC", "numero": 15151},
         ],
     )
-    await proc_process_leer_manifest(ctx)
-    await proc_process_validar_dependencias(ctx)
+    proc_process_leer_manifest(ctx)
+    proc_process_validar_dependencias(ctx)
 
     assert ctx.dependencias_ok == [
         "DB1_SYS", "FC15151_ZC_MARCHA_PARO_SEC",
@@ -465,8 +465,8 @@ async def test_validar_dependencias_mitad(make_ctx: Any) -> None:
             {"nombre": "DB1_SYS", "numero": 1},
         ],
     )
-    await proc_process_leer_manifest(ctx)
-    await proc_process_validar_dependencias(ctx)
+    proc_process_leer_manifest(ctx)
+    proc_process_validar_dependencias(ctx)
 
     assert ctx.dependencias_ok == ["DB1_SYS"]
     assert ctx.dependencias_faltantes == ["FC15151_ZC_MARCHA_PARO_SEC"]
@@ -480,8 +480,8 @@ async def test_validar_dependencias_todas_faltan(make_ctx: Any) -> None:
             {"nombre": "OTRO_BLOQUE", "numero": 99},
         ],
     )
-    await proc_process_leer_manifest(ctx)
-    await proc_process_validar_dependencias(ctx)
+    proc_process_leer_manifest(ctx)
+    proc_process_validar_dependencias(ctx)
 
     assert ctx.dependencias_ok == []
     assert set(ctx.dependencias_faltantes) == {
@@ -499,8 +499,8 @@ async def test_validar_dependencias_sin_cache(make_ctx: Any) -> None:
     se escanee.
     """
     ctx = make_ctx(plc_blocks_cache=None)
-    await proc_process_leer_manifest(ctx)
-    await proc_process_validar_dependencias(ctx)
+    proc_process_leer_manifest(ctx)
+    proc_process_validar_dependencias(ctx)
 
     assert ctx.dependencias_ok == []
     assert set(ctx.dependencias_faltantes) == {
@@ -515,10 +515,10 @@ async def test_validar_dependencias_sin_cache(make_ctx: Any) -> None:
 async def test_validar_minimos_ok(make_ctx: Any) -> None:
     """minimos_usuario >= plantilla -> no raise."""
     ctx = make_ctx()
-    await proc_process_leer_manifest(ctx)
+    proc_process_leer_manifest(ctx)
 
     # No raise.
-    await proc_process_validar_minimos(ctx)
+    proc_process_validar_minimos(ctx)
 
 
 @pytest.mark.asyncio
@@ -532,10 +532,10 @@ async def test_validar_minimos_menor_raises(make_ctx: Any) -> None:
         "N_MAX_ALM": 30,
         "N_MAX_ALM_HMI": 5,
     })
-    await proc_process_leer_manifest(ctx)
+    proc_process_leer_manifest(ctx)
 
     with pytest.raises(PlantillaMinimosNoCumplidos) as exc:
-        await proc_process_validar_minimos(ctx)
+        proc_process_validar_minimos(ctx)
     # El mensaje identifica la clave conflictiva.
     assert "N_MAX_PREAL" in str(exc.value)
 
@@ -547,7 +547,7 @@ async def test_validar_minimos_menor_raises(make_ctx: Any) -> None:
 async def test_copiar_a_preview_ok(make_ctx: Any) -> None:
     """Copia la plantilla a ``dir_plantilla_copia`` preservando estructura."""
     ctx = make_ctx()
-    await proc_process_copiar_a_preview(ctx)
+    proc_process_copiar_a_preview(ctx)
 
     assert ctx.dir_plantilla_copia.exists()
     # El .s7dcl y el .s7res deberian estar en preview/...
@@ -567,7 +567,7 @@ async def test_copiar_a_preview_limpia_si_existe(make_ctx: Any) -> None:
     """
     ctx = make_ctx()
     # 1ra corrida: deja la carpeta poblada.
-    await proc_process_copiar_a_preview(ctx)
+    proc_process_copiar_a_preview(ctx)
     assert (ctx.dir_plantilla_copia / "manifest.json").is_file()
 
     # Ensuciamos la copia con un archivo fantasma que no deberia
@@ -576,7 +576,7 @@ async def test_copiar_a_preview_limpia_si_existe(make_ctx: Any) -> None:
     basura.write_text("hola", encoding="utf-8")
 
     # 2da corrida: debe limpiar antes de copiar.
-    await proc_process_copiar_a_preview(ctx)
+    proc_process_copiar_a_preview(ctx)
 
     assert ctx.dir_plantilla_copia.exists()
     # El archivo fantasma desaparecio (limpieza OK).
@@ -615,8 +615,8 @@ async def test_construir_diccionarios_orden_len_desc(make_ctx: Any) -> None:
     descendente (los reemplazos mas especificos ganan).
     """
     ctx = make_ctx()
-    await proc_process_copiar_a_preview(ctx)
-    await proc_process_leer_manifest(ctx)
+    proc_process_copiar_a_preview(ctx)
+    proc_process_leer_manifest(ctx)
     proc_process_construir_diccionarios(ctx)
 
     # El primer item debe ser la clave mas larga.
@@ -658,10 +658,10 @@ async def test_detectar_colisiones_match_plc_cache(make_ctx: Any) -> None:
             "numero": None,
         }],
     )
-    await proc_process_copiar_a_preview(ctx)
-    await proc_process_leer_manifest(ctx)
+    proc_process_copiar_a_preview(ctx)
+    proc_process_leer_manifest(ctx)
     proc_process_construir_diccionarios(ctx)
-    await proc_process_detectar_colisiones(ctx)
+    proc_process_detectar_colisiones(ctx)
 
     # ``DB60010_EXP_COMENTARIOS`` ya estaba en PLC -> colision detectada.
     assert "DB60010_EXP_COMENTARIOS" in ctx.colisiones
@@ -686,10 +686,10 @@ async def test_detectar_colisiones_match_por_tipo_numero(make_ctx: Any) -> None:
             "numero": 60010,
         }],
     )
-    await proc_process_copiar_a_preview(ctx)
-    await proc_process_leer_manifest(ctx)
+    proc_process_copiar_a_preview(ctx)
+    proc_process_leer_manifest(ctx)
     proc_process_construir_diccionarios(ctx)
-    await proc_process_detectar_colisiones(ctx)
+    proc_process_detectar_colisiones(ctx)
 
     # Match por (FC, 60010): colision con el bloque FC60010_OTRO_NOMBRE
     # del PLC.
@@ -722,10 +722,10 @@ async def test_detectar_colisiones_mismo_numero_distinto_prefijo_no_colisiona(
             "numero": 100,
         }],
     )
-    await proc_process_copiar_a_preview(ctx)
-    await proc_process_leer_manifest(ctx)
+    proc_process_copiar_a_preview(ctx)
+    proc_process_leer_manifest(ctx)
     proc_process_construir_diccionarios(ctx)
-    await proc_process_detectar_colisiones(ctx)
+    proc_process_detectar_colisiones(ctx)
 
     # ``FC100`` (o ``FC100_<sufijo>``) del nuevo proceso NO debe
     # colisionar con ``OB100_Startup`` del PLC: mismo numero pero
@@ -756,10 +756,10 @@ async def test_detectar_colisiones_cache_none_emite_warning(
     accionable a ``ctx.colisiones`` (NO aborta; el FB decide).
     """
     ctx = make_ctx(plc_blocks_cache=None)
-    await proc_process_copiar_a_preview(ctx)
-    await proc_process_leer_manifest(ctx)
+    proc_process_copiar_a_preview(ctx)
+    proc_process_leer_manifest(ctx)
     proc_process_construir_diccionarios(ctx)
-    await proc_process_detectar_colisiones(ctx)
+    proc_process_detectar_colisiones(ctx)
 
     assert len(ctx.colisiones) == 1
     assert "Cache de bloques PLC" in ctx.colisiones[0]
@@ -796,8 +796,8 @@ async def test_aplicar_clonacion_preserva_bom_s7res(
             "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
         },
     )
-    await proc_process_copiar_a_preview(ctx)
-    await proc_process_leer_manifest(ctx)
+    proc_process_copiar_a_preview(ctx)
+    proc_process_leer_manifest(ctx)
     proc_process_construir_diccionarios(ctx)
     proc_process_aplicar_clonacion(ctx)
 
@@ -845,8 +845,8 @@ async def test_aplicar_clonacion_xml_value_update(
             "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
         },
     )
-    await proc_process_copiar_a_preview(ctx)
-    await proc_process_leer_manifest(ctx)
+    proc_process_copiar_a_preview(ctx)
+    proc_process_leer_manifest(ctx)
     proc_process_construir_diccionarios(ctx)
     proc_process_aplicar_clonacion(ctx)
 
@@ -911,8 +911,8 @@ async def test_aplicar_clonacion_genera_layout_canonico(
             "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
         },
     )
-    await proc_process_copiar_a_preview(ctx)
-    await proc_process_leer_manifest(ctx)
+    proc_process_copiar_a_preview(ctx)
+    proc_process_leer_manifest(ctx)
     proc_process_construir_diccionarios(ctx)
     proc_process_aplicar_clonacion(ctx)
 
@@ -1089,8 +1089,8 @@ async def test_aplicar_clonacion_renombra_carpetas_anidadas(
             "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
         },
     )
-    await proc_process_copiar_a_preview(ctx)
-    await proc_process_leer_manifest(ctx)
+    proc_process_copiar_a_preview(ctx)
+    proc_process_leer_manifest(ctx)
     proc_process_construir_diccionarios(ctx)
     proc_process_aplicar_clonacion(ctx)
 
@@ -1205,10 +1205,10 @@ async def test_generar_previstos_1_entry_por_bloque(make_ctx: Any) -> None:
     entries (no 4 archivos sueltos).
     """
     ctx = make_ctx()
-    await proc_process_copiar_a_preview(ctx)
-    await proc_process_leer_manifest(ctx)
+    proc_process_copiar_a_preview(ctx)
+    proc_process_leer_manifest(ctx)
     proc_process_construir_diccionarios(ctx)
-    await proc_process_generar_previstos(ctx)
+    proc_process_generar_previstos(ctx)
 
     # 3 stems de bloque en el dummy -> 3 entries (no 4 archivos).
     assert len(ctx.archivos_previstos) == 3, (
@@ -1239,10 +1239,10 @@ async def test_generar_previstos_filtra_no_bloque(make_ctx: Any) -> None:
     no debe figurar en ``archivos_previstos``.
     """
     ctx = make_ctx()
-    await proc_process_copiar_a_preview(ctx)
-    await proc_process_leer_manifest(ctx)
+    proc_process_copiar_a_preview(ctx)
+    proc_process_leer_manifest(ctx)
     proc_process_construir_diccionarios(ctx)
-    await proc_process_generar_previstos(ctx)
+    proc_process_generar_previstos(ctx)
 
     for entry in ctx.archivos_previstos:
         # Ningun nombre contiene ``.xml`` ni ``.scl`` ni ``.awl``.
@@ -1258,11 +1258,11 @@ async def test_generar_previstos_estado_ok_sin_colision(make_ctx: Any) -> None:
     con ``estado="OK"``.
     """
     ctx = make_ctx(plc_blocks_cache=[])
-    await proc_process_copiar_a_preview(ctx)
-    await proc_process_leer_manifest(ctx)
+    proc_process_copiar_a_preview(ctx)
+    proc_process_leer_manifest(ctx)
     proc_process_construir_diccionarios(ctx)
-    await proc_process_detectar_colisiones(ctx)
-    await proc_process_generar_previstos(ctx)
+    proc_process_detectar_colisiones(ctx)
+    proc_process_generar_previstos(ctx)
 
     assert ctx.colisiones == []
     assert all(
@@ -1285,11 +1285,11 @@ async def test_generar_previstos_estado_duplicado_con_ident(make_ctx: Any) -> No
     ctx = make_ctx(plc_blocks_cache=[{
         "nombre": "FC60010_OTRO_NOMBRE", "numero": 60010,
     }])
-    await proc_process_copiar_a_preview(ctx)
-    await proc_process_leer_manifest(ctx)
+    proc_process_copiar_a_preview(ctx)
+    proc_process_leer_manifest(ctx)
     proc_process_construir_diccionarios(ctx)
-    await proc_process_detectar_colisiones(ctx)
-    await proc_process_generar_previstos(ctx)
+    proc_process_detectar_colisiones(ctx)
+    proc_process_generar_previstos(ctx)
 
     # Solo 1 bloque colisiona: el ``FC60010_EXP_INTERFAZ``.
     colisionados = [
@@ -1314,10 +1314,10 @@ async def test_generar_previstos_orden_por_nombre_nuevo(
     (casefold) para que la SPA los pinte estables entre renders.
     """
     ctx = make_ctx()
-    await proc_process_copiar_a_preview(ctx)
-    await proc_process_leer_manifest(ctx)
+    proc_process_copiar_a_preview(ctx)
+    proc_process_leer_manifest(ctx)
     proc_process_construir_diccionarios(ctx)
-    await proc_process_generar_previstos(ctx)
+    proc_process_generar_previstos(ctx)
 
     nombres = [e["nombre_nuevo"] for e in ctx.archivos_previstos]
     assert nombres == sorted(nombres, key=str.casefold), (
@@ -1396,8 +1396,8 @@ async def test_construir_diccionarios_renombra_carpeta_base_custom(
             "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
         },
     )
-    await proc_process_copiar_a_preview(ctx)
-    await proc_process_leer_manifest(ctx)
+    proc_process_copiar_a_preview(ctx)
+    proc_process_leer_manifest(ctx)
     proc_process_construir_diccionarios(ctx)
     proc_process_aplicar_clonacion(ctx)
 
@@ -1480,8 +1480,8 @@ async def test_construir_diccionarios_renombra_subcarpeta_anidada_custom(
             "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
         },
     )
-    await proc_process_copiar_a_preview(ctx)
-    await proc_process_leer_manifest(ctx)
+    proc_process_copiar_a_preview(ctx)
+    proc_process_leer_manifest(ctx)
     proc_process_construir_diccionarios(ctx)
     proc_process_aplicar_clonacion(ctx)
 
@@ -1549,8 +1549,8 @@ async def test_construir_diccionarios_sin_carpetas_prefijadas(
             "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
         },
     )
-    await proc_process_copiar_a_preview(ctx)
-    await proc_process_leer_manifest(ctx)
+    proc_process_copiar_a_preview(ctx)
+    proc_process_leer_manifest(ctx)
     proc_process_construir_diccionarios(ctx)
 
     # Las 3 reglas estandar siguen en dicc_xml (XML puede
@@ -1618,8 +1618,8 @@ async def test_construir_diccionarios_carpeta_prefijo_fc_db(
             "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
         },
     )
-    await proc_process_copiar_a_preview(ctx)
-    await proc_process_leer_manifest(ctx)
+    proc_process_copiar_a_preview(ctx)
+    proc_process_leer_manifest(ctx)
     proc_process_construir_diccionarios(ctx)
     proc_process_aplicar_clonacion(ctx)
 
@@ -1712,8 +1712,8 @@ async def test_construir_diccionarios_prefijo_num_en_stem_de_archivo(
             "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
         },
     )
-    await proc_process_copiar_a_preview(ctx)
-    await proc_process_leer_manifest(ctx)
+    proc_process_copiar_a_preview(ctx)
+    proc_process_leer_manifest(ctx)
     proc_process_construir_diccionarios(ctx)
     proc_process_aplicar_clonacion(ctx)
 

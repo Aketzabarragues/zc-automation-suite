@@ -18,6 +18,7 @@ El FB es offline (no toca TIA), asi que NO mockeamos ``dispatch_async``.
 """
 from __future__ import annotations
 
+import inspect
 import json
 from pathlib import Path
 from typing import Any
@@ -170,21 +171,30 @@ async def test_preview_happy_path_10_ticks(
     assert fb.is_terminal() is True
     assert fb.error_msg is None
 
-    # Result con la shape de preview. NOTA: el step ``done`` invoca
-    # ``proc_process_done_summary`` sin ``await`` (es un bug conocido
-    # del FB), por lo que ``ctx.result`` queda con su valor por defecto
-    # (``{}``). Aun asi, ``self.result`` se vuelca en ``on_finish`` con
-    # ese dict. Verificamos que el FB completo sin error.
-    assert fb.result is not None
-    assert isinstance(fb.result, dict)
-
-    # El helper SISI populo ``archivos_previstos`` en el ``ctx`` (en el
-    # step ``generar_previstos``), aunque el wrapper del FB no lo
-    # vuelca al ``self.result`` por el bug del ``done``. Verificamos
-    # que los archivos del preview se clonaron en disco.
     preview_dir = (
         tmp_path / ".build_cache" / "alimentacion" / "ProcesoNuevo" / "Plantilla"
     )
+
+    # Result con la shape de preview. El step ``done`` invoca
+    # ``proc_process_done_summary`` (sync) que compone ``ctx.result``;
+    # ``on_finish`` lo vuelca a ``self.result``.
+    assert fb.result is not None
+    assert isinstance(fb.result, dict)
+    assert fb.result["success"] is True
+    assert fb.result["colisiones"] == []
+    assert fb.result["manifest_plantilla"]["base"] == 50010
+    assert fb.result["dependencias_ok"] == []
+    assert fb.result["dependencias_faltantes"] == ["DB1_SYS"]
+    assert fb.result["plantilla_copia_dir"] == str(preview_dir)
+
+    # 1 entry por BLOQUE (1 por stem): el .s7dcl y el .s7res del mismo
+    # bloque se agrupan en una sola entry.
+    assert [p["nombre_nuevo"] for p in fb.result["archivos_previstos"]] == [
+        "60010_EXP_COMENTARIOS",
+        "FC60010_EXP_INTERFAZ",
+    ]
+
+    # Los archivos del preview se clonaron en disco.
     assert preview_dir.exists()
     assert (preview_dir / "Bloques de programa" / "FC50010_TEST_INTERFAZ.s7dcl").is_file()
     assert (preview_dir / "Bloques de programa" / "50010_TEST_COMENTARIOS.s7res").is_file()
@@ -270,3 +280,125 @@ async def test_preview_no_plantilla_path(
     assert fb.nStep == fb.n_error  # 98
     assert fb.error_msg is not None
     assert "plantillas_path" in fb.error_msg
+
+
+# ── contrato sync (hilo unico OB1) ────────────────────────────────────
+
+
+def test_run_step_es_sync_no_coroutine() -> None:
+    """El FB ya no es una corrutina: ``run_step`` es sync (camino OB1).
+
+    El hilo unico del OB1 invoca el FB sin event loop: un ``run_step``
+    async devolveria una corrutina que nadie espera y el step no
+    ejecutaria nunca.
+    """
+    assert not inspect.iscoroutinefunction(
+        FunctionProcCrearGenerarPreview.run_step
+    ), "run_step debe ser sync; el FB ya no corre en un event loop"
+
+    for _idx, _nombre, attr in FunctionProcCrearGenerarPreview.STAGES:
+        assert not inspect.iscoroutinefunction(
+            getattr(FunctionProcCrearGenerarPreview, attr)
+        ), f"{attr} debe ser sync"
+
+
+def test_helpers_preview_no_son_corrutinas() -> None:
+    """Los 7 helpers module-level del pipeline del preview son sync.
+
+    El shell los invoca desde el hilo unico, sin event loop: un
+    ``await`` sobre ellos dejaria la corrutina sin ejecutar
+    ("coroutine was never awaited") y el preview no compondria nada.
+    """
+    from areas.alimentacion.functions.function_proc_crear_generar_preview import (
+        proc_process_copiar_a_preview,
+        proc_process_detectar_colisiones,
+        proc_process_done_summary,
+        proc_process_generar_previstos,
+        proc_process_leer_manifest,
+        proc_process_validar_dependencias,
+        proc_process_validar_minimos,
+    )
+
+    for helper in (
+        proc_process_leer_manifest,
+        proc_process_validar_minimos,
+        proc_process_copiar_a_preview,
+        proc_process_detectar_colisiones,
+        proc_process_validar_dependencias,
+        proc_process_generar_previstos,
+        proc_process_done_summary,
+    ):
+        assert not inspect.iscoroutinefunction(helper), (
+            f"{helper.__name__} debe ser sync"
+        )
+
+
+def test_execute_sync_recorre_las_8_etapas(
+    plantilla_dummy: Path,
+    tmp_path: Path,
+) -> None:
+    """``execute()`` (camino sync del OB1) recorre las 8 etapas y termina
+    en ``n_done`` sin event loop."""
+    fb = FunctionProcCrearGenerarPreview(
+        nombre="proc_process_crear_preview_execute_test",
+        config_manager=MagicMock(),
+        tia_client=MagicMock(),  # el preview NO toca TIA
+        build_cache=MagicMock(),
+        tracker=ProgressTracker(),
+    )
+
+    fb.execute(
+        plantillas_path=str(plantilla_dummy.parent),
+        dir_plantilla_nombre="TestPlantilla",
+        base_nueva=60010,
+        codigo_nuevo="EXP",
+        nombre_nuevo="NuevoProceso",
+        minimos_usuario={
+            "N_MAX_PREAL": 30, "N_MAX_PINT": 30,
+            "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
+        },
+        plc_blocks_cache=[],
+        build_cache_root=tmp_path / ".build_cache",
+    )
+
+    assert fb.nStep == fb.n_done  # 99
+    assert fb.error_msg is None
+    assert fb.result is not None
+    assert fb.result["success"] is True
+    assert fb.result["archivos_previstos"]
+    assert fb.result["plantilla_copia_dir"] == str(
+        tmp_path / ".build_cache" / "alimentacion" / "ProcesoNuevo" / "Plantilla"
+    )
+
+
+def test_execute_sync_minimos_insuficientes_va_a_error(
+    plantilla_dummy: Path,
+    tmp_path: Path,
+) -> None:
+    """Camino sync: N_MAX < plantilla -> ``n_error`` (sin event loop)."""
+    fb = FunctionProcCrearGenerarPreview(
+        nombre="proc_process_crear_preview_execute_error_test",
+        config_manager=MagicMock(),
+        tia_client=MagicMock(),
+        build_cache=MagicMock(),
+        tracker=ProgressTracker(),
+    )
+
+    fb.execute(
+        plantillas_path=str(plantilla_dummy.parent),
+        dir_plantilla_nombre="TestPlantilla",
+        base_nueva=60010,
+        codigo_nuevo="EXP",
+        nombre_nuevo="NuevoProceso",
+        # N_MAX_PREAL=1 < plantilla (3) -> falla validar_minimos.
+        minimos_usuario={
+            "N_MAX_PREAL": 1, "N_MAX_PINT": 30,
+            "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
+        },
+        plc_blocks_cache=[],
+        build_cache_root=tmp_path / ".build_cache",
+    )
+
+    assert fb.nStep == fb.n_error  # 98
+    assert fb.error_msg is not None
+    assert "minimos" in fb.error_msg.lower()

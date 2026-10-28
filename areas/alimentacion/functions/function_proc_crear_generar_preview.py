@@ -55,7 +55,6 @@ Steps (7):
 """
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import re
@@ -359,7 +358,7 @@ class FunctionProcCrearGenerarPreview(FunctionBase):
     # HOOK 2: run_step  (ZONA 4: state machine -> dispatch al stage)
     # ==================================================================
 
-    async def run_step(self, idx: int, **params: Any) -> str:
+    def run_step(self, idx: int, **params: Any) -> str:
         """Dispatch del FB step ``idx`` al metodo ``_stage_N_*``.
 
         Cada handler vive como metodo del FB (no externo); muta
@@ -375,7 +374,7 @@ class FunctionProcCrearGenerarPreview(FunctionBase):
         for _s_idx, s_nombre, s_attr in self.STAGES:
             if s_nombre == step_nombre:
                 handler = getattr(self, s_attr)
-                await handler()
+                handler()
                 return _step_summary(self._ctx, s_nombre)
         raise ValueError(
             f"step {idx} ({step_nombre!r}) no esta en STAGES "
@@ -422,31 +421,31 @@ class FunctionProcCrearGenerarPreview(FunctionBase):
     # ``self._ctx``.
     # ==================================================================
 
-    async def _stage_1_leer_manifest(self) -> None:
+    def _stage_1_leer_manifest(self) -> None:
         """Stage 1: lee el ``manifest.json`` de la plantilla TIA."""
-        await proc_process_leer_manifest(self._ctx)
+        proc_process_leer_manifest(self._ctx)
 
-    async def _stage_2_validar_minimos(self) -> None:
+    def _stage_2_validar_minimos(self) -> None:
         """Stage 2: valida los N_MIN del operario contra la plantilla.
 
         Si falla, lanza ``PlantillaMinimosNoCumplidos`` y el base va
         a ``n_error`` con ``error_stage``.
         """
-        await proc_process_validar_minimos(self._ctx)
+        proc_process_validar_minimos(self._ctx)
 
-    async def _stage_3_copiar_a_preview(self) -> None:
+    def _stage_3_copiar_a_preview(self) -> None:
         """Stage 3: copytree de la plantilla al workdir de preview."""
-        await proc_process_copiar_a_preview(self._ctx)
+        proc_process_copiar_a_preview(self._ctx)
 
-    async def _stage_4_construir_diccionarios(self) -> None:
+    def _stage_4_construir_diccionarios(self) -> None:
         """Stage 4: parsea bloques + XMLs y construye los diccionarios base."""
-        await proc_process_construir_diccionarios(self._ctx)
+        proc_process_construir_diccionarios(self._ctx)
 
-    async def _stage_5_detectar_colisiones(self) -> None:
+    def _stage_5_detectar_colisiones(self) -> None:
         """Stage 5: detecta UIDs/colisiones contra el ``plc_blocks_cache``."""
-        await proc_process_detectar_colisiones(self._ctx)
+        proc_process_detectar_colisiones(self._ctx)
 
-    async def _stage_6_validar_dependencias(self) -> None:
+    def _stage_6_validar_dependencias(self) -> None:
         """Stage 6: cruza ``ctx.dependencias`` contra ``plc_blocks_cache``.
 
         Rellena ``ctx.dependencias_ok`` y ``ctx.dependencias_faltantes``.
@@ -454,15 +453,15 @@ class FunctionProcCrearGenerarPreview(FunctionBase):
         lista no esta vacia. Nunca aborta: el preview sigue aunque
         falten dependencias (mensaje accionable en logs).
         """
-        await proc_process_validar_dependencias(self._ctx)
+        proc_process_validar_dependencias(self._ctx)
 
-    async def _stage_7_generar_previstos(self) -> None:
+    def _stage_7_generar_previstos(self) -> None:
         """Stage 7: aplica las reglas y genera ``archivos_previstos``."""
-        await proc_process_generar_previstos(self._ctx)
+        proc_process_generar_previstos(self._ctx)
 
-    async def _stage_8_build_response(self) -> None:
+    def _stage_8_build_response(self) -> None:
         """Stage 8: compone ``ctx.result`` con la shape final del preview."""
-        await proc_process_done_summary(self._ctx)
+        proc_process_done_summary(self._ctx)
 
 
 # ============================================================================
@@ -473,7 +472,7 @@ class FunctionProcCrearGenerarPreview(FunctionBase):
 # ============================================================================
 
 
-async def proc_process_leer_manifest(ctx: ProcProcessGenContext) -> None:
+def proc_process_leer_manifest(ctx: ProcProcessGenContext) -> None:
     manifest_path = ctx.dir_plantilla / "manifest.json"
     if not manifest_path.exists():
         raise ManifestInvalido(
@@ -481,9 +480,7 @@ async def proc_process_leer_manifest(ctx: ProcProcessGenContext) -> None:
         )
 
     try:
-        manifest_text = await asyncio.to_thread(
-            manifest_path.read_text, encoding="utf-8"
-        )
+        manifest_text = manifest_path.read_text(encoding="utf-8")
         manifest = json.loads(manifest_text)
     except (OSError, json.JSONDecodeError) as exc:
         raise ManifestInvalido(f"manifest.json invalido: {exc}") from exc
@@ -515,7 +512,7 @@ async def proc_process_leer_manifest(ctx: ProcProcessGenContext) -> None:
     ctx.dependencias = [str(d).strip() for d in manifest["dependencias"]]
 
 
-async def proc_process_validar_minimos(ctx: ProcProcessGenContext) -> None:
+def proc_process_validar_minimos(ctx: ProcProcessGenContext) -> None:
     if ctx.manifest_plantilla is None:
         raise RuntimeError("Requiere proc_process_leer_manifest previo.")
 
@@ -537,7 +534,7 @@ async def proc_process_validar_minimos(ctx: ProcProcessGenContext) -> None:
         )
 
 
-async def proc_process_copiar_a_preview(ctx: ProcProcessGenContext) -> None:
+def proc_process_copiar_a_preview(ctx: ProcProcessGenContext) -> None:
     """Copia ``dir_plantilla`` a ``dir_plantilla_copia``.
 
     Borra ``dir_plantilla_copia`` antes de copiar (regla de retencion:
@@ -545,16 +542,15 @@ async def proc_process_copiar_a_preview(ctx: ProcProcessGenContext) -> None:
     del operario.
     """
     if ctx.dir_plantilla_copia.exists():
-        await asyncio.to_thread(shutil.rmtree, ctx.dir_plantilla_copia)
-    await asyncio.to_thread(
-        shutil.copytree,
+        shutil.rmtree(ctx.dir_plantilla_copia)
+    shutil.copytree(
         ctx.dir_plantilla,
         ctx.dir_plantilla_copia,
         dirs_exist_ok=False,
     )
 
 
-async def proc_process_detectar_colisiones(ctx: ProcProcessGenContext) -> None:
+def proc_process_detectar_colisiones(ctx: ProcProcessGenContext) -> None:
     """Cruza ``dicc_bloques`` contra ``plc_blocks_cache`` por nombre
     O por numero.
 
@@ -661,7 +657,7 @@ async def proc_process_detectar_colisiones(ctx: ProcProcessGenContext) -> None:
                 colisiones_vistas.add(val)
 
 
-async def proc_process_validar_dependencias(ctx: ProcProcessGenContext) -> None:
+def proc_process_validar_dependencias(ctx: ProcProcessGenContext) -> None:
     """Cruza ``ctx.dependencias`` contra ``plc_blocks_cache`` por nombre
     exacto.
 
@@ -718,7 +714,7 @@ async def proc_process_validar_dependencias(ctx: ProcProcessGenContext) -> None:
             ctx.dependencias_faltantes.append(dep)
 
 
-async def proc_process_generar_previstos(ctx: ProcProcessGenContext) -> None:
+def proc_process_generar_previstos(ctx: ProcProcessGenContext) -> None:
     """Walk ``dir_plantilla_copia`` y construye la lista de BLOQUES
     que se generarian al aplicar la plantilla.
 
@@ -744,7 +740,7 @@ async def proc_process_generar_previstos(ctx: ProcProcessGenContext) -> None:
     def _walk() -> list[Path]:
         return [p for p in ctx.dir_plantilla_copia.rglob("*") if p.is_file()]
 
-    paths = await asyncio.to_thread(_walk)
+    paths = _walk()
 
     for in_path in paths:
         rel_in = in_path.relative_to(ctx.dir_plantilla_copia)
@@ -772,7 +768,7 @@ async def proc_process_generar_previstos(ctx: ProcProcessGenContext) -> None:
     ctx.archivos_previstos = bloques
 
 
-async def proc_process_done_summary(ctx: ProcProcessGenContext) -> dict[str, Any]:
+def proc_process_done_summary(ctx: ProcProcessGenContext) -> dict[str, Any]:
     """Compone ``ctx.result`` con la shape que el FB vuelca a
     ``self.result``.
 
