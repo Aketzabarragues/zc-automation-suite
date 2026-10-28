@@ -18,16 +18,26 @@ legacy::
         "dimensiones": {...},  # cache.n_max.to_api_dict()
         "software": {...},
     }
+
+Propiedad del temporal: el router escribe el ``.xlsx`` subido a un
+tempfile y encola este FB con su ``xlsx_path``. Quien lo lee es el
+FB, asi que quien lo borra es el FB (``execute()`` lo hace en un
+``finally``): el temporal no sobrevive ni a un fallo del parseo ni a
+una cancelacion.
 """
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from core.composition.plc_function_base import FunctionBase
+from core.infrastructure.log.log_web_bridge import install_web_level
 from core.runtime.app_cache import AppCache, get_app_cache
 
 logger = logging.getLogger(__name__)
+# Asegura que ``Logger.web/ok`` existen en tests/scripts (idempotente).
+install_web_level()
 
 
 class FunctionExcelCargar(FunctionBase):
@@ -103,11 +113,53 @@ class FunctionExcelCargar(FunctionBase):
         self._xlsx_path: str = ""
 
     # ==================================================================
+    # HOOK 0: execute()  (ciclo de vida del temporal)
+    # ==================================================================
+
+    def execute(self, **params: Any) -> Any:
+        """Ejecuta el FB y borra el temporal al terminar (OK o error).
+
+        Override del entry point del OB1 (``FunctionBase.execute``).
+        El router escribe el ``.xlsx`` subido a un tempfile y encola
+        este FB con su ``xlsx_path``: quien lo lee es el FB, asi que
+        el borrado va aqui y no en el router. El ``finally`` lo hace
+        garantizado para todos los caminos de salida: parseo OK,
+        parseo con error, cancelacion o params invalidos.
+        """
+        try:
+            return super().execute(**params)
+        finally:
+            self._borrar_temporal()
+
+    def _borrar_temporal(self) -> None:
+        """Borra el ``.xlsx`` temporal de esta carga (si existe).
+
+        Best-effort: si el fichero ya no esta (ruta de test, o
+        borrado por otro camino) no hay nada que hacer y el error no
+        se propaga (el FB no debe caer por un cleanup).
+        """
+        path = self._xlsx_path
+        if not path:
+            return
+        try:
+            os.unlink(path)
+        except OSError:
+            logger.debug(
+                f"[{self.nombre}] temporal no borrado: {path}"
+            )
+        finally:
+            self._xlsx_path = ""
+
+    # ==================================================================
     # HOOK 1: on_start  (ZONA 3: validar params)
     # ==================================================================
 
     def on_start(self, **params: Any) -> None:
         """Pre-flight: capturar y validar ``xlsx_path``."""
+        # Limpia la ruta de la carga anterior: si esta ejecucion no
+        # recibe ``xlsx_path``, el cleanup no debe tocar el temporal
+        # de otro trabajo.
+        self._xlsx_path = ""
         xlsx_path = params.get("xlsx_path")
         if not xlsx_path:
             raise ValueError(
@@ -161,18 +213,26 @@ class FunctionExcelCargar(FunctionBase):
         # Lectura sincronica del cache desde AppCache (la fuente de
         # verdad vive en ``app_cache.area(area_id).excel_full``; este
         # FB la escribio en el stage unico via ``parse_excel_to_cache``).
-        from core.runtime.excel_cache import excel_get_full
-        cache = excel_get_full(self._app_cache, self.AREA_ID)
-        dimensiones = cache.n_max.to_api_dict() if cache else None
+        # Protegido: si el cache no esta disponible, el FB no debe caer
+        # en ``on_finish`` (el trabajo ya se hizo).
+        dimensiones = None
         software = None
-        if cache is not None:
-            software = {
-                "procesos": len(cache.procesos),
-                "preal": len(cache.parametros_real),
-                "pint": len(cache.parametros_int),
-                "alarmas": len(cache.alarmas),
-                "n_max_total": len(cache.n_max.to_api_dict()),
-            }
+        try:
+            from core.runtime.excel_cache import excel_get_full
+            cache = excel_get_full(self._app_cache, self.AREA_ID)
+            if cache is not None:
+                dimensiones = cache.n_max.to_api_dict()
+                software = {
+                    "procesos": len(cache.procesos),
+                    "preal": len(cache.parametros_real),
+                    "pint": len(cache.parametros_int),
+                    "alarmas": len(cache.alarmas),
+                    "n_max_total": len(cache.n_max.to_api_dict()),
+                }
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(
+                f"[{self.nombre}] cache no disponible en on_finish: {exc}"
+            )
         self.result = {
             "ok": True,
             "summary": self._stats.get("parsear_excel", {}).get("summary", {}),
@@ -182,6 +242,35 @@ class FunctionExcelCargar(FunctionBase):
             "dimensiones": dimensiones,
             "software": software,
         }
+        # El "ok" con el resumen completo lo emite el FB (no el
+        # router): con el patron OB1 el router ya respondio 202 antes
+        # de que el Excel estuviera cargado.
+        self._log_resumen(software)
+
+    def _log_resumen(self, software: dict[str, int] | None) -> None:
+        """Emite el ``ok`` con el resumen del Excel ya cargado.
+
+        Plan living TRAZABILIDAD_LOGGING §5 (operacion 1): el operario
+        ve en la consola web "Excel cargado: N disp + N proc + ...".
+        No debe tumbar el FB si el resumen no se puede construir.
+        """
+        sw = software or {}
+        total = 0
+        if isinstance(self.result, dict):
+            total = self.result.get("total_dispositivos", 0) or 0
+        try:
+            logger.ok(
+                f"Excel cargado: {total} disp + "
+                f"{sw.get('procesos', 0)} proc + "
+                f"{sw.get('preal', 0)} preal + "
+                f"{sw.get('pint', 0)} pint + "
+                f"{sw.get('alarmas', 0)} alm + "
+                f"{sw.get('n_max_total', 0)} N_MAX"
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(
+                f"[{self.nombre}] no se pudo emitir el resumen: {exc}"
+            )
 
     # ==================================================================
     # Stages del FB (ZONA 4: metodos privados numerados).
