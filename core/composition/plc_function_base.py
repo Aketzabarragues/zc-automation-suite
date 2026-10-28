@@ -35,6 +35,9 @@ Hooks overridables por las subclases (FBs reales):
 Cancelacion cooperativa: ``cancel(reason)`` marca un flag; el step en
 curso lo comprueba en la frontera de etapa y el base cierra con
 ``tracker.finish(success=False)`` + ``nStep = n_error``.
+``request_cancel(reason)`` es la variante sync: pide la cancelacion
+desde cualquier hilo sin tocar ``nStep`` ni el tracker; el hilo
+ejecutor cierra el FB cuando el step en curso devuelve el control.
 """
 from __future__ import annotations
 
@@ -405,6 +408,42 @@ class FunctionBase:
         if error is not None:
             raise error
         return box.get("detail") or ""
+
+    # ------------------------------------------------------------------
+    # Cancelacion cooperativa sync (OB1, desde cualquier hilo)
+    # ------------------------------------------------------------------
+
+    def request_cancel(self, reason: str = "cancelled") -> bool:
+        """Pide la cancelacion cooperativa del FB desde cualquier hilo.
+
+        Contrato:
+          - No usa ``asyncio`` ni ``self._lock``: se puede llamar desde
+            un hilo de Flask (o desde el OB1) sin event loop, mientras el
+            hilo ejecutor esta dentro de un step.
+          - No transiciona ``nStep`` ni cierra el tracker: el hilo
+            ejecutor comprueba el flag en la frontera de cada step y
+            cierra el FB a ``n_error`` con el tracker ya cerrado. Asi el
+            estado refleja el cierre real del trabajo y no se pisa un
+            step en curso.
+          - ``error_msg`` solo se rellena si esta vacio: un error previo
+            mas informativo tiene prioridad sobre el motivo de parada.
+
+        Returns:
+            True si el FB estaba activo y se ha pedido la cancelacion.
+            False si ya estaba en estado terminal (no hay nada que
+            cancelar).
+        """
+        if self.is_terminal():
+            return False
+        logger.info(
+            "FB %s: cancelacion solicitada (%s)", self.nombre, reason,
+        )
+        # Primero el motivo, despues el flag: el hilo ejecutor lee
+        # ``error_msg`` justo despues de ver el flag activado.
+        if self.error_msg is None:
+            self.error_msg = reason
+        self._cancelled.set()
+        return True
 
     # ------------------------------------------------------------------
     # API publica legacy (async, engine) -- se retira con el OB1

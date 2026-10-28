@@ -16,6 +16,7 @@ Tests del .clinerules (Fase 2).  Cubren:
 from __future__ import annotations
 
 import asyncio
+import inspect
 import threading
 import time
 from typing import Any
@@ -354,4 +355,128 @@ async def test_tick_legacy_con_run_step_sync() -> None:
     assert fb.calls == [0]
     assert fb.nStep == fb.n_done
     assert fb.error_msg is None
+
+
+# ---------------------------------------------------------------------
+# Cancelacion cooperativa sync: request_cancel() (OB1)
+# ---------------------------------------------------------------------
+
+
+def test_request_cancel_en_fb_terminal_no_hace_nada() -> None:
+    """En estado terminal no hay nada que cancelar.
+
+    ``request_cancel()`` devuelve ``False`` y no toca ni el flag de
+    cancelacion ni ``error_msg``: un FB ya cerrado no se re-marca.
+    """
+    fb = _SyncFB("sync_fb", "Sync FB", ["p1"], tracker=ProgressTracker())
+    assert fb.nStep == fb.n_idle
+
+    ok = fb.request_cancel("cancelado por el operario")
+
+    assert ok is False
+    assert fb._cancelled.is_set() is False
+    assert fb.error_msg is None
+    assert fb.nStep == fb.n_idle
+
+
+def test_request_cancel_en_fb_activo_pide_la_cancelacion() -> None:
+    """Con el FB activo, ``request_cancel()`` activa el flag y fija el motivo."""
+    fb = _SyncFB("sync_fb", "Sync FB", ["p1"], tracker=ProgressTracker())
+    fb.nStep = fb.n_ejecutar
+
+    ok = fb.request_cancel("cancelado por el operario")
+
+    assert ok is True
+    assert fb._cancelled.is_set() is True
+    assert fb.error_msg == "cancelado por el operario"
+
+
+def test_request_cancel_no_cambia_nstep() -> None:
+    """``request_cancel()`` NO transiciona ``nStep``.
+
+    El estado lo cierra el hilo ejecutor cuando el step en curso
+    devuelve el control; cambiarlo aqui seria una carrera con el step.
+    """
+    eventos: list[tuple[int, int]] = []
+    fb = _SyncFB("sync_fb", "Sync FB", ["p1"], tracker=ProgressTracker())
+    fb._on_nstep_change = lambda old, new: eventos.append((old, new))
+    fb.nStep = fb.n_ejecutar
+
+    fb.request_cancel("cancelado por el operario")
+
+    assert fb.nStep == fb.n_ejecutar
+    assert eventos == []  # no se notifica ninguna transicion
+
+
+def test_request_cancel_no_pisa_un_error_previo() -> None:
+    """Un ``error_msg`` ya informative tiene prioridad sobre el motivo de parada."""
+    fb = _SyncFB("sync_fb", "Sync FB", ["p1"], tracker=ProgressTracker())
+    fb.nStep = fb.n_ejecutar
+    fb.error_msg = "RuntimeError: TIA Portal se cayo"
+
+    ok = fb.request_cancel("cancelado por el operario")
+
+    assert ok is True
+    assert fb.error_msg == "RuntimeError: TIA Portal se cayo"
+    assert fb._cancelled.is_set() is True
+
+
+def test_request_cancel_es_sync_y_no_necesita_event_loop() -> None:
+    """``request_cancel()`` no es una corrutina: se puede llamar sin event loop.
+
+    Es lo que permite al OB1 pedir la cancelacion desde un hilo de
+    Flask mientras el hilo ejecutor esta dentro de un step.
+    """
+    assert inspect.iscoroutinefunction(FunctionBase.request_cancel) is False
+
+    fb = _SyncFB("sync_fb", "Sync FB", ["p1"], tracker=ProgressTracker())
+    fb.nStep = fb.n_ejecutar
+    resultados: list[bool] = []
+    errores: list[BaseException] = []
+
+    def _llamar() -> None:
+        try:
+            resultados.append(fb.request_cancel("desde otro hilo"))
+        except BaseException as exc:  # noqa: BLE001 - se verifica abajo
+            errores.append(exc)
+
+    worker = threading.Thread(target=_llamar)
+    worker.start()
+    worker.join(timeout=5)
+
+    assert worker.is_alive() is False
+    assert errores == []
+    assert resultados == [True]
+    assert fb._cancelled.is_set() is True
+
+
+def test_request_cancel_durante_un_step_cierra_el_fb_en_n_error() -> None:
+    """Cancelacion pedida durante un step: el ejecutor cierra el FB.
+
+    ``request_cancel()`` solo marca el flag; cuando el step devuelve el
+    control, el base ve el flag y transiciona a ``n_error`` con el
+    motivo de la parada.
+    """
+    started = threading.Event()
+    gate = threading.Event()
+
+    class _BlockingFB(FunctionBase):
+        def run_step(self, idx: int, **params: Any) -> str:
+            started.set()
+            gate.wait(timeout=5)
+            return "ok"
+
+    fb = _BlockingFB("bloquea", "Bloquea", ["p1"], tracker=ProgressTracker())
+
+    worker = threading.Thread(target=fb.execute)
+    worker.start()
+    started.wait(timeout=5)
+
+    ok = fb.request_cancel("cancelado por el operario")
+    gate.set()
+    worker.join(timeout=5)
+
+    assert ok is True
+    assert fb.nStep == fb.n_error
+    assert "cancelado por el operario" in (fb.error_msg or "")
 
