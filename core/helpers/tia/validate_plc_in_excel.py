@@ -11,11 +11,10 @@ incluyendo la lista de PLCs disponibles en el Excel para guiar al
 operario al fix correcto (subir otro Excel o seleccionar otro PLC).
 
 NOTA sobre propagacion del error: como vive en ``on_start``, el
-``ValueError`` se lanza en el primer ``tick()`` del loop async, NO
-en el ``await fb.start()``. Eso significa que el endpoint devuelve
-200 OK inicialmente y el operario ve el error via progress tracker
-o logs. Si quieres feedback inmediato en el HTTP response, hay que
-duplicar la validacion en el endpoint (no es scope de este helper).
+``ValueError`` lo captura el base y el FB transiciona a ``n_error``.
+El router ya respondio ``202`` (el trabajo estaba encolado), asi que el
+operario ve el error por push: evento SSE ``fb_state`` con
+``error_msg`` y el stage en rojo en el tracker.
 """
 from __future__ import annotations
 

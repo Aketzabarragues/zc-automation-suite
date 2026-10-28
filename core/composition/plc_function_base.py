@@ -97,11 +97,8 @@ class FunctionBase:
             step_timeout_s if step_timeout_s is not None else self.STEP_TIMEOUT_S
         )
         self._step_idx: int = 0
-        # ``asyncio.Lock`` se ata al event loop en su primer uso. Como el
-        # camino legacy sobrevive entre invocaciones efimeras (el engine
-        # crea un ``asyncio.run()`` por ciclo y los routers hacen
-        # ``asyncio.run(fb.start())`` desde hilos de Flask), el loop
-        # cambia en cada invocacion y el primitive del loop anterior
+        # ``asyncio.Lock`` se ata al event loop en su primer uso. Si el
+        # loop cambia entre invocaciones, el primitive del loop anterior
         # dispara "bound to a different event loop".
         # ``_ensure_loop_objects()`` lo recrea perezosamente al inicio de
         # cada entry point async.
@@ -183,10 +180,7 @@ class FunctionBase:
         """(Re)crea ``_lock`` si el event loop cambio.
 
         Los primitives de asyncio (``Lock``) se atan al loop en su
-        primer ``acquire()``. Cuando el FB sobrevive entre llamadas
-        efimeras -- el engine legacy crea un ``asyncio.run()`` por
-        ciclo, y los routers hacen ``asyncio.run(fb.start())`` desde
-        hilos de Flask -- el loop cambia en cada invocacion y el
+        primer ``acquire()``. Si el loop cambia entre invocaciones, el
         primitive del loop anterior dispara ``RuntimeError: ... is
         bound to a different event loop``. Recrearlo aqui (solo si el
         loop cambio) resuelve el binding sin pagar el coste cuando el
