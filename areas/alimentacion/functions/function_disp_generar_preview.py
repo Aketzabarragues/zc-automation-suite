@@ -39,14 +39,12 @@ Steps (4, mismo orden que el legacy ``generar_prevision``):
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from core.composition.plc_function_base import FunctionBase
-from core.helpers.tia import dispatch_async
 from core.helpers.tia.validate_plc_in_tia import validate_plc_in_tia
 from core.helpers.tia.validate_plc_in_excel import validate_plc_in_excel
 from core.helpers.tia.with_plc import with_plc
@@ -179,7 +177,7 @@ class FunctionDispGenerarPreview(FunctionBase):
     # HOOK 2: run_step  (ZONA 4: state machine -> dispatch al helper)
     # ==================================================================
 
-    async def run_step(self, idx: int, **params: Any) -> str:
+    def run_step(self, idx: int, **params: Any) -> str:
         """Dispatch del FB step ``idx`` a la funcion del helper ``disp_generate_preview``.
 
         Aqui vive la state machine: cada step del FB llama a UNA
@@ -207,7 +205,7 @@ class FunctionDispGenerarPreview(FunctionBase):
         for _s_idx, s_nombre, s_attr in self.STAGES:
             if s_nombre == step_nombre:
                 handler = getattr(self, s_attr)
-                await handler()
+                handler()
                 # Resumen legible del step que acaba de correr.
                 return _step_summary(self._ctx, s_nombre)
         raise ValueError(
@@ -258,7 +256,7 @@ class FunctionDispGenerarPreview(FunctionBase):
     # tabla tambien.
     # ==================================================================
 
-    async def _stage_1_exportar_tags(self) -> None:
+    def _stage_1_exportar_tags(self) -> None:
         """Stage 1: limpia preview/ y exporta las tablas selectivas al snapshot.
 
         Layout nuevo (sept-2026, ver ``_plan/rutas.md``):
@@ -297,8 +295,7 @@ class FunctionDispGenerarPreview(FunctionBase):
 
         # 1/2: N_MAX → preview_config/.
         if self._ctx.nmax_table:
-            await dispatch_async(
-                self._ctx.tia_client,
+            self._ctx.tia_client.submit_and_wait(
                 "export_tables",
                 {
                     "plc_name": self._ctx.plc_name,
@@ -306,6 +303,7 @@ class FunctionDispGenerarPreview(FunctionBase):
                     "table_names": [self._ctx.nmax_table],
                     "keep_folder_structure": False,
                 },
+                timeout=60.0,
             )
             logger.debug(
                 f"  N_MAX exportada a {self._ctx.preview_config_dir}"
@@ -313,8 +311,7 @@ class FunctionDispGenerarPreview(FunctionBase):
 
         # 2/2: 6 tag tables de devices → preview_disp/ (FLAT).
         if self._ctx.disp_tables:
-            await dispatch_async(
-                self._ctx.tia_client,
+            self._ctx.tia_client.submit_and_wait(
                 "export_tables",
                 {
                     "plc_name": self._ctx.plc_name,
@@ -322,13 +319,14 @@ class FunctionDispGenerarPreview(FunctionBase):
                     "table_names": self._ctx.disp_tables,
                     "keep_folder_structure": False,
                 },
+                timeout=60.0,
             )
             logger.debug(
                 f"  {len(self._ctx.disp_tables)} disp tables exportadas a "
                 f"{self._ctx.preview_disp_dir}"
             )
 
-    async def _stage_2_compute_devices(self) -> None:
+    def _stage_2_compute_devices(self) -> None:
         """Stage 2: calcula el diff de devices entre los XMLs exportados y AppCache.
 
         Migrado sept-2026: usa ``compute_diff_table`` (funcion pura,
@@ -354,8 +352,8 @@ class FunctionDispGenerarPreview(FunctionBase):
         # Por cada uno: lee disp del AppCache, busca el XML FLAT en
         # ``preview_disp/<table>.xml``, llama a ``compute_diff_table``.
         # Bloque syncronico: cada llamada lee 1 XML y es CPU-pura
-        # (parse + set diff). Las 6 ejecuciones se envuelven en 1
-        # ``asyncio.to_thread`` para no bloquear el event loop.
+        # (parse + set diff). Las 6 ejecuciones corren en el hilo
+        # del FB.
         def _all_diffs() -> None:
             for hw in self._ctx.config_manager.list_hw_types_active():
                 cfg = self._ctx.config_manager.get_dispositivo_config(hw)
@@ -381,7 +379,7 @@ class FunctionDispGenerarPreview(FunctionBase):
                         for uid, v in diff.renamed.items()
                     })
 
-        await asyncio.to_thread(_all_diffs)
+        _all_diffs()
 
         self._ctx.desired_state_per_table = desired_state_per_table
         self._ctx.base_state_per_table = base_state_per_table
@@ -396,7 +394,7 @@ class FunctionDispGenerarPreview(FunctionBase):
             f"base_tables={len(base_state_per_table)}"
         )
 
-    async def _stage_3_compute_nmax(self) -> None:
+    def _stage_3_compute_nmax(self) -> None:
         """Stage 3: calcula el diff de N_MAX entre el TIA (export FLAT) y AppCache."""
         assert self._ctx.preview_config_dir is not None, (
             "compute_nmax requiere exportar_tags previo (preview_config_dir)"
@@ -412,7 +410,6 @@ class FunctionDispGenerarPreview(FunctionBase):
         xml_path = self._ctx.preview_config_dir / f"{nmax_table_name}.xml"
 
         # Bloque syncronico: parsea 1 XML + computa diff.
-        # Envuelto en to_thread para no bloquear el event loop.
         def _compute() -> Any:
             return compute_nmax_diff(
                 table_name=nmax_table_name,
@@ -420,7 +417,7 @@ class FunctionDispGenerarPreview(FunctionBase):
                 xml_path=xml_path,
             )
 
-        nmax = await asyncio.to_thread(_compute)
+        nmax = _compute()
 
         # Adaptamos el shape de NmaxDiff al legacy ``nmax_block``
         # esperado por ``_stage_4_build_response`` (keys ``current``,
@@ -436,7 +433,7 @@ class FunctionDispGenerarPreview(FunctionBase):
             ),
         }
 
-    async def _stage_4_build_response(self) -> None:
+    def _stage_4_build_response(self) -> None:
         """Stage 4: compone la shape legacy final con todos los resultados intermedios."""
         agregados: list[dict[str, Any]] = [
             {"uid": uid, "table": tk, "plc_tag": td.get(uid, "")}
@@ -607,11 +604,6 @@ class DispPreviewContext:
 # ===========================================================================
 # Helpers puros (cada uno opera sobre los finales; sin state machine aqui)
 # ===========================================================================
-
-# Nota: ``dispatch_async`` se importa arriba desde
-# ``core.helpers.tia.dispatch_async``. Antes vivia
-# duplicado aqui (4 copias en total: 2 disp + 2 proc); ahora vive
-# como helper compartido para que cualquier modulo del area lo use.
 
 
 def _selective_table_names(config_manager: Any) -> list[str]:
