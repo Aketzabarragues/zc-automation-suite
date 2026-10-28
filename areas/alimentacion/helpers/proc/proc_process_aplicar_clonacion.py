@@ -49,7 +49,6 @@ Notas:
 """
 from __future__ import annotations
 
-import asyncio
 import re
 import shutil
 from pathlib import Path
@@ -113,7 +112,7 @@ def _reemplazar_nmax_en_xml(
     return contenido
 
 
-async def proc_process_aplicar_clonacion(ctx: Any) -> None:
+def proc_process_aplicar_clonacion(ctx: Any) -> None:
     """Aplica la clonacion: ``dir_plantilla_copia`` -> ``dir_nuevo``.
 
     Borra ``dir_nuevo/`` antes de aplicar (regla de retencion: cada
@@ -121,13 +120,12 @@ async def proc_process_aplicar_clonacion(ctx: Any) -> None:
     completo.
     """
     if ctx.dir_nuevo.exists():
-        await asyncio.to_thread(shutil.rmtree, ctx.dir_nuevo)
+        shutil.rmtree(ctx.dir_nuevo)
 
     def _ignore_manifest(_dir: str, names: list[str]) -> list[str]:
         return [n for n in names if n == "manifest.json"]
 
-    await asyncio.to_thread(
-        shutil.copytree,
+    shutil.copytree(
         str(ctx.dir_plantilla_copia),
         str(ctx.dir_nuevo),
         ignore=_ignore_manifest,
@@ -156,7 +154,7 @@ async def proc_process_aplicar_clonacion(ctx: Any) -> None:
             new.parent.mkdir(parents=True, exist_ok=True)
             old.rename(new)
 
-    await asyncio.to_thread(_rename_paths)
+    _rename_paths()
 
     def _rewrite_contents() -> list[str]:
         generated: list[str] = []
@@ -187,4 +185,4 @@ async def proc_process_aplicar_clonacion(ctx: Any) -> None:
             generated.append(str(path.relative_to(ctx.dir_nuevo)))
         return generated
 
-    ctx.archivos_generados = await asyncio.to_thread(_rewrite_contents)
+    ctx.archivos_generados = _rewrite_contents()

@@ -29,6 +29,7 @@ preview por conveniencia (el dataclass es identico en ambos).
 """
 from __future__ import annotations
 
+import inspect
 import json
 import os
 from pathlib import Path
@@ -586,6 +587,25 @@ async def test_copiar_a_preview_limpia_si_existe(make_ctx: Any) -> None:
 
 
 
+# ── contrato sync (hilo unico OB1) ────────────────────────────────────
+
+
+def test_helpers_proc_crear_no_son_corrutinas() -> None:
+    """Los 2 helpers compartidos son funciones sync.
+
+    El shell los invoca desde el hilo unico, sin event loop: un
+    ``await`` sobre ellos dejaria la corrutina sin ejecutar
+    ("coroutine was never awaited") y los diccionarios / archivos
+    nunca se escribirian.
+    """
+    assert not inspect.iscoroutinefunction(proc_process_construir_diccionarios), (
+        "proc_process_construir_diccionarios debe ser sync"
+    )
+    assert not inspect.iscoroutinefunction(proc_process_aplicar_clonacion), (
+        "proc_process_aplicar_clonacion debe ser sync"
+    )
+
+
 # ── proc_process_construir_diccionarios ───────────────────────────────
 
 
@@ -597,7 +617,7 @@ async def test_construir_diccionarios_orden_len_desc(make_ctx: Any) -> None:
     ctx = make_ctx()
     await proc_process_copiar_a_preview(ctx)
     await proc_process_leer_manifest(ctx)
-    await proc_process_construir_diccionarios(ctx)
+    proc_process_construir_diccionarios(ctx)
 
     # El primer item debe ser la clave mas larga.
     longest_key = max(ctx.dicc_bloques, key=len)
@@ -640,7 +660,7 @@ async def test_detectar_colisiones_match_plc_cache(make_ctx: Any) -> None:
     )
     await proc_process_copiar_a_preview(ctx)
     await proc_process_leer_manifest(ctx)
-    await proc_process_construir_diccionarios(ctx)
+    proc_process_construir_diccionarios(ctx)
     await proc_process_detectar_colisiones(ctx)
 
     # ``DB60010_EXP_COMENTARIOS`` ya estaba en PLC -> colision detectada.
@@ -668,7 +688,7 @@ async def test_detectar_colisiones_match_por_tipo_numero(make_ctx: Any) -> None:
     )
     await proc_process_copiar_a_preview(ctx)
     await proc_process_leer_manifest(ctx)
-    await proc_process_construir_diccionarios(ctx)
+    proc_process_construir_diccionarios(ctx)
     await proc_process_detectar_colisiones(ctx)
 
     # Match por (FC, 60010): colision con el bloque FC60010_OTRO_NOMBRE
@@ -704,7 +724,7 @@ async def test_detectar_colisiones_mismo_numero_distinto_prefijo_no_colisiona(
     )
     await proc_process_copiar_a_preview(ctx)
     await proc_process_leer_manifest(ctx)
-    await proc_process_construir_diccionarios(ctx)
+    proc_process_construir_diccionarios(ctx)
     await proc_process_detectar_colisiones(ctx)
 
     # ``FC100`` (o ``FC100_<sufijo>``) del nuevo proceso NO debe
@@ -738,7 +758,7 @@ async def test_detectar_colisiones_cache_none_emite_warning(
     ctx = make_ctx(plc_blocks_cache=None)
     await proc_process_copiar_a_preview(ctx)
     await proc_process_leer_manifest(ctx)
-    await proc_process_construir_diccionarios(ctx)
+    proc_process_construir_diccionarios(ctx)
     await proc_process_detectar_colisiones(ctx)
 
     assert len(ctx.colisiones) == 1
@@ -778,8 +798,8 @@ async def test_aplicar_clonacion_preserva_bom_s7res(
     )
     await proc_process_copiar_a_preview(ctx)
     await proc_process_leer_manifest(ctx)
-    await proc_process_construir_diccionarios(ctx)
-    await proc_process_aplicar_clonacion(ctx)
+    proc_process_construir_diccionarios(ctx)
+    proc_process_aplicar_clonacion(ctx)
 
     # El output .s7res: nombre nuevo es 60010 (base nueva) + EXP
     # (codigo nuevo, reemplazo de "TEST") + _COMENTARIOS (sufijo
@@ -827,8 +847,8 @@ async def test_aplicar_clonacion_xml_value_update(
     )
     await proc_process_copiar_a_preview(ctx)
     await proc_process_leer_manifest(ctx)
-    await proc_process_construir_diccionarios(ctx)
-    await proc_process_aplicar_clonacion(ctx)
+    proc_process_construir_diccionarios(ctx)
+    proc_process_aplicar_clonacion(ctx)
 
     # El XML clonado: 50010_TEST.xml -> 60010_EXP.xml (sustituye
     # 50010->60010 y TEST->EXP). La estructura de carpetas se
@@ -893,8 +913,8 @@ async def test_aplicar_clonacion_genera_layout_canonico(
     )
     await proc_process_copiar_a_preview(ctx)
     await proc_process_leer_manifest(ctx)
-    await proc_process_construir_diccionarios(ctx)
-    await proc_process_aplicar_clonacion(ctx)
+    proc_process_construir_diccionarios(ctx)
+    proc_process_aplicar_clonacion(ctx)
 
     # Estructura preservada: las subcarpetas originales viven en el
     # output (NO aplanadas en ``variables/`` o ``bloques/``).
@@ -1071,8 +1091,8 @@ async def test_aplicar_clonacion_renombra_carpetas_anidadas(
     )
     await proc_process_copiar_a_preview(ctx)
     await proc_process_leer_manifest(ctx)
-    await proc_process_construir_diccionarios(ctx)
-    await proc_process_aplicar_clonacion(ctx)
+    proc_process_construir_diccionarios(ctx)
+    proc_process_aplicar_clonacion(ctx)
 
     # 1) Folder top renombrado: 200_Expedicion -> 100_CPR
     assert (modified / "Bloques de programa" / "100_CPR").is_dir(), (
@@ -1187,7 +1207,7 @@ async def test_generar_previstos_1_entry_por_bloque(make_ctx: Any) -> None:
     ctx = make_ctx()
     await proc_process_copiar_a_preview(ctx)
     await proc_process_leer_manifest(ctx)
-    await proc_process_construir_diccionarios(ctx)
+    proc_process_construir_diccionarios(ctx)
     await proc_process_generar_previstos(ctx)
 
     # 3 stems de bloque en el dummy -> 3 entries (no 4 archivos).
@@ -1221,7 +1241,7 @@ async def test_generar_previstos_filtra_no_bloque(make_ctx: Any) -> None:
     ctx = make_ctx()
     await proc_process_copiar_a_preview(ctx)
     await proc_process_leer_manifest(ctx)
-    await proc_process_construir_diccionarios(ctx)
+    proc_process_construir_diccionarios(ctx)
     await proc_process_generar_previstos(ctx)
 
     for entry in ctx.archivos_previstos:
@@ -1240,7 +1260,7 @@ async def test_generar_previstos_estado_ok_sin_colision(make_ctx: Any) -> None:
     ctx = make_ctx(plc_blocks_cache=[])
     await proc_process_copiar_a_preview(ctx)
     await proc_process_leer_manifest(ctx)
-    await proc_process_construir_diccionarios(ctx)
+    proc_process_construir_diccionarios(ctx)
     await proc_process_detectar_colisiones(ctx)
     await proc_process_generar_previstos(ctx)
 
@@ -1267,7 +1287,7 @@ async def test_generar_previstos_estado_duplicado_con_ident(make_ctx: Any) -> No
     }])
     await proc_process_copiar_a_preview(ctx)
     await proc_process_leer_manifest(ctx)
-    await proc_process_construir_diccionarios(ctx)
+    proc_process_construir_diccionarios(ctx)
     await proc_process_detectar_colisiones(ctx)
     await proc_process_generar_previstos(ctx)
 
@@ -1296,7 +1316,7 @@ async def test_generar_previstos_orden_por_nombre_nuevo(
     ctx = make_ctx()
     await proc_process_copiar_a_preview(ctx)
     await proc_process_leer_manifest(ctx)
-    await proc_process_construir_diccionarios(ctx)
+    proc_process_construir_diccionarios(ctx)
     await proc_process_generar_previstos(ctx)
 
     nombres = [e["nombre_nuevo"] for e in ctx.archivos_previstos]
@@ -1378,8 +1398,8 @@ async def test_construir_diccionarios_renombra_carpeta_base_custom(
     )
     await proc_process_copiar_a_preview(ctx)
     await proc_process_leer_manifest(ctx)
-    await proc_process_construir_diccionarios(ctx)
-    await proc_process_aplicar_clonacion(ctx)
+    proc_process_construir_diccionarios(ctx)
+    proc_process_aplicar_clonacion(ctx)
 
     # La subcarpeta custom debe haberse renombrado: 600_ -> 500_
     # (offset +400 preservado tras el shift base 200 -> 100).
@@ -1462,8 +1482,8 @@ async def test_construir_diccionarios_renombra_subcarpeta_anidada_custom(
     )
     await proc_process_copiar_a_preview(ctx)
     await proc_process_leer_manifest(ctx)
-    await proc_process_construir_diccionarios(ctx)
-    await proc_process_aplicar_clonacion(ctx)
+    proc_process_construir_diccionarios(ctx)
+    proc_process_aplicar_clonacion(ctx)
 
     # Subcarpeta anidada con base custom (offset +500) debe
     # quedar como ``600_Nested_Custom`` (offset preservado). El
@@ -1531,7 +1551,7 @@ async def test_construir_diccionarios_sin_carpetas_prefijadas(
     )
     await proc_process_copiar_a_preview(ctx)
     await proc_process_leer_manifest(ctx)
-    await proc_process_construir_diccionarios(ctx)
+    proc_process_construir_diccionarios(ctx)
 
     # Las 3 reglas estandar siguen en dicc_xml (XML puede
     # referenciarlas aunque no haya carpeta con ese prefijo).
@@ -1600,8 +1620,8 @@ async def test_construir_diccionarios_carpeta_prefijo_fc_db(
     )
     await proc_process_copiar_a_preview(ctx)
     await proc_process_leer_manifest(ctx)
-    await proc_process_construir_diccionarios(ctx)
-    await proc_process_aplicar_clonacion(ctx)
+    proc_process_construir_diccionarios(ctx)
+    proc_process_aplicar_clonacion(ctx)
 
     # FC folder (sin top folder): FC100_Grouping -> FC300_Grouping
     # (offset +100 preservado). El bloque dentro se renombra por
@@ -1694,8 +1714,8 @@ async def test_construir_diccionarios_prefijo_num_en_stem_de_archivo(
     )
     await proc_process_copiar_a_preview(ctx)
     await proc_process_leer_manifest(ctx)
-    await proc_process_construir_diccionarios(ctx)
-    await proc_process_aplicar_clonacion(ctx)
+    proc_process_construir_diccionarios(ctx)
+    proc_process_aplicar_clonacion(ctx)
 
     # Regla del prefijo de archivo presente en el dicc.
     assert ctx.dicc_bloques.get("50501_") == "501_", (

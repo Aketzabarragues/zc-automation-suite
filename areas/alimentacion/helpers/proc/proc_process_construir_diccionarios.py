@@ -44,8 +44,8 @@ Notas:
   ``nombre_nuevo`` (str), ``dicc_bloques``/``dicc_xml``
   (dict[str, str]) funciona. Asi el helper no depende del
   dataclass local de cada FB.
-- El walk se ejecuta en un hilo (``asyncio.to_thread``) porque
-  puede tocar decenas de archivos.
+- El walk es sync y corre en el hilo del llamante: el shell
+  ejecuta un unico hilo, sin event loop.
 - Si en el futuro los dos FBs divergen en sus necesidades,
   pasar el ctx a kwargs explicitos y romper en helpers mas
   pequenos. Hoy mismo, el contrato es lo bastante estable
@@ -53,14 +53,13 @@ Notas:
 """
 from __future__ import annotations
 
-import asyncio
 import re
 from typing import Any
 
 __all__ = ["proc_process_construir_diccionarios"]
 
 
-async def proc_process_construir_diccionarios(ctx: Any) -> None:
+def proc_process_construir_diccionarios(ctx: Any) -> None:
     base_viej = ctx.base_vieja
     base_nuev = ctx.base_nueva
     cod_viej = ctx.codigo_viejo
@@ -120,7 +119,7 @@ async def proc_process_construir_diccionarios(ctx: Any) -> None:
             for match in patron_bloques.finditer(nombre_base):
                 numeros_usados.add(int(match.group(2)))
 
-    await asyncio.to_thread(_walk_and_build)
+    _walk_and_build()
 
     for prefijo_v in sorted(prefijos_walk):
         prefijo_n = prefijo_v - base_viej + base_nuev
