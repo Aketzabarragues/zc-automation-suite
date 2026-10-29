@@ -26,7 +26,7 @@ def _make_block(name):
 def _make_group(name, blocks=None, groups=None):
     g = MagicMock()
     # ``_find_block_in_plc`` lee ``g.get_name()`` via ``_safe_get_block_name``
-    # (consistente con la lectura de bloques, mismo fix que commit 8c).
+    # (consistente con la lectura de bloques, mismo fix).
     # ``.name`` se mantiene como fallback legacy.
     g.get_name.return_value = name
     g.name = name

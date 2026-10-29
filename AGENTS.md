@@ -47,8 +47,8 @@ vida) en `.clinerules` §2.
 
 ## Arquitectura: cómo añadir una nueva feature
 
-> El layout del repositorio sigue **Bounded Contexts** (PR 0-7 del
-> plan de reorganización). `core/` contiene TODO lo transversal sin
+> El layout del repositorio sigue **Bounded Contexts** (plan de
+> reorganización). `core/` contiene TODO lo transversal sin
 > saber de áreas; cada `areas/<area>/` es un paquete autocontenido
 > que se autodescribe vía `AreaSpec`. Antes de añadir una feature
 > dentro de un área, lee **"Cómo añadir una nueva área"** más abajo.
@@ -133,7 +133,7 @@ vida) en `.clinerules` §2.
 1. Crea `areas/<area>/frontend/components/<Vista>.js` con Vue 3 ESM.
    Exporta un `default { name, setup, template }`. NO añadas
    componentes en `core/web_server/static/js/components/areas/`
-   (esa carpeta ya no existe tras PR 7).
+   (esa carpeta ya no existe).
 2. El template es un `template: /* html */ \`...\`` (template string).
 3. PROHIBIDO: string literals multi-línea dentro de arrays de `:class`.
    Cada literal va en una sola línea. Salto de línea entre clases OK.
@@ -462,8 +462,7 @@ commit).
   `XmlTarget` en `core/infrastructure/tia/tia_export_paths.py`
   resuelven paths de archivos individuales.
 - Es convención de la app, NO config del proyecto. No hay
-  `ZC_BUILD_CACHE_DIR` todavía (YAGNI; ver
-  `_plan/08_routes_standardization.md` §5). Si lo necesitas, replica
+  `ZC_BUILD_CACHE_DIR` todavía (YAGNI). Si lo necesitas, replica
   el patrón de `log_paths.py` (ZC_LOG_DIR).
 - `ContextCache.clean()` borra y recrea `exports/` y `modified/`
   antes del apply; `preview/` NO se toca (puede contener dry-runs
@@ -483,8 +482,8 @@ commit).
   `config.json` existente. El operario borra el archivo a mano si
   quiere resetear al bundleado (primera ejecución = siguiente
   arranque copia el bundleado de nuevo).
-- Compat: callers que pasan `config_path=` explícito (todos los
-  tests, `app.py`, `mcp_server.py`) siguen funcionando idéntico. El
+- Compat: callers que pasan `config_path=` explícito (los tests y el
+  router de plantillas) siguen funcionando idéntico. El
   resolver solo actúa cuando no se pasa path (o se pasa `None`).
 
 ### Convenciones frontend (Vue 3 ESM)
@@ -588,7 +587,7 @@ ni cargar skills manualmente: el routing es automático.
 | Tarea | Agente |
 |---|---|
 | Cambios en TIA worker, modificadores XML/SD, parsers Excel, worker OT | `tia-ot-worker` |
-| Routers Flask, use cases, `app.py`, dependencias, tools MCP | `backend-api` |
+| Routers Flask, use cases, `app_flask.py`, dependencias, tools MCP | `backend-api` |
 | Componentes Vue, store, api.js, tema, recompilar Tailwind | `frontend-spa` |
 | `build_exe.py`, launcher, tests pytest, `.bat` | `build-and-tests` |
 

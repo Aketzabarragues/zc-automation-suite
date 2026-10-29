@@ -1,9 +1,8 @@
 ﻿"""Parser de ``DispM`` (Motores digitales) del Excel corporativo.
 
-Replica 1:1 del ``_build_dispm`` del parser consolidado legacy
-(``AlimentacionExcelParser``). Lee la ``ListObject``
-``Tabla_Disp_M`` de la hoja ``DISP_M`` del workbook del
-departamento de alimentación y la mapea a una lista de ``DispM``.
+Lee la ``ListObject`` ``Tabla_Disp_M`` de la hoja ``DISP_M`` del
+workbook del departamento de alimentación y la mapea a una lista de
+``DispM``.
 
 Campos específicos: ``S.Byte/S.Bit`` (salida/activación),
 ``RT.Byte/RT.Bit`` (retorno térmico), ``RM.Byte/RM.Bit`` (retorno

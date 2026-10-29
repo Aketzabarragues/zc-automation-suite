@@ -1,4 +1,4 @@
-"""Tests del handler unificado ``export_blocks`` (FASE 2.6 commit 1).
+"""Tests del handler unificado ``export_blocks``.
 
 Sustituye a ``export_blocks_sd`` (plural sin filtro) y ``export_block``
 (singular con filtro). Acepta ``block_names=None`` (todos) o lista (whitelist).

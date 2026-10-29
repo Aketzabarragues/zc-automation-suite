@@ -1,4 +1,4 @@
-"""Tests de _h_compile_plc (Fase 4 / paso 4.1.2b1)."""
+"""Tests de _h_compile_plc."""
 from __future__ import annotations
 
 from unittest.mock import MagicMock

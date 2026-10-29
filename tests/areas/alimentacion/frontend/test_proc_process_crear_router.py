@@ -459,9 +459,9 @@ def test_crear_aplicar_fb_ocupado_409(plantilla_dummy: Path) -> None:
 
 def test_crear_aplicar_sincroniza_selected_plc(plantilla_dummy: Path) -> None:
     """El endpoint invoca ``with_plc`` con (app_cache, plc_name, area_id)
-    antes de encolar el FB (D6 stateless: el FB
+    antes de encolar el FB: el
     ``function_proc_crear_sincronizar`` no recibe ``app_cache`` por
-    constructor, asi que el endpoint propaga ``selected_plc``).
+    constructor, asi que el endpoint propaga ``selected_plc``.
     """
     from unittest.mock import patch
     from areas.alimentacion.frontend.proc_process_crear_router import bp

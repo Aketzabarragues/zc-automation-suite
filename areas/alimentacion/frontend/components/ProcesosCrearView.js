@@ -68,7 +68,7 @@ export default {
         // Se popula solo en el caso OK y se usa para el mensaje
         // final. Una vez poblado, la SPA limpia ``previewData`` para
         // que no quede informacion stale susceptible de re-aplicar
-        // por accidente (sept-2026).
+        // por accidente.
         const appliedProcessLabel = ref("");
 
         // ── Estado: modal de la ruta ───────────────────────────
@@ -805,7 +805,7 @@ export default {
                 </p>
             </div>
 
-            <!-- Banner de apply OK (sept-2026): tras un apply exitoso
+            <!-- Banner de apply OK: tras un apply exitoso
                  limpiamos previewData (para evitar re-aplicar por
                  error sobre datos stale) y mostramos un mensaje
                  trazable con el label del proceso creado

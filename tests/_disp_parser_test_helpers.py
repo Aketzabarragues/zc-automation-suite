@@ -126,7 +126,7 @@ def save_xlsx_with_disp_table(
 ) -> str:
     """Crea un .xlsx sintético con la ``Tabla_Disp_<hw>``.
 
-    Sept-2026 (multi-PLC): inyecta automaticamente la columna ``PLC`` con
+    (multi-PLC): inyecta automaticamente la columna ``PLC`` con
     valor ``"PLC1"`` si el caller no la incluye en ``headers``. Asi los
     tests legacy siguen funcionando sin tener que tocar cada uno.
     """

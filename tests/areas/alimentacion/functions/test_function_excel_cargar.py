@@ -81,7 +81,7 @@ def progress(real_progress: ProgressTracker) -> ProgressTracker:
     """Tracker con ``begin()`` ya invocado (mismo contrato que el use
     case legacy asume: el caller hace ``begin()`` antes de ``start()``).
 
-    Stages alineados con el STAGES del FB (1 unico step tras commit 4c).
+    Stages alineados con el STAGES del FB (1 unico step).
     """
     real_progress.begin(
         operation="subir_excel_test",

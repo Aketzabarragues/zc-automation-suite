@@ -1,6 +1,6 @@
 """Tests de los helpers internos de ``core.infrastructure.tia_loop``.
 
-Cubren (Fase 4 / paso 4.1.2a helpers):
+Cubren:
   - _get_active_project: retorna project si existe; RuntimeError si None/falsy.
   - _safe_get_plc_name: retorna name o None si UnicodeDecodeError.
   - _find_plc: retorna PLC matching; ValueError si plc_name vacio;

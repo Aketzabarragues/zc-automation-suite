@@ -113,8 +113,8 @@ class AppCache:
                 self._on_change(slot, None, None, value)
 
     # ------------------------------------------------------------------
-    # Slots de feature (FASE 2 block-editor): block_edit_prepared
-    # Cacheado por FB block_edit_prepare (commit A.2) y consumido por
+    # Slots de feature (block-editor): block_edit_prepared
+    # Cacheado por FB block_edit_prepare y consumido por
     # block_edit_apply + el router GET /prepared. Sustituye el antiguo
     # slot ad-hoc que se creaba con hasattr + setattr.
     # ------------------------------------------------------------------

@@ -6,9 +6,7 @@ nativo de Siemens (``.pyd``) y sus dependencias (``.dll`` / ``.xml``)
 resueltos dinámicamente desde el intérprete Python actual (3.12 / 3.13
 / 3.14).
 
-Restricciones aplicadas (heredadas del legacy
-``_legacy_reference/ZC_ALM_TOOLS/build_exe.py`` + decisiones
-arquitectónicas del proyecto):
+Restricciones aplicadas (decisiones arquitectónicas del proyecto):
 
   - **Cero Código Sucio**: ni el ``.pyd`` ni las ``.dll``/``.xml`` se
     copian al directorio de trabajo. Se stagean en un directorio
@@ -97,8 +95,7 @@ ENTRY_SCRIPT = "main.py"  # entry del .exe (UX: bandeja + web supervisor)
 # ``ConfigManager`` busca en ``_MEIPASS\config\config.json``
 # (sin el sufijo).
 #
-# Tras sept-2026 (PR 7), la SPA vive en ``core/web_server/static``
-# (no en ``interfaces/web_server/static``, que se borro). El codigo
+# La SPA vive en ``core/web_server/static``. El codigo
 # en ``app_flask.py`` resuelve la ruta via:
 #   STATIC_DIR      = Path(__file__).parent / "static"
 #   AREAS_STATIC_DIR = Path(__file__).parent.parent.parent / "areas"
@@ -153,7 +150,7 @@ EXE_ICON: Path = ROOT / "core" / "launcher" / "icon.ico"
 # entrar al área de alimentación desde la SPA el backend no encuentra
 # los use cases, los routers del area ni el registro de comandos TIA del area.
 #
-# Auto-scan (sept-2026): la lista se genera dinámicamente escaneando
+# Auto-scan: la lista se genera dinámicamente escaneando
 # ``areas/<area>/**/*.py`` + ``core/web_server/routers/**/*.py`` en
 # runtime. Cualquier modulo nuevo (FB, helper, router, blueprint del
 # shell) se recoge automaticamente al añadir su .py; los legacy
@@ -290,7 +287,7 @@ SPEC_TEMPLATE = dedent(
             'pystray', 'pystray._win32', 'PIL', 'PIL.Image',
             'PIL.ImageDraw', 'PIL.ImageFont', 'PIL._tkinter_finder',
             'PIL._imaging',
-            # ── Async (gateway) ──
+            # ── Async (stdlib) ──
             'asyncio', 'asyncio.windows_utils',
             # ── Webbrowser (launcher/tray_app: "Abrir panel web") ──
             'webbrowser',

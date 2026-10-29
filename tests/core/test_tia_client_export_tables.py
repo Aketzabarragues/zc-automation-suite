@@ -1,4 +1,4 @@
-"""Tests del handler unificado ``export_tables`` (FASE 2.6 commit 1).
+"""Tests del handler unificado ``export_tables``.
 
 Sustituye a ``export_plc_tags_xml`` (plural con table_names opcional, usado
 por 4 FBs del area) y ``export_tag_table`` (singular legacy, sin

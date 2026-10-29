@@ -1,6 +1,6 @@
 """Tests para ``core.data.data_bloque_plc.DataBloquePLC``.
 
-Fase 3, paso 3.1.3.  Cobertura:
+Cobertura:
   - Construccion basica con los 4 campos basicos.
   - ``frozen=True``: no se puede mutar (intentar asignar lanza
     ``FrozenInstanceError``).

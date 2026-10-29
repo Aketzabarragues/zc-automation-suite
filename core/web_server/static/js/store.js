@@ -1010,7 +1010,7 @@ export async function connectTia() {
             );
         }
 
-        // Sept-2026 (v3.0 dashboard, pedido operario): tras el
+        // (v3.0 dashboard, pedido operario): tras el
         // project info, listamos los PLCs del proyecto TIA
         // conectado. Asi el operario ve la grid de PLCs
         // disponibles inmediatamente tras pulsar "Conectar", sin
@@ -1145,7 +1145,7 @@ export async function disconnectTia() {
         // un "vacio" confuso si el operario no sabe si el detach
         // se hizo. Por eso el guard ``r && r.ok``.
         //
-        // Sept-2026: ahora usamos el helper ``_clearAllPlcStateOnTiaLoss``
+        // Ahora usamos el helper ``_clearAllPlcStateOnTiaLoss``
         // (mismo que aplica la limpieza reactiva en ``_applyTiaSnapshot``
         // cuando TIA se cierra por fuera). Antes del helper, esta
         // rama manual solo limpiaba 4 slots y dejaba stale

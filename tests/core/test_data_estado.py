@@ -1,6 +1,6 @@
 """Tests del Data Block ``core.data.data_tia_status.DataTiaStatus``.
 
-Fase 3, paso 3.1.1.  Cubren:
+Cubren:
   - Valores por defecto (worker muerto, TIA idle, sin proyecto).
   - Mutabilidad: los campos son asignables (dataclass no-frozen).
   - ``to_dict()`` produce un dict con la shape correcta, incluyendo

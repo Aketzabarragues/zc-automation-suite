@@ -5,7 +5,7 @@ componer el resultado del preview. Ninguna muta el
 ``ProcPreviewContext``: reciben los datos como argumentos y devuelven
 dataclasses/dicts/valores.
 
-Convencion F11: los helpers puros del area viven en
+Convencion: los helpers puros del area viven en
 ``areas/alimentacion/helpers/<dominio>/`` (no dentro del FB). Esto
 permite tests unitarios focalizados y reutilizacion desde otros FBs
 del mismo dominio (en particular, desde

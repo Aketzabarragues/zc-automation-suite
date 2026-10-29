@@ -151,7 +151,7 @@ export default {
             }
         );
 
-        // N_MAX cards ELIMINADAS (sept-2026 multi-PLC). La shape multi-PLC
+        // N_MAX cards ELIMINADAS (multi-PLC). La shape multi-PLC
         // (dict anidado por PLC) no se puede iterar como cards sin
         // ambiguedad. Las N_MAX por PLC viven ahora en el tab
         // ``ConfiguracionPanel`` (``Tabla_Dispositivos`` cruda del Excel)
@@ -206,7 +206,7 @@ export default {
     template: /* html */ `
         <div class="flex-1 flex flex-col overflow-hidden">
 
-            <!-- N_MAX cards ELIMINADAS (sept-2026 multi-PLC). La
+            <!-- N_MAX cards ELIMINADAS (multi-PLC). La
                  Tabla_Dispositivos del Excel ahora vive en el
                  tab ConfiguracionPanel (shape multi-PLC, una
                  fila por PLC). -->

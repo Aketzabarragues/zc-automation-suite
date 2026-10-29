@@ -1,4 +1,4 @@
-"""Tests de _h_import_blocks_sd (Fase 4 / paso 4.1.2b5)."""
+"""Tests de _h_import_blocks_sd."""
 from __future__ import annotations
 
 import tempfile

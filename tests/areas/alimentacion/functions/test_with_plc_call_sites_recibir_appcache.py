@@ -1,6 +1,6 @@
 """Regression: los 6 FBs de sync/preview deben pasar ``AppCache`` a ``with_plc``.
 
-Contrato que fija este test (commit 5, feature/cleanup-final):
+Contrato que fija este test:
 
   ``with_plc(app_cache: AppCache, plc_name: str, area_id: str)``
   espera que el primer argumento sea un ``AppCache`` (con ``.get_state()``

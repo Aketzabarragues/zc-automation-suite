@@ -1,4 +1,4 @@
-"""Tests del helper ``validate_execute_batch_result`` (F17)."""
+"""Tests del helper ``validate_execute_batch_result``."""
 from __future__ import annotations
 
 from unittest.mock import MagicMock

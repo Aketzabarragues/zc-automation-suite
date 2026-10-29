@@ -358,7 +358,7 @@ def test_data_dimensiones_plc_inmutable(tmp_path):
 
 
 def test_extraer_logea_debug_en_exito(caplog):
-    """El parser emite ``logger.debug`` al terminar con exito (oct-2026).
+    """El parser emite ``logger.debug`` al terminar con exito.
 
     Antes solo logueaba cuando la tabla no existia; el caso normal
     (tabla existe, se extraen PLCs) quedaba silencioso y el operario
@@ -387,7 +387,7 @@ def test_extraer_logea_debug_en_exito(caplog):
         "El parser deberia emitir un logger.debug con formato "
         "'Parser[CONFIG/Tabla_Dimensiones]: 2 filas -> 2 PLCs "
         "extraidos'. Sin este log, el operario no puede saber si el "
-        "parser se ejecuto o no (bug oct-2026)."
+        "parser se ejecuto o no."
     )
     assert len(result.por_plc) == 2
 

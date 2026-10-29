@@ -59,14 +59,13 @@ def _h_import_blocks_sd(args: dict, tia_client: "SyncTIAClient") -> dict:
     (``None`` = escanea recursivo, hace match UPDATE por nombre de
     bloque preservando la ruta relativa).
 
-    Reproducido del bug en sept-2026: el handler original hacia
-    ``args.get("target_folder") or ""`` y siempre pasaba el argumento
-    a TIA, lo que rompia el ``Crear proceso desde plantilla`` (el FB
-    ``proc_process_crear_aplicar`` de alimentacion que llama a este
-    handler con ``target_folder`` omitido sufria el mismo problema
-    que ``import_block`` (singular) antes de su fix en el docstring
-    de arriba). Replicamos el patron de ``_h_import_block`` para
-    arreglarlo.
+    El handler original hacia ``args.get("target_folder") or ""`` y
+    siempre pasaba el argumento a TIA, lo que rompia el ``Crear
+    proceso desde plantilla`` (el FB ``proc_process_crear_aplicar`` de
+    alimentacion que llama a este handler con ``target_folder`` omitido
+    sufria el mismo problema que ``import_block`` (singular) antes de
+    su fix en el docstring de arriba). Replicamos el patron de
+    ``_h_import_block`` para arreglarlo.
     """
     plc_name: str = args.get("plc_name", "")
     import_dir: str = args.get("import_dir", "")

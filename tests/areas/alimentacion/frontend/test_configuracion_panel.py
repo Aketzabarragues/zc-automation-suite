@@ -1,4 +1,4 @@
-"""Regression test (oct-2026): ``ConfiguracionPanel.js`` debe leer
+"""Regression test: ``ConfiguracionPanel.js`` debe leer
 ``excel_full.n_max`` y mostrar el nombre correcto de la tabla en el
 empty state (``Tabla_Dimensiones``), no ``Tabla_Dispositivos``.
 

@@ -113,7 +113,7 @@ def post_proc_sync_preview():
             "error": "FB 'proc_db_generar_preview' no registrado en el engine",
         }), 500
 
-    # Plan living TRAZABILIDAD_LOGGING §5: 1 web explicito al iniciar.
+    # 1 web explicito al iniciar: el operario ve que arranca la prevision.
     logger.web(f"Generando prevision de proceso '{proc_uid}' en '{plc_name}'...")
     try:
         job_id = engine.submit(
@@ -173,7 +173,7 @@ def post_proc_sync_commit():
             "error": "FB 'proc_db_sincronizar' no registrado en el engine",
         }), 500
 
-    # Plan living TRAZABILIDAD_LOGGING §5: 1 web explicito al iniciar.
+    # 1 web explicito al iniciar: el operario ve que arranca el sync.
     logger.web(f"Sincronizando comentarios de proceso '{proc_uid}' en '{plc_name}'...")
     try:
         job_id = engine.submit(

@@ -1,7 +1,7 @@
-"""Tests de ping y list_blocks (Fase 4 / paso 4.1.2a2a).
+"""Tests de ping y list_blocks.
 
-Separa estos tests del resto de inspection (4.1.2a3+) para mantener
-<200 lineas por commit.
+Separa estos tests del resto de inspection para mantener
+<200 lineas por fichero.
 """
 from __future__ import annotations
 

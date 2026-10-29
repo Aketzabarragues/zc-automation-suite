@@ -439,9 +439,10 @@ class ConfigManager:
         Orden de prioridad:
           1. Override explícito en ``d["config_constant"]``.
           2. Entrada del ``n_max_catalog`` con ``hw_type == key``.
-          3. Heurístico: ``f"N_MAX_DISP_{key.upper()}"`` (sept-2026:
-             antes era ``N_MAX_<KEY>`` sin ``_DISP_``, bug latente
-             que solo no rompe porque el catalog siempre override).
+          3. Heurístico: ``f"N_MAX_DISP_{key.upper()}"`` (el prefijo
+             canonico lleva ``_DISP_``; la variante ``N_MAX_<KEY>`` es un
+             bug latente que solo no rompe porque el catalog siempre
+             override).
         """
         override = d.get("config_constant")
         if isinstance(override, str) and override.strip():

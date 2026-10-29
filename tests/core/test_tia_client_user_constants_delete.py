@@ -1,8 +1,8 @@
-"""Tests de _h_delete_user_constant (Fase 4 / paso 4.1.2c3a).
+"""Tests de _h_delete_user_constant.
 
 Tests de helpers + get_user_constants en test_tia_client_user_constants.py.
 Tests de update_user_constant_value + update_user_constant_name en
-test_tia_client_user_constants_update.py (commit 4.1.2c3b).
+test_tia_client_user_constants_update.py.
 """
 from __future__ import annotations
 

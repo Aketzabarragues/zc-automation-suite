@@ -100,13 +100,13 @@ def test_clean_all_borra_contenido_y_recrea_subdirs(tmp_path: Path) -> None:
     assert layout.sync_bloques_modified.is_dir()
 
 
-# ── Aliases legacy NO deben existir (F6) ──────────────────────────
+# ── Aliases legacy NO deben existir ──────────────────────────
 
 
 def test_aliases_legacy_no_existen_en_disp_layout(tmp_path: Path) -> None:
-    """F6: los aliases legacy fueron borrados del DispLayout.
+    """Los aliases legacy fueron borrados del DispLayout.
 
-    Antes de F6 estos atributos existian como @cached_property que
+    Antes estos atributos existian como @cached_property que
     delegaban en los paths nuevos. Ahora cualquier caller que los use
     falla con AttributeError (fail-fast > compatibilidad silenciosa).
     """
@@ -122,7 +122,7 @@ def test_aliases_legacy_no_existen_en_disp_layout(tmp_path: Path) -> None:
     ):
         assert not hasattr(layout, legacy_name), (
             f"alias legacy {legacy_name!r} no debe existir en DispLayout "
-            f"(F6 los borro; usa los paths nuevos sync_variables_*, "
+            f"(los borro; usa los paths nuevos sync_variables_*, "
             f"sync_bloques_*, preview_config, preview_disp, "
             f"clean_preview, clean_sincronizar, clean_all)."
         )

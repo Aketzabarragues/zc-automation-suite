@@ -7,11 +7,11 @@ matchear con el PLC en TIA Portal, igual que el resto de DTOs multi-PLC).
 Esta tabla es la **lista canonica de PLCs disponibles** en el Excel.
 Las otras tablas (Disp*, Procesos, Parametros, Alarmas, N_MAX) tienen
 una columna ``PLC`` cuyo valor debe estar en esta tabla (validacion
-fail-late, sept-2026).
+fail-late).
 
 Restricciones del DTO:
   - ``uid`` entero unico por PLC en el Excel.
-  - ``plc`` string stripped (sin NBSP), case-sensitive en TIA (D11).
+  - ``plc`` string stripped (sin NBSP), case-sensitive en TIA.
   - Default tolerante a celdas vacias.
 """
 from __future__ import annotations

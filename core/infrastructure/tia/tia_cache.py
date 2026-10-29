@@ -2,7 +2,7 @@
 
 Helpers puros que operan sobre ``AppCache``. El dato vive en el
 ``AppCache``; este modulo solo expone ``plc_blocks_*`` (lectura / escritura
-keyed por plc_name) y ``scan_plc_blocks`` (helper async que dispara el
+keyed por plc_name) y ``scan_plc_blocks`` (helper que despacha al
 worker OT y reconstruye el ``DataBloqueCache``).
 
 Restricciones arquitectonicas:

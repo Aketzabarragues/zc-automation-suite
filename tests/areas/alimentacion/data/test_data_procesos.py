@@ -1,6 +1,6 @@
 ﻿"""Tests para ``areas.alimentacion.data.data_procesos.DataProcesoPLC``.
 
-Fase 3, paso 3.2.4.  Cobertura:
+Cobertura:
   - Construccion basica con los 3 campos requeridos (uid, nombre, codigo).
   - Defaults razonables (5 campos con default 0).
   - ``frozen=True``: no se puede mutar.

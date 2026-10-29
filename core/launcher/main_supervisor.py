@@ -225,12 +225,12 @@ class MainServiceSupervisor:
         el operario quiera inspeccionar). Solo borramos las
         subcarpetas por area/core.
 
-        Por que NO usamos ``WorkdirContextLayout.clean()``:
-        ``clean()`` borra solo ``exports/`` y ``modified/`` y deja
-        ``preview/``. Aqui queremos limpieza TOTAL al apagar para
-        no acumular exports de sesiones pasadas en el repo. Si el
-        operario quiere mantener preview historico, basta con no
-        llamar a ``stop()`` (o comentar este metodo).
+        Por que NO usamos ``clean_preview()`` de los layouts de area:
+        borra solo ``preview/`` y deja ``exports/`` y ``modified/``.
+        Aqui queremos limpieza TOTAL al apagar para no acumular
+        exports de sesiones pasadas en el repo. Si el operario quiere
+        mantener preview historico, basta con no llamar a ``stop()``
+        (o comentar este metodo).
 
         ``_CORE_BUILD_CACHE_SUBDIRS`` agrupa subdirs no-registrados
         como areas (ej. ``blocks_edit`` del editor de bloques).

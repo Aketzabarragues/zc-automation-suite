@@ -58,7 +58,7 @@ class DataExcelCache:
     def to_dict(self) -> dict:
         """Serializa a JSON. Lookups precomputados omitidos (son derivables).
 
-        Shape multi-PLC (sept-2026):
+        Shape multi-PLC:
           - ``dispositivos``: ``{hw_type: [{...dispo...}]}`` donde cada
             ``dispo`` lleva ``plc_name``.
           - ``n_max``: ``{plc_name: {nmax_name: int}}`` anidado.

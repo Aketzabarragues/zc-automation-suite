@@ -1,4 +1,4 @@
-"""Tests del DTO ``DataPLC`` (multi-PLC, sept-2026)."""
+"""Tests del DTO ``DataPLC`` (multi-PLC)."""
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError

@@ -1,9 +1,8 @@
 ﻿"""Parser de ``DispM_VF`` (Motores con Variador de Frecuencia) del Excel.
 
-Replica 1:1 del ``_build_disp_m_vf`` del parser consolidado legacy
-(``AlimentacionExcelParser``). Hereda todos los campos de ``DispM`` y
-añade ``sa_byte`` (salida analógica) + ``cfg_byteanalogica`` (línea SCL
-de control analógico del variador).
+Hereda todos los campos de ``DispM`` y añade ``sa_byte`` (salida
+analógica) + ``cfg_byteanalogica`` (línea SCL de control analógico
+del variador).
 
 Lee la ``ListObject`` ``Tabla_Disp_M_VF`` de la hoja ``DISP_M_VF``
 del workbook del departamento de alimentación y la mapea a una

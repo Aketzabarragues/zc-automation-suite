@@ -77,7 +77,7 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
-# Constantes y errores del pipeline (compartidos con apply F22-2).
+# Constantes y errores del pipeline (compartidos con apply).
 # ============================================================================
 
 # Extensiones de texto que se procesan (no se copian en binario).

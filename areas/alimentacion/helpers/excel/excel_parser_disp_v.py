@@ -1,9 +1,8 @@
 ﻿"""Parser de ``DispV`` (Variables internas) del Excel corporativo.
 
-Replica 1:1 del ``_build_disp_v`` del parser consolidado legacy
-(``AlimentacionExcelParser``). Lee la ``ListObject``
-``Tabla_Disp_V`` de la hoja ``DISP_V`` del workbook del
-departamento de alimentación y la mapea a una lista de ``DispV``.
+Lee la ``ListObject`` ``Tabla_Disp_V`` de la hoja ``DISP_V`` del
+workbook del departamento de alimentación y la mapea a una lista de
+``DispV``.
 
 Campos específicos: ``S.Byte/S.Bit``, ``RR.Byte/RR.Bit``,
 ``RT.Byte/RT.Bit`` (retornos de reposo/trabajo) + 8 campos SCL

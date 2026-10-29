@@ -77,7 +77,7 @@ class AlimentacionAreaLayout:
 
     @cached_property
     def dispositivos(self) -> DispLayout:
-        """Contexto de dispositivos (DispLayout, sept-2026).
+        """Contexto de dispositivos (DispLayout).
 
         Layout::
 
@@ -120,7 +120,7 @@ class AlimentacionAreaLayout:
 
     @cached_property
     def procesos(self) -> ProcDbLayout:
-        """Contexto de proc_db (ProcDbLayout, sept-2026).
+        """Contexto de proc_db (ProcDbLayout).
 
         Layout::
 

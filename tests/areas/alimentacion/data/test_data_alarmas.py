@@ -1,9 +1,9 @@
 """Tests para ``areas.alimentacion.data.data_alarmas.DataAlarmaPLC``.
 
-Fase 3, paso 3.2.7.  Cobertura:
+Cobertura:
   - Construccion basica con los 6 campos.
   - ``frozen=True``: no se puede mutar.
-  - R-F4.1: NO tiene atributo ``visibilidad`` (defensa contra schema drift).
+  - NO tiene atributo ``visibilidad`` (defensa contra schema drift).
   - Equality por valor.
 """
 from __future__ import annotations
@@ -45,7 +45,7 @@ def test_frozen_no_muta():
 
 
 def test_no_tiene_atributo_visibilidad_rf4():
-    """R-F4.1: ``DataAlarmaPLC`` NO tiene atributo ``visibilidad`` por diseno.
+    """``DataAlarmaPLC`` NO tiene atributo ``visibilidad`` por diseno.
 
     Defensa contra schema drift: si el Excel del corporativo incluye
     en el futuro una columna ``Visibilidad`` en ``Tabla_Alarmas``, el

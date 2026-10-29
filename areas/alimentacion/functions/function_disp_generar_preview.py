@@ -159,9 +159,9 @@ class FunctionDispGenerarPreview(FunctionBase):
             )
         self._plc_name = str(plc_name)
 
-        # Validar contra TIA Portal (fail-late, PR5 D4/D11).
+        # Validar contra TIA Portal (fail-late).
         validate_plc_in_tia(self._tia_client, self._plc_name)
-        # Validar contra el Excel cargado (sept-2026 multi-PLC).
+        # Validar contra el Excel cargado (multi-PLC).
         validate_plc_in_excel(self._app_cache, self._plc_name, AREA_ID)
         # Propagar al AppCache (defensa redundante con el endpoint).
         with_plc(self._app_cache, self._plc_name, AREA_ID)
@@ -294,14 +294,13 @@ class FunctionDispGenerarPreview(FunctionBase):
     def _stage_1_exportar_tags(self) -> None:
         """Stage 1: limpia preview/ y exporta las tablas selectivas al snapshot.
 
-        Layout nuevo (sept-2026, ver ``_plan/rutas.md``):
+        Layout:
           - ``preview_config/``     ← N_MAX (1 archivo, FLAT)
           - ``preview_disp/``       ← 6 tag tables de devices (FLAT)
 
-        Antes (legacy ``WorkdirContextLayout``) tenia todas las 7 tablas
-        en un solo ``preview_variables/``. Ahora la N_MAX se exporta
-        aparte para que ``_stage_3_compute_nmax`` lea directamente del
-        subdirectorio que le corresponde (split preview vs diff).
+        La N_MAX se exporta aparte para que ``_stage_3_compute_nmax``
+        lea directamente del subdirectorio que le corresponde (split
+        preview vs diff).
 
         2 dispatchs separados (N_MAX + devices) con
         ``keep_folder_structure=False`` para que TIA exporte FLAT
@@ -364,7 +363,7 @@ class FunctionDispGenerarPreview(FunctionBase):
     def _stage_2_compute_devices(self) -> None:
         """Stage 2: calcula el diff de devices entre los XMLs exportados y AppCache.
 
-        Migrado sept-2026: usa ``compute_diff_table`` (funcion pura,
+        Usa ``compute_diff_table`` (funcion pura,
         1 hw por llamada) en vez de los helpers legacy
         (``_build_desired_state_from_app`` + ``_compute_diff_readonly``).
         El shape del ctx (``added_per_table`` etc.) se conserva para
@@ -584,7 +583,6 @@ class FunctionDispGenerarPreview(FunctionBase):
 
 
 # ============================================================================
-# Codigo absorbido de helpers/disp/disp_generate_preview.py (commit 23, sept-2026).
 # Antes era un orquestador separado que el FB llamaba via ``match step_nombre``.
 # Ahora los 4 stages viven como metodos del FB (mutando ``self._ctx``). Solo
 # permanece aqui el ``DispPreviewContext`` (dataclass compartido entre stages)
@@ -612,7 +610,7 @@ class DispPreviewContext:
     build_cache_root: Path
 
     # ── Resultados de exportar_tags ──
-    # Layout nuevo (sept-2026): split N_MAX vs disp en 2 subdirs FLAT.
+    # Layout: split N_MAX vs disp en 2 subdirs FLAT.
     preview_config_dir: Path | None = None  # N_MAX (preview/config/)
     preview_disp_dir: Path | None = None    # 6 disp tables (preview/disp/)
     # ``tags_base`` apunta al dir de devices (backwards-compat con
@@ -665,7 +663,7 @@ def _nmax_table_name(config_manager: Any) -> str:
 def _disp_table_names(config_manager: Any, exclude: str | None = None) -> list[str]:
     """Lista de las 6 tag tables de devices (excluyendo N_MAX por default).
 
-    Layout nuevo (sept-2026, ver ``_plan/rutas.md``): las 6 tag tables
+    Layout: las 6 tag tables
     de devices van al directorio ``preview_disp/`` (FLAT), separadas
     de la N_MAX que va a ``preview_config/``.
 

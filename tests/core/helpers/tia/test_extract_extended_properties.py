@@ -128,7 +128,7 @@ def test_whitespace_stripped():
 
 
 def test_returns_exactly_five_keys():
-    """El helper devuelve exactamente 5 keys (sin ``comment`` -- FASE 3)."""
+    """El helper devuelve exactamente 5 keys (sin ``comment``)."""
     block = _make_block({})
     result = _extract_extended_properties(block)
 

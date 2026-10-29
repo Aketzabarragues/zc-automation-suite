@@ -1,6 +1,6 @@
 """Tests para ``core.data.data_bloque_cache.DataBloqueCache``.
 
-Fase 3, paso 3.1.2.  Cobertura:
+Cobertura:
   - defaults razonables al instanciar sin argumentos.
   - mutabilidad (los campos se pueden reasignar; frozen=False).
   - shape de ``to_dict()``.

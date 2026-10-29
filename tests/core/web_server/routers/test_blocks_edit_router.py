@@ -32,7 +32,7 @@ def _make_flask_app(engine: MagicMock) -> Flask:
 
     No usamos ``create_app`` porque el blueprint todavia no esta
     en la lista ``blueprint_modules`` de ``app_flask._register_blueprints``
-    (lo anadiremos en commit 7 o junto al wiring en commit 8).
+    (lo anadiremos junto al wiring del blueprint).
     """
     app = Flask("test_blocks_edit")
     app.config["ENGINE"] = engine
@@ -158,7 +158,7 @@ def test_prepare_endpoint_returns_500_when_fb_not_registered():
 
 
 # ── 5. POST /apply -> 501 placeholder ──────────────────────────────
-# Removido en commit 7: el stub 501 se sustituyo por la implementacion
+# El stub 501 se sustituyo por la implementacion
 # real del FB ``block_edit_apply``. Los 5 tests de abajo cubren el
 # contrato nuevo (200/400/409/500/504).
 
@@ -307,7 +307,7 @@ def test_apply_endpoint_returns_500_when_fb_not_registered():
     engine.get_fb.assert_called_once_with("block_edit_apply")
 
 
-# ─── 11. GET /<plc_name>/prepared (commit 8) ────────────────────────────
+# ─── 11. GET /<plc_name>/prepared ────────────────────────────
 # Cubre:
 #   - Empty cache -> 200 + ``{"ok": True, "prepared": {}, ...}``.
 #   - Cache con DTOs -> 200 + ``prepared`` serializado con ``to_dict()``.

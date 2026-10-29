@@ -47,7 +47,7 @@ def mock_tia_client() -> MagicMock:
     client.execute_transactional_batch = MagicMock(
         return_value={"operations_executed": 2, "details": []}
     )
-    # Mock list_plcs para validate_plc_in_tia (PR5).
+    # Mock list_plcs para validate_plc_in_tia.
     client.submit_and_wait = MagicMock(
         return_value={"ok": True, "result": {"plcs": [{"name": "S7-1500"}]}}
     )

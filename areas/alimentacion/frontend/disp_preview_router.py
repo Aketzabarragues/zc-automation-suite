@@ -92,7 +92,7 @@ def post_disp_preview():
             "error": "FB 'disp_generar_preview' no registrado en el engine",
         }), 500
 
-    # Plan living TRAZABILIDAD_LOGGING §5 (operacion 4): 1 web al iniciar.
+    # 1 web al iniciar: el operario ve que arranca el preview.
     logger.web(f"Generando preview de dispositivos en '{plc_name}'...")
     try:
         job_id = engine.submit("disp_generar_preview", plc_name=plc_name)

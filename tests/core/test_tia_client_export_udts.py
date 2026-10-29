@@ -1,4 +1,4 @@
-"""Tests del handler unificado ``export_udts`` (FASE 2.6 commit 1).
+"""Tests del handler unificado ``export_udts``.
 
 Sustituye a ``export_udts_sd`` (plural sin filtro, sin consumidores en
 produccion) y al inline-equivalente del singular legacy. Acepta

@@ -1,11 +1,11 @@
 ﻿"""Tests para ``areas.alimentacion.data.data_parametros_real.DataParamRealPLC``.
 
-Fase 3, paso 3.2.6.  Cobertura:
+Cobertura:
   - Construccion basica con los 12 campos.
   - ``num_lista`` acepta tanto ``int`` como ``str`` (marcadores).
   - ``frozen=True``: no se puede mutar.
   - ``DataParamRealPLC`` y ``DataParamIntPLC`` son nominalmente
-    distintos (R4): ``isinstance`` los trata por separado aunque
+    distintos: ``isinstance`` los trata por separado aunque
     tengan los mismos campos.
 """
 from __future__ import annotations
@@ -83,7 +83,7 @@ def test_frozen_no_muta():
 
 
 def test_distinto_de_data_param_int_r4():
-    """R4: ``DataParamRealPLC`` y ``DataParamIntPLC`` son nominalmente distintos.
+    """``DataParamRealPLC`` y ``DataParamIntPLC`` son nominalmente distintos.
 
     Aunque tengan los mismos campos, ``isinstance`` los trata por
     separado.  Verificamos creando uno de cada con los MISMOS campos:

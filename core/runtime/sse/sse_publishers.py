@@ -95,7 +95,7 @@ def make_tia_state_publisher(
         ]
         # ``project`` se elige desde el primer PLC conocido. Si el
         # operario aun no ha hecho scan, queda a ``None``. Los datos
-        # vienen del AppCache (cacheados por el gateway en su scan),
+        # vienen del AppCache (cacheados por ``scan_plc_blocks``),
         # no del wrapper .NET directo.
         project: dict[str, Any] | None = None
         if plc_info_list:

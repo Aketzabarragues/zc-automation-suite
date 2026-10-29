@@ -1,7 +1,7 @@
-"""Tests de error paths de _h_scan_blocks (Fase 4 / paso 4.1.2a5c1).
+"""Tests de error paths de _h_scan_blocks.
 
 Tests de happy paths / defensive fallbacks van en
-test_tia_client_scan_blocks_happy.py (commit 4.1.2a5c2).
+test_tia_client_scan_blocks_happy.py.
 """
 from __future__ import annotations
 

@@ -19,7 +19,7 @@ def _block(nombre: str):
     """Mock de bloque TIA con la spec necesaria para el heuristico de clasificacion.
 
     Configura ``get_property("ProgrammingLanguage")`` y
-    ``get_properties()`` segun el prefijo del nombre (smoke oct-2026).
+    ``get_properties()`` segun el prefijo del nombre (smoke).
     Para nombres sin prefijo estandar, deja props vacias (clasifica OTHER).
 
     Importante: usa ``side_effect`` para ``get_property`` (no ``return_value``
@@ -52,7 +52,7 @@ def _block(nombre: str):
             b.get_property.side_effect = _prop_getter("SCL")
             b.get_properties.return_value = ["ISMultiInstanceCapable"]
         elif p == "UDT":
-            # UDTs tienen clase Python UserDataType (smoke oct-2026).
+            # UDTs tienen clase Python UserDataType (smoke).
             b = MagicMock(spec=["get_name", "get_property", "get_properties"])
             b.__class__ = type("UserDataType_subclass", (object,), {})
             b.get_name.return_value = nombre
@@ -187,7 +187,7 @@ def test_scan_blocks_empty_plc_returns_empty_lists():
 def test_scan_blocks_extrae_5_props_extendidas_desde_get_property():
     """El scan extrae las 5 props extendidas via ``_extract_extended_properties``.
 
-    Caso real (smoke oct-2026): un bloque DB1_SYS con Author/Version/Lang/
+    Caso real (smoke): un bloque DB1_SYS con Author/Version/Lang/
     MemLayout pobladas en TIA debe llegar al payload con esas 5 props
     NO-Nulas. Antes del fix, el handler ``_h_scan_blocks`` usaba una
     copia de ``_scan_block_group_recursive`` que omitia esa llamada;

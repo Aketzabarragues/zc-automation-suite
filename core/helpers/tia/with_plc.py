@@ -1,6 +1,6 @@
 """Helper para setear el PLC activo en ``app_cache``.
 
-Patron stateless (D6 del plan multi-PLC): cada endpoint que dispare un FB
+Patron stateless: cada endpoint que dispare un FB
 recibe plc_name en el body y debe invocar ``with_plc(app_cache, plc_name, area_id)``
 antes de invocar el FB. Esto asegura que ``app_cache.selected_plc``
 queda sincronizado con el plc_name que va a usar el FB (defensa
@@ -51,7 +51,7 @@ def with_plc(
 
     Args:
         app_cache: contenedor del proceso.
-        plc_name: nombre del PLC (strict equality con TIA Portal, D11).
+        plc_name: nombre del PLC (strict equality con TIA Portal).
             Si esta vacio, NO modifica ``selected_plc`` (mantiene el
             valor que ya estaba; el caller deberia asegurarse de pasar
             un plc_name valido).

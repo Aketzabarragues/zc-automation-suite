@@ -1,14 +1,14 @@
-"""Tests de _scan_block_group_recursive (Fase 4 / paso 4.1.2a5b).
+"""Tests de _scan_block_group_recursive.
 
 Walker recursivo que usa scan_blocks para extraer bloques + UDTs.
 
-Oct-2026: el walker ahora delega la clasificacion del tipo en
+El walker delega la clasificacion del tipo en
 ``classify_block`` (heuristico de huella digital sobre el SDK), no en el
 regex ``DataBloquePLC.detect_tipo``. Por tanto, los mocks de bloque deben
 exponer ``get_property("ProgrammingLanguage")`` y ``get_properties()``
 para que el heuristico pueda clasificar. El helper ``_block`` infiere el
 tipo desde el prefijo del nombre y configura los mocks acorde (igual que
-hace TIA Portal real segun el smoke oct-2026).
+hace TIA Portal real).
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from unittest.mock import MagicMock
 from core.infrastructure.tia.tia_helpers import _scan_block_group_recursive
 
 
-# Lenguajes de codigo que devuelve TIA para FC/FB/OB (smoke oct-2026).
+# Lenguajes de codigo que devuelve TIA para FC/FB/OB (smoke).
 _LANG_POR_PREF = {"FB": "SCL", "FC": "SCL", "OB": "LAD", "UDT": "SCL"}
 
 
@@ -104,7 +104,7 @@ def _block(nombre: str, ruta: str = ""):
             b.get_property.side_effect = _prop_getter(_LANG_POR_PREF[p])
             b.get_properties.return_value = ["ISMultiInstanceCapable"]
         elif p == "UDT":
-            # UDTs tienen clase Python UserDataType (smoke oct-2026).
+            # UDTs tienen clase Python UserDataType (smoke).
             # ``classify_block`` distingue por ``type(b).__name__`` asi que
             # hay que recrear el mock con la clase custom (MagicMock
             # protege su ``__class__`` y no se puede asignar).
@@ -113,7 +113,7 @@ def _block(nombre: str, ruta: str = ""):
             b.get_property.side_effect = _prop_getter(_LANG_POR_PREF[p])
             b.get_properties.return_value = []
     else:
-        # Nombre sin prefijo estandar (smoke oct-2026: _borrar, Documentacion).
+        # Nombre sin prefijo estandar (smoke: _borrar, Documentacion).
         # El heuristico real resuelve por huella digital; en estos tests lo
         # dejamos como "no clasificado" (OTHER) porque son casos viejos del
         # regex que ahora son defensivos. Tests especificos de la

@@ -1,4 +1,4 @@
-"""Tests de _h_import_plc_tags_xml (Fase 4 / paso 4.1.2b6)."""
+"""Tests de _h_import_plc_tags_xml."""
 from __future__ import annotations
 
 import tempfile

@@ -143,7 +143,8 @@ class FunctionProcDBSincronizar(FunctionBase):
         self._app_cache: AppCache = (
             app_cache if app_cache is not None else get_app_cache()
         )
-        # ``bloques_cache`` viene del gateway; el router lo inyecta.
+        # ``bloques_cache`` se inyecta por constructor (test) o se lee
+        # del ``AppCache`` en ``on_start``.
         self._bloques_cache = bloques_cache
         # ZONA 3: estado entre ticks.
         self._plc_name: str = ""
@@ -187,9 +188,9 @@ class FunctionProcDBSincronizar(FunctionBase):
         self._plc_name = str(plc_name)
         self._proc_uid = proc_uid
 
-        # Validar contra TIA Portal (fail-late, PR5 D4/D11).
+        # Validar contra TIA Portal (fail-late).
         validate_plc_in_tia(self._tia_client, self._plc_name)
-        # Validar contra el Excel cargado (sept-2026 multi-PLC).
+        # Validar contra el Excel cargado (multi-PLC).
         validate_plc_in_excel(self._app_cache, self._plc_name, AREA_ID)
         # Propagar al AppCache (defensa redundante con el endpoint).
         with_plc(self._app_cache, self._plc_name, AREA_ID)
@@ -208,9 +209,7 @@ class FunctionProcDBSincronizar(FunctionBase):
 
         # Crear el ProcSyncContext que las 4 funciones iran mutando.
         # ``ProcSyncContext`` esta definido en este mismo modulo (al
-        # final del archivo); el import legacy desde
-        # ``helpers/proc/proc_sincronizar`` apunta a un modulo que
-        # se elimino en F1-F11 al absorber los orquestadores a los FBs.
+        # final del archivo).
         self._ctx = ProcSyncContext(
             plc_name=self._plc_name,
             proc_uid=self._proc_uid,
@@ -991,7 +990,7 @@ class FunctionProcDBSincronizar(FunctionBase):
 # ``function_disp_sincronizar.py``: misma firma, misma abstraccion.
 # Vive en este archivo (no en ``helpers/proc/``) porque la logica es
 # especifica del FB proc_db: la tabla de variables del proceso por
-# convencion del operario (sept-2026); el dispatch de disp usa la
+# convencion del operario; el dispatch de disp usa la
 # tabla global de dispositivos.
 # ============================================================================
 
@@ -1090,7 +1089,6 @@ def _compute_nmax_ops_for_proc_apply(
 
 
 # ============================================================================
-# Codigo absorbido de helpers/proc/proc_sincronizar.py (commit 22, sept-2026).
 # Antes era un orquestador separado que el FB llamaba via ``match step_nombre``.
 # Ahora los 9 stages viven como metodos del FB (mutando ``self._ctx``). Solo
 # permanecen aqui el ``ProcSyncContext`` (dataclass entre stages) y las

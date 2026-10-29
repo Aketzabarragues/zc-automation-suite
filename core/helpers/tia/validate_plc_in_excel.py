@@ -32,7 +32,7 @@ def validate_plc_in_excel(app_cache: AppCache, plc_name: str, area_id: str) -> N
 
     Args:
         app_cache: contenedor del proceso (``AppCache``).
-        plc_name: nombre del PLC (strict equality, D11).
+        plc_name: nombre del PLC (strict equality).
         area_id: area del cache a leer. Obligatorio.
 
     Raises:
@@ -51,7 +51,7 @@ def validate_plc_in_excel(app_cache: AppCache, plc_name: str, area_id: str) -> N
             "POST /api/v1/excel/upload antes de lanzar un sync/preview."
         )
     # ``cache.plcs`` es la lista informativa de PLCs del Excel
-    # (``Tabla_PLC``). Strict equality (D11).
+    # (``Tabla_PLC``). Strict equality.
     plc_names = [p.plc for p in cache.plcs]
     if plc_name not in plc_names:
         raise ValueError(

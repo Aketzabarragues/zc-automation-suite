@@ -7,7 +7,7 @@ Cubre dos niveles:
     nativo via el SDK. Tests con un Mock que simula los metodos del
     wrapper ``siemens_tia_scripting``.
 
-Casos cubiertos (validados con smoke oct-2026 sobre PLC S7-1500 con 168
+Casos cubiertos (validados con smoke sobre PLC S7-1500 con 168
 bloques: 0 sin clasificar):
   - DB (60 bloques): una llamada, valor unico "DB".
   - FB (25 bloques): dos llamadas, ISMultiInstanceCapable en props.
@@ -38,7 +38,7 @@ from core.helpers.tia.tia_block_classifier import (
     [
         # DB: valor unico de ProgrammingLanguage
         ("DB", [], "cualquier_cosa", "DB"),
-        ("DB", [], "_borrar", "DB"),                     # caso real smoke oct-2026
+        ("DB", [], "_borrar", "DB"),                     # caso real del smoke
         ("DB", [], "Documentacion_rara", "DB"),           # nomenclatura custom
         ("db", [], "lowercase_lang", "DB"),               # case-insensitive
         # FB: ISMultiInstanceCapable presente (unica discriminante)

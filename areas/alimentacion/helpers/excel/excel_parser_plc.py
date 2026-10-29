@@ -1,4 +1,4 @@
-"""Parser de la ``Tabla_PLC`` del Excel corporativo (multi-PLC, sept-2026).
+"""Parser de la ``Tabla_PLC`` del Excel corporativo (multi-PLC).
 
 Lee la ``Tabla_PLC`` de la hoja ``CONFIG`` con la siguiente estructura::
 
@@ -9,7 +9,7 @@ Lee la ``Tabla_PLC`` de la hoja ``CONFIG`` con la siguiente estructura::
 Es la **lista canonica de PLCs disponibles** en el Excel. Las otras
 tablas (Disp*, Procesos, Parametros, Alarmas, N_MAX) tienen una columna
 ``PLC`` cuyo valor se coteja contra esta lista (validacion fail-late,
-preparada pero no activada en este PR).
+preparada pero no activada).
 
 Restriccion arquitectonica: este modulo es OFFLINE; no importa
 ``siemens_tia_scripting``.

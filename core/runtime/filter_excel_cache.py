@@ -21,7 +21,7 @@ def filter_cache_by_plc(cache: Any, plc_name: str) -> Any:
     Args:
         cache: ``DataExcelCache`` (dataclass frozen). Si es ``None``,
             devuelve ``None`` (sin cache cargado).
-        plc_name: nombre del PLC (strict equality, D11). Si esta vacio,
+        plc_name: nombre del PLC (strict equality). Si esta vacio,
             devuelve el cache sin filtrar.
 
     Returns:

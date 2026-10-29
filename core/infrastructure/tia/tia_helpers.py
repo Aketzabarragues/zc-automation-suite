@@ -218,7 +218,7 @@ def _extract_extended_properties(block: Any) -> dict[str, Optional[str]]:
         (``Optimized``/``Standard``).
       - ``Comment`` NO esta expuesto via ``get_property`` en NINGUN tipo de
         bloque (OB, DB, FC, FB, UDT). Solo accesible via export-XML.
-        Por eso queda ``None`` en este helper y se popula en FASE 3 con
+        Por eso queda ``None`` en este helper y se popula via
         export-XML-reimport.
       - Algunas props (e.g. ``LibraryConformanceStatus``) lanzan
         excepciones UTF-8 al leer; este helper captura **por-propiedad**

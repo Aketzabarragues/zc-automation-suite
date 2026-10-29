@@ -1,6 +1,6 @@
 ﻿"""Tests para ``areas.alimentacion.data.data_disp_slot_map.DataDispSlotMap``.
 
-Fase 3, paso 3.2.8.  Cobertura:
+Cobertura:
   - defaults razonables.
   - ``frozen=True``: no se puede mutar.
   - ``to_dict()`` shape estable: 4 keys.

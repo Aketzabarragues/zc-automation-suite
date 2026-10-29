@@ -6,7 +6,7 @@ del string ``template: `...` `` ROMPE el compilador en runtime de
   - Doble (`` `` ``): se cierra el template prematuramente.
   - Simple (``` ` ```): tambien, porque cualquier backtick cierra.
 
-El caso real del operario (oct-2026): Entidades.js tenia ``ENT`` y
+El caso real del operario: Entidades.js tenia ``ENT`` y
 luego `ENT` en un comentario HTML. El primero fallo con
 "TypeError ... is not a function", el segundo con
 "SyntaxError: Unexpected identifier 'ENT'".

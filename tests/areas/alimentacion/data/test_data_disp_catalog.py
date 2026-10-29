@@ -1,6 +1,6 @@
 """Tests para ``areas.alimentacion.data.data_disp_catalog.DataDispCatalog``.
 
-Fase 3, paso 3.2.1.  Cobertura:
+Cobertura:
   - defaults razonables al instanciar sin argumentos (5 campos
     del payload de ``GET /api/v1/catalog``).
   - mutabilidad (``frozen=False``).

@@ -1,6 +1,6 @@
 """Tests para ``areas.alimentacion.data.data_dispositivos``.
 
-Fase 3, paso 3.2.2.  Cobertura:
+Cobertura:
   - Cada ``Disp*`` se construye con los 5 campos del Protocol y
     los defaults razonables (``str""``, ``int=0``, ``float=0.0``).
   - ``frozen=True``: no se puede mutar ninguna ``Disp*``.

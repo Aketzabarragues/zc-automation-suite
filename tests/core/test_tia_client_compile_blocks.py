@@ -1,6 +1,6 @@
-"""Tests de error paths de _h_compile_blocks (Fase 4 / paso 4.1.2b2a).
+"""Tests de error paths de _h_compile_blocks.
 
-Tests de happy paths van en test_tia_client_compile_blocks_happy.py (4.1.2b2b).
+Tests de happy paths van en test_tia_client_compile_blocks_happy.py.
 """
 from __future__ import annotations
 

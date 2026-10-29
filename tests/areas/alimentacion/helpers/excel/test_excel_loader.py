@@ -1,6 +1,6 @@
-﻿"""Tests end-to-end del ``ExcelLoader`` (Fase 5 del plan).
+﻿"""Tests end-to-end del ``ExcelLoader``.
 
-Sept-2026 (multi-PLC): los tests inyectan la columna ``PLC`` con valor
+(multi-PLC): los tests inyectan la columna ``PLC`` con valor
 ``"PLC1"`` en cada tabla de dispositivos/software y la tabla N_MAX
 ``Tabla_N_Max`` con los N_MAX por PLC. Aserciones adaptadas al shape
 multi-PLC de ``DimensionesPLC.por_plc``.

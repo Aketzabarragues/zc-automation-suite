@@ -1,7 +1,7 @@
-"""Tests de save_project y close_project (Fase 4 / paso 4.1.2a1b).
+"""Tests de save_project y close_project.
 
-Separa estos tests del resto del lifecycle (4.1.2a1a) para mantener
-<200 lineas por commit.
+Separa estos tests del resto del lifecycle para mantener
+<200 lineas por fichero.
 """
 from __future__ import annotations
 

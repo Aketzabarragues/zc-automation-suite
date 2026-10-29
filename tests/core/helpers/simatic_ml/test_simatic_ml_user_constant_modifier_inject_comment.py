@@ -1,10 +1,10 @@
-"""Tests de regresion para _inject_multilingual_comment (C.7.9).
+"""Tests de regresion para _inject_multilingual_comment.
 
 Verifica que el helper inyecta o actualiza el comment DENTRO del
 ObjectList del PlcUserConstant, NO como hijo directo.
 
 TIA V21 rechaza XML donde el Comment esta fuera del ObjectList con
-OpennessAccessException. Antes de C.7.9, el helper creaba un Comment
+OpennessAccessException. Antes del fix, el helper creaba un Comment
 hermano de AttributeList y ObjectList (estructura invalida).
 
 TIA exporta sin namespace declaration; las tags son planas.

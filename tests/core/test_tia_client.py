@@ -1,6 +1,6 @@
 """Tests unitarios de ``core.infrastructure.tia_loop.SyncTIAClient``.
 
-Skeleton (Fase 4 / paso 4.1.1). Cubren:
+Skeleton. Cubren:
   - register + dispatch + shape de retorno.
   - dispatch de comando desconocido -> error tipado.
   - register duplicado -> ValueError.

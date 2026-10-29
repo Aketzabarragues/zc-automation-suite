@@ -1,10 +1,9 @@
 ﻿"""Parser de ``DispED`` (Entradas Digitales) del Excel corporativo.
 
-Replica 1:1 del ``_build_disp_ed`` del parser consolidado legacy
-(``AlimentacionExcelParser``). Lee la ``ListObject`` ``Tabla_Disp_ED``
-de la hoja ``DISP_ED`` del workbook del departamento de alimentación
-y la mapea a una lista de ``DispED`` (DTO inmutable definido en
-``areas.alimentacion.domain.models.excel_cache``).
+Lee la ``ListObject`` ``Tabla_Disp_ED`` de la hoja ``DISP_ED`` del
+workbook del departamento de alimentación y la mapea a una lista de
+``DispED`` (DTO inmutable definido en
+``areas.alimentacion.data.data_dispositivos``).
 
 Diferencias con el legacy:
     * Recibe el workbook **ya abierto** (``wb: Workbook``). NO abre

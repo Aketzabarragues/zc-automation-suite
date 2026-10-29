@@ -103,7 +103,7 @@ def test_plc_no_en_excel_lanza_value_error():
 
 
 def test_strict_equality_no_normaliza():
-    """Strict equality (D11): 'plc1' != 'PLC1'."""
+    """Strict equality: 'plc1' != 'PLC1'."""
     cache = _make_app_cache(plcs=(_FakePLC(plc="PLC1", uid=0),))
     with pytest.raises(ValueError, match="no esta en el Excel"):
         validate_plc_in_excel(cache, "plc1", "alimentacion")

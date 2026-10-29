@@ -2,17 +2,15 @@
 
 Consolida:
   - El dataclass ``DataDispSlotMap``.
-  - La funcion ``disp_build_slot_maps`` y ``disp_build_slot_map_for_hw``
-    (antes en ``application/disp_slot_map_builder.py``).
+  - La funcion ``disp_build_slot_maps`` y ``disp_build_slot_map_for_hw``.
 
 Une los datos del ``AppCache`` (``comentario_db`` de cada dispositivo)
 con la configuracion TIA (``db_name``, ``db_array_name``) para producir
-el resultado que el gateway envia a TIA.
+el resultado que el FB aplica contra TIA.
 
 Reutilizado por:
-  - ``DispComentariosSyncUseCase`` (endpoint ``/aplicar-comentarios-disp``).
-  - ``DispSyncInstancesUseCase.ejecutar_transaccion`` (best-effort
-    post-compile, stage 7).
+  - el FB ``disp_sincronizar`` (comentarios de dispositivos).
+  - el FB ``disp_generar_preview`` (stage de calculo del preview).
 
 Decisiones de diseno:
   - El builder retorna un ``DataDispSlotMap`` (no una tupla suelta).

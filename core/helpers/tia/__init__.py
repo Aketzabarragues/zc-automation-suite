@@ -1,9 +1,9 @@
 """Helpers transversales para hablar con la infraestructura TIA.
 
 Diferencia con ``core/infrastructure/tia/``:
-  - ``infrastructure/tia/``: bajo nivel (gateway, handlers, worker).
-  - ``helpers/tia/``: utilidades sobre el gateway para cualquier area
-    o FB que quiera hablar con TIA.
+  - ``infrastructure/tia/``: bajo nivel (comandos TIA, worker OT, cache).
+  - ``helpers/tia/``: utilidades sobre los comandos TIA para cualquier
+    area o FB que quiera hablar con TIA.
 
 Regla arquitectonica: este paquete NO importa
 ``siemens_tia_scripting``. Solo ``functools``.

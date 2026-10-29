@@ -1,5 +1,5 @@
 """Tests de _safe_get_block_name / _safe_get_block_path / _safe_get_table_name
-(Fase 4 / paso 4.1.2a5a). Helpers defensivos que usa scan_blocks.
+Helpers defensivos que usa scan_blocks.
 """
 from __future__ import annotations
 

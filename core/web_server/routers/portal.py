@@ -37,7 +37,7 @@ def portal_attach():
     """HOT-Attach a TIA Portal ya abierto."""
     tia = _tia()
     log = _log()
-    # Plan living TRAZABILIDAD_LOGGING §5 (operacion 2): 1 web al iniciar.
+    # 1 web al iniciar: el operario ve que arranca el attach.
     # El OK no va aqui: lo emite get_project_info con el nombre del
     # proyecto, que es cuando sabemos esa info. Flujo SPA:
     # connectTia() llama attach + fetch_project_info en cascada.
@@ -82,10 +82,9 @@ def listar_plcs():
     """Lista PLCs del TIA Portal conectado (best-effort: no tumba el server)."""
     tia = _tia()
     log = _log()
-    # Plan living TRAZABILIDAD_LOGGING: web al iniciar la operacion para
-    # que el operario vea progreso si tarda (TIA Portal listar PLCs puede
-    # tardar varios segundos). El OK con el conteo va al final, despues
-    # del dispatch.
+    # Web al iniciar la operacion para que el operario vea progreso si
+    # tarda (TIA Portal listar PLCs puede tardar varios segundos). El
+    # OK con el conteo va al final, despues del dispatch.
     logger.web("Leyendo lista de PLCs...")
     out = tia.dispatch("list_plcs")
     if not out.get("ok"):

@@ -1,6 +1,6 @@
 ﻿"""Tests para ``areas.alimentacion.data.data_parametros_int.DataParamIntPLC``.
 
-Fase 3, paso 3.2.5.  Cobertura:
+Cobertura:
   - Construccion basica con todos los campos.
   - ``num_lista`` acepta tanto ``int`` como ``str`` (marcadores
     semanticos como ``"N/A"`` o ``"TODOS"``).

@@ -94,7 +94,7 @@ def post_disp_sync_commit():
             "error": "FB 'disp_sincronizar' no registrado en el engine",
         }), 500
 
-    # Plan living TRAZABILIDAD_LOGGING §5 (operacion 5): 1 web al iniciar.
+    # 1 web al iniciar: el operario ve que arranca el sync.
     logger.web(f"Sincronizando dispositivos en '{plc_name}'...")
     try:
         job_id = engine.submit("disp_sincronizar", plc_name=plc_name)

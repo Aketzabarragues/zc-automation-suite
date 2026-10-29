@@ -1,4 +1,4 @@
-"""Tests de EventBusSync (Fase 4 / paso 4.3.1)."""
+"""Tests de EventBusSync."""
 from __future__ import annotations
 
 import queue
@@ -124,7 +124,7 @@ def test_subscriber_can_be_unsubscribed_multiple_times():
 
 
 # test_event_bus_sync_is_independent_from_async_one eliminado tras el
-# refactor OB1 (sept-2026): el bus async original (asyncio.Queue) se
+# refactor OB1: el bus async original (asyncio.Queue) se
 # reemplazo por EventBusSync unico en core/runtime/sse/. No existe
 # separacion sync/async que probar; el modulo core.runtime.sse.event_bus
 # ya no esta en el repo.

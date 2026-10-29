@@ -126,7 +126,7 @@ class PlcUserConstantModifier:
         ``<MultilingualTextItem>/<Text>``). ``comment`` es ``None`` si
         la constant existe sin comment inicializado o con texto vacio.
 
-        Usado por el preview de entidades (C.25): el comment per-constant
+        Usado por el preview de entidades: el comment per-constant
         tiene prioridad sobre el comment del slot del DB a la hora de
         comparar TIA vs Excel en el diff unificado. El operario suele
         configurar el comment en la tabla de constantes, no en el slot
@@ -458,7 +458,7 @@ class PlcUserConstantModifier:
               </ObjectList>
             </PlcUserConstant>
 
-        Antes del fix (C.7.9), el helper creaba un ``<Comment>`` hermano
+        Antes del fix, el helper creaba un ``<Comment>`` hermano
         de ``<AttributeList>`` y ``<ObjectList>`` — eso es XML
         estructuralmente invalido para V21, que rechaza con
         ``OpennessAccessException: CommitOnDispose`` al hacer el

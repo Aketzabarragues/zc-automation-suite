@@ -114,7 +114,7 @@ def _extract_register_alimentacion_call(source: str) -> str | None:
 def test_build_components_call_site_has_no_log_kwarg() -> None:
     """``_build_components`` no debe pasar ``log=`` a ``register_alimentacion``.
 
-    Repro del bug visto en vivo (smoke test del .exe, 2026-09-17):
+    Repro del bug visto en vivo (smoke test del .exe):
 
         [ERROR] [zc.main] start: _build_components() fallo:
           register() got an unexpected keyword argument 'log'

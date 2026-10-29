@@ -10,7 +10,7 @@ Cobertura:
   - El cache original NO se muta (es frozen, ``dataclasses.replace``
     crea una copia).
   - Dispositivos sin ``plc_name`` (DTO legacy) NO matchean ningun PLC:
-    si bien es comportamiento intencional del strict equality D11.
+    si bien es comportamiento intencional del strict equality.
 """
 from __future__ import annotations
 
@@ -241,7 +241,7 @@ def test_excel_path_y_mtime_se_preservan():
 
 
 def test_filtra_disp_sin_plc_name_como_vacios():
-    """DTOs sin ``plc_name`` no matchean ningun PLC (strict equality D11).
+    """DTOs sin ``plc_name`` no matchean ningun PLC (strict equality).
 
     Si el Excel tiene disp legacy sin plc_name, quedan fuera del
     filtro. La SPA exige que cada disp lleve su ``plc_name`` (regla

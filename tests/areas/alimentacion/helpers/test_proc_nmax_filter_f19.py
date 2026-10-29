@@ -1,6 +1,6 @@
 """Tests del filtro N_MAX de ``compute_nmax_diff_for_proc``.
 
-Cubre el bug F19 step 1: el filtro ``if k in nmax_names`` comparaba
+Cubre el bug del filtro N_MAX: el filtro ``if k in nmax_names`` comparaba
 nombres TIA del XML con kinds del Excel (las keys del dict), no
 con nombres TIA canónicos (los values). Resultado: ``current_filtered``
 quedaba vacio aunque el XML tuviese los 4 N_MAX correctos.
@@ -24,7 +24,7 @@ def test_filtro_xml_con_nmax_match_no_empty_current_filtered():
     """XML tiene los 4 N_MAX correctos + valores coherentes con desired.
 
     Esperado: todos los ``status='sin_cambios'`` y ``current_filtered``
-    tiene los 4 valores reales. Caso del bug Aketza en F19.
+    tiene los 4 valores reales. Caso real del operario.
     """
     raw = {
         "50010_N_MAX_PINT": 15,
@@ -117,7 +117,7 @@ def test_filtro_xml_con_nmax_mismatch_genera_todos_con_actualizar():
 def test_filtro_xml_sin_constantes_genera_todos_con_actual_y_actual_none():
     """XML no tiene ninguno de los 4 N_MAX que el config dice.
 
-    Esperado (caso F19 step 1 original bug): ``current_filtered = {}``
+    Esperado (caso original del bug): ``current_filtered = {}``
     Y ``actual = None`` para cada todo, ``status = 'actualizar'``. Esto
     es la firma del bug pre-fix: el log decia '4 N_MAX actualizar' y la
     SPA mostraba '?' aunque el XML tuviese esos nombres.

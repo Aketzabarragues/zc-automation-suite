@@ -1,7 +1,7 @@
-"""Tests de import_tag_table (Fase 4 / paso 4.1.2c1-import).
+"""Tests de import_tag_table.
 
 Tests de export_block + export_tag_table van en
-test_tia_client_granular.py (commit 4.1.2c1-export).
+test_tia_client_granular.py.
 """
 from __future__ import annotations
 

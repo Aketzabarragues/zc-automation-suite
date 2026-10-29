@@ -250,9 +250,9 @@ class FunctionExcelCargar(FunctionBase):
     def _log_resumen(self, software: dict[str, int] | None) -> None:
         """Emite el ``ok`` con el resumen del Excel ya cargado.
 
-        Plan living TRAZABILIDAD_LOGGING §5 (operacion 1): el operario
-        ve en la consola web "Excel cargado: N disp + N proc + ...".
-        No debe tumbar el FB si el resumen no se puede construir.
+        El operario ve en la consola web "Excel cargado: N disp + N
+        proc + ...". No debe tumbar el FB si el resumen no se puede
+        construir.
         """
         sw = software or {}
         total = 0

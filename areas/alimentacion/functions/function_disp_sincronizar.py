@@ -187,10 +187,10 @@ class FunctionDispSincronizar(FunctionBase):
             )
         self._plc_name = str(plc_name)
 
-        # Validar contra TIA Portal (fail-late, PR5 D4/D11).
+        # Validar contra TIA Portal (fail-late).
         # Si el PLC no existe en TIA, raise ValueError claro.
         validate_plc_in_tia(self._tia_client, self._plc_name)
-        # Validar contra el Excel cargado (sept-2026 multi-PLC):
+        # Validar contra el Excel cargado (multi-PLC):
         # si el operario selecciono un PLC de TIA que NO esta en la
         # Tabla_PLC del Excel, el cache activo quedaria vacio y el sync
         # atacaria TIA para borrar TODO. Fail-late con lista de PLCs
@@ -396,7 +396,7 @@ class FunctionDispSincronizar(FunctionBase):
     def _stage_2_compute_diff(self) -> None:
         """Calcula el diff entre los XMLs exportados y el AppCache (read-only).
 
-        Migrado sept-2026: usa ``compute_diff_table`` por hw_type
+        Usa ``compute_diff_table`` por hw_type
         (funcion pura del nuevo helper). Mantiene el shape del ctx
         (``desired_state_per_table`` etc.) para compatibilidad con
         ``_stage_3_preparar_ops`` y siguientes.
@@ -921,7 +921,7 @@ class FunctionDispSincronizar(FunctionBase):
     def _stage_11_disp_post_preview(self) -> None:
         """Genera el preview post-sync para que la SPA vea 'todo en sync'.
 
-        Migrado sept-2026: usa las funciones puras
+        Usa las funciones puras
         ``compute_diff_table`` + ``compute_nmax_diff`` del nuevo
         ``disp_generate_preview.py``. Replica el flujo legacy
         (``exportar_tags`` + ``compute_devices`` + ``compute_nmax`` +
@@ -1103,7 +1103,6 @@ class FunctionDispSincronizar(FunctionBase):
 
 
 # ============================================================================
-# Codigo absorbido de helpers/disp/disp_Sincronizar.py (commit 24, sept-2026).
 # Antes era un orquestador separado que el FB llamaba via ``match step_nombre``.
 # Ahora los 11 stages viven como metodos del FB (mutando ``self._ctx``). Solo
 # permanece aqui el ``DispSyncContext`` (dataclass entre stages) y las helpers
@@ -1166,7 +1165,6 @@ class DispSyncContext:
 
 
 # ===========================================================================
-# Codigo absorbido de helpers/disp/disp_Sincronizar.py (commit 24, sept-2026).
 # Antes era un orquestador separado que el FB llamaba via ``match step_nombre``.
 # Ahora los 11 stages viven como metodos del FB (mutando ``self._ctx``). Solo
 # permanece aqui el ``DispSyncContext`` (dataclass entre stages) y las helpers
@@ -1369,8 +1367,7 @@ def _get_affected_dbs_for_compile(config_manager: Any) -> list[str]:
             continue
         # Aqui queremos el NOMBRE DEL DB (``cfg.db_name``), no la
         # PlcTagTable (``cfg.tag_table``): la compilacion opera sobre
-        # los DBs de array. El legacy DispSyncInstancesUseCase.
-        # _get_affected_dbs_for_compile hacia lo mismo via
+        # los DBs de array. La compilacion se resuelve con
         # ``config.get_db_name(hw)``.
         result.append(cfg.db_name)
     return result

@@ -113,11 +113,10 @@ def upload_excel():
         "[area/excel] Recibiendo upload: '%s' (%d bytes)",
         file.filename, tmp_path.stat().st_size,
     )
-    # Plan living TRAZABILIDAD_LOGGING §5 (operación 1): 1 web + 1 ok
-    # con el resumen completo del Excel. El operario ve en la consola
-    # web "Cargando Excel ... -> Excel cargado: N disp + N proc + ...".
-    # El "ok" lo emite el FB al terminar: el router ya ha respondido
-    # antes de que el Excel este cargado.
+    # 1 web + 1 ok con el resumen completo del Excel. El operario ve en
+    # la consola web "Cargando Excel ... -> Excel cargado: N disp + N
+    # proc + ...". El "ok" lo emite el FB al terminar: el router ya ha
+    # respondido antes de que el Excel este cargado.
     logger.web(
         f"Cargando Excel '{file.filename}' "
         f"({tmp_path.stat().st_size} bytes)..."

@@ -1,8 +1,8 @@
 """Cache de bloques de un PLC.
 
 Agrupa el resultado de un escaneo completo (bloques + tablas de
-variables + UDTs). Se reconstruye en el gateway IT a partir de un
-dict primitivo recibido del worker OT.
+variables + UDTs). Se reconstruye en ``core.infrastructure.tia.tia_cache``
+a partir de un dict primitivo recibido del worker OT.
 
 Campos:
   - blocks (dict[str, DataBloquePLC]): bloques de programa (DB/FB/FC/OB).

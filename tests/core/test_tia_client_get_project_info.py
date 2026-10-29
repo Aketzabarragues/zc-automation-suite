@@ -1,4 +1,4 @@
-"""Tests de get_project_info (Fase 4 / paso 4.1.2a4)."""
+"""Tests de get_project_info."""
 from __future__ import annotations
 
 from datetime import datetime

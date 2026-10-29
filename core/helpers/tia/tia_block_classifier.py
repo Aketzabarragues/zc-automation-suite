@@ -3,8 +3,8 @@
 TIA Openness expone TODOS los bloques de codigo/datos como ``ProgramBlock``
 (sin propiedad directa "BlockType"; ``set_property("BlockType")`` devuelve
 error code 20 = OpennessAccessException). Este modulo encapsula la
-heuristica validada empíricamente contra el SDK de Siemens (smoke oct-2026
-sobre PLC S7-1500 con 168 bloques: 100% cobertura, 0 sin clasificar) para
+heuristica validada empíricamente contra el SDK de Siemens (smoke sobre
+PLC S7-1500 con 168 bloques: 100% cobertura, 0 sin clasificar) para
 distinguir:
 
   - DB (Data Block):       ``ProgrammingLanguage == "DB"``

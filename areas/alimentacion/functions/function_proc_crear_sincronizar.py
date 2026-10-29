@@ -30,7 +30,8 @@ Restricciones CRITICAS del dispatch al worker OT:
     because an object with the name X already exists in the plc").
   - Por eso en este FB NUNCA pasamos ``target_folder`` — lo omitimos
     para que el handler use el default ``None`` y TIA haga UPDATE
-    correcto. Ver ``tia_handlers._h_import_block`` para detalle.
+    correcto. Ver ``core.infrastructure.tia.tia_cmd_import_.py``
+    (``_h_import_block``) para detalle.
 
 Hereda directo de ``FunctionBase``.
 
@@ -59,7 +60,7 @@ El ``self.result`` se popula con la shape esperada por la SPA::
       "colisiones":         list[str],
       "nuevo_dir":          str,
       "success":            bool,
-      "process_label":      str,       # "100_CPR"; sept-2026
+      "process_label":      str,       # "100_CPR"
       "import_result":      dict | None,
       "compile_result":     dict | None,
     }
@@ -359,11 +360,11 @@ class FunctionProcCrearSincronizar(FunctionBase):
             if plc_blocks_cache is not None else None
         )
 
-        # Validar contra TIA Portal (fail-late, PR5 D4/D11).
+        # Validar contra TIA Portal (fail-late).
         validate_plc_in_tia(self._tia_client, self._plc_name)
         # NOTA: este FB no opera sobre ``app_cache`` directamente, asi
         # que la propagacion de ``selected_plc`` se hace desde el endpoint
-        # que invoca este FB (responsabilidad del caller, D6 stateless).
+        # que invoca este FB (responsabilidad del caller).
         # La validacion contra el Excel (``validate_plc_in_excel``) se
         # ejecuta en el endpoint ``proc_process_crear_router.crear_aplicar``
         # antes del ``with_plc``, ya que ahi si tenemos acceso al
@@ -520,14 +521,14 @@ class FunctionProcCrearSincronizar(FunctionBase):
         Si cualquier op falla, TIA hace rollback atomico de las 3
         juntas, dejando el PLC en el mismo estado previo al apply.
 
-        ORDEN CRITICO (sept-2026, validado en vivo): tags ANTES de
+        ORDEN CRITICO (validado en vivo): tags ANTES de
         blocks. Si invertimos, los bloques que referencian
         PlcUserConstant de la tag table fallan al compilar.
 
-        REGLA (sept-2026): ``import_plc_tags_xml`` /
+        REGLA: ``import_plc_tags_xml`` /
         ``import_blocks_sd`` se invocan SIN ``target_folder``
         (omitiendo el argumento); NUNCA pasar ``""``. Ver
-        ``tia_handlers._h_import_block``.
+        ``core.infrastructure.tia.tia_cmd_import_.py``.
         """
         batch_operations = [
             {
@@ -630,8 +631,7 @@ class FunctionProcCrearSincronizar(FunctionBase):
 
 
 # ============================================================================
-# Codigo absorbido de helpers/proc/proc_crear_process_generator.py
-# (commit F22-2, sept-2026). Antes era un orquestador separado que el FB
+# Antes era un orquestador separado que el FB
 # llamaba via ``match step_nombre``. Ahora los 9 stages viven como
 # metodos del FB (mutando ``self._ctx``); las funciones puras del pipeline
 # (filesystem puro, sin TIA) viven aqui mismo, debajo del dataclass.
@@ -875,7 +875,7 @@ __all__ = [
     "FunctionProcCrearSincronizar",
     "_coerce_plc_blocks_cache",
     "_step_summary",
-    # Funciones puras absorbidas (F22-2).
+    # Funciones puras absorbidas.
     "proc_process_leer_manifest",
     "proc_process_validar_minimos",
     "proc_process_copiar_a_preview",

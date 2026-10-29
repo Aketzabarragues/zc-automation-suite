@@ -1,4 +1,4 @@
-"""Tests del ``PLCListParser`` (Tabla_PLC del Excel, multi-PLC sept-2026)."""
+"""Tests del ``PLCListParser`` (Tabla_PLC del Excel, multi-PLC)."""
 from __future__ import annotations
 
 from openpyxl import Workbook

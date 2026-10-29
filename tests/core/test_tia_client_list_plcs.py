@@ -1,4 +1,4 @@
-"""Tests de list_plcs y _safe_short_designation (Fase 4 / paso 4.1.2a3).
+"""Tests de list_plcs y _safe_short_designation.
 
 Cubre:
   - _safe_short_designation: 4 paths (no getter, normal, vacio, exception).

@@ -45,7 +45,7 @@ def mock_tia_client() -> MagicMock:
     """Gateway mockeado. Los export_* son MagicMock; no se llaman en
     este test porque parcheamos el helper."""
     client = MagicMock()
-    # Mock list_plcs para validate_plc_in_tia (PR5).
+    # Mock list_plcs para validate_plc_in_tia.
     client.submit_and_wait = MagicMock(
         return_value={"ok": True, "result": {"plcs": [{"name": "S7-1500"}]}}
     )

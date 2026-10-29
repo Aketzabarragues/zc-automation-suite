@@ -18,7 +18,7 @@ Estrategia (en este orden):
   ``{prefijo - base_vieja + base_nueva}_`` a ``dicc_bloques`` y
   ``dicc_xml``. Cubre cualquier offset (las 3 bases estandar del
   proyecto y las custom de la plantilla).
-- Stems de archivos (oct-2026): ademas de las carpetas, cualquier
+- Stems de archivos: ademas de las carpetas, cualquier
   archivo con stem ``(FC|FB|DB)(\\d+)_`` aporta su numero al set
   de prefijos. Esto cubre bloques cuyo numero no aparece como
   prefijo de carpeta (e.g. ``FC50501_CIP1_ORDENES_R_L1.s7dcl``

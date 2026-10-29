@@ -377,7 +377,6 @@ def _execute_one(
 
 # ---------------------------------------------------------------------------
 # Funciones privadas del loop, movidas desde tia_helpers.py
-# (sept-2026, greenfield/tia-worker-simplification).
 # Solo el tia-loop las usa, asi que viven como top-level privadas aqui.
 # ---------------------------------------------------------------------------
 

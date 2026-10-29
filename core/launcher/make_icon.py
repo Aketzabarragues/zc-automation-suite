@@ -13,7 +13,7 @@ Uso:
     python core/launcher/make_icon.py --force    # regenera siempre
 
 El .ico vive en este mismo directorio (core/launcher/) por
-coherencia con el refactor PR 7, ``main.py::_resolve_icon_path``
+coherencia con ``main.py::_resolve_icon_path``
 y ``build_exe.py::EXE_ICON`` / ``PROJECT_DATA_FILES``.
 """
 from __future__ import annotations
@@ -29,7 +29,7 @@ PACKAGING_DIR = Path(__file__).parent
 # El .ico vive en core/launcher/ (mismo directorio que este script),
 # que es la ruta que esperan tanto ``main.py::_resolve_icon_path``
 # (dev) como ``build_exe.py::EXE_ICON`` y ``PROJECT_DATA_FILES``
-# (frozen). Tras el refactor PR 7 todo el shell del launcher vive
+# (frozen). Todo el shell del launcher vive
 # en este directorio: el script, el .ico, y el codigo que lo busca.
 ICON_PATH = PACKAGING_DIR / "icon.ico"
 

@@ -1,8 +1,7 @@
-"""Tests de _find_plc_tag_table + get_user_constants (Fase 4 / paso 4.1.2c3a).
+"""Tests de _find_plc_tag_table + get_user_constants.
 
 Tests de update_user_constant_value / update_user_constant_name /
-delete_user_constant van en test_tia_client_user_constants_update.py
-(commit 4.1.2c3b).
+delete_user_constant van en test_tia_client_user_constants_update.py.
 """
 from __future__ import annotations
 

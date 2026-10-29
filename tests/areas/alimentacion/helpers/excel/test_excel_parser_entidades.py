@@ -202,7 +202,7 @@ def test_dispX_ignorado_no_contamina_DTO(tmp_path):
 def test_placeholder_no_usar_incluido_en_salida(tmp_path):
     """``Numero=0, Descripcion='NO USAR'`` se incluye.
 
-    Es la fila placeholder del Excel corporativo (sept-2026).
+    Es la fila placeholder del Excel corporativo.
     El parser NO filtra; el FB sync decide que hacer con slot 0.
     """
     xlsx = _save_xlsx_with_entidades_table(

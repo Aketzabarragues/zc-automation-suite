@@ -1,6 +1,6 @@
 """Tests de los handlers lifecycle de ``core.infrastructure.tia_loop``.
 
-Cubren (Fase 4 / paso 4.1.2a1):
+Cubren:
   - register_all_commands() registra los 4 comandos en el target.
   - open_new_portal: ts ausente / args vacios / archivo no existe / happy path.
   - open_project: wrapper ausente / args vacios / archivo no existe / happy path.
@@ -176,4 +176,4 @@ def test_open_project_happy_path(client_with_handlers):
 
 
 # save_project y close_project se prueban en test_tia_client_save_close.py
-# (commit separado 4.1.2a1b para mantener <200 lineas).
+# (fichero separado para mantener <200 lineas).

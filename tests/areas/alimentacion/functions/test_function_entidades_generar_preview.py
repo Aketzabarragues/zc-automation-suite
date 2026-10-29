@@ -257,7 +257,7 @@ def test_run_step_falla_si_step_desconocido() -> None:
 def test_run_step_stage_5_sync_ejecuta_el_stage_real() -> None:
     """``run_step`` (sync) invoca el stage 5 real sin romper el retorno.
 
-    El bug original (smoke del operario, oct-2026) era que un handler
+    El bug original (smoke del operario) era que un handler
     sync devolvia ``None`` y el dispatch lo-awaited con ``await None``,
     reventando con ``TypeError: object NoneType can't be used in 'await'
     expression``. Con el FB sync, ``run_step`` invoca ``handler()``

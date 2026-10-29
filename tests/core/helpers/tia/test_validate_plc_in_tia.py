@@ -1,4 +1,4 @@
-"""Tests del helper ``validate_plc_in_tia`` (PR5, multi-PLC)."""
+"""Tests del helper ``validate_plc_in_tia`` (multi-PLC)."""
 from __future__ import annotations
 
 from unittest.mock import MagicMock

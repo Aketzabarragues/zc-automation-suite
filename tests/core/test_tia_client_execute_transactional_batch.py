@@ -1,4 +1,4 @@
-"""Tests de _h_execute_transactional_batch (Fase 4 / paso 4.1.2c4).
+"""Tests de _h_execute_transactional_batch.
 
 Cubre: empty list / forbidden commands / happy path / rollback on
 sub-command exception / rollback on False return / rollback on

@@ -351,9 +351,9 @@ def crear_aplicar():
         }), 500
 
     # Sincronizar app_cache.selected_plc con el plc_name del body
-    # antes de encolar el FB (D6 stateless: el FB
+    # antes de encolar el FB: el
     # ``function_proc_crear_sincronizar`` no recibe ``app_cache`` por
-    # constructor, asi que el endpoint es responsable de propagarlo).
+    # constructor, asi que el endpoint es responsable de propagarlo.
     with_plc(_get_app_cache(), validated["plc_name"], AREA_ID)
 
     # Validar contra el Excel cargado (multi-PLC). El FB no lo hace

@@ -197,7 +197,7 @@ def test_frozen_no_muta():
         cache.excel_path = "/otro.xlsx"  # type: ignore[misc]
 
 
-# ── Entidades (commit 3) ─────────────────────────────────────────────────
+# ── Entidades ─────────────────────────────────────────────────
 
 
 def test_entidades_default_es_tupla_vacia():
@@ -205,7 +205,7 @@ def test_entidades_default_es_tupla_vacia():
 
     Mantiene backward compat: tests existentes que construyen
     ``DataExcelCache(...)`` sin ``entidades=`` siguen funcionando.
-    El loader (commit 4) lo rellenara con ``tuple(Entidad, ...)``.
+    El loader lo rellenara con ``tuple(Entidad, ...)``.
     """
     cache = _cache_minimo()
     assert cache.entidades == ()

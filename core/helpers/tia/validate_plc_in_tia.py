@@ -81,7 +81,7 @@ def validate_plc_in_tia(tia_client: Any, plc_name: str, timeout: float = 2.0) ->
             "Asegurate de que el proyecto tiene al menos un PLC."
         )
 
-    # 3. Validar strict equality (D11).
+    # 3. Validar strict equality.
     if plc_name not in plc_names:
         available = sorted(plc_names)
         raise ValueError(

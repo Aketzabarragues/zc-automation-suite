@@ -1,8 +1,8 @@
 """Tests de las funciones puras absorbidas en los FBs ``proc_crear``.
 
-Tras F22-1 (preview) y F22-2 (sync) las funciones puras viven en los
+Las funciones puras viven en los
 archivos de los FBs como module-level, debajo del dataclass. Tests
-cubre las funciones puras del pipeline (filesystem puro, sin TIA):
+cubren las funciones puras del pipeline (filesystem puro, sin TIA):
 
   - ``proc_process_leer_manifest``        -> ctx.manifest_plantilla + base_vieja.
   - ``proc_process_validar_minimos``      -> raises si minimos < plantilla.
@@ -23,7 +23,7 @@ Restricciones:
   - Cada test llama a UNA o MAS funciones puras por vez y valida el
     efecto en el ``ctx``.
 
-Nota (F22): las funciones preview vienen del FB preview, las de apply
+Nota: las funciones preview vienen del FB preview, las de apply
 del FB sync. ``ProcProcessGenContext`` y los errores se toman del FB
 preview por conveniencia (el dataclass es identico en ambos).
 """
@@ -1037,7 +1037,7 @@ async def test_aplicar_clonacion_renombra_carpetas_anidadas(
     """El apply renombra TANTO archivos como carpetas, preservando
     la estructura anidada de la plantilla.
 
-    Caso real (sept-2026): PROCESO_ESTANDAR tiene
+    Caso real: PROCESO_ESTANDAR tiene
     ``Bloques de programa/200_Expedicion/{200_Proceso,
     3200_Parametros, 5200_Alarmas}/...``. Tras el apply (base
     50010 -> 100, codigo EXP -> CPR, nombre Expedicion -> CPR)
@@ -1336,7 +1336,7 @@ async def test_construir_diccionarios_renombra_carpeta_base_custom(
     bases hardcoded (``base``, ``base+3000``, ``base+5000``) debe
     recibir su propia regla de rename, derivada del walk.
 
-    Caso real (CIP, oct-2026): el proyecto tiene 12 subcarpetas
+    Caso real (CIP): el proyecto tiene 12 subcarpetas
     con bases 50500, 50510, 50520, 50530, 50540, 50560, 50565,
     50570, 50575, 50590, 53500, 55500. Solo las 3 estandar se
     renombraban; las 9 custom quedaban intactas, con bloques
@@ -1646,7 +1646,7 @@ async def test_construir_diccionarios_prefijo_num_en_stem_de_archivo(
     el dicc, para que el helper renombre ese numero en el contenido
     de ``.s7dcl`` / ``.s7res`` / ``.scl`` / ``.awl``.
 
-    Caso real (C.16, sept-2026 / oct-2026): la plantilla CIP tiene
+    Caso real: la plantilla CIP tiene
     ``FC50501_CIP1_ORDENES_R_L1.s7dcl`` dentro de la carpeta
     ``50500_Principal\\``. El nombre de archivo lleva el sufijo
     ``_L1`` al final; el ``FUNCTION "FC50501_CIP1_L1_ORDENES_R"``

@@ -1,4 +1,4 @@
-"""Regression test (sept-2026): ``DispositivosPanel.js`` no debe keyear
+"""Regression test: ``DispositivosPanel.js`` no debe keyear
 ``excel_full.dispositivos`` por ``canonical``.
 
 El backend ``excel_loader.py`` produce ``dispositivos: {hw_type: tuple}``
@@ -72,7 +72,7 @@ def test_activeDevices_no_indexa_por_activeSubTab_directamente() -> None:
     )
     assert not bug_pattern.search(src), (
         "activeDevices accede ms.dispositivos[activeSubTab.value] "
-        "directamente. Eso es el bug sept-2026: el backend keyed "
+        "directamente. Eso es el bug: el backend keyed "
         "por hw_type (lowercase), no canonical. Usar "
         "hwTypeByKey[activeSubTab.value] (mapping canonical -> hw_type)."
     )
