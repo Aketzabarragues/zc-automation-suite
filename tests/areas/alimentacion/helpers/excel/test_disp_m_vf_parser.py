@@ -1,9 +1,9 @@
-"""Tests del ``DispM_VFParser`` (Fase 5 del plan).
+"""Tests del ``DispM_VFParser``.
 
-Cubre la extracciÃ³n de ``Tabla_Disp_M_VF`` (hoja ``DISP_M_VF``) y la
-construcciÃ³n de ``DispM_VF`` (motores con variador de frecuencia).
+Cubre la extracción de ``Tabla_Disp_M_VF`` (hoja ``DISP_M_VF``) y la
+construcción de ``DispM_VF`` (motores con variador de frecuencia).
 Los campos exclusivos ``sa_byte`` y ``cfg_byteanalogica`` se
-verifican explÃ­citamente.
+verifican explícitamente.
 """
 from __future__ import annotations
 

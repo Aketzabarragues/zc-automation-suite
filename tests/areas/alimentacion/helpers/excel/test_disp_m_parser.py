@@ -1,7 +1,7 @@
-"""Tests del ``DispMParser`` (Fase 5 del plan).
+"""Tests del ``DispMParser``.
 
-Cubre la extracciÃ³n de ``Tabla_Disp_M`` (hoja ``DISP_M``) y la
-construcciÃ³n de ``DispM`` (motores digitales).
+Cubre la extracción de ``Tabla_Disp_M`` (hoja ``DISP_M``) y la
+construcción de ``DispM`` (motores digitales).
 """
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from tests._disp_parser_test_helpers import (
 
 
 def test_extrae_disp_m_basico(tmp_path) -> None:
-    """1 fila con los campos especÃ­ficos ``rt_*``/``rm_*`` populados."""
+    """1 fila con los campos específicos ``rt_*``/``rm_*`` populados."""
     xlsx_path = save_xlsx_with_disp_table(
         tmp_path, "M",
         rows=[build_full_row("M", UID="M_001", Numero=1,
@@ -97,5 +97,5 @@ def test_defaults_when_only_uid_and_numero(tmp_path) -> None:
     assert d.s_byte == 0
     assert d.rt_byte == 0
     assert d.rm_byte == 0
-    # Los ``cfg_*`` son strings vacÃ­os.
+    # Los ``cfg_*`` son strings vacíos.
     assert d.cfg_byteretornotermico == ""

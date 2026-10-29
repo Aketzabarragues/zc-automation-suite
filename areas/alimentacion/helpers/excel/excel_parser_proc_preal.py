@@ -27,7 +27,7 @@ Punto crítico: el campo ``num_lista`` **no** se mapea con
 ``_safe_int`` (que destruiría los marcadores semánticos del operario
 cayendo a ``0``). Se usa
 ``_safe_num_lista``, que preserva ``"N/A"`` y ``"TODOS"``
-literalmente. Esto es coherente con la regla R4 del operario y
+literalmente. Esto es coherente con la regla del operario y
 con el shape del DTO (``num_lista: int | str``).
 
 Restricción arquitectónica: este módulo es OFFLINE; no importa
@@ -56,7 +56,7 @@ class PRealParser:
 
     Mapea cada fila de la ``ListObject`` a un ``DataParamRealPLC``. Las
     claves de columna son **literales** (con mayúsculas, puntos y
-    espacios) Ã¢â‚¬” exactamente como aparecen en el Excel del
+    espacios) — exactamente como aparecen en el Excel del
     corporativo y como las consumia la herramienta TUI anterior.
 
     Atributos de clase:

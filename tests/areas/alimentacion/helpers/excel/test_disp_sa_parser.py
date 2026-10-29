@@ -1,6 +1,6 @@
-"""Tests del ``DispSAParser`` (Fase 5 del plan).
+"""Tests del ``DispSAParser``.
 
-Estructura idÃ©ntica a ``DispEA`` (mismos campos y semÃ¡ntica;
+Estructura idéntica a ``DispEA`` (mismos campos y semántica;
 solo cambia el sentido: salida vs entrada). Mismos 5 tests.
 """
 from __future__ import annotations
@@ -16,7 +16,7 @@ from tests._disp_parser_test_helpers import (
 
 
 def test_extrae_disp_sa_basico(tmp_path) -> None:
-    """Excel con 1 fila vÃ¡lida â†’ ``DispSA`` con ``rii``/``rsi`` float."""
+    """Excel con 1 fila válida → ``DispSA`` con ``rii``/``rsi`` float."""
     xlsx_path = save_xlsx_with_disp_table(
         tmp_path, "SA",
         rows=[build_full_row("SA", UID="SA_001", Numero=1,

@@ -72,7 +72,7 @@ class AlarmasParser:
 
     Mapea cada fila de la ``ListObject`` a un ``DataAlarmaPLC``. Las
     claves de columna son **literales** (con mayúsculas, puntos y
-    espacios) Ã¢â‚¬” exactamente como aparecen en el Excel del
+    espacios) — exactamente como aparecen en el Excel del
     corporativo y como las consumia la herramienta TUI anterior.
 
     Atributos de clase:

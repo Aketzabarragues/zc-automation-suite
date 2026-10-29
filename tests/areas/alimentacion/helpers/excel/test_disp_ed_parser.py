@@ -1,17 +1,17 @@
-"""Tests del ``DispEDParser`` (Fase 5 del plan).
+"""Tests del ``DispEDParser``.
 
-Cubre la extracciÃ³n de ``Tabla_Disp_ED`` (hoja ``DISP_ED``) y la
-construcciÃ³n de ``DispED``. Sigue el patrÃ³n de las tests de los
-parsers de software (Fase 1-4): Excel sintÃ©tico con ``Table`` real
+Cubre la extracción de ``Tabla_Disp_ED`` (hoja ``DISP_ED``) y la
+construcción de ``DispED``. Sigue el patrón de las tests de los
+parsers de software: Excel sintético con ``Table`` real
 en ``tmp_path``.
 
 Convenciones:
-    * Cabeceras literales del Excel (con puntos y mayÃºsculas).
-    * ``extract_list_object_rows`` ya estÃ¡ cubierta por
-      ``test_xlsx_helpers.py``; aquÃ­ solo verificamos que el parser
+    * Cabeceras literales del Excel (con puntos y mayúsculas).
+    * ``extract_list_object_rows`` ya está cubierta por
+      ``test_xlsx_helpers.py``; aquí solo verificamos que el parser
       rellena los campos del DTO correctamente.
     * Las filas sin UID ni Numero se descartan (criterio legacy).
-    * Las filas invÃ¡lidas se descartan con WARNING sin romper la tabla.
+    * Las filas inválidas se descartan con WARNING sin romper la tabla.
 """
 from __future__ import annotations
 
@@ -33,9 +33,9 @@ def _save_xlsx_with_disp_table(
     table_name: str = "Tabla_Disp_ED",
     headers: list[str] | None = None,
 ) -> str:
-    """Crea un .xlsx sintÃ©tico con la ``Tabla_Disp_ED``."""
+    """Crea un .xlsx sintético con la ``Tabla_Disp_ED``."""
     if headers is None:
-        # Cabeceras del Excel legacy (subset mÃ­nimo para los tests).
+        # Cabeceras del Excel legacy (subset mínimo para los tests).
         headers = [
             "UID", "Numero", "PLC.Tag", "PLC.Comentario", "Descripcion",
             "Tag", "FAT", "E.Byte", "E.Bit", "Gr.Alarma", "Cuadro",
@@ -45,7 +45,7 @@ def _save_xlsx_with_disp_table(
         ]
     if rows is None:
         rows = []
-    # Inyectar PLC si falta (sept-2026, multi-PLC).
+    # Inyectar PLC si falta (multi-PLC).
     if "PLC" not in headers:
         headers = ["PLC"] + list(headers)
         rows = [["PLC1"] + list(r) for r in rows]
@@ -78,7 +78,7 @@ def _load(path: str) -> Workbook:
 
 
 def test_extrae_disp_ed_basico(tmp_path) -> None:
-    """Excel con 1 fila vÃ¡lida â†’ ``DispED`` con los campos correctos."""
+    """Excel con 1 fila válida → ``DispED`` con los campos correctos."""
     xlsx_path = _save_xlsx_with_disp_table(
         tmp_path,
         rows=[
@@ -130,7 +130,7 @@ def test_extrae_disp_ed_basico(tmp_path) -> None:
     assert d.plc_index == 0
     assert d.hmi_index == 1
     assert d.hmi_texto == "Texto HMI"
-    # Los ``cfg_*`` preservan las lÃ­neas SCL crudas.
+    # Los ``cfg_*`` preservan las líneas SCL crudas.
     assert d.cfg_habilitar == "cfg_hab := 1;"
     assert d.cfg_byte_entrada == "cfg_byte := 0;"
     assert d.cfg_bit_entrada == "cfg_bit := 0;"
@@ -176,7 +176,7 @@ def test_fila_sin_uid_se_descarta(tmp_path) -> None:
         tmp_path,
         rows=[
             [None, None, "X", "X", "X"],  # sin UID ni Numero
-            ["ED_001", 1, "V_ED_001", "c", "d"],  # vÃ¡lida
+            ["ED_001", 1, "V_ED_001", "c", "d"],  # válida
         ],
     )
     wb = _load(xlsx_path)

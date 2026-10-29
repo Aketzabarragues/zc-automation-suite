@@ -1,7 +1,7 @@
-﻿"""Parser de parÃƒÆ’Ã‚¡metros enteros del Excel corporativo.
+﻿"""Parser de parámetros enteros del Excel corporativo.
 
 Extrae la ``ListObject`` ``Tabla_PInt`` de la hoja ``P_INT`` del
-workbook del departamento de alimentaciÃƒÆ’Ã‚Â³n y la mapea a una lista
+workbook del departamento de alimentación y la mapea a una lista
 de ``DataParamIntPLC`` (DTO inmutable definido en
 ``areas.alimentacion.data.data_parametros_int``).
 
@@ -14,7 +14,7 @@ Diferencias con la herramienta TUI anterior:
     * Sin pandas: openpyxl directo. Coherente con el resto de
       los parsers del area.
     * Defensivo: cada fila se envuelve en ``try/except`` y las
-      filas invÃƒÆ’Ã‚¡lidas se descartan con ``logger.warning`` (no
+      filas inválidas se descartan con ``logger.warning`` (no
       rompen la carga). ``extract_list_object_rows`` ya devuelve
       ``[]`` si la hoja o la tabla no existen.
     * Mismas claves literales del Excel que usaba la herramienta
@@ -24,19 +24,19 @@ Diferencias con la herramienta TUI anterior:
       ``Txt.Lista``.
 
 Punto crítico: el campo ``num_lista`` **no** se mapea con ``_safe_int``
-(que destruirÃƒÆ’Ã‚Â­a los marcadores semÃƒÆ’Ã‚¡nticos del operario cayendo a
+(que destruiría los marcadores semánticos del operario cayendo a
 ``0``). Se usa ``_safe_num_lista``, que preserva ``"N/A"`` y
 ``"TODOS"`` literalmente. Esto es coherente con el shape del DTO (``num_lista: int | str``).
 
 Diferencia entre ``DataParamIntPLC`` y ``DataParamRealPLC``:
-aunque el shape (12 campos) es idÃƒÆ’©ntico, los dos DTOs son
+aunque el shape (12 campos) es idéntico, los dos DTOs son
 **nominalmente distintos** en Python. El parser usa su propio DTO
-(``DataParamIntPLC``) Ãƒ¢Ã¢â€šÂ¬Ã¢â‚¬Â no se reutiliza ``DataParamRealPLC``. Si en el
-futuro se quiere aÃƒÆ’Ã‚Â±adir ``rango_min``/``rango_max`` solo a
+(``DataParamIntPLC``) — no se reutiliza ``DataParamRealPLC``. Si en el
+futuro se quiere añadir ``rango_min``/``rango_max`` solo a
 ``DataParamRealPLC`` (derivados de ``DispEA.RII``/``DispEA.RSI``), se
 hace sin tocar ``DataParamIntPLC``.
 
-RestricciÃƒÆ’Ã‚Â³n arquitectÃƒÆ’Ã‚Â³nica: este mÃƒÆ’Ã‚Â³dulo es OFFLINE; no importa
+Restricción arquitectónica: este módulo es OFFLINE; no importa
 ``siemens_tia_scripting``.
 """
 from __future__ import annotations
@@ -61,8 +61,8 @@ class PIntParser:
     """Parser de la ``Tabla_PInt`` (hoja ``P_INT``).
 
     Mapea cada fila de la ``ListObject`` a un ``DataParamIntPLC``. Las
-    claves de columna son **literales** (con mayÃƒÆ’Ã‚ºsculas, puntos y
-    espacios) Ãƒ¢Ã¢â€šÂ¬Ã¢â‚¬Â exactamente como aparecen en el Excel del
+    claves de columna son **literales** (con mayúsculas, puntos y
+    espacios) — exactamente como aparecen en el Excel del
     corporativo y como las consumia la herramienta TUI anterior.
 
     Atributos de clase:
@@ -74,25 +74,25 @@ class PIntParser:
     TABLE = "Tabla_PInt"
 
     def extraer(self, wb: Workbook) -> list[DataParamIntPLC]:
-        """Extrae todos los parÃƒÆ’Ã‚¡metros enteros del workbook.
+        """Extrae todos los parámetros enteros del workbook.
 
         Args:
-            wb: workbook de openpyxl ya abierto (no se cierra aquÃƒÆ’Ã‚Â­).
+            wb: workbook de openpyxl ya abierto (no se cierra aquí).
 
         Returns:
             Lista de ``DataParamIntPLC``. Si la hoja o la tabla no
             existen, devuelve ``[]``. Las filas que fallen al
             construir el DTO se descartan con WARNING.
 
-        PolÃƒÆ’Ã‚Â­tica de descarte (consistente con ``ProcesosParser`` y
+        Política de descarte (consistente con ``ProcesosParser`` y
         ``PRealParser``, dropna por UID):
-            * Filas con ``UID`` vacÃƒÆ’Ã‚Â­o (``None`` / ``""`` / whitespace
+            * Filas con ``UID`` vacío (``None`` / ``""`` / whitespace
               / ``"nan"`` / ``"None"`` / ``"null"``) se descartan
-              silenciosamente. Esto evita parÃƒÆ’Ã‚¡metros fantasma sin
+              silenciosamente. Esto evita parámetros fantasma sin
               UID en el cache. Es el equivalente del
               ``pandas.dropna(subset=["UID"])`` de la herramienta TUI anterior.
-            * Filas con ``UID`` no vacÃƒÆ’Ã‚Â­o se conservan aunque el
-              resto de campos estÃƒÆ’© vacÃƒÆ’Ã‚Â­o: el DTO tiene defaults
+            * Filas con ``UID`` no vacío se conservan aunque el
+              resto de campos esté vacío: el DTO tiene defaults
               tolerantes (``str = ""``, ``int = 0``,
               ``num_lista = 0``).
         """

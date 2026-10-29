@@ -11,7 +11,7 @@ defaults), pero **tipo distinto en Python**: ``DataParamIntPLC`` y
 ``DataParamRealPLC`` son nominalmente dos dataclasses separadas.
 ``isinstance(DataParamIntPLC(...), DataParamRealPLC) == False``.
 
-Razon de la separacion (R4): si en el futuro se quiere anadir
+Razon de la separacion: si en el futuro se quiere anadir
 ``rango_min``/``rango_max`` solo a ``DataParamRealPLC`` (derivados de
 ``DispEA.RII``/``DispEA.RSI``), se hace sin tocar ``DataParamIntPLC``.
 """
@@ -26,11 +26,11 @@ class DataParamIntPLC:
 
     Campos:
       - ``uid``: identificador unico **str** (``'PI_1_001'``).
-      - ``numero``: nÃ‚º logico del parametro dentro del proceso
+      - ``numero``: nº logico del parametro dentro del proceso
         (``"001"``, ``"002"``, ...).
       - ``proceso``: nombre del proceso al que pertenece.
       - ``codigo``: codigo corto del proceso.
-      - ``num_db``: nÃ‚º del DB donde se mapea este parametro.
+      - ``num_db``: nº del DB donde se mapea este parametro.
       - ``producto``: nombre del producto / linea.
       - ``tipo``: clasificacion funcional (``"Contador"``, ``"Indice"``).
       - ``descripcion``: descripcion legible para el operario.

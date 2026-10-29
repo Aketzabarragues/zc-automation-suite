@@ -1,13 +1,13 @@
 ﻿"""Tests del parser ``PRealParser`` y del helper ``_safe_num_lista``.
 
-Cubre la extracciÃƒÆ’Ã‚Â³n de ``Tabla_PReal`` (hoja ``P_REAL``) y la
-preservaciÃƒÆ’Ã‚Â³n de ``num_lista`` como ``int | str`` (helper
-``_safe_num_lista``), que es el punto crÃƒÆ’Ã‚Â­tico del parser: el operario usa valores
-como ``"N/A"`` o ``"TODOS"`` como marcadores semÃƒÆ’Ã‚Â¡nticos y el
+Cubre la extracción de ``Tabla_PReal`` (hoja ``P_REAL``) y la
+preservación de ``num_lista`` como ``int | str`` (helper
+``_safe_num_lista``), que es el punto crítico del parser: el operario usa valores
+como ``"N/A"`` o ``"TODOS"`` como marcadores semánticos y el
 parser no debe destruirlos cayendo a ``0``.
 
 Convenciones:
-    * Excel sintÃƒÆ’Ã‚Â©tico construido en ``tmp_path`` con ``Table`` real.
+    * Excel sintético construido en ``tmp_path`` con ``Table`` real.
     * Se carga con ``load_workbook`` para garantizar que la
       ``ListObject`` se registre en ``worksheet.tables``.
 """
@@ -23,7 +23,7 @@ from areas.alimentacion.helpers.excel._excel_helpers import (
 from areas.alimentacion.helpers.excel.excel_parser_proc_preal import PRealParser
 
 
-# ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Helpers de construcciÃƒÆ’Ã‚Â³n de Excels sintÃƒÆ’Ã‚Â©ticos ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+# ── Helpers de construcción de Excels sintéticos ────────────────────────
 
 
 def _save_xlsx_with_preal_table(
@@ -34,13 +34,13 @@ def _save_xlsx_with_preal_table(
     table_name: str = "Tabla_PReal",
     headers: list[str] | None = None,
 ) -> str:
-    """Crea un .xlsx sintÃƒÆ’Ã‚Â©tico con la tabla de parÃƒÆ’Ã‚Â¡metros reales.
+    """Crea un .xlsx sintético con la tabla de parámetros reales.
 
     Args:
         tmp_path: fixture pytest de path temporal.
-        rows: lista de filas de datos (``None`` o ``[]`` ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ solo
-            cabeceras, ÃƒÆ’Ã‚Âºtil para verificar que la tabla existe
-            pero estÃƒÆ’Ã‚Â¡ vacÃƒÆ’Ã‚Â­a).
+        rows: lista de filas de datos (``None`` o ``[]`` → solo
+            cabeceras, útil para verificar que la tabla existe
+            pero está vacía).
         sheet_name: nombre de la hoja (default ``P_REAL``).
         table_name: nombre de la ``ListObject`` (default
             ``Tabla_PReal``).
@@ -85,8 +85,8 @@ def _save_xlsx_with_preal_table(
     for row in rows:
         ws.append(row)
 
-    # Registrar la Table (R5 del plan: sin esto, ``worksheet.tables``
-    # no contiene la ``ListObject`` y el parser no la encontrarÃƒÆ’Ã‚Â­a).
+    # Registrar la Table: sin esto, ``worksheet.tables``
+    # no contiene la ``ListObject`` y el parser no la encontraría).
     last_col_letter = chr(ord("A") + len(headers) - 1)
     last_row = 1 + len(rows)
     ref = f"A1:{last_col_letter}{last_row}"
@@ -110,11 +110,11 @@ def _load(path: str) -> Workbook:
     return load_workbook(path)
 
 
-# ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Tests del helper ``_safe_num_lista`` ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+# ── Tests del helper ``_safe_num_lista`` ─────────────────────────────────
 
 
 def test_safe_num_lista_int() -> None:
-    """Valores numÃƒÆ’Ã‚Â©ricos (int, float, str-numÃƒÆ’Ã‚Â©rico) ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ int."""
+    """Valores numéricos (int, float, str-numérico) → int."""
     assert _safe_num_lista(1) == 1
     assert _safe_num_lista(1.0) == 1
     assert _safe_num_lista("5") == 5
@@ -126,16 +126,16 @@ def test_safe_num_lista_int() -> None:
 
 
 def test_safe_num_lista_str_preserva_texto() -> None:
-    """Texto no numÃƒÆ’Ã‚Â©rico se preserva literal como ``str`` (R4 del plan)."""
+    """Texto no numérico se preserva literal como ``str``."""
     assert _safe_num_lista("N/A") == "N/A"
     assert _safe_num_lista("TODOS") == "TODOS"
-    # TambiÃƒÆ’Ã‚Â©n preserva case y whitespace interno
+    # También preserva case y whitespace interno
     assert _safe_num_lista("n/a") == "n/a"
     assert _safe_num_lista("Todos") == "Todos"
 
 
 def test_safe_num_lista_none_vacio_nan_devuelve_cero() -> None:
-    """None / vacÃƒÆ’Ã‚Â­o / ``"nan"`` / whitespace ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ ``0`` (int)."""
+    """None / vacío / ``"nan"`` / whitespace → ``0`` (int)."""
     assert _safe_num_lista(None) == 0
     assert _safe_num_lista("") == 0
     assert _safe_num_lista("nan") == 0
@@ -145,11 +145,11 @@ def test_safe_num_lista_none_vacio_nan_devuelve_cero() -> None:
     assert _safe_num_lista("  ") == 0  # whitespace puro
 
 
-# ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Tests del parser ``PRealParser`` ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+# ── Tests del parser ``PRealParser`` ─────────────────────────────────────
 
 
 def test_extrae_preal_basico(tmp_path) -> None:
-    """Excel con 1 fila vÃƒÆ’Ã‚Â¡lida ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ DTO con los 12 campos correctos."""
+    """Excel con 1 fila válida → DTO con los 12 campos correctos."""
     xlsx_path = _save_xlsx_with_preal_table(
         tmp_path,
         rows=[
@@ -191,11 +191,11 @@ def test_extrae_preal_basico(tmp_path) -> None:
 
 
 def test_num_lista_preserva_texto(tmp_path) -> None:
-    """Fila con ``Num.Lista="N/A"`` ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ ``dto.num_lista == "N/A"`` (R4).
+    """Fila con ``Num.Lista="N/A"`` → ``dto.num_lista == "N/A"``.
 
-    Caso crÃƒÆ’Ã‚Â­tico: el operario usa ``"N/A"`` como marcador
-    semÃƒÆ’Ã‚Â¡ntico. Si el parser usara ``_safe_int``, caerÃƒÆ’Ã‚Â­a a ``0`` y
-    el dato se perderÃƒÆ’Ã‚Â­a. ``_safe_num_lista`` lo preserva como
+    Caso crítico: el operario usa ``"N/A"`` como marcador
+    semántico. Si el parser usara ``_safe_int``, caería a ``0`` y
+    el dato se perdería. ``_safe_num_lista`` lo preserva como
     ``str``.
     """
     xlsx_path = _save_xlsx_with_preal_table(
@@ -224,13 +224,13 @@ def test_num_lista_preserva_texto(tmp_path) -> None:
     assert len(result) == 1
     p = result[0]
     assert p.num_lista == "N/A"
-    # El tipo debe ser exactamente ``str`` (no int caÃƒÆ’Ã‚Â­do a 0).
+    # El tipo debe ser exactamente ``str`` (no int caído a 0).
     assert isinstance(p.num_lista, str)
     assert not isinstance(p.num_lista, int)
 
 
 def test_num_lista_preserva_todos(tmp_path) -> None:
-    """Fila con ``Num.Lista="TODOS"`` ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ ``dto.num_lista == "TODOS"``."""
+    """Fila con ``Num.Lista="TODOS"`` → ``dto.num_lista == "TODOS"``."""
     xlsx_path = _save_xlsx_with_preal_table(
         tmp_path,
         rows=[
@@ -260,7 +260,7 @@ def test_num_lista_preserva_todos(tmp_path) -> None:
 
 
 def test_hoja_inexistente_devuelve_lista_vacia(tmp_path) -> None:
-    """Sheet ``P_REAL`` no existe ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ ``[]`` (no lanza)."""
+    """Sheet ``P_REAL`` no existe → ``[]`` (no lanza)."""
     xlsx_path = _save_xlsx_with_preal_table(
         tmp_path,
         rows=[["PR_1_001", "001", "P", "PR1", 3001, "", "", "", "", "Si", 0, ""]],
@@ -274,7 +274,7 @@ def test_hoja_inexistente_devuelve_lista_vacia(tmp_path) -> None:
 
 
 def test_tabla_inexistente_devuelve_lista_vacia(tmp_path) -> None:
-    """Sheet existe pero ``Tabla_PReal`` no ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ ``[]`` (no lanza)."""
+    """Sheet existe pero ``Tabla_PReal`` no → ``[]`` (no lanza)."""
     # Construimos un .xlsx con OTRA tabla en P_REAL.
     xlsx_path = tmp_path / "otro.xlsx"
     wb = Workbook()
@@ -299,10 +299,10 @@ def test_tabla_inexistente_devuelve_lista_vacia(tmp_path) -> None:
 
 
 def test_fila_sin_uid_se_descarta(tmp_path) -> None:
-    """Fila con UID vacÃƒÆ’Ã‚Â­o (None) NO aparece en el resultado.
+    """Fila con UID vacío (None) NO aparece en el resultado.
 
-    PolÃƒÆ’Ã‚Â­tica consistente con ``ProcesosParser`` (dropna por UID).
-    Evita parÃƒÆ’Ã‚Â¡metros fantasma sin UID en el cache.
+    Política consistente con ``ProcesosParser`` (dropna por UID).
+    Evita parámetros fantasma sin UID en el cache.
     """
     xlsx_path = _save_xlsx_with_preal_table(
         tmp_path,
@@ -321,14 +321,14 @@ def test_fila_sin_uid_se_descarta(tmp_path) -> None:
                 "Si",
                 0,
                 "",
-            ],  # vÃƒÆ’Ã‚Â¡lida
+            ],  # válida
         ],
     )
     wb = _load(xlsx_path)
 
     result = PRealParser().extraer(wb)
 
-    # Solo la fila con UID vÃƒÆ’Ã‚Â¡lido se queda.
+    # Solo la fila con UID válido se queda.
     assert len(result) == 1
     assert result[0].uid == "PR_1_001"
 
@@ -336,9 +336,9 @@ def test_fila_sin_uid_se_descarta(tmp_path) -> None:
 def test_paramreal_no_tiene_properties_derivadas() -> None:
     """``DataParamRealPLC`` NO tiene properties (a diferencia de ``DataProcesoPLC``).
 
-    Documentado en el plan Ãƒâ€šÃ‚Â§6.3: la lÃƒÆ’Ã‚Â³gica de derivaciÃƒÆ’Ã‚Â³n de
+    Documentado en el plan §6.3: la lógica de derivación de
     nombres de DB vive en ``DataProcesoPLC`` (que conoce el ``num_db``
-    raÃƒÆ’Ã‚Â­z del proceso). ``DataParamRealPLC`` solo tiene los 12 campos
+    raíz del proceso). ``DataParamRealPLC`` solo tiene los 12 campos
     del Excel, sin properties.
     """
     p = DataParamRealPLC(
@@ -355,7 +355,7 @@ def test_paramreal_no_tiene_properties_derivadas() -> None:
         num_lista=0,
         txt_lista="",
     )
-    # Verificar que NO existen properties de derivaciÃƒÆ’Ã‚Â³n de DB.
+    # Verificar que NO existen properties de derivación de DB.
     assert not hasattr(p, "db_numero")
     assert not hasattr(p, "db_nombre")
     # El campo ``num_db`` sigue siendo accesible como atributo normal.

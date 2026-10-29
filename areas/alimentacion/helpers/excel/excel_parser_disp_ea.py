@@ -1,10 +1,7 @@
 ﻿"""Parser de ``DispEA`` (Entradas Analógicas) del Excel corporativo.
 
-Replica 1:1 del ``_build_disp_ea`` del parser consolidado legacy
-(``AlimentacionExcelParser``). ``RII`` y ``RSI`` se castean con
-``_safe_float`` (en legacy eran ``float(int(...))`` por culpa del
-``astype(int)`` global del ``BaseParser``: aquí el casteo es
-directo y limpio).
+``RII`` y ``RSI`` se castean con ``_safe_float``: el cast es directo
+a ``float``, sin el paso intermedio por ``int``.
 
 Lee la ``ListObject`` ``Tabla_Disp_EA`` de la hoja ``DISP_EA`` del
 workbook del departamento de alimentación y la mapea a una lista
@@ -89,7 +86,7 @@ class DispEAParser:
                 logger.warning("Fila sin PLC en %s: descartada", self.TABLE)
                 continue
             try:
-                # ``UNIDADES`` en MAYÃƒÅ¡SCULAS (legacy). Aceptamos
+                # ``UNIDADES`` en MAYÚSCULAS (legacy). Aceptamos
                 # también ``Unidades`` por compat hacia delante.
                 unidades_raw = row.get("UNIDADES")
                 if unidades_raw is None:

@@ -2,10 +2,10 @@
 
 Cubre los cast defensivos (``_safe_str`` / ``_safe_int`` / ``_safe_float``)
 y el lector de ``ListObject`` (``extract_list_object_rows``) sobre un
-Excel sintÃ©tico con ``Table`` real aÃ±adida vÃ­a ``worksheet.add_table``
-(riesgo R5 del plan ``_plan/04_excel_cache_phased_plan.md``: las
+Excel sintético con ``Table`` real añadida vía ``worksheet.add_table``
+las
 ``ListObject`` solo se pueblan en ``worksheet.tables`` si se usa la
-API oficial de openpyxl â€” escribir filas a mano no basta).
+API oficial de openpyxl — escribir filas a mano no basta.
 """
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ def test_safe_str_handles_none_empty_nan() -> None:
 
 
 def test_safe_str_preserves_text() -> None:
-    """Texto no vacÃ­o (incluso con espacios alrededor) se preserva trimmed."""
+    """Texto no vacío (incluso con espacios alrededor) se preserva trimmed."""
     assert _safe_str("Proceso 1") == "Proceso 1"
     assert _safe_str("  Hola  ") == "Hola"
     # Distingue "nada" (texto real) de "nan"/"None"/"null" (placeholders).
@@ -46,8 +46,8 @@ def test_safe_str_preserves_text() -> None:
 
 
 def test_safe_int_parses_strings_and_floats() -> None:
-    """NumÃ©ricos (int/float/str-numÃ©rico) se castean; resto â†’ 0."""
-    # Formas vÃ¡lidas
+    """Numéricos (int/float/str-numérico) se castean; resto → 0."""
+    # Formas válidas
     assert _safe_int(5) == 5
     assert _safe_int(5.0) == 5
     assert _safe_int("5") == 5
@@ -56,7 +56,7 @@ def test_safe_int_parses_strings_and_floats() -> None:
     # bool se trata como int
     assert _safe_int(True) == 1
     assert _safe_int(False) == 0
-    # Casos invÃ¡lidos â†’ default 0
+    # Casos inválidos → default 0
     assert _safe_int(None) == 0
     assert _safe_int("") == 0
     assert _safe_int("nan") == 0
@@ -72,14 +72,14 @@ def test_safe_float_accepts_comma_decimal() -> None:
     """Coma decimal (formato europeo) se acepta."""
     assert _safe_float("1,5") == 1.5
     assert _safe_float("  0,25  ") == 0.25
-    # Punto decimal estÃ¡ndar tambiÃ©n funciona
+    # Punto decimal estándar también funciona
     assert _safe_float("1.5") == 1.5
-    # NumÃ©ricos nativos
+    # Numéricos nativos
     assert _safe_float(2) == 2.0
     assert _safe_float(2.5) == 2.5
     # bool
     assert _safe_float(True) == 1.0
-    # Casos invÃ¡lidos â†’ default 0.0
+    # Casos inválidos → default 0.0
     assert _safe_float(None) == 0.0
     assert _safe_float("") == 0.0
     assert _safe_float("texto") == 0.0
@@ -97,7 +97,7 @@ def _make_xlsx_with_table(
     headers: list[str],
     rows: list[list],
 ) -> str:
-    """Crea un .xlsx sintÃ©tico con una ``Table`` real (R5 del plan)."""
+    """Crea un .xlsx sintético con una ``Table`` real."""
     xlsx_path = tmp_path / f"{table_name}.xlsx"
     wb = Workbook()
     ws = wb.active
@@ -107,7 +107,7 @@ def _make_xlsx_with_table(
     # Filas
     for row in rows:
         ws.append(row)
-    # Registrar la ListObject con un ref explÃ­cito que cubra cabeceras + filas.
+    # Registrar la ListObject con un ref explícito que cubra cabeceras + filas.
     last_col_letter = chr(ord("A") + len(headers) - 1)
     last_row = 1 + len(rows)
     ref = f"A1:{last_col_letter}{last_row}"
@@ -180,7 +180,7 @@ def test_extract_list_object_rows_table_missing_returns_empty(tmp_path) -> None:
 
 
 def test_extract_list_object_rows_skips_empty_rows(tmp_path) -> None:
-    """Filas completamente vacÃ­as se descartan."""
+    """Filas completamente vacías se descartan."""
     xlsx_path = _make_xlsx_with_table(
         tmp_path,
         sheet_name="CONFIG",
@@ -188,7 +188,7 @@ def test_extract_list_object_rows_skips_empty_rows(tmp_path) -> None:
         headers=["UID", "Nombre"],
         rows=[
             [1, "Proceso Uno"],
-            [None, None],  # fila vacÃ­a â†’ se descarta
+            [None, None],  # fila vacía → se descarta
             [2, "Proceso Dos"],
         ],
     )

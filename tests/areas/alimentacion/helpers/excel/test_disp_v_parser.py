@@ -1,8 +1,8 @@
-"""Tests del ``DispVParser`` (Fase 5 del plan).
+"""Tests del ``DispVParser``.
 
-Cubre la extracciÃ³n de ``Tabla_Disp_V`` (hoja ``DISP_V``) y la
-construcciÃ³n de ``DispV``. Los campos especÃ­ficos (S.Byte/S.Bit,
-RR.Byte/RR.Bit, RT.Byte/RT.Bit) se verifican explÃ­citamente.
+Cubre la extracción de ``Tabla_Disp_V`` (hoja ``DISP_V``) y la
+construcción de ``DispV``. Los campos específicos (S.Byte/S.Bit,
+RR.Byte/RR.Bit, RT.Byte/RT.Bit) se verifican explícitamente.
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from tests._disp_parser_test_helpers import (
 
 
 def test_extrae_disp_v_basico(tmp_path) -> None:
-    """1 fila con los 4 campos especÃ­ficos ``rr_*``/``rt_*`` populados."""
+    """1 fila con los 4 campos específicos ``rr_*``/``rt_*`` populados."""
     xlsx_path = save_xlsx_with_disp_table(
         tmp_path, "V",
         rows=[build_full_row("V", UID="V_001", Numero=1,
@@ -99,6 +99,6 @@ def test_defaults_when_only_uid_and_numero(tmp_path) -> None:
     assert d.s_byte == 0
     assert d.rr_byte == 0
     assert d.rt_byte == 0
-    # Los ``cfg_*`` son strings vacÃ­os por default.
+    # Los ``cfg_*`` son strings vacíos por default.
     assert d.cfg_byteretornoreposo == ""
     assert d.cfg_byteretornotrabajo == ""

@@ -10,9 +10,8 @@ vacías...) y unificar la **semántica defensiva** del cast de valores
 Convención del helper:
     * ``_safe_str`` **NUNCA** devuelve ``None`` (devuelve ``""``). Esto
       es coherente con los DTOs ``frozen=True`` del subdominio (todos
-      tienen ``str = ""`` como default) y con el comportamiento del
-      parser consolidado ``AlimentacionExcelParser`` (que también
-      normaliza a ``""``).
+      tienen ``str = ""`` como default): los valores ausentes se
+      normalizan a ``""`` en lugar de propagar ``None``.
     * ``_safe_int`` y ``_safe_float`` aceptan ``None``/``bool``/
       ``int``/``float``/``str`` numérico. ``bool`` se trata como
       ``int``/``float`` para no perder ``True``/``False`` legítimos.
@@ -93,7 +92,7 @@ def _safe_int(val: Any, default: int = 0) -> int:
 def _safe_float(val: Any, default: float = 0.0) -> float:
     """Convierte ``val`` a ``float`` con fallback a ``default``.
 
-    Acepta coma decimal (``"1,5"`` â†’ ``1.5``) â€” el Excel del
+    Acepta coma decimal (``"1,5"`` → ``1.5``) — el Excel del
     operario usa coma como separador decimal en algunas hojas
     (típicamente las de rangos/escalado de ``DispEA`` / ``DispSA``).
     """

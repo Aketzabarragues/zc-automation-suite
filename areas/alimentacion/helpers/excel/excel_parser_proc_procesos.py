@@ -47,7 +47,7 @@ class ProcesosParser:
 
     Mapea cada fila de la ``ListObject`` a un ``DataProcesoPLC``. Las
     claves de columna son **literales** (con mayúsculas y, en su
-    caso, guion bajo) Ã¢â‚¬” exactamente como aparecen en el Excel del
+    caso, guion bajo) — exactamente como aparecen en el Excel del
     corporativo y como las consumia la herramienta TUI anterior.
 
     Atributos de clase:

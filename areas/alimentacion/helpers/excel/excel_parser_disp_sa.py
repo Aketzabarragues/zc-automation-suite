@@ -1,7 +1,6 @@
 ﻿"""Parser de ``DispSA`` (Salidas Analógicas) del Excel corporativo.
 
-Replica 1:1 del ``_build_disp_sa`` del parser consolidado legacy
-(``AlimentacionExcelParser``). Estructura IDÃƒâ€°NTICA a ``DispEA`` (mismos
+Estructura IDÉNTICA a ``DispEA`` (mismos
 campos y semántica; solo cambia el sentido de la variable: salida vs
 entrada).
 
@@ -88,7 +87,7 @@ class DispSAParser:
                 logger.warning("Fila sin PLC en %s: descartada", self.TABLE)
                 continue
             try:
-                # ``UNIDADES`` en MAYÃƒÅ¡SCULAS (legacy). Aceptamos
+                # ``UNIDADES`` en MAYÚSCULAS (legacy). Aceptamos
                 # también ``Unidades`` por compat hacia delante.
                 unidades_raw = row.get("UNIDADES")
                 if unidades_raw is None:
