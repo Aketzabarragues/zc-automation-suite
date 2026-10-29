@@ -1,18 +1,23 @@
 """Tests del FB ``FunctionProcCrearSincronizar``.
 
-Cubre:
-  - Happy path: 11 ticks (1 arrancar + 9 steps + 1 finalizar) -> n_done,
-    ``self.result`` con shape de apply (archivos_generados, colisiones,
-    nuevo_dir, manifest_plantilla, import_result, compile_result).
+Cubre el camino sync del OB1 (``fb.execute(**params)``):
+  - Happy path: las 10 etapas se recorren y el FB termina en ``n_done``.
+    ``self.result`` trae la shape de apply (archivos_generados,
+    colisiones, nuevo_dir, manifest_plantilla, process_label,
+    import_result, compile_result) y el orden de los comandos enviados
+    al worker OT.
   - Sad path: ``execute_transactional_batch`` retorna
     ``{"ok": False, ...}`` -> el FB va a ``n_error`` (rollback atomico
-    del lote).
+    del lote) y nunca lanza ``compile_plc``.
+  - Contrato sync: ``run_step`` y los stages que hablan con el worker OT
+    son funciones normales, no corrutinas.
+  - Log de cierre: el FB emite ``logger.ok`` con los contadores reales
+    cuando el apply termina bien, y no lo emite si el apply falla.
 
 Mockeamos:
-  - ``config_manager``, ``app_state``, ``build_cache`` con ``MagicMock``.
+  - ``config_manager`` y ``build_cache`` con ``MagicMock``.
   - ``tia_client`` con ``MagicMock`` y ``submit_and_wait`` mockeado por
-    comando (el FB ya es sync: llama al worker OT con
-    ``submit_and_wait`` en vez de ``dispatch_async``).
+    comando (el FB llama al worker OT de forma sync).
 
 ``progress`` es un ``ProgressTracker`` real (NO mockeado) para verificar
 el flujo de stages.
@@ -208,217 +213,7 @@ def make_fb(
     )
 
 
-# ── Happy path ───────────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_apply_happy_path_12_ticks(
-    plantilla_dummy: Path,
-    tmp_path: Path,
-    progress: ProgressTracker,
-) -> None:
-    """Happy path: 11 ticks -> n_done, ``self.result`` con shape de apply.
-
-    State machine del FunctionBase tras consolidar los 3 imports en 1
-    lote transaccional (mas ``compile_plc`` fuera de transaccion):
-
-      tick #1:  10 -> 20 (on_start + tracker.begin)
-      ticks #2-#10: 20 (9 steps; nStep NO avanza)
-      tick #11: 95 -> 99 (on_finish)
-    """
-    tia = make_tia_client({
-        "list_plcs": LIST_PLCS_OK,
-        "execute_transactional_batch": BATCH_OK,
-        "compile_plc": COMPILE_OK,
-        "scan_blocks": SCAN_BLOCKS_KO,
-    })
-
-    fb = make_fb(tia, progress)
-
-    ok = await fb.start(
-        plantillas_path=str(plantilla_dummy.parent),
-        dir_plantilla_nombre="TestPlantilla",
-        base_nueva=60010,
-        codigo_nuevo="EXP",
-        nombre_nuevo="NuevoProceso",
-        minimos_usuario={
-            "N_MAX_PREAL": 30, "N_MAX_PINT": 30,
-            "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
-        },
-        plc_name="S7-1500",
-        plc_blocks_cache=[],
-        build_cache_root=tmp_path / ".build_cache",
-    )
-    assert ok is True
-    assert fb.nStep == fb.n_arrancar  # 10
-
-    # tick #1: arrancar -> ejecutar
-    await fb.tick()
-    assert fb.nStep == fb.n_ejecutar  # 20
-
-    # ticks #2-#11: 10 steps del apply (incluye Refrescar BloqueCache)
-    for i in range(10):
-        await fb.tick()
-        assert fb.nStep in (fb.n_ejecutar, fb.n_finalizar), (
-            f"tick #{i + 2} salio del loop antes de tiempo: nStep={fb.nStep}"
-        )
-    assert fb.nStep == fb.n_finalizar  # 95
-
-    # tick #11: finalizar -> done
-    await fb.tick()
-    assert fb.nStep == fb.n_done  # 99
-    assert fb.is_terminal() is True
-    assert fb.error_msg is None
-
-    # Result con la shape de apply. NOTA: el step ``done`` invoca
-    # ``proc_process_done_summary`` sin ``await`` (mismo patron que el
-    # preview), por lo que ``self.result`` queda con lo que tenga
-    # ``ctx.result`` (por defecto ``{}``). El wrapper de ``on_finish``
-    # ademas anyade ``import_result`` (dict del lote transaccional) y
-    # ``compile_result`` (dict de ``compile_plc``), asi que podemos
-    # verificar esos.
-    assert fb.result is not None
-    assert isinstance(fb.result, dict)
-    # import_result y compile_result vienen de los atributos internos,
-    # poblados por los comandos mockeados.
-    assert "import_result" in fb.result
-    assert "compile_result" in fb.result
-    # ``process_label``: ``"<base_nueva>_<codigo_nuevo>"`` del proceso
-    # creado (sept-2026). La SPA lo lee para el mensaje final de OK
-    # tras el apply; el router lo usa en el log. Los tests del FB
-    # verifican que el formato es el correcto.
-    assert "process_label" in fb.result
-    assert fb.result["process_label"] == "60010_EXP", (
-        f"process_label mal formado: {fb.result['process_label']!r}"
-    )
-    # ``compile_plc`` mockeado devolvio la shape del dispatcher:
-    # ``{"ok": True, "result": {"had_errors": False}}``.
-    assert fb.result["compile_result"] == {
-        "ok": True,
-        "result": {"had_errors": False},
-    }
-    # ``import_result`` tiene el shape consolidado del lote
-    # (execute_transactional_batch) con ``success``,
-    # ``operations_executed`` y ``details``: tags + wait + blocks.
-    ir = fb.result["import_result"]
-    assert ir["ok"] is True
-    lote = ir["result"]
-    assert lote["success"] is True
-    assert lote["operations_executed"] == 3
-    assert len(lote["details"]) == 3
-    assert lote["details"][0]["command"] == "import_plc_tags_xml"
-    assert lote["details"][1]["command"] == "_wait"
-    assert lote["details"][2]["command"] == "import_blocks_sd"
-
-
-# ── Sad path ─────────────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_apply_lote_transaccional_falla(
-    plantilla_dummy: Path,
-    tmp_path: Path,
-    progress: ProgressTracker,
-) -> None:
-    """``execute_transactional_batch`` retorna ``{ok: False, ...}``
-    -> el FB va a ``n_error``.
-
-    El step ``importar_proceso`` ejecuta UN SOLO comando
-    (``execute_transactional_batch``) que internamente corre las 3
-    ops (tags + wait + blocks) bajo una transaccion TIA. Aqui
-    forzamos que el lote retorne fallo (simula el caso en el que
-    TIA no puede hacer commit del lote por algun motivo:
-    bloque conflictivo, transaccion corrupta, etc.). El FB detecta
-    el fallo y va a ``n_error`` sin ejecutar ``compile_plc``.
-    """
-    comandos: list[str] = []
-
-    tia = make_tia_client(
-        {
-            "list_plcs": LIST_PLCS_OK,
-            "execute_transactional_batch": {
-                "ok": False,
-                "error": (
-                    "Lote abortado en el paso 3 ('import_blocks_sd'). "
-                    "Rollback ejecutado. Motivo: OpennessAccessException: "
-                    "Error when calling method 'CommitOnDispose' of type "
-                    "'Siemens.Engineering.Transaction'. Commit of a "
-                    "Transaction is not allowed after an exception is "
-                    "thrown due to potential project data corruption."
-                ),
-            },
-        },
-        calls=comandos,
-    )
-
-    fb = make_fb(tia, progress)
-
-    await fb.start(
-        plantillas_path=str(plantilla_dummy.parent),
-        dir_plantilla_nombre="TestPlantilla",
-        base_nueva=60010,
-        codigo_nuevo="EXP",
-        nombre_nuevo="NuevoProceso",
-        minimos_usuario={
-            "N_MAX_PREAL": 30, "N_MAX_PINT": 30,
-            "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
-        },
-        plc_name="S7-1500",
-        plc_blocks_cache=[],
-        build_cache_root=tmp_path / ".build_cache",
-    )
-    assert fb.nStep == fb.n_arrancar  # 10
-
-    # Avanzamos los 6 steps offline
-    # (leer_manifest..escribir_manifest_modified). Steps del apply:
-    #   0: leer_manifest
-    #   1: validar_minimos
-    #   2: copiar_a_preview
-    #   3: construir_diccionarios
-    #   4: generar_proceso_nuevo
-    #   5: escribir_manifest_modified
-    #   6: importar_proceso  <- aqui falla el lote transaccional
-    # Tras 1 arrancar + 6 offline = 7 ticks, estamos en ejecutar.
-    for _ in range(7):
-        await fb.tick()
-        assert fb.nStep in (fb.n_ejecutar, fb.n_error), (
-            "FB aborto antes del step 'importar_proceso'"
-        )
-    assert fb.nStep == fb.n_ejecutar
-
-    # tick #8: ``importar_proceso`` -> execute_transactional_batch
-    # retorna ok=False -> n_error
-    await fb.tick()
-    assert fb.nStep == fb.n_error  # 98
-    assert fb.error_msg is not None
-    # El mensaje viene del RuntimeError que lanza el FB cuando el
-    # lote transaccional retorna ok=False.
-    assert "execute_transactional_batch fallo" in fb.error_msg
-    assert "CommitOnDispose" in fb.error_msg
-
-    # Verificamos que se llamo al comando del lote (solo 1; los
-    # imports viven dentro del lote, no como comandos separados).
-    assert comandos.count("execute_transactional_batch") == 1
-    # ``compile_plc`` NUNCA se llamo (el FB aborto antes).
-    assert "compile_plc" not in comandos
-
-
-# ── Contrato sync (hilo OB1) ─────────────────────────────────────────
-
-
-def test_run_step_es_sync_no_coroutine() -> None:
-    """El FB ya no es una corrutina: se ejecuta en un hilo sync.
-
-    Contrato del hilo OB1: ``run_step`` (y los stages que hablan con
-    el worker OT) son funciones normales, no corrutinas.
-    """
-    assert not inspect.iscoroutinefunction(FunctionProcCrearSincronizar.run_step)
-    assert not inspect.iscoroutinefunction(
-        FunctionProcCrearSincronizar._stage_7_importar_proceso
-    )
-    assert not inspect.iscoroutinefunction(
-        FunctionProcCrearSincronizar._stage_8_compilar
-    )
+# ── Camino sync (OB1) ────────────────────────────────────────────────
 
 
 def test_apply_happy_path_sync_execute(
@@ -460,6 +255,23 @@ def test_apply_happy_path_sync_execute(
     assert fb.result["process_label"] == "60010_EXP"
     assert fb.result["import_result"]["ok"] is True
     assert fb.result["compile_result"]["ok"] is True
+    # ``compile_plc`` mockeado devolvio la shape del dispatcher:
+    # ``{"ok": True, "result": {"had_errors": False}}``.
+    assert fb.result["compile_result"] == {
+        "ok": True,
+        "result": {"had_errors": False},
+    }
+    # ``import_result`` tiene el shape consolidado del lote
+    # (execute_transactional_batch) con ``success``,
+    # ``operations_executed`` y ``details``: tags + wait + blocks.
+    ir = fb.result["import_result"]
+    lote = ir["result"]
+    assert lote["success"] is True
+    assert lote["operations_executed"] == 3
+    assert len(lote["details"]) == 3
+    assert lote["details"][0]["command"] == "import_plc_tags_xml"
+    assert lote["details"][1]["command"] == "_wait"
+    assert lote["details"][2]["command"] == "import_blocks_sd"
     # Orden de comandos contra el worker OT: validacion del PLC,
     # lote transaccional, compile y refresh del BloqueCache.
     assert comandos == [
@@ -468,6 +280,91 @@ def test_apply_happy_path_sync_execute(
         "compile_plc",
         "scan_blocks",
     ]
+
+
+def test_apply_lote_transaccional_falla(
+    plantilla_dummy: Path,
+    tmp_path: Path,
+    progress: ProgressTracker,
+) -> None:
+    """``execute_transactional_batch`` retorna ``{ok: False, ...}``
+    -> el FB va a ``n_error``.
+
+    El step ``importar_proceso`` ejecuta UN SOLO comando
+    (``execute_transactional_batch``) que internamente corre las 3
+    ops (tags + wait + blocks) bajo una transaccion TIA. Aqui
+    forzamos que el lote retorne fallo (simula el caso en el que
+    TIA no puede hacer commit del lote por algun motivo:
+    bloque conflictivo, transaccion corrupta, etc.). El FB detecta
+    el fallo y va a ``n_error`` sin ejecutar ``compile_plc``.
+    """
+    comandos: list[str] = []
+
+    tia = make_tia_client(
+        {
+            "list_plcs": LIST_PLCS_OK,
+            "execute_transactional_batch": {
+                "ok": False,
+                "error": (
+                    "Lote abortado en el paso 3 ('import_blocks_sd'). "
+                    "Rollback ejecutado. Motivo: OpennessAccessException: "
+                    "Error when calling method 'CommitOnDispose' of type "
+                    "'Siemens.Engineering.Transaction'. Commit of a "
+                    "Transaction is not allowed after an exception is "
+                    "thrown due to potential project data corruption."
+                ),
+            },
+        },
+        calls=comandos,
+    )
+
+    fb = make_fb(tia, progress)
+
+    fb.execute(
+        plantillas_path=str(plantilla_dummy.parent),
+        dir_plantilla_nombre="TestPlantilla",
+        base_nueva=60010,
+        codigo_nuevo="EXP",
+        nombre_nuevo="NuevoProceso",
+        minimos_usuario={
+            "N_MAX_PREAL": 30, "N_MAX_PINT": 30,
+            "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
+        },
+        plc_name="S7-1500",
+        plc_blocks_cache=[],
+        build_cache_root=tmp_path / ".build_cache",
+    )
+
+    assert fb.nStep == fb.n_error  # 98
+    assert fb.error_msg is not None
+    # El mensaje viene del RuntimeError que lanza el FB cuando el
+    # lote transaccional retorna ok=False.
+    assert "execute_transactional_batch fallo" in fb.error_msg
+    assert "CommitOnDispose" in fb.error_msg
+
+    # Verificamos que se llamo al comando del lote (solo 1; los
+    # imports viven dentro del lote, no como comandos separados).
+    assert comandos.count("execute_transactional_batch") == 1
+    # ``compile_plc`` NUNCA se llamo (el FB aborto antes).
+    assert "compile_plc" not in comandos
+
+
+# ── Contrato sync (hilo OB1) ─────────────────────────────────────────
+
+
+def test_run_step_es_sync_no_coroutine() -> None:
+    """El FB ya no es una corrutina: se ejecuta en un hilo sync.
+
+    Contrato del hilo OB1: ``run_step`` (y los stages que hablan con
+    el worker OT) son funciones normales, no corrutinas.
+    """
+    assert not inspect.iscoroutinefunction(FunctionProcCrearSincronizar.run_step)
+    assert not inspect.iscoroutinefunction(
+        FunctionProcCrearSincronizar._stage_7_importar_proceso
+    )
+    assert not inspect.iscoroutinefunction(
+        FunctionProcCrearSincronizar._stage_8_compilar
+    )
 
 
 # ── Log de cierre (lo emite el FB, no el router) ─────────────────────

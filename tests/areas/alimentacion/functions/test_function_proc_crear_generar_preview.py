@@ -1,20 +1,26 @@
 """Tests del FB ``FunctionProcCrearGenerarPreview``.
 
-Cubre:
-  - Happy path: 11 ticks (1 arrancar + 9 steps + 1 finalizar) -> n_done,
-    ``self.result`` con shape de preview (archivos_previstos, colisiones,
-    preview_dir, manifest_plantilla, success).
-    ``preview_dir`` es el alias historico del campo ``plantilla_copia_dir``
+Cubre el camino sync del OB1 (``fb.execute(**params)``):
+  - Happy path: las 8 etapas se recorren y el FB termina en ``n_done``.
+    ``self.result`` trae la shape de preview (success,
+    archivos_previstos, colisiones, plantilla_copia_dir,
+    manifest_plantilla, dependencias_ok/faltantes) y la plantilla queda
+    clonada en el workdir de preview.
   - Sad path: ``minimos_usuario`` con N_MAX < plantilla -> el FB va a
     ``n_error`` con mensaje mencionando "N_MAX" o "minimos".
-  - Sad path: ``plantillas_path=""`` -> el FB va a ``n_error`` con
-    mensaje mencionando "plantillas_path".
+  - Sad path: ``plantillas_path=""`` -> ``on_start`` lanza ValueError y el
+    FB va a ``n_error`` con mensaje mencionando "plantillas_path".
+  - Contrato sync: ``run_step`` y los helpers del pipeline son funciones
+    normales, no corrutinas.
+  - Log de cierre: el FB emite ``logger.ok`` con los contadores reales
+    cuando el preview termina bien, y no lo emite si el preview falla.
 
-Mockeamos ``config_manager``, ``tia_client``, ``app_state`` y
-``build_cache`` con ``MagicMock``. ``progress`` es un ``ProgressTracker``
-real (NO mockeado) para verificar el flujo de stages.
+Mockeamos ``config_manager``, ``tia_client`` y ``build_cache`` con
+``MagicMock``. ``progress`` es un ``ProgressTracker`` real (NO mockeado)
+para verificar el flujo de stages.
 
-El FB es offline (no toca TIA), asi que NO mockeamos ``dispatch_async``.
+El preview es offline (no toca TIA): el ``tia_client`` se inyecta por
+homogeneidad con el resto de FBs, pero ningun test llega a usarlo.
 """
 from __future__ import annotations
 
@@ -22,7 +28,6 @@ import inspect
 import json
 import logging
 from pathlib import Path
-from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -123,26 +128,24 @@ def make_fb(progress: ProgressTracker) -> FunctionProcCrearGenerarPreview:
     )
 
 
-# ── Happy path ───────────────────────────────────────────────────────
+# ── Camino sync (OB1) ────────────────────────────────────────────────
 
 
-@pytest.mark.asyncio
-async def test_preview_happy_path_10_ticks(
+def test_execute_sync_recorre_las_8_etapas(
     plantilla_dummy: Path,
     tmp_path: Path,
-    progress: ProgressTracker,
 ) -> None:
-    """Happy path: 10 ticks -> n_done, ``self.result`` con shape de preview.
+    """``execute()`` (camino sync del OB1) recorre las 8 etapas y termina
+    en ``n_done`` sin event loop."""
+    fb = FunctionProcCrearGenerarPreview(
+        nombre="proc_process_crear_preview_execute_test",
+        config_manager=MagicMock(),
+        tia_client=MagicMock(),  # el preview NO toca TIA
+        build_cache=MagicMock(),
+        tracker=ProgressTracker(),
+    )
 
-    State machine del FunctionBase tras añadir el step
-    validar_dependencias (8 stages totales):
-      tick #1:  10 -> 20 (on_start + tracker.begin)
-      ticks #2-#9: 20 (8 steps; nStep NO avanza)
-      tick #10: 95 -> 99 (on_finish)
-    """
-    fb = make_fb(progress)
-
-    ok = await fb.start(
+    fb.execute(
         plantillas_path=str(plantilla_dummy.parent),
         dir_plantilla_nombre="TestPlantilla",
         base_nueva=60010,
@@ -153,46 +156,24 @@ async def test_preview_happy_path_10_ticks(
             "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
         },
         plc_blocks_cache=[],
-        # Override del build_cache_root para no contaminar el cwd.
         build_cache_root=tmp_path / ".build_cache",
     )
-    assert ok is True
-    assert fb.nStep == fb.n_arrancar  # 10
 
-    # tick #1: arrancar -> ejecutar
-    await fb.tick()
-    assert fb.nStep == fb.n_ejecutar  # 20
-
-    # ticks #2-#9: 8 steps (incluye validar_dependencias)
-    for i in range(8):
-        await fb.tick()
-        assert fb.nStep in (fb.n_ejecutar, fb.n_finalizar), (
-            f"tick #{i + 2} salio del loop antes de tiempo: nStep={fb.nStep}"
-        )
-    assert fb.nStep == fb.n_finalizar  # 95
-
-    # tick #10: finalizar -> done
-    await fb.tick()
     assert fb.nStep == fb.n_done  # 99
-    assert fb.is_terminal() is True
     assert fb.error_msg is None
-
-    preview_dir = (
-        tmp_path / ".build_cache" / "alimentacion" / "ProcesoNuevo" / "Plantilla"
-    )
-
-    # Result con la shape de preview. El step ``done`` invoca
-    # ``proc_process_done_summary`` (sync) que compone ``ctx.result``;
-    # ``on_finish`` lo vuelca a ``self.result``.
     assert fb.result is not None
     assert isinstance(fb.result, dict)
     assert fb.result["success"] is True
+    assert fb.result["archivos_previstos"]
+    assert fb.result["plantilla_copia_dir"] == str(
+        tmp_path / ".build_cache" / "alimentacion" / "ProcesoNuevo" / "Plantilla"
+    )
+    # Shape completa del preview (la SPA la consume tal cual).
     assert fb.result["colisiones"] == []
     assert fb.result["manifest_plantilla"]["base"] == 50010
+    # La plantilla declara DB1_SYS y el PLC destino no la tiene.
     assert fb.result["dependencias_ok"] == []
     assert fb.result["dependencias_faltantes"] == ["DB1_SYS"]
-    assert fb.result["plantilla_copia_dir"] == str(preview_dir)
-
     # 1 entry por BLOQUE (1 por stem): el .s7dcl y el .s7res del mismo
     # bloque se agrupan en una sola entry.
     assert [p["nombre_nuevo"] for p in fb.result["archivos_previstos"]] == [
@@ -201,29 +182,29 @@ async def test_preview_happy_path_10_ticks(
     ]
 
     # Los archivos del preview se clonaron en disco.
+    preview_dir = (
+        tmp_path / ".build_cache" / "alimentacion" / "ProcesoNuevo" / "Plantilla"
+    )
     assert preview_dir.exists()
     assert (preview_dir / "Bloques de programa" / "FC50010_TEST_INTERFAZ.s7dcl").is_file()
     assert (preview_dir / "Bloques de programa" / "50010_TEST_COMENTARIOS.s7res").is_file()
     assert (preview_dir / "Variables PLC" / "003_Procesos" / "50010_TEST.xml").is_file()
 
 
-# ── Sad paths ────────────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_preview_invalid_minimos(
+def test_execute_sync_minimos_insuficientes_va_a_error(
     plantilla_dummy: Path,
     tmp_path: Path,
-    progress: ProgressTracker,
 ) -> None:
-    """``minimos_usuario`` con N_MAX < plantilla -> n_error tras validar.
+    """Camino sync: N_MAX < plantilla -> ``n_error`` (sin event loop)."""
+    fb = FunctionProcCrearGenerarPreview(
+        nombre="proc_process_crear_preview_execute_error_test",
+        config_manager=MagicMock(),
+        tia_client=MagicMock(),
+        build_cache=MagicMock(),
+        tracker=ProgressTracker(),
+    )
 
-    El 2º step (``validar_minimos``) lanza ``PlantillaMinimosNoCumplidos``;
-    el wrapper de la base captura el error y va a ``n_error``.
-    """
-    fb = make_fb(progress)
-
-    await fb.start(
+    fb.execute(
         plantillas_path=str(plantilla_dummy.parent),
         dir_plantilla_nombre="TestPlantilla",
         base_nueva=60010,
@@ -237,37 +218,21 @@ async def test_preview_invalid_minimos(
         plc_blocks_cache=[],
         build_cache_root=tmp_path / ".build_cache",
     )
-    assert fb.nStep == fb.n_arrancar  # 10
 
-    # tick #1: arrancar -> ejecutar (on_start OK)
-    await fb.tick()
-    assert fb.nStep == fb.n_ejecutar  # 20
-
-    # tick #2: ejecutar step[0] = leer_manifest OK
-    await fb.tick()
-    assert fb.nStep == fb.n_ejecutar  # 20
-
-    # tick #3: ejecutar step[1] = validar_minimos falla -> n_error
-    await fb.tick()
     assert fb.nStep == fb.n_error  # 98
     assert fb.error_msg is not None
-    # El mensaje debe mencionar PlantillaMinimosNoCumplidos o el detalle.
-    msg = fb.error_msg.lower()
-    assert (
-        "plantillaminimosnocumplidos" in msg
-        or "minimos" in msg
-        or "n_max" in msg
-    )
+    # El mensaje nombra el tipo de error del pipeline de minimos.
+    assert "plantillaminimosnocumplidos" in fb.error_msg.lower()
 
 
-@pytest.mark.asyncio
-async def test_preview_no_plantilla_path(
+def test_preview_no_plantilla_path(
     progress: ProgressTracker,
+    tmp_path: Path,
 ) -> None:
     """``plantillas_path=""`` -> on_start lanza ValueError -> n_error."""
     fb = make_fb(progress)
 
-    await fb.start(
+    fb.execute(
         plantillas_path="",
         dir_plantilla_nombre="TestPlantilla",
         base_nueva=60010,
@@ -278,13 +243,14 @@ async def test_preview_no_plantilla_path(
             "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
         },
         plc_blocks_cache=[],
+        build_cache_root=tmp_path / ".build_cache",
     )
-    assert fb.nStep == fb.n_arrancar  # 10
 
-    # tick #1: on_start falla -> n_error
-    await fb.tick()
     assert fb.nStep == fb.n_error  # 98
     assert fb.error_msg is not None
+    # El base no propaga la excepcion: la formatea como
+    # "<TipoError>: <mensaje>".
+    assert fb.error_msg.startswith("ValueError: ")
     assert "plantillas_path" in fb.error_msg
 
 
@@ -337,77 +303,6 @@ def test_helpers_preview_no_son_corrutinas() -> None:
         assert not inspect.iscoroutinefunction(helper), (
             f"{helper.__name__} debe ser sync"
         )
-
-
-def test_execute_sync_recorre_las_8_etapas(
-    plantilla_dummy: Path,
-    tmp_path: Path,
-) -> None:
-    """``execute()`` (camino sync del OB1) recorre las 8 etapas y termina
-    en ``n_done`` sin event loop."""
-    fb = FunctionProcCrearGenerarPreview(
-        nombre="proc_process_crear_preview_execute_test",
-        config_manager=MagicMock(),
-        tia_client=MagicMock(),  # el preview NO toca TIA
-        build_cache=MagicMock(),
-        tracker=ProgressTracker(),
-    )
-
-    fb.execute(
-        plantillas_path=str(plantilla_dummy.parent),
-        dir_plantilla_nombre="TestPlantilla",
-        base_nueva=60010,
-        codigo_nuevo="EXP",
-        nombre_nuevo="NuevoProceso",
-        minimos_usuario={
-            "N_MAX_PREAL": 30, "N_MAX_PINT": 30,
-            "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
-        },
-        plc_blocks_cache=[],
-        build_cache_root=tmp_path / ".build_cache",
-    )
-
-    assert fb.nStep == fb.n_done  # 99
-    assert fb.error_msg is None
-    assert fb.result is not None
-    assert fb.result["success"] is True
-    assert fb.result["archivos_previstos"]
-    assert fb.result["plantilla_copia_dir"] == str(
-        tmp_path / ".build_cache" / "alimentacion" / "ProcesoNuevo" / "Plantilla"
-    )
-
-
-def test_execute_sync_minimos_insuficientes_va_a_error(
-    plantilla_dummy: Path,
-    tmp_path: Path,
-) -> None:
-    """Camino sync: N_MAX < plantilla -> ``n_error`` (sin event loop)."""
-    fb = FunctionProcCrearGenerarPreview(
-        nombre="proc_process_crear_preview_execute_error_test",
-        config_manager=MagicMock(),
-        tia_client=MagicMock(),
-        build_cache=MagicMock(),
-        tracker=ProgressTracker(),
-    )
-
-    fb.execute(
-        plantillas_path=str(plantilla_dummy.parent),
-        dir_plantilla_nombre="TestPlantilla",
-        base_nueva=60010,
-        codigo_nuevo="EXP",
-        nombre_nuevo="NuevoProceso",
-        # N_MAX_PREAL=1 < plantilla (3) -> falla validar_minimos.
-        minimos_usuario={
-            "N_MAX_PREAL": 1, "N_MAX_PINT": 30,
-            "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
-        },
-        plc_blocks_cache=[],
-        build_cache_root=tmp_path / ".build_cache",
-    )
-
-    assert fb.nStep == fb.n_error  # 98
-    assert fb.error_msg is not None
-    assert "minimos" in fb.error_msg.lower()
 
 
 # ── Log de cierre (lo emite el FB, no el router) ─────────────────────
