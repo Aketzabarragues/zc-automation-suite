@@ -11,24 +11,47 @@ grepado) de lo INFERIDO.
 
 ---
 
+## 0. Estado actual
+
+| Grupo | Estado |
+|---|---|
+| **G0** - bugs del modelo nuevo | **Hecho.** B1 (reserva atomica del FB), B2 (flag de ocupado por SSE), B3 (log de cierre en el FB), B4 (banner de precondiciones), B5 (400 en vez de 500) |
+| **G1** - retirada del legacy de runtime | **Hecho.** El Engine y el FunctionBase ya no tienen camino async; los 38 tests que lo cubrian se migraron al camino `execute()` o se borraron con el codigo |
+| **G2** - higiene de docs y codigo muerto | En curso |
+| **G3** - fuera de alcance | Pendiente de decision |
+
+Estado medido tras G1:
+
+- **0** funciones `async def` en codigo de produccion (las 40 que quedan
+  estan en `tests/`: 38 testean helpers sync, 1 verifica que un
+  `run_step` corrutina se rechaza y 1 es un resto en un test del router).
+- El repo no tiene ningun `asyncio` en `core/`, `areas/` ni `main.py`.
+- La suite completa: **1453 passed, 3 skipped**.
+
+---
+
 ## 1. Veredicto
 
-El runtime tiene **un solo camino de ejecucion vivo**: el dispatcher OB1.
-El camino async ("tick legacy") **no tiene un solo llamador en produccion**
-(grep exhaustivo sobre `core/`, `areas/`, `main.py`), pero sigue compilando,
-ocupa ~260 lineas del nucleo y ancla 38 tests.
+El runtime tiene **un solo camino de ejecucion**: el dispatcher OB1. El
+camino async ("tick legacy") **no tenia un solo llamador en produccion**
+(grep exhaustivo sobre `core/`, `areas/`, `main.py`), y ya se ha
+retirado: el Engine y el FunctionBase no exponen `start_loop` /
+`stop_loop` / `tick_once` / `run_cycle` ni `start()` / `tick()` /
+`cancel()`.
 
 El empuje de resultados al HMI esta **completo de extremo a extremo**: los
 17 eslabones del push estan cableados y verificados.
 
-Lo que el refactor **no** toco y sigue pendiente es otra cosa: hay ~30
+Lo que el refactor **no** toco y sigue pendiente es otra cosa: ~30
 referencias a ficheros que ya no existen (`core/infrastructure/gateway.py`,
 `core/web_server/dependencies.py`, `_pendiente/`, `_legacy_reference/`,
 `mcp_server.py`, `tia_handlers.py`), ~40 docstrings que describen un modelo
-que ya no existe (incluido el que motiva esta revision) y 11 endpoints sin
+que ya no existe (incluido el que motivo esta revision) y 11 endpoints sin
 consumidor.
 
-Y hay **4 bugs reales**, ninguno de ellos legacy: son del modelo nuevo.
+Ademas, la auditoria destapo **4 bugs del modelo nuevo** (no legacy),
+todos corregidos en G0. El mas grave: dos ``submit()`` del mismo FB lo
+ejecutaban dos veces (doble sincronizacion contra TIA desde un doble clic).
 
 ---
 
@@ -78,7 +101,15 @@ proyecto. L3 y L4 son basura que hay que limpiar.**
 
 ## 4. Bugs reales (todos del modelo nuevo, ninguno legacy)
 
+**Estado: los cinco corregidos en G0.** La descripcion de cada uno se
+conserva como registro de que estaban y de por que se detectaron.
+
 ### B1 — CRITICO: dos `submit()` del mismo FB lo ejecutan DOS veces
+
+**Corregido.** `submit()` decide ahora la ocupacion sobre los trabajos
+(`queued` + `running`) y comprueba + encola en la misma seccion critica
+(`Engine._submit_lock`). Guard de regresion:
+`tests/core/test_engine_submit_reserva.py`.
 
 `Engine.submit()` decide la ocupacion con `fb.is_terminal()`
 (`core/composition/plc_engine.py:272`). Ese estado **no cambia hasta que el
@@ -144,9 +175,18 @@ SSE `cache_changed` al slot `preview_proc` (`:104-106`).
 cargado) se traduce a **500**. Por el contrato de `AGENTS.md` §2.6 es un
 **400**.
 
+**Estado de los cinco**: corregidos en G0. B2 y B3, ademas, se
+resolvieron moviendo la responsabilidad al sitio correcto (el FB y el
+estado terminal del SSE), no con un parche.
+
 ---
 
-## 5. L1 - Legacy de runtime: inventario y coste
+## 5. L1 - Legacy de runtime: RETIRADO
+
+**Estado: retirado en G1.** El Engine y el FunctionBase ya no exponen el
+camino async, y los 38 tests que lo cubrian se migraron al camino
+`execute()` o se borraron con el codigo. El inventario siguiente se
+conserva como registro de lo que habia y de lo que costaba.
 
 ### En `core/composition/plc_engine.py` (425 lineas)
 
@@ -352,7 +392,10 @@ consultaba el estado por polling.
 
 ## 10. Plan propuesto (por grupos, cada uno con su suite verde)
 
-### G0 - Bugs del modelo nuevo (prioridad maxima)
+**Estado: G0 y G1 hechos; G2 en curso; G3 pendiente de decision.** Los
+detalles de cada grupo se conservan como registro de lo ejecutado.
+
+### G0 - Bugs del modelo nuevo (prioridad maxima) — HECHO
 
 1. `Engine.submit()`: reserva atomica del FB. Decidir la ocupacion sobre los
    jobs (`queued` + `running`) y proteger comprobar + encolar con un lock.
@@ -365,9 +408,11 @@ consultaba el estado por polling.
    AppCache (B4).
 5. `proc_process_crear_router.py:380`: `ValueError` -> 400 (B5).
 
-### G1 - Retirada del legacy de runtime (L1)
+### G1 - Retirada del legacy de runtime (L1) — HECHO
 
-Orden propuesto por el agente de `core/composition/`:
+Orden ejecutado (el propuesto por el agente de `core/composition/`, con
+un ajuste: los tests legacy puros del `FunctionBase` se borraron en el
+mismo commit que el codigo, no antes).
 
 1. Congelar el contrato sync antes de tocar nada: guard que verifique que
    `FunctionBase` **no** expone `start`/`tick`/`cancel`.
@@ -435,6 +480,12 @@ Cubierto ya por `tests/core/composition/test_fbs_sync_contract.py`
 `function_*.py` del repo los declara, y `execute()` no muere con el error de
 corrutina. El guard se valido en negativo.
 
-**Hueco que sigue abierto**: no hay ningun test que verifique que el
-supervisor **no** arranca un loop async. Si alguien reintrodujera el
-`main-loop`, la suite seguiria en verde.
+**Hueco cerrado**: `tests/core/launcher/test_main_supervisor_ob1.py`
+(commit `01658ec`) verifica que el supervisor **no** arranca ningun loop
+async (`start_loop`, `run_cycle`, `tick_once`). Si alguien reintrodujera
+el `main-loop`, la suite lo detecta.
+
+Ademas, con la retirada del legacy en G1, los 38 tests que cubrian el
+camino async se migraron al camino `execute()`. Ese camino esta ahora
+cubierto en su totalidad: no queda ningun test que dependa de un metodo
+retirado.
