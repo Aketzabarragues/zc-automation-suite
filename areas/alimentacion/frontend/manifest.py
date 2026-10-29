@@ -25,7 +25,7 @@ en el manifest legacy se elimino.
 """
 from __future__ import annotations
 
-# Prefijo HTTP desde el que el FastAPI sirve los .js de las áreas.
+# Prefijo HTTP desde el que el Flask sirve los .js de las areas.
 # Se mantiene como constante (no se lee de config) porque es parte
 # del contrato estático de la SPA: el shell ``area-loader.js``
 # confía en que las URLs del manifest son absolutas y empiezan por

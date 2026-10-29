@@ -111,18 +111,27 @@ def register(engine, *, config_manager=None, tia_client=None,
 En `areas/<area_id>/frontend/<fb>_router.py`:
 
 ```python
-from flask import Blueprint, jsonify
-from core.web_server.dependencies import get_gateway, get_progress_tracker
+from flask import Blueprint, current_app, jsonify
 
 bp = Blueprint("<area>_<fb>", __name__, url_prefix="/api/v1/<area>/<fb>")
 
 @bp.post("/start")
 def start():
-    gateway = get_gateway()
-    tracker = get_progress_tracker()
-    # arrancar el FB
-    return jsonify({"ok": True, "fb": "<fb>"})
+    engine = current_app.config["ENGINE"]
+    job_id = engine.submit("<fb>", <param>)
+    return jsonify({"ok": True, "job_id": job_id}), 202
 ```
+
+Las dependencias del runtime se leen de `current_app.config` (`ENGINE`,
+`EVENT_BUS`, `APP_CACHE`, ...), nunca de un singleton importado en el
+módulo: los tests rompen con imports globales.
+
+El router **encola y responde `202`**: no espera al resultado. El
+trabajo lo ejecuta el hilo `plc-ob1` del `Engine` y el estado del FB
+llega al HMI por SSE (`fb_state`), con los datos del resultado en los
+slots del `AppCache` (`cache_changed`). El `ProgressTracker` lo
+gestiona el FB (`begin` en `on_start`, `start_stage`/`finish_stage` en
+cada step, `finish` en `on_finish`): el router no lo escribe.
 
 Y en `areas/<area_id>/frontend/__init__.py`:
 

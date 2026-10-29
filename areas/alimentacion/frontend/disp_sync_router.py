@@ -1,4 +1,4 @@
-"""Router Flask del endpoint ``POST /api/v1/plcs/<name>/sync/commit``.
+"""Router Flask del endpoint ``POST /api/v1/sync/commit``.
 
 El helper vive en ``areas/alimentacion/helpers/disp/disp_Sincronizar.py``.
 El FB ``FunctionDispSincronizar`` tiene la state machine
@@ -6,8 +6,8 @@ El FB ``FunctionDispSincronizar`` tiene la state machine
 devuelve el ``job_id``; el resultado llega al HMI por push (SSE).
 
 Endpoint:
-  POST /api/v1/plcs/<plc_name>/sync/commit
-    Body JSON opcional (plc_name viene del path). Encola el FB
+  POST /api/v1/sync/commit
+    Body JSON con ``plc_name`` (obligatorio). Encola el FB
     ``disp_sincronizar`` y devuelve ``202`` con ``{"ok": true,
     "job_id": "<hex>"}``. El resultado del sync (shape legacy completa:
     ``{success, message, operations, n_max_updates, post_sync_preview,
@@ -15,7 +15,7 @@ Endpoint:
     ``fb_state`` y por el slot del AppCache que publica el FB al
     terminar.
 
-  GET /api/v1/plcs/<plc_name>/sync/commit/status
+  GET /api/v1/sync/commit/status
     Placeholder. Siempre devuelve 200 con ok=True.
 
 Notas de timing:

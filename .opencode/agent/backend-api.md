@@ -1,5 +1,5 @@
 ---
-description: Especialista en el backend de zc-automation-suite (routers Flask con Blueprint, Composition Root en app_flask.py, inyección de dependencias vía helpers en dependencies.py, ProgressTracker vía FunctionBase, tools MCP declarados en AreaSpec.contributes_mcp_tools, register_routers por área). Úsalo para cambios en core/web_server/app_flask.py, core/web_server/routers/, areas/<area>/frontend/ y tools MCP.
+description: Especialista en el backend de zc-automation-suite (routers Flask con Blueprint, Composition Root en app_flask.py, inyección de dependencias vía current_app.config, ProgressTracker vía FunctionBase, register_routers por área). Úsalo para cambios en core/web_server/app_flask.py, core/web_server/routers/ y areas/<area>/frontend/.
 mode: subagent
 ---
 
@@ -13,20 +13,12 @@ de `zc-automation-suite`.
 - **Own:**
   - `core/web_server/app_flask.py` — Composition Root
     (`create_app(app)`).
-  - `core/web_server/dependencies.py` — `get_gateway` /
-    `get_app_state` / `get_logger` / `get_progress_tracker` (helpers
-    FLASK, NO `Depends`).
   - `core/web_server/routers/` — routers Flask genéricos con
     `Blueprint("nombre", __name__, url_prefix="/...")`. Ejemplos:
     `portal.py`, `plc.py`, `diagnostics.py`.
   - `areas/<area>/frontend/<router>.py` — routers Flask del área,
-    montados desde `areas/<area>/frontend/__init__.py`
+    montados desde `areas/<area>/__init__.py`
     (`_build_all_routers(app)`).
-  - `core/interfaces/mcp_server.py` — tools MCP (FastMCP) genéricos
-    (cuando se materialice; hoy no figura en `main.py`).
-  - `areas/<area>/interfaces/mcp/tools.py` — tools MCP del área
-    (registrados vía `register(mcp)`, descubiertos por
-    `AreaRegistry.for_each("contributes_mcp_tools", mcp=mcp)`).
 - **Don't own:** infraestructura OT (`core/infrastructure/tia/`),
   helpers transversales (`core/helpers/`), composición
   (`core/composition/`), SPA (`core/web_server/static/` +
@@ -44,37 +36,35 @@ de `zc-automation-suite`.
   `app.register_blueprint(bp)` en `app_flask.py::create_app` o en
   `_build_all_routers(app)` por área (orden alfabético entre los
   existentes).
-- **Inyección de dependencias EXPLÍCITA:** cada handler Flask importa
-  `get_gateway` / `get_app_state` / `get_logger` /
-  `get_progress_tracker` desde `core/web_server/dependencies.py` y
-  los llama al principio del handler (no como decoradores). **Nunca**
-  importes globales (singleton directo) dentro del router — los tests
-  rompen. **Nunca** uses `Depends(...)` (eso es FastAPI idiom y en
-  este repo es Flask).
+- **Inyección de dependencias EXPLÍCITA:** cada handler Flask lee las
+  dependencias del runtime de `current_app.config` (`ENGINE`,
+  `EVENT_BUS`, `APP_CACHE`, ...) al principio del handler (no como
+  decoradores). **Nunca** importes globales (singleton directo) dentro
+  del router — los tests rompen. **Nunca** uses `Depends(...)` (eso es
+  FastAPI idiom y en este repo es Flask).
 - Para operaciones >500 ms: el FB (`FunctionBase`) gestiona el
   `ProgressTracker` internamente (`begin` en `on_start`, `start_stage`
   / `finish_stage` en cada step, `finish` en `on_finish`). El router
-  solo arranca el FB con `asyncio.run(fb.start(**kwargs))`. NO emitas
-  `begin` / `start_stage` en el router; eso es responsabilidad del FB
-  y su `tick()`. La SPA lee el tracker; nunca lo escribe.
+  solo encola el trabajo con `engine.submit("<fb>", **params)` y
+  responde `202` con el `job_id`; el hilo `plc-ob1` del `Engine`
+  ejecuta el FB con `fb.execute(**params)`. NO emitas `begin` /
+  `start_stage` en el router; eso es responsabilidad del FB. La SPA
+  lee el tracker; nunca lo escribe.
 - Los handlers de routers siempre devuelven `dict`. Flask lo
   serializa con `jsonify(...)`. Para errores, devuelve tuplas
   `(dict, status_code)` con códigos HTTP sensatos (400 body inválido,
   404 no encontrado, 409 estado conflictivo, 500 error interno).
-- **3 buckets de timeouts en fetch cliente** (AGENTS.md):
+- **2 buckets de timeouts en fetch cliente** (AGENTS.md):
   - `FAST_TIMEOUT_MS = 120_000` (2 min, lecturas puras).
   - `MEDIUM_TIMEOUT_MS = 300_000` (5 min: attach, open, preview,
-    upload Excel).
-  - `SLOW_TIMEOUT_MS = 600_000` (10 min: commits transaccionales).
-  El cliente debe esperar MÁS que el `dynamic_timeout` que calcula el
-  gateway (`5s × n_ops`). Si reduces el `ZC_GATEWAY_TIMEOUT` o el
-  `per_op_seconds`, sube el bucket correspondiente.
-- En `mcp_server.py` (genérico y de área), cada tool es `async`,
-  recibe args tipados, llama al FB correspondiente, y devuelve
-  `dict`. La docstring del tool es el contrato con el LLM: sé claro
-  y específico.
-- Las tools del área **delegan en los mismos FBs** que los routers
-  web.
+    commit, upload Excel).
+  `SLOW_TIMEOUT_MS` sigue declarado en `api.js` pero ningún endpoint
+  lo usa: el commit responde `202` y el trabajo pesado lo ejecuta el
+  hilo del OB1, no el request. El timeout del cliente mide la
+  respuesta HTTP; el del FB (`STEP_TIMEOUT_S` o el `timeout` que pase
+  a `submit_and_wait`) mide el trabajo.
+- **Tools MCP: no existen en el repo.** El patrón previsto, para
+  cuando se materialicen, está en `AGENTS.md` §5.
 - **Prefijos `disp_*` / `proc_*`:** routers y helpers del área
   respetan esos prefijos. NO mezcles `proc_*` con `disp_*`.
 - **Path del config.json del usuario:** si necesitas leer/escribir
@@ -93,8 +83,6 @@ de `zc-automation-suite`.
   testeado con `TestClient` de Flask + `MagicMock(spec=...)` (modelo
   concreto del que el FB depende; si mockeas `SyncTIAClient`, usa
   `spec=SyncTIAClient`).
-- Tool MCP nuevo expone el FB con docstring que el LLM puede usar sin
-  ambigüedad. Test unitario que mockea el FB y verifica el return.
 - `python -m pytest tests/areas/... tests/core/... -q` pasa.
-- Resumen al orquestador: endpoint/tool añadido, paths, nº de tests
+- Resumen al orquestador: endpoint añadido, paths, nº de tests
   afectados.

@@ -1,17 +1,19 @@
-﻿"""Bounded Context: Alimentación.
+﻿"""Bounded Context: Alimentacion.
 
 Aporta al core:
   - State extensions de AppCache.
-  - Catálogo de presentación (consumido por /api/v1/catalog).
-  - TIA commands del área (registrados por el tia-loop).
-  - Frontend manifest (Vue 3 ESM del área).
+  - Catalogo de presentacion (consumido por /api/v1/catalog).
+  - TIA commands del area (registrados por el tia-loop).
+  - Frontend manifest (Vue 3 ESM del area).
   - Config defaults del ConfigManager.
-  - FunctionBlocks del área (registrados en el engine del core).
+  - FunctionBlocks del area (registrados en el engine del core).
 
-Los routers web, los use cases previos, las tools MCP y los FBs no
-basados en plantilla siguen existiendo en el área pero no se montan.
-El Composition Root (``main_supervisor``) llama a ``register(engine, ...)``
-para activar los FBs del área.
+Los routers web del area se montan: ``contributes_routers`` apunta a
+``_build_all_routers``, que el Composition Root invoca al crear la app
+Flask. Las tools MCP no existen todavia (el campo
+``contributes_mcp_tools`` de ``AreaSpec`` esta declarado pero sin
+materializar). El Composition Root (``main_supervisor``) llama a
+``register(engine, ...)`` para activar los FBs del area.
 """
 from __future__ import annotations
 

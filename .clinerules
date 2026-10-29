@@ -39,7 +39,7 @@ El flujo del operario es siempre ``HMI --> pulsador --> OB1 --> FB --> WORKER (T
 * En la SPA, ``store.fbStates`` guarda el ultimo estado de cada FB y ``waitForFbJob(jobId, fbName, timeoutMs)`` (``core/web_server/static/js/store.js``) espera al estado terminal del trabajo.
 * El ``ProgressTracker`` es single-slot: solo hay un trabajo en curso a la vez.
 
-**Camino por tick del Engine:** el Engine conserva tambien el camino por tick (``tick_once()`` / ``run_cycle()``), pero no es el camino de ejecucion: los routers encolan trabajos con ``submit()`` y el hilo del OB1 los ejecuta con ``execute()``.
+**Un solo camino de ejecucion:** el Engine encola el trabajo con ``submit()`` y su hilo ``plc-ob1`` lo ejecuta con ``fb.execute(**params)``, sin event loop ni ciclo por tick.
 
 ## 2. WORKER OT: HILO DEDICADO + COLA + STATE MACHINE (6 ESTADOS)
 

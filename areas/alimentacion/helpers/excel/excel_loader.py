@@ -1,34 +1,37 @@
-﻿"""Cargador síncrono del Excel corporativo del subdominio alimentación.
+﻿"""Cargador sincrono del Excel corporativo del area de alimentacion.
 
-``ExcelLoader`` abre el workbook UNA sola vez, ejecuta los 11
-parsers que lo componen (12 dispositivos + 4 software + 1 N_MAX)
-y construye una ``DataExcelCache`` inmutable con los 3 lookups
-precomputados por ``codigo``.
+``ExcelLoader`` abre el workbook UNA sola vez, ejecuta los 19
+parsers que lo componen (12 dispositivos + 4 software + 1 N_MAX
++ 1 lista de PLCs + 1 entidades) y construye una ``DataExcelCache``
+inmutable con los 3 lookups precomputados por ``codigo``.
 
-Es **síncrono** (no async) porque la apertura del workbook con
-openpyxl es CPU/IO-bound y bloquearía el event loop de asyncio.
-Los callers (router FastAPI, MCP tool) lo invocan con
-``asyncio.to_thread(loader.load, path)`` para no bloquear el event
-loop.
+Es **sincrono**: corre en un hilo dedicado, no en un event loop. Su
+unico caller es ``helpers/excel/excel_upload.py::parse_excel_to_cache``,
+a su vez invocado por el FB ``subir_excel``
+(``functions/function_excel_cargar.py``) desde el hilo ``plc-ob1``
+del OB1.
 
-Pipeline (orden de ejecución sobre el mismo ``wb``):
-    1. 9 mini parsers de dispositivos (``DispED``/``EA``/``SA``/``V``
-       /``M``/``M_VF``) — extraen las ``ListObject`` de las hojas
-       ``DISP_<HW>``.
+Pipeline (orden de ejecucion sobre el mismo ``wb``):
+    1. 12 parsers de dispositivos (``DispED``/``DispEA``/``DispSA``/
+       ``DispSD``/``DispV``/``DispM``/``DispM_VF``/``DispM_SINA``/
+       ``DispTQ``/``DispTQ_AE``/``DispTOT``/``DispPID``) — extraen las
+       ``ListObject`` de las hojas ``DISP_<HW>``.
     2. 4 parsers de software (``Procesos``/``PReal``/``PInt``/
        ``Alarmas``) — extraen las ``ListObject`` de las hojas
        ``CONFIG``/``P_REAL``/``P_INT``/``ALARMAS``.
     3. 1 parser de N_MAX (``DimensionesParser``) — extrae los
        defined names ``N_MAX_*``/``Num_Disp_*``.
-    4. 1 parser de entidades (``EntidadesParser``) —
+    4. 1 parser de la lista canonica de PLCs (``PLCListParser``) —
+       lee la ``Tabla_PLC`` de la hoja ``CONFIG``.
+    5. 1 parser de entidades (``EntidadesParser``) —
        extrae la ``Tabla_Entidades`` de la hoja ``ENTIDADES``.
        Multi-PLC (cada ``Entidad`` lleva su ``plc_name``); el
        filtrado por PLC vive en el ``excel_active`` derivado, no aqui.
 
 Tras el parseo, construye los lookups ``*_by_codigo`` filtrando
-filas sin ``codigo`` para evitar colisiones con la clave vacía.
+filas sin ``codigo`` para evitar colisiones con la clave vacia.
 
-Restricción arquitectónica: este módulo NO importa
+Restriccion arquitectonica: este modulo NO importa
 ``siemens_tia_scripting``. Solo ``openpyxl`` + ``logging`` + DTOs
 del subdominio.
 """
@@ -81,7 +84,7 @@ class ExcelLoader:
 
     Atributos:
         _config_manager: ``ConfigManager`` opcional inyectado. Si se
-            pasa, los 9 mini parsers de dispositivos lo usan para
+            pasa, los 12 parsers de dispositivos lo usan para
             resolver su ``SHEET``/``TABLE`` data-driven.
     """
 
@@ -108,18 +111,18 @@ class ExcelLoader:
         self._alarmas = AlarmasParser()
         # El parser de N_MAX (puede usar el config_manager).
         self._dimensiones = DimensionesParser(config_manager=config_manager)
-        # El parser de la lista canonica de PLCs (sept-2026).
+        # El parser de la lista canonica de PLCs.
         self._plcs = PLCListParser()
 
     def load(self, excel_path: str | Path) -> DataExcelCache:
-        """Carga el workbook UNA vez, ejecuta los 17 parsers, construye el cache.
+        """Carga el workbook UNA vez, ejecuta los 19 parsers, construye el cache.
 
         Args:
             excel_path: ruta al ``.xlsx`` a parsear (absoluta o
-                relativa; el cache guarda la versión ``absolute()``).
+                relativa; el cache guarda la version ``absolute()``).
 
         Returns:
-            ``DataExcelCache`` inmutable con los 10 dominios del Excel
+            ``DataExcelCache`` inmutable con los 8 dominios del Excel
             y los 3 lookups precomputados por ``codigo``.
 
         Raises:
@@ -144,7 +147,7 @@ class ExcelLoader:
             filename=str(path), read_only=False, data_only=True,
         )
         try:
-            # Ã¢”â‚¬Ã¢”â‚¬ 6 dispositivos Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬
+            # -- 6 dispositivos --
             disp_ed = self._disp_ed.extraer(wb)
             disp_ea = self._disp_ea.extraer(wb)
             disp_sa = self._disp_sa.extraer(wb)
@@ -157,14 +160,14 @@ class ExcelLoader:
             disp_tq_ae = self._disp_tq_ae.extraer(wb)
             disp_tot = self._disp_tot.extraer(wb)
             disp_pid = self._disp_pid.extraer(wb)
-            # Ã¢”â‚¬Ã¢”â‚¬ 4 software Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬
+            # -- 4 software --
             procesos = self._procesos.extraer(wb)
             preal = self._preal.extraer(wb)
             pint = self._pint.extraer(wb)
             alarmas = self._alarmas.extraer(wb)
-            # Ã¢”â‚¬Ã¢”â‚¬ 1 N_MAX Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬
+            # -- 1 N_MAX --
             n_max = self._dimensiones.extraer(wb)
-            # 1 lista canonica de PLCs (sept-2026).
+            # 1 lista canonica de PLCs.
             plcs = tuple(self._plcs.extraer(wb))
             # 1 entidades (Tabla_Entidades en hoja ENTIDADES).
             # Instantiation inline porque EntidadesParser captura el
@@ -174,7 +177,7 @@ class ExcelLoader:
         finally:
             wb.close()
 
-        # Ã¢”â‚¬Ã¢”â‚¬ Lookups precomputados por ``codigo`` Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬Ã¢”â‚¬
+        # -- Lookups precomputados por \codigo\ --
         # Filtramos ``codigo`` vacío para no contaminar el dict con
         # un valor clave="" que pise accidentalmente otras entradas
         # válidas.

@@ -1,4 +1,4 @@
-"""Router Flask del endpoint ``POST /api/v1/plcs/<name>/preview``.
+"""Router Flask del endpoint ``POST /api/v1/sync/preview``.
 
 Orquesta: encola el FB ``disp_generar_preview`` en el OB1 y devuelve su
 ``job_id``. El helper vive en
@@ -8,16 +8,16 @@ el trabajo y devuelve el ``job_id``; el resultado llega al HMI por push
 (SSE).
 
 Endpoint:
-  POST /api/v1/plcs/<plc_name>/preview
-    Body JSON opcional (no requiere params adicionales; plc_name viene
-    del path). Encola el FB ``disp_generar_preview`` y devuelve ``202``
+  POST /api/v1/sync/preview
+    Body JSON con ``plc_name`` (obligatorio). Encola el FB
+    ``disp_generar_preview`` y devuelve ``202``
     con ``{"ok": true, "job_id": "<hex>"}``. El resultado del preview
     (shape legacy completa: ``{agregados, eliminados, renombrados,
     todos, nmax, summary}``) llega por el evento SSE ``fb_state`` y por
     el slot ``preview_disp`` del AppCache que publica el FB al
     terminar.
 
-  GET /api/v1/plcs/<plc_name>/preview/status
+  GET /api/v1/sync/preview/status
     Placeholder. Siempre devuelve 200 con ok=True.
 
 Notas de timing:

@@ -1,5 +1,12 @@
 # Refactor TIA worker + eliminación de orquestadores del área Alimentación
 
+> **Documento congelado el 2026-10-29.** Describe el estado del repo en
+> la rama `greenfield/tia-worker-simplification`, no el estado actual del
+> runtime. Los ficheros que cita pueden no existir hoy (p. ej.
+> `tia_handlers.py`, `tia_bloque_cache.py`, `tia_dispatch_async.py`).
+> El documento vigente del runtime es
+> [`ESTADO_RUNTIME_OB1.md`](ESTADO_RUNTIME_OB1.md).
+
 **Rama:** `greenfield/tia-worker-simplification`
 **Base:** `main` HEAD = `8ef3982`
 **Commits:** 35 (ver `git log main..HEAD`)

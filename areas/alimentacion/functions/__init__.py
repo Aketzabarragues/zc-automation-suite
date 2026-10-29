@@ -1,16 +1,20 @@
-"""Function Blocks (FBs) del área Alimentación.
+"""Function Blocks (FBs) del area Alimentacion.
 
-Encapsulan los use cases legacy de
-``areas/alimentacion/application/use_cases/`` con un state machine
-discreto (nStep=10→20→30→99/98) ejecutado por el Engine de
-``core/plc/engine.py`` (OB1).
-
-Cada FB:
-  - hereda de ``core.plc.function_base.FunctionBase``,
-  - overridea ``_tick_locked()`` con la lógica del use case legacy,
-  - es best-effort: cada ``await`` se traga excepciones vía el
-    wrapper ``tick()`` de la base, transita a ``n_error`` con
-    ``error_msg`` poblado,
+Unidad de trabajo del runtime de tres pilares (HMI -> pulsador -> OB1
+-> FB -> WORKER TIA). Cada FB:
+  - hereda de ``core.composition.plc_function_base.FunctionBase``,
+  - implementa los hooks SYNC ``on_start`` / ``run_step`` /
+    ``on_finish``,
+  - lo ejecuta el dispatcher ``Engine``
+    (``core/composition/plc_engine.py``) desde su hilo ``plc-ob1``:
+    el router encola el trabajo con ``submit()`` y el dispatcher lo
+    ejecuta con ``fb.execute(**params)``,
+  - es best-effort: ``execute()`` captura las excepciones de runtime,
+    las deja en ``error_msg`` y transiciona a ``n_error``,
   - se nombra con prefijo ``function_`` + PascalCase (p. ej.
-    ``function_excel_cargar.py`` → ``FunctionExcelCargar``).
+    ``function_excel_cargar.py`` -> ``FunctionExcelCargar``).
+
+``run_step`` devuelve el identificador del stage ejecutado. Si devuelve
+una corrutina, el base lanza ``TypeError``: los FBs corren en un hilo
+dedicado, no en un event loop.
 """

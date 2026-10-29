@@ -318,6 +318,11 @@ Replica su estructura.
   vida del hilo. Los arranca y detiene el supervisor
   (`core/launcher/main_supervisor.py`); el OB1 se para antes que el worker
   TIA, para que un trabajo en curso pueda terminar.
+- **Orden de arranque** (`main_supervisor.start()`): worker TIA
+  (`tia_client.start_tia_loop()`) → dispatcher OB1 (`engine.start_ob1()`)
+  → hilo de Flask. El wrapper .NET se carga antes que Flask: si falla,
+  `_build_components()` lanza y la app no arranca.
+- **Orden de parada** (el inverso): Flask → OB1 → worker TIA.
 - Un FB solo admite un trabajo en curso. Un fallo de un FB no mata el
   dispatcher: el error queda en el job y el hilo sigue vivo.
 - `FunctionBase.execute(**params)` es el entry point del dispatcher:
@@ -332,22 +337,23 @@ Replica su estructura.
   vez.
 
 ### Timeouts de fetch (cliente)
-- **3 buckets** definidos en `core/web_server/static/js/api.js`:
+- **2 buckets en uso** definidos en `core/web_server/static/js/api.js`:
   - `FAST_TIMEOUT_MS = 120_000` (2 min, default): lecturas puras
     (PLC list, logs, progress, catalog, memory, tia/connection,
     blocks, etc). Tipicamente <1s pero pueden dispararse a 30-60s
     en cold-start del backend.
   - `MEDIUM_TIMEOUT_MS = 300_000` (5 min): attach, open, preview,
-    upload Excel, connect. Tocan TIA Portal en cold-start o hacen
-    export masivo.
-  - `SLOW_TIMEOUT_MS = 600_000` (10 min): commits transaccionales
-    (sync dispositivos, sync procesos). El backend usa el
-    `STEP_TIMEOUT_S` del FB (o el `timeout` que el FB pase a
-    `submit_and_wait`) y el cliente debe esperar MÁS, si no el
-    navegador aborta antes de que TIA termine y el operario ve un
-    `AbortError` falso.
+    commit, upload Excel, connect. Tocan TIA Portal en cold-start,
+    hacen export masivo o encolan un trabajo en el OB1 (responden
+    202 de inmediato).
+- **`SLOW_TIMEOUT_MS` no lo usa ningún endpoint**: sigue declarado en
+  `api.js`, pero ningún `_request()` lo pasa. El trabajo pesado contra
+  TIA (commit transaccional, preview) lo ejecuta el hilo del OB1, no
+  el request: el router responde `202` con el `job_id` y el resultado
+  llega por SSE. El `STEP_TIMEOUT_S` del FB (o el `timeout` que pase a
+  `submit_and_wait`) acota el trabajo, no la respuesta HTTP.
 - **Regla nueva al añadir endpoint**: clasificar el endpoint en uno
-  de los 3 buckets y pasar el `timeoutMs` correspondiente al
+  de los 2 buckets y pasar el `timeoutMs` correspondiente al
   `_request()`. Si dudas, empieza por MEDIUM y sube si Aketza
   reporta timeouts.
 - **Mensaje de timeout humano**: `_request()` NO muestra el
@@ -359,7 +365,7 @@ Replica su estructura.
 - **Mismatched client/server**: el timeout del cliente debe ser
   siempre MAYOR que el `timeout` que el FB pase a `submit_and_wait`.
   Si lo reduces, asegúrate de que el cliente sigue siendo mayor (sube
-  el bucket FAST/MEDIUM/SLOW si hace falta).
+  el bucket FAST/MEDIUM si hace falta).
 
 ### ProgressTracker — API completa
 ```
