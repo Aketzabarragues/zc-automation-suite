@@ -99,6 +99,7 @@ from typing import Any
 
 from core.composition.plc_function_base import FunctionBase
 from core.helpers.tia.validate_plc_in_tia import validate_plc_in_tia
+from core.infrastructure.log.log_web_bridge import install_web_level
 from areas.alimentacion.helpers.layout.build_cache import DEFAULT_BUILD_CACHE_ROOT
 from areas.alimentacion.helpers.proc.proc_process_aplicar_clonacion import (
     proc_process_aplicar_clonacion,
@@ -106,6 +107,9 @@ from areas.alimentacion.helpers.proc.proc_process_aplicar_clonacion import (
 from areas.alimentacion.helpers.proc.proc_process_construir_diccionarios import (
     proc_process_construir_diccionarios,
 )
+
+# Asegura que ``Logger.web/ok`` existen (idempotente).
+install_web_level()
 
 logger = logging.getLogger(__name__)
 
@@ -459,13 +463,14 @@ class FunctionProcCrearSincronizar(FunctionBase):
         }
 
         n_generados = len(base_result.get("archivos_generados", []))
-        n_colisiones = len(base_result.get("colisiones", []))
-        logger.debug(
-            f"[{self.nombre}] Proceso {self._base_nueva}/"
-            f"{self._codigo_nuevo} aplicado en {self._plc_name}: "
+        compile_ok = bool((self._compile_result or {}).get("ok"))
+        # Log de cierre: lo emite el FB porque el router responde 202
+        # antes de que el trabajo se ejecute. Solo llega aqui si el
+        # apply termino bien (si fallo, el base ya emitio el error).
+        logger.ok(
+            f"Proceso {process_label} creado en '{self._plc_name}': "
             f"{n_generados} archivos generados, "
-            f"{n_colisiones} colision(es), compile="
-            f"{'OK' if (self._compile_result or {}).get('ok') else 'FAIL'}"
+            f"compile={'OK' if compile_ok else 'FAIL'}."
         )
 
     # ==================================================================

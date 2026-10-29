@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import logging
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -29,7 +30,12 @@ import pytest
 from areas.alimentacion.functions.function_proc_crear_generar_preview import (
     FunctionProcCrearGenerarPreview,
 )
+from core.infrastructure.log.log_web_bridge import OK_LEVEL
 from core.runtime.progress_buffer import ProgressTracker
+
+
+# Logger del FB: el log de cierre lo emite el FB, no el router.
+PREVIEW_LOGGER = "areas.alimentacion.functions.function_proc_crear_generar_preview"
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────
@@ -402,3 +408,100 @@ def test_execute_sync_minimos_insuficientes_va_a_error(
     assert fb.nStep == fb.n_error  # 98
     assert fb.error_msg is not None
     assert "minimos" in fb.error_msg.lower()
+
+
+# ── Log de cierre (lo emite el FB, no el router) ─────────────────────
+
+
+def _preview_cierres(caplog: pytest.LogCaptureFixture) -> list[str]:
+    """Mensajes OK emitidos por el FB del preview."""
+    return [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == PREVIEW_LOGGER and record.levelno == OK_LEVEL
+    ]
+
+
+def test_preview_emite_el_log_de_cierre_con_los_valores_reales(
+    plantilla_dummy: Path,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """El FB emite el log de cierre con los contadores reales.
+
+    El router responde 202 antes de que el preview se ejecute, asi que
+    el cierre lo hace el FB (que ya tiene ``self.result``). El mensaje
+    debe llevar el numero real de archivos previstos, no un cero.
+    """
+    fb = FunctionProcCrearGenerarPreview(
+        nombre="proc_process_crear_preview_log_test",
+        config_manager=MagicMock(),
+        tia_client=MagicMock(),  # el preview NO toca TIA
+        build_cache=MagicMock(),
+        tracker=ProgressTracker(),
+    )
+
+    with caplog.at_level(logging.DEBUG, logger=PREVIEW_LOGGER):
+        fb.execute(
+            plantillas_path=str(plantilla_dummy.parent),
+            dir_plantilla_nombre="TestPlantilla",
+            base_nueva=60010,
+            codigo_nuevo="EXP",
+            nombre_nuevo="NuevoProceso",
+            minimos_usuario={
+                "N_MAX_PREAL": 30, "N_MAX_PINT": 30,
+                "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
+            },
+            plc_blocks_cache=[],
+            build_cache_root=tmp_path / ".build_cache",
+        )
+
+    assert fb.nStep == fb.n_done  # 99
+    n_previstos = len(fb.result["archivos_previstos"])
+    n_colisiones = len(fb.result["colisiones"])
+    # La plantilla dummy tiene 1 FC y 1 bloque de comentarios: 2 entries.
+    assert n_previstos == 2
+    assert n_colisiones == 0
+    assert _preview_cierres(caplog) == [
+        f"Preview crear proceso 60010/EXP: "
+        f"{n_previstos} archivos previstos, {n_colisiones} colision(es)."
+    ]
+
+
+def test_preview_no_emite_el_log_de_cierre_si_falla(
+    plantilla_dummy: Path,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Si el preview falla, no hay log de cierre: solo el error.
+
+    El log de cierre se reserva al trabajo que termina bien; el error
+    ya lo emite la base del FB.
+    """
+    fb = FunctionProcCrearGenerarPreview(
+        nombre="proc_process_crear_preview_log_error_test",
+        config_manager=MagicMock(),
+        tia_client=MagicMock(),
+        build_cache=MagicMock(),
+        tracker=ProgressTracker(),
+    )
+
+    with caplog.at_level(logging.DEBUG, logger=PREVIEW_LOGGER):
+        fb.execute(
+            plantillas_path=str(plantilla_dummy.parent),
+            dir_plantilla_nombre="TestPlantilla",
+            base_nueva=60010,
+            codigo_nuevo="EXP",
+            nombre_nuevo="NuevoProceso",
+            # N_MAX_PREAL=1 < plantilla (3) -> falla validar_minimos.
+            minimos_usuario={
+                "N_MAX_PREAL": 1, "N_MAX_PINT": 30,
+                "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
+            },
+            plc_blocks_cache=[],
+            build_cache_root=tmp_path / ".build_cache",
+        )
+
+    assert fb.nStep == fb.n_error  # 98
+    assert fb.error_msg is not None
+    assert _preview_cierres(caplog) == []

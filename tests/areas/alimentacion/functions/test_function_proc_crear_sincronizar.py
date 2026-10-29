@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import logging
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -34,7 +35,12 @@ import pytest
 from areas.alimentacion.functions.function_proc_crear_sincronizar import (
     FunctionProcCrearSincronizar,
 )
+from core.infrastructure.log.log_web_bridge import OK_LEVEL
 from core.runtime.progress_buffer import ProgressTracker
+
+
+# Logger del FB: el log de cierre lo emite el FB, no el router.
+APPLY_LOGGER = "areas.alimentacion.functions.function_proc_crear_sincronizar"
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────
@@ -462,3 +468,98 @@ def test_apply_happy_path_sync_execute(
         "compile_plc",
         "scan_blocks",
     ]
+
+
+# ── Log de cierre (lo emite el FB, no el router) ─────────────────────
+
+
+def _apply_cierres(caplog: pytest.LogCaptureFixture) -> list[str]:
+    """Mensajes OK emitidos por el FB del apply."""
+    return [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == APPLY_LOGGER and record.levelno == OK_LEVEL
+    ]
+
+
+def test_apply_emite_el_log_de_cierre_con_los_valores_reales(
+    plantilla_dummy: Path,
+    tmp_path: Path,
+    progress: ProgressTracker,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """El FB emite el log de cierre con los contadores reales.
+
+    El router responde 202 antes de que el apply se ejecute, asi que el
+    cierre lo hace el FB (que ya tiene ``self.result``): el numero de
+    archivos generados y el estado del compile son los de verdad.
+    """
+    tia = make_tia_client({
+        "list_plcs": LIST_PLCS_OK,
+        "execute_transactional_batch": BATCH_OK,
+        "compile_plc": COMPILE_OK,
+        "scan_blocks": SCAN_BLOCKS_KO,
+    })
+    fb = make_fb(tia, progress)
+
+    with caplog.at_level(logging.DEBUG, logger=APPLY_LOGGER):
+        fb.execute(
+            plantillas_path=str(plantilla_dummy.parent),
+            dir_plantilla_nombre="TestPlantilla",
+            base_nueva=60010,
+            codigo_nuevo="EXP",
+            nombre_nuevo="NuevoProceso",
+            minimos_usuario={
+                "N_MAX_PREAL": 30, "N_MAX_PINT": 30,
+                "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
+            },
+            plc_name="S7-1500",
+            plc_blocks_cache=[],
+            build_cache_root=tmp_path / ".build_cache",
+        )
+
+    assert fb.nStep == fb.n_done  # 99
+    n_generados = len(fb.result["archivos_generados"])
+    assert n_generados > 0, "el apply deberia haber generado archivos"
+    assert _apply_cierres(caplog) == [
+        f"Proceso {fb.result['process_label']} creado en 'S7-1500': "
+        f"{n_generados} archivos generados, compile=OK."
+    ]
+
+
+def test_apply_no_emite_el_log_de_cierre_si_falla(
+    plantilla_dummy: Path,
+    tmp_path: Path,
+    progress: ProgressTracker,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Si el lote transaccional falla, no hay log de cierre.
+
+    El log de cierre se reserva al trabajo que termina bien; el error
+    ya lo emite la base del FB.
+    """
+    tia = make_tia_client({
+        "list_plcs": LIST_PLCS_OK,
+        "execute_transactional_batch": {"ok": False, "error": "lote abortado"},
+    })
+    fb = make_fb(tia, progress)
+
+    with caplog.at_level(logging.DEBUG, logger=APPLY_LOGGER):
+        fb.execute(
+            plantillas_path=str(plantilla_dummy.parent),
+            dir_plantilla_nombre="TestPlantilla",
+            base_nueva=60010,
+            codigo_nuevo="EXP",
+            nombre_nuevo="NuevoProceso",
+            minimos_usuario={
+                "N_MAX_PREAL": 30, "N_MAX_PINT": 30,
+                "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
+            },
+            plc_name="S7-1500",
+            plc_blocks_cache=[],
+            build_cache_root=tmp_path / ".build_cache",
+        )
+
+    assert fb.nStep == fb.n_error  # 98
+    assert fb.error_msg is not None
+    assert _apply_cierres(caplog) == []

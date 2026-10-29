@@ -64,10 +64,14 @@ from pathlib import Path
 from typing import Any
 
 from core.composition.plc_function_base import FunctionBase
+from core.infrastructure.log.log_web_bridge import install_web_level
 from areas.alimentacion.helpers.layout.build_cache import DEFAULT_BUILD_CACHE_ROOT
 from areas.alimentacion.helpers.proc.proc_process_construir_diccionarios import (
     proc_process_construir_diccionarios,
 )
+
+# Asegura que ``Logger.web/ok`` existen (idempotente).
+install_web_level()
 
 logger = logging.getLogger(__name__)
 
@@ -404,9 +408,12 @@ class FunctionProcCrearGenerarPreview(FunctionBase):
 
         n_previstos = len(self._ctx.result.get("archivos_previstos", []))
         n_colisiones = len(self._ctx.result.get("colisiones", []))
-        logger.debug(
-            f"[{self.nombre}] Preview crear proceso "
-            f"{self._base_nueva}/{self._codigo_nuevo}: "
+        # Log de cierre: lo emite el FB porque el router responde 202
+        # antes de que el trabajo se ejecute. Solo llega aqui si el
+        # preview termino bien (si fallo, el base ya emitio el error).
+        logger.ok(
+            f"Preview crear proceso {self._base_nueva}/"
+            f"{self._codigo_nuevo}: "
             f"{n_previstos} archivos previstos, "
             f"{n_colisiones} colision(es)."
         )

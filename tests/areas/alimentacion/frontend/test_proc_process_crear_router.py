@@ -30,13 +30,20 @@ Tests:
     ``with_plc`` + 202 con ``job_id``.
   - ``test_crear_preview_plc_blocks_cache_acepta_strings_y_dicts``:
     ``plc_blocks_cache`` normalizado en los params del ``submit``.
+  - ``test_crear_aplicar_plc_no_esta_en_el_excel_devuelve_400``:
+    ``plc_name`` fuera de la Tabla_PLC del Excel -> 400 (validacion de
+    entrada, no 500).
   - Suite parametrizada de los 2 endpoints: sin engine -> 500, FB no
     registrado -> 500, FB ocupado -> 409, submit falla -> 500, happy
     path -> 202 con ``job_id`` y respuesta sin el ``result`` del FB.
+  - Suite parametrizada de los 2 endpoints: el router no lee
+    ``fb.result`` y no emite el log de cierre (lo emite el FB al
+    terminar el trabajo).
 """
 from __future__ import annotations
 
 import json
+import logging
 from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -45,6 +52,11 @@ import pytest
 from flask import Flask
 
 from core.composition.plc_engine import FBBusyError
+
+
+# Logger del router: sirve para comprobar que NO es quien emite el log
+# de cierre del trabajo (eso lo hace el FB, al terminar).
+ROUTER_LOGGER = "areas.alimentacion.frontend.proc_process_crear_router"
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -146,16 +158,40 @@ def _make_mock_fb(
 ) -> MagicMock:
     """Crea un mock del FB que el router consume.
 
-    El router ya no arranca el FB ni lo sondea: solo lo mira para
-    comprobar que esta registrado (``engine.get_fb``) y para el log
-    de cierre (``fb.result``). ``is_terminal`` se fija a True porque
-    un ``MagicMock`` sin configurar es truthy y falsearia cualquier
-    comprobacion de estado.
+    El router solo mira que el FB este registrado
+    (``engine.get_fb``): no lo arranca, no lo sondea y no lee su
+    ``result`` (el trabajo aun no se ha ejecutado al responder 202).
+    ``result`` se conserva para los tests que comprueban que el result
+    del FB no se filtra en el body de la respuesta.
+    ``is_terminal`` se fija a True porque un ``MagicMock`` sin
+    configurar es truthy y falsearia cualquier comprobacion de estado.
     """
     fb = MagicMock()
     fb.is_terminal = MagicMock(return_value=is_terminal_return)
     fb.result = result
     return fb
+
+
+class _FakeFBQueRegistraElResult:
+    """FB fake que anota si alguien lee su atributo ``result``.
+
+    El router no debe leer ``fb.result``: al responder 202 el FB todavia
+    no ha ejecutado, asi que cualquier lectura daria un valor vacio.
+    """
+
+    def __init__(self) -> None:
+        self.result_leido = False
+
+    @property
+    def result(self) -> dict:
+        self.result_leido = True
+        return {
+            "success": True,
+            "archivos_previstos": [{"nombre_nuevo": "FC60010_EXP_INTERFAZ"}],
+            "archivos_generados": ["Bloques de programa/FC60010_EXP_INTERFAZ.s7dcl"],
+            "colisiones": [],
+            "compile_result": {"ok": True},
+        }
 
 
 @pytest.fixture
@@ -741,3 +777,110 @@ def test_endpoint_no_devuelve_el_result_del_fb(url, _fb_name, body) -> None:
         "colisiones", "import_result", "compile_result",
     ):
         assert key not in payload
+
+
+# ── El log de cierre lo emite el FB, no el router ────────────────────
+
+
+@pytest.mark.parametrize("url,_fb_name,body", ENDPOINTS, ids=IDS)
+def test_router_no_lee_el_result_del_fb(url, _fb_name, body) -> None:
+    """El router no lee ``fb.result``.
+
+    Al responder 202 el FB todavia no ha ejecutado: su ``result`` esta
+    vacio. Si el router lo leyera, el log de cierre reportaria siempre
+    "0 archivos, 0 colisiones". El cierre lo emite el FB, que ya tiene
+    el dato real.
+    """
+    from areas.alimentacion.frontend.proc_process_crear_router import bp
+
+    engine = MagicMock()
+    fb_falso = _FakeFBQueRegistraElResult()
+    engine.get_fb.return_value = fb_falso
+    engine.submit.return_value = "job-abc123"
+    app = _make_app_para_endpoint(engine=engine)
+    app.register_blueprint(bp)
+    with app.test_client() as client:
+        with _with_plc_noop():
+            resp = client.post(url, json=body)
+    assert resp.status_code == 202
+    assert fb_falso.result_leido is False
+
+
+@pytest.mark.parametrize("url,_fb_name,body", ENDPOINTS, ids=IDS)
+def test_router_no_emite_el_log_de_cierre(
+    url, _fb_name, body, caplog: pytest.LogCaptureFixture,
+) -> None:
+    """El router no emite el log de cierre del trabajo.
+
+    Ese log lo emite el FB al terminar (``on_finish``), cuando ya
+    dispone del resultado real. Si el router lo emitiera al encolar,
+    los contadores saldrian siempre a cero.
+    """
+    from areas.alimentacion.frontend.proc_process_crear_router import bp
+
+    engine = MagicMock()
+    engine.get_fb.return_value = _make_mock_fb(result={
+        "success": True,
+        "archivos_previstos": [{"nombre_nuevo": "FC60010_EXP_INTERFAZ"}],
+        "archivos_generados": ["Bloques de programa/FC60010_EXP_INTERFAZ.s7dcl"],
+        "colisiones": [],
+        "compile_result": {"ok": True},
+    })
+    engine.submit.return_value = "job-abc123"
+    app = _make_app_para_endpoint(engine=engine)
+    app.register_blueprint(bp)
+    with app.test_client() as client:
+        with caplog.at_level(logging.DEBUG, logger=ROUTER_LOGGER):
+            with _with_plc_noop():
+                resp = client.post(url, json=body)
+    assert resp.status_code == 202
+    cierres = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == ROUTER_LOGGER
+        and (
+            "archivos previstos" in record.getMessage()
+            or "archivos generados" in record.getMessage()
+        )
+    ]
+    assert cierres == [], (
+        f"el router no debe emitir el log de cierre: {cierres}"
+    )
+
+
+# ── Validacion de entrada -> 400 ─────────────────────────────────────
+
+
+def test_crear_aplicar_plc_no_esta_en_el_excel_devuelve_400() -> None:
+    """El ``plc_name`` no esta en la Tabla_PLC del Excel -> 400.
+
+    Es validacion de entrada, no un fallo del servidor. El mensaje lo
+    da ``validate_plc_in_excel`` e incluye la lista de PLCs disponibles
+    en el Excel para que el operario sepa que corregir.
+    """
+    from areas.alimentacion.frontend.proc_process_crear_router import bp
+
+    engine = MagicMock()
+    engine.get_fb.return_value = _make_mock_fb()
+    cm = MagicMock()
+    cm.get_plantillas_path.return_value = "C:/plantillas"
+    app_cache = _make_mock_app_cache(proc_uid=300, plc_names=("S7-1500",))
+
+    app = _make_app(engine=engine, app_cache=app_cache, config_manager=cm)
+    app.register_blueprint(bp)
+    client = app.test_client()
+
+    with _with_plc_noop():
+        resp = client.post("/api/v1/procesos/crear/aplicar", json={
+            "dir_plantilla_nombre": "TestPlantilla",
+            "proc_uid": 300,
+            "plc_name": "PLC_INEXISTENTE",
+        })
+    assert resp.status_code == 400
+    payload = resp.get_json()
+    assert payload["ok"] is False
+    assert "no esta en el Excel" in payload["error"]
+    # El mensaje reutiliza el del helper: lista los PLCs del Excel.
+    assert "S7-1500" in payload["error"]
+    # No se encolo ningun trabajo.
+    engine.submit.assert_not_called()

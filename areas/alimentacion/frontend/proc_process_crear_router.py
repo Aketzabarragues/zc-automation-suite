@@ -298,24 +298,9 @@ def crear_preview():
             "error": f"no se pudo encolar el trabajo: {exc}",
         }), 500
 
-    # LIMITACION CONOCIDA: este log de cierre deberia vivir en el FB, al
-    # final de ``execute()``. Aqui se emite al encolar (antes de que el
-    # trabajo termine), asi que los contadores salen del ``result`` que
-    # el FB tenga en ese instante: vacio en la primera ejecucion.
-    result = fb.result or {"ok": True}
-    n_prev = (
-        len(result.get("archivos_previstos", []))
-        if isinstance(result, dict) else 0
-    )
-    n_col = (
-        len(result.get("colisiones", []))
-        if isinstance(result, dict) else 0
-    )
-    logger.ok(
-        f"Preview crear proceso {validated['base_nueva']}/"
-        f"{validated['codigo_nuevo']}: {n_prev} archivos previstos, "
-        f"{n_col} colision(es)."
-    )
+    # El log de cierre lo emite el FB al terminar el trabajo: el router
+    # responde 202 antes de que el FB haya ejecutado, asi que aqui no
+    # hay ningun resultado real que resumir.
     return jsonify({"ok": True, "job_id": job_id}), 202
 
 
@@ -333,7 +318,8 @@ def crear_aplicar():
 
     Returns:
         202 con ``{"ok": true, "job_id": "<hex>"}``.
-        400 si faltan campos o proc_uid no esta en el Excel.
+        400 si faltan campos, si proc_uid no esta en el Excel o si el
+        plc_name no esta entre los PLCs del Excel.
         409 si el FB ya tiene un trabajo en curso.
         500 si el FB no esta registrado en el engine.
     """
@@ -372,12 +358,14 @@ def crear_aplicar():
 
     # Validar contra el Excel cargado (multi-PLC). El FB no lo hace
     # porque no tiene acceso al AppCache. Fail-fast aqui permite que
-    # el operario reciba 500 inmediato en lugar de esperar al
-    # progress tracker.
+    # el operario reciba 400 inmediato en lugar de esperar al
+    # progress tracker. Es validacion de entrada (el PLC no existe en
+    # el Excel), no un fallo del servidor: el mensaje lo da
+    # ``validate_plc_in_excel`` e incluye los PLCs disponibles.
     try:
         validate_plc_in_excel(_get_app_cache(), validated["plc_name"], AREA_ID)
     except ValueError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 500
+        return jsonify({"ok": False, "error": str(exc)}), 400
 
     logger.web(
         f"Aplicar: crear proceso {validated['base_nueva']}/"
@@ -401,30 +389,9 @@ def crear_aplicar():
             "error": f"no se pudo encolar el trabajo: {exc}",
         }), 500
 
-    # LIMITACION CONOCIDA: este log de cierre deberia vivir en el FB, al
-    # final de ``execute()``. Aqui se emite al encolar (antes de que el
-    # trabajo termine), asi que los contadores salen del ``result`` que
-    # el FB tenga en ese instante: vacio en la primera ejecucion.
-    result = fb.result or {"ok": True}
-    n_gen = (
-        len(result.get("archivos_generados", []))
-        if isinstance(result, dict) else 0
-    )
-    compile_ok = (
-        ((result.get("compile_result") or {}).get("ok"))
-        if isinstance(result, dict) else False
-    )
-    # ``process_label`` lo emite el FB (``"<base>_<codigo>"``).
-    # Fallback al formato ``base/codigo`` por si el backend no lo
-    # expone todavia (tests viejos, compat).
-    process_label = (
-        (result.get("process_label") if isinstance(result, dict) else None)
-        or f"{validated['base_nueva']}/{validated['codigo_nuevo']}"
-    )
-    logger.ok(
-        f"Proceso {process_label} creado en '{validated['plc_name']}': "
-        f"{n_gen} archivos generados, compile={'OK' if compile_ok else 'FAIL'}."
-    )
+    # El log de cierre lo emite el FB al terminar el trabajo: el router
+    # responde 202 antes de que el FB haya ejecutado, asi que aqui no
+    # hay ningun resultado real que resumir.
     return jsonify({"ok": True, "job_id": job_id}), 202
 
 
