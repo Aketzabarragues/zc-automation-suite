@@ -144,7 +144,11 @@ class FunctionProcDBSincronizar(FunctionBase):
             app_cache if app_cache is not None else get_app_cache()
         )
         # ``bloques_cache`` se inyecta por constructor (test) o se lee
-        # del ``AppCache`` en ``on_start``.
+        # del ``AppCache`` en ``on_start``. El valor inyectado se guarda
+        # aparte para poder volver a el en cada run: si el ``AppCache`` no
+        # tiene cache para el PLC pedido, el FB debe quedarse sin cache
+        # y no reusar el del run anterior (puede ser de otro PLC).
+        self._bloques_cache_injected = bloques_cache
         self._bloques_cache = bloques_cache
         # ZONA 3: estado entre ticks.
         self._plc_name: str = ""
@@ -153,6 +157,19 @@ class FunctionProcDBSincronizar(FunctionBase):
         # reinicializa en cada on_start() para no arrastrar estado del
         # run anterior (el FB es re-arrancable).
         self._ctx: Any = None
+
+    # ==================================================================
+    # Reset del estado de Zona 3
+    # ==================================================================
+
+    def reset_run_state(self) -> None:
+        """Reinicia el estado de Zona 3 antes de cada ``execute()``.
+
+        Sin esto el FB se queda con el cache de bloques del run anterior
+        cuando el ``AppCache`` no tiene cache para el PLC pedido:
+        diffearia contra bloques de otro PLC.
+        """
+        self._bloques_cache = self._bloques_cache_injected
 
     # ==================================================================
     # HOOK 1: on_start  (ZONA 3: validar params + crear ctx)

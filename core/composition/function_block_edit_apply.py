@@ -113,6 +113,23 @@ class FunctionBlockEditApply(FunctionBase):
         self._noop_mode: bool = False
 
     # ==================================================================
+    # Reset del estado de Zona 3
+    # ==================================================================
+
+    def reset_run_state(self) -> None:
+        """Reinicia el estado de Zona 3 antes de cada ``execute()``.
+
+        Sin esto el batch transaccional arrastra las operaciones del run
+        anterior: el dispatcher del OB1 reutiliza la instancia del FB, y
+        un segundo ``execute()`` volveria a mandar a TIA los cambios ya
+        aplicados. El flag ``_noop_mode`` tampoco puede quedar en True de
+        un run sin cambios, o el siguiente se creeria no-op.
+        """
+        self._ops = []
+        self._batch_result = None
+        self._noop_mode = False
+
+    # ==================================================================
     # HOOK 1: on_start  (ZONA 3: validar params)
     # ==================================================================
 

@@ -166,6 +166,21 @@ class FunctionBase:
     # Reset del estado por-llamada
     # ------------------------------------------------------------------
 
+    def reset_run_state(self) -> None:
+        """Punto de extension para reiniciar el estado de Zona 3 del FB.
+
+        La base llama a este hook en cada ``execute()``, antes de
+        ``on_start``. El dispatcher del OB1 reutiliza la misma instancia
+        del FB para cada trabajo, asi que un FB que acumule estado entre
+        steps (lista de operaciones, cache, flags) arrastraria el estado
+        del run anterior: el segundo trabajo volveria a mandar a TIA los
+        cambios ya aplicados, o diffearia contra un cache viejo.
+
+        La implementacion por defecto no hace nada: un FB sin estado
+        entre runs no necesita sobrescribirla.
+        """
+        return None
+
     def _reset_state_for_run(self, params: dict[str, Any]) -> None:
         """Limpia el estado por-llamada.
 
@@ -179,6 +194,7 @@ class FunctionBase:
         self.result = None
         self._step_idx = 0
         self._cancelled.clear()
+        self.reset_run_state()
 
     def _fail_with(self, exc: BaseException, contexto: str) -> None:
         """Fija ``error_msg``, cierra el tracker y transiciona a ``n_error``.
