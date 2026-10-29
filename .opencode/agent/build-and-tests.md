@@ -1,5 +1,5 @@
 ---
-description: Especialista en empaquetado y calidad de zc-automation-suite (PyInstaller con build_exe.py, launcher de bandeja y supervisor web en core/launcher/, suite pytest 130 tests en tests/, mocks con MagicMock(spec=SyncTIAClient), convención de commits 1-2 archivos por paso). Úsalo para cambios en build_exe.py, core/launcher/, tests/ y .bat.
+description: Especialista en empaquetado y calidad de zc-automation-suite (PyInstaller con build_exe.py, launcher de bandeja y supervisor web en core/launcher/, suite pytest en tests/, mocks con MagicMock(spec=SyncTIAClient), convención de commits 1-2 archivos por paso). Úsalo para cambios en build_exe.py, core/launcher/, tests/ y .bat.
 mode: subagent
 ---
 
@@ -15,9 +15,7 @@ tests de `zc-automation-suite`.
   - `core/launcher/` — bandeja (`tray_app.py` con `pystray`),
     supervisor web Flask sync + hilo OB1 + hilo TIA persistente
     (`main_supervisor.py`), icon y utilidades.
-  - `tests/` — suite pytest (130 tests acumulados: PR 0-6 + state
-    machine worker persistente + A2-A9 robustness + tests E2E del
-    worker real). Naming: `tests/test_<modulo>.py` (raíz) y
+  - `tests/` — suite pytest. Naming: `tests/test_<modulo>.py` (raíz) y
     `tests/test_area_<area>_<feature>.py` (áreas).
   - `run_*.bat`, `requirements.txt`, configuración de pytest.
 - **Don't own:** lógica de routers Flask, FBs, helpers,
@@ -38,22 +36,21 @@ tests de `zc-automation-suite`.
     (`.clinerules` §6).
 - **Launcher** (`core/launcher/`): coordina bandeja (`pystray` en
   `tray_app.py`) + supervisor (`main_supervisor.py`). El supervisor:
-  - Lanza Flask sync daemon (NO FastAPI; el repo es Flask).
+  - Lanza Flask sync daemon (el repo es Flask).
   - Lanza el `Engine` (OB1) en un hilo separado.
   - Llama al singleton `SyncTIAClient` para que su hilo persistente
     arranque en `idle` (`tia_loop.py`).
   - El método `stop()` limpia `.build_cache/<area>/` con
     `shutil.rmtree(ignore_errors=True)` por área.
-  - Orden de parada: main-loop -> flask -> tia-loop. Drena la cola
+  - Orden de parada: flask -> ob1 -> tia-loop. Drena la cola
     pendiente del worker OT antes de salir.
   - No debe filtrar handles de TIA entre reinicios.
 - **Tests pytest** (`tests/`):
   - Naming raíz: `tests/test_<modulo>.py`. Naming por área:
     `tests/test_area_<area>_<feature>.py`. Para helpers
     transversales, `tests/core/test_<helper>.py`.
-  - Mockear el gateway con `MagicMock(spec=TIAProcessGateway)`. Para
-    el worker OT real, usa `tests/_tia_openness_mock.py` (mockea los
-    RCW .NET).
+  - Mockear el cliente del worker con `MagicMock(spec=SyncTIAClient)`.
+    El worker OT real no se mockea: se ejercita contra TIA Portal.
   - Para `ProgressTracker`, instancia uno limpio
     (`ProgressTracker()`) y pásalo al FB / caso de uso (NO mockees
     el tracker).
@@ -67,8 +64,7 @@ tests de `zc-automation-suite`.
 
 ## Stop when
 
-- `python -m pytest tests/ -q` verde (130 tests, con 4 fallos
-  legacy pre-existentes que se reportan sin arreglar).
+- `python -m pytest tests/ -q` verde.
 - `python build_exe.py` produce `dist/zc_automation_suite.exe` sin
   warnings nuevos y sin `.pyd`/`.dll` colgados en el repo.
 - Si tocaste `core/launcher/main_supervisor.py` o un `.bat`, lo

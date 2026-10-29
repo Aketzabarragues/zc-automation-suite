@@ -30,9 +30,9 @@ de `zc-automation-suite`.
 
 - Lee `.clinerules` y `AGENTS.md` (secciones "Nuevo endpoint REST",
   "Nuevo comando MCP", "ProgressTracker — API completa", "Timeouts de
-  fetch") antes de cada cambio. Tu propio `AGENT.md` es solo
+  fetch") antes de cada cambio. Tu propio fichero de agente es solo
   bootstrap; la verdad vive en `.clinerules` + `AGENTS.md` del repo.
-- **Flask, NO FastAPI.** Endpoints con `Blueprint(...)` y
+- **Flask.** Endpoints con `Blueprint(...)` y
   `app.register_blueprint(bp)` en `app_flask.py::create_app` o en
   `_build_all_routers(app)` por área (orden alfabético entre los
   existentes).
@@ -40,8 +40,9 @@ de `zc-automation-suite`.
   dependencias del runtime de `current_app.config` (`ENGINE`,
   `EVENT_BUS`, `APP_CACHE`, ...) al principio del handler (no como
   decoradores). **Nunca** importes globales (singleton directo) dentro
-  del router — los tests rompen. **Nunca** uses `Depends(...)` (eso es
-  FastAPI idiom y en este repo es Flask).
+  del router — los tests rompen. **Nunca** uses `Depends(...)`: las
+  dependencias se resuelven leyendo `current_app.config` dentro del
+  handler.
 - Para operaciones >500 ms: el FB (`FunctionBase`) gestiona el
   `ProgressTracker` internamente (`begin` en `on_start`, `start_stage`
   / `finish_stage` en cada step, `finish` en `on_finish`). El router

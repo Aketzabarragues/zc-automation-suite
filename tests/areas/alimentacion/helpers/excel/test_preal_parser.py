@@ -2,14 +2,12 @@
 
 Cubre la extracciÃƒÆ’Ã‚Â³n de ``Tabla_PReal`` (hoja ``P_REAL``) y la
 preservaciÃƒÆ’Ã‚Â³n de ``num_lista`` como ``int | str`` (helper
-``_safe_num_lista``), que es el punto crÃƒÆ’Ã‚Â­tico de Fase 2 del plan
-``_plan/04_excel_cache_phased_plan.md``: el operario usa valores
+``_safe_num_lista``), que es el punto crÃƒÆ’Ã‚Â­tico del parser: el operario usa valores
 como ``"N/A"`` o ``"TODOS"`` como marcadores semÃƒÆ’Ã‚Â¡nticos y el
 parser no debe destruirlos cayendo a ``0``.
 
 Convenciones:
-    * Excel sintÃƒÆ’Ã‚Â©tico construido en ``tmp_path`` con ``Table`` real
-      (R5 del plan).
+    * Excel sintÃƒÆ’Ã‚Â©tico construido en ``tmp_path`` con ``Table`` real.
     * Se carga con ``load_workbook`` para garantizar que la
       ``ListObject`` se registre en ``worksheet.tables``.
 """
@@ -69,12 +67,12 @@ def _save_xlsx_with_preal_table(
         ]
     if rows is None:
         rows = []
-    # Inyectar PLC si falta (sept-2026, multi-PLC).
+    # Inyectar PLC si falta (multi-PLC).
     if "PLC" not in headers:
         headers = ["PLC"] + list(headers)
         rows = [["PLC1"] + list(r) for r in rows]
 
-    # Inyectar PLC si falta (sept-2026, multi-PLC).
+    # Inyectar PLC si falta (multi-PLC).
     if "PLC" not in headers:
         headers = ["PLC"] + list(headers)
         rows = [["PLC1"] + list(r) for r in rows]

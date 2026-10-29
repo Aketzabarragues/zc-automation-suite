@@ -24,7 +24,7 @@ Regla crítica (`.clinerules` §4) para
 
 Fix: si el caller no pasa un valor no vacío, omitir el parámetro
 `target_folder_path` en la llamada a TIA. Aplica a
-`core/infrastructure/tia/tia_handlers.py::_h_import_block` y futuros
+`core/infrastructure/tia/tia_cmd_import_.py::_h_import_block` y futuros
 `import_*` (import_plc_tags, import_data_types, etc.).
 
 ## Vue 3 sin build step — CUALQUIER baktill dentro de `template:` rompe
@@ -111,10 +111,9 @@ Para refactors cross-file con varios commits:
 
 ## Tests verdes != código correcto — smoke en vivo es la verdad
 
-En el refactor `greenfield/tia-worker-simplification`, el operario
-hizo smoke en vivo contra TIA V21 y el log pilló DOS bugs críticos
-que todos los tests verdes NO detectaban (compute_diff path bug +
-commit_user_constants_online perdido).
+El operario hizo smoke en vivo contra TIA V21 y el log pilló DOS bugs
+críticos que todos los tests verdes NO detectaban (compute_diff path
+bug + commit_user_constants_online perdido).
 
 Regla metodológica durable: tras un refactor grande, smoke en vivo
 contra PLC real. Los tests pytest mockean el cliente TIA completo y
@@ -127,7 +126,7 @@ de una clase como métodos reales (`def _stage_N_X(self)`), TODOS los
 símbolos que esas funciones usan deben estar importados a nivel de
 módulo.
 
-Smoke en vivo del operario contra TIA V21 (sept 2026) pilló 5 de
+Smoke en vivo del operario contra TIA V21 pilló 5 de
 estos: `function_disp_sincronizar.py`,
 `function_disp_generar_preview.py`,
 `function_proc_crear_sincronizar.py`,

@@ -1,15 +1,14 @@
-﻿"""Tests del parser ``PIntParser`` (Fase 3 del plan).
+﻿"""Tests del parser ``PIntParser``.
 
 Cubre la extracciÃƒÆ’Ã‚Â³n de ``Tabla_PInt`` (hoja ``P_INT``) y la
 preservaciÃƒÆ’Ã‚Â³n de ``num_lista`` como ``int | str`` (helper
-``_safe_num_lista``), ya tratado en Fase 2 pero re-verificado en
-el contexto del parser de enteros. AdemÃƒÆ’Ã‚Â¡s incluye el test de
-tipos distintos (R4 del plan): ``DataParamIntPLC`` y ``DataParamRealPLC``
+``_safe_num_lista``), que es el punto critico del parser de
+enteros. AdemÃƒÆ’Ã‚Â¡s incluye el test de
+tipos distintos: ``DataParamIntPLC`` y ``DataParamRealPLC``
 son nominalmente distintos aunque compartan shape.
 
 Convenciones:
-    * Excel sintÃƒÆ’Ã‚Â©tico construido en ``tmp_path`` con ``Table`` real
-      (R5 del plan).
+    * Excel sintÃƒÆ’Ã‚Â©tico construido en ``tmp_path`` con ``Table`` real.
     * Se carga con ``load_workbook`` para garantizar que la
       ``ListObject`` se registre en ``worksheet.tables``.
 """
@@ -67,12 +66,12 @@ def _save_xlsx_with_pint_table(
         ]
     if rows is None:
         rows = []
-    # Inyectar PLC si falta (sept-2026, multi-PLC).
+    # Inyectar PLC si falta (multi-PLC).
     if "PLC" not in headers:
         headers = ["PLC"] + list(headers)
         rows = [["PLC1"] + list(r) for r in rows]
 
-    # Inyectar PLC si falta (sept-2026, multi-PLC).
+    # Inyectar PLC si falta (multi-PLC).
     if "PLC" not in headers:
         headers = ["PLC"] + list(headers)
         rows = [["PLC1"] + list(r) for r in rows]

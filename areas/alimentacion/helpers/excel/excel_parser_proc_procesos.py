@@ -3,23 +3,24 @@
 Extrae la ``ListObject`` ``Tabla_Procesos`` de la hoja ``CONFIG``
 del workbook del departamento de alimentación y la mapea a una lista de
 ``DataProcesoPLC`` (DTO inmutable definido en
-``areas.alimentacion.domain.models.excel_cache``).
+``areas.alimentacion.data.data_procesos``).
 
-Diferencias con el legacy TUI (``_legacy_reference/ZC_ALM_TOOLS``):
+Diferencias con la herramienta TUI anterior:
     * Recibe el workbook **ya abierto** (``wb: Workbook``). NO abre
-      el archivo: esa responsabilidad es del loader / endpoint /
-      MCP tool. Esto evita abrir el workbook 4 veces (uno
-      por parser de software) y soporta el patrón donde el
-      ``ExcelLoader`` abre el workbook UNA vez y compone 11 parsers.
-    * Sin pandas: openpyxl directo. Coherente con el parser
-      consolidado ``AlimentacionExcelParser`` del repo.
-    * Defensivo: cada fila se envuelve en ``try/except`` y las filas
-      inválidas se descartan con ``logger.warning`` (no rompen la
-      carga). ``extract_list_object_rows`` ya devuelve ``[]`` si la
-      hoja o la tabla no existen.
-    * Mismas claves literales del Excel que el legacy:
-      ``UID``, ``Nombre``, ``Codigo``, ``PReal``, ``Index_Preal``,
-      ``PInt``, ``Index_Pint``, ``Alarmas``, ``Alarmas_Hmi``.
+      el archivo: esa responsabilidad es del loader / endpoint.
+      Esto evita abrir el workbook 4 veces (uno por parser de
+      software) y soporta el patrón donde el ``ExcelLoader`` abre
+      el workbook UNA vez y compone 11 parsers.
+    * Sin pandas: openpyxl directo. Coherente con el resto de
+      los parsers del area.
+    * Defensivo: cada fila se envuelve en ``try/except`` y las
+      filas inválidas se descartan con ``logger.warning`` (no
+      rompen la carga). ``extract_list_object_rows`` ya devuelve
+      ``[]`` si la hoja o la tabla no existen.
+    * Mismas claves literales del Excel que usaba la herramienta
+      TUI anterior: ``UID``, ``Nombre``, ``Codigo``, ``PReal``,
+      ``Index_Preal``, ``PInt``, ``Index_Pint``, ``Alarmas``,
+      ``Alarmas_Hmi``.
 
 Restricción arquitectónica: este módulo es OFFLINE; no importa
 ``siemens_tia_scripting``.
@@ -47,7 +48,7 @@ class ProcesosParser:
     Mapea cada fila de la ``ListObject`` a un ``DataProcesoPLC``. Las
     claves de columna son **literales** (con mayúsculas y, en su
     caso, guion bajo) Ã¢â‚¬” exactamente como aparecen en el Excel del
-    corporativo y como las consumía el legacy.
+    corporativo y como las consumia la herramienta TUI anterior.
 
     Atributos de clase:
         * ``SHEET``: nombre literal de la hoja (``"CONFIG"``).
@@ -68,19 +69,19 @@ class ProcesosParser:
             existen, devuelve ``[]``. Las filas que fallen al
             construir el DTO se descartan con WARNING.
 
-        Política de descarte (legacy, plan Ã‚Â§5.7 test 5):
+        Politica de descarte (dropna por UID):
             * Filas con ``UID`` vacío (``None`` / ``""`` / whitespace /
               ``"nan"`` / ``"None"`` / ``"null"``) se descartan
               silenciosamente. Esto evita procesos fantasma con
               ``uid=0`` en el cache. Es el equivalente del
-              ``pandas.dropna(subset=["UID"])`` del legacy TUI.
+              ``pandas.dropna(subset=["UID"])`` de la herramienta TUI anterior.
             * Filas con ``UID=0`` legítimo (entero o ``"0"``) se
               conservan: ``uid=0`` es un valor válido en el Excel.
         """
         rows = extract_list_object_rows(wb, self.SHEET, self.TABLE)
         result: list[DataProcesoPLC] = []
         for row in rows:
-            # Política legacy: dropna por UID. ``_safe_str`` ya mapea
+            # Politica de la herramienta TUI anterior: dropna por UID. ``_safe_str`` ya mapea
             # ``None`` / ``""`` / ``"nan"`` / ``"None"`` / ``"null"`` a
             # ``""``. Un UID ``"0"`` o ``0`` pasa el filtro (es válido).
             if _safe_str(row.get("UID")) == "":
@@ -100,8 +101,8 @@ class ProcesosParser:
                         pint=_safe_int(row.get("PInt")),
                         index_pint=_safe_int(row.get("Index_Pint")),
                         alarmas=_safe_int(row.get("Alarmas")),
-                        # Sept-2026: nueva columna del Excel. Mapeada
-                        # aqui como ``alm_hmi``. Si el Excel legacy NO
+                        # Columna nueva del Excel. Mapeada
+                        # aqui como ``alm_hmi``. Si el Excel NO
                         # tiene la columna (filas mas viejas),
                         # ``_safe_int`` retorna 0 -> desired=0, lo que
                         # baja el N_MAX en TIA. Opcion A confirmada

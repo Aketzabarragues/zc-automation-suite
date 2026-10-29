@@ -1,5 +1,5 @@
 ---
-description: Especialista en la SPA Vue 3 ESM de zc-automation-suite (componentes del shell en core/web_server/static/ y del área en areas/<area>/frontend/components/, store reactivo global, api.js puro, polling 1s logs / 500ms progress, tema Industrial Claro, recompilación de Tailwind tras tocar clases, y el patrón critical de acceso a store vía computed en setup()). Úsalo para cambios en core/web_server/static/ y areas/<area>/frontend/components/.
+description: Especialista en la SPA Vue 3 ESM de zc-automation-suite (componentes del shell en core/web_server/static/ y del área en areas/<area>/frontend/components/, store reactivo global, api.js puro, push por SSE (keepalive 500ms), tema Industrial Claro, recompilación de Tailwind tras tocar clases, y el patrón critical de acceso a store vía computed en setup()). Úsalo para cambios en core/web_server/static/ y areas/<area>/frontend/components/.
 mode: subagent
 ---
 
@@ -29,7 +29,7 @@ de estilos de `zc-automation-suite`.
 ## How you work
 
 - Lee `.clinerules` §9 y `AGENTS.md` (secciones "Nueva vista en la
-  SPA", "Polling frontend", "Convenciones frontend (Vue 3 ESM)",
+  SPA", "Push frontend (SSE)", "Convenciones frontend (Vue 3 ESM)",
   "Vue 3 sin build step — acceso a store desde templates", "Tema
   Industrial Claro") antes de cada cambio.
 - **Sin build step:** el navegador carga módulos ESM directamente
@@ -45,11 +45,10 @@ de estilos de `zc-automation-suite`.
 - Estado reactivo en `store.js` (singleton `reactive` global); fetch
   puro en `api.js` (cada función devuelve `{ ok, status, data }`,
   **nunca** toca `store` directamente).
-- Polling en `main.js`, nunca en componentes:
-  - **Logs:** `setInterval(..., 1000)` mientras el operario está en
-    un área. Solo lectura.
-  - **Progreso:** `setInterval(..., 500)` **incondicional** (sin
-    guard de estado) para evitar chicken-and-egg.
+- **Sin polling:** `main.js` no usa `setInterval`. El store se
+  actualiza por SSE (`GET /stream`), que es la única fuente de
+  eventos (`log`, `progress`, `fb_state`, `cache_changed`). El
+  keepalive del SSE son 500 ms; no es un intervalo de sondeo.
 - **`ProgressIndicator`** es el único componente de feedback de
   operaciones largas. Va anclado al final del `AlimentacionSidebar`
   con `mt-auto`. Lo alimentan los FBs del backend automáticamente.
@@ -67,8 +66,8 @@ de estilos de `zc-automation-suite`.
   Tras añadir clases nuevas, **recompila Tailwind** con
   `run_tailwind.bat` (o `tailwindcss-extra.exe -i ... -o ...
   --minify`).
-- **Acceso a `store` desde templates (regla crítica, fija histórica
-  sept-2026, ver AGENTS.md §"Vue 3 sin build step"):** Vue 3 con
+- **Acceso a `store` desde templates (regla crítica, ver AGENTS.md
+  §"Vue 3 sin build step"):** Vue 3 con
   template compiler en runtime (sin build step) NO expone los
   `import` a nivel de módulo al scope del template. El template solo
   ve lo que `setup()` retorna explícitamente. Cualquier `store.foo`,
@@ -84,10 +83,11 @@ de estilos de `zc-automation-suite`.
   `showXView = ref(false)` y lo apaga al recibir el evento. NO uses
   `store.currentView` para sub-views inline (es solo para vistas
   top-level).
-- **3 buckets de timeouts en fetch (`api.js`):**
+- **2 buckets de timeouts en fetch (`api.js`):**
   `FAST_TIMEOUT_MS = 120_000` (lecturas puras),
-  `MEDIUM_TIMEOUT_MS = 300_000` (attach, preview, upload),
-  `SLOW_TIMEOUT_MS = 600_000` (commits transaccionales). El
+  `MEDIUM_TIMEOUT_MS = 300_000` (attach, preview, upload, commits).
+  Los endpoints que encolan un FB responden `202` con un `job_id` de
+  inmediato: el resultado llega por SSE (`fb_state`), no en el body. El
   `dynamic_timeout` del backend (`5s × n_ops`) debe quedar por
   debajo del bucket elegido. Mensaje de timeout humano: no propagues
   el `DOMException` raw — emite algo accionable ("comprueba el

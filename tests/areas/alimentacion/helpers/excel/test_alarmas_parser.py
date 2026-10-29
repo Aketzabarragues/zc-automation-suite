@@ -1,4 +1,4 @@
-﻿"""Tests del parser ``AlarmasParser`` (Fase 4 del plan).
+﻿"""Tests del parser ``AlarmasParser``.
 
 Cubre la extracciÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n de ``Tabla_Alarmas`` (hoja ``ALARMAS``) y, en
 particular, la invariante R-F4.1: ``DataAlarmaPLC`` NO tiene atributo
@@ -6,12 +6,11 @@ particular, la invariante R-F4.1: ``DataAlarmaPLC`` NO tiene atributo
 ``Visibilidad`` del Excel si esta existe.
 
 Es la **implementaciÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n de referencia** que los 6 mini parsers de
-dispositivos de Fase 5 imitarÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡n; los tests aquÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­ son la plantilla
-que los tests de Fase 5 extenderÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡n.
+dispositivos imitarÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡n; los tests aquÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­ son la plantilla
+que los tests de cada dispositivo extenderÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡n.
 
 Convenciones:
-    * Excel sintÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©tico construido en ``tmp_path`` con ``Table`` real
-      (R5 del plan).
+    * Excel sintÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©tico construido en ``tmp_path`` con ``Table`` real.
     * Se carga con ``load_workbook`` para garantizar que la
       ``ListObject`` se registre en ``worksheet.tables``.
 """
@@ -56,7 +55,7 @@ def _save_xlsx_with_alarmas_table(
         Path absoluto del .xlsx en str.
     """
     if headers is None:
-        # Cabeceras del legacy: 6 columnas, SIN Visibilidad.
+        # Cabeceras del Excel: 6 columnas, SIN Visibilidad.
         headers = [
             "UID",
             "Numero",
@@ -67,12 +66,12 @@ def _save_xlsx_with_alarmas_table(
         ]
     if rows is None:
         rows = []
-    # Inyectar PLC si falta (sept-2026, multi-PLC).
+    # Inyectar PLC si falta (multi-PLC).
     if "PLC" not in headers:
         headers = ["PLC"] + list(headers)
         rows = [["PLC1"] + list(r) for r in rows]
 
-    # Inyectar PLC si falta (sept-2026, multi-PLC).
+    # Inyectar PLC si falta (multi-PLC).
     if "PLC" not in headers:
         headers = ["PLC"] + list(headers)
         rows = [["PLC1"] + list(r) for r in rows]
@@ -228,8 +227,7 @@ def test_sin_visibilidad_en_dto() -> None:
 
     Esta es una **invariante contractual**: la tabla de Alarmas
     del Excel corporativo no incluye ``Visibilidad`` (consistente
-    con el legacy ``_legacy_reference/ZC_ALM_TOOLS/infrastructure/
-    parsers/software/alarmas.py:21-31``), por lo que el DTO no
+    con la tabla de la herramienta TUI anterior), por lo que el DTO no
     expone ese campo. El test bloquea cualquier regresiÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n que
     aÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â±ada ``visibilidad`` al DTO por confusiÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n con
     ``DataParamRealPLC``/``DataParamIntPLC``.

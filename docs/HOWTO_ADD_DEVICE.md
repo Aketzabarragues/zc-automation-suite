@@ -222,7 +222,7 @@ Sitios habituales a revisar:
 - `areas/alimentacion/data/data_dimensiones.py` — "los N principales + cualquier extra".
 - `areas/alimentacion/data/data_proc_slot_map.py` — "los N DBs de dispositivos".
 - `areas/alimentacion/helpers/layout/build_cache.py` — "los N DBs de dispositivos".
-- `areas/alimentacion/functions/function_disp_sincronizar.py::stage_10` — "los N DBs de disp".
+- `areas/alimentacion/functions/function_disp_sincronizar.py::_stage_10_aplicar_comentarios` — "los N DBs de disp".
 - `areas/alimentacion/helpers/excel/excel_upload.py` — "los N mini parsers".
 - `areas/alimentacion/helpers/excel/excel_loader.py` — docstrings + comentarios.
 - `core/infrastructure/config/config_manager.py` — algunos docstrings.

@@ -3,27 +3,25 @@
 Extrae la ``ListObject`` ``Tabla_PReal`` de la hoja ``P_REAL`` del
 workbook del departamento de alimentación y la mapea a una lista
 de ``DataParamRealPLC`` (DTO inmutable definido en
-``areas.alimentacion.domain.models.excel_cache``).
+``areas.alimentacion.data.data_parametros_real``).
 
-Diferencias con el legacy TUI (``_legacy_reference/ZC_ALM_TOOLS``):
+Diferencias con la herramienta TUI anterior:
     * Recibe el workbook **ya abierto** (``wb: Workbook``). NO abre
-      el archivo: esa responsabilidad es del loader / endpoint /
-      MCP tool. Esto evita abrir el workbook 4 veces (uno
-      por parser de software) y soporta el patrón donde el
-      ``ExcelLoader`` abre el workbook UNA vez y compone 11
-      parsers.
-    * Sin pandas: openpyxl directo. Coherente con el parser
-      consolidado ``AlimentacionExcelParser`` del repo.
+      el archivo: esa responsabilidad es del loader / endpoint.
+      Esto evita abrir el workbook 4 veces (uno por parser de
+      software) y soporta el patrón donde el ``ExcelLoader`` abre
+      el workbook UNA vez y compone 11 parsers.
+    * Sin pandas: openpyxl directo. Coherente con el resto de
+      los parsers del area.
     * Defensivo: cada fila se envuelve en ``try/except`` y las
       filas inválidas se descartan con ``logger.warning`` (no
       rompen la carga). ``extract_list_object_rows`` ya devuelve
       ``[]`` si la hoja o la tabla no existen.
-    * Mismas claves literales del Excel que el legacy
-      (``_legacy_reference/ZC_ALM_TOOLS/infrastructure/parsers/
-      software/preal.py`` líneas 25-38): ``UID``, ``Numero``,
-      ``Proceso``, ``Codigo``, ``Num.DB``, ``Producto``, ``Tipo``,
-      ``Descripcion``, ``ComentarioDB``, ``Visibilidad``,
-      ``Num.Lista``, ``Txt.Lista``.
+    * Mismas claves literales del Excel que usaba la herramienta
+      TUI anterior: ``UID``, ``Numero``, ``Proceso``, ``Codigo``,
+      ``Num.DB``, ``Producto``, ``Tipo``, ``Descripcion``,
+      ``ComentarioDB``, ``Visibilidad``, ``Num.Lista``,
+      ``Txt.Lista``.
 
 Punto crítico: el campo ``num_lista`` **no** se mapea con
 ``_safe_int`` (que destruiría los marcadores semánticos del operario
@@ -59,7 +57,7 @@ class PRealParser:
     Mapea cada fila de la ``ListObject`` a un ``DataParamRealPLC``. Las
     claves de columna son **literales** (con mayúsculas, puntos y
     espacios) Ã¢â‚¬” exactamente como aparecen en el Excel del
-    corporativo y como las consumía el legacy.
+    corporativo y como las consumia la herramienta TUI anterior.
 
     Atributos de clase:
         * ``SHEET``: nombre literal de la hoja (``"P_REAL"``).
@@ -81,12 +79,12 @@ class PRealParser:
             construir el DTO se descartan con WARNING.
 
         Política de descarte (consistente con ``ProcesosParser``,
-        legacy dropna por UID):
+        dropna por UID):
             * Filas con ``UID`` vacío (``None`` / ``""`` / whitespace
               / ``"nan"`` / ``"None"`` / ``"null"``) se descartan
               silenciosamente. Esto evita parámetros fantasma sin
               UID en el cache. Es el equivalente del
-              ``pandas.dropna(subset=["UID"])`` del legacy TUI.
+              ``pandas.dropna(subset=["UID"])`` de la herramienta TUI anterior.
             * Filas con ``UID`` no vacío se conservan aunque el
               resto de campos esté vacío: el DTO tiene defaults
               tolerantes (``str = ""``, ``int = 0``,
@@ -95,7 +93,7 @@ class PRealParser:
         rows = extract_list_object_rows(wb, self.SHEET, self.TABLE)
         result: list[DataParamRealPLC] = []
         for row in rows:
-            # Política legacy: dropna por UID. ``_safe_str`` ya
+            # Politica de la herramienta TUI anterior: dropna por UID. ``_safe_str`` ya
             # mapea ``None`` / ``""`` / ``"nan"`` / ``"None"`` /
             # ``"null"`` a ``""``.
             if _safe_str(row.get("UID")) == "":

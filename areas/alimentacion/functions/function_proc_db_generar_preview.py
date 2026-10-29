@@ -2,7 +2,7 @@
 
 State machine declarativa sobre la tabla ``STAGES``. Cada step ejecuta
 una operacion contra el ``ProcPreviewContext`` compartido entre los 6
-ticks. Helpers puros (``_empty_nmax_block``, ``_extract_codigo``,
+steps. Helpers puros (``_empty_nmax_block``, ``_extract_codigo``,
 ``_compose_arrays_internal``, ``_compute_summary_internal``) viven en
 ``areas/alimentacion/helpers/proc/proc_generar_preview.py``.
 
@@ -131,15 +131,17 @@ class FunctionProcDBGenerarPreview(FunctionBase):
         self._app_cache: AppCache = (
             app_cache if app_cache is not None else get_app_cache()
         )
-        # ``bloques_cache`` viene del gateway (``_bloques_cache`` del
-        # TIAProcessGateway, poblado por ``scan_plc_blocks``). El router
-        # lo inyecta explicitamente porque el FB no tiene acceso directo
-        # al gateway.
+        # ``bloques_cache`` lo produce ``scan_plc_blocks``
+        # (``core.infrastructure.tia.tia_cache``), que despacha el
+        # comando ``scan_blocks`` al worker OT
+        # (``core.infrastructure.tia.tia_loop``). El router lo inyecta
+        # explicitamente; si no lo hace, el FB lo lee del ``AppCache``
+        # en ``on_start``.
         self._bloques_cache = bloques_cache
-        # ZONA 3: estado entre ticks.
+        # ZONA 3: estado entre steps.
         self._plc_name: str = ""
         self._proc_uid: int = 0
-        # ProcPreviewContext compartido entre los 6 ticks. Se
+        # ProcPreviewContext compartido entre los 6 steps. Se
         # reinicializa en cada on_start() para no arrastrar estado del
         # run anterior (el FB es re-arrancable).
         self._ctx: Any = None
@@ -178,9 +180,9 @@ class FunctionProcDBGenerarPreview(FunctionBase):
         self._plc_name = str(plc_name)
         self._proc_uid = proc_uid
 
-        # Validar contra TIA Portal (fail-late, PR5 D4/D11).
+        # Validar contra TIA Portal (fail-late).
         validate_plc_in_tia(self._tia_client, self._plc_name)
-        # Validar contra el Excel cargado (sept-2026 multi-PLC).
+        # Validar contra el Excel cargado (multi-PLC).
         validate_plc_in_excel(self._app_cache, self._plc_name, AREA_ID)
         # Propagar al AppCache (defensa redundante con el endpoint).
         with_plc(self._app_cache, self._plc_name, AREA_ID)
@@ -724,7 +726,7 @@ class ProcPreviewContext:
     deps inyectadas y los resultados de funciones previas, y muta los
     campos que representan resultados de su trabajo. El FB
     ``FunctionProcDBGenerarPreview`` instancia uno y lo reusa entre sus 6
-    ticks para que los resultados intermedios esten disponibles para
+    steps para que los resultados intermedios esten disponibles para
     las funciones posteriores.
     """
 

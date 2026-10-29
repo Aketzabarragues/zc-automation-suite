@@ -3,27 +3,25 @@
 Extrae la ``ListObject`` ``Tabla_PInt`` de la hoja ``P_INT`` del
 workbook del departamento de alimentaciÃƒÆ’Ã‚Â³n y la mapea a una lista
 de ``DataParamIntPLC`` (DTO inmutable definido en
-``areas.alimentacion.domain.models.excel_cache``).
+``areas.alimentacion.data.data_parametros_int``).
 
-Diferencias con el legacy TUI (``_legacy_reference/ZC_ALM_TOOLS``):
+Diferencias con la herramienta TUI anterior:
     * Recibe el workbook **ya abierto** (``wb: Workbook``). NO abre
-      el archivo: esa responsabilidad es del loader / endpoint /
-      MCP tool. Esto evita abrir el workbook 4 veces (uno
-      por parser de software) y soporta el patrón donde el
-      ``ExcelLoader`` abre el workbook UNA vez y compone 11
-      parsers.
-    * Sin pandas: openpyxl directo. Coherente con el parser
-      consolidado ``AlimentacionExcelParser`` del repo.
+      el archivo: esa responsabilidad es del loader / endpoint.
+      Esto evita abrir el workbook 4 veces (uno por parser de
+      software) y soporta el patron donde el ``ExcelLoader`` abre
+      el workbook UNA vez y compone 11 parsers.
+    * Sin pandas: openpyxl directo. Coherente con el resto de
+      los parsers del area.
     * Defensivo: cada fila se envuelve en ``try/except`` y las
       filas invÃƒÆ’Ã‚¡lidas se descartan con ``logger.warning`` (no
       rompen la carga). ``extract_list_object_rows`` ya devuelve
       ``[]`` si la hoja o la tabla no existen.
-    * Mismas claves literales del Excel que el legacy
-      (``_legacy_reference/ZC_ALM_TOOLS/infrastructure/parsers/
-      software/pint.py`` lÃƒÆ’Ã‚Â­neas 27-38): ``UID``, ``Numero``,
-      ``Proceso``, ``Codigo``, ``Num.DB``, ``Producto``, ``Tipo``,
-      ``Descripcion``, ``ComentarioDB``, ``Visibilidad``,
-      ``Num.Lista``, ``Txt.Lista``.
+    * Mismas claves literales del Excel que usaba la herramienta
+      TUI anterior: ``UID``, ``Numero``, ``Proceso``, ``Codigo``,
+      ``Num.DB``, ``Producto``, ``Tipo``, ``Descripcion``,
+      ``ComentarioDB``, ``Visibilidad``, ``Num.Lista``,
+      ``Txt.Lista``.
 
 Punto crítico: el campo ``num_lista`` **no** se mapea con ``_safe_int``
 (que destruirÃƒÆ’Ã‚Â­a los marcadores semÃƒÆ’Ã‚¡nticos del operario cayendo a
@@ -65,7 +63,7 @@ class PIntParser:
     Mapea cada fila de la ``ListObject`` a un ``DataParamIntPLC``. Las
     claves de columna son **literales** (con mayÃƒÆ’Ã‚ºsculas, puntos y
     espacios) Ãƒ¢Ã¢â€šÂ¬Ã¢â‚¬Â exactamente como aparecen en el Excel del
-    corporativo y como las consumÃƒÆ’Ã‚Â­a el legacy.
+    corporativo y como las consumia la herramienta TUI anterior.
 
     Atributos de clase:
         * ``SHEET``: nombre literal de la hoja (``"P_INT"``).
@@ -87,12 +85,12 @@ class PIntParser:
             construir el DTO se descartan con WARNING.
 
         PolÃƒÆ’Ã‚Â­tica de descarte (consistente con ``ProcesosParser`` y
-        ``PRealParser``, legacy dropna por UID):
+        ``PRealParser``, dropna por UID):
             * Filas con ``UID`` vacÃƒÆ’Ã‚Â­o (``None`` / ``""`` / whitespace
               / ``"nan"`` / ``"None"`` / ``"null"``) se descartan
               silenciosamente. Esto evita parÃƒÆ’Ã‚¡metros fantasma sin
               UID en el cache. Es el equivalente del
-              ``pandas.dropna(subset=["UID"])`` del legacy TUI.
+              ``pandas.dropna(subset=["UID"])`` de la herramienta TUI anterior.
             * Filas con ``UID`` no vacÃƒÆ’Ã‚Â­o se conservan aunque el
               resto de campos estÃƒÆ’© vacÃƒÆ’Ã‚Â­o: el DTO tiene defaults
               tolerantes (``str = ""``, ``int = 0``,
@@ -101,7 +99,7 @@ class PIntParser:
         rows = extract_list_object_rows(wb, self.SHEET, self.TABLE)
         result: list[DataParamIntPLC] = []
         for row in rows:
-            # PolÃƒÆ’Ã‚Â­tica legacy: dropna por UID. ``_safe_str`` ya
+            # Politica de la herramienta TUI anterior: dropna por UID. ``_safe_str`` ya
             # mapea ``None`` / ``""`` / ``"nan"`` / ``"None"`` /
             # ``"null"`` a ``""``.
             if _safe_str(row.get("UID")) == "":

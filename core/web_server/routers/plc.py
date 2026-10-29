@@ -1,15 +1,16 @@
 """Flask blueprint para PLC FBs.
 
-Equivalente sync de ``plc.py`` (FastAPI). Endpoints:
+Blueprint Flask de los Function Blocks de PLC. Endpoints:
   POST /api/v1/plc/fb/<name>/start       -> encola el trabajo del FB.
   POST /api/v1/plc/fb/<name>/disconnect -> desregistra FB del engine.
   GET  /api/v1/plc/fb/<name>/status     -> estado actual del FB.
 
 Engine se lee de ``current_app.config['ENGINE']`` (inyectado por
-create_app). FBs se registran en ``composition root`` (4.5.1+).
+create_app). FBs se registran en el composition root.
 
-Los POST no bloquean: encolan el trabajo en el OB1 y devuelven 202 con
-el ``job_id``. El resultado llega al HMI por el evento SSE ``fb_state``.
+Los POST no bloquean: encolan el trabajo en el OB1 con
+``engine.submit()`` y devuelven 202 con el ``job_id``. El resultado
+llega al HMI por el evento SSE ``fb_state``.
 
 Los endpoints de cache de bloques del PLC
 (GET /api/v1/plcs/<name>/blocks y POST /api/v1/plcs/<name>/blocks/refresh)
@@ -110,12 +111,11 @@ def get_fb_status(name: str):
 # ---------------------------------------------------------------------------
 # Blueprint hermano: endpoints de cache de bloques del PLC.
 #
-# Gap el shell SPA (``plcpanelview.js``) llama a
+# El shell SPA (``plcpanelview.js``) llama a
 # ``loadAndApplyPlcBlocks`` con ``force=false`` (lee) o ``force=true``
-# (refrescar) apuntando a ``/api/v1/plcs/<name>/blocks``. Esos endpoints
-# no existian en routers tras la migracion del worker — los anadimos
-# aqui delegando en el comando ``scan_blocks`` del worker TIA
-# (``core.infrastructure.tia.tia_handlers._h_scan_blocks``).
+# (refrescar) apuntando a ``/api/v1/plcs/<name>/blocks``. Este blueprint
+# sirve esos endpoints delegando en el comando ``scan_blocks`` del
+# worker TIA (``core.infrastructure.tia.tia_cmd_inspect._h_scan_blocks``).
 #
 # El backend OB1 no tiene cache servidor del PLC: cada llamada escanea
 # TIA Portal directamente. La diferencia entre GET y POST es solo
@@ -143,8 +143,8 @@ def _scan_plc_blocks(plc_name: str):
     por SSE (``cache_changed``).
 
     Si el portal no esta attached, devuelve 503 + X-Error-Type
-    (mismo contrato que la version pre-FB) para que el SPA distinga
-    el caso y resetee el state PLC via ``store.loadAndApplyPlcBlocks``.
+    (mismo contrato que el resto de endpoints del shell) para que el SPA
+    distinga el caso y resetee el state PLC via ``store.loadAndApplyPlcBlocks``.
     """
     tia_client = current_app.config.get("TIA_CLIENT")
     if tia_client is None or tia_client.ts is None or tia_client.wrapper is None:
@@ -175,7 +175,7 @@ def _scan_plc_blocks(plc_name: str):
     body = request.get_json(silent=True) or {}
     force_refresh = bool(body.get("force_refresh", False))
 
-    # Plan living TRAZABILIDAD_LOGGING §5 (operacion 3): 1 web al iniciar.
+    # 1 web al iniciar.
     logger.web(
         f"Leyendo cache del PLC '{plc_name}' "
         f"(force_refresh={force_refresh})..."
