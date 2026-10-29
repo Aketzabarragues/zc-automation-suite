@@ -168,11 +168,25 @@ def _h_export_tables(args: dict, tia_client: "SyncTIAClient") -> dict:
 
     Las PlcTagTables no aceptan ``export_format``; el wrapper TIA escribe
     XML directamente.
+
+    El layout importa: con ``keep_folder_structure=False`` el ``.xml``
+    sale plano y TIA, al reimportarlo, crea la tabla de nuevo en vez de
+    actualizarla (la transaccion muere con ``CommitOnDispose``). Por eso
+    un call site que hereda el default por omision emite un warning:
+    la decision del layout tiene que ser explicita.
     """
     plc_name: str = args.get("plc_name", "")
     target_dir: str = args.get("target_dir", "")
     table_names = args.get("table_names")
     keep_folder_structure: bool = args.get("keep_folder_structure", False)
+
+    if "keep_folder_structure" not in args:
+        logger.warning(
+            "[tia] export_tables sin 'keep_folder_structure' explicito: el "
+            ".xml sale plano. Si el resultado se importa en TIA, la tabla "
+            "se creara de nuevo en vez de actualizarse y la transaccion "
+            "muere con CommitOnDispose."
+        )
 
     if not plc_name:
         raise ValueError("Se requiere el argumento 'plc_name'.")

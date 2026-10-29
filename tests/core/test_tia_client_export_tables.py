@@ -207,6 +207,57 @@ def test_export_tables_keep_folder_structure_true_se_preserva():
 
 
 # ---------------------------------------------------------------------------
+# Aviso cuando el layout se hereda por omision
+# ---------------------------------------------------------------------------
+
+def test_export_tables_avisa_si_no_declara_el_layout(caplog):
+    """Un call site que hereda el default por omision debe avisar.
+
+    El default es ``False`` (export plano). Si el resultado se importa
+    en TIA, la tabla se creara de nuevo en vez de actualizarse.
+    """
+    import logging
+
+    portal, _ = _setup_with_tables(["T1"])
+    c = _client()
+    c.attach_wrapper(portal)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        with caplog.at_level(logging.WARNING, logger="zc.tia_loop"):
+            out = c.dispatch(
+                "export_tables",
+                {"plc_name": "PLC_1", "target_dir": tmp},
+            )
+
+    assert out["ok"] is True
+    assert "keep_folder_structure" in caplog.text
+    assert "CommitOnDispose" in caplog.text
+
+
+def test_export_tables_no_avisa_si_declara_el_layout(caplog):
+    """El layout declarado (True o False) no genera aviso."""
+    import logging
+
+    portal, _ = _setup_with_tables(["T1"])
+    c = _client()
+    c.attach_wrapper(portal)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        with caplog.at_level(logging.WARNING, logger="zc.tia_loop"):
+            out = c.dispatch(
+                "export_tables",
+                {
+                    "plc_name": "PLC_1",
+                    "target_dir": tmp,
+                    "keep_folder_structure": False,
+                },
+            )
+
+    assert out["ok"] is True
+    assert "keep_folder_structure" not in caplog.text
+
+
+# ---------------------------------------------------------------------------
 # Retorno
 # ---------------------------------------------------------------------------
 
