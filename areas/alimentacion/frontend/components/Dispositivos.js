@@ -36,7 +36,7 @@
  */
 import { computed, ref } from "/js/vendor/vue.esm-browser.prod.js";
 // Imports absolutos: ver nota en ``Sidebar.js``.
-import { store, resetPlcState } from "/js/store.js";
+import { store, resetPlcState, waitForFbJob } from "/js/store.js";
 import { apiGeneratePreview, apiCommit } from "/js/api.js";
 import { STATUS_META } from "../lib/disp_status.js";
 
@@ -164,16 +164,57 @@ export default {
             return counts;
         });
 
+        /**
+         * Espera al trabajo encolado por el router y devuelve el
+         * estado terminal del FB. Si el FB termino con error o si se
+         * agoto el timeout de la espera, devuelve un estado con
+         * ``error_msg`` para que el caller lo muestre al operario.
+         *
+         * No es polling de red: ``waitForFbJob`` mira el estado en
+         * memoria que llega por SSE (evento ``fb_state``).
+         */
+        async function _esperarJob(jobId, fbName) {
+            try {
+                return await waitForFbJob(jobId, fbName);
+            } catch (e) {
+                return {
+                    error_msg: String(e && e.message ? e.message : e),
+                };
+            }
+        }
+
+        /**
+         * Genera la prevision de dispositivos (FB
+         * ``disp_generar_preview``).
+         *
+         * El router responde 202 en cuanto encola el trabajo en el
+         * OB1: el FB sigue trabajando contra TIA cuando el POST
+         * termina. Por eso el flag de ocupado se libera cuando el FB
+         * llega a terminal, no cuando responde el POST; si no, el
+         * operario podria relanzar el mismo FB con el trabajo todavia
+         * en vuelo.
+         */
         async function generarPreview() {
             if (!store.appCache?.selected_plc) return;
             store.busy = true;
             try {
                 const r = await apiGeneratePreview(store.appCache.selected_plc);
                 if (r.ok) {
-                    // El backend ya escribio ``preview_disp`` en el
-                    // AppCache y emitio ``cache_changed`` por SSE.
-                    // La reactividad de ``previewData`` propaga el
+                    // El FB publica ``preview_disp`` en el AppCache al
+                    // terminar y emite ``cache_changed`` por SSE. La
+                    // reactividad de ``previewData`` propaga el
                     // cambio a la tabla.
+                    if (r.data && r.data.job_id) {
+                        const st = await _esperarJob(
+                            r.data.job_id,
+                            "disp_generar_preview"
+                        );
+                        if (st.error_msg) {
+                            alert(
+                                "Error generando prevision: " + st.error_msg
+                            );
+                        }
+                    }
                 } else if (r.errorType === "TIAConnectionError") {
                     // TIA Portal no responde: el backend ya invalido
                     // su cache; limpiamos el state del PLC en el SPA
@@ -190,6 +231,14 @@ export default {
             }
         }
 
+        /**
+         * Aplica la prevision al PLC (FB ``disp_sincronizar``).
+         *
+         * Mismo contrato que ``generarPreview``: el flag de ocupado
+         * se queda puesto hasta que el FB llega a terminal, porque el
+         * commit transaccional sigue en curso cuando el router ya ha
+         * respondido 202.
+         */
         async function ejecutarCommit() {
             const p = previewData.value;
             if (!p) return;
@@ -219,12 +268,21 @@ export default {
                     p
                 );
                 if (r.ok) {
-                    // El backend ya re-corrio el preview, lo publico
-                    // en el AppCache y emitio ``cache_changed`` por
+                    // El FB re-corre el preview al terminar, lo publica
+                    // en el AppCache y emite ``cache_changed`` por
                     // SSE. No necesitamos re-fetchear: la
                     // reactividad de ``previewData`` actualiza la
                     // tabla. Si el sync fue completo, mostrara 0
                     // cambios (todo en sync).
+                    if (r.data && r.data.job_id) {
+                        const st = await _esperarJob(
+                            r.data.job_id,
+                            "disp_sincronizar"
+                        );
+                        if (st.error_msg) {
+                            alert("Error aplicando: " + st.error_msg);
+                        }
+                    }
                 } else if (r.errorType === "TIAConnectionError") {
                     // TIA Portal no responde. Limpiamos el state del
                     // PLC en el SPA (backend ya invalido su cache).

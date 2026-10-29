@@ -10,8 +10,12 @@
  *   1. Cabecera: nombre del proceso, código, UID, y los 3 nombres
  *      TIA resueltos (DB_PARAM, DB_ALM, tabla de variables).
  *   2. Banner ámbar si ``store.procesosSync.error`` está poblado.
- *   3. Banner ámbar si el preview tiene ``precondiciones_ok=false``
- *      (lista los bloques ausentes en el PLC).
+ *   3. Banner ámbar si el preview publicado en el AppCache
+ *      (``preview_proc``, que el FB ``proc_db_generar_preview``
+ *      escribe al terminar y llega por SSE ``cache_changed``) tiene
+ *      ``precondiciones_ok=false`` (lista los bloques ausentes en el
+ *      PLC). El dato NO viene del body del POST: el router responde
+ *      202 con ``{job_id}`` y no lleva el resultado.
  *   4. 3 tabs (PReal, PInt, Alarmas) con badge del nº de cambios
  *      (renombrados + agregados + eliminados).
  *   5. Tabla con columnas: # | Actual (TIA) | Deseado (Excel)
@@ -46,7 +50,7 @@ import {
     ref,
     watch,
 } from "/js/vendor/vue.esm-browser.prod.js";
-import { store, resetPlcState } from "/js/store.js";
+import { store, resetPlcState, waitForFbJob } from "/js/store.js";
 import {
     apiProcesosSyncPreview,
     apiProcesosSyncCommit,
@@ -140,6 +144,12 @@ export default {
 
         /**
          * Banner: precondiciones del preview (missing_blocks).
+         *
+         * El dato viene del slot ``preview_proc`` del AppCache
+         * (``preview`` -> ``previewProc``), que el FB
+         * ``proc_db_generar_preview`` publica al terminar y que llega
+         * por SSE ``cache_changed``. La reactividad del computed
+         * repinta el banner solo, sin tocar el resto de la vista.
          */
         const precondError = computed(() => {
             const p = preview.value;
@@ -309,7 +319,33 @@ export default {
         });
 
         /**
-         * Click en "🔍 Generar Previsión".
+         * Espera al trabajo encolado por el router y devuelve el
+         * estado terminal del FB. Si el FB termino con error o si se
+         * agoto el timeout de la espera, devuelve un estado con
+         * ``error_msg`` para que el caller lo muestre al operario.
+         *
+         * No es polling de red: ``waitForFbJob`` mira el estado en
+         * memoria que llega por SSE (evento ``fb_state``).
+         */
+        async function _esperarJob(jobId, fbName) {
+            try {
+                return await waitForFbJob(jobId, fbName);
+            } catch (e) {
+                return {
+                    error_msg: String(e && e.message ? e.message : e),
+                };
+            }
+        }
+
+        /**
+         * Click en "🔍 Generar Previsión" (FB
+         * ``proc_db_generar_preview``).
+         *
+         * El router responde 202 en cuanto encola el trabajo en el
+         * OB1: el FB sigue trabajando cuando el POST termina. Por eso
+         * los flags de ocupado se liberan cuando el FB llega a
+         * terminal, no cuando responde el POST; si no, el operario
+         * podria relanzar el mismo FB con el trabajo en vuelo.
          */
         async function handleGeneratePreview() {
             if (isWorking.value) return;
@@ -323,17 +359,24 @@ export default {
                     plcName.value
                 );
                 if (r && r.ok) {
-                    // El backend ya escribio ``preview_proc`` en el
-                    // AppCache y emitio ``cache_changed`` por SSE. La
+                    // El FB publica ``preview_proc`` en el AppCache al
+                    // terminar y emite ``cache_changed`` por SSE. La
                     // reactividad de ``previewProc`` propaga el
                     // cambio a la tabla.
-                    if (r.data && r.data.precondiciones_ok) {
-                        // preview OK: el backend emite logger.web si quiere
-                        // que el operario lo vea en la consola.
-                    } else {
-                        // precondiciones NO cumplidas: el backend emite
-                        // el warning via logger.warning.
+                    if (r.data && r.data.job_id) {
+                        const st = await _esperarJob(
+                            r.data.job_id,
+                            "proc_db_generar_preview"
+                        );
+                        if (st.error_msg) {
+                            store.procesosSync.error =
+                                "Preview fallo: " + st.error_msg;
+                        }
                     }
+                    // Las precondiciones NO se leen del body del POST
+                    // (el router responde 202 con ``{job_id}``): el
+                    // banner las toma del slot ``preview_proc`` del
+                    // AppCache, que el FB publica al terminar.
                 } else if (r && r.errorType === "TIAConnectionError") {
                     // TIA Portal no responde. El backend ya invalido
                     // su cache; limpiamos el state del PLC en el SPA
@@ -353,7 +396,10 @@ export default {
         }
 
         /**
-         * Click en "✓ Aplicar".
+         * Click en "✓ Aplicar" (FB ``proc_db_sincronizar``).
+         *
+         * Mismo contrato que ``handleGeneratePreview``: los flags de
+         * ocupado se quedan puestos hasta que el FB llega a terminal.
          */
         async function handleApply() {
             if (!canApply.value) return;
@@ -372,10 +418,24 @@ export default {
                     preview.value
                 );
                 if (r && r.ok) {
-                    store.procesosSync.lastAppliedAt =
-                        new Date().toISOString();
-                    // El backend ya re-corrio el preview, lo publico
-                    // en el AppCache y emitio ``cache_changed`` por
+                    if (r.data && r.data.job_id) {
+                        const st = await _esperarJob(
+                            r.data.job_id,
+                            "proc_db_sincronizar"
+                        );
+                        if (st.error_msg) {
+                            store.procesosSync.error =
+                                "Commit fallo: " + st.error_msg;
+                        } else {
+                            store.procesosSync.lastAppliedAt =
+                                new Date().toISOString();
+                        }
+                    } else {
+                        store.procesosSync.lastAppliedAt =
+                            new Date().toISOString();
+                    }
+                    // El FB re-corre el preview al terminar, lo publica
+                    // en el AppCache y emite ``cache_changed`` por
                     // SSE. No necesitamos re-fetchear: la
                     // reactividad de ``previewProc`` actualiza la
                     // tabla. Si el sync fue completo, mostrara 0

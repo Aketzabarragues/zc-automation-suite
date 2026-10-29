@@ -37,7 +37,7 @@
  * entidades HTML.
  */
 import { computed, ref } from "/js/vendor/vue.esm-browser.prod.js";
-import { store, resetPlcState } from "/js/store.js";
+import { store, resetPlcState, waitForFbJob } from "/js/store.js";
 import { apiEntidadesPreview, apiEntidadesSync } from "/js/api.js";
 import { STATUS_META } from "../lib/disp_status.js";
 
@@ -217,6 +217,35 @@ export default {
             );
         });
 
+        /**
+         * Espera al trabajo encolado por el router y devuelve el
+         * estado terminal del FB. Si el FB termino con error o si se
+         * agoto el timeout de la espera, devuelve un estado con
+         * ``error_msg`` para que el caller lo muestre al operario.
+         *
+         * No es polling de red: ``waitForFbJob`` mira el estado en
+         * memoria que llega por SSE (evento ``fb_state``).
+         */
+        async function _esperarJob(jobId, fbName) {
+            try {
+                return await waitForFbJob(jobId, fbName);
+            } catch (e) {
+                return {
+                    error_msg: String(e && e.message ? e.message : e),
+                };
+            }
+        }
+
+        /**
+         * Genera la prevision de entidades (FB
+         * ``entidades_generar_preview``).
+         *
+         * El router responde 202 en cuanto encola el trabajo en el
+         * OB1: el FB sigue trabajando cuando el POST termina. Por eso
+         * los flags de ocupado se liberan cuando el FB llega a
+         * terminal, no cuando responde el POST; si no, el operario
+         * podria relanzar el mismo FB con el trabajo en vuelo.
+         */
         async function handlePreview() {
             if (isWorking.value || !plcName.value) return;
             isWorking.value = true;
@@ -227,16 +256,35 @@ export default {
                     resetPlcState();
                     return;
                 }
-                // El backend ya escribio ``preview_disp`` en el
-                // AppCache y emitio ``cache_changed`` por SSE. La
+                // El FB publica ``preview_disp`` en el AppCache al
+                // terminar y emite ``cache_changed`` por SSE. La
                 // reactividad de ``previewData`` propaga el cambio
                 // a la tabla.
+                if (r && r.ok && r.data && r.data.job_id) {
+                    const st = await _esperarJob(
+                        r.data.job_id,
+                        "entidades_generar_preview"
+                    );
+                    if (st.error_msg) {
+                        alert(
+                            "Error generando prevision de entidades: " +
+                                st.error_msg
+                        );
+                    }
+                }
             } finally {
                 isWorking.value = false;
                 store.busy = false;
             }
         }
 
+        /**
+         * Sincroniza las entidades con el PLC (FB
+         * ``entidades_sincronizar``).
+         *
+         * Mismo contrato que ``handlePreview``: los flags de ocupado
+         * se quedan puestos hasta que el FB llega a terminal.
+         */
         async function handleApply() {
             if (isWorking.value || !plcName.value) return;
             isWorking.value = true;
@@ -247,10 +295,21 @@ export default {
                     resetPlcState();
                     return;
                 }
-                // El backend ya re-corrio el preview, lo publico
-                // en el AppCache y emitio ``cache_changed`` por
-                // SSE. La reactividad de ``previewData`` actualiza
-                // la tabla.
+                // El FB re-corre el preview al terminar, lo publica
+                // en el AppCache y emite ``cache_changed`` por SSE.
+                // La reactividad de ``previewData`` actualiza la
+                // tabla.
+                if (r && r.ok && r.data && r.data.job_id) {
+                    const st = await _esperarJob(
+                        r.data.job_id,
+                        "entidades_sincronizar"
+                    );
+                    if (st.error_msg) {
+                        alert(
+                            "Error aplicando entidades: " + st.error_msg
+                        );
+                    }
+                }
             } finally {
                 isWorking.value = false;
                 store.busy = false;
