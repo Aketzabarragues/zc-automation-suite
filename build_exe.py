@@ -14,23 +14,25 @@ arquitectónicas del proyecto):
     copian al directorio de trabajo. Se stagean en un directorio
     temporal creado con ``tempfile.mkdtemp(prefix="zc_build_")``.
 
-  - **Carga dinámica oficial**: el worker OT (``worker_tia.py``)
-    resuelve el ``.pyd`` desde ``sys._MEIPASS`` siguiendo la
-    Sección 1.7.1 del manual TIA Scripting V1.2.1. Para que esto
-    funcione, **el ``.pyd`` y TODAS las ``.dll`` deben vivir en la
-    raíz de ``_MEIPASS``** (no en subcarpetas ``vendor/``). Las
-    ``.xml`` (log4net) también.
+  - **Carga dinamica oficial**: el worker OT
+    (``core/infrastructure/tia/tia_loader.py``) localiza el ``.pyd``
+    en ``sys._MEIPASS`` con ``importlib.util.find_spec``, lo stagea
+    en un tempdir y lo importa desde ahi. Para que esto funcione,
+    **el ``.pyd`` y TODAS las ``.dll`` deben vivir en la raiz de
+    ``_MEIPASS``** (no en subcarpetas ``vendor/``). Las ``.xml``
+    (log4net) tambien.
 
   - **UPX excluido para ``*.dll`` y ``*.pyd``**: UPX corrompe los
     ensamblados .NET nativos. Crítico; sin esto, el worker muere
     con ``ImportError`` al cargar ``siemens_tia_scripting``.
 
   - **Entry = ``main.py``**: el ``.exe`` arranca como bandeja
-    + web supervisor (``console=False``, windowed).
-    ``main.py`` despacha ``--worker`` internamente para que el
-    gateway legacy pueda re-invocar el ``.exe`` como subproceso OT
-    efímero (cuando el gateway async legacy se invoque, el .exe
-    frozen se relanza con ``--worker``).
+    + web supervisor (``console=False``, windowed). ``main.py`` solo
+    acepta ``--web HOST:PORT``. El arranque real es:
+    ``main.py`` -> ``core/launcher/main_supervisor.py`` ->
+    ``register_all_commands(tia_client)`` ->
+    ``tia_client.start_tia_loop()``. El worker OT es un hilo dedicado
+    del MISMO proceso (cola FIFO); no hay subprocesos.
 
   - **Auto-generación del ``.spec``**: el spec se genera
     programáticamente en el mismo tempdir de staging y se borra en
@@ -55,7 +57,7 @@ except ImportError:
     _HAS_PSUTIL = False
 
 
-# ── Forzar UTF-8 en stdout/stderr (mismo patrón que main.py / worker_tia.py) ─
+# ── Forzar UTF-8 en stdout/stderr (mismo patron que main.py) ──────────────
 # Sin esto, Windows imprime por cp1252 y revienta con caracteres
 # acentuados, flechas, etc. que usamos en los mensajes del report.
 if sys.platform == "win32":
@@ -149,7 +151,7 @@ EXE_ICON: Path = ROOT / "core" / "launcher" / "icon.ico"
 # dinámicamente con ``importlib.import_module("areas.<area>")``. Sin
 # declararlos aquí, el .exe no incluye los ``.py`` de las áreas, y al
 # entrar al área de alimentación desde la SPA el backend no encuentra
-# los use cases, los routers del área ni el command loader del worker.
+# los use cases, los routers del area ni el registro de comandos TIA del area.
 #
 # Auto-scan (sept-2026): la lista se genera dinámicamente escaneando
 # ``areas/<area>/**/*.py`` + ``core/web_server/routers/**/*.py`` en
@@ -253,10 +255,11 @@ SPEC_TEMPLATE = dedent(
     _ROOT    = r"{project_root}"
 
     # ── Binarios nativos de Siemens (.pyd + .dll) ─────────────────
-    # TODOS a la raíz de _MEIPASS: ``worker_tia._load_siemens_wrapper``
-    # hace ``add_dll_directory(_MEIPASS)`` + ``sys.path.insert(_MEIPASS)``
-    # y luego ``import siemens_tia_scripting``. Si el .pyd NO está
-    # en la raíz, el import falla con ModuleNotFoundError.
+    # TODOS a la raiz de _MEIPASS: ``tia_loader.load_siemenstia()``
+    # localiza el ``.pyd`` con ``importlib.util.find_spec`` (que en
+    # frozen lo busca en ``sys._MEIPASS``), lo stagea en un tempdir y
+    # lo importa desde ahi. Si el .pyd NO esta en la raiz, el import
+    # falla con ModuleNotFoundError.
     _siemens_binaries = [
         (str(_P(_VENDOR) / "siemens_tia_scripting.pyd"), "."),
     ]
@@ -279,7 +282,7 @@ SPEC_TEMPLATE = dedent(
         binaries=_siemens_binaries,
         datas=_siemens_datas + _project_datas,
         hiddenimports=[
-            # ── Siemens / Pythonnet (worker OT, llamado por --worker) ──
+            # ── Siemens / Pythonnet (worker OT) ──────────────────────────
             'siemens_tia_scripting', 'pythonnet', 'clr',
             # ── Excel (parsers + use cases) ──
             'openpyxl', 'openpyxl.cell._writer',
@@ -794,8 +797,8 @@ def report_artifact(exit_code: int) -> int:
         print("[NEXT STEPS]")
         print("  1. Doble-clic sobre el .exe → aparece icono de bandeja.")
         print("  2. Click-derecho → Iniciar web → Flask en :9484.")
-        print("  3. Probar worker: "
-              f"echo {{\"command\":\"list_plcs\",\"args\":{{}}}} | {artifact.name} --worker")
+        print("  3. Conectar TIA desde la SPA: boton 'Conectar' del panel "
+              "PLC (envia 'attach_portal' al worker OT).")
         return 0
 
     print()

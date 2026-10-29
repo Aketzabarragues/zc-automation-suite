@@ -54,11 +54,10 @@ class Job:
 
 
 class Engine:
-    """OB1 del runtime de FBs.
+    """OB1 del runtime de FBs: dispatcher con cola.
 
-    Dos caminos de ejecucion independientes: el tick legacy (async,
-    un step por invocacion) y el dispatcher con cola (sync, un trabajo
-    por FB, ejecutado por el hilo ``plc-ob1``).
+    Un trabajo por FB, ejecutado por el hilo ``plc-ob1``: el FB se
+    ejecuta completo con ``fb.execute(**params)``, sin event loop.
     """
 
     def __init__(self) -> None:

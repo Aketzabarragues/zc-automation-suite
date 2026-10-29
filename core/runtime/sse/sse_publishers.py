@@ -125,7 +125,7 @@ def make_fb_state_publisher(bus: Any, engine: Any) -> Callable[[str, Any], None]
     """Devuelve un callback que publica el estado de un FB concreto.
 
     Hook: engine.on_fb_change (se anade en engine.py). El engine
-    lo invoca con (nombre, fb) tras cada tick que cambie nStep.
+    lo invoca con (nombre, fb) tras cada cambio de ``nStep`` del FB.
 
     Payload:
         {"type": "fb_state",

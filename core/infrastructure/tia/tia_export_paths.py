@@ -3,16 +3,8 @@
 Convencion de la app (NO config del proyecto):
   * Sufijos de archivos SD/XML que genera TIA Portal al exportar
     Source Documents y tablas de tags.
-  * Encodings de lectura/escritura de esos archivos.
-  * Limite practico de longitud de comentario (S7_MLC).
   * Texto vacio de placeholder (".") que TIA usa cuando un campo
     esta sin comentar.
-
-Las constantes estaban duplicadas en
-``areas/alimentacion/infrastructure/sd/disp_comment_updater.py`` y
-``areas/alimentacion/infrastructure/sd/proc_comment_updater.py``. Se
-centralizan aqui para que cualquier area futura (trazabilidad, etc.)
-pueda consumirlas sin reescribirlas.
 
 Helpers de paths (``SdPair`` y ``XmlTarget``) son genericos por
 naturaleza: no saben de areas ni de dominios, solo resuelven el par
@@ -30,20 +22,10 @@ SD_SUFFIX: str = ".s7dcl"
 SD_RES_SUFFIX: str = ".s7res"
 XML_SUFFIX: str = ".xml"
 
-# ── Encodings ─────────────────────────────────────────────────────────────
-# ``.s7dcl`` se exporta sin BOM; ``.s7res`` con BOM (utf-8-sig).
-# Mantener el encoding explícito evita ``UnicodeDecodeError`` en
-# sistemas con code page ANSI (Windows) y protege la ``\ufeff`` del BOM.
+# ── Placeholder de campo sin comentario ───────────────────────────────────
 
-SD_ENCODING: str = "utf-8"
-SD_RES_ENCODING: str = "utf-8-sig"
-
-# ── Comentarios ───────────────────────────────────────────────────────────
-# Límite práctico S7_MLC (254 chars). Truncar con warning si se supera.
-MAX_COMMENT_LEN: int = 254
-
-# Texto que TIA escribe cuando un campo está "sin comentario".
-# Aparecerá como ``.`` en el .s7res y como string vacío en el .s7dcl.
+# Texto que TIA escribe cuando un campo esta "sin comentario".
+# Aparecera como ``.`` en el .s7res y como string vacio en el .s7dcl.
 EMPTY_TEXT: str = "."
 
 
@@ -130,9 +112,6 @@ __all__ = [
     "SD_SUFFIX",
     "SD_RES_SUFFIX",
     "XML_SUFFIX",
-    "SD_ENCODING",
-    "SD_RES_ENCODING",
-    "MAX_COMMENT_LEN",
     "EMPTY_TEXT",
     "SdPair",
     "XmlTarget",

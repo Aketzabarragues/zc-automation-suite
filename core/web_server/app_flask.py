@@ -2,7 +2,7 @@
 
 Retorna una ``Flask`` configurada con:
   - 3 endpoints base (``/ping``, ``/cycle_count``, ``/stream``).
-  - 7 blueprints del shell (``/api/v1/...``).
+  - 8 modulos de blueprint del shell (``/api/v1/...``).
   - SPA estática servida en ``/`` (catch-all a ``index.html`` para
     rutas client-side).
   - Estáticos de áreas en ``/static/areas/<area>/...`` (apunta a
@@ -116,8 +116,7 @@ def create_app(
         """Ciclos del OB1: trabajos procesados por el dispatcher.
 
         Cada trabajo que el dispatcher del OB1 lleva a estado terminal
-        cuenta como un ciclo. Antes contaba los ticks del main loop
-        legacy, que ya no ejecuta trabajo ninguno.
+        cuenta como un ciclo.
 
         Lectura cross-thread de un int es GIL-atomic en CPython.
         """
@@ -125,7 +124,7 @@ def create_app(
 
     @app.get("/stream")
     def stream():
-        """SSE: eventos del main loop + keepalive cada 500ms."""
+        """SSE: eventos del runtime (log, progress, fb_state, cache) + keepalive cada 500ms."""
         subscriber_queue = _bus.subscribe()
         keepalive_s = 0.5
 

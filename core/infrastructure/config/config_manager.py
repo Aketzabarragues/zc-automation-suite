@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import json
 import logging
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -131,8 +130,8 @@ class ConfigManager:
         #   3. En dev: usa ``<cwd>/infrastructure/config.json`` (repo).
         #   4. Fallback readonly al bundleado si no se puede escribir
         #      la ruta del usuario (CD-ROM, red readonly).
-        # Si el caller pasa ``config_path`` explícito, eso gana
-        # (compat 100% con tests, app.py, mcp_server.py).
+        # Si el caller pasa ``config_path`` explicito, eso gana
+        # (compat 100% con los callers que lo pasan).
         if config_path is None:
             from core.infrastructure.config.config_paths import resolve_config_path
             config_path = resolve_config_path()

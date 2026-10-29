@@ -5,29 +5,23 @@ encapsula una validacion o un try/except contra el wrapper
 siemens_tia_scripting.pyd (acentos Latin-1, COM transients, etc.).
 
 Categoria:
-  - Validacion de argumentos y de proyecto/PLC activos.
+  - Validacion de proyecto/PLC activos.
   - Lectura tolerante a fallos (acentos, COM).
-  - Deteccion de COM/RPC para re-attach defensivo.
-  - Generacion de request_id y export masivo SD.
+  - Recursion sobre el arbol de bloques.
+  - Helpers de export y de parseo del header SCL.
 
-Funciones puras (sin estado). Se importan desde tia_handlers y desde
-el dispatcher de tia_loop.
+Funciones puras (sin estado). Se importan desde los modulos
+``tia_cmd_*`` y desde el dispatcher de tia_loop.
 """
 from __future__ import annotations
 
-import itertools
 import logging
 import re
-import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import Any, Optional
 
 from core.data.data_block_plc import DataBloquePLC
 from core.helpers.tia.tia_block_classifier import classify_block
-from core.infrastructure.log.log_web_bridge import WEB_LEVEL
-
-if TYPE_CHECKING:
-    from core.infrastructure.tia.tia_loop import SyncTIAClient
 
 logger = logging.getLogger("zc.tia_loop")
 
@@ -413,64 +407,6 @@ def _ensure_target_dir(target_dir: str) -> Path:
     target_path = Path(target_dir)
     target_path.mkdir(parents=True, exist_ok=True)
     return target_path
-
-
-# ---------------------------------------------------------------------------
-# Decorador de trazabilidad para handlers OT (Zona D, paso 1)
-# ---------------------------------------------------------------------------
-# Tras el giro 'DEBUG by default' el decorador
-# @log_ot_command se ha eliminado: los handlers se invocan sin
-# instrumentacion automatica. Si el operario quiere un log en la
-# consola web para un comando concreto, lo anade manualmente con
-# ``logger.web(...)`` / ``logger.ok(...)`` dentro del cuerpo del
-# handler (no en el CALLER). Ver seccion 4.5 del plan living
-# TRAZABILIDAD_LOGGING.md.
-
-
-def _sanitize_args(args: dict) -> str:
-    """Resumen corto de los args: keys + tipo/longitud (sin valores grandes).
-
-    Formato: ``"plc_name='ZC_PLC_STD', blocks=[3], options={2 keys}"``.
-    """
-    if not args:
-        return "{}"
-    parts: list[str] = []
-    for k, v in args.items():
-        if isinstance(v, (str, int, float, bool, type(None))):
-            parts.append(f"{k}={v!r}")
-        elif isinstance(v, list):
-            parts.append(f"{k}=[{len(v)}]")
-        elif isinstance(v, dict):
-            parts.append(f"{k}={{{len(v)} keys}}")
-        else:
-            parts.append(f"{k}=<{type(v).__name__}>")
-    return ", ".join(parts)
-
-
-def _summarize_result(result: dict) -> str:
-    """Resumen corto del resultado de un handler.
-
-    Formato:
-      - ``ok=False``: ``ERROR=<mensaje truncado>``.
-      - ``ok=True``: lista de campos principales con su longitud o
-        string truncado a 40 chars (para no inundar el log).
-      - Otros tipos: nombre de la clase.
-    """
-    if not isinstance(result, dict):
-        return type(result).__name__
-    if result.get("ok") is False:
-        return f"ERROR={str(result.get('error', '?'))[:80]}"
-    parts: list[str] = []
-    for k, v in result.items():
-        if k == "ok":
-            continue
-        if isinstance(v, list):
-            parts.append(f"{k}=[{len(v)}]")
-        elif isinstance(v, dict):
-            parts.append(f"{k}={{{len(v)} keys}}")
-        else:
-            parts.append(f"{k}={str(v)[:40]}")
-    return ", ".join(parts) or "ok"
 
 
 # ---------------------------------------------------------------------------

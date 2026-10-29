@@ -1,8 +1,8 @@
 """EventBusSync - bus pub/sub sync para el modelo OB1.
 
 Version thread-safe del ``EventBus`` original (basado en ``asyncio.Queue``).
-El OB1 main loop usa este; los consumidores SSE migraran a sync cuando
-sea necesario.
+Lo consumen el dispatcher del OB1 (hilo ``plc-ob1``) y los clientes SSE,
+que ya operan en modo sync.
 
 API equivalente a ``EventBus`` pero con ``queue.Queue`` thread-safe:
   - subscribe()             : queue.Queue nueva (size configurable).

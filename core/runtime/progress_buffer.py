@@ -1,13 +1,13 @@
 """Progress Tracker (Singleton).
 
-Buffer thread-safe que la SPA consulta via polling para mostrar el
-avance granular de las operaciones largas (carga de Excel, generacion
-de preview, commit contra TIA, etc.).
+Buffer thread-safe del avance granular de las operaciones largas
+(carga de Excel, generacion de preview, commit contra TIA, etc.).
 
 Estrategia: los use cases llaman ``progress_tracker.begin(...)`` y
 emiten ``start_stage``/``finish_stage``/``error_stage`` segun avanzan.
-La SPA hace ``GET /api/v1/progress/current`` cada 500 ms y pinta un
-overlay con la lista de stages y su estado.
+Cada cambio de estado se publica por SSE (evento ``progress``) mediante
+el hook ``on_publish``; la SPA pinta un overlay con la lista de stages
+y su estado.
 
 Mismo patron Singleton thread-safe con snapshot inmutable que
 ``log_buffer.py``.
@@ -61,7 +61,7 @@ class ProgressStage:
 class ProgressSnapshot:
     """Snapshot inmutable del estado del tracker.
 
-    La SPA recibe este dict vía ``GET /api/v1/progress/current``.
+    La SPA recibe este dict por el evento SSE ``progress``.
     El campo ``stages`` es una tupla (no lista) para reforzar la
     inmutabilidad de la respuesta.
     """

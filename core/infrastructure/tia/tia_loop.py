@@ -10,7 +10,7 @@ catalogo central en tia_commands_catalog.py.
 Las 14 utilities defensivas viven en core.infrastructure.tia.tia_helpers.
 
 Single thread para Openness: el tia-loop es el UNICO dueno del wrapper
-.NET. El resto de la app pasa por la cola (submit_and_wait / submit_batch).
+.NET. El resto de la app pasa por la cola (``submit_and_wait``).
 """
 from __future__ import annotations
 
@@ -43,7 +43,7 @@ class SyncTIAClient:
     """Cliente + state machine + hilo del subsistema TIA Portal.
 
     API principal:
-      - submit_and_wait / submit_batch: encolar commands y obtener respuesta.
+      - submit_and_wait: encolar un command y obtener su respuesta.
       - start_tia_loop / stop_tia_loop: arrancar/parar el hilo dedicado.
       - state: propiedad de solo lectura (IDLE, CONNECTED, BUSY, ...).
       - loop_running: propiedad de solo lectura (hilo dedicado vivo).
@@ -145,23 +145,6 @@ class SyncTIAClient:
             raise TimeoutError(
                 f"submit_and_wait({command!r}) supero el timeout de {timeout}s."
             )
-
-    def submit_batch(
-        self, items: list[tuple[str, dict]], timeout: float = 60.0,
-    ) -> list[dict]:
-        """Encola varios commands en lote y espera a todos."""
-        if self._tia_thread is None or not self._tia_thread.is_alive():
-            raise RuntimeError("tia-loop no esta corriendo.")
-        resp_qs = [queue.Queue(maxsize=1) for _ in items]
-        for (name, args), q in zip(items, resp_qs):
-            self._cmd_queue.put((_next_request_id(), name, args, q))
-        results = []
-        for q in resp_qs:
-            try:
-                results.append(q.get(timeout=timeout))
-            except queue.Empty:
-                results.append({"ok": False, "error": "timeout"})
-        return results
 
     def start_tia_loop(self) -> threading.Thread:
         """Arranca el hilo dedicado tia-loop (idempotente)."""

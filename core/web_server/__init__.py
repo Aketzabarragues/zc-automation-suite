@@ -4,9 +4,11 @@ El modulo expone ``create_app(tia_client, engine, event_bus, ...)``
 como factory de la ``Flask``. Carga:
 
   - 3 endpoints base en la raiz (``/ping``, ``/cycle_count``, ``/stream``).
-  - 7 blueprints registrados en ``app_flask._register_blueprints``
-    (areas, area_manifests, catalog, diagnostics, plc, portal,
-    tia_connection) bajo ``/api/v1/...``.
+  - 8 modulos de blueprint registrados en
+    ``app_flask._register_blueprints`` (areas, area_manifests,
+    blocks_edit, catalog, diagnostics, plc, portal, tia_connection)
+    bajo ``/api/v1/...``. El modulo ``plc`` expone dos blueprints
+    (``bp`` y ``bp_blocks``).
   - SPA Vue 3 servida desde ``static/`` (raiz + catch-all client-side).
   - Estaticos de areas desde ``/static/areas/<area>/...``
     (apunta a ``<repo_root>/areas/<area>/...``).

@@ -1,7 +1,11 @@
 """Log Buffer (Singleton).
 
-Buffer FIFO circular thread-safe que la SPA consulta via polling para
-mostrar mensajes de trazabilidad al operario.
+Buffer FIFO circular thread-safe de mensajes de trazabilidad.
+
+Canal de entrega: cada mensaje se publica por SSE (evento ``log``)
+mediante el hook ``on_publish``; la SPA lo recibe en ``store.logs``
+sin polling. ``snapshot()`` sirve al endpoint HTTP
+``GET /api/v1/logs``.
 
 Estrategia: cualquier modulo del backend puede llamar
 ``log_buffer.info("...")`` y el mensaje aparece en la consola inferior
@@ -63,7 +67,7 @@ class LogBuffer:
     def error(self, message: str) -> None:
         self._push("error", message)
 
-    # ── Lectura (usada por polling de la SPA) ─────────────────────────
+    # ── Lectura (snapshot para el endpoint HTTP de logs) ─────────
 
     def snapshot(self) -> list[dict[str, Any]]:
         """Devuelve una copia inmutable de los mensajes actuales."""
