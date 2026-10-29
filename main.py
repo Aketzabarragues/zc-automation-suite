@@ -171,10 +171,9 @@ def main() -> int:
     web = MainServiceSupervisor(
         host=WEB_HOST,
         port=WEB_PORT,
-        tick_period_s=0.1,
         config_manager=config_manager,
     )
-    log.info("Supervisor creado: %s:%d (tick=100ms).", WEB_HOST, WEB_PORT)
+    log.info("Supervisor creado: %s:%d.", WEB_HOST, WEB_PORT)
 
     try:
         from core.launcher.tray_app import run_tray

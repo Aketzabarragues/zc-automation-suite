@@ -1,4 +1,10 @@
-"""Tests del run_cycle() sync del Engine (Fase 4 / paso 4.2.1)."""
+"""Tests del Engine (dispatcher OB1): cola, hilo ejecutor y hook de cambios.
+
+Cubre el camino de ejecucion vigente: ``submit()`` encola el trabajo,
+el hilo ``plc-ob1`` lo ejecuta completo con ``fb.execute()``, y el hook
+``on_fb_change`` notifica cada cambio de nStep (el canal del push al
+HMI).
+"""
 from __future__ import annotations
 
 import threading
@@ -12,204 +18,45 @@ from core.composition.plc_engine import Engine, FBBusyError
 from core.composition.plc_function_base import FunctionBase
 
 
-class _CountingFB(FunctionBase):
-    """FB que cuenta ticks para verificar que run_cycle() tickea."""
+def test_el_hook_on_fb_change_se_invoca_en_cada_cambio_de_nstep():
+    """El dispatcher notifica al bus cada vez que el FB cambia de nStep.
 
-    def __init__(self, nombre: str = "counter"):
-        super().__init__(nombre=nombre, titulo=nombre, steps=["s1"])
-        self.tick_count = 0
-
-    async def tick(self) -> None:
-        self.tick_count += 1
-        self.nStep = 1  # constante: tick() lo deja en 1 para que no publique
-
-
-def test_run_cycle_sync_method_exists():
-    """Engine expone run_cycle() sync (no async) para OB1."""
-    engine = Engine()
-    # Verificar que es callable sync (no necesita await).
-    assert callable(engine.run_cycle)
-
-
-def test_run_cycle_calls_tick_on_each_registered_fb():
-    """Cada run_cycle() tickea los FBs no terminales una vez."""
-    import asyncio
-
-    async def _start(fb):
-        await fb.start()
-
-    engine = Engine(tick_period_s=10.0)
-    fb = _CountingFB()
-    asyncio.run(_start(fb))  # n_idle (terminal) -> 10 (activo)
-    engine.register_fb("counter", fb)
-
-    engine.run_cycle()
-    assert fb.tick_count == 1
-
-    engine.run_cycle()
-    assert fb.tick_count == 2
-
-
-def test_run_cycle_skips_terminal_fbs():
-    """FBs terminales no se tickean (consistente con tick_once async)."""
-    import asyncio
-
-    async def _start(fb):
-        await fb.start()
-
-    engine = Engine(tick_period_s=10.0)
-
-    fb = _CountingFB()
-    asyncio.run(_start(fb))  # activo
-    engine.register_fb("started_fb", fb)
-    engine.run_cycle()  # tick 1
-
-    fb.nStep = FunctionBase.n_done  # ahora terminal
-    count_after_terminal = fb.tick_count
-
-    engine.run_cycle()  # no debe tickear
-    assert fb.tick_count == count_after_terminal
-
-
-def test_run_cycle_publishes_fb_changed_via_on_fb_change_callback():
-    """run_cycle() invoca on_fb_change cuando un FB cambia nStep.
-
-    Contrato tras el refactor OB1: el Engine expone un hook
-    ``on_fb_change(name, fb)`` que el caller (tipicamente el SSE
-    publisher) cablea. register_fb() lo conecta a
-    ``fb._on_nstep_change`` para que cualquier cambio de nStep que
-    pase por ``_notify_nstep_change`` (start, tick, cancel) se
-    retransmita automaticamente.
+    El Engine expone un hook ``on_fb_change(name, fb)`` que el caller
+    (tipicamente el publisher SSE) cablea. ``register_fb()`` lo conecta
+    a ``fb._on_nstep_change`` para que cualquier cambio de nStep se
+    retransmita automaticamente: es el canal por el que el HMI recibe el
+    estado del trabajo.
     """
-    import asyncio
-
     on_change = MagicMock()
-    engine = Engine(tick_period_s=10.0)
+    engine = Engine()
     engine.on_fb_change = on_change
 
-    class _ChangingFB(FunctionBase):
-        def __init__(self):
-            super().__init__(nombre="changer", titulo="Changer", steps=["s1"])
+    fb = _RealFB()
+    engine.register_fb("real_fb", fb)
 
-    fb = _ChangingFB()
-    asyncio.run(fb.start())  # 0 -> 10 (activo, no terminal)
-    engine.register_fb("changer", fb)
+    job_id = engine.submit("real_fb")
+    engine.start_ob1()
+    try:
+        _wait_terminal(engine, job_id)
+    finally:
+        engine.stop_ob1()
 
-    # start() ya notifico n_idle -> n_arrancar; tras register_fb() el
-    # callback queda cableado para futuras transiciones.
-    # Forzamos una transicion dentro de tick() y verificamos que el
-    # hook se invoca con (name, fb).
-    async def _force_change() -> None:
-        old = fb.nStep
-        fb.nStep = FunctionBase.n_done  # transicion terminal
-        fb._notify_nstep_change(old, fb.nStep)
-        await fb.tick()  # no debe tickear (estado terminal)
-
-    asyncio.run(_force_change())
-    on_change.assert_called_with("changer", fb)
+    assert on_change.called, "el hook no recibio ninguna notificacion"
+    nombres = [call.args[0] for call in on_change.call_args_list]
+    assert "real_fb" in nombres
 
 
-def test_run_cycle_is_idempotent_no_args():
-    """run_cycle() no requiere argumentos (interface sync pura)."""
-    engine = Engine(tick_period_s=10.0)
-    # No raise.
-    engine.run_cycle()
+def test_el_engine_no_expone_la_api_de_tick():
+    """El unico camino de ejecucion es el dispatcher OB1.
 
-
-def test_engine_exposes_both_sync_and_async_apis():
-    """Engine sigue exponiendo start_loop/stop_loop/tick_once (async legacy)
-    Y ademas run_cycle() (sync OB1). Ambos coexisten.
+    El camino por tick (start_loop / stop_loop / tick_once / run_cycle)
+    se retiró: el Engine solo encola trabajos y su hilo los ejecuta.
     """
     engine = Engine()
-    import inspect
-    # Async API.
-    assert inspect.iscoroutinefunction(engine.start_loop)
-    assert inspect.iscoroutinefunction(engine.stop_loop)
-    assert inspect.iscoroutinefunction(engine.tick_once)
-    # Sync API (OB1).
-    assert not inspect.iscoroutinefunction(engine.run_cycle)
-
-
-def test_fb_survives_multiple_asyncio_run_loops():
-    """El FB Singleton debe tolerar N ``asyncio.run()`` consecutivos.
-
-    Escenario real : el ``Engine.run_cycle()`` es sync y
-    crea un ``asyncio.run()`` por ciclo. Ademas, los routers llaman
-    ``asyncio.run(fb.start())`` desde hilos de Flask. Cada llamada
-    crea un event loop efimero y lo cierra. Los primitives asyncio
-    (``Lock``, ``Event``) que el FB creo en su primer ``acquire()``
-    quedan atados a ESE loop; re-entrar desde otro loop dispara
-    ``RuntimeError: ... is bound to a different event loop``.
-
-    ``_ensure_loop_objects()`` recrea ``_lock`` y ``_cancelled``
-    perezosamente al inicio de cada entry point async cuando detecta
-    que el loop cambio. El test verifica que esto ocurre y que el FB
-    puede re-arrancar entre loops.
-    """
-    import asyncio
-
-    class _LoopyFB(FunctionBase):
-        def __init__(self):
-            super().__init__(nombre="loopy", titulo="Loopy", steps=["s1", "s2"])
-            self.visits: list[str] = []
-
-        def on_start(self, **params):
-            self.visits.append("start")
-
-        async def run_step(self, idx, **params):
-            self.visits.append(f"step{idx}")
-            return f"step{idx}"
-
-        def on_finish(self, **params):
-            self.visits.append("finish")
-            self.result = {"visits": list(self.visits)}
-
-    fb = _LoopyFB()
-
-    async def _drive_to_done(label: str) -> None:
-        await fb.start()
-        for _ in range(5):
-            if fb.is_terminal():
-                break
-            await fb.tick()
-        assert fb.is_terminal(), f"{label}: FB no terminal tras 5 ciclos"
-
-    # Tres ``asyncio.run()`` consecutivos contra el MISMO FB.
-    asyncio.run(_drive_to_done("run1"))
-    assert fb.result == {"visits": ["start", "step0", "step1", "finish"]}
-
-    asyncio.run(_drive_to_done("run2"))
-    assert fb.result == {
-        "visits": [
-            "start", "step0", "step1", "finish",  # run1
-            "start", "step0", "step1", "finish",  # run2
-        ],
-    }
-
-    asyncio.run(_drive_to_done("run3"))
-    assert fb.result and len(fb.result["visits"]) == 12, fb.result
-
-
-@pytest.mark.asyncio
-async def test_start_y_stop_loop_son_idempotentes() -> None:
-    """``start_loop()`` arranca el task, ``stop_loop()`` lo cancela.
-
-    Ambos se pueden llamar dos veces seguidas sin error. Cubre el
-    contrato async del Engine legado, que sigue expuesto junto a
-    ``run_cycle()`` sync de OB1.
-    """
-    engine = Engine(tick_period_s=0.01)
-    await engine.start_loop()
-    assert engine._task is not None and not engine._task.done()
-
-    await engine.stop_loop()
-    assert engine._task is None
-
-    # Segundo stop_loop() no falla (idempotente)
-    await engine.stop_loop()
-    # Y un start_loop() tras stop funciona (no se queda colgado)
-    await engine.start_loop()
-    await engine.stop_loop()
+    for nombre in ("start_loop", "stop_loop", "tick_once", "run_cycle"):
+        assert not hasattr(engine, nombre), (
+            f"el Engine sigue exponiendo {nombre}()"
+        )
 
 
 # ------------------------------------------------------------------

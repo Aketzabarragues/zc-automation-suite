@@ -59,14 +59,12 @@ class MainServiceSupervisor:
         self,
         host: str = "127.0.0.1",
         port: int = 5000,
-        tick_period_s: float = 0.1,
         no_engine: bool = False,
         config_manager: Any = None,
         event_bus: Any = None,
     ) -> None:
         self.host = host
         self.port = port
-        self.tick_period_s = tick_period_s
         self.no_engine = no_engine
         self.config_manager = config_manager
         self.event_bus = event_bus  # si None, _build_components crea uno
@@ -330,7 +328,7 @@ class MainServiceSupervisor:
         for spec in AreaRegistry.discover().all():
             if spec.contributes_tia_commands is not None:
                 spec.contributes_tia_commands(tia_client)
-        engine = Engine(tick_period_s=self.tick_period_s) if not self.no_engine else None
+        engine = Engine() if not self.no_engine else None
         if engine is not None:
             # Registrar FBs core (generic, sin acoplamiento al area).
             # Deben ir ANTES de los areas para que cualquier consumer
