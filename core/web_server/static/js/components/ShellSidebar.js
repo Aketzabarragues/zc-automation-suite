@@ -157,7 +157,7 @@ export default {
                         <span class="text-base opacity-90" aria-hidden="true">🔌</span>
                         <span class="truncate">PLC</span>
                     </button>
-                    <!-- Botón nuevo (FASE 1): editor de bloques del PLC.
+                    <!-- Botón nuevo: editor de bloques del PLC.
                          Misma seccion visual que PLC, sin header nuevo.
                          Key reservada "block-editor" del shell (no del manifest). -->
                     <button @click="navigate('block-editor')"

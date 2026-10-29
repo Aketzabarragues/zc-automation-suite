@@ -146,7 +146,7 @@ const App = {
                 return;
             }
             // ``"block-editor"`` es la segunda key reservada del shell
-            // (boton nuevo de la FASE 1 del editor de bloques del PLC).
+            // (boton nuevo del editor de bloques del PLC).
             // Tampoco esta en el manifest del area, asi que tampoco pasa
             // por ``goToSubview`` (que validaria contra views y la
             // rechazaria silenciosamente).
@@ -193,8 +193,8 @@ const App = {
          */
         const isPlcView = computed(() => store.currentView === "plc");
         /**
-         * True si la sub-vista activa es ``"block-editor"`` (FASE 1
-         * del editor de bloques del PLC). Tambien reservada del shell,
+         * True si la sub-vista activa es ``"block-editor"`` (editor de
+         * bloques del PLC). Tambien reservada del shell,
          * gemela de ``isPlcView``.
          */
         const isBlockEditorView = computed(() => store.currentView === "block-editor");

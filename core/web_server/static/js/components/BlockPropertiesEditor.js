@@ -255,7 +255,7 @@ export default {
         const totalSelected = computed(() => selectedKeys.value.size);
         const canContinue = computed(() => totalSelected.value > 0);
 
-        // Modo del card derecho: "idle" muestra el placeholder FASE 1;
+        // Modo del card derecho: "idle" muestra el placeholder de seleccion;
         // "preparing" muestra spinner mientras /prepare corre;
         // "editing" muestra la tabla editable inline con los 7 campos
         // visibles del DTO (Tipo, Name, Number, Title, Comment, Author,
@@ -692,7 +692,7 @@ export default {
                     <div class="flex items-start justify-between gap-3">
                         <div>
                             <h3 class="text-sm font-bold text-ink">Selección de bloques</h3>
-                            <p class="text-xs text-ink-muted mt-1">FASE 1 — selección read-only.</p>
+                            <p class="text-xs text-ink-muted mt-1">Selección read-only.</p>
                         </div>
                         <div class="flex items-center gap-3 text-xs shrink-0">
                             <span class="text-ink-muted">{{ totalSelected }} seleccionados</span>
@@ -731,9 +731,9 @@ export default {
                             <span v-if="node.kind === 'folder' && node.hasChildren" class="text-ink-muted">({{ node.descendantCount }} bloques)</span>
                         </div>
                     </div>
-                    <!-- Footer: botón "Editar" (placeholder FASE 2, simétrico con "Aplicar" der) -->
+                    <!-- Footer: botón "Editar" (placeholder, simétrico con "Aplicar" der) -->
                     <div class="flex justify-end pt-3 border-t border-line">
-                        <button :disabled="!canEdit" @click="startEdit" :class="canEdit ? 'bg-accent text-ink-inverse hover:bg-accent-hover cursor-pointer' : 'bg-surface-sunken text-ink-muted cursor-not-allowed'" class="px-4 py-2 rounded text-sm font-semibold" data-testid="block-editor-edit">Editar (FASE 2)</button>
+                        <button :disabled="!canEdit" @click="startEdit" :class="canEdit ? 'bg-accent text-ink-inverse hover:bg-accent-hover cursor-pointer' : 'bg-surface-sunken text-ink-muted cursor-not-allowed'" class="px-4 py-2 rounded text-sm font-semibold" data-testid="block-editor-edit">Editar</button>
                     </div>
                 </div>
                 <!-- Columna derecha 2/3: card edición (idle: placeholder; preparing: spinner; editing: tabla editable) -->
@@ -742,7 +742,7 @@ export default {
                     <div v-if="editMode === 'idle'" class="flex-1 min-h-0 flex flex-col" data-testid="block-editor-edit-placeholder">
                         <div>
                             <h3 class="text-sm font-bold text-ink">Edición de propiedades</h3>
-                            <p class="text-xs text-ink-muted mt-1">FASE 2 — edición transaccional de Name / Number.</p>
+                            <p class="text-xs text-ink-muted mt-1">Edición transaccional de Name / Number.</p>
                         </div>
                         <div class="flex-1 min-h-0 flex flex-col items-center justify-center border border-dashed border-line rounded bg-surface-sunken text-xs text-ink-muted gap-2 p-6 text-center">
                             <span class="text-3xl opacity-40">🛠️</span>
