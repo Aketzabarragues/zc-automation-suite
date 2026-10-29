@@ -339,7 +339,7 @@ class FunctionProcCrearSincronizar(FunctionBase):
         plc_name = params.get("plc_name", "")
         if not plc_name:
             raise ValueError(
-                "FunctionProcCrearSincronizar.start(plc_name=...) "
+                "FunctionProcCrearSincronizar.execute(plc_name=...) "
                 "es obligatorio"
             )
         plc_blocks_cache = params.get("plc_blocks_cache")

@@ -121,7 +121,7 @@ class FunctionBlockEditApply(FunctionBase):
         plc_name = params.get("plc_name")
         if not plc_name:
             raise ValueError(
-                "FunctionBlockEditApply.start(plc_name=...) es obligatorio"
+                "FunctionBlockEditApply.execute(plc_name=...) es obligatorio"
             )
         edits_raw = params.get("edits") or {}
         if not isinstance(edits_raw, dict) or not edits_raw:

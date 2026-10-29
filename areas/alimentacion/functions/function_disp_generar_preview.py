@@ -155,7 +155,7 @@ class FunctionDispGenerarPreview(FunctionBase):
         plc_name = params.get("plc_name")
         if not plc_name:
             raise ValueError(
-                "FunctionDispGenerarPreview.start(plc_name=...) es obligatorio"
+                "FunctionDispGenerarPreview.execute(plc_name=...) es obligatorio"
             )
         self._plc_name = str(plc_name)
 

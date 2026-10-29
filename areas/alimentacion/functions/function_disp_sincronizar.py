@@ -182,7 +182,7 @@ class FunctionDispSincronizar(FunctionBase):
         plc_name = params.get("plc_name")
         if not plc_name:
             raise ValueError(
-                "FunctionDispSincronizar.start(plc_name=...) "
+                "FunctionDispSincronizar.execute(plc_name=...) "
                 "es obligatorio"
             )
         self._plc_name = str(plc_name)

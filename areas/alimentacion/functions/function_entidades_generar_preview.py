@@ -158,7 +158,7 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
         plc_name = params.get("plc_name")
         if not plc_name:
             raise ValueError(
-                "FunctionEntidadesGenerarPreview.start(plc_name=...) es obligatorio"
+                "FunctionEntidadesGenerarPreview.execute(plc_name=...) es obligatorio"
             )
         self._plc_name = str(plc_name)
 

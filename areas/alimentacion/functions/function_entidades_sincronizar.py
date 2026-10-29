@@ -183,7 +183,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
         plc_name = params.get("plc_name")
         if not plc_name:
             raise ValueError(
-                "FunctionEntidadesSincronizar.start(plc_name=...) es obligatorio"
+                "FunctionEntidadesSincronizar.execute(plc_name=...) es obligatorio"
             )
         self._plc_name = str(plc_name)
 

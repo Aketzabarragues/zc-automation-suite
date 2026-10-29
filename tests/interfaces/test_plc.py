@@ -15,16 +15,7 @@ class _CountingFB(FunctionBase):
 
     def __init__(self, nombre: str = "test_fb"):
         super().__init__(nombre=nombre, titulo="test fb", steps=[])
-        self.start_count = 0
         self.execute_count = 0
-
-    async def start(self, **_kwargs) -> bool:
-        self.start_count += 1
-        self.nStep = 10  # n_idle -> 10 (activo)
-        return True
-
-    async def tick(self) -> None:
-        pass
 
     def execute(self, **params):
         self.execute_count += 1
@@ -80,7 +71,6 @@ def test_start_fb_encola_el_trabajo(client):
     assert job.params == {"plc_name": "PLC_1", "xlsx_path": "C:/x.xlsx"}
     assert job.status == "queued"
     # El router no arranca el FB: eso es cosa del dispatcher.
-    assert fb.start_count == 0
     assert fb.execute_count == 0
 
 

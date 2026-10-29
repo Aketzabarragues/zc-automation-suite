@@ -177,7 +177,7 @@ class FunctionProcDBSincronizar(FunctionBase):
         plc_name = params.get("plc_name")
         if not plc_name:
             raise ValueError(
-                "FunctionProcSincronizar.start(plc_name=...) es obligatorio"
+                "FunctionProcSincronizar.execute(plc_name=...) es obligatorio"
             )
         proc_uid = params.get("proc_uid")
         if proc_uid is None or not isinstance(proc_uid, int):

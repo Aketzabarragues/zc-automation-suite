@@ -168,7 +168,7 @@ class FunctionProcDBGenerarPreview(FunctionBase):
         plc_name = params.get("plc_name")
         if not plc_name:
             raise ValueError(
-                "FunctionProcDBGenerarPreview.start(plc_name=...) es obligatorio"
+                "FunctionProcDBGenerarPreview.execute(plc_name=...) es obligatorio"
             )
         proc_uid = params.get("proc_uid")
         if proc_uid is None or not isinstance(proc_uid, int):

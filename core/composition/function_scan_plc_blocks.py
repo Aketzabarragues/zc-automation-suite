@@ -95,7 +95,7 @@ class FunctionScanPlcBlocks(FunctionBase):
         plc_name = params.get("plc_name")
         if not plc_name:
             raise ValueError(
-                "FunctionScanPlcBlocks.start(plc_name=...) es obligatorio"
+                "FunctionScanPlcBlocks.execute(plc_name=...) es obligatorio"
             )
         self._plc_name = str(plc_name)
         self._force_refresh = bool(params.get("force_refresh", False))

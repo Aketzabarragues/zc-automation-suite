@@ -139,7 +139,7 @@ class FunctionBlockEditPrepare(FunctionBase):
         plc_name = params.get("plc_name")
         if not plc_name:
             raise ValueError(
-                "FunctionBlockEditPrepare.start(plc_name=...) es obligatorio"
+                "FunctionBlockEditPrepare.execute(plc_name=...) es obligatorio"
             )
         selected_block_paths = params.get("selected_block_paths") or []
         if not selected_block_paths:
