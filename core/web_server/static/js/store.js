@@ -312,12 +312,10 @@ export const store = reactive({
      * perder la reactividad de Vue 3 con arrays/objetos anidados).
      * No hay polling: el estado llega cuando cambia en el backend.
      *
-     * El ``TiaConnectionIndicator`` del ``ShellTopbar`` lee
+     * El panel de PLC (``plcpanelview.js``) lee
      * ``store.tiaConnection.state`` reactivamente y renderiza el
-     * color del círculo (verde/ámbar/gris/rojo). El click en
-     * el círculo emite ``"connect"`` cuando el estado es
-     * ``idle`` o ``error``, y el handler del topbar llama
-     * a ``connectTia()``.
+     * estado (verde/ámbar/gris/rojo). Sus botones "Conectar" y
+     * "Desconectar" llaman a ``connectTia()`` y ``disconnectTia()``.
      */
     tiaConnection: {
         // Estado inicial: "idle" (worker persistente recien
@@ -333,16 +331,15 @@ export const store = reactive({
         // persistente esta vivo, INDEPENDIENTEMENTE del estado de
         // attach a TIA (``state``). Ortogonal: el worker puede estar
         // vivo pero en idle (hilo vivo, sin portal attached) o vivo
-        // y conectado. El ``WorkerStatusIndicator`` del topbar lee
-        // este flag.
+        // y conectado. El panel de PLC lee este flag.
         worker_alive: false,
         // ``project_changed``: ``true`` si el operario cambio de
         // proyecto en TIA Portal desde el ultimo attach del worker
         // persistente. Es un flag one-shot que el backend expone en
         // ``GET /tia/connection``. El frontend lo guarda aqui para
-        // que ``WorkerStatusIndicator`` u otros componentes puedan
-        // mostrar un aviso "el proyecto TIA ha cambiado". Si el
-        // backend NO incluye el campo, queda ``false`` (sin aviso).
+        // que el panel de PLC pueda mostrar un aviso "el proyecto
+        // TIA ha cambiado". Si el backend NO incluye el campo,
+        // queda ``false`` (sin aviso).
         project_changed: false,
     },
 
@@ -1106,8 +1103,8 @@ export async function connectTia() {
  * Sin esta limpieza, tras un "Conectar / Desconectar" rápido, el
  * topbar seguiría mostrando la lista de PLCs del attach anterior
  * y el caption del proyecto viejo, dando la falsa sensación de
- * que sigue conectado. El operario vería el círculo gris del
- * ``TiaConnectionIndicator`` pero el ``<select>`` con PLCs
+ * que sigue conectado. El operario vería el estado gris en el
+ * panel de PLC pero el ``<select>`` con PLCs
  * "viejos" y el nombre del proyecto anterior en el caption.
  *
  * Los slots ``excel_full``/``excel_active`` del área NO se limpian

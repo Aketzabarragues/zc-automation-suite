@@ -366,8 +366,7 @@ export default {
             }
         });
 
-        /** Color del texto del state (misma paleta que el antiguo
-         *  ``TiaConnectionIndicator``: green/amber/red/gray). */
+        /** Color del texto del state (green/amber/red/gray). */
         const tiaStateClass = computed(() => {
             switch (tiaState.value) {
                 case "connected":  return "text-green-600 font-semibold";
