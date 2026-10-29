@@ -9,8 +9,8 @@
  * limpiar.
  *
  * Fuente de verdad: ``store.progress`` (espejo reactivo del
- * ``ProgressTracker`` backend, alimentado por el polling 500 ms
- * de ``main.js``). El componente NO hace fetches.
+ * ``ProgressTracker`` backend, alimentado por el evento SSE
+ * ``progress``). El componente NO hace fetches.
  *
  * Estados visuales:
  *   * ``active=true`` con stages corriendo → barra azul + ⏳.
@@ -181,8 +181,8 @@ export default {
             } catch (e) {
                 // Si el backend falla, limpiamos el store local igualmente.
             }
-            // Reset local explícito (el polling siguiente lo reflejará
-            // pero limpiamos ya para feedback inmediato).
+            // Reset local explicito: el store queda limpio al momento,
+            // sin esperar al siguiente evento SSE.
             store.progress = {
                 active: false,
                 operation: null,

@@ -14,7 +14,7 @@
  *   * Localizar el cambio cuando evolucione el endpoint backend.
  *
  * Timeouts:
- *   Cada endpoint se clasifica en uno de tres buckets segun cuanto
+ *   Cada endpoint se clasifica en uno de dos buckets segun cuanto
  *   puede tardar. El default es ``FAST_TIMEOUT_MS`` (2 min) para
  *   cubrir holgadamente lecturas tipicas + cold-start del backend.
  *   Las operaciones que tocan TIA declaran explicitamente su bucket.
@@ -25,10 +25,6 @@
  *       dispararse a 30-60s en cold-start del backend.
  *     - MEDIUM (5 min): attach/open/upload y los endpoints que
  *       encolan un trabajo en el OB1 (responden 202 al instante).
- *     - SLOW (10 min): reservado para operaciones que sigan
- *       bloqueando el request. Ningun endpoint lo usa: los commits
- *       transaccionales (N_MAX + devices en una sola transaccion COM)
- *       los ejecuta el hilo del dispatcher y llegan al HMI por push.
  *
  *   El backend calcula su propio timeout por operacion
  *   (``dynamic_timeout = max(default, 5s x num_ops)``), pero con el
@@ -37,7 +33,6 @@
  */
 const FAST_TIMEOUT_MS = 120_000;
 const MEDIUM_TIMEOUT_MS = 300_000;
-const SLOW_TIMEOUT_MS = 600_000;
 
 async function _request(method, url, body, timeoutMs = FAST_TIMEOUT_MS) {
     /** @type {RequestInit} */
@@ -48,7 +43,7 @@ async function _request(method, url, body, timeoutMs = FAST_TIMEOUT_MS) {
         opts.headers["Content-Type"] = "application/json";
         opts.body = JSON.stringify(body);
     }
-    // Timeout defensivo (sept-2026): sin esto, si el servidor cuelga
+    // Timeout defensivo: sin esto, si el servidor cuelga
     // (worker persistente bloqueado, deadlock del lock, etc.) el
     // navegador espera indefinidamente y el boton se queda pillado
     // con ``store.busy = true`` para siempre. El timeout concreto se
@@ -62,8 +57,7 @@ async function _request(method, url, body, timeoutMs = FAST_TIMEOUT_MS) {
         const data = await resp.json().catch(() => ({}));
         // Extraer el header ``X-Error-Type`` que los routers del
         // backend emiten cuando falla la conexion con TIA Portal
-        // (ver ``TIAConnectionError`` en
-        // ``core/infrastructure/gateway.py``). Lo exponemos en el
+        // (ver ``core/web_server/routers/plc.py``). Lo exponemos en el
         // shape de retorno para que los componentes puedan
         // distinguir "TIA no responde" de cualquier otro error
         // y resetear el state del PLC en consecuencia. ``null`` si
@@ -75,7 +69,7 @@ async function _request(method, url, body, timeoutMs = FAST_TIMEOUT_MS) {
         // Distinguimos timeout de otros errores para que el caller
         // pueda mostrar un mensaje accionable.
         //
-        // sept-2026: si es timeout, NO mostramos el ``String(e)`` crudo
+        // Si es timeout, NO mostramos el ``String(e)`` crudo
         // (``"AbortError: signal is aborted without reason"``). Eso es
         // un ``DOMException`` interno del navegador y confunde al
         // operario. En su lugar, un mensaje humano con el tiempo
@@ -103,7 +97,16 @@ async function _request(method, url, body, timeoutMs = FAST_TIMEOUT_MS) {
     }
 }
 
-/** Sube el .xlsx seleccionado y devuelve el resumen del parser. */
+/**
+ * Sube el .xlsx seleccionado al backend.
+ *
+ * El router encola el FB ``subir_excel`` y responde ``202`` con
+ * ``{"ok": true, "job_id": "<hex>"}``: el body NO lleva el resumen
+ * del parser. El resultado del parseo llega por SSE (evento
+ * ``fb_state``, con el mismo ``job_id``) y el Excel ya parseado se
+ * publica en el slot ``excel_full`` del AppCache (evento
+ * ``cache_changed``).
+ */
 export function apiUploadExcel(file) {
     const fd = new FormData();
     fd.append("file", file);
@@ -157,9 +160,11 @@ export const apiFetchCatalog = () => _request("GET", "/api/v1/catalog");
 
 /** Pide a TIA Portal una Pre-Flight (Diff) completa: N_MAX + devices. NO toca TIA. */
 export const apiGeneratePreview = (plcName) =>
-    // MEDIUM: hace un export masivo de las 7 tablas del PLC + diff
-    // IT-only. En S7-1500 con 200+ bloques el export puede tardar
-    // 30-60s. 2 min cubre holgadamente.
+    // MEDIUM: el router encola el trabajo en el OB1 y responde 202 al
+    // instante con el job_id. El export masivo de las 7 tablas del PLC
+    // + el diff IT-only los ejecuta el hilo del dispatcher, asi que el
+    // request no espera: el timeout solo tiene que cubrir el
+    // cold-start del backend.
     _request("POST", "/api/v1/sync/preview", { plc_name: plcName }, MEDIUM_TIMEOUT_MS);
 
 /** Aplica el Diff completo (N_MAX + devices) en UNA transacción COM única. */
@@ -176,12 +181,12 @@ export const apiClearLogs = () => _request("POST", "/api/v1/logs/clear");
 /**
  * Push de log desde el frontend al ``LogBuffer`` del backend.
  *
- * Caso de uso (sept-2026, pedido operario): el push local de
- * ``store.js::pushLog`` solo escribe a ``store.logs`` (memoria del
- * cliente), pero el poll cada 1s sobreescribe ``store.logs`` con
- * lo que devuelve ``GET /api/v1/logs``. Para que un mensaje
- * persista en la ConsolaLogs del sidebar (que lee del backend),
- * necesitamos enviarlo al ``LogBuffer`` backend via este endpoint.
+ * Caso de uso: el push local de ``store.js::pushLog`` solo escribe a
+ * ``store.logs`` (memoria del cliente), mientras que los logs que
+ * llegan por SSE (evento ``log``) alimentan el ``LogBuffer`` del
+ * backend. Para que un mensaje persista en la ConsolaLogs del sidebar
+ * (que lee del backend), necesitamos enviarlo al ``LogBuffer`` backend
+ * via este endpoint.
  *
  * Usado por ``store._applyTiaSnapshot`` cuando detecta que TIA
  * se cerro por fuera y limpia el state PLC-related: deja un
@@ -245,9 +250,12 @@ export function apiRefreshPlcBlocks(plcName) {
  * un proceso (PReal + PInt + ALM) sin tocar TIA.
  * Endpoint: POST /api/v1/procesos/sync/preview
  *
- * Devuelve el shape esperado por ``ProcesosSyncView``: incluye
- * ``precondiciones_ok``, ``missing_blocks``, ``arrays`` (PReal,
- * PInt, ALM con sus slot_maps y summaries) y un ``summary`` global.
+ * El router encola el FB y responde ``202`` con
+ * ``{"ok": true, "job_id": "<hex>"}``. El resultado llega por SSE
+ * (evento ``fb_state``, campo ``result``) con la forma que espera
+ * ``ProcesosSyncView``: ``precondiciones_ok``, ``missing_blocks``,
+ * ``arrays`` (PReal, PInt, ALM con sus slot_maps y summaries) y un
+ * ``summary`` global.
  *
  * @param {number} procUid - uid del ProcesoPLC seleccionado.
  * @param {string} [plcName] - nombre del PLC activo (opcional, solo
@@ -294,8 +302,7 @@ export function apiProcesosSyncPreview(procUid, plcName) {
  */
 export const apiConnectTia = () =>
     // MEDIUM: el connect arranca el worker si esta parado (lazy
-    // start, sept-2026 round 3) + attach_portal. Con CLR frio puede
-    // tardar 15-20s.
+    // start) + attach_portal. Con CLR frio puede tardar 15-20s.
     _request("POST", "/api/v1/tia/connect", undefined, MEDIUM_TIMEOUT_MS);
 
 /**
@@ -379,6 +386,10 @@ export const apiUpdatePlantillasPath = (plantillasPath) =>
  *   {manifest_plantilla, archivos_previstos, colisiones, preview_dir,
  *    success}
  *
+ * El router encola el FB y responde ``202`` con
+ * ``{"ok": true, "job_id": "<hex>"}``: el shape de arriba NO viene en
+ * el body. Llega por SSE (evento ``fb_state``, campo ``result``).
+ *
  * @param {object} params - campos:
  *   - ``dir_plantilla_nombre``  (str) obligatorio
  *   - ``proc_uid``              (int) obligatorio
@@ -408,10 +419,14 @@ export const apiProcesosCrearPreview = (params) =>
  * El backend dispara el FB ``proc_process_crear_aplicar`` que hace 5
  * dispatches al worker OT (``import_plc_tags_xml`` + 2
  * ``import_blocks_sd`` + ``compile_plc``, mas un sleep de
- * consolidacion de 2s entre imports). Devuelve el ``result`` con shape::
+ * consolidacion de 2s entre imports). El ``result`` tiene el shape::
  *
  *   {manifest_plantilla, archivos_generados, colisiones, modified_dir,
  *    success, import_result, compile_result}
+ *
+ * El router encola el FB y responde ``202`` con
+ * ``{"ok": true, "job_id": "<hex>"}``: el shape de arriba NO viene en
+ * el body. Llega por SSE (evento ``fb_state``, campo ``result``).
  *
  * @param {object} params - mismos campos que ``apiProcesosCrearPreview``
  *                          mas ``plc_name`` (str, obligatorio).
@@ -433,19 +448,19 @@ export const apiProcesosCrearAplicar = (params) =>
  * Preview (read-only) de "sincronizar entidades contra TIA".
  * Endpoint: POST /api/v1/entidades/preview.
  *
- * Stub (commit B.0): solo valida que el body trae ``plc_name``.
- * Devuelve ``{ok: True, status: "preview_stub", ...}``. La
- * implementacion real (commit B) lanza el FB
- * ``function_entidades_generar_preview`` y devuelve el diff
- * Excel <-> TIA online.
+ * El router encola el FB ``entidades_generar_preview`` y responde
+ * ``202`` con ``{"ok": true, "job_id": "<hex>"}``. El diff
+ * Excel <-> TIA online llega por SSE (evento ``fb_state``, campo
+ * ``result``) y por el slot ``preview_disp`` del AppCache.
  *
  * @param {string} plcName - nombre del PLC destino.
  * @returns {Promise<{ok, status, data}>}
  */
 export const apiEntidadesPreview = (plcName) =>
-    // MEDIUM: export bulk + 3 dispatches al worker OT (2 export_plc_tags_xml
-    // + 1 export_block). STEP_TIMEOUT_S del FB = 60s; el cliente debe
-    // esperar MAS (5 min cubre S7-1500 grandes).
+    // MEDIUM: el router encola el trabajo en el OB1 y responde 202 al
+    // instante con el job_id. Los 3 dispatches al worker OT (2
+    // export_plc_tags_xml + 1 export_block) los ejecuta el hilo del
+    // dispatcher; el cliente no los espera.
     _request(
         "POST",
         "/api/v1/entidades/preview",
@@ -457,10 +472,11 @@ export const apiEntidadesPreview = (plcName) =>
  * Sincroniza entidades contra TIA Portal (commit transaccional).
  * Endpoint: POST /api/v1/entidades/sincronizar.
  *
- * Stub (commit B.0): solo valida que el body trae ``plc_name``.
- * Devuelve ``{ok: True, status: "sincronizar_stub", ...}``. La
- * implementacion real (commit C) lanza el FB
- * ``function_entidades_sincronizar`` y aplica los cambios en TIA.
+ * El router encola el FB ``entidades_sincronizar`` y responde ``202``
+ * con ``{"ok": true, "job_id": "<hex>"}``. El resultado del commit
+ * transaccional (export, 2 tx, compile, post-preview) llega por SSE
+ * (evento ``fb_state``, campo ``result``) y por los slots del
+ * AppCache que el FB publica al terminar.
  *
  * @param {string} plcName - nombre del PLC destino.
  * @returns {Promise<{ok, status, data}>}
@@ -483,8 +499,10 @@ export const apiEntidadesSync = (plcName) =>
  *
  * El backend guarda ``DataBloquePLC`` keyed por path con
  * separador ``/`` en ``app_cache.block_edit_prepared[plc_name]``;
- * tras este 200, la SPA hace ``apiGetPreparedBlocks(plcName)`` para
- * recuperar el snapshot y pintar la tabla editable.
+ * el router encola el FB y responde ``202`` con
+ * ``{"ok": true, "job_id": "<hex>"}``. Cuando el FB termina, la SPA
+ * hace ``apiGetPreparedBlocks(plcName)`` para recuperar el snapshot
+ * y pintar la tabla editable.
  *
  * @param {string} plcName - nombre del PLC destino.
  * @param {string[]} blockPaths - rutas TIA con separador ``/``

@@ -3,9 +3,9 @@
  *
  * Responsabilidades:
  *   * Importar ``createApp`` del build ESM de Vue 3.
- *   * Registrar los 6 componentes cross-cutting del shell:
+ *   * Registrar los 7 componentes cross-cutting del shell:
  *     Welcome, ConsolaLogs, ProgressIndicator, ShellTopbar,
- *     ShellSidebar, plcpanelview.
+ *     ShellSidebar, plcpanelview, blockpropertieseditor.
  *   * Enrutar entre welcome y el layout de área según
  *     ``store.topLevelView``.
  *   * Dentro del área, enrutar entre sub-vistas según
@@ -19,7 +19,7 @@
  *   * Montar la app en ``#app``.
  *
  * NO hay build step: el navegador carga los módulos directamente desde
- * la red (CDN) o desde ``/js/`` servido por FastAPI.
+ * la red o desde ``/js/`` servido por Flask.
  */
 import { createApp, computed, nextTick } from "/js/vendor/vue.esm-browser.prod.js";
 import { applyCacheChange, applyCacheSnapshot, applyFbState,
@@ -247,7 +247,7 @@ const App = {
         <div class="flex flex-col flex-1 min-h-0">
             <Welcome v-if="store.topLevelView === 'welcome'" @select="onAreaSelected" />
             <div v-else class="flex flex-1 overflow-hidden min-w-0">
-                <!-- 1. ShellSidebar: cross-cutting del shell (sept-2026).
+                <!-- 1. ShellSidebar: cross-cutting del shell.
                      No recibe props; lee del store. Tiene un boton
                      PLC comun + la nav del area (especifica, del manifest).
                      El padre resuelve 'navigate' y 'back'. -->
@@ -303,10 +303,8 @@ _app.mount("#app");
 loadCatalog();
 
 // ── SSE: Server-Sent Events ────────────────────────────────────
-// Abre un EventSource contra /stream. El SSE es la ÚNICA
-// fuente de updates del store desde 1.3.1 (los 3 setInterval de
-// logs/progress/tia se eliminaron; antes coexistían como red de
-// seguridad durante la migración, ahora ya no son necesarios).
+// Abre un EventSource contra /stream. El SSE es la UNICA fuente de
+// updates del store: no hay polling.
 //
 //   - onopen: confirma que la conexión está viva.
 //   - onerror: avisa si el server se cae. La UI queda "congelada"
@@ -336,10 +334,9 @@ sse.onmessage = (e) => {
     }
     switch (event.type) {
         case "log":
-            // Append. El polling periódico (1.2.3 lo mantiene activo)
-            // resetea al snapshot del LogBuffer (200 entradas); el SSE
-            // solo empuja lo nuevo entre polls. Orden cronológico OK
-            // porque el LogBuffer emite en orden de llegada.
+            // Append. Cada mensaje llega por SSE en el orden en que el
+            // LogBuffer lo emitio (push, sin polling): ``store.logs``
+            // acumula lo recibido desde la carga de la pagina.
             store.logs.push({
                 timestamp: event.timestamp,
                 level: event.level,
@@ -348,8 +345,7 @@ sse.onmessage = (e) => {
             break;
         case "progress": {
             // El event YA ES el ProgressSnapshot (más "type"). Quitamos
-            // "type" y reemplazamos el slot completo (mismo patrón que
-            // el polling hace con ``r.data.progress``).
+            // "type" y reemplazamos el slot completo.
             const { type, ...snapshot } = event;
             store.progress = snapshot;
             break;
@@ -377,25 +373,11 @@ sse.onmessage = (e) => {
             applyFbState(event);
             break;
         case "tia_state":
-            // Solo cambia el state; el resto de campos de
-            // tiaConnection (``project``, ``plcs``, ``last_ping_ok_unix``,
-            // ``last_error``) se actualiza cuando llega un evento
-            // ``plcs`` o ``project_info`` correspondiente. Antes de
-            // 1.3.1 los mantenía ``refreshTiaConnection`` por polling.
+            // Evento con ``state``, ``project`` y ``plcs`` del worker
+            // TIA. Aqui solo se aplica el ``state``: el ``project`` y
+            // la lista de PLCs los rellenan las respuestas HTTP de
+            // ``connectTia`` y el slot ``plc_list`` del AppCache.
             store.tiaConnection.state = event.state;
-            break;
-        case "plcs":
-            // ``event.data = [{name, short_designation}, ...]``.
-            // ``tiaConnection.plcs`` espera ``string[]`` (compat
-            // con el shape legado de ``store.tiaConnection``);
-            // el AppCache ya tiene su propio ``plc_list`` con la
-            // lista completa con metadatos.
-            store.tiaConnection.plcs = event.data.map(p => p.name);
-            break;
-        case "project_info":
-            // Cache: ``event.data = {name, path, author, ...}``.
-            store.tiaConnection.project = event.data;
-            store.projectInfo = event.data;
             break;
         default:
             console.debug("[SSE] tipo de evento desconocido:", event.type);

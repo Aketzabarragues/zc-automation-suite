@@ -10,12 +10,10 @@
  *   - gris    (bg-gray-400)             → ``idle``
  *   - rojo    (bg-red-500)              → ``error``
  *
- * Tras el refactor de state machine (sept-2026) los 4 estados
- * estables son ``idle | connecting | connected | error`` (el
- * antiguo ``disconnected`` desaparece: el worker arranca en
- * ``idle``, subproceso vivo SIN portal attached; el operario
- * decide cuándo pulsar "Conectar" del topbar para transicionar
- * a ``connecting`` -> ``connected``).
+ * Los 4 estados estables son ``idle | connecting | connected |
+ * error``: el worker arranca en ``idle``, con el hilo vivo SIN
+ * portal attached; el operario decide cuándo pulsar "Conectar"
+ * del topbar para transicionar a ``connecting`` -> ``connected``.
  *
  * Tooltip con info del proyecto cuando está conectado (nombre,
  * path, nº PLCs, versión de TIA). Clickable para reconectar
@@ -44,7 +42,7 @@ import { computed } from "/js/vendor/vue.esm-browser.prod.js";
 import { store } from "/js/store.js";
 
 // Mapping de ``state`` a etiqueta en castellano para el
-// ``aria-label`` del botón (sept-2026, armonización de textos).
+// ``aria-label`` del botón (armonización de textos).
 // El operario ve "Estado TIA: Conectado" en vez del state crudo
 // en inglés ("connected", "idle", "connecting", "error"). Si el
 // state es desconocido, ``stateLabel`` cae al state crudo como
@@ -72,7 +70,7 @@ export default {
         const state = computed(() =>
             (store.tiaConnection && store.tiaConnection.state) || "idle"
         );
-        // ``stateLabel`` (sept-2026, armonización textos):
+        // ``stateLabel`` (armonización de textos):
         // versión en castellano de ``state`` para el
         // ``aria-label`` del botón. Lee del mapping
         // ``STATE_LABELS`` y cae al state crudo si el mapping
@@ -99,7 +97,7 @@ export default {
          * ``connecting`` para que el operario perciba que algo
          * está en curso (el cold-attach puede tardar 5-30s).
          *
-         * Switch de 4 ramas (state machine sept-2026):
+         * Switch de 4 ramas (state machine):
          * ``idle | connecting | connected | error``. ``idle`` y
          * el default comparten ``bg-gray-400`` (gris neutro, sin
          * attach a TIA pero con worker vivo).
@@ -146,7 +144,7 @@ export default {
                 return "TIA en reposo. Pulsa 'Conectar' para abrir un portal.";
             }
             if (state.value === "connecting") {
-                // Texto armonizado sept-2026: explicito "con TIA
+                // Texto armonizado: explicito "con TIA
                 // Portal" en vez del generico "Conectando...". Da
                 // contexto al operario (es uno de los dos
                 // indicadores del topbar, y este se refiere al

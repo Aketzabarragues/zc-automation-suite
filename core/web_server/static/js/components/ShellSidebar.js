@@ -1,10 +1,9 @@
 /**
  * Componente ShellSidebar — chrome corporativo reusable (v3.0).
  *
- * Sidebar genérico cross-cutting sobre fondo navy. Tras el refactor
- * de areas (sept-2026), este componente ya no recibe ``navItems``
- * por prop ni depende de un wrapper por area. Lee directamente
- * del ``store``:
+ * Sidebar genérico cross-cutting sobre fondo navy. Este componente
+ * no recibe ``navItems`` por prop ni depende de un wrapper por
+ * area: lee directamente del ``store``:
  *   * Cabecera: ``store.availableAreas`` para el label del area.
  *   * Sub-vistas: ``store.areaManifest.components.views`` +
  *     ``viewLabels`` (opcional, fallback a la key capitalizada).

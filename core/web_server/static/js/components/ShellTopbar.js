@@ -1,17 +1,15 @@
 /**
  * Componente ShellTopbar — barra superior cross-cutting del shell.
  *
- * Tras el refactor de areas (v3.0+ del base, sept-2026), la topbar
- * queda reducida a breadcrumb (Área · Sub-vista) + texto del PLC
- * activo. Todo lo demás (indicators, conectar/desconectar, select
- * PLC) migró al ``plcpanelview`` del shell comun, que es donde el
- * operario realmente interactúa con el state machine del worker
- * persistente.
+ * La topbar queda reducida a breadcrumb (Área · Sub-vista) + texto
+ * del PLC activo. Todo lo demás (indicators, conectar/desconectar,
+ * select PLC) vive en el ``plcpanelview`` del shell comun, que es
+ * donde el operario realmente interactúa con el state machine del
+ * worker persistente.
  *
- * v3.1 (sept-2026 round, refactor areas): el ``VIEW_LABELS``
- * hardcoded que mappeaba ``currentView`` -> label humano se va.
- * El label se resuelve dinámicamente desde
- * ``store.areaManifest.components.viewLabels`` (que el area
+ * v3.1: el ``VIEW_LABELS`` hardcoded que mappeaba ``currentView``
+ * -> label humano no se usa. El label se resuelve dinámicamente
+ * desde ``store.areaManifest.components.viewLabels`` (que el area
  * aporta en su manifest), con fallback a la key capitalizada.
  * Esto permite que cualquier area nueva se conecte al shell sin
  * tocar este archivo.

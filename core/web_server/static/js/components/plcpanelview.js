@@ -6,27 +6,21 @@
  * grid de PLCs disponibles, snapshot cacheado de bloques + tag
  * tables + UDTs, y pestanas para inspeccionar cada categoria.
  *
- * Antes vivia como ``BloquesCacheView`` en ``areas/alimentacion/
- * frontend/components/``. Se movio al shell comun en sept-2026
- * (refactor de areas) porque las 4 areas futuras tendran PLCs y
- * duplicar esta vista por cada area era ruido puro. La logica es
- * 100% generica: solo lee de ``store`` y ``api``, no toca nada
+ * Es una vista comun para todas las areas: todas tienen PLCs, por
+ * lo que duplicarla por area seria ruido. La logica es 100%
+ * generica: solo lee de ``store`` y ``api``, no toca nada
  * especifico del area activa.
  *
- * Historia del componente (desde el area):
- *   v3.0 (sept-2026): controles del worker persistente y del PLC
- *       que antes vivian en la ShellTopbar migran a este
- *       componente.
- *   v3.1 (sept-2026 round 3): la seleccion de PLC deja de ser
- *       <select> y pasa a ser grid de cards (click directo).
- *   v3.2 (sept-2026 round 4): lista vertical con cards horizontales
- *       + pill "Seleccionar / Seleccionado".
+ * Version del componente:
+ *   v3.0: los controles del worker persistente y del PLC viven en
+ *       este componente.
+ *   v3.1: la seleccion de PLC es un grid de cards (click directo).
+ *   v3.2: lista vertical con cards horizontales + pill
+ *       "Seleccionar / Seleccionado".
  *
- * Como se monta hoy (transicion): el area de alimentacion sigue
- * teniendolo registrado en su manifest como ``BloquesCacheView``
- * por razones de compat. En el siguiente commit del refactor
- * (limpieza del manifest del area), se elimina del area y queda
- * exclusivamente como vista comun del shell.
+ * Montaje: el boton "PLC" de la sidebar enruta a
+ * ``currentView = "plc"`` y el shell renderiza este componente.
+ * No aparece en los manifests de los areas.
  *
  * Estructura:
  *   1. Cabecera con título, PLC activo y ``scanned_at``.
@@ -59,8 +53,8 @@ import {
     onMounted,
     watch,
 } from "/js/vendor/vue.esm-browser.prod.js";
-// Imports absolutos: ver nota en ``Sidebar.js``. Los cross-cutting
-// (``store.js``, ``api.js``) viven en ``/js/``, no se mueven.
+// Imports absolutos: los cross-cutting (``store.js``, ``api.js``)
+// viven en ``/js/`` y se importan con ruta absoluta desde aqui.
 import {
     store,
     loadAndApplyPlcBlocks,
@@ -283,8 +277,7 @@ export default {
             try {
                 await loadAndApplyPlcBlocks(store.appCache?.selected_plc, { force: true });
             } catch (e) {
-                // El error real lo emite el backend via logger.warning;
-                // pushLog local era ruido que el polling sobrescribia.
+                // El error real lo emite el backend via logger.warning.
             } finally {
                 isRefreshing.value = false;
             }
@@ -332,12 +325,11 @@ export default {
         );
 
         // ────────────────────────────────────────────────────────────
-        //  v3.0 (sept-2026): controles del worker persistente y del
-        //  PLC que antes vivían en la ShellTopbar migran a este
-        //  componente. La topbar ahora solo pinta el PLC activo en
-        //  texto. Aquí se gestiona toda la acción: Conectar /
-        //  Desconectar, refrescar PLCs, cambiar de PLC, y el
-        //  status textual del worker y del attach a TIA.
+        //  v3.0: los controles del worker persistente y del PLC
+        //  viven en este componente. La topbar solo pinta el PLC
+        //  activo en texto. Aquí se gestiona toda la acción:
+        //  Conectar / Desconectar, refrescar PLCs, cambiar de PLC,
+        //  y el status textual del worker y del attach a TIA.
         //
         //  Los botones se muestran SIEMPRE; la habilitacion
         //  (``canConnect`` / ``canDisconnect`` / ``canSelectPlc``
@@ -358,7 +350,7 @@ export default {
             return (store.tiaConnection && store.tiaConnection.state) || "idle";
         });
 
-        /** True si el subproceso del worker está vivo. */
+        /** True si el hilo del worker está vivo. */
         const workerAlive = computed(() => {
             return Boolean(store.tiaConnection && store.tiaConnection.worker_alive);
         });
@@ -409,9 +401,8 @@ export default {
          * al proyecto correcto (no solo por nombre) antes de
          * buscar PLCs.
          *
-         * Sept-2026 (pedido operario): antes el path no se mostraba
-         * en ningún sitio. Ahora va en la card 1, en la lista de
-         * "Estado del sistema" debajo de "Proyecto:".
+         * Va en la card 1, en la lista de "Estado del sistema"
+         * debajo de "Proyecto:".
          */
         const tiaProjectPath = computed(() => {
             const p = store.tiaConnection && store.tiaConnection.project;
@@ -424,11 +415,10 @@ export default {
         /**
          * Habilitacion de los 2 controles del card 1 (Conectar /
          * Desconectar). Se muestran siempre; lo que cambia es si
-         * aceptan click. El antiguo "select PLC" + "Buscar PLCs"
-         * desaparecen en v3.1 (la seleccion de PLC se hace
-         * picando en uno de los cards de la grid de "PLC
-         * DISPONIBLES", y la lista se rellena automaticamente al
-         * pulsar Conectar via ``connectTia()`` en el store).
+         * aceptan click. La seleccion de PLC se hace picando en
+         * uno de los cards de la grid de "PLC DISPONIBLES", y la
+         * lista se rellena automaticamente al pulsar Conectar via
+         * ``connectTia()`` en el store.
          */
         const canConnect = computed(() => {
             return !store.busy
@@ -443,8 +433,7 @@ export default {
          *  ``connectTia()`` (helper del store) que pone
          *  ``state="connecting"``, dispara el POST, y tras el
          *  attach OK hace el fetch de project info Y de la lista
-         *  de PLCs automaticamente (sept-2026 round 3, pedido
-         *  operario). */
+         *  de PLCs automaticamente. */
         async function handleConnect() {
             await connectTia();
         }
@@ -488,7 +477,7 @@ export default {
             displayType,
             displayPath,
             handleRefresh,
-            // v3.0: controles migrados de ShellTopbar
+            // v3.0: controles del worker y del PLC
             tiaState,
             tiaStateText,
             tiaStateClass,
@@ -506,7 +495,7 @@ export default {
     template: /* html */ `
         <section class="flex-1 flex flex-col overflow-hidden">
 
-            <!-- ★ Card 1 (v3.0 sept-2026, layout dashboard v3.1):
+            <!-- ★ Card 1 (v3.0, layout dashboard v3.1):
                  estado del sistema + controles de PLC. Migrado
                  desde la ShellTopbar. Layout en 2 zonas
                  estructuradas con headers (mas "profesional"
@@ -564,7 +553,7 @@ export default {
                         </ul>
                     </div>
 
-                    <!-- Col 2: Controles. v3.1 (sept-2026 round 3):
+                    <!-- Col 2: Controles. v3.1:
                          se elimina el <select> de PLCs y el boton
                          "🔍 Buscar PLCs". La seleccion del PLC se
                          hace ahora picando en uno de los cards de
@@ -606,7 +595,7 @@ export default {
                      de abajo. -->
                 <div class="my-4 border-t border-line"></div>
 
-                <!-- Zona B: PLC DISPONIBLES (v3.1, sept-2026 round 3).
+                <!-- Zona B: PLC DISPONIBLES (v3.1).
                      Grid responsive de cards (uno por PLC) con
                      nombre + modelo (ShortDesignation de TIA).
                      Click en un card -> store.appCache?.selected_plc = p.name
@@ -632,8 +621,8 @@ export default {
                         </button>
                     </div>
 
-                    <!-- Lista vertical de cards horizontales (v3.2,
-                         sept-2026 round 4). Inspirado en el prototipo
+                    <!-- Lista vertical de cards horizontales (v3.2).
+                         Inspirado en el prototipo
                          de Gemini (variante 4 verde) + theme Industrial
                          Claro de la SPA. Cada fila = 1 PLC.
                          Card contenedor: gris hundido (bg-surface-sunken)

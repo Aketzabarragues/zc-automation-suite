@@ -28,7 +28,7 @@
  *   - El arbol se aplana a una lista de ``nodes`` (carpetas y
  *     bloques) segun ``expandedFolders``.
  *
- * Convencion de paths (sept-2026):
+ * Convencion de paths:
  *   - Tree blocks (``b.ruta``) pueden llegar con ``\``, ``/`` o
  *     mezcla (TIA SDK inconsistente entre jerarquias).
  *     ``buildFolderTree`` normaliza a ``/`` antes de splitear.
