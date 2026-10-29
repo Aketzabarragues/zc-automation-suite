@@ -1,16 +1,26 @@
 """Tests del FB core ``FunctionBlockEditApply``.
 
-Cubre:
+Cubre el camino de ejecucion sync del OB1 (``fb.execute(**params)``),
+que es el que usa el dispatcher: ``on_start`` -> ``run_step`` x N ->
+``on_finish``, sin event loop.
+
+Casos cubiertos:
 
   - Happy path: 3 bloques con cambios Name+Number -> 3 ops en batch.
   - No-op: edits que coinciden 1:1 con el cache -> sin dispatch.
   - Mixto: 5 bloques en cache, 3 con cambios, 2 sin cambios -> 3 ops.
-  - Rollback simulado: batch retorna ``success=False`` -> FB raise.
-  - ``edits`` con key no permitida (``"title"``) -> ``ValueError`` en ``on_start``.
-  - PLC sin cache de prepare -> ``RuntimeError`` con mensaje claro.
-  - ``tia_client=None`` -> ``RuntimeError`` en el primer step.
+  - Rollback simulado: batch retorna ``success=False`` -> FB a ``n_error``.
+  - ``edits`` con key no permitida (``"title"``) -> ``n_error`` en el
+    pre-flight.
+  - PLC sin cache de prepare -> ``n_error`` con mensaje claro.
+  - ``tia_client=None`` -> ``n_error`` en el primer step.
   - ``run_step`` es sync (contrato del hilo OB1) y ``execute()`` completa
     el FB sin event loop.
+
+En el camino sync las excepciones de runtime no se propagan: el FB las
+captura, fija ``error_msg`` con el formato ``"<TipoError>: <mensaje>"`` y
+transiciona a ``n_error``. Por eso los asserts de error se apoyan en
+``fb.nStep == fb.n_error`` y en el contenido de ``fb.error_msg``.
 
 Mockeamos:
 
@@ -27,7 +37,6 @@ states y stages sin necesidad de mockear internals.
 """
 from __future__ import annotations
 
-import asyncio
 import inspect
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -134,22 +143,10 @@ def _make_fb(
     )
 
 
-def _drive_fb_to_done(fb: FunctionBlockEditApply) -> None:
-    """Tickea el FB hasta ``n_done`` (o ``n_error`` si algo revienta).
-
-    1 arrancar + 5 steps + 1 finalizar = 7 ticks para el flujo completo.
-    Se sale del bucle si llega a un estado terminal.
-    """
-    for _ in range(10):
-        if fb.is_terminal():
-            break
-        asyncio.run(fb.tick())
-
-
 # ── 1. Happy path: 3 bloques, 3 ops ───────────────────────────────
 
 
-def test_apply_happy_path_3_blocks(
+def test_apply_execute_happy_path_3_blocks(
     app_cache: AppCache,
     real_progress: ProgressTracker,
 ) -> None:
@@ -175,16 +172,14 @@ def test_apply_happy_path_3_blocks(
         "core.composition.function_block_edit_apply.scan_plc_blocks",
         new=scan_mock,
     ):
-        started = asyncio.run(fb.start(
+        fb.execute(
             plc_name="PLC_1",
             edits={
                 "DB2000_ED": {"number": 2001},
                 "FC2000_ZC_ED": {"name": "FC2000_ZC_ED_NEW"},
                 "OB1_MAIN": {"name": "OB1_MOD"},
             },
-        ))
-        assert started is True
-        _drive_fb_to_done(fb)
+        )
 
     assert fb.nStep == fb.n_done
     assert fb.error_msg is None
@@ -238,7 +233,7 @@ def test_apply_happy_path_3_blocks(
 # ── 2. No-op: cambios que ya coinciden con cache ───────────────────
 
 
-def test_apply_no_op_when_no_changes(
+def test_apply_execute_no_op_when_no_changes(
     app_cache: AppCache,
     real_progress: ProgressTracker,
 ) -> None:
@@ -256,13 +251,13 @@ def test_apply_no_op_when_no_changes(
         "core.composition.function_block_edit_apply.scan_plc_blocks",
         new=scan_mock,
     ):
-        asyncio.run(fb.start(
+        fb.execute(
             plc_name="PLC_1",
             edits={"DB2000_ED": {"number": 2000}},  # mismo que cache
-        ))
-        _drive_fb_to_done(fb)
+        )
 
     assert fb.nStep == fb.n_done
+    assert fb.error_msg is None
     assert fb.result["no_op"] is True
     assert fb.result["n_ops"] == 0
     assert fb.result["operations_executed"] == 0
@@ -272,7 +267,7 @@ def test_apply_no_op_when_no_changes(
 # ── 3. Mixto: 5 bloques, 2 sin cambios, 3 con cambios ──────────────
 
 
-def test_apply_mixed_some_changes_some_no_changes(
+def test_apply_execute_mixed_some_changes_some_no_changes(
     app_cache: AppCache,
     real_progress: ProgressTracker,
 ) -> None:
@@ -295,7 +290,7 @@ def test_apply_mixed_some_changes_some_no_changes(
         "core.composition.function_block_edit_apply.scan_plc_blocks",
         new=scan_mock,
     ):
-        asyncio.run(fb.start(
+        fb.execute(
             plc_name="PLC_1",
             edits={
                 "BLOCK_0": {"number": 1000},     # mismo -> skip
@@ -304,10 +299,10 @@ def test_apply_mixed_some_changes_some_no_changes(
                 "BLOCK_3": {"name": "BLOCK_3_NEW"},  # cambia
                 "BLOCK_4": {"name": "BLOCK_4_NEW"},  # cambia
             },
-        ))
-        _drive_fb_to_done(fb)
+        )
 
     assert fb.nStep == fb.n_done
+    assert fb.error_msg is None
     assert fb.result["n_ops"] == 3
     assert fb.result["operations_executed"] == 3
 
@@ -321,11 +316,11 @@ def test_apply_mixed_some_changes_some_no_changes(
 # ── 4. Rollback simulado: batch retorna success=False ───────────────
 
 
-def test_apply_rollback_when_batch_returns_success_false(
+def test_apply_execute_rollback_when_batch_returns_success_false(
     app_cache: AppCache,
     real_progress: ProgressTracker,
 ) -> None:
-    """Worker OT reporta ``success=False`` -> FB raise con error claro."""
+    """Worker OT reporta ``success=False`` -> FB a ``n_error``."""
     blocks = [_make_dto("DB2000_ED", 2000)]
     _seed_cache(app_cache, "PLC_1", blocks)
     tia_client = _make_tia_client()
@@ -342,11 +337,10 @@ def test_apply_rollback_when_batch_returns_success_false(
         "core.composition.function_block_edit_apply.scan_plc_blocks",
         new=scan_mock,
     ):
-        asyncio.run(fb.start(
+        fb.execute(
             plc_name="PLC_1",
             edits={"DB2000_ED": {"number": 2001}},
-        ))
-        _drive_fb_to_done(fb)
+        )
 
     # El FB cae en n_error con mensaje que mencione el rollback.
     assert fb.nStep == fb.n_error
@@ -357,22 +351,21 @@ def test_apply_rollback_when_batch_returns_success_false(
     assert scan_mock.call_count == 0
 
 
-# ── 5. edits contiene key no permitida -> ValueError ────────────────
+# ── 5. edits contiene key no permitida -> n_error ──────────────────
 
 
-def test_apply_raises_when_edits_contains_disallowed_field(
+def test_apply_execute_fails_when_edits_contains_disallowed_field(
     app_cache: AppCache,
     real_progress: ProgressTracker,
 ) -> None:
-    """``edits=[...]['title']`` -> ``ValueError`` fail-fast en ``on_start``."""
+    """``edits=[...]['title']`` -> ``n_error`` fail-fast en el pre-flight."""
     tia_client = _make_tia_client()
     fb = _make_fb(app_cache, tia_client, real_progress)
 
-    asyncio.run(fb.start(
+    fb.execute(
         plc_name="PLC_1",
         edits={"DB2000_ED": {"title": "MLC_NEW"}},
-    ))
-    asyncio.run(fb.tick())
+    )
 
     assert fb.nStep == fb.n_error
     assert fb.error_msg is not None
@@ -382,14 +375,15 @@ def test_apply_raises_when_edits_contains_disallowed_field(
     assert "no permitida" in fb.error_msg or "permitidas" in fb.error_msg
 
 
-# ── 6. PLC no en cache de prepare -> RuntimeError ───────────────────
+# ── 6. PLC no en cache de prepare -> n_error ───────────────────────
 
 
-def test_apply_raises_when_plc_not_in_prepared_cache(
+def test_apply_execute_fails_when_plc_not_in_prepared_cache(
     app_cache: AppCache,
     real_progress: ProgressTracker,
 ) -> None:
-    """PLC con cache de otro nombre -> raise mencionando ``block_edit_prepare``."""
+    """PLC con cache de otro nombre -> ``n_error`` mencionando
+    ``block_edit_prepare``."""
     blocks = [_make_dto("DB2000_ED", 2000)]
     _seed_cache(app_cache, "PLC_OTHER", blocks)
     tia_client = _make_tia_client()
@@ -403,11 +397,10 @@ def test_apply_raises_when_plc_not_in_prepared_cache(
         "core.composition.function_block_edit_apply.scan_plc_blocks",
         new=scan_mock,
     ):
-        asyncio.run(fb.start(
+        fb.execute(
             plc_name="PLC_1",  # no es PLC_OTHER
             edits={"DB2000_ED": {"number": 2001}},
-        ))
-        _drive_fb_to_done(fb)
+        )
 
     assert fb.nStep == fb.n_error
     assert fb.error_msg is not None
@@ -420,29 +413,23 @@ def test_apply_raises_when_plc_not_in_prepared_cache(
     assert submit_mock.call_count == 0
 
 
-# ── 7. tia_client=None -> RuntimeError en el primer step ────────────
+# ── 7. tia_client=None -> n_error en el primer step ───────────────
 
 
-def test_apply_requires_tia_client(
+def test_apply_execute_fails_when_tia_client_missing(
     app_cache: AppCache,
     real_progress: ProgressTracker,
 ) -> None:
-    """``tia_client=None`` -> primer step run_step raise ``RuntimeError``."""
+    """``tia_client=None`` -> el primer step falla y el FB va a
+    ``n_error``."""
     blocks = [_make_dto("DB2000_ED", 2000)]
     _seed_cache(app_cache, "PLC_1", blocks)
     fb = _make_fb(app_cache, None, real_progress)
 
-    asyncio.run(fb.start(
+    fb.execute(
         plc_name="PLC_1",
         edits={"DB2000_ED": {"number": 2001}},
-    ))
-
-    # tick #1: arrancar -> ejecutar (on_start pasa).
-    asyncio.run(fb.tick())
-    assert fb.nStep == fb.n_ejecutar
-
-    # tick #2: ``validar`` dispara el check de tia_client.
-    asyncio.run(fb.tick())
+    )
 
     assert fb.nStep == fb.n_error
     assert fb.error_msg is not None

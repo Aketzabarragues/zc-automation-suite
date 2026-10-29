@@ -1,38 +1,52 @@
 """Tests del FB core ``FunctionBlockEditPrepare``.
 
+El FB se ejecuta por el camino sync del OB1: ``fb.execute(**params)``
+recorre la state machine completa (``on_start`` -> los 5 ``run_step`` ->
+``on_finish``) sin event loop. El exito se comprueba con ``n_done`` +
+``error_msg is None``; los fallos, con ``n_error`` y el mensaje en
+``error_msg`` (``execute()`` captura la excepcion y no la propaga).
+
 Cubre:
 
-  - Happy path: 3 bloques pre-poblados en ``app_cache.plc_blocks`` -> 5
-    steps -> 3 DTOs con los 10 campos del DTO ``DataBloquePLC`` en
+  - Happy path: 3 bloques pre-poblados en ``app_cache.plc_blocks`` -> 3
+    DTOs con los 10 campos del DTO ``DataBloquePLC`` en
     ``app_cache.block_edit_prepared``.
-  - Seleccion vacia -> ``ValueError`` fail-fast en ``on_start``.
+  - ``ruta`` del DTO mergeado: viene de la jerarquia de GRUPOS del
+    cache, no del ``path`` de la SPA.
+  - Seleccion vacia -> ``ValueError`` fail-fast en ``on_start``: el FB
+    queda en ``n_error`` con el mensaje en ``error_msg``.
   - Bloque seleccionado no esta en ``plc_blocks.blocks`` -> skip con
     warning, dispatch NO se llama, merge con 0 entries.
   - PLC sin cache (``plc_blocks`` no tiene el plc_name) -> ``RuntimeError``
-    fail-fast en ``leer_tia``.
-  - ``export_block`` retorna ``ok=False`` para 1 bloque -> ese bloque
+    fail-fast al leer el cache: el FB queda en ``n_error``.
+  - ``export_blocks`` no devuelve uno de los bloques -> ese bloque
     queda con ``title=None, comment=None``; los otros 2 mantienen
     title/comment parseados del SCL.
   - Inyeccion de ``layout=BlocksEditLayout(root=tmp_path)`` -> los
     exports SD van a ``tmp_path/preview/`` (plano, sin subdir por PLC).
   - El ``target_dir`` pasado a ``dispatch`` es un path absoluto (no
     contiene ``..`` ni empieza con ``./``).
+  - Un 2º prepare borra los ``.s7dcl`` del prepare anterior.
+  - Un 2º prepare sobre la MISMA instancia del FB reemplaza el cache
+    (no acumula entries del prepare anterior).
 
 Mockeamos:
 
   - ``tia_client`` con ``MagicMock(spec=SyncTIAClient)``. Su ``dispatch``
-    retorna ``{"ok": True}`` o ``{"ok": False}`` segun el test. NO se
-    accede a ``wrapper`` (el FB no navega el arbol TIA).
+    retorna ``{"ok": True}`` con ``exported_names``, o lista el bloque no
+    exportado en ``skipped_names``, segun el test. NO se accede a
+    ``wrapper`` (el FB no navega el arbol TIA).
   - ``app_cache`` es un ``AppCache`` real con ``plc_blocks[plc_name]``
     pre-poblado via ``plc_blocks_put`` (mismo patron que usa el worker
     OT tras un ``scan_blocks``).
 
-El progress tracker es real (``ProgressTracker()``) para verificar que
-el flujo de stages dispara las señales correctas.
+El progress tracker es real (``ProgressTracker()``): el FB emite sus 5
+etapas contra el y los tests miran el estado de las etapas para saber
+en que punto fallo el FB.
 """
 from __future__ import annotations
 
-import asyncio
+import inspect
 import shutil
 from pathlib import Path
 from typing import Any
@@ -113,9 +127,9 @@ def _make_tia_client(
 ) -> MagicMock:
     """Mock de ``SyncTIAClient`` con ``dispatch`` configurable.
 
-    El default simula el handler unificado ``export_blocks`` (FASE 2.6):
-    retorna ``exported_names`` con los nombres pasados en ``block_names``
-    para que el FB prepare pueda resolver ``sd_path`` por cada bloque.
+    El default simula el handler unificado ``export_blocks``: retorna
+    ``exported_names`` con los nombres pasados en ``block_names`` para que
+    el FB prepare pueda resolver ``sd_path`` por cada bloque.
     """
     tia_client = MagicMock(spec=SyncTIAClient)
     tia_client.dispatch.side_effect = (
@@ -137,11 +151,11 @@ def _make_tia_client(
 def _copy_s7dcl_export(cmd: str, args: dict[str, Any]) -> dict:
     """Dispatch que materializa el ``.s7dcl`` del fixture en ``target_dir``.
 
-    Simula al handler unificado ``export_blocks`` (FASE 2.6): dado
-    ``args`` con ``block_names`` (lista) y ``target_dir``, copia cada
-    ``<name>.s7dcl`` del fixture al directorio destino. Asi el parser
-    SCL del step ``parsear_scl`` puede leer los archivos reales y
-    devolver los MLC IDs correctos.
+    Simula al handler unificado ``export_blocks``: dado ``args`` con
+    ``block_names`` (lista) y ``target_dir``, copia cada ``<name>.s7dcl``
+    del fixture al directorio destino. Asi el parser SCL del step
+    ``parsear_scl`` puede leer los archivos reales y devolver los MLC IDs
+    correctos.
 
     Bloques cuyo ``.s7dcl`` no exista en el fixture se reportan en
     ``skipped_names`` (mismo comportamiento que el handler real).
@@ -166,6 +180,11 @@ def _copy_s7dcl_export(cmd: str, args: dict[str, Any]) -> dict:
             "skipped_names": skipped,
         },
     }
+
+
+def _stage_statuses(progress: ProgressTracker) -> dict[str, str]:
+    """Estado de cada etapa del tracker, indexado por id de etapa."""
+    return {s["id"]: s["status"] for s in progress.snapshot().stages}
 
 
 @pytest.fixture
@@ -195,17 +214,18 @@ def _make_fb(
     )
 
 
-def _run_fb(fb: FunctionBlockEditPrepare, **start_kwargs: Any) -> None:
-    """Helper: arranca + 5 steps + finalizar = 7 ticks.
+# ── 0. Contrato sync del hilo del OB1 ─────────────────────────────
 
-    El FB ejecuta ``validar`` -> ``leer_tia`` -> ``exportar_sd`` ->
-    ``parsear_scl`` -> ``merge_cache`` y termina. El primer tick pasa de
-    ``arrancar`` a ``ejecutar``; los 5 siguientes avanzan por cada step;
-    el septimo tick ejecuta ``finalizar`` y deja el FB en ``n_done``.
+
+def test_run_step_es_sync_para_el_hilo_del_ob1() -> None:
+    """``run_step`` es sync: el hilo del dispatcher lo invoca sin event loop.
+
+    Si devolviera una corrutina, ``execute()`` abortaria el trabajo con
+    ``TypeError`` en el OB1 y el operario no veria el prepare.
     """
-    asyncio.run(fb.start(**start_kwargs))
-    for _ in range(7):
-        asyncio.run(fb.tick())
+    assert not inspect.iscoroutinefunction(
+        FunctionBlockEditPrepare.run_step
+    )
 
 
 # ── 1. Happy path ──────────────────────────────────────────────────
@@ -218,9 +238,7 @@ def test_happy_path_3_bloques_usa_cache_plc_blocks(
     """3 bloques pre-poblados en ``plc_blocks`` -> 3 DTOs mergeados.
 
     Verifica que el FB itera ``app_cache.plc_blocks`` (no navega el
-    arbol TIA): el mock de ``tia_client`` solo expone ``dispatch`` y NO
-    tiene ``wrapper`` accesible (el spec del mock se cumple aunque
-    ``wrapper`` sea un MagicMock auto-creado, pero el FB no lo usa).
+    arbol TIA): el mock de ``tia_client`` solo expone ``dispatch``.
     """
     blocks = [
         _make_cached_dto("DB2000_ED", 2000, "DB", "2000_Dispositivos"),
@@ -236,7 +254,7 @@ def test_happy_path_3_bloques_usa_cache_plc_blocks(
         "ZC_Controles/FC2000_ZC_ED",
         "OB1_MAIN",
     ]
-    _run_fb(fb, plc_name="PLC_1", selected_block_paths=selected)
+    fb.execute(plc_name="PLC_1", selected_block_paths=selected)
 
     assert fb.nStep == fb.n_done
     assert fb.is_terminal() is True
@@ -247,6 +265,11 @@ def test_happy_path_3_bloques_usa_cache_plc_blocks(
     assert fb.result["ok"] is True
     assert fb.result["plc_name"] == "PLC_1"
     assert fb.result["n_blocks"] == 3
+
+    # Las 5 etapas del FB se completaron y el tracker quedo cerrado.
+    snapshot = real_progress.snapshot()
+    assert snapshot.active is False
+    assert [s["status"] for s in snapshot.stages] == ["done"] * len(fb.steps)
 
     # Cache con los 3 bloques, indexado por el ``path`` de la SPA.
     cached = app_cache.get_block_edit_prepared("PLC_1")
@@ -299,7 +322,7 @@ def test_ruta_conserva_jerarquia_de_grupos_del_cache(
     fb = _make_fb(app_cache, tia_client, real_progress)
 
     path = "ZC_Controles/3_EnDesarrollo/FB15051_Cambio"
-    _run_fb(fb, plc_name="PLC_1", selected_block_paths=[path])
+    fb.execute(plc_name="PLC_1", selected_block_paths=[path])
 
     assert fb.nStep == fb.n_done
     cached = app_cache.get_block_edit_prepared("PLC_1")
@@ -309,31 +332,34 @@ def test_ruta_conserva_jerarquia_de_grupos_del_cache(
     assert dto.nombre not in dto.ruta
 
 
-# ── 2. Seleccion vacia -> ValueError ────────────────────────────────
+# ── 2. Seleccion vacia -> n_error ─────────────────────────────────
 
 
-def test_block_edit_prepare_empty_selection_raises_value_error(
+def test_block_edit_prepare_empty_selection_va_a_error(
     app_cache: AppCache,
     real_progress: ProgressTracker,
 ) -> None:
-    """``selected_block_paths=[]`` -> ``on_start`` lanza ValueError.
+    """``selected_block_paths=[]`` -> ``ValueError`` fail-fast en ``on_start``.
 
-    El primer ``tick()`` captura el raise y pone el FB en ``n_error``
-    con ``error_msg`` poblado (patron ``FunctionBase``).
+    ``execute()`` captura la excepcion de runtime: el FB queda en
+    ``n_error`` con el mensaje en ``error_msg`` (formato
+    ``"<TipoError>: <mensaje>"``).
     """
     _seed_plc_blocks(app_cache, "PLC_1", [])
     tia_client = _make_tia_client()
     fb = _make_fb(app_cache, tia_client, real_progress)
 
-    asyncio.run(fb.start(plc_name="PLC_1", selected_block_paths=[]))
-    asyncio.run(fb.tick())
+    fb.execute(plc_name="PLC_1", selected_block_paths=[])
 
     assert fb.nStep == fb.n_error
     assert fb.error_msg is not None
+    assert fb.error_msg.startswith("ValueError:")
     assert "selected_block_paths" in fb.error_msg
+    # El FB fail-fast antes de tocar TIA.
+    tia_client.dispatch.assert_not_called()
 
 
-# ── 3. Bloque no esta en el cache -> skip silencioso ────────────────
+# ── 3. Bloque no esta en el cache -> skip silencioso ───────────────
 
 
 def test_no_op_sin_bloques_en_cache(
@@ -354,8 +380,7 @@ def test_no_op_sin_bloques_en_cache(
     tia_client = _make_tia_client(_copy_s7dcl_export)
     fb = _make_fb(app_cache, tia_client, real_progress)
 
-    _run_fb(
-        fb,
+    fb.execute(
         plc_name="PLC_1",
         selected_block_paths=["DB2000_ED"],  # NO esta en el cache.
     )
@@ -371,54 +396,50 @@ def test_no_op_sin_bloques_en_cache(
     assert app_cache.get_block_edit_prepared("PLC_1") == {}
 
 
-# ── 4. PLC sin cache en plc_blocks -> RuntimeError ──────────────────
+# ── 4. PLC sin cache en plc_blocks -> n_error ─────────────────────
 
 
-def test_sin_cache_plc_blocks_raises(
+def test_sin_cache_plc_blocks_va_a_error(
     app_cache: AppCache,
     real_progress: ProgressTracker,
 ) -> None:
     """``plc_blocks`` no tiene entrada para el plc -> ``RuntimeError``.
 
     El operario debe ejecutar ``scan_blocks`` antes de ``prepare``.
-    Sin cache, el FB fail-fas en ``leer_tia`` con un mensaje claro
+    Sin cache, el FB fail-fas al leer el cache con un mensaje claro
     (incluye el nombre del PLC) y NO toca TIA (no hace dispatch).
     """
     tia_client = _make_tia_client()
     fb = _make_fb(app_cache, tia_client, real_progress)
 
-    asyncio.run(fb.start(
+    fb.execute(
         plc_name="PLC_1",
         selected_block_paths=["DB2000_ED"],
-    ))
-
-    # tick #1: arrancar -> ejecutar (on_start OK).
-    asyncio.run(fb.tick())
-    assert fb.nStep == fb.n_ejecutar
-
-    # tick #2: validar (ok, retorna string).
-    asyncio.run(fb.tick())
-    assert fb.nStep == fb.n_ejecutar
-
-    # tick #3: leer_tia falla con RuntimeError.
-    asyncio.run(fb.tick())
+    )
 
     assert fb.nStep == fb.n_error
     assert fb.error_msg is not None
+    assert fb.error_msg.startswith("RuntimeError:")
     assert "plc_blocks no cacheado" in fb.error_msg
     assert "PLC_1" in fb.error_msg
     # El FB fail-fast antes de tocar TIA.
     tia_client.dispatch.assert_not_called()
 
+    # El fallo viene del step de lectura del cache: la validacion previa
+    # ya habia pasado y el resto de etapas ni se ejecutaron.
+    estados = _stage_statuses(real_progress)
+    assert estados[fb.steps[0]["nombre"]] == "done"
+    assert estados[fb.steps[1]["nombre"]] == "error"
 
-# ── 5. export_block falla para 1 bloque ────────────────────────────
+
+# ── 5. export no devuelve un bloque -> sigue con los demas ─────────
 
 
-def test_export_raises_continues_with_others(
+def test_export_ignorado_continua_con_los_demas(
     app_cache: AppCache,
     real_progress: ProgressTracker,
 ) -> None:
-    """``export_block`` retorna ``ok=False`` para FC: queda sin title/comment.
+    """``export_blocks`` no devuelve el FC: queda sin title/comment.
 
     El bloque afectado se queda en el cache con ``title=None`` y
     ``comment=None`` (no se pudo parsear SCL). Los otros props
@@ -463,13 +484,13 @@ def test_export_raises_continues_with_others(
     tia_client = _make_tia_client(_export_dispatch)
     fb = _make_fb(app_cache, tia_client, real_progress)
 
-    _run_fb(
-        fb,
+    fb.execute(
         plc_name="PLC_1",
         selected_block_paths=["DB2000_ED", "FC2000_ZC_ED", "OB1_MAIN"],
     )
 
     assert fb.nStep == fb.n_done
+    assert fb.error_msg is None
     cached = app_cache.get_block_edit_prepared("PLC_1")
 
     # DB y OB mantienen title/comment del SCL.
@@ -485,7 +506,7 @@ def test_export_raises_continues_with_others(
     fc_dto = cached["FC2000_ZC_ED"]
     assert fc_dto.title is None
     assert fc_dto.comment is None
-    # El resto de campos extendidos (vienen del cache IT) sí están.
+    # El resto de campos extendidos (vienen del cache IT) si estan.
     assert fc_dto.author == "HCR"
     assert fc_dto.version == "1.0"
     assert fc_dto.programming_language == "SCL"
@@ -516,8 +537,7 @@ def test_layout_injection(
     tia_client = _make_tia_client(_copy_s7dcl_export)
     fb = _make_fb(app_cache, tia_client, real_progress, layout=layout)
 
-    _run_fb(
-        fb,
+    fb.execute(
         plc_name="PLC_1",
         selected_block_paths=["DB2000_ED"],
     )
@@ -545,7 +565,7 @@ def test_dispatch_args_usan_path_absoluto(
     real_progress: ProgressTracker,
     tmp_path: Path,
 ) -> None:
-    """El ``target_dir`` pasado a ``export_block`` es un path absoluto.
+    """El ``target_dir`` pasado a ``export_blocks`` es un path absoluto.
 
     Requisito del SDK Openness de TIA: ``directoryInfo cannot be a
     relative path``. El layout (default o inyectado) garantiza paths
@@ -559,8 +579,7 @@ def test_dispatch_args_usan_path_absoluto(
     tia_client = _make_tia_client(_copy_s7dcl_export)
     fb = _make_fb(app_cache, tia_client, real_progress, layout=layout)
 
-    _run_fb(
-        fb,
+    fb.execute(
         plc_name="PLC_1",
         selected_block_paths=["DB2000_ED"],
     )
@@ -600,7 +619,7 @@ def test_segundo_prepare_borra_sd_previos(
     Caso: el operario prepara A, B, C. Luego elimina C de TIA Portal
     (o deselecciona bloques) y vuelve a preparar solo A. Sin el
     ``clean_preview()`` al inicio de ``exportar_sd``, B.s7dcl y
-    C.s7dcl quedarían en disco contaminando cualquier inspección
+    C.s7dcl quedarian en disco contaminando cualquier inspeccion
     posterior.
 
     Como el layout es plano (``preview/`` sin subdir por PLC), el
@@ -619,8 +638,7 @@ def test_segundo_prepare_borra_sd_previos(
 
     # ── 1er prepare: A, B, C ──
     fb1 = _make_fb(app_cache, tia_client, real_progress, layout=layout)
-    _run_fb(
-        fb1,
+    fb1.execute(
         plc_name="PLC_1",
         selected_block_paths=["DB2000_ED", "FC2000_ZC_ED", "OB1_MAIN"],
     )
@@ -634,8 +652,7 @@ def test_segundo_prepare_borra_sd_previos(
     # ── 2º prepare: solo A (B y C quedan fuera) ──
     _seed_plc_blocks(app_cache, "PLC_1", [blocks_3[0]])  # solo DB en cache
     fb2 = _make_fb(app_cache, tia_client, real_progress, layout=layout)
-    _run_fb(
-        fb2,
+    fb2.execute(
         plc_name="PLC_1",
         selected_block_paths=["DB2000_ED"],
     )
@@ -681,7 +698,7 @@ def test_segundo_prepare_reemplaza_cache_sin_acumular(
 
     # 1er prepare: solo DB2000_ED.
     _seed_plc_blocks(app_cache, "PLC_1", [block_db])
-    _run_fb(fb, plc_name="PLC_1", selected_block_paths=["DB2000_ED"])
+    fb.execute(plc_name="PLC_1", selected_block_paths=["DB2000_ED"])
     assert fb.nStep == fb.n_done
 
     cached_after_first = app_cache.get_block_edit_prepared("PLC_1")
@@ -690,7 +707,7 @@ def test_segundo_prepare_reemplaza_cache_sin_acumular(
     # 2º prepare sobre la MISMA instancia del FB: solo FC2000_ZC_ED
     # (distinto del 1er).
     _seed_plc_blocks(app_cache, "PLC_1", [block_fc])
-    _run_fb(fb, plc_name="PLC_1", selected_block_paths=["FC2000_ZC_ED"])
+    fb.execute(plc_name="PLC_1", selected_block_paths=["FC2000_ZC_ED"])
     assert fb.nStep == fb.n_done
 
     cached_after_second = app_cache.get_block_edit_prepared("PLC_1")
