@@ -59,6 +59,7 @@ from core.helpers.tia.validate_plc_in_excel import validate_plc_in_excel
 from core.helpers.tia.with_plc import with_plc
 from core.helpers.tia.active_cache import get_devices, get_nmax
 from core.infrastructure.log.log_web_bridge import install_web_level
+from core.infrastructure.tia.tia_export_paths import XmlTarget
 
 # Asegura que ``Logger.web/ok`` existen (idempotente).
 install_web_level()
@@ -380,6 +381,12 @@ class FunctionDispSincronizar(FunctionBase):
                             "plc_name": self._ctx.plc_name,
                             "target_dir": str(self._ctx.tags_base),
                             "table_names": self._ctx.selective_tables,
+                            # La jerarquia de carpetas del PLC es lo que
+                            # permite a TIA hacer UPDATE al reimportar
+                            # (Stage 8). Con el export FLAT la tabla se
+                            # crea de nuevo, el objeto ya existe y la
+                            # transaccion muere con ``CommitOnDispose``.
+                            "keep_folder_structure": True,
                         },
                     }
                 ],
@@ -419,16 +426,26 @@ class FunctionDispSincronizar(FunctionBase):
                 cfg = self._ctx.config_manager.get_dispositivo_config(hw)
                 if cfg is None:
                     continue
-                # El sync exporta con ``keep_folder_structure=True``
-                # (Stage 7 necesita la subcarpeta para hacer UPDATE
-                # recursivo en TIA V21), asi que el XML vive en
-                # ``tags_base/<tia_folder>/<tag_table>.xml``.
-                tia_folder = _resolve_tia_folder(
-                    self._ctx.config_manager, hw
+                # El XML se busca por tabla, tolerando los dos
+                # layouts de export: FLAT (``<base>/<tabla>.xml``) y
+                # con la jerarquia de carpetas del PLC
+                # (``<base>/<carpeta>/<tabla>.xml``). El Stage 1
+                # exporta con ``keep_folder_structure=True`` porque TIA
+                # necesita esa jerarquia para hacer UPDATE al
+                # reimportar, pero el lector no debe depender de
+                # acertar el nombre de la carpeta.
+                xml_path = _locate_table_xml(
+                    self._ctx.tags_base, cfg.tag_table
                 )
-                xml_path = (
-                    self._ctx.tags_base / tia_folder / f"{cfg.tag_table}.xml"
-                )
+                if xml_path is None:
+                    # Sin el XML no hay base contra la que comparar:
+                    # proponer cambios seria inventar el estado de TIA.
+                    logger.warning(
+                        f"[disp sync] XML de la tabla '{cfg.tag_table}' no "
+                        f"encontrado en {self._ctx.tags_base}. La tabla se "
+                        f"omite del sync."
+                    )
+                    continue
                 devices = get_devices(self._ctx.app_cache, hw, AREA_ID)
                 diff = compute_diff_table(
                     table_name=cfg.tag_table,
@@ -476,11 +493,10 @@ class FunctionDispSincronizar(FunctionBase):
             for uid, (old, new) in self._ctx.renamed_per_table.items()
         ]
 
-        # Device changes: lista de {table_name, tia_folder, adds, removes}.
-        # ``tia_folder`` resuelve la subcarpeta donde vive el XML del device
-        # dentro de modified/variables (e.g. "PLC_Tags" o ""). Se necesita
-        # tanto en ``editar_xmls_offline`` (para encontrar el XML a editar)
-        # como en el copytree filtrado (Stage 7).
+        # Device changes: lista de {table_name, adds, removes}.
+        # El XML de cada tabla se localiza por nombre en el export
+        # (Stage 7), sin depender de la carpeta TIA: el export puede
+        # venir FLAT o con la jerarquia de carpetas del PLC.
         self._ctx.device_changes = []
         nmax_table = self._ctx.config_manager.get_global_config_table_name()
         for table_key in self._ctx.selective_tables:
@@ -499,7 +515,6 @@ class FunctionDispSincronizar(FunctionBase):
             if adds or removes:
                 self._ctx.device_changes.append({
                     "table_name": table_key,
-                    "tia_folder": _resolve_tia_folder(self._ctx.config_manager, table_key),
                     "adds": adds,
                     "removes": removes,
                 })
@@ -587,6 +602,10 @@ class FunctionDispSincronizar(FunctionBase):
                             "plc_name": self._ctx.plc_name,
                             "target_dir": str(disp_ctx.sync_variables_export),
                             "table_names": [dc["table_name"] for dc in self._ctx.device_changes],
+                            # Mismo criterio que el Stage 1: la
+                            # jerarquia de carpetas es la que permite a
+                            # TIA hacer UPDATE en el import de Tx B.
+                            "keep_folder_structure": True,
                         },
                     }
                 ],
@@ -1107,7 +1126,7 @@ class FunctionDispSincronizar(FunctionBase):
 # Ahora los 11 stages viven como metodos del FB (mutando ``self._ctx``). Solo
 # permanece aqui el ``DispSyncContext`` (dataclass entre stages) y las helpers
 # puras (``_selective_table_names``, ``_compute_nmax_ops_for_apply``,
-# ``_resolve_tia_folder``, ``_ignore_non_device_xmls``, ``_copy_and_edit_offline``,
+# ``_locate_table_xml``, ``_ignore_non_device_xmls``, ``_copy_and_edit_offline``,
 # ``_get_affected_dbs_for_compile``, ``_step_summary``).
 # ============================================================================
 
@@ -1169,7 +1188,7 @@ class DispSyncContext:
 # Ahora los 11 stages viven como metodos del FB (mutando ``self._ctx``). Solo
 # permanece aqui el ``DispSyncContext`` (dataclass entre stages) y las helpers
 # puras (``_selective_table_names``, ``_compute_nmax_ops_for_apply``,
-# ``_resolve_tia_folder``, ``_ignore_non_device_xmls``, ``_copy_and_edit_offline``,
+# ``_locate_table_xml``, ``_ignore_non_device_xmls``, ``_copy_and_edit_offline``,
 # ``_get_affected_dbs_for_compile``, ``_step_summary``).
 # ============================================================================
 
@@ -1211,10 +1230,10 @@ def _compute_nmax_ops_for_apply(
 
     nmax_folder = config_manager.get_tia_folder_nmax()
     nmax_table = config_manager.get_global_config_table_name()
-    xml_path = tags_base / nmax_folder / f"{nmax_table}.xml"
+    xml_path = _locate_table_xml(tags_base, nmax_table)
 
     current: dict[str, int] = {}
-    if xml_path.is_file():
+    if xml_path is not None:
         try:
             current = PlcUserConstantParser.parse_user_constants(xml_path)
         except Exception as e:
@@ -1224,7 +1243,8 @@ def _compute_nmax_ops_for_apply(
         # dims como "actualizar" enmascarando una falla de export.
         # Si TIA no devolvio nada, NO deberiamos proponer cambios.
         logger.warning(
-            f"[N_MAX] XML esperado no encontrado (sync): {xml_path}"
+            f"[N_MAX] XML esperado no encontrado (sync): "
+            f"{tags_base / nmax_folder / f'{nmax_table}.xml'}"
         )
 
     d = get_nmax(app_cache, AREA_ID)
@@ -1248,12 +1268,26 @@ def _compute_nmax_ops_for_apply(
     return ops
 
 
-def _resolve_tia_folder(config_manager: Any, table_key: str) -> str:
-    """Resuelve la carpeta TIA donde debe guardarse el XML de ``table_key``."""
-    nmax_table = config_manager.get_global_config_table_name()
-    if table_key == nmax_table:
-        return config_manager.get_tia_folder_nmax()
-    return config_manager.get_tia_folder_dispositivos()
+def _locate_table_xml(base: Path, table_name: str) -> Path | None:
+    """Localiza el ``.xml`` de una tabla dentro de un export de TIA.
+
+    Tolera los dos layouts de export:
+
+      - FLAT: ``<base>/<tabla>.xml``.
+      - Con jerarquia de carpetas del PLC: ``<base>/<carpeta>/<tabla>.xml``.
+
+    Args:
+        base: directorio raiz del export.
+        table_name: nombre de la tabla (sin extension).
+
+    Returns:
+        La ruta del ``.xml`` si existe, o ``None`` si la tabla no esta
+        en el export.
+    """
+    try:
+        return XmlTarget(base, table_name).path
+    except FileNotFoundError:
+        return None
 
 
 def _ignore_non_device_xmls(
@@ -1323,19 +1357,10 @@ def _copy_and_edit_offline(
     # 2. Edit offline de cada tabla en sync/variables/modified.
     for dc in device_changes:
         table_name = dc["table_name"]
-        tia_folder = dc.get("tia_folder") or ""
         adds = dc.get("adds", []) or []
         removes = set(dc.get("removes", []) or [])
-        xml_path = (
-            dst
-            / tia_folder
-            / f"{table_name}.xml"
-        )
-        if not xml_path.is_file():
-            matches = list(dst.rglob(f"{table_name}.xml"))
-            if matches:
-                xml_path = matches[0]
-        if xml_path.is_file():
+        xml_path = _locate_table_xml(dst, table_name)
+        if xml_path is not None:
             logger.debug(
                 f"[disp sync] edit offline: tabla={table_name}, "
                 f"adds={len(adds)}, removes={len(removes)}, "

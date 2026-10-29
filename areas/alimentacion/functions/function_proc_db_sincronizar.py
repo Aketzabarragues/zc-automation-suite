@@ -878,6 +878,11 @@ class FunctionProcDBSincronizar(FunctionBase):
                                 "plc_name": plc_name,
                                 "target_dir": str(preview_variables),
                                 "table_names": [slot_map.table_name],
+                                # Solo lectura (diff del preview): el
+                                # layout plano es el de este workdir.
+                                # El sync de bloques replica la jerarquia
+                                # del PLC por su cuenta.
+                                "keep_folder_structure": False,
                             },
                         },
                     ],
