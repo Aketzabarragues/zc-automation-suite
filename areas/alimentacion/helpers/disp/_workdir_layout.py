@@ -60,7 +60,7 @@ class DispLayout:
 
     @cached_property
     def preview_config(self) -> Path:
-        """N_MAX: ``000_Config_Dispositivos.xml`` (FLAT)."""
+        """N_MAX: ``0_Config_Dispositivos.xml`` (FLAT)."""
         out = self.root / "preview" / _PREVIEW_CONFIG
         out.mkdir(parents=True, exist_ok=True)
         return out

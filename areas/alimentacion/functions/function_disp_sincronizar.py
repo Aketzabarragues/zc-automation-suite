@@ -1296,7 +1296,7 @@ def _ignore_non_device_xmls(
     """Callable para ``shutil.copytree(ignore=...)``.
 
     Excluye los XMLs cuyo stem NO este en ``device_table_names``.
-    Esto evita que se copie ``000_Config_Dispositivos.xml`` (tabla
+    Esto evita que se copie ``0_Config_Dispositivos.xml`` (tabla
     N_MAX online-only que NO debe llegar al import offline de Tx B):
     si se copiara, Tx B la re-importaria con sus valores pre-commit,
     sobrescribiendo los N_MAX aplicados online en Tx A.
@@ -1322,7 +1322,7 @@ def _copy_and_edit_offline(
 ) -> None:
     """Stage 7 del sync: copytree filtrado sync export→modified + edits.
 
-    El copytree con filtro excluye ``000_Config_Dispositivos.xml``
+    El copytree con filtro excluye ``0_Config_Dispositivos.xml``
     (tabla N_MAX online-only) para que Tx B no la re-importe y anule
     los N_MAX de Tx A.
     """

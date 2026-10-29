@@ -406,8 +406,8 @@ class FunctionProcDBGenerarPreview(FunctionBase):
 
         Convencion del operario: las PlcUserConstant N_MAX de
         un proceso viven en la **tabla del proceso** (``<uid>_<codigo>``,
-        p. ej. ``100_CPR``), en la carpeta TIA ``003_Procesos/``. NO en
-        la tabla ``000_Config_Dispositivos``.
+        p. ej. ``100_CPR``), en la carpeta TIA ``0_Procesos/``. NO en
+        la tabla ``0_Config_Dispositivos``.
 
         Compara el desired (de ``DataProcSlotMap.nmax``, ``len()`` de las
         listas filtradas del Excel) contra el current (exportando la

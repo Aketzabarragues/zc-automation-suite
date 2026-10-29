@@ -71,7 +71,7 @@ class NmaxDiff:
     """Resultado del diff de N_MAX entre desired (Excel) y base (TIA).
 
     Atributos:
-        table_name: nombre de la tabla (``"000_Config_Dispositivos"``).
+        table_name: nombre de la tabla (``"0_Config_Dispositivos"``).
         current: valores del TIA (``{}`` si XML falta).
         desired: valores del Excel (nombres canonicos ``N_MAX_DISP_*``).
         todos: lista de ``{name, actual, nuevo, status}`` por N_MAX.

@@ -4,7 +4,7 @@
  * Vista de Pre-Flight con dos secciones:
  *   1. **Cards de N_MAX** (arriba, estilo Definición programación):
  *      muestran las PlcUserConstant de la tabla
- *      ``000_Config_Dispositivos`` con su valor actual en TIA
+ *      ``0_Config_Dispositivos`` con su valor actual en TIA
  *      y el valor deseado del Excel. Solo dos estados posibles:
  *      ``actualizar`` (X → Y) o ``sin_cambios``.
  *   2. **Tabs por tipo de dispositivo** (ED/EA/SA/V/M/MVF por

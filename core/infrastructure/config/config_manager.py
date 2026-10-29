@@ -3,7 +3,7 @@
 Lee ``config/config.json`` y expone el mapeo entre tipos de dispositivo
 del departamento activo y nombres reales de tablas / DBs / carpetas
 dentro del PLC de TIA Portal. Evita hardcodear nombres como
-``"000_Config_Dispositivos"`` o ``"2000_Disp_ED"`` en los casos de uso.
+``"0_Config_Dispositivos"`` o ``"2000_Disp_ED"`` en los casos de uso.
 
 Modulo generico: no tiene defaults hardcoded de un area concreta.
 Si una clave no esta en el JSON, devuelve ``""`` o ``[]`` y loggea
@@ -748,7 +748,7 @@ class ConfigManager:
 
         (``"100_N_MAX_PREAL"`` para el proceso uid=100 y array
         PReal). Las 3 constantes viven en la misma tabla
-        ``000_Config_Dispositivos`` que usan los N_MAX de devices.
+        ``0_Config_Dispositivos`` que usan los N_MAX de devices.
 
         Si el departamento no define ``procesos.n_max_suffixes``,
         devuelve un dict vacío. El caller debe tratar eso como

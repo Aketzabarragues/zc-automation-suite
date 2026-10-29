@@ -80,7 +80,7 @@ class PlcUserConstantModifier:
     # =================================================================
     #
     # Los devices y N_MAX viven como PlcUserConstant en las tag tables
-    # (p.ej. 2000_Disp_ED, 000_Config_Dispositivos). El esquema es:
+    # (p.ej. 2000_Disp_ED, 0_Config_Dispositivos). El esquema es:
     #   <SW.Tags.PlcUserConstant ID="...">
     #     <AttributeList>
     #       <Name>...</Name>           (plc_tag)

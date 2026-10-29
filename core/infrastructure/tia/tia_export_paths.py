@@ -84,8 +84,8 @@ class XmlTarget:
     desde ``areas/alimentacion/infrastructure/xml/`` hoy.
 
     Example:
-        >>> target = XmlTarget(Path("/tmp/exp"), "000_Config_Dispositivos")
-        >>> target.path  # /tmp/exp/000_Config_Dispositivos.xml si existe
+        >>> target = XmlTarget(Path("/tmp/exp"), "0_Config_Dispositivos")
+        >>> target.path  # /tmp/exp/0_Config_Dispositivos.xml si existe
     """
 
     work_dir: Path

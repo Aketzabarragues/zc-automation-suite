@@ -69,7 +69,7 @@ Mueve la entry de `pending_dispositivos` → `Dispositivos` y de
     "db_name":         "DB<num>_<HW>",
     "db_array_name":   "<HW>",
     "tag_table":       "2000_Disp_<HW>",
-    "config_table":    "000_Config_Dispositivos"
+    "config_table":    "0_Config_Dispositivos"
   }
 }
 

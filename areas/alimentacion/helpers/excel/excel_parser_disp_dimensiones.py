@@ -1,7 +1,7 @@
 ﻿"""Parser de N_MAX del Excel corporativo (multi-PLC).
 
 Lee una **tabla** dentro de la hoja de configuracion global
-(``global_config_table_name``, tipicamente ``"000_Config_Dispositivos"``)
+(``global_config_table_name``, tipicamente ``"0_Config_Dispositivos"``)
 con la siguiente estructura::
 
     UID | PLC | N_Max_ED | N_Max_EA | N_Max_SD | ... | N_Max_ENT
@@ -58,7 +58,7 @@ N_MAX_TABLE_NAME = "Tabla_Dimensiones"
 # Hoja del Excel donde vive la tabla (igual que ``PLCListParser`` y
 # ``ProcesosParser``, hardcoded a ``"CONFIG"``). NO usar
 # ``tia_folders.nmax`` del ``ConfigManager`` (eso es el path TIA
-# donde estan los XMLs exportados, p.ej. ``"000_Sistema"``; son DOS
+# donde estan los XMLs exportados, p.ej. ``"0_Sistema"``; son DOS
 # cosas distintas: hoja del Excel donde escribe el operario vs.
 # directorio del PLC donde TIA guarda los datos).
 SHEET = "CONFIG"

@@ -185,9 +185,9 @@ def _config_manager_for_loader(tmp_path: Path) -> Any:
             "alimentacion": {
                 "global_config_table_name": "CONFIG",
                 "tia_folders": {
-                    "proceso": "003_Procesos",
+                    "proceso": "0_Procesos",
                     "dispositivos": "2000_Dispositivos",
-                    "nmax": "000_Sistema",
+                    "nmax": "0_Sistema",
                 },
                 "n_max_catalog": [
                     {"name": "N_MAX_DISP_ED",      "hw_type": "ed",      "excel_column": "N_Max_ED"},
