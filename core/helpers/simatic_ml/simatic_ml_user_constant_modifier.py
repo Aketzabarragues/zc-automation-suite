@@ -205,6 +205,7 @@ class PlcUserConstantModifier:
             return 0
         existing_names = self._existing_user_constant_names()
         added = 0
+        skipped: list[tuple[str, str]] = []
         # max_id se actualiza despues de CADA add, para que el siguiente
         # nuevo constant empiece DESPUES de los IDs ya asignados. Sin
         # esto, dos adds consecutivos comparten los mismos IDs y TIA V21
@@ -212,7 +213,15 @@ class PlcUserConstantModifier:
         max_id = self._max_id_in_doc()
         for dto in dispositivos:
             name = dto.get("plc_tag", "").strip()
-            if not name or name in existing_names:
+            if not name:
+                skipped.append((dto.get("uid", "").strip(), "plc_tag vacio"))
+                continue
+            if name in existing_names:
+                # El diff razona por uid y el modificador por nombre: un
+                # add cuyo nombre ya existe en la tabla (con otro uid) no
+                # se puede escribir. Sin avisar, el preview (que cuenta
+                # por uid) promete mas tags de los que acaban en TIA.
+                skipped.append((name, "el nombre ya existe en la tabla"))
                 continue
             value_str = dto.get("uid", "").strip()
             comment = dto.get("comment", "").strip()
@@ -243,6 +252,17 @@ class PlcUserConstantModifier:
             f"PlcUserConstantModifier: +{added} anadidos en '{table_name}' "
             f"(de {len(dispositivos)} solicitados)"
         )
+        if skipped:
+            detalle = "; ".join(
+                f"'{nombre}' ({motivo})" for nombre, motivo in skipped[:20]
+            )
+            if len(skipped) > 20:
+                detalle += f"; ... y {len(skipped) - 20} mas"
+            _logger.warning(
+                f"PlcUserConstantModifier: +{added} anadidos en "
+                f"'{table_name}' (de {len(dispositivos)} solicitados); "
+                f"{len(skipped)} omitidos: {detalle}"
+            )
         return added
 
     def _max_id_in_doc(self) -> int:

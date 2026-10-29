@@ -1355,6 +1355,9 @@ def _copy_and_edit_offline(
         return
 
     # 2. Edit offline de cada tabla en sync/variables/modified.
+    pedidos_total = 0
+    escritos_total = 0
+    parciales: list[str] = []
     for dc in device_changes:
         table_name = dc["table_name"]
         adds = dc.get("adds", []) or []
@@ -1367,10 +1370,14 @@ def _copy_and_edit_offline(
                 f"xml={xml_path}"
             )
             modifier = PlcUserConstantModifier(xml_path)
-            modifier.add_user_constants_by_table(table_name, adds)
+            escritos = modifier.add_user_constants_by_table(table_name, adds)
             modifier.remove_user_constants(removes)
             if modifier.was_modified():
                 modifier.save(xml_path)
+            pedidos_total += len(adds)
+            escritos_total += escritos
+            if escritos != len(adds):
+                parciales.append(f"{table_name}: {escritos}/{len(adds)}")
         else:
             # El XML del tipo de dispositivo no esta en modified.
             # Saltamos ese tipo pero avisamos al operario: un FB
@@ -1381,6 +1388,20 @@ def _copy_and_edit_offline(
                 f"[disp sync] XML no encontrado para tabla "
                 f"'{table_name}' en {dst}. Se omite del sync."
             )
+            parciales.append(f"{table_name}: 0/{len(adds)} (XML no encontrado)")
+
+    if parciales:
+        logger.warning(
+            f"[disp sync] tags escritos: {escritos_total} de "
+            f"{pedidos_total} pedidos ({'; '.join(parciales)}). El diff "
+            f"cuenta por uid y el modificador decide por nombre: un add "
+            f"cuyo nombre ya existe en la tabla no se puede escribir."
+        )
+    else:
+        logger.info(
+            f"[disp sync] tags escritos: {escritos_total} de "
+            f"{pedidos_total} pedidos."
+        )
 
 
 def _get_affected_dbs_for_compile(config_manager: Any) -> list[str]:
