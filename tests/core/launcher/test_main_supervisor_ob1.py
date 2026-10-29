@@ -111,6 +111,35 @@ def test_start_arranca_el_dispatcher_ob1(
     tia_client.start_tia_loop.assert_not_called()
 
 
+def test_el_supervisor_no_arranca_ningun_loop_async(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """El unico camino de ejecucion es el dispatcher OB1.
+
+    El engine conserva los metodos del tick legacy, pero el supervisor no
+    los arranca. Este guard lo fija: si alguien reintrodujera el hilo
+    ``main-loop``, la suite lo detecta en vez de dejarlo pasar en silencio.
+    """
+    monkeypatch.chdir(tmp_path)
+    import core.launcher.main_supervisor as mod
+
+    sup = _supervisor()
+    engine = MagicMock()
+    tia_client = MagicMock()
+    sup._build_components = lambda: (tia_client, engine, MagicMock(), MagicMock())
+    monkeypatch.setattr(
+        mod, "threading", SimpleNamespace(Thread=lambda **kwargs: MagicMock())
+    )
+
+    sup.start()
+
+    engine.start_ob1.assert_called_once_with()
+    engine.start_loop.assert_not_called()
+    engine.run_cycle.assert_not_called()
+    engine.tick_once.assert_not_called()
+
+
 def test_stop_para_el_dispatcher_antes_que_el_worker_tia(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
