@@ -101,8 +101,9 @@ proyecto. L3 y L4 son basura que hay que limpiar.**
 
 ## 4. Bugs reales (todos del modelo nuevo, ninguno legacy)
 
-**Estado: los cinco corregidos en G0.** La descripcion de cada uno se
-conserva como registro de que estaban y de por que se detectaron.
+**Estado: los cinco de G0 y los cinco del smoke en vivo contra TIA
+Portal, corregidos.** La descripcion de cada uno se conserva como
+registro de que estaban y de por que se detectaron.
 
 ### B1 — CRITICO: dos `submit()` del mismo FB lo ejecutan DOS veces
 
@@ -178,6 +179,98 @@ cargado) se traduce a **500**. Por el contrato de `AGENTS.md` §2.6 es un
 **Estado de los cinco**: corregidos en G0. B2 y B3, ademas, se
 resolvieron moviendo la responsabilidad al sitio correcto (el FB y el
 estado terminal del SSE), no con un parche.
+
+### Bugs del smoke en vivo contra TIA Portal
+
+El smoke ejecuto 12 trabajos contra TIA Portal: 11 correctos y 1 fallo
+(el sync de dispositivos, en Tx B). Los cinco de abajo son los que se
+detectaron con ese log y con la revision del codigo; todos corregidos.
+
+### S1 — el sync de dispositivos importa en TIA con el layout equivocado
+
+**Corregido.** El sync de dispositivos reimporta las tablas de tags
+dentro de una transaccion (Tx B). Para que TIA haga UPDATE y no CREATE,
+el export tiene que conservar la jerarquia de carpetas del PLC: con el
+export plano la tabla se crea de nuevo, el objeto ya existe y la
+transaccion muere con `CommitOnDispose`.
+
+Causa raiz: el handler unificado `export_tables` tiene
+`keep_folder_structure=False` por defecto, mientras que el handler que
+usaba antes el sync (`export_plc_tags_xml`) lo tenia en `True`. Los dos
+call sites del sync no pasaban el flag, asi que pasaron a exportar plano
+sin que nadie lo notase. El `export_tables` de los 4 previews y el de
+`entidades` si lo declaraban, por eso solo el sync de dispositivos fallo.
+
+Los 2 exports del sync (stage 1 y stage 6) pasan ahora
+`keep_folder_structure=True` de forma explicita, y el diff de
+dispositivos y el lector de N_MAX localizan el XML por tabla con
+`XmlTarget`, que tolera los dos layouts (plano y con jerarquia). Si el
+XML no aparece, la tabla se omite con un warning en vez de proponer
+cambios contra una base inventada.
+
+Guard de regresion:
+`tests/areas/alimentacion/functions/test_disp_sync_export_estructura.py`
+(guard estructural: ningun `export_tables` puede heredar el default del
+handler, y los 2 exports del sync tienen que llevar la jerarquia).
+
+### S2 — el N_MAX de dispositivos no se leia y no se aplicaba
+
+**Corregido.** El lector de N_MAX buscaba el XML en una subcarpeta
+concreta, sin fallback. Con el export plano el XML vive en la raiz del
+workdir: no se encontraba, el estado actual se quedaba vacio y el sync
+proponia 0 cambios de N_MAX **en silencio**. Con `XmlTarget` el XML se
+localiza en cualquiera de los dos layouts.
+
+Consecuencia a tener en cuenta: antes el N_MAX de dispositivos nunca se
+aplicaba. Ahora si. Si el Excel trae un valor distinto del que hay en
+TIA, ese cambio llega al PLC (redimensiona el array del bloque de
+dispositivos).
+
+### S3 — el error del lote transaccional no decia donde habia fallado
+
+**Corregido.** `execute_transactional_batch` distinguia entre un
+sub-comando fallido y el commit de la transaccion solo por el numero de
+paso. Cuando todos los sub-comandos pasaban y el commit era rechazado
+por TIA, el mensaje apuntaba a un paso que no existia y no decia que el
+detalle real esta en el log de TIA Portal. Ademas, el fallo del rollback
+se tragaba con `except Exception: pass`: el proyecto puede haber quedado
+a medias y el operador no se enteraba.
+
+Ahora el error dice si el fallo esta en un paso concreto o en el commit,
+apunta al log de TIA Portal y reporta el fallo del rollback como dato
+adicional, sin sustituir a la causa raiz.
+
+### S4 — el sync no decia cuantos tags habia escrito de verdad
+
+**Corregido.** El diff de dispositivos razona por `uid` (el `Value` del
+PlcUserConstant) y el modificador razona por `nombre` (el `Name`): un
+add cuyo nombre ya existe en la tabla, con otro uid, no se puede
+escribir. El modificador lo descartaba en silencio, de modo que el
+preview (que cuenta por uid) prometia mas tags de los que acababan en
+TIA.
+
+Ahora el modificador avisa de cada omision con su motivo, y el sync
+informa de cuantos tags ha escrito de los pedidos y en que tabla se han
+quedado fuera.
+
+Pendiente de decision: cuando el nombre colisiona y el `uid` antiguo
+esta en `removed`, el modificador borra el constante viejo y no escribe
+el nuevo (el tag desaparece del PLC). El sync no puede resolver ese
+caso por su cuenta: es una decision de negocio (si el Excel reenumeró
+los dispositivos, hay que decidir si se renombra el tag existente o si
+se rechaza el sync).
+
+### S5 — los defaults del area usaban nombres de tabla que no existen
+
+**Corregido.** La tabla global N_MAX se llama `0_Config_Dispositivos` y
+vive en la carpeta `0_Sistema` (nombres del config que se instala y del
+PLC del operario). Los defaults del area seguian con
+`000_Config_Dispositivos`, `000_Sistema` y `003_Procesos`: una
+instalacion sin esas claves en su JSON buscaba una tabla inexistente y
+se quedaba sin N_MAX que aplicar.
+
+Los defaults quedan atados al config empaquetado por un guard:
+`tests/areas/alimentacion/helpers/config/test_config_defaults.py`.
 
 ---
 
@@ -471,6 +564,10 @@ mismo commit que el codigo, no antes).
 - `_h_import_tag_table` (`tia_cmd_import_.py:149`): cae en `target_folder=""`,
   que el propio modulo advierte que rompe el match UPDATE en TIA V21
   (INFERIDO: depende de si `import_plc_tags` comparte esa semantica).
+- `proc_db_sincronizar`: exporta los bloques plano y replica la jerarquia
+  del PLC por su cuenta (`param_subpath`), asi que no tiene el problema de
+  S1. En el smoke no hubo import (0 cambios), asi que la rama de import con
+  bloques existentes no se ha ejercitado contra TIA (INFERIDO: no medido).
 
 ---
 
