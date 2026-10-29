@@ -87,6 +87,12 @@ class Engine:
         self._job_queue: queue.Queue[str] = queue.Queue()
         self._ob1_thread: threading.Thread | None = None
         self._ob1_stop = threading.Event()
+        # Lock de la reserva de FB: la comprobacion de ocupacion y el
+        # encolado ocurren en la misma seccion critica. Sin el, dos
+        # submits del mismo FB pueden pasar los dos la comprobacion
+        # (el estado del FB no cambia hasta que el OB1 lo ejecuta) y
+        # encolar dos trabajos: el FB se ejecutaria dos veces.
+        self._submit_lock = threading.Lock()
         # Hook opcional: callable(name, fb) invocado tras cada cambio
         # de nStep de cualquier FB. Lo cablea publishers.wire_all() en el
         # arranque, DESPUES de registrar los FBs: por eso es una
@@ -263,23 +269,24 @@ class Engine:
     def submit(self, fb_name: str, **params: Any) -> str:
         """Encola un trabajo para el FB ``fb_name`` y devuelve su ``job_id``.
 
-        Lanza ``FBBusyError`` si el FB no existe o ya tiene una ejecucion
-        en curso (el caller web lo traduce a HTTP 409).
+        Lanza ``FBBusyError`` si el FB no existe o ya tiene un trabajo en
+        curso (el caller web lo traduce a HTTP 409).
         """
         fb = self._fbs.get(fb_name)
         if fb is None:
             raise FBBusyError(f"FB desconocido: {fb_name}")
-        if not fb.is_terminal():
-            raise FBBusyError(
-                f"FB ocupado: {fb_name} tiene una ejecucion en curso"
+        with self._submit_lock:
+            if not fb.is_terminal() or self._fb_ocupado(fb_name):
+                raise FBBusyError(
+                    f"FB ocupado: {fb_name} tiene una ejecucion en curso"
+                )
+            job = Job(
+                job_id=uuid.uuid4().hex,
+                fb_name=fb_name,
+                params=dict(params),
             )
-        job = Job(
-            job_id=uuid.uuid4().hex,
-            fb_name=fb_name,
-            params=dict(params),
-        )
-        self._jobs[job.job_id] = job
-        self._job_queue.put(job.job_id)
+            self._jobs[job.job_id] = job
+            self._job_queue.put(job.job_id)
         if not self.ob1_running():
             logger.warning(
                 "Engine: job %s encolado pero el dispatcher OB1 no esta "
@@ -290,6 +297,20 @@ class Engine:
             "Engine: job %s encolado para FB '%s'", job.job_id, fb_name,
         )
         return job.job_id
+
+    def _fb_ocupado(self, fb_name: str) -> bool:
+        """True si el FB tiene un trabajo en cola o en ejecucion.
+
+        La fuente de verdad de la ocupacion son los trabajos, no el
+        estado del FB: el estado ``nStep`` del FB no cambia hasta que el
+        dispatcher empieza a ejecutarlo, asi que entre el ``submit()`` y
+        el arranque del trabajo el FB sigue apareciendo como terminal y
+        admitiria un segundo trabajo.
+        """
+        return any(
+            job.fb_name == fb_name and job.status in ("queued", "running")
+            for job in self._jobs.values()
+        )
 
     def cancel_job(self, job_id: str, reason: str = "cancelled") -> bool:
         """Pide cancelar un trabajo. True si estaba en curso o en cola."""
