@@ -87,8 +87,10 @@ def _h_execute_transactional_batch(
     results_list: list[dict] = []
     cmd: str = ""
     cmd_args: dict = {}
+    paso_actual: int = 0
     try:
         for idx, op in enumerate(operations):
+            paso_actual = idx + 1
             cmd = op.get("command", "")
             cmd_args = op.get("args", {})
 
@@ -144,18 +146,41 @@ def _h_execute_transactional_batch(
         }
 
     except Exception as exc:
+        # El rollback es parte del contrato: si falla, el proyecto puede
+        # haber quedado a medias. Se reporta como dato adicional, sin
+        # sustituir a la causa raiz del lote.
         try:
             project.end_transaction(rollback=True)
-        except Exception:
-            pass
+            rollback_txt = "Rollback ejecutado."
+        except Exception as rb_exc:
+            rollback_txt = (
+                f"Rollback NO completado ({type(rb_exc).__name__}: "
+                f"{rb_exc}): el proyecto puede haber quedado a medias."
+            )
+            logger.error(
+                f"[tia] rollback fallido tras abortar el lote en '{cmd}': "
+                f"{type(rb_exc).__name__}: {rb_exc}"
+            )
         try:
             args_str = _json.dumps(cmd_args, ensure_ascii=False, default=str)[:500]
         except Exception:
             args_str = repr(cmd_args)[:500]
+        ops_ok = len(results_list)
+        if paso_actual > ops_ok:
+            origen = f"el paso {paso_actual} ('{cmd}')"
+        else:
+            # Todos los sub-comandos pasaron: lo que fallo es el commit.
+            origen = (
+                f"el commit de la transaccion (tras {ops_ok} operacion(es) "
+                f"correcta(s), la ultima '{cmd}')"
+            )
         raise RuntimeError(
-            f"Lote abortado en el paso {len(results_list) + 1} ('{cmd}'). "
+            f"Lote abortado en {origen}. "
             f"Args: {args_str}. "
-            f"Rollback ejecutado. Motivo: {exc}"
+            f"{rollback_txt} "
+            f"Motivo: {exc}. "
+            f"Si el motivo viene de TIA Portal, el detalle real esta en "
+            f"el log de TIA Portal: la API solo propaga la excepcion."
         )
 
 

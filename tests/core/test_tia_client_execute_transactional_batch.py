@@ -257,8 +257,14 @@ def test_batch_rollback_on_false_return():
     project.end_transaction.assert_called_once_with(rollback=True)
 
 
-def test_batch_silences_rollback_failure():
-    """Si end_transaction(rollback=True) falla, NO enmascarar la causa raiz."""
+def test_batch_no_enmascara_la_causa_raiz_del_rollback():
+    """Si end_transaction(rollback=True) falla, la causa raiz sigue
+    mandando, pero el fallo del rollback se reporta aparte.
+
+    El rollback fallido significa que el proyecto puede haber quedado a
+    medias: el operario tiene que saberlo (puede tener que cerrar TIA
+    Portal a mano). No puede sustituir al motivo real del lote.
+    """
     c, portal, project = _setup_with_project(
         end_side_effect=RuntimeError("rollback broken"),
     )
@@ -292,7 +298,57 @@ def test_batch_silences_rollback_failure():
     # La causa raiz es "handler failed", no "rollback broken".
     assert out["ok"] is False
     assert "handler failed" in out["error"]
-    assert "rollback broken" not in out["error"]
+    # El fallo del rollback se reporta aparte, sin tapar la causa raiz.
+    assert "Rollback NO completado" in out["error"]
+    assert "rollback broken" in out["error"]
+
+
+def test_batch_reporta_el_fallo_del_commit_de_la_transaccion():
+    """Si el commit falla (no un sub-comando), el error lo dice.
+
+    Con ``end_transaction(rollback=False)`` fallando, todos los
+    sub-comandos han pasado: el error no es de un paso concreto, es del
+    commit de la transaccion.
+    """
+    c, portal, project = _setup_with_project()
+
+    def _end_transaction(rollback: bool = False) -> None:
+        if not rollback:
+            raise RuntimeError(
+                "CommitOnDispose: commit refused after an exception"
+            )
+
+    project.end_transaction = MagicMock(side_effect=_end_transaction)
+
+    c.register_command("ok1", lambda args, client: {"a": 1})
+
+    out = c.dispatch(
+        "execute_transactional_batch",
+        {"operations": [{"command": "ok1"}]},
+    )
+
+    assert out["ok"] is False
+    assert "commit de la transaccion" in out["error"], out["error"]
+    assert "CommitOnDispose" in out["error"]
+    # No se inventa un paso que no ha fallado.
+    assert "el paso 2" not in out["error"], out["error"]
+
+
+def test_batch_apunta_al_log_de_tia_portal():
+    """El mensaje dice donde esta el detalle real del error de TIA."""
+    c, portal, project = _setup_with_project()
+
+    c.register_command("boom", lambda args, client: (_ for _ in ()).throw(
+        RuntimeError("OpennessAccessException")
+    ))
+
+    out = c.dispatch(
+        "execute_transactional_batch",
+        {"operations": [{"command": "boom"}]},
+    )
+
+    assert out["ok"] is False
+    assert "log de TIA Portal" in out["error"], out["error"]
 
 
 def test_batch_includes_failed_args_in_error_for_diagnostics():
