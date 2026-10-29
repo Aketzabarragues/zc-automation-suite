@@ -1,8 +1,8 @@
 """Function Base con progress_tracker integrado, steps declarativos y timeout.
 
-State machine discreto ``nStep`` con tolerancia best-effort. Cada FB
-es un orquestador de una operacion del operario contra TIA Portal (subir
-excel, escanear bloques, sincronizar dispositivos, etc.).
+State machine discreto ``nStep``. Cada FB es un orquestador de una
+operacion del operario contra TIA Portal (subir excel, escanear bloques,
+sincronizar dispositivos, etc.).
 
 A diferencia de un FB "pelado", este base lleva integrado el HMI
 (progress_tracker): begin al arrancar, start/finish/error por cada
@@ -11,37 +11,31 @@ estatica de steps y la logica de cada step.
 
 State machine::
 
-    nStep=0   idle      (FB creado, sin start)
+    nStep=0   idle      (FB creado, sin ejecutar)
     nStep=10  arrancar  (on_start + tracker.begin)
     nStep=20  ejecutar  (loop de steps: start_stage -> run_step -> finish/error)
     nStep=95  finalizar (on_finish + tracker.finish(success=True))
-    nStep=99  done      (terminal OK, el engine NO tickea mas)
-    nStep=98  error     (terminal con error_msg, el engine NO tickea mas)
+    nStep=99  done      (terminal OK)
+    nStep=98  error     (terminal con error_msg)
 
-Dos caminos de ejecucion (ver ``execute`` y ``tick``):
-
-  - ``execute(**params)`` (SINC, via nueva): el hilo ejecutor del OB1
-    llama al FB y espera a que termine. Es el camino que usa el worker
-    TIA, que es bloqueante por naturaleza.
-  - ``start()`` / ``tick()`` (ASYNC, via legacy): el engine tickea el FB
-    un step por invocacion. Se mantiene durante la migracion y desaparece
-    cuando el engine pasa a ser un OB1 con cola de trabajos.
+Ejecucion: ``execute(**params)`` es SYNC. La ejecuta el hilo ``plc-ob1``
+del dispatcher OB1 (``core/composition/plc_engine.py``), que la invoca y
+espera a que termine. El FB habla con TIA mediante
+``submit_and_wait()``, que bloquea a proposito: el hilo del dispatcher es
+su sitio.
 
 Hooks overridables por las subclases (FBs reales):
   - ``on_start(**params)``         pre-flight SYNC. Validar params.
   - ``run_step(idx, **params)``    logica del step N.
   - ``on_finish(**params)``        post-flight SYNC. Vuelca self.result.
 
-Cancelacion cooperativa: ``cancel(reason)`` marca un flag; el step en
-curso lo comprueba en la frontera de etapa y el base cierra con
-``tracker.finish(success=False)`` + ``nStep = n_error``.
-``request_cancel(reason)`` es la variante sync: pide la cancelacion
-desde cualquier hilo sin tocar ``nStep`` ni el tracker; el hilo
-ejecutor cierra el FB cuando el step en curso devuelve el control.
+Cancelacion cooperativa: ``request_cancel(reason)`` marca un flag; el
+step en curso lo comprueba en la frontera de etapa y el base cierra con
+``tracker.finish(success=False)`` + ``nStep = n_error``. Se puede pedir
+desde cualquier hilo sin tocar ``nStep`` ni el tracker.
 """
 from __future__ import annotations
 
-import asyncio
 import inspect
 import logging
 import threading
@@ -97,15 +91,9 @@ class FunctionBase:
             step_timeout_s if step_timeout_s is not None else self.STEP_TIMEOUT_S
         )
         self._step_idx: int = 0
-        # ``asyncio.Lock`` se ata al event loop en su primer uso. Si el
-        # loop cambia entre invocaciones, el primitive del loop anterior
-        # dispara "bound to a different event loop".
-        # ``_ensure_loop_objects()`` lo recrea perezosamente al inicio de
-        # cada entry point async.
-        self._loop: asyncio.AbstractEventLoop | None = None
-        # Flag de cancelacion: ``threading.Event`` (no asyncio) para que
-        # ``cancel()`` desde un hilo de Flask lo active de forma segura
-        # mientras el hilo ejecutor esta dentro de un step.
+        # Flag de cancelacion: ``threading.Event`` para que
+        # ``request_cancel()`` desde un hilo de Flask lo active de forma
+        # segura mientras el hilo ejecutor esta dentro de un step.
         self._cancelled = threading.Event()
 
         # Estado publico del FB (mismo shape que antes para compatibilidad
@@ -118,12 +106,10 @@ class FunctionBase:
         # step rellena con info util (contadores, paths, etc.) y que
         # ``on_finish`` consulta para construir ``self.result``.
         self._stats: dict[str, Any] = {}
-        self._lock = asyncio.Lock()
-        # Exclusion mutua entre los dos caminos de ejecucion: el legacy
-        # (``tick()``, engine) y el nuevo (``execute()``, OB1). Sin esto,
-        # un FB registrado en el engine podia ser tickeado mientras el
-        # OB1 lo ejecutaba: el step corria dos veces y el FB se quedaba
-        # en un estado incoherente (n_finalizar, no terminal).
+        # Exclusion mutua de la ejecucion: un solo ``execute()`` puede
+        # tocar el FB a la vez. Sin esto, dos trabajos encolados para el
+        # mismo FB lo ejecutarian en paralelo: los steps se pisarian y el
+        # FB quedaria en un estado incoherente (n_finalizar, no terminal).
         self._exec_lock = threading.Lock()
         # Hook opcional: invocado tras cada cambio de nStep con
         # (old_nStep, new_nStep). No-op si None. Lo cablea publishers
@@ -173,28 +159,8 @@ class FunctionBase:
             self._on_nstep_change(old, new)
 
     def is_terminal(self) -> bool:
-        """``True`` si el FB esta en estado terminal y NO debe tickearse."""
+        """``True`` si el FB esta en estado terminal (idle, done o error)."""
         return self.nStep in (self.n_idle, self.n_done, self.n_error)
-
-    def _ensure_loop_objects(self) -> None:
-        """(Re)crea ``_lock`` si el event loop cambio.
-
-        Los primitives de asyncio (``Lock``) se atan al loop en su
-        primer ``acquire()``. Si el loop cambia entre invocaciones, el
-        primitive del loop anterior dispara ``RuntimeError: ... is
-        bound to a different event loop``. Recrearlo aqui (solo si el
-        loop cambio) resuelve el binding sin pagar el coste cuando el
-        loop es estable.
-
-        El flag ``_cancelled`` NO se recrea: es un ``threading.Event``
-        y su estado debe sobrevivir entre llamadas (un ``cancel()``
-        desde el hilo de Flask tiene que ser visto por el hilo
-        ejecutor).
-        """
-        current = asyncio.get_running_loop()
-        if self._loop is not current:
-            self._loop = current
-            self._lock = asyncio.Lock()
 
     # ------------------------------------------------------------------
     # Reset del estado por-llamada
@@ -249,7 +215,7 @@ class FunctionBase:
 
         No propaga excepciones de runtime: captura la excepcion, fija
         ``error_msg``, cierra el tracker con ``success=False`` y
-        transiciona a ``n_error`` (mismo contrato que ``tick()``).
+        transiciona a ``n_error``.
         ``NotImplementedError`` y ``AssertionError`` si propagan
         (errores de programacion, no se silencian), pero el FB queda
         en estado terminal para que no se re-intente en bucle.
@@ -276,6 +242,22 @@ class FunctionBase:
                 self.nombre, self.nStep,
             )
             return self.result
+
+        # Trazabilidad: si el FB se re-arranca desde un estado terminal
+        # distinto de idle, deja una linea visible con el motivo antes
+        # de pisar ``error_msg``. El operario ya vio el error por SSE en
+        # tiempo real, pero la linea marca donde empieza el ciclo nuevo.
+        prev_nStep = self.nStep
+        prev_error = self.error_msg
+        if prev_nStep == self.n_done:
+            logger.info(
+                "FB %s: re-arrancando (ultima ejecucion OK)", self.nombre,
+            )
+        elif prev_nStep == self.n_error:
+            logger.warning(
+                "FB %s: re-arrancando tras error: %s",
+                self.nombre, prev_error or "<sin mensaje>",
+            )
 
         self._reset_state_for_run(params)
         n_before = self.nStep
@@ -379,11 +361,9 @@ class FunctionBase:
         (no se puede matar un hilo) y el error se propaga al caller.
 
         Riesgo asumido: el hilo abandonado puede seguir mutando el
-        estado del FB (``_stats``) despues del timeout. El camino
-        legacy tiene el mismo riesgo: ``asyncio.wait_for`` cancela la
-        corrutina, pero el hilo de un ``to_thread`` sigue vivo y
-        mutando. La diferencia es que aqui no hay ninguna corrutiva
-        viva que dependa del hilo abandonado.
+        estado del FB (``_stats``) despues del timeout. No hay ninguna
+        corrutina viva que dependa del hilo abandonado: el resto de la
+        ejecucion la hace el hilo del dispatcher del OB1.
         """
         box: dict[str, Any] = {}
 
@@ -417,9 +397,9 @@ class FunctionBase:
         """Pide la cancelacion cooperativa del FB desde cualquier hilo.
 
         Contrato:
-          - No usa ``asyncio`` ni ``self._lock``: se puede llamar desde
-            un hilo de Flask (o desde el OB1) sin event loop, mientras el
-            hilo ejecutor esta dentro de un step.
+          - No usa event loop ni locks: se puede llamar desde un hilo de
+            Flask (o desde el OB1) mientras el hilo ejecutor esta dentro
+            de un step.
           - No transiciona ``nStep`` ni cierra el tracker: el hilo
             ejecutor comprueba el flag en la frontera de cada step y
             cierra el FB a ``n_error`` con el tracker ya cerrado. Asi el
@@ -446,133 +426,8 @@ class FunctionBase:
         return True
 
     # ------------------------------------------------------------------
-    # API publica legacy (async, engine) -- se retira con el OB1
+    # State machine (privado)
     # ------------------------------------------------------------------
-
-    async def start(self, **params: Any) -> bool:
-        """Arranca (o re-arranca) el FB.
-
-        Acepta arranque inicial desde ``n_idle`` y re-arranque desde
-        ``n_done``/``n_error``: el FB es una pieza reutilizable que el
-        operario dispara N veces contra el engine (subir excel,
-        sincronizar dispositivos, etc.) sin necesidad de reiniciar la
-        app. En el re-arranque se limpia el estado por-llamada
-        (``_stats``, ``_params``, ``error_msg``, ``result``,
-        ``_step_idx``, ``_cancelled``); la identidad del FB y las
-        deps inyectadas (``nombre``, ``titulo``, ``_tracker``,
-        ``_on_nstep_change``, Zona 0) se mantienen.
-
-        Rechaza la llamada si el FB esta activo (``n_arrancar``,
-        ``n_ejecutar``, ``n_finalizar``) para no interrumpir un
-        ciclo en vuelo: el caller recibe ``False`` (HTTP 409 en el
-        router) y puede reintentar cuando el FB vuelva a un estado
-        terminal.
-
-        Returns:
-            True si transiciono a ``n_arrancar``.
-            False si estaba activo y se rechazo la llamada.
-        """
-        self._ensure_loop_objects()
-        async with self._lock:
-            if self.nStep not in (self.n_idle, self.n_done, self.n_error):
-                logger.warning(
-                    "FB %s: start() ignorado, FB activo (nStep=%d)",
-                    self.nombre, self.nStep,
-                )
-                return False
-            # Trazabilidad: si re-arrancamos desde terminal, deja una
-            # linea visible en ConsolaLogs con el motivo antes de
-            # pisar ``error_msg``. El operario ya vio el error por SSE
-            # en tiempo real, pero la linea marca donde empieza el
-            # ciclo nuevo (equivalente HMI del "fault acknowledged"
-            # en PLC).
-            prev_nStep = self.nStep
-            prev_error = self.error_msg
-            if prev_nStep == self.n_done:
-                logger.info(
-                    "FB %s: re-arrancando (ultima ejecucion OK)",
-                    self.nombre,
-                )
-            elif prev_nStep == self.n_error:
-                logger.warning(
-                    "FB %s: re-arrancando tras error: %s",
-                    self.nombre, prev_error or "<sin mensaje>",
-                )
-            # Reset del estado por-llamada (deps + identidad OK).
-            self._reset_state_for_run(params)
-            n_before = self.nStep
-            self.nStep = self.n_arrancar
-            logger.info("FB %s: start() OK (nStep=%d)", self.nombre, self.nStep)
-            self._notify_nstep_change(n_before, self.nStep)
-            return True
-
-    async def tick(self) -> None:
-        """Avanza el state machine un paso. Lo llama el engine.
-
-        Tolerancia best-effort: si la logica lanza una excepcion de
-        runtime, el wrapper la captura, fija ``error_msg``, cierra
-        ``tracker.finish(success=False)`` y transita a ``n_error``.
-        ``NotImplementedError`` y ``AssertionError`` propagan (errores
-        de programacion, no se silencian).
-
-        Si hay una ejecucion sync en curso (``execute()``), el tick se
-        omite: los dos caminos no pueden tocar el FB a la vez.
-        """
-        self._ensure_loop_objects()
-        if not self._exec_lock.acquire(blocking=False):
-            logger.debug(
-                "FB %s: tick() omitido, hay una ejecucion en curso",
-                self.nombre,
-            )
-            return
-        try:
-            async with self._lock:
-                n_before = self.nStep
-                try:
-                    await self._tick_locked()
-                except (NotImplementedError, AssertionError):
-                    raise
-                except Exception as e:
-                    self._fail_with(e, "tick()")
-                self._notify_nstep_change(n_before, self.nStep)
-        finally:
-            self._exec_lock.release()
-
-    async def cancel(self, reason: str = "cancelled") -> None:
-        """Paro cooperativo. Marca flag y transiciona a ``n_error``.
-
-        El flag es un ``threading.Event``: se puede activar desde un
-        hilo de Flask mientras el hilo ejecutor esta dentro de un step.
-        El step en curso lo comprueba en la frontera de etapa.
-        No-op si ya esta terminal.
-        """
-        self._ensure_loop_objects()
-        async with self._lock:
-            if self.is_terminal():
-                return
-            logger.info("FB %s: cancel() solicitado (%s)", self.nombre, reason)
-            self._cancelled.set()
-            self.error_msg = reason
-            n_before = self.nStep
-            self._close_tracker_on_error()
-            self.nStep = self.n_error
-            self._notify_nstep_change(n_before, self.nStep)
-
-    # ------------------------------------------------------------------
-    # State machine (privado; asume self._lock cogido)
-    # ------------------------------------------------------------------
-
-    async def _tick_locked(self) -> None:
-        assert self._lock.locked()
-        if self.nStep == self.n_idle:
-            return
-        if self.nStep == self.n_arrancar:
-            self._step_arrancar()
-        elif self.nStep == self.n_ejecutar:
-            await self._step_ejecutar()
-        elif self.nStep == self.n_finalizar:
-            self._step_finalizar()
-        # n_done / n_error: no-op. El engine ya los skipea.
 
     def _step_arrancar(self) -> None:
         """nStep 10 -> 20. ``on_start`` + ``tracker.begin``.
@@ -589,58 +444,6 @@ class FunctionBase:
         )
         self.nStep = self.n_ejecutar
 
-    async def _step_ejecutar(self) -> None:
-        """nStep 20: ejecuta el step ``_step_idx`` o transiciona a 95."""
-        if self._cancelled.is_set():
-            raise RuntimeError(self.error_msg or "cancelled")
-        idx = self._step_idx
-        if idx >= len(self.steps):
-            self.nStep = self.n_finalizar
-            return
-        step_nombre = self.steps[idx]["nombre"]
-        self._tracker.start_stage(step_nombre)
-        # Wrapper entry/exit va a DEBUG (no web). El operario ya ve
-        # el flujo via los ``_log.web/ok`` explicitos de cada FB
-        # (``[scan_plc_blocks] Iniciando scan de '...'``, etc.) y
-        # el progress tracker (start_stage/finish_stage) en la UI.
-        logger.debug(f"{step_nombre}: entrando...")
-        _t0 = time.monotonic()
-        try:
-            if inspect.iscoroutinefunction(self.run_step):
-                detail = await asyncio.wait_for(
-                    self.run_step(idx, **self._params),
-                    timeout=self._step_timeout_s,
-                )
-            else:
-                # ``run_step`` ya es sync (FB migrado): se ejecuta en un
-                # hilo daemon con el timeout del base, igual que hace
-                # el camino sync. NO se puede pasar a ``wait_for``
-                # porque su valor de retorno no es una corrutina.
-                detail = await asyncio.to_thread(self._run_step_with_timeout, idx)
-        except TimeoutError:
-            self._tracker.error_stage(
-                step_nombre, f"timeout >{self._step_timeout_s}s",
-            )
-            raise
-        except asyncio.CancelledError:
-            self._tracker.error_stage(step_nombre, "cancelled")
-            raise
-        except Exception:
-            # El detail del error lo captura el tick() en self.error_msg.
-            self._tracker.error_stage(step_nombre, self.error_msg or "error")
-            raise
-        self._tracker.finish_stage(
-            step_nombre, detail=str(detail) if detail else None,
-        )
-        _ms = (time.monotonic() - _t0) * 1000
-        logger.debug(
-            f"{step_nombre}: saliendo en {_ms:.0f}ms"
-            + (f" ({detail})" if detail else "")
-        )
-        self._step_idx += 1
-        if self._step_idx >= len(self.steps):
-            self.nStep = self.n_finalizar
-
     def _step_finalizar(self) -> None:
         """nStep 95 -> 99. ``on_finish`` + ``tracker.finish(success=True)``."""
         self.on_finish(**self._params)
@@ -648,11 +451,10 @@ class FunctionBase:
         self.nStep = self.n_done
 
     def _close_tracker_on_error(self) -> None:
-        """Cierra el tracker con ``success=False``. Asume lock cogido.
+        """Cierra el tracker con ``success=False``.
 
-        Usado por ``tick()`` (tras excepcion), ``execute()`` (tras
-        excepcion) y ``cancel()``. Deja el tracker en estado inactivo
-        para que la SPA no muestre la barra "pegada".
+        Lo usa ``execute()`` tras una excepcion. Deja el tracker en
+        estado inactivo para que la SPA no muestre la barra "pegada".
         """
         try:
             # Marca el stage en curso (si lo hay) como error para que la
