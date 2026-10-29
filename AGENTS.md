@@ -346,12 +346,12 @@ Replica su estructura.
     commit, upload Excel, connect. Tocan TIA Portal en cold-start,
     hacen export masivo o encolan un trabajo en el OB1 (responden
     202 de inmediato).
-- **`SLOW_TIMEOUT_MS` no lo usa ningún endpoint**: sigue declarado en
-  `api.js`, pero ningún `_request()` lo pasa. El trabajo pesado contra
-  TIA (commit transaccional, preview) lo ejecuta el hilo del OB1, no
-  el request: el router responde `202` con el `job_id` y el resultado
-  llega por SSE. El `STEP_TIMEOUT_S` del FB (o el `timeout` que pase a
-  `submit_and_wait`) acota el trabajo, no la respuesta HTTP.
+- **Ya no hay un tercer bucket**: `SLOW_TIMEOUT_MS` (600 s) se retiró al
+  migrar los endpoints a 202. El trabajo pesado contra TIA (commit
+  transaccional, preview) lo ejecuta el hilo del OB1, no el request: el
+  router responde `202` con el `job_id` y el resultado llega por SSE. El
+  `STEP_TIMEOUT_S` del FB (o el `timeout` que pase a `submit_and_wait`)
+  acota el trabajo, no la respuesta HTTP.
 - **Regla nueva al añadir endpoint**: clasificar el endpoint en uno
   de los 2 buckets y pasar el `timeoutMs` correspondiente al
   `_request()`. Si dudas, empieza por MEDIUM y sube si Aketza
