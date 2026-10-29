@@ -282,7 +282,7 @@ def silence_noisy_loggers() -> None:
     ``logs/zc.log`` tenia +500 lineas de estos):
 
     - ``asyncio``: emite ``Using proactor: IocpProactor`` cada ~100ms
-      cuando algun subproceso nuestro crea un event loop.
+      cuando algun proceso nuestro crea un event loop.
     - ``PIL``: emite ``Importing XxxImagePlugin`` para cada formato
       de imagen al instanciar (Pillow carga plugins lazy).
     - ``werkzeug``: 1 INFO por cada HTTP request del dev server Flask.

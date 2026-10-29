@@ -385,7 +385,7 @@ def _is_com_disconnect(exc: BaseException) -> bool:
     """Heuristica: parece que TIA Portal se cerro y hay que re-attachar.
 
     Detectar esto de forma exacta no es viable (depende del build del
-    wrapper, de si murio el subproceso o solo el RCW quedo invalido).
+    wrapper, de si murio el hilo o solo el RCW quedo invalido).
     Aceptamos falsos positivos: re-attachar de mas es mejor que dejar
     al loop usando un portal muerto.
     """

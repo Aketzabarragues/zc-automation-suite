@@ -3,7 +3,7 @@
 Data Block puro consumido por la SPA via SSE (``tia_state`` channel).
 
 Campos:
-  - worker_alive (bool): ¿el subproceso TIA esta corriendo?
+  - worker_alive (bool): ¿el hilo del worker TIA esta corriendo?
   - tia_state (str): ``"idle" | "connecting" | "connected" | "error"``.
   - project_name (str | None): nombre del proyecto TIA.
   - project_path (str | None): ruta absoluta al ``.ap`` del proyecto.

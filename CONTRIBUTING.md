@@ -50,7 +50,7 @@
 
 | Regla | Detalle | Doc |
 |---|---|---|
-| Worker OT no importa `siemens_tia_scripting` fuera de `core/infrastructure/tia/` | El wrapper solo se carga en el subproceso persistente. | `.clinerules §1` |
+| Worker OT no importa `siemens_tia_scripting` fuera de `core/infrastructure/tia/` | El wrapper solo se carga en el hilo persistente del worker. | `.clinerules §1` |
 | TIA: `target_folder_path=None` (NO `""`) | Pasar `""` rompe el match UPDATE en V21. | `.clinerules §4` |
 | Vue 3: CERO backticks en `template:` | Cualquier backtick cierra prematuramente el template string. | `.clinerules §9` |
 | Encoding: `.s7res` utf-8-sig, resto utf-8 sin BOM | Siemens firma el YAML con BOM. | `AGENTS.md` |

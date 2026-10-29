@@ -278,6 +278,10 @@ intencional, pero conviene tenerla presente.
 
 ## 7. L3/L4 - Documentacion que ya no corresponde al codigo
 
+**Estado: resuelto en G2.** El inventario se conserva como registro de lo
+que habia. Las correcciones se hicieron por capas: el nucleo, el area y
+las guias en `docs/` y `.opencode/agent/`, y el shell JS por separado.
+
 ### Los docstrings que motivan esta revision
 
 | Ubicacion | Afirmacion | Realidad |
@@ -343,6 +347,8 @@ y `:9`, `core/web_server/static/js/main.js:339-342` y `:351-352`,
 ---
 
 ## 8. Codigo muerto (L1 y transversales)
+
+**Estado: resuelto en G2** (salvo lo indicado en cada fila).
 
 | Simbolo | Ubicacion | Seguro de borrar | Quien lo usa |
 |---|---|---|---|
@@ -489,3 +495,40 @@ Ademas, con la retirada del legacy en G1, los 38 tests que cubrian el
 camino async se migraron al camino `execute()`. Ese camino esta ahora
 cubierto en su totalidad: no queda ningun test que dependa de un metodo
 retirado.
+
+---
+
+## 12. Arranque real verificado (sin TIA)
+
+Medido arrancando la app de verdad (`python main.py --web 127.0.0.1:9499`)
+sobre el codigo de `main` tras G0, G1 y G2:
+
+| Comprobacion | Resultado |
+|---|---|
+| Comandos TIA registrados | 27 (los 9 modulos `tia_cmd_*`) |
+| FBs registrados en el engine | 12 (3 core + 9 del area) |
+| Blueprints montados | 9 (8 modulos; `plc.py` expone dos) |
+| `engine.on_fb_change` cableado | si, tras registrar los FBs (el fix de `8279bc0`) |
+| Worker TIA (hilo) | arrancado, estado `idle`, sin portal attached |
+| Dispatcher OB1 (hilo `plc-ob1`) | arrancado |
+| Hilo de tick | **ninguno** |
+| `GET /api/v1/catalog` | 200 |
+| `GET /cycle_count` | `{"cycles":0}` |
+| `GET /api/v1/plc/fb/subir_excel/status` | 200 con el estado del FB |
+| `POST /api/v1/plc/fb/scan_plc_blocks/start` | **202** `{"ok":true,"job_id":"..."}` |
+| Ejecucion del FB encolado | el OB1 lo recoge y ejecuta los steps (`check_cache` -> `escanear`) |
+| Error sin TIA conectado | el FB lo captura en `error_msg` y queda en `n_error`; el dispatcher sigue vivo |
+| Reconexion SSE de la SPA | `EventBusSync.subscribe` al cargar la pagina |
+
+El unico punto que quedo sin verificar contra TIA real: el scan de bloques
+contra un portal abierto, y el attach (`attach_portal` falla con "no TIA
+instances found" porque no hay ninguna instancia abierta, que es el
+comportamiento esperado).
+
+### Hallazgo lateral
+
+`core/web_server/static/js/components/TiaConnectionIndicator.js` existe pero
+**no lo importa ni `main.js` ni `ShellTopbar.js`**: el componente no se
+monta. Los docstrings de `store.js` lo citan como el consumidor de
+`store.tiaConnection.state`. Queda pendiente decidir si se monta o se
+retira.
