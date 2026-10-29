@@ -1,11 +1,12 @@
-"""core.infrastructure.tia.tia_loop - OB1 del subsistema TIA Portal.
+"""core.infrastructure.tia.tia_loop - el worker OT (hilo dedicado).
 
 Contiene:
   - SyncTIAClient: state machine + cola FIFO + hilo dedicado + API publica.
   - _execute_one: re-attach defensivo, transicion de state, captura COM/RPC.
   - _tia_loop_main: drena la cola y delega en el dispatcher.
 
-Los 26 comandos (_h_*) viven en core.infrastructure.tia.tia_handlers.
+Los 27 comandos (_h_*) viven en los modulos tia_cmd_*.py, con el
+catalogo central en tia_commands_catalog.py.
 Las 14 utilities defensivas viven en core.infrastructure.tia.tia_helpers.
 
 Single thread para Openness: el tia-loop es el UNICO dueno del wrapper

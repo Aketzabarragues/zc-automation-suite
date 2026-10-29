@@ -14,7 +14,7 @@ Catalogo actual (27 comandos core + N comandos del area):
                           import_block
   -  4 user_consts:      get_user_constants, delete_user_constant,
                           update_user_constant_value, update_user_constant_name
-  -  1 batch:            execute_transactional_batch
+  -  2 batch:            execute_batch, execute_transactional_batch
   -  1 blocks:           update_block_property
 
 Las areas aportan comandos adicionales via ``AreaSpec.contributes_tia_commands``
@@ -46,10 +46,10 @@ CATALOGO: dict[str, Any] = {
     **PROJECT_COMMANDS,      # 3
     **INSPECT_COMMANDS,      # 5
     **COMPILE_COMMANDS,      # 2
-    **EXPORT_COMMANDS,       # 5
+    **EXPORT_COMMANDS,       # 3
     **IMPORT_COMMANDS,       # 4
     **USER_CONSTS_COMMANDS,  # 4
-    **BATCH_COMMANDS,        # 1
+    **BATCH_COMMANDS,        # 2
     **BLOCKS_COMMANDS,       # 1
 }
 
