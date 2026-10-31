@@ -71,11 +71,15 @@ XML_NMAX = (
 
 def _fb_files() -> list[Path]:
     """Ficheros de FB del area de alimentacion."""
-    return sorted(REPO_ROOT.glob("areas/alimentacion/functions/function_*.py"))
+    files = sorted(REPO_ROOT.glob("areas/alimentacion/functions/function_*.py"))
+    assert files, "el glob no ha encontrado ficheros de FB"
+    return files
 
 
-def _const_keys(d: ast.Dict) -> set[str]:
+def _const_keys(d: ast.Dict | None) -> set[str]:
     """Claves literales de un dict del AST."""
+    if d is None:
+        return set()
     return {
         k.value
         for k in d.keys
@@ -83,31 +87,51 @@ def _const_keys(d: ast.Dict) -> set[str]:
     }
 
 
-def _dict_value(d: ast.Dict, key: str) -> ast.Dict | None:
-    """Valor de ``key`` si es un dict literal."""
+def _dict_value(d: ast.Dict, key: str) -> ast.AST | None:
+    """Valor de ``key`` en un dict del AST."""
     for k, v in zip(d.keys, d.values):
         if isinstance(k, ast.Constant) and k.value == key:
-            return v if isinstance(v, ast.Dict) else None
+            return v
     return None
 
 
-def _export_tables_ops(path: Path) -> list[ast.Dict]:
-    """Dicts que describen una op de ``export_tables``."""
+def _export_tables_calls(path: Path) -> list[tuple[str, int, set[str]]]:
+    """Call sites de ``export_tables`` con su formato y las claves de sus args.
+
+    Hay dos formatos y el guard tiene que ver los dos:
+
+      - ``LOTE``: dict ``{"command": "export_tables", "args": {...}}``,
+        dentro de un ``execute_batch``.
+      - ``DIRECTO``: ``submit_and_wait("export_tables", {...})``.
+
+    Devuelve una tupla ``(formato, linea, claves_de_args)`` por call site.
+    """
     tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
-    ops: list[ast.Dict] = []
+    calls: list[tuple[str, int, set[str]]] = []
+
     for node in ast.walk(tree):
         if not isinstance(node, ast.Dict):
             continue
-        for k, v in zip(node.keys, node.values):
-            if (
-                isinstance(k, ast.Constant)
-                and k.value == "command"
-                and isinstance(v, ast.Constant)
-                and v.value == "export_tables"
-            ):
-                ops.append(node)
-                break
-    return ops
+        cmd = _dict_value(node, "command")
+        if not (isinstance(cmd, ast.Constant) and cmd.value == "export_tables"):
+            continue
+        args = _dict_value(node, "args")
+        calls.append(("LOTE", node.lineno, _const_keys(args)))
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        name = getattr(func, "attr", None) or getattr(func, "id", None)
+        if name != "submit_and_wait" or not node.args:
+            continue
+        first = node.args[0]
+        if not (isinstance(first, ast.Constant) and first.value == "export_tables"):
+            continue
+        args = node.args[1] if len(node.args) > 1 else None
+        calls.append(("DIRECTO", node.lineno, _const_keys(args)))
+
+    return calls
 
 
 def test_todo_export_tables_declara_keep_folder_structure() -> None:
@@ -121,13 +145,32 @@ def test_todo_export_tables_declara_keep_folder_structure() -> None:
     """
     ofensores: list[str] = []
     for path in _fb_files():
-        for op in _export_tables_ops(path):
-            args = _dict_value(op, "args")
-            if args is None or "keep_folder_structure" not in _const_keys(args):
-                ofensores.append(f"{path.relative_to(REPO_ROOT)}")
+        for formato, linea, claves in _export_tables_calls(path):
+            if "keep_folder_structure" not in claves:
+                ofensores.append(
+                    f"{path.relative_to(REPO_ROOT)}:{linea} ({formato})"
+                )
     assert not ofensores, (
         "export_tables sin keep_folder_structure explicito (el default "
         "del handler es FLAT): " + ", ".join(sorted(set(ofensores)))
+    )
+
+
+def test_el_guard_detecta_call_sites_en_los_dos_formatos() -> None:
+    """El guard tiene que ver los 2 formatos de call site.
+
+    Si el parser dejara de detectar uno de ellos, el guard pasaria
+    verde sin mirar la mitad de los call sites.
+    """
+    formatos: set[str] = set()
+    total = 0
+    for path in _fb_files():
+        for formato, _linea, _claves in _export_tables_calls(path):
+            formatos.add(formato)
+            total += 1
+    assert total > 0, "el guard no ha encontrado ningun call site"
+    assert formatos == {"LOTE", "DIRECTO"}, (
+        f"el guard solo ve {formatos}: no cubre los 2 formatos de llamada"
     )
 
 

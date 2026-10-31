@@ -446,6 +446,11 @@ class FunctionProcDBGenerarPreview(FunctionBase):
                     "plc_name": plc_name,
                     "target_dir": str(target_dir),
                     "table_names": [table_name],
+                    # Solo lectura: el preview lee el ``.xml`` de este
+                    # workdir para diffearlo y no lo importa nunca en
+                    # TIA, asi que el layout plano es el de este caso.
+                    # Declararlo explicito evita heredar el default.
+                    "keep_folder_structure": False,
                 },
                 timeout=120.0,
             )
