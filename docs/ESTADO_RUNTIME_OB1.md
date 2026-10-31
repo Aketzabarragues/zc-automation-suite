@@ -101,7 +101,7 @@ proyecto. L3 y L4 son basura que hay que limpiar.**
 
 ## 4. Bugs reales (todos del modelo nuevo, ninguno legacy)
 
-**Estado: los cinco de G0 y los cinco del smoke en vivo contra TIA
+**Estado: los cinco de G0 y los ocho del smoke en vivo contra TIA
 Portal, corregidos.** La descripcion de cada uno se conserva como
 registro de que estaban y de por que se detectaron.
 
@@ -183,7 +183,7 @@ estado terminal del SSE), no con un parche.
 ### Bugs del smoke en vivo contra TIA Portal
 
 El smoke ejecuto 12 trabajos contra TIA Portal: 11 correctos y 1 fallo
-(el sync de dispositivos, en Tx B). Los cinco de abajo son los que se
+(el sync de dispositivos, en Tx B). Los ocho de abajo son los que se
 detectaron con ese log y con la revision del codigo; todos corregidos.
 
 ### S1 — el sync de dispositivos importa en TIA con el layout equivocado
@@ -271,6 +271,54 @@ se quedaba sin N_MAX que aplicar.
 
 Los defaults quedan atados al config empaquetado por un guard:
 `tests/areas/alimentacion/helpers/config/test_config_defaults.py`.
+
+### S6 — el sync de dispositivos reportaba 0 operaciones
+
+**Corregido.** El worker responde al batch con el envelope
+`{"ok":…, "result":{…}}` y los contadores viven en `result`. El FB
+guardaba el envelope entero, asi que los contadores se leian en el nivel
+equivocado: el resumen decia "0 N_MAX aplicados en TIA" y "0 tablas
+importadas a TIA" tras un sync que habia escrito 116 tags y borrado 83,
+y el `result` que ve el operario decia "0 ops" con los detalles vacios.
+
+El ctx guarda ahora el `result` del batch, el resumen distingue las ops
+de N_MAX de las de renombreo y dice cuantas tablas se han importado, y
+el `result` lleva el detalle de cada operacion en su propia clave.
+
+Guard de regresion:
+`tests/areas/alimentacion/functions/test_disp_sync_contadores.py` (los
+tests pasan por los stages de verdad con el envelope real del worker:
+un mock del ctx con el shape interior no detectaba el fallo).
+
+### S7 — el guard del layout de export no cubria un formato de llamada
+
+**Corregido.** Hay dos formas de pedir un export: dentro de un
+`execute_batch` (el FB pasa una lista de operaciones) y en directo
+(`submit_and_wait("export_tables", {…})`). El guard solo miraba el
+primer formato: el preview de proc_db exportaba sin declarar el layout
+y el aviso del handler saltia en una operacion que era correcta (el
+preview no importa nada en TIA).
+
+El preview declara ahora el layout que usa, y el guard mira los 2
+formatos. Ademas avisa si dejara de ver alguno, que es como el fallo se
+escondia.
+
+Guard de regresion:
+`tests/areas/alimentacion/functions/test_disp_sync_export_estructura.py`.
+
+### S8 — el listado de plantillas devolvia 500 si la share no respondia
+
+**Corregido.** `proc_plantillas_router` preguntaba por el directorio de
+plantillas con `Path.is_dir()` sin capturar `OSError`. Una share de red
+caida (credenciales, mount caido) devolvia `WinError 1326` y el
+operario se comia un 500 con traceback, cuando el propio router promete
+200 con `warning` para los casos degradados.
+
+Ahora la share inaccesible es un caso degradado: 200 con la lista vacia
+y el aviso explicando que no se puede leer la ruta.
+
+Guard de regresion:
+`tests/areas/alimentacion/frontend/test_proc_plantillas_router.py`.
 
 ---
 
