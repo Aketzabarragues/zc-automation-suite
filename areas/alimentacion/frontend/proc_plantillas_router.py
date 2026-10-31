@@ -56,9 +56,9 @@ def listar_plantillas():
 
     Returns:
         200 con ``{ok: True, plantillas: [...], warning?: str}``.
-          ``plantillas`` es lista vacia si no hay ruta configurada o si
-          el directorio no existe (en esos casos, ``warning`` explica
-          por que).
+          ``plantillas`` es lista vacia si no hay ruta configurada, si
+          el directorio no existe o si no se puede leer (en esos casos,
+          ``warning`` explica por que).
         500 si falla la lectura del config (caso degenerado).
     """
     config_manager = _get_config_manager()
@@ -73,7 +73,23 @@ def listar_plantillas():
         }), 200
 
     root = Path(plantillas_path)
-    if not root.is_dir():
+    try:
+        es_directorio = root.is_dir()
+    except OSError as exc:
+        # La share de red puede no responder (credenciales, mount caido).
+        # Es un caso degradado, no un fallo del servidor: el operador
+        # tiene que ver el aviso, no un 500 con traceback.
+        logger.warning(
+            "plantillas: no se puede leer %s (%s: %s)",
+            root, type(exc).__name__, exc,
+        )
+        return jsonify({
+            "ok": True,
+            "plantillas": [],
+            "plantillas_path": plantillas_path,
+            "warning": f"No se puede acceder a la ruta de plantillas: {exc}",
+        }), 200
+    if not es_directorio:
         return jsonify({
             "ok": True,
             "plantillas": [],
@@ -81,9 +97,28 @@ def listar_plantillas():
             "warning": f"Directorio no existe: {root}",
         }), 200
 
+    try:
+        entradas = sorted(root.iterdir())
+    except OSError as exc:
+        logger.warning(
+            "plantillas: no se puede listar %s (%s: %s)",
+            root, type(exc).__name__, exc,
+        )
+        return jsonify({
+            "ok": True,
+            "plantillas": [],
+            "plantillas_path": plantillas_path,
+            "warning": f"No se puede listar la ruta de plantillas: {exc}",
+        }), 200
+
     plantillas: list[dict] = []
-    for entry in sorted(root.iterdir()):
-        if not entry.is_dir():
+    for entry in entradas:
+        try:
+            if not entry.is_dir():
+                continue
+        except OSError:
+            # La share se ha caido a mitad del recorrido: se salta la
+            # entrada y se sigue con las demas.
             continue
         manifest_path = entry / "manifest.json"
         if not manifest_path.is_file():

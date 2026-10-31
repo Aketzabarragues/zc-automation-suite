@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from flask import Flask
@@ -113,6 +113,59 @@ def test_listar_plantillas_path_invalido() -> None:
     assert data["plantillas"] == []
     assert "warning" in data
     assert "Directorio no existe" in data["warning"]
+
+
+def test_listar_plantillas_share_inalcanzable() -> None:
+    """La share de red no responde -> 200 con warning, no un 500.
+
+    Una share caída (credenciales, mount caido) lanza ``OSError`` al
+    preguntar por el directorio. Es un caso degradado: el operador tiene
+    que ver el aviso, no un traceback.
+    """
+    from areas.alimentacion.frontend.proc_plantillas_router import bp
+
+    config = MagicMock()
+    config.get_plantillas_path.return_value = (
+        "\\\\192.168.0.131\\produccion\\PLANTILLAS"
+    )
+    app = _make_app(config)
+    app.register_blueprint(bp)
+    client = app.test_client()
+
+    with patch.object(
+        Path, "is_dir", side_effect=OSError(1326, "nombre de usuario"),
+    ):
+        resp = client.get("/api/v1/procesos/plantillas")
+
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+    assert data["plantillas"] == []
+    assert "No se puede acceder" in data["warning"]
+
+
+def test_listar_plantillas_share_caida_al_listar() -> None:
+    """Si la share cae al listar, tampoco hay un 500."""
+    from areas.alimentacion.frontend.proc_plantillas_router import bp
+
+    config = MagicMock()
+    config.get_plantillas_path.return_value = (
+        "\\\\192.168.0.131\\produccion\\PLANTILLAS"
+    )
+    app = _make_app(config)
+    app.register_blueprint(bp)
+    client = app.test_client()
+
+    with patch.object(Path, "is_dir", return_value=True), patch.object(
+        Path, "iterdir", side_effect=OSError(1326, "nombre de usuario"),
+    ):
+        resp = client.get("/api/v1/procesos/plantillas")
+
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+    assert data["plantillas"] == []
+    assert "No se puede listar" in data["warning"]
 
 
 def test_listar_plantillas_ok(plantillas_dir: Path) -> None:
