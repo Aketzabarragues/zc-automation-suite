@@ -293,9 +293,14 @@ class FunctionDispSincronizar(FunctionBase):
         self.result = {
             "success": True,
             "message": (
-                f"Inyeccion completada. Detalles: {details}"
+                f"Inyeccion completada: {operations_executed} operacion(es) "
+                f"aplicadas en TIA "
+                f"({len(self._ctx.nmax_ops)} N_MAX, "
+                f"{len(self._ctx.rename_ops)} renombres, "
+                f"{len(self._ctx.device_changes)} tablas de dispositivos)."
             ),
             "operations": operations_executed,
+            "details": details,
             "n_max_updates": len(self._ctx.nmax_ops),
             "post_sync_preview": self._ctx.post_sync_preview,
             "compile_ok": self._ctx.compile_ok,
@@ -307,18 +312,21 @@ class FunctionDispSincronizar(FunctionBase):
         compile_label = (
             "OK" if self._ctx.compile_ok else "con errores"
         )
+        desglose = (
+            f"{len(self._ctx.nmax_ops)} N_MAX, "
+            f"{len(self._ctx.rename_ops)} renombres, "
+            f"{len(self._ctx.device_changes)} tablas de dispositivos"
+        )
         logger.debug(
             f"[{self.nombre}] sync completo para "
-            f"{self._ctx.plc_name}: {operations_executed} ops "
-            f"({len(self._ctx.nmax_ops)} N_MAX), "
-            f"compile={compile_label}"
+            f"{self._ctx.plc_name}: {operations_executed} ops en TIA "
+            f"({desglose}), compile={compile_label}"
         )
 
         self._publish_result_to_cache()
         logger.ok(
             f"Sincronizacion completa en '{self._ctx.plc_name}': "
-            f"{operations_executed} ops, "
-            f"{len(self._ctx.nmax_ops)} N_MAX"
+            f"{operations_executed} ops en TIA ({desglose})"
         )
 
     def _publish_result_to_cache(self) -> None:
@@ -566,7 +574,9 @@ class FunctionDispSincronizar(FunctionBase):
                 raise RuntimeError(
                     f"Tx A (N_MAX renames) fallo: {nmax_result.get('error')}"
                 )
-            self._ctx.nmax_result = nmax_result
+            # El worker devuelve el envelope ``{"ok":…, "result":{…}}``:
+            # los contadores viven en ``result``, no en el nivel superior.
+            self._ctx.nmax_result = nmax_result.get("result") or {}
         else:
             self._ctx.nmax_result = {
                 "success": True,
@@ -671,7 +681,9 @@ class FunctionDispSincronizar(FunctionBase):
                 raise RuntimeError(
                     f"Tx B (devices offline) fallo: {devices_result.get('error')}"
                 )
-            self._ctx.devices_result = devices_result
+            # El worker devuelve el envelope ``{"ok":…, "result":{…}}``:
+            # los contadores viven en ``result``, no en el nivel superior.
+            self._ctx.devices_result = devices_result.get("result") or {}
         else:
             self._ctx.devices_result = {
                 "success": True,
@@ -1447,7 +1459,10 @@ def _step_summary(ctx: Any, step_nombre: str) -> str:
         )
     if step_nombre == "Aplicar N_MAX y renombres":
         ops = ctx.nmax_result.get("operations_executed", 0)
-        return f"{step_nombre}: {ops} N_MAX aplicados en TIA"
+        return (
+            f"{step_nombre}: {ops} ops aplicadas en TIA "
+            f"({len(ctx.nmax_ops)} N_MAX + {len(ctx.rename_ops)} renames)"
+        )
     if step_nombre == "Esperar consolidación TIA":
         return (
             f"{step_nombre}: TIA consolida (2s)"
@@ -1458,7 +1473,10 @@ def _step_summary(ctx: Any, step_nombre: str) -> str:
         return f"{step_nombre}: XMLs offline editados"
     if step_nombre == "Aplicar dispositivos":
         ops = ctx.devices_result.get("operations_executed", 0)
-        return f"{step_nombre}: {ops} tablas importadas a TIA"
+        return (
+            f"{step_nombre}: {len(ctx.device_changes)} tablas importadas a TIA "
+            f"({ops} operacion de import)"
+        )
     if step_nombre == "Compilar bloques":
         label = "OK" if ctx.compile_ok else "WARN"
         return f"{step_nombre}: compile={label}"

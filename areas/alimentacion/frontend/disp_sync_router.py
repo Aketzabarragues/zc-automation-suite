@@ -10,8 +10,9 @@ Endpoint:
     Body JSON con ``plc_name`` (obligatorio). Encola el FB
     ``disp_sincronizar`` y devuelve ``202`` con ``{"ok": true,
     "job_id": "<hex>"}``. El resultado del sync (shape legacy completa:
-    ``{success, message, operations, n_max_updates, post_sync_preview,
-    compile_ok, compile_error, comments_sync}``) llega por el evento SSE
+    ``{success, message, operations, details, n_max_updates,
+    post_sync_preview, compile_ok, compile_error, comments_sync}``) llega
+    por el evento SSE
     ``fb_state`` y por el slot del AppCache que publica el FB al
     terminar.
 
