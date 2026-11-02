@@ -1,7 +1,7 @@
 ﻿"""FB de area: preview (read-only) de generar un proceso desde plantilla.
 
 State machine sobre el contexto ``ProcProcessGenContext`` (definido al
-final de este archivo). Los 7 stages viven como metodos del FB (mutando
+final de este archivo). Los 8 steps viven como metodos del FB (mutando
 ``self._ctx``); las funciones puras del pipeline
 (``proc_process_leer_manifest``,
 ``proc_process_validar_minimos``, ...) viven debajo del dataclass en
@@ -44,12 +44,14 @@ El ``self.result`` se popula con la shape esperada por la SPA::
       "success":            bool,
     }
 
-Steps (7):
+Steps (8, en orden de flujo). Cada step se declara encima de su
+propio codigo con ``@step`` y devuelve su detail:
   - Leer manifiesto         -> proc_process_leer_manifest (inline)
   - Validar mínimos         -> proc_process_validar_minimos (inline)
   - Copiar a vista previa   -> proc_process_copiar_a_preview (inline)
   - Construir diccionarios  -> proc_process_construir_diccionarios (helper compartido)
   - Detectar colisiones     -> proc_process_detectar_colisiones (inline)
+  - Validar dependencias    -> proc_process_validar_dependencias (inline)
   - Generar previstos       -> proc_process_generar_previstos (inline)
   - Componer respuesta      -> proc_process_done_summary (inline)
 """
@@ -63,6 +65,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from core.composition.fb_step import step
 from core.composition.plc_function_base import FunctionBase
 from core.infrastructure.log.log_web_bridge import install_web_level
 from areas.alimentacion.helpers.layout.build_cache import DEFAULT_BUILD_CACHE_ROOT
@@ -186,27 +189,6 @@ class FunctionProcCrearGenerarPreview(FunctionBase):
     # holgadamente el peor caso esperado.
     STEP_TIMEOUT_S: float = 120.0
 
-    # Tabla declarativa de stages. Cada tupla: (idx, "nombre_step",
-    # "atributo_metodo_en_el_FB"). El ``run_step`` dispatcha contra
-    # esta tabla en vez de un ``match``/``case`` inline.
-    #
-    # Convencion:
-    #   - ``idx`` correlativo, 1-based.
-    #   - ``nombre_step`` debe coincidir con ``self.steps[idx]["nombre"]``
-    #     (registrado en __init__). Si cambias uno, cambia el otro.
-    #   - ``atributo_metodo`` es un metodo del FB (no externo): un cambio
-    #     de signatura requiere actualizar este registro.
-    STAGES: list[tuple[int, str, str]] = [
-        (1, "Leer manifiesto",          "_stage_1_leer_manifest"),
-        (2, "Validar mínimos",          "_stage_2_validar_minimos"),
-        (3, "Copiar a vista previa",    "_stage_3_copiar_a_preview"),
-        (4, "Construir diccionarios",   "_stage_4_construir_diccionarios"),
-        (5, "Detectar colisiones",      "_stage_5_detectar_colisiones"),
-        (6, "Validar dependencias",     "_stage_6_validar_dependencias"),
-        (7, "Generar previstos",        "_stage_7_generar_previstos"),
-        (8, "Componer respuesta",       "_stage_8_build_response"),
-    ]
-
     # ==================================================================
     # CONSTRUCTOR
     # ==================================================================
@@ -215,7 +197,6 @@ class FunctionProcCrearGenerarPreview(FunctionBase):
         self,
         nombre: str = "proc_process_crear_preview",
         titulo: str = "Preview: crear proceso desde plantilla",
-        steps: list[dict[str, Any]] | None = None,
         tracker: Any = None,
         # ── ZONA 0: deps comunes ──
         # El preview NO toca TIA: ``tia_client`` puede ser None. Se
@@ -228,16 +209,6 @@ class FunctionProcCrearGenerarPreview(FunctionBase):
         super().__init__(
             nombre=nombre,
             titulo=titulo,
-            steps=steps if steps is not None else [
-                {"nombre": "Leer manifiesto"},
-                {"nombre": "Validar mínimos"},
-                {"nombre": "Copiar a vista previa"},
-                {"nombre": "Construir diccionarios"},
-                {"nombre": "Detectar colisiones"},
-                {"nombre": "Validar dependencias"},
-                {"nombre": "Generar previstos"},
-                {"nombre": "Componer respuesta"},
-            ],
             tracker=tracker,
         )
         # ZONA 0: deps inyectadas. ``config_manager`` y ``tia_client``
@@ -359,33 +330,6 @@ class FunctionProcCrearGenerarPreview(FunctionBase):
         )
 
     # ==================================================================
-    # HOOK 2: run_step  (ZONA 4: state machine -> dispatch al stage)
-    # ==================================================================
-
-    def run_step(self, idx: int, **params: Any) -> str:
-        """Dispatch del FB step ``idx`` al metodo ``_stage_N_*``.
-
-        Cada handler vive como metodo del FB (no externo); muta
-        ``self._ctx`` directamente. Ver tabla ``STAGES`` arriba.
-        """
-        if self._ctx is None:
-            raise RuntimeError(
-                "ProcProcessGenContext no inicializado. on_start() no se "
-                "ejecuto (params invalidos o ausentes)."
-            )
-
-        step_nombre = self.steps[idx]["nombre"]
-        for _s_idx, s_nombre, s_attr in self.STAGES:
-            if s_nombre == step_nombre:
-                handler = getattr(self, s_attr)
-                handler()
-                return _step_summary(self._ctx, s_nombre)
-        raise ValueError(
-            f"step {idx} ({step_nombre!r}) no esta en STAGES "
-            f"de FunctionProcCrearGenerarPreview"
-        )
-
-    # ==================================================================
     # HOOK 3: on_finish  (ZONA 5: vuelco del result desde el ctx)
     # ==================================================================
 
@@ -419,40 +363,78 @@ class FunctionProcCrearGenerarPreview(FunctionBase):
         )
 
     # ==================================================================
-    # Stages del FB (ZONA 4: 7 metodos privados numerados).
+    # LOS STEPS
     #
-    # Cada ``_stage_N_<nombre>`` corresponde a UNA entrada de la tabla
-    # ``STAGES`` arriba. Si cambias el flujo del stage, cambia la
-    # tabla tambien. Aqui el stage hace el trabajo inline llamando a
-    # la funcion pura correspondiente (definida mas abajo) sobre
-    # ``self._ctx``.
+    # Cada ``_stage_N_<slug>`` es un step declarado con ``@step``. El
+    # motor los recoge en orden de definicion (que es el orden del
+    # flujo) y hace el dispatch. El metodo devuelve su detail.
     # ==================================================================
 
-    def _stage_1_leer_manifest(self) -> None:
+    @step(
+        "Leer manifiesto",
+        descripcion="Lee el manifest.json de la plantilla TIA",
+    )
+    def _stage_1_leer_manifiesto(self) -> str:
         """Stage 1: lee el ``manifest.json`` de la plantilla TIA."""
         proc_process_leer_manifest(self._ctx)
+        if self._ctx.manifest_plantilla is None:
+            return "Leer manifiesto: sin manifest"
+        return (
+            f"Leer manifiesto: base={self._ctx.base_vieja} "
+            f"codigo={self._ctx.codigo_viejo}"
+        )
 
-    def _stage_2_validar_minimos(self) -> None:
+    @step(
+        "Validar mínimos",
+        descripcion="Comprueba que los N_MAX del operario cubren los de la plantilla",
+    )
+    def _stage_2_validar_minimos(self) -> str:
         """Stage 2: valida los N_MIN del operario contra la plantilla.
 
         Si falla, lanza ``PlantillaMinimosNoCumplidos`` y el base va
         a ``n_error`` con ``error_stage``.
         """
         proc_process_validar_minimos(self._ctx)
+        return "Validar mínimos: N_MAX OK"
 
-    def _stage_3_copiar_a_preview(self) -> None:
+    @step(
+        "Copiar a vista previa",
+        descripcion="Copia la plantilla al workdir de vista previa",
+    )
+    def _stage_3_copiar_a_vista_previa(self) -> str:
         """Stage 3: copytree de la plantilla al workdir de preview."""
         proc_process_copiar_a_preview(self._ctx)
+        return (
+            f"Copiar a vista previa: plantilla copiada a "
+            f"{self._ctx.dir_plantilla_copia}"
+        )
 
-    def _stage_4_construir_diccionarios(self) -> None:
+    @step(
+        "Construir diccionarios",
+        descripcion="Parsea bloques y XMLs de la plantilla y arma los diccionarios",
+    )
+    def _stage_4_construir_diccionarios(self) -> str:
         """Stage 4: parsea bloques + XMLs y construye los diccionarios base."""
         proc_process_construir_diccionarios(self._ctx)
+        return (
+            f"Construir diccionarios: {len(self._ctx.dicc_bloques)} "
+            f"reglas bloques + {len(self._ctx.dicc_xml)} reglas XML"
+        )
 
-    def _stage_5_detectar_colisiones(self) -> None:
+    @step(
+        "Detectar colisiones",
+        descripcion="Cruza los bloques nuevos contra los del PLC destino",
+    )
+    def _stage_5_detectar_colisiones(self) -> str:
         """Stage 5: detecta UIDs/colisiones contra el ``plc_blocks_cache``."""
         proc_process_detectar_colisiones(self._ctx)
+        return f"Detectar colisiones: {len(self._ctx.colisiones)} colision(es)"
 
-    def _stage_6_validar_dependencias(self) -> None:
+    @step(
+        "Validar dependencias",
+        descripcion="Comprueba que las dependencias declaradas existen en el PLC",
+    )
+    def _stage_6_validar_dependencias(self) -> str:
         """Stage 6: cruza ``ctx.dependencias`` contra ``plc_blocks_cache``.
 
         Rellena ``ctx.dependencias_ok`` y ``ctx.dependencias_faltantes``.
@@ -461,18 +443,32 @@ class FunctionProcCrearGenerarPreview(FunctionBase):
         falten dependencias (mensaje accionable en logs).
         """
         proc_process_validar_dependencias(self._ctx)
+        return (
+            f"Validar dependencias: {len(self._ctx.dependencias_ok)} OK, "
+            f"{len(self._ctx.dependencias_faltantes)} faltantes"
+        )
 
-    def _stage_7_generar_previstos(self) -> None:
+    @step(
+        "Generar previstos",
+        descripcion="Genera la lista de bloques que se crearian al aplicar",
+    )
+    def _stage_7_generar_previstos(self) -> str:
         """Stage 7: aplica las reglas y genera ``archivos_previstos``."""
         proc_process_generar_previstos(self._ctx)
+        return f"Generar previstos: {len(self._ctx.archivos_previstos)} bloques"
 
-    def _stage_8_build_response(self) -> None:
+    @step(
+        "Componer respuesta",
+        descripcion="Compone la respuesta final del preview",
+    )
+    def _stage_8_componer_respuesta(self) -> str:
         """Stage 8: compone ``ctx.result`` con la shape final del preview."""
         proc_process_done_summary(self._ctx)
+        return "Componer respuesta: preview compuesto"
 
 
 # ============================================================================
-# Pipeline del FB. Los 7 stages viven como metodos del FB arriba;
+# Pipeline del FB. Los 8 steps viven como metodos del FB arriba;
 # las funciones puras (filesystem puro, sin TIA) viven aqui mismo
 # para que los tests las importen directamente sin pasar por el
 # orquestador.
@@ -847,40 +843,6 @@ def _escribir_texto(path: Path, contenido: str, encoding: str) -> None:
         f.write(contenido)
 
 
-def _step_summary(ctx: ProcProcessGenContext, step_nombre: str) -> str:
-    """Resumen legible del step que acaba de correr (aparece en la SPA)."""
-    if step_nombre == "leer_manifest":
-        if ctx.manifest_plantilla is None:
-            return f"{step_nombre}: sin manifest"
-        return (
-            f"{step_nombre}: base={ctx.base_vieja} "
-            f"codigo={ctx.codigo_viejo}"
-        )
-    if step_nombre == "validar_minimos":
-        return f"{step_nombre}: N_MAX OK"
-    if step_nombre == "copiar_a_preview":
-        return f"{step_nombre}: plantilla copiada a {ctx.dir_plantilla_copia}"
-    if step_nombre == "construir_diccionarios":
-        return (
-            f"{step_nombre}: "
-            f"{len(ctx.dicc_bloques)} reglas bloques + "
-            f"{len(ctx.dicc_xml)} reglas XML"
-        )
-    if step_nombre == "detectar_colisiones":
-        return f"{step_nombre}: {len(ctx.colisiones)} colision(es)"
-    if step_nombre == "validar_dependencias":
-        return (
-            f"{step_nombre}: "
-            f"{len(ctx.dependencias_ok)} OK, "
-            f"{len(ctx.dependencias_faltantes)} faltantes"
-        )
-    if step_nombre == "generar_previstos":
-        return f"{step_nombre}: {len(ctx.archivos_previstos)} bloques"
-    if step_nombre == "Componer respuesta":
-        return f"{step_nombre}: preview compuesto"
-    return f"{step_nombre}: OK"
-
-
 def _coerce_plc_blocks_cache(raw: Any) -> list[dict[str, Any]]:
     """Normaliza ``plc_blocks_cache`` a ``list[dict{nombre, numero}]``.
 
@@ -916,7 +878,6 @@ __all__ = [
     "ProcProcessGenContext",
     "FunctionProcCrearGenerarPreview",
     "_coerce_plc_blocks_cache",
-    "_step_summary",
     "proc_process_leer_manifest",
     "proc_process_validar_minimos",
     "proc_process_copiar_a_preview",

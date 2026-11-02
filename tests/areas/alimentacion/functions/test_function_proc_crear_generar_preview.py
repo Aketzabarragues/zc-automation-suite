@@ -10,8 +10,8 @@ Cubre el camino sync del OB1 (``fb.execute(**params)``):
     ``n_error`` con mensaje mencionando "N_MAX" o "minimos".
   - Sad path: ``plantillas_path=""`` -> ``on_start`` lanza ValueError y el
     FB va a ``n_error`` con mensaje mencionando "plantillas_path".
-  - Contrato sync: ``run_step`` y los helpers del pipeline son funciones
-    normales, no corrutinas.
+  - Contrato sync: los steps declarados y los helpers del pipeline son
+    funciones normales, no corrutinas.
   - Log de cierre: el FB emite ``logger.ok`` con los contadores reales
     cuando el preview termina bien, y no lo emite si el preview falla.
 
@@ -106,9 +106,9 @@ def progress(real_progress: ProgressTracker) -> ProgressTracker:
         operation="proc_process_crear_preview_test",
         label="Preview crear proceso (test)",
         stages=[
-            "leer_manifest", "validar_minimos", "copiar_a_preview",
-            "extraer_variables_xml", "construir_diccionarios",
-            "detectar_colisiones", "generar_previstos", "done",
+            "Leer manifiesto", "Validar mínimos", "Copiar a vista previa",
+            "Construir diccionarios", "Detectar colisiones",
+            "Validar dependencias", "Generar previstos", "Componer respuesta",
         ],
     )
     return real_progress
@@ -257,21 +257,29 @@ def test_preview_no_plantilla_path(
 # ── contrato sync (hilo unico OB1) ────────────────────────────────────
 
 
-def test_run_step_es_sync_no_coroutine() -> None:
-    """El FB ya no es una corrutina: ``run_step`` es sync (camino OB1).
+def test_los_steps_declarados_son_sync() -> None:
+    """Los steps declarados con ``@step`` son sync (camino OB1).
 
-    El hilo unico del OB1 invoca el FB sin event loop: un ``run_step``
-    async devolveria una corrutina que nadie espera y el step no
-    ejecutaria nunca.
+    El hilo unico del OB1 invoca el FB sin event loop: un handler async
+    devolveria una corrutina que nadie espera y el step no ejecutaria
+    nunca.
     """
-    assert not inspect.iscoroutinefunction(
-        FunctionProcCrearGenerarPreview.run_step
-    ), "run_step debe ser sync; el FB ya no corre en un event loop"
+    specs = FunctionProcCrearGenerarPreview.pasos_declarados()
+    assert [s.nombre for s in specs] == [
+        "Leer manifiesto",
+        "Validar mínimos",
+        "Copiar a vista previa",
+        "Construir diccionarios",
+        "Detectar colisiones",
+        "Validar dependencias",
+        "Generar previstos",
+        "Componer respuesta",
+    ]
 
-    for _idx, _nombre, attr in FunctionProcCrearGenerarPreview.STAGES:
+    for spec in specs:
         assert not inspect.iscoroutinefunction(
-            getattr(FunctionProcCrearGenerarPreview, attr)
-        ), f"{attr} debe ser sync"
+            getattr(FunctionProcCrearGenerarPreview, spec.metodo)
+        ), f"{spec.metodo} debe ser sync"
 
 
 def test_helpers_preview_no_son_corrutinas() -> None:
@@ -303,6 +311,58 @@ def test_helpers_preview_no_son_corrutinas() -> None:
         assert not inspect.iscoroutinefunction(helper), (
             f"{helper.__name__} debe ser sync"
         )
+
+
+# ── Detail de cada step (lo ve el operario) ───────────────────────────
+
+
+def test_cada_step_devuelve_su_detail(
+    plantilla_dummy: Path,
+    tmp_path: Path,
+) -> None:
+    """Cada step publica su detail en el tracker (lo que ve el operario).
+
+    El detail lo devuelve el propio step: la etiqueta visible del step
+    seguida del resumen de lo que ha hecho.
+    """
+    tracker = ProgressTracker()
+    fb = FunctionProcCrearGenerarPreview(
+        nombre="proc_process_crear_preview_detail_test",
+        config_manager=MagicMock(),
+        tia_client=MagicMock(),  # el preview NO toca TIA
+        build_cache=MagicMock(),
+        tracker=tracker,
+    )
+
+    fb.execute(
+        plantillas_path=str(plantilla_dummy.parent),
+        dir_plantilla_nombre="TestPlantilla",
+        base_nueva=60010,
+        codigo_nuevo="EXP",
+        nombre_nuevo="NuevoProceso",
+        minimos_usuario={
+            "N_MAX_PREAL": 30, "N_MAX_PINT": 30,
+            "N_MAX_ALM": 30, "N_MAX_ALM_HMI": 5,
+        },
+        plc_blocks_cache=[],
+        build_cache_root=tmp_path / ".build_cache",
+    )
+
+    assert fb.nStep == fb.n_done, fb.error_msg
+    etapas = {s["id"]: s for s in tracker.snapshot().stages}
+    assert list(etapas) == [
+        "Leer manifiesto",
+        "Validar mínimos",
+        "Copiar a vista previa",
+        "Construir diccionarios",
+        "Detectar colisiones",
+        "Validar dependencias",
+        "Generar previstos",
+        "Componer respuesta",
+    ]
+    for nombre, etapa in etapas.items():
+        assert etapa["status"] == "done", (nombre, etapa)
+        assert etapa["detail"].startswith(f"{nombre}:"), (nombre, etapa)
 
 
 # ── Log de cierre (lo emite el FB, no el router) ─────────────────────
