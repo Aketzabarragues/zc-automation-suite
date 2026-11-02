@@ -1,15 +1,11 @@
 ﻿"""FB de area: preview (read-only) de generar un proceso desde plantilla.
 
-State machine sobre el contexto ``ProcProcessGenContext`` (definido al
-final de este archivo). Los 8 steps viven como metodos del FB (mutando
-``self._ctx``); las funciones puras del pipeline
-(``proc_process_leer_manifest``,
-``proc_process_validar_minimos``, ...) viven debajo del dataclass en
-el mismo archivo.
-
-El orquestador y la dataclass permanecen en el archivo del FB; los
-helpers puros (filesystem puro, sin TIA) se exponen como funciones
-module-level debajo del dataclass para que los tests las importen
+State machine sobre el contexto ``ProcProcessGenContext`` (definido en
+``areas.alimentacion.state.proc_process_gen_context``). Los 8 steps
+viven como metodos del FB (mutando ``self._ctx``); las funciones puras
+del pipeline (``proc_process_leer_manifest``,
+``proc_process_validar_minimos``, ...) se exponen como funciones
+module-level en este archivo para que los tests las importen
 directamente sin ciclo.
 
 Hereda directo de ``FunctionBase``.
@@ -61,7 +57,6 @@ import json
 import logging
 import re
 import shutil
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -71,6 +66,9 @@ from core.infrastructure.log.log_web_bridge import install_web_level
 from areas.alimentacion.helpers.layout.build_cache import DEFAULT_BUILD_CACHE_ROOT
 from areas.alimentacion.helpers.proc.proc_process_construir_diccionarios import (
     proc_process_construir_diccionarios,
+)
+from areas.alimentacion.state.proc_process_gen_context import (
+    ProcProcessGenContext,
 )
 
 # Asegura que ``Logger.web/ok`` existen (idempotente).
@@ -109,71 +107,6 @@ class PlantillaMinimosNoCumplidos(ValueError):
 
 class ManifestInvalido(ValueError):
     """Lanzada si el manifest.json de la plantilla no existe o le faltan campos."""
-
-
-@dataclass
-class ProcProcessGenContext:
-    """Estado compartido entre los 8 stages del FB preview.
-
-    Cada stage del FB muta uno o varios campos con el resultado de su
-    trabajo. Los stages posteriores leen los resultados de los
-    anteriores.
-
-    El FB ``FunctionProcCrearGenerarPreview`` instancia uno y lo reusa
-    entre sus 8 ticks para que los resultados intermedios esten
-    disponibles para los stages posteriores.
-    """
-
-    # ── Deps inyectadas ──
-    dir_plantilla: Path
-    dir_plantilla_copia: Path
-    dir_nuevo: Path
-    base_nueva: int
-    codigo_nuevo: str
-    nombre_nuevo: str
-    # Lista de bloques existentes en el PLC destino. Cada item es
-    # ``{"nombre": str, "numero": int | None}``; permite cruzar por
-    # nombre O por numero en ``proc_process_detectar_colisiones``.
-    # ``None`` = cache nunca populado (el FB emite warning).
-    plc_blocks_cache: list[dict[str, Any]] | None
-    minimos_usuario: dict[str, int]
-
-    # ── Resultado de leer_manifest ──
-    manifest_plantilla: dict[str, Any] | None = None
-    base_vieja: int = 0
-    codigo_viejo: str = ""
-    nombre_viejo: str = ""
-    descripcion: str = ""
-    dependencias: list[str] = field(default_factory=list)
-
-    # ── Resultado de validar_dependencias ──
-    # ``dependencias`` declaradas en el manifest cruzadas contra el
-    # ``plc_blocks_cache``. La SPA pinta en rojo las faltantes y
-    # bloquea el boton "Aplicar" si la lista no esta vacia.
-    dependencias_ok: list[str] = field(default_factory=list)
-    dependencias_faltantes: list[str] = field(default_factory=list)
-
-    # ── Resultado de construir_diccionarios ──
-    dicc_bloques: dict[str, str] = field(default_factory=dict)
-    dicc_xml: dict[str, str] = field(default_factory=dict)
-
-    # ── Resultado de detectar_colisiones ──
-    colisiones: list[str] = field(default_factory=list)
-    # Mapa ``nombre_nuevo -> identificador del bloque PLC que
-    # colisiona``. La SPA lee este campo para pintar
-    # ``DUPLICADO - <identificador>`` en la celda ESTADO.
-    colisiones_con: dict[str, str] = field(default_factory=dict)
-
-    # ── Resultado de generar_previstos / aplicar ──
-    # Una entry por BLOQUE (no por archivo): un bloque TIA vive en
-    # 2 archivos (.s7dcl + .s7res, mismo stem). Cada dict lleva
-    # ``nombre_original``, ``nombre_nuevo`` y ``estado`` ("OK" |
-    # "DUPLICADO - <id>" | "DUPLICADO").
-    archivos_previstos: list[dict[str, str]] = field(default_factory=list)
-    archivos_generados: list[str] = field(default_factory=list)
-
-    # ── Resultado final (vuelco a ``self.result``) ──
-    result: dict[str, Any] = field(default_factory=dict)
 
 
 class FunctionProcCrearGenerarPreview(FunctionBase):
@@ -310,7 +243,8 @@ class FunctionProcCrearGenerarPreview(FunctionBase):
             Path(build_cache_root) / "alimentacion" / "ProcesoNuevo" / "Nuevo"
         )
 
-        # ``ProcProcessGenContext`` vive en este mismo archivo (debajo
+        # ``ProcProcessGenContext`` vive en
+        # ``areas.alimentacion.state.proc_process_gen_context``.
         # de la clase); acceso directo, sin import.
         self._ctx = ProcProcessGenContext(
             dir_plantilla=dir_plantilla,

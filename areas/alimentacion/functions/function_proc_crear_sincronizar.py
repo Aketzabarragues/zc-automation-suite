@@ -1,13 +1,9 @@
 ﻿"""FB de area: aplicar la clonacion de un proceso desde plantilla.
 
-State machine sobre el contexto ``ProcProcessGenContext`` (definido al
-final de este archivo). Los 10 stages viven como metodos del FB (mutando
-``self._ctx``); las funciones puras del pipeline viven debajo del
-dataclass en el mismo archivo.
-
-El orquestador y la dataclass permanecen en el archivo del FB; los
-helpers puros (filesystem puro, sin TIA) se exponen como funciones
-module-level debajo del dataclass.
+State machine sobre el contexto ``ProcProcessGenContext`` (definido en
+``areas.alimentacion.state.proc_process_gen_context``). Los 10 stages
+viven como metodos del FB (mutando ``self._ctx``); las funciones puras
+del pipeline se exponen como funciones module-level en este archivo.
 
 Ademas, este FB dispara 2 dispatches al worker OT:
 
@@ -96,7 +92,6 @@ from __future__ import annotations
 import json
 import logging
 import shutil
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -110,6 +105,9 @@ from areas.alimentacion.helpers.proc.proc_process_aplicar_clonacion import (
 )
 from areas.alimentacion.helpers.proc.proc_process_construir_diccionarios import (
     proc_process_construir_diccionarios,
+)
+from areas.alimentacion.state.proc_process_gen_context import (
+    ProcProcessGenContext,
 )
 
 # Asegura que ``Logger.web/ok`` existen (idempotente).
@@ -146,64 +144,6 @@ class PlantillaMinimosNoCumplidos(ValueError):
 
 class ManifestInvalido(ValueError):
     """Lanzada si el manifest.json de la plantilla no existe o le faltan campos."""
-
-
-@dataclass
-class ProcProcessGenContext:
-    """Estado compartido entre los 10 stages del FB sync.
-
-    Copia local del dataclass en ``function_proc_crear_generar_preview``.
-    Cada FB es autonomo (mismo patron que ``DispPreviewContext`` /
-    ``ProcPreviewContext`` en los FBs del greenfield) — si en el
-    futuro divergen, son contextos distintos.
-    """
-
-    # ── Deps inyectadas ──
-    dir_plantilla: Path
-    dir_plantilla_copia: Path
-    dir_nuevo: Path
-    base_nueva: int
-    codigo_nuevo: str
-    nombre_nuevo: str
-    plc_blocks_cache: list[dict[str, Any]] | None
-    minimos_usuario: dict[str, int]
-
-    # ── Resultado de leer_manifest ──
-    manifest_plantilla: dict[str, Any] | None = None
-    base_vieja: int = 0
-    codigo_viejo: str = ""
-    nombre_viejo: str = ""
-    descripcion: str = ""
-    dependencias: list[str] = field(default_factory=list)
-
-    # ── Resultado de validar_dependencias ──
-    # El sync FB no re-valida: las deps las cruza el preview FB en
-    # su stage 6 y la SPA bloquea el boton "Aplicar" si hay
-    # faltantes. Los campos viven en el ctx del sync para que un
-    # futuro stage los pueda exponer sin tocar la dataclass.
-    dependencias_ok: list[str] = field(default_factory=list)
-    dependencias_faltantes: list[str] = field(default_factory=list)
-
-    # ── Resultado de construir_diccionarios ──
-    dicc_bloques: dict[str, str] = field(default_factory=dict)
-    dicc_xml: dict[str, str] = field(default_factory=dict)
-
-    # ── Resultado de detectar_colisiones ──
-    colisiones: list[str] = field(default_factory=list)
-    colisiones_con: dict[str, str] = field(default_factory=dict)
-
-    # ── Resultado de aplicar / generar_previstos ──
-    # Una entry por BLOQUE (no por archivo): un bloque TIA vive en
-    # 2 archivos (.s7dcl + .s7res, mismo stem). Cada dict lleva
-    # ``nombre_original``, ``nombre_nuevo`` y ``estado`` ("OK" |
-    # "DUPLICADO - <id>" | "DUPLICADO").
-    # El apply FB no popula este campo: vuelca ``archivos_generados``
-    # (lista de paths absolutos de los archivos clonados).
-    archivos_previstos: list[dict[str, str]] = field(default_factory=list)
-    archivos_generados: list[str] = field(default_factory=list)
-
-    # ── Resultado final ──
-    result: dict[str, Any] = field(default_factory=dict)
 
 
 class FunctionProcCrearSincronizar(FunctionBase):
@@ -361,7 +301,8 @@ class FunctionProcCrearSincronizar(FunctionBase):
             Path(build_cache_root) / "alimentacion" / "ProcesoNuevo" / "Nuevo"
         )
 
-        # ``ProcProcessGenContext`` vive en este archivo (dataclass
+        # ``ProcProcessGenContext`` vive en
+        # ``areas.alimentacion.state.proc_process_gen_context``.
         # local); acceso directo, sin import.
         self._ctx = ProcProcessGenContext(
             dir_plantilla=dir_plantilla,
