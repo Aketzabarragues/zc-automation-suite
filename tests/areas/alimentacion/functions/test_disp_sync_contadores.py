@@ -19,7 +19,6 @@ from unittest.mock import MagicMock, patch
 
 from areas.alimentacion.functions.function_disp_sincronizar import (
     FunctionDispSincronizar,
-    _step_summary,
 )
 
 PLCN = "ZC_PLC_STD"
@@ -76,7 +75,7 @@ def _make_fb() -> FunctionDispSincronizar:
 def test_el_stage_4_guarda_el_result_del_batch() -> None:
     """Tx A guarda el ``result`` del batch, no el envelope."""
     fb = _make_fb()
-    fb._stage_4_tx_a_nmax_renames()
+    fb._stage_4_aplicar_n_max_y_renombres()
 
     assert fb._ctx.nmax_result["operations_executed"] == 13
     assert len(fb._ctx.nmax_result["details"]) == 13
@@ -90,7 +89,7 @@ def test_el_stage_8_guarda_el_result_del_batch() -> None:
         "areas.alimentacion.helpers.layout.build_cache.build_cache"
     ) as bc:
         bc.return_value.dispositivos.sync_variables_modified = Path("modified")
-        fb._stage_8_tx_b_devices()
+        fb._stage_8_aplicar_dispositivos()
 
     assert fb._ctx.devices_result["operations_executed"] == 1
     assert len(fb._ctx.devices_result["details"]) == 1
@@ -99,9 +98,7 @@ def test_el_stage_8_guarda_el_result_del_batch() -> None:
 def test_el_resumen_del_stage_4_distingue_nmax_de_renames() -> None:
     """El resumen dice cuantas ops se aplicaron y de que tipo eran."""
     fb = _make_fb()
-    fb._stage_4_tx_a_nmax_renames()
-
-    resumen = _step_summary(fb._ctx, "Aplicar N_MAX y renombres")
+    resumen = fb._stage_4_aplicar_n_max_y_renombres()
 
     assert "13 ops aplicadas en TIA" in resumen, resumen
     assert "10 N_MAX + 3 renames" in resumen, resumen
@@ -115,9 +112,7 @@ def test_el_resumen_del_stage_8_dice_las_tablas_importadas() -> None:
         "areas.alimentacion.helpers.layout.build_cache.build_cache"
     ) as bc:
         bc.return_value.dispositivos.sync_variables_modified = Path("modified")
-        fb._stage_8_tx_b_devices()
-
-    resumen = _step_summary(fb._ctx, "Aplicar dispositivos")
+        resumen = fb._stage_8_aplicar_dispositivos()
 
     assert "11 tablas importadas a TIA" in resumen, resumen
 
@@ -129,13 +124,13 @@ def test_el_result_reporta_las_ops_reales() -> None:
     _mod._app_cache = None
     try:
         fb = _make_fb()
-        fb._stage_4_tx_a_nmax_renames()
+        fb._stage_4_aplicar_n_max_y_renombres()
         fb._ctx.tia_client.submit_and_wait.return_value = _envelope(1)
         with patch(
             "areas.alimentacion.helpers.layout.build_cache.build_cache"
         ) as bc:
             bc.return_value.dispositivos.sync_variables_modified = Path("modified")
-            fb._stage_8_tx_b_devices()
+            fb._stage_8_aplicar_dispositivos()
 
         fb.on_finish()
 

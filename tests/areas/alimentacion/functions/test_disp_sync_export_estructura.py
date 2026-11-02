@@ -242,7 +242,7 @@ def test_stage_1_exporta_conservando_la_jerarquia_de_carpetas(
     fb = _make_fb()
     with _patch_build_cache(tmp_path) as bc:
         bc.return_value.dispositivos = _disp_ctx_mock(tmp_path)
-        fb._stage_1_exportar_tags()
+        fb._stage_1_exportar_etiquetas()
 
     call = fb._ctx.tia_client.submit_and_wait.call_args_list[0]
     op = call.args[1]["operations"][0]
@@ -264,7 +264,7 @@ def test_stage_6_reexporta_conservando_la_jerarquia_de_carpetas(
     ]
     with _patch_build_cache(tmp_path) as bc:
         bc.return_value.dispositivos = _disp_ctx_mock(tmp_path)
-        fb._stage_6_exportar_post_tx_a()
+        fb._stage_6_re_exportar_etiquetas()
 
     call = fb._ctx.tia_client.submit_and_wait.call_args_list[0]
     op = call.args[1]["operations"][0]
@@ -291,7 +291,7 @@ def test_stage_2_lee_el_xml_que_vive_en_una_subcarpeta(
         "areas.alimentacion.functions.function_disp_sincronizar.get_devices",
         return_value=devices,
     ):
-        fb._stage_2_compute_diff()
+        fb._stage_2_calcular_diferencias_de_dispositivos()
 
     assert fb._ctx.added_per_table == {TABLA_DISP: ["1"]}, (
         "El XML en subcarpeta no se ha leido: el diff se ha calculado "
@@ -312,7 +312,7 @@ def test_stage_2_omite_la_tabla_cuando_no_encuentra_el_xml(
         "areas.alimentacion.functions.function_disp_sincronizar.get_devices",
         return_value=devices,
     ):
-        fb._stage_2_compute_diff()
+        fb._stage_2_calcular_diferencias_de_dispositivos()
 
     assert fb._ctx.added_per_table == {}
     assert fb._ctx.base_state_per_table == {}
