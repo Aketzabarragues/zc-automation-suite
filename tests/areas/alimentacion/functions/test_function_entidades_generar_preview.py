@@ -225,66 +225,43 @@ def test_on_finish_vuelca_ctx_result() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Tests de run_step (dispatch + state machine)
+# Tests de los steps declarados (dispatch + state machine)
 # ---------------------------------------------------------------------------
 
 
-def test_run_step_falla_si_ctx_no_inicializado() -> None:
-    """``run_step`` sin ctx raise ``RuntimeError``."""
-    fb = FunctionEntidadesGenerarPreview(
-        nombre="test",
-        config_manager=_make_config_manager(),
-        tia_client=MagicMock(),
-    )
-    with pytest.raises(RuntimeError, match="EntidadesPreviewContext"):
-        fb.run_step(0)
+def test_los_steps_declarados_son_sync() -> None:
+    """Los steps declarados con ``@step`` son sync (camino OB1).
+
+    El hilo unico del OB1 invoca el FB sin event loop: un handler async
+    devolveria una corrutina que nadie espera y el step no ejecutaria
+    nunca.
+    """
+    import inspect
+
+    specs = FunctionEntidadesGenerarPreview.pasos_declarados()
+    assert [s.nombre for s in specs] == [
+        "Exportar etiquetas y DB",
+        "Calcular diferencias de N_MAX_ENTIDAD",
+        "Calcular diferencias de constantes",
+        "Calcular diferencias de comentarios",
+        "Componer respuesta",
+    ]
+    for spec in specs:
+        assert not inspect.iscoroutinefunction(
+            getattr(FunctionEntidadesGenerarPreview, spec.metodo)
+        ), f"{spec.metodo} debe ser sync"
 
 
-def test_run_step_falla_si_step_desconocido() -> None:
-    """Step con nombre que no esta en STAGES raise ``ValueError``."""
-    fb = FunctionEntidadesGenerarPreview(
-        nombre="test",
-        config_manager=_make_config_manager(),
-        tia_client=MagicMock(),
-        app_cache=_make_app_cache(),
-    )
-    fb._ctx = MagicMock()
-    fb.steps = [{"nombre": "step inventado"}]
-    with pytest.raises(ValueError, match="no esta en STAGES"):
-        fb.run_step(0)
-
-
-def test_run_step_stage_5_sync_ejecuta_el_stage_real() -> None:
-    """``run_step`` (sync) invoca el stage 5 real sin romper el retorno.
+def test_el_stage_5_sync_ejecuta_el_stage_real() -> None:
+    """El stage 5 se ejecuta real y devuelve su detail.
 
     El bug original (smoke del operario) era que un handler
     sync devolvia ``None`` y el dispatch lo-awaited con ``await None``,
     reventando con ``TypeError: object NoneType can't be used in 'await'
-    expression``. Con el FB sync, ``run_step`` invoca ``handler()``
-    directamente y descarta su retorno: el stage 5 se ejecuta real y
-    compone ``self._ctx.result`` correctamente.
-
-    Verificacion en 2 partes:
-      1. El metodo NO es corrutina (la conversion esta presente).
-      2. ``run_step(4)`` corre end-to-end con los 4 stages previos
-         mockeados; el stage 5 se ejecuta real y compone
-         ``self._ctx.result`` correctamente.
+    expression``. Con el FB sync, el motor invoca ``handler()``
+    directamente y usa su retorno como detail: el stage 5 se ejecuta
+    real y compone ``self._ctx.result`` correctamente.
     """
-    import inspect
-
-    assert not inspect.iscoroutinefunction(
-        FunctionEntidadesGenerarPreview._stage_5_build_response
-    ), (
-        "_stage_5_build_response debe ser sync; "
-        "un handler sync no se puede await-ear"
-    )
-    assert not inspect.iscoroutinefunction(
-        FunctionEntidadesGenerarPreview.run_step
-    ), (
-        "run_step debe ser sync; el FB ya no corre en un event loop"
-    )
-
-    from unittest.mock import patch as _patch
     fb = _make_fb_with_ctx()
     fb._ctx.db_name = "DB6_ENT"
     fb._ctx.db_array_name = "ENT"
@@ -306,14 +283,10 @@ def test_run_step_stage_5_sync_ejecuta_el_stage_real() -> None:
     }
     fb._ctx.warnings = []
 
-    with _patch.object(fb, "_stage_1_exportar", new=MagicMock()), \
-         _patch.object(fb, "_stage_2_compute_nmax", new=MagicMock()), \
-         _patch.object(fb, "_stage_3_compute_entidades", new=MagicMock()), \
-         _patch.object(fb, "_stage_4_compute_comentarios", new=MagicMock()):
-        # El stage 5 NO se mockea: queremos ejercitar el metodo real.
-        result = fb.run_step(4)
+    # El stage 5 NO se mockea: queremos ejercitar el metodo real.
+    detail = fb._stage_5_componer_respuesta()
 
-    assert "Componer respuesta" in result
+    assert detail.startswith("Componer respuesta:")
     assert fb._ctx.result.get("db_name") == "DB6_ENT"
 
 
@@ -369,13 +342,16 @@ def test_execute_sync_completa_el_preview() -> None:
         "areas.alimentacion.functions.function_entidades_generar_preview."
         "with_plc",
     ), _patch.object(
-        fb, "_stage_1_exportar", new=MagicMock(side_effect=_stage_1),
+        fb, "_stage_1_exportar_etiquetas_y_db", new=MagicMock(side_effect=_stage_1),
     ), _patch.object(
-        fb, "_stage_2_compute_nmax", new=MagicMock(side_effect=_stage_2),
+        fb, "_stage_2_calcular_diferencias_de_n_max_entidad",
+        new=MagicMock(side_effect=_stage_2),
     ), _patch.object(
-        fb, "_stage_3_compute_entidades", new=MagicMock(side_effect=_stage_3),
+        fb, "_stage_3_calcular_diferencias_de_constantes",
+        new=MagicMock(side_effect=_stage_3),
     ), _patch.object(
-        fb, "_stage_4_compute_comentarios", new=MagicMock(side_effect=_stage_4),
+        fb, "_stage_4_calcular_diferencias_de_comentarios",
+        new=MagicMock(side_effect=_stage_4),
     ):
         # El stage 5 NO se mockea: queremos ejercitar el metodo real.
         result = fb.execute(plc_name="PLC_S1500")
@@ -419,7 +395,7 @@ def _make_fb_with_ctx() -> FunctionEntidadesGenerarPreview:
     return fb
 
 
-def test_stage_1_exportar_llama_submit_and_wait() -> None:
+def test_stage_1_exportar_etiquetas_y_db_llama_submit_and_wait() -> None:
     """Stage 1 llama a ``submit_and_wait`` para ``export_tables`` + ``export_blocks``."""
     from pathlib import Path
     fb = _make_fb_with_ctx()
@@ -432,7 +408,7 @@ def test_stage_1_exportar_llama_submit_and_wait() -> None:
         mock_layout.return_value.entidades.preview_disp = Path("/tmp/disp")
         mock_layout.return_value.entidades.preview_bloques = Path("/tmp/blq")
 
-        fb._stage_1_exportar()
+        fb._stage_1_exportar_etiquetas_y_db()
 
     # 2 comandos: export_tables + export_blocks.
     mock_submit = fb._ctx.tia_client.submit_and_wait
@@ -448,7 +424,7 @@ def test_stage_1_exportar_llama_submit_and_wait() -> None:
     assert fb._ctx.warnings == []
 
 
-def test_stage_1_exportar_si_worker_falla_sigue_con_warnings() -> None:
+def test_stage_1_exportar_etiquetas_y_db_si_worker_falla_sigue_con_warnings() -> None:
     """Si el worker TIA falla (None), el FB sigue + acumula warnings.
 
     Caso real: operario aun no creo DB6_ENT en TIA. El preview debe
@@ -469,7 +445,7 @@ def test_stage_1_exportar_si_worker_falla_sigue_con_warnings() -> None:
         mock_layout.return_value.entidades.preview_bloques = Path("/tmp/blq")
 
         # NO debe lanzar TypeError.
-        fb._stage_1_exportar()
+        fb._stage_1_exportar_etiquetas_y_db()
 
     # 2 warnings acumulados (tags + block).
     assert len(fb._ctx.warnings) == 2
@@ -478,7 +454,7 @@ def test_stage_1_exportar_si_worker_falla_sigue_con_warnings() -> None:
     assert "no encontrado" in fb._ctx.warnings[1]
 
 
-def test_stage_2_compute_nmax_usa_n_max_del_cache() -> None:
+def test_stage_2_calcular_diferencias_de_n_max_entidad_usa_n_max_del_cache() -> None:
     """Stage 2 extrae ``N_MAX_ENTIDAD`` del cache y lo pasa al helper."""
     from pathlib import Path
     fb = _make_fb_with_ctx()
@@ -505,13 +481,13 @@ def test_stage_2_compute_nmax_usa_n_max_del_cache() -> None:
         "get_nmax_entidades",
         return_value={"N_MAX_ENTIDAD": 5},
     ):
-        fb._stage_2_compute_nmax()
+        fb._stage_2_calcular_diferencias_de_n_max_entidad()
 
     assert fb._ctx.nmax_block["current"] == {"N_MAX_ENTIDAD": 5}
     assert fb._ctx.nmax_block["summary"]["sin_cambios"] == 1
 
 
-def test_stage_5_build_response_compose_shape() -> None:
+def test_stage_5_componer_respuesta_compose_shape() -> None:
     """Stage 5 compone la shape legacy con arrays + constants + nmax + summary."""
     from pathlib import Path
     from areas.alimentacion.helpers.entidades.entidades_generate_preview import (
@@ -556,7 +532,7 @@ def test_stage_5_build_response_compose_shape() -> None:
     }
     fb._ctx.warnings = []
 
-    fb._stage_5_build_response()
+    fb._stage_5_componer_respuesta()
 
     r = fb._ctx.result
     assert r["precondiciones_ok"] is True
@@ -578,19 +554,19 @@ def test_stage_5_build_response_compose_shape() -> None:
         assert op["kind"] in {"delete", "add", "rename", "update_comment"}
 
 
-def test_stage_5_build_response_stages_previos_fallaron() -> None:
+def test_stage_5_componer_respuesta_stages_previos_fallaron() -> None:
     """Si entities_block o comments_block son None, devuelve shape vacio."""
     fb = _make_fb_with_ctx()
     fb._ctx.entities_block = None
     fb._ctx.comments_block = None
 
-    fb._stage_5_build_response()
+    fb._stage_5_componer_respuesta()
 
     assert fb._ctx.result["precondiciones_ok"] is False
     assert "Stages previos no completaron" in fb._ctx.result["missing_blocks"][0]
 
 
-def test_stage_5_build_response_missing_xml_table() -> None:
+def test_stage_5_componer_respuesta_missing_xml_table() -> None:
     """``missing_xml`` en tabla de entidades -> ``table_present: False``."""
     from pathlib import Path
     fb = _make_fb_with_ctx()
@@ -621,33 +597,105 @@ def test_stage_5_build_response_missing_xml_table() -> None:
     }
     fb._ctx.warnings = []
 
-    fb._stage_5_build_response()
+    fb._stage_5_componer_respuesta()
 
     assert fb._ctx.result["table_present"] is False
     assert fb._ctx.result["db_present"] is True
 
 
 # ---------------------------------------------------------------------------
-# Tests de STAGES (tabla declarativa)
+# Tests de los steps declarados
 # ---------------------------------------------------------------------------
 
 
-def test_stages_match_steps_names() -> None:
-    """Cada ``STAGES[i].nombre_step`` debe existir en ``self.steps[i]['nombre']``."""
+def test_pasos_declarados_match_steps() -> None:
+    """Cada paso declarado debe existir en ``self.steps`` y en el FB."""
     fb = FunctionEntidadesGenerarPreview(
         nombre="test",
         config_manager=_make_config_manager(),
         tia_client=MagicMock(),
     )
-    assert len(fb.STAGES) == len(fb.steps)
-    for idx, (st_idx, st_nombre, st_attr) in enumerate(fb.STAGES):
-        assert fb.steps[idx]["nombre"] == st_nombre, (
-            f"stage {st_idx} ({st_nombre!r}) != "
+    specs = FunctionEntidadesGenerarPreview.pasos_declarados()
+    assert len(specs) == len(fb.steps)
+    for idx, spec in enumerate(specs):
+        assert fb.steps[idx]["nombre"] == spec.nombre, (
+            f"paso {idx} ({spec.nombre!r}) != "
             f"steps[{idx}].nombre ({fb.steps[idx]['nombre']!r})"
         )
-        assert hasattr(fb, st_attr), (
-            f"STAGES declara {st_attr!r} pero el FB no lo expone"
+        assert hasattr(fb, spec.metodo), (
+            f"el paso declara {spec.metodo!r} pero el FB no lo expone"
         )
+
+
+def test_cada_step_devuelve_su_detail_con_su_nombre_visible() -> None:
+    """Cada step devuelve su detail (lo que ve el operario en la barra).
+
+    El detail lo devuelve el propio step: la etiqueta visible del step
+    seguida del resumen de lo que ha hecho.
+    """
+    from pathlib import Path
+
+    fb = _make_fb_with_ctx()
+    fb._ctx.tia_client.submit_and_wait.return_value = {"ok": True}
+
+    fake_nmax = MagicMock()
+    fake_nmax.current = {"N_MAX_ENTIDAD": 5}
+    fake_nmax.desired = {"N_MAX_ENTIDAD": 5}
+    fake_nmax.todos = []
+    fake_nmax.summary = {"actualizar": 1, "sin_cambios": 0, "total": 1}
+    fake_nmax.missing_xml = False
+
+    fake_ent = MagicMock()
+    fake_ent.base = {}
+    fake_ent.base_comments = {}
+    fake_ent.desired = {"ENT_001": 1}
+    fake_ent.added = ["ENT_001"]
+    fake_ent.removed = []
+    fake_ent.renamed = {}
+    fake_ent.missing_xml = False
+    fake_ent.ops = []
+
+    fake_com = MagicMock()
+    fake_com.slots_tia = [0]
+    fake_com.current = {0: "old"}
+    fake_com.desired = {0: "new"}
+    fake_com.added = []
+    fake_com.removed = []
+    fake_com.updated = [0]
+    fake_com.unchanged = []
+    fake_com.missing_xml = False
+
+    with patch(
+        "areas.alimentacion.helpers.layout.build_cache.build_cache"
+    ) as mock_layout, patch(
+        "areas.alimentacion.helpers.entidades.entidades_generate_preview."
+        "compute_nmax_diff_entidades",
+        return_value=fake_nmax,
+    ), patch(
+        "areas.alimentacion.helpers.entidades.entidades_generate_preview."
+        "compute_diff_entities",
+        return_value=fake_ent,
+    ), patch(
+        "areas.alimentacion.helpers.entidades.entidades_generate_preview."
+        "compute_comments_diff",
+        return_value=fake_com,
+    ):
+        mock_layout.return_value.entidades.preview_config = Path("/tmp/cfg")
+        mock_layout.return_value.entidades.preview_disp = Path("/tmp/disp")
+        mock_layout.return_value.entidades.preview_bloques = Path("/tmp/blq")
+
+        details = [
+            fb._stage_1_exportar_etiquetas_y_db(),
+            fb._stage_2_calcular_diferencias_de_n_max_entidad(),
+            fb._stage_3_calcular_diferencias_de_constantes(),
+            fb._stage_4_calcular_diferencias_de_comentarios(),
+            fb._stage_5_componer_respuesta(),
+        ]
+
+    nombres = [s.nombre for s in FunctionEntidadesGenerarPreview.pasos_declarados()]
+    assert len(details) == len(nombres)
+    for nombre, detail in zip(nombres, details):
+        assert detail.startswith(f"{nombre}:"), (nombre, detail)
 
 
 def test_step_timeout_es_60_segundos() -> None:

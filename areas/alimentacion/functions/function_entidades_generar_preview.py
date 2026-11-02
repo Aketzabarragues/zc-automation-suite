@@ -37,12 +37,13 @@ Al terminar (``on_finish``) publica ese ``result`` en el AppCache
 (slot ``preview_disp``): es el canal por el que la SPA recibe el
 preview (SSE ``cache_changed``). El router solo encola el trabajo.
 
-Steps (5):
-  - exportar              -> export_tables + export_blocks
-  - compute_nmax          -> compute_nmax_diff_entidades
-  - compute_entidades     -> compute_diff_entities
-  - compute_comentarios   -> compute_comments_diff
-  - build_response        -> compute_summary + shape final
+Steps (5, en orden de flujo). Cada step se declara encima de su
+propio codigo con ``@step`` y devuelve su detail:
+  - Exportar etiquetas y DB              -> export_tables + export_blocks
+  - Calcular diferencias de N_MAX_ENTIDAD -> compute_nmax_diff_entidades
+  - Calcular diferencias de constantes    -> compute_diff_entities
+  - Calcular diferencias de comentarios   -> compute_comments_diff
+  - Componer respuesta                   -> compute_summary + shape final
 """
 from __future__ import annotations
 
@@ -51,6 +52,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from core.composition.fb_step import step
 from core.composition.plc_function_base import FunctionBase
 from core.helpers.tia.active_cache import (
     get_entidades,
@@ -82,19 +84,6 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
     # 60s cubre holgadamente.
     STEP_TIMEOUT_S: float = 60.0
 
-    # Tabla declarativa de stages. Cada tupla: (idx, "nombre_step",
-    # "atributo_metodo_en_el_FB"). El ``run_step`` dispatcha contra
-    # esta tabla en vez de un ``match``/``case`` inline, para que el
-    # flujo sea legible arriba de la clase y los tests puedan
-    # mockear ``fb._stage_N_<nombre>`` directamente.
-    STAGES: list[tuple[int, str, str]] = [
-        (1, "Exportar etiquetas y DB",                  "_stage_1_exportar"),
-        (2, "Calcular diferencias de N_MAX_ENTIDAD",    "_stage_2_compute_nmax"),
-        (3, "Calcular diferencias de constantes",       "_stage_3_compute_entidades"),
-        (4, "Calcular diferencias de comentarios",       "_stage_4_compute_comentarios"),
-        (5, "Componer respuesta",                       "_stage_5_build_response"),
-    ]
-
     # ==================================================================
     # CONSTRUCTOR
     # ==================================================================
@@ -103,7 +92,6 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
         self,
         nombre: str = "entidades_generar_preview",
         titulo: str = "Generar preview de entidades vs PLC",
-        steps: list[dict[str, Any]] | None = None,
         tracker: Any = None,
         # ── ZONA 0: deps comunes ──
         config_manager: Any = None,
@@ -115,13 +103,6 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
         super().__init__(
             nombre=nombre,
             titulo=titulo,
-            steps=steps if steps is not None else [
-                {"nombre": "Exportar etiquetas y DB"},
-                {"nombre": "Calcular diferencias de N_MAX_ENTIDAD"},
-                {"nombre": "Calcular diferencias de constantes"},
-                {"nombre": "Calcular diferencias de comentarios"},
-                {"nombre": "Componer respuesta"},
-            ],
             tracker=tracker,
         )
         # ZONA 0: deps inyectadas.
@@ -183,35 +164,6 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
         )
 
     # ==================================================================
-    # HOOK 2: run_step  (ZONA 4: state machine -> dispatch al helper)
-    # ==================================================================
-
-    def run_step(self, idx: int, **params: Any) -> str:
-        """Dispatch del FB step ``idx`` a la funcion del helper ``entidades_generate_preview``.
-
-        Aqui vive la state machine: cada step del FB llama a UNA
-        funcion del helper contra el ``EntidadesPreviewContext`` compartido.
-        El lookup es por ``nombre`` (no por ``idx``), mismo patron que
-        ``FunctionDispGenerarPreview``.
-        """
-        if self._ctx is None:
-            raise RuntimeError(
-                "EntidadesPreviewContext no inicializado. on_start() no se ejecuto "
-                "(o el FB no recibio un plc_name valido)."
-            )
-
-        step_nombre = self.steps[idx]["nombre"]
-        for _s_idx, s_nombre, s_attr in self.STAGES:
-            if s_nombre == step_nombre:
-                handler = getattr(self, s_attr)
-                handler()
-                return _step_summary(self._ctx, s_nombre)
-        raise ValueError(
-            f"step {idx} ({step_nombre!r}) no esta en STAGES "
-            f"de FunctionEntidadesGenerarPreview"
-        )
-
-    # ==================================================================
     # HOOK 3: on_finish  (ZONA 5: vuelco del result desde el ctx)
     # ==================================================================
 
@@ -263,14 +215,18 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
         area_set_preview_disp(app_cache, "alimentacion", self.result)
 
     # ==================================================================
-    # Stages del FB (ZONA 4: 5 metodos privados numerados).
+    # LOS STEPS
     #
-    # Cada ``_stage_N_<nombre>`` corresponde a UNA entrada de la tabla
-    # ``STAGES`` arriba. Si cambias el flujo del stage, cambia la
-    # tabla tambien.
+    # Cada ``_stage_N_<slug>`` es un step declarado con ``@step``. El
+    # motor los recoge en orden de definicion (que es el orden del
+    # flujo) y hace el dispatch. El metodo devuelve su detail.
     # ==================================================================
 
-    def _stage_1_exportar(self) -> None:
+    @step(
+        "Exportar etiquetas y DB",
+        descripcion="Exporta del PLC las tablas de etiquetas y el bloque DB",
+    )
+    def _stage_1_exportar_etiquetas_y_db(self) -> str:
         """Stage 1: limpia preview/ y exporta las 2 tablas selectivas + el DB.
 
         Layout nuevo (.build_cache/alimentacion/entidades/preview/):
@@ -282,9 +238,9 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
         que proc_db_preview): si una tabla o el DB no existen en
         TIA (caso del operario que aun no creo DB6_ENT), el FB **NO**
         aborta: marca el bloque como ``missing_xml`` / emite un warning
-        y los stages posteriores (compute_nmax / entidades /
-        comentarios) devolveran diff vacio para ese lado. El operario
-        sigue viendo el preview de las partes que SI existen.
+        y los stages posteriores (n_max / constantes / comentarios)
+        devolveran diff vacio para ese lado. El operario sigue viendo
+        el preview de las partes que SI existen.
 
         Si el worker TIA retorna ``None``, el stage NO aborta:
         marca el bloque como ``missing_xml`` y continua.
@@ -365,7 +321,13 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
                 f"  {db_name} exportado a {self._ctx.preview_bloques_dir}"
             )
 
-    def _stage_2_compute_nmax(self) -> None:
+        return "Exportar etiquetas y DB: 2 tablas + DB6_ENT exportados"
+
+    @step(
+        "Calcular diferencias de N_MAX_ENTIDAD",
+        descripcion="Compara la tabla N_MAX_ENTIDAD del PLC con la del Excel",
+    )
+    def _stage_2_calcular_diferencias_de_n_max_entidad(self) -> str:
         """Stage 2: calcula el diff de N_MAX_ENTIDAD."""
         assert self._ctx.preview_disp_dir is not None
         from areas.alimentacion.helpers.entidades.entidades_generate_preview import (
@@ -403,7 +365,18 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
             ),
         }
 
-    def _stage_3_compute_entidades(self) -> None:
+        nmax_summary = self._ctx.nmax_block.get("summary", {})
+        return (
+            f"Calcular diferencias de N_MAX_ENTIDAD: "
+            f"{nmax_summary.get('actualizar', 0)} N_MAX actualizar, "
+            f"{nmax_summary.get('sin_cambios', 0)} sin cambios"
+        )
+
+    @step(
+        "Calcular diferencias de constantes",
+        descripcion="Compara las constantes de entidades del PLC con las del Excel",
+    )
+    def _stage_3_calcular_diferencias_de_constantes(self) -> str:
         """Stage 3: calcula el diff de PlcUserConstants ``ent_<plc_tag>``."""
         assert self._ctx.preview_disp_dir is not None
         from areas.alimentacion.helpers.entidades.entidades_generate_preview import (
@@ -435,7 +408,21 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
         # reusa en stage 5; la SPA la consume desde ``data.ops``.
         self._ctx.entities_ops = list(diff.ops)
 
-    def _stage_4_compute_comentarios(self) -> None:
+        if not self._ctx.entities_block:
+            return "Calcular diferencias de constantes: sin datos"
+        adds = len(self._ctx.entities_block.get("added", []))
+        rems = len(self._ctx.entities_block.get("removed", []))
+        rens = len(self._ctx.entities_block.get("renamed", {}))
+        return (
+            f"Calcular diferencias de constantes: {adds} adds, "
+            f"{rems} removes, {rens} renames"
+        )
+
+    @step(
+        "Calcular diferencias de comentarios",
+        descripcion="Compara los comentarios del array ENT[] con los del Excel",
+    )
+    def _stage_4_calcular_diferencias_de_comentarios(self) -> str:
         """Stage 4: calcula el diff de comentarios del array ``ENT[]`` de ``DB6_ENT``."""
         assert self._ctx.preview_bloques_dir is not None
         from core.infrastructure.tia.tia_export_paths import SdPair
@@ -479,11 +466,25 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
             )
             self._ctx.warnings.append(warning)
 
-    def _stage_5_build_response(self) -> None:
+        if not self._ctx.comments_block:
+            return "Calcular diferencias de comentarios: sin datos"
+        added = len(self._ctx.comments_block.get("added", []))
+        updated = len(self._ctx.comments_block.get("updated", []))
+        unchanged = len(self._ctx.comments_block.get("unchanged", []))
+        return (
+            f"Calcular diferencias de comentarios: {added} adds, "
+            f"{updated} updates, {unchanged} unchanged"
+        )
+
+    @step(
+        "Componer respuesta",
+        descripcion="Compone la vista unificada que consume la SPA",
+    )
+    def _stage_5_componer_respuesta(self) -> str:
         """Stage 5: compone la shape final con todos los resultados intermedios.
 
-        Metodo sync: ``run_step`` lo invoca como ``handler()`` y usa su
-        propio summary, no el retorno del handler.
+        Metodo sync: el motor lo invoca como ``handler()`` y usa su
+        propio detail como texto del step.
         """
         from areas.alimentacion.helpers.entidades.entidades_generate_preview import (
             compute_summary,
@@ -500,7 +501,7 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
             self._ctx.result["missing_blocks"] = [
                 "Stages previos no completaron (revisa warnings)."
             ]
-            return
+            return "Componer respuesta: preview compuesto"
 
         # Reconstruir dataclasses frozen para reusar compute_summary().
         # Si el caller ya computo entities_ops (sync FB, preview FB
@@ -588,6 +589,8 @@ class FunctionEntidadesGenerarPreview(FunctionBase):
             "warnings": list(self._ctx.warnings) + inconsistencies,
         }
 
+        return "Componer respuesta: preview compuesto"
+
 
 # ============================================================================
 # Helpers puros (estado entre stages + composicion del response)
@@ -620,54 +623,20 @@ class EntidadesPreviewContext:
     preview_disp_dir: Path | None = None
     preview_bloques_dir: Path | None = None
 
-    # ── Resultados de compute_nmax (stage 2) ──
+    # ── Resultados de n_max (stage 2) ──
     nmax_block: dict[str, Any] = field(default_factory=dict)
 
-    # ── Resultados de compute_entidades (stage 3) ──
+    # ── Resultados de constantes (stage 3) ──
     entities_block: dict[str, Any] = field(default_factory=dict)
 
-    # ── Resultados de compute_comentarios (stage 4) ──
+    # ── Resultados de comentarios (stage 4) ──
     comments_block: dict[str, Any] = field(default_factory=dict)
 
     # ── Warnings acumulados ──
     warnings: list[str] = field(default_factory=list)
 
-    # ── Resultado de build_response (stage 5) ──
+    # ── Resultado de la respuesta (stage 5) ──
     result: dict[str, Any] = field(default_factory=dict)
-
-
-def _step_summary(ctx: Any, step_nombre: str) -> str:
-    """Resumen legible del step que acaba de correr (aparece en la SPA)."""
-    if step_nombre == "Exportar etiquetas y DB":
-        return f"{step_nombre}: 2 tablas + DB6_ENT exportados"
-    if step_nombre == "Calcular diferencias de N_MAX_ENTIDAD":
-        nmax_summary = ctx.nmax_block.get("summary", {})
-        return (
-            f"{step_nombre}: {nmax_summary.get('actualizar', 0)} N_MAX "
-            f"actualizar, {nmax_summary.get('sin_cambios', 0)} sin cambios"
-        )
-    if step_nombre == "Calcular diferencias de constantes":
-        if not ctx.entities_block:
-            return f"{step_nombre}: sin datos"
-        adds = len(ctx.entities_block.get("added", []))
-        rems = len(ctx.entities_block.get("removed", []))
-        rens = len(ctx.entities_block.get("renamed", {}))
-        return (
-            f"{step_nombre}: {adds} adds, {rems} removes, {rens} renames"
-        )
-    if step_nombre == "Calcular diferencias de comentarios":
-        if not ctx.comments_block:
-            return f"{step_nombre}: sin datos"
-        added = len(ctx.comments_block.get("added", []))
-        updated = len(ctx.comments_block.get("updated", []))
-        unchanged = len(ctx.comments_block.get("unchanged", []))
-        return (
-            f"{step_nombre}: {added} adds, {updated} updates, "
-            f"{unchanged} unchanged"
-        )
-    if step_nombre == "Componer respuesta":
-        return f"{step_nombre}: preview compuesto"
-    return f"{step_nombre}: OK"
 
 
 def _build_constants_todos(diff_ent: Any) -> list[dict[str, Any]]:
