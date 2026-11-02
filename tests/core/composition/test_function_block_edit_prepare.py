@@ -1,7 +1,7 @@
 """Tests del FB core ``FunctionBlockEditPrepare``.
 
 El FB se ejecuta por el camino sync del OB1: ``fb.execute(**params)``
-recorre la state machine completa (``on_start`` -> los 5 ``run_step`` ->
+recorre la state machine completa (``on_start`` -> los 5 steps declarados ->
 ``on_finish``) sin event loop. El exito se comprueba con ``n_done`` +
 ``error_msg is None``; los fallos, con ``n_error`` y el mensaje en
 ``error_msg`` (``execute()`` captura la excepcion y no la propaga).
@@ -154,8 +154,8 @@ def _copy_s7dcl_export(cmd: str, args: dict[str, Any]) -> dict:
     Simula al handler unificado ``export_blocks``: dado ``args`` con
     ``block_names`` (lista) y ``target_dir``, copia cada ``<name>.s7dcl``
     del fixture al directorio destino. Asi el parser SCL del step
-    ``parsear_scl`` puede leer los archivos reales y devolver los MLC IDs
-    correctos.
+    ``Parsear headers SCL`` puede leer los archivos reales y devolver los
+    MLC IDs correctos.
 
     Bloques cuyo ``.s7dcl`` no exista en el fixture se reportan en
     ``skipped_names`` (mismo comportamiento que el handler real).
@@ -217,15 +217,21 @@ def _make_fb(
 # ── 0. Contrato sync del hilo del OB1 ─────────────────────────────
 
 
-def test_run_step_es_sync_para_el_hilo_del_ob1() -> None:
-    """``run_step`` es sync: el hilo del dispatcher lo invoca sin event loop.
+def test_los_handlers_declarados_son_sync_para_el_hilo_del_ob1() -> None:
+    """Los handlers de los steps son sync: el hilo del dispatcher los invoca.
 
-    Si devolviera una corrutina, ``execute()`` abortaria el trabajo con
-    ``TypeError`` en el OB1 y el operario no veria el prepare.
+    El dispatch lo hace el motor (``@step``), no el FB: cada handler se
+    invoca sin event loop. Si devolviera una corrutina, ``execute()``
+    abortaria el trabajo con ``TypeError`` en el OB1 y el operario no
+    veria el prepare.
     """
-    assert not inspect.iscoroutinefunction(
-        FunctionBlockEditPrepare.run_step
-    )
+    specs = FunctionBlockEditPrepare.pasos_declarados()
+    assert specs, "el FB debe declarar sus steps con @step"
+    for spec in specs:
+        handler = getattr(FunctionBlockEditPrepare, spec.metodo)
+        assert not inspect.iscoroutinefunction(handler), (
+            f"el handler {spec.metodo} es async: los FBs deben ser sync"
+        )
 
 
 # ── 1. Happy path ──────────────────────────────────────────────────
@@ -460,7 +466,7 @@ def test_export_ignorado_continua_con_los_demas(
         # fallidos en ``skipped_names``. ``ok=True`` global aunque algun
         # bloque falle (mismo comportamiento que ``_h_export_blocks``).
         # Ademas materializa los ``.s7dcl`` de los exportados para que
-        # ``parsear_scl`` pueda leerlos del workdir.
+        # ``Parsear headers SCL`` pueda leerlos del workdir.
         wanted = list(args.get("block_names", []))
         exported = [n for n in wanted if n not in fail_targets]
         skipped = [n for n in wanted if n in fail_targets]
@@ -606,7 +612,7 @@ def test_dispatch_args_usan_path_absoluto(
     assert found, "no se encontro la call a dispatch('export_blocks', ...)"
 
 
-# ── 8. clean_preview al inicio de exportar_sd ──────────────────────
+# ── 8. clean_preview al inicio de Exportar bloques SD ──────────────
 
 
 def test_segundo_prepare_borra_sd_previos(
@@ -618,7 +624,7 @@ def test_segundo_prepare_borra_sd_previos(
 
     Caso: el operario prepara A, B, C. Luego elimina C de TIA Portal
     (o deselecciona bloques) y vuelve a preparar solo A. Sin el
-    ``clean_preview()`` al inicio de ``exportar_sd``, B.s7dcl y
+    ``clean_preview()`` al inicio de ``Exportar bloques SD``, B.s7dcl y
     C.s7dcl quedarian en disco contaminando cualquier inspeccion
     posterior.
 
@@ -714,9 +720,12 @@ def test_segundo_prepare_reemplaza_cache_sin_acumular(
     assert "FC2000_ZC_ED" in cached_after_second
     assert "DB2000_ED" not in cached_after_second, (
         "BUG: el cache arrastra el bloque del 1er prepare. "
-        "self._blocks_data deberia limpiarse en on_start al re-arrancar "
+        "self._ctx.blocks_data deberia recrearse en on_start al re-arrancar "
         "para que merge_cache itere solo sobre el prepare actual."
     )
+    # El ctx del run en curso solo contiene el prepare actual.
+    assert fb._ctx is not None
+    assert [e["name"] for e in fb._ctx.blocks_data] == ["FC2000_ZC_ED"]
     assert fb.result["n_blocks"] == 1, (
         f"result.n_blocks deberia ser 1 (solo FC), no {fb.result['n_blocks']}"
     )
