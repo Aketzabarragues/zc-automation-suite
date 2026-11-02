@@ -168,31 +168,17 @@ class FunctionBase:
         self,
         nombre: str,
         titulo: str,
-        steps: list[dict[str, Any]] | None = None,
         tracker: Any = None,
         step_timeout_s: float | None = None,
     ) -> None:
         self.nombre = nombre
         self.titulo = titulo
-        # Los pasos salen de los metodos marcados con @step. El parametro
-        # ``steps`` queda solo para la transicion (FBs que aun no han
-        # migrado): en el formato final desaparece.
-        declarados = self.pasos_declarados()
-        if declarados and steps is not None:
-            # Migracion a medias: el FB declara unos pasos por @step y
-            # otros por la lista. Las dos listas no se pueden mezclar sin
-            # duplicar o saltarse pasos, asi que se para aqui.
-            raise ValueError(
-                f"FB {self.__class__.__name__}: declara pasos con @step y "
-                f"a la vez pasa steps=. Migra el FB entero o nada."
-            )
-        if declarados:
-            self.steps: list[dict[str, Any]] = [s.as_dict() for s in declarados]
-        else:
-            self.steps = [
-                s if isinstance(s, dict) else {"nombre": s}
-                for s in (steps or [])
-            ]
+        # Los pasos salen de los metodos marcados con @step, en orden de
+        # definicion. Cada uno lleva su handler (el metodo que lo
+        # implementa) y su descripcion.
+        self.steps: list[dict[str, Any]] = [
+            s.as_dict() for s in self.pasos_declarados()
+        ]
         self._tracker = tracker if tracker is not None else _TrackerNulo()
         self._step_timeout_s = (
             step_timeout_s if step_timeout_s is not None else self.STEP_TIMEOUT_S
@@ -386,16 +372,16 @@ class FunctionBase:
         """Ejecuta el step ``idx`` y devuelve su detail.
 
         El handler es un metodo del propio FB, declarado con ``@step``.
-        Si el step no declara handler, cae al hook ``run_step``
-        (compatibilidad para migrar FB a FB).
+        No hay fallback: un step sin handler es un error de
+        programacion.
         """
-        step_info = self.steps[idx]
-        handler = step_info.get("handler")
-
-        if handler is not None:
-            outcome = getattr(self, handler)()
-        else:
-            outcome = self.run_step(idx, **self._params)
+        handler = self.steps[idx].get("handler")
+        if not handler:
+            raise RuntimeError(
+                f"FB {self.nombre}: el step {idx} no declara handler. "
+                "Los steps se declaran con @step sobre un metodo del FB."
+            )
+        outcome = getattr(self, handler)()
 
         if inspect.isawaitable(outcome):
             raise TypeError(
@@ -429,14 +415,6 @@ class FunctionBase:
         if "error" in box:
             raise box["error"]
         return box.get("detail", "")
-
-    def run_step(self, idx: int, **params: Any) -> str:
-        """Hook de compatibilidad. Los FBs migrados ya no lo usan.
-
-        Se mantiene mientras haya FBs con la forma antigua; el guard
-        ``test_fbs_sync_contract`` pasa a verificar los handlers.
-        """
-        raise NotImplementedError
 
     # ------------------------------------------------------------------
     # State machine (privado)

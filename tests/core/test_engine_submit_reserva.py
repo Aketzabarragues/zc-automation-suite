@@ -18,6 +18,7 @@ from typing import Any
 
 import pytest
 
+from core.composition.fb_step import step
 from core.composition.plc_engine import Engine, FBBusyError
 from core.composition.plc_function_base import FunctionBase
 from core.runtime.progress_buffer import ProgressTracker
@@ -30,12 +31,12 @@ class _ContadorFB(FunctionBase):
         super().__init__(
             nombre=nombre,
             titulo="Contador",
-            steps=["uno"],
             tracker=ProgressTracker(),
         )
         self.ejecuciones = 0
 
-    def run_step(self, idx: int, **params: Any) -> str:
+    @step("uno", descripcion="Cuenta una ejecucion")
+    def _stage_1_uno(self) -> str:
         self.ejecuciones += 1
         return f"ejecucion {self.ejecuciones}"
 

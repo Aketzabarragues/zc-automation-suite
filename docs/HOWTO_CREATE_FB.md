@@ -61,7 +61,12 @@ endpoint Flask sincrono).
 - Conocer el FB de referencia: `areas/alimentacion/functions/function_excel_cargar.py`.
 - Conocer el router de referencia: `areas/alimentacion/frontend/excel_router.py`.
 
-## 3. Estructura de 4 zonas
+## 3. Estructura del FB
+
+Cada step se declara encima de su propio codigo con el decorador
+`@step`. El motor (`FunctionBase`) recoge los pasos **en orden de
+definicion** (que es el orden del flujo) y hace el dispatch. No hay
+`run_step`, ni tabla `STAGES`, ni lista `steps=`.
 
 ```python
 # Zona 0: imports + declaracion
@@ -70,6 +75,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from core.composition.fb_step import step
 from core.composition.plc_function_base import FunctionBase
 
 logger = logging.getLogger(__name__)
@@ -90,7 +96,6 @@ class FunctionMiFB(FunctionBase):
         super().__init__(
             nombre="mi_fb",
             titulo="Mi operacion",
-            steps=["paso_1", "paso_2", "paso_3"],
             tracker=tracker,
         )
         # Zona 0: deps inyectadas
@@ -98,7 +103,7 @@ class FunctionMiFB(FunctionBase):
         # Zona 3: estado entre steps
         self._ctx: MiCtx | None = None
 
-    # Zona 2: hooks (on_start, run_step, on_finish)
+    # Zona 2: hooks (on_start, on_finish)
     def on_start(self, **params) -> None:
         """Validar params, abrir recursos."""
         plc_name = params.get("plc_name")
@@ -108,29 +113,19 @@ class FunctionMiFB(FunctionBase):
             raise RuntimeError("FunctionMiFB requiere tia_client explicito.")
         self._ctx = MiCtx(tia_client=self._tia_client, plc_name=plc_name)
 
-    def run_step(self, idx: int, **params) -> str:
-        """Logica del step N. Devuelve detail (string) para el HMI.
+    def on_finish(self, **params) -> None:
+        """Vuelca self.result: lo publica el SSE fb_state y el AppCache."""
+        self.result = {"status": "ok"}
+
+    # Zona 3: los steps (uno por metodo, en orden de flujo)
+    @step("Listar bloques", descripcion="Lee los bloques del PLC")
+    def _stage_1_listar_bloques(self) -> str:
+        """Logica del step 1. Devuelve detail (string) para el HMI.
 
         Es sync: el FB corre en el hilo del dispatcher del OB1, sin
         event loop. Para hablar con TIA se usa ``submit_and_wait()``,
         que es bloqueante a proposito.
         """
-        if self._ctx is None:
-            raise RuntimeError("MiCtx sin inicializar: on_start() no corrio.")
-        if idx == 0:
-            return self._step_1()
-        if idx == 1:
-            return self._step_2()
-        if idx == 2:
-            return self._step_3()
-        raise NotImplementedError(f"step {idx} no implementado")
-
-    def on_finish(self, **params) -> None:
-        """Vuelca self.result: lo publica el SSE fb_state y el AppCache."""
-        self.result = {"status": "ok"}
-
-    # Zona 3: helpers privados
-    def _step_1(self) -> str:
         resp = self._ctx.tia_client.submit_and_wait(
             "list_blocks",
             {"plc_name": self._ctx.plc_name},
@@ -143,6 +138,47 @@ class FunctionMiFB(FunctionBase):
         return f"{len(bloques)} bloques"
 ```
 
+### 3.1 Regla de nombres
+
+El **nombre visible** (el primer argumento de `@step`) es la etiqueta que
+ve el operario en la barra de progreso: es texto de UI, se escribe como
+una frase ("Listar bloques", "Esperar consolidación TIA") y **no se
+cambia** aunque cambie la implementacion.
+
+El **slug** (el nombre del metodo) es el `snake_case` del nombre visible:
+minusculas, sin acentos, cada caracter que no sea `[a-z0-9_]` se
+convierte en `_`, y los `_` repetidos se colapsan en uno. Los acronimos
+van en minusculas (`DB` -> `db`, `N_MAX` -> `n_max`, `SD` -> `sd`).
+
+El metodo se llama `_stage_<n>_<slug>`, con `<n>` correlativo 1-based:
+
+| Nombre visible | Metodo |
+|---|---|
+| `Listar bloques` | `_stage_1_listar_bloques` |
+| `Esperar consolidación TIA` | `_stage_2_esperar_consolidacion_tia` |
+| `Componer respuesta` | `_stage_3_componer_respuesta` |
+
+El nombre visible **no** puede repetirse dentro del mismo FB: el motor
+lanza `ValueError` (el tracker seria ambiguo).
+
+### 3.2 Que devuelve cada step
+
+El `return` del metodo es el **detail** del step: el texto que el
+operario ve en la barra de progreso y en el log. Devuelve el dato real
+del step, no un "OK" generico:
+
+```python
+    @step("Validar bloques", descripcion="Comprueba el cache de bloques")
+    def _stage_1_validar_bloques(self) -> str:
+        if not self._ctx.bloques_cache:
+            raise RuntimeError("Cache de bloques no disponible.")
+        return f"Validar bloques: {len(self._ctx.bloques_cache)} bloques"
+```
+
+Si el step tiene varias salidas (por ejemplo, un caso "nada que
+hacer"), cada una devuelve su propio detail: el operario tiene que
+poder distinguir "no havia nada" de "fallo".
+
 Contrato de `submit_and_wait`:
 `submit_and_wait(command: str, args: dict | None = None, timeout: float = 30.0) -> dict`.
 La respuesta es `{"ok": True, "result": <dict>}` o `{"ok": False, "error": "<msg>"}`.
@@ -152,8 +188,8 @@ El keyword del timeout es `timeout`.
 
 | Hook | Cuando se llama | Errores tipicos |
 |---|---|---|
-| `on_start(**params)` | Una vez, antes del primer `run_step`. **Sincrono.** | Lanzar `ValueError` por params invalidos: el base lo captura y transita a `n_error`. |
-| `run_step(idx, **params)` | Una vez por step. **Sincrono.** | Lanzar `NotImplementedError` por olvidos: propaga al dev. Lanzar `Exception` operacional: el base lo silencia y transita a `n_error`. Devolver una corrutina es un error de programacion: el base lo dice explicitamente. |
+| `on_start(**params)` | Una vez, antes del primer step. **Sincrono.** | Lanzar `ValueError` por params invalidos: el base lo captura y transita a `n_error`. |
+| `@step(...)` handler | Una vez por step, en orden de definicion. **Sincrono.** | Lanzar `NotImplementedError` por olvidos: propaga al dev. Lanzar `Exception` operacional: el base lo silencia y transita a `n_error`. Devolver una corrutina es un error de programacion: el base lo dice explicitamente. |
 | `on_finish(**params)` | Una vez, al pasar de `n_finalizar` a `n_done`. **Sincrono.** | Asignar `self.result` con el dict que se publicara por SSE `fb_state` y en los slots del AppCache. |
 
 El entry point del dispatcher es `FunctionBase.execute(**params)`: ejecuta
@@ -170,10 +206,9 @@ El base invoca el tracker automaticamente:
 - `tracker.error_stage(stage_id, detail)` si hay error.
 - `tracker.finish(success=True|False)` en `n_done` o `n_error`.
 
-Los IDs de stage vienen de `self.steps`: el base normaliza la lista que
-pasaste en `__init__` a dicts con clave `nombre` (si pasas strings, los
-convierte; si pasas dicts, deben traer `nombre`). El HMI los muestra con
-ese `nombre`.
+Los IDs de stage vienen de los metodos marcados con `@step`: el base los
+recoge en orden de definicion y usa el nombre visible como ID. El HMI los
+muestra con ese `nombre`.
 
 **Reglas operativas**:
 
@@ -290,9 +325,12 @@ El smoke en vivo es la verdad.
 ## Convenciones (resumen)
 
 - Zona 0: imports + declaracion.
-- Zona 1: `__init__` con `nombre`, `titulo`, `steps`, `tracker=...`.
-- Zona 2: hooks `on_start` / `run_step` / `on_finish`, todos sync.
-- Zona 3: helpers privados.
+- Zona 1: `__init__` con `nombre`, `titulo`, `tracker=...`.
+- Zona 2: hooks `on_start` / `on_finish`, todos sync.
+- Zona 3: los steps, uno por metodo, con `@step` encima.
+- El slug del metodo es el `snake_case` del nombre visible:
+  `_stage_<n>_<slug>`.
+- El `return` del step es su detail: el texto que ve el operario.
 - TIA: `tia_client.submit_and_wait(comando, args, timeout=T)`.
 - Router: `engine.submit(...)` + `202 {"ok": True, "job_id": ...}`.
 - Resultado al HMI: push SSE `fb_state` + slots del AppCache.

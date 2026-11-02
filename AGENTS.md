@@ -21,8 +21,9 @@ HMI --> pulsador --> OB1 --> FB --> WORKER (TIA)
   ejecuta cada FB completo. `engine.submit(fb_name, **params)` encola el
   trabajo y devuelve un `job_id`; el router responde `202` con ese id.
 - **FB** = la unidad de trabajo (`core/composition/plc_function_base.py`).
-  Son **sync**: `run_step(self, idx: int, **params: Any) -> str`. El hilo del
-  OB1 los ejecuta con `fb.execute(**params)`.
+  Son **sync**: cada step es un método declarado con `@step` que
+  devuelve su detail (`str`). El hilo del OB1 los ejecuta con
+  `fb.execute(**params)`.
 - **WORKER** = el hilo dedicado de TIA Portal
   (`core/infrastructure/tia/tia_loop.py`): `threading.Thread` daemon +
   `queue.Queue`. Es el único lugar autorizado para tocar los RCW de .NET.
@@ -83,10 +84,10 @@ vida) en `.clinerules` §2.
    `timeout` es la espera de la respuesta del worker; el timeout del step
    vive aparte, en `FunctionBase.STEP_TIMEOUT_S`.
 5. La lógica se implementa como **FB** (Function Block, state machine
-   con `on_start` / `run_step` / `on_finish`) en
-   `areas/<área>/functions/function_<x>.py`. Los tres hooks son **sync**:
-   `def run_step(self, idx: int, **params: Any) -> str`. El FB registra su
-   progreso vía `ProgressTracker` y delega al worker con
+   con `on_start` / `on_finish` y un método por step) en
+   `areas/<área>/functions/function_<x>.py`. Los hooks y los handlers
+   de step son **sync**: `def _stage_<n>_<slug>(self) -> str`. El FB
+   registra su progreso vía `ProgressTracker` y delega al worker con
    `self._tia_client.submit_and_wait("comando", args, timeout=T)` — sin
    wrappers: el FB ya corre en un hilo dedicado. Para lotes transaccionales
    el comando es `execute_transactional_batch`.
@@ -197,8 +198,8 @@ vida) en `.clinerules` §2.
    - `state/`: estado del área (`area_cache.py`, modelos
      congelados para `AppCache.register_area(...)`).
    - `functions/`: FBs (Function Blocks) — un módulo por FB,
-     clase + `FunctionBase.__init__` + hooks `on_start` /
-     `run_step` / `on_finish`.
+     clase + `FunctionBase.__init__` + hooks `on_start` / `on_finish`
+     + un método por step con `@step`.
    - `frontend/`: SPA del área (componentes Vue 3 ESM en
      `components/`, `manifest.js` con `build()` que devuelve
      `{ components, routes, sidebar, landing, loaders }`,
@@ -258,7 +259,10 @@ Replica su estructura.
    explícitos, sin Singletons.
 2. FB: `functions/function_<x>.py`, copia la plantilla de
    `function_excel_cargar.py`. Renombra clase y `nombre` canónico;
-   define Zona 0/3 y los hooks `on_start` / `run_step` / `on_finish`.
+   define Zona 0/3, los hooks `on_start` / `on_finish` y **un método
+   por step**, declarado con `@step(nombre_visible, descripcion=...)`
+   encima de su propio código. El método devuelve su detail (el texto
+   que ve el operario).
 3. Registrar el FB en
    `areas/<área>/__init__.py::register(engine, *, config_manager=None,
    tia_client=None, build_cache=None, app_cache=None)`. No se
@@ -269,14 +273,34 @@ Replica su estructura.
    `job_id`; propagar `FBBusyError` como 409.
 5. Smoke en vivo + tests en `tests/areas/<área>/...`.
 
+**El esqueleto de un step**:
+- El **nombre visible** (primer argumento de `@step`) es la etiqueta que
+  ve el operario: texto de UI, se escribe como una frase y no se cambia
+  aunque cambie la implementación.
+- El **slug** (nombre del método) es el `snake_case` del nombre visible:
+  minúsculas, sin acentos, todo lo que no sea `[a-z0-9_]` pasa a `_`, y
+  los `_` repetidos se colapsan. Los acrónimos van en minúsculas
+  (`DB` -> `db`, `N_MAX` -> `n_max`, `SD` -> `sd`). El método se llama
+  `_stage_<n>_<slug>` con `<n>` correlativo 1-based.
+- El motor (`FunctionBase`) recoge los pasos **en orden de definición**
+  (el orden del flujo, como un SFC) y hace el dispatch. No hay `run_step`,
+  ni tabla `STAGES`, ni lista `steps=`.
+- El `return` del método es su detail. Si el step tiene varias salidas,
+  cada una devuelve el suyo: el operario tiene que poder distinguir
+  "no había nada" de "fallo".
+
 **Gotchas** (detalle en `docs/MIGRATION_PLAYBOOK.md`):
 - `LogBuffer.info(message)` solo acepta 1 arg. Usar f-strings.
 - `_stats` lo inicializa `FunctionBase.__init__`; no redeclararlo.
 - FB re-arrancable: `execute()` acepta desde `n_done`/`n_error` y limpia
   el estado por llamada (`_stats`, `error_msg`, `result`, `_step_idx`).
-- `run_step` es sync: si devuelve una corrutina, el base lanza
-  `TypeError` (los FBs se ejecutan en el hilo del OB1).
-- Lazy import del helper dentro de `run_step` (evita ciclos).
+- El handler de un step es sync: si devuelve una corrutina, el base
+  lanza `TypeError` (los FBs se ejecutan en el hilo del OB1).
+- El estado del run vive en el **ctx** del FB (un dataclass propio que
+  se recrea en `on_start`). Si el FB acumula estado entre steps, va en
+  el ctx, no en atributos sueltos: hay un guard que lo comprueba
+  (`tests/core/composition/test_fbs_reset_run_state.py`).
+- Lazy import del helper dentro del método del step (evita ciclos).
 - Mapear objetos nativos TIA a primitivos antes de `self.result`.
 
 ---
@@ -568,8 +592,9 @@ commit).
 5. **Vue 3 template error "string literal multi-línea":** los
    `template: \`...\`` no admiten literales multi-línea dentro de
    arrays `:class`. Cada clase en una sola línea.
-6. **El FB devuelve una corrutina:** `run_step` es sync (el FB corre en el
-   hilo del OB1). Si devuelve una corrutina, el base lanza `TypeError`.
+6. **El FB devuelve una corrutina:** el handler de un step es sync (el FB
+   corre en el hilo del OB1). Si devuelve una corrutina, el base lanza
+   `TypeError`.
 7. **El router devuelve 409 y el operario no ve nada:** el FB ya tenia un
    trabajo en curso. Un FB solo admite un trabajo a la vez.
 

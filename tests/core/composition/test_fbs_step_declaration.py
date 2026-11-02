@@ -1,16 +1,14 @@
 """Guard de la declaracion de steps con ``@step``.
 
-El motor (``core/composition/plc_function_base.py``) puede tomar los
-steps de dos sitios:
+Los steps de un FB se declaran UNA vez, encima de su propio codigo,
+con el decorador ``@step``. El motor
+(``core/composition/plc_function_base.py``) los recoge en **orden de
+definicion** (que es el orden del flujo) y hace el dispatch.
 
-  1. de los metodos marcados con ``@step`` (forma actual): los recoge
-     en **orden de definicion** y hace el dispatch.
-  2. de la lista ``steps=`` del constructor (forma antigua): el
-     dispatch lo hace el ``run_step`` del propio FB.
+La forma antigua (la lista ``steps=`` del constructor y el
+``run_step`` del FB) esta retirada: el base ya no la acepta.
 
-Este modulo fija el contrato de la forma 1 y comprueba que las dos no
-se pueden mixing (una migracion a medias dejaria pasos sin ejecutar o
-ejecutados dos veces).
+Este modulo fija el contrato de la declaracion.
 """
 from __future__ import annotations
 
@@ -39,21 +37,6 @@ class FbDeclarado(FunctionBase):
         return "alfa hecha"
 
 
-class FbAntiguo(FunctionBase):
-    """FB de prueba con la forma antigua: ``steps=`` + ``run_step``."""
-
-    def __init__(self, tracker=None) -> None:
-        super().__init__(
-            nombre="fb_antiguo",
-            titulo="FB antiguo",
-            steps=[{"nombre": "Uno"}, {"nombre": "Dos"}],
-            tracker=tracker,
-        )
-
-    def run_step(self, idx: int, **params) -> str:
-        return f"paso {idx} hecho"
-
-
 def test_los_pasos_se_declaran_en_orden_de_definicion() -> None:
     """El orden de los metodos es el orden del flujo, no el alfabetico.
 
@@ -77,28 +60,14 @@ def test_el_motor_usa_la_declaracion_como_steps() -> None:
     assert fb.steps[0]["descripcion"] == "El primero en el flujo"
 
 
-def test_el_fb_antiguo_conserva_su_forma() -> None:
-    """Sin ``@step``, el FB sigue usando la lista ``steps=``."""
-    fb = FbAntiguo()
-    assert [s["nombre"] for s in fb.steps] == ["Uno", "Dos"]
-    assert "handler" not in fb.steps[0]
+def test_el_base_ya_no_acepta_la_lista_de_steps() -> None:
+    """La forma antigua esta retirada: el base no acepta ``steps=``.
 
-
-def test_no_se_pueden_mixing_las_dos_formas() -> None:
-    """Declarar pasos y pasar ``steps=`` a la vez es un error de codigo.
-
-    Una migracion a medias dejaria pasos sin ejecutar o ejecutados dos
-    veces. El fallo tiene que verse al construir el FB, no tres minutos
-    despues contra el PLC.
+    Los pasos se declaran con ``@step``. Un FB que pase ``steps=`` falla
+    al construirse, con el TypeError del propio constructor.
     """
-
-    class FbMezclado(FunctionBase):
-        @step("Uno", descripcion="declara un paso")
-        def _stage_1_uno(self) -> str:
-            return "uno"
-
-    with pytest.raises(ValueError, match="Migra el FB entero o nada"):
-        FbMezclado(nombre="mixto", titulo="mixto", steps=[{"nombre": "Otro"}])
+    with pytest.raises(TypeError):
+        FbDeclarado(nombre="mixto", titulo="mixto", steps=[{"nombre": "Otro"}])
 
 
 def test_nombre_de_step_duplicado_falla_al_construir() -> None:
@@ -132,16 +101,9 @@ def test_el_handler_se_invoca_y_su_detail_llega_al_tracker() -> None:
     assert stages["Alfa"]["detail"] == "alfa hecha"
 
 
-def test_el_fallback_a_run_step_sigue_funcionando() -> None:
-    """Los FBs que aun no han migrado ejecutan su ``run_step``."""
-    tracker = ProgressTracker()
-    fb = FbAntiguo(tracker=tracker)
-    fb.execute()
-
-    assert fb.nStep == FunctionBase.n_done, fb.error_msg
-    stages = {s["id"]: s for s in tracker.snapshot().stages}
-    assert stages["Uno"]["detail"] == "paso 0 hecho"
-    assert stages["Dos"]["detail"] == "paso 1 hecho"
+def test_el_base_no_tiene_fallback_a_run_step() -> None:
+    """El dispatch va siempre al handler declarado: no hay fallback."""
+    assert not hasattr(FunctionBase, "run_step")
 
 
 @pytest.mark.filterwarnings("ignore::RuntimeWarning")

@@ -17,6 +17,7 @@ from __future__ import annotations
 import queue
 from typing import Any
 
+from core.composition.fb_step import step
 from core.composition.plc_engine import Engine
 from core.composition.plc_function_base import FunctionBase
 from core.runtime.progress_buffer import ProgressTracker
@@ -31,15 +32,19 @@ class _DemoFB(FunctionBase):
         super().__init__(
             nombre=nombre,
             titulo="FB de demo",
-            steps=["uno", "dos"],
             tracker=ProgressTracker(),
         )
         self.detalle: list[str] = []
 
-    def run_step(self, idx: int, **params: Any) -> str:
-        nombre = self.steps[idx]["nombre"]
-        self.detalle.append(nombre)
-        return f"hecho {nombre}"
+    @step("uno", descripcion="Primer paso de demo")
+    def _stage_1_uno(self) -> str:
+        self.detalle.append("uno")
+        return "hecho uno"
+
+    @step("dos", descripcion="Segundo paso de demo")
+    def _stage_2_dos(self) -> str:
+        self.detalle.append("dos")
+        return "hecho dos"
 
     def on_finish(self, **params: Any) -> None:
         self.result = {"ok": True, "pasos": list(self.detalle)}

@@ -14,7 +14,7 @@ class _CountingFB(FunctionBase):
     """FB que cuenta las ejecuciones para verificar el wiring."""
 
     def __init__(self, nombre: str = "test_fb"):
-        super().__init__(nombre=nombre, titulo="test fb", steps=[])
+        super().__init__(nombre=nombre, titulo="test fb")
         self.execute_count = 0
 
     def execute(self, **params):

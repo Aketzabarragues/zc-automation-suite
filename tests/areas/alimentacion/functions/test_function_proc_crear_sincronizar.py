@@ -9,7 +9,7 @@ Cubre el camino sync del OB1 (``fb.execute(**params)``):
   - Sad path: ``execute_transactional_batch`` retorna
     ``{"ok": False, ...}`` -> el FB va a ``n_error`` (rollback atomico
     del lote) y nunca lanza ``compile_plc``.
-  - Contrato sync: ``run_step`` y los stages que hablan con el worker OT
+  - Contrato sync: los handlers de step y los que hablan con el worker OT
     son funciones normales, no corrutinas.
   - Log de cierre: el FB emite ``logger.ok`` con los contadores reales
     cuando el apply termina bien, y no lo emite si el apply falla.
@@ -352,13 +352,16 @@ def test_apply_lote_transaccional_falla(
 # ── Contrato sync (hilo OB1) ─────────────────────────────────────────
 
 
-def test_run_step_es_sync_no_coroutine() -> None:
+def test_los_handlers_declarados_son_sync() -> None:
     """El FB ya no es una corrutina: se ejecuta en un hilo sync.
 
-    Contrato del hilo OB1: ``run_step`` (y los stages que hablan con
+    Contrato del hilo OB1: los handlers de step (y los que hablan con
     el worker OT) son funciones normales, no corrutinas.
     """
-    assert not inspect.iscoroutinefunction(FunctionProcCrearSincronizar.run_step)
+    for spec in FunctionProcCrearSincronizar.pasos_declarados():
+        assert not inspect.iscoroutinefunction(
+            getattr(FunctionProcCrearSincronizar, spec.metodo)
+        ), f"{spec.metodo} debe ser sync"
     assert not inspect.iscoroutinefunction(
         FunctionProcCrearSincronizar._stage_7_importar_proceso
     )

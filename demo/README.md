@@ -248,7 +248,8 @@ nombre, que es lo que se puede leer.
 
 ## Lo que no se toca
 
-- El ctx: 8 dataclasses propios, con `ProcProcessGenContext` duplicado
+- El ctx: 8 dataclasses propios (el `ProcProcessGenContext` duplicado se
+  unifico en `areas/alimentacion/state/proc_process_gen_context.py`)
   campo por campo en 2 ficheros. Se unifica el duplicado, no el resto.
 - El contrato con el exterior: `execute`, `nStep`, `result`,
   `error_msg`, `is_terminal`, `request_cancel`, el shape de `fb_state` y

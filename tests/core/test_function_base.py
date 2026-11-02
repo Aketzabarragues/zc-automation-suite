@@ -5,7 +5,7 @@ Ciclo vigente: el dispatcher OB1 ejecuta el FB completo con
 
   - ``execute()`` recorre los steps y deja el FB en ``n_done``.
   - El tracker recibe begin/start/finish por cada etapa.
-  - Un ``run_step`` que devuelve una corrutina es un error de
+  - Un handler de step que devuelve una corrutina es un error de
     programacion: ``execute()`` lo dice de forma explicita.
   - Una excepcion de runtime se captura: el FB queda en ``n_error`` con
     ``error_msg`` poblado.
@@ -27,6 +27,7 @@ from typing import Any
 
 import pytest
 
+from core.composition.fb_step import step
 from core.composition.plc_function_base import FunctionBase
 from core.runtime.progress_buffer import ProgressTracker
 
@@ -37,15 +38,26 @@ from core.runtime.progress_buffer import ProgressTracker
 
 
 class _SyncFB(FunctionBase):
-    """FB de test con ``run_step`` sync (contrato del camino vigente)."""
+    """FB de test con 2 steps declarados (contrato del camino vigente)."""
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
+    def __init__(
+        self,
+        nombre: str = "sync_fb",
+        titulo: str = "Sync FB",
+        tracker: ProgressTracker | None = None,
+    ) -> None:
+        super().__init__(nombre=nombre, titulo=titulo, tracker=tracker)
         self.calls: list[int] = []
 
-    def run_step(self, idx: int, **params: Any) -> str:
-        self.calls.append(idx)
-        return f"paso {idx}"
+    @step("p1", descripcion="Primer paso")
+    def _stage_1_p1(self) -> str:
+        self.calls.append(0)
+        return "paso 0"
+
+    @step("p2", descripcion="Segundo paso")
+    def _stage_2_p2(self) -> str:
+        self.calls.append(1)
+        return "paso 1"
 
     def on_finish(self, **params: Any) -> None:
         self.result = {"ok": True, "pasos": list(self.calls)}
@@ -54,7 +66,7 @@ class _SyncFB(FunctionBase):
 def test_execute_happy_path() -> None:
     """``execute()`` corre el FB entero y deja ``nStep = n_done``."""
     tracker = ProgressTracker()
-    fb = _SyncFB("sync_fb", "Sync FB", ["p1", "p2"], tracker=tracker)
+    fb = _SyncFB("sync_fb", "Sync FB", tracker=tracker)
 
     result = fb.execute(plc_name="PLC1")
 
@@ -67,7 +79,7 @@ def test_execute_happy_path() -> None:
 def test_execute_emite_el_tracker_por_etapa() -> None:
     """El tracker recibe begin/start/finish por cada etapa."""
     tracker = ProgressTracker()
-    fb = _SyncFB("sync_fb", "Sync FB", ["p1", "p2"], tracker=tracker)
+    fb = _SyncFB("sync_fb", "Sync FB", tracker=tracker)
 
     fb.execute()
 
@@ -79,18 +91,19 @@ def test_execute_emite_el_tracker_por_etapa() -> None:
     assert snap.active is False
 
 
-def test_execute_rechaza_un_run_step_async() -> None:
-    """Un ``run_step`` async es un error de programacion: lo dice claro.
+def test_execute_rechaza_un_handler_async() -> None:
+    """Un handler async es un error de programacion: lo dice claro.
 
     Los FBs se ejecutan en el hilo del dispatcher del OB1, sin event
-    loop. Si el ``run_step`` devuelve una corrutina, ``execute()`` lo
-    dice explicitamente en vez de propagar la corrutina sin ejecutar.
+    loop. Si el handler devuelve una corrutina, ``execute()`` lo dice
+    explicitamente en vez de propagar la corrutina sin ejecutar.
     """
     class _AsyncFB(FunctionBase):
-        async def run_step(self, idx: int, **params: Any) -> str:
-            return f"async {idx}"
+        @step("p1", descripcion="step async")
+        async def _stage_1_p1(self) -> str:
+            return "async 0"
 
-    fb = _AsyncFB("legacy", "Legacy", ["p1"], tracker=ProgressTracker())
+    fb = _AsyncFB("legacy", "Legacy", tracker=ProgressTracker())
     fb.execute()
 
     assert fb.nStep == fb.n_error
@@ -101,10 +114,11 @@ def test_execute_rechaza_un_run_step_async() -> None:
 def test_execute_excepcion_pone_fb_en_n_error() -> None:
     """Una excepcion de runtime se captura: el FB queda en n_error."""
     class _BoomFB(FunctionBase):
-        def run_step(self, idx: int, **params: Any) -> str:
+        @step("p1", descripcion="step que revienta")
+        def _stage_1_p1(self) -> str:
             raise RuntimeError("se rompio")
 
-    fb = _BoomFB("boom", "Boom", ["p1"], tracker=ProgressTracker())
+    fb = _BoomFB("boom", "Boom", tracker=ProgressTracker())
     fb.execute()
 
     assert fb.nStep == fb.n_error
@@ -119,11 +133,24 @@ def test_execute_notimplemented_propagates() -> None:
     Pero el FB NO debe quedar bricked en ``n_ejecutar``: se marca
     terminal para que no se re-intente en bucle.
     """
-    fb = FunctionBase("stub", "Stub", ["p1"], tracker=ProgressTracker())
-    with pytest.raises(NotImplementedError, match="run_step"):
+    class _SinImplementarFB(FunctionBase):
+        @step("p1", descripcion="step sin implementar")
+        def _stage_1_p1(self) -> str:
+            raise NotImplementedError("falta implementar")
+
+    fb = _SinImplementarFB("stub", "Stub", tracker=ProgressTracker())
+    with pytest.raises(NotImplementedError, match="falta implementar"):
         fb.execute()
     assert fb.nStep == fb.n_error
     assert fb.is_terminal() is True
+
+
+def test_un_fb_sin_steps_termina_en_n_done() -> None:
+    """Un FB sin steps declarados no hace nada y termina bien."""
+    fb = FunctionBase("vacio", "Vacio", tracker=ProgressTracker())
+    fb.execute()
+    assert fb.nStep == fb.n_done
+    assert fb.result == {"ok": True}
 
 
 def test_execute_notifica_la_transicion_a_error() -> None:
@@ -131,10 +158,11 @@ def test_execute_notifica_la_transicion_a_error() -> None:
     events: list[tuple[int, int]] = []
 
     class _BoomFB(FunctionBase):
-        def run_step(self, idx: int, **params: Any) -> str:
+        @step("p1", descripcion="step que revienta")
+        def _stage_1_p1(self) -> str:
             raise RuntimeError("boom")
 
-    fb = _BoomFB("boom", "Boom", ["p1"], tracker=ProgressTracker())
+    fb = _BoomFB("boom", "Boom", tracker=ProgressTracker())
     fb._on_nstep_change = lambda old, new: events.append((old, new))
     fb.execute()
 
@@ -154,13 +182,21 @@ def test_execute_ignorado_si_hay_una_ejecucion_en_curso() -> None:
     calls: list[int] = []
 
     class _BlockingFB(FunctionBase):
-        def run_step(self, idx: int, **params: Any) -> str:
-            calls.append(idx)
+        @step("p1", descripcion="primer paso bloqueante")
+        def _stage_1_p1(self) -> str:
+            calls.append(0)
             started.set()
             gate.wait(timeout=5)
             return "ok"
 
-    fb = _BlockingFB("bloquea", "Bloquea", ["p1", "p2"], tracker=ProgressTracker())
+        @step("p2", descripcion="segundo paso bloqueante")
+        def _stage_2_p2(self) -> str:
+            calls.append(1)
+            started.set()
+            gate.wait(timeout=5)
+            return "ok"
+
+    fb = _BlockingFB("bloquea", "Bloquea", tracker=ProgressTracker())
 
     runner = threading.Thread(target=fb.execute)
     runner.start()
@@ -179,12 +215,13 @@ def test_execute_ignorado_si_hay_una_ejecucion_en_curso() -> None:
 def test_execute_timeout_de_step() -> None:
     """Un step que excede ``STEP_TIMEOUT_S`` deja el FB en n_error."""
     class _SlowFB(FunctionBase):
-        def run_step(self, idx: int, **params: Any) -> str:
+        @step("p1", descripcion="step lento")
+        def _stage_1_p1(self) -> str:
             time.sleep(2)
             return "tarde"
 
     fb = _SlowFB(
-        "lento", "Lento", ["p1"], tracker=ProgressTracker(), step_timeout_s=0.05,
+        "lento", "Lento", tracker=ProgressTracker(), step_timeout_s=0.05,
     )
     fb.execute()
 
@@ -205,12 +242,13 @@ def test_execute_cancelado_durante_un_step() -> None:
     gate = threading.Event()
 
     class _BlockingFB(FunctionBase):
-        def run_step(self, idx: int, **params: Any) -> str:
+        @step("p1", descripcion="paso bloqueante")
+        def _stage_1_p1(self) -> str:
             started.set()
             gate.wait(timeout=5)
             return "ok"
 
-    fb = _BlockingFB("bloquea", "Bloquea", ["p1"], tracker=tracker)
+    fb = _BlockingFB("bloquea", "Bloquea", tracker=tracker)
 
     def _cancelar() -> None:
         started.wait(timeout=5)
@@ -232,18 +270,18 @@ def test_execute_cancelado_durante_un_step() -> None:
 
 def test_execute_rearranca() -> None:
     """El FB es reusable: ``execute()`` se puede llamar N veces."""
-    fb = _SyncFB("sync_fb", "Sync FB", ["p1"], tracker=ProgressTracker())
+    fb = _SyncFB("sync_fb", "Sync FB", tracker=ProgressTracker())
 
     fb.execute(v=1)
     assert fb.nStep == fb.n_done
     fb.execute(v=2)
     assert fb.nStep == fb.n_done
-    assert fb.calls == [0, 0]
+    assert fb.calls == [0, 1, 0, 1]
 
 
 def test_execute_ignorado_si_el_fb_esta_activo() -> None:
     """Con el FB activo, ``execute()`` no hace nada."""
-    fb = _SyncFB("sync_fb", "Sync FB", ["p1"], tracker=ProgressTracker())
+    fb = _SyncFB("sync_fb", "Sync FB", tracker=ProgressTracker())
     fb.nStep = fb.n_ejecutar
 
     fb.execute()
@@ -263,7 +301,7 @@ def test_request_cancel_en_fb_terminal_no_hace_nada() -> None:
     ``request_cancel()`` devuelve ``False`` y no toca ni el flag de
     cancelacion ni ``error_msg``: un FB ya cerrado no se re-marca.
     """
-    fb = _SyncFB("sync_fb", "Sync FB", ["p1"], tracker=ProgressTracker())
+    fb = _SyncFB("sync_fb", "Sync FB", tracker=ProgressTracker())
     assert fb.nStep == fb.n_idle
 
     ok = fb.request_cancel("cancelado por el operario")
@@ -276,7 +314,7 @@ def test_request_cancel_en_fb_terminal_no_hace_nada() -> None:
 
 def test_request_cancel_en_fb_activo_pide_la_cancelacion() -> None:
     """Con el FB activo, ``request_cancel()`` activa el flag y fija el motivo."""
-    fb = _SyncFB("sync_fb", "Sync FB", ["p1"], tracker=ProgressTracker())
+    fb = _SyncFB("sync_fb", "Sync FB", tracker=ProgressTracker())
     fb.nStep = fb.n_ejecutar
 
     ok = fb.request_cancel("cancelado por el operario")
@@ -293,7 +331,7 @@ def test_request_cancel_no_cambia_nstep() -> None:
     devuelve el control; cambiarlo aqui seria una carrera con el step.
     """
     eventos: list[tuple[int, int]] = []
-    fb = _SyncFB("sync_fb", "Sync FB", ["p1"], tracker=ProgressTracker())
+    fb = _SyncFB("sync_fb", "Sync FB", tracker=ProgressTracker())
     fb._on_nstep_change = lambda old, new: eventos.append((old, new))
     fb.nStep = fb.n_ejecutar
 
@@ -305,7 +343,7 @@ def test_request_cancel_no_cambia_nstep() -> None:
 
 def test_request_cancel_no_pisa_un_error_previo() -> None:
     """Un ``error_msg`` ya informative tiene prioridad sobre el motivo de parada."""
-    fb = _SyncFB("sync_fb", "Sync FB", ["p1"], tracker=ProgressTracker())
+    fb = _SyncFB("sync_fb", "Sync FB", tracker=ProgressTracker())
     fb.nStep = fb.n_ejecutar
     fb.error_msg = "RuntimeError: TIA Portal se cayo"
 
@@ -324,7 +362,7 @@ def test_request_cancel_es_sync_y_no_necesita_event_loop() -> None:
     """
     assert inspect.iscoroutinefunction(FunctionBase.request_cancel) is False
 
-    fb = _SyncFB("sync_fb", "Sync FB", ["p1"], tracker=ProgressTracker())
+    fb = _SyncFB("sync_fb", "Sync FB", tracker=ProgressTracker())
     fb.nStep = fb.n_ejecutar
     resultados: list[bool] = []
     errores: list[BaseException] = []
@@ -356,12 +394,13 @@ def test_request_cancel_durante_un_step_cierra_el_fb_en_n_error() -> None:
     gate = threading.Event()
 
     class _BlockingFB(FunctionBase):
-        def run_step(self, idx: int, **params: Any) -> str:
+        @step("p1", descripcion="paso bloqueante")
+        def _stage_1_p1(self) -> str:
             started.set()
             gate.wait(timeout=5)
             return "ok"
 
-    fb = _BlockingFB("bloquea", "Bloquea", ["p1"], tracker=ProgressTracker())
+    fb = _BlockingFB("bloquea", "Bloquea", tracker=ProgressTracker())
 
     worker = threading.Thread(target=fb.execute)
     worker.start()

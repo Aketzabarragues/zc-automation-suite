@@ -13,7 +13,7 @@ State machine::
 
     nStep=0   idle      (FB creado, sin ejecutar)
     nStep=10  arrancar  (on_start + tracker.begin)
-    nStep=20  ejecutar  (loop de steps: start_stage -> run_step -> finish/error)
+    nStep=20  ejecutar  (loop de steps: start_stage -> handler -> finish/error)
     nStep=95  finalizar (on_finish + tracker.finish(success=True))
     nStep=99  done      (terminal OK)
     nStep=98  error     (terminal con error_msg)
@@ -26,16 +26,13 @@ su sitio.
 
 Hooks overridables por las subclases (FBs reales):
   - ``on_start(**params)``         pre-flight SYNC. Validar params.
-  - ``run_step(idx, **params)``    logica del step N.
   - ``on_finish(**params)``        post-flight SYNC. Vuelca self.result.
 
-Los steps se declaran de dos formas, y **no se pueden mezclar**:
-
-  - ``@step(...)`` sobre el metodo del step (forma actual): el motor
-    recoge los pasos en orden de definicion y hace el dispatch. El
-    metodo devuelve su detail.
-  - la lista ``steps=`` del constructor (forma antigua, en retirada):
-    el dispatch lo hace el ``run_step`` del propio FB.
+Los steps se declaran con el decorador ``@step(...)`` sobre un metodo
+de la clase (ver ``core/composition/fb_step.py``): el motor los recoge
+en orden de definicion, que es el orden del flujo, y hace el dispatch.
+El metodo devuelve su detail. No hay otra forma de declararlos: ni
+tabla de stages, ni lista ``steps=``, ni dispatch propio en el FB.
 
 Cancelacion cooperativa: ``request_cancel(reason)`` marca un flag; el
 step en curso lo comprueba en la frontera de etapa y el base cierra con
@@ -78,34 +75,17 @@ class FunctionBase:
         self,
         nombre: str,
         titulo: str,
-        steps: list[dict[str, Any]] | None = None,
         tracker: ProgressTracker | None = None,
         step_timeout_s: float | None = None,
     ) -> None:
         self.nombre = nombre
         self.titulo = titulo
-        # Los pasos salen de los metodos marcados con @step. La lista
-        # ``steps=`` queda solo para los FBs que aun no han migrado.
-        declarados = self.pasos_declarados()
-        if declarados and steps is not None:
-            # Migracion a medias: el FB declara unos pasos con @step y
-            # otros por la lista. Las dos listas no se pueden mixing
-            # sin duplicar o saltarse pasos, asi que se para aqui.
-            raise ValueError(
-                f"FB {self.__class__.__name__}: declara pasos con @step y "
-                f"a la vez pasa steps=. Migra el FB entero o nada."
-            )
-        if declarados:
-            self.steps: list[dict[str, Any]] = [s.as_dict() for s in declarados]
-        else:
-            # Normaliza a list[dict]. Acepta strings por ergonomia (los
-            # FBs simples no necesitan dicts), pero la representacion
-            # interna siempre es dict para admitir metadata futura
-            # (descripcion, timeout propio, etc.).
-            self.steps = [
-                s if isinstance(s, dict) else {"nombre": s}
-                for s in (steps or [])
-            ]
+        # Los pasos salen de los metodos marcados con @step, en orden de
+        # definicion. Cada uno lleva su handler (el metodo que lo
+        # implementa) y su descripcion.
+        self.steps: list[dict[str, Any]] = [
+            s.as_dict() for s in self.pasos_declarados()
+        ]
         # Tracker: inyeccion obligatoria en FBs reales. Default al
         # singleton global solo para tests basicos y smoke (mismo
         # patron que LogBuffer).
@@ -185,20 +165,6 @@ class FunctionBase:
         ``tracker.error_stage(...)``. Default: no-op.
         """
         pass
-
-    def run_step(self, idx: int, **params: Any) -> str:
-        """Logica del step ``idx``. Devuelve un detail (string) para el HMI.
-
-        Default: ``NotImplementedError`` (la subclase olvido overridear).
-        Lanzar cualquier excepcion aborta el step actual; el base
-        emite ``tracker.error_stage(...)`` y transiciona a ``n_error``.
-
-        Es sync: el FB se ejecuta en el hilo del dispatcher del OB1, sin
-        event loop.
-        """
-        raise NotImplementedError(
-            f"FB {self.nombre}: run_step() debe ser implementado por la subclase"
-        )
 
     def on_finish(self, **params: Any) -> None:
         """Post-flight SYNC. Vuelca ``self.result`` con la shape que
@@ -418,21 +384,21 @@ class FunctionBase:
         """Ejecuta el step ``idx`` y devuelve su detail.
 
         El handler es un metodo del propio FB, declarado con ``@step``.
-        Si el step no declara handler, cae al hook ``run_step`` (FBs que
-        aun no han migrado).
+        No hay fallback: un step sin handler es un error de
+        programacion.
 
         Es sync: el FB se ejecuta en el hilo del dispatcher del OB1, sin
         event loop. Si devuelve una corrutina es un error de programacion
         y se dice explicitamente, en vez de propagar una corrutina sin
         ejecutar.
         """
-        step_info = self.steps[idx]
-        handler = step_info.get("handler")
-
-        if handler is not None:
-            outcome = getattr(self, handler)()
-        else:
-            outcome = self.run_step(idx, **self._params)
+        handler = self.steps[idx].get("handler")
+        if not handler:
+            raise RuntimeError(
+                f"FB {self.nombre}: el step {idx} no declara handler. "
+                "Los steps se declaran con @step sobre un metodo del FB."
+            )
+        outcome = getattr(self, handler)()
 
         if inspect.isawaitable(outcome):
             raise TypeError(

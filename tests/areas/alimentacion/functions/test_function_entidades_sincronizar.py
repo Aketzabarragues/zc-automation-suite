@@ -159,12 +159,11 @@ def test_on_finish_vuelca_ctx_result() -> None:
 
 
 def test_el_fb_no_declara_run_step() -> None:
-    """El dispatch lo hace el motor: el FB no overridea ``run_step``."""
-    from core.composition.plc_function_base import FunctionBase
+    """El dispatch lo hace el motor: el FB no define ``run_step``."""
     from areas.alimentacion.functions.function_entidades_sincronizar import (
         FunctionEntidadesSincronizar,
     )
-    assert FunctionEntidadesSincronizar.run_step is FunctionBase.run_step
+    assert "run_step" not in vars(FunctionEntidadesSincronizar)
 
 
 def test_cada_step_declarado_tiene_handler_en_el_fb() -> None:
@@ -411,7 +410,6 @@ def test_los_steps_declarados_son_sync() -> None:
     from areas.alimentacion.functions.function_entidades_sincronizar import (
         FunctionEntidadesSincronizar,
     )
-    assert not inspect.iscoroutinefunction(FunctionEntidadesSincronizar.run_step)
     for spec in FunctionEntidadesSincronizar.pasos_declarados():
         assert not inspect.iscoroutinefunction(
             getattr(FunctionEntidadesSincronizar, spec.metodo)

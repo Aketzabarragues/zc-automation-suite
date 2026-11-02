@@ -1,7 +1,7 @@
 """Guard del contrato sync de los Function Blocks.
 
 El OB1 ejecuta cada FB con ``fb.execute()``, que es sync. Si el
-``run_step`` de un FB devuelve una corrutina, el base lanza
+handler de un step devuelve una corrutina, el base lanza
 ``TypeError`` y el trabajo muere en el hilo del dispatcher. Ese fallo
 solo aparece contra la app real: el camino legacy ``tick()`` sigue
 soportando FBs async, asi que los tests que usan ese camino pasan en
@@ -9,8 +9,9 @@ verde mientras el OB1 revienta.
 
 Este modulo cierra el hueco de tres formas:
 
-  1. Todos los FBs registrados (core + areas) tienen los hooks sync.
-  2. Ningun ``function_*.py`` del repo declara hooks async.
+  1. Todos los FBs registrados (core + areas) tienen los hooks y los
+     handlers de step sync.
+  2. Ningun ``function_*.py`` del repo declara hooks ni handlers async.
   3. ``execute()`` no muere con el error de corrutina.
 """
 from __future__ import annotations
@@ -26,7 +27,7 @@ from core.composition import register_core_fbs
 from core.infrastructure.tia.tia_loop import SyncTIAClient
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-HOOKS = ("run_step", "on_start", "on_finish")
+HOOKS = ("on_start", "on_finish")
 
 
 def _build_engine() -> Engine:
@@ -61,7 +62,7 @@ def test_se_registra_algun_fb():
 
 
 def test_todos_los_fbs_registrados_tienen_hooks_sync():
-    """Ningun FB registrado puede devolver una corrutina en sus hooks."""
+    """Ningun FB registrado puede devolver una corrutina."""
     engine = _build_engine()
     ofensores: list[str] = []
     for nombre in engine.registered_fb_names():
@@ -70,9 +71,12 @@ def test_todos_los_fbs_registrados_tienen_hooks_sync():
         for hook in HOOKS:
             if inspect.iscoroutinefunction(getattr(fb, hook, None)):
                 ofensores.append(f"{nombre}.{hook}")
+        for spec in fb.pasos_declarados():
+            if inspect.iscoroutinefunction(getattr(fb, spec.metodo, None)):
+                ofensores.append(f"{nombre}.{spec.metodo}")
     assert not ofensores, (
-        "hooks async en FBs registrados (el OB1 los ejecuta con "
-        f"execute() y muere): {', '.join(ofensores)}"
+        "hooks o handlers async en FBs registrados (el OB1 los ejecuta "
+        f"con execute() y muere): {', '.join(ofensores)}"
     )
 
 
@@ -91,11 +95,14 @@ def test_ningun_fichero_de_fb_declara_hooks_async():
     for path in _fb_files():
         tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
         for node in ast.walk(tree):
-            if isinstance(node, ast.AsyncFunctionDef) and node.name in HOOKS:
+            if not isinstance(node, ast.AsyncFunctionDef):
+                continue
+            if node.name in HOOKS or node.name.startswith("_stage_"):
                 rel = path.relative_to(REPO_ROOT)
                 ofensores.append(f"{rel}:{node.lineno} {node.name}")
     assert not ofensores, (
-        "hooks async declarados en ficheros de FB: " + ", ".join(ofensores)
+        "hooks o handlers async declarados en ficheros de FB: "
+        + ", ".join(ofensores)
     )
 
 

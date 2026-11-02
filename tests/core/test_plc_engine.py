@@ -14,6 +14,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from core.composition.fb_step import step
 from core.composition.plc_engine import Engine, FBBusyError
 from core.composition.plc_function_base import FunctionBase
 
@@ -91,10 +92,11 @@ class _RealFB(FunctionBase):
     """
 
     def __init__(self, nombre: str = "real_fb") -> None:
-        super().__init__(nombre=nombre, titulo="FB real", steps=["p1"])
+        super().__init__(nombre=nombre, titulo="FB real")
 
-    def run_step(self, idx: int, **params: Any) -> str:
-        return f"paso {idx}"
+    @step("p1", descripcion="Primer paso")
+    def _stage_1_p1(self) -> str:
+        return "paso 0"
 
 
 def _wait_until(

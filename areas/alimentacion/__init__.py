@@ -144,7 +144,7 @@ def register(
 
     Si un FB no recibe su dep, cae al Singleton global (mismo patron
     que la plantilla FB). Si un FB NECESITA una dep y se le olvida
-    inyectarla, su ``on_start`` o ``run_step`` lanzara ``RuntimeError``.
+    inyectarla, su ``on_start`` lanzara ``RuntimeError``.
     """
     from core.runtime.app_cache import get_app_cache
 
