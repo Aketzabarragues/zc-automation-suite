@@ -38,6 +38,8 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 
 MUTATORS = {"append", "extend", "update", "setdefault", "add", "insert"}
 RESET_HOOKS = ("on_start", "reset_run_state")
+# Atributo que guarda el estado del run (el ctx del FB).
+CTX_ATTR = "_ctx"
 
 
 # ── 1. Guard estructural ────────────────────────────────────────────
@@ -99,6 +101,41 @@ def _mutated_attrs(node: ast.AST) -> set[str]:
     return out
 
 
+def _ctx_fields_mutated(node: ast.AST) -> set[str]:
+    """Campos del ctx mutados in-place (``self._ctx.<campo>.append(...)``).
+
+    El guard de atributos (``_mutated_attrs``) solo reconoce
+    ``self.X`` cuando ``X`` es un ``ast.Attribute`` con ``value`` =
+    ``Name("self")``. Un campo del ctx (``self._ctx.warnings``) tiene
+    un nivel mas de indireccion, asi que se le escapaba: 38
+    mutaciones en 4 FBs del area.
+    """
+    out: set[str] = set()
+    for n in ast.walk(node):
+        if isinstance(n, ast.Call):
+            f = n.func
+            if isinstance(f, ast.Attribute) and f.attr in MUTATORS:
+                v = f.value
+                if _es_campo_del_ctx(v):
+                    out.add(v.attr)
+        if isinstance(n, ast.Subscript):
+            v = n.value
+            if _es_campo_del_ctx(v):
+                out.add(v.attr)
+    return out
+
+
+def _es_campo_del_ctx(node: ast.AST) -> bool:
+    """``True`` si el nodo es ``self._ctx.<campo>``."""
+    return (
+        isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Attribute)
+        and node.value.attr == CTX_ATTR
+        and isinstance(node.value.value, ast.Name)
+        and node.value.value.id == "self"
+    )
+
+
 def _unconditional_attrs(method: ast.FunctionDef) -> set[str]:
     """Atributos asignados en el cuerpo del metodo (no dentro de un ``if``)."""
     out: set[str] = set()
@@ -137,6 +174,41 @@ def test_ningun_fb_acumula_estado_sin_reiniciarlo() -> None:
     assert not ofensores, (
         "FBs que acumulan estado entre runs sin reiniciarlo en "
         "on_start/reset_run_state: " + ", ".join(ofensores)
+    )
+
+
+def test_ningun_fb_acumula_estado_en_el_ctx_sin_reiniciarlo() -> None:
+    """Ningun FB muta un campo del ctx sin recrear el ctx por run.
+
+    El guard de atributos solo mira ``self.X``. Los campos del ctx
+    (``self._ctx.<campo>``) tienen un nivel mas de indireccion y se le
+    escapaban: 38 mutaciones in-place en 4 FBs del area.
+
+    El ctx es el estado del run: si un FB acumula en sus campos (ops,
+    warnings, cambios detectados) y no lo recrea en ``on_start`` ni en
+    ``reset_run_state``, el segundo trabajo arranca con el estado del
+    primero.
+    """
+    ofensores: list[str] = []
+    for path in _fb_files():
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for cls in [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]:
+            methods = {m.name: m for m in cls.body if isinstance(m, ast.FunctionDef)}
+            campos = _ctx_fields_mutated(cls)
+            if not campos:
+                continue
+            reset_attrs: set[str] = set()
+            for hook in RESET_HOOKS:
+                if hook in methods:
+                    reset_attrs |= _unconditional_attrs(methods[hook])
+            if CTX_ATTR not in reset_attrs:
+                ofensores.append(
+                    f"{path.relative_to(REPO_ROOT)}::{cls.name} "
+                    f"muta {sorted(campos)} sin recrear {CTX_ATTR}"
+                )
+    assert not ofensores, (
+        "FBs que acumulan estado en el ctx sin recrearlo en "
+        "on_start/reset_run_state: " + "; ".join(ofensores)
     )
 
 
