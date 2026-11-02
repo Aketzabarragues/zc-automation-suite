@@ -34,11 +34,13 @@ El ``self.result`` se popula con la shape legacy esperada por la SPA::
 Al terminar, ``on_finish`` publica ese dict en el AppCache (slot
 ``preview_disp``), que es el canal por el que la SPA lo recibe.
 
-Steps (4, mismo orden que el legacy ``generar_prevision``):
-  - exportar_tags      -> helper.disp_generate_preview.exportar_tags
-  - compute_devices    -> helper.disp_generate_preview.compute_devices
-  - compute_nmax       -> helper.disp_generate_preview.compute_nmax
-  - build_response     -> helper.disp_generate_preview.build_response
+Steps (4, mismo orden que el legacy ``generar_prevision``). Cada step
+se declara encima de su propio codigo con ``@step`` y devuelve su
+detail:
+  - Exportar etiquetas                     -> exporta N_MAX + 6 tag tables
+  - Calcular diferencias de dispositivos   -> diff XMLs vs Excel
+  - Calcular diferencias de N_MAX          -> diff de la tabla N_MAX
+  - Componer respuesta                    -> shape legacy final
 """
 from __future__ import annotations
 
@@ -47,6 +49,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from core.composition.fb_step import step
 from core.composition.plc_function_base import FunctionBase
 from core.helpers.tia.validate_plc_in_tia import validate_plc_in_tia
 from core.helpers.tia.validate_plc_in_excel import validate_plc_in_excel
@@ -74,25 +77,6 @@ class FunctionDispGenerarPreview(FunctionBase):
     # 60s cubre holgadamente.
     STEP_TIMEOUT_S: float = 60.0
 
-    # Tabla declarativa de stages. Cada tupla: (idx, "nombre_step",
-    # "atributo_metodo_en_el_FB"). El ``run_step`` dispatcha contra
-    # esta tabla en vez de un ``match``/``case`` inline, para que el
-    # flujo sea legible arriba de la clase y los tests puedan
-    # mockear ``fb._stage_N_<nombre>`` directamente.
-    #
-    # Convencion:
-    #   - ``idx`` correlativo, 1-based.
-    #   - ``nombre_step`` debe coincidir con ``self.steps[idx]["nombre"]``
-    #     (registrado en __init__). Si cambias uno, cambia el otro.
-    #   - ``atributo_metodo`` es un metodo del FB (no externo): un cambio
-    #     de signatura requiere actualizar este registro.
-    STAGES: list[tuple[int, str, str]] = [
-        (1, "Exportar etiquetas",                   "_stage_1_exportar_tags"),
-        (2, "Calcular diferencias de dispositivos", "_stage_2_compute_devices"),
-        (3, "Calcular diferencias de N_MAX",         "_stage_3_compute_nmax"),
-        (4, "Componer respuesta",                   "_stage_4_build_response"),
-    ]
-
     # ==================================================================
     # CONSTRUCTOR
     # ==================================================================
@@ -101,7 +85,6 @@ class FunctionDispGenerarPreview(FunctionBase):
         self,
         nombre: str = "disp_generar_preview",
         titulo: str = "Generar preview de dispositivos vs PLC",
-        steps: list[dict[str, Any]] | None = None,
         tracker: Any = None,
         # ── ZONA 0: deps comunes ──
         config_manager: Any = None,
@@ -113,12 +96,6 @@ class FunctionDispGenerarPreview(FunctionBase):
         super().__init__(
             nombre=nombre,
             titulo=titulo,
-            steps=steps if steps is not None else [
-                {"nombre": "Exportar etiquetas"},
-                {"nombre": "Calcular diferencias de dispositivos"},
-                {"nombre": "Calcular diferencias de N_MAX"},
-                {"nombre": "Componer respuesta"},
-            ],
             tracker=tracker,
         )
         # ZONA 0: deps inyectadas.
@@ -178,46 +155,6 @@ class FunctionDispGenerarPreview(FunctionBase):
 
         logger.debug(
             f"[{self.nombre}] Iniciando preview de {self._plc_name}"
-        )
-
-    # ==================================================================
-    # HOOK 2: run_step  (ZONA 4: state machine -> dispatch al helper)
-    # ==================================================================
-
-    def run_step(self, idx: int, **params: Any) -> str:
-        """Dispatch del FB step ``idx`` a la funcion del helper ``disp_generate_preview``.
-
-        Aqui vive la state machine: cada step del FB llama a UNA
-        funcion del helper contra el ``DispPreviewContext`` compartido.
-        El ``case`` es explicito (no dict.get dispatch) para que sea
-        visible en stack traces cuando algo falla.
-        """
-        if self._ctx is None:
-            raise RuntimeError(
-                "DispPreviewContext no inicializado. on_start() no se ejecuto "
-                "(o el FB no recibio un plc_name valido)."
-            )
-
-        step_nombre = self.steps[idx]["nombre"]
-        # Dispatch declarativo via tabla ``STAGES``: el orden y los
-        # nombres de los stages se declaran arriba de la clase. Asi el
-        # flujo del FB es visible de un vistazo (modo SFC) y los tests
-        # pueden mockear ``fb._stage_N_<nombre>`` directamente sin
-        # parchear el ``match`` interno.
-        #
-        # El lookup es por ``nombre`` (no por ``idx``) porque
-        # ``FunctionBase._step_ejecutar`` pasa ``idx`` 0-indexed sobre
-        # ``self.steps``. El ``idx`` de la tabla STAGES es 1-based y
-        # solo se usa para logging legible ("paso 3/4").
-        for _s_idx, s_nombre, s_attr in self.STAGES:
-            if s_nombre == step_nombre:
-                handler = getattr(self, s_attr)
-                handler()
-                # Resumen legible del step que acaba de correr.
-                return _step_summary(self._ctx, s_nombre)
-        raise ValueError(
-            f"step {idx} ({step_nombre!r}) no esta en STAGES "
-            f"de FunctionDispGenerarPreview"
         )
 
     # ==================================================================
@@ -284,21 +221,25 @@ class FunctionDispGenerarPreview(FunctionBase):
         area_set_preview_disp(app_cache, "alimentacion", self.result)
 
     # ==================================================================
-    # Stages del FB (ZONA 4: metodos privados numerados).
+    # LOS STEPS
     #
-    # Cada ``_stage_N_<nombre>`` corresponde a UNA entrada de la tabla
-    # ``STAGES`` arriba. Si cambias el flujo del stage, cambia la
-    # tabla tambien.
+    # Cada ``_stage_N_<slug>`` es un step declarado con ``@step``. El
+    # motor los recoge en orden de definicion (que es el orden del
+    # flujo) y hace el dispatch. El metodo devuelve su detail.
     # ==================================================================
 
-    def _stage_1_exportar_tags(self) -> None:
-        """Stage 1: limpia preview/ y exporta las tablas selectivas al snapshot.
+    @step(
+        "Exportar etiquetas",
+        descripcion="Exporta del PLC las tablas de tags de dispositivos",
+    )
+    def _stage_1_exportar_etiquetas(self) -> str:
+        """Limpia preview/ y exporta las tablas selectivas al snapshot.
 
         Layout:
           - ``preview_config/``     ← N_MAX (1 archivo, FLAT)
           - ``preview_disp/``       ← 6 tag tables de devices (FLAT)
 
-        La N_MAX se exporta aparte para que ``_stage_3_compute_nmax``
+        La N_MAX se exporta aparte para que ``_stage_3_calcular_diferencias_de_n_max``
         lea directamente del subdirectorio que le corresponde (split
         preview vs diff).
 
@@ -314,7 +255,7 @@ class FunctionDispGenerarPreview(FunctionBase):
         self._ctx.preview_config_dir = disp_ctx.preview_config
         self._ctx.preview_disp_dir = disp_ctx.preview_disp
         # ``tags_base`` apunta al dir de devices (para ``_compute_diff_readonly``
-        # en ``_stage_2_compute_devices`` y para backwards-compat).
+        # en ``_stage_2_calcular_diferencias_de_dispositivos`` y para backwards-compat).
         self._ctx.tags_base = disp_ctx.preview_disp
         self._ctx.selective_tables = _selective_table_names(self._ctx.config_manager)
         self._ctx.nmax_table = _nmax_table_name(self._ctx.config_manager)
@@ -360,14 +301,23 @@ class FunctionDispGenerarPreview(FunctionBase):
                 f"{self._ctx.preview_disp_dir}"
             )
 
-    def _stage_2_compute_devices(self) -> None:
-        """Stage 2: calcula el diff de devices entre los XMLs exportados y AppCache.
+        return (
+            f"Exportar etiquetas: {len(self._ctx.selective_tables)} "
+            f"tablas exportadas"
+        )
+
+    @step(
+        "Calcular diferencias de dispositivos",
+        descripcion="Compara los XML exportados con los dispositivos del Excel",
+    )
+    def _stage_2_calcular_diferencias_de_dispositivos(self) -> str:
+        """Calcula el diff de devices entre los XMLs exportados y AppCache.
 
         Usa ``compute_diff_table`` (funcion pura,
         1 hw por llamada) en vez de los helpers legacy
         (``_build_desired_state_from_app`` + ``_compute_diff_readonly``).
         El shape del ctx (``added_per_table`` etc.) se conserva para
-        compatibilidad con ``_stage_4_build_response``.
+        compatibilidad con ``_stage_4_componer_respuesta``.
         """
         assert self._ctx.tags_base is not None, (
             "compute_devices requiere exportar_tags previo"
@@ -428,8 +378,19 @@ class FunctionDispGenerarPreview(FunctionBase):
             f"base_tables={len(base_state_per_table)}"
         )
 
-    def _stage_3_compute_nmax(self) -> None:
-        """Stage 3: calcula el diff de N_MAX entre el TIA (export FLAT) y AppCache."""
+        adds = sum(len(v) for v in added_per_table.values())
+        removes = sum(len(v) for v in removed_per_table.values())
+        return (
+            f"Calcular diferencias de dispositivos: {adds} adds, "
+            f"{removes} removes, {len(renamed_per_table)} renames"
+        )
+
+    @step(
+        "Calcular diferencias de N_MAX",
+        descripcion="Compara la tabla N_MAX del PLC con la del Excel",
+    )
+    def _stage_3_calcular_diferencias_de_n_max(self) -> str:
+        """Calcula el diff de N_MAX entre el TIA (export FLAT) y AppCache."""
         assert self._ctx.preview_config_dir is not None, (
             "compute_nmax requiere exportar_tags previo (preview_config_dir)"
         )
@@ -454,7 +415,7 @@ class FunctionDispGenerarPreview(FunctionBase):
         nmax = _compute()
 
         # Adaptamos el shape de NmaxDiff al legacy ``nmax_block``
-        # esperado por ``_stage_4_build_response`` (keys ``current``,
+        # esperado por ``_stage_4_componer_respuesta`` (keys ``current``,
         # ``desired``, ``todos``, ``summary``).
         self._ctx.nmax_block = {
             "current": nmax.current,
@@ -467,8 +428,19 @@ class FunctionDispGenerarPreview(FunctionBase):
             ),
         }
 
-    def _stage_4_build_response(self) -> None:
-        """Stage 4: compone la shape legacy final con todos los resultados intermedios."""
+        nmax_summary = self._ctx.nmax_block.get("summary", {})
+        return (
+            f"Calcular diferencias de N_MAX: "
+            f"{nmax_summary.get('actualizar', 0)} N_MAX actualizar, "
+            f"{nmax_summary.get('sin_cambios', 0)} sin cambios"
+        )
+
+    @step(
+        "Componer respuesta",
+        descripcion="Compone la vista unificada que consume la SPA",
+    )
+    def _stage_4_componer_respuesta(self) -> str:
+        """Compone la shape legacy final con todos los resultados intermedios."""
         agregados: list[dict[str, Any]] = [
             {"uid": uid, "table": tk, "plc_tag": td.get(uid, "")}
             for tk, td in self._ctx.desired_state_per_table.items()
@@ -581,6 +553,10 @@ class FunctionDispGenerarPreview(FunctionBase):
             },
         }
 
+        return (
+            f"Componer respuesta: {len(todos)} entradas en vista unificada"
+        )
+
 
 # ============================================================================
 # Antes era un orquestador separado que el FB llamaba via ``match step_nombre``.
@@ -686,33 +662,6 @@ def _disp_table_names(config_manager: Any, exclude: str | None = None) -> list[s
         seen.add(table)
         result.append(table)
     return result
-
-
-def _step_summary(ctx: Any, step_nombre: str) -> str:
-    """Resumen legible del step que acaba de correr (aparece en la SPA)."""
-    if step_nombre == "exportar_tags":
-        return (
-            f"{step_nombre}: {len(ctx.selective_tables)} tablas exportadas"
-        )
-    if step_nombre == "compute_devices":
-        adds = sum(len(v) for v in ctx.added_per_table.values())
-        rems = sum(len(v) for v in ctx.removed_per_table.values())
-        return (
-            f"{step_nombre}: {adds} adds, {rems} removes, "
-            f"{len(ctx.renamed_per_table)} renames"
-        )
-    if step_nombre == "compute_nmax":
-        nmax_summary = ctx.nmax_block.get("summary", {})
-        return (
-            f"{step_nombre}: {nmax_summary.get('actualizar', 0)} N_MAX "
-            f"actualizar, {nmax_summary.get('sin_cambios', 0)} sin cambios"
-        )
-    if step_nombre == "build_response":
-        s = ctx.result.get("summary", {})
-        return (
-            f"{step_nombre}: {s.get('total', 0)} entradas en vista unificada"
-        )
-    return f"{step_nombre}: OK"
 
 
 __all__ = ["FunctionDispGenerarPreview"]
