@@ -109,6 +109,11 @@ def _ctx_fields_mutated(node: ast.AST) -> set[str]:
     ``Name("self")``. Un campo del ctx (``self._ctx.warnings``) tiene
     un nivel mas de indireccion, asi que se le escapaba: 38
     mutaciones en 4 FBs del area.
+
+    Solo cuentan las escrituras: una llamada mutadora sobre el campo
+    (``append``, ``update``...) o una asignacion a un indice del
+    (``self._ctx.diffs["t"] = ...``). Leer el campo (``self._ctx.
+    result["summary"]``) no acumula estado y no se cuenta.
     """
     out: set[str] = set()
     for n in ast.walk(node):
@@ -118,10 +123,14 @@ def _ctx_fields_mutated(node: ast.AST) -> set[str]:
                 v = f.value
                 if _es_campo_del_ctx(v):
                     out.add(v.attr)
-        if isinstance(n, ast.Subscript):
-            v = n.value
-            if _es_campo_del_ctx(v):
-                out.add(v.attr)
+        if isinstance(n, ast.Assign):
+            for tgt in n.targets:
+                if isinstance(tgt, ast.Subscript) and _es_campo_del_ctx(tgt.value):
+                    out.add(tgt.value.attr)
+        if isinstance(n, ast.AugAssign):
+            tgt = n.target
+            if isinstance(tgt, ast.Subscript) and _es_campo_del_ctx(tgt.value):
+                out.add(tgt.value.attr)
     return out
 
 
