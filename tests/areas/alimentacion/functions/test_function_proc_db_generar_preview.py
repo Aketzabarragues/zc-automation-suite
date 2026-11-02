@@ -115,7 +115,7 @@ def make_fb(
     )
 
 
-# ── Tests directos de _stage_6_build_response (db_present / table_present) ──
+# ── Tests directos de _stage_6_componer_respuesta (db_present / table_present) ──
 
 
 def _make_minimal_slot_map(
@@ -124,7 +124,7 @@ def _make_minimal_slot_map(
     db_missing: list[str],
 ) -> MagicMock:
     """Slot map mockeado con los atributos minimos que
-    ``_stage_6_build_response`` lee.
+    ``_stage_6_componer_respuesta`` lee.
     """
     sm = MagicMock()
     sm.db_param_name = "DB3100_CPR1_PARAM"
@@ -139,7 +139,7 @@ def _make_minimal_slot_map(
     return sm
 
 
-def test_stage_6_build_response_happy_path_flags_presentes(
+def test_stage_6_componer_respuesta_happy_path_flags_presentes(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
     mock_app_cache: MagicMock,
@@ -184,14 +184,14 @@ def test_stage_6_build_response_happy_path_flags_presentes(
             "eliminados": 0, "sin_cambios": 0,
         }
     ):
-        fb._stage_6_build_response()
+        fb._stage_6_componer_respuesta()
 
     assert fb._ctx.result["db_present"] == {"param": True, "alm": True}
     assert fb._ctx.result["table_present"] is True
     assert fb._ctx.result["precondiciones_ok"] is True
 
 
-def test_stage_6_build_response_db_param_ausente_marca_solo_param(
+def test_stage_6_componer_respuesta_db_param_ausente_marca_solo_param(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
     mock_app_cache: MagicMock,
@@ -239,14 +239,14 @@ def test_stage_6_build_response_db_param_ausente_marca_solo_param(
             "eliminados": 0, "sin_cambios": 0,
         }
     ):
-        fb._stage_6_build_response()
+        fb._stage_6_componer_respuesta()
 
     assert fb._ctx.result["db_present"] == {"param": False, "alm": True}
     assert fb._ctx.result["table_present"] is True
     assert fb._ctx.result["precondiciones_ok"] is True
 
 
-def test_stage_6_build_response_ambos_dbs_ausentes_marca_fatal(
+def test_stage_6_componer_respuesta_ambos_dbs_ausentes_marca_fatal(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
     mock_app_cache: MagicMock,
@@ -284,7 +284,7 @@ def test_stage_6_build_response_ambos_dbs_ausentes_marca_fatal(
         export_error=None,
     )
 
-    fb._stage_6_build_response()
+    fb._stage_6_componer_respuesta()
 
     assert fb._ctx.result["db_present"] == {"param": False, "alm": False}
     assert fb._ctx.result["table_present"] is True
@@ -292,7 +292,7 @@ def test_stage_6_build_response_ambos_dbs_ausentes_marca_fatal(
     assert fb._ctx.result["arrays"] == {}
 
 
-def test_stage_6_build_response_tabla_ausente_marca_solo_tabla(
+def test_stage_6_componer_respuesta_tabla_ausente_marca_solo_tabla(
     mock_config: MagicMock,
     mock_tia_client: MagicMock,
     mock_app_cache: MagicMock,
@@ -330,7 +330,7 @@ def test_stage_6_build_response_tabla_ausente_marca_solo_tabla(
         export_error=None,
     )
 
-    fb._stage_6_build_response()
+    fb._stage_6_componer_respuesta()
 
     assert fb._ctx.result["db_present"] == {"param": True, "alm": True}
     assert fb._ctx.result["table_present"] is False
@@ -362,22 +362,36 @@ def _patch_helper_fns(fb) -> Any:
         )
     )
     stack.enter_context(
-        patch.object(fb, "_stage_1_check_state", MagicMock(), create=True)
+        patch.object(
+            fb, "_stage_1_validar_estado_de_tia", MagicMock(), create=True,
+        )
     )
     stack.enter_context(
-        patch.object(fb, "_stage_2_check_blocks", MagicMock(), create=True)
+        patch.object(
+            fb, "_stage_2_validar_bloques", MagicMock(), create=True,
+        )
     )
     stack.enter_context(
-        patch.object(fb, "_stage_3_build_slot_maps", MagicMock(), create=True)
+        patch.object(
+            fb, "_stage_3_construir_mapa_de_slots", MagicMock(), create=True,
+        )
     )
     stack.enter_context(
-        patch.object(fb, "_stage_4_compute_nmax", MagicMock(), create=True)
+        patch.object(
+            fb, "_stage_4_calcular_diferencias_de_n_max", MagicMock(),
+            create=True,
+        )
     )
     stack.enter_context(
-        patch.object(fb, "_stage_5_export_and_diff", MagicMock(), create=True)
+        patch.object(
+            fb, "_stage_5_exportar_y_calcular_diferencias", MagicMock(),
+            create=True,
+        )
     )
     stack.enter_context(
-        patch.object(fb, "_stage_6_build_response", MagicMock(), create=True)
+        patch.object(
+            fb, "_stage_6_componer_respuesta", MagicMock(), create=True,
+        )
     )
     return stack
 
@@ -419,10 +433,10 @@ def test_proc_generar_preview_happy_path_6_ticks(
         mock_bloques_cache, progress,
     )
     with _patch_helper_fns(fb) as stack:
-        # Sobre-escribimos _stage_6_build_response con nuestra version.
+        # Sobre-escribimos _stage_6_componer_respuesta con nuestra version.
         stack.enter_context(
             patch.object(
-                fb, "_stage_6_build_response",
+                fb, "_stage_6_componer_respuesta",
                 side_effect=fake_compose, create=True,
             )
         )
@@ -439,12 +453,12 @@ def test_proc_generar_preview_happy_path_6_ticks(
         assert fb.result["db_param_name"] == "DB42_CPR_PARAM"
 
         # Cada helper fue llamado 1 vez (los MagicMock auto-trackean).
-        assert fb._stage_1_check_state.call_count == 1
-        assert fb._stage_2_check_blocks.call_count == 1
-        assert fb._stage_3_build_slot_maps.call_count == 1
-        assert fb._stage_4_compute_nmax.call_count == 1
-        assert fb._stage_5_export_and_diff.call_count == 1
-        assert fb._stage_6_build_response.call_count == 1
+        assert fb._stage_1_validar_estado_de_tia.call_count == 1
+        assert fb._stage_2_validar_bloques.call_count == 1
+        assert fb._stage_3_construir_mapa_de_slots.call_count == 1
+        assert fb._stage_4_calcular_diferencias_de_n_max.call_count == 1
+        assert fb._stage_5_exportar_y_calcular_diferencias.call_count == 1
+        assert fb._stage_6_componer_respuesta.call_count == 1
 
 
 # ── Sad paths (pre-flight) ───────────────────────────────────────────
@@ -580,4 +594,4 @@ def test_proc_generar_preview_activo_execute_ignorado(
 
         assert fb.nStep == n_step_before  # no avanza
         assert fb.result is None
-        assert fb._stage_1_check_state.call_count == 0
+        assert fb._stage_1_validar_estado_de_tia.call_count == 0

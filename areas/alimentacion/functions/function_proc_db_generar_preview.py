@@ -1,8 +1,10 @@
 ﻿"""FB de area: preview de comentarios de un proceso vs PLC (diff read-only).
 
-State machine declarativa sobre la tabla ``STAGES``. Cada step ejecuta
+Cada step se declara con ``@step`` encima de su propio codigo y ejecuta
 una operacion contra el ``ProcPreviewContext`` compartido entre los 6
-steps. Helpers puros (``_empty_nmax_block``, ``_extract_codigo``,
+steps. El motor (``core/composition/plc_function_base.py``) los recoge
+en orden de definicion y hace el dispatch; cada metodo devuelve su
+detail. Helpers puros (``_empty_nmax_block``, ``_extract_codigo``,
 ``_compose_arrays_internal``, ``_compute_summary_internal``) viven en
 ``areas/alimentacion/helpers/proc/proc_generar_preview.py``.
 
@@ -37,6 +39,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from core.composition.fb_step import step
 from core.composition.plc_function_base import FunctionBase
 from core.helpers.tia.validate_plc_in_tia import validate_plc_in_tia
 from core.helpers.tia.validate_plc_in_excel import validate_plc_in_excel
@@ -71,27 +74,6 @@ class FunctionProcDBGenerarPreview(FunctionBase):
     # TIA V21 puede tardar 1-3 min en PLCs grandes. 180s cubre holgadamente.
     STEP_TIMEOUT_S: float = 180.0
 
-    # Tabla declarativa de stages. Cada tupla: (idx, "nombre_step",
-    # "atributo_metodo_en_el_FB"). El ``run_step`` dispatcha contra
-    # esta tabla en vez de un ``match``/``case`` inline, para que el
-    # flujo sea legible arriba de la clase y los tests puedan
-    # mockear ``fb._stage_N_<nombre>`` directamente.
-    #
-    # Convencion:
-    #   - ``idx`` correlativo, 1-based.
-    #   - ``nombre_step`` debe coincidir con ``self.steps[idx]["nombre"]``
-    #     (registrado en __init__). Si cambias uno, cambia el otro.
-    #   - ``atributo_metodo`` es un metodo del FB (no externo): un cambio
-    #     de signatura requiere actualizar este registro.
-    STAGES: list[tuple[int, str, str]] = [
-        (1, "Validar estado de TIA",          "_stage_1_check_state"),
-        (2, "Validar bloques",                "_stage_2_check_blocks"),
-        (3, "Construir mapa de slots",        "_stage_3_build_slot_maps"),
-        (4, "Calcular diferencias de N_MAX",  "_stage_4_compute_nmax"),
-        (5, "Exportar y calcular diferencias", "_stage_5_export_and_diff"),
-        (6, "Componer respuesta",             "_stage_6_build_response"),
-    ]
-
     # ==================================================================
     # CONSTRUCTOR
     # ==================================================================
@@ -100,7 +82,6 @@ class FunctionProcDBGenerarPreview(FunctionBase):
         self,
         nombre: str = "proc_db_generar_preview",
         titulo: str = "Generar preview de comentarios del proceso",
-        steps: list[dict[str, Any]] | None = None,
         tracker: Any = None,
         # ── ZONA 0: deps comunes ──
         config_manager: Any = None,
@@ -113,14 +94,6 @@ class FunctionProcDBGenerarPreview(FunctionBase):
         super().__init__(
             nombre=nombre,
             titulo=titulo,
-            steps=steps if steps is not None else [
-                {"nombre": "Validar estado de TIA"},
-                {"nombre": "Validar bloques"},
-                {"nombre": "Construir mapa de slots"},
-                {"nombre": "Calcular diferencias de N_MAX"},
-                {"nombre": "Exportar y calcular diferencias"},
-                {"nombre": "Componer respuesta"},
-            ],
             tracker=tracker,
         )
         # ZONA 0: deps inyectadas.
@@ -235,45 +208,6 @@ class FunctionProcDBGenerarPreview(FunctionBase):
         )
 
     # ==================================================================
-    # HOOK 2: run_step  (ZONA 4: state machine -> dispatch al helper)
-    # ==================================================================
-
-    def run_step(self, idx: int, **params: Any) -> str:
-        """Dispatch del FB step ``idx`` a la funcion del helper ``proc_generar_preview``.
-
-        Aqui vive la state machine: cada step del FB llama a UNA
-        funcion del helper contra el ``ProcPreviewContext`` compartido.
-        El ``case`` es explicito (no dict.get dispatch) para que sea
-        visible en stack traces cuando algo falla.
-        """
-        if self._ctx is None:
-            raise RuntimeError(
-                "ProcPreviewContext no inicializado. on_start() no se ejecuto "
-                "(o el FB no recibio un plc_name/proc_uid valido)."
-            )
-
-        step_nombre = self.steps[idx]["nombre"]
-        # Dispatch declarativo via tabla ``STAGES``: el orden y los
-        # nombres de los stages se declaran arriba de la clase. Asi el
-        # flujo del FB es visible de un vistazo (modo SFC) y los tests
-        # pueden mockear ``fb._stage_N_<nombre>`` directamente sin
-        # parchear el ``match`` interno.
-        #
-        # El lookup es por ``nombre`` (no por ``idx``) porque
-        # ``FunctionBase._step_ejecutar`` pasa ``idx`` 0-indexed sobre
-        # ``self.steps``. El ``idx`` de la tabla STAGES es 1-based y
-        # solo se usa para logging legible ("paso 3/6").
-        for _s_idx, s_nombre, s_attr in self.STAGES:
-            if s_nombre == step_nombre:
-                handler = getattr(self, s_attr)
-                handler()
-                return _step_summary(self._ctx, s_nombre)
-        raise ValueError(
-            f"step {idx} ({step_nombre!r}) no esta en STAGES "
-            f"de FunctionProcDBGenerarPreview"
-        )
-
-    # ==================================================================
     # HOOK 3: on_finish  (ZONA 5: vuelco del result desde el ctx)
     # ==================================================================
 
@@ -338,14 +272,18 @@ class FunctionProcDBGenerarPreview(FunctionBase):
         area_set_preview_proc(app_cache, "alimentacion", self.result)
 
     # ==================================================================
-    # Stages del FB (ZONA 4: 6 metodos privados numerados).
+    # LOS STEPS
     #
-    # Cada ``_stage_N_<nombre>`` corresponde a UNA entrada de la tabla
-    # ``STAGES`` arriba. Si cambias el flujo del stage, cambia la
-    # tabla tambien.
+    # Cada ``_stage_N_<slug>`` es un step declarado con ``@step``. El
+    # motor los recoge en orden de definicion (que es el orden del
+    # flujo) y hace el dispatch. El metodo devuelve su detail.
     # ==================================================================
 
-    def _stage_1_check_state(self) -> None:
+    @step(
+        "Validar estado de TIA",
+        descripcion="Valida que el Excel del area este cargado",
+    )
+    def _stage_1_validar_estado_de_tia(self) -> str:
         """Valida que el cache del Excel esta cargado.
 
         Multi-PLC: chequea el cache activo del area (filtrado por PLC).
@@ -353,7 +291,7 @@ class FunctionProcDBGenerarPreview(FunctionBase):
         Si no lo esta, marca ``self._ctx.excel_loaded = False``. El FB
         inspecciona este flag para devolver el shape de error
         correspondiente (``precondiciones_ok=False``,
-        ``missing_blocks=[...]``) en ``_stage_6_done``.
+        ``missing_blocks=[...]``) en ``_stage_6_componer_respuesta``.
         """
         from core.runtime.excel_cache import excel_get_active
         cache = (
@@ -362,10 +300,15 @@ class FunctionProcDBGenerarPreview(FunctionBase):
         )
         if cache is None:
             self._ctx.excel_loaded = False
-            return
+            return "Validar estado de TIA: Excel no cargado"
         self._ctx.excel_loaded = True
+        return "Validar estado de TIA: OK"
 
-    def _stage_2_check_blocks(self) -> None:
+    @step(
+        "Validar bloques",
+        descripcion="Valida que el cache de bloques del PLC este disponible",
+    )
+    def _stage_2_validar_bloques(self) -> str:
         """Valida que el cache de bloques del PLC esta disponible.
 
         Distinguimos 2 casos de "sin cache":
@@ -375,22 +318,35 @@ class FunctionProcDBGenerarPreview(FunctionBase):
              via el slot_map resultante.
 
         Aqui solo marcamos el flag ``bloques_loaded``; la logica de
-        "missing blocks concretos" vive en ``_stage_3_build_slot_maps``.
+        "missing blocks concretos" vive en ``_stage_3_construir_mapa_de_slots``.
         """
         self._ctx.bloques_loaded = self._ctx.bloques_cache is not None
+        if self._ctx.bloques_loaded:
+            return "Validar bloques: OK"
+        return "Validar bloques: Sin cache de bloques"
 
-    def _stage_3_build_slot_maps(self) -> None:
+    @step(
+        "Construir mapa de slots",
+        descripcion="Cruza el Excel con los bloques del PLC y arma los mapas de slots",
+    )
+    def _stage_3_construir_mapa_de_slots(self) -> str:
         """Cruza Excel + ``DataBloqueCache`` via ``proc_build_slot_maps``.
 
         Si la operacion lanza ``RuntimeError`` (p. ej. uid no existe en
         el Excel, o PLC sin bloques), captura la excepcion y la deja en
-        ``self._ctx.slot_map_error`` para que ``_stage_6_done`` la
-        muestre al operario. NO abortamos: el helper siempre deja el
+        ``self._ctx.slot_map_error`` para que ``_stage_6_componer_respuesta``
+        la muestre al operario. NO abortamos: el helper siempre deja el
         ``ctx`` en estado consistente (slot_map o error, nunca ambos).
         """
+        def _detail_error() -> str:
+            return (
+                f"Construir mapa de slots: "
+                f"error: {self._ctx.slot_map_error or 'sin slot_map'}"
+            )
+
         if not self._ctx.excel_loaded or not self._ctx.bloques_loaded:
             # Si ya fallaron checks previos, skip.
-            return
+            return _detail_error()
         from areas.alimentacion.data.data_proc_slot_map import proc_build_slot_maps
         try:
             self._ctx.slot_map = proc_build_slot_maps(
@@ -401,7 +357,30 @@ class FunctionProcDBGenerarPreview(FunctionBase):
             self._ctx.slot_map = None
             self._ctx.slot_map_error = str(exc)
 
-    def _stage_4_compute_nmax(self) -> None:
+        if self._ctx.slot_map is None:
+            return _detail_error()
+
+        # slot_map_size incluye el slot 0 placeholder "NO USAR"
+        # (1 + N_MAX reales). N_MAX es el dato del Excel (sin el
+        # placeholder). Mostrar ambos evita confusion: el operario
+        # espera N_MAX=PReal (el campo del proceso), no el tamano
+        # del slot_map.
+        sm = self._ctx.slot_map
+        nmax = getattr(sm, "nmax", {}) or {}
+        return (
+            f"Construir mapa de slots: "
+            f"slot_map(PReal={len(sm.preal)}, PInt={len(sm.pint)}, "
+            f"ALM={len(sm.alm)}) "
+            f"N_MAX(PReal={nmax.get('preal', '?')}, "
+            f"PInt={nmax.get('pint', '?')}, "
+            f"ALM={nmax.get('alm', '?')})"
+        )
+
+    @step(
+        "Calcular diferencias de N_MAX",
+        descripcion="Compara los N_MAX del Excel con los exportados del PLC",
+    )
+    def _stage_4_calcular_diferencias_de_n_max(self) -> str:
         """Lee los N_MAX del proceso (cards SOLO VISUALES para la SPA).
 
         Convencion del operario: las PlcUserConstant N_MAX de
@@ -422,15 +401,23 @@ class FunctionProcDBGenerarPreview(FunctionBase):
         export falla, emite un warning y devuelve ``current={}`` sin
         abortar el preview.
         """
+        def _detail() -> str:
+            nmax_summary = self._ctx.nmax_block.get("summary", {})
+            return (
+                f"Calcular diferencias de N_MAX: "
+                f"{nmax_summary.get('actualizar', 0)} N_MAX actualizar, "
+                f"{nmax_summary.get('sin_cambios', 0)} sin cambios"
+            )
+
         if self._ctx.slot_map is None or self._ctx.slot_map_error is not None:
             self._ctx.nmax_block = empty_nmax_block()
-            return
+            return _detail()
 
         nmax_names = self._ctx.slot_map.nmax_names
         nmax_desired = self._ctx.slot_map.nmax
         if not nmax_names or not nmax_desired:
             self._ctx.nmax_block = empty_nmax_block()
-            return
+            return _detail()
 
         from areas.alimentacion.helpers.layout.build_cache import build_cache
         from core.infrastructure.tia.tia_export_paths import XmlTarget
@@ -484,7 +471,13 @@ class FunctionProcDBGenerarPreview(FunctionBase):
             )
             self._ctx.nmax_block = empty_nmax_block()
 
-    def _stage_5_export_and_diff(self) -> None:
+        return _detail()
+
+    @step(
+        "Exportar y calcular diferencias",
+        descripcion="Exporta los DBs del proceso y compara los comentarios actuales",
+    )
+    def _stage_5_exportar_y_calcular_diferencias(self) -> str:
         """Exporta los 2 DBs del proceso y lee los ``es-ES`` actuales.
 
         Stages internos:
@@ -502,8 +495,24 @@ class FunctionProcDBGenerarPreview(FunctionBase):
         algo fallo pero el preview sigue siendo util (al menos sabe que
         slots quiere actualizar).
         """
+        def _detail() -> str:
+            if self._ctx.export_error:
+                return (
+                    f"Exportar y calcular diferencias: "
+                    f"error: {self._ctx.export_error}"
+                )
+            # Los contadores de slots se componen en el paso 6: aqui
+            # todavia no hay ``ctx.result``.
+            s = self._ctx.result.get("summary", {})
+            return (
+                f"Exportar y calcular diferencias: {s.get('total', 0)} slots: "
+                f"{s.get('renombrados', 0)} renombrar, "
+                f"{s.get('agregados', 0)} agregar, "
+                f"{s.get('sin_cambios', 0)} sin cambios"
+            )
+
         if self._ctx.slot_map is None or self._ctx.slot_map_error is not None:
-            return
+            return _detail()
 
         from areas.alimentacion.helpers.layout.build_cache import build_cache
         from core.infrastructure.tia.tia_export_paths import SdPair
@@ -517,7 +526,7 @@ class FunctionProcDBGenerarPreview(FunctionBase):
         if not plc_name:
             self._ctx.export_error = "DataBloqueCache sin plc_name; no se puede exportar."
             logger.warning(self._ctx.export_error)
-            return
+            return _detail()
 
         # Separamos export/read de PARAM y de ALM para distinguir:
         #   - ambos OK: parse normal
@@ -567,18 +576,18 @@ class FunctionProcDBGenerarPreview(FunctionBase):
         if param_error and alm_error:
             # Ambos fallaron: error. El operario debe investigar.
             logger.error(
-                f"_stage_5_export_and_diff: ambos DBs fallaron. "
+                f"_stage_5_exportar_y_calcular_diferencias: ambos DBs fallaron. "
                 f"PARAM={param_error!r}; ALM={alm_error!r}"
             )
             self._ctx.preal_current = None
             self._ctx.pint_current = None
             self._ctx.alm_current = None
             self._ctx.export_error = f"PARAM: {param_error}; ALM: {alm_error}"
-            return
+            return _detail()
 
         if param_error:
             logger.warning(
-                f"_stage_5_export_and_diff: solo DB_PARAM fallo "
+                f"_stage_5_exportar_y_calcular_diferencias: solo DB_PARAM fallo "
                 f"({param_error}). Sigo con ALM."
             )
             self._ctx.preal_current = None
@@ -586,7 +595,7 @@ class FunctionProcDBGenerarPreview(FunctionBase):
             # ALM: parsear abajo.
         if alm_error:
             logger.warning(
-                f"_stage_5_export_and_diff: solo DB_ALM fallo "
+                f"_stage_5_exportar_y_calcular_diferencias: solo DB_ALM fallo "
                 f"({alm_error}). Sigo con PARAM."
             )
             self._ctx.alm_current = None
@@ -607,8 +616,13 @@ class FunctionProcDBGenerarPreview(FunctionBase):
             self._ctx.alm_current = alm_current
 
         self._ctx.export_error = None
+        return _detail()
 
-    def _stage_6_build_response(self) -> None:
+    @step(
+        "Componer respuesta",
+        descripcion="Compone la respuesta final que consume la SPA",
+    )
+    def _stage_6_componer_respuesta(self) -> str:
         """Compone el ``self._ctx.result`` con el shape legacy de la SPA.
 
         Inspecciona los flags del ctx (excel_loaded, bloques_loaded,
@@ -644,7 +658,7 @@ class FunctionProcDBGenerarPreview(FunctionBase):
                 "summary": dict(empty_summary),
                 "warnings": [],
             }
-            return
+            return "Componer respuesta: preview compuesto"
 
         if not self._ctx.bloques_loaded:
             self._ctx.result = {
@@ -659,7 +673,7 @@ class FunctionProcDBGenerarPreview(FunctionBase):
                 "summary": dict(empty_summary),
                 "warnings": [],
             }
-            return
+            return "Componer respuesta: preview compuesto"
 
         if self._ctx.slot_map is None or self._ctx.slot_map_error is not None:
             self._ctx.result = {
@@ -672,7 +686,7 @@ class FunctionProcDBGenerarPreview(FunctionBase):
                 "summary": dict(empty_summary),
                 "warnings": [],
             }
-            return
+            return "Componer respuesta: preview compuesto"
 
         sm = self._ctx.slot_map
         fatal_missing = (
@@ -704,7 +718,7 @@ class FunctionProcDBGenerarPreview(FunctionBase):
                 "summary": dict(empty_summary),
                 "warnings": sm.warnings,
             }
-            return
+            return "Componer respuesta: preview compuesto"
 
         # 1 DB ausente (recuperable) o ambos presentes: compose arrays,
         # summary y warnings. ``sm.db_missing`` se anade a ``warnings``
@@ -737,6 +751,7 @@ class FunctionProcDBGenerarPreview(FunctionBase):
             "nmax": self._ctx.nmax_block,
             "warnings": warnings,
         }
+        return "Componer respuesta: preview compuesto"
 
 
 
@@ -785,62 +800,3 @@ class ProcPreviewContext:
 
 
 __all__ = ["FunctionProcDBGenerarPreview", "ProcPreviewContext"]
-
-
-def _step_summary(ctx: Any, step_nombre: str) -> str:
-    """Resumen legible del step que acaba de correr (aparece en la SPA).
-
-    Mapea cada ``step_nombre`` de la tabla STAGES (humano) a los flags
-    que el stage muta en ``ctx``. Si el nombre no encaja, devuelve un
-    resumen neutro (caso nuevo step sin summary dedicado).
-    """
-    if step_nombre == "Validar estado de TIA":
-        return (
-            f"{step_nombre}: "
-            f"{'OK' if ctx.excel_loaded else 'Excel no cargado'}"
-        )
-    if step_nombre == "Validar bloques":
-        return (
-            f"{step_nombre}: "
-            f"{'OK' if ctx.bloques_loaded else 'Sin cache de bloques'}"
-        )
-    if step_nombre == "Construir mapa de slots":
-        if ctx.slot_map is None:
-            return (
-                f"{step_nombre}: "
-                f"error: {ctx.slot_map_error or 'sin slot_map'}"
-            )
-        # slot_map_size incluye el slot 0 placeholder "NO USAR"
-        # (1 + N_MAX reales). N_MAX es el dato del Excel (sin el
-        # placeholder). Mostrar ambos evita confusion: el operario
-        # espera N_MAX=PReal (el campo del proceso), no el tamano
-        # del slot_map.
-        sm = ctx.slot_map
-        nmax = getattr(sm, "nmax", {}) or {}
-        return (
-            f"{step_nombre}: "
-            f"slot_map(PReal={len(sm.preal)}, PInt={len(sm.pint)}, "
-            f"ALM={len(sm.alm)}) "
-            f"N_MAX(PReal={nmax.get('preal', '?')}, "
-            f"PInt={nmax.get('pint', '?')}, "
-            f"ALM={nmax.get('alm', '?')})"
-        )
-    if step_nombre == "Calcular diferencias de N_MAX":
-        nmax_summary = ctx.nmax_block.get("summary", {})
-        return (
-            f"{step_nombre}: {nmax_summary.get('actualizar', 0)} N_MAX "
-            f"actualizar, {nmax_summary.get('sin_cambios', 0)} sin cambios"
-        )
-    if step_nombre == "Exportar y calcular diferencias":
-        if ctx.export_error:
-            return f"{step_nombre}: error: {ctx.export_error}"
-        s = ctx.result.get("summary", {})
-        return (
-            f"{step_nombre}: {s.get('total', 0)} slots: "
-            f"{s.get('renombrados', 0)} renombrar, "
-            f"{s.get('agregados', 0)} agregar, "
-            f"{s.get('sin_cambios', 0)} sin cambios"
-        )
-    if step_nombre == "Componer respuesta":
-        return f"{step_nombre}: preview compuesto"
-    return f"{step_nombre}: OK"
