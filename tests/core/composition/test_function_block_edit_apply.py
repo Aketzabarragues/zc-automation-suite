@@ -1,7 +1,7 @@
 """Tests del FB core ``FunctionBlockEditApply``.
 
 Cubre el camino de ejecucion sync del OB1 (``fb.execute(**params)``),
-que es el que usa el dispatcher: ``on_start`` -> ``run_step`` x N ->
+que es el que usa el dispatcher: ``on_start`` -> steps declarados ->
 ``on_finish``, sin event loop.
 
 Casos cubiertos:
@@ -13,9 +13,9 @@ Casos cubiertos:
   - ``edits`` con key no permitida (``"title"``) -> ``n_error`` en el
     pre-flight.
   - PLC sin cache de prepare -> ``n_error`` con mensaje claro.
-  - ``tia_client=None`` -> ``n_error`` en el primer step.
-  - ``run_step`` es sync (contrato del hilo OB1) y ``execute()`` completa
-    el FB sin event loop.
+  - ``tia_client=None`` -> ``n_error`` en el pre-flight.
+  - Los handlers de los steps declarados son sync (contrato del hilo OB1)
+    y ``execute()`` completa el FB sin event loop.
 
 En el camino sync las excepciones de runtime no se propagan: el FB las
 captura, fija ``error_msg`` con el formato ``"<TipoError>: <mensaje>"`` y
@@ -439,9 +439,36 @@ def test_apply_execute_fails_when_tia_client_missing(
 # ── 8. Contrato sync para el hilo del OB1 ─────────────────────────
 
 
-def test_apply_run_step_is_not_a_coroutine() -> None:
-    """``run_step`` es sync: el hilo del OB1 lo invoca sin event loop."""
-    assert not inspect.iscoroutinefunction(FunctionBlockEditApply.run_step)
+def test_apply_declara_los_5_steps_en_orden() -> None:
+    """Los steps se declaran con ``@step``, en orden de flujo.
+
+    El motor recoge los pasos en orden de definicion (el del flujo) y
+    hace el dispatch por ``handler``.
+    """
+    specs = FunctionBlockEditApply.pasos_declarados()
+    assert [s.nombre for s in specs] == [
+        "Validar edits",
+        "Calcular diff",
+        "Aplicar transaccion",
+        "Verificar resultado",
+        "Refrescar cache",
+    ]
+    assert [s.metodo for s in specs] == [
+        "_stage_1_validar_edits",
+        "_stage_2_calcular_diff",
+        "_stage_3_aplicar_transaccion",
+        "_stage_4_verificar_resultado",
+        "_stage_5_refrescar_cache",
+    ]
+
+
+def test_apply_los_handlers_declarados_son_sync() -> None:
+    """Los handlers de los steps son sync: el hilo del OB1 los invoca sin event loop."""
+    specs = FunctionBlockEditApply.pasos_declarados()
+    assert specs, "el FB debe declarar sus steps con @step"
+    for spec in specs:
+        handler = getattr(FunctionBlockEditApply, spec.metodo)
+        assert not inspect.iscoroutinefunction(handler), spec.metodo
 
 
 def test_apply_executes_via_sync_ob1_path(
