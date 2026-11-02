@@ -363,7 +363,7 @@ def test_run_step_es_sync_no_coroutine() -> None:
         FunctionProcCrearSincronizar._stage_7_importar_proceso
     )
     assert not inspect.iscoroutinefunction(
-        FunctionProcCrearSincronizar._stage_8_compilar
+        FunctionProcCrearSincronizar._stage_8_compilar_bloques
     )
 
 

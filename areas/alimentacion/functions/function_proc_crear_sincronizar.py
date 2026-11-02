@@ -1,7 +1,7 @@
 ﻿"""FB de area: aplicar la clonacion de un proceso desde plantilla.
 
 State machine sobre el contexto ``ProcProcessGenContext`` (definido al
-final de este archivo). Los 9 stages viven como metodos del FB (mutando
+final de este archivo). Los 10 stages viven como metodos del FB (mutando
 ``self._ctx``); las funciones puras del pipeline viven debajo del
 dataclass en el mismo archivo.
 
@@ -78,7 +78,8 @@ El ``self.result`` se popula con la shape esperada por la SPA::
       ],
     }
 
-Steps (9):
+Steps (10, mismo orden que el flujo). Cada step se declara encima de su
+propio codigo con ``@step`` y devuelve su detail:
   - Leer manifiesto              -> proc_process_leer_manifest (inline)
   - Validar mínimos              -> proc_process_validar_minimos (inline)
   - Copiar a vista previa        -> proc_process_copiar_a_preview (inline)
@@ -87,6 +88,7 @@ Steps (9):
   - Escribir manifiesto modified -> proc_process_escribir_manifest (inline)
   - Importar proceso             -> execute_transactional_batch (3 ops)
   - Compilar bloques             -> compile_plc (fuera de tx)
+  - Refrescar BloqueCache        -> scan_blocks (tolerante a fallos)
   - Componer respuesta           -> proc_process_done_summary (inline)
 """
 from __future__ import annotations
@@ -98,6 +100,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from core.composition.fb_step import step
 from core.composition.plc_function_base import FunctionBase
 from core.helpers.tia.validate_plc_in_tia import validate_plc_in_tia
 from core.infrastructure.log.log_web_bridge import install_web_level
@@ -147,7 +150,7 @@ class ManifestInvalido(ValueError):
 
 @dataclass
 class ProcProcessGenContext:
-    """Estado compartido entre los 9 stages del FB sync.
+    """Estado compartido entre los 10 stages del FB sync.
 
     Copia local del dataclass en ``function_proc_crear_generar_preview``.
     Cada FB es autonomo (mismo patron que ``DispPreviewContext`` /
@@ -215,19 +218,6 @@ class FunctionProcCrearSincronizar(FunctionBase):
     # hasta 5 min. 600s cubre holgadamente.
     STEP_TIMEOUT_S: float = 600.0
 
-    STAGES: list[tuple[int, str, str]] = [
-        (1, "Leer manifiesto",             "_stage_1_leer_manifest"),
-        (2, "Validar mínimos",             "_stage_2_validar_minimos"),
-        (3, "Copiar a vista previa",       "_stage_3_copiar_a_preview"),
-        (4, "Construir diccionarios",      "_stage_4_construir_diccionarios"),
-        (5, "Generar proceso nuevo",       "_stage_5_generar_proceso_nuevo"),
-        (6, "Escribir manifiesto modificado", "_stage_6_escribir_manifest_modified"),
-        (7, "Importar proceso",            "_stage_7_importar_proceso"),
-        (8, "Compilar bloques",            "_stage_8_compilar"),
-        (9, "Refrescar BloqueCache",       "_stage_9_refresh_cache"),
-        (10, "Componer respuesta",         "_stage_10_build_response"),
-    ]
-
     # ==================================================================
     # CONSTRUCTOR
     # ==================================================================
@@ -236,7 +226,6 @@ class FunctionProcCrearSincronizar(FunctionBase):
         self,
         nombre: str = "proc_process_crear_aplicar",
         titulo: str = "Crear proceso desde plantilla (apply)",
-        steps: list[dict[str, Any]] | None = None,
         tracker: Any = None,
         # ── ZONA 0: deps comunes ──
         config_manager: Any = None,
@@ -246,18 +235,6 @@ class FunctionProcCrearSincronizar(FunctionBase):
         super().__init__(
             nombre=nombre,
             titulo=titulo,
-            steps=steps if steps is not None else [
-                {"nombre": "Leer manifiesto"},
-                {"nombre": "Validar mínimos"},
-                {"nombre": "Copiar a vista previa"},
-                {"nombre": "Construir diccionarios"},
-                {"nombre": "Generar proceso nuevo"},
-                {"nombre": "Escribir manifiesto modificado"},
-                {"nombre": "Importar proceso"},
-                {"nombre": "Compilar bloques"},
-                {"nombre": "Refrescar BloqueCache"},
-                {"nombre": "Componer respuesta"},
-            ],
             tracker=tracker,
         )
         # ZONA 0: deps inyectadas.
@@ -404,29 +381,6 @@ class FunctionProcCrearSincronizar(FunctionBase):
         )
 
     # ==================================================================
-    # HOOK 2: run_step  (ZONA 4: state machine -> dispatch al stage)
-    # ==================================================================
-
-    def run_step(self, idx: int, **params: Any) -> str:
-        """Dispatch del FB step ``idx`` al metodo ``_stage_N_*``."""
-        if self._ctx is None:
-            raise RuntimeError(
-                "ProcProcessGenContext no inicializado. on_start() no se "
-                "ejecuto (params invalidos o ausentes)."
-            )
-
-        step_nombre = self.steps[idx]["nombre"]
-        for _s_idx, s_nombre, s_attr in self.STAGES:
-            if s_nombre == step_nombre:
-                handler = getattr(self, s_attr)
-                handler()
-                return _step_summary(self, s_nombre)
-        raise ValueError(
-            f"step {idx} ({step_nombre!r}) no esta en STAGES "
-            f"de FunctionProcCrearSincronizar"
-        )
-
-    # ==================================================================
     # HOOK 3: on_finish  (ZONA 5: vuelco del result desde el ctx)
     # ==================================================================
 
@@ -475,39 +429,86 @@ class FunctionProcCrearSincronizar(FunctionBase):
         )
 
     # ==================================================================
-    # Stages del FB (ZONA 4: 9 metodos privados numerados).
+    # LOS STEPS
     #
-    # Cada ``_stage_N_<nombre>`` corresponde a UNA entrada de la tabla
-    # ``STAGES`` arriba. Aqui el stage hace el trabajo inline llamando
-    # a la funcion pura correspondiente (definida mas abajo) sobre
-    # ``self._ctx``, o dispatch al worker OT (stages 7 y 8).
+    # Cada ``_stage_N_<slug>`` es un step declarado con ``@step``. El
+    # motor los recoge en orden de definicion (que es el orden del
+    # flujo) y hace el dispatch. El metodo devuelve su detail.
     # ==================================================================
 
-    def _stage_1_leer_manifest(self) -> None:
+    @step(
+        "Leer manifiesto",
+        descripcion="Lee el manifest.json de la plantilla TIA",
+    )
+    def _stage_1_leer_manifiesto(self) -> str:
         """Stage 1: lee el ``manifest.json`` de la plantilla TIA."""
         proc_process_leer_manifest(self._ctx)
+        if self._ctx.manifest_plantilla is None:
+            return "Leer manifiesto: sin manifest"
+        return (
+            f"Leer manifiesto: base={self._ctx.base_vieja} "
+            f"codigo={self._ctx.codigo_viejo}"
+        )
 
-    def _stage_2_validar_minimos(self) -> None:
+    @step(
+        "Validar mínimos",
+        descripcion="Comprueba que los N_MAX cubren los minimos de la plantilla",
+    )
+    def _stage_2_validar_minimos(self) -> str:
         """Stage 2: valida los N_MIN del operario contra la plantilla."""
         proc_process_validar_minimos(self._ctx)
+        return "Validar mínimos: N_MAX OK"
 
-    def _stage_3_copiar_a_preview(self) -> None:
+    @step(
+        "Copiar a vista previa",
+        descripcion="Copia la plantilla al workdir de la vista previa",
+    )
+    def _stage_3_copiar_a_vista_previa(self) -> str:
         """Stage 3: copytree de la plantilla al workdir de preview."""
         proc_process_copiar_a_preview(self._ctx)
+        return (
+            f"Copiar a vista previa: plantilla copiada a "
+            f"{self._ctx.dir_plantilla_copia}"
+        )
 
-    def _stage_4_construir_diccionarios(self) -> None:
+    @step(
+        "Construir diccionarios",
+        descripcion="Parsea bloques y XMLs y arma los diccionarios base",
+    )
+    def _stage_4_construir_diccionarios(self) -> str:
         """Stage 4: parsea bloques + XMLs y construye los diccionarios base."""
         proc_process_construir_diccionarios(self._ctx)
+        return (
+            f"Construir diccionarios: {len(self._ctx.dicc_bloques)} "
+            f"reglas bloques + {len(self._ctx.dicc_xml)} reglas XML"
+        )
 
-    def _stage_5_generar_proceso_nuevo(self) -> None:
+    @step(
+        "Generar proceso nuevo",
+        descripcion="Aplica las reglas y materializa los archivos del proceso nuevo",
+    )
+    def _stage_5_generar_proceso_nuevo(self) -> str:
         """Stage 5: aplica las reglas y materializa los archivos del proceso nuevo."""
         proc_process_aplicar_clonacion(self._ctx)
+        return (
+            f"Generar proceso nuevo: {len(self._ctx.archivos_generados)} "
+            f"archivos clonados"
+        )
 
-    def _stage_6_escribir_manifest_modified(self) -> None:
+    @step(
+        "Escribir manifiesto modificado",
+        descripcion="Escribe el manifest.json del proceso nuevo en modified/",
+    )
+    def _stage_6_escribir_manifiesto_modificado(self) -> str:
         """Stage 6: escribe el manifest.json en el workdir ``modified/``."""
         proc_process_escribir_manifest(self._ctx)
+        return "Escribir manifiesto modificado: manifest OK"
 
-    def _stage_7_importar_proceso(self) -> None:
+    @step(
+        "Importar proceso",
+        descripcion="Importa tags y bloques bajo una transaccion TIA unica",
+    )
+    def _stage_7_importar_proceso(self) -> str:
         """Stage 7: IMPORT bajo transaccion TIA unica (3 ops atomicas).
 
         3 ops en ``execute_transactional_batch``:
@@ -578,8 +579,17 @@ class FunctionProcCrearSincronizar(FunctionBase):
                 f"execute_transactional_batch fallo: "
                 f"{self._import_batch_result.get('error') or '<sin error>'}"
             )
+        batch = self._import_batch_result
+        inner = batch.get("result") or {}
+        ok = bool(inner.get("success"))
+        n_ops = inner.get("operations_executed", "?")
+        return f"Importar proceso: {'OK' if ok else 'FAIL'} ({n_ops} ops)"
 
-    def _stage_8_compilar(self) -> None:
+    @step(
+        "Compilar bloques",
+        descripcion="Compila el PLC con los cambios del proceso nuevo",
+    )
+    def _stage_8_compilar_bloques(self) -> str:
         """Stage 8: dispatch ``compile_plc`` (fuera de transaccion)."""
         self._compile_result = self._tia_client.submit_and_wait(
             "compile_plc",
@@ -591,8 +601,14 @@ class FunctionProcCrearSincronizar(FunctionBase):
                 f"compile_plc fallo: "
                 f"{self._compile_result.get('error') or '<sin error>'}"
             )
+        ok = bool(self._compile_result.get("ok"))
+        return f"Compilar bloques: {'OK' if ok else 'FAIL'}"
 
-    def _stage_9_refresh_cache(self) -> None:
+    @step(
+        "Refrescar BloqueCache",
+        descripcion="Reescanea el PLC y repuebla el cache de bloques",
+    )
+    def _stage_9_refrescar_bloquecache(self) -> str:
         """Stage 9: reescanea el PLC y repuebla ``app_cache.plc_blocks``.
 
         Tras el apply exitoso del nuevo proceso, el slot
@@ -624,15 +640,22 @@ class FunctionProcCrearSincronizar(FunctionBase):
                 f"{exc}. El operario puede refrescar manualmente con ↻ "
                 "del sidebar."
             )
+            return "Refrescar BloqueCache: FAIL (scan no disponible)"
+        return "Refrescar BloqueCache: OK"
 
-    def _stage_10_build_response(self) -> None:
+    @step(
+        "Componer respuesta",
+        descripcion="Compone el resultado final del apply",
+    )
+    def _stage_10_componer_respuesta(self) -> str:
         """Stage 10: compone ``ctx.result`` con la shape final del apply."""
         proc_process_done_summary(self._ctx)
+        return "Componer respuesta: apply compuesto"
 
 
 # ============================================================================
 # Antes era un orquestador separado que el FB
-# llamaba via ``match step_nombre``. Ahora los 9 stages viven como
+# llamaba via ``match step_nombre``. Ahora los 10 stages viven como
 # metodos del FB (mutando ``self._ctx``); las funciones puras del pipeline
 # (filesystem puro, sin TIA) viven aqui mismo, debajo del dataclass.
 #
@@ -801,54 +824,6 @@ def proc_process_done_summary(ctx: ProcProcessGenContext) -> dict[str, Any]:
 # ============================================================================
 
 
-def _step_summary(fb: "FunctionProcCrearSincronizar", step_nombre: str) -> str:
-    """Resumen legible del step que acaba de correr (aparece en la SPA)."""
-    ctx = fb._ctx  # noqa: SLF001 (mismo patron que FunctionProcSincronizar)
-    if step_nombre == "leer_manifest":
-        if ctx is None or ctx.manifest_plantilla is None:
-            return f"{step_nombre}: sin manifest"
-        return f"{step_nombre}: base={ctx.base_vieja} codigo={ctx.codigo_viejo}"
-    if step_nombre == "validar_minimos":
-        return f"{step_nombre}: N_MAX OK"
-    if step_nombre == "copiar_a_preview":
-        if ctx is None:
-            return f"{step_nombre}: sin ctx"
-        return f"{step_nombre}: plantilla copiada a {ctx.dir_plantilla_copia}"
-    if step_nombre == "construir_diccionarios":
-        if ctx is None:
-            return f"{step_nombre}: sin ctx"
-        return (
-            f"{step_nombre}: "
-            f"{len(ctx.dicc_bloques)} reglas bloques + "
-            f"{len(ctx.dicc_xml)} reglas XML"
-        )
-    if step_nombre == "generar_proceso_nuevo":
-        if ctx is None:
-            return f"{step_nombre}: sin ctx"
-        return (
-            f"{step_nombre}: {len(ctx.archivos_generados)} archivos clonados"
-        )
-    if step_nombre == "escribir_manifest_modified":
-        return f"{step_nombre}: manifest OK"
-    if step_nombre == "importar_proceso":
-        batch = fb._import_batch_result  # noqa: SLF001
-        if not batch:
-            return f"{step_nombre}: FAIL (sin respuesta del lote)"
-        if not batch.get("ok"):
-            err = batch.get("error") or "<sin detalle>"
-            return f"{step_nombre}: FAIL ({err[:80]})"
-        inner = batch.get("result") or {}
-        ok = bool(inner.get("success"))
-        n_ops = inner.get("operations_executed", "?")
-        return f"{step_nombre}: {'OK' if ok else 'FAIL'} ({n_ops} ops)"
-    if step_nombre == "compilar":
-        ok = fb._compile_result is not None and fb._compile_result.get("ok")  # noqa: SLF001
-        return f"{step_nombre}: {'OK' if ok else 'FAIL'}"
-    if step_nombre == "done":
-        return f"{step_nombre}: apply compuesto"
-    return f"{step_nombre}: OK"
-
-
 def _coerce_plc_blocks_cache(raw: Any) -> list[dict[str, Any]]:
     """Normaliza ``plc_blocks_cache`` a ``list[dict{nombre, numero}]``."""
     out: list[dict[str, Any]] = []
@@ -874,7 +849,6 @@ __all__ = [
     "TIA_CONSOLIDATION_SLEEP_S",
     "FunctionProcCrearSincronizar",
     "_coerce_plc_blocks_cache",
-    "_step_summary",
     # Funciones puras absorbidas.
     "proc_process_leer_manifest",
     "proc_process_validar_minimos",
