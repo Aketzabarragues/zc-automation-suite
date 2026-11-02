@@ -29,6 +29,14 @@ Hooks overridables por las subclases (FBs reales):
   - ``run_step(idx, **params)``    logica del step N.
   - ``on_finish(**params)``        post-flight SYNC. Vuelca self.result.
 
+Los steps se declaran de dos formas, y **no se pueden mezclar**:
+
+  - ``@step(...)`` sobre el metodo del step (forma actual): el motor
+    recoge los pasos en orden de definicion y hace el dispatch. El
+    metodo devuelve su detail.
+  - la lista ``steps=`` del constructor (forma antigua, en retirada):
+    el dispatch lo hace el ``run_step`` del propio FB.
+
 Cancelacion cooperativa: ``request_cancel(reason)`` marca un flag; el
 step en curso lo comprueba en la frontera de etapa y el base cierra con
 ``tracker.finish(success=False)`` + ``nStep = n_error``. Se puede pedir
@@ -44,6 +52,7 @@ import traceback
 from collections.abc import Callable
 from typing import Any
 
+from core.composition.fb_step import STEP_ATTR, StepSpec
 from core.runtime.progress_buffer import ProgressTracker, get_progress_tracker
 
 logger = logging.getLogger(__name__)
@@ -69,20 +78,34 @@ class FunctionBase:
         self,
         nombre: str,
         titulo: str,
-        steps: list[dict[str, Any]],
+        steps: list[dict[str, Any]] | None = None,
         tracker: ProgressTracker | None = None,
         step_timeout_s: float | None = None,
     ) -> None:
         self.nombre = nombre
         self.titulo = titulo
-        # Normaliza a list[dict]. Acepta strings por ergonomia (los
-        # FBs simples no necesitan dicts), pero la representacion
-        # interna siempre es dict para admitir metadata futura
-        # (descripcion, timeout propio, etc.).
-        self.steps: list[dict[str, Any]] = [
-            s if isinstance(s, dict) else {"nombre": s}
-            for s in steps
-        ]
+        # Los pasos salen de los metodos marcados con @step. La lista
+        # ``steps=`` queda solo para los FBs que aun no han migrado.
+        declarados = self.pasos_declarados()
+        if declarados and steps is not None:
+            # Migracion a medias: el FB declara unos pasos con @step y
+            # otros por la lista. Las dos listas no se pueden mixing
+            # sin duplicar o saltarse pasos, asi que se para aqui.
+            raise ValueError(
+                f"FB {self.__class__.__name__}: declara pasos con @step y "
+                f"a la vez pasa steps=. Migra el FB entero o nada."
+            )
+        if declarados:
+            self.steps: list[dict[str, Any]] = [s.as_dict() for s in declarados]
+        else:
+            # Normaliza a list[dict]. Acepta strings por ergonomia (los
+            # FBs simples no necesitan dicts), pero la representacion
+            # interna siempre es dict para admitir metadata futura
+            # (descripcion, timeout propio, etc.).
+            self.steps = [
+                s if isinstance(s, dict) else {"nombre": s}
+                for s in (steps or [])
+            ]
         # Tracker: inyeccion obligatoria en FBs reales. Default al
         # singleton global solo para tests basicos y smoke (mismo
         # patron que LogBuffer).
@@ -115,6 +138,40 @@ class FunctionBase:
         # (old_nStep, new_nStep). No-op si None. Lo cablea publishers
         # para retransmitir fb_state al bus SSE.
         self._on_nstep_change: Callable[[int, int], None] | None = None
+
+    # ------------------------------------------------------------------
+    # Los pasos
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def pasos_declarados(cls) -> list[StepSpec]:
+        """Pasos declarados con ``@step``, en orden de definicion.
+
+        El orden de definicion de los metodos es el orden del flujo: se
+        lee de arriba abajo, como un SFC. Por eso se recorre
+        ``vars(klass)`` y no ``dir(klass)``: ``dir()`` ordena
+        alfabeticamente y perderia el orden.
+
+        Raises:
+            ValueError: si dos pasos declaran el mismo nombre visible.
+                El nombre es la etiqueta del operario: dos steps con la
+                misma etiqueta harian el tracker ambiguo.
+        """
+        specs: list[StepSpec] = []
+        vistos: set[str] = set()
+        for klass in reversed(cls.__mro__):
+            for _attr, value in vars(klass).items():
+                spec = getattr(value, STEP_ATTR, None)
+                if spec is None:
+                    continue
+                if spec.nombre in vistos:
+                    raise ValueError(
+                        f"FB {cls.__name__}: nombre de paso duplicado "
+                        f"{spec.nombre!r}"
+                    )
+                vistos.add(spec.nombre)
+                specs.append(spec)
+        return specs
 
     # ------------------------------------------------------------------
     # Hooks overridables (los FBs reales solo aportan estos)
@@ -323,6 +380,9 @@ class FunctionBase:
             self.nStep = self.n_finalizar
             return
         step_nombre = self.steps[idx]["nombre"]
+        descripcion = self.steps[idx].get("descripcion")
+        if descripcion:
+            logger.info(f"{step_nombre}: {descripcion}")
         self._tracker.start_stage(step_nombre)
         logger.debug(f"{step_nombre}: entrando...")
         _t0 = time.monotonic()
@@ -355,18 +415,29 @@ class FunctionBase:
             self.nStep = self.n_finalizar
 
     def _invoke_step_sync(self, idx: int) -> str:
-        """Invoca ``run_step`` y devuelve el detail.
+        """Ejecuta el step ``idx`` y devuelve su detail.
 
-        ``run_step`` es sync: el FB se ejecuta en el hilo del dispatcher
-        del OB1, sin event loop. Si devuelve una corrutina es un error
-        de programacion y se dice explicitamente, en vez de propagar
-        una corrutina sin ejecutar.
+        El handler es un metodo del propio FB, declarado con ``@step``.
+        Si el step no declara handler, cae al hook ``run_step`` (FBs que
+        aun no han migrado).
+
+        Es sync: el FB se ejecuta en el hilo del dispatcher del OB1, sin
+        event loop. Si devuelve una corrutina es un error de programacion
+        y se dice explicitamente, en vez de propagar una corrutina sin
+        ejecutar.
         """
-        outcome = self.run_step(idx, **self._params)
+        step_info = self.steps[idx]
+        handler = step_info.get("handler")
+
+        if handler is not None:
+            outcome = getattr(self, handler)()
+        else:
+            outcome = self.run_step(idx, **self._params)
+
         if inspect.isawaitable(outcome):
             raise TypeError(
-                "run_step devuelve una corrutina: los FBs deben ser sync "
-                "(se ejecutan en el hilo del dispatcher del OB1)"
+                "el handler del step devuelve una corrutina: los FBs deben "
+                "ser sync (se ejecutan en el hilo del dispatcher del OB1)"
             )
         return outcome
 
