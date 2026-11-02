@@ -31,6 +31,7 @@ import logging
 import os
 from typing import Any
 
+from core.composition.fb_step import step
 from core.composition.plc_function_base import FunctionBase
 from core.infrastructure.log.log_web_bridge import install_web_level
 from core.runtime.app_cache import AppCache, get_app_cache
@@ -55,22 +56,6 @@ class FunctionExcelCargar(FunctionBase):
     # cambio requiere refactor a un ``area_id`` inyectable.
     AREA_ID: str = "alimentacion"
 
-    # Tabla declarativa de stages. Cada tupla: (idx, "nombre_step",
-    # "atributo_metodo_en_el_FB"). El ``run_step`` dispatcha contra
-    # esta tabla en vez de un ``match``/``case`` inline, para que el
-    # flujo sea legible arriba de la clase y los tests puedan
-    # mockear ``fb._stage_N_<nombre>`` directamente.
-    #
-    # Convencion:
-    #   - ``idx`` correlativo, 1-based.
-    #   - ``nombre_step`` debe coincidir con ``self.steps[idx]["nombre"]``
-    #     (registrado en __init__). Si cambias uno, cambia el otro.
-    #   - ``atributo_metodo`` es un metodo del FB (no externo): un cambio de
-    #     signatura requiere actualizar este registro.
-    STAGES: list[tuple[int, str, str]] = [
-        (1, "Parsear y volcar Excel",       "_stage_1_parsear_y_volcar"),
-    ]
-
     # ==================================================================
     # CONSTRUCTOR
     # ==================================================================
@@ -79,7 +64,6 @@ class FunctionExcelCargar(FunctionBase):
         self,
         nombre: str = "subir_excel",
         titulo: str = "Subir Excel corporativo",
-        steps: list[dict[str, Any]] | None = None,
         tracker: Any = None,
         # ── ZONA 0: deps comunes ──
         config_manager: Any = None,
@@ -92,9 +76,6 @@ class FunctionExcelCargar(FunctionBase):
         super().__init__(
             nombre=nombre,
             titulo=titulo,
-            steps=steps if steps is not None else [
-                {"nombre": "Parsear y volcar Excel"},
-            ],
             tracker=tracker,
         )
         # ZONA 0: deps inyectadas
@@ -102,7 +83,7 @@ class FunctionExcelCargar(FunctionBase):
         self._tia_client = tia_client  # No usado en este FB.
         self._build_cache = build_cache  # No usado en este FB.
         # Deps especificas
-        # ``excel_loader_factory`` se importa lazy en run_step (ZONA 4)
+        # ``excel_loader_factory`` se importa lazy en el step (ZONA 4)
         # para evitar import circular entre ``function_excel_cargar`` y
         # ``helpers/excel/excel_upload``.
         self._loader_factory = excel_loader_factory
@@ -169,40 +150,15 @@ class FunctionExcelCargar(FunctionBase):
         logger.debug(
             f"[{self.nombre}] Iniciando carga desde {self._xlsx_path}"
         )
-
-    # ==================================================================
-    # HOOK 2: run_step  (ZONA 4: CASE por etapa)
-    # ==================================================================
-
-    def run_step(self, idx: int, **params: Any) -> str:
-        """CASE del unico paso (dispatch declarativo via tabla ``STAGES``).
-
-        Itera la tabla ``STAGES`` declarada arriba de la clase; cada
-        tupla ``(idx, nombre, atributo_metodo)`` mapea el step logico
-        del FB al metodo real ``_stage_N_<nombre>`` que lo implementa.
-        """
-        # Lazy import para evitar ciclo con helpers/excel/excel_upload.
-        from areas.alimentacion.helpers.excel.excel_upload import (
-            parse_excel_to_cache,
-        )
-        from areas.alimentacion.helpers.excel.excel_loader import ExcelLoader
-
+        # El config_manager es obligatorio: sin el no se puede leer el
+        # Excel. Se valida aqui (fail-fast, antes de tocar el cache) y
+        # no en el step, para no abrir el tracker con un trabajo que
+        # ya se sabe invalido.
         if self._config is None:
             raise RuntimeError(
                 "FunctionExcelCargar requiere config_manager explicito. "
                 "Inyectalo en el constructor al registrar el FB."
             )
-
-        step_nombre = self.steps[idx]["nombre"]
-        for _s_idx, s_nombre, s_attr in self.STAGES:
-            if s_nombre == step_nombre:
-                handler = getattr(self, s_attr)
-                result = handler()
-                return result
-        raise ValueError(
-            f"step {idx} ({step_nombre!r}) no esta en STAGES "
-            f"de FunctionExcelCargar"
-        )
 
     # ==================================================================
     # HOOK 3: on_finish  (ZONA 5: vuelco del result)
@@ -273,15 +229,19 @@ class FunctionExcelCargar(FunctionBase):
             )
 
     # ==================================================================
-    # Stages del FB (ZONA 4: metodos privados numerados).
+    # LOS STEPS
     #
-    # Cada ``_stage_N_<nombre>`` corresponde a UNA entrada de la tabla
-    # ``STAGES`` arriba. Si cambias el flujo del stage, cambia la
-    # tabla tambien.
+    # Cada ``_stage_N_<slug>`` es un step declarado con ``@step``. El
+    # motor los recoge en orden de definicion (que es el orden del
+    # flujo) y hace el dispatch. El metodo devuelve su detail.
     # ==================================================================
 
-    def _stage_1_parsear_y_volcar(self) -> str:
-        """Stage 1: parsea el ``.xlsx`` y lo escribe al ``AppCache``.
+    @step(
+        "Parsear y volcar Excel",
+        descripcion="Parsea el .xlsx del operario y lo vuelca al AppCache",
+    )
+    def _stage_1_parsear_y_volcar_excel(self) -> str:
+        """Parsea el ``.xlsx`` y lo escribe al ``AppCache``.
 
         Lazy import para evitar ciclo entre este FB y
         ``helpers/excel/excel_upload``. ``parse_excel_to_cache``
