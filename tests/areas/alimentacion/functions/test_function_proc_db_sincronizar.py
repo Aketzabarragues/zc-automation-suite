@@ -119,7 +119,7 @@ def make_fb(
 
 
 def _patch_helper_fns_except_stage_3(fb) -> ExitStack:
-    """Parchea todos los stages MENOS ``_stage_3_build_slot_maps_commit``.
+    """Parchea todos los stages MENOS ``_stage_3_construir_mapa_de_slots``.
 
     Usado por los tests del stage 3 que quieren ejecutar el codigo
     real del stage (con ``proc_build_slot_maps`` mockeado).
@@ -132,28 +132,28 @@ def _patch_helper_fns_except_stage_3(fb) -> ExitStack:
         )
     )
     stack.enter_context(
-        patch.object(fb, "_stage_1_check_state_commit", MagicMock(), create=True)
+        patch.object(fb, "_stage_1_validar_estado_de_tia", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "_stage_2_check_blocks_commit", MagicMock(), create=True)
+        patch.object(fb, "_stage_2_validar_bloques", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "_stage_4_sync_nmax", MagicMock(), create=True)
+        patch.object(fb, "_stage_4_aplicar_n_max", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "_stage_5_wait_consolidation", MagicMock(), create=True)
+        patch.object(fb, "_stage_5_esperar_consolidacion_tia", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "_stage_6_compile_proc_blocks", MagicMock(), create=True)
+        patch.object(fb, "_stage_6_compilar_bloques", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "_stage_7_open_transaction", MagicMock(), create=True)
+        patch.object(fb, "_stage_7_abrir_transaccion_tia", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "_stage_8_post_preview", MagicMock(), create=True)
+        patch.object(fb, "_stage_8_generar_preview_post_sincronizacion", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "_stage_9_build_response", MagicMock(), create=True)
+        patch.object(fb, "_stage_9_componer_respuesta", MagicMock(), create=True)
     )
     return stack
 
@@ -171,31 +171,31 @@ def _patch_helper_fns(fb) -> ExitStack:
         )
     )
     stack.enter_context(
-        patch.object(fb, "_stage_1_check_state_commit", MagicMock(), create=True)
+        patch.object(fb, "_stage_1_validar_estado_de_tia", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "_stage_2_check_blocks_commit", MagicMock(), create=True)
+        patch.object(fb, "_stage_2_validar_bloques", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "_stage_3_build_slot_maps_commit", MagicMock(), create=True)
+        patch.object(fb, "_stage_3_construir_mapa_de_slots", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "_stage_4_sync_nmax", MagicMock(), create=True)
+        patch.object(fb, "_stage_4_aplicar_n_max", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "_stage_5_wait_consolidation", MagicMock(), create=True)
+        patch.object(fb, "_stage_5_esperar_consolidacion_tia", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "_stage_6_compile_proc_blocks", MagicMock(), create=True)
+        patch.object(fb, "_stage_6_compilar_bloques", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "_stage_7_open_transaction", MagicMock(), create=True)
+        patch.object(fb, "_stage_7_abrir_transaccion_tia", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "_stage_8_post_preview", MagicMock(), create=True)
+        patch.object(fb, "_stage_8_generar_preview_post_sincronizacion", MagicMock(), create=True)
     )
     stack.enter_context(
-        patch.object(fb, "_stage_9_build_response", MagicMock(), create=True)
+        patch.object(fb, "_stage_9_componer_respuesta", MagicMock(), create=True)
     )
     return stack
 
@@ -251,17 +251,17 @@ def test_proc_sincronizar_happy_path_8_ticks(
         mock_bloques_cache, progress,
     )
     with _patch_helper_fns(fb) as stack:
-        # Sobre-escribimos ``_stage_3_build_slot_maps_commit`` y
-        # ``_stage_9_build_response``.
+        # Sobre-escribimos ``_stage_3_construir_mapa_de_slots`` y
+        # ``_stage_9_componer_respuesta``.
         stack.enter_context(
             patch.object(
-                fb, "_stage_3_build_slot_maps_commit",
+                fb, "_stage_3_construir_mapa_de_slots",
                 side_effect=fake_build_slot_maps, create=True,
             )
         )
         stack.enter_context(
             patch.object(
-                fb, "_stage_9_build_response",
+                fb, "_stage_9_componer_respuesta",
                 side_effect=fake_done_summary, create=True,
             )
         )
@@ -280,15 +280,15 @@ def test_proc_sincronizar_happy_path_8_ticks(
         assert fb.result["proc_uid"] == 42
 
         # Cada helper fue llamado 1 vez.
-        assert fb._stage_1_check_state_commit.call_count == 1
-        assert fb._stage_2_check_blocks_commit.call_count == 1
-        assert fb._stage_3_build_slot_maps_commit.call_count == 1
-        assert fb._stage_4_sync_nmax.call_count == 1
-        assert fb._stage_5_wait_consolidation.call_count == 1
-        assert fb._stage_6_compile_proc_blocks.call_count == 1
-        assert fb._stage_7_open_transaction.call_count == 1
-        assert fb._stage_8_post_preview.call_count == 1
-        assert fb._stage_9_build_response.call_count == 1
+        assert fb._stage_1_validar_estado_de_tia.call_count == 1
+        assert fb._stage_2_validar_bloques.call_count == 1
+        assert fb._stage_3_construir_mapa_de_slots.call_count == 1
+        assert fb._stage_4_aplicar_n_max.call_count == 1
+        assert fb._stage_5_esperar_consolidacion_tia.call_count == 1
+        assert fb._stage_6_compilar_bloques.call_count == 1
+        assert fb._stage_7_abrir_transaccion_tia.call_count == 1
+        assert fb._stage_8_generar_preview_post_sincronizacion.call_count == 1
+        assert fb._stage_9_componer_respuesta.call_count == 1
 
 
 # ── Sad paths (pre-flight en on_start) ──────────────────────────────
@@ -395,7 +395,7 @@ def test_proc_sincronizar_sad_check_state_no_excel(
     with _patch_helper_fns(fb) as stack:
         stack.enter_context(
             patch.object(
-                fb, "_stage_1_check_state_commit",
+                fb, "_stage_1_validar_estado_de_tia",
                 side_effect=bad_check_state, create=True,
             )
         )
@@ -434,7 +434,7 @@ def test_proc_sincronizar_sad_missing_blocks(
     with _patch_helper_fns(fb) as stack:
         stack.enter_context(
             patch.object(
-                fb, "_stage_3_build_slot_maps_commit",
+                fb, "_stage_3_construir_mapa_de_slots",
                 side_effect=bad_build_slot_maps, create=True,
             )
         )
@@ -473,13 +473,13 @@ def test_proc_sincronizar_sad_open_transaction_fails(
     with _patch_helper_fns(fb) as stack:
         stack.enter_context(
             patch.object(
-                fb, "_stage_3_build_slot_maps_commit",
+                fb, "_stage_3_construir_mapa_de_slots",
                 side_effect=fake_build_slot_maps, create=True,
             )
         )
         stack.enter_context(
             patch.object(
-                fb, "_stage_7_open_transaction",
+                fb, "_stage_7_abrir_transaccion_tia",
                 side_effect=RuntimeError("Bloque DB42_CPR_PARAM no encontrado"),
                 create=True,
             )

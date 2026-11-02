@@ -9,7 +9,7 @@ Convencion: los helpers puros del area viven en
 ``areas/alimentacion/helpers/<dominio>/`` (no dentro del FB). Esto
 permite tests unitarios focalizados y reutilizacion desde otros FBs
 del mismo dominio (en particular, desde
-``function_proc_db_sincronizar._stage_8_post_preview``).
+``function_proc_db_sincronizar._stage_8_generar_preview_post_sincronizacion``).
 """
 from __future__ import annotations
 

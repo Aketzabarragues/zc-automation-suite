@@ -26,16 +26,17 @@ El ``self.result`` se popula con la shape esperada por la SPA::
       "post_sync_preview":    dict | None,
     }
 
-Steps (9, Tx A N_MAX + compile + Tx B + post-preview):
-  - check_state_commit       -> valida excel_cache cargado
-  - check_blocks_commit      -> valida bloques_cache cargado
-  - build_slot_maps_commit   -> recalcula slot maps desde AppCache
-  - sync_nmax                -> Tx A online (incluso si nmax_ops=[])
-  - wait_consolidation       -> sleep 2s para que TIA consolide
-  - compile_proc_blocks      -> compila PARAM + ALM tras el resize
-  - open_transaction         -> Tx B: commits + import
-  - post_preview             -> regenera preview para 'todo en sync'
-  - done                     -> vuelca ctx.result a self.result
+Steps (9, Tx A N_MAX + compile + Tx B + post-preview). Cada step se
+declara encima de su propio codigo con ``@step`` y devuelve su detail:
+  - Validar estado de TIA       -> valida excel_cache cargado
+  - Validar bloques             -> valida bloques_cache cargado
+  - Construir mapa de slots     -> recalcula slot maps desde AppCache
+  - Aplicar N_MAX               -> Tx A online (incluso si nmax_ops=[])
+  - Esperar consolidación TIA   -> sleep 2s para que TIA consolide
+  - Compilar bloques            -> compila PARAM + ALM tras el resize
+  - Abrir transacción TIA       -> Tx B: commits + import
+  - Generar preview post-sincronización -> regenera preview para 'todo en sync'
+  - Componer respuesta          -> vuelca ctx.result a self.result
 """
 from __future__ import annotations
 
@@ -45,6 +46,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from core.composition.fb_step import step
 from core.composition.plc_function_base import FunctionBase
 from core.helpers.tia import validate_execute_batch_result
 from core.helpers.tia.validate_plc_in_tia import validate_plc_in_tia
@@ -77,30 +79,6 @@ class FunctionProcDBSincronizar(FunctionBase):
     # TIA V21 puede tardar 1-3 min en PLCs grandes.
     STEP_TIMEOUT_S: float = 300.0
 
-    # Tabla declarativa de stages. Cada tupla: (idx, "nombre_step",
-    # "atributo_metodo_en_el_FB"). El ``run_step`` dispatcha contra
-    # esta tabla en vez de un ``match``/``case`` inline, para que el
-    # flujo sea legible arriba de la clase y los tests puedan
-    # mockear ``fb._stage_N_<nombre>`` directamente.
-    #
-    # Convencion:
-    #   - ``idx`` correlativo, 1-based.
-    #   - ``nombre_step`` debe coincidir con ``self.steps[idx]["nombre"]``
-    #     (registrado en __init__). Si cambias uno, cambia el otro.
-    #   - ``atributo_metodo`` es un metodo del FB (no externo): un cambio
-    #     de signatura requiere actualizar este registro.
-    STAGES: list[tuple[int, str, str]] = [
-        (1, "Validar estado de TIA",       "_stage_1_check_state_commit"),
-        (2, "Validar bloques",             "_stage_2_check_blocks_commit"),
-        (3, "Construir mapa de slots",     "_stage_3_build_slot_maps_commit"),
-        (4, "Aplicar N_MAX",               "_stage_4_sync_nmax"),
-        (5, "Esperar consolidación TIA",   "_stage_5_wait_consolidation"),
-        (6, "Compilar bloques",            "_stage_6_compile_proc_blocks"),
-        (7, "Abrir transacción TIA",       "_stage_7_open_transaction"),
-        (8, "Generar preview post-sincronización", "_stage_8_post_preview"),
-        (9, "Componer respuesta",          "_stage_9_build_response"),
-    ]
-
     # ==================================================================
     # CONSTRUCTOR
     # ==================================================================
@@ -109,7 +87,6 @@ class FunctionProcDBSincronizar(FunctionBase):
         self,
         nombre: str = "proc_db_sincronizar",
         titulo: str = "Sincronizar comentarios del proceso contra PLC",
-        steps: list[dict[str, Any]] | None = None,
         tracker: Any = None,
         # ── ZONA 0: deps comunes ──
         config_manager: Any = None,
@@ -122,17 +99,6 @@ class FunctionProcDBSincronizar(FunctionBase):
         super().__init__(
             nombre=nombre,
             titulo=titulo,
-            steps=steps if steps is not None else [
-                {"nombre": "Validar estado de TIA"},
-                {"nombre": "Validar bloques"},
-                {"nombre": "Construir mapa de slots"},
-                {"nombre": "Aplicar N_MAX"},
-                {"nombre": "Esperar consolidación TIA"},
-                {"nombre": "Compilar bloques"},
-                {"nombre": "Abrir transacción TIA"},
-                {"nombre": "Generar preview post-sincronización"},
-                {"nombre": "Componer respuesta"},
-            ],
             tracker=tracker,
         )
         # ZONA 0: deps inyectadas.
@@ -243,45 +209,6 @@ class FunctionProcDBSincronizar(FunctionBase):
         )
 
     # ==================================================================
-    # HOOK 2: run_step  (ZONA 4: state machine -> dispatch al helper)
-    # ==================================================================
-
-    def run_step(self, idx: int, **params: Any) -> str:
-        """Dispatch del FB step ``idx`` a la funcion del helper ``proc_sincronizar``.
-
-        Aqui vive la state machine: cada step del FB llama a UNA
-        funcion del helper contra el ``ProcSyncContext`` compartido.
-        El ``case`` es explicito (no dict.get dispatch) para que sea
-        visible en stack traces cuando algo falla.
-        """
-        if self._ctx is None:
-            raise RuntimeError(
-                "ProcSyncContext no inicializado. on_start() no se ejecuto "
-                "(o el FB no recibio un plc_name/proc_uid valido)."
-            )
-
-        step_nombre = self.steps[idx]["nombre"]
-        # Dispatch declarativo via tabla ``STAGES``: el orden y los
-        # nombres de los 9 stages se declaran arriba de la clase. Asi el
-        # flujo del FB es visible de un vistazo (modo SFC) y los tests
-        # pueden mockear ``fb._stage_N_<nombre>`` directamente sin
-        # parchear el ``match`` interno.
-        #
-        # El lookup es por ``nombre`` (no por ``idx``) porque
-        # ``FunctionBase._step_ejecutar`` pasa ``idx`` 0-indexed sobre
-        # ``self.steps``. El ``idx`` de la tabla STAGES es 1-based y
-        # solo se usa para logging legible ("paso 3/9").
-        for _s_idx, s_nombre, s_attr in self.STAGES:
-            if s_nombre == step_nombre:
-                handler = getattr(self, s_attr)
-                handler()
-                return _step_summary(self._ctx, s_nombre)
-        raise ValueError(
-            f"step {idx} ({step_nombre!r}) no esta en STAGES "
-            f"de FunctionProcDBSincronizar"
-        )
-
-    # ==================================================================
     # HOOK 3: on_finish  (ZONA 5: vuelco del result desde el ctx)
     # ==================================================================
 
@@ -347,14 +274,18 @@ class FunctionProcDBSincronizar(FunctionBase):
             area_set_preview_proc(app_cache, "alimentacion", post_sync_preview)
 
     # ==================================================================
-    # Stages del FB (ZONA 4: 9 metodos privados numerados).
+    # LOS STEPS
     #
-    # Cada ``_stage_N_<nombre>`` corresponde a UNA entrada de la tabla
-    # ``STAGES`` arriba. Si cambias el flujo del stage, cambia la
-    # tabla tambien.
+    # Cada ``_stage_N_<slug>`` es un step declarado con ``@step``. El
+    # motor los recoge en orden de definicion (que es el orden del
+    # flujo) y hace el dispatch. El metodo devuelve su detail.
     # ==================================================================
 
-    def _stage_1_check_state_commit(self) -> None:
+    @step(
+        "Validar estado de TIA",
+        descripcion="Valida que el Excel del area este cargado",
+    )
+    def _stage_1_validar_estado_de_tia(self) -> str:
         """Stage 1: valida que el cache del Excel esta cargado.
 
         Multi-PLC: chequea el cache activo del area (filtrado por PLC).
@@ -370,8 +301,13 @@ class FunctionProcDBSincronizar(FunctionBase):
                 "app_cache.excel_active_by_area['alimentacion'] esta vacio. "
                 "Cargue el Excel con POST /api/v1/excel/upload."
             )
+        return "Validar estado de TIA: Excel cargado"
 
-    def _stage_2_check_blocks_commit(self) -> None:
+    @step(
+        "Validar bloques",
+        descripcion="Valida que el cache de bloques del PLC este disponible",
+    )
+    def _stage_2_validar_bloques(self) -> str:
         """Stage 2: valida que el cache de bloques del PLC esta disponible."""
         self._ctx.bloques_loaded = self._ctx.bloques_cache is not None
         if not self._ctx.bloques_loaded:
@@ -380,8 +316,13 @@ class FunctionProcDBSincronizar(FunctionBase):
                 "Selecciona el PLC en el sidebar y espera al "
                 "escaneo de bloques (1-3 min en PLCs grandes)."
             )
+        return "Validar bloques: cache de bloques disponible"
 
-    def _stage_3_build_slot_maps_commit(self) -> None:
+    @step(
+        "Construir mapa de slots",
+        descripcion="Cruza el Excel con los bloques del PLC y arma los mapas de slots",
+    )
+    def _stage_3_construir_mapa_de_slots(self) -> str:
         """Stage 3: recalcula slot maps + calcula N_MAX ops.
 
         Contrato de abort sobre ``slot_map``:
@@ -444,6 +385,16 @@ class FunctionProcDBSincronizar(FunctionBase):
             f"[{self.nombre}] N_MAX diff: "
             f"{len(self._ctx.nmax_ops)} ops a aplicar"
         )
+        nmax = getattr(sm, "nmax", {}) or {}
+        return (
+            f"Construir mapa de slots: "
+            f"slot_map(PReal={len(sm.preal)}, PInt={len(sm.pint)}, "
+            f"ALM={len(sm.alm)}) "
+            f"N_MAX(PReal={nmax.get('preal', '?')}, "
+            f"PInt={nmax.get('pint', '?')}, "
+            f"ALM={nmax.get('alm', '?')}) "
+            f"N_MAX_ops={len(self._ctx.nmax_ops)}"
+        )
 
     def _proc_compute_nmax_ops_inline(self) -> None:
         """Calculo de nmax_ops (helper local del stage 3).
@@ -464,7 +415,11 @@ class FunctionProcDBSincronizar(FunctionBase):
             self._ctx.tags_base, self._ctx.proc_uid, self._ctx.slot_map,
         )
 
-    def _stage_4_sync_nmax(self) -> None:
+    @step(
+        "Aplicar N_MAX",
+        descripcion="Aplica las ops N_MAX del proceso en una transaccion online",
+    )
+    def _stage_4_aplicar_n_max(self) -> str:
         """Stage 4: dispatch ``execute_transactional_batch`` con N_MAX ops.
 
         Siempre se ejecuta, aunque ``ctx.nmax_ops=[]`` (requisito del
@@ -496,7 +451,7 @@ class FunctionProcDBSincronizar(FunctionBase):
                 "operations_executed": 0,
                 "details": [],
             }
-            return
+            return "Aplicar N_MAX: sin ops (batch omitido)"
 
         logger.info(
             f"[proc_db_sync {self._ctx.plc_name} u{self._ctx.proc_uid}] "
@@ -519,12 +474,27 @@ class FunctionProcDBSincronizar(FunctionBase):
                 f"{nmax_result.get('error') or '<sin error>'}"
             )
         self._ctx.nmax_result = nmax_result.get("result") or {}
+        return (
+            f"Aplicar N_MAX: {len(operations)} N_MAX aplicadas (incondicional)"
+        )
 
-    def _stage_5_wait_consolidation(self) -> None:
+    @step(
+        "Esperar consolidación TIA",
+        descripcion="Espera a que TIA consolide el cambio de N_MAX",
+    )
+    def _stage_5_esperar_consolidacion_tia(self) -> str:
         """Stage 5: sleep 2s para que TIA consolide tras Tx A."""
         time.sleep(TIA_CONSOLIDATION_SLEEP_S)
+        return (
+            f"Esperar consolidación TIA: "
+            f"{TIA_CONSOLIDATION_SLEEP_S:.0f}s sleep OK"
+        )
 
-    def _stage_6_compile_proc_blocks(self) -> None:
+    @step(
+        "Compilar bloques",
+        descripcion="Compila los DBs PARAM + ALM tras el resize de N_MAX",
+    )
+    def _stage_6_compilar_bloques(self) -> str:
         """Stage 6: compila los DBs PARAM + ALM del proceso actual.
 
         Patron paralelo a ``disp_Sincronizar.compilar_bloques``:
@@ -537,9 +507,9 @@ class FunctionProcDBSincronizar(FunctionBase):
             self._ctx.compile_ok = False
             self._ctx.compile_error = (
                 "proc_discover_compile_dbs retorno []: self._ctx.slot_map "
-                "no inicializado. Fallo previo en build_slot_maps_commit."
+                "no inicializado. Fallo previo en construir mapa de slots."
             )
-            return
+            return f"Compilar bloques: ERROR ({self._ctx.compile_error})"
 
         try:
             compile_result = self._ctx.tia_client.submit_and_wait(
@@ -553,14 +523,14 @@ class FunctionProcDBSincronizar(FunctionBase):
         except Exception as e:
             self._ctx.compile_ok = False
             self._ctx.compile_error = f"compile_blocks excepcion: {e!r}"
-            return
+            return f"Compilar bloques: ERROR ({self._ctx.compile_error})"
 
         if not compile_result.get("ok"):
             self._ctx.compile_ok = False
             self._ctx.compile_error = (
                 compile_result.get("error") or "compile_blocks fallo"
             )
-            return
+            return f"Compilar bloques: ERROR ({self._ctx.compile_error})"
 
         self._ctx.compile_result = compile_result.get("result") or {}
         compiled = (self._ctx.compile_result or {}).get("compiled", [])
@@ -586,6 +556,10 @@ class FunctionProcDBSincronizar(FunctionBase):
                 f"tras N_MAX: {compile_result}"
             )
 
+        if self._ctx.compile_ok:
+            return "Compilar bloques: OK"
+        return f"Compilar bloques: ERROR ({self._ctx.compile_error})"
+
     def _proc_discover_compile_dbs_inline(self) -> list[str]:
         """Lista de DBs a compilar (helper de ``_stage_6``).
 
@@ -603,7 +577,11 @@ class FunctionProcDBSincronizar(FunctionBase):
             result.append(sm.db_alm_name)
         return result
 
-    def _stage_7_open_transaction(self) -> None:
+    @step(
+        "Abrir transacción TIA",
+        descripcion="Exporta, comenta y reimporta los DBs del proceso",
+    )
+    def _stage_7_abrir_transaccion_tia(self) -> str:
         """Stage 7: Tx B (comentarios) - orquesta 5 fases + commit final.
 
         Fases (delegadas en helpers module-level ``_proc_tx_b_*``):
@@ -640,7 +618,7 @@ class FunctionProcDBSincronizar(FunctionBase):
             )
         except Exception as exc:
             logger.warning(
-                f"_stage_7_open_transaction: re-lectura de TIA para "
+                f"_stage_7_abrir_transaccion_tia: re-lectura de TIA para "
                 f"detectar 'eliminar' fallo: {exc!r}. El apply solo "
                 f"aplicara los slots del Excel (modo degradado)."
             )
@@ -811,8 +789,13 @@ class FunctionProcDBSincronizar(FunctionBase):
             "operations_executed": operations_executed,
             "details": details,
         }
+        return f"Abrir transacción TIA: {operations_executed} ops aplicadas OK"
 
-    def _stage_8_post_preview(self) -> None:
+    @step(
+        "Generar preview post-sincronización",
+        descripcion="Regenera el preview del proceso tras el commit",
+    )
+    def _stage_8_generar_preview_post_sincronizacion(self) -> str:
         """Stage 8: regenera el preview tras el commit.
 
         Replica el flujo del preview (``generar_prevision``) inline,
@@ -979,7 +962,21 @@ class FunctionProcDBSincronizar(FunctionBase):
             )
             self._ctx.post_sync_preview = None
 
-    def _stage_9_build_response(self) -> None:
+        if self._ctx.post_sync_preview:
+            return (
+                "Generar preview post-sincronización: "
+                "preview regenerado OK"
+            )
+        return (
+            "Generar preview post-sincronización: "
+            "preview fallo (warning en log)"
+        )
+
+    @step(
+        "Componer respuesta",
+        descripcion="Compone la respuesta final que consume la SPA",
+    )
+    def _stage_9_componer_respuesta(self) -> str:
         """Stage 9: compone ``ctx.result`` con la shape legacy de la SPA.
 
         Inspecciona ``ctx.tx_result`` para extraer el resumen del lote
@@ -1003,6 +1000,7 @@ class FunctionProcDBSincronizar(FunctionBase):
             # pedir un preview manual extra (mismo patron que Dispositivos).
             "post_sync_preview": self._ctx.post_sync_preview,
         }
+        return "Componer respuesta: sync compuesto"
 
 
 # ============================================================================
@@ -1116,7 +1114,7 @@ def _compute_nmax_ops_for_proc_apply(
 # permanecen aqui el ``ProcSyncContext`` (dataclass entre stages) y las
 # helpers puras (``_proc_tx_b_limpiar``, ``_proc_tx_b_detectar_eliminar_export``,
 # ``_proc_tx_b_detectar_eliminar_read``, ``_proc_tx_b_calcular_apply_maps``,
-# ``_proc_tx_b_construir_ops``, ``_step_summary``).
+# ``_proc_tx_b_construir_ops``).
 # ============================================================================
 
 @dataclass
@@ -1187,7 +1185,7 @@ __all__ = [
 
 
 # ===========================================================================
-# Helpers privadas de ``_stage_7_open_transaction`` (4 fases de Tx B).
+# Helpers privadas de ``_stage_7_abrir_transaccion_tia`` (4 fases de Tx B).
 # Cada una opera sobre el ``ProcSyncContext`` pasado por argumento.
 # Viven aqui (no en la clase) porque son codigo filesystem puro +
 # dispatchs al worker; no necesitan ``self``.
@@ -1404,60 +1402,6 @@ def _proc_tx_b_calcular_apply_maps(
     ctx.apply_pint_map = pint_apply
     ctx.apply_alm_map = alm_apply
     return preal_apply, pint_apply, alm_apply
-
-
-
-def _step_summary(ctx: Any, step_nombre: str) -> str:
-    """Resumen legible del step que acaba de correr (aparece en la SPA)."""
-    if step_nombre == "check_state_commit":
-        return (
-            f"{step_nombre}: "
-            f"{'OK' if ctx.excel_loaded else 'Excel no cargado'}"
-        )
-    if step_nombre == "check_blocks_commit":
-        return (
-            f"{step_nombre}: "
-            f"{'OK' if ctx.bloques_loaded else 'Sin cache de bloques'}"
-        )
-    if step_nombre == "build_slot_maps_commit":
-        if ctx.slot_map is None:
-            return f"{step_nombre}: slot_map no inicializado"
-        # slot_map_size incluye el slot 0 placeholder "NO USAR"
-        # (1 + N_MAX reales). N_MAX es el dato del Excel (sin el
-        # placeholder). Mostrar ambos evita confusion: el operario
-        # espera N_MAX=PReal (el campo del proceso), no el tamano
-        # del slot_map.
-        sm = ctx.slot_map
-        nmax = getattr(sm, "nmax", {}) or {}
-        return (
-            f"{step_nombre}: "
-            f"slot_map(PReal={len(sm.preal)}, PInt={len(sm.pint)}, "
-            f"ALM={len(sm.alm)}) "
-            f"N_MAX(PReal={nmax.get('preal', '?')}, "
-            f"PInt={nmax.get('pint', '?')}, "
-            f"ALM={nmax.get('alm', '?')}) "
-            f"N_MAX_ops={len(ctx.nmax_ops)}"
-        )
-    if step_nombre == "sync_nmax":
-        ops = len(ctx.nmax_ops or [])
-        return f"{step_nombre}: {ops} N_MAX aplicadas (incondicional)"
-    if step_nombre == "wait_consolidation":
-        return f"{step_nombre}: 2s sleep OK"
-    if step_nombre == "compile_proc_blocks":
-        if ctx.compile_ok:
-            return f"{step_nombre}: OK"
-        return f"{step_nombre}: ERROR ({ctx.compile_error})"
-    if step_nombre == "open_transaction":
-        ops = (ctx.tx_result or {}).get("operations_executed", 0)
-        return f"{step_nombre}: {ops} ops aplicadas OK"
-    if step_nombre == "post_preview":
-        return (
-            f"{step_nombre}: "
-            f"{'preview regenerado OK' if ctx.post_sync_preview else 'preview fallo (warning en log)'}"
-        )
-    if step_nombre == "done":
-        return f"{step_nombre}: sync compuesto"
-    return f"{step_nombre}: OK"
 
 
 __all__ = ["FunctionProcSincronizar"]
