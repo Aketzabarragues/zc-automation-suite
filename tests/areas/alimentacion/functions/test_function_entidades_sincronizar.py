@@ -4,8 +4,8 @@ Cubre:
   - Validaciones de on_start (deps inyectadas, plc_name).
   - Creacion del EntidadesSyncContext.
   - on_finish con/sin ctx.
-  - Dispatch de run_step via la tabla STAGES.
-  - Stages 1-2 (export + compute_diff) con tia_client y app_state mockeados.
+  - Steps declarados con ``@step`` (orden de definicion).
+  - Stages 1-2 (export + diff) con tia_client y app_state mockeados.
   - Camino sync: ``execute()`` recorre las 11 etapas sin event loop.
 """
 from __future__ import annotations
@@ -34,19 +34,29 @@ def _make_fb(
     )
 
 
-def test_stages_count_and_unique_names() -> None:
-    """La tabla STAGES tiene 11 entries con nombres unicos."""
+def test_los_steps_declarados_tienen_11_nombres_unicos() -> None:
+    """Los steps declarados con ``@step`` son 11 y con nombres unicos."""
     from areas.alimentacion.functions.function_entidades_sincronizar import (
         FunctionEntidadesSincronizar,
     )
-    assert len(FunctionEntidadesSincronizar.STAGES) == 11
-    nombres = [n for _, n, _ in FunctionEntidadesSincronizar.STAGES]
+    specs = FunctionEntidadesSincronizar.pasos_declarados()
+    assert len(specs) == 11
+    nombres = [s.nombre for s in specs]
     assert len(set(nombres)) == 11
-    # Steps 1..4 esperados
-    assert nombres[0] == "Exportar etiquetas y DB"
-    assert nombres[1] == "Calcular diferencias"
-    assert nombres[2] == "Preparar operaciones"
-    assert nombres[3] == "Aplicar NMAX online (Tx A)"
+    # Las etiquetas visibles que ve el operario, en orden de flujo.
+    assert nombres == [
+        "Exportar etiquetas y DB",
+        "Calcular diferencias",
+        "Preparar operaciones",
+        "Aplicar NMAX online (Tx A)",
+        "Esperar consolidacion TIA",
+        "Re-exportar etiquetas y DB",
+        "Editar XMLs offline",
+        "Aplicar constantes offline (Tx B)",
+        "Compilar bloques",
+        "Aplicar comentarios offline (Tx C)",
+        "Generar preview post-sincronizacion",
+    ]
 
 
 def test_on_start_falla_si_config_manager_es_none() -> None:
@@ -148,34 +158,31 @@ def test_on_finish_vuelca_ctx_result() -> None:
     assert fb.result["operations"] == 3  # 1 const + 1 comment + 1 nmax
 
 
-def test_run_step_falla_si_ctx_no_inicializado() -> None:
-    """Sin on_start, run_step raise RuntimeError claro."""
+def test_el_fb_no_declara_run_step() -> None:
+    """El dispatch lo hace el motor: el FB no overridea ``run_step``."""
+    from core.composition.plc_function_base import FunctionBase
+    from areas.alimentacion.functions.function_entidades_sincronizar import (
+        FunctionEntidadesSincronizar,
+    )
+    assert FunctionEntidadesSincronizar.run_step is FunctionBase.run_step
+
+
+def test_cada_step_declarado_tiene_handler_en_el_fb() -> None:
+    """Cada step declarado apunta a un metodo que el FB expone."""
+    from areas.alimentacion.functions.function_entidades_sincronizar import (
+        FunctionEntidadesSincronizar,
+    )
     fb = _make_fb()
-    with pytest.raises(RuntimeError, match="EntidadesSyncContext no inicializado"):
-        fb.run_step(0)
+    specs = FunctionEntidadesSincronizar.pasos_declarados()
+    assert len(specs) == len(fb.steps)
+    for idx, spec in enumerate(specs):
+        assert fb.steps[idx]["nombre"] == spec.nombre
+        assert fb.steps[idx]["handler"] == spec.metodo
+        assert hasattr(fb, spec.metodo)
 
 
-def test_run_step_falla_si_step_desconocido() -> None:
-    """Si steps contiene un nombre que no esta en STAGES, raise ValueError."""
-    fb = _make_fb()
-    with patch(
-        "areas.alimentacion.functions.function_entidades_sincronizar"
-        ".validate_plc_in_tia"
-    ), patch(
-        "areas.alimentacion.functions.function_entidades_sincronizar"
-        ".validate_plc_in_excel"
-    ), patch(
-        "areas.alimentacion.functions.function_entidades_sincronizar.with_plc"
-    ):
-        fb.on_start(plc_name="ZC_PLC_STD")
-    # Inyectar un step fantasma en la lista de steps.
-    fb.steps = [{"nombre": "Step inventado"}]
-    with pytest.raises(ValueError, match="no esta en STAGES"):
-        fb.run_step(0)
-
-
-def test_run_step_dispatch_via_STAGES_table() -> None:
-    """run_step dispatcha contra la tabla STAGES y llama al handler correcto."""
+def test_el_dispatch_del_motor_invoca_el_handler_del_step() -> None:
+    """El motor invoca el handler declarado y usa su retorno como detail."""
     fb = _make_fb()
     with patch(
         "areas.alimentacion.functions.function_entidades_sincronizar"
@@ -188,16 +195,18 @@ def test_run_step_dispatch_via_STAGES_table() -> None:
     ):
         fb.on_start(plc_name="ZC_PLC_STD")
 
-    # Mockear _stage_1_exportar y verificar que run_step(idx=0) lo llama.
-    fb._stage_1_exportar = MagicMock()  # type: ignore[method-assign]
+    assert fb.steps[0]["handler"] == "_stage_1_exportar_etiquetas_y_db"
 
-    summary = fb.run_step(0)
+    handler = MagicMock(return_value="Exportar etiquetas y DB: OK")
+    fb._stage_1_exportar_etiquetas_y_db = handler  # type: ignore[method-assign]
 
-    fb._stage_1_exportar.assert_called_once()
-    assert "Exportar etiquetas y DB" in summary
+    detail = fb._invoke_step_sync(0)
+
+    handler.assert_called_once()
+    assert detail == "Exportar etiquetas y DB: OK"
 
 
-def test_stage_1_exportar_llama_submit_and_wait_2_veces() -> None:
+def test_stage_1_exportar_etiquetas_y_db_llama_submit_and_wait_2_veces() -> None:
     """Stage 1 llama submit_and_wait 2 veces (export_tables + export_blocks)."""
     fb = _make_fb()
     with patch(
@@ -246,8 +255,9 @@ def test_stage_1_exportar_llama_submit_and_wait_2_veces() -> None:
         )
 
         fb._ctx.tia_client.submit_and_wait.return_value = {"ok": True, "files": []}
-        fb._stage_1_exportar()
+        detail = fb._stage_1_exportar_etiquetas_y_db()
 
+    assert detail.startswith("Exportar etiquetas y DB:")
     dispatch_mock = fb._ctx.tia_client.submit_and_wait
     assert dispatch_mock.call_count == 2
     # Primer call: export_tables.
@@ -264,7 +274,7 @@ def test_stage_1_exportar_llama_submit_and_wait_2_veces() -> None:
     assert call2.args[1]["block_names"] == ["DB6_ENT"]
 
 
-def test_stage_1_exportar_si_worker_falla_sigue_con_warnings() -> None:
+def test_stage_1_exportar_etiquetas_y_db_si_worker_falla_sigue_con_warnings() -> None:
     """Si submit_and_wait retorna None (worker TIA falla), stage 1 emite
     warning y continua (degradacion graciosa)."""
     fb = _make_fb()
@@ -298,15 +308,16 @@ def test_stage_1_exportar_si_worker_falla_sigue_con_warnings() -> None:
         }
 
         fb._ctx.tia_client.submit_and_wait.return_value = None
-        fb._stage_1_exportar()
+        detail = fb._stage_1_exportar_etiquetas_y_db()
 
+    assert detail.startswith("Exportar etiquetas y DB:")
     # 2 warnings: 1 por export_tables, 1 por export_blocks.
     assert len(fb._ctx.warnings) == 2
     assert any("export_tables fallo" in w for w in fb._ctx.warnings)
     assert any("export_blocks fallo" in w for w in fb._ctx.warnings)
 
 
-def test_stage_2_compute_diff_llama_helpers_de_preview() -> None:
+def test_stage_2_calcular_diferencias_llama_helpers_de_preview() -> None:
     """Stage 2 reusa compute_diff_entities + compute_nmax_diff_entidades +
     compute_comments_diff."""
     fb = _make_fb()
@@ -361,8 +372,9 @@ def test_stage_2_compute_diff_llama_helpers_de_preview() -> None:
         sdpair.return_value.dcl.exists.return_value = False
         sdpair.return_value.res.exists.return_value = False
 
-        fb._stage_2_compute_diff()
+        detail = fb._stage_2_calcular_diferencias()
 
+    assert detail.startswith("Calcular diferencias:")
     assert cd.called
     assert cnm.called
     assert cc.called
@@ -394,12 +406,52 @@ def test_entidades_sync_context_defaults() -> None:
     assert ctx.post_sync_preview is None
 
 
-def test_run_step_es_sync_no_coroutine() -> None:
-    """El FB ya no es una corrutina: run_step es sync (camino OB1)."""
+def test_los_steps_declarados_son_sync() -> None:
+    """Los steps declarados con ``@step`` son sync (camino OB1)."""
+    from areas.alimentacion.functions.function_entidades_sincronizar import (
+        FunctionEntidadesSincronizar,
+    )
+    assert not inspect.iscoroutinefunction(FunctionEntidadesSincronizar.run_step)
+    for spec in FunctionEntidadesSincronizar.pasos_declarados():
+        assert not inspect.iscoroutinefunction(
+            getattr(FunctionEntidadesSincronizar, spec.metodo)
+        ), f"{spec.metodo} debe ser sync"
+
+
+def test_los_details_de_los_steps_empiezan_con_su_nombre_visible() -> None:
+    """Cada step devuelve un detail que empieza por su etiqueta visible.
+
+    El detail lo devuelve el propio step (lo que ve el operario en la
+    barra de progreso): la etiqueta visible del step seguida del resumen
+    de lo que ha hecho.
+    """
     fb = _make_fb()
-    assert not inspect.iscoroutinefunction(fb.run_step)
-    assert not inspect.iscoroutinefunction(fb._stage_1_exportar)
-    assert not inspect.iscoroutinefunction(fb._stage_11_post_preview)
+    with patch(
+        "areas.alimentacion.functions.function_entidades_sincronizar"
+        ".validate_plc_in_tia"
+    ), patch(
+        "areas.alimentacion.functions.function_entidades_sincronizar"
+        ".validate_plc_in_excel"
+    ), patch(
+        "areas.alimentacion.functions.function_entidades_sincronizar.with_plc"
+    ):
+        fb.on_start(plc_name="ZC_PLC_STD")
+
+    # Steps que no tocan TIA: se pueden ejecutar tal cual.
+    detalles = {
+        "Preparar operaciones": fb._stage_3_preparar_operaciones(),
+        "Aplicar NMAX online (Tx A)": fb._stage_4_aplicar_nmax_online_tx_a(),
+        "Esperar consolidacion TIA": fb._stage_5_esperar_consolidacion_tia(),
+        "Aplicar constantes offline (Tx B)": (
+            fb._stage_8_aplicar_constantes_offline_tx_b()
+        ),
+        "Compilar bloques": fb._stage_9_compilar_bloques(),
+        "Aplicar comentarios offline (Tx C)": (
+            fb._stage_10_aplicar_comentarios_offline_tx_c()
+        ),
+    }
+    for nombre, detail in detalles.items():
+        assert detail.startswith(f"{nombre}:"), (nombre, detail)
 
 
 def test_execute_sync_recorre_las_11_etapas() -> None:
@@ -428,8 +480,8 @@ def test_execute_sync_recorre_las_11_etapas() -> None:
     ):
         # Mockear los 11 handlers: el test verifica el ciclo del
         # state machine, no la logica de cada stage.
-        for _idx, _nombre, attr in FunctionEntidadesSincronizar.STAGES:
-            setattr(fb, attr, MagicMock())
+        for spec in FunctionEntidadesSincronizar.pasos_declarados():
+            setattr(fb, spec.metodo, MagicMock())
 
         fb.execute(plc_name="ZC_PLC_STD")
 

@@ -1,13 +1,13 @@
 """Tests para stages 5-11 del FB entities_sincronizar (D.3 + D.4 + D.5 + D.6).
 
 Cubre:
-  - stage_5_wait_consolidation: sleep solo si hay NMAX op.
-  - stage_6_exportar_post_tx_a: re-export 2 submit_and_wait solo si hay NMAX op.
+  - stage_5_esperar_consolidacion_tia: sleep solo si hay NMAX op.
+  - stage_6_re_exportar_etiquetas_y_db: re-export 2 submit_and_wait solo si hay NMAX op.
   - stage_7_editar_xmls_offline: copytree + PlcUserConstantModifier + commit_array_comments.
-  - stage_8_tx_b_constants: execute_transactional_batch con import_plc_tags_xml.
+  - stage_8_aplicar_constantes_offline_tx_b: execute_transactional_batch con import_plc_tags_xml.
   - stage_9_compilar_bloques: compile_blocks solo si hubo NMAX op.
-  - stage_10_tx_c_comments: execute_transactional_batch con import_block.
-  - stage_11_post_preview: re-export + recompute unified diff.
+  - stage_10_aplicar_comentarios_offline_tx_c: execute_transactional_batch con import_block.
+  - stage_11_generar_preview_post_sincronizacion: re-export + recompute unified diff.
 """
 from __future__ import annotations
 
@@ -84,7 +84,7 @@ def test_stage_5_sin_nmax_op_no_llama_sleep() -> None:
         "areas.alimentacion.functions.function_entidades_sincronizar"
         ".time.sleep",
     ) as sleep_mock:
-        fb._stage_5_wait_consolidation()
+        fb._stage_5_esperar_consolidacion_tia()
     sleep_mock.assert_not_called()
 
 
@@ -98,7 +98,7 @@ def test_stage_5_con_nmax_op_llama_sleep_2s() -> None:
         "areas.alimentacion.functions.function_entidades_sincronizar"
         ".time.sleep",
     ) as sleep_mock:
-        fb._stage_5_wait_consolidation()
+        fb._stage_5_esperar_consolidacion_tia()
     sleep_mock.assert_called_once_with(2.0)
 
 
@@ -116,7 +116,7 @@ def test_stage_6_sin_nmax_op_no_re_exporta() -> None:
     fb._ctx.sync_bloques_export = Path("sync_bloques_export")
 
     fb._ctx.tia_client.submit_and_wait.reset_mock()
-    fb._stage_6_exportar_post_tx_a()
+    fb._stage_6_re_exportar_etiquetas_y_db()
     assert fb._ctx.tia_client.submit_and_wait.call_count == 0
 
 
@@ -130,7 +130,8 @@ def test_stage_6_con_nmax_op_llama_submit_and_wait_2_veces() -> None:
 
     dispatch_mock = fb._ctx.tia_client.submit_and_wait
     dispatch_mock.return_value = {"ok": True}
-    fb._stage_6_exportar_post_tx_a()
+    detail = fb._stage_6_re_exportar_etiquetas_y_db()
+    assert detail.startswith("Re-exportar etiquetas y DB:")
     assert dispatch_mock.call_count == 2
     assert dispatch_mock.call_args_list[0].args[0] == "export_tables"
     assert dispatch_mock.call_args_list[1].args[0] == "export_blocks"
@@ -145,7 +146,7 @@ def test_stage_6_si_worker_falla_sigue_con_warnings() -> None:
     fb._ctx.sync_bloques_export = Path("sync_bloques_export")
 
     fb._ctx.tia_client.submit_and_wait.return_value = None
-    fb._stage_6_exportar_post_tx_a()
+    fb._stage_6_re_exportar_etiquetas_y_db()
     assert any("Re-export post Tx A fallo" in w for w in fb._ctx.warnings)
 
 
@@ -263,7 +264,7 @@ def test_stage_8_sin_constant_ops_no_llama_dispatch(tmp_path: Path) -> None:
     fb._ctx.constant_ops = []
 
     fb._ctx.tia_client.submit_and_wait.reset_mock()
-    fb._stage_8_tx_b_constants()
+    fb._stage_8_aplicar_constantes_offline_tx_b()
     assert fb._ctx.tia_client.submit_and_wait.call_count == 0
 
 
@@ -280,7 +281,7 @@ def test_stage_8_con_constant_ops_llama_execute_batch(tmp_path: Path) -> None:
 
     dispatch_mock = fb._ctx.tia_client.submit_and_wait
     dispatch_mock.return_value = {"ok": True, "result": "OK"}
-    fb._stage_8_tx_b_constants()
+    fb._stage_8_aplicar_constantes_offline_tx_b()
 
     assert dispatch_mock.call_count == 1
     call = dispatch_mock.call_args_list[0]
@@ -370,7 +371,7 @@ def test_stage_10_sin_comment_ops_no_llama_dispatch(tmp_path: Path) -> None:
     fb._ctx.comment_ops = []
 
     fb._ctx.tia_client.submit_and_wait.reset_mock()
-    fb._stage_10_tx_c_comments()
+    fb._stage_10_aplicar_comentarios_offline_tx_c()
     assert fb._ctx.tia_client.submit_and_wait.call_count == 0
 
 
@@ -385,8 +386,9 @@ def test_stage_10_con_comment_ops_llama_import_block(tmp_path: Path) -> None:
 
     dispatch_mock = fb._ctx.tia_client.submit_and_wait
     dispatch_mock.return_value = {"ok": True, "result": "OK"}
-    fb._stage_10_tx_c_comments()
+    detail = fb._stage_10_aplicar_comentarios_offline_tx_c()
 
+    assert detail.startswith("Aplicar comentarios offline (Tx C):")
     assert dispatch_mock.call_count == 1
     call = dispatch_mock.call_args_list[0]
     assert call.args[0] == "execute_transactional_batch"
@@ -398,7 +400,7 @@ def test_stage_10_con_comment_ops_llama_import_block(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_stage_11_post_preview_recompila_ops(tmp_path: Path) -> None:
+def test_stage_11_generar_preview_post_sincronizacion_recompila_ops(tmp_path: Path) -> None:
     """Stage 11 re-exporta FLAT + recomputa ops, asigna post_sync_preview."""
     fb = _make_fb()
     _bootstrap_fb(fb)
@@ -426,8 +428,9 @@ def test_stage_11_post_preview_recompila_ops(tmp_path: Path) -> None:
             return_value={"N_MAX_ENTIDAD": 16},
         ):
             fb._ctx.tia_client.submit_and_wait.return_value = {"ok": True}
-            fb._stage_11_post_preview()
+            detail = fb._stage_11_generar_preview_post_sincronizacion()
 
+    assert detail.startswith("Generar preview post-sincronizacion:")
     dispatch_mock = fb._ctx.tia_client.submit_and_wait
     assert dispatch_mock.call_count == 2
     assert fb._ctx.post_sync_preview is not None

@@ -1,8 +1,9 @@
-"""Tests para stage 3 (preparar_ops) y stage 4 (tx_a_nmax) del FB entities_sincronizar.
+"""Tests para stage 3 (preparar_operaciones) y stage 4 (aplicar_nmax_online_tx_a)
+del FB entities_sincronizar.
 
 Cubre:
-  - stage_3_preparar_ops: walk entities_ops + nmax_block → 3 listas
-  - stage_4_tx_a_nmax: submit_and_wait con execute_transactional_batch (no-op si no hay op)
+  - stage_3_preparar_operaciones: walk entities_ops + nmax_block → 3 listas
+  - stage_4_aplicar_nmax_online_tx_a: submit_and_wait con execute_transactional_batch (no-op si no hay op)
 """
 from __future__ import annotations
 
@@ -43,7 +44,7 @@ def _bootstrap_fb(fb: "FunctionEntidadesSincronizar") -> None:
         fb.on_start(plc_name="ZC_PLC_STD")
 
 
-def test_stage_3_preparar_ops_constante_agregar() -> None:
+def test_stage_3_preparar_operaciones_constante_agregar() -> None:
     """Op add en entities_ops → 1 const op (add)."""
     fb = _make_fb()
     _bootstrap_fb(fb)
@@ -57,7 +58,7 @@ def test_stage_3_preparar_ops_constante_agregar() -> None:
     ]
     fb._ctx.nmax_block = {"todos": [], "summary": {}}
 
-    fb._stage_3_preparar_ops()
+    fb._stage_3_preparar_operaciones()
 
     assert len(fb._ctx.constant_ops) == 1
     op = fb._ctx.constant_ops[0]
@@ -67,7 +68,7 @@ def test_stage_3_preparar_ops_constante_agregar() -> None:
     assert op["comment"] == "Linea 1"
 
 
-def test_stage_3_preparar_ops_constante_eliminar() -> None:
+def test_stage_3_preparar_operaciones_constante_eliminar() -> None:
     """Op delete en entities_ops → 1 const op (remove)."""
     fb = _make_fb()
     _bootstrap_fb(fb)
@@ -80,7 +81,7 @@ def test_stage_3_preparar_ops_constante_eliminar() -> None:
     ]
     fb._ctx.nmax_block = {"todos": [], "summary": {}}
 
-    fb._stage_3_preparar_ops()
+    fb._stage_3_preparar_operaciones()
 
     assert len(fb._ctx.constant_ops) == 1
     op = fb._ctx.constant_ops[0]
@@ -88,7 +89,7 @@ def test_stage_3_preparar_ops_constante_eliminar() -> None:
     assert op["plc_tag"] == "Constant_1"
 
 
-def test_stage_3_preparar_ops_constante_renombrar() -> None:
+def test_stage_3_preparar_operaciones_constante_renombrar() -> None:
     """Op update_comment en entities_ops → 1 const op (rename_comment)."""
     fb = _make_fb()
     _bootstrap_fb(fb)
@@ -103,7 +104,7 @@ def test_stage_3_preparar_ops_constante_renombrar() -> None:
     ]
     fb._ctx.nmax_block = {"todos": [], "summary": {}}
 
-    fb._stage_3_preparar_ops()
+    fb._stage_3_preparar_operaciones()
 
     assert len(fb._ctx.constant_ops) == 1
     op = fb._ctx.constant_ops[0]
@@ -112,19 +113,19 @@ def test_stage_3_preparar_ops_constante_renombrar() -> None:
     assert op["new_comment"] == "NO USAR. NO ELIMINAR."
 
 
-def test_stage_3_preparar_ops_sin_ops_no_genera_op() -> None:
+def test_stage_3_preparar_operaciones_sin_ops_no_genera_op() -> None:
     """Sin entities_ops → 0 const ops."""
     fb = _make_fb()
     _bootstrap_fb(fb)
     fb._ctx.entities_ops = []
     fb._ctx.nmax_block = {"todos": [], "summary": {}}
 
-    fb._stage_3_preparar_ops()
+    fb._stage_3_preparar_operaciones()
 
     assert fb._ctx.constant_ops == []
 
 
-def test_stage_3_preparar_ops_sin_cambios_es_noop() -> None:
+def test_stage_3_preparar_operaciones_sin_cambios_es_noop() -> None:
     """D.8.12: op ``sin_cambios`` es informativa; el sync FB no la aplica
     (constant_ops y comment_ops quedan vacias para esa entity).
     """
@@ -137,14 +138,14 @@ def test_stage_3_preparar_ops_sin_cambios_es_noop() -> None:
     fb._ctx.desired_entities = ()  # sin entities del Excel -> comment_ops vacias
     fb._ctx.nmax_block = {"todos": [], "summary": {}}
 
-    fb._stage_3_preparar_ops()
+    fb._stage_3_preparar_operaciones()
 
     # El sync ignora las ops sin_cambios: 0 ops de constant ni comment.
     assert fb._ctx.constant_ops == []
     assert fb._ctx.comment_ops == []
 
 
-def test_stage_3_preparar_ops_mismo_plc_tag_distinto_value_split() -> None:
+def test_stage_3_preparar_operaciones_mismo_plc_tag_distinto_value_split() -> None:
     """delete + add (mismo plc_tag, value distinto) en entities_ops -> 2 const ops."""
     fb = _make_fb()
     _bootstrap_fb(fb)
@@ -159,7 +160,7 @@ def test_stage_3_preparar_ops_mismo_plc_tag_distinto_value_split() -> None:
     ]
     fb._ctx.nmax_block = {"todos": [], "summary": {}}
 
-    fb._stage_3_preparar_ops()
+    fb._stage_3_preparar_operaciones()
 
     assert len(fb._ctx.constant_ops) == 2
     # Orden: remove primero, add después (evita colision de plc_tag en el XML).
@@ -170,7 +171,7 @@ def test_stage_3_preparar_ops_mismo_plc_tag_distinto_value_split() -> None:
     assert fb._ctx.constant_ops[1]["uid"] == 1
 
 
-def test_stage_3_preparar_ops_nmax_op_si_hay_actualizar() -> None:
+def test_stage_3_preparar_operaciones_nmax_op_si_hay_actualizar() -> None:
     """Si nmax_block.todos tiene 1 entry con status='actualizar', nmax_op se popula."""
     fb = _make_fb()
     _bootstrap_fb(fb)
@@ -182,7 +183,7 @@ def test_stage_3_preparar_ops_nmax_op_si_hay_actualizar() -> None:
         "summary": {"actualizar": 1, "sin_cambios": 0},
     }
 
-    fb._stage_3_preparar_ops()
+    fb._stage_3_preparar_operaciones()
 
     assert fb._ctx.nmax_op is not None
     assert fb._ctx.nmax_op["command"] == "update_user_constant_value"
@@ -191,7 +192,7 @@ def test_stage_3_preparar_ops_nmax_op_si_hay_actualizar() -> None:
     assert fb._ctx.nmax_op["args"]["table_name"] == "0_Config_Generales"
 
 
-def test_stage_3_preparar_ops_nmax_op_none_si_sin_cambios() -> None:
+def test_stage_3_preparar_operaciones_nmax_op_none_si_sin_cambios() -> None:
     """Si nmax_block.todos esta vacio o sin 'actualizar', nmax_op es None."""
     fb = _make_fb()
     _bootstrap_fb(fb)
@@ -201,12 +202,12 @@ def test_stage_3_preparar_ops_nmax_op_none_si_sin_cambios() -> None:
         "summary": {"actualizar": 0, "sin_cambios": 1},
     }
 
-    fb._stage_3_preparar_ops()
+    fb._stage_3_preparar_operaciones()
 
     assert fb._ctx.nmax_op is None
 
 
-def test_stage_3_preparar_ops_comment_ops_para_slot_con_valor() -> None:
+def test_stage_3_preparar_operaciones_comment_ops_para_slot_con_valor() -> None:
     """Entities del Excel con plc_comentario no vacio -> 1 comment op por entity."""
     from dataclasses import dataclass
 
@@ -225,14 +226,14 @@ def test_stage_3_preparar_ops_comment_ops_para_slot_con_valor() -> None:
     ]
     fb._ctx.nmax_block = {"todos": [], "summary": {}}
 
-    fb._stage_3_preparar_ops()
+    fb._stage_3_preparar_operaciones()
 
     assert len(fb._ctx.comment_ops) == 2
     assert fb._ctx.comment_ops[0] == {"kind": "update_comment", "slot": 1, "new_comment": "Linea 1"}
     assert fb._ctx.comment_ops[1] == {"kind": "update_comment", "slot": 4, "new_comment": "Linea 4"}
 
 
-def test_stage_3_preparar_ops_ignora_slot_sin_comment_excel() -> None:
+def test_stage_3_preparar_operaciones_ignora_slot_sin_comment_excel() -> None:
     """Entities sin plc_comentario (vacio) no generan comment op (preservacion)."""
     from dataclasses import dataclass
 
@@ -250,26 +251,26 @@ def test_stage_3_preparar_ops_ignora_slot_sin_comment_excel() -> None:
     ]
     fb._ctx.nmax_block = {"todos": [], "summary": {}}
 
-    fb._stage_3_preparar_ops()
+    fb._stage_3_preparar_operaciones()
 
     assert fb._ctx.constant_ops == []
     assert fb._ctx.comment_ops == []
 
 
-def test_stage_4_tx_a_nmax_sin_op_es_noop() -> None:
+def test_stage_4_aplicar_nmax_online_tx_a_sin_op_es_noop() -> None:
     """Sin nmax_op, stage 4 no llama submit_and_wait (no hay cambios)."""
     fb = _make_fb()
     _bootstrap_fb(fb)
     fb._ctx.nmax_op = None
 
     fb._ctx.tia_client.submit_and_wait.reset_mock()
-    fb._stage_4_tx_a_nmax()
+    fb._stage_4_aplicar_nmax_online_tx_a()
 
     assert fb._ctx.tia_client.submit_and_wait.call_count == 0
     assert fb._ctx.nmax_result is None
 
 
-def test_stage_4_tx_a_nmax_llama_execute_transactional_batch() -> None:
+def test_stage_4_aplicar_nmax_online_tx_a_llama_execute_transactional_batch() -> None:
     """Con nmax_op, stage 4 llama execute_transactional_batch con 1 op y
     luego compile_blocks defensivo sobre el DB."""
     fb = _make_fb()
@@ -288,8 +289,9 @@ def test_stage_4_tx_a_nmax_llama_execute_transactional_batch() -> None:
     dispatch_mock.return_value = {
         "updated": True, "constant": "N_MAX_ENTIDAD", "value": 20,
     }
-    fb._stage_4_tx_a_nmax()
+    detail = fb._stage_4_aplicar_nmax_online_tx_a()
 
+    assert detail.startswith("Aplicar NMAX online (Tx A):")
     # Tx A + compile defensivo.
     assert dispatch_mock.call_count == 2
     tx_a_call = dispatch_mock.call_args_list[0]
@@ -303,7 +305,7 @@ def test_stage_4_tx_a_nmax_llama_execute_transactional_batch() -> None:
     assert fb._ctx.nmax_result == {"updated": True, "constant": "N_MAX_ENTIDAD", "value": 20}
 
 
-def test_stage_4_tx_a_nmax_compile_defensivo_si_falla_sigue() -> None:
+def test_stage_4_aplicar_nmax_online_tx_a_compile_defensivo_si_falla_sigue() -> None:
     """Si el compile defensivo lanza excepcion, stage 4 no rompe
     (log warning y sigue). Stage 9 compila de nuevo tras Tx C."""
     fb = _make_fb()
@@ -323,13 +325,13 @@ def test_stage_4_tx_a_nmax_compile_defensivo_si_falla_sigue() -> None:
         {"updated": True, "constant": "N_MAX_ENTIDAD", "value": 20},
         RuntimeError("compile rejected"),
     ]
-    fb._stage_4_tx_a_nmax()
+    fb._stage_4_aplicar_nmax_online_tx_a()
 
     # No raise, sigue. fb._ctx.nmax_result queda con el dict del Tx A OK.
     assert fb._ctx.nmax_result == {"updated": True, "constant": "N_MAX_ENTIDAD", "value": 20}
 
 
-def test_stage_4_tx_a_nmax_si_worker_falla_raise() -> None:
+def test_stage_4_aplicar_nmax_online_tx_a_si_worker_falla_raise() -> None:
     """Si submit_and_wait retorna None (worker TIA falla), raise RuntimeError."""
     fb = _make_fb()
     _bootstrap_fb(fb)
@@ -345,7 +347,7 @@ def test_stage_4_tx_a_nmax_si_worker_falla_raise() -> None:
 
     fb._ctx.tia_client.submit_and_wait.return_value = None
     with pytest.raises(RuntimeError, match="Tx A .NMAX update"):
-        fb._stage_4_tx_a_nmax()
+        fb._stage_4_aplicar_nmax_online_tx_a()
 
 
 # ============================================================================

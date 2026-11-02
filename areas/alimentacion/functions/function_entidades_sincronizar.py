@@ -41,18 +41,19 @@ El ``self.result`` se popula con la shape legacy-compatible con Disp::
       'comments_sync':      dict,
     }
 
-Steps (11):
-  - exportar
-  - compute_diff
-  - preparar_ops
-  - tx_a_nmax                (online puro)
-  - wait_consolidation
-  - exportar_post_tx_a
-  - editar_xmls_offline
-  - tx_b_constants           (offline puro)
-  - compilar_bloques
-  - tx_c_comments            (offline puro)
-  - post_preview
+Steps (11). Cada step se declara encima de su propio codigo con
+``@step`` y devuelve su detail:
+  - Exportar etiquetas y DB              -> _stage_1_exportar_etiquetas_y_db
+  - Calcular diferencias                 -> _stage_2_calcular_diferencias
+  - Preparar operaciones                 -> _stage_3_preparar_operaciones
+  - Aplicar NMAX online (Tx A)           -> _stage_4_aplicar_nmax_online_tx_a
+  - Esperar consolidacion TIA            -> _stage_5_esperar_consolidacion_tia
+  - Re-exportar etiquetas y DB           -> _stage_6_re_exportar_etiquetas_y_db
+  - Editar XMLs offline                  -> _stage_7_editar_xmls_offline
+  - Aplicar constantes offline (Tx B)    -> _stage_8_aplicar_constantes_offline_tx_b
+  - Compilar bloques                     -> _stage_9_compilar_bloques
+  - Aplicar comentarios offline (Tx C)   -> _stage_10_aplicar_comentarios_offline_tx_c
+  - Generar preview post-sincronizacion  -> _stage_11_generar_preview_post_sincronizacion
 """
 from __future__ import annotations
 
@@ -62,6 +63,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from core.composition.fb_step import step
 from core.composition.plc_function_base import FunctionBase
 from core.helpers.tia.active_cache import get_entidades, get_nmax_entidades
 from core.helpers.tia.validate_plc_in_excel import validate_plc_in_excel
@@ -95,25 +97,6 @@ class FunctionEntidadesSincronizar(FunctionBase):
     # array ENT[] redimensionado. 600s cubre holgadamente.
     STEP_TIMEOUT_S: float = 600.0
 
-    # Tabla declarativa de stages. Cada tupla: (idx, "nombre_step",
-    # "atributo_metodo_en_el_FB"). El ``run_step`` dispatcha contra
-    # esta tabla en vez de un ``match``/``case`` inline, para que el
-    # flujo sea legible arriba de la clase y los tests puedan
-    # mockear ``fb._stage_N_<nombre>`` directamente.
-    STAGES: list[tuple[int, str, str]] = [
-        (1,  "Exportar etiquetas y DB",                "_stage_1_exportar"),
-        (2,  "Calcular diferencias",                   "_stage_2_compute_diff"),
-        (3,  "Preparar operaciones",                   "_stage_3_preparar_ops"),
-        (4,  "Aplicar NMAX online (Tx A)",             "_stage_4_tx_a_nmax"),
-        (5,  "Esperar consolidacion TIA",              "_stage_5_wait_consolidation"),
-        (6,  "Re-exportar etiquetas y DB",             "_stage_6_exportar_post_tx_a"),
-        (7,  "Editar XMLs offline",                    "_stage_7_editar_xmls_offline"),
-        (8,  "Aplicar constantes offline (Tx B)",      "_stage_8_tx_b_constants"),
-        (9,  "Compilar bloques",                       "_stage_9_compilar_bloques"),
-        (10, "Aplicar comentarios offline (Tx C)",     "_stage_10_tx_c_comments"),
-        (11, "Generar preview post-sincronizacion",    "_stage_11_post_preview"),
-    ]
-
     # ==================================================================
     # CONSTRUCTOR
     # ==================================================================
@@ -122,7 +105,6 @@ class FunctionEntidadesSincronizar(FunctionBase):
         self,
         nombre: str = "entidades_sincronizar",
         titulo: str = "Sincronizar entidades contra PLC",
-        steps: list[dict[str, Any]] | None = None,
         tracker: Any = None,
         # ── ZONA 0: deps comunes ──
         config_manager: Any = None,
@@ -134,19 +116,6 @@ class FunctionEntidadesSincronizar(FunctionBase):
         super().__init__(
             nombre=nombre,
             titulo=titulo,
-            steps=steps if steps is not None else [
-                {"nombre": "Exportar etiquetas y DB"},
-                {"nombre": "Calcular diferencias"},
-                {"nombre": "Preparar operaciones"},
-                {"nombre": "Aplicar NMAX online (Tx A)"},
-                {"nombre": "Esperar consolidacion TIA"},
-                {"nombre": "Re-exportar etiquetas y DB"},
-                {"nombre": "Editar XMLs offline"},
-                {"nombre": "Aplicar constantes offline (Tx B)"},
-                {"nombre": "Compilar bloques"},
-                {"nombre": "Aplicar comentarios offline (Tx C)"},
-                {"nombre": "Generar preview post-sincronizacion"},
-            ],
             tracker=tracker,
         )
         # ZONA 0: deps inyectadas.
@@ -206,35 +175,6 @@ class FunctionEntidadesSincronizar(FunctionBase):
         logger.debug(
             f"[{self.nombre}] Iniciando sync transaccional de entidades "
             f"para {self._plc_name} (11 etapas)"
-        )
-
-    # ==================================================================
-    # HOOK 2: run_step  (ZONA 4: state machine -> dispatch al helper)
-    # ==================================================================
-
-    def run_step(self, idx: int, **params: Any) -> str:
-        """Dispatch del FB step ``idx`` a su handler en este FB.
-
-        Aqui vive la state machine: cada step llama a UN metodo del FB
-        (``_stage_N_<nombre>``) contra el ``EntidadesSyncContext``
-        compartido. El lookup es por ``nombre`` (no por ``idx``), mismo
-        patron que ``FunctionDispSincronizar`` y ``FunctionEntidadesGenerarPreview``.
-        """
-        if self._ctx is None:
-            raise RuntimeError(
-                "EntidadesSyncContext no inicializado. on_start() no se ejecuto "
-                "(o el FB no recibio un plc_name valido)."
-            )
-
-        step_nombre = self.steps[idx]["nombre"]
-        for _s_idx, s_nombre, s_attr in self.STAGES:
-            if s_nombre == step_nombre:
-                handler = getattr(self, s_attr)
-                handler()
-                return _step_summary(self._ctx, s_nombre)
-        raise ValueError(
-            f"step {idx} ({step_nombre!r}) no esta en STAGES "
-            f"de FunctionEntidadesSincronizar"
         )
 
     # ==================================================================
@@ -305,14 +245,18 @@ class FunctionEntidadesSincronizar(FunctionBase):
             area_set_preview_disp(app_cache, "alimentacion", post_sync_preview)
 
     # ==================================================================
-    # Stages del FB (ZONA 4: 11 metodos privados numerados).
+    # LOS STEPS
     #
-    # Cada ``_stage_N_<nombre>`` corresponde a UNA entrada de la tabla
-    # ``STAGES`` arriba. Si cambias el flujo del stage, cambia la
-    # tabla tambien.
+    # Cada ``_stage_N_<slug>`` es un step declarado con ``@step``. El
+    # motor los recoge en orden de definicion (que es el orden del
+    # flujo) y hace el dispatch. El metodo devuelve su detail.
     # ==================================================================
 
-    def _stage_1_exportar(self) -> None:
+    @step(
+        "Exportar etiquetas y DB",
+        descripcion="Exporta del PLC las 2 tablas de etiquetas y el bloque DB6_ENT",
+    )
+    def _stage_1_exportar_etiquetas_y_db(self) -> str:
         """Stage 1: limpia ``sincronizar/`` y exporta las 2 tablas + el DB.
 
         Layout usado (.build_cache/alimentacion/entidades/sincronizar/):
@@ -408,13 +352,23 @@ class FunctionEntidadesSincronizar(FunctionBase):
                 f"  {db_name} exportado a {self._ctx.sync_bloques_export}"
             )
 
-    def _stage_2_compute_diff(self) -> None:
+        n_warn = len(self._ctx.warnings)
+        return (
+            f"Exportar etiquetas y DB: 2 tablas + DB6_ENT exportados "
+            f"({n_warn} warnings)"
+        )
+
+    @step(
+        "Calcular diferencias",
+        descripcion="Compara el PLC con el Excel: constantes, N_MAX y comentarios",
+    )
+    def _stage_2_calcular_diferencias(self) -> str:
         """Stage 2: calcula el diff completo (NMAX + constantes + comments).
 
         Reutiliza los helpers ``compute_diff_entities`` (devuelve
         ``ops: list[dict]`` en orden de aplicacion),
         ``compute_nmax_diff_entidades`` y ``compute_comments_diff`` del
-        preview FB. Stage 3 (preparar_ops) dispatcha las ops por kind.
+        preview FB. Stage 3 (preparar_operaciones) dispatcha las ops por kind.
         """
         assert self._ctx.sync_variables_export is not None
         assert self._ctx.sync_bloques_export is not None
@@ -513,7 +467,23 @@ class FunctionEntidadesSincronizar(FunctionBase):
             "missing_xml": diff_com.missing_xml,
         }
 
-    def _stage_3_preparar_ops(self) -> None:
+        adds = len(self._ctx.entities_block.get("added", []))
+        rems = len(self._ctx.entities_block.get("removed", []))
+        renames = len(self._ctx.entities_block.get("renamed", {}))
+        c_adds = len(self._ctx.comments_block.get("added", []))
+        c_updates = len(self._ctx.comments_block.get("updated", []))
+        nmax_update = self._ctx.nmax_block.get("summary", {}).get("actualizar", 0)
+        return (
+            f"Calcular diferencias: {adds} const adds, {rems} const removes, "
+            f"{renames} renames; {c_adds} comments adds, "
+            f"{c_updates} comments updates; NMAX={nmax_update}"
+        )
+
+    @step(
+        "Preparar operaciones",
+        descripcion="Agrupa las ops en NMAX (Tx A), constantes (Tx B) y comentarios (Tx C)",
+    )
+    def _stage_3_preparar_operaciones(self) -> str:
         """Stage 3: walk ``entities_ops`` y agrupa ops para Tx A / B / C.
 
         Output (mutaciones de ``self._ctx``):
@@ -543,7 +513,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
             and not has_comment_op
         ):
             # Sin ops de entities, NMAX update ni comment ops: stage no-op.
-            return
+            return "Preparar operaciones: sin cambios (0 ops)"
 
         # ── 1/3 NMAX op ──
         # El NMAX_ENTIDAD solo cambia si hay 1+ entradas en
@@ -625,7 +595,19 @@ class FunctionEntidadesSincronizar(FunctionBase):
                 "new_comment": comment,
             })
 
-    def _stage_4_tx_a_nmax(self) -> None:
+        n_const = len(self._ctx.constant_ops)
+        n_com = len(self._ctx.comment_ops)
+        n_nmax = 1 if self._ctx.nmax_op else 0
+        return (
+            f"Preparar operaciones: {n_const} const ops + "
+            f"{n_com} comment ops + {n_nmax} NMAX op"
+        )
+
+    @step(
+        "Aplicar NMAX online (Tx A)",
+        descripcion="Aplica el NMAX online en transaccion (redimensiona el array ENT[])",
+    )
+    def _stage_4_aplicar_nmax_online_tx_a(self) -> str:
         """Stage 4: Tx A online puro para el NMAX update.
 
         Cambia el value de la PlcUserConstant ``N_MAX_ENTIDAD`` en
@@ -648,7 +630,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
         Stage no-op si no hay NMAX op.
         """
         if not self._ctx.nmax_op:
-            return
+            return "Aplicar NMAX online (Tx A): sin cambios"
 
         logger.debug(
             f"[{self.nombre}] Tx A online: {self._ctx.nmax_op}"
@@ -697,7 +679,18 @@ class FunctionEntidadesSincronizar(FunctionBase):
                 f"Stage 9 compila de nuevo."
             )
 
-    def _stage_5_wait_consolidation(self) -> None:
+        constant_name = self._ctx.nmax_op["args"]["constant_name"]
+        new_value = self._ctx.nmax_op["args"]["new_value"]
+        return (
+            f"Aplicar NMAX online (Tx A): {constant_name} "
+            f"value -> {new_value}"
+        )
+
+    @step(
+        "Esperar consolidacion TIA",
+        descripcion="Espera a que TIA consolide el redimensionado del array ENT[]",
+    )
+    def _stage_5_esperar_consolidacion_tia(self) -> str:
         """Stage 5: sleep para que TIA consolide el NMAX update de Tx A.
 
         Constante ``TIA_CONSOLIDATION_SLEEP_S = 2.0s`` (mismo patron que
@@ -709,14 +702,22 @@ class FunctionEntidadesSincronizar(FunctionBase):
         Si no hubo NMAX op (no hay cambios), el stage es no-op.
         """
         if not self._ctx.nmax_op:
-            return
+            return "Esperar consolidacion TIA: sin cambios"
         logger.debug(
             f"[{self.nombre}] Esperando consolidacion TIA tras Tx A "
             f"({TIA_CONSOLIDATION_SLEEP_S}s)..."
         )
         time.sleep(TIA_CONSOLIDATION_SLEEP_S)
+        return (
+            f"Esperar consolidacion TIA: {TIA_CONSOLIDATION_SLEEP_S}s "
+            f"de consolidacion"
+        )
 
-    def _stage_6_exportar_post_tx_a(self) -> None:
+    @step(
+        "Re-exportar etiquetas y DB",
+        descripcion="Re-exporta las tablas y el DB tras el cambio de NMAX",
+    )
+    def _stage_6_re_exportar_etiquetas_y_db(self) -> str:
         """Stage 6: re-export FLAT tras Tx A (DB6_ENT con tamanyo actualizado).
 
         Mismo patron que stage 1 pero llamado despues de Tx A + wait.
@@ -727,7 +728,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
         Si Tx A fue no-op (no hubo NMAX op), el stage es no-op.
         """
         if not self._ctx.nmax_op:
-            return
+            return "Re-exportar etiquetas y DB: sin cambios"
 
         logger.debug(
             f"[{self.nombre}] Re-exportando tras Tx A NMAX..."
@@ -750,7 +751,10 @@ class FunctionEntidadesSincronizar(FunctionBase):
             )
             logger.warning(warning)
             self._ctx.warnings.append(warning)
-            return
+            return (
+                f"Re-exportar etiquetas y DB: fallo en export_tables "
+                f"(sigue con snapshot pre-Tx-A)"
+            )
 
         block_result = self._ctx.tia_client.submit_and_wait(
             "export_blocks",
@@ -768,9 +772,21 @@ class FunctionEntidadesSincronizar(FunctionBase):
             )
             logger.warning(warning)
             self._ctx.warnings.append(warning)
+            return (
+                f"Re-exportar etiquetas y DB: fallo en export_blocks "
+                f"({self._ctx.db_name})"
+            )
 
+        return (
+            f"Re-exportar etiquetas y DB: 2 tablas + {self._ctx.db_name} "
+            f"re-exportados"
+        )
 
-    def _stage_7_editar_xmls_offline(self) -> None:
+    @step(
+        "Editar XMLs offline",
+        descripcion="Edita los XML offline: constantes y comentarios de slot",
+    )
+    def _stage_7_editar_xmls_offline(self) -> str:
         """Stage 7: edita XMLs offline (constants + slot comments).
 
         Pre-condiciones: stage 1 exporto a ``sync_variables_export/`` y
@@ -919,67 +935,97 @@ class FunctionEntidadesSincronizar(FunctionBase):
                     f"{len(slot_map)} slot comments actualizados"
                 )
 
+        n_adds = sum(
+            1 for op in self._ctx.constant_ops if op["kind"] == "add"
+        )
+        n_removes = sum(
+            1 for op in self._ctx.constant_ops if op["kind"] == "remove"
+        )
+        n_renames = sum(
+            1 for op in self._ctx.constant_ops if op["kind"] == "rename_comment"
+        )
+        n_comments = len(self._ctx.comment_ops)
+        return (
+            f"Editar XMLs offline: {n_adds} adds, {n_removes} removes, "
+            f"{n_renames} renames, {n_comments} slot comments"
+        )
 
-    def _stage_8_tx_b_constants(self) -> None:
-            """Stage 8: Tx B (offline puro) - importa constantes modificadas.
+    @step(
+        "Aplicar constantes offline (Tx B)",
+        descripcion="Importa las constantes modificadas (offline, transaccional)",
+    )
+    def _stage_8_aplicar_constantes_offline_tx_b(self) -> str:
+        """Stage 8: Tx B (offline puro) - importa constantes modificadas.
 
-            ``import_plc_tags_xml`` con el ``sync_variables_modified/`` que
-            stage 7 produjo. Solo se importa ``6_Entidades.xml`` (NMAX ya
-            se aplico online en Tx A — excluido del copytree en stage 7).
+        ``import_plc_tags_xml`` con el ``sync_variables_modified/`` que
+        stage 7 produjo. Solo se importa ``6_Entidades.xml`` (NMAX ya
+        se aplico online en Tx A — excluido del copytree en stage 7).
 
-            Wrap en ``execute_transactional_batch`` para atomicidad
-            semantica. Si falla, TIA hace rollback.
+        Wrap en ``execute_transactional_batch`` para atomicidad
+        semantica. Si falla, TIA hace rollback.
 
-            Si no hay constant_ops (no hay adds/removes/renames), el stage
-            es no-op.
-            """
-            if not self._ctx.constant_ops:
-                return
+        Si no hay constant_ops (no hay adds/removes/renames), el stage
+        es no-op.
+        """
+        if not self._ctx.constant_ops:
+            return "Aplicar constantes offline (Tx B): sin cambios"
 
-            from core.helpers.tia import validate_execute_batch_result
+        from core.helpers.tia import validate_execute_batch_result
 
-            modified_dir = self._ctx.sync_variables_modified
-            if not modified_dir or not modified_dir.is_dir():
-                warning = (
-                    f"sync_variables_modified/ no existe ({modified_dir}). "
-                    f"Tx B omitida."
-                )
-                logger.warning(warning)
-                self._ctx.warnings.append(warning)
-                return
-
-            logger.debug(
-                f"[{self.nombre}] Tx B constants: import {self._ctx.tag_table}.xml "
-                f"desde {modified_dir}"
+        modified_dir = self._ctx.sync_variables_modified
+        if not modified_dir or not modified_dir.is_dir():
+            warning = (
+                f"sync_variables_modified/ no existe ({modified_dir}). "
+                f"Tx B omitida."
+            )
+            logger.warning(warning)
+            self._ctx.warnings.append(warning)
+            return (
+                "Aplicar constantes offline (Tx B): omitida "
+                "(sync_variables_modified/ no existe)"
             )
 
-            batch_result = self._ctx.tia_client.submit_and_wait(
-                "execute_transactional_batch",
-                {
-                    "undo_text": "Sincronizando constantes de entidades...",
-                    "operations": [
-                        {
-                            "command": "import_plc_tags_xml",
-                            # target_folder="" (string vacio) activa la
-                            # rama default del handler que omite el
-                            # argumento en TIA y mantiene match UPDATE
-                            # recursivo por subpath.
-                            "args": {
-                                "plc_name":      self._ctx.plc_name,
-                                "import_dir":    str(modified_dir),
-                                "target_folder": "",
-                            },
-                        }
-                    ],
-                },
-                timeout=300.0,
-            )
-            validate_execute_batch_result(
-                batch_result,
-                undo_text=f"Tx B constantes ({self._ctx.tag_table})",
-            )
+        logger.debug(
+            f"[{self.nombre}] Tx B constants: import {self._ctx.tag_table}.xml "
+            f"desde {modified_dir}"
+        )
 
-    def _stage_9_compilar_bloques(self) -> None:
+        batch_result = self._ctx.tia_client.submit_and_wait(
+            "execute_transactional_batch",
+            {
+                "undo_text": "Sincronizando constantes de entidades...",
+                "operations": [
+                    {
+                        "command": "import_plc_tags_xml",
+                        # target_folder="" (string vacio) activa la
+                        # rama default del handler que omite el
+                        # argumento en TIA y mantiene match UPDATE
+                        # recursivo por subpath.
+                        "args": {
+                            "plc_name":      self._ctx.plc_name,
+                            "import_dir":    str(modified_dir),
+                            "target_folder": "",
+                        },
+                    }
+                ],
+            },
+            timeout=300.0,
+        )
+        validate_execute_batch_result(
+            batch_result,
+            undo_text=f"Tx B constantes ({self._ctx.tag_table})",
+        )
+
+        return (
+            f"Aplicar constantes offline (Tx B): "
+            f"{len(self._ctx.constant_ops)} const ops importadas"
+        )
+
+    @step(
+        "Compilar bloques",
+        descripcion="Compila DB6_ENT para consolidar los cambios estructurales",
+    )
+    def _stage_9_compilar_bloques(self) -> str:
         """Stage 9: compila DB6_ENT para consolidar cambios estructurales.
 
         Compila tras Tx B (constants importadas) y antes de Tx C
@@ -997,7 +1043,7 @@ class FunctionEntidadesSincronizar(FunctionBase):
         reporta el error al operario via ``compile_error``.
         """
         if not self._ctx.nmax_op and not self._ctx.comment_ops:
-            return
+            return "Compilar bloques: sin cambios (nada que consolidar)"
 
         try:
             compile_result = self._ctx.tia_client.submit_and_wait(
@@ -1033,6 +1079,200 @@ class FunctionEntidadesSincronizar(FunctionBase):
                 f"[{self.nombre}] compile exception: {exc}. "
                 f"Sync continuara sin abortar."
             )
+
+        if self._ctx.compile_ok:
+            return "Compilar bloques: OK"
+        return f"Compilar bloques: FALLO ({self._ctx.compile_error})"
+
+    @step(
+        "Aplicar comentarios offline (Tx C)",
+        descripcion="Importa el DB6_ENT con los comentarios de slot (transaccional)",
+    )
+    def _stage_10_aplicar_comentarios_offline_tx_c(self) -> str:
+        """Stage 10: Tx C (offline puro) - importa DB6_ENT modificado.
+
+        ``import_block`` con el ``sync_bloques_modified/`` que stage 7 produjo
+        (ya tiene los slot comments aplicados via ``commit_array_comments``).
+
+        Wrap en ``execute_transactional_batch`` para atomicidad semantica.
+        Si falla, TIA hace rollback del import.
+
+        Si no hay comment_ops (no hay updates de slot comments), el stage
+        es no-op.
+        """
+        if not self._ctx.comment_ops:
+            return "Aplicar comentarios offline (Tx C): sin cambios"
+
+        from core.helpers.tia import validate_execute_batch_result
+
+        modified_dir = self._ctx.sync_bloques_modified
+        if not modified_dir or not modified_dir.is_dir():
+            warning = (
+                f"sync_bloques_modified/ no existe ({modified_dir}). "
+                f"Tx C omitida."
+            )
+            logger.warning(warning)
+            self._ctx.warnings.append(warning)
+            return (
+                "Aplicar comentarios offline (Tx C): omitida "
+                "(sync_bloques_modified/ no existe)"
+            )
+
+        logger.debug(
+            f"[{self.nombre}] Tx C comments: import {self._ctx.db_name} "
+            f"desde {modified_dir}"
+        )
+
+        batch_result = self._ctx.tia_client.submit_and_wait(
+            "execute_transactional_batch",
+            {
+                "undo_text": "Sincronizando comentarios del array ENT[]...",
+                "operations": [
+                    {
+                        "command": "import_block",
+                        "args": {
+                            "plc_name": self._ctx.plc_name,
+                            "import_dir": str(modified_dir),
+                            "target_folder": "",  # TIA escanea recursivo
+                        },
+                    }
+                ],
+            },
+            timeout=600.0,
+        )
+        validate_execute_batch_result(
+            batch_result,
+            undo_text=f"Tx C comentarios ({self._ctx.db_name})",
+        )
+
+        # Resumen legacy-compatible con Disp.
+        if self._ctx.result is None or not isinstance(self._ctx.result, dict):
+            self._ctx.result = _empty_result()
+        self._ctx.result["comments_sync"] = {
+            "added":   sum(1 for op in self._ctx.comment_ops if op["kind"] == "update_comment"),
+            "updated": 0,
+            "unchanged": 0,
+        }
+
+        return (
+            f"Aplicar comentarios offline (Tx C): "
+            f"{len(self._ctx.comment_ops)} slot comments importados"
+        )
+
+    @step(
+        "Generar preview post-sincronizacion",
+        descripcion="Re-exporta y recalcula el diff para el preview post-sync",
+    )
+    def _stage_11_generar_preview_post_sincronizacion(self) -> str:
+        """Stage 11: genera preview post-sync (la SPA ve 'todo en sync').
+
+        Re-exporta FLAT (N_MAX + entidades + DB6_ENT) tras Tx A/B/C, recalcula
+        el diff unificado y compone ``post_sync_preview`` con la misma shape
+        que el preview FB. Asi, la SPA muestra "0 entidades analizadas" o
+        solo los warnings de inconsistencias restantes.
+
+        Si el re-export falla (TIA en estado invalido tras rollback), emite
+        warning pero NO aborta (post_sync_preview=None).
+        """
+        from areas.alimentacion.helpers.layout.build_cache import build_cache
+
+        ent_ctx = build_cache(root=self._ctx.build_cache_root).entidades
+        ent_ctx.clean_preview()
+
+        tags_result = self._ctx.tia_client.submit_and_wait(
+            "export_tables",
+            {
+                "plc_name": self._ctx.plc_name,
+                "target_dir": str(ent_ctx.preview_disp),
+                "table_names": [self._ctx.config_table, self._ctx.tag_table],
+                # FLAT: el preview FB parsea ``<preview_disp>/6_Entidades.xml``
+                # y ``<preview_disp>/0_Config_Generales.xml`` en el root
+                # (no espera subcarpeta TIA).
+                "keep_folder_structure": False,
+            },
+            timeout=60.0,
+        )
+        block_result = self._ctx.tia_client.submit_and_wait(
+            "export_blocks",
+            {
+                "plc_name": self._ctx.plc_name,
+                "target_dir": str(ent_ctx.preview_bloques),
+                "block_names": [self._ctx.db_name],
+                "keep_folder_structure": True,
+            },
+            timeout=60.0,
+        )
+        if tags_result is None or block_result is None:
+            warning = (
+                "Re-export post-sync fallo. post_sync_preview sera None."
+            )
+            logger.warning(warning)
+            self._ctx.warnings.append(warning)
+            self._ctx.post_sync_preview = None
+            return "Generar preview post-sincronizacion: fallo (re-export)"
+
+        # Reusa el helper puro del preview FB para componer el shape.
+        from areas.alimentacion.helpers.entidades.entidades_generate_preview import (
+            compute_comments_diff,
+            compute_diff_entities,
+            compute_nmax_diff_entidades,
+            DiffComments,
+            DiffEntities,
+        )
+
+        desired = get_entidades(self._ctx.app_cache, self._ctx.plc_name, AREA_ID)
+        variables_xml = ent_ctx.preview_disp / f"{self._ctx.tag_table}.xml"
+        config_xml = ent_ctx.preview_disp / f"{self._ctx.config_table}.xml"
+        from core.infrastructure.tia.tia_export_paths import SdPair
+        sdpair = SdPair(ent_ctx.preview_bloques, self._ctx.db_name)
+        dcl_text = sdpair.dcl.read_text(encoding="utf-8-sig") if sdpair.dcl.exists() else ""
+        res_text = sdpair.res.read_text(encoding="utf-8-sig") if sdpair.res.exists() else ""
+
+        def _recompute() -> dict[str, Any]:
+            diff_ent = compute_diff_entities(
+                table_name=self._ctx.tag_table,
+                desired_entities=desired,
+                xml_path=variables_xml,
+            )
+            nmax = compute_nmax_diff_entidades(
+                table_name=self._ctx.config_table,
+                desired_nmax=get_nmax_entidades(self._ctx.app_cache, AREA_ID),
+                xml_path=config_xml,
+            )
+            diff_com = compute_comments_diff(
+                db_name=self._ctx.db_name,
+                array_name=self._ctx.db_array_name,
+                desired_entities=desired,
+                dcl_text=dcl_text,
+                res_text=res_text,
+            )
+            return {
+                "precondiciones_ok": True,
+                "db_name": self._ctx.db_name,
+                "tag_table": self._ctx.tag_table,
+                "config_table": self._ctx.config_table,
+                "db_present": not diff_com.missing_xml,
+                "table_present": not diff_ent.missing_xml,
+                "ops": list(diff_ent.ops),
+                "nmax": {
+                    "todos": nmax.todos,
+                    "summary": nmax.summary,
+                },
+                "warnings": list(self._ctx.warnings),
+            }
+
+        self._ctx.post_sync_preview = _recompute()
+
+        if self._ctx.result is None or not isinstance(self._ctx.result, dict):
+            self._ctx.result = _empty_result()
+        self._ctx.result["post_sync_preview"] = self._ctx.post_sync_preview
+        self._ctx.result["success"] = True
+        self._ctx.result["message"] = "Sincronización completada"
+
+        return (
+            f"Generar preview post-sincronizacion: "
+            f"{len(self._ctx.post_sync_preview['ops'])} ops pendientes"
+        )
 
 
 # ============================================================================
@@ -1105,44 +1345,6 @@ class EntidadesSyncContext:
 # ============================================================================
 
 
-def _step_summary(ctx: Any, step_nombre: str) -> str:
-    """Resumen legible del step que acaba de correr (aparece en la SPA)."""
-    if step_nombre == "Exportar etiquetas y DB":
-        n_warn = len(ctx.warnings)
-        return (
-            f"{step_nombre}: 2 tablas + DB6_ENT exportados "
-            f"({n_warn} warnings)"
-        )
-    if step_nombre == "Calcular diferencias":
-        adds = len(ctx.entities_block.get("added", []))
-        rems = len(ctx.entities_block.get("removed", []))
-        renames = len(ctx.entities_block.get("renamed", {}))
-        c_adds = len(ctx.comments_block.get("added", []))
-        c_updates = len(ctx.comments_block.get("updated", []))
-        nmax_update = ctx.nmax_block.get("summary", {}).get("actualizar", 0)
-        return (
-            f"{step_nombre}: {adds} const adds, {rems} const removes, "
-            f"{renames} renames; {c_adds} comments adds, "
-            f"{c_updates} comments updates; NMAX={nmax_update}"
-        )
-    if step_nombre == "Preparar operaciones":
-        n_const = len(ctx.constant_ops)
-        n_com = len(ctx.comment_ops)
-        n_nmax = 1 if ctx.nmax_op else 0
-        return (
-            f"{step_nombre}: {n_const} const ops + "
-            f"{n_com} comment ops + {n_nmax} NMAX op"
-        )
-    if step_nombre == "Aplicar NMAX online (Tx A)":
-        if ctx.nmax_op:
-            return (
-                f"{step_nombre}: {ctx.nmax_op['args']['constant_name']} "
-                f"value -> {ctx.nmax_op['args']['new_value']}"
-            )
-        return f"{step_nombre}: sin cambios"
-    return f"{step_nombre}: OK"
-
-
 def _empty_result() -> dict[str, Any]:
     """Shape legacy-compatible con Disp para cuando el FB falla temprano."""
     return {
@@ -1155,182 +1357,6 @@ def _empty_result() -> dict[str, Any]:
         "compile_error":      "FB no ejecutado",
         "comments_sync":      {"added": 0, "updated": 0, "unchanged": 0},
     }
-
-
-def _stage_10_tx_c_comments(self) -> None:
-    """Stage 10: Tx C (offline puro) - importa DB6_ENT modificado.
-
-    ``import_block`` con el ``sync_bloques_modified/`` que stage 7 produjo
-    (ya tiene los slot comments aplicados via ``commit_array_comments``).
-
-    Wrap en ``execute_transactional_batch`` para atomicidad semantica.
-    Si falla, TIA hace rollback del import.
-
-    Si no hay comment_ops (no hay updates de slot comments), el stage
-    es no-op.
-    """
-    if not self._ctx.comment_ops:
-        return
-
-    from core.helpers.tia import validate_execute_batch_result
-
-    modified_dir = self._ctx.sync_bloques_modified
-    if not modified_dir or not modified_dir.is_dir():
-        warning = (
-            f"sync_bloques_modified/ no existe ({modified_dir}). "
-            f"Tx C omitida."
-        )
-        logger.warning(warning)
-        self._ctx.warnings.append(warning)
-        return
-
-    logger.debug(
-        f"[{self.nombre}] Tx C comments: import {self._ctx.db_name} "
-        f"desde {modified_dir}"
-    )
-
-    batch_result = self._ctx.tia_client.submit_and_wait(
-        "execute_transactional_batch",
-        {
-            "undo_text": "Sincronizando comentarios del array ENT[]...",
-            "operations": [
-                {
-                    "command": "import_block",
-                    "args": {
-                        "plc_name": self._ctx.plc_name,
-                        "import_dir": str(modified_dir),
-                        "target_folder": "",  # TIA escanea recursivo
-                    },
-                }
-            ],
-        },
-        timeout=600.0,
-    )
-    validate_execute_batch_result(
-        batch_result,
-        undo_text=f"Tx C comentarios ({self._ctx.db_name})",
-    )
-
-    # Resumen legacy-compatible con Disp.
-    if self._ctx.result is None or not isinstance(self._ctx.result, dict):
-        self._ctx.result = _empty_result()
-    self._ctx.result["comments_sync"] = {
-        "added":   sum(1 for op in self._ctx.comment_ops if op["kind"] == "update_comment"),
-        "updated": 0,
-        "unchanged": 0,
-    }
-
-def _stage_11_post_preview(self) -> None:
-    """Stage 11: genera preview post-sync (la SPA ve 'todo en sync').
-
-    Re-exporta FLAT (N_MAX + entidades + DB6_ENT) tras Tx A/B/C, recalcula
-    el diff unificado y compone ``post_sync_preview`` con la misma shape
-    que el preview FB. Asi, la SPA muestra "0 entidades analizadas" o
-    solo los warnings de inconsistencias restantes.
-
-    Si el re-export falla (TIA en estado invalido tras rollback), emite
-    warning pero NO aborta (post_sync_preview=None).
-    """
-    from areas.alimentacion.helpers.layout.build_cache import build_cache
-
-    ent_ctx = build_cache(root=self._ctx.build_cache_root).entidades
-    ent_ctx.clean_preview()
-
-    tags_result = self._ctx.tia_client.submit_and_wait(
-        "export_tables",
-        {
-            "plc_name": self._ctx.plc_name,
-            "target_dir": str(ent_ctx.preview_disp),
-            "table_names": [self._ctx.config_table, self._ctx.tag_table],
-            # FLAT: el preview FB parsea ``<preview_disp>/6_Entidades.xml``
-            # y ``<preview_disp>/0_Config_Generales.xml`` en el root
-            # (no espera subcarpeta TIA).
-            "keep_folder_structure": False,
-        },
-        timeout=60.0,
-    )
-    block_result = self._ctx.tia_client.submit_and_wait(
-        "export_blocks",
-        {
-            "plc_name": self._ctx.plc_name,
-            "target_dir": str(ent_ctx.preview_bloques),
-            "block_names": [self._ctx.db_name],
-            "keep_folder_structure": True,
-        },
-        timeout=60.0,
-    )
-    if tags_result is None or block_result is None:
-        warning = (
-            "Re-export post-sync fallo. post_sync_preview sera None."
-        )
-        logger.warning(warning)
-        self._ctx.warnings.append(warning)
-        self._ctx.post_sync_preview = None
-        return
-
-    # Reusa el helper puro del preview FB para componer el shape.
-    from areas.alimentacion.helpers.entidades.entidades_generate_preview import (
-        compute_comments_diff,
-        compute_diff_entities,
-        compute_nmax_diff_entidades,
-        DiffComments,
-        DiffEntities,
-    )
-
-    desired = get_entidades(self._ctx.app_cache, self._ctx.plc_name, AREA_ID)
-    variables_xml = ent_ctx.preview_disp / f"{self._ctx.tag_table}.xml"
-    config_xml = ent_ctx.preview_disp / f"{self._ctx.config_table}.xml"
-    from core.infrastructure.tia.tia_export_paths import SdPair
-    sdpair = SdPair(ent_ctx.preview_bloques, self._ctx.db_name)
-    dcl_text = sdpair.dcl.read_text(encoding="utf-8-sig") if sdpair.dcl.exists() else ""
-    res_text = sdpair.res.read_text(encoding="utf-8-sig") if sdpair.res.exists() else ""
-
-    def _recompute() -> dict[str, Any]:
-        diff_ent = compute_diff_entities(
-            table_name=self._ctx.tag_table,
-            desired_entities=desired,
-            xml_path=variables_xml,
-        )
-        nmax = compute_nmax_diff_entidades(
-            table_name=self._ctx.config_table,
-            desired_nmax=get_nmax_entidades(self._ctx.app_cache, AREA_ID),
-            xml_path=config_xml,
-        )
-        diff_com = compute_comments_diff(
-            db_name=self._ctx.db_name,
-            array_name=self._ctx.db_array_name,
-            desired_entities=desired,
-            dcl_text=dcl_text,
-            res_text=res_text,
-        )
-        return {
-            "precondiciones_ok": True,
-            "db_name": self._ctx.db_name,
-            "tag_table": self._ctx.tag_table,
-            "config_table": self._ctx.config_table,
-            "db_present": not diff_com.missing_xml,
-            "table_present": not diff_ent.missing_xml,
-            "ops": list(diff_ent.ops),
-            "nmax": {
-                "todos": nmax.todos,
-                "summary": nmax.summary,
-            },
-            "warnings": list(self._ctx.warnings),
-        }
-
-    self._ctx.post_sync_preview = _recompute()
-
-    if self._ctx.result is None or not isinstance(self._ctx.result, dict):
-        self._ctx.result = _empty_result()
-    self._ctx.result["post_sync_preview"] = self._ctx.post_sync_preview
-    self._ctx.result["success"] = True
-    self._ctx.result["message"] = "Sincronización completada"
-
-
-# Inyectar los stubs como metodos del FB (para que el STAGES dispatch
-# los encuentre). Stages 3-11 ya son metodos reales (en la clase o aqui).
-FunctionEntidadesSincronizar._stage_10_tx_c_comments = _stage_10_tx_c_comments  # type: ignore[attr-defined]
-FunctionEntidadesSincronizar._stage_11_post_preview = _stage_11_post_preview  # type: ignore[attr-defined]
 
 
 __all__ = [
