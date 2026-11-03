@@ -53,7 +53,7 @@ import {
     reactive,
     ref,
 } from "/js/vendor/vue.esm-browser.prod.js";
-import { store } from "/js/store.js";
+import { store, waitForFbJob } from "/js/store.js";
 import {
     apiBlockEditApply,
     apiBlockEditPrepare,
@@ -297,6 +297,26 @@ export default {
             return out;
         });
 
+        /**
+         * Espera a que un trabajo del OB1 termine.
+         *
+         * El router de block edit responde ``202`` con el ``job_id`` y el
+         * FB sigue corriendo en el hilo del dispatcher. El estado terminal
+         * llega por SSE (``fb_state``), no en el body del POST.
+         *
+         * @param {string} jobId  job_id devuelto por el router
+         * @param {string} fbName nombre del FB (clave en ``store.fbStates``)
+         * @returns {Promise<{error_msg: string|null}>}
+         */
+        async function _esperarJob(jobId, fbName) {
+            try {
+                const st = await waitForFbJob(jobId, fbName);
+                return { error_msg: st.error_msg || null };
+            } catch (e) {
+                return { error_msg: e && e.message ? e.message : String(e) };
+            }
+        }
+
         // Conversion de paths IT (separador "\\") a paths del backend FB
         // (separador "/"). El FB ``block_edit_prepare`` parsea con
         // ``path.split("/")``: el ultimo segmento es el nombre del bloque
@@ -388,6 +408,18 @@ export default {
                 operationError.value =
                     (resp.data && resp.data.error) ||
                     `HTTP ${resp.status} en /prepare`;
+                return;
+            }
+
+            // El router responde 202: el FB sigue corriendo en el hilo
+            // del OB1. El cache ``block_edit_prepared[plc]`` lo rellena
+            // el FB al terminar, asi que hay que ESPERAR al estado
+            // terminal antes de leerlo: si se lee antes, sale vacio y la
+            // tabla se queda en blanco aunque el FB haya funcionado.
+            const prepEstado = await _esperarJob(resp.data.job_id, "block_edit_prepare");
+            if (prepEstado.error_msg) {
+                operationStatus.value = "error";
+                operationError.value = prepEstado.error_msg;
                 return;
             }
 
@@ -506,6 +538,17 @@ export default {
                 operationError.value =
                     (resp.data && resp.data.error) ||
                     `HTTP ${resp.status} en /apply`;
+                return;
+            }
+
+            // El apply es una transaccion contra TIA: puede tardar
+            // minutos. El router responde 202 y el estado terminal llega
+            // por SSE. Hay que esperarlo antes de volver al arbol, o el
+            // operario creeria que se aplico cuando igual ha fallado.
+            const applyEstado = await _esperarJob(resp.data.job_id, "block_edit_apply");
+            if (applyEstado.error_msg) {
+                operationStatus.value = "error";
+                operationError.value = applyEstado.error_msg;
                 return;
             }
 
