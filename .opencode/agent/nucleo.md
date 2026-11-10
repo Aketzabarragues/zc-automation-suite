@@ -33,7 +33,7 @@ con TIA Portal, el contrato de los trabajos, el bus de eventos y la capa HTTP.
 - Los trabajos se ejecutan ENTEROS dentro de ese hilo. No hay cola de
   comandos, ni `submit_and_wait`, ni hilos por paso.
 - `tia.lanzar(funcion, **params)` devuelve un `job_id`; si ya hay un trabajo en
-  curso lanza `Ocupado` y la ruta responde `409`.
+  curso lanza `OcupadoError` y la ruta responde `409`.
 - `Job.empezar(titulo, pasos)` declara todos los pasos. `with job.paso(nombre)
   as paso:` marca `running` -> `done` (o `error` y re-lanza). Antes de empezar
   comprueba la cancelacion.
