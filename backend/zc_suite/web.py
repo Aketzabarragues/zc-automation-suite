@@ -16,6 +16,7 @@ Contratos:
 from __future__ import annotations
 
 import json
+import logging
 import sys
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -23,7 +24,13 @@ from typing import Any
 
 from flask import Flask, Response, current_app, jsonify, request, send_from_directory
 
-from zc_suite.eventos import BusCerradoError, BusEventos, Suscripcion
+from zc_suite.eventos import (
+    BusCerradoError,
+    BusEventos,
+    HandlerEventos,
+    Suscripcion,
+    conectar_logging,
+)
 from zc_suite.tia import OcupadoError, ServicioTIA
 
 #: Claves de las dependencias en ``current_app.config``.
@@ -245,8 +252,25 @@ def crear_app(
     app.config[CLAVE_ORIGENES] = set(origenes) if origenes is not None else set(ORIGENES_DEV)
     app.config[CLAVE_DESARROLLO] = desarrollo
     app.config["ZC_PUERTO"] = puerto
+    _conectar_logging(bus_eventos)
     _registrar_rutas(app)
     return app
+
+
+def _conectar_logging(bus_eventos: BusEventos) -> None:
+    """Engancha el bus al logger ``zc_suite``.
+
+    No se engancha al root: el root tambien recibe los logs de las librerias
+    de terceros, y la consola de la SPA solo quiere los de la app.
+
+    Sustituye el puente anterior: solo puede haber uno, o cada linea de log
+    se publicaria tantas veces como apps se hayan creado.
+    """
+    logger_padre = logging.getLogger("zc_suite")
+    for handler in list(logger_padre.handlers):
+        if isinstance(handler, HandlerEventos):
+            logger_padre.removeHandler(handler)
+    conectar_logging(bus_eventos, logger_padre)
 
 
 def _registrar_rutas(app: Flask) -> None:

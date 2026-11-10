@@ -298,7 +298,7 @@ class HandlerEventos(logging.Handler):
 
     def __init__(self, bus: BusEventos) -> None:
         super().__init__()
-        self._bus = bus
+        self.bus = bus
         self._local = threading.local()
 
     def emit(self, record: logging.LogRecord) -> None:
@@ -318,7 +318,7 @@ class HandlerEventos(logging.Handler):
         }
         self._local.dentro = True
         try:
-            self._bus.publicar("log", carga)
+            self.bus.publicar("log", carga)
         except Exception:
             self.handleError(record)
         finally:
