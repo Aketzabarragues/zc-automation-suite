@@ -6,6 +6,13 @@ Cruza las ``edits`` del operario (path -> {name?, number?}) con el cache
 ``update_block_property`` dentro de un unico ``execute_transactional_batch``
 con rollback atomico si cualquier op revienta.
 
+El worker localiza cada bloque por su NOMBRE dentro del PLC. Por eso la
+op que cambia el nombre de un bloque va la ultima de ese bloque: si se
+aplicara antes, la op de Number que la sigue lo buscaria por el nombre
+viejo, no lo encontraria y abortaria el lote entero con rollback.
+Nombre y Number no dependen entre si, asi que el orden no altera el
+resultado final.
+
 Solo Name y Number son editables: la whitelist del handler
 ``update_block_property`` (``tia_cmd_blocks.py``) acepta unicamente esas
 dos properties, y este FB replica esa whitelist en ``on_start`` para
@@ -261,6 +268,14 @@ class FunctionBlockEditApply(FunctionBase):
 
         # Para cada edit, comparar contra DTO cacheado y
         # construir la op solo si hay diff real.
+        #
+        # El worker localiza el bloque por NOMBRE dentro del PLC. Por
+        # eso la op que cambia el nombre va la ULTIMA del bloque: si
+        # se aplica antes, la op de Number que la sigue lo buscaria
+        # por el nombre viejo, no lo encontraria ("no se encontro
+        # bloque 'X'") y abortaria el lote con rollback. Nombre y
+        # Number no dependen entre si: el orden no altera el
+        # resultado.
         for path, new_props in self._ctx.edits.items():
             cached_dto = prepared.get(path)
             if cached_dto is None:
@@ -272,30 +287,28 @@ class FunctionBlockEditApply(FunctionBase):
                     f"block_edit_prepare de nuevo."
                 )
 
-            if "name" in new_props:
-                if str(new_props["name"]) == str(cached_dto.nombre):
-                    continue
-                self._ctx.ops.append({
-                    "command": "update_block_property",
-                    "args": {
-                        "plc_name": self._ctx.plc_name,
-                        "block_name": cached_dto.nombre,
-                        "property_name": "Name",
-                        "new_value": str(new_props["name"]),
-                    },
-                })
             if "number" in new_props:
-                if int(new_props["number"]) == int(cached_dto.numero):
-                    continue
-                self._ctx.ops.append({
-                    "command": "update_block_property",
-                    "args": {
-                        "plc_name": self._ctx.plc_name,
-                        "block_name": cached_dto.nombre,
-                        "property_name": "Number",
-                        "new_value": int(new_props["number"]),
-                    },
-                })
+                if int(new_props["number"]) != int(cached_dto.numero):
+                    self._ctx.ops.append({
+                        "command": "update_block_property",
+                        "args": {
+                            "plc_name": self._ctx.plc_name,
+                            "block_name": cached_dto.nombre,
+                            "property_name": "Number",
+                            "new_value": int(new_props["number"]),
+                        },
+                    })
+            if "name" in new_props:
+                if str(new_props["name"]) != str(cached_dto.nombre):
+                    self._ctx.ops.append({
+                        "command": "update_block_property",
+                        "args": {
+                            "plc_name": self._ctx.plc_name,
+                            "block_name": cached_dto.nombre,
+                            "property_name": "Name",
+                            "new_value": str(new_props["name"]),
+                        },
+                    })
 
         if not self._ctx.ops:
             logger.info(

@@ -14,6 +14,10 @@ Casos cubiertos:
     pre-flight.
   - PLC sin cache de prepare -> ``n_error`` con mensaje claro.
   - ``tia_client=None`` -> ``n_error`` en el pre-flight.
+  - Name + Number en el MISMO bloque -> la op de Number va antes que la
+    de Name (el worker localiza el bloque por nombre).
+  - Nombre sin cambios + Number cambiado -> el edit de Number no se
+    pierde porque el nombre no tenga diff.
   - Los handlers de los steps declarados son sync (contrato del hilo OB1)
     y ``execute()`` completa el FB sin event loop.
 
@@ -510,3 +514,100 @@ def test_apply_executes_via_sync_ob1_path(
     assert args[0] == "execute_transactional_batch"
     assert len(args[1]["operations"]) == 1
     assert kwargs.get("timeout") == fb.STEP_TIMEOUT_S
+
+
+# ── 9. Name + Number en el MISMO bloque: Number va antes ──────────
+
+
+def test_apply_emite_el_numero_antes_del_nombre_del_mismo_bloque(
+    app_cache: AppCache,
+    real_progress: ProgressTracker,
+) -> None:
+    """Name + Number del mismo bloque -> la op de Number va primera.
+
+    El worker localiza el bloque por su NOMBRE dentro del PLC. Si la
+    op que renombra se aplica antes, la op de Number ya no lo
+    encuentra por el nombre viejo y el lote entero aborta con
+    rollback: no se aplica ni el nombre ni el numero.
+    """
+    blocks = [_make_dto("FC1_MAIN", 1, tipo="FC")]
+    _seed_cache(app_cache, "PLC_1", blocks)
+    tia_client = _make_tia_client()
+    fb = _make_fb(app_cache, tia_client, real_progress)
+
+    submit_mock = _make_submit_and_wait_mock(
+        ok=True, success=True, operations_executed=2,
+    )
+    tia_client.submit_and_wait = submit_mock
+    scan_mock = _make_scan_mock(n_blocks=1)
+
+    with patch(
+        "core.composition.function_block_edit_apply.scan_plc_blocks",
+        new=scan_mock,
+    ):
+        fb.execute(
+            plc_name="PLC_1",
+            edits={"FC1_MAIN": {"name": "FC2_MAIN", "number": 2}},
+        )
+
+    assert fb.nStep == fb.n_done
+    assert fb.error_msg is None
+    assert fb.result["n_ops"] == 2
+
+    args, _ = submit_mock.call_args
+    ops = args[1]["operations"]
+    assert len(ops) == 2
+
+    # Number primero: el bloque todavia se llama FC1_MAIN.
+    assert ops[0]["command"] == "update_block_property"
+    assert ops[0]["args"]["property_name"] == "Number"
+    assert ops[0]["args"]["block_name"] == "FC1_MAIN"
+    assert ops[0]["args"]["new_value"] == 2
+
+    # Name despues: el renombrado es lo que invalida el nombre viejo.
+    assert ops[1]["command"] == "update_block_property"
+    assert ops[1]["args"]["property_name"] == "Name"
+    assert ops[1]["args"]["block_name"] == "FC1_MAIN"
+    assert ops[1]["args"]["new_value"] == "FC2_MAIN"
+
+
+def test_apply_no_se_pierde_el_number_si_el_nombre_no_cambia(
+    app_cache: AppCache,
+    real_progress: ProgressTracker,
+) -> None:
+    """Nombre sin diff + Number con diff -> sale el edit de Number.
+
+    Cada propiedad se decide por su cuenta: que el nombre no tenga
+    diff no puedeSaltarse la op del numero.
+    """
+    blocks = [_make_dto("FC1_MAIN", 1, tipo="FC")]
+    _seed_cache(app_cache, "PLC_1", blocks)
+    tia_client = _make_tia_client()
+    fb = _make_fb(app_cache, tia_client, real_progress)
+
+    submit_mock = _make_submit_and_wait_mock(
+        ok=True, success=True, operations_executed=1,
+    )
+    tia_client.submit_and_wait = submit_mock
+    scan_mock = _make_scan_mock(n_blocks=1)
+
+    with patch(
+        "core.composition.function_block_edit_apply.scan_plc_blocks",
+        new=scan_mock,
+    ):
+        fb.execute(
+            plc_name="PLC_1",
+            edits={"FC1_MAIN": {"name": "FC1_MAIN", "number": 7}},
+        )
+
+    assert fb.nStep == fb.n_done
+    assert fb.error_msg is None
+    assert fb.result["n_ops"] == 1
+
+    args, _ = submit_mock.call_args
+    ops = args[1]["operations"]
+    assert len(ops) == 1
+    assert ops[0]["command"] == "update_block_property"
+    assert ops[0]["args"]["property_name"] == "Number"
+    assert ops[0]["args"]["block_name"] == "FC1_MAIN"
+    assert ops[0]["args"]["new_value"] == 7
