@@ -54,8 +54,11 @@ def _argumentos() -> argparse.Namespace:
     parser.add_argument(
         "--bloques",
         nargs="+",
-        required=True,
-        help="Nombres de los bloques a exportar.",
+        default=[],
+        help=(
+            "Nombres de los bloques a exportar. Opcional: si se omite, solo "
+            "se exporta la tabla."
+        ),
     )
     parser.add_argument("--tabla", required=True, help="Nombre de la tabla de tags a exportar.")
     parser.add_argument(
@@ -119,32 +122,31 @@ def _plcs_del_proyecto(job: Any) -> list[str]:
 def _smoke(job: Any, plc: str, bloques: list[str], tabla: str, destino: Path) -> dict[str, Any]:
     """Trabajo de smoke: se ejecuta entero dentro del hilo de TIA."""
     resultado: dict[str, Any] = {"formatos": None, "plcs": None, "bloques": None, "tabla": None}
-    job.empezar(
-        "Smoke de exportacion",
-        [
-            ("formatos", "Ver los formatos que admite el SDK"),
-            ("exportar_bloques", "Exportar bloques"),
-            ("exportar_tablas", "Exportar una tabla"),
-        ],
-    )
+    pasos = [("formatos", "Ver los formatos que admite el SDK")]
+    if bloques:
+        pasos.append(("exportar_bloques", "Exportar bloques"))
+    pasos.append(("exportar_tablas", "Exportar una tabla"))
+    job.empezar("Smoke de exportacion", pasos)
     with job.paso("formatos") as paso:
         resultado["plcs"] = _plcs_del_proyecto(job)
         resultado["formatos"] = _formatos_del_primer_bloque(job, plc)
         paso["detail"] = str(resultado["formatos"].get("tipo"))
 
-    with job.paso("exportar_bloques") as paso:
-        try:
-            resultado["bloques"] = exportar_bloques(
-                job.tia.portal,
-                plc,
-                destino / "bloques",
-                bloques,
-                mantener_estructura=False,
-            )
-            paso["detail"] = f"{resultado['bloques']['cantidad']} bloques"
-        except Exception as exc:
-            resultado["bloques"] = {"error": f"{type(exc).__name__}: {exc}"}
-            paso["detail"] = "ha fallado"
+    if bloques:
+        with job.paso("exportar_bloques") as paso:
+            try:
+                resultado["bloques"] = exportar_bloques(
+                    job.tia.portal,
+                    plc,
+                    destino / "bloques",
+                    bloques,
+                    mantener_estructura=False,
+                    version_tia=job.tia.version_tia,
+                )
+                paso["detail"] = f"{resultado['bloques']['cantidad']} bloques"
+            except Exception as exc:
+                resultado["bloques"] = {"error": f"{type(exc).__name__}: {exc}"}
+                paso["detail"] = "ha fallado"
 
     with job.paso("exportar_tablas") as paso:
         try:

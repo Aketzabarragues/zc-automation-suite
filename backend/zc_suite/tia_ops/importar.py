@@ -43,7 +43,8 @@ def importar_bloques(
             ``""`` rompe el match UPDATE.
 
     Returns:
-        ``{"importado_de": str(origen), "carpeta_destino": ...}``.
+        ``{"importado_de", "carpeta_destino", "num_ficheros", "ficheros"}``.
+        ``ficheros`` son las rutas relativas de lo que habia en el origen.
 
     Raises:
         OperacionError: si el PLC no existe, la carpeta no existe o TIA
@@ -51,6 +52,7 @@ def importar_bloques(
     """
     objetivo = buscar_plc(portal, plc)
     carpeta = _preparar_origen(origen)
+    rutas = _ficheros(carpeta)
     try:
         if carpeta_destino:
             objetivo.import_blocks(
@@ -64,7 +66,12 @@ def importar_bloques(
             f"No se pudo importar los bloques desde '{carpeta}': "
             f"{type(exc).__name__}: {exc}"
         ) from exc
-    return {"importado_de": str(carpeta), "carpeta_destino": carpeta_destino}
+    return {
+        "importado_de": str(carpeta),
+        "carpeta_destino": carpeta_destino,
+        "num_ficheros": len(rutas),
+        "ficheros": rutas,
+    }
 
 
 def importar_tablas(
@@ -83,7 +90,8 @@ def importar_tablas(
             se manda el argumento a TIA (match UPDATE por nombre).
 
     Returns:
-        ``{"importado_de": str(origen), "carpeta_destino": ...}``.
+        ``{"importado_de", "carpeta_destino", "num_ficheros", "ficheros"}``.
+        ``ficheros`` son las rutas relativas de lo que habia en el origen.
 
     Raises:
         OperacionError: si el PLC no existe, la carpeta no existe o TIA
@@ -91,6 +99,7 @@ def importar_tablas(
     """
     objetivo = buscar_plc(portal, plc)
     carpeta = _preparar_origen(origen)
+    rutas = _ficheros(carpeta)
     try:
         if carpeta_destino:
             objetivo.import_plc_tags(
@@ -104,7 +113,12 @@ def importar_tablas(
             f"No se pudo importar las tablas desde '{carpeta}': "
             f"{type(exc).__name__}: {exc}"
         ) from exc
-    return {"importado_de": str(carpeta), "carpeta_destino": carpeta_destino}
+    return {
+        "importado_de": str(carpeta),
+        "carpeta_destino": carpeta_destino,
+        "num_ficheros": len(rutas),
+        "ficheros": rutas,
+    }
 
 
 def _preparar_origen(origen: str | Path) -> Path:
@@ -121,3 +135,16 @@ def _preparar_origen(origen: str | Path) -> Path:
             f"El directorio de importacion no existe o no es accesible: '{carpeta}'."
         )
     return carpeta
+
+
+def _ficheros(origen: Path) -> list[str]:
+    """Las rutas relativas de los ficheros que hay en el origen.
+
+    Relativas a la carpeta de origen, con ``/`` como separador, para que el
+    sync pueda decirle al operario que se ha importado.
+    """
+    return sorted(
+        str(fichero.relative_to(origen)).replace("\\", "/")
+        for fichero in origen.rglob("*")
+        if fichero.is_file()
+    )

@@ -172,3 +172,33 @@ def test_lo_publico_devuelve_solo_primitivos(origen: Path) -> None:
         assert isinstance(resultado, dict)
         assert isinstance(resultado["importado_de"], str)
         assert isinstance(resultado["carpeta_destino"], str)
+        assert isinstance(resultado["num_ficheros"], int)
+        assert isinstance(resultado["ficheros"], list)
+
+
+def test_el_resultado_dice_los_ficheros_del_origen(origen: Path) -> None:
+    portal, _plc = _portal()
+
+    resultado = ops.importar_tablas(portal, "PLC_1", origen)
+
+    assert resultado["num_ficheros"] == 1
+    assert resultado["ficheros"] == ["2000_Dispositivos/2000_Disp_ED.xml"]
+
+
+def test_los_ficheros_del_origen_usan_barra_normal(origen: Path) -> None:
+    portal, _plc = _portal()
+
+    resultado = ops.importar_bloques(portal, "PLC_1", origen)
+
+    assert all("\\" not in ruta for ruta in resultado["ficheros"])
+
+
+def test_un_origen_vacio_no_tiene_ficheros(origen: Path) -> None:
+    vacio = origen / "vacio"
+    vacio.mkdir()
+    portal, _plc = _portal()
+
+    resultado = ops.importar_tablas(portal, "PLC_1", vacio)
+
+    assert resultado["num_ficheros"] == 0
+    assert resultado["ficheros"] == []

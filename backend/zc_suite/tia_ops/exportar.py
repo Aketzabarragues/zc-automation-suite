@@ -68,13 +68,15 @@ def _error_export(
     if es_bloque and _es_version_incompatible(exc):
         detalle = MENSAJE_SIMATICSD
         if version_tia:
-            detalle += f" El TIA conectado es {version_tia}."
+            # Sin punto final: las partes del mensaje se unen con ". ".
+            detalle += f" El TIA conectado es {version_tia}"
     else:
         detalle = f"{type(exc).__name__}: {exc}"
     tipo = "el bloque" if es_bloque else "la tabla"
-    return OperacionError(
-        f"No se pudo exportar {tipo} '{nombre}': {detalle}. {formatos}"
-    )
+    partes = [f"No se pudo exportar {tipo} '{nombre}'", detalle]
+    if formatos:
+        partes.append(formatos)
+    return OperacionError(". ".join(partes))
 
 
 def exportar_bloques(

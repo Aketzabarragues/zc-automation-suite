@@ -188,6 +188,27 @@ def test_el_not_supported_se_traduce_para_el_operador(tmp_path: Path) -> None:
     assert "El TIA conectado es V18.0." in error
     assert "NotSupportedException" not in error
 
+def test_el_mensaje_traducido_no_tiene_doble_punto(tmp_path: Path) -> None:
+    """Un solo punto entre frases: el mensaje se compone por partes."""
+    portal, _plc = _portal(
+        [
+            BloqueFalso(
+                "DB2000_ED",
+                ["SimaticML"],
+                error=ValueError(
+                    "NotSupportedException: The method is not supported in this API version."
+                ),
+            )
+        ]
+    )
+
+    with pytest.raises(OperacionError) as fallo:
+        ops.exportar_bloques(portal, "PLC_1", tmp_path, version_tia="V18.0")
+
+    error = str(fallo.value)
+    assert ".." not in error
+    assert "superior. El TIA conectado es V18.0. Formatos admitidos:" in error
+
 
 def test_el_not_supported_sin_version_conocida(tmp_path: Path) -> None:
     portal, _plc = _portal(

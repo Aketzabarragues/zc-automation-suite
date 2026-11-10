@@ -243,6 +243,8 @@ tailwindcss-extra.exe
 # Entorno virtual local del backend
 .venv/
 # Cuarentena temporal con archivos movidos para borrado manual por el operario
+_borrar/
+# Cuarentena temporal con archivos movidos para borrado manual por el operario
 _trash_temp/
 # Artefactos del runtime de Mavis (plans de mavis-team, logs de orquestacion, etc.)
 .minimax/
