@@ -835,6 +835,40 @@ def test_el_commit_fallido_con_rollback_fallido_avisa_del_proyecto(entorno: Any)
     assert "puede haber quedado a medias" in error
 
 
+def test_un_trabajo_con_resultado_no_serializable_termina_en_error(entorno: Any) -> None:
+    """Un Path en el resultado no puede viajar al navegador."""
+    servicio, _ts, eventos = entorno
+
+    def trabajo(job: Any) -> dict[str, Any]:
+        job.empezar("Trabajo", ["uno"])
+        with job.paso("uno"):
+            pass
+        return Path("resultado.txt")
+
+    job_id = servicio.lanzar(trabajo)
+    evento = _esperar_job(eventos, job_id)
+
+    error = str(evento["error"])
+    assert evento["estado"] == "error"
+    assert "no es serializable a JSON" in error
+    assert "Path" in error
+    assert "Devuelve tipos primitivos" in error
+    assert evento["resultado"] is None
+
+
+def test_un_trabajo_con_resultado_serializable_termina_en_ok(entorno: Any) -> None:
+    servicio, _ts, eventos = entorno
+
+    def trabajo(job: Any) -> dict[str, Any]:
+        return {"cambios": 3, "ok": True}
+
+    job_id = servicio.lanzar(trabajo)
+    evento = _esperar_job(eventos, job_id)
+
+    assert evento["estado"] == "ok"
+    assert evento["resultado"] == {"cambios": 3, "ok": True}
+
+
 # ── ayudas ─────────────────────────────────────────────────────────────────
 
 

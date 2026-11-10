@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -13,6 +14,7 @@ from zc_suite.eventos import (
     BusCerradoError,
     BusEventos,
     HandlerEventos,
+    SerializacionError,
     conectar_logging,
     desconectar_logging,
 )
@@ -330,7 +332,30 @@ def test_el_handler_se_puede_enchufar_y_desenchufar() -> None:
     assert handler not in logger_prueba.handlers
 
 
-def test_el_handler_tiene_el_tipo_esperado() -> None:
+def test_el_bus_no_publica_un_evento_no_serializable() -> None:
+    """Un evento que no se puede serializar no llega a ningun suscriptor."""
+    bus = BusEventos()
+    suscriptor = bus.suscribir()
+
+    with pytest.raises(SerializacionError):
+        bus.publicar("job", {"job": "abc", "resultado": Path("x")})
+
+    assert bus.ultimo_job() is None
+    assert suscriptor.siguiente(timeout=0.2) is None
+
+
+def test_el_bus_publica_un_resultado_serializable() -> None:
+    bus = BusEventos()
+    suscriptor = bus.suscribir()
+
+    bus.publicar("job", {"job": "abc", "resultado": {"cambios": 3}})
+
+    evento = suscriptor.siguiente(timeout=1.0)
+    assert evento is not None
+    assert evento["resultado"] == {"cambios": 3}
+
+
+def test_el_bus_tiene_el_tipo_esperado() -> None:
     assert issubclass(HandlerEventos, logging.Handler)
 
 

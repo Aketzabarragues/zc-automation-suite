@@ -25,6 +25,7 @@ Restricciones:
 """
 from __future__ import annotations
 
+import json
 import logging
 import tempfile
 import threading
@@ -162,6 +163,11 @@ class Job:
     def cancelado(self) -> bool:
         """``True`` si el operario ha pedido la cancelacion."""
         return self._cancelado.is_set()
+
+    @property
+    def operacion(self) -> str:
+        """Nombre de la operacion que ejecuta este trabajo."""
+        return self._operacion
 
     def cancelar(self) -> None:
         """Pide la cancelacion. Se respeta entre pasos."""
@@ -322,6 +328,15 @@ def texto_error(exc: BaseException) -> str:
     if notas:
         texto = f"{texto} [{' | '.join(notas)}]"
     return texto
+
+
+def es_serializable(valor: Any) -> bool:
+    """``True`` si el valor se puede enviar al navegador como JSON."""
+    try:
+        json.dumps(valor, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return False
+    return True
 
 
 @contextmanager
@@ -631,6 +646,15 @@ class ServicioTIA:
             estado = ERROR
             error = texto_error(exc)
             logger.exception("Trabajo %s fallo.", job.id)
+        else:
+            if resultado is not None and not es_serializable(resultado):
+                estado = ERROR
+                error = (
+                    f"El resultado de {job.operacion} no es serializable a JSON: "
+                    f"{type(resultado).__name__}. Devuelve tipos primitivos."
+                )
+                resultado = None
+                logger.error("Trabajo %s: %s", job.id, error)
         finally:
             job.finalizar(estado, error)
             if estado == ERROR:

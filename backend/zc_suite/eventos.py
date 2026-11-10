@@ -22,6 +22,7 @@ pedir nada.
 """
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import traceback
@@ -41,6 +42,10 @@ NOMBRE_LOGGER = __name__
 
 class BusCerradoError(Exception):
     """El bus se ha cerrado y ya no admite suscripciones."""
+
+
+class SerializacionError(Exception):
+    """Un evento no se puede serializar a JSON y no se publica."""
 
 
 class _Cierre:
@@ -166,16 +171,28 @@ class BusEventos:
     def publicar(self, tipo: str, carga: dict[str, Any]) -> None:
         """Publica un evento a todos los suscriptores.
 
+        El evento se serializa antes de repartirse: si no se puede, no se
+        publica nada y se lanza el error. Un evento roto no puede romper el
+        stream de un suscriptor.
+
         Args:
             tipo: ``progress``, ``job``, ``log`` o ``tia``.
             carga: cuerpo del evento. Se anade el campo ``type``.
 
         Raises:
             ValueError: si ``tipo`` no es uno de los cuatro admitidos.
+            SerializacionError: si el evento no se puede serializar a JSON.
         """
         if tipo not in TIPOS:
             raise ValueError(f"Tipo de evento desconocido: {tipo!r}. Admite: {TIPOS}.")
         evento = {"type": tipo, **carga}
+        try:
+            json.dumps(evento, ensure_ascii=False)
+        except (TypeError, ValueError) as exc:
+            raise SerializacionError(
+                f"El evento '{tipo}' no es serializable a JSON: "
+                f"{type(exc).__name__}. Devuelve tipos primitivos."
+            ) from exc
         with self._lock:
             if self._cerrado:
                 return

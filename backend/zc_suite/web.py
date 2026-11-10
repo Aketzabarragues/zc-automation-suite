@@ -23,7 +23,7 @@ from typing import Any
 
 from flask import Flask, Response, current_app, jsonify, request, send_from_directory
 
-from zc_suite.eventos import BusEventos, Suscripcion
+from zc_suite.eventos import BusCerradoError, BusEventos, Suscripcion
 from zc_suite.tia import OcupadoError, ServicioTIA
 
 #: Claves de las dependencias en ``current_app.config``.
@@ -31,8 +31,17 @@ CLAVE_SERVICIO = "ZC_TIA"
 CLAVE_BUS = "ZC_BUS"
 CLAVE_DIST = "ZC_DIST"
 CLAVE_ORIGENES = "ZC_ORIGENES"
+CLAVE_DESARROLLO = "ZC_DESARROLLO"
 
-#: Origenes de la SPA en desarrollo (Vite). En produccion sirve la propia app.
+#: Puerto de escucha por defecto.
+PUERTO_POR_DEFECTO = 9484
+
+#: Hosts a los que responde la app. La app es local: no escucha mas que en
+#: loopback. La lista es fija y no se deduce de la cabecera ``Host``.
+HOSTS_PERMITIDOS = ("127.0.0.1", "localhost")
+
+#: Origenes de la SPA en desarrollo (Vite). Solo se aceptan si la app se
+#: arranca en modo desarrollo.
 ORIGENES_DEV = frozenset({"http://localhost:5173", "http://127.0.0.1:5173"})
 
 #: Segundos entre keep-alive del stream SSE.
@@ -101,6 +110,8 @@ def _stream_susripcion(suscriptor: Suscripcion, timeout: float) -> Iterator[str]
                 yield ": keep-alive\n\n"
             else:
                 yield f"data: {json.dumps(evento, ensure_ascii=False)}\n\n"
+    except BusCerradoError:
+        return
     finally:
         suscriptor.cerrar()
 
@@ -126,9 +137,16 @@ def lanzar(funcion: Callable[..., Any], **params: Any) -> tuple[Response, int]:
 
 
 def origenes_permitidos() -> set[str]:
-    """Origenes que pueden hacer POST: el de la app y los de desarrollo."""
-    permitidos = set(current_app.config.get(CLAVE_ORIGENES) or ())
-    permitidos.add(f"{request.scheme}://{request.host}")
+    """Origenes que pueden hacer POST.
+
+    La lista es fija: se construye con el puerto de escucha y no con la
+    cabecera ``Host`` de la peticion, que controla el atacante. Un POST con
+    ``Host`` y ``Origin`` iguales a un dominio ajeno devuelve ``403``.
+    """
+    puerto = current_app.config.get("ZC_PUERTO", PUERTO_POR_DEFECTO)
+    permitidos = {f"http://{host}:{puerto}" for host in HOSTS_PERMITIDOS}
+    if current_app.config.get(CLAVE_DESARROLLO):
+        permitidos |= set(current_app.config.get(CLAVE_ORIGENES) or ())
     return permitidos
 
 
@@ -144,6 +162,22 @@ def exigir_origen() -> None:
         raise HTTPError("Falta la cabecera Origin.", 403)
     if origen not in origenes_permitidos():
         raise HTTPError(f"Origen no permitido: {origen}", 403)
+
+
+def exigir_host() -> None:
+    """Rechaza las peticiones cuyo ``Host`` no sea uno de los de loopback.
+
+    Se aplica a todas las peticiones, no solo a las POST: un ``Host``
+    ajeno significa que el navegador esta hablando con otra maquina.
+
+    Raises:
+        HTTPError: ``403`` si el ``Host`` no cuadra.
+    """
+    puerto = current_app.config.get("ZC_PUERTO", PUERTO_POR_DEFECTO)
+    permitidos = {f"{host}:{puerto}" for host in HOSTS_PERMITIDOS}
+    host = request.headers.get("Host", "")
+    if host not in permitidos:
+        raise HTTPError(f"Host no permitido: {host}", 403)
 
 
 # ── estaticos ──────────────────────────────────────────────────────────────
@@ -186,6 +220,8 @@ def crear_app(
     bus_eventos: BusEventos,
     dist_frontend: Path | None = None,
     origenes: set[str] | None = None,
+    desarrollo: bool = False,
+    puerto: int = PUERTO_POR_DEFECTO,
 ) -> Flask:
     """Crea la app Flask con sus dependencias registradas.
 
@@ -194,7 +230,12 @@ def crear_app(
         bus_eventos: el bus de eventos.
         dist_frontend: carpeta del build de la SPA. Por defecto,
             ``frontend/dist`` del repo.
-        origenes: origenes permitidos ademas del de la propia app.
+        origenes: origenes extra permitidos. Solo se usan en modo
+            desarrollo.
+        desarrollo: si es ``True``, se admiten los origenes del servidor de
+            Vite. En produccion solo se admiten los de la propia app.
+        puerto: puerto de escucha. Marca los origenes y los ``Host``
+            validos.
     """
     app = Flask(__name__, static_folder=None)
     app.json.ensure_ascii = False
@@ -202,12 +243,19 @@ def crear_app(
     app.config[CLAVE_BUS] = bus_eventos
     app.config[CLAVE_DIST] = dist_frontend or ruta_dist_frontend()
     app.config[CLAVE_ORIGENES] = set(origenes) if origenes is not None else set(ORIGENES_DEV)
+    app.config[CLAVE_DESARROLLO] = desarrollo
+    app.config["ZC_PUERTO"] = puerto
     _registrar_rutas(app)
     return app
 
 
 def _registrar_rutas(app: Flask) -> None:
     """Monta las rutas del nucleo."""
+
+    @app.before_request
+    def _comprobar_host() -> None:
+        """Valida el Host en todas las peticiones."""
+        exigir_host()
 
     @app.get("/api/eventos")
     def eventos() -> Response:
