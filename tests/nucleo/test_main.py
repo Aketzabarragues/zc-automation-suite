@@ -146,6 +146,24 @@ def test_las_dependencias_viven_en_config(app: Flask) -> None:
     assert app.config["ZC_PUERTO"] == 9484
 
 
+def test_la_configuracion_se_carga_al_montar_la_app(app: Flask) -> None:
+    from zc_suite.config import Config
+
+    assert isinstance(app.config["ZC_CONFIG"], Config)
+    assert app.config["ZC_CONFIG"].tia.plc
+
+
+def test_se_puede_inyectar_la_configuracion() -> None:
+    from zc_suite.config import Config
+
+    bus_eventos = BusEventos()
+    servicio = ServicioTIA(cargador=lambda: TsFalso())
+    propia = Config.model_validate({"tia": {"plc": "PLC_INYECTADO"}})
+    app = montar_app(servicio, bus_eventos, config=propia)
+
+    assert app.config["ZC_CONFIG"].tia.plc == "PLC_INYECTADO"
+
+
 def test_el_modo_desarrollo_admite_los_origenes_de_vite() -> None:
     bus_eventos = BusEventos()
     servicio = ServicioTIA(cargador=lambda: TsFalso())

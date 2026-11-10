@@ -14,6 +14,7 @@ from typing import Any
 
 from flask import Flask
 
+from zc_suite.config import Config, cargar_config
 from zc_suite.eventos import BusEventos
 from zc_suite.rutas import conexion as rutas_conexion
 from zc_suite.tia import ServicioTIA
@@ -43,6 +44,7 @@ def montar_app(
     bus: BusEventos,
     desarrollo: bool = False,
     puerto: int = PUERTO_POR_DEFECTO,
+    config: Config | None = None,
 ) -> Flask:
     """Crea la app y monta las rutas del nucleo y de las areas.
 
@@ -51,11 +53,14 @@ def montar_app(
         bus: el bus de eventos.
         desarrollo: si es ``True``, se admiten los origenes de Vite.
         puerto: puerto de escucha.
+        config: configuracion validada. Por defecto se carga del
+            ``config.json`` del usuario.
 
     Returns:
         La app lista para servir.
     """
     app = crear_app(servicio, bus, desarrollo=desarrollo, puerto=puerto)
+    app.config["ZC_CONFIG"] = config if config is not None else cargar_config()
     rutas_conexion.registrar(app)
     for area in AREAS:
         app.register_blueprint(area.rutas)
