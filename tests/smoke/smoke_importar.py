@@ -6,6 +6,19 @@ de PRUEBA. Lo lanza el operario.
 No forma parte de la suite de pytest: vive fuera de la recogida, en
 ``tests/smoke/``.
 
+Que hace:
+
+1. Se engancha al TIA Portal abierto.
+2. Importa la tabla o los bloques indicados **dentro de una transaccion**.
+3. Por defecto (``--deshacer``) **deshace** la importacion: lanza una
+   excepcion controlada dentro de la transaccion, de modo que
+   ``transaccion()`` ejecuta ``end_transaction(rollback=True)`` y el proyecto
+   queda como estaba. Con ``--no-deshacer`` hace commit.
+
+Asi el smoke prueba tambien ``transaccion()`` contra TIA real: el
+``start_transaction``, el rollback y el commit no se habian probado nunca en
+vivo.
+
 Modos:
 
 - ``--modo tablas``  importa tablas de tags (XML SimaticML). Funciona en
@@ -13,23 +26,26 @@ Modos:
 - ``--modo bloques`` importa bloques (``.s7dcl``). Necesita TIA Portal V21 o
   superior: antes la API no admite SimaticSD.
 
-Uso (PowerShell). ``DIR`` es la carpeta destino que imprimio
-smoke_exportar.py.
-
-    cd tests\smoke
+Uso (PowerShell, desde la raiz del repo). ``DIR`` es la carpeta destino que
+imprimio smoke_exportar.py.
 
     # 1. Exportar primero.
-    python smoke_exportar.py --plc ZC_PLC_STD --tabla 2000_Disp_ED
+    python tests\smoke\smoke_exportar.py --plc <PLC> --tabla 2000_Disp_ED
 
-    # 2a. Importar las tablas de vuelta.
-    python smoke_importar.py --modo tablas --plc ZC_PLC_STD --origen DIR `
+    # 2a. Importar las tablas de vuelta y deshacerlo.
+    python tests\smoke\smoke_importar.py --modo tablas --plc <PLC> --origen DIR `
         --carpeta 2000_Dispositivos
 
-    # 2b. Importar los bloques de vuelta (necesita TIA V21+).
-    python smoke_importar.py --modo bloques --plc ZC_PLC_STD --origen DIR
+    # 2b. Importar los bloques de vuelta y deshacerlo (necesita TIA V21+).
+    python tests\smoke\smoke_importar.py --modo bloques --plc <PLC> --origen DIR
+
+    # Sin deshacer (commit de verdad):
+    python tests\smoke\smoke_importar.py --modo tablas --plc <PLC> --origen DIR --no-deshacer
+
 Sin ``--carpeta``, no se manda ``target_folder_path`` a TIA: es lo que hace
 que TIA haga match UPDATE por nombre en vez de intentar CREATE y fallar.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -43,11 +59,15 @@ sys.path.insert(0, str(RAIZ / "backend"))
 
 from zc_suite import tia  # noqa: E402
 from zc_suite.eventos import BusEventos  # noqa: E402
-from zc_suite.tia import ServicioTIA  # noqa: E402
+from zc_suite.tia import ServicioTIA, transaccion  # noqa: E402
 from zc_suite.tia_ops.importar import importar_bloques, importar_tablas  # noqa: E402
 
 #: Version minima de TIA Portal para importar bloques en SimaticSD.
 VERSION_MINIMA_BLOQUES = 21
+
+
+class DeshacerError(Exception):
+    """Excepcion controlada para provocar el rollback de la transaccion."""
 
 
 def _argumentos() -> argparse.Namespace:
@@ -73,6 +93,19 @@ def _argumentos() -> argparse.Namespace:
             "Carpeta del PLC destino. Si se deja vacia, no se manda "
             "target_folder_path a TIA (match UPDATE por nombre)."
         ),
+    )
+    parser.add_argument(
+        "--deshacer",
+        dest="deshacer",
+        action="store_true",
+        default=True,
+        help="Deshace la importacion con un rollback. Es lo de por defecto.",
+    )
+    parser.add_argument(
+        "--no-deshacer",
+        dest="deshacer",
+        action="store_false",
+        help="Confirma la importacion: hace commit.",
     )
     return parser.parse_args()
 
@@ -108,16 +141,38 @@ def _trabajo_importar(
     plc: str,
     origen: Path,
     carpeta: str,
+    deshacer: bool,
 ) -> dict[str, Any]:
     """Trabajo de smoke: se ejecuta entero dentro del hilo de TIA."""
     job.empezar("Smoke de importacion", [("importar", f"Importar {modo}")])
+    importado: dict[str, Any] = {}
+    rollback = False
+    error_rollback: str | None = None
+
     with job.paso("importar") as paso:
-        if modo == "bloques":
-            resultado = importar_bloques(job.tia.portal, plc, origen, carpeta)
+        try:
+            with transaccion(job, "Smoke importar"):
+                if modo == "bloques":
+                    importado = importar_bloques(job.tia.portal, plc, origen, carpeta)
+                else:
+                    importado = importar_tablas(job.tia.portal, plc, origen, carpeta)
+                if deshacer:
+                    raise DeshacerError("Rollback pedido por --deshacer.")
+        except DeshacerError:
+            rollback = True
+            paso["detail"] = "importado y deshecho"
+        except Exception as exc:
+            error_rollback = f"{type(exc).__name__}: {exc}"
+            paso["detail"] = "ha fallado"
+            raise
         else:
-            resultado = importar_tablas(job.tia.portal, plc, origen, carpeta)
-        paso["detail"] = resultado["importado_de"]
-    return resultado
+            paso["detail"] = "importado y confirmado"
+
+    return {
+        "importado": importado,
+        "rollback": rollback,
+        "error_rollback": error_rollback,
+    }
 
 
 def main() -> int:
@@ -137,6 +192,7 @@ def main() -> int:
         print(f"Modo: {argumentos.modo}   PLC: {argumentos.plc}")
         destino = argumentos.carpeta or "(ninguna: no se manda target_folder_path)"
         print(f"Carpeta destino: {destino}")
+        print(f"Deshacer: {'SI (rollback)' if argumentos.deshacer else 'NO (commit)'}")
         print("Conectando con TIA Portal (attach)...")
         job_id = servicio.lanzar(tia.conectar)
         conexion = _esperar(bus, job_id)
@@ -165,14 +221,24 @@ def main() -> int:
             plc=argumentos.plc,
             origen=origen,
             carpeta=argumentos.carpeta,
+            deshacer=argumentos.deshacer,
         )
         importacion = _esperar(bus, job_id)
         if importacion["estado"] != "ok":
             print(f"\n  ERROR: {importacion.get('error')}")
             return 1
 
-        print("\n--- resultado ---")
-        print(f"  {importacion['resultado']}")
+        resultado = importacion["resultado"]
+        print("\n--- resultado de la importacion ---")
+        print(f"  {resultado['importado']}")
+        print("\n--- transaccion ---")
+        if resultado["rollback"]:
+            print("  rollback: SI (la transaccion se ha deshecho)")
+        else:
+            print("  rollback: NO (se ha hecho commit)")
+        print(f"  todo bien: {'SI' if not resultado['error_rollback'] else 'NO'}")
+        if resultado["error_rollback"]:
+            print(f"  fallo: {resultado['error_rollback']}")
         return 0
     finally:
         servicio.parar()

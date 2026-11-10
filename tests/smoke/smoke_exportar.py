@@ -6,7 +6,10 @@ proyecto de **PRUEBA**.
 
 Uso (PowerShell, desde la raiz del repo):
 
-    python tests/smoke/smoke_exportar.py --plc PLC_1 --bloques DB2000_ED FB2017 --tabla 2000_Disp_ED
+    python tests/smoke/smoke_exportar.py --plc <PLC> --bloques DB2000_ED FB2017 --tabla 2000_Disp_ED
+
+La carpeta destino que imprime es la que despues toma
+``smoke_importar.py --origen``.
 
 Que hace:
 
