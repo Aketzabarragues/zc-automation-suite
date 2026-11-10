@@ -1,0 +1,69 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zc-automation-suite"
+version = "0.1.0"
+description = "Automatizacion IT/OT para proyectos de Siemens TIA Portal"
+readme = "README.md"
+requires-python = ">=3.12,<3.15"
+license = { file = "LICENSE" }
+dependencies = [
+    "flask>=3.1,<4",
+    "openpyxl>=3.1,<4",
+    "pillow>=10.0",
+    "pydantic>=2.9,<3",
+    "pystray>=0.19,<0.20",
+    "pythonnet>=3.0.5,<4",
+    "pyyaml>=6.0,<7",
+    "werkzeug>=3.1,<4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3,<10",
+    "ruff>=0.8",
+]
+build = [
+    "pyinstaller>=6.0",
+]
+
+[tool.setuptools]
+package-dir = { "" = "backend" }
+
+[tool.setuptools.packages.find]
+where = ["backend"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["backend", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle
+    "F",    # pyflakes
+    "I",    # isort
+    "UP",   # pyupgrade
+    "B",    # bugbear
+    "C4",   # comprehensions
+    "SIM",  # simplify
+    "N",    # pep8-naming
+    "ANN",  # anotaciones de tipo
+    "PT",   # estilo de pytest
+    "RUF",  # reglas propias de ruff
+]
+ignore = [
+    "ANN401",  # Any explicito esta permitido en frontera de dominio
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ANN201", "ANN001", "S101"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+pythonpath = ["backend"]
+addopts = "--strict-markers --strict-config"
+filterwarnings = ["error"]

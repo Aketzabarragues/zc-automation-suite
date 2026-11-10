@@ -1,9 +1,18 @@
 {
-  "_comment": "Multi-departamento: cada bloque bajo 'departments.<area_id>' encapsula su jerarquia TIA. Para anadir un area, duplicar el de 'alimentacion' y ajustar los valores.",
-  "departments": {
+  "tia": {
+    "_comment": "Ajustes globales de la conexion con TIA Portal. 'plc' es el nombre del PLC sobre el que se opera por defecto.",
+    "plc": "PLC_1",
+    "proyecto": ""
+  },
+  "paths": {
+    "_comment": "Rutas del equipo del operario. Vacias = sin configurar; la SPA las rellena y las guarda aqui.",
+    "excel": ""
+  },
+  "areas": {
     "alimentacion": {
+      "_comment": "Configuracion del area de alimentacion: jerarquia TIA, catalogos de N_MAX, DBs por tipo de dispositivo y columnas visibles.",
       "_comment_folders": "Carpetas TIA: 'nmax' es la tabla global de N_MAX; 'dispositivos' son las tag tables de los Disp*. El sync unificado parsea SOLO esos 10 XMLs.",
-      "_comment_plantillas": "Ruta base de plantillas TIA para generar procesos. Cada subcarpeta contiene un manifest.json con base/codigo/nombre/minimos. Cadena vacia = sin configurar; el operario la configura via PUT /api/v1/procesos/plantillas desde la SPA.",
+      "_comment_plantillas": "Ruta base de plantillas TIA para generar procesos. Cada subcarpeta contiene un manifest.json con base/codigo/nombre/minimos. Cadena vacia = sin configurar; el operario la configura desde la SPA.",
       "global_config_table_name": "0_Config_Dispositivos",
       "plantillas_path": "D:\\Zeus Control\\Proyectos\\GitHub\\zc-automation-suite\\_plan\\Generar_Proceso",
       "tia_folders": {
@@ -209,7 +218,7 @@
         }
       },
       "procesos": {
-        "_comment_nmax": "Sufijos N_MAX de procesos: el nombre completo se computa como f'{proc.uid}_N_MAX_{suffix}' (p. ej. '100_N_MAX_PREAL'). Las constantes viven en la tabla del proceso (<uid>_<codigo>, p. ej. '100_CPR'). Si el departamento no define este bloque, no hay cards N_MAX en el preview de procesos.",
+        "_comment_nmax": "Sufijos N_MAX de procesos: el nombre completo se computa como f'{proc.uid}_N_MAX_{suffix}' (p. ej. '100_N_MAX_PREAL'). Las constantes viven en la tabla del proceso (<uid>_<codigo>, p. ej. '100_CPR').",
         "n_max_suffixes": {
           "preal": "PREAL",
           "pint": "PINT",
@@ -421,7 +430,7 @@
         "config_table": "0_Config_Generales"
       },
       "entidades_catalog": {
-        "_comment_display_order": "Override data-driven de las columnas visibles de la SPA para el DTO Entidad. Override por dominio = reemplazo total (visibilidad explicita por ausencia). Las columnas invalidas (descendientes no en el DTO) se descartan con warning; ver areas/alimentacion/data/data_entidades_catalog.py._get_display_order_override.",
+        "_comment_display_order": "Override data-driven de las columnas visibles de la SPA para el DTO Entidad. Override por dominio = reemplazo total.",
         "display_order": {
           "entidades": [
             "plc_name",
@@ -434,14 +443,13 @@
           ]
         },
         "col_labels": {
-          "_comment": "Override data-driven de las etiquetas humanas de las columnas. Si una clave esta ausente, se usa el valor por defecto de areas/alimentacion/data/data_entidades_catalog.COLUMN_LABELS.",
-          "numero":         "Numero",
-          "plc_name":       "PLC",
-          "plc_tag":        "PLC.Tag",
-          "plc_tipo":       "PLC.Tipo",
-          "plc_index":      "PLC.Index",
+          "numero": "Numero",
+          "plc_name": "PLC",
+          "plc_tag": "PLC.Tag",
+          "plc_tipo": "PLC.Tipo",
+          "plc_index": "PLC.Index",
           "plc_comentario": "PLC.Comentario",
-          "descripcion":    "Descripcion"
+          "descripcion": "Descripcion"
         }
       },
       "_todo_legacy_types": "Tipos legacy (agrup/ff/ff_sec/media/media_volumen/vd/tof/ton/tonr/tp) NO activos. Sus N_MAX viven en 'pending_nmax'."
