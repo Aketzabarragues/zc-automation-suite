@@ -1,0 +1,34 @@
+@import "tailwindcss";
+
+/* Tokens semanticos del tema "Industrial Claro". */
+@theme {
+  /* Superficies */
+  --color-surface: #f3f4f6;
+  --color-surface-raised: #ffffff;
+  --color-surface-sunken: #e5e7eb;
+
+  /* Bordes */
+  --color-line: #d1d5db;
+  --color-line-strong: #9ca3af;
+
+  /* Texto */
+  --color-ink: #1f2937;
+  --color-ink-muted: #6b7280;
+  --color-ink-inverse: #ffffff;
+
+  /* Acento (azul marino Siemens) */
+  --color-accent: rgb(0 52 102);
+  --color-accent-hover: rgb(0 40 79);
+  --color-accent-subtle: rgb(230 237 245);
+
+  /* Capa shell (sidebar/topbar corporativos sobre fondo navy) */
+  --color-shell: #00205b;
+  --color-shell-deep: #001540;
+  --color-on-shell: #ffffff;
+  --color-on-shell-muted: #93b5e3;
+  --color-on-shell-faint: #5a7fbb;
+  --color-shell-hover: rgb(255 255 255 / 0.05);
+  --color-shell-active: rgb(255 255 255 / 0.1);
+  --color-shell-border: #001540;
+  --color-accent-bright: #4d8fd1;
+}
