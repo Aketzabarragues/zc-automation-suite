@@ -66,7 +66,14 @@ def app() -> Flask:
 
 @pytest.fixture
 def cliente(app: Flask) -> Any:
-    return app.test_client()
+    cliente = app.test_client()
+
+    @app.post("/api/v1/prueba")
+    def _prueba() -> Any:
+        """Ruta nueva sin ninguna comprobacion propia: el shell la protege."""
+        return {"ok": True}
+
+    return cliente
 
 
 # ── conectar y desconectar ─────────────────────────────────────────────────
@@ -104,6 +111,29 @@ def test_conectar_con_un_trabajo_en_curso_responde_409(cliente: Any) -> None:
 
     assert primero.status_code == 202
     assert segundo.status_code == 409
+
+
+def test_una_ruta_post_nueva_rechaza_un_origen_ajeno(cliente: Any) -> None:
+    """El shell protege cualquier POST, aunque la ruta no compruebe nada."""
+    respuesta = cliente.post(
+        "/api/v1/prueba",
+        base_url=BASE,
+        headers={"Origin": "http://otro-sitio"},
+    )
+
+    assert respuesta.status_code == 403
+
+
+def test_una_ruta_post_nueva_acepta_el_origen_de_la_app(cliente: Any) -> None:
+    respuesta = cliente.post("/api/v1/prueba", base_url=BASE, headers={"Origin": BASE})
+
+    assert respuesta.status_code == 200
+
+
+def test_un_get_no_exige_origin(cliente: Any) -> None:
+    respuesta = cliente.get("/api/v1/tia/estado", base_url=BASE)
+
+    assert respuesta.status_code == 200
 
 
 # ── estado ─────────────────────────────────────────────────────────────────

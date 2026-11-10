@@ -16,7 +16,6 @@ from zc_suite.web import (
     HTTPError,
     crear_app,
     exigir_host,
-    exigir_origen,
     lanzar,
     origenes_permitidos,
     servir_spa,
@@ -56,8 +55,7 @@ def _app(desarrollo: bool = False) -> Flask:
 
     @aplicacion.post("/api/v1/prueba")
     def _prueba() -> Any:
-        """Ruta de prueba que exige el origen de la app."""
-        exigir_origen()
+        """Ruta de prueba. No comprueba el origen: lo hace el shell."""
         return jsonify({"ok": True})
 
     return aplicacion

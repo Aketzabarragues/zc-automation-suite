@@ -10,7 +10,7 @@ from typing import Any
 from flask import Blueprint, Response, jsonify
 
 from zc_suite import tia
-from zc_suite.web import exigir_origen, lanzar, servicio
+from zc_suite.web import lanzar, servicio
 
 rutas = Blueprint("conexion", __name__, url_prefix="/api/v1/tia")
 
@@ -18,14 +18,12 @@ rutas = Blueprint("conexion", __name__, url_prefix="/api/v1/tia")
 @rutas.post("/conectar")
 def conectar() -> tuple[Response, int]:
     """Encola la conexion con TIA Portal."""
-    exigir_origen()
     return lanzar(tia.conectar)
 
 
 @rutas.post("/desconectar")
 def desconectar() -> tuple[Response, int]:
     """Encola la desconexion de TIA Portal."""
-    exigir_origen()
     return lanzar(tia.desconectar)
 
 

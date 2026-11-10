@@ -51,6 +51,9 @@ HOSTS_PERMITIDOS = ("127.0.0.1", "localhost")
 #: arranca en modo desarrollo.
 ORIGENES_DEV = frozenset({"http://localhost:5173", "http://127.0.0.1:5173"})
 
+#: Metodos que no llevan cabecera ``Origin`` y no se comprueban.
+METODOS_SIN_ORIGEN = ("GET", "HEAD", "OPTIONS")
+
 #: Segundos entre keep-alive del stream SSE.
 TIMEOUT_SSE = 15.0
 
@@ -277,9 +280,17 @@ def _registrar_rutas(app: Flask) -> None:
     """Monta las rutas del nucleo."""
 
     @app.before_request
-    def _comprobar_host() -> None:
-        """Valida el Host en todas las peticiones."""
+    def _comprobar_peticion() -> None:
+        """Valida el Host de todas las peticiones y el origen de las que
+        modifican algo.
+
+        Los metodos seguros (``GET``, ``HEAD``, ``OPTIONS``) no llevan
+        ``Origin``: no cambian nada y el navegador puede pedirlos sin
+        Origin (un ``<img>`` o un enlace, por ejemplo).
+        """
         exigir_host()
+        if request.method not in METODOS_SIN_ORIGEN:
+            exigir_origen()
 
     @app.get("/api/eventos")
     def eventos() -> Response:
