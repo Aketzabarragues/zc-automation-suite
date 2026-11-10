@@ -350,6 +350,16 @@ export default {
             return (store.tiaConnection && store.tiaConnection.state) || "idle";
         });
 
+        /**
+         * True si el worker esta ejecutando un comando (estado
+         * transitorio "busy"). El portal sigue vivo: solo esta
+         * ocupado. El store lo separa del estado estable para que
+         * ningun consumidor lo confunda con "desconectado".
+         */
+        const tiaBusy = computed(() => {
+            return Boolean(store.tiaConnection && store.tiaConnection.busy);
+        });
+
         /** True si el hilo del worker está vivo. */
         const workerAlive = computed(() => {
             return Boolean(store.tiaConnection && store.tiaConnection.worker_alive);
@@ -357,6 +367,7 @@ export default {
 
         /** Texto humano del state. */
         const tiaStateText = computed(() => {
+            if (tiaBusy.value) return "busy\u2026";
             switch (tiaState.value) {
                 case "connected":  return "connected";
                 case "connecting": return "connecting…";
@@ -368,6 +379,7 @@ export default {
 
         /** Color del texto del state (green/amber/red/gray). */
         const tiaStateClass = computed(() => {
+            if (tiaBusy.value) return "text-amber-600 font-semibold";
             switch (tiaState.value) {
                 case "connected":  return "text-green-600 font-semibold";
                 case "connecting": return "text-amber-600 font-semibold";
@@ -424,7 +436,10 @@ export default {
                 && (tiaState.value === "idle" || tiaState.value === "error");
         });
         const canDisconnect = computed(() => {
+            // Desconectar con un comando en vuelo deja el portal a
+            // medias. El estado "busy" no habilita el boton.
             return !store.busy
+                && !tiaBusy.value
                 && (tiaState.value === "connecting" || tiaState.value === "connected");
         });
 

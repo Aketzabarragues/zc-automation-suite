@@ -327,6 +327,12 @@ export const store = reactive({
         plcs: [],
         last_ping_ok_unix: null,
         last_error: null,
+        // ``busy``: true mientras el worker ejecuta un comando. Es un
+        // estado TRANSITORIO ("busy"), no una desconexion: el portal
+        // sigue vivo. El store normaliza los transitorios para que
+        // ``state`` conserve siempre uno de los 4 estados estables y
+        // ningun consumidor tenga que tratarlos como "no conectado".
+        busy: false,
         // ``worker_alive``: ``true`` si el hilo del worker
         // persistente esta vivo, INDEPENDIENTEMENTE del estado de
         // attach a TIA (``state``). Ortogonal: el worker puede estar
@@ -747,19 +753,25 @@ function _logTiaStateTransition(prevState, newState, snapshot) {
  * Reglas:
  *   * Valida ``r.data.state`` contra los 4 valores estables del
  *     state machine (``connected`` / ``connecting`` / ``idle`` /
- *     ``error``). Si el ``state`` falta o es
+ *     ``error``) y contra los 3 transitorios (``busy`` /
+ *     ``attaching`` / ``detaching``). Si el ``state`` falta o es
  *     desconocido, retorna ``false`` SIN tocar el store (mantenemos
  *     el ultimo estado conocido para evitar parpadeo en cada
  *     timeout de la red). El estado se vuelve a leer cuando el
  *     operario actua (Conectar / Desconectar) o cuando llega el
  *     evento SSE ``tia_state``. El antiguo ``disconnected`` ya NO se
  *     acepta (el backend no lo emite nunca; el frontend no lo espera).
+ *   * Un estado TRANSITORIO no pisa ``state``: solo mueve el flag
+ *     ``busy``. El estado estable del slot se conserva y el estado
+ *     efectivo (el que queda tras normalizar) es el que se compara
+ *     con el previo para detectar transiciones.
  *   * Hace ``Object.assign(store.tiaConnection, {...})`` con los 7
  *     campos estables del snapshot, con defaults sensatos si el
  *     backend los omite (compat con respuestas sinteticas de tests
  *     y con el modo 1-shot / MCP que solo expone ``state`` y
  *     ``error``):
- *       - ``state``             → validado arriba (4 valores).
+ *       - ``state``             → validado arriba (4 estables +
+ *         transitorios); lo aplica ``_aplicarEstadoTia``.
  *       - ``project``           → ``null`` (snapshot sin proyecto).
  *       - ``plcs``              → ``[]`` (sin PLCs detectados).
  *       - ``last_ping_ok_unix`` → ``null`` (nunca llego un ping OK).
@@ -771,9 +783,11 @@ function _logTiaStateTransition(prevState, newState, snapshot) {
  *     reactividad de los campos anidados (``project``, ``plcs``):
  *     si reasignamos, cualquier ``computed`` que tuviese una ref
  *     al objeto antiguo deja de actualizarse.
- *   * Detecta si el ``state`` cambió respecto al valor previo y
- *     delega el logueo en ``_logTiaStateTransition`` (no loguea
- *     transiciones a ``connecting`` por ser estado transitorio).
+ *   * Detecta si el estado EFECTIVO cambió respecto al valor previo
+ *     y delega el logueo en ``_logTiaStateTransition`` (no loguea
+ *     transiciones a ``connecting`` por ser estado transitorio). Un
+ *     snapshot "busy" NO es una transicion: el estado estable sigue
+ *     siendo el mismo.
  *
  * Devuelve ``true`` si aplicó el snapshot, ``false`` si lo descartó
  * (respuesta no OK, ``r.data`` malformado o ``state`` invalido).
@@ -836,15 +850,59 @@ function _clearAllPlcStateOnTiaLoss() {
     }
 }
 
+/**
+ * Los 4 estados estables del worker TIA (contrato del slot
+ * ``tiaConnection``).
+ */
+const _TIA_ESTADOS_ESTABLES = new Set([
+    "connected",
+    "connecting",
+    "idle",
+    "error",
+]);
+
+/**
+ * Los estados TRANSITORIOS del worker TIA.
+ *
+ * "busy" significa "el portal sigue vivo, estoy ejecutando un
+ * comando"; "attaching"/"detaching" son transiciones del ciclo de
+ * vida. Ninguno es una desconexion: tratarlos como tal hacia que el
+ * HMI vaciara la vista durante cada comando (p.ej. el refresco de
+ * cache que hace el FB de apply al terminar).
+ */
+const _TIA_ESTADOS_TRANSITORIOS = new Set([
+    "busy",
+    "attaching",
+    "detaching",
+]);
+
+/**
+ * Aplica un estado del worker al slot ``tiaConnection``.
+ *
+ * Los transitorios NO pisan el estado estable: solo mueven el flag
+ * ``busy``. Los estables si lo pisan. Un estado desconocido se
+ * descarta (se mantiene el ultimo estado conocido).
+ *
+ * @param {string} state estado publicado por el worker
+ * @returns {boolean} true si el estado se aplico o fue un transitorio
+ */
+function _aplicarEstadoTia(state) {
+    if (!state) return false;
+    if (_TIA_ESTADOS_TRANSITORIOS.has(state)) {
+        store.tiaConnection.busy = state === "busy";
+        return true;
+    }
+    if (!_TIA_ESTADOS_ESTABLES.has(state)) return false;
+    store.tiaConnection.busy = false;
+    store.tiaConnection.state = state;
+    return true;
+}
+
 function _applyTiaSnapshot(r) {
     if (!r || !r.ok || !r.data || typeof r.data !== "object") return false;
     const newState = r.data.state;
-    if (
-        newState !== "connected" &&
-        newState !== "connecting" &&
-        newState !== "idle" &&
-        newState !== "error"
-    ) {
+    const esTransitorio = _TIA_ESTADOS_TRANSITORIOS.has(newState);
+    if (!esTransitorio && !_TIA_ESTADOS_ESTABLES.has(newState)) {
         // Snapshot malformado: lo descartamos silenciosamente para
         // no perder el ultimo estado conocido del store.
         return false;
@@ -856,7 +914,8 @@ function _applyTiaSnapshot(r) {
     // del backend, que solo expone ``state`` y ``error``) y
     // machacamos el resto.
     Object.assign(store.tiaConnection, {
-        state: newState,
+        // ``state`` NO se asigna aqui: lo aplica ``_aplicarEstadoTia``
+        // mas abajo, que es quien distingue estable de transitorio.
         project:
             r.data.project !== undefined ? r.data.project : null,
         plcs: Array.isArray(r.data.plcs) ? r.data.plcs : [],
@@ -881,8 +940,13 @@ function _applyTiaSnapshot(r) {
                 : r.data.worker_alive === true,
         project_changed: r.data.project_changed === true,
     });
-    if (prevState !== newState) {
-        _logTiaStateTransition(prevState, newState, r.data);
+    _aplicarEstadoTia(newState);
+    // El estado efectivo es el que queda en el slot tras normalizar.
+    // Comparar con ``newState`` (crudo) daria una transicion falsa
+    // "connected -> busy" en cada snapshot transitorio.
+    const curState = store.tiaConnection.state;
+    if (prevState !== curState) {
+        _logTiaStateTransition(prevState, curState, r.data);
 
         // Limpieza reactiva: si TIA
         // se cerro por fuera (transicion connected/connecting ->
@@ -897,10 +961,10 @@ function _applyTiaSnapshot(r) {
         // se aplico localmente y la SPA no se rompe.
         if (
             (prevState === "connected" || prevState === "connecting") &&
-            (newState === "idle" || newState === "error")
+            (curState === "idle" || curState === "error")
         ) {
             _clearAllPlcStateOnTiaLoss();
-            const reason = newState === "error"
+            const reason = curState === "error"
                 ? "TIA Portal dejo de responder. Estado PLC vaciado (lista, prevision, cache)."
                 : "TIA Portal se cerro externamente. Estado PLC vaciado (lista, prevision, cache).";
             // Dynamic import: evita acoplar el modulo a api.js en
@@ -1299,6 +1363,26 @@ export function applyFbState(event) {
         error_msg: event.error_msg ?? null,
         updatedAt: Date.now(),
     };
+}
+
+/**
+ * Aplica un evento ``tia_state`` del SSE al store.
+ *
+ * El worker publica 6 estados: los 4 estables del contrato mas los
+ * transitorios ("busy" / "attaching" / "detaching"). Un transitorio
+ * significa "el portal sigue vivo, estoy ocupado": NO es una
+ * desconexion. Por eso el estado estable no cambia y el ocupado se
+ * guarda en ``store.tiaConnection.busy``.
+ *
+ * Sin esta normalizacion, el estado "busy" (que el worker emite en
+ * CADA comando) dejaba el store en "busy" y el HMI lo leia como "no
+ * conectado": el panel se vaciaba durante cada comando.
+ *
+ * @param {{state: string}} event payload del evento ``tia_state``
+ */
+export function applyTiaState(event) {
+    if (!event || typeof event !== "object") return;
+    _aplicarEstadoTia(event.state);
 }
 
 /**

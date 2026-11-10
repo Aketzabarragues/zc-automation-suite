@@ -199,23 +199,41 @@ def test_scan_plc_blocks_llama_worker_y_puebla_cache(
     assert call_args[0][1] == {"plc_name": "S7-1500"}
 
 
-def test_scan_plc_blocks_fuerza_refresh_invalida_antes(
-    cache: AppCache,
-) -> None:
-    """``force_refresh=True`` invalida la entry antes de escanear."""
-    plc_blocks_put(cache, "S7-1500", _make_blocks("S7-1500"))
-    fake_resp = {
+def _scan_ok(plc: str = "S7-1500") -> dict:
+    """Respuesta OK del comando ``scan_blocks``."""
+    return {
         "ok": True,
         "result": {
-            "plc_name": "S7-1500",
+            "plc_name": plc,
             "blocks": [],
             "tag_tables": [],
             "udts": [],
             "scanned_at": datetime(2026, 9, 1).isoformat(),
         },
     }
+
+
+def test_scan_plc_blocks_fuerza_refresh_mantiene_la_cache_durante_el_scan(
+    cache: AppCache,
+) -> None:
+    """``force_refresh=True`` NO vacia la entry antes de escanear.
+
+    El scan tarda 15-26 s en un PLC grande. Invalidar antes dejaria
+    al HMI sin arbol de bloques durante todo el scan ("Cache no
+    disponible").
+    """
+    anterior = _make_blocks("S7-1500")
+    plc_blocks_put(cache, "S7-1500", anterior)
+
+    visto_durante: dict[str, object] = {}
+
+    def _submit(*args, **kwargs):
+        # Estado de la cache en el momento en que el worker escanea.
+        visto_durante["valor"] = plc_blocks_get(cache, "S7-1500")
+        return _scan_ok()
+
     fake_client = MagicMock()
-    fake_client.submit_and_wait.return_value = fake_resp
+    fake_client.submit_and_wait.side_effect = _submit
 
     with patch(
         "core.infrastructure.tia.tia_loop.tia_client",
@@ -228,9 +246,97 @@ def test_scan_plc_blocks_fuerza_refresh_invalida_antes(
             app_cache=cache,
         )
 
+    # Durante el scan la entry anterior seguia visible.
+    assert visto_durante["valor"] is anterior
+    # Y al terminar la entry es la nueva.
     fresh = plc_blocks_get(cache, "S7-1500")
     assert fresh is not None
     assert fresh.plc_name == "S7-1500"
+    assert fresh is not anterior
+
+
+def test_scan_plc_blocks_fuerza_refresh_invalida_si_el_scan_lanza(
+    cache: AppCache,
+) -> None:
+    """Si el scan lanza excepcion, la entry se invalida.
+
+    Datos viejos son peores que no tener datos: tras un apply, el
+    nombre del bloque en TIA ya cambio y la cache vieja mentiria.
+    """
+    plc_blocks_put(cache, "S7-1500", _make_blocks("S7-1500"))
+    fake_client = MagicMock()
+    fake_client.submit_and_wait.side_effect = RuntimeError("timeout del worker")
+
+    with patch(
+        "core.infrastructure.tia.tia_loop.tia_client",
+        fake_client,
+    ):
+        with pytest.raises(RuntimeError, match="timeout del worker"):
+            scan_plc_blocks(
+                "S7-1500",
+                force_refresh=True,
+                tia_client=fake_client,
+                app_cache=cache,
+            )
+
+    assert plc_blocks_get(cache, "S7-1500") is None
+
+
+def test_scan_plc_blocks_fuerza_refresh_invalida_si_la_respuesta_falla(
+    cache: AppCache,
+) -> None:
+    """Si el worker responde ``ok=False``, la entry se invalida."""
+    plc_blocks_put(cache, "S7-1500", _make_blocks("S7-1500"))
+    fake_client = MagicMock()
+    fake_client.submit_and_wait.return_value = {
+        "ok": False,
+        "error": "TIA Portal no responde",
+    }
+
+    with patch(
+        "core.infrastructure.tia.tia_loop.tia_client",
+        fake_client,
+    ):
+        with pytest.raises(RuntimeError, match="TIA Portal no responde"):
+            scan_plc_blocks(
+                "S7-1500",
+                force_refresh=True,
+                tia_client=fake_client,
+                app_cache=cache,
+            )
+
+    assert plc_blocks_get(cache, "S7-1500") is None
+
+
+def test_scan_plc_blocks_sin_force_refresh_conserva_la_cache_si_falla(
+    cache: AppCache,
+) -> None:
+    """Sin ``force_refresh`` un scan fallido NO invalida la entry.
+
+    El refresco opportunistico no puede dejar al operario sin datos
+    que ya tenia: solo el ``force_refresh`` (apply) asume que lo
+    anterior quedo obsoleto.
+    """
+    anterior = _make_blocks("S7-1500")
+    plc_blocks_put(cache, "S7-1500", anterior)
+    fake_client = MagicMock()
+    fake_client.submit_and_wait.return_value = {
+        "ok": False,
+        "error": "TIA Portal no responde",
+    }
+
+    with patch(
+        "core.infrastructure.tia.tia_loop.tia_client",
+        fake_client,
+    ):
+        with pytest.raises(RuntimeError, match="TIA Portal no responde"):
+            scan_plc_blocks(
+                "S7-1500",
+                tia_client=fake_client,
+                app_cache=cache,
+            )
+
+    assert plc_blocks_get(cache, "S7-1500") is anterior
 
 
 def test_scan_plc_blocks_worker_falla_lanza_runtime_error(

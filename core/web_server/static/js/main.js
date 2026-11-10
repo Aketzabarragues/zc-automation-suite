@@ -23,7 +23,7 @@
  */
 import { createApp, computed, nextTick } from "/js/vendor/vue.esm-browser.prod.js";
 import { applyCacheChange, applyCacheSnapshot, applyFbState,
-    goToArea, goToSubview, loadCatalog, store } from "./store.js";
+    applyTiaState, goToArea, goToSubview, loadCatalog, store } from "./store.js";
 import { loadArea, mountArea } from "./area-loader.js";
 import Welcome from "./components/Welcome.js";
 import ConsolaLogs from "./components/ConsolaLogs.js";
@@ -377,7 +377,10 @@ sse.onmessage = (e) => {
             // TIA. Aqui solo se aplica el ``state``: el ``project`` y
             // la lista de PLCs los rellenan las respuestas HTTP de
             // ``connectTia`` y el slot ``plc_list`` del AppCache.
-            store.tiaConnection.state = event.state;
+            // El store normaliza los estados transitorios del worker
+            // ("busy"): el estado estable no cambia y el ocupado se
+            // guarda en ``tiaConnection.busy``.
+            applyTiaState(event);
             break;
         default:
             console.debug("[SSE] tipo de evento desconocido:", event.type);

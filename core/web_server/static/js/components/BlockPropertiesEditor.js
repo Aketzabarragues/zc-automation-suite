@@ -90,7 +90,24 @@ export default {
             const tia = store.tiaConnection;
             const plcSelected = !!selectedPlc.value;
             const empty = (icon, title, hint) => ({ show: true, icon, title, hint });
-            if (!tia || tia.state !== "connected") {
+            // El worker publica "busy" mientras ejecuta un comando (p.ej.
+            // el refresco de cache que hace el FB de apply). Eso NO es
+            // una desconexion: el portal sigue vivo. Si se tratara como
+            // tal, el panel entero se sustituiria por este empty state
+            // durante cada comando.
+            const estadoTia = tia ? tia.state : "idle";
+            const tiaOperativo = estadoTia === "connected"
+                || estadoTia === "busy"
+                || Boolean(tia && tia.busy);
+            if (!tiaOperativo) {
+                if (estadoTia === "error") {
+                    return empty(
+                        "⚠️",
+                        "Error de TIA Portal",
+                        (tia && tia.last_error)
+                            || "El worker no puede hablar con TIA Portal."
+                    );
+                }
                 return empty("🔌", "Conecta a TIA Portal", "Desde la pestaña PLC pulsa 'Conectar' para empezar.");
             }
             if (!plcSelected) {

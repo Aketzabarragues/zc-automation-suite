@@ -167,8 +167,10 @@ def scan_plc_blocks(
 
     Args:
         plc_name: nombre del PLC a escanear.
-        force_refresh: si True, invalida la entrada del PLC en el
-            ``AppCache`` antes de escanear (cache IT limpio).
+        force_refresh: si True, la entrada del PLC en el ``AppCache``
+            se invalida si el scan falla. Si el scan va bien, la
+            entrada se sobrescribe con la nueva (la anterior se
+            mantiene visible mientras dura el scan).
         tia_client: cliente TIA inyectado. Si None, usa el Singleton
             ``tia_client`` de ``core.infrastructure.tia.tia_loop``.
         app_cache: AppCache destino. Si None, usa ``get_app_cache()``.
@@ -189,22 +191,35 @@ def scan_plc_blocks(
     client = tia_client if tia_client is not None else _default_tia_client
     cache = app_cache if app_cache is not None else get_app_cache()
 
-    if force_refresh:
-        plc_blocks_clear(cache, plc_name)
-
+    # La entrada anterior NO se invalida antes de escanear. El scan
+    # tarda 15-26 s en un PLC grande y, mientras dura, el HMI se
+    # quedaria sin arbol de bloques ("Cache no disponible"). La
+    # entrada se sobrescribe al terminar (``plc_blocks_put``).
+    #
+    # Si el scan falla, la entrada se invalida ENTONCES: datos viejos
+    # son peores que no tener datos (tras un apply, el nombre del
+    # bloque en TIA ya cambio y la cache vieja mentiria).
+    #
     # ``submit_and_wait`` es sync (bloquea el hilo que lo llama). El
     # comando OT 'scan_blocks' ya queda loggeado por el wrapper.
     logger.debug(
         f"helper[scan_plc_blocks] plc={plc_name!r} "
         f"force_refresh={force_refresh}"
     )
-    resp = client.submit_and_wait(
-        "scan_blocks",
-        {"plc_name": plc_name},
-        timeout=timeout_s,
-    )
+    try:
+        resp = client.submit_and_wait(
+            "scan_blocks",
+            {"plc_name": plc_name},
+            timeout=timeout_s,
+        )
+    except Exception:
+        if force_refresh:
+            plc_blocks_clear(cache, plc_name)
+        raise
 
     if not resp.get("ok"):
+        if force_refresh:
+            plc_blocks_clear(cache, plc_name)
         raise RuntimeError(resp.get("error", "scan_blocks failed"))
 
     bloques_cache = _reconstruct_cache(resp["result"])
