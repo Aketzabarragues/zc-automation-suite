@@ -44,6 +44,9 @@ Publicador = Callable[[str, dict[str, Any]], None]
 #: Devuelve el modulo ``siemens_tia_scripting`` ya importado.
 Cargador = Callable[[], Any]
 
+#: Un paso del trabajo: su identificador, o su identificador y su etiqueta.
+Paso = str | tuple[str, str]
+
 #: Estados de un paso del trabajo.
 PENDIENTE = "pending"
 EN_CURSO = "running"
@@ -100,6 +103,18 @@ def _ahora() -> str:
 def _etiqueta(nombre: str) -> str:
     """Etiqueta legible de un paso a partir de su identificador."""
     return nombre.replace("_", " ").capitalize()
+
+
+def _etapa_de(paso: Paso) -> tuple[str, str]:
+    """Identificador y etiqueta de un paso declarado.
+
+    Un paso puede declararse como ``"exportar"`` o como
+    ``("exportar", "Exportar bloques")``.
+    """
+    if isinstance(paso, tuple):
+        nombre, etiqueta = paso
+        return nombre, etiqueta
+    return paso, _etiqueta(paso)
 
 
 # ── paso del trabajo ───────────────────────────────────────────────────────
@@ -176,27 +191,31 @@ class Job:
 
     # ── ciclo de vida ────────────────────────────────────────────────────
 
-    def empezar(self, titulo: str, pasos: list[str]) -> None:
+    def empezar(self, titulo: str, pasos: list[Paso]) -> None:
         """Declara el trabajo y todos sus pasos.
 
         Args:
             titulo: texto que ve el operario.
-            pasos: identificadores de los pasos, en orden de ejecucion.
+            pasos: identificadores de los pasos, en orden de ejecucion. Cada
+                uno puede ser un identificador (``"exportar"``) o una pareja
+                ``(identificador, etiqueta)`` para poner una etiqueta propia.
 
         Raises:
             ValueError: si ``pasos`` esta vacio o repite un identificador.
         """
         if not pasos:
             raise ValueError("El trabajo debe declarar al menos un paso.")
-        if len(set(pasos)) != len(pasos):
-            raise ValueError(f"Hay pasos repetidos en {pasos!r}.")
+        declarados = [_etapa_de(paso) for paso in pasos]
+        nombres = [nombre for nombre, _etiqueta_ in declarados]
+        if len(set(nombres)) != len(nombres):
+            raise ValueError(f"Hay pasos repetidos en {nombres!r}.")
         self._titulo = titulo
         self._empezado_at = _ahora()
         self._etapas = [
             _Etapa(
                 {
                     "id": nombre,
-                    "label": _etiqueta(nombre),
+                    "label": etiqueta,
                     "status": PENDIENTE,
                     "detail": None,
                     "started_at": None,
@@ -204,7 +223,7 @@ class Job:
                 },
                 self._publicar_progreso,
             )
-            for nombre in pasos
+            for nombre, etiqueta in declarados
         ]
         self._por_id = {etapa["id"]: etapa for etapa in self._etapas}
         self._publicar_progreso()
@@ -232,8 +251,12 @@ class Job:
         etapa._set_interno(status=EN_CURSO, started_at=_ahora())
         try:
             yield etapa
-        except BaseException:
-            etapa._set_interno(status=ERROR, finished_at=_ahora())
+        except BaseException as exc:
+            etapa._set_interno(
+                status=ERROR,
+                detail=texto_error(exc),
+                finished_at=_ahora(),
+            )
             raise
         else:
             etapa._set_interno(status=HECHO, finished_at=_ahora())
@@ -398,6 +421,35 @@ def silenciar_log_nativo(ts: Any, ruta_log: Path) -> None:
         logger.warning("No se pudo silenciar el log nativo de Siemens: %s", exc)
 
 
+#: Errores del SDK que se traducen a un mensaje para el operario. El
+#: texto original de Siemens se queda en el log.
+TRADUCCIONES_SDK: tuple[tuple[str, str], ...] = (
+    (
+        "no matching tia portal version",
+        "No hay ningún TIA Portal abierto (o su versión no es compatible). "
+        "Abre TIA Portal con el proyecto y vuelve a conectar.",
+    ),
+    (
+        "opennessaccessexception",
+        "TIA Portal ha rechazado la conexión. Comprueba que el usuario "
+        "pertenece al grupo de Openness y que el proyecto está abierto.",
+    ),
+)
+
+
+def mensaje_operador(exc: Exception) -> str:
+    """Mensaje para el operario de un fallo del SDK.
+
+    Los errores conocidos del SDK se traducen a un texto accionable. El
+    original se conserva en el log y en la excepcion que lo causo.
+    """
+    texto = str(exc).lower()
+    for marca, mensaje in TRADUCCIONES_SDK:
+        if marca in texto:
+            return mensaje
+    return f"{type(exc).__name__}: {exc}"
+
+
 def pid_del_portal(portal: Any) -> int:
     """PID del portal, forzando la salida de los errores pendientes del SDK.
 
@@ -479,6 +531,7 @@ class ServicioTIA:
         self._portal: Any = None
         self._modo_portal: str | None = None
         self._ultimo_error: str | None = None
+        self._conexion_publicada: tuple[bool, str | None] | None = None
 
     # ── ciclo de vida del hilo ───────────────────────────────────────────
 
@@ -686,7 +739,18 @@ class ServicioTIA:
             logger.exception("Fallo publicando el evento '%s'.", tipo)
 
     def _publicar_conexion(self) -> None:
-        self.publicar("tia", self.estado())
+        """Publica el estado de la conexion, solo si ha cambiado.
+
+        Lo que se compara es la conexion (si esta vivo y cual es el ultimo
+        error), no el trabajo en curso. Sin esto, una desconexion se
+        anuncia dos veces: una al detectarla y otra al cerrar el trabajo.
+        """
+        estado = self.estado()
+        firma = (estado["conectado"], estado["ultimo_error"])
+        if firma == self._conexion_publicada:
+            return
+        self._conexion_publicada = firma
+        self.publicar("tia", estado)
 
     # ── ejecucion ────────────────────────────────────────────────────────
 
@@ -711,6 +775,12 @@ class ServicioTIA:
             estado = CANCELADO
             error = texto_error(exc)
             logger.info("Trabajo %s cancelado.", job.id)
+        except TIAError as exc:
+            # Fallo esperado: TIA cerrado, sin proyecto, sin permiso. Se
+            # registra en una linea; el traceback solo para lo inesperado.
+            estado = ERROR
+            error = texto_error(exc)
+            logger.warning("Trabajo %s fallo: %s", job.id, error)
         except Exception as exc:
             estado = ERROR
             error = texto_error(exc)
@@ -816,9 +886,13 @@ class ServicioTIA:
                 portal = ts.open_portal(portal_mode=portal_mode)
         except Exception as exc:
             accion = "enganchar" if modo == "attach" else "abrir"
-            raise TIAError(
-                f"No se pudo {accion} el portal de TIA: {type(exc).__name__}: {exc}"
-            ) from exc
+            logger.warning(
+                "No se pudo %s el portal de TIA: %s: %s",
+                accion,
+                type(exc).__name__,
+                exc,
+            )
+            raise TIAError(mensaje_operador(exc)) from exc
         if portal is None:
             raise TIAError(
                 "El portal de TIA devolvio None. Comprueba que TIA Portal este "
@@ -870,7 +944,13 @@ def conectar(job: Job, modo: str = "attach") -> dict[str, Any]:
             defecto, que es el flujo del operario); ``"open"`` abre una
             instancia nueva.
     """
-    job.empezar("Conectar con TIA Portal", ["cargar_sdk", "abrir_portal"])
+    job.empezar(
+        "Conectar con TIA Portal",
+        [
+            ("cargar_sdk", "Cargar el SDK de Siemens"),
+            ("abrir_portal", "Enganchar TIA Portal"),
+        ],
+    )
     with job.paso("cargar_sdk") as paso:
         job.tia.cargar_sdk()
         paso["detail"] = "SDK de Siemens cargado"
@@ -886,7 +966,7 @@ def conectar(job: Job, modo: str = "attach") -> dict[str, Any]:
 
 def desconectar(job: Job) -> dict[str, Any]:
     """Desconecta de TIA Portal. Idempotente."""
-    job.empezar("Desconectar de TIA Portal", ["cerrar_portal"])
+    job.empezar("Desconectar de TIA Portal", [("cerrar_portal", "Cerrar el portal")])
     with job.paso("cerrar_portal") as paso:
         job.tia.cerrar_portal()
         paso["detail"] = "Portal cerrado"

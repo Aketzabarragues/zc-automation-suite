@@ -6,6 +6,7 @@ portal son dobles propios.
 
 from __future__ import annotations
 
+import logging
 import subprocess
 import sys
 import threading
@@ -89,10 +90,13 @@ class TsFalso:
         self.llamadas: list[str] = []
         self.modos: list[str] = []
         self.logging: list[tuple[str, bool]] = []
+        self.error_attach: str | None = None
 
     def attach_portal(self, portal_mode: str | None = None) -> PortalFalso:
         self.llamadas.append("attach_portal")
         self.modos.append(portal_mode or "")
+        if self.error_attach is not None:
+            raise ValueError(self.error_attach)
         # Cada enganche devuelve un portal nuevo, como en el SDK real.
         self.portal = PortalFalso()
         return self.portal
@@ -1041,6 +1045,208 @@ def test_abrir_portal_reutiliza_el_portal_sano(entorno: Any) -> None:
 
     assert evento["estado"] == "ok"
     assert ts.llamadas.count("attach_portal") == 1
+
+
+# ── retoques de operacion ──────────────────────────────────────────────────
+
+
+def test_el_error_de_attach_se_traduce_para_el_operador(entorno: Any) -> None:
+    """El mensaje de Siemens se traduce a algo accionable."""
+    servicio, ts, eventos = entorno
+    ts.error_attach = (
+        "OpennessAccessException: No matching TIA Portal version could be found."
+    )
+
+    job_id = servicio.lanzar(tia.conectar)
+    evento = _esperar_job(eventos, job_id)
+
+    error = str(evento["error"])
+    assert evento["estado"] == "error"
+    assert "No hay ningún TIA Portal abierto" in error
+    assert "Abre TIA Portal con el proyecto" in error
+    assert "No matching TIA Portal version" not in error
+
+
+def test_el_log_conserva_el_texto_original_de_siemens(
+    entorno: Any,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    servicio, ts, eventos = entorno
+    ts.error_attach = (
+        "OpennessAccessException: No matching TIA Portal version could be found."
+    )
+
+    with caplog.at_level(logging.WARNING):
+        job_id = servicio.lanzar(tia.conectar)
+        _esperar_job(eventos, job_id)
+
+    assert "No matching TIA Portal version" in caplog.text
+
+
+def test_un_error_desconocido_mantiene_su_texto(entorno: Any) -> None:
+    servicio, ts, eventos = entorno
+    ts.error_attach = "Algo raro que no conozco"
+
+    job_id = servicio.lanzar(tia.conectar)
+    evento = _esperar_job(eventos, job_id)
+
+    assert "Algo raro que no conozco" in str(evento["error"])
+
+
+def test_un_paso_fallido_deja_el_error_en_su_detail(entorno: Any) -> None:
+    """El faceplate tiene que decir por que fallo el paso."""
+    servicio, ts, eventos = entorno
+    ts.error_attach = "No matching TIA Portal version could be found."
+
+    job_id = servicio.lanzar(tia.conectar)
+    _esperar_job(eventos, job_id)
+
+    detalles = [
+        etapa["detail"]
+        for carga in _eventos_de(eventos, "progress")
+        for etapa in carga["stages"]
+        if etapa["id"] == "abrir_portal"
+    ]
+    assert any(d and "TIA Portal abierto" in d for d in detalles)
+
+
+def test_un_tia_error_se_registra_como_warning_sin_traceback(
+    entorno: Any,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    servicio, ts, eventos = entorno
+    ts.error_attach = "No matching TIA Portal version could be found."
+
+    with caplog.at_level(logging.WARNING):
+        job_id = servicio.lanzar(tia.conectar)
+        _esperar_job(eventos, job_id)
+
+    registros = [r for r in caplog.records if r.name == "zc_suite.tia"]
+    assert registros
+    assert all(r.levelno == logging.WARNING for r in registros)
+    assert all(not r.exc_info for r in registros)
+
+
+def test_una_excepcion_inesperada_si_lleva_traceback(
+    entorno: Any,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    servicio, _ts, eventos = entorno
+
+    def trabajo(job: Any) -> dict[str, Any]:
+        job.empezar("Trabajo", ["uno"])
+        with job.paso("uno"):
+            raise RuntimeError("reventon inesperado")
+        return {}
+
+    with caplog.at_level(logging.ERROR):
+        job_id = servicio.lanzar(trabajo)
+        _esperar_job(eventos, job_id)
+
+    registros = [r for r in caplog.records if r.name == "zc_suite.tia"]
+    assert any(r.levelno == logging.ERROR for r in registros)
+    assert any(r.exc_info for r in registros)
+
+
+def test_la_desconexion_se_publica_una_sola_vez(entorno: Any) -> None:
+    """Al perder el portal, el evento tia sale una vez, no dos."""
+    servicio, ts, eventos = entorno
+    job_id = servicio.lanzar(tia.conectar)
+    _esperar_job(eventos, job_id)
+
+    ts.portal.vivo = False
+
+    def trabajo(job: Any) -> dict[str, Any]:
+        job.empezar("Trabajo", ["uno"])
+        with job.paso("uno"):
+            pass
+        return {}
+
+    job_id = servicio.lanzar(trabajo)
+    _esperar_job(eventos, job_id)
+
+    estados = _eventos_de(eventos, "tia")
+    indice_vivo = max(i for i, e in enumerate(estados) if e["conectado"] is True)
+    desconexiones = [e for e in estados[indice_vivo:] if e["conectado"] is False]
+    assert len(desconexiones) == 1
+
+
+def test_empezar_acepta_identificadores_solos(entorno: Any) -> None:
+    servicio, _ts, eventos = entorno
+
+    def trabajo(job: Any) -> dict[str, Any]:
+        job.empezar("Trabajo", ["exportar", "comparar"])
+        with job.paso("exportar"):
+            pass
+        return {}
+
+    job_id = servicio.lanzar(trabajo)
+    _esperar_job(eventos, job_id)
+
+    avances = _eventos_de(eventos, "progress")
+    etapas = avances[0]["stages"]
+    assert [e["id"] for e in etapas] == ["exportar", "comparar"]
+    assert [e["label"] for e in etapas] == ["Exportar", "Comparar"]
+
+
+def test_empezar_acepta_etiquetas_por_paso(entorno: Any) -> None:
+    servicio, _ts, eventos = entorno
+
+    def trabajo(job: Any) -> dict[str, Any]:
+        job.empezar(
+            "Trabajo",
+            [("cargar_sdk", "Cargar SDK"), ("abrir_portal", "Enganchar TIA Portal")],
+        )
+        with job.paso("cargar_sdk"):
+            pass
+        return {}
+
+    job_id = servicio.lanzar(trabajo)
+    _esperar_job(eventos, job_id)
+
+    avances = _eventos_de(eventos, "progress")
+    etapas = avances[0]["stages"]
+    assert [e["id"] for e in etapas] == ["cargar_sdk", "abrir_portal"]
+    assert [e["label"] for e in etapas] == ["Cargar SDK", "Enganchar TIA Portal"]
+
+
+def test_los_pasos_repetidos_siguen_fallando(entorno: Any) -> None:
+    servicio, _ts, eventos = entorno
+
+    def trabajo(job: Any) -> dict[str, Any]:
+        job.empezar("Trabajo", [("a", "A"), ("a", "A otra vez")])
+        return {}
+
+    job_id = servicio.lanzar(trabajo)
+    evento = _esperar_job(eventos, job_id)
+
+    assert evento["estado"] == "error"
+    assert "repetidos" in str(evento["error"])
+
+
+def test_conectar_usa_etiquetas_legibles(entorno: Any) -> None:
+    servicio, _ts, eventos = entorno
+
+    job_id = servicio.lanzar(tia.conectar)
+    _esperar_job(eventos, job_id)
+
+    avances = _eventos_de(eventos, "progress")
+    etapas = avances[0]["stages"]
+    assert [e["label"] for e in etapas] == [
+        "Cargar el SDK de Siemens",
+        "Enganchar TIA Portal",
+    ]
+
+
+def test_desconectar_usa_etiquetas_legibles(entorno: Any) -> None:
+    servicio, _ts, eventos = entorno
+
+    job_id = servicio.lanzar(tia.desconectar)
+    _esperar_job(eventos, job_id)
+
+    avances = _eventos_de(eventos, "progress")
+    etapas = avances[0]["stages"]
+    assert [e["label"] for e in etapas] == ["Cerrar el portal"]
 
 
 # ── ayudas ─────────────────────────────────────────────────────────────────

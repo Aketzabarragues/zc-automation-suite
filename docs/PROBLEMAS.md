@@ -74,6 +74,10 @@ nada que ver. El sintoma es un `SystemError` dentro de
 `threading.Event.wait` que tumba el hilo `zc-tia` y deja la app zombi: cree
 que esta conectada, pero el portal esta muerto y ya nadie lo mira.
 
+**Confirmado en las dos versiones del SDK**: la 1.2.1 y la 1.4.3 lo hacen
+igual ("`<class 'int'> returned a result with an exception set`"). No es un
+fallo de la 1.2.1.
+
 La app lo cubre por tres vias:
 
 - Cada iteracion del hilo va dentro de un `try/except BaseException`. Si
@@ -88,6 +92,16 @@ La app lo cubre por tres vias:
 
 Si aparece en el log, no es un fallo de la app: es el SDK. Lo que hay que
 comprobar es que el hilo siga vivo y que la app se desconecte sola.
+
+### "No hay ningún TIA Portal abierto (o su versión no es compatible)"
+
+Lo que ve el operario cuando el enganche falla. El texto original de
+Siemens ("OpennessAccessException: No matching TIA Portal version could be
+found") queda solo en el log.
+
+Suele significar una de dos cosas: TIA Portal no esta abierto, o la version
+de TIA que hay instalada no es la que soporta el SDK. La solucion es abrir
+TIA Portal con el proyecto y volver a conectar.
 
 ### Sale un aviso de que falta pythonnet
 
