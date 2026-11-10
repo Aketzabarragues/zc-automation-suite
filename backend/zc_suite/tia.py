@@ -53,6 +53,9 @@ ERROR = "error"
 OK = "ok"
 CANCELADO = "cancelado"
 
+#: Segundos entre comprobaciones de vida del portal cuando el hilo esta ocioso.
+INTERVALO_PING = 10.0
+
 
 # ── errores ────────────────────────────────────────────────────────────────
 
@@ -74,7 +77,15 @@ class CanceladoError(TIAError):
 
 
 class TransaccionError(TIAError):
-    """La operacion fallo y su rollback fallo tambien."""
+    """Fallo en una transaccion de TIA.
+
+    El mensaje distingue si fallo la operacion o el commit de la
+    transaccion, y si el rollback se pudo completar.
+    """
+
+
+class FueraDelHiloError(TIAError):
+    """El portal se ha usado desde un hilo que no es el de TIA."""
 
 
 # ── helpers ────────────────────────────────────────────────────────────────
@@ -275,37 +286,74 @@ def proyecto_activo(portal: Any) -> Any:
     return proyecto
 
 
+def _revertir(proyecto: Any, texto: str) -> tuple[bool, str]:
+    """Ejecuta el rollback de la transaccion.
+
+    Returns:
+        Tupla ``(ok, descripcion)``. ``ok`` es ``False`` si el rollback
+        fallo; la descripcion dice que paso.
+    """
+    try:
+        proyecto.end_transaction(rollback=True)
+    except Exception as exc:
+        logger.error(
+            "Rollback fallido tras abortar '%s': %s: %s",
+            texto,
+            type(exc).__name__,
+            exc,
+        )
+        return (
+            False,
+            f"Rollback NO completado ({type(exc).__name__}: {exc}): "
+            "el proyecto puede haber quedado a medias.",
+        )
+    return True, "Rollback ejecutado."
+
+
 @contextmanager
 def transaccion(job: Job, texto: str) -> Iterator[None]:
     """Envuelve las escrituras en TIA en una transaccion nativa.
 
     Hace ``start_transaction`` -> yield -> ``end_transaction(rollback=False)``.
-    Si salta cualquier excepcion, hace ``end_transaction(rollback=True)`` y
-    vuelve a lanzar. Si el rollback tambien falla, la excepcion que sale
-    dice que el proyecto puede haber quedado a medias.
+
+    Si la operacion falla, hace ``end_transaction(rollback=True)`` y vuelve a
+    lanzar la misma excepcion, con el mensaje ampliado para decir que fallo
+    la operacion y si el rollback se pudo completar.
+
+    Si el commit falla, tambien intenta el rollback y lanza
+    ``TransaccionError`` diciendo que fallo el commit.
+
+    Raises:
+        TransaccionError: si fallo el commit, o si fallo la operacion y su
+            rollback tampoco se pudo completar.
     """
     proyecto = proyecto_activo(job.tia.portal)
     proyecto.start_transaction(undo_text=texto, dialog_text=texto)
     try:
         yield
     except BaseException as exc:
-        try:
-            proyecto.end_transaction(rollback=True)
-        except Exception as exc_rollback:
-            logger.error(
-                "Rollback fallido tras abortar '%s': %s: %s",
-                texto,
-                type(exc_rollback).__name__,
-                exc_rollback,
-            )
+        ok_rollback, rollback_txt = _revertir(proyecto, texto)
+        if not ok_rollback:
             raise TransaccionError(
-                f"La operacion fallo ({type(exc).__name__}: {exc}) y el rollback "
-                f"TAMBIEN fallo ({type(exc_rollback).__name__}: {exc_rollback}). "
-                "El proyecto puede haber quedado a medias."
+                f"Fallo de la operacion en la transaccion '{texto}': "
+                f"{type(exc).__name__}: {exc}. {rollback_txt}"
             ) from exc
+        exc.args = (
+            f"Fallo de la operacion en la transaccion '{texto}': "
+            f"{type(exc).__name__}: {exc}. {rollback_txt}",
+            *exc.args[1:],
+        )
         raise
     else:
-        proyecto.end_transaction(rollback=False)
+        try:
+            proyecto.end_transaction(rollback=False)
+        except Exception as exc_commit:
+            _ok_rollback, rollback_txt = _revertir(proyecto, texto)
+            raise TransaccionError(
+                f"Fallo del commit de la transaccion '{texto}': "
+                f"{type(exc_commit).__name__}: {exc_commit}. {rollback_txt} "
+                "Las operaciones se aplicaron pero no se confirmaron."
+            ) from exc_commit
 
 
 # ── carga del SDK ──────────────────────────────────────────────────────────
@@ -353,6 +401,7 @@ class ServicioTIA:
         publicador: Publicador | None = None,
         cargador: Cargador | None = None,
         ruta_log: Path | None = None,
+        intervalo_ping: float = INTERVALO_PING,
     ) -> None:
         """Crea el servicio. El hilo no arranca hasta ``arrancar()``.
 
@@ -361,10 +410,13 @@ class ServicioTIA:
             cargador: devuelve el modulo ``siemens_tia_scripting``. Solo se
                 usa en tests para inyectar un modulo falso.
             ruta_log: fichero donde el SDK escribe su log nativo.
+            intervalo_ping: segundos entre comprobaciones de vida del portal
+                cuando no hay ningun trabajo en curso.
         """
         self._publicador = publicador
         self._cargador = cargador
         self._ruta_log = ruta_log or Path(tempfile.gettempdir()) / "zc_tia_scripting.log"
+        self._intervalo_ping = intervalo_ping
 
         self._lock = threading.Lock()
         self._parar = threading.Event()
@@ -373,6 +425,7 @@ class ServicioTIA:
 
         self._ocupado = False
         self._pendiente: tuple[Callable[..., Any], Job, dict[str, Any]] | None = None
+        self._job_actual: Job | None = None
         self._trabajo_actual: str | None = None
 
         self._ts: Any = None
@@ -409,9 +462,13 @@ class ServicioTIA:
         logger.info("Hilo de TIA parado.")
 
     def _bucle(self) -> None:
-        """Toma el trabajo pendiente y lo ejecuta entero."""
+        """Toma el trabajo pendiente y lo ejecuta entero.
+
+        Cuando no hay trabajo, comprueba que el portal siga vivo. La
+        comprobacion se hace aqui, en el hilo dueno del portal.
+        """
         while not self._parar.is_set():
-            self._hay_trabajo.wait()
+            self._hay_trabajo.wait(timeout=self._intervalo_ping)
             if self._parar.is_set():
                 break
             self._hay_trabajo.clear()
@@ -419,6 +476,7 @@ class ServicioTIA:
                 pendiente = self._pendiente
                 self._pendiente = None
             if pendiente is None:
+                self._verificar_conexion()
                 continue
             funcion, job, params = pendiente
             self._ejecutar(funcion, job, params)
@@ -448,13 +506,26 @@ class ServicioTIA:
         return job.id
 
     def cancelar(self, job_id: str) -> bool:
-        """Pide la cancelacion de un trabajo. Devuelve ``True`` si lo acepta."""
+        """Pide la cancelacion de un trabajo.
+
+        Sirve para un trabajo en cola y para uno que ya esta en ejecucion:
+        la cancelacion se respeta en el siguiente paso.
+
+        Returns:
+            ``True`` si el trabajo existe y se ha marcado para cancelar.
+        """
         with self._lock:
             pendiente = self._pendiente
+            actual = self._job_actual
+        job: Job | None = None
         if pendiente is not None and pendiente[1].id == job_id:
-            pendiente[1].cancelar()
-            return True
-        return False
+            job = pendiente[1]
+        elif actual is not None and actual.id == job_id:
+            job = actual
+        if job is None:
+            return False
+        job.cancelar()
+        return True
 
     # ── estado ───────────────────────────────────────────────────────────
 
@@ -469,13 +540,27 @@ class ServicioTIA:
         with self._lock:
             return self._ocupado
 
+    def _exigir_hilo(self) -> None:
+        """Comprueba que la llamada viene del hilo de TIA.
+
+        Raises:
+            FueraDelHiloError: si la llamada viene de otro hilo.
+        """
+        if self._hilo is not None and threading.current_thread() is not self._hilo:
+            raise FueraDelHiloError(
+                "El portal de TIA solo se puede usar desde el hilo de TIA. "
+                "Esta llamada ha llegado desde otro hilo."
+            )
+
     @property
     def portal(self) -> Any:
         """El portal de TIA.
 
         Raises:
+            FueraDelHiloError: si se lee desde un hilo que no es el de TIA.
             SinPortalError: si no hay conexion.
         """
+        self._exigir_hilo()
         if self._portal is None:
             raise SinPortalError("No hay conexion con TIA Portal. Conectate primero.")
         return self._portal
@@ -516,6 +601,9 @@ class ServicioTIA:
     ) -> None:
         """Ejecuta el trabajo entero dentro del hilo de TIA."""
         self._trabajo_actual = job.id
+        self._ultimo_error = None
+        with self._lock:
+            self._job_actual = job
         self._publicar_conexion()
         estado = OK
         resultado: Any = None
@@ -547,11 +635,16 @@ class ServicioTIA:
             self.publicar("progress", job.snapshot(activo=False))
             self._trabajo_actual = None
             with self._lock:
+                self._job_actual = None
                 self._ocupado = False
             self._publicar_conexion()
 
     def _verificar_conexion(self) -> None:
-        """Comprueba que el portal sigue vivo. Solo desde el hilo de TIA."""
+        """Comprueba que el portal sigue vivo. Solo desde el hilo de TIA.
+
+        Si el portal ha muerto, queda desconectado y se publica el evento
+        ``tia`` con el nuevo estado.
+        """
         if self._portal is None:
             return
         try:
@@ -561,6 +654,7 @@ class ServicioTIA:
             self._portal = None
             self._modo_portal = None
             self._ultimo_error = f"La conexion con TIA Portal se ha perdido: {exc}"
+            self._publicar_conexion()
 
     # ── operaciones del hilo ─────────────────────────────────────────────
     # Solo se llaman desde dentro de un trabajo, o sea, desde el hilo de TIA.
@@ -577,19 +671,34 @@ class ServicioTIA:
     def abrir_portal(self, modo: str = "attach") -> Any:
         """Abre o engancha el portal de TIA Portal.
 
+        Modos de portal (``Enums.PortalMode``):
+
+        - ``"attach"`` -> ``WithGraphicalUserInterface``. Es el flujo del
+          operario: TIA Portal ya abierto con su proyecto, y la app se
+          engancha a esa instancia.
+        - ``"open"`` -> ``AnyUserInterface``. Abre una instancia nueva. Es
+          el valor que usaba el flujo de "abrir proyecto" de la version
+          anterior; existe en el enum del SDK, aunque el manual solo
+          documenta ``WithGraphicalUserInterface`` y
+          ``WithoutGraphicalUserInterface``.
+
         Args:
-            modo: ``"attach"`` se engancha a un TIA Portal ya abierto;
-                ``"open"`` abre una instancia nueva.
+            modo: ``"attach"`` o ``"open"``.
 
         Raises:
             TIAError: si el portal no se puede abrir.
+            FueraDelHiloError: si la llamada no viene del hilo de TIA.
         """
+        self._exigir_hilo()
         if modo not in ("attach", "open"):
             raise TIAError(f"Modo de portal invalido: {modo!r}. Usa 'attach' u 'open'.")
         ts = self.cargar_sdk()
         if self._portal is not None:
             return self._portal
-        portal_mode = ts.Enums.PortalMode.WithGraphicalUserInterface
+        if modo == "attach":
+            portal_mode = ts.Enums.PortalMode.WithGraphicalUserInterface
+        else:
+            portal_mode = ts.Enums.PortalMode.AnyUserInterface
         try:
             if modo == "attach":
                 portal = ts.attach_portal(portal_mode=portal_mode)
@@ -612,6 +721,7 @@ class ServicioTIA:
 
     def cerrar_portal(self) -> None:
         """Cierra o desengancha el portal. Idempotente."""
+        self._exigir_hilo()
         portal = self._portal
         if portal is None:
             return

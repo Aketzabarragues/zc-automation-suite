@@ -74,15 +74,32 @@ def sincronizar(job: Job, plc: str, aplicar: bool) -> dict:
 - `with job.paso(nombre) as paso:` marca el paso `running` -> `done`, o `error`
   si salta una excepcion (y la re-lanza). Antes de empezar comprueba la
   cancelacion. `paso["detail"]` escribe una linea de detalle.
-- `job.tia.portal` es la unica forma de llegar al portal.
+- `job.tia.portal` es la unica forma de llegar al portal. El portal es un
+  objeto COM afin a hilo: leerlo desde un hilo que no sea el de TIA lanza
+  `FueraDelHiloError`.
 - El estado del trabajo son variables locales de la funcion. Nada de estado en
   instancias que sobreviva entre ejecuciones.
 - `with transaccion(job, texto):` hace `start_transaction` -> yield ->
   `end_transaction(rollback=False)`. Si salta cualquier excepcion, hace
   `end_transaction(rollback=True)` y re-lanza, indicando en el mensaje si el
-  rollback tambien fallo.
+  rollback tambien fallo. Si el commit falla, tambien intenta el rollback y
+  lanza `TransaccionError` diciendo que fallo el commit. El mensaje distingue
+  siempre el fallo de la operacion del fallo del commit.
 - Los fallos son **excepciones**, nunca un `{"ok": False}` que alguien tenga
   que comprobar.
+
+### Cancelacion
+
+La cancelacion es cooperativa y se respeta entre pasos: `tia.cancelar(job_id)`
+marca el trabajo, y el siguiente `job.paso()` aborta con `CanceladoError`. El
+trabajo termina con estado `cancelado`.
+
+### Vida de la conexion
+
+El hilo de TIA comprueba el portal al terminar cada trabajo y, cuando esta
+ocioso, cada `INTERVALO_PING` segundos. Si el portal no responde, la conexion
+pasa a desconectada y se publica el evento `tia`. Un fallo de trabajo, en
+cambio, no cambia el estado de la conexion.
 
 ## Eventos SSE
 

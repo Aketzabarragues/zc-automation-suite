@@ -17,6 +17,7 @@ import pytest
 
 from zc_suite import tia
 from zc_suite.tia import (
+    FueraDelHiloError,
     OcupadoError,
     ServicioTIA,
     SinPortalError,
@@ -35,6 +36,7 @@ class ProyectoFalso:
     def __init__(self) -> None:
         self.transacciones: list[tuple[str, Any]] = []
         self.fallar_rollback = False
+        self.fallar_commit = False
 
     def start_transaction(self, undo_text: str, dialog_text: str) -> None:
         self.transacciones.append(("start", undo_text))
@@ -44,6 +46,8 @@ class ProyectoFalso:
         self.transacciones.append(("end", rollback))
         if rollback and self.fallar_rollback:
             raise RuntimeError("El rollback no se pudo completar.")
+        if not rollback and self.fallar_commit:
+            raise RuntimeError("El commit no se pudo confirmar.")
 
 
 class PortalFalso:
@@ -76,20 +80,24 @@ class TsFalso:
 
     class Enums:
         class PortalMode:
+            AnyUserInterface = "cualquier_interfaz"
             WithGraphicalUserInterface = "con_gui"
             WithoutGraphicalUserInterface = "sin_gui"
 
     def __init__(self) -> None:
         self.portal = PortalFalso()
         self.llamadas: list[str] = []
+        self.modos: list[str] = []
         self.logging: list[tuple[str, bool]] = []
 
     def attach_portal(self, portal_mode: str | None = None) -> PortalFalso:
         self.llamadas.append("attach_portal")
+        self.modos.append(portal_mode or "")
         return self.portal
 
     def open_portal(self, portal_mode: str | None = None) -> PortalFalso:
         self.llamadas.append("open_portal")
+        self.modos.append(portal_mode or "")
         return self.portal
 
     def set_logging(self, path: str, console: bool) -> None:
@@ -546,6 +554,200 @@ def test_el_sdk_de_siemens_no_se_importa_fuera_del_hilo(entorno: Any) -> None:
         check=True,
     )
     assert resultado.stdout.strip() == "False"
+
+
+# ── cancelacion de un trabajo en ejecucion ─────────────────────────────────
+
+
+def test_cancelar_un_trabajo_en_ejecucion(entorno: Any) -> None:
+    """Cancelar durante el primer paso impide que se ejecute el segundo."""
+    servicio, _ts, eventos = entorno
+    en_el_primer_paso = threading.Event()
+    continuar = threading.Event()
+    pasos_ejecutados: list[str] = []
+
+    def trabajo(job: Any) -> dict[str, Any]:
+        job.empezar("Trabajo", ["uno", "dos"])
+        with job.paso("uno"):
+            en_el_primer_paso.set()
+            continuar.wait(5.0)
+        with job.paso("dos"):
+            pasos_ejecutados.append("dos")
+        return {}
+
+    job_id = servicio.lanzar(trabajo)
+    assert en_el_primer_paso.wait(5.0)
+
+    assert servicio.cancelar(job_id) is True
+    continuar.set()
+    evento = _esperar_job(eventos, job_id)
+
+    assert evento["estado"] == "cancelado"
+    assert pasos_ejecutados == []
+
+
+def test_cancelar_un_trabajo_inexistente_devuelve_false(entorno: Any) -> None:
+    servicio, _ts, _eventos = entorno
+
+    assert servicio.cancelar("no-existe") is False
+
+
+# ── fallo del commit de la transaccion ─────────────────────────────────────
+
+
+def test_transaccion_con_commit_fallido_hace_rollback(entorno: Any) -> None:
+    servicio, ts, eventos = entorno
+    _conectar(servicio, eventos)
+    ts.portal.proyecto.fallar_commit = True
+
+    def trabajo(job: Any) -> dict[str, Any]:
+        job.empezar("Trabajo", ["escribir"])
+        with job.paso("escribir"), transaccion(job, "Importar"):
+            pass
+        return {}
+
+    job_id = servicio.lanzar(trabajo)
+    evento = _esperar_job(eventos, job_id)
+
+    assert evento["estado"] == "error"
+    assert "commit" in str(evento["error"]).lower()
+    assert ("end", True) in ts.portal.proyecto.transacciones
+
+
+def test_transaccion_con_commit_fallido_y_rollback_fallido(entorno: Any) -> None:
+    servicio, ts, eventos = entorno
+    _conectar(servicio, eventos)
+    ts.portal.proyecto.fallar_commit = True
+    ts.portal.proyecto.fallar_rollback = True
+
+    def trabajo(job: Any) -> dict[str, Any]:
+        job.empezar("Trabajo", ["escribir"])
+        with job.paso("escribir"), transaccion(job, "Importar"):
+            pass
+        return {}
+
+    job_id = servicio.lanzar(trabajo)
+    evento = _esperar_job(eventos, job_id)
+
+    error = str(evento["error"]).lower()
+    assert evento["estado"] == "error"
+    assert "commit" in error
+    assert "rollback" in error
+
+
+def test_el_mensaje_distingue_operacion_de_commit(entorno: Any) -> None:
+    """El fallo de la operacion y el del commit se describen distinto."""
+    servicio, ts, eventos = entorno
+    _conectar(servicio, eventos)
+
+    def trabajo_que_falla(job: Any) -> dict[str, Any]:
+        job.empezar("Trabajo", ["escribir"])
+        with job.paso("escribir"), transaccion(job, "Importar"):
+            raise ValueError("fallo de escritura")
+        return {}
+
+    job_id = servicio.lanzar(trabajo_que_falla)
+    evento_operacion = _esperar_job(eventos, job_id)
+    error_operacion = str(evento_operacion["error"]).lower()
+    assert evento_operacion["estado"] == "error"
+    assert "operacion" in error_operacion
+    assert "commit" not in error_operacion
+    assert "rollback ejecutado" in error_operacion
+
+    ts.portal.proyecto.fallar_commit = True
+
+    def trabajo_con_commit(job: Any) -> dict[str, Any]:
+        job.empezar("Trabajo", ["escribir"])
+        with job.paso("escribir"), transaccion(job, "Importar"):
+            pass
+        return {}
+
+    job_id = servicio.lanzar(trabajo_con_commit)
+    evento_commit = _esperar_job(eventos, job_id)
+    error_commit = str(evento_commit["error"]).lower()
+    assert evento_commit["estado"] == "error"
+    assert "commit" in error_commit
+    assert "fallo de la operacion" not in error_commit
+
+
+# ── deteccion de desconexion en reposo ─────────────────────────────────────
+
+
+def test_el_portal_caido_se_detecta_en_reposo() -> None:
+    """Sin lanzar trabajos, el hilo de TIA detecta que el portal ha muerto."""
+    ts = TsFalso()
+    eventos: list[tuple[str, dict[str, Any]]] = []
+    servicio = ServicioTIA(
+        publicador=lambda tipo, carga: eventos.append((tipo, carga)),
+        cargador=lambda: ts,
+        intervalo_ping=0.05,
+    )
+    try:
+        job_id = servicio.lanzar(tia.conectar)
+        _esperar_job(eventos, job_id)
+        assert servicio.conectado is True
+
+        ts.portal.vivo = False
+
+        limite = time.monotonic() + 5.0
+        while servicio.conectado and time.monotonic() < limite:
+            time.sleep(0.01)
+
+        assert servicio.conectado is False
+        estados = [carga for tipo, carga in eventos if tipo == "tia"]
+        assert estados[-1]["conectado"] is False
+    finally:
+        servicio.parar()
+
+
+# ── ultimo_error ───────────────────────────────────────────────────────────
+
+
+def test_el_ultimo_error_se_limpia_al_empezar_un_trabajo(entorno: Any) -> None:
+    servicio, _ts, eventos = entorno
+
+    def trabajo_fallido(job: Any) -> dict[str, Any]:
+        job.empezar("Trabajo", ["uno"])
+        with job.paso("uno"):
+            raise ValueError("fallo de negocio")
+        return {}
+
+    job_id = servicio.lanzar(trabajo_fallido)
+    _esperar_job(eventos, job_id)
+    assert servicio.estado()["ultimo_error"] is not None
+
+    job_id = servicio.lanzar(lambda job: {})
+    _esperar_job(eventos, job_id)
+
+    assert servicio.estado()["ultimo_error"] is None
+
+
+# ── el portal solo se usa desde el hilo de TIA ─────────────────────────────
+
+
+def test_el_portal_no_se_lee_desde_otro_hilo(entorno: Any) -> None:
+    servicio, _ts, eventos = entorno
+    _conectar(servicio, eventos)
+
+    with pytest.raises(FueraDelHiloError):
+        _ = servicio.portal
+
+
+def test_el_portal_se_lee_dentro_del_hilo_de_tia(entorno: Any) -> None:
+    servicio, _ts, eventos = entorno
+    _conectar(servicio, eventos)
+
+    def trabajo(job: Any) -> dict[str, Any]:
+        job.empezar("Trabajo", ["leer"])
+        with job.paso("leer"):
+            pid = job.tia.portal.get_process_id()
+        return {"pid": pid}
+
+    job_id = servicio.lanzar(trabajo)
+    evento = _esperar_job(eventos, job_id)
+
+    assert evento["estado"] == "ok"
+    assert evento["resultado"] == {"pid": 4242}
 
 
 # ── ayudas ─────────────────────────────────────────────────────────────────
