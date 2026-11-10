@@ -76,6 +76,10 @@ class SinPortalError(TIAError):
     """No hay conexion con TIA Portal."""
 
 
+class SinProyectoError(TIAError):
+    """No hay ningun proyecto abierto en TIA Portal."""
+
+
 class CanceladoError(TIAError):
     """El trabajo fue cancelado por el operario."""
 
@@ -304,12 +308,15 @@ class Job:
 def proyecto_activo(portal: Any) -> Any:
     """Devuelve el proyecto abierto del portal.
 
+    Es el unico sitio donde se resuelve el proyecto: las operaciones de
+    ``tia_ops`` lo reutilizan.
+
     Raises:
-        SinPortalError: si no hay proyecto abierto.
+        SinProyectoError: si no hay ningun proyecto abierto.
     """
     proyecto = portal.get_project()
     if not proyecto:
-        raise SinPortalError(
+        raise SinProyectoError(
             "No hay ningun proyecto abierto en TIA Portal. Abre el proyecto y repite."
         )
     return proyecto

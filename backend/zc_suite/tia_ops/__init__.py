@@ -6,16 +6,16 @@ primer argumento y devuelven solo tipos primitivos: ``dict``, ``list``,
 
 Modulos:
 
-- ``proyecto.py``  abrir y guardar el proyecto; resolver PLC y tablas.
+- ``proyecto.py``  abrir el proyecto de TIA Portal.
 - ``exportar.py``  exportar bloques, tags y tablas a disco.
 - ``importar.py``  importar bloques y tags desde disco.
 - ``compilar.py``  compilar el software del PLC.
-- ``constantes.py`` nombres de tablas y carpetas por defecto.
+- ``constantes.py`` constantes de usuario del PLC (N_MAX): leer, cambiar el
+  valor y renombrar.
 - ``bloques.py``   recorrido y clasificacion de bloques.
 
-Los helpers que resuelven objetos .NET son privados (``.`` con guion bajo) y
-se usan entre modulos del paquete. Lo publico de cada modulo es siempre
-primitivo.
+Los helpers que resuelven objetos .NET viven en ``_resolver.py`` y se usan
+entre modulos del paquete. Lo publico de cada modulo es siempre primitivo.
 """
 from __future__ import annotations
 

@@ -22,6 +22,7 @@ from zc_suite.tia import (
     OcupadoError,
     ServicioTIA,
     SinPortalError,
+    SinProyectoError,
     transaccion,
 )
 
@@ -423,6 +424,33 @@ def test_transaccion_sin_portal_falla(entorno: Any) -> None:
 
     assert evento["estado"] == "error"
     assert "conexion" in str(evento["error"]).lower()
+
+
+def test_transaccion_sin_proyecto_lanza_sin_proyecto_error(entorno: Any) -> None:
+    """Hay conexion, pero no hay proyecto abierto."""
+    servicio, ts, eventos = entorno
+    _conectar(servicio, eventos)
+    ts.portal.proyecto = None
+
+    def trabajo(job: Any) -> dict[str, Any]:
+        job.empezar("Trabajo", ["escribir"])
+        with job.paso("escribir"), transaccion(job, "Importar"):
+            pass
+        return {}
+
+    job_id = servicio.lanzar(trabajo)
+    evento = _esperar_job(eventos, job_id)
+
+    assert evento["estado"] == "error"
+    assert "SinProyectoError" in str(evento["error"])
+    assert "No hay ningun proyecto abierto" in str(evento["error"])
+
+
+def test_el_error_sin_proyecto_es_un_error_esperado() -> None:
+    """Se registra como warning, sin traceback."""
+    from zc_suite.tia import TIAError
+
+    assert issubclass(SinProyectoError, TIAError)
 
 
 # ── conexion ───────────────────────────────────────────────────────────────
