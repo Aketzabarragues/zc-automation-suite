@@ -70,3 +70,21 @@ def nombre_tabla(tabla: Any) -> str | None:
         return None
     except Exception:
         return None
+
+
+def nombre_bloque(bloque: Any) -> str | None:
+    """Nombre del bloque, tolerando UnicodeDecodeError y COM.
+
+    El wrapper expone ``get_name()``; algunos objetos solo tienen la
+    propiedad ``Name``.
+    """
+    try:
+        if hasattr(bloque, "get_name"):
+            return bloque.get_name()
+        if hasattr(bloque, "Name"):
+            return bloque.Name
+    except UnicodeDecodeError:
+        return None
+    except Exception:
+        return None
+    return None
