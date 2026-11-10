@@ -750,6 +750,91 @@ def test_el_portal_se_lee_dentro_del_hilo_de_tia(entorno: Any) -> None:
     assert evento["resultado"] == {"pid": 4242}
 
 
+def test_transaccion_con_file_not_found_conserva_el_mensaje(entorno: Any) -> None:
+    """Con un OSError, el mensaje original no se pierde al añadir la nota."""
+    servicio, _ts, eventos = entorno
+    _conectar(servicio, eventos)
+
+    def trabajo(job: Any) -> dict[str, Any]:
+        job.empezar("Trabajo", ["leer"])
+        with job.paso("leer"), transaccion(job, "Importar"):
+            raise FileNotFoundError(2, "No such file or directory", "datos.xml")
+        return {}
+
+    job_id = servicio.lanzar(trabajo)
+    evento = _esperar_job(eventos, job_id)
+
+    error = str(evento["error"])
+    assert evento["estado"] == "error"
+    assert "FileNotFoundError" in error
+    assert "No such file or directory" in error
+    assert "Rollback ejecutado" in error
+
+
+def test_transaccion_con_key_error_conserva_el_mensaje(entorno: Any) -> None:
+    """Con un KeyError, la clave se sigue viendo en el mensaje."""
+    servicio, _ts, eventos = entorno
+    _conectar(servicio, eventos)
+
+    def trabajo(job: Any) -> dict[str, Any]:
+        job.empezar("Trabajo", ["leer"])
+        with job.paso("leer"), transaccion(job, "Importar"):
+            raise KeyError("columna_inexistente")
+        return {}
+
+    job_id = servicio.lanzar(trabajo)
+    evento = _esperar_job(eventos, job_id)
+
+    error = str(evento["error"])
+    assert evento["estado"] == "error"
+    assert "KeyError" in error
+    assert "columna_inexistente" in error
+    assert "Rollback ejecutado" in error
+
+
+def test_el_commit_fallido_con_rollback_bueno_dice_que_no_se_confirmo_nada(
+    entorno: Any,
+) -> None:
+    servicio, ts, eventos = entorno
+    _conectar(servicio, eventos)
+    ts.portal.proyecto.fallar_commit = True
+
+    def trabajo(job: Any) -> dict[str, Any]:
+        job.empezar("Trabajo", ["escribir"])
+        with job.paso("escribir"), transaccion(job, "Importar"):
+            pass
+        return {}
+
+    job_id = servicio.lanzar(trabajo)
+    evento = _esperar_job(eventos, job_id)
+
+    error = str(evento["error"])
+    assert evento["estado"] == "error"
+    assert "no se confirmó nada" in error.lower()
+    assert "puede haber quedado a medias" not in error
+
+
+def test_el_commit_fallido_con_rollback_fallido_avisa_del_proyecto(entorno: Any) -> None:
+    servicio, ts, eventos = entorno
+    _conectar(servicio, eventos)
+    ts.portal.proyecto.fallar_commit = True
+    ts.portal.proyecto.fallar_rollback = True
+
+    def trabajo(job: Any) -> dict[str, Any]:
+        job.empezar("Trabajo", ["escribir"])
+        with job.paso("escribir"), transaccion(job, "Importar"):
+            pass
+        return {}
+
+    job_id = servicio.lanzar(trabajo)
+    evento = _esperar_job(eventos, job_id)
+
+    error = str(evento["error"]).lower()
+    assert evento["estado"] == "error"
+    assert "commit" in error
+    assert "puede haber quedado a medias" in error
+
+
 # ── ayudas ─────────────────────────────────────────────────────────────────
 
 

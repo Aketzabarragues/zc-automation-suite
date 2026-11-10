@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from typing import Any
 
 import pytest
 
@@ -179,6 +180,105 @@ def test_publicar_en_un_bus_cerrado_no_falla() -> None:
     bus.publicar("log", {"nivel": "info", "mensaje": "hola"})
 
 
+# ── hidratacion del ultimo job ────────────────────────────────────────────
+
+
+def test_al_suscribirse_llega_el_ultimo_job() -> None:
+    """Al recargar la pagina, la SPA sigue teniendo el resultado."""
+    bus = BusEventos()
+    bus.publicar("progress", {"active": False})
+    bus.publicar("tia", {"conectado": True})
+    bus.publicar("job", {"job": "abc", "estado": "ok", "resultado": {"cambios": 3}})
+
+    suscriptor = bus.suscribir()
+
+    primero = suscriptor.siguiente(timeout=1.0)
+    segundo = suscriptor.siguiente(timeout=1.0)
+    tercero = suscriptor.siguiente(timeout=1.0)
+    assert primero is not None
+    assert segundo is not None
+    assert tercero is not None
+    assert primero["type"] == "progress"
+    assert segundo["type"] == "tia"
+    assert tercero["type"] == "job"
+    assert tercero["resultado"] == {"cambios": 3}
+
+
+def test_el_ultimo_job_se_actualiza_con_cada_publicacion() -> None:
+    bus = BusEventos()
+    bus.publicar("job", {"job": "a"})
+    bus.publicar("job", {"job": "b"})
+
+    assert bus.ultimo_job() == {"type": "job", "job": "b"}
+
+
+# ── politica de descarte ───────────────────────────────────────────────────
+
+
+def _vaciar(suscriptor: Any) -> list[dict[str, Any]]:
+    """Lee todos los eventos que quedan en la cola."""
+    recibidos: list[dict[str, Any]] = []
+    while True:
+        evento = suscriptor.siguiente(timeout=0.3)
+        if evento is None:
+            return recibidos
+        recibidos.append(evento)
+
+
+def test_un_job_llega_aunque_el_cliente_no_consuma() -> None:
+    bus = BusEventos(max_eventos=100)
+    suscriptor = bus.suscribir()
+
+    for i in range(500):
+        bus.publicar("log", {"nivel": "info", "mensaje": f"linea {i}"})
+    bus.publicar("job", {"job": "abc", "estado": "ok"})
+
+    recibidos = _vaciar(suscriptor)
+    assert any(evento["type"] == "job" for evento in recibidos)
+
+
+def test_un_evento_tia_no_se_descarta_nunca() -> None:
+    bus = BusEventos(max_eventos=10)
+    suscriptor = bus.suscribir()
+    bus.publicar("tia", {"conectado": True})
+
+    for i in range(100):
+        bus.publicar("log", {"nivel": "info", "mensaje": f"linea {i}"})
+
+    recibidos = _vaciar(suscriptor)
+    assert any(evento["type"] == "tia" for evento in recibidos)
+
+
+def test_un_progress_nuevo_sustituye_al_anterior() -> None:
+    bus = BusEventos(max_eventos=10)
+    suscriptor = bus.suscribir()
+
+    bus.publicar("progress", {"current": 1})
+    bus.publicar("progress", {"current": 2})
+    bus.publicar("progress", {"current": 3})
+
+    evento = suscriptor.siguiente(timeout=1.0)
+    assert evento is not None
+    assert evento["type"] == "progress"
+    assert evento["current"] == 3
+    # Solo queda un progress en cola: los anteriores se fusionaron.
+    assert _vaciar(suscriptor) == []
+
+
+def test_los_logs_se_descartan_antes_que_los_progress() -> None:
+    bus = BusEventos(max_eventos=10)
+    suscriptor = bus.suscribir()
+    bus.publicar("progress", {"current": 1})
+
+    for i in range(50):
+        bus.publicar("log", {"nivel": "info", "mensaje": f"linea {i}"})
+    bus.publicar("job", {"job": "abc"})
+
+    recibidos = _vaciar(suscriptor)
+    assert any(evento["type"] == "progress" for evento in recibidos)
+    assert any(evento["type"] == "job" for evento in recibidos)
+
+
 # ── puente con el logging ──────────────────────────────────────────────────
 
 
@@ -232,6 +332,99 @@ def test_el_handler_se_puede_enchufar_y_desenchufar() -> None:
 
 def test_el_handler_tiene_el_tipo_esperado() -> None:
     assert issubclass(HandlerEventos, logging.Handler)
+
+
+# ── guard de reentrada y detalle del traceback ─────────────────────────────
+
+
+def test_el_log_de_error_lleva_el_traceback_en_detalle() -> None:
+    bus = BusEventos()
+    suscriptor = bus.suscribir()
+    logger_prueba = logging.getLogger("zc_suite.test_eventos_detalle")
+    logger_prueba.propagate = False
+    logger_prueba.setLevel(logging.INFO)
+    handler = conectar_logging(bus, logger_prueba)
+    try:
+        try:
+            raise ValueError("reventon")
+        except ValueError:
+            logger_prueba.exception("algo se rompio")
+    finally:
+        desconectar_logging(logger_prueba, handler)
+
+    evento = suscriptor.siguiente(timeout=1.0)
+    assert evento is not None
+    assert evento["type"] == "log"
+    assert evento["detalle"] is not None
+    assert "ValueError" in evento["detalle"]
+    assert "reventon" in evento["detalle"]
+
+
+def test_un_log_sin_excepcion_tiene_detalle_none() -> None:
+    bus = BusEventos()
+    suscriptor = bus.suscribir()
+    logger_prueba = logging.getLogger("zc_suite.test_eventos_sin_detalle")
+    logger_prueba.propagate = False
+    logger_prueba.setLevel(logging.INFO)
+    handler = conectar_logging(bus, logger_prueba)
+    try:
+        logger_prueba.info("nada que ver aqui")
+    finally:
+        desconectar_logging(logger_prueba, handler)
+
+    evento = suscriptor.siguiente(timeout=1.0)
+    assert evento is not None
+    assert evento["detalle"] is None
+
+
+class BusQueRegistra(BusEventos):
+    """Bus que escribe un log cada vez que se publica, para forzar reentrada."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.publicaciones = 0
+
+    def publicar(self, tipo: str, carga: dict[str, Any]) -> None:
+        self.publicaciones += 1
+        if self.publicaciones > 50:
+            raise RuntimeError("Recursion en el bus.")
+        logging.getLogger("zc_suite.test_reentrada").warning("publicando %s", tipo)
+        super().publicar(tipo, carga)
+
+
+def test_el_handler_no_se_reentra() -> None:
+    """Si publicar provoca un log, ese log no vuelve a publicar."""
+    bus = BusQueRegistra()
+    logger_prueba = logging.getLogger("zc_suite.test_reentrada")
+    logger_prueba.propagate = False
+    logger_prueba.setLevel(logging.WARNING)
+    handler = conectar_logging(bus, logger_prueba)
+    try:
+        bus.publicar("log", {"nivel": "info", "mensaje": "hola"})
+    finally:
+        desconectar_logging(logger_prueba, handler)
+
+    # Una publicacion exterior y la que provoca su propio log. Nada mas.
+    assert bus.publicaciones == 2
+
+
+def test_el_handler_ignora_los_registros_del_propio_logger() -> None:
+    """El aviso de cola llena del bus no se vuelve a publicar."""
+    bus = BusEventos(max_eventos=2)
+    suscriptor = bus.suscribir()
+    logger_padre = logging.getLogger("zc_suite")
+    logger_padre.propagate = False
+    logger_padre.setLevel(logging.INFO)
+    handler = conectar_logging(bus, logger_padre)
+    try:
+        for i in range(10):
+            logger_padre.info("linea %d", i)
+    finally:
+        desconectar_logging(logger_padre, handler)
+
+    recibidos = _vaciar(suscriptor)
+    assert recibidos
+    assert not any("Cola de la suscripcion" in evento["mensaje"] for evento in recibidos)
 
 
 def test_el_bus_acepta_los_cuatro_tipos() -> None:

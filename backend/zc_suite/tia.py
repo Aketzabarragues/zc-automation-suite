@@ -310,6 +310,20 @@ def _revertir(proyecto: Any, texto: str) -> tuple[bool, str]:
     return True, "Rollback ejecutado."
 
 
+def texto_error(exc: BaseException) -> str:
+    """Texto del error de un trabajo: tipo, mensaje y notas.
+
+    Las notas las anade ``transaccion`` con ``add_note``. No se tocan los
+    ``args`` de la excepcion: para ``OSError`` y ``KeyError`` el mensaje se
+    construye a partir de ellos y se perderia.
+    """
+    texto = f"{type(exc).__name__}: {exc}"
+    notas = getattr(exc, "__notes__", None)
+    if notas:
+        texto = f"{texto} [{' | '.join(notas)}]"
+    return texto
+
+
 @contextmanager
 def transaccion(job: Job, texto: str) -> Iterator[None]:
     """Envuelve las escrituras en TIA en una transaccion nativa.
@@ -317,8 +331,8 @@ def transaccion(job: Job, texto: str) -> Iterator[None]:
     Hace ``start_transaction`` -> yield -> ``end_transaction(rollback=False)``.
 
     Si la operacion falla, hace ``end_transaction(rollback=True)`` y vuelve a
-    lanzar la misma excepcion, con el mensaje ampliado para decir que fallo
-    la operacion y si el rollback se pudo completar.
+    lanzar la misma excepcion con una nota que dice que fallo la operacion y
+    si el rollback se pudo completar.
 
     Si el commit falla, tambien intenta el rollback y lanza
     ``TransaccionError`` diciendo que fallo el commit.
@@ -338,21 +352,20 @@ def transaccion(job: Job, texto: str) -> Iterator[None]:
                 f"Fallo de la operacion en la transaccion '{texto}': "
                 f"{type(exc).__name__}: {exc}. {rollback_txt}"
             ) from exc
-        exc.args = (
-            f"Fallo de la operacion en la transaccion '{texto}': "
-            f"{type(exc).__name__}: {exc}. {rollback_txt}",
-            *exc.args[1:],
-        )
+        exc.add_note(f"Transaccion '{texto}': fallo de la operacion. {rollback_txt}")
         raise
     else:
         try:
             proyecto.end_transaction(rollback=False)
         except Exception as exc_commit:
-            _ok_rollback, rollback_txt = _revertir(proyecto, texto)
+            ok_rollback, rollback_txt = _revertir(proyecto, texto)
+            if ok_rollback:
+                detalle = "No se confirmó nada: el rollback dejó el proyecto como estaba."
+            else:
+                detalle = rollback_txt
             raise TransaccionError(
                 f"Fallo del commit de la transaccion '{texto}': "
-                f"{type(exc_commit).__name__}: {exc_commit}. {rollback_txt} "
-                "Las operaciones se aplicaron pero no se confirmaron."
+                f"{type(exc_commit).__name__}: {exc_commit}. {detalle}"
             ) from exc_commit
 
 
@@ -612,11 +625,11 @@ class ServicioTIA:
             resultado = funcion(job, **params)
         except CanceladoError as exc:
             estado = CANCELADO
-            error = str(exc)
+            error = texto_error(exc)
             logger.info("Trabajo %s cancelado.", job.id)
         except Exception as exc:
             estado = ERROR
-            error = f"{type(exc).__name__}: {exc}"
+            error = texto_error(exc)
             logger.exception("Trabajo %s fallo.", job.id)
         finally:
             job.finalizar(estado, error)

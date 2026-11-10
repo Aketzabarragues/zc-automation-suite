@@ -9,18 +9,23 @@ evento y ni uno mas:
 - ``tia``       cambia la conexion con TIA Portal.
 
 Publicar es thread-safe y nunca bloquea a quien publica: el hilo de TIA
-publica desde su propio hilo. Si un cliente va lento, se le descarta el
-evento mas viejo de su cola en vez de frenarlo.
+publica desde su propio hilo. La cola de cada suscriptor tiene un tope; al
+superarlo se descarta lo menos importante, nunca un ``job`` ni un ``tia``:
 
-Al suscribirse, un cliente recibe de inmediato el ultimo ``progress`` y el
-ultimo ``tia``, para que la SPA se hidrate sin tener que pedir nada.
+- Un ``progress`` nuevo sustituye al ``progress`` que ya estaba en cola: la
+  SPA solo necesita el estado mas reciente.
+- Para hacer sitio se expulsa primero un ``log``, y despues un ``progress``.
+
+Al suscribirse, un cliente recibe de inmediato el ultimo ``progress``, el
+ultimo ``tia`` y el ultimo ``job``, para que la SPA se hidrate sin tener que
+pedir nada.
 """
 from __future__ import annotations
 
-import contextlib
 import logging
-import queue
 import threading
+import traceback
+from collections import deque
 from collections.abc import Iterator
 from typing import Any
 
@@ -28,6 +33,10 @@ logger = logging.getLogger(__name__)
 
 #: Tipos de evento que el bus admite.
 TIPOS = ("progress", "job", "log", "tia")
+
+#: Nombre del logger de este modulo. Sus registros no se publican como
+#: eventos: el bus avisa cuando una cola se llena y se reventaria.
+NOMBRE_LOGGER = __name__
 
 
 class BusCerradoError(Exception):
@@ -48,8 +57,9 @@ class Suscripcion:
     def __init__(self, bus: BusEventos, id_suscripcion: int, max_eventos: int) -> None:
         self.id = id_suscripcion
         self._bus = bus
-        self._cola: queue.Queue[Any] = queue.Queue(maxsize=max_eventos)
         self._max_eventos = max_eventos
+        self._cond = threading.Condition()
+        self._eventos: deque[Any] = deque()
         self._cerrada = False
 
     def siguiente(self, timeout: float = 15.0) -> dict[str, Any] | None:
@@ -66,38 +76,73 @@ class Suscripcion:
         Raises:
             BusCerradoError: si el bus se ha cerrado.
         """
-        if self._cerrada:
-            raise BusCerradoError("El bus de eventos esta cerrado.")
-        try:
-            evento = self._cola.get(timeout=timeout)
-        except queue.Empty:
+        with self._cond:
+            if not self._eventos and not self._cerrada:
+                self._cond.wait(timeout)
+            if self._eventos:
+                return self._eventos.popleft()
+            if self._cerrada:
+                raise BusCerradoError("El bus de eventos esta cerrado.")
             return None
-        if isinstance(evento, _Cierre):
-            raise BusCerradoError("El bus de eventos esta cerrado.")
-        return evento
 
     def cerrar(self) -> None:
         """Cierra la suscripcion y la retira del bus."""
-        self._cerrada = True
+        with self._cond:
+            self._cerrada = True
+            self._cond.notify_all()
         self._bus.retirar(self)
 
     def _encolar(self, evento: dict[str, Any]) -> None:
-        """Mete el evento en la cola, descartando el mas viejo si esta llena."""
-        try:
-            self._cola.put_nowait(evento)
-        except queue.Full:
-            try:
-                self._cola.get_nowait()
-                self._cola.put_nowait(evento)
-            except (queue.Empty, queue.Full):
-                logger.warning("Cola de la suscripcion %s llena; evento descartado.", self.id)
+        """Mete el evento en la cola aplicando la politica de descarte."""
+        with self._cond:
+            if self._cerrada:
+                return
+            if evento["type"] == "progress" and self._fusionar_progress(evento):
+                return
+            while len(self._eventos) >= self._max_eventos:
+                if not self._expulsar():
+                    logger.warning(
+                        "Cola de la suscripcion %s llena y sin descartables; "
+                        "se cae el evento '%s'.",
+                        self.id,
+                        evento["type"],
+                    )
+                    return
+            self._eventos.append(evento)
+            self._cond.notify()
+
+    def _fusionar_progress(self, evento: dict[str, Any]) -> bool:
+        """Sustituye el ``progress`` en cola por el nuevo.
+
+        Returns:
+            ``True`` si habia un ``progress`` en cola y se ha sustituido.
+        """
+        for indice, en_cola in enumerate(self._eventos):
+            if en_cola["type"] == "progress":
+                self._eventos[indice] = evento
+                return True
+        return False
+
+    def _expulsar(self) -> bool:
+        """Saca un evento de la cola para dejar sitio. ``False`` si no hay.
+
+        Nunca expulsa un ``job`` ni un ``tia``: primero se van los ``log`` y
+        luego los ``progress``.
+        """
+        for tipo in ("log", "progress"):
+            for indice, en_cola in enumerate(self._eventos):
+                if en_cola["type"] == tipo:
+                    del self._eventos[indice]
+                    return True
+        return False
 
 
 class BusEventos:
     """Bus de eventos de la SPA.
 
-    Publica los cuatro tipos de evento y lleva el ultimo ``progress`` y el
-    ultimo ``tia`` para hidratar a los clientes que se conectan despues.
+    Publica los cuatro tipos de evento y lleva el ultimo ``progress``, el
+    ultimo ``tia`` y el ultimo ``job`` para hidratar a los clientes que se
+    conectan despues.
     """
 
     def __init__(self, max_eventos: int = 100) -> None:
@@ -105,7 +150,7 @@ class BusEventos:
 
         Args:
             max_eventos: eventos en cola por suscriptor. Al superarlos se
-                descarta el mas viejo.
+                descarta lo menos importante.
         """
         self._lock = threading.Lock()
         self._max_eventos = max_eventos
@@ -113,6 +158,7 @@ class BusEventos:
         self._suscriptores: dict[int, Suscripcion] = {}
         self._ultimo_progress: dict[str, Any] | None = None
         self._ultimo_tia: dict[str, Any] | None = None
+        self._ultimo_job: dict[str, Any] | None = None
         self._cerrado = False
 
     # ── publicacion ──────────────────────────────────────────────────────
@@ -122,7 +168,7 @@ class BusEventos:
 
         Args:
             tipo: ``progress``, ``job``, ``log`` o ``tia``.
-            carga: cuerpo del evento. Se copia el dict ``type`` al evento.
+            carga: cuerpo del evento. Se anade el campo ``type``.
 
         Raises:
             ValueError: si ``tipo`` no es uno de los cuatro admitidos.
@@ -137,6 +183,8 @@ class BusEventos:
                 self._ultimo_progress = evento
             elif tipo == "tia":
                 self._ultimo_tia = evento
+            elif tipo == "job":
+                self._ultimo_job = evento
             suscriptores = list(self._suscriptores.values())
         for suscriptor in suscriptores:
             suscriptor._encolar(evento)
@@ -146,8 +194,8 @@ class BusEventos:
     def suscribir(self) -> Suscripcion:
         """Crea una suscripcion.
 
-        La suscripcion recibe de inmediato el ultimo ``progress`` y el ultimo
-        ``tia`` conocidos, si los hay.
+        La suscripcion recibe de inmediato el ultimo ``progress``, el ultimo
+        ``tia`` y el ultimo ``job`` conocidos, si los hay.
 
         Raises:
             BusCerradoError: si el bus ya esta cerrado.
@@ -162,6 +210,8 @@ class BusEventos:
                 suscriptor._encolar(self._ultimo_progress)
             if self._ultimo_tia is not None:
                 suscriptor._encolar(self._ultimo_tia)
+            if self._ultimo_job is not None:
+                suscriptor._encolar(self._ultimo_job)
             return suscriptor
 
     def retirar(self, suscriptor: Suscripcion) -> None:
@@ -180,9 +230,7 @@ class BusEventos:
             suscriptores = list(self._suscriptores.values())
             self._suscriptores.clear()
         for suscriptor in suscriptores:
-            suscriptor._cerrada = True
-            with contextlib.suppress(queue.Full):
-                suscriptor._cola.put_nowait(_Cierre())
+            suscriptor.cerrar()
 
     @property
     def cerrado(self) -> bool:
@@ -208,6 +256,11 @@ class BusEventos:
         with self._lock:
             return self._ultimo_tia
 
+    def ultimo_job(self) -> dict[str, Any] | None:
+        """Ultimo evento ``job`` publicado, o ``None``."""
+        with self._lock:
+            return self._ultimo_job
+
 
 # ── puente con el logging ─────────────────────────────────────────────────
 
@@ -215,27 +268,51 @@ class BusEventos:
 class HandlerEventos(logging.Handler):
     """Handler de logging que publica cada linea en el bus.
 
-    El nivel viaja como ``nivel`` y el texto como ``mensaje``, que es la
-    forma del evento ``log``.
+    El nivel viaja como ``nivel`` y el texto como ``mensaje``. Si el registro
+    trae excepcion, el traceback viaja como ``detalle``.
+
+    Dos guardas de seguridad:
+
+    - No publica los registros del propio logger ``zc_suite.eventos``: el bus
+      avisa cuando una cola se llena y avisar volveria a llenar la cola.
+    - Un guard de reentrada por hilo: si la publicacion provoke un log, ese
+      log no vuelve a publicar.
     """
 
     def __init__(self, bus: BusEventos) -> None:
         super().__init__()
         self._bus = bus
+        self._local = threading.local()
 
     def emit(self, record: logging.LogRecord) -> None:
         """Publica el registro como evento ``log``."""
+        if getattr(self._local, "dentro", False):
+            return
+        if record.name == NOMBRE_LOGGER or record.name.startswith(f"{NOMBRE_LOGGER}."):
+            return
         try:
             mensaje = record.getMessage()
         except Exception:
             mensaje = str(record.msg)
+        carga: dict[str, Any] = {
+            "nivel": record.levelname.lower(),
+            "mensaje": mensaje,
+            "detalle": self._detalle(record),
+        }
+        self._local.dentro = True
         try:
-            self._bus.publicar(
-                "log",
-                {"nivel": record.levelname.lower(), "mensaje": mensaje},
-            )
+            self._bus.publicar("log", carga)
         except Exception:
             self.handleError(record)
+        finally:
+            self._local.dentro = False
+
+    @staticmethod
+    def _detalle(record: logging.LogRecord) -> str | None:
+        """Traceback del registro, o ``None`` si no traia excepcion."""
+        if not record.exc_info:
+            return None
+        return "".join(traceback.format_exception(*record.exc_info))
 
 
 def conectar_logging(bus: BusEventos, logger_objetivo: logging.Logger) -> HandlerEventos:
