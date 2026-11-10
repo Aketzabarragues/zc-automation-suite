@@ -166,6 +166,80 @@ def test_un_export_de_bloque_fallido_da_error_con_el_nombre(tmp_path: Path) -> N
         ops.exportar_bloques(portal, "PLC_1", tmp_path)
 
 
+def test_el_not_supported_se_traduce_para_el_operador(tmp_path: Path) -> None:
+    """Si la API de TIA no admite SimaticSD, se explica con palabras."""
+    portal, _plc = _portal(
+        [
+            BloqueFalso(
+                "DB2000_ED",
+                ["SimaticML", "ExternalSource"],
+                error=ValueError(
+                    "NotSupportedException: The method is not supported in this API version."
+                ),
+            )
+        ]
+    )
+
+    with pytest.raises(OperacionError) as fallo:
+        ops.exportar_bloques(portal, "PLC_1", tmp_path, version_tia="V18.0")
+
+    error = str(fallo.value)
+    assert "La exportación de bloques (SimaticSD) requiere TIA Portal V21 o superior." in error
+    assert "El TIA conectado es V18.0." in error
+    assert "NotSupportedException" not in error
+
+
+def test_el_not_supported_sin_version_conocida(tmp_path: Path) -> None:
+    portal, _plc = _portal(
+        [
+            BloqueFalso(
+                "DB2000_ED",
+                error=ValueError(
+                    "NotSupportedException: The method is not supported in this API version."
+                ),
+            )
+        ]
+    )
+
+    with pytest.raises(OperacionError) as fallo:
+        ops.exportar_bloques(portal, "PLC_1", tmp_path)
+
+    error = str(fallo.value)
+    assert "requiere TIA Portal V21 o superior." in error
+    assert "El TIA conectado" not in error
+
+
+def test_otro_fallo_de_export_no_se_traduce(tmp_path: Path) -> None:
+    """Un fallo que no es de version deja el mensaje de TIA tal cual."""
+    portal, _plc = _portal([BloqueFalso("DB2000_ED", error=RuntimeError("disco lleno"))])
+
+    with pytest.raises(OperacionError) as fallo:
+        ops.exportar_bloques(portal, "PLC_1", tmp_path)
+
+    assert "disco lleno" in str(fallo.value)
+
+
+def test_el_not_supported_de_una_tabla_no_se_traduce(tmp_path: Path) -> None:
+    """La traduccion es solo de bloques: las tablas no usan SimaticSD."""
+    portal, _plc = _portal(
+        tablas=[
+            TablaFalsa(
+                "2000_Disp_ED",
+                error=ValueError(
+                    "NotSupportedException: The method is not supported in this API version."
+                ),
+            )
+        ]
+    )
+
+    with pytest.raises(OperacionError) as fallo:
+        ops.exportar_tablas(portal, "PLC_1", tmp_path, mantener_estructura=True)
+
+    error = str(fallo.value)
+    assert "No se pudo exportar la tabla '2000_Disp_ED'" in error
+    assert "requiere TIA Portal V21" not in error
+
+
 def test_un_export_de_bloque_fallido_anade_los_formatos(tmp_path: Path) -> None:
     portal, _plc = _portal(
         [BloqueFalso("DB2000_ED", ["SimaticML", "SimaticSD"], error=RuntimeError("boom"))]

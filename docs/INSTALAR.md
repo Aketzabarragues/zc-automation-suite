@@ -7,8 +7,25 @@
 | Windows | 10 u 11 | la app es de escritorio |
 | Python | 3.12, 3.13 o 3.14 | backend |
 | Node.js | 22 o superior | solo para el frontend en desarrollo |
-| TIA Portal | V15.1 a V21.1 | operacion contra el PLC |
 | Wheel de Siemens `siemens_tia_scripting` | 1.4.3 | SDK oficial de TIA Scripting |
+
+## Version de TIA Portal
+
+No todas las operaciones necesitan lo mismo:
+
+| Operacion | Version de TIA Portal |
+|---|---|
+| Conectar y desconectar | cualquiera |
+| Exportar e importar **tablas de tags** (XML SimaticML) | cualquiera |
+| Exportar e importar **bloques** (SimaticSD, `.s7dcl`) | **V21 o superior** |
+
+La exportacion de bloques en SimaticSD solo existe desde TIA Portal V21. Con
+versiones anteriores, la API de TIA responde ``NotSupportedException: The
+method is not supported in this API version`` y no se puede exportar el bloque.
+El mensaje de la app lo dice y indica la version conectada.
+
+El entorno de produccion trabaja con **TIA V21**. Con V18 se puede conectar y
+trabajar con las tablas de tags, pero no con los bloques.
 
 La wheel de Siemens **no esta en PyPI**: es un binario propietario que se
 entrega con el SDK de TIA Scripting. Sin ella la app arranca y se puede

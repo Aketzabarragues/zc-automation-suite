@@ -52,9 +52,18 @@ class ProyectoFalso:
             raise RuntimeError("El commit no se pudo confirmar.")
 
 
+class _Bundle:
+    """Doble de un bundle de producto instalado."""
+
+    def __init__(self, titulo: str) -> None:
+        self._titulo = titulo
+
+    def get_title(self) -> str:
+        return self._titulo
+
+
 class PortalFalso:
     """Doble de test del ``Portal`` de TIA."""
-
     def __init__(self) -> None:
         self.proyecto = ProyectoFalso()
         self.pid = 4242
@@ -92,6 +101,12 @@ class TsFalso:
         self.modos: list[str] = []
         self.logging: list[tuple[str, bool]] = []
         self.error_attach: str | None = None
+        self.version_instalada = ""
+
+    def get_installed_bundles(self) -> list[Any]:
+        if not self.version_instalada:
+            return []
+        return [_Bundle(f"Siemens TIA Portal {self.version_instalada}")]
 
     def attach_portal(self, portal_mode: str | None = None) -> PortalFalso:
         self.llamadas.append("attach_portal")
@@ -451,6 +466,81 @@ def test_el_error_sin_proyecto_es_un_error_esperado() -> None:
     from zc_suite.tia import TIAError
 
     assert issubclass(SinProyectoError, TIAError)
+
+
+# ── version de TIA ─────────────────────────────────────────────────────────
+
+
+def test_se_detecta_la_version_de_tia_instalada() -> None:
+    from zc_suite.tia import version_tia_instalada
+
+    class Bundle:
+        def __init__(self, titulo: str) -> None:
+            self._titulo = titulo
+
+        def get_title(self) -> str:
+            return self._titulo
+
+    class Ts:
+        @staticmethod
+        def get_installed_bundles() -> list[Bundle]:
+            return [
+                Bundle("S7-PLCSIM Advanced V5.0 Upd1"),
+                Bundle("Siemens TIA Portal V18.0 Upd5"),
+                Bundle("SIMATIC TIA Portal V18 WinCC Prof Ed"),
+            ]
+
+    assert version_tia_instalada(Ts()) == "V18.0"
+
+
+def test_se_queda_con_la_version_mayor() -> None:
+    from zc_suite.tia import version_tia_instalada
+
+    class Bundle:
+        def __init__(self, titulo: str) -> None:
+            self._titulo = titulo
+
+        def get_title(self) -> str:
+            return self._titulo
+
+    class Ts:
+        @staticmethod
+        def get_installed_bundles() -> list[Bundle]:
+            return [
+                Bundle("Siemens TIA Portal V18.0 Upd5"),
+                Bundle("Siemens TIA Portal V21.1"),
+            ]
+
+    assert version_tia_instalada(Ts()) == "V21.1"
+
+
+def test_sin_tia_instalada_la_version_es_vacia() -> None:
+    from zc_suite.tia import version_tia_instalada
+
+    class Ts:
+        @staticmethod
+        def get_installed_bundles() -> list[Any]:
+            return []
+
+    assert version_tia_instalada(Ts()) == ""
+
+
+def test_el_estado_incluye_la_version_de_tia(entorno: Any) -> None:
+    servicio, _ts, _eventos = entorno
+
+    assert servicio.estado()["version_tia"] == ""
+
+
+def test_conectar_devuelve_la_version_de_tia(entorno: Any) -> None:
+    servicio, ts, eventos = entorno
+    ts.version_instalada = "V21.1"
+
+    job_id = servicio.lanzar(tia.conectar)
+    evento = _esperar_job(eventos, job_id)
+
+    assert evento["estado"] == "ok"
+    assert evento["resultado"]["version_tia"] == "V21.1"
+    assert servicio.estado()["version_tia"] == "V21.1"
 
 
 # ── conexion ───────────────────────────────────────────────────────────────

@@ -164,6 +164,7 @@ def test_el_estado_no_necesita_origin(cliente: Any) -> None:
         "conectado": False,
         "trabajo_actual": None,
         "ultimo_error": None,
+        "version_tia": "",
     }
 
 

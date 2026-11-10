@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import tempfile
 import threading
 import uuid
@@ -457,6 +458,41 @@ def mensaje_operador(exc: Exception) -> str:
     return f"{type(exc).__name__}: {exc}"
 
 
+def version_tia_instalada(ts: Any) -> str:
+    """La version de TIA Portal instalada, tal y como la ve el SDK.
+
+    Unica via documentada: ``get_installed_bundles()`` devuelve los bundles
+    instalados con su titulo ("Siemens TIA Portal V18.0 Upd5"). El manual
+    **no** expone la version del portal conectado.
+
+    Por defecto el SDK engancha la ultima version instalada
+    (``attach_portal`` sin ``version``), asi que normalmente coincide con la
+    conectada.
+
+    Returns:
+        La version, tipo ``"V21.1"``. Cadena vacia si no se puede averiguar.
+    """
+    try:
+        bundles = ts.get_installed_bundles()
+    except Exception:
+        return ""
+    versiones: list[tuple[int, int]] = []
+    for bundle in bundles or []:
+        try:
+            titulo = str(bundle.get_title())
+        except Exception:
+            continue
+        if "TIA Portal" not in titulo:
+            continue
+        coincidencia = re.search(r"\bV(\d+)\.(\d+)\b", titulo)
+        if coincidencia:
+            versiones.append((int(coincidencia.group(1)), int(coincidencia.group(2))))
+    if not versiones:
+        return ""
+    mayor, menor = max(versiones)
+    return f"V{mayor}.{menor}"
+
+
 def pid_del_portal(portal: Any) -> int:
     """PID del portal, forzando la salida de los errores pendientes del SDK.
 
@@ -539,6 +575,7 @@ class ServicioTIA:
         self._modo_portal: str | None = None
         self._ultimo_error: str | None = None
         self._conexion_publicada: tuple[bool, str | None] | None = None
+        self._version_tia: str = ""
 
     # ── ciclo de vida del hilo ───────────────────────────────────────────
 
@@ -697,6 +734,11 @@ class ServicioTIA:
         with self._lock:
             return self._ocupado
 
+    @property
+    def version_tia(self) -> str:
+        """La version de TIA Portal conectada. Vacia si no se sabe."""
+        return self._version_tia
+
     def _exigir_hilo(self) -> None:
         """Comprueba que la llamada viene del hilo de TIA.
 
@@ -732,6 +774,7 @@ class ServicioTIA:
             "conectado": self.conectado,
             "trabajo_actual": self._trabajo_actual,
             "ultimo_error": self._ultimo_error,
+            "version_tia": self._version_tia,
         }
 
     # ── publicacion ──────────────────────────────────────────────────────
@@ -907,6 +950,7 @@ class ServicioTIA:
             )
         self._portal = portal
         self._modo_portal = modo
+        self._version_tia = version_tia_instalada(ts)
         self._publicar_conexion()
         return portal
 
@@ -968,6 +1012,7 @@ def conectar(job: Job, modo: str = "attach") -> dict[str, Any]:
         "conectado": True,
         "modo": modo,
         "pid": portal.get_process_id(),
+        "version_tia": job.tia.version_tia,
     }
 
 

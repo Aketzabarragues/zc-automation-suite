@@ -15,6 +15,9 @@ anterior. Peculiaridades conservadas:
   necesita la edicion offline. ``get_supported_export_format()`` no se
   consulta antes de exportar, sino solo si la exportacion falla, para
   anadir al mensaje de error los formatos que el bloque si admite.
+- Si la API de TIA no admite SimaticSD (versions anteriores a V21), el
+  error se traduce a un mensaje para el operario en vez de dejar el
+  ``NotSupportedException`` del SDK.
 
 No se porta ``export_udts``: no tiene ningun llamador.
 """
@@ -32,6 +35,47 @@ logger = logging.getLogger(__name__)
 #: Formato de export de los bloques: SimaticSD (``.s7dcl`` + ``.s7res``).
 FORMATO_SD = "SimaticSD"
 
+#: La exportacion de bloques en SimaticSD solo existe desde TIA Portal V21.
+MENSAJE_SIMATICSD = (
+    "La exportación de bloques (SimaticSD) requiere TIA Portal V21 o superior."
+)
+
+
+def _es_version_incompatible(exc: Exception) -> bool:
+    """``True`` si el fallo es que la API de TIA no admite el formato.
+
+    El SDK lanza ``NotSupportedException: The method is not supported in
+    this API version``: no es que el bloque este mal, es que la version de
+    TIA Portal conectada no conoce la exportacion en SimaticSD.
+    """
+    texto = str(exc).lower()
+    return "not supported in this api version" in texto
+
+
+def _error_export(
+    nombre: str,
+    exc: Exception,
+    version_tia: str,
+    es_bloque: bool,
+    formatos: str,
+) -> OperacionError:
+    """Construye el error de un export fallido.
+
+    Si el fallo es que la version de TIA no admite SimaticSD, se dice con
+    palabras del operario. En cualquier otro caso, se deja el mensaje de
+    TIA tal cual.
+    """
+    if es_bloque and _es_version_incompatible(exc):
+        detalle = MENSAJE_SIMATICSD
+        if version_tia:
+            detalle += f" El TIA conectado es {version_tia}."
+    else:
+        detalle = f"{type(exc).__name__}: {exc}"
+    tipo = "el bloque" if es_bloque else "la tabla"
+    return OperacionError(
+        f"No se pudo exportar {tipo} '{nombre}': {detalle}. {formatos}"
+    )
+
 
 def exportar_bloques(
     portal: Any,
@@ -40,6 +84,7 @@ def exportar_bloques(
     nombres: list[str] | None = None,
     *,
     mantener_estructura: bool = False,
+    version_tia: str = "",
 ) -> dict[str, Any]:
     """Exporta bloques de programa del PLC como SimaticSD.
 
@@ -51,13 +96,15 @@ def exportar_bloques(
             exacto y sensible a mayusculas.
         mantener_estructura: ``True`` preserva la jerarquia de TIA; ``False``
             exporta plano.
+        version_tia: version de TIA Portal conectada, para el mensaje de
+            error si la API no admite SimaticSD.
 
     Returns:
         ``{"exportado_a", "cantidad", "nombres", "omitidos"}``. ``omitidos``
         son los del whitelist que no se han encontrado en el PLC.
 
     Raises:
-        OperacionError: si el PLC no existe o el bloque no admite SimaticSD.
+        OperacionError: si el PLC no existe o el bloque no se puede exportar.
     """
     objetivo = buscar_plc(portal, plc)
     carpeta = _preparar_destino(destino)
@@ -77,9 +124,12 @@ def exportar_bloques(
                 keep_folder_structure=mantener_estructura,
             )
         except Exception as exc:
-            raise OperacionError(
-                f"No se pudo exportar el bloque '{nombre}': {exc}. "
-                f"{_formatos_admitidos(bloque)}"
+            raise _error_export(
+                nombre,
+                exc,
+                version_tia,
+                es_bloque=True,
+                formatos=_formatos_admitidos(bloque),
             ) from exc
         exportados.append(nombre)
 
@@ -136,9 +186,12 @@ def exportar_tablas(
                 keep_folder_structure=mantener_estructura,
             )
         except Exception as exc:
-            raise OperacionError(
-                f"No se pudo exportar la tabla '{nombre}': {exc}. "
-                f"{_formatos_admitidos(tabla)}"
+            raise _error_export(
+                nombre,
+                exc,
+                "",
+                es_bloque=False,
+                formatos=_formatos_admitidos(tabla),
             ) from exc
         exportados.append(nombre)
 
