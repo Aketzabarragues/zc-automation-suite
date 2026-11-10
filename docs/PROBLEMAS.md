@@ -64,6 +64,31 @@ El `log4net.xml` que acompaña a la wheel **no** es su configuracion: es el
 fichero de documentacion de la API de log4net. No hay nada que configurar a
 mano.
 
+### El hilo de TIA se muere al cerrar TIA Portal a mano
+
+Peculiaridad de `siemens_tia_scripting`: cuando TIA Portal se cierra, la
+llamada a `get_process_id()` puede devolver bien y dejar un error .NET
+**pendiente**. Ese error no salta en la llamada: salta en la siguiente
+operacion del hilo, que puede ser un `wait()` de Python y no parece tener
+nada que ver. El sintoma es un `SystemError` dentro de
+`threading.Event.wait` que tumba el hilo `zc-tia` y deja la app zombi: cree
+que esta conectada, pero el portal esta muerto y ya nadie lo mira.
+
+La app lo cubre por tres vias:
+
+- Cada iteracion del hilo va dentro de un `try/except BaseException`. Si
+  algo falla, se anota con traceback, se da el portal por perdido y **el
+  hilo sigue**.
+- Tras `get_process_id()` se hace una comprobacion trivial
+  (`pid_del_portal`). Si hay un error pendiente, salta ahi, dentro del
+  `try` de quien llama, y no mas tarde en un sitio inexplicable.
+- `estado()` da `conectado: false` si el hilo no esta vivo, y `lanzar()`
+  reinicia el hilo avisando por log y por el evento `tia` con
+  `ultimo_error: "El hilo de TIA se reinició tras un fallo"`.
+
+Si aparece en el log, no es un fallo de la app: es el SDK. Lo que hay que
+comprobar es que el hilo siga vivo y que la app se desconecte sola.
+
 ### Sale un aviso de que falta pythonnet
 
 No hace falta. El `.pyd` de `siemens_tia_scripting` es autonomo y carga el

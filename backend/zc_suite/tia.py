@@ -398,6 +398,25 @@ def silenciar_log_nativo(ts: Any, ruta_log: Path) -> None:
         logger.warning("No se pudo silenciar el log nativo de Siemens: %s", exc)
 
 
+def pid_del_portal(portal: Any) -> int:
+    """PID del portal, forzando la salida de los errores pendientes del SDK.
+
+    Peculiaridad de ``siemens_tia_scripting``: cuando TIA se cierra, la
+    llamada a ``get_process_id()`` puede devolver bien pero dejar un error
+    .NET *pendiente*. Ese error no salta en la llamada: salta en la
+    siguiente operacion del hilo, que puede ser un ``wait()`` de Python y
+    tumbar el hilo entero.
+
+    Por eso, despues de la llamada se hace una comprobacion trivial. Si hay
+    un error pendiente, salta aqui, dentro del ``try`` de quien llama, y no
+    mas tarde en un sitio que no parece relacionado.
+    """
+    pid = portal.get_process_id()
+    if pid is None:
+        raise TIAError("El portal de TIA no devolvio PID.")
+    return int(pid)
+
+
 def cargar_modulo_tia() -> Any:
     """Importa ``siemens_tia_scripting``.
 
@@ -494,22 +513,68 @@ class ServicioTIA:
 
         Cuando no hay trabajo, comprueba que el portal siga vivo. La
         comprobacion se hace aqui, en el hilo dueno del portal.
+
+        El hilo **no puede morir**. Cada iteracion va dentro de un
+        ``try``: si algo falla (un error pendiente del SDK que salta en el
+        ``wait``, un COM que se cae), se anota, se da el portal por perdido
+        y se sigue. Un hilo muerto deja la app zombi: el portal no responde
+        pero la app sigue creyendo que esta conectada.
         """
         while not self._parar.is_set():
-            self._hay_trabajo.wait(timeout=self._intervalo_ping)
-            if self._parar.is_set():
-                break
-            self._hay_trabajo.clear()
-            with self._lock:
-                pendiente = self._pendiente
-                self._pendiente = None
-            if pendiente is None:
-                self._verificar_conexion()
-                continue
-            funcion, job, params = pendiente
-            self._ejecutar(funcion, job, params)
+            try:
+                self._hay_trabajo.wait(timeout=self._intervalo_ping)
+                if self._parar.is_set():
+                    break
+                self._hay_trabajo.clear()
+                with self._lock:
+                    pendiente = self._pendiente
+                    self._pendiente = None
+                if pendiente is None:
+                    self._verificar_conexion()
+                    continue
+                funcion, job, params = pendiente
+                self._ejecutar(funcion, job, params)
+            except BaseException:
+                logger.exception(
+                    "Fallo inesperado en el hilo de TIA. El hilo continua."
+                )
+                self._perder_portal(
+                    "El hilo de TIA ha encontrado un fallo y sigue en pie: "
+                    "se da el portal por perdido."
+                )
 
     # ── encolado ─────────────────────────────────────────────────────────
+
+    def _hilo_vivo(self) -> bool:
+        """``True`` si el hilo de TIA esta vivo."""
+        hilo = self._hilo
+        return hilo is not None and hilo.is_alive()
+
+    def _perder_portal(self, mensaje: str) -> None:
+        """Da el portal por perdido y publica el nuevo estado."""
+        self._portal = None
+        self._modo_portal = None
+        self._ultimo_error = mensaje
+        self._publicar_conexion()
+
+    def _asegurar_hilo(self) -> None:
+        """Arranca el hilo de TIA si no esta vivo.
+
+        Si el hilo anterior ha muerto, el reinicio no se hace en silencio:
+        se avisa por log y por el evento ``tia``, porque el trabajo que
+        estuviera en curso se ha perdido.
+        """
+        if self._hilo_vivo():
+            return
+        if self._hilo is not None:
+            logger.error(
+                "El hilo de TIA ha muerto; se reinicia. El trabajo en curso se ha perdido."
+            )
+            self._ultimo_error = "El hilo de TIA se reinició tras un fallo"
+            self._ocupado = False
+            self._trabajo_actual = None
+            self._publicar_conexion()
+        self.arrancar()
 
     def lanzar(self, funcion: Callable[..., Any], **params: Any) -> str:
         """Encola un trabajo y devuelve su ``job_id``.
@@ -528,7 +593,7 @@ class ServicioTIA:
                 raise OcupadoError("Hay un trabajo en curso. Espera a que termine.")
             self._ocupado = True
             self._pendiente = (funcion, job, params)
-        self.arrancar()
+        self._asegurar_hilo()
         self._hay_trabajo.set()
         logger.info("Trabajo encolado: %s (%s)", job.id, funcion.__name__)
         return job.id
@@ -559,8 +624,12 @@ class ServicioTIA:
 
     @property
     def conectado(self) -> bool:
-        """``True`` si hay portal abierto."""
-        return self._portal is not None
+        """``True`` si hay portal abierto y el hilo de TIA sigue vivo.
+
+        Si el hilo ha muerto, la conexion no vale: el portal guardado
+        pertenece a un hilo que ya no existe.
+        """
+        return self._portal is not None and self._hilo_vivo()
 
     @property
     def ocupado(self) -> bool:
@@ -685,12 +754,10 @@ class ServicioTIA:
         if self._portal is None:
             return
         try:
-            self._portal.get_process_id()
-        except Exception as exc:
+            pid_del_portal(self._portal)
+        except BaseException as exc:
             logger.warning("El portal de TIA ya no responde: %s", exc)
-            self._portal = None
-            self._modo_portal = None
-            self._ultimo_error = f"La conexion con TIA Portal se ha perdido: {exc}"
+            self._perder_portal(f"La conexion con TIA Portal se ha perdido: {exc}")
             self._publicar_conexion()
 
     # ── operaciones del hilo ─────────────────────────────────────────────
@@ -731,7 +798,13 @@ class ServicioTIA:
             raise TIAError(f"Modo de portal invalido: {modo!r}. Usa 'attach' u 'open'.")
         ts = self.cargar_sdk()
         if self._portal is not None:
-            return self._portal
+            if self._portal_vivo():
+                return self._portal
+            logger.warning(
+                "El portal guardado no responde; se descarta y se vuelve a enganchar."
+            )
+            self._portal = None
+            self._modo_portal = None
         if modo == "attach":
             portal_mode = ts.Enums.PortalMode.WithGraphicalUserInterface
         else:
@@ -756,6 +829,16 @@ class ServicioTIA:
         self._publicar_conexion()
         return portal
 
+    def _portal_vivo(self) -> bool:
+        """``True`` si el portal guardado sigue respondiendo."""
+        if self._portal is None:
+            return False
+        try:
+            pid_del_portal(self._portal)
+        except BaseException:
+            return False
+        return True
+
     def cerrar_portal(self) -> None:
         """Cierra o desengancha el portal. Idempotente."""
         self._exigir_hilo()
@@ -767,7 +850,7 @@ class ServicioTIA:
                 portal.close_portal()
             else:
                 portal.detach()
-        except Exception as exc:
+        except BaseException as exc:
             logger.warning("No se pudo cerrar el portal de TIA: %s", exc)
         finally:
             self._portal = None

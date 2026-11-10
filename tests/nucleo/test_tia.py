@@ -93,11 +93,14 @@ class TsFalso:
     def attach_portal(self, portal_mode: str | None = None) -> PortalFalso:
         self.llamadas.append("attach_portal")
         self.modos.append(portal_mode or "")
+        # Cada enganche devuelve un portal nuevo, como en el SDK real.
+        self.portal = PortalFalso()
         return self.portal
 
     def open_portal(self, portal_mode: str | None = None) -> PortalFalso:
         self.llamadas.append("open_portal")
         self.modos.append(portal_mode or "")
+        self.portal = PortalFalso()
         return self.portal
 
     def set_logging(self, path: str, console: bool) -> None:
@@ -869,7 +872,191 @@ def test_un_trabajo_con_resultado_serializable_termina_en_ok(entorno: Any) -> No
     assert evento["resultado"] == {"cambios": 3, "ok": True}
 
 
+# ── el hilo de TIA no puede morir ──────────────────────────────────────────
+
+
+def _servicio_con_ping(monkeypatch: pytest.MonkeyPatch) -> Any:
+    """Servicio con ping rapido y modulo falso, para las pruebas del hilo."""
+    ts = TsFalso()
+    eventos: list[tuple[str, dict[str, Any]]] = []
+    servicio = ServicioTIA(
+        publicador=lambda tipo, carga: eventos.append((tipo, carga)),
+        cargador=lambda: ts,
+        intervalo_ping=0.05,
+    )
+    servicio._hilo_para_test = ts  # type: ignore[attr-defined]
+    servicio._eventos_para_test = eventos  # type: ignore[attr-defined]
+    return servicio
+
+
+def test_el_hilo_aguanta_un_wait_que_falla(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Un error que salta en el wait no puede tumbar el hilo."""
+    servicio = _servicio_con_ping(monkeypatch)
+    eventos = servicio._eventos_para_test  # type: ignore[attr-defined]
+    try:
+        job_id = servicio.lanzar(tia.conectar)
+        _esperar_job(eventos, job_id)
+        assert servicio.conectado is True
+
+        original = servicio._hay_trabajo.wait
+        llamadas = {"n": 0}
+
+        def wait_roto(timeout: float | None = None) -> bool:
+            llamadas["n"] += 1
+            if llamadas["n"] == 1:
+                raise SystemError("El wait ha reventado.")
+            return original(timeout)
+
+        monkeypatch.setattr(servicio._hay_trabajo, "wait", wait_roto)
+
+        limite = time.monotonic() + 5.0
+        while servicio.conectado and time.monotonic() < limite:
+            time.sleep(0.01)
+
+        assert servicio.conectado is False
+        assert servicio._hilo_vivo() is True
+        estados = [carga for tipo, carga in eventos if tipo == "tia"]
+        assert estados[-1]["conectado"] is False
+    finally:
+        servicio.parar()
+
+
+def test_el_hilo_aguanta_un_verificar_conexion_que_falla(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Un fallo dentro de la comprobacion de vida no tumba el hilo."""
+    servicio = _servicio_con_ping(monkeypatch)
+    eventos = servicio._eventos_para_test  # type: ignore[attr-defined]
+    try:
+        job_id = servicio.lanzar(tia.conectar)
+        _esperar_job(eventos, job_id)
+
+        def verificar_roto() -> None:
+            raise SystemError("La verificacion ha reventado.")
+
+        monkeypatch.setattr(servicio, "_verificar_conexion", verificar_roto)
+
+        limite = time.monotonic() + 5.0
+        while servicio.conectado and time.monotonic() < limite:
+            time.sleep(0.01)
+
+        assert servicio.conectado is False
+        assert servicio._hilo_vivo() is True
+    finally:
+        servicio.parar()
+
+
+def test_el_hilo_sigue_vivo_despues_de_un_fallo(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Despues del fallo, el hilo sigue aceptando trabajos."""
+    servicio = _servicio_con_ping(monkeypatch)
+    eventos = servicio._eventos_para_test  # type: ignore[attr-defined]
+    try:
+        job_id = servicio.lanzar(tia.conectar)
+        _esperar_job(eventos, job_id)
+
+        original = servicio._hay_trabajo.wait
+        llamadas = {"n": 0}
+
+        def wait_roto(timeout: float | None = None) -> bool:
+            llamadas["n"] += 1
+            if llamadas["n"] == 1:
+                raise SystemError("El wait ha reventado.")
+            return original(timeout)
+
+        monkeypatch.setattr(servicio._hay_trabajo, "wait", wait_roto)
+
+        limite = time.monotonic() + 5.0
+        while servicio.conectado and time.monotonic() < limite:
+            time.sleep(0.01)
+
+        job_id = servicio.lanzar(lambda job: {"ok": True})
+        evento = _esperar_job(eventos, job_id)
+        assert evento["estado"] == "ok"
+    finally:
+        servicio.parar()
+
+
+def test_el_estado_dice_desconectado_si_el_hilo_ha_muerto(entorno: Any) -> None:
+    servicio, _ts, _eventos = entorno
+    job_id = servicio.lanzar(tia.conectar)
+    _esperar_job(_eventos, job_id)
+    assert servicio.conectado is True
+
+    servicio._hilo = _HiloMuerto()
+
+    assert servicio.estado()["conectado"] is False
+
+
+def test_lanzar_reinicia_el_hilo_muerto_y_lo_avisa(entorno: Any) -> None:
+    servicio, _ts, eventos = entorno
+    servicio._hilo = _HiloMuerto()
+
+    job_id = servicio.lanzar(lambda job: {"ok": True})
+
+    evento = _esperar_job(eventos, job_id)
+    assert evento["estado"] == "ok"
+    estados = [carga for tipo, carga in eventos if tipo == "tia"]
+    assert any(
+        carga.get("ultimo_error") == "El hilo de TIA se reinició tras un fallo"
+        for carga in estados
+    )
+
+
+def test_lanzar_no_se_queda_ocupado_si_el_hilo_ha_muerto(entorno: Any) -> None:
+    """El trabajo perdido no puede bloquear la app para siempre."""
+    servicio, _ts, eventos = entorno
+    servicio._hilo = _HiloMuerto()
+
+    servicio.lanzar(lambda job: {})
+    job_id = servicio.lanzar(lambda job: {})
+
+    assert _esperar_job(eventos, job_id)["estado"] == "ok"
+
+
+# ── el portal guardado se verifica antes de usarlo ─────────────────────────
+
+
+def test_abrir_portal_descarta_un_portal_muerto(entorno: Any) -> None:
+    servicio, ts, eventos = entorno
+    job_id = servicio.lanzar(tia.conectar)
+    _esperar_job(eventos, job_id)
+    portal_muerto = ts.portal
+    portal_muerto.vivo = False
+
+    job_id = servicio.lanzar(tia.conectar)
+    evento = _esperar_job(eventos, job_id)
+
+    assert evento["estado"] == "ok"
+    assert ts.llamadas.count("attach_portal") == 2
+    assert ts.portal is not portal_muerto
+
+
+def test_abrir_portal_reutiliza_el_portal_sano(entorno: Any) -> None:
+    servicio, ts, eventos = entorno
+    job_id = servicio.lanzar(tia.conectar)
+    _esperar_job(eventos, job_id)
+
+    job_id = servicio.lanzar(tia.conectar)
+    evento = _esperar_job(eventos, job_id)
+
+    assert evento["estado"] == "ok"
+    assert ts.llamadas.count("attach_portal") == 1
+
+
 # ── ayudas ─────────────────────────────────────────────────────────────────
+
+
+class _HiloMuerto:
+    """Doble de un hilo de TIA que ha muerto."""
+
+    def is_alive(self) -> bool:
+        return False
+
+    def join(self, timeout: float | None = None) -> None:
+        pass
+
+    def start(self) -> None:
+        pass
 
 
 def _trabajo_con_pasos(job: Any) -> dict[str, Any]:

@@ -42,6 +42,31 @@ Se llama justo despues de cargar el wrapper, dentro del hilo de TIA. Es la
 forma documentada; no inventar un `logging.getLogger(...)` para el SDK, que no
 lo tiene.
 
+## TIA Openness — errores .NET pendientes que matan el hilo
+
+Peculiaridad de `siemens_tia_scripting`: cuando TIA Portal se cierra, la
+llamada a `get_process_id()` puede devolver bien y dejar un error .NET
+**pendiente**. Ese error no salta en la llamada: salta en la siguiente
+operacion del hilo, que puede ser un `wait()` de Python. El sintoma es un
+`SystemError` en `threading.Event.wait` que tumba el hilo `zc-tia` y deja
+la app zombi.
+
+Reglas que salen de ahi:
+
+- El hilo que habla con TIA **no puede morir**: cada iteracion va dentro de
+  un `try/except BaseException`. Si algo falla, se anota con traceback, se
+  da el portal por perdido y el hilo sigue.
+- Tras cualquier llamada al SDK, **fuerza una operacion trivial** (leer un
+  atributo del resultado, un ``if``) dentro del mismo ``try``. Si hay un
+  error pendiente, salta ahi y no en el siguiente sitio RANDOM del hilo.
+- El estado de la conexion **no se deduce del portal guardado**: si el hilo
+  que lo poseia ha muerto, la conexion no vale.
+- Al reabrir, **verifica el portal guardado antes de devolverlo**. Si esta
+  muerto, se descarta y se engancha de nuevo.
+
+Aplica a `backend/zc_suite/tia.py` (`pid_del_portal`, `_bucle`,
+`_verificar_conexion`, `abrir_portal`).
+
 ## `pythonnet` no hace falta
 
 El `.pyd` de `siemens_tia_scripting` es autonomo: trae su propia integracion
