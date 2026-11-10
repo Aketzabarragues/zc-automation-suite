@@ -14,10 +14,17 @@ from zc_suite.tia_ops import exportar as ops
 
 
 class BloqueFalso:
-    def __init__(self, nombre: str | None, formatos: list[str] | None = None) -> None:
+    def __init__(
+        self,
+        nombre: str | None,
+        formatos: list[str] | None = None,
+        error: Exception | None = None,
+    ) -> None:
         self._nombre = nombre
         self.formatos = formatos
+        self.error = error
         self.exportado: dict[str, Any] | None = None
+        self.consultas_de_formatos = 0
 
     def get_name(self) -> str | None:
         if isinstance(self._nombre, Exception):
@@ -25,15 +32,19 @@ class BloqueFalso:
         return self._nombre
 
     def get_supported_export_format(self) -> list[str]:
+        self.consultas_de_formatos += 1
         return self.formatos or []
 
     def export(self, **kwargs: Any) -> None:
+        if self.error is not None:
+            raise self.error
         self.exportado = kwargs
 
 
 class TablaFalsa:
-    def __init__(self, nombre: str | None) -> None:
+    def __init__(self, nombre: str | None, error: Exception | None = None) -> None:
         self._nombre = nombre
+        self.error = error
         self.exportado: dict[str, Any] | None = None
 
     def get_name(self) -> str | None:
@@ -42,6 +53,8 @@ class TablaFalsa:
         return self._nombre
 
     def export(self, **kwargs: Any) -> None:
+        if self.error is not None:
+            raise self.error
         self.exportado = kwargs
 
 
@@ -127,9 +140,18 @@ def test_exportar_bloques_usa_simatic_sd(tmp_path: Path) -> None:
     assert plc.bloques[0].exportado["export_format"] == "SimaticSD"
 
 
-def test_exportar_bloques_consulta_el_formato_soportado(tmp_path: Path) -> None:
-    """El formato se consulta, no se supone."""
+def test_exportar_bloques_no_consulta_el_formato_soportado(tmp_path: Path) -> None:
+    """El formato se pasa siempre; la consulta solo se hace si falla."""
     portal, plc = _portal([BloqueFalso("DB2000_ED", ["SimaticML", "SimaticSD"])])
+
+    ops.exportar_bloques(portal, "PLC_1", tmp_path)
+
+    assert plc.bloques[0].consultas_de_formatos == 0
+
+
+def test_exportar_bloques_pasa_simatic_sd_aunque_el_sdk_ofrezca_otros(tmp_path: Path) -> None:
+    """Lo que devuelva el SDK no cambia lo que se exporta."""
+    portal, plc = _portal([BloqueFalso("DB2000_ED", ["SoloSimaticML"])])
 
     ops.exportar_bloques(portal, "PLC_1", tmp_path)
 
@@ -137,11 +159,40 @@ def test_exportar_bloques_consulta_el_formato_soportado(tmp_path: Path) -> None:
     assert plc.bloques[0].exportado["export_format"] == "SimaticSD"
 
 
-def test_exportar_bloques_falla_si_no_admite_simatic_sd(tmp_path: Path) -> None:
-    portal, _plc = _portal([BloqueFalso("DB2000_ED", ["SimaticML"])])
+def test_un_export_de_bloque_fallido_da_error_con_el_nombre(tmp_path: Path) -> None:
+    portal, _plc = _portal([BloqueFalso("DB2000_ED", error=RuntimeError("TIA dice que no"))])
 
-    with pytest.raises(OperacionError, match="no admite exportacion SimaticSD"):
+    with pytest.raises(OperacionError, match="No se pudo exportar el bloque 'DB2000_ED'"):
         ops.exportar_bloques(portal, "PLC_1", tmp_path)
+
+
+def test_un_export_de_bloque_fallido_anade_los_formatos(tmp_path: Path) -> None:
+    portal, _plc = _portal(
+        [BloqueFalso("DB2000_ED", ["SimaticML", "SimaticSD"], error=RuntimeError("boom"))]
+    )
+
+    with pytest.raises(OperacionError, match="Formatos admitidos"):
+        ops.exportar_bloques(portal, "PLC_1", tmp_path)
+
+
+def test_un_export_fallido_tolera_que_la_consulta_de_formatos_falle(tmp_path: Path) -> None:
+    class BloqueRoto(BloqueFalso):
+        def get_supported_export_format(self) -> list[str]:
+            raise RuntimeError("no se puede consultar")
+
+    portal, _plc = _portal([BloqueRoto("DB2000_ED", error=RuntimeError("boom"))])
+
+    with pytest.raises(OperacionError, match="No se pudo consultar"):
+        ops.exportar_bloques(portal, "PLC_1", tmp_path)
+
+
+def test_el_error_de_export_conserva_la_causa(tmp_path: Path) -> None:
+    portal, _plc = _portal([BloqueFalso("DB2000_ED", error=RuntimeError("TIA dice que no"))])
+
+    with pytest.raises(OperacionError) as fallo:
+        ops.exportar_bloques(portal, "PLC_1", tmp_path)
+
+    assert isinstance(fallo.value.__cause__, RuntimeError)
 
 
 def test_exportar_bloques_salta_un_bloque_ilegible(tmp_path: Path) -> None:
@@ -241,6 +292,15 @@ def test_exportar_tablas_informa_de_los_omitidos(tmp_path: Path) -> None:
     )
 
     assert resultado["omitidos"] == ["NO_EXISTE"]
+
+
+def test_un_export_de_tabla_fallido_da_error_con_el_nombre(tmp_path: Path) -> None:
+    portal, _plc = _portal(
+        tablas=[TablaFalsa("2000_Disp_ED", error=RuntimeError("TIA dice que no"))]
+    )
+
+    with pytest.raises(OperacionError, match="No se pudo exportar la tabla '2000_Disp_ED'"):
+        ops.exportar_tablas(portal, "PLC_1", tmp_path, mantener_estructura=True)
 
 
 def test_exportar_tablas_falla_si_el_plc_no_existe(tmp_path: Path) -> None:

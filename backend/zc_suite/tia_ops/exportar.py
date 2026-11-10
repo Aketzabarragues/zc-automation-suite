@@ -11,9 +11,10 @@ anterior. Peculiaridades conservadas:
   vez de actualizarla y la transaccion muere con ``CommitOnDispose``. Por
   eso el parametro no tiene valor por defecto: la decision es del que
   llama.
-- El formato de export de un bloque depende del objeto y de la version de
-  TIA, asi que se consulta ``get_supported_export_format()`` en vez de
-  suponerlo.
+- Los bloques se exportan **siempre** en SimaticSD: es el formato que
+  necesita la edicion offline. ``get_supported_export_format()`` no se
+  consulta antes de exportar, sino solo si la exportacion falla, para
+  anadir al mensaje de error los formatos que el bloque si admite.
 
 No se porta ``export_udts``: no tiene ningun llamador.
 """
@@ -69,11 +70,17 @@ def exportar_bloques(
             continue
         if pedidos is not None and nombre not in pedidos:
             continue
-        bloque.export(
-            target_directory_path=str(carpeta),
-            export_format=_formato_bloque(bloque),
-            keep_folder_structure=mantener_estructura,
-        )
+        try:
+            bloque.export(
+                target_directory_path=str(carpeta),
+                export_format=FORMATO_SD,
+                keep_folder_structure=mantener_estructura,
+            )
+        except Exception as exc:
+            raise OperacionError(
+                f"No se pudo exportar el bloque '{nombre}': {exc}. "
+                f"{_formatos_admitidos(bloque)}"
+            ) from exc
         exportados.append(nombre)
 
     return {
@@ -121,12 +128,18 @@ def exportar_tablas(
             continue
         if pedidos is not None and nombre not in pedidos:
             continue
-        # Sin ``export_format``: las tablas de tags no lo aceptan. El wrapper
-        # escribe el XML directamente.
-        tabla.export(
-            target_directory_path=str(carpeta),
-            keep_folder_structure=mantener_estructura,
-        )
+        try:
+            # Sin ``export_format``: las tablas de tags no lo aceptan. El
+            # wrapper escribe el XML directamente.
+            tabla.export(
+                target_directory_path=str(carpeta),
+                keep_folder_structure=mantener_estructura,
+            )
+        except Exception as exc:
+            raise OperacionError(
+                f"No se pudo exportar la tabla '{nombre}': {exc}. "
+                f"{_formatos_admitidos(tabla)}"
+            ) from exc
         exportados.append(nombre)
 
     return {
@@ -163,36 +176,21 @@ def _filtro(nombres: list[str] | None) -> set[str] | None:
     return {str(nombre).strip() for nombre in nombres if nombre}
 
 
-def _formatos_soportados(objeto: Any) -> list[str]:
-    """Los formatos de export que admite el objeto. Vacia si no lo dice."""
+def _formatos_admitidos(objeto: Any) -> str:
+    """Los formatos de export que admite el objeto, para el mensaje de error.
+
+    Solo se consulta cuando la exportacion **ha fallado**: el formato que
+    se pasa es siempre SimaticSD, que es el que necesita la edicion offline.
+    La consulta tolera cualquier fallo: es informacion para el operario,
+    no una condicion para exportar.
+    """
     getter = getattr(objeto, "get_supported_export_format", None)
     if getter is None:
-        return []
+        return "El objeto no expone get_supported_export_format()."
     try:
         formatos = getter()
-    except Exception:
-        return []
-    return [str(formato) for formato in (formatos or [])]
-
-
-def _formato_bloque(bloque: Any) -> str:
-    """El formato con el que se exporta un bloque.
-
-    El formato depende del objeto y de la version de TIA, asi que se
-    consulta ``get_supported_export_format()`` en vez de suponerlo. La
-    edicion offline trabaja sobre ficheros SimaticSD (``.s7dcl``), asi que
-    si TIA no lo ofrece, es un error y no un formato cualquiera.
-
-    Raises:
-        OperacionError: si el bloque no admite SimaticSD.
-    """
-    formatos = _formatos_soportados(bloque)
+    except Exception as exc:
+        return f"No se pudo consultar get_supported_export_format(): {exc}"
     if not formatos:
-        # El SDK no dice que formatos admite: se usa el de siempre.
-        return FORMATO_SD
-    if FORMATO_SD in formatos:
-        return FORMATO_SD
-    raise OperacionError(
-        f"El bloque no admite exportacion {FORMATO_SD} "
-        f"(formatos admitidos: {', '.join(formatos)})."
-    )
+        return "El objeto no admite ningun formato de export."
+    return f"Formatos admitidos: {', '.join(repr(formato) for formato in formatos)}."

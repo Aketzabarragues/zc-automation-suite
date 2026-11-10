@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from typing import Any
 
 import pytest
@@ -105,12 +106,28 @@ def test_desconectar_sin_origin_se_rechaza(cliente: Any) -> None:
     assert respuesta.status_code == 403
 
 
-def test_conectar_con_un_trabajo_en_curso_responde_409(cliente: Any) -> None:
-    primero = cliente.post("/api/v1/tia/conectar", base_url=BASE, headers={"Origin": BASE})
-    segundo = cliente.post("/api/v1/tia/conectar", base_url=BASE, headers={"Origin": BASE})
+def test_conectar_con_un_trabajo_en_curso_responde_409(app: Flask, cliente: Any) -> None:
+    """Con un trabajo en curso, la ruta responde 409."""
+    servicio = app.config["ZC_TIA"]
+    espera = threading.Event()
 
-    assert primero.status_code == 202
-    assert segundo.status_code == 409
+    def trabajo_lento(job: Any) -> dict[str, Any]:
+        job.empezar("Trabajo lento", ["uno"])
+        with job.paso("uno"):
+            espera.wait(10.0)
+        return {}
+
+    servicio.lanzar(trabajo_lento)
+    try:
+        respuesta = cliente.post(
+            "/api/v1/tia/conectar",
+            base_url=BASE,
+            headers={"Origin": BASE},
+        )
+    finally:
+        espera.set()
+
+    assert respuesta.status_code == 409
 
 
 def test_una_ruta_post_nueva_rechaza_un_origen_ajeno(cliente: Any) -> None:

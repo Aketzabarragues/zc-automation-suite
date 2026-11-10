@@ -93,6 +93,23 @@ La app lo cubre por tres vias:
 Si aparece en el log, no es un fallo de la app: es el SDK. Lo que hay que
 comprobar es que el hilo siga vivo y que la app se desconecte sola.
 
+### "No se pudo exportar el bloque 'X': NotSupportedException"
+
+El SDK no admite exportar ese bloque en SimaticSD con **esta** version de TIA
+Portal. El error lo dice claro: *"The method is not supported in this API
+version"*. Es la version de la API de TIA, no la del SDK.
+
+Comprobado con las dos versiones del SDK (1.2.1 y 1.4.3) contra **TIA V18**:
+las dos devuelven `get_supported_export_format() == ['SimaticML',
+'ExternalSource']` y las dos rechazan `SimaticSD`. Con **TIA V21**, que es el
+entorno de produccion, SimaticSD si funciona: por eso los bloques siguen
+exportandose en SimaticSD (`.s7dcl`), que es lo que necesita la edicion
+offline.
+
+Si aparece, mira el proyecto abierto: puede que sea una version de TIA
+distinta de la de produccion. Las tablas de tags no tienen ese problema: se
+exportan en XML SimaticML en cualquier version.
+
 ### "No hay ningún TIA Portal abierto (o su versión no es compatible)"
 
 Lo que ve el operario cuando el enganche falla. El texto original de
