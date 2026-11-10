@@ -8,7 +8,7 @@
 | Python | 3.12, 3.13 o 3.14 | backend |
 | Node.js | 22 o superior | solo para el frontend en desarrollo |
 | TIA Portal | V15.1 a V21.1 | operacion contra el PLC |
-| Wheel de Siemens `siemens_tia_scripting` | 1.2 o superior | SDK oficial de TIA Scripting |
+| Wheel de Siemens `siemens_tia_scripting` | 1.4.3 | SDK oficial de TIA Scripting |
 
 La wheel de Siemens **no esta en PyPI**: es un binario propietario que se
 entrega con el SDK de TIA Scripting. Sin ella la app arranca y se puede
@@ -37,12 +37,26 @@ usar en modo demo, pero no hay conexion con TIA Portal.
 3. Comprueba que la wheel quedo bien puesta:
 
    ```bash
-   python -c "import importlib.util as u; print(u.find_spec('siemens_tia_scripting').origin)"
+   python -c "import siemens_tia_scripting as ts; print(ts.__version__)"
    ```
 
-   Debe imprimir la ruta al `.pyd` dentro de `site-packages`. En el mismo
-   directorio estan las `.dll` del SDK Openness y el `log4net.dll`: la app los
-   stagea sola en un directorio temporal al arrancar.
+   Debe imprimir la version de la wheel que has instalado. La app usa la
+   **1.4.3**, que es la que lleva el `.exe` y la que soporta TIA Portal
+   V21.1. Si imprime otra, actualiza:
+
+   ```bash
+   pip install --no-index --no-deps --force-reinstall vendor/install/siemens_tia_scripting-1.4.3-cp312-cp312-win_amd64.whl
+   ```
+
+   Para ver tambien de donde se ha cargado:
+
+   ```bash
+   python -c "import siemens_tia_scripting as ts; print(ts.__version__, ts.__file__)"
+   ```
+
+   En el mismo directorio estan las `.dll` del SDK Openness y el
+   `log4net.dll`: la app los stagea sola en un directorio temporal al
+   arrancar.
 
 ## Sobre pythonnet
 
