@@ -327,6 +327,22 @@ Replica su estructura.
   `apiClearProgress()` cuando quiere.
 - `GET /api/v1/progress/current` existe en `diagnostics.py` pero **no
   tiene consumidor**: no lo uses como si fuera el mecanismo vigente.
+- **Los estados del worker TIA se normalizan en el store.** El worker
+  publica 6 estados: los 4 estables del contrato (`connected` /
+  `connecting` / `idle` / `error`) y los transitorios (`busy` /
+  `attaching` / `detaching`). El worker emite `busy` en CADA comando.
+  El store (`/js/store.js`) es la fuente unica: los transitorios NO
+  pisan `tiaConnection.state`, solo mueven el flag
+  `tiaConnection.busy`. `state` es siempre uno de los 4 estables, y un
+  estado desconocido se descarta.
+  - Aplica los eventos con `applyTiaState(event)` (exportado por
+    `store.js`). **No asignes `store.tiaConnection.state = event.state`**
+    a mano: eso es lo que hacia que el HMI leyera "ocupado" como
+    "desconectado" y vaciara el panel del editor de bloques en mitad
+    de cada comando.
+  - El consumo del estado "ocupado" (color ambar, boton de
+    Desconectar deshabilitado) se hace con `tiaConnection.busy`, no
+    mirando el `state`.
 
 ### Dispatcher OB1 (`core/composition/plc_engine.py`)
 - `Engine` es el OB1: cola de trabajos + hilo dedicado `plc-ob1`. El hilo
