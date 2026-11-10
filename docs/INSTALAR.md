@@ -34,21 +34,24 @@ usar en modo demo, pero no hay conexion con TIA Portal.
    pip install vendor/install/siemens_tia_scripting-1.4.3-cp312-cp312-win_amd64.whl
    ```
 
-3. `pythonnet` se instala como dependencia normal desde PyPI:
-
-   ```bash
-   pip install pythonnet
-   ```
-
-4. Comprueba que la wheel quedo bien puesta:
+3. Comprueba que la wheel quedo bien puesta:
 
    ```bash
    python -c "import importlib.util as u; print(u.find_spec('siemens_tia_scripting').origin)"
    ```
 
    Debe imprimir la ruta al `.pyd` dentro de `site-packages`. En el mismo
-   directorio estan las `.dll` del SDK Openness y los `.xml` de log4net; la
-   app los.stagea sola en un directorio temporal al arrancar.
+   directorio estan las `.dll` del SDK Openness y el `log4net.dll`: la app los
+   stagea sola en un directorio temporal al arrancar.
+
+## Sobre pythonnet
+
+**No hace falta.** El `.pyd` de `siemens_tia_scripting` es autonomo: trae su
+propia integracion con .NET y carga el CLR sin `pythonnet` instalado. Se ha
+verificado en un venv limpio con solo la wheel de Siemens: el import del
+wrapper y el acceso a los enums (que inicializa el CLR) funcionan igual.
+
+No lo anadas al proyecto: si lo instalas, es ruido.
 
 ## Instalar el proyecto
 

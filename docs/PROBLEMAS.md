@@ -45,9 +45,30 @@ esta bien instalada.
 
 ### La app escribe en stdout cosas que no son del log
 
-El logger nativo de Siemens escribe en stdout al cargar el wrapper. Se
-silencia al cargar la libreria. Si ves ruido de Siemens en la consola, el
-silenciamiento no se ha aplicado: mira `zc_suite/tia.py`.
+El SDK de Siemens escribe en stdout por su cuenta. La API documentada para
+callarlo es global, del modulo `siemens_tia_scripting`, no un logger de
+Python:
+
+```
+ts.set_logging(path = "c:\\logs\\tia.log", console = False)
+```
+
+- `console=False` desactiva la salida por consola.
+- `path` es la ruta completa del log del SDK.
+
+Se llama justo despues de cargar el wrapper, dentro del hilo de TIA. Si ves
+ruido de Siemens en la consola, la llamada no se esta aplicando: mira
+`zc_suite/tia.py`.
+
+El `log4net.xml` que acompaña a la wheel **no** es su configuracion: es el
+fichero de documentacion de la API de log4net. No hay nada que configurar a
+mano.
+
+### Sale un aviso de que falta pythonnet
+
+No hace falta. El `.pyd` de `siemens_tia_scripting` es autonomo y carga el
+CLR sin `pythonnet`. Si algo lo pide, es una dependencia que se colaron sin
+necesidad: no la anadas al proyecto.
 
 ## Frontend
 

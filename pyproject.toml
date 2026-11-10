@@ -15,7 +15,6 @@ dependencies = [
     "pillow>=10.0",
     "pydantic>=2.9,<3",
     "pystray>=0.19,<0.20",
-    "pythonnet>=3.0.5,<4",
     "pyyaml>=6.0,<7",
     "werkzeug>=3.1,<4",
 ]
