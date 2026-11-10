@@ -110,6 +110,24 @@ Si aparece, mira el proyecto abierto: puede que sea una version de TIA
 distinta de la de produccion. Las tablas de tags no tienen ese problema: se
 exportan en XML SimaticML en cualquier version.
 
+### La compilación falla pero no dice qué falló
+
+`compile_software()` y `block.compile()` devuelven **un booleano**: True si hay
+errores. El SDK **no expone el informe de compilación**: ni los mensajes, ni
+los avisos, ni que bloque los ha causado.
+
+Lo he comprobado en el manual (§2.2.11 para el PLC, §2.29.4 para el bloque)
+y en la superficie real del modulo: `Plc` y `ProgramBlock` no tienen ningun
+metodo para leer las mensagens de compilacion.
+
+Consecuencia: cuando el sync compila y falla, la app solo puede decir "la
+compilacion tiene errores". Para el detalle hay que mirar la ventana de TIA
+Portal o el log de TIA.
+
+Lo que si se puede decir es que bloques se han compilado, cuales se han
+saltado por estar ya consistentes y cuales han fallado al compilar. Eso es lo
+que devuelve `compilar_bloques()`.
+
 ### "No hay ningún TIA Portal abierto (o su versión no es compatible)"
 
 Lo que ve el operario cuando el enganche falla. El texto original de

@@ -10,8 +10,8 @@ Modulos:
 - ``exportar.py``  exportar bloques, tags y tablas a disco.
 - ``importar.py``  importar bloques y tags desde disco.
 - ``compilar.py``  compilar el software del PLC.
-- ``constantes.py`` constantes de usuario del PLC (N_MAX): leer, cambiar el
-  valor y renombrar.
+- ``constantes.py`` constantes de usuario del PLC: leer, cambiar el valor y
+  renombrar.
 - ``bloques.py``   recorrido y clasificacion de bloques.
 
 Los helpers que resuelven objetos .NET viven en ``_resolver.py`` y se usan
