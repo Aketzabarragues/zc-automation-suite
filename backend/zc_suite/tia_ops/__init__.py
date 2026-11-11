@@ -12,7 +12,8 @@ Modulos:
 - ``compilar.py``  compilar el software del PLC.
 - ``constantes.py`` constantes de usuario del PLC: leer, cambiar el valor y
   renombrar.
-- ``bloques.py``   recorrido y clasificacion de bloques.
+- ``bloques.py``  bloques del PLC: listarlos con sus propiedades y cambiar su
+  nombre o su numero.
 
 Los helpers que resuelven objetos .NET viven en ``_resolver.py`` y se usan
 entre modulos del paquete. Lo publico de cada modulo es siempre primitivo.

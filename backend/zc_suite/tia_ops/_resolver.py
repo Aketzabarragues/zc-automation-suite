@@ -88,3 +88,37 @@ def nombre_bloque(bloque: Any) -> str | None:
     except Exception:
         return None
     return None
+
+
+def buscar_bloque(plc: Any, nombre: str) -> Any:
+    """El bloque con ese nombre dentro del PLC.
+
+    Args:
+        plc: el PLC.
+        nombre: nombre del bloque.
+
+    Returns:
+        El bloque nativo. Objeto .NET: uso interno de ``tia_ops``.
+
+    Raises:
+        OperacionError: si no hay ningun bloque con ese nombre.
+    """
+    for bloque in bloques_del_plc(plc):
+        if nombre_bloque(bloque) == nombre:
+            return bloque
+    raise OperacionError(f"No se encontro el bloque '{nombre}' en el PLC.")
+
+
+def bloques_del_plc(plc: Any) -> list[Any]:
+    """Los bloques de programa del PLC.
+
+    El SDK devuelve la lista **plana**: ``get_program_blocks()`` ya incluye
+    los bloques que estan dentro de grupos. La jerarquia se lee de
+    ``get_path()`` de cada bloque, no del recorrido.
+    """
+    return list(plc.get_program_blocks() or [])
+
+
+def tipos_de_datos_del_plc(plc: Any) -> list[Any]:
+    """Los tipos de datos de usuario (UDT) del PLC."""
+    return list(plc.get_user_data_types() or [])
