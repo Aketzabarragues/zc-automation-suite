@@ -4,6 +4,9 @@
  * La prevision la calcula el backend en un trabajo: el POST responde 202 con
  * el `job_id` y el resultado llega por el stream de eventos. Cuando el
  * trabajo termina, la prevision queda aqui y la vista la pinta.
+ *
+ * Las pestañas por tipo y las etiquetas de las tarjetas de N_MAX salen del
+ * catalogo del backend (`GET /api/v1/catalog`), igual que en la app original.
  */
 import { defineStore } from "pinia";
 import { pedir } from "../api.js";
@@ -12,8 +15,21 @@ import { useTrabajosStore } from "./trabajos.js";
 /** Ruta del endpoint de la prevision. */
 export const RUTA_PREVIEW = "/api/v1/areas/alimentacion/dispositivos/preview";
 
+/** Ruta del catalogo de la app. */
+export const RUTA_CATALOGO = "/api/v1/catalog";
+
+/** Los estados del diff y como se pintan. */
+export const DISP_STATUS = Object.freeze({
+  agregar: { label: "➕ AGREGAR", clase: "text-accent font-semibold" },
+  renombrar: { label: "✏️ RENOMBRAR", clase: "text-amber-700 font-semibold" },
+  eliminar: { label: "🗑️ ELIMINAR", clase: "text-red-700 font-semibold" },
+  sin_cambios: { label: "✓ OK", clase: "text-ink-muted" },
+});
+
 export const useDispositivosStore = defineStore("dispositivos", {
   state: () => ({
+    /** El catalogo del area: las pestañas y las etiquetas de los N_MAX. */
+    catalog: null,
     /** La prevision en curso, con su shape del backend. */
     preview: null,
     /** `true` mientras se genera la prevision. */
@@ -24,43 +40,79 @@ export const useDispositivosStore = defineStore("dispositivos", {
 
   getters: {
     /** `true` si hay prevision. */
-    hayPreview: (state) => Boolean(state.preview),
+    hayPreview: (state) => Boolean(state.preview && Array.isArray(state.preview.todos)),
+
+    /** Las pestañas por tipo de dispositivo, en el orden del config. */
+    pestanas: (state) => (state.catalog && state.catalog.device_tabs) || [],
+
+    /** El mapa ``nombre del N_MAX -> etiqueta`` de las tarjetas. */
+    etiquetaNMax: (state) => {
+      const mapa = {};
+      for (const entrada of (state.catalog && state.catalog.nmax) || []) {
+        mapa[entrada.name] = entrada.label;
+      }
+      return mapa;
+    },
 
     /** El resumen de la prevision: cuantos hay de cada. */
-    resumen: (state) => (state.preview && state.preview.summary) || {},
-
-    /** Los N_MAX de la prevision, uno por cada. */
-    nMax: (state) => (state.preview && state.preview.nmax && state.preview.nmax.todos) || [],
-
-    /** Las filas del diff, agrupadas por tipo de dispositivo. */
-    filasPorTipo: (state) => {
-      const grupos = new Map();
-      const filas = (state.preview && state.preview.todos) || [];
-      for (const fila of filas) {
-        if (!grupos.has(fila.type)) grupos.set(fila.type, []);
-        grupos.get(fila.type).push(fila);
+    resumen: (state) => {
+      const prevision = state.preview;
+      if (!prevision || !Array.isArray(prevision.todos)) {
+        return { agregados: 0, renombrados: 0, eliminados: 0, sin_cambios: 0, total: 0 };
       }
-      return grupos;
+      const resumen = prevision.summary || {};
+      return {
+        agregados: resumen.agregados ?? (prevision.agregados || []).length,
+        renombrados: resumen.renombrados ?? (prevision.renombrados || []).length,
+        eliminados: resumen.eliminados ?? (prevision.eliminados || []).length,
+        sin_cambios: resumen.sin_cambios ?? 0,
+        total: resumen.total ?? (prevision.todos || []).length,
+      };
     },
 
-    /** Los tipos de dispositivo, con su contador de filas. */
-    tipos: (state) => {
-      const grupos = new Map();
-      const filas = (state.preview && state.preview.todos) || [];
-      for (const fila of filas) {
-        grupos.set(fila.type, (grupos.get(fila.type) || 0) + 1);
-      }
-      return [...grupos.entries()].map(([tipo, total]) => ({ tipo, total }));
+    /** Las tarjetas de N_MAX: todas las del resultado. */
+    tarjetasNMax: (state) => {
+      const prevision = state.preview;
+      if (!prevision) return [];
+      return (prevision.nmax && prevision.nmax.todos) || [];
     },
 
-    /** Los cambios que se aplicarian en TIA (agregar + renombrar). */
-    totalCambios: (state) => {
-      const resumen = (state.preview && state.preview.summary) || {};
-      return (resumen.agregar || 0) + (resumen.renombrados || 0);
+    /** El resumen de los N_MAX. */
+    resumenNMax: (state) => {
+      const prevision = state.preview;
+      if (!prevision || !prevision.nmax) {
+        return { actualizar: 0, sin_cambios: 0, total: 0 };
+      }
+      return prevision.nmax.summary || { actualizar: 0, sin_cambios: 0, total: 0 };
+    },
+
+    /** Cuantas filas del diff hay de cada tipo. */
+    contadorPorTipo: (state) => {
+      const contadores = {};
+      for (const pestana of (state.catalog && state.catalog.device_tabs) || []) {
+        contadores[pestana.hw_type] = 0;
+      }
+      const filas = (state.preview && state.preview.todos) || [];
+      for (const fila of filas) {
+        if (contadores[fila.type] !== undefined) contadores[fila.type] += 1;
+      }
+      return contadores;
     },
   },
 
   actions: {
+    /**
+     * Carga el catalogo del area: las pestañas y las etiquetas.
+     */
+    async cargarCatalogo() {
+      try {
+        const datos = await pedir(RUTA_CATALOGO);
+        this.catalog = (datos && datos.alimentacion) || null;
+      } catch (error) {
+        this.error = error.message;
+      }
+    },
+
     /**
      * Genera la prevision de los dispositivos del PLC.
      *

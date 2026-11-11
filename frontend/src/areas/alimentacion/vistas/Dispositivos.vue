@@ -7,7 +7,7 @@
  * es la fase 4.3.
  */
 import { computed, onMounted, ref, watch } from "vue";
-import { useDispositivosStore } from "../../../stores/dispositivos.js";
+import { DISP_STATUS, useDispositivosStore } from "../../../stores/dispositivos.js";
 import { useExcelStore } from "../../../stores/excel.js";
 import { usePlcStore } from "../../../stores/plc.js";
 import { useTiaStore } from "../../../stores/tia.js";
@@ -17,21 +17,30 @@ const excel = useExcelStore();
 const plc = usePlcStore();
 const tia = useTiaStore();
 
-/** El tipo de dispositivo whose diff se muestra. */
+/** El tipo de dispositivo cuyo diff se muestra. */
 const tipoActivo = ref("");
-
-/** El texto y el color de cada estado del diff. */
-const ESTADOS = {
-  renombrar: { texto: "✏️ RENOMBRAR", clase: "text-orange-600" },
-  agregar: { texto: "➕ AGREGAR", clase: "text-accent" },
-  eliminar: { texto: "ELIMINAR", clase: "text-red-600" },
-  sin_cambios: { texto: "✓ OK", clase: "text-ink-muted" },
-};
 
 /** `true` si se puede generar la prevision. */
 const puedeGenerar = computed(
   () => tia.conectado && excel.cargado && Boolean(plc.seleccionado) && !dispositivos.generando,
 );
+
+/** Las filas del diff del tipo activo, ordenadas por numero. */
+const filas = computed(() => {
+  const todas = (dispositivos.preview && dispositivos.preview.todos) || [];
+  return todas
+    .filter((fila) => fila.type === tipoActivo.value)
+    .sort((a, b) => {
+      const an = typeof a.numero === "number" ? a.numero : 0;
+      const bn = typeof b.numero === "number" ? b.numero : 0;
+      return an - bn;
+    });
+});
+
+/** El estado de una fila, con su texto y su color. */
+function estadoDe(fila) {
+  return DISP_STATUS[fila.status] || { label: fila.status, clase: "text-ink-muted" };
+}
 
 /** El texto del boton de generar. */
 const textoGenerar = computed(() => {
@@ -39,40 +48,21 @@ const textoGenerar = computed(() => {
   return "🔍 Generar Previsión";
 });
 
-/** Las filas del diff del tipo activo. */
-const filas = computed(() => dispositivos.filasPorTipo.get(tipoActivo.value) || []);
-
-/** El estado de una fila, con su texto y su color. */
-function estadoDe(fila) {
-  return ESTADOS[fila.status] || { texto: fila.status, clase: "text-ink-muted" };
-}
-
-/** El resumen de la prevision, en una linea. */
-const resumenTexto = computed(() => {
-  const resumen = dispositivos.resumen;
-  return `${resumen.total || 0} dispositivos analizados — ${resumen.agregar || 0} a agregar · ${
-    resumen.renombrados || 0
-  } a renombrar · ${resumen.eliminar || 0} a eliminar · ${resumen.sin_cambios || 0} sin cambios`;
-});
-
-/** Los N_MAX que cambian: los que se pintan con la flecha. */
-const nMaxVisibles = computed(() => dispositivos.nMax.filter((fila) => fila.status === "actualizar"));
-
 /** Genera la prevision. */
 async function generar() {
   await dispositivos.generar(plc.seleccionado);
 }
 
-// Al llegar una prevision nueva, se ensena el primer tipo con filas.
+// Al llegar el catalogo, se ensena la primera pestaña.
 watch(
-  () => dispositivos.tipos,
-  (tipos) => {
-    if (!tipos.length) {
+  () => dispositivos.pestanas,
+  (pestanas) => {
+    if (!pestanas.length) {
       tipoActivo.value = "";
       return;
     }
-    if (!tipos.some((tipo) => tipo.tipo === tipoActivo.value)) {
-      tipoActivo.value = tipos[0].tipo;
+    if (!pestanas.some((pestana) => pestana.hw_type === tipoActivo.value)) {
+      tipoActivo.value = pestanas[0].hw_type;
     }
   },
   { immediate: true },
@@ -80,28 +70,31 @@ watch(
 
 onMounted(() => {
   excel.cargar();
+  dispositivos.cargarCatalogo();
 });
 </script>
 
 <template>
   <section class="flex-1 min-h-0 flex flex-col gap-4" data-testid="dispositivos">
-    <!-- ── la barra de arriba ──────────────────────────────────────── -->
-    <section class="bg-surface-raised border border-line rounded p-4">
-      <div class="flex items-center justify-between gap-4">
-        <p class="text-xs text-ink-muted" data-testid="dispositivos-resumen">
-          <template v-if="dispositivos.hayPreview">{{ resumenTexto }}</template>
-          <template v-else>Sin prevision generada.</template>
-        </p>
-        <button
-          type="button"
-          data-testid="dispositivos-generar"
-          class="px-3 py-1.5 text-xs font-semibold text-accent bg-surface-sunken border border-line rounded-md hover:bg-accent-subtle transition-colors duration-200 flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-          :disabled="!puedeGenerar"
-          @click="generar"
-        >
-          {{ textoGenerar }}
-        </button>
-      </div>
+    <!-- ── la tarjeta de arriba: resumen y boton ────────────────────── -->
+    <section class="bg-surface-raised border border-line rounded p-4 flex justify-between items-center">
+      <p v-if="dispositivos.hayPreview" class="text-xs text-ink-muted" data-testid="dispositivos-resumen">
+        {{ dispositivos.resumen.total }} dispositivos analizados —
+        <span class="text-accent">{{ dispositivos.resumen.agregados }} a agregar</span> ·
+        <span class="text-amber-700">{{ dispositivos.resumen.renombrados }} a renombrar</span> ·
+        <span class="text-red-700">{{ dispositivos.resumen.eliminados }} a eliminar</span> ·
+        <span class="text-ink-muted">{{ dispositivos.resumen.sin_cambios }} sin cambios</span>
+      </p>
+      <span v-else></span>
+      <button
+        type="button"
+        data-testid="dispositivos-generar"
+        class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+        :disabled="!puedeGenerar"
+        @click="generar"
+      >
+        {{ textoGenerar }}
+      </button>
     </section>
 
     <!-- ── el error ─────────────────────────────────────────────────── -->
@@ -113,100 +106,131 @@ onMounted(() => {
       ✗ {{ dispositivos.error }}
     </div>
 
-    <!-- ── el contenido ─────────────────────────────────────────────── -->
+    <!-- ── la tarjeta del contenido ─────────────────────────────────── -->
     <section
-      class="flex-1 min-h-0 flex flex-col bg-surface-raised border border-line rounded p-4"
+      class="flex-1 min-h-0 bg-surface-raised border border-line rounded p-4 flex flex-col overflow-hidden"
       data-testid="dispositivos-contenido"
     >
-      <template v-if="dispositivos.hayPreview">
-        <!-- las tarjetas de N_MAX -->
+      <!-- las tarjetas de N_MAX -->
+      <div
+        v-if="dispositivos.hayPreview && dispositivos.tarjetasNMax.length > 0"
+        class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 mb-3"
+        data-testid="dispositivos-nmax"
+      >
         <div
-          v-if="nMaxVisibles.length"
-          class="grid grid-cols-6 gap-2 mb-4"
-          data-testid="dispositivos-nmax"
+          v-for="tarjeta in dispositivos.tarjetasNMax"
+          :key="tarjeta.name"
+          class="bg-surface-raised border border-line rounded p-3"
         >
-          <div
-            v-for="fila in nMaxVisibles"
-            :key="fila.name"
-            class="border border-line rounded p-3"
-          >
-            <p class="text-[10px] uppercase text-ink-muted">{{ fila.name }}</p>
-            <p class="text-lg font-semibold text-ink">
-              {{ fila.actual }}
-              <span class="text-ink-muted">→</span>
-              <span class="text-orange-600">{{ fila.nuevo }}</span>
+          <div class="text-[10px] uppercase text-ink-muted">
+            {{ dispositivos.etiquetaNMax[tarjeta.name] || tarjeta.name }}
+          </div>
+          <div class="text-xl font-bold">
+            <template v-if="tarjeta.status === 'actualizar'">
+              <span class="inline-flex items-baseline gap-1.5">
+                <span
+                  v-if="tarjeta.actual !== null && tarjeta.actual !== undefined"
+                  class="text-accent"
+                >
+                  {{ tarjeta.actual }}
+                </span>
+                <span class="text-ink-muted">→</span>
+                <span class="text-amber-700">{{ tarjeta.nuevo }}</span>
+              </span>
+            </template>
+            <template v-else>
+              <span class="text-accent">{{ tarjeta.nuevo }}</span>
+            </template>
+          </div>
+        </div>
+      </div>
+
+      <!-- las pestañas por tipo -->
+      <div
+        v-if="dispositivos.hayPreview"
+        class="flex border-b border-line bg-surface-sunken overflow-x-auto mb-3"
+        data-testid="dispositivos-pestanas"
+      >
+        <button
+          v-for="pestana in dispositivos.pestanas"
+          :key="pestana.hw_type"
+          type="button"
+          :data-testid="'dispositivos-tipo-' + pestana.hw_type"
+          class="px-4 py-2 text-xs font-medium border-r border-line whitespace-nowrap"
+          :class="
+            pestana.hw_type === tipoActivo
+              ? 'bg-surface-raised text-ink'
+              : 'bg-surface-sunken text-ink-muted hover:bg-surface-sunken'
+          "
+          @click="tipoActivo = pestana.hw_type"
+        >
+          {{ pestana.label }}
+          <span class="ml-1 text-[10px] opacity-70">
+            ({{ dispositivos.contadorPorTipo[pestana.hw_type] || 0 }})
+          </span>
+        </button>
+      </div>
+
+      <!-- la tabla del diff -->
+      <div
+        class="flex-1 min-h-0 overflow-auto bg-surface-raised border border-line rounded mt-2"
+      >
+        <table v-if="dispositivos.hayPreview" class="w-full text-xs" data-testid="dispositivos-tabla">
+          <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
+            <tr>
+              <th class="px-3 py-2 text-left text-ink-muted w-14">#</th>
+              <th class="px-3 py-2 text-left text-ink-muted">Actual (TIA)</th>
+              <th class="px-3 py-2 text-left text-ink-muted">Deseado (Excel)</th>
+              <th class="px-3 py-2 text-left text-ink-muted">Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="fila in filas" :key="fila.type + '-' + fila.uid" class="border-b border-line">
+              <td class="px-3 py-1.5 font-mono text-xs text-ink-muted">{{ fila.numero }}</td>
+              <td
+                class="px-3 py-1.5 font-mono text-xs"
+                :class="fila.status === 'eliminar' ? 'text-red-700 line-through' : 'text-ink'"
+              >
+                {{ fila.actual || "—" }}
+              </td>
+              <td
+                class="px-3 py-1.5 font-mono text-xs"
+                :class="
+                  fila.status === 'agregar'
+                    ? 'text-accent'
+                    : fila.status === 'renombrar'
+                      ? 'text-amber-800'
+                      : 'text-ink-muted'
+                "
+              >
+                {{ fila.nuevo || "—" }}
+              </td>
+              <td class="px-3 py-1.5 text-xs whitespace-nowrap" :class="estadoDe(fila).clase">
+                {{ estadoDe(fila).label }}
+              </td>
+            </tr>
+            <tr v-if="filas.length === 0">
+              <td colspan="4" class="px-3 py-6 text-center text-ink-muted italic">
+                ⚠️ Sin dispositivos para "{{ tipoActivo }}".
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div
+          v-else
+          class="flex-1 flex items-center justify-center p-10 text-center text-ink-muted"
+          data-testid="dispositivos-vacio"
+        >
+          <div>
+            <div class="text-5xl mb-3 opacity-40" aria-hidden="true">⚡</div>
+            <p class="mb-2">Sin prevision generada.</p>
+            <p class="text-xs">
+              Pulsa <strong class="text-accent">"🔍 Generar Previsión"</strong> para ver el diff
+              completo.
             </p>
           </div>
         </div>
-
-        <!-- las pestañas por tipo -->
-        <div class="flex border-b-2 border-line bg-surface-sunken overflow-x-auto">
-          <button
-            v-for="tipo in dispositivos.tipos"
-            :key="tipo.tipo"
-            type="button"
-            :data-testid="'dispositivos-tipo-' + tipo.tipo"
-            class="px-4 py-2 text-xs font-semibold border-r border-line whitespace-nowrap"
-            :class="
-              tipo.tipo === tipoActivo
-                ? 'bg-surface-raised text-ink border-b-2 border-accent -mb-px'
-                : 'bg-surface-sunken text-ink-muted hover:bg-surface-raised'
-            "
-            @click="tipoActivo = tipo.tipo"
-          >
-            {{ tipo.tipo.toUpperCase() }}
-            <span class="ml-1 text-[10px] opacity-70">({{ tipo.total }})</span>
-          </button>
-        </div>
-
-        <!-- la tabla del diff -->
-        <div class="mt-3 flex-1 min-h-0 overflow-auto border border-line rounded">
-          <table class="w-full text-xs" data-testid="dispositivos-tabla">
-            <thead>
-              <tr class="bg-surface-sunken">
-                <th class="px-3 py-2 text-left text-[10px] uppercase text-ink-muted font-semibold">#</th>
-                <th class="px-3 py-2 text-left text-[10px] uppercase text-ink-muted font-semibold">
-                  Actual (TIA)
-                </th>
-                <th class="px-3 py-2 text-left text-[10px] uppercase text-ink-muted font-semibold">
-                  Deseado (Excel)
-                </th>
-                <th class="px-3 py-2 text-left text-[10px] uppercase text-ink-muted font-semibold">
-                  Estado
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="fila in filas" :key="fila.uid" class="border-b border-line">
-                <td class="px-3 py-1.5 text-ink-muted">{{ fila.numero }}</td>
-                <td class="px-3 py-1.5 text-ink font-mono">{{ fila.actual || "—" }}</td>
-                <td
-                  class="px-3 py-1.5 font-mono"
-                  :class="fila.status === 'renombrar' ? 'text-orange-600' : 'text-ink'"
-                >
-                  {{ fila.nuevo || "—" }}
-                </td>
-                <td class="px-3 py-1.5" :class="estadoDe(fila).clase">
-                  {{ estadoDe(fila).texto }}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </template>
-
-      <!-- sin prevision -->
-      <div
-        v-else
-        class="flex-1 flex flex-col items-center justify-center border border-dashed border-line rounded p-10 text-center"
-        data-testid="dispositivos-vacio"
-      >
-        <div class="text-5xl mb-3 opacity-40" aria-hidden="true">⚡</div>
-        <p class="mb-2 font-semibold text-ink">Sin prevision generada.</p>
-        <p class="text-xs text-ink-muted">
-          Pulsa <span class="font-semibold text-accent">"🔍 Generar Previsión"</span> para ver el
-          diff completo.
-        </p>
       </div>
 
       <!-- el boton de aplicar: todavia no hace nada -->
@@ -214,7 +238,7 @@ onMounted(() => {
         type="button"
         disabled
         data-testid="dispositivos-aplicar"
-        class="mt-4 w-full py-2.5 rounded border border-line bg-surface-sunken text-sm font-semibold text-ink-muted cursor-not-allowed"
+        class="mt-3 w-full py-3 font-semibold text-sm bg-surface-sunken rounded-md border border-line text-ink-muted cursor-not-allowed"
       >
         Pendiente (fase 4.3)
       </button>
