@@ -484,6 +484,107 @@ Los ocho flujos de arriba son el comportamiento de `main`. En la reescritura cam
 - **El modificador de comentarios de arrays** (`commit_array_comments` de `main`): es lo que escribe los comentarios por instancia dentro del `.s7dcl`/`.s7res`. En `main` esta en `core/helpers/simatic_sd/`. Sin el, el paso 10 del sync de dispositivos y el paso 7 del de proc_db no se pueden hacer.
 - **El modificador de constantes de usuario** (`PlcUserConstantModifier` de `main`, en `core/helpers/simatic_ml/`): adds, removes y cambios de comentario sobre el XML de una tabla de tags. Es el paso 7 del sync de dispositivos y el paso 7 del de entidades.
 - **El paquete de Python del area** (`areas/alimentacion/`): con su `ID`, `NOMBRE`, `rutas`, `catalogo()` y `defaults()`, y la declaracion de las subcarpetas de preview de cada contexto.
-- **La exportacion con estructura** (`keep_folder_structure=True`): `tia_ops/exportar.py` exporta los bloques siempre en SimaticSD y las tablas sin `export_format`; falta el parametro de estructura para el `sincronizar/`.
 - **Un contexto de workdir para crear procesos**: el flujo de `proc_crear` necesita dos carpetas sisters (`Plantilla/` con la copia de la plantilla y `Nuevo/` con el proceso generado) que no encajan en `preview/` + `sincronizar/`. Lo mas simple es un contexto `proc_crear` con `preview/Plantilla/` y `preview/Nuevo/`.
+
+---
+
+## Fallos de main que NO se portan
+
+Son fallos reales de `main`. En la reescritura no se repiten, porque el trabajo
+comprueba lo que hace.
+
+### El resultado de la Tx C de dispositivos se descarta
+
+En `main`, el paso 10 de `function_disp_sincronizar` envuelve el `import_block`
+de los comentarios en un lote transaccional, pero **no mira el resultado**: el
+`submit_and_wait` se descarta y el flujo sigue como si hubiera ido bien. Si el
+import fallaba, el paso se marcaba como correcto. (`areas/alimentacion/functions/function_disp_sincronizar.py:921`, `:926`)
+
+En la reescritura, **toda transaccion comprueba su resultado**: si el lote no
+vuelve `ok`, el trabajo falla y se dice que transaccion se quedo a medias.
+
+### La prevision post-sincronizacion de entidades lee mal el bloque
+
+En `main`, el paso 11 de `function_entidades_sincronizar` exporta el `DB6_ENT`
+con `keep_folder_structure=True` (el bloque queda en su subcarpeta de TIA), pero
+despues lo lee **plano** con `SdPair(preview_bloques, ...)`: busca el fichero
+en la raiz del preview, donde no esta. (`areas/alimentacion/functions/function_entidades_sincronizar.py:1201`)
+
+En la reescritura, la prevision post-sincronizacion **reutiliza el flujo de
+prevision** (la misma funcion, con el mismo codigo de lectura), en vez de
+duplicarlo. Una sola ruta para leer un bloque: la que locate el fichero por
+nombre.
+
+---
+
+## Cambios deliberados
+
+Decisiones que se apartan de `main` a proposito. Cada una esta tomada porque
+`main` fallo con la otra opcion, o porque la reescritura tiene una pieza que
+`main` no tenia.
+
+### a) proc_db exporta los DB con estructura
+
+`main` exporta los DB de proc_db **planos** y replica la jerarquia de TIA a
+mano: cada bloque va a `sincronizar/bloques/export/<subpath>/`, con `<subpath>`
+calculado a mano. (`areas/alimentacion/functions/function_proc_db_sincronizar.py:1234-1241`)
+
+En la reescritura, proc_db exporta los DB **con `mantener_estructura=True`**, como
+dispositivos y entidades: es el camino validado. Los ficheros se localizan
+**buscando por nombre** (`rglob`), no construyendo la ruta a mano.
+
+### b) Ningun sincronizar depende de una prevision anterior
+
+En `main`, el sync de proc_db lee el `.xml` de la tabla de tags que dejo el
+preview anterior para calcular las ops de N_MAX, y aborta si no esta. El preview
+tenia que haberse ejecutado antes, en el mismo momento. (`areas/alimentacion/functions/function_proc_db_sincronizar.py:410-416`)
+
+En la reescritura, **cada sincronizar exporta lo que necesita**. No hay
+dependencia del estado que dejo otra operacion: el preview y el sync son
+independientes.
+
+### c) Crear proceso: contexto de workdir `proc_crear`
+
+Contexto de workdir `proc_crear`, con las carpetas `plantilla/` y `nuevo/`
+**declaradas por el area**: el workdir del nucleo tiene que permitir que el area
+declare carpetas propias de su contexto.
+
+`nuevo/Variables PLC` y `nuevo/Bloques de programa` se importan **cada una
+desde su raiz**, sin carpeta destino. (`areas/alimentacion/functions/function_proc_crear_sincronizar.py:477`, `:481`, `:490`, `:494`)
+
+### d) Con varias transacciones, el resultado dice cual se confirmo
+
+Cuando un trabajo tiene varias transacciones, el resultado **lista cada una con
+su estado**: `confirmada`, `revertida` o `no ejecutada`. El faceplate y el
+mensaje final lo dicen claro.
+
+Es lo que hace falta con lo que se ha visto en `main`: si la Tx B falla, la Tx A
+ya esta confirmada y el operario tiene que saberlo.
+
+### e) En V18, cada flujo se para donde puede
+
+| Flujo | En V18 |
+|---|---|
+| Dispositivos | Sin comentarios: el resto (N_MAX, renombres, altas y bajas de tags) funciona igual |
+| Entidades | Sin comentarios: N_MAX y constantes funcionan igual |
+| proc_db | Solo N_MAX. Ni export de bloques, ni edicion, ni import de comentarios |
+| Crear proceso | **Bloqueado al validar**, antes de tocar nada, con un mensaje claro: importa SimaticSD |
+
+El aviso va en la vista y en el faceplate. En ningun caso se falla con un
+`NotSupportedException` a medias.
+
+### f) De main se mantiene tal cual
+
+- El **sleep de 2 s** despues de cambiar los N_MAX online, para que TIA
+  consolide antes de reexportar. (`areas/alimentacion/functions/function_disp_sincronizar.py:548`)
+- La **compilacion defensiva** del `DB6_ENT` justo despues de la Tx A: si
+  falla, es solo un warning y el sync sigue. (`areas/alimentacion/functions/function_entidades_sincronizar.py:658`)
+- Las **compilaciones van fuera de la transaccion** y **no bloquean**: avisan y
+  el flujo sigue. (`core/infrastructure/tia/tia_cmd_batch.py:49`; `areas/alimentacion/functions/function_disp_sincronizar.py:689`)
+- El **filtro que excluye la tabla de N_MAX** al copiar a `modified/`: si se
+  copiara, la Tx B reimportaria los valores pre-commit y anularia los N_MAX ya
+  aplicados online. (`areas/alimentacion/functions/function_disp_sincronizar.py:1374`)
+- **No se guarda el proyecto**: los cambios quedan en la sesion de TIA y lo
+  guarda el operario. (`areas/alimentacion/functions/function_entidades_sincronizar.py:21`, `:504`, `:627`)
+
 
