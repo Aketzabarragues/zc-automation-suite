@@ -338,6 +338,25 @@ def test_un_bloque_sin_numero_vale_cero() -> None:
     assert ops.escanear_bloques(portal, "ZC_PLC_STD")[0]["numero"] == 0
 
 
+# ── leer solo algunos bloques ──────────────────────────────────────────────
+
+
+def test_leer_bloques_devuelve_solo_los_pedidos() -> None:
+    portal, _plc = _portal([BloqueFalso("OB1_MAIN"), BloqueFalso("DB10")])
+
+    resultado = ops.leer_bloques(portal, "ZC_PLC_STD", ["DB10"])
+
+    assert [bloque["nombre"] for bloque in resultado] == ["DB10"]
+
+
+def test_leer_bloques_salta_los_que_no_existen() -> None:
+    portal, _plc = _portal([BloqueFalso("OB1_MAIN")])
+
+    resultado = ops.leer_bloques(portal, "ZC_PLC_STD", ["OB1_MAIN", "NO_EXISTE"])
+
+    assert [bloque["nombre"] for bloque in resultado] == ["OB1_MAIN"]
+
+
 # ── cambiar una propiedad ──────────────────────────────────────────────────
 
 

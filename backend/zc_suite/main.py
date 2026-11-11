@@ -17,6 +17,7 @@ from flask import Flask
 from zc_suite.config import Config, cargar_config
 from zc_suite.eventos import BusEventos
 from zc_suite.rutas import conexion as rutas_conexion
+from zc_suite.rutas import plc as rutas_plc
 from zc_suite.tia import ServicioTIA
 from zc_suite.web import PUERTO_POR_DEFECTO, crear_app
 
@@ -62,6 +63,7 @@ def montar_app(
     app = crear_app(servicio, bus, desarrollo=desarrollo, puerto=puerto)
     app.config["ZC_CONFIG"] = config if config is not None else cargar_config()
     rutas_conexion.registrar(app)
+    rutas_plc.registrar(app)
     for area in AREAS:
         app.register_blueprint(area.rutas)
         logger.info("Area registrada: %s", area.ID)

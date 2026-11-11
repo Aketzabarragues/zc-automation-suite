@@ -107,6 +107,37 @@ def escanear_bloques(portal: Any, plc: str) -> list[dict[str, Any]]:
     return bloques
 
 
+def leer_bloques(portal: Any, plc: str, nombres: list[str]) -> list[dict[str, Any]]:
+    """Las propiedades de los bloques indicados, leidas de TIA.
+
+    Es lo que necesita el editor de bloques: no reescanea el PLC entero,
+    solo lee los bloques que el operario ha seleccionado.
+
+    Args:
+        portal: el portal de TIA.
+        plc: nombre del PLC.
+        nombres: nombres de los bloques.
+
+    Returns:
+        Lista de ``{"nombre", "numero", "tipo", "ruta", "extended"}``, en el
+        orden en que se han pedido. Un bloque que no existe se salta.
+
+    Raises:
+        OperacionError: si el PLC no existe.
+    """
+    objetivo = buscar_plc(portal, plc)
+    leidos: list[dict[str, Any]] = []
+    for nombre in nombres:
+        try:
+            nativo = buscar_bloque(objetivo, nombre)
+        except OperacionError:
+            continue
+        dto = _dto(nativo, plc)
+        if dto is not None:
+            leidos.append(dto)
+    return leidos
+
+
 def escanear_tipos_de_usuario(portal: Any, plc: str) -> list[dict[str, Any]]:
     """Los tipos de datos de usuario (UDT) del PLC.
 
