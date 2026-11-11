@@ -29,7 +29,7 @@ from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
 #: Los dispositivos, tal y como los deja ``main``: una fila buena y una sucia.
 ESPERADO_DISPOSITIVOS: dict[str, list[dict[str, Any]]] = {
 
-    "DispED": [
+    "ed": [
         {
             "cfg_bit_entrada": "17",
             "cfg_byte_entrada": "16",
@@ -80,7 +80,7 @@ ESPERADO_DISPOSITIVOS: dict[str, list[dict[str, Any]]] = {
         },
     ],
 
-    "DispEA": [
+    "ea": [
         {
             "cfg_byte_entrada": "16",
             "cfg_escaladomax": "19",
@@ -137,7 +137,7 @@ ESPERADO_DISPOSITIVOS: dict[str, list[dict[str, Any]]] = {
         },
     ],
 
-    "DispSA": [
+    "sa": [
         {
             "cfg_byte_entrada": "16",
             "cfg_escaladomax": "19",
@@ -194,7 +194,7 @@ ESPERADO_DISPOSITIVOS: dict[str, list[dict[str, Any]]] = {
         },
     ],
 
-    "DispSD": [
+    "sd": [
         {
             "cfg_bit_entrada": "17",
             "cfg_byte_entrada": "16",
@@ -245,7 +245,7 @@ ESPERADO_DISPOSITIVOS: dict[str, list[dict[str, Any]]] = {
         },
     ],
 
-    "DispV": [
+    "v": [
         {
             "cfg_bitactivacion": "26",
             "cfg_bitretornoreposo": "22",
@@ -316,7 +316,7 @@ ESPERADO_DISPOSITIVOS: dict[str, list[dict[str, Any]]] = {
         },
     ],
 
-    "DispM": [
+    "m": [
         {
             "cfg_bitactivacion": "26",
             "cfg_bitconfmarcha": "32",
@@ -387,7 +387,7 @@ ESPERADO_DISPOSITIVOS: dict[str, list[dict[str, Any]]] = {
         },
     ],
 
-    "DispM_VF": [
+    "m_vf": [
         {
             "cfg_bitactivacion": "26",
             "cfg_bitconfmarcha": "32",
@@ -462,7 +462,7 @@ ESPERADO_DISPOSITIVOS: dict[str, list[dict[str, Any]]] = {
         },
     ],
 
-    "DispM_SINA": [
+    "m_sina": [
         {
             "cfg_bitretornotermico": "30",
             "cfg_byteretornotermico": "29",
@@ -525,7 +525,7 @@ ESPERADO_DISPOSITIVOS: dict[str, list[dict[str, Any]]] = {
         },
     ],
 
-    "DispTQ": [
+    "tq": [
         {
             "cfg_habilitar": "SI",
             "comentario_db": "Comentario del DB",
@@ -562,7 +562,7 @@ ESPERADO_DISPOSITIVOS: dict[str, list[dict[str, Any]]] = {
         },
     ],
 
-    "DispTQ_AE": [
+    "tq_ae": [
         {
             "cfg_habilitar": "SI",
             "comentario_db": "Comentario del DB",
@@ -599,7 +599,7 @@ ESPERADO_DISPOSITIVOS: dict[str, list[dict[str, Any]]] = {
         },
     ],
 
-    "DispTOT": [
+    "tot": [
         {
             "cfg_bitentrada": "17",
             "cfg_byteentrada": "16",
@@ -654,7 +654,7 @@ ESPERADO_DISPOSITIVOS: dict[str, list[dict[str, Any]]] = {
         },
     ],
 
-    "DispPID": [
+    "pid": [
         {
             "cfg_habilitar": "SI",
             "comentario_db": "Comentario del DB",
@@ -958,7 +958,7 @@ def test_una_fila_sucia_no_tumba_la_carga(
     assert entidades[1]["plc_tipo"] == 0
     assert entidades[1]["numero"] == 0
 
-    sucia = _tabla(datos, "DispED")["filas"][1]
+    sucia = _tabla(datos, "ed")["filas"][1]
     assert sucia["numero"] == 0
     assert sucia["e_byte"] == 0
     assert sucia["gr_alarma"] == 0
@@ -979,7 +979,7 @@ def test_una_fila_sin_uid_ni_numero_se_descarta(
 
     datos = parser.leer_excel(ruta, seccion)
 
-    assert _tabla(datos, "DispED")["filas"] == []
+    assert _tabla(datos, "ed")["filas"] == []
 
 
 # ── los avisos ──────────────────────────────────────────────────────────────
@@ -995,7 +995,7 @@ def test_una_hoja_que_no_existe_avisa_y_no_rompe(
 
     datos = parser.leer_excel(ruta, seccion)
 
-    assert _tabla(datos, "DispED")["filas"] == []
+    assert _tabla(datos, "ed")["filas"] == []
     assert "No se encuentra la hoja DISP_ED en el Excel" in datos["avisos"]
     assert "No se encuentra la hoja ENTIDADES en el Excel" in datos["avisos"]
 
@@ -1011,7 +1011,7 @@ def test_una_tabla_que_no_existe_avisa(
     datos = parser.leer_excel(excel_completo, seccion)
 
     assert "No se encuentra la tabla Tabla_Disp_ED en la hoja DISP_ED" in datos["avisos"]
-    assert _tabla(datos, "DispED")["filas"] == []
+    assert _tabla(datos, "ed")["filas"] == []
 
 
 def test_un_excel_completo_no_avisa_de_nada(
@@ -1032,7 +1032,7 @@ def test_las_columnas_son_las_del_display_order(
 ) -> None:
     datos = parser.leer_excel(excel_completo, seccion)
 
-    assert _tabla(datos, "DispED")["columnas"] == seccion["disp_catalog"]["display_order"][
+    assert _tabla(datos, "ed")["columnas"] == seccion["disp_catalog"]["display_order"][
         "DispED"
     ]
     assert datos["entidades"]["columnas"] == seccion["entidades_catalog"]["display_order"][
@@ -1046,7 +1046,7 @@ def test_las_etiquetas_salen_del_col_labels(
 ) -> None:
     datos = parser.leer_excel(excel_completo, seccion)
 
-    etiquetas = _tabla(datos, "DispED")["etiquetas"]
+    etiquetas = _tabla(datos, "ed")["etiquetas"]
     assert etiquetas["numero"] == seccion["disp_catalog"]["col_labels"]["numero"]
     assert "plc_name" not in etiquetas or etiquetas["plc_name"] == "PLC"
     assert datos["procesos"]["Procesos"]["etiquetas"]["alm_hmi"] == "Alarmas HMI"
@@ -1071,7 +1071,7 @@ def test_el_almacen_guarda_el_volcado(
     estado = almacen.estado()
     assert estado["cargado"] is True
     assert estado["plcs"] == ESPERADO_PLCS
-    assert _tabla(estado, "DispED")["filas"][0]["plc_tag"] == "V_ED_001"
+    assert _tabla(estado, "ed")["filas"][0]["plc_tag"] == "V_ED_001"
 
 
 def test_el_almacen_vacio_sale_vacio() -> None:
@@ -1108,7 +1108,7 @@ def test_el_almacen_persiste_y_recarga(
     otro.config = seccion
     assert otro.recargar() is True
     assert otro.archivo == "completo.xlsx"
-    assert _tabla(otro.estado(), "DispED")["filas"][0]["plc_tag"] == "V_ED_001"
+    assert _tabla(otro.estado(), "ed")["filas"][0]["plc_tag"] == "V_ED_001"
 
 
 def test_al_guardar_una_copia_nueva_se_borran_las_anteriores(

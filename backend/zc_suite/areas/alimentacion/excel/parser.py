@@ -105,7 +105,7 @@ def _leer_dispositivos(
         columnas = modulo_columnas.columnas_de_dispositivo(canonico, config)
         vistas.append(
             {
-                "tipo": canonico,
+                "tipo": clave,
                 "columnas": columnas,
                 "etiquetas": modulo_columnas.etiquetas_de("disp", config, columnas),
                 "filas": registros,
