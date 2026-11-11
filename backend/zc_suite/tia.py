@@ -30,6 +30,7 @@ import logging
 import re
 import tempfile
 import threading
+import traceback
 import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -231,6 +232,12 @@ class Job:
             for nombre, etiqueta in declarados
         ]
         self._por_id = {etapa["id"]: etapa for etapa in self._etapas}
+        logger.info(
+            "Trabajo '%s' (%s) iniciado. Pasos: %s",
+            titulo,
+            self._operacion,
+            ", ".join(nombres),
+        )
         self._publicar_progreso()
 
     @contextmanager
@@ -262,14 +269,56 @@ class Job:
                 detail=texto_error(exc),
                 finished_at=_ahora(),
             )
+            nivel_paso = logging.WARNING if isinstance(exc, TIAError) else logging.ERROR
+            logger.log(
+                nivel_paso,
+                "  Paso '%s' fallo: %s",
+                etapa["label"],
+                texto_error(exc),
+            )
             raise
         else:
             etapa._set_interno(status=HECHO, finished_at=_ahora())
+            logger.info("  Paso '%s': %s", etapa["label"], etapa["detail"] or "sin detalle")
 
-    def finalizar(self, estado: str, error: str | None) -> None:
-        """Cierra el trabajo y publica el estado final."""
+    def finalizar(
+        self,
+        estado: str,
+        error: str | None,
+        traza: str | None = None,
+        nivel: int = logging.ERROR,
+    ) -> None:
+        """Cierra el trabajo y publica el estado final.
+
+        Args:
+            estado: ``ok``, ``cancelado`` o ``error``.
+            error: el mensaje del fallo, si lo hubo.
+            traza: el traceback del fallo, si lo hubo. Sin traza, el fallo
+                se registra en una linea: es un fallo esperado (TIA
+                cerrado, sin proyecto, sin permiso).
+            nivel: el nivel con el que se registra el fallo.
+        """
         self._terminado_at = _ahora()
         self._error = error
+        if estado == OK:
+            logger.info("Trabajo '%s' (%s) terminado.", self._titulo, self._operacion)
+        elif estado == CANCELADO:
+            logger.warning(
+                "Trabajo '%s' (%s) cancelado: %s",
+                self._titulo,
+                self._operacion,
+                error or "",
+            )
+        else:
+            logger.log(
+                nivel,
+                "Trabajo '%s' (%s) fallo: %s",
+                self._titulo,
+                self._operacion,
+                error or "sin detalle",
+            )
+            if traza:
+                logger.error("Traceback del trabajo '%s':\n%s", self._titulo, traza)
         if estado != OK:
             for etapa in self._etapas:
                 if etapa["status"] == EN_CURSO:
@@ -819,6 +868,8 @@ class ServicioTIA:
         estado = OK
         resultado: Any = None
         error: str | None = None
+        traza: str | None = None
+        nivel_final = logging.ERROR
         try:
             resultado = funcion(job, **params)
         except CanceladoError as exc:
@@ -830,10 +881,12 @@ class ServicioTIA:
             # registra en una linea; el traceback solo para lo inesperado.
             estado = ERROR
             error = texto_error(exc)
+            nivel_final = logging.WARNING
             logger.warning("Trabajo %s fallo: %s", job.id, error)
         except Exception as exc:
             estado = ERROR
             error = texto_error(exc)
+            traza = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
             logger.exception("Trabajo %s fallo.", job.id)
         else:
             if resultado is not None and not es_serializable(resultado):
@@ -845,7 +898,7 @@ class ServicioTIA:
                 resultado = None
                 logger.error("Trabajo %s: %s", job.id, error)
         finally:
-            job.finalizar(estado, error)
+            job.finalizar(estado, error, traza, nivel_final)
             if estado == ERROR:
                 self._ultimo_error = error
             self._verificar_conexion()
