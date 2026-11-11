@@ -1,0 +1,615 @@
+﻿{
+    S7_Author := "ABH";
+    S7_BlockComment := "MLC_mA";
+    S7_BlockNumber := "2017";
+    S7_BlockTitle := "MLC_58v";
+    S7_EditorMode := "SCL";
+    S7_Family := "ZeusControl";
+    S7_Optimized := "TRUE";
+    S7_Version := "1.0"
+}
+FUNCTION_BLOCK "FB2017_ZC_M_SINA"
+    VAR_INPUT
+        {
+            S7_Access := "ReadOnly := External";
+            S7_MLC := "MLC_3jh";
+            S7_Visibility := "Hidden := External"
+        }
+        Pulso1seg : Bool;
+        {
+            S7_Access := "ReadOnly := External";
+            S7_MLC := "MLC_33h";
+            S7_Visibility := "Hidden := External"
+        }
+        Simulacion : Bool;
+        {
+            S7_Access := "ReadOnly := External";
+            S7_MLC := "MLC_4tV";
+            S7_Visibility := "Hidden := External"
+        }
+        Arranque : Bool;
+        {
+            S7_Access := "ReadOnly := External";
+            S7_MLC := "MLC_4Yr";
+            S7_Visibility := "Hidden := External"
+        }
+        Ack : Bool;
+        {
+            S7_Access := "ReadOnly := External";
+            S7_MLC := "MLC_3v9";
+            S7_Visibility := "Hidden := External"
+        }
+        SeguridadesOK : Bool;
+        {
+            S7_Access := "ReadOnly := External";
+            S7_MLC := "MLC_3LS";
+            S7_Visibility := "Hidden := External"
+        }
+        UsuarioActual : String;
+        {
+            S7_Access := "ReadOnly := External";
+            S7_MLC := "MLC_3Vs";
+            S7_Visibility := "Hidden := External"
+        }
+        FechaHoraActual : DTL;
+    END_VAR
+    VAR
+        { S7_MLC := "MLC_4vz" }
+        HWIDSTW : Array[0.._.N_MAX_DISP_M_SINA] of HW_IO;
+        { S7_MLC := "MLC_53F" }
+        HWIDZSW : Array[0.._.N_MAX_DISP_M_SINA] of HW_IO;
+        { S7_Setpoint := "False" }
+        SinaSpeed : Array[0.._.N_MAX_DISP_M_SINA] of SinaSpeed;
+    END_VAR
+    VAR_TEMP
+        for_i : Int;
+        t_N_MAX : Int;
+        t_Activar : Bool;
+        t_Frecuencia : Real;
+        t_ErrorSinaSpeed : Bool;
+        t_ErrorTermico : Bool;
+        t_ConfigAxis : Word;
+        t_ZSW1 : Bool;
+    END_VAR
+    VAR CONSTANT
+        SOLO_DIRECTO : USInt := 0;
+        DIRECTO_INVERSO : USInt := 1;
+    END_VAR
+
+    { S7_Language := "SCL" }
+    NETWORK
+        REGION DESCRIPCION
+        (*
+        ###### (C)Copyright ZeusControl 2020 - 2026
+        
+        ---
+        ### Información del Sistema
+        | Hardware Compatible | Entorno de Ingeniería |
+        |---------------------|-----------------------|
+        | PLC serie 1200/1500 | TIA Portal 18         |
+        
+        ---
+        > **Restricciones:** Ninguna.
+        
+        ---
+        ### Descripción Funcional
+        
+        Funcion para la gestion de dispositivo de tipo Motor con variador de frecuencia SINAMICS.
+        
+        En ella se realizan las siguientes acciones:
+        
+        - Se gestiona el multiplexado de los dispositivos para su uso en sistemas HMI/SCADA.
+        - Se gestiona el estado del dispositivo
+        - Se gestiona el tiempo en marcha
+        - Se gestiona la orden de escritura
+        - Se gestiona la trazabilidad de las manualizaciones del dispositivo
+        
+        ---
+        ### Dependencias Requeridas
+        | Tipo | Elementos |
+        |------|-----------|
+        | FC   | `FC8_ZC_TRAZA_REGISTRO`, `FC15025_ZC_CONTADOR_TIEMPO` |
+        | FB   | - |
+        | DB   | `DB2017_DISP_M_SINA` |
+        | UDT  | `ZC_DISP_M_SINA`, `ZC_DISP_MUX_M_SINA`, `ZC_CONTADOR_TIEMPO` |
+        
+        ---
+        ### Historial de Cambios
+        | Versión  | Fecha      | Técnico | Cambios |
+        |----------|------------|---------|---------|
+        | 00.00.01 | 27.04.2020 | (ABH)   | Primera version. |
+        | 00.00.02 | 26.05.2020 | (ABH)   | Se añade logica como dispositivo motor VF. |
+        | 00.00.03 | 22.09.2022 | (ABH)   | Cambio lógica SinaSpeed, Se añade trazabilidad manualizaciones, Se añade trazabilidad de activación manual |
+        | 00.00.04 | 08.11.2022 | (HCR)   | Cambio lógica enclavamiento. |
+        | 00.00.05 | 18.09.2023 | (ABH)   | Cambio en tipo de dato de horas de alarma. Se utiliza el tipo de dato ZC_CONTADOR_TIEMPO y el FC15025_ZC_CONTADOR_TIEMPO.   |
+        | 00.00.06 | 28.02.2024 | (ABH)   | Se añade gestion multiplexado para Scada (no indexado). |
+        | 00.00.07 | 26.03.2025 | (ABH)   | Se añade variable grupo de alarma para separar los nuevos avisos por cuadro. |
+        | 00.00.08 | 07.10.2025 | (HCR)   | Se modifica la logica del multiplexado, la asignacion de oldindex se cambia de sitio ya que de vez en cuando (dependiendo de cuando el HMI realiza la comunicacion asincrona con el PLC) no detectaba el cambio y se machacaban valores. |
+        | 00.00.09 | 08.11.2022 | (HCR)   | Cambio lógica enclavamiento |
+        | 00.00.10 | 18.09.2023 | (ABH)   | Cambio en tipo de dato de horas de alarma. Se utiliza el tipo de dato ZC_CONTADOR_TIEMPO y el FC15025_ZC_CONTADOR_TIEMPO |
+        | 00.00.11 | 22.02.2024 | (ABH)   | Se añade gestion multiplexado para Scada (no indexado) |
+        | 00.00.12 | 08.01.2025 | (ABH)   | Se añade entrada de primer arranque del PLC para resetear indices de multiplexado Se añade movimiento de M[0] a multiplexado en caso de que el indice sea 0.  |
+        | 00.00.13 | 17.12.2025 | (ABH)   | Se eliminan los idiomas. Se utiliza codigos para trazabilidad. Se elimina entrada "Idioma". Se elimina nombre de UDT. Se elimina nombre de UDT. Se añade indexHMI para lista de texto en sistemas de supervision. |
+        | 00.00.14 | 18.05.2026 | (ABH)   | Se añade variable `Config_TipoAcceso` para uso de direccionamiento indirecto o uso directo en PLC. |
+        | 01.00.00 | 08.07.2026 | (ABH)   | Se extrae el multiplexado a FC independiente. |
+        *)
+        END_REGION DESCRIPCION
+        
+        
+        
+        
+        REGION LOGICA_DEL_DISPOSITIVO
+            
+            // =============================================================================
+            // Resetear todas las alarmas para que se vuelvan a generar
+            FOR #for_i := 0 TO "N_MAX_DISP_AGRUP" DO
+                "DB2017_M_SINA".Agrup[#for_i].AlgunaAlarma := FALSE;
+                "DB2017_M_SINA".Agrup[#for_i].AlgunaEnManual := FALSE;
+            END_FOR;
+            
+            //  Numero maximo de dispositivos para limitar en HMI/Scada
+            "DB2017_M_SINA".NumDispositivos := "N_MAX_DISP_M_SINA";
+            
+            REGION COMPROBACION_N_MAX
+                
+                //  Si no hay dispositivos declarados, salimos del bloque inmediatamente
+                IF "N_MAX_DISP_M_SINA" <= 0 THEN
+                    RETURN;
+                END_IF;
+                
+                //  Traspaso de N_MAX a variable temporal para evitar fallos de compilacion
+                #t_N_MAX := "N_MAX_DISP_M_SINA";
+                
+            END_REGION COMPROBACION_N_MAX
+            
+            FOR #for_i := 1 TO #t_N_MAX DO
+                
+                
+                REGION LIMITE_GRUPO_ALARMA
+                    
+                    IF "DB2017_M_SINA".M_SINA[#for_i].Config_GrupoAlarma < 0 THEN
+                        "DB2017_M_SINA".M_SINA[#for_i].Config_GrupoAlarma := 0;
+                    END_IF;
+                    IF "DB2017_M_SINA".M_SINA[#for_i].Config_GrupoAlarma > "N_MAX_DISP_AGRUP" THEN
+                        "DB2017_M_SINA".M_SINA[#for_i].Config_GrupoAlarma := "N_MAX_DISP_AGRUP";
+                    END_IF;
+                    
+                END_REGION
+                
+                // =============================================================================
+                // DISPOSITIVO HABILITADO
+                // =============================================================================
+                IF "DB2017_M_SINA".M_SINA[#for_i].Config_Habilitar THEN
+                    
+                    // =============================================================================
+                    //  PUESTA A CERO DE LA SALIDA
+                    #t_Activar := FALSE;
+                    #t_Frecuencia := 0.0;
+                    
+                    // =============================================================================
+                    //  INICIALIZACION DE VALORES QUE SIEMPRE TIENEN QUE ESTAR A 1 EN LA PALABRA DE MANDO
+                    #t_ConfigAxis := 16#003F;
+                    
+                    
+                    REGION LECTURA_VALORES_DE_LA_TARJETA
+                        
+                        // =============================================================================
+                        // RETORNO TERMICO
+                        IF "DB2017_M_SINA".M_SINA[#for_i].Config_DireccionRetTermicoByte >= 0 THEN
+                            "DB2017_M_SINA".M_SINA[#for_i].Estado_RetornoTermico := PEEK_BOOL(area := 16#81,
+                                                                                              dbNumber := 0,
+                                                                                              byteOffset := "DB2017_M_SINA".M_SINA[#for_i].Config_DireccionRetTermicoByte,
+                                                                                              bitOffset := "DB2017_M_SINA".M_SINA[#for_i].Config_DireccionRetTermicoBit);
+                            IF "DB2017_M_SINA".M_SINA[#for_i].Config_HabilitarInvertirTermico THEN
+                                "DB2017_M_SINA".M_SINA[#for_i].Estado_RetornoTermico := NOT (PEEK_BOOL(area := 16#81,
+                                                                                                       dbNumber := 0,
+                                                                                                       byteOffset := "DB2017_M_SINA".M_SINA[#for_i].Config_DireccionRetTermicoByte,
+                                                                                                       bitOffset := "DB2017_M_SINA".M_SINA[#for_i].Config_DireccionRetTermicoBit));
+                            END_IF;
+                        END_IF;
+                        
+                    END_REGION
+                    
+                    
+                    REGION MODOS_DE_TRABAJO
+                        
+                        // =============================================================================
+                        //  RESET CON LOCKOUT
+                        IF #SinaSpeed[#for_i].Lockout AND NOT #Simulacion THEN
+                            "DB2017_M_SINA".M_SINA[#for_i].Orden_ActivarManual := FALSE;
+                            "DB2017_M_SINA".M_SINA[#for_i].Orden_ActivarAuto := FALSE;
+                        END_IF;
+                        
+                        // =============================================================================
+                        //  MODO MANUAL
+                        IF "DB2017_M_SINA".M_SINA[#for_i].Estado_AutoMan THEN
+                            "DB2017_M_SINA".Agrup["DB2017_M_SINA".M_SINA[#for_i].Config_GrupoAlarma].AlgunaEnManual := TRUE;
+                            IF "DB2017_M_SINA".M_SINA[#for_i].Orden_ActivarManual AND NOT "DB2017_M_SINA".M_SINA[#for_i].Estado_Enclavado AND #SeguridadesOK AND "DB2017_M_SINA".M_SINA[#for_i].Estado_SeguridadOk AND NOT "DB2017_M_SINA".M_SINA[#for_i].Alarmas_Termico THEN
+                                #t_Activar := TRUE;
+                                #t_Frecuencia := "DB2017_M_SINA".M_SINA[#for_i].Orden_ConsignaManual;
+                            ELSE
+                                #t_Activar := FALSE;
+                                #t_Frecuencia := 0.0;
+                                "DB2017_M_SINA".M_SINA[#for_i].Orden_ActivarManual := FALSE;
+                            END_IF;
+                        ELSE
+                            "DB2017_M_SINA".M_SINA[#for_i].Orden_ActivarManual := FALSE;
+                        END_IF;
+                        
+                        // =============================================================================
+                        //  MODO AUTO
+                        IF NOT "DB2017_M_SINA".M_SINA[#for_i].Estado_AutoMan THEN
+                            "DB2017_M_SINA".M_SINA[#for_i].Estado_VelocidadSalida := "DB2017_M_SINA".M_SINA[#for_i].Orden_ConsignaAuto;
+                            IF "DB2017_M_SINA".M_SINA[#for_i].Orden_ActivarAuto AND NOT "DB2017_M_SINA".M_SINA[#for_i].Estado_Enclavado AND #SeguridadesOK AND "DB2017_M_SINA".M_SINA[#for_i].Estado_SeguridadOk AND NOT "DB2017_M_SINA".M_SINA[#for_i].Alarmas_Termico THEN
+                                #t_Activar := TRUE;
+                                #t_Frecuencia := "DB2017_M_SINA".M_SINA[#for_i].Orden_ConsignaAuto;
+                            ELSE
+                                #t_Activar := FALSE;
+                                #t_Frecuencia := 0.0;
+                            END_IF;
+                            
+                            
+                            "DB2017_M_SINA".M_SINA[#for_i].Orden_ActivarManual := "DB2017_M_SINA".M_SINA[#for_i].Estado_Activado;
+                            "DB2017_M_SINA".M_SINA[#for_i].Orden_ConsignaManual := "DB2017_M_SINA".M_SINA[#for_i].Orden_ConsignaAuto;
+                            
+                        END_IF;
+                        
+                    END_REGION
+                    
+                    
+                    REGION ESTADO_DEL_DISPOSITIVO
+                        
+                        // =============================================================================
+                        //  MOTOR SIMULADO Y NO SIMULADO
+                        IF #Simulacion THEN
+                            
+                            IF #t_Activar THEN
+                                "DB2017_M_SINA".M_SINA[#for_i].Estado_Activado := TRUE;
+                            ELSE
+                                "DB2017_M_SINA".M_SINA[#for_i].Estado_Activado := FALSE;
+                            END_IF;
+                            
+                            "DB2017_M_SINA".M_SINA[#for_i].Estado_ValorActual := #t_Frecuencia;
+                            
+                        ELSE
+                            IF "DB2017_M_SINA".M_SINA[#for_i].Estado_EjeHabilitado THEN
+                                "DB2017_M_SINA".M_SINA[#for_i].Estado_Activado := TRUE;
+                            ELSE
+                                "DB2017_M_SINA".M_SINA[#for_i].Estado_Activado := FALSE;
+                            END_IF;
+                            
+                            IF #SinaSpeed[#for_i].ActVelocity > 0.0 THEN
+                                "DB2017_M_SINA".M_SINA[#for_i].Estado_ValorActual := #SinaSpeed[#for_i].ActVelocity * "DB2017_M_SINA".M_SINA[#for_i].Config_VelocidadMax / "DB2017_M_SINA".M_SINA[#for_i].Config_K_Velocidad;
+                            ELSE
+                                "DB2017_M_SINA".M_SINA[#for_i].Estado_ValorActual := #SinaSpeed[#for_i].ActVelocity;
+                            END_IF;
+                            
+                            
+                        END_IF;
+                        
+                    END_REGION
+                    
+                    
+                    REGION ERRORES
+                        
+                        // =============================================================================
+                        //  CHEQUEO RETORNO TERMICO
+                        IF NOT #Simulacion AND "DB2017_M_SINA".M_SINA[#for_i].Config_HabilitarRetornoTermico
+                            AND "DB2017_M_SINA".M_SINA[#for_i].Estado_RetornoTermico THEN
+                            #t_ErrorTermico := TRUE;
+                        ELSE
+                            #t_ErrorTermico := FALSE;
+                        END_IF;
+                        
+                        
+                        // =============================================================================
+                        //  CHEQUEO ERROR DESDE EL BLOQUE SINA SPEED
+                        IF NOT #Simulacion AND #SinaSpeed[#for_i].Error AND (#SinaSpeed[#for_i].Status <> 16#8402) THEN
+                            #t_ErrorSinaSpeed := TRUE;
+                        ELSE
+                            #t_ErrorSinaSpeed := FALSE;
+                        END_IF;
+                        
+                        
+                        // =============================================================================
+                        //  TEMPORIZADO DE ERRORES
+                        IF #t_ErrorSinaSpeed
+                            AND NOT "DB2017_M_SINA".M_SINA[#for_i].Alarmas_SinaSpeed
+                            AND NOT "DB2017_M_SINA".M_SINA[#for_i].Alarmas_Termico
+                        THEN
+                            IF NOT #Simulacion AND #Pulso1seg THEN
+                                "DB2017_M_SINA".M_SINA[#for_i].Tiempos_Alarma += 1;
+                            END_IF;
+                        ELSE
+                            "DB2017_M_SINA".M_SINA[#for_i].Tiempos_Alarma := 0;
+                        END_IF;
+                        
+                        
+                        // =============================================================================
+                        //  ERROR TERMICO
+                        IF #t_ErrorTermico THEN
+                            "DB2017_M_SINA".M_SINA[#for_i].Alarmas_Termico := TRUE;
+                        END_IF;
+                        IF NOT #t_ErrorTermico THEN
+                            "DB2017_M_SINA".M_SINA[#for_i].Alarmas_Termico := FALSE;
+                        END_IF;
+                        
+                        // =============================================================================
+                        //  ERROR DESDE EL BLOQUE SINA SPEED
+                        IF "DB2017_M_SINA".M_SINA[#for_i].Tiempos_Alarma >= "DB2017_M_SINA".M_SINA[#for_i].Tiempos_SetPointTiempoAlarma AND #t_ErrorSinaSpeed THEN
+                            "DB2017_M_SINA".M_SINA[#for_i].Alarmas_SinaSpeed := TRUE;
+                        END_IF;
+                        IF NOT #t_ErrorSinaSpeed THEN
+                            "DB2017_M_SINA".M_SINA[#for_i].Alarmas_SinaSpeed := FALSE;
+                        END_IF;
+                        
+                        
+                        // =============================================================================
+                        //  ERROR GLOBAL
+                        "DB2017_M_SINA".M_SINA[#for_i].Alarmas_General := "DB2017_M_SINA".M_SINA[#for_i].Alarmas_Termico OR "DB2017_M_SINA".M_SINA[#for_i].Alarmas_SinaSpeed;
+                        
+                        // =============================================================================
+                        //  SI TENEMOS UN ERROR DESACTIVAMOS LA SALIDA
+                        IF "DB2017_M_SINA".M_SINA[#for_i].Alarmas_General THEN
+                            "DB2017_M_SINA".Agrup["DB2017_M_SINA".M_SINA[#for_i].Config_GrupoAlarma].AlgunaAlarma := TRUE;
+                            #t_Activar := FALSE;
+                            "DB2017_M_SINA".M_SINA[#for_i].Orden_ActivarManual := FALSE;
+                        END_IF;
+                        
+                    END_REGION
+                    
+                    
+                    REGION DIAGNOSIS
+                        
+                        //  =============================================================================
+                        //  CONTADOR DE HORAS DE FUNCIONAMIENTO
+                        IF "DB2017_M_SINA".M_SINA[#for_i].Orden_ResetHoras THEN
+                            "DB2017_M_SINA".M_SINA[#for_i].Orden_ResetHoras := FALSE;
+                        END_IF;
+                        IF NOT #Simulacion AND #Pulso1seg AND "DB2017_M_SINA".M_SINA[#for_i].Estado_Activado THEN
+                            "DB2017_M_SINA".M_SINA[#for_i].Tiempos_Mantenimiento += 0.00027778;
+                        END_IF;
+                        //  =============================================================================
+                        //  ALARMA HORAS PARA MANTENIMIENTO ALCANZADOS
+                        "DB2017_M_SINA".M_SINA[#for_i].Alarmas_Mantenimiento := FALSE;
+                        IF "DB2017_M_SINA".M_SINA[#for_i].Config_HabilitarMantenimiento
+                            AND
+                            "DB2017_M_SINA".M_SINA[#for_i].Tiempos_Mantenimiento > "DB2017_M_SINA".M_SINA[#for_i].Tiempos_SetPointMantenimiento
+                        THEN
+                            "DB2017_M_SINA".M_SINA[#for_i].Alarmas_Mantenimiento := TRUE;
+                        END_IF;
+                        
+                    END_REGION
+                    
+                    
+                    REGION ESCRITURA_SALIDA
+                        
+                        
+                        "DB2017_M_SINA".M_SINA[#for_i].Estado_VelocidadSalida := #t_Frecuencia;
+                        
+                        // =============================================================================
+                        //  LIMITAR SALIDA A LOS VALORES ESTABLECIDOS EN EL ELEMENTO
+                        IF "DB2017_M_SINA".M_SINA[#for_i].Estado_VelocidadSalida > "DB2017_M_SINA".M_SINA[#for_i].Config_VelocidadMax THEN
+                            "DB2017_M_SINA".M_SINA[#for_i].Estado_VelocidadSalida := "DB2017_M_SINA".M_SINA[#for_i].Config_VelocidadMax;
+                        END_IF;
+                        
+                        IF "DB2017_M_SINA".M_SINA[#for_i].Estado_VelocidadSalida < "DB2017_M_SINA".M_SINA[#for_i].Config_VelocidadMin THEN
+                            "DB2017_M_SINA".M_SINA[#for_i].Estado_VelocidadSalida := "DB2017_M_SINA".M_SINA[#for_i].Config_VelocidadMin;
+                        END_IF;
+                        
+                        
+                        (*
+                        // =============================================================================
+                        //  PERMISO PARA INVERTIR EL SENTIDO DE GIRO
+                        "DB52_DISP_M_SINA".SINA[#i].Estado_PermisoInvertirSentido := NOT #tempActivar;
+                        
+                        // =============================================================================
+                        //  REINICIALIZO LA PALABRA DE SALIDAS EN CASO DE QUE HAYAMOS INVERTIDO EL SENTIDO DE GIRO 
+                        IF "DB52_DISP_M_SINA".SINA[#i].Orden_SeleccionInverso THEN
+                            #tempConfigAxis := 16#00FE;
+                        END_IF; 
+                        *)
+                        
+                        // =============================================================================
+                        //  ESCRITURA SALIDA SI NO ESTA LA ORDEN DE ACTIVAR       
+                        IF NOT #t_Activar THEN
+                            "DB2017_M_SINA".M_SINA[#for_i].Estado_VelocidadSalida := 0.0;
+                        END_IF;
+                        
+                        
+                        // =============================================================================
+                        //  CONVERSION DE Hz A VALOR EN RPM 
+                        IF "DB2017_M_SINA".M_SINA[#for_i].Estado_VelocidadSalida > 0.0 THEN
+                            "DB2017_M_SINA".M_SINA[#for_i].Estado_VelocidadSalida := ("DB2017_M_SINA".M_SINA[#for_i].Estado_VelocidadSalida * "DB2017_M_SINA".M_SINA[#for_i].Config_K_Velocidad) / "DB2017_M_SINA".M_SINA[#for_i].Config_VelocidadMax;
+                        ELSE
+                            "DB2017_M_SINA".M_SINA[#for_i].Estado_VelocidadSalida := 0.0;
+                        END_IF;
+                        
+                    END_REGION
+                    
+                    
+                    // =============================================================================
+                    //  RESET ORDEN ACTIVAR EN AUTO
+                    "DB2017_M_SINA".M_SINA[#for_i].Orden_ActivarAuto := FALSE;
+                    "DB2017_M_SINA".M_SINA[#for_i].Estado_Enclavado := FALSE;
+                    
+                    REGION TRAZABILIDAD_MANUALIZACION
+                        
+                        IF "DB2017_M_SINA".M_SINA[#for_i].Estado_AutoMan AND NOT "DB2017_M_SINA".M_SINA[#for_i].Aux_oldAutoMan THEN
+                            "FC8_ZC_TRZ_REGISTRO"(FechaHora := #FechaHoraActual,
+                                                    Registrar := 1,
+                                                    Categoria := "TRZ_CAT_17_DISP_M_SINA",
+                                                    User := #UsuarioActual,
+                                                    CodInt_1 := "TRZ_SYS_DISP_TIPO_M_SINA",
+                                                    CodInt_2 := #for_i,
+                                                    CodInt_3 := "TRZ_SYS_DISP_ACC_MAN",
+                                                    CodInt_4 := 0,
+                                                    CodInt_5 := 0,
+                                                    CodReal_1 := 0.0,
+                                                    CodReal_2 := 0.0);
+                        END_IF;
+                        
+                        IF NOT "DB2017_M_SINA".M_SINA[#for_i].Estado_AutoMan AND "DB2017_M_SINA".M_SINA[#for_i].Aux_oldAutoMan THEN
+                            "FC8_ZC_TRZ_REGISTRO"(FechaHora := #FechaHoraActual,
+                                                    Registrar := 1,
+                                                    Categoria := "TRZ_CAT_17_DISP_M_SINA",
+                                                    User := #UsuarioActual,
+                                                    CodInt_1 := "TRZ_SYS_DISP_TIPO_M_SINA",
+                                                    CodInt_2 := #for_i,
+                                                    CodInt_3 := "TRZ_SYS_DISP_ACC_AUTO",
+                                                    CodInt_4 := 0,
+                                                    CodInt_5 := 0,
+                                                    CodReal_1 := 0.0,
+                                                    CodReal_2 := 0.0);
+                        END_IF;
+                        
+                        IF "DB2017_M_SINA".M_SINA[#for_i].Estado_AutoMan AND "DB2017_M_SINA".M_SINA[#for_i].Estado_Activado AND NOT "DB2017_M_SINA".M_SINA[#for_i].Aux_oldActivado THEN
+                            "FC8_ZC_TRZ_REGISTRO"(FechaHora := #FechaHoraActual,
+                                                    Registrar := 1,
+                                                    Categoria := "TRZ_CAT_17_DISP_M_SINA",
+                                                    User := #UsuarioActual,
+                                                    CodInt_1 := "TRZ_SYS_DISP_TIPO_M_SINA",
+                                                    CodInt_2 := #for_i,
+                                                    CodInt_3 := "TRZ_SYS_DISP_ACC_MAN_ON",
+                                                    CodInt_4 := 0,
+                                                    CodInt_5 := 0,
+                                                    CodReal_1 := 0.0,
+                                                    CodReal_2 := 0.0);
+                        END_IF;
+                        
+                        IF "DB2017_M_SINA".M_SINA[#for_i].Estado_AutoMan AND NOT "DB2017_M_SINA".M_SINA[#for_i].Estado_Activado AND "DB2017_M_SINA".M_SINA[#for_i].Aux_oldActivado THEN
+                            "FC8_ZC_TRZ_REGISTRO"(FechaHora := #FechaHoraActual,
+                                                    Registrar := 1,
+                                                    Categoria := "TRZ_CAT_17_DISP_M_SINA",
+                                                    User := #UsuarioActual,
+                                                    CodInt_1 := "TRZ_SYS_DISP_TIPO_M_SINA",
+                                                    CodInt_2 := #for_i,
+                                                    CodInt_3 := "TRZ_SYS_DISP_ACC_MAN_OFF",
+                                                    CodInt_4 := 0,
+                                                    CodInt_5 := 0,
+                                                    CodReal_1 := 0.0,
+                                                    CodReal_2 := 0.0);
+                        END_IF;
+                        
+                    END_REGION
+                    
+                    // =============================================================================
+                    // Estado anterior manual/automatico
+                    "DB2017_M_SINA".M_SINA[#for_i].Aux_oldAutoMan := "DB2017_M_SINA".M_SINA[#for_i].Estado_AutoMan;
+                    "DB2017_M_SINA".M_SINA[#for_i].Aux_oldActivado := "DB2017_M_SINA".M_SINA[#for_i].Estado_Activado;
+                    
+                ELSE
+                    
+                    // =============================================================================
+                    // DISPOSITIVO NO HABILITADO
+                    // =============================================================================
+                    "DB2017_M_SINA".M_SINA[#for_i].Alarmas_General := FALSE;
+                    "DB2017_M_SINA".M_SINA[#for_i].Alarmas_Termico := FALSE;
+                    "DB2017_M_SINA".M_SINA[#for_i].Alarmas_Mantenimiento := FALSE;
+                    "DB2017_M_SINA".M_SINA[#for_i].Alarmas_SinaSpeed := FALSE;
+                    "DB2017_M_SINA".M_SINA[#for_i].Estado_RetornoTermico := FALSE;
+                    "DB2017_M_SINA".M_SINA[#for_i].Estado_Enclavado := FALSE;
+                    "DB2017_M_SINA".M_SINA[#for_i].Orden_ActivarAuto := FALSE;
+                    "DB2017_M_SINA".M_SINA[#for_i].Orden_ActivarManual := FALSE;
+                    "DB2017_M_SINA".M_SINA[#for_i].Estado_Activado := FALSE;
+                    "DB2017_M_SINA".M_SINA[#for_i].Estado_ValorActual := 0.0;
+                    
+                END_IF;
+                
+                
+                REGION GESTION_HMI
+                    
+                    // =============================================================================
+                    //  GESTION BITS PARA VISUALIZACION
+                    //  Bit     0   Habilitacion
+                    //  Bit     1   ManualAutomatico
+                    //  Bit     2   Enclavado
+                    //  Bit     3   Activado 1
+                    //  Bit     4   Activado 2
+                    //  Bit     5   Reserva
+                    //  Bit     6   Reserva
+                    //  Bit     7   Reserva
+                    //  Bit     8   Alarma General
+                    //  Bit     9   Alarma 1
+                    //  Bit     10  Alarma 2
+                    //  Bit     11  Alarma 3
+                    //  Bit     12  Alarma 4
+                    //  Bit     13  Alarma Mantenimiento
+                    //  Bit     14  Reserva
+                    //  Bit     15  Reserva
+                    "DB2017_M_SINA".M_SINA[#for_i].Hmi_Estado.%X0 := "DB2017_M_SINA".M_SINA[#for_i].Config_Habilitar;
+                    "DB2017_M_SINA".M_SINA[#for_i].Hmi_Estado.%X1 := "DB2017_M_SINA".M_SINA[#for_i].Estado_AutoMan;
+                    "DB2017_M_SINA".M_SINA[#for_i].Hmi_Estado.%X2 := "DB2017_M_SINA".M_SINA[#for_i].Estado_Enclavado;
+                    "DB2017_M_SINA".M_SINA[#for_i].Hmi_Estado.%X3 := "DB2017_M_SINA".M_SINA[#for_i].Estado_Activado;
+                    "DB2017_M_SINA".M_SINA[#for_i].Hmi_Estado.%X4 := FALSE;
+                    "DB2017_M_SINA".M_SINA[#for_i].Hmi_Estado.%X5 := FALSE;
+                    "DB2017_M_SINA".M_SINA[#for_i].Hmi_Estado.%X6 := FALSE;
+                    "DB2017_M_SINA".M_SINA[#for_i].Hmi_Estado.%X7 := FALSE;
+                    "DB2017_M_SINA".M_SINA[#for_i].Hmi_Estado.%X8 :="DB2017_M_SINA".M_SINA[#for_i].Alarmas_Termico;
+                    "DB2017_M_SINA".M_SINA[#for_i].Hmi_Estado.%X9 := "DB2017_M_SINA".M_SINA[#for_i].Alarmas_SinaSpeed;
+                    "DB2017_M_SINA".M_SINA[#for_i].Hmi_Estado.%X10 := FALSE;
+                    "DB2017_M_SINA".M_SINA[#for_i].Hmi_Estado.%X11 := FALSE;
+                    "DB2017_M_SINA".M_SINA[#for_i].Hmi_Estado.%X12 := FALSE;
+                    "DB2017_M_SINA".M_SINA[#for_i].Hmi_Estado.%X13 := "DB2017_M_SINA".M_SINA[#for_i].Alarmas_Mantenimiento;
+                    "DB2017_M_SINA".M_SINA[#for_i].Hmi_Estado.%X14 := FALSE;
+                    "DB2017_M_SINA".M_SINA[#for_i].Hmi_Estado.%X15 := FALSE;
+                    
+                END_REGION
+                
+                
+                REGION GESTION_NUEVA_ALARMA
+                    
+                    // =============================================================================
+                    //  DETECCION DE NUEVA ALARMA
+                    IF "DB2017_M_SINA".M_SINA[#for_i].Alarmas_General AND NOT "DB2017_M_SINA".M_SINA[#for_i].Aux_oldAlarma THEN
+                        "DB2017_M_SINA".Agrup["DB2017_M_SINA".M_SINA[#for_i].Config_GrupoAlarma].NuevaAlarma := TRUE;
+                    END_IF;
+                    
+                    //  Estado anterior de las alarmas
+                    "DB2017_M_SINA".M_SINA[#for_i].Aux_oldAlarma := "DB2017_M_SINA".M_SINA[#for_i].Alarmas_General;
+                    
+                END_REGION
+                
+                
+                REGION SINASPEED
+                    
+                    
+                    IF #HWIDSTW[#for_i] <> 0 AND #HWIDZSW[#for_i] <> 0 THEN
+                        #SinaSpeed[#for_i](EnableAxis := #t_Activar,
+                                           AckError := "DB2017_M_SINA".M_SINA[#for_i].Orden_ResetFallos OR #Ack,
+                                           SpeedSp := "DB2017_M_SINA".M_SINA[#for_i].Estado_VelocidadSalida,
+                                           RefSpeed := "DB2017_M_SINA".M_SINA[#for_i].Config_K_Velocidad,
+                                           ConfigAxis := #t_ConfigAxis,
+                                           HWIDSTW := #HWIDSTW[#for_i],
+                                           HWIDZSW := #HWIDZSW[#for_i],
+                                           AxisEnabled => "DB2017_M_SINA".M_SINA[#for_i].Estado_EjeHabilitado,
+                                           Lockout => "DB2017_M_SINA".M_SINA[#for_i].Estado_EjeBloqueado,
+                                           Status => "DB2017_M_SINA".M_SINA[#for_i].Estado_Estado,
+                                           DiagId => "DB2017_M_SINA".M_SINA[#for_i].Estado_CodigoFallo);
+                    END_IF;
+                    
+                    // =============================================================================
+                    //  ESCRITURA RESET FALLOS
+                    IF "DB2017_M_SINA".M_SINA[#for_i].Orden_ResetFallos AND #Pulso1seg THEN  //  Reset de este BIT cada segundo (es suficiente para resetear el Variador)
+                        "DB2017_M_SINA".M_SINA[#for_i].Orden_ResetFallos := FALSE;
+                    END_IF;
+                    
+                END_REGION
+                
+            END_FOR;
+            
+            
+            // =============================================================================
+            //  ACUSE DE NUEVAS ALARMAS
+            IF #Ack THEN
+                FOR #for_i := 0 TO "N_MAX_DISP_AGRUP" DO
+                    "DB2017_M_SINA".Agrup[#for_i].NuevaAlarma := FALSE;
+                END_FOR;
+            END_IF;
+            
+            
+        END_REGION
+        
+        
+    END_NETWORK
+END_FUNCTION_BLOCK

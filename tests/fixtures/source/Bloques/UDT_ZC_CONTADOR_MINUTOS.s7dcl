@@ -1,0 +1,12 @@
+﻿TYPE
+    {
+        S7_BlockComment := "MLC_4ts";
+        S7_BlockTitle := "MLC_55C"
+    }
+    UDT_ZC_CONTADOR_MINUTOS : STRUCT
+        { S7_MLC := "MLC_qA" }
+        Minuto : UDInt;
+        { S7_MLC := "MLC_3VH" }
+        Segundo : USInt;
+    END_STRUCT;
+END_TYPE

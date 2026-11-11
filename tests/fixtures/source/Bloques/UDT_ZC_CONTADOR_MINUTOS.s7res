@@ -1,0 +1,9 @@
+﻿MultiLingualTexts:
+  - id: MLC_55C
+    es-ES: ZC_CONTADOR_MINUTOS
+  - id: MLC_4ts
+    es-ES: Tipo de dato contador minutos
+  - id: MLC_qA
+    es-ES: Contador Minutos
+  - id: MLC_3VH
+    es-ES: Contador Segundos

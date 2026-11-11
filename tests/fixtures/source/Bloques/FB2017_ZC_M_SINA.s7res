@@ -1,0 +1,23 @@
+﻿MultiLingualTexts:
+  - id: MLC_58v
+    es-ES: FB2017_M_SINA
+  - id: MLC_mA
+    es-ES: Bloque de funcion para gestion de dispositivo motor sinamics
+  - id: MLC_3jh
+    es-ES: Pulso de 1 segundo
+  - id: MLC_33h
+    es-ES: Simulacion
+  - id: MLC_4tV
+    es-ES: Primer arranque
+  - id: MLC_4Yr
+    es-ES: Acuse general
+  - id: MLC_3v9
+    es-ES: Seguridades OK
+  - id: MLC_3LS
+    es-ES: Usuario actual
+  - id: MLC_3Vs
+    es-ES: Fecha y hora actual
+  - id: MLC_4vz
+    es-ES: Hardware Identifer set point slot
+  - id: MLC_53F
+    es-ES: Hardware Identifer actual value slot
