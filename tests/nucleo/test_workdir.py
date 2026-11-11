@@ -107,6 +107,31 @@ def test_el_nucleo_no_declara_las_subcarpetas_del_preview() -> None:
     assert Workdir(base=Path("x")).preview_subcarpetas == ()
 
 
+def test_el_nucleo_no_declara_las_carpetas_del_contexto() -> None:
+    """Las carpetas propias del contexto las declara el area."""
+    assert Workdir(base=Path("x")).carpetas_contexto == ()
+
+
+def test_el_area_declara_carpetas_propias_del_contexto(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(workdir_modulo, "RAIZ", tmp_path)
+    wd = workdir("un_area", "proc_crear", carpetas=("plantilla", "nuevo"))
+
+    assert wd.carpeta("plantilla") == tmp_path / ".build_cache" / "un_area" / "proc_crear" / (
+        "plantilla"
+    )
+    assert wd.carpeta("nuevo") == tmp_path / ".build_cache" / "un_area" / "proc_crear" / "nuevo"
+
+
+def test_crear_mkdir_las_carpetas_propias_del_contexto(tmp_path: Path) -> None:
+    wd = Workdir(base=tmp_path / "ctx", carpetas_contexto=("plantilla", "nuevo")).crear()
+
+    assert wd.carpeta("plantilla").is_dir()
+    assert wd.carpeta("nuevo").is_dir()
+
+
 # ── creacion ───────────────────────────────────────────────────────────────
 
 

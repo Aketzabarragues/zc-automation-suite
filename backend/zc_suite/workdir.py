@@ -72,10 +72,16 @@ class Workdir:
         base: la carpeta del contexto, ``<build_cache>/<area>/<contexto>``.
         preview_subcarpetas: las subcarpetas de ``preview/``. Las declara
             el area, no el nucleo.
+        carpetas_contexto: carpetas propias del contexto, en su raiz. Las
+            declara el area cuando su flujo no encaja en el par
+            ``preview/`` + ``sincronizar/`` (por ejemplo, el flujo de
+            crear procesos, que trabaja con una copia de la plantilla y con
+            el proceso generado).
     """
 
     base: Path
     preview_subcarpetas: tuple[str, ...] = ()
+    carpetas_contexto: tuple[str, ...] = ()
 
     # ── preview ───────────────────────────────────────────────────────────
 
@@ -87,6 +93,12 @@ class Workdir:
     def preview_de(self, nombre: str) -> Path:
         """Una subcarpeta del preview. La declara el area."""
         return self.preview / nombre
+
+    # ── carpetas propias del contexto ─────────────────────────────────────
+
+    def carpeta(self, nombre: str) -> Path:
+        """Una carpeta propia del contexto, en su raiz."""
+        return self.base / nombre
 
     # ── sincronizar ───────────────────────────────────────────────────────
 
@@ -127,6 +139,7 @@ class Workdir:
         """Todas las carpetas del workdir, en orden."""
         carpetas = [self.preview]
         carpetas.extend(self.preview_de(nombre) for nombre in self.preview_subcarpetas)
+        carpetas.extend(self.carpeta(nombre) for nombre in self.carpetas_contexto)
         carpetas.extend(
             [
                 self.variables_export,
@@ -194,13 +207,20 @@ class WorkdirPreview:
         self.preview.mkdir(parents=True, exist_ok=True)
 
 
-def workdir(area: str, contexto: str, preview: tuple[str, ...] = ()) -> Workdir:
+def workdir(
+    area: str,
+    contexto: str,
+    preview: tuple[str, ...] = (),
+    carpetas: tuple[str, ...] = (),
+) -> Workdir:
     """El workdir de un area y un contexto.
 
     Args:
         area: identificador del area.
         contexto: contexto de la operacion.
         preview: subcarpetas de ``preview/``. Las declara el area.
+        carpetas: carpetas propias del contexto, en su raiz. Las declara el
+            area cuando su flujo no encaja en ``preview/`` + ``sincronizar/``.
 
     Returns:
         El workdir. No crea nada en disco.
@@ -208,6 +228,7 @@ def workdir(area: str, contexto: str, preview: tuple[str, ...] = ()) -> Workdir:
     return Workdir(
         base=raiz_build_cache() / area / contexto,
         preview_subcarpetas=preview,
+        carpetas_contexto=carpetas,
     )
 
 
