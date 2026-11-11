@@ -8,7 +8,8 @@ from typing import Any
 
 import pytest
 
-from zc_suite.workdir import Workdir, raiz_build_cache, workdir
+from zc_suite import workdir as workdir_modulo
+from zc_suite.workdir import Workdir, raiz_build_cache, workdir, workdir_editor_bloques
 
 RAIZ = Path(__file__).resolve().parents[2]
 
@@ -147,3 +148,25 @@ def test_el_workdir_se_puede_inyectar_en_una_funcion(tmp_path: Path) -> None:
     resultado: dict[str, Any] = {"ok": wd.exports.is_dir()}
 
     assert resultado["ok"] is True
+
+
+# ── el editor de bloques ───────────────────────────────────────────────────
+
+
+def test_el_workdir_del_editor_va_a_su_propia_carpeta() -> None:
+    wd = workdir_editor_bloques()
+
+    assert wd.base.name == "editor_bloques"
+    assert wd.base.parent.name == ".build_cache"
+    assert wd.preview == wd.base / "preview"
+
+
+def test_el_workdir_del_editor_no_toca_el_disco(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(workdir_modulo, "RAIZ", tmp_path)
+    wd = workdir_editor_bloques()
+
+    assert not wd.base.exists()
+    assert not wd.preview.exists()

@@ -14,6 +14,7 @@ import pytest
 
 from zc_suite import tia, trabajos
 from zc_suite.tia import ServicioTIA
+from zc_suite.workdir import Workdir
 
 CABECERA_SD = """DATA_BLOCK "DB10"
 { S7_BlockTitle := "MLC_t1"
@@ -186,17 +187,27 @@ def _servicio(version: str) -> tuple[Any, Any, list[BloqueFalso], list[Any]]:
 
 
 @pytest.fixture
-def entorno() -> Any:
+def entorno(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     """Servicio con un TIA V21, con eventos y limpieza."""
     servicio, ts, bloques, eventos = _servicio("V21.0")
+    monkeypatch.setattr(
+        trabajos,
+        "workdir_editor_bloques",
+        lambda: Workdir(base=tmp_path / "editor_bloques"),
+    )
     yield servicio, ts, bloques, eventos
     servicio.parar()
 
 
 @pytest.fixture
-def entorno_v18() -> Any:
+def entorno_v18(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     """Servicio con un TIA V18: no exporta en SimaticSD."""
     servicio, ts, bloques, eventos = _servicio("V18.0")
+    monkeypatch.setattr(
+        trabajos,
+        "workdir_editor_bloques",
+        lambda: Workdir(base=tmp_path / "editor_bloques"),
+    )
     yield servicio, ts, bloques, eventos
     servicio.parar()
 
@@ -297,6 +308,35 @@ def test_preparar_sin_bloques_falla(entorno: Any) -> None:
 
     assert evento["estado"] == "error"
     assert "No hay bloques seleccionados" in evento["error"]
+
+
+def test_preparar_deja_los_ficheros_para_inspeccionarlos(
+    entorno: Any,
+    tmp_path: Path,
+) -> None:
+    """Los ficheros exportados se quedan, para poder mirar por que fallo."""
+    servicio, _ts, _bloques, eventos = entorno
+    preview = tmp_path / "editor_bloques" / "preview"
+
+    job_id = servicio.lanzar(trabajos.preparar_bloques, plc="ZC_PLC_STD", nombres=["DB10"])
+    _esperar_job(eventos, job_id)
+
+    assert (preview / "DB10.s7dcl").is_file()
+    assert (preview / "DB10.s7res").is_file()
+
+
+def test_preparar_vacia_el_preview_al_empezar(entorno: Any, tmp_path: Path) -> None:
+    """Cada prepare parte de un preview limpio."""
+    servicio, _ts, _bloques, eventos = entorno
+    preview = tmp_path / "editor_bloques" / "preview"
+    preview.mkdir(parents=True)
+    (preview / "Viejo.s7dcl").write_text("x", encoding="utf-8")
+
+    job_id = servicio.lanzar(trabajos.preparar_bloques, plc="ZC_PLC_STD", nombres=["DB10"])
+    _esperar_job(eventos, job_id)
+
+    assert not (preview / "Viejo.s7dcl").exists()
+    assert (preview / "DB10.s7dcl").is_file()
 
 
 # ── editar los bloques ─────────────────────────────────────────────────────

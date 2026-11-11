@@ -13,9 +13,6 @@ Ningun trabajo toca el portal fuera del hilo de TIA: lo reciben por
 from __future__ import annotations
 
 import logging
-import shutil
-import tempfile
-from pathlib import Path
 from typing import Any
 
 from zc_suite.simatic.cabecera import soporta_simaticsd, titulo_y_comentario
@@ -30,6 +27,7 @@ from zc_suite.tia_ops.bloques import (
 from zc_suite.tia_ops.exportar import exportar_bloques
 from zc_suite.tia_ops.proyecto import info_proyecto, listar_plcs
 from zc_suite.tia_ops.tablas import escanear_tablas_tags
+from zc_suite.workdir import workdir_editor_bloques
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +100,12 @@ def preparar_bloques(job: Job, plc: str, nombres: list[str]) -> dict[str, Any]:
     with job.paso("validar") as paso:
         if not nombres:
             raise OperacionError("No hay bloques seleccionados.")
+        # El preview del editor se vacia al empezar: asi los ficheros que
+        # quedan son los del ultimo prepare, y los de un prepare anterior
+        # no contaminan este.
+        editor = workdir_editor_bloques()
+        editor.limpiar_preview()
+        editor.preview.mkdir(parents=True, exist_ok=True)
         paso["detail"] = f"{len(nombres)} bloques"
 
     with job.paso("leer") as paso:
@@ -117,25 +121,22 @@ def preparar_bloques(job: Job, plc: str, nombres: list[str]) -> dict[str, Any]:
 
     cabeceras: dict[str, dict[str, str]] = {}
     if con_comentario:
-        carpeta = Path(tempfile.mkdtemp(prefix="zc_simaticsd_"))
-        try:
-            with job.paso("exportar") as paso:
-                exportar_bloques(
-                    job.tia.portal,
-                    plc,
-                    carpeta,
-                    nombres,
-                    version_tia=version,
+        editor = workdir_editor_bloques()
+        with job.paso("exportar") as paso:
+            exportar_bloques(
+                job.tia.portal,
+                plc,
+                editor.preview,
+                nombres,
+                version_tia=version,
+            )
+            paso["detail"] = f"{len(nombres)} bloques exportados"
+        with job.paso("parsear") as paso:
+            for bloque in leidos:
+                cabeceras[str(bloque["nombre"])] = titulo_y_comentario(
+                    editor.preview, str(bloque["nombre"])
                 )
-                paso["detail"] = f"{len(nombres)} bloques exportados"
-            with job.paso("parsear") as paso:
-                for bloque in leidos:
-                    cabeceras[str(bloque["nombre"])] = titulo_y_comentario(
-                        carpeta, str(bloque["nombre"])
-                    )
-                paso["detail"] = f"{len(cabeceras)} cabeceras leidas"
-        finally:
-            shutil.rmtree(carpeta, ignore_errors=True)
+            paso["detail"] = f"{len(cabeceras)} cabeceras leidas"
 
     with job.paso("combinar") as paso:
         for bloque in leidos:

@@ -21,6 +21,9 @@ from pathlib import Path
 #: Carpeta raiz del build cache.
 NOMBRE_BUILD_CACHE = ".build_cache"
 
+#: Contexto del editor de bloques, que es del shell y no de un area.
+CONTEXTO_EDITOR = "editor_bloques"
+
 #: Raiz del repo (raiz del proyecto).
 RAIZ = Path(__file__).resolve().parents[2]
 
@@ -87,6 +90,20 @@ def workdir(area: str, contexto: str) -> Workdir:
         El workdir. No crea nada en disco.
     """
     return Workdir(base=raiz_build_cache() / area / contexto)
+
+
+def workdir_editor_bloques() -> Workdir:
+    """Workdir del editor de bloques.
+
+    El editor exporta los bloques en SimaticSD para leer su titulo y su
+    comentario. Los ficheros se quedan en ``preview/`` para poder
+    inspeccionarlos: se vacian al **empezar** cada preparar, no al
+    terminar.
+
+    Returns:
+        El workdir. No crea nada en disco.
+    """
+    return Workdir(base=raiz_build_cache() / CONTEXTO_EDITOR)
 
 
 def _vaciar(carpeta: Path) -> None:
