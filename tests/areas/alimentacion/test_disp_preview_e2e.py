@@ -125,3 +125,34 @@ def test_la_prevision_no_avisa_de_nada(entorno_disp: Any) -> None:
 
     assert resultado["nmax"]["nmax_error"] is None
     assert resultado["summary"]["agregados"] == 1
+
+
+def test_avisa_de_las_tablas_que_no_estan_en_tia(entorno_disp: Any) -> None:
+    """Cada tabla que no existe en TIA se avisa: si no, el diff engaña."""
+    entorno_disp.prevision()
+
+    avisos = [
+        carga["mensaje"]
+        for tipo, carga in entorno_disp.eventos
+        if tipo == "log" and carga.get("nivel") == "warning"
+    ]
+
+    assert any("no existe en TIA" in aviso for aviso in avisos)
+    assert any("2000_Disp_EA" in aviso for aviso in avisos)
+
+
+def test_avisa_si_no_hay_tablas_que_exportar(entorno_disp: Any) -> None:
+    """Sin tipos de dispositivo en el catalogo, el trabajo avisa."""
+    seccion = dict(entorno_disp.seccion)
+    seccion["Dispositivos"] = {}
+    entorno_disp.seccion = seccion
+
+    entorno_disp.prevision()
+
+    avisos = [
+        carga["mensaje"]
+        for tipo, carga in entorno_disp.eventos
+        if tipo == "log" and carga.get("nivel") == "warning"
+    ]
+
+    assert any("No hay tablas de dispositivos que exportar" in aviso for aviso in avisos)

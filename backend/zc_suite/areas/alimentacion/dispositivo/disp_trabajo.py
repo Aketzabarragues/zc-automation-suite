@@ -127,6 +127,13 @@ def disp_generar_preview(
     tabla_n_max = str(config.get("global_config_table_name", ""))
 
     with job.paso("exportar") as paso:
+        if not tablas:
+            aviso = (
+                "No hay tablas de dispositivos que exportar: el catalogo del area "
+                "esta vacio. Revisa el config.json en uso."
+            )
+            logger.warning(aviso)
+            job.log(aviso, nivel="warning")
         if tabla_n_max:
             exportar_tablas(
                 job.tia.portal,
@@ -147,11 +154,19 @@ def disp_generar_preview(
     diffs: dict[str, DiffTabla] = {}
     with job.paso("dispositivos") as paso:
         for tipo, tabla in tablas:
-            diffs[tabla] = disp_calcular_diff_tabla(
+            diff = disp_calcular_diff_tabla(
                 tabla,
                 _dispositivos_del_excel(almacen, tipo, plc),
                 destino_disp / f"{tabla}.xml",
             )
+            if diff.xml_ausente:
+                aviso = (
+                    f"La tabla '{tabla}' no existe en TIA (o no se pudo exportar): "
+                    "sus dispositivos salen como altas."
+                )
+                logger.warning(aviso)
+                job.log(aviso, nivel="warning")
+            diffs[tabla] = diff
         agregados = sum(len(d.agregados) for d in diffs.values())
         eliminados = sum(len(d.eliminados) for d in diffs.values())
         renombrados = sum(len(d.renombrados) for d in diffs.values())
@@ -166,6 +181,13 @@ def disp_generar_preview(
             _n_max_del_excel(almacen, plc, config),
             destino_config / f"{tabla_n_max}.xml",
         )
+        if diff_n_max.xml_ausente:
+            aviso = (
+                f"La tabla de N_MAX '{tabla_n_max}' no existe en TIA (o no se pudo "
+                "exportar): todos los N_MAX salen como actualizar."
+            )
+            logger.warning(aviso)
+            job.log(aviso, nivel="warning")
         paso["detail"] = (
             f"{diff_n_max.resumen['actualizar']} a actualizar de {diff_n_max.resumen['total']}"
         )
