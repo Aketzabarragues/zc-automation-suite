@@ -1,7 +1,7 @@
 import { mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it } from "vitest";
-import FaceplateProgreso from "../componentes/FaceplateProgreso.vue";
+import FaceplateProgreso from "../components/FaceplateProgreso.vue";
 import { useTrabajosStore } from "../stores/trabajos.js";
 
 const PROGRESO = {

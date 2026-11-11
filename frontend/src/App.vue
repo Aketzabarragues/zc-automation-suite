@@ -3,9 +3,9 @@
  * Shell de la SPA: menu lateral, barra superior, columna central y consola de
  * trazabilidad.
  */
-import ConsolaLogs from "./componentes/ConsolaLogs.vue";
-import ShellSidebar from "./componentes/ShellSidebar.vue";
-import ShellTopbar from "./componentes/ShellTopbar.vue";
+import ConsolaLogs from "./components/ConsolaLogs.vue";
+import ShellSidebar from "./components/ShellSidebar.vue";
+import ShellTopbar from "./components/ShellTopbar.vue";
 import VistaInicio from "./vistas/VistaInicio.vue";
 </script>
 

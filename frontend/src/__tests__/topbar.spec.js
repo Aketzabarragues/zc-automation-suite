@@ -1,7 +1,7 @@
 import { mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import ShellTopbar from "../componentes/ShellTopbar.vue";
+import ShellTopbar from "../components/ShellTopbar.vue";
 import { useTiaStore } from "../stores/tia.js";
 
 describe("ShellTopbar", () => {
