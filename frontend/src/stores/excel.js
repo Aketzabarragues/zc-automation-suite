@@ -42,6 +42,9 @@ export const useExcelStore = defineStore("excel", {
     /** La tabla de configuracion (N_MAX por PLC), o `null`. */
     configuracion: (state) => (state.datos && state.datos.configuracion) || null,
 
+    /** Los avisos del parseo: dominios sin tabla o sin hoja. */
+    avisos: (state) => (state.datos && state.datos.avisos) || [],
+
     /** Cuantas filas hay en cada dominio. */
     contadores() {
       const filas = (tabla) => (tabla && Array.isArray(tabla.filas) ? tabla.filas.length : 0);

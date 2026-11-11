@@ -43,15 +43,16 @@ const inputFichero = ref(null);
 // ── las tablas ──────────────────────────────────────────────────────────────
 
 /**
- * Normaliza una tabla del backend: `{columnas, filas}`.
+ * Normaliza una tabla del backend: `{columnas, etiquetas, filas}`.
  *
  * @param {object|null} tabla la tabla.
- * @returns {object} `{columnas, filas}`, siempre con las dos listas.
+ * @returns {object} `{columnas, etiquetas, filas}`, siempre con las tres.
  */
 function tablaDe(tabla) {
-  if (!tabla) return { columnas: [], filas: [] };
+  if (!tabla) return { columnas: [], etiquetas: {}, filas: [] };
   return {
     columnas: Array.isArray(tabla.columnas) ? tabla.columnas : [],
+    etiquetas: tabla.etiquetas && typeof tabla.etiquetas === "object" ? tabla.etiquetas : {},
     filas: Array.isArray(tabla.filas) ? tabla.filas : [],
   };
 }
@@ -75,6 +76,18 @@ function filasDe(tabla) {
 function textoCelda(valor) {
   if (valor === null || valor === undefined || valor === "") return "—";
   return valor;
+}
+
+/**
+ * El titulo de una columna: la etiqueta del `col_labels` del config, o el
+ * nombre del campo tal cual si no tiene.
+ *
+ * @param {string} columna el nombre del campo.
+ * @returns {string} el titulo.
+ */
+function etiquetaDe(columna) {
+  const etiquetas = tablaActiva.value.etiquetas || {};
+  return etiquetas[columna] || columna;
 }
 
 /**
@@ -237,6 +250,23 @@ onMounted(() => {
       </button>
     </div>
 
+    <!-- ── AVISOS ─────────────────────────────────────────────────────── -->
+    <div
+      v-if="excel.avisos.length"
+      class="bg-surface-raised border border-amber-500 rounded p-3 text-xs text-ink"
+      data-testid="definicion-avisos"
+    >
+      <p
+        v-for="(aviso, indice) in excel.avisos"
+        :key="indice"
+        class="flex items-start gap-2"
+        :class="indice > 0 ? 'mt-1' : ''"
+      >
+        <span class="text-amber-600">⚠️</span>
+        <span>{{ aviso }}</span>
+      </p>
+    </div>
+
     <!-- ── CONTENIDO ───────────────────────────────────────────────────── -->
     <section
       class="flex-1 min-h-0 flex flex-col bg-surface-raised border border-line rounded p-4"
@@ -321,7 +351,7 @@ onMounted(() => {
                   :key="columna"
                   class="px-3 py-2 text-left text-[10px] uppercase text-ink-muted font-semibold border-b border-line"
                 >
-                  {{ columna }}
+                  {{ etiquetaDe(columna) }}
                 </th>
               </tr>
             </thead>

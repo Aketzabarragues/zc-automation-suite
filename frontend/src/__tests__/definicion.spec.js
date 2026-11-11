@@ -18,6 +18,7 @@ const EXCEL = {
     {
       tipo: "DispED",
       columnas: ["plc_name", "numero", "tag"],
+      etiquetas: { numero: "Número", tag: "TAG" },
       filas: [
         { plc_name: "PLC1", numero: 1, tag: "V_ED_001" },
         { plc_name: "PLC1", numero: 2, tag: "" },
@@ -26,6 +27,7 @@ const EXCEL = {
     {
       tipo: "DispEA",
       columnas: ["plc_name", "numero", "tag"],
+      etiquetas: { numero: "Número", tag: "TAG" },
       filas: [{ plc_name: "PLC1", numero: 2, tag: "V_EA_002" }],
     },
   ],
@@ -42,6 +44,7 @@ const EXCEL = {
     columnas: ["PLC", "NUMERO"],
     filas: [{ PLC: "PLC1", NUMERO: 1 }],
   },
+  avisos: [],
 };
 
 /** El backend sin ningun Excel cargado. */
@@ -136,6 +139,37 @@ describe("DefinicionProgramacion", () => {
     const tabla = wrapper.find('[data-testid="definicion-tabla-datos"]');
     expect(tabla.text()).toContain("V_ED_001");
     expect(tabla.text()).toContain("—");
+  });
+
+  it("los titulos de columna salen de las etiquetas", async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => EXCEL });
+    const { wrapper } = montar();
+    await flushPromises();
+
+    await wrapper.find('[data-testid="definicion-pestana-dispositivos"]').trigger("click");
+
+    const tabla = wrapper.find('[data-testid="definicion-tabla-datos"]');
+    expect(tabla.text()).toContain("Número");
+    expect(tabla.text()).toContain("TAG");
+  });
+
+  it("los avisos del parseo se ven en la vista", async () => {
+    const conAvisos = { ...EXCEL, avisos: ["No se encuentra la tabla Tabla_Disp_ED en la hoja DISP_ED"] };
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => conAvisos });
+    const { wrapper } = montar();
+    await flushPromises();
+
+    const avisos = wrapper.find('[data-testid="definicion-avisos"]');
+    expect(avisos.exists()).toBe(true);
+    expect(avisos.text()).toContain("No se encuentra la tabla Tabla_Disp_ED en la hoja DISP_ED");
+  });
+
+  it("sin avisos no sale el aviso", async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => EXCEL });
+    const { wrapper } = montar();
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="definicion-avisos"]').exists()).toBe(false);
   });
 
   it("un error del backend se ve en la vista y no en un alert", async () => {
