@@ -143,6 +143,8 @@ config/config.json  plantilla de configuracion
 - [docs/NUEVA_AREA.md](docs/NUEVA_AREA.md) — como se anade un area.
 - [docs/NUEVO_DISPOSITIVO.md](docs/NUEVO_DISPOSITIVO.md) — como se anade un tipo
   de dispositivo.
+- [docs/MAPA_FB.md](docs/MAPA_FB.md) — donde vive ahora cada FB de la app
+  anterior, y como se crea un trabajo nuevo.
 - [docs/PROBLEMAS.md](docs/PROBLEMAS.md) — problemas frecuentes.
 - [docs/FLUJOS_ALIMENTACION.md](docs/FLUJOS_ALIMENTACION.md) — los ocho flujos de
   la app original, paso a paso, y como hay que rehacerlos.
