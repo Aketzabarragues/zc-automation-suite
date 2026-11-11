@@ -3,26 +3,36 @@
 Punto unico de composicion: crea el hilo de TIA, el bus de eventos y la app
 Flask, y monta las rutas. La lista ``AREAS`` es el unico sitio donde el
 nucleo conoce las areas.
+
+Dos modos de arranque:
+
+- **Consola** (desarrollo): el servidor web ocupa el hilo principal y se
+  para con Ctrl+C.
+- **Bandeja** (empaquetado): la web levanta sola en un hilo daemon y el
+  menu de la bandeja permite pararla, abrir el panel, ver el estado o
+  salir. El navegador no se abre solo.
 """
 from __future__ import annotations
 
 import argparse
 import logging
+import platform
 import sys
-import threading
-import time
 import webbrowser
 from pathlib import Path
 from typing import Any
 
 from flask import Flask
 
+from zc_suite import logs
 from zc_suite.areas import alimentacion
-from zc_suite.config import Config, cargar_config
+from zc_suite.bandeja import Bandeja, desconectar_y_parar
+from zc_suite.config import Config, ConfigEnUso, cargar_config, resolver_config
 from zc_suite.eventos import BusEventos
 from zc_suite.rutas import catalogo as rutas_catalogo
 from zc_suite.rutas import conexion as rutas_conexion
 from zc_suite.rutas import plc as rutas_plc
+from zc_suite.servidor import ServidorWeb
 from zc_suite.tia import ServicioTIA
 from zc_suite.web import PUERTO_POR_DEFECTO, crear_app
 
@@ -31,48 +41,88 @@ logger = logging.getLogger(__name__)
 #: Areas de la app. Se anaden aqui, una a una, y en ningun otro sitio.
 AREAS: list[Any] = [alimentacion]
 
-#: Nombre del fichero de log cuando la app va empaquetada.
-NOMBRE_LOG = "zc.log"
+#: La version de la app.
+VERSION = "0.1.0"
 
 
-def ruta_log() -> Path:
-    """La ruta del fichero de log.
+def carpeta_del_executable() -> Path:
+    """La carpeta donde esta el ejecutable.
 
-    Empaquetado: junto al ejecutable. Desarrollo: en el repo.
+    Empaquetado: la del ``.exe``. Desarrollo: la del repo.
     """
     if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent / NOMBRE_LOG
-    return Path(__file__).resolve().parents[2] / NOMBRE_LOG
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parents[2]
 
 
-def configurar_logging(nivel: int = logging.INFO) -> None:
-    """Prepara el logging de la app.
+def carpeta_de_datos() -> Path:
+    """La carpeta donde la app guarda sus datos.
 
-    El root se queda en DEBUG para el fichero, pero por consola solo sale a
-    partir de INFO: los loggers de Werkzeug son ruidosos.
-
-    Empaquetada, la app se abre sin consola: sin fichero de log el
-    operario no tiene ninguna traza de lo que pasa. Por eso, cuando esta
-    congelada, el log tambien va a un fichero junto al ejecutable.
+    Empaquetado: junto al ejecutable. Desarrollo: el repo.
     """
-    logging.basicConfig(
-        level=nivel,
-        format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
+    return carpeta_del_executable()
+
+
+def _estado_de_tia(servicio: ServicioTIA) -> str:
+    """El estado de TIA, como texto para el globo de la bandeja."""
+    estado = servicio.estado()
+    if estado["conectado"]:
+        return f"conectado ({estado['version_tia'] or 'version desconocida'})"
+    if estado["ultimo_error"]:
+        return f"desconectado ({estado['ultimo_error']})"
+    return "desconectado"
+
+
+def log_de_arranque(
+    config_en_uso: ConfigEnUso,
+    catalogos: dict[str, dict[str, Any]],
+) -> None:
+    """Escribe en el log como esta la app.
+
+    Args:
+        config_en_uso: el ``config.json`` que se esta usando y de donde sale.
+        catalogos: el catalogo de cada area.
+    """
+    logger.info("=" * 60)
+    logger.info("ZC Automation Suite %s", VERSION)
+    logger.info(
+        "Python %s | empaquetado: %s",
+        platform.python_version(),
+        bool(getattr(sys, "frozen", False)),
     )
-    logging.getLogger("werkzeug").setLevel(logging.WARNING)
-    if getattr(sys, "frozen", False):
-        try:
-            manejador = logging.FileHandler(ruta_log(), encoding="utf-8")
-        except OSError as exc:
-            logging.getLogger("zc_suite").warning(
-                "No se pudo abrir el log '%s': %s", ruta_log(), exc
-            )
-            return
-        manejador.setLevel(logging.DEBUG)
-        manejador.setFormatter(
-            logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s")
+    logger.info("Ejecutable: %s", carpeta_del_executable())
+    logger.info("Datos: %s", carpeta_de_datos())
+    logger.info("Log: %s", logs.ruta_log())
+    logger.info(
+        "Config en uso: %s (origen: %s)",
+        config_en_uso.ruta,
+        config_en_uso.origen,
+    )
+    for id_area, catalogo in catalogos.items():
+        tipos = len(catalogo.get("Dispositivos") or {})
+        n_max = len(catalogo.get("n_max_catalog") or [])
+        logger.info(
+            "Area '%s': %d tipos de dispositivo, %d N_MAX",
+            id_area,
+            tipos,
+            n_max,
         )
-        logging.getLogger().addHandler(manejador)
+        if not tipos:
+            logger.warning(
+                "El area '%s' no tiene tipos de dispositivo en el catalogo: la "
+                "vista de dispositivos saldra vacia. Revisa el config.json en "
+                "uso (%s).",
+                id_area,
+                config_en_uso.ruta,
+            )
+        if not n_max:
+            logger.warning(
+                "El area '%s' no tiene N_MAX en el catalogo: las tarjetas de "
+                "N_MAX saldran vacias. Revisa el config.json en uso (%s).",
+                id_area,
+                config_en_uso.ruta,
+            )
+    logger.info("=" * 60)
 
 
 def montar_app(
@@ -81,6 +131,7 @@ def montar_app(
     desarrollo: bool = False,
     puerto: int = PUERTO_POR_DEFECTO,
     config: Config | None = None,
+    config_en_uso: ConfigEnUso | None = None,
 ) -> Flask:
     """Crea la app y monta las rutas del nucleo y de las areas.
 
@@ -91,12 +142,16 @@ def montar_app(
         puerto: puerto de escucha.
         config: configuracion validada. Por defecto se carga del
             ``config.json`` del usuario.
+        config_en_uso: el ``config.json`` en uso y su origen. Por defecto se
+            resuelve.
 
     Returns:
         La app lista para servir.
     """
     app = crear_app(servicio, bus, desarrollo=desarrollo, puerto=puerto)
-    config_app = config if config is not None else cargar_config()
+    if config is None or config_en_uso is None:
+        config_en_uso = resolver_config()
+    config_app = config if config is not None else cargar_config(config_en_uso.ruta)
     app.config["ZC_CONFIG"] = config_app
     rutas_conexion.registrar(app)
     rutas_plc.registrar(app)
@@ -112,28 +167,8 @@ def montar_app(
         app.register_blueprint(area.rutas)
         logger.info("Area registrada: %s", area.ID)
     app.config["ZC_CATALOGO"] = catalogos
+    log_de_arranque(config_en_uso, catalogos)
     return app
-
-
-def _icono_bandeja() -> Any:
-    """Icono de la bandeja: un circulo azul marino."""
-    from PIL import Image, ImageDraw
-
-    imagen = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
-    dibujo = ImageDraw.Draw(imagen)
-    dibujo.ellipse((6, 6, 58, 58), fill=(0, 52, 102, 255))
-    return imagen
-
-
-def _bandeja(url: str, al_salir: Any) -> None:
-    """Bandeja del sistema con 'Abrir' y 'Salir'."""
-    import pystray
-
-    menu = pystray.Menu(
-        pystray.MenuItem("Abrir", lambda: webbrowser.open(url)),
-        pystray.MenuItem("Salir", al_salir),
-    )
-    pystray.Icon("zc", _icono_bandeja(), "ZC Automation Suite", menu).run()
 
 
 def arrancar(
@@ -146,11 +181,12 @@ def arrancar(
     """Arranca el hilo de TIA y el servidor web.
 
     Args:
-        host: direccion de escucha.
+        host: host de escucha.
         puerto: puerto de escucha.
         desarrollo: si es ``True``, se admiten los origenes de Vite.
-        bandeja: si es ``True``, aparece el icono en la bandeja del sistema.
-        abrir_navegador: si es ``True``, abre el navegador al arrancar.
+        bandeja: si es ``True``, la app se abre con el icono de bandeja y
+            el navegador no se abre solo.
+        abrir_navegador: si es ``True``, se abre el navegador al arrancar.
     """
     bus = BusEventos()
     servicio = ServicioTIA(publicador=bus.publicar)
@@ -162,31 +198,23 @@ def arrancar(
     if not bandeja:
         if abrir_navegador:
             webbrowser.open(url)
-        app.run(host=host, port=puerto, threaded=True)
+        try:
+            app.run(host=host, port=puerto, threaded=True)
+        finally:
+            servicio.parar()
         return
 
-    servidor = threading.Thread(
-        target=lambda: app.run(host=host, port=puerto, threaded=True),
-        name="zc-web",
-        daemon=True,
+    servidor = ServidorWeb(app, host, puerto)
+    caja = Bandeja(
+        url=url,
+        web=servidor,
+        estado_tia=lambda: _estado_de_tia(servicio),
+        parar_tia=lambda: desconectar_y_parar(servicio),
     )
-    servidor.start()
-    if abrir_navegador:
-        webbrowser.open(url)
     try:
-        _bandeja(url, servicio.parar)
-    except KeyboardInterrupt:
-        pass
-    except Exception as exc:
-        # Sin bandeja no hay forma de abrir la SPA: el servidor web se
-        # queda vivo para que el operario la abra a mano.
-        logger.error("El icono de bandeja fallo: %s. El servidor web sigue vivo.", exc)
-        try:
-            while servidor.is_alive():
-                time.sleep(1.0)
-        except KeyboardInterrupt:
-            pass
+        caja.correr()
     finally:
+        servidor.stop()
         servicio.parar()
 
 
@@ -207,7 +235,7 @@ def main() -> None:
     parser.add_argument(
         "--bandeja",
         action="store_true",
-        help="Muestra el icono en la bandeja del sistema.",
+        help="Muestra el icono de bandeja del sistema.",
     )
     parser.add_argument(
         "--abrir",
@@ -220,12 +248,15 @@ def main() -> None:
     if not host or not puerto_texto.isdigit():
         parser.error(f"--web debe ser HOST:PUERTO, no '{argumentos.web}'")
 
-    # Empaquetado, la app arranca con la bandeja: es una app de escritorio y
-    # el ejecutable se abre con doble click, sin consola. En desarrollo el
-    # arranque es de consola, salvo que se pida la bandeja con --bandeja.
-    bandeja = argumentos.bandeja or getattr(sys, "frozen", False)
+    # El log va primero: todo lo que pase despues queda escrito.
+    logs.configurar_logging()
+    logs.instalar_hooks_de_excepcion()
 
-    configurar_logging()
+    # Empaquetada, la app se abre con doble click: no hay consola. Por eso
+    # arranca con la bandeja, como la app anterior. En desarrollo el
+    # arranque es de consola, salvo que se pida la bandeja con --bandeja.
+    bandeja = argumentos.bandeja or bool(getattr(sys, "frozen", False))
+
     arrancar(
         host=host,
         puerto=int(puerto_texto),

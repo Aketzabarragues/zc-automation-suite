@@ -88,6 +88,14 @@ if sys.platform == "win32":
 #: Raiz del repo.
 ROOT = Path(__file__).resolve().parent
 
+#: El paquete del nucleo, para poder importar sus modulos.
+BACKEND_DIR = "backend"
+
+if str(ROOT / BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT / BACKEND_DIR))
+
+from zc_suite.icono import generar_ico  # noqa: E402
+
 #: Nombre del ejecutable, sin extension.
 EXE_NAME = "zc_automation_suite"
 
@@ -102,9 +110,6 @@ SUPPORTED_PYTHONS: list[tuple[int, int]] = [(3, 12), (3, 13), (3, 14)]
 
 #: Entry del ``.exe``: el modulo ``main`` del paquete.
 ENTRY_SCRIPT = "backend/zc_suite/main.py"
-
-#: Raiz del paquete Python, para que ``import zc_suite`` resuelva.
-BACKEND_DIR = "backend"
 
 #: Carpeta del frontend, con su ``package.json``.
 FRONTEND_DIR = "frontend"
@@ -133,51 +138,11 @@ PROJECT_DATA_FILES: list[tuple[str, str]] = [
 ]
 
 
-# ── El icono del ejecutable ─────────────────────────────────────────────────
-
-#: Icono embebido en el ``.exe`` (lo que se ve en el Explorador de Windows,
-#: en Alt+Tab, en el acceso directo).
-#:
-#: No hay un ``.ico`` en el repo: la bandeja dibuja el suyo en memoria con
-#: Pillow (``zc_suite.main._icono_bandeja``). Para el ``.exe`` se genera el
-#: mismo dibujo en el tempdir de staging, asi que el repo no lleva binarios
-#: sueltos.
-ICON_SIZES: tuple[tuple[int, int], ...] = ((16, 16), (32, 32), (48, 48), (64, 64), (256, 256))
-
-#: Color del icono: azul marino de Siemens.
-COLOR_ICONO = (0, 52, 102)
-
-
-def generar_icono(destino: Path) -> Path:
-    """Genera el ``.ico`` del ejecutable.
-
-    Dibuja el mismo circulo que usa la bandeja, en los tamanos que
-    PyInstaller necesita para el Explorador de Windows.
-
-    Args:
-        destino: fichero ``.ico`` a escribir.
-
-    Returns:
-        La ruta del ``.ico`` escrito.
-
-    Raises:
-        RuntimeError: si Pillow no esta instalado.
-    """
-    try:
-        from PIL import Image, ImageDraw
-    except ImportError as exc:
-        raise RuntimeError(
-            "Pillow no esta instalado en el interprete actual. "
-            "Ejecuta: pip install pillow"
-        ) from exc
-
-    mayor = max(lado for lado, _ in ICON_SIZES)
-    imagen = Image.new("RGBA", (mayor, mayor), (0, 0, 0, 0))
-    dibujo = ImageDraw.Draw(imagen)
-    dibujo.ellipse((4, 4, mayor - 4, mayor - 4), fill=(*COLOR_ICONO, 255))
-    destino.parent.mkdir(parents=True, exist_ok=True)
-    imagen.save(destino, format="ICO", sizes=list(ICON_SIZES))
-    return destino
+# ── El icono del ejecutable ────────────────────────────────────────────────
+#
+#: No hay un ``.ico`` en el repo: el icono se dibuja en el momento de
+#: empaquetar (el mismo "ZC" que lleva la bandeja). Ver
+#: ``zc_suite.icono``.
 
 
 # ── Hiddenimports ───────────────────────────────────────────────────────────
@@ -229,7 +194,6 @@ def ids_de_areas() -> list[str]:
             "Instala el backend con: pip install -e \".[dev]\""
         ) from exc
     return [str(area.ID) for area in AREAS]
-
 
 def _scan_hiddenimports() -> list[str]:
     """Escanea las areas registradas y devuelve los modulos a bundlear.
@@ -972,7 +936,7 @@ def main(argv: list[str] | None = None) -> int:
     staging_root: Path | None = None
     try:
         staging_root, vendor_dir = stage_vendor_assets(pyd_path, dlls, xmls)
-        exe_icon = generar_icono(staging_root / "icon.ico")
+        exe_icon = generar_ico(staging_root / "icon.ico")
         print(f"[OK] Icono generado: {exe_icon.name}")
         spec_path = write_generated_spec_file(
             staging_root,

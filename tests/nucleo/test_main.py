@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -204,3 +205,67 @@ def test_el_nucleo_se_monta_aunque_haya_areas(app: Flask) -> None:
     cliente: Any = app.test_client()
 
     assert cliente.get("/api/v1/tia/estado", base_url="http://localhost:9484").status_code == 200
+
+
+# ── el log de arranque ──────────────────────────────────────────────────────
+
+
+def test_el_log_de_arranque_dice_de_donde_sale_el_config(caplog: pytest.LogCaptureFixture) -> None:
+    """El log dice que config.json se usa y de donde sale."""
+    import logging
+
+    from zc_suite.config import ORIGEN_USUARIO, ConfigEnUso
+    from zc_suite.main import log_de_arranque
+
+    with caplog.at_level(logging.INFO):
+        log_de_arranque(
+            ConfigEnUso(Path("C:/app/config/config.json"), ORIGEN_USUARIO),
+            {"alimentacion": {"Dispositivos": {"ed": {}}, "n_max_catalog": [{"name": "x"}]}},
+        )
+
+    mensajes = [registro.getMessage() for registro in caplog.records]
+    ruta = str(Path("C:/app/config/config.json"))
+    assert any(ruta in m and "usuario" in m for m in mensajes)
+
+
+def test_el_log_de_arranque_avisa_si_el_area_no_tiene_dispositivos(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Un area sin tipos de dispositivo avisa: la vista saldria vacia."""
+    import logging
+
+    from zc_suite.config import ORIGEN_USUARIO, ConfigEnUso
+    from zc_suite.main import log_de_arranque
+
+    with caplog.at_level(logging.WARNING):
+        log_de_arranque(
+            ConfigEnUso(Path("C:/app/config/config.json"), ORIGEN_USUARIO),
+            {"alimentacion": {"Dispositivos": {}, "n_max_catalog": []}},
+        )
+
+    mensajes = [registro.getMessage() for registro in caplog.records]
+    assert any("no tiene tipos de dispositivo" in m for m in mensajes)
+    assert any("no tiene N_MAX" in m for m in mensajes)
+
+
+def test_el_log_de_arranque_no_avisa_con_el_catalogo_completo(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Con el catalogo completo, no hay avisos."""
+    import logging
+
+    from zc_suite.config import ORIGEN_PLANTILLA, ConfigEnUso
+    from zc_suite.main import log_de_arranque
+
+    with caplog.at_level(logging.WARNING):
+        log_de_arranque(
+            ConfigEnUso(Path("C:/app/config/config.json"), ORIGEN_PLANTILLA),
+            {
+                "alimentacion": {
+                    "Dispositivos": {"ed": {}, "ea": {}},
+                    "n_max_catalog": [{"name": "N_MAX_DISP_ED"}],
+                }
+            },
+        )
+
+    assert not [registro for registro in caplog.records if registro.levelno >= logging.WARNING]
