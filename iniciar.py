@@ -1,15 +1,20 @@
 """iniciar.py — desarrollo: backend + Vite + navegador.
 
 Arranca el backend en modo desarrollo y el servidor de Vite, y abre el
-navegador en la SPA. El backend se ejecuta en un hilo aparte para que
-Vite pueda tomar el control de la consola.
+navegador en la SPA. El backend se ejecuta en un hilo aparte para que Vite
+pueda tomar el control de la consola.
+
+Con ``--build`` no arranca Vite: el backend sirve el build de la SPA
+(``frontend/dist``), que es como funcionara el ``.exe``.
 
 Uso:
-    python iniciar.py
+    python iniciar.py            # backend + Vite
+    python iniciar.py --build    # backend sirviendo frontend/dist
 """
 
 from __future__ import annotations
 
+import argparse
 import subprocess
 import sys
 import threading
@@ -46,15 +51,47 @@ def _esperar_vite(segundos: float = 30.0) -> bool:
     return False
 
 
-def _backend() -> None:
-    """Arranca el backend en modo desarrollo."""
+def _backend(desarrollo: bool) -> None:
+    """Arranca el backend.
+
+    Args:
+        desarrollo: si es ``True`` se admiten los origenes de Vite.
+    """
     from zc_suite.main import arrancar
 
-    arrancar(host=HOST, puerto=PUERTO, desarrollo=True)
+    arrancar(host=HOST, puerto=PUERTO, desarrollo=desarrollo)
+
+
+def _servir_build() -> int:
+    """Arranca solo el backend, sirviendo el build de la SPA."""
+    sys.path.insert(0, str(RAIZ / "backend"))
+
+    dist = FRONTEND / "dist"
+    if not (dist / "index.html").is_file():
+        print("El frontend no esta compilado. Ejecuta 'npm run build' en frontend/.")
+        return 1
+
+    print(f"Backend:  http://{HOST}:{PUERTO}")
+    print("Frontend: build de frontend/dist")
+    print("Ctrl+C para parar.")
+    webbrowser.open(f"http://{HOST}:{PUERTO}/")
+    _backend(desarrollo=False)
+    return 0
 
 
 def main() -> int:
     """Arranca Vite y el backend, y abre el navegador."""
+    parser = argparse.ArgumentParser(description="Arranca ZC Automation Suite.")
+    parser.add_argument(
+        "--build",
+        action="store_true",
+        help="Sirve el build de la SPA desde Flask, sin Vite. Es como ira en el .exe.",
+    )
+    argumentos = parser.parse_args()
+
+    if argumentos.build:
+        return _servir_build()
+
     sys.path.insert(0, str(RAIZ / "backend"))
 
     vite = subprocess.Popen(
@@ -62,7 +99,7 @@ def main() -> int:
         cwd=FRONTEND,
         shell=False,
     )
-    backend = threading.Thread(target=_backend, name="zc-backend", daemon=True)
+    backend = threading.Thread(target=_backend, args=(True,), name="zc-backend", daemon=True)
     backend.start()
 
     if not _esperar_vite():

@@ -43,6 +43,35 @@ cd frontend && npm install && cd ..
 | Build frontend | `npm run build` (en `frontend/`) |
 | Empaquetar .exe | `python build_exe.py` |
 
+## Arrancar la app
+
+### Desarrollo: backend + Vite
+
+```bash
+python iniciar.py
+```
+
+Abre `http://localhost:5173/`. Vite sirve la SPA y redirige `/api` al backend
+(`127.0.0.1:9484`). El backend se levanta en modo desarrollo, que es lo que
+permite el origen de Vite en las peticiones `POST`.
+
+### Build servido por Flask (como ira en el `.exe`)
+
+```bash
+cd frontend && npm run build && cd ..
+python iniciar.py --build
+```
+
+Abre `http://127.0.0.1:9484/`. Flask sirve `frontend/dist` y el stream de
+eventos. Es exactamente lo que hace el `.exe` empaquetado.
+
+### Modo demo
+
+Anade `?demo=1` a la URL: `http://localhost:5173/?demo=1` o
+`http://127.0.0.1:9484/?demo=1`. No se abre el stream de eventos, se
+simulan: sirve para ver el shell (barra superior, faceplate de progreso y
+consola de trazabilidad) sin TIA Portal ni backend.
+
 ## Estructura
 
 ```
