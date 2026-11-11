@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from openpyxl import Workbook
 
 from zc_suite.areas.alimentacion.excel import almacen as modulo_almacen
 from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
@@ -84,6 +85,25 @@ def _esperar_job(eventos: list[tuple[str, dict[str, Any]]], job_id: str) -> dict
     raise AssertionError(f"El trabajo {job_id} no termino.")
 
 
+def _pasos(eventos: list[tuple[str, dict[str, Any]]]) -> list[str]:
+    """Los identificadores de los pasos del ultimo trabajo."""
+    for tipo, carga in reversed(eventos):
+        if tipo == "progress":
+            return [etapa["id"] for etapa in carga["stages"]]
+    return []
+
+
+def _detalle_de(eventos: list[tuple[str, dict[str, Any]]], paso: str) -> str:
+    """El detalle de un paso del ultimo trabajo."""
+    for tipo, carga in reversed(eventos):
+        if tipo != "progress":
+            continue
+        for etapa in carga["stages"]:
+            if etapa["id"] == paso:
+                return etapa.get("detail") or ""
+    return ""
+
+
 # ── ver el Excel ────────────────────────────────────────────────────────────
 
 
@@ -101,7 +121,7 @@ def test_sin_excel_cargado_da_el_vacio(cliente: Any) -> None:
 # ── subir un Excel ──────────────────────────────────────────────────────────
 
 
-def test_subir_un_excel_responde_202_con_el_job_id(
+def test_subir_un_xlsx_responde_202_con_el_job_id(
     cliente: Any,
     excel_maestro: Path,
 ) -> None:
@@ -132,6 +152,28 @@ def test_subir_un_xlsm_responde_202_con_el_job_id(
 
     assert respuesta.status_code == 202
     assert respuesta.get_json()["job_id"]
+
+
+def test_el_trabajo_parsea_un_xlsm(
+    cliente: Any,
+    almacen: AlmacenExcel,
+    eventos: list[tuple[str, dict[str, Any]]],
+    excel_maestro: Path,
+) -> None:
+    with excel_maestro.open("rb") as fichero:
+        respuesta = cliente.post(
+            "/api/v1/areas/alimentacion/excel",
+            data={"fichero": (fichero, "Maestro_ZC_PLC_STD.xlsm")},
+            base_url=BASE,
+            headers={"Origin": BASE},
+        )
+    job_id = respuesta.get_json()["job_id"]
+
+    evento = _esperar_job(eventos, job_id)
+
+    assert evento["estado"] == "ok"
+    assert almacen.archivo == "Maestro_ZC_PLC_STD.xlsm"
+    assert almacen.estado()["dispositivos"][0]["filas"][0]["tag"] == "V_ED_001"
 
 
 def test_el_trabajo_del_excel_no_exige_conexion_con_tia(
@@ -194,6 +236,7 @@ def test_subir_una_extension_no_admitida_responde_400(cliente: Any, tmp_path: Pa
 
     assert respuesta.status_code == 400
     assert ".xlsx" in respuesta.get_json()["error"]
+    assert ".xlsm" in respuesta.get_json()["error"]
 
 
 def test_subir_un_fichero_grande_responde_400(
@@ -216,6 +259,34 @@ def test_subir_un_fichero_grande_responde_400(
 
     assert respuesta.status_code == 400
     assert "grande" in respuesta.get_json()["error"]
+
+
+def test_el_trabajo_avisa_de_los_dominios_sin_tabla(
+    cliente: Any,
+    eventos: list[tuple[str, dict[str, Any]]],
+    tmp_path: Path,
+) -> None:
+    """Un Excel sin tablas avisa, pero el trabajo termina bien."""
+    ruta = tmp_path / "sin_tablas.xlsx"
+    libro = Workbook()
+    libro.save(ruta)
+
+    with ruta.open("rb") as fichero:
+        respuesta = cliente.post(
+            "/api/v1/areas/alimentacion/excel",
+            data={"fichero": (fichero, "sin_tablas.xlsx")},
+            base_url=BASE,
+            headers={"Origin": BASE},
+        )
+    job_id = respuesta.get_json()["job_id"]
+
+    evento = _esperar_job(eventos, job_id)
+
+    assert evento["estado"] == "ok"
+    avisos = evento["resultado"]["avisos"]
+    assert any("DISP_ED" in aviso for aviso in avisos)
+    assert "avisos" in _pasos(eventos)
+    assert "DISP_ED" in _detalle_de(eventos, "avisos")
 
 
 # ── recargar ────────────────────────────────────────────────────────────────

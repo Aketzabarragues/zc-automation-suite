@@ -28,6 +28,9 @@ SUBCARPETA_EXCEL = "excel"
 #: Extension de las copias.
 EXTENSION = ".xlsx"
 
+#: Extensiones de las copias: el Excel maestro del operario es ``.xlsm``.
+EXTENSIONES = (".xlsx", ".xlsm")
+
 #: Raiz del repo.
 RAIZ = Path(__file__).resolve().parents[5]
 
@@ -51,7 +54,11 @@ def ruta_persistida() -> Path | None:
     carpeta = carpeta_persistida()
     if not carpeta.is_dir():
         return None
-    ficheros = sorted(carpeta.glob(f"*{EXTENSION}"))
+    ficheros = sorted(
+        fichero
+        for extension in EXTENSIONES
+        for fichero in carpeta.glob(f"*{extension}")
+    )
     return ficheros[-1] if ficheros else None
 
 
@@ -91,9 +98,9 @@ class AlmacenExcel:
 
         Returns:
             Un dict con ``cargado``, ``archivo``, ``cargado_en``, ``plcs``,
-            ``configuracion``, ``dispositivos``, ``procesos`` y ``entidades``.
-            Sin Excel cargado, los dominios salen vacios: la vista enseña el
-            estado vacio, no un error.
+            ``configuracion``, ``dispositivos``, ``procesos``, ``entidades``
+            y ``avisos``. Sin Excel cargado, los dominios salen vacios: la
+            vista enseña el estado vacio, no un error.
         """
         datos = self._datos or {}
         return {
@@ -105,6 +112,7 @@ class AlmacenExcel:
             "dispositivos": list(datos.get("dispositivos") or []),
             "procesos": dict(datos.get("procesos") or {}),
             "entidades": datos.get("entidades") or {"columnas": [], "filas": []},
+            "avisos": list(datos.get("avisos") or []),
         }
 
     # ── escritura ───────────────────────────────────────────────────────
@@ -142,8 +150,8 @@ class AlmacenExcel:
         carpeta = carpeta_persistida()
         carpeta.mkdir(parents=True, exist_ok=True)
         destino = carpeta / Path(ruta).name
-        for anterior in carpeta.glob(f"*{EXTENSION}"):
-            if anterior != destino:
+        for anterior in carpeta.iterdir():
+            if anterior.suffix.lower() in EXTENSIONES and anterior != destino:
                 anterior.unlink(missing_ok=True)
         shutil.copy2(ruta, destino)
         logger.info("Excel maestro guardado en %s", destino)

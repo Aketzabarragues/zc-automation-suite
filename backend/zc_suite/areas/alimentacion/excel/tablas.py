@@ -1,151 +1,401 @@
-"""Como esta repartido el Excel maestro: hojas, tablas y cabeceras.
+"""Donde vive cada dominio del Excel maestro.
 
-El Excel del operario es un ``.xlsx`` con **tablas nombradas** (ListObject).
-Cada dominio vive en una hoja y una tabla. Las columnas se renombran a los
-nombres de campo que usa la SPA, con un mapa explicito: el Excel trae
-cabeceras literales (``"PLC.Tag"``, ``"E.Byte"``) y la SPA enseña nombres de
-campo (``plc_tag``, ``e_byte``).
+Un dominio es una tabla nombrada: la hoja donde esta y los campos del
+modelo. Las hojas y tablas de los dispositivos se pueden sobreescribir desde
+el ``config.json`` (``excel_target``); el resto son fijas.
 
-Este modulo es puro: no lee ficheros ni habla con nadie.
+Los campos son los de los DTO de ``main``: los mismos nombres y los mismos
+tipos, para que las fases siguientes los usen tal cual.
 """
 from __future__ import annotations
 
 from typing import Any
 
-#: Hoja de la configuracion global (N_MAX, PLCs y Procesos).
+from zc_suite.areas.alimentacion.excel.modelo import (
+    CAMPOS_DISPOSITIVO,
+    CAMPOS_PLC,
+    DECIMAL,
+    ENTERO,
+    NUM_LISTA,
+    Campo,
+    Dominio,
+)
+
+#: Hoja de la configuracion global: dimensiones, PLCs y procesos.
 HOJA_CONFIG = "CONFIG"
 
-#: Tabla de N_MAX por PLC.
-TABLA_N_MAX = "Tabla_Dimensiones"
-
-#: Tabla de la lista canonica de PLCs.
-TABLA_PLC = "Tabla_PLC"
-
-#: Tabla de procesos.
-TABLA_PROCESOS = "Tabla_Procesos"
-
-#: Hoja y tabla de los parametros enteros.
+#: Hoja de las entradas y salidas analogicas.
 HOJA_PARAM_INT = "P_INT"
-TABLA_PARAM_INT = "Tabla_PInt"
-
-#: Hoja y tabla de los parametros reales.
 HOJA_PARAM_REAL = "P_REAL"
-TABLA_PARAM_REAL = "Tabla_PReal"
 
-#: Hoja y tabla de las alarmas.
+#: Hoja de las alarmas.
 HOJA_ALARMAS = "ALARMAS"
-TABLA_ALARMAS = "Tabla_Alarmas"
 
-#: Hoja y tabla de las entidades.
+#: Hoja de las entidades.
 HOJA_ENTIDADES = "ENTIDADES"
-TABLA_ENTIDADES = "Tabla_Entidades"
 
-#: Los cuatro subdominios de los procesos, con su clave, hoja y tabla.
-SUBDOMINIOS_PROCESOS: tuple[tuple[str, str, str], ...] = (
-    ("Procesos", HOJA_CONFIG, TABLA_PROCESOS),
-    ("ParametrosEnteros", HOJA_PARAM_INT, TABLA_PARAM_INT),
-    ("ParametrosReales", HOJA_PARAM_REAL, TABLA_PARAM_REAL),
-    ("Alarmas", HOJA_ALARMAS, TABLA_ALARMAS),
+# ── los dispositivos ────────────────────────────────────────────────────────
+
+_DISP_ED = Dominio(
+    clave="ed",
+    hoja="DISP_ED",
+    tabla="Tabla_Disp_ED",
+    catalogo="disp",
+    descartar_si_vacias=("uid", "numero"),
+    campos=(
+        *CAMPOS_DISPOSITIVO,
+        Campo("e_byte", "E.Byte", ENTERO),
+        Campo("e_bit", "E.Bit", ENTERO),
+        Campo("gr_alarma", "Gr.Alarma", ENTERO),
+        Campo("cuadro", "Cuadro"),
+        Campo("observaciones", "Observaciones"),
+        Campo("cfg_byte_entrada", "Cfg.ByteEntrada"),
+        Campo("cfg_bit_entrada", "Cfg.BitEntrada"),
+        Campo("cfg_grupo_alarma", "Cfg.GrupoAlarma"),
+    ),
 )
 
-#: Cabecera del Excel -> nombre de campo de la SPA.
-CABECERAS: dict[str, str] = {
-    "PLC": "plc_name",
-    "Numero": "numero",
-    "Tag": "tag",
-    "Descripcion": "descripcion",
-    "FAT": "fat",
-    "E.Byte": "e_byte",
-    "E.Bit": "e_bit",
-    "Gr.Alarma": "gr_alarma",
-    "Cuadro": "cuadro",
-    "Observaciones": "observaciones",
-    "UID": "uid",
-    "PLC.Tag": "plc_tag",
-    "PLC.Tipo": "plc_tipo",
-    "PLC.Index": "plc_index",
-    "PLC.Comentario": "plc_comentario",
-    "Hmi.Index": "hmi_index",
-    "Hmi.Texto": "hmi_texto",
-    "Cfg.Habilitar": "cfg_habilitar",
-    "Cfg.ByteEntrada": "cfg_byte_entrada",
-    "Cfg.BitEntrada": "cfg_bit_entrada",
-    "Cfg.GrupoAlarma": "cfg_grupo_alarma",
-    "ComentarioDB": "comentario_db",
-    "S.Byte": "s_byte",
-    "S.Bit": "s_bit",
-    "RR.Byte": "rr_byte",
-    "RR.Bit": "rr_bit",
-    "RT.Byte": "rt_byte",
-    "RT.Bit": "rt_bit",
-    "RM.Byte": "rm_byte",
-    "RM.Bit": "rm_bit",
-    "SA.Byte": "sa_byte",
-    "UNIDADES": "unidades",
-    "Unidades": "unidades",
-    "RII": "rii",
-    "RSI": "rsi",
-    "ConsK": "cons_k",
-    "Vel.Min": "vel_min",
-    "Vel.Max": "vel_max",
-    "IncXPulso": "incxpulso",
-    "Proceso": "proceso",
-    "PV": "pv",
-    "Disp.Tipo": "disp_tipo",
-    "Disp.Tag": "disp_tag",
-    "Codigo": "codigo",
-    "Nombre": "nombre",
-    "Num.DB": "num_db",
-    "PInt": "pint",
-    "PReal": "preal",
-    "Alarmas": "alarmas",
-    "Alarmas_Hmi": "alm_hmi",
-    "Txt.Lista": "txt_lista",
-    "Visibilidad": "visibilidad",
-    "Producto": "producto",
-    "Tipo": "tipo",
-    "Index_Pint": "index_pint",
-    "Index_Preal": "index_preal",
+_DISP_EA = Dominio(
+    clave="ea",
+    hoja="DISP_EA",
+    tabla="Tabla_Disp_EA",
+    catalogo="disp",
+    descartar_si_vacias=("uid", "numero"),
+    campos=(
+        *CAMPOS_DISPOSITIVO,
+        Campo("e_byte", "E.Byte", ENTERO),
+        Campo("unidades", ("UNIDADES", "Unidades")),
+        Campo("rii", "RII", DECIMAL),
+        Campo("rsi", "RSI", DECIMAL),
+        Campo("gr_alarma", "Gr.Alarma", ENTERO),
+        Campo("cuadro", "Cuadro"),
+        Campo("observaciones", "Observaciones"),
+        Campo("cfg_byte_entrada", "Cfg.ByteEntrada"),
+        Campo("cfg_escaladomin", "Cfg.EscaladoMin"),
+        Campo("cfg_escaladomax", "Cfg.EscaladoMax"),
+        Campo("cfg_grupo_alarma", "Cfg.GrupoAlarma"),
+    ),
+)
+
+_DISP_SA = Dominio(
+    clave="sa",
+    hoja="DISP_SA",
+    tabla="Tabla_Disp_SA",
+    catalogo="disp",
+    descartar_si_vacias=("uid", "numero"),
+    campos=_DISP_EA.campos,
+)
+
+_DISP_SD = Dominio(
+    clave="sd",
+    hoja="DISP_SD",
+    tabla="Tabla_Disp_SD",
+    catalogo="disp",
+    descartar_si_vacias=("uid", "numero"),
+    campos=(
+        *CAMPOS_DISPOSITIVO,
+        Campo("s_byte", "S.Byte", ENTERO),
+        Campo("s_bit", "S.Bit", ENTERO),
+        Campo("gr_alarma", "Gr.Alarma", ENTERO),
+        Campo("cuadro", "Cuadro"),
+        Campo("observaciones", "Observaciones"),
+        Campo("cfg_byte_entrada", "Cfg.ByteEntrada"),
+        Campo("cfg_bit_entrada", "Cfg.BitEntrada"),
+        Campo("cfg_grupo_alarma", "Cfg.GrupoAlarma"),
+    ),
+)
+
+_DISP_V = Dominio(
+    clave="v",
+    hoja="DISP_V",
+    tabla="Tabla_Disp_V",
+    catalogo="disp",
+    descartar_si_vacias=("uid", "numero"),
+    campos=(
+        *CAMPOS_DISPOSITIVO,
+        Campo("s_byte", "S.Byte", ENTERO),
+        Campo("s_bit", "S.Bit", ENTERO),
+        Campo("rr_byte", "RR.Byte", ENTERO),
+        Campo("rr_bit", "RR.Bit", ENTERO),
+        Campo("rt_byte", "RT.Byte", ENTERO),
+        Campo("rt_bit", "RT.Bit", ENTERO),
+        Campo("gr_alarma", "Gr.Alarma", ENTERO),
+        Campo("cuadro", "Cuadro"),
+        Campo("observaciones", "Observaciones"),
+        Campo("cfg_byteretornoreposo", "Cfg.ByteRetornoReposo"),
+        Campo("cfg_bitretornoreposo", "Cfg.BitRetornoReposo"),
+        Campo("cfg_byteretornotrabajo", "Cfg.ByteRetornoTrabajo"),
+        Campo("cfg_bitretornotrabajo", "Cfg.BitRetornoTrabajo"),
+        Campo("cfg_byteactivacion", "Cfg.ByteActivacion"),
+        Campo("cfg_bitactivacion", "Cfg.BitActivacion"),
+        Campo("cfg_habitreposo", "Cfg.HabRetReposo"),
+        Campo("cfg_habitrtrabajo", "Cfg.HabRetTrabajo"),
+        Campo("cfg_grupoalarma", "Cfg.GrupoAlarma"),
+    ),
+)
+
+_DISP_M = Dominio(
+    clave="m",
+    hoja="DISP_M",
+    tabla="Tabla_Disp_M",
+    catalogo="disp",
+    descartar_si_vacias=("uid", "numero"),
+    campos=(
+        *CAMPOS_DISPOSITIVO,
+        Campo("s_byte", "S.Byte", ENTERO),
+        Campo("s_bit", "S.Bit", ENTERO),
+        Campo("rt_byte", "RT.Byte", ENTERO),
+        Campo("rt_bit", "RT.Bit", ENTERO),
+        Campo("rm_byte", "RM.Byte", ENTERO),
+        Campo("rm_bit", "RM.Bit", ENTERO),
+        Campo("gr_alarma", "Gr.Alarma", ENTERO),
+        Campo("cuadro", "Cuadro"),
+        Campo("observaciones", "Observaciones"),
+        Campo("cfg_byteretornotermico", "Cfg.ByteRetornoTermico"),
+        Campo("cfg_bitretornotermico", "Cfg.BitRetornoTermico"),
+        Campo("cfg_byteconfmarcha", "Cfg.ByteConfMarcha"),
+        Campo("cfg_bitconfmarcha", "Cfg.BitConfMarcha"),
+        Campo("cfg_byteactivacion", "Cfg.ByteActivacion"),
+        Campo("cfg_bitactivacion", "Cfg.BitActivacion"),
+        Campo("cfg_habrettermico", "Cfg.HabRetTermico"),
+        Campo("cfg_habretconfmarcha", "Cfg.HabRetConfMarcha"),
+        Campo("cfg_grupo_alarma", "Cfg.GrupoAlarma"),
+    ),
+)
+
+_DISP_M_VF = Dominio(
+    clave="m_vf",
+    hoja="DISP_M_VF",
+    tabla="Tabla_Disp_M_VF",
+    catalogo="disp",
+    descartar_si_vacias=("uid", "numero"),
+    campos=(
+        *_DISP_M.campos,
+        Campo("sa_byte", "SA.Byte", ENTERO),
+        Campo("cfg_byteanalogica", "Cfg.ByteAnalogica"),
+    ),
+)
+
+_DISP_M_SINA = Dominio(
+    clave="m_sina",
+    hoja="DISP_M_SINA",
+    tabla="Tabla_Disp_M_SINA",
+    catalogo="disp",
+    descartar_si_vacias=("uid", "numero"),
+    campos=(
+        *CAMPOS_DISPOSITIVO,
+        Campo("rt_byte", "RT.Byte", ENTERO),
+        Campo("rt_bit", "RT.Bit", ENTERO),
+        Campo("vel_min", "Vel.Min", DECIMAL),
+        Campo("vel_max", "Vel.Max", DECIMAL),
+        Campo("cons_k", "ConsK", DECIMAL),
+        Campo("gr_alarma", "Gr.Alarma", ENTERO),
+        Campo("cuadro", "Cuadro"),
+        Campo("observaciones", "Observaciones"),
+        Campo("cfg_byteretornotermico", "Cfg.ByteRetornoTermico"),
+        Campo("cfg_bitretornotermico", "Cfg.BitRetornoTermico"),
+        Campo("cfg_vel_min", "Cfg.VelMin"),
+        Campo("cfg_vel_max", "Cfg.VelMax"),
+        Campo("cfg_cons_k", "Cfg.ConstK"),
+        Campo("cfg_grupo_alarma", "Cfg.GrupoAlarma"),
+    ),
+)
+
+_DISP_TQ = Dominio(
+    clave="tq",
+    hoja="DISP_TQ",
+    tabla="Tabla_Disp_TQ",
+    catalogo="disp",
+    descartar_si_vacias=("uid", "numero"),
+    campos=(
+        *CAMPOS_DISPOSITIVO,
+        Campo("observaciones", "Observaciones"),
+    ),
+)
+
+_DISP_TQ_AE = Dominio(
+    clave="tq_ae",
+    hoja="DISP_TQ_AE",
+    tabla="Tabla_Disp_TQ_AE",
+    catalogo="disp",
+    descartar_si_vacias=("uid", "numero"),
+    campos=_DISP_TQ.campos,
+)
+
+_DISP_TOT = Dominio(
+    clave="tot",
+    hoja="DISP_TOT",
+    tabla="Tabla_Disp_TOT",
+    catalogo="disp",
+    descartar_si_vacias=("uid", "numero"),
+    campos=(
+        *CAMPOS_DISPOSITIVO,
+        Campo("tipo", "Tipo"),
+        Campo("e_byte", "E.Byte", ENTERO),
+        Campo("e_bit", "E.Bit", ENTERO),
+        Campo("incxpulso", "IncXPulso", DECIMAL),
+        Campo("gr_alarma", "Gr.Alarma", ENTERO),
+        Campo("proceso", "Proceso"),
+        Campo("observaciones", "Observaciones"),
+        Campo("cfg_byteentrada", "Cfg.ByteEntrada"),
+        Campo("cfg_bitentrada", "Cfg.BitEntrada"),
+        Campo("cfg_tipo", "Cfg.Tipo"),
+    ),
+)
+
+_DISP_PID = Dominio(
+    clave="pid",
+    hoja="DISP_PID",
+    tabla="Tabla_Disp_PID",
+    catalogo="disp",
+    descartar_si_vacias=("uid", "numero"),
+    campos=(
+        *CAMPOS_DISPOSITIVO,
+        Campo("proceso", "Proceso"),
+        Campo("pv", "PV"),
+        Campo("disp_tipo", "Disp.Tipo"),
+        Campo("disp_tag", "Disp.Tag"),
+        Campo("observaciones", "Observaciones"),
+    ),
+)
+
+#: Los doce tipos de dispositivo, por clave del ``config.json``.
+DISPOSITIVOS: dict[str, Dominio] = {
+    dominio.clave: dominio
+    for dominio in (
+        _DISP_ED,
+        _DISP_EA,
+        _DISP_SA,
+        _DISP_SD,
+        _DISP_V,
+        _DISP_M,
+        _DISP_M_VF,
+        _DISP_M_SINA,
+        _DISP_TQ,
+        _DISP_TQ_AE,
+        _DISP_TOT,
+        _DISP_PID,
+    )
 }
 
-#: Campos cuyo valor es un entero. Los demas son texto.
-CAMPOS_ENTEROS = frozenset(
-    {
-        "numero",
-        "e_byte",
-        "e_bit",
-        "gr_alarma",
-        "plc_index",
-        "hmi_index",
-        "s_byte",
-        "s_bit",
-        "rr_byte",
-        "rr_bit",
-        "rt_byte",
-        "rt_bit",
-        "rm_byte",
-        "rm_bit",
-        "sa_byte",
-        "num_db",
-        "pint",
-        "preal",
-        "alarmas",
-        "alm_hmi",
-        "index_pint",
-        "index_preal",
-    }
+# ── el software ─────────────────────────────────────────────────────────────
+
+_CAMPOS_PARAMETRO = (
+    Campo("uid", "UID"),
+    Campo("numero", "Numero"),
+    Campo("proceso", "Proceso"),
+    Campo("codigo", "Codigo"),
+    Campo("num_db", "Num.DB", ENTERO),
+    Campo("producto", "Producto"),
+    Campo("tipo", "Tipo"),
+    Campo("descripcion", "Descripcion"),
+    Campo("comentario_db", "ComentarioDB"),
+    Campo("visibilidad", "Visibilidad"),
+    Campo("num_lista", "Num.Lista", NUM_LISTA),
+    Campo("txt_lista", "Txt.Lista"),
+    Campo("plc_name", "PLC"),
 )
 
-#: Campos cuyo valor es un numero decimal.
-CAMPOS_DECIMALES = frozenset(
-    {
-        "rii",
-        "rsi",
-        "cons_k",
-        "vel_min",
-        "vel_max",
-        "incxpulso",
-    }
+PROCESOS = Dominio(
+    clave="Procesos",
+    hoja=HOJA_CONFIG,
+    tabla="Tabla_Procesos",
+    catalogo="proc",
+    exigir_no_vacias=("uid",),
+    campos=(
+        Campo("uid", "UID", ENTERO),
+        Campo("nombre", "Nombre"),
+        Campo("codigo", "Codigo"),
+        Campo("preal", "PReal", ENTERO),
+        Campo("index_preal", "Index_Preal", ENTERO),
+        Campo("pint", "PInt", ENTERO),
+        Campo("index_pint", "Index_Pint", ENTERO),
+        Campo("alarmas", "Alarmas", ENTERO),
+        Campo("alm_hmi", "Alarmas_Hmi", ENTERO),
+        Campo("plc_name", "PLC"),
+    ),
+)
+
+PARAMETROS_ENTEROS = Dominio(
+    clave="ParametrosEnteros",
+    hoja=HOJA_PARAM_INT,
+    tabla="Tabla_PInt",
+    catalogo="proc",
+    exigir_no_vacias=("uid",),
+    campos=_CAMPOS_PARAMETRO,
+)
+
+PARAMETROS_REALES = Dominio(
+    clave="ParametrosReales",
+    hoja=HOJA_PARAM_REAL,
+    tabla="Tabla_PReal",
+    catalogo="proc",
+    exigir_no_vacias=("uid",),
+    campos=_CAMPOS_PARAMETRO,
+)
+
+ALARMAS = Dominio(
+    clave="Alarmas",
+    hoja=HOJA_ALARMAS,
+    tabla="Tabla_Alarmas",
+    catalogo="proc",
+    exigir_no_vacias=("uid",),
+    campos=(
+        Campo("uid", "UID"),
+        Campo("numero", "Numero"),
+        Campo("proceso", "Proceso"),
+        Campo("num_db", "Num.DB", ENTERO),
+        Campo("descripcion", "Descripcion"),
+        Campo("comentario_db", "ComentarioDB"),
+        Campo("plc_name", "PLC"),
+    ),
+)
+
+#: Los cuatro dominios del software, en el orden de las sub-pestanas.
+SOFTWARE: tuple[Dominio, ...] = (
+    PROCESOS,
+    PARAMETROS_ENTEROS,
+    PARAMETROS_REALES,
+    ALARMAS,
+)
+
+# ── las entidades, los PLCs y las dimensiones ───────────────────────────────
+
+ENTIDADES = Dominio(
+    clave="Entidades",
+    hoja=HOJA_ENTIDADES,
+    tabla="Tabla_Entidades",
+    catalogo="entidades",
+    exigir_no_vacias=("plc_name", "plc_tag"),
+    exigir_no_negativo=("numero",),
+    campos=(
+        Campo("numero", "Numero", ENTERO),
+        Campo("plc_name", "PLC"),
+        Campo("plc_tag", "PLC.Tag"),
+        Campo("descripcion", "Descripcion"),
+        Campo("plc_comentario", "PLC.Comentario"),
+        Campo("plc_tipo", "PLC.Tipo", ENTERO),
+        Campo("plc_index", "PLC.Index", ENTERO),
+    ),
+)
+
+PLCS = Dominio(
+    clave="PLCs",
+    hoja=HOJA_CONFIG,
+    tabla="Tabla_PLC",
+    exigir_no_vacias=("uid", "plc"),
+    exigir_plc=False,
+    campos=CAMPOS_PLC,
+)
+
+#: La tabla de N_MAX por PLC. Sus campos salen del catalogo, no son fijos.
+DIMENSIONES = Dominio(
+    clave="Configuracion",
+    hoja=HOJA_CONFIG,
+    tabla="Tabla_Dimensiones",
+    exigir_no_vacias=("PLC",),
+    exigir_plc=False,
+    campos=(),
 )
 
 #: Columna del Excel con el N_MAX de las entidades.
@@ -176,96 +426,14 @@ def destino_de_dispositivo(clave: str, config: dict[str, Any]) -> tuple[str, str
 
     Returns:
         La tupla ``(hoja, tabla, canonico)``. Por defecto son los nombres
-        derivados de la clave; el ``excel_target`` del config los sobreescribe.
+        del modelo; el ``excel_target`` del config los sobreescribe.
     """
-    dispositivos = config.get("Dispositivos", {})
-    objetivo = dispositivos.get(clave, {})
+    dominio = DISPOSITIVOS.get(clave)
+    if dominio is None:
+        return "", "", canonico_de_tipo(clave)
+    objetivo = config.get("Dispositivos", {}).get(clave, {})
     excel_target = objetivo.get("excel_target", {}) if isinstance(objetivo, dict) else {}
-    hoja = excel_target.get("sheet") or f"DISP_{clave.upper()}"
-    tabla = excel_target.get("table") or f"Tabla_Disp_{clave.upper()}"
-    canonico = excel_target.get("canonical") or canonico_de_tipo(clave)
-    return str(hoja), str(tabla), str(canonico)
-
-
-def columnas_de_dispositivo(canonico: str, config: dict[str, Any]) -> list[str]:
-    """Las columnas que se ensenan de un tipo de dispositivo.
-
-    Args:
-        canonico: el nombre canonico del tipo.
-        config: la seccion del area en el ``config.json``.
-
-    Returns:
-        Los nombres de campo, en el orden del catalogo. Vacio si el
-        catalogo no dice nada de ese tipo.
-    """
-    orden = config.get("disp_catalog", {}).get("display_order", {})
-    columnas = orden.get(canonico, [])
-    return [str(columna) for columna in columnas]
-
-
-def columnas_de_configuracion(config: dict[str, Any]) -> list[str]:
-    """Las columnas de la vista de configuracion: PLC y los N_MAX.
-
-    Args:
-        config: la seccion del area en el ``config.json``.
-    """
-    columnas = ["PLC"]
-    for entrada in config.get("n_max_catalog", []):
-        nombre = entrada.get("name")
-        if nombre:
-            columnas.append(str(nombre))
-    return columnas
-
-
-def columnas_de_procesos(subdominio: str, config: dict[str, Any]) -> list[str]:
-    """Las columnas de un subdominio de los procesos.
-
-    Args:
-        subdominio: ``"Procesos"``, ``"ParametrosEnteros"``,
-            ``"ParametrosReales"`` o ``"Alarmas"``.
-        config: la seccion del area en el ``config.json``.
-    """
-    claves = {
-        "Procesos": "procesos",
-        "ParametrosEnteros": "parametros_int",
-        "ParametrosReales": "parametros_real",
-        "Alarmas": "alarmas",
-    }
-    clave = claves.get(subdominio, "")
-    orden = config.get("proc_catalog", {}).get("display_order", {})
-    columnas = orden.get(clave, [])
-    return [str(columna) for columna in columnas]
-
-
-def columnas_de_entidades(config: dict[str, Any]) -> list[str]:
-    """Las columnas de la vista de entidades.
-
-    Args:
-        config: la seccion del area en el ``config.json``.
-    """
-    orden = config.get("entidades_catalog", {}).get("display_order", {})
-    columnas = orden.get("entidades", [])
-    return [str(columna) for columna in columnas]
-
-
-def valor_n_max_de_fila(fila: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
-    """Los N_MAX de una fila de la tabla de dimensiones.
-
-    Args:
-        fila: la fila, con las cabeceras literales del Excel.
-        config: la seccion del area en el ``config.json``.
-
-    Returns:
-        Un dict ``{nombre_canonico: valor}`` con un N_MAX por entrada del
-        catalogo, mas ``N_MAX_ENTIDAD`` si la columna esta en la tabla.
-    """
-    valores: dict[str, Any] = {}
-    for entrada in config.get("n_max_catalog", []):
-        nombre = entrada.get("name")
-        columna = entrada.get("excel_column")
-        if not nombre or not columna:
-            continue
-        valores[str(nombre)] = fila.get(str(columna), 0)
-    if COLUMNA_N_MAX_ENTIDADES in fila:
-        valores[N_MAX_ENTIDADES] = fila[COLUMNA_N_MAX_ENTIDADES]
-    return valores
+    hoja = str(excel_target.get("sheet") or dominio.hoja)
+    tabla = str(excel_target.get("table") or dominio.tabla)
+    canonico = str(excel_target.get("canonical") or canonico_de_tipo(clave))
+    return hoja, tabla, canonico
