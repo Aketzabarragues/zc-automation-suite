@@ -21,6 +21,7 @@ import logging
 import os
 import shutil
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +40,18 @@ SUBCARPETA_CONFIG = "config"
 
 #: Carpeta del repo (raiz del proyecto).
 RAIZ = Path(__file__).resolve().parents[2]
+
+#: El config vino de la variable de entorno.
+ORIGEN_ENTORNO = "entorno"
+
+#: El config es el que ya tenia el operario: **manda siempre**.
+ORIGEN_USUARIO = "usuario"
+
+#: El config se copio ahora de la plantilla.
+ORIGEN_COPIA = "copia"
+
+#: El config es la plantilla empaquetada, en solo lectura.
+ORIGEN_PLANTILLA = "plantilla"
 
 
 class ConfigError(Exception):
@@ -118,20 +131,86 @@ def _asegurar(destino: Path, plantilla: Path) -> bool:
     sea un JSON malformado) no se toca.
 
     Returns:
-        ``True`` si el destino existe tras la llamada.
+        ``ORIGEN_USUARIO`` si el destino ya estaba, ``ORIGEN_COPIA`` si se
+    acaba de copiar, o ``None`` si no se pudo dejar el destino listo.
     """
     if destino.is_file():
-        return True
+        return ORIGEN_USUARIO
     if not plantilla.is_file():
-        return False
+        return None
     try:
         destino.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(plantilla, destino)
     except OSError as exc:
         logger.warning("No se pudo copiar la plantilla a %s: %s", destino, exc)
-        return False
+        return None
     logger.info("Configuracion creada en %s", destino)
-    return True
+    return ORIGEN_COPIA
+
+
+@dataclass(frozen=True)
+class ConfigEnUso:
+    """De donde sale el ``config.json`` que usa la app.
+
+    Attributes:
+        ruta: el fichero que se lee.
+        origen: de donde sale: ``entorno``, ``usuario``, ``copia`` o
+            ``plantilla``.
+    """
+
+    ruta: Path
+    origen: str
+
+
+def resolver_config(
+    env_var: str = ENV_CONFIG_DIR,
+    subcarpeta: str = SUBCARPETA_CONFIG,
+    nombre: str = NOMBRE_CONFIG,
+) -> ConfigEnUso:
+    """Resuelve el ``config.json`` que debe usar la app, y de donde sale.
+
+    Es ``resolve_config_path()`` pero ademas dice el origen: sin eso no se
+    puede explicar por que un ``config.json`` dejo de tener los tipos de
+    dispositivo.
+
+    Returns:
+        La ruta y el origen.
+
+    Raises:
+        FileNotFoundError: si no hay ni config del usuario ni plantilla.
+    """
+    plantilla = ruta_plantilla()
+
+    override = os.environ.get(env_var, "").strip()
+    if override:
+        destino = Path(override) / nombre
+        origen = _asegurar(destino, plantilla)
+        if origen is not None:
+            return ConfigEnUso(destino, ORIGEN_ENTORNO)
+        if destino.is_file():
+            return ConfigEnUso(destino, ORIGEN_ENTORNO)
+
+    if getattr(sys, "frozen", False):
+        destino = Path(sys.executable).resolve().parent / subcarpeta / nombre
+        origen = _asegurar(destino, plantilla)
+        if origen is not None:
+            return ConfigEnUso(destino, origen)
+        if destino.is_file():
+            return ConfigEnUso(destino, ORIGEN_USUARIO)
+        if plantilla.is_file():
+            logger.warning(
+                "No se pudo escribir el config en %s. Se usa la plantilla en solo "
+                "lectura: los cambios del operario no persistiran hasta que se "
+                "resuelva el problema de permisos.",
+                destino,
+            )
+            return ConfigEnUso(plantilla, ORIGEN_PLANTILLA)
+        raise FileNotFoundError(
+            f"No se encontro {nombre} en {plantilla}. Revisa que el ejecutable "
+            "este bien empaquetado."
+        )
+
+    return ConfigEnUso(plantilla, ORIGEN_PLANTILLA)
 
 
 def resolve_config_path(
@@ -152,36 +231,7 @@ def resolve_config_path(
     Raises:
         FileNotFoundError: si no hay ni config del usuario ni plantilla.
     """
-    plantilla = ruta_plantilla()
-
-    override = os.environ.get(env_var, "").strip()
-    if override:
-        destino = Path(override) / nombre
-        if _asegurar(destino, plantilla):
-            return destino
-        if destino.is_file():
-            return destino
-
-    if getattr(sys, "frozen", False):
-        destino = Path(sys.executable).resolve().parent / subcarpeta / nombre
-        if _asegurar(destino, plantilla):
-            return destino
-        if destino.is_file():
-            return destino
-        if plantilla.is_file():
-            logger.warning(
-                "No se pudo escribir el config en %s. Se usa la plantilla en solo "
-                "lectura: los cambios del operario no persistiran hasta que se "
-                "resuelva el problema de permisos.",
-                destino,
-            )
-            return plantilla
-        raise FileNotFoundError(
-            f"No se encontro {nombre} en {plantilla}. Revisa que el ejecutable "
-            "este bien empaquetado."
-        )
-
-    return plantilla
+    return resolver_config(env_var, subcarpeta, nombre).ruta
 
 
 # ── carga ──────────────────────────────────────────────────────────────────

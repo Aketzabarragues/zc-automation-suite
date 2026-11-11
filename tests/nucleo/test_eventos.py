@@ -438,6 +438,11 @@ def test_el_handler_ignora_los_registros_del_propio_logger() -> None:
     bus = BusEventos(max_eventos=2)
     suscriptor = bus.suscribir()
     logger_padre = logging.getLogger("zc_suite")
+    # El logger de la app se deja como estaba: si se queda sin propagar,
+    # sus registros no llegan ni al log en fichero ni a los tests de
+    # despues.
+    propagate = logger_padre.propagate
+    nivel = logger_padre.level
     logger_padre.propagate = False
     logger_padre.setLevel(logging.INFO)
     handler = conectar_logging(bus, logger_padre)
@@ -446,6 +451,8 @@ def test_el_handler_ignora_los_registros_del_propio_logger() -> None:
             logger_padre.info("linea %d", i)
     finally:
         desconectar_logging(logger_padre, handler)
+        logger_padre.propagate = propagate
+        logger_padre.setLevel(nivel)
 
     recibidos = _vaciar(suscriptor)
     assert recibidos
