@@ -46,7 +46,7 @@ backend/zc_suite/
   eventos.py   bus SSE + handler de logging
   web.py       app Flask, estaticos, /api/eventos, lanzar()
   config.py    config.json validado con Pydantic
-  workdir.py   .build_cache/<area>/<contexto>/{exports,modified,preview}
+  workdir.py   .build_cache/<area>/<contexto>/{preview,sincronizar}
   tia_ops/     proyecto.py, exportar.py, importar.py, compilar.py,
                constantes.py, bloques.py
   simatic/     simatic_sd/, simatic_ml/

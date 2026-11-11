@@ -10,7 +10,7 @@ Estructura del paquete:
 - ``eventos.py`` bus SSE con los eventos ``progress``, ``job``, ``log`` y ``tia``.
 - ``web.py``     app Flask, estaticos y ``GET /api/eventos``.
 - ``config.py``  ``config.json`` validado con Pydantic.
-- ``workdir.py`` ``.build_cache/<area>/<contexto>/{exports,modified,preview}``.
+- ``workdir.py`` ``.build_cache/<area>/<contexto>/{preview,sincronizar}``.
 - ``tia_ops/``   operaciones contra TIA Portal (reciben el portal).
 - ``simatic/``   lectura y escritura de ficheros SimaticSD / SimaticML.
 - ``comun/``     utilidades compartidas por todas las areas.

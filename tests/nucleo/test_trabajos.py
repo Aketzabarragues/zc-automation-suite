@@ -14,7 +14,7 @@ import pytest
 
 from zc_suite import tia, trabajos
 from zc_suite.tia import ServicioTIA
-from zc_suite.workdir import Workdir
+from zc_suite.workdir import WorkdirPreview
 
 CABECERA_SD = """DATA_BLOCK "DB10"
 { S7_BlockTitle := "MLC_t1"
@@ -193,7 +193,7 @@ def entorno(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     monkeypatch.setattr(
         trabajos,
         "workdir_editor_bloques",
-        lambda: Workdir(base=tmp_path / "editor_bloques"),
+        lambda: WorkdirPreview(base=tmp_path / "editor_bloques"),
     )
     yield servicio, ts, bloques, eventos
     servicio.parar()
@@ -206,7 +206,7 @@ def entorno_v18(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     monkeypatch.setattr(
         trabajos,
         "workdir_editor_bloques",
-        lambda: Workdir(base=tmp_path / "editor_bloques"),
+        lambda: WorkdirPreview(base=tmp_path / "editor_bloques"),
     )
     yield servicio, ts, bloques, eventos
     servicio.parar()
