@@ -92,7 +92,12 @@ la raiz del bundle: salen de la wheel instalada, de la misma carpeta donde
 pip deja el `.pyd`.
 
 El `.exe` se abre con doble click: arranca con la bandeja y sirve la SPA en
-`http://127.0.0.1:9484/`. El log va a `zc.log`, junto al ejecutable.
+`http://127.0.0.1:9484/`. El navegador no se abre solo: se usa "Abrir panel
+web" del menu de la bandeja.
+
+El log va a `logs/zc.log`, junto al ejecutable (rota a los 10 MB y guarda 3
+copias). Ahi queda la trazabilidad completa: el arranque, cada trabajo con
+sus pasos y como acaba, y las excepciones no controladas.
 
 ## Llevar el ejecutable a otra maquina
 
@@ -114,10 +119,10 @@ Sin TIA abierto, la app arranca igual: se ve la SPA, se puede subir el
 Excel maestro y se trabaja con la app en modo desconectado.
 
 Junto al `.exe` la app va creando sus datos: `config/` con el
-`config.json` del operario, `excel/` con la copia del Excel maestro y
-`.build_cache/` con lo que va exportando de TIA. Nada de eso se guarda
-dentro del `.exe`: los datos del operario se pueden copiar de una maquina
-a otra sin tocar el ejecutable.
+`config.json` del operario, `excel/` con la copia del Excel maestro,
+`logs/` con el log y `.build_cache/` con lo que va exportando de TIA. Nada
+de eso se guarda dentro del `.exe`: los datos del operario se pueden copiar
+de una maquina a otra sin tocar el ejecutable.
 
 Para llevar los datos a otra maquina, copia la carpeta del `.exe` entera
 (o solo `config/` y `excel/`).
