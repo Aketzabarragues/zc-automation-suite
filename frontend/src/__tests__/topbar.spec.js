@@ -1,8 +1,9 @@
 import { mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import ShellTopbar from "../components/ShellTopbar.vue";
-import { useTiaStore } from "../stores/tia.js";
+import { useAreasStore } from "../stores/areas.js";
+import { usePlcStore } from "../stores/plc.js";
 
 describe("ShellTopbar", () => {
   let pinia;
@@ -10,66 +11,44 @@ describe("ShellTopbar", () => {
   beforeEach(() => {
     pinia = createPinia();
     setActivePinia(pinia);
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ job_id: "abc" }),
-    });
   });
 
-  it("empieza desconectada", () => {
+  it("enseña las migas del area y de la vista", () => {
+    const areas = useAreasStore();
+    areas.entrar("alimentacion");
+    areas.irA("plc");
     const wrapper = mount(ShellTopbar, { global: { plugins: [pinia] } });
-    expect(wrapper.find('[data-testid="topbar-estado"]').text()).toContain("Desconectado");
-    expect(wrapper.find('[data-testid="topbar-boton"]').text()).toContain("Conectar");
+
+    expect(wrapper.text()).toContain("ÁREA DE ALIMENTACIÓN");
+    expect(wrapper.text()).toContain("PLC");
   });
 
-  it("el boton encola la conexion", async () => {
+  it("la vista de la miga cambia con la vista activa", () => {
+    const areas = useAreasStore();
+    areas.entrar("alimentacion");
+    areas.irA("block-editor");
     const wrapper = mount(ShellTopbar, { global: { plugins: [pinia] } });
-    await wrapper.find('[data-testid="topbar-boton"]').trigger("click");
-    expect(global.fetch).toHaveBeenCalledWith(
-      "/api/v1/tia/conectar",
-      expect.objectContaining({ method: "POST" }),
-    );
+
+    expect(wrapper.text()).toContain("EDITOR DE BLOQUES");
   });
 
-  it("con la conexion viva el boton desconecta", async () => {
-    const tia = useTiaStore();
-    tia.aplicar({ conectado: true, version_tia: "V21.0", ultimo_error: null });
+  it("la pastilla de PLC va vacia si no hay PLC seleccionado", () => {
     const wrapper = mount(ShellTopbar, { global: { plugins: [pinia] } });
-
-    expect(wrapper.find('[data-testid="topbar-estado"]').text()).toContain("Conectado");
-    expect(wrapper.find('[data-testid="topbar-version"]').text()).toContain("V21.0");
-    expect(wrapper.find('[data-testid="topbar-boton"]').text()).toContain("Desconectar");
-
-    await wrapper.find('[data-testid="topbar-boton"]').trigger("click");
-    expect(global.fetch).toHaveBeenCalledWith(
-      "/api/v1/tia/desconectar",
-      expect.objectContaining({ method: "POST" }),
-    );
+    expect(wrapper.find('[data-testid="topbar-plc"]').text()).toContain("PLC:");
+    expect(wrapper.find('[data-testid="topbar-plc"]').text()).toContain("—");
   });
 
-  it("enseña el ultimo error", () => {
-    const tia = useTiaStore();
-    tia.aplicar({ conectado: false, ultimo_error: "No hay ningún TIA Portal abierto" });
+  it("la pastilla de PLC muestra el PLC seleccionado", () => {
+    const plc = usePlcStore();
+    plc.seleccionar("ZC_PLC_STD");
     const wrapper = mount(ShellTopbar, { global: { plugins: [pinia] } });
 
-    expect(wrapper.find('[data-testid="topbar-error"]').text()).toContain("TIA Portal");
+    expect(wrapper.find('[data-testid="topbar-plc"]').text()).toContain("ZC_PLC_STD");
   });
 
-  it("avisa cuando el stream de eventos se ha caido", () => {
-    const tia = useTiaStore();
-    tia.estadoStream = "reconectando";
+  it("no hay boton de conectar en la barra superior", () => {
+    // La conexion se hace en la vista PLC.
     const wrapper = mount(ShellTopbar, { global: { plugins: [pinia] } });
-
-    expect(wrapper.find('[data-testid="topbar-stream"]').exists()).toBe(true);
-  });
-
-  it("en modo demo no hay stream que se haya caido", () => {
-    const tia = useTiaStore();
-    tia.demo = true;
-    tia.estadoStream = "cerrado";
-    const wrapper = mount(ShellTopbar, { global: { plugins: [pinia] } });
-
-    expect(wrapper.find('[data-testid="topbar-stream"]').exists()).toBe(false);
-    expect(wrapper.find('[data-testid="topbar-demo"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="topbar-boton"]').exists()).toBe(false);
   });
 });
