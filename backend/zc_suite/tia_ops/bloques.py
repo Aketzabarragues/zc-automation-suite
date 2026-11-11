@@ -11,7 +11,8 @@ Que funciona en cada version de TIA:
   cambiar el ``Name`` y el ``Number`` de un bloque (``set_property``).
 - **Solo V21 en adelante**: exportar e importar en SimaticSD. Es lo que hace
   falta para leer y escribir el **comentario** de un bloque: el comentario no
-  existe en ``get_property`` en ninguna version, solo en el XML exportado.
+  existe en ``get_property`` en ninguna version, solo en el XML exportado. Por
+  eso el DTO no lleva campo de comentario.
 
 Peculiaridades conservadas:
 
@@ -27,6 +28,11 @@ Peculiaridades conservadas:
   ``get_path()`` de cada bloque, no del recorrido.
 - TIA no expone el tipo del bloque como propiedad: hay que deducirlo de su
   lenguaje de programacion y de las propiedades que declara.
+- Cuando una propiedad no tiene valor, el SDK devuelve el texto literal
+  ``"no value"``. Se normaliza a ``None``.
+- Los tipos de datos de usuario **no tienen numero**: su ``numero`` es
+  ``None``. Y su ruta sale mas corta en ``get_path()`` que en los bloques:
+  para ellos se usa ``get_path_full()``.
 """
 from __future__ import annotations
 
@@ -51,6 +57,9 @@ ORDEN_CAMBIO: tuple[str, ...] = ("Number", "Name")
 
 #: Lenguajes con los que TIA escribe un FC o un FB.
 _LENGUAJES_CODIGO = frozenset({"SCL", "LAD", "FBD", "STL", "GRAPH", "CFC"})
+
+#: Texto que el SDK devuelve cuando una propiedad no tiene valor.
+SIN_VALOR = "no value"
 
 #: Propiedades extendidas que se leen de cada bloque: nombre de TIA y clave
 #: del DTO.
@@ -83,8 +92,8 @@ def escanear_bloques(portal: Any, plc: str) -> list[dict[str, Any]]:
         - ``ruta``: la jerarquia de grupos, con ``/`` de separador. Vacia
           para un bloque en la raiz del PLC.
         - ``extended``: ``title``, ``author``, ``version``,
-          ``programming_language``, ``memory_layout`` y ``comment``. Lo que
-          TIA no expone queda a ``None``.
+          ``programming_language`` y ``memory_layout``. Lo que TIA no
+          expone queda a ``None``.
 
     Raises:
         OperacionError: si el PLC no existe.
@@ -92,7 +101,7 @@ def escanear_bloques(portal: Any, plc: str) -> list[dict[str, Any]]:
     objetivo = buscar_plc(portal, plc)
     bloques: list[dict[str, Any]] = []
     for bloque in bloques_del_plc(objetivo):
-        dto = _dto(bloque)
+        dto = _dto(bloque, plc)
         if dto is not None:
             bloques.append(dto)
     return bloques
@@ -101,7 +110,8 @@ def escanear_bloques(portal: Any, plc: str) -> list[dict[str, Any]]:
 def escanear_tipos_de_usuario(portal: Any, plc: str) -> list[dict[str, Any]]:
     """Los tipos de datos de usuario (UDT) del PLC.
 
-    Misma forma que ``escanear_bloques``. El ``tipo`` de todos es ``"UDT"``.
+    Misma forma que ``escanear_bloques``. El ``tipo`` de todos es ``"UDT"``
+    y su ``numero`` es ``None``: un tipo de datos de usuario no tiene numero.
 
     Args:
         portal: el portal de TIA.
@@ -116,7 +126,7 @@ def escanear_tipos_de_usuario(portal: Any, plc: str) -> list[dict[str, Any]]:
     objetivo = buscar_plc(portal, plc)
     tipos: list[dict[str, Any]] = []
     for tipo in tipos_de_datos_del_plc(objetivo):
-        dto = _dto(tipo)
+        dto = _dto(tipo, plc)
         if dto is not None:
             tipos.append(dto)
     return tipos
@@ -230,7 +240,7 @@ def aplicar_cambios(
 # ── helpers ────────────────────────────────────────────────────────────────
 
 
-def _dto(bloque: Any) -> dict[str, Any] | None:
+def _dto(bloque: Any, plc: str) -> dict[str, Any] | None:
     """El bloque como DTO. ``None`` si su nombre no se puede leer."""
     nombre = nombre_bloque(bloque)
     if not nombre:
@@ -239,7 +249,7 @@ def _dto(bloque: Any) -> dict[str, Any] | None:
         "nombre": str(nombre),
         "numero": _numero(bloque, str(nombre)),
         "tipo": _tipo(bloque, str(nombre)),
-        "ruta": _ruta(bloque),
+        "ruta": _ruta(bloque, plc),
         "extended": _extendidas(bloque),
     }
 
@@ -271,21 +281,36 @@ def _propiedades(bloque: Any) -> list[str]:
 
 
 def _texto(valor: Any) -> str | None:
-    """El valor como texto. ``None`` si esta vacio."""
+    """El valor como texto. ``None`` si esta vacio o si no tiene valor.
+
+    Cuando una propiedad no tiene valor, el SDK devuelve el texto literal
+    ``"no value"``. No es un dato: se normaliza a ``None``.
+    """
     if valor is None:
         return None
     texto = str(valor).strip()
-    return texto or None
+    if not texto or texto.casefold() == SIN_VALOR:
+        return None
+    return texto
 
 
-def _numero(bloque: Any, nombre: str) -> int:
+def _es_tipo_de_usuario(bloque: Any) -> bool:
+    """``True`` si el objeto es un tipo de datos de usuario."""
+    return "UserDataType" in type(bloque).__name__
+
+
+def _numero(bloque: Any, nombre: str) -> int | None:
     """El numero del bloque.
 
-    Orden de resolucion: la propiedad ``Number`` de TIA, el atributo
-    ``Number`` y, como ultimo recurso, el prefijo del nombre (``DB12`` ->
-    ``12``). El ultimo no es fuente de verdad: un bloque se puede llamar
-    ``Principal`` y tener un numero asignado en TIA.
+    Los tipos de datos de usuario no tienen numero: su numero es ``None``.
+
+    En los bloques, el orden de resolucion es: la propiedad ``Number`` de
+    TIA, el atributo ``Number`` y, como ultimo recurso, el prefijo del
+    nombre (``DB12`` -> ``12``). El ultimo no es fuente de verdad: un bloque
+    se puede llamar ``Principal`` y tener un numero asignado en TIA.
     """
+    if _es_tipo_de_usuario(bloque):
+        return None
     bruto = _propiedad(bloque, "Number")
     if bruto is not None:
         try:
@@ -301,14 +326,27 @@ def _numero(bloque: Any, nombre: str) -> int:
             return int(str(atributo).strip())
         except (TypeError, ValueError):
             pass
-    coincidencia = re.match(r"^(DB|FB|FC|OB|UDT)(\d+)", nombre, re.IGNORECASE)
+    coincidencia = re.match(r"^(DB|FB|FC|OB)(\d+)", nombre, re.IGNORECASE)
     if coincidencia:
         return int(coincidencia.group(2))
     return 0
 
 
-def _ruta(bloque: Any) -> str:
-    """La jerarquia de grupos del bloque. ``/`` de separador."""
+def _ruta(bloque: Any, plc: str) -> str:
+    """La jerarquia de grupos del bloque. ``/`` de separador.
+
+    TIA da dos caminos: ``get_path()`` llega hasta la carpeta de sistema del
+    padre y ``get_path_full()`` hasta el proyecto. En los tipos de datos de
+    usuario el primero se queda corto, asi que se usa el segundo cuando
+    aporta mas.
+    """
+    corta = _ruta_corta(bloque)
+    completa = _ruta_completa(bloque, plc, corta)
+    return completa if len(completa) > len(corta) else corta
+
+
+def _ruta_corta(bloque: Any) -> str:
+    """La ruta segun ``get_path()``: hasta la carpeta de sistema del padre."""
     try:
         if hasattr(bloque, "get_path"):
             return str(bloque.get_path())
@@ -319,16 +357,43 @@ def _ruta(bloque: Any) -> str:
     return ""
 
 
+def _ruta_completa(bloque: Any, plc: str, corta: str) -> str:
+    """La ruta segun ``get_path_full()``, sin lo anterior al PLC.
+
+    Se separa por ``.`` o ``/``, se quita todo lo anterior al nombre del PLC
+    y se vuelve a juntar con ``/``. Si el PLC no aparece, se supone que el
+    primer segmento es el proyecto, pero solo se acepta si el resto encaja
+    con la ruta corta.
+    """
+    getter = getattr(bloque, "get_path_full", None)
+    if getter is None:
+        return ""
+    try:
+        bruto = getter()
+    except Exception:
+        return ""
+    if not bruto:
+        return ""
+    segmentos = [parte for parte in re.split(r"[./]", str(bruto)) if parte]
+    for indice, segmento in enumerate(segmentos):
+        if segmento.casefold() == plc.casefold():
+            return "/".join(segmentos[indice + 1 :])
+    if len(segmentos) > 1:
+        resto = "/".join(segmentos[1:])
+        if not corta or resto.endswith(corta):
+            return resto
+    return ""
+
+
 def _extendidas(bloque: Any) -> dict[str, str | None]:
     """Las propiedades extendidas del bloque.
 
-    ``comment`` no existe en ``get_property`` en ninguna version de TIA:
-    solo se lee del XML exportado. Por eso queda siempre a ``None``.
+    El comentario no sale de aqui: no existe en ``get_property`` en ninguna
+    version de TIA, solo en el XML exportado. Por eso el DTO no lo lleva.
     """
     extendidas: dict[str, str | None] = {
         clave: None for _, clave in _PROPIEDADES_EXTENDIDAS
     }
-    extendidas["comment"] = None
     for nombre, clave in _PROPIEDADES_EXTENDIDAS:
         extendidas[clave] = _texto(_propiedad(bloque, nombre))
     return extendidas
@@ -346,7 +411,7 @@ def _tipo(bloque: Any, nombre: str) -> str:
     - FC: su lenguaje de programacion es uno de codigo.
     - OTHER: sin clasificar.
     """
-    if "UserDataType" in type(bloque).__name__:
+    if _es_tipo_de_usuario(bloque):
         return "UDT"
     lenguaje = _propiedad(bloque, "ProgrammingLanguage")
     if lenguaje is not None and str(lenguaje).upper() == "DB":

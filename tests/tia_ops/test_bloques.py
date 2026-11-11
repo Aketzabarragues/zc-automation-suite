@@ -21,7 +21,7 @@ class BloqueFalso:
         propiedades: dict[str, Any] | None = None,
         declaradas: list[str] | None = None,
         ruta: str = "",
-        clase: str = "ProgramBlock",
+        ruta_completa: str = "",
         codigo: int = 0,
         aplica: bool = True,
         legible: bool = True,
@@ -30,7 +30,7 @@ class BloqueFalso:
         self._propiedades = dict(propiedades or {})
         self._declaradas = declaradas if declaradas is not None else list(self._propiedades)
         self._ruta = ruta
-        self._clase = clase
+        self._ruta_completa = ruta_completa
         self.codigo = codigo
         self.aplica = aplica
         self.legible = legible
@@ -53,6 +53,9 @@ class BloqueFalso:
 
     def get_path(self) -> str:
         return self._ruta
+
+    def get_path_full(self) -> str:
+        return self._ruta_completa
 
     def set_property(self, name: str, value: str) -> int:
         self.llamadas.append((name, value))
@@ -128,7 +131,6 @@ def test_escanear_bloques_devuelve_el_dto_de_cada_bloque() -> None:
                 "version": None,
                 "programming_language": None,
                 "memory_layout": None,
-                "comment": None,
             },
         }
     ]
@@ -156,11 +158,32 @@ def test_escanear_bloques_lee_las_propiedades_extendidas() -> None:
     assert extendidas["memory_layout"] == "Optimized"
 
 
-def test_el_comentario_no_se_puede_leer_de_tia() -> None:
-    """El comentario solo sale del XML exportado: aqui queda vacio."""
+def test_el_dto_no_lleva_comentario() -> None:
+    """El comentario no sale de TIA: sale del XML exportado."""
     portal, _plc = _portal([BloqueFalso("DB10")])
 
-    assert ops.escanear_bloques(portal, "ZC_PLC_STD")[0]["extended"]["comment"] is None
+    extendidas = ops.escanear_bloques(portal, "ZC_PLC_STD")[0]["extended"]
+
+    assert "comment" not in extendidas
+
+
+def test_un_valor_que_no_existe_se_normaliza() -> None:
+    """El SDK devuelve el texto literal 'no value' cuando no hay valor."""
+    bloque = BloqueFalso(
+        "DB10",
+        propiedades={
+            "HeaderName": "no value",
+            "HeaderAuthor": "no value",
+            "ProgrammingLanguage": "no value",
+        },
+    )
+    portal, _plc = _portal([bloque])
+
+    extendidas = ops.escanear_bloques(portal, "ZC_PLC_STD")[0]["extended"]
+
+    assert extendidas["title"] is None
+    assert extendidas["author"] is None
+    assert extendidas["programming_language"] is None
 
 
 def test_una_propiedad_que_falla_no_tumba_el_escaneo() -> None:
@@ -202,6 +225,59 @@ def test_escanear_tipos_de_usuario_devuelve_los_udt() -> None:
 
     assert resultado[0]["nombre"] == "MiTipo"
     assert resultado[0]["tipo"] == "UDT"
+
+
+def test_un_tipo_de_usuario_no_tiene_numero() -> None:
+    portal = PortalFalso(PlcFalso(tipos=[UserDataType("MiTipo")]))
+
+    assert ops.escanear_tipos_de_usuario(portal, "ZC_PLC_STD")[0]["numero"] is None
+
+
+def test_la_ruta_de_un_tipo_de_usuario_es_la_jerarquia_entera() -> None:
+    """get_path() se queda corto en los UDT: se usa get_path_full()."""
+    tipo = UserDataType(
+        "MiTipo",
+        ruta="1_Documentado",
+        ruta_completa="ZC_PLC_STD.ZC_Controles.1_Documentado",
+    )
+    portal = PortalFalso(PlcFalso(tipos=[tipo]))
+
+    assert ops.escanear_tipos_de_usuario(portal, "ZC_PLC_STD")[0]["ruta"] == (
+        "ZC_Controles/1_Documentado"
+    )
+
+
+def test_la_ruta_de_un_tipo_de_usuario_usa_barras() -> None:
+    tipo = UserDataType(
+        "MiTipo",
+        ruta="1_Documentado",
+        ruta_completa="ZC_PLC_STD/ZC_Controles/1_Documentado",
+    )
+    portal = PortalFalso(PlcFalso(tipos=[tipo]))
+
+    assert ops.escanear_tipos_de_usuario(portal, "ZC_PLC_STD")[0]["ruta"] == (
+        "ZC_Controles/1_Documentado"
+    )
+
+
+def test_si_la_ruta_completa_no_aporta_nada_se_queda_la_corta() -> None:
+    tipo = UserDataType("MiTipo", ruta="1_Documentado", ruta_completa="")
+    portal = PortalFalso(PlcFalso(tipos=[tipo]))
+
+    assert ops.escanear_tipos_de_usuario(portal, "ZC_PLC_STD")[0]["ruta"] == "1_Documentado"
+
+
+def test_la_ruta_de_un_bloque_no_cambia() -> None:
+    bloque = BloqueFalso(
+        "DB10",
+        ruta="ZC_Controles/1_Documentado",
+        ruta_completa="ZC_PLC_STD.ZC_Controles.1_Documentado",
+    )
+    portal, _plc = _portal([bloque])
+
+    assert ops.escanear_bloques(portal, "ZC_PLC_STD")[0]["ruta"] == (
+        "ZC_Controles/1_Documentado"
+    )
 
 
 # ── clasificacion ──────────────────────────────────────────────────────────
@@ -415,7 +491,7 @@ def test_lo_publico_devuelve_solo_primitivos() -> None:
     assert isinstance(resultado, list)
     assert all(isinstance(bloque, dict) for bloque in resultado)
     assert all(
-        isinstance(valor, (str, int))
+        isinstance(valor, (str, int, type(None)))
         for bloque in resultado
         for clave, valor in bloque.items()
         if clave != "extended"

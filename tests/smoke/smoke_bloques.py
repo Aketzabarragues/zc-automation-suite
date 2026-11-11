@@ -154,8 +154,9 @@ def _imprimir_bloques(bloques: list[dict[str, Any]]) -> None:
     """Lista los bloques con sus propiedades."""
     for bloque in bloques:
         extendidas = bloque["extended"]
+        numero = "-" if bloque["numero"] is None else str(bloque["numero"])
         print(
-            f"  {bloque['nombre']:<28} {bloque['tipo']:<6} num {bloque['numero']:<6}"
+            f"  {bloque['nombre']:<28} {bloque['tipo']:<6} num {numero:<6}"
             f" ruta {bloque['ruta'] or '-'}"
         )
         print(
@@ -165,8 +166,7 @@ def _imprimir_bloques(bloques: list[dict[str, Any]]) -> None:
         )
         print(
             f"      lenguaje={extendidas['programming_language'] or '-'}  "
-            f"memoria={extendidas['memory_layout'] or '-'}  "
-            f"comentario={extendidas['comment'] or '-'}"
+            f"memoria={extendidas['memory_layout'] or '-'}"
         )
 
 
