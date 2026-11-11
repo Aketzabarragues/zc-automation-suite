@@ -40,8 +40,13 @@ const seleccionados = ref(new Set());
 /** Carpetas desplegadas del arbol. */
 const desplegadas = ref(new Set());
 
-/** `true` mientras hay un trabajo en curso. */
-const ocupado = computed(() => modo.value === "preparando" || aplicando.value);
+/**
+ * `true` mientras el editor esta ocupado.
+ *
+ * Con la tabla abierta el arbol de seleccion queda deshabilitado y en gris:
+ * cambiar la seleccion con los cambios a medias seria confusing.
+ */
+const bloqueado = computed(() => modo.value !== "idle");
 
 /** `true` mientras se aplican los cambios. */
 const aplicando = ref(false);
@@ -172,7 +177,7 @@ const totalBloques = computed(() => plc.bloques.length);
 const totalSeleccionados = computed(() => seleccionados.value.size);
 
 /** `true` si hay algo que preparar. */
-const puedeEditar = computed(() => totalSeleccionados.value > 0 && !ocupado.value);
+const puedeEditar = computed(() => totalSeleccionados.value > 0 && !bloqueado.value);
 
 // ── la seleccion ───────────────────────────────────────────────────────────
 
@@ -449,7 +454,7 @@ function etiquetaTipo(tipo) {
     <div v-else class="flex-1 min-h-0 grid grid-cols-3 gap-4">
       <div
         class="col-span-1 flex flex-col bg-surface-raised border border-line rounded p-5 gap-3 min-h-0"
-        :class="ocupado ? 'pointer-events-none opacity-50' : ''"
+        :class="bloqueado ? 'pointer-events-none opacity-50' : ''"
         data-testid="editor-arbol"
       >
         <div class="flex items-start justify-between gap-3">

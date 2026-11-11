@@ -126,4 +126,28 @@ describe("EditorBloques", () => {
     expect(wrapper.find('[data-testid="editor-error"]').text()).toContain("No se pudo exportar");
     expect(wrapper.find('[data-testid="editor-tabla"]').exists()).toBe(false);
   });
+
+  it("con la tabla abierta el arbol queda deshabilitado", async () => {
+    const { wrapper, trabajos } = montar();
+
+    expect(wrapper.find('[data-testid="editor-arbol"]').classes()).not.toContain("opacity-50");
+
+    await wrapper.find('[data-testid="editor-arbol"] input[type="checkbox"]').trigger("change");
+    await wrapper.find('[data-testid="editor-editar"]').trigger("click");
+    await flushPromises();
+
+    trabajos.aplicar({
+      type: "job",
+      job: "j1",
+      estado: "ok",
+      resultado: { bloques: BLOQUES },
+      error: null,
+    });
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="editor-arbol"]').classes()).toContain("opacity-50");
+    expect(wrapper.find('[data-testid="editor-arbol"]').classes()).toContain(
+      "pointer-events-none",
+    );
+  });
 });
