@@ -4,8 +4,11 @@ El Excel maestro del operario tiene **tablas nombradas**. Aqui se construye
 uno pequeno, con las mismas hojas y tablas, para probar el parser sin
 ficheros reales.
 
-El fixture completo replica el ``_build_full_xlsx`` de ``main``: una fila de
-cada dominio, con los mismos valores, para comprobar la paridad del modelo.
+El fixture completo tiene **una fila buena y una fila sucia** de cada
+dominio (texto donde toca un numero, celdas vacias): es el que fija el
+comportamiento del parser. Los valores esperados estan escritos en el test
+de paridad, sacados de ejecutar los parsers de ``main`` sobre este mismo
+fichero.
 """
 from __future__ import annotations
 
@@ -60,6 +63,206 @@ def _anadir_tabla(
     hoja_obj.add_table(tabla)
 
 
+def _fila(cabeceras: list[str], valores: dict[str, Any]) -> list[Any]:
+    """Una fila con un valor por cabecera. Las que no estan, van vacias."""
+    return [valores.get(cabecera, "") for cabecera in cabeceras]
+
+
+#: Las cabeceras de los dispositivos: la union de las de todos los tipos.
+CABECERAS_DISPOSITIVO = [
+    "UID",
+    "Numero",
+    "PLC.Tag",
+    "Descripcion",
+    "Tag",
+    "FAT",
+    "E.Byte",
+    "E.Bit",
+    "S.Byte",
+    "S.Bit",
+    "RR.Byte",
+    "RR.Bit",
+    "RT.Byte",
+    "RT.Bit",
+    "RM.Byte",
+    "RM.Bit",
+    "SA.Byte",
+    "Gr.Alarma",
+    "Cuadro",
+    "Observaciones",
+    "PLC.Tipo",
+    "PLC.Index",
+    "Hmi.Index",
+    "Hmi.Texto",
+    "Cfg.Habilitar",
+    "Cfg.ByteEntrada",
+    "Cfg.BitEntrada",
+    "Cfg.EscaladoMin",
+    "Cfg.EscaladoMax",
+    "Cfg.GrupoAlarma",
+    "Cfg.ByteRetornoReposo",
+    "Cfg.BitRetornoReposo",
+    "Cfg.ByteRetornoTrabajo",
+    "Cfg.BitRetornoTrabajo",
+    "Cfg.ByteActivacion",
+    "Cfg.BitActivacion",
+    "Cfg.HabRetReposo",
+    "Cfg.HabRetTrabajo",
+    "Cfg.ByteRetornoTermico",
+    "Cfg.BitRetornoTermico",
+    "Cfg.ByteConfMarcha",
+    "Cfg.BitConfMarcha",
+    "Cfg.HabRetTermico",
+    "Cfg.HabRetConfMarcha",
+    "Cfg.ByteAnalogica",
+    "Cfg.VelMin",
+    "Cfg.VelMax",
+    "Cfg.ConstK",
+    "Cfg.Tipo",
+    "ComentarioDB",
+    "Tipo",
+    "IncXPulso",
+    "Proceso",
+    "PV",
+    "Disp.Tipo",
+    "Disp.Tag",
+    "UNIDADES",
+    "RII",
+    "RSI",
+    "Vel.Min",
+    "Vel.Max",
+    "ConsK",
+]
+
+#: La fila buena de un dispositivo: un valor por cabecera.
+DISPOSITIVO_BUENO: dict[str, Any] = {
+    "UID": "ED_001",
+    "Numero": 1,
+    "PLC.Tag": "V_ED_001",
+    "Descripcion": "Entrada digital 1",
+    "Tag": "TAG_001",
+    "FAT": "FAT_001",
+    "E.Byte": 3,
+    "E.Bit": 2,
+    "S.Byte": 4,
+    "S.Bit": 5,
+    "RR.Byte": 6,
+    "RR.Bit": 7,
+    "RT.Byte": 8,
+    "RT.Bit": 9,
+    "RM.Byte": 10,
+    "RM.Bit": 11,
+    "SA.Byte": 12,
+    "Gr.Alarma": 13,
+    "Cuadro": "C1",
+    "Observaciones": "Observacion",
+    "PLC.Tipo": "S7-1500",
+    "PLC.Index": 14,
+    "Hmi.Index": 15,
+    "Hmi.Texto": "Texto HMI",
+    "Cfg.Habilitar": "SI",
+    "Cfg.ByteEntrada": "16",
+    "Cfg.BitEntrada": "17",
+    "Cfg.EscaladoMin": "18",
+    "Cfg.EscaladoMax": "19",
+    "Cfg.GrupoAlarma": "20",
+    "Cfg.ByteRetornoReposo": "21",
+    "Cfg.BitRetornoReposo": "22",
+    "Cfg.ByteRetornoTrabajo": "23",
+    "Cfg.BitRetornoTrabajo": "24",
+    "Cfg.ByteActivacion": "25",
+    "Cfg.BitActivacion": "26",
+    "Cfg.HabRetReposo": "27",
+    "Cfg.HabRetTrabajo": "28",
+    "Cfg.ByteRetornoTermico": "29",
+    "Cfg.BitRetornoTermico": "30",
+    "Cfg.ByteConfMarcha": "31",
+    "Cfg.BitConfMarcha": "32",
+    "Cfg.HabRetTermico": "33",
+    "Cfg.HabRetConfMarcha": "34",
+    "Cfg.ByteAnalogica": "35",
+    "Cfg.VelMin": "36",
+    "Cfg.VelMax": "37",
+    "Cfg.ConstK": "38",
+    "Cfg.Tipo": "39",
+    "ComentarioDB": "Comentario del DB",
+    "Tipo": "Tipo 1",
+    "IncXPulso": "0,5",
+    "Proceso": "Proceso 1",
+    "PV": "PV_1",
+    "Disp.Tipo": "Disp.Tipo 1",
+    "Disp.Tag": "Disp.Tag 1",
+    "UNIDADES": "Litros",
+    "RII": "0,5",
+    "RSI": "100,5",
+    "Vel.Min": "1,5",
+    "Vel.Max": "2,5",
+    "ConsK": "3,5",
+}
+
+#: La fila sucia: texto donde toca un numero, celdas vacias y una coma
+#: decimal. Es el caso que ``main`` tolera.
+DISPOSITIVO_SUCIO: dict[str, Any] = {
+    "UID": "ED_002",
+    "Numero": "no es un numero",
+    "PLC.Tag": "",
+    "Descripcion": None,
+    "Tag": "",
+    "FAT": "",
+    "E.Byte": None,
+    "E.Bit": "",
+    "S.Byte": "texto",
+    "S.Bit": None,
+    "Gr.Alarma": "",
+    "Cuadro": "",
+    "Observaciones": "",
+    "PLC.Tipo": "int",
+    "PLC.Index": "",
+    "Hmi.Index": None,
+    "Hmi.Texto": "",
+    "Cfg.Habilitar": "",
+    "RII": "1,5",
+}
+
+#: Las doce tablas de dispositivo, con su hoja y su nombre.
+TABLAS_DISPOSITIVO: tuple[tuple[str, str], ...] = (
+    ("DISP_ED", "Tabla_Disp_ED"),
+    ("DISP_EA", "Tabla_Disp_EA"),
+    ("DISP_SA", "Tabla_Disp_SA"),
+    ("DISP_SD", "Tabla_Disp_SD"),
+    ("DISP_V", "Tabla_Disp_V"),
+    ("DISP_M", "Tabla_Disp_M"),
+    ("DISP_M_VF", "Tabla_Disp_M_VF"),
+    ("DISP_M_SINA", "Tabla_Disp_M_SINA"),
+    ("DISP_TQ", "Tabla_Disp_TQ"),
+    ("DISP_TQ_AE", "Tabla_Disp_TQ_AE"),
+    ("DISP_TOT", "Tabla_Disp_TOT"),
+    ("DISP_PID", "Tabla_Disp_PID"),
+)
+
+#: Las cabeceras del software: la union de las de sus cuatro dominios.
+CABECERAS_SOFTWARE = [
+    "UID",
+    "Numero",
+    "Proceso",
+    "Codigo",
+    "Num.DB",
+    "Producto",
+    "Tipo",
+    "Descripcion",
+    "ComentarioDB",
+    "Visibilidad",
+    "Num.Lista",
+    "Txt.Lista",
+    "Nombre",
+    "PReal",
+    "PInt",
+    "Alarmas",
+    "Alarmas_Hmi",
+    "Index_Preal",
+    "Index_Pint",
+]
+
 #: Los N_MAX del Excel de prueba: el mismo nombre canonico que el config.
 N_MAX = (
     ("N_Max_EA", 20),
@@ -77,42 +280,21 @@ N_MAX = (
 )
 
 
-#: Una fila de cada tipo de dispositivo: la hoja, la tabla y los valores.
-DISPOSITIVOS_PRUEBA: tuple[tuple[str, str, str, str, str, dict[str, Any]], ...] = (
-    ("DISP_ED", "Tabla_Disp_ED", "ED_001", "V_ED_001", "Entrada digital 1", {}),
-    (
-        "DISP_EA",
-        "Tabla_Disp_EA",
-        "EA_001",
-        "V_EA_001",
-        "Entrada analogica 1",
-        {"RII": 0.0, "RSI": 100.0},
-    ),
-    ("DISP_SA", "Tabla_Disp_SA", "SA_001", "V_SA_001", "Salida analogica 1", {}),
-    ("DISP_SD", "Tabla_Disp_SD", "SD_001", "V_SD_001", "Salida digital 1", {}),
-    ("DISP_V", "Tabla_Disp_V", "V_001", "V_V_001", "Variable 1", {}),
-    ("DISP_M", "Tabla_Disp_M", "M_001", "V_M_001", "Motor 1", {}),
-    ("DISP_M_VF", "Tabla_Disp_M_VF", "MVF_001", "V_MVF_001", "Motor VF 1", {}),
-    ("DISP_M_SINA", "Tabla_Disp_M_SINA", "MSINA_001", "V_MSINA_001", "Motor Sinamics 1", {}),
-    ("DISP_TQ", "Tabla_Disp_TQ", "TQ_001", "V_TQ_001", "Tanque 1", {}),
-    ("DISP_TQ_AE", "Tabla_Disp_TQ_AE", "TQAE_001", "V_TQAE_001", "Tanque aire esteril 1", {}),
-    ("DISP_TOT", "Tabla_Disp_TOT", "TOT_001", "V_TOT_001", "Totalizador 1", {}),
-    ("DISP_PID", "Tabla_Disp_PID", "PID_001", "V_PID_001", "Controlador PID 1", {}),
-)
-
-
 def escribir_excel_completo(ruta: Path) -> Path:
-    """Escribe un Excel con una fila de cada dominio del Excel maestro."""
+    """Escribe el Excel maestro de prueba: dos filas de cada dominio."""
     libro = Workbook()
     libro.remove(libro.active)
 
-    for hoja, tabla, uid, tag, descripcion, extra in DISPOSITIVOS_PRUEBA:
+    for hoja, tabla in TABLAS_DISPOSITIVO:
         _anadir_tabla(
             libro,
             hoja,
             tabla,
-            ["UID", "Numero", "PLC.Tag", "Descripcion", *extra],
-            [[uid, 1, tag, descripcion, *extra.values()]],
+            CABECERAS_DISPOSITIVO,
+            [
+                _fila(CABECERAS_DISPOSITIVO, DISPOSITIVO_BUENO),
+                _fila(CABECERAS_DISPOSITIVO, DISPOSITIVO_SUCIO),
+            ],
         )
 
     _anadir_tabla(
@@ -120,96 +302,230 @@ def escribir_excel_completo(ruta: Path) -> Path:
         "CONFIG",
         "Tabla_PLC",
         ["UID", "PLC"],
-        [[1, "PLC1"]],
+        [[1, "PLC1"], [2, "PLC2"]],
         con_plc=False,
     )
     _anadir_tabla(
         libro,
         "CONFIG",
         "Tabla_Procesos",
-        ["UID", "Nombre", "Codigo", "PReal", "PInt", "Alarmas"],
-        [[1, "Proceso 1", "PR1", 1, 1, 16]],
+        CABECERAS_SOFTWARE,
+        [
+            _fila(
+                CABECERAS_SOFTWARE,
+                {
+                    "UID": 1,
+                    "Numero": "001",
+                    "Proceso": "Proceso 1",
+                    "Codigo": "PR1",
+                    "Num.DB": 3001,
+                    "Producto": "Producto",
+                    "Tipo": "Setpoint",
+                    "Descripcion": "PR1",
+                    "ComentarioDB": "c",
+                    "Visibilidad": "Si",
+                    "Num.Lista": 1,
+                    "Txt.Lista": "Txt",
+                    "Nombre": "Proceso 1",
+                    "PReal": 1,
+                    "PInt": 1,
+                    "Alarmas": 16,
+                    "Alarmas_Hmi": 2,
+                    "Index_Preal": 3,
+                    "Index_Pint": 4,
+                },
+            ),
+            _fila(
+                CABECERAS_SOFTWARE,
+                {
+                    "UID": 2,
+                    "Numero": "002",
+                    "Proceso": "Proceso 2",
+                    "Codigo": "PR2",
+                    "Num.DB": 3002,
+                    "Producto": "Producto",
+                    "Tipo": "Contador",
+                    "Descripcion": "PR2",
+                    "ComentarioDB": "c",
+                    "Visibilidad": "Si",
+                    "Num.Lista": "N/A",
+                    "Txt.Lista": "Txt",
+                    "Nombre": "Proceso 2",
+                    "PReal": 5,
+                    "PInt": 6,
+                    "Alarmas": 7,
+                    "Alarmas_Hmi": 8,
+                    "Index_Preal": 9,
+                    "Index_Pint": 10,
+                },
+            ),
+            _fila(
+                CABECERAS_SOFTWARE,
+                {
+                    "UID": "",
+                    "Numero": "003",
+                    "Proceso": "Proceso 3",
+                    "Codigo": "PR3",
+                    "Num.DB": 3003,
+                    "Producto": "Producto",
+                    "Tipo": "Setpoint",
+                    "Descripcion": "PR3",
+                    "ComentarioDB": "c",
+                    "Visibilidad": "Si",
+                    "Num.Lista": 0,
+                    "Txt.Lista": "Txt",
+                    "Nombre": "Proceso 3",
+                    "PReal": 0,
+                    "PInt": 0,
+                    "Alarmas": 0,
+                    "Alarmas_Hmi": 0,
+                    "Index_Preal": 0,
+                    "Index_Pint": 0,
+                },
+            ),
+        ],
     )
     _anadir_tabla(
         libro,
         "CONFIG",
         "Tabla_Dimensiones",
         ["PLC", *[columna for columna, _valor in N_MAX], "N_Max_ENT"],
-        [["PLC1", *[valor for _columna, valor in N_MAX], 6]],
+        [
+            ["PLC1", *[valor for _columna, valor in N_MAX], 6],
+            ["PLC2", *[valor + 1 for _columna, valor in N_MAX], 7],
+        ],
         con_plc=False,
     )
 
-    columnas_parametro = [
-        "UID",
-        "Numero",
-        "Proceso",
-        "Codigo",
-        "Num.DB",
-        "Producto",
-        "Tipo",
-        "Descripcion",
-        "ComentarioDB",
-        "Visibilidad",
-        "Num.Lista",
-        "Txt.Lista",
-    ]
     _anadir_tabla(
         libro,
         "P_REAL",
         "Tabla_PReal",
-        columnas_parametro,
+        CABECERAS_SOFTWARE,
         [
-            [
-                "PR_1_001",
-                "001",
-                "Proceso 1",
-                "PR1",
-                3001,
-                "Producto",
-                "Setpoint",
-                "PR1",
-                "c",
-                "Si",
-                1,
-                "Txt",
-            ]
+            _fila(
+                CABECERAS_SOFTWARE,
+                {
+                    "UID": "PR_1_001",
+                    "Numero": "001",
+                    "Proceso": "Proceso 1",
+                    "Codigo": "PR1",
+                    "Num.DB": 3001,
+                    "Producto": "Producto",
+                    "Tipo": "Setpoint",
+                    "Descripcion": "PR1",
+                    "ComentarioDB": "c",
+                    "Visibilidad": "Si",
+                    "Num.Lista": 1,
+                    "Txt.Lista": "Txt",
+                },
+            ),
+            _fila(
+                CABECERAS_SOFTWARE,
+                {
+                    "UID": "PR_1_002",
+                    "Numero": "002",
+                    "Proceso": "Proceso 2",
+                    "Codigo": "PR2",
+                    "Num.DB": 3002,
+                    "Producto": "Producto",
+                    "Tipo": "Contador",
+                    "Descripcion": "PR2",
+                    "ComentarioDB": "c",
+                    "Visibilidad": "Si",
+                    "Num.Lista": "N/A",
+                    "Txt.Lista": "Txt",
+                },
+            ),
         ],
     )
     _anadir_tabla(
         libro,
         "P_INT",
         "Tabla_PInt",
-        columnas_parametro,
+        CABECERAS_SOFTWARE,
         [
-            [
-                "PI_1_001",
-                "001",
-                "Proceso 1",
-                "PR1",
-                3002,
-                "Producto",
-                "Contador",
-                "PI1",
-                "c",
-                "Si",
-                0,
-                "Txt",
-            ]
+            _fila(
+                CABECERAS_SOFTWARE,
+                {
+                    "UID": "PI_1_001",
+                    "Numero": "001",
+                    "Proceso": "Proceso 1",
+                    "Codigo": "PR1",
+                    "Num.DB": 3002,
+                    "Producto": "Producto",
+                    "Tipo": "Contador",
+                    "Descripcion": "PI1",
+                    "ComentarioDB": "c",
+                    "Visibilidad": "Si",
+                    "Num.Lista": 0,
+                    "Txt.Lista": "Txt",
+                },
+            ),
+            _fila(
+                CABECERAS_SOFTWARE,
+                {
+                    "UID": "PI_1_002",
+                    "Numero": "002",
+                    "Proceso": "Proceso 2",
+                    "Codigo": "PR2",
+                    "Num.DB": 3003,
+                    "Producto": "Producto",
+                    "Tipo": "Setpoint",
+                    "Descripcion": "PI2",
+                    "ComentarioDB": "c",
+                    "Visibilidad": "Si",
+                    "Num.Lista": 5,
+                    "Txt.Lista": "Txt",
+                },
+            ),
         ],
     )
     _anadir_tabla(
         libro,
         "ALARMAS",
         "Tabla_Alarmas",
-        ["UID", "Numero", "Proceso", "Num.DB", "Descripcion", "ComentarioDB"],
-        [["AL_1_001", "001", "Proceso 1", 5001, "Alarma 1", "c"]],
+        CABECERAS_SOFTWARE,
+        [
+            _fila(
+                CABECERAS_SOFTWARE,
+                {
+                    "UID": "AL_1_001",
+                    "Numero": "001",
+                    "Proceso": "Proceso 1",
+                    "Num.DB": 5001,
+                    "Descripcion": "Alarma 1",
+                    "ComentarioDB": "c",
+                    "Visibilidad": "Si",
+                    "Num.Lista": 1,
+                    "Txt.Lista": "Txt",
+                },
+            ),
+            _fila(
+                CABECERAS_SOFTWARE,
+                {
+                    "UID": "AL_1_002",
+                    "Numero": "002",
+                    "Proceso": "Proceso 2",
+                    "Num.DB": 5002,
+                    "Descripcion": "Alarma 2",
+                    "ComentarioDB": "c",
+                    "Visibilidad": "Si",
+                    "Num.Lista": "N/A",
+                    "Txt.Lista": "Txt",
+                },
+            ),
+        ],
     )
     _anadir_tabla(
         libro,
         "ENTIDADES",
         "Tabla_Entidades",
-        ["Numero", "PLC.Tag", "Descripcion"],
-        [[1, "ent_001", "Entidad 1"]],
+        ["Numero", "PLC.Tag", "Descripcion", "PLC.Comentario", "PLC.Tipo", "PLC.Index"],
+        [
+            [1, "ent_001", "Entidad 1", "Comentario", "int", 1],
+            ["no es un numero", "ent_002", "", "", "int", ""],
+        ],
     )
 
     libro.save(ruta)
@@ -328,5 +644,5 @@ def excel_maestro(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def excel_completo(tmp_path: Path) -> Path:
-    """Un Excel maestro con una fila de cada dominio."""
+    """Un Excel maestro con dos filas de cada dominio."""
     return escribir_excel_completo(tmp_path / "completo.xlsx")

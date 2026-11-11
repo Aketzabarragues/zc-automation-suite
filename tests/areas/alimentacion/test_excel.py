@@ -3,9 +3,10 @@
 Ningun test toca TIA: el Excel se construye aqui mismo y el portal no hace
 falta para nada.
 
-El test de paridad usa el Excel completo (una fila de cada dominio) y
-comprueba que el modelo sale con los mismos campos y los mismos valores que
-daba el ``ExcelLoader`` de ``main``.
+El test de paridad compara, dominio a dominio y fila a fila, con lo que
+devuelven los parsers de ``main`` sobre el mismo Excel: el conjunto de campos
+y todos los valores. Los valores esperados estan escritos aqui, sacados de
+ejecutar ``main``.
 """
 
 from __future__ import annotations
@@ -22,84 +23,879 @@ from zc_suite.areas.alimentacion.excel import almacen as modulo_almacen
 from zc_suite.areas.alimentacion.excel import parser
 from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
 
-# ── el modelo completo, campo a campo ───────────────────────────────────────
+# ── los valores que espera main ──────────────────────────────────────────
 
-#: Los campos de cada tipo de dispositivo, como en los DTO de ``main``.
-CAMPOS_DISPOSITIVOS: dict[str, set[str]] = {
-    "DispED": {
-        "numero", "plc_tag", "plc_comentario", "descripcion", "uid", "tag", "fat",
-        "e_byte", "e_bit", "gr_alarma", "cuadro", "observaciones", "plc_tipo",
-        "plc_index", "hmi_index", "hmi_texto", "cfg_habilitar", "cfg_byte_entrada",
-        "cfg_bit_entrada", "cfg_grupo_alarma", "comentario_db", "plc_name",
-    },
-    "DispEA": {
-        "numero", "plc_tag", "plc_comentario", "descripcion", "uid", "tag", "fat",
-        "e_byte", "unidades", "rii", "rsi", "gr_alarma", "cuadro", "observaciones",
-        "plc_tipo", "plc_index", "hmi_index", "hmi_texto", "cfg_habilitar",
-        "cfg_byte_entrada", "cfg_escaladomin", "cfg_escaladomax", "cfg_grupo_alarma",
-        "comentario_db", "plc_name",
-    },
-    "DispSD": {
-        "numero", "plc_tag", "plc_comentario", "descripcion", "uid", "tag", "fat",
-        "s_byte", "s_bit", "gr_alarma", "cuadro", "observaciones", "plc_tipo",
-        "plc_index", "hmi_index", "hmi_texto", "cfg_habilitar", "cfg_byte_entrada",
-        "cfg_bit_entrada", "cfg_grupo_alarma", "comentario_db", "plc_name",
-    },
-    "DispV": {
-        "numero", "plc_tag", "plc_comentario", "descripcion", "uid", "tag", "fat",
-        "s_byte", "s_bit", "rr_byte", "rr_bit", "rt_byte", "rt_bit", "gr_alarma",
-        "cuadro", "observaciones", "plc_tipo", "plc_index", "hmi_index", "hmi_texto",
-        "cfg_habilitar", "cfg_byteretornoreposo", "cfg_bitretornoreposo",
-        "cfg_byteretornotrabajo", "cfg_bitretornotrabajo", "cfg_byteactivacion",
-        "cfg_bitactivacion", "cfg_habitreposo", "cfg_habitrtrabajo", "cfg_grupoalarma",
-        "comentario_db", "plc_name",
-    },
-    "DispM": {
-        "numero", "plc_tag", "plc_comentario", "descripcion", "uid", "tag", "fat",
-        "s_byte", "s_bit", "rt_byte", "rt_bit", "rm_byte", "rm_bit", "gr_alarma",
-        "cuadro", "observaciones", "plc_tipo", "plc_index", "hmi_index", "hmi_texto",
-        "cfg_habilitar", "cfg_byteretornotermico", "cfg_bitretornotermico",
-        "cfg_byteconfmarcha", "cfg_bitconfmarcha", "cfg_byteactivacion",
-        "cfg_bitactivacion", "cfg_habrettermico", "cfg_habretconfmarcha",
-        "cfg_grupoalarma", "comentario_db", "plc_name",
-    },
-    "DispM_VF": {
-        "numero", "plc_tag", "plc_comentario", "descripcion", "uid", "tag", "fat",
-        "s_byte", "s_bit", "rt_byte", "rt_bit", "rm_byte", "rm_bit", "gr_alarma",
-        "cuadro", "observaciones", "plc_tipo", "plc_index", "hmi_index", "hmi_texto",
-        "cfg_habilitar", "cfg_byteretornotermico", "cfg_bitretornotermico",
-        "cfg_byteconfmarcha", "cfg_bitconfmarcha", "cfg_byteactivacion",
-        "cfg_bitactivacion", "cfg_habrettermico", "cfg_habretconfmarcha",
-        "cfg_grupoalarma", "comentario_db", "plc_name", "sa_byte",
-        "cfg_byteanalogica",
-    },
-    "DispM_SINA": {
-        "numero", "plc_tag", "plc_comentario", "descripcion", "uid", "tag", "fat",
-        "rt_byte", "rt_bit", "vel_min", "vel_max", "cons_k", "gr_alarma", "cuadro",
-        "observaciones", "plc_tipo", "plc_index", "hmi_index", "hmi_texto",
-        "cfg_habilitar", "cfg_byteretornotermico", "cfg_bitretornotermico",
-        "cfg_vel_min", "cfg_vel_max", "cfg_cons_k", "cfg_grupo_alarma",
-        "comentario_db", "plc_name",
-    },
-    "DispTQ": {
-        "numero", "plc_tag", "plc_comentario", "descripcion", "uid", "tag", "fat",
-        "observaciones", "plc_tipo", "plc_index", "hmi_index", "hmi_texto",
-        "cfg_habilitar", "comentario_db", "plc_name",
-    },
-    "DispTOT": {
-        "numero", "plc_tag", "plc_comentario", "descripcion", "uid", "tag", "fat",
-        "tipo", "e_byte", "e_bit", "incxpulso", "gr_alarma", "proceso",
-        "observaciones", "plc_tipo", "plc_index", "hmi_index", "hmi_texto",
-        "cfg_habilitar", "cfg_byteentrada", "cfg_bitentrada", "cfg_tipo",
-        "comentario_db", "plc_name",
-    },
-    "DispPID": {
-        "numero", "plc_tag", "plc_comentario", "descripcion", "uid", "tag", "fat",
-        "proceso", "pv", "disp_tipo", "disp_tag", "observaciones", "plc_tipo",
-        "plc_index", "hmi_index", "hmi_texto", "cfg_habilitar", "comentario_db",
-        "plc_name",
-    },
+
+#: Los dispositivos, tal y como los deja ``main``: una fila buena y una sucia.
+ESPERADO_DISPOSITIVOS: dict[str, list[dict[str, Any]]] = {
+
+    "DispED": [
+        {
+            "cfg_bit_entrada": "17",
+            "cfg_byte_entrada": "16",
+            "cfg_grupo_alarma": "20",
+            "cfg_habilitar": "SI",
+            "comentario_db": "Comentario del DB",
+            "cuadro": "C1",
+            "descripcion": "Entrada digital 1",
+            "e_bit": 2,
+            "e_byte": 3,
+            "fat": "FAT_001",
+            "gr_alarma": 13,
+            "hmi_index": 15,
+            "hmi_texto": "Texto HMI",
+            "numero": 1,
+            "observaciones": "Observacion",
+            "plc_comentario": "",
+            "plc_index": 14,
+            "plc_name": "PLC1",
+            "plc_tag": "V_ED_001",
+            "plc_tipo": "S7-1500",
+            "tag": "TAG_001",
+            "uid": "ED_001",
+        },
+        {
+            "cfg_bit_entrada": "",
+            "cfg_byte_entrada": "",
+            "cfg_grupo_alarma": "",
+            "cfg_habilitar": "",
+            "comentario_db": "",
+            "cuadro": "",
+            "descripcion": "",
+            "e_bit": 0,
+            "e_byte": 0,
+            "fat": "",
+            "gr_alarma": 0,
+            "hmi_index": 0,
+            "hmi_texto": "",
+            "numero": 0,
+            "observaciones": "",
+            "plc_comentario": "",
+            "plc_index": 0,
+            "plc_name": "PLC1",
+            "plc_tag": "",
+            "plc_tipo": "int",
+            "tag": "",
+            "uid": "ED_002",
+        },
+    ],
+
+    "DispEA": [
+        {
+            "cfg_byte_entrada": "16",
+            "cfg_escaladomax": "19",
+            "cfg_escaladomin": "18",
+            "cfg_grupo_alarma": "20",
+            "cfg_habilitar": "SI",
+            "comentario_db": "Comentario del DB",
+            "cuadro": "C1",
+            "descripcion": "Entrada digital 1",
+            "e_byte": 3,
+            "fat": "FAT_001",
+            "gr_alarma": 13,
+            "hmi_index": 15,
+            "hmi_texto": "Texto HMI",
+            "numero": 1,
+            "observaciones": "Observacion",
+            "plc_comentario": "",
+            "plc_index": 14,
+            "plc_name": "PLC1",
+            "plc_tag": "V_ED_001",
+            "plc_tipo": "S7-1500",
+            "rii": 0.5,
+            "rsi": 100.5,
+            "tag": "TAG_001",
+            "uid": "ED_001",
+            "unidades": "Litros",
+        },
+        {
+            "cfg_byte_entrada": "",
+            "cfg_escaladomax": "",
+            "cfg_escaladomin": "",
+            "cfg_grupo_alarma": "",
+            "cfg_habilitar": "",
+            "comentario_db": "",
+            "cuadro": "",
+            "descripcion": "",
+            "e_byte": 0,
+            "fat": "",
+            "gr_alarma": 0,
+            "hmi_index": 0,
+            "hmi_texto": "",
+            "numero": 0,
+            "observaciones": "",
+            "plc_comentario": "",
+            "plc_index": 0,
+            "plc_name": "PLC1",
+            "plc_tag": "",
+            "plc_tipo": "int",
+            "rii": 1.5,
+            "rsi": 0.0,
+            "tag": "",
+            "uid": "ED_002",
+            "unidades": "",
+        },
+    ],
+
+    "DispSA": [
+        {
+            "cfg_byte_entrada": "16",
+            "cfg_escaladomax": "19",
+            "cfg_escaladomin": "18",
+            "cfg_grupo_alarma": "20",
+            "cfg_habilitar": "SI",
+            "comentario_db": "Comentario del DB",
+            "cuadro": "C1",
+            "descripcion": "Entrada digital 1",
+            "e_byte": 3,
+            "fat": "FAT_001",
+            "gr_alarma": 13,
+            "hmi_index": 15,
+            "hmi_texto": "Texto HMI",
+            "numero": 1,
+            "observaciones": "Observacion",
+            "plc_comentario": "",
+            "plc_index": 14,
+            "plc_name": "PLC1",
+            "plc_tag": "V_ED_001",
+            "plc_tipo": "S7-1500",
+            "rii": 0.5,
+            "rsi": 100.5,
+            "tag": "TAG_001",
+            "uid": "ED_001",
+            "unidades": "Litros",
+        },
+        {
+            "cfg_byte_entrada": "",
+            "cfg_escaladomax": "",
+            "cfg_escaladomin": "",
+            "cfg_grupo_alarma": "",
+            "cfg_habilitar": "",
+            "comentario_db": "",
+            "cuadro": "",
+            "descripcion": "",
+            "e_byte": 0,
+            "fat": "",
+            "gr_alarma": 0,
+            "hmi_index": 0,
+            "hmi_texto": "",
+            "numero": 0,
+            "observaciones": "",
+            "plc_comentario": "",
+            "plc_index": 0,
+            "plc_name": "PLC1",
+            "plc_tag": "",
+            "plc_tipo": "int",
+            "rii": 1.5,
+            "rsi": 0.0,
+            "tag": "",
+            "uid": "ED_002",
+            "unidades": "",
+        },
+    ],
+
+    "DispSD": [
+        {
+            "cfg_bit_entrada": "17",
+            "cfg_byte_entrada": "16",
+            "cfg_grupo_alarma": "20",
+            "cfg_habilitar": "SI",
+            "comentario_db": "Comentario del DB",
+            "cuadro": "C1",
+            "descripcion": "Entrada digital 1",
+            "fat": "FAT_001",
+            "gr_alarma": 13,
+            "hmi_index": 15,
+            "hmi_texto": "Texto HMI",
+            "numero": 1,
+            "observaciones": "Observacion",
+            "plc_comentario": "",
+            "plc_index": 14,
+            "plc_name": "PLC1",
+            "plc_tag": "V_ED_001",
+            "plc_tipo": "S7-1500",
+            "s_bit": 5,
+            "s_byte": 4,
+            "tag": "TAG_001",
+            "uid": "ED_001",
+        },
+        {
+            "cfg_bit_entrada": "",
+            "cfg_byte_entrada": "",
+            "cfg_grupo_alarma": "",
+            "cfg_habilitar": "",
+            "comentario_db": "",
+            "cuadro": "",
+            "descripcion": "",
+            "fat": "",
+            "gr_alarma": 0,
+            "hmi_index": 0,
+            "hmi_texto": "",
+            "numero": 0,
+            "observaciones": "",
+            "plc_comentario": "",
+            "plc_index": 0,
+            "plc_name": "PLC1",
+            "plc_tag": "",
+            "plc_tipo": "int",
+            "s_bit": 0,
+            "s_byte": 0,
+            "tag": "",
+            "uid": "ED_002",
+        },
+    ],
+
+    "DispV": [
+        {
+            "cfg_bitactivacion": "26",
+            "cfg_bitretornoreposo": "22",
+            "cfg_bitretornotrabajo": "24",
+            "cfg_byteactivacion": "25",
+            "cfg_byteretornoreposo": "21",
+            "cfg_byteretornotrabajo": "23",
+            "cfg_grupoalarma": "20",
+            "cfg_habilitar": "SI",
+            "cfg_habitreposo": "27",
+            "cfg_habitrtrabajo": "28",
+            "comentario_db": "Comentario del DB",
+            "cuadro": "C1",
+            "descripcion": "Entrada digital 1",
+            "fat": "FAT_001",
+            "gr_alarma": 13,
+            "hmi_index": 15,
+            "hmi_texto": "Texto HMI",
+            "numero": 1,
+            "observaciones": "Observacion",
+            "plc_comentario": "",
+            "plc_index": 14,
+            "plc_name": "PLC1",
+            "plc_tag": "V_ED_001",
+            "plc_tipo": "S7-1500",
+            "rr_bit": 7,
+            "rr_byte": 6,
+            "rt_bit": 9,
+            "rt_byte": 8,
+            "s_bit": 5,
+            "s_byte": 4,
+            "tag": "TAG_001",
+            "uid": "ED_001",
+        },
+        {
+            "cfg_bitactivacion": "",
+            "cfg_bitretornoreposo": "",
+            "cfg_bitretornotrabajo": "",
+            "cfg_byteactivacion": "",
+            "cfg_byteretornoreposo": "",
+            "cfg_byteretornotrabajo": "",
+            "cfg_grupoalarma": "",
+            "cfg_habilitar": "",
+            "cfg_habitreposo": "",
+            "cfg_habitrtrabajo": "",
+            "comentario_db": "",
+            "cuadro": "",
+            "descripcion": "",
+            "fat": "",
+            "gr_alarma": 0,
+            "hmi_index": 0,
+            "hmi_texto": "",
+            "numero": 0,
+            "observaciones": "",
+            "plc_comentario": "",
+            "plc_index": 0,
+            "plc_name": "PLC1",
+            "plc_tag": "",
+            "plc_tipo": "int",
+            "rr_bit": 0,
+            "rr_byte": 0,
+            "rt_bit": 0,
+            "rt_byte": 0,
+            "s_bit": 0,
+            "s_byte": 0,
+            "tag": "",
+            "uid": "ED_002",
+        },
+    ],
+
+    "DispM": [
+        {
+            "cfg_bitactivacion": "26",
+            "cfg_bitconfmarcha": "32",
+            "cfg_bitretornotermico": "30",
+            "cfg_byteactivacion": "25",
+            "cfg_byteconfmarcha": "31",
+            "cfg_byteretornotermico": "29",
+            "cfg_grupoalarma": "20",
+            "cfg_habilitar": "SI",
+            "cfg_habretconfmarcha": "34",
+            "cfg_habrettermico": "33",
+            "comentario_db": "Comentario del DB",
+            "cuadro": "C1",
+            "descripcion": "Entrada digital 1",
+            "fat": "FAT_001",
+            "gr_alarma": 13,
+            "hmi_index": 15,
+            "hmi_texto": "Texto HMI",
+            "numero": 1,
+            "observaciones": "Observacion",
+            "plc_comentario": "",
+            "plc_index": 14,
+            "plc_name": "PLC1",
+            "plc_tag": "V_ED_001",
+            "plc_tipo": "S7-1500",
+            "rm_bit": 11,
+            "rm_byte": 10,
+            "rt_bit": 9,
+            "rt_byte": 8,
+            "s_bit": 5,
+            "s_byte": 4,
+            "tag": "TAG_001",
+            "uid": "ED_001",
+        },
+        {
+            "cfg_bitactivacion": "",
+            "cfg_bitconfmarcha": "",
+            "cfg_bitretornotermico": "",
+            "cfg_byteactivacion": "",
+            "cfg_byteconfmarcha": "",
+            "cfg_byteretornotermico": "",
+            "cfg_grupoalarma": "",
+            "cfg_habilitar": "",
+            "cfg_habretconfmarcha": "",
+            "cfg_habrettermico": "",
+            "comentario_db": "",
+            "cuadro": "",
+            "descripcion": "",
+            "fat": "",
+            "gr_alarma": 0,
+            "hmi_index": 0,
+            "hmi_texto": "",
+            "numero": 0,
+            "observaciones": "",
+            "plc_comentario": "",
+            "plc_index": 0,
+            "plc_name": "PLC1",
+            "plc_tag": "",
+            "plc_tipo": "int",
+            "rm_bit": 0,
+            "rm_byte": 0,
+            "rt_bit": 0,
+            "rt_byte": 0,
+            "s_bit": 0,
+            "s_byte": 0,
+            "tag": "",
+            "uid": "ED_002",
+        },
+    ],
+
+    "DispM_VF": [
+        {
+            "cfg_bitactivacion": "26",
+            "cfg_bitconfmarcha": "32",
+            "cfg_bitretornotermico": "30",
+            "cfg_byteactivacion": "25",
+            "cfg_byteanalogica": "35",
+            "cfg_byteconfmarcha": "31",
+            "cfg_byteretornotermico": "29",
+            "cfg_grupoalarma": "20",
+            "cfg_habilitar": "SI",
+            "cfg_habretconfmarcha": "34",
+            "cfg_habrettermico": "33",
+            "comentario_db": "Comentario del DB",
+            "cuadro": "C1",
+            "descripcion": "Entrada digital 1",
+            "fat": "FAT_001",
+            "gr_alarma": 13,
+            "hmi_index": 15,
+            "hmi_texto": "Texto HMI",
+            "numero": 1,
+            "observaciones": "Observacion",
+            "plc_comentario": "",
+            "plc_index": 14,
+            "plc_name": "PLC1",
+            "plc_tag": "V_ED_001",
+            "plc_tipo": "S7-1500",
+            "rm_bit": 11,
+            "rm_byte": 10,
+            "rt_bit": 9,
+            "rt_byte": 8,
+            "s_bit": 5,
+            "s_byte": 4,
+            "sa_byte": 12,
+            "tag": "TAG_001",
+            "uid": "ED_001",
+        },
+        {
+            "cfg_bitactivacion": "",
+            "cfg_bitconfmarcha": "",
+            "cfg_bitretornotermico": "",
+            "cfg_byteactivacion": "",
+            "cfg_byteanalogica": "",
+            "cfg_byteconfmarcha": "",
+            "cfg_byteretornotermico": "",
+            "cfg_grupoalarma": "",
+            "cfg_habilitar": "",
+            "cfg_habretconfmarcha": "",
+            "cfg_habrettermico": "",
+            "comentario_db": "",
+            "cuadro": "",
+            "descripcion": "",
+            "fat": "",
+            "gr_alarma": 0,
+            "hmi_index": 0,
+            "hmi_texto": "",
+            "numero": 0,
+            "observaciones": "",
+            "plc_comentario": "",
+            "plc_index": 0,
+            "plc_name": "PLC1",
+            "plc_tag": "",
+            "plc_tipo": "int",
+            "rm_bit": 0,
+            "rm_byte": 0,
+            "rt_bit": 0,
+            "rt_byte": 0,
+            "s_bit": 0,
+            "s_byte": 0,
+            "sa_byte": 0,
+            "tag": "",
+            "uid": "ED_002",
+        },
+    ],
+
+    "DispM_SINA": [
+        {
+            "cfg_bitretornotermico": "30",
+            "cfg_byteretornotermico": "29",
+            "cfg_cons_k": "38",
+            "cfg_grupo_alarma": "20",
+            "cfg_habilitar": "SI",
+            "cfg_vel_max": "37",
+            "cfg_vel_min": "36",
+            "comentario_db": "Comentario del DB",
+            "cons_k": 3.5,
+            "cuadro": "C1",
+            "descripcion": "Entrada digital 1",
+            "fat": "FAT_001",
+            "gr_alarma": 13,
+            "hmi_index": 15,
+            "hmi_texto": "Texto HMI",
+            "numero": 1,
+            "observaciones": "Observacion",
+            "plc_comentario": "",
+            "plc_index": 14,
+            "plc_name": "PLC1",
+            "plc_tag": "V_ED_001",
+            "plc_tipo": "S7-1500",
+            "rt_bit": 9,
+            "rt_byte": 8,
+            "tag": "TAG_001",
+            "uid": "ED_001",
+            "vel_max": 2.5,
+            "vel_min": 1.5,
+        },
+        {
+            "cfg_bitretornotermico": "",
+            "cfg_byteretornotermico": "",
+            "cfg_cons_k": "",
+            "cfg_grupo_alarma": "",
+            "cfg_habilitar": "",
+            "cfg_vel_max": "",
+            "cfg_vel_min": "",
+            "comentario_db": "",
+            "cons_k": 0.0,
+            "cuadro": "",
+            "descripcion": "",
+            "fat": "",
+            "gr_alarma": 0,
+            "hmi_index": 0,
+            "hmi_texto": "",
+            "numero": 0,
+            "observaciones": "",
+            "plc_comentario": "",
+            "plc_index": 0,
+            "plc_name": "PLC1",
+            "plc_tag": "",
+            "plc_tipo": "int",
+            "rt_bit": 0,
+            "rt_byte": 0,
+            "tag": "",
+            "uid": "ED_002",
+            "vel_max": 0.0,
+            "vel_min": 0.0,
+        },
+    ],
+
+    "DispTQ": [
+        {
+            "cfg_habilitar": "SI",
+            "comentario_db": "Comentario del DB",
+            "descripcion": "Entrada digital 1",
+            "fat": "FAT_001",
+            "hmi_index": 15,
+            "hmi_texto": "Texto HMI",
+            "numero": 1,
+            "observaciones": "Observacion",
+            "plc_comentario": "",
+            "plc_index": 14,
+            "plc_name": "PLC1",
+            "plc_tag": "V_ED_001",
+            "plc_tipo": "S7-1500",
+            "tag": "TAG_001",
+            "uid": "ED_001",
+        },
+        {
+            "cfg_habilitar": "",
+            "comentario_db": "",
+            "descripcion": "",
+            "fat": "",
+            "hmi_index": 0,
+            "hmi_texto": "",
+            "numero": 0,
+            "observaciones": "",
+            "plc_comentario": "",
+            "plc_index": 0,
+            "plc_name": "PLC1",
+            "plc_tag": "",
+            "plc_tipo": "int",
+            "tag": "",
+            "uid": "ED_002",
+        },
+    ],
+
+    "DispTQ_AE": [
+        {
+            "cfg_habilitar": "SI",
+            "comentario_db": "Comentario del DB",
+            "descripcion": "Entrada digital 1",
+            "fat": "FAT_001",
+            "hmi_index": 15,
+            "hmi_texto": "Texto HMI",
+            "numero": 1,
+            "observaciones": "Observacion",
+            "plc_comentario": "",
+            "plc_index": 14,
+            "plc_name": "PLC1",
+            "plc_tag": "V_ED_001",
+            "plc_tipo": "S7-1500",
+            "tag": "TAG_001",
+            "uid": "ED_001",
+        },
+        {
+            "cfg_habilitar": "",
+            "comentario_db": "",
+            "descripcion": "",
+            "fat": "",
+            "hmi_index": 0,
+            "hmi_texto": "",
+            "numero": 0,
+            "observaciones": "",
+            "plc_comentario": "",
+            "plc_index": 0,
+            "plc_name": "PLC1",
+            "plc_tag": "",
+            "plc_tipo": "int",
+            "tag": "",
+            "uid": "ED_002",
+        },
+    ],
+
+    "DispTOT": [
+        {
+            "cfg_bitentrada": "17",
+            "cfg_byteentrada": "16",
+            "cfg_habilitar": "SI",
+            "cfg_tipo": "39",
+            "comentario_db": "Comentario del DB",
+            "descripcion": "Entrada digital 1",
+            "e_bit": 2,
+            "e_byte": 3,
+            "fat": "FAT_001",
+            "gr_alarma": 13,
+            "hmi_index": 15,
+            "hmi_texto": "Texto HMI",
+            "incxpulso": 0.5,
+            "numero": 1,
+            "observaciones": "Observacion",
+            "plc_comentario": "",
+            "plc_index": 14,
+            "plc_name": "PLC1",
+            "plc_tag": "V_ED_001",
+            "plc_tipo": "S7-1500",
+            "proceso": "Proceso 1",
+            "tag": "TAG_001",
+            "tipo": "Tipo 1",
+            "uid": "ED_001",
+        },
+        {
+            "cfg_bitentrada": "",
+            "cfg_byteentrada": "",
+            "cfg_habilitar": "",
+            "cfg_tipo": "",
+            "comentario_db": "",
+            "descripcion": "",
+            "e_bit": 0,
+            "e_byte": 0,
+            "fat": "",
+            "gr_alarma": 0,
+            "hmi_index": 0,
+            "hmi_texto": "",
+            "incxpulso": 0.0,
+            "numero": 0,
+            "observaciones": "",
+            "plc_comentario": "",
+            "plc_index": 0,
+            "plc_name": "PLC1",
+            "plc_tag": "",
+            "plc_tipo": "int",
+            "proceso": "",
+            "tag": "",
+            "tipo": "",
+            "uid": "ED_002",
+        },
+    ],
+
+    "DispPID": [
+        {
+            "cfg_habilitar": "SI",
+            "comentario_db": "Comentario del DB",
+            "descripcion": "Entrada digital 1",
+            "disp_tag": "Disp.Tag 1",
+            "disp_tipo": "Disp.Tipo 1",
+            "fat": "FAT_001",
+            "hmi_index": 15,
+            "hmi_texto": "Texto HMI",
+            "numero": 1,
+            "observaciones": "Observacion",
+            "plc_comentario": "",
+            "plc_index": 14,
+            "plc_name": "PLC1",
+            "plc_tag": "V_ED_001",
+            "plc_tipo": "S7-1500",
+            "proceso": "Proceso 1",
+            "pv": "PV_1",
+            "tag": "TAG_001",
+            "uid": "ED_001",
+        },
+        {
+            "cfg_habilitar": "",
+            "comentario_db": "",
+            "descripcion": "",
+            "disp_tag": "",
+            "disp_tipo": "",
+            "fat": "",
+            "hmi_index": 0,
+            "hmi_texto": "",
+            "numero": 0,
+            "observaciones": "",
+            "plc_comentario": "",
+            "plc_index": 0,
+            "plc_name": "PLC1",
+            "plc_tag": "",
+            "plc_tipo": "int",
+            "proceso": "",
+            "pv": "",
+            "tag": "",
+            "uid": "ED_002",
+        },
+    ],
+
 }
+
+
+#: El software, tal y como lo deja ``main``.
+ESPERADO_SOFTWARE: dict[str, list[dict[str, Any]]] = {
+
+    "Procesos": [
+        {
+            "alarmas": 16,
+            "alm_hmi": 2,
+            "codigo": "PR1",
+            "index_pint": 4,
+            "index_preal": 3,
+            "nombre": "Proceso 1",
+            "pint": 1,
+            "plc_name": "PLC1",
+            "preal": 1,
+            "uid": 1,
+        },
+        {
+            "alarmas": 7,
+            "alm_hmi": 8,
+            "codigo": "PR2",
+            "index_pint": 10,
+            "index_preal": 9,
+            "nombre": "Proceso 2",
+            "pint": 6,
+            "plc_name": "PLC1",
+            "preal": 5,
+            "uid": 2,
+        },
+    ],
+
+    "ParametrosEnteros": [
+        {
+            "codigo": "PR1",
+            "comentario_db": "c",
+            "descripcion": "PI1",
+            "num_db": 3002,
+            "num_lista": 0,
+            "numero": "001",
+            "plc_name": "PLC1",
+            "proceso": "Proceso 1",
+            "producto": "Producto",
+            "tipo": "Contador",
+            "txt_lista": "Txt",
+            "uid": "PI_1_001",
+            "visibilidad": "Si",
+        },
+        {
+            "codigo": "PR2",
+            "comentario_db": "c",
+            "descripcion": "PI2",
+            "num_db": 3003,
+            "num_lista": 5,
+            "numero": "002",
+            "plc_name": "PLC1",
+            "proceso": "Proceso 2",
+            "producto": "Producto",
+            "tipo": "Setpoint",
+            "txt_lista": "Txt",
+            "uid": "PI_1_002",
+            "visibilidad": "Si",
+        },
+    ],
+
+    "ParametrosReales": [
+        {
+            "codigo": "PR1",
+            "comentario_db": "c",
+            "descripcion": "PR1",
+            "num_db": 3001,
+            "num_lista": 1,
+            "numero": "001",
+            "plc_name": "PLC1",
+            "proceso": "Proceso 1",
+            "producto": "Producto",
+            "tipo": "Setpoint",
+            "txt_lista": "Txt",
+            "uid": "PR_1_001",
+            "visibilidad": "Si",
+        },
+        {
+            "codigo": "PR2",
+            "comentario_db": "c",
+            "descripcion": "PR2",
+            "num_db": 3002,
+            "num_lista": "N/A",
+            "numero": "002",
+            "plc_name": "PLC1",
+            "proceso": "Proceso 2",
+            "producto": "Producto",
+            "tipo": "Contador",
+            "txt_lista": "Txt",
+            "uid": "PR_1_002",
+            "visibilidad": "Si",
+        },
+    ],
+
+    "Alarmas": [
+        {
+            "comentario_db": "c",
+            "descripcion": "Alarma 1",
+            "num_db": 5001,
+            "numero": "001",
+            "plc_name": "PLC1",
+            "proceso": "Proceso 1",
+            "uid": "AL_1_001",
+        },
+        {
+            "comentario_db": "c",
+            "descripcion": "Alarma 2",
+            "num_db": 5002,
+            "numero": "002",
+            "plc_name": "PLC1",
+            "proceso": "Proceso 2",
+            "uid": "AL_1_002",
+        },
+    ],
+
+}
+
+
+#: Las entidades, tal y como las deja ``main``.
+ESPERADO_ENTIDADES = [
+    {
+        "descripcion": "Entidad 1",
+        "numero": 1,
+        "plc_comentario": "Comentario",
+        "plc_index": 1,
+        "plc_name": "PLC1",
+        "plc_tag": "ent_001",
+        "plc_tipo": 0,
+    },
+    {
+        "descripcion": "",
+        "numero": 0,
+        "plc_comentario": "",
+        "plc_index": 0,
+        "plc_name": "PLC1",
+        "plc_tag": "ent_002",
+        "plc_tipo": 0,
+    },
+]
+
+
+#: Los PLCs, tal y como los deja ``main``.
+ESPERADO_PLCS = [
+    {
+        "plc": "PLC1",
+        "uid": 1,
+    },
+    {
+        "plc": "PLC2",
+        "uid": 2,
+    },
+]
+
+
+#: Los N_MAX por PLC, tal y como los deja ``main``.
+ESPERADO_N_MAX = [
+    {
+        "N_MAX_DISP_EA": 20,
+        "N_MAX_DISP_ED": 10,
+        "N_MAX_DISP_M": 50,
+        "N_MAX_DISP_M_SINA": 70,
+        "N_MAX_DISP_M_VF": 60,
+        "N_MAX_DISP_PID": 90,
+        "N_MAX_DISP_SA": 30,
+        "N_MAX_DISP_SD": 80,
+        "N_MAX_DISP_TOT": 80,
+        "N_MAX_DISP_TQ": 80,
+        "N_MAX_DISP_TQ_AE": 80,
+        "N_MAX_DISP_V": 40,
+        "N_MAX_ENTIDAD": 6,
+        "PLC": "PLC1",
+    },
+    {
+        "N_MAX_DISP_EA": 21,
+        "N_MAX_DISP_ED": 11,
+        "N_MAX_DISP_M": 51,
+        "N_MAX_DISP_M_SINA": 71,
+        "N_MAX_DISP_M_VF": 61,
+        "N_MAX_DISP_PID": 91,
+        "N_MAX_DISP_SA": 31,
+        "N_MAX_DISP_SD": 81,
+        "N_MAX_DISP_TOT": 81,
+        "N_MAX_DISP_TQ": 81,
+        "N_MAX_DISP_TQ_AE": 81,
+        "N_MAX_DISP_V": 41,
+        "N_MAX_ENTIDAD": 7,
+        "PLC": "PLC2",
+    },
+]
+
+
+# ── la paridad con main ─────────────────────────────────────────────────────
 
 
 def _tabla(datos: dict[str, Any], tipo: str) -> dict[str, Any]:
@@ -110,171 +906,65 @@ def _tabla(datos: dict[str, Any], tipo: str) -> dict[str, Any]:
     raise AssertionError(f"El volcado no tiene la tabla {tipo}.")
 
 
-# ── la paridad con main ─────────────────────────────────────────────────────
-
-
-def test_el_modelo_de_los_dispositivos_tiene_los_campos_de_main(
+def test_los_dispositivos_son_los_de_main(
     excel_completo: Path,
     seccion: dict[str, Any],
 ) -> None:
+    """Cada tipo de dispositivo, con sus campos y sus valores, como ``main``."""
     datos = parser.leer_excel(excel_completo, seccion)
 
-    for tipo, campos in CAMPOS_DISPOSITIVOS.items():
-        fila = _tabla(datos, tipo)["filas"][0]
-        assert set(fila) == campos, f"faltan campos en {tipo}"
+    for tipo, esperado in ESPERADO_DISPOSITIVOS.items():
+        filas = _tabla(datos, tipo)["filas"]
+        assert filas == esperado, f"el dominio {tipo} no sale como en main"
 
 
-def test_los_valores_de_los_dispositivos_son_los_de_main(
+def test_el_software_es_el_de_main(
     excel_completo: Path,
     seccion: dict[str, Any],
 ) -> None:
+    """Procesos, parametros y alarmas, con sus campos y sus valores."""
     datos = parser.leer_excel(excel_completo, seccion)
 
-    assert _tabla(datos, "DispED")["filas"] == [
-        {
-            "numero": 1,
-            "plc_tag": "V_ED_001",
-            "plc_comentario": "",
-            "descripcion": "Entrada digital 1",
-            "uid": "ED_001",
-            "tag": "",
-            "fat": "",
-            "plc_tipo": "",
-            "plc_index": 0,
-            "hmi_index": 0,
-            "hmi_texto": "",
-            "cfg_habilitar": "",
-            "comentario_db": "",
-            "plc_name": "PLC1",
-            "e_byte": 0,
-            "e_bit": 0,
-            "gr_alarma": 0,
-            "cuadro": "",
-            "observaciones": "",
-            "cfg_byte_entrada": "",
-            "cfg_bit_entrada": "",
-            "cfg_grupo_alarma": "",
-        }
-    ]
-    assert _tabla(datos, "DispEA")["filas"][0]["rii"] == 0.0
-    assert _tabla(datos, "DispEA")["filas"][0]["rsi"] == 100.0
-    assert _tabla(datos, "DispEA")["filas"][0]["uid"] == "EA_001"
-    assert _tabla(datos, "DispTOT")["filas"][0]["uid"] == "TOT_001"
+    for dominio, esperado in ESPERADO_SOFTWARE.items():
+        filas = datos["procesos"][dominio]["filas"]
+        assert filas == esperado, f"el dominio {dominio} no sale como en main"
 
-def test_los_valores_del_software_son_los_de_main(
+
+def test_las_entidades_los_plcs_y_los_n_max_son_los_de_main(
     excel_completo: Path,
     seccion: dict[str, Any],
 ) -> None:
+    """Las entidades, la lista de PLCs y los N_MAX por PLC."""
     datos = parser.leer_excel(excel_completo, seccion)
 
-    assert datos["procesos"]["Procesos"]["filas"] == [
-        {
-            "uid": 1,
-            "nombre": "Proceso 1",
-            "codigo": "PR1",
-            "preal": 1,
-            "index_preal": 0,
-            "pint": 1,
-            "index_pint": 0,
-            "alarmas": 16,
-            "alm_hmi": 0,
-            "plc_name": "PLC1",
-        }
-    ]
-    assert datos["procesos"]["ParametrosReales"]["filas"] == [
-        {
-            "uid": "PR_1_001",
-            "numero": "001",
-            "proceso": "Proceso 1",
-            "codigo": "PR1",
-            "num_db": 3001,
-            "producto": "Producto",
-            "tipo": "Setpoint",
-            "descripcion": "PR1",
-            "comentario_db": "c",
-            "visibilidad": "Si",
-            "num_lista": 1,
-            "txt_lista": "Txt",
-            "plc_name": "PLC1",
-        }
-    ]
-    assert datos["procesos"]["ParametrosEnteros"]["filas"][0]["num_db"] == 3002
-    assert datos["procesos"]["ParametrosEnteros"]["filas"][0]["num_lista"] == 0
-    assert datos["procesos"]["Alarmas"]["filas"] == [
-        {
-            "uid": "AL_1_001",
-            "numero": "001",
-            "proceso": "Proceso 1",
-            "num_db": 5001,
-            "descripcion": "Alarma 1",
-            "comentario_db": "c",
-            "plc_name": "PLC1",
-        }
-    ]
-
-
-def test_los_plcs_las_entidades_y_las_dimensiones_son_los_de_main(
-    excel_completo: Path,
-    seccion: dict[str, Any],
-) -> None:
-    datos = parser.leer_excel(excel_completo, seccion)
-
-    assert datos["plcs"] == [{"uid": 1, "plc": "PLC1"}]
-    assert datos["entidades"]["filas"] == [
-        {
-            "numero": 1,
-            "plc_name": "PLC1",
-            "plc_tag": "ent_001",
-            "descripcion": "Entidad 1",
-            "plc_comentario": "",
-            "plc_tipo": 0,
-            "plc_index": 0,
-        }
-    ]
-    fila = datos["configuracion"]["filas"][0]
-    assert fila["PLC"] == "PLC1"
-    assert fila["N_MAX_DISP_ED"] == 10
-    assert fila["N_MAX_DISP_EA"] == 20
-    assert fila["N_MAX_DISP_PID"] == 90
-    assert fila["N_MAX_ENTIDAD"] == 6
-
-
-# ── las filas ───────────────────────────────────────────────────────────────
+    assert datos["entidades"]["filas"] == ESPERADO_ENTIDADES
+    assert datos["plcs"] == ESPERADO_PLCS
+    assert datos["configuracion"]["filas"] == ESPERADO_N_MAX
 
 
 def test_una_fila_sucia_no_tumba_la_carga(
-    tmp_path: Path,
-    crear_excel: Callable[..., Path],
+    excel_completo: Path,
     seccion: dict[str, Any],
 ) -> None:
-    """Un texto donde toca un numero se queda en ``0``, como en ``main``."""
-    ruta = crear_excel(
-        tmp_path / "sucio.xlsx",
-        [["PLC1", "ED_001", "no es un numero", "V_ED_001", "Entrada digital", 3, 2]],
-    )
+    """``PLC.Tipo`` con texto vale ``0``, y la carga no falla.
 
-    datos = parser.leer_excel(ruta, seccion)
+    Es el caso real del Excel del operario: la plantilla trae ``"int"`` en
+    la columna ``PLC.Tipo`` de las entidades.
+    """
+    datos = parser.leer_excel(excel_completo, seccion)
 
-    fila = _tabla(datos, "DispED")["filas"][0]
-    assert fila["numero"] == 0
-    assert fila["e_byte"] == 3
+    entidades = datos["entidades"]["filas"]
+    assert entidades[0]["plc_tipo"] == 0
+    assert entidades[1]["plc_tipo"] == 0
+    assert entidades[1]["numero"] == 0
 
-
-def test_una_celda_vacia_sale_como_cero_o_vacia(
-    tmp_path: Path,
-    crear_excel: Callable[..., Path],
-    seccion: dict[str, Any],
-) -> None:
-    ruta = crear_excel(
-        tmp_path / "vacias.xlsx",
-        [["PLC1", "ED_001", None, "", "Entrada digital", 3, 2]],
-    )
-
-    datos = parser.leer_excel(ruta, seccion)
-
-    fila = _tabla(datos, "DispED")["filas"][0]
-    assert fila["numero"] == 0
-    assert fila["tag"] == ""
+    sucia = _tabla(datos, "DispED")["filas"][1]
+    assert sucia["numero"] == 0
+    assert sucia["e_byte"] == 0
+    assert sucia["gr_alarma"] == 0
+    assert sucia["plc_index"] == 0
+    assert sucia["plc_tipo"] == "int"
+    assert sucia["descripcion"] == ""
 
 
 def test_una_fila_sin_uid_ni_numero_se_descarta(
@@ -284,15 +974,12 @@ def test_una_fila_sin_uid_ni_numero_se_descarta(
 ) -> None:
     ruta = crear_excel(
         tmp_path / "sin_uid.xlsx",
-        [
-            ["PLC1", "", None, "", "Entrada digital", 3, 2],
-            ["PLC1", "ED_002", 2, "V_ED_002", "Otra", 3, 2],
-        ],
+        [["PLC1", "", None, "", "Entrada digital", 3, 2]],
     )
 
     datos = parser.leer_excel(ruta, seccion)
 
-    assert len(_tabla(datos, "DispED")["filas"]) == 1
+    assert _tabla(datos, "DispED")["filas"] == []
 
 
 # ── los avisos ──────────────────────────────────────────────────────────────
@@ -383,7 +1070,7 @@ def test_el_almacen_guarda_el_volcado(
     assert almacen.cargado_en
     estado = almacen.estado()
     assert estado["cargado"] is True
-    assert estado["plcs"] == [{"uid": 1, "plc": "PLC1"}]
+    assert estado["plcs"] == ESPERADO_PLCS
     assert _tabla(estado, "DispED")["filas"][0]["plc_tag"] == "V_ED_001"
 
 
