@@ -255,7 +255,9 @@ def cargar_config(ruta: Path | None = None) -> Config:
     if not destino.is_file():
         raise ConfigError(f"No se encontro el {NOMBRE_CONFIG} en {destino}.")
     try:
-        datos = json.loads(destino.read_text(encoding="utf-8"))
+        # ``utf-8-sig`` lee igual un fichero con BOM que sin el: hay
+        # editores que lo guardan con BOM y el app no deberia caer por eso.
+        datos = json.loads(destino.read_text(encoding="utf-8-sig"))
     except json.JSONDecodeError as exc:
         raise ConfigError(
             f"El {NOMBRE_CONFIG} de {destino} no es JSON valido: {exc}"

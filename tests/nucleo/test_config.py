@@ -188,6 +188,16 @@ def test_una_config_vacia_usa_los_valores_por_defecto(tmp_path: Path) -> None:
     assert config.areas == {}
 
 
+def test_un_config_con_bom_no_tumba_la_app(tmp_path: Path) -> None:
+    """Hay editores que guardan con BOM: el config se lee igual."""
+    ruta = tmp_path / "config.json"
+    ruta.write_bytes(b"\xef\xbb\xbf" + json.dumps({"tia": {"plc": "PLC_1"}}).encode())
+
+    config = cargar_config(ruta)
+
+    assert config.tia.plc == "PLC_1"
+
+
 # ── secciones de area ──────────────────────────────────────────────────────
 
 
