@@ -19,9 +19,10 @@ from typing import Any
 
 from flask import Blueprint, Response, current_app, jsonify, request
 
+from zc_suite.areas.alimentacion.dispositivo import disp_trabajo
 from zc_suite.areas.alimentacion.excel import trabajo
 from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
-from zc_suite.web import HTTPError, lanzar
+from zc_suite.web import HTTPError, lanzar, servicio
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,36 @@ def subir_excel() -> tuple[Response, int]:
 def recargar_excel() -> tuple[Response, int]:
     """Vuelve a parsear la copia guardada del Excel."""
     return lanzar(trabajo.recargar_excel, almacen=_almacen())
+
+
+@rutas.post("/dispositivos/preview")
+def preview_dispositivos() -> tuple[Response, int]:
+    """Encola la prevision de dispositivos del PLC.
+
+    Las precondiciones se comprueban **antes** de encolar: si falta el Excel,
+    la conexion con TIA o el PLC, se responde con el mensaje y no se lanza
+    ningun trabajo.
+    """
+    datos = request.get_json(silent=True) or {}
+    plc = str(datos.get("plc") or "").strip()
+    if not plc:
+        return jsonify({"error": "Elige un PLC antes de generar la prevision."}), 400
+
+    almacen = _almacen()
+    if not almacen.estado()["cargado"]:
+        return jsonify({"error": "No hay Excel cargado. Sube el Excel maestro primero."}), 400
+
+    if not servicio().conectado:
+        return jsonify(
+            {"error": "TIA Portal no esta conectado. Conectate antes de generar la prevision."}
+        ), 400
+
+    return lanzar(
+        disp_trabajo.disp_generar_preview,
+        plc=plc,
+        almacen=almacen,
+        config=almacen.config,
+    )
 
 
 def _almacen() -> AlmacenExcel:

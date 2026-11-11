@@ -20,7 +20,7 @@ export default {
       icono: "📊",
       vista: "DefinicionProgramacion.vue",
     },
-    { clave: "disp", etiqueta: "Dispositivos", icono: "⚡", vista: null },
+    { clave: "disp", etiqueta: "Dispositivos", icono: "⚡", vista: "Dispositivos.vue" },
     { clave: "proc", etiqueta: "Procesos", icono: "⚙️", vista: null },
     { clave: "ent", etiqueta: "Entidades", icono: "🗂️", vista: null },
   ],
