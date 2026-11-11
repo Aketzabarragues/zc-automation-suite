@@ -54,6 +54,8 @@ backend/zc_suite/
   rutas/       conexion.py, bloques.py, catalogo.py
   areas/<id>/  ID, NOMBRE, rutas, catalogo(), defaults(), al_arrancar()
                <id>/rutas.py con el Blueprint del area
+               <id>/excel/    modelo.py, tablas.py, columnas.py,
+                              parser.py, almacen.py, trabajo.py
 frontend/src/
   api.js  stores/  components/  vistas/  areas/<id>/
 tests/    nucleo/  tia_ops/  simatic/  areas/<id>/  test_fronteras.py
@@ -163,9 +165,21 @@ ultimo `progress` y el ultimo `tia`.
 
 1. Anade el dataclass del catalogo en `areas/<id>/datos/`.
 2. Anade la entrada en `config.json` (`areas.<id>.Dispositivos`).
-3. Anade las columnas de la tabla del Excel en `areas/<id>/excel/tablas.py`.
+3. Anade el dominio del tipo en `areas/<id>/excel/tablas.py`: sus campos, con
+   los nombres y los tipos que usan las fases siguientes.
 4. El `GET /api/v1/catalogo` lo recoge automaticamente (data-driven). No hay
    que tocar la SPA.
+
+## El Excel maestro de un area
+
+- El **modelo** (los campos de cada dominio) vive en `excel/tablas.py` y
+  `excel/modelo.py`. El parser es **uno solo** y lo usan tal cual todas las
+  fases: no se escribe un parser por operacion.
+- El **almacen** guarda el modelo completo de cada fila. El `display_order`
+  del `config.json` decide solo que columnas se ensenan; el `col_labels`
+  del mismo catalogo decide como se titulan.
+- Una hoja o una tabla que no esta **no es un error**: el dominio sale
+  vacio y el trabajo lleva un aviso.
 
 ## Convenciones
 
