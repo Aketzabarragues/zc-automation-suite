@@ -17,6 +17,7 @@ from flask import Flask
 from zc_suite.areas import alimentacion
 from zc_suite.config import Config, cargar_config
 from zc_suite.eventos import BusEventos
+from zc_suite.rutas import catalogo as rutas_catalogo
 from zc_suite.rutas import conexion as rutas_conexion
 from zc_suite.rutas import plc as rutas_plc
 from zc_suite.tia import ServicioTIA
@@ -66,6 +67,7 @@ def montar_app(
     app.config["ZC_CONFIG"] = config_app
     rutas_conexion.registrar(app)
     rutas_plc.registrar(app)
+    rutas_catalogo.registrar(app)
     catalogos: dict[str, Any] = {}
     for area in AREAS:
         seccion = config_app.seccion_area(
