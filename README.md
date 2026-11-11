@@ -89,6 +89,9 @@ config/config.json  plantilla de configuracion
 - [docs/NUEVO_DISPOSITIVO.md](docs/NUEVO_DISPOSITIVO.md) — como se anade un tipo
   de dispositivo.
 - [docs/PROBLEMAS.md](docs/PROBLEMAS.md) — problemas frecuentes.
+- [docs/referencia_ui/REFERENCIA_UI.md](docs/referencia_ui/REFERENCIA_UI.md) — las
+  capturas y la especificacion de la app original: la reescritura replica esas
+  pantallas.
 
 ## Licencia
 
