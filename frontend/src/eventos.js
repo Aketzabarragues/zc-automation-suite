@@ -9,7 +9,6 @@
  * cliente reconecta solo con espera creciente.
  */
 import { useLogsStore } from "./stores/logs.js";
-import { usePlcStore } from "./stores/plc.js";
 import { useTrabajosStore } from "./stores/trabajos.js";
 import { useTiaStore } from "./stores/tia.js";
 import { crearFuenteDemo } from "./demo.js";
@@ -129,7 +128,6 @@ export function arrancarEventos({ demo = false } = {}) {
   const tia = useTiaStore();
   const trabajos = useTrabajosStore();
   const logs = useLogsStore();
-  const plc = usePlcStore();
 
   tia.demo = demo;
 
@@ -141,12 +139,9 @@ export function arrancarEventos({ demo = false } = {}) {
       } else if (evento.type === "progress") {
         trabajos.aplicar(evento);
       } else if (evento.type === "job") {
-        // El resultado de un trabajo va a quien lo encolo: cada store
-        // guarda sus propios jobs pendientes y descarta los que no son
-        // suyos.
+        // El resultado lo espera quien lo encolo, con
+        // ``trabajos.esperar(job_id)``. Aqui solo se guarda.
         trabajos.aplicar(evento);
-        tia.aplicarJob(evento);
-        plc.aplicarJob(evento);
       } else if (evento.type === "log") {
         logs.aplicar(evento);
       }

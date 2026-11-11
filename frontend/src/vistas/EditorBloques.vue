@@ -9,7 +9,7 @@
  * Solo Name y Number son editables. Title, Comment, Author y Version se
  * leen de TIA pero no se pueden cambiar.
  */
-import { computed, ref, watch } from "vue";
+import { computed, ref } from "vue";
 import { usePlcStore } from "../stores/plc.js";
 import { useTrabajosStore } from "../stores/trabajos.js";
 import { useTiaStore } from "../stores/tia.js";
@@ -39,9 +39,6 @@ const seleccionados = ref(new Set());
 
 /** Carpetas desplegadas del arbol. */
 const desplegadas = ref(new Set());
-
-/** Trabajos encolados por esta vista. */
-const trabajosPendientes = {};
 
 /** `true` mientras hay un trabajo en curso. */
 const ocupado = computed(() => modo.value === "preparando" || aplicando.value);
@@ -323,7 +320,14 @@ async function preparar() {
       plc.seleccionado,
       [...seleccionados.value],
     );
-    trabajosPendientes[respuesta.job_id] = "preparar";
+    const job = await trabajos.esperar(respuesta.job_id);
+    if (job.estado !== "ok") {
+      error.value = job.error || "No se pudieron preparar los bloques.";
+      modo.value = "idle";
+      return;
+    }
+    preparados.value = (job.resultado && job.resultado.bloques) || [];
+    modo.value = "editando";
   } catch (fallo) {
     error.value = fallo.message;
     modo.value = "idle";
@@ -343,7 +347,20 @@ async function aplicar() {
   }
   try {
     const respuesta = await editarBloques(plc.seleccionado, cambios.value);
-    trabajosPendientes[respuesta.job_id] = "aplicar";
+    const job = await trabajos.esperar(respuesta.job_id);
+    aplicando.value = false;
+    if (job.estado !== "ok") {
+      error.value = job.error || "No se pudieron aplicar los cambios.";
+      return;
+    }
+    // El trabajo refresca los bloques: el arbol tiene que ver los nombres
+    // nuevos.
+    const resultado = job.resultado || {};
+    if (Array.isArray(resultado.bloques)) {
+      plc.bloques = resultado.bloques;
+    }
+    limpiarSeleccion();
+    cancelar();
   } catch (fallo) {
     error.value = fallo.message;
     aplicando.value = false;
@@ -357,33 +374,6 @@ function cancelar() {
   pendientes.value = {};
   error.value = "";
 }
-
-// El resultado de los trabajos llega por el stream.
-watch(
-  () => trabajos.ultimoJob,
-  (job) => {
-    if (!job) return;
-    const etiqueta = trabajosPendientes[job.job];
-    if (!etiqueta) return;
-    delete trabajosPendientes[job.job];
-    if (job.estado !== "ok") {
-      error.value = job.error || "El trabajo ha fallado.";
-      modo.value = "idle";
-      aplicando.value = false;
-      return;
-    }
-    if (etiqueta === "preparar") {
-      preparados.value = (job.resultado && job.resultado.bloques) || [];
-      modo.value = "editando";
-      return;
-    }
-    if (etiqueta === "aplicar") {
-      aplicando.value = false;
-      limpiarSeleccion();
-      cancelar();
-    }
-  },
-);
 
 // ── el aspecto de la pastilla de tipo ──────────────────────────────────────
 

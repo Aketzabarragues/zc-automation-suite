@@ -7,6 +7,7 @@
 import { defineStore } from "pinia";
 import { conectar as conectarTia, desconectar as desconectarTia } from "../api.js";
 import { usePlcStore } from "./plc.js";
+import { useTrabajosStore } from "./trabajos.js";
 
 export const useTiaStore = defineStore("tia", {
   state: () => ({
@@ -24,8 +25,6 @@ export const useTiaStore = defineStore("tia", {
     demo: false,
     /** Aviso de la ultima accion. */
     aviso: null,
-    /** Trabajos encolados por esta vista, esperando su resultado. */
-    pendientes: {},
   }),
 
   getters: {
@@ -52,22 +51,6 @@ export const useTiaStore = defineStore("tia", {
       }
     },
 
-    /**
-     * Aplica el resultado de un trabajo que esta vista encoló.
-     *
-     * @param {object} evento el evento `job`.
-     */
-    aplicarJob(evento) {
-      const etiqueta = this.pendientes[evento.job];
-      if (!etiqueta) return;
-      delete this.pendientes[evento.job];
-      if (etiqueta === "conectar" && evento.estado === "ok") {
-        // Conectar bien es buscar los PLCs: es lo que ve el operario en la
-        // lista de "PLC disponibles".
-        usePlcStore().buscarPlcs();
-      }
-    },
-
     /** Encola la conexion con TIA Portal. */
     async conectar() {
       this.aviso = null;
@@ -79,7 +62,14 @@ export const useTiaStore = defineStore("tia", {
       }
       try {
         const respuesta = await conectarTia();
-        this.pendientes[respuesta.job_id] = "conectar";
+        const job = await useTrabajosStore().esperar(respuesta.job_id);
+        if (job.estado !== "ok") {
+          this.aviso = job.error || "No se pudo conectar con TIA Portal.";
+          return;
+        }
+        // Conectar bien es buscar los PLCs: es lo que ve el operario en la
+        // lista de "PLC disponibles".
+        usePlcStore().buscarPlcs();
       } catch (error) {
         this.aviso = error.message;
       }
@@ -95,7 +85,12 @@ export const useTiaStore = defineStore("tia", {
       }
       try {
         const respuesta = await desconectarTia();
-        this.pendientes[respuesta.job_id] = "desconectar";
+        const job = await useTrabajosStore().esperar(respuesta.job_id);
+        if (job.estado !== "ok") {
+          this.aviso = job.error || "No se pudo desconectar de TIA Portal.";
+          return;
+        }
+        usePlcStore().vaciar();
       } catch (error) {
         this.aviso = error.message;
       }

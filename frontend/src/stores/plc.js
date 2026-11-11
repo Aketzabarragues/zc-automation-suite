@@ -2,13 +2,14 @@
  * Store del PLC: los PLCs del proyecto, el que esta seleccionado y su
  * contenido (bloques, tablas de tags y tipos de usuario).
  *
- * Todas las operaciones contra TIA son trabajos: el backend responde 202
- * con el `job_id` y el resultado llega por el stream, en el evento `job`.
+ * Todas las operaciones contra TIA son trabajos: el backend responde 202 con
+ * el `job_id` y el resultado llega por el stream, en el evento `job`.
  */
 import { defineStore } from "pinia";
-import { buscarPlcs, escanearPlc } from "../api.js";
+import { buscarPlcs as apiBuscarPlcs, escanearPlc } from "../api.js";
 import { datosDemo } from "../demo.js";
 import { useTiaStore } from "./tia.js";
+import { useTrabajosStore } from "./trabajos.js";
 
 export const usePlcStore = defineStore("plc", {
   state: () => ({
@@ -28,13 +29,12 @@ export const usePlcStore = defineStore("plc", {
     ocupado: false,
     /** Ultimo error de la vista. */
     error: null,
-    /** Trabajos encolados por esta vista, esperando su resultado. */
-    pendientes: {},
   }),
 
   getters: {
     /** `true` si ya hay un escaneo del PLC seleccionado. */
-    escaneado: (state) => state.bloques.length > 0 || state.tablas.length > 0 || state.tipos.length > 0,
+    escaneado: (state) =>
+      state.bloques.length > 0 || state.tablas.length > 0 || state.tipos.length > 0,
 
     /** El PLC seleccionado, con su designacion. */
     plcActual(state) {
@@ -56,8 +56,15 @@ export const usePlcStore = defineStore("plc", {
         return;
       }
       try {
-        const respuesta = await buscarPlcs();
-        this.pendientes[respuesta.job_id] = "buscar";
+        const respuesta = await apiBuscarPlcs();
+        const job = await useTrabajosStore().esperar(respuesta.job_id);
+        if (job.estado !== "ok") {
+          this.error = job.error || "No se pudieron buscar los PLCs.";
+          return;
+        }
+        const resultado = job.resultado || {};
+        this.plcs = resultado.plcs || [];
+        this.proyecto = resultado.proyecto || null;
       } catch (error) {
         this.error = error.message;
       }
@@ -81,37 +88,19 @@ export const usePlcStore = defineStore("plc", {
       }
       try {
         const respuesta = await escanearPlc(this.seleccionado);
-        this.pendientes[respuesta.job_id] = "escanear";
-      } catch (error) {
-        this.error = error.message;
+        const job = await useTrabajosStore().esperar(respuesta.job_id);
         this.ocupado = false;
-      }
-    },
-
-    /**
-     * Aplica el resultado de un trabajo que esta vista encoló.
-     *
-     * @param {object} evento el evento `job`.
-     */
-    aplicarJob(evento) {
-      const etiqueta = this.pendientes[evento.job];
-      if (!etiqueta) return;
-      delete this.pendientes[evento.job];
-      this.ocupado = false;
-      if (evento.estado !== "ok") {
-        this.error = evento.error || "El trabajo ha fallado.";
-        return;
-      }
-      const resultado = evento.resultado || {};
-      if (etiqueta === "buscar") {
-        this.plcs = resultado.plcs || [];
-        this.proyecto = resultado.proyecto || null;
-        return;
-      }
-      if (etiqueta === "escanear") {
+        if (job.estado !== "ok") {
+          this.error = job.error || "No se pudo escanear el PLC.";
+          return;
+        }
+        const resultado = job.resultado || {};
         this.bloques = resultado.bloques || [];
         this.tablas = resultado.tablas || [];
         this.tipos = resultado.tipos || [];
+      } catch (error) {
+        this.error = error.message;
+        this.ocupado = false;
       }
     },
 

@@ -1,9 +1,14 @@
 /**
  * Store de los trabajos: el avance de la operacion en curso y el resultado
- * del ultimo trabajo terminado.
+ * de los trabajos terminados.
  *
- * Los dos vienen del backend por el stream de eventos: `progress` cambia el
- * avance y `job` cierra el trabajo.
+ * Un trabajo se lanza con un POST que responde 202 y el ``job_id``. Su
+ * resultado llega por el stream, en el evento ``job``. Las dos cosas pueden
+ * llegar **en cualquier orden**: si el trabajo es rapido, el evento sale
+ * antes de que la respuesta del POST llegue al navegador.
+ *
+ * Por eso el store guarda los trabajos terminados por id: ``esperar()``
+ * devuelve el resultado tanto si el evento ya llego como si llega después.
  */
 import { defineStore } from "pinia";
 
@@ -22,7 +27,13 @@ export const PROGRESO_VACIO = {
 };
 
 /** Cuantos trabajos terminados se guardan. */
-export const MAXIMO_HISTORIAL = 50;
+export const MAXIMO_TERMINADOS = 50;
+
+/**
+ * Los resolutores de las esperas, fuera del store: son funciones y no
+ * tienen por que ser reactivas.
+ */
+const ESPERAS = new Map();
 
 export const useTrabajosStore = defineStore("trabajos", {
   state: () => ({
@@ -32,11 +43,13 @@ export const useTrabajosStore = defineStore("trabajos", {
     ultimoJob: null,
     /** Historial de trabajos terminados, del mas reciente al mas antiguo. */
     historial: [],
+    /** Los ultimos trabajos terminados, indexados por ``job_id``. */
+    terminados: {},
   }),
 
   actions: {
     /**
-     * Aplica un evento `progress` o `job` del backend.
+     * Aplica un evento ``progress`` o ``job`` del backend.
      *
      * @param {object} evento el evento.
      */
@@ -47,17 +60,51 @@ export const useTrabajosStore = defineStore("trabajos", {
         this.progreso = { ...PROGRESO_VACIO, ...instantanea };
         return;
       }
-      if (evento.type === "job") {
-        this.ultimoJob = {
-          job: evento.job,
-          estado: evento.estado,
-          error: evento.error || null,
-        };
-        this.historial.unshift(this.ultimoJob);
-        if (this.historial.length > MAXIMO_HISTORIAL) {
-          this.historial.pop();
+      if (evento.type !== "job") return;
+
+      const registro = {
+        job: evento.job,
+        estado: evento.estado,
+        resultado: evento.resultado ?? null,
+        error: evento.error || null,
+      };
+      this.ultimoJob = registro;
+      this.historial.unshift(registro);
+      if (this.historial.length > MAXIMO_TERMINADOS) {
+        this.historial.pop();
+      }
+
+      this.terminados[evento.job] = registro;
+      const ids = Object.keys(this.terminados);
+      if (ids.length > MAXIMO_TERMINADOS) {
+        for (const id of ids.slice(0, ids.length - MAXIMO_TERMINADOS)) {
+          delete this.terminados[id];
         }
       }
+
+      // Despertar a quien esperaba este trabajo.
+      const esperas = ESPERAS.get(evento.job);
+      if (esperas) {
+        ESPERAS.delete(evento.job);
+        for (const resolver of esperas) resolver(registro);
+      }
+    },
+
+    /**
+     * Espera a que termine un trabajo.
+     *
+     * @param {string} job_id identificador del trabajo.
+     * @returns {Promise<object>} ``{job, estado, resultado, error}``. Se
+     *   resuelve en el momento si el trabajo ya termino.
+     */
+    esperar(job_id) {
+      const terminado = this.terminados[job_id];
+      if (terminado) return Promise.resolve(terminado);
+      return new Promise((resolve) => {
+        const esperas = ESPERAS.get(job_id) || [];
+        esperas.push(resolve);
+        ESPERAS.set(job_id, esperas);
+      });
     },
 
     /** Limpia el faceplate de progreso. */
