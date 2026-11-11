@@ -745,6 +745,19 @@ def _find_blocking_processes() -> list[dict[str, Any]]:
     return found
 
 
+def _bloquea_este_build(proceso: dict[str, Any]) -> bool:
+    """Si el proceso bloquea **este** build.
+
+    Solo bloquea el ejecutable que va a estar en ``dist/``: otra copia de
+    la app, en otra carpeta, no bloquea nada. Sin ruta conocida (el
+    fallback de ``tasklist`` no la da) se es conservador y se bloquea.
+    """
+    exe = proceso.get("exe")
+    if not exe:
+        return True
+    return Path(exe).resolve() == (ROOT / "dist" / f"{EXE_NAME}.exe").resolve()
+
+
 def check_blocking_processes(
     force_kill: bool = False,
     patrones: list[str] | None = None,
@@ -764,9 +777,12 @@ def check_blocking_processes(
     """
     encontrados = _find_blocking_processes()
     if patrones is None:
-        procs = encontrados
+        candidatos = encontrados
     else:
-        procs = [p for p in encontrados if any(pat in p["name"] for pat in patrones)]
+        candidatos = [
+            p for p in encontrados if any(pat in p["name"] for pat in patrones)
+        ]
+    procs = [p for p in candidatos if _bloquea_este_build(p)]
     if not procs:
         return True
     print(
