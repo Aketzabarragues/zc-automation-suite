@@ -41,8 +41,16 @@ def test_la_app_monta_las_rutas_de_conexion(app: Flask) -> None:
     assert "/api/eventos" in reglas
 
 
-def test_la_lista_de_areas_esta_vacia_hasta_que_se_registren() -> None:
-    assert AREAS == []
+def test_el_area_de_alimentacion_esta_registrada() -> None:
+    ids = [area.ID for area in AREAS]
+
+    assert "alimentacion" in ids
+
+
+def test_la_app_monta_las_rutas_del_area(app: Flask) -> None:
+    reglas = {regla.rule for regla in app.url_map.iter_rules()}
+
+    assert "/api/v1/areas/alimentacion/excel" in reglas
 
 
 def test_el_logging_va_al_logger_de_la_app(app: Flask) -> None:
@@ -192,7 +200,7 @@ def test_el_tipo_de_areas_no_obliga_a_nada(app: Flask) -> None:
     assert all(hasattr(area, "rutas") for area in AREAS)
 
 
-def test_una_app_sin_areas_sigue_montando_el_nucleo(app: Flask) -> None:
+def test_el_nucleo_se_monta_aunque_haya_areas(app: Flask) -> None:
     cliente: Any = app.test_client()
 
     assert cliente.get("/api/v1/tia/estado", base_url="http://localhost:9484").status_code == 200

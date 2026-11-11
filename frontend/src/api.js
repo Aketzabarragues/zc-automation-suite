@@ -16,7 +16,7 @@ const CABECERAS = { "Content-Type": "application/json" };
  * @throws {Error} si la respuesta no es un 2xx. El mensaje es el que manda
  *   el backend en el campo `error`.
  */
-async function pedir(ruta, opciones = {}) {
+export async function pedir(ruta, opciones = {}) {
   const respuesta = await fetch(ruta, { credentials: "same-origin", ...opciones });
   const cuerpo = await respuesta.json().catch(() => ({}));
   if (!respuesta.ok) {

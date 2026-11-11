@@ -221,6 +221,9 @@ __marimo__/
 temp_*/
 .build_cache/
 .scratch/
+# Copia del Excel maestro que guarda la app (en desarrollo, junto al repo;
+# empaquetado, junto al ejecutable)
+/excel/
 # Volcados del operario (builds, logs, XMLs reales de TIA del PLC de produccion)
 _source/
 # Outputs de planes (defensivo)

@@ -14,7 +14,12 @@ export default {
   rutas: "/api/v1/areas/alimentacion",
   menu: [
     { clave: "inicio", etiqueta: "Inicio", icono: "🏠", vista: "AreaInicio.vue" },
-    { clave: "def", etiqueta: "Definición programación", icono: "📊", vista: null },
+    {
+      clave: "def",
+      etiqueta: "Definición programación",
+      icono: "📊",
+      vista: "DefinicionProgramacion.vue",
+    },
     { clave: "disp", etiqueta: "Dispositivos", icono: "⚡", vista: null },
     { clave: "proc", etiqueta: "Procesos", icono: "⚙️", vista: null },
     { clave: "ent", etiqueta: "Entidades", icono: "🗂️", vista: null },

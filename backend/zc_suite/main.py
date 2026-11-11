@@ -14,6 +14,7 @@ from typing import Any
 
 from flask import Flask
 
+from zc_suite.areas import alimentacion
 from zc_suite.config import Config, cargar_config
 from zc_suite.eventos import BusEventos
 from zc_suite.rutas import conexion as rutas_conexion
@@ -24,7 +25,7 @@ from zc_suite.web import PUERTO_POR_DEFECTO, crear_app
 logger = logging.getLogger(__name__)
 
 #: Areas de la app. Se anaden aqui, una a una, y en ningun otro sitio.
-AREAS: list[Any] = []
+AREAS: list[Any] = [alimentacion]
 
 
 def configurar_logging(nivel: int = logging.INFO) -> None:
@@ -61,12 +62,21 @@ def montar_app(
         La app lista para servir.
     """
     app = crear_app(servicio, bus, desarrollo=desarrollo, puerto=puerto)
-    app.config["ZC_CONFIG"] = config if config is not None else cargar_config()
+    config_app = config if config is not None else cargar_config()
+    app.config["ZC_CONFIG"] = config_app
     rutas_conexion.registrar(app)
     rutas_plc.registrar(app)
+    catalogos: dict[str, Any] = {}
     for area in AREAS:
+        seccion = config_app.seccion_area(
+            area.ID,
+            area.defaults(config_app.areas.get(area.ID, {})),
+        )
+        area.al_arrancar(seccion)
+        catalogos[area.ID] = area.catalogo(seccion)
         app.register_blueprint(area.rutas)
         logger.info("Area registrada: %s", area.ID)
+    app.config["ZC_CATALOGO"] = catalogos
     return app
 
 

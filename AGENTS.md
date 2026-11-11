@@ -52,7 +52,8 @@ backend/zc_suite/
   simatic/     simatic_sd/, simatic_ml/
   comun/       editor_bloques.py
   rutas/       conexion.py, bloques.py, catalogo.py
-  areas/<id>/  ID, NOMBRE, rutas, catalogo(), defaults()
+  areas/<id>/  ID, NOMBRE, rutas, catalogo(), defaults(), al_arrancar()
+               <id>/rutas.py con el Blueprint del area
 frontend/src/
   api.js  stores/  components/  vistas/  areas/<id>/
 tests/    nucleo/  tia_ops/  simatic/  areas/<id>/  test_fronteras.py
@@ -146,12 +147,17 @@ ultimo `progress` y el ultimo `tia`.
 ## Anadir un area
 
 1. Crea `backend/zc_suite/areas/<id>/__init__.py` con `ID`, `NOMBRE`, `rutas`
-   (Blueprint), `catalogo(config)` y `defaults(config)`.
-2. Registra el area en la lista `AREAS` de `backend/zc_suite/main.py`. No hay
+   (Blueprint), `catalogo(config)`, `defaults(config)` y `al_arrancar(seccion)`.
+   `al_arrancar` se llama al montar la app, con la seccion de configuracion
+   del area: ahi es donde el area recarga lo que tenga guardado (el Excel
+   maestro, por ejemplo). No es opcional: todas las areas lo implementan.
+2. Las rutas van en `backend/zc_suite/areas/<id>/rutas.py`, con el `Blueprint`
+   del area. El `__init__.py` lo expone como `rutas`.
+3. Registra el area en la lista `AREAS` de `backend/zc_suite/main.py`. No hay
    registro automatico ni ganchos opcionales.
-3. Frontend: `frontend/src/areas/<id>/index.js` exporta `{id, nombre, rutas,
+4. Frontend: `frontend/src/areas/<id>/index.js` exporta `{id, nombre, rutas,
    menu}`. El shell las recoge con `import.meta.glob`.
-4. Tests en `tests/areas/<id>/`.
+5. Tests en `tests/areas/<id>/`.
 
 ## Anadir un tipo de dispositivo
 

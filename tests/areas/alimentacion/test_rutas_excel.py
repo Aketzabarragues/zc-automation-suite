@@ -1,0 +1,236 @@
+"""Tests de las rutas del Excel maestro del area de alimentacion.
+
+El portal de TIA es un doble: **no hay conexion** en ninguna de estas pruebas,
+que es justo lo que hay que comprobar: el trabajo del Excel no la exige.
+"""
+
+from __future__ import annotations
+
+import importlib
+import time
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from zc_suite.areas.alimentacion.excel import almacen as modulo_almacen
+from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
+from zc_suite.areas.alimentacion.rutas import CLAVE_ALMACEN, TAMANO_MAXIMO, rutas
+from zc_suite.eventos import BusEventos
+from zc_suite.tia import ServicioTIA
+from zc_suite.web import crear_app
+
+BASE = "http://localhost:9484"
+
+
+# ── el entorno ──────────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def eventos() -> list[tuple[str, dict[str, Any]]]:
+    """Los eventos publicados por el hilo de TIA."""
+    return []
+
+
+@pytest.fixture
+def almacen(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    seccion: dict[str, Any],
+) -> AlmacenExcel:
+    """La cache del area, con la persistencia en un temporal."""
+    monkeypatch.setattr(
+        modulo_almacen,
+        "carpeta_persistida",
+        lambda: tmp_path / "excel",
+    )
+    store = AlmacenExcel()
+    store.config = seccion
+    return store
+
+
+@pytest.fixture
+def app(
+    almacen: AlmacenExcel,
+    eventos: list[tuple[str, dict[str, Any]]],
+) -> Any:
+    """La app con las rutas del area y sin conexion con TIA."""
+    bus_eventos = BusEventos()
+    servicio_tia = ServicioTIA(
+        publicador=lambda tipo, carga: eventos.append((tipo, carga)),
+        cargador=lambda: None,
+    )
+    aplicacion = crear_app(servicio_tia, bus_eventos)
+    aplicacion.config["TESTING"] = True
+    aplicacion.register_blueprint(rutas)
+    aplicacion.config[CLAVE_ALMACEN] = almacen
+    yield aplicacion
+    servicio_tia.parar()
+
+
+@pytest.fixture
+def cliente(app: Any) -> Any:
+    return app.test_client()
+
+
+def _esperar_job(eventos: list[tuple[str, dict[str, Any]]], job_id: str) -> dict[str, Any]:
+    """Espera al evento de fin del trabajo indicado."""
+    limite = time.monotonic() + 5.0
+    while time.monotonic() < limite:
+        for tipo, carga in list(eventos):
+            if tipo == "job" and carga["job"] == job_id:
+                return carga
+        time.sleep(0.005)
+    raise AssertionError(f"El trabajo {job_id} no termino.")
+
+
+# ── ver el Excel ────────────────────────────────────────────────────────────
+
+
+def test_sin_excel_cargado_da_el_vacio(cliente: Any) -> None:
+    respuesta = cliente.get("/api/v1/areas/alimentacion/excel", base_url=BASE)
+
+    assert respuesta.status_code == 200
+    cuerpo = respuesta.get_json()
+    assert cuerpo["cargado"] is False
+    assert cuerpo["archivo"] is None
+    assert cuerpo["plcs"] == []
+    assert cuerpo["dispositivos"] == []
+
+
+# ── subir un Excel ──────────────────────────────────────────────────────────
+
+
+def test_subir_un_excel_responde_202_con_el_job_id(
+    cliente: Any,
+    excel_maestro: Path,
+) -> None:
+    with excel_maestro.open("rb") as fichero:
+        respuesta = cliente.post(
+            "/api/v1/areas/alimentacion/excel",
+            data={"fichero": (fichero, "maestro.xlsx")},
+            base_url=BASE,
+            headers={"Origin": BASE},
+        )
+
+    assert respuesta.status_code == 202
+    assert respuesta.get_json()["job_id"]
+
+
+def test_el_trabajo_del_excel_no_exige_conexion_con_tia(
+    cliente: Any,
+    almacen: AlmacenExcel,
+    eventos: list[tuple[str, dict[str, Any]]],
+    excel_maestro: Path,
+) -> None:
+    with excel_maestro.open("rb") as fichero:
+        respuesta = cliente.post(
+            "/api/v1/areas/alimentacion/excel",
+            data={"fichero": (fichero, "maestro.xlsx")},
+            base_url=BASE,
+            headers={"Origin": BASE},
+        )
+    job_id = respuesta.get_json()["job_id"]
+
+    evento = _esperar_job(eventos, job_id)
+
+    assert evento["estado"] == "ok"
+    assert evento["resultado"]["archivo"] == "maestro.xlsx"
+    assert almacen.cargado is True
+    filas = almacen.estado()["dispositivos"][0]["filas"]
+    assert filas[0]["tag"] == "V_ED_001"
+
+
+def test_subir_un_excel_sin_origin_se_rechaza(cliente: Any, excel_maestro: Path) -> None:
+    with excel_maestro.open("rb") as fichero:
+        respuesta = cliente.post(
+            "/api/v1/areas/alimentacion/excel",
+            data={"fichero": (fichero, "maestro.xlsx")},
+            base_url=BASE,
+        )
+
+    assert respuesta.status_code == 403
+
+
+def test_subir_sin_fichero_responde_400(cliente: Any) -> None:
+    respuesta = cliente.post(
+        "/api/v1/areas/alimentacion/excel",
+        base_url=BASE,
+        headers={"Origin": BASE},
+    )
+
+    assert respuesta.status_code == 400
+    assert "fichero" in respuesta.get_json()["error"]
+
+
+def test_subir_una_extension_no_admitida_responde_400(cliente: Any, tmp_path: Path) -> None:
+    ruta = tmp_path / "maestro.xls"
+    ruta.write_bytes(b"esto no es un Excel")
+
+    with ruta.open("rb") as fichero:
+        respuesta = cliente.post(
+            "/api/v1/areas/alimentacion/excel",
+            data={"fichero": (fichero, "maestro.xls")},
+            base_url=BASE,
+            headers={"Origin": BASE},
+        )
+
+    assert respuesta.status_code == 400
+    assert ".xlsx" in respuesta.get_json()["error"]
+
+
+def test_subir_un_fichero_grande_responde_400(
+    cliente: Any,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    modulo = importlib.import_module("zc_suite.areas.alimentacion.rutas")
+    monkeypatch.setattr(modulo, "TAMANO_MAXIMO", 10)
+    ruta = tmp_path / "maestro.xlsx"
+    ruta.write_bytes(b"0123456789ABCDEF")
+
+    with ruta.open("rb") as fichero:
+        respuesta = cliente.post(
+            "/api/v1/areas/alimentacion/excel",
+            data={"fichero": (fichero, "maestro.xlsx")},
+            base_url=BASE,
+            headers={"Origin": BASE},
+        )
+
+    assert respuesta.status_code == 400
+    assert "grande" in respuesta.get_json()["error"]
+
+
+# ── recargar ────────────────────────────────────────────────────────────────
+
+
+def test_recargar_responde_202_con_el_job_id(cliente: Any) -> None:
+    respuesta = cliente.post(
+        "/api/v1/areas/alimentacion/excel/recargar",
+        base_url=BASE,
+        headers={"Origin": BASE},
+    )
+
+    assert respuesta.status_code == 202
+    assert respuesta.get_json()["job_id"]
+
+
+def test_recargar_sin_copia_guardada_falla_con_un_mensaje_claro(
+    cliente: Any,
+    eventos: list[tuple[str, dict[str, Any]]],
+) -> None:
+    respuesta = cliente.post(
+        "/api/v1/areas/alimentacion/excel/recargar",
+        base_url=BASE,
+        headers={"Origin": BASE},
+    )
+    job_id = respuesta.get_json()["job_id"]
+
+    evento = _esperar_job(eventos, job_id)
+
+    assert evento["estado"] == "error"
+    assert "No hay ningun Excel guardado" in evento["error"]
+
+
+def test_el_tamano_maximo_por_defecto_es_de_20_mb() -> None:
+    assert TAMANO_MAXIMO == 20 * 1024 * 1024
