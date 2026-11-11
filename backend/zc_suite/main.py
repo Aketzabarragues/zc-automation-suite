@@ -8,8 +8,11 @@ from __future__ import annotations
 
 import argparse
 import logging
+import sys
 import threading
+import time
 import webbrowser
+from pathlib import Path
 from typing import Any
 
 from flask import Flask
@@ -28,18 +31,48 @@ logger = logging.getLogger(__name__)
 #: Areas de la app. Se anaden aqui, una a una, y en ningun otro sitio.
 AREAS: list[Any] = [alimentacion]
 
+#: Nombre del fichero de log cuando la app va empaquetada.
+NOMBRE_LOG = "zc.log"
+
+
+def ruta_log() -> Path:
+    """La ruta del fichero de log.
+
+    Empaquetado: junto al ejecutable. Desarrollo: en el repo.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent / NOMBRE_LOG
+    return Path(__file__).resolve().parents[2] / NOMBRE_LOG
+
 
 def configurar_logging(nivel: int = logging.INFO) -> None:
     """Prepara el logging de la app.
 
     El root se queda en DEBUG para el fichero, pero por consola solo sale a
     partir de INFO: los loggers de Werkzeug son ruidosos.
+
+    Empaquetada, la app se abre sin consola: sin fichero de log el
+    operario no tiene ninguna traza de lo que pasa. Por eso, cuando esta
+    congelada, el log tambien va a un fichero junto al ejecutable.
     """
     logging.basicConfig(
         level=nivel,
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
     )
     logging.getLogger("werkzeug").setLevel(logging.WARNING)
+    if getattr(sys, "frozen", False):
+        try:
+            manejador = logging.FileHandler(ruta_log(), encoding="utf-8")
+        except OSError as exc:
+            logging.getLogger("zc_suite").warning(
+                "No se pudo abrir el log '%s': %s", ruta_log(), exc
+            )
+            return
+        manejador.setLevel(logging.DEBUG)
+        manejador.setFormatter(
+            logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s")
+        )
+        logging.getLogger().addHandler(manejador)
 
 
 def montar_app(
@@ -144,6 +177,15 @@ def arrancar(
         _bandeja(url, servicio.parar)
     except KeyboardInterrupt:
         pass
+    except Exception as exc:
+        # Sin bandeja no hay forma de abrir la SPA: el servidor web se
+        # queda vivo para que el operario la abra a mano.
+        logger.error("El icono de bandeja fallo: %s. El servidor web sigue vivo.", exc)
+        try:
+            while servidor.is_alive():
+                time.sleep(1.0)
+        except KeyboardInterrupt:
+            pass
     finally:
         servicio.parar()
 
@@ -178,12 +220,17 @@ def main() -> None:
     if not host or not puerto_texto.isdigit():
         parser.error(f"--web debe ser HOST:PUERTO, no '{argumentos.web}'")
 
+    # Empaquetado, la app arranca con la bandeja: es una app de escritorio y
+    # el ejecutable se abre con doble click, sin consola. En desarrollo el
+    # arranque es de consola, salvo que se pida la bandeja con --bandeja.
+    bandeja = argumentos.bandeja or getattr(sys, "frozen", False)
+
     configurar_logging()
     arrancar(
         host=host,
         puerto=int(puerto_texto),
         desarrollo=argumentos.desarrollo,
-        bandeja=argumentos.bandeja,
+        bandeja=bandeja,
         abrir_navegador=argumentos.abrir,
     )
 
