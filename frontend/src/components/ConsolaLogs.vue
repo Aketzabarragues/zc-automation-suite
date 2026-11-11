@@ -52,7 +52,7 @@ function limpiar() {
           data-testid="consola-limpiar"
           @click="limpiar"
         >
-          Limpiar
+          🧹 Limpiar
         </button>
       </div>
     </header>

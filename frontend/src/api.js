@@ -39,3 +39,34 @@ export function desconectar() {
 export function estado() {
   return pedir("/api/v1/tia/estado");
 }
+
+/** Encola la busqueda de los PLCs del proyecto abierto. */
+export function buscarPlcs() {
+  return pedir("/api/v1/tia/plcs/listar", { method: "POST", headers: CABECERAS });
+}
+
+/** Encola el escaneo de un PLC: bloques, tablas de tags y tipos de usuario. */
+export function escanearPlc(plc) {
+  return pedir(`/api/v1/tia/plcs/${encodeURIComponent(plc)}/escanear`, {
+    method: "POST",
+    headers: CABECERAS,
+  });
+}
+
+/** Encola la lectura de las propiedades de los bloques indicados. */
+export function prepararBloques(plc, bloques) {
+  return pedir(`/api/v1/tia/plcs/${encodeURIComponent(plc)}/bloques/preparar`, {
+    method: "POST",
+    headers: CABECERAS,
+    body: JSON.stringify({ bloques }),
+  });
+}
+
+/** Encola la aplicacion de los cambios de nombre y numero. */
+export function editarBloques(plc, cambios) {
+  return pedir(`/api/v1/tia/plcs/${encodeURIComponent(plc)}/bloques/editar`, {
+    method: "POST",
+    headers: CABECERAS,
+    body: JSON.stringify({ cambios }),
+  });
+}

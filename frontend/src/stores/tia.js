@@ -6,6 +6,7 @@
  */
 import { defineStore } from "pinia";
 import { conectar as conectarTia, desconectar as desconectarTia } from "../api.js";
+import { usePlcStore } from "./plc.js";
 
 export const useTiaStore = defineStore("tia", {
   state: () => ({
@@ -21,13 +22,15 @@ export const useTiaStore = defineStore("tia", {
     estadoStream: "cerrado",
     /** `true` en el modo demo (`?demo=1`): no hay backend detras. */
     demo: false,
-    /** Aviso de la ultima accion de la topbar. */
+    /** Aviso de la ultima accion. */
     aviso: null,
+    /** Trabajos encolados por esta vista, esperando su resultado. */
+    pendientes: {},
   }),
 
   getters: {
     /** Texto del estado de la conexion. */
-    etiqueta: (state) => (state.conectado ? "Conectado" : "Desconectado"),
+    etiqueta: (state) => (state.conectado ? "connected" : "idle"),
     /** `true` si el stream de eventos no esta vivo. */
     streamCaido: (state) => state.estadoStream !== "conectado",
   },
@@ -43,6 +46,26 @@ export const useTiaStore = defineStore("tia", {
       this.version_tia = evento.version_tia || "";
       this.ultimo_error = evento.ultimo_error || null;
       this.trabajo_actual = evento.trabajo_actual || null;
+      if (this.demo && this.conectado) {
+        // En el demo, conectar es buscar los PLCs: los datos simulados.
+        usePlcStore().buscarPlcs();
+      }
+    },
+
+    /**
+     * Aplica el resultado de un trabajo que esta vista encoló.
+     *
+     * @param {object} evento el evento `job`.
+     */
+    aplicarJob(evento) {
+      const etiqueta = this.pendientes[evento.job];
+      if (!etiqueta) return;
+      delete this.pendientes[evento.job];
+      if (etiqueta === "conectar" && evento.estado === "ok") {
+        // Conectar bien es buscar los PLCs: es lo que ve el operario en la
+        // lista de "PLC disponibles".
+        usePlcStore().buscarPlcs();
+      }
     },
 
     /** Encola la conexion con TIA Portal. */
@@ -51,10 +74,12 @@ export const useTiaStore = defineStore("tia", {
       if (this.demo) {
         this.conectado = true;
         this.version_tia = this.version_tia || "V21.0";
+        usePlcStore().buscarPlcs();
         return;
       }
       try {
-        await conectarTia();
+        const respuesta = await conectarTia();
+        this.pendientes[respuesta.job_id] = "conectar";
       } catch (error) {
         this.aviso = error.message;
       }
@@ -65,10 +90,12 @@ export const useTiaStore = defineStore("tia", {
       this.aviso = null;
       if (this.demo) {
         this.conectado = false;
+        usePlcStore().vaciar();
         return;
       }
       try {
-        await desconectarTia();
+        const respuesta = await desconectarTia();
+        this.pendientes[respuesta.job_id] = "desconectar";
       } catch (error) {
         this.aviso = error.message;
       }

@@ -9,9 +9,11 @@
  * cliente reconecta solo con espera creciente.
  */
 import { useLogsStore } from "./stores/logs.js";
+import { usePlcStore } from "./stores/plc.js";
 import { useTrabajosStore } from "./stores/trabajos.js";
 import { useTiaStore } from "./stores/tia.js";
 import { crearFuenteDemo } from "./demo.js";
+import { estado } from "./api.js";
 
 /** Ruta del stream de eventos. */
 export const RUTA_EVENTOS = "/api/eventos";
@@ -127,6 +129,7 @@ export function arrancarEventos({ demo = false } = {}) {
   const tia = useTiaStore();
   const trabajos = useTrabajosStore();
   const logs = useLogsStore();
+  const plc = usePlcStore();
 
   tia.demo = demo;
 
@@ -135,8 +138,15 @@ export function arrancarEventos({ demo = false } = {}) {
     onEvento: (evento) => {
       if (evento.type === "tia") {
         tia.aplicar(evento);
-      } else if (evento.type === "progress" || evento.type === "job") {
+      } else if (evento.type === "progress") {
         trabajos.aplicar(evento);
+      } else if (evento.type === "job") {
+        // El resultado de un trabajo va a quien lo encolo: cada store
+        // guarda sus propios jobs pendientes y descarta los que no son
+        // suyos.
+        trabajos.aplicar(evento);
+        tia.aplicarJob(evento);
+        plc.aplicarJob(evento);
       } else if (evento.type === "log") {
         logs.aplicar(evento);
       }
@@ -147,5 +157,15 @@ export function arrancarEventos({ demo = false } = {}) {
   });
 
   cliente.abrir();
+
+  // El evento `tia` solo se publica cuando la conexion **cambia**. Al
+  // abrir la app hay que preguntar el estado actual, o la vista PLC
+  // saldria desconectada aunque el portal este vivo.
+  if (!demo) {
+    estado()
+      .then((datos) => tia.aplicar(datos))
+      .catch(() => {});
+  }
+
   return cliente;
 }
