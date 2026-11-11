@@ -11,17 +11,15 @@ Que hace:
 
 1. Conecta con el TIA Portal abierto (solo ``attach``: no abre ni escribe
    nada).
-2. Exporta en plano la tabla de los N_MAX y las tablas de tags de los
-   dispositivos a ``.build_cache/alimentacion/disp/preview/``.
-3. Compara lo exportado con el Excel y saca el diff por pantalla.
+2. Lanza el mismo trabajo que la SPA: exporta en plano la tabla de los
+   N_MAX y las tablas de tags de los dispositivos a
+   ``.build_cache/alimentacion/disp/preview/`` y las compara con el Excel.
+3. Saca el diff por pantalla.
 
 **Prohibido escribir, importar o compilar**: este script solo lee de TIA y
 escribe en disco local (la carpeta de preview).
 
 Nunca lo lances contra el PLC de produccion.
-
-Ojo: los comentarios de TIA (SimaticSD) solo se pueden leer en TIA V21. En
-V18 se saltan con un aviso y el diff sale igual.
 """
 from __future__ import annotations
 
@@ -36,14 +34,10 @@ RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ / "backend"))
 
 from zc_suite import tia  # noqa: E402
-from zc_suite.areas.alimentacion.dispositivo import (  # noqa: E402
-    disp_preview,
-    disp_trabajo,
-)
-from zc_suite.areas.alimentacion.excel import parser as parser_excel  # noqa: E402
+from zc_suite.areas.alimentacion.dispositivo import disp_trabajo  # noqa: E402
+from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel  # noqa: E402
 from zc_suite.eventos import BusEventos  # noqa: E402
 from zc_suite.tia import ServicioTIA  # noqa: E402
-from zc_suite.tia_ops.exportar import exportar_tablas  # noqa: E402
 
 
 def _argumentos() -> argparse.Namespace:
@@ -80,100 +74,19 @@ def _config() -> dict[str, Any]:
     return datos["areas"]["alimentacion"]
 
 
-def _smoke(
-    job: Any,
-    plc: str,
-    excel: dict[str, Any],
-    config: dict[str, Any],
-) -> dict[str, Any]:
-    """El trabajo de smoke: exporta y calcula el diff."""
-    job.empezar(
-        "Smoke de la prevision de dispositivos",
-        [
-            ("exportar", "Exportar las tablas de tags"),
-            ("diff", "Calcular las diferencias"),
-            ("componer", "Componer el resultado"),
-        ],
-    )
-    carpeta = disp_trabajo.workdir_dispositivos()
-    carpeta.limpiar_preview()
-    destino_config = carpeta.preview_de("config")
-    destino_disp = carpeta.preview_de("disp")
-
-    tipos = disp_trabajo.tablas_de_dispositivos(config)
-    tabla_n_max = str(config.get("global_config_table_name", ""))
-
-    with job.paso("exportar") as paso:
-        if tabla_n_max:
-            exportar_tablas(
-                job.tia.portal,
-                plc,
-                destino_config,
-                [tabla_n_max],
-                mantener_estructura=False,
-            )
-        exportar_tablas(
-            job.tia.portal,
-            plc,
-            destino_disp,
-            [tabla for _tipo, tabla, _db in tipos],
-            mantener_estructura=False,
-        )
-        paso["detail"] = f"{len(tipos)} tablas de dispositivos"
-
-    diffs: dict[str, Any] = {}
-    with job.paso("diff") as paso:
-        for tipo, tabla, _db in tipos:
-            dispositivos = [
-                fila
-                for fila_tabla in excel["dispositivos"]
-                if fila_tabla["tipo"] == tipo
-                for fila in fila_tabla["filas"]
-                if str(fila.get("plc_name", "")) == plc
-            ]
-            diffs[tabla] = disp_preview.disp_calcular_diff_tabla(
-                tabla,
-                dispositivos,
-                destino_disp / f"{tabla}.xml",
-            )
-        paso["detail"] = f"{len(diffs)} tablas"
-
-    with job.paso("componer") as paso:
-        n_max = disp_preview.disp_calcular_diff_n_max(
-            tabla_n_max,
-            _n_max_del_excel(excel, plc),
-            destino_config / f"{tabla_n_max}.xml",
-        )
-        resultado = disp_trabajo.componer_respuesta(diffs, n_max, {})
-        paso["detail"] = f"{resultado['summary']['total']} entradas"
-
-    return resultado
-
-
-def _n_max_del_excel(excel: dict[str, Any], plc: str) -> dict[str, int]:
-    """Los N_MAX del Excel del PLC elegido."""
-    for fila in excel["configuracion"]["filas"]:
-        if str(fila.get("PLC", "")) != plc:
-            continue
-        return {
-            nombre: int(valor)
-            for nombre, valor in fila.items()
-            if nombre.startswith("N_MAX_") and isinstance(valor, (int, float))
-        }
-    return {}
-
-
 def _pintar(resultado: dict[str, Any]) -> None:
     """Saca el diff por pantalla."""
     resumen = resultado["summary"]
     print("\n--- resumen ---")
     print(f"  dispositivos analizados: {resumen['total']}")
-    print(f"  a agregar:  {resumen['agregar']}")
+    print(f"  a agregar:  {resumen['agregados']}")
     print(f"  a renombrar: {resumen['renombrados']}")
-    print(f"  a eliminar:  {resumen['eliminar']}")
+    print(f"  a eliminar:  {resumen['eliminados']}")
     print(f"  sin cambios: {resumen['sin_cambios']}")
 
     print("\n--- N_MAX ---")
+    if resultado["nmax"].get("nmax_error"):
+        print(f"  {resultado['nmax']['nmax_error']}")
     for fila in resultado["nmax"]["todos"]:
         marca = "->" if fila["status"] == "actualizar" else "  "
         print(f"  {marca} {fila['name']}: {fila['actual']} -> {fila['nuevo']}")
@@ -191,7 +104,12 @@ def main() -> int:
     """Conecta, exporta y saca el diff."""
     argumentos = _argumentos()
     config = _config()
-    excel = parser_excel.leer_excel(argumentos.excel, config)
+
+    almacen = AlmacenExcel()
+    almacen.config = config
+    almacen.volcar(Path(argumentos.excel))
+    for aviso in almacen.estado()["avisos"]:
+        print(f"Aviso del Excel: {aviso}")
 
     bus = BusEventos()
     servicio = ServicioTIA(publicador=bus.publicar)
@@ -207,9 +125,9 @@ def main() -> int:
 
         print(f"Exportando y diffeando el PLC {argumentos.plc}...")
         job_id = servicio.lanzar(
-            _smoke,
+            disp_trabajo.disp_generar_preview,
             plc=argumentos.plc,
-            excel=excel,
+            almacen=almacen,
             config=config,
         )
         exportacion = _esperar(bus, job_id)
