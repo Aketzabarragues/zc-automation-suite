@@ -31,8 +31,8 @@ ID = "alimentacion"
 #: Clave del almacen del area en ``current_app.config``.
 CLAVE_ALMACEN = "ZC_ALMACEN_ALIMENTACION"
 
-#: Extension de los ficheros admitidos.
-EXTENSION = ".xlsx"
+#: Extensiones admitidas: el Excel maestro del operario es ``.xlsm``.
+EXTENSIONES = (".xlsx", ".xlsm")
 
 #: Tamano maximo del fichero, en bytes.
 TAMANO_MAXIMO = 20 * 1024 * 1024
@@ -59,13 +59,15 @@ def subir_excel() -> tuple[Response, int]:
     if fichero is None or not fichero.filename:
         return jsonify({"error": "No se ha enviado ningun fichero."}), 400
     nombre = Path(fichero.filename).name
-    if Path(nombre).suffix.lower() != EXTENSION:
-        return jsonify({"error": f"Solo se admiten ficheros {EXTENSION}."}), 400
+    sufijo = Path(nombre).suffix.lower()
+    if sufijo not in EXTENSIONES:
+        admitidas = " o ".join(EXTENSIONES)
+        return jsonify({"error": f"Solo se admiten ficheros {admitidas}."}), 400
     contenido = fichero.stream.read(TAMANO_MAXIMO + 1)
     if len(contenido) > TAMANO_MAXIMO:
         return jsonify({"error": "El fichero es demasiado grande (maximo 20 MB)."}), 400
 
-    ruta = _guardar(contenido, nombre)
+    ruta = _guardar(contenido, nombre, sufijo)
     return lanzar(trabajo.cargar_excel, ruta=str(ruta), almacen=_almacen())
 
 
@@ -87,10 +89,14 @@ def _almacen() -> AlmacenExcel:
     return valor
 
 
-def _guardar(contenido: bytes, nombre: str) -> Path:
-    """Deja el fichero subido en un temporal y devuelve su ruta."""
+def _guardar(contenido: bytes, nombre: str, sufijo: str) -> Path:
+    """Deja el fichero subido en un temporal y devuelve su ruta.
+
+    La extension se conserva: el temporal tiene que seguir siendo legible
+    por ``openpyxl`` como ``.xlsx`` o como ``.xlsm``.
+    """
     carpeta = Path(tempfile.mkdtemp(prefix=PREFIJO_TEMPORAL))
-    ruta = carpeta / (Path(nombre).stem + EXTENSION)
+    ruta = carpeta / (Path(nombre).stem + sufijo)
     ruta.write_bytes(contenido)
     return ruta
 

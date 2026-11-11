@@ -117,6 +117,23 @@ def test_subir_un_excel_responde_202_con_el_job_id(
     assert respuesta.get_json()["job_id"]
 
 
+def test_subir_un_xlsm_responde_202_con_el_job_id(
+    cliente: Any,
+    excel_maestro: Path,
+) -> None:
+    """El Excel maestro del operario es ``.xlsm``."""
+    with excel_maestro.open("rb") as fichero:
+        respuesta = cliente.post(
+            "/api/v1/areas/alimentacion/excel",
+            data={"fichero": (fichero, "Maestro_ZC_PLC_STD.xlsm")},
+            base_url=BASE,
+            headers={"Origin": BASE},
+        )
+
+    assert respuesta.status_code == 202
+    assert respuesta.get_json()["job_id"]
+
+
 def test_el_trabajo_del_excel_no_exige_conexion_con_tia(
     cliente: Any,
     almacen: AlmacenExcel,
