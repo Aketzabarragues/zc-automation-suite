@@ -153,7 +153,8 @@ def _leer_dimensiones(libro: Any, config: dict[str, Any]) -> tuple[dict[str, Any
     """Los N_MAX por PLC.
 
     Las columnas salen del catalogo de N_MAX: cada entrada dice que columna
-    del Excel la alimenta y cual es su nombre canonico.
+    del Excel la alimenta y cual es su nombre canonico. Las filas salen
+    ordenadas por PLC, como en ``main``.
     """
     dominio = tablas.DIMENSIONES
     aviso = ""
@@ -170,6 +171,7 @@ def _leer_dimensiones(libro: Any, config: dict[str, Any]) -> tuple[dict[str, Any
             registro = _registro_dimensiones(fila, mapa)
             if registro is not None:
                 filas.append(registro)
+    filas.sort(key=lambda fila: str(fila.get("PLC", "")))
     return {"columnas": columnas, "etiquetas": {}, "filas": filas}, aviso
 
 

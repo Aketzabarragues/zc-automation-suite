@@ -391,8 +391,10 @@ def escribir_excel_completo(ruta: Path) -> Path:
         "Tabla_Dimensiones",
         ["PLC", *[columna for columna, _valor in N_MAX], "N_Max_ENT"],
         [
-            ["PLC1", *[valor for _columna, valor in N_MAX], 6],
+            # Van al reves a proposito: los N_MAX tienen que salir ordenados
+            # por PLC, como en main, no en el orden del fichero.
             ["PLC2", *[valor + 1 for _columna, valor in N_MAX], 7],
+            ["PLC1", *[valor for _columna, valor in N_MAX], 6],
         ],
         con_plc=False,
     )
