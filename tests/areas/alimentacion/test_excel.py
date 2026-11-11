@@ -61,7 +61,7 @@ CAMPOS_DISPOSITIVOS: dict[str, set[str]] = {
         "cfg_habilitar", "cfg_byteretornotermico", "cfg_bitretornotermico",
         "cfg_byteconfmarcha", "cfg_bitconfmarcha", "cfg_byteactivacion",
         "cfg_bitactivacion", "cfg_habrettermico", "cfg_habretconfmarcha",
-        "cfg_grupo_alarma", "comentario_db", "plc_name",
+        "cfg_grupoalarma", "comentario_db", "plc_name",
     },
     "DispM_VF": {
         "numero", "plc_tag", "plc_comentario", "descripcion", "uid", "tag", "fat",
@@ -70,7 +70,7 @@ CAMPOS_DISPOSITIVOS: dict[str, set[str]] = {
         "cfg_habilitar", "cfg_byteretornotermico", "cfg_bitretornotermico",
         "cfg_byteconfmarcha", "cfg_bitconfmarcha", "cfg_byteactivacion",
         "cfg_bitactivacion", "cfg_habrettermico", "cfg_habretconfmarcha",
-        "cfg_grupo_alarma", "comentario_db", "plc_name", "sa_byte",
+        "cfg_grupoalarma", "comentario_db", "plc_name", "sa_byte",
         "cfg_byteanalogica",
     },
     "DispM_SINA": {

@@ -159,7 +159,7 @@ _DISP_M = Dominio(
         Campo("cfg_bitactivacion", "Cfg.BitActivacion"),
         Campo("cfg_habrettermico", "Cfg.HabRetTermico"),
         Campo("cfg_habretconfmarcha", "Cfg.HabRetConfMarcha"),
-        Campo("cfg_grupo_alarma", "Cfg.GrupoAlarma"),
+        Campo("cfg_grupoalarma", "Cfg.GrupoAlarma"),
     ),
 )
 
