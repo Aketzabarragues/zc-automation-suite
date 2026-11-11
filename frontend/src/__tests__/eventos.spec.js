@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { crearClienteEventos } from "../eventos.js";
+import { crearClienteEventos, finDeTrabajo } from "../eventos.js";
 
 /** Fuente de eventos falsa, con la misma interfaz que un EventSource. */
 function fuenteFalsa() {
@@ -142,5 +142,29 @@ describe("cliente de eventos", () => {
     cliente.cerrar();
     vi.advanceTimersByTime(10000);
     expect(fuentes).toHaveLength(1);
+  });
+});
+
+describe("fin de trabajo en la consola", () => {
+  it("un trabajo terminado lo dice", () => {
+    expect(finDeTrabajo({ estado: "ok" })).toEqual({
+      nivel: "success",
+      mensaje: "terminado",
+    });
+  });
+
+  it("un trabajo fallido dice el fallo", () => {
+    expect(finDeTrabajo({ estado: "error", error: "no hay TIA" })).toEqual({
+      nivel: "error",
+      mensaje: "falló: no hay TIA",
+    });
+  });
+
+  it("un trabajo fallido sin mensaje no rompe", () => {
+    expect(finDeTrabajo({ estado: "error" }).mensaje).toBe("falló: sin detalle");
+  });
+
+  it("un trabajo cancelado lo dice", () => {
+    expect(finDeTrabajo({ estado: "cancelado" }).mensaje).toBe("cancelado");
   });
 });

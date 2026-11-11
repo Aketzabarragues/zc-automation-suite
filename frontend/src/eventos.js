@@ -117,6 +117,25 @@ export function crearClienteEventos(opciones = {}) {
 }
 
 /**
+ * La linea de consola que deja el final de un trabajo.
+ *
+ * El backend manda el evento `job` con el estado final. La consola dice
+ * si termino o si fallo, con el mensaje del fallo.
+ *
+ * @param {object} evento el evento `job`.
+ * @returns {object} `{nivel, mensaje}` para la consola.
+ */
+export function finDeTrabajo(evento) {
+  if (evento.estado === "error") {
+    return { nivel: "error", mensaje: `falló: ${evento.error || "sin detalle"}` };
+  }
+  if (evento.estado === "cancelado") {
+    return { nivel: "warning", mensaje: "cancelado" };
+  }
+  return { nivel: "success", mensaje: "terminado" };
+}
+
+/**
  * Arranca el stream de eventos y reparte lo que llega a los stores.
  *
  * @param {object} opciones opciones.
@@ -142,6 +161,7 @@ export function arrancarEventos({ demo = false } = {}) {
         // El resultado lo espera quien lo encolo, con
         // ``trabajos.esperar(job_id)``. Aqui solo se guarda.
         trabajos.aplicar(evento);
+        logs.aplicar(finDeTrabajo(evento));
       } else if (evento.type === "log") {
         logs.aplicar(evento);
       }
