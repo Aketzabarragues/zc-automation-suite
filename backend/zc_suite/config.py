@@ -55,11 +55,13 @@ class ConfigTia(BaseModel):
 
 
 class ConfigRutas(BaseModel):
-    """Rutas del equipo del operario."""
+    """Rutas del equipo del operario.
+
+    Solo lo que es de toda la app. Cada area tiene las suyas en su
+    seccion de ``areas``.
+    """
 
     model_config = ConfigDict(extra="allow")
-
-    excel: str = ""
 
 
 class Config(BaseModel):

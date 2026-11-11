@@ -31,13 +31,7 @@ PATRONES: tuple[tuple[str, str], ...] = (
 )
 
 #: Excepciones justificadas: ``(ruta relativa al repo, motivo)``.
-EXCEPCIONES: tuple[tuple[str, str], ...] = (
-    (
-        "backend/zc_suite/config.py",
-        "El camino del libro de datos maestro es un ajuste de la maquina del "
-        "operario, no del area: lo usa el conjunto de la app.",
-    ),
-)
+EXCEPCIONES: tuple[tuple[str, str], ...] = ()
 
 
 def _relativo(ruta: Path) -> str:

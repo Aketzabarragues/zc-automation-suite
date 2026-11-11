@@ -4,15 +4,13 @@
     "plc": "PLC_1",
     "proyecto": ""
   },
-  "paths": {
-    "_comment": "Rutas del equipo del operario. Vacias = sin configurar; la SPA las rellena y las guarda aqui.",
-    "excel": ""
-  },
   "areas": {
     "alimentacion": {
       "_comment": "Configuracion del area de alimentacion: jerarquia TIA, catalogos de N_MAX, DBs por tipo de dispositivo y columnas visibles.",
       "_comment_folders": "Carpetas TIA: 'nmax' es la tabla global de N_MAX; 'dispositivos' son las tag tables de los Disp*. El sync unificado parsea SOLO esos 10 XMLs.",
       "_comment_plantillas": "Ruta base de plantillas TIA para generar procesos. Cada subcarpeta contiene un manifest.json con base/codigo/nombre/minimos. Cadena vacia = sin configurar; el operario la configura desde la SPA.",
+      "_comment_excel": "Ruta del libro maestro del area. Cada area tiene el suyo.",
+      "excel": "",
       "global_config_table_name": "0_Config_Dispositivos",
       "plantillas_path": "D:\\Zeus Control\\Proyectos\\GitHub\\zc-automation-suite\\_plan\\Generar_Proceso",
       "tia_folders": {

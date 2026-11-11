@@ -125,14 +125,26 @@ def test_la_plantilla_del_repo_es_valida() -> None:
     assert "alimentacion" in config.areas
 
 
+def test_el_libro_maestro_vive_en_el_area_y_no_en_las_rutas_globales() -> None:
+    """El libro maestro es de cada area, no de la maquina."""
+    config = cargar_config(RAIZ / "config" / "config.json")
+
+    assert "excel" in config.areas["alimentacion"]
+    assert "excel" not in config.paths.model_dump()
+
+
 def test_un_config_valido_se_carga(tmp_path: Path) -> None:
     ruta = tmp_path / "config.json"
     ruta.write_text(
         json.dumps(
             {
                 "tia": {"plc": "PLC_1", "proyecto": ""},
-                "paths": {"excel": "D:\\datos\\maestro.xlsm"},
-                "areas": {"alimentacion": {"global_config_table_name": "0_Config"}},
+                "areas": {
+                    "alimentacion": {
+                        "excel": "D:\\datos\\maestro.xlsm",
+                        "global_config_table_name": "0_Config",
+                    }
+                },
             }
         ),
         encoding="utf-8",
@@ -141,7 +153,7 @@ def test_un_config_valido_se_carga(tmp_path: Path) -> None:
     config = cargar_config(ruta)
 
     assert config.tia.plc == "PLC_1"
-    assert config.paths.excel == "D:\\datos\\maestro.xlsm"
+    assert config.areas["alimentacion"]["excel"] == "D:\\datos\\maestro.xlsm"
     assert config.areas["alimentacion"]["global_config_table_name"] == "0_Config"
 
 
@@ -173,7 +185,6 @@ def test_una_config_vacia_usa_los_valores_por_defecto(tmp_path: Path) -> None:
     config = cargar_config(ruta)
 
     assert config.tia.plc == ""
-    assert config.paths.excel == ""
     assert config.areas == {}
 
 
