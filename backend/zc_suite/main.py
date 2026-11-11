@@ -111,7 +111,7 @@ def log_de_arranque(
             logger.warning(
                 "El area '%s' no tiene tipos de dispositivo en el catalogo: la "
                 "vista de dispositivos saldra vacia. Revisa el config.json en "
-                "uso (%s).",
+                "uso (%s): puede que este vacio o incompleto.",
                 id_area,
                 config_en_uso.ruta,
             )
