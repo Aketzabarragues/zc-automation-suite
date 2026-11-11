@@ -564,6 +564,8 @@ function etiquetaTipo(tipo) {
         class="col-span-2 flex flex-col bg-surface-raised border border-line rounded p-5 gap-3 min-h-0"
         data-testid="editor-propiedades"
       >
+        <p v-if="error" class="text-xs text-red-600" data-testid="editor-error">✗ {{ error }}</p>
+
         <div v-if="modo === 'idle'" class="flex-1 min-h-0 flex flex-col">
           <div>
             <h3 class="text-sm font-bold text-ink">Edición de propiedades</h3>
@@ -620,9 +622,6 @@ function etiquetaTipo(tipo) {
             >
               <span class="inline-block animate-spin mr-1">↻</span>
               Aplicando cambios en TIA Portal (transacción atómica, puede tardar minutos)…
-            </p>
-            <p v-if="error" class="text-xs text-red-600 mt-1" data-testid="editor-error">
-              ✗ {{ error }}
             </p>
           </div>
 

@@ -84,4 +84,46 @@ describe("EditorBloques", () => {
     expect(wrapper.find('[data-testid="editor-tabla"]').exists()).toBe(true);
     expect(wrapper.find('[data-testid="editor-nombre-OB1_MAIN"]').exists()).toBe(true);
   });
+
+  it("el resultado del trabajo llega a la vista", async () => {
+    // El resultado del trabajo es lo que rellena la tabla de propiedades.
+    const { wrapper, trabajos } = montar();
+
+    await wrapper.find('[data-testid="editor-arbol"] input[type="checkbox"]').trigger("change");
+    await wrapper.find('[data-testid="editor-editar"]').trigger("click");
+    await flushPromises();
+
+    trabajos.aplicar({
+      type: "job",
+      job: "j1",
+      estado: "ok",
+      resultado: { bloques: BLOQUES },
+      error: null,
+    });
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="editor-tabla"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="editor-nombre-OB1_MAIN"]').element.value).toBe("OB1_MAIN");
+    expect(wrapper.find('[data-testid="editor-numero-OB1_MAIN"]').element.value).toBe("1");
+  });
+
+  it("un trabajo que falla enseña el error en la vista", async () => {
+    const { wrapper, trabajos } = montar();
+
+    await wrapper.find('[data-testid="editor-arbol"] input[type="checkbox"]').trigger("change");
+    await wrapper.find('[data-testid="editor-editar"]').trigger("click");
+    await flushPromises();
+
+    trabajos.aplicar({
+      type: "job",
+      job: "j1",
+      estado: "error",
+      resultado: null,
+      error: "No se pudo exportar el bloque",
+    });
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="editor-error"]').text()).toContain("No se pudo exportar");
+    expect(wrapper.find('[data-testid="editor-tabla"]').exists()).toBe(false);
+  });
 });
