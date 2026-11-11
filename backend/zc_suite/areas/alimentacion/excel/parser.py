@@ -8,9 +8,8 @@ modelo.
 Criterio de las filas:
 
 - Una celda vacia vale ``""`` (o ``0`` si el campo es numero).
-- Una celda con basura donde toca un numero es una **fila mala**: el parseo
-  falla con un error que dice la hoja, la tabla y el numero de fila, sin
-  traza.
+- Una celda con basura donde toca un numero se queda en ``0`` (o ``0.0``):
+  los casts son los de ``main`` y la carga no falla por una celda sucia.
 - Una hoja o una tabla que no existe **no** es un error: ese dominio sale
   vacio y con un aviso.
 
@@ -56,7 +55,7 @@ def leer_excel(ruta: str | Path, config: dict[str, Any]) -> dict[str, Any]:
         las decide el ``display_order`` del ``config.json``.
 
     Raises:
-        OperacionError: si el fichero no existe o si hay una fila mala.
+        OperacionError: si el fichero no existe.
     """
     path = Path(ruta)
     if not path.is_file():
@@ -167,8 +166,8 @@ def _leer_dimensiones(libro: Any, config: dict[str, Any]) -> tuple[dict[str, Any
     columnas = modulo_columnas.columnas_de_configuracion(config)
     filas: list[dict[str, Any]] = []
     if not aviso:
-        for numero, fila in _filas(libro, dominio.hoja, dominio.tabla):
-            registro = _registro_dimensiones(fila, mapa, dominio, numero)
+        for fila in _filas(libro, dominio.hoja, dominio.tabla):
+            registro = _registro_dimensiones(fila, mapa)
             if registro is not None:
                 filas.append(registro)
     return {"columnas": columnas, "etiquetas": {}, "filas": filas}, aviso
@@ -188,8 +187,6 @@ def _mapa_n_max(config: dict[str, Any]) -> dict[str, str]:
 def _registro_dimensiones(
     fila: dict[str, Any],
     mapa: dict[str, str],
-    dominio: Dominio,
-    numero: int,
 ) -> dict[str, Any] | None:
     """El registro de N_MAX de una fila, o ``None`` si se descarta."""
     plc = _texto(fila.get("PLC"))
@@ -201,12 +198,10 @@ def _registro_dimensiones(
         canonico = mapa.get(str(cabecera).strip().upper())
         if canonico is None:
             continue
-        registro[canonico] = _entero_estricto(valor, dominio, numero, cabecera)
+        registro[canonico] = _entero(valor)
         leidos += 1
     if tablas.COLUMNA_N_MAX_ENTIDADES in fila:
-        registro[tablas.N_MAX_ENTIDADES] = _entero_estricto(
-            fila[tablas.COLUMNA_N_MAX_ENTIDADES], dominio, numero, tablas.COLUMNA_N_MAX_ENTIDADES
-        )
+        registro[tablas.N_MAX_ENTIDADES] = _entero(fila[tablas.COLUMNA_N_MAX_ENTIDADES])
         leidos += 1
     if not leidos:
         return None
@@ -233,32 +228,24 @@ def _leer_dominio(libro: Any, dominio: Dominio) -> tuple[list[dict[str, Any]], s
         return [], f"No se encuentra la tabla {dominio.tabla} en la hoja {dominio.hoja}"
 
     registros: list[dict[str, Any]] = []
-    for numero, fila in _filas(libro, dominio.hoja, dominio.tabla):
-        registro = _registro(fila, dominio, numero)
+    for fila in _filas(libro, dominio.hoja, dominio.tabla):
+        registro = _registro(fila, dominio)
         if registro is not None:
             registros.append(registro)
     return registros, ""
 
 
-def _registro(fila: dict[str, Any], dominio: Dominio, numero: int) -> dict[str, Any] | None:
+def _registro(fila: dict[str, Any], dominio: Dominio) -> dict[str, Any] | None:
     """El registro de una fila del dominio, o ``None`` si se descarta.
 
     Las filas se descartan por las reglas del dominio (sin UID, sin PLC...),
-    igual que en ``main``. Los descartes no son errores: una fila mala si
-    es cuando un numero no se puede leer.
+    igual que en ``main``. Una celda sucia no descarta la fila: su valor
+    se queda en ``0``.
     """
     crudos = {campo.nombre: _bruto(fila, campo) for campo in dominio.campos}
     if _se_descarta(crudos, dominio):
         return None
-    return {
-        campo.nombre: _valor(
-            crudo=crudos[campo.nombre],
-            campo=campo,
-            dominio=dominio,
-            numero=numero,
-        )
-        for campo in dominio.campos
-    }
+    return {campo.nombre: _valor(crudos[campo.nombre], campo) for campo in dominio.campos}
 
 
 def _se_descarta(crudos: dict[str, Any], dominio: Dominio) -> bool:
@@ -272,7 +259,7 @@ def _se_descarta(crudos: dict[str, Any], dominio: Dominio) -> bool:
     if dominio.exigir_plc and _vacio(crudos.get("plc_name")):
         return True
     return any(
-        _entero_suave(crudos.get(campo)) < 0 for campo in dominio.exigir_no_negativo
+        _entero(crudos.get(campo)) < 0 for campo in dominio.exigir_no_negativo
     )
 
 
@@ -284,8 +271,8 @@ def _tiene_tabla(libro: Any, hoja: str, tabla: str) -> bool:
     return tabla in tablas_hoja
 
 
-def _filas(libro: Any, hoja: str, tabla: str) -> list[tuple[int, dict[str, Any]]]:
-    """Las filas de una tabla nombrada, con su numero de fila en la hoja."""
+def _filas(libro: Any, hoja: str, tabla: str) -> list[dict[str, Any]]:
+    """Las filas de una tabla nombrada."""
     if hoja not in libro.sheetnames:
         return []
     hoja_obj = libro[hoja]
@@ -315,15 +302,13 @@ def _filas(libro: Any, hoja: str, tabla: str) -> list[tuple[int, dict[str, Any]]
         for valor in cabeceras
     ]
 
-    filas: list[tuple[int, dict[str, Any]]] = []
-    for desplazamiento, fila in enumerate(
-        hoja_obj.iter_rows(
-            min_row=min_row + 1,
-            max_row=max_row,
-            min_col=min_col,
-            max_col=max_col,
-            values_only=True,
-        )
+    filas: list[dict[str, Any]] = []
+    for fila in hoja_obj.iter_rows(
+        min_row=min_row + 1,
+        max_row=max_row,
+        min_col=min_col,
+        max_col=max_col,
+        values_only=True,
     ):
         if fila is None or all(celda is None for celda in fila):
             continue
@@ -333,7 +318,7 @@ def _filas(libro: Any, hoja: str, tabla: str) -> list[tuple[int, dict[str, Any]]
             if nombre
         }
         if valores:
-            filas.append((min_row + 1 + desplazamiento, valores))
+            filas.append(valores)
     return filas
 
 
@@ -352,12 +337,16 @@ def _bruto(fila: dict[str, Any], campo: Campo) -> Any:
     return None
 
 
-def _valor(crudo: Any, campo: Campo, dominio: Dominio, numero: int) -> Any:
-    """El valor de un campo, con su tipo."""
+def _valor(crudo: Any, campo: Campo) -> Any:
+    """El valor de un campo, con su tipo.
+
+    Los casts son los de ``main``: un valor que no es un numero se queda en
+    ``0`` (o ``0.0``) y la carga no falla.
+    """
     if campo.tipo == ENTERO:
-        return _entero_estricto(crudo, dominio, numero, campo.cabeceras()[0])
+        return _entero(crudo)
     if campo.tipo == DECIMAL:
-        return _decimal_estricto(crudo, dominio, numero, campo.cabeceras()[0])
+        return _decimal(crudo)
     if campo.tipo == NUM_LISTA:
         return _num_lista(crudo)
     if campo.tipo == TEXTO:
@@ -383,32 +372,11 @@ def _vacio(bruto: Any) -> bool:
     return texto == "" or texto.lower() in ("nan", "none", "null")
 
 
-def _entero_suave(bruto: Any) -> int:
-    """El entero de una celda, o ``0`` si no se puede."""
-    if bruto is None:
-        return 0
-    if isinstance(bruto, bool):
-        return int(bruto)
-    if isinstance(bruto, int):
-        return bruto
-    texto = str(bruto).strip()
-    if texto == "" or texto.lower() in ("nan", "none", "null"):
-        return 0
-    try:
-        return int(texto)
-    except ValueError:
-        pass
-    try:
-        return int(float(texto))
-    except ValueError:
-        return 0
-
-
-def _entero_estricto(bruto: Any, dominio: Dominio, numero: int, cabecera: str) -> int:
+def _entero(bruto: Any) -> int:
     """El entero de una celda.
 
-    Raises:
-        OperacionError: si la celda no es un numero.
+    Lo que no se puede convertir se queda en ``0``: un Excel con una celda
+    sucia no puede tumbar la carga.
     """
     if bruto is None:
         return 0
@@ -426,19 +394,14 @@ def _entero_estricto(bruto: Any, dominio: Dominio, numero: int, cabecera: str) -
     try:
         return int(float(texto))
     except ValueError:
-        raise OperacionError(
-            f"Fila {numero} invalida en la tabla '{dominio.tabla}' "
-            f"(hoja '{dominio.hoja}'): el valor de '{cabecera}' no es un numero."
-        ) from None
+        return 0
 
 
-def _decimal_estricto(bruto: Any, dominio: Dominio, numero: int, cabecera: str) -> float:
+def _decimal(bruto: Any) -> float:
     """El decimal de una celda.
 
-    Acepta coma decimal: el Excel del operario la usa en algunas hojas.
-
-    Raises:
-        OperacionError: si la celda no es un numero.
+    Acepta coma decimal: el Excel del operario la usa en algunas hojas. Lo
+    que no se puede convertir se queda en ``0.0``.
     """
     if bruto is None:
         return 0.0
@@ -452,10 +415,7 @@ def _decimal_estricto(bruto: Any, dominio: Dominio, numero: int, cabecera: str) 
     try:
         return float(texto)
     except ValueError:
-        raise OperacionError(
-            f"Fila {numero} invalida en la tabla '{dominio.tabla}' "
-            f"(hoja '{dominio.hoja}'): el valor de '{cabecera}' no es un numero."
-        ) from None
+        return 0.0
 
 
 def _num_lista(bruto: Any) -> int | str:

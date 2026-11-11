@@ -21,7 +21,6 @@ from openpyxl import Workbook, load_workbook
 from zc_suite.areas.alimentacion.excel import almacen as modulo_almacen
 from zc_suite.areas.alimentacion.excel import parser
 from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
-from zc_suite.tia_ops import OperacionError
 
 # ── el modelo completo, campo a campo ───────────────────────────────────────
 
@@ -243,24 +242,22 @@ def test_los_plcs_las_entidades_y_las_dimensiones_son_los_de_main(
 # ── las filas ───────────────────────────────────────────────────────────────
 
 
-def test_una_fila_mala_dice_la_hoja_la_tabla_y_la_fila(
+def test_una_fila_sucia_no_tumba_la_carga(
     tmp_path: Path,
     crear_excel: Callable[..., Path],
     seccion: dict[str, Any],
 ) -> None:
+    """Un texto donde toca un numero se queda en ``0``, como en ``main``."""
     ruta = crear_excel(
-        tmp_path / "malo.xlsx",
+        tmp_path / "sucio.xlsx",
         [["PLC1", "ED_001", "no es un numero", "V_ED_001", "Entrada digital", 3, 2]],
     )
 
-    with pytest.raises(OperacionError) as fallo:
-        parser.leer_excel(ruta, seccion)
+    datos = parser.leer_excel(ruta, seccion)
 
-    mensaje = str(fallo.value)
-    assert "Fila 2 invalida" in mensaje
-    assert "Tabla_Disp_ED" in mensaje
-    assert "DISP_ED" in mensaje
-    assert "Numero" in mensaje
+    fila = _tabla(datos, "DispED")["filas"][0]
+    assert fila["numero"] == 0
+    assert fila["e_byte"] == 3
 
 
 def test_una_celda_vacia_sale_como_cero_o_vacia(
