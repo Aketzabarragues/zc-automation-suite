@@ -72,6 +72,56 @@ Anade `?demo=1` a la URL: `http://localhost:5173/?demo=1` o
 simulan: sirve para ver el shell (barra superior, faceplate de progreso y
 consola de trazabilidad) sin TIA Portal ni backend.
 
+## Empaquetar el ejecutable
+
+```bash
+pip install -e ".[build]"
+python build_exe.py
+```
+
+El script hace todo el trabajo: comprueba que estan Python, PyInstaller, la
+wheel de Siemens y node; compila el frontend (`npm ci` y `npm run build`); y
+genera `dist/zc_automation_suite.exe`, un unico fichero.
+
+Si falta algo, el build para con un mensaje que dice que. En Windows tambien
+se puede lanzar con `run_build.bat`.
+
+El `.exe` no necesita Python ni Node: la SPA va dentro. Los binarios de
+Siemens (el `.pyd` y las `.dll` del SDK de Openness) tambien van dentro, en
+la raiz del bundle: salen de la wheel instalada, de la misma carpeta donde
+pip deja el `.pyd`.
+
+El `.exe` se abre con doble click: arranca con la bandeja y sirve la SPA en
+`http://127.0.0.1:9484/`. El log va a `zc.log`, junto al ejecutable.
+
+## Llevar el ejecutable a otra maquina
+
+El `.exe` es un fichero: se copia a donde sea y se ejecuta. No hay
+instalador.
+
+La maquina destino necesita:
+
+| Requisito | Para que |
+|---|---|
+| Windows 10 u 11 | la app es de escritorio |
+| TIA Portal instalado | sin TIA no hay nada que automatizar |
+| TIA Portal Openness instalado | el API con el que la app habla con TIA |
+| El usuario en el grupo **Siemens TIA Portal Openness** | TIA rechaza la conexion si el usuario no esta en el |
+
+Python y Node **no** hacen falta: van dentro del `.exe`.
+
+Sin TIA abierto, la app arranca igual: se ve la SPA, se puede subir el
+Excel maestro y se trabaja con la app en modo desconectado.
+
+Junto al `.exe` la app va creando sus datos: `config/` con el
+`config.json` del operario, `excel/` con la copia del Excel maestro y
+`.build_cache/` con lo que va exportando de TIA. Nada de eso se guarda
+dentro del `.exe`: los datos del operario se pueden copiar de una maquina
+a otra sin tocar el ejecutable.
+
+Para llevar los datos a otra maquina, copia la carpeta del `.exe` entera
+(o solo `config/` y `excel/`).
+
 ## Estructura
 
 ```
