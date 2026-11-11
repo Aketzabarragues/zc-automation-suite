@@ -1011,6 +1011,62 @@ def _servicio_con_ping(monkeypatch: pytest.MonkeyPatch) -> Any:
     return servicio
 
 
+def test_el_aviso_de_tia_cerrado_no_enseña_el_error_del_sdk(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """El aviso es para el operario; el error del SDK se queda en el log."""
+    servicio = _servicio_con_ping(monkeypatch)
+    eventos = servicio._eventos_para_test  # type: ignore[attr-defined]
+    ts = servicio._hilo_para_test  # type: ignore[attr-defined]
+    try:
+        job_id = servicio.lanzar(tia.conectar)
+        _esperar_job(eventos, job_id)
+        assert servicio.conectado is True
+
+        ts.portal.vivo = False
+        with caplog.at_level(logging.WARNING):
+            limite = time.monotonic() + 5.0
+            while servicio.conectado and time.monotonic() < limite:
+                time.sleep(0.01)
+
+        assert servicio.conectado is False
+        estados = [carga for tipo, carga in eventos if tipo == "tia"]
+        assert estados[-1]["ultimo_error"] == "TIA Portal se ha cerrado o no responde"
+        assert "exception set" not in estados[-1]["ultimo_error"]
+        # El detalle tecnico, solo en el log.
+        assert any(
+            "El portal de TIA ya no responde" in registro.getMessage()
+            for registro in caplog.records
+        )
+    finally:
+        servicio.parar()
+
+
+def test_el_aviso_de_tia_cerrado_tambien_llega_a_la_consola(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """El aviso sale como linea de log en la consola de la SPA."""
+    servicio = _servicio_con_ping(monkeypatch)
+    eventos = servicio._eventos_para_test  # type: ignore[attr-defined]
+    ts = servicio._hilo_para_test  # type: ignore[attr-defined]
+    try:
+        job_id = servicio.lanzar(tia.conectar)
+        _esperar_job(eventos, job_id)
+
+        ts.portal.vivo = False
+        limite = time.monotonic() + 5.0
+        while servicio.conectado and time.monotonic() < limite:
+            time.sleep(0.01)
+
+        lineas = [
+            carga["mensaje"] for tipo, carga in eventos if tipo == "log"
+        ]
+        assert "TIA Portal se ha cerrado o no responde" in lineas
+    finally:
+        servicio.parar()
+
+
 def test_el_hilo_aguanta_un_wait_que_falla(monkeypatch: pytest.MonkeyPatch) -> None:
     """Un error que salta en el wait no puede tumbar el hilo."""
     servicio = _servicio_con_ping(monkeypatch)

@@ -62,6 +62,12 @@ CANCELADO = "cancelado"
 #: Segundos entre comprobaciones de vida del portal cuando el hilo esta ocioso.
 INTERVALO_PING = 10.0
 
+#: Lo que ve el operario cuando el portal deja de responder.
+#:
+#: El detalle tecnico (el error pendiente de .NET) no sale de aqui: se
+#: queda en el log, donde si sirve para diagnosticar.
+AVISO_TIA_CERRADO = "TIA Portal se ha cerrado o no responde"
+
 
 # ── errores ────────────────────────────────────────────────────────────────
 
@@ -697,10 +703,15 @@ class ServicioTIA:
         return hilo is not None and hilo.is_alive()
 
     def _perder_portal(self, mensaje: str) -> None:
-        """Da el portal por perdido y publica el nuevo estado."""
+        """Da el portal por perdido y publica el nuevo estado.
+
+        El aviso tambien va a la consola de la SPA: es lo que el
+        operario ve. El detalle tecnico se queda en el log.
+        """
         self._portal = None
         self._modo_portal = None
         self._ultimo_error = mensaje
+        self.publicar("log", {"nivel": "error", "mensaje": mensaje})
         self._publicar_conexion()
 
     def _asegurar_hilo(self) -> None:
@@ -930,7 +941,7 @@ class ServicioTIA:
             pid_del_portal(self._portal)
         except BaseException as exc:
             logger.warning("El portal de TIA ya no responde: %s", exc)
-            self._perder_portal(f"La conexion con TIA Portal se ha perdido: {exc}")
+            self._perder_portal(AVISO_TIA_CERRADO)
             self._publicar_conexion()
 
     # ── operaciones del hilo ─────────────────────────────────────────────
