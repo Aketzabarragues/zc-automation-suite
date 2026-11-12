@@ -80,7 +80,7 @@ def editar_bloques(plc: str) -> tuple[Response, int]:
     cambios = datos.get("cambios") or {}
     if not isinstance(cambios, dict) or not cambios:
         return jsonify({"error": "No hay cambios que aplicar."}), 400
-    return lanzar(aplicar, plc=plc, cambios=cambios)
+    return lanzar(aplicar, plc=plc, cambios=cambios, sesion=_sesion())
 
 
 def _sesion() -> Sesion:

@@ -164,6 +164,27 @@ class Sesion:
         with self._lock:
             return self._escaneos.get(plc)
 
+    def actualizar_bloques(self, plc: str, bloques: list[dict[str, Any]]) -> None:
+        """Actualiza los bloques de un escaneo ya hecho.
+
+        Lo usa el editor de bloques: al renombrar un bloque, el escaneo del
+        PLC tiene que reflejar el nombre nuevo. Las tablas de tags y los
+        tipos de usuario no cambian, asi que se conservan.
+
+        Si el PLC no tiene escaneo, no se crea uno: un escaneo con solo
+        bloques no vale.
+
+        Args:
+            plc: el PLC.
+            bloques: los bloques recien escaneados.
+        """
+        with self._lock:
+            escaneo = self._escaneos.get(plc)
+            if escaneo is None:
+                return
+            escaneo.bloques = list(bloques)
+            escaneo.momento = datetime.now()
+
     def escaneo_fresco(self, plc: str, ttl: int = TTL_ESCANEO) -> Escaneo | None:
         """El escaneo de un PLC, si sigue valiendo.
 
