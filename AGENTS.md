@@ -246,6 +246,9 @@ ultimo `progress` y el ultimo `tia`.
   (`vistas/Bloques.spec.js`).
 - Mockea el portal con un doble de test propio (un objeto falso con
   `get_process_id`, `projects`, ...), nunca con el SDK real.
+- Los fixtures de `tests/fixtures/` se comparan byte a byte con lo que
+  produce la app. `.gitattributes` los deja intactos (`-text`): git no toca
+  sus bytes. Si cambias uno, `git add --renormalize tests/fixtures`.
 - Los tests verdes no sustituyen al smoke en vivo contra un proyecto de
   PRUEBA de TIA.
 
