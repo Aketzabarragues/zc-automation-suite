@@ -61,7 +61,8 @@ backend/zc_suite/
                      rutas_xml.py
   simatic/sd/        cabecera.py, comentarios_array.py, mlc.py
   areas/<id>/        ID, NOMBRE, rutas, catalogo(), defaults(), al_arrancar(),
-                     estado_sesion()
+                     estado_sesion(), valida_config()
+                     <id>/config.py    el modelo del config del area
                      <id>/rutas.py con el Blueprint del area
                      <id>/funciones/    un FB por fichero
                      <id>/excel/        parser.py, modelo.py, tablas.py,
@@ -197,20 +198,27 @@ ultimo `progress` y el ultimo `tia`.
 ## Anadir un area
 
 1. Crea `backend/zc_suite/areas/<id>/__init__.py` con `ID`, `NOMBRE`, `rutas`
-   (Blueprint), `catalogo(config)`, `defaults(config)`, `al_arrancar(seccion)`
-   y `estado_sesion()`. `al_arrancar` se llama al montar la app, con la seccion
-   de configuracion del area: ahi es donde el area se prepara para la sesion
-   (por ejemplo, vaciando su almacen: el Excel maestro no se guarda entre
-   arranques). `estado_sesion()` devuelve lo que el area tiene en la sesion
-   (el Excel cargado, por ejemplo) y lo sirve `GET /api/v1/sesion`. Ninguno de
-   los dos es opcional: todas las areas los implementan.
-2. Las rutas van en `backend/zc_suite/areas/<id>/rutas.py`, con el `Blueprint`
+   (Blueprint), `catalogo(config)`, `defaults(config)`, `al_arrancar(seccion)`,
+   `estado_sesion()` y `valida_config(config)`. `al_arrancar` se llama al montar
+   la app, con la seccion de configuracion del area: ahi es donde el area se
+   prepara para la sesion (por ejemplo, vaciando su almacen: el Excel maestro no
+   se guarda entre arranques). `estado_sesion()` devuelve lo que el area tiene en
+   la sesion (el Excel cargado, por ejemplo) y lo sirve `GET /api/v1/sesion`.
+   `valida_config(config)` devuelve el motivo por el que la seccion del area no
+   vale, o `None` si vale: el nucleo lo enseña en el banner de config
+   incompatible. Ninguno de los tres es opcional: todas las areas los
+   implementan.
+2. El formato de la seccion del area lo define su modelo, en
+   `backend/zc_suite/areas/<id>/config.py`. Es el unico que lo conoce: el resto
+   del area consume ese modelo, no el dict crudo. El formato esta en
+   `docs/CONFIG.md`.
+3. Las rutas van en `backend/zc_suite/areas/<id>/rutas.py`, con el `Blueprint`
    del area. El `__init__.py` lo expone como `rutas`.
-3. Registra el area en la lista `AREAS` de `backend/zc_suite/nucleo/app/main.py`. No hay
+4. Registra el area en la lista `AREAS` de `backend/zc_suite/nucleo/app/main.py`. No hay
    registro automatico ni ganchos opcionales.
-4. Frontend: `frontend/src/areas/<id>/index.js` exporta `{id, nombre, rutas,
+5. Frontend: `frontend/src/areas/<id>/index.js` exporta `{id, nombre, rutas,
    menu}`. El shell las recoge con `import.meta.glob`.
-5. Tests en `tests/areas/<id>/`.
+6. Tests en `tests/areas/<id>/`.
 
 ## La sesion
 
@@ -228,11 +236,13 @@ area aporta) vive en la **memoria del backend**, en
 
 ## Anadir un tipo de dispositivo
 
-1. Anade el dataclass del catalogo en `areas/<id>/datos/`.
-2. Anade la entrada en `config.json` (`areas.<id>.Dispositivos`).
-3. Anade el dominio del tipo en `areas/<id>/excel/tablas.py`: sus campos, con
-   los nombres y los tipos que usan las fases siguientes.
-4. El `GET /api/v1/catalogo` lo recoge automaticamente (data-driven). No hay
+1. Anade la entrada en `config.json` (`areas.<id>.dispositivos.<tipo>`), con su
+   etiqueta, su DB, su array, su tabla de tags, su Excel y su N_MAX. La clave de
+   la entrada es el unico identificador del tipo.
+2. Anade el dominio del tipo en `areas/<id>/excel/tablas.py`: sus campos, con
+   los nombres y los tipos que usan las fases siguientes. La hoja y la tabla
+   las dice el config, no el codigo.
+3. El `GET /api/v1/catalogo` lo recoge automaticamente (data-driven). No hay
    que tocar la SPA.
 
 ## El Excel maestro de un area
@@ -240,9 +250,9 @@ area aporta) vive en la **memoria del backend**, en
 - El **modelo** (los campos de cada dominio) vive en `excel/tablas.py` y
   `excel/modelo.py`. El parser es **uno solo** y lo usan tal cual todas las
   fases: no se escribe un parser por operacion.
-- El **almacen** guarda el modelo completo de cada fila. El `display_order`
-  del `config.json` decide solo que columnas se ensenan; el `col_labels`
-  del mismo catalogo decide como se titulan.
+- El **almacen** guarda el modelo completo de cada fila. Las `columnas` de cada
+  tipo del config deciden que columnas se ensenan; las etiquetas de su seccion
+  deciden como se titulan.
 - El almacen vive **en la memoria del backend**: no hay copia en disco. Cada
   sesion de la app empieza sin Excel.
 - Una hoja o una tabla que no esta **no es un error**: el dominio sale

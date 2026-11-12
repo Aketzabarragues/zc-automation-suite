@@ -5,7 +5,7 @@ contra TIA y sus vistas. Ejemplos: `alimentacion`, `envasado`.
 
 ## 1. Paquete del area
 
-Crea `backend/zc_suite/areas/<id>/__init__.py`. El contrato son cinco cosas:
+Crea `backend/zc_suite/areas/<id>/__init__.py`. El contrato son siete cosas:
 
 ```python
 """<id> — <nombre legible>."""
@@ -30,6 +30,21 @@ def catalogo(config: Any) -> dict[str, Any]:
 def defaults(config: Any) -> dict[str, Any]:
     """Valores por defecto que el area aporta a su seccion de config."""
     return {}
+
+
+def al_arrancar(config: Any) -> None:
+    """Prepara el area para la sesion. Se llama al montar la app."""
+    ...
+
+
+def estado_sesion() -> dict[str, Any]:
+    """Lo que el area tiene en la sesion. Lo sirve GET /api/v1/sesion."""
+    return {}
+
+
+def valida_config(config: Any) -> str | None:
+    """El motivo por el que la seccion del area no vale, o None si vale."""
+    return None
 ```
 
 - `ID` va en minusculas y sin acentos. Es la clave en `config.json` y en la
@@ -37,6 +52,11 @@ def defaults(config: Any) -> dict[str, Any]:
 - `NOMBRE` es lo que ve el operario en el menu.
 - `rutas` es un `Blueprint` de Flask. El shell es Flask, no FastAPI.
 - `catalogo(config)` y `defaults(config)` reciben la config ya validada.
+- `al_arrancar(config)` se llama al montar la app, con la seccion del area.
+- `estado_sesion()` devuelve lo que el area tiene en la sesion.
+- `valida_config(config)` devuelve el motivo por el que la seccion del area no
+  vale, o `None` si vale. El nucleo lo enseña en el banner de config
+  incompatible.
 
 ## 2. Registro
 
@@ -57,7 +77,9 @@ el unico sitio donde el nucleo conoce las areas.
 Layout recomendado dentro de `areas/<id>/`:
 
 ```
-__init__.py     ID, NOMBRE, rutas, catalogo(), defaults()
+__init__.py     ID, NOMBRE, rutas, catalogo(), defaults(), al_arrancar(),
+                estado_sesion(), valida_config()
+config.py       el modelo del config del area: lo valida y lo describe
 rutas.py        el Blueprint del area
 funciones/      un FB por fichero: funciones/<dominio>/<verbo>.py
 excel/          logica pura del Excel: parser.py, modelo.py, tablas.py, ...
@@ -67,6 +89,10 @@ excel/          logica pura del Excel: parser.py, modelo.py, tablas.py, ...
 Lo de `funciones/` es lo que **lanza la web**: recibe el `job`, declara sus
 pasos y abre transacciones. Lo de `<dominio>/` es logica pura: no depende de
 TIA ni recibe el `job`.
+
+`config.py` es el unico que conoce el formato de la seccion del area: el resto
+del area consume ese modelo, no el dict crudo. El formato esta en
+[CONFIG.md](CONFIG.md).
 
 Las areas **no se importan entre si** y el nucleo **no importa las areas**
 (la unica excepcion es la lista `AREAS`). `tests/test_fronteras.py` lo

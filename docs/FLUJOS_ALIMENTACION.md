@@ -67,6 +67,9 @@ Las declara el area, no el nucleo: `zc_suite.nucleo.tia.workdir` solo sabe resol
 
 ### Los nombres salen del `config.json`
 
+Estas son las claves del `config.json` **de la app original** (`main`). En la
+app nueva el mismo formato esta en [CONFIG.md](CONFIG.md).
+
 | Que | De donde |
 |---|---|
 | Tabla global de N_MAX | `areas.alimentacion.global_config_table_name` |

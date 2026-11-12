@@ -169,6 +169,8 @@ config/config.json  plantilla de configuracion
 ## Documentacion
 
 - [docs/INSTALAR.md](docs/INSTALAR.md) — que hace falta y como se instala.
+- [docs/CONFIG.md](docs/CONFIG.md) — el `config.json`: donde vive, quien manda y
+  el formato de cada area.
 - [docs/NUEVA_AREA.md](docs/NUEVA_AREA.md) — como se anade un area.
 - [docs/NUEVO_DISPOSITIVO.md](docs/NUEVO_DISPOSITIVO.md) — como se anade un tipo
   de dispositivo.

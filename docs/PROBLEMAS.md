@@ -31,6 +31,20 @@ con `get_supported_export_format()` en vez de suponerlo.
 
 ## Backend
 
+### Sale un banner rojo de "config incompatible"
+
+El `config.json` del operario (el de `config/` junto al `.exe`) no cumple el
+formato. El banner dice que clave falta y donde; el log lo repite con mas
+detalle.
+
+**El config del operario nunca se sustituye.** Para arreglarlo: copia el
+`config.json` de la plantilla (`config/config.json` del repo o el que lleva el
+paquete) sobre el del `.exe` y ajusta lo que necesites. El formato esta en
+[CONFIG.md](CONFIG.md).
+
+Si el banner dice que el area usa el **formato anterior**, el config es de otra
+version de la app: hay que migrarlo, no basta con anadir claves.
+
 ### "No se pudo resolver 'siemens_tia_scripting'"
 
 La wheel de Siemens no esta instalada en este interprete. Ver
