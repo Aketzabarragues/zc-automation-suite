@@ -1,6 +1,7 @@
 """Orquestador PyInstaller para ``zc-automation-suite``.
 
-Compila ``backend/zc_suite/main.py`` en ``dist/zc_automation_suite.exe`` con
+Compila ``backend/zc_suite/nucleo/app/main.py`` en
+``dist/zc_automation_suite.exe`` con
 TODO lo necesario para ejecutar la app en produccion, incluyendo el binario
 nativo de Siemens (``.pyd``) y sus dependencias (``.dll`` / ``.xml``)
 resueltos dinamicamente desde el interprete Python actual (3.12 / 3.13 /
@@ -12,7 +13,8 @@ Restricciones aplicadas (decisiones arquitectónicas del proyecto):
     al directorio de trabajo. Se stagean en un directorio temporal creado con
     ``tempfile.mkdtemp(prefix="zc_build_")``.
 
-  - **Carga dinamica oficial**: ``zc_suite.tia.cargar_modulo_tia()`` importa
+  - **Carga dinamica oficial**: ``zc_suite.nucleo.tia.servicio.cargar_modulo_tia()``
+    importa
     ``siemens_tia_scripting``. En un ejecutable congelado, el import solo
     encuentra el modulo si el ``.pyd`` esta en la **raiz de** ``sys._MEIPASS``.
     Por eso **el ``.pyd`` y TODAS las ``.dll`` van a la raiz de
@@ -108,8 +110,8 @@ STAGING_PREFIX = "zc_build_"
 #: Versiones de Python con las que hay wheel oficial de Siemens.
 SUPPORTED_PYTHONS: list[tuple[int, int]] = [(3, 12), (3, 13), (3, 14)]
 
-#: Entry del ``.exe``: el modulo ``main`` del paquete.
-ENTRY_SCRIPT = "backend/zc_suite/main.py"
+#: Entry del ``.exe``: el modulo ``main`` del nucleo.
+ENTRY_SCRIPT = "backend/zc_suite/nucleo/app/main.py"
 
 #: Carpeta del frontend, con su ``package.json``.
 FRONTEND_DIR = "frontend"

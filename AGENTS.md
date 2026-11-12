@@ -41,25 +41,53 @@ SPA --POST /api/...--> tia.lanzar(funcion, **params) --> job_id (202)
 
 ```
 backend/zc_suite/
-  main.py      arranque (hilo TIA + Flask + bandeja) y lista AREAS
-  tia.py       hilo unico, Job, transaccion(), conectar/desconectar, estado
-  eventos.py   bus SSE + handler de logging
-  web.py       app Flask, estaticos, /api/eventos, lanzar()
-  config.py    config.json validado con Pydantic
-  workdir.py   .build_cache/<area>/<contexto>/{preview,sincronizar}
-  tia_ops/     proyecto.py, exportar.py, importar.py, compilar.py,
-               constantes.py, bloques.py
-  simatic/     simatic_sd/, simatic_ml/
-  comun/       editor_bloques.py
-  rutas/       conexion.py, bloques.py, catalogo.py
-  areas/<id>/  ID, NOMBRE, rutas, catalogo(), defaults(), al_arrancar()
-               <id>/rutas.py con el Blueprint del area
-               <id>/excel/    modelo.py, tablas.py, columnas.py,
-                              parser.py, almacen.py, trabajo.py
+  nucleo/app/        main.py (arranque + lista AREAS), config.py, logs.py,
+                     bandeja.py, icono.py, servidor.py
+  nucleo/web/        app.py (Flask, estaticos, /api/eventos, lanzar())
+                     rutas/{conexion,plc,catalogo}.py
+  nucleo/tia/        servicio.py (hilo unico, conectar/desconectar),
+                     job.py (Job y sus pasos), transaccion.py, errores.py,
+                     eventos.py (bus SSE + handler de logging),
+                     workdir.py (.build_cache/<area>/<contexto>/)
+  nucleo/trabajos/   plc.py (buscar_plcs, escanear_plc),
+                     bloques.py (preparar_bloques, editar_bloques)
+  tia_ops/           proyecto.py, exportar.py, importar.py, compilar.py,
+                     constantes.py, bloques.py, tablas.py
+  simatic/ml/        constantes_parser.py, constantes_modificador.py,
+                     rutas_xml.py
+  simatic/sd/        cabecera.py, comentarios_array.py, mlc.py
+  areas/<id>/        ID, NOMBRE, rutas, catalogo(), defaults(), al_arrancar()
+                     <id>/rutas.py con el Blueprint del area
+                     <id>/excel/        trabajo.py, modelo.py, tablas.py,
+                                       columnas.py, parser.py, almacen.py
+                     <id>/dispositivos/ trabajo.py, prevision.py, catalogo.py
 frontend/src/
-  api.js  stores/  components/  vistas/  areas/<id>/
-tests/    nucleo/  tia_ops/  simatic/  areas/<id>/  test_fronteras.py
+  nucleo/            api.js, eventos.js, demo.js, componentes/, vistas/,
+                     stores/
+  areas/<area>/      index.js, vistas/, stores/
+  App.vue  main.js  style.css
+tests/               misma estructura que backend/zc_suite:
+                     nucleo/{app,web,tia,trabajos}/, tia_ops/,
+                     simatic/{ml,sd}/, areas/<id>/{<dominio>}/, fixtures/
+scripts/smoke/       smokes contra TIA real (se lanzan a mano)
 ```
+
+## Estructura y nombres
+
+- **Todo en espanol**: ficheros, carpetas, funciones y variables. Sin
+  tildes ni anglicismos en los identificadores.
+- **Las carpetas de dominio van en plural**: `dispositivos/`, `excel/`,
+  `entidades/`, `procesos/`.
+- **Un fichero no repite el nombre de su carpeta**: `dispositivos/prevision.py`
+  y no `dispositivos/disp_preview.py`; `simatic/sd/mlc.py` y no
+  `simatic/sd/generador_mlc.py`.
+- **Cada dominio del area tiene dos cosas**: `trabajo.py` (lo que lanza la
+  web) y los modulos de logica al lado. `entidades/` y `procesos/` van a
+  seguir esta forma.
+- **En el frontend, lo del nucleo va en `src/nucleo/` y lo del area en
+  `src/areas/<area>/`**. Un store del area nunca esta en `nucleo/stores/`.
+- **`tests/` refleja `backend/zc_suite/` carpeta a carpeta**: un test vive
+  junto al modulo que prueba.
 
 ## Como se ejecuta un trabajo
 

@@ -62,7 +62,7 @@ El parametro se omite: es TIA el que actualiza donde esta.
 | `entidades` | `config/` (N_MAX entidad), `disp/` (constantes), `bloques/` (DB6_ENT) | `variables/`, `bloques/` |
 | `proc_db` | `bloques/` (los DB del proceso), `variables/` (tablas del proceso) | `variables/`, `bloques/` |
 
-Las declara el area, no el nucleo: `zc_suite.workdir` solo sabe resolver
+Las declara el area, no el nucleo: `zc_suite.nucleo.tia.workdir` solo sabe resolver
 `<area>/<contexto>` y las carpetas de sincronizacion.
 
 ### Los nombres salen del `config.json`
@@ -459,7 +459,7 @@ Los ocho flujos de arriba son el comportamiento de `main`. En la reescritura cam
 |---|---|
 | Cada area tiene sus FBs y su worker | El nucleo tiene `tia_ops` (operaciones puras) y `trabajos.py` (la orquestacion) |
 | El resultado se publica en el AppCache | El resultado llega por el evento `job` del stream SSE |
-| `execute_transactional_batch` envuelve las transacciones | `transaccion(job, ...)` de `zc_suite.tia`, una por operacion |
+| `execute_transactional_batch` envuelve las transacciones | `transaccion(job, ...)` de `zc_suite.nucleo.tia.transaccion`, una por operacion |
 | `compile_blocks` fuera de toda transaccion | `tia_ops.compilar`, siempre fuera |
 | Sin deteccion de version de TIA | `job.tia.version_tia`: en V18 los pasos de SimaticSD se saltan con un aviso |
 | `target_folder=""` pasado al handler | El parametro **se omite**: nunca se pasa `""` a TIA |

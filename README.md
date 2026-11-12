@@ -130,10 +130,17 @@ Para llevar los datos a otra maquina, copia la carpeta del `.exe` entera
 ## Estructura
 
 ```
-backend/zc_suite/   nucleo, operaciones TIA, areas
-frontend/           SPA Vue 3 + Vite + Tailwind v4
-tests/              pytest
-docs/               instalacion y guias
+backend/zc_suite/
+  nucleo/       app/ (arranque, config, log, bandeja), web/ (Flask y rutas),
+                tia/ (hilo, Job, transaccion), trabajos/
+  tia_ops/      operaciones contra TIA Portal
+  simatic/      ml/ (SimaticML), sd/ (SimaticSD)
+  areas/        areas de negocio; el nucleo no las importa
+frontend/src/
+  nucleo/       el shell: api, eventos, componentes, vistas y stores
+  areas/        un area por carpeta: sus vistas y sus stores
+tests/          misma estructura que backend/zc_suite
+scripts/smoke/  smokes contra TIA real (se lanzan a mano)
 config/config.json  plantilla de configuracion
 ```
 
