@@ -14,6 +14,8 @@ Restriccion arquitectonica: este modulo es OFFLINE; no importa
 """
 from __future__ import annotations
 
+import io
+
 import logging
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -58,12 +60,18 @@ class ModificadorConstantesUsuario:
         self._modified: bool = False
 
     def guardar(self, output_path: str | Path) -> None:
-        """Escribe el arbol XML modificado en ``output_path``."""
+        """Escribe el arbol XML modificado en ``output_path``.
+
+        Los saltos de linea son ``\\r\\n`` siempre. ``ElementTree.write(ruta)``
+        abre el fichero en modo texto y mete el salto de la plataforma: en
+        Windows ``\\r\\n`` (lo que hacia main y lo que recibe TIA), en Linux
+        ``\\n``. Se fija aqui para no depender del sistema.
+        """
         out = Path(output_path)
         out.parent.mkdir(parents=True, exist_ok=True)
-        self._tree.write(
-            str(out), encoding="utf-8", xml_declaration=True
-        )
+        buffer = io.BytesIO()
+        self._tree.write(buffer, encoding="utf-8", xml_declaration=True)
+        out.write_bytes(buffer.getvalue().replace(b"\n", b"\r\n"))
 
     def modificado(self) -> bool:
         """Devuelve ``True`` si anadir o eliminar mutaron el DOM."""
