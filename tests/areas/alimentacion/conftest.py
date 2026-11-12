@@ -23,8 +23,10 @@ from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
-from zc_suite.areas.alimentacion.dispositivos import trabajo as dispositivos_trabajo
 from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
+from zc_suite.areas.alimentacion.funciones.dispositivos import (
+    generar_prevision as modulo_prevision,
+)
 from zc_suite.nucleo.tia import servicio as tia
 from zc_suite.nucleo.tia.servicio import ServicioTIA
 from zc_suite.nucleo.tia.workdir import Workdir
@@ -920,7 +922,7 @@ class Entorno:
     def prevision(self) -> dict[str, Any]:
         """Lanza la prevision y devuelve su resultado."""
         job_id = self.servicio.lanzar(
-            dispositivos_trabajo.disp_generar_preview,
+            modulo_prevision.generar_prevision,
             plc=NOMBRE_PLC,
             almacen=self.almacen,
             config=self.seccion,
@@ -955,7 +957,7 @@ def entorno_disp(
     almacen.volcar(excel_dispositivos)
 
     monkeypatch.setattr(
-        dispositivos_trabajo,
+        modulo_prevision,
         "workdir_dispositivos",
         lambda: Workdir(
             base=tmp_path / "disp",

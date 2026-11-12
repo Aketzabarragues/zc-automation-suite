@@ -16,7 +16,7 @@ PAQUETES_NUCLEO: tuple[str, ...] = (
     "zc_suite.nucleo.web",
     "zc_suite.nucleo.web.rutas",
     "zc_suite.nucleo.tia",
-    "zc_suite.nucleo.trabajos",
+    "zc_suite.nucleo.funciones",
     "zc_suite.areas",
 )
 

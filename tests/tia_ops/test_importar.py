@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from zc_suite.tia_ops import OperacionError
+from zc_suite.errores import OperacionError
 from zc_suite.tia_ops import importar as ops
 
 # ── dobles de test ─────────────────────────────────────────────────────────

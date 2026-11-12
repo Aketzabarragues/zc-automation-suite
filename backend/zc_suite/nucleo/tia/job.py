@@ -16,7 +16,8 @@ from contextlib import contextmanager
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from zc_suite.nucleo.tia.errores import CanceladoError, TIAError, texto_error
+from zc_suite.errores import TIAError
+from zc_suite.nucleo.tia.errores import CanceladoError, texto_error
 
 if TYPE_CHECKING:
     from zc_suite.nucleo.tia.servicio import ServicioTIA

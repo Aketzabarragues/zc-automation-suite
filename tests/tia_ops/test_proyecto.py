@@ -7,8 +7,8 @@ from typing import Any
 
 import pytest
 
+from zc_suite.errores import OperacionError
 from zc_suite.nucleo.tia.errores import SinProyectoError
-from zc_suite.tia_ops import OperacionError
 from zc_suite.tia_ops import proyecto as ops
 
 

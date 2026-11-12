@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from zc_suite.tia_ops import OperacionError
+from zc_suite.errores import OperacionError
 from zc_suite.tia_ops._resolver import buscar_plc, buscar_tabla_tags
 
 

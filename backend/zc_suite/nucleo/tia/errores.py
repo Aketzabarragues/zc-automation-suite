@@ -1,21 +1,19 @@
-"""zc_suite.nucleo.tia.errores — los errores del subsistema TIA.
+"""zc_suite.nucleo.tia.errores — los errores propios del subsistema TIA.
 
 Los fallos son **excepciones**, nunca un ``{"ok": False}`` que alguien tenga
-que comprobar. Todas cuelgan de ``TIAError``, para que quien llame pueda
-pillarlas de una vez.
+que comprobar. Todas cuelgan de ``TIAError`` (que vive en ``zc_suite.errores``,
+junto a ``OperacionError``), para que quien llame pueda pillarlas de una vez.
 """
 from __future__ import annotations
 
 import logging
 
+from zc_suite.errores import TIAError
+
 logger = logging.getLogger(__name__)
 
 
 # ── errores ────────────────────────────────────────────────────────────────
-
-
-class TIAError(Exception):
-    """Fallo del subsistema TIA."""
 
 
 class OcupadoError(TIAError):

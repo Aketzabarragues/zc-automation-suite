@@ -168,3 +168,31 @@ class AlmacenExcel:
             return False
         self.volcar(ruta)
         return True
+
+
+# ── el volcado ──────────────────────────────────────────────────────────────
+
+
+def filas_totales(datos: dict[str, Any]) -> int:
+    """Cuantas filas hay en todos los dominios del volcado."""
+    total = len(datos.get("configuracion", {}).get("filas", []))
+    for tabla in datos.get("dispositivos", []):
+        total += len(tabla.get("filas", []))
+    for tabla in datos.get("procesos", {}).values():
+        total += len(tabla.get("filas", []))
+    total += len(datos.get("entidades", {}).get("filas", []))
+    return total
+
+
+def avisos(almacen: AlmacenExcel) -> list[str]:
+    """Los avisos del ultimo parseo."""
+    return list(almacen.estado().get("avisos") or [])
+
+
+def detalle_de_avisos(avisos: list[str]) -> str:
+    """El detalle del paso de avisos: el primero y cuantos quedan."""
+    if not avisos:
+        return "sin avisos"
+    if len(avisos) == 1:
+        return avisos[0]
+    return f"{avisos[0]} (+{len(avisos) - 1} más)"

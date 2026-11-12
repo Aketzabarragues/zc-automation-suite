@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from zc_suite.errores import OperacionError
 from zc_suite.nucleo.tia.transaccion import proyecto_activo
-from zc_suite.tia_ops import OperacionError
 
 
 def buscar_plc(portal: Any, nombre: str) -> Any:

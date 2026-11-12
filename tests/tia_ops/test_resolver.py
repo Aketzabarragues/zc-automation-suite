@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
+from zc_suite.errores import OperacionError
 from zc_suite.nucleo.tia.errores import SinProyectoError
-from zc_suite.tia_ops import OperacionError
 from zc_suite.tia_ops import _resolver as resolver
 
 # ── dobles de test ─────────────────────────────────────────────────────────

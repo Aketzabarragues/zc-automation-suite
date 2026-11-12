@@ -36,7 +36,7 @@ from zc_suite.areas.alimentacion.excel.modelo import (
     Campo,
     Dominio,
 )
-from zc_suite.tia_ops import OperacionError
+from zc_suite.errores import OperacionError
 
 logger = logging.getLogger(__name__)
 

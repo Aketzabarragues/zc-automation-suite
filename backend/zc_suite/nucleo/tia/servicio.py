@@ -32,12 +32,12 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from zc_suite.errores import TIAError
 from zc_suite.nucleo.tia.errores import (
     CanceladoError,
     FueraDelHiloError,
     OcupadoError,
     SinPortalError,
-    TIAError,
     texto_error,
 )
 from zc_suite.nucleo.tia.job import CANCELADO, ERROR, OK, Job

@@ -1,4 +1,6 @@
-"""El diff de dispositivos: lo que hay en TIA frente a lo que dice el Excel.
+"""zc_suite.areas.alimentacion.dispositivos.diferencias — el diff de dispositivos.
+
+Lo que hay en TIA frente a lo que dice el Excel.
 
 Funciones puras: comparan el XML exportado de TIA con los dispositivos del
 Excel y devuelven el diff. No escriben nada.

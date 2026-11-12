@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 
-from zc_suite.areas.alimentacion.dispositivos.prevision import (
+from zc_suite.areas.alimentacion.dispositivos.diferencias import (
     disp_calcular_diff_n_max,
     disp_calcular_diff_tabla,
 )

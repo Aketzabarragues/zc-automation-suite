@@ -19,9 +19,12 @@ from typing import Any
 
 from flask import Blueprint, Response, current_app, jsonify, request
 
-from zc_suite.areas.alimentacion.dispositivos import trabajo as dispositivos_trabajo
-from zc_suite.areas.alimentacion.excel import trabajo
 from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
+from zc_suite.areas.alimentacion.funciones.dispositivos.generar_prevision import (
+    generar_prevision,
+)
+from zc_suite.areas.alimentacion.funciones.excel.cargar import cargar
+from zc_suite.areas.alimentacion.funciones.excel.recargar import recargar
 from zc_suite.nucleo.web.app import HTTPError, lanzar, servicio
 
 logger = logging.getLogger(__name__)
@@ -69,13 +72,13 @@ def subir_excel() -> tuple[Response, int]:
         return jsonify({"error": "El fichero es demasiado grande (maximo 20 MB)."}), 400
 
     ruta = _guardar(contenido, nombre, sufijo)
-    return lanzar(trabajo.cargar_excel, ruta=str(ruta), almacen=_almacen())
+    return lanzar(cargar, ruta=str(ruta), almacen=_almacen())
 
 
 @rutas.post("/excel/recargar")
 def recargar_excel() -> tuple[Response, int]:
     """Vuelve a parsear la copia guardada del Excel."""
-    return lanzar(trabajo.recargar_excel, almacen=_almacen())
+    return lanzar(recargar, almacen=_almacen())
 
 
 @rutas.post("/dispositivos/preview")
@@ -101,7 +104,7 @@ def preview_dispositivos() -> tuple[Response, int]:
         ), 400
 
     return lanzar(
-        dispositivos_trabajo.disp_generar_preview,
+        generar_prevision,
         plc=plc,
         almacen=almacen,
         config=almacen.config,

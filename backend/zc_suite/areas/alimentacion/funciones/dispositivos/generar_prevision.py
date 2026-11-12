@@ -1,9 +1,16 @@
-"""El trabajo de la prevision de dispositivos: exportar y diffear, sin escribir.
+"""zc_suite.areas.alimentacion.funciones.dispositivos.generar_prevision — la prevision.
+
+Es un **FB**: recibe el ``job``, declara sus pasos y se ejecuta entero
+dentro del hilo de TIA.
 
 Es el port de ``function_disp_generar_preview`` de ``main`` con los mismos
 pasos y el mismo shape de resultado. No abre transacciones, no compila y no
 importa nada en TIA: solo exporta las tablas de tags y las compara con el
 Excel.
+
+Los ayudantes de este modulo (``workdir_dispositivos``,
+``tablas_de_dispositivos``, ``componer_respuesta``) son privados del FB:
+solo los usa el.
 """
 from __future__ import annotations
 
@@ -11,7 +18,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from zc_suite.areas.alimentacion.dispositivos.prevision import (
+from zc_suite.areas.alimentacion.dispositivos.diferencias import (
     DiffNMax,
     DiffTabla,
     disp_calcular_diff_n_max,
@@ -90,7 +97,7 @@ def _n_max_del_excel(
     return {}
 
 
-def disp_generar_preview(
+def generar_prevision(
     job: Job,
     plc: str,
     almacen: AlmacenExcel,

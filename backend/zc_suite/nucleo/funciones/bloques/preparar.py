@@ -1,30 +1,24 @@
-"""zc_suite.nucleo.trabajos.bloques — los trabajos del editor de bloques.
+"""zc_suite.nucleo.funciones.bloques.preparar — lee los bloques de TIA.
 
-- ``preparar_bloques``: lee las propiedades de los bloques indicados y, en
-  V21+, sus titulos y comentarios (SimaticSD).
-- ``editar_bloques``: aplica los cambios de nombre y numero, en transaccion.
+Es un **FB**: recibe el ``job``, declara sus pasos y se ejecuta entero
+dentro del hilo de TIA.
 """
 from __future__ import annotations
 
 import logging
 from typing import Any
 
+from zc_suite.errores import OperacionError
 from zc_suite.nucleo.tia.job import Job
-from zc_suite.nucleo.tia.transaccion import transaccion
 from zc_suite.nucleo.tia.workdir import workdir_editor_bloques
 from zc_suite.simatic.sd.cabecera import soporta_simaticsd, titulo_y_comentario
-from zc_suite.tia_ops import OperacionError
-from zc_suite.tia_ops.bloques import (
-    aplicar_cambios,
-    escanear_bloques,
-    leer_bloques,
-)
+from zc_suite.tia_ops.bloques import leer_bloques
 from zc_suite.tia_ops.exportar import exportar_bloques
 
 logger = logging.getLogger(__name__)
 
 
-def preparar_bloques(job: Job, plc: str, nombres: list[str]) -> dict[str, Any]:
+def preparar(job: Job, plc: str, nombres: list[str]) -> dict[str, Any]:
     """Lee de TIA las propiedades de los bloques seleccionados.
 
     El titulo, el autor y la version se leen de las propiedades del bloque.
@@ -100,50 +94,3 @@ def preparar_bloques(job: Job, plc: str, nombres: list[str]) -> dict[str, Any]:
             bloque["extended"] = extendidas
         paso["detail"] = f"{len(leidos)} bloques listos"
     return {"plc": plc, "bloques": leidos}
-
-
-def editar_bloques(
-    job: Job,
-    plc: str,
-    cambios: dict[str, dict[str, Any]],
-) -> dict[str, Any]:
-    """Aplica los cambios de nombre y numero de los bloques indicados.
-
-    Todos los cambios van en **una sola transaccion**: si uno falla, se
-    deshace todo el lote. Al final se reescanea el PLC, para que el arbol
-    de la SPA vea los nombres nuevos.
-
-    Returns:
-        ``{"plc", "aplicados", "bloques"}``. ``bloques`` es el contenido del
-        PLC despues de aplicar.
-    """
-    job.empezar(
-        f"Aplicar cambios en {plc}",
-        [
-            ("validar", "Validar los cambios"),
-            ("diferencias", "Calcular las diferencias"),
-            ("aplicar", "Aplicar la transacción"),
-            ("verificar", "Verificar el resultado"),
-            ("refrescar", "Refrescar los bloques del PLC"),
-        ],
-    )
-    with job.paso("validar") as paso:
-        if not cambios:
-            raise OperacionError("No hay cambios que aplicar.")
-        paso["detail"] = f"{len(cambios)} bloques"
-    with job.paso("diferencias") as paso:
-        paso["detail"] = ", ".join(sorted(cambios))
-    aplicados: list[dict[str, Any]] = []
-    with job.paso("aplicar") as paso:
-        with transaccion(job, "Editar bloques"):
-            for nombre, propiedades in cambios.items():
-                aplicados.append(
-                    aplicar_cambios(job.tia.portal, plc, nombre, dict(propiedades))
-                )
-        paso["detail"] = f"{len(aplicados)} bloques"
-    with job.paso("verificar") as paso:
-        paso["detail"] = f"{len(aplicados)} bloques confirmados"
-    with job.paso("refrescar") as paso:
-        bloques = escanear_bloques(job.tia.portal, plc)
-        paso["detail"] = f"{len(bloques)} bloques"
-    return {"plc": plc, "aplicados": aplicados, "bloques": bloques}

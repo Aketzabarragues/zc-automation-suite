@@ -17,19 +17,7 @@ Modulos:
 
 Los helpers que resuelven objetos .NET viven en ``_resolver.py`` y se usan
 entre modulos del paquete. Lo publico de cada modulo es siempre primitivo.
+
+Los fallos se lanzan con ``OperacionError`` (de ``zc_suite.errores``), la clase
+comun de los errores esperados de la app.
 """
-from __future__ import annotations
-
-from zc_suite.nucleo.tia.errores import TIAError
-
-
-class OperacionError(TIAError):
-    """Fallo esperado de una operacion contra TIA.
-
-    No hay proyecto abierto, el PLC no existe, el fichero no esta... Son
-    fallos que el operario puede corregir: se registran como warning, sin
-    traceback, a diferencia de lo inesperado.
-    """
-
-
-__all__ = ["OperacionError"]

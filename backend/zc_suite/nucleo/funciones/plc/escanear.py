@@ -1,7 +1,7 @@
-"""zc_suite.nucleo.trabajos.plc — los trabajos del PLC.
+"""zc_suite.nucleo.funciones.plc.escanear — escanea el PLC.
 
-- ``buscar_plcs``: los PLCs del proyecto abierto y los datos del proyecto.
-- ``escanear_plc``: los bloques, las tablas de tags y los tipos de usuario.
+Es un **FB**: recibe el ``job``, declara sus pasos y se ejecuta entero
+dentro del hilo de TIA.
 """
 from __future__ import annotations
 
@@ -10,27 +10,12 @@ from typing import Any
 
 from zc_suite.nucleo.tia.job import Job
 from zc_suite.tia_ops.bloques import escanear_bloques, escanear_tipos_de_usuario
-from zc_suite.tia_ops.proyecto import info_proyecto, listar_plcs
 from zc_suite.tia_ops.tablas import escanear_tablas_tags
 
 logger = logging.getLogger(__name__)
 
 
-def buscar_plcs(job: Job) -> dict[str, Any]:
-    """Los PLCs del proyecto abierto y los datos del proyecto.
-
-    Returns:
-        ``{"plcs": [{"nombre", "designacion"}], "proyecto": {"nombre", "ruta"}}``.
-    """
-    job.empezar("Buscar PLCs", [("listar", "Listar los PLCs del proyecto")])
-    with job.paso("listar") as paso:
-        plcs = listar_plcs(job.tia.portal)
-        proyecto = info_proyecto(job.tia.portal)
-        paso["detail"] = f"{len(plcs)} PLCs"
-    return {"plcs": plcs, "proyecto": proyecto}
-
-
-def escanear_plc(job: Job, plc: str) -> dict[str, Any]:
+def escanear(job: Job, plc: str) -> dict[str, Any]:
     """Escanea el PLC: bloques, tablas de tags y tipos de usuario.
 
     Returns:

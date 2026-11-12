@@ -39,7 +39,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from zc_suite.tia_ops import OperacionError
+from zc_suite.errores import OperacionError
 from zc_suite.tia_ops._resolver import (
     bloques_del_plc,
     buscar_bloque,

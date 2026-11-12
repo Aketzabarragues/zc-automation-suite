@@ -15,8 +15,8 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from zc_suite.errores import OperacionError
 from zc_suite.nucleo.tia.transaccion import proyecto_activo
-from zc_suite.tia_ops import OperacionError
 from zc_suite.tia_ops._resolver import nombre_plc
 
 

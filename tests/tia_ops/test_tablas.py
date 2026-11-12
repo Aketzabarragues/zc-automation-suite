@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from zc_suite.tia_ops import OperacionError
+from zc_suite.errores import OperacionError
 from zc_suite.tia_ops import tablas as ops
 
 

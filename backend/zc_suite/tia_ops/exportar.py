@@ -27,7 +27,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from zc_suite.tia_ops import OperacionError
+from zc_suite.errores import OperacionError
 from zc_suite.tia_ops._resolver import buscar_plc, nombre_bloque, nombre_tabla
 
 logger = logging.getLogger(__name__)
