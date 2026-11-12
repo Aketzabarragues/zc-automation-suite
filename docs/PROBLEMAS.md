@@ -58,7 +58,7 @@ ts.set_logging(path = "c:\\logs\\tia.log", console = False)
 
 Se llama justo despues de cargar el wrapper, dentro del hilo de TIA. Si ves
 ruido de Siemens en la consola, la llamada no se esta aplicando: mira
-`zc_suite/tia.py`.
+`zc_suite/nucleo/tia/servicio.py`.
 
 El `log4net.xml` que acompaña a la wheel **no** es su configuracion: es el
 fichero de documentacion de la API de log4net. No hay nada que configurar a

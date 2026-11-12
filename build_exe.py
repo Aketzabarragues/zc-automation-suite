@@ -33,7 +33,7 @@ Restricciones aplicadas (decisiones arquitectónicas del proyecto):
     .NET nativos. Critico; sin esto, el import de ``siemens_tia_scripting``
     muere con ``ImportError``.
 
-  - **Entry = ``backend/zc_suite/main.py``**: el ``.exe`` arranca con la
+  - **Entry = ``backend/zc_suite/nucleo/app/main.py``**: el ``.exe`` arranca con la
     bandeja (pystray) y el web server. ``console=False``, ``windowed``.
 
   - **Auto-generacion del ``.spec``**: el spec se genera programaticamente

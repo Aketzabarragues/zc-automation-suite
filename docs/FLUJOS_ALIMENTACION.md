@@ -465,7 +465,7 @@ Los ocho flujos de arriba son el comportamiento de `main`. En la reescritura cam
 | `target_folder=""` pasado al handler | El parametro **se omite**: nunca se pasa `""` a TIA |
 | Los errores salen en un `window.alert` | Salen en la vista y en el faceplate |
 | El export del editor va a `.build_cache/blocks_edit/preview/` | Va a `.build_cache/editor_bloques/preview/`, y se vacia al empezar |
-| El workdir del area vive en `areas/.../helpers/*_workdir_layout.py` | El layout generico vive en `zc_suite/workdir.py`; el area declara sus subcarpetas de preview |
+| El workdir del area vive en `areas/.../helpers/*_workdir_layout.py` | El layout generico vive en `zc_suite/nucleo/tia/workdir.py`; el area declara sus subcarpetas de preview |
 
 ### Lo que el nucleo ya tiene
 
