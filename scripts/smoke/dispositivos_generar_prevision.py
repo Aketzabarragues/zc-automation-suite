@@ -1,11 +1,11 @@
-"""Smoke de la prevision de dispositivos contra un TIA Portal real.
+r"""Smoke de la prevision de dispositivos contra un TIA Portal real.
 
 No forma parte de la suite de pytest. Se lanza a mano contra un TIA Portal
 abierto con un proyecto de **PRUEBA**.
 
 Uso (PowerShell, desde la raiz del repo):
 
-    python scripts/smoke_prevision.py --plc <PLC> --excel <excel.xlsx>
+    python scripts\smoke\dispositivos_generar_prevision.py --plc <PLC> --excel <excel.xlsx>
 
 Que hace:
 

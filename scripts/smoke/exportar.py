@@ -1,15 +1,15 @@
-"""Smoke de la exportacion contra un TIA Portal real.
+r"""Smoke de la exportacion contra un TIA Portal real.
 
 No forma parte de la suite de pytest: vive fuera de la recogida, en
-``tests/smoke/``. Se lanza a mano contra un TIA Portal abierto con un
+``scripts/smoke/``. Se lanza a mano contra un TIA Portal abierto con un
 proyecto de **PRUEBA**.
 
 Uso (PowerShell, desde la raiz del repo):
 
-    python tests/smoke/smoke_exportar.py --plc <PLC> --bloques DB2000_ED FB2017 --tabla 2000_Disp_ED
+    python scripts\smoke\exportar.py --plc <PLC> --bloques DB2000_ED FB2017 --tabla 2000_Disp_ED
 
 La carpeta destino que imprime es la que despues toma
-``smoke_importar.py --origen``.
+``importar.py --origen``.
 
 Que hace:
 

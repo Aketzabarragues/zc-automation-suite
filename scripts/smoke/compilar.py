@@ -4,15 +4,15 @@ Este smoke **solo compila**: no exporta, no importa y no cambia el proyecto.
 Compilar no altera la logica del PLC, solo su estado compilado.
 
 No forma parte de la suite de pytest: vive fuera de la recogida, en
-``tests/smoke/``. Lo lanza el operario.
+``scripts/smoke/``. Lo lanza el operario.
 
 Uso (PowerShell, desde la raiz del repo):
 
     # Compilar todo el software del PLC.
-    python tests\smoke\smoke_compilar.py --plc <PLC>
+    python scripts\smoke\compilar.py --plc <PLC>
 
     # Compilar solo algunos bloques (los que ya estan consistentes se saltan).
-    python tests\smoke\smoke_compilar.py --plc <PLC> --bloques OB1_MAIN DB2000_ED
+    python scripts\smoke\compilar.py --plc <PLC> --bloques OB1_MAIN DB2000_ED
 
 Las tablas de tags no se compilan: no son codigo.
 """

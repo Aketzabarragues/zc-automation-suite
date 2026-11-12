@@ -4,7 +4,7 @@ AVISO: este smoke **ESCRIBE en el proyecto de TIA**. Solo contra un proyecto
 de PRUEBA. Lo lanza el operario.
 
 No forma parte de la suite de pytest: vive fuera de la recogida, en
-``tests/smoke/``.
+``scripts/smoke/``.
 
 Que hace:
 
@@ -27,20 +27,20 @@ Modos:
   superior: antes la API no admite SimaticSD.
 
 Uso (PowerShell, desde la raiz del repo). ``DIR`` es la carpeta destino que
-imprimio smoke_exportar.py.
+imprimio ``exportar.py``.
 
     # 1. Exportar primero.
-    python tests\smoke\smoke_exportar.py --plc <PLC> --tabla 2000_Disp_ED
+    python scripts\smoke\exportar.py --plc <PLC> --tabla 2000_Disp_ED
 
     # 2a. Importar las tablas de vuelta y deshacerlo.
-    python tests\smoke\smoke_importar.py --modo tablas --plc <PLC> --origen DIR `
+    python scripts\smoke\importar.py --modo tablas --plc <PLC> --origen DIR `
         --carpeta 2000_Dispositivos
 
     # 2b. Importar los bloques de vuelta y deshacerlo (necesita TIA V21+).
-    python tests\smoke\smoke_importar.py --modo bloques --plc <PLC> --origen DIR
+    python scripts\smoke\importar.py --modo bloques --plc <PLC> --origen DIR
 
     # Sin deshacer (commit de verdad):
-    python tests\smoke\smoke_importar.py --modo tablas --plc <PLC> --origen DIR --no-deshacer
+    python scripts\smoke\importar.py --modo tablas --plc <PLC> --origen DIR --no-deshacer
 
 Sin ``--carpeta``, no se manda ``target_folder_path`` a TIA: es lo que hace
 que TIA haga match UPDATE por nombre en vez de intentar CREATE y fallar.

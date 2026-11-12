@@ -1,34 +1,34 @@
-r"""Smoke de las constantes de usuario del PLC.
+r"""Smoke de los bloques del PLC.
 
 Modos:
 
-- ``--leer`` lista las constantes de una tabla de tags. No escribe nada.
-- ``--escribir`` cambia el valor o el nombre de UNA constante, dentro de una
-  transaccion. Por defecto deshace el cambio (rollback), de modo que el
-  proyecto queda como estaba; con ``--no-deshacer`` hace commit.
+- ``--leer`` lista los bloques del PLC con sus propiedades. No escribe nada.
+- ``--escribir`` cambia UNA propiedad de UN bloque, dentro de una transaccion.
+  Por defecto deshace el cambio (rollback), de modo que el proyecto queda
+  como estaba; con ``--no-deshacer`` hace commit.
 
 Este smoke **ESCRIBE en el proyecto de TIA** en el modo ``--escribir``. Solo
 contra un proyecto de PRUEBA. Lo lanza el operario.
 
 No forma parte de la suite de pytest: vive fuera de la recogida, en
-``tests/smoke/``.
+``scripts/smoke/``.
 
 Uso (PowerShell, desde la raiz del repo):
 
-    # Listar las constantes de una tabla (no escribe nada).
-    python tests\smoke\smoke_constantes.py --leer --plc <PLC> --tabla <TABLA>
+    # Listar los bloques del PLC (no escribe nada).
+    python scripts\smoke\bloques.py --leer --plc ZC_PLC_STD
 
-    # Cambiar el valor de una constante y deshacerlo.
-    python tests\smoke\smoke_constantes.py --escribir --plc <PLC> --tabla <TABLA> `
-        --constante <NOMBRE> --valor <VALOR>
+    # Renombrar un bloque y deshacerlo.
+    python scripts\smoke\bloques.py --escribir --plc ZC_PLC_STD `
+        --bloque OB1_MAIN --propiedad Name --valor OB1_MAIN_SMOKE
 
-    # Renombrar una constante y deshacerlo.
-    python tests\smoke\smoke_constantes.py --escribir --plc <PLC> --tabla <TABLA> `
-        --constante <NOMBRE> --nombre <NUEVO>
+    # Cambiar el numero de un bloque y deshacerlo.
+    python scripts\smoke\bloques.py --escribir --plc ZC_PLC_STD `
+        --bloque DB10 --propiedad Number --valor 99
 
     # Con commit de verdad (deja el cambio en el proyecto):
-    python tests\smoke\smoke_constantes.py --escribir --plc <PLC> --tabla <TABLA> `
-        --constante <NOMBRE> --valor <VALOR> --no-deshacer
+    python scripts\smoke\bloques.py --escribir --plc ZC_PLC_STD `
+        --bloque OB1_MAIN --propiedad Name --valor OB1_MAIN_SMOKE --no-deshacer
 """
 
 from __future__ import annotations
@@ -46,10 +46,11 @@ from zc_suite.nucleo.tia import servicio as tia  # noqa: E402
 from zc_suite.nucleo.tia.eventos import BusEventos  # noqa: E402
 from zc_suite.nucleo.tia.servicio import ServicioTIA  # noqa: E402
 from zc_suite.nucleo.tia.transaccion import transaccion  # noqa: E402
-from zc_suite.tia_ops.constantes import (  # noqa: E402
-    cambiar_valor,
-    leer_constantes,
-    renombrar,
+from zc_suite.tia_ops.bloques import (  # noqa: E402
+    PROPIEDADES_EDITABLES,
+    aplicar_cambios,
+    escanear_bloques,
+    escanear_tipos_de_usuario,
 )
 
 
@@ -59,16 +60,19 @@ class DeshacerError(Exception):
 
 def _argumentos() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Smoke de constantes de usuario (en --escribir, escribe)."
+        description="Smoke de bloques del PLC (en --escribir, escribe)."
     )
     modo = parser.add_mutually_exclusive_group(required=True)
-    modo.add_argument("--leer", action="store_true", help="Lista las constantes.")
-    modo.add_argument("--escribir", action="store_true", help="Cambia UNA constante.")
+    modo.add_argument("--leer", action="store_true", help="Lista los bloques.")
+    modo.add_argument("--escribir", action="store_true", help="Cambia UNA propiedad.")
     parser.add_argument("--plc", required=True, help="Nombre del PLC.")
-    parser.add_argument("--tabla", required=True, help="Nombre de la tabla de tags.")
-    parser.add_argument("--constante", default="", help="Nombre de la constante.")
+    parser.add_argument("--bloque", default="", help="Nombre del bloque.")
+    parser.add_argument(
+        "--propiedad",
+        default="Name",
+        help=f"Propiedad a cambiar: {sorted(PROPIEDADES_EDITABLES)}.",
+    )
     parser.add_argument("--valor", default="", help="Valor nuevo.")
-    parser.add_argument("--nombre", default="", help="Nombre nuevo (renombrar).")
     parser.add_argument(
         "--deshacer",
         dest="deshacer",
@@ -85,7 +89,7 @@ def _argumentos() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _esperar(bus: BusEventos, job_id: str, timeout: float = 120.0) -> dict[str, Any]:
+def _esperar(bus: BusEventos, job_id: str, timeout: float = 180.0) -> dict[str, Any]:
     """Espera al evento de fin del trabajo indicado."""
     suscriptor = bus.suscribir()
     try:
@@ -101,40 +105,38 @@ def _esperar(bus: BusEventos, job_id: str, timeout: float = 120.0) -> dict[str, 
         suscriptor.cerrar()
 
 
-def _trabajo_leer(job: Any, plc: str, tabla: str) -> dict[str, Any]:
-    """Trabajo de smoke: lee las constantes de una tabla."""
-    job.empezar("Smoke de constantes", [("leer", "Leer las constantes")])
+def _trabajo_leer(job: Any, plc: str) -> dict[str, Any]:
+    """Trabajo de smoke: lista los bloques del PLC."""
+    job.empezar("Smoke de bloques", [("leer", "Listar los bloques")])
     with job.paso("leer") as paso:
-        constantes = leer_constantes(job.tia.portal, plc, tabla)
-        paso["detail"] = f"{len(constantes)} constantes"
-    return {"constantes": constantes}
+        bloques = escanear_bloques(job.tia.portal, plc)
+        tipos = escanear_tipos_de_usuario(job.tia.portal, plc)
+        paso["detail"] = f"{len(bloques)} bloques y {len(tipos)} tipos de usuario"
+    return {"bloques": bloques, "tipos": tipos}
 
 
 def _trabajo_escribir(
     job: Any,
     plc: str,
-    tabla: str,
-    constante: str,
+    bloque: str,
+    propiedad: str,
     valor: str,
-    nombre: str,
     deshacer: bool,
 ) -> dict[str, Any]:
-    """Trabajo de smoke: cambia UNA constante dentro de una transaccion."""
-    job.empezar("Smoke de constantes", [("escribir", "Cambiar la constante")])
+    """Trabajo de smoke: cambia UNA propiedad de un bloque."""
+    job.empezar("Smoke de bloques", [("escribir", "Cambiar la propiedad")])
     resultado: dict[str, Any] = {}
     rollback = False
 
     with job.paso("escribir") as paso:
         try:
-            with transaccion(job, "Smoke constantes"):
-                if nombre:
-                    resultado["renombrar"] = renombrar(
-                        job.tia.portal, plc, tabla, constante, nombre
-                    )
-                else:
-                    resultado["cambiar_valor"] = cambiar_valor(
-                        job.tia.portal, plc, tabla, constante, valor
-                    )
+            with transaccion(job, "Smoke bloques"):
+                resultado = aplicar_cambios(
+                    job.tia.portal,
+                    plc,
+                    bloque,
+                    {propiedad: valor},
+                )
                 if deshacer:
                     raise DeshacerError("Rollback pedido por --deshacer.")
         except DeshacerError:
@@ -149,19 +151,49 @@ def _trabajo_escribir(
     return {"cambio": resultado, "rollback": rollback}
 
 
+def _imprimir_bloques(bloques: list[dict[str, Any]]) -> None:
+    """Lista los bloques con sus propiedades."""
+    for bloque in bloques:
+        extendidas = bloque["extended"]
+        numero = "-" if bloque["numero"] is None else str(bloque["numero"])
+        print(
+            f"  {bloque['nombre']:<28} {bloque['tipo']:<6} num {numero:<6}"
+            f" ruta {bloque['ruta'] or '-'}"
+        )
+        print(
+            f"      titulo={extendidas['title'] or '-'}  "
+            f"autor={extendidas['author'] or '-'}  "
+            f"version={extendidas['version'] or '-'}"
+        )
+        print(
+            f"      lenguaje={extendidas['programming_language'] or '-'}  "
+            f"memoria={extendidas['memory_layout'] or '-'}"
+        )
+
+
 def main() -> int:
-    """Conecta y lee o cambia una constante."""
+    """Conecta y lee o cambia un bloque."""
     argumentos = _argumentos()
-    if argumentos.escribir and not argumentos.constante:
-        print("En --escribir hace falta --constante.")
-        return 1
+    if argumentos.escribir:
+        if not argumentos.bloque:
+            print("En --escribir hace falta --bloque.")
+            return 1
+        if not argumentos.valor:
+            print("En --escribir hace falta --valor.")
+            return 1
+        if argumentos.propiedad not in PROPIEDADES_EDITABLES:
+            print(
+                f"Propiedad '{argumentos.propiedad}' no editable. "
+                f"Editables: {sorted(PROPIEDADES_EDITABLES)}."
+            )
+            return 1
 
     bus = BusEventos()
     servicio = ServicioTIA(publicador=bus.publicar)
     servicio.arrancar()
 
     try:
-        print(f"PLC: {argumentos.plc}   Tabla: {argumentos.tabla}")
+        print(f"PLC: {argumentos.plc}")
         print("Conectando con TIA Portal (attach)...")
         job_id = servicio.lanzar(tia.conectar)
         conexion = _esperar(bus, job_id)
@@ -171,18 +203,16 @@ def main() -> int:
             return 1
 
         if argumentos.leer:
-            job_id = servicio.lanzar(
-                _trabajo_leer,
-                plc=argumentos.plc,
-                tabla=argumentos.tabla,
-            )
+            job_id = servicio.lanzar(_trabajo_leer, plc=argumentos.plc)
             lectura = _esperar(bus, job_id)
             if lectura["estado"] != "ok":
                 print(f"\n  ERROR: {lectura.get('error')}")
                 return 1
-            print("\n--- constantes ---")
-            for constante in lectura["resultado"]["constantes"]:
-                print(f"  {constante['nombre']} = {constante['valor']}")
+            resultado = lectura["resultado"]
+            print("\n--- bloques ---")
+            _imprimir_bloques(resultado["bloques"])
+            print("\n--- tipos de datos de usuario ---")
+            _imprimir_bloques(resultado["tipos"])
             return 0
 
         print(
@@ -191,10 +221,9 @@ def main() -> int:
         job_id = servicio.lanzar(
             _trabajo_escribir,
             plc=argumentos.plc,
-            tabla=argumentos.tabla,
-            constante=argumentos.constante,
+            bloque=argumentos.bloque,
+            propiedad=argumentos.propiedad,
             valor=argumentos.valor,
-            nombre=argumentos.nombre,
             deshacer=argumentos.deshacer,
         )
         cambio = _esperar(bus, job_id)
