@@ -11,7 +11,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from zc_suite.areas.alimentacion.dispositivo.disp_preview import (
+from zc_suite.areas.alimentacion.dispositivos.prevision import (
     DiffNMax,
     DiffTabla,
     disp_calcular_diff_n_max,

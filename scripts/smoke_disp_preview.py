@@ -5,7 +5,7 @@ abierto con un proyecto de **PRUEBA**.
 
 Uso (PowerShell, desde la raiz del repo):
 
-    python scripts/smoke_disp_preview.py --plc <PLC> --excel <excel.xlsx>
+    python scripts/smoke_prevision.py --plc <PLC> --excel <excel.xlsx>
 
 Que hace:
 
@@ -33,7 +33,7 @@ from typing import Any
 RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ / "backend"))
 
-from zc_suite.areas.alimentacion.dispositivo import disp_trabajo  # noqa: E402
+from zc_suite.areas.alimentacion.dispositivos import trabajo as dispositivos_trabajo  # noqa: E402
 from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel  # noqa: E402
 from zc_suite.nucleo.tia import servicio as tia  # noqa: E402
 from zc_suite.nucleo.tia.eventos import BusEventos  # noqa: E402
@@ -125,7 +125,7 @@ def main() -> int:
 
         print(f"Exportando y diffeando el PLC {argumentos.plc}...")
         job_id = servicio.lanzar(
-            disp_trabajo.disp_generar_preview,
+            dispositivos_trabajo.disp_generar_preview,
             plc=argumentos.plc,
             almacen=almacen,
             config=config,
@@ -136,7 +136,7 @@ def main() -> int:
             return 1
 
         _pintar(exportacion["resultado"])
-        print(f"\nPreview en: {disp_trabajo.workdir_dispositivos().preview}")
+        print(f"\nPreview en: {dispositivos_trabajo.workdir_dispositivos().preview}")
         return 0
     finally:
         servicio.parar()

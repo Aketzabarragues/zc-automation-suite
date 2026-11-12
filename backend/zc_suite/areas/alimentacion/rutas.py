@@ -19,7 +19,7 @@ from typing import Any
 
 from flask import Blueprint, Response, current_app, jsonify, request
 
-from zc_suite.areas.alimentacion.dispositivo import disp_trabajo
+from zc_suite.areas.alimentacion.dispositivos import trabajo as dispositivos_trabajo
 from zc_suite.areas.alimentacion.excel import trabajo
 from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
 from zc_suite.nucleo.web.app import HTTPError, lanzar, servicio
@@ -101,7 +101,7 @@ def preview_dispositivos() -> tuple[Response, int]:
         ), 400
 
     return lanzar(
-        disp_trabajo.disp_generar_preview,
+        dispositivos_trabajo.disp_generar_preview,
         plc=plc,
         almacen=almacen,
         config=almacen.config,

@@ -22,7 +22,7 @@ from typing import Any
 
 from flask.sansio.blueprints import BlueprintSetupState
 
-from zc_suite.areas.alimentacion.dispositivo import disp_catalogo
+from zc_suite.areas.alimentacion.dispositivos import catalogo as dispositivos_catalogo
 from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
 from zc_suite.areas.alimentacion.rutas import CLAVE_ALMACEN, ID, rutas
 
@@ -78,8 +78,8 @@ def catalogo(config: dict[str, Any]) -> dict[str, Any]:
         "n_max_catalog": config.get("n_max_catalog", []),
         "Dispositivos": config.get("Dispositivos", {}),
         "excel": {"tabla_config": config.get("global_config_table_name", "")},
-        "device_tabs": disp_catalogo.construir_pestanas(config),
-        "nmax": disp_catalogo.construir_n_max(config),
+        "device_tabs": dispositivos_catalogo.construir_pestanas(config),
+        "nmax": dispositivos_catalogo.construir_n_max(config),
     }
 
 
