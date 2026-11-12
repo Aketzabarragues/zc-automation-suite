@@ -5,7 +5,7 @@ custom). Cuatro casos explicitos al iterar sobre los indices:
 insertar, eliminar, actualizar o anadir MLC.
 
 Caso de uso tipico (FB el sync de procesos, Tx B):
-  >>> from zc_suite.simatic.simatic_sd import confirmar_comentarios_array
+  >>> from zc_suite.simatic.sd import confirmar_comentarios_array
   >>> # Para PReal (UDT) + PReal_Vis (Bool) + Aux.PReal_ValorAnterior (Real)
   >>> for array_name, array_type, mapa_indices in [
   ...     ("PReal",                   "UDT",  preal_map),
@@ -67,7 +67,7 @@ from typing import Any
 
 import yaml
 
-from zc_suite.simatic.simatic_sd.generador_mlc import (
+from zc_suite.simatic.sd.mlc import (
     ids_mlc_existentes,
     mapa_mlc,
     siguiente_id_mlc,

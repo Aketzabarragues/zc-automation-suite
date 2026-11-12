@@ -14,10 +14,10 @@ nucleo de TIA. Solo ``xml.etree.ElementTree`` (stdlib).
 """
 from __future__ import annotations
 
-from zc_suite.simatic.simatic_ml.modificador_constantes import (
+from zc_suite.simatic.ml.constantes_modificador import (
     ModificadorConstantesUsuario,
 )
-from zc_suite.simatic.simatic_ml.parser_constantes import (
+from zc_suite.simatic.ml.constantes_parser import (
     ParserConstantesUsuario,
 )
 

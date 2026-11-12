@@ -7,7 +7,7 @@ Cubre las funciones puras del modulo:
 """
 from __future__ import annotations
 
-from zc_suite.simatic.simatic_sd.generador_mlc import (
+from zc_suite.simatic.sd.mlc import (
     ids_mlc_existentes,
     mapa_mlc,
     siguiente_id_mlc,

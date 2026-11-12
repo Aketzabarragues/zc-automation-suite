@@ -12,7 +12,7 @@ from typing import Any
 from zc_suite.nucleo.tia.job import Job
 from zc_suite.nucleo.tia.transaccion import transaccion
 from zc_suite.nucleo.tia.workdir import workdir_editor_bloques
-from zc_suite.simatic.cabecera import soporta_simaticsd, titulo_y_comentario
+from zc_suite.simatic.sd.cabecera import soporta_simaticsd, titulo_y_comentario
 from zc_suite.tia_ops import OperacionError
 from zc_suite.tia_ops.bloques import (
     aplicar_cambios,

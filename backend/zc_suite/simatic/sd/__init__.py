@@ -9,13 +9,13 @@ Este paquete es **offline**: no importa ``siemens_tia_scripting``.
 """
 from __future__ import annotations
 
-from zc_suite.simatic.simatic_sd.actualizador_comentarios_array import (
+from zc_suite.simatic.sd.comentarios_array import (
     ResultadoArray,
     comentarios_actuales,
     confirmar_comentarios_array,
     indices_de_array,
 )
-from zc_suite.simatic.simatic_sd.generador_mlc import (
+from zc_suite.simatic.sd.mlc import (
     ids_mlc_existentes,
     mapa_mlc,
     siguiente_id_mlc,

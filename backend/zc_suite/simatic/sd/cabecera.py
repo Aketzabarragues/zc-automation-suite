@@ -1,4 +1,4 @@
-"""zc_suite.simatic.cabecera — las propiedades de un bloque exportado en SimaticSD.
+"""zc_suite.simatic.sd.cabecera — las propiedades de un bloque exportado en SimaticSD.
 
 El ``.s7dcl`` de SimaticSD lleva, en su primer bloque ``{ ... }``, las
 propiedades del bloque: ``S7_BlockTitle``, ``S7_BlockComment``... Son las

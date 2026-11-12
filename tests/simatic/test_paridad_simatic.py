@@ -12,8 +12,8 @@ from typing import Any
 
 import pytest
 
-from zc_suite.simatic.simatic_ml import ModificadorConstantesUsuario
-from zc_suite.simatic.simatic_sd import confirmar_comentarios_array
+from zc_suite.simatic.ml import ModificadorConstantesUsuario
+from zc_suite.simatic.sd import confirmar_comentarios_array
 
 #: Los bloques exportados que usa la app (los mismos de ``main``).
 ORIGEN = Path(__file__).resolve().parents[1] / "fixtures" / "source" / "Bloques"
@@ -138,7 +138,7 @@ def test_los_bloques_exportados_son_los_de_main() -> None:
 
 def test_el_almacen_de_constantes_es_el_de_main() -> None:
     """El parser de constantes lee lo mismo que el de ``main``."""
-    from zc_suite.simatic.simatic_ml import ParserConstantesUsuario
+    from zc_suite.simatic.ml import ParserConstantesUsuario
 
     xml = (
         '<?xml version="1.0" encoding="utf-8"?>\n'

@@ -30,7 +30,7 @@ XML_TABLA = (
     "</Document>\n"
 )
 
-LOGGER = "zc_suite.simatic.simatic_ml.modificador_constantes"
+LOGGER = "zc_suite.simatic.ml.constantes_modificador"
 
 
 def _escribir_xml(path: Path, contenido: str) -> Path:
@@ -39,7 +39,7 @@ def _escribir_xml(path: Path, contenido: str) -> Path:
 
 
 def _modifier(path: Path) -> object:
-    from zc_suite.simatic.simatic_ml import ModificadorConstantesUsuario
+    from zc_suite.simatic.ml import ModificadorConstantesUsuario
 
     return ModificadorConstantesUsuario(path)
 

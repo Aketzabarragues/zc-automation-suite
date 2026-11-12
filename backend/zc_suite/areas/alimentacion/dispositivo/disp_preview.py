@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from zc_suite.simatic.simatic_ml import ModificadorConstantesUsuario, ParserConstantesUsuario
+from zc_suite.simatic.ml import ModificadorConstantesUsuario, ParserConstantesUsuario
 
 logger = logging.getLogger(__name__)
 

@@ -13,7 +13,7 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from zc_suite.simatic.simatic_ml.rutas_xml import (
+from zc_suite.simatic.ml.rutas_xml import (
     NAME_TAG,
     USER_CONSTANT_TAG,
     VALUE_TAG,

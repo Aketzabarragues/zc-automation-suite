@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from zc_suite.simatic.simatic_sd import (
+from zc_suite.simatic.sd import (
     confirmar_comentarios_array,
 )
 

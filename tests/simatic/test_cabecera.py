@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from zc_suite.simatic import cabecera
+from zc_suite.simatic.sd import cabecera
 
 CABECERA_SD = """DATA_BLOCK "DB10"
 { S7_BlockTitle := "MLC_t1"

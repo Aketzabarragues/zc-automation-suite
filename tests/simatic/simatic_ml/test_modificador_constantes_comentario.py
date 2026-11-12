@@ -38,7 +38,7 @@ def _make_const(name: str, value: int, existing_comment: str | None = None) -> E
 
 def test_inject_comment_crea_dentro_de_object_list() -> None:
     """Inyecta el comment DENTRO del ``ObjectList`` existente, no como hermano."""
-    from zc_suite.simatic.simatic_ml import ModificadorConstantesUsuario
+    from zc_suite.simatic.ml import ModificadorConstantesUsuario
 
     const = _make_const("ENT_001", 1, existing_comment="")
     modifier = ModificadorConstantesUsuario.__new__(ModificadorConstantesUsuario)
@@ -62,7 +62,7 @@ def test_inject_comment_crea_dentro_de_object_list() -> None:
 
 def test_inject_comment_actualiza_existente_sin_duplicar() -> None:
     """Si ya hay comment en el ``ObjectList``, lo actualiza (no duplica)."""
-    from zc_suite.simatic.simatic_ml import ModificadorConstantesUsuario
+    from zc_suite.simatic.ml import ModificadorConstantesUsuario
 
     const = _make_const("ENT_001", 1, existing_comment="d")
     modifier = ModificadorConstantesUsuario.__new__(ModificadorConstantesUsuario)
@@ -76,7 +76,7 @@ def test_inject_comment_actualiza_existente_sin_duplicar() -> None:
 
 def test_inject_comment_string_vacio_deja_text_vacio() -> None:
     """``text`` vacio deja ``Text`` vacio (no elimina la entrada)."""
-    from zc_suite.simatic.simatic_ml import ModificadorConstantesUsuario
+    from zc_suite.simatic.ml import ModificadorConstantesUsuario
 
     const = _make_const("ENT_001", 1, existing_comment="d")
     modifier = ModificadorConstantesUsuario.__new__(ModificadorConstantesUsuario)
@@ -91,7 +91,7 @@ def test_inject_comment_string_vacio_deja_text_vacio() -> None:
 
 def test_inject_comment_crea_object_list_si_no_existe() -> None:
     """Si el constant no tiene ``ObjectList``, lo crea (defensa para tests)."""
-    from zc_suite.simatic.simatic_ml import ModificadorConstantesUsuario
+    from zc_suite.simatic.ml import ModificadorConstantesUsuario
 
     const = ET.Element("SW.Tags.PlcUserConstant")
     const.set("ID", "1")
@@ -113,7 +113,7 @@ def test_inject_comment_crea_object_list_si_no_existe() -> None:
 
 def test_modifier_update_user_constant_comment_genera_xml_valido() -> None:
     """E2E: ``actualizar_comentario`` genera XML estructuralmente valido."""
-    from zc_suite.simatic.simatic_ml import ModificadorConstantesUsuario
+    from zc_suite.simatic.ml import ModificadorConstantesUsuario
 
     xml_content = (
         '<?xml version="1.0" encoding="utf-8"?>\n'

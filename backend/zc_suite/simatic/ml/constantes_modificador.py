@@ -19,7 +19,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any, cast
 
-from zc_suite.simatic.simatic_ml.rutas_xml import (
+from zc_suite.simatic.ml.rutas_xml import (
     MULTI_LINGUAL_TEXT_TAG,
     NAME_TAG,
     OBJECT_LIST_TAG,
