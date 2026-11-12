@@ -1,32 +1,23 @@
-"""Tests del parseo del Excel maestro y de la cache del area.
-
-Ningun test toca TIA: el Excel se construye aqui mismo y el portal no hace
-falta para nada.
+"""El parseo del Excel maestro: la paridad con ``main`` y los avisos.
 
 El test de paridad compara, dominio a dominio y fila a fila, con lo que
 devuelven los parsers de ``main`` sobre el mismo Excel: el conjunto de campos
 y todos los valores. Los valores esperados estan escritos aqui, sacados de
 ejecutar ``main``.
+
+Ningun test toca TIA: el Excel se construye aqui mismo.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
-import pytest
 from openpyxl import Workbook, load_workbook
 
-from zc_suite.areas.alimentacion.excel import almacen as modulo_almacen
 from zc_suite.areas.alimentacion.excel import parser
-from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
 
-# ── los valores que espera main ──────────────────────────────────────────
-
-
-#: Los dispositivos, tal y como los deja ``main``: una fila buena y una sucia.
 ESPERADO_DISPOSITIVOS: dict[str, list[dict[str, Any]]] = {
 
     "ed": [
@@ -702,7 +693,6 @@ ESPERADO_DISPOSITIVOS: dict[str, list[dict[str, Any]]] = {
 }
 
 
-#: El software, tal y como lo deja ``main``.
 ESPERADO_SOFTWARE: dict[str, list[dict[str, Any]]] = {
 
     "Procesos": [
@@ -822,7 +812,6 @@ ESPERADO_SOFTWARE: dict[str, list[dict[str, Any]]] = {
 }
 
 
-#: Las entidades, tal y como las deja ``main``.
 ESPERADO_ENTIDADES = [
     {
         "descripcion": "Entidad 1",
@@ -845,20 +834,6 @@ ESPERADO_ENTIDADES = [
 ]
 
 
-#: Los PLCs, tal y como los deja ``main``.
-ESPERADO_PLCS = [
-    {
-        "plc": "PLC1",
-        "uid": 1,
-    },
-    {
-        "plc": "PLC2",
-        "uid": 2,
-    },
-]
-
-
-#: Los N_MAX por PLC, tal y como los deja ``main``.
 ESPERADO_N_MAX = [
     {
         "N_MAX_DISP_EA": 20,
@@ -895,26 +870,16 @@ ESPERADO_N_MAX = [
 ]
 
 
-# ── la paridad con main ─────────────────────────────────────────────────────
-
-
-def _tabla(datos: dict[str, Any], tipo: str) -> dict[str, Any]:
-    """La tabla de un tipo de dispositivo del volcado."""
-    for tabla in datos["dispositivos"]:
-        if tabla["tipo"] == tipo:
-            return tabla
-    raise AssertionError(f"El volcado no tiene la tabla {tipo}.")
-
-
 def test_los_dispositivos_son_los_de_main(
     excel_completo: Path,
     seccion: dict[str, Any],
+    tabla: Callable[..., dict[str, Any]],
 ) -> None:
     """Cada tipo de dispositivo, con sus campos y sus valores, como ``main``."""
     datos = parser.leer_excel(excel_completo, seccion)
 
     for tipo, esperado in ESPERADO_DISPOSITIVOS.items():
-        filas = _tabla(datos, tipo)["filas"]
+        filas = tabla(datos, tipo)["filas"]
         assert filas == esperado, f"el dominio {tipo} no sale como en main"
 
 
@@ -933,18 +898,20 @@ def test_el_software_es_el_de_main(
 def test_las_entidades_los_plcs_y_los_n_max_son_los_de_main(
     excel_completo: Path,
     seccion: dict[str, Any],
+    esperado_plcs: dict[str, Any],
 ) -> None:
     """Las entidades, la lista de PLCs y los N_MAX por PLC."""
     datos = parser.leer_excel(excel_completo, seccion)
 
     assert datos["entidades"]["filas"] == ESPERADO_ENTIDADES
-    assert datos["plcs"] == ESPERADO_PLCS
+    assert datos["plcs"] == esperado_plcs
     assert datos["configuracion"]["filas"] == ESPERADO_N_MAX
 
 
 def test_una_fila_sucia_no_tumba_la_carga(
     excel_completo: Path,
     seccion: dict[str, Any],
+    tabla: Callable[..., dict[str, Any]],
 ) -> None:
     """``PLC.Tipo`` con texto vale ``0``, y la carga no falla.
 
@@ -958,7 +925,7 @@ def test_una_fila_sucia_no_tumba_la_carga(
     assert entidades[1]["plc_tipo"] == 0
     assert entidades[1]["numero"] == 0
 
-    sucia = _tabla(datos, "ed")["filas"][1]
+    sucia = tabla(datos, "ed")["filas"][1]
     assert sucia["numero"] == 0
     assert sucia["e_byte"] == 0
     assert sucia["gr_alarma"] == 0
@@ -971,6 +938,7 @@ def test_una_fila_sin_uid_ni_numero_se_descarta(
     tmp_path: Path,
     crear_excel: Callable[..., Path],
     seccion: dict[str, Any],
+    tabla: Callable[..., dict[str, Any]],
 ) -> None:
     ruta = crear_excel(
         tmp_path / "sin_uid.xlsx",
@@ -979,15 +947,13 @@ def test_una_fila_sin_uid_ni_numero_se_descarta(
 
     datos = parser.leer_excel(ruta, seccion)
 
-    assert _tabla(datos, "ed")["filas"] == []
-
-
-# ── los avisos ──────────────────────────────────────────────────────────────
+    assert tabla(datos, "ed")["filas"] == []
 
 
 def test_una_hoja_que_no_existe_avisa_y_no_rompe(
     tmp_path: Path,
     seccion: dict[str, Any],
+    tabla: Callable[..., dict[str, Any]],
 ) -> None:
     ruta = tmp_path / "vacio.xlsx"
     libro = Workbook()
@@ -995,7 +961,7 @@ def test_una_hoja_que_no_existe_avisa_y_no_rompe(
 
     datos = parser.leer_excel(ruta, seccion)
 
-    assert _tabla(datos, "ed")["filas"] == []
+    assert tabla(datos, "ed")["filas"] == []
     assert "No se encuentra la hoja DISP_ED en el Excel" in datos["avisos"]
     assert "No se encuentra la hoja ENTIDADES en el Excel" in datos["avisos"]
 
@@ -1003,6 +969,7 @@ def test_una_hoja_que_no_existe_avisa_y_no_rompe(
 def test_una_tabla_que_no_existe_avisa(
     excel_completo: Path,
     seccion: dict[str, Any],
+    tabla: Callable[..., dict[str, Any]],
 ) -> None:
     libro = load_workbook(excel_completo)
     del libro["DISP_ED"].tables["Tabla_Disp_ED"]
@@ -1011,7 +978,7 @@ def test_una_tabla_que_no_existe_avisa(
     datos = parser.leer_excel(excel_completo, seccion)
 
     assert "No se encuentra la tabla Tabla_Disp_ED en la hoja DISP_ED" in datos["avisos"]
-    assert _tabla(datos, "ed")["filas"] == []
+    assert tabla(datos, "ed")["filas"] == []
 
 
 def test_un_excel_completo_no_avisa_de_nada(
@@ -1021,144 +988,3 @@ def test_un_excel_completo_no_avisa_de_nada(
     datos = parser.leer_excel(excel_completo, seccion)
 
     assert datos["avisos"] == []
-
-
-# ── las columnas que se ensenan ─────────────────────────────────────────────
-
-
-def test_las_columnas_son_las_del_display_order(
-    excel_completo: Path,
-    seccion: dict[str, Any],
-) -> None:
-    datos = parser.leer_excel(excel_completo, seccion)
-
-    assert _tabla(datos, "ed")["columnas"] == seccion["disp_catalog"]["display_order"][
-        "DispED"
-    ]
-    assert datos["entidades"]["columnas"] == seccion["entidades_catalog"]["display_order"][
-        "entidades"
-    ]
-
-
-def test_las_etiquetas_salen_del_col_labels(
-    excel_completo: Path,
-    seccion: dict[str, Any],
-) -> None:
-    datos = parser.leer_excel(excel_completo, seccion)
-
-    etiquetas = _tabla(datos, "ed")["etiquetas"]
-    assert etiquetas["numero"] == seccion["disp_catalog"]["col_labels"]["numero"]
-    assert "plc_name" not in etiquetas or etiquetas["plc_name"] == "PLC"
-    assert datos["procesos"]["Procesos"]["etiquetas"]["alm_hmi"] == "Alarmas HMI"
-    assert datos["entidades"]["etiquetas"]["plc_tag"] == "PLC.Tag"
-
-
-# ── la cache ────────────────────────────────────────────────────────────────
-
-
-def test_el_almacen_guarda_el_volcado(
-    excel_completo: Path,
-    seccion: dict[str, Any],
-) -> None:
-    almacen = AlmacenExcel()
-    almacen.config = seccion
-
-    almacen.volcar(excel_completo)
-
-    assert almacen.cargado is True
-    assert almacen.archivo == "completo.xlsx"
-    assert almacen.cargado_en
-    estado = almacen.estado()
-    assert estado["cargado"] is True
-    assert estado["plcs"] == ESPERADO_PLCS
-    assert _tabla(estado, "ed")["filas"][0]["plc_tag"] == "V_ED_001"
-
-
-def test_el_almacen_vacio_sale_vacio() -> None:
-    almacen = AlmacenExcel()
-
-    estado = almacen.estado()
-
-    assert estado["cargado"] is False
-    assert estado["archivo"] is None
-    assert estado["plcs"] == []
-    assert estado["dispositivos"] == []
-    assert estado["avisos"] == []
-    assert estado["entidades"] == {"columnas": [], "filas": []}
-
-
-def test_el_almacen_persiste_y_recarga(
-    excel_completo: Path,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    seccion: dict[str, Any],
-) -> None:
-    carpeta = tmp_path / "excel"
-    monkeypatch.setattr(modulo_almacen, "carpeta_persistida", lambda: carpeta)
-    almacen = AlmacenExcel()
-    almacen.config = seccion
-
-    almacen.volcar(excel_completo)
-    copia = almacen.persistir(excel_completo)
-
-    assert copia == carpeta / "completo.xlsx"
-    assert copia.is_file()
-
-    otro = AlmacenExcel()
-    otro.config = seccion
-    assert otro.recargar() is True
-    assert otro.archivo == "completo.xlsx"
-    assert _tabla(otro.estado(), "ed")["filas"][0]["plc_tag"] == "V_ED_001"
-
-
-def test_al_guardar_una_copia_nueva_se_borran_las_anteriores(
-    excel_completo: Path,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    seccion: dict[str, Any],
-) -> None:
-    carpeta = tmp_path / "excel"
-    monkeypatch.setattr(modulo_almacen, "carpeta_persistida", lambda: carpeta)
-    almacen = AlmacenExcel()
-    almacen.config = seccion
-
-    almacen.persistir(excel_completo)
-    otro = excel_completo.with_name("otro.xlsx")
-    otro.write_bytes(excel_completo.read_bytes())
-    almacen.persistir(otro)
-
-    assert sorted(p.name for p in carpeta.glob("*.xlsx")) == ["otro.xlsx"]
-
-
-def test_recargar_sin_copia_devuelve_false(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        modulo_almacen,
-        "carpeta_persistida",
-        lambda: tmp_path / "excel",
-    )
-    almacen = AlmacenExcel()
-
-    assert almacen.recargar() is False
-    assert almacen.cargado is False
-
-
-def test_la_carpeta_persistida_en_empaquetado_va_junto_al_ejecutable(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    congelado = SimpleNamespace(frozen=True, executable=str(tmp_path / "zc.exe"))
-    monkeypatch.setattr(modulo_almacen, "sys", congelado)
-
-    ruta = modulo_almacen.carpeta_persistida()
-
-    assert ruta == tmp_path / "excel"
-
-
-def test_la_carpeta_persistida_en_desarrollo_va_en_el_repo() -> None:
-    carpeta = modulo_almacen.carpeta_persistida()
-
-    assert carpeta.name == "excel"
-    assert (carpeta.parent / "backend" / "zc_suite").is_dir()
