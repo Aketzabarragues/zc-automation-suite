@@ -92,6 +92,28 @@ def test_un_config_sin_el_area_registrada_avisa() -> None:
     assert estado["areas_faltantes"] == ["alimentacion"]
 
 
+def test_un_config_del_area_invalido_avisa() -> None:
+    """El area dice que su seccion del config no vale: el banner lo enseña."""
+    config = Config.model_validate({"areas": {"alimentacion": {"tabla_nmax": "0_Config"}}})
+    app = _app(config)
+
+    estado = _estado(app.test_client())
+
+    assert estado["incompatible"] is True
+    assert "no cumple el formato" in estado["motivo"]
+
+
+def test_un_config_del_area_invalido_no_se_sustituye() -> None:
+    """El config del operario manda: aunque su area no valga, no se toca."""
+    config = Config.model_validate({"areas": {"alimentacion": {"tabla_nmax": "0_Config"}}})
+    app = _app(config)
+
+    estado = _estado(app.test_client())
+
+    assert estado["ruta"]
+    assert estado["areas_faltantes"] == []
+
+
 def test_el_estado_dice_de_donde_sale_el_config(app: Flask) -> None:
     """El operario tiene que saber que fichero esta en uso."""
     estado = _estado(app.test_client())

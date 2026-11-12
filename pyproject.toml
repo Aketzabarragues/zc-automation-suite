@@ -66,5 +66,7 @@ testpaths = ["tests"]
 pythonpath = ["backend"]
 # Los smokes viven en ``scripts/smoke/``: se lanzan a mano contra TIA Portal
 # real, no forman parte de la suite.
-addopts = "--strict-markers --strict-config"
+# Modo importlib: dos modulos pueden llamarse igual en carpetas distintas
+# (el config del area y el del nucleo) sin que pytest los confunda.
+addopts = "--strict-markers --strict-config --import-mode=importlib"
 filterwarnings = ["error"]
