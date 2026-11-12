@@ -1,4 +1,4 @@
-"""zc_suite.rutas.conexion — conectar y desconectar de TIA Portal.
+"""zc_suite.nucleo.web.rutas.conexion — conectar y desconectar de TIA Portal.
 
 Las rutas no tocan el portal: encolan un trabajo en el hilo de TIA y
 responden ``202`` con su identificador. El resultado llega por el stream SSE.
@@ -9,8 +9,8 @@ from typing import Any
 
 from flask import Blueprint, Response, jsonify
 
-from zc_suite import tia
-from zc_suite.web import lanzar, servicio
+from zc_suite.nucleo.tia import servicio as tia
+from zc_suite.nucleo.web.app import lanzar, servicio
 
 rutas = Blueprint("conexion", __name__, url_prefix="/api/v1/tia")
 

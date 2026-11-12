@@ -13,7 +13,7 @@ from typing import Any
 
 from zc_suite.areas.alimentacion.excel import almacen as modulo_almacen
 from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
-from zc_suite.tia import Job
+from zc_suite.nucleo.tia.job import Job
 from zc_suite.tia_ops import OperacionError
 
 logger = logging.getLogger(__name__)

@@ -22,7 +22,7 @@ from flask import Blueprint, Response, current_app, jsonify, request
 from zc_suite.areas.alimentacion.dispositivo import disp_trabajo
 from zc_suite.areas.alimentacion.excel import trabajo
 from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
-from zc_suite.web import HTTPError, lanzar, servicio
+from zc_suite.nucleo.web.app import HTTPError, lanzar, servicio
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +135,7 @@ def _guardar(contenido: bytes, nombre: str, sufijo: str) -> Path:
 def registrar(app: Any) -> None:
     """Monta las rutas del area en la app.
 
-    El area se registra sola en ``zc_suite.main``. Esta funcion es para las
+    El area se registra sola en ``zc_suite.nucleo.app.main``. Esta funcion es para las
     pruebas, que montan la app sin el nucleo completo.
     """
     app.register_blueprint(rutas)

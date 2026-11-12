@@ -12,7 +12,7 @@ Contrato del area:
 - ``defaults(config)``  valores por defecto que el area aporta a la config.
 - ``al_arrancar(config)``  recarga lo que el area tenga guardado.
 
-El area no se importa desde el nucleo: ``zc_suite.main`` la registra en la
+El area no se importa desde el nucleo: ``zc_suite.nucleo.app.main`` la registra en la
 lista ``AREAS`` y monta su Blueprint.
 """
 from __future__ import annotations

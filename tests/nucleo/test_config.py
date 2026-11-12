@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from zc_suite.config import (
+from zc_suite.nucleo.app.config import (
     Config,
     ConfigError,
     cargar_config,
@@ -99,7 +99,7 @@ def test_sin_permisos_se_usa_la_plantilla_en_solo_lectura(
     def _falla(*args: Any, **kwargs: Any) -> None:
         raise OSError("sin permisos")
 
-    monkeypatch.setattr("zc_suite.config.shutil.copy2", _falla)
+    monkeypatch.setattr("zc_suite.nucleo.app.config.shutil.copy2", _falla)
 
     assert resolve_config_path() == congelado
 

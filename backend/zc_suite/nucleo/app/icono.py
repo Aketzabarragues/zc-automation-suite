@@ -1,4 +1,4 @@
-"""zc_suite.icono — el icono de la app.
+"""zc_suite.nucleo.app.icono — el icono de la app.
 
 Dos cosas:
 

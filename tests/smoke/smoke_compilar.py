@@ -28,9 +28,9 @@ from typing import Any
 RAIZ = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(RAIZ / "backend"))
 
-from zc_suite import tia  # noqa: E402
-from zc_suite.eventos import BusEventos  # noqa: E402
-from zc_suite.tia import ServicioTIA  # noqa: E402
+from zc_suite.nucleo.tia import servicio as tia  # noqa: E402
+from zc_suite.nucleo.tia.eventos import BusEventos  # noqa: E402
+from zc_suite.nucleo.tia.servicio import ServicioTIA  # noqa: E402
 from zc_suite.tia_ops.compilar import compilar_bloques, compilar_plc  # noqa: E402
 
 

@@ -3,7 +3,7 @@
 Reglas:
 
 - El nucleo (todo ``zc_suite`` menos ``areas/``) no importa areas. La
-  unica excepcion es ``zc_suite.main``, que registra las areas en su lista
+  unica excepcion es ``zc_suite.nucleo.app.main``, que registra las areas en su lista
   ``AREAS``.
 - Las areas no se importan entre si.
 
@@ -19,7 +19,7 @@ RAIZ = Path(__file__).resolve().parents[1]
 BACKEND = RAIZ / "backend"
 PAQUETE = "zc_suite"
 AREAS = f"{PAQUETE}.areas"
-EXCEPCIONES = frozenset({f"{PAQUETE}.main"})
+EXCEPCIONES = frozenset({f"{PAQUETE}.nucleo.app.main"})
 
 PAQUETE_DIR = BACKEND / PAQUETE
 AREAS_DIR = PAQUETE_DIR / "areas"
@@ -108,7 +108,7 @@ def test_el_nucleo_no_importa_areas() -> None:
 
 def test_main_es_la_unica_excepcion() -> None:
     """``main`` puede importar areas: es donde se registran."""
-    ruta = BACKEND / PAQUETE.replace(".", "/") / "main.py"
+    ruta = BACKEND / PAQUETE.replace(".", "/") / "nucleo" / "app" / "main.py"
 
     assert ruta.is_file()
     assert _modulo_de(ruta) in EXCEPCIONES

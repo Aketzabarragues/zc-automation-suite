@@ -1,4 +1,4 @@
-"""zc_suite.config — ``config.json`` validado con Pydantic.
+"""zc_suite.nucleo.app.config — ``config.json`` validado con Pydantic.
 
 El ``config.json`` del usuario vive **junto al ejecutable**, nunca dentro de
 ``sys._MEIPASS``: en un ``.exe`` de un solo fichero, ``_MEIPASS`` se recrea
@@ -39,7 +39,7 @@ ENV_CONFIG_DIR = "ZC_CONFIG_DIR"
 SUBCARPETA_CONFIG = "config"
 
 #: Carpeta del repo (raiz del proyecto).
-RAIZ = Path(__file__).resolve().parents[2]
+RAIZ = Path(__file__).resolve().parents[4]
 
 #: El config vino de la variable de entorno.
 ORIGEN_ENTORNO = "entorno"

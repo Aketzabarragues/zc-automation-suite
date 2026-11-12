@@ -1,4 +1,4 @@
-"""zc_suite.workdir — las carpetas de trabajo de cada operacion.
+"""zc_suite.nucleo.tia.workdir — las carpetas de trabajo de cada operacion.
 
     .build_cache/<area>/<contexto>/
     ├── preview/                        plano (lo que ve el operario)
@@ -51,7 +51,7 @@ CARPETA_MODIFIED = "modified"
 CONTEXTO_EDITOR = "editor_bloques"
 
 #: Raiz del repo (raiz del proyecto).
-RAIZ = Path(__file__).resolve().parents[2]
+RAIZ = Path(__file__).resolve().parents[4]
 
 
 def raiz_build_cache() -> Path:

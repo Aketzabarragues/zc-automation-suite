@@ -1,4 +1,4 @@
-"""zc_suite.logs — el log de la app en fichero.
+"""zc_suite.nucleo.app.logs — el log de la app en fichero.
 
 Porta el setup de logging de la app anterior (``core/infrastructure/config/
 config_paths.py``): un unico fichero ``logs/zc.log`` con DEBUG, rotado y en
@@ -66,7 +66,7 @@ LOGGERS_RUIDOSOS: tuple[str, ...] = (
 )
 
 #: Raiz del repo (para el modo desarrollo).
-RAIZ = Path(__file__).resolve().parents[2]
+RAIZ = Path(__file__).resolve().parents[4]
 
 #: Flag de idempotencia: el setup se hace una sola vez por proceso.
 _setup_hecho = False

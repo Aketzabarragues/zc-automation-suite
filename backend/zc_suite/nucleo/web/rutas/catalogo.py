@@ -1,4 +1,4 @@
-"""zc_suite.rutas.catalogo — el catalogo de la app.
+"""zc_suite.nucleo.web.rutas.catalogo — el catalogo de la app.
 
 El catalogo lo compone cada area (su ``catalogo(config)``) y ``main`` lo
 junta en ``current_app.config["ZC_CATALOGO"]``. Aqui solo se sirve: el

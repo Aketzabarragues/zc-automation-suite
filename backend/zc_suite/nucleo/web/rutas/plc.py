@@ -1,4 +1,4 @@
-"""zc_suite.rutas.plc — el PLC: listarlo, escanearlo y editar sus bloques.
+"""zc_suite.nucleo.web.rutas.plc — el PLC: listarlo, escanearlo y editar sus bloques.
 
 Las rutas no tocan el portal: encolan un trabajo en el hilo de TIA y
 responden ``202`` con su identificador. El resultado llega por el stream SSE.
@@ -13,8 +13,9 @@ from typing import Any
 
 from flask import Blueprint, Response, jsonify, request
 
-from zc_suite import trabajos
-from zc_suite.web import lanzar
+from zc_suite.nucleo.trabajos import bloques as trabajos_bloques
+from zc_suite.nucleo.trabajos import plc as trabajos
+from zc_suite.nucleo.web.app import lanzar
 
 rutas = Blueprint("plc", __name__, url_prefix="/api/v1/tia")
 
@@ -38,7 +39,7 @@ def preparar(plc: str) -> tuple[Response, int]:
     nombres = [str(nombre) for nombre in (datos.get("bloques") or [])]
     if not nombres:
         return jsonify({"error": "No se han indicado bloques."}), 400
-    return lanzar(trabajos.preparar_bloques, plc=plc, nombres=nombres)
+    return lanzar(trabajos_bloques.preparar_bloques, plc=plc, nombres=nombres)
 
 
 @rutas.post("/plcs/<plc>/bloques/editar")
@@ -48,7 +49,7 @@ def editar(plc: str) -> tuple[Response, int]:
     cambios = datos.get("cambios") or {}
     if not isinstance(cambios, dict) or not cambios:
         return jsonify({"error": "No hay cambios que aplicar."}), 400
-    return lanzar(trabajos.editar_bloques, plc=plc, cambios=cambios)
+    return lanzar(trabajos_bloques.editar_bloques, plc=plc, cambios=cambios)
 
 
 def registrar(app: Any) -> None:

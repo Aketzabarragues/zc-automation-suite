@@ -20,7 +20,7 @@ entre modulos del paquete. Lo publico de cada modulo es siempre primitivo.
 """
 from __future__ import annotations
 
-from zc_suite.tia import TIAError
+from zc_suite.nucleo.tia.errores import TIAError
 
 
 class OperacionError(TIAError):

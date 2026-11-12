@@ -12,9 +12,11 @@ from typing import Any
 
 import pytest
 
-from zc_suite import tia, trabajos
-from zc_suite.tia import ServicioTIA
-from zc_suite.workdir import WorkdirPreview
+from zc_suite.nucleo.tia import servicio as tia
+from zc_suite.nucleo.tia.servicio import ServicioTIA
+from zc_suite.nucleo.tia.workdir import WorkdirPreview
+from zc_suite.nucleo.trabajos import bloques as trabajos_bloques
+from zc_suite.nucleo.trabajos import plc as trabajos
 
 CABECERA_SD = """DATA_BLOCK "DB10"
 { S7_BlockTitle := "MLC_t1"
@@ -191,7 +193,7 @@ def entorno(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     """Servicio con un TIA V21, con eventos y limpieza."""
     servicio, ts, bloques, eventos = _servicio("V21.0")
     monkeypatch.setattr(
-        trabajos,
+        trabajos_bloques,
         "workdir_editor_bloques",
         lambda: WorkdirPreview(base=tmp_path / "editor_bloques"),
     )
@@ -204,7 +206,7 @@ def entorno_v18(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     """Servicio con un TIA V18: no exporta en SimaticSD."""
     servicio, ts, bloques, eventos = _servicio("V18.0")
     monkeypatch.setattr(
-        trabajos,
+        trabajos_bloques,
         "workdir_editor_bloques",
         lambda: WorkdirPreview(base=tmp_path / "editor_bloques"),
     )
@@ -275,7 +277,7 @@ def test_escanear_plc_declara_sus_pasos(entorno: Any) -> None:
 def test_preparar_en_v21_exporta_y_parsea(entorno: Any) -> None:
     servicio, _ts, bloques, eventos = entorno
 
-    job_id = servicio.lanzar(trabajos.preparar_bloques, plc="ZC_PLC_STD", nombres=["DB10"])
+    job_id = servicio.lanzar(trabajos_bloques.preparar_bloques, plc="ZC_PLC_STD", nombres=["DB10"])
     evento = _esperar_job(eventos, job_id)
 
     assert evento["estado"] == "ok"
@@ -289,7 +291,7 @@ def test_preparar_en_v21_exporta_y_parsea(entorno: Any) -> None:
 def test_preparar_en_v18_salta_la_exportacion(entorno_v18: Any) -> None:
     servicio, _ts, bloques, eventos = entorno_v18
 
-    job_id = servicio.lanzar(trabajos.preparar_bloques, plc="ZC_PLC_STD", nombres=["DB10"])
+    job_id = servicio.lanzar(trabajos_bloques.preparar_bloques, plc="ZC_PLC_STD", nombres=["DB10"])
     evento = _esperar_job(eventos, job_id)
 
     assert evento["estado"] == "ok"
@@ -303,7 +305,7 @@ def test_preparar_en_v18_salta_la_exportacion(entorno_v18: Any) -> None:
 def test_preparar_sin_bloques_falla(entorno: Any) -> None:
     servicio, _ts, _bloques, eventos = entorno
 
-    job_id = servicio.lanzar(trabajos.preparar_bloques, plc="ZC_PLC_STD", nombres=[])
+    job_id = servicio.lanzar(trabajos_bloques.preparar_bloques, plc="ZC_PLC_STD", nombres=[])
     evento = _esperar_job(eventos, job_id)
 
     assert evento["estado"] == "error"
@@ -318,7 +320,7 @@ def test_preparar_deja_los_ficheros_para_inspeccionarlos(
     servicio, _ts, _bloques, eventos = entorno
     preview = tmp_path / "editor_bloques" / "preview"
 
-    job_id = servicio.lanzar(trabajos.preparar_bloques, plc="ZC_PLC_STD", nombres=["DB10"])
+    job_id = servicio.lanzar(trabajos_bloques.preparar_bloques, plc="ZC_PLC_STD", nombres=["DB10"])
     _esperar_job(eventos, job_id)
 
     assert (preview / "DB10.s7dcl").is_file()
@@ -332,7 +334,7 @@ def test_preparar_vacia_el_preview_al_empezar(entorno: Any, tmp_path: Path) -> N
     preview.mkdir(parents=True)
     (preview / "Viejo.s7dcl").write_text("x", encoding="utf-8")
 
-    job_id = servicio.lanzar(trabajos.preparar_bloques, plc="ZC_PLC_STD", nombres=["DB10"])
+    job_id = servicio.lanzar(trabajos_bloques.preparar_bloques, plc="ZC_PLC_STD", nombres=["DB10"])
     _esperar_job(eventos, job_id)
 
     assert not (preview / "Viejo.s7dcl").exists()
@@ -346,7 +348,7 @@ def test_editar_aplica_los_cambios_y_refresca(entorno: Any) -> None:
     servicio, _ts, bloques, eventos = entorno
 
     job_id = servicio.lanzar(
-        trabajos.editar_bloques,
+        trabajos_bloques.editar_bloques,
         plc="ZC_PLC_STD",
         cambios={"DB10": {"Name": "DB10_NUEVO"}},
     )
@@ -368,7 +370,7 @@ def test_editar_aplica_los_cambios_y_refresca(entorno: Any) -> None:
 def test_editar_sin_cambios_falla(entorno: Any) -> None:
     servicio, _ts, _bloques, eventos = entorno
 
-    job_id = servicio.lanzar(trabajos.editar_bloques, plc="ZC_PLC_STD", cambios={})
+    job_id = servicio.lanzar(trabajos_bloques.editar_bloques, plc="ZC_PLC_STD", cambios={})
     evento = _esperar_job(eventos, job_id)
 
     assert evento["estado"] == "error"

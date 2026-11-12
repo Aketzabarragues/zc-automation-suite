@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from zc_suite.eventos import (
+from zc_suite.nucleo.tia.eventos import (
     BusCerradoError,
     BusEventos,
     HandlerEventos,

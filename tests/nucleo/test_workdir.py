@@ -8,8 +8,8 @@ from typing import Any
 
 import pytest
 
-from zc_suite import workdir as workdir_modulo
-from zc_suite.workdir import (
+from zc_suite.nucleo.tia import workdir as workdir_modulo
+from zc_suite.nucleo.tia.workdir import (
     Workdir,
     WorkdirPreview,
     raiz_build_cache,

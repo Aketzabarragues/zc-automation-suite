@@ -33,11 +33,11 @@ from typing import Any
 RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ / "backend"))
 
-from zc_suite import tia  # noqa: E402
 from zc_suite.areas.alimentacion.dispositivo import disp_trabajo  # noqa: E402
 from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel  # noqa: E402
-from zc_suite.eventos import BusEventos  # noqa: E402
-from zc_suite.tia import ServicioTIA  # noqa: E402
+from zc_suite.nucleo.tia import servicio as tia  # noqa: E402
+from zc_suite.nucleo.tia.eventos import BusEventos  # noqa: E402
+from zc_suite.nucleo.tia.servicio import ServicioTIA  # noqa: E402
 
 
 def _argumentos() -> argparse.Namespace:

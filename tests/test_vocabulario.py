@@ -33,7 +33,7 @@ PATRONES: tuple[tuple[str, str], ...] = (
 #: Excepciones justificadas: ``(ruta relativa al repo, motivo)``.
 EXCEPCIONES: tuple[tuple[str, str], ...] = (
     (
-        "backend/zc_suite/main.py",
+        "backend/zc_suite/nucleo/app/main.py",
         "Es el unico sitio del nucleo que nombra las areas: las registra en la "
         "lista AREAS. Ningun otro modulo del nucleo las conoce.",
     ),

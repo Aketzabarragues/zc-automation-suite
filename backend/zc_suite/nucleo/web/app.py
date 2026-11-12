@@ -1,4 +1,4 @@
-"""zc_suite.web — app Flask, estaticos y el stream de eventos.
+"""zc_suite.nucleo.web.app — app Flask, estaticos y el stream de eventos.
 
 El shell HTTP es Flask. Sus dependencias (el hilo de TIA y el bus de
 eventos) viven en ``current_app.config``; los routers las leen de ahi y
@@ -24,14 +24,15 @@ from typing import Any
 
 from flask import Flask, Response, current_app, jsonify, request, send_from_directory
 
-from zc_suite.eventos import (
+from zc_suite.nucleo.tia.errores import OcupadoError
+from zc_suite.nucleo.tia.eventos import (
     BusCerradoError,
     BusEventos,
     HandlerEventos,
     Suscripcion,
     conectar_logging,
 )
-from zc_suite.tia import OcupadoError, ServicioTIA
+from zc_suite.nucleo.tia.servicio import ServicioTIA
 
 #: Claves de las dependencias en ``current_app.config``.
 CLAVE_SERVICIO = "ZC_TIA"
@@ -197,7 +198,7 @@ def ruta_dist_frontend() -> Path:
     """Ruta del build de la SPA."""
     if getattr(sys, "frozen", False):
         return Path(getattr(sys, "_MEIPASS", "")) / "frontend" / "dist"
-    return Path(__file__).resolve().parents[2] / "frontend" / "dist"
+    return Path(__file__).resolve().parents[4] / "frontend" / "dist"
 
 
 def servir_spa(dist: Path, camino: str) -> Response:

@@ -17,6 +17,7 @@ from zc_suite.areas.alimentacion.dispositivo.disp_preview import (
 )
 from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
 from zc_suite.areas.alimentacion.rutas import rutas
+from zc_suite.nucleo.tia.servicio import ServicioTIA
 
 
 def _xml(constantes: list[tuple[str, str]]) -> str:
@@ -188,9 +189,8 @@ class _ServicioFalso:
 @pytest.fixture
 def cliente() -> Any:
     """Un cliente de la app con el area montada y sin conexion con TIA."""
-    from zc_suite.eventos import BusEventos
-    from zc_suite.tia import ServicioTIA
-    from zc_suite.web import crear_app
+    from zc_suite.nucleo.tia.eventos import BusEventos
+    from zc_suite.nucleo.web.app import crear_app
 
     bus = BusEventos()
     servicio = ServicioTIA(publicador=bus.publicar, cargador=lambda: None)

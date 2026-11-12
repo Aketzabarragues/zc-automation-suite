@@ -10,9 +10,9 @@ from typing import Any
 import pytest
 from flask import Flask, jsonify
 
-from zc_suite.eventos import BusEventos
-from zc_suite.tia import ServicioTIA
-from zc_suite.web import (
+from zc_suite.nucleo.tia.eventos import BusEventos
+from zc_suite.nucleo.tia.servicio import ServicioTIA
+from zc_suite.nucleo.web.app import (
     HTTPError,
     crear_app,
     exigir_host,

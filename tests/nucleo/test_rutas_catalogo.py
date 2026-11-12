@@ -7,10 +7,10 @@ from typing import Any
 import pytest
 from flask import Flask
 
-from zc_suite.eventos import BusEventos
-from zc_suite.main import AREAS, montar_app
-from zc_suite.rutas import catalogo as rutas_catalogo
-from zc_suite.tia import ServicioTIA
+from zc_suite.nucleo.app.main import AREAS, montar_app
+from zc_suite.nucleo.tia.eventos import BusEventos
+from zc_suite.nucleo.tia.servicio import ServicioTIA
+from zc_suite.nucleo.web.rutas import catalogo as rutas_catalogo
 
 
 class TsFalso:
@@ -65,7 +65,7 @@ def test_el_catalogo_de_un_area_tiene_sus_pestanas(app: Flask) -> None:
 
 def test_sin_catalogo_devuelve_un_diccionario_vacio() -> None:
     """Una app sin catalogo no revienta: devuelve ``{}``."""
-    from zc_suite.web import crear_app
+    from zc_suite.nucleo.web.app import crear_app
 
     bus_eventos = BusEventos()
     servicio = ServicioTIA(publicador=bus_eventos.publicar, cargador=lambda: TsFalso())

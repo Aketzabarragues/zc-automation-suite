@@ -57,7 +57,7 @@ def _backend(desarrollo: bool) -> None:
     Args:
         desarrollo: si es ``True`` se admiten los origenes de Vite.
     """
-    from zc_suite.main import arrancar
+    from zc_suite.nucleo.app.main import arrancar
 
     arrancar(host=HOST, puerto=PUERTO, desarrollo=desarrollo)
 

@@ -18,9 +18,9 @@ from zc_suite.areas.alimentacion.dispositivo.disp_preview import (
     disp_calcular_diff_tabla,
 )
 from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
-from zc_suite.tia import Job
+from zc_suite.nucleo.tia.job import Job
+from zc_suite.nucleo.tia.workdir import workdir
 from zc_suite.tia_ops.exportar import exportar_tablas
-from zc_suite.workdir import workdir
 
 logger = logging.getLogger(__name__)
 

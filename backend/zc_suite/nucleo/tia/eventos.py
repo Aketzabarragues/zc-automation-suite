@@ -1,4 +1,4 @@
-"""zc_suite.eventos — bus de eventos SSE y puente con el logging.
+"""zc_suite.nucleo.tia.eventos — bus de eventos SSE y puente con el logging.
 
 El bus es el unico canal del backend hacia la SPA. Hay cuatro tipos de
 evento y ni uno mas:
@@ -290,7 +290,7 @@ class HandlerEventos(logging.Handler):
 
     Dos guardas de seguridad:
 
-    - No publica los registros del propio logger ``zc_suite.eventos``: el bus
+    - No publica los registros del propio logger ``zc_suite.nucleo.tia.eventos``: el bus
       avisa cuando una cola se llena y avisar volveria a llenar la cola.
     - Un guard de reentrada por hilo: si la publicacion provoke un log, ese
       log no vuelve a publicar.
@@ -356,7 +356,7 @@ def eventos_de(bus: BusEventos) -> Iterator[dict[str, Any]]:
     """Itera los eventos de una suscripcion, terminada por el cierre del bus.
 
     Pensado para tests y para depurar: el stream SSE real vive en
-    ``zc_suite.web``.
+    ``zc_suite.nucleo.web.app``.
     """
     suscriptor = bus.suscribir()
     try:

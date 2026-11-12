@@ -8,9 +8,9 @@ from typing import Any
 import pytest
 from flask import Flask
 
-from zc_suite.eventos import BusEventos
-from zc_suite.main import AREAS, montar_app
-from zc_suite.tia import ServicioTIA
+from zc_suite.nucleo.app.main import AREAS, montar_app
+from zc_suite.nucleo.tia.eventos import BusEventos
+from zc_suite.nucleo.tia.servicio import ServicioTIA
 
 
 class TsFalso:
@@ -57,7 +57,7 @@ def test_la_app_monta_las_rutas_del_area(app: Flask) -> None:
 def test_el_logging_va_al_logger_de_la_app(app: Flask) -> None:
     import logging
 
-    from zc_suite.eventos import HandlerEventos
+    from zc_suite.nucleo.tia.eventos import HandlerEventos
 
     manejadores = logging.getLogger("zc_suite").handlers
     assert any(isinstance(m, HandlerEventos) for m in manejadores)
@@ -66,7 +66,7 @@ def test_el_logging_va_al_logger_de_la_app(app: Flask) -> None:
 def test_el_handler_del_logging_no_se_enchufa_dos_veces() -> None:
     import logging
 
-    from zc_suite.eventos import HandlerEventos
+    from zc_suite.nucleo.tia.eventos import HandlerEventos
 
     bus_eventos = BusEventos()
     servicio = ServicioTIA(cargador=lambda: TsFalso())
@@ -110,7 +110,7 @@ def test_las_areas_registran_su_blueprint(app: Flask) -> None:
 
 
 def test_el_argumento_web_se_parte_correctamente() -> None:
-    from zc_suite.main import main
+    from zc_suite.nucleo.app.main import main
 
     assert callable(main)
 
@@ -156,14 +156,14 @@ def test_las_dependencias_viven_en_config(app: Flask) -> None:
 
 
 def test_la_configuracion_se_carga_al_montar_la_app(app: Flask) -> None:
-    from zc_suite.config import Config
+    from zc_suite.nucleo.app.config import Config
 
     assert isinstance(app.config["ZC_CONFIG"], Config)
     assert app.config["ZC_CONFIG"].tia.plc
 
 
 def test_se_puede_inyectar_la_configuracion() -> None:
-    from zc_suite.config import Config
+    from zc_suite.nucleo.app.config import Config
 
     bus_eventos = BusEventos()
     servicio = ServicioTIA(cargador=lambda: TsFalso())
@@ -179,7 +179,7 @@ def test_el_modo_desarrollo_admite_los_origenes_de_vite() -> None:
     app = montar_app(servicio, bus_eventos, desarrollo=True)
 
     with app.test_request_context("/"):
-        from zc_suite.web import origenes_permitidos
+        from zc_suite.nucleo.web.app import origenes_permitidos
 
         assert "http://localhost:5173" in origenes_permitidos()
 
@@ -190,7 +190,7 @@ def test_el_modo_normal_no_admite_los_origenes_de_vite() -> None:
     app = montar_app(servicio, bus_eventos)
 
     with app.test_request_context("/"):
-        from zc_suite.web import origenes_permitidos
+        from zc_suite.nucleo.web.app import origenes_permitidos
 
         assert "http://localhost:5173" not in origenes_permitidos()
 
@@ -214,8 +214,8 @@ def test_el_log_de_arranque_dice_de_donde_sale_el_config(caplog: pytest.LogCaptu
     """El log dice que config.json se usa y de donde sale."""
     import logging
 
-    from zc_suite.config import ORIGEN_USUARIO, ConfigEnUso
-    from zc_suite.main import log_de_arranque
+    from zc_suite.nucleo.app.config import ORIGEN_USUARIO, ConfigEnUso
+    from zc_suite.nucleo.app.main import log_de_arranque
 
     with caplog.at_level(logging.INFO):
         log_de_arranque(
@@ -234,8 +234,8 @@ def test_el_log_de_arranque_avisa_si_el_area_no_tiene_dispositivos(
     """Un area sin tipos de dispositivo avisa: la vista saldria vacia."""
     import logging
 
-    from zc_suite.config import ORIGEN_USUARIO, ConfigEnUso
-    from zc_suite.main import log_de_arranque
+    from zc_suite.nucleo.app.config import ORIGEN_USUARIO, ConfigEnUso
+    from zc_suite.nucleo.app.main import log_de_arranque
 
     with caplog.at_level(logging.WARNING):
         log_de_arranque(
@@ -254,8 +254,8 @@ def test_el_log_de_arranque_no_avisa_con_el_catalogo_completo(
     """Con el catalogo completo, no hay avisos."""
     import logging
 
-    from zc_suite.config import ORIGEN_PLANTILLA, ConfigEnUso
-    from zc_suite.main import log_de_arranque
+    from zc_suite.nucleo.app.config import ORIGEN_PLANTILLA, ConfigEnUso
+    from zc_suite.nucleo.app.main import log_de_arranque
 
     with caplog.at_level(logging.WARNING):
         log_de_arranque(

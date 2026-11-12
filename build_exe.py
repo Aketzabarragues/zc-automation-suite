@@ -42,7 +42,7 @@ Restricciones aplicadas (decisiones arquitectónicas del proyecto):
     ``config.json`` del operario, la copia del Excel maestro
     (``excel/``) y el ``.build_cache`` se escriben en la carpeta del
     ejecutable. ``_MEIPASS`` se recrea en cada arranque: ahi no se puede
-    guardar nada. Lo resuelven ``zc_suite.config``, ``zc_suite.workdir`` y
+    guardar nada. Lo resuelven ``zc_suite.nucleo.app.config``, ``zc_suite.nucleo.tia.workdir`` y
     ``zc_suite.areas.alimentacion.excel.almacen``, que miran
     ``sys.frozen``.
 """
@@ -94,7 +94,7 @@ BACKEND_DIR = "backend"
 if str(ROOT / BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT / BACKEND_DIR))
 
-from zc_suite.icono import generar_ico  # noqa: E402
+from zc_suite.nucleo.app.icono import generar_ico  # noqa: E402
 
 #: Nombre del ejecutable, sin extension.
 EXE_NAME = "zc_automation_suite"
@@ -114,11 +114,11 @@ ENTRY_SCRIPT = "backend/zc_suite/main.py"
 #: Carpeta del frontend, con su ``package.json``.
 FRONTEND_DIR = "frontend"
 
-#: La SPA compilada. ``zc_suite.web.ruta_dist_frontend()`` la busca en
+#: La SPA compilada. ``zc_suite.nucleo.web.app.ruta_dist_frontend()`` la busca en
 #: ``_MEIPASS/frontend/dist`` cuando la app esta congelada.
 DIST_FRONTEND = "frontend/dist"
 
-#: La plantilla del ``config.json``. ``zc_suite.config.ruta_plantilla()`` la
+#: La plantilla del ``config.json``. ``zc_suite.nucleo.app.config.ruta_plantilla()`` la
 #: busca en ``_MEIPASS/config/config.json`` cuando la app esta congelada.
 CONFIG_PLANTILLA = "config/config.json"
 
@@ -142,7 +142,7 @@ PROJECT_DATA_FILES: list[tuple[str, str]] = [
 #
 #: No hay un ``.ico`` en el repo: el icono se dibuja en el momento de
 #: empaquetar (el mismo "ZC" que lleva la bandeja). Ver
-#: ``zc_suite.icono``.
+#: ``zc_suite.nucleo.app.icono``.
 
 
 # ── Hiddenimports ───────────────────────────────────────────────────────────
@@ -151,7 +151,7 @@ PROJECT_DATA_FILES: list[tuple[str, str]] = [
 #:
 #: - Los de Siemens: el ``.pyd`` se importa en runtime, no en analisis.
 #: - Los de las areas: se registran en la lista ``AREAS`` de
-#:   ``zc_suite.main`` y sus modulos se importan desde ahi.
+#:   ``zc_suite.nucleo.app.main`` y sus modulos se importan desde ahi.
 HIDDEN_IMPORTS_BASE: list[str] = [
     # ── Siemens / Pythonnet (hilo de TIA) ──────────────────────────────
     "siemens_tia_scripting",
@@ -187,10 +187,10 @@ def ids_de_areas() -> list[str]:
     if str(ROOT / BACKEND_DIR) not in sys.path:
         sys.path.insert(0, str(ROOT / BACKEND_DIR))
     try:
-        from zc_suite.main import AREAS
+        from zc_suite.nucleo.app.main import AREAS
     except Exception as exc:
         raise RuntimeError(
-            f"No se pudo importar 'zc_suite.main' para leer la lista AREAS: {exc}. "
+            f"No se pudo importar 'zc_suite.nucleo.app.main' para leer la lista AREAS: {exc}. "
             "Instala el backend con: pip install -e \".[dev]\""
         ) from exc
     return [str(area.ID) for area in AREAS]
@@ -202,7 +202,7 @@ def _scan_hiddenimports() -> list[str]:
     ``"zc_suite.areas.alimentacion.excel.parser"`` (sin la extension
     ``.py``). Excluye ``__pycache__/``.
 
-    Por que hay que escanear: la lista ``AREAS`` de ``zc_suite.main``
+    Por que hay que escanear: la lista ``AREAS`` de ``zc_suite.nucleo.app.main``
     importa los areas, pero PyInstaller solo ve lo que se importa de forma
     estatica en el entry. Declarar los modulos de cada area aqui
     garantiza que el ``.exe`` los lleva aunque el area se registre por

@@ -41,9 +41,10 @@ from typing import Any
 RAIZ = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(RAIZ / "backend"))
 
-from zc_suite import tia  # noqa: E402
-from zc_suite.eventos import BusEventos  # noqa: E402
-from zc_suite.tia import ServicioTIA, proyecto_activo  # noqa: E402
+from zc_suite.nucleo.tia import servicio as tia  # noqa: E402
+from zc_suite.nucleo.tia.eventos import BusEventos  # noqa: E402
+from zc_suite.nucleo.tia.servicio import ServicioTIA  # noqa: E402
+from zc_suite.nucleo.tia.transaccion import proyecto_activo  # noqa: E402
 from zc_suite.tia_ops._resolver import buscar_plc, nombre_bloque, nombre_plc  # noqa: E402
 from zc_suite.tia_ops.exportar import exportar_bloques, exportar_tablas  # noqa: E402
 

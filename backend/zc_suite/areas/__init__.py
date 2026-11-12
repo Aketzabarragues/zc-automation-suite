@@ -9,5 +9,5 @@ Un area es un paquete en ``areas/<id>/`` que expone:
 - ``defaults(config)``  valores por defecto que el area aporta a la config.
 
 El nucleo no importa este paquete. La unica excepcion es la lista ``AREAS`` de
-``zc_suite.main``, que es el punto unico de registro.
+``zc_suite.nucleo.app.main``, que es el punto unico de registro.
 """

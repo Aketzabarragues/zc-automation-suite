@@ -17,9 +17,9 @@ from openpyxl import Workbook
 from zc_suite.areas.alimentacion.excel import almacen as modulo_almacen
 from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
 from zc_suite.areas.alimentacion.rutas import CLAVE_ALMACEN, TAMANO_MAXIMO, rutas
-from zc_suite.eventos import BusEventos
-from zc_suite.tia import ServicioTIA
-from zc_suite.web import crear_app
+from zc_suite.nucleo.tia.eventos import BusEventos
+from zc_suite.nucleo.tia.servicio import ServicioTIA
+from zc_suite.nucleo.web.app import crear_app
 
 BASE = "http://localhost:9484"
 

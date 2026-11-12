@@ -1,4 +1,4 @@
-"""zc_suite.main — arranque de la aplicacion.
+"""zc_suite.nucleo.app.main — arranque de la aplicacion.
 
 Punto unico de composicion: crea el hilo de TIA, el bus de eventos y la app
 Flask, y monta las rutas. La lista ``AREAS`` es el unico sitio donde el
@@ -24,17 +24,17 @@ from typing import Any
 
 from flask import Flask
 
-from zc_suite import logs
 from zc_suite.areas import alimentacion
-from zc_suite.bandeja import Bandeja, desconectar_y_parar
-from zc_suite.config import Config, ConfigEnUso, cargar_config, resolver_config
-from zc_suite.eventos import BusEventos
-from zc_suite.rutas import catalogo as rutas_catalogo
-from zc_suite.rutas import conexion as rutas_conexion
-from zc_suite.rutas import plc as rutas_plc
-from zc_suite.servidor import ServidorWeb
-from zc_suite.tia import ServicioTIA
-from zc_suite.web import PUERTO_POR_DEFECTO, crear_app
+from zc_suite.nucleo.app import logs
+from zc_suite.nucleo.app.bandeja import Bandeja, desconectar_y_parar
+from zc_suite.nucleo.app.config import Config, ConfigEnUso, cargar_config, resolver_config
+from zc_suite.nucleo.app.servidor import ServidorWeb
+from zc_suite.nucleo.tia.eventos import BusEventos
+from zc_suite.nucleo.tia.servicio import ServicioTIA
+from zc_suite.nucleo.web.app import PUERTO_POR_DEFECTO, crear_app
+from zc_suite.nucleo.web.rutas import catalogo as rutas_catalogo
+from zc_suite.nucleo.web.rutas import conexion as rutas_conexion
+from zc_suite.nucleo.web.rutas import plc as rutas_plc
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ def carpeta_del_executable() -> Path:
     """
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
-    return Path(__file__).resolve().parents[2]
+    return Path(__file__).resolve().parents[4]
 
 
 def carpeta_de_datos() -> Path:

@@ -16,15 +16,16 @@ from typing import Any
 
 import pytest
 
-from zc_suite import tia
-from zc_suite.tia import (
+from zc_suite.nucleo.tia import servicio as tia
+from zc_suite.nucleo.tia.errores import (
     FueraDelHiloError,
     OcupadoError,
-    ServicioTIA,
     SinPortalError,
     SinProyectoError,
-    transaccion,
+    TIAError,
 )
+from zc_suite.nucleo.tia.servicio import ServicioTIA, version_tia_instalada
+from zc_suite.nucleo.tia.transaccion import transaccion
 
 RAIZ = Path(__file__).resolve().parents[2]
 
@@ -463,7 +464,6 @@ def test_transaccion_sin_proyecto_lanza_sin_proyecto_error(entorno: Any) -> None
 
 def test_el_error_sin_proyecto_es_un_error_esperado() -> None:
     """Se registra como warning, sin traceback."""
-    from zc_suite.tia import TIAError
 
     assert issubclass(SinProyectoError, TIAError)
 
@@ -472,7 +472,6 @@ def test_el_error_sin_proyecto_es_un_error_esperado() -> None:
 
 
 def test_se_detecta_la_version_de_tia_instalada() -> None:
-    from zc_suite.tia import version_tia_instalada
 
     class Bundle:
         def __init__(self, titulo: str) -> None:
@@ -494,7 +493,6 @@ def test_se_detecta_la_version_de_tia_instalada() -> None:
 
 
 def test_se_queda_con_la_version_mayor() -> None:
-    from zc_suite.tia import version_tia_instalada
 
     class Bundle:
         def __init__(self, titulo: str) -> None:
@@ -515,7 +513,6 @@ def test_se_queda_con_la_version_mayor() -> None:
 
 
 def test_sin_tia_instalada_la_version_es_vacia() -> None:
-    from zc_suite.tia import version_tia_instalada
 
     class Ts:
         @staticmethod
@@ -667,7 +664,7 @@ def test_un_publicador_roto_no_tumba_el_trabajo(entorno: Any) -> None:
 def test_el_sdk_de_siemens_no_se_importa_fuera_del_hilo(entorno: Any) -> None:
     """El wrapper de Siemens no se importa al importar el modulo del nucleo."""
     codigo = (
-        "import sys; import zc_suite.tia; "
+        "import sys; import zc_suite.nucleo.tia.servicio; "
         "print('siemens_tia_scripting' in sys.modules)"
     )
     resultado = subprocess.run(
@@ -1295,7 +1292,7 @@ def test_un_tia_error_se_registra_como_warning_sin_traceback(
         job_id = servicio.lanzar(tia.conectar)
         _esperar_job(eventos, job_id)
 
-    registros = [r for r in caplog.records if r.name == "zc_suite.tia"]
+    registros = [r for r in caplog.records if r.name.startswith("zc_suite.nucleo.tia")]
     assert registros
     assert all(r.levelno == logging.WARNING for r in registros)
     assert all(not r.exc_info for r in registros)
@@ -1317,7 +1314,7 @@ def test_una_excepcion_inesperada_si_lleva_traceback(
         job_id = servicio.lanzar(trabajo)
         _esperar_job(eventos, job_id)
 
-    registros = [r for r in caplog.records if r.name == "zc_suite.tia"]
+    registros = [r for r in caplog.records if r.name.startswith("zc_suite.nucleo.tia")]
     assert any(r.levelno == logging.ERROR for r in registros)
     assert any(r.exc_info for r in registros)
 

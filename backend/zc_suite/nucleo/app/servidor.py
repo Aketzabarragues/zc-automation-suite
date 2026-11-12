@@ -1,4 +1,4 @@
-"""zc_suite.servidor — el servidor de Flask en un hilo, con parada limpia.
+"""zc_suite.nucleo.app.servidor — el servidor de Flask en un hilo, con parada limpia.
 
 Porta el supervisor de la app anterior (``core/launcher/main_supervisor.py``):
 Flask corre en un hilo daemon con ``werkzeug.serving.make_server``, que se

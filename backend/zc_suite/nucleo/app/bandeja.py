@@ -1,4 +1,4 @@
-"""zc_suite.bandeja — el icono de bandeja y su menu.
+"""zc_suite.nucleo.app.bandeja — el icono de bandeja y su menu.
 
 Porta ``core/launcher/tray_app.py`` de la app anterior.
 
@@ -27,7 +27,7 @@ import webbrowser
 from collections.abc import Callable
 from typing import Any
 
-from zc_suite.icono import imagen_del_icono
+from zc_suite.nucleo.app.icono import imagen_del_icono
 
 logger = logging.getLogger(__name__)
 
@@ -201,7 +201,7 @@ def desconectar_y_parar(servicio: Any, timeout: float = ESPERA_PARADA) -> None:
         servicio: el ``ServicioTIA``.
         timeout: segundos que se espera a que se desconecte.
     """
-    from zc_suite import tia
+    from zc_suite.nucleo.tia import servicio as tia
 
     try:
         servicio.lanzar(tia.desconectar)

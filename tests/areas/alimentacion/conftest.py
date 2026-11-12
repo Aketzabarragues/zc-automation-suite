@@ -23,11 +23,11 @@ from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
-from zc_suite import tia
 from zc_suite.areas.alimentacion.dispositivo import disp_trabajo
 from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
-from zc_suite.tia import ServicioTIA
-from zc_suite.workdir import Workdir
+from zc_suite.nucleo.tia import servicio as tia
+from zc_suite.nucleo.tia.servicio import ServicioTIA
+from zc_suite.nucleo.tia.workdir import Workdir
 
 #: Raiz del repo.
 RAIZ = Path(__file__).resolve().parents[3]

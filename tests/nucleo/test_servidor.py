@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 from flask import Flask
 
-from zc_suite.servidor import ServidorWeb
+from zc_suite.nucleo.app.servidor import ServidorWeb
 
 
 def _puerto_libre() -> int:

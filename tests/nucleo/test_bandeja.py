@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from zc_suite.bandeja import Bandeja
+from zc_suite.nucleo.app.bandeja import Bandeja
 
 
 class IconoFalso:
@@ -129,7 +129,10 @@ def test_abrir_el_panel_solo_si_la_web_esta_viva(monkeypatch: Any) -> None:
     web = WebFalsa(viva=False)
     caja = _caja(web, lambda: None)
     abiertos: list[str] = []
-    monkeypatch.setattr("zc_suite.bandeja.webbrowser.open", lambda url: abiertos.append(url))
+    monkeypatch.setattr(
+        "zc_suite.nucleo.app.bandeja.webbrowser.open",
+        lambda url: abiertos.append(url),
+    )
 
     caja.al_abrir_web(IconoFalso(), None)
 

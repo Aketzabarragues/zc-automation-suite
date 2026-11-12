@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from zc_suite import logs
+from zc_suite.nucleo.app import logs
 
 
 @pytest.fixture
