@@ -16,7 +16,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from zc_suite.errores import TIAError
+from zc_suite.errores import ZCError
 from zc_suite.nucleo.tia.errores import CanceladoError, texto_error
 
 if TYPE_CHECKING:
@@ -207,7 +207,7 @@ class Job:
                 detail=texto_error(exc),
                 finished_at=_ahora(),
             )
-            nivel_paso = logging.WARNING if isinstance(exc, TIAError) else logging.ERROR
+            nivel_paso = logging.WARNING if isinstance(exc, ZCError) else logging.ERROR
             logger.log(
                 nivel_paso,
                 "  Paso '%s' fallo: %s",

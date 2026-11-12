@@ -32,12 +32,13 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from zc_suite.errores import TIAError
+from zc_suite.errores import ZCError
 from zc_suite.nucleo.tia.errores import (
     CanceladoError,
     FueraDelHiloError,
     OcupadoError,
     SinPortalError,
+    TIAError,
     texto_error,
 )
 from zc_suite.nucleo.tia.job import CANCELADO, ERROR, OK, Job
@@ -484,7 +485,7 @@ class ServicioTIA:
             estado = CANCELADO
             error = texto_error(exc)
             logger.info("Trabajo %s cancelado.", job.id)
-        except TIAError as exc:
+        except ZCError as exc:
             # Fallo esperado: TIA cerrado, sin proyecto, sin permiso. Se
             # registra en una linea; el traceback solo para lo inesperado.
             estado = ERROR

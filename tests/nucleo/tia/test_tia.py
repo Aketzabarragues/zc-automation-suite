@@ -16,13 +16,13 @@ from typing import Any
 
 import pytest
 
-from zc_suite.errores import TIAError
 from zc_suite.nucleo.tia import servicio as tia
 from zc_suite.nucleo.tia.errores import (
     FueraDelHiloError,
     OcupadoError,
     SinPortalError,
     SinProyectoError,
+    TIAError,
 )
 from zc_suite.nucleo.tia.servicio import ServicioTIA, version_tia_instalada
 from zc_suite.nucleo.tia.transaccion import transaccion

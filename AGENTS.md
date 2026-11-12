@@ -43,15 +43,15 @@ SPA --POST /api/...--> tia.lanzar(funcion, **params) --> job_id (202)
 
 ```
 backend/zc_suite/
-  errores.py          TIAError y OperacionError: el contrato de errores
+  errores.py          ZCError y OperacionError: el contrato de errores
   nucleo/app/        main.py (arranque + lista AREAS), config.py, logs.py,
                      bandeja.py, icono.py, servidor.py
   nucleo/web/        app.py (Flask, estaticos, /api/eventos, lanzar())
                      rutas/{conexion,plc,catalogo}.py
   nucleo/tia/        servicio.py (hilo unico, conectar/desconectar),
-                     job.py (Job y sus pasos), transaccion.py, errores.py,
-                     eventos.py (bus SSE + handler de logging),
-                     workdir.py (.build_cache/<area>/<contexto>/)
+                     job.py (Job y sus pasos), transaccion.py, errores.py
+                     (TIAError y los suyos), eventos.py (bus SSE + handler
+                     de logging), workdir.py (.build_cache/<area>/<contexto>/)
   nucleo/funciones/  plc/buscar_plcs.py, plc/escanear.py,
                      bloques/preparar.py, bloques/aplicar.py
   tia_ops/           proyecto.py, exportar.py, importar.py, compilar.py,
@@ -95,6 +95,10 @@ scripts/smoke/       smokes contra TIA real (se lanzan a mano)
   `zc_suite.nucleo.tia` ni `zc_suite.tia_ops`, ni recibe el `job`. Para lanzar
   un fallo esperado usa `zc_suite.errores`. Lo vigila
   `tests/test_fronteras_dominio.py`.
+- **Los fallos esperados cuelgan de `ZCError`** (`zc_suite/errores.py`): se
+  registran como warning y sin traceback. Lo inesperado, con traceback. Los
+  errores propios de TIA cuelgan de `TIAError`, que a su vez cuelga de
+  `ZCError`. Lo fija `tests/test_errores.py`.
 - **En el frontend, lo del nucleo va en `src/nucleo/` y lo del area en
   `src/areas/<area>/`**. Un store del area nunca esta en `nucleo/stores/`.
 - **`tests/` refleja `backend/zc_suite/` carpeta a carpeta**: un test vive
