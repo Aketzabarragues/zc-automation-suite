@@ -69,7 +69,7 @@ watch(
 );
 
 onMounted(() => {
-  excel.cargar();
+  excel.hidratar();
   dispositivos.cargarCatalogo();
 });
 </script>

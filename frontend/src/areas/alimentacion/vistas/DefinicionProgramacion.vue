@@ -189,7 +189,7 @@ function abrirSelector() {
 }
 
 onMounted(() => {
-  excel.cargar();
+  excel.hidratar();
 });
 </script>
 

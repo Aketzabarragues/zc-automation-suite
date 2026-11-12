@@ -28,7 +28,7 @@ function montar() {
   const tia = useTiaStore();
   tia.aplicar({ conectado: true });
   const plc = usePlcStore();
-  plc.seleccionar("ZC_PLC_STD");
+  plc.seleccionado = "ZC_PLC_STD";
   plc.bloques = BLOQUES;
   const wrapper = mount(EditorBloques, { global: { plugins: [pinia] } });
   return { wrapper, trabajos: useTrabajosStore() };

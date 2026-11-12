@@ -36,15 +36,24 @@ export const useTiaStore = defineStore("tia", {
 
   actions: {
     /**
+     * Aplica el estado de TIA que viene del backend.
+     *
+     * @param {object} estado el estado de la conexion.
+     */
+    aplicarSesion(estado) {
+      this.conectado = Boolean(estado.conectado);
+      this.version_tia = estado.version_tia || "";
+      this.ultimo_error = estado.ultimo_error || null;
+      this.trabajo_actual = estado.trabajo_actual || null;
+    },
+
+    /**
      * Aplica un evento `tia` del backend.
      *
      * @param {object} evento el evento.
      */
     aplicar(evento) {
-      this.conectado = Boolean(evento.conectado);
-      this.version_tia = evento.version_tia || "";
-      this.ultimo_error = evento.ultimo_error || null;
-      this.trabajo_actual = evento.trabajo_actual || null;
+      this.aplicarSesion(evento);
       if (this.demo && this.conectado) {
         // En el demo, conectar es buscar los PLCs: los datos simulados.
         usePlcStore().buscarPlcs();

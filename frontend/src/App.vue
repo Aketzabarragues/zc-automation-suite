@@ -4,8 +4,11 @@
  *
  * Dos niveles: la pantalla de inicio (selector de area) y el interior del
  * area (barra lateral, barra superior, contenido y consola).
+ *
+ * Al cargar, la SPA se hidrata con el estado de la sesion del backend: lo
+ * que hay en el servidor (TIA, PLCs, PLC seleccionado y su escaneo, Excel).
  */
-import { computed } from "vue";
+import { computed, onMounted } from "vue";
 import BannerConfig from "./nucleo/componentes/BannerConfig.vue";
 import Bienvenida from "./nucleo/componentes/Bienvenida.vue";
 import ConsolaLogs from "./nucleo/componentes/ConsolaLogs.vue";
@@ -14,13 +17,19 @@ import ShellTopbar from "./nucleo/componentes/ShellTopbar.vue";
 import EditorBloques from "./nucleo/vistas/EditorBloques.vue";
 import VistaPlc from "./nucleo/vistas/Plc.vue";
 import { useAreasStore } from "./nucleo/stores/areas.js";
+import { useSesionStore } from "./nucleo/stores/sesion.js";
 
 const areas = useAreasStore();
+const sesion = useSesionStore();
 
 /** El item de menu de la vista activa, para el aviso de vista pendiente. */
 const itemActivo = computed(() =>
   areas.menu.find((item) => item.clave === areas.vista),
 );
+
+onMounted(() => {
+  sesion.hidratar();
+});
 </script>
 
 <template>

@@ -50,6 +50,39 @@ export function buscarPlcs() {
   return pedir("/api/v1/tia/plcs/listar", { method: "POST", headers: CABECERAS });
 }
 
+/**
+ * El estado de la sesion: lo que la SPA necesita al hidratarse.
+ *
+ * @returns {Promise<object>} el estado de TIA, los PLCs, el PLC seleccionado
+ *   con su escaneo y lo que cada area tiene en su sesion.
+ */
+export function estadoSesion() {
+  return pedir("/api/v1/sesion");
+}
+
+/**
+ * Selecciona un PLC en el servidor.
+ *
+ * Con un escaneo fresco el servidor lo devuelve en el mismo cuerpo; si no
+ * lo hay, o ha caducado, encola el escaneo y responde con el `job_id`.
+ *
+ * @param {string} plc nombre del PLC.
+ * @returns {Promise<object>} `{job_id, escaneo}`: uno de los dos.
+ */
+export async function seleccionarPlc(plc) {
+  const respuesta = await fetch("/api/v1/tia/plcs/seleccionar", {
+    method: "POST",
+    headers: CABECERAS,
+    credentials: "same-origin",
+    body: JSON.stringify({ plc }),
+  });
+  const cuerpo = await respuesta.json().catch(() => ({}));
+  if (!respuesta.ok) {
+    throw new Error(cuerpo.error || `Error ${respuesta.status}`);
+  }
+  return { job_id: cuerpo.job_id || null, escaneo: cuerpo.escaneo || null };
+}
+
 /** Encola el escaneo de un PLC: bloques, tablas de tags y tipos de usuario. */
 export function escanearPlc(plc) {
   return pedir(`/api/v1/tia/plcs/${encodeURIComponent(plc)}/escanear`, {

@@ -40,7 +40,7 @@ describe("ShellTopbar", () => {
 
   it("la pastilla de PLC muestra el PLC seleccionado", () => {
     const plc = usePlcStore();
-    plc.seleccionar("ZC_PLC_STD");
+    plc.seleccionado = "ZC_PLC_STD";
     const wrapper = mount(ShellTopbar, { global: { plugins: [pinia] } });
 
     expect(wrapper.find('[data-testid="topbar-plc"]').text()).toContain("ZC_PLC_STD");

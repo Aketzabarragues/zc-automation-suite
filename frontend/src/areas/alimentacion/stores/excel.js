@@ -1,17 +1,23 @@
 /**
  * Store del Excel maestro del area de alimentacion.
  *
- * El backend guarda el Excel parseado en su cache: la vista solo consulta
+ * El backend guarda el Excel parseado en su sesion: la vista solo consulta
  * ese volcado. Subir un fichero es un trabajo: el POST responde 202 con el
  * `job_id` y el resultado del parseo llega por el stream, asi que los datos
  * se recargan cuando el trabajo termina.
+ *
+ * El Excel no se guarda en disco: cada sesion de la app empieza sin Excel.
  */
 import { defineStore } from "pinia";
 import { pedir } from "../../../nucleo/api.js";
+import { useSesionStore } from "../../../nucleo/stores/sesion.js";
 import { useTrabajosStore } from "../../../nucleo/stores/trabajos.js";
 
 /** Ruta de los endpoints del Excel maestro. */
 export const RUTA_EXCEL = "/api/v1/areas/alimentacion/excel";
+
+/** Identificador del area. */
+export const ID_AREA = "alimentacion";
 
 export const useExcelStore = defineStore("excel", {
   state: () => ({
@@ -64,16 +70,41 @@ export const useExcelStore = defineStore("excel", {
 
   actions: {
     /**
+     * Refleja el volcado que sirve el backend.
+     *
+     * @param {object} datos el volcado del Excel.
+     */
+    aplicar(datos) {
+      this.cargado = Boolean(datos.cargado);
+      this.archivo = datos.archivo || null;
+      this.cargadoEn = datos.cargado_en || null;
+      this.datos = datos || null;
+      this.error = null;
+    },
+
+    /**
+     * Carga el Excel de la sesion.
+     *
+     * Si la SPA ya se hidrató, el Excel viene en el estado de la sesion; si
+     * no, se pide al backend.
+     */
+    async hidratar() {
+      const sesion = useSesionStore();
+      const estado = sesion.area(ID_AREA);
+      if (estado && estado.excel) {
+        this.aplicar(estado.excel);
+        return;
+      }
+      await this.cargar();
+    },
+
+    /**
      * Carga el volcado del Excel que tiene el backend.
      */
     async cargar() {
       try {
         const datos = await pedir(RUTA_EXCEL);
-        this.cargado = Boolean(datos.cargado);
-        this.archivo = datos.archivo || null;
-        this.cargadoEn = datos.cargado_en || null;
-        this.datos = datos || null;
-        this.error = null;
+        this.aplicar(datos);
       } catch (error) {
         this.error = error.message;
       }

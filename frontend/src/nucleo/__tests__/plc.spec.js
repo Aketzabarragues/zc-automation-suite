@@ -1,4 +1,4 @@
-import { mount } from "@vue/test-utils";
+import { flushPromises, mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import VistaPlc from "../vistas/Plc.vue";
@@ -49,7 +49,19 @@ describe("VistaPlc", () => {
     expect(wrapper.find('[data-testid="plc-ruta"]').text()).toContain("ZC_PLC_STD.ap21");
   });
 
-  it("seleccionar un PLC lo pone en el store y lo marca", async () => {
+  it("seleccionar un PLC lo pide al servidor y lo marca", async () => {
+    global.fetch = vi.fn((url) => {
+      if (String(url).includes("/plcs/seleccionar")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            plc: "ZC_PLC_STD",
+            escaneo: { plc: "ZC_PLC_STD", bloques: [], tablas: [], tipos: [] },
+          }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ job_id: "abc" }) });
+    });
     const tia = useTiaStore();
     tia.aplicar({ conectado: true });
     const plc = usePlcStore();
@@ -57,11 +69,42 @@ describe("VistaPlc", () => {
 
     const wrapper = mount(VistaPlc, { global: { plugins: [pinia] } });
     await wrapper.find('[data-testid="plc-card-ZC_PLC_STD"]').trigger("click");
+    await flushPromises();
 
     expect(plc.seleccionado).toBe("ZC_PLC_STD");
     expect(wrapper.find('[data-testid="plc-card-ZC_PLC_STD"]').attributes("data-active")).toBe(
       "true",
     );
+  });
+
+  it("seleccionar con escaneo en el servidor no escanea otra vez", async () => {
+    const llamadas = [];
+    global.fetch = vi.fn((url) => {
+      llamadas.push(String(url));
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          plc: "ZC_PLC_STD",
+          escaneo: {
+            plc: "ZC_PLC_STD",
+            bloques: [{ nombre: "OB1_MAIN", numero: 1, tipo: "OB", ruta: "" }],
+            tablas: [],
+            tipos: [],
+          },
+        }),
+      });
+    });
+    const tia = useTiaStore();
+    tia.aplicar({ conectado: true });
+    const plc = usePlcStore();
+    plc.plcs = [{ nombre: "ZC_PLC_STD", designacion: "" }];
+
+    const wrapper = mount(VistaPlc, { global: { plugins: [pinia] } });
+    await wrapper.find('[data-testid="plc-card-ZC_PLC_STD"]').trigger("click");
+    await flushPromises();
+
+    expect(plc.bloques).toHaveLength(1);
+    expect(llamadas.filter((url) => url.includes("/escanear"))).toHaveLength(0);
   });
 
   it("sin escaneo pide seleccionar un PLC", () => {
@@ -74,7 +117,7 @@ describe("VistaPlc", () => {
     const tia = useTiaStore();
     tia.aplicar({ conectado: true });
     const plc = usePlcStore();
-    plc.seleccionar("ZC_PLC_STD");
+    plc.seleccionado = "ZC_PLC_STD";
     plc.bloques = [
       { nombre: "OB1_MAIN", numero: 1, tipo: "OB", ruta: "" },
       { nombre: "DB10", numero: 10, tipo: "DB", ruta: "0_Sistema" },
@@ -92,7 +135,7 @@ describe("VistaPlc", () => {
     const tia = useTiaStore();
     tia.aplicar({ conectado: true });
     const plc = usePlcStore();
-    plc.seleccionar("ZC_PLC_STD");
+    plc.seleccionado = "ZC_PLC_STD";
     plc.tipos = [
       {
         nombre: "MiTipo",
