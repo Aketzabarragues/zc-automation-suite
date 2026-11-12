@@ -10,14 +10,13 @@ Contrato del area:
 - ``rutas``    ``Blueprint`` Flask con las rutas del area.
 - ``catalogo(config)``  lo que la SPA necesita del backend.
 - ``defaults(config)``  valores por defecto que el area aporta a la config.
-- ``al_arrancar(config)``  recarga lo que el area tenga guardado.
+- ``al_arrancar(config)``  deja el area lista para la sesion.
 
 El area no se importa desde el nucleo: ``zc_suite.nucleo.app.main`` la registra en la
 lista ``AREAS`` y monta su Blueprint.
 """
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from flask.sansio.blueprints import BlueprintSetupState
@@ -25,8 +24,6 @@ from flask.sansio.blueprints import BlueprintSetupState
 from zc_suite.areas.alimentacion.dispositivos import catalogo as dispositivos_catalogo
 from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
 from zc_suite.areas.alimentacion.rutas import CLAVE_ALMACEN, ID, rutas
-
-logger = logging.getLogger(__name__)
 
 __all__ = [
     "DESCRIPCION",
@@ -97,15 +94,13 @@ def defaults(config: dict[str, Any]) -> dict[str, Any]:
 
 
 def al_arrancar(config: dict[str, Any]) -> None:
-    """Se llama al montar la app: recarga lo que el area tenga guardado.
+    """Se llama al montar la app: deja el area lista para la sesion.
+
+    El Excel maestro no se guarda entre arranques: cada sesion empieza sin
+    Excel y el almacen queda vacio.
 
     Args:
         config: la seccion del area en el ``config.json``.
     """
     ALMACEN.config = config
-    try:
-        if ALMACEN.recargar():
-            logger.info("Excel maestro recargado: %s", ALMACEN.archivo)
-    except Exception as exc:
-        # El arranque no se cae por un Excel que no se pueda leer.
-        logger.warning("No se pudo recargar el Excel del area: %s", exc)
+    ALMACEN.vaciar()

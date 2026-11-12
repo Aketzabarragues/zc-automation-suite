@@ -1,1 +1,1 @@
-"""Los FB del Excel maestro: cargarlo y recargar la copia."""
+"""Los FB del Excel maestro: cargarlo."""

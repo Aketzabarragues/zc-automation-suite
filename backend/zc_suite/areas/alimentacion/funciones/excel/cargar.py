@@ -41,7 +41,6 @@ def cargar(job: Job, ruta: str, almacen: AlmacenExcel) -> dict[str, Any]:
         [
             ("validar", "Validar el fichero"),
             ("parsear", "Parsear el Excel"),
-            ("guardar", "Guardar la copia"),
             ("avisos", "Revisar los avisos"),
         ],
     )
@@ -55,10 +54,6 @@ def cargar(job: Job, ruta: str, almacen: AlmacenExcel) -> dict[str, Any]:
         with job.paso("parsear") as paso:
             datos = almacen.volcar(fichero)
             paso["detail"] = f"{len(datos['plcs'])} PLCs"
-
-        with job.paso("guardar") as paso:
-            copia = almacen.persistir(fichero)
-            paso["detail"] = str(copia)
     finally:
         _limpiar_temporal(fichero)
 

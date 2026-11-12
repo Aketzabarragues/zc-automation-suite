@@ -15,7 +15,6 @@ from typing import Any
 import pytest
 from openpyxl import Workbook
 
-from zc_suite.areas.alimentacion.excel import almacen as modulo_almacen
 from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
 from zc_suite.areas.alimentacion.rutas import CLAVE_ALMACEN, TAMANO_MAXIMO, rutas
 from zc_suite.nucleo.tia.eventos import BusEventos
@@ -35,17 +34,8 @@ def eventos() -> list[tuple[str, dict[str, Any]]]:
 
 
 @pytest.fixture
-def almacen(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    seccion: dict[str, Any],
-) -> AlmacenExcel:
-    """La cache del area, con la persistencia en un temporal."""
-    monkeypatch.setattr(
-        modulo_almacen,
-        "carpeta_persistida",
-        lambda: tmp_path / "excel",
-    )
+def almacen(seccion: dict[str, Any]) -> AlmacenExcel:
+    """La cache del area: en memoria, sin copia guardada."""
     store = AlmacenExcel()
     store.config = seccion
     return store
@@ -288,37 +278,6 @@ def test_el_trabajo_avisa_de_los_dominios_sin_tabla(
     assert any("DISP_ED" in aviso for aviso in avisos)
     assert "avisos" in _pasos(eventos)
     assert "DISP_ED" in _detalle_de(eventos, "avisos")
-
-
-# ── recargar ────────────────────────────────────────────────────────────────
-
-
-def test_recargar_responde_202_con_el_job_id(cliente: Any) -> None:
-    respuesta = cliente.post(
-        "/api/v1/areas/alimentacion/excel/recargar",
-        base_url=BASE,
-        headers={"Origin": BASE},
-    )
-
-    assert respuesta.status_code == 202
-    assert respuesta.get_json()["job_id"]
-
-
-def test_recargar_sin_copia_guardada_falla_con_un_mensaje_claro(
-    cliente: Any,
-    eventos: list[tuple[str, dict[str, Any]]],
-) -> None:
-    respuesta = cliente.post(
-        "/api/v1/areas/alimentacion/excel/recargar",
-        base_url=BASE,
-        headers={"Origin": BASE},
-    )
-    job_id = respuesta.get_json()["job_id"]
-
-    evento = _esperar_job(eventos, job_id)
-
-    assert evento["estado"] == "error"
-    assert "No hay ningun Excel guardado" in evento["error"]
 
 
 def test_el_tamano_maximo_por_defecto_es_de_20_mb() -> None:

@@ -1,65 +1,21 @@
 """La cache del Excel maestro del area.
 
-Guarda el volcado parseado y una copia del ultimo ``.xlsx``, para que la vista
-tenga datos al arrancar sin que el operario vuelva a subir el fichero.
-
-Persistencia **sin base de datos**: una copia del Excel junto al ejecutable.
-Empaquetado va a ``<carpeta_del_exe>/excel/ultimo.xlsx``; en desarrollo, a
-``<repo>/excel/ultimo.xlsx``.
+Guarda el volcado parseado **solo en memoria**, mientras la app esta abierta.
+No hay copia en disco: al cerrar la app, el Excel cargado se pierde y el
+operario vuelve a subirlo.
 
 El almacen es **offline**: no habla con el portal de TIA.
 """
 from __future__ import annotations
 
-import logging
-import shutil
-import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from zc_suite.areas.alimentacion.excel import parser
 
-logger = logging.getLogger(__name__)
-
-#: Carpeta donde viven las copias del Excel.
-SUBCARPETA_EXCEL = "excel"
-
-#: Extension de las copias.
-EXTENSION = ".xlsx"
-
-#: Extensiones de las copias: el Excel maestro del operario es ``.xlsm``.
+#: Extensiones admitidas: el Excel maestro del operario es ``.xlsm``.
 EXTENSIONES = (".xlsx", ".xlsm")
-
-#: Raiz del repo.
-RAIZ = Path(__file__).resolve().parents[5]
-
-
-def carpeta_persistida() -> Path:
-    """La carpeta de las copias del Excel.
-
-    Empaquetado: junto al ejecutable. Desarrollo: en el repo.
-    """
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent / SUBCARPETA_EXCEL
-    return RAIZ / SUBCARPETA_EXCEL
-
-
-def ruta_persistida() -> Path | None:
-    """La copia guardada del Excel, si la hay.
-
-    La copia se llama como el fichero que subio el operario, para que el
-    nombre que ve en la vista siga siendo el del Excel original.
-    """
-    carpeta = carpeta_persistida()
-    if not carpeta.is_dir():
-        return None
-    ficheros = sorted(
-        fichero
-        for extension in EXTENSIONES
-        for fichero in carpeta.glob(f"*{extension}")
-    )
-    return ficheros[-1] if ficheros else None
 
 
 class AlmacenExcel:
@@ -117,6 +73,16 @@ class AlmacenExcel:
 
     # ── escritura ───────────────────────────────────────────────────────
 
+    def vaciar(self) -> None:
+        """Deja el almacen sin Excel.
+
+        Cada sesion de la app empieza sin Excel: al arrancar, el area vacia
+        el almacen.
+        """
+        self._archivo = None
+        self._cargado_en = None
+        self._datos = None
+
     def volcar(self, ruta: Path) -> dict[str, Any]:
         """Parsea el fichero y deja el resultado en la cache.
 
@@ -134,40 +100,6 @@ class AlmacenExcel:
         self._archivo = Path(ruta).name
         self._cargado_en = datetime.now().isoformat(timespec="seconds")
         return datos
-
-    def persistir(self, ruta: Path) -> Path:
-        """Copia el fichero a la carpeta de persistencia.
-
-        La copia se llama como el original y es la unica que queda: al
-        guardar una nueva, se borran las anteriores.
-
-        Args:
-            ruta: el fichero a copiar.
-
-        Returns:
-            La ruta de la copia.
-        """
-        carpeta = carpeta_persistida()
-        carpeta.mkdir(parents=True, exist_ok=True)
-        destino = carpeta / Path(ruta).name
-        for anterior in carpeta.iterdir():
-            if anterior.suffix.lower() in EXTENSIONES and anterior != destino:
-                anterior.unlink(missing_ok=True)
-        shutil.copy2(ruta, destino)
-        logger.info("Excel maestro guardado en %s", destino)
-        return destino
-
-    def recargar(self) -> bool:
-        """Parsea la copia guardada del Excel, si la hay.
-
-        Returns:
-            ``True`` si habia una copia y se ha parseado.
-        """
-        ruta = ruta_persistida()
-        if ruta is None:
-            return False
-        self.volcar(ruta)
-        return True
 
 
 # ── el volcado ──────────────────────────────────────────────────────────────

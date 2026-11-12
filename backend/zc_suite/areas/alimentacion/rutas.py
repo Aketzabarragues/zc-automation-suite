@@ -1,8 +1,7 @@
 """Las rutas del area de alimentacion: el Excel maestro.
 
-- ``GET  /excel``          el volcado que tiene el backend.
-- ``POST /excel``          sube un ``.xlsx`` y encola su parseo.
-- ``POST /excel/recargar`` vuelve a parsear la copia guardada.
+- ``GET  /excel``   el volcado que tiene el backend.
+- ``POST /excel``   sube un ``.xlsx`` y encola su parseo.
 
 Las POST responden ``202`` con el ``job_id``: el parseo va en un trabajo y su
 resultado llega por el stream de eventos, no en la respuesta.
@@ -19,12 +18,11 @@ from typing import Any
 
 from flask import Blueprint, Response, current_app, jsonify, request
 
-from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
+from zc_suite.areas.alimentacion.excel.almacen import EXTENSIONES, AlmacenExcel
 from zc_suite.areas.alimentacion.funciones.dispositivos.generar_prevision import (
     generar_prevision,
 )
 from zc_suite.areas.alimentacion.funciones.excel.cargar import cargar
-from zc_suite.areas.alimentacion.funciones.excel.recargar import recargar
 from zc_suite.nucleo.web.app import HTTPError, lanzar, servicio
 
 logger = logging.getLogger(__name__)
@@ -34,9 +32,6 @@ ID = "alimentacion"
 
 #: Clave del almacen del area en ``current_app.config``.
 CLAVE_ALMACEN = "ZC_ALMACEN_ALIMENTACION"
-
-#: Extensiones admitidas: el Excel maestro del operario es ``.xlsm``.
-EXTENSIONES = (".xlsx", ".xlsm")
 
 #: Tamano maximo del fichero, en bytes.
 TAMANO_MAXIMO = 20 * 1024 * 1024
@@ -73,12 +68,6 @@ def subir_excel() -> tuple[Response, int]:
 
     ruta = _guardar(contenido, nombre, sufijo)
     return lanzar(cargar, ruta=str(ruta), almacen=_almacen())
-
-
-@rutas.post("/excel/recargar")
-def recargar_excel() -> tuple[Response, int]:
-    """Vuelve a parsear la copia guardada del Excel."""
-    return lanzar(recargar, almacen=_almacen())
 
 
 @rutas.post("/dispositivos/preview")
