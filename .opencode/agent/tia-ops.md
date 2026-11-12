@@ -12,11 +12,14 @@ y en los ficheros que TIA exporta.
 
 - **Own:**
   - `backend/zc_suite/tia_ops/` — `proyecto.py`, `exportar.py`, `importar.py`,
-    `compilar.py`, `constantes.py`, `bloques.py`.
-  - `backend/zc_suite/simatic/` — `simatic_sd/` (`.s7dcl` / `.s7res`) y
-    `simatic_ml/` (`.xml`).
-- **Don't own:** el hilo y el contrato de trabajos (`backend/zc_suite/tia.py`,
-  agente `nucleo`), el bus SSE, las areas, el frontend, el empaquetado.
+    `compilar.py`, `constantes.py`, `bloques.py`, `tablas.py`, `_resolver.py`.
+  - `backend/zc_suite/simatic/ml/` — `constantes_parser.py`,
+    `constantes_modificador.py`, `rutas_xml.py` (`.xml`).
+  - `backend/zc_suite/simatic/sd/` — `cabecera.py`, `comentarios_array.py`,
+    `mlc.py` (`.s7dcl` / `.s7res`).
+- **Don't own:** el hilo y el contrato de trabajos
+  (`backend/zc_suite/nucleo/tia/`, agente `nucleo`), el bus SSE, las areas, el
+  frontend, el empaquetado.
 
 ## How you work
 
@@ -36,13 +39,20 @@ y en los ficheros que TIA exporta.
 - **Ningun objeto .NET sale de `tia_ops/`.** Convierte a `dict`, `list`, `str`,
   `int` o `bool` antes de devolver. Los objetos nativos no son seguros fuera
   del hilo de TIA.
+- Quien llama a estas operaciones son los trabajos de `funciones/` (uno por
+  fichero, con el nombre del fichero), en el nucleo y en las areas.
 - Toda escritura en TIA va dentro de `with transaccion(job, texto):`.
 - Estas funciones reciben el portal como argumento. No importes
   `siemens_tia_scripting` en este modulo.
 - `simatic/` es offline: lee y escribe ficheros, no habla con el portal.
   Encodings: `.s7res` es `utf-8-sig` (con BOM), `.s7dcl` / `.scl` / `.xml` son
-  `utf-8` puro. Abre siempre con `newline=""` para preservar los retornos de
-  carro que exporta TIA.
+  `utf-8` puro.
+- **Los saltos de linea se fijan.** TIA exporta con CRLF y la paridad byte a
+  byte con `main` depende de eso: los `.s7dcl` y los `.s7res` se escriben con
+  `newline=SD_NEWLINE` (`\r\n`), en cualquier sistema operativo. Si introduces
+  un `open()` o un `write_text()` nuevo, fija el `newline` o rompe la paridad.
+- El XML se serializa con ElementTree, que devuelve los saltos tal cual los
+  leyó: el fichero de entrada manda.
 
 ## Stop when
 

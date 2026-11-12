@@ -1,5 +1,5 @@
 ---
-description: Especialista en el nucleo de zc-automation-suite (hilo unico de TIA en tia.py, contrato Job y transaccion(), bus SSE en eventos.py, app Flask en web.py, config validada con Pydantic en config.py, workdir en workdir.py). Usalo para cambios en backend/zc_suite/.
+description: Especialista en el nucleo de zc-automation-suite (nucleo/app: arranque, lista AREAS, config, log, bandeja y servidor; nucleo/web: Flask, rutas y SSE; nucleo/tia: hilo unico, Job, transaccion, bus de eventos y workdir; nucleo/funciones: un trabajo por fichero). Usalo para cambios en backend/zc_suite/nucleo/ y en backend/zc_suite/errores.py.
 mode: subagent
 ---
 
@@ -11,15 +11,19 @@ con TIA Portal, el contrato de los trabajos, el bus de eventos y la capa HTTP.
 ## Scope
 
 - **Own:**
-  - `backend/zc_suite/tia.py` — hilo unico, `Job`, `transaccion()`, conectar y
-    desconectar, estado de la conexion.
-  - `backend/zc_suite/eventos.py` — bus SSE con los cuatro tipos de evento
-    (`progress`, `job`, `log`, `tia`) y el handler que manda los logs al bus.
-  - `backend/zc_suite/web.py` — app Flask, estaticos, `GET /api/eventos`,
-    `lanzar()`.
-  - `backend/zc_suite/config.py` — `config.json` validado con Pydantic.
-  - `backend/zc_suite/workdir.py` — `.build_cache/<area>/<contexto>/...`.
-  - `backend/zc_suite/main.py` — arranque y lista `AREAS`.
+  - `backend/zc_suite/nucleo/app/` — `main.py` (arranque y lista `AREAS`),
+    `config.py` (config.json validado con Pydantic), `logs.py`, `bandeja.py`,
+    `icono.py`, `servidor.py`.
+  - `backend/zc_suite/nucleo/web/` — `app.py` (Flask, estaticos,
+    `GET /api/eventos`, `lanzar()`) y `rutas/` (`conexion.py`, `plc.py`,
+    `catalogo.py`, `config.py`).
+  - `backend/zc_suite/nucleo/tia/` — `servicio.py` (hilo unico, `ServicioTIA`,
+    conectar y desconectar), `job.py` (`Job` y sus pasos), `transaccion.py`,
+    `errores.py` (`TIAError` y los suyos), `eventos.py` (bus SSE y handler de
+    logging), `workdir.py` (`.build_cache/<area>/<contexto>/`).
+  - `backend/zc_suite/nucleo/funciones/` — los trabajos del nucleo, uno por
+    fichero: `plc/{buscar_plcs,escanear}.py`, `bloques/{preparar,aplicar}.py`.
+  - `backend/zc_suite/errores.py` — `ZCError` y `OperacionError`.
 - **Don't own:** `tia_ops/` y `simatic/` (agente `tia-ops`), `areas/`
   (agente `areas`), `frontend/` (agente `frontend`), empaquetado y tests
   (agente `build-y-tests`).
@@ -27,6 +31,12 @@ con TIA Portal, el contrato de los trabajos, el bus de eventos y la capa HTTP.
 ## How you work
 
 - Lee `AGENTS.md` antes de cada cambio. Ahi viven las reglas no negociables.
+- **Tres capas.** `nucleo/app` arranca y monta la app, `nucleo/web` expone el
+  HTTP, `nucleo/tia` habla con TIA. `nucleo/funciones` son los trabajos.
+- **Un trabajo = un fichero = una funcion.** En `nucleo/funciones/<dominio>/`
+  el fichero se llama como la funcion (`buscar_plcs.py` -> `buscar_plcs`).
+  Solo esos ficheros reciben el `job`, declaran pasos y abren `transaccion()`.
+  Lo demas se queda como funcion privada de su fichero.
 - **Un solo hilo habla con TIA.** El `import` de `siemens_tia_scripting` ocurre
   DENTRO de la funcion del hilo; en ningun otro punto del proceso. Al cargar
   el wrapper, silencia el logger nativo de Siemens: si no, escribe en stdout.
@@ -40,7 +50,8 @@ con TIA Portal, el contrato de los trabajos, el bus de eventos y la capa HTTP.
 - El estado de un trabajo son variables locales de su funcion. Nada sobrevive
   entre ejecuciones.
 - Los fallos son excepciones. Nunca devuelvas `{"ok": False}` para que otro
-  lo compruebe.
+  lo compruebe. `ZCError` son los fallos esperados (warning sin traceback);
+  `TIAError` cuelga de `ZCError` y son los propios de TIA.
 - El SSE es push, no polling. Al conectarse, un cliente recibe de inmediato el
   ultimo `progress` y el ultimo `tia`.
 - Sin asyncio, sin timeouts que abandonen hilos, sin CDN.

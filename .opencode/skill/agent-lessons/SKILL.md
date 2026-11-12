@@ -1,6 +1,6 @@
 ---
 name: agent-lessons
-description: Lecciones operativas criticas del agente para zc-automation-suite — TIA Openness target_folder_path, silenciado del log nativo de Siemens con set_logging, encoding BOM al restaurar git desde PowerShell, smoke en vivo > tests verdes, auditar imports al mover codigo, encoding de archivos TIA exportados. Carga esta skill ante bugs de import, de TIA, o refactors grandes.
+description: Lecciones operativas criticas del agente para zc-automation-suite — TIA Openness target_folder_path, silenciado del log nativo de Siemens con set_logging, encoding BOM al restaurar git desde PowerShell, smoke en vivo > tests verdes, auditar imports al mover codigo, encoding y saltos de linea de los ficheros TIA exportados, fixtures byte a byte. Carga esta skill ante bugs de import, de TIA, o refactors grandes.
 ---
 
 # Lecciones operativas del agente (mavis → zc-automation-suite)
@@ -64,8 +64,8 @@ Reglas que salen de ahi:
 - Al reabrir, **verifica el portal guardado antes de devolverlo**. Si esta
   muerto, se descarta y se engancha de nuevo.
 
-Aplica a `backend/zc_suite/tia.py` (`pid_del_portal`, `_bucle`,
-`_verificar_conexion`, `abrir_portal`).
+Aplica a `backend/zc_suite/nucleo/tia/servicio.py` (`pid_del_portal`,
+`_bucle`, `_verificar_conexion`, `abrir_portal`).
 
 ## `pythonnet` no hace falta
 
@@ -74,12 +74,32 @@ con .NET y carga el CLR sin `pythonnet` instalado. Verificado en un venv
 limpio con solo la wheel de Siemens. No lo anadir a las dependencias ni a los
 hiddenimports de PyInstaller.
 
-## Encoding de archivos TIA exportados
+## Encoding y saltos de linea de los archivos TIA exportados
 
 - `.s7res`: utf-8-sig (BOM).
 - `.s7dcl`, `.scl`, `.xml`: utf-8 puro (sin BOM).
-- `open()` siempre con `newline=''` para preservar los retornos de carro
-  originales de TIA Portal.
+- **Los saltos de linea se fijan, no se heredan del sistema.** TIA exporta con
+  CRLF y la paridad byte a byte con `main` depende de eso: los `.s7dcl` y los
+  `.s7res` se escriben con `newline=SD_NEWLINE` (`\r\n`) en
+  `simatic/sd/comentarios_array.py`. Si metes un `write_text()` nuevo sin
+  `newline`, el resultado cambia entre Windows y Linux.
+- El XML se serializa con ElementTree, que devuelve los saltos tal cual los
+  leyo: el fichero de entrada manda.
+
+## Los fixtures se comparan byte a byte
+
+`tests/fixtures/**` esta marcado con `-text` en `.gitattributes`: git no
+convierte sus bytes, ni al añadir ni al sacar. Los fixtures de `expected/`
+guardan exactamente lo que produce la app, con CRLF.
+
+- Si cambias un fixture: `git add --renormalize tests/fixtures` y comprueba
+  que los tests de paridad siguen verdes.
+- Con la regla `-text` en vigor, el indice guarda lo que hay en el disco: si
+  el disco tiene LF y el indice CRLF (o al reves), la paridad se rompe en
+  cuanto alguien hace checkout en otro sistema.
+- Los helpers compartidos entre tests van como **fixtures** de `conftest.py`,
+  no como funciones importadas: los modulos hermanos de test no son
+  importables de forma fiable en modo importlib de pytest.
 
 ## Cero codigo sucio
 
@@ -99,6 +119,18 @@ siempre:
 
 Si el archivo restaurado se ve como `Bin 12796 -> 27120 bytes` en
 `git diff --stat`, esta es la causa.
+
+## PowerShell 5.1 en este host
+
+- No hay `&&` ni `||`: encadena con `;` y comprueba `$LASTEXITCODE`.
+- `Remove-Item` esta bloqueado, tambien los borrados recursivos. Para borrar
+  de forma recuperable: `rm -- "<ruta absoluta>"` en **una sola invocacion**
+  (solo el comando `rm`, sin `;` ni comandos encadenados). Con varios
+  comandos o con `cd` en la misma linea, el borrado falla.
+- `Get-Content` sin `-Encoding UTF8` muestra mojibake: usa `-Encoding UTF8` o
+  la herramienta de read.
+- Los commits se hacen con `git commit -F <fichero>`: `-m` con comillas rompe
+  el parseo del shell.
 
 ## Al mover codigo entre modulos, audita TODOS los imports
 
@@ -138,6 +170,11 @@ Para refactors cross-file con varios commits:
    `verifier` (read-only) que audite: patron aplicado consistentemente, scope
    respetado, tests verde vs baseline.
 4. Smoke en vivo con un proyecto de TIA de PRUEBA.
+
+## Delegar en pasos pequenos
+
+Tarea grande = alucinaciones. Delega en 1-2 ficheros por paso, menos de 200
+lineas, commiteable solo. Si un paso se complica, dividelo.
 
 ## Tests verdes != codigo correcto — el smoke en vivo es la verdad
 
