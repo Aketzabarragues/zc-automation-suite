@@ -19,13 +19,13 @@ from pathlib import Path
 from typing import Any
 
 from zc_suite.areas.alimentacion.config import ConfigArea, n_max_de
+from zc_suite.areas.alimentacion.dispositivos import CLAVE_PREVISION
 from zc_suite.areas.alimentacion.dispositivos.diferencias import (
     DiffNMax,
     DiffTabla,
     disp_calcular_diff_n_max,
     disp_calcular_diff_tabla,
 )
-from zc_suite.areas.alimentacion.dispositivos import CLAVE_PREVISION
 from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
 from zc_suite.nucleo.sesion import Sesion
 from zc_suite.nucleo.tia.job import Job

@@ -15,7 +15,6 @@ Restriccion arquitectonica: este modulo es OFFLINE; no importa
 from __future__ import annotations
 
 import io
-
 import logging
 import xml.etree.ElementTree as ET
 from pathlib import Path
