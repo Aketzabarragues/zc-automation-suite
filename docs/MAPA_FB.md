@@ -24,9 +24,10 @@ evento `job` del stream SSE.
 | El resultado se publica en el `AppCache` y la SPA lo lee por sondeo | El resultado llega en el evento `job` del stream SSE |
 
 El nombre del FB **no** se conserva tal cual: el trabajo se identifica por el
-nombre de su funcion (`escanear_plc`, `cargar_excel`, `disp_generar_preview`),
-que es lo que sale en el log y en el faceplate. Solo `disp_generar_preview`
-coincide con el nombre que tenia en `main`.
+nombre de su funcion, que es el de su fichero (`escanear`, `preparar`,
+`aplicar`, `buscar_plcs`, `cargar`, `recargar`, `generar_prevision`), y eso es
+lo que sale en el log y en el faceplate. Ninguno coincide con el nombre que
+tenia en `main`.
 
 ## Los doce FBs de `main`
 
@@ -34,23 +35,23 @@ coincide con el nombre que tenia en `main`.
 
 | FB en `main` | Donde vive ahora | Ruta HTTP | Store / vista | Pasos del faceplate | Estado |
 |---|---|---|---|---|---|
-| `scan_plc_blocks`<br>`core/composition/function_scan_plc_blocks.py` | `zc_suite/nucleo/trabajos/plc.py::escanear_plc` | `POST /api/v1/tia/plcs/<plc>/escanear` | `nucleo/stores/plc.js` -> `nucleo/vistas/Plc.vue` | main: `check_cache`, `escanear`<br>ahora: `bloques`, `tablas`, `tipos` | **portado** |
-| `block_edit_prepare`<br>`core/composition/function_block_edit_prepare.py` | `zc_suite/nucleo/trabajos/bloques.py::preparar_bloques` | `POST /api/v1/tia/plcs/<plc>/bloques/preparar` | `nucleo/vistas/EditorBloques.vue` | main: Validar seleccion, Leer bloques desde cache, Exportar bloques SD, Parsear headers SCL, Combinar DTOs en cache<br>ahora: `validar`, `leer`, `exportar`, `parsear`, `combinar` (los dos del SimaticSD solo en V21+) | **portado** |
-| `block_edit_apply`<br>`core/composition/function_block_edit_apply.py` | `zc_suite/nucleo/trabajos/bloques.py::editar_bloques` | `POST /api/v1/tia/plcs/<plc>/bloques/editar` | `nucleo/vistas/EditorBloques.vue` | main: Validar edits, Calcular diff, Aplicar transaccion, Verificar resultado, Refrescar cache<br>ahora: `validar`, `diferencias`, `aplicar`, `verificar`, `refrescar` | **portado** |
+| `scan_plc_blocks`<br>`core/composition/function_scan_plc_blocks.py` | `zc_suite/nucleo/funciones/plc/escanear.py::escanear` | `POST /api/v1/tia/plcs/<plc>/escanear` | `nucleo/stores/plc.js` -> `nucleo/vistas/Plc.vue` | main: `check_cache`, `escanear`<br>ahora: `bloques`, `tablas`, `tipos` | **portado** |
+| `block_edit_prepare`<br>`core/composition/function_block_edit_prepare.py` | `zc_suite/nucleo/funciones/bloques/preparar.py::preparar` | `POST /api/v1/tia/plcs/<plc>/bloques/preparar` | `nucleo/vistas/EditorBloques.vue` | main: Validar seleccion, Leer bloques desde cache, Exportar bloques SD, Parsear headers SCL, Combinar DTOs en cache<br>ahora: `validar`, `leer`, `exportar`, `parsear`, `combinar` (los dos del SimaticSD solo en V21+) | **portado** |
+| `block_edit_apply`<br>`core/composition/function_block_edit_apply.py` | `zc_suite/nucleo/funciones/bloques/aplicar.py::aplicar` | `POST /api/v1/tia/plcs/<plc>/bloques/editar` | `nucleo/vistas/EditorBloques.vue` | main: Validar edits, Calcular diff, Aplicar transaccion, Verificar resultado, Refrescar cache<br>ahora: `validar`, `diferencias`, `aplicar`, `verificar`, `refrescar` | **portado** |
 
 ### Area de alimentacion
 
 | FB en `main` | Donde vive ahora | Ruta HTTP | Store / vista | Pasos del faceplate | Estado |
 |---|---|---|---|---|---|
-| `subir_excel`<br>`areas/alimentacion/functions/function_excel_cargar.py` | `zc_suite/areas/alimentacion/excel/trabajo.py::cargar_excel` | `POST /api/v1/areas/alimentacion/excel` | `areas/alimentacion/stores/excel.js` -> `areas/alimentacion/vistas/DefinicionProgramacion.vue` | main: Parsear y volcar Excel<br>ahora: `validar`, `parsear`, `guardar`, `avisos` | **portado** |
-| `disp_generar_preview`<br>`areas/alimentacion/functions/function_disp_generar_preview.py` | `zc_suite/areas/alimentacion/dispositivos/trabajo.py::disp_generar_preview` | `POST /api/v1/areas/alimentacion/dispositivos/preview` | `areas/alimentacion/stores/dispositivos.js` -> `areas/alimentacion/vistas/Dispositivos.vue` | main: Exportar etiquetas, Calcular diferencias de dispositivos, Calcular diferencias de N_MAX, Componer respuesta<br>ahora: `exportar`, `dispositivos`, `n_max`, `componer` | **portado** |
-| `disp_sincronizar`<br>`areas/alimentacion/functions/function_disp_sincronizar.py` | (a escribir) | (a escribir) | `areas/alimentacion/stores/dispositivos.js` -> `areas/alimentacion/vistas/Dispositivos.vue` | main: Exportar etiquetas, Calcular diferencias de dispositivos, Preparar operaciones, Aplicar N_MAX y renombres, Esperar consolidacion TIA, Re-exportar etiquetas, Editar archivos XML, Aplicar dispositivos, Compilar bloques, Aplicar comentarios, Generar preview post-sincronizacion<br>ahora: (a definir en la 4.3) | **pendiente** (fase 4.3) |
-| `entidades_generar_preview`<br>`areas/alimentacion/functions/function_entidades_generar_preview.py` | (a escribir) | (a escribir) | (a escribir) | main: Exportar etiquetas y DB, Calcular diferencias de N_MAX_ENTIDAD, Calcular diferencias de constantes, Calcular diferencias de comentarios, Componer respuesta<br>ahora: (a definir) | **pendiente** (fase 4.4) |
-| `entidades_sincronizar`<br>`areas/alimentacion/functions/function_entidades_sincronizar.py` | (a escribir) | (a escribir) | (a escribir) | main: Exportar etiquetas y DB, Calcular diferencias, Preparar operaciones, Aplicar NMAX online (Tx A), Esperar consolidacion TIA, Re-exportar etiquetas y DB, Editar XMLs offline, Aplicar constantes offline (Tx B), Compilar bloques, Aplicar comentarios offline (Tx C), Generar preview post-sincronizacion<br>ahora: (a definir) | **pendiente** (fase 4.4) |
-| `proc_db_generar_preview`<br>`areas/alimentacion/functions/function_proc_db_generar_preview.py` | (a escribir) | (a escribir) | (a escribir) | main: Validar estado de TIA, Validar bloques, Construir mapa de slots, Calcular diferencias de N_MAX, Exportar y calcular diferencias, Componer respuesta<br>ahora: (a definir) | **pendiente** (fase 4.5) |
-| `proc_db_sincronizar`<br>`areas/alimentacion/functions/function_proc_db_sincronizar.py` | (a escribir) | (a escribir) | (a escribir) | main: Validar estado de TIA, Validar bloques, Construir mapa de slots, Aplicar N_MAX, Esperar consolidacion TIA, Compilar bloques, Abrir transaccion TIA, Generar preview post-sincronizacion, Componer respuesta<br>ahora: (a definir) | **pendiente** (fase 4.5) |
-| `proc_process_crear_preview`<br>`areas/alimentacion/functions/function_proc_crear_generar_preview.py` | (a escribir) | (a escribir) | (a escribir) | main: Leer manifiesto, Validar minimos, Copiar a vista previa, Construir diccionarios, Detectar colisiones, Validar dependencias, Generar previstos, Componer respuesta<br>ahora: (a definir) | **pendiente** (fase 4.6) |
-| `proc_process_crear_aplicar`<br>`areas/alimentacion/functions/function_proc_crear_sincronizar.py` | (a escribir) | (a escribir) | (a escribir) | main: Leer manifiesto, Validar minimos, Copiar a vista previa, Construir diccionarios, Generar proceso nuevo, Escribir manifiesto modificado, Importar proceso, Compilar bloques, Refrescar BloqueCache, Componer respuesta<br>ahora: (a definir) | **pendiente** (fase 4.6) |
+| `subir_excel`<br>`areas/alimentacion/functions/function_excel_cargar.py` | `zc_suite/areas/alimentacion/funciones/excel/cargar.py::cargar` | `POST /api/v1/areas/alimentacion/excel` | `areas/alimentacion/stores/excel.js` -> `areas/alimentacion/vistas/DefinicionProgramacion.vue` | main: Parsear y volcar Excel<br>ahora: `validar`, `parsear`, `guardar`, `avisos` | **portado** |
+| `disp_generar_preview`<br>`areas/alimentacion/functions/function_disp_generar_preview.py` | `zc_suite/areas/alimentacion/funciones/dispositivos/generar_prevision.py::generar_prevision` | `POST /api/v1/areas/alimentacion/dispositivos/preview` | `areas/alimentacion/stores/dispositivos.js` -> `areas/alimentacion/vistas/Dispositivos.vue` | main: Exportar etiquetas, Calcular diferencias de dispositivos, Calcular diferencias de N_MAX, Componer respuesta<br>ahora: `exportar`, `dispositivos`, `n_max`, `componer` | **portado** |
+| `disp_sincronizar`<br>`areas/alimentacion/functions/function_disp_sincronizar.py` | `zc_suite/areas/alimentacion/funciones/dispositivos/sincronizar.py::sincronizar` (previsto) | (a escribir) | `areas/alimentacion/stores/dispositivos.js` -> `areas/alimentacion/vistas/Dispositivos.vue` | main: Exportar etiquetas, Calcular diferencias de dispositivos, Preparar operaciones, Aplicar N_MAX y renombres, Esperar consolidacion TIA, Re-exportar etiquetas, Editar archivos XML, Aplicar dispositivos, Compilar bloques, Aplicar comentarios, Generar preview post-sincronizacion<br>ahora: (a definir en la 4.3) | **pendiente** (fase 4.3) |
+| `entidades_generar_preview`<br>`areas/alimentacion/functions/function_entidades_generar_preview.py` | `zc_suite/areas/alimentacion/funciones/entidades/generar_prevision.py::generar_prevision` (previsto) | (a escribir) | (a escribir) | main: Exportar etiquetas y DB, Calcular diferencias de N_MAX_ENTIDAD, Calcular diferencias de constantes, Calcular diferencias de comentarios, Componer respuesta<br>ahora: (a definir) | **pendiente** (fase 4.4) |
+| `entidades_sincronizar`<br>`areas/alimentacion/functions/function_entidades_sincronizar.py` | `zc_suite/areas/alimentacion/funciones/entidades/sincronizar.py::sincronizar` (previsto) | (a escribir) | (a escribir) | main: Exportar etiquetas y DB, Calcular diferencias, Preparar operaciones, Aplicar NMAX online (Tx A), Esperar consolidacion TIA, Re-exportar etiquetas y DB, Editar XMLs offline, Aplicar constantes offline (Tx B), Compilar bloques, Aplicar comentarios offline (Tx C), Generar preview post-sincronizacion<br>ahora: (a definir) | **pendiente** (fase 4.4) |
+| `proc_db_generar_preview`<br>`areas/alimentacion/functions/function_proc_db_generar_preview.py` | `zc_suite/areas/alimentacion/funciones/procesos/generar_prevision_db.py::generar_prevision_db` (previsto) | (a escribir) | (a escribir) | main: Validar estado de TIA, Validar bloques, Construir mapa de slots, Calcular diferencias de N_MAX, Exportar y calcular diferencias, Componer respuesta<br>ahora: (a definir) | **pendiente** (fase 4.5) |
+| `proc_db_sincronizar`<br>`areas/alimentacion/functions/function_proc_db_sincronizar.py` | `zc_suite/areas/alimentacion/funciones/procesos/sincronizar_db.py::sincronizar_db` (previsto) | (a escribir) | (a escribir) | main: Validar estado de TIA, Validar bloques, Construir mapa de slots, Aplicar N_MAX, Esperar consolidacion TIA, Compilar bloques, Abrir transaccion TIA, Generar preview post-sincronizacion, Componer respuesta<br>ahora: (a definir) | **pendiente** (fase 4.5) |
+| `proc_process_crear_preview`<br>`areas/alimentacion/functions/function_proc_crear_generar_preview.py` | `zc_suite/areas/alimentacion/funciones/procesos/generar_prevision_crear.py::generar_prevision_crear` (previsto) | (a escribir) | (a escribir) | main: Leer manifiesto, Validar minimos, Copiar a vista previa, Construir diccionarios, Detectar colisiones, Validar dependencias, Generar previstos, Componer respuesta<br>ahora: (a definir) | **pendiente** (fase 4.6) |
+| `proc_process_crear_aplicar`<br>`areas/alimentacion/functions/function_proc_crear_sincronizar.py` | `zc_suite/areas/alimentacion/funciones/procesos/crear.py::crear` (previsto) | (a escribir) | (a escribir) | main: Leer manifiesto, Validar minimos, Copiar a vista previa, Construir diccionarios, Generar proceso nuevo, Escribir manifiesto modificado, Importar proceso, Compilar bloques, Refrescar BloqueCache, Componer respuesta<br>ahora: (a definir) | **pendiente** (fase 4.6) |
 
 El numero de fase sale del orden de los flujos de
 [`FLUJOS_ALIMENTACION.md`](FLUJOS_ALIMENTACION.md): primero los dispositivos
@@ -74,8 +75,8 @@ la reescritura son trabajos, pero sin pasos:
 |---|---|---|---|
 | Conectar: `POST /api/v1/portal/attach` | `zc_suite/nucleo/tia/servicio.py::conectar` | `POST /api/v1/tia/conectar` | `nucleo/stores/tia.js` -> `nucleo/vistas/Plc.vue` |
 | Desconectar: el `disconnect` del FB | `zc_suite/nucleo/tia/servicio.py::desconectar` | `POST /api/v1/tia/desconectar` | `nucleo/stores/tia.js` -> `nucleo/vistas/Plc.vue` |
-| Listar PLCs: `GET /api/v1/plcs` | `zc_suite/nucleo/trabajos/plc.py::buscar_plcs` | `POST /api/v1/tia/plcs/listar` | `nucleo/stores/plc.js` -> `nucleo/vistas/Plc.vue` |
-| Recargar el Excel guardado | `zc_suite/areas/alimentacion/excel/trabajo.py::recargar_excel` | `POST /api/v1/areas/alimentacion/excel/recargar` | `areas/alimentacion/stores/excel.js` (la SPA recarga con un GET al subir) |
+| Listar PLCs: `GET /api/v1/plcs` | `zc_suite/nucleo/funciones/plc/buscar_plcs.py::buscar_plcs` | `POST /api/v1/tia/plcs/listar` | `nucleo/stores/plc.js` -> `nucleo/vistas/Plc.vue` |
+| Recargar el Excel guardado | `zc_suite/areas/alimentacion/funciones/excel/recargar.py::recargar` | `POST /api/v1/areas/alimentacion/excel/recargar` | `areas/alimentacion/stores/excel.js` (la SPA recarga con un GET al subir) |
 
 El catalogo de la SPA (`GET /api/v1/catalog`) y el estado de la conexion
 (`GET /api/v1/tia/estado`) no son trabajos: son lecturas.
@@ -84,12 +85,20 @@ El catalogo de la SPA (`GET /api/v1/catalog`) y el estado de la conexion
 
 ### 1. Donde va la funcion
 
-La funcion va en el modulo que le corresponde por dominio:
+La funcion va en el modulo que le corresponde por dominio, y **cada FB en su
+propio fichero**, dentro de `funciones/`:
 
-- **Nucleo** (no depende de un area): `backend/zc_suite/nucleo/trabajos/`.
-- **De un area**: dentro del area, en el modulo de su dominio. Por ejemplo,
-  los dispositivos viven en
-  `backend/zc_suite/areas/alimentacion/dispositivos/trabajo.py`.
+- **Nucleo** (no depende de un area):
+  `backend/zc_suite/nucleo/funciones/<dominio>/<verbo>.py`.
+- **De un area**: dentro del area, en
+  `backend/zc_suite/areas/<id>/funciones/<dominio>/<verbo>.py`. Por ejemplo, los
+  dispositivos viven en
+  `backend/zc_suite/areas/alimentacion/funciones/dispositivos/generar_prevision.py`.
+
+La funcion se llama **como el fichero** que la contiene: `generar_prevision.py`
+define `generar_prevision()`. Los modulos de `funciones/` son los unicos que
+reciben el `job`; el resto del dominio (`areas/<id>/<dominio>/`) es logica pura y
+no depende de TIA.
 
 Las operaciones puras contra TIA (leer, exportar, importar, compilar) van en
 `backend/zc_suite/tia_ops/`. La funcion de trabajo solo las **orquesta**.
@@ -159,10 +168,10 @@ Las compilaciones van **fuera** de la transaccion: no bloquean y solo avisan.
 
 Una ruta por operacion, en el `Blueprint` que le toca:
 
-- **Del nucleo**: `backend/zc_suite/rutas/<recurso>.py`. Se monta en
-  `zc_suite/main.py::montar_app` con `rutas.<recurso>.registrar(app)`.
+- **Del nucleo**: `backend/zc_suite/nucleo/web/rutas/<recurso>.py`. Se monta en
+  `zc_suite/nucleo/app/main.py::montar_app` con `rutas.<recurso>.registrar(app)`.
 - **De un area**: `backend/zc_suite/areas/<id>/rutas.py`. Se monta sola: el
-  area se registra en la lista `AREAS` de `zc_suite/main.py` y su `Blueprint`
+  area se registra en la lista `AREAS` de `zc_suite/nucleo/app/main.py` y su `Blueprint`
   va con el.
 
 La ruta **no toca el portal**: encola el trabajo en el hilo de TIA y responde
@@ -170,9 +179,9 @@ La ruta **no toca el portal**: encola el trabajo en el hilo de TIA y responde
 
 ```python
 @rutas.post("/plcs/<plc>/escanear")
-def escanear(plc: str) -> tuple[Response, int]:
+def escanear_plc(plc: str) -> tuple[Response, int]:
     """Encola el escaneo del PLC: bloques, tablas de tags y tipos de usuario."""
-    return lanzar(trabajos.escanear_plc, plc=plc)
+    return lanzar(escanear, plc=plc)
 ```
 
 `lanzar()` es el de `zc_suite.nucleo.web.app`: mira el hilo de TIA, encola y responde
@@ -208,10 +217,10 @@ llego como si llega despues: el store guarda los trabajos terminados por id.
 ### Ejemplo real y minimo
 
 El trabajo de escanear el PLC, tal y como esta en
-`backend/zc_suite/nucleo/trabajos/plc.py`:
+`backend/zc_suite/nucleo/funciones/plc/escanear.py`:
 
 ```python
-def escanear_plc(job: Job, plc: str) -> dict[str, Any]:
+def escanear(job: Job, plc: str) -> dict[str, Any]:
     """Escanea el PLC: bloques, tablas de tags y tipos de usuario."""
     job.empezar(
         f"Escanear {plc}",
@@ -237,9 +246,9 @@ Y su ruta, en `backend/zc_suite/nucleo/web/rutas/plc.py`:
 
 ```python
 @rutas.post("/plcs/<plc>/escanear")
-def escanear(plc: str) -> tuple[Response, int]:
+def escanear_plc(plc: str) -> tuple[Response, int]:
     """Encola el escaneo del PLC: bloques, tablas de tags y tipos de usuario."""
-    return lanzar(trabajos.escanear_plc, plc=plc)
+    return lanzar(escanear, plc=plc)
 ```
 
 Y su uso en la SPA, en `frontend/src/nucleo/stores/plc.js`:

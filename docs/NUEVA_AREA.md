@@ -40,7 +40,7 @@ def defaults(config: Any) -> dict[str, Any]:
 
 ## 2. Registro
 
-Anade el area a la lista `AREAS` de `backend/zc_suite/main.py`:
+Anade el area a la lista `AREAS` de `backend/zc_suite/nucleo/app/main.py`:
 
 ```python
 AREAS = [
@@ -58,15 +58,20 @@ Layout recomendado dentro de `areas/<id>/`:
 
 ```
 __init__.py     ID, NOMBRE, rutas, catalogo(), defaults()
-excel/          lector.py, tablas.py, especiales.py
-datos/          catalogos y slot maps
-<dominio>.py    logica de negocio pura (dispositivos.py, procesos.py, ...)
-diff.py         calculo de diferencias
+rutas.py        el Blueprint del area
+funciones/      un FB por fichero: funciones/<dominio>/<verbo>.py
+excel/          logica pura del Excel: parser.py, modelo.py, tablas.py, ...
+<dominio>/      logica pura del dominio (dispositivos/, procesos/, ...)
 ```
+
+Lo de `funciones/` es lo que **lanza la web**: recibe el `job`, declara sus
+pasos y abre transacciones. Lo de `<dominio>/` es logica pura: no depende de
+TIA ni recibe el `job`.
 
 Las areas **no se importan entre si** y el nucleo **no importa las areas**
 (la unica excepcion es la lista `AREAS`). `tests/test_fronteras.py` lo
-comprueba recorriendo los imports.
+comprueba recorriendo los imports, y `tests/test_fronteras_dominio.py` que la
+logica pura no depende de TIA.
 
 ## 4. Operaciones
 

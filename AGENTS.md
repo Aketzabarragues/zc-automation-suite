@@ -13,11 +13,13 @@ Lee este fichero antes de tocar codigo. Sus reglas son obligatorias.
 3. Cada operacion tiene modo `aplicar=False`, que es el preview.
 4. El nucleo no importa areas (salvo la lista `AREAS` de `main.py`) y las areas
    no se importan entre si. Lo verifica `tests/test_fronteras.py`.
-5. Ningun objeto .NET sale de `tia_ops/`: se devuelven `dict`, `list`, `str`,
+5. La logica pura de los dominios (fuera de `funciones/`) no depende de TIA.
+   Lo verifica `tests/test_fronteras_dominio.py`.
+6. Ningun objeto .NET sale de `tia_ops/`: se devuelven `dict`, `list`, `str`,
    `int` y `bool`.
-6. Python 3.12-3.14, type hints en todas las firmas, ruff limpio.
-7. Sin asyncio. Sin CDN: todo funciona offline.
-8. Fuera de alcance: base de datos, MCP, autenticacion, sistemas de plugins.
+7. Python 3.12-3.14, type hints en todas las firmas, ruff limpio.
+8. Sin asyncio. Sin CDN: todo funciona offline.
+9. Fuera de alcance: base de datos, MCP, autenticacion, sistemas de plugins.
 
 ## Modelo de ejecucion
 
@@ -41,6 +43,7 @@ SPA --POST /api/...--> tia.lanzar(funcion, **params) --> job_id (202)
 
 ```
 backend/zc_suite/
+  errores.py          TIAError y OperacionError: el contrato de errores
   nucleo/app/        main.py (arranque + lista AREAS), config.py, logs.py,
                      bandeja.py, icono.py, servidor.py
   nucleo/web/        app.py (Flask, estaticos, /api/eventos, lanzar())
@@ -49,8 +52,8 @@ backend/zc_suite/
                      job.py (Job y sus pasos), transaccion.py, errores.py,
                      eventos.py (bus SSE + handler de logging),
                      workdir.py (.build_cache/<area>/<contexto>/)
-  nucleo/trabajos/   plc.py (buscar_plcs, escanear_plc),
-                     bloques.py (preparar_bloques, editar_bloques)
+  nucleo/funciones/  plc/buscar_plcs.py, plc/escanear.py,
+                     bloques/preparar.py, bloques/aplicar.py
   tia_ops/           proyecto.py, exportar.py, importar.py, compilar.py,
                      constantes.py, bloques.py, tablas.py
   simatic/ml/        constantes_parser.py, constantes_modificador.py,
@@ -58,17 +61,19 @@ backend/zc_suite/
   simatic/sd/        cabecera.py, comentarios_array.py, mlc.py
   areas/<id>/        ID, NOMBRE, rutas, catalogo(), defaults(), al_arrancar()
                      <id>/rutas.py con el Blueprint del area
-                     <id>/excel/        trabajo.py, modelo.py, tablas.py,
-                                       columnas.py, parser.py, almacen.py
-                     <id>/dispositivos/ trabajo.py, prevision.py, catalogo.py
+                     <id>/funciones/    un FB por fichero
+                     <id>/excel/        parser.py, modelo.py, tablas.py,
+                                       columnas.py, almacen.py
+                     <id>/dispositivos/ diferencias.py, catalogo.py
 frontend/src/
   nucleo/            api.js, eventos.js, demo.js, componentes/, vistas/,
                      stores/
   areas/<area>/      index.js, vistas/, stores/
   App.vue  main.js  style.css
 tests/               misma estructura que backend/zc_suite:
-                     nucleo/{app,web,tia,trabajos}/, tia_ops/,
-                     simatic/{ml,sd}/, areas/<id>/{<dominio>}/, fixtures/
+                     nucleo/{app,web,tia,funciones}/, tia_ops/,
+                     simatic/{ml,sd}/, areas/<id>/{<dominio>,funciones}/,
+                     fixtures/
 scripts/smoke/       smokes contra TIA real (se lanzan a mano)
 ```
 
@@ -78,12 +83,18 @@ scripts/smoke/       smokes contra TIA real (se lanzan a mano)
   tildes ni anglicismos en los identificadores.
 - **Las carpetas de dominio van en plural**: `dispositivos/`, `excel/`,
   `entidades/`, `procesos/`.
-- **Un fichero no repite el nombre de su carpeta**: `dispositivos/prevision.py`
-  y no `dispositivos/disp_preview.py`; `simatic/sd/mlc.py` y no
+- **Un fichero no repite el nombre de su carpeta**: `dispositivos/diferencias.py`
+  y no `dispositivos/disp_diferencias.py`; `simatic/sd/mlc.py` y no
   `simatic/sd/generador_mlc.py`.
-- **Cada dominio del area tiene dos cosas**: `trabajo.py` (lo que lanza la
-  web) y los modulos de logica al lado. `entidades/` y `procesos/` van a
-  seguir esta forma.
+- **Un FB por fichero, en `funciones/<dominio>/<verbo>.py`**: la funcion de
+  dentro se llama como el fichero (`def generar_prevision(job, ...)`). Son los
+  **unicos** modulos que reciben el `job`, declaran pasos y abren
+  `transaccion()`. Lo que solo usa el FB se queda como funcion privada de su
+  fichero.
+- **`<dominio>/` (fuera de `funciones/`) es logica pura**: no importa
+  `zc_suite.nucleo.tia` ni `zc_suite.tia_ops`, ni recibe el `job`. Para lanzar
+  un fallo esperado usa `zc_suite.errores`. Lo vigila
+  `tests/test_fronteras_dominio.py`.
 - **En el frontend, lo del nucleo va en `src/nucleo/` y lo del area en
   `src/areas/<area>/`**. Un store del area nunca esta en `nucleo/stores/`.
 - **`tests/` refleja `backend/zc_suite/` carpeta a carpeta**: un test vive
@@ -183,7 +194,7 @@ ultimo `progress` y el ultimo `tia`.
    maestro, por ejemplo). No es opcional: todas las areas lo implementan.
 2. Las rutas van en `backend/zc_suite/areas/<id>/rutas.py`, con el `Blueprint`
    del area. El `__init__.py` lo expone como `rutas`.
-3. Registra el area en la lista `AREAS` de `backend/zc_suite/main.py`. No hay
+3. Registra el area en la lista `AREAS` de `backend/zc_suite/nucleo/app/main.py`. No hay
    registro automatico ni ganchos opcionales.
 4. Frontend: `frontend/src/areas/<id>/index.js` exporta `{id, nombre, rutas,
    menu}`. El shell las recoge con `import.meta.glob`.

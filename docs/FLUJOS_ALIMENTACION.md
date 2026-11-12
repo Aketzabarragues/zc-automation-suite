@@ -457,7 +457,7 @@ Los ocho flujos de arriba son el comportamiento de `main`. En la reescritura cam
 
 | En `main` | En la reescritura |
 |---|---|
-| Cada area tiene sus FBs y su worker | El nucleo tiene `tia_ops` (operaciones puras) y `trabajos.py` (la orquestacion) |
+| Cada area tiene sus FBs y su worker | El nucleo tiene `tia_ops` (operaciones puras) y `funciones/` (la orquestacion), con un FB por fichero |
 | El resultado se publica en el AppCache | El resultado llega por el evento `job` del stream SSE |
 | `execute_transactional_batch` envuelve las transacciones | `transaccion(job, ...)` de `zc_suite.nucleo.tia.transaccion`, una por operacion |
 | `compile_blocks` fuera de toda transaccion | `tia_ops.compilar`, siempre fuera |

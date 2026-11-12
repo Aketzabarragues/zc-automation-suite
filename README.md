@@ -131,8 +131,9 @@ Para llevar los datos a otra maquina, copia la carpeta del `.exe` entera
 
 ```
 backend/zc_suite/
+  errores.py  el contrato de errores de la app
   nucleo/       app/ (arranque, config, log, bandeja), web/ (Flask y rutas),
-                tia/ (hilo, Job, transaccion), trabajos/
+                tia/ (hilo, Job, transaccion), funciones/ (un trabajo por fichero)
   tia_ops/      operaciones contra TIA Portal
   simatic/      ml/ (SimaticML), sd/ (SimaticSD)
   areas/        areas de negocio; el nucleo no las importa
