@@ -64,6 +64,7 @@ ignore = [
 minversion = "8.0"
 testpaths = ["tests"]
 pythonpath = ["backend"]
-# Los smokes de ``tests/smoke/`` se lanzan a mano contra TIA Portal real.
-addopts = "--strict-markers --strict-config --ignore=tests/smoke"
+# Los smokes viven en ``scripts/smoke/``: se lanzan a mano contra TIA Portal
+# real, no forman parte de la suite.
+addopts = "--strict-markers --strict-config"
 filterwarnings = ["error"]

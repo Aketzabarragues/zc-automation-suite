@@ -10,8 +10,13 @@ PAQUETES_NUCLEO: tuple[str, ...] = (
     "zc_suite",
     "zc_suite.tia_ops",
     "zc_suite.simatic",
-    "zc_suite.comun",
+    "zc_suite.simatic.ml",
+    "zc_suite.simatic.sd",
+    "zc_suite.nucleo.app",
+    "zc_suite.nucleo.web",
     "zc_suite.nucleo.web.rutas",
+    "zc_suite.nucleo.tia",
+    "zc_suite.nucleo.trabajos",
     "zc_suite.areas",
 )
 

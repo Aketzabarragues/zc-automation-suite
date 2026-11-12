@@ -27,7 +27,7 @@ from zc_suite.nucleo.tia.errores import (
 from zc_suite.nucleo.tia.servicio import ServicioTIA, version_tia_instalada
 from zc_suite.nucleo.tia.transaccion import transaccion
 
-RAIZ = Path(__file__).resolve().parents[2]
+RAIZ = Path(__file__).resolve().parents[3]
 
 
 # ── dobles de test ─────────────────────────────────────────────────────────

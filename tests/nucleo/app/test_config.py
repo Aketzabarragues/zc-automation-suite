@@ -17,7 +17,7 @@ from zc_suite.nucleo.app.config import (
     ruta_plantilla,
 )
 
-RAIZ = Path(__file__).resolve().parents[2]
+RAIZ = Path(__file__).resolve().parents[3]
 
 
 @pytest.fixture

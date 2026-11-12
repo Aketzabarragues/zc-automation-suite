@@ -17,7 +17,7 @@ from zc_suite.nucleo.tia.workdir import (
     workdir_editor_bloques,
 )
 
-RAIZ = Path(__file__).resolve().parents[2]
+RAIZ = Path(__file__).resolve().parents[3]
 
 
 # ── la raiz ────────────────────────────────────────────────────────────────

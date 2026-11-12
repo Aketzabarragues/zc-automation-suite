@@ -30,7 +30,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-RAIZ = Path(__file__).resolve().parents[1]
+RAIZ = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(RAIZ / "backend"))
 
 from zc_suite.areas.alimentacion.dispositivos import trabajo as dispositivos_trabajo  # noqa: E402
