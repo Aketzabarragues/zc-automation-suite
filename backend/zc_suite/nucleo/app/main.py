@@ -27,14 +27,22 @@ from flask import Flask
 from zc_suite.areas import alimentacion
 from zc_suite.nucleo.app import logs
 from zc_suite.nucleo.app.bandeja import Bandeja, desconectar_y_parar
-from zc_suite.nucleo.app.config import Config, ConfigEnUso, cargar_config, resolver_config
+from zc_suite.nucleo.app.config import (
+    Config,
+    ConfigEnUso,
+    cargar_config,
+    estado_config,
+    resolver_config,
+)
 from zc_suite.nucleo.app.servidor import ServidorWeb
 from zc_suite.nucleo.tia.eventos import BusEventos
 from zc_suite.nucleo.tia.servicio import ServicioTIA
 from zc_suite.nucleo.web.app import PUERTO_POR_DEFECTO, crear_app
 from zc_suite.nucleo.web.rutas import catalogo as rutas_catalogo
 from zc_suite.nucleo.web.rutas import conexion as rutas_conexion
+from zc_suite.nucleo.web.rutas import config as rutas_config
 from zc_suite.nucleo.web.rutas import plc as rutas_plc
+from zc_suite.nucleo.web.rutas.config import CLAVE_ESTADO_CONFIG
 
 logger = logging.getLogger(__name__)
 
@@ -153,9 +161,15 @@ def montar_app(
         config_en_uso = resolver_config()
     config_app = config if config is not None else cargar_config(config_en_uso.ruta)
     app.config["ZC_CONFIG"] = config_app
+    ids_areas = [area.ID for area in AREAS]
+    estado = estado_config(config_app, config_en_uso, ids_areas)
+    app.config[CLAVE_ESTADO_CONFIG] = estado
+    if estado["incompatible"]:
+        logger.error("Config incompatible: %s", estado["motivo"])
     rutas_conexion.registrar(app)
     rutas_plc.registrar(app)
     rutas_catalogo.registrar(app)
+    rutas_config.registrar(app)
     catalogos: dict[str, Any] = {}
     for area in AREAS:
         seccion = config_app.seccion_area(

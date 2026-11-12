@@ -21,6 +21,7 @@ import logging
 import os
 import shutil
 import sys
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -235,6 +236,74 @@ def resolve_config_path(
 
 
 # ── carga ──────────────────────────────────────────────────────────────────
+
+
+def areas_registradas_faltantes(config: Config, ids_areas: Iterable[str]) -> list[str]:
+    """Las areas registradas que no tienen seccion en el ``config.json``.
+
+    Args:
+        config: la configuracion cargada.
+        ids_areas: los identificadores de las areas registradas.
+
+    Returns:
+        Los identificadores de las areas que no estan en el config.
+    """
+    return [id_area for id_area in ids_areas if id_area not in config.areas]
+
+
+def config_incompatible(config: Config, ids_areas: Iterable[str]) -> str | None:
+    """El motivo por el que el ``config.json`` no sirve, o ``None`` si vale.
+
+    Un ``config.json`` sin la seccion ``areas`` (o sin la seccion de un area
+    registrada) es de otra version de la app. **No se sustituye**: el config
+    del operario manda siempre. La app avisa y sigue.
+
+    Args:
+        config: la configuracion cargada.
+        ids_areas: los identificadores de las areas registradas.
+
+    Returns:
+        El mensaje para el operario, o ``None`` si el config sirve.
+    """
+    if not config.areas:
+        return (
+            "El config.json no tiene la seccion 'areas': es de otra version de la "
+            "app. No se sustituye (el config del operario manda siempre): anadele "
+            "la seccion 'areas' o copie el config de la plantilla."
+        )
+    faltan = areas_registradas_faltantes(config, ids_areas)
+    if faltan:
+        return (
+            f"El config.json no tiene la seccion de las areas '{', '.join(faltan)}'. "
+            "No se sustituye (el config del operario manda siempre): copie el "
+            "config de la plantilla."
+        )
+    return None
+
+
+def estado_config(
+    config: Config,
+    config_en_uso: ConfigEnUso,
+    ids_areas: Iterable[str],
+) -> dict[str, Any]:
+    """El estado de la configuracion, tal y como lo ve la SPA.
+
+    Args:
+        config: la configuracion cargada.
+        config_en_uso: de donde sale el ``config.json``.
+        ids_areas: los identificadores de las areas registradas.
+
+    Returns:
+        Un dict con la ruta, el origen, si el config sirve y por que no.
+    """
+    motivo = config_incompatible(config, ids_areas)
+    return {
+        "ruta": str(config_en_uso.ruta),
+        "origen": config_en_uso.origen,
+        "incompatible": motivo is not None,
+        "motivo": motivo,
+        "areas_faltantes": areas_registradas_faltantes(config, ids_areas),
+    }
 
 
 def cargar_config(ruta: Path | None = None) -> Config:

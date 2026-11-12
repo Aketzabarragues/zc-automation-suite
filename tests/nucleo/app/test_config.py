@@ -11,8 +11,12 @@ import pytest
 
 from zc_suite.nucleo.app.config import (
     Config,
+    ConfigEnUso,
     ConfigError,
+    areas_registradas_faltantes,
     cargar_config,
+    config_incompatible,
+    estado_config,
     resolve_config_path,
     ruta_plantilla,
 )
@@ -231,3 +235,60 @@ def test_la_seccion_devuelta_no_altera_la_configuracion() -> None:
     seccion["x"] = 99
 
     assert config.areas["a"]["x"] == 1
+
+
+# ── config incompatible ─────────────────────────────────────────────────────
+
+
+def test_un_config_sin_areas_es_incompatible() -> None:
+    """Sin la seccion 'areas' el config es de otra version: no vale."""
+    config = Config.model_validate({"tia": {"plc": "ZC_PLC_STD"}})
+
+    motivo = config_incompatible(config, ["alimentacion"])
+
+    assert motivo is not None
+    assert "areas" in motivo
+
+
+def test_un_config_sin_el_area_registrada_es_incompatible() -> None:
+    """Le falta la seccion de un area registrada: el config no vale."""
+    config = Config.model_validate({"areas": {"otro_area": {}}})
+
+    motivo = config_incompatible(config, ["alimentacion"])
+
+    assert motivo is not None
+    assert "alimentacion" in motivo
+
+
+def test_un_config_con_el_area_registrada_sirve() -> None:
+    config = Config.model_validate({"areas": {"alimentacion": {}}})
+
+    assert config_incompatible(config, ["alimentacion"]) is None
+
+
+def test_el_motivo_dice_que_no_se_sustituye() -> None:
+    """El aviso tiene que decir que el config del operario no se toca."""
+    config = Config.model_validate({})
+
+    motivo = config_incompatible(config, ["alimentacion"])
+
+    assert motivo is not None
+    assert "No se sustituye" in motivo
+
+
+def test_las_areas_registradas_faltantes_se_listan() -> None:
+    config = Config.model_validate({"areas": {"alimentacion": {}}})
+
+    assert areas_registradas_faltantes(config, ["alimentacion", "entidades"]) == ["entidades"]
+
+
+def test_el_estado_de_la_config_dice_de_donde_sale() -> None:
+    config = Config.model_validate({"areas": {"alimentacion": {}}})
+    config_en_uso = ConfigEnUso(ruta=Path("C:/app/config/config.json"), origen="usuario")
+
+    estado = estado_config(config, config_en_uso, ["alimentacion"])
+
+    assert estado["ruta"] == str(Path("C:/app/config/config.json"))
+    assert estado["origen"] == "usuario"
+    assert estado["incompatible"] is False
+    assert estado["motivo"] is None

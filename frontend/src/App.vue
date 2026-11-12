@@ -6,6 +6,7 @@
  * area (barra lateral, barra superior, contenido y consola).
  */
 import { computed } from "vue";
+import BannerConfig from "./nucleo/componentes/BannerConfig.vue";
 import Bienvenida from "./nucleo/componentes/Bienvenida.vue";
 import ConsolaLogs from "./nucleo/componentes/ConsolaLogs.vue";
 import ShellSidebar from "./nucleo/componentes/ShellSidebar.vue";
@@ -23,39 +24,43 @@ const itemActivo = computed(() =>
 </script>
 
 <template>
-  <div class="flex h-screen overflow-hidden bg-surface text-ink">
-    <template v-if="!areas.area">
-      <Bienvenida />
-    </template>
+  <div class="flex h-screen flex-col overflow-hidden bg-surface text-ink">
+    <BannerConfig />
 
-    <template v-else>
-      <ShellSidebar />
+    <div class="flex flex-1 min-h-0 overflow-hidden">
+      <template v-if="!areas.area">
+        <Bienvenida />
+      </template>
 
-      <div class="flex flex-1 flex-col min-w-0">
-        <ShellTopbar />
+      <template v-else>
+        <ShellSidebar />
 
-        <main class="flex-1 min-h-0 overflow-y-auto p-5 flex flex-col">
-          <VistaPlc v-if="areas.vista === 'plc'" />
-          <EditorBloques v-else-if="areas.vista === 'block-editor'" />
-          <component :is="areas.componenteVista" v-else-if="areas.componenteVista" />
+        <div class="flex flex-1 flex-col min-w-0">
+          <ShellTopbar />
 
-          <div
-            v-else
-            class="flex-1 flex items-center justify-center bg-surface-raised border border-dashed border-line rounded p-10 text-center text-ink-muted"
-            data-testid="vista-pendiente"
-          >
-            <div>
-              <div class="text-5xl mb-3 opacity-40">{{ itemActivo ? itemActivo.icono : "📄" }}</div>
-              <p class="mb-2 font-semibold text-ink">
-                {{ itemActivo ? itemActivo.etiqueta : "Vista" }}
-              </p>
-              <p class="text-xs">Esta vista todavía no está implementada.</p>
+          <main class="flex-1 min-h-0 overflow-y-auto p-5 flex flex-col">
+            <VistaPlc v-if="areas.vista === 'plc'" />
+            <EditorBloques v-else-if="areas.vista === 'block-editor'" />
+            <component :is="areas.componenteVista" v-else-if="areas.componenteVista" />
+
+            <div
+              v-else
+              class="flex-1 flex items-center justify-center bg-surface-raised border border-dashed border-line rounded p-10 text-center text-ink-muted"
+              data-testid="vista-pendiente"
+            >
+              <div>
+                <div class="text-5xl mb-3 opacity-40">{{ itemActivo ? itemActivo.icono : "📄" }}</div>
+                <p class="mb-2 font-semibold text-ink">
+                  {{ itemActivo ? itemActivo.etiqueta : "Vista" }}
+                </p>
+                <p class="text-xs">Esta vista todavía no está implementada.</p>
+              </div>
             </div>
-          </div>
-        </main>
+          </main>
 
-        <ConsolaLogs />
-      </div>
-    </template>
+          <ConsolaLogs />
+        </div>
+      </template>
+    </div>
   </div>
 </template>

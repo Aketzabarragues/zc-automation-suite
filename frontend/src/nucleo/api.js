@@ -40,6 +40,11 @@ export function estado() {
   return pedir("/api/v1/tia/estado");
 }
 
+/** Estado de la configuracion: de donde sale y si es compatible. */
+export function estadoConfig() {
+  return pedir("/api/v1/config");
+}
+
 /** Encola la busqueda de los PLCs del proyecto abierto. */
 export function buscarPlcs() {
   return pedir("/api/v1/tia/plcs/listar", { method: "POST", headers: CABECERAS });
